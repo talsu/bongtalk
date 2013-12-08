@@ -1,0 +1,20 @@
+/*body {*/
+  /*padding: 50px;*/
+  /*font: 14px "Lucida Grande", Helvetica, Arial, sans-serif;*/
+/*}*/
+
+/*a {*/
+  /*color: #00B7FF;*/
+/*}*/
+
+#chatMessages
+{
+    margin-top:60px;
+    margin-bottom:60px
+}
+
+nav.navbar.navbar-default.navbar-fixed-bottom
+{
+    min-height: 0px
+}
+
