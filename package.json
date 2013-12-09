@@ -1,6 +1,6 @@
 {
-  "name": "BongTalk",
-  "version": "0.0.2",
+  "name": "bongtalk",
+  "version": "0.0.3",
   "private": true,
   "scripts": {
     "start": "node app.js"
@@ -14,6 +14,19 @@
   },
   "main": "app.js",
   "devDependencies": {},
-  "author": "",
-  "license": "BSD-2-Clause"
+  "author": "talsu",
+  "license": "BSD-2-Clause",
+  "description": "BongTalk ========",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/talsu/bongtalk"
+  },
+  "keywords": [
+    "chat",
+    "messenger"
+  ],
+  "bugs": {
+    "url": "https://github.com/talsu/bongtalk/issues"
+  },
+  "homepage": "https://github.com/talsu/bongtalk"
 }
