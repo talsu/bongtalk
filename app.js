@@ -3,20 +3,20 @@
  * Module dependencies.
  */
 
-var argv = require('optimist')
-            .usage('Usage : $0 -port [num]')
-            .default('port', 3000)
-            .argv;
-
-
-var servicePort = argv.port;
-
 var routes = require('./routes');
 var user = require('./routes/user');
 var express = require('express');
 var http = require('http');
 var path = require('path');
 var util = require('util');
+var argv = require('optimist')
+    .usage('Usage : $0 --port [num]')
+    .demand(['port'])
+    .default({port:3000})
+    .argv;
+
+var servicePort = argv.port;
+
 
 var app = express();
 
