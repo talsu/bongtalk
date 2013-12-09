@@ -1,8 +1,8 @@
 {
   "name": "bongtalk",
-  "version": "0.0.4",
+  "version": "0.0.5",
   "scripts": {
-    "start": "node app.js"
+    "start": "node bongtalk.js"
   },
   "dependencies": {
     "express": "~3.4.4",
@@ -14,7 +14,7 @@
   "bin": {
     "bongtalk": "./bin/bongtalk"
   },
-  "main": "app.js",
+  "main": "bongtalk.js",
   "devDependencies": {},
   "author": "talsu",
   "license": "BSD-2-Clause",
