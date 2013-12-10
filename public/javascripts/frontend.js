@@ -176,14 +176,19 @@ $(function () {
         //input.attr('disabled', 'disabled');
     }
 
+    var lastMessageElement = null;
     /**
      * 메세지 라인추가.
      */
     function addMessage(messageObject) {
 
-        if (client.lastMessage && client.lastMessage.user.id === messageObject.user.id){
+        if (lastMessageElement
+            && client.lastMessage
+            && client.lastMessage.user.id === messageObject.user.id
+            && ((messageObject.time - client.lastMessage.time) / 60000) < 1) {
             // append
-            $('#m' + client.lastMessage.id).find('.message_content').append('<div>' + messageObject.message + '</div>');
+            lastMessageElement.find('.message_content').append('<div>' + messageObject.message + '</div>');
+            lastMessageElement.find('time').text(dateTimeToString(new Date(messageObject.time)));
         }
         else {
             // add
@@ -192,6 +197,8 @@ $(function () {
                 : createOthersMessageElement(messageObject.id, messageObject.user.id, messageObject.user.name, messageObject.message, new Date(messageObject.time));
 
             content.append(messageElement);
+
+            lastMessageElement = $('#m' + messageObject.id);
         }
 
         client.lastMessage = messageObject;
@@ -199,7 +206,7 @@ $(function () {
     }
 
     function createMyMessageElement(id, message, dateTime) {
-        return '<div id="m'+ id + '" class="bubble bubble--alt"><div class="message_content">'+ message +'</div>' +
+        return '<div id="m'+ id + '" class="bubble bubble--alt"><div class="message_content"><div>'+ message +'</div></div>' +
             '<time class="sender_time_right">' + dateTimeToString(dateTime) + '</time></div>';
     }
 
@@ -209,7 +216,7 @@ $(function () {
             '<div class="sender_content">' +
             '<span class="sender_name">' + username + '</span>' +
             '<div class="bubble">' +
-            '<div class="message_content">' + message + '</div>' +
+            '<div class="message_content"><div>' + message + '</div></div>' +
             '<time class="sender_time">' + dateTimeToString(dateTime) + '</time>' +
             '</div></div></div>';
     }
