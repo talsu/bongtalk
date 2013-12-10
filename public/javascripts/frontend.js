@@ -66,7 +66,7 @@ $(function () {
         connection.on('sendZoneInfo',function(data){
             //history 로드
             data.history.forEach(function(item){
-                addMessage(item.user.id, item.user.name, item.message, new Date(item.time), '');
+                addMessage(item);
             });
 
             // 사용자 list 초기화
@@ -90,7 +90,7 @@ $(function () {
         });
 
         connection.on('sendMessage', function(data){
-            addMessage(data.user.id, data.user.name, data.message, new Date(data.time), '');
+            addMessage(data);
         });
 
         connection.on('changeName', function(data){
@@ -179,13 +179,48 @@ $(function () {
     /**
      * 메세지 라인추가.
      */
-    function addMessage(id, author, message, dt, textStyle) {
-        content.append('<p id="messageId:'+ id +'"><span>' + author + '</span> @ ' +
-                        (dt.getHours() < 10 ? '0' + dt.getHours() : dt.getHours()) + ':' +
-                        (dt.getMinutes() < 10 ? '0' + dt.getMinutes() : dt.getMinutes()) +
-                        ': <span style="' + textStyle + '">' + message + '</span></p>');
+    function addMessage(messageObject) {
+
+        if (client.lastMessage && client.lastMessage.user.id === messageObject.user.id){
+            // append
+            $('#m' + client.lastMessage.id).find('.message_content').append('<div>' + messageObject.message + '</div>');
+        }
+        else {
+            // add
+            var messageElement = (messageObject.user.id === client.me.id)
+                ? createMyMessageElement(messageObject.id, messageObject.message, new Date(messageObject.time))
+                : createOthersMessageElement(messageObject.id, messageObject.user.id, messageObject.user.name, messageObject.message, new Date(messageObject.time));
+
+            content.append(messageElement);
+        }
+
+        client.lastMessage = messageObject;
         scrollEnd();
     }
+
+    function createMyMessageElement(id, message, dateTime) {
+        return '<div id="m'+ id + '" class="bubble bubble--alt"><div class="message_content">'+ message +'</div>' +
+            '<time class="sender_time_right">' + dateTimeToString(dateTime) + '</time></div>';
+    }
+
+    function createOthersMessageElement(id, userId, username, message, dateTime) {
+        return '<div id="m'+ id +'" class="sender '+ userId +'">' +
+            '<img class="sender_img" src="image/avatar-blank.jpg" />' +
+            '<div class="sender_content">' +
+            '<span class="sender_name">' + username + '</span>' +
+            '<div class="bubble">' +
+            '<div class="message_content">' + message + '</div>' +
+            '<time class="sender_time">' + dateTimeToString(dateTime) + '</time>' +
+            '</div></div></div>';
+    }
+
+    function dateTimeToString(dateTime)
+    {
+        return (dateTime.getHours() < 10 ? '0' + dateTime.getHours() : dateTime.getHours())
+            + ':' +
+        (dateTime.getMinutes() < 10 ? '0' + dateTime.getMinutes() : dateTime.getMinutes());
+    }
+
 
     /**
      * 스크롤 끝으로 옮김.

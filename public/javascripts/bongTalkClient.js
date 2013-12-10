@@ -22,6 +22,7 @@ var TalkClient = (function () {
         this.zoneId = null;
         this.me = new TalkUser(null, null);
         this.others = [];
+        this.lastMessage = null;
     }
 
     TalkClient.prototype.getUser = function(userId) {
