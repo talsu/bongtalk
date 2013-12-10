@@ -30,16 +30,16 @@ $(function () {
             'max reconnection attempts' : Infinity
         });
 
-        connection.on('connect', function() {writeSystemMessage('연결됨', 'success');});
-        connection.on('connecting', function () {writeSystemMessage('연결중...', 'warning');});
-        connection.on('connect_failed', function () {writeSystemMessage('연결실패', 'error');});
+        connection.on('connect', function() {writeSystemMessage('Connected', 'success');});
+        connection.on('connecting', function () {writeSystemMessage('Connecting...', 'warning');});
+        connection.on('connect_failed', function () {writeSystemMessage('Connect fail', 'error');});
 
-        connection.on('disconnect', function(){writeSystemMessage('연결 해제됨.', 'warning'); onDisconnect(); });
-        connection.on('error', function () {writeSystemMessage('에러발생', 'error');});
+        connection.on('disconnect', function(){writeSystemMessage('Disconnected', 'warning'); onDisconnect(); });
+        connection.on('error', function () {writeSystemMessage('Error', 'error');});
 
-        connection.on('reconnect', function () {writeSystemMessage('다시 연결됨', 'success'); reconnected = true; });
-        connection.on('reconnecting', function () {writeSystemMessage('다시 연결 시도중...', 'warning');});
-        connection.on('reconnect_failed', function () {writeSystemMessage('다시 연결 실패', 'error');});
+        connection.on('reconnect', function () {writeSystemMessage('Reconnected', 'success'); reconnected = true; });
+        connection.on('reconnecting', function () {writeSystemMessage('Reconnecting...', 'warning');});
+        connection.on('reconnect_failed', function () {writeSystemMessage('Reconnect fail', 'error');});
 
         connection.on('sendProfile', function(data){
             //server 부터 받은 profile
@@ -59,7 +59,7 @@ $(function () {
 
         connection.on('newUser', function(data){
             if (client.addUser(new TalkUser(data.id, data.name))){
-                writeSystemMessage(data.name + '님이 대화에 참여함.', 'info');
+                writeSystemMessage(data.name + ' joined.', 'info');
             }
         });
 
@@ -74,12 +74,12 @@ $(function () {
                 client.addUser(new TalkUser(item.id, item.name));
             });
 
-            writeSystemMessage('대화가 시작 되었습니다.', 'info');
+            writeSystemMessage('Join success.', 'info');
 
             if (client.getOtherUserNames().length > 0)
             {
                 var otherNames =  client.getOtherUserNames().reduce(function(x, y){ return x + ", " + y;});
-                writeSystemMessage('접속 중인 사용자 : ' + otherNames, 'info');
+                writeSystemMessage('Connected users : ' + otherNames, 'info');
             }
 
             input.removeAttr('disabled');
@@ -97,7 +97,7 @@ $(function () {
             var targetUser = client.getUser(data.id);
             if (targetUser)
             {
-                writeSystemMessage(targetUser.name + ' 님이 대화명 변경 -> ' + data.name, 'info');
+                writeSystemMessage(targetUser.name + ' changed name → ' + data.name, 'info');
                 targetUser.name = data.name;
             }
         });
@@ -106,7 +106,7 @@ $(function () {
             var removedUser = client.removeUser(data.id);
             if (removedUser)
             {
-                writeSystemMessage(removedUser.name + '님이 대화를 종료함.', 'info');
+                writeSystemMessage(removedUser.name + ' out.', 'info');
             }
         });
     }

@@ -43,16 +43,12 @@ exports.BongTalk = (function () {
         var io = require('socket.io').listen(server);
 
         server.listen(app.get('port'), function () {
-            util.log('Express server listening on port ' + app.get('port'));
+            util.log('Server listening on port ' + app.get('port'));
         });
 
         var models = require('./models');
         var User = models.User;
         var Zones = models.Zones;
-
-        /**
-         * Global variables
-         */
         var zones = new Zones();
 
         io.sockets.on('connection', function (socket) {
