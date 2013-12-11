@@ -206,12 +206,13 @@ $(function () {
     }
 
     function createMyMessageElement(id, message, dateTime) {
-        return '<div id="m'+ id + '" class="bubble bubble--alt"><div class="message_content"><div>'+ message +'</div></div>' +
-            '<time class="sender_time_right">' + dateTimeToString(dateTime) + '</time></div>';
+        return '<div id="m'+ id +'" class="sender sender--alt">' +
+            '<div class="bubble bubble--alt"><div class="message_content"><div>'+ message +'</div></div>' +
+            '<time class="sender_time sender_time--alt">' + dateTimeToString(dateTime) + '</time></div></div>';
     }
 
     function createOthersMessageElement(id, userId, username, message, dateTime) {
-        return '<div id="m'+ id +'" class="sender '+ userId +'">' +
+        return '<div id="m'+ id +'" class="sender userId'+ userId +'">' +
             '<img class="sender_img" src="image/avatar-blank.jpg" />' +
             '<div class="sender_content">' +
             '<span class="sender_name">' + username + '</span>' +
