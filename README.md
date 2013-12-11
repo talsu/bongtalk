@@ -3,6 +3,8 @@ BongTalk
 
 node.js web chat server.
 
+sample service is running at http://bongtalk.herokuapp.com
+
 ## Installation
 
 ```bash
