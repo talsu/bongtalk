@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 
-var argv = require('optimist')
-    .usage('Usage : $0 --port [num]')
-    .demand(['port'])
-    .argv;
+var port = null;
 
+if (process.env.PORT)
+{
+    port = process.env.PORT;
+}
+else
+{
+    var port = require('optimist')
+        .usage('Usage : $0 --port [num]')
+        .demand(['port'])
+        .argv.port;
+}
 
 var BongTalk = require('../').BongTalk;
-var talkServer = new BongTalk(argv.port);
+var talkServer = new BongTalk(port);
 talkServer.start();
 
