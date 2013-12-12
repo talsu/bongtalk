@@ -3,7 +3,6 @@
 var argv = require('optimist')
     .usage('Usage : $0 --port [num]')
     .demand(['port'])
-    .default({port:80})
     .argv;
 
 
