@@ -129,3 +129,22 @@ exports.Zones = (function () {
 
     return Zones;
 })();
+
+exports.RedisZones = (function(){
+    function RedisZones(redisClient){
+        this.redisClient = redisClient;
+    };
+
+    RedisZones.prototype.getZone = function (id) {
+
+        if (this.zones[id] === undefined) {
+            console.log('create zone id : ' + id);
+            this.zones[id] = new Zone(id);
+        }
+
+        return this.zones[id];
+    };
+
+    return RedisZones;
+
+})();

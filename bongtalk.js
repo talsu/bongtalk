@@ -20,6 +20,7 @@ exports.BongTalk = (function () {
         this.sessionStore = new RedisStore({client:this.createRedisClient()});
         this.pub = this.createRedisClient();
         this.sub = this.createRedisClient();
+        this.redisClient = this.createRedisClient();
     }
 
     BongTalk.prototype.start = function (){
@@ -55,7 +56,6 @@ exports.BongTalk = (function () {
 
         var io = require('socket.io').listen(server);
 
-
         var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
 
         server.listen(app.get('port'), function () {
@@ -66,6 +66,8 @@ exports.BongTalk = (function () {
         var User = models.User;
         var Zones = models.Zones;
         var zones = new Zones();
+
+
 
 //        io.sockets.on('connection', function (socket) {
         sessionSockets.on('connection', function(err, socket, session){
