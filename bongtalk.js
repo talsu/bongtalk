@@ -17,16 +17,16 @@ var SessionSockets = require('session.socket.io');
 exports.BongTalk = (function () {
     function BongTalk(servicePort) {
         this.servicePort = servicePort;
-        this.redisClient = null;
-        this.sessionStore = null;
+        this.sessionStore = new RedisStore({client:this.createRedisClient()});
+        this.pub = this.createRedisClient();
+        this.sub = this.createRedisClient();
     }
 
     BongTalk.prototype.start = function (){
-        this.setRedis();
+
+        var cookieParser = express.cookieParser('your secret here');
 
         var app = express();
-
-// all environments
         app.set('port', process.env.PORT || this.servicePort);
         app.set('views', path.join(__dirname, 'views'));
         app.set('view engine', 'jade');
@@ -35,15 +35,11 @@ exports.BongTalk = (function () {
         app.use(express.json());
         app.use(express.urlencoded());
         app.use(express.methodOverride());
-        app.use(app.router);
         app.use(express.static(path.join(__dirname, 'public')));
-        if (this.sessionStore){
-            app.use(express.session({store: this.sessionStore, key: 'jsessionid', secret: 'your secret here'}));
-        }
-
-
-        var cookieParser = express.cookieParser('your secret here');
         app.use(cookieParser);
+        app.use(express.session({store: this.sessionStore, key: 'jsessionid', secret: 'your secret here'}));
+        app.use(app.router);
+
 // development only
         if ('development' === app.get('env')) {
             app.use(express.errorHandler());
@@ -74,11 +70,10 @@ exports.BongTalk = (function () {
 //        io.sockets.on('connection', function (socket) {
         sessionSockets.on('connection', function(err, socket, session){
 
-            util.log(util.inspect(err));
-            util.log(util.inspect(session));
-
+//            util.log(util.inspect(err));
+//            util.log(util.inspect(session));
             //create user
-            var user = new User(socket, socket.id);
+            var user = new User(socket, socket.id, session);
 
             //sendProfile
             socket.emit('sendProfile', user.getSimpleUser());
@@ -106,32 +101,15 @@ exports.BongTalk = (function () {
         });
     };
 
-    BongTalk.prototype.setRedis = function(){
-        try
-        {
-            if (process.env.REDISTOGO_URL) {
-                // TODO: redistogo connection
-                // inside if statement
-                var rtg   = require("url").parse(process.env.REDISTOGO_URL);
-                this.redisClient = redis.createClient(rtg.port, rtg.hostname);
+    BongTalk.prototype.createRedisClient = function(){
+        var redisUrl = process.env.REDISTOGO_URL || 'redis://redistogo:40fcc23419a7cbcb0de7a0da111bda7b@albacore.redistogo.com:9125/';
+        var rtg   = require("url").parse(redisUrl);
+        var redisClient = redis.createClient(rtg.port, rtg.hostname);
+        redisClient.auth(rtg.auth.split(":")[1]);
 
-                this.redisClient.auth(rtg.auth.split(":")[1]);
-            } else {
-//            this.redisClient = redis.createClient();
-                var rtg   = require("url").parse('redis://redistogo:40fcc23419a7cbcb0de7a0da111bda7b@albacore.redistogo.com:9125/');
-                this.redisClient = redis.createClient(rtg.port, rtg.hostname);
-
-                this.redisClient.auth(rtg.auth.split(":")[1]);
-            }
-
-
-            this.sessionStore = new RedisStore({client:this.redisClient});
-        }
-        catch (ex){
-
-        }
-
+        return redisClient;
     };
+
 
     return BongTalk;
 })();

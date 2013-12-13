@@ -6,11 +6,12 @@
 var Guid = require('guid');
 
 exports.User = (function () {
-    function User(webSocketConnection, username) {
+    function User(webSocketConnection, username, session) {
         this.connection = webSocketConnection;
         this.id = Guid.create().value;
         this.name = username;
         this.currentZone = null;
+        this.session = session;
     }
 
     User.prototype.sendEvent = function (eventName, data) {
