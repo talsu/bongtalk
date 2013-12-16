@@ -17,4 +17,6 @@ else
 var BongTalk = require('../').BongTalk;
 var talkServer = new BongTalk(port);
 talkServer.start();
+var talkServer2 = new BongTalk(1234);
+talkServer2.start();
 
