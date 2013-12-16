@@ -18,8 +18,9 @@ var RedisStore = require('connect-redis')(express);
 var SessionSockets = require('session.socket.io');
 
 exports.BongTalk = (function () {
-    function BongTalk(servicePort) {
+    function BongTalk(servicePort, redisUrl) {
         this.servicePort = servicePort;
+        this.redisUrl = redisUrl;
         this.sessionStore = new RedisStore({client:this.createRedisClient()});
         this.pub = this.createRedisClient();
         this.sub = this.createRedisClient();
@@ -147,12 +148,18 @@ exports.BongTalk = (function () {
     };
 
     BongTalk.prototype.createRedisClient = function(){
-        var redisUrl = process.env.REDISTOGO_URL || 'redis://redistogo:40fcc23419a7cbcb0de7a0da111bda7b@albacore.redistogo.com:9125/';
-        var rtg   = require("url").parse(redisUrl);
-        var redisClient = redis.createClient(rtg.port, rtg.hostname);
-        redisClient.auth(rtg.auth.split(":")[1]);
 
-        return redisClient;
+        if (this.redisUrl){
+            var rtg   = require("url").parse(this.redisUrl);
+            var redisClient = redis.createClient(rtg.port, rtg.hostname);
+            var authString = rtg.auth.split(":")[1];
+            redisClient.auth(authString);
+
+            return redisClient;
+        }
+        else{
+            return redis.createClient();
+        }
     };
 
     BongTalk.prototype.publishEventToZone = function(zoneId, eventName, message){

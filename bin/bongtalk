@@ -1,22 +1,20 @@
 #!/usr/bin/env node
 
-var port = null;
+var command = require('optimist')
+    .usage('Usage : $0 --port [num] --redisurl [url]')
+    .alias('p', 'port')
+    .describe('p', 'listen port')
+    .alias('r', 'redisurl')
+    .describe('r', 'redis url');
 
-if (process.env.PORT)
-{
-    port = process.env.PORT;
+if (!process.env.PORT) {
+    command = command.demand(['port'])
 }
-else
-{
-    var port = require('optimist')
-        .usage('Usage : $0 --port [num]')
-        .demand(['port'])
-        .argv.port;
-}
+
+var port = process.env.PORT || command.argv.port;
+var redisUrl = process.env.REDISTOGO_URL || command.argv.redisurl;
 
 var BongTalk = require('../').BongTalk;
-var talkServer = new BongTalk(port);
+var talkServer = new BongTalk(port, redisUrl);
 talkServer.start();
-//var talkServer2 = new BongTalk(1234);
-//talkServer2.start();
 
