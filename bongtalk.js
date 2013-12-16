@@ -78,7 +78,7 @@ exports.BongTalk = (function () {
 //        io.sockets.on('connection', function (socket) {
         sessionSockets.on('connection', function(err, socket, session){
             var thisUser = new Object({
-                id:session.userId ? session.userId : Guid.create().value,
+                id: (session.hasOwnProperty('userId') ? session.userId : Guid.create().value),
                 socket:socket,
                 session:session
             });
