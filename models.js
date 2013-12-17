@@ -323,5 +323,28 @@ exports.RedisZones = (function(){
         }
     };
 
+    RedisZones.prototype.jadeGetZones = function(){
+        var result = [];
+        for (var zoneKey in this.zones){
+            result.push({id:zoneKey});
+        }
+        return result;
+    };
+
+    RedisZones.prototype.jadeGetUsers = function(zoneId){
+        var result = [];
+        var index = 0;
+        if (this.zones.hasOwnProperty(zoneId)){
+            for (var userKey in this.zones[zoneId].users){
+                var user = this.zones[zoneId].users[userKey];
+                user.connectedThisInstance = this.userSockets.hasOwnProperty(userKey);
+                user.index = index;
+                index++;
+                result.push(user);
+            }
+        }
+        return result;
+    };
+
     return RedisZones;
 })();

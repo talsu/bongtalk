@@ -32,6 +32,7 @@ exports.BongTalk = (function () {
 
     BongTalk.prototype.start = function (){
 
+        var _this = this;
         var cookieParser = express.cookieParser('your secret here');
 
         var app = express();
@@ -54,10 +55,7 @@ exports.BongTalk = (function () {
         }
 
         app.get('/', routes.index);
-        app.get('/users', user.list);
-        app.get('/getCookie', function(req, res){
-           res.send(req.cookies);
-        });
+        app.get('/status', function(req, res){res.render('status', { bongtalk: _this });});
 
         var server = http.createServer(app);
 
@@ -227,6 +225,9 @@ exports.BongTalk = (function () {
         });
     };
 
+    BongTalk.prototype.showStatus = function(req, res){
+        res.render('status', { bongtalk: _this.servicePort.toString() });
+    };
     return BongTalk;
 })();
 
