@@ -21,6 +21,7 @@ exports.BongTalk = (function () {
     function BongTalk(servicePort, redisUrl) {
         this.servicePort = servicePort;
         this.redisUrl = redisUrl;
+
         this.sessionStore = new RedisStore({client:this.createRedisClient()});
         this.pub = this.createRedisClient();
         this.sub = this.createRedisClient();
@@ -77,7 +78,7 @@ exports.BongTalk = (function () {
 //        io.sockets.on('connection', function (socket) {
         sessionSockets.on('connection', function(err, socket, session){
             var thisUser = new Object({
-                id: (session.hasOwnProperty('userId') ? session.userId : Guid.create().value),
+                id: ((session && session.hasOwnProperty('userId')) ? session.userId : Guid.create().value),
                 socket:socket,
                 session:session
             });
@@ -146,12 +147,18 @@ exports.BongTalk = (function () {
     };
 
     BongTalk.prototype.createRedisClient = function(){
-
         if (this.redisUrl){
             var rtg   = require("url").parse(this.redisUrl);
-            var redisClient = redis.createClient(rtg.port, rtg.hostname);
-            var authString = rtg.auth.split(":")[1];
-            redisClient.auth(authString);
+            var redisClient = redis.createClient(rtg.port || 6379, rtg.hostname);
+            if (rtg.auth)
+            {
+                var authString = rtg.auth;
+                if (authString.indexOf(':') !== -1) {
+                    authString = authString.split(":")[1];
+                }
+
+                redisClient.auth(authString);
+            }
 
             return redisClient;
         }
@@ -225,9 +232,6 @@ exports.BongTalk = (function () {
         });
     };
 
-    BongTalk.prototype.showStatus = function(req, res){
-        res.render('status', { bongtalk: _this.servicePort.toString() });
-    };
     return BongTalk;
 })();
 

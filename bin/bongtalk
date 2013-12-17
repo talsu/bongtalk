@@ -12,7 +12,9 @@ if (!process.env.PORT) {
 }
 
 var port = process.env.PORT || command.argv.port;
-var redisUrl = process.env.REDISTOGO_URL || command.argv.redisurl;
+//var redisUrl = process.env.REDISTOGO_URL || command.argv.redisurl;
+//var redisUrl = process.env.REDISCLOUD_URL || command.argv.redisurl;
+var redisUrl =  command.argv.redisurl || 'redis://talsu.net/';
 
 var BongTalk = require('../').BongTalk;
 var talkServer = new BongTalk(port, redisUrl);
