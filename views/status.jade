@@ -33,13 +33,14 @@ head
             .row.clearfix
                 .col-md-12.column
                     h2 Information
-                    p Service port : #{bongtalk.servicePort.toString()}
-                    p Redis DB url : #{bongtalk.redisUrl}
-            for zone in bongtalk.redisZones.jadeGetZones()
+                    p instance id : #{binder.bongtalk.id}
+                    p Service port : #{binder.bongtalk.servicePort.toString()}
+                    p Redis DB url : #{binder.bongtalk.redisUrl}
+            for zone in binder.getZones()
                 .row.clearfix
                     .col-md-12.column
                         h2 Zone - #{zone.id}
-                        for user in bongtalk.redisZones.jadeGetUsers(zone.id)
+                        for user in binder.getUsers(zone.id)
                             .row.clearfix
                                 .col-md-12.column
                                     h3 #{user.name}

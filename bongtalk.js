@@ -13,32 +13,35 @@ var redis = require("redis");
 var Guid = require('guid');
 var models = require('./models');
 var RedisZones = models.RedisZones;
+var JadeDataBinder = models.JadeDataBinder;
 
 var RedisStore = require('connect-redis')(express);
+var Sockets = require('socket.io');
 var SessionSockets = require('session.socket.io');
 
 exports.BongTalk = (function () {
     function BongTalk(servicePort, redisUrl) {
+        this.id = Guid.create().value;
         this.servicePort = servicePort;
         this.redisUrl = redisUrl;
-
-        this.sessionStore = new RedisStore({client:this.createRedisClient()});
-        this.pub = this.createRedisClient();
-        this.sub = this.createRedisClient();
-        this.redisClient = this.createRedisClient();
+        this.sessionStore = new RedisStore({client:this.createRedisClient(this.redisUrl)});
+        this.pub = this.createRedisClient(this.redisUrl);
+        this.sub = this.createRedisClient(this.redisUrl);
+        this.redisClient = this.createRedisClient(this.redisUrl)
 
         this.redisZones = new RedisZones(this.redisClient);
-        this.subscribeRedis();
     }
 
     BongTalk.prototype.start = function (){
-
         var _this = this;
+
+        this.subscribeRedis();
+
         var cookieParser = express.cookieParser('your secret here');
 
         var app = express();
-        app.set('port', process.env.PORT || this.servicePort);
-        app.set('views', path.join(__dirname, 'views'));
+        app.set('port', process.env.PORT || this.servicePort); //포트설정
+        app.set('views', path.join(__dirname, 'views')); //
         app.set('view engine', 'jade');
         app.use(express.favicon());
         app.use(express.logger('dev'));
@@ -50,32 +53,24 @@ exports.BongTalk = (function () {
         app.use(express.session({store: this.sessionStore, key: 'jsessionid', secret: 'your secret here'}));
         app.use(app.router);
 
-// development only
+        // development only
         if ('development' === app.get('env')) {
             app.use(express.errorHandler());
         }
 
         app.get('/', routes.index);
-        app.get('/status', function(req, res){res.render('status', { bongtalk: _this });});
+        app.get('/status', function(req, res){res.render('status', { binder: new JadeDataBinder(_this) });});
 
         var server = http.createServer(app);
-
-        var io = require('socket.io').listen(server);
-        // reduce logging
-        io.set('log level', 1);
-
-        var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
-
         server.listen(app.get('port'), function () {
             util.log('Server listening on port ' + app.get('port'));
         });
 
-        var User = models.User;
-        var Zones = models.Zones;
-        var zones = new Zones();
-        var redisZones = this.redisZones;
-        var pub = this.pub;
-//        io.sockets.on('connection', function (socket) {
+        var io = Sockets.listen(server);
+        io.set('log level', 2); // 0 - error  1 - warn  2 - info  3 - debug
+
+        var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
+
         sessionSockets.on('connection', function(err, socket, session){
             var thisUser = new Object({
                 id: ((session && session.hasOwnProperty('userId')) ? session.userId : Guid.create().value),
@@ -84,9 +79,9 @@ exports.BongTalk = (function () {
             });
 
             util.log("user '" + thisUser.id + "' connected");
-            redisZones.addUserSocket(thisUser.id, socket);
-            redisZones.getOrCreateUser(thisUser.id, function (err, user){
-                redisZones.addUser(user);
+            _this.redisZones.addUserSocket(thisUser.id, socket);
+            _this.redisZones.getOrCreateUser(thisUser.id, function (err, user){
+                _this.redisZones.addUser(user);
                 util.log('sendProfile : ' + util.inspect(user));
 
                 socket.emit('sendProfile', user);
@@ -94,11 +89,11 @@ exports.BongTalk = (function () {
 
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
-                redisZones.joinZone(data.zoneId, data.user.id, data.user.name, function(){
+                _this.redisZones.joinZone(data.zoneId, data.user.id, data.user.name, function(){
                     if (!err){
                         thisUser.currentZoneId = data.zoneId;
                         thisUser.name = data.user.name;
-                        pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: data.zoneId, userId : data.user.id}));
+                        _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: data.zoneId, userId : data.user.id}));
                     }
                 });
             });
@@ -117,38 +112,35 @@ exports.BongTalk = (function () {
                         name: thisUser.name
                     }
                 };
-
-                pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'sendMessage', message : talk}));
+                _this.publishEventToZone(thisUser.currentZoneId, 'sendMessage', talk);
+//                _this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'sendMessage', message : talk}));
             });
 
             socket.on('changeName', function(name){
-                redisZones.setUserField(thisUser.id, 'name', name, function(err, result){
+                _this.redisZones.setUserField(thisUser.id, 'name', name, function(err, result){
                     if (!err){
                         thisUser.name = name
                         var message = {id:thisUser.id, name:thisUser.name};
-                        pub.publish('bongtalk:changeName', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'changeName', message : message}));
+                        _this.pub.publish('bongtalk:changeName', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'changeName', message : message}));
                     }
                 });
             });
 
             socket.on('disconnect', function(){
-                redisZones.leaveZone(thisUser.id, function(err, leavedZoneId){
+                _this.redisZones.leaveZone(thisUser.id, function(err, leavedZoneId){
                     if (!err){
-                        pub.publish('bongtalk:removeUser', JSON.stringify( {zoneId: leavedZoneId, userId : thisUser.id}));
+                        _this.pub.publish('bongtalk:removeUser', JSON.stringify( {zoneId: leavedZoneId, userId : thisUser.id}));
                     }
                 });
 
-                redisZones.removeUserSocket(thisUser.id);
+                _this.redisZones.removeUserSocket(thisUser.id);
             });
         });
-
-        // subscribeRedis
-
     };
 
-    BongTalk.prototype.createRedisClient = function(){
-        if (this.redisUrl){
-            var rtg   = require("url").parse(this.redisUrl);
+    BongTalk.prototype.createRedisClient = function(redisUrl){
+        if (redisUrl){
+            var rtg   = require("url").parse(redisUrl);
             var redisClient = redis.createClient(rtg.port || 6379, rtg.hostname);
             if (rtg.auth)
             {
@@ -168,7 +160,7 @@ exports.BongTalk = (function () {
     };
 
     BongTalk.prototype.publishEventToZone = function(zoneId, eventName, message){
-        this.pub.publish('bongtalk:eventToZone', {zoneId: zoneId, eventName : eventName, message : message});
+        this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: zoneId, eventName : eventName, message : message}));
     };
 
     BongTalk.prototype.publishEventToUser = function(zoneId, userId, eventName, message){
@@ -176,17 +168,13 @@ exports.BongTalk = (function () {
     };
 
     BongTalk.prototype.subscribeRedis = function(){
-
         var _this = this;
-//        this.sub.psubscribe('bongtalk:*');
+
         this.sub.subscribe('bongtalk:eventToZone');
         this.sub.subscribe('bongtalk:eventToUser');
         this.sub.subscribe('bongtalk:addUser');
         this.sub.subscribe('bongtalk:removeUser');
         this.sub.subscribe('bongtalk:changeName');
-
-
-        var redisZones = this.redisZones;
 
         this.sub.on('message', function (channel, event){
             var eventObj = null;
@@ -197,21 +185,21 @@ exports.BongTalk = (function () {
             switch (channel)
             {
                 case "bongtalk:eventToZone" :
-                    redisZones.eventToZone(eventObj);
+                    _this.redisZones.eventToZone(eventObj);
                     break;
                 case "bongtalk:eventToUser" :
-                    redisZones.eventToUser(eventObj);
+                    _this.redisZones.eventToUser(eventObj);
                     break;
                 case "bongtalk:addUser" :
-                    if (eventObj.zoneId && eventObj.userId && (redisZones.zones[eventObj.zoneId] || redisZones.notJoinedUsers[eventObj.userId])){
-                        redisZones.getOrCreateUser(eventObj.userId, function(err, user){
+                    if (eventObj.zoneId && eventObj.userId && (_this.redisZones.zones[eventObj.zoneId] || _this.redisZones.notJoinedUsers[eventObj.userId])){
+                        _this.redisZones.getOrCreateUser(eventObj.userId, function(err, user){
                             if (!err){
                                 //for exists User
-                                redisZones.addUser(user);
+                                _this.redisZones.addUser(user);
                                 //for new User
-                                for (var userKey in redisZones.zones[user.currentZoneId].users){
-                                    if (userKey !== user.id && redisZones.userSockets.hasOwnProperty(userKey)){
-                                        var targetUser = redisZones.zones[user.currentZoneId].users[userKey];
+                                for (var userKey in _this.redisZones.zones[user.currentZoneId].users){
+                                    if (userKey !== user.id && _this.redisZones.userSockets.hasOwnProperty(userKey)){
+                                        var targetUser = _this.redisZones.zones[user.currentZoneId].users[userKey];
                                         _this.publishEventToUser(user.currentZoneId, user.id, 'newUser', targetUser);
                                     }
                                 }
@@ -220,13 +208,13 @@ exports.BongTalk = (function () {
                     }
                     break;
                 case "bongtalk:removeUser" :
-                    if (eventObj.zoneId && eventObj.userId && (redisZones.zones[eventObj.zoneId] || redisZones.notJoinedUsers[eventObj.userId])){
-                        redisZones.removeUser(eventObj.zoneId, eventObj.userId);
+                    if (eventObj.zoneId && eventObj.userId && (_this.redisZones.zones[eventObj.zoneId] || _this.redisZones.notJoinedUsers[eventObj.userId])){
+                        _this.redisZones.removeUser(eventObj.zoneId, eventObj.userId);
                     }
                     break;
                 case "bongtalk:changeName" :
-                    redisZones.changeName(eventObj.zoneId, eventObj.message.id, eventObj.message.name);
-                    redisZones.eventToZone(eventObj);
+                    _this.redisZones.changeName(eventObj.zoneId, eventObj.message.id, eventObj.message.name);
+                    _this.redisZones.eventToZone(eventObj);
                     break;
             }
         });

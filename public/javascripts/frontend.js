@@ -37,7 +37,7 @@ $(function () {
         connection.on('disconnect', function(){writeSystemMessage('Disconnected', 'warning'); onDisconnect(); });
         connection.on('error', function () {writeSystemMessage('Error', 'error');});
 
-        connection.on('reconnect', function () {writeSystemMessage('Reconnected', 'success'); reconnected = true; });
+        connection.on('reconnect', function () {writeSystemMessage('Reconnected', 'success'); reconnected = true; input.removeAttr('disabled'); input.focus();});
         connection.on('reconnecting', function () {writeSystemMessage('Reconnecting...', 'warning');});
         connection.on('reconnect_failed', function () {writeSystemMessage('Reconnect fail', 'error');});
 
