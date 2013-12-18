@@ -7,162 +7,84 @@ var util = require('util');
 
 exports.RedisZones = (function(){
     function RedisZones(redisClient){
-        this.redisClient = redisClient;
-        this.zones = new Object();
-        this.notJoinedUsers = new Object();
-        this.userSockets = new Object();
+//        this.zones = new Object();
+//        this.notJoinedUsers = new Object();
+//        this.userSockets = new Object();
+        this.database = new exports.RedisDatabase(redisClient);
     };
 
-    RedisZones.prototype.addUserSocket = function (userId, socket) {
-        this.userSockets[userId] = socket;
-    };
+//    RedisZones.prototype.addUserSocket = function (userId, socket) {
+//        if (!this.userSockets.hasOwnProperty(userId)){
+//            this.userSockets[userId] = new Object({sockets:[]});
+//        }
+//        this.userSockets[userId].sockets.push(socket);
+//    };
 
-    RedisZones.prototype.removeUserSocket = function(userId) {
-        if (this.userSockets.hasOwnProperty(userId)){
-            delete this.userSockets[userId];
-        }
-    };
-
-    RedisZones.prototype.setUserField = function (userId, field, value, callback) {
-        var redisClient = this.redisClient;
-        var key = "UserHash:" + userId;
-        redisClient.hset(key, field, value, callback);
-    };
+//    RedisZones.prototype.removeUserSocket = function(userId) {
+//        if (this.userSockets.hasOwnProperty(userId)){
+//            delete this.userSockets[userId];
+//        }
+//    };
 
     RedisZones.prototype.getZone = function (id, callback) {
-        var redisClient = this.redisClient;
-        var key = "ZoneHash:" + id;
-        redisClient.exists(key, function (err, isExists){
-            if (err) {
-                callback(err, null);
-            }
-
-            if (isExists) {
-                redisClient.hgetall(key, function (err, hash){
-                    callback(err, hash);
-                });
-            }
-            else {
-                redisClient.hmset(key, "totalMessageCount", 0, function(err, result){
-                   callback(err, result);
-                });
-            }
-        });
+        this.database.getOrCreateZone(id, callback);
     };
 
     RedisZones.prototype.joinZone = function (zoneId, userId, userName, callback) {
-        var redisClient = this.redisClient;
-        var key = "UserHash:" + userId;
-        redisClient.hmset(key, 'currentZoneId', zoneId, 'name', userName, function (err, result){
-            callback(err, result);
+        var _database = this.database;
+        _database.getOrCreateZone(zoneId, function(err, zone){
+            if (err){
+                callback(err, null);
+            }
+            else{
+                _database.addUserToZone(zoneId, userId, userName, callback);
+            }
         });
     };
 
-    RedisZones.prototype.leaveZone = function (userId, callback) {
-        var redisClient = this.redisClient;
-        var key = "UserHash:" + userId;
-        redisClient.hget(key, 'currentZoneId', function(err, currentZoneId){
-            if (err) {
-                callback(err, null);
-            }
-
-            redisClient.hdel(key, 'currentZoneId', function (err, result){
-                if (err) {
-                    callback(err, null);
-                }
-                else {
-                    callback(err, currentZoneId);
-                }
-            });
-        });
-
+    RedisZones.prototype.leaveZone = function (zoneId, userId, callback) {
+        this.database.removeUserFromZone(zoneId, userId, callback);
     };
 
     RedisZones.prototype.getOrCreateUser = function (id, callback) {
-        var redisClient = this.redisClient;
-        var key = "UserHash:" + id;
-        redisClient.exists(key, function (err, isExists){
-            if (err) {
-                callback(err, null);
-            }
-
-            if (isExists) {
-                redisClient.hgetall(key, function (err, hash){
-                    if (!err) {
-                        hash['id'] = id;
-                    }
-
-                    callback(err, hash);
-                });
-            }
-            else {
-                // initial User
-                redisClient.hmset(key, "createTime", (new Date()).getTime(), function(err, result){
-                    if (err) {
-                        callback(err, result);
-                    }
-                    else{
-                        redisClient.hgetall(key, function (err, hash){
-                            if (!err) {
-                                hash['id'] = id;
-                            }
-
-                            callback(err, hash);
-                        });
-                    }
-                });
-            }
-        });
+        this.database.getOrCreateUser(id, callback);
     };
 
-    RedisZones.prototype.addUser = function (user) {
-        if (user.currentZoneId){
-            if (!this.zones.hasOwnProperty(user.currentZoneId)){
-                this.zones[user.currentZoneId] = new Object({users : new Object()});
-            }
-            if (this.notJoinedUsers[user.id]){
-                delete this.notJoinedUsers[user.id];
-            }
+//    RedisZones.prototype.addUser = function (zoneId, userId) {
+//        this.database.getUserName(zoneId, userId, function(err, userName){
+//            for (var userKey in this.zones[zoneId].users){
+//                if (this.userSockets.hasOwnProperty(userId)){
+//                    if (userId !== user.id){
+//                        // for exsists user
+//                        this.userSockets[userId].emit('newUser', user);
+//                    }
+//                }
+//            }
+//        });
+//    };
+//
+//    RedisZones.prototype.removeUser = function(zoneId, userId){
+//        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
+//            for (var userKey in this.zones[zoneId].users){
+//                if (userKey !== userId && this.userSockets.hasOwnProperty(userKey)){
+//                    this.userSockets[userKey].emit('removeUser', {id: userId});
+//                }
+//            }
+//
+//            delete this.zones[zoneId].users[userId];
+//
+//            if (Object.keys(this.zones[zoneId].users).length == 0){
+//                util.log("Delete Zone : " + zoneId);
+//                delete this.zones[zoneId];
+//            }
+//        }
+//    };
 
-            this.zones[user.currentZoneId].users[user.id] = user;
-
-
-            for (var userId in this.zones[user.currentZoneId].users){
-                if (this.userSockets.hasOwnProperty(userId)){
-                    if (userId !== user.id){
-                        // for exsists user
-                        this.userSockets[userId].emit('newUser', user);
-                    }
-                }
-            }
-        }
-        else{
-            this.notJoinedUsers[user.id] = user;
-        }
-    };
-
-    RedisZones.prototype.removeUser = function(zoneId, userId){
-        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
-            for (var userKey in this.zones[zoneId].users){
-                if (userKey !== userId && this.userSockets.hasOwnProperty(userKey)){
-                    this.userSockets[userKey].emit('removeUser', {id: userId});
-                }
-            }
-
-            delete this.zones[zoneId].users[userId];
-
-            if (Object.keys(this.zones[zoneId].users).length == 0){
-                util.log("Delete Zone : " + zoneId);
-                delete this.zones[zoneId];
-            }
-        }
-    };
-
-    RedisZones.prototype.changeName = function(zoneId, userId, userName){
-        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
-            this.zones[zoneId].users[userId].name = userName;
-        }
-    };
+//    RedisZones.prototype.changeName = function(zoneId, userId, userName){
+//        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
+//            this.zones[zoneId].users[userId].name = userName;
+//        }
+//    };
 
     RedisZones.prototype.eventToZone = function (event) {
         if (this.zones.hasOwnProperty(event.zoneId)){
@@ -216,4 +138,188 @@ exports.JadeDataBinder = (function(){
 
 
     return JadeDataBinder;
+})();
+
+exports.RedisDatabase = (function(){
+    function RedisDatabase(redisClient){
+        this.redisClient = redisClient;
+    };
+
+    RedisDatabase.prototype.getOrCreateUser = function (userId, callback) {
+        this.getOrCreateHash('User', userId, callback);
+    };
+
+    RedisDatabase.prototype.getOrCreateZone = function (zoneId, callback) {
+        this.getOrCreateHash('Zone', zoneId, callback);
+    };
+
+    RedisDatabase.prototype.addUserToZone = function (zoneId, userId, userName, callback){
+        var _redisClient = this.redisClient;
+
+        var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
+        var userZoneSetKey = "User:" + userId + ":ZoneSet";
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+
+        _redisClient
+            .multi()
+            .sadd(zoneUserSetKey, userId)
+            .sadd(userZoneSetKey, zoneId)
+            .set(userNameInZoneKey, userName)
+            .exec(callback);
+    };
+
+    RedisDatabase.prototype.removeUserFromZone = function (zoneId, userId, callback){
+        var _redisClient = this.redisClient;
+
+        var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
+        var userZoneSetKey = "User:" + userId + ":ZoneSet";
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+
+        _redisClient
+            .multi()
+            .srem(zoneUserSetKey, userId)
+            .srem(userZoneSetKey, zoneId)
+            .del(userNameInZoneKey)
+            .exec(callback);
+    };
+
+    RedisDatabase.prototype.getUserName = function (zoneId, userId, callback){
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+        this.redisClient.get(userNameInZoneKey, callback);
+    }
+
+    RedisDatabase.prototype.setUserName = function (zoneId, userId, userName, callback){
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+        this.redisClient.set(userNameInZoneKey, userName, callback);
+    }
+
+    RedisDatabase.prototype.getUsersFromZone = function(zoneId, callback){
+        var _redisClient = this.redisClient;
+
+        var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
+
+        _redisClient.smembers(zoneUserSetKey, function(err, userIds){
+            if (err || !(userIds instanceof Array) || userIds.length <= 0){
+                callback(err, []);
+            }
+            else{
+                var multi = _redisClient.multi();
+                userIds.forEach(function(item){multi.hgetall('UserHash:'+item);});
+                multi.exec(function(err, replies){
+                    if (err){
+                        callback(err, replies);
+                    }
+                    else{
+                        if (userIds.length === replies.length){
+                            for (var i = 0; i < userIds.length; ++i){
+                                replies[i]['id'] = userIds[i];
+                            }
+                        }
+
+                        callback(err, replies);
+                    }
+                });
+            }
+        });
+    };
+
+    RedisDatabase.prototype.getZonesFromUser = function(userId, callback){
+        var _redisClient = this.redisClient;
+
+        var userZoneSetKey = "User:" + userId + ":ZoneSet";
+
+        _redisClient.smembers(userZoneSetKey, function(err, zoneIds){
+            if (err || !(zoneIds instanceof Array) || zoneIds.length <= 0){
+                callback(err, []);
+            }
+            else{
+                var multi = _redisClient.multi();
+                zoneIds.forEach(function(item){multi.hgetall('ZoneHash:'+item);});
+                multi.exec(function(err, replies){
+                    if (err){
+                        callback(err, replies);
+                    }
+                    else{
+                        if (zoneIds.length === replies.length){
+                            for (var i = 0; i < zoneIds.length; ++i){
+                                replies[i]['id'] = zoneIds[i];
+                            }
+                        }
+
+                        callback(err, replies);
+                    }
+                });
+            }
+        });
+    };
+
+    RedisDatabase.prototype.setUserField = function (userId, setHash, callback){
+        this.setHashField('User', userId, setHash, callback);
+    };
+
+    RedisDatabase.prototype.setZoneField = function (zoneId, setHash, callback){
+        this.setHashField('Zone', zoneId, setHash, callback);
+    };
+
+    RedisDatabase.prototype.setHashField = function (keyPrefix, hashId, setHash, callback) {
+        if (setHash instanceof Object){
+            var _redisClient = this.redisClient;
+
+            var key = keyPrefix + "Hash:" + hashId;
+
+            var passArg = new Array();
+            passArg.push(key);
+
+            for (var setHashKey in setHash){
+                passArg.push(setHashKey);
+                passArg.push(setHash[setHashKey]);
+            }
+
+            passArg.push(callback);
+
+            _redisClient.hset.apply(this, passArg);
+        }
+        else{
+            callback("need set hash.", null);
+        }
+    };
+
+    RedisDatabase.prototype.getOrCreateHash = function (keyPrefix, id, callback) {
+        var _redisClient = this.redisClient;
+        var key = keyPrefix + "Hash:" + id;
+        _redisClient.exists(key, function (err, isExists){
+            if (err) {
+                callback(err, null);
+            }
+
+            if (isExists) {
+                _redisClient.hgetall(key, function (err, hash){
+                    if (!err) {
+                        hash['id'] = id;
+                    }
+
+                    callback(err, hash);
+                });
+            }
+            else {
+                // initial User
+                _redisClient.hmset(key, "createTime", (new Date()).getTime(), function(err, result){
+                    if (err) {
+                        callback(err, result);
+                    }
+                    else{
+                        _redisClient.hgetall(key, function (err, hash){
+                            if (!err) {
+                                hash['id'] = id;
+                            }
+
+                            callback(err, hash);
+                        });
+                    }
+                });
+            }
+        });
+    };
+
+    return RedisDatabase;
 })();

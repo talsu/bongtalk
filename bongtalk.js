@@ -28,7 +28,6 @@ exports.BongTalk = (function () {
         this.pub = this.createRedisClient(this.redisUrl);
         this.sub = this.createRedisClient(this.redisUrl);
         this.redisClient = this.createRedisClient(this.redisUrl)
-
         this.redisZones = new RedisZones(this.redisClient);
     }
 
@@ -72,25 +71,29 @@ exports.BongTalk = (function () {
         var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
 
         sessionSockets.on('connection', function(err, socket, session){
+            var sessionHasId = (session && session.hasOwnProperty('userId'));
             // 해당 Connection 에 대한 user다.
             var thisUser = new Object({
-                id: ((session && session.hasOwnProperty('userId')) ? session.userId : Guid.create().value),
+                id:  sessionHasId? session.userId : Guid.create().value,
                 socket:socket,
                 session:session.id
             });
 
-            _this.sessionStore.get(session.id, function(err, result){
-                result.userId = thisUser.id;
-                _this.sessionStore.set(session.id, result);
-            });
+            if (!sessionHasId){
+                _this.sessionStore.get(session.id, function(err, result){
+                    result.userId = thisUser.id;
+                    _this.sessionStore.set(session.id, result);
+                });
+            }
+            else{
+
+            }
+
 
 
             util.log("user '" + thisUser.id + "' connected");
-            _this.redisZones.addUserSocket(thisUser.id, socket);
             _this.redisZones.getOrCreateUser(thisUser.id, function (err, user){
-                _this.redisZones.addUser(user);
                 util.log('sendProfile : ' + util.inspect(user));
-
                 socket.emit('sendProfile', user);
             });
 
