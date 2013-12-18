@@ -72,11 +72,18 @@ exports.BongTalk = (function () {
         var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
 
         sessionSockets.on('connection', function(err, socket, session){
+            // 해당 Connection 에 대한 user다.
             var thisUser = new Object({
                 id: ((session && session.hasOwnProperty('userId')) ? session.userId : Guid.create().value),
                 socket:socket,
-                session:session
+                session:session.id
             });
+
+            _this.sessionStore.get(session.id, function(err, result){
+                result.userId = thisUser.id;
+                _this.sessionStore.set(session.id, result);
+            });
+
 
             util.log("user '" + thisUser.id + "' connected");
             _this.redisZones.addUserSocket(thisUser.id, socket);

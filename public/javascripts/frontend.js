@@ -8,7 +8,6 @@ $(function () {
     var content = $('#chatMessages');
     var input = $('#inputMessage');
     var status = $('#status');
-    var useSavedNameButton = $('#useSavedNameButton');
 
     client.me.name = getURLParameter('username');
     client.zoneId = getURLParameter('zone');
@@ -46,14 +45,38 @@ $(function () {
             client.me.id = data.id;
 
             if (reconnected) {
-                connection.emit('joinZone', {user:client.me.getSimpleUser(), zoneId:client.zoneId});
+                joinZone();
             }
             else {
-                // 이름을 결정한 뒤 Join 하라.
-                createName(function()
-                {
-                    connection.emit('joinZone', {user:client.me.getSimpleUser(), zoneId:client.zoneId});
-                });
+                if (data.name) {
+                    // session 에 저장되었던 name 사용.
+                    setName(data.name);
+                    joinZone();
+                }
+                else {
+                    // 이름을 결정한 뒤 Join 하라.
+                    var savedName = null;
+                    if (IsSupportStorage())
+                    {
+                        savedName = localStorage[usernameStoragePath];
+                    }
+
+                    // 브라우저에 저장되었던 이름 있으면 loginModal에 적용.
+                    if (savedName)
+                    {
+                        $('#loginSavedNameButton').text('Use \'' + savedName + '\'');
+                        $('#loginNameInput').val(savedName);
+                        $('#loginSavedNameButton').show();
+                    }
+                    else
+                    {
+                        $('#loginSavedNameButton').hide();
+                    }
+
+                    $('#loginModal').modal('show');
+                    $('#loginNameInput').focus();
+                }
+
             }
         });
 
@@ -111,41 +134,42 @@ $(function () {
         });
     }
 
+    function joinZone(){
+        connection.emit('joinZone', {user:client.me.getSimpleUser(), zoneId:client.zoneId});
+    }
+
     function onDisconnect() {
         client.others = [];
         input.attr('disabled', 'disabled');
     }
 
 
-    var setNameCallback = null;
-    function createName(callback)
-    {
-        setNameCallback = callback;
-        var savedName = null;
-        if (IsSupportStorage())
-        {
-            savedName = localStorage[usernameStoragePath];
-        }
-
-        if (savedName)
-        {
-            useSavedNameButton.text('Use \'' + savedName + '\'');
-        }
-        else
-        {
-            useSavedNameButton.hide();
-        }
-
-        $('#changeNameModal').modal('show');
-        $('#nameInput').focus();
-    }
-
-    $('#openChangeNamePopup').click(function(){
-        setNameCallback = function() {
-            connection.emit('changeName', client.me.name);
-        };
+    $('#loginNewNameButton').click(function(){
+        setName($('#loginNameInput').val());
+        joinZone();
     });
 
+    function setName(newName){
+
+        if (newName === client.me.name)
+        {
+            return;
+        }
+
+        client.me.name = newName;
+
+        status.text(client.me.name);
+
+        header.text(client.me.name);
+
+        if (IsSupportStorage())
+        {
+            localStorage[usernameStoragePath] = client.me.name;
+//            useSavedNameButton.text('Use \'' + client.me.name + '\'');
+        }
+
+        input.focus();
+    }
 
     /**
      * Send mesage when user presses Enter key
@@ -238,43 +262,16 @@ $(function () {
         body[0].scrollTop = body[0].scrollHeight;
     }
 
-    useSavedNameButton.click(useSavedName);
-    function useSavedName(){
-        if (IsSupportStorage())
-        {
-            $('#nameInput').val(localStorage[usernameStoragePath]);
-        }
-        setName();
-    }
+    $('#loginSavedNameButton').click(function(){
+        $('#changeNameInput').val(localStorage[usernameStoragePath]);
+        setName(localStorage[usernameStoragePath]);
+        joinZone();
+    });
 
-    $('#saveNameButton').click(setName);
-    function setName(){
-        var newName = $('#nameInput').val();
-
-        if (newName === client.me.name)
-        {
-            return;
-        }
-
-        client.me.name = newName;
-
-        status.text(client.me.name);
-
-        header.text(client.me.name);
-
-        if (IsSupportStorage())
-        {
-            localStorage[usernameStoragePath] = client.me.name;
-            useSavedNameButton.text('Use \'' + client.me.name + '\'');
-        }
-
-        if (setNameCallback)
-        {
-            setNameCallback();
-        }
-
-        input.focus();
-    }
+    $('#saveChangeNameButton').click(function(){
+        setName($('#changeNameInput').val());
+        connection.emit('changeName', client.me.name);
+    });
 
     /**
      * warning, error, info, sucess

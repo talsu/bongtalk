@@ -64,17 +64,27 @@ head
                             input#inputMessage.form-control(type='text')
                             span.input-group-btn
                                 button#sendButton.btn.btn-default(type='button') Send
-                    #changeNameModal.modal.fade(role='dialog', aria-labelledby='myModalLabel', aria-hidden='true')
+                    #changeNameModal.modal.fade(role='dialog', aria-labelledby='changeNameModalLabel', aria-hidden='true')
                         .modal-dialog
                             .modal-content
                                 .modal-header
-                                    //button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
-                                    h4#myModalLabel.modal-title What is your name?
+                                    button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
+                                    h4#changeNameModalLabel.modal-title What is your new name?
                                 .modal-body
-                                    input#nameInput.form-control(type='text')
+                                    input#changeNameInput.form-control(type='text')
                                 .modal-footer
-                                    button#useSavedNameButton.btn.btn-default(type='button', data-dismiss='modal') Use saved name
-                                    button#saveNameButton.btn.btn-primary(type='button', data-dismiss='modal') Save changes
+                                    //button#useSavedNameButton.btn.btn-default(type='button', data-dismiss='modal') Use saved name
+                                    button#saveChangeNameButton.btn.btn-primary(type='button', data-dismiss='modal') Save changes
+                    #loginModal.modal.fade(role='dialog', aria-labelledby='loginModalLabel', aria-hidden='true', data-backdrop='static')
+                        .modal-dialog
+                            .modal-content
+                                .modal-header
+                                    h4#loginModalLabel.modal-title What is your name?
+                                .modal-body
+                                    input#loginNameInput.form-control(type='text')
+                                .modal-footer
+                                    button#loginSavedNameButton.btn.btn-default(type='button', data-dismiss='modal') Use saved name
+                                    button#loginNewNameButton.btn.btn-primary(type='button', data-dismiss='modal') Log in
                     #chatMessages
 
 
