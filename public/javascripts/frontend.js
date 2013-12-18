@@ -25,6 +25,9 @@ $(function () {
         }
 
         var socketUrl = 'http://' + location.host;
+        if (client.zoneId){
+            socketUrl = socketUrl + '?zoneId=' + client.zoneId;
+        }
         connection = io.connect(socketUrl,{
             'max reconnection attempts' : Infinity
         });

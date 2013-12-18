@@ -75,6 +75,7 @@ exports.BongTalk = (function () {
             // 해당 Connection 에 대한 user다.
             var thisUser = new Object({
                 id:  sessionHasId? session.userId : Guid.create().value,
+                zoneId: (socket.handshake.query) ? socket.handshake.query.zoneId : 'default',
                 socket:socket,
                 session:session.id
             });
@@ -92,18 +93,22 @@ exports.BongTalk = (function () {
 
 
             util.log("user '" + thisUser.id + "' connected");
-            _this.redisZones.getOrCreateUser(thisUser.id, function (err, user){
+            _this.redisZones.getUserName(thisUser.zoneId, thisUser.id, function(err, name){
+                var user = {id : thisUser.id, name: name};
                 util.log('sendProfile : ' + util.inspect(user));
                 socket.emit('sendProfile', user);
             });
 
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
-                _this.redisZones.joinZone(data.zoneId, data.user.id, data.user.name, function(){
+                _this.redisZones.joinZone(data.zoneId, data.user.id, data.user.name, function(err){
                     if (!err){
-                        thisUser.currentZoneId = data.zoneId;
-                        thisUser.name = data.user.name;
-                        _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: data.zoneId, userId : data.user.id}));
+                        _this.redisZones.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
+                            if (!err){
+                                thisUser.name = data.user.name;
+                                _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: data.zoneId, userId : data.user.id}));
+                            }
+                        });
                     }
                 });
             });
@@ -122,28 +127,25 @@ exports.BongTalk = (function () {
                         name: thisUser.name
                     }
                 };
-                _this.publishEventToZone(thisUser.currentZoneId, 'sendMessage', talk);
+                _this.publishEventToZone(thisUser.zoneId, 'sendMessage', talk);
 //                _this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'sendMessage', message : talk}));
             });
 
             socket.on('changeName', function(name){
-                _this.redisZones.setUserField(thisUser.id, 'name', name, function(err, result){
+                _this.redisZones.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
                     if (!err){
-                        thisUser.name = name
-                        var message = {id:thisUser.id, name:thisUser.name};
-                        _this.pub.publish('bongtalk:changeName', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'changeName', message : message}));
+                        thisUser.name = name;
+                        _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: thisUser.zoneId, userId : thisUser.id}));
                     }
                 });
             });
 
             socket.on('disconnect', function(){
-                _this.redisZones.leaveZone(thisUser.id, function(err, leavedZoneId){
+                _this.redisZones.leaveZone(thisUser.zoneId, thisUser.id, function(err, leavedZoneId){
                     if (!err){
-                        _this.pub.publish('bongtalk:removeUser', JSON.stringify( {zoneId: leavedZoneId, userId : thisUser.id}));
+                        _this.pub.publish('bongtalk:removeUser', JSON.stringify( {zoneId: thisUser.zoneId, userId : thisUser.id}));
                     }
                 });
-
-                _this.redisZones.removeUserSocket(thisUser.id);
             });
         });
     };
