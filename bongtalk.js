@@ -12,7 +12,7 @@ var util = require('util');
 var redis = require("redis");
 var Guid = require('guid');
 var models = require('./models');
-var RedisZones = models.RedisZones;
+var RedisDatabase = models.RedisDatabase;
 var JadeDataBinder = models.JadeDataBinder;
 
 var RedisStore = require('connect-redis')(express);
@@ -28,7 +28,8 @@ exports.BongTalk = (function () {
         this.pub = this.createRedisClient(this.redisUrl);
         this.sub = this.createRedisClient(this.redisUrl);
         this.redisClient = this.createRedisClient(this.redisUrl)
-        this.redisZones = new RedisZones(this.redisClient);
+        this.database = new RedisDatabase(this.redisClient);
+        this.connectedUsers = new Object();
     }
 
     BongTalk.prototype.start = function (){
@@ -58,7 +59,12 @@ exports.BongTalk = (function () {
         }
 
         app.get('/', routes.index);
-        app.get('/status', function(req, res){res.render('status', { binder: new JadeDataBinder(_this) });});
+        app.get('/status', function(req, res){
+            var binder = new JadeDataBinder(_this);
+            binder.loadData(function(){
+                res.render('status', { binder: binder });
+            });
+        });
 
         var server = http.createServer(app);
         server.listen(app.get('port'), function () {
@@ -70,9 +76,13 @@ exports.BongTalk = (function () {
 
         var sessionSockets = new SessionSockets(io, this.sessionStore, cookieParser, 'jsessionid');
 
+        this.listenSocket(sessionSockets);
+    };
+
+    BongTalk.prototype.listenSocket = function(sessionSockets){
+        var _this = this;
         sessionSockets.on('connection', function(err, socket, session){
             var sessionHasId = (session && session.hasOwnProperty('userId'));
-            // 해당 Connection 에 대한 user다.
             var thisUser = new Object({
                 id:  sessionHasId? session.userId : Guid.create().value,
                 zoneId: (socket.handshake.query) ? socket.handshake.query.zoneId : 'default',
@@ -86,14 +96,9 @@ exports.BongTalk = (function () {
                     _this.sessionStore.set(session.id, result);
                 });
             }
-            else{
-
-            }
-
-
 
             util.log("user '" + thisUser.id + "' connected");
-            _this.redisZones.getUserName(thisUser.zoneId, thisUser.id, function(err, name){
+            _this.database.getUserName(thisUser.zoneId, thisUser.id, function(err, name){
                 var user = {id : thisUser.id, name: name};
                 util.log('sendProfile : ' + util.inspect(user));
                 socket.emit('sendProfile', user);
@@ -101,12 +106,13 @@ exports.BongTalk = (function () {
 
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
-                _this.redisZones.joinZone(data.zoneId, data.user.id, data.user.name, function(err){
+                _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, function(err){
                     if (!err){
-                        _this.redisZones.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
+                        _this.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
                             if (!err){
                                 thisUser.name = data.user.name;
-                                _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: data.zoneId, userId : data.user.id}));
+                                _this.connectedUsers[socket.id] = thisUser;
+                                _this.publishEventToZone(data.zoneId, 'newUser', data.user);
                             }
                         });
                     }
@@ -114,10 +120,6 @@ exports.BongTalk = (function () {
             });
 
             socket.on('sendMessage', function(data){
-//                if (user.currentZone) {
-//                    user.currentZone.broadcastTalk(user, data);
-//                }
-
                 var talk = {
                     id:  Guid.create().value,
                     time: (new Date()).getTime(),
@@ -128,25 +130,68 @@ exports.BongTalk = (function () {
                     }
                 };
                 _this.publishEventToZone(thisUser.zoneId, 'sendMessage', talk);
-//                _this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: thisUser.currentZoneId, eventName : 'sendMessage', message : talk}));
             });
 
             socket.on('changeName', function(name){
-                _this.redisZones.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
+                _this.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
                     if (!err){
                         thisUser.name = name;
-                        _this.pub.publish('bongtalk:addUser', JSON.stringify( {zoneId: thisUser.zoneId, userId : thisUser.id}));
+                        _this.publishEventToZone(thisUser.zoneId, 'changeName', {id:thisUser.id, name:thisUser.name});
                     }
                 });
             });
 
             socket.on('disconnect', function(){
-                _this.redisZones.leaveZone(thisUser.zoneId, thisUser.id, function(err, leavedZoneId){
+                delete _this.connectedUsers[socket.id];
+                _this.database.removeUserFromZone(thisUser.zoneId, thisUser.id, function(err){
                     if (!err){
-                        _this.pub.publish('bongtalk:removeUser', JSON.stringify( {zoneId: thisUser.zoneId, userId : thisUser.id}));
+                        _this.publishEventToZone(thisUser.zoneId, 'removeUser', {id:thisUser.id, name:thisUser.name});
                     }
                 });
             });
+        });
+    }
+
+    BongTalk.prototype.publishEventToZone = function(zoneId, eventName, message){
+        this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: zoneId, eventName : eventName, message : message}));
+    };
+
+    BongTalk.prototype.publishEventToUser = function(zoneId, userId, eventName, message){
+        this.pub.publish('bongtalk:eventToUser', JSON.stringify({zoneId:zoneId, userId:userId, eventName : eventName, message : message}));
+    };
+
+    BongTalk.prototype.subscribeRedis = function(){
+        var _this = this;
+
+        this.sub.subscribe('bongtalk:eventToZone');
+        this.sub.subscribe('bongtalk:eventToUser');
+
+        this.sub.on('message', function (channel, event){
+            var eventObj = null;
+            try{
+                eventObj = JSON.parse(event);
+            }catch (ex) {}
+
+            switch (channel)
+            {
+                case "bongtalk:eventToZone" :
+                    for (var key in _this.connectedUsers){
+                        var connection = _this.connectedUsers[key];
+                        if (connection.zoneId === eventObj.zoneId){
+                            connection.socket.emit(eventObj.eventName, eventObj.message);
+                        }
+                    }
+                    break;
+                case "bongtalk:eventToUser" :
+                    for (var key in _this.connectedUsers){
+                        var connection = _this.connectedUsers[key];
+                        if (connection.zoneId === eventObj.zoneId && connection.id === eventObj.userId){
+                            connection.socket.emit(eventObj.eventName, eventObj.message);
+                            break;
+                        }
+                    }
+                    break;
+            }
         });
     };
 
@@ -169,67 +214,6 @@ exports.BongTalk = (function () {
         else{
             return redis.createClient();
         }
-    };
-
-    BongTalk.prototype.publishEventToZone = function(zoneId, eventName, message){
-        this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: zoneId, eventName : eventName, message : message}));
-    };
-
-    BongTalk.prototype.publishEventToUser = function(zoneId, userId, eventName, message){
-        this.pub.publish('bongtalk:eventToUser', JSON.stringify({zoneId:zoneId, userId:userId, eventName : eventName, message : message}));
-    };
-
-    BongTalk.prototype.subscribeRedis = function(){
-        var _this = this;
-
-        this.sub.subscribe('bongtalk:eventToZone');
-        this.sub.subscribe('bongtalk:eventToUser');
-        this.sub.subscribe('bongtalk:addUser');
-        this.sub.subscribe('bongtalk:removeUser');
-        this.sub.subscribe('bongtalk:changeName');
-
-        this.sub.on('message', function (channel, event){
-            var eventObj = null;
-            try{
-                eventObj = JSON.parse(event);
-            }catch (ex) {}
-
-            switch (channel)
-            {
-                case "bongtalk:eventToZone" :
-                    _this.redisZones.eventToZone(eventObj);
-                    break;
-                case "bongtalk:eventToUser" :
-                    _this.redisZones.eventToUser(eventObj);
-                    break;
-                case "bongtalk:addUser" :
-                    if (eventObj.zoneId && eventObj.userId && (_this.redisZones.zones[eventObj.zoneId] || _this.redisZones.notJoinedUsers[eventObj.userId])){
-                        _this.redisZones.getOrCreateUser(eventObj.userId, function(err, user){
-                            if (!err){
-                                //for exists User
-                                _this.redisZones.addUser(user);
-                                //for new User
-                                for (var userKey in _this.redisZones.zones[user.currentZoneId].users){
-                                    if (userKey !== user.id && _this.redisZones.userSockets.hasOwnProperty(userKey)){
-                                        var targetUser = _this.redisZones.zones[user.currentZoneId].users[userKey];
-                                        _this.publishEventToUser(user.currentZoneId, user.id, 'newUser', targetUser);
-                                    }
-                                }
-                            }
-                        });
-                    }
-                    break;
-                case "bongtalk:removeUser" :
-                    if (eventObj.zoneId && eventObj.userId && (_this.redisZones.zones[eventObj.zoneId] || _this.redisZones.notJoinedUsers[eventObj.userId])){
-                        _this.redisZones.removeUser(eventObj.zoneId, eventObj.userId);
-                    }
-                    break;
-                case "bongtalk:changeName" :
-                    _this.redisZones.changeName(eventObj.zoneId, eventObj.message.id, eventObj.message.name);
-                    _this.redisZones.eventToZone(eventObj);
-                    break;
-            }
-        });
     };
 
     return BongTalk;

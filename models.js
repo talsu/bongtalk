@@ -5,135 +5,50 @@
 
 var util = require('util');
 
-exports.RedisZones = (function(){
-    function RedisZones(redisClient){
-//        this.zones = new Object();
-//        this.notJoinedUsers = new Object();
-//        this.userSockets = new Object();
-        this.database = new exports.RedisDatabase(redisClient);
-    };
-
-//    RedisZones.prototype.addUserSocket = function (userId, socket) {
-//        if (!this.userSockets.hasOwnProperty(userId)){
-//            this.userSockets[userId] = new Object({sockets:[]});
-//        }
-//        this.userSockets[userId].sockets.push(socket);
-//    };
-
-//    RedisZones.prototype.removeUserSocket = function(userId) {
-//        if (this.userSockets.hasOwnProperty(userId)){
-//            delete this.userSockets[userId];
-//        }
-//    };
-
-    RedisZones.prototype.getZone = function (id, callback) {
-        this.database.getOrCreateZone(id, callback);
-    };
-
-    RedisZones.prototype.joinZone = function (zoneId, userId, userName, callback) {
-        var _database = this.database;
-        _database.getOrCreateZone(zoneId, function(err, zone){
-            if (err){
-                callback(err, null);
-            }
-            else{
-                _database.addUserToZone(zoneId, userId, userName, callback);
-            }
-        });
-    };
-
-    RedisZones.prototype.leaveZone = function (zoneId, userId, callback) {
-        this.database.removeUserFromZone(zoneId, userId, callback);
-    };
-
-    RedisZones.prototype.getOrCreateUser = function (id, callback) {
-        this.database.getOrCreateUser(id, callback);
-    };
-
-//    RedisZones.prototype.addUser = function (zoneId, userId) {
-//        this.database.getUserName(zoneId, userId, function(err, userName){
-//            for (var userKey in this.zones[zoneId].users){
-//                if (this.userSockets.hasOwnProperty(userId)){
-//                    if (userId !== user.id){
-//                        // for exsists user
-//                        this.userSockets[userId].emit('newUser', user);
-//                    }
-//                }
-//            }
-//        });
-//    };
-//
-//    RedisZones.prototype.removeUser = function(zoneId, userId){
-//        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
-//            for (var userKey in this.zones[zoneId].users){
-//                if (userKey !== userId && this.userSockets.hasOwnProperty(userKey)){
-//                    this.userSockets[userKey].emit('removeUser', {id: userId});
-//                }
-//            }
-//
-//            delete this.zones[zoneId].users[userId];
-//
-//            if (Object.keys(this.zones[zoneId].users).length == 0){
-//                util.log("Delete Zone : " + zoneId);
-//                delete this.zones[zoneId];
-//            }
-//        }
-//    };
-
-//    RedisZones.prototype.changeName = function(zoneId, userId, userName){
-//        if (zoneId && this.zones[zoneId] && this.zones[zoneId] && this.zones[zoneId].users[userId]){
-//            this.zones[zoneId].users[userId].name = userName;
-//        }
-//    };
-
-    RedisZones.prototype.eventToZone = function (event) {
-        if (this.zones.hasOwnProperty(event.zoneId)){
-            for (var userId in this.zones[event.zoneId].users){
-                if (this.userSockets.hasOwnProperty(userId)){
-                    this.userSockets[userId].emit(event.eventName, event.message);
-                }
-            }
-        }
-    };
-
-    RedisZones.prototype.eventToUser = function (event) {
-        if (this.zones.hasOwnProperty(event.zoneId)
-            && this.zones[event.zoneId].users.hasOwnProperty(event.userId)
-            && this.userSockets.hasOwnProperty(event.userId))
-        {
-            this.userSockets[event.userId].emit(event.eventName, event.message);
-        }
-    };
-
-    return RedisZones;
-})();
-
 exports.JadeDataBinder = (function(){
     function JadeDataBinder(bongtalk){
         this.bongtalk = bongtalk;
-        this.redisZones = bongtalk.redisZones;
+        this.users = new Object();
+    };
+
+    JadeDataBinder.prototype.loadData = function(callback){
+        var _this = this;
+        this.users = new Object();
+        var zones = this.getZones();
+
+        if (!zones || zones.length == 0){
+            callback();
+            return;
+        }
+
+        var numCompletedCalls = 0
+        for (var i = 0; i < zones.length; ++i){
+            var zone = zones[i];
+            this.bongtalk.database.getUsersFromZone(zone.id, function(err, users){
+                _this.users[zone.id] = users;
+                numCompletedCalls++;
+                if (numCompletedCalls == zones.length){
+                   callback();
+                }
+            });
+        }
     };
 
     JadeDataBinder.prototype.getZones = function(){
         var result = [];
-        for (var zoneKey in this.redisZones.zones){
-            result.push({id:zoneKey});
+
+        for (var socketKey in this.bongtalk.connectedUsers){
+            result.push({id:this.bongtalk.connectedUsers[socketKey].zoneId});
         }
         return result;
     };
     JadeDataBinder.prototype.getUsers = function(zoneId){
-        var result = [];
-        var index = 0;
-        if (this.redisZones.zones.hasOwnProperty(zoneId)){
-            for (var userKey in this.redisZones.zones[zoneId].users){
-                var user = this.redisZones.zones[zoneId].users[userKey];
-                user.connectedThisInstance = this.redisZones.userSockets.hasOwnProperty(userKey);
-                user.index = index;
-                index++;
-                result.push(user);
-            }
+        if (this.users && this.users.hasOwnProperty(zoneId))
+        {
+            return this.users[zoneId];
         }
-        return result;
+
+        return [];
     };
 
 
@@ -147,10 +62,6 @@ exports.RedisDatabase = (function(){
 
     RedisDatabase.prototype.getOrCreateUser = function (userId, callback) {
         this.getOrCreateHash('User', userId, callback);
-    };
-
-    RedisDatabase.prototype.getOrCreateZone = function (zoneId, callback) {
-        this.getOrCreateHash('Zone', zoneId, callback);
     };
 
     RedisDatabase.prototype.addUserToZone = function (zoneId, userId, userName, callback){
