@@ -194,6 +194,29 @@ exports.RedisDatabase = (function(){
         this.redisClient.smembers("ZoneSet", callback);
     };
 
+    RedisDatabase.prototype.addTalkHistory = function(zoneId, talk, callback){
+        var zoneHistoryKey = "Zone:" + zoneId + ":HistoryList";
+        var talkJson = JSON.stringify(talk);
+        this.redisClient
+            .multi()
+            .lpush(zoneHistoryKey, talkJson)
+            .ltrim(zoneHistoryKey, 0, 100)
+            .exec(callback);
+    };
+
+    RedisDatabase.prototype.getTalkHistory = function(zoneId, callback){
+        var zoneHistoryKey = "Zone:" + zoneId + ":HistoryList";
+        this.redisClient.lrange(zoneHistoryKey, 0, 100, function(err, talkJsons){
+            if (err || !talkJsons || !Array.isArray(talkJsons)){
+                callback(err, talkJsons);
+            }
+            else{
+                var talks = talkJsons.map(function(talkJson){return JSON.parse(talkJson);}).reverse();
+                callback(err, talks);
+            }
+        });
+    };
+
     RedisDatabase.prototype.setUserField = function (userId, setHash, callback){
         this.setHashField('User', userId, setHash, callback);
     };

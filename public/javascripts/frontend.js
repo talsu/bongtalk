@@ -91,14 +91,19 @@ $(function () {
 
         connection.on('sendZoneInfo',function(data){
             //history 로드
-            data.history.forEach(function(item){
-                addMessage(item);
-            });
+            if (data.history){
+                data.history.forEach(function(item){
+                    addMessage(item);
+                });
+            }
+
 
             // 사용자 list 초기화
-            data.connectedUsers.forEach(function(item) {
-                client.addUser(new TalkUser(item.id, item.name));
-            });
+            if (data.connectedUsers){
+                data.connectedUsers.forEach(function(item) {
+                    client.addUser(new TalkUser(item.id, item.name));
+                });
+            }
 
             writeSystemMessage('Join success.', 'info');
 

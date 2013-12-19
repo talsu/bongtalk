@@ -110,16 +110,29 @@ exports.BongTalk = (function () {
 
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
-                _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, function(err){
+                _this.database.getUsersFromZone(data.zoneId, function(err, users){
+                    var zoneInfo = {connectedUsers:[], history:[]}
                     if (!err){
-                        _this.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
+                        zoneInfo.connectedUsers = users;
+                    }
+                    _this.database.getTalkHistory(data.zoneId, function(err, history){
+                        if (!err){
+                           zoneInfo.history = history;
+                        }
+                        socket.emit('sendZoneInfo', zoneInfo);
+
+                        _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, function(err){
                             if (!err){
-                                thisUser.name = data.user.name;
-                                _this.connectedUsers[socket.id] = thisUser;
-                                _this.publishEventToZone(data.zoneId, 'newUser', data.user);
+                                _this.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
+                                    if (!err){
+                                        thisUser.name = data.user.name;
+                                        _this.connectedUsers[socket.id] = thisUser;
+                                        _this.publishEventToZone(data.zoneId, 'newUser', data.user);
+                                    }
+                                });
                             }
                         });
-                    }
+                    });
                 });
             });
 
@@ -133,6 +146,7 @@ exports.BongTalk = (function () {
                         name: thisUser.name
                     }
                 };
+                _this.database.addTalkHistory(thisUser.zoneId, talk);
                 _this.publishEventToZone(thisUser.zoneId, 'sendMessage', talk);
             });
 
