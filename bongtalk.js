@@ -82,6 +82,10 @@ exports.BongTalk = (function () {
     BongTalk.prototype.listenSocket = function(sessionSockets){
         var _this = this;
         sessionSockets.on('connection', function(err, socket, session){
+            if (!session || !session.hasOwnProperty('id')){
+                return;
+            }
+
             var sessionHasId = (session && session.hasOwnProperty('userId'));
             var thisUser = new Object({
                 id:  sessionHasId? session.userId : Guid.create().value,
