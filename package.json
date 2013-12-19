@@ -12,8 +12,7 @@
     "optimist": "~0.6.0",
     "redis": "~0.9.1",
     "connect-redis": "~1.4.6",
-    "session.socket.io": "~0.1.6",
-    "nohm": "~0.9.4"
+    "session.socket.io": "~0.1.6"
   },
   "bin": {
     "bongtalk": "./bin/bongtalk"
