@@ -8,49 +8,48 @@ var util = require('util');
 exports.JadeDataBinder = (function(){
     function JadeDataBinder(bongtalk){
         this.bongtalk = bongtalk;
-        this.users = new Object();
+        this.zones = [];
     };
 
     JadeDataBinder.prototype.loadData = function(callback){
         var _this = this;
-        this.users = new Object();
-        var zones = this.getZones();
+        this.zones = [];
+        this.bongtalk.database.getAllZonesKey(function(err, zoneIds){
 
-        if (!zones || zones.length == 0){
-            callback();
-            return;
-        }
+            if (err || !zoneIds || zoneIds.length == 0){
+                callback();
+                return;
+            }
 
-        var numCompletedCalls = 0
-        for (var i = 0; i < zones.length; ++i){
-            var zone = zones[i];
-            this.bongtalk.database.getUsersFromZone(zone.id, function(err, users){
-                _this.users[zone.id] = users;
-                numCompletedCalls++;
-                if (numCompletedCalls == zones.length){
-                   callback();
-                }
+            _this.zones = zoneIds.map(function(item){return {id:item, users:[]};});
+
+            var numCompletedCalls = 0
+            _this.zones.forEach(function(zone){
+                _this.bongtalk.database.getUsersFromZone(zone.id, function(err, users){
+                    zone.users = users;
+                    numCompletedCalls++;
+                    if (numCompletedCalls == _this.zones.length){
+                        numCompletedCalls = 0;
+                        callback();
+                    }
+                });
             });
-        }
+        });
     };
 
     JadeDataBinder.prototype.getZones = function(){
-        var result = [];
-
-        for (var socketKey in this.bongtalk.connectedUsers){
-            result.push({id:this.bongtalk.connectedUsers[socketKey].zoneId});
-        }
-        return result;
+        return this.zones;
     };
+
     JadeDataBinder.prototype.getUsers = function(zoneId){
-        if (this.users && this.users.hasOwnProperty(zoneId))
-        {
-            return this.users[zoneId];
+        for (var i = 0; i < this.zones.length; ++i){
+            if (this.zones[i].id == zoneId){
+                return this.zones[i].users
+            }
         }
 
         return [];
     };
-
 
     return JadeDataBinder;
 })();
@@ -67,12 +66,14 @@ exports.RedisDatabase = (function(){
     RedisDatabase.prototype.addUserToZone = function (zoneId, userId, userName, callback){
         var _redisClient = this.redisClient;
 
+        var zoneSetKey = "ZoneSet";
         var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
         var userZoneSetKey = "User:" + userId + ":ZoneSet";
         var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
 
         _redisClient
             .multi()
+            .sadd(zoneSetKey, zoneId)
             .sadd(zoneUserSetKey, userId)
             .sadd(userZoneSetKey, zoneId)
             .set(userNameInZoneKey, userName)
@@ -82,6 +83,7 @@ exports.RedisDatabase = (function(){
     RedisDatabase.prototype.removeUserFromZone = function (zoneId, userId, callback){
         var _redisClient = this.redisClient;
 
+        var zoneSetKey = "ZoneSet";
         var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
         var userZoneSetKey = "User:" + userId + ":ZoneSet";
         var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
@@ -91,7 +93,21 @@ exports.RedisDatabase = (function(){
             .srem(zoneUserSetKey, userId)
             .srem(userZoneSetKey, zoneId)
             .del(userNameInZoneKey)
-            .exec(callback);
+            .exec(function(err, result){
+                if (err){
+                    callback(err, result);
+                }
+                else{
+                    _redisClient.scard(zoneUserSetKey, function(err, number){
+                        if (!err && number == 0){
+                            _redisClient.srem(zoneSetKey, zoneId, callback);
+                        }
+                        else{
+                            callback(err, number);
+                        }
+                    })
+                }
+            });
     };
 
     RedisDatabase.prototype.getUserName = function (zoneId, userId, callback){
@@ -123,11 +139,21 @@ exports.RedisDatabase = (function(){
                     else{
                         if (userIds.length === replies.length){
                             for (var i = 0; i < userIds.length; ++i){
-                                replies[i]['id'] = userIds[i];
+                                replies[i] = {id:userIds[i]};
                             }
                         }
-
-                        callback(err, replies);
+                        var userNameKeys = userIds.map(function(item){ return "Zone:" + zoneId + ":User:" + item + ":Name" });
+                        _redisClient.mget(userNameKeys, function(err, names){
+                            if(err || replies.length != names.length){
+                                callback(err, names);
+                            }
+                            else{
+                                for (var i = 0; i < replies.length; ++i){
+                                    replies[i].name = names[i];
+                                }
+                                callback(err, replies);
+                            }
+                        });
                     }
                 });
             }
@@ -162,6 +188,10 @@ exports.RedisDatabase = (function(){
                 });
             }
         });
+    };
+
+    RedisDatabase.prototype.getAllZonesKey = function(callback){
+        this.redisClient.smembers("ZoneSet", callback);
     };
 
     RedisDatabase.prototype.setUserField = function (userId, setHash, callback){
