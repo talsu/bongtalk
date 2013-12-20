@@ -188,7 +188,7 @@ exports.BongTalk = (function () {
 
     BongTalk.prototype.changeAndPublishUserProperty = function(zoneId, userId, propertyName, propertyValue, callback){
         var _this = this;
-        _this.database.setUserProperty(zoneId, userId, 'status', 'offline', function(err, result){
+        _this.database.setUserProperty(zoneId, userId, propertyName, propertyValue, function(err, result){
             if (!err){
                 _this.publishEventToZone(zoneId, 'userPropertyChanged', {user:{id:userId}, property:{name:propertyName, value:propertyValue}});
             }

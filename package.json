@@ -1,6 +1,6 @@
 {
   "name": "bongtalk",
-  "version": "0.0.12",
+  "version": "0.0.14",
   "scripts": {
     "start": "node bin/bongtalk"
   },
