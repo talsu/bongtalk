@@ -282,6 +282,7 @@ $(function () {
     function scrollEnd(){
         var body = $('body');
         body[0].scrollTop = body[0].scrollHeight;
+        window.scrollTo(0,document.body.scrollHeight);
     }
 
     $('#loginSavedNameButton').click(function(){

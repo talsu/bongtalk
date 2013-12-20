@@ -175,36 +175,6 @@ exports.RedisDatabase = (function(){
                         callback(err, null);
                     }
                 });
-
-
-//                var multi = _redisClient.multi();
-//                userIds.forEach(function(item){multi.hgetall('UserHash:'+item);});
-//                multi.exec(function(err, replies){
-//                    if (err){
-//                        callback(err, replies);
-//                    }
-//                    else{
-//                        if (userIds.length === replies.length){
-//                            for (var i = 0; i < userIds.length; ++i){
-//                                replies[i] = {id:userIds[i]};
-//                            }
-//                        }
-//
-////                        _this.getUserProperties(zoneId, )
-//                        var userNameKeys = userIds.map(function(item){ return "Zone:" + zoneId + ":User:" + item + ":Name" });
-//                        _redisClient.mget(userNameKeys, function(err, names){
-//                            if(err || replies.length != names.length){
-//                                callback(err, names);
-//                            }
-//                            else{
-//                                for (var i = 0; i < replies.length; ++i){
-//                                    replies[i].name = names[i];
-//                                }
-//                                callback(err, replies);
-//                            }
-//                        });
-//                    }
-//                });
             }
         });
     };
