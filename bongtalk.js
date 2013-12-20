@@ -111,7 +111,7 @@ exports.BongTalk = (function () {
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
                 _this.database.getUsersFromZone(data.zoneId, function(err, users){
-                    var zoneInfo = {connectedUsers:[], history:[]}
+                    var zoneInfo = {connectedUsers:[], history:[]};
                     if (!err){
                         zoneInfo.connectedUsers = users;
                     }
@@ -132,6 +132,7 @@ exports.BongTalk = (function () {
                                 });
                             }
                         });
+                        _this.changeAndPublishUserProperty(data.zoneId, data.user.id, 'status', 'online');
                     });
                 });
             });
@@ -151,22 +152,50 @@ exports.BongTalk = (function () {
             });
 
             socket.on('changeName', function(name){
-                _this.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
+                _this.changeAndPublishUserProperty(thisUser.zoneId, thisUser.id, 'name', name, function(err){
                     if (!err){
                         thisUser.name = name;
-                        _this.publishEventToZone(thisUser.zoneId, 'changeName', {id:thisUser.id, name:thisUser.name});
                     }
                 });
+//                _this.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
+//                    if (!err){
+//                        thisUser.name = name;
+//                        _this.publishEventToZone(thisUser.zoneId, 'changeName', {id:thisUser.id, name:thisUser.name});
+//                    }
+//                });
             });
 
             socket.on('disconnect', function(){
+                var isLeaved = socket && socket.isLeaved;
+
                 delete _this.connectedUsers[socket.id];
+
+                if (!isLeaved) {
+                    _this.changeAndPublishUserProperty(thisUser.zoneId, thisUser.id, 'status', 'offline');
+                }
+            });
+
+            socket.on('leaveZone', function(){
+                socket['isLeaved'] = true;
                 _this.database.removeUserFromZone(thisUser.zoneId, thisUser.id, function(err){
                     if (!err){
                         _this.publishEventToZone(thisUser.zoneId, 'removeUser', {id:thisUser.id, name:thisUser.name});
                     }
                 });
             });
+        });
+    }
+
+    BongTalk.prototype.changeAndPublishUserProperty = function(zoneId, userId, propertyName, propertyValue, callback){
+        var _this = this;
+        _this.database.setUserProperty(zoneId, userId, 'status', 'offline', function(err, result){
+            if (!err){
+                _this.publishEventToZone(zoneId, 'userPropertyChanged', {user:{id:userId}, property:{name:propertyName, value:propertyValue}});
+            }
+
+            if (callback){
+                callback(err, result);
+            }
         });
     }
 

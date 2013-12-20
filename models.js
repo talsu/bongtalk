@@ -59,9 +59,9 @@ exports.RedisDatabase = (function(){
         this.redisClient = redisClient;
     };
 
-    RedisDatabase.prototype.getOrCreateUser = function (userId, callback) {
-        this.getOrCreateHash('User', userId, callback);
-    };
+//    RedisDatabase.prototype.getOrCreateUser = function (userId, callback) {
+//        this.getOrCreateHash('User', userId, callback);
+//    };
 
     RedisDatabase.prototype.addUserToZone = function (zoneId, userId, userName, callback){
         var _redisClient = this.redisClient;
@@ -69,7 +69,7 @@ exports.RedisDatabase = (function(){
         var zoneSetKey = "ZoneSet";
         var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
         var userZoneSetKey = "User:" + userId + ":ZoneSet";
-        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":name";
 
         _redisClient
             .multi()
@@ -86,13 +86,15 @@ exports.RedisDatabase = (function(){
         var zoneSetKey = "ZoneSet";
         var zoneUserSetKey = "Zone:" + zoneId + ":UserSet";
         var userZoneSetKey = "User:" + userId + ":ZoneSet";
-        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
+        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":name";
+        var userStatusInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":status";
 
         _redisClient
             .multi()
             .srem(zoneUserSetKey, userId)
             .srem(userZoneSetKey, zoneId)
             .del(userNameInZoneKey)
+            .del(userStatusInZoneKey)
             .exec(function(err, result){
                 if (err){
                     callback(err, result);
@@ -111,14 +113,32 @@ exports.RedisDatabase = (function(){
     };
 
     RedisDatabase.prototype.getUserName = function (zoneId, userId, callback){
-        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
-        this.redisClient.get(userNameInZoneKey, callback);
+        this.getUserProperty(zoneId, userId, 'name', callback);
     }
 
     RedisDatabase.prototype.setUserName = function (zoneId, userId, userName, callback){
-        var userNameInZoneKey = "Zone:" + zoneId + ":User:" + userId + ":Name";
-        this.redisClient.set(userNameInZoneKey, userName, callback);
+        this.setUserProperty(zoneId, userId, 'name', userName, callback);
     }
+
+    RedisDatabase.prototype.getUserProperty = function (zoneId, userId, propertyName, callback){
+        var key = "Zone:" + zoneId + ":User:" + userId + ":" + propertyName;
+        this.redisClient.get(key, callback);
+    }
+
+    RedisDatabase.prototype.getUserProperties = function (zoneId, userId, propertyNames, callback){
+        if (propertyNames && Array.isArray(propertyNames)){
+            var keys = propertyNames.map(function(name){return "Zone:" + zoneId + ":User:" + userId + ":" + name;});
+            this.redisClient.mget(keys, callback);
+        }
+        else{
+            callback('bad property name', []);
+        }
+    }
+
+    RedisDatabase.prototype.setUserProperty = function(zoneId, userId, propertyName, value, callback){
+        var key = "Zone:" + zoneId + ":User:" + userId + ":" + propertyName;
+        this.redisClient.set(key, value, callback);
+    };
 
     RedisDatabase.prototype.getUsersFromZone = function(zoneId, callback){
         var _redisClient = this.redisClient;
@@ -130,32 +150,61 @@ exports.RedisDatabase = (function(){
                 callback(err, []);
             }
             else{
+                var userProperties = ['name', 'status'];
                 var multi = _redisClient.multi();
-                userIds.forEach(function(item){multi.hgetall('UserHash:'+item);});
+                userIds.forEach((function(userId){
+                    multi.mget(userProperties.map(function(property){return "Zone:" + zoneId + ":User:" + userId + ":" + property;}));
+                }));
                 multi.exec(function(err, replies){
-                    if (err){
-                        callback(err, replies);
+                    if (!err && userIds.length === replies.length){
+                        var index = 0;
+                        var users = userIds.map(function(userId){
+                            var user = {
+                                id : userId
+                            }
+                            for (var i in userProperties){
+                                user[userProperties[i]] = replies[index][i];
+                            }
+                            index++;
+                            return user;
+                        });
+
+                        callback(err, users);
                     }
                     else{
-                        if (userIds.length === replies.length){
-                            for (var i = 0; i < userIds.length; ++i){
-                                replies[i] = {id:userIds[i]};
-                            }
-                        }
-                        var userNameKeys = userIds.map(function(item){ return "Zone:" + zoneId + ":User:" + item + ":Name" });
-                        _redisClient.mget(userNameKeys, function(err, names){
-                            if(err || replies.length != names.length){
-                                callback(err, names);
-                            }
-                            else{
-                                for (var i = 0; i < replies.length; ++i){
-                                    replies[i].name = names[i];
-                                }
-                                callback(err, replies);
-                            }
-                        });
+                        callback(err, null);
                     }
                 });
+
+
+//                var multi = _redisClient.multi();
+//                userIds.forEach(function(item){multi.hgetall('UserHash:'+item);});
+//                multi.exec(function(err, replies){
+//                    if (err){
+//                        callback(err, replies);
+//                    }
+//                    else{
+//                        if (userIds.length === replies.length){
+//                            for (var i = 0; i < userIds.length; ++i){
+//                                replies[i] = {id:userIds[i]};
+//                            }
+//                        }
+//
+////                        _this.getUserProperties(zoneId, )
+//                        var userNameKeys = userIds.map(function(item){ return "Zone:" + zoneId + ":User:" + item + ":Name" });
+//                        _redisClient.mget(userNameKeys, function(err, names){
+//                            if(err || replies.length != names.length){
+//                                callback(err, names);
+//                            }
+//                            else{
+//                                for (var i = 0; i < replies.length; ++i){
+//                                    replies[i].name = names[i];
+//                                }
+//                                callback(err, replies);
+//                            }
+//                        });
+//                    }
+//                });
             }
         });
     };
@@ -217,73 +266,73 @@ exports.RedisDatabase = (function(){
         });
     };
 
-    RedisDatabase.prototype.setUserField = function (userId, setHash, callback){
-        this.setHashField('User', userId, setHash, callback);
-    };
+//    RedisDatabase.prototype.setUserField = function (userId, setHash, callback){
+//        this.setHashField('User', userId, setHash, callback);
+//    };
+//
+//    RedisDatabase.prototype.setZoneField = function (zoneId, setHash, callback){
+//        this.setHashField('Zone', zoneId, setHash, callback);
+//    };
 
-    RedisDatabase.prototype.setZoneField = function (zoneId, setHash, callback){
-        this.setHashField('Zone', zoneId, setHash, callback);
-    };
-
-    RedisDatabase.prototype.setHashField = function (keyPrefix, hashId, setHash, callback) {
-        if (setHash instanceof Object){
-            var _redisClient = this.redisClient;
-
-            var key = keyPrefix + "Hash:" + hashId;
-
-            var passArg = new Array();
-            passArg.push(key);
-
-            for (var setHashKey in setHash){
-                passArg.push(setHashKey);
-                passArg.push(setHash[setHashKey]);
-            }
-
-            passArg.push(callback);
-
-            _redisClient.hset.apply(this, passArg);
-        }
-        else{
-            callback("need set hash.", null);
-        }
-    };
-
-    RedisDatabase.prototype.getOrCreateHash = function (keyPrefix, id, callback) {
-        var _redisClient = this.redisClient;
-        var key = keyPrefix + "Hash:" + id;
-        _redisClient.exists(key, function (err, isExists){
-            if (err) {
-                callback(err, null);
-            }
-
-            if (isExists) {
-                _redisClient.hgetall(key, function (err, hash){
-                    if (!err) {
-                        hash['id'] = id;
-                    }
-
-                    callback(err, hash);
-                });
-            }
-            else {
-                // initial User
-                _redisClient.hmset(key, "createTime", (new Date()).getTime(), function(err, result){
-                    if (err) {
-                        callback(err, result);
-                    }
-                    else{
-                        _redisClient.hgetall(key, function (err, hash){
-                            if (!err) {
-                                hash['id'] = id;
-                            }
-
-                            callback(err, hash);
-                        });
-                    }
-                });
-            }
-        });
-    };
+//    RedisDatabase.prototype.setHashField = function (keyPrefix, hashId, setHash, callback) {
+//        if (setHash instanceof Object){
+//            var _redisClient = this.redisClient;
+//
+//            var key = keyPrefix + "Hash:" + hashId;
+//
+//            var passArg = new Array();
+//            passArg.push(key);
+//
+//            for (var setHashKey in setHash){
+//                passArg.push(setHashKey);
+//                passArg.push(setHash[setHashKey]);
+//            }
+//
+//            passArg.push(callback);
+//
+//            _redisClient.hset.apply(this, passArg);
+//        }
+//        else{
+//            callback("need set hash.", null);
+//        }
+//    };
+//
+//    RedisDatabase.prototype.getOrCreateHash = function (keyPrefix, id, callback) {
+//        var _redisClient = this.redisClient;
+//        var key = keyPrefix + "Hash:" + id;
+//        _redisClient.exists(key, function (err, isExists){
+//            if (err) {
+//                callback(err, null);
+//            }
+//
+//            if (isExists) {
+//                _redisClient.hgetall(key, function (err, hash){
+//                    if (!err) {
+//                        hash['id'] = id;
+//                    }
+//
+//                    callback(err, hash);
+//                });
+//            }
+//            else {
+//                // initial User
+//                _redisClient.hmset(key, "createTime", (new Date()).getTime(), function(err, result){
+//                    if (err) {
+//                        callback(err, result);
+//                    }
+//                    else{
+//                        _redisClient.hgetall(key, function (err, hash){
+//                            if (!err) {
+//                                hash['id'] = id;
+//                            }
+//
+//                            callback(err, hash);
+//                        });
+//                    }
+//                });
+//            }
+//        });
+//    };
 
     return RedisDatabase;
 })();

@@ -140,6 +140,20 @@ $(function () {
                 writeSystemMessage(removedUser.name + ' out.', 'info');
             }
         });
+
+        connection.on('userPropertyChanged', function(data){
+            var targetUser = client.getUser(data.user.id);
+            if (targetUser && data.property && data.property.name)
+            {
+                var oldValue = targetUser[data.property.name];
+
+                if (oldValue !== data.property.value){
+                    targetUser[data.property.name] = data.property.value;
+
+                    writeSystemMessage(targetUser.name + '\'s ' + data.property.name  +' changed ' + oldValue + ' → ' + data.property.value, 'info');
+                }
+            }
+        });
     }
 
     function joinZone(){
@@ -279,6 +293,11 @@ $(function () {
     $('#saveChangeNameButton').click(function(){
         setName($('#changeNameInput').val());
         connection.emit('changeName', client.me.name);
+    });
+
+    $('#leaveZoneModalButton').click(function(){
+        connection.emit('leaveZone');
+        location.href = location.origin + '/status';
     });
 
     /**

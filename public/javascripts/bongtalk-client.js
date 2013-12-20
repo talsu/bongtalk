@@ -8,6 +8,7 @@ var TalkUser = (function () {
     function TalkUser(id, name) {
         this.id = id;
         this.name = name;
+        this.status = 'online';
     }
 
     TalkUser.prototype.getSimpleUser = function() {
