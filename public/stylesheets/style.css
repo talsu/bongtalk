@@ -84,6 +84,12 @@ nav.navbar.navbar-default.navbar-fixed-bottom
     float: right;
 }
 
+.bubble--alt a {
+    color: white;
+    text-decoration:underline;
+}
+
+
 /*.bubble--alt:before {*/
 /*border-bottom-color: rgba(0, 0, 0, 0.5);*/
 /*border-radius: 20px / 10px;*/

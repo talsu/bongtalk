@@ -228,6 +228,10 @@ $(function () {
      */
     function addMessage(messageObject) {
 
+        if (messageObject && messageObject.message){
+            messageObject.message = replaceURLWithHTMLLinks(messageObject.message);
+        }
+
         if (lastMessageElement
             && client.lastMessage
             && client.lastMessage.user.id === messageObject.user.id
@@ -273,6 +277,12 @@ $(function () {
         return (dateTime.getHours() < 10 ? '0' + dateTime.getHours() : dateTime.getHours())
             + ':' +
         (dateTime.getMinutes() < 10 ? '0' + dateTime.getMinutes() : dateTime.getMinutes());
+    }
+
+    function replaceURLWithHTMLLinks(text)
+    {
+        var exp = /(\b(https?|ftp|file):\/\/[-A-Z0-9+&@#\/%?=~_|!:,.;]*[-A-Z0-9+&@#\/%=~_|])/ig;
+        return text.replace(exp,"<a href='$1' target=\"_blank\">$1</a>");
     }
 
 
