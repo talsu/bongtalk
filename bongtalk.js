@@ -92,7 +92,7 @@ exports.BongTalk = (function () {
             var sessionHasId = (session && session.hasOwnProperty('userId'));
             var thisUser = new Object({
                 id: sessionHasId? session.userId : Guid.create().value,
-                zoneId: (socket.handshake.query) ? socket.handshake.query.zoneId : 'default',
+                channelId: (socket.handshake.query) ? socket.handshake.query.channelId : 'default',
                 socket:socket,
                 session:session.id
             });
@@ -105,36 +105,36 @@ exports.BongTalk = (function () {
             }
 
             util.log("user '" + thisUser.id + "' connected");
-            _this.database.getUserName(thisUser.zoneId, thisUser.id, function(err, name){
+            _this.database.getUserName(thisUser.channelId, thisUser.id, function(err, name){
                 var user = {id : thisUser.id, name: name};
                 util.log('sendProfile : ' + util.inspect(user));
                 socket.emit('sendProfile', user);
             });
 
-            socket.on('joinZone', function(data) {
-                util.log('joinZone');
+            socket.on('joinChannel', function(data) {
+                util.log('joinChannel');
                 async.parallel({
-                    connectedUsers: function(callback){_this.database.getUsersFromZone(data.zoneId, callback);},
-                    history: function(callback){_this.database.getTalkHistory(data.zoneId, callback);}
+                    connectedUsers: function(callback){_this.database.getUsersFromChannel(data.channelId, callback);},
+                    history: function(callback){_this.database.getTalkHistory(data.channelId, callback);}
                 },
                 function(err, result){
-                    socket.emit('sendZoneInfo', result);
+                    socket.emit('sendChannelInfo', result);
                     async.waterfall([
                         function(callback){
-                            _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, callback);
+                            _this.database.addUserToChannel(data.channelId, data.user.id, data.user.name, callback);
                         },
                         function(result, callback){
-                            _this.changeAndPublishUserProperty(data.zoneId, data.user.id, 'status', 'online', callback);
+                            _this.changeAndPublishUserProperty(data.channelId, data.user.id, 'status', 'online', callback);
                         },
                         function(result, callback){
-                            _this.database.setUserName(data.zoneId, data.user.id, data.user.name, callback);
+                            _this.database.setUserName(data.channelId, data.user.id, data.user.name, callback);
                         }
                     ],
                     function(err){
                         if (!err){
                             thisUser.name = data.user.name;
                             _this.connectedUsers[socket.id] = thisUser;
-                            _this.publishEventToZone(data.zoneId, 'newUser', data.user);
+                            _this.publishEventToChannel(data.channelId, 'newUser', data.user);
                         }
                     });
                 });
@@ -150,12 +150,12 @@ exports.BongTalk = (function () {
                         name: thisUser.name
                     }
                 };
-                _this.database.addTalkHistory(thisUser.zoneId, talk);
-                _this.publishEventToZone(thisUser.zoneId, 'sendMessage', talk);
+                _this.database.addTalkHistory(thisUser.channelId, talk);
+                _this.publishEventToChannel(thisUser.channelId, 'sendMessage', talk);
             });
 
             socket.on('changeName', function(name){
-                _this.changeAndPublishUserProperty(thisUser.zoneId, thisUser.id, 'name', name, function(err){
+                _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'name', name, function(err){
                     if (!err){
                         thisUser.name = name;
                     }
@@ -168,26 +168,26 @@ exports.BongTalk = (function () {
                 delete _this.connectedUsers[socket.id];
 
                 if (!isLeaved) {
-                    _this.changeAndPublishUserProperty(thisUser.zoneId, thisUser.id, 'status', 'offline');
+                    _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'status', 'offline');
                 }
             });
 
-            socket.on('leaveZone', function(){
+            socket.on('leaveChannel', function(){
                 socket['isLeaved'] = true;
-                _this.database.removeUserFromZone(thisUser.zoneId, thisUser.id, function(err){
+                _this.database.removeUserFromChannel(thisUser.channelId, thisUser.id, function(err){
                     if (!err){
-                        _this.publishEventToZone(thisUser.zoneId, 'removeUser', {id:thisUser.id, name:thisUser.name});
+                        _this.publishEventToChannel(thisUser.channelId, 'removeUser', {id:thisUser.id, name:thisUser.name});
                     }
                 });
             });
         });
     }
 
-    BongTalk.prototype.changeAndPublishUserProperty = function(zoneId, userId, propertyName, propertyValue, callback){
+    BongTalk.prototype.changeAndPublishUserProperty = function(channelId, userId, propertyName, propertyValue, callback){
         var _this = this;
-        _this.database.setUserProperty(zoneId, userId, propertyName, propertyValue, function(err, result){
+        _this.database.setUserProperty(channelId, userId, propertyName, propertyValue, function(err, result){
             if (!err){
-                _this.publishEventToZone(zoneId, 'userPropertyChanged', {user:{id:userId}, property:{name:propertyName, value:propertyValue}});
+                _this.publishEventToChannel(channelId, 'userPropertyChanged', {user:{id:userId}, property:{name:propertyName, value:propertyValue}});
             }
 
             if (callback){
@@ -196,18 +196,18 @@ exports.BongTalk = (function () {
         });
     }
 
-    BongTalk.prototype.publishEventToZone = function(zoneId, eventName, message){
-        this.pub.publish('bongtalk:eventToZone', JSON.stringify({zoneId: zoneId, eventName : eventName, message : message}));
+    BongTalk.prototype.publishEventToChannel = function(channelId, eventName, message){
+        this.pub.publish('bongtalk:eventToChannel', JSON.stringify({channelId: channelId, eventName : eventName, message : message}));
     };
 
-    BongTalk.prototype.publishEventToUser = function(zoneId, userId, eventName, message){
-        this.pub.publish('bongtalk:eventToUser', JSON.stringify({zoneId:zoneId, userId:userId, eventName : eventName, message : message}));
+    BongTalk.prototype.publishEventToUser = function(channelId, userId, eventName, message){
+        this.pub.publish('bongtalk:eventToUser', JSON.stringify({channelId:channelId, userId:userId, eventName : eventName, message : message}));
     };
 
     BongTalk.prototype.subscribeRedis = function(){
         var _this = this;
 
-        this.sub.subscribe('bongtalk:eventToZone');
+        this.sub.subscribe('bongtalk:eventToChannel');
         this.sub.subscribe('bongtalk:eventToUser');
 
         this.sub.on('message', function (channel, event){
@@ -218,10 +218,10 @@ exports.BongTalk = (function () {
 
             switch (channel)
             {
-                case "bongtalk:eventToZone" :
+                case "bongtalk:eventToChannel" :
                     for (var key in _this.connectedUsers){
                         var connection = _this.connectedUsers[key];
-                        if (connection.zoneId === eventObj.zoneId){
+                        if (connection.channelId === eventObj.channelId){
                             connection.socket.emit(eventObj.eventName, eventObj.message);
                         }
                     }
@@ -229,7 +229,7 @@ exports.BongTalk = (function () {
                 case "bongtalk:eventToUser" :
                     for (var key in _this.connectedUsers){
                         var connection = _this.connectedUsers[key];
-                        if (connection.zoneId === eventObj.zoneId && connection.id === eventObj.userId){
+                        if (connection.channelId === eventObj.channelId && connection.id === eventObj.userId){
                             connection.socket.emit(eventObj.eventName, eventObj.message);
                             break;
                         }

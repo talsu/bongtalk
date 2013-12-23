@@ -10,10 +10,10 @@ $(function () {
     var status = $('#status');
 
     client.me.name = getURLParameter('username');
-    client.zoneId = getURLParameter('zone');
-    client.zoneId = client.zoneId ? client.zoneId : 'default';
+    client.channelId = getURLParameter('channel');
+    client.channelId = client.channelId ? client.channelId : 'default';
 
-    var usernameStoragePath = 'bongtalk({zone=' + client.zoneId + '}).savedName';
+    var usernameStoragePath = 'bongtalk({channel=' + client.channelId + '}).savedName';
 
     var reconnected = false;
     // open connection
@@ -25,8 +25,8 @@ $(function () {
         }
 
         var socketUrl = 'http://' + location.host;
-        if (client.zoneId){
-            socketUrl = socketUrl + '?zoneId=' + client.zoneId;
+        if (client.channelId){
+            socketUrl = socketUrl + '?channelId=' + client.channelId;
         }
         connection = io.connect(socketUrl,{
             'max reconnection attempts' : Infinity
@@ -48,13 +48,13 @@ $(function () {
             client.me.id = data.id;
 
             if (reconnected) {
-                joinZone();
+                joinChannel();
             }
             else {
                 if (data.name) {
                     // session 에 저장되었던 name 사용.
                     setName(data.name);
-                    joinZone();
+                    joinChannel();
                 }
                 else {
                     // 이름을 결정한 뒤 Join 하라.
@@ -89,7 +89,7 @@ $(function () {
             }
         });
 
-        connection.on('sendZoneInfo',function(data){
+        connection.on('sendChannelInfo',function(data){
             //history 로드
             if (data.history){
                 data.history.forEach(function(item){
@@ -156,8 +156,8 @@ $(function () {
         });
     }
 
-    function joinZone(){
-        connection.emit('joinZone', {user:client.me.getSimpleUser(), zoneId:client.zoneId});
+    function joinChannel(){
+        connection.emit('joinChannel', {user:client.me.getSimpleUser(), channelId:client.channelId});
     }
 
     function onDisconnect() {
@@ -168,7 +168,7 @@ $(function () {
 
     $('#loginNewNameButton').click(function(){
         setName($('#loginNameInput').val());
-        joinZone();
+        joinChannel();
     });
 
     function setName(newName){
@@ -298,7 +298,7 @@ $(function () {
     $('#loginSavedNameButton').click(function(){
         $('#changeNameInput').val(localStorage[usernameStoragePath]);
         setName(localStorage[usernameStoragePath]);
-        joinZone();
+        joinChannel();
     });
 
     $('#saveChangeNameButton').click(function(){
@@ -306,8 +306,8 @@ $(function () {
         connection.emit('changeName', client.me.name);
     });
 
-    $('#leaveZoneModalButton').click(function(){
-        connection.emit('leaveZone');
+    $('#leaveChannelModalButton').click(function(){
+        connection.emit('leaveChannel');
         location.href = location.origin + '/status';
     });
 

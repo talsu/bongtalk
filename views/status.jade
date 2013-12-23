@@ -36,11 +36,11 @@ head
                     p instance id : #{binder.bongtalk.id}
                     p Service port : #{binder.bongtalk.servicePort.toString()}
                     p Redis DB url : #{binder.bongtalk.redisUrl}
-            for zone in binder.getZones()
+            for channel in binder.getChannels()
                 .row.clearfix
                     .col-md-12.column
-                        h2 Zone - #{zone.id}
-                        for user in binder.getUsers(zone.id)
+                        h2 Channel - #{channel.id}
+                        for user in binder.getUsers(channel.id)
                             .row.clearfix
                                 .col-md-12.column
                                     h3 #{user.name}
