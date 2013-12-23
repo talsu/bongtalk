@@ -172,7 +172,7 @@ exports.RedisDatabase = (function(){
                         callback(err, users);
                     }
                     else{
-                        callback(err, null);
+                        callback(err, []);
                     }
                 });
             }

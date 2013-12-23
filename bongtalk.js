@@ -12,6 +12,9 @@ var util = require('util');
 var redis = require("redis");
 var Guid = require('guid');
 var models = require('./models');
+
+var async = require('async');
+
 var RedisDatabase = models.RedisDatabase;
 var JadeDataBinder = models.JadeDataBinder;
 
@@ -88,7 +91,7 @@ exports.BongTalk = (function () {
 
             var sessionHasId = (session && session.hasOwnProperty('userId'));
             var thisUser = new Object({
-                id:  sessionHasId? session.userId : Guid.create().value,
+                id: sessionHasId? session.userId : Guid.create().value,
                 zoneId: (socket.handshake.query) ? socket.handshake.query.zoneId : 'default',
                 socket:socket,
                 session:session.id
@@ -110,36 +113,36 @@ exports.BongTalk = (function () {
 
             socket.on('joinZone', function(data) {
                 util.log('joinZone');
-                _this.database.getUsersFromZone(data.zoneId, function(err, users){
-                    var zoneInfo = {connectedUsers:[], history:[]};
-                    if (!err){
-                        zoneInfo.connectedUsers = users;
-                    }
-                    _this.database.getTalkHistory(data.zoneId, function(err, history){
-                        if (!err){
-                           zoneInfo.history = history;
+                async.parallel({
+                    connectedUsers: function(callback){_this.database.getUsersFromZone(data.zoneId, callback);},
+                    history: function(callback){_this.database.getTalkHistory(data.zoneId, callback);}
+                },
+                function(err, result){
+                    socket.emit('sendZoneInfo', result);
+                    async.waterfall([
+                        function(callback){
+                            _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, callback);
+                        },
+                        function(result, callback){
+                            _this.changeAndPublishUserProperty(data.zoneId, data.user.id, 'status', 'online', callback);
+                        },
+                        function(result, callback){
+                            _this.database.setUserName(data.zoneId, data.user.id, data.user.name, callback);
                         }
-                        socket.emit('sendZoneInfo', zoneInfo);
-
-                        _this.database.addUserToZone(data.zoneId, data.user.id, data.user.name, function(err){
-                            if (!err){
-                                _this.database.setUserName(data.zoneId, data.user.id, data.user.name, function(err){
-                                    if (!err){
-                                        thisUser.name = data.user.name;
-                                        _this.connectedUsers[socket.id] = thisUser;
-                                        _this.publishEventToZone(data.zoneId, 'newUser', data.user);
-                                    }
-                                });
-                            }
-                        });
-                        _this.changeAndPublishUserProperty(data.zoneId, data.user.id, 'status', 'online');
+                    ],
+                    function(err){
+                        if (!err){
+                            thisUser.name = data.user.name;
+                            _this.connectedUsers[socket.id] = thisUser;
+                            _this.publishEventToZone(data.zoneId, 'newUser', data.user);
+                        }
                     });
                 });
             });
 
             socket.on('sendMessage', function(data){
                 var talk = {
-                    id:  Guid.create().value,
+                    id: Guid.create().value,
                     time: (new Date()).getTime(),
                     message: data,
                     user: {
@@ -157,12 +160,6 @@ exports.BongTalk = (function () {
                         thisUser.name = name;
                     }
                 });
-//                _this.database.setUserName(thisUser.zoneId, thisUser.id, name, function(err){
-//                    if (!err){
-//                        thisUser.name = name;
-//                        _this.publishEventToZone(thisUser.zoneId, 'changeName', {id:thisUser.id, name:thisUser.name});
-//                    }
-//                });
             });
 
             socket.on('disconnect', function(){
