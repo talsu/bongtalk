@@ -62,12 +62,22 @@ exports.BongTalk = (function () {
         }
 
         app.get('/', routes.index);
+
+        var channelAlias = ['channel', 'ch', 'zone'];
+        channelAlias.forEach(function(alias){app.get('/' + alias + '/:channel', function(req, res){
+            res.render('channel', { channel: req.params.channel });
+        });});
+        channelAlias.forEach(function(alias){app.get('/' + alias, function(req, res){
+            res.render('channel', { channel: 'default' });
+        });});
+
         app.get('/status', function(req, res){
             var binder = new JadeDataBinder(_this);
             binder.loadData(function(){
                 res.render('status', { binder: binder });
             });
         });
+
 
         var server = http.createServer(app);
         server.listen(app.get('port'), function () {

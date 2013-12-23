@@ -20,7 +20,7 @@ var TalkUser = (function () {
 
 var TalkClient = (function () {
     function TalkClient() {
-        this.zoneId = null;
+        this.channelId = null;
         this.me = new TalkUser(null, null);
         this.others = [];
         this.lastMessage = null;

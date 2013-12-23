@@ -10,8 +10,7 @@ $(function () {
     var status = $('#status');
 
     client.me.name = getURLParameter('username');
-    client.channelId = getURLParameter('channel');
-    client.channelId = client.channelId ? client.channelId : 'default';
+    client.channelId = channel || 'default';
 
     var usernameStoragePath = 'bongtalk({channel=' + client.channelId + '}).savedName';
 
