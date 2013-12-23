@@ -61,7 +61,9 @@ exports.BongTalk = (function () {
             app.use(express.errorHandler());
         }
 
-        app.get('/', routes.index);
+        app.get('/', function(req, res){
+            res.render('channel', { channel: 'default' });
+        });
 
         var channelAlias = ['channel', 'ch', 'zone'];
         channelAlias.forEach(function(alias){app.get('/' + alias + '/:channel', function(req, res){
