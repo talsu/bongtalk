@@ -262,7 +262,7 @@ $(function () {
 
     function createOthersMessageElement(id, userId, username, message, dateTime) {
         return '<div id="m'+ id +'" class="sender userId'+ userId +'">' +
-            '<img class="sender_img" src="image/avatar-blank.jpg" />' +
+            '<img class="sender_img" src="/image/avatar-blank.jpg" />' +
             '<div class="sender_content">' +
             '<span class="sender_name">' + username + '</span>' +
             '<div class="bubble">' +
