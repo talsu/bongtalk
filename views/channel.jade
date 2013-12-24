@@ -51,7 +51,7 @@ head
                                 li
                                     a#openChangeNamePopup(href='#changeNameModal', data-toggle='modal') Change name
                                 li
-                                    a#openLeaveZonePopup(href='#leaveZoneModal', data-toggle='modal') Leave
+                                    a#openLeaveChannelPopup(href='#leaveChannelModal', data-toggle='modal') Leave
                                 //li.dropdown
                                 //    a.dropdown-toggle(href='#', data-toggle='dropdown') setting
                                 //        strong.caret
@@ -91,15 +91,15 @@ head
                                 .modal-footer
                                     button#loginSavedNameButton.btn.btn-default(type='button', data-dismiss='modal') Use saved name
                                     button#loginNewNameButton.btn.btn-primary(type='button', data-dismiss='modal') Log in
-                    #leaveZoneModal.modal.fade(role='dialog', aria-labelledby='leaveZoneModalLabel', aria-hidden='true')
+                    #leaveChannelModal.modal.fade(role='dialog', aria-labelledby='leaveChannelModalLabel', aria-hidden='true')
                         .modal-dialog
                             .modal-content
                                 .modal-header
                                     button.close(type='button', data-dismiss='modal', aria-hidden='true') ×
-                                    h4#leaveZoneModalLabel.modal-title Leave this chat?
+                                    h4#leaveChannelModalLabel.modal-title Leave this chat?
                                 .modal-body
                                     p Log out this session.
                                 .modal-footer
                                     button.btn.btn-default(type='button', data-dismiss='modal') Cancel
-                                    button#leaveZoneModalButton.btn.btn-primary(type='button', data-dismiss='modal') Leave
+                                    button#leaveChannelModalButton.btn.btn-primary(type='button', data-dismiss='modal') Leave
                     #chatMessages

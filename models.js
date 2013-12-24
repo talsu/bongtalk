@@ -51,6 +51,27 @@ exports.JadeDataBinder = (function(){
         return [];
     };
 
+    JadeDataBinder.prototype.arrayToGroup = function(array, groupSize){
+
+        var result = [];
+        var line = [];
+        result.push(line);
+        for (var i = 0; i < array.length; ++i){
+            if (i % groupSize === groupSize - 1){
+                line.push(array[i]);
+                line = [];
+                result.push(line);
+            }
+            else{
+                line.push(array[i]);
+            }
+        }
+
+        return result;
+    };
+
+
+
     return JadeDataBinder;
 })();
 

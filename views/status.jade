@@ -8,7 +8,7 @@ head
     meta(name='author', content='')
     //link(href='/bootstrap/css/bootstrap.min.css', rel='stylesheet')
     link(href='/bootstrap/css/bootstrap.css', rel='stylesheet')
-    //link(href='stylesheets/style.css', rel='stylesheet')
+    link(href='/stylesheets/status.css', rel='stylesheet')
     //
        HTML5 shim, for IE6-8 support of HTML5 elements
     //if lt IE 9
@@ -21,6 +21,7 @@ head
     link(rel='apple-touch-icon-precomposed', href='img/apple-touch-icon-57-precomposed.png')
     script(src='http://code.jquery.com/jquery.js')
     script(type='text/javascript', src='/bootstrap/js/bootstrap.min.js')
+    script(type='text/javascript', src='/javascripts/status.js')
     body
         .container
             .row.clearfix
@@ -37,56 +38,22 @@ head
                     p Service port : #{binder.bongtalk.servicePort.toString()}
                     p Redis DB url : #{binder.bongtalk.redisUrl}
             for channel in binder.getChannels()
-                .row.clearfix
+                .well.well-user-group.row.clearfix(id='group-well-' + channel.id)
                     .col-md-12.column
-                        h2 Channel - #{channel.id}
-                        for user in binder.getUsers(channel.id)
+                        h4 Channel - #{channel.id}
+                        each line in binder.arrayToGroup(binder.getUsers(channel.id),3)
                             .row.clearfix
-                                .col-md-12.column
-                                    h3 #{user.name}
-                                    p id: #{user.id}
-                                    p status : #{user.status}
-                            //if user.index % 3 == 0
-                            //    .row.clearfix
-                            //        .col-md-4.column
-                            //            h3 #{user.name}
-                            //            p #{user.jsonString}
-                            //else
-                            //        .col-md-4.column
-                            //            h3 #{user.name}
-                            //            p #{user.jsonString}
-            //.row.clearfix
-            //    .col-md-12.column
-            //        h2 Lorem ipsum dolor sit amet.
-            //        .row.clearfix
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
-            //        .row.clearfix
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
-            //            .col-md-4.column
-            //                h3 Heading
-            //                p Donec id elit non mi porta gravida at eget metus. Fusce dapibus, tellus ac cursus commodo, tortor mauris condimentum nibh, ut fermentum massa justo sit amet risus. Etiam porta sem malesuada magna mollis euismod. Donec sed odio dui.
-            //                p
-            //                    a.btn(href='#') View details »
+                                each user in line
+                                    mixin user(user)
+                                        strong #{user.name}
+                                        .user-id id: #{user.id}
+                                        div status : #{user.status}
+                                    if user.status === 'online'
+                                        .well.well-user-online.col-md-4.column
+                                            mixin user(user)
+                                    else
+                                        .well.col-md-4.column
+                                            mixin user(user)
+                                            button.btn.btn-danger.btn-xs.btn-user-kick(id=user.id, type='button') Kick
+
+

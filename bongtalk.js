@@ -80,6 +80,10 @@ exports.BongTalk = (function () {
             });
         });
 
+        app.get('/api/:api', function(req, res){
+            _this.runApi(req, res);//.apply(_this, [req, res]);
+        });
+
 
         var server = http.createServer(app);
         server.listen(app.get('port'), function () {
@@ -270,6 +274,55 @@ exports.BongTalk = (function () {
         else{
             return redis.createClient();
         }
+    };
+
+    BongTalk.prototype.runApi = function(req, res){
+        var _this = this;
+        var method = req.params.api;
+        var query = req.query;
+        switch (method){
+            case 'kick':
+                if (query.channel && query.user){
+                    async.waterfall([
+                        function(callback){
+                            _this.database.getUserProperty(query.channel, query.user, 'status', function(err, result){
+                                if (result === 'online'){
+                                    callback('user is not offline');
+                                }
+                                else{
+                                    callback(err);
+                                }
+                            });
+                        },
+                        function(callback){
+                            _this.database.getUserName(query.channel, query.user, callback);
+                        },
+                        function(name, callback){
+                            _this.database.removeUserFromChannel(query.channel,  query.user, function(err){
+                                callback(err, name);
+                            });
+                        },
+                        function(name, callback){
+                            _this.publishEventToChannel(query.channel, 'removeUser', {id: query.user, name:name});
+                            callback(null);
+                        }
+                    ],
+                    function(err){
+                        if (err){
+                            res.send('err : ' + util.inspect(err));
+                        }
+                        else{
+                            res.send('ok');
+                        }
+                    });
+                }
+                else{
+                    res.send('fail');
+                }
+                break;
+            default:
+                res.send('Not exist api : ' + method);
+        };
     };
 
     return BongTalk;
