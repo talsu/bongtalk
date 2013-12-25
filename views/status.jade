@@ -48,6 +48,7 @@ head
                                         strong #{user.name}
                                         .user-id id: #{user.id}
                                         div status : #{user.status}
+                                        div connection count : #{user.connectionCount}
                                     if user.status === 'online'
                                         .well.well-user-online.col-md-4.column
                                             mixin user(user)

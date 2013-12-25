@@ -83,7 +83,7 @@ $(function () {
         });
 
         connection.on('newUser', function(data){
-            if (client.addUser(new TalkUser(data.id, data.name))){
+            if (client.addUser(new TalkUser(data.id, data.name, data.connectionCount))){
                 writeSystemMessage(data.name + ' joined.', 'info');
             }
         });
@@ -100,7 +100,7 @@ $(function () {
             // 사용자 list 초기화
             if (data.connectedUsers){
                 data.connectedUsers.forEach(function(item) {
-                    client.addUser(new TalkUser(item.id, item.name));
+                    client.addUser(new TalkUser(item.id, item.name, item.connectionCount));
                 });
             }
 

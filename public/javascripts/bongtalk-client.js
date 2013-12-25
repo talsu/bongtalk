@@ -5,10 +5,11 @@
  */
 
 var TalkUser = (function () {
-    function TalkUser(id, name) {
+    function TalkUser(id, name, connectionCount) {
         this.id = id;
         this.name = name;
         this.status = 'online';
+        this.connectionCount = connectionCount;
     }
 
     TalkUser.prototype.getSimpleUser = function() {

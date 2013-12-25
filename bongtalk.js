@@ -121,10 +121,17 @@ exports.BongTalk = (function () {
             }
 
             util.log("user '" + thisUser.id + "' connected");
-            _this.database.getUserName(thisUser.channelId, thisUser.id, function(err, name){
-                var user = {id : thisUser.id, name: name};
-                util.log('sendProfile : ' + util.inspect(user));
-                socket.emit('sendProfile', user);
+//            _this.database.getUserName(thisUser.channelId, thisUser.id, function(err, name){
+//                var user = {id : thisUser.id, name: name};
+//                util.log('sendProfile : ' + util.inspect(user));
+//                socket.emit('sendProfile', user);
+//            });
+            _this.database.getUserFromChannel(thisUser.channelId, thisUser.id, function(err, user){
+                var profile = user;
+                if (err){
+                    profile = {id:thisUser.id};
+                }
+                socket.emit('sendProfile', profile);
             });
 
             socket.on('joinChannel', function(data) {
@@ -143,6 +150,13 @@ exports.BongTalk = (function () {
                             _this.changeAndPublishUserProperty(data.channelId, data.user.id, 'status', 'online', callback);
                         },
                         function(result, callback){
+                            _this.database.increaseConnectionCount(data.channelId, data.user.id, callback);
+                        },
+                        function(result, callback){
+                            _this.publishEventToChannel(data.channelId, 'userPropertyChanged', {user:{id:data.user.id}, property:{name:'connectionCount', value:result}});
+                            callback(null);
+                        },
+                        function(callback){
                             _this.database.setUserName(data.channelId, data.user.id, data.user.name, callback);
                         }
                     ],
@@ -184,6 +198,15 @@ exports.BongTalk = (function () {
                 delete _this.connectedUsers[socket.id];
 
                 if (!isLeaved) {
+                    async.waterfall([
+                        function(callback){
+                            _this.database.decreaseConnectionCount(thisUser.channelId, thisUser.id, callback);
+                        },
+                        function(result, callback){
+                            _this.publishEventToChannel(thisUser.channelId, 'userPropertyChanged', {user:{id:thisUser.id}, property:{name:'connectionCount', value:result}});
+                            callback(null);
+                        }
+                    ]);
                     _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'status', 'offline');
                 }
             });
