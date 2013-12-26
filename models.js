@@ -218,21 +218,6 @@ exports.RedisDatabase = (function(){
                 callback(null, user);
             }
         });
-
-        _redisClient.mget(propertyKeys, function(err, properties){
-            if (err){
-                callback(err, null);
-            }
-            else{
-                var user = {
-                    id : userId
-                }
-                for (var i in userProperties){
-                    user[userProperties[i]] = properties[i];
-                }
-                callback(null, user);
-            }
-        });
     };
 
     RedisDatabase.prototype.getUsersFromChannel = function(channelId, callback){
@@ -353,15 +338,9 @@ exports.RedisDatabase = (function(){
         this.redisClient.del(expireKey, callback);
     };
 
-    RedisDatabase.prototype.isUserOnline = function(connectionId, channelId, userId, callback){
-        this.redisClient.keys('Expire:*:Connection:' + connectionId + ':' + this.userKey(channelId, userId, 'isAlive'), function(err, result){
-            if (err || !Array.isArray(result)){
-                callback(err, result);
-            }
-            else{
-                callback(null, result.length > 0);
-            }
-        });
+    RedisDatabase.prototype.getUserConnections = function(channelId, userId, callback){
+        var expireKey = 'Expire:*:Connection:*:' + this.userKey(channelId, userId, 'isAlive');
+        this.redisClient.keys(expireKey, callback);
     };
 
     return RedisDatabase;

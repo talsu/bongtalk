@@ -149,7 +149,9 @@ $(function () {
                 if (oldValue !== data.property.value){
                     targetUser[data.property.name] = data.property.value;
 
-                    writeSystemMessage(targetUser.name + '\'s ' + data.property.name  +' changed ' + oldValue + ' → ' + data.property.value, 'info');
+                    if (data.property.name !== 'connections'){
+                        writeSystemMessage(targetUser.name + '\'s ' + data.property.name  +' changed ' + oldValue + ' → ' + data.property.value, 'info');
+                    }
                 }
             }
         });

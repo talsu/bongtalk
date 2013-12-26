@@ -16,6 +16,12 @@ var TalkUser = (function () {
         return {id:this.id, name:this.name};
     };
 
+    TalkUser.prototype.update = function(user) {
+        this.name = user.name;
+        this.status = user.status;
+        this.connections = user.connections;
+    };
+
     return TalkUser;
 })();
 
@@ -42,8 +48,14 @@ var TalkClient = (function () {
             return null;
         }
 
-        if (!this.others.some(function(item){ return item.id === user.id;}))
-        {
+        var selectedUsers = this.others.filter(function(item){return item.id === user.id;});
+
+        if (selectedUsers.length > 0){
+            // 존재한다면;
+            var selectedUser = selectedUsers[0];
+            selectedUser.update(user);
+        }
+        else{
             // 같은 ID를 가진 놈이 없다면 추가하라.
             this.others.push(user);
             return user;

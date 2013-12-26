@@ -121,11 +121,7 @@ exports.BongTalk = (function () {
             }
 
             util.log("user '" + thisUser.id + "' connected");
-//            _this.database.getUserName(thisUser.channelId, thisUser.id, function(err, name){
-//                var user = {id : thisUser.id, name: name};
-//                util.log('sendProfile : ' + util.inspect(user));
-//                socket.emit('sendProfile', user);
-//            });
+
             _this.database.getUserFromChannel(thisUser.channelId, thisUser.id, function(err, user){
                 var profile = user;
                 if (err){
@@ -197,9 +193,15 @@ exports.BongTalk = (function () {
                     async.waterfall([
                         function(callback){
                             _this.database.setUserOffline(thisUser.socket.id, thisUser.channelId, thisUser.id, callback)
+                        },
+                        function(result, callback){
+                            _this.database.getUserConnections(thisUser.channelId, thisUser.id, callback);
+                        },
+                        function(connections, callback){
+                            _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'connections', connections);
+                            callback(null);
                         }
                     ]);
-                    _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'status', 'offline');
                 }
             });
 
