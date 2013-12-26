@@ -308,16 +308,16 @@ exports.BongTalk = (function () {
             case 'kick':
                 if (query.channel && query.user){
                     async.waterfall([
-                        function(callback){
-                            _this.database.getUserConnections(query.channel, query.user, function(err, result){
-                                if (err || !Array.isArray(result) || result.length > 0){
-                                    callback('user is not offline');
-                                }
-                                else{
-                                    callback(null);
-                                }
-                            });
-                        },
+//                        function(callback){
+//                            _this.database.getUserConnections(query.channel, query.user, function(err, result){
+//                                if (err || !Array.isArray(result) || result.length > 0){
+//                                    callback('user is not offline');
+//                                }
+//                                else{
+//                                    callback(null);
+//                                }
+//                            });
+//                        },
                         function(callback){
                             _this.database.getUserName(query.channel, query.user, callback);
                         },

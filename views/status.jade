@@ -51,6 +51,7 @@ head
                                     if user.connections.length > 0
                                         .well.well-user-online.col-md-4.column
                                             mixin user(user)
+                                            button.btn.btn-danger.btn-xs.btn-user-kick(data-user=user.id, data-channel=channel.id, type='button') Kick
                                     else
                                         .well.col-md-4.column
                                             mixin user(user)
