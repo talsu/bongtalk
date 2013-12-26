@@ -76,13 +76,42 @@ exports.JadeDataBinder = (function(){
 })();
 
 exports.RedisDatabase = (function(){
-    function RedisDatabase(redisClient){
+    function RedisDatabase(redisClient, instanceId){
         this.redisClient = redisClient;
+        this.instanceId = instanceId;
+        this.expireKeyUpdateTimer = null;
     };
 
-//    RedisDatabase.prototype.getOrCreateUser = function (userId, callback) {
-//        this.getOrCreateHash('User', userId, callback);
-//    };
+    RedisDatabase.prototype.runExpireKeyUpdateTimer = function(){
+        var _this = this;
+
+        if (!_this.expireKeyUpdateTimer){
+            _this.expireKeyUpdateTimer = setInterval(function(){
+                _this.redisClient.keys('Expire:' + _this.instanceId + ':*', function(err, result){
+                    if (err || !Array.isArray(result)){
+
+                    }
+                    else{
+                        if (result.length === 0){
+                            clearInterval(_this.expireKeyUpdateTimer);
+                            _this.expireKeyUpdateTimer = null;
+                        }
+                        else{
+                            var multi = _this.redisClient.multi();
+                            for (var i in result){
+                                multi.pexpire(result[i], 10000);
+                            }
+                            multi.exec();
+                        }
+                    }
+                });
+            }, 3000);
+        }
+    };
+
+    RedisDatabase.prototype.userKey = function (channelId, userId, propertyName){
+        return "Channel:" + channelId + ":User:" + userId + ":" + propertyName;
+    };
 
     RedisDatabase.prototype.addUserToChannel = function (channelId, userId, userName, callback){
         var _redisClient = this.redisClient;
@@ -90,7 +119,7 @@ exports.RedisDatabase = (function(){
         var channelSetKey = "ChannelSet";
         var channelUserSetKey = "Channel:" + channelId + ":UserSet";
         var userChannelSetKey = "User:" + userId + ":ChannelSet";
-        var userNameInChannelKey = "Channel:" + channelId + ":User:" + userId + ":name";
+        var userNameInChannelKey = this.userKey(channelId, userId, 'name');
 
         _redisClient
             .multi()
@@ -107,9 +136,9 @@ exports.RedisDatabase = (function(){
         var channelSetKey = "ChannelSet";
         var channelUserSetKey = "Channel:" + channelId + ":UserSet";
         var userChannelSetKey = "User:" + userId + ":ChannelSet";
-        var userNameInChannelKey = "Channel:" + channelId + ":User:" + userId + ":name";
-        var userStatusInChannelKey = "Channel:" + channelId + ":User:" + userId + ":status";
-        var connectionCountKey = "Channel:" + channelId + ":User:" + userId + ":connectionCount";
+        var userNameInChannelKey = this.userKey(channelId, userId, 'name');
+        var userStatusInChannelKey = this.userKey(channelId, userId, 'status');
+        var connectionCountKey = this.userKey(channelId, userId, 'connectionCount');
 
         _redisClient
             .multi()
@@ -144,13 +173,13 @@ exports.RedisDatabase = (function(){
     }
 
     RedisDatabase.prototype.getUserProperty = function (channelId, userId, propertyName, callback){
-        var key = "Channel:" + channelId + ":User:" + userId + ":" + propertyName;
-        this.redisClient.get(key, callback);
+        this.redisClient.get(this.userKey(channelId, userId, propertyName), callback);
     }
 
     RedisDatabase.prototype.getUserProperties = function (channelId, userId, propertyNames, callback){
+        var _this = this;
         if (propertyNames && Array.isArray(propertyNames)){
-            var keys = propertyNames.map(function(name){return "Channel:" + channelId + ":User:" + userId + ":" + name;});
+            var keys = propertyNames.map(function(name){return _this.userKey(channelId, userId, name);});
             this.redisClient.mget(keys, callback);
         }
         else{
@@ -159,15 +188,15 @@ exports.RedisDatabase = (function(){
     }
 
     RedisDatabase.prototype.setUserProperty = function(channelId, userId, propertyName, value, callback){
-        var key = "Channel:" + channelId + ":User:" + userId + ":" + propertyName;
-        this.redisClient.set(key, value, callback);
+        this.redisClient.set(this.userKey(channelId, userId, propertyName), value, callback);
     };
 
     RedisDatabase.prototype.getUserFromChannel = function(channelId, userId, callback){
+        var _this = this;
         var _redisClient = this.redisClient;
         var userProperties = ['name', 'status', 'connectionCount'];
 
-        var propertyKeys = userProperties.map(function(property){return "Channel:" + channelId + ":User:" + userId + ":" + property;});
+        var propertyKeys = userProperties.map(function(property){return _this.userKey(channelId, userId, property);});
         _redisClient.mget(propertyKeys, function(err, properties){
             if (err){
                 callback(err, null);
@@ -185,6 +214,7 @@ exports.RedisDatabase = (function(){
     };
 
     RedisDatabase.prototype.getUsersFromChannel = function(channelId, callback){
+        var _this = this;
         var _redisClient = this.redisClient;
 
         var channelUserSetKey = "Channel:" + channelId + ":UserSet";
@@ -197,7 +227,7 @@ exports.RedisDatabase = (function(){
                 var userProperties = ['name', 'status', 'connectionCount'];
                 var multi = _redisClient.multi();
                 userIds.forEach((function(userId){
-                    multi.mget(userProperties.map(function(property){return "Channel:" + channelId + ":User:" + userId + ":" + property;}));
+                    multi.mget(userProperties.map(function(property){return _this.userKey(channelId, userId, property);}));
                 }));
                 multi.exec(function(err, replies){
                     if (!err && userIds.length === replies.length){
@@ -281,13 +311,36 @@ exports.RedisDatabase = (function(){
     };
 
     RedisDatabase.prototype.increaseConnectionCount = function(channelId, userId, callback){
-        var connectionCountKey = "Channel:" + channelId + ":User:" + userId + ":connectionCount";
-        this.redisClient.incr(connectionCountKey, callback);
+        this.redisClient.incr(this.userKey(channelId, userId, 'connectionCount'), callback);
     };
 
     RedisDatabase.prototype.decreaseConnectionCount = function(channelId, userId, callback){
-        var connectionCountKey = "Channel:" + channelId + ":User:" + userId + ":connectionCount";
-        this.redisClient.decr(connectionCountKey, callback);
+        this.redisClient.decr(this.userKey(channelId, userId, 'connectionCount'), callback);
+    };
+
+    RedisDatabase.prototype.setUserOnline = function(connectionId, channelId, userId, callback){
+        var _this = this;
+        var expireKey = 'Expire:' + this.instanceId + ':Connection:' + connectionId + ':' + this.userKey(channelId, userId, 'isAlive');
+        this.redisClient.set(expireKey, true, function(err, result){
+            _this.runExpireKeyUpdateTimer();
+            callback(err, result);
+        });
+    };
+
+    RedisDatabase.prototype.setUserOffline = function(connectionId, channelId, userId, callback){
+        var expireKey = 'Expire:' + this.instanceId + ':Connection:' + connectionId + ':' + this.userKey(channelId, userId, 'isAlive');
+        this.redisClient.del(expireKey, callback);
+    };
+
+    RedisDatabase.prototype.isUserOnline = function(connectionId, channelId, userId, callback){
+        this.redisClient.keys('Expire:*:Connection:' + connectionId + ':' + this.userKey(channelId, userId, 'isAlive'), function(err, result){
+            if (err || !Array.isArray(result)){
+                callback(err, result);
+            }
+            else{
+                callback(null, result.length > 0);
+            }
+        });
     };
 
     return RedisDatabase;

@@ -31,7 +31,7 @@ exports.BongTalk = (function () {
         this.pub = this.createRedisClient(this.redisUrl);
         this.sub = this.createRedisClient(this.redisUrl);
         this.redisClient = this.createRedisClient(this.redisUrl)
-        this.database = new RedisDatabase(this.redisClient);
+        this.database = new RedisDatabase(this.redisClient, this.id);
         this.connectedUsers = new Object();
     }
 
@@ -147,6 +147,9 @@ exports.BongTalk = (function () {
                             _this.database.addUserToChannel(data.channelId, data.user.id, data.user.name, callback);
                         },
                         function(result, callback){
+                            _this.database.setUserOnline(thisUser.socket.id, data.channelId, data.user.id, callback)
+                        },
+                        function(result, callback){
                             _this.changeAndPublishUserProperty(data.channelId, data.user.id, 'status', 'online', callback);
                         },
                         function(result, callback){
@@ -200,6 +203,9 @@ exports.BongTalk = (function () {
                 if (!isLeaved) {
                     async.waterfall([
                         function(callback){
+                            _this.database.setUserOffline(thisUser.socket.id, thisUser.channelId, thisUser.id, callback)
+                        },
+                        function(result, callback){
                             _this.database.decreaseConnectionCount(thisUser.channelId, thisUser.id, callback);
                         },
                         function(result, callback){
