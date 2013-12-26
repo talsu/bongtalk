@@ -8,8 +8,8 @@ var TalkUser = (function () {
     function TalkUser(id, name, connections) {
         this.id = id;
         this.name = name;
-        this.status = 'online';
         this.connections = connections;
+        this.refresh();
     }
 
     TalkUser.prototype.getSimpleUser = function() {
@@ -18,8 +18,12 @@ var TalkUser = (function () {
 
     TalkUser.prototype.update = function(user) {
         this.name = user.name;
-        this.status = user.status;
         this.connections = user.connections;
+        this.refresh();
+    };
+
+    TalkUser.prototype.refresh = function(){
+        this.isAlive = Array.isArray(this.connections) && this.connections.length > 0;
     };
 
     return TalkUser;

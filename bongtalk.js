@@ -146,6 +146,13 @@ exports.BongTalk = (function () {
                             _this.database.setUserOnline(thisUser.socket.id, data.channelId, data.user.id, callback)
                         },
                         function(result, callback){
+                            _this.database.getUserConnections(thisUser.channelId, thisUser.id, callback);
+                        },
+                        function(connections, callback){
+                            _this.changeAndPublishUserProperty(thisUser.channelId, thisUser.id, 'connections', connections);
+                            callback(null);
+                        },
+                        function(callback){
                             _this.database.setUserName(data.channelId, data.user.id, data.user.name, callback);
                         },
                         function(result, callback){

@@ -138,6 +138,11 @@ $(function () {
             {
                 writeSystemMessage(removedUser.name + ' out.', 'info');
             }
+
+            if (data.id === client.me.id){
+                // 나가기!
+                location.href = location.origin + '/status';
+            }
         });
 
         connection.on('userPropertyChanged', function(data){
@@ -149,7 +154,14 @@ $(function () {
                 if (oldValue !== data.property.value){
                     targetUser[data.property.name] = data.property.value;
 
-                    if (data.property.name !== 'connections'){
+                    if (data.property.name === 'connections'){
+                        var oldIsAliveValue = targetUser.isAlive;
+                        targetUser.refresh();
+                        if(oldIsAliveValue != targetUser.isAlive){
+                            writeSystemMessage(targetUser.name + ' ' + (targetUser.isAlive ? 'online' : 'offline'), 'info');
+                        }
+                    }
+                    else{
                         writeSystemMessage(targetUser.name + '\'s ' + data.property.name  +' changed ' + oldValue + ' → ' + data.property.value, 'info');
                     }
                 }

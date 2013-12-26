@@ -4,6 +4,7 @@
 "use strict";
 
 var util = require('util');
+var async = require('async');
 
 exports.JadeDataBinder = (function(){
     function JadeDataBinder(bongtalk){
@@ -137,27 +138,36 @@ exports.RedisDatabase = (function(){
         var channelUserSetKey = "Channel:" + channelId + ":UserSet";
         var userChannelSetKey = "User:" + userId + ":ChannelSet";
         var userNameInChannelKey = this.userKey(channelId, userId, 'name');
-        var userStatusInChannelKey = this.userKey(channelId, userId, 'status');
+        var expireKey = 'Expire:*:Connection:*:' + this.userKey(channelId, userId, 'isAlive');
 
         _redisClient
             .multi()
+            .keys(expireKey)
             .srem(channelUserSetKey, userId)
             .srem(userChannelSetKey, channelId)
             .del(userNameInChannelKey)
-            .del(userStatusInChannelKey)
             .exec(function(err, result){
                 if (err){
                     callback(err, result);
                 }
                 else{
-                    _redisClient.scard(channelUserSetKey, function(err, number){
-                        if (!err && number == 0){
-                            _redisClient.srem(channelSetKey, channelId, callback);
+                    var connectionKeys = result[0];
+                    async.waterfall([
+                        function(aCallback){
+                            _redisClient.del(connectionKeys, aCallback);
+                        },
+                        function(result, aCallback){
+                            _redisClient.scard(channelUserSetKey, aCallback);
+                        },
+                        function(number, aCallback){
+                            if (number == 0){
+                                _redisClient.srem(channelSetKey, channelId, aCallback);
+                            }
+                            else{
+                                callback(null, number);
+                            }
                         }
-                        else{
-                            callback(err, number);
-                        }
-                    })
+                    ], callback);
                 }
             });
     };
@@ -192,7 +202,7 @@ exports.RedisDatabase = (function(){
     RedisDatabase.prototype.getUserFromChannel = function(channelId, userId, callback){
         var _this = this;
         var _redisClient = this.redisClient;
-        var userProperties = ['name', 'status'];
+        var userProperties = ['name'];
 
         var propertyKeys = userProperties.map(function(property){return _this.userKey(channelId, userId, property);});
         var expireKey = 'Expire:*:Connection:*:' + _this.userKey(channelId, userId, 'isAlive');
@@ -231,7 +241,7 @@ exports.RedisDatabase = (function(){
                 callback(err, []);
             }
             else{
-                var userProperties = ['name', 'status'];
+                var userProperties = ['name'];
                 var multi = _redisClient.multi();
                 userIds.forEach(function(userId){
                     multi.mget(userProperties.map(function(property){return _this.userKey(channelId, userId, property);}));
