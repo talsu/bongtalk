@@ -302,12 +302,12 @@ exports.BongTalk = (function () {
                 if (query.channel && query.user){
                     async.waterfall([
                         function(callback){
-                            _this.database.getUserProperty(query.channel, query.user, 'status', function(err, result){
-                                if (result === 'online'){
+                            _this.database.getUserConnections(query.channel, query.user, function(err, result){
+                                if (err || !Array.isArray(result) || result.length > 0){
                                     callback('user is not offline');
                                 }
                                 else{
-                                    callback(err);
+                                    callback(null);
                                 }
                             });
                         },
