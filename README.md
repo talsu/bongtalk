@@ -15,21 +15,27 @@ $ [sudo] npm install bongtalk -g
 ## Usage
 ### Execute server on command line
 ```
-Usage : bongtalk --port [num]
+Usage : bongtalk --port [num] --redisurl [url]
 
 Options:
-  --port  [required]
+  -p, --port      listen port
+  -r, --redisurl  redis url
+  --port                       [required]
 ```
 
+#### Example
 ```bash
-$ bongtalk --port 3000
+$ bongtalk --port 3000 --redisurl redis://talsu.net
 ```
+Connect web browser to http://localhost:3000
 
 ### Module
 ```javascript
 var servicePort = 3000;
+var redisUrl = 'redis://talsu.net/'; // Your redis connection url.
 
 var BongTalk = require('bongtalk').BongTalk;
-var talkServer = new BongTalk(servicePort);
+var talkServer = new BongTalk(servicePort, redisUrl);
 talkServer.start();
+// Connect web browser to http://localhost:3000
 ```
