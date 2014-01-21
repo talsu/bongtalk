@@ -21,7 +21,10 @@
   "main": "bongtalk.js",
   "devDependencies": {},
   "author": "talsu",
-  "license": "BSD-2-Clause",
+  "license": {
+        "type": "Public Domain",
+        "url": "https://raw2.github.com/talsu/bongtalk/master/LICENSE"
+  },
   "description": "BongTalk - Web chat server",
   "repository": {
     "type": "git",
