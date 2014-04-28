@@ -5,15 +5,15 @@
     "start": "node bin/bongtalk"
   },
   "dependencies": {
-    "express": "~3.4.4",
+    "express": "*",
     "jade": "*",
-    "guid": "0.0.11",
-    "socket.io": "~0.9.16",
-    "optimist": "~0.6.0",
-    "redis": "~0.9.2",
-    "connect-redis": "~1.4.6",
-    "session.socket.io": "~0.1.6",
-    "async": "~0.2.9"
+    "guid": "*",
+    "socket.io": "*",
+    "optimist": "*",
+    "redis": "*",
+    "connect-redis": "*",
+    "session.socket.io": "*",
+    "async": "*"
   },
   "bin": {
     "bongtalk": "./bin/bongtalk"
