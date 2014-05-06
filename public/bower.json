@@ -1,0 +1,26 @@
+{
+  "name": "public",
+  "version": "0.0.0",
+  "homepage": "https://github.com/talsu/bongtalk",
+  "authors": [
+    "talsu <talsu84@gmail.com>"
+  ],
+  "moduleType": [
+    "node"
+  ],
+  "license": "BSD",
+  "ignore": [
+    "**/.*",
+    "node_modules",
+    "bower_components",
+    "test",
+    "tests"
+  ],
+  "dependencies": {
+    "requirejs": "~2.1.11",
+    "bootstrap": "~3.1.1",
+    "underscore": "~1.6.0",
+    "angular": "~1.2.16",
+    "socket.io-client": "~0.9.16"
+  }
+}
