@@ -6,10 +6,16 @@ exports.SocketHandler = (function(){
 	SocketHandler.prototype.use = function(socket){
 		socket.on('connection', function(err, socket, session){
 			tools.log(session);
-			socket.emit('test', {hello : 'world'});
-			socket.on('test2', function(data){
-				console.log(data);
+			socket.on('getAllChannel', function(data){
+				tools.log('getAllChannel');
+				socket.emit('receiveAllChannel', []);
 			});
+			// socket.emit('test', {hello : 'world'});
+			// socket.on('test2', function(data){
+			// 	console.log(data);
+			// });
+
+
 		});
 	};
 

@@ -1,10 +1,43 @@
-<html>
+<!DOCTYPE html>
+<html lang="en">
 	<head>
+		<meta charset="utf-8">
+		<meta http-equiv="X-UA-Compatible" content="IE=edge">
+		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-		<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
+		
 	</head>
-<body>
-안녕!
-<p>Nothing here {{'yet' + '!'}}</p>
+<body ng-controller='listCtrl'>
+	<div class="container">
+		<h1>Bongtalk</h1>
+		<span class="glyphicon glyphicon-search"></span>
+		<p>Connection status : {{serverStatus}}</p>
+		<p>Nothing <code>here</code> {{'yet' + '!'}}</p>
+		<div class="row">
+		<div class="col-md-2">
+		<!--Sidebar content-->
+
+		Search: <input ng-model="query">
+		Sort by:
+		<select ng-model="orderProp">
+			<option value="name">Alphabetical</option>
+			<option value="age">Newest</option>
+			<option value="-age">Oldest</option>
+		</select>
+		</div>
+		CurrentQuery : {{query}}
+		<div class="col-md-10">
+		<!--Body content-->
+
+			<ul class="phones">
+				<li ng-repeat="item in items | filter:query | orderBy:orderProp">
+					{{item.name}} ({{item.age}})
+				</li>
+			</ul>
+
+		</div>
+		</div>
+	</div>
+	<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
 </body>
 </html>

@@ -1,6 +1,6 @@
 'use strict';
 
-define(['angular', 'socket'],
-function(angular, io){
-
+define(['angular', 'angularRoute'],
+function(angular){
+	return angular.module('bongtalkApp', ['ngRoute']);
 });
