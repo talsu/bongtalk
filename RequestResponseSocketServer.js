@@ -4,14 +4,14 @@ exports.RequestResponseSocketServer = (function(){
 	function RequestResponseSocketServer(socket){
 		var self = this;
 		this.callbackMap = {};
-		this.socket = socket;		
+		this.socket = socket;
 		this.socket.on('request', function(request){
 			tools.log(request);
 			var callback = self.callbackMap[request.url];
 			if (callback){
 				var session = request.session;
 				if (session && callback){
-					callback(request.data, new SocketResponse(self.socket, session));	
+					callback(request, new SocketResponse(self.socket, session));	
 				}
 				else{
 					tools.log('can not find session');

@@ -16,6 +16,7 @@ var RedisStore = require('connect-redis')(session);
 
 var tools = require('./tools');
 var SocketHandler = require('./socketHandler').SocketHandler;
+var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 
 // var models = require('./models');
 // var RedisDatabase = models.RedisDatabase;
@@ -29,18 +30,19 @@ var BongTalkServer = (function(){
 		this.redisUrl = redisUrl;
 		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
 		this.cookieParser = cookieParser(secretString);
+		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), 'db');
 	}
 
 	BongTalkServer.prototype.run = function(){
 		var self = this;
-		var app = express();	
+		var app = express();
 		app.use(logger('dev'));
-		app.use(express.static(__dirname + '/public'));		
+		app.use(express.static(__dirname + '/public'));
 		app.use(bodyParser());
 		app.use(methodOverride());
 		app.use(this.cookieParser);
 		app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
-		
+
 		app.use(errorhandler());
 		// app.use(function(req, res){
 		// 	res.send('Hello');
@@ -55,9 +57,9 @@ var BongTalkServer = (function(){
 		var io = Sockets.listen(server);
 		io.set('log level', 2);
 
-		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
-		var socketHandler = new SocketHandler();
-		socketHandler.use(sessionSockets);
+		// var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
+		var socketHandler = new SocketHandler(this.database);
+		socketHandler.use(io.sockets);
 	};
 
 

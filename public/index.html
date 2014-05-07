@@ -5,7 +5,7 @@
 		<meta http-equiv="X-UA-Compatible" content="IE=edge">
 		<meta name="viewport" content="width=device-width, initial-scale=1">
 		<link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-		
+
 	</head>
 <body ng-controller='listCtrl'>
 	<div class="container">
@@ -13,29 +13,30 @@
 		<span class="glyphicon glyphicon-search"></span>
 		<p>Connection status : {{serverStatus}}</p>
 		<p>Nothing <code>here</code> {{'yet' + '!'}}</p>
+		<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" ng-click="createChannel(createChannelName)">Create channel</button>
 		<div class="row">
-		<div class="col-md-2">
-		<!--Sidebar content-->
+			<div class="col-md-2">
+			<!--Sidebar content-->
 
-		Search: <input ng-model="query">
-		Sort by:
-		<select ng-model="orderProp">
-			<option value="name">Alphabetical</option>
-			<option value="age">Newest</option>
-			<option value="-age">Oldest</option>
-		</select>
-		</div>
-		CurrentQuery : {{query}}
-		<div class="col-md-10">
-		<!--Body content-->
+			Search: <input ng-model="query">
+			Sort by:
+			<select ng-model="orderProp">
+				<option value="name">Alphabetical</option>
+				<option value="age">Newest</option>
+				<option value="-age">Oldest</option>
+			</select>
+			</div>
+			CurrentQuery : {{query}}
+			<div class="col-md-10">
+			<!--Body content-->
 
-			<ul class="phones">
-				<li ng-repeat="item in items | filter:query | orderBy:orderProp">
-					{{item.name}} ({{item.age}})
-				</li>
-			</ul>
+				<ul class="phones">
+					<li ng-repeat="item in items | filter:query | orderBy:orderProp">
+						{{item.name}} ({{item.age}})
+					</li>
+				</ul>
 
-		</div>
+			</div>
 		</div>
 	</div>
 	<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>

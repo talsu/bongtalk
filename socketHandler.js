@@ -2,20 +2,39 @@ var tools = require('./tools');
 var RequestResponseSocketServer = require('./RequestResponseSocketServer').RequestResponseSocketServer;
 
 exports.SocketHandler = (function(){
-	function SocketHandler(){}
+	function SocketHandler(database){
+		this.database = database;
+	}
 
-	SocketHandler.prototype.use = function(socket){
-		socket.on('connection', function(err, socket, session){
+	SocketHandler.prototype.use = function(sockets){
+		var self = this;
+		sockets.on('connection', function(socket){
 			console.log('connected');
-			tools.log(session);
+			// tools.log(socket);
 			var reqServer = new RequestResponseSocketServer(socket);
+
 			reqServer.set('getAllChannel', function (req, res){
-				console.log('getAllChannel');
-				res.send([{name:'1'}, {name:'2'}]);
+				self.database.getAllChannelsKey(function(err, keys){
+					console.log(keys);
+					res.send({err:err, result:keys})
+				});
+//				res.send([{name:'channel 1', age:9}, {name:'channel 2', age:3}]);
 			});
-			console.log('connected - fin');
+
+			reqServer.set('addUserToChannel', function (req, res){
+				var channelId = req.data.channel;
+				var name = req.data.name;
+				var id = socket.id;
+				self.database.addUserToChannel(channelId, id, name, function(err){
+					res.send({err:err, result:id});
+				});
+			});
+
+			socket.emit('connected', {});
 		});
 	};
 
 	return SocketHandler;
 })();
+
+//addUserToChannel = function (channelId, userId, userName

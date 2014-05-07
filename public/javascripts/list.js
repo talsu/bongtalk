@@ -1,6 +1,6 @@
 'use strict';
 
-define(['app', 'socket', 'modules/RequestResponseSocketClient'], function (app, io, RequestResponseSocketClient){
+define(['app', 'socket', 'underscore', 'modules/RequestResponseSocketClient'], function (app, io, _, RequestResponseSocketClient){
 	app.controller('listCtrl', function($scope, $http){
 		$scope.items = [
 			{name:'beta', age : 1},
@@ -8,21 +8,37 @@ define(['app', 'socket', 'modules/RequestResponseSocketClient'], function (app, 
 		];
 		// setInterval(function(){
 		// 	// $scope.$apply(function(){
-		// 		$scope.items.push({name:'aa', age:10});	
+		// 		$scope.items.push({name:'aa', age:10});
 		// 	// });
-			
+
 		// }, 1000)
 		$scope.orderProp = 'age';
 		$scope.serverStatus = 'before connect';
+		$scope.createChannel = function(channel){
+			reqClient.request('addUserToChannel', {channel:channel, name:'test'}, function(res){
+				if (!res.err){
+					var id = res.result;
+					console.log(id);
+				}
+			});
+		};
+
 		var socket = io.connect('http://localhost:3000');
 		var reqClient = new RequestResponseSocketClient(socket);
 		socket.on('connect', function () {
 			setServerStatusString('connect');
 			reqClient.request('getAllChannel', {}, function(response){
-				$scope.$apply(function(){
-					$scope.items = response;
-				});
+				if (!response.err){
+					var items = _.map(response.result, function(channelName){ return {name:channelName}; });
+					$scope.$apply(function(){
+						$scope.items = items;
+					});
+				}
 			});
+		});
+		socket.on('connected', function(){
+			setServerStatusString('connected');
+
 		});
 		socket.on('connecting', function () {setServerStatusString('connecting');});
 		socket.on('disconnect', function () {setServerStatusString('disconnect');});
