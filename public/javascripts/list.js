@@ -1,5 +1,7 @@
-define(['app', 'socket'], function (app, io){
-	app.controller('listCtrl', function($scope){
+'use strict';
+
+define(['app', 'socket', 'modules/RequestResponseSocketClient'], function (app, io, RequestResponseSocketClient){
+	app.controller('listCtrl', function($scope, $http){
 		$scope.items = [
 			{name:'beta', age : 1},
 			{name:'alpha', age : 2}
@@ -12,10 +14,15 @@ define(['app', 'socket'], function (app, io){
 		// }, 1000)
 		$scope.orderProp = 'age';
 		$scope.serverStatus = 'before connect';
-		var socket = io.connect();
+		var socket = io.connect('http://localhost:3000');
+		var reqClient = new RequestResponseSocketClient(socket);
 		socket.on('connect', function () {
 			setServerStatusString('connect');
-			socket.emit('getAllChannel', {});
+			reqClient.request('getAllChannel', {}, function(response){
+				$scope.$apply(function(){
+					$scope.items = response;
+				});
+			});
 		});
 		socket.on('connecting', function () {setServerStatusString('connecting');});
 		socket.on('disconnect', function () {setServerStatusString('disconnect');});
@@ -30,7 +37,7 @@ define(['app', 'socket'], function (app, io){
 		socket.on('receiveAllChannel', function(channels){
 			console.log('receiveAllChannel - ' + channels);
 			$scope.$apply(function(){
-				$scope.item = channels;
+				$scope.items = channels;
 			});
 		});
 
