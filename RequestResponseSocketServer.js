@@ -9,12 +9,12 @@ exports.RequestResponseSocketServer = (function(){
 			tools.log(request);
 			var callback = self.callbackMap[request.url];
 			if (callback){
-				var session = request.session;
-				if (session && callback){
-					callback(request, new SocketResponse(self.socket, session));	
+				var id = request.id;
+				if (id && callback){
+					callback(request, new SocketResponse(self.socket, id));	
 				}
 				else{
-					tools.log('can not find session');
+					tools.log('can not find id');
 				}
 			};
 		});
@@ -28,13 +28,13 @@ exports.RequestResponseSocketServer = (function(){
 })();
 
 var SocketResponse = (function(){
-	function SocketResponse(socket, session){
+	function SocketResponse(socket, id){
 		this.socket = socket;
-		this.session = session;
+		this.id = id;
 	}
 
 	SocketResponse.prototype.send = function(data){
-		this.socket.emit('response', {session:this.session, data:data});
+		this.socket.emit('response', {id:this.id, data:data});
 	};
 
 	return SocketResponse;
