@@ -31,6 +31,7 @@ var BongTalkServer = (function(){
 		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
 		this.cookieParser = cookieParser(secretString);
 		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), 'db');
+
 	}
 
 	BongTalkServer.prototype.run = function(){
@@ -58,7 +59,8 @@ var BongTalkServer = (function(){
 		io.set('log level', 2);
 
 		// var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
-		var socketHandler = new SocketHandler(this.databases);
+		var socketHandler = new SocketHandler(this.database);
+
 		socketHandler.use(io.sockets);
 	};
 
