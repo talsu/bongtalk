@@ -1,0 +1,100 @@
+.chat
+{
+    list-style: none;
+    margin: 0;
+    padding: 0;
+}
+ 
+.chat li
+{
+    margin-bottom: 10px;
+    padding-bottom: 5px;
+    border-bottom: 1px dotted #B3A9A9;
+}
+ 
+.chat li.left .chat-body
+{
+    margin-left: 60px;
+}
+ 
+.chat li.right .chat-body
+{
+    margin-right: 60px;
+}
+ 
+.chat li .chat-body p
+{
+    margin: 0;
+    color: #777777;
+}
+ 
+.panel .slidedown .glyphicon, .chat .glyphicon
+{
+    margin-right: 5px;
+}
+ 
+.panel-body
+{
+    overflow-y: scroll;
+    height: 500px;
+}
+ 
+::-webkit-scrollbar-track
+{
+    -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,0.3);
+    background-color: #F5F5F5;
+}
+ 
+::-webkit-scrollbar
+{
+    width: 12px;
+    background-color: #F5F5F5;
+}
+ 
+::-webkit-scrollbar-thumb
+{
+    -webkit-box-shadow: inset 0 0 6px rgba(0,0,0,.3);
+    background-color: #555;
+}
+
+.fill
+{
+    height: 100%;
+}
+
+.container-fixed {
+  bottom: 0;
+  position: fixed;
+  left: 0;
+  right: 0;
+  top: 0;
+}
+ 
+.container-fixed .col {
+  height: 100%;
+  overflow: auto;
+}
+ 
+.row-xs-12 { height: 100%; }
+.row-xs-11 { height: 91.66666666666666%; }
+.row-xs-10 { height: 83.33333333333334%; }
+.row-xs-9 { height: 75%; }
+.row-xs-8 { height: 66.66666666666666%; }
+.row-xs-7 { height: 58.333333333333336%; }
+.row-xs-6 { height: 50%; }
+.row-xs-5 { height: 41.66666666666667%;}
+.row-xs-4 { height: 33.33333333333333%;}
+.row-xs-3 { height: 25%; }
+.row-xs-2 { height: 16.666666666666664%; }
+.row-xs-1 { height: 8.333333333333332%; }
+
+.talkPanel { display: table; table-layout: fixed; width: 100%}
+.talkPanel-header-row { display: table-row; overflow: visible;}
+.talkPanel-body-row { display: table-row; overflow: visible;}
+.talkPanel-footer-row { display: table-row; overflow: visible;}
+.talkPanel-header-cell { display: table-cell; height: 0; }
+.talkPanel-body-cell { display: table-cell; height: 100%; width: 100%; }
+.talkPanel-footer-cell { display: table-cell; height: 0; width: 100%; }
+
+.talkPanel-body {height: 100%; position: relative; }
+.talks-container {top:0;bottom: 0;left: 0;right: 0;position: absolute; overflow-y:auto; overflow-x: hidden;}

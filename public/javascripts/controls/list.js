@@ -1,7 +1,8 @@
 'use strict';
 
-define(['app', 'socket', 'underscore', 'modules/RequestResponseSocketClient'], function (app, io, _, RequestResponseSocketClient){
-	app.controller('listCtrl', function($scope, $http){
+define(['controllers', 'socket', 'underscore', 'modules/RequestResponseSocketClient'], function (controllers, io, _, RequestResponseSocketClient){
+
+	controllers.controller('listCtrl', function($scope, $http){
 		$scope.items = [
 			{name:'beta', age : 1},
 			{name:'alpha', age : 2}
@@ -35,7 +36,7 @@ define(['app', 'socket', 'underscore', 'modules/RequestResponseSocketClient'], f
 		};
 
 		$scope.joinChannel = function(channelId){
-			alert(channelId);
+			window.location = '#/ch/' + channelId;
 		}
 
 		var socket = io.connect('http://localhost:3000');

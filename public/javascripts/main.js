@@ -22,16 +22,14 @@ requirejs.config({
 		'bootstrap':{
 			deps:['jquery'],
 			exports:'bootstrap'
-		},
-		// 'app':{
-  //           deps:['angular']
-  //       }
+		}
 	}
 });
 
 requirejs(['underscore', 'jquery', 'angular', 'socket', 'angularRoute', 'route', 'bootstrap'],
-	function(_, $, angular, io, app){		
+	function(_, $, angular, io){		
 		$(document).ready(function(){
 			angular.bootstrap(document, ['bongtalkApp']);
 		});
-	});
+	}
+);
