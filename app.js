@@ -58,7 +58,7 @@ var BongTalkServer = (function(){
 		io.set('log level', 2);
 
 		// var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
-		var socketHandler = new SocketHandler(this.database);
+		var socketHandler = new SocketHandler(this.databases);
 		socketHandler.use(io.sockets);
 	};
 

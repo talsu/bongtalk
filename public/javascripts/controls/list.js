@@ -1,20 +1,11 @@
 'use strict';
 
-define(['controllers', 'socket', 'underscore', 'modules/socketConnector'], function (controllers, io, _, connector){
+define(['controllers', 'underscore', 'modules/socketConnector'], function (controllers, _, connector){
 
 	controllers.controller('listCtrl', function($scope, $http){
-		$scope.items = [
-			{name:'beta', age : 1},
-			{name:'alpha', age : 2}
-		];
-		// setInterval(function(){
-		// 	// $scope.$apply(function(){
-		// 		$scope.items.push({name:'aa', age:10});
-		// 	// });
-
-		// }, 1000)
 		$scope.orderProp = 'age';
 		$scope.serverStatus = 'before connect';
+		
 		$scope.createChannel = function(channel){
 			connector.request('addUserToChannel', {channel:channel, name:'test'}, function(res){
 				if (!res.err){
@@ -43,14 +34,14 @@ define(['controllers', 'socket', 'underscore', 'modules/socketConnector'], funct
 			var level = 'info';
 
 			switch(status){
-				case 'connected' : level = 'success'; 
+				case 'connected' : level = 'success';
 					$scope.updateChannelList();
-				case 'reconnect' : level = 'success'; 
+				case 'reconnect' : level = 'success';
 					break;
 				case 'connecting' : level = 'info';
-				case 'reconnecting' : level = 'info'; 
+				case 'reconnecting' : level = 'info';
 					break;
-				case 'disconnect' : level = 'warning'; 
+				case 'disconnect' : level = 'warning';
 					break;
 				case 'connect_failed' : level = 'danger';
 				case 'reconnect_failed' : level = 'danger';
