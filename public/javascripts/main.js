@@ -8,7 +8,8 @@ requirejs.config({
 		angular : '../bower_components/angular/angular',
 		angularRoute : '../bower_components/angular-route/angular-route',
 		bootstrap : '../bower_components/bootstrap/dist/js/bootstrap',
-		socket : '../bower_components/socket.io-client/dist/socket.io'
+		socket : '../bower_components/socket.io-client/dist/socket.io',
+		eventEmitter : '../bower_components/eventEmitter/eventEmitter'
 	},
 	shim:{
 		'angular':{

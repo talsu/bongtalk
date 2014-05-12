@@ -1,6 +1,6 @@
 'use strict';
 
-define(['controllers', 'socket', 'underscore', 'modules/RequestResponseSocketClient'], function (controllers, io, _, RequestResponseSocketClient){
+define(['controllers', 'socket', 'underscore'], function (controllers, io, _){
 
 	// var controllers = angular.module('appControllers', []);
 
