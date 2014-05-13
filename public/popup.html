@@ -8,16 +8,9 @@
 		<link rel="stylesheet" href="stylesheets/talk.css">
 
 	</head>
-<body >
-	<div class="container-fixed">
-		<div class="row row-xs-12">
-			<div class="col col-md-5">
-				<div ng-include src="'partials/list.html'" ng-controller="listCtrl"></div>
-			</div>	
-			<div class="col col-md-7">
-				<div ng-view class="fill"></div>
-			</div>		
-		</div>
+<body ng-controller='listCtrl'>
+	<div class="container-fixed">		
+		<div ng-view class="fill"></div>
 	</div>
 	<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
 </body>

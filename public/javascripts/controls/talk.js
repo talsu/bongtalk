@@ -6,7 +6,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 
 	controllers.controller('talkCtrl', [ '$scope', '$routeParams', function($scope, $routeParams){
 		$scope.channelId = $routeParams.channelId;
-		$scope.me = new TalkUser('123', 'Talsu');
+		$scope.me = new TalkUser('123', 'Talsu', 'http://placehold.it/50/FA6F57/fff&text=ME');
 		$scope.others = [];
 		$scope.talks = [];
 		$scope.lastTalk = null;
@@ -58,7 +58,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				return user;
 		};
 		// $scope.addUser($scope.me);
-		$scope.addUser(new TalkUser('321', 'bongsik'));
+		$scope.addUser(new TalkUser('321', 'bongsik', 'http://placehold.it/50/55C1E7/fff&text=U'));
 
 		addTalk({sender:'123', message:'h2ello', time:new Date()});
 		addTalk({sender:'321', message:'hel3lo', time:new Date()});
@@ -71,8 +71,6 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			$scope.talks.push(newTalk);
 			$scope.lastTalk = newTalk;
 		}
-
-
 	}]);
 
 	var Talk = (function(){
@@ -87,10 +85,11 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 	})();
 
 	var TalkUser = (function () {
-			function TalkUser(id, name, connections) {
+			function TalkUser(id, name, avatar, connections) {
 					this.id = id;
 					this.name = name;
 					this.connections = connections;
+					this.avatar = avatar;
 			}
 
 			TalkUser.prototype.getSimpleUser = function() {

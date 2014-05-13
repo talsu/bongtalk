@@ -1,4 +1,5 @@
 var tools = require('./tools');
+var Guid = require('guid');
 var RequestResponseSocketServer = require('./RequestResponseSocketServer').RequestResponseSocketServer;
 
 exports.SocketHandler = (function(){
@@ -21,11 +22,13 @@ exports.SocketHandler = (function(){
 			});
 
 			reqServer.set('addUserToChannel', function (req, res){
-				var channl = req.data.channel;
-				var name = req.data.name;
-				var id = socket.id;
-				self.database.addUserToChannel(channl, id, name, function(err){
-					res.send({err:err, result:id});
+				var channel = req.data.channelId;
+				var name = req.data.userName;
+				var id = req.data.userId || Guid.create().value;
+				self.database.addUserToChannel(channel, id, name, function(err){
+					self.database.getUserFromChannel(channel, id, function(err, user){
+						res.send({err:err, result:user});	
+					});
 				});
 			});
 		});

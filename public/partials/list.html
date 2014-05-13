@@ -1,0 +1,22 @@
+<h1>Bongtalk</h1>
+<span class="glyphicon glyphicon-search"></span>
+<p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-info', disconnect:'label-warning', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>		
+<div>
+	<input ng-model="accountName"> <button type="button" class="btn btn-primary" ng-click="createAccount(accountName)">Create account</button>
+</div>
+<div>
+	<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" 
+	ng-click="createChannel(createChannelName)">Create channel</button>
+</div>
+<div class="row">			
+	<button type="button" class="btn" ng-click="updateChannelList()">Update channel</button>
+</div>
+<div class="channels">
+	<div class="row" ng-repeat="channel in channels">
+		<div class="btn-group">
+			<button type="button" class="btn btn-success" ng-click="joinChannel(channel.name)">Join</button>
+			<button type="button" class="btn btn-danger" ng-click="joinChannel(channel.name)">Popup</button>
+		</div>
+		{{channel.name}}
+	</div>
+</div>
