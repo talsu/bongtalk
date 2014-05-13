@@ -15,6 +15,13 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 		this.socket.on('reconnect_failed', function () {self.setStatus('reconnect_failed');});
 		this.socket.on('reconnect', function () {self.setStatus('reconnect');});
 		this.socket.on('reconnecting', function () {self.setStatus('reconnecting');});
+
+		this.socket.on('onNewTalk', function(channelData){
+			self.channelEmit('onNewTalk', channelData);
+		});
+		this.socket.on('onAddUser', function(channelData){self.channelEmit('onAddUser', channelData);});
+		this.socket.on('onRemoveUser', function(channelData){self.channelEmit('onRemoveUser', channelData);});
+		this.socket.on('onUpdateUser', function(channelData){self.channelEmit('onUpdateUser', channelData);});
 	};
 
 	SocketConnector.prototype.setStatus = function (status){
@@ -23,8 +30,30 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 		self.emit('statusChanged', self.status);
 	};
 
+	SocketConnector.prototype.onNewTalk = function (channelId, callback){
+		this.on('onNewTalk-' + channelId, callback);
+	};
+
+	SocketConnector.prototype.onAddUser = function (channelId, callback){
+		this.on('onAddUser-' + channelId, callback);
+	};
+
+	SocketConnector.prototype.onRemoveUser = function (channelId, callback){
+		this.on('onRemoveUser-' + channelId, callback);
+	};
+
+	SocketConnector.prototype.onUpdateUser = function (channelId, callback){
+		this.on('onUpdateUser-' + channelId, callback);
+	};
+
 	SocketConnector.prototype.request = function (url, data, callback){
 		this.reqClient.request(url, data, callback);
+	};
+
+	SocketConnector.prototype.channelEmit = function (eventName, channelData){
+		if (channelData && channelData.channelId){
+			this.emit(eventName + '-' + channelData.channelId, channelData.data);
+		}
 	};
 
 	_.extend(SocketConnector.prototype, EventEmitter.prototype);

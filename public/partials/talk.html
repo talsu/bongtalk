@@ -1,7 +1,10 @@
 <div class="fill talkPanel">
 	<div class="talkPanel-header-row">
 		<div class="talkPanel-header-cell">
-			<span class="glyphicon glyphicon-comment"></span> {{channelId}}
+			<span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.id}} {{me.name}} {{me.avatar}}
+			<div>
+				<span ng-repeat="user in others">{{user.name}} </span>
+			</div>
 		</div>
 	</div>
 	<div class="talkPanel-body-row">
@@ -9,17 +12,17 @@
 			<div class="talkPanel-body">
 				<div class="talks-container">
 					<ul class="chat">
-						<li ng-repeat="talk in talks" ng-class="(talk.sender==me.id) ? 'right clearfix' : 'left clearfix'">
-							<span ng-class="(talk.sender==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
-								<img ng-src="{{getUser(talk.sender).avatar}}" alt="User Avatar" class="img-circle" />
+						<li ng-repeat="talk in talks" ng-class="(talk.user==me.id) ? 'right clearfix' : 'left clearfix'">
+							<span ng-class="(talk.user==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
+								<img ng-src="{{getUser(talk.user.id).avatar}}" alt="User Avatar" class="img-circle" />
 							</span>
 							<div class="chat-body clearfix">
 								<div class="header">
-									<strong ng-show="(talk.sender!=me.id)" class="primary-font">{{getUser(talk.sender).name}}</strong>
-									<small ng-class="(talk.sender!=me.id) ? 'text-muted pull-right' : 'text-muted'">
+									<strong ng-show="(talk.user!=me.id)" class="primary-font">{{talk.user.name}}</strong>
+									<small ng-class="(talk.user!=me.id) ? 'text-muted pull-right' : 'text-muted'">
 										<span class="glyphicon glyphicon-time"></span>{{talk.time}}
 									</small>
-									<strong ng-show="(talk.sender==me.id)"  class="pull-right primary-font">{{getUser(talk.sender).name}}</strong>
+									<strong ng-show="(talk.user==me.id)"  class="pull-right primary-font">{{talk.user.name}}</strong>
 								</div>
 								<p>
 									{{talk.message}}
@@ -34,10 +37,9 @@
 	<div class="talkPanel-footer-row">
 		<div class="talkPanel-footer-cell">
 			<div class="input-group">
-				<input id="btn-input" type="text" class="form-control input-sm" placeholder="Type your message here..." />
+				<input id="btn-input" type="text" class="form-control input-sm" placeholder="Type your message here..." ng-model="inputTalkMessage" ng-keypress="inputKeypress($event)" />
 				<span class="input-group-btn">
-					<button class="btn btn-warning btn-sm" id="btn-chat">
-						Send</button>
+					<button class="btn btn-warning btn-sm" id="btn-chat" ng-click="sendMessage()">Send</button>
 				</span>
 			</div>
 		</div>

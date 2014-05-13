@@ -6,7 +6,7 @@ exports.RequestResponseSocketServer = (function(){
 		this.callbackMap = {};
 		this.socket = socket;
 		this.socket.on('request', function(request){
-			tools.log(request);
+			// tools.log(request);
 			var callback = self.callbackMap[request.url];
 			if (callback){
 				var id = request.id;
