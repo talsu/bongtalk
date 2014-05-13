@@ -1,6 +1,7 @@
 var tools = require('./tools');
 var Guid = require('guid');
 var util = require('util');
+var async = require('async');
 var EventEmitter = require('events').EventEmitter;
 var RequestResponseSocketServer = require('./RequestResponseSocketServer').RequestResponseSocketServer;
 
@@ -33,12 +34,29 @@ exports.SocketHandler = (function(){
 				var userId = req.data.userId || Guid.create().value;
 				self.database.addUserToChannel(channelId, userId, name, function(err){
 					self.database.getUserFromChannel(channelId, userId, function(err, user){
+						// var listener = self.addChannelEventListener(channelId, socket);
+						// if (listener){
+						// 	channelEventListeners.push({channelId:channelId, listener:listener});
+						// }
+						res.send({err:err, result:user});	
+					});
+				});
+			});
+
+			reqServer.set('joinChannel', function (req, res){
+				var channelId = req.data.channelId;
+				async.parallel({
+					users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},
+					talks: function(callback){ self.database.getTalkHistory(channelId, callback); }
+				},
+				function (err, result) {
+					if (!err){
 						var listener = self.addChannelEventListener(channelId, socket);
 						if (listener){
 							channelEventListeners.push({channelId:channelId, listener:listener});
 						}
-						res.send({err:err, result:user});	
-					});
+					}
+					res.send({err:err, result:result})
 				});
 			});
 
@@ -78,9 +96,10 @@ exports.SocketHandler = (function(){
 					message : req.data.message,
 					user : req.data.user
 				}
-				self.channelEvent('onNewTalk', channelId, talk);
+				
 				self.database.addTalkHistory(channelId, talk, function(err, result){
 					res.send({err:err, result:talk});
+					self.channelEvent('onNewTalk', channelId, talk);
 				});
 			});
 

@@ -142,7 +142,7 @@ exports.RedisDatabase = (function(){
             var connections = replies[1];
 
             if (err || !Array.isArray(replies) || replies.length !== 2){
-                callback(err, null);
+                callback(err || 'can not find user.', null);
             }
             else{
                 var user = {

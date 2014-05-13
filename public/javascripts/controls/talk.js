@@ -10,10 +10,6 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 		$scope.talks = [];
 		$scope.lastTalk = null;
 
-		connector.onNewTalk($scope.channelId, onNewTalk);
-		connector.onAddUser($scope.channelId, onAddUser);
-		connector.onRemoveUser($scope.channelId, onRemoveUser);
-		connector.onUpdateUser($scope.channelId, onUpdateUser);
 
 		connector.request('getUserFromChannel', {
 			channelId:$scope.channelId, 
@@ -22,7 +18,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				if (res.result){
 					$scope.me.id = res.result.id;
 					$scope.me.name = res.result.name;
-					getChannelInfomation();
+					joinChannel();
 				}
 				else{
 					connector.request('addUserToChannel', {
@@ -30,12 +26,10 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 						userName:$scope.me.name,
 						userId:$scope.me.id}, 
 						function(res){
-							$scope.$apply(function(){
-								$scope.me.id = res.result.id;
-								$scope.me.name = res.result.name;	
-							});
-
-							getChannelInfomation();
+							if (!res.err && res.result && res.result.id){
+								var url = '/#' + $location.$$path + '?userid=' + res.result.id;
+								window.location = url;
+							}
 						}
 					);
 				}				
@@ -89,13 +83,6 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 
 			return user;
 		};
-		
-		// $scope.addUser(new TalkUser('321', 'bongsik', 'http://placehold.it/50/55C1E7/fff&text=U'));
-
-		// addTalk({user:'123', message:'h2ello', time:new Date()});
-		// addTalk({user:'321', message:'hel3lo', time:new Date()});
-		// addTalk({user:'123', message:'hel4lo', time:new Date()});
-		// addTalk({user:'321', message:'he5lo', time:new Date()});
 
 		$scope.inputKeypress = function($event){
 			if ($event.keyCode === 13) // Enter key pess
@@ -117,17 +104,18 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			talk.channelId = $scope.channelId;
 			connector.request('addNewTalk', talk, function(res){
 				$scope.$apply(function(){
-					talk.id = res.result.id;
-					talk.time = res.result.time;	
+					if (_.any($scope.talks, function (item){return item.id === res.result.id;})){
+						$scope.talks.splice(_.indexOf($scope.talks, talk), 1);
+					}
+					else{
+						talk.id = res.result.id;
+						talk.time = res.result.time;
+					}	
 				});
 			});
 		};
 
 		function onNewTalk(talk){
-			if(talk.user.id === $scope.me.id){
-				return;
-			}
-
 			$scope.$apply(function(){
 				addTalk(talk);					
 			});
@@ -135,41 +123,53 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			$scope.$apply(function(){
 				$location.hash('bottom');
 	      		$anchorScroll();	
-			});
-			
+			});			
 		}
+
 		function onAddUser(){}
 		function onRemoveUser(){}
 		function onUpdateUser(){}
 
 		function addTalk(data){
+			if (_.any($scope.talks, function (talk){return talk.id === data.id;})){
+				return;
+			}
+
 			var newTalk = new Talk(data);
 			$scope.talks.push(newTalk);
 			$scope.lastTalk = newTalk;
 			return newTalk;
 		}
 
-		function getChannelInfomation(){
-			connector.request('getUsersFromChannel',{channelId:$scope.channelId}, function(res){
-				var usersData = res.result;
-
-				if (usersData && _.isArray(usersData)){
-					usersData.forEach(function(item){
-						$scope.addUser(new TalkUser(item.id, item.name, 'http://placehold.it/50/55C1E7/fff&text=U', item.connections));
-						$scope.$apply();
-					});
+		function joinChannel(){
+			connector.request('joinChannel', {channelId:$scope.channelId}, function(res){
+				if (res.err){
+					alert(err);
 				}
+				else{					
+					setConnectorEvents();					
 
-				connector.request('getTalkHistory',{channelId:$scope.channelId}, function(res){
-					var messagesData = res.result;
-					if (messagesData && _.isArray(messagesData)){
-						messagesData.forEach(function(item){
-							addTalk(item);
-							$scope.$apply();
-						});
+					var users = res.result.users;
+					var talks = res.result.talks;
+					
+					if (users && _.isArray(users)){
+						_.each(users, function (user){ $scope.addUser(new TalkUser(user.id, user.name, user.avatar, user.connections)); });
 					}
-				});
+
+					if (talks && _.isArray(talks)){
+						_.each(talks, function (talk){ addTalk(talk); });
+					}
+
+					$scope.$apply();
+				}
 			});
+		}
+
+		function setConnectorEvents(){			
+			connector.onNewTalk($scope.channelId, onNewTalk);
+			connector.onAddUser($scope.channelId, onAddUser);
+			connector.onRemoveUser($scope.channelId, onRemoveUser);
+			connector.onUpdateUser($scope.channelId, onUpdateUser);
 		}
 	}]);
 
@@ -177,7 +177,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 		function Talk(data){
 			this.id = data.id;
 			this.message = data.message;
-			this.time = new Date(data.time);
+			this.time = data.time ? new Date(data.time) : null;
 			this.user = data.user;
 		}
 
@@ -189,7 +189,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				this.id = id;
 				this.name = name;
 				this.connections = connections;
-				this.avatar = avatar;
+				this.avatar = avatar || 'http://placehold.it/50/55C1E7/fff&text=U';
 			}
 
 			TalkUser.prototype.getSimpleUser = function() {

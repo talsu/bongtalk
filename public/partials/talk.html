@@ -1,9 +1,9 @@
 <div class="fill talkPanel">
 	<div class="talkPanel-header-row">
 		<div class="talkPanel-header-cell">
-			<span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.id}} {{me.name}} {{me.avatar}}
+			<span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.name}} 
 			<div>
-				<span ng-repeat="user in others">{{user.name}} </span>
+				<span class="label label-success" ng-repeat="user in others">{{user.name}}</span>&nbsp;
 			</div>
 		</div>
 	</div>
@@ -12,17 +12,17 @@
 			<div class="talkPanel-body">
 				<div class="talks-container">
 					<ul class="chat">
-						<li ng-repeat="talk in talks" ng-class="(talk.user==me.id) ? 'right clearfix' : 'left clearfix'">
-							<span ng-class="(talk.user==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
+						<li ng-repeat="talk in talks" ng-class="(talk.user.id==me.id) ? 'right clearfix' : 'left clearfix'">
+							<span ng-class="(talk.user.id==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
 								<img ng-src="{{getUser(talk.user.id).avatar}}" alt="User Avatar" class="img-circle" />
 							</span>
 							<div class="chat-body clearfix">
 								<div class="header">
-									<strong ng-show="(talk.user!=me.id)" class="primary-font">{{talk.user.name}}</strong>
-									<small ng-class="(talk.user!=me.id) ? 'text-muted pull-right' : 'text-muted'">
+									<strong ng-show="(talk.user.id!=me.id)" class="primary-font">{{talk.user.name}}</strong>
+									<small ng-class="(talk.user.id!=me.id) ? 'text-muted pull-right' : 'text-muted'">
 										<span class="glyphicon glyphicon-time"></span>{{talk.time}}
 									</small>
-									<strong ng-show="(talk.user==me.id)"  class="pull-right primary-font">{{talk.user.name}}</strong>
+									<strong ng-show="(talk.use.id==me.id)"  class="pull-right primary-font">{{talk.user.name}}</strong>
 								</div>
 								<p>
 									{{talk.message}}
