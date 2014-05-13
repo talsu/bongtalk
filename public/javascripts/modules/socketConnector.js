@@ -16,9 +16,7 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 		this.socket.on('reconnect', function () {self.setStatus('reconnect');});
 		this.socket.on('reconnecting', function () {self.setStatus('reconnecting');});
 
-		this.socket.on('onNewTalk', function(channelData){
-			self.channelEmit('onNewTalk', channelData);
-		});
+		this.socket.on('onNewTalk', function(channelData){self.channelEmit('onNewTalk', channelData);});
 		this.socket.on('onAddUser', function(channelData){self.channelEmit('onAddUser', channelData);});
 		this.socket.on('onRemoveUser', function(channelData){self.channelEmit('onRemoveUser', channelData);});
 		this.socket.on('onUpdateUser', function(channelData){self.channelEmit('onUpdateUser', channelData);});

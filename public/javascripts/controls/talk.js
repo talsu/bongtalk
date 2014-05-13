@@ -3,7 +3,7 @@
 define(['controllers', 'underscore', 'modules/socketConnector'], function (controllers, _, connector){
 
 	// var controllers = angular.module('appControllers', []);	
-	controllers.controller('talkCtrl', [ '$scope', '$routeParams', function($scope, $routeParams){
+	controllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', '$anchorScroll', function($scope, $routeParams, $location, $anchorScroll){
 		$scope.channelId = $routeParams.channelId;
 		$scope.me = new TalkUser($routeParams.userid, $routeParams.username, 'http://placehold.it/50/FA6F57/fff&text=ME');
 		$scope.others = [];
@@ -129,8 +129,14 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			}
 
 			$scope.$apply(function(){
-				addTalk(talk);	
+				addTalk(talk);					
 			});
+
+			$scope.$apply(function(){
+				$location.hash('bottom');
+	      		$anchorScroll();	
+			});
+			
 		}
 		function onAddUser(){}
 		function onRemoveUser(){}
