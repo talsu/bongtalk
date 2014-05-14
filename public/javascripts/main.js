@@ -21,16 +21,13 @@ requirejs.config({
 			exports:'angularRoute'
 		},
 		bootstrap:{
-			deps:['jquery'],
 			exports:'bootstrap'
-		}
+		}		
 	}
 });
 
-requirejs(['controls/talk', 'controls/list', 'app'],
-	function(){		
-		$(document).ready(function(){
-			angular.bootstrap(document, ['bongtalkApp']);
-		});
-	}
-);
+requirejs(['app'], function(){		
+	$(document).ready(function(){
+		angular.bootstrap(document, ['bongtalkApp']);
+	});	
+});
