@@ -4,7 +4,7 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 	function SocketConnector(io){
 		var self = this;
 		this.status = 'connecting';
-		this.socket = io.connect('http://localhost:3000');
+		this.socket = io.connect(window.location.origin);
 		this.reqClient = new RequestResponseSocketClient(this.socket);
 		this.reconnectFlag = false;
 		this.socket.on('connect', function () {
