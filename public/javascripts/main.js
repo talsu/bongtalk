@@ -12,25 +12,22 @@ requirejs.config({
 		eventEmitter : '../bower_components/eventEmitter/eventEmitter'
 	},
 	shim:{
-		'angular':{
+		angular:{
 			deps:['jquery'],
 			exports:'angular'
 		},
-		'angularRoute':{
+		angularRoute:{
 			deps:['angular'],
 			exports:'angularRoute'
 		},
-		'bootstrap':{
-			deps:['jquery'],
+		bootstrap:{
 			exports:'bootstrap'
-		}
+		}		
 	}
 });
 
-requirejs(['underscore', 'jquery', 'angular', 'socket', 'angularRoute', 'route', 'bootstrap'],
-	function(_, $, angular, io){		
-		$(document).ready(function(){
-			angular.bootstrap(document, ['bongtalkApp']);
-		});
-	}
-);
+requirejs(['app'], function(){		
+	$(document).ready(function(){
+		angular.bootstrap(document, ['bongtalkApp']);
+	});	
+});

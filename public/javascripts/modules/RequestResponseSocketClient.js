@@ -1,6 +1,6 @@
 'use strict';
 
-define(['modules/uuid'], function(uuid){
+define(['underscore', 'modules/uuid'], function(_, uuid){
 	function RequestResponseSocketClient(socket){
 		var self = this;
 		this.callbackMap = {};
@@ -17,7 +17,9 @@ define(['modules/uuid'], function(uuid){
 	RequestResponseSocketClient.prototype.request = function(url, data, callback){
 		var id = uuid();
 		var request = {id:id, url:url, data:data};
-		this.callbackMap[id] = callback;
+		if (_.isFunction(callback)){
+			this.callbackMap[id] = callback;
+		}
 		this.socket.emit('request', request);
 	};
 
