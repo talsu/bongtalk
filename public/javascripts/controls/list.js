@@ -2,7 +2,7 @@
 
 define(['controllers', 'underscore', 'modules/socketConnector'], function (controllers, _, connector){
 
-	controllers.controller('listCtrl', [ '$scope', function($scope){
+	controllers.controller('listCtrl', [ '$scope', '$location', function($scope, $location){
 		$scope.orderProp = 'age';
 		$scope.serverStatus = 'connecting';
 		
@@ -47,7 +47,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 
 			var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
 
-			window.location = '#/ch/' + channelId + querystring;
+			window.location = encodeURI('#/ch/' + channelId + querystring);
 		};
 
 		connector.on('statusChanged', function(status){

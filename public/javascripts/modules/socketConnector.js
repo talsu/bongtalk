@@ -6,14 +6,20 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 
 		this.socket = io.connect('http://localhost:3000');
 		this.reqClient = new RequestResponseSocketClient(this.socket);
-
-		this.socket.on('connect', function () {self.setStatus('connected'); });
+		this.reconnectFlag = false;
+		this.socket.on('connect', function () {
+			self.setStatus('connected'); self.emit('connected'); 
+			if (self.reconnectFlag){
+				self.reconnectFlag = false;	
+				self.emit('reconnected');
+			}			
+		});
 		this.socket.on('connecting', function () {self.setStatus('connecting');});
 		this.socket.on('disconnect', function () {self.setStatus('disconnect');});
 		this.socket.on('connect_failed', function () {self.setStatus('connect_failed');});
 		this.socket.on('error', function () {self.setStatus('error');});
 		this.socket.on('reconnect_failed', function () {self.setStatus('reconnect_failed');});
-		this.socket.on('reconnect', function () {self.setStatus('reconnect');});
+		this.socket.on('reconnect', function () {self.setStatus('reconnect'); self.reconnectFlag = true;});
 		this.socket.on('reconnecting', function () {self.setStatus('reconnecting');});
 
 		this.socket.on('onNewTalk', function(channelData){self.channelEmit('onNewTalk', channelData);});
@@ -28,20 +34,12 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 		self.emit('statusChanged', self.status);
 	};
 
-	SocketConnector.prototype.onNewTalk = function (channelId, callback){
-		this.on('onNewTalk-' + channelId, callback);
+	SocketConnector.prototype.addEventListener = function (eventName, channelId, callback){
+		this.addListener(eventName + '-' + channelId, callback);
 	};
 
-	SocketConnector.prototype.onAddUser = function (channelId, callback){
-		this.on('onAddUser-' + channelId, callback);
-	};
-
-	SocketConnector.prototype.onRemoveUser = function (channelId, callback){
-		this.on('onRemoveUser-' + channelId, callback);
-	};
-
-	SocketConnector.prototype.onUpdateUser = function (channelId, callback){
-		this.on('onUpdateUser-' + channelId, callback);
+	SocketConnector.prototype.removeEventListener = function (eventName, channelId, callback){
+		this.removeListener(eventName + '-' + channelId, callback);
 	};
 
 	SocketConnector.prototype.request = function (url, data, callback){
@@ -51,6 +49,17 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 	SocketConnector.prototype.channelEmit = function (eventName, channelData){
 		if (channelData && channelData.channelId){
 			this.emit(eventName + '-' + channelData.channelId, channelData.data);
+		}
+	};
+
+	SocketConnector.prototype.runWithConnection = function (callback){
+		if (_.isFunction(callback)){
+			if (this.status === 'connected'){
+				callback();
+			}
+			else{
+				this.addOnceListener('connected', callback);
+			}
 		}
 	};
 

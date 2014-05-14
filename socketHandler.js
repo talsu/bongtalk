@@ -34,10 +34,6 @@ exports.SocketHandler = (function(){
 				var userId = req.data.userId || Guid.create().value;
 				self.database.addUserToChannel(channelId, userId, name, function(err){
 					self.database.getUserFromChannel(channelId, userId, function(err, user){
-						// var listener = self.addChannelEventListener(channelId, socket);
-						// if (listener){
-						// 	channelEventListeners.push({channelId:channelId, listener:listener});
-						// }
 						res.send({err:err, result:user});	
 					});
 				});
@@ -52,12 +48,21 @@ exports.SocketHandler = (function(){
 				function (err, result) {
 					if (!err){
 						var listener = self.addChannelEventListener(channelId, socket);
-						if (listener){
-							channelEventListeners.push({channelId:channelId, listener:listener});
-						}
+						result.connectionId = Guid.create().value;
+						channelEventListeners.push({connectionId:result.connectionId, channelId:channelId, listener:listener});
 					}
 					res.send({err:err, result:result})
 				});
+			});
+
+			reqServer.set('leaveChannel' , function (req, res){
+				var connectionId = req.data.connectionId;
+				channelEventListeners
+				.filter(function(item){return item.connectionId === connectionId;})
+				.forEach(function(item){
+					self.removeChannelEventListener(item.channelId, item.listener);
+				});
+				res.send({err:null, result:'done'});
 			});
 
 			reqServer.set('getTalkHistory', function (req, res){
