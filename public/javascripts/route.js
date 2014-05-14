@@ -1,6 +1,6 @@
 'use strict';
 
-define(['app', 'controllers', 'controls/talk', 'controls/list'], function (app){
+define(['controllers'], function (app){
 	app.config(['$routeProvider', function($routeProvider){
 		$routeProvider.
 			when('/ch/:channelId', {
