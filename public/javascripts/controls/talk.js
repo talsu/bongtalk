@@ -2,6 +2,14 @@
 
 define(['controllers', 'underscore', 'modules/socketConnector'], function (controllers, _, connector){
 	controllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', '$anchorScroll', function($scope, $routeParams, $location, $anchorScroll){
+		$scope.serverStatus = connector.status;		
+		connector.addListener('statusChanged', serverStatusChanged);
+		function serverStatusChanged (status){
+			$scope.$apply(function(){
+				$scope.serverStatus = status;
+			});
+		};
+
 		connector.runWithConnection(function(){
 			var connectionId = null;
 			$scope.channelId = $routeParams.channelId;
@@ -134,9 +142,29 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				});			
 			}
 
-			function onAddUser(){}
-			function onRemoveUser(){}
-			function onUpdateUser(){}
+			function onAddUser(user){
+				$scope.$apply(function(){
+					$scope.addUser(new TalkUser(user.id, user.name, user.avatar, user.connections));
+				});
+			}
+
+			function onRemoveUser(userId){
+				$scope.$apply(function(){
+					$scope.removeUser(userId);
+				});	
+			}
+
+			function onUpdateUser(data){
+				console.log(data);
+				if (data.userId && data.propertyName){
+					var user = $scope.getUser(data.userId);
+					if (user){
+						$scope.$apply(function(){
+							user[data.propertyName] = data.data;	
+						});
+					}	
+				}
+			}
 
 			function onReconnected(){
 				joinChannel(true);
@@ -154,7 +182,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			}
 
 			function joinChannel(isReconnected){
-				connector.request('joinChannel', {channelId:$scope.channelId}, function(res){
+				connector.request('joinChannel', {channelId:$scope.channelId, userId:$scope.me.id}, function(res){
 					console.log('joinChannel');
 					if (res.err){
 						alert(err);
@@ -184,19 +212,21 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				connector.addEventListener('onNewTalk', $scope.channelId, onNewTalk);
 				connector.addEventListener('onAddUser', $scope.channelId, onAddUser);
 				connector.addEventListener('onRemoveUser', $scope.channelId, onRemoveUser);
-				connector.addEventListener('onUpdateUser', $scope.channelId, onUpdateUser);
+				connector.addEventListener('onUpdateUser', $scope.channelId, onUpdateUser);	
 			}
 
-			function releaseConnectorEvents(){
-				connector.removeListner('reconnected', onReconnected);
+			function releaseConnectorEvents(){				
+				connector.removeListener('reconnected', onReconnected);
 				connector.removeEventListener('onNewTalk', $scope.channelId, onNewTalk);
 				connector.removeEventListener('onAddUser', $scope.channelId, onAddUser);
 				connector.removeEventListener('onRemoveUser', $scope.channelId, onRemoveUser);
-				connector.removeEventListener('onUpdateUser', $scope.channelId, onUpdateUser);
+				connector.removeEventListener('onUpdateUser', $scope.channelId, onUpdateUser);	
+
+				connector.removeListener('statusChanged', serverStatusChanged);
 			}
 
 			function refreshWithUserId(userId){
-				window.location = encodeURI('/#' + $location.$$path + '?userid=' + userId);
+				window.location = encodeURI(window.location.pathname + '#/ch/' + $scope.channelId + '?userid=' + userId);
 			}
 
 			if(!$scope.$$phase) {
@@ -234,7 +264,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			};
 
 			TalkUser.prototype.isAlive = function(){
-				return Array.isArray(this.connections) && this.connections.length > 0;
+				return _.isArray(this.connections) && this.connections.length > 0;
 			};
 
 			return TalkUser;

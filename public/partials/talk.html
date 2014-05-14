@@ -2,8 +2,9 @@
 	<div class="talkPanel-header-row">
 		<div class="talkPanel-header-cell">
 			<span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.name}} 
+			<p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>		
 			<div>
-				<span class="label label-success" ng-repeat="user in others">{{user.name}}</span>&nbsp;
+				<span ng-class="['label', (user.id==me.id ? 'label-info' : (user.isAlive() ? 'label-success' : 'label-danger'))]" ng-repeat="user in others">{{user.name}}</span>&nbsp;
 			</div>
 		</div>
 	</div>

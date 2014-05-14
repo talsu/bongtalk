@@ -1,6 +1,7 @@
 var http = require('http');
 var path = require('path');
 var util = require('util');
+var Guid = require('guid');
 var express = require('express');
 var logger = require('morgan');
 var bodyParser = require('body-parser');
@@ -30,7 +31,7 @@ var BongTalkServer = (function(){
 		this.redisUrl = redisUrl;
 		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
 		this.cookieParser = cookieParser(secretString);
-		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), 'db');
+		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
 
 	}
 

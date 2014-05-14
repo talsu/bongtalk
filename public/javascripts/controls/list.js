@@ -50,6 +50,22 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			window.location = encodeURI('#/ch/' + channelId + querystring);
 		};
 
+		$scope.joinPopupChannel = function(channelId){
+			var query = [];
+			if ($scope.profile){
+				if ($scope.profile.id){
+					query.push('userid=' + $scope.profile.id);
+				}
+				if ($scope.profile.name){
+					query.push('username=' + $scope.profile.name);
+				}				
+			}
+
+			var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
+
+			window.location = encodeURI('popup.html#/ch/' + channelId + querystring);
+		};
+
 		connector.on('statusChanged', function(status){
 			if (status === 'connected'){
 				$scope.updateChannelList();

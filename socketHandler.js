@@ -34,13 +34,15 @@ exports.SocketHandler = (function(){
 				var userId = req.data.userId || Guid.create().value;
 				self.database.addUserToChannel(channelId, userId, name, function(err){
 					self.database.getUserFromChannel(channelId, userId, function(err, user){
-						res.send({err:err, result:user});	
+						res.send({err:err, result:user});
+						self.channelEvent('onAddUser', channelId, user);	
 					});
 				});
 			});
 
 			reqServer.set('joinChannel', function (req, res){
 				var channelId = req.data.channelId;
+				var userId = req.data.userId;
 				async.parallel({
 					users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},
 					talks: function(callback){ self.database.getTalkHistory(channelId, callback); }
@@ -49,7 +51,8 @@ exports.SocketHandler = (function(){
 					if (!err){
 						var listener = self.addChannelEventListener(channelId, socket);
 						result.connectionId = Guid.create().value;
-						channelEventListeners.push({connectionId:result.connectionId, channelId:channelId, listener:listener});
+						channelEventListeners.push({connectionId:result.connectionId, userId:userId, channelId:channelId, listener:listener});
+						self.emitUserOnline(result.connectionId, channelId, userId);
 					}
 					res.send({err:err, result:result})
 				});
@@ -61,6 +64,7 @@ exports.SocketHandler = (function(){
 				.filter(function(item){return item.connectionId === connectionId;})
 				.forEach(function(item){
 					self.removeChannelEventListener(item.channelId, item.listener);
+					self.emitUserOffline(connectionId, item.channelId, item.userId);
 				});
 				res.send({err:null, result:'done'});
 			});
@@ -112,6 +116,7 @@ exports.SocketHandler = (function(){
 				console.log('disconnect');
 				channelEventListeners.forEach(function(item){
 					self.removeChannelEventListener(item.channelId, item.listener);
+					self.emitUserOffline(item.connectionId, item.channelId, item.userId);
 				});
 			});
 		});
@@ -134,7 +139,31 @@ exports.SocketHandler = (function(){
 			this.removeListener(eventId, listener);
 
 			console.log('removeChannelEventListener('+this.listeners(eventId).length+') : ' + eventId)
-		};		
+		};
+
+		SocketHandler.prototype.emitUserOnline = function(connectionId, channelId, userId){
+			this.setUserOnOffline(true, connectionId, channelId, userId);
+		};
+
+		SocketHandler.prototype.emitUserOffline = function(connectionId, channelId, userId){
+			this.setUserOnOffline(false, connectionId, channelId, userId);
+		};
+
+		SocketHandler.prototype.setUserOnOffline = function(isOnline, connectionId, channelId, userId){
+			var self = this;
+			async.waterfall([
+				function (callback){ self.database[isOnline ? 'setUserOnline' : 'setUserOffline'](connectionId, channelId, userId, callback); },
+				function (result, callback) { self.database.getUserConnections(channelId, userId, callback); },
+			], function (err, result){
+				if (!err){
+					self.channelEvent('onUpdateUser', channelId, {
+						userId:userId,
+						propertyName:'connections',
+						data:result
+					});
+				}
+			});
+		};
 	};
 
 
