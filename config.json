@@ -1,0 +1,5 @@
+{
+	"servicePort" : "3000",
+	"redisUrl" : "redis://talsu.net",
+	"socketIoLogLevel" : 2
+}
