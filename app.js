@@ -3,6 +3,16 @@ var util = require('util');
 var BongTalkServer = require('./BongTalkServer').BongTalkServer;
 var config = require('./config');
 
+var command = require('optimist')
+	.usage('Usage : $0 --port [num] --redisurl [url] --debug')
+	.alias('p', 'port')
+	.alias('r', 'redisurl')
+	.alias('d', 'debug');
+
+config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
+config.redisUrl = command.argv.r || config.redisUrl;
+config.isDebug = command.argv.d || false;
+
 var numCPUs = require('os').cpus().length;
 
 if (cluster.isMaster) {
@@ -42,4 +52,3 @@ if (cluster.isMaster) {
 } else {
 	new BongTalkServer(config.servicePort, config.redisUrl).run();
 }
-
