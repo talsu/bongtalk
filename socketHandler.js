@@ -49,7 +49,7 @@ exports.SocketHandler = (function(){
 				},
 				function (err, result) {
 					if (!err){
-						var listener = self.addChannelEventListener(channelId, socket);
+						var listener = self.addChannelEventListener(channelId, socket.id);
 						result.connectionId = Guid.create().value;
 						channelEventListeners.push({connectionId:result.connectionId, userId:userId, channelId:channelId, listener:listener});
 						self.emitUserOnline(result.connectionId, channelId, userId);
@@ -126,8 +126,13 @@ exports.SocketHandler = (function(){
 			this.emit('channelEvent-' + channelId, eventArg);
 		};
 
-		SocketHandler.prototype.addChannelEventListener = function(channelId, socket){
-			var listener = function (eventArg){ socket.emit(eventArg.eventName, eventArg.channelData); };
+		SocketHandler.prototype.addChannelEventListener = function(channelId, socketId){
+			var listener = function (eventArg){ 
+				var socket = sockets.socket(socketId);
+				if (socket){
+					sockets.emit(eventArg.eventName, eventArg.channelData); 
+				}
+			};
 			var eventId = 'channelEvent-' + channelId;
 			this.on(eventId, listener);
 			console.log('addChannelEventListener('+this.listeners(eventId).length+') : ' + eventId)
