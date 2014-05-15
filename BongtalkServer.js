@@ -9,7 +9,7 @@ var cookieParser = require('cookie-parser');
 var methodOverride = require('method-override');
 var errorhandler = require('errorhandler');
 var session = require('express-session');
-
+var redis = require("redis");
 var Sockets = require('socket.io');
 var SessionSockets = require('session.socket.io');
 
@@ -36,6 +36,7 @@ exports.BongtalkServer = (function(){
 		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
 
 		this.SocketRedisStore = new Sockets.RedisStore({
+			redis : redis,
 			redisPub : tools.createRedisClient(this.redisUrl),
 			redisSub : tools.createRedisClient(this.redisUrl),
 			redisClient : tools.createRedisClient(this.redisUrl)
