@@ -15,8 +15,8 @@ exports.SocketHandler = (function(){
 
 	SocketHandler.prototype.use = function(sockets){
 		var self = this;
-		sockets.on('connection', function(socket){
-			console.log('connected : ' + socket.id);
+		sockets.on('connection', function(socket){			
+			console.log('connected : ' + socket.id + ' (pid:'+process.pid+')');
 
 			var channelEventListeners = [];
 			var reqServer = new RequestResponseSocketServer(socket);

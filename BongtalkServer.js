@@ -27,8 +27,8 @@ var config = require('./config');
 
 var secretString = 'bongtalkSecret';
 
-exports.BongTalkServer = (function(){
-	function BongTalkServer(servicePort, redisUrl){
+exports.BongtalkServer = (function(){
+	function BongtalkServer(servicePort, redisUrl){
 		this.servicePort = process.env.PORT || servicePort;
 		this.redisUrl = redisUrl;
 		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
@@ -74,7 +74,7 @@ exports.BongTalkServer = (function(){
 	};
 
 
-	return BongTalkServer;
+	return BongtalkServer;
 })();
 
 // var server = new BongTalkServer(3000, 'redis://talsu.net');
