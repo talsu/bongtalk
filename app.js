@@ -13,7 +13,7 @@ var command = require('optimist')
 config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
 config.redisUrl = command.argv.r || config.redisUrl;
 config.isDebug = command.argv.d || false;
-config.single = command.argv.s || false;
+config.single = command.argv.s || config.single || false;
 
 var numCPUs = require('os').cpus().length;
 
