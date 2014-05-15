@@ -42,7 +42,7 @@ exports.BongtalkServer = (function(){
 		});
 	}
 
-	BongTalkServer.prototype.run = function(){
+	BongtalkServer.prototype.run = function(){
 		var self = this;
 		var app = express();
 		app.use(logger('dev'));
