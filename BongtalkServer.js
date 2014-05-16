@@ -54,6 +54,7 @@ exports.BongtalkServer = (function(){
 		app.use(this.cookieParser);
 		app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
 		app.use(errorhandler());
+		app.get('/isAlive', function (req, res){res.send();});
 
 		var server = http.createServer(app);
         server.listen(this.servicePort);
