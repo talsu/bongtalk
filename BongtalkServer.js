@@ -52,15 +52,8 @@ exports.BongtalkServer = (function(){
 		app.use(methodOverride());
 		app.use(this.cookieParser);
 		app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
-
 		app.use(errorhandler());
-		// app.use(function(req, res){
-		// 	res.send('Hello');
-		// });
 
-		// app.get('/', function(req, res){
-		// 	res.send('hello world');
-		// });
 		var server = http.createServer(app);
         server.listen(this.servicePort);
 
@@ -68,10 +61,10 @@ exports.BongtalkServer = (function(){
 		io.set('log level', config.socketIoLogLevel);
 		io.set('store', this.SocketRedisStore);
 
-		// var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
+		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
 		var socketHandler = new SocketHandler(this.database);
 
-		socketHandler.use(io.sockets);
+		socketHandler.use(sessionSockets);
 	};
 
 

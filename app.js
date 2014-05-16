@@ -11,8 +11,8 @@ var command = require('optimist')
 	.alias('s', 'single');
 
 config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
-config.redisUrl = command.argv.r || config.redisUrl;
-config.isDebug = command.argv.d || false;
+config.redisUrl = command.argv.r || config.redisUrl || 'redis://localhost';
+config.isDebug = command.argv.d || config.isDebug || false;
 config.single = command.argv.s || config.single || false;
 
 var numCPUs = require('os').cpus().length;

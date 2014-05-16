@@ -25,3 +25,7 @@ exports.createRedisClient = function(redisUrl){
 exports.log = function(obj){
     util.log(util.inspect(obj));
 };
+
+exports.pLog = function(message){
+    util.log('[pid:' + process.pid + '] ' + message);
+};
