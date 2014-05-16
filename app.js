@@ -14,6 +14,7 @@ config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
 config.redisUrl = command.argv.r || config.redisUrl || 'redis://localhost';
 config.isDebug = command.argv.d || config.isDebug || false;
 config.single = command.argv.s || config.single || false;
+config.websocket = command.argv.w || config.websocket || false;
 
 var numCPUs = require('os').cpus().length;
 
@@ -52,5 +53,5 @@ if (!config.single && cluster.isMaster) {
 		if (config.isDebug) cluster.settings.execArgv.pop();
 	});
 } else {
-	new BongtalkServer(config.servicePort, config.redisUrl).run();
+	new BongtalkServer(config).run();
 }

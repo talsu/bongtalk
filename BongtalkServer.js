@@ -28,9 +28,10 @@ var config = require('./config');
 var secretString = 'bongtalkSecret';
 
 exports.BongtalkServer = (function(){
-	function BongtalkServer(servicePort, redisUrl){
-		this.servicePort = process.env.PORT || servicePort;
-		this.redisUrl = redisUrl;
+	function BongtalkServer(option){
+		this.option = option;
+		this.servicePort = process.env.PORT || option.servicePort;
+		this.redisUrl = option.redisUrl;
 		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
 		this.cookieParser = cookieParser(secretString);
 		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
@@ -60,6 +61,9 @@ exports.BongtalkServer = (function(){
 		var io = Sockets.listen(server);
 		io.set('log level', config.socketIoLogLevel);
 		io.set('store', this.SocketRedisStore);
+		if (!this.option.websocket){
+			io.set('transport', ['xhr-polling', 'jsonp-polling']);
+		}
 
 		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
 		var socketHandler = new SocketHandler(this.database);
