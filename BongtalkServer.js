@@ -63,7 +63,7 @@ exports.BongtalkServer = (function(){
 		io.set('log level', config.socketIoLogLevel);
 		io.set('store', this.SocketRedisStore);
 		if (!this.option.websocket){
-			io.set('transport', ['xhr-polling', 'jsonp-polling']);
+			io.set('transports', ['xhr-polling', 'jsonp-polling']);
 		}
 
 		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
