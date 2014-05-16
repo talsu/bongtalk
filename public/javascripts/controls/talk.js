@@ -118,10 +118,9 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 					return;
 				}
 
-				var talk = addTalk({userId:$scope.me.id, message:$scope.inputTalkMessage});
+				var talk = addTalk({userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage});
 
 				$scope.inputTalkMessage = '';
-				talk.channelId = $scope.channelId;
 				connector.request('addNewTalk', talk, function(res){
 					if (res.err){
 						alert(JSON.stringify(res.err));
