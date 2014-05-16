@@ -113,9 +113,9 @@ exports.SocketHandler = (function(){
 					id: Guid.create().value,					
 					time : new Date(),
 					message : req.data.message,
-					user : req.data.user
+					userId : req.data.userId
 				}
-				tools.pLog('addNewTalk -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + talk.user.id + ')');
+				tools.pLog('addNewTalk -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + talk.userId + ')');
 				
 				self.database.addTalkHistory(channelId, talk, function(err, result){
 					res.send({err:err, result:talk});
@@ -169,10 +169,11 @@ exports.SocketHandler = (function(){
 					function (result, callback) { self.database.getUserConnections(channelId, userId, callback); },
 				], function (err, result){
 					if (!err){
+						console.log('onUpdateUser');
 						channelEvent('onUpdateUser', channelId, {
 							userId:userId,
 							propertyName:'connections',
-							data:result
+							data:result.length
 						});
 					}
 

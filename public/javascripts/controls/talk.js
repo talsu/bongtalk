@@ -16,8 +16,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			$scope.me = new TalkUser({
 				id : $routeParams.userid, 
 				name : $routeParams.username, 
-				avatar : 'http://placehold.it/50/FA6F57/fff&text=ME', 
-				connections : []
+				avatar : 'http://placehold.it/50/FA6F57/fff&text=ME'
 			});
 			$scope.others = [];
 			$scope.talks = [];
@@ -119,7 +118,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 					return;
 				}
 
-				var talk = addTalk({user:$scope.me, message:$scope.inputTalkMessage});
+				var talk = addTalk({userId:$scope.me.id, message:$scope.inputTalkMessage});
 
 				$scope.inputTalkMessage = '';
 				talk.channelId = $scope.channelId;
@@ -247,7 +246,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			this.id = data.id;
 			this.message = data.message;
 			this.time = data.time ? new Date(data.time) : null;
-			this.user = data.user;
+			this.userId = data.userId;
 		}
 
 		return Talk;
@@ -257,7 +256,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 		function TalkUser(data) {
 			this.id = data.id;
 			this.name = data.name;
-			this.connections = data.connections;
+			this.connections = data.connections || 0;
 			this.avatar = data.avatar || 'http://placehold.it/50/55C1E7/fff&text=U';
 		}
 
@@ -271,7 +270,8 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 		};
 
 		TalkUser.prototype.isAlive = function(){
-			return _.isArray(this.connections) && this.connections.length > 0;
+			return _.isNumber(this.connections) && this.connections > 0;
+			// return _.isArray(this.connections) && this.connections.length > 0;
 		};
 
 		return TalkUser;

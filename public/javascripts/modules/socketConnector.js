@@ -4,7 +4,7 @@ define(['socket', 'underscore', 'eventEmitter', 'modules/RequestResponseSocketCl
 	function SocketConnector(io){
 		var self = this;
 		this.status = 'connecting';
-		this.socket = io.connect(window.location.origin);
+		this.socket = io.connect(window.location.origin, {'sync disconnect on unload' : true});
 		this.reqClient = new RequestResponseSocketClient(this.socket);
 		this.reconnectFlag = false;
 		this.socket.on('connect', function () {self.setStatus('connecting');});

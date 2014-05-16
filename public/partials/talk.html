@@ -13,17 +13,17 @@
 			<div class="talkPanel-body">
 				<div class="talks-container">
 					<ul class="chat">
-						<li ng-repeat="talk in talks" ng-class="(talk.user.id==me.id) ? 'right clearfix' : 'left clearfix'">
-							<span ng-class="(talk.user.id==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
-								<img ng-src="{{getUser(talk.user.id).avatar}}" alt="User Avatar" class="img-circle" />
+						<li ng-repeat="talk in talks" ng-class="(talk.userId==me.id) ? 'right clearfix' : 'left clearfix'">
+							<span ng-class="(talk.userId==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
+								<img ng-src="{{(talk.userId==me.id) ? 'http://placehold.it/50/FA6F57/fff&text=ME' : 'http://placehold.it/50/55C1E7/fff&text=U'}}" alt="User Avatar" class="img-circle" />
 							</span>
 							<div class="chat-body clearfix">
 								<div class="header">
-									<strong ng-show="(talk.user.id!=me.id)" class="primary-font">{{talk.user.name}}</strong>
-									<small ng-class="(talk.user.id!=me.id) ? 'text-muted pull-right' : 'text-muted'">
+									<strong ng-show="(talk.userId!=me.id)" class="primary-font">{{getUser(talk.userId).name}}</strong>
+									<small ng-class="(talk.userId!=me.id) ? 'text-muted pull-right' : 'text-muted'">
 										<span class="glyphicon glyphicon-time"></span>{{talk.time}}
 									</small>
-									<strong ng-show="(talk.use.id==me.id)"  class="pull-right primary-font">{{talk.user.name}}</strong>
+									<strong ng-show="(talk.userId==me.id)"  class="pull-right primary-font">{{getUser(talk.userId).name}}</strong>
 								</div>
 								<p>
 									{{talk.message}}

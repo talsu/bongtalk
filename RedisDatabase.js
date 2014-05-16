@@ -147,7 +147,7 @@ exports.RedisDatabase = (function(){
             else{
                 var user = {
                     id : userId,
-                    connections : connections
+                    connections : connections.length
                 };
                 for (var i in userProperties){
                     user[userProperties[i]] = properties[i];
@@ -189,7 +189,7 @@ exports.RedisDatabase = (function(){
                             for (var i in userProperties){
                                 user[userProperties[i]] = properties[index][i];
                             }
-                            user['connections'] = connectionKeys[index];
+                            user['connections'] = connectionKeys[index].length;
                             index++;
                             return user;
                         });
@@ -240,7 +240,7 @@ exports.RedisDatabase = (function(){
 
     RedisDatabase.prototype.addTalkHistory = function(channelId, talk, callback){
         var channelHistoryKey = "Channel:" + channelId + ":HistoryList";
-        var talkJson = JSON.stringify(talk);
+        var talkJson = JSON.stringify(talk);        
         this.redisClient
             .multi()
             .lpush(channelHistoryKey, talkJson)
