@@ -1,4 +1,5 @@
 sudo forever stopall
 git pull
+npm install
 sudo forever start app.js
 
