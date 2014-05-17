@@ -1,0 +1,4 @@
+sudo forever stopall
+git pull
+sudo forever start app.js
+
