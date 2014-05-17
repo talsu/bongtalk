@@ -19,8 +19,9 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				avatar : 'http://placehold.it/50/FA6F57/fff&text=ME'
 			});
 			$scope.others = [];
-			$scope.talks = [];
-			$scope.lastTalk = null;
+			var talks = [];
+			var lastTalkGroup = null;
+			$scope.talkGroups = [];
 			connector.request('getUserFromChannel', {
 				channelId:$scope.channelId, 
 				userId:$scope.me.id},
@@ -117,7 +118,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				if (!$scope.inputTalkMessage){
 					return;
 				}
-				var data = {userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage};
+				var data = {userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage, time:new Date()};
 				var talk = addTalk(data);
 
 				$scope.inputTalkMessage = '';
@@ -128,8 +129,8 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 					}
 
 					$scope.$apply(function(){
-						if (_.any($scope.talks, function (item){return item.id === res.result.id;})){
-							$scope.talks.splice(_.indexOf($scope.talks, talk), 1);
+						if (_.any(talks, function (item){return item.id === res.result.id;})){
+							talks.splice(_.indexOf(talks, talk), 1);
 						}
 						else{
 							talk.id = res.result.id;
@@ -178,13 +179,22 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			}
 
 			function addTalk(data){
-				if (_.any($scope.talks, function (talk){return talk.id === data.id;})){
+				if (_.any(talks, function (talk){return talk.id === data.id;})){
 					return;
 				}
 
 				var newTalk = new Talk(data);
-				$scope.talks.push(newTalk);
-				$scope.lastTalk = newTalk;
+				talks.push(newTalk);
+
+				if (lastTalkGroup && lastTalkGroup.canAdd(newTalk)){
+					lastTalkGroup.addTalk(newTalk);
+				}
+				else{
+					var talkGroup = new TalkGroup(newTalk);
+					$scope.talkGroups.push(talkGroup);
+					lastTalkGroup = talkGroup;
+				}
+
 				return newTalk;
 			}
 
@@ -248,7 +258,51 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 			this.userId = data.userId;
 		}
 
+        Talk.prototype.getTimeString = function() {
+            if (this.time instanceof Date){
+                var dateTime = this.time;
+                return (dateTime.getHours() < 10 ? '0' + dateTime.getHours() : dateTime.getHours())
+                    + ':' +
+                    (dateTime.getMinutes() < 10 ? '0' + dateTime.getMinutes() : dateTime.getMinutes());
+            }
+
+            return '';
+        };
+
 		return Talk;
+	})();
+
+	var TalkGroup = (function(){
+		function TalkGroup(talk){
+			this.userId = talk.userId;
+			this.messages = [];
+			this.addTalk(talk);
+		}
+
+		TalkGroup.prototype.addTalk = function(talk) {
+			this.messages.push({id:talk.id, text:talk.message});
+			this.time = talk.time;
+		};
+
+		TalkGroup.prototype.getTimeString = function() {
+            if (this.time instanceof Date){
+                var dateTime = this.time;
+                return (dateTime.getHours() < 10 ? '0' + dateTime.getHours() : dateTime.getHours())
+                    + ':' +
+                    (dateTime.getMinutes() < 10 ? '0' + dateTime.getMinutes() : dateTime.getMinutes());
+            }
+
+            return '';
+        };
+
+        TalkGroup.prototype.canAdd = function(talk){
+        	return talk 
+        	&& talk.time instanceof Date
+        	&& talk.userId === this.userId 
+        	&& (((talk.time - this.time) / 60000) < 1);
+        };
+
+		return TalkGroup;
 	})();
 
 	var TalkUser = (function () {

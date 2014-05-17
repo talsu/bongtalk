@@ -1,58 +1,62 @@
 <div class="fill talkPanel">
-	<div class="talkPanel-header-row">
-		<div class="talkPanel-header-cell">
-			<span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.name}} 
-			<p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>		
-			<div>
-				<span ng-class="['label', (user.id==me.id ? 'label-info' : (user.isAlive() ? 'label-success' : 'label-danger'))]" ng-repeat="user in others">{{user.name}}</span>&nbsp;
-			</div>
-		</div>
-	</div>
-	<div class="talkPanel-body-row">
-		<div class="talkPanel-body-cell">
-			<div class="talkPanel-body">
-				<div class="talks-container">
-					<ul class="chat">
-						<li ng-repeat="talk in talks" ng-class="(talk.userId==me.id) ? 'right clearfix' : 'left clearfix'">
-							<span ng-class="(talk.userId==me.id) ? 'chat-img pull-right' : 'chat-img pull-left'">
-								<img ng-src="{{(talk.userId==me.id) ? 'http://placehold.it/50/FA6F57/fff&text=ME' : 'http://placehold.it/50/55C1E7/fff&text=U'}}" alt="User Avatar" class="img-circle" />
-							</span>
-							<div class="chat-body clearfix">
-								<div class="header">
-									<strong ng-if="(talk.userId!=me.id)" class="primary-font">{{getUser(talk.userId).name}}</strong>
-									<small ng-class="(talk.userId!=me.id) ? 'text-muted pull-right' : 'text-muted'">
-										<span class="glyphicon glyphicon-time"></span>{{talk.time}}
-									</small>
-									<strong ng-if="(talk.userId==me.id)"  class="pull-right primary-font">{{getUser(talk.userId).name}}</strong>
-								</div>
-								<p>
-									{{talk.message}}
-								</p>
-							</div>
-						</li>
-					</ul>
-					<div id="bottom"></div>
-				</div>
-		  	</div>
-		</div>
-	</div>
-	<div class="talkPanel-footer-row">
-		<div class="talkPanel-footer-cell">
-			<div class="input-group">
-				<input id="btn-input" type="text" class="form-control input-sm" placeholder="Type your message here..." ng-model="inputTalkMessage" ng-keypress="inputKeypress($event)" />
+    <div class="talkPanel-header-row">
+        <div class="talkPanel-header-cell">
+            <span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.name}}
+            <p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>
+            <div>
+                <span ng-class="['label', (user.id==me.id ? 'label-info' : (user.isAlive() ? 'label-success' : 'label-danger'))]" ng-repeat="user in others">{{user.name}}</span>&nbsp;
+            </div>
+        </div>
+    </div>
+    <div class="talkPanel-body-row">
+        <div class="talkPanel-body-cell">
+            <div class="talkPanel-body">
+                <div class="talks-container">
+                    <div ng-repeat="talk in talkGroups">
+                        <div class="sender" ng-if="(talk.userId!=me.id)">
+                            <img class="sender_img" src="/image/avatar-blank.jpg" >
+                            <div class="sender_content">
+                                <span class="sender_name">{{getUser(talk.userId).name}}</span>
+                                <div class="bubble">
+                                    <div class="message_content">
+                                        <div ng-repeat="message in talk.messages">{{message.text}}</div>
+                                    </div>
+                                    <time class="sender_time">{{talk.getTimeString()}}</time>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="sender sender--alt" ng-if="(talk.userId==me.id)">
+                            <div class="bubble bubble--alt">
+                                <div class="message_content">
+                                    <div ng-repeat="message in talk.messages">{{message.text}}</div>
+                                </div>
+                                <time class="sender_time sender_time--alt">{{talk.getTimeString()}}</time>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="bottom"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <div class="talkPanel-footer-row">
+        <div class="talkPanel-footer-cell">
+            <div class="input-group">
+                <input id="btn-input" type="text" class="form-control input-sm" placeholder="Type your message here..." ng-model="inputTalkMessage" ng-keypress="inputKeypress($event)" />
 				<span class="input-group-btn">
 					<button class="btn btn-warning btn-sm" id="btn-chat" ng-click="sendMessage()">Send</button>
 				</span>
-			</div>
-		</div>
-	</div>
+            </div>
+        </div>
+    </div>
 </div>
-									<!-- <strong class="primary-font">Masud</strong> 
-									<small class="pull-right text-muted">
-										<span class="glyphicon glyphicon-time"></span>12 mins ago
-									</small>
-									
-									<small class=" text-muted">
-										<span class="glyphicon glyphicon-time"></span>13 mins ago
-									</small>
-									<strong class="pull-right primary-font">Nicola</strong> -->
+<!-- <strong class="primary-font">Masud</strong>
+<small class="pull-right text-muted">
+    <span class="glyphicon glyphicon-time"></span>12 mins ago
+</small>
+
+<small class=" text-muted">
+    <span class="glyphicon glyphicon-time"></span>13 mins ago
+</small>
+<strong class="pull-right primary-font">Nicola</strong> -->
