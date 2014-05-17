@@ -82,7 +82,7 @@ toolbar=yes|no|1|0	Whether or not to display the browser toolbar. IE and Firefox
 top=pixels	The top position of the window. Negative values not allowed
 width=pixels
 */
-			window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=262, height=380");
+			window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
 		};
 
 		connector.on('statusChanged', function(status){

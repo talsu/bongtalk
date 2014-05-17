@@ -89,7 +89,19 @@
 .talkPanel-footer-cell { display: table-cell; height: 0; width: 100%; }
 
 .talkPanel-body {height: 100%; position: relative; }
-.talks-container {top:0;bottom: 0;left: 0;right: 0;position: absolute; overflow-y:auto; overflow-x: hidden;}
+.talks-container {
+    top:0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    position: absolute; 
+    overflow-y:auto; 
+    overflow-x: hidden;
+}
+.talk-container {
+    margin-right: 10px;
+    margin-left: 10px;
+}
 
 /*body {*/
 /*padding: 50px;*/
@@ -204,3 +216,5 @@
 .sender_name{display:block;}
 .sender_time{ display:block; font-size:11px;}
 .sender_time--alt{float: right;}
+
+.navbar-nobottom{margin-bottom: 0px;}

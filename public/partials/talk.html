@@ -1,8 +1,20 @@
 <div class="fill talkPanel">
     <div class="talkPanel-header-row">
         <div class="talkPanel-header-cell">
-            <span class="glyphicon glyphicon-comment"></span> {{channelId}} {{me.name}}
-            <p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>
+            <nav class="navbar navbar-inverse navbar-nobottom" role="navigation">
+                <div class="container-fluid">
+                    <!-- Brand and toggle get grouped for better mobile display -->
+                    <div class="navbar-brand" href="#"><span class="glyphicon glyphicon-comment"></span> {{channelId}}  {{me.name}}</div>
+                    <p class="navbar-text navbar-right">
+                        <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span>
+                    </p>
+                    
+                   <!--  <p class="navbar-text"><span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p> -->
+                    
+                    <!-- Collect the nav links, forms, and other content for toggling -->
+                   
+                  </div><!-- /.container-fluid -->
+            </nav>
             <div>
                 <span ng-class="['label', (user.id==me.id ? 'label-info' : (user.isAlive() ? 'label-success' : 'label-danger'))]" ng-repeat="user in others">{{user.name}}</span>&nbsp;
             </div>
@@ -12,7 +24,7 @@
         <div class="talkPanel-body-cell">
             <div class="talkPanel-body">
                 <div class="talks-container">
-                    <div ng-repeat="talk in talkGroups">
+                    <div class="talk-container" ng-repeat="talk in talkGroups">
                         <div class="sender" ng-if="(talk.userId!=me.id)">
                             <img class="sender_img" src="/image/avatar-blank.jpg" >
                             <div class="sender_content">
