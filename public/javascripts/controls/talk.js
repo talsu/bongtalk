@@ -117,11 +117,11 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				if (!$scope.inputTalkMessage){
 					return;
 				}
-
-				var talk = addTalk({userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage});
+				var data = {userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage};
+				var talk = addTalk(data);
 
 				$scope.inputTalkMessage = '';
-				connector.request('addNewTalk', talk, function(res){
+				connector.request('addNewTalk', data, function(res){
 					if (res.err){
 						alert(JSON.stringify(res.err));
 						return;
@@ -200,15 +200,15 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 					var users = res.result.users;
 					var talks = res.result.talks;
 					
-					if (_.isArray(users)){
-						_.each(users, function (user){ $scope.addUser(new TalkUser(user)); });
-					}
+					$scope.$apply(function(){
+						if (_.isArray(users)){
+							_.each(users, function (user){ $scope.addUser(new TalkUser(user)); });
+						}
 
-					if (_.isArray(talks)){
-						_.each(talks, function (talk){ addTalk(talk); });
-					}
-
-					$scope.$apply();
+						if (_.isArray(talks)){
+							_.each(talks, function (talk){ addTalk(talk); });
+						}
+					});
 				});
 			}
 

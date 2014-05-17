@@ -19,11 +19,11 @@
 							</span>
 							<div class="chat-body clearfix">
 								<div class="header">
-									<strong ng-show="(talk.userId!=me.id)" class="primary-font">{{getUser(talk.userId).name}}</strong>
+									<strong ng-if="(talk.userId!=me.id)" class="primary-font">{{getUser(talk.userId).name}}</strong>
 									<small ng-class="(talk.userId!=me.id) ? 'text-muted pull-right' : 'text-muted'">
 										<span class="glyphicon glyphicon-time"></span>{{talk.time}}
 									</small>
-									<strong ng-show="(talk.userId==me.id)"  class="pull-right primary-font">{{getUser(talk.userId).name}}</strong>
+									<strong ng-if="(talk.userId==me.id)"  class="pull-right primary-font">{{getUser(talk.userId).name}}</strong>
 								</div>
 								<p>
 									{{talk.message}}

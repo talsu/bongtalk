@@ -49,12 +49,16 @@ exports.BongtalkServer = (function(){
 		var app = express();
 		app.use(logger('dev'));
 		app.use(express.static(__dirname + '/public'));
+		app.set('views', __dirname + '/public');
+		app.set("view options", {layout: false});
 		app.use(bodyParser());
 		app.use(methodOverride());
 		app.use(this.cookieParser);
 		app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
 		app.use(errorhandler());
+  		app.engine('html', require('ejs').renderFile);
 		app.get('/isAlive', function (req, res){res.send();});
+		app.get('/p', function (req, res){ res.render('popup.html'); });
 
 		var server = http.createServer(app);
         server.listen(this.servicePort);
