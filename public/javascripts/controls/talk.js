@@ -119,10 +119,6 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				$scope.$apply(function(){
 					addTalk(talk);					
 				});
-
-				$scope.$apply(function(){
-					$location.hash('bottom');
-				});			
 			}
 
 			function onAddUser(user){
