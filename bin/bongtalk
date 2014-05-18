@@ -6,19 +6,27 @@ var BongtalkServer = require('../BongtalkServer').BongtalkServer;
 var config = require('../config');
 
 var command = require('optimist')
-	.usage('Usage : $0 --port [num] --redisurl [url] --debug --single')
+	.usage('Usage : $0 --port [num] --redisurl [url] --instance [num] --single --debug')
 	.alias('p', 'port')
 	.alias('r', 'redisurl')
+	.alias('i', 'instance')
 	.alias('d', 'debug')
-	.alias('s', 'single');
+	.alias('s', 'single')
+	.check(function (argv){
+		if (argv.p && isNaN(argv.p)){
+			throw 'port must be Number.'
+		}
+		if (argv.i && isNaN(argv.i)){
+			throw 'instance count must be Number.';
+		}
+	});
 
 config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
 config.redisUrl = command.argv.r || config.redisUrl || 'redis://localhost';
 config.isDebug = command.argv.d || config.isDebug || false;
 config.single = command.argv.s || config.single || false;
 config.websocket = command.argv.w || config.websocket || false;
-
-var numCPUs = require('os').cpus().length;
+config.instanceCount = Number(command.argv.i || config.instanceCount || require('os').cpus().length)
 
 if (!config.single && cluster.isMaster) {
 	util.log('master('+process.pid+') started');
@@ -30,7 +38,7 @@ if (!config.single && cluster.isMaster) {
 	var debugPortIndex = 0;
 
 	// Fork workers.
-	for (var i = 0; i < numCPUs; i++) {
+	for (var i = 0; i < config.instanceCount; i++) {
 		if (config.isDebug) cluster.settings.execArgv.push('--debug=' + (5859 + debugPortIndex++));
 		cluster.fork();
 		if (config.isDebug) cluster.settings.execArgv.pop();
