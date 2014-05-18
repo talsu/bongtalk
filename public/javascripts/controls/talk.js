@@ -221,6 +221,25 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				window.location = encodeURI(window.location.pathname + '#/ch/' + $scope.channelId + '?userid=' + userId);
 			}
 
+			$scope.getShareUrl = function(){
+				return encodeURI(window.location.origin + window.location.pathname + '#/ch/' + $scope.channelId);
+			};
+
+			var isCopiedShareUrlTimer = null;
+			$scope.copyShareUrlComplete = function(){
+				$scope.isCopiedShareUrl = true;
+
+				if (isCopiedShareUrlTimer){
+					clearTimeout(isCopiedShareUrlTimer);	
+				}				
+
+				isCopiedShareUrlTimer = setTimeout(function(){
+					$scope.$apply(function(){
+						$scope.isCopiedShareUrl = false;
+					});
+				}, 2000);
+			};
+
 			$scope.addUser = function (user) {
 				if (!user || !(user instanceof TalkUser))
 				{

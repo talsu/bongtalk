@@ -43,19 +43,46 @@
                       </form> -->
                       <ul class="nav navbar-nav navbar-right">
                         <li class="dropdown">
-                          <a href="#" class="dropdown-toggle" data-toggle="dropdown">{{me.name}} <b class="caret"></b></a>
+                          <a href="#" class="dropdown-toggle" data-toggle="dropdown"><span class="glyphicon glyphicon-send"></span> Share <b class="caret"></b></a>
                           <ul class="dropdown-menu">
-                            <li><a>Change name</a></li>
+                            <!-- <li><div class="navbar-text">copy this url</div></li>
+                            <li class="divider"></li> -->
+                            <li>
+                                <form class="navbar-form navbar-form-inmenu">
+                                    <div class="form-group">
+                                      <input type="text" class="form-control cursor-pointer" placeholder="Share url" ng-value="getShareUrl()" onclick="this.select();" readonly>
+                                    </div>
+                                    <button type="button" ng-class="['btn', (isCopiedShareUrl ? 'btn-success' : 'btn-primary')]" clip-copy="getShareUrl()" clip-click="copyShareUrlComplete()"><span class="glyphicon glyphicon-paperclip"></span> {{(isCopiedShareUrl ? 'copied success!' : 'copy to clipboard')}}</button>
+                                    <!-- <button ng-if="(isCopiedShareUrl)" type="button" class="btn btn-success" clip-copy="getShareUrl()" clip-click="copyShareUrlComplete()"><span class="glyphicon glyphicon-paperclip"></span> copied success!</button> -->
+                              </form>
+                            </li>
+                            <!-- <li>
+                                <div class="form-group">
+                                      <input type="text" class="form-control" placeholder="Share url">
+                                    </div>
+                                    <button type="submit" class="btn btn-default">Submit</button>
+                            </li> -->
+                            <!-- <li><a href="#">Another action</a></li>
+                            <li><a href="#">Something else here</a></li>
+                            <li class="divider"></li>
+                            <li><a href="#">Separated link</a></li> -->
                           </ul>
                         </li>
+                        
                         <li class="dropdown">
-                          <a href="#" class="dropdown-toggle" data-toggle="dropdown">Online <span class="badge">{{onlineUsers.length}}</span><b class="caret"></b></a>
+                          <a href="#" class="dropdown-toggle" data-toggle="dropdown"><span class="glyphicon glyphicon-user"></span> Online <span class="badge">{{onlineUsers.length}}</span>&nbsp;<b class="caret"></b></a>
                           <ul class="dropdown-menu">
                             <li ng-repeat="onlineUser in onlineUsers"><p class="navbar-text">{{onlineUser.name}}</p></li>
                             <!-- <li><a href="#">Another action</a></li>
                             <li><a href="#">Something else here</a></li>
                             <li class="divider"></li>
                             <li><a href="#">Separated link</a></li> -->
+                          </ul>
+                        </li>
+                        <li class="dropdown">
+                          <a href="#" class="dropdown-toggle" data-toggle="dropdown"><span class="glyphicon glyphicon-cog"></span> {{me.name}} <b class="caret"></b></a>
+                          <ul class="dropdown-menu">
+                            <li><a>Change name</a></li>
                           </ul>
                         </li>
                         <li>
