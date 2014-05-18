@@ -222,7 +222,7 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 			}
 
 			$scope.getShareUrl = function(){
-				return encodeURI(window.location.origin + window.location.pathname + '#/ch/' + $scope.channelId);
+				return encodeURI(window.location.protocol + '//' + window.location.host + window.location.pathname + '#/ch/' + $scope.channelId);
 			};
 
 			var isCopiedShareUrlTimer = null;
