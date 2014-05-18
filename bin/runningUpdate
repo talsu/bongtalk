@@ -1,5 +1,18 @@
+FULL_PATH=$0
+FILE_NAME="${FULL_PATH##*/}"
+#FILE_DIR="${FULL_PATH:0:${#FULL_PATH} - ${#FILE_NAME} - 1}"
+FILE_DIR=$(dirname ${FULL_PATH})
+FILE_BASE="${FILE_NAME%.[^.]*}"
+FILE_EXT="${FILE_NAME:${#FILE_BASE} + 1}" 
+
+OLD_DIR=$(pwd)
+cd ${FILE_DIR}
+echo $(pwd)
+cd ..
 sudo forever stopall
 git pull
 npm install
-sudo forever start app.js
+cd ${FILE_DIR}
+sudo forever start ./bin/bongtalk
+cd ${OLD_DIR}
 
