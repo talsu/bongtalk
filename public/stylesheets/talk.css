@@ -97,6 +97,7 @@
     position: absolute; 
     overflow-y:auto; 
     overflow-x: hidden;
+    padding-top: 10px;
 }
 .talk-container {
     margin-right: 10px;

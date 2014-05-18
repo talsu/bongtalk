@@ -88,25 +88,28 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				if (!$scope.inputTalkMessage){
 					return;
 				}
-				var data = {userId:$scope.me.id, channelId:$scope.channelId, message:$scope.inputTalkMessage, time:new Date()};
-				var talk = addTalk(data);
+				var data = {
+					id:'temp' + new Date,
+					userId:$scope.me.id, 
+					channelId:$scope.channelId, 
+					message:$scope.inputTalkMessage, 
+					time:new Date()
+				};
 
+				var talk = addTalk(data);
 				$scope.inputTalkMessage = '';
 				connector.request('addNewTalk', data, function(res){
 					if (res.err){
 						alert(JSON.stringify(res.err));
 						return;
 					}
-
-					$scope.$apply(function(){
-						if (_.any(talks, function (item){return item.id === res.result.id;})){
-							talks.splice(_.indexOf(talks, talk), 1);
-						}
-						else{
+					if (talk){
+						$scope.$apply(function(){
 							talk.id = res.result.id;
 							talk.time = res.result.time;
-						}	
-					});
+						});
+					}
+					
 				});
 			};
 
@@ -153,8 +156,8 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 			}
 
 			function addTalk(data){
-				if (_.any(talks, function (talk){return talk.id === data.id;})){
-					return;
+				if (!(data.id) || _.any(talks, function (talk){return talk.id === data.id;})){
+					return null;
 				}
 
 				var newTalk = new Talk(data);
