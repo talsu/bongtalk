@@ -1,7 +1,7 @@
 'use strict';
 
-define(['controllers', 'underscore', 'modules/socketConnector'], function (controllers, _, connector){
-	controllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', '$anchorScroll', function($scope, $routeParams, $location, $anchorScroll){
+define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], function (controllers, _, connector){
+	controllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', function($scope, $routeParams, $location){
 		$scope.serverStatus = connector.status;		
 		connector.addListener('statusChanged', serverStatusChanged);
 		function serverStatusChanged (status){
@@ -19,6 +19,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				avatar : 'http://placehold.it/50/FA6F57/fff&text=ME'
 			});
 			$scope.others = [];
+			$scope.onlineUsers = [];
 			var talks = [];
 			var lastTalkGroup = null;
 			$scope.talkGroups = [];
@@ -74,38 +75,7 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				return null;
 			};
 
-			$scope.addUser = function (user) {
-				if (!user || !(user instanceof TalkUser))
-				{
-					return null;
-				}
 
-				var selectedUsers = $scope.others.filter(function(item){return item.id === user.id;});
-
-				if (selectedUsers.length > 0){
-					// 존재한다면;
-					var selectedUser = selectedUsers[0];
-					selectedUser.update(user);
-				}
-				else{
-					// 같은 ID를 가진 놈이 없다면 추가하라.
-					$scope.others.push(user);
-					return user;
-				}
-
-				return null;
-			};
-
-			$scope.removeUser = function (userId) {
-				var user = $scope.getUser(userId);
-
-				if (user)
-				{
-					$scope.others.splice($scope.others.indexOf(user), 1);
-				}
-
-				return user;
-			};
 
 			$scope.inputKeypress = function($event){
 				if ($event.keyCode === 13) // Enter key pess
@@ -140,6 +110,11 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 				});
 			};
 
+			$scope.openNewPopupWindow = function(){
+
+				window.open(window.location, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
+			};
+
 			function onNewTalk(talk){
 				$scope.$apply(function(){
 					addTalk(talk);					
@@ -147,7 +122,6 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 
 				$scope.$apply(function(){
 					$location.hash('bottom');
-		      		$anchorScroll();	
 				});			
 			}
 
@@ -168,7 +142,11 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 					var user = $scope.getUser(data.userId);
 					if (user){
 						$scope.$apply(function(){
-							user[data.propertyName] = data.data;	
+							user[data.propertyName] = data.data;
+
+							if (data.propertyName === 'connections'){
+								updateOnlineUser(user);
+							}
 						});
 					}	
 				}
@@ -242,6 +220,65 @@ define(['controllers', 'underscore', 'modules/socketConnector'], function (contr
 
 			function refreshWithUserId(userId){
 				window.location = encodeURI(window.location.pathname + '#/ch/' + $scope.channelId + '?userid=' + userId);
+			}
+
+			$scope.addUser = function (user) {
+				if (!user || !(user instanceof TalkUser))
+				{
+					return;
+				}
+
+				var selectedUsers = $scope.others.filter(function(item){return item.id === user.id;});
+
+				if (selectedUsers.length > 0){
+					// 존재한다면;
+					var selectedUser = selectedUsers[0];
+					selectedUser.update(user);
+				}
+				else{
+					// 같은 ID를 가진 놈이 없다면 추가하라.
+					$scope.others.push(user);
+				}
+
+				updateOnlineUser(user);
+			};
+
+			$scope.removeUser = function (userId) {
+				var user = $scope.getUser(userId);
+
+				if (user)
+				{
+					$scope.others.splice($scope.others.indexOf(user), 1);
+
+					var onlineUser = _.find($scope.onlineUsers, function(item){return item.id === user.id;});
+					if (onlineUser){
+						$scope.onlineUsers.splice($scope.onlineUsers.indexOf(onlineUser), 1);
+					}
+				}
+
+				return user;
+			};
+
+			function updateOnlineUser(user){
+				if (!user || !(user instanceof TalkUser) || user.id === $scope.me.id)
+				{
+					return;
+				}
+
+				var existUser = _.find($scope.onlineUsers, function(item){return item.id === user.id;});
+
+				if (existUser){
+					if (!user.isAlive()){
+						//지우기
+						$scope.onlineUsers.splice($scope.onlineUsers.indexOf(existUser), 1);
+					}
+				}
+				else{
+					if (user.isAlive()){
+						//추가
+						$scope.onlineUsers.push(user);
+					}
+				}
 			}
 
 			if(!$scope.$$phase) {

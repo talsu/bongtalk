@@ -23,6 +23,7 @@
     "angular": "~1.2.16",
     "socket.io-client": "~0.9.16",
     "angular-route": "~1.2.16",
-    "eventEmitter": "~4.2.7"
+    "eventEmitter": "~4.2.7",
+    "angularjs-scroll-glue": "~0.0.1"
   }
 }
