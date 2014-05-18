@@ -1,2 +1,2 @@
-web: node ./bin/bongtalk
+web: node ./bin/bongtalk -s -w
 

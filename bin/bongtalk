@@ -21,8 +21,8 @@ var command = require('optimist')
 		}
 	});
 
-config.servicePort = command.argv.p || Number(config.servicePort) || 3000;
-config.redisUrl = command.argv.r || config.redisUrl || 'redis://localhost';
+config.servicePort = process.env.PORT || command.argv.p || Number(config.servicePort) || 3000;
+config.redisUrl = process.env.REDISCLOUD_URL || command.argv.r || config.redisUrl || 'redis://localhost';
 config.isDebug = command.argv.d || config.isDebug || false;
 config.single = command.argv.s || config.single || false;
 config.websocket = command.argv.w || config.websocket || false;
