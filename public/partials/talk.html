@@ -45,7 +45,19 @@
                         <li class="dropdown">
                           <a href="#" class="dropdown-toggle" data-toggle="dropdown"><span class="glyphicon glyphicon-cog"></span> {{me.name}} <b class="caret"></b></a>
                           <ul class="dropdown-menu">
-                            <li><a>Change name</a></li>
+                            <li><a>Change name</a>
+                                    <form class="navbar-form navbar-form-inmenu">
+                                    <div class="form-group">
+                                        <div class="input-group">
+                                            <input type="text" class="form-control cursor-pointer" placeholder="Share url" ng-value="getShareUrl()">
+                                            <span class="input-group-btn">
+                                                <button class="btn btn-warning btn-sm" id="btn-chat" ng-click="sendMessage()">Send</button>
+                                            </span>
+                                        </div>
+                                    </div>
+                                    <!-- <button type="button" ng-class="['btn', (isCopiedShareUrl ? 'btn-success' : 'btn-primary')]" clip-copy="getShareUrl()" clip-click="copyShareUrlComplete()"><span class="glyphicon glyphicon-paperclip"></span> {{(isCopiedShareUrl ? 'copied success!' : 'copy to clipboard')}}</button> -->
+                              </form>
+                            </li>
                           </ul>
                         </li>
                         <li>

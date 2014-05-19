@@ -1,6 +1,6 @@
 {
 	"servicePort" : "3000",
-	"redisUrl" : "redis://talsu.net:16379",
+	"redisUrl" : "redis://talsu.net:6379",
 	"socketIoLogLevel" : 2,
 	"single" : false,
 	"websocket" : false
