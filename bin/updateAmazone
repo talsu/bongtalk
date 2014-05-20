@@ -13,6 +13,6 @@ sudo forever stopall
 git pull
 npm install
 cd ${FILE_DIR}
-sudo forever start ./bin/bongtalk -s -r -p 80 -r redis://54.178.178.147
+sudo forever start ./bongtalk -s -r -p 80 -r redis://54.178.178.147
 cd ${OLD_DIR}
 
