@@ -33,7 +33,7 @@ exports.SocketHandler = (function(){
 
 			reqServer.set('addUserToChannel', function (req, res){				
 				var channelId = req.data.channelId;
-				var name = req.data.userName || 'user';
+				var name = req.data.userName || ('user' + Math.floor((Math.random() * 1000) + 100));
 				var userId = req.data.userId || Guid.create().value;
 				tools.pLog('addUserToChannel -' + ' (channelId: ' + channelId + ')');
 

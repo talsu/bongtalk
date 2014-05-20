@@ -160,8 +160,8 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 			};
 
 			$scope.openNewPopupWindow = function(){
-
-				window.open(window.location, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
+				var url = encodeURI(window.location.protocol + '//' + window.location.host + '/p#/ch/' + $scope.channelId);
+				window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
 			};
 
 			function onNewTalk(talk){
