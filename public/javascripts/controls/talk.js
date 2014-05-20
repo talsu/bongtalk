@@ -2,7 +2,7 @@
 
 define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], function (controllers, _, connector){
 	controllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', function($scope, $routeParams, $location){
-		$scope.serverStatus = connector.status;		
+		$scope.serverStatus = connector.status;
 		connector.addListener('statusChanged', serverStatusChanged);
 		function serverStatusChanged (status){
 			$scope.$apply(function(){
@@ -113,6 +113,52 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				});
 			};
 
+
+			// var isCopiedShareUrlTimer = null;
+			// $scope.copyShareUrlComplete = function(){
+			// 	$scope.isCopiedShareUrl = true;
+
+			// 	if (isCopiedShareUrlTimer){
+			// 		clearTimeout(isCopiedShareUrlTimer);	
+			// 	}				
+
+			// 	isCopiedShareUrlTimer = setTimeout(function(){
+			// 		$scope.$apply(function(){
+			// 			$scope.isCopiedShareUrl = false;
+			// 		});
+			// 	}, 2000);
+			// };
+			var isSetNewNameTimer = null;			
+			$scope.setNewName = function(){
+				if ($scope.newName && ($scope.newName !== $scope.me.name)){
+					$scope.changingUsername = true;					
+					connector.request('updateUser', 
+						{
+							channelId:$scope.channelId, 
+							userId:$scope.me.id, 
+							propertyName:'name', 
+							data:$scope.newName
+						}, function (res){
+							if (!res.err){
+								onUpdateUser(res.result);
+							}
+							$scope.$apply(function(){
+								if (!res.err){
+									$scope.isSettedNewName = true;
+									if (isSetNewNameTimer) {clearTimeout(isSetNewNameTimer);}
+									isSetNewNameTimer = setTimeout(function(){
+										$scope.$apply(function(){$scope.isSettedNewName = false;})
+									}, 2000);
+								}
+
+								$scope.changingUsername = false;
+								$scope.newName = '';
+							});
+							
+						});					
+				}
+			};
+
 			$scope.openNewPopupWindow = function(){
 
 				window.open(window.location, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
@@ -199,7 +245,7 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				});
 			}
 
-			function setConnectorEvents(){		
+			function setConnectorEvents(){
 				connector.addListener('reconnected', onReconnected);			
 				connector.addEventListener('onNewTalk', $scope.channelId, onNewTalk);
 				connector.addEventListener('onAddUser', $scope.channelId, onAddUser);

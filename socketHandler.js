@@ -99,7 +99,7 @@ exports.SocketHandler = (function(){
 					res.send({err:'bad channelId', result:null});
 				}
 				if (!userId){
-					res.send({err:'bad userId', result:null})
+					res.send({err:'bad userId', result:null});
 				}
 				
 				self.database.getUserFromChannel(channelId, userId, function(err, user){
@@ -121,6 +121,30 @@ exports.SocketHandler = (function(){
 					res.send({err:err, result:talk});
 					channelEvent('onNewTalk', channelId, talk);
 				});
+			});
+
+			reqServer.set('updateUser', function (req, res){
+				var channelId = req.data.channelId;
+				var userId = req.data.userId;
+				var propertyName = req.data.propertyName;
+				var data = req.data.data;
+
+				if (channelId && userId && propertyName){
+					self.database.setUserProperty(channelId, userId, propertyName, data, function (err, result){
+						if (err){
+							res.send({err:err, result:null});
+						}
+						else{
+							var result = {
+								userId:userId,
+								propertyName:propertyName,
+								data:data
+							};
+							res.send({err:err, result:result});
+							channelEvent('onUpdateUser', channelId, result);
+						}
+					});
+				};
 			});
 
 			socket.on('disconnect', function () {
