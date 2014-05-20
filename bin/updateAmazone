@@ -9,10 +9,10 @@ echo ${FILE_DIR}
 cd ${FILE_DIR}
 echo $(pwd)
 cd ..
-sudo forever stopall
+forever stopall
 git pull
 npm install
 cd ${FILE_DIR}
-sudo forever start ./bongtalk -s -r -p 80 -r redis://54.178.178.147
+forever start ./bongtalk -s -p 3000 -r redis://54.178.163.236
 cd ${OLD_DIR}
 
