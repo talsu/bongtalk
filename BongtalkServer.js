@@ -46,24 +46,31 @@ exports.BongtalkServer = (function(){
 
 	BongtalkServer.prototype.run = function(){
 		var self = this;
-		var app = express();
-		app.use(logger('dev'));
-		app.use(express.static(__dirname + '/public'));
-		app.set('views', __dirname + '/public');
-		app.set("view options", {layout: false});
-		app.use(bodyParser());
-		app.use(methodOverride());
-		app.use(this.cookieParser);
-		app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
-		app.use(errorhandler());
-  		app.engine('html', require('ejs').renderFile);
-		app.get('/isAlive', function (req, res){res.send();});
-		app.get('/p', function (req, res){ res.render('popup.html'); });
 
-		var server = http.createServer(app);
-        server.listen(this.servicePort);
+		var listenTarget = this.servicePort;
 
-		var io = Sockets.listen(server);
+		if (!this.option.isSocketOnly){
+			var app = express();
+			app.use(logger('dev'));
+			app.use(express.static(__dirname + '/public'));
+			app.set('views', __dirname + '/public');
+			app.set("view options", {layout: false});
+			app.use(bodyParser());
+			app.use(methodOverride());
+			app.use(this.cookieParser);
+			app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
+			app.use(errorhandler());
+	  		app.engine('html', require('ejs').renderFile);
+			app.get('/isAlive', function (req, res){res.send();});
+			app.get('/p', function (req, res){ res.render('popup.html'); });
+
+			var server = http.createServer(app);
+	        server.listen(this.servicePort);
+
+	        listenTarget = server;
+		}
+
+		var io = Sockets.listen(listenTarget);
 		io.set('log level', config.socketIoLogLevel);
 		io.set('store', this.SocketRedisStore);
 		if (!this.option.websocket){
