@@ -160,7 +160,7 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 			};
 
 			$scope.openNewPopupWindow = function(){
-				var url = encodeURI(window.location.protocol + '//' + window.location.host + '/p#/ch/' + $scope.channelId);
+				var url = encodeURI(window.location.protocol + '//' + window.location.host + '/p#/ch/' + $scope.channelId + '?userid=' + $scope.me.id);
 				window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
 			};
 
