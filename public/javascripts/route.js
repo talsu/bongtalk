@@ -8,7 +8,9 @@ define(['controllers', 'controls/talk', 'controls/list'], function (app){
 				controller: 'talkCtrl'
 			}).
 			otherwise({
-				redirectTo: '/'
+				redirectTo: '/',
+				templateUrl: 'partials/list.html',
+				controller: 'listCtrl'
 			});
 	}]);
 });

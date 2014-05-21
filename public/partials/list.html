@@ -1,22 +1,63 @@
-<h1>Bongtalk</h1>
-<span class="glyphicon glyphicon-search"></span>
-<p>Connection status : <span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]">{{serverStatus}}</span></p>		
-<div>
-	<input ng-model="accountName"> <button type="button" class="btn btn-primary" ng-click="createAccount(accountName)">Create account</button>
-</div>
-<div>
-	<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" 
-	ng-click="joinPopupChannel(createChannelName)">Create channel</button>
-</div>
-<div class="row">			
-	<button type="button" class="btn" ng-click="updateChannelList()">Update channel</button>
-</div>
-<div class="channels">
-	<div class="row" ng-repeat="channel in channels">
-		<div class="btn-group">
-			<button type="button" class="btn btn-success" ng-click="joinChannel(channel.name)">Join</button>
-			<button type="button" class="btn btn-danger" ng-click="joinPopupChannel(channel.name)">Popup</button>
+<div class="container">
+	<div class="row">
+		<div class="col-md-12">
+			<div class="page-header">
+				<h1>
+				<span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]"><span class="glyphicon glyphicon-comment"></span></span> Bongtalk <small> test</small></h1>
+			</div>
+			
 		</div>
-		{{channel.name}}
+		<div  class="col-md-12">
+			<p>Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Nullam id dolor id nibh ultricies vehicula.</p>
+			<p>Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Donec ullamcorper nulla non metus auctor fringilla. Duis mollis, est non commodo luctus, nisi erat porttitor ligula, eget lacinia odio sem nec elit. Donec ullamcorper nulla non metus auctor fringilla.</p>
+		</div>
 	</div>
+	<div class="row">
+		<div class="col-md-12">
+			<div class="input-group input-group-lg">
+			  <!-- <span class="input-group-addon">
+			  	</span> -->
+			  <input type="text" class="form-control" placeholder="Enter join or create channel name" ng-model="createChannelName">
+			  <span class="input-group-btn">
+		      	<button type="button" class="btn btn-primary" ng-click="joinPopupChannel(createChannelName)">Join channel</button>
+		      </span>
+			  
+			</div>
+<!-- 
+			<label>Create new channel</label>
+			<input ng-model="createChannelName" placeholer="Enter channel name">  -->
+		</div>
+	</div>
+	<h4>Channels</h4>
+	<div class="row" ng-repeat="channel in channels">
+		<div class="col-md-12">
+			<div class="well">
+				<label>{{channel.name}}</label>
+				<!-- <button type="button" class="btn btn-default" ng-click="joinChannel(channel.name)">Join</button> -->
+				<button type="button" class="btn btn-warning" ng-click="joinPopupChannel(channel.name)">Join</button>
+			</div>
+			
+		</div>
+	</div>
+	<!-- <h1>Bongtalk</h1>
+	
+	<div>
+		<input ng-model="accountName"> <button type="button" class="btn btn-primary" ng-click="createAccount(accountName)">Create account</button>
+	</div>
+	<div>
+		<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" 
+		ng-click="joinPopupChannel(createChannelName)">Create channel</button>
+	</div>
+	<div class="row">			
+		<button type="button" class="btn" ng-click="updateChannelList()">Update channel</button>
+	</div>
+	<div class="channels">
+		<div class="row" ng-repeat="channel in channels">
+			<div class="btn-group">
+				<button type="button" class="btn btn-success" ng-click="joinChannel(channel.name)">Join</button>
+				<button type="button" class="btn btn-danger" ng-click="joinPopupChannel(channel.name)">Popup</button>
+			</div>
+			{{channel.name}}
+		</div>
+	</div> -->
 </div>
