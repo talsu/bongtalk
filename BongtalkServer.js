@@ -69,6 +69,9 @@ exports.BongtalkServer = (function(){
 		if (!this.option.websocket){
 			io.set('transports', ['xhr-polling', 'jsonp-polling']);
 		}
+		else {
+			io.set('transports', ['websocket','xhr-polling', 'jsonp-polling']);
+		}
 
 		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
 		var socketHandler = new SocketHandler(this.database);
