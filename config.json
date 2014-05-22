@@ -1,7 +1,10 @@
 {
 	"servicePort" : "3000",
-	"redisUrl" : "redis://talsu.net:6379",
+	"redisUrl" : "redis://localhost",
 	"socketIoLogLevel" : 2,
-	"single" : false,
-	"websocket" : false
+	"single" : true,
+	"websocket" : false,
+	"isSocketOnly" : false,
+	"instanceCount" : 1,
+	"isDebug" : false
 }
