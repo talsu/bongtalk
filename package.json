@@ -2,7 +2,7 @@
   "name": "bongtalk",
   "version": "0.1.0",
   "scripts": {
-    "postinstall": "./node_modules/bower/bin/bower install",
+    "postinstall": "bower install",
     "start": "node bin/bongtalk"
   },
   "dependencies": {
