@@ -13,6 +13,7 @@ var command = require('optimist')
 	.alias('d', 'debug')
 	.alias('s', 'single')
 	.alias('o', 'socketonly')
+	.alias('w', 'websocket')
 	.check(function (argv){
 		if (argv.p && isNaN(argv.p)){
 			throw 'port must be Number.'

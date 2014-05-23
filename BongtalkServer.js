@@ -19,12 +19,6 @@ var tools = require('./tools');
 var SocketHandler = require('./socketHandler').SocketHandler;
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 
-var config = require('./config');
-
-// var models = require('./models');
-// var RedisDatabase = models.RedisDatabase;
-// var JadeDataBinder = models.JadeDataBinder;
-
 var secretString = 'bongtalkSecret';
 
 exports.BongtalkServer = (function(){
@@ -71,7 +65,7 @@ exports.BongtalkServer = (function(){
 		}
 
 		var io = Sockets.listen(listenTarget);
-		io.set('log level', config.socketIoLogLevel);
+		io.set('log level', self.option.socketIoLogLevel);
 		io.set('store', this.SocketRedisStore);
 		if (!this.option.websocket){
 			io.set('transports', ['xhr-polling', 'jsonp-polling']);
@@ -89,6 +83,3 @@ exports.BongtalkServer = (function(){
 
 	return BongtalkServer;
 })();
-
-// var server = new BongTalkServer(3000, 'redis://talsu.net');
-// server.run();

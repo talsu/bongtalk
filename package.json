@@ -28,12 +28,16 @@
   },
   "main": "BongtalkServer.js",
   "devDependencies": {},
-  "author": "talsu",
+  "author": { 
+    "name" : "talsu",
+    "email" : "talsu84@gmail.com",
+    "url" : "http://talsu.net/"
+  },
   "license": {
-    "type": "Public Domain",
+    "type": "BSD-3-Clause",
     "url": "https://raw2.github.com/talsu/bongtalk/master/LICENSE"
   },
-  "description": "BongTalk - Web chat server",
+  "description": "Bongtalk - Web chat server",
   "repository": {
     "type": "git",
     "url": "https://github.com/talsu/bongtalk"

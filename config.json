@@ -1,10 +1,10 @@
 {
 	"servicePort" : "3000",
-	"redisUrl" : "redis://localhost",
-	"socketIoLogLevel" : 2,
+	"redisUrl" : "redis://localhost:6379", 
 	"single" : true,
-	"websocket" : false,
-	"isSocketOnly" : false,
+	"websocket" : true, 
+	"isSocketOnly" : false, 
 	"instanceCount" : 1,
-	"isDebug" : false
+	"socketIoLogLevel" : 1, 
+	"isDebug" : false 
 }
