@@ -29,14 +29,14 @@ Options:
 #### Set config file (config.json)
 ```json
 {
-	"servicePort" : "3000", // listen port
-	"redisUrl" : "redis://localhost:6379", // redis server url [requried]	
-	"single" : true, // use only 1 process
-	"websocket" : true, // use websocket
-	"isSocketOnly" : false, // run socket.io server only (do not service .html files)
-	"instanceCount" : 1, // instance count for cluster mode
-	"socketIoLogLevel" : 1, // socket.io log output level
-	"isDebug" : false // debug mode
+	"servicePort" : "3000",
+	"redisUrl" : "redis://localhost:6379",
+	"single" : true,
+	"websocket" : true,
+	"isSocketOnly" : false,
+	"instanceCount" : 1,
+	"socketIoLogLevel" : 1,
+	"isDebug" : false
 }
 ```
 #### Example
