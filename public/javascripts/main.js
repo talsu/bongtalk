@@ -11,7 +11,7 @@ requirejs.config({
 		zeroClipboard : '../bower_components/zeroclipboard/ZeroClipboard',
 		ngClip : '../bower_components/ng-clip/dest/ng-clip',
 		bootstrap : '../bower_components/bootstrap/dist/js/bootstrap',
-		socket : '../bower_components/socket.io-client/dist/socket.io',
+		socket : '../bower_components/socket.io-client/socket.io',
 		eventEmitter : '../bower_components/eventEmitter/EventEmitter'
 	},
 	shim:{

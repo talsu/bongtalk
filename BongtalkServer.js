@@ -8,12 +8,9 @@ var bodyParser = require('body-parser');
 var cookieParser = require('cookie-parser');
 var methodOverride = require('method-override');
 var errorhandler = require('errorhandler');
-var session = require('express-session');
 var redis = require("redis");
 var Sockets = require('socket.io');
-var SessionSockets = require('session.socket.io');
-
-var RedisStore = require('connect-redis')(session);
+var socketRedisAdapter = require('socket.io-redis');
 
 var tools = require('./tools');
 var SocketHandler = require('./socketHandler').SocketHandler;
@@ -26,16 +23,12 @@ exports.BongtalkServer = (function(){
 		this.option = option;
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
-		this.sessionStore = new RedisStore({client:tools.createRedisClient(this.redisUrl)});
 		this.cookieParser = cookieParser(secretString);
 		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
-
-		this.SocketRedisStore = new Sockets.RedisStore({
-			redis : redis,
-			redisPub : tools.createRedisClient(this.redisUrl),
-			redisSub : tools.createRedisClient(this.redisUrl),
-			redisClient : tools.createRedisClient(this.redisUrl)
-		});
+		this.socketRedisAdapterOption = {
+			pubClient : tools.createRedisClient(this.redisUrl, {return_buffers:true}),
+			subClient : tools.createRedisClient(this.redisUrl,  {return_buffers:true})
+		};
 	}
 
 	BongtalkServer.prototype.run = function(){
@@ -52,7 +45,6 @@ exports.BongtalkServer = (function(){
 			app.use(bodyParser());
 			app.use(methodOverride());
 			app.use(this.cookieParser);
-			app.use(session({ store: this.sessionStore, key: 'jsessionid', secret: secretString }));
 			app.use(errorhandler());
 	  		app.engine('html', require('ejs').renderFile);
 			app.get('/isAlive', function (req, res){res.send();});
@@ -64,20 +56,13 @@ exports.BongtalkServer = (function(){
 	        listenTarget = server;
 		}
 
-		var io = Sockets.listen(listenTarget);
-		io.set('log level', self.option.socketIoLogLevel);
-		io.set('store', this.SocketRedisStore);
-		if (!this.option.websocket){
-			io.set('transports', ['xhr-polling', 'jsonp-polling']);
-		}
-		else {
-			io.set('transports', ['websocket','xhr-polling', 'jsonp-polling']);
-		}
+		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
+		var io = Sockets(listenTarget, {transports:transports});
+		io.adapter(socketRedisAdapter(this.socketRedisAdapterOption));
 
-		var sessionSockets = new SessionSockets(io, this.sessionStore, this.cookieParser, 'jsessionid');
 		var socketHandler = new SocketHandler(this.database);
 
-		socketHandler.use(sessionSockets);
+		socketHandler.use(io.sockets);
 	};
 
 

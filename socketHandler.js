@@ -15,11 +15,11 @@ exports.SocketHandler = (function(){
 
 	SocketHandler.prototype.use = function(sockets){
 		var self = this;
-		sockets.on('connection', function(err, socket, session){ //for sessionSocket
-		//sockets.on('connection', function(socket){ //for regular socket
-			socket.emit('connected');
+		//sockets.on('connection', function(err, socket, session){ //for sessionSocket
+		sockets.on('connection', function(socket){ //for regular socket			
 			self.socketCounter.connected++;		
 			tools.pLog('connected -' + ' (socketId: ' + socket.id + ')' + ' (sockets: ' + util.inspect(self.socketCounter) + ')');
+			socket.emit('connected');
 
 			var connections = [];
 			var reqServer = new RequestResponseSocketServer(socket);

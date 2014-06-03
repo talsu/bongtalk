@@ -1,10 +1,10 @@
 var redis = require("redis");
 var util = require('util');
 
-exports.createRedisClient = function(redisUrl){
+exports.createRedisClient = function(redisUrl, option){
     if (redisUrl){
         var rtg   = require("url").parse(redisUrl);
-        var redisClient = redis.createClient(rtg.port || 6379, rtg.hostname);
+        var redisClient = redis.createClient(rtg.port || 6379, rtg.hostname, option);
         if (rtg.auth)
         {
             var authString = rtg.auth;
@@ -18,7 +18,7 @@ exports.createRedisClient = function(redisUrl){
         return redisClient;
     }
     else{
-        return redis.createClient();
+        return redis.createClient("127.0.0.1", 6379, option);
     }
 };
 
