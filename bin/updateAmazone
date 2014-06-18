@@ -9,10 +9,10 @@ echo ${FILE_DIR}
 cd ${FILE_DIR}
 echo $(pwd)
 cd ..
-forever stopall
 git pull
 npm install
 cd ${FILE_DIR}
-forever start ./bongtalk -s -w -o -p 3000 -r redis://54.178.163.236
+#forever start ./bongtalk -s -w -o -p 3000 -r redis://54.178.163.236
+pm2 restart bongtalk
 cd ${OLD_DIR}
 
