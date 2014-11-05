@@ -88,6 +88,18 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				if (!$scope.inputTalkMessage){
 					return;
 				}
+				
+				if ($scope.inputTalkMessage == "/clear"){
+					$scope.inputTalkMessage = '';
+					connector.request('clearTalkHistory', {channelId:$scope.channelId}, function(res){
+						if (res.err){
+							alert(JSON.stringify(res.err));
+							return;
+						}
+					});
+					return;
+				}
+
 				var data = {
 					id:'temp' + new Date,
 					userId:$scope.me.id, 

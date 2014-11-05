@@ -81,6 +81,15 @@ exports.SocketHandler = (function(){
 				});
 			});
 
+			reqServer.set('clearTalkHistory', function (req, res){
+				var channelId = req.data.channelId;
+				tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
+				
+				self.database.clearTalkHistory(channelId, function(err, result){
+					res.send({err:err, result:result});
+				});
+			});
+
 			reqServer.set('getUsersFromChannel', function (req, res){
 				var channelId = req.data.channelId;
 				tools.pLog('getUsersFromChannel -' + ' (channelId: ' + channelId + ')');

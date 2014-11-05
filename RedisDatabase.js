@@ -261,6 +261,19 @@ exports.RedisDatabase = (function(){
         });
     };
 
+    RedisDatabase.prototype.clearTalkHistory = function(channelId, callback){
+	var _this = this;
+        var channelHistoryKey = "Channel:" + channelId + ":HistoryList";
+        this.redisClient.del(channelHistoryKey, callback);
+	this.getUsersFromChannel(channelId, function(err, users){
+		if (Array.isArray(users)){
+			for (var i = 0; i < users.length; ++i){	
+				_this.removeUserFromChannel(channelId, users[i], function(){});	
+			}
+		}	
+	});
+    };
+
     RedisDatabase.prototype.setUserOnline = function(connectionId, channelId, userId, callback){
         var _this = this;
         var expireKey = 'Expire:' + this.instanceId + ':Connection:' + connectionId + ':' + this.userKey(channelId, userId, 'isAlive');
