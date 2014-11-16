@@ -91,6 +91,34 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 				
 				if ($scope.inputTalkMessage == "/clear"){
 					$scope.inputTalkMessage = '';
+					connector.request('clearUser', {channelId:$scope.channelId}, function(res){
+						if (res.err){
+							alert(JSON.stringify(res.err));
+							return;
+						}
+					});
+					connector.request('clearTalkHistory', {channelId:$scope.channelId}, function(res){
+						if (res.err){
+							alert(JSON.stringify(res.err));
+							return;
+						}
+					});
+					return;
+				}
+
+				if ($scope.inputTalkMessage == "/clear user"){
+					$scope.inputTalkMessage = '';
+					connector.request('clearUser', {channelId:$scope.channelId}, function(res){
+						if (res.err){
+							alert(JSON.stringify(res.err));
+							return;
+						}
+					});
+					return;
+				}
+
+				if ($scope.inputTalkMessage == "/clear history"){
+					$scope.inputTalkMessage = '';
 					connector.request('clearTalkHistory', {channelId:$scope.channelId}, function(res){
 						if (res.err){
 							alert(JSON.stringify(res.err));

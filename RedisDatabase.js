@@ -81,9 +81,6 @@ exports.RedisDatabase = (function(){
                     var connectionKeys = result[0];
                     async.waterfall([
                         function(aCallback){
-                            _redisClient.del(connectionKeys, aCallback);
-                        },
-                        function(result, aCallback){
                             _redisClient.scard(channelUserSetKey, aCallback);
                         },
                         function(number, aCallback){
@@ -204,6 +201,31 @@ exports.RedisDatabase = (function(){
         });
     };
 
+    RedisDatabase.prototype.clearAllUserInChannel = function(channelId, callback){
+        var _this = this;
+        var _redisClient = this.redisClient;
+
+        var channelUserSetKey = "Channel:" + channelId + ":UserSet";
+
+        _redisClient.smembers(channelUserSetKey, function(err, userIds){
+            if (err || !(userIds instanceof Array) || userIds.length <= 0){
+                callback(err, []);
+            }
+            else{
+
+                async.eachSeries(userIds, function(userId, callback){
+                    _this.removeUserFromChannel(channelId, userId, callback);
+                }, function(err, result){
+                    if (callback) {
+                        callback(err, result);
+                    }
+
+
+                });
+            }
+        });
+    };
+
     RedisDatabase.prototype.getChannelsFromUser = function(userId, callback){
         var _redisClient = this.redisClient;
 
@@ -265,13 +287,13 @@ exports.RedisDatabase = (function(){
 	var _this = this;
         var channelHistoryKey = "Channel:" + channelId + ":HistoryList";
         this.redisClient.del(channelHistoryKey, callback);
-	this.getUsersFromChannel(channelId, function(err, users){
-		if (Array.isArray(users)){
-			for (var i = 0; i < users.length; ++i){	
-				_this.removeUserFromChannel(channelId, users[i], function(){});	
-			}
-		}	
-	});
+        this.getUsersFromChannel(channelId, function(err, users){
+            if (Array.isArray(users)){
+                for (var i = 0; i < users.length; ++i){
+                    _this.removeUserFromChannel(channelId, users[i], function(){});
+                }
+            }
+        });
     };
 
     RedisDatabase.prototype.setUserOnline = function(connectionId, channelId, userId, callback){
