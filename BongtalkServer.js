@@ -16,6 +16,8 @@ var tools = require('./tools');
 var SocketHandler = require('./socketHandler').SocketHandler;
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 
+var MessagingServer = require('./MessagingServer').MessagingServer;
+
 var secretString = 'bongtalkSecret';
 
 exports.BongtalkServer = (function(){
@@ -57,12 +59,14 @@ exports.BongtalkServer = (function(){
 		}
 
 		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
-		var io = Sockets(listenTarget, {transports:transports});
-		io.adapter(socketRedisAdapter(this.socketRedisAdapterOption));
+		// var io = Sockets(listenTarget, {transports:transports});
+		// io.adapter(socketRedisAdapter(this.socketRedisAdapterOption));
 
-		var socketHandler = new SocketHandler(this.database);
+		// var socketHandler = new SocketHandler(this.database);
 
-		socketHandler.use(io.sockets);
+		// socketHandler.use(io.sockets);
+
+		var messagingServer = new MessagingServer(listenTarget, {transports:transports}, socketRedisAdapter(this.socketRedisAdapterOption));
 	};
 
 
