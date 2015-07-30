@@ -1,5 +1,5 @@
 (function(){
-	this.Qufox = function(url) { return new QufoxClient(url); }
+	this.Qufox = function(url) { return new QufoxClient(url || "http://qufox.com"); }
 
 	var QufoxClient = (function () {
 		function QufoxClient(url) {

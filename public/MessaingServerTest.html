@@ -3,7 +3,7 @@
 <script src="./bower_components/underscore/underscore.js"></script>
 <script src="./bower_components/eventEmitter/EventEmitter.js"></script>
 <script>
-	var client = Qufox(window.location.origin);
+	var client = Qufox('http://qufox.com');
 
 	client.onStatusChanged(function (status){ console.log(status); });
 

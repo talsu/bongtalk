@@ -40,11 +40,182 @@
     <!--[if lt IE 9]>
       <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
       <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
-    <![endif]-->
-  </head>
-  <body>
-  	<div ng-view></div>
+    <![endif]-->    
+    <script type="text/javascript" src="bower_components/angular/angular.js"></script>
+    <script type="text/javascript" src="bower_components/jquery/dist/jquery.js"></script>
+    <script type="text/javascript" src="bower_components/underscore/underscore.js"></script>
+    <script type="text/javascript" src="bower_components/bootstrap/dist/js/bootstrap.js"></script>
+    <script type="text/javascript" src="bower_components/socket.io-client/socket.io.js"></script>
+    <script type="text/javascript" src="javascripts/qufox-client.js"></script>
+    <script type="text/javascript" src="javascripts/bongtalk-client.js"></script>
+    <script type="text/javascript">
+    	var app = angular.module('bongtalkFront',[]);    	
+    	app.controller('listCtrl', function($scope, $location){
+    		var bongtalk = Bongtalk();
 
-    <script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
+			$scope.serverStatus = bongtalk.qufox.status;
+
+			bongtalk.qufox.onStatusChanged(serverStatusChanged);
+			function serverStatusChanged (status){
+				$scope.$apply(function(){
+					$scope.serverStatus = status;
+				});
+			};
+
+			$scope.updateChannelList = function(){
+				bongtalk.getAllChannel(function (res){
+					if (!res.err){
+						var items = _.map(res.result, function(channelName){ return {name:channelName}; });
+						$scope.$apply(function(){
+							$scope.channels = items;
+						});
+					}
+				});
+
+				// connector.request('getAllChannel', {}, function(response){
+				
+				// });
+			};
+
+			$scope.createAccount = function(name){
+				connector.request('addUserToChannel', {channelId:'default', userName:name}, function(res){
+					if (!res.err){
+						$scope.profile = res.result;
+					}
+				});
+			};
+
+			$scope.joinChannel = function(channelId){
+				var query = [];
+				if ($scope.profile){
+					if ($scope.profile.id){
+						query.push('userid=' + $scope.profile.id);
+					}
+					if ($scope.profile.name){
+						query.push('username=' + $scope.profile.name);
+					}				
+				}
+
+				var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
+
+				window.location = encodeURI('#/ch/' + channelId + querystring);
+			};
+
+			$scope.joinPopupChannel = function(channelId){
+				var query = [];
+				if ($scope.profile){
+					if ($scope.profile.id){
+						query.push('userid=' + $scope.profile.id);
+					}
+					if ($scope.profile.name){
+						query.push('username=' + $scope.profile.name);
+					}				
+				}
+
+				var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
+
+				var url = encodeURI('p#/ch/' + channelId + querystring);
+	/*
+	channelmode=yes|no|1|0	Whether or not to display the window in theater mode. Default is no. IE only
+	directories=yes|no|1|0	Obsolete. Whether or not to add directory buttons. Default is yes. IE only
+	fullscreen=yes|no|1|0	Whether or not to display the browser in full-screen mode. Default is no. A window in full-screen mode must also be in theater mode. IE only
+	height=pixels	The height of the window. Min. value is 100
+	left=pixels	The left position of the window. Negative values not allowed
+	location=yes|no|1|0	Whether or not to display the address field. Opera only
+	menubar=yes|no|1|0	Whether or not to display the menu bar
+	resizable=yes|no|1|0	Whether or not the window is resizable. IE only
+	scrollbars=yes|no|1|0	Whether or not to display scroll bars. IE, Firefox & Opera only
+	status=yes|no|1|0	Whether or not to add a status bar
+	titlebar=yes|no|1|0	Whether or not to display the title bar. Ignored unless the calling application is an HTML Application or a trusted dialog box
+	toolbar=yes|no|1|0	Whether or not to display the browser toolbar. IE and Firefox only
+	top=pixels	The top position of the window. Negative values not allowed
+	width=pixels
+	*/
+				window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
+			};
+
+				
+			$scope.updateChannelList();
+
+
+
+			if(!$scope.$$phase) {
+				$scope.$apply();
+			}
+
+			
+		});
+    </script>
+  </head>
+  <body ng-app="bongtalkFront" ng-controller="listCtrl">
+  	<div ng-view>
+  		<div class="container">
+			<div class="row">
+				<div class="col-md-12">
+					<div class="page-header">
+						<h1>
+						<span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]"><span class="glyphicon glyphicon-comment"></span></span> Bongtalk <small> web based chat service</small></h1>
+					</div>
+					
+				</div>
+				<div  class="col-md-12">
+					<p>nginx, node.js, Socket.IO, Redis, RequireJS, Bootstrap, AngularJS</p>
+					<p>Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Nullam id dolor id nibh ultricies vehicula.</p>
+				</div>
+			</div>
+			<div class="row">
+				<div class="col-md-12">
+					<div class="input-group input-group-lg">
+					  <!-- <span class="input-group-addon">
+					  	</span> -->
+					  <input type="text" class="form-control" placeholder="Enter channel name" ng-model="createChannelName">
+					  <span class="input-group-btn">
+				      	<button type="button" class="btn btn-primary" ng-click="joinPopupChannel(createChannelName)">Join channel</button>
+				      </span>
+					  
+					</div>
+		<!-- 
+					<label>Create new channel</label>
+					<input ng-model="createChannelName" placeholer="Enter channel name">  -->
+				</div>
+			</div>
+			<h4>Channels</h4>
+			<div class="row" ng-repeat="channel in channels">
+				<div class="col-md-12">
+					<div class="well">
+						<div>
+							<label>{{channel.name}}</label>
+						</div>
+						<!-- <button type="button" class="btn btn-default" ng-click="joinChannel(channel.name)">Join</button> -->
+						<button type="button" class="btn btn-warning" ng-click="joinPopupChannel(channel.name)">Join</button>
+					</div>
+					
+				</div>
+			</div>
+			<!-- <h1>Bongtalk</h1>
+			
+			<div>
+				<input ng-model="accountName"> <button type="button" class="btn btn-primary" ng-click="createAccount(accountName)">Create account</button>
+			</div>
+			<div>
+				<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" 
+				ng-click="joinPopupChannel(createChannelName)">Create channel</button>
+			</div>
+			<div class="row">			
+				<button type="button" class="btn" ng-click="updateChannelList()">Update channel</button>
+			</div>
+			<div class="channels">
+				<div class="row" ng-repeat="channel in channels">
+					<div class="btn-group">
+						<button type="button" class="btn btn-success" ng-click="joinChannel(channel.name)">Join</button>
+						<button type="button" class="btn btn-danger" ng-click="joinPopupChannel(channel.name)">Popup</button>
+					</div>
+					{{channel.name}}
+				</div>
+			</div> -->
+		</div>
+  	</div>
+
+    
   </body>
 </html>
