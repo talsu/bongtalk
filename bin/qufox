@@ -1,0 +1,39 @@
+#!/usr/bin/env node
+
+var config = require('../config');
+var tools = require('../tools');
+var QufoxServer = require('../QufoxServer').QufoxServer;
+var socketRedisAdapter = require('socket.io-redis');
+
+
+var command = require('optimist')
+	.usage('Usage : $0 --port [num] --redisurl [url] --instance [num] --single --socketonly --debug')
+	.alias('p', 'port')
+	.alias('r', 'redisurl')
+	.alias('d', 'debug')
+	.alias('w', 'websocket')
+	.check(function (argv){
+		if (argv.p && isNaN(argv.p)){
+			throw 'port must be Number.'
+		}		
+	});
+
+config.servicePort = process.env.PORT || command.argv.p || Number(config.servicePort) || 3000;
+config.redisUrl = process.env.REDISCLOUD_URL || command.argv.r || config.redisUrl || false;
+config.isDebug = command.argv.d || config.isDebug || false;
+config.websocket = command.argv.w || config.websocket || false;
+
+
+var transports = config.websocket ? ['websocket', 'polling'] : ['polling'];
+var adapter = null;
+
+if (config.redisUrl) {
+	var adapterOption = {
+		pubClient : tools.createRedisClient(config.redisUrl, {return_buffers:true}),
+		subClient : tools.createRedisClient(config.redisUrl, {return_buffers:true})
+	};
+
+	adapter = socketRedisAdapter(adapterOption)
+}
+
+new QufoxServer(config.servicePort, {transports:transports}, adapter);

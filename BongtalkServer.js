@@ -16,7 +16,7 @@ var tools = require('./tools');
 var SocketHandler = require('./socketHandler').SocketHandler;
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 
-var MessagingServer = require('./MessagingServer').MessagingServer;
+var QufoxServer = require('./QufoxServer').QufoxServer;
 
 var secretString = 'bongtalkSecret';
 
@@ -29,7 +29,7 @@ exports.BongtalkServer = (function(){
 		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
 		this.socketRedisAdapterOption = {
 			pubClient : tools.createRedisClient(this.redisUrl, {return_buffers:true}),
-			subClient : tools.createRedisClient(this.redisUrl,  {return_buffers:true})
+			subClient : tools.createRedisClient(this.redisUrl, {return_buffers:true})
 		};
 	}
 
@@ -66,7 +66,7 @@ exports.BongtalkServer = (function(){
 
 		// socketHandler.use(io.sockets);
 
-		var messagingServer = new MessagingServer(listenTarget, {transports:transports}, socketRedisAdapter(this.socketRedisAdapterOption));
+		new QufoxServer(listenTarget, {transports:transports}, socketRedisAdapter(this.socketRedisAdapterOption));
 	};
 
 

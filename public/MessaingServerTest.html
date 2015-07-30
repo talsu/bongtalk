@@ -1,9 +1,11 @@
 <script src="./bower_components/socket.io-client/socket.io.js"></script>
-<script src="./bower_components/eventEmitter/EventEmitter.js"></script>
-<script src="./bower_components/underscore/underscore.js"></script>
 <script src="./javascripts/messaging-client.js"></script>
+<script src="./bower_components/underscore/underscore.js"></script>
+<script src="./bower_components/eventEmitter/EventEmitter.js"></script>
 <script>
-	var client =  new MessagingClient(window.location.origin);
+	var client = Qufox(window.location.origin);
+
+	client.onStatusChanged(function (status){ console.log(status); });
 
 	client.join('sessionName', function (data) {
 		console.log(data);
@@ -11,10 +13,6 @@
 
 	client.send('sessionName', 'test', function (data) {
 		console.log(data);
-	});
-	
-	client.runWithConnection(function () {
-		
 	});
 
 </script>
