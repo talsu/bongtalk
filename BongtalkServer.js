@@ -10,14 +10,11 @@ var cookieParser = require('cookie-parser');
 var methodOverride = require('method-override');
 var errorhandler = require('errorhandler');
 var redis = require("redis");
-var Sockets = require('socket.io');
-var socketRedisAdapter = require('socket.io-redis');
 
 var tools = require('./tools');
-var SocketHandler = require('./socketHandler').SocketHandler;
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 
-var QufoxServer = require('./QufoxServer').QufoxServer;
+var QufoxServer = require('qufox').QufoxServer;
 
 var secretString = 'bongtalkSecret';
 
@@ -27,11 +24,7 @@ exports.BongtalkServer = (function(){
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(secretString);
-		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
-		this.socketRedisAdapterOption = {
-			pubClient : tools.createRedisClient(this.redisUrl, {return_buffers:true}),
-			subClient : tools.createRedisClient(this.redisUrl, {return_buffers:true})
-		};
+		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);		
 	}
 
 	BongtalkServer.prototype.run = function(){
@@ -195,7 +188,7 @@ exports.BongtalkServer = (function(){
 
 		
 		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
-		new QufoxServer(listenTarget, {transports:transports}, socketRedisAdapter(this.socketRedisAdapterOption));
+		new QufoxServer(listenTarget);
 	};
 
 

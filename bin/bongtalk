@@ -6,14 +6,12 @@ var BongtalkServer = require('../BongtalkServer').BongtalkServer;
 var config = require('../config');
 
 var command = require('optimist')
-	.usage('Usage : $0 --port [num] --redisurl [url] --instance [num] --single --socketonly --debug')
+	.usage('Usage : $0 --port [num] --redisurl [url] --instance [num] --single --debug')
 	.alias('p', 'port')
 	.alias('r', 'redisurl')
 	.alias('i', 'instance')
 	.alias('d', 'debug')
-	.alias('s', 'single')
-	.alias('o', 'socketonly')
-	.alias('w', 'websocket')
+	.alias('s', 'single')	
 	.check(function (argv){
 		if (argv.p && isNaN(argv.p)){
 			throw 'port must be Number.'
@@ -27,9 +25,7 @@ config.servicePort = process.env.PORT || command.argv.p || Number(config.service
 config.redisUrl = process.env.REDISCLOUD_URL || command.argv.r || config.redisUrl || 'redis://localhost';
 config.isDebug = command.argv.d || config.isDebug || false;
 config.single = command.argv.s || config.single || false;
-config.websocket = command.argv.w || config.websocket || false;
-config.instanceCount = Number(command.argv.i || config.instanceCount || require('os').cpus().length)
-config.isSocketOnly = command.argv.o || config.isSocketOnly || false;
+config.instanceCount = Number(command.argv.i || config.instanceCount || require('os').cpus().length);
 
 if (!config.single && cluster.isMaster) {
 	util.log('master('+process.pid+') started');
