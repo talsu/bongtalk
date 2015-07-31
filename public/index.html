@@ -49,7 +49,7 @@
     <script type="text/javascript" src="javascripts/qufox-client.js"></script>
     <script type="text/javascript" src="javascripts/bongtalk-client.js"></script>
     <script type="text/javascript">
-    	var app = angular.module('bongtalkFront',[]);    	
+    	var app = angular.module('bongtalkFront',[]);
     	app.controller('listCtrl', function($scope, $location){
     		var bongtalk = Bongtalk();
 
@@ -75,14 +75,6 @@
 				// connector.request('getAllChannel', {}, function(response){
 				
 				// });
-			};
-
-			$scope.createAccount = function(name){
-				connector.request('addUserToChannel', {channelId:'default', userName:name}, function(res){
-					if (!res.err){
-						$scope.profile = res.result;
-					}
-				});
 			};
 
 			$scope.joinChannel = function(channelId){

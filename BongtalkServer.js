@@ -61,9 +61,9 @@ exports.BongtalkServer = (function(){
 		});
 
 		app.post('/addUserToChannel', function (req, res){				
-			var channelId = req.data.channelId;
-			var name = req.data.userName || ('user' + Math.floor((Math.random() * 1000) + 100));
-			var userId = req.data.userId || Guid.create().value;
+			var channelId = req.body.channelId;
+			var name = req.body.userName || ('user' + Math.floor((Math.random() * 1000) + 100));
+			var userId = req.body.userId || Guid.create().value;
 			tools.pLog('addUserToChannel -' + ' (channelId: ' + channelId + ')');
 
 			self.database.addUserToChannel(channelId, userId, name, function(err){
@@ -74,8 +74,8 @@ exports.BongtalkServer = (function(){
 		});
 
 		app.post('/joinChannel', function (req, res){				
-			var channelId = req.data.channelId;
-			var userId = req.data.userId;
+			var channelId = req.body.channelId;
+			var userId = req.body.userId;
 
 			async.parallel({
 				users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},
@@ -84,20 +84,20 @@ exports.BongtalkServer = (function(){
 			function (err, result) {
 				if (!err){
 					result.connectionId = Guid.create().value;											
-					tools.pLog('joinChannel -'+ ' (channelId: ' + channelId + ')' + ' (sockets: ' + util.inspect(self.socketCounter) + ')');
+					tools.pLog('joinChannel -'+ ' (channelId: ' + channelId + ')');
 				}
 				res.send({err:err, result:result})
 			});
 		})
 
 		app.post('/leaveChannel' , function (req, res){				
-			var connectionId = req.data.connectionId;				
-			tools.pLog('leaveChannel -' + ' (sockets: ' + util.inspect(self.socketCounter) + ')');
+			var connectionId = req.body.connectionId;				
+			tools.pLog('leaveChannel -' + ' (connectionId: ' + connectionId + ')');
 			res.send({err:null, result:'done'});
 		});
 
-		app.post('getTalkHistory', function (req, res){
-			var channelId = req.data.channelId;
+		app.post('/getTalkHistory', function (req, res){
+			var channelId = req.body.channelId;
 			tools.pLog('getTalkHistory -' + ' (channelId: ' + channelId + ')');
 			
 			self.database.getTalkHistory(channelId, function(err, result){
@@ -105,8 +105,8 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		app.post('clearTalkHistory', function (req, res){
-			var channelId = req.data.channelId;
+		app.post('/clearTalkHistory', function (req, res){
+			var channelId = req.body.channelId;
 			tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
 
 			self.database.clearTalkHistory(channelId, function(err, result){
@@ -114,8 +114,8 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		app.post('clearUser', function (req, res){
-			var channelId = req.data.channelId;
+		app.post('/clearUser', function (req, res){
+			var channelId = req.body.channelId;
 			tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
 
 			self.database.clearAllUserInChannel(channelId, function(err, result){
@@ -123,8 +123,8 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		app.post('getUsersFromChannel', function (req, res){
-			var channelId = req.data.channelId;
+		app.post('/getUsersFromChannel', function (req, res){
+			var channelId = req.channelId;
 			tools.pLog('getUsersFromChannel -' + ' (channelId: ' + channelId + ')');
 			
 			self.database.getUsersFromChannel(channelId, function(err, result){
@@ -132,30 +132,31 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		app.post('getUserFromChannel', function (req, res){				
-			var channelId = req.data.channelId;
-			var userId = req.data.userId;
+		app.post('/getUserFromChannel', function (req, res){				
+			var channelId = req.body.channelId;
+			var userId = req.body.userId;
 			tools.pLog('getUserFromChannel -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + userId + ')');
 			
 			if (!channelId){
-				res.send({err:'bad channelId', result:null});
+				res.send({err:'bad channelId', result:null});				
 			}
-			if (!userId){
+			else if (!userId){
 				res.send({err:'bad userId', result:null});
 			}
-			
-			self.database.getUserFromChannel(channelId, userId, function(err, user){
-				res.send({err:err, result:user});	
-			});
+			else {
+				self.database.getUserFromChannel(channelId, userId, function(err, user){
+					res.send({err:err, result:user});	
+				});	
+			}
 		});
 
-		app.post('addNewTalk', function (req, res){
-			var channelId = req.data.channelId;
+		app.post('/addNewTalk', function (req, res){
+			var channelId = req.body.channelId;
 			var talk = {
 				id: Guid.create().value,					
 				time : new Date(),
-				message : req.data.message,
-				userId : req.data.userId
+				message : req.body.message,
+				userId : req.body.userId
 			}
 			tools.pLog('addNewTalk -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + talk.userId + ')');
 			
@@ -164,11 +165,11 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		app.post('updateUser', function (req, res){
-			var channelId = req.data.channelId;
-			var userId = req.data.userId;
-			var propertyName = req.data.propertyName;
-			var data = req.data.data;
+		app.post('/updateUser', function (req, res){
+			var channelId = req.body.channelId;
+			var userId = req.body.userId;
+			var propertyName = req.body.propertyName;
+			var data = req.body.data;
 
 			if (channelId && userId && propertyName){
 				self.database.setUserProperty(channelId, userId, propertyName, data, function (err, result){

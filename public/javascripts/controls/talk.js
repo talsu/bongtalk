@@ -268,7 +268,7 @@ define(['controllers', 'underscore', 'modules/socketConnector', 'bootstrap'], fu
 						return;
 					}
 
-					setConnectorEvents();					
+					setConnectorEvents();
 					connectionId = res.result.connectionId;
 					var users = res.result.users;
 					var talks = res.result.talks;

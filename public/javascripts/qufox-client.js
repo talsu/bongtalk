@@ -1,4 +1,6 @@
 (function(){
+	"use strict";
+	
 	this.Qufox = function(url) { return new QufoxClient(url || "http://qufox.com"); }
 
 	var QufoxClient = (function () {
@@ -153,9 +155,8 @@
 		var numbers = '1234567890';
 		var charset = letters + letters.toUpperCase() + numbers;
 
-		function randomElement(array) {
-			with (Math)
-				return array[floor(random()*array.length)];
+		function randomElement(array) {			
+			return array[Math.floor(Math.random()*array.length)];
 		}
 
 		var result = '';
