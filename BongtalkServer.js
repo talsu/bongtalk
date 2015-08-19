@@ -188,7 +188,7 @@ exports.BongtalkServer = (function(){
 
 		
 		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
-		new QufoxServer(listenTarget);
+		new QufoxServer(listenTarget, {transports:transports}, self.redisUrl);
 	};
 
 

@@ -1,11 +1,10 @@
 (function(){
 	"use strict";
 
-	this.Bongtalk = function (url) { return new BongtalkClient(url, Qufox()); };
+	this.Bongtalk = function (url) { return new BongtalkClient(Qufox(url)); };
 
 	var BongtalkClient = (function(){
-		function BongtalkClient (url, qufox){
-			this.url = url;
+		function BongtalkClient (qufox){			
 			this.qufox = qufox;
 		}
 

@@ -33,7 +33,7 @@
 
 			var talkControllers = angular.module('talkControllers', []);
 			talkControllers.controller('talkCtrl', [ '$scope', '$routeParams', '$location', function($scope, $routeParams, $location){
-				var bongtalk = Bongtalk();
+				var bongtalk = Bongtalk('http://' + location.host);
 
 				$scope.serverStatus = bongtalk.qufox.status;
 
