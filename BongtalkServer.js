@@ -185,10 +185,13 @@ exports.BongtalkServer = (function(){
 		server.listen(this.servicePort);
 
 		listenTarget = server;
-
-		
 		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
-		new QufoxServer(listenTarget, {transports:transports}, self.redisUrl);
+
+		new QufoxServer({
+			listenTarget: listenTarget,
+			socketOption: {transports:transports},
+			redisUrl: self.redisUrl
+		});
 	};
 
 
