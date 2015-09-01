@@ -52,7 +52,7 @@
     <script type="text/javascript">
     	var app = angular.module('bongtalkFront',[]);
     	app.controller('listCtrl', function($scope, $location){
-    		var bongtalk = Bongtalk();
+    		var bongtalk = Bongtalk('http://qufox.com');
 
 			$scope.serverStatus = bongtalk.qufox.status;
 

@@ -1,0 +1,11 @@
+<div class="layout_table" ng-controller="SessionController" >
+	<div class="layout_row header">{{test}}</div>
+	<div class="layout_row">
+		<div class="talks_area">
+			<p class="bg-info" ng-repeat="talk in talks">{{talk.message}}<p>
+		</div>
+	</div>
+	<div class="layout_row footer">
+		<button type="button" class="btn btn-success" ng-click="addContentTest()">Success</button>
+	</div>
+</div>

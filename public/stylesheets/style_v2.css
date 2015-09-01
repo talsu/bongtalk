@@ -1,0 +1,61 @@
+
+/* Layout */
+.layout_table {
+	height: 100%;
+	width: 100%;
+	display: table;
+}
+
+.layout_row {
+	display: table-row;	
+}
+
+.layout_cell {
+	display: table-cell;	
+}
+
+
+.page_wrap {
+	width: 100%;
+	height: 100%;
+}
+
+
+.header {	
+	height: 40px;
+	background: #FFD34E;
+}
+
+.footer {	
+	height: 100px;
+	background: #105B63;
+	color: #FFFAD5;
+}
+
+.chat_cell {
+	width: 100%;	
+}
+
+.sidebar1 {
+	width: 100px;
+	background: #BD4932;
+}
+
+.sidebar2 {
+	width: 200px;
+	background: #3256BD;
+}
+
+.talks_area {
+	width: 100%;
+	height: 100%;
+	overflow: auto;
+}
+
+
+.a {
+	background: red;
+
+}
+
+html, body { height: 100%; }
