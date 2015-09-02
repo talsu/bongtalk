@@ -68,7 +68,7 @@ exports.BongtalkServer = (function(){
 
 		app.post('/joinChannel', function (req, res){				
 			var channelId = req.body.channelId;
-			var userId = req.body.userId;
+			// var userId = req.body.userId;
 
 			async.parallel({
 				users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},

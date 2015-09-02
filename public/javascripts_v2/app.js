@@ -4,6 +4,7 @@
 
 angular.module('bongtalkApp', [
 	'ngRoute',
+	'luegg.directives',
 	'bongtalk.controllers'
 ])
 .config(['$routeProvider',
@@ -16,6 +17,7 @@ angular.module('bongtalkApp', [
 
 angular.module('bongtalkSessionApp', [
 	'ngRoute',
+	'luegg.directives',
 	'bongtalk.controllers'
 ])
 .config(['$routeProvider',

@@ -27,9 +27,7 @@
 }
 
 .footer {	
-	height: 100px;
-	background: #105B63;
-	color: #FFFAD5;
+	height: 1px;
 }
 
 .chat_cell {
@@ -43,7 +41,7 @@
 
 .sidebar2 {
 	width: 200px;
-	background: #3256BD;
+
 }
 
 .talks_area {

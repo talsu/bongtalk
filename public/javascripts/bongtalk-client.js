@@ -72,6 +72,10 @@
 			ajaxPost('clearTalkHistory', {channelId:this.channelId}, callback);
 		};
 
+		Channel.prototype.getTalkHistory = function (callback) {
+			ajaxPost('getTalkHistory', {channelId:this.channelId}, callback);
+		};
+
 		Channel.prototype.addNewTalk = function (data, callback) {
 			var self = this;
 			data.channelId = this.channelId;
@@ -84,8 +88,8 @@
 			ajaxAndSend('updateUser', data, self.channelId, self.qufox, 'onUpdateUser', callback);
 		};
 
-		Channel.prototype.joinChannel = function (userId, callback) {			
-			ajaxPost('joinChannel', {channelId:this.channelId, userId:userId}, callback);
+		Channel.prototype.joinChannel = function (callback) {			
+			ajaxPost('joinChannel', {channelId:this.channelId}, callback);
 		};
 
 		_.extend(Channel.prototype, EventEmitter.prototype);
