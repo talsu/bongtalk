@@ -4,6 +4,7 @@
 
 angular.module('bongtalkApp', [
 	'ngRoute',
+	'ngDialog',
 	'luegg.directives',
 	'bongtalk.controllers'
 ])
@@ -17,6 +18,7 @@ angular.module('bongtalkApp', [
 
 angular.module('bongtalkSessionApp', [
 	'ngRoute',
+	'ngDialog',
 	'luegg.directives',
 	'bongtalk.controllers'
 ])

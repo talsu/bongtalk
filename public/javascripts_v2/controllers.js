@@ -4,19 +4,30 @@
 
 var bongtalkControllers = angular.module('bongtalk.controllers', []);
 
-bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, bongtalk, emitter) {
-		
+bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+		ngDialog.open({
+			template:'/partials_v2/loginPopup.html',
+			controller: 'LoginController'
+		});
+	}]);
 
+bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $http, bongtalk, emitter) {
 
 		$scope.serverStatus = bongtalk.qufox.status;
 
 		bongtalk.qufox.onStatusChanged(serverStatusChanged);
 		function serverStatusChanged (status){
+			console.log(status);
 			$scope.$apply(function(){
 				$scope.serverStatus = status;
 			});
 		};
+	}]);
+
+bongtalkControllers.controller('LoginController',  ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $http, bongtalk, emitter) {
 
 	}]);
 
@@ -118,14 +129,14 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 			// });
 		});
 
-		$scope.serverStatus = bongtalk.qufox.status;
+		// $scope.serverStatus = bongtalk.qufox.status;
 
-		bongtalk.qufox.onStatusChanged(serverStatusChanged);
-		function serverStatusChanged (status){
-			$scope.$apply(function(){
-				$scope.serverStatus = status;
-			});
-		};
+		// bongtalk.qufox.onStatusChanged(serverStatusChanged);
+		// function serverStatusChanged (status){
+		// 	$scope.$apply(function(){
+		// 		$scope.serverStatus = status;
+		// 	});
+		// };
 
 		$scope.$on('$destroy', function cleanup() {
 			releaseConnectorEvents();
@@ -472,7 +483,7 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 
 // service
 bongtalkControllers.factory('bongtalk', [function(){
-	return Bongtalk('http://localhost:3000');
+	return Bongtalk(location.origin);
 }]);
 
 bongtalkControllers.factory('emitter', [function(){

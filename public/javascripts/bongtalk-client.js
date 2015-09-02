@@ -23,6 +23,18 @@
 			});
 		};
 
+		BongtalkClient.prototype.addUser = function (userName, callback) {
+			ajaxPost('addUser', {userName:userName}, callback);
+		};
+ 
+ 		BongtalkClient.prototype.getUser = function (userId, callback) {
+			ajaxPost('getUser', {userId:userId}, callback);
+		};
+
+		BongtalkClient.prototype.setUser = function (userId, property, value, callback) {
+			ajaxPost('setUser', {userId:userId, property:property, value:value}, callback);
+		};
+
 		BongtalkClient.prototype.joinChannel = function (channelId, userId, userName) {
 			return new Channel(channelId, userId, userName, this.qufox);
 		};

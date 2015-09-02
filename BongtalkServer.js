@@ -1,6 +1,7 @@
 var http = require('http');
 var path = require('path');
 var util = require('util');
+var debug = require('debug')('bongtalk');
 var Guid = require('guid');
 var async = require('async');
 var express = require('express');
@@ -13,6 +14,7 @@ var redis = require("redis");
 
 var tools = require('./tools');
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
+var MongoDatabase = require('./MongoDatabase');
 
 var QufoxServer = require('qufox').QufoxServer;
 
@@ -24,7 +26,8 @@ exports.BongtalkServer = (function(){
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(secretString);
-		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);		
+		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
+		this.mDatabase = new MongoDatabase('mongodb://127.0.0.1:27017/bongtalk');	
 	}
 
 	BongtalkServer.prototype.run = function(){
@@ -181,16 +184,44 @@ exports.BongtalkServer = (function(){
 			};
 		});
 
-		var server = http.createServer(app);
-		server.listen(this.servicePort);
+		// mongodb
+		app.post('/addUser', function (req, res){
+			var userName = req.body.userName;
+			self.mDatabase.addUser(userName, resBind(res));
+		});
 
-		listenTarget = server;
-		var transports = this.option.websocket ? ['websocket', 'polling'] : ['polling'];
+		app.post('/getUser', function (req, res){
+			var userId = req.body.userId;
+			self.mDatabase.getUser(userId, resBind(res));
+		});
 
-		new QufoxServer({
-			listenTarget: listenTarget,
-			socketOption: {transports:transports},
-			redisUrl: self.redisUrl
+		app.post('/setUser', function (req, res){
+			var userId = req.body.userId;
+			var property = req.body.property;
+			var value = req.body.value;
+			self.mDatabase.setUser(userId, property, value, resBind(res));
+		});
+
+		function resBind(res){
+			return function (err, result) {
+				if (err) debug(err);
+				res.send({err:err, result:result});
+			};
+		}
+
+		self.mDatabase.connect(function (err){
+			if (err) {tools.pLog(err); return;}
+			var server = http.createServer(app);
+			server.listen(self.servicePort);
+
+			listenTarget = server;
+			var transports = self.option.websocket ? ['websocket', 'polling'] : ['polling'];
+
+			new QufoxServer({
+				listenTarget: listenTarget,
+				socketOption: {transports:transports},
+				redisUrl: self.redisUrl
+			});
 		});
 	};
 
