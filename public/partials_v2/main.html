@@ -1,4 +1,4 @@
-<div class="layout_table">
+<!-- <div class="layout_table">
 	<div class="layout_row header">
 		<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
 		
@@ -9,4 +9,13 @@
 			<div class="layout_cell" ng-include="'/partials_v2/session.html'" ng-controller="SessionController" ></div>
 		</div>
 	</div>
+</div> -->
+
+<div class="channel_header">
+	<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
+	
+</div>
+<div class="channel_contents">
+	<div class="session_list" ng-include="'/partials_v2/sessionList.html'" ng-controller="SessionListController"></div>
+	<div class="session_area" ng-include="'/partials_v2/session.html'" ng-controller="SessionController" ></div>
 </div>

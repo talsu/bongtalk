@@ -6,10 +6,10 @@ var bongtalkControllers = angular.module('bongtalk.controllers', []);
 
 bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
-		ngDialog.open({
-			template:'/partials_v2/loginPopup.html',
-			controller: 'LoginController'
-		});
+		// ngDialog.open({
+		// 	template:'/partials_v2/loginPopup.html',
+		// 	controller: 'LoginController'
+		// });
 	}]);
 
 bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
@@ -483,7 +483,7 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 
 // service
 bongtalkControllers.factory('bongtalk', [function(){
-	return Bongtalk(location.origin);
+	return Bongtalk(window.location.protocol + '//' + window.location.host);
 }]);
 
 bongtalkControllers.factory('emitter', [function(){

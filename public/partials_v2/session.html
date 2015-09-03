@@ -1,37 +1,32 @@
-<div class="layout_table">
-	<!-- <div class="layout_row header">
-		<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
-	</div> -->
-	<div class="layout_row">
-		<div class="talks_area" scroll-glue>
-			<div class="talk-container" ng-repeat="talk in talkGroups">
-				<div class="sender" ng-if="(talk.userId!=me.id)">
-					<img class="sender_img" src="/image/avatar-blank.jpg" >
-					<div class="sender_content">
-						<span class="sender_name">{{getUser(talk.userId).name}}</span>
-						<div class="bubble">
-							<div class="message_content">
-								<div ng-repeat="message in talk.messages">{{message.text}}</div>
-							</div>
-							<time class="sender_time">{{talk.getTimeString()}}</time>
-						</div>
+<!-- <div class="session_header">
+	<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
+</div> -->
+<div class="session_content" scroll-glue>
+	<div class="talk-container" ng-repeat="talk in talkGroups">
+		<div class="sender" ng-if="(talk.userId!=me.id)">
+			<img class="sender_img" src="/image/avatar-blank.jpg" >
+			<div class="sender_content">
+				<span class="sender_name">{{getUser(talk.userId).name}}</span>
+				<div class="bubble">
+					<div class="message_content">
+						<div ng-repeat="message in talk.messages">{{message.text}}</div>
 					</div>
-				</div>
-				<div class="sender sender--alt" ng-if="(talk.userId==me.id)">
-					<div class="bubble bubble--alt">
-						<div class="message_content">
-							<div ng-repeat="message in talk.messages">{{message.text}}</div>
-						</div>
-						<time class="sender_time sender_time--alt">{{talk.getTimeString()}}</time>
-					</div>
+					<time class="sender_time">{{talk.getTimeString()}}</time>
 				</div>
 			</div>
-<!-- 			<p class="bg-info" ng-repeat="talk in talks">{{talk.message}}<p> -->
+		</div>
+		<div class="sender sender--alt" ng-if="(talk.userId==me.id)">
+			<div class="bubble bubble--alt">
+				<div class="message_content">
+					<div ng-repeat="message in talk.messages">{{message.text}}</div>
+				</div>
+				<time class="sender_time sender_time--alt">{{talk.getTimeString()}}</time>
+			</div>
 		</div>
 	</div>
-	<div class="layout_row footer">
-		<input type="text" class="form-control input" placeholder="Type your message here..." ng-model="inputTalk.message" ng-keypress="inputKeypress($event)" />
-		<!-- <button type="button" class="btn btn-success" ng-click="check()">Success</button>
-		<p>{{inputTalk.message}}</p> -->
-	</div>
+</div>
+<div class="session_footer">
+	<input type="text" class="form-control input" placeholder="Type your message here..." ng-model="inputTalk.message" ng-keypress="inputKeypress($event)" />
+	<!-- <button type="button" class="btn btn-success" ng-click="check()">Success</button>
+	<p>{{inputTalk.message}}</p> -->
 </div>
