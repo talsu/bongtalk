@@ -1,6 +1,7 @@
 var http = require('http');
 var path = require('path');
 var util = require('util');
+var crypto = require('crypto');
 var debug = require('debug')('bongtalk');
 var Guid = require('guid');
 var async = require('async');
@@ -11,6 +12,7 @@ var cookieParser = require('cookie-parser');
 var methodOverride = require('method-override');
 var errorhandler = require('errorhandler');
 var redis = require("redis");
+var jwt = require('jsonwebtoken');
 
 var tools = require('./tools');
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
@@ -36,6 +38,7 @@ exports.BongtalkServer = (function(){
 		var listenTarget = this.servicePort;
 
 		var app = express();
+		app.set('bongtalkSecret', self.option.secret);
 		app.use(logger('dev'));
 		app.use(express.static(__dirname + '/public'));
 		app.set('views', __dirname + '/public');
@@ -201,6 +204,116 @@ exports.BongtalkServer = (function(){
 			var value = req.body.value;
 			self.mDatabase.setUser(userId, property, value, resBind(res));
 		});
+
+		var apiRoutes = express.Router();
+
+		apiRoutes.get('/', function (req, res) {
+			res.json({ message: 'API' });
+		});
+
+		apiRoutes.post('/checkUserExist', function (req, res){
+			var userId = req.body.userId;
+			self.mDatabase.getUser(userId, function (err, result){
+				if (err) {
+					res.json({err: err, result: null});
+				}
+				else{
+					res.json({err: null, result: result ? true : false});
+				}
+			});
+		});
+
+		apiRoutes.post('/signUp', function (req, res){
+			var userId = req.body.userId;
+			var password = req.body.password;
+			if (typeof userId != 'string' ||
+				userId.length < 4 ||
+				userId.length > 20)	{
+				res.json({err: 'Invalid user id.', result: null});
+			}
+			else if (typeof password != 'string' ||
+					password.length < 4 || 
+					password.length > 20){
+				res.json({err: 'Invalid password.', result: null});
+			}
+			else {
+				// check exist userId
+				self.mDatabase.getUser(userId, function (err, result){
+					if (!err && result) {
+						res.json({err: 'Exist user id.', result: null});
+					}
+					else{
+						var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
+						self.mDatabase.addUser(userId, hashedPassword, function (err, result){
+							res.json({err:err, result:result});
+							debug('Sign up - ' + userId);
+						});
+					}
+				});				
+			}
+		});
+
+		apiRoutes.post('/signIn', function (req, res) {
+			var userId = req.body.userId;
+			var password = req.body.password;
+			self.mDatabase.getUser(userId, function (err, user){
+				if (err) throw err;
+
+				if (!user) {
+					res.json({ err: 'Authentication failed. User not found.', result: null });
+				} else if (user) {
+					
+					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
+
+					// check if password matches
+					if (user.password != hashedPassword) {
+						res.json({ err: 'Authentication failed. Wrong password.', result: null });
+					} else {
+
+						// if user is found and password is right
+						// create a token
+						var token = jwt.sign(user, app.get('bongtalkSecret'), {
+							expiresInMinutes: 1440 // expires in 24 hours
+						});
+
+						// return the information including token as JSON
+						res.json({err: null, result: token});
+						debug('Sign in - ' + userId);
+					}
+				}
+			});
+		});
+
+		// route middleware to verify a token
+		apiRoutes.use(function(req, res, next) {
+
+			// check header or url parameters or post parameters for token
+			var token = req.body.token || req.query.token || req.headers['x-access-token'];
+
+			// decode token
+			if (token) {
+				// verifies secret and checks exp
+				jwt.verify(token, app.get('superSecret'), function(err, decoded) {      
+					if (err) {
+						return res.json({ err: 'Failed to authenticate token.', result: null });    
+					} else {
+						// if everything is good, save to request for use in other routes
+						req.decoded = decoded;    
+						next();
+					}
+				});
+			} else {
+				// if there is no token
+				// return an error
+				return res.status(403).send({err: 'No token provided.', result: null});				
+			}
+		});
+
+
+
+
+		app.use('/api', apiRoutes);
+
 
 		function resBind(res){
 			return function (err, result) {

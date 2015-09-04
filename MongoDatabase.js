@@ -27,20 +27,14 @@ module.exports = (function() {
 		});
 	};
 
-	Database.prototype.addUser = function (userName, callback) {
-		var self = this;
-		if (typeof userName != 'string'){
-			var err = 'Bad userName : ' + userName;
-			debug(err);
-			callback(err);
-		}
-		else {
-			var user = {
-				id : tools.randomString(8),
-				name : userName
-			};			
-			self.db.collection('User').insert(user, callback);
-		}
+	Database.prototype.addUser = function (userId, password, callback) {
+		var self = this;		
+		var user = {
+			id : userId,
+			name : userId,
+			password : password
+		};			
+		self.db.collection('User').insert(user, callback);
 	};
 
 	Database.prototype.getUser = function (userId, callback) {

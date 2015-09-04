@@ -53,3 +53,7 @@
 }
 
 html, body { height: 100%; }
+
+.ngdialog.login_dialog .ngdialog-content { width: 550px;  }
+ 
+

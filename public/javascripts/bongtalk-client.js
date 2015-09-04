@@ -6,6 +6,7 @@
 	var BongtalkClient = (function(){
 		function BongtalkClient (qufox){			
 			this.qufox = qufox;
+			this.authToken = null;
 		}
 
 		BongtalkClient.prototype.getAllChannel = function (callback) {
@@ -38,6 +39,25 @@
 		BongtalkClient.prototype.joinChannel = function (channelId, userId, userName) {
 			return new Channel(channelId, userId, userName, this.qufox);
 		};
+
+
+		// New API		
+		BongtalkClient.prototype.checkUserExist = function (userId, callback) {
+			ajaxPost('api/checkUserExist', {userId:userId}, callback);
+		};
+
+		BongtalkClient.prototype.signIn = function (userId, password, callback) {
+			ajaxPost('api/signIn', {userId:userId, password:password}, callback);
+		};
+
+		BongtalkClient.prototype.signUp = function (userId, password, callback) {
+			ajaxPost('api/signUp', {userId:userId, password:password}, callback);
+		};
+
+		// Auth token
+		BongtalkClient.prototype.setAuthToken = function (token) {
+			this.authToken = token;
+		};		
 
 		return BongtalkClient;
 	})();

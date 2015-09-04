@@ -7,8 +7,9 @@ var bongtalkControllers = angular.module('bongtalk.controllers', []);
 bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {		
 		ngDialog.open({
-			template:'/partials_v2/loginPopup.html',
-			controller: 'LoginController',
+			template:'/partials_v2/loginDialog.html',
+			className: 'ngdialog-theme-default login_dialog',
+			controller: 'LoginDialogController',
 			closeByDocument: false,
 			closeByEscape: false,
 			showClose: false
@@ -29,13 +30,6 @@ bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeP
 		};
 	}]);
 
-bongtalkControllers.controller('LoginController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
-		$scope.next = function () {
-			// ngDialog.closeAll();
-			$scope.closeThisDialog();
-		};
-	}]);
 
 bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, bongtalk, emitter) {		
