@@ -4,6 +4,7 @@
 
 angular.module('bongtalkApp', [
 	'ngRoute',
+	'ngCookies',
 	'ngDialog',
 	'luegg.directives',
 	'bongtalk.controllers'
@@ -11,7 +12,8 @@ angular.module('bongtalkApp', [
 .config(['$routeProvider',
 	function($routeProvider) {
 		$routeProvider
-			.when('/', { templateUrl: 'partials_v2/main.html', controller: 'MainController' })
+			.when('/', { templateUrl: 'partials_v2/boot.html', controller: 'BootController' })
+			.when('/main', { templateUrl: 'partials_v2/main.html', controller: 'MainController' })
 			.when('/login', { templateUrl: 'partials_v2/loginDialog.html', controller: 'LoginDialogController' })
 			.when('/signin', { templateUrl: 'partials_v2/signInDialog.html', controller: 'SignInDialogController' })
 			.when('/signup', { templateUrl: 'partials_v2/signUpDialog.html', controller: 'SignUpDialogController' })

@@ -30,8 +30,8 @@ bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location',
 		};
 	}]);
 
-bongtalkControllers.controller('SignInDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter) {
 		$scope.loginResult = '';
 		$scope.userIdValidationStatus = '';
 		$scope.userIdValidationComment = '';
@@ -82,33 +82,27 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$routePara
 			if ($scope.userIdValidationStatus != 'success' || $scope.passwordValidationStatus != 'success')	return;
 			$scope.loginResult = '';
 			bongtalk.signIn($scope.userId, $scope.password, function (res) {
-				if (res.err) {
+				if (!res || res.err || !res.result || !res.result.token) {
 					$scope.$apply(function () { $scope.loginResult = 'error'; });
 				}
 				else {
-					$scope.$apply(function () { $scope.loginResult = 'success'; });
-					
-					$scope.closeThisDialog();
+					$scope.$apply(function () {
+						$scope.loginResult = 'success';
+						$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
+						$location.path('/main');
+					});
 				}
 			});
 		};
 
 		$scope.back = function () {
-			$scope.closeThisDialog();
-			ngDialog.open({
-				template:'/partials_v2/loginDialog.html',
-				className: 'ngdialog-theme-default login_dialog',
-				controller: 'LoginDialogController',
-				closeByDocument: false,
-				closeByEscape: false,
-				showClose: false
-			});
+			$location.path('/login');
 		};
 	}]);
 
 
-bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
 		$scope.userNameValidationStatus = '';
 		$scope.userNameValidationComment = '';
 		$scope.currentUserName = '';
@@ -155,8 +149,8 @@ bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$ro
 		});
 	}]);
 
-bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter) {
 
 		$scope.userIdValidationStatus = '';
 		$scope.userIdValidationComment = '';
@@ -230,17 +224,11 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$routePara
 							return;							
 						}
 
-						// Every thing success.
-						$scope.closeThisDialog();
-						// Go setUsername.
-						ngDialog.open({
-							template:'/partials_v2/setUsernameDialog.html',
-							className: 'ngdialog-theme-default login_dialog',
-							controller: 'SetUsernameInDialogController',
-							closeByDocument: false,
-							closeByEscape: false,
-							showClose: false
+						$scope.$apply(function () { 
+							$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
+							$location.path('/main');
 						});
+						
 					});
 				}
 				else {
@@ -251,15 +239,7 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$routePara
 		};
 
 		$scope.back = function () {
-			$scope.closeThisDialog();
-			ngDialog.open({
-				template:'/partials_v2/loginDialog.html',
-				className: 'ngdialog-theme-default login_dialog',
-				controller: 'LoginDialogController',
-				closeByDocument: false,
-				closeByEscape: false,
-				showClose: false
-			});
+			$location.path('/login');
 		};
 	}]);
 

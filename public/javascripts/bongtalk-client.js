@@ -6,7 +6,8 @@
 	var BongtalkClient = (function(){
 		function BongtalkClient (qufox){			
 			this.qufox = qufox;
-			this.authToken = null;
+			this.token = null;
+			this.tokenExpire = null;
 		}
 
 		BongtalkClient.prototype.getAllChannel = function (callback) {
@@ -50,6 +51,7 @@
 			ajaxPost('api/signIn', {userId:userId, password:password}, function (res) {
 				if (res && !res.err && res.result){
 					self.token = res.result.token;
+					self.tokenExpire = res.result.tokenExpire;
 					self.user = res.result.user;
 				}
 				if (isFunction(callback)) callback(res);
@@ -60,9 +62,27 @@
 			ajaxPost('api/signUp', {userId:userId, password:password}, callback);
 		};
 
+
 		// Require Auth API
+		BongtalkClient.prototype.refreshToken = function(callback) {
+			var self = this;
+			ajaxAuthGet('api/refreshToken', this.token, {}, function (res) {
+				if (res && !res.err && res.result){
+					self.token = res.result.token;
+					self.tokenExpire = res.result.tokenExpire;
+					self.user = res.result.user;
+				}
+				if (isFunction(callback)) callback(res);
+			});
+		};
+
 		BongtalkClient.prototype.getMyInfo = function (callback) {
-			ajaxAuthGet('api/users/' + this.user.id, this.token, {}, callback);
+			ajaxAuthGet('api/user', this.token, {}, function (res) {
+				if (res && !res.err && res.result){
+					self.user = res.result;
+				}
+				if (isFunction(callback)) callback(res);
+			});
 		};
 
 		BongtalkClient.prototype.setMyInfo = function (data, callback) {
@@ -84,8 +104,9 @@
 		
 
 		// Auth token
-		BongtalkClient.prototype.setAuthToken = function (token) {
-			this.authToken = token;
+		BongtalkClient.prototype.setAuthToken = function (authToken) {
+			this.token = authToken.token;
+			this.tokenExpire = authToken.expire;
 		};		
 
 		_.extend(BongtalkClient.prototype, EventEmitter.prototype);

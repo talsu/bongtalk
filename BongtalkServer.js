@@ -255,16 +255,18 @@ exports.BongtalkServer = (function(){
 					} else {
 						// if user is found and password is right
 						// create a token
-						var token = jwt.sign(user.id, app.get('bongtalkSecret'), {
-							expiresInMinutes: 1440 // expires in 24 hours
+						var token = jwt.sign({userId:user.id}, app.get('bongtalkSecret'), {
+							expiresInMinutes: 120 // expires in 24 hours
 						});
 
 						// remove password field.
 						delete user.password;
 
-						// return the information including token as JSON
-						res.json({err: null, result: {token:token, user:user}});
-						debug('Sign in - ' + userId);
+						jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+							// return the information including token as JSON
+							res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
+							debug('Sign in - ' + userId);
+						});
 					}
 				}
 			});
@@ -279,11 +281,11 @@ exports.BongtalkServer = (function(){
 			if (token) {
 				// verifies secret and checks exp
 				jwt.verify(token, app.get('bongtalkSecret'), function(err, decoded) {  
-					if (err || !decoded) {
+					if (err || !decoded || !decoded.userId) {
 						return res.status(403).send({ err: 'Failed to authenticate token.', result: null });    
 					} else {
 						// if everything is good, save to request for use in other routes
-						req.decoded = decoded;    
+						req.decoded = decoded;
 						next();
 					}
 				});
@@ -294,8 +296,37 @@ exports.BongtalkServer = (function(){
 			}
 		});
 
+		apiRoutes.get('/refreshToken', function (req, res){
+			var token = jwt.sign(req.decoded, app.get('bongtalkSecret'), { expiresInMinutes: 120 }); // expires in 2 hours
+			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+				self.mDatabase.getUser(decoded.userId, function (err, result) {
+					if (err || !result) {
+						res.json({err: 'Can not find user - ' + decoded.userId, result: null});
+						debug(err);
+					}
+					else {
+						delete result.password;
+						res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:result}});
+						debug('Refresh token - ' + req.decoded.userId);
+					}
+				});
+				
+			});
+		});
+
+		apiRoutes.get('/user', function (req, res){
+			var userId = req.decoded.userId;
+			self.mDatabase.getUser(userId, function (err, result) {
+				if (err) debug(err);
+				if (result) {
+					delete result.password;
+				}
+				res.json({err:err, result:result});
+			});
+		});
+
 		apiRoutes.get('/users/:id', function (req, res){
-			var userId = req.params.id;
+			var userId = req.params.id || req.decoded.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
 				if (err) debug(err);
 				if (result) delete result.password;
