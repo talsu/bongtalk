@@ -6,35 +6,27 @@ bongtalkControllers.controller('LoginController',  ['$scope', '$routeParams', '$
 
 	}]);
 
-bongtalkControllers.controller('LoginDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
 		//$scope.closeThisDialog();
 		$scope.noAccount = function () {			
 			
 		};
 		$scope.openSignIn = function () {
-			$scope.closeThisDialog();
-			ngDialog.open({
-				template:'/partials_v2/signInDialog.html',
-				className: 'ngdialog-theme-default login_dialog',
-				controller: 'SignInDialogController',
-				closeByDocument: false,
-				closeByEscape: false,
-				showClose: false
-			});	
-			
+			$location.path("/signin");
 		};
 
-		$scope.openSignUp = function () {			
-			$scope.closeThisDialog();
-			ngDialog.open({
-				template:'/partials_v2/signUpDialog.html',
-				className: 'ngdialog-theme-default login_dialog',
-				controller: 'SignUpDialogController',
-				closeByDocument: false,
-				closeByEscape: false,
-				showClose: false
-			});	
+		$scope.openSignUp = function () {
+			$location.path("/signup");		
+			// $scope.closeThisDialog();
+			// ngDialog.open({
+			// 	template:'/partials_v2/signUpDialog.html',
+			// 	className: 'ngdialog-theme-default login_dialog',
+			// 	controller: 'SignUpDialogController',
+			// 	closeByDocument: false,
+			// 	closeByEscape: false,
+			// 	showClose: false
+			// });	
 		};
 	}]);
 
