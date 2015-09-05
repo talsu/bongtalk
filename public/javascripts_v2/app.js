@@ -12,6 +12,7 @@ angular.module('bongtalkApp', [
 	function($routeProvider) {
 		$routeProvider
 			.when('/', { templateUrl: 'partials_v2/main.html', controller: 'MainController' })
+			.when('/login', { templateUrl: 'partials_v2/loginDialog.html', controller: 'LoginDialogController' })
 			.otherwise({ redirectTo: '/'});
 	}]);
 

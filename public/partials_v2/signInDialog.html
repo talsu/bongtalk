@@ -7,30 +7,18 @@
 				  <span class="glyphicon glyphicon-chevron-left" ></span>
 				</button>
 			</span>
-			<input type="text" class="form-control input-lg" placeholder="Enter User ID" ng-model="userId" ng-change="userIdChanged()" autofocus required>
+			<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+				<input type="text" class="form-control input-lg" placeholder="Enter User ID" ng-model="userId" ng-change="userIdChanged()" autofocus required>
+				<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+			</div>
 			<span class="input-group-btn" style="width:0px;"></span>
-			<input type="password" class="form-control input-lg" placeholder="Enter Password" ng-model="password" ng-change="passwordChanged()" required>
-			<span class="input-group-btn">				
-				<button class="btn btn-warning btn-lg" type="button" ng-click="signIn()">Sign in</button>
+			<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+				<input type="password" class="form-control input-lg" placeholder="and Password" ng-model="password" ng-change="passwordChanged()" required>
+				<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+			</div>		
+			<span class="input-group-btn">	
+				<button class="btn btn-warning btn-lg" type="button" ng-click="signIn()" ng-disabled="userIdValidationStatus!='success'||passwordValidationStatus!='success'">Sign in</button>
 			</span>
 		</div>
 	</div>
-
-
-	
-<!-- 
-	<div class="input-group">
-  <input type="text" class="form-control input-sm" value="test1" />
-  <span class="input-group-btn" style="width:0px;"></span>
-  <input type="text" class="form-control input-sm" value="test2" />
-</div> -->
-
-	
-	<!-- <div class="col-xs-12">
-		<hi>Sign in</h1>
-	</div>	
-	<div class="col-xs-12">
-		<label for="signInInputUserId">User ID</label>
-		<input type="text" class="form-control" id="signInInputUserId" placeholder="Enter User ID">
-	</div> -->
 </div>

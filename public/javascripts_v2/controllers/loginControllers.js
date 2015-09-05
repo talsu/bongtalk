@@ -1,5 +1,11 @@
 'use strict';
 
+
+bongtalkControllers.controller('LoginController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+
+	}]);
+
 bongtalkControllers.controller('LoginDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
 		//$scope.closeThisDialog();
@@ -18,6 +24,7 @@ bongtalkControllers.controller('LoginDialogController',  ['$scope', '$routeParam
 			});	
 			
 		};
+
 		$scope.openSignUp = function () {			
 			$scope.closeThisDialog();
 			ngDialog.open({
@@ -33,12 +40,65 @@ bongtalkControllers.controller('LoginDialogController',  ['$scope', '$routeParam
 
 bongtalkControllers.controller('SignInDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+		$scope.loginResult = '';
+		$scope.userIdValidationStatus = '';
+		$scope.userIdValidationComment = '';
+
+
 		$scope.userIdChanged = function () {
-			console.log($scope.userId);
+			if (!$scope.userId) {
+				$scope.userIdValidationStatus = '';
+				$scope.userIdValidationComment = '';
+			// } else if ($scope.userId.length < 4) {
+			// 	$scope.userIdValidationStatus = 'error';
+			// 	$scope.userIdValidationComment = 'Too short.';
+			// } else if ($scope.userId.length > 20) {
+			// 	$scope.userIdValidationStatus = 'error';
+			// 	$scope.userIdValidationComment = 'Too long.';
+			// } else if (/\s/g.test($scope.userId)){
+			// 	$scope.userIdValidationStatus = 'error';
+			// 	$scope.userIdValidationComment = 'Has white space.';
+			} else {
+				$scope.userIdValidationStatus = 'success';
+				$scope.userIdValidationComment = '';
+			}
 		};
 
+		$scope.passwordValidationStatus = '';
+		$scope.passwordValidationComment = '';
+
 		$scope.passwordChanged = function () {
-			console.log($scope.password);
+			if (!$scope.password) {
+				$scope.passwordValidationStatus = '';
+				$scope.passwordValidationComment = '';
+			// } else if ($scope.password.length < 4) {
+			// 	$scope.passwordValidationStatus = 'error';
+			// 	$scope.passwordValidationComment = 'Too short.';
+			// } else if ($scope.password.length > 20) {
+			// 	$scope.passwordValidationStatus = 'error';
+			// 	$scope.passwordValidationComment = 'Too long.';
+			// } else if (/\s/g.test($scope.password)){
+			// 	$scope.passwordValidationStatus = 'error';
+			// 	$scope.passwordValidationComment = 'Has white space.';
+			} else {
+				$scope.passwordValidationStatus = 'success';
+				$scope.passwordValidationComment = '';
+			}
+		};
+
+		$scope.signIn = function () {	
+			if ($scope.userIdValidationStatus != 'success' || $scope.passwordValidationStatus != 'success')	return;
+			$scope.loginResult = '';
+			bongtalk.signIn($scope.userId, $scope.password, function (res) {
+				if (res.err) {
+					$scope.$apply(function () { $scope.loginResult = 'error'; });
+				}
+				else {
+					$scope.$apply(function () { $scope.loginResult = 'success'; });
+					
+					$scope.closeThisDialog();
+				}
+			});
 		};
 
 		$scope.back = function () {
@@ -52,6 +112,55 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$routePara
 				showClose: false
 			});
 		};
+	}]);
+
+
+bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+		$scope.userNameValidationStatus = '';
+		$scope.userNameValidationComment = '';
+		$scope.currentUserName = '';
+		$scope.userNameChanged = function () {
+			if (!$scope.userName) {
+				$scope.userNameValidationStatus = '';
+				$scope.userNameValidationComment = '';
+			} else if ($scope.userName.length < 2) {
+				$scope.userNameValidationStatus = 'error';
+				$scope.userNameValidationComment = 'Too short.';
+			} else if ($scope.userName.length > 20) {
+				$scope.userNameValidationStatus = 'error';
+				$scope.userNameValidationComment = 'Too long.';
+			} else if (/\s/g.test($scope.userName)){
+				$scope.userNameValidationStatus = 'error';
+				$scope.userNameValidationComment = 'Has white space.';
+			} else {
+				$scope.userNameValidationStatus = 'success';
+				$scope.userNameValidationComment = '';
+			}
+		};
+
+		$scope.setUsername = function () {
+			bongtalk.setMyInfo({name:$scope.userName}, function (res){
+				if (res.err) {alert(err); return;}
+				if (res.result.ok) {					
+					$scope.closeThisDialog();
+				}
+			});
+		}
+
+		$scope.close = function () {
+			$scope.closeThisDialog();
+		};
+
+		bongtalk.getMyInfo(function (res) {
+			commonResponseHandle(res);
+
+			if (res.result && res.result.name && $scope.currentUserName != res.result.name){
+				$scope.$apply(function () {
+					$scope.currentUserName = res.result.name;
+				});
+			}
+		});
 	}]);
 
 bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
@@ -124,14 +233,22 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$routePara
 					bongtalk.signIn($scope.userId, $scope.password, function (res) {
 						if (commonResponseHandle(res)) return;
 
-						if (!res.result) {
+						if (!res.result.token) {
 							alert('Empty token.');
 							return;							
 						}
 
 						// Every thing success.
-						bongtalk.setAuthToken(res.result);
 						$scope.closeThisDialog();
+						// Go setUsername.
+						ngDialog.open({
+							template:'/partials_v2/setUsernameDialog.html',
+							className: 'ngdialog-theme-default login_dialog',
+							controller: 'SetUsernameInDialogController',
+							closeByDocument: false,
+							closeByEscape: false,
+							showClose: false
+						});
 					});
 				}
 				else {

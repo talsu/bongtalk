@@ -7,7 +7,6 @@
 				  <span class="glyphicon glyphicon-chevron-left" ></span>
 				</button>
 			</span>
-			<!-- <div class="has-success has-feedback"> -->
 			<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userIdValidationStatus]]">
 				<input type="text" class="form-control input-lg" placeholder="Create User ID" ng-model="userId" ng-change="userIdChanged()" autofocus required>
 				<span ng-if="userIdValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userIdValidationStatus]]" aria-hidden="true"></span>
@@ -22,22 +21,4 @@
 			</span>
 		</div>
 	</div>
-
-
-	
-<!-- 
-	<div class="input-group">
-  <input type="text" class="form-control input-sm" value="test1" />
-  <span class="input-group-btn" style="width:0px;"></span>
-  <input type="text" class="form-control input-sm" value="test2" />
-</div> -->
-
-	
-	<!-- <div class="col-xs-12">
-		<hi>Sign in</h1>
-	</div>	
-	<div class="col-xs-12">
-		<label for="signInInputUserId">User ID</label>
-		<input type="text" class="form-control" id="signInInputUserId" placeholder="Enter User ID">
-	</div> -->
 </div>

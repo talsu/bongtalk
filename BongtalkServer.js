@@ -187,23 +187,7 @@ exports.BongtalkServer = (function(){
 			};
 		});
 
-		// mongodb
-		app.post('/addUser', function (req, res){
-			var userName = req.body.userName;
-			self.mDatabase.addUser(userName, resBind(res));
-		});
-
-		app.post('/getUser', function (req, res){
-			var userId = req.body.userId;
-			self.mDatabase.getUser(userId, resBind(res));
-		});
-
-		app.post('/setUser', function (req, res){
-			var userId = req.body.userId;
-			var property = req.body.property;
-			var value = req.body.value;
-			self.mDatabase.setUser(userId, property, value, resBind(res));
-		});
+		
 
 		var apiRoutes = express.Router();
 
@@ -211,8 +195,8 @@ exports.BongtalkServer = (function(){
 			res.json({ message: 'API' });
 		});
 
-		apiRoutes.post('/checkUserExist', function (req, res){
-			var userId = req.body.userId;
+		apiRoutes.get('/checkUserExist', function (req, res){
+			var userId = req.query.userId;
 			self.mDatabase.getUser(userId, function (err, result){
 				if (err) {
 					res.json({err: err, result: null});
@@ -269,15 +253,17 @@ exports.BongtalkServer = (function(){
 					if (user.password != hashedPassword) {
 						res.json({ err: 'Authentication failed. Wrong password.', result: null });
 					} else {
-
 						// if user is found and password is right
 						// create a token
-						var token = jwt.sign(user, app.get('bongtalkSecret'), {
+						var token = jwt.sign(user.id, app.get('bongtalkSecret'), {
 							expiresInMinutes: 1440 // expires in 24 hours
 						});
 
+						// remove password field.
+						delete user.password;
+
 						// return the information including token as JSON
-						res.json({err: null, result: token});
+						res.json({err: null, result: {token:token, user:user}});
 						debug('Sign in - ' + userId);
 					}
 				}
@@ -289,13 +275,12 @@ exports.BongtalkServer = (function(){
 
 			// check header or url parameters or post parameters for token
 			var token = req.body.token || req.query.token || req.headers['x-access-token'];
-
 			// decode token
 			if (token) {
 				// verifies secret and checks exp
-				jwt.verify(token, app.get('superSecret'), function(err, decoded) {      
-					if (err) {
-						return res.json({ err: 'Failed to authenticate token.', result: null });    
+				jwt.verify(token, app.get('bongtalkSecret'), function(err, decoded) {  
+					if (err || !decoded) {
+						return res.status(403).send({ err: 'Failed to authenticate token.', result: null });    
 					} else {
 						// if everything is good, save to request for use in other routes
 						req.decoded = decoded;    
@@ -309,7 +294,43 @@ exports.BongtalkServer = (function(){
 			}
 		});
 
+		apiRoutes.get('/users/:id', function (req, res){
+			var userId = req.params.id;
+			self.mDatabase.getUser(userId, function (err, result) {
+				if (err) debug(err);
+				if (result) delete result.password;
+				res.json({err:err, result:result});
+			});
+		});
 
+		apiRoutes.put('/users/:id', function (req, res){
+			var userId = req.params.id;
+			var data = req.body;
+			for (var property in data) {
+				debug('Set ' + userId + ' - '+property + " : " + data[property]);
+			}
+			self.mDatabase.setUser(userId, data, function (err, result){
+				res.json({err:err, result:result});
+			});
+		});
+
+		// // mongodb
+		// apiRoutes.post('/addUser', function (req, res){
+		// 	var userName = req.body.userName;
+		// 	self.mDatabase.addUser(userName, resBind(res));
+		// });
+
+		// apiRoutes.post('/getUser', function (req, res){
+		// 	var userId = req.body.userId;
+		// 	self.mDatabase.getUser(userId, resBind(res));
+		// });
+
+		// apiRoutes.post('/setUser', function (req, res){
+		// 	var userId = req.body.userId;
+		// 	var property = req.body.property;
+		// 	var value = req.body.value;
+		// 	self.mDatabase.setUser(userId, property, value, resBind(res));
+		// });
 
 
 		app.use('/api', apiRoutes);

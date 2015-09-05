@@ -372,20 +372,24 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 		}
 
 		function setConnectorEvents(){			
-			// connector.addListener('reconnected', onReconnected);			
-			channel.on('onNewTalk', onNewTalk);
-			channel.on('onAddUser', onAddUser);
-			channel.on('onRemoveUser', onRemoveUser);
-			channel.on('onUpdateUser', onUpdateUser);	
+			// connector.addListener('reconnected', onReconnected);
+			if (channel) {
+				channel.on('onNewTalk', onNewTalk);
+				channel.on('onAddUser', onAddUser);
+				channel.on('onRemoveUser', onRemoveUser);
+				channel.on('onUpdateUser', onUpdateUser);		
+			}			
+			
 		}
 
 		function releaseConnectorEvents(){				
 			// connector.removeListener('reconnected', onReconnected);
-			channel.off('onNewTalk', onNewTalk);
-			channel.off('onAddUser', onAddUser);
-			channel.off('onRemoveUser', onRemoveUser);
-			channel.off('onUpdateUser', onUpdateUser);	
-
+			if (channel) {
+				channel.off('onNewTalk', onNewTalk);
+				channel.off('onAddUser', onAddUser);
+				channel.off('onRemoveUser', onRemoveUser);
+				channel.off('onUpdateUser', onUpdateUser);		
+			}
 			// connector.removeListener('statusChanged', serverStatusChanged);
 		}
 

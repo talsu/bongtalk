@@ -49,19 +49,14 @@ module.exports = (function() {
 		}
 	};
 
-	Database.prototype.setUser = function (userId, property, value, callback) {
+	Database.prototype.setUser = function (userId, data, callback) {
+		var self = this;
 		if (typeof userId != 'string'){
 			var err = 'Bad userId : ' + userId;
 			debug(err);
 			callback(err);
-		} else if (typeof property != 'string'){
-			var err = 'Bad property : ' + property;
-			debug(err);
-			callback(err);
 		} else {
-			var update = {};
-			update[property] = value;
-			self.db.collection('User').updateOne({id:userId}, {$set:update}, callback);
+			self.db.collection('User').updateOne({id:userId}, {$set:data}, callback);
 		}
 	};
 
