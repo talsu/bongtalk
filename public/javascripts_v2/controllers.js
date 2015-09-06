@@ -25,8 +25,11 @@ bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$co
 		}
 	}]);
 
-bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
-	function($scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {		
+bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
+	function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {		
+		$scope.routeLeft = $routeParams.left;
+		$scope.routeRight = $routeParams.right;
+		$scope.routeParam = $routeParams.param;
 		var authToken = $cookies.getObject('auth_token');
 		if (authToken) {
 			bongtalk.setAuthToken(authToken);
@@ -46,7 +49,11 @@ bongtalkControllers.controller('MainController', ['$scope', '$routeParams', '$co
 		}
 
 		function init() {
+			
 			bongtalkAutoRefreshToken.start();
+
+
+
 			$scope.$on('$destroy', function () {
 				bongtalkAutoRefreshToken.stop();
 			});
@@ -69,24 +76,31 @@ bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeP
 
 
 bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, bongtalk, emitter) {		
+	function($scope, $routeParams, $http, bongtalk, emitter) {
+		$scope.routeLeft = $routeParams.left;
+		$scope.routeRight = $routeParams.right;
+		$scope.routeParam = $routeParams.param;
 		$scope.sessions = [];
 
 		$scope.selectSession = function (session) {
-			var selectedSession = _.find($scope.sessions, function (session) { return session.isSelected; });
-			if (selectedSession) selectedSession.isSelected = '';
-			session.isSelected = 'active';
-			emitter.emit('selectSession', session);
+			// var selectedSession = _.find($scope.sessions, function (session) { return session.isSelected; });
+			// if (selectedSession) selectedSession.isSelected = '';
+			// session.isSelected = 'active';
+			// emitter.emit('selectSession', session);
 		};
 
 		bongtalk.getAllChannel(function (sessions){
-			_.each(sessions.result, function (sessionName) {$scope.sessions.push({name:sessionName, isSelected:''});});
+			$scope.$apply(function(){
+				_.each(sessions.result, function (sessionName) {$scope.sessions.push({name:sessionName, isSelected:''});});
+			});
 		});
 	}]);
 
 bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $http, bongtalk, emitter) {		
-		
+		$scope.routeLeft = $routeParams.left;
+		$scope.routeRight = $routeParams.right;
+		$scope.routeParam = $routeParams.param;
 		$scope.me = new TalkUser({
 			id : 'asdfasf', 
 			name : 'TestMan', 
@@ -102,6 +116,8 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 		$scope.talkGroups = [];
 		var channel = null;
 		$scope.inputTalk = {};
+
+		openSession($routeParams.param);
 
 		function init() {
 			if (channel) {
@@ -122,10 +138,10 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 			$scope.inputTalk = {};
 		}
 
-		emitter.on('selectSession', function (sessionListItem) {
+		function openSession(sessionName){
 			init();
 			
-			$scope.channelId = sessionListItem.name;
+			$scope.channelId = sessionName;
 			
 
 			channel = bongtalk.joinChannel($scope.channelId, $scope.me.id, $scope.me.name);
@@ -153,18 +169,7 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 					}
 				}
 			);
-			// currentSession.joinChannel(function (res){
-			// 	if (res.err) { 
-			// 		alert(res.err);
-			// 		var talks = [];
-			// 	}
-			// 	else {
-			// 		_.each(res.result, function (data) { addTalk(data); });
-			// 	}
-				
-			// 	$scope.$apply();
-			// });
-		});
+		}
 
 		// $scope.serverStatus = bongtalk.qufox.status;
 

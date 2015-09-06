@@ -77,6 +77,7 @@
 		};
 
 		BongtalkClient.prototype.getMyInfo = function (callback) {
+			var self = this;
 			ajaxAuthGet('api/user', this.token, {}, function (res) {
 				if (res && !res.err && res.result){
 					self.user = res.result;

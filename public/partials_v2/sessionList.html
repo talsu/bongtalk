@@ -1,8 +1,19 @@
-<div>
-	<ul class="nav nav-pills nav-stacked">
-		<li role="presentation" class="{{session.isSelected}}" ng-repeat="session in sessions"><a role="button" ng-click="selectSession(session)">{{session.name}}</a></li>
-		<!-- <li role="presentation" class="active"><a href="#">Home</a></li>
-		<li role="presentation"><a href="#">Profile</a></li>
-		<li role="presentation"><a href="#">Messages</a></li> -->
+<div class="session_list_header">
+	<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
+</div>
+
+<div class="session_list_content">
+	<div class="list-group">
+		<a href="#/main/chats/session/{{session.name}}" ng-class="['list-group-item', {active: routeParam==session.name}]" ng-repeat="session in sessions">
+			<h4 class="list-group-item-heading">{{session.name}}</h4>
+			<p class="list-group-item-text">aweawef awefawef awefawef</p>
+		</a>
+	</div>
+</div>
+
+<div class="session_list_footer">
+	<ul class="nav nav-pills nav-justified">
+		<li role="presentation" class="active"><a><span class="glyphicon glyphicon-comment"></span>&nbspChats</a></li>
+		<li role="presentation"><a href="#/main/settings/{{routeRight||'none'}}/{{routeParam||'none'}}"><span class="glyphicon glyphicon-cog"></span>&nbspSetting</a></li>
 	</ul>
 </div>

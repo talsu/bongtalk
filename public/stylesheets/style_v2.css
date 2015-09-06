@@ -13,8 +13,12 @@
 .margin-top-25 { margin-top: 2.5em; }
 .margin-top-30 { margin-top: 3.0em; }
 
-/* width max */
+/* max */
 .width-max {width:100%;}
+.height-max {height:100%;}
+
+/* text */
+.text-align-center { text-align: center; }
 
 /* chat layout */
 .sidebar {position:absolute; width:100px; top:0px; bottom:0px; float:left; }
@@ -23,14 +27,22 @@
 .channel_header {position:absolute; top:0px; width:100%; height:48px; }
 .channel_contents {position:absolute; top:48px; width:100%; bottom:0px; }
 
-.session_list {position:absolute; width:200px;  top:0px; bottom:0px; float:left; overflow-y:scroll; }
-.session_area {position:absolute; left:200px; right:0px; top:0px; bottom:0px; float:left; }
+.main_menu {position:absolute; width:250px;  top:0px; bottom:0px; float:left; border-right:1px solid #E4E4E4; }
+.main_content {position:absolute; left:250px; right:0px; top:0px; bottom:0px; float:left; }
 
+/* sessionList */
+.session_list_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; }
+.session_list_content {position:absolute; top:50px; bottom:40px; left:0px; right:0px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; overflow-y:auto; }
+.session_list_footer {position:absolute; bottom:0px; left:0px; right:0px;  height:40px; background: #FFFFFF; }
 
-/*.session_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; }*/
-.session_content {position:absolute; top:0px; bottom:34px; left:0px; right:0px; overflow-y:scroll;}
+/* session */
+.session_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; border-bottom:1px solid #E4E4E4; }
+.session_content {position:absolute; top:50px; bottom:34px; left:0px; right:0px; overflow-y:scroll;}
 .session_footer {position:absolute; bottom:0px; left:0px; right:0px;  height:34px; }
 
+/* setting */
+.setting_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; border-bottom:1px solid #E4E4E4; background: #FFFFFF;}
+.setting_content {position:absolute; top:50px; bottom:0px; left:0px; right:0px; overflow-y:auto;}
 
 
 .channel_header {
@@ -72,3 +84,23 @@ html, body { height: 100%; }
 .ngdialog.login_dialog .ngdialog-content { width: 550px;  }
  
 
+ /* animation */
+ /* The starting CSS styles for the enter animation */
+.fade.ng-enter {
+  transition:0.5s linear all;
+  opacity:0;
+}
+
+/* The finishing CSS styles for the enter animation */
+.fade.ng-enter.ng-enter-active {
+  opacity:1;
+}
+
+/* now the element will fade out before it is removed from the DOM */
+.fade.ng-leave {
+  transition:0.5s linear all;
+  opacity:1;
+}
+.fade.ng-leave.ng-leave-active {
+  opacity:0;
+}

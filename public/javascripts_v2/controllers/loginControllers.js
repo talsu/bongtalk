@@ -1,9 +1,15 @@
 'use strict';
 
 
-bongtalkControllers.controller('LoginController',  ['$scope', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$http', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $http, ngDialog, bongtalk, emitter) {
 
+	}]);
+
+bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
+	function($scope, $location, $cookies, ngDialog, bongtalk, emitter) {
+		$cookies.remove('auth_token');
+		$location.path("/login");
 	}]);
 
 bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
@@ -89,7 +95,7 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location'
 					$scope.$apply(function () {
 						$scope.loginResult = 'success';
 						$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-						$location.path('/main');
+						$location.path('/main/chats');
 					});
 				}
 			});
@@ -110,7 +116,7 @@ bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$lo
 			if (!$scope.userName) {
 				$scope.userNameValidationStatus = '';
 				$scope.userNameValidationComment = '';
-			} else if ($scope.userName.length < 2) {
+			} else if ($scope.userName.length < 4) {
 				$scope.userNameValidationStatus = 'error';
 				$scope.userNameValidationComment = 'Too short.';
 			} else if ($scope.userName.length > 20) {
@@ -226,7 +232,7 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location'
 
 						$scope.$apply(function () { 
 							$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-							$location.path('/main');
+							$location.path('/main/chats');
 						});
 						
 					});

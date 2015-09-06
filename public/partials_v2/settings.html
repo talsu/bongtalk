@@ -1,0 +1,41 @@
+<div class="session_list_header">
+	<div class="layout_table">
+		<div class="layout_table-cell_vertical-middle">
+			<div class="container-fluid">
+				<div class="row">
+					<div class="col-xs-12">
+						<h4><span class="glyphicon glyphicon-cog"></span>&nbspSettings</h4>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+
+<div class="session_list_content">
+	<div class="list-group">
+		<a ng-class="['list-group-item', {active: routeRight=='set-username'}]" ng-href="#/main/{{routeLeft||'none'}}/set-username">
+			<h4 class="list-group-item-heading">Username</h4>
+			<p class="list-group-item-text">Change username {{user.name}}</p>
+		</a>
+		<a ng-class="['list-group-item', {active: routeRight=='set-password'}]" ng-href="#/main/{{routeLeft||'none'}}/set-password">
+			<h4 class="list-group-item-heading">Password</h4>
+			<p class="list-group-item-text">Change password</p>
+		</a>
+		<a href="#/signout" class="list-group-item">
+			<h4 class="list-group-item-heading">Sign out</h4>
+			<p class="list-group-item-text">Sign out Bongtalk</p>
+		</a>
+		<!-- <a href="#" class="list-group-item active">
+			<h4 class="list-group-item-heading">List group item heading</h4>
+			<p class="list-group-item-text">...</p>
+		</a> -->
+	</div>
+</div>
+
+<div class="session_list_footer">
+	<ul class="nav nav-pills nav-justified">
+		<li role="presentation"><a ng-href="#/main/chats/{{routeRight||'none'}}/{{routeParam||'none'}}" role="button"><span class="glyphicon glyphicon-comment"></span>&nbspChats</a></li>
+		<li role="presentation" class="active"><a><span class="glyphicon glyphicon-cog"></span>&nbspSettings</a></li>
+	</ul>
+</div>
