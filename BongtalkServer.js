@@ -384,6 +384,18 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		apiRoutes.post('/sessions', function (req, res){
+			var name = req.body.name;
+			var type = req.body.type;
+
+			var nameValidResult = validator.validateSessionName(name);
+			if (!nameValidResult.ok) { res.json({err:nameValidResult.comment, result:null}); return; }
+			var typeValidResult = validator.validateSessionType(type);
+			if (!typeValidResult.ok) { res.json({err:typeValidResult.comment, result:null}); return; }
+
+			self.mDatabase.addSession(name, type, resBind(res));
+		});
+
 		// // mongodb
 		// apiRoutes.post('/addUser', function (req, res){
 		// 	var userName = req.body.userName;

@@ -86,5 +86,52 @@ module.exports = (function() {
 		return result;
 	};
 
+	Validator.prototype.validateSessionName = function (sessionName) {
+		var result = {
+			status:'',
+			comment:'',
+			ok:false,
+		}
+
+		if (!sessionName) {
+			result.status = 'error';
+			result.comment = 'Session name is empty.';
+		} else if (sessionName.length < 4) {
+			result.status = 'error';
+			result.comment = 'Session name is too short.';
+		} else if (sessionName.length > 20) {
+			result.status = 'error';
+			result.comment = 'Session name is too long.';
+		} else if (/\s/g.test(sessionName)){
+			result.status = 'error';
+			result.comment = 'Session name Has white space.';
+		} else {
+			result.status = 'success';
+			result.comment = '';
+			result.ok = true;
+		}
+
+		return result;
+	};
+
+	Validator.prototype.validateSessionType = function (sessionType) {
+		var result = {
+			status:'',
+			comment:'',
+			ok:false,
+		}
+
+		if (!sessionType) {
+			result.status = 'error';
+			result.comment = 'Session type is empty.';
+		} else {
+			result.status = 'success';
+			result.comment = '';
+			result.ok = true;
+		}
+
+		return result;
+	};
+
 	return Validator;
 })();
