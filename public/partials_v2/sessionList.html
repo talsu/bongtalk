@@ -1,10 +1,20 @@
 <div class="session_list_header">
-	<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
+	<div class="layout_table">
+		<div class="layout_table-cell_vertical-middle">
+			<div class="container-fluid">
+				<div class="row">
+					<div class="col-xs-12">
+						<h4><span ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></span>&nbspBongtalk</h4>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
 </div>
 
 <div class="session_list_content">
 	<div class="list-group">
-		<a href="#/main/chats/session/{{session.name}}" ng-class="['list-group-item', {active: routeParam==session.name}]" ng-repeat="session in sessions">
+		<a href="#/main/chats/session/{{session.name}}" ng-class="['list-group-item', {active: routeRight=='session'&&routeParam==session.name}]" ng-repeat="session in sessions">
 			<h4 class="list-group-item-heading">{{session.name}}</h4>
 			<p class="list-group-item-text">aweawef awefawef awefawef</p>
 		</a>
@@ -12,7 +22,7 @@
 </div>
 
 <div class="session_list_footer">
-	<ul class="nav nav-pills nav-justified">
+	<ul class="nav nav-pills nav-justified-custom">
 		<li role="presentation" class="active"><a><span class="glyphicon glyphicon-comment"></span>&nbspChats</a></li>
 		<li role="presentation"><a href="#/main/settings/{{routeRight||'none'}}/{{routeParam||'none'}}"><span class="glyphicon glyphicon-cog"></span>&nbspSetting</a></li>
 	</ul>

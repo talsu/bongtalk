@@ -98,6 +98,11 @@
 			});
 		};
 
+		BongtalkClient.prototype.changePassword = function (currentPassword, newPassword, callback) {
+			ajaxAuthPost('api/changePassword', this.token, {currentPassword:currentPassword, newPassword:newPassword}, callback);
+		};
+
+
 		BongtalkClient.prototype.getUser = function (userId, callback) {
 			ajaxAuthGet('api/users/' + userId, this.token, {}, callback);
 		};

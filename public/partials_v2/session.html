@@ -1,5 +1,23 @@
 <div class="session_header">
-	
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<div class="col-xs-3 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<a ng-href="#/main/{{routeLeft}}"><span class="glyphicon glyphicon-remove"></span></a>
+					</div>
+				</div>
+			</div>
+			<div class="col-xs-6 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<h4 class="text-align-center">{{routeParam}}</h4>
+					</div>
+				</div>
+			</div>
+			<!-- <div class="col-xs-3"></div> -->
+		</div>
+	</div>
 </div>
 <div class="session_content" scroll-glue>
 	<div class="talk-container" ng-repeat="talk in talkGroups">

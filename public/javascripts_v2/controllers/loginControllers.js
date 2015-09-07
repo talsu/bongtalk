@@ -47,15 +47,6 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location'
 			if (!$scope.userId) {
 				$scope.userIdValidationStatus = '';
 				$scope.userIdValidationComment = '';
-			// } else if ($scope.userId.length < 4) {
-			// 	$scope.userIdValidationStatus = 'error';
-			// 	$scope.userIdValidationComment = 'Too short.';
-			// } else if ($scope.userId.length > 20) {
-			// 	$scope.userIdValidationStatus = 'error';
-			// 	$scope.userIdValidationComment = 'Too long.';
-			// } else if (/\s/g.test($scope.userId)){
-			// 	$scope.userIdValidationStatus = 'error';
-			// 	$scope.userIdValidationComment = 'Has white space.';
 			} else {
 				$scope.userIdValidationStatus = 'success';
 				$scope.userIdValidationComment = '';
@@ -69,15 +60,6 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location'
 			if (!$scope.password) {
 				$scope.passwordValidationStatus = '';
 				$scope.passwordValidationComment = '';
-			// } else if ($scope.password.length < 4) {
-			// 	$scope.passwordValidationStatus = 'error';
-			// 	$scope.passwordValidationComment = 'Too short.';
-			// } else if ($scope.password.length > 20) {
-			// 	$scope.passwordValidationStatus = 'error';
-			// 	$scope.passwordValidationComment = 'Too long.';
-			// } else if (/\s/g.test($scope.password)){
-			// 	$scope.passwordValidationStatus = 'error';
-			// 	$scope.passwordValidationComment = 'Has white space.';
 			} else {
 				$scope.passwordValidationStatus = 'success';
 				$scope.passwordValidationComment = '';
@@ -107,76 +89,16 @@ bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location'
 	}]);
 
 
-bongtalkControllers.controller('SetUsernameInDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
-		$scope.userNameValidationStatus = '';
-		$scope.userNameValidationComment = '';
-		$scope.currentUserName = '';
-		$scope.userNameChanged = function () {
-			if (!$scope.userName) {
-				$scope.userNameValidationStatus = '';
-				$scope.userNameValidationComment = '';
-			} else if ($scope.userName.length < 4) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Too short.';
-			} else if ($scope.userName.length > 20) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Too long.';
-			} else if (/\s/g.test($scope.userName)){
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Has white space.';
-			} else {
-				$scope.userNameValidationStatus = 'success';
-				$scope.userNameValidationComment = '';
-			}
-		};
-
-		$scope.setUsername = function () {
-			bongtalk.setMyInfo({name:$scope.userName}, function (res){
-				if (res.err) {alert(err); return;}
-				if (res.result.ok) {					
-					$scope.closeThisDialog();
-				}
-			});
-		}
-
-		$scope.close = function () {
-			$scope.closeThisDialog();
-		};
-
-		bongtalk.getMyInfo(function (res) {
-			commonResponseHandle(res);
-
-			if (res.result && res.result.name && $scope.currentUserName != res.result.name){
-				$scope.$apply(function () {
-					$scope.currentUserName = res.result.name;
-				});
-			}
-		});
-	}]);
-
-bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'validator',
+	function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validator) {
 
 		$scope.userIdValidationStatus = '';
 		$scope.userIdValidationComment = '';
 
 		$scope.userIdChanged = function () {
-			if (!$scope.userId) {
-				$scope.userIdValidationStatus = '';
-				$scope.userIdValidationComment = '';
-			} else if ($scope.userId.length < 4) {
-				$scope.userIdValidationStatus = 'error';
-				$scope.userIdValidationComment = 'Too short.';
-			} else if ($scope.userId.length > 20) {
-				$scope.userIdValidationStatus = 'error';
-				$scope.userIdValidationComment = 'Too long.';
-			} else if (/\s/g.test($scope.userId)){
-				$scope.userIdValidationStatus = 'error';
-				$scope.userIdValidationComment = 'Has white space.';
-			} else {
-				$scope.userIdValidationStatus = 'warning';
-				$scope.userIdValidationComment = '';
+			var result = validator.validateUserId($scope.userId);
+
+			if (result.ok) {
 				bongtalk.checkUserExist($scope.userId, function (res) {					
 					$scope.$apply(function (){
 						if (res.result) {
@@ -189,6 +111,9 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location'
 						}
 					});					
 				});
+			} else {
+				$scope.userIdValidationStatus = result.status;
+				$scope.userIdValidationComment = result.comment;
 			}
 		};
 
@@ -196,26 +121,13 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location'
 		$scope.passwordValidationComment = '';
 
 		$scope.passwordChanged = function () {
-			if (!$scope.password) {
-				$scope.passwordValidationStatus = '';
-				$scope.passwordValidationComment = '';
-			} else if ($scope.password.length < 4) {
-				$scope.passwordValidationStatus = 'error';
-				$scope.passwordValidationComment = 'Too short.';
-			} else if ($scope.password.length > 20) {
-				$scope.passwordValidationStatus = 'error';
-				$scope.passwordValidationComment = 'Too long.';
-			} else if (/\s/g.test($scope.password)){
-				$scope.passwordValidationStatus = 'error';
-				$scope.passwordValidationComment = 'Has white space.';
-			} else {
-				$scope.passwordValidationStatus = 'success';
-				$scope.passwordValidationComment = '';
-			}
+			var result = validator.validatePassword($scope.password);
+			$scope.passwordValidationStatus = result.status;
+			$scope.passwordValidationComment = result.comment;
 		};
 
 		$scope.signUp = function () {	
-			if ($scope.userIdValidationStatus != 'success' || $scope.passwordValidationStatus != 'success')	return;
+			if (!validator.validateUserId($scope.userId) || !validator.validatePassword($scope.password)) return;
 
 			bongtalk.signUp($scope.userId, $scope.password, function (res) {
 				if (commonResponseHandle(res)) return;
@@ -232,7 +144,7 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location'
 
 						$scope.$apply(function () { 
 							$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-							$location.path('/main/chats');
+							$location.path('/main/chats/set-username/first');
 						});
 						
 					});
@@ -249,6 +161,100 @@ bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location'
 		};
 	}]);
 
+bongtalkControllers.factory('validator', [function(){
+
+	var Validator = (function() {
+		function Validator() { }
+
+		Validator.prototype.validateUserName = function (userName) {
+			var result = {
+				status:'',
+				comment:'',
+				ok:false,
+			}
+
+			if (!userName) {
+				result.status = '';
+				result.comment = '';
+			} else if (userName.length < 2) {
+				result.status = 'error';
+				result.comment = 'Username is too short.';
+			} else if (userName.length > 20) {
+				result.status = 'error';
+				result.comment = 'Username is too long.';
+			} else if (/\s/g.test(userName)){
+				result.status = 'error';
+				result.comment = 'Username has white space.';
+			} else {
+				result.status = 'success';
+				result.comment = '';
+				result.ok = true;
+			}
+
+			return result;
+		};
+
+		Validator.prototype.validateUserId = function (userId) {
+			var result = {
+				status:'',
+				comment:'',
+				ok:false,
+			}
+
+			if (!userId) {
+				result.status = '';
+				result.comment = '';
+			} else if (userId.length < 4) {
+				result.status = 'error';
+				result.comment = 'User ID is too short.';
+			} else if (userId.length > 20) {
+				result.status = 'error';
+				result.comment = 'User ID is too long.';
+			} else if (/\s/g.test(userId)){
+				result.status = 'error';
+				result.comment = 'User ID has white space.';
+			} else {
+				result.status = 'success';
+				result.comment = '';
+				result.ok = true;
+			}
+
+			return result;
+		};
+
+		Validator.prototype.validatePassword = function (password) {
+			var result = {
+				status:'',
+				comment:'',
+				ok:false,
+			}
+
+			if (!password) {
+				result.status = '';
+				result.comment = '';
+			} else if (password.length < 4) {
+				result.status = 'error';
+				result.comment = 'Password is too short.';
+			} else if (password.length > 20) {
+				result.status = 'error';
+				result.comment = 'Password is too long.';
+			} else if (/\s/g.test(password)){
+				result.status = 'error';
+				result.comment = 'Password Has white space.';
+			} else {
+				result.status = 'success';
+				result.comment = '';
+				result.ok = true;
+			}
+
+			return result;
+		};
+
+		return Validator;
+	})();
+
+	return new Validator();
+}]);
 
 function commonResponseHandle(res) {
 	if (!res) {

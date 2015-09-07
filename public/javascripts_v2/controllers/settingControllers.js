@@ -12,28 +12,15 @@ bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '
 	}]);
 
 
-bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
+	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+		$scope.routeParam = $routeParams.param;
 		$scope.user = {};
 		$scope.currentUserName = '';
 		$scope.userNameChanged = function () {
-			if (!$scope.user.name) {
-				$scope.userNameValidationStatus = '';
-				$scope.userNameValidationComment = '';
-			} else if ($scope.user.name.length < 2) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Username is too short.';
-			} else if ($scope.user.name.length > 20) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Username is too long.';
-			} else if (/\s/g.test($scope.user.name)){
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Has white space.';
-			} else {
-				$scope.userNameValidationStatus = 'success';
-				$scope.userNameValidationComment = '';
-			}
-			
+			var result = validator.validateUserName($scope.user.name);
+			$scope.userNameValidationStatus = result.status;
+			$scope.userNameValidationComment = result.comment;
 		};
 
 		$scope.setUsername = function () {
@@ -64,50 +51,74 @@ bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location',
 	}]);
 
 
-bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
-		$scope.userNameValidationStatus = '';
-		$scope.userNameValidationComment = '';
-		$scope.currentUserName = '';
-		$scope.userNameChanged = function () {
-			if (!$scope.userName) {
-				$scope.userNameValidationStatus = '';
-				$scope.userNameValidationComment = '';
-			} else if ($scope.userName.length < 2) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Too short.';
-			} else if ($scope.userName.length > 20) {
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Too long.';
-			} else if (/\s/g.test($scope.userName)){
-				$scope.userNameValidationStatus = 'error';
-				$scope.userNameValidationComment = 'Has white space.';
-			} else {
-				$scope.userNameValidationStatus = 'success';
-				$scope.userNameValidationComment = '';
-			}
+bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
+	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+		$scope.currentPasswordValidationStatus = '';
+		$scope.newPasswordValidationStatus = '';
+		$scope.confirmPasswordValidationStatus = '';
+		$scope.validationComment = '';
+		$scope.user = {
+			currentPassword:'',
+			newPassword:'',
+			confirmPassword:''
 		};
 
-		$scope.setUsername = function () {
-			bongtalk.setMyInfo({name:$scope.userName}, function (res){
-				if (res.err) {alert(err); return;}
-				if (res.result.ok) {					
-					//$scope.closeThisDialog();
-				}
-			});
+		$scope.currentPasswordChanged = function (){
+			$scope.newPasswordChanged();
+		};
+
+		$scope.newPasswordChanged = function (){			
+			var result = validator.validatePassword($scope.user.newPassword);
+			$scope.newPasswordValidationStatus = result.status;
+			$scope.validationComment = result.comment;
+
+			$scope.confirmPasswordChanged();
+		};
+
+		$scope.confirmPasswordChanged = function (){
+			if (!$scope.user.confirmPassword || $scope.newPasswordValidationStatus != 'success') {
+				$scope.confirmPasswordValidationStatus = '';
+			}
+			else if ($scope.user.newPassword == $scope.user.confirmPassword){
+				$scope.confirmPasswordValidationStatus = 'success';
+			}
+			else {
+				$scope.confirmPasswordValidationStatus = 'error';				
+			}
+
+		};
+
+		$scope.isDisableChangePassword = function () {
+			return !$scope.user.currentPassword || 
+			$scope.newPasswordValidationStatus != 'success' || 
+			$scope.confirmPasswordValidationStatus != 'success';
 		}
 
-		// $scope.close = function () {
-		// 	$scope.closeThisDialog();
-		// };
-
-		bongtalk.getMyInfo(function (res) {
-			commonResponseHandle(res);
-
-			if (res.result && res.result.name && $scope.currentUserName != res.result.name){
-				$scope.$apply(function () {
-					$scope.currentUserName = res.result.name;
+		$scope.setPassword = function () {
+			if (!$scope.isDisableChangePassword()){
+				bongtalk.changePassword($scope.user.currentPassword, $scope.user.newPassword, function (res){
+					$scope.$apply(function(){
+						if (res.err) {
+							$scope.user.newPassword = '';
+							$scope.user.confirmPassword = '';
+							$scope.currentPasswordValidationStatus = 'error';
+							$scope.newPasswordValidationStatus = '';
+							$scope.confirmPasswordValidationStatus = '';
+							$scope.validationComment = res.err;
+						}
+						else if (res.result.ok) {
+							$scope.user = {
+								currentPassword:'',
+								newPassword:'',
+								confirmPassword:''
+							};		
+							$scope.currentPasswordValidationStatus = 'success';
+							$scope.newPasswordValidationStatus = '';
+							$scope.confirmPasswordValidationStatus = '';
+							$scope.validationComment = 'Change password success.';
+						}
+					});
 				});
 			}
-		});
+		};
 	}]);

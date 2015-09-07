@@ -12,7 +12,7 @@ bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$co
 			bongtalk.getMyInfo(function (res) {
 				$scope.$apply(function (){
 					if (res && !res.err && res.result) {
-						$location.path('/main');
+						$location.path('/main/chats');
 					}
 					else {
 						$location.path('/login');

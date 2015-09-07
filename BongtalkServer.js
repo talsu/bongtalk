@@ -17,6 +17,7 @@ var jwt = require('jsonwebtoken');
 var tools = require('./tools');
 var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 var MongoDatabase = require('./MongoDatabase');
+var Validator = require('./Validator');
 
 var QufoxServer = require('qufox').QufoxServer;
 
@@ -34,6 +35,8 @@ exports.BongtalkServer = (function(){
 
 	BongtalkServer.prototype.run = function(){
 		var self = this;
+		
+		var validator = new Validator();
 
 		var listenTarget = this.servicePort;
 
@@ -296,6 +299,42 @@ exports.BongtalkServer = (function(){
 			}
 		});
 
+		apiRoutes.post('/changePassword', function (req, res){
+			var userId = req.body.userId || req.decoded.userId;
+			var currentPassword = req.body.currentPassword;
+			var newPassword = req.body.newPassword;
+
+			var newPasswordValidateResult = validator.validatePassword(newPassword);
+			if (!newPasswordValidateResult.ok) {
+				res.json({err:newPasswordValidateResult.comment || 'Empty', result:null});
+				return;
+			}
+
+			self.mDatabase.getUser(userId, function (err, result){ 
+				if (err) {
+					res.json({err:err, result:result});
+					return;
+				}
+				if (!result) {
+					res.json({err:'Can not find user.', result:null});
+					return;
+				}
+
+				var hashedCurrentPassword = crypto.createHash('md5').update(currentPassword).digest('hex');
+				if (result.password != hashedCurrentPassword) {
+					res.json({err:'Invalid current password.', result:null});
+					return;
+				}
+
+				var hashedNewPassword = crypto.createHash('md5').update(newPassword).digest('hex');
+				self.mDatabase.setUser(userId, {password:hashedNewPassword}, function (err, result){
+					res.json({err:err, result:result});
+					debug('Change password - ' + userId);
+				});
+
+			});
+		});
+
 		apiRoutes.get('/refreshToken', function (req, res){
 			var token = jwt.sign(req.decoded, app.get('bongtalkSecret'), { expiresInMinutes: 120 }); // expires in 2 hours
 			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
@@ -393,3 +432,4 @@ exports.BongtalkServer = (function(){
 
 	return BongtalkServer;
 })();
+

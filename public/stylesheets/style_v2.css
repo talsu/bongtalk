@@ -31,18 +31,18 @@
 .main_content {position:absolute; left:250px; right:0px; top:0px; bottom:0px; float:left; }
 
 /* sessionList */
-.session_list_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; }
-.session_list_content {position:absolute; top:50px; bottom:40px; left:0px; right:0px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; overflow-y:auto; }
+.session_list_header {position:absolute; top:0px; left:0px; right:0px;  height:49px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; }
+.session_list_content {position:absolute; top:49px; bottom:40px; left:0px; right:0px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; overflow-y:auto; }
 .session_list_footer {position:absolute; bottom:0px; left:0px; right:0px;  height:40px; background: #FFFFFF; }
 
 /* session */
-.session_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; border-bottom:1px solid #E4E4E4; }
-.session_content {position:absolute; top:50px; bottom:34px; left:0px; right:0px; overflow-y:scroll;}
+.session_header {position:absolute; top:0px; left:0px; right:0px;  height:49px; border-bottom:1px solid #E4E4E4; background: #FFFFFF;}
+.session_content {position:absolute; top:49px; bottom:34px; left:0px; right:0px; overflow-y:scroll;}
 .session_footer {position:absolute; bottom:0px; left:0px; right:0px;  height:34px; }
 
 /* setting */
-.setting_header {position:absolute; top:0px; left:0px; right:0px;  height:50px; border-bottom:1px solid #E4E4E4; background: #FFFFFF;}
-.setting_content {position:absolute; top:50px; bottom:0px; left:0px; right:0px; overflow-y:auto;}
+.setting_header {position:absolute; top:0px; left:0px; right:0px;  height:49px; border-bottom:1px solid #E4E4E4; background: #FFFFFF;}
+.setting_content {position:absolute; top:49px; bottom:0px; left:0px; right:0px; overflow-y:auto;}
 
 
 .channel_header {
@@ -82,7 +82,21 @@
 html, body { height: 100%; }
 
 .ngdialog.login_dialog .ngdialog-content { width: 550px;  }
+
+/* bootstrap custom */
+.nav-justified-custom > li
+{
+	float:none;
+	display:table-cell;
+	width:1%;
+	text-align:center;
+}
  
+.vcenter {
+    display: inline-block;
+    vertical-align: middle;
+    float: none;
+}
 
  /* animation */
  /* The starting CSS styles for the enter animation */
