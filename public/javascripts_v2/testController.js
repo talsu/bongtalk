@@ -74,7 +74,7 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 				AddTelegramFunc("talk", "text", 'INDEX 6'),
 				AddTelegramFunc("action", "writeEnd", null),				
 				AddTelegramFunc("session", "leave", '@@@ END @@@'),
-				GetTelegramsFunc(0, 6),
+				GetTelegramsFunc(0, 5),
 				LeaveSessionFunc(),
 				GetMyInfo()
 			], function (err, result){
@@ -155,13 +155,13 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 		function AddSessionFunc(sessionName, type) {
 			return function (callback) {
 				bongtalk.addSession(sessionName, type, function (res) {	
-					if (res.err || !res.result.result.ok) {
+					if (res.err) {
 						callback('addSession - Fail' + JSON.stringify(res.err), null);
 						return;
 					}
 					console.info('addSession - Success ['+sessionName+' | '+type+']');
 					console.log(JSON.stringify(res.result));
-					callback(null, res.result.insertedIds[0]);
+					callback(null, res.result._id);
 				});
 			}
 		}

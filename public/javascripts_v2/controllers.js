@@ -27,7 +27,7 @@ bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$co
 
 bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
 	function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {		
-		$scope.routeLeft = $routeParams.left;
+		$scope.routeLeft = $routeParams.left || 'chats';
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
 		var authToken = $cookies.getObject('auth_token');

@@ -386,9 +386,7 @@ exports.BongtalkServer = (function(){
 			for (var property in data) {
 				debug('Set ' + userId + ' - '+property + " : " + data[property]);
 			}
-			self.mDatabase.setUser(userId, data, function (err, result){
-				res.json({err:err, result:result});
-			});
+			self.mDatabase.setUser(userId, data, resBind(res));
 		});
 
 		apiRoutes.post('/sessions', function (req, res){
@@ -400,7 +398,7 @@ exports.BongtalkServer = (function(){
 			var typeValidResult = validator.validateSessionType(type);
 			if (!typeValidResult.ok) { res.json({err:typeValidResult.comment, result:null}); return; }
 
-			self.mDatabase.addSession(name, type, resBind(res));
+			self.mDatabase.addSession(name, type, resBindforInsert(res));
 		});
 
 		apiRoutes.get('/sessions/:id', function (req, res){
@@ -491,7 +489,7 @@ exports.BongtalkServer = (function(){
 						callback(err, result);
 					}); 
 				}
-			], resBind(res));
+			], resBindforInsert(res));
 		});
 
 		apiRoutes.get('/sessions/:id/telegrams', function (req,res){
@@ -553,6 +551,20 @@ exports.BongtalkServer = (function(){
 			return function (err, result) {
 				if (err) debug(err);
 				res.json({err:err, result:result});
+			};
+		}
+
+		function resBindforInsert(res){
+			return function (err, result) {
+				if (err) {
+					debug(err);				
+					res.json({err:err, result:result});
+				} else if (result.result && result.ops && result.ops.length > 0) {
+					res.json({err:null, result:result.ops[0]});
+				}
+				else {
+					res.json({err:'result is empty', result:null});
+				}
 			};
 		}
 
