@@ -22,6 +22,7 @@
     "angular-cookies": "~1.4.5",
     "angular-route": "~1.4.5",
     "angularjs-scroll-glue": "~0.0.1",
+    "async": "~1.4.2",
     "bootstrap": "~3.3.5",
     "eventEmitter": "~4.2.7",
     "ng-clip": "~0.2.6",

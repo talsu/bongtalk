@@ -299,6 +299,13 @@ exports.BongtalkServer = (function(){
 			}
 		});
 
+		// Set userId
+		apiRoutes.use(function(req, res, next) {
+			var userId = req.body.userId || req.query.userId || req.decoded.userId;
+			req.userId = userId;
+			next();
+		});
+
 		apiRoutes.post('/changePassword', function (req, res){
 			var userId = req.body.userId || req.decoded.userId;
 			var currentPassword = req.body.currentPassword;
@@ -396,6 +403,130 @@ exports.BongtalkServer = (function(){
 			self.mDatabase.addSession(name, type, resBind(res));
 		});
 
+		apiRoutes.get('/sessions/:id', function (req, res){
+			var sessionId = req.params.id;
+			self.mDatabase.getSession(sessionId, resBind(res));
+		});
+
+		apiRoutes.post('/sessions/:id/users', function (req,res){
+			var sessionId = req.params.id;
+			var userId = req.userId;
+
+			async.waterfall([
+				function (callback) { 
+					self.mDatabase.getSession(sessionId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('Session is not exist.', null);
+						else callback(null);
+					}); 
+				},
+				function (callback) { 
+					self.mDatabase.getUser(userId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('User is not exist.', null);
+						else callback(null);
+					}); 
+				},
+				function (callback) { 
+					self.mDatabase.addUserToSession(userId, sessionId, function (err, result) {
+						callback(err, result);
+					}); 
+				}
+			], resBind(res));
+		});
+
+		apiRoutes.delete('/sessions/:id/users', function (req,res){
+			var sessionId = req.params.id;
+			var userId = req.userId;
+
+			async.waterfall([
+				function (callback) { 
+					self.mDatabase.getSession(sessionId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('Session is not exist.', null);
+						else callback(null);
+					}); 
+				},
+				function (callback) { 
+					self.mDatabase.getUser(userId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('User is not exist.', null);
+						else callback(null);
+					}); 
+				},
+				function (callback) { 
+					self.mDatabase.removeUserFromSession(userId, sessionId, function (err, result) {
+						callback(err, result);
+					}); 
+				}
+			], resBind(res));
+		});
+
+		apiRoutes.post('/sessions/:id/telegrams', function (req,res){
+			var sessionId = req.params.id;
+			var userId = req.userId;
+			var userName = req.body.userName;
+			var type = req.body.type;
+			var subType = req.body.subType;
+			var data = req.body.data;
+
+			async.waterfall([
+				function (callback) { 
+					self.mDatabase.getSession(sessionId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('Session is not exist.', null);
+						else if (!result.users || result.users.indexOf(userId) == -1) callback('User is not in session', null);
+						else callback(null);
+					}); 
+				},
+				// function (callback) { 
+				// 	self.mDatabase.getUser(userId, function (err, result) {  
+				// 		if (err) callback(err, result);
+				// 		else if (!result) callback('User is not exist.', null);
+				// 		else callback(null);
+				// 	}); 
+				// },
+				function (callback) { 
+					self.mDatabase.addTelegram(userId, sessionId, userName, type, subType, data, function (err, result) {
+						callback(err, result);
+					}); 
+				}
+			], resBind(res));
+		});
+
+		apiRoutes.get('/sessions/:id/telegrams', function (req,res){
+			var sessionId = req.params.id;
+			var userId = req.userId;
+			var ltTime = req.query.ltTime;
+			var count = req.query.count;
+
+			async.waterfall([
+				function (callback) { 
+					self.mDatabase.getSession(sessionId, function (err, result) {  
+						if (err) callback(err, result);
+						else if (!result) callback('Session is not exist.', null);
+						else if (!result.users || result.users.indexOf(userId) == -1) callback('User is not in session', null);
+						else callback(null);
+					}); 
+				},
+				// function (callback) { 
+				// 	self.mDatabase.getUser(userId, function (err, result) {  
+				// 		if (err) callback(err, result);
+				// 		else if (!result) callback('User is not exist.', null);
+				// 		else callback(null);
+				// 	}); 
+				// },
+				function (callback) { 
+					self.mDatabase.getTelegrams(sessionId, ltTime, count, function (err, result) {
+						callback(err, result);
+					}); 
+				}
+			], resBind(res));
+		});
+
+
+
+
 		// // mongodb
 		// apiRoutes.post('/addUser', function (req, res){
 		// 	var userName = req.body.userName;
@@ -421,7 +552,7 @@ exports.BongtalkServer = (function(){
 		function resBind(res){
 			return function (err, result) {
 				if (err) debug(err);
-				res.send({err:err, result:result});
+				res.json({err:err, result:result});
 			};
 		}
 

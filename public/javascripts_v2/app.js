@@ -22,7 +22,7 @@ angular.module('bongtalkApp', [
 			.when('/signout', { templateUrl: 'partials_v2/boot.html', controller: 'SignOutController' })
 			.when('/signin', { templateUrl: 'partials_v2/signInDialog.html', controller: 'SignInDialogController' })
 			.when('/signup', { templateUrl: 'partials_v2/signUpDialog.html', controller: 'SignUpDialogController' })
-			.when('/test', { action: 'testAction' })
+			.when('/test', { templateUrl: 'partials_v2/test.html', controller: 'TestController' })
 			.otherwise({ redirectTo: '/'});
 	}])
 .run(['$window', '$rootScope', 

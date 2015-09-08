@@ -107,7 +107,36 @@
 			ajaxAuthGet('api/users/' + userId, this.token, {}, callback);
 		};
 
+
+		// session
+		BongtalkClient.prototype.addSession = function (name, type, callback) {
+			ajaxAuthPost('api/sessions', this.token, {name:name, type:type}, callback);
+		};
+
+		BongtalkClient.prototype.getSession = function (sessionId, callback) {
+			ajaxAuthGet('api/sessions/' + sessionId, this.token, {}, callback);
+		};
 		
+		BongtalkClient.prototype.joinSession = function (sessionId, callback) {
+			ajaxAuthPost('api/sessions/'+sessionId+'/users', this.token, {}, callback);
+		};
+
+		BongtalkClient.prototype.leaveSession = function (sessionId, callback) {
+			ajaxAuthDelete('api/sessions/'+sessionId+'/users', this.token, {}, callback);
+		};
+
+		// Telegram
+		BongtalkClient.prototype.addTelegram = function (sessionId, type, subType, data, callback){
+			var self = this;
+			ajaxAuthPost('api/sessions/'+sessionId+'/telegrams', this.token, 
+				{userName:self.user.name, type:type, subType:subType, data:data}, callback);
+		};
+
+		// Telegram
+		BongtalkClient.prototype.getTelegrams = function (sessionId, ltTime, count, callback){
+			ajaxAuthGet('api/sessions/'+sessionId+'/telegrams', this.token, {ltTime:ltTime, count:count}, callback);
+		};		
+
 
 		// Auth token
 		BongtalkClient.prototype.setAuthToken = function (authToken) {
@@ -240,6 +269,25 @@
 	{
 		$.ajax({
 			type: "PUT",
+			headers: {'x-access-token': token},
+			url: url,
+			data: JSON.stringify(data),
+			contentType: "application/json; charset=utf-8",
+			dataType: "json",
+			success: function (response) { 
+				if (isFunction(callback)) callback(response);
+			},
+			error: function (err) { 
+				if (isFunction(callback)) callback({err:err});
+			},
+			complete: function () { }
+		});
+	}
+
+	function ajaxAuthDelete(url, token, data, callback)
+	{
+		$.ajax({
+			type: "DELETE",
 			headers: {'x-access-token': token},
 			url: url,
 			data: JSON.stringify(data),
