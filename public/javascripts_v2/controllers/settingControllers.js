@@ -3,12 +3,35 @@ bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '
 		$scope.routeLeft = $routeParams.left;
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
+		$scope.user = {};
 
-		bongtalk.getMyInfo(function (res) {
-			if (res && !res.err && res.result){
-				$scope.$apply(function() { $scope.user = res.result; });
+		if (bongtalk.user) {
+			init();
+		}
+		else {
+			bongtalk.signInReady(function (user) {
+				$scope.$apply(function () { init(); });
+			});			
+		}
+
+		function init() {
+			$scope.user = bongtalk.user;
+		}
+
+		bongtalk.signInReady(function (user) {
+			if (user){
+				// $scope.$apply(function() { $scope.user = user; });
+				
 			}
 		});
+		
+
+		// Sync username
+		bongtalk.on('setMyInfo', onSetMyInfo);
+		$scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
+		function onSetMyInfo(data){
+			$scope.$apply(function() { $scope.user = bongtalk.user; });
+		}
 	}]);
 
 
@@ -35,19 +58,25 @@ bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location',
 			});
 		}
 
-		// $scope.close = function () {
-		// 	$scope.closeThisDialog();
-		// };
+		if (bongtalk.user) {
+			init();
+		}
+		else {
+			bongtalk.signInReady(function (user) {
+				$scope.$apply(function () { init(); });
+			});			
+		}
 
-		bongtalk.getMyInfo(function (res) {
-			commonResponseHandle(res);
+		function init() {
+			$scope.currentUserName = bongtalk.user.name;
+		}
 
-			if (res.result && res.result.name && $scope.currentUserName != res.result.name){
-				$scope.$apply(function () {
-					$scope.currentUserName = res.result.name;
-				});
-			}
-		});
+		// Sync username
+		bongtalk.on('setMyInfo', onSetMyInfo);
+		$scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
+		function onSetMyInfo(data){
+			$scope.$apply(function() { $scope.currentUserName = bongtalk.user.name; });
+		}
 	}]);
 
 

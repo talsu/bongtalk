@@ -7,8 +7,10 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 				$scope.$apply(function (){
 					if (res && !res.err && res.result) {
 						//telegramTest();
-						telegramTest2();
-						//sessionCreationTest();
+						//telegramTest2();
+						sessionCreationTest();
+						//personalSessionCreationTest();
+						//groupSessionCreationTest();
 						//leaveAllSessionTest();
 					}
 					else {
@@ -86,12 +88,13 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 
 		function sessionCreationTest() {
 			async.waterfall([
-				AddSessionFunc('sessionCreationTest', 'public'),
+				AddSessionFunc('sessionCreationTest1', 'public'),
 				GetSessionFunc(), 
 				JoinSessoinFunc(),
 				JoinSessoinFunc(),
-				GetSessionFunc(), 
+				GetSessionFunc(),
 				GetMyInfo(),
+				GetUserSessionsFunc(),
 				LeaveSessionFunc(),
 				GetSessionFunc(), 
 				GetMyInfo()
@@ -100,8 +103,34 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 					console.error(err);
 				}
 			});
+		}
 
+		function personalSessionCreationTest() {
+			async.waterfall([
+				AddSessionFunc('sessionCreationTest2', 'personal', ['test1']),		
+				GetSessionFunc(),		
+				LeaveSessionFunc(),
+				GetSessionFunc(), 
+				GetMyInfo()
+			], function (err, result){
+				if (err){
+					console.error(err);
+				}
+			});
+		}
 
+		function groupSessionCreationTest() {
+			async.waterfall([
+				AddSessionFunc('sessionCreationTest3', 'group', ['test1', 'test2']),		
+				GetSessionFunc(),		
+				LeaveSessionFunc(),
+				GetSessionFunc(), 
+				GetMyInfo()
+			], function (err, result){
+				if (err){
+					console.error(err);
+				}
+			});
 		}
 
 		function leaveAllSessionTest() {
@@ -152,9 +181,9 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 			}
 		}
 
-		function AddSessionFunc(sessionName, type) {
+		function AddSessionFunc(sessionName, type, users) {
 			return function (callback) {
-				bongtalk.addSession(sessionName, type, function (res) {	
+				bongtalk.addSession(sessionName, type, users, function (res) {	
 					if (res.err) {
 						callback('addSession - Fail' + JSON.stringify(res.err), null);
 						return;
@@ -208,6 +237,20 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 			}
 		}
 
+		function GetUserSessionsFunc() {
+			return function (sessionId, callback) {
+				bongtalk.getUserSessions(function (res){
+					if (res.err) {
+						callback('getUserSessions - Fail' + JSON.stringify(res.err), null);
+						return;
+					}
+					console.info('getUserSessions - Success');
+					console.log(JSON.stringify(res.result));					
+					callback(null, sessionId);
+				});
+			}
+		}
+
 		function AddTelegramFunc(type, subType, data){
 			return function (sessionId, callback) {
 				bongtalk.addTelegram(sessionId, type, subType, data, function (res){
@@ -235,5 +278,7 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 				});
 			};
 		}
+
+		
 
 	}]);

@@ -307,7 +307,7 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.post('/changePassword', function (req, res){
-			var userId = req.body.userId || req.decoded.userId;
+			var userId = req.userId;
 			var currentPassword = req.body.currentPassword;
 			var newPassword = req.body.newPassword;
 
@@ -361,7 +361,7 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.get('/user', function (req, res){
-			var userId = req.decoded.userId;
+			var userId = req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
 				if (err) debug(err);
 				if (result) {
@@ -372,7 +372,7 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.get('/users/:id', function (req, res){
-			var userId = req.params.id || req.decoded.userId;
+			var userId = req.params.id || req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
 				if (err) debug(err);
 				if (result) delete result.password;
@@ -389,16 +389,36 @@ exports.BongtalkServer = (function(){
 			self.mDatabase.setUser(userId, data, resBind(res));
 		});
 
+		apiRoutes.get('/users/:id/sessions', function (req, res){
+			var userId = req.params.id || req.userId;
+			self.mDatabase.getUserSessions(userId, resBind(res));
+		});
+
 		apiRoutes.post('/sessions', function (req, res){
 			var name = req.body.name;
 			var type = req.body.type;
+			var users = req.body.users || [];
 
 			var nameValidResult = validator.validateSessionName(name);
 			if (!nameValidResult.ok) { res.json({err:nameValidResult.comment, result:null}); return; }
-			var typeValidResult = validator.validateSessionType(type);
+			var typeValidResult = validator.validateSessionType(type, users);
 			if (!typeValidResult.ok) { res.json({err:typeValidResult.comment, result:null}); return; }
 
-			self.mDatabase.addSession(name, type, resBindforInsert(res));
+			// userId exists check.
+			async.each(users, function (userId, callback) {
+				self.mDatabase.getUser(userId, function (err, result){
+					if (err) callback(err);
+					else if (!result) callback('Can not find user : ' + userId);
+					else callback(); 
+				});
+			}, function (err) {
+				if (err) {
+					res.json({err:err, result:null});
+				}
+				else{
+					self.mDatabase.addSession(name, type, users, resBind(res));
+				}
+			});
 		});
 
 		apiRoutes.get('/sessions/:id', function (req, res){

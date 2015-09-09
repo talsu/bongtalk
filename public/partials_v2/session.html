@@ -11,7 +11,7 @@
 			<div class="col-xs-6 height-max">
 				<div class="layout_table">
 					<div class="layout_table-cell_vertical-middle">
-						<h4 class="text-align-center">{{routeParam}}</h4>
+						<h4 class="text-align-center">{{session.name}}</h4>
 					</div>
 				</div>
 			</div>
@@ -20,31 +20,32 @@
 	</div>
 </div>
 <div class="session_content" scroll-glue>
-	<div class="talk-container" ng-repeat="talk in talkGroups">
-		<div class="sender" ng-if="(talk.userId!=me.id)">
+	<div class="talk-container" ng-repeat="telegram in telegrams">
+		<div class="sender" ng-if="(telegram.userId!=user.id)">
 			<img class="sender_img" src="/image/avatar-blank.jpg" >
 			<div class="sender_content">
-				<span class="sender_name">{{getUser(talk.userId).name}}</span>
+				<span class="sender_name">{{telegram.userName}}</span>
 				<div class="bubble">
 					<div class="message_content">
-						<div ng-repeat="message in talk.messages">{{message.text}}</div>
+						<div>{{telegram.data}}</div>
+						<!-- <div ng-repeat="message in talk.messages">{{message.text}}</div> -->
 					</div>
-					<time class="sender_time">{{talk.getTimeString()}}</time>
+					<time class="sender_time">{{telegram.time}}</time>
 				</div>
 			</div>
 		</div>
-		<div class="sender sender--alt" ng-if="(talk.userId==me.id)">
+		<div class="sender sender--alt" ng-if="(telegram.userId==user.id)">
 			<div class="bubble bubble--alt">
 				<div class="message_content">
-					<div ng-repeat="message in talk.messages">{{message.text}}</div>
+					<div>{{telegram.data}}</div>
 				</div>
-				<time class="sender_time sender_time--alt">{{talk.getTimeString()}}</time>
+				<time class="sender_time sender_time--alt">{{telegram.time}}</time>
 			</div>
 		</div>
 	</div>
 </div>
 <div class="session_footer">
-	<input type="text" class="form-control input" placeholder="Type your message here..." ng-model="inputTalk.message" ng-keypress="inputKeypress($event)" />
+	<input type="text" class="form-control input" placeholder="Type your message here..." ng-model="input.text" ng-keypress="inputKeypress($event)" />
 	<!-- <button type="button" class="btn btn-success" ng-click="check()">Success</button>
 	<p>{{inputTalk.message}}</p> -->
 </div>

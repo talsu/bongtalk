@@ -114,7 +114,7 @@ module.exports = (function() {
 		return result;
 	};
 
-	Validator.prototype.validateSessionType = function (sessionType) {
+	Validator.prototype.validateSessionType = function (sessionType, users) {
 		var result = {
 			status:'',
 			comment:'',
@@ -124,6 +124,21 @@ module.exports = (function() {
 		if (!sessionType) {
 			result.status = 'error';
 			result.comment = 'Session type is empty.';
+		} else if (!Array.isArray(users)) {
+			result.status = 'error';
+			result.comment = 'users is not Array type.';
+		} else if (['public', 'group', 'personal'].indexOf(sessionType) == -1){
+			result.status = 'error';
+			result.comment = 'Invalid session type : ' + sessionType;
+		} else if (sessionType == 'public' && users.length == 0){
+			result.status = 'error';
+			result.comment = 'public session need user.';
+		} else if (sessionType == 'group' && users.length == 0){
+			result.status = 'error';
+			result.comment = 'group session need user.';
+		} else if (sessionType == 'personal' && (users.length != 2 || users[0] == users[1])){
+			result.status = 'error';
+			result.comment = 'personal session need two user.';
 		} else {
 			result.status = 'success';
 			result.comment = '';

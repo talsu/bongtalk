@@ -37,8 +37,12 @@
 			
 			this.socket.on('receive', function (payload) {
 				if (payload && payload.id) {				
-					var callback = self.sessionCallbackMap[payload.id];
-					if (isFunction(callback)) callback(payload.data);
+					var callbackArray = self.sessionCallbackMap[payload.id];
+					if (callbackArray && callbackArray.length > 0){
+						for (var i = 0; i < callbackArray.length; ++i){							
+							if (isFunction(callbackArray[i])) callbackArray[i](payload.data);
+						}
+					}					
 				}
 			});
 
@@ -67,15 +71,18 @@
 		}
 
 		QufoxClient.prototype.subscribe =
+		QufoxClient.prototype.on =
 		QufoxClient.prototype.join = function (sessionId, callback) {
 			var self = this;
 			if (self.socket.connected) {
 				self.socketClient.join(sessionId, function (){
-					self.sessionCallbackMap[sessionId] = callback;
+					if (!self.sessionCallbackMap[sessionId]) self.sessionCallbackMap[sessionId] = [];
+					self.sessionCallbackMap[sessionId].push(callback);
 				});	
 			}
 			else {
-				self.sessionCallbackMap[sessionId] = callback;
+				if (!self.sessionCallbackMap[sessionId]) self.sessionCallbackMap[sessionId] = [];
+					self.sessionCallbackMap[sessionId].push(callback);
 			}
 		};
 
@@ -85,17 +92,33 @@
 		};
 
 		QufoxClient.prototype.unsubscribe =
+		QufoxClient.prototype.off =
 		QufoxClient.prototype.leave = function (sessionId, callback) {
 			var self = this;
+			var currentMap = self.sessionCallbackMap[sessionId];
+			if (!currentMap) return;
 
-			self.socketClient.leave(sessionId, function (data){
-				var sessionCallback = self.sessionCallbackMap[sessionId];
-				if (sessionCallback) {
-					delete self.sessionCallbackMap[sessionId];				
-				};
+			var excludeMap = [];
+			for (var i = 0; i < currentMap.length; ++i){
+				if (currentMap[i] != callback) excludeMap.push(currentMap[i]);
+			}
 
-				if (isFunction(callback)) callback(data);
-			});		
+			if (excludeMap.length == 0){
+				self.socketClient.leave(sessionId, function (data){
+					delete self.sessionCallbackMap[sessionId];
+				});
+			}
+			else{
+				self.sessionCallbackMap[sessionId] = excludeMap;
+			}
+			// self.socketClient.leave(sessionId, function (data){
+			// 	var sessionCallback = self.sessionCallbackMap[sessionId];
+			// 	if (sessionCallback) {
+			// 		delete self.sessionCallbackMap[sessionId];				
+			// 	};
+
+			// 	if (isFunction(callback)) callback(data);
+			// });		
 		};
 
 		return QufoxClient;

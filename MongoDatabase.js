@@ -64,7 +64,7 @@ module.exports = (function() {
 	};
 
 	// Session
-	Database.prototype.addSession = function (name, type, callback) {
+	Database.prototype.addSession = function (name, type, users, callback) {
 		var self = this;
 		var session = {
 			name:name,
@@ -72,7 +72,22 @@ module.exports = (function() {
 			users:[],
 			creationTime:Date.now()
 		};
-		self.db.collection('Session').insert(session, callback);
+		self.db.collection('Session').insert(session, function (err, result){
+			if (err || !users || !Array.isArray(users) || users.length == 0) { 
+				callback(err, result);
+				return; 
+			}
+			var sessionId = result.ops[0]._id.toString();
+			async.each(users, function (userId, callback){
+				self.addUserToSession(userId, sessionId, function (err, result){
+					if (err) callback(err);
+					else callback();
+				});
+			}, function (err){
+				if (err) callback(err, null);
+				else self.getSession(sessionId, callback);
+			});
+		});
 	};
 
 	Database.prototype.getSession = function (sessionId, callback) {
@@ -119,6 +134,18 @@ module.exports = (function() {
 		});
 	};
 
+	Database.prototype.getUserSessions = function (userId, callback) {
+		var self = this;
+
+		self.getUser(userId, function (err, result){
+			if (err) { callback(err, null); return; }
+			if (result && result.sessions && result.sessions.length > 0) {
+				self.db.collection('Session').find({_id:{$in:result.sessions}}).toArray(callback);
+			} else {
+				callback(err, []);
+			}			
+		});
+	};
 
 	// Telegram
 	Database.prototype.addTelegram = function (userId, sessionId, userName, type, subType, data, callback) {		

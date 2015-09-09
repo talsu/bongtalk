@@ -8,6 +8,10 @@
 			this.qufox = qufox;
 			this.token = null;
 			this.tokenExpire = null;
+			this.privateEventEmitter = new EventEmitter();
+			this.sessionEventEmitter = new EventEmitter();
+			this.user = null;
+			this.signInReadyCallback = [];
 		}
 
 		BongtalkClient.prototype.getAllChannel = function (callback) {
@@ -36,10 +40,60 @@
 		// BongtalkClient.prototype.setUser = function (userId, property, value, callback) {
 		// 	ajaxPost('setUser', {userId:userId, property:property, value:value}, callback);
 		// };
-
-		BongtalkClient.prototype.joinChannel = function (channelId, userId, userName) {
-			return new Channel(channelId, userId, userName, this.qufox);
+		
+		BongtalkClient.prototype.on = function (eventName, callback) {
+			this.privateEventEmitter.on(eventName, callback);
 		};
+
+		BongtalkClient.prototype.off = function (eventName, callback) {
+			this.privateEventEmitter.off(eventName, callback);
+		};
+
+		BongtalkClient.prototype.emit = function (name, object) {			
+			this.emitToUser(this.user.id, name, object);
+		}
+
+		BongtalkClient.prototype.emitToUser = function (userId, name, object) {
+			var self = this;
+			self.qufox.send('private:' + userId, {name:name, object:object}, function (res){
+				if (self.user.id == userId) {
+					self.privateEventEmitter.emit(name, object);	
+				}
+			});
+		}
+
+		BongtalkClient.prototype.startSync = function (){
+			var self = this;
+			if (self.user && self.user.id){
+				self.on('setMyInfo', function (data) {
+					if (data) {
+							for (var property in data) {
+							self.user[property] = data[property];
+						}	
+					}
+				});
+
+				// listen private session
+				self.qufox.join('private:' + self.user.id, function (data){
+					if (data.name && data.object){
+						self.privateEventEmitter.emit(data.name, data.object);	
+					}
+				});
+			}
+		};
+
+		BongtalkClient.prototype.stopSync = function (){
+			var self = this;
+			if (self.user && self.user.id) {
+				self.qufox.leave('private:' + self.user.id);
+			}
+
+			self.privateEventEmitter.removeAllListeners();
+		};
+
+		// BongtalkClient.prototype.joinChannel = function (channelId, userId, userName) {
+		// 	return new Channel(channelId, userId, userName, this.qufox);
+		// };
 
 		// API
 		BongtalkClient.prototype.checkUserExist = function (userId, callback) {
@@ -58,8 +112,31 @@
 			});
 		};
 
+		BongtalkClient.prototype.signOut = function () {
+			var self = this;
+		};
+
 		BongtalkClient.prototype.signUp = function (userId, password, callback) {
 			ajaxPost('api/signUp', {userId:userId, password:password}, callback);
+		};
+
+		BongtalkClient.prototype.signInRecover = function (authToken, callback) {
+			var self = this;
+			self.setAuthToken(authToken);
+			self.getMyInfo(function (res) {
+				callback(res);
+
+				if (self.signInReadyCallback.length > 0){
+					_.each(self.signInReadyCallback, function (readyCallback){
+						readyCallback(self.user);
+					});	
+				}
+			});
+		};
+
+		BongtalkClient.prototype.signInReady = function (callback) {
+			if (this.user) callback(this.user);
+			else this.signInReadyCallback.push(callback);
 		};
 
 
@@ -93,6 +170,8 @@
 					for (var property in data) {
 						self.user[property] = data[property];
 					}
+
+					self.emit('setMyInfo', data);
 				}
 				if (isFunction(callback)) callback(res);
 			});
@@ -109,8 +188,24 @@
 
 
 		// session
-		BongtalkClient.prototype.addSession = function (name, type, callback) {
-			ajaxAuthPost('api/sessions', this.token, {name:name, type:type}, callback);
+		BongtalkClient.prototype.addSession = function (name, type, users, callback) {
+			var self = this;
+			var sessionUsers = [self.user.id];
+			if (isString(users)) {
+				sessionUsers.push(users);
+			} else if (isArray(users)) {
+				_.each(users, function (userId) {
+					if (!_.contains(sessionUsers, userId)) sessionUsers.push(userId);
+				});
+			}
+			ajaxAuthPost('api/sessions', this.token, {name:name, type:type, users:sessionUsers}, function (res){
+				if (!res.err) {
+					_.each(res.result.users, function (userId) {
+						self.emitToUser(userId, 'joinSession', res.result);
+					});					
+				}
+				callback(res);
+			});
 		};
 
 		BongtalkClient.prototype.getSession = function (sessionId, callback) {
@@ -125,26 +220,47 @@
 			ajaxAuthDelete('api/sessions/'+sessionId+'/users', this.token, {}, callback);
 		};
 
+		BongtalkClient.prototype.getUserSessions = function (callback) {
+			ajaxAuthGet('api/users/' + this.user.id + '/sessions', this.token, {}, callback);
+		};
+		
+
 		// Telegram
 		BongtalkClient.prototype.addTelegram = function (sessionId, type, subType, data, callback){
 			var self = this;
 			ajaxAuthPost('api/sessions/'+sessionId+'/telegrams', this.token, 
-				{userName:self.user.name, type:type, subType:subType, data:data}, callback);
+				{userName:self.user.name, type:type, subType:subType, data:data}, function (res){
+					if (res.err || !res.result){
+						callback(res)
+					}
+					else{
+						self.qufox.send('session:' + sessionId, res.result, function (){
+							callback(res);
+						});
+					}					
+				});
 		};
 
-		// Telegram
 		BongtalkClient.prototype.getTelegrams = function (sessionId, ltTime, count, callback){
 			ajaxAuthGet('api/sessions/'+sessionId+'/telegrams', this.token, {ltTime:ltTime, count:count}, callback);
 		};		
+
+		BongtalkClient.prototype.onTelegram = function (sessionId, callback) {
+			this.qufox.on('session:' + sessionId, callback);
+		};
+
+		BongtalkClient.prototype.offTelegram = function (sessionId, callback) {
+			this.qufox.off('session:' + sessionId, callback);
+		};
 
 
 		// Auth token
 		BongtalkClient.prototype.setAuthToken = function (authToken) {
 			this.token = authToken.token;
 			this.tokenExpire = authToken.expire;
-		};		
+		};
 
-		_.extend(BongtalkClient.prototype, EventEmitter.prototype);
+
 		
 		return BongtalkClient;
 	})();
@@ -355,6 +471,14 @@
 
 	function isFunction(object) {
 		return !!(object && object.constructor && object.call && object.apply);
+	}
+
+	function isArray(object) {
+		return _.isArray(object);
+	}
+
+	function isString(object) {
+		return _.isString(object);
 	}
 
 

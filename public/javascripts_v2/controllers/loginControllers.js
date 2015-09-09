@@ -9,6 +9,7 @@ bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$htt
 bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
 	function($scope, $location, $cookies, ngDialog, bongtalk, emitter) {
 		$cookies.remove('auth_token');
+		bongtalk.signOut();
 		$location.path("/login");
 	}]);
 

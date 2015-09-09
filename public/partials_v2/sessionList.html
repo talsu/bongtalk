@@ -14,7 +14,7 @@
 
 <div class="session_list_content">
 	<div class="list-group">
-		<a href="#/main/chats/session/{{session.name}}" ng-class="['list-group-item', {active: routeRight=='session'&&routeParam==session.name}]" ng-repeat="session in sessions">
+		<a href="#/main/chats/session/{{session._id}}" ng-class="['list-group-item', {active: routeRight=='session'&&routeParam==session._id}]" ng-repeat="session in sessions">
 			<h4 class="list-group-item-heading">{{session.name}}</h4>
 			<p class="list-group-item-text">aweawef awefawef awefawef</p>
 		</a>
