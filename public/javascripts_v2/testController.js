@@ -8,10 +8,10 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 					if (res && !res.err && res.result) {
 						//telegramTest();
 						//telegramTest2();
-						sessionCreationTest();
+						//sessionCreationTest();
 						//personalSessionCreationTest();
 						//groupSessionCreationTest();
-						//leaveAllSessionTest();
+						leaveAllSessionTest();
 					}
 					else {
 						$location.path('/login');
@@ -77,7 +77,7 @@ bongtalkControllers.controller('TestController', ['$scope', '$routeParams', '$co
 				AddTelegramFunc("action", "writeEnd", null),				
 				AddTelegramFunc("session", "leave", '@@@ END @@@'),
 				GetTelegramsFunc(0, 5),
-				LeaveSessionFunc(),
+				//LeaveSessionFunc(),
 				GetMyInfo()
 			], function (err, result){
 				if (err){

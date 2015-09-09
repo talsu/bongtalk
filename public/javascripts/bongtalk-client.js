@@ -73,6 +73,19 @@
 					}
 				});
 
+				self.on('joinSession', function (sessionId){
+					if (self.user.sessions.indexOf(sessionId) == -1){
+						self.user.sessions.push(sessionId);
+					}
+				});
+
+				self.on('leaveSession', function (sessionId){
+					var index = self.user.sessions.indexOf(sessionId);
+					if (index > -1){
+						self.user.sessions.splice(index, 1);
+					}
+				});
+
 				// listen private session
 				self.qufox.join('private:' + self.user.id, function (data){
 					if (data.name && data.object){
@@ -200,8 +213,11 @@
 			}
 			ajaxAuthPost('api/sessions', this.token, {name:name, type:type, users:sessionUsers}, function (res){
 				if (!res.err) {
+					if (self.user.sessions.indexOf(res.result._id) == -1) {
+						self.user.sessions.push(res.result._id);
+					}
 					_.each(res.result.users, function (userId) {
-						self.emitToUser(userId, 'joinSession', res.result);
+						self.emitToUser(userId, 'joinSession', res.result._id);
 					});					
 				}
 				callback(res);
@@ -209,15 +225,33 @@
 		};
 
 		BongtalkClient.prototype.getSession = function (sessionId, callback) {
-			ajaxAuthGet('api/sessions/' + sessionId, this.token, {}, callback);
+			var self = this;
+			ajaxAuthGet('api/sessions/' + sessionId, this.token, {}, function (res) {
+				if (!res.err && self.user.sessions.indexOf(sessionId) == -1){
+					self.joinSession(sessionId, function(){});
+				}
+				callback(res);
+			});
 		};
 		
 		BongtalkClient.prototype.joinSession = function (sessionId, callback) {
-			ajaxAuthPost('api/sessions/'+sessionId+'/users', this.token, {}, callback);
+			var self = this;
+			ajaxAuthPost('api/sessions/'+sessionId+'/users', this.token, {}, function (res){
+				if (!res.err){
+					self.emit('joinSession', sessionId);
+				}
+				callback(res);
+			});
 		};
 
 		BongtalkClient.prototype.leaveSession = function (sessionId, callback) {
-			ajaxAuthDelete('api/sessions/'+sessionId+'/users', this.token, {}, callback);
+			var self = this;
+			ajaxAuthDelete('api/sessions/'+sessionId+'/users', this.token, {}, function (res){
+				if (!res.err){
+					self.emit('leaveSession', sessionId);
+				}
+				callback(res);
+			});
 		};
 
 		BongtalkClient.prototype.getUserSessions = function (callback) {

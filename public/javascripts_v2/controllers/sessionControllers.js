@@ -23,9 +23,31 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 
 		// Sync username
 		bongtalk.on('joinSession', onJoinSession);
-		$scope.$on('$destroy', function () { bongtalk.off('joinSession', onJoinSession); });
-		function onJoinSession(session){
-			//$scope.$apply(function() { $scope.user = bongtalk.user; });
+		bongtalk.on('leaveSession', onLeaveSession);
+		$scope.$on('$destroy', function () { 
+			bongtalk.off('joinSession', onJoinSession); 
+			bongtalk.off('leaveSession', onLeaveSession);
+		});
+		function onJoinSession(sessionId){
+			console.log('onJoinSession : ' + sessionId);
+			bongtalk.getSession(sessionId, function (res){
+				if (res.err) return;
+				$scope.$apply(function(){
+					var index = _.findIndex($scope.sessions, function (session) { return session._id == sessionId; });
+					if (index == -1){
+						$scope.sessions.push(res.result);
+					}
+				});
+			});
+			
+		}
+		function onLeaveSession(sessionId){
+			$scope.$apply(function(){
+				var index = _.findIndex($scope.sessions, function (session) { return session._id == sessionId; });
+				if (index > -1){
+					$scope.sessions.splice(index, 1);
+				}
+			});
 		}
 	}]);
 
@@ -47,8 +69,13 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 			});			
 		}
 
+		// setReceiver
 		bongtalk.onTelegram($scope.routeParam, onTelegram);
-		$scope.$on('$destroy', function () { bongtalk.offTelegram($scope.routeParam, onTelegram); });
+		bongtalk.on('leaveSession', onLeaveSession);
+		$scope.$on('$destroy', function () { 
+			bongtalk.offTelegram($scope.routeParam, onTelegram); 
+			bongtalk.on('leaveSession', onLeaveSession);
+		});
 
 		function init() {
 			$scope.user = bongtalk.user;
@@ -68,6 +95,12 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 					}
 				});
 			});
+		}
+
+		function onLeaveSession(sessionId){
+			if ($scope.session && $scope.session._id == sessionId) {
+				$location.path('/main/'+ $scope.routeLeft);
+			}
 		}
 
 		function onTelegram(telegram){

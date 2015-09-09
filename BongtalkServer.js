@@ -422,8 +422,31 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.get('/sessions/:id', function (req, res){
+			var userId = req.userId;
 			var sessionId = req.params.id;
-			self.mDatabase.getSession(sessionId, resBind(res));
+			self.mDatabase.getSession(sessionId, function (err, result){
+				if (err || !result) {
+					res.json({err: 'Can not find session - ' + sessionId, result: null});
+					if (err) debug(err);
+				} else if (result.users.indexOf(userId) == -1) {
+					if (result.type != 'public') {
+						var err = 'Not in session. userId : ' + userId;
+						debug(err);
+						res.json({err:err, result:null});
+					} else {
+						self.mDatabase.addUserToSession(userId, sessionId, function (err, result) {
+							if (err) {
+								res.json({err:err, result:null});
+							} else {
+								self.mDatabase.getSession(sessionId, resBind(res));
+							}
+						}); 
+					}
+				}
+				else {
+					res.json({err:err, result:result});
+				}
+			});
 		});
 
 		apiRoutes.post('/sessions/:id/users', function (req,res){
