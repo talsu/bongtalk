@@ -37,6 +37,8 @@ bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '
 
 bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
 	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+		$scope.routeLeft = $routeParams.left || 'chats';
+		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
 		$scope.user = {};
 		$scope.currentUserName = '';
@@ -75,7 +77,13 @@ bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location',
 		bongtalk.on('setMyInfo', onSetMyInfo);
 		$scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
 		function onSetMyInfo(data){
-			$scope.$apply(function() { $scope.currentUserName = bongtalk.user.name; });
+			$scope.$apply(function() { 
+				$scope.currentUserName = bongtalk.user.name; 
+
+				if ($scope.routeParam == 'first') {
+					$location.path('/main/' + $scope.routeLeft + '/start-public-chat');
+				}
+			});
 		}
 	}]);
 

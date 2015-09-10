@@ -17,21 +17,21 @@ $( document ).ready(function() {
   var gradientSpeed = 0.002;
 
   function updateGradient() {
-      var c0_0 = colors[colorIndices[0]];
-      var c0_1 = colors[colorIndices[1]];
-      var c1_0 = colors[colorIndices[2]];
-      var c1_1 = colors[colorIndices[3]];
+    var c0_0 = colors[colorIndices[0]];
+    var c0_1 = colors[colorIndices[1]];
+    var c1_0 = colors[colorIndices[2]];
+    var c1_1 = colors[colorIndices[3]];
 
-      var istep = 1 - step;
-      var r1 = Math.round(istep * c0_0[0] + step * c0_1[0]);
-      var g1 = Math.round(istep * c0_0[1] + step * c0_1[1]);
-      var b1 = Math.round(istep * c0_0[2] + step * c0_1[2]);
-      var color1 = "#"+((r1 << 16) | (g1 << 8) | b1).toString(16);
+    var istep = 1 - step;
+    var r1 = Math.round(istep * c0_0[0] + step * c0_1[0]);
+    var g1 = Math.round(istep * c0_0[1] + step * c0_1[1]);
+    var b1 = Math.round(istep * c0_0[2] + step * c0_1[2]);
+    var color1 = "#"+((r1 << 16) | (g1 << 8) | b1).toString(16);
 
-      var r2 = Math.round(istep * c1_0[0] + step * c1_1[0]);
-      var g2 = Math.round(istep * c1_0[1] + step * c1_1[1]);
-      var b2 = Math.round(istep * c1_0[2] + step * c1_1[2]);
-      var color2 = "#"+((r2 << 16) | (g2 << 8) | b2).toString(16);
+    var r2 = Math.round(istep * c1_0[0] + step * c1_1[0]);
+    var g2 = Math.round(istep * c1_0[1] + step * c1_1[1]);
+    var b2 = Math.round(istep * c1_0[2] + step * c1_1[2]);
+    var color2 = "#"+((r2 << 16) | (g2 << 8) | b2).toString(16);
 
     $('#gradient').css({background: "-webkit-radial-gradient(80% 10%, circle, "+color1+", transparent), -webkit-radial-gradient(80% 50%, circle, "+color2+", transparent)"});
 
@@ -51,7 +51,7 @@ $( document ).ready(function() {
   } 
 
   var intervalId = null;
-  function startGradient() {
+  function startGradient() {    
     intervalId = setInterval(updateGradient,10);
   }
 
@@ -63,7 +63,14 @@ $( document ).ready(function() {
     updateGradient();
   }
 
-  gradientOnce();
+  if (document.all) { // IE 10 or lower
+    $('#gradient').css('background-size', 'cover');
+    $('#gradient').css('background-image', 'url(/image/bongtalk-background-default.jpg)');
+  } else {
+    gradientOnce();
+  }
+
+  //gradientOnce;
   //startGradient();
   //stopGradient();
 });

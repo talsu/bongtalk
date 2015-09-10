@@ -63,8 +63,7 @@ bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeP
 		$scope.serverStatus = bongtalk.qufox.status;
 
 		bongtalk.qufox.onStatusChanged(serverStatusChanged);
-		function serverStatusChanged (status){
-			console.log(status);
+		function serverStatusChanged (status){			
 			$scope.$apply(function(){
 				$scope.serverStatus = status;
 			});

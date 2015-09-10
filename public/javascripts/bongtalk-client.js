@@ -14,20 +14,20 @@
 			this.signInReadyCallback = [];
 		}
 
-		BongtalkClient.prototype.getAllChannel = function (callback) {
-			$.ajax({
-				type: "GET",
-				url: "getAllChannel",						
-				dataType: "json",
-				success: function (response) { 
-					if (isFunction(callback)) callback(response);
-				},
-				error: function (err) { 
-					if (isFunction(callback)) callback({err:err});
-				},
-				complete: function () { }
-			});
-		};
+		// BongtalkClient.prototype.getAllChannel = function (callback) {
+		// 	$.ajax({
+		// 		type: "GET",
+		// 		url: "getAllChannel",						
+		// 		dataType: "json",
+		// 		success: function (response) { 
+		// 			if (isFunction(callback)) callback(response);
+		// 		},
+		// 		error: function (err) { 
+		// 			if (isFunction(callback)) callback({err:err});
+		// 		},
+		// 		complete: function () { }
+		// 	});
+		// };
 
 		// BongtalkClient.prototype.addUser = function (userName, callback) {
 		// 	ajaxPost('addUser', {userName:userName}, callback);
@@ -51,7 +51,7 @@
 
 		BongtalkClient.prototype.emit = function (name, object) {			
 			this.emitToUser(this.user.id, name, object);
-		}
+		};
 
 		BongtalkClient.prototype.emitToUser = function (userId, name, object) {
 			var self = this;
@@ -60,7 +60,7 @@
 					self.privateEventEmitter.emit(name, object);	
 				}
 			});
-		}
+		};
 
 		BongtalkClient.prototype.startSync = function (){
 			var self = this;
@@ -152,8 +152,15 @@
 			else this.signInReadyCallback.push(callback);
 		};
 
+		// Auth token
+		BongtalkClient.prototype.setAuthToken = function (authToken) {
+			this.token = authToken.token;
+			this.tokenExpire = authToken.expire;
+		};
+
 
 		// Require Auth API
+		// User
 		BongtalkClient.prototype.refreshToken = function(callback) {
 			var self = this;
 			ajaxAuthGet('api/refreshToken', this.token, {}, function (res) {
@@ -194,13 +201,11 @@
 			ajaxAuthPost('api/changePassword', this.token, {currentPassword:currentPassword, newPassword:newPassword}, callback);
 		};
 
-
 		BongtalkClient.prototype.getUser = function (userId, callback) {
 			ajaxAuthGet('api/users/' + userId, this.token, {}, callback);
 		};
 
-
-		// session
+		// Session
 		BongtalkClient.prototype.addSession = function (name, type, users, callback) {
 			var self = this;
 			var sessionUsers = [self.user.id];
@@ -234,6 +239,10 @@
 			});
 		};
 		
+		BongtalkClient.prototype.getPublicSessions = function (callback) {
+			ajaxAuthGet('api/sessions/type/public', this.token, {}, callback);
+		};
+		
 		BongtalkClient.prototype.joinSession = function (sessionId, callback) {
 			var self = this;
 			ajaxAuthPost('api/sessions/'+sessionId+'/users', this.token, {}, function (res){
@@ -257,7 +266,6 @@
 		BongtalkClient.prototype.getUserSessions = function (callback) {
 			ajaxAuthGet('api/users/' + this.user.id + '/sessions', this.token, {}, callback);
 		};
-		
 
 		// Telegram
 		BongtalkClient.prototype.addTelegram = function (sessionId, type, subType, data, callback){
@@ -287,84 +295,105 @@
 			this.qufox.off('session:' + sessionId, callback);
 		};
 
-
-		// Auth token
-		BongtalkClient.prototype.setAuthToken = function (authToken) {
-			this.token = authToken.token;
-			this.tokenExpire = authToken.expire;
+		// for Admin (only working with admin account)
+		BongtalkClient.prototype.removeUser = function (userId, callback) {
+			ajaxAuthDelete('api/admin/users/' + userId, this.token, {}, callback);
 		};
 
+		BongtalkClient.prototype.removeSession = function (sessionId, callback) {
+			var self = this;
+			ajaxAuthGet('api/admin/sessions/' + sessionId, self.token, {}, function (res){
+				if (res.err) { callback(res); return; }
+				var users = res.result.users;
+				ajaxAuthDelete('api/admin/sessions/' + sessionId, self.token, {}, function (res){
+					if (res.err) { callback(res); return; }
+					if (isArray(users)){
+						_.each(users, function (userId){
+							self.emitToUser(userId, 'leaveSession', sessionId);
+						});
+					}
+					callback(res);
+				});	
+			});
+		};
 
-		
+		BongtalkClient.prototype.getAllUser = function (callback) {
+			ajaxAuthGet('api/admin/users', this.token, {}, callback);
+		};
+
+		BongtalkClient.prototype.getAllSession = function (callback) {
+			ajaxAuthGet('api/admin/sessions', this.token, {}, callback);
+		};
+
 		return BongtalkClient;
 	})();
 
 
-	var Channel = (function(){
-		function Channel (channelId, userId, userName, qufox) {
-			var self = this;
-			self.channelId = channelId;
-			self.userId = userId;
-			self.userName = userName;
-			self.qufox = qufox;
+	// var Channel = (function(){
+	// 	function Channel (channelId, userId, userName, qufox) {
+	// 		var self = this;
+	// 		self.channelId = channelId;
+	// 		self.userId = userId;
+	// 		self.userName = userName;
+	// 		self.qufox = qufox;
 
-			self.receiveMessageCallback = null;
+	// 		self.receiveMessageCallback = null;
 
-			qufox.join("channel-" + channelId, function (data) {
-				self.emit(data.type, data.data);
-			});
-		}
+	// 		qufox.join("channel-" + channelId, function (data) {
+	// 			self.emit(data.type, data.data);
+	// 		});
+	// 	}
 
-		Channel.prototype.leave = function (connectionId) {
-			ajaxPost('leaveChannel', {connectionId:connectionId});
-		};
+	// 	Channel.prototype.leave = function (connectionId) {
+	// 		ajaxPost('leaveChannel', {connectionId:connectionId});
+	// 	};
 
-		Channel.prototype.getUser = function (userId, callback) {			
-			ajaxPost('getUserFromChannel', {channelId:this.channelId, userId:userId}, callback);
-		};
+	// 	Channel.prototype.getUser = function (userId, callback) {			
+	// 		ajaxPost('getUserFromChannel', {channelId:this.channelId, userId:userId}, callback);
+	// 	};
 
-		Channel.prototype.getUsers = function (callback) {			
-			ajaxPost('getUsersFromChannel', {channelId:this.channelId}, callback);
-		};
+	// 	Channel.prototype.getUsers = function (callback) {			
+	// 		ajaxPost('getUsersFromChannel', {channelId:this.channelId}, callback);
+	// 	};
 
-		Channel.prototype.addUser = function (userId, userName, callback) {
-			var self = this;
-			var data = {userId:userId, userName:userName, channelId:self.channelId};
-			ajaxAndSend('addUserToChannel', data, self.channelId, self.qufox, 'onAddUser', callback);
-		};
+	// 	Channel.prototype.addUser = function (userId, userName, callback) {
+	// 		var self = this;
+	// 		var data = {userId:userId, userName:userName, channelId:self.channelId};
+	// 		ajaxAndSend('addUserToChannel', data, self.channelId, self.qufox, 'onAddUser', callback);
+	// 	};
 
-		Channel.prototype.clearUser = function (callback) {
-			ajaxPost('clearUser', {channelId:this.channelId}, callback);
-		};
+	// 	Channel.prototype.clearUser = function (callback) {
+	// 		ajaxPost('clearUser', {channelId:this.channelId}, callback);
+	// 	};
 
-		Channel.prototype.clearTalkHistory = function (callback) {
-			ajaxPost('clearTalkHistory', {channelId:this.channelId}, callback);
-		};
+	// 	Channel.prototype.clearTalkHistory = function (callback) {
+	// 		ajaxPost('clearTalkHistory', {channelId:this.channelId}, callback);
+	// 	};
 
-		Channel.prototype.getTalkHistory = function (callback) {
-			ajaxPost('getTalkHistory', {channelId:this.channelId}, callback);
-		};
+	// 	Channel.prototype.getTalkHistory = function (callback) {
+	// 		ajaxPost('getTalkHistory', {channelId:this.channelId}, callback);
+	// 	};
 
-		Channel.prototype.addNewTalk = function (data, callback) {
-			var self = this;
-			data.channelId = this.channelId;
-			ajaxAndSend('addNewTalk', data, self.channelId, self.qufox, 'onNewTalk', callback);			
-		};
+	// 	Channel.prototype.addNewTalk = function (data, callback) {
+	// 		var self = this;
+	// 		data.channelId = this.channelId;
+	// 		ajaxAndSend('addNewTalk', data, self.channelId, self.qufox, 'onNewTalk', callback);			
+	// 	};
 
-		Channel.prototype.updateUser = function (data, callback) {
-			var self = this;
-			data.channelId = this.channelId;
-			ajaxAndSend('updateUser', data, self.channelId, self.qufox, 'onUpdateUser', callback);
-		};
+	// 	Channel.prototype.updateUser = function (data, callback) {
+	// 		var self = this;
+	// 		data.channelId = this.channelId;
+	// 		ajaxAndSend('updateUser', data, self.channelId, self.qufox, 'onUpdateUser', callback);
+	// 	};
 
-		Channel.prototype.joinChannel = function (callback) {			
-			ajaxPost('joinChannel', {channelId:this.channelId}, callback);
-		};
+	// 	Channel.prototype.joinChannel = function (callback) {			
+	// 		ajaxPost('joinChannel', {channelId:this.channelId}, callback);
+	// 	};
 
-		_.extend(Channel.prototype, EventEmitter.prototype);
+	// 	_.extend(Channel.prototype, EventEmitter.prototype);
 
-		return Channel;
-	})();
+	// 	return Channel;
+	// })();
 
 
 	function ajaxAndSend(url, data, channelId, qufox, sendType, callback){
@@ -378,8 +407,7 @@
 		);
 	}
 
-	function ajaxAuthGet(url, token, data, callback)
-	{
+	function ajaxAuthGet(url, token, data, callback) {
 		$.ajax({
 			type: "GET",
 			headers: {'x-access-token': token},
@@ -396,8 +424,7 @@
 		});
 	}
 
-	function ajaxAuthPost(url, token, data, callback)
-	{
+	function ajaxAuthPost(url, token, data, callback) {
 		$.ajax({
 			type: "POST",
 			headers: {'x-access-token': token},
@@ -415,8 +442,7 @@
 		});
 	}
 
-	function ajaxAuthPut(url, token, data, callback)
-	{
+	function ajaxAuthPut(url, token, data, callback) {
 		$.ajax({
 			type: "PUT",
 			headers: {'x-access-token': token},
@@ -434,8 +460,7 @@
 		});
 	}
 
-	function ajaxAuthDelete(url, token, data, callback)
-	{
+	function ajaxAuthDelete(url, token, data, callback) {
 		$.ajax({
 			type: "DELETE",
 			headers: {'x-access-token': token},
@@ -453,8 +478,7 @@
 		});
 	}
 
-	function ajaxGet(url, data, callback)
-	{
+	function ajaxGet(url, data, callback) {
 		$.ajax({
 			type: "GET",
 			url: url,
@@ -470,8 +494,7 @@
 		});
 	}
 
-	function ajaxPost(url, data, callback)
-	{
+	function ajaxPost(url, data, callback) {
 		$.ajax({
 			type: "POST",
 			url: url,

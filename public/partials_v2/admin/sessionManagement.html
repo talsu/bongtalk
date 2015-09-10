@@ -1,0 +1,84 @@
+
+
+<div class="setting_header">
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<!-- <div class="col-xs-2 height-max">
+				<div class="layout_table" ng-if="routeParam!='first'">
+					<div class="layout_table-cell_vertical-middle">
+						<button class="btn btn-default" ng-click="goBack()"><span class="glyphicon glyphicon-chevron-left"></span>&nbspBack</button>
+					</div>
+				</div>
+			</div> -->
+			<div class="col-xs-12 col-sm-offset-2 col-sm-8 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<!-- <h4 class="text-align-center">Start</h4> -->
+						<ul class="nav nav-pills nav-justified-custom">
+							<!-- <li role="presentation" class="active"><a><span class="glyphicon glyphicon-globe"></span>&nbspUsers</a></li> -->
+							<li role="presentation"><a ng-href="#/main/{{routeLeft}}/admin-user-management"><span class="glyphicon glyphicon-user"></span>&nbspUsers</a></li>
+							<li role="presentation" class="active"><a><span class="glyphicon glyphicon-list"></span>&nbspChats</a></li>
+						</ul>
+					</div>
+				</div>
+			</div>
+			<!-- <div class="col-xs-3"></div> -->
+		</div>
+	</div>
+</div>
+<div class="setting_content">
+	<div class="container-fluid margin-top-15">
+		<!-- <div class="row">
+			<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+				<h4>Create chat</h4>
+			</div>
+		</div> -->
+		<!-- <div class="row">
+			<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+				
+				<div ng-class="['has-feedback', 'input-group', {success:'has-success', warning:'has-warning', error:'has-error'}[createChatNameValidationStatus]]">
+						
+					<input type="text" class="form-control input-lg" placeholder="Enter chat name" ng-model="session.name" ng-change="createChatNameChanged()" autofocus required>
+						<span ng-if="createChatNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[createChatNameValidationStatus]]" aria-hidden="true"></span>
+					<span class="input-group-btn">
+						<button class="btn btn-success btn-lg pull-right" type="button" ng-click="createChat()" ng-disabled="createChatNameValidationStatus!='success'">Create</button>
+					</span>
+				</div>
+			</div>
+		</div>
+		<div class="row margin-top-10">
+			<div class="col-xs-9 col-sm-offset-2 col-sm-7">
+				<div ng-class="{success:'has-success', warning:'has-warning', error:'has-error'}[createChatNameValidationStatus]">
+					<label class="control-label">{{createChatNameValidationComment}}</label>
+				</div>
+				
+			</div>
+		</div> -->
+		<div class="row">
+			<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+				<h4>All session</h4>
+			</div>
+		</div>
+		<div class="row">
+			<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+				<div class="list-group">
+					<a ng-class="['list-group-item']" ng-repeat="session in sessions">
+						<div class="row">
+							<div class="col-xs-6">
+								<h4 class="list-group-item-heading">{{session.name}}</h4>
+								<span  class="label label-default">{{session._id}}</span>
+								<p class="list-group-item-text">{{session.users.length}} user joined</p>
+							</div>
+							<div class="col-xs-6">
+								<button class="btn btn-danger pull-right" ng-click="remove(session._id)">Remove</button>
+							</div>
+						</div>						
+					</a>					
+				</div>
+			</div>
+		</div>
+		<div class="row margin-top-15">
+			
+		</div>
+	</div>
+</div>

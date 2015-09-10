@@ -96,15 +96,12 @@ module.exports = (function() {
 		if (!sessionName) {
 			result.status = 'error';
 			result.comment = 'Session name is empty.';
-		} else if (sessionName.length < 4) {
+		} else if (sessionName.length < 2) {
 			result.status = 'error';
 			result.comment = 'Session name is too short.';
 		} else if (sessionName.length > 20) {
 			result.status = 'error';
 			result.comment = 'Session name is too long.';
-		} else if (/\s/g.test(sessionName)){
-			result.status = 'error';
-			result.comment = 'Session name Has white space.';
 		} else {
 			result.status = 'success';
 			result.comment = '';

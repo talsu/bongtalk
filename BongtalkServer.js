@@ -15,7 +15,7 @@ var redis = require("redis");
 var jwt = require('jsonwebtoken');
 
 var tools = require('./tools');
-var RedisDatabase = require('./RedisDatabase').RedisDatabase;
+//var RedisDatabase = require('./RedisDatabase').RedisDatabase;
 var MongoDatabase = require('./MongoDatabase');
 var Validator = require('./Validator');
 
@@ -29,7 +29,7 @@ exports.BongtalkServer = (function(){
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(secretString);
-		this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
+		//this.database = new RedisDatabase(tools.createRedisClient(this.redisUrl), Guid.create().value);
 		this.mDatabase = new MongoDatabase('mongodb://127.0.0.1:27017/bongtalk');	
 	}
 
@@ -55,140 +55,140 @@ exports.BongtalkServer = (function(){
 		app.get('/isAlive', function (req, res){res.send();});
 		app.get('/p', function (req, res){ res.render('popup.html'); });
 
-		app.get('/getAllChannel', function (req, res) {
-			tools.pLog('getAllChannel');
-			self.database.getAllChannelsKey(function(err, keys){					
-				res.send({err:err, result:keys})
-			});			
-		});
+		// app.get('/getAllChannel', function (req, res) {
+		// 	tools.pLog('getAllChannel');
+		// 	self.database.getAllChannelsKey(function(err, keys){					
+		// 		res.send({err:err, result:keys})
+		// 	});			
+		// });
 
-		app.post('/addUserToChannel', function (req, res){				
-			var channelId = req.body.channelId;
-			var name = req.body.userName || ('user' + Math.floor((Math.random() * 1000) + 100));
-			var userId = req.body.userId || Guid.create().value;
-			tools.pLog('addUserToChannel -' + ' (channelId: ' + channelId + ')');
+		// app.post('/addUserToChannel', function (req, res){				
+		// 	var channelId = req.body.channelId;
+		// 	var name = req.body.userName || ('user' + Math.floor((Math.random() * 1000) + 100));
+		// 	var userId = req.body.userId || Guid.create().value;
+		// 	tools.pLog('addUserToChannel -' + ' (channelId: ' + channelId + ')');
 
-			self.database.addUserToChannel(channelId, userId, name, function(err){
-				self.database.getUserFromChannel(channelId, userId, function(err, user){
-					res.send({err:err, result:user});					
-				});
-			});
-		});
+		// 	self.database.addUserToChannel(channelId, userId, name, function(err){
+		// 		self.database.getUserFromChannel(channelId, userId, function(err, user){
+		// 			res.send({err:err, result:user});					
+		// 		});
+		// 	});
+		// });
 
-		app.post('/joinChannel', function (req, res){				
-			var channelId = req.body.channelId;
-			// var userId = req.body.userId;
+		// app.post('/joinChannel', function (req, res){				
+		// 	var channelId = req.body.channelId;
+		// 	// var userId = req.body.userId;
 
-			async.parallel({
-				users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},
-				talks: function(callback){ self.database.getTalkHistory(channelId, callback); }
-			},
-			function (err, result) {
-				if (!err){
-					result.connectionId = Guid.create().value;											
-					tools.pLog('joinChannel -'+ ' (channelId: ' + channelId + ')');
-				}
-				res.send({err:err, result:result})
-			});
-		})
+		// 	async.parallel({
+		// 		users: function(callback){ self.database.getUsersFromChannel(channelId, callback);	},
+		// 		talks: function(callback){ self.database.getTalkHistory(channelId, callback); }
+		// 	},
+		// 	function (err, result) {
+		// 		if (!err){
+		// 			result.connectionId = Guid.create().value;											
+		// 			tools.pLog('joinChannel -'+ ' (channelId: ' + channelId + ')');
+		// 		}
+		// 		res.send({err:err, result:result})
+		// 	});
+		// })
 
-		app.post('/leaveChannel' , function (req, res){				
-			var connectionId = req.body.connectionId;				
-			tools.pLog('leaveChannel -' + ' (connectionId: ' + connectionId + ')');
-			res.send({err:null, result:'done'});
-		});
+		// app.post('/leaveChannel' , function (req, res){				
+		// 	var connectionId = req.body.connectionId;				
+		// 	tools.pLog('leaveChannel -' + ' (connectionId: ' + connectionId + ')');
+		// 	res.send({err:null, result:'done'});
+		// });
 
-		app.post('/getTalkHistory', function (req, res){
-			var channelId = req.body.channelId;
-			tools.pLog('getTalkHistory -' + ' (channelId: ' + channelId + ')');
+		// app.post('/getTalkHistory', function (req, res){
+		// 	var channelId = req.body.channelId;
+		// 	tools.pLog('getTalkHistory -' + ' (channelId: ' + channelId + ')');
 			
-			self.database.getTalkHistory(channelId, function(err, result){
-				res.send({err:err, result:result});
-			});
-		});
+		// 	self.database.getTalkHistory(channelId, function(err, result){
+		// 		res.send({err:err, result:result});
+		// 	});
+		// });
 
-		app.post('/clearTalkHistory', function (req, res){
-			var channelId = req.body.channelId;
-			tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
+		// app.post('/clearTalkHistory', function (req, res){
+		// 	var channelId = req.body.channelId;
+		// 	tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
 
-			self.database.clearTalkHistory(channelId, function(err, result){
-				res.send({err:err, result:result});
-			});
-		});
+		// 	self.database.clearTalkHistory(channelId, function(err, result){
+		// 		res.send({err:err, result:result});
+		// 	});
+		// });
 
-		app.post('/clearUser', function (req, res){
-			var channelId = req.body.channelId;
-			tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
+		// app.post('/clearUser', function (req, res){
+		// 	var channelId = req.body.channelId;
+		// 	tools.pLog('clearTalkHistory -' + ' (channelId: ' + channelId + ')');
 
-			self.database.clearAllUserInChannel(channelId, function(err, result){
-				res.send({err:err, result:result});
-			});
-		});
+		// 	self.database.clearAllUserInChannel(channelId, function(err, result){
+		// 		res.send({err:err, result:result});
+		// 	});
+		// });
 
-		app.post('/getUsersFromChannel', function (req, res){
-			var channelId = req.channelId;
-			tools.pLog('getUsersFromChannel -' + ' (channelId: ' + channelId + ')');
+		// app.post('/getUsersFromChannel', function (req, res){
+		// 	var channelId = req.channelId;
+		// 	tools.pLog('getUsersFromChannel -' + ' (channelId: ' + channelId + ')');
 			
-			self.database.getUsersFromChannel(channelId, function(err, result){
-				res.send({err:err, result:result});
-			});
-		});
+		// 	self.database.getUsersFromChannel(channelId, function(err, result){
+		// 		res.send({err:err, result:result});
+		// 	});
+		// });
 
-		app.post('/getUserFromChannel', function (req, res){				
-			var channelId = req.body.channelId;
-			var userId = req.body.userId;
-			tools.pLog('getUserFromChannel -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + userId + ')');
+		// app.post('/getUserFromChannel', function (req, res){				
+		// 	var channelId = req.body.channelId;
+		// 	var userId = req.body.userId;
+		// 	tools.pLog('getUserFromChannel -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + userId + ')');
 			
-			if (!channelId){
-				res.send({err:'bad channelId', result:null});				
-			}
-			else if (!userId){
-				res.send({err:'bad userId', result:null});
-			}
-			else {
-				self.database.getUserFromChannel(channelId, userId, function(err, user){
-					res.send({err:err, result:user});	
-				});	
-			}
-		});
+		// 	if (!channelId){
+		// 		res.send({err:'bad channelId', result:null});				
+		// 	}
+		// 	else if (!userId){
+		// 		res.send({err:'bad userId', result:null});
+		// 	}
+		// 	else {
+		// 		self.database.getUserFromChannel(channelId, userId, function(err, user){
+		// 			res.send({err:err, result:user});	
+		// 		});	
+		// 	}
+		// });
 
-		app.post('/addNewTalk', function (req, res){
-			var channelId = req.body.channelId;
-			var talk = {
-				id: Guid.create().value,					
-				time : new Date(),
-				message : req.body.message,
-				userId : req.body.userId
-			}
-			tools.pLog('addNewTalk -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + talk.userId + ')');
+		// app.post('/addNewTalk', function (req, res){
+		// 	var channelId = req.body.channelId;
+		// 	var talk = {
+		// 		id: Guid.create().value,					
+		// 		time : new Date(),
+		// 		message : req.body.message,
+		// 		userId : req.body.userId
+		// 	}
+		// 	tools.pLog('addNewTalk -' + ' (channelId: ' + channelId + ')' + ' (userId: ' + talk.userId + ')');
 			
-			self.database.addTalkHistory(channelId, talk, function(err, result){
-				res.send({err:err, result:talk});				
-			});
-		});
+		// 	self.database.addTalkHistory(channelId, talk, function(err, result){
+		// 		res.send({err:err, result:talk});				
+		// 	});
+		// });
 
-		app.post('/updateUser', function (req, res){
-			var channelId = req.body.channelId;
-			var userId = req.body.userId;
-			var propertyName = req.body.propertyName;
-			var data = req.body.data;
+		// app.post('/updateUser', function (req, res){
+		// 	var channelId = req.body.channelId;
+		// 	var userId = req.body.userId;
+		// 	var propertyName = req.body.propertyName;
+		// 	var data = req.body.data;
 
-			if (channelId && userId && propertyName){
-				self.database.setUserProperty(channelId, userId, propertyName, data, function (err, result){
-					if (err){
-						res.send({err:err, result:null});
-					}
-					else{
-						var result = {
-							userId:userId,
-							propertyName:propertyName,
-							data:data
-						};
-						res.send({err:err, result:result});						
-					}
-				});
-			};
-		});
+		// 	if (channelId && userId && propertyName){
+		// 		self.database.setUserProperty(channelId, userId, propertyName, data, function (err, result){
+		// 			if (err){
+		// 				res.send({err:err, result:null});
+		// 			}
+		// 			else{
+		// 				var result = {
+		// 					userId:userId,
+		// 					propertyName:propertyName,
+		// 					data:data
+		// 				};
+		// 				res.send({err:err, result:result});						
+		// 			}
+		// 		});
+		// 	};
+		// });
 
 		
 
@@ -384,6 +384,7 @@ exports.BongtalkServer = (function(){
 			var userId = req.params.id;
 			var data = req.body;
 			for (var property in data) {
+				if (property != 'password' && property != 'role')
 				debug('Set ' + userId + ' - '+property + " : " + data[property]);
 			}
 			self.mDatabase.setUser(userId, data, resBind(res));
@@ -447,6 +448,10 @@ exports.BongtalkServer = (function(){
 					res.json({err:err, result:result});
 				}
 			});
+		});
+
+		apiRoutes.get('/sessions/type/public', function (req, res){
+			self.mDatabase.getPublicSessions(resBind(res));
 		});
 
 		apiRoutes.post('/sessions/:id/users', function (req,res){
@@ -565,8 +570,46 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
+		// Admin Role check
+		apiRoutes.use(function (req, res, next) {
+			self.mDatabase.getUser(req.userId, function (err, result){
+				if (err) {
+					debug(err);
+					return res.json({err:err, result:result});
+				}
+				else {
+					if (result.role == 'admin') { // check admin role
+						next();
+					}
+					else {
+						return res.status(403).send({ err: 'Need admin user.', result: null });
+					}
+				}
+			});
+		});
 
+		apiRoutes.delete('/admin/users/:id', function (req, res){
+			var userId = req.params.id;
+			self.mDatabase.removeUser(userId, resBind(res));
+		});
 
+		apiRoutes.delete('/admin/sessions/:id', function (req, res){
+			var sessionId = req.params.id;
+			self.mDatabase.removeSession(sessionId, resBind(res));
+		});
+
+		apiRoutes.get('/admin/users', function (req, res){
+			self.mDatabase.getAllUser(resBind(res));
+		});
+
+		apiRoutes.get('/admin/sessions', function (req, res){
+			self.mDatabase.getAllSession(resBind(res));
+		});
+
+		apiRoutes.get('/admin/sessions/:id', function (req, res){
+			var sessionId = req.params.id;
+			self.mDatabase.getSession(sessionId, resBind(res));
+		});
 
 		// // mongodb
 		// apiRoutes.post('/addUser', function (req, res){
@@ -612,15 +655,14 @@ exports.BongtalkServer = (function(){
 		}
 
 		self.mDatabase.connect(function (err){
-			if (err) {tools.pLog(err); return;}
+			if (err) {console.error(err); process.exit(1); return;}
 			var server = http.createServer(app);
 			server.listen(self.servicePort);
 
-			listenTarget = server;
 			var transports = self.option.websocket ? ['websocket', 'polling'] : ['polling'];
 
 			new QufoxServer({
-				listenTarget: listenTarget,
+				listenTarget: server,
 				socketOption: {transports:transports},
 				redisUrl: self.redisUrl
 			});

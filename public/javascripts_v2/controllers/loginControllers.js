@@ -251,6 +251,31 @@ bongtalkControllers.factory('validator', [function(){
 			return result;
 		};
 
+		Validator.prototype.validateSessionName = function (sessionName) {
+			var result = {
+				status:'',
+				comment:'',
+				ok:false,
+			}
+
+			if (!sessionName) {
+				result.status = 'error';
+				result.comment = 'Chat name is empty.';
+			} else if (sessionName.length < 2) {
+				result.status = 'error';
+				result.comment = 'Chat name is too short.';
+			} else if (sessionName.length > 20) {
+				result.status = 'error';
+				result.comment = 'Chat name is too long.';
+			} else {
+				result.status = 'success';
+				result.comment = '';
+				result.ok = true;
+			}
+
+			return result;
+		};
+
 		return Validator;
 	})();
 

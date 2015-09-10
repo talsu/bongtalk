@@ -80,6 +80,11 @@
 }
 
 html, body { height: 100%; }
+/*
+body {
+	background-image: url(/image/bongtalk-background-default.jpg);
+	background-size: cover;
+}*/
 
 .ngdialog.login_dialog .ngdialog-content { width: 550px;  }
 

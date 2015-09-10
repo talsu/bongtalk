@@ -21,6 +21,7 @@
 </div>
 <div class="session_content" scroll-glue>
 	<div class="talk-container" ng-repeat="telegram in telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
+		<div class="margin-top-10" ng-if="$first"></div>
 		<div class="sender" ng-if="(telegram.userId!=user.id)">
 			<img class="sender_img" src="/image/avatar-blank.jpg" >
 			<div class="sender_content">
@@ -30,7 +31,7 @@
 						<div>{{telegram.data}}</div>
 						<!-- <div ng-repeat="message in talk.messages">{{message.text}}</div> -->
 					</div>
-					<time class="sender_time">{{telegram.time}}</time>
+					<time class="sender_time">{{telegram.time | date:'h:mm:ss a'}}</time>
 				</div>
 			</div>
 		</div>
@@ -39,7 +40,7 @@
 				<div class="message_content">
 					<div>{{telegram.data}}</div>
 				</div>
-				<time class="sender_time sender_time--alt">{{telegram.time}}</time>
+				<time class="sender_time sender_time--alt">{{telegram.time | date:'h:mm:ss a'}}</time>
 			</div>
 		</div>
 	</div>

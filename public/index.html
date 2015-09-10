@@ -1,214 +1,52 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html ng-app="bongtalkApp">
 	<head>
-		<meta charset="utf-8">
-		<meta http-equiv="X-UA-Compatible" content="IE=edge">
-		<link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-		<link rel="stylesheet" href="stylesheets/talk.css">
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+		<title>Bongtalk</title>
+		<link rel="stylesheet" href="/bower_components/bootstrap/dist/css/bootstrap.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog-theme-default.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog-theme-plain.css">
+		<link rel="stylesheet" href="/stylesheets/style_v2.css">
+		<link rel="stylesheet" href="/stylesheets/talk.css">
+		<link rel="stylesheet" href="/stylesheets/gradient.css">
+		
+		<script type="text/javascript" src="/bower_components/jquery/dist/jquery.js"></script>
+		<script type="text/javascript" src="/bower_components/bootstrap/dist/js/bootstrap.js"></script>
+		<script type="text/javascript" src="/bower_components/angular/angular.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-route/angular-route.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-cookies/angular-cookies.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-animate/angular-animate.js"></script>
+		<script type="text/javascript" src="/bower_components/angularjs-scroll-glue/src/scrollglue.js"></script>
+		<script type="text/javascript" src="/bower_components/ngDialog/js/ngDialog.js"></script>
+
+		<script type="text/javascript" src="bower_components/jquery/dist/jquery.js"></script>
+		<script type="text/javascript" src="bower_components/underscore/underscore.js"></script>
+		<script type="text/javascript" src="bower_components/bootstrap/dist/js/bootstrap.js"></script>
+		<script type="text/javascript" src="bower_components/socket.io-client/socket.io.js"></script>
+		<script type="text/javascript" src="bower_components/eventEmitter/EventEmitter.js"></script>
+
+		<script type="text/javascript" src="javascripts/qufox-client.js"></script>
+		<script type="text/javascript" src="javascripts/bongtalk-client.js"></script>
+
+		<script src="/javascripts_v2/gradient.js"></script>
+		<script src="/javascripts_v2/app.js"></script>
+		
+		<script src="/javascripts_v2/controllers.js"></script>
+		<script src="/javascripts_v2/controllers/sessionControllers.js"></script>
+		<script src="/javascripts_v2/controllers/loginControllers.js"></script>
+		<script src="/javascripts_v2/controllers/settingControllers.js"></script>
+		<script src="/javascripts_v2/controllers/startChatControllers.js"></script>
+		<script src="/javascripts_v2/controllers/adminControllers.js"></script>
+
+		<!-- for test -->
+		<script type="text/javascript" src="bower_components/async/dist/async.js"></script>	
+		<script src="/javascripts_v2/testController.js"></script>
 
 	</head>
-<body >
-	<div class="container-fixed">
-		<div class="row row-xs-12">
-			<div class="col col-md-5">
-				<div ng-include src="'partials/list.html'" ng-controller="listCtrl"></div>
-			</div>	
-			<div class="col col-md-7">
-				<div ng-view class="fill"></div>
-			</div>		
-		</div>
-	</div>
-	<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
-</body>
-</html>
- -->
+	<body id="gradient">
 
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BongTalk</title>
+		<div class="page_wrap" ng-view></div>	
 
-    <!-- Bootstrap -->
-    <link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-	<!-- <link rel="stylesheet" href="stylesheets/talk.css"> -->
-
-    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
-    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
-      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
-    <![endif]-->    
-    <script type="text/javascript" src="bower_components/angular/angular.js"></script>
-    <script type="text/javascript" src="bower_components/jquery/dist/jquery.js"></script>
-    <script type="text/javascript" src="bower_components/underscore/underscore.js"></script>
-    <script type="text/javascript" src="bower_components/bootstrap/dist/js/bootstrap.js"></script>
-    <script type="text/javascript" src="bower_components/socket.io-client/socket.io.js"></script>
-    <script type="text/javascript" src="bower_components/eventEmitter/EventEmitter.js"></script>
-    <script type="text/javascript" src="javascripts/qufox-client.js"></script>
-    <script type="text/javascript" src="javascripts/bongtalk-client.js"></script>
-    <script type="text/javascript">
-    	var app = angular.module('bongtalkFront',[]);
-    	app.controller('listCtrl', function($scope, $location){
-    		var bongtalk = Bongtalk('http://qufox.com');
-
-			$scope.serverStatus = bongtalk.qufox.status;
-
-			bongtalk.qufox.onStatusChanged(serverStatusChanged);
-			function serverStatusChanged (status){
-				$scope.$apply(function(){
-					$scope.serverStatus = status;
-				});
-			};
-
-			$scope.updateChannelList = function(){
-				bongtalk.getAllChannel(function (res){
-					if (!res.err){
-						var items = _.map(res.result, function(channelName){ return {name:channelName}; });
-						$scope.$apply(function(){
-							$scope.channels = items;
-						});
-					}
-				});
-
-				// connector.request('getAllChannel', {}, function(response){
-				
-				// });
-			};
-
-			$scope.joinChannel = function(channelId){
-				var query = [];
-				if ($scope.profile){
-					if ($scope.profile.id){
-						query.push('userid=' + $scope.profile.id);
-					}
-					if ($scope.profile.name){
-						query.push('username=' + $scope.profile.name);
-					}				
-				}
-
-				var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
-
-				window.location = encodeURI('#/ch/' + channelId + querystring);
-			};
-
-			$scope.joinPopupChannel = function(channelId){
-				var query = [];
-				if ($scope.profile){
-					if ($scope.profile.id){
-						query.push('userid=' + $scope.profile.id);
-					}
-					if ($scope.profile.name){
-						query.push('username=' + $scope.profile.name);
-					}				
-				}
-
-				var querystring = query.length > 0 ? ('?' + query.join('&')) : '';
-
-				var url = encodeURI('p#/ch/' + channelId + querystring);
-	/*
-	channelmode=yes|no|1|0	Whether or not to display the window in theater mode. Default is no. IE only
-	directories=yes|no|1|0	Obsolete. Whether or not to add directory buttons. Default is yes. IE only
-	fullscreen=yes|no|1|0	Whether or not to display the browser in full-screen mode. Default is no. A window in full-screen mode must also be in theater mode. IE only
-	height=pixels	The height of the window. Min. value is 100
-	left=pixels	The left position of the window. Negative values not allowed
-	location=yes|no|1|0	Whether or not to display the address field. Opera only
-	menubar=yes|no|1|0	Whether or not to display the menu bar
-	resizable=yes|no|1|0	Whether or not the window is resizable. IE only
-	scrollbars=yes|no|1|0	Whether or not to display scroll bars. IE, Firefox & Opera only
-	status=yes|no|1|0	Whether or not to add a status bar
-	titlebar=yes|no|1|0	Whether or not to display the title bar. Ignored unless the calling application is an HTML Application or a trusted dialog box
-	toolbar=yes|no|1|0	Whether or not to display the browser toolbar. IE and Firefox only
-	top=pixels	The top position of the window. Negative values not allowed
-	width=pixels
-	*/
-				window.open(url, "_blank", "directories=no, location=no, menubar=no, status=no, titlebar=no, toolbar=no, scrollbars=no, resizable=yes, width=300, height=485");
-			};
-
-				
-			$scope.updateChannelList();
-
-
-
-			if(!$scope.$$phase) {
-				$scope.$apply();
-			}
-
-			
-		});
-    </script>
-  </head>
-  <body ng-app="bongtalkFront" ng-controller="listCtrl">
-  	<div ng-view>
-  		<div class="container">
-			<div class="row">
-				<div class="col-md-12">
-					<div class="page-header">
-						<h1>
-						<span ng-class="['label', {connected:'label-success', reconnect:'label-success', connecting:'label-info', reconnecting:'label-warning', disconnect:'label-danger', connect_failed:'label-danger', reconnect_failed:'label-danger', error:'label-danger'}[serverStatus]]"><span class="glyphicon glyphicon-comment"></span></span> Bongtalk <small> web based chat service</small></h1>
-					</div>
-					
-				</div>
-				<div  class="col-md-12">
-					<p>nginx, node.js, Socket.IO, Redis, RequireJS, Bootstrap, AngularJS</p>
-					<p>Nullam quis risus eget urna mollis ornare vel eu leo. Cum sociis natoque penatibus et magnis dis parturient montes, nascetur ridiculus mus. Nullam id dolor id nibh ultricies vehicula.</p>
-				</div>
-			</div>
-			<div class="row">
-				<div class="col-md-12">
-					<div class="input-group input-group-lg">
-					  <!-- <span class="input-group-addon">
-					  	</span> -->
-					  <input type="text" class="form-control" placeholder="Enter channel name" ng-model="createChannelName">
-					  <span class="input-group-btn">
-				      	<button type="button" class="btn btn-primary" ng-click="joinPopupChannel(createChannelName)">Join channel</button>
-				      </span>
-					  
-					</div>
-		<!-- 
-					<label>Create new channel</label>
-					<input ng-model="createChannelName" placeholer="Enter channel name">  -->
-				</div>
-			</div>
-			<h4>Channels</h4>
-			<div class="row" ng-repeat="channel in channels">
-				<div class="col-md-12">
-					<div class="well">
-						<div>
-							<label>{{channel.name}}</label>
-						</div>
-						<!-- <button type="button" class="btn btn-default" ng-click="joinChannel(channel.name)">Join</button> -->
-						<button type="button" class="btn btn-warning" ng-click="joinPopupChannel(channel.name)">Join</button>
-					</div>
-					
-				</div>
-			</div>
-			<!-- <h1>Bongtalk</h1>
-			
-			<div>
-				<input ng-model="accountName"> <button type="button" class="btn btn-primary" ng-click="createAccount(accountName)">Create account</button>
-			</div>
-			<div>
-				<input ng-model="createChannelName"> <button type="button" class="btn btn-primary" 
-				ng-click="joinPopupChannel(createChannelName)">Create channel</button>
-			</div>
-			<div class="row">			
-				<button type="button" class="btn" ng-click="updateChannelList()">Update channel</button>
-			</div>
-			<div class="channels">
-				<div class="row" ng-repeat="channel in channels">
-					<div class="btn-group">
-						<button type="button" class="btn btn-success" ng-click="joinChannel(channel.name)">Join</button>
-						<button type="button" class="btn btn-danger" ng-click="joinPopupChannel(channel.name)">Popup</button>
-					</div>
-					{{channel.name}}
-				</div>
-			</div> -->
-		</div>
-  	</div>
-
-    
-  </body>
+	</body>
 </html>
