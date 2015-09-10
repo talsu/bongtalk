@@ -10,7 +10,12 @@
 					</div>
 					<div class="row">
 						<div class="input-group">
-							<input type="text" class="form-control input-lg" placeholder="Enter username">
+							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
+								
+								<input type="text" class="form-control input-lg" placeholder="current username is {{currentUserName}}" ng-model="user.name" ng-change="userNameChanged()" autofocus required>
+									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
+								
+							</div>
 							
 							<span class="input-group-btn">
 								<button class="btn btn-danger btn-lg" type="button" ng-click="noAccount()">by Guest</button>

@@ -125,6 +125,18 @@
 			});
 		};
 
+		BongtalkClient.prototype.signInByGuest = function (userName, callback) {
+			var self = this;
+			ajaxPost('api/signInByGuest', {userName:userName}, function (res) {
+				if (res && !res.err && res.result){
+					self.token = res.result.token;
+					self.tokenExpire = res.result.tokenExpire;
+					self.user = res.result.user;
+				}
+				if (isFunction(callback)) callback(res);
+			});
+		};
+
 		BongtalkClient.prototype.signOut = function () {
 			var self = this;
 		};

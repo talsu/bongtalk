@@ -48,7 +48,7 @@ module.exports = (function() {
 						return;
 					}
 
-					self.setUser('admin', {role:'admin'}, function (err, result){
+					self.setUser('admin', {role:'admin'}, 'admin', function (err, result){
 						if (err){
 							if (tools.isFunction(callback)) { callback(err); }							
 						} else {
@@ -65,13 +65,13 @@ module.exports = (function() {
 	};
 
 	// User
-	Database.prototype.addUser = function (userId, password, callback) {
+	Database.prototype.addUser = function (userId, password, role, callback) {
 		var self = this;		
 		var user = {
 			id : userId,
 			name : userId,
 			password : password,
-			role : 'user',
+			role : role,
 			sessions : []
 		};			
 		self.db.collection('User').insert(user, callback);

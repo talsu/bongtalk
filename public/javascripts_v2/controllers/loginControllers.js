@@ -13,11 +13,19 @@ bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$c
 		$location.path("/login");
 	}]);
 
-bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'emitter',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, emitter) {
-		//$scope.closeThisDialog();
+bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
+	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+		
+		$scope.user = {};
+		$scope.currentUserName = '';
+		$scope.userNameChanged = function () {
+			var result = validator.validateUserName($scope.user.name);
+			$scope.userNameValidationStatus = result.status;
+			$scope.userNameValidationComment = result.comment;
+		};
+		
 		$scope.noAccount = function () {			
-			
+			//signInByGuest
 		};
 		$scope.openSignIn = function () {
 			$location.path("/signin");

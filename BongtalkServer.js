@@ -231,7 +231,7 @@ exports.BongtalkServer = (function(){
 					}
 					else{
 						var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-						self.mDatabase.addUser(userId, hashedPassword, function (err, result){
+						self.mDatabase.addUser(userId, hashedPassword, 'user', function (err, result){
 							res.json({err:err, result:result});
 							debug('Sign up - ' + userId);
 						});
@@ -271,6 +271,38 @@ exports.BongtalkServer = (function(){
 							debug('Sign in - ' + userId);
 						});
 					}
+				}
+			});
+		});
+
+		apiRoutes.post('/signInByGuest', function (req, res) {
+			var userName = req.body.userName;
+			var userId = tools.randomString(10);
+			var password = tools.randomString(10);
+
+			self.mDatabase.getUser(userId, function (err, user){
+				if (user){
+					res.json({err:'user id alreay exists.', result: null});	
+				}
+				else {
+					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
+					self.mDatabase.addUser(userId, hashedPassword, 'guest', function (err, result){
+						if (err){
+							res.json({err:err, result:result});
+						}					
+						else {
+							self.mDatabase.getUser(userId, function (err, user){
+								var token = jwt.sign({userId:userId}, app.get('bongtalkSecret'), {
+									expiresInMinutes: 120 // expires in 24 hours
+								});
+								jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+									// return the information including token as JSON
+									res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
+									debug('Guest Sign in - ' + userId);
+								});								
+							});							
+						}
+					});
 				}
 			});
 		});
