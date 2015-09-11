@@ -30,6 +30,10 @@
 .main_menu {position:absolute; width:250px;  top:0px; bottom:0px; float:left; border-right:1px solid #E4E4E4; }
 .main_content {position:absolute; left:250px; right:0px; top:0px; bottom:0px; float:left; }
 
+@media only screen and (max-width: 767px) {
+	.mobile_target { width:100%; left:0px; right:0px; top:0px; bottom:0px; }	
+}
+
 /* sessionList */
 .session_list_header {position:absolute; top:0px; left:0px; right:0px;  height:49px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; }
 .session_list_content {position:absolute; top:49px; bottom:40px; left:0px; right:0px; background: #FFFFFF; border-bottom:1px solid #E4E4E4; overflow-y:auto; }

@@ -27,8 +27,11 @@ bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$co
 bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
 	function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {		
 		$scope.routeLeft = $routeParams.left || 'chats';
-		$scope.routeRight = $routeParams.right;
+		$scope.routeRight = $routeParams.right;		
 		$scope.routeParam = $routeParams.param;
+
+		$scope.isRightMain = ($routeParams.right && $routeParams.right != 'none');
+
 		var authToken = $cookies.getObject('auth_token');
 		if (authToken) {
 			bongtalk.signInRecover(authToken, function (res) {
@@ -49,11 +52,17 @@ bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$sco
 		function init() {
 			bongtalk.startSync();
 			bongtalkAutoRefreshToken.start();
+			emitter.on('focusArea', onFocusArea);
 
 			$scope.$on('$destroy', function () {
 				bongtalk.stopSync();
 				bongtalkAutoRefreshToken.stop();
+				emitter.off('focusArea', onFocusArea);
 			});
+		}
+
+		function onFocusArea (isRight) {
+			$scope.isRightMain = isRight;
 		}
 	}]);
 

@@ -1,23 +1,5 @@
-<!-- <div class="layout_table">
-	<div class="layout_row header">
-		<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
-		
-	</div>
-	<div class="layout_row">
-		<div class="layout_table">
-			<div class="layout_cell sidebar2" ng-include="'/partials_v2/sessionList.html'" ng-controller="SessionListController"></div>
-			<div class="layout_cell" ng-include="'/partials_v2/session.html'" ng-controller="SessionController" ></div>
-		</div>
-	</div>
-</div> -->
 
-<!-- <div class="channel_header">
-	<div ng-include="'/partials_v2/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></div>
-</div> -->
-<!-- <div class="channel_contents"> -->
-	<!-- <div class="main_menu" ng-include="'/partials_v2/sessionList.html'" ng-controller="SessionListController"></div> -->
-
-<div class="main_menu" ng-switch="routeLeft">
+<div class="main_menu" ng-class="isRightMain ? 'hidden-xs' : 'mobile_target'" ng-switch="routeLeft">
 	<div class="width-max height-max" ng-switch-when="chats">
 		<div class="width-max height-max" ng-include="'/partials_v2/sessionList.html'" ng-controller="SessionListController"></div>
 	</div>
@@ -28,16 +10,21 @@
 
 
 
-<div class="main_content" ng-switch="routeRight">
+<div class="main_content" ng-class="isRightMain ? 'mobile_target' : 'hidden-xs'" ng-switch="routeRight">
+	<!-- session -->
 	<div class="width-max height-max" ng-switch-when="session">
 		<div class="width-max height-max" ng-include="'/partials_v2/session.html'" ng-controller="SessionController"></div>
 	</div>
+
+	<!-- setting -->
 	<div class="width-max height-max" ng-switch-when="set-username">
 		<div class="width-max height-max" ng-include="'/partials_v2/settings/setUsername.html'" ng-controller="SetUsernameController"></div>
 	</div>
 	<div class="width-max height-max" ng-switch-when="set-password">
 		<div class="width-max height-max" ng-include="'/partials_v2/settings/setPassword.html'" ng-controller="SetPasswordController"></div>
 	</div>
+
+	<!-- start chat -->
 	<div class="width-max height-max" ng-switch-when="start-public-chat">
 		<div class="width-max height-max" ng-include="'/partials_v2/startChat/startPublicChat.html'" ng-controller="StartPublicChatController"></div>
 	</div>

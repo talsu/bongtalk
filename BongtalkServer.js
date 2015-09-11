@@ -231,7 +231,7 @@ exports.BongtalkServer = (function(){
 					}
 					else{
 						var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-						self.mDatabase.addUser(userId, hashedPassword, 'user', function (err, result){
+						self.mDatabase.addUser(userId, userId ,hashedPassword, 'user', function (err, result){
 							res.json({err:err, result:result});
 							debug('Sign up - ' + userId);
 						});
@@ -286,7 +286,7 @@ exports.BongtalkServer = (function(){
 				}
 				else {
 					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-					self.mDatabase.addUser(userId, hashedPassword, 'guest', function (err, result){
+					self.mDatabase.addUser(userId, userName, hashedPassword, 'guest', function (err, result){
 						if (err){
 							res.json({err:err, result:result});
 						}					

@@ -25,11 +25,19 @@ angular.module('bongtalkApp', [
 			.when('/test', { templateUrl: 'partials_v2/test.html', controller: 'TestController' })
 			.otherwise({ redirectTo: '/'});
 	}])
-.run(['$window', '$rootScope', 
-	function ($window ,  $rootScope) {
+.run(['$window', '$rootScope', 'emitter',
+	function ($window ,  $rootScope, emitter) {
 		$rootScope.goBack = function(){
 			$window.history.back();
 		}
+
+		// $rootScope.focusLeft = function(){
+		// 	emitter.emit('focusArea', false);
+		// }
+
+		// $rootScope.focusRight = function(){
+		// 	emitter.emit('focusArea', true);
+		// }
 	}]);
 
 

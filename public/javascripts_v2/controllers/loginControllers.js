@@ -13,8 +13,8 @@ bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$c
 		$location.path("/login");
 	}]);
 
-bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'validator',
+	function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validator) {
 		
 		$scope.user = {};
 		$scope.currentUserName = '';
@@ -23,25 +23,42 @@ bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location',
 			$scope.userNameValidationStatus = result.status;
 			$scope.userNameValidationComment = result.comment;
 		};
-		
-		$scope.noAccount = function () {			
-			//signInByGuest
+
+		$scope.signInByGuest = function () {
+			if (!$scope.user.name) {
+				$scope.userNameValidationStatus = 'error';
+				$scope.userNameValidationComment = 'User name is empty';
+				return;
+			}
+
+			var result = validator.validateUserName($scope.user.name);
+			if (result.status != 'success') {
+				$scope.userNameValidationStatus = result.status;
+				$scope.userNameValidationComment = result.comment;
+				return;
+			}
+
+			bongtalk.signInByGuest($scope.user.name, function (res) {
+				if (res.err) {
+					$scope.$apply(function () {
+						$scope.userNameValidationStatus = 'error';
+						$scope.userNameValidationComment = JSON.stringify(res.err);
+					});
+				}
+				else {
+					$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
+					$scope.$apply(function() {
+						$location.path('/main/chats/start-public-chat');
+					});
+				}
+			});
 		};
 		$scope.openSignIn = function () {
 			$location.path("/signin");
 		};
 
 		$scope.openSignUp = function () {
-			$location.path("/signup");		
-			// $scope.closeThisDialog();
-			// ngDialog.open({
-			// 	template:'/partials_v2/signUpDialog.html',
-			// 	className: 'ngdialog-theme-default login_dialog',
-			// 	controller: 'SignUpDialogController',
-			// 	closeByDocument: false,
-			// 	closeByEscape: false,
-			// 	showClose: false
-			// });	
+			$location.path("/signup");
 		};
 	}]);
 

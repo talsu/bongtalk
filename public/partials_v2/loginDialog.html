@@ -12,13 +12,13 @@
 						<div class="input-group">
 							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
 								
-								<input type="text" class="form-control input-lg" placeholder="current username is {{currentUserName}}" ng-model="user.name" ng-change="userNameChanged()" autofocus required>
+								<input type="text" class="form-control input-lg" placeholder="Enter username" ng-model="user.name" ng-change="userNameChanged()" autofocus required>
 									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
 								
 							</div>
 							
 							<span class="input-group-btn">
-								<button class="btn btn-danger btn-lg" type="button" ng-click="noAccount()">by Guest</button>
+								<button class="btn btn-danger btn-lg" type="button" ng-click="signInByGuest()" ng-disabled="userNameValidationStatus=='error'">by Guest</button>
 								<button class="btn btn-warning btn-lg" type="button" ng-click="openSignIn()">Sign in</button>
 								<button class="btn btn-success btn-lg" type="button" ng-click="openSignUp()">Sign up</button>
 							</span>			
@@ -39,11 +39,17 @@
 			<div class="row hidden-lg hidden-md hidden-sm">
 				<div class="col-xs-offset-1 col-xs-10">
 					<div class="input-group">
-						<input type="text" class="form-control" placeholder="Enter username">
-						<span class="input-group-btn">
-							<button class="btn btn-danger" type="button" ng-click="noAccount()">by Guest</button>
-						</span>
-					</div>
+							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
+								
+								<input type="text" class="form-control input" placeholder="Username" ng-model="user.name" ng-change="userNameChanged()" autofocus required>
+									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
+								
+							</div>
+							
+							<span class="input-group-btn">
+								<button class="btn btn-danger" type="button" ng-click="signInByGuest()" ng-disabled="userNameValidationStatus=='error'">by Guest</button>
+							</span>			
+						</div>
 				</div>
 			</div>
 			<div class="row hidden-lg hidden-md hidden-sm margin-top-10">

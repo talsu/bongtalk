@@ -42,19 +42,14 @@ module.exports = (function() {
 
 			if (!result) {
 				debug('Create admin user');
-				self.addUser('admin', '21232f297a57a5a743894a0e4a801fc3', function (err, result){
+				self.addUser('admin', 'Administrator', '21232f297a57a5a743894a0e4a801fc3', 'admin', function (err, result){
 					if (err){
 						if (tools.isFunction(callback)) { callback(err); }
 						return;
 					}
 
-					self.setUser('admin', {role:'admin'}, 'admin', function (err, result){
-						if (err){
-							if (tools.isFunction(callback)) { callback(err); }							
-						} else {
-							if (tools.isFunction(callback)) callback();
-						}
-					});
+					if (tools.isFunction(callback)) callback();
+					
 				}); // default admin password is 'admin'
 			}
 			else {
@@ -65,11 +60,11 @@ module.exports = (function() {
 	};
 
 	// User
-	Database.prototype.addUser = function (userId, password, role, callback) {
+	Database.prototype.addUser = function (userId, userName, password, role, callback) {
 		var self = this;		
 		var user = {
 			id : userId,
-			name : userId,
+			name : userName,
 			password : password,
 			role : role,
 			sessions : []
