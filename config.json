@@ -1,7 +1,5 @@
 {
 	"servicePort" : "3000",
-	"redisUrl" : "redis://localhost:6379", 
-	"single" : true,
-	"instanceCount" : 1,	
-	"isDebug" : false 
+	"mongodbUrl" : "mongodb://127.0.0.1:27017/bongtalk", 
+	"secret" : "enterYourSecretString"
 }
