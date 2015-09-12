@@ -107,6 +107,8 @@ body {
     float: none;
 }
 
+.overflow_text_hide { text-overflow:ellipsis; white-space:nowrap; word-wrap:normal; overflow:hidden;}
+
  /* animation */
  /* The starting CSS styles for the enter animation */
 .fade.ng-enter {

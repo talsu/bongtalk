@@ -208,9 +208,6 @@ bongtalkControllers.factory('validator', [function(){
 			} else if (userName.length > 20) {
 				result.status = 'error';
 				result.comment = 'Username is too long.';
-			} else if (/\s/g.test(userName)){
-				result.status = 'error';
-				result.comment = 'Username has white space.';
 			} else {
 				result.status = 'success';
 				result.comment = '';

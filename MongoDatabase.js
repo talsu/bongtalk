@@ -176,7 +176,14 @@ module.exports = (function() {
 		var self = this;
 		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
-		self.db.collection('Session').findOne({_id:new ObjectID(sessionId)}, callback);
+		self.db.collection('Session').findOne({_id:new ObjectID(sessionId)}, function (err, session){
+			if (err || !session) { callback(err, session); return; }
+
+			self.getTelegrams(session._id.toString(), 0, 1, function (err, telegrams){
+				session.telegrams = telegrams || [];
+				callback(null, session);
+			});	
+		});
 	};
 
 	Database.prototype.getAllSession = function (callback) {
@@ -224,7 +231,15 @@ module.exports = (function() {
 		self.getUser(userId, function (err, result){
 			if (err) { callback(err, null); return; }
 			if (result && result.sessions && result.sessions.length > 0) {
-				self.db.collection('Session').find({_id:{$in:result.sessions}}).toArray(callback);
+				self.db.collection('Session').find({_id:{$in:result.sessions}}).toArray(function (err, sessions){
+					if (err) { callback(err, null); return; }
+					async.map(sessions, function (session, callback){
+						self.getTelegrams(session._id.toString(), 0, 1, function (err, telegrams){
+							session.telegrams = telegrams || [];
+							callback(null, session);
+						});		
+					}, callback);
+				});
 			} else {
 				callback(err, []);
 			}			
@@ -270,18 +285,16 @@ module.exports = (function() {
 		} else if (ltTime <= 0 && count > 0){
 			getEndTelegrams(function (err, gteTelegram){
 				if (err) { callback(err, gteTelegram); return; }
-				self.db.collection('Telegram').find({
-					sessionId:oSessionId, 
-					time:{ $gte: gteTelegram.time }
-				}).sort({time:-1}).toArray(callback);
+				var query = {sessionId:oSessionId};
+				if (gteTelegram) query.time = { $gte: gteTelegram.time };
+				self.db.collection('Telegram').find(query).sort({time:-1}).toArray(callback);
 			});
 		} else if (ltTime > 0 && count > 0){
 			getEndTelegrams(function (err, gteTelegram){
 				if (err) { callback(err, gteTelegram); return; }
-				self.db.collection('Telegram').find({
-					sessionId:oSessionId, 
-					time:{ $gte: gteTelegram.time, $lt: ltTime }
-				}).sort({time:-1}).toArray(callback);
+				var query = {sessionId:oSessionId, time:{ $lt: ltTime }};
+				if (gteTelegram) query.time['$gte'] = gteTelegram.time;
+				self.db.collection('Telegram').find(query).sort({time:-1}).toArray(callback);
 			});
 		} else {
 			self.db.collection('Telegram').find({sessionId:oSessionId}).sort({time:-1}).toArray(callback); 
