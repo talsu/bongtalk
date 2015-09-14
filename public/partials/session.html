@@ -9,10 +9,14 @@
 					</div>
 				</div>
 			</div>
-			<div class="col-xs-6 height-max">
+			<div class="col-xs-6 height-max margin-top-03">
+				<h4 class="text-align-center overflow_text_hide">{{session.name}}</h4>
+			</div>
+			<div class="col-xs-3 height-max">
 				<div class="layout_table">
 					<div class="layout_table-cell_vertical-middle">
-						<h4 class="text-align-center overflow_text_hide">{{session.name}}</h4>
+						<a class="visible-xs-block pull-right" ng-href="#/main/{{routeLeft}}"><span class="glyphicon glyphicon-menu-hamburger"></span></a>
+						<!-- <button class="btn btn-default" ng-click="focusLeft()"><span class="glyphicon glyphicon-chevron-left"></span>&nbspBack</button> -->
 					</div>
 				</div>
 			</div>
