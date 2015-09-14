@@ -15,11 +15,31 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 			bongtalk.getUserSessions(function (res) {
 				if (res.err) return;
 				$scope.$apply(function(){
-					_.each(res.result, function (session) {$scope.sessions.push(session);});
+					_.each(res.result, function (session) { addSession(session); });
 				});
 			});
 		});
 		
+		function addSession (session) {
+			var sessionId = session._id;
+			var index = _.findIndex($scope.sessions, function (session) { return session._id == sessionId; });
+			if (index == -1){
+
+				if (session.telegrams && session.telegrams.length > 0) {
+					var talks = _.filter(session.telegrams, function (session) { return session.type == 'talk'; })
+					session.lastTalkTelegram = _.max(talks, function (talks) { return talks.time; });
+				}
+
+				session.onTelegram = function (telegram) {
+					//session.telegrams.push(telegram);
+					if (telegram && telegram.type == 'talk') {
+						$scope.$apply(function () { session.lastTalkTelegram = telegram; });
+					}
+				};
+				bongtalk.onTelegram(session._id, true, session.onTelegram);
+				$scope.sessions.push(session);
+			}
+		}
 
 		// Sync username
 		bongtalk.on('joinSession', onJoinSession);
@@ -27,16 +47,17 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 		$scope.$on('$destroy', function () { 
 			bongtalk.off('joinSession', onJoinSession); 
 			bongtalk.off('leaveSession', onLeaveSession);
+			_.each($scope.sessions, function (session) {
+				if (session) {
+					bongtalk.offTelegram(session._id, true, session.onTelegram);
+					delete session.onTelegram;
+				}
+			});
 		});
 		function onJoinSession(sessionId){
 			bongtalk.getSession(sessionId, function (res){
 				if (res.err) return;
-				$scope.$apply(function(){
-					var index = _.findIndex($scope.sessions, function (session) { return session._id == sessionId; });
-					if (index == -1){
-						$scope.sessions.push(res.result);
-					}
-				});
+				addSession(res.result);
 			});
 			
 		}
@@ -44,7 +65,11 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 			$scope.$apply(function(){
 				var index = _.findIndex($scope.sessions, function (session) { return session._id == sessionId; });
 				if (index > -1){
-					$scope.sessions.splice(index, 1);
+					var session = $scope.sessions.splice(index, 1);
+					if (session) {
+						bongtalk.offTelegram(session._id, true, session.onTelegram);
+						delete session.onTelegram;
+					}
 				}
 			});
 		}
@@ -69,10 +94,10 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 		}
 
 		// setReceiver
-		bongtalk.onTelegram($scope.routeParam, onTelegram);
+		bongtalk.onTelegram($scope.routeParam, false, onTelegram);
 		bongtalk.on('leaveSession', onLeaveSession);
 		$scope.$on('$destroy', function () { 
-			bongtalk.offTelegram($scope.routeParam, onTelegram); 
+			bongtalk.offTelegram($scope.routeParam, false, onTelegram); 
 			bongtalk.on('leaveSession', onLeaveSession);
 		});
 

@@ -24,7 +24,7 @@
 	<div class="list-group">
 		<a href="#/main/chats/session/{{session._id}}" ng-class="['list-group-item', {active: routeRight=='session'&&routeParam==session._id}]" ng-repeat="session in sessions | orderBy:'-creationTime'">
 			<h4 class="list-group-item-heading overflow_text_hide">{{session.name}}</h4>
-			<p class="list-group-item-text overflow_text_hide">{{session.telegrams[0].data}}</p> <!-- show last message -->
+			<p class="list-group-item-text overflow_text_hide">{{session.lastTalkTelegram.data}}</p> <!-- show last message -->
 		</a>
 	</div>
 </div>

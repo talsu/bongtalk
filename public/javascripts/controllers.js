@@ -88,18 +88,6 @@ bongtalkControllers.factory('bongtalk', [function(){
 	return Bongtalk(window.location.protocol + '//' + window.location.host);
 }]);
 
-// bongtalkControllers.factory('bongtalkViewModel', [function(){
-// 	var BongtalkViewModel = (function(){
-// 		function BongtalkViewModel() {
-
-// 		}
-
-// 		return BongtalkViewModel;
-// 	})();
-
-// 	return new BongtalkViewModel();
-// }]);
-
 bongtalkControllers.factory('bongtalkAutoRefreshToken', ['$cookies', 'bongtalk', function ($cookies, bongtalk) {
 	var BongtalkAutoRefreshTokenService = (function () {
 		function BongtalkAutoRefreshTokenService(){

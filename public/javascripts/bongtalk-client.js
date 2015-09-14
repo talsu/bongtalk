@@ -288,7 +288,9 @@
 						callback(res)
 					}
 					else{
-						self.qufox.send('session:' + sessionId, res.result, function (){
+						var key = 'session:' + sessionId;
+						self.qufox.send(key, res.result, function (){
+							self.sessionEventEmitter.emit(key, res.result);
 							callback(res);
 						});
 					}					
@@ -299,12 +301,20 @@
 			ajaxAuthGet('api/sessions/'+sessionId+'/telegrams', this.token, {ltTime:ltTime, count:count}, callback);
 		};		
 
-		BongtalkClient.prototype.onTelegram = function (sessionId, callback) {
-			this.qufox.on('session:' + sessionId, callback);
+		BongtalkClient.prototype.onTelegram = function (sessionId, echo, callback) {
+			var key = 'session:' + sessionId;
+			this.qufox.on(key, callback);
+			if (echo) {
+				this.sessionEventEmitter.on(key, callback);	
+			}
 		};
 
-		BongtalkClient.prototype.offTelegram = function (sessionId, callback) {
-			this.qufox.off('session:' + sessionId, callback);
+		BongtalkClient.prototype.offTelegram = function (sessionId, echo, callback) {
+			var key = 'session:' + sessionId;
+			this.qufox.off(key, callback);
+			if (echo) {
+				this.sessionEventEmitter.off(key, callback);	
+			}
 		};
 
 		// for Admin (only working with admin account)
