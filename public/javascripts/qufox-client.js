@@ -78,11 +78,13 @@
 				self.socketClient.join(sessionId, function (){
 					if (!self.sessionCallbackMap[sessionId]) self.sessionCallbackMap[sessionId] = [];
 					self.sessionCallbackMap[sessionId].push(callback);
+					console.log('[qufox] JOIN - ' + sessionId + ' | callback count ' + self.sessionCallbackMap[sessionId].length);
 				});	
 			}
 			else {
 				if (!self.sessionCallbackMap[sessionId]) self.sessionCallbackMap[sessionId] = [];
-					self.sessionCallbackMap[sessionId].push(callback);
+				self.sessionCallbackMap[sessionId].push(callback);
+				console.log('[qufox] JOIN witout connected- ' + sessionId + ' | callback count ' + self.sessionCallbackMap[sessionId].length);
 			}
 		};
 
@@ -99,17 +101,21 @@
 			if (!currentMap) return;
 
 			var excludeMap = [];
-			for (var i = 0; i < currentMap.length; ++i){
-				if (currentMap[i] != callback) excludeMap.push(currentMap[i]);
+			if (callback) {
+				for (var i = 0; i < currentMap.length; ++i){
+					if (currentMap[i] != callback) excludeMap.push(currentMap[i]);
+				}	
 			}
 
 			if (excludeMap.length == 0){
 				self.socketClient.leave(sessionId, function (data){
 					delete self.sessionCallbackMap[sessionId];
+					console.log('[qufox] LEAVE with send leave - ' + sessionId + ' | callback count 0');
 				});
 			}
 			else{
 				self.sessionCallbackMap[sessionId] = excludeMap;
+				console.log('[qufox] LEAVE - ' + sessionId + ' | callback count ' + self.sessionCallbackMap[sessionId].length);
 			}
 			// self.socketClient.leave(sessionId, function (data){
 			// 	var sessionCallback = self.sessionCallbackMap[sessionId];
@@ -119,6 +125,15 @@
 
 			// 	if (isFunction(callback)) callback(data);
 			// });		
+		};
+
+		QufoxClient.prototype.leaveAll = function() {
+			for (var sessionId in self.sessionCallbackMap) {
+				self.socketClient.leave(sessionId, function() {
+					delete self.sessionCallbackMap[sessionId];
+					console.log('[qufox] LEAVE with send leave - ' + sessionId + ' | callback count 0');
+				});
+			}
 		};
 
 		return QufoxClient;

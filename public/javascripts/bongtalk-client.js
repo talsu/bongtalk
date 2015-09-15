@@ -139,6 +139,7 @@
 
 		BongtalkClient.prototype.signOut = function () {
 			var self = this;
+			self.qufox.leaveAll();
 		};
 
 		BongtalkClient.prototype.signUp = function (userId, password, callback) {
