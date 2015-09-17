@@ -332,6 +332,23 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		apiRoutes.get('/sessions/:id/users', function (req, res){
+			var userId = req.userId;
+			var sessionId = req.params.id;
+			self.mDatabase.getSessionUsers(sessionId, function (err, result){
+				if (err || !result) {
+					res.json({err: 'Can not find session - ' + sessionId, result: null});
+					if (err) debug(err);
+				} else if(result.filter(function (item){return item.id == userId;}).length == 0) {
+					var err = 'Not in session. userId : ' + userId;
+					debug(err);
+					res.json({err:err, result:null});
+				} else {
+					res.json({err:err, result:result});
+				}
+			});
+		});
+
 		apiRoutes.get('/sessions/type/public', function (req, res){
 			self.mDatabase.getPublicSessions(resBind(res));
 		});

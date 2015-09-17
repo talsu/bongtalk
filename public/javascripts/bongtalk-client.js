@@ -252,6 +252,10 @@
 			});
 		};
 		
+		BongtalkClient.prototype.getSessionUsers = function (sessionId, callback) {
+			ajaxAuthGet('api/sessions/' + sessionId+ '/users', this.token, {}, callback);
+		};
+
 		BongtalkClient.prototype.getPublicSessions = function (callback) {
 			ajaxAuthGet('api/sessions/type/public', this.token, {}, callback);
 		};

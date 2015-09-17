@@ -186,6 +186,26 @@ module.exports = (function() {
 		});
 	};
 
+	Database.prototype.getSessionUsers = function (sessionId, callback) {
+		var self = this;
+		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+
+		self.db.collection('Session').findOne({_id:new ObjectID(sessionId)}, function (err, session){
+			if (err || !session) { callback(err, session); return; }
+
+			async.map(session.users, function (userId, callback){
+				self.getUser(userId, function (err, user) {
+					if (err) {callback(err, null); return;}
+					callback(null, {
+						id:user.id,
+						name:user.name,
+						role:user.role
+					});
+				});
+			}, callback);
+		});
+	};
+
 	Database.prototype.getAllSession = function (callback) {
 		this.db.collection('Session').find().toArray(callback);
 	};

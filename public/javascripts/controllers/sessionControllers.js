@@ -76,6 +76,71 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 	}]);
 
 
+bongtalkControllers.controller('SessionInfoController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
+	function($scope, $routeParams, $location, bongtalk, emitter) {	
+		$scope.routeLeft = $routeParams.left;
+		$scope.routeRight = $routeParams.right;
+		$scope.routeParam = $routeParams.param;
+
+		if (bongtalk.user) {
+			init();
+		}
+		else {
+			bongtalk.signInReady(function (user) {
+				$scope.$apply(function () { init(); });
+			});			
+		}
+
+		// setReceiver
+		bongtalk.onTelegram($scope.routeParam, false, onTelegram);
+		bongtalk.on('leaveSession', onLeaveSession);
+		$scope.$on('$destroy', function () { 
+			bongtalk.offTelegram($scope.routeParam, false, onTelegram); 
+			bongtalk.on('leaveSession', onLeaveSession);
+		});
+
+		
+		function init() {
+			$scope.user = bongtalk.user;
+			bongtalk.getSession($scope.routeParam, function (res){
+				if (res.err || !res.result){
+					$location.path('/main/'+ $scope.routeLeft);
+					return;
+				}
+				$scope.session = res.result;
+
+				bongtalk.getSessionUsers($scope.routeParam, function (res){
+					if (res.err) {
+						return;
+					}
+					$scope.$apply(function () {
+						$scope.session.users = res.result;
+					});
+				});
+				// bongtalk.getTelegrams($scope.routeParam, 0, 0, function (res){
+				// 	if (!res.err && res.result && res.result.length > 0){
+				// 		$scope.$apply(function () { 
+				// 			_.each(res.result, function (telegram){
+				// 				addTelegram(telegram);
+				// 			});
+				// 		});
+				// 	}
+				// });
+			});
+		}
+
+		function onLeaveSession(sessionId){
+			if ($scope.session && $scope.session._id == sessionId) {
+				$location.path('/main/'+ $scope.routeLeft);
+			}
+		}
+
+		function onTelegram(telegram){
+			// $scope.$apply(function () { addTelegram(telegram); });
+		}
+	}]);
+
+
 bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
 	function($scope, $routeParams, $location, bongtalk, emitter) {	
 		$scope.routeLeft = $routeParams.left;
