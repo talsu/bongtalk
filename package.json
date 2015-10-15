@@ -8,8 +8,8 @@
   "dependencies": {
     "async": "^1.4.2",
     "body-parser": "^1.14.1",
-    "bower": "~1.4.1",
-    "cookie-parser": "~1.3.5",
+    "bower": "~1.5.3",
+    "cookie-parser": "~1.4.0",
     "debug": "^2.2.0",
     "ejs": "^2.3.4",
     "errorhandler": "^1.4.2",
@@ -19,7 +19,7 @@
     "mongodb": "^2.0.45",
     "morgan": "^1.6.1",
     "optimist": "^0.6.1",
-    "qufox": "^0.1.3"
+    "qufox": "^0.2.1"
   },
   "bin": {
     "bongtalk": "./bin/bongtalk"
