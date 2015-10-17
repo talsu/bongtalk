@@ -5,6 +5,12 @@ node.js web chat server.
 
 sample service is running at https://talk.talsu.net and http://bongtalk.herokuapp.com
 
+## Version 0.2
+
+* Implement User login (reqired mongodb).
+* Real-time communication code has been split into [qufox](https://github.com/talsu/qufox).
+* New user interface.
+
 ## Installation
 
 ```bash
