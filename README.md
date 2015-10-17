@@ -16,32 +16,25 @@ $ [sudo] npm install bongtalk -g
 
 ### Execute server on command line
 ```
-Usage : bongtalk -p [num] -r [url] -i [num]  -s -w -o
+Usage : bongtalk -p [num] -m [url] -r [url] -s [string]
 
 Options:
-  -p, --port        listen port
-  -r, --redisurl    redis server url
-  -s, --single      use only 1 process
-  -w, --websocket   use websocket protocol
-  -o, --socketonly  run socket.io server only
-  -i, --instance    instance count for cluster mode
+  -p, --port        listen port (Default: 3000)
+  -m, --mongodb     mongoDB url (Required)
+  -r, --redis	    redis url	(Optional for multiple instance)
+  -s, --secret      secret string for jsonWebToken(Default: 'defaultSecrect')
 ```
 #### Set config file (config.json)
 ```json
 {
 	"servicePort" : "3000",
-	"redisUrl" : "redis://localhost:6379",
-	"single" : true,
-	"websocket" : true,
-	"isSocketOnly" : false,
-	"instanceCount" : 1,
-	"socketIoLogLevel" : 1,
-	"isDebug" : false
+	"mongodbUrl" : "mongodb://127.0.0.1/bongtalk",
+	"secret" : "enterYourSecretString"
 }
 ```
 #### Example
 ```bash
-$ bongtalk --port 3000 --redisurl redis://talsu.net
+$ bongtalk --port 3000 --mongodb mongodb://127.0.0.1/bongtalk
 ```
 Connect web browser to http://localhost:3000
 
@@ -51,13 +44,8 @@ var BongtalkServer = require('./BongtalkServer').BongtalkServer;
 
 var config = { 
   servicePort: 3000,
-  redisUrl: 'redis://localhost',
-  single: true,
-  websocket: true,
-  isSocketOnly: false,
-  instanceCount: 1,
-  socketIoLogLevel: 1,
-  isDebug: false 
+  mongodbUrl: 'mongodb://127.0.0.1/bongtalk',
+  secret : 'enterYourSecretString'
 };
 
 new BongtalkServer(config).run();

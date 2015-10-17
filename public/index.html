@@ -1,50 +1,52 @@
-<!-- <!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html>
+<html ng-app="bongtalkApp">
 	<head>
-		<meta charset="utf-8">
-		<meta http-equiv="X-UA-Compatible" content="IE=edge">
-		<link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-		<link rel="stylesheet" href="stylesheets/talk.css">
+		<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+		<title>Bongtalk</title>
+		<link rel="stylesheet" href="/bower_components/bootstrap/dist/css/bootstrap.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog-theme-default.css">
+		<link rel="stylesheet" href="/bower_components/ngDialog/css/ngDialog-theme-plain.css">
+		<link rel="stylesheet" href="/stylesheets/style.css">
+		<link rel="stylesheet" href="/stylesheets/talk.css">
+		<link rel="stylesheet" href="/stylesheets/gradient.css">
+		
+		<script type="text/javascript" src="/bower_components/jquery/dist/jquery.js"></script>
+		<script type="text/javascript" src="/bower_components/bootstrap/dist/js/bootstrap.js"></script>
+		<script type="text/javascript" src="/bower_components/angular/angular.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-route/angular-route.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-cookies/angular-cookies.js"></script>
+		<script type="text/javascript" src="/bower_components/angular-animate/angular-animate.js"></script>
+		<script type="text/javascript" src="/bower_components/angularjs-scroll-glue/src/scrollglue.js"></script>
+		<script type="text/javascript" src="/bower_components/ngDialog/js/ngDialog.js"></script>
+
+		<script type="text/javascript" src="bower_components/jquery/dist/jquery.js"></script>
+		<script type="text/javascript" src="bower_components/underscore/underscore.js"></script>
+		<script type="text/javascript" src="bower_components/bootstrap/dist/js/bootstrap.js"></script>
+		<script type="text/javascript" src="bower_components/socket.io-client/socket.io.js"></script>
+		<script type="text/javascript" src="bower_components/eventEmitter/EventEmitter.js"></script>
+
+		<script type="text/javascript" src="javascripts/qufox-client.js"></script>
+		<script type="text/javascript" src="javascripts/bongtalk-client.js"></script>
+
+		<script src="/javascripts/gradient.js"></script>
+		<script src="/javascripts/app.js"></script>
+		
+		<script src="/javascripts/controllers.js"></script>
+		<script src="/javascripts/controllers/sessionControllers.js"></script>
+		<script src="/javascripts/controllers/loginControllers.js"></script>
+		<script src="/javascripts/controllers/settingControllers.js"></script>
+		<script src="/javascripts/controllers/startChatControllers.js"></script>
+		<script src="/javascripts/controllers/adminControllers.js"></script>
+
+		<!-- for test -->
+		<script type="text/javascript" src="bower_components/async/dist/async.js"></script>	
+		<script src="/javascripts/testController.js"></script>
 
 	</head>
-<body >
-	<div class="container-fixed">
-		<div class="row row-xs-12">
-			<div class="col col-md-5">
-				<div ng-include src="'partials/list.html'" ng-controller="listCtrl"></div>
-			</div>	
-			<div class="col col-md-7">
-				<div ng-view class="fill"></div>
-			</div>		
-		</div>
-	</div>
-	<script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
-</body>
-</html>
- -->
+	<body id="gradient">
 
-<!DOCTYPE html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8">
-    <meta http-equiv="X-UA-Compatible" content="IE=edge">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>BongTalk</title>
+		<div class="page_wrap" ng-view></div>	
 
-    <!-- Bootstrap -->
-    <link rel="stylesheet" href="bower_components/bootstrap/dist/css/bootstrap.css">
-	<!-- <link rel="stylesheet" href="stylesheets/talk.css"> -->
-
-    <!-- HTML5 Shim and Respond.js IE8 support of HTML5 elements and media queries -->
-    <!-- WARNING: Respond.js doesn't work if you view the page via file:// -->
-    <!--[if lt IE 9]>
-      <script src="https://oss.maxcdn.com/libs/html5shiv/3.7.0/html5shiv.js"></script>
-      <script src="https://oss.maxcdn.com/libs/respond.js/1.4.2/respond.min.js"></script>
-    <![endif]-->
-  </head>
-  <body>
-  	<div ng-view></div>
-
-    <script data-main="javascripts/main" src="bower_components/requirejs/require.js"></script>
-  </body>
+	</body>
 </html>

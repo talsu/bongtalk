@@ -1,0 +1,37 @@
+<div class="session_list_header">
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<div class="col-xs-9 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<h4><span ng-include="'/partials/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></span>&nbspBongtalk</h4>
+					</div>
+				</div>
+			</div>
+			<div class="col-xs-3 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<a class="btn btn-default pull-right" href="#/main/chats/start-public-chat" role="button"><span class="glyphicon glyphicon-plus"></span></a>
+					</div>
+				</div>
+			</div>
+			<!-- <div class="col-xs-3"></div> -->
+		</div>
+	</div>
+</div>
+
+<div class="session_list_content">
+	<div class="list-group">
+		<a href="#/main/chats/session/{{session._id}}" ng-class="['list-group-item', {active: routeRight=='session'&&routeParam==session._id}]" ng-repeat="session in sessions | orderBy:'-creationTime'">
+			<h4 class="list-group-item-heading overflow_text_hide">{{session.name}}</h4>
+			<p class="list-group-item-text overflow_text_hide">{{session.lastTalkTelegram.data}}</p> <!-- show last message -->
+		</a>
+	</div>
+</div>
+
+<div class="session_list_footer">
+	<ul class="nav nav-pills nav-justified-custom">
+		<li role="presentation" class="active"><a><span class="glyphicon glyphicon-comment"></span>&nbspChats</a></li>
+		<li role="presentation"><a href="#/main/settings/{{routeRight||'none'}}/{{routeParam||'none'}}"><span class="glyphicon glyphicon-cog"></span>&nbspSetting</a></li>
+	</ul>
+</div>

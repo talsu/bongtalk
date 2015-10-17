@@ -1,0 +1,48 @@
+
+<div class="main_menu" ng-class="isRightMain ? 'hidden-xs' : 'mobile_target'" ng-switch="routeLeft">
+	<div class="width-max height-max" ng-switch-when="chats">
+		<div class="width-max height-max" ng-include="'/partials/sessionList.html'" ng-controller="SessionListController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="settings">
+		<div class="width-max height-max" ng-include="'/partials/settings.html'" ng-controller="SettingController"></div>
+	</div>
+</div>
+
+
+
+<div class="main_content" ng-class="isRightMain ? 'mobile_target' : 'hidden-xs'" ng-switch="routeRight">
+	<!-- session -->
+	<div class="width-max height-max" ng-switch-when="session">
+		<div class="width-max height-max" ng-include="'/partials/session.html'" ng-controller="SessionController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="session-info">
+		<div class="width-max height-max" ng-include="'/partials/sessionInfo.html'" ng-controller="SessionInfoController"></div>
+	</div>
+
+	<!-- setting -->
+	<div class="width-max height-max" ng-switch-when="set-username">
+		<div class="width-max height-max" ng-include="'/partials/settings/setUsername.html'" ng-controller="SetUsernameController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="set-password">
+		<div class="width-max height-max" ng-include="'/partials/settings/setPassword.html'" ng-controller="SetPasswordController"></div>
+	</div>
+
+	<!-- start chat -->
+	<div class="width-max height-max" ng-switch-when="start-public-chat">
+		<div class="width-max height-max" ng-include="'/partials/startChat/startPublicChat.html'" ng-controller="StartPublicChatController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="start-personal-chat">
+		<div class="width-max height-max" ng-include="'/partials/startChat/startPersonalChat.html'" ng-controller="StartPersonalChatController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="start-group-chat">
+		<div class="width-max height-max" ng-include="'/partials/startChat/startGroupChat.html'" ng-controller="StartGroupChatController"></div>
+	</div>
+
+	<!-- Admin -->
+	<div class="width-max height-max" ng-switch-when="admin-user-management">
+		<div class="width-max height-max" ng-include="'/partials/admin/userManagement.html'" ng-controller="UserManagementController"></div>
+	</div>
+	<div class="width-max height-max" ng-switch-when="admin-session-management">
+		<div class="width-max height-max" ng-include="'/partials/admin/sessionManagement.html'" ng-controller="SessionManagementController"></div>
+	</div>
+</div>

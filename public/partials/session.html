@@ -1,0 +1,57 @@
+<div class="session_header">
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<div class="col-xs-3 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<a class="visible-xs-block" ng-href="#/main/{{routeLeft}}"><span class="glyphicon glyphicon-chevron-left"></span></a>
+						<!-- <button class="btn btn-default" ng-click="focusLeft()"><span class="glyphicon glyphicon-chevron-left"></span>&nbspBack</button> -->
+					</div>
+				</div>
+			</div>
+			<div class="col-xs-6 height-max margin-top-03">
+				<h4 class="text-align-center overflow_text_hide">{{session.name}}</h4>
+			</div>
+			<div class="col-xs-3 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<a class="pull-right" ng-href="#/main/{{routeLeft}}/session-info/{{routeParam}}"><span class="glyphicon glyphicon-menu-hamburger"></span></a>
+						<!-- <button class="btn btn-default" ng-click="focusLeft()"><span class="glyphicon glyphicon-chevron-left"></span>&nbspBack</button> -->
+					</div>
+				</div>
+			</div>
+			<!-- <div class="col-xs-3"></div> -->
+		</div>
+	</div>
+</div>
+<div class="session_content" scroll-glue>
+	<div class="talk-container" ng-repeat="telegram in telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
+		<div class="margin-top-10" ng-if="$first"></div>
+		<div class="sender" ng-if="(telegram.userId!=user.id)">
+			<img class="sender_img" src="/image/avatar-blank.jpg" >
+			<div class="sender_content">
+				<span class="sender_name">{{telegram.userName}}</span>
+				<div class="bubble">
+					<div class="message_content">
+						<div>{{telegram.data}}</div>
+						<!-- <div ng-repeat="message in talk.messages">{{message.text}}</div> -->
+					</div>
+					<time class="sender_time">{{telegram.time | date:'h:mm:ss a'}}</time>
+				</div>
+			</div>
+		</div>
+		<div class="sender sender--alt" ng-if="(telegram.userId==user.id)">
+			<div class="bubble bubble--alt">
+				<div class="message_content">
+					<div>{{telegram.data}}</div>
+				</div>
+				<time class="sender_time sender_time--alt">{{telegram.time | date:'h:mm:ss a'}}</time>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="session_footer">
+	<input type="text" class="form-control input" placeholder="Type your message here..." ng-model="input.text" ng-keypress="inputKeypress($event)" />
+	<!-- <button type="button" class="btn btn-success" ng-click="check()">Success</button>
+	<p>{{inputTalk.message}}</p> -->
+</div>

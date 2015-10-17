@@ -1,0 +1,36 @@
+
+
+<div class="setting_header">
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<div class="col-xs-2 height-max visible-xs-block">
+				<div class="layout_table" ng-if="routeParam!='first'">
+					<div class="layout_table-cell_vertical-middle">
+						<a class="visible-xs-block" ng-href="#/main/{{routeLeft}}"><span class="glyphicon glyphicon-chevron-left"></span></a>
+					</div>
+				</div>
+			</div>
+			<div class="col-xs-10 col-sm-offset-2 col-sm-8 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<!-- Desktop -->
+						<ul class="nav nav-pills nav-justified-custom hidden-xs">
+							<li role="presentation"><a ng-href="#/main/{{routeLeft}}/start-public-chat"><span class="glyphicon glyphicon-globe"></span>&nbspPublic</a></li>
+							<li role="presentation" class="active"><a><span class="glyphicon glyphicon-user"></span>&nbspPersonal</a></li>
+							<li role="presentation"><a ng-href="#/main/{{routeLeft}}/start-group-chat"><span class="glyphicon glyphicon-user"></span><span class="glyphicon glyphicon-user"></span>&nbspGroup</a></li>
+						</ul>
+						<!-- Mobile -->
+						<ul class="nav nav-pills nav-justified-custom visible-xs-block">
+							<li role="presentation"><a ng-href="#/main/{{routeLeft}}/start-public-chat"><span class="glyphicon glyphicon-globe"></span></a></li>
+							<li role="presentation" class="active"><a><span class="glyphicon glyphicon-user"></span></a></li>
+							<li role="presentation"><a ng-href="#/main/{{routeLeft}}/start-group-chat"><span class="glyphicon glyphicon-user"></span><span class="glyphicon glyphicon-user"></span></a></li>
+						</ul>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
+<div class="setting_content">
+	
+</div>

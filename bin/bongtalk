@@ -1,70 +1,23 @@
 #!/usr/bin/env node
 
-var cluster = require('cluster');
-var util = require('util');
 var BongtalkServer = require('../BongtalkServer').BongtalkServer;
 var config = require('../config');
 
 var command = require('optimist')
-	.usage('Usage : $0 --port [num] --redisurl [url] --instance [num] --single --socketonly --debug')
+	.usage('Usage : $0 --port [num] --mongodb [url] --redis [url] --secret [string]')
 	.alias('p', 'port')
-	.alias('r', 'redisurl')
-	.alias('i', 'instance')
-	.alias('d', 'debug')
-	.alias('s', 'single')
-	.alias('o', 'socketonly')
-	.alias('w', 'websocket')
+	.alias('m', 'mongodb')
+	.alias('r', 'redis')
+	.alias('s', 'secret')
 	.check(function (argv){
 		if (argv.p && isNaN(argv.p)){
 			throw 'port must be Number.'
 		}
-		if (argv.i && isNaN(argv.i)){
-			throw 'instance count must be Number.';
-		}
 	});
 
 config.servicePort = process.env.PORT || command.argv.p || Number(config.servicePort) || 3000;
-config.redisUrl = process.env.REDISCLOUD_URL || command.argv.r || config.redisUrl || 'redis://localhost';
-config.isDebug = command.argv.d || config.isDebug || false;
-config.single = command.argv.s || config.single || false;
-config.websocket = command.argv.w || config.websocket || false;
-config.instanceCount = Number(command.argv.i || config.instanceCount || require('os').cpus().length)
-config.isSocketOnly = command.argv.o || config.isSocketOnly || false;
+config.mongodbUrl = command.argv.m || config.mongodbUrl || 'mongodb://127.0.0.1/bongtalk';
+config.redisUrl = command.argv.r || config.redisUrl;
+config.secret = command.argv.s || config.secret || 'defaultSecret';
 
-if (!config.single && cluster.isMaster) {
-	util.log('master('+process.pid+') started');
-	util.log(util.inspect(config, {colors:true}));
-	cluster.setupMaster({
-		execArgv: process.execArgv.filter(function(s) { return s !== '--debug' })
-	});
-
-	var debugPortIndex = 0;
-
-	// Fork workers.
-	for (var i = 0; i < config.instanceCount; i++) {
-		if (config.isDebug) cluster.settings.execArgv.push('--debug=' + (5859 + debugPortIndex++));
-		cluster.fork();
-		if (config.isDebug) cluster.settings.execArgv.pop();
-	}
-
-	cluster.on('listening', function(worker, address) {
-		util.log("worker(pid:"+worker.process.pid+") is now listening " + address.address + ":" + address.port);
-	});
-
-	cluster.on('exit', function(worker, code, signal) {
-		if( signal ) {
-			util.log("worker(pid:"+worker.process.pid+") was killed by signal: "+signal);
-		} else if( code !== 0 ) {
-			util.log("worker(pid:"+worker.process.pid+") exited with error code: "+code);
-		} else {
-			util.log("worker(pid:"+worker.process.pid+") success!");
-		}
-		util.log('restarting...');
-
-		if (config.isDebug) cluster.settings.execArgv.push('--debug=' + (5859 + debugPortIndex++));
-		cluster.fork();
-		if (config.isDebug) cluster.settings.execArgv.pop();
-	});
-} else {
-	new BongtalkServer(config).run();
-}
+new BongtalkServer(config).run();

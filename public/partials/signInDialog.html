@@ -1,0 +1,73 @@
+<div class="layout_table">
+	<div class="layout_table-cell_vertical-middle">
+		<div class="container-fluid">
+
+			<!-- for Desktop -->
+			<div class="row hidden-xs">
+				<div class="col-lg-offset-3 col-lg-6 col-md-offset-2 col-md-8 col-sm-offset-1 col-sm-10">
+					<div class="row">
+						<h1>Sign in</h1>
+					</div>
+					<div class="row">
+						<div class="input-group">
+							<span class="input-group-btn">
+								<button type="button" class="btn btn-default btn-lg" ng-click="goBack()">
+								  <span class="glyphicon glyphicon-chevron-left" ></span>
+								</button>
+							</span>
+							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+								<input type="text" class="form-control input-lg" placeholder="Enter User ID" ng-model="userId" ng-change="userIdChanged()" autofocus required>
+								<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+							</div>
+							<span class="input-group-btn" style="width:0px;"></span>
+							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+								<input type="password" class="form-control input-lg" placeholder="and Password" ng-model="password" ng-change="passwordChanged()" required>
+								<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+							</div>		
+							<span class="input-group-btn">	
+								<button class="btn btn-warning btn-lg" type="button" ng-click="signIn()" ng-disabled="userIdValidationStatus!='success'||passwordValidationStatus!='success'">Sign in</button>
+							</span>
+						</div>
+					</div>
+					<div class="row">
+						<h1>&nbsp</h1>
+					</div>
+				</div>
+			</div>
+
+			
+			<!-- for Mobile -->
+			<div class="row hidden-lg hidden-md hidden-sm">
+				<div class="col-xs-offset-1 col-xs-10">
+					<h2>Sign in</h2>
+				</div>
+			</div>
+			<div class="row hidden-lg hidden-md hidden-sm">
+				<div class="col-xs-offset-1 col-xs-10">
+					<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+						<input type="text" class="form-control input-md" placeholder="Enter User ID" ng-model="userId" ng-change="userIdChanged()" autofocus required>
+						<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+					</div>
+				</div>
+			</div>
+			<div class="row hidden-lg hidden-md hidden-sm margin-top-05">
+				<div class="col-xs-offset-1 col-xs-10">
+					<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[loginResult]]">
+						<input type="password" class="form-control input-md" placeholder="Enter Password" ng-model="password" ng-change="passwordChanged()" required>
+						<span ng-if="loginResult" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[loginResult]]" aria-hidden="true"></span>
+					</div>	
+				</div>
+			</div>
+			<div class="row hidden-lg hidden-md hidden-sm margin-top-10">
+				<div class="col-xs-offset-1 col-xs-10">
+					<button class="btn btn-warning btn-md pull-right" type="button" ng-click="signIn()" ng-disabled="userIdValidationStatus!='success'||passwordValidationStatus!='success'">Sign in</button>
+				</div>
+			</div>
+			<div class="row hidden-lg hidden-md hidden-sm">
+				<div class="col-xs-offset-1 col-xs-10">
+					<h2>&nbsp</h2>
+				</div>
+			</div>
+		</div>
+	</div>
+</div>
