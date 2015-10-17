@@ -1,6 +1,6 @@
 {
   "name": "bongtalk",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "scripts": {
     "postinstall": "bower install",
     "start": "node bin/bongtalk"
@@ -8,7 +8,7 @@
   "dependencies": {
     "async": "^1.4.2",
     "body-parser": "^1.14.1",
-    "bower": "~1.5.3",
+    "bower": "~1.6.3",
     "cookie-parser": "~1.4.0",
     "debug": "^2.2.0",
     "ejs": "^2.3.4",
@@ -16,10 +16,10 @@
     "express": "^4.13.3",
     "jsonwebtoken": "^5.4.0",
     "method-override": "~2.3.5",
-    "mongodb": "^2.0.45",
+    "mongodb": "^2.0.46",
     "morgan": "^1.6.1",
     "optimist": "^0.6.1",
-    "qufox": "^0.2.1"
+    "qufox": "^0.2.2"
   },
   "bin": {
     "bongtalk": "./bin/bongtalk"
