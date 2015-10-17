@@ -16,7 +16,7 @@ $ [sudo] npm install bongtalk -g
 
 ### Execute server on command line
 ```
-Usage : bongtalk -p [num] -r [url] -i [num]  -s -o
+Usage : bongtalk -p [num] -m [url] -r [url] -s [string]
 
 Options:
   -p, --port        listen port (Default: 3000)
