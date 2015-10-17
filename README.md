@@ -28,7 +28,7 @@ Options:
 ```json
 {
 	"servicePort" : "3000",
-	"mongodbUrl" : "mongodb://127.0.0.1/bongtalk"
+	"mongodbUrl" : "mongodb://127.0.0.1/bongtalk",
 	"secret" : "enterYourSecretString"
 }
 ```
