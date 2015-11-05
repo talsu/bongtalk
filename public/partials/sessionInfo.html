@@ -10,7 +10,7 @@
 				</div>
 			</div>
 			<div class="col-xs-6 height-max margin-top-03">
-				<h4 class="text-align-center overflow_text_hide">{{session.name}}</h4>
+				<h4 class="text-align-center overflow_text_hide">{{currentSession.name}}</h4>
 			</div>
 			<div class="col-xs-3 height-max">
 				
@@ -22,13 +22,13 @@
     <div class="container-fluid margin-top-15">        
         <div class="row">
             <div class="col-xs-12 col-sm-offset-2 col-sm-8">
-                <h4>{{session.users.length}} Users</h4>
+                <h4>{{currentSession.users.length}} Users</h4>
             </div>
         </div>
         <div class="row">
             <div class="col-xs-12 col-sm-offset-2 col-sm-8">
                 <div class="list-group">
-                    <a ng-class="['list-group-item']" ng-repeat="user in session.users">
+                    <a ng-class="['list-group-item']" ng-repeat="user in currentSession.users">
                         <div class="row">
                             <div class="col-xs-12">
                                 <h4 class="list-group-item-heading">{{user.name}}</h4>                                                             

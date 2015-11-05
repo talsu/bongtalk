@@ -161,7 +161,10 @@ exports.BongtalkServer = (function(){
 		apiRoutes.use(function(req, res, next) {
 
 			// check header or url parameters or post parameters for token
-			var token = req.body.token || req.query.token || req.headers['x-access-token'];
+            var token = req.body.token || req.query.token || req.headers['x-access-token'];
+            if (!token && req.cookies['auth_token']) {
+                token = JSON.parse(req.cookies['auth_token']).token;
+            }
 			// decode token
 			if (token) {
 				// verifies secret and checks exp

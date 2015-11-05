@@ -1,11 +1,156 @@
-(function(){
+(function () {
+    "use strict";
+    
+    this.BongtalkClient2 = function ($http) { return new BongtalkClient2($http); };
+    
+    var BongtalkClient2 = (function () {
+        function BongtalkClient2($http) {
+            this.$http = $http;
+        }
+                
+        BongtalkClient2.prototype.getMyInfo = function (callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/user'
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        BongtalkClient2.prototype.getUserSessions = function (userId, callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/users/' + userId + '/sessions'
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        BongtalkClient2.prototype.getTelegrams = function (sessionId, ltTime, count, callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/sessions/' + sessionId + '/telegrams',
+                params: { ltTime: ltTime, count: count }
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        
+        BongtalkClient2.prototype.getSessionUsers = function (sessionId, callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/sessions/' + sessionId + '/users'
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        // Telegram
+        BongtalkClient2.prototype.addTelegram = function (sessionId, userName, type, subType, data, callback) {
+            this.$http({
+                method: 'POST',
+                url: 'api/sessions/' + sessionId + '/telegrams',
+                data: { userName: userName, type: type, subType: subType, data: data }
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        BongtalkClient2.prototype.getPublicSessions = function (callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/sessions/type/public'
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+        
+        // Session
+        BongtalkClient2.prototype.addSession = function (name, type, users, callback) {            
+            var sessionUsers = [];
+            if (_.isString(users)) {
+                sessionUsers.push(users);
+            } else if (_.isArray(users)) {
+                _.each(users, function (userId) {
+                    if (!_.contains(sessionUsers, userId)) sessionUsers.push(userId);
+                });
+            }
+            
+            this.$http({
+                method: 'POST',
+                url: 'api/sessions',
+                data: { name: name, type: type, users: sessionUsers }
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+
+        return BongtalkClient2;
+    })();
+    
+    
+    function randomString(length) {
+        var letters = 'abcdefghijklmnopqrstuvwxyz';
+        var numbers = '1234567890';
+        var charset = letters + letters.toUpperCase() + numbers;
+        
+        function randomElement(array) {
+            return array[Math.floor(Math.random() * array.length)];
+        }
+        
+        var result = '';
+        for (var i = 0; i < length; i++)
+            result += randomElement(charset);
+        return result;
+    }    
+
+}.call(this));
+
+
+
+(function (){
 	"use strict";
 
-	this.Bongtalk = function (url) { return new BongtalkClient(Qufox(url)); };
+	this.Bongtalk = function () { return new BongtalkClient(); };
 
 	var BongtalkClient = (function(){
-		function BongtalkClient (qufox){			
-			this.qufox = qufox;
+		function BongtalkClient (){						
 			this.token = null;
 			this.tokenExpire = null;
 			this.privateEventEmitter = new EventEmitter();
