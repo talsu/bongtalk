@@ -9,139 +9,72 @@
 		}
 
 		BongtalkClient2.prototype.getMyInfo = function (callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/user'
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.setMyInfo = function (userId, data, callback) {
-			var self = this;
-			this.$http({
+			this.commonRequest({
 				method: 'PUT',
 				url: 'api/users/' + userId,
 				data: data
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.changePassword = function (currentPassword, newPassword, callback) {
-			var self = this;
-			this.$http({
+			this.commonRequest({
 				method: 'POST',
 				url: 'api/changePassword',
 				data: {currentPassword:currentPassword, newPassword:newPassword}
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
-
 		BongtalkClient2.prototype.getUserSessions = function (userId, callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/users/' + userId + '/sessions'
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.getSessionUsers = function (sessionId, callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/sessions/' + sessionId + '/users'
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		// Telegram
 		BongtalkClient2.prototype.getTelegrams = function (sessionId, ltTime, count, callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/sessions/' + sessionId + '/telegrams',
 				params: { ltTime: ltTime, count: count }
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.addTelegram = function (sessionId, userName, type, subType, data, callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'POST',
 				url: 'api/sessions/' + sessionId + '/telegrams',
 				data: { userName: userName, type: type, subType: subType, data: data }
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.getPublicSessions = function (callback) {
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/sessions/type/public'
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		// Session
 		BongtalkClient2.prototype.getSession = function (sessionId, callback) {
-			var self = this;
-			this.$http({
+			this.commonRequest({
 				method: 'GET',
 				url: 'api/sessions/' + sessionId
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.createSession = function (name, type, users, callback) {
@@ -154,27 +87,60 @@
 				});
 			}
 
-			this.$http({
+			this.commonRequest({
 				method: 'POST',
 				url: 'api/sessions',
 				data: { name: name, type: type, users: sessionUsers }
-			}).then(
-				function success(response) {
-					callback(response.data.err, response.data.result);
-				},
-				function error(response) {
-					callback(response.data, null);
-				}
-			);
+			}, callback);
 		};
 
 		BongtalkClient2.prototype.joinSession = function (sessionId, callback) {
-			var self = this;
-			this.$http({
+			this.commonRequest({
 				method: 'POST',
 				url: 'api/sessions/' + sessionId + '/users',
 				data: {}
-			}).then(
+			}, callback);
+		};
+
+		// for Admin (only working with admin account)
+		BongtalkClient2.prototype.admin_getAllUser = function (callback) {
+			this.commonRequest({
+				method: 'GET',
+				url: 'api/admin/users',
+			}, callback);
+		};
+
+
+		BongtalkClient2.prototype.admin_removeUser = function (userId, callback) {
+			this.commonRequest({
+				method: 'DELETE',
+				url: 'api/admin/users/' + userId,
+			}, callback);
+		};
+
+		BongtalkClient2.prototype.admin_getAllSession = function (callback) {
+			this.commonRequest({
+				method:'GET',
+				url:'api/admin/sessions'
+			}, callback);
+		};
+
+		BongtalkClient2.prototype.admin_getSession = function (sessionId, callback) {
+			this.commonRequest({
+				method:'GET',
+				url:'api/admin/sessions/' + sessionId
+			}, callback);
+		};
+
+		BongtalkClient2.prototype.admin_removeSession = function (sessionId, callback){
+			this.commonRequest({
+				method:'DELETE',
+				url:'api/admin/sessions/' + sessionId
+			}, callback);
+		};
+
+		BongtalkClient2.prototype.commonRequest = function (httpReq, callback){
+			this.$http(httpReq).then(
 				function success(response) {
 					callback(response.data.err, response.data.result);
 				},
@@ -182,8 +148,7 @@
 					callback(response.data, null);
 				}
 			);
-		};
-
+		}
 
 		return BongtalkClient2;
 	})();

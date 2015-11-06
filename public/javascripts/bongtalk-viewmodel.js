@@ -218,7 +218,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       // remove from SessionList
       var index = _.findIndex(self.data.sessionList, function (s) { return s._id == sessionId; });
       if (index > -1) {
-        var session = $scope.sessions.splice(index, 1);
+        var session = self.data.sessionList.splice(index, 1);
         if (session) {
           self.qufox.leave('session:' + session._id);
         }
@@ -249,6 +249,12 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           break;
           case 'leaveSession':
           self.removeSession(packet.object);
+          // if your url in receive session, leave.
+          if (self.$routeParams.left == 'chats'
+            && (self.$routeParams.right == 'session' || self.$routeParams.right == 'session-info')
+            && self.$routeParams.param == packet.object) {
+            self.$location.path('/main/chats');
+          }
           break;
         }
       });

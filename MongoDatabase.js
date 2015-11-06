@@ -1,4 +1,4 @@
-var format = require('util').format;    
+var format = require('util').format;
 var debug = require('debug')('bongtalk:Database');
 var MongoClient = require('mongodb').MongoClient;
 var ObjectID = require('mongodb').ObjectID;
@@ -153,6 +153,7 @@ module.exports = (function() {
 
 		self.getSession(sessionId, function (err, result){
 			if (err) { callback(err, result); return; }
+			if (!result) { callback('Not exist session : ' + sessionId, null); return; }
 			debug('[remove session] session has ' + result.users + ' users.');
 			result.users = result.users || [];
 			async.each(result.users, function (userId, callback){
