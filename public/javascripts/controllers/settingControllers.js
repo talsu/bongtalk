@@ -1,42 +1,48 @@
 bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
-	function($scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {		
+	function($scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {
 		$scope.routeLeft = $routeParams.left;
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
-		$scope.user = {};
-
-		if (bongtalk.user) {
-			init();
-		}
-		else {
-			bongtalk.signInReady(function (user) {
-				$scope.$apply(function () { init(); });
-			});			
-		}
-
-		function init() {
-			$scope.user = bongtalk.user;
-		}
-
-		bongtalk.signInReady(function (user) {
-			if (user){
-				// $scope.$apply(function() { $scope.user = user; });
-				
-			}
-		});
-		
-
-		// Sync username
-		bongtalk.on('setMyInfo', onSetMyInfo);
-		$scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
-		function onSetMyInfo(data){
-			$scope.$apply(function() { $scope.user = bongtalk.user; });
-		}
+		//
+		// $scope.vm.ready(function() {
+		// 	init();
+		// });
+		//
+		// $scope.user = {};
+		//
+		//
+		// if (bongtalk.user) {
+		// 	init();
+		// }
+		// else {
+		// 	bongtalk.signInReady(function (user) {
+		// 		$scope.$apply(function () { init(); });
+		// 	});
+		// }
+		//
+		// function init() {
+		// 	$scope.user = bongtalk.user;
+		// }
+		//
+		// bongtalk.signInReady(function (user) {
+		// 	if (user){
+		// 		// $scope.$apply(function() { $scope.user = user; });
+		//
+		// 	}
+		// });
+		//
+		//
+		// // Sync username
+		// bongtalk.on('setMyInfo', onSetMyInfo);
+		// $scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
+		// function onSetMyInfo(data){
+		// 	$scope.$apply(function() { $scope.user = bongtalk.user; });
+		// }
 	}]);
 
 
-bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'validator',
+	function($scope, $location, $routeParams, $http, ngDialog, validator) {
 		$scope.routeLeft = $routeParams.left || 'chats';
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
@@ -49,47 +55,21 @@ bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location',
 		};
 
 		$scope.setUsername = function () {
-			bongtalk.setMyInfo({name:$scope.user.name}, function (res){
-				if (res.err) {alert(err); return;}
-				if (res.result.ok) {					
-					$scope.$apply(function(){ 
-						$scope.userNameValidationStatus = 'success';
-						$scope.userNameValidationComment = 'Set username success.';
-					});
-				}
+			$scope.vm.setMyInfo({name:$scope.user.name}, function (err, result){
+				if (err) {alert(err); return;}
+				$scope.userNameValidationStatus = 'success';
+				$scope.userNameValidationComment = 'Set username success.';
 			});
 		}
 
-		if (bongtalk.user) {
-			init();
-		}
-		else {
-			bongtalk.signInReady(function (user) {
-				$scope.$apply(function () { init(); });
-			});			
-		}
-
-		function init() {
-			$scope.currentUserName = bongtalk.user.name;
-		}
-
-		// Sync username
-		bongtalk.on('setMyInfo', onSetMyInfo);
-		$scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
-		function onSetMyInfo(data){
-			$scope.$apply(function() { 
-				$scope.currentUserName = bongtalk.user.name; 
-
-				if ($scope.routeParam == 'first') {
-					$location.path('/main/' + $scope.routeLeft + '/start-public-chat');
-				}
-			});
-		}
+		$scope.vm.ready(function() {
+			$scope.currentUserName = $scope.vm.data.user.name;
+		});
 	}]);
 
 
-bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'bongtalk', 'validator',
-	function($scope, $location, $routeParams, $http, ngDialog, bongtalk, validator) {
+bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'apiClient', 'validator',
+	function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator) {
 		$scope.currentPasswordValidationStatus = '';
 		$scope.newPasswordValidationStatus = '';
 		$scope.confirmPasswordValidationStatus = '';
@@ -104,7 +84,7 @@ bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location',
 			$scope.newPasswordChanged();
 		};
 
-		$scope.newPasswordChanged = function (){			
+		$scope.newPasswordChanged = function (){
 			var result = validator.validatePassword($scope.user.newPassword);
 			$scope.newPasswordValidationStatus = result.status;
 			$scope.validationComment = result.comment;
@@ -120,41 +100,41 @@ bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location',
 				$scope.confirmPasswordValidationStatus = 'success';
 			}
 			else {
-				$scope.confirmPasswordValidationStatus = 'error';				
+				$scope.confirmPasswordValidationStatus = 'error';
 			}
 
 		};
 
 		$scope.isDisableChangePassword = function () {
-			return !$scope.user.currentPassword || 
-			$scope.newPasswordValidationStatus != 'success' || 
+			return !$scope.user.currentPassword ||
+			$scope.newPasswordValidationStatus != 'success' ||
 			$scope.confirmPasswordValidationStatus != 'success';
 		}
 
 		$scope.setPassword = function () {
 			if (!$scope.isDisableChangePassword()){
-				bongtalk.changePassword($scope.user.currentPassword, $scope.user.newPassword, function (res){
-					$scope.$apply(function(){
-						if (res.err) {
+				apiClient.changePassword($scope.user.currentPassword, $scope.user.newPassword, function (err, result){
+					// $scope.$apply(function(){
+						if (err) {
 							$scope.user.newPassword = '';
 							$scope.user.confirmPassword = '';
 							$scope.currentPasswordValidationStatus = 'error';
 							$scope.newPasswordValidationStatus = '';
 							$scope.confirmPasswordValidationStatus = '';
-							$scope.validationComment = res.err;
+							$scope.validationComment = err;
 						}
-						else if (res.result.ok) {
+						else if (result.ok) {
 							$scope.user = {
 								currentPassword:'',
 								newPassword:'',
 								confirmPassword:''
-							};		
+							};
 							$scope.currentPasswordValidationStatus = 'success';
 							$scope.newPasswordValidationStatus = '';
 							$scope.confirmPasswordValidationStatus = '';
 							$scope.validationComment = 'Change password success.';
 						}
-					});
+					// });
 				});
 			}
 		};

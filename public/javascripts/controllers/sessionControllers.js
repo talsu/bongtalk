@@ -3,12 +3,12 @@ bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams
 		$scope.routeLeft = $routeParams.left;
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
-		
+
 	}]);
 
 
 bongtalkControllers.controller('SessionInfoController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $location, bongtalk, emitter) {	
+	function($scope, $routeParams, $location, bongtalk, emitter) {
 		$scope.routeLeft = $routeParams.left;
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
@@ -17,42 +17,64 @@ bongtalkControllers.controller('SessionInfoController', ['$scope', '$routeParams
         $scope.vm.ready(function () {
             init();
         });
-        
+
         function init() {
             if (currentSessionId) {
                 if (!angular.isArray($scope.vm.data.sessionList)) { $location.path('/main/' + $scope.routeLeft); return; }
                 var currentSession = _.find($scope.vm.data.sessionList, function (session) { return session._id == currentSessionId; });
-                if (!currentSession) { $location.path('/main/' + $scope.routeLeft); return; }
-                
-                $scope.currentSession = currentSession;
-
-                $scope.vm.loadUsers(currentSession);
+								if (currentSession) {
+									$scope.currentSession = currentSession;
+	                $scope.vm.loadUsers(currentSession);
+								}
+								else {
+									$scope.vm.joinSession(currentSessionId, function (err, result){
+										if (err) {
+											alert(err);
+											$location.path('/main/' + $scope.routeLeft); return;
+										}
+										else {
+											$scope.currentSession = result;
+											$scope.vm.loadUsers(currentSession);
+										}
+									});
+								}
             }
-        }		
+        }
 	}]);
 
 
 bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
-	function($scope, $routeParams, $location, bongtalk, emitter) {	
+	function($scope, $routeParams, $location, bongtalk, emitter) {
 		$scope.routeLeft = $routeParams.left;
 		$scope.routeRight = $routeParams.right;
-        $scope.routeParam = $routeParams.param;        
+        $scope.routeParam = $routeParams.param;
         var currentSessionId = $scope.routeParam;
         $scope.input = {};
 
         $scope.vm.ready(function () {
             init();
         });
-        
+
         function init() {
             if (currentSessionId) {
                 if (!angular.isArray($scope.vm.data.sessionList)) { $location.path('/main/chats'); return; }
                 var currentSession = _.find($scope.vm.data.sessionList, function (session) { return session._id == currentSessionId; });
-                if (!currentSession) { $location.path('/main/chats'); return; }
-
-                $scope.currentSession = currentSession;
-                                
-                $scope.vm.loadTelegrams(currentSession);
+                if (currentSession) {
+									$scope.currentSession = currentSession;
+	                $scope.vm.loadTelegrams(currentSession);
+								}
+								else {
+									$scope.vm.joinSession(currentSessionId, function (err, result){
+										if (err) {
+											alert(err);
+											$location.path('/main/chats'); return;
+										}
+										else {
+											$scope.currentSession = result;
+											$scope.vm.loadTelegrams(result);
+										}
+									});
+								}
             }
 		}
 
@@ -66,18 +88,18 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 			if (!$scope.input.text){
 				return;
 			}
-			
+
 			var telegram = {
 				_id:randomString(8),
 				sessionId:$scope.currentSession._id,
-				userId:$scope.vm.data.user.id, 
+				userId:$scope.vm.data.user.id,
 				userName:$scope.vm.data.user.name,
 				type:'talk',
 				subType:'text',
-				data:$scope.input.text, 
+				data:$scope.input.text,
 				time:(new Date()).getTime()
 			};
-            
+
             $scope.input.text = '';
             $scope.vm.sendTelegram($scope.currentSession, telegram);
 		};
@@ -94,7 +116,7 @@ bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '
 			var numbers = '1234567890';
 			var charset = letters + letters.toUpperCase() + numbers;
 
-			function randomElement(array) {			
+			function randomElement(array) {
 				return array[Math.floor(Math.random()*array.length)];
 			}
 

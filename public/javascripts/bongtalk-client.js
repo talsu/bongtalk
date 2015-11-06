@@ -1,13 +1,13 @@
 (function () {
     "use strict";
-    
+
     this.BongtalkClient2 = function ($http) { return new BongtalkClient2($http); };
-    
+
     var BongtalkClient2 = (function () {
         function BongtalkClient2($http) {
             this.$http = $http;
         }
-                
+
         BongtalkClient2.prototype.getMyInfo = function (callback) {
             this.$http({
                 method: 'GET',
@@ -16,12 +16,45 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+								function error(response) {
                     callback(response.data, null);
                 }
             );
         };
-        
+
+				BongtalkClient2.prototype.setMyInfo = function (userId, data, callback) {
+					var self = this;
+					this.$http({
+							method: 'PUT',
+							url: 'api/users/' + userId,
+							data: data
+					}).then(
+							function success(response) {
+									callback(response.data.err, response.data.result);
+							},
+							function error(response) {
+									callback(response.data, null);
+							}
+					);
+				};
+
+				BongtalkClient2.prototype.changePassword = function (currentPassword, newPassword, callback) {
+					var self = this;
+					this.$http({
+							method: 'POST',
+							url: 'api/changePassword',
+							data: {currentPassword:currentPassword, newPassword:newPassword}
+					}).then(
+							function success(response) {
+									callback(response.data.err, response.data.result);
+							},
+							function error(response) {
+									callback(response.data, null);
+							}
+					);
+				};
+
+
         BongtalkClient2.prototype.getUserSessions = function (userId, callback) {
             this.$http({
                 method: 'GET',
@@ -30,12 +63,27 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+	              function error(response) {
                     callback(response.data, null);
                 }
             );
         };
-        
+
+        BongtalkClient2.prototype.getSessionUsers = function (sessionId, callback) {
+            this.$http({
+                method: 'GET',
+                url: 'api/sessions/' + sessionId + '/users'
+            }).then(
+                function success(response) {
+                    callback(response.data.err, response.data.result);
+                },
+				        function error(response) {
+                    callback(response.data, null);
+                }
+            );
+        };
+
+        // Telegram
         BongtalkClient2.prototype.getTelegrams = function (sessionId, ltTime, count, callback) {
             this.$http({
                 method: 'GET',
@@ -45,28 +93,12 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+				        function error(response) {
                     callback(response.data, null);
                 }
             );
         };
-        
-        
-        BongtalkClient2.prototype.getSessionUsers = function (sessionId, callback) {
-            this.$http({
-                method: 'GET',
-                url: 'api/sessions/' + sessionId + '/users'
-            }).then(
-                function success(response) {
-                    callback(response.data.err, response.data.result);
-                },
-				function error(response) {
-                    callback(response.data, null);
-                }
-            );
-        };
-        
-        // Telegram
+
         BongtalkClient2.prototype.addTelegram = function (sessionId, userName, type, subType, data, callback) {
             this.$http({
                 method: 'POST',
@@ -76,12 +108,12 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+				        function error(response) {
                     callback(response.data, null);
                 }
             );
         };
-        
+
         BongtalkClient2.prototype.getPublicSessions = function (callback) {
             this.$http({
                 method: 'GET',
@@ -90,14 +122,29 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+				        function error(response) {
                     callback(response.data, null);
                 }
             );
         };
-        
+
         // Session
-        BongtalkClient2.prototype.addSession = function (name, type, users, callback) {            
+        BongtalkClient2.prototype.getSession = function (sessionId, callback) {
+    			var self = this;
+          this.$http({
+              method: 'GET',
+              url: 'api/sessions/' + sessionId
+          }).then(
+              function success(response) {
+                  callback(response.data.err, response.data.result);
+              },
+              function error(response) {
+                  callback(response.data, null);
+              }
+          );
+    		};
+
+        BongtalkClient2.prototype.createSession = function (name, type, users, callback) {
             var sessionUsers = [];
             if (_.isString(users)) {
                 sessionUsers.push(users);
@@ -106,7 +153,7 @@
                     if (!_.contains(sessionUsers, userId)) sessionUsers.push(userId);
                 });
             }
-            
+
             this.$http({
                 method: 'POST',
                 url: 'api/sessions',
@@ -115,30 +162,47 @@
                 function success(response) {
                     callback(response.data.err, response.data.result);
                 },
-				function error(response) {
+				        function error(response) {
                     callback(response.data, null);
                 }
             );
         };
 
+        BongtalkClient2.prototype.joinSession = function (sessionId, callback) {
+    			var self = this;
+          this.$http({
+              method: 'POST',
+              url: 'api/sessions/' + sessionId + '/users',
+              data: {}
+          }).then(
+              function success(response) {
+                  callback(response.data.err, response.data.result);
+              },
+              function error(response) {
+                  callback(response.data, null);
+              }
+          );
+    		};
+
+
         return BongtalkClient2;
     })();
-    
-    
+
+
     function randomString(length) {
         var letters = 'abcdefghijklmnopqrstuvwxyz';
         var numbers = '1234567890';
         var charset = letters + letters.toUpperCase() + numbers;
-        
+
         function randomElement(array) {
             return array[Math.floor(Math.random() * array.length)];
         }
-        
+
         var result = '';
         for (var i = 0; i < length; i++)
             result += randomElement(charset);
         return result;
-    }    
+    }
 
 }.call(this));
 
@@ -150,7 +214,7 @@
 	this.Bongtalk = function () { return new BongtalkClient(); };
 
 	var BongtalkClient = (function(){
-		function BongtalkClient (){						
+		function BongtalkClient (){
 			this.token = null;
 			this.tokenExpire = null;
 			this.privateEventEmitter = new EventEmitter();
@@ -162,12 +226,12 @@
 		// BongtalkClient.prototype.getAllChannel = function (callback) {
 		// 	$.ajax({
 		// 		type: "GET",
-		// 		url: "getAllChannel",						
+		// 		url: "getAllChannel",
 		// 		dataType: "json",
-		// 		success: function (response) { 
+		// 		success: function (response) {
 		// 			if (isFunction(callback)) callback(response);
 		// 		},
-		// 		error: function (err) { 
+		// 		error: function (err) {
 		// 			if (isFunction(callback)) callback({err:err});
 		// 		},
 		// 		complete: function () { }
@@ -177,7 +241,7 @@
 		// BongtalkClient.prototype.addUser = function (userName, callback) {
 		// 	ajaxPost('addUser', {userName:userName}, callback);
 		// };
- 
+
  	// 	BongtalkClient.prototype.getUser = function (userId, callback) {
 		// 	ajaxPost('getUser', {userId:userId}, callback);
 		// };
@@ -185,7 +249,7 @@
 		// BongtalkClient.prototype.setUser = function (userId, property, value, callback) {
 		// 	ajaxPost('setUser', {userId:userId, property:property, value:value}, callback);
 		// };
-		
+
 		BongtalkClient.prototype.on = function (eventName, callback) {
 			this.privateEventEmitter.on(eventName, callback);
 		};
@@ -194,7 +258,7 @@
 			this.privateEventEmitter.off(eventName, callback);
 		};
 
-		BongtalkClient.prototype.emit = function (name, object) {			
+		BongtalkClient.prototype.emit = function (name, object) {
 			this.emitToUser(this.user.id, name, object);
 		};
 
@@ -202,7 +266,7 @@
 			var self = this;
 			self.qufox.send('private:' + userId, {name:name, object:object}, function (res){
 				if (self.user.id == userId) {
-					self.privateEventEmitter.emit(name, object);	
+					self.privateEventEmitter.emit(name, object);
 				}
 			});
 		};
@@ -214,7 +278,7 @@
 					if (data) {
 							for (var property in data) {
 							self.user[property] = data[property];
-						}	
+						}
 					}
 				});
 
@@ -234,7 +298,7 @@
 				// listen private session
 				self.qufox.join('private:' + self.user.id, function (data){
 					if (data.name && data.object){
-						self.privateEventEmitter.emit(data.name, data.object);	
+						self.privateEventEmitter.emit(data.name, data.object);
 					}
 				});
 			}
@@ -300,7 +364,7 @@
 				if (self.signInReadyCallback.length > 0){
 					_.each(self.signInReadyCallback, function (readyCallback){
 						readyCallback(self.user);
-					});	
+					});
 				}
 			});
 		};
@@ -381,7 +445,7 @@
 					}
 					_.each(res.result.users, function (userId) {
 						self.emitToUser(userId, 'joinSession', res.result._id);
-					});					
+					});
 				}
 				callback(res);
 			});
@@ -396,7 +460,7 @@
 				callback(res);
 			});
 		};
-		
+
 		BongtalkClient.prototype.getSessionUsers = function (sessionId, callback) {
 			ajaxAuthGet('api/sessions/' + sessionId+ '/users', this.token, {}, callback);
 		};
@@ -404,7 +468,7 @@
 		BongtalkClient.prototype.getPublicSessions = function (callback) {
 			ajaxAuthGet('api/sessions/type/public', this.token, {}, callback);
 		};
-		
+
 		BongtalkClient.prototype.joinSession = function (sessionId, callback) {
 			var self = this;
 			ajaxAuthPost('api/sessions/'+sessionId+'/users', this.token, {}, function (res){
@@ -432,7 +496,7 @@
 		// Telegram
 		BongtalkClient.prototype.addTelegram = function (sessionId, type, subType, data, callback){
 			var self = this;
-			ajaxAuthPost('api/sessions/'+sessionId+'/telegrams', this.token, 
+			ajaxAuthPost('api/sessions/'+sessionId+'/telegrams', this.token,
 				{userName:self.user.name, type:type, subType:subType, data:data}, function (res){
 					if (res.err || !res.result){
 						callback(res)
@@ -443,19 +507,19 @@
 							self.sessionEventEmitter.emit(key, res.result);
 							callback(res);
 						});
-					}					
+					}
 				});
 		};
 
 		BongtalkClient.prototype.getTelegrams = function (sessionId, ltTime, count, callback){
 			ajaxAuthGet('api/sessions/'+sessionId+'/telegrams', this.token, {ltTime:ltTime, count:count}, callback);
-		};		
+		};
 
 		BongtalkClient.prototype.onTelegram = function (sessionId, echo, callback) {
 			var key = 'session:' + sessionId;
 			this.qufox.on(key, callback);
 			if (echo) {
-				this.sessionEventEmitter.on(key, callback);	
+				this.sessionEventEmitter.on(key, callback);
 			}
 		};
 
@@ -463,7 +527,7 @@
 			var key = 'session:' + sessionId;
 			this.qufox.off(key, callback);
 			if (echo) {
-				this.sessionEventEmitter.off(key, callback);	
+				this.sessionEventEmitter.off(key, callback);
 			}
 		};
 
@@ -485,7 +549,7 @@
 						});
 					}
 					callback(res);
-				});	
+				});
 			});
 		};
 
@@ -520,11 +584,11 @@
 	// 		ajaxPost('leaveChannel', {connectionId:connectionId});
 	// 	};
 
-	// 	Channel.prototype.getUser = function (userId, callback) {			
+	// 	Channel.prototype.getUser = function (userId, callback) {
 	// 		ajaxPost('getUserFromChannel', {channelId:this.channelId, userId:userId}, callback);
 	// 	};
 
-	// 	Channel.prototype.getUsers = function (callback) {			
+	// 	Channel.prototype.getUsers = function (callback) {
 	// 		ajaxPost('getUsersFromChannel', {channelId:this.channelId}, callback);
 	// 	};
 
@@ -549,7 +613,7 @@
 	// 	Channel.prototype.addNewTalk = function (data, callback) {
 	// 		var self = this;
 	// 		data.channelId = this.channelId;
-	// 		ajaxAndSend('addNewTalk', data, self.channelId, self.qufox, 'onNewTalk', callback);			
+	// 		ajaxAndSend('addNewTalk', data, self.channelId, self.qufox, 'onNewTalk', callback);
 	// 	};
 
 	// 	Channel.prototype.updateUser = function (data, callback) {
@@ -558,7 +622,7 @@
 	// 		ajaxAndSend('updateUser', data, self.channelId, self.qufox, 'onUpdateUser', callback);
 	// 	};
 
-	// 	Channel.prototype.joinChannel = function (callback) {			
+	// 	Channel.prototype.joinChannel = function (callback) {
 	// 		ajaxPost('joinChannel', {channelId:this.channelId}, callback);
 	// 	};
 
@@ -569,7 +633,7 @@
 
 
 	function ajaxAndSend(url, data, channelId, qufox, sendType, callback){
-		ajaxPost(url, data, 
+		ajaxPost(url, data,
 			function (res) {
 				qufox.send("channel-" + channelId, {type:sendType,data:res.result}, function (sendResult){
 					if (sendResult.err) res.err = sendResult.err;
@@ -586,10 +650,10 @@
 			url: url,
 			data: data,
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -604,10 +668,10 @@
 			data: JSON.stringify(data),
 			contentType: "application/json; charset=utf-8",
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -622,10 +686,10 @@
 			data: JSON.stringify(data),
 			contentType: "application/json; charset=utf-8",
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -640,10 +704,10 @@
 			data: JSON.stringify(data),
 			contentType: "application/json; charset=utf-8",
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -656,10 +720,10 @@
 			url: url,
 			data: data,
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -673,10 +737,10 @@
 			data: JSON.stringify(data),
 			contentType: "application/json; charset=utf-8",
 			dataType: "json",
-			success: function (response) { 
+			success: function (response) {
 				if (isFunction(callback)) callback(response);
 			},
-			error: function (err) { 
+			error: function (err) {
 				if (isFunction(callback)) callback({err:err});
 			},
 			complete: function () { }
@@ -688,7 +752,7 @@
 		var numbers = '1234567890';
 		var charset = letters + letters.toUpperCase() + numbers;
 
-		function randomElement(array) {			
+		function randomElement(array) {
 			return array[Math.floor(Math.random()*array.length)];
 		}
 

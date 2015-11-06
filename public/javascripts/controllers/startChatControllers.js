@@ -7,8 +7,8 @@ bongtalkControllers.controller('StartPublicChatController',  ['$scope', '$locati
 		$scope.routeParam = $routeParams.param;
 		$scope.session = {};
 		$scope.publicSessions = [];
-        
-        $scope.vm.ready(function () { 
+
+        $scope.vm.ready(function () {
             init();
         });
 
@@ -19,7 +19,7 @@ bongtalkControllers.controller('StartPublicChatController',  ['$scope', '$locati
 		};
 
         $scope.createChat = function () {
-            $scope.vm.createAndJoinChat($scope.session.name, 'public', function (err, result) {
+            $scope.vm.createAndJoinSession($scope.session.name, 'public', function (err, result) {
                 var session = result;
                 if (err) {
                     $scope.createChatNameValidationStatus = 'error';
@@ -33,7 +33,7 @@ bongtalkControllers.controller('StartPublicChatController',  ['$scope', '$locati
 		function init(){
             apiClient.getPublicSessions(function (err, result){
 				if (err) return;
-                $scope.publicSessions = result;	
+                $scope.publicSessions = result;
 			});
 		}
 	}]);
@@ -44,7 +44,7 @@ bongtalkControllers.controller('StartPersonalChatController',  ['$scope', '$loca
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
 		$scope.session = {};
-		
+
 		$scope.createChatNameChanged = function () {
 			var result = validator.validateSessionName($scope.session.name);
 			$scope.createChatNameValidationStatus = result.status;
@@ -52,12 +52,12 @@ bongtalkControllers.controller('StartPersonalChatController',  ['$scope', '$loca
 		};
 
 		$scope.createChat = function () {
-			bongtalk.addSession($scope.session.name, 'public', null, function (res) {	
+			bongtalk.addSession($scope.session.name, 'public', null, function (res) {
 				if (res.err) {
-					$scope.$apply(function(){ 
+					$scope.$apply(function(){
 						$scope.createChatNameValidationStatus = 'error';
 						$scope.createChatNameValidationComment = JSON.stringify(res.err);
-					});						
+					});
 					return;
 				}
 
@@ -72,11 +72,11 @@ bongtalkControllers.controller('StartPersonalChatController',  ['$scope', '$loca
 		else {
 			bongtalk.signInReady(function (user) {
 				$scope.$apply(function () { init(); });
-			});			
+			});
 		}
 
 		function init(){
-			
+
 		}
 	}]);
 
@@ -86,7 +86,7 @@ bongtalkControllers.controller('StartGroupChatController',  ['$scope', '$locatio
 		$scope.routeRight = $routeParams.right;
 		$scope.routeParam = $routeParams.param;
 		$scope.session = {};
-		
+
 		$scope.createChatNameChanged = function () {
 			var result = validator.validateSessionName($scope.session.name);
 			$scope.createChatNameValidationStatus = result.status;
@@ -94,12 +94,12 @@ bongtalkControllers.controller('StartGroupChatController',  ['$scope', '$locatio
 		};
 
 		$scope.createChat = function () {
-			bongtalk.addSession($scope.session.name, 'public', null, function (res) {	
+			bongtalk.addSession($scope.session.name, 'public', null, function (res) {
 				if (res.err) {
-					$scope.$apply(function(){ 
+					$scope.$apply(function(){
 						$scope.createChatNameValidationStatus = 'error';
 						$scope.createChatNameValidationComment = JSON.stringify(res.err);
-					});						
+					});
 					return;
 				}
 
@@ -114,10 +114,10 @@ bongtalkControllers.controller('StartGroupChatController',  ['$scope', '$locatio
 		else {
 			bongtalk.signInReady(function (user) {
 				$scope.$apply(function () { init(); });
-			});			
+			});
 		}
 
 		function init(){
-			
+
 		}
 	}]);
