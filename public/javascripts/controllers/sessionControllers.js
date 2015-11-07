@@ -1,5 +1,5 @@
-bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
-function($scope, $routeParams, $http, bongtalk, emitter) {
+bongtalkControllers.controller('SessionListController', ['$scope', '$routeParams', '$http', 'emitter',
+function($scope, $routeParams, $http, emitter) {
 	$scope.routeLeft = $routeParams.left;
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;
@@ -7,8 +7,8 @@ function($scope, $routeParams, $http, bongtalk, emitter) {
 }]);
 
 
-bongtalkControllers.controller('SessionInfoController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
-function($scope, $routeParams, $location, bongtalk, emitter) {
+bongtalkControllers.controller('SessionInfoController', ['$scope', '$routeParams', '$location', 'emitter',
+function($scope, $routeParams, $location, emitter) {
 	$scope.routeLeft = $routeParams.left;
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;
@@ -43,8 +43,8 @@ function($scope, $routeParams, $location, bongtalk, emitter) {
 }]);
 
 
-bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'bongtalk', 'emitter',
-function($scope, $routeParams, $location, bongtalk, emitter) {
+bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'emitter',
+function($scope, $routeParams, $location, emitter) {
 	$scope.routeLeft = $routeParams.left;
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;

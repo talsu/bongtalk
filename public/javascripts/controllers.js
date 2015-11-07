@@ -4,15 +4,15 @@
 
 var bongtalkControllers = angular.module('bongtalk.controllers', []);
 
-bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'emitter',
-function ($scope, $routeParams, $cookies, $location, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'emitter',
+function ($scope, $routeParams, $cookies, $location, ngDialog, emitter) {
   $scope.checkLogin(function (user) {
     $location.path('/main/chats');
   });
 }]);
 
-bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
-function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {
+bongtalkControllers.controller('MainController', ['$window', '$rootScope', '$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalkAutoRefreshToken', 'emitter',
+function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialog, bongtalkAutoRefreshToken, emitter) {
   $scope.routeLeft = $routeParams.left || 'chats';
   $scope.routeRight = $routeParams.right;
   $scope.routeParam = $routeParams.param;
@@ -49,8 +49,8 @@ function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialo
   }
 }]);
 
-bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeParams', '$http', 'bongtalk', 'emitter',
-function($scope, $routeParams, $http, bongtalk, emitter) {
+bongtalkControllers.controller('ConnectionStatusController', ['$scope', '$routeParams', '$http', 'emitter',
+function($scope, $routeParams, $http, emitter) {
 
   $scope.serverStatus = $scope.vm.qufox.status;
 

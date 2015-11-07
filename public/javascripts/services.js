@@ -1,17 +1,22 @@
 
-
-
-// service
-bongtalkControllers.factory('bongtalk', [function () {
-  return Bongtalk(window.location.protocol + '//' + window.location.host);
-}]);
-
-// service
 bongtalkControllers.factory('apiClient', ['$http', function ($http) {
-  return BongtalkClient2($http);
+  return BongtalkApiClient(function (httpReq, callback){
+    $http(httpReq).then(
+      function success(response) {
+        if (_.isFunction(callback)){
+          callback(response.data.err, response.data.result);
+        }
+      },
+      function error(response) {
+        if (_.isFunction(callback)){
+          callback(response.data, null);
+        }
+      }
+    );
+  });
 }]);
 
-bongtalkControllers.factory('bongtalkAutoRefreshToken', ['$cookies', 'bongtalk', function ($cookies, bongtalk) {
+bongtalkControllers.factory('bongtalkAutoRefreshToken', ['$cookies', function ($cookies) {
   var BongtalkAutoRefreshTokenService = (function () {
     function BongtalkAutoRefreshTokenService() {
       var self = this;
@@ -20,26 +25,27 @@ bongtalkControllers.factory('bongtalkAutoRefreshToken', ['$cookies', 'bongtalk',
 
     BongtalkAutoRefreshTokenService.prototype.start = function () {
       var self = this;
-      if (bongtalk && bongtalk.token && bongtalk.tokenExpire) {
+      var authToken = $cookies.getObject('auth_token');
+      if (authToken && authToken.token && authToken.tokenExpire) {
 
-        var remainSec = bongtalk.tokenExpire - Math.floor(Date.now() / 1000);
+        var remainSec = authToken.tokenExpire - Math.floor(Date.now() / 1000);
         if (remainSec < 30) {
-          bongtalk.refreshToken(function (res) {
-            if (res && !res.err && res.result) {
-              $cookies.putObject('auth_token', { token: res.result.token, expire: res.result.tokenExpire }, { expires: new Date(res.result.tokenExpire * 1000) });
+          apiClient.refreshToken(function (err, result) {
+            if (!err && result) {
+              $cookies.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
               self.start();
             }
           });
         }
         else {
           self.timeoutTask = setTimeout(function () {
-            bongtalk.refreshToken(function (res) {
-              if (res && !res.err && res.result) {
-                $cookies.putObject('auth_token', { token: res.result.token, expire: res.result.tokenExpire }, { expires: new Date(res.result.tokenExpire * 1000) });
+            apiClient.refreshToken(function (err, result) {
+              if (!err && result) {
+                $cookies.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
                 self.start();
               }
             });
-          }, (remainSec - 20) * 1000)
+          }, (remainSec - 20) * 1000);
         }
       }
     }

@@ -1,20 +1,20 @@
 'use strict';
 
 
-bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$http', 'ngDialog', 'bongtalk', 'emitter',
-function($scope, $location, $http, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$http', 'ngDialog', 'emitter',
+function($scope, $location, $http, ngDialog, emitter) {
 
 }]);
 
-bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
-function($scope, $location, $cookies, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$cookies', 'ngDialog', 'emitter',
+function($scope, $location, $cookies, ngDialog, emitter) {
 	$cookies.remove('auth_token');
 	$scope.vm.unload();
 	$location.path("/login");
 }]);
 
-bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'validator',
-function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validator) {
+bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator) {
 
 	$scope.user = {};
 	$scope.currentUserName = '';
@@ -38,18 +38,14 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validato
 			return;
 		}
 
-		bongtalk.signInByGuest($scope.user.name, function (res) {
-			if (res.err) {
-				$scope.$apply(function () {
-					$scope.userNameValidationStatus = 'error';
-					$scope.userNameValidationComment = JSON.stringify(res.err);
-				});
+		apiClient.signInByGuest($scope.user.name, function (err, result) {
+			if (err) {
+				$scope.userNameValidationStatus = 'error';
+				$scope.userNameValidationComment = JSON.stringify(err);
 			}
 			else {
-				$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-				$scope.$apply(function() {
-					$location.path('/main/chats/start-public-chat');
-				});
+				$cookies.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
+				$location.path('/main/chats/start-public-chat');
 			}
 		});
 	};
@@ -62,8 +58,8 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validato
 	};
 }]);
 
-bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'emitter',
-function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter) {
+bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'emitter',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter) {
 	$scope.loginResult = '';
 	$scope.userIdValidationStatus = '';
 	$scope.userIdValidationComment = '';
@@ -95,16 +91,14 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter)
 	$scope.signIn = function () {
 		if ($scope.userIdValidationStatus != 'success' || $scope.passwordValidationStatus != 'success')	return;
 		$scope.loginResult = '';
-		bongtalk.signIn($scope.userId, $scope.password, function (res) {
-			if (!res || res.err || !res.result || !res.result.token) {
-				$scope.$apply(function () { $scope.loginResult = 'error'; });
+		apiClient.signIn($scope.userId, $scope.password, function (err, result) {
+			if (err || !result || !result.token) {
+				$scope.loginResult = 'error';
 			}
 			else {
-				$scope.$apply(function () {
-					$scope.loginResult = 'success';
-					$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-					$location.path('/main/chats');
-				});
+				$scope.loginResult = 'success';
+				$cookies.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
+				$location.path('/main/chats');
 			}
 		});
 	};
@@ -115,31 +109,29 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, emitter)
 }]);
 
 
-bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'bongtalk', 'validator',
-function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validator) {
+bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator) {
 
 	$scope.userIdValidationStatus = '';
 	$scope.userIdValidationComment = '';
 
 	$scope.userIdChanged = function () {
-		var result = validator.validateUserId($scope.userId);
+		var validateResult = validator.validateUserId($scope.userId);
 
-		if (result.ok) {
-			bongtalk.checkUserExist($scope.userId, function (res) {
-				$scope.$apply(function (){
-					if (res.result) {
-						$scope.userIdValidationStatus = 'error';
-						$scope.userIdValidationComment = 'Aleady exists.';
-					}
-					else {
-						$scope.userIdValidationStatus = 'success';
-						$scope.userIdValidationComment = '';
-					}
-				});
+		if (validateResult.ok) {
+			apiClient.checkUserExist($scope.userId, function (err, result) {
+				if (result) {
+					$scope.userIdValidationStatus = 'error';
+					$scope.userIdValidationComment = 'Aleady exists.';
+				}
+				else {
+					$scope.userIdValidationStatus = 'success';
+					$scope.userIdValidationComment = '';
+				}
 			});
 		} else {
-			$scope.userIdValidationStatus = result.status;
-			$scope.userIdValidationComment = result.comment;
+			$scope.userIdValidationStatus = validateResult.status;
+			$scope.userIdValidationComment = validateResult.comment;
 		}
 	};
 
@@ -155,24 +147,21 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validato
 	$scope.signUp = function () {
 		if (!validator.validateUserId($scope.userId) || !validator.validatePassword($scope.password)) return;
 
-		bongtalk.signUp($scope.userId, $scope.password, function (res) {
-			if (commonResponseHandle(res)) return;
+		apiClient.signUp($scope.userId, $scope.password, function (err, result) {
+			if (commonResponseHandle(err, result)) return;
 
 			// signin
-			if (res.result && res.result.result && res.result.result.ok){
-				bongtalk.signIn($scope.userId, $scope.password, function (res) {
-					if (commonResponseHandle(res)) return;
+			if (result && result.result && result.result.ok){
+				apiClient.signIn($scope.userId, $scope.password, function (err, result) {
+					if (commonResponseHandle(err, result)) return;
 
-					if (!res.result.token) {
+					if (!result.token) {
 						alert('Empty token.');
 						return;
 					}
 
-					$scope.$apply(function () {
-						$cookies.putObject('auth_token', {token:res.result.token, expire:res.result.tokenExpire}, {expires:new Date(res.result.tokenExpire*1000)});
-						$location.path('/main/chats/set-username/first');
-					});
-
+					$cookies.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
+					$location.path('/main/chats/set-username/first');
 				});
 			}
 			else {
@@ -187,14 +176,14 @@ function($scope, $location, $routeParams, $cookies, ngDialog, bongtalk, validato
 	};
 }]);
 
-function commonResponseHandle(res) {
-	if (!res) {
+function commonResponseHandle(err, result) {
+	if (!result) {
 		alert('Empty response.');
 		return true;
 	}
 
-	if (res.err) {
-		alert(res.err);
+	if (err) {
+		alert(err);
 		return true;
 	}
 }

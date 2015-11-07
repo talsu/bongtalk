@@ -1,43 +1,8 @@
-bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalk', 'bongtalkAutoRefreshToken', 'emitter',
-function($scope, $routeParams, $cookies, $location, ngDialog, bongtalk, bongtalkAutoRefreshToken, emitter) {
+bongtalkControllers.controller('SettingController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'bongtalkAutoRefreshToken', 'emitter',
+function($scope, $routeParams, $cookies, $location, ngDialog, bongtalkAutoRefreshToken, emitter) {
 	$scope.routeLeft = $routeParams.left;
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;
-	//
-	// $scope.vm.ready(function() {
-	// 	init();
-	// });
-	//
-	// $scope.user = {};
-	//
-	//
-	// if (bongtalk.user) {
-	// 	init();
-	// }
-	// else {
-	// 	bongtalk.signInReady(function (user) {
-	// 		$scope.$apply(function () { init(); });
-	// 	});
-	// }
-	//
-	// function init() {
-	// 	$scope.user = bongtalk.user;
-	// }
-	//
-	// bongtalk.signInReady(function (user) {
-	// 	if (user){
-	// 		// $scope.$apply(function() { $scope.user = user; });
-	//
-	// 	}
-	// });
-	//
-	//
-	// // Sync username
-	// bongtalk.on('setMyInfo', onSetMyInfo);
-	// $scope.$on('$destroy', function () { bongtalk.off('setMyInfo', onSetMyInfo); });
-	// function onSetMyInfo(data){
-	// 	$scope.$apply(function() { $scope.user = bongtalk.user; });
-	// }
 }]);
 
 

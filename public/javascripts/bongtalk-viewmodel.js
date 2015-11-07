@@ -109,7 +109,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       var self = this;
 
       if (session.isTelegramLoaded) {
-        if (_.isFunction(callback)) callback(null, session.telegrams);z
+        if (_.isFunction(callback)) callback(null, session.telegrams);
         return;
       }
 
