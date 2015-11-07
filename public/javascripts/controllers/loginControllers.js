@@ -9,7 +9,7 @@ function($scope, $location, $cookies, ngDialog, emitter) {
 
 bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator', 'focus',
 function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator, focus) {
-	focus('loginInput');
+	focus();
 	$scope.user = {};
 	$scope.currentUserName = '';
 	$scope.userNameChanged = function () {
@@ -52,8 +52,9 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 	};
 }]);
 
-bongtalkControllers.controller('SignInController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'emitter',
-function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter) {
+bongtalkControllers.controller('SignInController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'emitter', 'focus',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter, focus) {
+	focus();
 	$scope.loginResult = '';
 	$scope.userIdValidationStatus = '';
 	$scope.userIdValidationComment = '';
@@ -103,9 +104,9 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter
 }]);
 
 
-bongtalkControllers.controller('SignUpController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
-function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator) {
-
+bongtalkControllers.controller('SignUpController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator', 'focus',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator, focus) {
+	focus();
 	$scope.userIdValidationStatus = '';
 	$scope.userIdValidationComment = '';
 

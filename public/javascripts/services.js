@@ -68,10 +68,24 @@ bongtalkControllers.factory('emitter', [function () {
   return new EventEmitter();
 }]);
 
+bongtalkControllers.directive('onEnter', function () {
+    return function (scope, element, attrs) {
+        element.bind("keydown keypress", function (event) {
+            if(event.which === 13) {
+                scope.$apply(function (){
+                    scope.$eval(attrs.onEnter);
+                });
+
+                event.preventDefault();
+            }
+        });
+    };
+});
+
 bongtalkControllers.directive('focusOn', function() {
   return function(scope, elem, attr) {
     return scope.$on('focusOn', function(e, name) {
-      if (name === attr.focusOn) {
+      if (name === attr.focusOn || (!name && 'init' === attr.focusOn)) {
         return elem[0].focus();
       }
     });

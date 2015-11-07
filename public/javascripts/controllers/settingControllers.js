@@ -6,8 +6,9 @@ function($scope, $routeParams, $cookies, $location, ngDialog, bongtalkAutoRefres
 }]);
 
 
-bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'validator',
-function($scope, $location, $routeParams, $http, ngDialog, validator) {
+bongtalkControllers.controller('SetUsernameController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'validator', 'focus',
+function($scope, $location, $routeParams, $http, ngDialog, validator, focus) {
+	focus();
 	$scope.routeLeft = $routeParams.left || 'chats';
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;
@@ -20,6 +21,10 @@ function($scope, $location, $routeParams, $http, ngDialog, validator) {
 	};
 
 	$scope.setUsername = function () {
+		if (validator.validateUserName($scope.user.name).status !== 'success'){
+			this.userNameChanged();
+			return;
+		}
 		$scope.vm.setMyInfo({name:$scope.user.name}, function (err, result){
 			if (err) {alert(err); return;}
 			$scope.userNameValidationStatus = 'success';
@@ -33,8 +38,9 @@ function($scope, $location, $routeParams, $http, ngDialog, validator) {
 }]);
 
 
-bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'apiClient', 'validator',
-function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator) {
+bongtalkControllers.controller('SetPasswordController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'apiClient', 'validator', 'focus',
+function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator, focus) {
+	focus();
 	$scope.currentPasswordValidationStatus = '';
 	$scope.newPasswordValidationStatus = '';
 	$scope.confirmPasswordValidationStatus = '';

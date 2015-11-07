@@ -12,7 +12,7 @@
 						<div class="input-group">
 							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
 
-								<input type="text" class="form-control input-lg" placeholder="Enter username" ng-model="user.name" ng-change="userNameChanged()" focus-on="loginInput" required>
+								<input type="text" class="form-control input-lg" placeholder="Enter username" ng-model="user.name" ng-change="userNameChanged()" focus-on="init" on-enter="signInByGuest()" required>
 									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
 
 							</div>
@@ -41,7 +41,7 @@
 					<div class="input-group">
 							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
 
-								<input type="text" class="form-control input" placeholder="Username" ng-model="user.name" ng-change="userNameChanged()" focus-on="loginInput" required>
+								<input type="text" class="form-control input" placeholder="Username" ng-model="user.name" ng-change="userNameChanged()" focus-on="init" on-enter="signInByGuest()" required>
 									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
 
 							</div>

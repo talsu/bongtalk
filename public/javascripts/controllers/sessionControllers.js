@@ -43,8 +43,9 @@ function($scope, $routeParams, $location, emitter) {
 }]);
 
 
-bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'emitter',
-function($scope, $routeParams, $location, emitter) {
+bongtalkControllers.controller('SessionController', ['$scope', '$routeParams', '$location', 'emitter', 'focus',
+function($scope, $routeParams, $location, emitter, focus) {
+	focus();
 	$scope.routeLeft = $routeParams.left;
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;

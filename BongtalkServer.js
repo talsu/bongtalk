@@ -480,7 +480,7 @@ exports.BongtalkServer = (function(){
 					return res.json({err:err, result:result});
 				}
 				else {
-					if (result.role == 'admin') { // check admin role
+					if (result && result.role == 'admin') { // check admin role
 						next();
 					}
 					else {

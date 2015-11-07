@@ -1,7 +1,8 @@
 
 
-bongtalkControllers.controller('StartPublicChatController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'apiClient', 'validator',
-function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator) {
+bongtalkControllers.controller('StartPublicChatController',  ['$scope', '$location', '$routeParams', '$http', 'ngDialog', 'apiClient', 'validator', 'focus',
+function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator, focus) {
+	focus();
 	$scope.routeLeft = $routeParams.left || 'chats';
 	$scope.routeRight = $routeParams.right;
 	$scope.routeParam = $routeParams.param;
@@ -19,6 +20,10 @@ function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator)
 	};
 
 	$scope.createChat = function () {
+		if (validator.validateSessionName($scope.session.name).status !== 'success'){
+			this.createChatNameChanged();
+			return;
+		}
 		$scope.vm.createSession($scope.session.name, 'public', function (err, result) {
 			var session = result;
 			if (err) {

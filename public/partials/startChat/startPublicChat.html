@@ -40,10 +40,10 @@
 		</div>
 		<div class="row">
 			<div class="col-xs-12 col-sm-offset-2 col-sm-8">
-				
+
 				<div ng-class="['has-feedback', 'input-group', {success:'has-success', warning:'has-warning', error:'has-error'}[createChatNameValidationStatus]]">
-						
-					<input type="text" class="form-control input-lg" placeholder="Enter chat name" ng-model="session.name" ng-change="createChatNameChanged()" autofocus required>
+
+					<input type="text" class="form-control input-lg" placeholder="Enter chat name" ng-model="session.name" ng-change="createChatNameChanged()" focus-on="init" on-enter="createChat()" required>
 						<span ng-if="createChatNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[createChatNameValidationStatus]]" aria-hidden="true"></span>
 					<span class="input-group-btn">
 						<button class="btn btn-success btn-lg pull-right" type="button" ng-click="createChat()" ng-disabled="createChatNameValidationStatus!='success'">Create</button>
@@ -56,7 +56,7 @@
 				<div ng-class="{success:'has-success', warning:'has-warning', error:'has-error'}[createChatNameValidationStatus]">
 					<label class="control-label">{{createChatNameValidationComment}}</label>
 				</div>
-				
+
 			</div>
 			<!-- <div class="col-xs-3 col-sm-1">
 				<button class="btn btn-success btn-lg pull-right" type="button" ng-click="setUsername()" ng-disabled="userNameValidationStatus!='success'">Change</button>
@@ -94,13 +94,13 @@
 								</p>
 							</div> -->
 						</div>
-						
-					</a>					
+
+					</a>
 				</div>
 			</div>
 		</div>
 		<div class="row margin-top-15">
-			
+
 		</div>
 	</div>
 </div>

@@ -32,12 +32,12 @@
 				</div>
 				<div class="row">
 					<div class="col-xs-12 col-sm-offset-2 col-sm-8">
-						
+
 						<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
-								
-							<input type="text" class="form-control input-lg" placeholder="current username is {{currentUserName}}" ng-model="user.name" ng-change="userNameChanged()" autofocus required>
+
+							<input type="text" class="form-control input-lg" placeholder="current username is {{currentUserName}}" ng-model="user.name" ng-change="userNameChanged()" focus-on="init" on-enter="setUsername()" required>
 								<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
-							
+
 						</div>
 					</div>
 				</div>
@@ -46,7 +46,7 @@
 						<div ng-class="{success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]">
 							<label class="control-label">{{userNameValidationComment}}</label>
 						</div>
-						
+
 					</div>
 					<div class="col-xs-3 col-sm-1">
 						<button class="btn btn-success btn-lg pull-right" type="button" ng-click="setUsername()" ng-disabled="userNameValidationStatus!='success'">Change</button>
