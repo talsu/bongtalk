@@ -54,3 +54,5 @@ function ($window, $rootScope, $location, $cookies, emitter, apiClient, viewmode
 		}
 	};
 }]);
+
+var bongtalkControllers = angular.module('bongtalk.controllers', []);

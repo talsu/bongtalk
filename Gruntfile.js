@@ -9,10 +9,11 @@ module.exports = function(grunt) {
           'bower_components/bootstrap/dist/css/bootstrap.css',
           'bower_components/ngDialog/css/ngDialog.css',
           'bower_components/ngDialog/css/ngDialog-theme-default.css',
-          'bower_components/ngDialog/css/ngDialog-theme-plain.css'
+          'bower_components/ngDialog/css/ngDialog-theme-plain.css',
+          'public/stylesheets/gradient.css'
         ],
         dest: 'public/stylesheets/libs.css'
-      }, 
+      },
       libs_js: {
         src: [
           'bower_components/jquery/dist/jquery.js',
@@ -29,14 +30,15 @@ module.exports = function(grunt) {
           'bower_components/eventEmitter/EventEmitter.js',
           'bower_components/async/dist/async.js',
           'bower_components/socket.io-client/socket.io.js',
-          'bower_components/qufox-client/qufox-client.js'
+          'bower_components/qufox-client/qufox-client.js',
+          'public/javascripts/gradient.js'
         ],
         dest: 'public/javascripts/libs.js'
       }
     },
     uglify: {
       options: {
-        
+
       },
       lib: {
         files:{

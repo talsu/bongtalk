@@ -57,7 +57,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           }
         }
 
-        // 콜백 호출.
+        // call ready callback.
         if (_.isFunction(callback)) callback(err, result);
         if (self.readyCallbackList.length > 0) {
           _.each(self.readyCallbackList, function (readyCallback) {
@@ -65,6 +65,14 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           });
         }
       });
+    };
+
+    // context UnLoad (Sign out)
+    BongtalkViewModel.prototype.unload = function (callback) {
+      this.isLoaded = false;
+      this.data = null;
+      this.bongtalkAutoRefreshToken.stop();
+      this.qufox.leaveAll();
     };
 
     BongtalkViewModel.prototype.setMyInfo = function (data, callback){
@@ -82,14 +90,6 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       for (var property in user) {
         this.data.user[property] = user[property];
       }
-    };
-
-    // context UnLoad (로그아웃)
-    BongtalkViewModel.prototype.unload = function (callback) {
-      this.isLoaded = false;
-      this.data = null;
-      this.bongtalkAutoRefreshToken.stop();
-      this.qufox.leaveAll();
     };
 
     BongtalkViewModel.prototype.loadUsers = function (session, callback) {

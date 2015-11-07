@@ -2,7 +2,6 @@
 
 /* Controllers */
 
-var bongtalkControllers = angular.module('bongtalk.controllers', []);
 
 bongtalkControllers.controller('BootController', ['$scope', '$routeParams', '$cookies', '$location', 'ngDialog', 'emitter',
 function ($scope, $routeParams, $cookies, $location, ngDialog, emitter) {
