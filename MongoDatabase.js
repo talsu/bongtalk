@@ -1,4 +1,4 @@
-var format = require('util').format;    
+var format = require('util').format;
 var debug = require('debug')('bongtalk:Database');
 var MongoClient = require('mongodb').MongoClient;
 var ObjectID = require('mongodb').ObjectID;
@@ -23,12 +23,12 @@ module.exports = (function() {
 
 				self.init(function (err){
 					if (tools.isFunction(callback)) callback(err);
-				});	
+				});
 			}
 			else {
 				debug('Mongodb connection Error - ' + err);
 				if (tools.isFunction(callback)) callback(err);
-			}		
+			}
 		});
 	};
 
@@ -49,7 +49,7 @@ module.exports = (function() {
 					}
 
 					if (tools.isFunction(callback)) callback();
-					
+
 				}); // default admin password is 'admin'
 			}
 			else {
@@ -61,14 +61,14 @@ module.exports = (function() {
 
 	// User
 	Database.prototype.addUser = function (userId, userName, password, role, callback) {
-		var self = this;		
+		var self = this;
 		var user = {
 			id : userId,
 			name : userName,
 			password : password,
 			role : role,
 			sessions : []
-		};			
+		};
 		self.db.collection('User').insert(user, callback);
 	};
 
@@ -108,7 +108,7 @@ module.exports = (function() {
 			async.each(result.sessions, function (oSessionId, callback){
 				var sessionId = oSessionId.toString();
 				self.removeUserFromSession(userId, sessionId, function (err, result){
-					if (err) callback(err); 
+					if (err) callback(err);
 					else callback();
 				});
 			}, function (err) {
@@ -128,9 +128,9 @@ module.exports = (function() {
 			creationTime:Date.now()
 		};
 		self.db.collection('Session').insert(session, function (err, result){
-			if (err || !users || !Array.isArray(users) || users.length == 0) { 
+			if (err || !users || !Array.isArray(users) || users.length == 0) {
 				callback(err, result);
-				return; 
+				return;
 			}
 			var sessionId = result.ops[0]._id.toString();
 			async.each(users, function (userId, callback){
@@ -151,20 +151,21 @@ module.exports = (function() {
 		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 		var oSessionId = new ObjectID(sessionId);
 
-		self.getSession(sessionId, function (err, result){			
-			if (err) { callback(err, result); return; }	
+		self.getSession(sessionId, function (err, result){
+			if (err) { callback(err, result); return; }
+			if (!result) { callback('Not exist session : ' + sessionId, null); return; }
 			debug('[remove session] session has ' + result.users + ' users.');
 			result.users = result.users || [];
 			async.each(result.users, function (userId, callback){
 				debug('[remove session] Remove user from session userId :' + userId);
 				self.removeUserFromSession(userId, sessionId, function (err, result){
 					debug('[remove session] Remove user "'+userId+'" from session ' + sessionId);
-					if (err) callback(err); 
+					if (err) callback(err);
 					else callback();
 				});
 			}, function (err){
-				if (err) { callback(err, result); return; }	
-				debug('[remove session] Remove session "'+oSessionId+'"');			
+				if (err) { callback(err, result); return; }
+				debug('[remove session] Remove session "'+oSessionId+'"');
 				self.db.collection('Session').remove({_id:oSessionId}, callback);
 			});
 
@@ -182,7 +183,7 @@ module.exports = (function() {
 			self.getTelegrams(session._id.toString(), 0, 1, function (err, telegrams){
 				session.telegrams = telegrams || [];
 				callback(null, session);
-			});	
+			});
 		});
 	};
 
@@ -257,12 +258,12 @@ module.exports = (function() {
 						self.getTelegrams(session._id.toString(), 0, 1, function (err, telegrams){
 							session.telegrams = telegrams || [];
 							callback(null, session);
-						});		
+						});
 					}, callback);
 				});
 			} else {
 				callback(err, []);
-			}			
+			}
 		});
 	};
 
@@ -272,7 +273,7 @@ module.exports = (function() {
 	};
 
 	// Telegram
-	Database.prototype.addTelegram = function (userId, sessionId, userName, type, subType, data, callback) {		
+	Database.prototype.addTelegram = function (userId, sessionId, userName, type, subType, data, callback) {
 		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
 		var self = this;
@@ -299,7 +300,7 @@ module.exports = (function() {
 
 		if (ltTime > 0 && count <= 0) {
 			self.db.collection('Telegram').find({
-				sessionId:oSessionId, 
+				sessionId:oSessionId,
 				time:{ $lt: ltTime }
 			}).sort({time:-1}).toArray(callback);
 		} else if (ltTime <= 0 && count > 0){
@@ -317,14 +318,14 @@ module.exports = (function() {
 				self.db.collection('Telegram').find(query).sort({time:-1}).toArray(callback);
 			});
 		} else {
-			self.db.collection('Telegram').find({sessionId:oSessionId}).sort({time:-1}).toArray(callback); 
+			self.db.collection('Telegram').find({sessionId:oSessionId}).sort({time:-1}).toArray(callback);
 		}
 
-		function getEndTelegrams(callback){		
+		function getEndTelegrams(callback){
 			var findQuery = {sessionId:oSessionId, type:'talk'};
 			if (ltTime > 0) findQuery['time'] = {$lt:ltTime};
 
-			debug('getEndTelegrams - ltTime:' + ltTime + ' count:' + count);	
+			debug('getEndTelegrams - ltTime:' + ltTime + ' count:' + count);
 			self.db.collection('Telegram')
 			.find(findQuery)
 			.sort({time:-1})
@@ -333,17 +334,17 @@ module.exports = (function() {
 				if (err) { callback(err, telegram); return; }
 				if (telegram) {
 					debug('getEndTelegrams - end time:' + telegram.time);
-					callback(err, telegram);	
+					callback(err, telegram);
 				}
 				else {
 					self.db.collection('Telegram')
-						.find({sessionId:oSessionId})
-						.sort({time:1})
-						.nextObject(callback);
+					.find({sessionId:oSessionId})
+					.sort({time:1})
+					.nextObject(callback);
 				}
 			});
 		}
-		
+
 	};
 
 
@@ -355,15 +356,15 @@ module.exports = (function() {
 
 		var self = this;
 		var oSessionId = new ObjectID(sessionId);
-		
+
 		if (skip > 0 && take <= 0) {
 			self.getTalkTelegramByIndex(oSessionId, skip, function (err, ltTelgram){
 				if (err) { callback(err, lteTelgram); return; }
-				
+
 				debug({ $lt: lteTelgram.time });
 
 				self.db.collection('Telegram').find({
-					sessionId:oSessionId, 
+					sessionId:oSessionId,
 					time:{ $lt: lteTelgram.time }
 				}).sort({time:-1}).toArray(callback);
 			});
@@ -375,7 +376,7 @@ module.exports = (function() {
 				debug({ $gte: gteTelegram.time });
 
 				self.db.collection('Telegram').find({
-					sessionId:oSessionId, 
+					sessionId:oSessionId,
 					time:{ $gte: gteTelegram.time }
 				}).sort({time:-1}).toArray(callback);
 			});
@@ -388,7 +389,7 @@ module.exports = (function() {
 					debug({ $gte: gteTelegram.time, $lt: lteTelgram.time });
 
 					self.db.collection('Telegram').find({
-						sessionId:oSessionId, 
+						sessionId:oSessionId,
 						time:{ $gte: gteTelegram.time, $lt: lteTelgram.time }
 					}).sort({time:-1}).toArray(callback);
 				});
@@ -396,32 +397,32 @@ module.exports = (function() {
 		}
 		else {
 			debug("with no option");
-			self.db.collection('Telegram').find({sessionId:oSessionId}).sort({time:-1}).toArray(callback); 
+			self.db.collection('Telegram').find({sessionId:oSessionId}).sort({time:-1}).toArray(callback);
 		}
 	};
 
 	Database.prototype.getTalkTelegramByIndex = function (oSessionId, index, callback) {
-		var self = this;		
+		var self = this;
 
 		self.db.collection('Telegram')
-			.find({sessionId:oSessionId, type:'talk'})
-			.sort({time:-1})
-			.skip(index)
-			.nextObject(function (err, telegram){
-				if (err) { callback(err, telegram); return; }
-				if (telegram) {
-					callback(err, telegram);	
-				}
-				else {
-					self.db.collection('Telegram')
-						.find({sessionId:oSessionId})
-						.sort({time:1})
-						.nextObject(callback);
-				}
-			});
+		.find({sessionId:oSessionId, type:'talk'})
+		.sort({time:-1})
+		.skip(index)
+		.nextObject(function (err, telegram){
+			if (err) { callback(err, telegram); return; }
+			if (telegram) {
+				callback(err, telegram);
+			}
+			else {
+				self.db.collection('Telegram')
+				.find({sessionId:oSessionId})
+				.sort({time:1})
+				.nextObject(callback);
+			}
+		});
 	};
 
-		
+
 
 	// Database.prototype.AddTelegram = function (telegram, callback) {
 	// 	var self = this;

@@ -10,7 +10,7 @@
 				</div>
 			</div>
 			<div class="col-xs-6 height-max margin-top-03">
-				<h4 class="text-align-center overflow_text_hide">{{session.name}}</h4>
+				<h4 class="text-align-center overflow_text_hide">{{currentSession.name}}</h4>
 			</div>
 			<div class="col-xs-3 height-max">
 				<div class="layout_table">
@@ -25,9 +25,9 @@
 	</div>
 </div>
 <div class="session_content" scroll-glue>
-	<div class="talk-container" ng-repeat="telegram in telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
+	<div class="talk-container" ng-repeat="telegram in currentSession.telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
 		<div class="margin-top-10" ng-if="$first"></div>
-		<div class="sender" ng-if="(telegram.userId!=user.id)">
+		<div class="sender" ng-if="(telegram.userId!=vm.data.user.id)">
 			<img class="sender_img" src="/image/avatar-blank.jpg" >
 			<div class="sender_content">
 				<span class="sender_name">{{telegram.userName}}</span>
@@ -40,7 +40,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="sender sender--alt" ng-if="(telegram.userId==user.id)">
+		<div class="sender sender--alt" ng-if="(telegram.userId==vm.data.user.id)">
 			<div class="bubble bubble--alt">
 				<div class="message_content">
 					<div>{{telegram.data}}</div>

@@ -21,12 +21,12 @@ exports.BongtalkServer = (function(){
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(option.secret);
-		this.mDatabase = new MongoDatabase(option.mongodbUrl);	
+		this.mDatabase = new MongoDatabase(option.mongodbUrl);
 	}
 
 	BongtalkServer.prototype.run = function(){
 		var self = this;
-		
+
 		var validator = new Validator();
 
 		var app = express();
@@ -64,13 +64,13 @@ exports.BongtalkServer = (function(){
 			var userId = req.body.userId;
 			var password = req.body.password;
 			if (typeof userId != 'string' ||
-				userId.length < 4 ||
-				userId.length > 20)	{
+			userId.length < 4 ||
+			userId.length > 20)	{
 				res.json({err: 'Invalid user id.', result: null});
 			}
 			else if (typeof password != 'string' ||
-					password.length < 4 || 
-					password.length > 20){
+			password.length < 4 ||
+			password.length > 20){
 				res.json({err: 'Invalid password.', result: null});
 			}
 			else {
@@ -86,7 +86,7 @@ exports.BongtalkServer = (function(){
 							debug('Sign up - ' + userId);
 						});
 					}
-				});				
+				});
 			}
 		});
 
@@ -99,7 +99,7 @@ exports.BongtalkServer = (function(){
 				if (!user) {
 					res.json({ err: 'Authentication failed. User not found.', result: null });
 				} else if (user) {
-					
+
 					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
 
 					// check if password matches
@@ -115,7 +115,7 @@ exports.BongtalkServer = (function(){
 						// remove password field.
 						delete user.password;
 
-						jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+						jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
 							// return the information including token as JSON
 							res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
 							debug('Sign in - ' + userId);
@@ -132,25 +132,25 @@ exports.BongtalkServer = (function(){
 
 			self.mDatabase.getUser(userId, function (err, user){
 				if (user){
-					res.json({err:'user id alreay exists.', result: null});	
+					res.json({err:'user id alreay exists.', result: null});
 				}
 				else {
 					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
 					self.mDatabase.addUser(userId, userName, hashedPassword, 'guest', function (err, result){
 						if (err){
 							res.json({err:err, result:result});
-						}					
+						}
 						else {
 							self.mDatabase.getUser(userId, function (err, user){
 								var token = jwt.sign({userId:userId}, app.get('bongtalkSecret'), {
 									expiresInMinutes: 120 // expires in 24 hours
 								});
-								jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+								jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
 									// return the information including token as JSON
 									res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
 									debug('Guest Sign in - ' + userId);
-								});								
-							});							
+								});
+							});
 						}
 					});
 				}
@@ -162,12 +162,15 @@ exports.BongtalkServer = (function(){
 
 			// check header or url parameters or post parameters for token
 			var token = req.body.token || req.query.token || req.headers['x-access-token'];
+			if (!token && req.cookies['auth_token']) {
+				token = JSON.parse(req.cookies['auth_token']).token;
+			}
 			// decode token
 			if (token) {
 				// verifies secret and checks exp
-				jwt.verify(token, app.get('bongtalkSecret'), function(err, decoded) {  
+				jwt.verify(token, app.get('bongtalkSecret'), function(err, decoded) {
 					if (err || !decoded || !decoded.userId) {
-						return res.status(403).send({ err: 'Failed to authenticate token.', result: null });    
+						return res.status(403).send({ err: 'Failed to authenticate token.', result: null });
 					} else {
 						// if everything is good, save to request for use in other routes
 						req.decoded = decoded;
@@ -177,7 +180,7 @@ exports.BongtalkServer = (function(){
 			} else {
 				// if there is no token
 				// return an error
-				return res.status(403).send({err: 'No token provided.', result: null});				
+				return res.status(403).send({err: 'No token provided.', result: null});
 			}
 		});
 
@@ -199,7 +202,7 @@ exports.BongtalkServer = (function(){
 				return;
 			}
 
-			self.mDatabase.getUser(userId, function (err, result){ 
+			self.mDatabase.getUser(userId, function (err, result){
 				if (err) {
 					res.json({err:err, result:result});
 					return;
@@ -226,7 +229,7 @@ exports.BongtalkServer = (function(){
 
 		apiRoutes.get('/refreshToken', function (req, res){
 			var token = jwt.sign(req.decoded, app.get('bongtalkSecret'), { expiresInMinutes: 120 }); // expires in 2 hours
-			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) { 
+			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
 				self.mDatabase.getUser(decoded.userId, function (err, result) {
 					if (err || !result) {
 						res.json({err: 'Can not find user - ' + decoded.userId, result: null});
@@ -238,7 +241,7 @@ exports.BongtalkServer = (function(){
 						debug('Refresh token - ' + req.decoded.userId);
 					}
 				});
-				
+
 			});
 		});
 
@@ -292,7 +295,7 @@ exports.BongtalkServer = (function(){
 				self.mDatabase.getUser(userId, function (err, result){
 					if (err) callback(err);
 					else if (!result) callback('Can not find user : ' + userId);
-					else callback(); 
+					else callback();
 				});
 			}, function (err) {
 				if (err) {
@@ -323,7 +326,7 @@ exports.BongtalkServer = (function(){
 							} else {
 								self.mDatabase.getSession(sessionId, resBind(res));
 							}
-						}); 
+						});
 					}
 				}
 				else {
@@ -358,24 +361,24 @@ exports.BongtalkServer = (function(){
 			var userId = req.userId;
 
 			async.waterfall([
-				function (callback) { 
-					self.mDatabase.getSession(sessionId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('Session is not exist.', null);
 						else callback(null);
-					}); 
+					});
 				},
-				function (callback) { 
-					self.mDatabase.getUser(userId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getUser(userId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('User is not exist.', null);
 						else callback(null);
-					}); 
+					});
 				},
-				function (callback) { 
+				function (callback) {
 					self.mDatabase.addUserToSession(userId, sessionId, function (err, result) {
 						callback(err, result);
-					}); 
+					});
 				}
 			], resBind(res));
 		});
@@ -385,24 +388,24 @@ exports.BongtalkServer = (function(){
 			var userId = req.userId;
 
 			async.waterfall([
-				function (callback) { 
-					self.mDatabase.getSession(sessionId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('Session is not exist.', null);
 						else callback(null);
-					}); 
+					});
 				},
-				function (callback) { 
-					self.mDatabase.getUser(userId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getUser(userId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('User is not exist.', null);
 						else callback(null);
-					}); 
+					});
 				},
-				function (callback) { 
+				function (callback) {
 					self.mDatabase.removeUserFromSession(userId, sessionId, function (err, result) {
 						callback(err, result);
-					}); 
+					});
 				}
 			], resBind(res));
 		});
@@ -416,25 +419,25 @@ exports.BongtalkServer = (function(){
 			var data = req.body.data;
 
 			async.waterfall([
-				function (callback) { 
-					self.mDatabase.getSession(sessionId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('Session is not exist.', null);
 						else if (!result.users || result.users.indexOf(userId) == -1) callback('User is not in session', null);
 						else callback(null);
-					}); 
+					});
 				},
-				// function (callback) { 
-				// 	self.mDatabase.getUser(userId, function (err, result) {  
+				// function (callback) {
+				// 	self.mDatabase.getUser(userId, function (err, result) {
 				// 		if (err) callback(err, result);
 				// 		else if (!result) callback('User is not exist.', null);
 				// 		else callback(null);
-				// 	}); 
+				// 	});
 				// },
-				function (callback) { 
+				function (callback) {
 					self.mDatabase.addTelegram(userId, sessionId, userName, type, subType, data, function (err, result) {
 						callback(err, result);
-					}); 
+					});
 				}
 			], resBindforInsert(res));
 		});
@@ -446,25 +449,25 @@ exports.BongtalkServer = (function(){
 			var count = req.query.count;
 
 			async.waterfall([
-				function (callback) { 
-					self.mDatabase.getSession(sessionId, function (err, result) {  
+				function (callback) {
+					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
 						else if (!result) callback('Session is not exist.', null);
 						else if (!result.users || result.users.indexOf(userId) == -1) callback('User is not in session', null);
 						else callback(null);
-					}); 
+					});
 				},
-				// function (callback) { 
-				// 	self.mDatabase.getUser(userId, function (err, result) {  
+				// function (callback) {
+				// 	self.mDatabase.getUser(userId, function (err, result) {
 				// 		if (err) callback(err, result);
 				// 		else if (!result) callback('User is not exist.', null);
 				// 		else callback(null);
-				// 	}); 
+				// 	});
 				// },
-				function (callback) { 
+				function (callback) {
 					self.mDatabase.getTelegrams(sessionId, ltTime, count, function (err, result) {
 						callback(err, result);
-					}); 
+					});
 				}
 			], resBind(res));
 		});
@@ -523,7 +526,7 @@ exports.BongtalkServer = (function(){
 		function resBindforInsert(res){
 			return function (err, result) {
 				if (err) {
-					debug(err);				
+					debug(err);
 					res.json({err:err, result:result});
 				} else if (result.result && result.ops && result.ops.length > 0) {
 					res.json({err:null, result:result.ops[0]});
@@ -549,4 +552,3 @@ exports.BongtalkServer = (function(){
 
 	return BongtalkServer;
 })();
-
