@@ -19,10 +19,10 @@ function ($routeProvider) {
 	.when('/main/:left', { templateUrl: 'partials/main.html', controller: 'MainController' })
 	.when('/main/:left/:right', { templateUrl: 'partials/main.html', controller: 'MainController' })
 	.when('/main/:left/:right/:param', { templateUrl: 'partials/main.html', controller: 'MainController' })
-	.when('/login', { templateUrl: 'partials/loginDialog.html', controller: 'LoginDialogController' })
+	.when('/login', { templateUrl: 'partials/login.html', controller: 'LoginController' })
 	.when('/signout', { templateUrl: 'partials/boot.html', controller: 'SignOutController' })
-	.when('/signin', { templateUrl: 'partials/signInDialog.html', controller: 'SignInDialogController' })
-	.when('/signup', { templateUrl: 'partials/signUpDialog.html', controller: 'SignUpDialogController' })
+	.when('/signin', { templateUrl: 'partials/signIn.html', controller: 'SignInController' })
+	.when('/signup', { templateUrl: 'partials/signUp.html', controller: 'SignUpController' })
 	.when('/test', { templateUrl: 'partials/test.html', controller: 'TestController' })
 	.otherwise({ redirectTo: '/'});
 }])

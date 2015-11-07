@@ -1,11 +1,5 @@
 'use strict';
 
-
-bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$http', 'ngDialog', 'emitter',
-function($scope, $location, $http, ngDialog, emitter) {
-
-}]);
-
 bongtalkControllers.controller('SignOutController',  ['$scope', '$location', '$cookies', 'ngDialog', 'emitter',
 function($scope, $location, $cookies, ngDialog, emitter) {
 	$cookies.remove('auth_token');
@@ -13,9 +7,9 @@ function($scope, $location, $cookies, ngDialog, emitter) {
 	$location.path("/login");
 }]);
 
-bongtalkControllers.controller('LoginDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
-function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator) {
-
+bongtalkControllers.controller('LoginController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator', 'focus',
+function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator, focus) {
+	focus('loginInput');
 	$scope.user = {};
 	$scope.currentUserName = '';
 	$scope.userNameChanged = function () {
@@ -58,7 +52,7 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 	};
 }]);
 
-bongtalkControllers.controller('SignInDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'emitter',
+bongtalkControllers.controller('SignInController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'emitter',
 function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter) {
 	$scope.loginResult = '';
 	$scope.userIdValidationStatus = '';
@@ -109,7 +103,7 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, emitter
 }]);
 
 
-bongtalkControllers.controller('SignUpDialogController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
+bongtalkControllers.controller('SignUpController',  ['$scope', '$location', '$routeParams', '$cookies', 'ngDialog', 'apiClient', 'validator',
 function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validator) {
 
 	$scope.userIdValidationStatus = '';
