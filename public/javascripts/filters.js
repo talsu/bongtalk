@@ -45,17 +45,34 @@ angular.module('bongtalk.filters', [])
   };
 })
 .filter('lastTalkTelegram', function () {
-  return function (telegrams, myId) {
+  return function (telegrams) {
     if (angular.isArray(telegrams) && telegrams.length > 0) {
       var talks = _.filter(telegrams, function (t) { return t.type == 'talk'; })
       var lastTalkTelegram = _.max(talks, function (t) { return t.time; });
-
-      if (lastTalkTelegram) {
-        var senderName = lastTalkTelegram.userId == myId ? 'YOU' : lastTalkTelegram.userName;
-        return senderName + ': ' + lastTalkTelegram.data;
-      }
+      return lastTalkTelegram;
+      // if (lastTalkTelegram) {
+      //   var senderName = lastTalkTelegram.userId == myId ? 'YOU' : lastTalkTelegram.userName;
+      //   return senderName + ': ' + lastTalkTelegram.data;
+      // }
     }
-    return ' ';
+    return null;
+  };
+})
+.filter('telegramMessage', function () {
+  return function (telegram, myId) {
+    if (telegram){
+        var senderName = telegram.userId == myId ? 'YOU' : telegram.userName;
+        return senderName + ': ' + telegram.data;
+    }
+    return;
+  };
+})
+.filter('telegramTime', function () {
+  return function (telegram, myId) {
+    if (telegram){
+        return telegram.time;
+    }
+    return;
   };
 })
 .filter('unreadCount', function () {
