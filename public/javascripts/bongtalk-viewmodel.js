@@ -69,10 +69,12 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     // context UnLoad (Sign out)
     BongtalkViewModel.prototype.unload = function (callback) {
-      this.isLoaded = false;
-      this.data = null;
-      this.bongtalkAutoRefreshToken.stop();
-      this.qufox.leaveAll();
+      if (this.isLoaded){
+        this.isLoaded = false;
+        this.data = null;
+        this.bongtalkAutoRefreshToken.stop();
+        this.qufox.leaveAll();
+      }
     };
 
     BongtalkViewModel.prototype.setMyInfo = function (data, callback){

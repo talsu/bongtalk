@@ -72,6 +72,13 @@
 			}, callback);
 		};
 
+		BongtalkApiClient.prototype.getRandomAvatarUrl = function (callback){
+			this.sendRequest({
+				method: 'GET',
+				url: 'api/avatars/random'
+			}, callback);
+		};
+
 		// Session
 		BongtalkApiClient.prototype.getUserSessions = function (userId, callback) {
 			this.sendRequest({
@@ -151,7 +158,6 @@
 				url: 'api/admin/users',
 			}, callback);
 		};
-
 
 		BongtalkApiClient.prototype.admin_removeUser = function (userId, callback) {
 			this.sendRequest({

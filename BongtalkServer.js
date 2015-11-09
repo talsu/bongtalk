@@ -13,6 +13,7 @@ var QufoxServer = require('qufox').QufoxServer;
 
 var tools = require('./tools');
 var MongoDatabase = require('./MongoDatabase');
+var AvatarImage = require('./AvatarImage');
 var Validator = require('./Validator');
 
 exports.BongtalkServer = (function(){
@@ -22,6 +23,7 @@ exports.BongtalkServer = (function(){
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(option.secret);
 		this.mDatabase = new MongoDatabase(option.mongodbUrl);
+		this.avatarImage = new AvatarImage();
 	}
 
 	BongtalkServer.prototype.run = function(){
@@ -157,13 +159,18 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		// route middleware to verify a token
+		apiRoutes.get('/avatars/random', function (req, res) {
+			self.avatarImage.getRandomAvatarUrl(resBind(res));
+		});
+
+		// Route middleware to verify a token.
+		// After this apis are needs SignIn(authentication).
 		apiRoutes.use(function(req, res, next) {
 
 			// check header or url parameters or post parameters for token
 			var token = req.body.token || req.query.token || req.headers['x-access-token'];
-			if (!token && req.cookies['auth_token']) {
-				token = JSON.parse(req.cookies['auth_token']).token;
+			if (!token && req.cookies.auth_token) {
+				token = JSON.parse(req.cookies.auth_token).token;
 			}
 			// decode token
 			if (token) {
@@ -191,6 +198,7 @@ exports.BongtalkServer = (function(){
 			next();
 		});
 
+		// Chage user password
 		apiRoutes.post('/changePassword', function (req, res){
 			var userId = req.userId;
 			var currentPassword = req.body.currentPassword;
@@ -227,6 +235,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Refresh auth token
 		apiRoutes.get('/refreshToken', function (req, res){
 			var token = jwt.sign(req.decoded, app.get('bongtalkSecret'), { expiresInMinutes: 120 }); // expires in 2 hours
 			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
@@ -245,6 +254,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get my info
 		apiRoutes.get('/user', function (req, res){
 			var userId = req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
@@ -256,6 +266,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get user info
 		apiRoutes.get('/users/:id', function (req, res){
 			var userId = req.params.id || req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
@@ -265,6 +276,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Update user info
 		apiRoutes.put('/users/:id', function (req, res){
 			var userId = req.params.id;
 			var data = req.body;
@@ -275,11 +287,13 @@ exports.BongtalkServer = (function(){
 			self.mDatabase.setUser(userId, data, resBind(res));
 		});
 
+		// Get user's joined session list
 		apiRoutes.get('/users/:id/sessions', function (req, res){
 			var userId = req.params.id || req.userId;
 			self.mDatabase.getUserSessions(userId, resBind(res));
 		});
 
+		// Create session
 		apiRoutes.post('/sessions', function (req, res){
 			var name = req.body.name;
 			var type = req.body.type;
@@ -307,6 +321,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get session
 		apiRoutes.get('/sessions/:id', function (req, res){
 			var userId = req.userId;
 			var sessionId = req.params.id;
@@ -316,7 +331,7 @@ exports.BongtalkServer = (function(){
 					if (err) debug(err);
 				} else if (result.users.indexOf(userId) == -1) {
 					if (result.type != 'public') {
-						var err = 'Not in session. userId : ' + userId;
+						err = 'Not in session. userId : ' + userId;
 						debug(err);
 						res.json({err:err, result:null});
 					} else {
@@ -335,6 +350,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get user
 		apiRoutes.get('/sessions/:id/users', function (req, res){
 			var userId = req.userId;
 			var sessionId = req.params.id;
@@ -342,8 +358,8 @@ exports.BongtalkServer = (function(){
 				if (err || !result) {
 					res.json({err: 'Can not find session - ' + sessionId, result: null});
 					if (err) debug(err);
-				} else if(result.filter(function (item){return item.id == userId;}).length == 0) {
-					var err = 'Not in session. userId : ' + userId;
+				} else if(result.filter(function (item){return item.id == userId;}).length === 0) {
+					err = 'Not in session. userId : ' + userId;
 					debug(err);
 					res.json({err:err, result:null});
 				} else {
@@ -352,10 +368,12 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get public session list.
 		apiRoutes.get('/sessions/type/public', function (req, res){
 			self.mDatabase.getPublicSessions(resBind(res));
 		});
 
+		// Join session.
 		apiRoutes.post('/sessions/:id/users', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -383,6 +401,7 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
+		// Leave session.
 		apiRoutes.delete('/sessions/:id/users', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -410,6 +429,7 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
+		// Add telegram.
 		apiRoutes.post('/sessions/:id/telegrams', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -442,6 +462,7 @@ exports.BongtalkServer = (function(){
 			], resBindforInsert(res));
 		});
 
+		// Get session telegrams.
 		apiRoutes.get('/sessions/:id/telegrams', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -472,7 +493,7 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
-		// Admin Role check
+		// Admin Role check.
 		apiRoutes.use(function (req, res, next) {
 			self.mDatabase.getUser(req.userId, function (err, result){
 				if (err) {
@@ -490,31 +511,35 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Remove user.
 		apiRoutes.delete('/admin/users/:id', function (req, res){
 			var userId = req.params.id;
 			self.mDatabase.removeUser(userId, resBind(res));
 		});
 
+		// Remove session.
 		apiRoutes.delete('/admin/sessions/:id', function (req, res){
 			var sessionId = req.params.id;
 			self.mDatabase.removeSession(sessionId, resBind(res));
 		});
 
+		// Get all user list.
 		apiRoutes.get('/admin/users', function (req, res){
 			self.mDatabase.getAllUser(resBind(res));
 		});
 
+		// Get all session list.
 		apiRoutes.get('/admin/sessions', function (req, res){
 			self.mDatabase.getAllSession(resBind(res));
 		});
 
+		// Get session
 		apiRoutes.get('/admin/sessions/:id', function (req, res){
 			var sessionId = req.params.id;
 			self.mDatabase.getSession(sessionId, resBind(res));
 		});
 
 		app.use('/api', apiRoutes);
-
 
 		function resBind(res){
 			return function (err, result) {

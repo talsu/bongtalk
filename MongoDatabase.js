@@ -269,7 +269,8 @@ module.exports = (function() {
 
 	Database.prototype.getPublicSessions = function (callback) {
 		var self = this;
-		self.db.collection('Session').find({type:'public', $where:'this.users.length>0'}).toArray(callback);
+		// self.db.collection('Session').find({type:'public', $where:'this.users.length>0'}).toArray(callback);
+		self.db.collection('Session').find({type:'public'}).toArray(callback);
 	};
 
 	// Telegram
@@ -347,8 +348,6 @@ module.exports = (function() {
 
 	};
 
-
-
 	Database.prototype.getTelegramsWithSkipTake = function (sessionId, skip, take, callback){
 		debug('getTelegrams - skip:' + skip + ' take:' + take);
 
@@ -421,27 +420,6 @@ module.exports = (function() {
 			}
 		});
 	};
-
-
-
-	// Database.prototype.AddTelegram = function (telegram, callback) {
-	// 	var self = this;
-	// 	if (!telegram || !telegram.type || !telegram.data) {
-	// 		debug('Bad telegram format.');
-	// 	}
-	// 	else
-	// 	{
-	// 		var type = telegram.type;
-	// 		delete telegram.type;
-	// 		self.db.collection(type).insert(telegram, function (err, docs){
-	// 			if (err) {
-	// 				debug('collection['+type+'] insert Error - ' + err);
-	// 			}
-
-	// 			if (tools.isFunction(callback)) callback(err, docs);
-	// 		});
-	// 	}
-	// };
 
 	return Database;
 })();

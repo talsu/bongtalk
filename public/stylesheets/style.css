@@ -32,7 +32,7 @@
 .main_content {position:absolute; left:250px; right:0px; top:0px; bottom:0px; float:left; }
 
 @media only screen and (max-width: 767px) {
-	.mobile_target { width:100%; left:0px; right:0px; top:0px; bottom:0px; }	
+	.mobile_target { width:100%; left:0px; right:0px; top:0px; bottom:0px; }
 }
 
 /* sessionList */
@@ -54,12 +54,12 @@
 	background: black;
 }
 
-.footer {	
+.footer {
 	height: 1px;
 }
 
 .chat_cell {
-	width: 100%;	
+	width: 100%;
 }
 
 .sidebar1 {
@@ -84,6 +84,11 @@
 
 }
 
+img.avatar-normal {
+	height: 80px;
+	width: 80px;
+}
+
 html, body { height: 100%; }
 /*
 body {
@@ -101,7 +106,7 @@ body {
 	width:1%;
 	text-align:center;
 }
- 
+
 .vcenter {
     display: inline-block;
     vertical-align: middle;
