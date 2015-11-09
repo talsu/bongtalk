@@ -42,15 +42,19 @@ module.exports = (function() {
 
 			if (!result) {
 				debug('Create admin user');
-				self.addUser('admin', 'Administrator', '21232f297a57a5a743894a0e4a801fc3', 'admin', function (err, result){
-					if (err){
-						if (tools.isFunction(callback)) { callback(err); }
-						return;
-					}
-
-					if (tools.isFunction(callback)) callback();
-
-				}); // default admin password is 'admin'
+				self.addUser({
+						id : 'admin',
+						name : 'Administrator',
+						password : '21232f297a57a5a743894a0e4a801fc3',
+						role : 'admin'
+					},
+					function (err, result){
+						if (err){
+							if (tools.isFunction(callback)) { callback(err); }
+							return;
+						}
+						if (tools.isFunction(callback)) callback();
+					}); // default admin password is 'admin'
 			}
 			else {
 				if (tools.isFunction(callback)) callback();
@@ -60,15 +64,10 @@ module.exports = (function() {
 	};
 
 	// User
-	Database.prototype.addUser = function (userId, userName, password, role, callback) {
+	Database.prototype.addUser = function (user, callback) {
 		var self = this;
-		var user = {
-			id : userId,
-			name : userName,
-			password : password,
-			role : role,
-			sessions : []
-		};
+		user.sessions = [];
+		user.name = user.name || user.id;
 		self.db.collection('User').insert(user, callback);
 	};
 

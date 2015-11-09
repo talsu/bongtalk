@@ -84,10 +84,15 @@
 
 }
 
-img.avatar-normal {
+img.avatar-md {
 	height: 80px;
 	width: 80px;
 }
+img.avatar-xs {
+	height: 37px;
+	width: 37px;
+}
+
 
 html, body { height: 100%; }
 /*

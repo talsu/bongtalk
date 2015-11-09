@@ -20,6 +20,9 @@
 	</div>
 
 	<!-- setting -->
+	<div class="width-max height-max" ng-switch-when="set-profile">
+		<div class="width-max height-max" ng-include="'/partials/settings/setProfile.html'" ng-controller="SetProfileController"></div>
+	</div>
 	<div class="width-max height-max" ng-switch-when="set-username">
 		<div class="width-max height-max" ng-include="'/partials/settings/setUsername.html'" ng-controller="SetUsernameController"></div>
 	</div>

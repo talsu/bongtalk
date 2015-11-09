@@ -63,29 +63,29 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.post('/signUp', function (req, res){
-			var userId = req.body.userId;
-			var password = req.body.password;
-			if (typeof userId != 'string' ||
-			userId.length < 4 ||
-			userId.length > 20)	{
+			var newUser = req.body.user;
+			if (typeof newUser.id != 'string' ||
+			newUser.id.length < 4 ||
+			newUser.id.length > 20)	{
 				res.json({err: 'Invalid user id.', result: null});
 			}
-			else if (typeof password != 'string' ||
-			password.length < 4 ||
-			password.length > 20){
+			else if (typeof newUser.password != 'string' ||
+			newUser.password.length < 4 ||
+			newUser.password.length > 20){
 				res.json({err: 'Invalid password.', result: null});
 			}
 			else {
 				// check exist userId
-				self.mDatabase.getUser(userId, function (err, result){
+				self.mDatabase.getUser(newUser.id, function (err, result){
 					if (!err && result) {
 						res.json({err: 'Exist user id.', result: null});
 					}
 					else{
-						var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-						self.mDatabase.addUser(userId, userId ,hashedPassword, 'user', function (err, result){
+						newUser.password = crypto.createHash('md5').update(newUser.password).digest('hex');
+						newUser.role = 'user';
+						self.mDatabase.addUser(newUser, function (err, result){
 							res.json({err:err, result:result});
-							debug('Sign up - ' + userId);
+							debug('Sign up - ' + newUser.id);
 						});
 					}
 				});
@@ -128,29 +128,28 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.post('/signInByGuest', function (req, res) {
-			var userName = req.body.userName;
-			var userId = tools.randomString(10);
-			var password = tools.randomString(10);
-
-			self.mDatabase.getUser(userId, function (err, user){
+			var newUser = req.body.user;
+			newUser.id = tools.randomString(10);
+			self.mDatabase.getUser(newUser.id, function (err, user){
 				if (user){
 					res.json({err:'user id alreay exists.', result: null});
 				}
 				else {
-					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-					self.mDatabase.addUser(userId, userName, hashedPassword, 'guest', function (err, result){
+					newUser.role = 'guest';
+					newUser.password = crypto.createHash('md5').update(tools.randomString(10)).digest('hex');
+					self.mDatabase.addUser(newUser, function (err, result){
 						if (err){
 							res.json({err:err, result:result});
 						}
 						else {
-							self.mDatabase.getUser(userId, function (err, user){
-								var token = jwt.sign({userId:userId}, app.get('bongtalkSecret'), {
+							self.mDatabase.getUser(newUser.id, function (err, user){
+								var token = jwt.sign({userId:user.id}, app.get('bongtalkSecret'), {
 									expiresInMinutes: 120 // expires in 24 hours
 								});
 								jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
 									// return the information including token as JSON
 									res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
-									debug('Guest Sign in - ' + userId);
+									debug('Guest Sign in - ' + user.id);
 								});
 							});
 						}

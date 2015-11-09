@@ -25,19 +25,19 @@
 			}, callback);
 		};
 
-		BongtalkApiClient.prototype.signInByGuest = function (userName, callback) {
+		BongtalkApiClient.prototype.signInByGuest = function (user, callback) {
 			this.sendRequest({
 				method: 'POST',
 				url: 'api/signInByGuest',
-				data: {userName:userName}
+				data: {user:user}
 			}, callback);
 		};
 
-		BongtalkApiClient.prototype.signUp = function (userId, password, callback) {
+		BongtalkApiClient.prototype.signUp = function (user, callback) {
 			this.sendRequest({
 				method: 'POST',
 				url: 'api/signUp',
-				data: {userId:userId, password:password}
+				data:  {user:user}
 			}, callback);
 		};
 

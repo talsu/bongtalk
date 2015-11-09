@@ -1,0 +1,113 @@
+
+
+<div class="setting_header">
+	<div class="container-fluid height-max">
+		<div class="row height-max">
+			<div class="col-xs-3 height-max">
+				<div class="layout_table" ng-if="routeParam!='first'">
+					<div class="layout_table-cell_vertical-middle">
+						<a class="visible-xs-block" ng-href="#/main/{{routeLeft}}"><span class="glyphicon glyphicon-chevron-left"></span></a>
+					</div>
+				</div>
+			</div>
+			<div class="col-xs-6 height-max">
+				<div class="layout_table">
+					<div class="layout_table-cell_vertical-middle">
+						<h4 class="text-align-center">Profile</h4>
+					</div>
+				</div>
+			</div>
+			<!-- <div class="col-xs-3"></div> -->
+		</div>
+	</div>
+</div>
+<div class="setting_content">
+	<div class="layout_table">
+		<div class="layout_table-cell_vertical-middle">
+			<div class="container-fluid">
+        <div class="row">
+					<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+						<img class="img-circle avatar-md" ng-src="{{vm.data.user.avatarUrl || '/image/avatar-blank.jpg'}}" />
+            <button type="button" class="btn btn-xs btn-primary" ng-click="chageAvatarUrlRandom()">Change avatar</button>
+					</div>
+				</div>
+				<div class="row">
+					<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+						<h5>Change username</h5>
+					</div>
+				</div>
+				<div class="row">
+					<div class="col-xs-12 col-sm-offset-2 col-sm-8">
+						<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
+							<input type="text" class="form-control input" placeholder="current username is {{currentUserName}}" ng-model="user.name" ng-change="userNameChanged()" focus-on="init" on-enter="setUsername()" required>
+								<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
+						</div>
+					</div>
+				</div>
+				<div class="row margin-top-10">
+					<div class="col-xs-9 col-sm-offset-2 col-sm-7">
+						<div ng-class="{success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]">
+							<label class="control-label">{{userNameValidationComment}}</label>
+						</div>
+
+					</div>
+					<div class="col-xs-3 col-sm-1">
+						<button class="btn btn-success pull-right" type="button" ng-click="setUsername()" ng-disabled="userNameValidationStatus!='success'">Change</button>
+					</div>
+				</div>
+
+        <div class="row">
+          <div class="col-xs-12 col-sm-offset-2 col-sm-8">
+            <h5>Change password</h5>
+          </div>
+        </div>
+        <div class="row">
+          <div class="col-xs-12 col-sm-offset-2 col-sm-8">
+
+            <div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[currentPasswordValidationStatus]]">
+
+              <input type="password" class="form-control input" placeholder="current password" ng-model="user.currentPassword" ng-change="currentPasswordChanged()" focus-on="init" on-enter="setPassword()" required>
+                <span ng-if="currentPasswordValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[currentPasswordValidationStatus]]" aria-hidden="true"></span>
+
+            </div>
+          </div>
+        </div>
+        <div class="row margin-top-10">
+          <div class="col-xs-12 col-sm-offset-2 col-sm-8">
+
+            <div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[newPasswordValidationStatus]]">
+
+              <input type="password" class="form-control input" placeholder="new password" ng-model="user.newPassword" ng-change="newPasswordChanged()" on-enter="setPassword()" required>
+                <span ng-if="newPasswordValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[newPasswordValidationStatus]]" aria-hidden="true"></span>
+
+            </div>
+          </div>
+        </div>
+        <div class="row margin-top-10">
+          <div class="col-xs-12 col-sm-offset-2 col-sm-8">
+
+            <div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[confirmPasswordValidationStatus]]">
+
+              <input type="password" class="form-control input" placeholder="confirm new password" ng-model="user.confirmPassword" ng-change="confirmPasswordChanged()" on-enter="setPassword()" required>
+                <span ng-if="confirmPasswordValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[confirmPasswordValidationStatus]]" aria-hidden="true"></span>
+
+            </div>
+          </div>
+        </div>
+
+        <div class="row margin-top-10">
+          <div class="col-xs-9 col-sm-offset-2 col-sm-7">
+            <div ng-class="{success:'has-success', warning:'has-warning', error:'has-error'}[newPasswordValidationStatus]">
+              <label class="control-label">{{validationComment}}</label>
+            </div>
+
+          </div>
+          <div class="col-xs-3 col-sm-1">
+            <button class="btn btn-success pull-right" type="button" ng-click="setPassword()" ng-disabled="isDisableChangePassword()">Change</button>
+          </div>
+        </div>
+
+			</div>
+		</div>
+	</div>
+</div>

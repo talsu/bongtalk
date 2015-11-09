@@ -32,7 +32,8 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 			return;
 		}
 
-		apiClient.signInByGuest($scope.user.name, function (err, result) {
+		var newUser = {name:$scope.user.name};
+		apiClient.signInByGuest(newUser, function (err, result) {
 			if (err) {
 				$scope.userNameValidationStatus = 'error';
 				$scope.userNameValidationComment = JSON.stringify(err);
@@ -144,7 +145,12 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 	$scope.signUp = function () {
 		if (!validator.validateUserId($scope.userId) || !validator.validatePassword($scope.password)) return;
 
-		apiClient.signUp($scope.userId, $scope.password, function (err, result) {
+		var newUser = {
+			id:$scope.userId,
+			password:$scope.password,
+			avatarUrl:$scope.avatarUrl
+		};
+		apiClient.signUp(newUser, function (err, result) {
 			if (commonResponseHandle(err, result)) return;
 
 			// signin
@@ -175,13 +181,11 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 		});
 	};
 
+	$scope.chageAvatarUrlRandom();
+
 	$scope.back = function () {
 		$location.path('/login');
 	};
-
-
-	$scope.chageAvatarUrlRandom();
-
 }]);
 
 function commonResponseHandle(err, result) {
