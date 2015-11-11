@@ -13,6 +13,7 @@
     "ejs": "^2.3.4",
     "errorhandler": "^1.4.2",
     "express": "^4.13.3",
+    "http-proxy": "^1.12.0",
     "jsonwebtoken": "^5.4.1",
     "method-override": "~2.3.5",
     "mongodb": "^2.0.47",

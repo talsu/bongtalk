@@ -81,4 +81,10 @@ angular.module('bongtalk.filters', [])
     var unreadTalks = _.filter(talks, function (t) { return !t.type && t.userId != operatorId && !t.isRead; });
     return unreadTalks.length;
   };
-});
+})
+.filter('autoProxy', ['$location', function ($location){
+  return function (url) {
+    if (!url || $location.$$protocol != 'https') return url;
+    return '/proxy?url=' + encodeURIComponent(url);
+  };
+}]);

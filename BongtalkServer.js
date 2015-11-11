@@ -1,4 +1,6 @@
 var http = require('http');
+var url = require('url');
+var httpProxy = require('http-proxy');
 var crypto = require('crypto');
 var debug = require('debug')('bongtalk');
 var async = require('async');
@@ -29,6 +31,7 @@ exports.BongtalkServer = (function(){
 	BongtalkServer.prototype.run = function(){
 		var self = this;
 
+		var proxy = httpProxy.createProxyServer({});
 		var validator = new Validator();
 
 		var app = express();
@@ -43,6 +46,30 @@ exports.BongtalkServer = (function(){
 		app.use(this.cookieParser);
 		app.use(errorhandler());
 		app.engine('html', require('ejs').renderFile);
+
+		// Set path with specifiedPath.
+		proxy.on('proxyReq', function (proxyReq, req, res, options) {
+			if (options && options.specifiedPath) {
+				proxyReq.path = options.specifiedPath;
+			}
+		});
+
+		// Listen for the `error` event on `proxy`.
+		proxy.on('error', function (err, req, res) {
+			res.writeHead(500, { 'Content-Type': 'text/plain' });
+			res.end('Something went wrong. And we are reporting a custom error message.');
+		});
+
+		// Proxy specified url.
+		app.get('/proxy', function(req, res) {
+			var targetUrl = url.parse(req.query.url);
+			debug('proxy request - ' + targetUrl.protocol + '//' + targetUrl.host + targetUrl.path);
+			proxy.web(req, res, {
+				changeOrigin: true,
+				target: targetUrl.protocol + '//' + targetUrl.host,
+				specifiedPath: targetUrl.path
+			});
+		});
 
 		var apiRoutes = express.Router();
 

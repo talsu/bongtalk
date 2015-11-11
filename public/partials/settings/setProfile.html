@@ -27,7 +27,7 @@
 			<div class="container-fluid">
         <div class="row">
 					<div class="col-xs-12 col-sm-offset-2 col-sm-8">
-						<img class="img-circle avatar-md" ng-src="{{vm.data.user.avatarUrl || '/image/avatar-blank.jpg'}}" />
+						<img class="img-circle avatar-md" ng-src="{{(vm.data.user.avatarUrl | autoProxy) || '/image/avatar-blank.jpg'}}" />
             <button type="button" class="btn btn-xs btn-primary" ng-click="chageAvatarUrlRandom()">Change avatar</button>
 					</div>
 				</div>

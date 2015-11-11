@@ -4,7 +4,7 @@
 			<div class="col-xs-9 height-max">
 				<div class="layout_table">
 					<div class="layout_table-cell_vertical-middle">
-						<img class="img-circle avatar-xs" ng-src="{{vm.data.user.avatarUrl || '/image/avatar-blank.jpg'}}" >
+						<img class="img-circle avatar-xs" ng-src="{{(vm.data.user.avatarUrl | autoProxy) || '/image/avatar-blank.jpg'}}" >
 						<!-- <h4><span ng-include="'/partials/connectionStatusIcon.html'" ng-controller="ConnectionStatusController"></span></h4> -->
 					</div>
 				</div>
