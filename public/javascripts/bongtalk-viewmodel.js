@@ -37,7 +37,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       if (!user) { callback('user is no exist', null); return; }
       self.apiClient.getUserSessions(user.id, function (err, result) {
         if (!err) {
-          self.data = { user: user, sessionList: result };
+          self.data = { me: user, sessionList: result, userList: [user] };
           // token auto refresh service Start.
           self.bongtalkAutoRefreshToken.start();
           self.isLoaded = true;
@@ -79,10 +79,10 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     BongtalkViewModel.prototype.setMyInfo = function (data, callback){
       var self = this;
-      self.apiClient.setMyInfo(self.data.user.id, data, function (err, result){
+      self.apiClient.setMyInfo(self.data.me.id, data, function (err, result){
         if (!err) {
           self.updateUser(data);
-          self.qufox.send('private:' + self.data.user.id, {name:'setMyInfo', object:data}, function(){});
+          self.qufox.send('private:' + self.data.me.id, {name:'setMyInfo', object:data}, function(){});
         }
         if (_.isFunction(callback)) callback(err, result);
       });
@@ -90,7 +90,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     BongtalkViewModel.prototype.updateUser = function (user){
       for (var property in user) {
-        this.data.user[property] = user[property];
+        this.data.me[property] = user[property];
       }
     };
 
@@ -143,9 +143,9 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     BongtalkViewModel.prototype.createSession = function (name, type, callback) {
       var self = this;
-      self.apiClient.createSession(name, type, [self.data.user.id], function (err, result) {
+      self.apiClient.createSession(name, type, [self.data.me.id], function (err, result) {
         if (!err) {
-          self.qufox.send('private:' + self.data.user.id, {name:'joinSession', object:result._id}, function(){});
+          self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:result._id}, function(){});
           self.addSession(result);
         }
 
@@ -160,7 +160,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           if (_.isFunction(callback)) callback(err, result);
         }
         else{
-          self.qufox.send('private:' + self.data.user.id, {name:'joinSession', object:sessionId}, function(){});
+          self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:sessionId}, function(){});
           self.apiClient.getSession(sessionId, function(err, result) {
             if (!err){
               self.addSession(result);
@@ -222,8 +222,8 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       // setUserInfo
-      if (self.data.user.sessions.indexOf(session._id) == -1) {
-        self.data.user.sessions.push(session._id);
+      if (self.data.me.sessions.indexOf(session._id) == -1) {
+        self.data.me.sessions.push(session._id);
       }
     };
 
@@ -240,9 +240,9 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       // setUserInfo
-      var index = self.data.user.sessions.indexOf(sessionId);
+      var index = self.data.me.sessions.indexOf(sessionId);
       if (index > -1) {
-        self.data.user.sessions.splice(index, 1);
+        self.data.me.sessions.splice(index, 1);
       }
     };
 

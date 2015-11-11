@@ -35,8 +35,8 @@ function ($window, $rootScope, $location, $cookies, emitter, apiClient, viewmode
 	$rootScope.checkLogin = function (callback) {
 		var authToken = $cookies.getObject('auth_token');
 		if (authToken) {
-			if ($rootScope.vm.data && $rootScope.vm.data.user) {
-				callback($rootScope.vm.data.user);
+			if ($rootScope.vm.data && $rootScope.vm.data.me) {
+				callback($rootScope.vm.data.me);
 			}
 			else {
 				apiClient.getMyInfo(function (err, result) {

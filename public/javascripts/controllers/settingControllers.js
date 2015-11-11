@@ -50,7 +50,7 @@ function($scope, $location, $routeParams, $http, ngDialog, validator, focus, api
 	}
 
 	$scope.vm.ready(function() {
-		$scope.currentUserName = $scope.vm.data.user.name;
+		$scope.currentUserName = $scope.vm.data.me.name;
 	});
 
 	$scope.currentPasswordValidationStatus = '';
@@ -151,7 +151,7 @@ function($scope, $location, $routeParams, $http, ngDialog, validator, focus) {
 	}
 
 	$scope.vm.ready(function() {
-		$scope.currentUserName = $scope.vm.data.user.name;
+		$scope.currentUserName = $scope.vm.data.me.name;
 	});
 }]);
 

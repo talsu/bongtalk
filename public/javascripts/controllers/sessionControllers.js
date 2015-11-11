@@ -93,8 +93,8 @@ function($scope, $routeParams, $location, emitter, focus) {
 		var telegram = {
 			_id:randomString(8),
 			sessionId:$scope.currentSession._id,
-			userId:$scope.vm.data.user.id,
-			userName:$scope.vm.data.user.name,
+			userId:$scope.vm.data.me.id,
+			userName:$scope.vm.data.me.name,
 			type:'talk',
 			subType:'text',
 			data:$scope.input.text,
