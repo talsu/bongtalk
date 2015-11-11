@@ -82,22 +82,44 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       self.apiClient.setMyInfo(self.data.me.id, data, function (err, result){
         if (!err) {
           self.updateUser(data);
+          // send private packet (For multi device.)
           self.qufox.send('private:' + self.data.me.id, {name:'setMyInfo', object:data}, function(){});
+          data.id = self.data.me.id;
+
+          // send session packet (Notify to other users in session.)
+          _.each(self.data.sessionList, function (session){
+            self.qufox.send('session:' + session._id, {name:'updateUser', object:data}, function(){});
+          });
         }
         if (_.isFunction(callback)) callback(err, result);
       });
     };
 
     BongtalkViewModel.prototype.updateUser = function (user){
-      for (var property in user) {
-        this.data.me[property] = user[property];
+      var self = this;
+      var existUser = null;
+
+      if (user.id){
+        existUser =_.find(self.data.userList, function (u) {return u.id == user.id;});
+      }
+      else {
+        existUser = self.data.me;
+      }
+
+      if (existUser){
+        for (var property in user) {
+          existUser[property] = user[property];
+        }
+      }
+      else{
+        self.data.userList.push(user);
       }
     };
 
-    BongtalkViewModel.prototype.addOrUpdateUser = function (user){
-      // TODO 사용자 리스트 관리
-      console.log(user);
-    };
+    // BongtalkViewModel.prototype.addOrUpdateUser = function (user){
+    //   // TODO 사용자 리스트 관리
+    //   console.log(user);
+    // };
 
     BongtalkViewModel.prototype.loadUsers = function (session, callback) {
       var self = this;
@@ -122,15 +144,15 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
       self.apiClient.getTelegrams(session._id, 0, 0, function (err, result) {
         if (!err && result) {
-          if (result.telegrams && result.telegrams.length > 0){
-            _.each(result.telegrams, function (telegram) {
-              self.addTelegram(session, telegram);
+          if (result.users && result.users.length > 0){
+            _.each(result.users, function (user){
+              self.updateUser(user);
             });
           }
 
-          if (result.users && result.users.length > 0){
-            _.each(result.users, function (user){
-              self.addOrUpdateUser(user);
+          if (result.telegrams && result.telegrams.length > 0){
+            _.each(result.telegrams, function (telegram) {
+              self.addTelegram(session, telegram);
             });
           }
 
@@ -187,7 +209,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           telegram.time = result.time;
 
           // Send packet.
-          self.qufox.send('session:' + session._id, result, function () {
+          self.qufox.send('session:' + session._id, {name:'telegram',object:result}, function () {
             if (_.isFunction(callback)) callback(err, result);
           });
         }
@@ -279,7 +301,18 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
     BongtalkViewModel.prototype.sessionPacketReceived = function (session, packet) {
       var self = this;
       self.$rootScope.$apply(function () {
-        var telegram = self.addTelegram(session, packet);
+        switch (packet.name) {
+          case 'telegram':
+            self.addTelegram(session, packet.object);
+            break;
+          case 'updateUser':
+            // Only not my info. (my info will update by privatePacket.)
+            if (packet.object.id != self.data.me.id){
+              self.updateUser(packet.object);
+            }
+            break;
+        }
+
         //var talk = self.addTalk(session, packet);
 
         //// ping 을 받으면 pong 을 보낸다.

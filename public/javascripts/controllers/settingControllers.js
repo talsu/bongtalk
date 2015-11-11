@@ -47,7 +47,7 @@ function($scope, $location, $routeParams, $http, ngDialog, validator, focus, api
 			$scope.userNameValidationStatus = 'success';
 			$scope.userNameValidationComment = 'Set username success.';
 		});
-	}
+	};
 
 	$scope.vm.ready(function() {
 		$scope.currentUserName = $scope.vm.data.me.name;

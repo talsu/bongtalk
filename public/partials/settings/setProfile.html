@@ -66,7 +66,7 @@
 
             <div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[currentPasswordValidationStatus]]">
 
-              <input type="password" class="form-control input" placeholder="current password" ng-model="user.currentPassword" ng-change="currentPasswordChanged()" focus-on="init" on-enter="setPassword()" required>
+              <input type="password" class="form-control input" placeholder="current password" ng-model="user.currentPassword" ng-change="currentPasswordChanged()" on-enter="setPassword()" required>
                 <span ng-if="currentPasswordValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[currentPasswordValidationStatus]]" aria-hidden="true"></span>
 
             </div>

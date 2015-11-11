@@ -47,7 +47,7 @@ angular.module('bongtalk.filters', [])
 .filter('lastTalkTelegram', function () {
   return function (telegrams) {
     if (angular.isArray(telegrams) && telegrams.length > 0) {
-      var talks = _.filter(telegrams, function (t) { return t.type == 'talk'; })
+      var talks = _.filter(telegrams, function (t) { return t.type == 'talk'; });
       var lastTalkTelegram = _.max(talks, function (t) { return t.time; });
       return lastTalkTelegram;
       // if (lastTalkTelegram) {
@@ -87,4 +87,12 @@ angular.module('bongtalk.filters', [])
     if (!url || $location.$$protocol != 'https') return url;
     return '/proxy?url=' + encodeURIComponent(url);
   };
-}]);
+}])
+.filter('getUserProperty', function() {
+  return function (userId, userList, name, defaultValue) {
+    if (!userId || !userList || userList.length === 0) return null;
+    var selectedUser = _.find(userList, function (user) { return user.id == userId; });
+    if (!selectedUser) return defaultValue;
+    return selectedUser[name] || defaultValue;
+  };
+});
