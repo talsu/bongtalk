@@ -94,6 +94,11 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
     };
 
+    BongtalkViewModel.prototype.addOrUpdateUser = function (user){
+      // TODO 사용자 리스트 관리
+      console.log(user);
+    };
+
     BongtalkViewModel.prototype.loadUsers = function (session, callback) {
       var self = this;
       if (!session) return;
@@ -116,10 +121,18 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       self.apiClient.getTelegrams(session._id, 0, 0, function (err, result) {
-        if (!err && result && result.length > 0) {
-          _.each(result, function (telegram) {
-            self.addTelegram(session, telegram);
-          });
+        if (!err && result) {
+          if (result.telegrams && result.telegrams.length > 0){
+            _.each(result.telegrams, function (telegram) {
+              self.addTelegram(session, telegram);
+            });
+          }
+
+          if (result.users && result.users.length > 0){
+            _.each(result.users, function (user){
+              self.addOrUpdateUser(user);
+            });
+          }
 
           session.isTelegramLoaded = true;
         }

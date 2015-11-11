@@ -496,6 +496,7 @@ exports.BongtalkServer = (function(){
 			var count = req.query.count;
 
 			async.waterfall([
+				// Check correct session.
 				function (callback) {
 					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
@@ -504,16 +505,31 @@ exports.BongtalkServer = (function(){
 						else callback(null);
 					});
 				},
-				// function (callback) {
-				// 	self.mDatabase.getUser(userId, function (err, result) {
-				// 		if (err) callback(err, result);
-				// 		else if (!result) callback('User is not exist.', null);
-				// 		else callback(null);
-				// 	});
-				// },
+				// Get telegram history list.
 				function (callback) {
-					self.mDatabase.getTelegrams(sessionId, ltTime, count, function (err, result) {
-						callback(err, result);
+					self.mDatabase.getTelegrams(sessionId, ltTime, count, callback);
+				},
+				// Get users in telegram history list.
+				function (telegrams, callback) {
+					var result = {telegrams:telegrams};
+					if (!telegrams || telegrams.length === 0) {
+						callback(null, result);
+						return;
+					}
+
+					// get userIds in telegrams
+					var userIds = telegrams
+						.map(function(item) {return item.userId;})
+						.filter(function(value, index, self) {return self.indexOf(value) === index; });
+
+					async.map(userIds, function(userId, callback){
+						self.mDatabase.getUser(userId, callback);
+					}, function(err, users){
+						if (!err) {
+							result.users = users;
+						}
+
+						callback(null, result);
 					});
 				}
 			], resBind(res));
