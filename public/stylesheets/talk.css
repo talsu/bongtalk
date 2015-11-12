@@ -94,8 +94,8 @@
     bottom: 0;
     left: 0;
     right: 0;
-    position: absolute; 
-    overflow-y:auto; 
+    position: absolute;
+    overflow-y:auto;
     overflow-x: hidden;
     padding-top: 10px;
 }
@@ -212,7 +212,7 @@
 .sender{ position:relative; padding-left:60px;}
 .sender--alt{ padding-left:0px;}
 .sender:after{ content:''; display:block;clear: both;}
-.sender_img{position: absolute; left:0; top:0; width: 50px; }
+.sender_img{position: absolute; left:0; top:0; width: 50px; height: 50px;}
 .sender_content{}
 .sender_name{display:block;}
 .sender_time{ display:block; font-size:11px;}

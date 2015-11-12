@@ -13,13 +13,13 @@
 				<h4 class="text-align-center overflow_text_hide">{{currentSession.name}}</h4>
 			</div>
 			<div class="col-xs-3 height-max">
-				
+
 			</div>
 		</div>
 	</div>
 </div>
 <div class="setting_content">
-    <div class="container-fluid margin-top-15">        
+    <div class="container-fluid margin-top-15">
         <div class="row">
             <div class="col-xs-12 col-sm-offset-2 col-sm-8">
                 <h4>{{currentSession.users.length}} Users</h4>
@@ -31,15 +31,15 @@
                     <a ng-class="['list-group-item']" ng-repeat="user in currentSession.users">
                         <div class="row">
                             <div class="col-xs-12">
-                                <h4 class="list-group-item-heading">{{user.name}}</h4>                                                             
+                                <h4 class="list-group-item-heading">{{user | getUserProperty:vm.data.userList:'name'}}</h4>
                             </div>
                         </div>
                         <div class="row">
                             <div class="col-xs-6">
-                                <p class="list-group-item-text">id: {{user.id}}</p>
+                                <p class="list-group-item-text">id: {{user}}</p>
                             </div>
                             <div class="col-xs-6">
-                                <span ng-if="user.role=='guest'" class="label label-success pull-right">Guest</span>
+                                <span ng-if="(user | getUserProperty:vm.data.userList:'role')=='guest'" class="label label-success pull-right">Guest</span>
                             </div>
                         </div>
                     </a>

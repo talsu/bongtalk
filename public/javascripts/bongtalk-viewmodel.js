@@ -34,7 +34,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
     // context Load (signin or Window refresh)
     BongtalkViewModel.prototype.load = function (user, callback) {
       var self = this;
-      if (!user) { callback('user is no exist', null); return; }
+      if (!user) { callback('user is not exist', null); return; }
       self.apiClient.getUserSessions(user.id, function (err, result) {
         if (!err) {
           self.data = { me: user, sessionList: result, userList: [user] };
@@ -60,9 +60,10 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
         // call ready callback.
         if (_.isFunction(callback)) callback(err, result);
         if (self.readyCallbackList.length > 0) {
-          _.each(self.readyCallbackList, function (readyCallback) {
+          var readyCallback = null;
+          while ((readyCallback = self.readyCallbackList.shift())){
             readyCallback(err, result);
-          });
+          }
         }
       });
     };
@@ -97,6 +98,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     BongtalkViewModel.prototype.updateUser = function (user){
       var self = this;
+      if (!user) return;
       var existUser = null;
 
       if (user.id){
@@ -116,18 +118,13 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
     };
 
-    // BongtalkViewModel.prototype.addOrUpdateUser = function (user){
-    //   // TODO 사용자 리스트 관리
-    //   console.log(user);
-    // };
-
     BongtalkViewModel.prototype.loadUsers = function (session, callback) {
       var self = this;
       if (!session) return;
 
       self.apiClient.getSessionUsers(session._id, function (err, result) {
         if (!err) {
-          session.users = result;
+          _.each(result, function(user){ self.updateUser(user);});
         }
 
         if (_.isFunction(callback)) callback(err, result);
@@ -168,6 +165,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       self.apiClient.createSession(name, type, [self.data.me.id], function (err, result) {
         if (!err) {
           self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:result._id}, function(){});
+          self.qufox.send('session:' + result._id, {name:'joinSession', object:self.data.me.id}, function(){});
           self.addSession(result);
         }
 
@@ -183,6 +181,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
         }
         else{
           self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:sessionId}, function(){});
+          self.qufox.send('session:' + sessionId, {name:'joinSession', object:self.data.me.id}, function(){});
           self.apiClient.getSession(sessionId, function(err, result) {
             if (!err){
               self.addSession(result);
@@ -287,9 +286,9 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           case 'leaveSession':
           self.removeSession(packet.object);
           // if your url in receive session, leave.
-          if (self.$routeParams.left == 'chats'
-            && (self.$routeParams.right == 'session' || self.$routeParams.right == 'session-info')
-            && self.$routeParams.param == packet.object) {
+          if (self.$routeParams.left == 'chats'&&
+            (self.$routeParams.right == 'session' || self.$routeParams.right == 'session-info') &&
+            self.$routeParams.param == packet.object) {
             self.$location.path('/main/chats');
           }
           break;
@@ -303,27 +302,48 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       self.$rootScope.$apply(function () {
         switch (packet.name) {
           case 'telegram':
+            // add Telegram
             self.addTelegram(session, packet.object);
             break;
           case 'updateUser':
-            // Only not my info. (my info will update by privatePacket.)
+            // update only others info. (my info will update by privatePacket.)
             if (packet.object.id != self.data.me.id){
               self.updateUser(packet.object);
             }
             break;
+          case 'joinSession':
+            var joinedUserId = packet.object;
+            // only other users.
+            if (joinedUserId != self.data.me.id){
+              // Add to session.users
+              if (_.findIndex(session.users, function (uId){return uId == joinedUserId;}) === -1){
+                session.users.push(joinedUserId);
+              }
+              // Update userList
+              self.apiClient.getUser(joinedUserId, function (err, user){
+                if (!err) self.updateUser(user);
+              });
+            }
+            break;
+          case 'leaveSession':
+            var leavedUserId = packet.object;
+            if (leavedUserId != self.data.me.id){
+              // remove in session.users
+              var userIndex = _.findIndex(session.users, function (uId){return uId == leavedUserId;});
+              if (userIndex > -1) {
+                session.users.splice(userIndex, 1);
+              }
+              // remove session in user
+              var leavedUser = _.find(self.data.userList, function (u){return u.id == leavedUserId;});
+              if (leavedUser && leavedUser.sessions && leavedUser.sessions.length){
+                var sessionIndex = _.findIndex(leavedUser.sessions, function(s){return s == session._id;});
+                if (sessionIndex > -1){
+                  leavedUser.sessions.splice(sessionIndex, 1);
+                }
+              }
+            }
+            break;
         }
-
-        //var talk = self.addTalk(session, packet);
-
-        //// ping 을 받으면 pong 을 보낸다.
-        //if (talk.type == 'ping') self.sendTalk(session.sessionId, 'pong', navigator.userAgent.substring(0, 200));
-
-        //// 상대방이 전송한 일반메시지 수신
-        //if (!packet.type && packet.userId != self.data.UserId) {
-        //    // 현재 보고 있는 Session 이면 ACK_READ 아니면 ACK를 보낸다.
-        //    var method = self.$routeParams.sessionId == session.sessionId ? 'ACK_READ' : 'ACK';
-        //    self.sendFlowTalk(session.sessionId, method, packet.id);
-        //}
       });
     };
 

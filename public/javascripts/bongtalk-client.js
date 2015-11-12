@@ -72,6 +72,13 @@
 			}, callback);
 		};
 
+		BongtalkApiClient.prototype.getUser = function (userId, callback) {
+			this.sendRequest({
+				method: 'GET',
+				url: 'api/users/' + userId
+			}, callback);
+		};
+
 		BongtalkApiClient.prototype.getRandomAvatarUrl = function (callback){
 			this.sendRequest({
 				method: 'GET',

@@ -24,6 +24,7 @@ function($window, $rootScope, $scope, $routeParams, $cookies, $location, ngDialo
         if (err) {
           //alert.add('Error', err);
           alert(err);
+          $location.path('/signout');
         }
         else {
           init();

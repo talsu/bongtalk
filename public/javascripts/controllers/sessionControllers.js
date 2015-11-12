@@ -103,14 +103,14 @@ function($scope, $routeParams, $location, emitter, focus) {
 
 		$scope.input.text = '';
 		$scope.vm.sendTelegram($scope.currentSession, telegram);
-	};
+	}
 
 	$scope.inputKeypress = function($event){
 		if ($event.keyCode === 13) // Enter key pess
 		{
 			sendMessage();
 		}
-	}
+	};
 
 	function randomString(length) {
 		var letters = 'abcdefghijklmnopqrstuvwxyz';
