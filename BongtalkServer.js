@@ -502,32 +502,27 @@ exports.BongtalkServer = (function(){
 						if (err) callback(err, result);
 						else if (!result) callback('Session is not exist.', null);
 						else if (!result.users || result.users.indexOf(userId) == -1) callback('User is not in session', null);
-						else callback(null, result.users);
+						else callback(null);
 					});
 				},
 				// Get telegram history list.
-				function (userIds, callback) {
-					self.mDatabase.getTelegrams(sessionId, ltTime, count, function (err, result){
-						if (err) callback(err);
-						else callback(null, result, userIds);
-					});
+				function (callback) {
+					self.mDatabase.getTelegrams(sessionId, ltTime, count, callback);
 				},
 				// Get users in telegram history list.
-				function (telegrams, userIds, callback) {
+				function (telegrams, callback) {
 					var result = {telegrams:telegrams};
 					if (!telegrams || telegrams.length === 0) {
 						callback(null, result);
 						return;
 					}
 
-					if (!userIds) userIds = [];
 					// get userIds in telegrams
-					telegrams
+					var userIds = telegrams
 						.map(function(item) {return item.userId;})
-						.forEach(function(item) {userIds.push(item);});
-					var selectedUserIds = userIds.filter(function(value, index, self) {return self.indexOf(value) === index; });
+						.filter(function(value, index, self) {return self.indexOf(value) === index; });
 
-					async.map(selectedUserIds, function(userId, callback){
+					async.map(userIds, function(userId, callback){
 						self.mDatabase.getUser(userId, callback);
 					}, function(err, users){
 						if (!err) {
