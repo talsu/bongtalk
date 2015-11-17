@@ -7,7 +7,6 @@ angular.module('bongtalkApp', [
 	'ngCookies',
 	'ngAnimate',
 	'ngDialog',
-	'luegg.directives',
 	'bongtalk.controllers',
 	'bongtalk.filters'
 ])

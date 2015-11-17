@@ -24,8 +24,8 @@
 		</div>
 	</div>
 </div>
-<div class="session_content" scroll-glue>
-	<div class="talk-container" ng-repeat="telegram in currentSession.telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
+<div class="session_content" auto-scroll auto-scroll-updater="currentSession.telegrams.length">
+	<div class="talk-container" ng-repeat="telegram in currentSession.telegrams | orderBy:'time' | filter:{type:'talk'}">
 		<div class="margin-top-10" ng-if="$first"></div>
 		<div class="sender" ng-if="(telegram.userId!=vm.data.me.id)">
 			<img class="sender_img img-circle" ng-src="{{(telegram.userId | getUserProperty:vm.data.userList:'avatarUrl' | autoProxy) || '/image/avatar-blank.jpg'}}" >
