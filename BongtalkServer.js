@@ -1,4 +1,6 @@
 var http = require('http');
+var url = require('url');
+var httpProxy = require('http-proxy');
 var crypto = require('crypto');
 var debug = require('debug')('bongtalk');
 var async = require('async');
@@ -13,6 +15,7 @@ var QufoxServer = require('qufox').QufoxServer;
 
 var tools = require('./tools');
 var MongoDatabase = require('./MongoDatabase');
+var AvatarImage = require('./AvatarImage');
 var Validator = require('./Validator');
 
 exports.BongtalkServer = (function(){
@@ -22,11 +25,13 @@ exports.BongtalkServer = (function(){
 		this.redisUrl = option.redisUrl;
 		this.cookieParser = cookieParser(option.secret);
 		this.mDatabase = new MongoDatabase(option.mongodbUrl);
+		this.avatarImage = new AvatarImage();
 	}
 
 	BongtalkServer.prototype.run = function(){
 		var self = this;
 
+		var proxy = httpProxy.createProxyServer({});
 		var validator = new Validator();
 
 		var app = express();
@@ -41,6 +46,30 @@ exports.BongtalkServer = (function(){
 		app.use(this.cookieParser);
 		app.use(errorhandler());
 		app.engine('html', require('ejs').renderFile);
+
+		// Set path with specifiedPath.
+		proxy.on('proxyReq', function (proxyReq, req, res, options) {
+			if (options && options.specifiedPath) {
+				proxyReq.path = options.specifiedPath;
+			}
+		});
+
+		// Listen for the `error` event on `proxy`.
+		proxy.on('error', function (err, req, res) {
+			res.writeHead(500, { 'Content-Type': 'text/plain' });
+			res.end('Something went wrong. And we are reporting a custom error message.');
+		});
+
+		// Proxy specified url.
+		app.get('/proxy', function(req, res) {
+			var targetUrl = url.parse(req.query.url);
+			debug('proxy request - ' + targetUrl.protocol + '//' + targetUrl.host + targetUrl.path);
+			proxy.web(req, res, {
+				changeOrigin: true,
+				target: targetUrl.protocol + '//' + targetUrl.host,
+				specifiedPath: targetUrl.path
+			});
+		});
 
 		var apiRoutes = express.Router();
 
@@ -61,29 +90,29 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.post('/signUp', function (req, res){
-			var userId = req.body.userId;
-			var password = req.body.password;
-			if (typeof userId != 'string' ||
-			userId.length < 4 ||
-			userId.length > 20)	{
+			var newUser = req.body.user;
+			if (typeof newUser.id != 'string' ||
+			newUser.id.length < 4 ||
+			newUser.id.length > 20)	{
 				res.json({err: 'Invalid user id.', result: null});
 			}
-			else if (typeof password != 'string' ||
-			password.length < 4 ||
-			password.length > 20){
+			else if (typeof newUser.password != 'string' ||
+			newUser.password.length < 4 ||
+			newUser.password.length > 20){
 				res.json({err: 'Invalid password.', result: null});
 			}
 			else {
 				// check exist userId
-				self.mDatabase.getUser(userId, function (err, result){
+				self.mDatabase.getUser(newUser.id, function (err, result){
 					if (!err && result) {
 						res.json({err: 'Exist user id.', result: null});
 					}
 					else{
-						var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-						self.mDatabase.addUser(userId, userId ,hashedPassword, 'user', function (err, result){
+						newUser.password = crypto.createHash('md5').update(newUser.password).digest('hex');
+						newUser.role = 'user';
+						self.mDatabase.addUser(newUser, function (err, result){
 							res.json({err:err, result:result});
-							debug('Sign up - ' + userId);
+							debug('Sign up - ' + newUser.id);
 						});
 					}
 				});
@@ -126,29 +155,28 @@ exports.BongtalkServer = (function(){
 		});
 
 		apiRoutes.post('/signInByGuest', function (req, res) {
-			var userName = req.body.userName;
-			var userId = tools.randomString(10);
-			var password = tools.randomString(10);
-
-			self.mDatabase.getUser(userId, function (err, user){
+			var newUser = req.body.user;
+			newUser.id = tools.randomString(10);
+			self.mDatabase.getUser(newUser.id, function (err, user){
 				if (user){
 					res.json({err:'user id alreay exists.', result: null});
 				}
 				else {
-					var hashedPassword = crypto.createHash('md5').update(password).digest('hex');
-					self.mDatabase.addUser(userId, userName, hashedPassword, 'guest', function (err, result){
+					newUser.role = 'guest';
+					newUser.password = crypto.createHash('md5').update(tools.randomString(10)).digest('hex');
+					self.mDatabase.addUser(newUser, function (err, result){
 						if (err){
 							res.json({err:err, result:result});
 						}
 						else {
-							self.mDatabase.getUser(userId, function (err, user){
-								var token = jwt.sign({userId:userId}, app.get('bongtalkSecret'), {
+							self.mDatabase.getUser(newUser.id, function (err, user){
+								var token = jwt.sign({userId:user.id}, app.get('bongtalkSecret'), {
 									expiresInMinutes: 120 // expires in 24 hours
 								});
 								jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
 									// return the information including token as JSON
 									res.json({err: null, result: {token:token, tokenExpire:decoded.exp, user:user}});
-									debug('Guest Sign in - ' + userId);
+									debug('Guest Sign in - ' + user.id);
 								});
 							});
 						}
@@ -157,13 +185,18 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
-		// route middleware to verify a token
+		apiRoutes.get('/avatars/random', function (req, res) {
+			self.avatarImage.getRandomAvatarUrl(resBind(res));
+		});
+
+		// Route middleware to verify a token.
+		// After this apis are needs SignIn(authentication).
 		apiRoutes.use(function(req, res, next) {
 
 			// check header or url parameters or post parameters for token
 			var token = req.body.token || req.query.token || req.headers['x-access-token'];
-			if (!token && req.cookies['auth_token']) {
-				token = JSON.parse(req.cookies['auth_token']).token;
+			if (!token && req.cookies.auth_token) {
+				token = JSON.parse(req.cookies.auth_token).token;
 			}
 			// decode token
 			if (token) {
@@ -191,6 +224,7 @@ exports.BongtalkServer = (function(){
 			next();
 		});
 
+		// Chage user password
 		apiRoutes.post('/changePassword', function (req, res){
 			var userId = req.userId;
 			var currentPassword = req.body.currentPassword;
@@ -227,6 +261,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Refresh auth token
 		apiRoutes.get('/refreshToken', function (req, res){
 			var token = jwt.sign(req.decoded, app.get('bongtalkSecret'), { expiresInMinutes: 120 }); // expires in 2 hours
 			jwt.verify(token, app.get('bongtalkSecret'), function (err, decoded) {
@@ -245,6 +280,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get my info
 		apiRoutes.get('/user', function (req, res){
 			var userId = req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
@@ -256,6 +292,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get user info
 		apiRoutes.get('/users/:id', function (req, res){
 			var userId = req.params.id || req.userId;
 			self.mDatabase.getUser(userId, function (err, result) {
@@ -265,6 +302,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Update user info
 		apiRoutes.put('/users/:id', function (req, res){
 			var userId = req.params.id;
 			var data = req.body;
@@ -275,11 +313,13 @@ exports.BongtalkServer = (function(){
 			self.mDatabase.setUser(userId, data, resBind(res));
 		});
 
+		// Get user's joined session list
 		apiRoutes.get('/users/:id/sessions', function (req, res){
 			var userId = req.params.id || req.userId;
 			self.mDatabase.getUserSessions(userId, resBind(res));
 		});
 
+		// Create session
 		apiRoutes.post('/sessions', function (req, res){
 			var name = req.body.name;
 			var type = req.body.type;
@@ -307,6 +347,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get session
 		apiRoutes.get('/sessions/:id', function (req, res){
 			var userId = req.userId;
 			var sessionId = req.params.id;
@@ -316,7 +357,7 @@ exports.BongtalkServer = (function(){
 					if (err) debug(err);
 				} else if (result.users.indexOf(userId) == -1) {
 					if (result.type != 'public') {
-						var err = 'Not in session. userId : ' + userId;
+						err = 'Not in session. userId : ' + userId;
 						debug(err);
 						res.json({err:err, result:null});
 					} else {
@@ -335,6 +376,7 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get user
 		apiRoutes.get('/sessions/:id/users', function (req, res){
 			var userId = req.userId;
 			var sessionId = req.params.id;
@@ -342,8 +384,8 @@ exports.BongtalkServer = (function(){
 				if (err || !result) {
 					res.json({err: 'Can not find session - ' + sessionId, result: null});
 					if (err) debug(err);
-				} else if(result.filter(function (item){return item.id == userId;}).length == 0) {
-					var err = 'Not in session. userId : ' + userId;
+				} else if(result.filter(function (item){return item.id == userId;}).length === 0) {
+					err = 'Not in session. userId : ' + userId;
 					debug(err);
 					res.json({err:err, result:null});
 				} else {
@@ -352,10 +394,12 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Get public session list.
 		apiRoutes.get('/sessions/type/public', function (req, res){
 			self.mDatabase.getPublicSessions(resBind(res));
 		});
 
+		// Join session.
 		apiRoutes.post('/sessions/:id/users', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -383,6 +427,7 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
+		// Leave session.
 		apiRoutes.delete('/sessions/:id/users', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -410,6 +455,7 @@ exports.BongtalkServer = (function(){
 			], resBind(res));
 		});
 
+		// Add telegram.
 		apiRoutes.post('/sessions/:id/telegrams', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -442,6 +488,7 @@ exports.BongtalkServer = (function(){
 			], resBindforInsert(res));
 		});
 
+		// Get session telegrams.
 		apiRoutes.get('/sessions/:id/telegrams', function (req,res){
 			var sessionId = req.params.id;
 			var userId = req.userId;
@@ -449,6 +496,7 @@ exports.BongtalkServer = (function(){
 			var count = req.query.count;
 
 			async.waterfall([
+				// Check correct session.
 				function (callback) {
 					self.mDatabase.getSession(sessionId, function (err, result) {
 						if (err) callback(err, result);
@@ -457,22 +505,37 @@ exports.BongtalkServer = (function(){
 						else callback(null);
 					});
 				},
-				// function (callback) {
-				// 	self.mDatabase.getUser(userId, function (err, result) {
-				// 		if (err) callback(err, result);
-				// 		else if (!result) callback('User is not exist.', null);
-				// 		else callback(null);
-				// 	});
-				// },
+				// Get telegram history list.
 				function (callback) {
-					self.mDatabase.getTelegrams(sessionId, ltTime, count, function (err, result) {
-						callback(err, result);
+					self.mDatabase.getTelegrams(sessionId, ltTime, count, callback);
+				},
+				// Get users in telegram history list.
+				function (telegrams, callback) {
+					var result = {telegrams:telegrams};
+					if (!telegrams || telegrams.length === 0) {
+						callback(null, result);
+						return;
+					}
+
+					// get userIds in telegrams
+					var userIds = telegrams
+						.map(function(item) {return item.userId;})
+						.filter(function(value, index, self) {return self.indexOf(value) === index; });
+
+					async.map(userIds, function(userId, callback){
+						self.mDatabase.getUser(userId, callback);
+					}, function(err, users){
+						if (!err) {
+							result.users = users;
+						}
+
+						callback(null, result);
 					});
 				}
 			], resBind(res));
 		});
 
-		// Admin Role check
+		// Admin Role check.
 		apiRoutes.use(function (req, res, next) {
 			self.mDatabase.getUser(req.userId, function (err, result){
 				if (err) {
@@ -490,31 +553,35 @@ exports.BongtalkServer = (function(){
 			});
 		});
 
+		// Remove user.
 		apiRoutes.delete('/admin/users/:id', function (req, res){
 			var userId = req.params.id;
 			self.mDatabase.removeUser(userId, resBind(res));
 		});
 
+		// Remove session.
 		apiRoutes.delete('/admin/sessions/:id', function (req, res){
 			var sessionId = req.params.id;
 			self.mDatabase.removeSession(sessionId, resBind(res));
 		});
 
+		// Get all user list.
 		apiRoutes.get('/admin/users', function (req, res){
 			self.mDatabase.getAllUser(resBind(res));
 		});
 
+		// Get all session list.
 		apiRoutes.get('/admin/sessions', function (req, res){
 			self.mDatabase.getAllSession(resBind(res));
 		});
 
+		// Get session
 		apiRoutes.get('/admin/sessions/:id', function (req, res){
 			var sessionId = req.params.id;
 			self.mDatabase.getSession(sessionId, resBind(res));
 		});
 
 		app.use('/api', apiRoutes);
-
 
 		function resBind(res){
 			return function (err, result) {

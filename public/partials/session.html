@@ -24,13 +24,13 @@
 		</div>
 	</div>
 </div>
-<div class="session_content" scroll-glue>
-	<div class="talk-container" ng-repeat="telegram in currentSession.telegrams | orderBy:'time' | filter:{type:'talk'} track by telegram._id">
+<div class="session_content" auto-scroll auto-scroll-updater="currentSession.telegrams.length">
+	<div class="talk-container" ng-repeat="telegram in currentSession.telegrams | orderBy:'time' | filter:{type:'talk'}">
 		<div class="margin-top-10" ng-if="$first"></div>
-		<div class="sender" ng-if="(telegram.userId!=vm.data.user.id)">
-			<img class="sender_img" src="/image/avatar-blank.jpg" >
+		<div class="sender" ng-if="(telegram.userId!=vm.data.me.id)">
+			<img class="sender_img img-circle" ng-src="{{(telegram.userId | getUserProperty:vm.data.userList:'avatarUrl' | autoProxy) || '/image/avatar-blank.jpg'}}" >
 			<div class="sender_content">
-				<span class="sender_name">{{telegram.userName}}</span>
+				<span class="sender_name">{{telegram.userId | getUserProperty:vm.data.userList:'name':telegram.userName}}</span>
 				<div class="bubble">
 					<div class="message_content">
 						<div>{{telegram.data}}</div>
@@ -40,7 +40,7 @@
 				</div>
 			</div>
 		</div>
-		<div class="sender sender--alt" ng-if="(telegram.userId==vm.data.user.id)">
+		<div class="sender sender--alt" ng-if="(telegram.userId==vm.data.me.id)">
 			<div class="bubble bubble--alt">
 				<div class="message_content">
 					<div>{{telegram.data}}</div>

@@ -69,17 +69,17 @@ bongtalkControllers.factory('emitter', [function () {
 }]);
 
 bongtalkControllers.directive('onEnter', function () {
-    return function (scope, element, attrs) {
-        element.bind("keydown keypress", function (event) {
-            if(event.which === 13) {
-                scope.$apply(function (){
-                    scope.$eval(attrs.onEnter);
-                });
-
-                event.preventDefault();
-            }
+  return function (scope, element, attrs) {
+    element.bind("keydown keypress", function (event) {
+      if(event.which === 13) {
+        scope.$apply(function (){
+          scope.$eval(attrs.onEnter);
         });
-    };
+
+        event.preventDefault();
+      }
+    });
+  };
 });
 
 bongtalkControllers.directive('focusOn', function() {
@@ -91,6 +91,49 @@ bongtalkControllers.directive('focusOn', function() {
     });
   };
 });
+
+bongtalkControllers.directive('autoScroll', ['$timeout', function($timeout){
+  return function(scope, $el, attrs){
+    var el = $el[0];
+    var minBottomGap = attrs.autoScrollMinBottomGap || 70;
+    var smoothScrollMinDistance = attrs.autoScrollSmoothScrollMinDistance || 500;
+    var smoothScrollTime = 250;
+    var smoothScrollPiece = 25;
+
+    function scrollToBottom(){
+      var expect = el.scrollHeight - el.clientHeight;
+      var distance = expect - el.scrollTop;
+      if (el.scrollTop != expect && distance > 0 && distance < smoothScrollMinDistance) {
+
+        var step = Math.round(distance / smoothScrollPiece);
+        var speed = smoothScrollTime / smoothScrollPiece;
+        for (var i = 0; i < smoothScrollPiece; ++i){
+          timeoutScrollTopAdd(step, i*speed);
+        }
+      }
+      else {
+        el.scrollTop = expect;
+      }
+    }
+
+    function timeoutScrollTopAdd(distance, time){
+      setTimeout(function () { el.scrollTop += distance; }, time);
+    }
+
+    function shouldActivateAutoScroll(){
+      var gap = Math.abs(el.scrollTop + el.clientHeight - el.scrollHeight);
+      return gap < minBottomGap;
+    }
+
+    scope.$watch(attrs.autoScrollUpdater, function() {
+      if (shouldActivateAutoScroll()){
+        $timeout(function (){
+          scrollToBottom();
+        });
+      }
+    });
+  };
+}]);
 
 bongtalkControllers.factory('focus', [
   '$rootScope', '$timeout', (function($rootScope, $timeout) {

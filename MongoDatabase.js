@@ -42,15 +42,19 @@ module.exports = (function() {
 
 			if (!result) {
 				debug('Create admin user');
-				self.addUser('admin', 'Administrator', '21232f297a57a5a743894a0e4a801fc3', 'admin', function (err, result){
-					if (err){
-						if (tools.isFunction(callback)) { callback(err); }
-						return;
-					}
-
-					if (tools.isFunction(callback)) callback();
-
-				}); // default admin password is 'admin'
+				self.addUser({
+						id : 'admin',
+						name : 'Administrator',
+						password : '21232f297a57a5a743894a0e4a801fc3',
+						role : 'admin'
+					},
+					function (err, result){
+						if (err){
+							if (tools.isFunction(callback)) { callback(err); }
+							return;
+						}
+						if (tools.isFunction(callback)) callback();
+					}); // default admin password is 'admin'
 			}
 			else {
 				if (tools.isFunction(callback)) callback();
@@ -60,15 +64,10 @@ module.exports = (function() {
 	};
 
 	// User
-	Database.prototype.addUser = function (userId, userName, password, role, callback) {
+	Database.prototype.addUser = function (user, callback) {
 		var self = this;
-		var user = {
-			id : userId,
-			name : userName,
-			password : password,
-			role : role,
-			sessions : []
-		};
+		user.sessions = [];
+		user.name = user.name || user.id;
 		self.db.collection('User').insert(user, callback);
 	};
 
@@ -269,7 +268,8 @@ module.exports = (function() {
 
 	Database.prototype.getPublicSessions = function (callback) {
 		var self = this;
-		self.db.collection('Session').find({type:'public', $where:'this.users.length>0'}).toArray(callback);
+		// self.db.collection('Session').find({type:'public', $where:'this.users.length>0'}).toArray(callback);
+		self.db.collection('Session').find({type:'public'}).toArray(callback);
 	};
 
 	// Telegram
@@ -347,8 +347,6 @@ module.exports = (function() {
 
 	};
 
-
-
 	Database.prototype.getTelegramsWithSkipTake = function (sessionId, skip, take, callback){
 		debug('getTelegrams - skip:' + skip + ' take:' + take);
 
@@ -421,27 +419,6 @@ module.exports = (function() {
 			}
 		});
 	};
-
-
-
-	// Database.prototype.AddTelegram = function (telegram, callback) {
-	// 	var self = this;
-	// 	if (!telegram || !telegram.type || !telegram.data) {
-	// 		debug('Bad telegram format.');
-	// 	}
-	// 	else
-	// 	{
-	// 		var type = telegram.type;
-	// 		delete telegram.type;
-	// 		self.db.collection(type).insert(telegram, function (err, docs){
-	// 			if (err) {
-	// 				debug('collection['+type+'] insert Error - ' + err);
-	// 			}
-
-	// 			if (tools.isFunction(callback)) callback(err, docs);
-	// 		});
-	// 	}
-	// };
 
 	return Database;
 })();

@@ -34,10 +34,10 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
     // context Load (signin or Window refresh)
     BongtalkViewModel.prototype.load = function (user, callback) {
       var self = this;
-      if (!user) { callback('user is no exist', null); return; }
+      if (!user) { callback('user is not exist', null); return; }
       self.apiClient.getUserSessions(user.id, function (err, result) {
         if (!err) {
-          self.data = { user: user, sessionList: result };
+          self.data = { me: user, sessionList: result, userList: [user] };
           // token auto refresh service Start.
           self.bongtalkAutoRefreshToken.start();
           self.isLoaded = true;
@@ -60,35 +60,61 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
         // call ready callback.
         if (_.isFunction(callback)) callback(err, result);
         if (self.readyCallbackList.length > 0) {
-          _.each(self.readyCallbackList, function (readyCallback) {
+          var readyCallback = null;
+          while ((readyCallback = self.readyCallbackList.shift())){
             readyCallback(err, result);
-          });
+          }
         }
       });
     };
 
     // context UnLoad (Sign out)
     BongtalkViewModel.prototype.unload = function (callback) {
-      this.isLoaded = false;
-      this.data = null;
-      this.bongtalkAutoRefreshToken.stop();
-      this.qufox.leaveAll();
+      if (this.isLoaded){
+        this.isLoaded = false;
+        this.data = null;
+        this.bongtalkAutoRefreshToken.stop();
+        this.qufox.leaveAll();
+      }
     };
 
     BongtalkViewModel.prototype.setMyInfo = function (data, callback){
       var self = this;
-      self.apiClient.setMyInfo(self.data.user.id, data, function (err, result){
+      self.apiClient.setMyInfo(self.data.me.id, data, function (err, result){
         if (!err) {
           self.updateUser(data);
-          self.qufox.send('private:' + self.data.user.id, {name:'setMyInfo', object:data}, function(){});
+          // send private packet (For multi device.)
+          self.qufox.send('private:' + self.data.me.id, {name:'setMyInfo', object:data}, function(){});
+          data.id = self.data.me.id;
+
+          // send session packet (Notify to other users in session.)
+          _.each(self.data.sessionList, function (session){
+            self.qufox.send('session:' + session._id, {name:'updateUser', object:data}, function(){});
+          });
         }
         if (_.isFunction(callback)) callback(err, result);
       });
     };
 
     BongtalkViewModel.prototype.updateUser = function (user){
-      for (var property in user) {
-        this.data.user[property] = user[property];
+      var self = this;
+      if (!user) return;
+      var existUser = null;
+
+      if (user.id){
+        existUser =_.find(self.data.userList, function (u) {return u.id == user.id;});
+      }
+      else {
+        existUser = self.data.me;
+      }
+
+      if (existUser){
+        for (var property in user) {
+          existUser[property] = user[property];
+        }
+      }
+      else{
+        self.data.userList.push(user);
       }
     };
 
@@ -98,7 +124,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
       self.apiClient.getSessionUsers(session._id, function (err, result) {
         if (!err) {
-          session.users = result;
+          _.each(result, function(user){ self.updateUser(user);});
         }
 
         if (_.isFunction(callback)) callback(err, result);
@@ -114,10 +140,18 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       self.apiClient.getTelegrams(session._id, 0, 0, function (err, result) {
-        if (!err && result && result.length > 0) {
-          _.each(result, function (telegram) {
-            self.addTelegram(session, telegram);
-          });
+        if (!err && result) {
+          if (result.users && result.users.length > 0){
+            _.each(result.users, function (user){
+              self.updateUser(user);
+            });
+          }
+
+          if (result.telegrams && result.telegrams.length > 0){
+            _.each(result.telegrams, function (telegram) {
+              self.addTelegram(session, telegram);
+            });
+          }
 
           session.isTelegramLoaded = true;
         }
@@ -128,9 +162,10 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
     BongtalkViewModel.prototype.createSession = function (name, type, callback) {
       var self = this;
-      self.apiClient.createSession(name, type, [self.data.user.id], function (err, result) {
+      self.apiClient.createSession(name, type, [self.data.me.id], function (err, result) {
         if (!err) {
-          self.qufox.send('private:' + self.data.user.id, {name:'joinSession', object:result._id}, function(){});
+          self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:result._id}, function(){});
+          self.qufox.send('session:' + result._id, {name:'joinSession', object:self.data.me.id}, function(){});
           self.addSession(result);
         }
 
@@ -145,7 +180,8 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           if (_.isFunction(callback)) callback(err, result);
         }
         else{
-          self.qufox.send('private:' + self.data.user.id, {name:'joinSession', object:sessionId}, function(){});
+          self.qufox.send('private:' + self.data.me.id, {name:'joinSession', object:sessionId}, function(){});
+          self.qufox.send('session:' + sessionId, {name:'joinSession', object:self.data.me.id}, function(){});
           self.apiClient.getSession(sessionId, function(err, result) {
             if (!err){
               self.addSession(result);
@@ -172,7 +208,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           telegram.time = result.time;
 
           // Send packet.
-          self.qufox.send('session:' + session._id, result, function () {
+          self.qufox.send('session:' + session._id, {name:'telegram',object:result}, function () {
             if (_.isFunction(callback)) callback(err, result);
           });
         }
@@ -207,8 +243,8 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       // setUserInfo
-      if (self.data.user.sessions.indexOf(session._id) == -1) {
-        self.data.user.sessions.push(session._id);
+      if (self.data.me.sessions.indexOf(session._id) == -1) {
+        self.data.me.sessions.push(session._id);
       }
     };
 
@@ -225,9 +261,9 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       }
 
       // setUserInfo
-      var index = self.data.user.sessions.indexOf(sessionId);
+      var index = self.data.me.sessions.indexOf(sessionId);
       if (index > -1) {
-        self.data.user.sessions.splice(index, 1);
+        self.data.me.sessions.splice(index, 1);
       }
     };
 
@@ -250,9 +286,9 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           case 'leaveSession':
           self.removeSession(packet.object);
           // if your url in receive session, leave.
-          if (self.$routeParams.left == 'chats'
-            && (self.$routeParams.right == 'session' || self.$routeParams.right == 'session-info')
-            && self.$routeParams.param == packet.object) {
+          if (self.$routeParams.left == 'chats'&&
+            (self.$routeParams.right == 'session' || self.$routeParams.right == 'session-info') &&
+            self.$routeParams.param == packet.object) {
             self.$location.path('/main/chats');
           }
           break;
@@ -264,18 +300,50 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
     BongtalkViewModel.prototype.sessionPacketReceived = function (session, packet) {
       var self = this;
       self.$rootScope.$apply(function () {
-        var telegram = self.addTelegram(session, packet);
-        //var talk = self.addTalk(session, packet);
-
-        //// ping 을 받으면 pong 을 보낸다.
-        //if (talk.type == 'ping') self.sendTalk(session.sessionId, 'pong', navigator.userAgent.substring(0, 200));
-
-        //// 상대방이 전송한 일반메시지 수신
-        //if (!packet.type && packet.userId != self.data.UserId) {
-        //    // 현재 보고 있는 Session 이면 ACK_READ 아니면 ACK를 보낸다.
-        //    var method = self.$routeParams.sessionId == session.sessionId ? 'ACK_READ' : 'ACK';
-        //    self.sendFlowTalk(session.sessionId, method, packet.id);
-        //}
+        switch (packet.name) {
+          case 'telegram':
+            // add Telegram
+            self.addTelegram(session, packet.object);
+            break;
+          case 'updateUser':
+            // update only others info. (my info will update by privatePacket.)
+            if (packet.object.id != self.data.me.id){
+              self.updateUser(packet.object);
+            }
+            break;
+          case 'joinSession':
+            var joinedUserId = packet.object;
+            // only other users.
+            if (joinedUserId != self.data.me.id){
+              // Add to session.users
+              if (_.findIndex(session.users, function (uId){return uId == joinedUserId;}) === -1){
+                session.users.push(joinedUserId);
+              }
+              // Update userList
+              self.apiClient.getUser(joinedUserId, function (err, user){
+                if (!err) self.updateUser(user);
+              });
+            }
+            break;
+          case 'leaveSession':
+            var leavedUserId = packet.object;
+            if (leavedUserId != self.data.me.id){
+              // remove in session.users
+              var userIndex = _.findIndex(session.users, function (uId){return uId == leavedUserId;});
+              if (userIndex > -1) {
+                session.users.splice(userIndex, 1);
+              }
+              // remove session in user
+              var leavedUser = _.find(self.data.userList, function (u){return u.id == leavedUserId;});
+              if (leavedUser && leavedUser.sessions && leavedUser.sessions.length){
+                var sessionIndex = _.findIndex(leavedUser.sessions, function(s){return s == session._id;});
+                if (sessionIndex > -1){
+                  leavedUser.sessions.splice(sessionIndex, 1);
+                }
+              }
+            }
+            break;
+        }
       });
     };
 

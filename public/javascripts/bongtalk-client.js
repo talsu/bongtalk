@@ -25,19 +25,19 @@
 			}, callback);
 		};
 
-		BongtalkApiClient.prototype.signInByGuest = function (userName, callback) {
+		BongtalkApiClient.prototype.signInByGuest = function (user, callback) {
 			this.sendRequest({
 				method: 'POST',
 				url: 'api/signInByGuest',
-				data: {userName:userName}
+				data: {user:user}
 			}, callback);
 		};
 
-		BongtalkApiClient.prototype.signUp = function (userId, password, callback) {
+		BongtalkApiClient.prototype.signUp = function (user, callback) {
 			this.sendRequest({
 				method: 'POST',
 				url: 'api/signUp',
-				data: {userId:userId, password:password}
+				data:  {user:user}
 			}, callback);
 		};
 
@@ -69,6 +69,20 @@
 				method: 'POST',
 				url: 'api/changePassword',
 				data: {currentPassword:currentPassword, newPassword:newPassword}
+			}, callback);
+		};
+
+		BongtalkApiClient.prototype.getUser = function (userId, callback) {
+			this.sendRequest({
+				method: 'GET',
+				url: 'api/users/' + userId
+			}, callback);
+		};
+
+		BongtalkApiClient.prototype.getRandomAvatarUrl = function (callback){
+			this.sendRequest({
+				method: 'GET',
+				url: 'api/avatars/random'
 			}, callback);
 		};
 
@@ -151,7 +165,6 @@
 				url: 'api/admin/users',
 			}, callback);
 		};
-
 
 		BongtalkApiClient.prototype.admin_removeUser = function (userId, callback) {
 			this.sendRequest({

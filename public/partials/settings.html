@@ -14,19 +14,23 @@
 
 <div class="session_list_content">
 	<div class="list-group">
-		<a ng-class="['list-group-item', {active: routeRight=='set-username'}]" ng-href="#/main/{{routeLeft||'none'}}/set-username">
-			<h4 class="list-group-item-heading">Username</h4>
-			<p class="list-group-item-text">Change username {{vm.data.user.name}}</p>
+		<a ng-class="['list-group-item', {active: routeRight=='set-profile'}]" ng-href="#/main/{{routeLeft||'none'}}/set-profile">
+			<h4 class="list-group-item-heading">Profile</h4>
+			<p class="list-group-item-text">{{vm.data.me.name}}'s profile</p>
 		</a>
-		<a ng-if="vm.data.user.role!='guest'"  ng-class="['list-group-item', {active: routeRight=='set-password'}]" ng-href="#/main/{{routeLeft||'none'}}/set-password">
+		<!-- <a ng-class="['list-group-item', {active: routeRight=='set-username'}]" ng-href="#/main/{{routeLeft||'none'}}/set-username">
+			<h4 class="list-group-item-heading">Username</h4>
+			<p class="list-group-item-text">Change username {{vm.data.me.name}}</p>
+		</a>
+		<a ng-if="vm.data.me.role!='guest'"  ng-class="['list-group-item', {active: routeRight=='set-password'}]" ng-href="#/main/{{routeLeft||'none'}}/set-password">
 			<h4 class="list-group-item-heading">Password</h4>
 			<p class="list-group-item-text">Change password</p>
-		</a>
-		<a ng-if="vm.data.user.role=='admin'" ng-class="['list-group-item', {active: routeRight=='admin-user-management'||routeRight=='admin-session-management'}]" ng-href="#/main/{{routeLeft||'none'}}/admin-user-management">
+		</a> -->
+		<a ng-if="vm.data.me.role=='admin'" ng-class="['list-group-item', {active: routeRight=='admin-user-management'||routeRight=='admin-session-management'}]" ng-href="#/main/{{routeLeft||'none'}}/admin-user-management">
 			<h4 class="list-group-item-heading">Administrator</h4>
 			<p class="list-group-item-text">Only administrator</p>
 		</a>
-		<a ng-if="vm.data.user.role=='guest'"  href="#/signup" class="list-group-item">
+		<a ng-if="vm.data.me.role=='guest'"  href="#/signup" class="list-group-item">
 			<h4 class="list-group-item-heading">Sign up</h4>
 			<p class="list-group-item-text">Create Bongtalk account</p>
 		</a>

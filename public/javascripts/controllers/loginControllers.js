@@ -32,12 +32,14 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 			return;
 		}
 
-		apiClient.signInByGuest($scope.user.name, function (err, result) {
+		var newUser = {name:$scope.user.name};
+		apiClient.signInByGuest(newUser, function (err, result) {
 			if (err) {
 				$scope.userNameValidationStatus = 'error';
 				$scope.userNameValidationComment = JSON.stringify(err);
 			}
 			else {
+				$scope.vm.unload();
 				$cookies.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
 				$location.path('/main/chats/start-public-chat');
 			}
@@ -109,6 +111,7 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 	focus();
 	$scope.userIdValidationStatus = '';
 	$scope.userIdValidationComment = '';
+  $scope.avatarUrl = '';
 
 	$scope.userIdChanged = function () {
 		var validateResult = validator.validateUserId($scope.userId);
@@ -142,7 +145,12 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 	$scope.signUp = function () {
 		if (!validator.validateUserId($scope.userId) || !validator.validatePassword($scope.password)) return;
 
-		apiClient.signUp($scope.userId, $scope.password, function (err, result) {
+		var newUser = {
+			id:$scope.userId,
+			password:$scope.password,
+			avatarUrl:$scope.avatarUrl
+		};
+		apiClient.signUp(newUser, function (err, result) {
 			if (commonResponseHandle(err, result)) return;
 
 			// signin
@@ -155,6 +163,7 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 						return;
 					}
 
+					$scope.vm.unload();
 					$cookies.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
 					$location.path('/main/chats/set-username/first');
 				});
@@ -165,6 +174,14 @@ function($scope, $location, $routeParams, $cookies, ngDialog, apiClient, validat
 			}
 		});
 	};
+
+	$scope.chageAvatarUrlRandom = function (){
+		apiClient.getRandomAvatarUrl(function (err, result){
+			if (!err) $scope.avatarUrl = result;
+		});
+	};
+
+	$scope.chageAvatarUrlRandom();
 
 	$scope.back = function () {
 		$location.path('/login');

@@ -22,7 +22,6 @@ module.exports = function(grunt) {
           'bower_components/angular-route/angular-route.js',
           'bower_components/angular-cookies/angular-cookies.js',
           'bower_components/angular-animate/angular-animate.js',
-          'bower_components/angularjs-scroll-glue/src/scrollglue.js',
           'bower_components/ngDialog/js/ngDialog.js',
           'bower_components/jquery/dist/jquery.js',
           'bower_components/underscore/underscore.js',

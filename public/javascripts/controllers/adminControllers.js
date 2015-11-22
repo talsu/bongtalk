@@ -13,7 +13,7 @@ function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator)
 	function init(){
 		apiClient.admin_getAllUser(function (err, result){
 			if (err) { alert(JSON.stringify(err)); return; }
-			$scope.users = result;
+			$scope.users = _.filter(result, function(user){return user.id != 'admin';});
 		});
 	}
 
@@ -22,6 +22,14 @@ function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator)
 			if (err) { alert(JSON.stringify(err)); return; }
 			var index = _.findIndex($scope.users, function (user) { return user.id == userId; });
 			if (index > -1){
+				var user = $scope.users[index];
+				if (user.sessions && user.sessions.length){
+					_.each(user.sessions, function (sessionId){
+						$scope.vm.qufox.send('private:'+userId, {name:'leaveSession', object:sessionId}, function(){});
+						$scope.vm.qufox.send('session:'+sessionId, {name:'leaveSession', object:userId}, function(){});
+					});
+				}
+
 				$scope.users.splice(index, 1);
 			}
 		});
@@ -60,6 +68,7 @@ function($scope, $location, $routeParams, $http, ngDialog, apiClient, validator)
 				if (users && _.isArray(users)){
 					_.each(users, function(userId){
 						$scope.vm.qufox.send('private:'+userId, {name:'leaveSession', object:sessionId}, function(){});
+						$scope.vm.qufox.send('session:'+sessionId, {name:'leaveSession', object:userId}, function(){});
 					});
 				}
 				var index = _.findIndex($scope.sessions, function (s) { return s._id == sessionId; });
