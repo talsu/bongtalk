@@ -11,7 +11,7 @@ var cookieParser = require('cookie-parser');
 var methodOverride = require('method-override');
 var errorhandler = require('errorhandler');
 var jwt = require('jsonwebtoken');
-var QufoxServer = require('qufox').QufoxServer;
+var QufoxServer = require('qufox');
 
 var tools = require('./tools');
 var MongoDatabase = require('./mongo-database');
