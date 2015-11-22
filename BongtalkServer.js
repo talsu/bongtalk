@@ -609,6 +609,9 @@ exports.BongtalkServer = (function(){
 			var server = http.createServer(app);
 			server.listen(self.servicePort);
 
+			debug('bongtalk is running.');
+			debug(self.option);
+
 			new QufoxServer({
 				listenTarget: server,
 				redisUrl: self.redisUrl
