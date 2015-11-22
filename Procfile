@@ -1,1 +1,1 @@
-web: DEBUG=bongtalk*,qufox* node ./bin/bongtalk
+web: node ./bin/bongtalk

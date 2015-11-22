@@ -18,6 +18,6 @@ var command = require('optimist')
 config.servicePort = process.env.PORT || command.argv.p || Number(config.servicePort) || 3000;
 config.mongodbUrl = process.env.MONGOLAB_URI || command.argv.m || config.mongodbUrl || 'mongodb://127.0.0.1/bongtalk';
 config.redisUrl = process.env.REDISCLOUD_URL || command.argv.r || config.redisUrl;
-config.secret = command.argv.s || config.secret || 'defaultSecret';
+config.secret = process.env.BONGTALK_SECRET ||command.argv.s || config.secret || 'defaultSecret';
 
 new BongtalkServer(config).run();
