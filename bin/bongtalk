@@ -17,7 +17,7 @@ var command = require('optimist')
 	});
 
 config.servicePort = process.env.PORT || command.argv.p || Number(config.servicePort) || 3000;
-config.mongodbUrl = process.env.MONGODB_URI || command.argv.m || config.mongodbUrl || 'mongodb://127.0.0.1/bongtalk';
+config.mongodbUrl = process.env.MONGODB_URL || command.argv.m || config.mongodbUrl || 'mongodb://127.0.0.1/bongtalk';
 config.redisUrl = process.env.REDIS_URL || command.argv.r || config.redisUrl;
 config.secret = process.env.BONGTALK_SECRET || command.argv.s || config.secret || 'defaultSecret';
 config.qufoxUrl = process.env.QUFOX_URL || command.argv.q || config.qufoxUrl;
