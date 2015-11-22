@@ -46,9 +46,9 @@ Connect web browser to http://localhost:3000
 
 ### Module
 ```javascript
-var BongtalkServer = require('./BongtalkServer').BongtalkServer;
+var BongtalkServer = require('./bongtalk-server');
 
-var config = { 
+var config = {
   servicePort: 3000,
   mongodbUrl: 'mongodb://127.0.0.1/bongtalk',
   secret : 'enterYourSecretString'

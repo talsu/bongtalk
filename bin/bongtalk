@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-var BongtalkServer = require('../BongtalkServer').BongtalkServer;
+var BongtalkServer = require('../bongtalk-server');
 var config = require('../config');
 
 var command = require('optimist')

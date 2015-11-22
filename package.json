@@ -24,7 +24,7 @@
   "bin": {
     "bongtalk": "./bin/bongtalk"
   },
-  "main": "BongtalkServer.js",
+  "main": "bongtalk-server.js",
   "devDependencies": {
     "bower": "^1.6.5",
     "grunt": "^0.4.5",

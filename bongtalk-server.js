@@ -14,11 +14,11 @@ var jwt = require('jsonwebtoken');
 var QufoxServer = require('qufox').QufoxServer;
 
 var tools = require('./tools');
-var MongoDatabase = require('./MongoDatabase');
-var AvatarImage = require('./AvatarImage');
-var Validator = require('./Validator');
+var MongoDatabase = require('./mongo-database');
+var AvatarImage = require('./avatar-image');
+var Validator = require('./validator');
 
-exports.BongtalkServer = (function(){
+module.exports = (function(){
 	function BongtalkServer(option){
 		this.option = option;
 		this.servicePort = process.env.PORT || option.servicePort;
