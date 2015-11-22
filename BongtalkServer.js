@@ -23,6 +23,7 @@ exports.BongtalkServer = (function(){
 		this.option = option;
 		this.servicePort = process.env.PORT || option.servicePort;
 		this.redisUrl = option.redisUrl;
+		this.qufoxUrl = option.qufoxUrl;
 		this.cookieParser = cookieParser(option.secret);
 		this.mDatabase = new MongoDatabase(option.mongodbUrl);
 		this.avatarImage = new AvatarImage();
@@ -75,6 +76,10 @@ exports.BongtalkServer = (function(){
 
 		apiRoutes.get('/', function (req, res) {
 			res.json({ message: 'API' });
+		});
+
+		apiRoutes.get('/qufox', function (req, res){
+			res.json({err:null, result:self.qufoxUrl});
 		});
 
 		apiRoutes.get('/checkUserExist', function (req, res){
@@ -612,10 +617,12 @@ exports.BongtalkServer = (function(){
 			debug('bongtalk is running.');
 			debug(self.option);
 
-			new QufoxServer({
-				listenTarget: server,
-				redisUrl: self.redisUrl
-			});
+			if (!self.qufoxUrl) {
+				new QufoxServer({
+					listenTarget: server,
+					redisUrl: self.redisUrl
+				});
+			}
 		});
 	};
 

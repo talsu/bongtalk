@@ -7,7 +7,7 @@ module.exports = (function() {
 			status:'',
 			comment:'',
 			ok:false,
-		}
+		};
 
 		if (!userName) {
 			result.status = '';
@@ -35,7 +35,7 @@ module.exports = (function() {
 			status:'',
 			comment:'',
 			ok:false,
-		}
+		};
 
 		if (!userId) {
 			result.status = '';
@@ -63,7 +63,7 @@ module.exports = (function() {
 			status:'',
 			comment:'',
 			ok:false,
-		}
+		};
 
 		if (!password) {
 			result.status = '';
@@ -91,7 +91,7 @@ module.exports = (function() {
 			status:'',
 			comment:'',
 			ok:false,
-		}
+		};
 
 		if (!sessionName) {
 			result.status = 'error';
@@ -116,7 +116,7 @@ module.exports = (function() {
 			status:'',
 			comment:'',
 			ok:false,
-		}
+		};
 
 		if (!sessionType) {
 			result.status = 'error';
@@ -127,10 +127,10 @@ module.exports = (function() {
 		} else if (['public', 'group', 'personal'].indexOf(sessionType) == -1){
 			result.status = 'error';
 			result.comment = 'Invalid session type : ' + sessionType;
-		} else if (sessionType == 'public' && users.length == 0){
+		} else if (sessionType == 'public' && users.length === 0){
 			result.status = 'error';
 			result.comment = 'public session need user.';
-		} else if (sessionType == 'group' && users.length == 0){
+		} else if (sessionType == 'group' && users.length === 0){
 			result.status = 'error';
 			result.comment = 'group session need user.';
 		} else if (sessionType == 'personal' && (users.length != 2 || users[0] == users[1])){

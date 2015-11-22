@@ -42,6 +42,10 @@
 		};
 
 		// My Info
+		BongtalkApiClient.prototype.getQufoxUrl = function (callback) {
+			this.sendRequest({method: 'GET', url: 'api/qufox'}, callback);
+		};
+
 		BongtalkApiClient.prototype.refreshToken = function(callback) {
 			this.sendRequest({
 				method: 'GET',

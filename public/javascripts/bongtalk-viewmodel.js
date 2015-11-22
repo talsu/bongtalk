@@ -19,7 +19,8 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
       this.apiClient = apiClient;
       this.isLoaded = false;
       this.data = null;
-      this.qufox = new Qufox(window.location.protocol + '//' + window.location.host);
+      this.qufox = null;
+      // this.qufox = new Qufox(window.location.protocol + '//' + window.location.host);
       this.bongtalkAutoRefreshToken = bongtalkAutoRefreshToken;
       this.readyCallbackList = [];
     }
@@ -40,21 +41,24 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           self.data = { me: user, sessionList: result, userList: [user] };
           // token auto refresh service Start.
           self.bongtalkAutoRefreshToken.start();
-          self.isLoaded = true;
 
-          // join private session
-          self.qufox.join('private:' + user.id, function (packet) {
-            self.privatePacketReceived(packet);
-          });
+          self.connectQufox(function (){
 
-          // join sessions.
-          if (angular.isArray(self.data.sessionList)) {
-            _.each(self.data.sessionList, function (session) {
-              self.qufox.join('session:' + session._id, function (packet) {
-                self.sessionPacketReceived(session, packet);
-              });
+            self.isLoaded = true;
+            // join private session
+            self.qufox.join('private:' + user.id, function (packet) {
+              self.privatePacketReceived(packet);
             });
-          }
+
+            // join sessions.
+            if (angular.isArray(self.data.sessionList)) {
+              _.each(self.data.sessionList, function (session) {
+                self.qufox.join('session:' + session._id, function (packet) {
+                  self.sessionPacketReceived(session, packet);
+                });
+              });
+            }
+          });
         }
 
         // call ready callback.
@@ -66,6 +70,22 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
           }
         }
       });
+    };
+
+    BongtalkViewModel.prototype.connectQufox = function(callback) {
+      var self = this;
+      if (self.qufox) {
+        callback();
+      }
+      else {
+        self.apiClient.getQufoxUrl(function (err, result){
+          if (!self.qufox) {
+            self.qufox = new Qufox(result || window.location.protocol + '//' + window.location.host);
+          }
+
+          callback();
+        });
+      }
     };
 
     // context UnLoad (Sign out)
