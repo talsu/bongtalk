@@ -11,7 +11,7 @@ var command = require('optimist')
 	.alias('s', 'secret')
 	.check(function (argv){
 		if (argv.p && isNaN(argv.p)){
-			throw 'port must be Number.'
+			throw 'port must be Number.';
 		}
 	});
 
