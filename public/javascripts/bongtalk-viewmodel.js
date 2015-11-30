@@ -194,7 +194,7 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
     };
 
     BongtalkViewModel.prototype.joinSession = function (sessionId, callback) {
-      var self =this;
+      var self = this;
       self.apiClient.joinSession(sessionId, function (err, result){
         if (err){
           if (_.isFunction(callback)) callback(err, result);
@@ -209,6 +209,21 @@ bongtalkControllers.factory('viewmodel', ['$rootScope', '$filter', '$location', 
 
             if (_.isFunction(callback)) callback(err, result);
           });
+        }
+      });
+    };
+
+    BongtalkViewModel.prototype.leaveSession = function (sessionId, callback) {
+      var self = this;
+      self.apiClient.leaveSession(sessionId, function (err, result){
+        if (err) {
+          if (_.isFunction(callback)) callback(err, result);
+        }
+        else {
+          self.qufox.send('private:'+self.data.me.id, {name:'leaveSession', object:sessionId}, function(){});
+          self.qufox.send('session:'+sessionId, {name:'leaveSession', object:self.data.me.id}, function(){});
+          self.removeSession(sessionId);
+          if (_.isFunction(callback)) callback(err, result);
         }
       });
     };

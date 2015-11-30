@@ -40,6 +40,14 @@ function($scope, $routeParams, $location, emitter) {
 			}
 		}
 	}
+
+	$scope.leave = function () {
+		$scope.vm.leaveSession(currentSessionId, function (err, result){
+			if (!err){
+				$location.path('/main/chats');
+			}
+		});
+	};
 }]);
 
 

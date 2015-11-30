@@ -145,6 +145,13 @@
 			}, callback);
 		};
 
+		BongtalkApiClient.prototype.leaveSession = function (sessionId, callback) {
+			this.sendRequest({
+				method: 'DELETE',
+				url: 'api/sessions/' + sessionId + '/users'
+			}, callback);
+		};
+
 		// Telegram
 		BongtalkApiClient.prototype.getTelegrams = function (sessionId, ltTime, count, callback) {
 			this.sendRequest({
