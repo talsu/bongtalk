@@ -56889,16 +56889,16 @@ function toArray(list, index) {
 (function () {
 	"use strict";
 
-	this.Qufox = function (url) { return new QufoxClient(url || "http://qufox.com"); };
+	this.Qufox = function (url, customIO, option) { return new QufoxClient(url || "http://qufox.com", customIO, option); };
 
 	var QufoxClient = (function () {
-		function QufoxClient(url) {
+		function QufoxClient(url, customIO, option) {
 			var self = this;
 			this.sessionCallbackMap = {};
 			this.joinCompleteCallbackMap = {};
 			this.statusChangedCallbackArray = [];
 			this.status = 'connecting';
-			this.socket = io.connect(url, {
+			this.socket = (customIO || io).connect(url, option || {
 				'path': '/qufox.io',
 				'sync disconnect on unload': true,
 				'reconnection limit': 6000, //defaults Infinity
@@ -57021,25 +57021,31 @@ function toArray(list, index) {
 
 		QufoxClient.prototype.unsubscribe =
 		QufoxClient.prototype.off =
-		QufoxClient.prototype.leave = function (sessionId, callback) {
+		QufoxClient.prototype.leave = function (sessionId, packetReceiveCallback, leaveCompleteCallback) {
 			var self = this;
 			var currentMap = self.sessionCallbackMap[sessionId];
 			if (!currentMap) return;
 
 			var excludeMap = [];
-			if (callback) {
+			if (packetReceiveCallback) {
 				for (var i = 0; i < currentMap.length; ++i) {
-					if (currentMap[i] != callback) excludeMap.push(currentMap[i]);
+					if (currentMap[i] != packetReceiveCallback) excludeMap.push(currentMap[i]);
 				}
 			}
 
 			if (excludeMap.length === 0) {
 				self.socketClient.leave(sessionId, function (data) {
 					delete self.sessionCallbackMap[sessionId];
+					if (isFunction(leaveCompleteCallback)){
+						leaveCompleteCallback();
+					}
 				});
 			}
 			else {
 				self.sessionCallbackMap[sessionId] = excludeMap;
+				if (isFunction(leaveCompleteCallback)){
+					leaveCompleteCallback();
+				}
 			}
 		};
 
@@ -57050,6 +57056,10 @@ function toArray(list, index) {
 			for (var sessionId in self.sessionCallbackMap) {
 				self.leave(sessionId);
 			}
+		};
+
+		QufoxClient.prototype.close = function () {
+			this.socket.close();
 		};
 
 		return QufoxClient;
