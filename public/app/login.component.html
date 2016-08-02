@@ -10,15 +10,15 @@
 					</div>
 					<div class="row">
 						<div class="input-group">
-							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
+							<div class="has-feedback" [ngClass]="{success:'has-success', warning:'has-warning', error:'has-error'}[usernameValidationResult.status]">
 
 								<input type="text" class="form-control input-lg" placeholder="Enter username" [ngModel]="user.name" (ngModelChange)="usernameChanged($event)" (keypress)="usernameKeypress($event)" focus-on="init" required>
-									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
+								<span *ngIf="usernameValidationResult.status" class="glyphicon form-control-feedback" [ngClass]="{success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[usernameValidationResult.status]" aria-hidden="true"></span>
 
 							</div>
 
 							<span class="input-group-btn">
-								<button class="btn btn-danger btn-lg" type="button" (click)="signInByGuest()" ng-disabled="userNameValidationStatus=='error'">by Guest</button>
+								<button class="btn btn-danger btn-lg" type="button" (click)="signInByGuest()" [disabled]="usernameValidationResult.status=='error'">by Guest</button>
 								<button class="btn btn-warning btn-lg" type="button" (click)="goSignIn()">Sign in</button>
 								<button class="btn btn-success btn-lg" type="button" (click)="goSignUp()">Sign up</button>
 							</span>
@@ -39,17 +39,15 @@
 			<div class="row hidden-lg hidden-md hidden-sm">
 				<div class="col-xs-offset-1 col-xs-10">
 					<div class="input-group">
-							<div ng-class="['has-feedback', {success:'has-success', warning:'has-warning', error:'has-error'}[userNameValidationStatus]]">
-
-								<input type="text" class="form-control input" placeholder="Username" [ngModel]="user.name" (ngModelChange)="usernameChanged($event)" (keypress)="usernameKeypress($event)" focus-on="init" required>
-									<span ng-if="userNameValidationStatus" ng-class="['glyphicon', 'form-control-feedback', {success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[userNameValidationStatus]]" aria-hidden="true"></span>
-
-							</div>
-
-							<span class="input-group-btn">
-								<button class="btn btn-danger" type="button" (click)="signInByGuest()" ng-disabled="userNameValidationStatus=='error'">by Guest</button>
-							</span>
+						<div class="has-feedback" [ngClass]="{success:'has-success', warning:'has-warning', error:'has-error'}[usernameValidationResult.status]">
+							<input type="text" class="form-control input" placeholder="Username" [ngModel]="user.name" (ngModelChange)="usernameChanged($event)" (keypress)="usernameKeypress($event)" focus-on="init" required>
+							<span *ngIf="usernameValidationResult.status" class="glyphicon form-control-feedback" [ngClass]="{success:' glyphicon-ok', warning:'glyphicon-warning-sign', error:'glyphicon-remove'}[usernameValidationResult.status]" aria-hidden="true"></span>
 						</div>
+
+						<span class="input-group-btn">
+							<button class="btn btn-danger" type="button" (click)="signInByGuest()" [disabled]="usernameValidationResult.status=='error'">by Guest</button>
+						</span>
+					</div>
 				</div>
 			</div>
 			<div class="row hidden-lg hidden-md hidden-sm margin-top-10">

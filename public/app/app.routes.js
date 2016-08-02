@@ -4,6 +4,7 @@ var login_component_1 = require('./login.component');
 var boot_component_1 = require('./boot.component');
 var main_component_1 = require('./main.component');
 var chat_list_component_1 = require('./chat-list.component');
+var setting_list_component_1 = require('./setting-list.component');
 var empty_component_1 = require('./empty.component');
 var depth3Routes = [
     { path: '', component: empty_component_1.EmptyComponent },
@@ -36,7 +37,7 @@ var routes = [
             },
             {
                 path: 'settings',
-                component: empty_component_1.EmptyComponent,
+                component: setting_list_component_1.SettingListComponent,
                 children: depth3Routes
             }
         ]

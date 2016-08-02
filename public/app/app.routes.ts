@@ -3,6 +3,7 @@ import { LoginComponent } from './login.component';
 import { BootComponent } from './boot.component';
 import { MainComponent } from './main.component';
 import { ChatListComponent } from './chat-list.component';
+import { SettingListComponent } from './setting-list.component';
 
 import { EmptyComponent } from './empty.component';
 
@@ -38,7 +39,7 @@ const routes: RouterConfig = [
             },
             {
                 path: 'settings',
-                component: EmptyComponent,
+                component: SettingListComponent,
                 children: depth3Routes
             }
         ]

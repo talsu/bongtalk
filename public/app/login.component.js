@@ -13,15 +13,18 @@ var router_1 = require('@angular/router');
 var api_client_1 = require('./api-client');
 var core_2 = require('angular2-cookie/core');
 var view_model_1 = require('./view-model');
+var validator_1 = require('./validator');
 var LoginComponent = (function () {
-    function LoginComponent(router, apiClient, cookieService) {
+    function LoginComponent(router, apiClient, cookieService, validator) {
         this.router = router;
         this.apiClient = apiClient;
         this.cookieService = cookieService;
+        this.validator = validator;
         this.user = new view_model_1.User();
+        this.usernameValidationResult = new validator_1.ValidationResult();
     }
     LoginComponent.prototype.usernameChanged = function (newValue) {
-        console.log(newValue);
+        this.usernameValidationResult = this.validator.validateUsername(newValue);
         this.user.name = newValue;
     };
     LoginComponent.prototype.usernameKeypress = function ($event) {
@@ -31,10 +34,28 @@ var LoginComponent = (function () {
     };
     LoginComponent.prototype.signInByGuest = function () {
         var _this = this;
+        if (!this.user.name) {
+            this.usernameValidationResult = {
+                status: 'error',
+                comment: 'User name is empty',
+                ok: false
+            };
+            return;
+        }
+        this.usernameValidationResult = this.validator.validateUsername(this.user.name);
+        if (this.usernameValidationResult.status != 'success') {
+            return;
+        }
         this.apiClient.signInByGuest(this.user).subscribe(function (result) {
             _this.cookieService.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
             _this.router.navigate(['/main/chats/start-public-chat']);
-        }, function (err) { return console.log(err); });
+        }, function (err) {
+            _this.usernameValidationResult = {
+                status: 'error',
+                comment: JSON.stringify(err),
+                ok: false
+            };
+        });
     };
     LoginComponent.prototype.goSignIn = function () {
         this.router.navigate(['/signin']);
@@ -46,9 +67,9 @@ var LoginComponent = (function () {
         core_1.Component({
             selector: 'bongtalk-app',
             templateUrl: './app/login.component.html',
-            providers: [core_2.CookieService]
+            providers: [core_2.CookieService, validator_1.Validator]
         }), 
-        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService])
+        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
     ], LoginComponent);
     return LoginComponent;
 }());
