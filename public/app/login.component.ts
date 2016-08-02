@@ -1,17 +1,16 @@
 import { Component } from '@angular/core';
 import { Router } from '@angular/router';
 import { ApiClient } from './api-client';
-
-class User {
-  name:string;
-}
+import { CookieService } from 'angular2-cookie/core';
+import { User, ViewModel } from './view-model';
 
 @Component({
   selector : 'bongtalk-app',
-  templateUrl : './app/login.component.html'
+  templateUrl : './app/login.component.html',
+  providers : [ CookieService ]
 })
 export class LoginComponent {
-  constructor(private router: Router, private apiClient: ApiClient){}
+  constructor(private router: Router, private apiClient: ApiClient, private cookieService: CookieService){}
   user:User = new User();
 
   usernameChanged(newValue:string) {
@@ -27,7 +26,10 @@ export class LoginComponent {
 
   signInByGuest() {
     this.apiClient.signInByGuest(this.user).subscribe(
-      result => console.log(result),
+      result => {
+        this.cookieService.putObject('auth_token', {token:result.token, expire:result.tokenExpire}, {expires:new Date(result.tokenExpire*1000)});
+        this.router.navigate(['/main/chats/start-public-chat']);
+      },
       err => console.log(err)
     );
   }

@@ -11,16 +11,14 @@ var __metadata = (this && this.__metadata) || function (k, v) {
 var core_1 = require('@angular/core');
 var router_1 = require('@angular/router');
 var api_client_1 = require('./api-client');
-var User = (function () {
-    function User() {
-    }
-    return User;
-}());
+var core_2 = require('angular2-cookie/core');
+var view_model_1 = require('./view-model');
 var LoginComponent = (function () {
-    function LoginComponent(router, apiClient) {
+    function LoginComponent(router, apiClient, cookieService) {
         this.router = router;
         this.apiClient = apiClient;
-        this.user = new User();
+        this.cookieService = cookieService;
+        this.user = new view_model_1.User();
     }
     LoginComponent.prototype.usernameChanged = function (newValue) {
         console.log(newValue);
@@ -32,7 +30,11 @@ var LoginComponent = (function () {
         }
     };
     LoginComponent.prototype.signInByGuest = function () {
-        this.apiClient.signInByGuest(this.user).subscribe(function (result) { return console.log(result); }, function (err) { return console.log(err); });
+        var _this = this;
+        this.apiClient.signInByGuest(this.user).subscribe(function (result) {
+            _this.cookieService.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
+            _this.router.navigate(['/main/chats/start-public-chat']);
+        }, function (err) { return console.log(err); });
     };
     LoginComponent.prototype.goSignIn = function () {
         this.router.navigate(['/signin']);
@@ -43,9 +45,10 @@ var LoginComponent = (function () {
     LoginComponent = __decorate([
         core_1.Component({
             selector: 'bongtalk-app',
-            templateUrl: './app/login.component.html'
+            templateUrl: './app/login.component.html',
+            providers: [core_2.CookieService]
         }), 
-        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient])
+        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService])
     ], LoginComponent);
     return LoginComponent;
 }());

@@ -1,0 +1,1 @@
+{"version":3,"file":"chat-list.component.js","sourceRoot":"","sources":["chat-list.component.ts"],"names":[],"mappings":";;;;;;;;;;AAAA,qBAA0B,eAAe,CAAC,CAAA;AAC1C,uBAAkC,iBAAiB,CAAC,CAAA;AAUpD;IAAA;IAEA,CAAC;IAVD;QAAC,gBAAS,CAAC;YACP,QAAQ,EAAC,WAAW;YACpB,QAAQ,EAAE,qFAGT;YACD,UAAU,EAAE,CAAC,0BAAiB,CAAC;SAClC,CAAC;;yBAAA;IAGF,wBAAC;AAAD,CAAC,AAFD,IAEC;AAFY,yBAAiB,oBAE7B,CAAA"}

@@ -14,6 +14,7 @@ var Observable_1 = require('rxjs/Observable');
 var ApiClient = (function () {
     function ApiClient(http) {
         this.http = http;
+        console.log('api client created');
     }
     ApiClient.prototype.getMyInfo = function () {
         return this.http.get("api/user")

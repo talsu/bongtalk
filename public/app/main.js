@@ -4,10 +4,12 @@ var http_1 = require('@angular/http');
 var app_component_1 = require('./app.component');
 var app_routes_1 = require('./app.routes');
 var api_client_1 = require('./api-client');
+var view_model_1 = require('./view-model');
 platform_browser_dynamic_1.bootstrap(app_component_1.AppComponent, [
     app_routes_1.appRouterProviders,
     http_1.HTTP_PROVIDERS,
-    api_client_1.ApiClient
+    api_client_1.ApiClient,
+    view_model_1.ViewModel
 ]);
 // import { UpgradeAdapter } from '@angular/upgrade';
 //
