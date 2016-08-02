@@ -1,5 +1,6 @@
 import { bootstrap } from '@angular/platform-browser-dynamic';
 import { HTTP_PROVIDERS } from '@angular/http';
+import { CookieService } from 'angular2-cookie/core';
 
 import { AppComponent } from './app.component';
 import { appRouterProviders } from './app.routes';
@@ -10,7 +11,8 @@ bootstrap(AppComponent, [
   appRouterProviders,
   HTTP_PROVIDERS,
   ApiClient,
-  ViewModel
+  ViewModel,
+  CookieService
 ]);
 
 // import { UpgradeAdapter } from '@angular/upgrade';
