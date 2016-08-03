@@ -1,6 +1,7 @@
-import { Http, Response, Headers } from '@angular/http';
+import { Http, Response, Headers, URLSearchParams } from '@angular/http';
 import { Injectable } from '@angular/core';
 import { Observable } from 'rxjs/Observable';
+import { User } from './view-model';
 
 @Injectable()
 export class ApiClient {
@@ -8,16 +9,59 @@ export class ApiClient {
         console.log('api client created');
     }
 
-    getMyInfo() : Observable<any> {
-        return this.http.get("api/user")
-        .map(this.extractData)
-        .catch(this.handleError);
+    public checkUserExist(userId: string): Observable<any> {
+        return this.httpGet('api/checkUserExist', {userId:userId});
     }
 
-    signInByGuest(user) : Observable<any> {
-        let headers = new Headers({'Content-Type': 'application/json'});
+    public signIn(userId, password): Observable<any> {
+        return this.httpPost('api/signIn', {userId:userId, password:password});
+    }
 
-        return this.http.post('api/signInByGuest', JSON.stringify({user:user}), {headers: headers})
+    public signInByGuest(user:User) : Observable<any> {
+        return this.httpPost('api/signInByGuest', {user:user});
+    }
+
+    public signUp(user:User): Observable<any> {
+        return this.httpPost('api/signUp', {user:user});
+    }
+
+    public getQufoxUrl() : Observable<any> {
+        return this.httpGet("api/qufox");
+    }
+
+    public refreshToken() : Observable<any> {
+        return this.httpGet("api/refreshToken");
+    }
+
+    public getMyInfo() : Observable<any> {
+        return this.httpGet("api/user");
+    }
+
+    public getRandomAvatarUrl() : Observable<any> {
+        return this.httpGet('api/avatars/random');
+    }
+
+    private httpGet(url, paramObj:any = null): Observable<Response>{
+        if (paramObj){
+            let params = new URLSearchParams();
+            for (var name in paramObj){
+                params.set(name, paramObj[name]);
+            }
+
+            return this.http.get(url, {search:params})
+            .map(this.extractData)
+            .catch(this.handleError);
+        }
+        else {
+            return this.http.get(url)
+            .map(this.extractData)
+            .catch(this.handleError);
+        }
+    }
+
+    private httpPost(url, data): Observable<Response>{
+        let headers = new Headers({'Content-Type': 'application/json'});
+        return this.http.post(url, JSON.stringify(data), {headers: headers})
         .map(this.extractData)
         .catch(this.handleError);
     }

@@ -6,8 +6,10 @@ import { Observable } from 'rxjs/Observable';
 export class User {
     _id:string;
     id:string;
+    password:string;
     name:string;
     role:string;
+    avatarUrl:string;
 }
 
 @Injectable()

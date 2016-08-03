@@ -65,8 +65,8 @@ var LoginComponent = (function () {
     };
     LoginComponent = __decorate([
         core_1.Component({
-            selector: 'bongtalk-app',
-            templateUrl: './app/login.component.html',
+            selector: 'bongtalk-login',
+            templateUrl: './templates/login.component.html',
             providers: [core_2.CookieService, validator_1.Validator]
         }), 
         __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
@@ -74,4 +74,117 @@ var LoginComponent = (function () {
     return LoginComponent;
 }());
 exports.LoginComponent = LoginComponent;
+var SignoutComponent = (function () {
+    function SignoutComponent(router, apiClient, cookieService, validator) {
+        this.router = router;
+        this.apiClient = apiClient;
+        this.cookieService = cookieService;
+        this.validator = validator;
+    }
+    SignoutComponent = __decorate([
+        core_1.Component({
+            selector: 'bongtalk-signout',
+            template: '',
+            providers: [core_2.CookieService, validator_1.Validator]
+        }), 
+        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
+    ], SignoutComponent);
+    return SignoutComponent;
+}());
+exports.SignoutComponent = SignoutComponent;
+var SigninComponent = (function () {
+    function SigninComponent(router, apiClient, cookieService, validator) {
+        this.router = router;
+        this.apiClient = apiClient;
+        this.cookieService = cookieService;
+        this.validator = validator;
+    }
+    SigninComponent = __decorate([
+        core_1.Component({
+            selector: 'bongtalk-signin',
+            templateUrl: './templates/signin.component.html',
+            providers: [core_2.CookieService, validator_1.Validator]
+        }), 
+        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
+    ], SigninComponent);
+    return SigninComponent;
+}());
+exports.SigninComponent = SigninComponent;
+var SignupComponent = (function () {
+    function SignupComponent(router, apiClient, cookieService, validator) {
+        this.router = router;
+        this.apiClient = apiClient;
+        this.cookieService = cookieService;
+        this.validator = validator;
+        this.user = new view_model_1.User();
+        this.userIdValidationResult = new validator_1.ValidationResult();
+        this.userPasswordValidationResult = new validator_1.ValidationResult();
+    }
+    SignupComponent.prototype.ngOnInit = function () {
+        this.chageAvatarUrlRandom();
+    };
+    SignupComponent.prototype.userIdChanged = function (newValue) {
+        var _this = this;
+        this.user.id = newValue;
+        this.userIdValidationResult = this.validator.validateUserId(newValue);
+        if (this.userIdValidationResult.ok) {
+            this.apiClient.checkUserExist(this.user.id)
+                .subscribe(function (result) { return _this.userIdValidationResult = {
+                status: 'error',
+                comment: 'Aleady exists.',
+                ok: false
+            }; }, function (err) { return _this.userIdValidationResult = {
+                status: 'success',
+                comment: '',
+                ok: true
+            }; });
+        }
+    };
+    SignupComponent.prototype.passwordChanged = function (newValue) {
+        this.user.password = newValue;
+        this.userPasswordValidationResult = this.validator.validatePassword(this.user.password);
+    };
+    SignupComponent.prototype.chageAvatarUrlRandom = function () {
+        var _this = this;
+        this.apiClient.getRandomAvatarUrl().subscribe(function (result) { return _this.avatarUrl = result; });
+    };
+    SignupComponent.prototype.back = function () {
+        this.router.navigate(['/login']);
+    };
+    SignupComponent.prototype.signUp = function () {
+        var _this = this;
+        if (!this.validator.validateUserId(this.user.id) || !this.validator.validatePassword(this.user.password))
+            return;
+        this.apiClient.signUp(this.user)
+            .subscribe(function (result) {
+            // signin
+            if (result && result.result && result.result.ok) {
+                _this.apiClient.signIn(_this.user.id, _this.user.password)
+                    .subscribe(function (result) {
+                    if (!result.token) {
+                        alert('Empty token.');
+                        return;
+                    }
+                    _this.cookieService.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
+                    _this.router.navigate(['/main/chats/set-username/first']);
+                });
+            }
+            else {
+                alert('Bad response.');
+            }
+        }, function (err) {
+            alert(JSON.stringify(err));
+        });
+    };
+    SignupComponent = __decorate([
+        core_1.Component({
+            selector: 'bongtalk-signup',
+            templateUrl: './templates/signup.component.html',
+            providers: [core_2.CookieService, validator_1.Validator]
+        }), 
+        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
+    ], SignupComponent);
+    return SignupComponent;
+}());
+exports.SignupComponent = SignupComponent;
 //# sourceMappingURL=login.component.js.map

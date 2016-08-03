@@ -23,6 +23,9 @@ const depth3Routes: Route[] = [
 
 const routes: RouterConfig = [
     { path: 'login', component: LoginComponent },
+    { path: 'signout', component: LoginComponent },
+    { path: 'signin', component: LoginComponent },
+    { path: 'signup', component: LoginComponent },
     {
         path: 'main',
         component: MainComponent,

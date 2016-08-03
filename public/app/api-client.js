@@ -16,14 +16,50 @@ var ApiClient = (function () {
         this.http = http;
         console.log('api client created');
     }
-    ApiClient.prototype.getMyInfo = function () {
-        return this.http.get("api/user")
-            .map(this.extractData)
-            .catch(this.handleError);
+    ApiClient.prototype.checkUserExist = function (userId) {
+        return this.httpGet('api/checkUserExist', { userId: userId });
+    };
+    ApiClient.prototype.signIn = function (userId, password) {
+        return this.httpPost('api/signIn', { userId: userId, password: password });
     };
     ApiClient.prototype.signInByGuest = function (user) {
+        return this.httpPost('api/signInByGuest', { user: user });
+    };
+    ApiClient.prototype.signUp = function (user) {
+        return this.httpPost('api/signUp', { user: user });
+    };
+    ApiClient.prototype.getQufoxUrl = function () {
+        return this.httpGet("api/qufox");
+    };
+    ApiClient.prototype.refreshToken = function () {
+        return this.httpGet("api/refreshToken");
+    };
+    ApiClient.prototype.getMyInfo = function () {
+        return this.httpGet("api/user");
+    };
+    ApiClient.prototype.getRandomAvatarUrl = function () {
+        return this.httpGet('api/avatars/random');
+    };
+    ApiClient.prototype.httpGet = function (url, paramObj) {
+        if (paramObj === void 0) { paramObj = null; }
+        if (paramObj) {
+            var params = new http_1.URLSearchParams();
+            for (var name in paramObj) {
+                params.set(name, paramObj[name]);
+            }
+            return this.http.get(url, { search: params })
+                .map(this.extractData)
+                .catch(this.handleError);
+        }
+        else {
+            return this.http.get(url)
+                .map(this.extractData)
+                .catch(this.handleError);
+        }
+    };
+    ApiClient.prototype.httpPost = function (url, data) {
         var headers = new http_1.Headers({ 'Content-Type': 'application/json' });
-        return this.http.post('api/signInByGuest', JSON.stringify({ user: user }), { headers: headers })
+        return this.http.post(url, JSON.stringify(data), { headers: headers })
             .map(this.extractData)
             .catch(this.handleError);
     };
