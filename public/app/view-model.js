@@ -24,6 +24,10 @@ var ViewModel = (function () {
         this.cookieService = cookieService;
         console.log('view model created.');
     }
+    ViewModel.prototype.unload = function () {
+        this.me = null;
+    };
+    ;
     ViewModel.prototype.checkLogin = function () {
         var _this = this;
         var authToken = this.cookieService.getObject('auth_token');

@@ -23,6 +23,10 @@ export class ViewModel {
 
     public me: User;
 
+    public unload(): any {
+      this.me = null;
+    };
+
     public checkLogin(){
         let authToken = this.cookieService.getObject('auth_token');
         if (authToken) {

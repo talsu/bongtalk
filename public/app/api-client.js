@@ -67,7 +67,7 @@ var ApiClient = (function () {
         var body = res.json();
         if (body.err)
             throw { message: body.err };
-        return body.result || {};
+        return body.result;
     };
     ApiClient.prototype.handleError = function (error) {
         // In a real world app, we might use a remote logging infrastructure

@@ -1,5 +1,5 @@
 import { provideRouter, RouterConfig, Route }  from '@angular/router';
-import { LoginComponent } from './login.component';
+import { LoginComponent, SignupComponent, SigninComponent, SignoutComponent } from './login.component';
 import { BootComponent } from './boot.component';
 import { MainComponent } from './main.component';
 import { ChatListComponent } from './chat-list.component';
@@ -23,9 +23,9 @@ const depth3Routes: Route[] = [
 
 const routes: RouterConfig = [
     { path: 'login', component: LoginComponent },
-    { path: 'signout', component: LoginComponent },
-    { path: 'signin', component: LoginComponent },
-    { path: 'signup', component: LoginComponent },
+    { path: 'signout', component: SignoutComponent },
+    { path: 'signin', component: SigninComponent },
+    { path: 'signup', component: SignupComponent },
     {
         path: 'main',
         component: MainComponent,

@@ -14,6 +14,7 @@ var api_client_1 = require('./api-client');
 var core_2 = require('angular2-cookie/core');
 var view_model_1 = require('./view-model');
 var validator_1 = require('./validator');
+var pipes_1 = require('./pipes');
 var LoginComponent = (function () {
     function LoginComponent(router, apiClient, cookieService, validator) {
         this.router = router;
@@ -75,19 +76,23 @@ var LoginComponent = (function () {
 }());
 exports.LoginComponent = LoginComponent;
 var SignoutComponent = (function () {
-    function SignoutComponent(router, apiClient, cookieService, validator) {
+    function SignoutComponent(router, cookieService, viewModel) {
         this.router = router;
-        this.apiClient = apiClient;
         this.cookieService = cookieService;
-        this.validator = validator;
+        this.viewModel = viewModel;
     }
+    SignoutComponent.prototype.ngOnInit = function () {
+        this.cookieService.remove('auth_token');
+        this.viewModel.unload();
+        this.router.navigate(['/login']);
+    };
     SignoutComponent = __decorate([
         core_1.Component({
             selector: 'bongtalk-signout',
             template: '',
-            providers: [core_2.CookieService, validator_1.Validator]
+            providers: [core_2.CookieService]
         }), 
-        __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
+        __metadata('design:paramtypes', [router_1.Router, core_2.CookieService, view_model_1.ViewModel])
     ], SignoutComponent);
     return SignoutComponent;
 }());
@@ -98,7 +103,52 @@ var SigninComponent = (function () {
         this.apiClient = apiClient;
         this.cookieService = cookieService;
         this.validator = validator;
+        this.user = new view_model_1.User();
+        this.userIdValidationResult = new validator_1.ValidationResult();
+        this.userPasswordValidationResult = new validator_1.ValidationResult();
+        this.loginResult = '';
     }
+    SigninComponent.prototype.userIdChanged = function (newValue) {
+        this.user.id = newValue;
+        this.userIdValidationResult = {
+            status: this.user.id ? 'success' : '',
+            comment: '',
+            ok: true
+        };
+    };
+    SigninComponent.prototype.passwordChanged = function (newValue) {
+        this.user.password = newValue;
+        this.userPasswordValidationResult = {
+            status: this.user.password ? 'success' : '',
+            comment: '',
+            ok: true
+        };
+    };
+    SigninComponent.prototype.inputKeypress = function ($event) {
+        if ($event.keyCode == 13 && $event.key == 'Enter') {
+            this.signIn();
+        }
+    };
+    SigninComponent.prototype.signIn = function () {
+        var _this = this;
+        if (this.userIdValidationResult.status != 'success' || this.userPasswordValidationResult.status != 'success')
+            return;
+        this.loginResult = '';
+        this.apiClient.signIn(this.user.id, this.user.password)
+            .subscribe(function (result) {
+            if (!result || !result.token) {
+                _this.loginResult = 'error';
+            }
+            else {
+                _this.loginResult = 'success';
+                _this.cookieService.putObject('auth_token', { token: result.token, expire: result.tokenExpire }, { expires: new Date(result.tokenExpire * 1000) });
+                _this.router.navigate(['/main/chats']);
+            }
+        }, function (error) { return _this.loginResult = 'error'; });
+    };
+    SigninComponent.prototype.back = function () {
+        this.router.navigate(['/login']);
+    };
     SigninComponent = __decorate([
         core_1.Component({
             selector: 'bongtalk-signin',
@@ -129,10 +179,14 @@ var SignupComponent = (function () {
         this.userIdValidationResult = this.validator.validateUserId(newValue);
         if (this.userIdValidationResult.ok) {
             this.apiClient.checkUserExist(this.user.id)
-                .subscribe(function (result) { return _this.userIdValidationResult = {
+                .subscribe(function (result) { return _this.userIdValidationResult = result ? {
                 status: 'error',
                 comment: 'Aleady exists.',
                 ok: false
+            } : {
+                status: 'success',
+                comment: '',
+                ok: true
             }; }, function (err) { return _this.userIdValidationResult = {
                 status: 'success',
                 comment: '',
@@ -150,6 +204,11 @@ var SignupComponent = (function () {
     };
     SignupComponent.prototype.back = function () {
         this.router.navigate(['/login']);
+    };
+    SignupComponent.prototype.inputKeypress = function ($event) {
+        if ($event.keyCode == 13 && $event.key == 'Enter') {
+            this.signUp();
+        }
     };
     SignupComponent.prototype.signUp = function () {
         var _this = this;
@@ -180,7 +239,8 @@ var SignupComponent = (function () {
         core_1.Component({
             selector: 'bongtalk-signup',
             templateUrl: './templates/signup.component.html',
-            providers: [core_2.CookieService, validator_1.Validator]
+            providers: [core_2.CookieService, validator_1.Validator],
+            pipes: [pipes_1.AutoProxyPipe]
         }), 
         __metadata('design:paramtypes', [router_1.Router, api_client_1.ApiClient, core_2.CookieService, validator_1.Validator])
     ], SignupComponent);

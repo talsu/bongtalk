@@ -69,7 +69,7 @@ export class ApiClient {
     private extractData(res: Response) {
         let body = res.json();
         if (body.err) throw {message:body.err};
-        return body.result || { };
+        return body.result;
     }
 
     private handleError(error: any) {

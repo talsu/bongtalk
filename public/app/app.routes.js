@@ -21,9 +21,9 @@ var depth3Routes = [
 ];
 var routes = [
     { path: 'login', component: login_component_1.LoginComponent },
-    { path: 'signout', component: login_component_1.LoginComponent },
-    { path: 'signin', component: login_component_1.LoginComponent },
-    { path: 'signup', component: login_component_1.LoginComponent },
+    { path: 'signout', component: login_component_1.SignoutComponent },
+    { path: 'signin', component: login_component_1.SigninComponent },
+    { path: 'signup', component: login_component_1.SignupComponent },
     {
         path: 'main',
         component: main_component_1.MainComponent,
