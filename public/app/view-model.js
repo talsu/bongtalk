@@ -22,8 +22,15 @@ var ViewModel = (function () {
     function ViewModel(apiClient, cookieService) {
         this.apiClient = apiClient;
         this.cookieService = cookieService;
+        // private loadedObservable: Observable<User>;
+        this.isLoaded = false;
         console.log('view model created.');
     }
+    ViewModel.prototype.read = function () {
+    };
+    // load(user:User):  Observable<User> {
+    //
+    // }
     ViewModel.prototype.unload = function () {
         this.me = null;
     };
@@ -45,6 +52,18 @@ var ViewModel = (function () {
         else {
             return Observable_1.Observable.throw('not login');
         }
+    };
+    ViewModel.prototype.randomString = function (length) {
+        var letters = 'abcdefghijklmnopqrstuvwxyz';
+        var numbers = '1234567890';
+        var charset = letters + letters.toUpperCase() + numbers;
+        var randomElement = function (array) {
+            return array[Math.floor(Math.random() * array.length)];
+        };
+        var result = '';
+        for (var i = 0; i < length; i++)
+            result += randomElement(charset);
+        return result;
     };
     ViewModel = __decorate([
         core_1.Injectable(), 
