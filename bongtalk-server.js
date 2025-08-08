@@ -595,19 +595,19 @@ module.exports = (function(){
 			};
 		}
 
-		function resBindforInsert(res){
-			return function (err, result) {
-				if (err) {
-					debug(err);
-					res.json({err:err, result:result});
-				} else if (result.result && result.ops && result.ops.length > 0) {
-					res.json({err:null, result:result.ops[0]});
-				}
-				else {
-					res.json({err:'result is empty', result:null});
-				}
-			};
-		}
+                function resBindforInsert(res){
+                        return function (err, result) {
+                                if (err) {
+                                        debug(err);
+                                        res.json({err:err, result:result});
+                                } else if (result) {
+                                        res.json({err:null, result:result});
+                                }
+                                else {
+                                        res.json({err:'result is empty', result:null});
+                                }
+                        };
+                }
 
 		self.mDatabase.connect(function (err){
 			if (err) {console.error(err); process.exit(1); return;}

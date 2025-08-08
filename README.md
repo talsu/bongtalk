@@ -10,6 +10,7 @@ sample service is running at https://talk.talsu.net and http://bongtalk.herokuap
 * Implement User login (reqired mongodb).
 * Real-time communication code has been split into [qufox](https://github.com/talsu/qufox).
 * New user interface.
+* Updated MongoDB client to v6 for MongoDB 8.0 compatibility.
 
 ## Installation
 
