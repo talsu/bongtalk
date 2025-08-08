@@ -1,7 +1,7 @@
 var format = require('util').format;
 var debug = require('debug')('bongtalk:Database');
 var MongoClient = require('mongodb').MongoClient;
-var ObjectID = require('mongodb').ObjectID;
+var ObjectId = require('mongodb').ObjectId;
 var async = require('async');
 var tools = require('./tools');
 
@@ -16,20 +16,20 @@ module.exports = (function() {
 
 		debug('Try Mongodb connect ... (' + self.mongodbUrl + ')');
 
-		MongoClient.connect(self.mongodbUrl, function (err, db){
-			if (!err) {
-				self.db = db;
-				debug('Mongodb connected.');
+                MongoClient.connect(self.mongodbUrl)
+                        .then(function (client) {
+                                self.client = client;
+                                self.db = client.db();
+                                debug('Mongodb connected.');
 
-				self.init(function (err){
-					if (tools.isFunction(callback)) callback(err);
-				});
-			}
-			else {
-				debug('Mongodb connection Error - ' + err);
-				if (tools.isFunction(callback)) callback(err);
-			}
-		});
+                                self.init(function (err){
+                                        if (tools.isFunction(callback)) callback(err);
+                                });
+                        })
+                        .catch(function (err) {
+                                debug('Mongodb connection Error - ' + err);
+                                if (tools.isFunction(callback)) callback(err);
+                        });
 	};
 
 	Database.prototype.init = function (callback) {
@@ -68,8 +68,10 @@ module.exports = (function() {
 		var self = this;
 		user.sessions = [];
 		user.name = user.name || user.id;
-		self.db.collection('User').insert(user, callback);
-	};
+                self.db.collection('User').insertOne(user, function (err) {
+                        if (tools.isFunction(callback)) callback(err, user);
+                });
+       };
 
 	Database.prototype.getUser = function (userId, callback) {
 		var self = this;
@@ -112,10 +114,10 @@ module.exports = (function() {
 				});
 			}, function (err) {
 				if (err) { callback(err, result); return; }
-				self.db.collection('User').remove({id:userId}, callback);
-			});
-		});
-	};
+                                self.db.collection('User').deleteOne({id:userId}, callback);
+                        });
+                });
+        };
 
 	// Session
 	Database.prototype.addSession = function (name, type, users, callback) {
@@ -126,12 +128,12 @@ module.exports = (function() {
 			users:[],
 			creationTime:Date.now()
 		};
-		self.db.collection('Session').insert(session, function (err, result){
-			if (err || !users || !Array.isArray(users) || users.length == 0) {
-				callback(err, result);
-				return;
-			}
-			var sessionId = result.ops[0]._id.toString();
+                self.db.collection('Session').insertOne(session, function (err, result){
+                        if (err || !users || !Array.isArray(users) || users.length == 0) {
+                                callback(err, session);
+                                return;
+                        }
+                        var sessionId = result.insertedId.toString();
 			async.each(users, function (userId, callback){
 				self.addUserToSession(userId, sessionId, function (err, result){
 					if (err) callback(err);
@@ -147,8 +149,8 @@ module.exports = (function() {
 	Database.prototype.removeSession = function (sessionId, callback) {
 		var self = this;
 		debug('Start remove session :' + sessionId);
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
-		var oSessionId = new ObjectID(sessionId);
+                if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+                var oSessionId = new ObjectId(sessionId);
 
 		self.getSession(sessionId, function (err, result){
 			if (err) { callback(err, result); return; }
@@ -164,19 +166,19 @@ module.exports = (function() {
 				});
 			}, function (err){
 				if (err) { callback(err, result); return; }
-				debug('[remove session] Remove session "'+oSessionId+'"');
-				self.db.collection('Session').remove({_id:oSessionId}, callback);
-			});
+                                debug('[remove session] Remove session "'+oSessionId+'"');
+                                self.db.collection('Session').deleteOne({_id:oSessionId}, callback);
+                        });
 
-			self.db.collection('Telegram').remove({sessionId:oSessionId}, function(){});
-		});
-	};
+                        self.db.collection('Telegram').deleteMany({sessionId:oSessionId}, function(){});
+                });
+        };
 
 	Database.prototype.getSession = function (sessionId, callback) {
 		var self = this;
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
-		self.db.collection('Session').findOne({_id:new ObjectID(sessionId)}, function (err, session){
+		self.db.collection('Session').findOne({_id:new ObjectId(sessionId)}, function (err, session){
 			if (err || !session) { callback(err, session); return; }
 
 			self.getTelegrams(session._id.toString(), 0, 1, function (err, telegrams){
@@ -188,9 +190,9 @@ module.exports = (function() {
 
 	Database.prototype.getSessionUsers = function (sessionId, callback) {
 		var self = this;
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
-		self.db.collection('Session').findOne({_id:new ObjectID(sessionId)}, function (err, session){
+		self.db.collection('Session').findOne({_id:new ObjectId(sessionId)}, function (err, session){
 			if (err || !session) { callback(err, session); return; }
 
 			async.map(session.users, function (userId, callback){
@@ -212,18 +214,18 @@ module.exports = (function() {
 
 	Database.prototype.addUserToSession = function (userId, sessionId, callback) {
 		var self = this;
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
-		var oSessionId = new ObjectID(sessionId);
-		self.db.collection('Session').update({_id:oSessionId}, {$addToSet:{users:userId}}, function (err, result){
+		var oSessionId = new ObjectId(sessionId);
+                self.db.collection('Session').updateOne({_id:oSessionId}, {$addToSet:{users:userId}}, function (err, result){
 			if (err) {
 				callback(err, result);
 				return;
 			}
-			self.db.collection('User').update({id:userId}, {$addToSet:{sessions:oSessionId}}, function (err, result){
+                        self.db.collection('User').updateOne({id:userId}, {$addToSet:{sessions:oSessionId}}, function (err, result){
 				if (err) {
 					// Rollback
-					self.db.collection('Session').update({_id:oSessionId}, {$pull:{users:userId}}, function(){});
+                                        self.db.collection('Session').updateOne({_id:oSessionId}, {$pull:{users:userId}}, function(){});
 				}
 
 				callback(err, result);
@@ -233,17 +235,17 @@ module.exports = (function() {
 
 	Database.prototype.removeUserFromSession = function (userId, sessionId, callback) {
 		var self = this;
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
-		var oSessionId = new ObjectID(sessionId);
-		self.db.collection('Session').update({_id:oSessionId}, {$pull:{users:userId}}, function (err, result){
+		var oSessionId = new ObjectId(sessionId);
+                self.db.collection('Session').updateOne({_id:oSessionId}, {$pull:{users:userId}}, function (err, result){
 			if (err) {
 				callback(err, result);
 				return;
 			}
-			self.db.collection('User').update({id:userId}, {$pull:{sessions:oSessionId}}, callback);
-		});
-	};
+                        self.db.collection('User').updateOne({id:userId}, {$pull:{sessions:oSessionId}}, callback);
+                });
+        };
 
 	Database.prototype.getUserSessions = function (userId, callback) {
 		var self = this;
@@ -274,10 +276,10 @@ module.exports = (function() {
 
 	// Telegram
 	Database.prototype.addTelegram = function (userId, sessionId, userName, type, subType, data, callback) {
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
 		var self = this;
-		var oSessionId = new ObjectID(sessionId);
+		var oSessionId = new ObjectId(sessionId);
 
 		var telegram = {
 			sessionId: oSessionId,
@@ -288,15 +290,17 @@ module.exports = (function() {
 			subType: subType,
 			data: data
 		};
-		self.db.collection('Telegram').insert(telegram, callback);
-	};
+                self.db.collection('Telegram').insertOne(telegram, function (err) {
+                        if (tools.isFunction(callback)) callback(err, telegram);
+                });
+       };
 
 	Database.prototype.getTelegrams = function (sessionId, ltTime, count, callback){
 		debug('getTelegrams - ltTime:' + ltTime + ' count:' + count);
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
 		var self = this;
-		var oSessionId = new ObjectID(sessionId);
+		var oSessionId = new ObjectId(sessionId);
 
 		if (ltTime > 0 && count <= 0) {
 			self.db.collection('Telegram').find({
@@ -329,18 +333,18 @@ module.exports = (function() {
 			self.db.collection('Telegram')
 			.find(findQuery)
 			.sort({time:-1})
-			.skip(count - 1)
-			.nextObject(function (err, telegram){
+                        .skip(count - 1)
+                        .next(function (err, telegram){
 				if (err) { callback(err, telegram); return; }
 				if (telegram) {
 					debug('getEndTelegrams - end time:' + telegram.time);
 					callback(err, telegram);
 				}
 				else {
-					self.db.collection('Telegram')
-					.find({sessionId:oSessionId})
-					.sort({time:1})
-					.nextObject(callback);
+                                        self.db.collection('Telegram')
+                                        .find({sessionId:oSessionId})
+                                        .sort({time:1})
+                                        .next(callback);
 				}
 			});
 		}
@@ -350,10 +354,10 @@ module.exports = (function() {
 	Database.prototype.getTelegramsWithSkipTake = function (sessionId, skip, take, callback){
 		debug('getTelegrams - skip:' + skip + ' take:' + take);
 
-		if (!ObjectID.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
+		if (!ObjectId.isValid(sessionId)) {callback('Invalid sessionID.', null); return;}
 
 		var self = this;
-		var oSessionId = new ObjectID(sessionId);
+		var oSessionId = new ObjectId(sessionId);
 
 		if (skip > 0 && take <= 0) {
 			self.getTalkTelegramByIndex(oSessionId, skip, function (err, ltTelgram){
@@ -405,19 +409,19 @@ module.exports = (function() {
 		self.db.collection('Telegram')
 		.find({sessionId:oSessionId, type:'talk'})
 		.sort({time:-1})
-		.skip(index)
-		.nextObject(function (err, telegram){
+                .skip(index)
+                .next(function (err, telegram){
 			if (err) { callback(err, telegram); return; }
 			if (telegram) {
 				callback(err, telegram);
 			}
 			else {
-				self.db.collection('Telegram')
-				.find({sessionId:oSessionId})
-				.sort({time:1})
-				.nextObject(callback);
-			}
-		});
+                                self.db.collection('Telegram')
+                                .find({sessionId:oSessionId})
+                                .sort({time:1})
+                                .next(callback);
+                        }
+                });
 	};
 
 	return Database;
