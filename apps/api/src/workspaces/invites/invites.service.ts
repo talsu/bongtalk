@@ -165,6 +165,12 @@ export class InvitesService {
       now,
     );
     if (casResult === 0) {
+      // TODO(task-012): distinguish NOT_FOUND / EXPIRED / EXHAUSTED / REVOKED
+      // here. The pre-CAS `findUnique` above catches NOT_FOUND + REVOKED +
+      // EXPIRED, so at this point the CAS-0 is almost always "exhausted"
+      // — but a concurrent REVOKE between the findUnique and the UPDATE
+      // lands here too. A second `findUnique` after CAS-0 would tell the
+      // two apart.
       throw new DomainError(ErrorCode.INVITE_EXHAUSTED, 'invite fully used');
     }
 

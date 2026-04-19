@@ -11,10 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import type { Request } from 'express';
-import {
-  CreateInviteRequest,
-  CreateInviteRequestSchema,
-} from '@qufox/shared-types';
+import { CreateInviteRequest, CreateInviteRequestSchema } from '@qufox/shared-types';
 import { InvitesService } from './invites.service';
 import { Roles } from '../decorators/roles.decorator';
 import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
@@ -100,10 +97,10 @@ export class PublicInvitesController {
   }
 
   @Post(':code/accept')
-  async accept(
-    @Param('code') code: string,
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
+  async accept(@Param('code') code: string, @CurrentUser() user: CurrentUserPayload) {
+    // TODO(task-011): add a second rate-limit bucket keyed on the invite
+    // `code` itself (not just the user) so a botnet of fresh accounts
+    // can't brute-force a single invite by rotating user ids.
     await this.rateLimit.enforce([
       { key: `invite:accept:user:${user.id}`, windowSec: 60, max: 30 },
     ]);

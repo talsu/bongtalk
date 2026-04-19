@@ -12,6 +12,7 @@ import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { logger } from './common/logging/logger';
 import { RedisIoAdapter } from './realtime/io-adapter';
+import { assertProductionEnv } from './config/required-env';
 
 function corsOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
@@ -21,6 +22,11 @@ function corsOrigins(): string[] {
 }
 
 async function bootstrap(): Promise<void> {
+  // Fail fast on misconfigured production env (e.g. missing WEB_URL) —
+  // silently serving invite links with a localhost origin is worse than a
+  // hard crash at container start.
+  assertProductionEnv(process.env);
+
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
