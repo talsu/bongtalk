@@ -49,18 +49,17 @@ export function startOtel(): void {
         getNodeAutoInstrumentations({
           // Noisy and low-signal: fs I/O. The others are keepers.
           '@opentelemetry/instrumentation-fs': { enabled: false },
-          // HTTP server/client auto-instrumentation is valuable but the
-          // default captures request/response headers — strip Cookie and
-          // Authorization so tokens never land in traces.
-          '@opentelemetry/instrumentation-http': {
-            requestHook: (_span, req) => {
-              if ('headers' in req && req.headers) {
-                // Drop sensitive headers from span attributes.
-                delete (req.headers as Record<string, string>).cookie;
-                delete (req.headers as Record<string, string>).authorization;
-              }
-            },
-          },
+          // HTTP instrumentation: do NOT mutate live request headers.
+          // An earlier version of this hook deleted `cookie` and
+          // `authorization` inside `requestHook` to keep them off span
+          // attributes — but `requestHook` fires BEFORE the handler chain,
+          // so the JwtStrategy + refresh-cookie middleware then saw empty
+          // headers and every authenticated call 401'd in prod.
+          // The default instrumentation does NOT capture request/response
+          // headers, so simply omitting the hook is safe. If we later want
+          // to expose headers on spans, use `headersToSpanAttributes` with
+          // an allowlist (never a blocklist on req.headers itself).
+          '@opentelemetry/instrumentation-http': {},
         }),
       ],
     });
