@@ -34,17 +34,11 @@ export class ChannelAccessGuard implements CanActivate {
 
     const channelId = req.params.chid ?? req.params.id;
     if (!channelId) {
-      throw new DomainError(
-        ErrorCode.VALIDATION_FAILED,
-        'channel id path parameter missing',
-      );
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'channel id path parameter missing');
     }
     const wsId = req.workspace?.id ?? req.params.id ?? req.params.wsId;
     if (!wsId) {
-      throw new DomainError(
-        ErrorCode.VALIDATION_FAILED,
-        'workspace context missing in request',
-      );
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'workspace context missing in request');
     }
 
     const channel = await this.prisma.channel.findFirst({
@@ -56,10 +50,36 @@ export class ChannelAccessGuard implements CanActivate {
         type: true,
         archivedAt: true,
         deletedAt: true,
+        isPrivate: true,
       },
     });
     if (!channel || channel.deletedAt) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+
+    // Task-012-D: private channels hide from non-members. Workspace
+    // membership is already proven by WorkspaceMemberGuard, so the
+    // caller IS in this workspace — what we check here is whether
+    // they have an explicit allow (USER override, ROLE override, or
+    // OWNER role).
+    if (channel.isPrivate) {
+      const user = (req as { user?: { id: string } }).user;
+      const member = (req as { member?: { role: string } }).member;
+      if (user && member && member.role !== 'OWNER') {
+        const overrideCount = await this.prisma.channelPermissionOverride.count({
+          where: {
+            channelId: channel.id,
+            allowMask: { gt: 0 },
+            OR: [
+              { principalType: 'USER', principalId: user.id },
+              { principalType: 'ROLE', principalId: member.role },
+            ],
+          },
+        });
+        if (overrideCount === 0) {
+          throw new DomainError(ErrorCode.CHANNEL_NOT_VISIBLE, 'channel not visible to this user');
+        }
+      }
     }
 
     const allowArchived = this.reflector.getAllAndOverride<boolean | undefined>(
@@ -67,10 +87,7 @@ export class ChannelAccessGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
     if (channel.archivedAt && !allowArchived) {
-      throw new DomainError(
-        ErrorCode.CHANNEL_ARCHIVED,
-        'channel is archived — unarchive first',
-      );
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
     }
 
     req.channel = channel;

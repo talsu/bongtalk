@@ -36,8 +36,14 @@ export class ChannelsController {
   constructor(private readonly channels: ChannelsService) {}
 
   @Get()
-  async list(@Param('id', new ParseUUIDPipe()) _wsId: string, @CurrentMember() m: CurrentMemberPayload) {
-    return this.channels.listByWorkspace(m.workspaceId);
+  async list(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    // task-012-D: listByWorkspace filters private channels the caller
+    // can't see (no 404 information leak — they just disappear).
+    return this.channels.listByWorkspace(m.workspaceId, user.id);
   }
 
   @Roles('ADMIN')
@@ -113,6 +119,35 @@ export class ChannelsController {
   ) {
     const ch = await this.channels.restore(m.workspaceId, channelId, user.id);
     return this.shape(ch);
+  }
+
+  /**
+   * Task-012-D: add a user-level permission override to a channel.
+   * OWNER/ADMIN only. Body `{ userId, allowMask?, denyMask? }`.
+   * Creates / updates the override row (unique on channelId +
+   * principalType=USER + principalId=userId).
+   */
+  @Roles('ADMIN')
+  @UseGuards(ChannelAccessGuard)
+  @AllowArchivedChannel()
+  @Post(':chid/members')
+  async addChannelMember(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @Body() body: { userId: string; allowMask?: number; denyMask?: number },
+  ) {
+    if (!body?.userId || typeof body.userId !== 'string') {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'userId required');
+    }
+    const result = await this.channels.addChannelMemberOverride(
+      m.workspaceId,
+      channelId,
+      body.userId,
+      body.allowMask ?? 0,
+      body.denyMask ?? 0,
+    );
+    return { override: result };
   }
 
   @Roles('ADMIN')
