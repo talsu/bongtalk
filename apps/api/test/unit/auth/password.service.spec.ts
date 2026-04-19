@@ -37,7 +37,7 @@ describe('PasswordService', () => {
   it('accepts a password meeting length + 3-class rule', () => {
     const svc = new PasswordService();
     // 8 chars, 4 classes — reason-based rules pass even when zxcvbn would score low.
-    expect(() => svc.validateStrength('Hjkim12$')).not.toThrow();
+    expect(() => svc.validateStrength('Ab12!wXy')).not.toThrow();
     expect(() => svc.validateStrength('Quanta-Beetle-Nebula-42!')).not.toThrow();
   });
 
