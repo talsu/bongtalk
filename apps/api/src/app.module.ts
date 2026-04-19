@@ -4,7 +4,7 @@ import { EventEmitterModule } from '@nestjs/event-emitter';
 import { DomainExceptionFilter } from './common/filters/domain-exception.filter';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HealthController } from './health/health.controller';
-import { RealtimeGateway } from './realtime/realtime.gateway';
+import { RealtimeModule } from './realtime/realtime.module';
 import { AuthModule } from './auth/auth.module';
 import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -16,7 +16,10 @@ import { OutboxModule } from './common/outbox/outbox.module';
 
 @Module({
   imports: [
-    EventEmitterModule.forRoot(),
+    // wildcard: true enables `@OnEvent('message.*')` etc. in task-005's
+    // realtime projection. The existing channel/workspace emitters use
+    // exact event names so flipping this on is additive.
+    EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
     PrismaModule,
     RedisModule,
     OutboxModule,
@@ -25,9 +28,10 @@ import { OutboxModule } from './common/outbox/outbox.module';
     WorkspacesModule,
     ChannelsModule,
     MessagesModule,
+    RealtimeModule,
   ],
   controllers: [HealthController],
-  providers: [RealtimeGateway, { provide: APP_FILTER, useClass: DomainExceptionFilter }],
+  providers: [{ provide: APP_FILTER, useClass: DomainExceptionFilter }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {
