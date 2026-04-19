@@ -49,8 +49,8 @@ export class PasswordService {
   }
 
   validateStrength(plain: string, email?: string, username?: string): void {
-    if (plain.length < 10) {
-      throw new DomainError(ErrorCode.AUTH_WEAK_PASSWORD, 'password must be at least 10 characters');
+    if (plain.length < 8) {
+      throw new DomainError(ErrorCode.AUTH_WEAK_PASSWORD, 'password must be at least 8 characters');
     }
     const classes = [
       /[a-z]/.test(plain),

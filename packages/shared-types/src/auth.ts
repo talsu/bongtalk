@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 export const PasswordSchema = z
   .string()
-  .min(10, 'password must be at least 10 characters')
+  .min(8, 'password must be at least 8 characters')
   .max(128, 'password too long');
 
 export const SignupRequestSchema = z.object({
