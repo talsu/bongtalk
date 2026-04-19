@@ -1,0 +1,13 @@
+id: 004
+title: Detect refresh token reuse and revoke family
+goal: |
+  Given a working auth module, simulate using a rotated (already-used)
+  refresh token and verify the entire token family is revoked and
+  session-compromised event is emitted.
+dod:
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/auth/**
+      - apps/api/test/int/auth/**
+max_turns: 25

@@ -59,6 +59,12 @@ export type ReadyResponse = z.infer<typeof ReadyResponseSchema>;
 
 export const ErrorCodeSchema = z.enum([
   'AUTH_INVALID_TOKEN',
+  'AUTH_EMAIL_TAKEN',
+  'AUTH_USERNAME_TAKEN',
+  'AUTH_WEAK_PASSWORD',
+  'AUTH_INVALID_CREDENTIALS',
+  'AUTH_ACCOUNT_LOCKED',
+  'AUTH_SESSION_COMPROMISED',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
@@ -70,5 +76,8 @@ export const ErrorResponseSchema = z.object({
   errorCode: ErrorCodeSchema,
   message: z.string(),
   requestId: z.string(),
+  retryAfterSec: z.number().int().positive().optional(),
 });
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
+
+export * from './auth';

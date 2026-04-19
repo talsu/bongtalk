@@ -33,6 +33,7 @@ apps/api/dist
 .pnpm-store
 .tsbuildinfo
 *.tsbuildinfo
+.claude/scheduled_tasks.lock
 .terraform
 *.tfstate
 *.tfstate.backup
