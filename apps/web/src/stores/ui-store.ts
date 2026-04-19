@@ -14,6 +14,15 @@ type UIState = {
   workspaceSettingsFor: string | null;
   openWorkspaceSettings: (wsId: string) => void;
   closeWorkspaceSettings: () => void;
+
+  /**
+   * Channel id currently mounted in MessageColumn. Used by the realtime
+   * dispatcher to skip unread-count bumps for messages that arrive on
+   * the channel the user is actively viewing. Task-010 reviewer
+   * finding-1 fix.
+   */
+  activeChannelId: string | null;
+  setActiveChannelId: (chId: string | null) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -27,4 +36,7 @@ export const useUI = create<UIState>((set) => ({
   workspaceSettingsFor: null,
   openWorkspaceSettings: (wsId) => set({ workspaceSettingsFor: wsId }),
   closeWorkspaceSettings: () => set({ workspaceSettingsFor: null }),
+
+  activeChannelId: null,
+  setActiveChannelId: (chId) => set({ activeChannelId: chId }),
 }));

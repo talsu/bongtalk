@@ -1,14 +1,16 @@
 import { AuditLog } from './audit';
 import { loadConfig } from './config';
 import { makeShellRunnerFn } from './deploy';
+import { DeployMetrics } from './metrics';
 import { noopNotifier, slackNotifier } from './notify';
-import { DeployQueue } from './queue';
+import { DeployQueue, type QueueObserver } from './queue';
 import { createWebhookServer } from './server';
 
 function main(): void {
   const config = loadConfig();
   const audit = new AuditLog(config.auditPath);
   const notifier = config.slackUrl ? slackNotifier(config.slackUrl) : noopNotifier;
+  const metrics = new DeployMetrics();
 
   const runner = makeShellRunnerFn({
     command: config.deployCommand,
@@ -16,7 +18,16 @@ function main(): void {
     onLog: (payload) => audit.append('deploy.result', payload),
   });
 
-  const queue = new DeployQueue(runner);
+  const queueObserver: QueueObserver = {
+    onDepthChange(depth) {
+      metrics.queueDepth.set(depth);
+    },
+    onJobDurationSeconds(seconds, outcome) {
+      metrics.deployDuration.observe(seconds);
+      metrics.deploysTotal.inc({ result: outcome === 'ok' ? 'ok' : 'fail' });
+    },
+  };
+  const queue = new DeployQueue(runner, queueObserver);
   queue.onSettled((job, outcome) => {
     const emoji = outcome === 'ok' ? '✅' : '❌';
     void notifier.send(
@@ -30,6 +41,7 @@ function main(): void {
     queue,
     audit,
     notifier,
+    metrics,
   });
 
   server.listen(config.port, '0.0.0.0', () => {

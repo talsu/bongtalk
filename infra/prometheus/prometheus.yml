@@ -1,0 +1,35 @@
+# Prometheus config for the Synology NAS deployment (separate from the
+# K8s-based infra/k8s/monitoring/servicemonitor.yaml which pulls the
+# same metrics via ServiceMonitor CRDs once qufox moves onto a cluster).
+# Drop this into the Prometheus container's /etc/prometheus/prometheus.yml
+# mount. Paired with infra/prometheus/alerts-deploy.yml for rule loading.
+
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - /etc/prometheus/alerts-deploy.yml
+
+scrape_configs:
+  # qufox-api /metrics — Prometheus exposition format, already wired
+  # from task-007. Service resolves inside the `internal` docker network.
+  - job_name: qufox-api
+    metrics_path: /metrics
+    static_configs:
+      - targets: ['qufox-api:3001']
+        labels:
+          service: qufox-api
+          env: prod
+
+  # qufox-webhook /internal/metrics — bound to 127.0.0.1:9000 on the
+  # host, but Prometheus reaches it via the `internal` docker network by
+  # container name. IP allowlist covers both loopback and the docker
+  # bridge range (172.*) so this scrape path passes.
+  - job_name: qufox-webhook
+    metrics_path: /internal/metrics
+    static_configs:
+      - targets: ['qufox-webhook:9000']
+        labels:
+          service: qufox-webhook
+          env: prod

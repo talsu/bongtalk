@@ -64,7 +64,6 @@ export function MessageItem({ msg, isMine, authorName, onEditSave, onDelete }: P
                 }
                 if (e.key === 'Escape') setEditing(null);
               }}
-              // eslint-disable-next-line jsx-a11y/no-autofocus
               autoFocus
             />
             <button

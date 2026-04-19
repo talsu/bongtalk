@@ -10,7 +10,8 @@ import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useCreateCategory, useCreateChannel, useMoveChannel } from './useChannels';
-import { Input } from '../../design-system/primitives';
+import { useUnreadSummary } from './useUnread';
+import { Button, Input } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -28,19 +29,46 @@ type Props = {
  * Drag handle stays on uncategorized channels only for task-008. Dragging
  * into/out of categories is TODO(task-016).
  */
+function UnreadIndicator({
+  count,
+  hasMention,
+}: {
+  count: number;
+  hasMention: boolean;
+}): JSX.Element | null {
+  if (count <= 0) return null;
+  return (
+    <span
+      data-testid={hasMention ? 'unread-pill-mention' : 'unread-pill'}
+      aria-label={hasMention ? `읽지 않은 멘션 ${count}개` : `읽지 않음 ${count}개`}
+      className={cn(
+        'ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold',
+        hasMention ? 'bg-danger text-fg-primary' : 'bg-bg-primary text-fg-primary',
+      )}
+    >
+      {count > 99 ? '99+' : count}
+    </span>
+  );
+}
+
 function ChannelRow({
   channel,
   workspaceSlug,
   active,
+  unreadCount,
+  hasMention,
 }: {
   channel: Channel;
   workspaceSlug: string;
   active: boolean;
+  unreadCount: number;
+  hasMention: boolean;
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
     id: channel.id,
   });
   const style = { transform: CSS.Transform.toString(transform), transition };
+  const hasUnread = unreadCount > 0;
   return (
     <li
       ref={setNodeRef}
@@ -49,9 +77,13 @@ function ChannelRow({
         'group flex items-center gap-1 rounded-md px-2 py-1 text-sm',
         active
           ? 'bg-bg-accent text-foreground'
-          : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
+          : hasUnread
+            ? 'text-foreground hover:bg-bg-accent'
+            : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
       )}
       data-testid={`channel-${channel.name}`}
+      data-unread={hasUnread ? 'true' : 'false'}
+      data-mention={hasMention ? 'true' : 'false'}
     >
       <span
         {...attributes}
@@ -64,7 +96,18 @@ function ChannelRow({
       </span>
       <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
         <span className="text-text-muted">#</span>&nbsp;{channel.name}
+        {hasUnread && !active && (
+          <span
+            data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
+            aria-hidden="true"
+            className={cn(
+              'ml-1 inline-block h-1.5 w-1.5 rounded-full',
+              hasMention ? 'bg-danger' : 'bg-bg-primary',
+            )}
+          />
+        )}
       </Link>
+      <UnreadIndicator count={unreadCount} hasMention={hasMention} />
     </li>
   );
 }
@@ -76,6 +119,7 @@ export function ChannelList({
   activeChannelName,
 }: Props): JSX.Element {
   const { data } = useChannelList(workspaceId);
+  const { data: unread } = useUnreadSummary(workspaceId);
   const createChannelMut = useCreateChannel(workspaceId);
   const createCategoryMut = useCreateCategory(workspaceId);
   const moveMut = useMoveChannel(workspaceId);
@@ -84,6 +128,13 @@ export function ChannelList({
   const [newCategory, setNewCategory] = useState('');
 
   const uncategorized = useMemo(() => data?.uncategorized ?? [], [data]);
+  const unreadByChannel = useMemo(() => {
+    const m = new Map<string, { count: number; mention: boolean }>();
+    for (const u of unread?.channels ?? []) {
+      m.set(u.channelId, { count: u.unreadCount, mention: u.hasMention });
+    }
+    return m;
+  }, [unread]);
 
   async function handleDragEnd(evt: DragEndEvent): Promise<void> {
     const { active, over } = evt;
@@ -111,22 +162,43 @@ export function ChannelList({
             {cat.name}
           </h3>
           <ul className="mt-1 space-y-0.5">
-            {cat.channels.map((ch) => (
-              <li
-                key={ch.id}
-                className={cn(
-                  'rounded-md px-2 py-1 text-sm',
-                  activeChannelName === ch.name
-                    ? 'bg-bg-accent text-foreground'
-                    : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
-                )}
-                data-testid={`channel-${ch.name}`}
-              >
-                <Link to={`/w/${workspaceSlug}/${ch.name}`}>
-                  <span className="text-text-muted">#</span>&nbsp;{ch.name}
-                </Link>
-              </li>
-            ))}
+            {cat.channels.map((ch) => {
+              const u = unreadByChannel.get(ch.id);
+              const active = activeChannelName === ch.name;
+              const hasUnread = !active && (u?.count ?? 0) > 0;
+              const hasMention = hasUnread && u?.mention === true;
+              return (
+                <li
+                  key={ch.id}
+                  className={cn(
+                    'flex items-center rounded-md px-2 py-1 text-sm',
+                    active
+                      ? 'bg-bg-accent text-foreground'
+                      : hasUnread
+                        ? 'text-foreground hover:bg-bg-accent'
+                        : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
+                  )}
+                  data-testid={`channel-${ch.name}`}
+                  data-unread={hasUnread ? 'true' : 'false'}
+                  data-mention={hasMention ? 'true' : 'false'}
+                >
+                  <Link to={`/w/${workspaceSlug}/${ch.name}`} className="flex-1 truncate">
+                    <span className="text-text-muted">#</span>&nbsp;{ch.name}
+                    {hasUnread && (
+                      <span
+                        data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
+                        aria-hidden="true"
+                        className={cn(
+                          'ml-1 inline-block h-1.5 w-1.5 rounded-full',
+                          hasMention ? 'bg-danger' : 'bg-bg-primary',
+                        )}
+                      />
+                    )}
+                  </Link>
+                  <UnreadIndicator count={u?.count ?? 0} hasMention={u?.mention ?? false} />
+                </li>
+              );
+            })}
           </ul>
         </section>
       ))}
@@ -141,14 +213,19 @@ export function ChannelList({
             strategy={verticalListSortingStrategy}
           >
             <ul className="mt-1 space-y-0.5">
-              {uncategorized.map((ch) => (
-                <ChannelRow
-                  key={ch.id}
-                  channel={ch}
-                  workspaceSlug={workspaceSlug}
-                  active={activeChannelName === ch.name}
-                />
-              ))}
+              {uncategorized.map((ch) => {
+                const u = unreadByChannel.get(ch.id);
+                return (
+                  <ChannelRow
+                    key={ch.id}
+                    channel={ch}
+                    workspaceSlug={workspaceSlug}
+                    active={activeChannelName === ch.name}
+                    unreadCount={u?.count ?? 0}
+                    hasMention={u?.mention ?? false}
+                  />
+                );
+              })}
             </ul>
           </SortableContext>
         </DndContext>
@@ -172,14 +249,16 @@ export function ChannelList({
                 placeholder="new-channel"
                 className="h-7 text-xs"
               />
-              <button
+              <Button
                 data-testid="new-channel-submit"
                 type="submit"
+                variant="primary"
+                size="sm"
                 aria-label="채널 생성"
-                className="h-7 rounded-md bg-bg-primary px-2 text-xs font-semibold text-fg-primary hover:opacity-90"
+                className="h-7 px-2 text-xs"
               >
                 +
-              </button>
+              </Button>
             </form>
             <form
               onSubmit={async (e) => {
@@ -198,14 +277,16 @@ export function ChannelList({
                 placeholder="category name"
                 className="h-7 text-xs"
               />
-              <button
+              <Button
                 data-testid="new-category-submit"
                 type="submit"
+                variant="secondary"
+                size="sm"
                 aria-label="카테고리 생성"
-                className="h-7 rounded-md border border-border-subtle px-2 text-xs text-text-muted hover:bg-bg-accent"
+                className="h-7 px-2 text-xs"
               >
                 + cat
-              </button>
+              </Button>
             </form>
           </div>
         )}

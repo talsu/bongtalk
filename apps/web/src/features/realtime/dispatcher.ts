@@ -2,6 +2,17 @@ import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import type { Socket } from 'socket.io-client';
 import { qk } from '../../lib/query-keys';
+import type { UnreadChannelSummary } from '../channels/useUnread';
+
+export interface DispatcherContext {
+  viewerId: () => string | null;
+  activeChannelId: () => string | null;
+}
+
+const DEFAULT_CTX: DispatcherContext = {
+  viewerId: () => null,
+  activeChannelId: () => null,
+};
 
 /**
  * Centralized realtime → cache mapping. Every server event flows through
@@ -12,7 +23,11 @@ import { qk } from '../../lib/query-keys';
  * The dispatcher returns a detach function so the caller (useRealtimeConnection)
  * can unsubscribe on teardown.
  */
-export function installRealtimeDispatcher(socket: Socket, qc: QueryClient): () => void {
+export function installRealtimeDispatcher(
+  socket: Socket,
+  qc: QueryClient,
+  ctx: DispatcherContext = DEFAULT_CTX,
+): () => void {
   const handlers: Array<{ event: string; handler: (e: unknown) => void }> = [];
 
   const on = <T>(event: string, handler: (e: T) => void): void => {
@@ -26,6 +41,50 @@ export function installRealtimeDispatcher(socket: Socket, qc: QueryClient): () =
     'message.created',
     (env) => {
       if (!env.channelId || !env.workspaceId || !env.message) return;
+
+      // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
+      // already looking at this channel — an open channel drives its own
+      // POST /read after 500ms debounce, which zeroes the count.
+      const viewer = ctx.viewerId();
+      const active = ctx.activeChannelId();
+      if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
+        qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+          qk.channels.unreadSummary(env.workspaceId),
+          (old) => {
+            if (!old) return old;
+            const mentioned = viewer ? env.message.mentions?.users?.includes(viewer) : false;
+            const everyone = env.message.mentions?.everyone === true;
+            const lastMessageAt =
+              typeof env.message.createdAt === 'string'
+                ? env.message.createdAt
+                : new Date().toISOString();
+            const found = old.channels.some((c) => c.channelId === env.channelId);
+            return {
+              channels: found
+                ? old.channels.map((c) =>
+                    c.channelId === env.channelId
+                      ? {
+                          ...c,
+                          unreadCount: c.unreadCount + 1,
+                          hasMention: c.hasMention || mentioned || everyone,
+                          lastMessageAt,
+                        }
+                      : c,
+                  )
+                : [
+                    ...old.channels,
+                    {
+                      channelId: env.channelId,
+                      unreadCount: 1,
+                      hasMention: mentioned || everyone,
+                      lastMessageAt,
+                    },
+                  ],
+            };
+          },
+        );
+      }
+
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(
         qk.messages.list(env.workspaceId, env.channelId),
         (old) => {

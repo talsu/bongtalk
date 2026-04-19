@@ -94,13 +94,13 @@ async function apiRequestRaw(
     err.status = res.status;
     throw err;
   }
+  // note: onForcedLogout is imported only so the bundler pulls the refresh
+  // logic in for retry — the POST path delegates 401 handling to apiRequest's
+  // retry for the following list refetch.
+  void onForcedLogout;
   const body = await res.json();
   return {
     message: body.message,
     replayed: res.headers.get('idempotency-replayed') === 'true',
   };
-  // note: onForcedLogout is imported only so the bundler pulls the refresh
-  // logic in for retry — the POST path delegates 401 handling to apiRequest's
-  // retry for the following list refetch.
-  void onForcedLogout;
 }

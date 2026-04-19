@@ -2,12 +2,13 @@
 
 ## What lives where
 
-| Secret                  | File          | Consumed by                                  |
-| ----------------------- | ------------- | -------------------------------------------- |
-| `POSTGRES_PASSWORD`     | `.env.prod`   | qufox-api, qufox-postgres-prod, qufox-backup |
-| `JWT_ACCESS_SECRET`     | `.env.prod`   | qufox-api                                    |
-| `GITHUB_WEBHOOK_SECRET` | `.env.deploy` | qufox-webhook + GitHub webhook config        |
-| `SLACK_WEBHOOK_URL`     | `.env.deploy` | qufox-webhook (optional)                     |
+| Secret                  | File                                                        | Consumed by                                                                                                                                                                                              |
+| ----------------------- | ----------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POSTGRES_PASSWORD`     | `.env.prod`                                                 | qufox-api, qufox-postgres-prod, qufox-backup, **qufox-webhook** (for `docker compose run qufox-api pnpm db:migrate` inside auto-deploy.sh — passed in via `env_file: [.env.prod]` in compose.deploy.yml) |
+| `JWT_ACCESS_SECRET`     | `.env.prod`                                                 | qufox-api                                                                                                                                                                                                |
+| `GITHUB_WEBHOOK_SECRET` | `.env.deploy`                                               | qufox-webhook + GitHub webhook config                                                                                                                                                                    |
+| `SLACK_WEBHOOK_URL`     | `.env.deploy`                                               | qufox-webhook (optional)                                                                                                                                                                                 |
+| GitHub deploy-key       | `${WEBHOOK_SSH_DIR}` (default `/volume1/secrets/qufox-ssh`) | qufox-webhook `git fetch origin` — bind-mounted read-only at `/root/.ssh`; pubkey must be added to the repo's Deploy Keys                                                                                |
 
 Both files live at the repo root on the NAS, `0600 admin:users`,
 git-ignored. The `*.example` siblings are tracked in git and must

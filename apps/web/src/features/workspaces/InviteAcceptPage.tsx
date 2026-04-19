@@ -1,4 +1,5 @@
 import { useParams, useNavigate, Link } from 'react-router-dom';
+import { Button } from '../../design-system/primitives';
 import { useAcceptInvite, useInvitePreview } from './useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
 
@@ -12,16 +13,19 @@ export function InviteAcceptPage(): JSX.Element {
   if (isLoading) {
     return (
       <div data-testid="invite-loading" className="min-h-screen flex items-center justify-center">
-        <span className="text-slate-500 text-sm">checking invite…</span>
+        <span className="text-text-muted text-sm">checking invite…</span>
       </div>
     );
   }
   if (error || !preview) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-slate-50">
-        <section data-testid="invite-invalid" className="max-w-md rounded-2xl border border-amber-200 bg-amber-50 p-8 text-center">
-          <h1 className="text-xl font-semibold text-amber-800">Invite unavailable</h1>
-          <p className="mt-2 text-sm text-amber-700">
+      <main className="min-h-screen flex items-center justify-center bg-background">
+        <section
+          data-testid="invite-invalid"
+          className="max-w-md rounded-2xl border border-warning/40 bg-bg-surface p-8 text-center"
+        >
+          <h1 className="text-xl font-semibold text-warning">Invite unavailable</h1>
+          <p className="mt-2 text-sm text-text-muted">
             {(error as Error | undefined)?.message ?? 'This invite is invalid or expired.'}
           </p>
         </section>
@@ -30,43 +34,41 @@ export function InviteAcceptPage(): JSX.Element {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow text-center">
-        <h1 className="text-2xl font-semibold text-slate-900" data-testid="invite-workspace-name">
+    <main className="min-h-screen flex items-center justify-center bg-background">
+      <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow text-center">
+        <h1 className="text-2xl font-semibold text-foreground" data-testid="invite-workspace-name">
           Join {preview.workspace.name}
         </h1>
-        <p className="mt-1 text-sm text-slate-500">
+        <p className="mt-1 text-sm text-text-muted">
           You're invited to join the{' '}
           <span className="font-mono text-xs">@{preview.workspace.slug}</span> workspace.
-          {preview.usesRemaining !== null && (
-            <> {preview.usesRemaining} seat(s) remaining.</>
-          )}
+          {preview.usesRemaining !== null && <> {preview.usesRemaining} seat(s) remaining.</>}
         </p>
         {status === 'anonymous' ? (
           <div className="mt-6 space-y-2 text-sm">
             <Link
               to={`/login?from=/invite/${code}`}
-              className="block rounded-md bg-slate-900 px-3 py-2 text-white"
+              className="block rounded-md bg-bg-primary px-3 py-2 text-fg-primary"
             >
               Log in to accept
             </Link>
-            <Link to={`/signup?from=/invite/${code}`} className="text-slate-500 underline">
+            <Link to={`/signup?from=/invite/${code}`} className="text-text-muted underline">
               or create an account
             </Link>
           </div>
         ) : (
-          <button
+          <Button
             type="button"
             data-testid="invite-accept"
             disabled={acceptMut.isPending}
-            className="mt-6 inline-flex w-full items-center justify-center rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            className="mt-6 w-full"
             onClick={async () => {
               const res = await acceptMut.mutateAsync(code!);
               navigate(`/w/${res.workspace.slug}`, { replace: true });
             }}
           >
             {acceptMut.isPending ? 'Joining…' : 'Accept invite'}
-          </button>
+          </Button>
         )}
       </section>
     </main>

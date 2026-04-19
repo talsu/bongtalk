@@ -12,7 +12,9 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
   },
-  "dependencies": {},
+  "dependencies": {
+    "prom-client": "^15.1.3"
+  },
   "devDependencies": {
     "@swc-node/register": "1.10.10",
     "@swc/cli": "0.7.8",

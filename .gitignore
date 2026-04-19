@@ -16,6 +16,9 @@ pnpm-debug.log*
 .env.local
 .env.*.local
 .env.prod
+.env.deploy
+.env.deploy.local
+.deploy/
 .DS_Store
 Thumbs.db
 .vscode/*

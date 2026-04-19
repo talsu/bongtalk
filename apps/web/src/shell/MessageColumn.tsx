@@ -1,9 +1,14 @@
+import { useEffect, useRef } from 'react';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useUI } from '../stores/ui-store';
+import { useMarkChannelRead } from '../features/channels/useUnread';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { Tooltip } from '../design-system/primitives';
+import { useQueryClient } from '@tanstack/react-query';
+import { qk } from '../lib/query-keys';
+import type { UnreadChannelSummary } from '../features/channels/useUnread';
 
 type Props = {
   workspaceId: string;
@@ -20,10 +25,62 @@ type Props = {
 export function MessageColumn({ workspaceId, channelId, channelName }: Props): JSX.Element {
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
+  const setActiveChannelId = useUI((s) => s.setActiveChannelId);
   const { data: members } = useMembers(workspaceId);
   const memberCount = members?.members.length ?? 0;
+  const qc = useQueryClient();
 
   useLiveMessages(workspaceId, channelId);
+
+  // Task-010 reviewer finding-1 fix: announce the active channel to the
+  // UI store so the realtime dispatcher skips unread-bumps for messages
+  // that arrive on this channel while we're viewing it. Clear on
+  // unmount so a subsequent navigation doesn't leak stale state.
+  useEffect(() => {
+    setActiveChannelId(channelId);
+    return () => {
+      // Only clear if we're STILL the active channel — avoids a race
+      // where MessageColumn unmount/remount (e.g. channelId change)
+      // runs cleanup after the new mount has set the new id.
+      if (useUI.getState().activeChannelId === channelId) {
+        setActiveChannelId(null);
+      }
+    };
+  }, [channelId, setActiveChannelId]);
+
+  // Task-010-B: mark the channel read on open, debounced by 500ms so
+  // rapid channel-switching doesn't thrash the server. Also re-fire
+  // when a new message arrives while the user is actively looking at
+  // this channel — the dispatcher skips the unread bump for the active
+  // channel, but if the server-side lastReadAt falls behind we still
+  // want an occasional refresh. Implemented by zeroing the cached
+  // count directly (optimistic) and debouncing the POST.
+  const markRead = useMarkChannelRead(workspaceId);
+  const pendingRead = useRef<number | null>(null);
+  useEffect(() => {
+    // Optimistically zero the cached unread for this channel so the
+    // pill disappears immediately rather than waiting 500ms + rtt.
+    qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+      qk.channels.unreadSummary(workspaceId),
+      (old) => {
+        if (!old) return old;
+        return {
+          channels: old.channels.map((c) =>
+            c.channelId === channelId ? { ...c, unreadCount: 0, hasMention: false } : c,
+          ),
+        };
+      },
+    );
+    if (pendingRead.current) window.clearTimeout(pendingRead.current);
+    pendingRead.current = window.setTimeout(() => {
+      markRead.mutate(channelId);
+    }, 500);
+    return () => {
+      if (pendingRead.current) window.clearTimeout(pendingRead.current);
+    };
+    // markRead is a stable callback reference from useMutation; only
+    // re-fire on channel change.
+  }, [channelId, workspaceId, qc]);
 
   return (
     <main
