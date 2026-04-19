@@ -23,7 +23,10 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 @Injectable()
 export class S3Service {
   private readonly logger = new Logger(S3Service.name);
-  private readonly client: S3Client;
+  /** HeadObject / DeleteObject — server-side calls within the NAS. */
+  private readonly internalClient: S3Client;
+  /** Presigned URLs — signs against the host the browser reaches. */
+  private readonly publicClient: S3Client;
   private readonly bucket: string;
   private readonly putTtl: number;
   private readonly getTtl: number;
@@ -34,14 +37,20 @@ export class S3Service {
     if (!endpoint) {
       throw new Error('S3_ENDPOINT missing (set in .env.prod; see task-012-F)');
     }
+    // Task-012 reviewer HIGH-3 fix: presign URLs must sign against
+    // the host the BROWSER reaches. Internal endpoint
+    // (`qufox-minio:9000`) resolves only on the docker network, so
+    // a signed URL against it is useless from the browser. If
+    // S3_PUBLIC_ENDPOINT is unset we fall back to S3_ENDPOINT —
+    // acceptable for dev where api + browser share the same host.
+    const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT ?? endpoint;
     this.bucket = process.env.S3_BUCKET ?? 'qufox-attachments';
     this.putTtl = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
     this.getTtl = Number(process.env.S3_PRESIGN_GET_TTL_SEC ?? 1800);
     this.maxUploadBytes = Number(process.env.S3_MAX_UPLOAD_BYTES ?? 100 * 1024 * 1024);
 
-    this.client = new S3Client({
+    const commonCfg = {
       region: process.env.S3_REGION ?? 'us-east-1',
-      endpoint,
       // MinIO requires path-style: `http://host/bucket/key` not
       // `http://bucket.host/key`. Virtual-hosted style needs wildcard
       // DNS which we don't run on the NAS.
@@ -50,7 +59,9 @@ export class S3Service {
         accessKeyId: process.env.S3_ACCESS_KEY_ID ?? '',
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? '',
       },
-    });
+    };
+    this.internalClient = new S3Client({ ...commonCfg, endpoint });
+    this.publicClient = new S3Client({ ...commonCfg, endpoint: publicEndpoint });
   }
 
   get bucketName(): string {
@@ -85,12 +96,12 @@ export class S3Service {
       ContentType: contentType,
       ContentLength: contentLength,
     });
-    return getSignedUrl(this.client, cmd, { expiresIn: this.putTtl });
+    return getSignedUrl(this.publicClient, cmd, { expiresIn: this.putTtl });
   }
 
   async presignGet(key: string): Promise<string> {
     const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
-    return getSignedUrl(this.client, cmd, { expiresIn: this.getTtl });
+    return getSignedUrl(this.publicClient, cmd, { expiresIn: this.getTtl });
   }
 
   /**
@@ -102,7 +113,7 @@ export class S3Service {
     key: string,
   ): Promise<{ contentLength: number; contentType: string | undefined } | null> {
     try {
-      const result = await this.client.send(
+      const result = await this.internalClient.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
       );
       return {
@@ -119,7 +130,7 @@ export class S3Service {
 
   async deleteObject(key: string): Promise<void> {
     try {
-      await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
+      await this.internalClient.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     } catch (err) {
       // S3 delete is idempotent — a missing key is NOT an error.
       if (err instanceof NotFound || err instanceof NoSuchKey) return;

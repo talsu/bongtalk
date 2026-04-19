@@ -151,8 +151,39 @@ export class ChannelsService {
             topic: input.topic ?? null,
             categoryId: input.categoryId ?? null,
             position,
+            // Task-012-D: honour the isPrivate flag from the DTO.
+            // Default-false in the schema keeps public-by-default.
+            isPrivate: input.isPrivate ?? false,
           },
         });
+        // Task-012 reviewer MED-6: when creating a private channel,
+        // seed a USER-principal override for the creator with the full
+        // role baseline so the creator can actually reach their own
+        // channel. Without this, OWNER could create but not access
+        // without a subsequent POST /members. Applies for every role
+        // (the channel creator should always have access).
+        if (channel.isPrivate) {
+          await tx.channelPermissionOverride.upsert({
+            where: {
+              channelId_principalType_principalId: {
+                channelId: channel.id,
+                principalType: 'USER',
+                principalId: actorId,
+              },
+            },
+            create: {
+              channelId: channel.id,
+              principalType: 'USER',
+              principalId: actorId,
+              // ALL_PERMISSIONS = 0xFF across the 8 slots (see
+              // permissions.ts). Hard-coded so we don't cross-import
+              // and pull in a web surface from the core service layer.
+              allowMask: 0xff,
+              denyMask: 0,
+            },
+            update: {},
+          });
+        }
         await this.outbox.record(tx, {
           aggregateType: 'channel',
           aggregateId: channel.id,
@@ -332,23 +363,47 @@ export class ChannelsService {
     if (!channel) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
     }
-    const row = await this.prisma.channelPermissionOverride.upsert({
-      where: {
-        channelId_principalType_principalId: {
+    // Task-012 reviewer MED-7 fix: emit `channel.permission.changed`
+    // outbox event in the same $transaction as the upsert so the
+    // realtime dispatcher can refresh the target user's channel list
+    // without them reloading. Payload carries workspaceId +
+    // channelId + targetUserId + effective mask; the WS projection
+    // routes via rooms.user(targetUserId).
+    const { row, effective } = await this.prisma.$transaction(async (tx) => {
+      const upserted = await tx.channelPermissionOverride.upsert({
+        where: {
+          channelId_principalType_principalId: {
+            channelId,
+            principalType: 'USER',
+            principalId: targetUserId,
+          },
+        },
+        create: {
           channelId,
           principalType: 'USER',
           principalId: targetUserId,
+          allowMask,
+          denyMask,
         },
-      },
-      create: {
-        channelId,
-        principalType: 'USER',
-        principalId: targetUserId,
-        allowMask,
-        denyMask,
-      },
-      update: { allowMask, denyMask },
+        update: { allowMask, denyMask },
+      });
+      const effectiveMask = (allowMask & ~denyMask) >>> 0;
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: 'channel.permission.changed',
+        payload: {
+          workspaceId,
+          channelId,
+          targetUserId,
+          allowMask,
+          denyMask,
+          effectiveMask,
+        },
+      });
+      return { row: upserted, effective: effectiveMask };
     });
+    void effective;
     return {
       id: row.id,
       channelId: row.channelId,

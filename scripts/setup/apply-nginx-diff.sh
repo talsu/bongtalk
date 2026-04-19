@@ -12,21 +12,30 @@
 #   5. On success: `docker exec nginx-proxy-1 nginx -s reload`.
 #
 # Usage:
-#   scripts/setup/apply-nginx-diff.sh [--dry-run]
+#   scripts/setup/apply-nginx-diff.sh [--dry-run] [--attachments]
 #
-# Idempotent: rerunning after a successful install is a no-op.
+# --attachments prints the task-012-F `/attachments/` location block
+# that operators paste by hand INSIDE the existing qufox.com server
+# block (this file is a single monolithic nginx.conf; splicing a
+# location into a shared server block is manual — see
+# docs/ops/runbook-nginx-diff.md § Task-012-F additive).
+#
+# Idempotent: rerunning the default (deploy.qufox.com) mode after a
+# successful install is a no-op.
 
 set -euo pipefail
 
 NGINX_CONF="${NGINX_CONF:-/volume2/dockers/nginx/nginx.conf}"
 NGINX_CONTAINER="${NGINX_CONTAINER:-nginx-proxy-1}"
 DRY_RUN=0
+MODE=deploy
 
 for arg in "$@"; do
   case "$arg" in
     --dry-run) DRY_RUN=1 ;;
+    --attachments) MODE=attachments ;;
     -h|--help)
-      sed -n '1,25p' "$0" | tail -18
+      sed -n '1,30p' "$0" | tail -22
       exit 0 ;;
     *) echo "unknown arg: $arg" >&2; exit 2 ;;
   esac
@@ -37,6 +46,41 @@ log() { printf '[apply-nginx-diff] %s\n' "$*"; }
 if [[ ! -f "$NGINX_CONF" ]]; then
   echo "[apply-nginx-diff] nginx.conf not found at $NGINX_CONF" >&2
   exit 3
+fi
+
+# --- task-012-F /attachments/ location (manual paste helper) -------------
+# Splicing a `location` into an existing `server { server_name qufox.com;
+# ... }` inside a shared nginx.conf requires AST-aware insertion that
+# this shell script doesn't do. Instead we print the block for the
+# operator to paste and run `nginx -t && nginx -s reload` by hand.
+# task-012 reviewer HIGH-4 fix.
+if [[ "$MODE" == "attachments" ]]; then
+  ATTACHMENTS_BLOCK=$(cat <<'NGINX'
+    # task-012-F: /attachments/ pass-through to qufox-minio.
+    location /attachments/ {
+        proxy_pass http://qufox-minio:9000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        client_max_body_size 100m;
+        proxy_request_buffering off;
+        proxy_buffering         off;
+        proxy_read_timeout      600s;
+        proxy_send_timeout      600s;
+    }
+NGINX
+)
+  if grep -qE 'location[[:space:]]+/attachments/' "$NGINX_CONF"; then
+    log "attachments location already present in $NGINX_CONF — no-op"
+    exit 0
+  fi
+  log "task-012-F /attachments/ block (paste INSIDE the existing qufox.com server block):"
+  echo
+  printf '%s\n' "$ATTACHMENTS_BLOCK"
+  echo
+  log "after pasting: docker exec $NGINX_CONTAINER nginx -t && nginx -s reload"
+  log "verification: curl -sk -o /dev/null -w '%{http_code}' https://qufox.com/attachments/minio/health/live → 200"
+  exit 0
 fi
 
 # --- idempotency check ---------------------------------------------------

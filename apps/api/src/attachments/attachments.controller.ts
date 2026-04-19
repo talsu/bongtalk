@@ -66,6 +66,23 @@ export class AttachmentsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<void> {
+    // Task-012 reviewer MED-8 fix: re-check channel ACL at finalize
+    // time, matching the download-url "recompute on every call"
+    // policy. An uploader who loses UPLOAD_ATTACHMENT between presign
+    // and finalize (kicked from the channel, DENY override added,
+    // etc.) no longer sneaks the attachment through.
+    const att = await this.attachments.findById(id);
+    if (!att) {
+      throw new DomainError(ErrorCode.ATTACHMENT_NOT_FOUND, 'attachment not found');
+    }
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: att.channelId },
+      select: { id: true, workspaceId: true, isPrivate: true, archivedAt: true, deletedAt: true },
+    });
+    if (!channel || channel.deletedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel gone');
+    }
+    await this.channelAccess.requireUpload(channel, user.id);
     await this.attachments.finalize(id, user.id);
   }
 

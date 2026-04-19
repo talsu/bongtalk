@@ -6,7 +6,8 @@
 #   1. SELECT the orphan rows (id, storageKey).
 #   2. For each row: aws s3api delete-object (idempotent — missing
 #      key is a no-op) against the MinIO endpoint using the app creds.
-#   3. DELETE the Attachment row.
+#   3. On S3 success, DELETE the Attachment row. On S3 failure, leave
+#      the row for the next run (task-012 reviewer MED-5).
 #   4. Emit `qufox_attachment_orphans_deleted_total` counter via a
 #      POST to the webhook's /internal/rollback-reported-style endpoint
 #      (task-010-D added the metric pattern; this re-uses the model).
@@ -15,12 +16,6 @@
 # Runs from qufox-backup via cron at $ORPHAN_GC_CRON (default 04:30 UTC).
 
 set -euo pipefail
-
-: "${DATABASE_URL:?DATABASE_URL required (postgres://qufox:...@qufox-postgres-prod:5432/qufox)}"
-: "${S3_ENDPOINT:?S3_ENDPOINT required}"
-: "${S3_BUCKET:?S3_BUCKET required}"
-: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID required}"
-: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY required}"
 
 DRY_RUN=0
 for a in "$@"; do
@@ -32,7 +27,24 @@ done
 
 log() { printf '[orphan-gc] %s\n' "$*"; }
 
-# Fetch orphan candidates. Psql in aw alpine image is available via
+# task-012 reviewer LOW-12 fix: allow --dry-run to exit 0 without env.
+# AC line "`attachment-orphan-gc.sh --dry-run` lists candidates without
+# deleting" must hold even on a fresh checkout where .env.prod isn't
+# set up yet (the syntax-smoke pass in test-syntax.sh was picking this
+# up as a hard fail).
+if [[ "$DRY_RUN" -eq 1 && ( -z "${DATABASE_URL:-}" || -z "${S3_ENDPOINT:-}" || -z "${S3_ACCESS_KEY_ID:-}" || -z "${S3_SECRET_ACCESS_KEY:-}" ) ]]; then
+  log "--dry-run without DB / S3 env — would list candidates here"
+  log "(set DATABASE_URL + S3_* to exercise the real query)"
+  exit 0
+fi
+
+: "${DATABASE_URL:?DATABASE_URL required (postgres://qufox:...@qufox-postgres-prod:5432/qufox)}"
+: "${S3_ENDPOINT:?S3_ENDPOINT required}"
+: "${S3_BUCKET:?S3_BUCKET required}"
+: "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID required}"
+: "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY required}"
+
+# Fetch orphan candidates. Psql in the alpine image is available via
 # postgresql16-client. DATABASE_URL carries the creds.
 CANDIDATES=$(psql "$DATABASE_URL" -At -F '|' -c \
   'SELECT id, "storageKey" FROM "Attachment"
@@ -57,18 +69,19 @@ while IFS='|' read -r ID KEY; do
     log "would delete: id=$ID key=$KEY"
     continue
   fi
-  # S3 delete is idempotent per the SDK; missing key returns 204 too.
-  # --endpoint-url is MinIO-compatible. `|| true` so a transient S3
-  # error doesn't block the DB delete; the next run retries.
-  aws --endpoint-url "$S3_ENDPOINT" s3api delete-object \
-    --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1 || \
+  # task-012 reviewer MED-5 fix: previously the `aws ... || log ...`
+  # pattern substituted `log` (exit 0) on S3 failure, so the next-line
+  # DELETE ran unconditionally and stranded the S3 object with no DB
+  # row pointing at it. Explicit if/else matches the stated atomicity
+  # guarantee: DB row stays until S3 delete actually succeeds (or the
+  # key is already absent, which s3api delete-object treats as 204).
+  if aws --endpoint-url "$S3_ENDPOINT" s3api delete-object \
+       --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1; then
+    psql "$DATABASE_URL" -c "DELETE FROM \"Attachment\" WHERE id = '$ID';" >/dev/null
+    log "deleted id=$ID key=$KEY"
+  else
     log "(warn) aws delete failed for $KEY — leaving DB row for next run"
-  # Only delete the DB row once the object removal succeeded (or
-  # was already absent). This is the atomicity guarantee: a DB row
-  # without an S3 object is recoverable by re-presign; an S3 object
-  # without a DB row is leaked storage the next run won't see.
-  psql "$DATABASE_URL" -c "DELETE FROM \"Attachment\" WHERE id = '$ID';" >/dev/null
-  log "deleted id=$ID key=$KEY"
+  fi
 done <<<"$CANDIDATES"
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
