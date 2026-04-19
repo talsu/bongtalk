@@ -34,6 +34,6 @@ import { UsersModule } from '../users/users.module';
     JwtStrategy,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
-  exports: [AuthService, TokenService, PasswordService],
+  exports: [AuthService, TokenService, PasswordService, RateLimitService],
 })
 export class AuthModule {}

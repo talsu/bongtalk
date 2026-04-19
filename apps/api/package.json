@@ -3,8 +3,8 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "tsx watch src/main.ts",
-    "build": "tsc -p tsconfig.build.json",
+    "dev": "nodemon --watch src --ext ts --exec \"node --require @swc-node/register src/main.ts\"",
+    "build": "swc src -d dist --copy-files --strip-leading-paths",
     "start": "node dist/main.js",
     "lint": "eslint src --no-error-on-unmatched-pattern",
     "typecheck": "tsc --noEmit",
@@ -14,7 +14,7 @@
     "db:migrate": "prisma migrate deploy",
     "db:migrate:dev": "prisma migrate dev",
     "db:reset": "prisma migrate reset --force --skip-seed && pnpm db:seed",
-    "db:seed": "tsx prisma/seed.ts"
+    "db:seed": "node --require @swc-node/register prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "10.4.15",
@@ -48,6 +48,9 @@
   },
   "devDependencies": {
     "@nestjs/testing": "10.4.15",
+    "@swc-node/register": "1.10.9",
+    "@swc/cli": "0.5.2",
+    "@swc/core": "1.9.3",
     "@types/cookie-parser": "1.4.8",
     "@types/express": "5.0.0",
     "@types/node": "20.11.30",
@@ -55,14 +58,13 @@
     "@types/supertest": "6.0.2",
     "@types/uuid": "10.0.0",
     "@types/zxcvbn": "4.4.5",
+    "nodemon": "3.1.7",
     "prisma": "5.22.0",
     "socket.io-client": "4.8.1",
     "supertest": "7.0.0",
     "testcontainers": "10.14.0",
-    "tsx": "4.19.2",
     "typescript": "5.6.3",
     "unplugin-swc": "1.5.1",
-    "@swc/core": "1.9.3",
     "vitest": "2.1.8"
   }
 }

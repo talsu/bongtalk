@@ -58,21 +58,27 @@ model RefreshToken {
 }
 
 model Workspace {
-  id        String   @id @db.Uuid
-  name      String
-  slug      String   @unique
-  ownerId   String   @db.Uuid
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id          String    @id @db.Uuid
+  name        String
+  slug        String    @unique
+  description String?
+  iconUrl     String?
+  ownerId     String    @db.Uuid
+  deletedAt   DateTime?
+  deleteAt    DateTime?
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
 
   owner    User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members  WorkspaceMember[]
   channels Channel[]
   invites  Invite[]
+
+  @@index([ownerId])
+  @@index([deletedAt])
 }
 
 model WorkspaceMember {
-  id          String        @id @default(uuid()) @db.Uuid
   workspaceId String        @db.Uuid
   userId      String        @db.Uuid
   role        WorkspaceRole @default(MEMBER)
@@ -81,7 +87,9 @@ model WorkspaceMember {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([workspaceId, userId])
+  @@id([workspaceId, userId])
+  @@index([userId])
+  @@index([workspaceId, role])
 }
 
 model Channel {
@@ -114,14 +122,19 @@ model Message {
 }
 
 model Invite {
-  id          String    @id @db.Uuid
+  id          String    @id @default(uuid()) @db.Uuid
   workspaceId String    @db.Uuid
-  createdById String    @db.Uuid
   code        String    @unique
+  createdById String    @db.Uuid
   expiresAt   DateTime?
+  maxUses     Int?
+  usedCount   Int       @default(0)
+  revokedAt   DateTime?
   createdAt   DateTime  @default(now())
-  usedAt      DateTime?
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   createdBy User      @relation("InviteCreator", fields: [createdById], references: [id])
+
+  @@index([workspaceId])
+  @@index([expiresAt])
 }

@@ -65,6 +65,20 @@ export const ErrorCodeSchema = z.enum([
   'AUTH_INVALID_CREDENTIALS',
   'AUTH_ACCOUNT_LOCKED',
   'AUTH_SESSION_COMPROMISED',
+  'WORKSPACE_NOT_FOUND',
+  'WORKSPACE_NOT_MEMBER',
+  'WORKSPACE_SLUG_TAKEN',
+  'WORKSPACE_SLUG_RESERVED',
+  'WORKSPACE_INSUFFICIENT_ROLE',
+  'WORKSPACE_CANNOT_DEMOTE_OWNER',
+  'WORKSPACE_CANNOT_REMOVE_OWNER',
+  'WORKSPACE_OWNER_MUST_TRANSFER',
+  'WORKSPACE_TARGET_NOT_MEMBER',
+  'WORKSPACE_ALREADY_MEMBER',
+  'WORKSPACE_PURGED',
+  'INVITE_NOT_FOUND',
+  'INVITE_EXPIRED',
+  'INVITE_EXHAUSTED',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
@@ -81,3 +95,4 @@ export const ErrorResponseSchema = z.object({
 export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 export * from './auth';
+export * from './workspace';

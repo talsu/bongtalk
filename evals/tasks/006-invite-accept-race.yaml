@@ -1,0 +1,12 @@
+id: 006
+title: Invite accept is race-safe under concurrent use
+goal: |
+  Simulate 10 concurrent accept requests on an invite with maxUses=3
+  and assert exactly 3 succeed while the rest return INVITE_EXHAUSTED.
+dod:
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/workspaces/invites/**
+      - apps/api/test/int/workspaces/invites.int.spec.ts
+max_turns: 20
