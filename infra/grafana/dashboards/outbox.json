@@ -1,0 +1,61 @@
+{
+  "title": "qufox — Outbox",
+  "uid": "qufox-outbox",
+  "schemaVersion": 38,
+  "version": 1,
+  "time": { "from": "now-3h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Pending / DLQ",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        { "expr": "outbox_pending_events", "legendFormat": "pending" },
+        { "expr": "outbox_dlq_events", "legendFormat": "dlq" }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "Dispatch rate by event_type",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "sum by (event_type) (rate(outbox_events_dispatched_total{result=\"success\"}[5m]))",
+          "legendFormat": "{{event_type}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "Dispatch latency p95 (s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,event_type) (rate(outbox_event_dispatch_latency_seconds_bucket[5m])))",
+          "legendFormat": "{{event_type}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 }
+    },
+    {
+      "title": "Last dispatch age (s)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "time() - max(outbox_last_dispatch_timestamp_seconds)" }],
+      "gridPos": { "x": 0, "y": 16, "w": 8, "h": 6 }
+    }
+  ]
+}

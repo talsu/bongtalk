@@ -1,0 +1,65 @@
+{
+  "title": "qufox — Overview",
+  "uid": "qufox-overview",
+  "schemaVersion": 38,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "label": "Datasource",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Request rate",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "sum by (status_class) (rate(http_requests_total[1m]))",
+          "legendFormat": "{{status_class}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "P95 latency (s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket[5m])))"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "WS active connections",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "sum(ws_connections_active)" }],
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 6 }
+    },
+    {
+      "title": "Messages / sec",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "rate(messages_sent_total[1m])" }],
+      "gridPos": { "x": 8, "y": 8, "w": 8, "h": 6 }
+    },
+    {
+      "title": "Outbox backlog",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "outbox_pending_events" }],
+      "gridPos": { "x": 16, "y": 8, "w": 8, "h": 6 }
+    }
+  ]
+}

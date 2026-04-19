@@ -1,0 +1,62 @@
+{
+  "title": "qufox — Database & Redis",
+  "uid": "qufox-db-redis",
+  "schemaVersion": 38,
+  "version": 1,
+  "time": { "from": "now-1h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "DB query p95 by operation (s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,operation) (rate(db_query_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{operation}}"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "DB transaction p95 (s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(db_transaction_duration_seconds_bucket[5m])))"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "DB pool state",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "db_pool_connections", "legendFormat": "{{state}}" }],
+      "gridPos": { "x": 0, "y": 8, "w": 12, "h": 8 }
+    },
+    {
+      "title": "Redis p95 by command (s)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.95, sum by (le,command) (rate(redis_command_duration_seconds_bucket[5m])))",
+          "legendFormat": "{{command}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 8, "w": 12, "h": 8 }
+    }
+  ]
+}

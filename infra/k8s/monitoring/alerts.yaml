@@ -1,0 +1,106 @@
+# Prometheus alert rules — imported into Prometheus via PrometheusRule CRD
+# or a plain file mount. Thresholds match docs/runbook/realtime-soak.md and
+# the CD auto-rollback configuration in infra/.
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: qufox-slo
+  labels:
+    app: qufox
+    role: slo
+spec:
+  groups:
+    - name: qufox.http
+      rules:
+        - alert: HTTP5xxRateHigh
+          # > 1% 5xx on 5m window
+          expr: |
+            sum(rate(http_requests_total{status_class="5xx"}[5m]))
+              / sum(rate(http_requests_total[5m])) > 0.01
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: 'HTTP 5xx rate above 1% (auto-rollback gate)'
+            runbook: docs/runbook/realtime-soak.md
+        - alert: HTTPLatencyP95High
+          expr: |
+            histogram_quantile(0.95,
+              sum by (le) (rate(http_request_duration_seconds_bucket[5m]))) > 0.5
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: 'HTTP p95 latency above 500ms'
+
+    - name: qufox.realtime
+      rules:
+        - alert: WSDisconnectRateHigh
+          # transport_error disconnects > 5% of active connection count
+          expr: |
+            rate(ws_disconnections_total{reason="transport_error"}[5m])
+              > 0.05 * avg(ws_connections_active)
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: 'WS transport error rate above 5%'
+        - alert: ReplayTruncationSpike
+          expr: rate(ws_replay_events_total{result="truncated"}[5m]) > 0.1
+          for: 5m
+          labels:
+            severity: warn
+          annotations:
+            summary: 'Replay truncation rate > 0.1/s — bump WS_REPLAY_BUFFER_SIZE'
+        - alert: PresenceKeyDrift
+          # ws_presence_sessions_active (gauge) vs presence_session_keys_in_redis
+          # (recording rule from Redis exporter). Drift > 10 indicates lazy GC lag.
+          expr: abs(ws_presence_sessions_active - presence_session_keys_in_redis) > 10
+          for: 10m
+          labels:
+            severity: warn
+          annotations:
+            summary: 'Presence gauge drift from Redis keys'
+
+    - name: qufox.outbox
+      rules:
+        - alert: OutboxDispatcherStalled
+          # No successful dispatch tick in last 10s → dispatcher stuck.
+          expr: time() - max(outbox_last_dispatch_timestamp_seconds) > 10
+          for: 1m
+          labels:
+            severity: page
+          annotations:
+            summary: 'Outbox dispatcher has not ticked in 10s'
+        - alert: OutboxBacklogGrowing
+          expr: outbox_pending_events > 1000
+          for: 10m
+          labels:
+            severity: warn
+          annotations:
+            summary: 'Outbox backlog >1000 for 10m'
+        - alert: OutboxDLQAny
+          expr: outbox_dlq_events > 0
+          labels:
+            severity: warn
+          annotations:
+            summary: 'One or more OutboxEvent rows hit max attempts'
+
+    - name: qufox.infra
+      rules:
+        - alert: DBPoolExhausted
+          expr: db_pool_connections{state="pending"} > 5
+          for: 2m
+          labels:
+            severity: warn
+          annotations:
+            summary: 'Postgres pool has >5 pending acquisitions'
+
+    - name: qufox.auth
+      rules:
+        - alert: AuthSessionCompromisedSpike
+          expr: increase(auth_session_compromised_total[5m]) > 5
+          labels:
+            severity: page
+          annotations:
+            summary: 'Refresh-token reuse detections spiking — possible attack'

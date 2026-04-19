@@ -1,0 +1,16 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: qufox-api
+  labels:
+    app: qufox
+spec:
+  selector:
+    matchLabels: { app: qufox, component: api }
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      # No honorLabels — collector defaults are fine; `service` label is
+      # set by the app's MetricsService default-label.
