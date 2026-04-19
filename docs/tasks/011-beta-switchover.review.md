@@ -524,3 +524,103 @@ LOW/NIT carried as `TODO(task-011-follow-*)` markers above.
 | 5. VITE_API_URL not threaded into test-web           | MED      | **Fixed**: `apps/web/Dockerfile` declares `ARG VITE_API_URL=/api` + `ENV VITE_API_URL=${VITE_API_URL}`; `docker-compose.test.yml` passes `VITE_API_URL=http://localhost:43001` via `build.args`.                         |
 | 6-10. LOW items                                      | LOW      | Carried as `TODO(task-011-follow-*)` markers; see the follow-up list above.                                                                                                                                              |
 | 11-12. NIT positives / AC gap                        | NIT      | Noted; GHA enforces test:int / test:e2e on push.                                                                                                                                                                         |
+
+## Re-review (post-fix 2c3ad4b)
+
+- Model: Opus 4.7 (1M context)
+- Transcript: ~18k prompt / ~1.5k output
+
+### Verdict: approve
+
+All 5 reviewer findings are genuinely closed on disk. The fix commit
+is small (~85 source-line delta across `scripts/setup/apply-nginx-diff.sh`,
+`scripts/prod-reload.sh`, `apps/api/prisma/migrations/.../migration.sql`,
+`apps/api/src/me/me-mentions.service.ts`, `apps/web/Dockerfile`,
+`docker-compose.test.yml`, `docs/ops/switchover-checklist.md`), targeted,
+and each hunk carries an inline `task-011 reviewer <FINDING> fix:`
+comment that makes the rationale discoverable via `git blame`. The
+`## Resolution` table above accurately reflects what's on disk.
+No new issues detected in the fix diff.
+
+### Per-finding status
+
+1. **HIGH-1 apply-nginx-diff** — resolved.
+   `scripts/setup/apply-nginx-diff.sh:99-107` now does a plain
+   `printf '%s\n' "$BLOCK" >> "$NGINX_CONF"`. Verified against
+   `/volume2/dockers/nginx/nginx.conf:403` (last line is the final
+   `server` block's `}`, no `http { }` wrapper), so appending a
+   top-level `server` block produces valid nginx for the NAS target.
+   The defensive `nginx -t` + auto-rollback gate at :110-115 is
+   retained for the hypothetical case where another deployment ships
+   an outer http wrapper.
+
+2. **HIGH-2 CONCURRENTLY** — resolved.
+   `apps/api/prisma/migrations/20260420000000_add_mentions_gin_index/migration.sql:14-16`
+   now uses `CREATE INDEX IF NOT EXISTS "Message_mentions_gin_idx" ON
+"Message" USING GIN ("mentions") WHERE "deletedAt" IS NULL;`. This
+   runs cleanly inside Prisma's per-migration transaction wrapper.
+   `IF NOT EXISTS` on plain `CREATE INDEX` is supported on PG 11+
+   (prod is PG 16, confirmed in CLAUDE.md stack); partial-index
+   `WHERE` clause is vanilla SQL. No residual Prisma gotchas.
+
+3. **MED-3 /me/mentions ACL** — resolved.
+   `apps/api/src/me/me-mentions.service.ts:62-64` (recent) and
+   `:97-99` (unreadCount) both add `JOIN "WorkspaceMember" wm ON
+wm."workspaceId" = c."workspaceId" AND wm."userId" = ${userId}::uuid`.
+   Uses the composite PK `@@id([workspaceId, userId])` at
+   `apps/api/prisma/schema.prisma:108` — single index lookup per row,
+   no perf regression. Airtight for both user-level and `@everyone`
+   mention paths: a caller with no `WorkspaceMember` row for workspace
+   W gets zero rows from W regardless of which mention predicate
+   matched. Notably, this also closes a residual leak path the OLD
+   code had independent of kicking — `@everyone` mentions in any
+   workspace where the caller was NEVER a member would previously
+   have surfaced (the only author-filter was `authorId <> userId`);
+   the new code filters those too.
+
+4. **MED-4 prod-reload break-glass** — resolved.
+   Shell flow at `scripts/prod-reload.sh:21-43`: the `for a in "$@"`
+   loop splits `--force` into `FORCE=1` and everything else into
+   `ARGS[@]`, so `prod-reload.sh --force api` correctly sets
+   `TARGET=api` via `ARGS[0]` at :45. In the force branch (:36-39)
+   the script writes one JSON line to `.deploy/audit.jsonl` — format
+   `{"ts":"2026-04-20T12:34:56Z","event":"manual.force-unlock","source":"prod-reload.sh"}\n`
+   which is valid JSON (no embedded quotes; Z-suffixed ISO-8601 ts).
+   The else branch (:40-43) preserves the original `acquire_lock` +
+   EXIT-trap behaviour. Runbook text at
+   `docs/ops/switchover-checklist.md:57-86` describes both the clean
+   recovery (`docker restart qufox-webhook` + `rm -f .deploy/deploy.lock`)
+   and the emergency `--force` override; the text matches what the
+   script actually does.
+
+5. **MED-5 VITE_API_URL** — resolved.
+   `apps/web/Dockerfile:26-27` declares `ARG VITE_API_URL=/api`
+   followed by `ENV VITE_API_URL=${VITE_API_URL}` BEFORE the
+   `pnpm --filter @qufox/web build` step at :28-29. Vite reads `VITE_*`
+   from `process.env` at build time, so the baked bundle picks up
+   whatever the compose stack supplied. `docker-compose.test.yml:74-79`
+   passes `build.args.VITE_API_URL: http://localhost:43001`; confirmed
+   the web app reads it at `apps/web/src/lib/api.ts:11`,
+   `lib/socket.ts:15`, and `features/messages/api.ts:74` via
+   `import.meta.env.VITE_API_URL` with `/api` fallback. The prod build
+   (default ARG) keeps pointing at the nginx proxy, the e2e build
+   points directly at the host-exposed test-api port. Wiring is
+   correct end-to-end.
+
+### New issues
+
+None. The fix diff is minimal, localised, and contains no piggy-backed
+refactors. One benign observation: `scripts/prod-reload.sh:34`
+unconditionally sources `deploy/lock.sh` even when `--force` skips the
+lock — harmless (function definitions only, no side effects), so no
+change requested.
+
+Side note on the brief: the re-review prompt claimed a `## Resolution`
+section mapping findings to fixes was appended. That section DOES
+exist (lines 513-526) and DOES accurately reflect the commit.
+
+### Merge recommendation
+
+Safe to merge as-is. Previous follow-up TODOs 1-5 are now closed by
+`2c3ad4b`; TODOs 6-9 remain as deferred low-priority follow-ups per
+the original review.
