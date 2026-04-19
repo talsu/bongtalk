@@ -20,6 +20,7 @@ export const qk = {
   channels: {
     list: (wsId: string) => ['workspaces', wsId, 'channels'] as const,
     detail: (chId: string) => ['channels', chId] as const,
+    unreadSummary: (wsId: string) => ['workspaces', wsId, 'unread-summary'] as const,
   },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,

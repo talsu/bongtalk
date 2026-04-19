@@ -1,5 +1,7 @@
+import { useEffect, useRef } from 'react';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useUI } from '../stores/ui-store';
+import { useMarkChannelRead } from '../features/channels/useUnread';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
@@ -24,6 +26,26 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
   const memberCount = members?.members.length ?? 0;
 
   useLiveMessages(workspaceId, channelId);
+
+  // Task-010-B: mark the channel read on open, debounced by 500ms so
+  // rapid channel-switching doesn't thrash the server. The debouncer
+  // also re-fires on channelId change so switching into a new channel
+  // clears its unread.
+  const markRead = useMarkChannelRead(workspaceId);
+  const pendingRead = useRef<number | null>(null);
+  useEffect(() => {
+    if (pendingRead.current) window.clearTimeout(pendingRead.current);
+    pendingRead.current = window.setTimeout(() => {
+      markRead.mutate(channelId);
+    }, 500);
+    return () => {
+      if (pendingRead.current) window.clearTimeout(pendingRead.current);
+    };
+    // markRead is a stable callback reference from useMutation; only
+    // re-fire on channel change. (react-hooks plugin not installed so
+    // we don't disable exhaustive-deps by rule name — the omission is
+    // intentional and documented above.)
+  }, [channelId]);
 
   return (
     <main
