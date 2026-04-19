@@ -19,6 +19,7 @@ let pgContainer: StartedTestContainer | undefined;
 let port = 0;
 
 beforeAll(async () => {
+  process.env.TESTCONTAINERS_RYUK_DISABLED = 'true';
   redisContainer = await new GenericContainer('redis:7-alpine').withExposedPorts(6379).start();
   pgContainer = await new GenericContainer('postgres:16-alpine')
     .withEnvironment({
