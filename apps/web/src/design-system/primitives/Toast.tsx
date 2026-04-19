@@ -33,7 +33,10 @@ export function ToastViewport(): JSX.Element {
       {items.map((t) => (
         <div
           key={t.id}
-          role="status"
+          // danger/error toasts should interrupt screen-readers, not queue
+          // behind the polite region (reviewer flagged this).
+          role={t.variant === 'danger' ? 'alert' : 'status'}
+          aria-live={t.variant === 'danger' ? 'assertive' : 'polite'}
           className={cn(
             'pointer-events-auto min-w-[240px] max-w-sm rounded-md border px-3 py-2 text-sm shadow-md',
             variantStyles[t.variant],

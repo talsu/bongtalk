@@ -31,10 +31,23 @@ export function installRealtimeDispatcher(socket: Socket, qc: QueryClient): () =
         (old) => {
           if (!old) return old;
           const [first, ...rest] = old.pages;
-          if (first.items.some((m) => m.id === env.message.id)) return old; // dedupe
+          // Dedupe by real id AND by the optimistic "tempId" pattern — if
+          // the WS broadcast arrives BEFORE our own HTTP POST response
+          // (common under load), plain id-equality misses the temp row and
+          // we'd end up with two rows for one logical message. Collapse
+          // any optimistic row that matches author+content.
+          if (first.items.some((m) => m.id === env.message.id)) return old;
+          const collapsed = first.items.filter(
+            (m) =>
+              !(
+                m.id.startsWith('tmp-') &&
+                m.authorId === 'optimistic' &&
+                m.content === env.message.content
+              ),
+          );
           return {
             ...old,
-            pages: [{ ...first, items: [env.message, ...first.items] }, ...rest],
+            pages: [{ ...first, items: [env.message, ...collapsed] }, ...rest],
           };
         },
       );

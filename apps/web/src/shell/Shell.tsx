@@ -20,7 +20,14 @@ import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
  * shell.
  */
 export function Shell(): JSX.Element {
-  const { slug, channelName } = useParams<{ slug: string; channelName?: string }>();
+  // With the splat route `/w/:slug/*`, React Router delivers the
+  // remainder under the `'*'` key. Parsing here keeps `channelName`
+  // behaviour identical to the old discrete-param version without
+  // remounting the Shell on a URL change.
+  const params = useParams<{ slug: string; '*'?: string }>();
+  const slug = params.slug;
+  const rest = (params['*'] ?? '').split('/').filter(Boolean);
+  const channelName = rest[0] ?? undefined;
   const { data: mine, isLoading } = useMyWorkspaces();
   useRealtimeConnection();
   useGlobalShortcuts();

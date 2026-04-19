@@ -72,12 +72,12 @@ export default function App(): JSX.Element {
                   <Route path="/invite/:code" element={<InviteAcceptPage />} />
                   <Route path="/w/new" element={<CreateWorkspacePage />} />
                   <Route path="/" element={<ProtectedShellRoute />} />
-                  <Route path="/w/:slug" element={<ProtectedShellRoute />} />
-                  <Route path="/w/:slug/:channelName" element={<ProtectedShellRoute />} />
-                  <Route
-                    path="/w/:slug/:channelName/:messageId"
-                    element={<ProtectedShellRoute />}
-                  />
+                  {/* Single splat route so React Router does NOT remount
+                      the Shell when the URL changes between /w/:slug and
+                      /w/:slug/:channelName. Shell reads the rest of the
+                      path from useParams()['*']. Reviewer flagged the
+                      earlier 3-route version as likely to remount. */}
+                  <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
                   <Route path="*" element={<Navigate to="/" replace />} />
                 </Routes>
               </Suspense>
