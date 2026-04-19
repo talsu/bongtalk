@@ -33,16 +33,12 @@ export class S3Service {
   private readonly maxUploadBytes: number;
 
   constructor() {
+    // Lazy-init: we DON'T throw on missing S3_ENDPOINT at construction
+    // time because Nest modules instantiate providers eagerly and the
+    // attachments test suite boots AppModule without minio env. Any
+    // actual S3 call (presignPut/Get, headObject, deleteObject) checks
+    // readiness via _requireClient() and throws a clean error there.
     const endpoint = process.env.S3_ENDPOINT;
-    if (!endpoint) {
-      throw new Error('S3_ENDPOINT missing (set in .env.prod; see task-012-F)');
-    }
-    // Task-012 reviewer HIGH-3 fix: presign URLs must sign against
-    // the host the BROWSER reaches. Internal endpoint
-    // (`qufox-minio:9000`) resolves only on the docker network, so
-    // a signed URL against it is useless from the browser. If
-    // S3_PUBLIC_ENDPOINT is unset we fall back to S3_ENDPOINT —
-    // acceptable for dev where api + browser share the same host.
     const publicEndpoint = process.env.S3_PUBLIC_ENDPOINT ?? endpoint;
     this.bucket = process.env.S3_BUCKET ?? 'qufox-attachments';
     this.putTtl = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
@@ -60,8 +56,26 @@ export class S3Service {
         secretAccessKey: process.env.S3_SECRET_ACCESS_KEY ?? '',
       },
     };
-    this.internalClient = new S3Client({ ...commonCfg, endpoint });
-    this.publicClient = new S3Client({ ...commonCfg, endpoint: publicEndpoint });
+    // When endpoint is missing, create clients with a harmless
+    // placeholder so method calls fail cleanly via _requireClient()
+    // below rather than via an opaque SDK "cannot sign" error.
+    this.ready = Boolean(endpoint);
+    this.internalClient = new S3Client({
+      ...commonCfg,
+      endpoint: endpoint ?? 'http://s3-endpoint-not-configured',
+    });
+    this.publicClient = new S3Client({
+      ...commonCfg,
+      endpoint: publicEndpoint ?? 'http://s3-endpoint-not-configured',
+    });
+  }
+
+  private readonly ready: boolean;
+
+  private requireReady(): void {
+    if (!this.ready) {
+      throw new Error('S3_ENDPOINT missing (set in .env.prod; see task-012-F)');
+    }
   }
 
   get bucketName(): string {
@@ -90,6 +104,7 @@ export class S3Service {
   }
 
   async presignPut(key: string, contentType: string, contentLength: number): Promise<string> {
+    this.requireReady();
     const cmd = new PutObjectCommand({
       Bucket: this.bucket,
       Key: key,
@@ -100,6 +115,7 @@ export class S3Service {
   }
 
   async presignGet(key: string): Promise<string> {
+    this.requireReady();
     const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.publicClient, cmd, { expiresIn: this.getTtl });
   }
@@ -112,6 +128,7 @@ export class S3Service {
   async headObject(
     key: string,
   ): Promise<{ contentLength: number; contentType: string | undefined } | null> {
+    this.requireReady();
     try {
       const result = await this.internalClient.send(
         new HeadObjectCommand({ Bucket: this.bucket, Key: key }),
@@ -129,6 +146,7 @@ export class S3Service {
   }
 
   async deleteObject(key: string): Promise<void> {
+    this.requireReady();
     try {
       await this.internalClient.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: key }));
     } catch (err) {

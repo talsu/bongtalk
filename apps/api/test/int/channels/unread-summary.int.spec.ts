@@ -1,4 +1,3 @@
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { bearer, type ChIntEnv, ORIGIN, seedWorkspaceWithRoles, setupChIntEnv } from './helpers';
@@ -42,7 +41,6 @@ async function postMessage(
     .post(`/workspaces/${workspaceId}/channels/${channelId}/messages`)
     .set('origin', ORIGIN)
     .set(bearer(token))
-    .set('idempotency-key', randomUUID())
     .send({ content, mentions });
   if (res.status !== 201) throw new Error(`message post failed: ${res.status} ${res.text}`);
 }
