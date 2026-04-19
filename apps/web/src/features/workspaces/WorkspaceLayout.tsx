@@ -12,6 +12,8 @@ import { useAuth } from '../auth/AuthProvider';
 import { ChannelSidebar } from '../channels/ChannelSidebar';
 import { useChannelList } from '../channels/useChannels';
 import { MessagePanel } from '../messages/MessagePanel';
+import { useRealtimeConnection } from '../realtime/useRealtimeConnection';
+import { usePresence } from '../realtime/usePresence';
 
 export function WorkspaceLayout(): JSX.Element {
   const { slug, channelName } = useParams();
@@ -24,6 +26,8 @@ export function WorkspaceLayout(): JSX.Element {
   const { data: wsData } = useWorkspace(wsId);
   const { data: members } = useMembers(wsId);
   const { data: channels } = useChannelList(wsId);
+  useRealtimeConnection();
+  const { onlineUserIds } = usePresence(wsId);
   const activeChannel = useMemo(() => {
     if (!channelName || !channels) return null;
     const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
@@ -170,6 +174,12 @@ export function WorkspaceLayout(): JSX.Element {
                     >
                       {m.role}
                     </span>
+                    <span
+                      data-testid={`presence-${m.user.username}`}
+                      className={`h-2 w-2 rounded-full ${
+                        onlineUserIds.has(m.userId) ? 'bg-emerald-500' : 'bg-slate-300'
+                      }`}
+                    />
                     {canManage && m.role !== 'OWNER' && m.userId !== user?.id && (
                       <select
                         data-testid={`role-select-${m.user.username}`}

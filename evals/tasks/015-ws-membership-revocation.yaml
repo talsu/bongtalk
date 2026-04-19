@@ -1,0 +1,12 @@
+id: 015
+title: Member removal disconnects active sockets instantly
+goal: |
+  Target member has an active WS connection. OWNER calls
+  DELETE /workspaces/:id/members/:uid → outbox dispatcher fires
+  workspace.member.left → MembershipRevocationListener kicks every session
+  for that user across all nodes. After the kick, further posts to any
+  channel in that workspace do not reach the kicked socket.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- ws.membership-revocation
+    expect: exit 0
+max_turns: 20

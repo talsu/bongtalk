@@ -1,11 +1,11 @@
 import 'reflect-metadata';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { IoAdapter } from '@nestjs/platform-socket.io';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { logger } from './common/logging/logger';
+import { RedisIoAdapter } from './realtime/io-adapter';
 
 function corsOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
@@ -31,9 +31,10 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
-  app.useWebSocketAdapter(new IoAdapter(app));
+  const ioAdapter = new RedisIoAdapter(app);
+  await ioAdapter.connectToRedis();
+  app.useWebSocketAdapter(ioAdapter);
 
-  // TODO(task-005): wire @socket.io/redis-adapter for multi-node fanout.
   // TODO(task-009): bootstrap OpenTelemetry SDK with stdout exporter.
 
   const port = Number(process.env.API_PORT ?? 3001);
