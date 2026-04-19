@@ -148,18 +148,31 @@ model Channel {
 }
 
 model Message {
-  id        String    @id @db.Uuid
-  channelId String    @db.Uuid
-  authorId  String    @db.Uuid
-  content   String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id             String    @id @default(uuid()) @db.Uuid
+  channelId      String    @db.Uuid
+  authorId       String    @db.Uuid
+  content        String
+  contentPlain   String
+  mentions       Json      @default("{\"users\":[],\"channels\":[],\"everyone\":false}")
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // client-generated uuid for POST retry dedupe — null when no header was sent.
+  // Uniqueness enforced by a PARTIAL unique index created in raw SQL
+  // (schema-level `@@unique` would index every NULL row too, which we want
+  // to skip since unauthenticated sends never carry a key).
+  idempotencyKey String?   @db.Uuid
 
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author  User    @relation(fields: [authorId], references: [id])
 
-  @@index([channelId, createdAt])
+  // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
+  // row-value comparison WHERE (createdAt, id) < ($1, $2).
+  @@index([channelId, createdAt, id])
+  // includeDeleted=false default path (soft-delete filter).
+  @@index([channelId, deletedAt, createdAt])
+  @@index([authorId])
 }
 
 model Invite {
