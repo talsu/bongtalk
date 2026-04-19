@@ -1,0 +1,11 @@
+id: 017
+title: Metric cardinality stays bounded under realistic load
+goal: |
+  50 mixed requests (messages, lists, 404s, failed logins) produce no metric
+  family exceeding 500 series and the total exposition stays below 1500
+  lines. This guards against the classic label-cardinality regression
+  (e.g. userId accidentally making it into a label).
+dod:
+  - command: pnpm --filter @qufox/api test:int -- cardinality.int
+    expect: exit 0
+max_turns: 15

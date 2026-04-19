@@ -1,0 +1,11 @@
+id: 016
+title: Trace propagates from HTTP through outbox to WS
+goal: |
+  HTTP POST /messages captures the active trace context and stores a
+  traceparent on the OutboxEvent payload. The dispatcher restores the
+  context before emitting, so downstream @OnEvent handlers (WS projection)
+  share the same trace id as the request handler.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- tracing.int
+    expect: exit 0
+max_turns: 20
