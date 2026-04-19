@@ -1,0 +1,66 @@
+name: e2e
+on:
+  push:
+    branches: [main, develop]
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: qufox
+          POSTGRES_PASSWORD: qufox
+          POSTGRES_DB: qufox_e2e
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U qufox -d qufox_e2e"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @qufox/api exec prisma generate
+      - name: Build web
+        run: pnpm --filter @qufox/web build
+      - name: Start api
+        run: |
+          pnpm --filter @qufox/api exec prisma migrate deploy || true
+          (pnpm --filter @qufox/api exec tsx src/main.ts &) && sleep 4
+        env:
+          DATABASE_URL: postgresql://qufox:qufox@localhost:5432/qufox_e2e?schema=public
+          REDIS_URL: redis://localhost:6379
+          API_PORT: 3001
+      - name: Start web (preview)
+        run: (pnpm --filter @qufox/web preview &) && sleep 3
+      - name: Playwright (browsers on host)
+        working-directory: apps/web
+        run: |
+          pnpm exec playwright install --with-deps chromium
+          pnpm exec playwright test
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:5173
+          VITE_API_URL: http://localhost:3001
+      - name: Upload traces
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: |
+            apps/web/test-results/**
+            apps/web/playwright-report/**

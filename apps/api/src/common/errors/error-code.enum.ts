@@ -1,0 +1,15 @@
+export enum ErrorCode {
+  AUTH_INVALID_TOKEN = 'AUTH_INVALID_TOKEN',
+  VALIDATION_FAILED = 'VALIDATION_FAILED',
+  NOT_FOUND = 'NOT_FOUND',
+  RATE_LIMITED = 'RATE_LIMITED',
+  INTERNAL = 'INTERNAL',
+}
+
+export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
+  [ErrorCode.AUTH_INVALID_TOKEN]: 401,
+  [ErrorCode.VALIDATION_FAILED]: 400,
+  [ErrorCode.NOT_FOUND]: 404,
+  [ErrorCode.RATE_LIMITED]: 429,
+  [ErrorCode.INTERNAL]: 500,
+};

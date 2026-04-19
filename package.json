@@ -1,0 +1,72 @@
+{
+  "name": "qufox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "qufox — Discord-like real-time communication platform (monorepo harness)",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": "20.9.0",
+    "pnpm": ">=10.0.0"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "scripts": {
+    "bootstrap": "bash scripts/bootstrap.sh",
+    "dev": "turbo run dev --parallel",
+    "build": "turbo run build",
+    "lint": "turbo run lint",
+    "typecheck": "turbo run typecheck",
+    "format": "prettier --check .",
+    "fix": "prettier --write . && eslint . --fix || true",
+    "test": "turbo run test",
+    "test:quick": "turbo run test -- --changed",
+    "test:unit": "turbo run test",
+    "test:int": "turbo run test:int",
+    "test:e2e": "bash scripts/run-e2e.sh",
+    "test:watch": "turbo run test -- --watch",
+    "verify": "turbo run lint typecheck test",
+    "smoke": "bash scripts/smoke.sh",
+    "eval": "tsx evals/run.ts",
+    "db:up": "docker-compose --profile dev up -d postgres redis",
+    "db:down": "docker-compose --profile dev down",
+    "db:reset": "pnpm --filter @qufox/api db:reset",
+    "db:migrate": "pnpm --filter @qufox/api db:migrate",
+    "db:seed": "pnpm --filter @qufox/api db:seed",
+    "debug:dump": "tsx scripts/debug-dump.ts",
+    "release:notes": "tsx scripts/release-notes.ts",
+    "prepare": "simple-git-hooks || true"
+  },
+  "devDependencies": {
+    "@eslint/js": "9.15.0",
+    "@types/node": "20.11.30",
+    "eslint": "9.15.0",
+    "lint-staged": "15.2.10",
+    "prettier": "3.3.3",
+    "simple-git-hooks": "2.11.1",
+    "tsx": "4.19.2",
+    "turbo": "2.3.3",
+    "typescript": "5.6.3"
+  },
+  "simple-git-hooks": {
+    "pre-commit": "pnpm exec lint-staged",
+    "pre-push": "pnpm verify"
+  },
+  "lint-staged": {
+    "*.{ts,tsx,js,jsx,json,md,yml,yaml}": [
+      "prettier --write"
+    ]
+  },
+  "pnpm": {
+    "overrides": {
+      "express>path-to-regexp": "0.1.13",
+      "cookie": ">=0.7.0",
+      "body-parser": ">=1.20.3",
+      "send": ">=0.19.0",
+      "serve-static": ">=1.16.0",
+      "multer": ">=2.0.2"
+    }
+  }
+}

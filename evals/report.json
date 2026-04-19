@@ -1,0 +1,29 @@
+{
+  "generatedAt": "2026-04-19T05:38:58.928Z",
+  "dryRun": true,
+  "total": 3,
+  "passed": 0,
+  "skipped": 3,
+  "failed": 0,
+  "successRate": 1,
+  "results": [
+    {
+      "id": "001",
+      "title": "Add channel CRUD endpoint",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "002",
+      "title": "Cursor pagination for messages",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "003",
+      "title": "WebSocket reconnect + resume from cursor",
+      "status": "skipped",
+      "reason": "dry-run"
+    }
+  ]
+}

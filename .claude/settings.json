@@ -1,0 +1,65 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings",
+  "permissions": {
+    "allow": [
+      "Bash(pnpm *)",
+      "Bash(node *)",
+      "Bash(npx *)",
+      "Bash(git status*)",
+      "Bash(git diff*)",
+      "Bash(git log*)",
+      "Bash(git add *)",
+      "Bash(git commit *)",
+      "Bash(git branch *)",
+      "Bash(git checkout *)",
+      "Bash(git push origin *)",
+      "Bash(docker-compose *)",
+      "Bash(docker ps*)",
+      "Bash(docker logs *)",
+      "Bash(docker run --rm *)",
+      "Bash(kubectl --context=*staging* *)",
+      "Bash(helm --kube-context=*staging* *)",
+      "Bash(terraform plan*)",
+      "Edit(apps/**)",
+      "Edit(packages/**)",
+      "Edit(scripts/**)",
+      "Edit(evals/**)",
+      "Edit(docs/**)",
+      "Edit(infra/**)",
+      "Edit(.github/**)",
+      "Write(apps/**)",
+      "Write(packages/**)",
+      "Write(scripts/**)",
+      "Write(evals/**)",
+      "Write(docs/**)",
+      "Write(infra/**)",
+      "Write(.github/**)"
+    ],
+    "deny": [
+      "Bash(git push --force*main*)",
+      "Bash(git push origin main --force*)",
+      "Bash(git push -f *main*)",
+      "Bash(kubectl --context=*prod* *)",
+      "Bash(helm --kube-context=*prod* *)",
+      "Bash(terraform apply*prod*)",
+      "Bash(psql *prod*)",
+      "Bash(aws secretsmanager put-secret-value*)",
+      "Bash(rm -rf /*)",
+      "Edit(.env)",
+      "Edit(.env.production)",
+      "Edit(.env.prod*)",
+      "Write(.env)",
+      "Write(.env.production)",
+      "Write(.env.prod*)",
+      "mcp__postgres-prod__*"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [{ "type": "command", "command": ".claude/hooks/guard.sh" }]
+      }
+    ]
+  }
+}

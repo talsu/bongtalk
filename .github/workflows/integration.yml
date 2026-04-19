@@ -1,0 +1,42 @@
+name: integration
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: qufox
+          POSTGRES_PASSWORD: qufox
+          POSTGRES_DB: qufox_int
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd="pg_isready -U qufox -d qufox_int"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+      redis:
+        image: redis:7-alpine
+        ports: ['6379:6379']
+        options: >-
+          --health-cmd="redis-cli ping"
+          --health-interval=5s --health-timeout=3s --health-retries=20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @qufox/api exec prisma generate
+      - run: pnpm test:int
+        env:
+          DATABASE_URL: postgresql://qufox:qufox@localhost:5432/qufox_int?schema=public
+          REDIS_URL: redis://localhost:6379

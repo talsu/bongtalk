@@ -1,0 +1,16 @@
+id: 002
+title: Cursor pagination for messages
+goal: |
+  Add GET /channels/:id/messages?cursor=&limit= with cursor-based
+  pagination (opaque base64 cursor over createdAt + id). Soft-deleted
+  messages excluded by default.
+dod:
+  - command: pnpm verify
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/messages/**
+      - apps/api/test/messages.*
+      - packages/shared-types/src/message*
+max_turns: 35

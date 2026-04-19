@@ -1,0 +1,16 @@
+id: 001
+title: Add channel CRUD endpoint
+goal: |
+  Implement POST/GET/PATCH/DELETE /workspaces/:wsId/channels per
+  docs/tasks/003-channel.md. Must use shared Zod types and wire into
+  the domain exception filter.
+dod:
+  - command: pnpm verify
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/channels/**
+      - apps/api/test/channels.*
+      - packages/shared-types/src/channel*
+max_turns: 40

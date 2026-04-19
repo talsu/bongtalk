@@ -1,0 +1,15 @@
+id: 003
+title: WebSocket reconnect + resume from cursor
+goal: |
+  On socket reconnect, client advertises last-seen cursor; server
+  replays missed messages (bounded by N=200) without duplicates.
+dod:
+  - command: pnpm verify
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/realtime/**
+      - apps/api/test/realtime.*
+      - apps/web/src/lib/socket*
+max_turns: 50

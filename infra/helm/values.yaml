@@ -1,0 +1,29 @@
+image:
+  api:
+    repository: ghcr.io/talsu/qufox-api
+    tag: latest
+    pullPolicy: IfNotPresent
+  web:
+    repository: ghcr.io/talsu/qufox-web
+    tag: latest
+    pullPolicy: IfNotPresent
+
+replicaCount:
+  api: 2
+  web: 2
+
+resources:
+  api:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 1, memory: 1Gi }
+  web:
+    requests: { cpu: 50m, memory: 64Mi }
+    limits: { cpu: 500m, memory: 256Mi }
+
+ingress:
+  enabled: true
+  host: qufox.example.com
+
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info

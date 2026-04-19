@@ -1,0 +1,8 @@
+ingress:
+  host: qufox.example.com
+replicaCount:
+  api: 4
+  web: 4
+env:
+  NODE_ENV: production
+  LOG_LEVEL: info

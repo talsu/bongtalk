@@ -1,0 +1,8 @@
+ingress:
+  host: staging.qufox.example.com
+replicaCount:
+  api: 1
+  web: 1
+env:
+  NODE_ENV: staging
+  LOG_LEVEL: debug

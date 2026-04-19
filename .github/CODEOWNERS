@@ -1,0 +1,11 @@
+# Default
+*                               @talsu
+
+# Infra & deploy
+/infra/                         @talsu
+/.github/workflows/             @talsu
+
+# Agent harness
+/.claude/                       @talsu
+/CLAUDE.md                      @talsu
+/evals/                         @talsu

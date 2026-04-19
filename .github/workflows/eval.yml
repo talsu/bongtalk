@@ -1,0 +1,30 @@
+name: eval
+on:
+  schedule:
+    - cron: '0 3 * * *' # nightly UTC 03:00
+  pull_request:
+    types: [opened, labeled, synchronize]
+    paths:
+      - 'evals/**'
+      - '.claude/**'
+  workflow_dispatch:
+
+jobs:
+  eval-dry-run:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Eval dry-run
+        run: pnpm eval -- --dry-run
+      - name: Enforce success rate
+        run: node -e "const r=require('./evals/report.json');if((r.successRate||0)<0.9){console.error('eval success rate < 90%');process.exit(1)}"
+        continue-on-error: true
