@@ -21,12 +21,12 @@ export class ReplayBufferService {
     return Number(process.env.WS_REPLAY_BUFFER_SIZE ?? 1000);
   }
 
-  private key(scope: 'channel' | 'workspace', id: string): string {
+  private key(scope: 'channel' | 'workspace' | 'user', id: string): string {
     return `replay:${scope}:${id}`;
   }
 
   async append(
-    scope: 'channel' | 'workspace',
+    scope: 'channel' | 'workspace' | 'user',
     id: string,
     event: { id: string; type: string; occurredAt: string; payload: unknown },
   ): Promise<void> {
@@ -59,7 +59,7 @@ export class ReplayBufferService {
    * buffer (rolled off by MAXLEN) — caller must fall back to REST.
    */
   async rangeAfter(
-    scope: 'channel' | 'workspace',
+    scope: 'channel' | 'workspace' | 'user',
     id: string,
     lastEventId: string | null,
   ): Promise<{

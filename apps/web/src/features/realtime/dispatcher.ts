@@ -3,16 +3,77 @@ import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import type { Socket } from 'socket.io-client';
 import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
+import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentions';
+import { useNotifications } from '../../stores/notification-store';
 
 export interface DispatcherContext {
   viewerId: () => string | null;
   activeChannelId: () => string | null;
+  /**
+   * Task-011-B: resolve a mention payload to a UX-friendly URL the
+   * toast "jump" action can navigate to. The dispatcher calls this
+   * through `onActivate`. Null return = no navigation (e.g. we don't
+   * know the workspace slug yet).
+   */
+  resolveMentionUrl?: (env: {
+    workspaceId: string;
+    channelId: string;
+    messageId: string;
+  }) => string | null;
+  navigate?: (url: string) => void;
 }
 
 const DEFAULT_CTX: DispatcherContext = {
   viewerId: () => null,
   activeChannelId: () => null,
 };
+
+/**
+ * Task-011-B mention toast throttle. Per-viewer token bucket:
+ *   - capacity 5 toasts
+ *   - refill 5 tokens / second
+ * Excess mentions do NOT drop — they collapse into a single
+ * "N more mentions" toast that re-issues on the next tick.
+ */
+class MentionThrottle {
+  private tokens = 5;
+  private readonly capacity = 5;
+  private readonly refillPerSec = 5;
+  private lastRefill = Date.now();
+  private collapsed = 0;
+  private collapsedTimer: ReturnType<typeof setTimeout> | null = null;
+
+  private refill(): void {
+    const now = Date.now();
+    const elapsed = (now - this.lastRefill) / 1000;
+    if (elapsed <= 0) return;
+    const add = elapsed * this.refillPerSec;
+    this.tokens = Math.min(this.capacity, this.tokens + add);
+    this.lastRefill = now;
+  }
+
+  /** Returns true if the caller may emit a real toast NOW. */
+  tryConsume(): boolean {
+    this.refill();
+    if (this.tokens >= 1) {
+      this.tokens -= 1;
+      return true;
+    }
+    return false;
+  }
+
+  /** Register an over-budget mention; caller arranges the collapsed toast. */
+  collapseOne(emit: (count: number) => void): void {
+    this.collapsed += 1;
+    if (this.collapsedTimer) return;
+    this.collapsedTimer = setTimeout(() => {
+      const total = this.collapsed;
+      this.collapsed = 0;
+      this.collapsedTimer = null;
+      if (total > 0) emit(total);
+    }, 1000);
+  }
+}
 
 /**
  * Centralized realtime → cache mapping. Every server event flows through
@@ -29,6 +90,7 @@ export function installRealtimeDispatcher(
   ctx: DispatcherContext = DEFAULT_CTX,
 ): () => void {
   const handlers: Array<{ event: string; handler: (e: unknown) => void }> = [];
+  const mentionThrottle = new MentionThrottle();
 
   const on = <T>(event: string, handler: (e: T) => void): void => {
     const typed = handler as (e: unknown) => void;
@@ -202,6 +264,72 @@ export function installRealtimeDispatcher(
     }
   });
 
+  // ---------- Mentions (task-011-B) ----------
+  on<{
+    id?: string;
+    targetUserId: string;
+    workspaceId: string;
+    channelId: string;
+    messageId: string;
+    actorId: string;
+    snippet: string;
+    createdAt: string;
+    everyone: boolean;
+  }>('mention.received', (env) => {
+    const viewer = ctx.viewerId();
+    if (!viewer || env.targetUserId !== viewer) return;
+    // Skip when the user is already looking at the channel — no
+    // need to toast yourself about a message you can see.
+    if (ctx.activeChannelId() === env.channelId) return;
+
+    // Cache update: bump unreadCount, prepend to recent (cap 20).
+    qc.setQueryData<MentionInboxResponse>(['me', 'mentions'], (old) => {
+      const entry: MentionSummary = {
+        messageId: env.messageId,
+        channelId: env.channelId,
+        workspaceId: env.workspaceId,
+        authorId: env.actorId,
+        snippet: env.snippet,
+        createdAt: env.createdAt,
+        everyone: env.everyone,
+      };
+      if (!old) return { unreadCount: 1, recent: [entry] };
+      if (old.recent.some((m) => m.messageId === env.messageId)) return old;
+      return {
+        unreadCount: old.unreadCount + 1,
+        recent: [entry, ...old.recent].slice(0, 20),
+      };
+    });
+
+    const push = useNotifications.getState().push;
+    const url = ctx.resolveMentionUrl?.({
+      workspaceId: env.workspaceId,
+      channelId: env.channelId,
+      messageId: env.messageId,
+    });
+    const navigate = ctx.navigate;
+    const onActivate = url && navigate ? () => navigate(url) : undefined;
+
+    if (mentionThrottle.tryConsume()) {
+      push({
+        variant: 'mention',
+        title: env.everyone ? '@everyone mentioned' : 'You were mentioned',
+        body: env.snippet,
+        ttlMs: 6000,
+        onActivate,
+      });
+    } else {
+      mentionThrottle.collapseOne((count) => {
+        push({
+          variant: 'mention',
+          title: `${count} more mention${count === 1 ? '' : 's'}`,
+          body: 'Open the mentions inbox to see them all.',
+          ttlMs: 8000,
+        });
+      });
+    }
+  });
+
   return () => {
     for (const { event, handler } of handlers) socket.off(event, handler);
   };
@@ -223,4 +351,5 @@ export const DISPATCHED_EVENTS = [
   'workspace.member.removed',
   'workspace.role.changed',
   'presence.updated',
+  'mention.received',
 ] as const;

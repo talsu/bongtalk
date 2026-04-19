@@ -1,0 +1,91 @@
+# Test-stack compose for `pnpm test:e2e`. Spins a lightweight copy of
+# the production topology (postgres + redis + api + web) on an isolated
+# network so Playwright can drive it end-to-end. Used by
+# `.github/workflows/e2e.yml`; local runs are fine too via
+# `docker compose -f docker-compose.test.yml up -d --build`.
+
+services:
+  test-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: qufox
+      POSTGRES_PASSWORD: qufox
+      POSTGRES_DB: qufox_e2e
+    ports: ['5432:5432']
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U qufox -d qufox_e2e']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  test-redis:
+    image: redis:7-alpine
+    ports: ['6379:6379']
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  test-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: qufox/api:test
+    environment:
+      NODE_ENV: test
+      API_PORT: '3001'
+      DATABASE_URL: postgresql://qufox:qufox@test-postgres:5432/qufox_e2e?schema=public
+      REDIS_URL: redis://test-redis:6379
+      CORS_ORIGINS: http://localhost:5173,http://localhost:45173
+      JWT_ACCESS_SECRET: e2e-test-secret-at-least-32-characters-long-xxxx
+      JWT_ISSUER: qufox
+      JWT_AUDIENCE: qufox-web
+      ACCESS_TOKEN_TTL: '900'
+      REFRESH_TOKEN_TTL: '604800'
+      ARGON2_MEMORY_KIB: '1024'
+      ARGON2_TIME_COST: '1'
+      ARGON2_PARALLELISM: '1'
+      INVITE_CODE_BYTES: '16'
+      WORKSPACE_SOFT_DELETE_GRACE_DAYS: '30'
+      OUTBOX_DISPATCH_INTERVAL_MS: '250'
+      OUTBOX_BATCH_SIZE: '50'
+      OUTBOX_MAX_ATTEMPTS: '10'
+      LOG_LEVEL: info
+      OTEL_EXPORTER: stdout
+      SEED_NAMESPACE: 00000000-0000-0000-0000-000000000000
+      WEB_URL: http://localhost:5173
+    ports: ['43001:3001']
+    depends_on:
+      test-postgres:
+        condition: service_healthy
+      test-redis:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:3001/readyz || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 30
+
+  test-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # task-011 reviewer MED-5 fix: VITE_API_URL is baked at build
+        # time; the default `/api` expects a prod nginx proxy. For the
+        # e2e stack the browser hits the host-exposed test-api port
+        # directly since Playwright runs on the GHA runner.
+        VITE_API_URL: http://localhost:43001
+    image: qufox/web:test
+    environment:
+      NODE_ENV: test
+    ports: ['45173:80']
+    depends_on:
+      test-api:
+        condition: service_healthy
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -q --spider http://localhost:80/ || exit 1']
+      interval: 5s
+      timeout: 3s
+      retries: 20

@@ -52,6 +52,40 @@ export class OutboxToWsSubscriber {
     await this.emitAndBuffer('channel', chId, env);
   }
 
+  /**
+   * Task-011-B mention.received. Routes to the target user's private
+   * room (same pattern as membership-revocation events). The outbox
+   * emits one such event per mentioned user at write time, so this
+   * handler receives a single envelope per (message, user) pair.
+   * Replay scope is 'user' — a reconnecting user can catch up on
+   * mentions that landed while they were offline.
+   */
+  @OnEvent('mention.**')
+  async onMentionEvent(env: WsEnvelope): Promise<void> {
+    const targetUserId = pickTargetUserId(env);
+    if (!targetUserId || !this.io) return;
+    try {
+      await this.replay.append('user', targetUserId, {
+        id: env.id,
+        type: env.type,
+        occurredAt: env.occurredAt,
+        payload: env,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[realtime] replay append failed scope=user id=${targetUserId} ev=${env.id} err=${String(err).slice(0, 200)}`,
+      );
+    }
+    await withSpan(
+      'ws.emit',
+      { 'ws.event.type': env.type, 'ws.room': rooms.user(targetUserId) },
+      async () => {
+        this.io!.to(rooms.user(targetUserId)).emit(env.type, env);
+      },
+    );
+    this.metrics?.wsEventsEmittedTotal.labels(env.type).inc();
+  }
+
   @OnEvent('channel.**')
   async onChannelEvent(env: WsEnvelope): Promise<void> {
     // channel.created is new to the receiver — they might not be in the

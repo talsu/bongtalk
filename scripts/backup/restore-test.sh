@@ -67,8 +67,18 @@ docker exec -e PGPASSWORD="$RESTORE_PASSWORD" "$RESTORE_CONTAINER" \
 log "SELECT COUNT(*) FROM \"User\""
 count=$(docker exec -e PGPASSWORD="$RESTORE_PASSWORD" "$RESTORE_CONTAINER" \
   psql -U qufox -d qufox -At -c 'SELECT COUNT(*) FROM "User"')
-if [[ -z "$count" || "$count" == "0" ]]; then
-  log "FAIL: User table has $count rows in restored dump" >&2
+# Task-011-C MED-3: threshold is env-configurable. The previous hard
+# `>= 1` false-positively failed on a freshly-initialised DB where the
+# seed user count was legitimately 0. Operators bump this number as
+# the user base grows so "backup that restores with fewer users than
+# expected" surfaces as a real alarm.
+MIN_RESTORE_USER_COUNT="${MIN_RESTORE_USER_COUNT:-1}"
+if [[ -z "$count" ]]; then
+  log "FAIL: User table count query returned empty" >&2
   exit 1
 fi
-log "ok users=$count dump=$(basename "$DUMP")"
+if (( count < MIN_RESTORE_USER_COUNT )); then
+  log "FAIL: User table has $count rows; expected >= $MIN_RESTORE_USER_COUNT (set via MIN_RESTORE_USER_COUNT)" >&2
+  exit 1
+fi
+log "ok users=$count (>= $MIN_RESTORE_USER_COUNT) dump=$(basename "$DUMP")"

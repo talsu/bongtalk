@@ -1,0 +1,15 @@
+id: 025
+title: Switchover scripts dry-run without side-effects
+goal: |
+  Both `scripts/setup/init-env-deploy.sh --dry-run` and
+  `scripts/setup/apply-nginx-diff.sh --dry-run` exit 0 without touching
+  disk (`.env.deploy` not created; nginx.conf not rewritten). Every
+  switchover + deploy + backup shell script parses under `bash -n`.
+  Covers the task-011-A guarantee that the operator can rehearse the
+  switchover without moving live bits.
+dod:
+  - command: bash scripts/setup/init-env-deploy.sh --dry-run
+    expect: exit 0
+  - command: bash scripts/deploy/test-syntax.sh
+    expect: exit 0
+max_turns: 10

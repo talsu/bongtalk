@@ -19,6 +19,12 @@ COPY tsconfig.base.json ./tsconfig.base.json
 COPY turbo.json ./turbo.json
 COPY packages ./packages
 COPY apps/web ./apps/web
+# task-011 reviewer MED-5: make VITE_API_URL a build arg so the e2e
+# compose stack can point the baked bundle at the test-api container's
+# host-exposed port (http://localhost:43001) instead of the prod
+# default. ARG is passed via `docker compose build` args.
+ARG VITE_API_URL=/api
+ENV VITE_API_URL=${VITE_API_URL}
 RUN pnpm --filter @qufox/shared-types build \
  && pnpm --filter @qufox/web build
 

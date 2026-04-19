@@ -16,6 +16,18 @@ import {
   type MessageDeletedPayload,
   type MessageUpdatedPayload,
 } from './events/message-events';
+import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
+
+/**
+ * First ~140 chars of a message, whitespace-collapsed, for the mention
+ * toast snippet. Full content lives on the Message row; the snippet
+ * avoids double-storing state while keeping the notification
+ * self-contained if the toast arrives before `GET /me/mentions`.
+ */
+function buildSnippet(content: string): string {
+  const collapsed = content.replace(/\s+/g, ' ').trim();
+  return collapsed.length > 140 ? collapsed.slice(0, 140) + '…' : collapsed;
+}
 
 type MessageRow = {
   id: string;
@@ -136,6 +148,34 @@ export class MessagesService {
           eventType: MESSAGE_CREATED,
           payload,
         });
+
+        // Task-011-B: one mention.received outbox event per unique
+        // mentioned user. Deduped here (extractMentions can return the
+        // same id twice if a user is named multiple times in one
+        // message). Author is NEVER notified for self-mentions.
+        const snippet = buildSnippet(args.content);
+        const seen = new Set<string>();
+        for (const uid of mentions.users) {
+          if (!uid || uid === args.authorId) continue;
+          if (seen.has(uid)) continue;
+          seen.add(uid);
+          const mentionPayload: MentionReceivedPayload = {
+            targetUserId: uid,
+            workspaceId: args.workspaceId,
+            channelId: args.channelId,
+            messageId: created.id,
+            actorId: args.authorId,
+            snippet,
+            createdAt: created.createdAt.toISOString(),
+            everyone: mentions.everyone === true,
+          };
+          await this.outbox.record(tx, {
+            aggregateType: 'UserMention',
+            aggregateId: uid,
+            eventType: MENTION_RECEIVED,
+            payload: mentionPayload,
+          });
+        }
         return created as MessageRow;
       });
       this.metrics?.messagesSentTotal.inc();
