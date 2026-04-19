@@ -108,6 +108,18 @@ export class PermissionMatrix {
     const channelAllow = applicable.reduce((m, o) => m | (o.allowMask ?? 0), 0);
     const channelDeny = applicable.reduce((m, o) => m | (o.denyMask ?? 0), 0);
 
+    // Task-012 reviewer MED-6 fix: OWNER always has access to every
+    // channel in their workspace, private or not. The three enforcement
+    // sites (listByWorkspace, ChannelAccessGuard, ChannelAccessByIdGuard)
+    // disagreed on this before; matrix-level bypass keeps them
+    // consistent with one rule. Covers cases where the OWNER has no
+    // creator-override row (transferOwnership, DB restore, etc.). DENY
+    // still applies — an explicit USER-level self-deny from the OWNER
+    // is a deliberate administrative action and should stick.
+    if (input.role === 'OWNER') {
+      return ROLE_BASELINE.OWNER & ~channelDeny;
+    }
+
     const hasExplicitAllow = applicable.some((o) => (o.allowMask ?? 0) !== 0);
     const channelOk = input.isPrivate ? hasExplicitAllow : true;
 

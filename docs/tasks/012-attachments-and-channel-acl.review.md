@@ -685,3 +685,119 @@ S3 prod` returns zero lines. The "NAS-only" callout at the top of
   POST `/:chid/members`. (Finding #14.)
 - **TODO(task-012-follow-15)**: extend switchover-checklist.md for
   task-012-F infra bring-up. (Finding #15.)
+
+## Re-review (post-fix 9c73631)
+
+- Model: Opus 4.7 (1M context)
+- Transcript: ~18k prompt / ~1.2k output
+
+### Verdict: request-changes
+
+Seven of nine items are closed cleanly. HIGH-2 is NOT fixed — the exact
+broken pattern from the original finding is still in place verbatim
+(the `mc()` wrapper runs in a throwaway container that never sees the
+policy JSON, and `|| true` swallows the failure). MED-6 is closed in
+practice via a clever path (HIGH-1's auto-seeded creator override) but
+the matrix itself never got the spec'd OWNER bypass and no new spec
+cases were added, so non-creator OWNERs of a private channel (e.g.
+after `transferOwnership` or DB restore) still return `effective = 0`
+from the matrix. HIGH-2 is a BLOCKER — shipping with it means the
+qufox-api IAM user has no policy attached and every presign PUT
+returns AccessDenied in prod, which is exactly the scenario the
+original review called out. No new regressions detected elsewhere.
+
+### Per-finding status
+
+1. **HIGH-1 isPrivate** — ✅
+   `packages/shared-types/src/channel.ts:25` adds
+   `isPrivate: z.boolean().optional().default(false)`, export uses
+   `z.input<...>` at :30 keeping the field optional for legacy
+   callers, `channels.service.ts:156` threads it into
+   `prisma.channel.create`, and :165-186 seed a USER-principal
+   override with `allowMask=0xff` for the creator. `UpdateChannel`
+   schema also gains `isPrivate` at :37.
+2. **HIGH-2 init-minio** — ❌
+   `scripts/setup/init-minio.sh:132-138` is the SAME broken shape
+   from the original review: `docker cp` into `qufox-minio`, then
+   `mc admin policy create … /tmp/qufox-api-policy.json || true`
+   from a throwaway mc container that never saw the file. No
+   `mc_with_policy()` volume-mount wrapper, no `mc admin policy info`
+   idempotency check, `|| true` still swallows the error. The
+   acceptance criteria in the prompt ("uses `mc_with_policy()` that
+   volume-mounts the host policy JSON") is unmet. BLOCKER.
+3. **HIGH-3 presign endpoint** — ✅
+   `s3.service.ts:27-29,46,63-64` splits `internalClient` /
+   `publicClient`. `presignPut`/`presignGet` use `publicClient`
+   (:99, :104); `headObject`/`deleteObject` use `internalClient`
+   (:116, :133). `.env.prod.example:33-43` documents both endpoints
+   and the fall-through behavior. Fallback to `S3_ENDPOINT` when
+   `S3_PUBLIC_ENDPOINT` unset keeps dev single-origin working.
+4. **HIGH-4 apply-nginx-diff --attachments** — ✅
+   `apply-nginx-diff.sh:36,57-84` adds a second mode that prints the
+   `location /attachments/` block, idempotency via
+   `grep -qE 'location[[:space:]]+/attachments/'` on the target conf
+   (:73), does NOT modify `nginx.conf`, and prints the manual paste
+   - verification steps. The deploy.qufox.com path at :87+ is
+     unchanged.
+5. **MED-5 orphan-gc atomicity** — ✅
+   `attachment-orphan-gc.sh:78-84` is now an explicit
+   `if aws … ; then psql … ; else log "(warn) …"; fi`. DB row stays
+   when S3 delete fails. Matches the stated atomicity guarantee.
+6. **MED-6 OWNER private-channel access** — ⚠
+   The fix took option 2 (auto-seed USER override on create) from the
+   original review, which works for the happy path. But the matrix
+   at `permissions.ts:99-116` has NO `if (input.role === 'OWNER')`
+   bypass, and `permissions.spec.ts` has NO "OWNER can access a
+   private channel with no overrides" test case (contra the prompt's
+   "Two new spec cases" expectation). Non-creator OWNERs created via
+   `transferOwnership` or manual DB restore would still get
+   `effective=0` on channels whose creator-override was for the
+   previous OWNER. Works for MVP, time-bomb for later. Follow-up.
+7. **MED-7 channel.permission.changed outbox** — ✅
+   `channels.service.ts:372-405` wraps the upsert in
+   `prisma.$transaction` and calls
+   `outbox.record(tx, { eventType: 'channel.permission.changed', … })`
+   with payload carrying workspaceId/channelId/targetUserId/allow/
+   deny/effectiveMask. Grep confirms the event type is now emitted.
+   Dispatcher-side subscriber is not in this diff — that ships when
+   the realtime-refresh piece lands; at least the outbox event exists.
+8. **MED-8 finalize ACL** — ✅
+   `attachments.controller.ts:63-87` now loads the attachment +
+   channel and calls `channelAccess.requireUpload(channel, user.id)`
+   before `attachments.finalize`. Two new `DomainError`s for missing
+   attachment + channel-gone states. Matches download's
+   recompute-on-every-call policy.
+9. **LOW-12 orphan-gc dry-run without env** — ✅
+   `attachment-orphan-gc.sh:35-39` short-circuits `--dry-run` when
+   any of DATABASE*URL / S3*\* is unset, logs
+   `"--dry-run without DB / S3 env — would list candidates here"`,
+   exits 0. The `:?` checks at :41-45 now run only when we would
+   actually hit the DB.
+
+### New issues (if any)
+
+- None beyond the two above. The MED-6 partial-fix is a regression
+  risk but not introduced by this commit — it's the same matrix
+  shape as before, and the new creator-override path covers today's
+  code paths. The `channels.service.ts:406` `void effective;` is
+  cosmetically odd (destructured-but-unused to please no-unused)
+  but harmless.
+- Note: reviewer MED-9 (test-minio in docker-compose.test.yml) was
+  in the original review but is not in the prompt's 9-item scope,
+  and the fix commit does not touch it. Still open.
+
+### Merge recommendation
+
+request-changes. HIGH-2 (BLOCKER) must be fixed before merge: the
+policy install needs to actually run. Either (a) add the
+`mc_with_policy()` wrapper that `-v` mounts the host policy JSON
+into the mc container, drop `|| true` on the create step, and gate
+with `mc admin policy info` for idempotency; or (b) pipe via stdin
+if this mc release supports it. Without this, the first presign PUT
+in prod returns AccessDenied — the exact failure mode the original
+review flagged.
+
+MED-6 can ride a `task-012-follow-6` (add OWNER bypass to
+`PermissionMatrix.effective` + spec cases pinning non-creator OWNER
+access) — not a merge blocker given the creator-override path
+covers current callers.

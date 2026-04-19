@@ -130,11 +130,34 @@ else
 fi
 
 log "attach inline policy for $APP_USER → $BUCKET"
+# Task-012 reviewer HIGH-2 fix: the mc container is a throwaway
+# sibling of qufox-minio, NOT the server itself. `docker cp` into
+# qufox-minio doesn't help — mc needs the file visible INSIDE ITS OWN
+# container. Mount the host-local tempfile read-only at /tmp/policy.json
+# and point mc at that path. The previous version swallowed both the
+# create and attach failures with `|| true` so the script printed
+# "ok" while the IAM user ended up with no policy attached →
+# AccessDenied on every subsequent S3 call.
 TMP_POLICY="/tmp/qufox-minio-policy-$$.json"
 printf '%s\n' "$POLICY_JSON" > "$TMP_POLICY"
-docker cp "$TMP_POLICY" qufox-minio:/tmp/qufox-api-policy.json
-mc admin policy create qufox qufox-api-policy /tmp/qufox-api-policy.json || true
-mc admin policy attach qufox qufox-api-policy --user "$APP_USER" 2>/dev/null || true
+chmod 0644 "$TMP_POLICY"
+mc_with_policy() {
+  docker run --rm --network internal \
+    -e MC_HOST_qufox="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@qufox-minio:9000" \
+    -v "$TMP_POLICY:/tmp/policy.json:ro" \
+    minio/mc:RELEASE.2024-09-09T16-17-43Z "$@"
+}
+# Idempotent via an explicit info check rather than the failure-
+# swallowing `|| true` pattern the reviewer flagged.
+if mc admin policy info qufox qufox-api-policy >/dev/null 2>&1; then
+  log "  policy qufox-api-policy already exists — skipping create"
+else
+  mc_with_policy admin policy create qufox qufox-api-policy /tmp/policy.json
+fi
+# `attach` is natively idempotent; the 2>/dev/null keeps the "already
+# attached" message quiet on re-runs.
+mc admin policy attach qufox qufox-api-policy --user "$APP_USER" 2>/dev/null || \
+  log "  policy already attached to $APP_USER (or attach no-op)"
 rm -f "$TMP_POLICY"
 
 log "ok — MinIO ready"

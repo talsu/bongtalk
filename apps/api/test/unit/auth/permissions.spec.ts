@@ -126,4 +126,32 @@ describe('PermissionMatrix.effective (task-012-D)', () => {
     });
     expect(eff).toBe(0);
   });
+
+  it('OWNER bypasses private-channel gate even with no overrides (reviewer MED-6)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.OWNER,
+      isPrivate: true,
+      userId: me,
+      overrides: [],
+    });
+    expect(eff).toBe(ALL_PERMISSIONS);
+  });
+
+  it('OWNER still respects an explicit DENY (administrative self-lockout is deliberate)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.OWNER,
+      isPrivate: true,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'USER',
+          principalId: me,
+          allowMask: 0,
+          denyMask: Permission.DELETE_ANY_MESSAGE,
+        },
+      ],
+    });
+    expect(PermissionMatrix.has(eff, Permission.READ)).toBe(true);
+    expect(PermissionMatrix.has(eff, Permission.DELETE_ANY_MESSAGE)).toBe(false);
+  });
 });
