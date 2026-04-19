@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-19T05:38:58.928Z",
+  "generatedAt": "2026-04-19T07:18:57.094Z",
   "dryRun": true,
-  "total": 3,
+  "total": 4,
   "passed": 0,
-  "skipped": 3,
+  "skipped": 4,
   "failed": 0,
   "successRate": 1,
   "results": [
@@ -22,6 +22,12 @@
     {
       "id": "003",
       "title": "WebSocket reconnect + resume from cursor",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "004",
+      "title": "Detect refresh token reuse and revoke family",
       "status": "skipped",
       "reason": "dry-run"
     }
