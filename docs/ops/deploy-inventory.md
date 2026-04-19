@@ -64,10 +64,21 @@ the project.
 
 ## Backup target
 
-`/volume1/backups/qufox/` — `/volume1` has 1.6 TB free, `/volume2` (where
-all qufox containers live) has ~120 GB. Keeping backups on a different
-volume is also a cheap defence against single-volume filesystem
-corruption.
+`/volume3/qufox-data/backups/qufox/` — `/volume3` is the large disk
+(7.0 TB, ~988 GB free as of 2026-04-20). `/volume2` (where all qufox
+containers live) is smaller and kept for code + images only. Backups
+and application state (MinIO object store, logs, etc.) co-locate
+under `/volume3/qufox-data/` so there is a single root for every
+stateful thing qufox owns. Volume-level RAID/SHR covers the
+"different-volume" defense that the earlier `/volume1` design gave
+us at beta scale; true off-site copy is a separate ops task.
+
+> **Migrated from `/volume1/backups/qufox` in task-012-A.** Existing
+> installations should `rsync -a --info=progress2 /volume1/backups/qufox/
+/volume3/qufox-data/backups/qufox/` once, then remove the old tree
+> by hand. The `qufox-backup` compose mount default was updated in
+> the same task so a fresh `docker compose up -d` picks up the new
+> path without a config edit.
 
 ## What stays manual after task-009
 

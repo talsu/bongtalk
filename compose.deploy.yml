@@ -68,12 +68,32 @@ services:
       # scope for the cron-invoked shell scripts.
       BACKUP_DIR: /backups
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for backup access}
+      # task-012-F MinIO backup schedule. Every 4h matches the SLA:
+      # "data is at most 4h stale" per the task contract.
+      BACKUP_CRON_MINIO: ${BACKUP_CRON_MINIO:-0 */4 * * *}
+      RESTORE_TEST_CRON_MINIO: ${RESTORE_TEST_CRON_MINIO:-15 4 * * 0}
+      # task-012-G orphan GC: nightly at 04:30 UTC.
+      ORPHAN_GC_CRON: ${ORPHAN_GC_CRON:-30 4 * * *}
+      # API credentials for the orphan GC script (same S3_* env the
+      # api uses to presign; mirrored from .env.prod via the env_file
+      # at bring-up).
+      S3_ENDPOINT: ${S3_ENDPOINT:-http://qufox-minio:9000}
+      S3_BUCKET: ${S3_BUCKET:-qufox-attachments}
+      S3_REGION: ${S3_REGION:-us-east-1}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-qufox-api}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY via scripts/setup/init-minio.sh}
+      DATABASE_URL: postgresql://qufox:${POSTGRES_PASSWORD}@qufox-postgres-prod:5432/qufox?schema=public
     volumes:
-      - ${BACKUP_DIR:-/volume1/backups/qufox}:/backups
+      - ${BACKUP_DIR:-/volume3/qufox-data/backups/qufox}:/backups
       # Postgres data dir — read-only, just for consistency spot-checks
       # (not used by db-backup.sh which goes through the network).
       - qufox-prod-pgdata:/pgdata:ro
-      # Docker socket so restore-test.sh can spin an ephemeral postgres.
+      # task-012-F: MinIO data dir, read-only, so minio-backup.sh can
+      # rsync --link-dest straight off the disk without going through
+      # the network. Backups land under $BACKUP_DIR/minio/<YYYY-MM-DDTHH>/.
+      - ${MINIO_DATA_DIR:-/volume3/qufox-data/minio}:/minio-data:ro
+      # Docker socket so restore-test.sh can spin an ephemeral postgres
+      # (+ minio-restore-test.sh an ephemeral minio).
       - /var/run/docker.sock:/var/run/docker.sock
     networks: [internal]
 

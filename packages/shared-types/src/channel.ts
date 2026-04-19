@@ -18,13 +18,23 @@ export const CreateChannelRequestSchema = z.object({
   type: ChannelTypeSchema.default('TEXT'),
   topic: z.string().max(1024).optional(),
   categoryId: z.string().uuid().nullable().optional(),
+  // Task-012-D reviewer HIGH-1 fix: without this field, `zod.parse`
+  // strips `isPrivate` silently and private channels are only
+  // creatable via direct SQL. The default matches the Prisma default
+  // so pre-012 clients keep getting public channels.
+  isPrivate: z.boolean().optional().default(false),
 });
-export type CreateChannelRequest = z.infer<typeof CreateChannelRequestSchema>;
+// `z.input` (not `z.infer`) keeps `isPrivate` OPTIONAL in the request
+// type so existing callers that never set it continue to typecheck.
+// Parsed output type (post-default) has `isPrivate: boolean`.
+export type CreateChannelRequest = z.input<typeof CreateChannelRequestSchema>;
 
 export const UpdateChannelRequestSchema = z.object({
   name: ChannelNameSchema.optional(),
   topic: z.string().max(1024).nullable().optional(),
   categoryId: z.string().uuid().nullable().optional(),
+  // OWNER-only flip of privacy; enforced in ChannelsService.update.
+  isPrivate: z.boolean().optional(),
 });
 export type UpdateChannelRequest = z.infer<typeof UpdateChannelRequestSchema>;
 

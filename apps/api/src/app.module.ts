@@ -14,6 +14,8 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
 import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
 import { MeModule } from './me/me.module';
+import { AttachmentsModule } from './attachments/attachments.module';
+import { StorageModule } from './storage/storage.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 
@@ -33,6 +35,8 @@ import { ObservabilityModule } from './observability/observability.module';
     ChannelsModule,
     MessagesModule,
     MeModule,
+    StorageModule,
+    AttachmentsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],
