@@ -34,19 +34,10 @@ describe('PasswordService', () => {
     }
   });
 
-  it('rejects low-entropy password (zxcvbn score<3)', () => {
+  it('accepts a password meeting length + 3-class rule', () => {
     const svc = new PasswordService();
-    // classes ok (upper/lower/digit) but common + low entropy
-    try {
-      svc.validateStrength('Password12');
-      throw new Error('should have thrown');
-    } catch (e) {
-      expect((e as DomainError).code).toBe(ErrorCode.AUTH_WEAK_PASSWORD);
-    }
-  });
-
-  it('accepts a strong password', () => {
-    const svc = new PasswordService();
+    // 8 chars, 4 classes — reason-based rules pass even when zxcvbn would score low.
+    expect(() => svc.validateStrength('Hjkim12$')).not.toThrow();
     expect(() => svc.validateStrength('Quanta-Beetle-Nebula-42!')).not.toThrow();
   });
 

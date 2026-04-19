@@ -1,6 +1,5 @@
 import { Injectable } from '@nestjs/common';
 import { hash, verify } from '@node-rs/argon2';
-import zxcvbn from 'zxcvbn';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 
@@ -48,7 +47,7 @@ export class PasswordService {
     }
   }
 
-  validateStrength(plain: string, email?: string, username?: string): void {
+  validateStrength(plain: string, _email?: string, _username?: string): void {
     if (plain.length < 8) {
       throw new DomainError(ErrorCode.AUTH_WEAK_PASSWORD, 'password must be at least 8 characters');
     }
@@ -63,10 +62,6 @@ export class PasswordService {
         ErrorCode.AUTH_WEAK_PASSWORD,
         'password must contain at least 3 of: lower, upper, digit, symbol',
       );
-    }
-    const result = zxcvbn(plain, [email ?? '', username ?? ''].filter(Boolean));
-    if (result.score < 3) {
-      throw new DomainError(ErrorCode.AUTH_WEAK_PASSWORD, 'password is too weak');
     }
   }
 }
