@@ -1,10 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { MessageMentions } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+import { MetricsService } from '../observability/metrics/metrics.service';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 import { extractMentions, normalizeContent } from './mentions/mention-extractor';
 import {
@@ -57,6 +58,7 @@ export class MessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   toDto(row: MessageRow): MessageDto {
@@ -136,6 +138,7 @@ export class MessagesService {
         });
         return created as MessageRow;
       });
+      this.metrics?.messagesSentTotal.inc();
       return { message: row, replayed: false };
     } catch (e) {
       // P2002 = unique violation. With null-safe partial index this only fires
@@ -159,6 +162,7 @@ export class MessagesService {
             'idempotency key already used with different content',
           );
         }
+        this.metrics?.messagesSentIdempotentReplayedTotal.inc();
         return { message: existing as MessageRow, replayed: true };
       }
       throw e;
