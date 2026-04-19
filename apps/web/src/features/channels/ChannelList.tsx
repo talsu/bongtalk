@@ -10,7 +10,7 @@ import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useCreateCategory, useCreateChannel, useMoveChannel } from './useChannels';
-import { Input } from '../../design-system/primitives';
+import { Button, Input } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -172,14 +172,16 @@ export function ChannelList({
                 placeholder="new-channel"
                 className="h-7 text-xs"
               />
-              <button
+              <Button
                 data-testid="new-channel-submit"
                 type="submit"
+                variant="primary"
+                size="sm"
                 aria-label="채널 생성"
-                className="h-7 rounded-md bg-bg-primary px-2 text-xs font-semibold text-fg-primary hover:opacity-90"
+                className="h-7 px-2 text-xs"
               >
                 +
-              </button>
+              </Button>
             </form>
             <form
               onSubmit={async (e) => {
@@ -198,14 +200,16 @@ export function ChannelList({
                 placeholder="category name"
                 className="h-7 text-xs"
               />
-              <button
+              <Button
                 data-testid="new-category-submit"
                 type="submit"
+                variant="secondary"
+                size="sm"
                 aria-label="카테고리 생성"
-                className="h-7 rounded-md border border-border-subtle px-2 text-xs text-text-muted hover:bg-bg-accent"
+                className="h-7 px-2 text-xs"
               >
                 + cat
-              </button>
+              </Button>
             </form>
           </div>
         )}

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginRequest, LoginRequestSchema } from '@qufox/shared-types';
+import { Button } from '../../design-system/primitives';
 import { useAuth } from './AuthProvider';
 
 export function LoginPage(): JSX.Element {
@@ -29,52 +30,52 @@ export function LoginPage(): JSX.Element {
   });
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-slate-50">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-8 shadow">
-        <h1 className="text-2xl font-semibold text-slate-900">Log in</h1>
-        <p className="mt-1 text-sm text-slate-500">Welcome back to qufox.</p>
+    <main className="min-h-screen flex items-center justify-center bg-background">
+      <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow">
+        <h1 className="text-2xl font-semibold text-foreground">Log in</h1>
+        <p className="mt-1 text-sm text-text-muted">Welcome back to qufox.</p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Email</label>
+            <label className="block text-sm font-medium text-foreground">Email</label>
             <input
               data-testid="login-email"
               type="email"
               autoComplete="email"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
               {...register('email')}
             />
-            {errors.email && <p className="mt-1 text-xs text-red-600">{errors.email.message}</p>}
+            {errors.email && <p className="mt-1 text-xs text-danger">{errors.email.message}</p>}
           </div>
           <div>
-            <label className="block text-sm font-medium text-slate-700">Password</label>
+            <label className="block text-sm font-medium text-foreground">Password</label>
             <input
               data-testid="login-password"
               type="password"
               autoComplete="current-password"
-              className="mt-1 w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
               {...register('password')}
             />
             {errors.password && (
-              <p className="mt-1 text-xs text-red-600">{errors.password.message}</p>
+              <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
             )}
           </div>
           {serverError && (
-            <p data-testid="login-error" className="text-xs text-red-600">
+            <p data-testid="login-error" className="text-xs text-danger">
               {serverError}
             </p>
           )}
-          <button
+          <Button
             data-testid="login-submit"
             type="submit"
             disabled={isSubmitting}
-            className="w-full rounded-md bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+            className="w-full"
           >
             {isSubmitting ? 'Signing in…' : 'Sign in'}
-          </button>
+          </Button>
         </form>
-        <p className="mt-6 text-sm text-slate-500">
+        <p className="mt-6 text-sm text-text-muted">
           Need an account?{' '}
-          <Link to="/signup" className="font-medium text-slate-900 underline">
+          <Link to="/signup" className="font-medium text-foreground underline">
             Sign up
           </Link>
         </p>

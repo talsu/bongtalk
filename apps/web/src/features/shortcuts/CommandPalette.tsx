@@ -67,6 +67,16 @@ export function CommandPalette(): JSX.Element | null {
   const isOpen = openModal === 'command-palette';
   if (!isOpen) return null;
 
+  // Wiring the WAI-ARIA "editable combobox with listbox popup" pattern:
+  // the input carries role=combobox, points at the listbox via
+  // aria-controls, announces open state via aria-expanded, and
+  // aria-activedescendant points at the currently-focused option id.
+  // The Dialog itself keeps focus inside so Escape / outside-click
+  // close it — no separate blur handler needed.
+  const listboxId = 'command-palette-listbox';
+  const optionId = (i: number): string => `command-palette-option-${i}`;
+  const activeId = filtered.length > 0 ? optionId(focusIdx) : undefined;
+
   return (
     <Dialog
       open={isOpen}
@@ -78,6 +88,11 @@ export function CommandPalette(): JSX.Element | null {
         data-testid="palette-input"
         autoFocus
         placeholder="채널 또는 워크스페이스 이름"
+        role="combobox"
+        aria-autocomplete="list"
+        aria-expanded={true}
+        aria-controls={listboxId}
+        aria-activedescendant={activeId}
         value={query}
         onChange={(e) => {
           setQuery(e.target.value);
@@ -96,13 +111,14 @@ export function CommandPalette(): JSX.Element | null {
           }
         }}
       />
-      <ul role="listbox" className="mt-3 max-h-72 overflow-y-auto">
+      <ul id={listboxId} role="listbox" className="mt-3 max-h-72 overflow-y-auto">
         {filtered.length === 0 ? (
           <li className="px-2 py-6 text-center text-xs text-text-muted">결과 없음</li>
         ) : null}
         {filtered.map((a, i) => (
           <li
             key={a.label}
+            id={optionId(i)}
             role="option"
             aria-selected={i === focusIdx}
             data-testid={`palette-item-${i}`}
