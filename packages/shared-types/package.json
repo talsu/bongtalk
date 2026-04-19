@@ -3,18 +3,19 @@
   "version": "0.1.0",
   "private": true,
   "main": "./dist/index.js",
+  "module": "./dist/index.mjs",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
+      "import": "./dist/index.mjs",
       "require": "./dist/index.js",
-      "import": "./dist/index.js",
-      "default": "./dist/index.js"
+      "default": "./dist/index.mjs"
     }
   },
   "files": ["dist"],
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "lint": "echo 'no lint'",
     "typecheck": "tsc --noEmit",
     "test": "vitest run"
@@ -23,6 +24,7 @@
     "zod": "3.23.8"
   },
   "devDependencies": {
+    "tsup": "8.3.5",
     "typescript": "5.6.3",
     "vitest": "2.1.8"
   }
