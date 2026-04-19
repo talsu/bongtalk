@@ -1,0 +1,12 @@
+id: 022
+title: Webhook rejects tampered bodies with 401 + audit row
+goal: |
+  services/webhook verifies HMAC-SHA256 with timing-safe compare, so a
+  body whose bytes no longer match the computed signature returns 401
+  and writes a `request.reject reason=signature` line to the audit log.
+  Covers the single most load-bearing security boundary of the deploy
+  pipeline (docker.sock is on the other side of it).
+dod:
+  - command: pnpm --filter @qufox/webhook test -- hmac server
+    expect: exit 0
+max_turns: 15

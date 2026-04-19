@@ -20,7 +20,14 @@ services:
     image: qufox/webhook:latest
     container_name: qufox-webhook
     restart: unless-stopped
-    env_file: [.env.deploy]
+    # Two env files: .env.deploy provides webhook-specific secrets
+    # (HMAC secret, Slack URL, branch allowlist). .env.prod provides
+    # POSTGRES_PASSWORD, which auto-deploy.sh's `docker compose run
+    # qufox-api pnpm db:migrate` step needs for compose interpolation
+    # of the qufox-api service's DATABASE_URL.
+    env_file:
+      - .env.deploy
+      - .env.prod
     environment:
       # REPO_PATH inside the container == bind mount path below.
       REPO_PATH: /repo
@@ -38,6 +45,14 @@ services:
       # effectively root-equivalent on the host, so the HMAC gate is
       # load-bearing.
       - /var/run/docker.sock:/var/run/docker.sock
+      # GitHub deploy key for `git fetch` inside auto-deploy.sh. Operator
+      # generates a read-only deploy key (ssh-keygen -t ed25519 -f
+      # /volume1/secrets/qufox-deploy-key), adds the .pub to the repo's
+      # Deploy Keys, and chmod 0600s the private key. The webhook image
+      # runs as root, so /root/.ssh is the default lookup path.
+      # Path is env-configurable so operators can point at a host
+      # directory they already manage (e.g. /volume1/secrets/qufox-ssh).
+      - ${WEBHOOK_SSH_DIR:-/volume1/secrets/qufox-ssh}:/root/.ssh:ro
     networks: [internal]
 
   qufox-backup:

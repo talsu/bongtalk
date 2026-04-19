@@ -19,7 +19,15 @@ interface PushPayload {
   deleted?: unknown;
 }
 
-function readBody(req: IncomingMessage, maxBytes = 1_048_576): Promise<Buffer> {
+// GitHub push payloads can be up to ~25 MB (big initial pushes,
+// force-pushes of large ranges, branches with many commits in one push).
+// nginx's client_max_body_size 25m at the edge matches this ceiling;
+// keeping the receiver's cap lower would 400 legitimate pushes and the
+// operator would see "request.reject reason=body" in the audit log with
+// no Slack signal. 32 MB gives headroom without enabling abuse.
+const DEFAULT_MAX_BODY_BYTES = 32 * 1024 * 1024;
+
+function readBody(req: IncomingMessage, maxBytes = DEFAULT_MAX_BODY_BYTES): Promise<Buffer> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
