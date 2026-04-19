@@ -104,3 +104,25 @@ spec:
             severity: page
           annotations:
             summary: 'Refresh-token reuse detections spiking — possible attack'
+
+    - name: qufox.deploy
+      rules:
+        - alert: DeployRollbackSpike
+          # More than one rollback in a 15-min window is not normal;
+          # a single rollback is a legitimate broken-build catch.
+          expr: increase(qufox_deploy_rollbacks_total[15m]) > 1
+          labels:
+            severity: page
+          annotations:
+            summary: 'Deploy pipeline rolled back > 1 time in 15m'
+            runbook: docs/ops/runbook-webhook-debug.md
+        - alert: DeployFailStreak
+          # Two deploy failures within 30m — either a toxic commit on
+          # main that's not getting reverted, or the deploy infra itself
+          # is regressing.
+          expr: increase(qufox_deploys_total{result="fail"}[30m]) > 1
+          labels:
+            severity: warn
+          annotations:
+            summary: 'Two deploy failures within 30m — investigate'
+            runbook: docs/ops/runbook-webhook-debug.md

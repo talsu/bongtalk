@@ -1,0 +1,21 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: qufox-webhook
+  labels:
+    app: qufox
+    component: webhook
+spec:
+  selector:
+    matchLabels: { app: qufox, component: webhook }
+  endpoints:
+    - port: http
+      path: /internal/metrics
+      interval: 15s
+      scrapeTimeout: 10s
+      # The webhook's /internal/metrics IP allowlist accepts the Docker
+      # bridge (172.*) and service-network CIDRs; kube service IPs in
+      # the cluster context fall outside those prefixes, so a K8s
+      # rollout of this monitor requires widening INTERNAL_ALLOWED_PREFIXES
+      # in services/webhook/src/server.ts or switching to a header-based
+      # auth. Tracked as TODO(task-010-k8s-prep).
