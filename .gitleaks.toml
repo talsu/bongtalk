@@ -1,0 +1,30 @@
+# gitleaks config. The defaults are strong; we only add project-specific
+# allowlists for example files and test fixtures that legitimately
+# contain high-entropy look-alikes.
+#
+# Run locally: `gitleaks detect --no-git -c .gitleaks.toml`
+# CI enforces this on every PR via .github/workflows/security.yml.
+
+[extend]
+# Keep every built-in rule.
+useDefault = true
+
+[allowlist]
+description = "example + test fixtures that look like secrets but are not"
+paths = [
+  # *.example files ship with placeholder values.
+  '''\.env\..*example$''',
+  '''\.env\.example$''',
+  # Test fixtures intentionally hard-code throwaway tokens.
+  '''.*test/.*\.spec\.ts$''',
+  '''apps/web/test/.*\.e2e\.spec\.ts$''',
+  # Seed namespace is a fixed UUID, not a secret.
+  '''apps/api/prisma/seed\.ts$''',
+  # Vendored OpenAPI + k8s manifests may include example JWTs.
+  '''infra/.*\.ya?ml$''',
+]
+regexes = [
+  # Placeholder tokens used in docs / examples.
+  '''change-me-[a-z0-9-]+''',
+  '''replace-with-real-[a-z0-9-]+''',
+]

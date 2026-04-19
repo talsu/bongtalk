@@ -1,0 +1,24 @@
+name: security
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  gitleaks:
+    name: gitleaks
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          # Detect mode scans the working tree; --redact hides the
+          # actual value in the log so a leaked secret doesn't leak
+          # twice (once in the repo, once in CI output).
+          GITLEAKS_CONFIG: .gitleaks.toml
+          GITLEAKS_ENABLE_COMMENTS: 'true'
+          GITLEAKS_ENABLE_SUMMARY: 'true'
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: 'false'
