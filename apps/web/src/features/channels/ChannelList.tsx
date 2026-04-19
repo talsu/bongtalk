@@ -1,23 +1,33 @@
-import { Link, useParams } from 'react-router-dom';
+import { Link } from 'react-router-dom';
+import { DndContext, type DragEndEvent, PointerSensor, useSensor, useSensors } from '@dnd-kit/core';
 import {
-  DndContext,
-  DragEndEvent,
-  PointerSensor,
-  useSensor,
-  useSensors,
-} from '@dnd-kit/core';
-import { arrayMove, SortableContext, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable';
+  arrayMove,
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+} from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useCreateCategory, useCreateChannel, useMoveChannel } from './useChannels';
+import { Input } from '../../design-system/primitives';
+import { cn } from '../../lib/cn';
 
 type Props = {
   workspaceId: string;
   workspaceSlug: string;
   canManage: boolean;
+  activeChannelName: string | null;
 };
 
+/**
+ * Channel / category list. Was called `ChannelSidebar` pre-task-008 — the
+ * column frame is now provided by `shell/ChannelColumn.tsx` so this file
+ * is purely the list, reusable in other layouts (e.g. command palette).
+ *
+ * Drag handle stays on uncategorized channels only for task-008. Dragging
+ * into/out of categories is TODO(task-016).
+ */
 function ChannelRow({
   channel,
   workspaceSlug,
@@ -26,38 +36,45 @@ function ChannelRow({
   channel: Channel;
   workspaceSlug: string;
   active: boolean;
-}) {
-  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: channel.id });
-  const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-  };
+}): JSX.Element {
+  const { attributes, listeners, setNodeRef, transform, transition } = useSortable({
+    id: channel.id,
+  });
+  const style = { transform: CSS.Transform.toString(transform), transition };
   return (
     <li
       ref={setNodeRef}
       style={style}
-      className={`flex items-center gap-1 rounded px-2 py-1 text-sm ${
-        active ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'
-      }`}
+      className={cn(
+        'group flex items-center gap-1 rounded-md px-2 py-1 text-sm',
+        active
+          ? 'bg-bg-accent text-foreground'
+          : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
+      )}
       data-testid={`channel-${channel.name}`}
     >
       <span
         {...attributes}
         {...listeners}
         data-testid={`channel-drag-${channel.name}`}
-        className="cursor-grab text-slate-400"
+        aria-label={`채널 ${channel.name} 드래그`}
+        className="cursor-grab text-text-muted opacity-0 transition-opacity group-hover:opacity-100"
       >
         ⋮⋮
       </span>
       <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
-        # {channel.name}
+        <span className="text-text-muted">#</span>&nbsp;{channel.name}
       </Link>
     </li>
   );
 }
 
-export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props): JSX.Element {
-  const { channelName } = useParams();
+export function ChannelList({
+  workspaceId,
+  workspaceSlug,
+  canManage,
+  activeChannelName,
+}: Props): JSX.Element {
   const { data } = useChannelList(workspaceId);
   const createChannelMut = useCreateChannel(workspaceId);
   const createCategoryMut = useCreateCategory(workspaceId);
@@ -87,20 +104,27 @@ export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props)
   }
 
   return (
-    <nav className="flex flex-col gap-3 py-3" data-testid="channel-sidebar">
+    <nav className="flex flex-col gap-3" data-testid="channel-sidebar" aria-label="채널">
       {(data?.categories ?? []).map((cat) => (
         <section key={cat.id}>
-          <h3 className="px-2 text-xs uppercase tracking-wide text-slate-500">{cat.name}</h3>
+          <h3 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+            {cat.name}
+          </h3>
           <ul className="mt-1 space-y-0.5">
             {cat.channels.map((ch) => (
               <li
                 key={ch.id}
-                className={`rounded px-2 py-1 text-sm ${
-                  channelName === ch.name ? 'bg-slate-900 text-white' : 'text-slate-700 hover:bg-slate-100'
-                }`}
+                className={cn(
+                  'rounded-md px-2 py-1 text-sm',
+                  activeChannelName === ch.name
+                    ? 'bg-bg-accent text-foreground'
+                    : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
+                )}
                 data-testid={`channel-${ch.name}`}
               >
-                <Link to={`/w/${workspaceSlug}/${ch.name}`}># {ch.name}</Link>
+                <Link to={`/w/${workspaceSlug}/${ch.name}`}>
+                  <span className="text-text-muted">#</span>&nbsp;{ch.name}
+                </Link>
               </li>
             ))}
           </ul>
@@ -108,7 +132,9 @@ export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props)
       ))}
 
       <section>
-        <h3 className="px-2 text-xs uppercase tracking-wide text-slate-500">Channels</h3>
+        <h3 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
+          채널
+        </h3>
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
           <SortableContext
             items={uncategorized.map((c) => c.id)}
@@ -120,7 +146,7 @@ export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props)
                   key={ch.id}
                   channel={ch}
                   workspaceSlug={workspaceSlug}
-                  active={channelName === ch.name}
+                  active={activeChannelName === ch.name}
                 />
               ))}
             </ul>
@@ -138,18 +164,19 @@ export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props)
               }}
               className="flex gap-1"
             >
-              <input
+              <Input
                 data-testid="new-channel-name"
                 type="text"
                 value={newChannel}
                 onChange={(e) => setNewChannel(e.target.value)}
                 placeholder="new-channel"
-                className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                className="h-7 text-xs"
               />
               <button
                 data-testid="new-channel-submit"
                 type="submit"
-                className="rounded bg-slate-900 px-2 py-1 text-xs text-white"
+                aria-label="채널 생성"
+                className="h-7 rounded-md bg-bg-primary px-2 text-xs font-semibold text-fg-primary hover:opacity-90"
               >
                 +
               </button>
@@ -163,18 +190,19 @@ export function ChannelSidebar({ workspaceId, workspaceSlug, canManage }: Props)
               }}
               className="flex gap-1"
             >
-              <input
+              <Input
                 data-testid="new-category-name"
                 type="text"
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="category name"
-                className="flex-1 rounded border border-slate-300 px-2 py-1 text-xs"
+                className="h-7 text-xs"
               />
               <button
                 data-testid="new-category-submit"
                 type="submit"
-                className="rounded border border-slate-300 px-2 py-1 text-xs"
+                aria-label="카테고리 생성"
+                className="h-7 rounded-md border border-border-subtle px-2 text-xs text-text-muted hover:bg-bg-accent"
               >
                 + cat
               </button>
