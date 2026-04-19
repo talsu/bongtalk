@@ -7,6 +7,7 @@ import {
   useUpdateMessage,
 } from './useMessages';
 import { useAuth } from '../auth/AuthProvider';
+import { useLiveMessages } from '../realtime/useLiveMessages';
 import type { MessageDto } from '@qufox/shared-types';
 
 type Props = {
@@ -21,6 +22,7 @@ export function MessagePanel({ workspaceId, channelId, channelName }: Props): JS
   const { send, mutation: sendMutation } = useSendMessage(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
+  useLiveMessages(workspaceId, channelId);
 
   const scrollRef = useRef<HTMLDivElement>(null);
   const [draft, setDraft] = useState('');
