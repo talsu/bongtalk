@@ -801,3 +801,75 @@ MED-6 can ride a `task-012-follow-6` (add OWNER bypass to
 `PermissionMatrix.effective` + spec cases pinning non-creator OWNER
 access) — not a merge blocker given the creator-override path
 covers current callers.
+
+### Final verification (commits fb83f01 + 60eace4)
+
+- Model: claude-opus-4-7[1m]
+- Transcript: ~11k tokens
+
+#### Verdict: approve
+
+All four fixes land cleanly. HIGH-2 is the important one — the
+`docker cp` + `|| true` pattern is gone, replaced by a real
+`mc_with_policy()` helper that bind-mounts the host tempfile and a
+genuine idempotency check via `mc admin policy info`. MED-6 adds the
+OWNER bypass in exactly the right place in the matrix, with two new
+spec cases (including the deny-still-applies one). The S3Service
+lazy-init is cosmetically a little awkward (the `ready` field is
+declared below the constructor at `s3.service.ts:73` while being
+assigned at `:62`) but it is type-safe and functionally correct: every
+real S3 call — `presignPut` `:107`, `presignGet` `:118`, `headObject`
+`:131`, `deleteObject` `:149` — guards with `requireReady()`, so a
+prod misconfiguration surfaces as a clean 5xx on the first upload
+attempt instead of silently signing against a bogus endpoint. No new
+attack surface: the fallback endpoint string
+`http://s3-endpoint-not-configured` is unrouteable and the readiness
+check short-circuits before any SDK call reaches it. The runbook is
+accurate — commands match `docker-compose.test.yml` port layout
+(43001/45173) and correctly calls out the missing test-MinIO that
+keeps attachment E2Es GHA-only.
+
+#### Per-check status
+
+1. HIGH-2 mc_with_policy — OK. `scripts/setup/init-minio.sh:141-161`
+   creates a host tempfile, defines `mc_with_policy()` at `:144-149`
+   that `-v`-mounts it read-only into the mc container, gates creation
+   behind `mc admin policy info qufox qufox-api-policy` at `:152`, and
+   no longer swallows the create failure with `|| true`. Attach on
+   `:159` keeps `|| true` only because `mc admin policy attach` is
+   natively idempotent (the failure mode here is "already attached",
+   not a silent error). Tempfile is cleaned up on `:161`.
+2. MED-6 OWNER bypass — OK. `apps/api/src/auth/permissions.ts:119-121`
+   returns `ROLE_BASELINE.OWNER & ~channelDeny` before the private-gate
+   logic. Two new spec cases at
+   `apps/api/test/unit/auth/permissions.spec.ts:130-156` cover both the
+   no-override bypass and the DENY-still-applies contract.
+3. S3 lazy init safety — OK. Constructor no longer throws; `ready` is
+   set from `Boolean(endpoint)` at `:62`; all four methods call
+   `requireReady()` at entry. Prod safe: when env is fully set,
+   `ready=true` and behaviour is byte-identical to the previous
+   version. Misconfigured prod gets an explicit 5xx with a clear
+   message naming the missing env var and the task reference. The
+   field-declaration-below-constructor shape is legal TS but worth a
+   cleanup follow-up (move `private readonly ready: boolean;` up to
+   the other field declarations at `:25-33`); not a blocker.
+4. runbook-local-tests — OK. `docs/ops/runbook-local-tests.md` covers
+   test:int (`TESTCONTAINERS_RYUK_DISABLED=true pnpm test:int`), the
+   compose-based test:e2e flow with the real 43001/45173 ports,
+   playwright-browser install, teardown, and explicitly flags the
+   missing test-MinIO as the reason attachment E2Es are GHA-only. It
+   even calls out the `unread-summary.int.spec.ts` flake as a known
+   failure tied to the shared-seed slug collision (orthogonal to
+   task-012's surface; also now that the `idempotency-key` header was
+   dropped from `postMessage` in that file, the 4-test slug-collision
+   issue still stands per the runbook's own note).
+
+#### Merge recommendation
+
+approve. All three previously-blocking items (HIGH-2, MED-6, the
+test:int startup barrier) are resolved, the runbook is useful, and
+the lazy-init change introduces no prod risk. Optional follow-ups
+(non-blocking): (a) move `private readonly ready: boolean;` to the
+field-declaration block at `s3.service.ts:25-33` for readability,
+(b) `task-012-follow-test-minio` for the missing compose-stack MinIO
+so attachment E2Es can run on the NAS. Ship it.
