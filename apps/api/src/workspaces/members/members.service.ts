@@ -1,21 +1,17 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { WorkspaceRole } from '@prisma/client';
 import { ROLE_RANK, WorkspaceRole as SharedRole } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
-import {
-  MEMBER_LEFT,
-  MEMBER_REMOVED,
-  ROLE_CHANGED,
-} from '../events/workspace-events';
+import { OutboxService } from '../../common/outbox/outbox.service';
+import { MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED } from '../events/workspace-events';
 
 @Injectable()
 export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emitter: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   list(workspaceId: string) {
@@ -54,7 +50,6 @@ export class MembersService {
         'owner must use transfer-ownership',
       );
     }
-    // An ADMIN cannot promote/demote an equal-or-higher rank (role rank parity).
     if (
       ROLE_RANK[actorRole] <= ROLE_RANK[target.role as SharedRole] &&
       actorRole !== 'OWNER'
@@ -64,18 +59,25 @@ export class MembersService {
         'cannot modify a member of equal or higher rank',
       );
     }
-    const updated = await this.prisma.workspaceMember.update({
-      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-      data: { role: nextRole === 'ADMIN' ? WorkspaceRole.ADMIN : WorkspaceRole.MEMBER },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        data: { role: nextRole === 'ADMIN' ? WorkspaceRole.ADMIN : WorkspaceRole.MEMBER },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'member',
+        aggregateId: targetUserId,
+        eventType: ROLE_CHANGED,
+        payload: {
+          workspaceId,
+          userId: targetUserId,
+          actorId,
+          from: target.role,
+          to: updated.role,
+        },
+      });
+      return updated;
     });
-    this.emitter.emit(ROLE_CHANGED, {
-      workspaceId,
-      userId: targetUserId,
-      actorId,
-      from: target.role,
-      to: updated.role,
-    });
-    return updated;
   }
 
   async remove(
@@ -114,10 +116,17 @@ export class MembersService {
         'cannot remove a member of equal or higher rank',
       );
     }
-    await this.prisma.workspaceMember.delete({
-      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.delete({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'member',
+        aggregateId: targetUserId,
+        eventType: MEMBER_REMOVED,
+        payload: { workspaceId, userId: targetUserId, actorId },
+      });
     });
-    this.emitter.emit(MEMBER_REMOVED, { workspaceId, userId: targetUserId, actorId });
   }
 
   async leave(workspaceId: string, userId: string, role: SharedRole) {
@@ -127,9 +136,16 @@ export class MembersService {
         'owner must transfer ownership before leaving',
       );
     }
-    await this.prisma.workspaceMember.delete({
-      where: { workspaceId_userId: { workspaceId, userId } },
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.delete({
+        where: { workspaceId_userId: { workspaceId, userId } },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'member',
+        aggregateId: userId,
+        eventType: MEMBER_LEFT,
+        payload: { workspaceId, userId, actorId: userId },
+      });
     });
-    this.emitter.emit(MEMBER_LEFT, { workspaceId, userId, actorId: userId });
   }
 }

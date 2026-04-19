@@ -1,5 +1,4 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, WorkspaceRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import {
@@ -12,6 +11,7 @@ import {
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { OutboxService } from '../common/outbox/outbox.service';
 import {
   OWNERSHIP_TRANSFERRED,
   WORKSPACE_CREATED,
@@ -19,11 +19,16 @@ import {
   WORKSPACE_RESTORED,
 } from './events/workspace-events';
 
+/**
+ * Every state-change writes an OutboxEvent inside the same Prisma transaction
+ * as the business row. The dispatcher picks it up after commit — so subscribers
+ * never see pre-commit state, and a mid-request crash leaves no orphan event.
+ */
 @Injectable()
 export class WorkspacesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emitter: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
   private get graceMs(): number {
@@ -35,25 +40,28 @@ export class WorkspacesService {
       throw new DomainError(ErrorCode.WORKSPACE_SLUG_RESERVED, `slug "${input.slug}" is reserved`);
     }
     try {
-      const workspace = await this.prisma.workspace.create({
-        data: {
-          id: randomUUID(),
-          name: input.name,
-          slug: input.slug,
-          description: input.description ?? null,
-          iconUrl: input.iconUrl ?? null,
-          ownerId: userId,
-          members: {
-            create: { userId, role: WorkspaceRole.OWNER },
+      return await this.prisma.$transaction(async (tx) => {
+        const workspace = await tx.workspace.create({
+          data: {
+            id: randomUUID(),
+            name: input.name,
+            slug: input.slug,
+            description: input.description ?? null,
+            iconUrl: input.iconUrl ?? null,
+            ownerId: userId,
+            members: {
+              create: { userId, role: WorkspaceRole.OWNER },
+            },
           },
-        },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'workspace',
+          aggregateId: workspace.id,
+          eventType: WORKSPACE_CREATED,
+          payload: { workspaceId: workspace.id, ownerId: userId, slug: workspace.slug },
+        });
+        return workspace;
       });
-      this.emitter.emit(WORKSPACE_CREATED, {
-        workspaceId: workspace.id,
-        ownerId: userId,
-        slug: workspace.slug,
-      });
-      return workspace;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new DomainError(ErrorCode.WORKSPACE_SLUG_TAKEN, `slug "${input.slug}" is taken`);
@@ -99,16 +107,19 @@ export class WorkspacesService {
   async softDelete(workspaceId: string, actorId: string) {
     const now = new Date();
     const deleteAt = new Date(now.getTime() + this.graceMs);
-    const workspace = await this.prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { deletedAt: now, deleteAt },
+    return this.prisma.$transaction(async (tx) => {
+      const workspace = await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { deletedAt: now, deleteAt },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'workspace',
+        aggregateId: workspace.id,
+        eventType: WORKSPACE_DELETED,
+        payload: { workspaceId: workspace.id, actorId, deleteAt: deleteAt.toISOString() },
+      });
+      return workspace;
     });
-    this.emitter.emit(WORKSPACE_DELETED, {
-      workspaceId: workspace.id,
-      actorId,
-      deleteAt,
-    });
-    return workspace;
   }
 
   async restore(workspaceId: string, actorId: string) {
@@ -125,23 +136,25 @@ export class WorkspacesService {
         'grace period elapsed — workspace is permanently gone',
       );
     }
-    const workspace = await this.prisma.workspace.update({
-      where: { id: workspaceId },
-      data: { deletedAt: null, deleteAt: null },
+    return this.prisma.$transaction(async (tx) => {
+      const workspace = await tx.workspace.update({
+        where: { id: workspaceId },
+        data: { deletedAt: null, deleteAt: null },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'workspace',
+        aggregateId: workspace.id,
+        eventType: WORKSPACE_RESTORED,
+        payload: { workspaceId: workspace.id, actorId },
+      });
+      return workspace;
     });
-    this.emitter.emit(WORKSPACE_RESTORED, { workspaceId: workspace.id, actorId });
-    return workspace;
   }
 
   /**
-   * Atomic transfer:
-   *   1. ensure target user is already a member (else 404 WORKSPACE_TARGET_NOT_MEMBER)
-   *   2. demote current OWNER to ADMIN
-   *   3. promote target to OWNER
-   *   4. flip Workspace.ownerId
-   *
-   * Done inside `$transaction` so any failure rolls the other two back — no
-   * window where the workspace has zero or two OWNERs.
+   * Atomic transfer — demote old OWNER, promote new OWNER, flip ownerId, and
+   * record the event all inside a single `$transaction`. An observer reading
+   * `OutboxEvent` never sees the committed update without the matching event.
    */
   async transferOwnership(workspaceId: string, fromUserId: string, toUserId: string) {
     if (fromUserId === toUserId) {
@@ -172,10 +185,11 @@ export class WorkspacesService {
         where: { id: workspaceId },
         data: { ownerId: toUserId },
       });
-      this.emitter.emit(OWNERSHIP_TRANSFERRED, {
-        workspaceId,
-        fromUserId,
-        toUserId,
+      await this.outbox.record(tx, {
+        aggregateType: 'workspace',
+        aggregateId: workspaceId,
+        eventType: OWNERSHIP_TRANSFERRED,
+        payload: { workspaceId, fromUserId, toUserId },
       });
       return workspace;
     });

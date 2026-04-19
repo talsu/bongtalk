@@ -9,9 +9,10 @@ import {
   WorkspaceInvitesController,
 } from './invites/invites.controller';
 import { AuthModule } from '../auth/auth.module';
+import { OutboxModule } from '../common/outbox/outbox.module';
 
 @Module({
-  imports: [AuthModule],
+  imports: [AuthModule, OutboxModule],
   controllers: [
     WorkspacesController,
     MembersController,

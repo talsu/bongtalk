@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { EventEmitter2 } from '@nestjs/event-emitter';
 import { Prisma, WorkspaceRole } from '@prisma/client';
 import { randomBytes, randomUUID } from 'node:crypto';
 import { CreateInviteRequest } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { OutboxService } from '../../common/outbox/outbox.service';
 import {
   INVITE_ACCEPTED,
   INVITE_CREATED,
@@ -26,33 +26,31 @@ function makeCode(): string {
 export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly emitter: EventEmitter2,
+    private readonly outbox: OutboxService,
   ) {}
 
-  async create(
-    workspaceId: string,
-    createdById: string,
-    input: CreateInviteRequest,
-  ) {
-    // Collision retry: 3 attempts (16 random bytes → collision is cosmic-ray territory).
+  async create(workspaceId: string, createdById: string, input: CreateInviteRequest) {
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const invite = await this.prisma.invite.create({
-          data: {
-            id: randomUUID(),
-            workspaceId,
-            code: makeCode(),
-            createdById,
-            expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
-            maxUses: input.maxUses ?? null,
-          },
+        return await this.prisma.$transaction(async (tx) => {
+          const invite = await tx.invite.create({
+            data: {
+              id: randomUUID(),
+              workspaceId,
+              code: makeCode(),
+              createdById,
+              expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
+              maxUses: input.maxUses ?? null,
+            },
+          });
+          await this.outbox.record(tx, {
+            aggregateType: 'invite',
+            aggregateId: invite.id,
+            eventType: INVITE_CREATED,
+            payload: { workspaceId, inviteId: invite.id, actorId: createdById },
+          });
+          return invite;
         });
-        this.emitter.emit(INVITE_CREATED, {
-          workspaceId,
-          inviteId: invite.id,
-          actorId: createdById,
-        });
-        return invite;
       } catch (e) {
         if (
           e instanceof Prisma.PrismaClientKnownRequestError &&
@@ -75,17 +73,25 @@ export class InvitesService {
   }
 
   async revoke(workspaceId: string, inviteId: string, actorId: string) {
-    const result = await this.prisma.invite.updateMany({
-      where: { id: inviteId, workspaceId, revokedAt: null },
-      data: { revokedAt: new Date() },
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.invite.updateMany({
+        where: { id: inviteId, workspaceId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (result.count === 0) {
+        throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
+      }
+      await this.outbox.record(tx, {
+        aggregateType: 'invite',
+        aggregateId: inviteId,
+        eventType: INVITE_REVOKED,
+        payload: { workspaceId, inviteId, actorId },
+      });
     });
-    if (result.count === 0) {
-      throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
-    }
-    this.emitter.emit(INVITE_REVOKED, { workspaceId, inviteId, actorId });
   }
 
-  /** Public preview — no auth. Hides workspace details beyond what a joiner needs. */
+  /** Public preview — no auth. Hides workspace details beyond what a joiner needs.
+   *  Callers (controller) must apply a per-IP rate limit before invoking this. */
   async preview(code: string) {
     const invite = await this.prisma.invite.findUnique({
       where: { code },
@@ -118,14 +124,9 @@ export class InvitesService {
   }
 
   /**
-   * Race-safe accept. Strategy:
-   *   - Single `updateMany` increments usedCount only when the invite is still
-   *     valid (not revoked, not expired, and usedCount < maxUses). This is a
-   *     **compare-and-swap** backed by the DB, so 10 concurrent callers see at
-   *     most `maxUses` successes without taking a row lock.
-   *   - On success, upsert the WorkspaceMember.
-   *   - If the user is already a member, we short-circuit BEFORE the CAS so we
-   *     do not consume a seat.
+   * Race-safe accept — atomic CAS on `usedCount` followed by member insert.
+   * A concurrent-accept loser (two tabs from the same user) refunds the seat
+   * it just consumed and surfaces ALREADY_MEMBER instead of a raw 500.
    */
   async accept(code: string, userId: string) {
     const existing = await this.prisma.invite.findUnique({
@@ -150,7 +151,9 @@ export class InvitesService {
     }
 
     const now = new Date();
-    // Compare-and-swap: increment only while usedCount<maxUses OR maxUses is null.
+    // Compare-and-swap is intentionally OUTSIDE the transaction so that the
+    // atomic UPDATE commits as a single statement and visible races between
+    // concurrent requests are resolved by row-level locking.
     const casResult = await this.prisma.$executeRawUnsafe<number>(
       `UPDATE "Invite"
          SET "usedCount" = "usedCount" + 1
@@ -161,20 +164,33 @@ export class InvitesService {
       code,
       now,
     );
-
     if (casResult === 0) {
       throw new DomainError(ErrorCode.INVITE_EXHAUSTED, 'invite fully used');
     }
 
     try {
-      await this.prisma.workspaceMember.create({
-        data: { workspaceId: existing.workspaceId, userId, role: WorkspaceRole.MEMBER },
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.create({
+          data: { workspaceId: existing.workspaceId, userId, role: WorkspaceRole.MEMBER },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'member',
+          aggregateId: userId,
+          eventType: MEMBER_JOINED,
+          payload: { workspaceId: existing.workspaceId, userId, actorId: userId },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'invite',
+          aggregateId: existing.id,
+          eventType: INVITE_ACCEPTED,
+          payload: {
+            workspaceId: existing.workspaceId,
+            inviteId: existing.id,
+            actorId: userId,
+          },
+        });
       });
     } catch (e) {
-      // Race: two concurrent accepts from the same user can both pass the
-      // pre-check and both consume a seat in the CAS. Only one member-create
-      // succeeds (P2002 on the composite PK); the loser must refund the seat
-      // it just consumed and surface ALREADY_MEMBER instead of a raw 500.
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         await this.prisma.$executeRawUnsafe(
           `UPDATE "Invite" SET "usedCount" = "usedCount" - 1 WHERE code = $1 AND "usedCount" > 0`,
@@ -191,18 +207,6 @@ export class InvitesService {
     const workspace = await this.prisma.workspace.findUnique({
       where: { id: existing.workspaceId },
     });
-
-    this.emitter.emit(MEMBER_JOINED, {
-      workspaceId: existing.workspaceId,
-      userId,
-      actorId: userId,
-    });
-    this.emitter.emit(INVITE_ACCEPTED, {
-      workspaceId: existing.workspaceId,
-      inviteId: existing.id,
-      actorId: userId,
-    });
-
     return workspace!;
   }
 }
