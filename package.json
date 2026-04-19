@@ -62,11 +62,8 @@
   "pnpm": {
     "overrides": {
       "express>path-to-regexp": "0.1.13",
-      "cookie": ">=0.7.0",
-      "body-parser": ">=1.20.3",
-      "send": ">=0.19.0",
-      "serve-static": ">=1.16.0",
-      "multer": ">=2.0.2"
+      "multer": ">=2.0.2",
+      "@remix-run/router": ">=1.23.2"
     }
   }
 }

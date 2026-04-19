@@ -21,16 +21,40 @@ enum ChannelType {
 }
 
 model User {
-  id        String   @id @db.Uuid
-  email     String   @unique
-  username  String   @unique
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  id                  String    @id @db.Uuid
+  email               String    @unique
+  username            String    @unique
+  passwordHash        String
+  lastLoginAt         DateTime?
+  failedLoginAttempts Int       @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime  @default(now())
+  updatedAt           DateTime  @updatedAt
 
-  ownedWorkspaces Workspace[]        @relation("WorkspaceOwner")
+  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   memberships     WorkspaceMember[]
   messages        Message[]
-  invitesCreated  Invite[]           @relation("InviteCreator")
+  invitesCreated  Invite[]          @relation("InviteCreator")
+  refreshTokens   RefreshToken[]
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash  String    @unique
+  familyId   String    @db.Uuid
+  parentId   String?   @db.Uuid
+  userAgent  String?
+  ip         String?
+  expiresAt  DateTime
+  revokedAt  DateTime?
+  replacedAt DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
 }
 
 model Workspace {
