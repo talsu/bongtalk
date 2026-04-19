@@ -43,6 +43,7 @@
   },
   "devDependencies": {
     "@eslint/js": "9.15.0",
+    "@size-limit/file": "^12.1.0",
     "@types/node": "20.11.30",
     "eslint": "9.15.0",
     "lint-staged": "15.2.10",

@@ -13,7 +13,9 @@
       "default": "./dist/index.mjs"
     }
   },
-  "files": ["dist"],
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "build": "tsup src/index.ts --format esm,cjs --dts --clean",
     "lint": "echo 'no lint'",
@@ -21,7 +23,7 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "zod": "3.23.8"
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "tsup": "8.3.5",

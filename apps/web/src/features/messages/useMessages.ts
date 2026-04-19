@@ -7,9 +7,12 @@ import {
 } from '@tanstack/react-query';
 import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import { deleteMessage, listMessages, sendMessage, updateMessage } from './api';
+import { qk } from '../../lib/query-keys';
 
 const keys = {
-  list: (wsId: string, channelId: string) => ['messages', wsId, channelId] as const,
+  // Route through the single qk registry so the realtime dispatcher and
+  // this hook build the IDENTICAL tuple — reviewer flagged drift risk.
+  list: (wsId: string, channelId: string) => qk.messages.list(wsId, channelId),
 };
 
 export function useMessageHistory(wsId: string, channelId: string) {

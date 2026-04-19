@@ -1,0 +1,122 @@
+import { useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router-dom';
+import { useUI } from '../../stores/ui-store';
+import { useMyWorkspaces } from '../workspaces/useWorkspaces';
+import { useChannelList } from '../channels/useChannels';
+import { Dialog, Input } from '../../design-system/primitives';
+
+type Action = {
+  label: string;
+  hint?: string;
+  run: () => void;
+};
+
+/**
+ * Ctrl+K palette. Single input + filtered action list. Scope is bounded —
+ * we only populate from the current user's workspaces + current workspace's
+ * channels. Arbitrary-text search comes later when we have a real search
+ * backend (TODO task-025).
+ */
+export function CommandPalette(): JSX.Element | null {
+  const openModal = useUI((s) => s.openModal);
+  const setOpenModal = useUI((s) => s.setOpenModal);
+  const navigate = useNavigate();
+  const { slug } = useParams<{ slug: string }>();
+  const { data: mine } = useMyWorkspaces();
+  const { data: channels } = useChannelList(mine?.workspaces.find((w) => w.slug === slug)?.id);
+  const [query, setQuery] = useState('');
+  const [focusIdx, setFocusIdx] = useState(0);
+
+  const actions = useMemo<Action[]>(() => {
+    const list: Action[] = [];
+    for (const ws of mine?.workspaces ?? []) {
+      list.push({
+        label: `워크스페이스 · ${ws.name}`,
+        hint: `@${ws.slug}`,
+        run: () => {
+          navigate(`/w/${ws.slug}`);
+          setOpenModal(null);
+        },
+      });
+    }
+    if (slug && channels) {
+      const allChannels = [
+        ...channels.uncategorized,
+        ...channels.categories.flatMap((c) => c.channels),
+      ];
+      for (const ch of allChannels) {
+        list.push({
+          label: `# ${ch.name}`,
+          hint: '현재 워크스페이스',
+          run: () => {
+            navigate(`/w/${slug}/${ch.name}`);
+            setOpenModal(null);
+          },
+        });
+      }
+    }
+    return list;
+  }, [mine, channels, slug, navigate, setOpenModal]);
+
+  const filtered = useMemo(() => {
+    if (!query) return actions.slice(0, 20);
+    const q = query.toLowerCase();
+    return actions.filter((a) => a.label.toLowerCase().includes(q)).slice(0, 20);
+  }, [actions, query]);
+
+  const isOpen = openModal === 'command-palette';
+  if (!isOpen) return null;
+
+  return (
+    <Dialog
+      open={isOpen}
+      onOpenChange={(v) => setOpenModal(v ? 'command-palette' : null)}
+      title="빠른 이동"
+      className="max-w-lg"
+    >
+      <Input
+        data-testid="palette-input"
+        autoFocus
+        placeholder="채널 또는 워크스페이스 이름"
+        value={query}
+        onChange={(e) => {
+          setQuery(e.target.value);
+          setFocusIdx(0);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === 'ArrowDown') {
+            e.preventDefault();
+            setFocusIdx((i) => Math.min(i + 1, filtered.length - 1));
+          } else if (e.key === 'ArrowUp') {
+            e.preventDefault();
+            setFocusIdx((i) => Math.max(i - 1, 0));
+          } else if (e.key === 'Enter') {
+            e.preventDefault();
+            filtered[focusIdx]?.run();
+          }
+        }}
+      />
+      <ul role="listbox" className="mt-3 max-h-72 overflow-y-auto">
+        {filtered.length === 0 ? (
+          <li className="px-2 py-6 text-center text-xs text-text-muted">결과 없음</li>
+        ) : null}
+        {filtered.map((a, i) => (
+          <li
+            key={a.label}
+            role="option"
+            aria-selected={i === focusIdx}
+            data-testid={`palette-item-${i}`}
+            onMouseEnter={() => setFocusIdx(i)}
+            onClick={() => a.run()}
+            className={`flex cursor-pointer items-center justify-between rounded-md px-2 py-2 text-sm ${
+              i === focusIdx ? 'bg-bg-accent text-foreground' : 'text-text-muted'
+            }`}
+          >
+            <span>{a.label}</span>
+            {a.hint ? <span className="text-[10px] text-text-muted">{a.hint}</span> : null}
+          </li>
+        ))}
+      </ul>
+    </Dialog>
+  );
+}
