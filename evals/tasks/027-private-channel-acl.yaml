@@ -1,0 +1,15 @@
+id: 027
+title: Private channel visibility + ACL attach/detach
+goal: |
+  Channel.isPrivate=true hides the channel from `GET /workspaces/:id/
+  channels` unless the caller has an ALLOW override (USER or ROLE
+  principal) or is the workspace OWNER. `POST /workspaces/:id/
+  channels/:chid/members` (OWNER/ADMIN only) upserts a user-level
+  override. PermissionMatrix.effective enforces the DENY > ALLOW
+  invariant (USER-level deny wins over ROLE-level allow). Covers the
+  task-012-D surface + the cross-feature attachment ACL integration
+  from task-012-E.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+max_turns: 15

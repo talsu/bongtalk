@@ -1,0 +1,17 @@
+id: 026
+title: Attachment presign → PUT → finalize → download round-trip
+goal: |
+  services/api exposes `POST /attachments/presign-upload`, `POST
+  /attachments/:id/finalize`, `GET /attachments/:id/download-url`.
+  Presigning returns a signed PUT URL against MinIO; finalize HeadObjects
+  the landed upload and asserts byte-size; download-url returns a
+  signed GET URL valid for 30 min (default). The flow is idempotent on
+  (channelId, clientAttachmentId) — a retried presign with the same
+  client uuid returns the same attachmentId. Covers the task-012-B
+  surface + task-012-E ACL hooks.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: bash scripts/deploy/test-syntax.sh
+    expect: exit 0
+max_turns: 20
