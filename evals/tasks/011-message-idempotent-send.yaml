@@ -1,0 +1,7 @@
+id: 011
+title: Idempotent send survives concurrent retries
+goal: 5 concurrent sends with same Idempotency-Key → 1 stored, 4 replayed, 1 DB row.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- messages.idempotency
+    expect: exit 0
+max_turns: 20
