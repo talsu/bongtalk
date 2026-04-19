@@ -60,6 +60,9 @@
   "lint-staged": {
     "*.{ts,tsx,js,jsx,json,md,yml,yaml}": [
       "prettier --write"
+    ],
+    "*": [
+      "bash scripts/gitleaks-staged.sh"
     ]
   },
   "pnpm": {
