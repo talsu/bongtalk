@@ -1,0 +1,11 @@
+id: 018
+title: readyz detects and reports degraded subsystems
+goal: |
+  When the outbox dispatcher has not ticked in over 10 seconds, /readyz
+  responds with HTTP 503 + `checks.outbox = "stalled"` + a human-readable
+  `details.outbox` reason. The canary pipeline consumes this as its
+  auto-rollback gate.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- health.degraded
+    expect: exit 0
+max_turns: 15

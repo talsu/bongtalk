@@ -1,4 +1,10 @@
 import 'reflect-metadata';
+import { startOtel } from './observability/otel/otel-sdk';
+// OTEL SDK MUST start before any Nest module imports so auto-instrumentation
+// can monkey-patch `http`, `pg`, `ioredis` at require-time. Putting this call
+// after the NestFactory import would register no-op hooks on already-loaded
+// modules.
+startOtel();
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import cookieParser from 'cookie-parser';
@@ -35,7 +41,7 @@ async function bootstrap(): Promise<void> {
   await ioAdapter.connectToRedis();
   app.useWebSocketAdapter(ioAdapter);
 
-  // TODO(task-009): bootstrap OpenTelemetry SDK with stdout exporter.
+  // OTEL SDK already started at the top of the file (before Nest import).
 
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port, '0.0.0.0');

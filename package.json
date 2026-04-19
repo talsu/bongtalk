@@ -30,6 +30,8 @@
     "verify": "turbo run lint typecheck test",
     "smoke": "bash scripts/smoke.sh",
     "eval": "tsx evals/run.ts",
+    "soak": "tsx evals/soak/run.ts",
+    "soak:local": "SOAK_DURATION_MINUTES=15 tsx evals/soak/run.ts",
     "db:up": "docker-compose --profile dev up -d postgres redis",
     "db:down": "docker-compose --profile dev down",
     "db:reset": "pnpm --filter @qufox/api db:reset",

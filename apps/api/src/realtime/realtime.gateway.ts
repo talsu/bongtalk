@@ -1,4 +1,4 @@
-import { Logger } from '@nestjs/common';
+import { Logger, Optional } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -17,6 +17,7 @@ import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { rooms } from './rooms/room-names';
+import { MetricsService } from '../observability/metrics/metrics.service';
 
 type SocketState = {
   user: WsUserPayload;
@@ -53,6 +54,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private readonly throttler: PresenceThrottler,
     private readonly replay: ReplayBufferService,
     private readonly prisma: PrismaService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   afterInit(server: Server): void {
@@ -66,9 +68,12 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   async handleConnection(client: Socket): Promise<void> {
     const user = client.data.user as WsUserPayload | undefined;
     if (!user) {
+      this.metrics?.wsConnectionsTotal.labels('rejected_auth').inc();
       client.disconnect(true);
       return;
     }
+    this.metrics?.wsConnectionsTotal.labels('accepted').inc();
+    this.metrics?.wsConnectionsActive.inc();
     const {
       rooms: joinable,
       workspaceIds,
@@ -82,6 +87,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       userId: user.userId,
       workspaceIds,
     });
+    this.metrics?.wsPresenceSessionsActive.inc();
 
     // Schedule a throttled presence broadcast per workspace the user just
     // joined — the throttler guarantees one emit per 2s window per workspace.
@@ -117,9 +123,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     );
   }
 
-  async handleDisconnect(client: Socket): Promise<void> {
+  async handleDisconnect(client: Socket, reason?: string): Promise<void> {
     const state = client.data.state as SocketState | undefined;
+    this.metrics?.wsConnectionsActive.dec();
+    this.metrics?.wsDisconnectionsTotal
+      .labels(this.metrics.bucket('wsDisconnectReason', normalizeReason(reason)))
+      .inc();
     if (!state) return;
+    this.metrics?.wsPresenceSessionsActive.dec();
     const { goneFrom } = await this.presence.unregister({
       sessionId: state.user.sessionId,
       userId: state.user.userId,
@@ -212,4 +223,20 @@ function pickLastEventId(client: Socket): string | null {
   const auth = client.handshake.auth as { lastEventId?: string } | undefined;
   if (auth?.lastEventId && typeof auth.lastEventId === 'string') return auth.lastEventId;
   return null;
+}
+
+/**
+ * Maps Socket.IO / engine.io disconnect reason strings to our bounded enum.
+ * Common values: `transport close`, `transport error`, `ping timeout`,
+ * `client namespace disconnect`, `server namespace disconnect`,
+ * `forced close`, `server shutting down`.
+ */
+function normalizeReason(raw: string | undefined): string {
+  if (!raw) return 'client';
+  const s = raw.toLowerCase();
+  if (s.includes('transport error') || s.includes('ping timeout')) return 'transport_error';
+  if (s.includes('server namespace') || s.includes('forced close') || s.includes('server shutting'))
+    return 'server_kick';
+  if (s.includes('membership')) return 'membership_revoked';
+  return 'client';
 }

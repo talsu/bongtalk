@@ -1,10 +1,12 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, Optional } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import type { Server } from 'socket.io';
 import { RealtimeGateway } from '../realtime.gateway';
 import { rooms } from '../rooms/room-names';
 import { ReplayBufferService } from './replay-buffer.service';
 import type { WsEnvelope } from '../events/ws-event-envelope';
+import { MetricsService } from '../../observability/metrics/metrics.service';
+import { withSpan } from '../../observability/otel/propagation';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -36,6 +38,7 @@ export class OutboxToWsSubscriber {
   constructor(
     private readonly gateway: RealtimeGateway,
     private readonly replay: ReplayBufferService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   private get io(): Server | null {
@@ -117,6 +120,16 @@ export class OutboxToWsSubscriber {
       );
     }
     const room = scope === 'channel' ? rooms.channel(id) : rooms.workspace(id);
-    this.io.to(room).emit(env.type, env);
+    await withSpan('ws.emit', { 'ws.event.type': env.type, 'ws.room': room }, async () => {
+      this.io!.to(room).emit(env.type, env);
+    });
+    this.metrics?.wsEventsEmittedTotal.labels(env.type).inc();
+    // Fan-out latency = occurredAt → now (emit). The per-channel replay
+    // append + socket.io emit both happen in this frame, so `now` captures
+    // the wire handoff moment.
+    const fanoutSec = (Date.now() - new Date(env.occurredAt).getTime()) / 1000;
+    if (Number.isFinite(fanoutSec) && fanoutSec >= 0) {
+      this.metrics?.wsMessageFanoutLatencySeconds.observe(fanoutSec);
+    }
   }
 }

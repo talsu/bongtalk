@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { HealthController } from '../src/health/health.controller';
+import { OutboxHealthIndicator } from '../src/health/outbox-health.indicator';
 import { PrismaService } from '../src/prisma/prisma.module';
 import { REDIS } from '../src/redis/redis.module';
 
@@ -10,6 +11,25 @@ beforeEach(() => {
 
 const prismaStub = { $queryRaw: vi.fn(async () => [{ '?column?': 1 }]) };
 const redisStub = { ping: vi.fn(async () => 'PONG') };
+const outboxOk = { check: vi.fn(async () => ({ ok: true })) };
+const outboxStalled = {
+  check: vi.fn(async () => ({ ok: false, reason: 'stalled (42s)' })),
+};
+
+function mockRes() {
+  let status = 200;
+  return {
+    res: {
+      status(code: number) {
+        status = code;
+        return this;
+      },
+    },
+    get status() {
+      return status;
+    },
+  };
+}
 
 describe('HealthController', () => {
   it('/healthz returns ok + version + uptime', async () => {
@@ -18,6 +38,7 @@ describe('HealthController', () => {
       providers: [
         { provide: PrismaService, useValue: prismaStub },
         { provide: REDIS, useValue: redisStub },
+        { provide: OutboxHealthIndicator, useValue: outboxOk },
       ],
     }).compile();
     const ctrl = mod.get(HealthController);
@@ -27,31 +48,61 @@ describe('HealthController', () => {
     expect(typeof res.uptime).toBe('number');
   });
 
-  it('/readyz returns ok when checks pass', async () => {
+  it('/readyz returns ok when all checks pass', async () => {
     const mod = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
         { provide: PrismaService, useValue: prismaStub },
         { provide: REDIS, useValue: redisStub },
+        { provide: OutboxHealthIndicator, useValue: outboxOk },
       ],
     }).compile();
-    const ctrl = mod.get(HealthController);
-    const res = await ctrl.ready();
+    const m = mockRes();
+    const res = await mod.get(HealthController).ready(m.res as never);
     expect(res.status).toBe('ok');
-    expect(res.checks.db).toBe(true);
-    expect(res.checks.redis).toBe(true);
+    expect(res.checks.db).toBe('ok');
+    expect(res.checks.redis).toBe('ok');
+    expect(res.checks.outbox).toBe('ok');
+    expect(m.status).toBe(200);
   });
 
-  it('/readyz returns degraded when redis is down', async () => {
+  it('/readyz returns degraded 503 when redis is down', async () => {
     const mod = await Test.createTestingModule({
       controllers: [HealthController],
       providers: [
         { provide: PrismaService, useValue: prismaStub },
-        { provide: REDIS, useValue: { ping: vi.fn(async () => { throw new Error('down'); }) } },
+        {
+          provide: REDIS,
+          useValue: {
+            ping: vi.fn(async () => {
+              throw new Error('down');
+            }),
+          },
+        },
+        { provide: OutboxHealthIndicator, useValue: outboxOk },
       ],
     }).compile();
-    const res = await mod.get(HealthController).ready();
+    const m = mockRes();
+    const res = await mod.get(HealthController).ready(m.res as never);
     expect(res.status).toBe('degraded');
-    expect(res.checks.redis).toBe(false);
+    expect(res.checks.redis).toBe('fail');
+    expect(m.status).toBe(503);
+  });
+
+  it('/readyz reports outbox stalled with reason', async () => {
+    const mod = await Test.createTestingModule({
+      controllers: [HealthController],
+      providers: [
+        { provide: PrismaService, useValue: prismaStub },
+        { provide: REDIS, useValue: redisStub },
+        { provide: OutboxHealthIndicator, useValue: outboxStalled },
+      ],
+    }).compile();
+    const m = mockRes();
+    const res = await mod.get(HealthController).ready(m.res as never);
+    expect(res.status).toBe('degraded');
+    expect(res.checks.outbox).toBe('stalled');
+    expect(res.details?.outbox).toContain('stalled');
+    expect(m.status).toBe(503);
   });
 });
