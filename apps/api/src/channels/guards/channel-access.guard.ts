@@ -1,0 +1,79 @@
+import { CanActivate, ExecutionContext, Inject, Injectable } from '@nestjs/common';
+import { Reflector } from '@nestjs/core';
+import type { Request } from 'express';
+import { PrismaService } from '../../prisma/prisma.module';
+import { DomainError } from '../../common/errors/domain-error';
+import { ErrorCode } from '../../common/errors/error-code.enum';
+
+export const ALLOW_ARCHIVED_KEY = 'allowArchivedChannel';
+
+/**
+ * Loads `:id` (channel) into `req.channel`, scoped to the workspace already
+ * validated by `WorkspaceMemberGuard`. A soft-deleted channel is hidden as
+ * **404 CHANNEL_NOT_FOUND**. An archived channel is readable but the guard
+ * flags it so mutating routes can reject.
+ *
+ * Mutating routes annotate themselves with `@AllowArchivedChannel()` (rare —
+ * only `archive`/`unarchive`/`restore`/`delete`).
+ */
+@Injectable()
+export class ChannelAccessGuard implements CanActivate {
+  constructor(
+    @Inject(PrismaService) private readonly prisma: PrismaService,
+    @Inject(Reflector) private readonly reflector: Reflector,
+  ) {}
+
+  async canActivate(context: ExecutionContext): Promise<boolean> {
+    const req = context.switchToHttp().getRequest<
+      Request & {
+        params: Record<string, string>;
+        workspace?: { id: string };
+        channel?: unknown;
+      }
+    >();
+
+    const channelId = req.params.chid ?? req.params.id;
+    if (!channelId) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'channel id path parameter missing',
+      );
+    }
+    const wsId = req.workspace?.id ?? req.params.id ?? req.params.wsId;
+    if (!wsId) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'workspace context missing in request',
+      );
+    }
+
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId: wsId },
+      select: {
+        id: true,
+        workspaceId: true,
+        name: true,
+        type: true,
+        archivedAt: true,
+        deletedAt: true,
+      },
+    });
+    if (!channel || channel.deletedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+
+    const allowArchived = this.reflector.getAllAndOverride<boolean | undefined>(
+      ALLOW_ARCHIVED_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (channel.archivedAt && !allowArchived) {
+      throw new DomainError(
+        ErrorCode.CHANNEL_ARCHIVED,
+        'channel is archived — unarchive first',
+      );
+    }
+
+    req.channel = channel;
+    return true;
+  }
+}

@@ -77,6 +77,7 @@ async function main() {
       workspaceId: wsId,
       name: 'general',
       type: ChannelType.TEXT,
+      position: '1000000000.0000000000',
     },
   });
   await prisma.channel.upsert({
@@ -87,6 +88,7 @@ async function main() {
       workspaceId: wsId,
       name: 'random',
       type: ChannelType.TEXT,
+      position: '2000000000.0000000000',
     },
   });
 
