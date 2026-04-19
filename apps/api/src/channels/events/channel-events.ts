@@ -1,0 +1,11 @@
+export const CHANNEL_CREATED = 'channel.created';
+export const CHANNEL_UPDATED = 'channel.updated';
+export const CHANNEL_DELETED = 'channel.deleted';
+export const CHANNEL_RESTORED = 'channel.restored';
+export const CHANNEL_ARCHIVED = 'channel.archived';
+export const CHANNEL_UNARCHIVED = 'channel.unarchived';
+export const CHANNEL_MOVED = 'channel.moved';
+export const CATEGORY_CREATED = 'category.created';
+export const CATEGORY_UPDATED = 'category.updated';
+export const CATEGORY_DELETED = 'category.deleted';
+export const CATEGORY_MOVED = 'category.moved';

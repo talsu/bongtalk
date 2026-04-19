@@ -109,6 +109,12 @@ function bodyFor(method: string, path: string): object | undefined {
   if (method === 'POST' && path.endsWith('/transfer-ownership'))
     return { toUserId: actors.admin.userId };
   if (method === 'POST' && path.endsWith('/invites')) return { maxUses: 1 };
+  if (method === 'POST' && path.endsWith('/channels')) {
+    return { name: `ch-mtx-${Math.random().toString(36).slice(2, 8)}`, type: 'TEXT' };
+  }
+  if (method === 'POST' && path.endsWith('/categories')) {
+    return { name: `Cat Mtx ${Math.random().toString(36).slice(2, 6)}` };
+  }
   if (method === 'PATCH' && path.match(/\/workspaces\/[^/]+$/)) return { name: 'renamed' };
   return undefined;
 }

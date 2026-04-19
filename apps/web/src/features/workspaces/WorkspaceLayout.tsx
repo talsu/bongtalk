@@ -9,6 +9,7 @@ import {
   useWorkspace,
 } from './useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
+import { ChannelSidebar } from '../channels/ChannelSidebar';
 
 export function WorkspaceLayout(): JSX.Element {
   const { slug } = useParams();
@@ -74,6 +75,16 @@ export function WorkspaceLayout(): JSX.Element {
         >
           + new workspace
         </Link>
+
+        {wsId && (
+          <div className="mt-4 border-t border-slate-200 pt-2">
+            <ChannelSidebar
+              workspaceId={wsId}
+              workspaceSlug={active.slug}
+              canManage={canManage}
+            />
+          </div>
+        )}
       </aside>
 
       <main className="flex-1 p-8">

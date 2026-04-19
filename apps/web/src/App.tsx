@@ -143,6 +143,14 @@ export default function App(): JSX.Element {
               }
             />
             <Route
+              path="/w/:slug/:channelName"
+              element={
+                <ProtectedRoute>
+                  <WorkspaceLayout />
+                </ProtectedRoute>
+              }
+            />
+            <Route
               path="/"
               element={
                 <ProtectedRoute>

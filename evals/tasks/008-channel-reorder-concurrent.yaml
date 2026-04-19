@@ -1,0 +1,10 @@
+id: 008
+title: Concurrent channel reorder converges to consistent state
+goal: |
+  Two admins concurrently reorder the same channel. Final DB state must have
+  every position distinct across the workspace so the UI ordering is
+  deterministic.
+dod:
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+max_turns: 20

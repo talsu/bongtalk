@@ -19,17 +19,8 @@ export const WorkspaceSchema = z.object({
 });
 export type Workspace = z.infer<typeof WorkspaceSchema>;
 
-export const ChannelTypeSchema = z.enum(['TEXT']);
-export type ChannelType = z.infer<typeof ChannelTypeSchema>;
-
-export const ChannelSchema = z.object({
-  id: UuidSchema,
-  workspaceId: UuidSchema,
-  name: z.string().min(1).max(64),
-  type: ChannelTypeSchema,
-  createdAt: z.string().datetime(),
-});
-export type Channel = z.infer<typeof ChannelSchema>;
+// Channel/ChannelType schemas were moved to `./channel.ts` in task-003 and
+// are re-exported at the bottom of this file.
 
 export const MessageSchema = z.object({
   id: UuidSchema,
@@ -79,6 +70,15 @@ export const ErrorCodeSchema = z.enum([
   'INVITE_NOT_FOUND',
   'INVITE_EXPIRED',
   'INVITE_EXHAUSTED',
+  'CHANNEL_NOT_FOUND',
+  'CHANNEL_NAME_TAKEN',
+  'CHANNEL_NAME_INVALID',
+  'CHANNEL_TYPE_NOT_IMPLEMENTED',
+  'CHANNEL_PURGED',
+  'CHANNEL_POSITION_INVALID',
+  'CHANNEL_ARCHIVED',
+  'CATEGORY_NOT_FOUND',
+  'CATEGORY_NAME_TAKEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
@@ -96,3 +96,4 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 export * from './auth';
 export * from './workspace';
+export * from './channel';

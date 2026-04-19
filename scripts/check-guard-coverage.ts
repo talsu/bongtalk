@@ -143,8 +143,11 @@ function joinPath(prefix: string | null, sub: string | null): string {
 }
 
 function main(): void {
-  const root = join(process.cwd(), 'apps/api/src/workspaces');
-  const files = walk(root);
+  const roots = [
+    join(process.cwd(), 'apps/api/src/workspaces'),
+    join(process.cwd(), 'apps/api/src/channels'),
+  ];
+  const files = roots.flatMap((root) => walk(root));
   const findings: Finding[] = [];
   let totalRoutes = 0;
   let guardedRoutes = 0;
