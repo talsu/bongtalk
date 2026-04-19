@@ -11,6 +11,15 @@ set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
+# Share the webhook's flock (task-011-C MED-2 fix — the old runbook
+# claimed this was already true; it wasn't). A manual prod-reload now
+# blocks if an auto-deploy is in flight and vice versa. Release on
+# script exit via the EXIT trap below.
+# shellcheck source=./deploy/lock.sh
+. "$(dirname "$0")/deploy/lock.sh"
+deploy::acquire_lock || exit $?
+trap 'deploy::release_lock' EXIT
+
 TARGET="${1:-all}"
 COMPOSE=(docker compose --env-file .env.prod -f docker-compose.prod.yml)
 

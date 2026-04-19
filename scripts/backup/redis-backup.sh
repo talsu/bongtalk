@@ -29,18 +29,38 @@ OUT_FILE="$OUT_DIR/qufox-$STAMP.rdb.gz"
 
 log() { printf '[redis-backup] %s\n' "$*"; }
 
-log "BGSAVE on $REDIS_HOST:$REDIS_PORT"
-redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" BGSAVE >/dev/null
-
-# Wait for BGSAVE to finish — the command is async, but LASTSAVE ticks
-# when the snapshot completes. Cap at 60s.
-deadline=$(( $(date +%s) + 60 ))
+# Task-011-C MED-4: read LASTSAVE BEFORE issuing BGSAVE, assert the
+# BGSAVE command itself returns success, then poll for the timestamp
+# to advance strictly past `initial`. Previously the `initial` capture
+# ran AFTER BGSAVE, so a concurrent save that finished between
+# `BGSAVE` and `initial=$(LASTSAVE)` would hide the "save didn't
+# happen" case and we'd gzip a half-written dump.rdb.
 initial=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" LASTSAVE)
+log "BGSAVE on $REDIS_HOST:$REDIS_PORT (LASTSAVE before: $initial)"
+
+BGSAVE_REPLY=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" BGSAVE || true)
+if [[ "$BGSAVE_REPLY" != *"Background saving started"* ]]; then
+  log "FAIL: BGSAVE did not start (reply: $BGSAVE_REPLY)" >&2
+  exit 2
+fi
+
+# Poll until LASTSAVE strictly advances. 60s is the same cap as before
+# but now we REQUIRE the advance, not just tolerate missing it.
+deadline=$(( $(date +%s) + 60 ))
+completed=0
 while [[ $(date +%s) -lt $deadline ]]; do
   current=$(redis-cli -h "$REDIS_HOST" -p "$REDIS_PORT" LASTSAVE)
-  if [[ "$current" != "$initial" ]]; then break; fi
+  if (( current > initial )); then
+    completed=1
+    log "BGSAVE completed (LASTSAVE: $initial → $current)"
+    break
+  fi
   sleep 1
 done
+if [[ "$completed" -eq 0 ]]; then
+  log "FAIL: BGSAVE did not advance LASTSAVE within 60s (still $initial)" >&2
+  exit 3
+fi
 
 if [[ -f /redis-data/dump.rdb ]]; then
   log "copy /redis-data/dump.rdb"

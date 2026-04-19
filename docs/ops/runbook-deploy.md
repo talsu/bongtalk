@@ -49,8 +49,12 @@ under `.deploy/logs/`.
 
 ## Manual path (escape hatch)
 
-`scripts/prod-reload.sh [api|web|all]` still works and acquires the
-same flock as the webhook. Use it when the webhook itself is sick.
+`scripts/prod-reload.sh [api|web|all]` still works and — as of
+task-011-C MED-2 — acquires the same flock as the webhook. A manual
+reload will wait (or exit 75 via `flock -n`) if the webhook is
+mid-deploy, and vice versa. Use it when the webhook itself is sick;
+if the webhook is healthy, prefer `git push` so the audit trail
+exists.
 
 ## Things that don't auto-deploy
 
