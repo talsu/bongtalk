@@ -509,3 +509,18 @@ ts` so the "jump" is verified at the DOM level, not just URL
 - **TODO(task-011-follow-9)**: reconcile the task doc's "drop
   integration.yml + e2e.yml placeholders" line with what was actually
   deleted (finding #10). Doc-only update.
+
+## Resolution (task-011 reviewer response — commit 2c3ad4b)
+
+HIGH + MED fixed forward on `feat/task-011-beta-switchover`.
+LOW/NIT carried as `TODO(task-011-follow-*)` markers above.
+
+| Finding                                              | Severity | Resolution                                                                                                                                                                                                               |
+| ---------------------------------------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 1. apply-nginx-diff splices inside last server block | HIGH     | **Fixed**: `scripts/setup/apply-nginx-diff.sh` now appends at EOF. The NAS file has no `http { }` wrapper; a top-level server block is correct for an include-fragment. `nginx -t` auto-rollback remains the safety net. |
+| 2. CREATE INDEX CONCURRENTLY inside Prisma migration | HIGH     | **Fixed**: `20260420000000_add_mentions_gin_index/migration.sql` drops `CONCURRENTLY`. Comment documents the Prisma tx-wrapper incompatibility + the revisit condition (~100k rows).                                     |
+| 3. /me/mentions leaks mentions after workspace kick  | MED      | **Fixed**: both `recent()` and `unreadCount()` in `me-mentions.service.ts` JOIN `WorkspaceMember` scoped to the caller.                                                                                                  |
+| 4. prod-reload break-glass                           | MED      | **Fixed**: `--force` flag in `scripts/prod-reload.sh` bypasses the flock and writes `manual.force-unlock` to `.deploy/audit.jsonl`. `docs/ops/switchover-checklist.md` gains a "deploy lock is stuck" recovery block.    |
+| 5. VITE_API_URL not threaded into test-web           | MED      | **Fixed**: `apps/web/Dockerfile` declares `ARG VITE_API_URL=/api` + `ENV VITE_API_URL=${VITE_API_URL}`; `docker-compose.test.yml` passes `VITE_API_URL=http://localhost:43001` via `build.args`.                         |
+| 6-10. LOW items                                      | LOW      | Carried as `TODO(task-011-follow-*)` markers; see the follow-up list above.                                                                                                                                              |
+| 11-12. NIT positives / AC gap                        | NIT      | Noted; GHA enforces test:int / test:e2e on push.                                                                                                                                                                         |
