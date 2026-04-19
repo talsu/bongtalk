@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { connect, disconnect, getLastEventId, setLastEventId } from '../../lib/socket';
 import { getAccessToken } from '../../lib/api';
+import { useUI } from '../../stores/ui-store';
 import { installRealtimeDispatcher, DISPATCHED_EVENTS } from './dispatcher';
 
 export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
@@ -33,17 +34,18 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
     socket.on('connect_error', () => setStatus('disconnected'));
 
     // Cache-mutation side of realtime (single dispatcher).
-    // DispatcherContext gives the unread-bump path awareness of the
-    // current viewer so it can skip bumps for self-authored messages.
-    // ActiveChannelId defers to null — the ChannelView's POST /read
-    // call on mount + focus will zero unread for the open channel,
-    // so a transient false-positive (bumped then zeroed) is harmless.
+    // DispatcherContext gives the unread-bump path awareness of both
+    // the viewer and the currently-open channel so the dispatcher skips
+    // bumps for self-authored messages AND for messages that arrive on
+    // the channel the user is actively reading (Discord semantic: "I
+    // saw it, it's read"). MessageColumn writes activeChannelId into
+    // the UI store on mount / unmount.
     const detach = installRealtimeDispatcher(socket, qc, {
       viewerId: () => {
         const me = qc.getQueryData<{ id: string } | undefined>(['auth', 'me']);
         return me?.id ?? null;
       },
-      activeChannelId: () => null,
+      activeChannelId: () => useUI.getState().activeChannelId,
     });
 
     // Independent side: track envelope.id into localStorage so a later

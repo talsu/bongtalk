@@ -98,7 +98,7 @@ export class PublicInvitesController {
 
   @Post(':code/accept')
   async accept(@Param('code') code: string, @CurrentUser() user: CurrentUserPayload) {
-    // TODO(task-011): add a second rate-limit bucket keyed on the invite
+    // TODO(task-031): add a second rate-limit bucket keyed on the invite
     // `code` itself (not just the user) so a botnet of fresh accounts
     // can't brute-force a single invite by rotating user ids.
     await this.rateLimit.enforce([

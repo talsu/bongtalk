@@ -105,7 +105,7 @@ export class WorkspacesService {
   }
 
   async softDelete(workspaceId: string, actorId: string) {
-    // TODO(task-014): schedule a purge worker that hard-deletes rows where
+    // TODO(task-034): schedule a purge worker that hard-deletes rows where
     // `deleteAt <= now` (workspace + cascaded channels/messages/members).
     // Until that worker exists, soft-deleted rows accumulate forever and
     // the grace-window never actually causes cleanup to happen.
@@ -167,7 +167,7 @@ export class WorkspacesService {
         'cannot transfer ownership to yourself',
       );
     }
-    // TODO(task-013): bump this $transaction to isolationLevel:
+    // TODO(task-033): bump this $transaction to isolationLevel:
     // 'Serializable' so two concurrent `transferOwnership` calls against
     // the same workspace serialise at the DB level rather than interleaving
     // role updates. Default is READ COMMITTED which is theoretically
