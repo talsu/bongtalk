@@ -10,12 +10,15 @@ import { GenericContainer } from 'testcontainers';
 import cookieParser from 'cookie-parser';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
+import type Redis from 'ioredis';
 import { AppModule } from '../../../src/app.module';
 import { PrismaService } from '../../../src/prisma/prisma.module';
+import { REDIS } from '../../../src/redis/redis.module';
 
 export type WsIntEnv = {
   app: INestApplication;
   prisma: PrismaService;
+  redis: Redis;
   baseUrl: string;
   stop: () => Promise<void>;
 };
@@ -68,10 +71,12 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
   const addr = app.getHttpServer().address() as { port: number };
   const baseUrl = `http://127.0.0.1:${addr.port}`;
   const prisma = app.get(PrismaService);
+  const redisClient = app.get<Redis>(REDIS);
 
   return {
     app,
     prisma,
+    redis: redisClient,
     baseUrl,
     stop: async () => {
       await app.close();
@@ -87,7 +92,13 @@ const ORIGIN = 'http://localhost:45173';
 export async function signupAsUser(
   baseUrl: string,
   prefix: string,
-): Promise<{ userId: string; email: string; username: string; accessToken: string; cookie: string }> {
+): Promise<{
+  userId: string;
+  email: string;
+  username: string;
+  accessToken: string;
+  cookie: string;
+}> {
   const request = (await import('supertest')).default;
   const stamp = `${Date.now()}${Math.floor(Math.random() * 99999)}`;
   const email = `${prefix}-${stamp}@qufox.dev`;

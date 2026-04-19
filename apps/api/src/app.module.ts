@@ -11,6 +11,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { ChannelsModule } from './channels/channels.module';
+import { MessagesModule } from './messages/messages.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 
 @Module({
@@ -23,12 +24,10 @@ import { OutboxModule } from './common/outbox/outbox.module';
     AuthModule,
     WorkspacesModule,
     ChannelsModule,
+    MessagesModule,
   ],
   controllers: [HealthController],
-  providers: [
-    RealtimeGateway,
-    { provide: APP_FILTER, useClass: DomainExceptionFilter },
-  ],
+  providers: [RealtimeGateway, { provide: APP_FILTER, useClass: DomainExceptionFilter }],
 })
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer): void {

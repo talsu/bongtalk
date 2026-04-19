@@ -1,0 +1,9 @@
+id: 010
+title: Cursor pagination handles concurrent inserts without drift
+goal: |
+  Load 2 pages via before-cursor, insert 5 new messages at the head,
+  fetch the next page — verify no duplicates, no skipped rows.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- messages.pagination
+    expect: exit 0
+max_turns: 25

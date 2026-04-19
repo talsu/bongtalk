@@ -109,6 +109,7 @@ async function main() {
         channelId: m.ch,
         authorId: m.author,
         content: m.content,
+        contentPlain: m.content,
       },
     });
   }

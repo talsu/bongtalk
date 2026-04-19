@@ -49,10 +49,7 @@ function decoratorsBefore(lines: string[], idx: number): string[] {
       // single-line decorator OR start of multi-line — collect until line ends with close paren / no open paren
       let collected = line;
       // If the decorator call spans multiple lines (opens paren but doesn't close)…
-      while (
-        (collected.match(/\(/g)?.length ?? 0) >
-        (collected.match(/\)/g)?.length ?? 0)
-      ) {
+      while ((collected.match(/\(/g)?.length ?? 0) > (collected.match(/\)/g)?.length ?? 0)) {
         i--;
         if (i < 0) break;
         collected = `${lines[i].trim()} ${collected}`;
@@ -76,7 +73,7 @@ function classesIn(source: string): ClassInfo[] {
     const decos = decoratorsBefore(lines, i);
     const controllerDeco = decos.find((d) => d.startsWith('@Controller'));
     const routePrefix = controllerDeco
-      ? (controllerDeco.match(/@Controller\s*\(\s*['"`]([^'"`]+)['"`]/) ?? [])[1] ?? null
+      ? ((controllerDeco.match(/@Controller\s*\(\s*['"`]([^'"`]+)['"`]/) ?? [])[1] ?? null)
       : null;
     const bodyStart = source.indexOf('{', source.indexOf(`class ${name}`));
     const bodyEnd = findMatchingBrace(source, bodyStart);
@@ -103,9 +100,7 @@ function methodsIn(body: string): Array<{
     if (!m) continue;
     if (['constructor', 'if', 'for', 'while', 'return', 'switch', 'catch'].includes(m[1])) continue;
     const decos = decoratorsBefore(lines, i);
-    const httpDeco = decos.find((d) =>
-      HTTP_DECORATORS.some((h) => d.startsWith(h)),
-    );
+    const httpDeco = decos.find((d) => HTTP_DECORATORS.some((h) => d.startsWith(h)));
     if (!httpDeco) continue;
     const verb = httpDeco.match(/^@(\w+)/)![1].toUpperCase();
     const pathMatch = httpDeco.match(/['"`]([^'"`]+)['"`]/);
@@ -146,6 +141,7 @@ function main(): void {
   const roots = [
     join(process.cwd(), 'apps/api/src/workspaces'),
     join(process.cwd(), 'apps/api/src/channels'),
+    join(process.cwd(), 'apps/api/src/messages'),
   ];
   const files = roots.flatMap((root) => walk(root));
   const findings: Finding[] = [];

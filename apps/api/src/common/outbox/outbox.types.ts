@@ -8,7 +8,8 @@ export type OutboxAggregate =
   | 'member'
   | 'invite'
   | 'channel'
-  | 'category';
+  | 'category'
+  | 'Message';
 
 export type OutboxRecordInput = {
   aggregateType: OutboxAggregate;

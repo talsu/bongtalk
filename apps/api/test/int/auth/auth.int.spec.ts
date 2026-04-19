@@ -58,10 +58,12 @@ describe('POST /auth/signup', () => {
   it('rejects weak password (422 AUTH_WEAK_PASSWORD)', async () => {
     const res = await signup('weak@qufox.dev', unique('weak'));
     // Override the password to a weak one by calling directly
+    // Only 2 character classes (lower + digit) — fails the reason-based rule
+    // "3 of: lower/upper/digit/symbol" kept after the zxcvbn gate was removed.
     const direct = await request(env.baseUrl)
       .post('/auth/signup')
       .set('origin', 'http://localhost:45173')
-      .send({ email: `${unique('w')}@qufox.dev`, username: unique('w'), password: 'Password12' });
+      .send({ email: `${unique('w')}@qufox.dev`, username: unique('w'), password: 'abcdefgh12' });
     expect(direct.status).toBe(422);
     expect(direct.body.errorCode).toBe('AUTH_WEAK_PASSWORD');
     // Signal we used the first call too (idempotent for the test).
