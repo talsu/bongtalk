@@ -1,0 +1,70 @@
+# Production stack for qufox.com. Joins the shared `internal` bridge network so
+# the existing nginx-proxy-1 (in /volume2/dockers/nginx) can reach these
+# containers by name. Postgres + Redis are dedicated prod instances so dev can
+# keep running on the same host without data contamination.
+services:
+  qufox-postgres-prod:
+    image: postgres:16-alpine
+    container_name: qufox-postgres-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: qufox
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.prod}
+      POSTGRES_DB: qufox
+    volumes:
+      - qufox-prod-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U qufox -d qufox']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  qufox-redis-prod:
+    image: redis:7-alpine
+    container_name: qufox-redis-prod
+    restart: unless-stopped
+    healthcheck:
+      test: ['CMD', 'redis-cli', 'ping']
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [internal]
+
+  qufox-api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    image: qufox/api:latest
+    container_name: qufox-api
+    restart: unless-stopped
+    env_file: [.env.prod]
+    environment:
+      NODE_ENV: production
+      API_PORT: '3001'
+      DATABASE_URL: postgresql://qufox:${POSTGRES_PASSWORD:?}@qufox-postgres-prod:5432/qufox?schema=public
+      REDIS_URL: redis://qufox-redis-prod:6379
+      CORS_ORIGINS: https://qufox.com
+    depends_on:
+      qufox-postgres-prod:
+        condition: service_healthy
+      qufox-redis-prod:
+        condition: service_healthy
+    networks: [internal]
+
+  qufox-web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+    image: qufox/web:latest
+    container_name: qufox-web
+    restart: unless-stopped
+    depends_on: [qufox-api]
+    networks: [internal]
+
+networks:
+  internal:
+    external: true
+
+volumes:
+  qufox-prod-pgdata:
