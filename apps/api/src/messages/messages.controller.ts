@@ -99,8 +99,16 @@ export class MessagesController {
     @Param('id', new ParseUUIDPipe()) _wsId: string,
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @CurrentMember() m: CurrentMemberPayload,
   ) {
-    const row = await this.messages.requireOne({ channelId, msgId });
+    // Soft-delete visibility rule: non-admin members get 404 on deleted rows
+    // (matches the list path's includeDeleted=false default). ADMIN+ can see
+    // the row with content masked by `toDto`.
+    const row = await this.messages.requireOne({
+      channelId,
+      msgId,
+      includeDeleted: this.isAdminOrOwner(m.role),
+    });
     return { message: this.messages.toDto(row) };
   }
 
@@ -171,7 +179,9 @@ export class MessagesController {
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    const row = await this.messages.requireOne({ channelId, msgId });
+    // Include deleted rows here so "delete already-deleted" is idempotent
+    // (returns 204) regardless of caller role.
+    const row = await this.messages.requireOne({ channelId, msgId, includeDeleted: true });
     if (row.deletedAt) return; // idempotent
     const isSelf = row.authorId === user.id;
     const isMod = this.isAdminOrOwner(m.role);

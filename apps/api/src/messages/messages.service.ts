@@ -304,14 +304,26 @@ export class MessagesService {
 
   // ------------------------------------------------------------------ get
 
-  async getOne(args: { channelId: string; msgId: string }): Promise<MessageRow | null> {
+  async getOne(args: {
+    channelId: string;
+    msgId: string;
+    includeDeleted?: boolean;
+  }): Promise<MessageRow | null> {
     const row = await this.prisma.message.findFirst({
-      where: { id: args.msgId, channelId: args.channelId },
+      where: {
+        id: args.msgId,
+        channelId: args.channelId,
+        ...(args.includeDeleted ? {} : { deletedAt: null }),
+      },
     });
     return (row as MessageRow | null) ?? null;
   }
 
-  async requireOne(args: { channelId: string; msgId: string }): Promise<MessageRow> {
+  async requireOne(args: {
+    channelId: string;
+    msgId: string;
+    includeDeleted?: boolean;
+  }): Promise<MessageRow> {
     const row = await this.getOne(args);
     if (!row) throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
     return row;
@@ -331,9 +343,12 @@ export class MessagesService {
     const editedAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {
-      // Scoped to channelId so a matching-id-in-another-channel is a 404.
-      const updated = await tx.message.update({
-        where: { id: args.msgId },
+      // Defensive check: even though MessageAuthorGuard 404s on deleted rows,
+      // the service is also callable from tests/scripts. `updateMany` returns
+      // count=0 when the soft-delete predicate fails, so we can tell apart
+      // "no such row" from "row was soft-deleted" without a second query.
+      const { count } = await tx.message.updateMany({
+        where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
         data: {
           content: args.content,
           contentPlain,
@@ -341,6 +356,10 @@ export class MessagesService {
           editedAt,
         },
       });
+      if (count === 0) {
+        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
+      }
+      const updated = (await tx.message.findUnique({ where: { id: args.msgId } }))!;
       const payload: MessageUpdatedPayload = {
         workspaceId: args.workspaceId,
         channelId: args.channelId,

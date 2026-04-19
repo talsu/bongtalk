@@ -90,6 +90,33 @@ describe('Messages CRUD + soft delete', () => {
     expect(raw?.deletedAt).not.toBeNull();
   });
 
+  it('GET :msgId — non-admin gets 404 on soft-deleted row; admin sees it with content masked', async () => {
+    const post = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+      .set(bearer(stack.member.accessToken))
+      .send({ content: 'confidential' });
+    const msgId = post.body.message.id;
+    await request(env.baseUrl)
+      .delete(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set(bearer(stack.admin.accessToken))
+      .expect(204);
+
+    // Non-admin member: 404 (don't leak existence)
+    const asMember = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set(bearer(stack.member.accessToken));
+    expect(asMember.status).toBe(404);
+    expect(asMember.body.errorCode).toBe('MESSAGE_NOT_FOUND');
+
+    // Admin: 200 with content=null, deleted=true (moderation view)
+    const asAdmin = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set(bearer(stack.admin.accessToken));
+    expect(asAdmin.status).toBe(200);
+    expect(asAdmin.body.message.deleted).toBe(true);
+    expect(asAdmin.body.message.content).toBeNull();
+  });
+
   it('GET one rejects id from a different channel (IDOR defence)', async () => {
     // Create a second channel; message in channel A should not be reachable
     // via channel B's path.

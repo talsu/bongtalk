@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef } from 'react';
+import { useCallback, useEffect } from 'react';
 import {
   useInfiniteQuery,
   useMutation,
@@ -29,13 +29,11 @@ export function useMessageHistory(wsId: string, channelId: string) {
 
 export function useSendMessage(wsId: string, channelId: string) {
   const qc = useQueryClient();
-  const pendingRef = useRef<Map<string, string>>(new Map()); // tempId → idempotencyKey
 
   const mutation = useMutation({
     mutationFn: async (args: { content: string; tempId: string; idempotencyKey: string }) =>
       sendMessage(wsId, channelId, { content: args.content }, args.idempotencyKey),
-    onMutate: async ({ content, tempId, idempotencyKey }) => {
-      pendingRef.current.set(tempId, idempotencyKey);
+    onMutate: async ({ content, tempId }) => {
       await qc.cancelQueries({ queryKey: keys.list(wsId, channelId) });
       const prev = qc.getQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId));
       // Optimistic prepend with a tempId — server roundtrip replaces it.
@@ -79,7 +77,6 @@ export function useSendMessage(wsId: string, channelId: string) {
           ),
         };
       });
-      pendingRef.current.delete(tempId);
     },
   });
 

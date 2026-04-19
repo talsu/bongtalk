@@ -102,8 +102,11 @@ describe('Messages outbox events', () => {
     ]);
   });
 
-  it('tx rollback → no outbox row (send fails due to archived channel)', async () => {
-    // Archive the channel so POST fails inside the guard before tx runs
+  it('guard rejects BEFORE tx → no outbox row (archived channel)', async () => {
+    // ChannelAccessGuard returns CHANNEL_ARCHIVED before the send() tx opens,
+    // so there is nothing to roll back — this asserts the pre-tx rejection
+    // rather than genuine tx-abort behaviour. In-tx failure is exercised by
+    // the idempotency 409 path in messages.idempotency.int.spec.ts.
     await request(env.baseUrl)
       .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/archive`)
       .set(bearer(stack.owner.accessToken))
