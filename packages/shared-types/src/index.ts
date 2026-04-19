@@ -22,15 +22,7 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
 // Channel/ChannelType schemas were moved to `./channel.ts` in task-003 and
 // are re-exported at the bottom of this file.
 
-export const MessageSchema = z.object({
-  id: UuidSchema,
-  channelId: UuidSchema,
-  authorId: UuidSchema,
-  content: z.string().min(1).max(4000),
-  createdAt: z.string().datetime(),
-  deletedAt: z.string().datetime().nullable(),
-});
-export type Message = z.infer<typeof MessageSchema>;
+// Message schemas moved to `./message.ts` in task-004 — re-exported at EOF.
 
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -79,6 +71,11 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_ARCHIVED',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
+  'MESSAGE_NOT_FOUND',
+  'MESSAGE_CONTENT_INVALID',
+  'MESSAGE_CURSOR_INVALID',
+  'MESSAGE_NOT_AUTHOR',
+  'IDEMPOTENCY_KEY_REUSE_CONFLICT',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
@@ -97,3 +94,4 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 export * from './auth';
 export * from './workspace';
 export * from './channel';
+export * from './message';
