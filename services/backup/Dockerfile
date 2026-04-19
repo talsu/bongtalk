@@ -11,7 +11,9 @@ RUN apk add --no-cache \
       docker-cli \
       tzdata \
       tini \
-      coreutils
+      coreutils \
+      rsync \
+      aws-cli
 
 WORKDIR /app
 COPY scripts/backup /app/scripts/backup
@@ -23,7 +25,10 @@ ENV TZ=UTC \
     BACKUP_DAILY_KEEP=14 \
     BACKUP_WEEKLY_KEEP=8 \
     BACKUP_CRON="30 3 * * *" \
-    RESTORE_TEST_CRON="45 4 * * 0"
+    RESTORE_TEST_CRON="45 4 * * 0" \
+    BACKUP_CRON_MINIO="0 */4 * * *" \
+    RESTORE_TEST_CRON_MINIO="15 4 * * 0" \
+    ORPHAN_GC_CRON="30 4 * * *"
 
 VOLUME ["/backups"]
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]

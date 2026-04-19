@@ -1,8 +1,10 @@
-# Runbook — Nginx diff for `deploy.qufox.com`
+# Runbook — Nginx diff for `deploy.qufox.com` and `qufox.com /attachments/`
 
-Task-009 **does not** touch `/volume2/dockers/nginx/nginx.conf`
-automatically. The operator applies this diff once, at the "first
-automatic deploy" switchover (see `docs/ops/deploy-inventory.md`).
+Task-009 landed the `deploy.qufox.com` block; task-012-F extends the
+existing `qufox.com` block with an `/attachments/` location that
+proxies to `qufox-minio:9000`. The operator applies each section once
+at the corresponding switchover step (see
+`docs/ops/deploy-inventory.md` + `docs/ops/switchover-checklist.md`).
 
 ## Prerequisite: TLS cert
 
@@ -100,4 +102,68 @@ If the new block breaks something:
 docker exec nginx-proxy-1 nginx -s reload
 # app stays up because the edge change is additive and the app has its
 # own hostname (qufox.com) untouched.
+```
+
+---
+
+## Task-012-F additive: `/attachments/` location on the existing `qufox.com` server block
+
+Paste inside the existing `server { server_name qufox.com; … }` block
+(the one that already routes `/api/` and `/socket.io/`). Do NOT create
+a second server block for `qufox.com` — nginx rejects duplicate host
+names at the same listen port.
+
+```nginx
+    # task-012-F: pass-through to qufox-minio for attachment uploads
+    # (presigned PUT) + downloads (presigned GET). Streaming both
+    # directions so a 100 MB upload doesn't buffer in nginx.
+    location /attachments/ {
+        proxy_pass http://qufox-minio:9000/;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Task-012-B caps single-attachment uploads at 100 MB; the
+        # location-scoped limit overrides the 25m set on the
+        # deploy.qufox.com block above (nginx scopes
+        # client_max_body_size per location).
+        client_max_body_size 100m;
+
+        # Stream PUT body straight through to MinIO. Without these,
+        # nginx would buffer the whole 100 MB before forwarding —
+        # which both wastes disk AND ties up an api worker slot per
+        # upload.
+        proxy_request_buffering off;
+        proxy_buffering         off;
+
+        # Large files over slow links take minutes; the defaults (60s)
+        # would abort mid-upload.
+        proxy_read_timeout      600s;
+        proxy_send_timeout      600s;
+    }
+```
+
+The MinIO admin console (port 9001) is intentionally NOT exposed on
+the public edge. Operators open it via an SSH tunnel to port 9001
+on the NAS:
+
+```sh
+ssh -L 9001:qufox-minio:9001 admin@<nas-host>
+# then open http://localhost:9001 in a local browser
+```
+
+### Apply + verify
+
+```sh
+docker exec nginx-proxy-1 nginx -t
+docker exec nginx-proxy-1 nginx -s reload
+
+# MinIO health through the public edge (expects 200 on the raw
+# health path; MinIO does NOT require auth for /minio/health/live).
+curl -sk -o /dev/null -w '%{http_code}\n' \
+  https://qufox.com/attachments/minio/health/live
+# → 200
+
+# A presign round-trip smoke (driven by init-minio.sh after the
+# bucket exists) proves the signed URL path resolves end-to-end.
 ```

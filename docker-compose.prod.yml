@@ -62,6 +62,32 @@ services:
     depends_on: [qufox-api]
     networks: [internal]
 
+  # task-012-F: single-tenant MinIO for attachments + any future user
+  # uploads. Dev/prod use the same shape (no AWS). Data lives on the
+  # large /volume3 disk at /volume3/qufox-data/minio/; SHR/RAID at the
+  # volume level provides the redundancy. HA / distributed mode is a
+  # future task once attachment availability becomes a hard SLA.
+  qufox-minio:
+    image: minio/minio:RELEASE.2024-09-13T20-26-02Z
+    container_name: qufox-minio
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in .env.prod}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in .env.prod}
+      # Public URL the API presigns against — the browser reaches it
+      # through the nginx `/attachments/` location (see runbook-nginx-diff).
+      MINIO_SERVER_URL: https://qufox.com/attachments
+      MINIO_API_CORS_ALLOW_ORIGIN: https://qufox.com
+    volumes:
+      - /volume3/qufox-data/minio:/data
+    healthcheck:
+      test: ['CMD', 'curl', '-fsS', 'http://localhost:9000/minio/health/live']
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks: [internal]
+
 networks:
   internal:
     external: true
