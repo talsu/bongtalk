@@ -1,0 +1,11 @@
+id: 013
+title: WS fan-out works across multiple API instances
+goal: |
+  Boot two NestApplication instances against the same Postgres + Redis,
+  connect one client to each, send a message through node-1's HTTP — the
+  client on node-2 must receive the message.created event via the Redis
+  pub/sub adapter.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- ws.multi-node
+    expect: exit 0
+max_turns: 25
