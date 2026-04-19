@@ -1,0 +1,10 @@
+id: 019
+title: Shell meets WCAG 2.1 AA baseline
+goal: |
+  @axe-core/playwright reports zero violations on the three primary screens
+  (login, signup, authenticated shell). Tab-only keyboard navigation
+  completes the signup → workspace creation flow end-to-end.
+dod:
+  - command: pnpm --filter @qufox/web test:e2e -- a11y
+    expect: exit 0
+max_turns: 25
