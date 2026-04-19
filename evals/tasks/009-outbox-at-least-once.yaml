@@ -1,0 +1,13 @@
+id: 009
+title: Outbox delivers each event at least once and never on tx rollback
+goal: |
+  Record in tx → rollback = no row. Record + commit → dispatcher fires once
+  per event. Two concurrent drains dispatch each event exactly once (SKIP
+  LOCKED). Retries mark lastError without re-dispatching on next tick.
+dod:
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/common/outbox/**
+      - apps/api/test/int/outbox/**
+max_turns: 25

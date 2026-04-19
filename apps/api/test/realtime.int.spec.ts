@@ -11,6 +11,8 @@ import { INestApplication } from '@nestjs/common';
 import { IoAdapter } from '@nestjs/platform-socket.io';
 import { GenericContainer, StartedTestContainer } from 'testcontainers';
 import { io, Socket } from 'socket.io-client';
+import { execSync } from 'node:child_process';
+import * as path from 'node:path';
 import { AppModule } from '../src/app.module';
 
 let app: INestApplication | undefined;
@@ -32,6 +34,16 @@ beforeAll(async () => {
 
   process.env.REDIS_URL = `redis://${redisContainer.getHost()}:${redisContainer.getMappedPort(6379)}`;
   process.env.DATABASE_URL = `postgresql://qufox:qufox@${pgContainer.getHost()}:${pgContainer.getMappedPort(5432)}/qufox_int?schema=public`;
+
+  // Apply migrations so OutboxDispatcher's startup query against `OutboxEvent`
+  // succeeds. Realtime doesn't need the other tables but sharing the setup
+  // keeps the env coherent with the rest of the int suite.
+  const apiRoot = path.resolve(__dirname, '..');
+  execSync('pnpm exec prisma migrate deploy', {
+    cwd: apiRoot,
+    env: { ...process.env, DATABASE_URL: process.env.DATABASE_URL },
+    stdio: 'pipe',
+  });
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   app = moduleRef.createNestApplication();

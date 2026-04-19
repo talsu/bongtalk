@@ -18,6 +18,23 @@ enum WorkspaceRole {
 
 enum ChannelType {
   TEXT
+  VOICE
+  ANNOUNCEMENT
+}
+
+model OutboxEvent {
+  id            String    @id @default(uuid()) @db.Uuid
+  aggregateType String
+  aggregateId   String    @db.Uuid
+  eventType     String
+  payload       Json
+  occurredAt    DateTime  @default(now())
+  dispatchedAt  DateTime?
+  attempts      Int       @default(0)
+  lastError     String?
+
+  @@index([dispatchedAt, occurredAt])
+  @@index([aggregateType, aggregateId])
 }
 
 model User {
@@ -69,10 +86,11 @@ model Workspace {
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
 
-  owner    User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members  WorkspaceMember[]
-  channels Channel[]
-  invites  Invite[]
+  owner      User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members    WorkspaceMember[]
+  channels   Channel[]
+  categories Category[]
+  invites    Invite[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -92,18 +110,41 @@ model WorkspaceMember {
   @@index([workspaceId, role])
 }
 
+model Category {
+  id          String    @id @default(uuid()) @db.Uuid
+  workspaceId String    @db.Uuid
+  workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  name        String
+  position    Decimal   @db.Decimal(20, 10)
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+  channels    Channel[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
+}
+
 model Channel {
-  id          String      @id @db.Uuid
+  id          String      @id @default(uuid()) @db.Uuid
   workspaceId String      @db.Uuid
+  categoryId  String?     @db.Uuid
   name        String
   type        ChannelType @default(TEXT)
+  topic       String?
+  position    Decimal     @db.Decimal(20, 10)
+  isPrivate   Boolean     @default(false)
+  archivedAt  DateTime?
+  deletedAt   DateTime?
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   messages  Message[]
 
   @@unique([workspaceId, name])
+  @@index([workspaceId, categoryId, position])
+  @@index([workspaceId, deletedAt])
 }
 
 model Message {

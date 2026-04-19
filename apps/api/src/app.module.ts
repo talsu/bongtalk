@@ -10,15 +10,19 @@ import { UsersModule } from './users/users.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
+import { ChannelsModule } from './channels/channels.module';
+import { OutboxModule } from './common/outbox/outbox.module';
 
 @Module({
   imports: [
     EventEmitterModule.forRoot(),
     PrismaModule,
     RedisModule,
+    OutboxModule,
     UsersModule,
     AuthModule,
     WorkspacesModule,
+    ChannelsModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-19T10:10:42.530Z",
+  "generatedAt": "2026-04-19T12:07:19.686Z",
   "dryRun": true,
-  "total": 6,
+  "total": 9,
   "passed": 0,
-  "skipped": 6,
+  "skipped": 9,
   "failed": 0,
   "successRate": 1,
   "results": [
@@ -40,6 +40,24 @@
     {
       "id": "006",
       "title": "Invite accept is race-safe under concurrent use",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "007",
+      "title": "Channel endpoints enforce permission matrix",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "008",
+      "title": "Concurrent channel reorder converges to consistent state",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "009",
+      "title": "Outbox delivers each event at least once and never on tx rollback",
       "status": "skipped",
       "reason": "dry-run"
     }
