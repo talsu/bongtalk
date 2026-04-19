@@ -8,7 +8,7 @@
 | Postgres weekly | copy on Sunday            | `$BACKUP_DIR/postgres/weekly/`               | 8 weeks            |
 | Redis           | `BGSAVE` + gzip           | `$BACKUP_DIR/redis/qufox-YYYY-MM-DD.rdb.gz`  | daily 14           |
 
-`$BACKUP_DIR` defaults to `/volume1/backups/qufox` (different volume
+`$BACKUP_DIR` defaults to `/volume3/qufox-data/backups/qufox` (different volume
 from `/volume2` where the app lives — cheap protection against a
 single-volume FS corruption).
 
@@ -27,8 +27,8 @@ at container boot so a fresh install is never without a snapshot.
 ## Verifying the system is alive
 
 ```sh
-ls -lht /volume1/backups/qufox/postgres/ | head -5
-ls -lht /volume1/backups/qufox/redis/ | head -5
+ls -lht /volume3/qufox-data/backups/qufox/postgres/ | head -5
+ls -lht /volume3/qufox-data/backups/qufox/redis/ | head -5
 docker logs qufox-backup --tail 50
 ```
 
@@ -57,8 +57,8 @@ docker exec qufox-backup /app/scripts/backup/restore-test.sh
 
 ```sh
 # 1. pick the dump
-ls -lht /volume1/backups/qufox/postgres/
-DUMP=/volume1/backups/qufox/postgres/qufox-YYYY-MM-DD.dump
+ls -lht /volume3/qufox-data/backups/qufox/postgres/
+DUMP=/volume3/qufox-data/backups/qufox/postgres/qufox-YYYY-MM-DD.dump
 
 # 2. stop the API so no live writes race the restore
 docker stop qufox-api
@@ -94,7 +94,7 @@ If you need to actually restore a dump:
 
 ```sh
 docker stop qufox-redis-prod
-gunzip -c /volume1/backups/qufox/redis/qufox-YYYY-MM-DD.rdb.gz > /tmp/dump.rdb
+gunzip -c /volume3/qufox-data/backups/qufox/redis/qufox-YYYY-MM-DD.rdb.gz > /tmp/dump.rdb
 docker cp /tmp/dump.rdb qufox-redis-prod:/data/dump.rdb
 docker start qufox-redis-prod
 rm /tmp/dump.rdb

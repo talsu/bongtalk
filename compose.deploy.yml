@@ -69,7 +69,7 @@ services:
       BACKUP_DIR: /backups
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for backup access}
     volumes:
-      - ${BACKUP_DIR:-/volume1/backups/qufox}:/backups
+      - ${BACKUP_DIR:-/volume3/qufox-data/backups/qufox}:/backups
       # Postgres data dir — read-only, just for consistency spot-checks
       # (not used by db-backup.sh which goes through the network).
       - qufox-prod-pgdata:/pgdata:ro
