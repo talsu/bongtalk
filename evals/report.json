@@ -1,9 +1,9 @@
 {
-  "generatedAt": "2026-04-19T07:18:57.094Z",
+  "generatedAt": "2026-04-19T10:10:42.530Z",
   "dryRun": true,
-  "total": 4,
+  "total": 6,
   "passed": 0,
-  "skipped": 4,
+  "skipped": 6,
   "failed": 0,
   "successRate": 1,
   "results": [
@@ -28,6 +28,18 @@
     {
       "id": "004",
       "title": "Detect refresh token reuse and revoke family",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "005",
+      "title": "Enforce workspace role permission matrix",
+      "status": "skipped",
+      "reason": "dry-run"
+    },
+    {
+      "id": "006",
+      "title": "Invite accept is race-safe under concurrent use",
       "status": "skipped",
       "reason": "dry-run"
     }

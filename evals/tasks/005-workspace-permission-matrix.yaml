@@ -1,0 +1,14 @@
+id: 005
+title: Enforce workspace role permission matrix
+goal: |
+  Given workspace module, verify that every endpoint rejects requests
+  from insufficient roles with correct errorCode, per the single-source
+  PERMISSION_MATRIX used by the integration spec and (eventually) the
+  rendered docs table in docs/tasks/002-workspace.md.
+dod:
+  - command: pnpm --filter @qufox/api test:int
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/workspaces/**
+      - apps/api/test/int/workspaces/**
+max_turns: 35
