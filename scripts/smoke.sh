@@ -73,6 +73,31 @@ members_json="$(curl -fsS -H "authorization: Bearer $access" -H "origin: $ORIGIN
   "$API_URL/workspaces/$ws_id/members")"
 echo "$members_json" | grep -q "$username2" || { echo "[smoke] member list missing joiner"; exit 1; }
 
+# ---- Channel smoke (task-003) --------------------------------------------
+echo "[smoke] POST $API_URL/workspaces/$ws_id/channels"
+ch_json="$(curl -fsS -H 'content-type: application/json' -H "origin: $ORIGIN" \
+  -H "authorization: Bearer $access" \
+  -X POST "$API_URL/workspaces/$ws_id/channels" \
+  -d "{\"name\":\"smoke-${stamp:(-8)}\",\"type\":\"TEXT\"}")"
+ch_id="$(printf '%s' "$ch_json" | sed -n 's/.*"id":"\([^"]*\)".*/\1/p' | head -1)"
+[ -n "$ch_id" ] || { echo "[smoke] channel create missing id"; exit 1; }
+
+echo "[smoke] GET $API_URL/workspaces/$ws_id/channels"
+chlist="$(curl -fsS -H "authorization: Bearer $access" -H "origin: $ORIGIN" \
+  "$API_URL/workspaces/$ws_id/channels")"
+echo "$chlist" | grep -q "$ch_id" || { echo "[smoke] channel list missing created"; exit 1; }
+
+echo "[smoke] PATCH $API_URL/workspaces/$ws_id/channels/$ch_id"
+curl -fsS -H 'content-type: application/json' -H "origin: $ORIGIN" \
+  -H "authorization: Bearer $access" \
+  -X PATCH "$API_URL/workspaces/$ws_id/channels/$ch_id" \
+  -d '{"topic":"smoke topic"}' -o /dev/null
+
+echo "[smoke] DELETE $API_URL/workspaces/$ws_id/channels/$ch_id"
+curl -fsS -o /dev/null -w '%{http_code}\n' -H "authorization: Bearer $access" -H "origin: $ORIGIN" \
+  -X DELETE "$API_URL/workspaces/$ws_id/channels/$ch_id" | grep -q '^202$' \
+  || { echo "[smoke] channel delete non-202"; exit 1; }
+
 echo "[smoke] POST $API_URL/auth/logout"
 curl -fsS -b "$cookie_jar" -c "$cookie_jar" -H "origin: $ORIGIN" \
   -X POST "$API_URL/auth/logout" -o /dev/null

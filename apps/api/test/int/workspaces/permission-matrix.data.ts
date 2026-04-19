@@ -168,4 +168,41 @@ export const PERMISSION_MATRIX: MatrixEntry[] = [
       OWNER: '200',
     },
   },
+  // -------- Channels (task-003) --------
+  {
+    method: 'GET',
+    path: '/workspaces/:id/channels',
+    description: 'list channels',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '200',
+      ADMIN: '200',
+      OWNER: '200',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/workspaces/:id/channels',
+    description: 'create channel',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '403:WORKSPACE_INSUFFICIENT_ROLE',
+      ADMIN: '201',
+      OWNER: '201',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/workspaces/:id/categories',
+    description: 'create category',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '403:WORKSPACE_INSUFFICIENT_ROLE',
+      ADMIN: '201',
+      OWNER: '201',
+    },
+  },
 ];
