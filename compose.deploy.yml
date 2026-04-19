@@ -1,0 +1,75 @@
+# Deploy-side stack: GitHub webhook receiver + backup cron runner.
+# Runs ALONGSIDE docker-compose.prod.yml on the same NAS, sharing the
+# `internal` bridge network so nginx-proxy-1 can route to qufox-webhook
+# by container name.
+#
+# Bring up:
+#   docker compose --env-file .env.deploy -f compose.deploy.yml up -d
+#
+# Intentionally a separate file (not merged into docker-compose.prod.yml)
+# because the deploy stack has different failure semantics: if it goes
+# down, the app keeps serving; the app is recoverable by hand via
+# scripts/prod-reload.sh. Decoupling stops a webhook crash from looking
+# like an app outage.
+
+services:
+  qufox-webhook:
+    build:
+      context: .
+      dockerfile: services/webhook/Dockerfile
+    image: qufox/webhook:latest
+    container_name: qufox-webhook
+    restart: unless-stopped
+    env_file: [.env.deploy]
+    environment:
+      # REPO_PATH inside the container == bind mount path below.
+      REPO_PATH: /repo
+      WEBHOOK_AUDIT_PATH: /repo/.deploy/audit.jsonl
+    ports:
+      # Host-bound to 127.0.0.1 only — nginx proxies from
+      # deploy.qufox.com to this port. The webhook is HMAC-gated but
+      # still shouldn't be reachable on the public interface directly.
+      - '127.0.0.1:${WEBHOOK_PORT:-9000}:9000'
+    volumes:
+      # Entire repo. The webhook shells out into it to run scripts/deploy/*.
+      - .:/repo
+      # Docker daemon socket — the webhook invokes `docker compose` via
+      # the host daemon to rebuild qufox-api / qufox-web. This is
+      # effectively root-equivalent on the host, so the HMAC gate is
+      # load-bearing.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [internal]
+
+  qufox-backup:
+    build:
+      context: .
+      dockerfile: services/backup/Dockerfile
+    image: qufox/backup:latest
+    container_name: qufox-backup
+    restart: unless-stopped
+    env_file: [.env.deploy]
+    environment:
+      # Repeated from .env.deploy for clarity — these need to be in
+      # scope for the cron-invoked shell scripts.
+      BACKUP_DIR: /backups
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD for backup access}
+    volumes:
+      - ${BACKUP_DIR:-/volume1/backups/qufox}:/backups
+      # Postgres data dir — read-only, just for consistency spot-checks
+      # (not used by db-backup.sh which goes through the network).
+      - qufox-prod-pgdata:/pgdata:ro
+      # Docker socket so restore-test.sh can spin an ephemeral postgres.
+      - /var/run/docker.sock:/var/run/docker.sock
+    networks: [internal]
+
+networks:
+  internal:
+    external: true
+
+volumes:
+  qufox-prod-pgdata:
+    external: true
+    # Name must match the volume created by docker-compose.prod.yml.
+    # Compose prepends the project name by default, so we reference the
+    # fully-qualified name here.
+    name: qufox_qufox-prod-pgdata
