@@ -96,18 +96,15 @@ BAK="$NGINX_CONF.bak.$STAMP"
 cp -p "$NGINX_CONF" "$BAK"
 log "snapshot: $BAK"
 
-# --- insert before the outermost http { ... } closing brace --------------
-# We look for the LAST line in the file that is exactly a single `}`
-# inside the http block. Simpler and more robust: append before EOF —
-# nginx.conf's final line is the http block's `}`. Verified by reading
-# the current file in the task-011 UNDERSTAND pass; if the file structure
-# ever changes the `nginx -t` gate below catches it.
-TMP="$NGINX_CONF.tmp.$STAMP"
-# Drop the final `}` line, append our block, then re-add the `}`.
-head -n -1 "$NGINX_CONF" > "$TMP"
-printf '%s\n' "$BLOCK" >> "$TMP"
-tail -n 1 "$NGINX_CONF" >> "$TMP"
-mv "$TMP" "$NGINX_CONF"
+# --- append the deploy.qufox.com server block -----------------------------
+# task-011 reviewer HIGH-1 fix: the NAS nginx.conf is an include-fragment
+# with NO outer `http { }` wrapper — the last `}` closes the last server
+# block. Nesting our block inside that server is illegal ("server
+# directive is not allowed here"). A top-level server block is the
+# correct shape here; plain append is the simplest correct operation.
+# If the file DOES have an outer http wrapper on some other deployment,
+# `nginx -t` below catches the resulting stray `}` and we auto-rollback.
+printf '%s\n' "$BLOCK" >> "$NGINX_CONF"
 
 # --- test + reload (with auto-rollback on failure) -----------------------
 if ! docker exec "$NGINX_CONTAINER" nginx -t >/tmp/apply-nginx-diff.nginx-t.log 2>&1; then

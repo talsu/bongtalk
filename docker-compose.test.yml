@@ -71,6 +71,12 @@ services:
     build:
       context: .
       dockerfile: apps/web/Dockerfile
+      args:
+        # task-011 reviewer MED-5 fix: VITE_API_URL is baked at build
+        # time; the default `/api` expects a prod nginx proxy. For the
+        # e2e stack the browser hits the host-exposed test-api port
+        # directly since Playwright runs on the GHA runner.
+        VITE_API_URL: http://localhost:43001
     image: qufox/web:test
     environment:
       NODE_ENV: test

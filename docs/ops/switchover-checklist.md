@@ -54,3 +54,33 @@ reused — see `docs/ops/runbook-nginx-diff.md § Prerequisite`).
 - `scripts/prod-reload.sh` still works as a manual fallback and now
   shares the flock with the webhook (task-011-C, MED-2 fix).
 - `docs/ops/runbook-webhook-debug.md` has the triage tree.
+
+### The deploy lock is stuck
+
+Symptom: `prod-reload.sh` exits 75 ("deploy already in progress") even
+though `docker ps` shows no active deploy. The usual cause is the
+webhook process died under SIGKILL without firing its `EXIT` trap so
+the flock file at `.deploy/deploy.lock` is still held by a dead fd.
+
+Clean recovery:
+
+```sh
+# 1. Confirm no real deploy is running.
+docker ps --filter name=qufox-webhook --format 'table {{.Names}}\t{{.Status}}'
+tail -n 20 /volume2/dockers/qufox/.deploy/audit.jsonl
+
+# 2. If the webhook container is up but stuck, kill the in-flight
+#    auto-deploy.sh; docker restart releases any fds it held.
+docker exec qufox-webhook pkill -f auto-deploy.sh 2>/dev/null || true
+docker restart qufox-webhook
+
+# 3. Remove the stale lock file.
+rm -f /volume2/dockers/qufox/.deploy/deploy.lock
+
+# 4. Retry the manual deploy. Normal flock behaviour resumes.
+scripts/prod-reload.sh
+```
+
+Emergency override: `scripts/prod-reload.sh --force` skips the lock
+entirely and writes a `manual.force-unlock` line to the audit log so
+the bypass is visible in post-mortem.

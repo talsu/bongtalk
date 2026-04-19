@@ -55,6 +55,13 @@ export class MeMentionsService {
         (m.mentions->>'everyone')::boolean AS "everyone"
       FROM "Message" m
       JOIN "Channel" c ON c.id = m."channelId"
+      -- task-011 reviewer MED-3 fix: kicked members should NOT see
+      -- retained mentions from the workspace they no longer belong to.
+      -- Existing @@unique([workspaceId, userId]) index makes this join
+      -- a single lookup per member row.
+      JOIN "WorkspaceMember" wm
+        ON wm."workspaceId" = c."workspaceId"
+       AND wm."userId" = ${userId}::uuid
       WHERE m."deletedAt" IS NULL
         AND m."authorId" <> ${userId}::uuid
         AND (
@@ -85,6 +92,11 @@ export class MeMentionsService {
       SELECT COUNT(*)::bigint AS count
       FROM "Message" m
       JOIN "Channel" c ON c.id = m."channelId"
+      -- task-011 reviewer MED-3 fix (same as recent()): workspace
+      -- membership gate.
+      JOIN "WorkspaceMember" wm
+        ON wm."workspaceId" = c."workspaceId"
+       AND wm."userId" = ${userId}::uuid
       LEFT JOIN "UserChannelReadState" rs
         ON rs."userId" = ${userId}::uuid
        AND rs."channelId" = m."channelId"
