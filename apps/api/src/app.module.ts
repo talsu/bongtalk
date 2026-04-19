@@ -13,6 +13,7 @@ import { RedisModule } from './redis/redis.module';
 import { WorkspacesModule } from './workspaces/workspaces.module';
 import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
+import { MeModule } from './me/me.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 
@@ -31,6 +32,7 @@ import { ObservabilityModule } from './observability/observability.module';
     WorkspacesModule,
     ChannelsModule,
     MessagesModule,
+    MeModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

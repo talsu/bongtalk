@@ -4,8 +4,15 @@ export type Notification = {
   id: string;
   title?: string;
   body?: string;
-  variant: 'info' | 'success' | 'warning' | 'danger';
+  variant: 'info' | 'success' | 'warning' | 'danger' | 'mention';
   ttlMs?: number;
+  /**
+   * Task-011-B: mention toasts are clickable — clicking fires the
+   * optional `onActivate` callback which typically navigates to
+   * `/w/:slug/:channel?msg=<id>`. Kept optional so existing info /
+   * success / warning toasts stay non-interactive.
+   */
+  onActivate?: () => void;
 };
 
 type NotificationState = {

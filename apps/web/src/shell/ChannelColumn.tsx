@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
+import { useMentionInbox } from '../features/mentions/useMentions';
 import {
   DropdownRoot,
   DropdownTrigger,
@@ -47,6 +48,12 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
   // the role-select dropdown without any intermediate "open members" step)
   // keeps working. Regular members see it collapsed by default.
   const [membersOpen, setMembersOpen] = useState(canManage);
+  // Task-011-B: unread mention count across all channels the caller
+  // can read. Dispatcher keeps this cache live as mention.received
+  // events arrive over WS; opening a channel clears its mentions via
+  // the shared lastReadAt stamp (see MeMentionsService).
+  const { data: mentionInbox } = useMentionInbox();
+  const mentionCount = mentionInbox?.unreadCount ?? 0;
 
   return (
     <div
@@ -174,6 +181,18 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
             </li>
           ))}
         </ul>
+      ) : null}
+      {mentionCount > 0 ? (
+        <div
+          data-testid="mention-badge"
+          aria-label={`읽지 않은 멘션 ${mentionCount}개`}
+          className="flex items-center justify-between border-b border-border-subtle bg-bg-accent px-3 py-1.5 text-xs text-foreground"
+        >
+          <span>@ 멘션</span>
+          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-fg-primary">
+            {mentionCount > 99 ? '99+' : mentionCount}
+          </span>
+        </div>
       ) : null}
       <div className="flex-1 overflow-y-auto px-2 py-2">
         <ChannelList

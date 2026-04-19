@@ -46,6 +46,35 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
         return me?.id ?? null;
       },
       activeChannelId: () => useUI.getState().activeChannelId,
+      // Task-011-B: resolve mention → URL for the toast "jump" action.
+      // The channel-list cache holds name; we resolve slug from the
+      // workspace list which is always fetched after auth. If any lookup
+      // fails (dispatcher fires before the cache is populated), return
+      // null so the toast still shows — just without a clickable jump.
+      resolveMentionUrl: ({ workspaceId, channelId, messageId }) => {
+        const workspaces = qc.getQueryData<{ workspaces: Array<{ id: string; slug: string }> }>([
+          'workspaces',
+        ]);
+        const wsSlug = workspaces?.workspaces.find((w) => w.id === workspaceId)?.slug;
+        if (!wsSlug) return null;
+        const channels = qc.getQueryData<{
+          categories: Array<{ channels: Array<{ id: string; name: string }> }>;
+          uncategorized: Array<{ id: string; name: string }>;
+        }>(['workspaces', workspaceId, 'channels']);
+        const all = [
+          ...(channels?.uncategorized ?? []),
+          ...(channels?.categories.flatMap((c) => c.channels) ?? []),
+        ];
+        const chName = all.find((c) => c.id === channelId)?.name;
+        if (!chName) return null;
+        return `/w/${wsSlug}/${chName}?msg=${encodeURIComponent(messageId)}`;
+      },
+      navigate: (url: string) => {
+        // useNavigate can't be used outside a React component; fall back
+        // to pushState + a custom event so the Router picks it up.
+        window.history.pushState({}, '', url);
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      },
     });
 
     // Independent side: track envelope.id into localStorage so a later
