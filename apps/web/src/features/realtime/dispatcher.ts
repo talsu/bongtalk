@@ -165,6 +165,12 @@ export function installRealtimeDispatcher(
     const viewer = ctx.viewerId();
     const active = ctx.activeChannelId();
     if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
+      // task-018-E: workspace-level totals rendered on the server rail
+      // need a refresh whenever any channel's unread count moves.
+      // Invalidation (not optimistic update) because the rail shows
+      // counts across every workspace — computing the delta in-client
+      // would duplicate server logic.
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
       qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
         qk.channels.unreadSummary(env.workspaceId),
         (old) => {
