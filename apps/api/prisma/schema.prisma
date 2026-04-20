@@ -37,16 +37,26 @@ model OutboxEvent {
   @@index([aggregateType, aggregateId])
 }
 
+enum PresencePreference {
+  auto
+  dnd
+}
+
 model User {
-  id                  String    @id @db.Uuid
-  email               String    @unique
-  username            String    @unique
+  id                  String             @id @db.Uuid
+  email               String             @unique
+  username            String             @unique
   passwordHash        String
   lastLoginAt         DateTime?
-  failedLoginAttempts Int       @default(0)
+  failedLoginAttempts Int                @default(0)
   lockedUntil         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  // task-019-C: static DnD preference consulted by the WS gateway at
+  // connect time. "auto" keeps 005 semantics; "dnd" shows as Do Not
+  // Disturb until the user flips it back. Runtime presence state (in
+  // Redis via PresenceService) still goes to `offline` on disconnect.
+  presencePreference  PresencePreference @default(auto)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   memberships     WorkspaceMember[]

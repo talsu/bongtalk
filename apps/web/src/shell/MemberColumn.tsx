@@ -8,10 +8,18 @@ import type { PresenceStatus } from '../features/presence/presenceStatus';
 export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Element | null {
   const open = useUI((s) => s.memberListOpen);
   const { data: members } = useMembers(workspaceId);
-  const { onlineUserIds } = usePresence(workspaceId);
+  const { onlineUserIds, dndUserIds } = usePresence(workspaceId);
 
   if (!open) return null;
 
+  // task-019-C: resolve each member's effective status. DnD beats
+  // Online because a user-in-dnd is still connected (in the online
+  // SET too) but the UI should show the DnD dot.
+  const resolveStatus = (userId: string): 'online' | 'dnd' | 'offline' => {
+    if (dndUserIds.has(userId)) return 'dnd';
+    if (onlineUserIds.has(userId)) return 'online';
+    return 'offline';
+  };
   const online = members?.members.filter((m) => onlineUserIds.has(m.userId)) ?? [];
   const offline = members?.members.filter((m) => !onlineUserIds.has(m.userId)) ?? [];
 
@@ -25,7 +33,12 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
         <>
           <div className="qf-memberlist__group">온라인 — {online.length}</div>
           {online.map((m) => (
-            <MemberRow key={m.userId} name={m.user.username} role={m.role} status="online" />
+            <MemberRow
+              key={m.userId}
+              name={m.user.username}
+              role={m.role}
+              status={resolveStatus(m.userId)}
+            />
           ))}
         </>
       ) : null}

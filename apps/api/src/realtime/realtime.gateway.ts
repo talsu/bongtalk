@@ -84,10 +84,20 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     await client.join(joinable);
     client.data.state = { user, workspaceIds, channelIds } satisfies SocketState;
 
+    // task-019-C: consult the user's static DnD preference so the
+    // presence SET correctly reflects DnD on connect, not just after
+    // a PATCH.
+    const userRow = await this.prisma.user.findUnique({
+      where: { id: user.userId },
+      select: { presencePreference: true },
+    });
+    const preference = (userRow?.presencePreference ?? 'auto') as 'auto' | 'dnd';
+
     await this.presence.register({
       sessionId: user.sessionId,
       userId: user.userId,
       workspaceIds,
+      preference,
     });
     this.metrics?.wsPresenceSessionsActive.inc();
 
@@ -265,12 +275,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   private schedulePresenceBroadcast(workspaceId: string): void {
     this.throttler.schedule(workspaceId, async () => {
-      const online = await this.presence.onlineIn(workspaceId);
+      const [online, dnd] = await Promise.all([
+        this.presence.onlineIn(workspaceId),
+        this.presence.dndIn(workspaceId),
+      ]);
       this.server.to(rooms.workspace(workspaceId)).emit('presence.updated', {
         workspaceId,
         onlineUserIds: online,
+        // task-019-C: DnD subset so the client can render the dnd dot.
+        dndUserIds: dnd,
       });
     });
+  }
+
+  /**
+   * Expose the broadcast scheduler for controllers that need to fan
+   * out a presence change immediately (e.g. PATCH /me/presence).
+   */
+  schedulePresenceBroadcastPublic(workspaceId: string): void {
+    this.schedulePresenceBroadcast(workspaceId);
   }
 }
 
