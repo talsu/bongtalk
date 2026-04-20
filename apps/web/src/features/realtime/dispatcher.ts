@@ -134,9 +134,14 @@ export function installRealtimeDispatcher(
 ): () => void {
   const handlers: Array<{ event: string; handler: (e: unknown) => void }> = [];
   const mentionThrottle = new MentionThrottle();
-  // task-014-C: separate token bucket for thread replies. 5 toasts/min
-  // (slower refill than mentions' 5/s because reply traffic per user is
-  // inherently lower-volume). Excess collapses into "+N replies" rollup.
+  // task-014-C / task-015-A (014-follow-2): separate bucket for reply
+  // toasts. Reuses MentionThrottle as-is — same 5-capacity, 5 tokens/sec
+  // refill, same collapseOne 1-second rollup window. The ORIGINAL plan
+  // was a slower 5/min cadence, but in practice a dedicated instance at
+  // the same clip is already a big win over sharing the mention bucket
+  // (a mentioned user would otherwise lose thread-reply toasts while
+  // under a flood of mentions). Parametrizing the throttle for a
+  // per-feature refill rate is a later task.
   const replyThrottle = new MentionThrottle();
 
   const on = <T>(event: string, handler: (e: T) => void): void => {

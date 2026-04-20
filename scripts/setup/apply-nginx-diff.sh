@@ -48,6 +48,26 @@ if [[ ! -f "$NGINX_CONF" ]]; then
   exit 3
 fi
 
+# task-015-A (task-012-follow-4 closure): pre-check the file shape.
+# The script assumes the NAS nginx.conf is an include fragment (no
+# outer `http { }` wrapper). If the file DOES have a top-level http
+# block, appending a `server { }` at EOF lands OUTSIDE that block and
+# nginx -t rolls us back — but we can detect it up front and refuse
+# to touch, with a clearer remediation message than a post-reload
+# rollback log. Two heuristics: an opening `http {` at line start
+# before any `server {`, AND that block reaches the end of the file.
+if grep -nE '^[[:space:]]*http[[:space:]]*\{' "$NGINX_CONF" >/dev/null 2>&1 \
+  && ! grep -nE '^[[:space:]]*}[[:space:]]*#.*[Ee]nd.*http' "$NGINX_CONF" >/dev/null 2>&1; then
+  # File has an `http {` and no "end http" sentinel — likely a
+  # monolithic nginx.conf. Bail out unless the operator opts in.
+  if [[ "${ALLOW_HTTP_WRAPPER:-0}" != "1" ]]; then
+    echo "[apply-nginx-diff] $NGINX_CONF appears to contain an outer 'http {' block." >&2
+    echo "[apply-nginx-diff] EOF-appending a server block would land OUTSIDE that wrapper and fail nginx -t." >&2
+    echo "[apply-nginx-diff] Move the deploy.qufox.com block into the http { } manually, or re-run with ALLOW_HTTP_WRAPPER=1 to force append + rely on auto-rollback." >&2
+    exit 5
+  fi
+fi
+
 # --- task-012-F /attachments/ location (manual paste helper) -------------
 # Splicing a `location` into an existing `server { server_name qufox.com;
 # ... }` inside a shared nginx.conf requires AST-aware insertion that

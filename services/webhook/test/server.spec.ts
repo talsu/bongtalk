@@ -6,7 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { AuditLog } from '../src/audit';
 import { noopNotifier } from '../src/notify';
 import { DeployQueue, type DeployJob, type Outcome } from '../src/queue';
-import { createWebhookServer } from '../src/server';
+import { createWebhookServer, resetDeliveryDedupe } from '../src/server';
 
 const SECRET = 'unit-test-secret';
 
@@ -70,6 +70,11 @@ describe('webhook server', () => {
   let ctx: Awaited<ReturnType<typeof setup>> | null = null;
 
   beforeEach(async () => {
+    // task-015-A (task-009-nit-3): dedupe cache is module-scoped so
+    // it persists across test runs in the same process. Reset each
+    // time so tests don't accidentally poison each other's delivery
+    // ids.
+    resetDeliveryDedupe();
     ctx = await setup();
   });
 
@@ -212,6 +217,31 @@ describe('webhook server', () => {
       body,
     });
     expect(res.status).toBe(400);
+  });
+
+  it('redelivery of the same x-github-delivery id enqueues only once', async () => {
+    // task-015-A / task-009-nit-3: GitHub's "Redeliver" button fires
+    // a repeat webhook with the same X-GitHub-Delivery id. The server
+    // must 200 on the repeat without re-enqueueing so the operator
+    // doesn't get two deploys of the same sha.
+    const body = pushBody();
+    const headers = {
+      'x-github-event': 'push',
+      'x-github-delivery': '11111111-1111-4111-8111-111111111111',
+      'x-hub-signature-256': sign(body),
+    };
+    const first = await fetch(ctx!.url('/hooks/github'), { method: 'POST', headers, body });
+    expect(first.status).toBe(202);
+    await vi.waitFor(() => expect(ctx!.submitted).toHaveLength(1));
+
+    const second = await fetch(ctx!.url('/hooks/github'), { method: 'POST', headers, body });
+    expect(second.status).toBe(200);
+    expect(await second.json()).toMatchObject({
+      ignored: true,
+      reason: 'duplicate delivery id',
+    });
+    // Sanity: still only one enqueue after the redelivery.
+    expect(ctx!.submitted).toHaveLength(1);
   });
 
   it('appends an audit line per request', async () => {

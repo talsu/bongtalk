@@ -16,6 +16,33 @@ export interface ServerDeps {
 }
 
 /**
+ * task-015-A (task-009-nit-3 closure): bounded LRU of recently-seen
+ * GitHub `X-GitHub-Delivery` ids so a manual "Redeliver" press on the
+ * GitHub webhook UI doesn't trigger a second deploy of the same sha.
+ * 64 entries is plenty — GitHub redelivery happens within minutes of
+ * the original in practice, so most collisions are caught; anything
+ * older is treated as a fresh request (conservative: if the queue
+ * coalesces a same-sha job, that's still harmless).
+ */
+const DELIVERY_DEDUPE_CAP = 64;
+const seenDeliveries = new Set<string>();
+function rememberDelivery(deliveryId: string): boolean {
+  if (!deliveryId) return false;
+  if (seenDeliveries.has(deliveryId)) return true;
+  seenDeliveries.add(deliveryId);
+  if (seenDeliveries.size > DELIVERY_DEDUPE_CAP) {
+    // Sets iterate insertion-order — drop the oldest.
+    const first = seenDeliveries.values().next().value;
+    if (typeof first === 'string') seenDeliveries.delete(first);
+  }
+  return false;
+}
+/** Test-only: clears the in-memory dedupe between specs. */
+export function resetDeliveryDedupe(): void {
+  seenDeliveries.clear();
+}
+
+/**
  * Only these peer IPs are allowed to hit `/internal/*`. The webhook
  * container binds to 127.0.0.1:9000 on the host, so loopback is always
  * in (that's the deploy scripts on the same host). The Docker bridge
@@ -232,6 +259,21 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
       delivery,
     });
     json(res, 200, { ignored: true, reason: 'branch not in allowlist' });
+    return;
+  }
+
+  // task-015-A (task-009-nit-3 closure): idempotent against GitHub's
+  // "Redeliver" button. Same delivery-id twice → second one 200s
+  // without enqueueing. Dedupe lives after allowlist so an ignored
+  // branch doesn't burn a dedupe slot.
+  if (rememberDelivery(delivery)) {
+    await deps.audit.append('request.ignore', {
+      reason: 'duplicate-delivery',
+      delivery,
+      sha,
+      branch,
+    });
+    json(res, 200, { ignored: true, reason: 'duplicate delivery id', delivery });
     return;
   }
 

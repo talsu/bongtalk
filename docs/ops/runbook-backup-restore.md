@@ -12,6 +12,27 @@
 from `/volume2` where the app lives — cheap protection against a
 single-volume FS corruption).
 
+### Migrating pre-task-012 backups from `/volume1`
+
+Task-012 moved persistent data under `/volume3/qufox-data/<purpose>/`.
+If this deployment still has old backups at `/volume1/backups/qufox`
+from before the move, run the one-shot rsync once before the first
+cron fire to avoid double-storage:
+
+```sh
+# Run as admin on the NAS shell. Idempotent — rerun is a no-op after
+# the delete. --remove-source-files moves rather than copies so the
+# old path doesn't keep ballooning.
+sudo mkdir -p /volume3/qufox-data/backups/qufox
+sudo rsync -aHAX --remove-source-files \
+  /volume1/backups/qufox/ /volume3/qufox-data/backups/qufox/
+sudo find /volume1/backups/qufox -type d -empty -delete
+```
+
+After rerun, `ls /volume1/backups/qufox` should error (path gone). If
+the old path didn't exist on your NAS (fresh post-012 install), skip
+this step.
+
 ## Schedule
 
 Set in `.env.deploy`:

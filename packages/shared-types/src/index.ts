@@ -62,6 +62,11 @@ export const ErrorCodeSchema = z.enum([
   'INVITE_NOT_FOUND',
   'INVITE_EXPIRED',
   'INVITE_EXHAUSTED',
+  // task-015-A (014-follow-3 closure): these existed on the backend
+  // enum + HTTP map but were missing from the shared schema, so the
+  // web client could not safely branch on them. A unit regression
+  // guard in `error-code-schema.unit.spec.ts` stops future drift.
+  'INVITE_REVOKED',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',
@@ -78,6 +83,16 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_THREAD_DEPTH_EXCEEDED',
   'MESSAGE_PARENT_NOT_FOUND',
   'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+  // task-015-A (014-follow-3 closure): attachments + channel
+  // visibility + generic forbidden codes. All existed in the backend
+  // enum from task-012; schema drift hid them from the client.
+  'ATTACHMENT_NOT_FOUND',
+  'ATTACHMENT_TOO_LARGE',
+  'ATTACHMENT_MIME_REJECTED',
+  'ATTACHMENT_NOT_UPLOADED',
+  'ATTACHMENT_SIZE_MISMATCH',
+  'CHANNEL_NOT_VISIBLE',
+  'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
