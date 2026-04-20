@@ -72,6 +72,9 @@ test.describe('DS mockup parity (task-018-G)', () => {
     });
 
     await page.setViewportSize({ width: 1280, height: 720 });
+    // task-019-B (018-follow-4): lock the OS color-scheme so a future
+    // toHaveScreenshot in this spec can't flake on runner defaults.
+    await page.emulateMedia({ colorScheme: 'dark' });
     await page.addInitScript(() => {
       try {
         localStorage.setItem('qufox:theme', 'dark');

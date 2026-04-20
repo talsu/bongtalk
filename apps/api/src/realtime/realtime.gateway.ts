@@ -225,6 +225,32 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     });
   }
 
+  /**
+   * task-019-B (018-follow-3): refresh SocketState.channelIds for every
+   * currently-connected socket belonging to `userId`. Invoked after
+   * channel.created / workspace.member.joined fan-out so the user's
+   * in-flight sockets can typing.ping / channel:read on the newly-
+   * member channels without a reconnect. Safe for other nodes — if
+   * the user has no socket on this node, the refresh is a no-op.
+   */
+  async refreshUserChannelIds(userId: string): Promise<void> {
+    if (!this.server) return;
+    const userRoomSockets = await this.server.in(rooms.user(userId)).fetchSockets();
+    if (userRoomSockets.length === 0) return;
+    const fresh = await this.roomMgr.roomsForUser(userId);
+    for (const s of userRoomSockets) {
+      const data = (s as unknown as { data: { state?: SocketState } }).data;
+      if (!data.state) continue;
+      const already = new Set(data.state.channelIds);
+      const toJoin = fresh.channelIds.filter((id) => !already.has(id));
+      if (toJoin.length > 0) {
+        await s.join(toJoin.map((id) => rooms.channel(id)));
+      }
+      data.state.channelIds = fresh.channelIds;
+      data.state.workspaceIds = fresh.workspaceIds;
+    }
+  }
+
   /** Kick every socket owned by a user (all nodes). Used on member removal. */
   async kickUserEverywhere(userId: string, reason: string): Promise<void> {
     if (!this.server) return;

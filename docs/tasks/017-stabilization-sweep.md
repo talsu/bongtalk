@@ -72,8 +72,10 @@ API server inside the test) — implementer picks.
   generates. Does NOT rewrite an existing file. Dry-run mode
   prints the line that would be added.
 - **016-follow-5** — `POST /feedback` rejects with
-  `403 WORKSPACE_NOT_MEMBER` if the body's `workspaceId` is
-  provided but the caller is not a member of that workspace.
+  `404 WORKSPACE_NOT_MEMBER` if the body's `workspaceId` is
+  provided but the caller is not a member of that workspace
+  (task-019-B (017-follow-1) doc fix: earlier drafts said `403`;
+  the actual error-code-to-HTTP mapping is 404. Code unchanged.).
   `workspaceId` omitted (global feedback) still allowed.
   Integration spec: `feedback-workspace-membership.int.spec.ts`.
 

@@ -95,15 +95,43 @@ COMPOSE_CMD=(docker compose --env-file .env.deploy --env-file .env.prod
 VERIFY_CMD=(docker exec "$CONTAINER" sh -c 'cd /repo && git rev-parse --abbrev-ref HEAD')
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
+  # task-019-B (017-follow-4): tighten --dry-run so an operator sees the
+  # preflight failures BEFORE committing to an apply run. The preflights
+  # never mutate state — they just surface things that would fail at
+  # step 3 (docker missing, base repo owned by the wrong uid, etc.).
+  PREFLIGHT_FAIL=0
+  if ! command -v docker >/dev/null 2>&1; then
+    log "PREFLIGHT FAIL: 'docker' binary not on PATH"
+    PREFLIGHT_FAIL=1
+  else
+    # Check if the webhook container is already there — not an error,
+    # but the operator should know an apply will recreate it.
+    if docker inspect "$CONTAINER" >/dev/null 2>&1; then
+      log "PREFLIGHT: existing container '$CONTAINER' will be force-recreated on apply"
+    else
+      log "PREFLIGHT: no existing '$CONTAINER' container; apply will create fresh"
+    fi
+  fi
+  REPO_OWNER="$(stat -c '%U:%G' "$REPO_ROOT" 2>/dev/null || echo unknown)"
+  if [[ "$REPO_OWNER" == "unknown" ]]; then
+    log "PREFLIGHT FAIL: could not stat $REPO_ROOT"
+    PREFLIGHT_FAIL=1
+  else
+    log "PREFLIGHT: $REPO_ROOT owner is $REPO_OWNER (must be accessible to the webhook container's git)"
+  fi
   log "--dry-run: would run the following steps:"
   if [[ "$STATE" == "absent" ]]; then
-    log "  1. git worktree add $WORKTREE_PATH $WORKTREE_BRANCH"
+    log "  1. git clone --branch $WORKTREE_BRANCH $REPO_ROOT $WORKTREE_PATH"
   else
     log "  1. (skipped — worktree already exists)"
   fi
   log "  2. ${COMPOSE_CMD[*]}"
   log "  3. verify via: ${VERIFY_CMD[*]}"
   log "     expected output: $WORKTREE_BRANCH"
+  if [[ "$PREFLIGHT_FAIL" -eq 1 ]]; then
+    log "PREFLIGHT FAIL — refuse to apply until fixed. Exiting 8."
+    exit 8
+  fi
   exit 0
 fi
 
