@@ -41,6 +41,20 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
   }, []);
   const [activeThread, setActiveThread] = useThreadQueryState(threadRootId);
 
+  // task-014 reviewer MED-1: if MessageColumn stays mounted across a
+  // channel switch (happens on prop-level channel changes) the
+  // `?thread=` param has to follow the channel or the panel tries to
+  // render a thread from a different channel. Track the previous
+  // channelId in a ref so the effect fires only on an actual switch,
+  // not on every render.
+  const prevChannelRef = useRef(channelId);
+  useEffect(() => {
+    if (prevChannelRef.current !== channelId) {
+      prevChannelRef.current = channelId;
+      setActiveThread(null);
+    }
+  }, [channelId, setActiveThread]);
+
   useLiveMessages(workspaceId, channelId);
 
   // Task-010 reviewer finding-1 fix: announce the active channel to the
