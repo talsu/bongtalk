@@ -25,6 +25,10 @@ export const qk = {
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,
     detail: (msgId: string) => ['messages', msgId] as const,
+    // Task-014-C: thread panel cache is keyed by root id alone because
+    // the thread endpoint derives channel + workspace from the id.
+    // Keeps the dispatcher branch simple (one key per WS event).
+    thread: (rootId: string) => ['messages', 'thread', rootId] as const,
   },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,
