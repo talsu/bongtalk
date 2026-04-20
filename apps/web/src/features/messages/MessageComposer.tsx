@@ -55,7 +55,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
         placeholder={`# ${channelName} 에 메시지…`}
         className="qf-input qf-textarea"
       />
-      <div className="mt-[var(--s-2)] flex items-center justify-between text-[11px] text-text-muted">
+      <div className="mt-[var(--s-2)] flex items-center justify-between text-[length:var(--fs-11)] text-text-muted">
         <span>{draft.length} / 4000 · Enter 전송, Shift+Enter 줄바꿈</span>
         <button
           type="submit"

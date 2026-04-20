@@ -69,7 +69,7 @@ function MemberRow({
       {role !== 'MEMBER' ? (
         <span
           data-testid={`role-${name}`}
-          className="text-[11px] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
+          className="text-[length:var(--fs-11)] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
         >
           {role}
         </span>

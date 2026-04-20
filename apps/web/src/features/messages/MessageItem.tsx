@@ -31,7 +31,7 @@ export function MessageItem({
         data-testid={`msg-deleted-${msg.id}`}
         role="note"
         aria-label="삭제된 메시지"
-        className="px-[var(--s-7)] py-[var(--s-2)] text-[13px] italic text-text-muted"
+        className="px-[var(--s-7)] py-[var(--s-2)] text-[length:var(--fs-13)] italic text-text-muted"
       >
         (삭제된 메시지)
       </div>

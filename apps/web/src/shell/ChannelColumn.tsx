@@ -114,7 +114,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
       {inviteUrl ? (
         <div
           data-testid="ws-invite-url"
-          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[11px] break-all text-text"
+          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[length:var(--fs-11)] break-all text-text"
         >
           {inviteUrl}
         </div>
@@ -123,7 +123,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <ul
           data-testid="members-list"
           aria-label="워크스페이스 멤버"
-          className="max-h-40 overflow-y-auto border-b border-border-subtle px-2 py-2 text-[13px]"
+          className="max-h-40 overflow-y-auto border-b border-border-subtle px-2 py-2 text-[length:var(--fs-13)]"
         >
           {(members?.members ?? []).map((m) => (
             <li
@@ -154,7 +154,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
                       });
                     }
                   }}
-                  className="qf-input qf-btn--sm !h-6 !w-auto !px-2 text-[11px]"
+                  className="qf-input qf-btn--sm !h-6 !w-auto !px-2 text-[length:var(--fs-11)]"
                 >
                   <option value="MEMBER">MEMBER</option>
                   <option value="ADMIN">ADMIN</option>
@@ -172,7 +172,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <div
           data-testid="mention-badge"
           aria-label={`읽지 않은 멘션 ${mentionCount}개`}
-          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-1.5 text-[13px] text-text"
+          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-1.5 text-[length:var(--fs-13)] text-text"
         >
           <span>@ 멘션</span>
           <span className="qf-badge qf-badge--count">

@@ -122,7 +122,7 @@ export function SearchOverlay(): JSX.Element | null {
                 className="cursor-pointer rounded-[var(--r-sm)] px-[var(--s-3)] py-[var(--s-3)] hover:bg-bg-hover"
                 onClick={() => openResult(r)}
               >
-                <div className="flex items-baseline gap-2 text-[11px] text-text-muted">
+                <div className="flex items-baseline gap-2 text-[length:var(--fs-11)] text-text-muted">
                   <span># {channelBySlug.get(r.channelId) ?? r.channelName}</span>
                   <span>·</span>
                   <span>{r.senderName}</span>
@@ -130,7 +130,7 @@ export function SearchOverlay(): JSX.Element | null {
                   <time>{new Date(r.createdAt).toLocaleString()}</time>
                 </div>
                 <p
-                  className="mt-0.5 break-words text-[14px] text-text [&_mark]:bg-mention [&_mark]:text-text-strong [&_mark]:rounded-[var(--r-xs)] [&_mark]:px-1"
+                  className="mt-0.5 break-words text-[length:var(--fs-14)] text-text [&_mark]:bg-mention [&_mark]:text-text-strong [&_mark]:rounded-[var(--r-xs)] [&_mark]:px-1"
                   dangerouslySetInnerHTML={{ __html: markOnlyHtml(r.snippet) }}
                 />
               </li>
@@ -168,7 +168,7 @@ function RecentList({
   }
   return (
     <div data-testid="search-recents">
-      <div className="flex items-center justify-between px-2 py-1 text-[11px] text-text-muted">
+      <div className="flex items-center justify-between px-2 py-1 text-[length:var(--fs-11)] text-text-muted">
         <span>최근 검색</span>
         <button type="button" className="underline" onClick={onClear}>
           지우기

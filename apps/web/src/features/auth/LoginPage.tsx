@@ -46,7 +46,7 @@ export function LoginPage(): JSX.Element {
         <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
           다시 만나서 반가워요
         </h1>
-        <p className="mt-[var(--s-2)] text-[13px] text-text-muted">
+        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
           이메일과 비밀번호를 입력해 로그인하세요.
         </p>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
@@ -87,7 +87,7 @@ export function LoginPage(): JSX.Element {
             {isSubmitting ? '로그인 중…' : '로그인'}
           </Button>
         </form>
-        <p className="mt-[var(--s-6)] text-[13px] text-text-muted">
+        <p className="mt-[var(--s-6)] text-[length:var(--fs-13)] text-text-muted">
           계정이 없으신가요?{' '}
           <Link to="/signup" className="font-medium text-link hover:text-link-hover">
             가입하기

@@ -70,7 +70,7 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
       className="flex-1 py-[var(--s-3)]"
     >
       {history.hasNextPage ? (
-        <div className="py-[var(--s-3)] text-center text-[11px] text-text-muted">
+        <div className="py-[var(--s-3)] text-center text-[length:var(--fs-11)] text-text-muted">
           {history.isFetchingNextPage ? '이전 메시지 불러오는 중…' : '스크롤해 더 보기'}
         </div>
       ) : null}

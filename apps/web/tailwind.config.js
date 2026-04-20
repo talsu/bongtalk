@@ -105,6 +105,7 @@ export default {
         serverlist: 'var(--w-serverlist)',
         channellist: 'var(--w-channellist)',
         memberlist: 'var(--w-memberlist)',
+        thread: 'var(--w-thread)',
       },
       height: {
         topbar: 'var(--h-topbar)',

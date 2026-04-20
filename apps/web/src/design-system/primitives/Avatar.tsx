@@ -3,11 +3,11 @@ import { cn } from '../../lib/cn';
 export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
 const SIZE_TEXT: Record<AvatarSize, string> = {
-  xs: 'text-[10px]',
-  sm: 'text-[11px]',
-  md: 'text-[13px]',
-  lg: 'text-[15px]',
-  xl: 'text-[18px]',
+  xs: 'text-[length:var(--fs-11)]',
+  sm: 'text-[length:var(--fs-11)]',
+  md: 'text-[length:var(--fs-13)]',
+  lg: 'text-[length:var(--fs-15)]',
+  xl: 'text-[length:var(--fs-18)]',
 };
 
 // Deterministic per-user color derived from the name hash. Content-data

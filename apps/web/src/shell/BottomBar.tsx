@@ -11,7 +11,7 @@ export function BottomBar(): JSX.Element {
   return (
     <footer
       data-testid="bottom-bar"
-      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[13px]"
+      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[length:var(--fs-13)]"
     >
       <div className="flex items-center gap-2">
         <div className="relative">
@@ -21,10 +21,13 @@ export function BottomBar(): JSX.Element {
           </span>
         </div>
         <div className="leading-tight">
-          <div data-testid="home-username" className="text-[13px] font-semibold text-text-strong">
+          <div
+            data-testid="home-username"
+            className="text-[length:var(--fs-13)] font-semibold text-text-strong"
+          >
             {user?.username ?? ''}
           </div>
-          <div className="text-[11px] text-text-muted">online</div>
+          <div className="text-[length:var(--fs-11)] text-text-muted">online</div>
         </div>
       </div>
 

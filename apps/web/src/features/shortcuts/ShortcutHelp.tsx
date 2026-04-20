@@ -29,7 +29,7 @@ export function ShortcutHelp(): JSX.Element | null {
         {SHORTCUTS.map((s) => (
           <li
             key={s.combo}
-            className="flex items-center justify-between py-[var(--s-3)] text-[14px]"
+            className="flex items-center justify-between py-[var(--s-3)] text-[length:var(--fs-14)]"
             style={{ borderBottom: '1px solid var(--divider)' }}
           >
             <span className="text-text">{s.desc}</span>
