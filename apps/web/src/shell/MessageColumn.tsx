@@ -16,6 +16,7 @@ type Props = {
   workspaceSlug: string;
   channelId: string;
   channelName: string;
+  channelTopic: string | null;
 };
 
 /**
@@ -23,10 +24,16 @@ type Props = {
  * member list. Body is the virtualized message list. Footer is the
  * composer.
  */
-export function MessageColumn({ workspaceId, channelId, channelName }: Props): JSX.Element {
+export function MessageColumn({
+  workspaceId,
+  channelId,
+  channelName,
+  channelTopic,
+}: Props): JSX.Element {
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
+  const setOpenModal = useUI((s) => s.setOpenModal);
   const { data: members } = useMembers(workspaceId);
   const memberCount = members?.members.length ?? 0;
   const qc = useQueryClient();
@@ -113,22 +120,46 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
         data-testid={`msg-column-${channelName}`}
         className="flex min-w-0 flex-1 flex-col bg-chat"
       >
-        <header className="qf-topbar justify-between">
+        <header className="qf-topbar">
           <h2 className="qf-topbar__title">
             <span className="text-text-muted">#</span>
             {channelName}
           </h2>
-          <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
-            <button
-              data-testid="toggle-member-list"
-              aria-label="멤버 목록 토글"
-              aria-pressed={memberListOpen}
-              onClick={toggleMemberList}
-              className="qf-btn qf-btn--ghost qf-btn--sm"
-            >
-              {memberCount}명
-            </button>
-          </Tooltip>
+          {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
+          <div className="ml-auto flex items-center gap-[var(--s-3)]">
+            <input
+              data-testid="topbar-search"
+              readOnly
+              onFocus={() => setOpenModal('search')}
+              onClick={() => setOpenModal('search')}
+              placeholder="검색"
+              aria-label="메시지 검색"
+              className="qf-input h-topbar-search w-topbar-search text-[length:var(--fs-13)]"
+            />
+            <Tooltip label="곧 제공 예정" side="bottom">
+              <button
+                type="button"
+                data-testid="topbar-pin"
+                disabled
+                aria-label="고정된 메시지"
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                📌
+              </button>
+            </Tooltip>
+            <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
+              <button
+                type="button"
+                data-testid="topbar-members-toggle"
+                aria-label={`멤버 목록 토글 (${memberCount}명)`}
+                aria-pressed={memberListOpen}
+                onClick={toggleMemberList}
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                👥
+              </button>
+            </Tooltip>
+          </div>
         </header>
         <MessageList
           workspaceId={workspaceId}

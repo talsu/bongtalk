@@ -131,7 +131,9 @@
   --w-channellist: 240px;
   --w-memberlist:  240px;
   --w-thread:      420px;
+  --w-topbar-search: 180px;
   --h-topbar:      48px;
+  --h-topbar-search: 28px;
   --h-typingbar:   24px;
 
   /* ───── Semantic aliases (dark default) ───── */
