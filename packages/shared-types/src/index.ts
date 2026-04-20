@@ -67,6 +67,10 @@ export const ErrorCodeSchema = z.enum([
   // web client could not safely branch on them. A unit regression
   // guard in `error-code-schema.unit.spec.ts` stops future drift.
   'INVITE_REVOKED',
+  // task-016-C-2: closed-beta gate on POST /auth/signup when
+  // BETA_INVITE_REQUIRED=true. Client maps this to a support-email
+  // link instead of a retry-able error.
+  'BETA_INVITE_REQUIRED',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',

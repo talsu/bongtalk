@@ -6,6 +6,7 @@ import { LoginDto } from './dto/login.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser, CurrentUserPayload } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -69,6 +70,7 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(BetaInviteRequiredGuard)
   @Post('signup')
   async signup(
     @Body() dto: SignupDto,
