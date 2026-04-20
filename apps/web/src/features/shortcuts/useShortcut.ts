@@ -63,8 +63,17 @@ export function useGlobalShortcuts(): void {
         return;
       }
 
-      // Ctrl/Cmd + / → shortcut help
+      // task-015-C: Ctrl/Cmd + / → search overlay (moved from help
+      // to match Slack/GitHub convention). Help is now `?` alone.
       if (matches(e, { key: '/', ctrlOrMeta: true })) {
+        e.preventDefault();
+        setOpenModal(openModal === 'search' ? null : 'search');
+        return;
+      }
+
+      // `?` (Shift+/ on US layout) → shortcut help. No Ctrl. In-input
+      // guard above already blocks this inside textareas/inputs.
+      if (e.key === '?') {
         e.preventDefault();
         setOpenModal(openModal === 'shortcut-help' ? null : 'shortcut-help');
         return;

@@ -7,7 +7,7 @@ type UIState = {
   setMemberListOpen: (v: boolean) => void;
 
   /** Which modal (if any) is currently showing. Plain enum — no deep state. */
-  openModal: 'command-palette' | 'shortcut-help' | 'settings' | null;
+  openModal: 'command-palette' | 'shortcut-help' | 'settings' | 'search' | null;
   setOpenModal: (m: UIState['openModal']) => void;
 
   /** Workspace-settings overlay path. Shell renders the overlay based on this. */

@@ -14,6 +14,18 @@
 #
 # --dry-run lists candidates without deleting.
 # Runs from qufox-backup via cron at $ORPHAN_GC_CRON (default 04:30 UTC).
+#
+# task-015-A (task-012-follow-5 closure): the two-step ordering is
+# intentional and convergent — not atomic. Crash / signal between the
+# S3 delete and the DB delete leaves state where the object is gone
+# but the DB row remains:
+#   - next run's S3 delete is a no-op (idempotent; missing key = 204
+#     = success) so the DB delete completes on the retry.
+#   - user-visible effect is zero: an orphan row with no S3 object
+#     already could not serve a download, and this script's selector
+#     already targets orphans (finalizedAt IS NULL + >24h stale).
+# A real transaction would need a 2PC bridge; the convergence above
+# is cheaper and equally safe for a daily GC.
 
 set -euo pipefail
 

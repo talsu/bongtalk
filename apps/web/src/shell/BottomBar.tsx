@@ -43,7 +43,7 @@ export function BottomBar(): JSX.Element {
             {resolved === 'dark' ? '☀' : '☾'}
           </button>
         </Tooltip>
-        <Tooltip label="단축키 (Ctrl+/)" side="top">
+        <Tooltip label="단축키 (?)" side="top">
           <button
             data-testid="shortcut-help"
             aria-label="단축키 도움말"

@@ -45,10 +45,11 @@ test('unread dot bumps on realtime message and clears on channel open', async ({
     `ur-own-${stamp}@qufox.dev`,
     `urown${stamp}`,
   );
+  const memberUsername = `urmem${stamp}`;
   const memberToken = await signupAndGetToken(
     memberCtx,
     `ur-mem-${stamp}@qufox.dev`,
-    `urmem${stamp}`,
+    memberUsername,
   );
 
   const wsRes = await ownerCtx.request.post(`${API}/workspaces`, {
@@ -114,16 +115,15 @@ test('unread dot bumps on realtime message and clears on channel open', async ({
       origin: ORIGIN,
       'idempotency-key': crypto.randomUUID(),
     },
-    data: {
-      content: `@urmem${stamp} ping`,
-      mentions: {
-        users: [
-          /* member id not resolved on the client, server doesn't echo yet */
-        ],
-        channels: [],
-        everyone: true,
-      },
-    },
+    // task-015-A (task-011-follow-8 closure): the server extracts
+    // mentions from the text content; the client-sent `mentions`
+    // payload is ignored. Posting `@<username>` resolves to a
+    // users=[memberId] mentions object on the server side. The test
+    // name ("Mention variant: owner @mentions the member") now
+    // accurately reflects what it covers — previously the payload's
+    // `everyone: true` suggested @everyone semantics that the server
+    // never saw.
+    data: { content: `@${memberUsername} ping` },
   });
   const mentionDot = memberPage.locator(
     '[data-testid=channel-general] [data-testid=unread-dot-mention]',

@@ -7,8 +7,15 @@ import tsParser from '@typescript-eslint/parser';
 // on features/auth + features/workspaces (the sweep done in task-010-C);
 // warn-level elsewhere so the rest of the codebase migrates incrementally
 // without blocking CI.
-const PALETTE_PATTERN =
-  "Literal[value=/\\b(bg|text|border)-(slate|red|blue|green|yellow)-[0-9]+\\b/]";
+//
+// task-015-A (task-010-follow-5 closure): Literal catches plain string
+// literals; TemplateElement catches the static parts of template
+// literals (`` `bg-slate-${shade}` `` — the "bg-slate-" part lives in
+// TemplateElement.value.raw). Without the second selector the rule
+// missed ``${'bg-red-600'}``-style interpolation builds.
+const PALETTE_REGEX = "\\b(bg|text|border)-(slate|red|blue|green|yellow)-[0-9]+\\b";
+const PALETTE_PATTERN_LITERAL = `Literal[value=/${PALETTE_REGEX}/]`;
+const PALETTE_PATTERN_TEMPLATE = `TemplateElement[value.raw=/${PALETTE_REGEX}/]`;
 
 const PALETTE_MESSAGE =
   'Use design-system semantic tokens (surface/foreground/text-muted/danger/accent/…) instead of raw Tailwind palette classes. See apps/web/src/index.css + tailwind.config.js for the token list.';
@@ -78,7 +85,8 @@ export default [
     rules: {
       'no-restricted-syntax': [
         'warn',
-        { selector: PALETTE_PATTERN, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
       ],
     },
   },
@@ -93,7 +101,8 @@ export default [
     rules: {
       'no-restricted-syntax': [
         'error',
-        { selector: PALETTE_PATTERN, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
       ],
     },
   },

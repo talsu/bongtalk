@@ -3,7 +3,8 @@ import { useUI } from '../../stores/ui-store';
 
 const SHORTCUTS: Array<{ combo: string; desc: string }> = [
   { combo: 'Ctrl/Cmd + K', desc: '빠른 이동 팔레트' },
-  { combo: 'Ctrl/Cmd + /', desc: '이 도움말 열기' },
+  { combo: 'Ctrl/Cmd + /', desc: '메시지 검색' },
+  { combo: '?', desc: '이 도움말 열기' },
   { combo: 'Alt + ↑ / ↓', desc: '이전/다음 채널' },
   { combo: 'Ctrl/Cmd + Shift + A', desc: '다음 워크스페이스' },
   { combo: 'Escape', desc: '오버레이 닫기' },

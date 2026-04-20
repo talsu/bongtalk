@@ -1,0 +1,27 @@
+id: 030
+title: Full-text search — pg_trgm + tsvector OR query + ACL + highlighted snippet
+goal: |
+  Message FTS with two Postgres GIN indexes (tsvector(simple) +
+  pg_trgm(content)) both partial on `deletedAt IS NULL`. Search
+  query OR-matches `search_tsv @@ plainto_tsquery` (English) and
+  `content ILIKE '%q%'` (Korean substring). Channel visibility is
+  resolved through ChannelAccessService (single source from
+  task-014-A) and filtered at query time, with per-result re-check
+  covering ACL-flip races. ts_headline emits <mark>…</mark> with
+  content pre-HTML-escaped so snippets are XSS-safe on the wire.
+  Opaque (rank, createdAt, id) cursor keeps keyset pagination
+  stable. Frontend overlay bound to Ctrl+/ (shortcut-help moved to
+  `?`), 300ms debounced input, localStorage recent searches (5,
+  newest-first), result click navigates to
+  /w/:slug/:ch?msg=<id>. EXPLAIN on /search uses GIN index, no
+  seq scan.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test
+    expect: exit 0
+  - command: pnpm --filter @qufox/webhook test
+    expect: exit 0
+max_turns: 22

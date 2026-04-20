@@ -11,6 +11,7 @@ import { BottomBar } from './BottomBar';
 import { ToastViewport } from '../design-system/primitives';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
+import { SearchOverlay } from '../features/search/SearchOverlay';
 import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
 
 /**
@@ -95,6 +96,7 @@ export function Shell(): JSX.Element {
       <BottomBar />
       <CommandPalette />
       <ShortcutHelp />
+      <SearchOverlay />
       <ToastViewport />
     </div>
   );
