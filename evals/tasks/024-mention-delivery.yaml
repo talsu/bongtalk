@@ -1,0 +1,15 @@
+id: 024
+title: Mention fan-out reaches the target user end-to-end
+goal: |
+  When a user posts `@<other-user>` in a channel, the target user
+  receives a `mention.received` event on their `user:<id>` room, the
+  mention-inbox cache bumps its unread count, and the toast's
+  click-to-jump navigates to `?msg=<id>`. Covers the full task-011-B
+  path: outbox write inside the send transaction → OutboxToWsSubscriber
+  routing → dispatcher bump → Toast + sidebar badge → jump navigation.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test
+    expect: exit 0
+max_turns: 20

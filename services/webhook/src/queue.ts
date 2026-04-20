@@ -1,0 +1,98 @@
+export interface DeployJob {
+  sha: string;
+  branch: string;
+  pusher: string;
+  enqueuedAt: number;
+}
+
+export type Outcome = 'ok' | 'failed';
+
+export interface Runner {
+  (job: DeployJob): Promise<Outcome>;
+}
+
+/**
+ * Single-slot coalescing queue. One deploy runs at a time; while it is
+ * running we keep at most ONE pending job (the latest push wins, older
+ * pending jobs are dropped). GitHub fans out a webhook per push, so if
+ * three commits land in quick succession we run the first + the last,
+ * which is the desired semantic: we never skip the tip of the branch,
+ * but we don't build every intermediate SHA either.
+ */
+export interface QueueObserver {
+  onDepthChange(depth: number): void;
+  onJobDurationSeconds(seconds: number, outcome: Outcome): void;
+}
+
+export const noopQueueObserver: QueueObserver = {
+  onDepthChange() {},
+  onJobDurationSeconds() {},
+};
+
+export class DeployQueue {
+  private active: DeployJob | null = null;
+  private pending: DeployJob | null = null;
+  private readonly listeners = new Set<(j: DeployJob, o: Outcome) => void>();
+
+  constructor(
+    private readonly runner: Runner,
+    private readonly observer: QueueObserver = noopQueueObserver,
+  ) {}
+
+  private depth(): number {
+    return (this.active ? 1 : 0) + (this.pending ? 1 : 0);
+  }
+
+  onSettled(fn: (job: DeployJob, outcome: Outcome) => void): void {
+    this.listeners.add(fn);
+  }
+
+  state(): { active: DeployJob | null; pending: DeployJob | null } {
+    return { active: this.active, pending: this.pending };
+  }
+
+  submit(job: DeployJob): 'started' | 'queued' | 'coalesced' {
+    if (this.active === null) {
+      this.active = job;
+      this.observer.onDepthChange(this.depth());
+      // Fire-and-forget: errors inside run() are caught and logged via runner.
+      void this.run();
+      return 'started';
+    }
+    const hadPending = this.pending !== null;
+    this.pending = job;
+    this.observer.onDepthChange(this.depth());
+    return hadPending ? 'coalesced' : 'queued';
+  }
+
+  private async run(): Promise<void> {
+    while (this.active !== null) {
+      const current = this.active;
+      const startedAt = Date.now();
+      let outcome: Outcome = 'failed';
+      try {
+        outcome = await this.runner(current);
+      } catch {
+        outcome = 'failed';
+      }
+      const seconds = (Date.now() - startedAt) / 1000;
+      this.observer.onJobDurationSeconds(seconds, outcome);
+      for (const fn of this.listeners) {
+        try {
+          fn(current, outcome);
+        } catch (err) {
+          // task-013-A3 (task-009-nit-1 closure): surface the error
+          // via stderr instead of swallowing it silently. Queue
+          // processing still continues — one misbehaving listener
+          // must not block future deploys.
+          process.stderr.write(
+            `[webhook.queue] listener error: ${(err as Error)?.message ?? String(err)}\n`,
+          );
+        }
+      }
+      this.active = this.pending;
+      this.pending = null;
+      this.observer.onDepthChange(this.depth());
+    }
+  }
+}

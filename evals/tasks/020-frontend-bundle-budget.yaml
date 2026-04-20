@@ -1,0 +1,15 @@
+id: 020
+title: Initial JS bundle stays within 200KB gzipped
+goal: |
+  `size-limit` passes for every entry point. Budgets:
+    - initial entry + shell ≤ 200 KB
+    - Shell chunk ≤ 80 KB
+    - vendor-react ≤ 55 KB
+    - vendor-radix ≤ 70 KB
+    - vendor-query ≤ 35 KB
+    - vendor-socket ≤ 30 KB
+  All numbers are gzipped.
+dod:
+  - command: pnpm --filter @qufox/web size
+    expect: exit 0
+max_turns: 15

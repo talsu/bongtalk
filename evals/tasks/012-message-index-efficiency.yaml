@@ -1,0 +1,10 @@
+id: 012
+title: Message list uses an Index Scan (no Sort)
+goal: |
+  Run EXPLAIN ANALYZE on the three representative pagination queries and
+  assert each plan uses an Index Scan or Index Only Scan on
+  Message_channelId_createdAt_id_idx with no Sort node.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- messages.explain
+    expect: exit 0
+max_turns: 15

@@ -1,0 +1,30 @@
+# Deploy pipeline alert rules — loaded by prometheus.yml. Two alerts,
+# both rooted in the metrics exposed by services/webhook/src/metrics.ts.
+# Runbook link is relative to the repo root so ops can grep it.
+
+groups:
+  - name: qufox.deploy
+    rules:
+      - alert: DeployRollbackSpike
+        # More than one rollback in 15 minutes is an unusual amount of
+        # failure; one is almost always a legitimate broken-build catch.
+        expr: increase(qufox_deploy_rollbacks_total[15m]) > 1
+        for: 0m
+        labels:
+          severity: page
+        annotations:
+          summary: 'Deploy pipeline rolled back > 1 time in 15m'
+          runbook: docs/ops/runbook-webhook-debug.md
+
+      - alert: DeployFailStreak
+        # Two consecutive failing deploys within 30m. The counter-only
+        # form (increase > 1) is enough; a streak on a busy PR day is
+        # usually either (a) a toxic commit on main that isn't getting
+        # reverted or (b) the deploy infra itself regressing.
+        expr: increase(qufox_deploys_total{result="fail"}[30m]) > 1
+        for: 0m
+        labels:
+          severity: warn
+        annotations:
+          summary: 'Two deploy failures within 30m — investigate'
+          runbook: docs/ops/runbook-webhook-debug.md

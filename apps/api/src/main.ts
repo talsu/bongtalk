@@ -1,11 +1,18 @@
 import 'reflect-metadata';
+import { startOtel } from './observability/otel/otel-sdk';
+// OTEL SDK MUST start before any Nest module imports so auto-instrumentation
+// can monkey-patch `http`, `pg`, `ioredis` at require-time. Putting this call
+// after the NestFactory import would register no-op hooks on already-loaded
+// modules.
+startOtel();
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
-import { IoAdapter } from '@nestjs/platform-socket.io';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { logger } from './common/logging/logger';
+import { RedisIoAdapter } from './realtime/io-adapter';
+import { assertProductionEnv } from './config/required-env';
 
 function corsOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
@@ -15,6 +22,22 @@ function corsOrigins(): string[] {
 }
 
 async function bootstrap(): Promise<void> {
+  // Fail fast on misconfigured production env (e.g. missing WEB_URL) —
+  // silently serving invite links with a localhost origin is worse than a
+  // hard crash at container start.
+  assertProductionEnv(process.env);
+
+  // task-016-C-2: closed-beta signup gate. Default-ON isn't safe to
+  // assume (dev/test explicitly disable), so production without a
+  // `true` here gets a WARN line — not a crash, because a legit
+  // public-demo deployment may want signup open.
+  if (process.env.NODE_ENV === 'production' && process.env.BETA_INVITE_REQUIRED !== 'true') {
+    logger.warn(
+      { betaInviteRequired: process.env.BETA_INVITE_REQUIRED ?? '<unset>' },
+      'BETA_INVITE_REQUIRED is not `true` in production — /auth/signup is open to anyone with the URL. Set BETA_INVITE_REQUIRED=true in .env.prod unless this is intentional.',
+    );
+  }
+
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
@@ -31,10 +54,11 @@ async function bootstrap(): Promise<void> {
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),
   );
-  app.useWebSocketAdapter(new IoAdapter(app));
+  const ioAdapter = new RedisIoAdapter(app);
+  await ioAdapter.connectToRedis();
+  app.useWebSocketAdapter(ioAdapter);
 
-  // TODO(task-005): wire @socket.io/redis-adapter for multi-node fanout.
-  // TODO(task-009): bootstrap OpenTelemetry SDK with stdout exporter.
+  // OTEL SDK already started at the top of the file (before Nest import).
 
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port, '0.0.0.0');

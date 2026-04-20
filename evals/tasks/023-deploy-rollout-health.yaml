@@ -1,0 +1,16 @@
+id: 023
+title: Rollout health-wait failure triggers rollback to :prev
+goal: |
+  scripts/deploy/rollout.sh preserves the current :latest image as :prev
+  before building, then polls /readyz. If health-wait exceeds its max
+  duration the script invokes scripts/deploy/rollback.sh, which re-tags
+  :prev → :latest and recreates the container — so a broken deploy
+  never leaves a non-serving container in its wake. The shell scripts
+  parse under `bash -n` and the webhook spec covering the queue →
+  rollout failure path is green.
+dod:
+  - command: bash scripts/deploy/test-syntax.sh
+    expect: exit 0
+  - command: pnpm --filter @qufox/webhook test -- queue
+    expect: exit 0
+max_turns: 15

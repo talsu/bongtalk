@@ -41,15 +41,12 @@ export class ChannelsService {
 
   private assertNameAllowed(name: string): void {
     if (CHANNEL_RESERVED_NAMES.has(name)) {
-      throw new DomainError(
-        ErrorCode.CHANNEL_NAME_INVALID,
-        `channel name "${name}" is reserved`,
-      );
+      throw new DomainError(ErrorCode.CHANNEL_NAME_INVALID, `channel name "${name}" is reserved`);
     }
   }
 
-  async listByWorkspace(workspaceId: string) {
-    const [categories, channels] = await Promise.all([
+  async listByWorkspace(workspaceId: string, callerId?: string) {
+    const [categories, channels, memberRow] = await Promise.all([
       this.prisma.category.findMany({
         where: { workspaceId },
         orderBy: { position: 'asc' },
@@ -58,9 +55,44 @@ export class ChannelsService {
         where: { workspaceId, deletedAt: null },
         orderBy: [{ categoryId: 'asc' }, { position: 'asc' }],
       }),
+      callerId
+        ? this.prisma.workspaceMember.findUnique({
+            where: { workspaceId_userId: { workspaceId, userId: callerId } },
+            select: { role: true },
+          })
+        : null,
     ]);
-    const byCat = new Map<string | null, typeof channels>();
-    for (const c of channels) {
+    // Task-012-D: filter private channels the caller can't see.
+    // Public channels are always visible; private channels require
+    // an explicit allow override for this user or role. OWNER sees
+    // everything regardless of overrides (ownership is the escape
+    // hatch for lost-access scenarios).
+    let visibleChannels = channels;
+    if (callerId) {
+      const privateIds = channels.filter((c) => c.isPrivate).map((c) => c.id);
+      let overrideHits: Set<string> | null = null;
+      if (privateIds.length > 0 && memberRow?.role !== 'OWNER') {
+        const rows = await this.prisma.channelPermissionOverride.findMany({
+          where: {
+            channelId: { in: privateIds },
+            allowMask: { gt: 0 },
+            OR: [
+              { principalType: 'USER', principalId: callerId },
+              ...(memberRow ? [{ principalType: 'ROLE', principalId: memberRow.role }] : []),
+            ],
+          },
+          select: { channelId: true },
+        });
+        overrideHits = new Set(rows.map((r) => r.channelId));
+      }
+      visibleChannels = channels.filter((c) => {
+        if (!c.isPrivate) return true;
+        if (memberRow?.role === 'OWNER') return true;
+        return overrideHits?.has(c.id) ?? false;
+      });
+    }
+    const byCat = new Map<string | null, typeof visibleChannels>();
+    for (const c of visibleChannels) {
       const key = c.categoryId;
       const list = byCat.get(key) ?? [];
       list.push(c);
@@ -119,8 +151,39 @@ export class ChannelsService {
             topic: input.topic ?? null,
             categoryId: input.categoryId ?? null,
             position,
+            // Task-012-D: honour the isPrivate flag from the DTO.
+            // Default-false in the schema keeps public-by-default.
+            isPrivate: input.isPrivate ?? false,
           },
         });
+        // Task-012 reviewer MED-6: when creating a private channel,
+        // seed a USER-principal override for the creator with the full
+        // role baseline so the creator can actually reach their own
+        // channel. Without this, OWNER could create but not access
+        // without a subsequent POST /members. Applies for every role
+        // (the channel creator should always have access).
+        if (channel.isPrivate) {
+          await tx.channelPermissionOverride.upsert({
+            where: {
+              channelId_principalType_principalId: {
+                channelId: channel.id,
+                principalType: 'USER',
+                principalId: actorId,
+              },
+            },
+            create: {
+              channelId: channel.id,
+              principalType: 'USER',
+              principalId: actorId,
+              // ALL_PERMISSIONS = 0xFF across the 8 slots (see
+              // permissions.ts). Hard-coded so we don't cross-import
+              // and pull in a web surface from the core service layer.
+              allowMask: 0xff,
+              denyMask: 0,
+            },
+            update: {},
+          });
+        }
         await this.outbox.record(tx, {
           aggregateType: 'channel',
           aggregateId: channel.id,
@@ -269,16 +332,94 @@ export class ChannelsService {
   }
 
   /**
+   * Task-012-D: upsert a USER-principal override on a channel.
+   * Returns the resulting row.
+   */
+  async addChannelMemberOverride(
+    workspaceId: string,
+    channelId: string,
+    targetUserId: string,
+    allowMask: number,
+    denyMask: number,
+  ) {
+    // Both-in-workspace gate: the target has to be a member of this
+    // workspace for a per-user channel override to be meaningful.
+    const target = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      select: { userId: true },
+    });
+    if (!target) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
+        'target user is not a member of this workspace',
+      );
+    }
+    // Channel must live in this workspace (prevents cross-workspace
+    // override insertion).
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    // Task-012 reviewer MED-7 fix: emit `channel.permission.changed`
+    // outbox event in the same $transaction as the upsert so the
+    // realtime dispatcher can refresh the target user's channel list
+    // without them reloading. Payload carries workspaceId +
+    // channelId + targetUserId + effective mask; the WS projection
+    // routes via rooms.user(targetUserId).
+    const { row, effective } = await this.prisma.$transaction(async (tx) => {
+      const upserted = await tx.channelPermissionOverride.upsert({
+        where: {
+          channelId_principalType_principalId: {
+            channelId,
+            principalType: 'USER',
+            principalId: targetUserId,
+          },
+        },
+        create: {
+          channelId,
+          principalType: 'USER',
+          principalId: targetUserId,
+          allowMask,
+          denyMask,
+        },
+        update: { allowMask, denyMask },
+      });
+      const effectiveMask = (allowMask & ~denyMask) >>> 0;
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: 'channel.permission.changed',
+        payload: {
+          workspaceId,
+          channelId,
+          targetUserId,
+          allowMask,
+          denyMask,
+          effectiveMask,
+        },
+      });
+      return { row: upserted, effective: effectiveMask };
+    });
+    void effective;
+    return {
+      id: row.id,
+      channelId: row.channelId,
+      principalType: row.principalType,
+      principalId: row.principalId,
+      allowMask: row.allowMask,
+      denyMask: row.denyMask,
+    };
+  }
+
+  /**
    * Reorder a channel. `beforeId` / `afterId` anchor the target position;
    * `categoryId` (null = uncategorized) optionally moves the channel between
    * categories. If both anchors are null we append to the end.
    */
-  async move(
-    workspaceId: string,
-    channelId: string,
-    actorId: string,
-    input: MoveChannelRequest,
-  ) {
+  async move(workspaceId: string, channelId: string, actorId: string, input: MoveChannelRequest) {
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.channel.findFirst({
         where: { id: channelId, workspaceId, deletedAt: null },
@@ -288,8 +429,7 @@ export class ChannelsService {
         throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
       }
 
-      const nextCategoryId =
-        input.categoryId !== undefined ? input.categoryId : current.categoryId;
+      const nextCategoryId = input.categoryId !== undefined ? input.categoryId : current.categoryId;
 
       if (nextCategoryId) {
         const cat = await tx.category.findFirst({

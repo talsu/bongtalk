@@ -1,0 +1,11 @@
+id: 021
+title: Realtime events update React Query cache without refetching
+goal: |
+  Central dispatcher (features/realtime/dispatcher.ts) installs socket
+  listeners that call setQueryData/invalidateQueries against the keys from
+  lib/query-keys.ts. No component listens for socket events directly
+  — verified by grep on `socket.on(` count in files outside the dispatcher.
+dod:
+  - command: pnpm --filter @qufox/web test -- dispatcher
+    expect: exit 0
+max_turns: 20

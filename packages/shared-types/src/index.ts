@@ -22,15 +22,7 @@ export type Workspace = z.infer<typeof WorkspaceSchema>;
 // Channel/ChannelType schemas were moved to `./channel.ts` in task-003 and
 // are re-exported at the bottom of this file.
 
-export const MessageSchema = z.object({
-  id: UuidSchema,
-  channelId: UuidSchema,
-  authorId: UuidSchema,
-  content: z.string().min(1).max(4000),
-  createdAt: z.string().datetime(),
-  deletedAt: z.string().datetime().nullable(),
-});
-export type Message = z.infer<typeof MessageSchema>;
+// Message schemas moved to `./message.ts` in task-004 — re-exported at EOF.
 
 export const HealthResponseSchema = z.object({
   status: z.literal('ok'),
@@ -70,6 +62,15 @@ export const ErrorCodeSchema = z.enum([
   'INVITE_NOT_FOUND',
   'INVITE_EXPIRED',
   'INVITE_EXHAUSTED',
+  // task-015-A (014-follow-3 closure): these existed on the backend
+  // enum + HTTP map but were missing from the shared schema, so the
+  // web client could not safely branch on them. A unit regression
+  // guard in `error-code-schema.unit.spec.ts` stops future drift.
+  'INVITE_REVOKED',
+  // task-016-C-2: closed-beta gate on POST /auth/signup when
+  // BETA_INVITE_REQUIRED=true. Client maps this to a support-email
+  // link instead of a retry-able error.
+  'BETA_INVITE_REQUIRED',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',
@@ -79,6 +80,23 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_ARCHIVED',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
+  'MESSAGE_NOT_FOUND',
+  'MESSAGE_CONTENT_INVALID',
+  'MESSAGE_CURSOR_INVALID',
+  'MESSAGE_NOT_AUTHOR',
+  'MESSAGE_THREAD_DEPTH_EXCEEDED',
+  'MESSAGE_PARENT_NOT_FOUND',
+  'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+  // task-015-A (014-follow-3 closure): attachments + channel
+  // visibility + generic forbidden codes. All existed in the backend
+  // enum from task-012; schema drift hid them from the client.
+  'ATTACHMENT_NOT_FOUND',
+  'ATTACHMENT_TOO_LARGE',
+  'ATTACHMENT_MIME_REJECTED',
+  'ATTACHMENT_NOT_UPLOADED',
+  'ATTACHMENT_SIZE_MISMATCH',
+  'CHANNEL_NOT_VISIBLE',
+  'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
   'RATE_LIMITED',
@@ -97,3 +115,4 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 export * from './auth';
 export * from './workspace';
 export * from './channel';
+export * from './message';

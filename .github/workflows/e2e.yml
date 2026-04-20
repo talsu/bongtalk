@@ -2,65 +2,78 @@ name: e2e
 on:
   push:
     branches: [main, develop]
+  pull_request:
   workflow_dispatch:
 
 jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
-    services:
-      postgres:
-        image: postgres:16-alpine
-        env:
-          POSTGRES_USER: qufox
-          POSTGRES_PASSWORD: qufox
-          POSTGRES_DB: qufox_e2e
-        ports: ['5432:5432']
-        options: >-
-          --health-cmd="pg_isready -U qufox -d qufox_e2e"
-          --health-interval=5s --health-timeout=3s --health-retries=20
-      redis:
-        image: redis:7-alpine
-        ports: ['6379:6379']
-        options: >-
-          --health-cmd="redis-cli ping"
-          --health-interval=5s --health-timeout=3s --health-retries=20
+    env:
+      COMPOSE_FILE: docker-compose.test.yml
     steps:
       - uses: actions/checkout@v4
+
       - uses: pnpm/action-setup@v4
         with:
           version: 10.33.0
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20.9.0
           cache: pnpm
+
       - run: pnpm install --frozen-lockfile
+
       - run: pnpm --filter @qufox/api exec prisma generate
-      - name: Build web
-        run: pnpm --filter @qufox/web build
-      - name: Start api
+
+      # Bring up the test stack (pg + redis + api + web) via the
+      # dedicated compose file. Each service healthchecks itself; we
+      # wait for the api /readyz to flip to 200 before handing off to
+      # Playwright.
+      - name: Start test stack
+        run: docker compose -f ${COMPOSE_FILE} up -d --build
+
+      - name: Wait for /readyz
         run: |
-          pnpm --filter @qufox/api exec prisma migrate deploy || true
-          (pnpm --filter @qufox/api exec tsx src/main.ts &) && sleep 4
-        env:
-          DATABASE_URL: postgresql://qufox:qufox@localhost:5432/qufox_e2e?schema=public
-          REDIS_URL: redis://localhost:6379
-          API_PORT: 3001
-      - name: Start web (preview)
-        run: (pnpm --filter @qufox/web preview &) && sleep 3
-      - name: Playwright (browsers on host)
+          set -e
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:43001/readyz || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "api /readyz is 200"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "api /readyz never returned 200"
+          docker compose -f ${COMPOSE_FILE} logs --tail 200
+          exit 1
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @qufox/web exec playwright install --with-deps chromium
+
+      - name: Run Playwright
         working-directory: apps/web
-        run: |
-          pnpm exec playwright install --with-deps chromium
-          pnpm exec playwright test
         env:
-          PLAYWRIGHT_BASE_URL: http://localhost:5173
-          VITE_API_URL: http://localhost:3001
-      - name: Upload traces
+          PLAYWRIGHT_BASE_URL: http://localhost:45173
+          VITE_API_URL: http://localhost:43001
+        run: pnpm exec playwright test
+
+      - name: Stack logs on failure
         if: failure()
+        run: docker compose -f ${COMPOSE_FILE} logs --tail 500
+
+      - name: Upload Playwright artefacts
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-traces
+          name: playwright-report-${{ github.run_id }}
+          if-no-files-found: ignore
+          retention-days: 7
           path: |
             apps/web/test-results/**
             apps/web/playwright-report/**
+
+      - name: Shutdown
+        if: always()
+        run: docker compose -f ${COMPOSE_FILE} down -v

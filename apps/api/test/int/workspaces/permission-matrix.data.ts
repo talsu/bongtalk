@@ -25,11 +25,19 @@ export type Outcome =
 
 export type MatrixEntry = {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
-  /** `:id` is resolved to the workspace being tested; `:uid` to the target user. */
+  /**
+   * Placeholders resolved by the test runner:
+   *   `:id`    → workspace id
+   *   `:uid`   → target user id (see `selfTarget`)
+   *   `:chid`  → matrix test channel id
+   *   `:msgId` → seeded message id; `msgTarget` selects self vs other's message
+   */
   path: string;
   description: string;
   /** If true, the target of the mutation is the caller themselves (e.g. self-leave). */
   selfTarget?: boolean;
+  /** Message-id resolution: `self` = caller's own; `other` = another role's. */
+  msgTarget?: 'self' | 'other';
   /** Per-role expected outcome. */
   roles: Record<Role, Outcome>;
 };
@@ -203,6 +211,108 @@ export const PERMISSION_MATRIX: MatrixEntry[] = [
       MEMBER: '403:WORKSPACE_INSUFFICIENT_ROLE',
       ADMIN: '201',
       OWNER: '201',
+    },
+  },
+  // -------- Messages (task-004) --------
+  {
+    method: 'GET',
+    path: '/workspaces/:id/channels/:chid/messages',
+    description: 'list messages',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '200',
+      ADMIN: '200',
+      OWNER: '200',
+    },
+  },
+  {
+    method: 'POST',
+    path: '/workspaces/:id/channels/:chid/messages',
+    description: 'send message',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '201',
+      ADMIN: '201',
+      OWNER: '201',
+    },
+  },
+  {
+    method: 'GET',
+    path: '/workspaces/:id/channels/:chid/messages/:msgId',
+    description: 'get single message',
+    msgTarget: 'other',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '200',
+      ADMIN: '200',
+      OWNER: '200',
+    },
+  },
+  {
+    method: 'PATCH',
+    path: '/workspaces/:id/channels/:chid/messages/:msgId',
+    description: 'edit own message — author-only rule',
+    msgTarget: 'self',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '200',
+      ADMIN: '200',
+      OWNER: '200',
+    },
+  },
+  {
+    method: 'PATCH',
+    path: '/workspaces/:id/channels/:chid/messages/:msgId',
+    description: "edit other's message — blocked even for OWNER",
+    msgTarget: 'other',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '403:MESSAGE_NOT_AUTHOR',
+      ADMIN: '403:MESSAGE_NOT_AUTHOR',
+      OWNER: '403:MESSAGE_NOT_AUTHOR',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/workspaces/:id/channels/:chid/messages/:msgId',
+    description: 'delete own message',
+    msgTarget: 'self',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '204',
+      ADMIN: '204',
+      OWNER: '204',
+    },
+  },
+  {
+    method: 'DELETE',
+    path: '/workspaces/:id/channels/:chid/messages/:msgId',
+    description: "delete other's message — ADMIN+ mod action",
+    msgTarget: 'other',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '403:MESSAGE_NOT_AUTHOR',
+      ADMIN: '204',
+      OWNER: '204',
+    },
+  },
+  {
+    method: 'GET',
+    path: '/workspaces/:id/channels/:chid/messages?includeDeleted=true',
+    description: 'list deleted messages — moderation',
+    roles: {
+      ANON: '401',
+      NON_MEMBER: '404:WORKSPACE_NOT_MEMBER',
+      MEMBER: '403:WORKSPACE_INSUFFICIENT_ROLE',
+      ADMIN: '200',
+      OWNER: '200',
     },
   },
 ];

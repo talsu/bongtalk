@@ -1,0 +1,12 @@
+id: 014
+title: Reconnect replay preserves order and deduplicates
+goal: |
+  Client posts 10 messages then reconnects with lastEventId = id of the 5th.
+  Server replays events 6..10 in order, client receives each exactly once,
+  replay.complete fires with replayed=5. When lastEventId has rolled off
+  the per-channel stream (MAXLEN=1000), replay.truncated is emitted instead
+  so the client can fall back to REST /messages?after=.
+dod:
+  - command: pnpm --filter @qufox/api test:int -- ws.reconnect-replay
+    expect: exit 0
+max_turns: 25

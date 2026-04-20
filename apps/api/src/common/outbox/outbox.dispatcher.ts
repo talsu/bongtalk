@@ -1,6 +1,8 @@
-import { Injectable, Logger, OnModuleDestroy, OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, OnModuleDestroy, OnModuleInit, Optional } from '@nestjs/common';
 import { EventEmitter2 } from '@nestjs/event-emitter';
 import { PrismaService } from '../../prisma/prisma.module';
+import { MetricsService } from '../../observability/metrics/metrics.service';
+import { restoreContext } from '../../observability/otel/propagation';
 
 type OutboxRow = {
   id: string;
@@ -31,6 +33,7 @@ export class OutboxDispatcher implements OnModuleInit, OnModuleDestroy {
   constructor(
     private readonly prisma: PrismaService,
     private readonly emitter: EventEmitter2,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   get intervalMs(): number {
@@ -49,9 +52,7 @@ export class OutboxDispatcher implements OnModuleInit, OnModuleDestroy {
       where: { dispatchedAt: null, attempts: { gt: 0 } },
     });
     if (stuck > 0) {
-      this.logger.warn(
-        `[outbox] ${stuck} event(s) with attempts > 0 still pending — will retry`,
-      );
+      this.logger.warn(`[outbox] ${stuck} event(s) with attempts > 0 still pending — will retry`);
     }
     this.start();
   }
@@ -131,35 +132,66 @@ export class OutboxDispatcher implements OnModuleInit, OnModuleDestroy {
 
     let dispatched = 0;
     for (const row of claimed) {
-      // Wrap the payload with event id + metadata so subscribers can dedupe by
-      // `event.id` — this is the explicit at-least-once contract.
-      const envelope = {
-        ...(typeof row.payload === 'object' && row.payload !== null
+      const rawPayload =
+        typeof row.payload === 'object' && row.payload !== null
           ? (row.payload as Record<string, unknown>)
-          : { payload: row.payload }),
+          : { payload: row.payload };
+      // Extract the traceparent captured at record() time so the emit span
+      // is chained to the HTTP handler that originated the event.
+      const traceCarrier = (rawPayload.__trace as Record<string, string> | undefined) ?? null;
+      // Strip internal fields from the wire envelope.
+      const { __trace: _trace, ...payloadClean } = rawPayload;
+      void _trace;
+      const envelope = {
+        ...payloadClean,
         id: row.id,
         type: row.eventType,
         occurredAt: row.occurredAt.toISOString(),
         aggregateType: row.aggregateType,
         aggregateId: row.aggregateId,
       };
+      const startNs = process.hrtime.bigint();
       try {
-        await this.emitter.emitAsync(row.eventType, envelope);
+        await restoreContext(traceCarrier, async () => {
+          await this.emitter.emitAsync(row.eventType, envelope);
+        });
         await this.prisma.outboxEvent.update({
           where: { id: row.id },
           data: { dispatchedAt: new Date(), lastError: null },
         });
         dispatched++;
+        const latencySec = (Date.now() - row.occurredAt.getTime()) / 1000;
+        // task-016-B (009-nit-4): bucket raw eventType through the
+        // allowlist so a misconfigured emitter can't explode series.
+        const et = this.metrics?.bucket('outboxEventType', row.eventType) ?? row.eventType;
+        this.metrics?.outboxEventsDispatchedTotal.labels(et, 'success').inc();
+        this.metrics?.outboxEventDispatchLatencySeconds.labels(et).observe(latencySec);
+        this.metrics?.outboxLastDispatchTimestampSeconds.set(Date.now() / 1000);
       } catch (err) {
         const message = err instanceof Error ? err.message.slice(0, 500) : String(err);
         await this.prisma.outboxEvent.update({
           where: { id: row.id },
           data: { lastError: message },
         });
+        this.metrics?.outboxEventsDispatchedTotal
+          .labels(this.metrics.bucket('outboxEventType', row.eventType), 'failure')
+          .inc();
         this.logger.warn(
           `[outbox] dispatch failed id=${row.id} type=${row.eventType} attempts=${row.attempts} err=${message}`,
         );
       }
+      void startNs;
+    }
+    // Refresh the backlog gauge on every tick.
+    if (this.metrics) {
+      const [pending, dlq] = await Promise.all([
+        this.prisma.outboxEvent.count({ where: { dispatchedAt: null } }),
+        this.prisma.outboxEvent.count({
+          where: { dispatchedAt: null, attempts: { gte: this.maxAttempts } },
+        }),
+      ]);
+      this.metrics.outboxPendingEvents.set(pending);
+      this.metrics.outboxDlqEvents.set(dlq);
     }
     return dispatched;
   }

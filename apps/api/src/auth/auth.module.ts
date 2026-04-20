@@ -9,6 +9,7 @@ import { TokenService } from './services/token.service';
 import { RateLimitService } from './services/rate-limit.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -32,8 +33,9 @@ import { UsersModule } from '../users/users.module';
     TokenService,
     RateLimitService,
     JwtStrategy,
+    BetaInviteRequiredGuard,
     { provide: APP_GUARD, useClass: JwtAuthGuard },
   ],
-  exports: [AuthService, TokenService, PasswordService, RateLimitService],
+  exports: [AuthService, TokenService, PasswordService, RateLimitService, JwtModule],
 })
 export class AuthModule {}

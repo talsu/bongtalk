@@ -105,6 +105,11 @@ export class WorkspacesService {
   }
 
   async softDelete(workspaceId: string, actorId: string) {
+    // task-013-A2 (task-034 closure): the purge worker that hard-
+    // deletes post-grace rows lives at scripts/workers/
+    // workspace-purge.sh (cron inside qufox-backup container,
+    // daily at 05:00 UTC). This service is the soft-delete side
+    // of that contract.
     const now = new Date();
     const deleteAt = new Date(now.getTime() + this.graceMs);
     return this.prisma.$transaction(async (tx) => {
@@ -163,36 +168,45 @@ export class WorkspacesService {
         'cannot transfer ownership to yourself',
       );
     }
-    return this.prisma.$transaction(async (tx) => {
-      const target = await tx.workspaceMember.findUnique({
-        where: { workspaceId_userId: { workspaceId, userId: toUserId } },
-      });
-      if (!target) {
-        throw new DomainError(
-          ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
-          'target user is not a member of this workspace',
-        );
-      }
-      await tx.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: fromUserId } },
-        data: { role: WorkspaceRole.ADMIN },
-      });
-      await tx.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: toUserId } },
-        data: { role: WorkspaceRole.OWNER },
-      });
-      const workspace = await tx.workspace.update({
-        where: { id: workspaceId },
-        data: { ownerId: toUserId },
-      });
-      await this.outbox.record(tx, {
-        aggregateType: 'workspace',
-        aggregateId: workspaceId,
-        eventType: OWNERSHIP_TRANSFERRED,
-        payload: { workspaceId, fromUserId, toUserId },
-      });
-      return workspace;
-    });
+    // task-013-A2 (task-033 closure): two concurrent transferOwnership
+    // calls against the same workspace would interleave under the
+    // default READ COMMITTED isolation. Serializable forces the DB to
+    // serialise them (losing tx retries with serialization_failure,
+    // which Prisma surfaces as P2034); the TOCTOU gap between
+    // findUnique and the three updates closes.
+    return this.prisma.$transaction(
+      async (tx) => {
+        const target = await tx.workspaceMember.findUnique({
+          where: { workspaceId_userId: { workspaceId, userId: toUserId } },
+        });
+        if (!target) {
+          throw new DomainError(
+            ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
+            'target user is not a member of this workspace',
+          );
+        }
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: fromUserId } },
+          data: { role: WorkspaceRole.ADMIN },
+        });
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: toUserId } },
+          data: { role: WorkspaceRole.OWNER },
+        });
+        const workspace = await tx.workspace.update({
+          where: { id: workspaceId },
+          data: { ownerId: toUserId },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'workspace',
+          aggregateId: workspaceId,
+          eventType: OWNERSHIP_TRANSFERRED,
+          payload: { workspaceId, fromUserId, toUserId },
+        });
+        return workspace;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+    );
   }
 
   /** Used by guards/services that want to confirm caller is OWNER. */

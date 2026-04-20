@@ -165,6 +165,26 @@ export class InvitesService {
       now,
     );
     if (casResult === 0) {
+      // Task-013-A (task-032 closure): the pre-CAS findUnique catches
+      // NOT_FOUND + REVOKED + EXPIRED; the CAS itself catches
+      // EXHAUSTED + any race where the invite was revoked between the
+      // findUnique and the UPDATE. A second findUnique tells the two
+      // apart so we surface a precise error instead of always
+      // INVITE_EXHAUSTED.
+      const post = await this.prisma.invite.findUnique({
+        where: { code },
+        select: { revokedAt: true, expiresAt: true, maxUses: true, usedCount: true },
+      });
+      if (!post) {
+        throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite vanished mid-accept');
+      }
+      if (post.revokedAt) {
+        throw new DomainError(ErrorCode.INVITE_REVOKED, 'invite was revoked');
+      }
+      if (post.expiresAt && post.expiresAt.getTime() <= Date.now()) {
+        throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
+      }
+      // Fell through → exhausted is the remaining case.
       throw new DomainError(ErrorCode.INVITE_EXHAUSTED, 'invite fully used');
     }
 

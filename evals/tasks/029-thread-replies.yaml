@@ -1,0 +1,25 @@
+id: 029
+title: Thread replies — single-level depth + roots-only list + reply notifications
+goal: |
+  Messages get `parentMessageId` (self-FK, ON DELETE SET NULL);
+  POST /workspaces/:w/channels/:ch/messages accepts it; service rejects
+  reply-to-reply with MESSAGE_THREAD_DEPTH_EXCEEDED. GET channel list
+  returns ROOTS ONLY (AND parentMessageId IS NULL) with a single
+  GROUP BY aggregate exposing replyCount, lastRepliedAt, and
+  recentReplyUserIds (top 3 distinct authors). New endpoint
+  GET /messages/:id/thread returns the root + ASC-ordered replies
+  page gated by ChannelAccessByIdGuard.requireRead. Outbox emits
+  message.thread.replied with server-authoritative count + a
+  recipients array (root author + recent repliers, cap 20, minus
+  already-mentioned). Dispatcher routes replies into the thread
+  cache (never the channel list) and patches the root summary on
+  message.thread.replied. Roots-only list EXPLAIN shows the partial
+  index scan on `Message_channel_roots_idx`.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test
+    expect: exit 0
+max_turns: 20

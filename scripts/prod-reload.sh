@@ -2,16 +2,47 @@
 # Rebuild + redeploy the qufox production stack.
 #
 # Usage:
-#   scripts/prod-reload.sh            # rebuild + recreate both api & web
-#   scripts/prod-reload.sh api        # only api
-#   scripts/prod-reload.sh web        # only web
+#   scripts/prod-reload.sh                 # rebuild + recreate both api & web
+#   scripts/prod-reload.sh api             # only api
+#   scripts/prod-reload.sh web             # only web
+#   scripts/prod-reload.sh --force         # skip the shared flock (break-glass)
+#   scripts/prod-reload.sh --force api     # combined
 #
 # Expects .env.prod at repo root and the shared `internal` Docker network.
+#
+# task-011 reviewer MED-4 fix: --force is the operator's break-glass when
+# the webhook is wedged holding the flock (process died without firing
+# the EXIT trap — e.g. under SIGKILL). An audit line is written to
+# .deploy/audit.jsonl so the bypass is visible after-the-fact.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
-TARGET="${1:-all}"
+FORCE=0
+ARGS=()
+for a in "$@"; do
+  case "$a" in
+    --force) FORCE=1 ;;
+    *) ARGS+=("$a") ;;
+  esac
+done
+
+# Share the webhook's flock (task-011-C MED-2). A manual prod-reload now
+# blocks if an auto-deploy is in flight and vice versa. Release on
+# script exit via the EXIT trap below.
+# shellcheck source=./deploy/lock.sh
+. "$(dirname "$0")/deploy/lock.sh"
+if [[ "$FORCE" -eq 1 ]]; then
+  mkdir -p .deploy
+  printf '{"ts":"%s","event":"manual.force-unlock","source":"prod-reload.sh"}\n' \
+    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" >> .deploy/audit.jsonl
+  echo "[prod-reload] --force: bypassing deploy lock; audit line written" >&2
+else
+  deploy::acquire_lock || exit $?
+  trap 'deploy::release_lock' EXIT
+fi
+
+TARGET="${ARGS[0]:-all}"
 COMPOSE=(docker compose --env-file .env.prod -f docker-compose.prod.yml)
 
 case "$TARGET" in

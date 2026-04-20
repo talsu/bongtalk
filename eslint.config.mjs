@@ -1,4 +1,24 @@
 import js from '@eslint/js';
+import tsParser from '@typescript-eslint/parser';
+
+// Regex for raw Tailwind palette classes. The task-010 ESLint rule
+// enforces design-token usage (surface, foreground, danger, …) in
+// favour of hard-coded `bg-slate-900`, `text-red-600`, etc. Error-level
+// on features/auth + features/workspaces (the sweep done in task-010-C);
+// warn-level elsewhere so the rest of the codebase migrates incrementally
+// without blocking CI.
+//
+// task-015-A (task-010-follow-5 closure): Literal catches plain string
+// literals; TemplateElement catches the static parts of template
+// literals (`` `bg-slate-${shade}` `` — the "bg-slate-" part lives in
+// TemplateElement.value.raw). Without the second selector the rule
+// missed ``${'bg-red-600'}``-style interpolation builds.
+const PALETTE_REGEX = "\\b(bg|text|border)-(slate|red|blue|green|yellow)-[0-9]+\\b";
+const PALETTE_PATTERN_LITERAL = `Literal[value=/${PALETTE_REGEX}/]`;
+const PALETTE_PATTERN_TEMPLATE = `TemplateElement[value.raw=/${PALETTE_REGEX}/]`;
+
+const PALETTE_MESSAGE =
+  'Use design-system semantic tokens (surface/foreground/text-muted/danger/accent/…) instead of raw Tailwind palette classes. See apps/web/src/index.css + tailwind.config.js for the token list.';
 
 export default [
   {
@@ -12,6 +32,7 @@ export default [
       '**/test-results/**',
       '**/.debug/**',
       'apps/api/prisma/migrations/**',
+      'apps/web/test/fixtures/**',
     ],
   },
   js.configs.recommended,
@@ -42,6 +63,47 @@ export default [
       'no-console': 'off',
       'no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
       'no-undef': 'off',
+    },
+  },
+  // TS / TSX files need the typescript-eslint parser so JSX + type
+  // annotations don't trip espree. Not type-aware (no `project` option)
+  // — we only need parsing, not semantic rules.
+  {
+    files: ['**/*.{ts,tsx}'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaFeatures: { jsx: true },
+        ecmaVersion: 2022,
+        sourceType: 'module',
+      },
+    },
+  },
+  // Warn-level: any frontend file with a raw palette class gets a nudge.
+  {
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    rules: {
+      'no-restricted-syntax': [
+        'warn',
+        { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
+      ],
+    },
+  },
+  // Error-level: the two trees that task-010-C already cleaned up. New
+  // violations here fail `pnpm lint` so regressions can't land without
+  // an explicit ESLint disable (and a reviewer comment).
+  {
+    files: [
+      'apps/web/src/features/auth/**/*.{ts,tsx}',
+      'apps/web/src/features/workspaces/**/*.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-syntax': [
+        'error',
+        { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
+        { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
+      ],
     },
   },
 ];

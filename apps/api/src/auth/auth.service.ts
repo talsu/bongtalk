@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Optional } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import { UsersService } from '../users/users.service';
 import { PasswordService } from './services/password.service';
@@ -6,6 +6,7 @@ import { TokenService } from './services/token.service';
 import { RateLimitService } from './services/rate-limit.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { MetricsService } from '../observability/metrics/metrics.service';
 
 export type SignupInput = { email: string; username: string; password: string };
 export type LoginInput = { email: string; password: string };
@@ -27,6 +28,7 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly rateLimit: RateLimitService,
+    @Optional() private readonly metrics?: MetricsService,
   ) {}
 
   async signup(input: SignupInput, meta: RequestMeta): Promise<AuthSuccess> {
@@ -76,6 +78,7 @@ export class AuthService {
     // otherwise mask the lockout as a generic 429.
     if (user?.lockedUntil && user.lockedUntil.getTime() > Date.now()) {
       const retryAfterSec = Math.ceil((user.lockedUntil.getTime() - Date.now()) / 1000);
+      this.metrics?.authLoginsTotal.labels('locked').inc();
       throw new DomainError(
         ErrorCode.AUTH_ACCOUNT_LOCKED,
         'account temporarily locked due to repeated failed logins',
@@ -84,24 +87,25 @@ export class AuthService {
     }
 
     // Per-email sliding window kicks in once the account is confirmed unlocked.
-    await this.rateLimit.enforce([
-      { key: `login:email:${input.email}`, windowSec: 900, max: 5 },
-    ]);
+    await this.rateLimit.enforce([{ key: `login:email:${input.email}`, windowSec: 900, max: 5 }]);
 
     // Always perform the argon2 verify step, even when user is missing, so the
     // success/failure/unknown timing profiles collapse.
     if (!user) {
       await this.passwords.dummyVerify(input.password);
+      this.metrics?.authLoginsTotal.labels('invalid_credentials').inc();
       throw new DomainError(ErrorCode.AUTH_INVALID_CREDENTIALS, 'invalid credentials');
     }
 
     const ok = await this.passwords.verify(user.passwordHash, input.password);
     if (!ok) {
       await this.users.registerFailedLogin(user.id, LOCK_AFTER_FAILS, LOCK_FOR_MS);
+      this.metrics?.authLoginsTotal.labels('invalid_credentials').inc();
       throw new DomainError(ErrorCode.AUTH_INVALID_CREDENTIALS, 'invalid credentials');
     }
 
     await this.users.updateLoginSuccess(user.id);
+    this.metrics?.authLoginsTotal.labels('success').inc();
     const accessToken = this.tokens.signAccess(user.id);
     const { raw: refreshRaw } = await this.tokens.issueRefreshForNewSession(user.id, meta);
 
@@ -117,10 +121,21 @@ export class AuthService {
     };
   }
 
-  async refresh(refreshRaw: string, meta: RequestMeta): Promise<{ accessToken: string; refreshRaw: string }> {
-    const rotated = await this.tokens.rotate(refreshRaw, meta);
-    const accessToken = this.tokens.signAccess(rotated.userId);
-    return { accessToken, refreshRaw: rotated.raw };
+  async refresh(
+    refreshRaw: string,
+    meta: RequestMeta,
+  ): Promise<{ accessToken: string; refreshRaw: string }> {
+    try {
+      const rotated = await this.tokens.rotate(refreshRaw, meta);
+      const accessToken = this.tokens.signAccess(rotated.userId);
+      this.metrics?.authRefreshRotationsTotal.inc();
+      return { accessToken, refreshRaw: rotated.raw };
+    } catch (err) {
+      if (err instanceof DomainError && err.code === ErrorCode.AUTH_SESSION_COMPROMISED) {
+        this.metrics?.authSessionCompromisedTotal.inc();
+      }
+      throw err;
+    }
   }
 
   async logout(refreshRaw: string | undefined): Promise<void> {

@@ -4,6 +4,8 @@ import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { ChannelAccessService } from '../permission/channel-access.service';
+import { Permission } from '../../auth/permissions';
 
 export const ALLOW_ARCHIVED_KEY = 'allowArchivedChannel';
 
@@ -21,6 +23,7 @@ export class ChannelAccessGuard implements CanActivate {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ChannelAccessService) private readonly access: ChannelAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -34,17 +37,11 @@ export class ChannelAccessGuard implements CanActivate {
 
     const channelId = req.params.chid ?? req.params.id;
     if (!channelId) {
-      throw new DomainError(
-        ErrorCode.VALIDATION_FAILED,
-        'channel id path parameter missing',
-      );
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'channel id path parameter missing');
     }
     const wsId = req.workspace?.id ?? req.params.id ?? req.params.wsId;
     if (!wsId) {
-      throw new DomainError(
-        ErrorCode.VALIDATION_FAILED,
-        'workspace context missing in request',
-      );
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'workspace context missing in request');
     }
 
     const channel = await this.prisma.channel.findFirst({
@@ -56,10 +53,28 @@ export class ChannelAccessGuard implements CanActivate {
         type: true,
         archivedAt: true,
         deletedAt: true,
+        isPrivate: true,
       },
     });
     if (!channel || channel.deletedAt) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+
+    // Task-014-A (task-012-follow-13): private-channel visibility uses
+    // the shared ChannelAccessService so the effective-mask fold
+    // (role base + overrides + DENY > ALLOW) matches what the
+    // attachment / reaction / thread controllers see. Before 014 the
+    // guard did a bare `allowMask > 0` count that drifted from
+    // `PermissionMatrix.effective`.
+    if (channel.isPrivate) {
+      const user = (req as { user?: { id: string } }).user;
+      const member = (req as { member?: { role: string } }).member;
+      if (user && member && member.role !== 'OWNER') {
+        const effective = await this.access.resolveEffective(channel, user.id);
+        if ((effective & Permission.READ) !== Permission.READ) {
+          throw new DomainError(ErrorCode.CHANNEL_NOT_VISIBLE, 'channel not visible to this user');
+        }
+      }
     }
 
     const allowArchived = this.reflector.getAllAndOverride<boolean | undefined>(
@@ -67,10 +82,7 @@ export class ChannelAccessGuard implements CanActivate {
       [context.getHandler(), context.getClass()],
     );
     if (channel.archivedAt && !allowArchived) {
-      throw new DomainError(
-        ErrorCode.CHANNEL_ARCHIVED,
-        'channel is archived — unarchive first',
-      );
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
     }
 
     req.channel = channel;

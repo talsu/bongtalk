@@ -1,0 +1,63 @@
+{
+  "title": "qufox — Deploy pipeline",
+  "uid": "qufox-deploy",
+  "schemaVersion": 38,
+  "version": 1,
+  "time": { "from": "now-24h", "to": "now" },
+  "refresh": "30s",
+  "templating": {
+    "list": [
+      {
+        "name": "ds",
+        "type": "datasource",
+        "query": "prometheus",
+        "current": { "text": "Prometheus", "value": "Prometheus" }
+      }
+    ]
+  },
+  "panels": [
+    {
+      "title": "Rollout duration P50 / P95 (24h)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum by (le) (rate(qufox_deploy_duration_seconds_bucket[5m])))",
+          "legendFormat": "p50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum by (le) (rate(qufox_deploy_duration_seconds_bucket[5m])))",
+          "legendFormat": "p95"
+        }
+      ],
+      "fieldConfig": { "defaults": { "unit": "s" } },
+      "gridPos": { "x": 0, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "Deploys by result (7d)",
+      "type": "timeseries",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [
+        {
+          "expr": "sum by (result) (increase(qufox_deploys_total[1h]))",
+          "legendFormat": "{{result}}"
+        }
+      ],
+      "gridPos": { "x": 12, "y": 0, "w": 12, "h": 8 }
+    },
+    {
+      "title": "Rollbacks (7d)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "increase(qufox_deploy_rollbacks_total[7d])" }],
+      "gridPos": { "x": 0, "y": 8, "w": 6, "h": 6 }
+    },
+    {
+      "title": "Queue depth (now)",
+      "type": "stat",
+      "datasource": { "type": "prometheus", "uid": "${ds}" },
+      "targets": [{ "expr": "qufox_deploy_queue_depth" }],
+      "gridPos": { "x": 6, "y": 8, "w": 6, "h": 6 }
+    }
+  ]
+}

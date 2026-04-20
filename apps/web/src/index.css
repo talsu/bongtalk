@@ -2,6 +2,63 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Default light-theme CSS vars — ThemeProvider overwrites these on mount,
+ * but writing them here keeps first paint from flashing an unstyled
+ * background while the React tree hydrates.
+ */
+:root {
+  --background: 0 0% 100%;
+  --foreground: 222 47% 11%;
+  --bg-subtle: 210 40% 96%;
+  --bg-muted: 210 40% 93%;
+  --bg-accent: 210 40% 94%;
+  --bg-primary: 221 83% 53%;
+  --fg-primary: 0 0% 100%;
+  --bg-surface: 0 0% 100%;
+  --border-subtle: 214 32% 91%;
+  --border-strong: 214 32% 82%;
+  --text-muted: 215 16% 47%;
+  --ring: 221 83% 53%;
+  --success: 142 71% 45%;
+  --warning: 38 92% 50%;
+  --danger: 0 84% 60%;
+  --presence-online: 142 71% 45%;
+  --presence-idle: 38 92% 50%;
+  --presence-offline: 215 16% 62%;
+  --presence-dnd: 0 84% 60%;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
 body {
-  font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  font-family:
+    'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans KR', sans-serif;
+  background: hsl(var(--background));
+  color: hsl(var(--foreground));
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Focus rings are always visible via focus-visible — consistent across
+ * Button/Input/anchors. */
+:focus-visible {
+  outline: 2px solid hsl(var(--ring));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Honour prefers-reduced-motion for everything, not just our own classes. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }

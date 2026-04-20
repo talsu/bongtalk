@@ -1,13 +1,4 @@
-import {
-  Body,
-  Controller,
-  Get,
-  HttpCode,
-  Post,
-  Req,
-  Res,
-  UseGuards,
-} from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
@@ -15,11 +6,19 @@ import { LoginDto } from './dto/login.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser, CurrentUserPayload } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
 const REFRESH_COOKIE = 'refresh_token';
-const COOKIE_PATH = '/auth';
+// Cookie Path is `/` because in production the frontend calls through an
+// nginx proxy whose URL prefix (`/api/`) differs from what the API sees
+// internally (`/auth/...`). Browser cookie-matching compares the request
+// URL path to the stored Path, so `Path=/auth` made the browser omit the
+// cookie on `/api/auth/refresh` calls — refresh + logout both 401'd in
+// prod with "refresh cookie missing". HttpOnly + Secure + SameSite=strict
+// remain on, so narrowing the Path added no real security margin.
+const COOKIE_PATH = '/';
 
 @Controller('auth')
 export class AuthController {
@@ -71,8 +70,13 @@ export class AuthController {
   }
 
   @Public()
+  @UseGuards(BetaInviteRequiredGuard)
   @Post('signup')
-  async signup(@Body() dto: SignupDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async signup(
+    @Body() dto: SignupDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.auth.signup(dto, this.readMeta(req));
     this.setRefreshCookie(res, result.refreshRaw, this.refreshTtlMs());
     return {
@@ -89,7 +93,11 @@ export class AuthController {
   @Public()
   @Post('login')
   @HttpCode(200)
-  async login(@Body() dto: LoginDto, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() dto: LoginDto,
+    @Req() req: Request,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.auth.login(dto, this.readMeta(req));
     this.setRefreshCookie(res, result.refreshRaw, this.refreshTtlMs());
     return {

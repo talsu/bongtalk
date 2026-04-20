@@ -53,6 +53,9 @@ model User {
   messages        Message[]
   invitesCreated  Invite[]          @relation("InviteCreator")
   refreshTokens   RefreshToken[]
+  attachments     Attachment[]
+  reactions       MessageReaction[]
+  feedback        Feedback[]
 }
 
 model RefreshToken {
@@ -91,6 +94,7 @@ model Workspace {
   channels   Channel[]
   categories Category[]
   invites    Invite[]
+  feedback   Feedback[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -138,28 +142,145 @@ model Channel {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  category  Category? @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  messages  Message[]
+  workspace   Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  category    Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  messages    Message[]
+  attachments Attachment[]
+  overrides   ChannelPermissionOverride[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId, categoryId, position])
   @@index([workspaceId, deletedAt])
 }
 
-model Message {
-  id        String    @id @db.Uuid
-  channelId String    @db.Uuid
-  authorId  String    @db.Uuid
-  content   String
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+// Task-012-D: per-channel permission override. principalType = 'USER'
+// (principalId = User.id UUID) or 'ROLE' (principalId = WorkspaceRole
+// literal: OWNER/ADMIN/MEMBER). Masks are bitfields per
+// apps/api/src/auth/permissions.ts; DENY > ALLOW.
+model ChannelPermissionOverride {
+  id            String   @id @default(uuid()) @db.Uuid
+  channelId     String   @db.Uuid
+  principalType String   @db.VarChar(8)
+  principalId   String   @db.VarChar(64)
+  allowMask     Int      @default(0)
+  denyMask      Int      @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
 
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author  User    @relation(fields: [authorId], references: [id])
 
-  @@index([channelId, createdAt])
+  @@unique([channelId, principalType, principalId])
+  @@index([channelId])
+}
+
+model Message {
+  id             String    @id @default(uuid()) @db.Uuid
+  channelId      String    @db.Uuid
+  authorId       String    @db.Uuid
+  content        String
+  contentPlain   String
+  mentions       Json      @default("{\"users\":[],\"channels\":[],\"everyone\":false}")
+  editedAt       DateTime?
+  deletedAt      DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  // client-generated uuid for POST retry dedupe — null when no header was sent.
+  // Uniqueness enforced by a PARTIAL unique index created in raw SQL
+  // (schema-level `@@unique` would index every NULL row too, which we want
+  // to skip since unauthenticated sends never carry a key).
+  idempotencyKey String?   @db.Uuid
+  // task-014-B: single-level threads. Self-FK; ON DELETE SET NULL means
+  // a hard-deleted root turns its replies into pseudo-roots (purge
+  // worker is the only path that hard-deletes). Soft delete leaves the
+  // row intact and hides the content at the DTO layer. Single-level
+  // depth is enforced at the service — parent-of-parent must be NULL.
+  parentMessageId String?  @db.Uuid
+
+  // task-015-B: Postgres-generated tsvector column for FTS. Marked
+  // `Unsupported` because Prisma 5.22 doesn't model tsvector natively;
+  // the column is populated by the DB via GENERATED ALWAYS AS, so we
+  // never write to it. SELECT paths that need FTS use $queryRaw.
+  search_tsv  Unsupported("tsvector")?
+
+  channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User              @relation(fields: [authorId], references: [id])
+  attachments Attachment[]
+  reactions   MessageReaction[]
+  parent      Message?          @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  replies     Message[]         @relation("MessageReplies")
+
+  // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
+  // row-value comparison WHERE (createdAt, id) < ($1, $2).
+  @@index([channelId, createdAt, id])
+  // includeDeleted=false default path (soft-delete filter).
+  @@index([channelId, deletedAt, createdAt])
+  @@index([authorId])
+  // thread replies list — ORDER BY createdAt ASC for the ThreadPanel.
+  // Partial index `(channelId, createdAt DESC) WHERE parentMessageId IS NULL`
+  // + the replies index `(parentMessageId, createdAt ASC)` are defined in
+  // the raw-SQL migration (Prisma's @@index doesn't support partial WHERE).
+  @@index([parentMessageId, createdAt])
+}
+
+// Task-013-B: per-message reactions. `emoji` is the literal unicode
+// string as picked; VARCHAR(64) gives room for ZWJ sequences. API
+// enforces ≤4 codepoint cap on top. (messageId, userId, emoji) is
+// unique so POST is naturally idempotent — see ReactionsService.
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String   @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId, emoji])
+}
+
+enum AttachmentKind {
+  IMAGE
+  VIDEO
+  FILE
+}
+
+model Attachment {
+  id                 String         @id @default(uuid()) @db.Uuid
+  channelId          String         @db.Uuid
+  messageId          String?        @db.Uuid
+  uploaderId         String         @db.Uuid
+  clientAttachmentId String?        @db.Uuid
+  kind               AttachmentKind
+  mime               String         @db.VarChar(127)
+  sizeBytes          BigInt
+  storageKey         String
+  originalName       String
+  finalizedAt        DateTime?
+  createdAt          DateTime       @default(now())
+
+  channel  Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  message  Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  uploader User     @relation(fields: [uploaderId], references: [id])
+
+  // Indexes are created in the migration as partial indexes (Prisma
+  // has no @@index-with-WHERE syntax). See
+  // 20260421000000_add_attachment_table/migration.sql.
+}
+
+model UserChannelReadState {
+  userId          String   @db.Uuid
+  channelId       String   @db.Uuid
+  // Points at an OutboxEvent.id — the last event this user has fully
+  // processed client-side. Drives reconnect replay ("replay everything after
+  // X") and, later, the unread-count UI (TODO task-027).
+  lastReadEventId String   @db.Uuid
+  lastReadAt      DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@id([userId, channelId])
+  @@index([channelId])
 }
 
 model Invite {
@@ -178,4 +299,30 @@ model Invite {
 
   @@index([workspaceId])
   @@index([expiresAt])
+}
+
+// task-016-C-3: user-submitted beta feedback. Prisma models the enum
+// + table; the DB-layer `char_length <= 2000` CHECK constraint lives
+// in the migration SQL (Prisma doesn't emit CHECK constraints).
+enum FeedbackCategory {
+  BUG
+  FEATURE
+  OTHER
+}
+
+model Feedback {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String?          @db.Uuid
+  workspaceId String?          @db.Uuid
+  category    FeedbackCategory
+  content     String           @db.Text
+  page        String?
+  userAgent   String?
+  createdAt   DateTime         @default(now())
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
 }
