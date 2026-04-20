@@ -1,9 +1,12 @@
 import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import type { NotificationPreference } from '@qufox/shared-types';
 import { connect, disconnect, getLastEventId, setLastEventId } from '../../lib/socket';
 import { getAccessToken } from '../../lib/api';
 import { useUI } from '../../stores/ui-store';
 import { installRealtimeDispatcher, DISPATCHED_EVENTS } from './dispatcher';
+import { qk } from '../../lib/query-keys';
+import { resolveChannel } from '../notifications/useNotificationPreferences';
 
 export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
 
@@ -74,6 +77,13 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
         // to pushState + a custom event so the Router picks it up.
         window.history.pushState({}, '', url);
         window.dispatchEvent(new PopStateEvent('popstate'));
+      },
+      // Task-019-D: look up the user's notification preference for
+      // (workspace, eventType) from the already-fetched cache. The
+      // resolver is synchronous; miss → hardcoded fallback.
+      resolveNotificationChannel: (workspaceId, eventType) => {
+        const prefs = qc.getQueryData<NotificationPreference[]>(qk.me.notificationPreferences());
+        return resolveChannel(prefs, workspaceId, eventType);
       },
     });
 

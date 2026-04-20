@@ -107,6 +107,7 @@ export default {
         memberlist: 'var(--w-memberlist)',
         thread: 'var(--w-thread)',
         'topbar-search': 'var(--w-topbar-search)',
+        settings: 'var(--w-settings)',
       },
       height: {
         topbar: 'var(--h-topbar)',
