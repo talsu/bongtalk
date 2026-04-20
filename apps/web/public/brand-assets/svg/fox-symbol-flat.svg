@@ -1,0 +1,84 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" shape-rendering="crispEdges">
+  <defs>
+    <mask id="fox-fg">
+      <rect x="30" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="75" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="52.5" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="60" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+    </mask>
+    <mask id="fox-accent">
+      <rect x="30" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+    </mask>
+  </defs>
+  <rect width="120" height="120" fill="#E9D5FF" mask="url(#fox-fg)"></rect>
+  <rect width="120" height="120" fill="#8B5CF6" mask="url(#fox-accent)"></rect>
+</svg>

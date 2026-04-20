@@ -2,6 +2,52 @@
 @tailwind components;
 @tailwind utilities;
 
+/* qufox · brand design tokens (from public/brand-assets/tokens.css).
+ * Colors + type + radii live here so component code references the
+ * `--qufox-*`, `--ink`, `--accent`, etc. names rather than raw hex.
+ * The ThemeProvider keeps the HSL-based `--bg-*` / `--fg-*` legacy
+ * tokens below for the existing Tailwind-semantic palette; the two
+ * systems coexist — brand tokens are the ground truth, HSL tokens
+ * are the TypeScript-themed subset the runtime switches. */
+:root {
+  /* ── qufox core palette ─────────────────────── */
+  --qufox-night: #1e1b4b;
+  --qufox-lavender: #e9d5ff;
+  --qufox-violet: #8b5cf6;
+  --qufox-paper: #fafaff;
+
+  /* Semantic aliases — use these in components rather than the raw
+   * color names above. `[data-theme="dark"]` below flips them. */
+  --bg: var(--qufox-paper);
+  --surface: #ffffff;
+  --ink: var(--qufox-night);
+  --ink-muted: color-mix(in oklab, var(--qufox-night) 65%, transparent);
+  --accent: var(--qufox-violet);
+  --accent-ink: #ffffff;
+  --border: color-mix(in oklab, var(--qufox-night) 12%, transparent);
+
+  /* ── Type (loaded via Google Fonts in index.html) ── */
+  --font-sans:
+    'Space Grotesk', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans KR', system-ui,
+    sans-serif;
+  --font-mono: 'Geist Mono', ui-monospace, 'SF Mono', 'JetBrains Mono', Menlo, monospace;
+
+  /* ── Radii ────────────────────────────────── */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 22px;
+  --radius-pill: 999px;
+}
+
+[data-theme='dark'] {
+  --bg: var(--qufox-night);
+  --surface: color-mix(in oklab, var(--qufox-night) 85%, white);
+  --ink: var(--qufox-lavender);
+  --ink-muted: color-mix(in oklab, var(--qufox-lavender) 70%, transparent);
+  --border: color-mix(in oklab, var(--qufox-lavender) 15%, transparent);
+}
+
 /*
  * Default light-theme CSS vars — ThemeProvider overwrites these on mount,
  * but writing them here keeps first paint from flashing an unstyled
@@ -36,8 +82,11 @@ body,
 }
 
 body {
-  font-family:
-    'Inter var', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', 'Noto Sans KR', sans-serif;
+  /* Brand-first stack — Space Grotesk for display + body, falls back
+   * through system + Noto Sans KR for Korean text. Defined as the
+   * `--font-sans` var above so components that want mono (composer
+   * code blocks, etc.) can reference `--font-mono` instead. */
+  font-family: var(--font-sans);
   background: hsl(var(--background));
   color: hsl(var(--foreground));
   -webkit-font-smoothing: antialiased;
