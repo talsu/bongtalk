@@ -108,7 +108,8 @@ export class OutboxToWsSubscriber {
         this.io!.to(rooms.user(targetUserId)).emit(env.type, env);
       },
     );
-    this.metrics?.wsEventsEmittedTotal.labels(env.type).inc();
+    // task-016-B (009-nit-4): bucket env.type through the allowlist.
+    this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', env.type)).inc();
   }
 
   @OnEvent('channel.**')
@@ -182,7 +183,8 @@ export class OutboxToWsSubscriber {
     await withSpan('ws.emit', { 'ws.event.type': env.type, 'ws.room': room }, async () => {
       this.io!.to(room).emit(env.type, env);
     });
-    this.metrics?.wsEventsEmittedTotal.labels(env.type).inc();
+    // task-016-B (009-nit-4): bucket env.type through the allowlist.
+    this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', env.type)).inc();
     // Fan-out latency = occurredAt → now (emit). The per-channel replay
     // append + socket.io emit both happen in this frame, so `now` captures
     // the wire handoff moment.

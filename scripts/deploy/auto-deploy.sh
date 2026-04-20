@@ -65,6 +65,35 @@ if ! docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm \
   exit 1
 fi
 
+# --- 3.5 deploy-hook SQL (task-016-A) ----------------------------------
+# Non-transactional DDL (CREATE INDEX CONCURRENTLY, REINDEX …) that
+# Prisma's transactional migrations can't host. Each file is expected
+# to be idempotent — `IF NOT EXISTS` for creates, `IF EXISTS` for
+# drops. Alphabetical run order means a new hook lands by file-drop,
+# no registration step. Failure aborts the deploy BEFORE the rollout;
+# `ON_ERROR_STOP=1` makes psql exit non-zero on the first SQL error so
+# we don't silently skip the rest. See docs/ops/runbook-deploy.md for
+# when to add a hook and what "idempotent" means in this context.
+HOOK_DIR="$REPO/scripts/deploy/sql"
+HOOKS=()
+for f in "$HOOK_DIR"/*.sql; do
+  [[ -e "$f" ]] && HOOKS+=("$f")
+done
+if [[ "${#HOOKS[@]}" -gt 0 ]]; then
+  for f in "${HOOKS[@]}"; do
+    log "deploy-hook SQL: $(basename "$f")"
+    if ! docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T \
+          qufox-postgres-prod \
+          sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox' \
+          < "$f"; then
+      log "deploy-hook SQL failed: $(basename "$f") — aborting" >&2
+      exit 1
+    fi
+  done
+else
+  log "no deploy-hook SQL to run"
+fi
+
 # --- 4. rollout each service (each rolls back on its own health fail) --
 log "rollout api"
 if ! bash "$REPO/scripts/deploy/rollout.sh" api; then

@@ -55,6 +55,7 @@ model User {
   refreshTokens   RefreshToken[]
   attachments     Attachment[]
   reactions       MessageReaction[]
+  feedback        Feedback[]
 }
 
 model RefreshToken {
@@ -93,6 +94,7 @@ model Workspace {
   channels   Channel[]
   categories Category[]
   invites    Invite[]
+  feedback   Feedback[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -297,4 +299,30 @@ model Invite {
 
   @@index([workspaceId])
   @@index([expiresAt])
+}
+
+// task-016-C-3: user-submitted beta feedback. Prisma models the enum
+// + table; the DB-layer `char_length <= 2000` CHECK constraint lives
+// in the migration SQL (Prisma doesn't emit CHECK constraints).
+enum FeedbackCategory {
+  BUG
+  FEATURE
+  OTHER
+}
+
+model Feedback {
+  id          String           @id @default(uuid()) @db.Uuid
+  userId      String?          @db.Uuid
+  workspaceId String?          @db.Uuid
+  category    FeedbackCategory
+  content     String           @db.Text
+  page        String?
+  userAgent   String?
+  createdAt   DateTime         @default(now())
+
+  user      User?      @relation(fields: [userId], references: [id], onDelete: SetNull)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: SetNull)
+
+  @@index([createdAt(sort: Desc)])
+  @@index([userId, createdAt(sort: Desc)])
 }

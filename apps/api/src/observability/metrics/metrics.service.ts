@@ -44,6 +44,67 @@ const L = {
   replayResult: new Set(['served', 'truncated']),
   authResult: new Set(['success', 'invalid_credentials', 'locked', 'rate_limited']),
   poolState: new Set(['active', 'idle', 'pending']),
+  // task-016-B (009-nit-4 closure): the previous raw event_type
+  // labels bypassed the bucket allowlist, so a new event type landing
+  // on the system would add an unbounded series. Listing the full
+  // enum here plus a task-013 reaction/thread update.
+  outboxEventType: new Set([
+    'workspace.created',
+    'workspace.deleted',
+    'workspace.restored',
+    'workspace.member.joined',
+    'workspace.member.left',
+    'workspace.member.removed',
+    'workspace.role.changed',
+    'workspace.ownership.transferred',
+    'workspace.invite.created',
+    'workspace.invite.revoked',
+    'workspace.invite.accepted',
+    'channel.created',
+    'channel.updated',
+    'channel.deleted',
+    'channel.restored',
+    'channel.archived',
+    'channel.unarchived',
+    'channel.moved',
+    'category.created',
+    'category.updated',
+    'category.deleted',
+    'category.moved',
+    'message.created',
+    'message.updated',
+    'message.deleted',
+    'message.reaction.added',
+    'message.reaction.removed',
+    'message.thread.replied',
+    'mention.received',
+    '_other',
+  ]),
+  wsEventType: new Set([
+    // WS event types are a strict subset of outbox event types
+    // (handlers may drop some as client-only), so we reuse the same
+    // enumeration values. Kept as a separate key so a future
+    // client-only event doesn't force a contrived outbox entry.
+    'message.created',
+    'message.updated',
+    'message.deleted',
+    'message.reaction.added',
+    'message.reaction.removed',
+    'message.thread.replied',
+    'mention.received',
+    'channel.created',
+    'channel.updated',
+    'channel.deleted',
+    'channel.moved',
+    'channel.archived',
+    'channel.unarchived',
+    'workspace.member.joined',
+    'workspace.member.left',
+    'workspace.member.removed',
+    'workspace.role.changed',
+    'presence.updated',
+    '_other',
+  ]),
 } as const;
 
 @Injectable()
@@ -85,6 +146,8 @@ export class MetricsService {
   readonly authLoginsTotal: Counter;
   readonly authSessionCompromisedTotal: Counter;
   readonly authRefreshRotationsTotal: Counter;
+  // ----- Active users (task-016-C-4)
+  readonly activeUsers: Gauge;
 
   constructor() {
     this.registry = new Registry();
@@ -264,6 +327,15 @@ export class MetricsService {
     this.authRefreshRotationsTotal = new Counter({
       name: 'auth_refresh_rotations_total',
       help: 'Successful refresh-token rotations',
+      registers: [this.registry],
+    });
+    // task-016-C-4: DAU / WAU / MAU proxy from refresh-token rotation
+    // timestamps. ActiveUsersCollector refreshes this hourly so /metrics
+    // always has a warm value even if the cron is late.
+    this.activeUsers = new Gauge({
+      name: 'qufox_active_users',
+      help: 'Distinct users with a refresh-token rotation in the last N days',
+      labelNames: ['window'],
       registers: [this.registry],
     });
   }

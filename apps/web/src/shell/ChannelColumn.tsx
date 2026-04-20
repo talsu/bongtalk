@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
 import { useMentionInbox } from '../features/mentions/useMentions';
+import { OnboardingCard } from '../features/onboarding/OnboardingCard';
 import {
   DropdownRoot,
   DropdownTrigger,
@@ -195,6 +196,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         </div>
       ) : null}
       <div className="flex-1 overflow-y-auto px-2 py-2">
+        <OnboardingCard />
         <ChannelList
           workspaceId={workspace.id}
           workspaceSlug={workspace.slug}

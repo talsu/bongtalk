@@ -32,14 +32,21 @@ export function restoreContext<T>(
 /**
  * Helper for manual spans in places where auto-instrumentation doesn't reach
  * (Socket.IO emits, outbox dispatch). Starts → records exceptions → ends.
+ *
+ * task-016-B (009-nit-2 closure): `attrs` runs through a redaction
+ * pass so accidentally passing a PII-ish key (`password`, `email`,
+ * `content`, etc.) drops the value instead of leaking it to the
+ * OTEL exporter. Developer-side contract is still "don't pass
+ * sensitive data", but defense-in-depth.
  */
 export async function withSpan<T>(
   name: string,
   attrs: Record<string, string | number | boolean>,
   fn: () => Promise<T>,
 ): Promise<T> {
+  const safe = sanitizeSpanAttrs(attrs);
   const tracer = trace.getTracer('qufox-manual');
-  const span = tracer.startSpan(name, { attributes: attrs, kind: SpanKind.INTERNAL });
+  const span = tracer.startSpan(name, { attributes: safe, kind: SpanKind.INTERNAL });
   try {
     const out = await fn();
     span.end();
@@ -50,6 +57,17 @@ export async function withSpan<T>(
     span.end();
     throw err;
   }
+}
+
+function sanitizeSpanAttrs(
+  attrs: Record<string, string | number | boolean>,
+): Record<string, string | number | boolean> {
+  const out: Record<string, string | number | boolean> = {};
+  for (const [k, v] of Object.entries(attrs)) {
+    if (redactedAttributes.forbidden.has(k)) continue;
+    out[k] = v;
+  }
+  return out;
 }
 
 export const redactedAttributes = {

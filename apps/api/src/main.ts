@@ -27,6 +27,17 @@ async function bootstrap(): Promise<void> {
   // hard crash at container start.
   assertProductionEnv(process.env);
 
+  // task-016-C-2: closed-beta signup gate. Default-ON isn't safe to
+  // assume (dev/test explicitly disable), so production without a
+  // `true` here gets a WARN line — not a crash, because a legit
+  // public-demo deployment may want signup open.
+  if (process.env.NODE_ENV === 'production' && process.env.BETA_INVITE_REQUIRED !== 'true') {
+    logger.warn(
+      { betaInviteRequired: process.env.BETA_INVITE_REQUIRED ?? '<unset>' },
+      'BETA_INVITE_REQUIRED is not `true` in production — /auth/signup is open to anyone with the URL. Set BETA_INVITE_REQUIRED=true in .env.prod unless this is intentional.',
+    );
+  }
+
   const app = await NestFactory.create(AppModule, {
     logger: ['error', 'warn', 'log'],
   });
