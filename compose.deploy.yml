@@ -33,9 +33,11 @@ services:
       REPO_PATH: /repo
       WEBHOOK_AUDIT_PATH: /repo/.deploy/audit.jsonl
     ports:
-      # Host-bound to 127.0.0.1 only — nginx proxies from
-      # deploy.qufox.com to this port. The webhook is HMAC-gated but
-      # still shouldn't be reachable on the public interface directly.
+      # Host-bound to 127.0.0.1 only — public traffic arrives via the
+      # `/hooks/github` location inside the existing qufox.com nginx
+      # server block (task-016 ops: no deploy.qufox.com subdomain).
+      # The loopback bind stays so internal-metrics tooling on the NAS
+      # host can reach /internal/* without going through nginx.
       - '127.0.0.1:${WEBHOOK_PORT:-9000}:9000'
     volumes:
       # Entire repo. The webhook shells out into it to run scripts/deploy/*.

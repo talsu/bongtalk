@@ -40,9 +40,12 @@ Known gaps this task addresses:
 - `location /socket.io/` → same upstream (WebSocket + sticky)
 - cert: `/etc/letsencrypt/live/talsu.net/fullchain.pem`
 
-Task-009 does **not** modify this file. The nginx diff for the new
-`deploy.qufox.com` host is supplied as `docs/ops/runbook-nginx-diff.md`;
-the operator applies it and runs `nginx -s reload` manually.
+Task-009 does **not** modify this file directly. Task-016 ops
+consolidates the webhook + attachments endpoints as extra location
+directives INSIDE the existing qufox.com server block — see
+`docs/ops/runbook-nginx-diff.md`. No new server block, no new
+hostname, no new TLS cert. The operator applies the location(s) and
+runs `nginx -s reload` manually.
 
 ## Env layout
 
@@ -82,7 +85,7 @@ us at beta scale; true off-site copy is a separate ops task.
 
 ## What stays manual after task-009
 
-- nginx reload (new deploy.qufox.com server block)
+- nginx reload (new `/hooks/github` + `/attachments/` locations inside the existing qufox.com server block)
 - rotating GitHub webhook secret (runbook documents the steps)
 - initial `.env.deploy` creation on the NAS
 - DSM package / firmware updates

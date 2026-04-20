@@ -7,8 +7,9 @@ without you looking.
 ## Normal path (automated)
 
 1. A commit lands on `main` on GitHub.
-2. GitHub POSTs to `https://deploy.qufox.com/hooks/github` with
-   `X-Hub-Signature-256`.
+2. GitHub POSTs to `https://qufox.com/hooks/github` with
+   `X-Hub-Signature-256`. (Task-016 ops: the webhook lives on the
+   apex domain, not a `deploy.qufox.com` subdomain.)
 3. `qufox-webhook` verifies HMAC, checks branch against
    `DEPLOY_BRANCH_ALLOWLIST`, enqueues the SHA. Response is 202.
 4. Webhook spawns `scripts/deploy/auto-deploy.sh`.

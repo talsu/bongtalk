@@ -20,6 +20,14 @@ set -euo pipefail
 REPO="${REPO_PATH:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO"
 
+# task-016 ops fix-forward: the webhook container runs as root and
+# bind-mounts /volume2/dockers/qufox (admin:users on the host) as
+# /repo. Git >= 2.35 refuses `git fetch` inside such a tree unless
+# the path is explicitly marked safe (the "dubious ownership" error).
+# Mark it here at the top of the deploy so the setting survives
+# across the fetch/checkout block below. Scoped to this repo only.
+git config --global --add safe.directory "$REPO" 2>/dev/null || true
+
 # shellcheck source=/volume2/dockers/qufox/scripts/deploy/lock.sh
 . "$REPO/scripts/deploy/lock.sh"
 
@@ -59,8 +67,14 @@ fi
 # inside the webhook container whose env comes from .env.deploy, so the
 # password was empty and every migration authentication-failed.
 log "run prisma migrate deploy"
-if ! docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm \
-      qufox-api pnpm --filter @qufox/api db:migrate; then
+# Runtime image ships a global `prisma` CLI but NO `pnpm` (prod-only
+# slim). The earlier `pnpm --filter @qufox/api db:migrate` call was a
+# dev shape that crashed with "No such file or directory" on a real
+# webhook deploy. Overriding the entrypoint sidesteps the CMD's
+# `prisma migrate deploy && node dist/main.js` — we want only the
+# migrate half here, and node startup follows during the rollout.
+if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml run --rm \
+      --entrypoint prisma qufox-api migrate deploy --schema=prisma/schema.prisma; then
   log "migration failed — aborting deploy (previous containers still serving)" >&2
   exit 1
 fi
@@ -82,7 +96,7 @@ done
 if [[ "${#HOOKS[@]}" -gt 0 ]]; then
   for f in "${HOOKS[@]}"; do
     log "deploy-hook SQL: $(basename "$f")"
-    if ! docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T \
+    if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml exec -T \
           qufox-postgres-prod \
           sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox' \
           < "$f"; then
