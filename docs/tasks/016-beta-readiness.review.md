@@ -280,7 +280,7 @@ ts:1-59` — two `describe('ActiveUsersCollector', …)` cases:
     `{1d:3, 7d:12, 30d:27}` and the prom-client Gauge exposes those
     same values per window label.
   - Error path: mocks `$queryRaw.mockRejectedValue(new Error('db
-  down'))` → asserts the method returns
+down'))` → asserts the method returns
     `{1d:0,7d:0,30d:0}` without throwing.
     Uses `vi.fn()` only (no external mocking lib), matches project
     convention.
@@ -347,3 +347,58 @@ spec.ts` does not contain any of the three files;
   so the four counts are actually parallelized (current code has a
   vestigial `Promise.resolve(0)` filler + a post-Promise.all
   sequential `channel.count`).
+
+## Re-review (e453370)
+
+Re-read against base `develop` @ `d12c22e`, head `e453370`.
+
+- **HIGH-1 — RESOLVED.**
+  `apps/api/prisma/migrations/20260424000000_add_message_search/migration.sql:39,43`
+  now uses `CREATE INDEX IF NOT EXISTS` on both the `search_tsv` GIN
+  index and the `content` pg_trgm GIN index, with an inline comment
+  pointing operators to the runbook.
+  `docs/ops/runbook-deploy.md:102-127` adds a "Populated-prod
+  first-deploy of the 015 FTS indexes" section with the exact
+  `docker exec -i qufox-postgres-prod sh -c 'PGPASSWORD=… psql -v
+ON_ERROR_STOP=1 …' < scripts/deploy/sql/task-015-message-search-concurrent.sql`
+  one-liner and the idempotency reasoning. Race is closed — operator
+  pre-applies the CONCURRENTLY hook; migration's `IF NOT EXISTS`
+  short-circuits; no AccessExclusive.
+- **HIGH-2 — RESOLVED.** All three int specs landed:
+  - `apps/api/test/int/auth/beta-invite-guard.int.spec.ts` — five
+    cases: flag off happy path, flag on missing code, flag on unknown
+    code, flag on valid code (asserts `usedCount === 0` unchanged),
+    flag on revoked code. `beforeEach` resets env flag; errorCode
+    `BETA_INVITE_REQUIRED` asserted.
+  - `apps/api/test/int/feedback/feedback.int.spec.ts` — six cases:
+    happy path captures `page` (from `referer`) + `userAgent`, unauth
+    401, empty content 400 VALIDATION_FAILED, >2000 chars 400, unknown
+    category 400, 5 successful + 6th → 429 RATE_LIMITED.
+    `beforeEach` clears `rl:feedback:*` Redis keys so rate-limit
+    spec doesn't poison siblings.
+  - `apps/api/test/int/onboarding/onboarding-status.int.spec.ts` — two
+    cases: brand-new user returns all zeros, then
+    workspace/channel/invite/message creation increments the
+    respective counters.
+    All three use `vi.fn()` only, `vi.setSystemTime('2025-01-01…')`,
+    and project helpers (`setupWsIntEnv`, `signupAsUser`).
+- **NIT — RESOLVED.** `apps/api/src/me/onboarding.controller.ts:27-44`
+  is now a clean three-count parallel (`workspaceRow`,
+  `workspaceCount`, `invitesIssued`, `messagesSent`) plus one
+  sequential `channel.count` conditioned on `workspaceRow`. No
+  `Promise.resolve(0)`, no `void channelCount`.
+- **follow-3 (MED, `lastUsedAt` vs `createdAt`)** — remains an
+  accepted substitution; the original review already noted
+  `RefreshToken.createdAt` is functionally equivalent given
+  rotation-writes-a-new-row semantics. No code change expected.
+- **Deferred as `TODO(task-016-follow-*)`** — three e2e specs
+  (`onboarding-checklist.e2e.ts`, `feedback-widget.e2e.ts`,
+  `beta-invite-required.e2e.ts`) were intentionally out of this
+  fix-forward's scope (full compose boot > review budget) and remain
+  on the follow-up list. LOW-1 (`init-env-deploy.sh` flag),
+  LOW-2 (feedback workspaceId server-derivation), and MED-1
+  (contract reconciliation) also remain deferred.
+
+**Final verdict: approve.** HIGH-1, HIGH-2, and the NIT all landed
+cleanly against the files; remaining items are legitimate follow-ups
+with no blocker-class regressions.
