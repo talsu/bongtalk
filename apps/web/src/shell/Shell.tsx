@@ -76,33 +76,38 @@ export function Shell(): JSX.Element {
   }
 
   return (
-    <div data-testid="shell-root" className="flex h-full flex-col bg-background text-foreground">
-      <div className="flex min-h-0 flex-1">
-        <WorkspaceNav workspaces={mine?.workspaces ?? []} activeSlug={slug ?? null} />
-        {active ? (
-          <ChannelColumn workspace={active} activeChannelName={activeChannel?.name ?? null} />
-        ) : null}
-        {active && activeChannel ? (
-          <MessageColumn
-            workspaceId={active.id}
-            workspaceSlug={active.slug}
-            channelId={activeChannel.id}
-            channelName={activeChannel.name}
-            channelTopic={activeChannel.topic ?? null}
-          />
-        ) : (
-          <main className="qf-empty flex-1">
-            <div className="qf-empty__title">
-              {active ? '채널을 선택하세요.' : '워크스페이스를 선택하세요.'}
-            </div>
-            <div className="qf-empty__body">
-              좌측 사이드바에서 {active ? '채널' : '워크스페이스'}을(를) 선택해 대화를 시작하세요.
-            </div>
-          </main>
-        )}
-        {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
+    <div data-testid="shell-root" className="flex h-full bg-background text-foreground">
+      {/* Left stack: server rail + channel list share the full height with
+          a bottom-bar pinned under them. Main chat + member list below
+          live in their own columns and run floor-to-ceiling. */}
+      <div className="flex min-h-0 flex-col">
+        <div className="flex min-h-0 flex-1">
+          <WorkspaceNav workspaces={mine?.workspaces ?? []} activeSlug={slug ?? null} />
+          {active ? (
+            <ChannelColumn workspace={active} activeChannelName={activeChannel?.name ?? null} />
+          ) : null}
+        </div>
+        <BottomBar />
       </div>
-      <BottomBar />
+      {active && activeChannel ? (
+        <MessageColumn
+          workspaceId={active.id}
+          workspaceSlug={active.slug}
+          channelId={activeChannel.id}
+          channelName={activeChannel.name}
+          channelTopic={activeChannel.topic ?? null}
+        />
+      ) : (
+        <main className="qf-empty flex-1">
+          <div className="qf-empty__title">
+            {active ? '채널을 선택하세요.' : '워크스페이스를 선택하세요.'}
+          </div>
+          <div className="qf-empty__body">
+            좌측 사이드바에서 {active ? '채널' : '워크스페이스'}을(를) 선택해 대화를 시작하세요.
+          </div>
+        </main>
+      )}
+      {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
       <CommandPalette />
       <ShortcutHelp />
       <SearchOverlay />

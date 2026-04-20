@@ -161,6 +161,7 @@ model Category {
   workspaceId String    @db.Uuid
   workspace   Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   name        String
+  description String?
   position    Decimal   @db.Decimal(20, 10)
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt

@@ -16,11 +16,9 @@ import {
   useWorkspace,
   useCreateInvite,
   useLeaveWorkspace,
-  useMembers,
-  useUpdateRole,
 } from '../features/workspaces/useWorkspaces';
+import { WorkspaceMembersModal } from '../features/workspaces/WorkspaceMembersModal';
 import { useNotifications } from '../stores/notification-store';
-import { cn } from '../lib/cn';
 
 type Props = {
   workspace: Pick<Workspace, 'id' | 'name' | 'slug'>;
@@ -33,13 +31,11 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
   const canManage = myRole === 'ADMIN' || myRole === 'OWNER';
   const createInvite = useCreateInvite(workspace.id);
   const leaveMut = useLeaveWorkspace(workspace.id);
-  const roleMut = useUpdateRole(workspace.id);
-  const { data: members } = useMembers(workspace.id);
   const navigate = useNavigate();
   const notify = useNotifications((s) => s.push);
   const [open, setOpen] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  const [membersOpen, setMembersOpen] = useState(canManage);
+  const [membersModalOpen, setMembersModalOpen] = useState(false);
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
   const { data: mentionInbox } = useMentionInbox();
   const mentionCount = mentionInbox?.unreadCount ?? 0;
@@ -57,13 +53,13 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
                 {workspace.name}
               </span>
               <span aria-hidden className="text-text-muted">
-                ▾
+                ⌄
               </span>
             </button>
           </DropdownTrigger>
           <DropdownContent align="start">
-            <DropdownItem onSelect={() => setMembersOpen((v) => !v)}>
-              {membersOpen ? '멤버 숨기기' : '멤버 관리'}
+            <DropdownItem onSelect={() => setMembersModalOpen(true)}>
+              <span data-testid="ws-open-members">멤버 관리</span>
             </DropdownItem>
             {canManage ? (
               <DropdownItem onSelect={() => setCreateCategoryOpen(true)}>
@@ -126,55 +122,6 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
           {inviteUrl}
         </div>
       ) : null}
-      {membersOpen ? (
-        <ul
-          data-testid="members-list"
-          aria-label="워크스페이스 멤버"
-          className="max-h-40 overflow-y-auto border-b border-border-subtle px-2 py-2 text-[length:var(--fs-13)]"
-        >
-          {(members?.members ?? []).map((m) => (
-            <li
-              key={m.userId}
-              data-testid={`member-${m.user.username}`}
-              className="flex items-center justify-between py-1 text-text-secondary"
-            >
-              <span
-                className={cn('truncate', m.role === 'OWNER' && 'font-semibold text-text-strong')}
-              >
-                {m.user.username}
-              </span>
-              {canManage && m.role !== 'OWNER' ? (
-                <select
-                  data-testid={`role-select-${m.user.username}`}
-                  value={m.role}
-                  onChange={async (e) => {
-                    try {
-                      await roleMut.mutateAsync({
-                        userId: m.userId,
-                        role: e.target.value as 'ADMIN' | 'MEMBER',
-                      });
-                    } catch (err) {
-                      notify({
-                        variant: 'danger',
-                        title: '역할 변경 실패',
-                        body: (err as Error).message,
-                      });
-                    }
-                  }}
-                  className="qf-input qf-btn--sm !h-6 !w-auto !px-2 text-[length:var(--fs-11)]"
-                >
-                  <option value="MEMBER">MEMBER</option>
-                  <option value="ADMIN">ADMIN</option>
-                </select>
-              ) : (
-                <span data-testid={`role-${m.user.username}`} className="text-text-muted">
-                  {m.role}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
-      ) : null}
       {mentionCount > 0 ? (
         <div
           data-testid="mention-badge"
@@ -200,6 +147,12 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         workspaceId={workspace.id}
         open={createCategoryOpen}
         onClose={() => setCreateCategoryOpen(false)}
+      />
+      <WorkspaceMembersModal
+        workspaceId={workspace.id}
+        canManage={canManage}
+        open={membersModalOpen}
+        onClose={() => setMembersModalOpen(false)}
       />
     </div>
   );

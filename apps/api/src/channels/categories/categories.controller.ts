@@ -97,6 +97,7 @@ export class CategoriesController {
     id: string;
     workspaceId: string;
     name: string;
+    description: string | null;
     position: { toString: () => string };
     createdAt: Date;
   }) {
@@ -104,6 +105,7 @@ export class CategoriesController {
       id: c.id,
       workspaceId: c.workspaceId,
       name: c.name,
+      description: c.description,
       position: c.position.toString(),
       createdAt: c.createdAt.toISOString(),
     };

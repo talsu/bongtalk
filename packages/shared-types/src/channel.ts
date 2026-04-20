@@ -66,11 +66,13 @@ export type Channel = z.infer<typeof ChannelSchema>;
 
 export const CreateCategoryRequestSchema = z.object({
   name: CategoryNameSchema,
+  description: z.string().max(1024).optional(),
 });
 export type CreateCategoryRequest = z.infer<typeof CreateCategoryRequestSchema>;
 
 export const UpdateCategoryRequestSchema = z.object({
   name: CategoryNameSchema.optional(),
+  description: z.string().max(1024).nullable().optional(),
 });
 export type UpdateCategoryRequest = z.infer<typeof UpdateCategoryRequestSchema>;
 
@@ -88,6 +90,7 @@ export const CategorySchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),
   name: CategoryNameSchema,
+  description: z.string().nullable(),
   position: z.string(),
   createdAt: z.string().datetime(),
 });

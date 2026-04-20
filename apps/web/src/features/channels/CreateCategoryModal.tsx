@@ -11,6 +11,7 @@ type Props = {
 
 export function CreateCategoryModal({ workspaceId, open, onClose }: Props): JSX.Element | null {
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const notify = useNotifications((s) => s.push);
   const createMut = useCreateCategory(workspaceId);
@@ -18,6 +19,7 @@ export function CreateCategoryModal({ workspaceId, open, onClose }: Props): JSX.
   useEffect(() => {
     if (open) {
       setName('');
+      setDescription('');
       setSubmitting(false);
     }
   }, [open]);
@@ -30,7 +32,11 @@ export function CreateCategoryModal({ workspaceId, open, onClose }: Props): JSX.
     if (!canSubmit) return;
     setSubmitting(true);
     try {
-      await createMut.mutateAsync({ name: name.trim() });
+      const trimmedDescription = description.trim();
+      await createMut.mutateAsync({
+        name: name.trim(),
+        ...(trimmedDescription ? { description: trimmedDescription } : {}),
+      });
       onClose();
     } catch (err) {
       notify({
@@ -71,6 +77,19 @@ export function CreateCategoryModal({ workspaceId, open, onClose }: Props): JSX.
             onChange={(e) => setName(e.target.value)}
             placeholder="예: PRODUCT"
             maxLength={80}
+          />
+        </div>
+        <div className="qf-field">
+          <label className="qf-field__label" htmlFor="create-category-description">
+            설명 <span className="text-text-muted">(선택)</span>
+          </label>
+          <Input
+            id="create-category-description"
+            data-testid="create-category-description"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="카테고리의 목적을 간단히 적어보세요"
+            maxLength={1024}
           />
         </div>
         <div className="qf-modal__footer">
