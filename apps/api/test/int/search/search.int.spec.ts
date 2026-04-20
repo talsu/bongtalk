@@ -116,6 +116,28 @@ describe('GET /search (task-015-B)', () => {
     expect(r.body.results[0].channelId).toBe(s.publicChannelId);
   });
 
+  it('escapes HTML in content before ts_headline so snippet is XSS-safe', async () => {
+    const s = await seed();
+    await post(
+      s.ownerToken,
+      s.workspaceId,
+      s.publicChannelId,
+      'hello <script>alert(1)</script> world',
+    );
+
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=hello`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    const snip = r.body.results[0].snippet as string;
+    // The only HTML allowed in the snippet is <mark>/</mark>.
+    // A raw <script> would be smuggled past the frontend renderer;
+    // we escape it to &lt;script&gt; before ts_headline runs so the
+    // wire payload is safe.
+    expect(snip).not.toMatch(/<script/i);
+    expect(snip).toContain('&lt;script&gt;');
+    expect(snip).toContain('<mark>hello</mark>');
+  });
+
   it('matches Korean substring via pg_trgm path', async () => {
     const s = await seed();
     await post(s.ownerToken, s.workspaceId, s.publicChannelId, '안녕하세요 반갑습니다');

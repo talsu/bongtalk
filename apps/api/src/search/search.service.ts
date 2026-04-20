@@ -135,10 +135,17 @@ export class SearchService {
         m."authorId"    AS "senderId",
         u.username      AS "senderName",
         m."createdAt"   AS "createdAt",
-        ts_headline('simple', m."content",
-                    plainto_tsquery('simple', ${q}),
-                    'StartSel=<mark>,StopSel=</mark>,MaxWords=18,MinWords=3')
-                                       AS snippet,
+        -- HTML-escape the content BEFORE ts_headline so the only
+        -- HTML in the snippet is the StartSel/StopSel markers we
+        -- told Postgres to use. Frontend can then render with
+        -- dangerouslySetInnerHTML without pulling DOMPurify — only
+        -- <mark>…</mark> tags ever make it to the wire.
+        ts_headline(
+          'simple',
+          replace(replace(replace(m."content", '&', '&amp;'), '<', '&lt;'), '>', '&gt;'),
+          plainto_tsquery('simple', ${q}),
+          'StartSel=<mark>,StopSel=</mark>,MaxWords=18,MinWords=3'
+        ) AS snippet,
         ts_rank(m."search_tsv", plainto_tsquery('simple', ${q}))
                                        AS rank
         FROM "Message" m
