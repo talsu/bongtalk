@@ -19,6 +19,7 @@ import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { SearchModule } from './search/search.module';
 import { FeedbackModule } from './feedback/feedback.module';
+import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 
@@ -43,6 +44,7 @@ import { ObservabilityModule } from './observability/observability.module';
     ReactionsModule,
     SearchModule,
     FeedbackModule,
+    NotificationsModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

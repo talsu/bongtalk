@@ -224,7 +224,7 @@ export function ChannelList({
                 value={newChannel}
                 onChange={(e) => setNewChannel(e.target.value)}
                 placeholder="new-channel"
-                className="h-8 text-[13px]"
+                className="h-8 text-[length:var(--fs-13)]"
               />
               <Button
                 data-testid="new-channel-submit"
@@ -251,7 +251,7 @@ export function ChannelList({
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="category name"
-                className="h-8 text-[13px]"
+                className="h-8 text-[length:var(--fs-13)]"
               />
               <Button
                 data-testid="new-category-submit"

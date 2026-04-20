@@ -5,6 +5,7 @@ import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
 import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentions';
 import { useNotifications } from '../../stores/notification-store';
+import { useTypingStore } from '../typing/useTypingStore';
 
 export interface DispatcherContext {
   viewerId: () => string | null;
@@ -21,6 +22,16 @@ export interface DispatcherContext {
     messageId: string;
   }) => string | null;
   navigate?: (url: string) => void;
+  /**
+   * Task-019-D: consult the user's notification preferences before
+   * firing a toast / browser Notification. Returns the delivery
+   * channel; `OFF` means the dispatcher skips the notify call. Caller
+   * passes the concrete event type matching NotificationEventType.
+   */
+  resolveNotificationChannel?: (
+    workspaceId: string,
+    eventType: 'MENTION' | 'REPLY' | 'REACTION' | 'DIRECT',
+  ) => 'TOAST' | 'BROWSER' | 'BOTH' | 'OFF';
 }
 
 const DEFAULT_CTX: DispatcherContext = {
@@ -165,6 +176,12 @@ export function installRealtimeDispatcher(
     const viewer = ctx.viewerId();
     const active = ctx.activeChannelId();
     if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
+      // task-018-E: workspace-level totals rendered on the server rail
+      // need a refresh whenever any channel's unread count moves.
+      // Invalidation (not optimistic update) because the rail shows
+      // counts across every workspace — computing the delta in-client
+      // would duplicate server logic.
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
       qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
         qk.channels.unreadSummary(env.workspaceId),
         (old) => {
@@ -312,6 +329,9 @@ export function installRealtimeDispatcher(
     const viewer = ctx.viewerId();
     if (!viewer || !env.recipients.includes(viewer)) return;
     if (env.replierId === viewer) return; // self-reply: no toast
+    // task-019-D: gate reply toast by preference.
+    const replyChannel = ctx.resolveNotificationChannel?.(env.workspaceId, 'REPLY') ?? 'BOTH';
+    if (replyChannel === 'OFF' || replyChannel === 'BROWSER') return;
     // Note: mention-precedence is already enforced server-side — the
     // recipients list excludes anyone the same message @-mentioned.
     if (replyThrottle.tryConsume()) {
@@ -456,6 +476,12 @@ export function installRealtimeDispatcher(
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.channels.list(env.workspaceId) });
   });
 
+  // ---------- Typing (task-018-F) ----------
+  on<{ channelId: string; typingUserIds: string[] }>('typing.updated', (env) => {
+    if (!env.channelId) return;
+    useTypingStore.getState().set(env.channelId, env.typingUserIds ?? []);
+  });
+
   // ---------- Members / Workspace ----------
   on<{ workspaceId: string }>('workspace.member.joined', (env) => {
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
@@ -523,6 +549,13 @@ export function installRealtimeDispatcher(
       };
     });
 
+    // task-019-D: gate mention toast by user preference. OFF silences
+    // both toast + browser Notification (browser Notification API is
+    // not called from this dispatcher yet, but the channel lookup
+    // tracks intent for when it lands).
+    const channel = ctx.resolveNotificationChannel?.(env.workspaceId, 'MENTION') ?? 'BOTH';
+    if (channel === 'OFF' || channel === 'BROWSER') return;
+
     const push = useNotifications.getState().push;
     const url = ctx.resolveMentionUrl?.({
       workspaceId: env.workspaceId,
@@ -577,4 +610,5 @@ export const DISPATCHED_EVENTS = [
   'message.reaction.added',
   'message.reaction.removed',
   'message.thread.replied',
+  'typing.updated',
 ] as const;

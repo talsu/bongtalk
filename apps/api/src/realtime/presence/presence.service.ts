@@ -30,8 +30,12 @@ export class PresenceService {
     sessionId: string;
     userId: string;
     workspaceIds: string[];
+    // task-019-C: DnD preference known at connect time. When 'dnd',
+    // the user joins both the online SET (they are connected, after
+    // all) and the DnD SET so observers can render the dnd dot.
+    preference?: 'auto' | 'dnd';
   }): Promise<void> {
-    const { sessionId, userId, workspaceIds } = args;
+    const { sessionId, userId, workspaceIds, preference } = args;
     const now = new Date().toISOString();
     const pipe = this.redis.multi();
     pipe.hset(`presence:session:${sessionId}`, {
@@ -44,8 +48,39 @@ export class PresenceService {
     pipe.expire(`presence:user:${userId}:sessions`, this.ttlSec * 2);
     for (const wsId of workspaceIds) {
       pipe.sadd(`presence:workspace:${wsId}:users`, userId);
+      if (preference === 'dnd') {
+        pipe.sadd(`presence:workspace:${wsId}:dnd`, userId);
+      } else {
+        // If a previous session for this user was in dnd mode, clear
+        // it on reconnect-with-auto so the two flavors don't ghost.
+        pipe.srem(`presence:workspace:${wsId}:dnd`, userId);
+      }
     }
     await pipe.exec();
+  }
+
+  /**
+   * task-019-C: flip every workspace this user is in to the new DnD
+   * status. Mutates the `:dnd` SET membership so observers pick up
+   * the change on the next `presence.updated` broadcast. Returns the
+   * workspace ids that were touched (useful for fan-out).
+   */
+  async setDndForUser(userId: string, workspaceIds: string[], isDnd: boolean): Promise<string[]> {
+    if (workspaceIds.length === 0) return [];
+    const pipe = this.redis.multi();
+    for (const wsId of workspaceIds) {
+      if (isDnd) {
+        pipe.sadd(`presence:workspace:${wsId}:dnd`, userId);
+      } else {
+        pipe.srem(`presence:workspace:${wsId}:dnd`, userId);
+      }
+    }
+    await pipe.exec();
+    return workspaceIds;
+  }
+
+  async dndIn(workspaceId: string): Promise<string[]> {
+    return this.redis.smembers(`presence:workspace:${workspaceId}:dnd`);
   }
 
   async heartbeat(sessionId: string): Promise<boolean> {
@@ -85,10 +120,11 @@ export class PresenceService {
     const [,] = (await pipe.exec()) ?? [];
     const remaining = await this.redis.scard(`presence:user:${userId}:sessions`);
     if (remaining > 0) return { goneFrom: [] };
-    // Last session gone — drop from every workspace set.
+    // Last session gone — drop from every workspace set (online + dnd).
     const rem = this.redis.multi();
     for (const wsId of workspaceIds) {
       rem.srem(`presence:workspace:${wsId}:users`, userId);
+      rem.srem(`presence:workspace:${wsId}:dnd`, userId);
     }
     await rem.exec();
     return { goneFrom: [...workspaceIds] };

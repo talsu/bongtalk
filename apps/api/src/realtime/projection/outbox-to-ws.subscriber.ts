@@ -120,6 +120,11 @@ export class OutboxToWsSubscriber {
     if (!wsId) return;
     if (env.type === 'channel.created' || env.type === 'channel.deleted') {
       await this.emitAndBuffer('workspace', wsId, env);
+      // task-019-B (018-follow-3): refresh SocketState.channelIds for
+      // every currently-connected workspace member so they can
+      // typing.ping / channel:read on the new channel without a
+      // reconnect.
+      await this.refreshChannelIdsForWorkspace(wsId);
       return;
     }
     const chId = env.channelId ?? (env as { channel?: { id?: string } }).channel?.id;
@@ -146,6 +151,12 @@ export class OutboxToWsSubscriber {
     if (targetUserId && this.io) {
       this.io.to(rooms.user(targetUserId)).emit(env.type, env);
     }
+    // task-019-B (018-follow-3): workspace.member.joined means the
+    // target user is now in a new workspace + its channels; refresh
+    // their sockets' channelIds if any are connected.
+    if (env.type === 'workspace.member.joined' && targetUserId) {
+      await this.gateway.refreshUserChannelIds(targetUserId).catch(() => undefined);
+    }
     // Kick is handled here (not in a sibling @OnEvent) to avoid handler-order
     // surprises with EventEmitter2 wildcard mode.
     if (env.type === 'workspace.member.removed' || env.type === 'workspace.member.left') {
@@ -157,6 +168,27 @@ export class OutboxToWsSubscriber {
           void this.gateway.kickUserEverywhere(targetUserId, env.type).catch(() => undefined);
         }, 50);
       }
+    }
+  }
+
+  /**
+   * task-019-B: refresh every workspace member's socket state so they
+   * pick up a new channel immediately. Queries the workspace's member
+   * list and fans out to each. Rare event (channel.created); no
+   * throttling needed. Exceptions per-user are swallowed so one stale
+   * socket can't block the rest.
+   */
+  private async refreshChannelIdsForWorkspace(workspaceId: string): Promise<void> {
+    if (!this.io) return;
+    const sockets = await this.io.in(rooms.workspace(workspaceId)).fetchSockets();
+    if (sockets.length === 0) return;
+    const seen = new Set<string>();
+    for (const s of sockets) {
+      const state = (s as unknown as { data: { state?: { user: { userId: string } } } }).data.state;
+      const uid = state?.user?.userId;
+      if (!uid || seen.has(uid)) continue;
+      seen.add(uid);
+      await this.gateway.refreshUserChannelIds(uid).catch(() => undefined);
     }
   }
 

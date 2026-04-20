@@ -27,20 +27,44 @@ export function DropdownContent({
   );
 }
 
+/**
+ * Task-019-C (reviewer MED closure): `disabled` now forwards to
+ * `RDropdown.Item`. Disabled items can't be activated with
+ * mouse / keyboard and are excluded from focus traversal. `asChild`
+ * lets callers render a <Link> directly inside the item when they
+ * need real navigation behavior (no preventDefault).
+ */
 export function DropdownItem({
   children,
   onSelect,
   danger,
+  disabled,
+  asChild,
+  preventDefault = true,
 }: {
   children: ReactNode;
   onSelect?: () => void;
   danger?: boolean;
+  disabled?: boolean;
+  asChild?: boolean;
+  /**
+   * Radix's default is to CLOSE the menu on select. Set to false when
+   * the item contains a `<Link>` so the click navigates instead of
+   * being intercepted.
+   */
+  preventDefault?: boolean;
 }): JSX.Element {
   return (
     <RDropdown.Item
-      className={cn('qf-menu__item outline-none', danger && 'qf-menu__item--danger')}
+      asChild={asChild}
+      disabled={disabled}
+      className={cn(
+        'qf-menu__item outline-none',
+        danger && 'qf-menu__item--danger',
+        disabled && 'opacity-50',
+      )}
       onSelect={(e) => {
-        e.preventDefault();
+        if (preventDefault) e.preventDefault();
         onSelect?.();
       }}
     >

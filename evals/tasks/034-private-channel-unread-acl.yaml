@@ -1,0 +1,19 @@
+id: 034
+title: Private-channel unread ACL — IDOR leak close
+goal: |
+  A workspace member who is NOT whitelisted on a private channel must
+  NOT see that channel's unread count in:
+    · GET /workspaces/:id/unread-summary
+    · GET /me/unread-totals
+  A USER-level override with allowMask=READ on the private channel
+  restores visibility for that user. OWNER always sees the private
+  channel regardless of overrides (ownership is the escape hatch).
+  SQL-level filter, not in-memory post-filter (minimum exposure).
+dod:
+  - command: pnpm --filter @qufox/api test:int --run test/int/channels/unread-private-acl.int.spec.ts
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/channels/unread.service.ts
+      - apps/api/src/channels/unread.controller.ts
+      - apps/api/test/int/channels/**
+max_turns: 20

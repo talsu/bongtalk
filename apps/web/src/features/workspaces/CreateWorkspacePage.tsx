@@ -41,7 +41,7 @@ export function CreateWorkspacePage(): JSX.Element {
         <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
           새 워크스페이스
         </h1>
-        <p className="mt-[var(--s-2)] text-[13px] text-text-muted">
+        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
           이름과 slug를 선택하세요. 동료 초대는 다음 단계에서 진행합니다.
         </p>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>

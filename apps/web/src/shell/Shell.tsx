@@ -3,6 +3,7 @@ import { Navigate, useParams } from 'react-router-dom';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
 import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
+import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { WorkspaceNav } from './WorkspaceNav';
 import { ChannelColumn } from './ChannelColumn';
 import { MessageColumn } from './MessageColumn';
@@ -33,6 +34,10 @@ export function Shell(): JSX.Element {
   const { data: mine, isLoading } = useMyWorkspaces();
   useRealtimeConnection();
   useGlobalShortcuts();
+  // task-019-D: warm the notification-preferences cache so the
+  // dispatcher's synchronous resolver hits immediately instead of
+  // falling back to defaults for the first volley of events.
+  useNotificationPreferences();
 
   const active = useMemo(() => mine?.workspaces.find((w) => w.slug === slug), [mine, slug]);
   const { data: channels } = useChannelList(active?.id);
@@ -83,6 +88,7 @@ export function Shell(): JSX.Element {
             workspaceSlug={active.slug}
             channelId={activeChannel.id}
             channelName={activeChannel.name}
+            channelTopic={activeChannel.topic ?? null}
           />
         ) : (
           <main className="qf-empty flex-1">

@@ -13,12 +13,35 @@ import tsParser from '@typescript-eslint/parser';
 // literals (`` `bg-slate-${shade}` `` — the "bg-slate-" part lives in
 // TemplateElement.value.raw). Without the second selector the rule
 // missed ``${'bg-red-600'}``-style interpolation builds.
-const PALETTE_REGEX = "\\b(bg|text|border)-(slate|red|blue|green|yellow)-[0-9]+\\b";
+const PALETTE_REGEX = '\\b(bg|text|border)-(slate|red|blue|green|yellow)-[0-9]+\\b';
 const PALETTE_PATTERN_LITERAL = `Literal[value=/${PALETTE_REGEX}/]`;
 const PALETTE_PATTERN_TEMPLATE = `TemplateElement[value.raw=/${PALETTE_REGEX}/]`;
 
 const PALETTE_MESSAGE =
   'Use design-system semantic tokens (surface/foreground/text-muted/danger/accent/…) instead of raw Tailwind palette classes. See apps/web/src/index.css + tailwind.config.js for the token list.';
+
+// task-018-A: raw-value guard. DS tokens.css + qf-* classes are the
+// canonical source; raw hex, raw pixel arbitrary values, rgba(), and
+// inline box-shadow literals must not appear in apps/web/src/**. The
+// regex patterns are intentionally loose (whole string tested) — they
+// fire on both className strings and style prop string values alike.
+//
+// Length tokens exist in tokens.css as --fs-* / --s-* / --r-* / --w-* /
+// --h-*; a contributor who really needs a raw px must extend tokens.css
+// (and document in /design-system/index.html), not bypass this rule.
+const RAW_HEX = '#[0-9a-fA-F]{3,8}\\b';
+const RAW_PX_ARBITRARY = '\\[[0-9]+(?:\\.[0-9]+)?px\\]';
+const RAW_RGB = '\\brgba?\\(';
+const RAW_BOX_SHADOW_INLINE = '(?:^|[^-])box-shadow\\s*:\\s*[0-9]';
+
+const RAW_MESSAGE =
+  'task-018: Use DS tokens (var(--fs-*) / var(--s-*) / var(--elev-*)) or a qf-* class instead of a raw hex / [Npx] / rgba() / inline box-shadow. See feedback_design_system_source_of_truth.md + /design-system/tokens.css.';
+
+const rawPatterns = [RAW_HEX, RAW_PX_ARBITRARY, RAW_RGB, RAW_BOX_SHADOW_INLINE];
+const rawSelectors = rawPatterns.flatMap((p) => [
+  { selector: `Literal[value=/${p}/]`, message: RAW_MESSAGE },
+  { selector: `TemplateElement[value.raw=/${p}/]`, message: RAW_MESSAGE },
+]);
 
 export default [
   {
@@ -33,6 +56,10 @@ export default [
       '**/.debug/**',
       'apps/api/prisma/migrations/**',
       'apps/web/test/fixtures/**',
+      // DS itself + brand-assets own the raw values; the rule enforces
+      // that NOTHING ELSE reintroduces them.
+      'apps/web/public/design-system/**',
+      'apps/web/public/brand-assets/**',
     ],
   },
   js.configs.recommended,
@@ -87,12 +114,24 @@ export default [
         'warn',
         { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
         { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
+        ...rawSelectors,
       ],
     },
   },
-  // Error-level: the two trees that task-010-C already cleaned up. New
-  // violations here fail `pnpm lint` so regressions can't land without
-  // an explicit ESLint disable (and a reviewer comment).
+  // Error-level: raw-value guard (018) + palette guard (010) for the
+  // trees that have already been swept. New violations here fail
+  // `pnpm lint` so regressions can't land without an explicit disable.
+  {
+    files: ['apps/web/src/**/*.{ts,tsx}'],
+    ignores: [
+      // Unit / spec files may legitimately test raw values as fixtures.
+      '**/*.spec.{ts,tsx}',
+      '**/*.test.{ts,tsx}',
+    ],
+    rules: {
+      'no-restricted-syntax': ['error', ...rawSelectors],
+    },
+  },
   {
     files: [
       'apps/web/src/features/auth/**/*.{ts,tsx}',
@@ -103,6 +142,7 @@ export default [
         'error',
         { selector: PALETTE_PATTERN_LITERAL, message: PALETTE_MESSAGE },
         { selector: PALETTE_PATTERN_TEMPLATE, message: PALETTE_MESSAGE },
+        ...rawSelectors,
       ],
     },
   },

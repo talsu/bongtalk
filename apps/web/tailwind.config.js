@@ -105,9 +105,13 @@ export default {
         serverlist: 'var(--w-serverlist)',
         channellist: 'var(--w-channellist)',
         memberlist: 'var(--w-memberlist)',
+        thread: 'var(--w-thread)',
+        'topbar-search': 'var(--w-topbar-search)',
+        settings: 'var(--w-settings)',
       },
       height: {
         topbar: 'var(--h-topbar)',
+        'topbar-search': 'var(--h-topbar-search)',
       },
       zIndex: {
         sidebar: 'var(--z-header)',

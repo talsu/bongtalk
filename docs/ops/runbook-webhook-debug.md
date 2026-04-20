@@ -144,3 +144,24 @@ collide.
 **If `/volume2/dockers/qufox` is moved or renamed later**, the
 `/qufox-deploy/.git` pointer file breaks. Run `git worktree repair`
 from the new main-repo path to refresh the link.
+
+### `qufox-backup` bind-mount decision (task-019-B, 017-follow-5)
+
+`qufox-backup` does **not** bind-mount either `/volume2/dockers/qufox`
+(operator tree) or `/volume2/dockers/qufox-deploy` (webhook clone).
+Its mounts are:
+
+| Source                     | Target        | Mode | Purpose                      |
+| -------------------------- | ------------- | ---- | ---------------------------- |
+| `$BACKUP_DIR`              | `/backups`    | rw   | backup output                |
+| `qufox-prod-pgdata` volume | `/pgdata`     | ro   | consistency spot-checks      |
+| `$MINIO_DATA_DIR`          | `/minio-data` | ro   | MinIO backup source          |
+| `/var/run/docker.sock`     | same          | rw   | spin restore-test containers |
+
+The backup container reads DB state via the network (via
+`DATABASE_URL`), not by running `git` against a checkout. **No change
+is needed after the 017-B webhook worktree isolation.** The decision
+is logged here so a future reviewer doesn't wonder why backup was
+skipped from the worktree migration. Revisit only if we add a backup
+script that needs the repo contents (e.g. a future task that snapshots
+Prisma migration state on disk).
