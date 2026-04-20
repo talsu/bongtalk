@@ -9,6 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="tokens.css">
 <link rel="stylesheet" href="components.css">
+<link rel="stylesheet" href="mobile.css">
 <style>
   body { min-height: 100vh; }
   .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
@@ -93,6 +94,10 @@
       <div class="sidebar__group-title">Patterns</div>
       <a class="sidebar__link" data-page="settings" onclick="nav('settings')">Forms · Settings · States</a>
       <a class="sidebar__link" data-page="mockup" onclick="nav('mockup')">Full chat mockup</a>
+    </div>
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Mobile</div>
+      <a class="sidebar__link" data-page="mobile" onclick="nav('mobile')">iOS · Android screens</a>
     </div>
   </aside>
 
@@ -627,8 +632,80 @@
     </div>
   </section>
 
+  <!-- ─── MOBILE ─── -->
+  <section class="page" data-page="mobile">
+    <div class="qf-eyebrow">Mobile</div>
+    <h1 class="page-title">Mobile system</h1>
+    <p class="page-lede">Discord/Slack 패턴 기반의 모바일 레이아웃. 터치 타겟 <strong>44×44 이상</strong>, safe-area inset 자동 처리, bottom tab + bottom sheet 조합으로 한 손 조작 최적화.</p>
+
+    <h2>Layout patterns</h2>
+    <div class="subtle">4가지 주요 화면 — iOS 기준 목업 (Android에서도 동일 클래스 사용)</div>
+    <div id="mobile-mount" style="margin-top:var(--s-6);"></div>
+
+    <h2>Mobile-only tokens</h2>
+    <pre class="code">--m-topbar-h:   52px;     /* top nav 높이 */
+--m-tabbar-h:   56px;     /* bottom tab bar (safe-area 제외) */
+--m-composer-h: 56px;     /* 메시지 입력창 */
+--m-touch:      44px;     /* 최소 히트 타겟 (Apple HIG) */
+--m-gutter:     16px;     /* 좌우 여백 */
+--m-sheet-r:    20px;     /* bottom sheet top radius */</pre>
+
+    <h2>핵심 컴포넌트</h2>
+    <div class="grid grid--3">
+      <div class="card"><div class="card__label">.qf-m-screen</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">최상위 쉘. topbar + scrollable body + tabbar/composer 구조.</p></div>
+      <div class="card"><div class="card__label">.qf-m-topbar</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">3-컬럼 (back · title · actions). 높이 52px 고정.</p></div>
+      <div class="card"><div class="card__label">.qf-m-tabbar</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">바닥 네비 4탭 (Home · DMs · Activity · You). safe-area 자동.</p></div>
+      <div class="card"><div class="card__label">.qf-m-composer</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">채팅 입력창. + / 텍스트 / 전송 3요소. 라운드 pill.</p></div>
+      <div class="card"><div class="card__label">.qf-m-sheet</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">Bottom sheet (액션 메뉴, 이모지 반응). grab bar + items.</p></div>
+      <div class="card"><div class="card__label">.qf-m-fab</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">플로팅 액션 버튼. 새 DM, 새 글 등 primary action.</p></div>
+      <div class="card"><div class="card__label">.qf-m-row</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">리스트 행 (DM, 멤버, 서버). 64px 최소 높이, 좌측 avatar + 2단 텍스트 + aside.</p></div>
+      <div class="card"><div class="card__label">.qf-m-segment</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">Segmented control (All/Mentions/Threads 같은 필터 전환).</p></div>
+      <div class="card"><div class="card__label">.qf-m-voice</div><p style="margin:var(--s-3) 0 0;font-size:var(--fs-13);color:var(--text-secondary);">보이스 룸 그리드 + 컨트롤. speaking 상태 outline.</p></div>
+    </div>
+
+    <h2>규칙</h2>
+    <ul style="color:var(--text-secondary);line-height:var(--lh-loose);font-size:var(--fs-14);padding-left:var(--s-6);">
+      <li><strong>터치 타겟:</strong> 모든 인터랙티브 요소는 최소 44×44. 작아 보여야 하는 경우 padding으로 hit area 확보.</li>
+      <li><strong>Safe area:</strong> topbar는 <code class="qf-code-inline">env(safe-area-inset-top)</code>, tabbar/composer는 bottom inset 반영. 이미 컴포넌트에 내장.</li>
+      <li><strong>Drawer 패턴:</strong> 서버/채널 리스트는 햄버거 메뉴 → 좌측 drawer. 멤버 리스트는 우측 drawer (Discord 방식).</li>
+      <li><strong>Bottom sheet:</strong> 데스크톱의 context menu/modal은 모바일에서 bottom sheet로 변환. 옵션 5개 이상이면 스크롤 가능하게.</li>
+      <li><strong>Long-press = context menu:</strong> 메시지 long-press → bottom sheet + 반응 이모지 row.</li>
+      <li><strong>Swipe to reply:</strong> 메시지 우측 스와이프 → 답글 모드 (네이티브 패턴).</li>
+      <li><strong>키보드 dodge:</strong> composer는 키보드 올라올 때 함께 올라감. body는 자동 축소.</li>
+    </ul>
+
+    <h2>React 컴포넌트 매핑 예시</h2>
+    <pre class="code">// Discord-style mobile chat screen
+&lt;div className="qf-m-screen"&gt;
+  &lt;header className="qf-m-topbar"&gt;
+    &lt;button className="qf-m-topbar__back"&gt;☰&lt;/button&gt;
+    &lt;div className="qf-m-topbar__titleBlock"&gt;
+      &lt;div className="qf-m-topbar__title"&gt;# general&lt;/div&gt;
+      &lt;div className="qf-m-topbar__subtitle"&gt;qufox team&lt;/div&gt;
+    &lt;/div&gt;
+    &lt;button className="qf-m-topbar__action"&gt;👥&lt;/button&gt;
+  &lt;/header&gt;
+
+  &lt;main className="qf-m-body"&gt;
+    {messages.map(m =&gt; &lt;MobileMessage key={m.id} {...m}/&gt;)}
+  &lt;/main&gt;
+
+  &lt;footer className="qf-m-composer"&gt;
+    &lt;button className="qf-m-composer__plus"&gt;+&lt;/button&gt;
+    &lt;textarea className="qf-m-composer__input" /&gt;
+    &lt;button className="qf-m-composer__send"&gt;➤&lt;/button&gt;
+  &lt;/footer&gt;
+&lt;/div&gt;</pre>
+  </section>
+
   </main>
 </div>
+
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
+<script type="text/babel" src="ios-frame.jsx"></script>
+<script type="text/babel" src="mobile-mockups.jsx"></script>
 
 <script>
   function nav(p) {
