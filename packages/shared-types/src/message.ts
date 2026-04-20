@@ -126,3 +126,23 @@ export const ListThreadRepliesResponseSchema = z.object({
   pageInfo: PageInfoSchema,
 });
 export type ListThreadRepliesResponse = z.infer<typeof ListThreadRepliesResponseSchema>;
+
+// Task-015-B: message full-text search. Snippet carries `<mark>` HTML
+// from Postgres ts_headline; frontends must sanitize with DOMPurify.
+export const SearchResultSchema = z.object({
+  messageId: z.string().uuid(),
+  channelId: z.string().uuid(),
+  channelName: z.string(),
+  senderId: z.string().uuid(),
+  senderName: z.string(),
+  createdAt: z.string().datetime(),
+  snippet: z.string(),
+  rank: z.number(),
+});
+export type SearchResult = z.infer<typeof SearchResultSchema>;
+
+export const SearchResponseSchema = z.object({
+  results: z.array(SearchResultSchema),
+  nextCursor: z.string().nullable(),
+});
+export type SearchResponse = z.infer<typeof SearchResponseSchema>;

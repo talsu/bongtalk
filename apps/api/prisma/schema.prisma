@@ -194,6 +194,12 @@ model Message {
   // depth is enforced at the service — parent-of-parent must be NULL.
   parentMessageId String?  @db.Uuid
 
+  // task-015-B: Postgres-generated tsvector column for FTS. Marked
+  // `Unsupported` because Prisma 5.22 doesn't model tsvector natively;
+  // the column is populated by the DB via GENERATED ALWAYS AS, so we
+  // never write to it. SELECT paths that need FTS use $queryRaw.
+  search_tsv  Unsupported("tsvector")?
+
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User              @relation(fields: [authorId], references: [id])
   attachments Attachment[]

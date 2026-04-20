@@ -17,6 +17,7 @@ import { MeModule } from './me/me.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
+import { SearchModule } from './search/search.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 
@@ -39,6 +40,7 @@ import { ObservabilityModule } from './observability/observability.module';
     StorageModule,
     AttachmentsModule,
     ReactionsModule,
+    SearchModule,
     RealtimeModule,
   ],
   controllers: [HealthController],
