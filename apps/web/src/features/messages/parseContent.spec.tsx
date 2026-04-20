@@ -30,6 +30,14 @@ describe('renderMessageContent', () => {
     );
   });
 
+  it('includes dots and hyphens in the mention (matches shared-types [a-zA-Z0-9_.-])', () => {
+    // Regression guard from task-018 reviewer HIGH-1: prior regex split
+    // `@alice-dev` into `@alice` + `-dev` and `@user.name` into `@user`
+    // + `.name`, disagreeing with the server-side mention extractor.
+    expect(toHtml('hello @alice-dev')).toContain('<span class="qf-mention">@alice-dev</span>');
+    expect(toHtml('cc @user.name please')).toContain('<span class="qf-mention">@user.name</span>');
+  });
+
   it('does not parse inline rules inside fenced blocks', () => {
     const html = toHtml('```\nNo `code` or @mentions here\n```');
     expect(html).not.toContain('qf-code-inline');

@@ -38,7 +38,8 @@ test('typing indicator: A types → B sees qf-typing with A; stop → clears (ta
     headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },
     data: { maxUses: 5 },
   });
-  const code = (await invite.json()).invite?.code ?? (await invite.json()).code;
+  const inviteBody = await invite.json();
+  const code = inviteBody.invite?.code ?? inviteBody.code;
   await request.post(`${API}/invites/${code}/accept`, {
     headers: { authorization: `Bearer ${peerToken}`, origin: ORIGIN },
   });

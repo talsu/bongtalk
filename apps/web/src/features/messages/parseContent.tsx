@@ -58,7 +58,11 @@ export function renderMessageContent(content: string): ReactNode[] {
 function renderInline(text: string, keyPrefix: string): ReactNode[] {
   const out: ReactNode[] = [];
   // Combined regex — alternation means we consume whichever comes first.
-  const pattern = /`([^`\n]+)`|@([A-Za-z0-9_]{1,32})/g;
+  // Mention regex matches the shared-types username rule `[a-zA-Z0-9_.-]+`
+  // (3–32 chars per shared-types, but we allow the shorter 1+ match so a
+  // user typing `@a` still sees the intermediate pill). Drift with the
+  // server-side mention-extractor was caught by task-018 reviewer HIGH-1.
+  const pattern = /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   let idx = 0;
