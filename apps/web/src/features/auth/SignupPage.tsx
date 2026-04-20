@@ -43,7 +43,7 @@ export function SignupPage(): JSX.Element {
         <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
           계정 만들기
         </h1>
-        <p className="mt-[var(--s-2)] text-[13px] text-text-muted">
+        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
           1분 안에 대화를 시작할 수 있어요.
         </p>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
@@ -95,7 +95,7 @@ export function SignupPage(): JSX.Element {
             {isSubmitting ? '만드는 중…' : '가입하기'}
           </Button>
         </form>
-        <p className="mt-[var(--s-6)] text-[13px] text-text-muted">
+        <p className="mt-[var(--s-6)] text-[length:var(--fs-13)] text-text-muted">
           이미 계정이 있으신가요?{' '}
           <Link to="/login" className="font-medium text-link hover:text-link-hover">
             로그인

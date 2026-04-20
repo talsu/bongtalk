@@ -1,8 +1,9 @@
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { usePresence } from '../features/realtime/usePresence';
 import { useUI } from '../stores/ui-store';
-import { Avatar, PresenceDot } from '../design-system/primitives';
+import { Avatar } from '../design-system/primitives';
 import { cn } from '../lib/cn';
+import type { PresenceStatus } from '../features/presence/presenceStatus';
 
 export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Element | null {
   const open = useUI((s) => s.memberListOpen);
@@ -24,7 +25,7 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
         <>
           <div className="qf-memberlist__group">온라인 — {online.length}</div>
           {online.map((m) => (
-            <MemberRow key={m.userId} name={m.user.username} role={m.role} online />
+            <MemberRow key={m.userId} name={m.user.username} role={m.role} status="online" />
           ))}
         </>
       ) : null}
@@ -32,7 +33,7 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
         <>
           <div className="qf-memberlist__group">오프라인 — {offline.length}</div>
           {offline.map((m) => (
-            <MemberRow key={m.userId} name={m.user.username} role={m.role} online={false} />
+            <MemberRow key={m.userId} name={m.user.username} role={m.role} status="offline" />
           ))}
         </>
       ) : null}
@@ -43,11 +44,11 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
 function MemberRow({
   name,
   role,
-  online,
+  status,
 }: {
   name: string;
   role: string;
-  online: boolean;
+  status: PresenceStatus;
 }): JSX.Element {
   const roleClass =
     role === 'OWNER'
@@ -56,20 +57,19 @@ function MemberRow({
         ? 'qf-member__role-mod'
         : undefined;
   return (
-    <div data-testid={`member-${name}`} className={cn('qf-member', !online && 'opacity-70')}>
-      <div className="relative">
-        <Avatar name={name} size="sm" />
-        <span className="absolute -right-0.5 -bottom-0.5">
-          <PresenceDot status={online ? 'online' : 'offline'} size="xs" />
-        </span>
-      </div>
+    <div
+      data-testid={`member-${name}`}
+      data-presence={status}
+      className={cn('qf-member', status === 'offline' && 'opacity-50')}
+    >
+      <Avatar name={name} size="sm" status={status} />
       <span data-testid={`member-name-${name}`} className={cn('qf-member__name', roleClass)}>
         {name}
       </span>
       {role !== 'MEMBER' ? (
         <span
           data-testid={`role-${name}`}
-          className="text-[11px] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
+          className="text-[length:var(--fs-11)] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
         >
           {role}
         </span>
@@ -78,14 +78,6 @@ function MemberRow({
           {role}
         </span>
       )}
-      <span
-        data-testid={`presence-${name}`}
-        className={cn(
-          'h-1.5 w-1.5 rounded-full',
-          online ? 'bg-presence-online' : 'bg-presence-offline',
-        )}
-        aria-hidden
-      />
     </div>
   );
 }

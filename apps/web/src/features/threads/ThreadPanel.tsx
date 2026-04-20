@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MessageDto } from '@qufox/shared-types';
+import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
 import { MessageItem } from '../messages/MessageItem';
@@ -41,6 +41,12 @@ export function ThreadPanel({
     return map;
   }, [members]);
 
+  const roleById = useMemo(() => {
+    const map = new Map<string, WorkspaceRole>();
+    for (const m of members?.members ?? []) map.set(m.userId, m.role);
+    return map;
+  }, [members]);
+
   // Scroll to bottom when new replies arrive.
   useEffect(() => {
     const el = scrollRef.current;
@@ -66,7 +72,7 @@ export function ThreadPanel({
     <aside
       data-testid="thread-panel"
       aria-label="스레드"
-      className="flex h-full w-full flex-col border-l border-border-subtle bg-bg-panel md:w-[420px]"
+      className="flex h-full w-full flex-col border-l border-border-subtle bg-bg-panel md:w-thread"
     >
       <header className="qf-topbar justify-between">
         <div className="qf-topbar__title">스레드</div>
@@ -99,6 +105,7 @@ export function ThreadPanel({
               msg={root}
               isMine={root.authorId === user?.id}
               authorName={nameById.get(root.authorId)}
+              authorRole={roleById.get(root.authorId) ?? null}
               onEditSave={async () => undefined}
               onDelete={() => undefined}
             />
@@ -109,7 +116,7 @@ export function ThreadPanel({
             type="button"
             data-testid="thread-load-more"
             onClick={() => history.fetchNextPage()}
-            className="block w-full py-2 text-center text-[11px] text-text-muted underline"
+            className="block w-full py-2 text-center text-[length:var(--fs-11)] text-text-muted underline"
           >
             {history.isFetchingNextPage ? '불러오는 중…' : '이전 답글 보기'}
           </button>
@@ -120,6 +127,7 @@ export function ThreadPanel({
             msg={m}
             isMine={m.authorId === user?.id}
             authorName={nameById.get(m.authorId)}
+            authorRole={roleById.get(m.authorId) ?? null}
             onEditSave={async () => undefined}
             onDelete={() => undefined}
           />
@@ -178,7 +186,7 @@ function ReplyComposer({
         placeholder="답글 남기기"
         className="qf-input qf-textarea"
       />
-      <div className="mt-[var(--s-2)] flex items-center justify-between text-[11px] text-text-muted">
+      <div className="mt-[var(--s-2)] flex items-center justify-between text-[length:var(--fs-11)] text-text-muted">
         <span>Enter 전송, Shift+Enter 줄바꿈</span>
         <button
           type="submit"

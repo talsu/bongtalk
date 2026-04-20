@@ -31,7 +31,7 @@ export function Dialog({
             <div>
               <RDialog.Title className="qf-modal__title">{title}</RDialog.Title>
               {description ? (
-                <RDialog.Description className="mt-[var(--s-2)] text-[13px] text-text-secondary">
+                <RDialog.Description className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-secondary">
                   {description}
                 </RDialog.Description>
               ) : null}

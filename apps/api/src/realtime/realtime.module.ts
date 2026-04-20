@@ -4,6 +4,7 @@ import { WsAuthMiddleware } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
+import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { OutboxToWsSubscriber } from './projection/outbox-to-ws.subscriber';
 import { MembershipRevocationListener } from './projection/membership-revocation.listener';
@@ -19,10 +20,11 @@ import { AuthModule } from '../auth/auth.module';
     RoomManagerService,
     PresenceService,
     PresenceThrottler,
+    TypingService,
     ReplayBufferService,
     OutboxToWsSubscriber,
     MembershipRevocationListener,
   ],
-  exports: [RealtimeGateway, PresenceService],
+  exports: [RealtimeGateway, PresenceService, TypingService],
 })
 export class RealtimeModule {}

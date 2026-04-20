@@ -1,5 +1,5 @@
 import { useAuth } from '../features/auth/AuthProvider';
-import { Avatar, PresenceDot, Tooltip } from '../design-system/primitives';
+import { Avatar, Tooltip } from '../design-system/primitives';
 import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useUI } from '../stores/ui-store';
 
@@ -11,20 +11,18 @@ export function BottomBar(): JSX.Element {
   return (
     <footer
       data-testid="bottom-bar"
-      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[13px]"
+      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[length:var(--fs-13)]"
     >
       <div className="flex items-center gap-2">
-        <div className="relative">
-          <Avatar name={user?.username ?? '??'} size="sm" />
-          <span className="absolute -right-0.5 -bottom-0.5">
-            <PresenceDot status="online" size="xs" />
-          </span>
-        </div>
+        <Avatar name={user?.username ?? '??'} size="sm" status="online" />
         <div className="leading-tight">
-          <div data-testid="home-username" className="text-[13px] font-semibold text-text-strong">
+          <div
+            data-testid="home-username"
+            className="text-[length:var(--fs-13)] font-semibold text-text-strong"
+          >
             {user?.username ?? ''}
           </div>
-          <div className="text-[11px] text-text-muted">online</div>
+          <div className="text-[length:var(--fs-11)] text-text-muted">online</div>
         </div>
       </div>
 

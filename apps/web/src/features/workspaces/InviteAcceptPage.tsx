@@ -38,7 +38,7 @@ export function InviteAcceptPage(): JSX.Element {
           <h1 className="text-[var(--fs-20)] font-semibold text-warning">
             초대 링크를 사용할 수 없어요
           </h1>
-          <p className="mt-[var(--s-3)] text-[13px] text-text-muted">
+          <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
             {(error as Error | undefined)?.message ?? '이 초대는 만료되었거나 유효하지 않습니다.'}
           </p>
         </section>
@@ -56,13 +56,13 @@ export function InviteAcceptPage(): JSX.Element {
         >
           {preview.workspace.name} 에 합류
         </h1>
-        <p className="mt-[var(--s-3)] text-[13px] text-text-muted">
-          <span className="font-mono text-[12px]">@{preview.workspace.slug}</span> 워크스페이스에
-          초대되었어요.
+        <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
+          <span className="font-mono text-[length:var(--fs-12)]">@{preview.workspace.slug}</span>{' '}
+          워크스페이스에 초대되었어요.
           {preview.usesRemaining !== null && <> 남은 자리 {preview.usesRemaining}개.</>}
         </p>
         {status === 'anonymous' ? (
-          <div className="mt-[var(--s-7)] flex flex-col gap-[var(--s-3)] text-[13px]">
+          <div className="mt-[var(--s-7)] flex flex-col gap-[var(--s-3)] text-[length:var(--fs-13)]">
             <Link to={`/login?from=/invite/${code}`} className="qf-btn qf-btn--primary qf-btn--lg">
               로그인하고 합류
             </Link>

@@ -22,6 +22,9 @@ export const qk = {
     detail: (chId: string) => ['channels', chId] as const,
     unreadSummary: (wsId: string) => ['workspaces', wsId, 'unread-summary'] as const,
   },
+  me: {
+    unreadTotals: () => ['me', 'unread-totals'] as const,
+  },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,
     detail: (msgId: string) => ['messages', msgId] as const,

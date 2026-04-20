@@ -83,6 +83,7 @@ export function Shell(): JSX.Element {
             workspaceSlug={active.slug}
             channelId={activeChannel.id}
             channelName={activeChannel.name}
+            channelTopic={activeChannel.topic ?? null}
           />
         ) : (
           <main className="qf-empty flex-1">

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useUI } from '../stores/ui-store';
 import { useMarkChannelRead } from '../features/channels/useUnread';
@@ -6,6 +6,8 @@ import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
+import { TypingIndicator } from '../features/typing/TypingIndicator';
+import { useAuth } from '../features/auth/AuthProvider';
 import { Tooltip } from '../design-system/primitives';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
@@ -16,6 +18,7 @@ type Props = {
   workspaceSlug: string;
   channelId: string;
   channelName: string;
+  channelTopic: string | null;
 };
 
 /**
@@ -23,12 +26,24 @@ type Props = {
  * member list. Body is the virtualized message list. Footer is the
  * composer.
  */
-export function MessageColumn({ workspaceId, channelId, channelName }: Props): JSX.Element {
+export function MessageColumn({
+  workspaceId,
+  channelId,
+  channelName,
+  channelTopic,
+}: Props): JSX.Element {
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
+  const setOpenModal = useUI((s) => s.setOpenModal);
+  const { user } = useAuth();
   const { data: members } = useMembers(workspaceId);
   const memberCount = members?.members.length ?? 0;
+  const nameByUserId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mm of members?.members ?? []) m.set(mm.userId, mm.user.username);
+    return m;
+  }, [members]);
   const qc = useQueryClient();
 
   // task-014-C: thread panel opens via `?thread=<rootId>` query param.
@@ -113,27 +128,56 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
         data-testid={`msg-column-${channelName}`}
         className="flex min-w-0 flex-1 flex-col bg-chat"
       >
-        <header className="qf-topbar justify-between">
+        <header className="qf-topbar">
           <h2 className="qf-topbar__title">
             <span className="text-text-muted">#</span>
             {channelName}
           </h2>
-          <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
-            <button
-              data-testid="toggle-member-list"
-              aria-label="멤버 목록 토글"
-              aria-pressed={memberListOpen}
-              onClick={toggleMemberList}
-              className="qf-btn qf-btn--ghost qf-btn--sm"
-            >
-              {memberCount}명
-            </button>
-          </Tooltip>
+          {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
+          <div className="ml-auto flex items-center gap-[var(--s-3)]">
+            <input
+              data-testid="topbar-search"
+              readOnly
+              onFocus={() => setOpenModal('search')}
+              onClick={() => setOpenModal('search')}
+              placeholder="검색"
+              aria-label="메시지 검색"
+              className="qf-input h-topbar-search w-topbar-search text-[length:var(--fs-13)]"
+            />
+            <Tooltip label="곧 제공 예정" side="bottom">
+              <button
+                type="button"
+                data-testid="topbar-pin"
+                disabled
+                aria-label="고정된 메시지"
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                📌
+              </button>
+            </Tooltip>
+            <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
+              <button
+                type="button"
+                data-testid="topbar-members-toggle"
+                aria-label={`멤버 목록 토글 (${memberCount}명)`}
+                aria-pressed={memberListOpen}
+                onClick={toggleMemberList}
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                👥
+              </button>
+            </Tooltip>
+          </div>
         </header>
         <MessageList
           workspaceId={workspaceId}
           channelId={channelId}
           onOpenThread={(rootId) => setActiveThread(rootId)}
+        />
+        <TypingIndicator
+          channelId={channelId}
+          viewerId={user?.id ?? null}
+          nameByUserId={nameByUserId}
         />
         <MessageComposer
           workspaceId={workspaceId}

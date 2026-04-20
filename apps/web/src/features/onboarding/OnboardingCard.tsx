@@ -36,7 +36,7 @@ export function OnboardingCard(): JSX.Element | null {
     <section
       data-testid="onboarding-card"
       aria-label="베타 온보딩 체크리스트"
-      className="m-[var(--s-3)] p-[var(--s-4)] text-[12px]"
+      className="m-[var(--s-3)] p-[var(--s-4)] text-[length:var(--fs-12)]"
       style={{
         background: 'var(--accent-subtle)',
         border: '1px solid var(--border)',
@@ -46,7 +46,7 @@ export function OnboardingCard(): JSX.Element | null {
       <header className="mb-[var(--s-3)] flex items-center justify-between">
         <div>
           <div className="qf-eyebrow">beta · get started</div>
-          <h3 className="mt-[var(--s-1)] text-[13px] font-semibold text-text-strong">
+          <h3 className="mt-[var(--s-1)] text-[length:var(--fs-13)] font-semibold text-text-strong">
             qufox에 익숙해지기
           </h3>
         </div>
@@ -65,7 +65,7 @@ export function OnboardingCard(): JSX.Element | null {
       </header>
       <p
         data-testid="onboarding-progress"
-        className="mb-[var(--s-3)] text-[11px] text-text-muted"
+        className="mb-[var(--s-3)] text-[length:var(--fs-11)] text-text-muted"
       >{`${doneCount} / ${checks.length} 완료`}</p>
       <ul className="flex flex-col gap-[var(--s-2)]">
         {checks.map((c) => (

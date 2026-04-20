@@ -1,13 +1,16 @@
 import { useState } from 'react';
-import type { MessageDto } from '@qufox/shared-types';
+import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { Avatar } from '../../design-system/primitives';
 import { ReactionBar } from '../reactions/ReactionBar';
+import { roleBadgeLabel } from './roleBadge';
+import { renderMessageContent } from './parseContent';
 
 type Props = {
   msg: MessageDto;
   isMine: boolean;
   authorName?: string;
+  authorRole?: WorkspaceRole | null;
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
@@ -18,11 +21,13 @@ export function MessageItem({
   msg,
   isMine,
   authorName,
+  authorRole,
   onEditSave,
   onDelete,
   onToggleReaction,
   onOpenThread,
 }: Props): JSX.Element {
+  const badge = roleBadgeLabel(authorRole);
   const [editing, setEditing] = useState<string | null>(null);
 
   if (msg.deleted) {
@@ -31,7 +36,7 @@ export function MessageItem({
         data-testid={`msg-deleted-${msg.id}`}
         role="note"
         aria-label="삭제된 메시지"
-        className="px-[var(--s-7)] py-[var(--s-2)] text-[13px] italic text-text-muted"
+        className="px-[var(--s-7)] py-[var(--s-2)] text-[length:var(--fs-13)] italic text-text-muted"
       >
         (삭제된 메시지)
       </div>
@@ -48,6 +53,11 @@ export function MessageItem({
       <div className="min-w-0">
         <div className="qf-message__meta">
           <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+          {badge ? (
+            <span data-testid={`msg-role-${msg.id}`} className="qf-badge qf-badge--accent">
+              {badge}
+            </span>
+          ) : null}
           <time className="qf-message__time">{new Date(msg.createdAt).toLocaleTimeString()}</time>
           {msg.edited ? (
             <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
@@ -84,9 +94,9 @@ export function MessageItem({
             </button>
           </div>
         ) : (
-          <p data-testid={`msg-content-${msg.id}`} className="qf-message__body">
-            {msg.content}
-          </p>
+          <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
+            {renderMessageContent(msg.content ?? '')}
+          </div>
         )}
         {onToggleReaction ? (
           <ReactionBar

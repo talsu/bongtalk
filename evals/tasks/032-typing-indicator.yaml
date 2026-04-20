@@ -1,0 +1,27 @@
+id: 032
+title: Typing indicator (WS gateway + UI + Redis TTL)
+goal: |
+  Given two sockets in the same channel, when A emits typing.ping,
+  B receives typing.updated within 2 s naming A. When A stops typing
+  for more than 5 s (TTL) or disconnects, A drops from the set within
+  1 s of the disconnect (hook) or 5 s (TTL). Per-(userId, channelId)
+  throttle at 3 s — second ping inside the window silent-drops.
+  Redis SET qufox:typing:<channelId> is the source of truth.
+dod:
+  - command: pnpm --filter @qufox/api test:int --run test/int/realtime/ws.typing-gateway.int.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test --run src/features/typing/formatTyping.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test:e2e --grep "task-018-F"
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/realtime/typing/**
+      - apps/api/src/realtime/realtime.gateway.ts
+      - apps/api/src/realtime/realtime.module.ts
+      - apps/api/test/int/realtime/**
+      - apps/web/src/features/typing/**
+      - apps/web/src/features/messages/MessageComposer.tsx
+      - apps/web/src/features/realtime/dispatcher.ts
+      - apps/web/src/shell/MessageColumn.tsx
+      - apps/web/e2e/messages/typing-indicator.e2e.ts
+max_turns: 45
