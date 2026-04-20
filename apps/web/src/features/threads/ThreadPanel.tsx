@@ -66,16 +66,16 @@ export function ThreadPanel({
     <aside
       data-testid="thread-panel"
       aria-label="스레드"
-      className="flex h-full w-full flex-col border-l border-border-subtle bg-bg-surface md:w-[420px]"
+      className="flex h-full w-full flex-col border-l border-border-subtle bg-bg-panel md:w-[420px]"
     >
-      <header className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
-        <div className="text-sm font-semibold text-foreground">스레드</div>
+      <header className="qf-topbar justify-between">
+        <div className="qf-topbar__title">스레드</div>
         <button
           type="button"
           data-testid="thread-close"
           onClick={onClose}
           aria-label="스레드 닫기"
-          className="rounded px-2 py-0.5 text-xs text-text-muted hover:bg-bg-accent hover:text-foreground"
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
         >
           ✕
         </button>
@@ -125,7 +125,7 @@ export function ThreadPanel({
           />
         ))}
       </Scrollable>
-      <footer className="border-t border-border-subtle p-2">
+      <footer className="border-t border-border-subtle bg-chat p-[var(--s-3)]">
         <ReplyComposer
           disabled={reply.isPending}
           onSubmit={(content) =>
@@ -176,15 +176,15 @@ function ReplyComposer({
         rows={2}
         maxLength={4000}
         placeholder="답글 남기기"
-        className="w-full resize-none rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="qf-input qf-textarea"
       />
-      <div className="mt-1 flex items-center justify-between text-[11px] text-text-muted">
+      <div className="mt-[var(--s-2)] flex items-center justify-between text-[11px] text-text-muted">
         <span>Enter 전송, Shift+Enter 줄바꿈</span>
         <button
           type="submit"
           data-testid="thread-send"
           disabled={disabled || draft.trim().length === 0}
-          className="rounded-md bg-bg-primary px-3 py-1 text-[11px] font-semibold text-fg-primary disabled:opacity-50"
+          className="qf-btn qf-btn--primary qf-btn--sm"
         >
           답글
         </button>

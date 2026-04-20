@@ -14,11 +14,6 @@ type Props = {
   onOpenThread?: (rootId: string) => void;
 };
 
-/**
- * Single message row. Hover reveals edit/delete (own messages only).
- * Deleted messages render a muted placeholder — meta-data still visible
- * for audit continuity but content is server-masked to `null`.
- */
 export function MessageItem({
   msg,
   isMine,
@@ -36,7 +31,7 @@ export function MessageItem({
         data-testid={`msg-deleted-${msg.id}`}
         role="note"
         aria-label="삭제된 메시지"
-        className="rounded-md px-3 py-1 text-xs italic text-text-muted"
+        className="px-[var(--s-7)] py-[var(--s-2)] text-[13px] italic text-text-muted"
       >
         (삭제된 메시지)
       </div>
@@ -44,19 +39,18 @@ export function MessageItem({
   }
 
   return (
-    <article
-      data-testid={`msg-${msg.id}`}
-      className="group flex items-start gap-3 px-3 py-1 hover:bg-bg-subtle/50"
-    >
-      <Avatar name={authorName ?? msg.authorId.slice(0, 2)} size="md" className="mt-0.5" />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-baseline gap-2">
-          <span className="text-sm font-semibold text-foreground">{authorName ?? 'unknown'}</span>
-          <time className="text-[10px] text-text-muted">
-            {new Date(msg.createdAt).toLocaleTimeString()}
-          </time>
+    <article data-testid={`msg-${msg.id}`} className="qf-message qf-message--head group">
+      <Avatar
+        name={authorName ?? msg.authorId.slice(0, 2)}
+        size="md"
+        className="qf-message__avatar"
+      />
+      <div className="min-w-0">
+        <div className="qf-message__meta">
+          <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+          <time className="qf-message__time">{new Date(msg.createdAt).toLocaleTimeString()}</time>
           {msg.edited ? (
-            <span data-testid={`msg-edited-${msg.id}`} className="text-[10px] text-text-muted">
+            <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
               (수정됨)
             </span>
           ) : null}
@@ -65,7 +59,7 @@ export function MessageItem({
           <div className="mt-1 flex items-center gap-2">
             <input
               data-testid={`msg-edit-${msg.id}`}
-              className="flex-1 rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="qf-input flex-1"
               value={editing}
               onChange={(e) => setEditing(e.target.value)}
               onKeyDown={async (e) => {
@@ -78,18 +72,19 @@ export function MessageItem({
               autoFocus
             />
             <button
+              type="button"
               data-testid={`msg-edit-save-${msg.id}`}
               onClick={async () => {
                 await onEditSave(editing);
                 setEditing(null);
               }}
-              className="text-xs text-text-muted underline"
+              className="qf-btn qf-btn--ghost qf-btn--sm"
             >
               저장
             </button>
           </div>
         ) : (
-          <p data-testid={`msg-content-${msg.id}`} className="break-words text-sm text-foreground">
+          <p data-testid={`msg-content-${msg.id}`} className="qf-message__body">
             {msg.content}
           </p>
         )}
@@ -104,39 +99,36 @@ export function MessageItem({
             type="button"
             data-testid={`thread-open-${msg.id}`}
             onClick={() => onOpenThread(msg.id)}
-            className="mt-1 inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface px-2 py-0.5 text-xs text-accent-foreground hover:border-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-replybar mt-1"
             aria-label={`${msg.thread.replyCount}개 답글 보기`}
           >
-            <span>💬</span>
-            <span className="font-medium">{msg.thread.replyCount}</span>
-            <span className="text-text-muted">
-              답글
-              {msg.thread.lastRepliedAt
-                ? ` · 최근 ${new Date(msg.thread.lastRepliedAt).toLocaleTimeString()}`
-                : ''}
-            </span>
+            <span className="qf-replybar__arrow" aria-hidden />
+            <span className="qf-replybar__author">{msg.thread.replyCount}개 답글</span>
+            {msg.thread.lastRepliedAt ? (
+              <span>· 최근 {new Date(msg.thread.lastRepliedAt).toLocaleTimeString()}</span>
+            ) : null}
           </button>
         ) : null}
       </div>
       {isMine && editing === null ? (
-        <div className={cn('flex items-center gap-1 opacity-0 group-hover:opacity-100')}>
+        <div className={cn('qf-message__toolbar absolute', 'group-hover:!flex')}>
           <button
             type="button"
             data-testid={`msg-edit-btn-${msg.id}`}
             onClick={() => setEditing(msg.content ?? '')}
-            className="rounded px-2 py-0.5 text-[11px] text-text-muted hover:bg-bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
             aria-label="메시지 수정"
           >
-            수정
+            ✎
           </button>
           <button
             type="button"
             data-testid={`msg-delete-${msg.id}`}
             onClick={onDelete}
-            className="rounded px-2 py-0.5 text-[11px] text-danger hover:bg-bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm text-danger"
             aria-label="메시지 삭제"
           >
-            삭제
+            ✕
           </button>
         </div>
       ) : null}
