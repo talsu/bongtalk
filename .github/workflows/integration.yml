@@ -5,6 +5,19 @@ on:
     branches: [main, develop]
 
 jobs:
+  docker-umask-smoke:
+    # Task-020-B: guard against a NAS-umask-0077 rebuild shipping 0600
+    # files in prod images. The script forces umask 0077, builds both
+    # api + web with --no-cache, then probes every regular file in the
+    # built images for the world-read bit. Runs on every PR + push to
+    # develop/main so a Dockerfile edit can't silently regress.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - name: Run Dockerfile umask smoke
+        run: bash scripts/deploy/tests/dockerfile-umask-smoke.sh
+
   integration:
     # Integration tests use testcontainers to spin their own
     # postgres + redis — ubuntu-latest ships the docker daemon socket,
