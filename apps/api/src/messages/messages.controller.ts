@@ -86,12 +86,16 @@ export class MessagesController {
     });
     // task-013-B: reactions join is one extra round-trip per page, not per
     // message. Empty page → skip the query entirely.
-    const reactionMap = await this.messages.aggregateReactions(
-      result.items.map((r) => r.id),
-      user.id,
-    );
+    const ids = result.items.map((r) => r.id);
+    const [reactionMap, threadMap] = await Promise.all([
+      this.messages.aggregateReactions(ids, user.id),
+      // task-014-B: thread summary join, same one-per-page round trip.
+      this.messages.aggregateThreadSummaries(ids),
+    ]);
     return {
-      items: result.items.map((r) => this.messages.toDto(r, reactionMap.get(r.id) ?? [])),
+      items: result.items.map((r) =>
+        this.messages.toDto(r, reactionMap.get(r.id) ?? [], threadMap.get(r.id) ?? null),
+      ),
       pageInfo: {
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
@@ -145,6 +149,7 @@ export class MessagesController {
       authorId: user.id,
       content: parsed.data.content,
       idempotencyKey,
+      parentMessageId: parsed.data.parentMessageId ?? null,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);

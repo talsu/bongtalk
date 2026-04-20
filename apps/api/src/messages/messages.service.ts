@@ -11,9 +11,12 @@ import { extractMentions, normalizeContent } from './mentions/mention-extractor'
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
+  MESSAGE_THREAD_REPLIED,
   MESSAGE_UPDATED,
+  THREAD_REPLY_RECIPIENT_CAP,
   type MessageCreatedPayload,
   type MessageDeletedPayload,
+  type MessageThreadRepliedPayload,
   type MessageUpdatedPayload,
 } from './events/message-events';
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
@@ -40,6 +43,14 @@ type MessageRow = {
   deletedAt: Date | null;
   createdAt: Date;
   idempotencyKey: string | null;
+  // task-014-B: null for root messages; set for replies.
+  parentMessageId: string | null;
+};
+
+export type ThreadSummary = {
+  replyCount: number;
+  lastRepliedAt: string | null;
+  recentReplyUserIds: string[];
 };
 
 export type ReactionSummary = {
@@ -59,6 +70,8 @@ export type MessageDto = {
   createdAt: string;
   editedAt: string | null;
   reactions: ReactionSummary[];
+  parentMessageId: string | null;
+  thread: ThreadSummary | null;
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -80,7 +93,11 @@ export class MessagesService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  toDto(row: MessageRow, reactions: ReactionSummary[] = []): MessageDto {
+  toDto(
+    row: MessageRow,
+    reactions: ReactionSummary[] = [],
+    thread: ThreadSummary | null = null,
+  ): MessageDto {
     const isDeleted = row.deletedAt !== null;
     const mentions = (row.mentions ?? {
       users: [],
@@ -101,7 +118,62 @@ export class MessagesService {
       createdAt: row.createdAt.toISOString(),
       editedAt: row.editedAt?.toISOString() ?? null,
       reactions,
+      parentMessageId: row.parentMessageId,
+      thread,
     };
+  }
+
+  /**
+   * Task-014-B: aggregate reply counts + last-reply metadata for a set
+   * of root messages in one shot. Emits a Map keyed by rootId. Uses the
+   * `(parentMessageId, createdAt)` index for the GROUP BY.
+   *
+   * `recentReplyUserIds` is sourced via a LATERAL subquery so the
+   * distinct-user list is trimmed at 3 per root without pulling the
+   * entire replies table into memory.
+   */
+  async aggregateThreadSummaries(rootIds: string[]): Promise<Map<string, ThreadSummary>> {
+    const out = new Map<string, ThreadSummary>();
+    if (rootIds.length === 0) return out;
+    const rows = await this.prisma.$queryRaw<
+      {
+        parentMessageId: string;
+        replyCount: bigint;
+        lastRepliedAt: Date | null;
+        recentReplyUserIds: string[];
+      }[]
+    >(Prisma.sql`
+      SELECT
+        m."parentMessageId"                              AS "parentMessageId",
+        COUNT(*)::bigint                                 AS "replyCount",
+        MAX(m."createdAt")                               AS "lastRepliedAt",
+        COALESCE(
+          (SELECT ARRAY_AGG(uid ORDER BY last_at DESC)
+             FROM (
+               SELECT r."authorId" AS uid, MAX(r."createdAt") AS last_at
+                 FROM "Message" r
+                WHERE r."parentMessageId" = m."parentMessageId"
+                  AND r."deletedAt" IS NULL
+                GROUP BY r."authorId"
+                ORDER BY MAX(r."createdAt") DESC
+                LIMIT 3
+             ) top
+          ),
+          ARRAY[]::uuid[]
+        ) AS "recentReplyUserIds"
+      FROM "Message" m
+      WHERE m."parentMessageId" IN (${Prisma.join(rootIds.map((id) => Prisma.sql`${id}::uuid`))})
+        AND m."deletedAt" IS NULL
+      GROUP BY m."parentMessageId"
+    `);
+    for (const r of rows) {
+      out.set(r.parentMessageId, {
+        replyCount: Number(r.replyCount),
+        lastRepliedAt: r.lastRepliedAt?.toISOString() ?? null,
+        recentReplyUserIds: r.recentReplyUserIds ?? [],
+      });
+    }
+    return out;
   }
 
   /**
@@ -151,7 +223,29 @@ export class MessagesService {
     authorId: string;
     content: string;
     idempotencyKey: string | null;
+    parentMessageId?: string | null;
   }): Promise<{ message: MessageRow; replayed: boolean }> {
+    // task-014-B: validate reply target BEFORE the insert tx so we don't
+    // need to unwind on a bad parent. Single-level depth is enforced
+    // here — parent.parentMessageId must be null.
+    if (args.parentMessageId) {
+      const parent = await this.prisma.message.findFirst({
+        where: { id: args.parentMessageId, channelId: args.channelId, deletedAt: null },
+        select: { id: true, parentMessageId: true },
+      });
+      if (!parent) {
+        throw new DomainError(
+          ErrorCode.MESSAGE_PARENT_NOT_FOUND,
+          'parent message not found in this channel',
+        );
+      }
+      if (parent.parentMessageId !== null) {
+        throw new DomainError(
+          ErrorCode.MESSAGE_THREAD_DEPTH_EXCEEDED,
+          'replies to replies are not supported (single-level threads)',
+        );
+      }
+    }
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
     const mentions = await extractMentions(this.prisma, args.workspaceId, args.content);
@@ -178,6 +272,7 @@ export class MessagesService {
             contentPlain,
             mentions: mentions as unknown as Prisma.InputJsonValue,
             idempotencyKey: args.idempotencyKey,
+            parentMessageId: args.parentMessageId ?? null,
           },
         });
         const payload: MessageCreatedPayload = {
@@ -190,6 +285,10 @@ export class MessagesService {
             content: created.content,
             mentions,
             createdAt: created.createdAt.toISOString(),
+            // task-014-B: extra field is additive — older dispatcher
+            // branches that read only {id, authorId, content, …} ignore
+            // it. New thread dispatcher branch reads it to route.
+            parentMessageId: created.parentMessageId,
           },
         };
         await this.outbox.record(tx, {
@@ -204,11 +303,11 @@ export class MessagesService {
         // same id twice if a user is named multiple times in one
         // message). Author is NEVER notified for self-mentions.
         const snippet = buildSnippet(args.content);
-        const seen = new Set<string>();
+        const mentionedUserIds = new Set<string>();
         for (const uid of mentions.users) {
           if (!uid || uid === args.authorId) continue;
-          if (seen.has(uid)) continue;
-          seen.add(uid);
+          if (mentionedUserIds.has(uid)) continue;
+          mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
             workspaceId: args.workspaceId,
@@ -225,6 +324,32 @@ export class MessagesService {
             eventType: MENTION_RECEIVED,
             payload: mentionPayload,
           });
+        }
+
+        // task-014-B: emit the aggregate thread event when this is a
+        // reply. Fan-out = root author + up to 19 recent repliers, minus
+        // anyone who was ALREADY toasted via mention.received for this
+        // message. Dispatcher-side dedupe (mention precedes reply) picks
+        // the winner when both fire — see dispatcher.ts.
+        if (created.parentMessageId) {
+          const thread = await this.buildThreadReplyPayload(
+            tx,
+            created.parentMessageId,
+            created.id,
+            args.channelId,
+            args.workspaceId,
+            args.authorId,
+            created.createdAt,
+            mentionedUserIds,
+          );
+          if (thread) {
+            await this.outbox.record(tx, {
+              aggregateType: 'Message',
+              aggregateId: created.parentMessageId,
+              eventType: MESSAGE_THREAD_REPLIED,
+              payload: thread,
+            });
+          }
         }
         return created as MessageRow;
       });
@@ -257,6 +382,87 @@ export class MessagesService {
       }
       throw e;
     }
+  }
+
+  /**
+   * task-014-B: gather the thread.replied payload inside the send tx so
+   * the counts are consistent with the row we just inserted. Returns
+   * `null` when the root has been deleted between the pre-check and
+   * here (rare, but possible under concurrent soft-delete).
+   */
+  private async buildThreadReplyPayload(
+    tx: Prisma.TransactionClient,
+    rootId: string,
+    _newReplyId: string,
+    channelId: string,
+    workspaceId: string,
+    replierId: string,
+    replyCreatedAt: Date,
+    excludeRecipients: Set<string>,
+  ): Promise<MessageThreadRepliedPayload | null> {
+    const root = await tx.message.findUnique({
+      where: { id: rootId },
+      select: { authorId: true, deletedAt: true },
+    });
+    if (!root || root.deletedAt) return null;
+
+    // Aggregate replies in the same tx so the count includes the row we
+    // just wrote. `ORDER BY createdAt DESC` for the last-N distinct
+    // repliers; DISTINCT via a subquery so a single chatter doesn't
+    // consume all 20 recipient slots.
+    const rows = await tx.$queryRaw<{ total: bigint; lastAt: Date | null }[]>(Prisma.sql`
+      SELECT COUNT(*)::bigint AS total, MAX("createdAt") AS "lastAt"
+        FROM "Message"
+       WHERE "parentMessageId" = ${rootId}::uuid
+         AND "deletedAt" IS NULL
+    `);
+    const replyCount = Number(rows[0]?.total ?? 0n);
+    const lastAt = rows[0]?.lastAt ?? replyCreatedAt;
+
+    const recent = await tx.$queryRaw<{ authorId: string }[]>(Prisma.sql`
+      SELECT DISTINCT ON ("authorId") "authorId"
+        FROM (
+          SELECT "authorId", "createdAt"
+            FROM "Message"
+           WHERE "parentMessageId" = ${rootId}::uuid
+             AND "deletedAt" IS NULL
+           ORDER BY "createdAt" DESC
+           LIMIT 200
+        ) latest
+       ORDER BY "authorId", "createdAt" DESC
+    `);
+    // Keep the first 3 for the avatar stack; the outbox payload is
+    // small + bounded.
+    const recentReplyUserIds = recent.slice(0, 3).map((r) => r.authorId);
+
+    // Recipients: root author first so the dispatcher can check mail
+    // priority cheaply, then up to 19 recent repliers, deduped, with
+    // author self-filter + already-mentioned filter applied.
+    const recipients: string[] = [];
+    const seen = new Set<string>();
+    const push = (uid: string) => {
+      if (!uid || uid === replierId) return;
+      if (excludeRecipients.has(uid)) return;
+      if (seen.has(uid)) return;
+      seen.add(uid);
+      recipients.push(uid);
+    };
+    push(root.authorId);
+    for (const { authorId } of recent) {
+      if (recipients.length >= THREAD_REPLY_RECIPIENT_CAP) break;
+      push(authorId);
+    }
+
+    return {
+      workspaceId,
+      channelId,
+      rootMessageId: rootId,
+      replierId,
+      replyCount,
+      lastRepliedAt: lastAt.toISOString(),
+      recentReplyUserIds,
+      recipients,
+    };
   }
 
   // ------------------------------------------------------------------ list
@@ -378,11 +584,16 @@ export class MessagesService {
       orderSql = 'DESC'; // initial = newest first
     }
 
+    // task-014-B: channel list is ROOTS ONLY. Replies live behind the
+    // thread panel. Partial index `Message_channel_roots_idx` keeps
+    // this on an index scan; without the predicate EXPLAIN showed a
+    // seq scan once replies outnumbered roots.
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
-             "editedAt", "deletedAt", "createdAt", "idempotencyKey"
+             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId"
         FROM "Message"
        WHERE "channelId" = $1::uuid
+             AND "parentMessageId" IS NULL
              ${deletedFilter}
              ${cursorSql}
        ORDER BY "createdAt" ${orderSql}, id ${orderSql}
@@ -394,6 +605,71 @@ export class MessagesService {
     // to keep the DTO contract (always createdAt DESC).
     if (args.direction === 'after') rows.reverse();
     return rows;
+  }
+
+  // ---------------------------------------------------------- thread replies
+
+  /**
+   * task-014-B: paginate replies for a single root. ASC order (oldest
+   * first) matches the Slack/Discord side-panel UX. Cursor format is the
+   * same opaque base64 as the main list.
+   */
+  async listThreadReplies(args: {
+    channelId: string;
+    rootId: string;
+    cursor: { t: string; id: string } | null;
+    limit: number;
+  }): Promise<{
+    root: MessageRow;
+    items: MessageRow[];
+    hasMore: boolean;
+    nextCursor: { t: Date; id: string } | null;
+    prevCursor: { t: Date; id: string } | null;
+  }> {
+    const root = (await this.prisma.message.findFirst({
+      where: { id: args.rootId, channelId: args.channelId, deletedAt: null },
+    })) as MessageRow | null;
+    if (!root) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    if (root.parentMessageId !== null) {
+      // Replies cannot themselves host threads — catches a client that
+      // opened a thread panel on a reply id.
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'id is not a thread root');
+    }
+
+    const params: unknown[] = [args.rootId, args.limit + 1];
+    let cursorSql = '';
+    if (args.cursor) {
+      params.push(args.cursor.t, args.cursor.id);
+      cursorSql = `AND ("createdAt", id) > ($3::timestamp, $4::uuid)`;
+    }
+    const sql = `
+      SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
+             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId"
+        FROM "Message"
+       WHERE "parentMessageId" = $1::uuid
+             AND "deletedAt" IS NULL
+             ${cursorSql}
+       ORDER BY "createdAt" ASC, id ASC
+       LIMIT $2
+    `;
+    const fetched = await this.prisma.$queryRawUnsafe<MessageRow[]>(sql, ...params);
+    const hasMore = fetched.length > args.limit;
+    const items = fetched.slice(0, args.limit);
+    return {
+      root,
+      items,
+      hasMore,
+      // Always produce both cursors so the client can jump either way.
+      // The main list uses opaque strings, we return structured shapes
+      // here so the controller can encode via `cursorFor`.
+      prevCursor: items.length > 0 ? { t: items[0].createdAt, id: items[0].id } : null,
+      nextCursor:
+        items.length > 0
+          ? { t: items[items.length - 1].createdAt, id: items[items.length - 1].id }
+          : null,
+    };
   }
 
   // ------------------------------------------------------------------ get
