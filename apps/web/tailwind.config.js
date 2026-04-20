@@ -32,11 +32,22 @@ export default {
         'presence-offline': 'hsl(var(--presence-offline) / <alpha-value>)',
         'presence-dnd': 'hsl(var(--presence-dnd) / <alpha-value>)',
       },
+      // Brand-aligned radii — matches tokens.css `--radius-*` scale.
+      // Post-brand kit: md bumped 8→10, lg 12→14, xl 16→22 (app-icon feel).
+      // `pill` is brand-new for the lozenge-shaped unread pills.
       borderRadius: {
-        sm: '4px',
-        md: '8px',
-        lg: '12px',
-        xl: '16px',
+        sm: '6px',
+        md: '10px',
+        lg: '14px',
+        xl: '22px',
+        pill: '9999px',
+      },
+      // Brand typography — the CSS vars defined in src/index.css `:root`
+      // (Space Grotesk + Geist Mono with OS fallbacks) surface here as
+      // `font-sans` / `font-mono` utility classes.
+      fontFamily: {
+        sans: 'var(--font-sans)',
+        mono: 'var(--font-mono)',
       },
       transitionDuration: {
         fast: '120ms',
