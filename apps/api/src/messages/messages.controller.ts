@@ -84,8 +84,14 @@ export class MessagesController {
       limit: parsed.data.limit,
       includeDeleted: parsed.data.includeDeleted ?? false,
     });
+    // task-013-B: reactions join is one extra round-trip per page, not per
+    // message. Empty page → skip the query entirely.
+    const reactionMap = await this.messages.aggregateReactions(
+      result.items.map((r) => r.id),
+      user.id,
+    );
     return {
-      items: result.items.map((r) => this.messages.toDto(r)),
+      items: result.items.map((r) => this.messages.toDto(r, reactionMap.get(r.id) ?? [])),
       pageInfo: {
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
@@ -100,6 +106,7 @@ export class MessagesController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
   ) {
     // Soft-delete visibility rule: non-admin members get 404 on deleted rows
     // (matches the list path's includeDeleted=false default). ADMIN+ can see
@@ -109,7 +116,8 @@ export class MessagesController {
       msgId,
       includeDeleted: this.isAdminOrOwner(m.role),
     });
-    return { message: this.messages.toDto(row) };
+    const rmap = await this.messages.aggregateReactions([row.id], user.id);
+    return { message: this.messages.toDto(row, rmap.get(row.id) ?? []) };
   }
 
   @Post()
@@ -165,7 +173,8 @@ export class MessagesController {
       actorId: user.id,
       content: parsed.data.content,
     });
-    return { message: this.messages.toDto(row) };
+    const rmap = await this.messages.aggregateReactions([row.id], user.id);
+    return { message: this.messages.toDto(row, rmap.get(row.id) ?? []) };
   }
 
   // DELETE permits author OR ADMIN+. MessageAuthorGuard is intentionally NOT

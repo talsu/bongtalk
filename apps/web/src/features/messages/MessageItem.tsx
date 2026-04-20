@@ -2,6 +2,7 @@ import { useState } from 'react';
 import type { MessageDto } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { Avatar } from '../../design-system/primitives';
+import { ReactionBar } from '../reactions/ReactionBar';
 
 type Props = {
   msg: MessageDto;
@@ -9,6 +10,7 @@ type Props = {
   authorName?: string;
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void;
+  onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
 };
 
 /**
@@ -16,7 +18,14 @@ type Props = {
  * Deleted messages render a muted placeholder — meta-data still visible
  * for audit continuity but content is server-masked to `null`.
  */
-export function MessageItem({ msg, isMine, authorName, onEditSave, onDelete }: Props): JSX.Element {
+export function MessageItem({
+  msg,
+  isMine,
+  authorName,
+  onEditSave,
+  onDelete,
+  onToggleReaction,
+}: Props): JSX.Element {
   const [editing, setEditing] = useState<string | null>(null);
 
   if (msg.deleted) {
@@ -82,6 +91,12 @@ export function MessageItem({ msg, isMine, authorName, onEditSave, onDelete }: P
             {msg.content}
           </p>
         )}
+        {onToggleReaction ? (
+          <ReactionBar
+            reactions={msg.reactions ?? []}
+            onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
+          />
+        ) : null}
       </div>
       {isMine && editing === null ? (
         <div className={cn('flex items-center gap-1 opacity-0 group-hover:opacity-100')}>

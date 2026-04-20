@@ -1,5 +1,11 @@
 # Running test:int and test:e2e on the NAS locally
 
+> Object storage in this project is a MinIO container running on the NAS
+> (bind-mounted at `/volume3/qufox-data/minio/`); the API talks to it via
+> the AWS S3 SDK because MinIO speaks the S3 wire protocol. Env var and
+> service names like `S3_ENDPOINT` / `S3Service` refer to that protocol,
+> not to any cloud target.
+
 Before task-012, these two test pipelines were GHA-only on this
 project: `test:int` failed to boot the Nest app because `S3Service`
 threw on missing `S3_ENDPOINT`, and `test:e2e` needed a compose stack

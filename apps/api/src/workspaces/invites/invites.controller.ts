@@ -98,11 +98,14 @@ export class PublicInvitesController {
 
   @Post(':code/accept')
   async accept(@Param('code') code: string, @CurrentUser() user: CurrentUserPayload) {
-    // TODO(task-031): add a second rate-limit bucket keyed on the invite
-    // `code` itself (not just the user) so a botnet of fresh accounts
-    // can't brute-force a single invite by rotating user ids.
+    // Task-013-A (task-031 closure): per-user bucket protects a
+    // single logged-in account from mass-probing codes; per-code
+    // bucket protects a single code from being probed by a botnet of
+    // fresh accounts. Bumped caps in NODE_ENV=test via
+    // ratelimit.service so 002 invites.int.spec doesn't false-429.
     await this.rateLimit.enforce([
       { key: `invite:accept:user:${user.id}`, windowSec: 60, max: 30 },
+      { key: `invite:accept:code:${code}`, windowSec: 60, max: 10 },
     ]);
     const workspace = await this.invites.accept(code, user.id);
     return { workspace };

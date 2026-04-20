@@ -1,0 +1,22 @@
+id: 028
+title: Message reactions — idempotent add/remove + DTO join + outbox
+goal: |
+  Per-message emoji reactions stored in MessageReaction with a unique
+  (messageId, userId, emoji) constraint so POST /messages/:id/reactions
+  is idempotent (repeat → same count, no 409). DELETE counterpart is
+  a 204 no-op when the row is absent. GET /workspaces/:id/channels/
+  :chid/messages returns `reactions: [{ emoji, count, byMe }]` via a
+  single GROUP BY, no N+1. Outbox emits message.reaction.added /
+  .removed with `channelId` at the envelope root so the existing
+  @OnEvent('message.**') handler routes to the channel room without
+  new dispatcher wiring. Channel READ is the ACL gate (WRITE_MESSAGE
+  is NOT required). Codepoint cap (≤4) rejects pasted paragraphs;
+  64-byte hard wall matches VARCHAR(64). 60/min per-user rate limit.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test
+    expect: exit 0
+max_turns: 18

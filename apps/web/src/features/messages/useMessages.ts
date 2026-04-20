@@ -50,6 +50,7 @@ export function useSendMessage(wsId: string, channelId: string) {
         deleted: false,
         createdAt: new Date().toISOString(),
         editedAt: null,
+        reactions: [],
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
         if (!old) return old;

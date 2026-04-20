@@ -17,8 +17,9 @@ RUN apk add --no-cache \
 
 WORKDIR /app
 COPY scripts/backup /app/scripts/backup
+COPY scripts/workers /app/scripts/workers
 COPY services/backup/entrypoint.sh /entrypoint.sh
-RUN chmod +x /app/scripts/backup/*.sh /entrypoint.sh
+RUN chmod +x /app/scripts/backup/*.sh /app/scripts/workers/*.sh /entrypoint.sh
 
 ENV TZ=UTC \
     BACKUP_DIR=/backups \
@@ -28,7 +29,8 @@ ENV TZ=UTC \
     RESTORE_TEST_CRON="45 4 * * 0" \
     BACKUP_CRON_MINIO="0 */4 * * *" \
     RESTORE_TEST_CRON_MINIO="15 4 * * 0" \
-    ORPHAN_GC_CRON="30 4 * * *"
+    ORPHAN_GC_CRON="30 4 * * *" \
+    WORKSPACE_PURGE_CRON="0 5 * * *"
 
 VOLUME ["/backups"]
 ENTRYPOINT ["/sbin/tini", "--", "/entrypoint.sh"]
