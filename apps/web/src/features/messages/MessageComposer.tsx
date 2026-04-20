@@ -67,6 +67,14 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
           if (e.target.value.length > 0) maybePing();
         }}
         onKeyDown={(e) => {
+          // task-021-R1-ime-enter-half-sends: skip Enter when an IME
+          // composition is in flight. `nativeEvent.isComposing` is the
+          // standard signal; `keyCode === 229` covers older browsers /
+          // Korean IMEs that dispatch the pseudo-key before composition
+          // end. Without this guard, pressing Enter mid-composition
+          // sends the half-formed Hangul syllable.
+          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+          if (native.isComposing || e.keyCode === 229) return;
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             submit();
