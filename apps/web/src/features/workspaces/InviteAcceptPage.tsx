@@ -3,6 +3,13 @@ import { Button } from '../../design-system/primitives';
 import { useAcceptInvite, useInvitePreview } from './useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
 
+const CARD_STYLE = {
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
+  borderRadius: 'var(--r-xl)',
+  boxShadow: 'var(--elev-2)',
+} as const;
+
 export function InviteAcceptPage(): JSX.Element {
   const { code } = useParams();
   const navigate = useNavigate();
@@ -12,21 +19,27 @@ export function InviteAcceptPage(): JSX.Element {
 
   if (isLoading) {
     return (
-      <div data-testid="invite-loading" className="min-h-screen flex items-center justify-center">
-        <span className="text-text-muted text-sm">checking invite…</span>
+      <div
+        data-testid="invite-loading"
+        className="qf-empty flex min-h-screen items-center justify-center"
+      >
+        <div className="qf-empty__body">초대를 확인하는 중…</div>
       </div>
     );
   }
   if (error || !preview) {
     return (
-      <main className="min-h-screen flex items-center justify-center bg-background">
+      <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
         <section
           data-testid="invite-invalid"
-          className="max-w-md rounded-2xl border border-warning/40 bg-bg-surface p-8 text-center"
+          className="max-w-md p-[var(--s-9)] text-center"
+          style={CARD_STYLE}
         >
-          <h1 className="text-xl font-semibold text-warning">Invite unavailable</h1>
-          <p className="mt-2 text-sm text-text-muted">
-            {(error as Error | undefined)?.message ?? 'This invite is invalid or expired.'}
+          <h1 className="text-[var(--fs-20)] font-semibold text-warning">
+            초대 링크를 사용할 수 없어요
+          </h1>
+          <p className="mt-[var(--s-3)] text-[13px] text-text-muted">
+            {(error as Error | undefined)?.message ?? '이 초대는 만료되었거나 유효하지 않습니다.'}
           </p>
         </section>
       </main>
@@ -34,26 +47,27 @@ export function InviteAcceptPage(): JSX.Element {
   }
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow text-center">
-        <h1 className="text-2xl font-semibold text-foreground" data-testid="invite-workspace-name">
-          Join {preview.workspace.name}
+    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+      <section className="w-full max-w-md p-[var(--s-9)] text-center" style={CARD_STYLE}>
+        <div className="qf-eyebrow mb-[var(--s-3)]">workspace invite</div>
+        <h1
+          className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
+          data-testid="invite-workspace-name"
+        >
+          {preview.workspace.name} 에 합류
         </h1>
-        <p className="mt-1 text-sm text-text-muted">
-          You're invited to join the{' '}
-          <span className="font-mono text-xs">@{preview.workspace.slug}</span> workspace.
-          {preview.usesRemaining !== null && <> {preview.usesRemaining} seat(s) remaining.</>}
+        <p className="mt-[var(--s-3)] text-[13px] text-text-muted">
+          <span className="font-mono text-[12px]">@{preview.workspace.slug}</span> 워크스페이스에
+          초대되었어요.
+          {preview.usesRemaining !== null && <> 남은 자리 {preview.usesRemaining}개.</>}
         </p>
         {status === 'anonymous' ? (
-          <div className="mt-6 space-y-2 text-sm">
-            <Link
-              to={`/login?from=/invite/${code}`}
-              className="block rounded-md bg-bg-primary px-3 py-2 text-fg-primary"
-            >
-              Log in to accept
+          <div className="mt-[var(--s-7)] flex flex-col gap-[var(--s-3)] text-[13px]">
+            <Link to={`/login?from=/invite/${code}`} className="qf-btn qf-btn--primary qf-btn--lg">
+              로그인하고 합류
             </Link>
-            <Link to={`/signup?from=/invite/${code}`} className="text-text-muted underline">
-              or create an account
+            <Link to={`/signup?from=/invite/${code}`} className="qf-btn qf-btn--link">
+              또는 계정 만들기
             </Link>
           </div>
         ) : (
@@ -61,13 +75,14 @@ export function InviteAcceptPage(): JSX.Element {
             type="button"
             data-testid="invite-accept"
             disabled={acceptMut.isPending}
-            className="mt-6 w-full"
+            size="lg"
+            className="mt-[var(--s-7)] w-full"
             onClick={async () => {
               const res = await acceptMut.mutateAsync(code!);
               navigate(`/w/${res.workspace.slug}`, { replace: true });
             }}
           >
-            {acceptMut.isPending ? 'Joining…' : 'Accept invite'}
+            {acceptMut.isPending ? '합류 중…' : '초대 수락'}
           </Button>
         )}
       </section>

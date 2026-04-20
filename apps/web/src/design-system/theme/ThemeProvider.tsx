@@ -1,5 +1,11 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
-import { colors, cssVarFor, type ColorToken } from '../tokens/colors';
+
+/**
+ * Theme switching is attribute-only. Setting `<html data-theme="...">`
+ * causes the design-system tokens (in /design-system/tokens.css) to flip
+ * automatically — no per-token JS writes, no React re-render needed.
+ * Keep this provider lean: it only owns user preference + resolved name.
+ */
 
 export type ThemeName = 'light' | 'dark';
 export type ThemePreference = ThemeName | 'system';
@@ -28,8 +34,10 @@ function readStoredPreference(): ThemePreference {
 }
 
 function systemPrefers(): ThemeName {
-  if (typeof window === 'undefined') return 'light';
-  return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  // qufox is dark-first: when there's no explicit system preference or SSR,
+  // default to dark to match the canvas baked into index.html.
+  if (typeof window === 'undefined') return 'dark';
+  return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
 }
 
 function resolveTheme(pref: ThemePreference): ThemeName {
@@ -39,10 +47,6 @@ function resolveTheme(pref: ThemePreference): ThemeName {
 function applyTheme(theme: ThemeName): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
-  const palette = colors[theme];
-  for (const [key, value] of Object.entries(palette)) {
-    root.style.setProperty(cssVarFor(key as ColorToken), value);
-  }
   root.dataset.theme = theme;
   root.style.colorScheme = theme;
 }
@@ -51,17 +55,15 @@ export function ThemeProvider({ children }: { children: React.ReactNode }): JSX.
   const [preference, setPreferenceState] = useState<ThemePreference>(() => readStoredPreference());
   const [resolved, setResolved] = useState<ThemeName>(() => resolveTheme(readStoredPreference()));
 
-  // Apply immediately on every change + at mount before paint.
   useEffect(() => {
     const next = resolveTheme(preference);
     setResolved(next);
     applyTheme(next);
   }, [preference]);
 
-  // React to system scheme changes while the user is on 'system'.
   useEffect(() => {
     if (preference !== 'system') return;
-    const mql = window.matchMedia('(prefers-color-scheme: dark)');
+    const mql = window.matchMedia('(prefers-color-scheme: light)');
     const handler = (): void => {
       const next = systemPrefers();
       setResolved(next);

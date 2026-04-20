@@ -119,7 +119,7 @@ export function SearchOverlay(): JSX.Element | null {
               <li
                 key={r.messageId}
                 data-testid={`search-result-${r.messageId}`}
-                className="cursor-pointer px-2 py-2 hover:bg-bg-subtle/60"
+                className="cursor-pointer rounded-[var(--r-sm)] px-[var(--s-3)] py-[var(--s-3)] hover:bg-bg-hover"
                 onClick={() => openResult(r)}
               >
                 <div className="flex items-baseline gap-2 text-[11px] text-text-muted">
@@ -130,10 +130,7 @@ export function SearchOverlay(): JSX.Element | null {
                   <time>{new Date(r.createdAt).toLocaleString()}</time>
                 </div>
                 <p
-                  className="mt-0.5 break-words text-sm text-foreground [&_mark]:bg-accent-foreground/20 [&_mark]:text-accent-foreground"
-                  // Server escapes content before ts_headline so only
-                  // <mark>…</mark> tags ever appear; sanitize.ts is a
-                  // belt-and-suspenders pass in case anything slips.
+                  className="mt-0.5 break-words text-[14px] text-text [&_mark]:bg-mention [&_mark]:text-text-strong [&_mark]:rounded-[var(--r-xs)] [&_mark]:px-1"
                   dangerouslySetInnerHTML={{ __html: markOnlyHtml(r.snippet) }}
                 />
               </li>
@@ -177,13 +174,9 @@ function RecentList({
           지우기
         </button>
       </div>
-      <ul className="divide-y divide-border-subtle">
+      <ul>
         {recents.map((q) => (
-          <li
-            key={q}
-            className="cursor-pointer px-2 py-2 text-sm text-foreground hover:bg-bg-subtle/60"
-            onClick={() => onPick(q)}
-          >
+          <li key={q} className="qf-menu__item" onClick={() => onPick(q)}>
             {q}
           </li>
         ))}

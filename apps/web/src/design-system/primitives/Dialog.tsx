@@ -2,10 +2,6 @@ import * as RDialog from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
 
-/**
- * Radix Dialog handles focus trap + restore + escape dismiss for free.
- * We just put our design skin on it and expose a compact API.
- */
 export function Dialog({
   open,
   onOpenChange,
@@ -24,20 +20,24 @@ export function Dialog({
   return (
     <RDialog.Root open={open} onOpenChange={onOpenChange}>
       <RDialog.Portal>
-        <RDialog.Overlay className="fixed inset-0 z-overlay bg-foreground/40 backdrop-blur-sm" />
+        <RDialog.Overlay className="qf-modal-backdrop !fixed !inset-0" />
         <RDialog.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-modal w-full max-w-md -translate-x-1/2 -translate-y-1/2 rounded-lg bg-bg-surface p-5 shadow-lg',
+            'qf-modal fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
             className,
           )}
         >
-          <RDialog.Title className="text-lg font-semibold text-foreground">{title}</RDialog.Title>
-          {description ? (
-            <RDialog.Description className="mt-1 text-sm text-text-muted">
-              {description}
-            </RDialog.Description>
-          ) : null}
-          <div className="mt-4">{children}</div>
+          <div className="qf-modal__header">
+            <div>
+              <RDialog.Title className="qf-modal__title">{title}</RDialog.Title>
+              {description ? (
+                <RDialog.Description className="mt-[var(--s-2)] text-[13px] text-text-secondary">
+                  {description}
+                </RDialog.Description>
+              ) : null}
+            </div>
+          </div>
+          <div className="qf-modal__body pb-[var(--s-6)]">{children}</div>
         </RDialog.Content>
       </RDialog.Portal>
     </RDialog.Root>

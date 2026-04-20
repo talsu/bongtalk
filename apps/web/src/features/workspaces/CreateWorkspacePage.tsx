@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { CreateWorkspaceRequest, CreateWorkspaceRequestSchema } from '@qufox/shared-types';
-import { Button } from '../../design-system/primitives';
+import { Button, Input } from '../../design-system/primitives';
 import { useCreateWorkspace } from './useWorkspaces';
 
 export function CreateWorkspacePage(): JSX.Element {
@@ -27,44 +27,50 @@ export function CreateWorkspacePage(): JSX.Element {
   });
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow">
-        <h1 className="text-2xl font-semibold text-foreground">New workspace</h1>
-        <p className="mt-1 text-sm text-text-muted">
-          Pick a name and a URL slug. You can invite teammates next.
+    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+      <section
+        className="w-full max-w-md p-[var(--s-9)]"
+        style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-xl)',
+          boxShadow: 'var(--elev-2)',
+        }}
+      >
+        <div className="qf-eyebrow mb-[var(--s-3)]">new workspace</div>
+        <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+          새 워크스페이스
+        </h1>
+        <p className="mt-[var(--s-2)] text-[13px] text-text-muted">
+          이름과 slug를 선택하세요. 동료 초대는 다음 단계에서 진행합니다.
         </p>
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Name</label>
-            <input
+        <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
+          <div className="qf-field">
+            <label className="qf-field__label">Name</label>
+            <Input
               data-testid="ws-name"
               type="text"
-              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
+              invalid={!!errors.name}
               {...register('name')}
             />
-            {errors.name && <p className="mt-1 text-xs text-danger">{errors.name.message}</p>}
+            {errors.name && <p className="qf-field__error">{errors.name.message}</p>}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Slug</label>
-            <input
+          <div className="qf-field">
+            <label className="qf-field__label">Slug</label>
+            <Input
               data-testid="ws-slug"
               type="text"
-              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
+              invalid={!!errors.slug}
               {...register('slug')}
             />
-            {errors.slug && <p className="mt-1 text-xs text-danger">{errors.slug.message}</p>}
+            {errors.slug && <p className="qf-field__error">{errors.slug.message}</p>}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Description</label>
-            <input
-              data-testid="ws-description"
-              type="text"
-              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
-              {...register('description')}
-            />
+          <div className="qf-field">
+            <label className="qf-field__label">Description</label>
+            <Input data-testid="ws-description" type="text" {...register('description')} />
           </div>
           {serverError && (
-            <p data-testid="ws-create-error" className="text-xs text-danger">
+            <p data-testid="ws-create-error" className="qf-field__error">
               {serverError}
             </p>
           )}
@@ -72,9 +78,10 @@ export function CreateWorkspacePage(): JSX.Element {
             data-testid="ws-create-submit"
             type="submit"
             disabled={isPending}
+            size="lg"
             className="w-full"
           >
-            {isPending ? 'Creating…' : 'Create workspace'}
+            {isPending ? '만드는 중…' : '워크스페이스 만들기'}
           </Button>
         </form>
       </section>

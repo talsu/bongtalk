@@ -18,13 +18,6 @@ function rows(s: OnboardingStatus | undefined): CheckRow[] {
   ];
 }
 
-/**
- * Task-016-C-1: 🚀 베타 setup card pinned to the sidebar top. All
- * checks green → auto-hides by writing to localStorage. Manual
- * dismissal via the X button is session-stable (the localStorage
- * flag doesn't clear on logout; operators who want to re-enable can
- * clear the key manually).
- */
 export function OnboardingCard(): JSX.Element | null {
   const [dismissed, setDismissed] = useState<boolean>(() => isOnboardingDismissed());
   const { data } = useOnboardingStatus();
@@ -32,9 +25,6 @@ export function OnboardingCard(): JSX.Element | null {
   const checks = rows(data);
   const complete = isOnboardingComplete(data);
 
-  // Auto-dismiss once all four are green. Side effect in render is
-  // intentional: the write is idempotent and the next render reads
-  // it back on the next mount / tab reopen.
   if (!dismissed && complete) {
     dismissOnboarding();
   }
@@ -46,10 +36,20 @@ export function OnboardingCard(): JSX.Element | null {
     <section
       data-testid="onboarding-card"
       aria-label="베타 온보딩 체크리스트"
-      className="m-2 rounded-md border border-border-subtle bg-bg-accent/30 p-3 text-xs"
+      className="m-[var(--s-3)] p-[var(--s-4)] text-[12px]"
+      style={{
+        background: 'var(--accent-subtle)',
+        border: '1px solid var(--border)',
+        borderRadius: 'var(--r-md)',
+      }}
     >
-      <header className="mb-2 flex items-center justify-between">
-        <h3 className="font-semibold text-foreground">🚀 베타 시작하기</h3>
+      <header className="mb-[var(--s-3)] flex items-center justify-between">
+        <div>
+          <div className="qf-eyebrow">beta · get started</div>
+          <h3 className="mt-[var(--s-1)] text-[13px] font-semibold text-text-strong">
+            qufox에 익숙해지기
+          </h3>
+        </div>
         <button
           type="button"
           data-testid="onboarding-dismiss"
@@ -58,23 +58,25 @@ export function OnboardingCard(): JSX.Element | null {
             dismissOnboarding();
             setDismissed(true);
           }}
-          className="rounded px-1 text-text-muted hover:bg-bg-muted hover:text-foreground"
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
         >
           ✕
         </button>
       </header>
       <p
         data-testid="onboarding-progress"
-        className="mb-2 text-[11px] text-text-muted"
-      >{`${doneCount} / ${checks.length}`}</p>
-      <ul className="space-y-1">
+        className="mb-[var(--s-3)] text-[11px] text-text-muted"
+      >{`${doneCount} / ${checks.length} 완료`}</p>
+      <ul className="flex flex-col gap-[var(--s-2)]">
         {checks.map((c) => (
           <li
             key={c.label}
             data-testid={`onboarding-row-${c.label}`}
-            className={c.done ? 'line-through text-text-muted' : 'text-foreground'}
+            className={c.done ? 'text-text-muted line-through' : 'text-text'}
           >
-            <span className="mr-1 inline-block w-4">{c.done ? '✅' : '⬜'}</span>
+            <span className="mr-[var(--s-2)] inline-block w-4 text-center" aria-hidden>
+              {c.done ? '✓' : '·'}
+            </span>
             {c.label}
           </li>
         ))}

@@ -111,11 +111,12 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
     <div className="flex min-w-0 flex-1">
       <main
         data-testid={`msg-column-${channelName}`}
-        className="flex min-w-0 flex-1 flex-col bg-background"
+        className="flex min-w-0 flex-1 flex-col bg-chat"
       >
-        <header className="flex h-12 items-center justify-between border-b border-border-subtle px-4">
-          <h2 className="text-sm font-semibold text-foreground">
-            <span className="text-text-muted">#</span>&nbsp;{channelName}
+        <header className="qf-topbar justify-between">
+          <h2 className="qf-topbar__title">
+            <span className="text-text-muted">#</span>
+            {channelName}
           </h2>
           <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
             <button
@@ -123,9 +124,9 @@ export function MessageColumn({ workspaceId, channelId, channelName }: Props): J
               aria-label="멤버 목록 토글"
               aria-pressed={memberListOpen}
               onClick={toggleMemberList}
-              className="rounded-md p-2 text-text-muted hover:bg-bg-subtle focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="qf-btn qf-btn--ghost qf-btn--sm"
             >
-              <span className="text-xs">{memberCount}명</span>
+              {memberCount}명
             </button>
           </Tooltip>
         </header>
