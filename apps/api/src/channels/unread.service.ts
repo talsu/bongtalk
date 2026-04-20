@@ -73,7 +73,7 @@ export class UnreadService {
         FROM "ChannelPermissionOverride" cpo
         WHERE (
           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role FROM me))
+          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role::text FROM me))
         )
         GROUP BY cpo."channelId"
       ),
@@ -85,7 +85,7 @@ export class UnreadService {
            AND c."deletedAt" IS NULL
            AND (
              c."isPrivate" = false
-             OR (SELECT role FROM me) = 'OWNER'
+             OR (SELECT role::text FROM me) = 'OWNER'
              OR (COALESCE(o.allow_mask, 0) & ~COALESCE(o.deny_mask, 0) & 1) > 0
            )
       )
