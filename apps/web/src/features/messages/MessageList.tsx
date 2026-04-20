@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
@@ -57,14 +57,58 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
     }
   });
 
-  // Auto-scroll to bottom when new messages arrive, unless user is reading
-  // older history (i.e. not already near the bottom).
+  // task-021-R1-scroll-jumps-on-new-message: track whether the user
+  // was anchored to the bottom BEFORE the latest append. The previous
+  // single-effect implementation read scrollHeight AFTER append,
+  // conflating "user was at bottom" with "new message grew the list"
+  // — the nearBottom check misfired when a tall message arrived.
+  // A scroll listener stamps the ref on every scroll; the post-append
+  // effect consults the ref to decide whether to auto-scroll.
+  //
+  // Reviewer R1 BLOCKER fix: on INITIAL channel open the scroll
+  // listener's synchronous warm-up read `scrollTop=0, scrollHeight
+  // large` → stamped `false` → user landed at the top of history
+  // instead of the latest message. A separate `hasAnchoredRef` flag
+  // guarantees the very first `messages.length > 0` transition pins
+  // to bottom regardless of the ref.
+  const wasAtBottomRef = useRef(true);
+  const hasAnchoredRef = useRef(false);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    const onScroll = (): void => {
+      wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    // Do NOT call onScroll() synchronously on mount — the channel is
+    // about to scroll to bottom via the layout-effect below.
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || messages.length === 0) return;
+    // First paint with non-empty history → pin to bottom unconditionally.
+    if (!hasAnchoredRef.current) {
+      el.scrollTop = el.scrollHeight;
+      hasAnchoredRef.current = true;
+      wasAtBottomRef.current = true;
+      return;
+    }
+    // Subsequent appends: only pin if the user was anchored to the
+    // bottom BEFORE this update.
+    if (wasAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages.length]);
+
+  // task-021-R1: on channel switch (mount of a new MessageList /
+  // effect re-run via channelId-driven remount), reset the anchored
+  // flag so the next history load pins to bottom again.
+  useEffect(() => {
+    hasAnchoredRef.current = false;
+    wasAtBottomRef.current = true;
+  }, [channelId]);
 
   return (
     <Scrollable

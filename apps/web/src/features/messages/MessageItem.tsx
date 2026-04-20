@@ -73,6 +73,11 @@ export function MessageItem({
               value={editing}
               onChange={(e) => setEditing(e.target.value)}
               onKeyDown={async (e) => {
+                // task-021-R2-ime-edit-half-saves: same IME guard as
+                // MessageComposer / ThreadPanel — Enter during Korean
+                // IME composition used to save a half-formed syllable.
+                const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+                if (native.isComposing || e.keyCode === 229) return;
                 if (e.key === 'Enter') {
                   await onEditSave(editing);
                   setEditing(null);

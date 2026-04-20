@@ -176,6 +176,11 @@ function ReplyComposer({
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         onKeyDown={(e) => {
+          // task-021-R1-ime-enter-half-sends: guard against Enter
+          // during Korean IME composition. See MessageComposer for
+          // the same pattern.
+          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+          if (native.isComposing || e.keyCode === 229) return;
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             submit();
