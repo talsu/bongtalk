@@ -22,6 +22,16 @@ export interface DispatcherContext {
     messageId: string;
   }) => string | null;
   navigate?: (url: string) => void;
+  /**
+   * Task-019-D: consult the user's notification preferences before
+   * firing a toast / browser Notification. Returns the delivery
+   * channel; `OFF` means the dispatcher skips the notify call. Caller
+   * passes the concrete event type matching NotificationEventType.
+   */
+  resolveNotificationChannel?: (
+    workspaceId: string,
+    eventType: 'MENTION' | 'REPLY' | 'REACTION' | 'DIRECT',
+  ) => 'TOAST' | 'BROWSER' | 'BOTH' | 'OFF';
 }
 
 const DEFAULT_CTX: DispatcherContext = {
@@ -319,6 +329,9 @@ export function installRealtimeDispatcher(
     const viewer = ctx.viewerId();
     if (!viewer || !env.recipients.includes(viewer)) return;
     if (env.replierId === viewer) return; // self-reply: no toast
+    // task-019-D: gate reply toast by preference.
+    const replyChannel = ctx.resolveNotificationChannel?.(env.workspaceId, 'REPLY') ?? 'BOTH';
+    if (replyChannel === 'OFF' || replyChannel === 'BROWSER') return;
     // Note: mention-precedence is already enforced server-side — the
     // recipients list excludes anyone the same message @-mentioned.
     if (replyThrottle.tryConsume()) {
@@ -535,6 +548,13 @@ export function installRealtimeDispatcher(
         recent: [entry, ...old.recent].slice(0, 20),
       };
     });
+
+    // task-019-D: gate mention toast by user preference. OFF silences
+    // both toast + browser Notification (browser Notification API is
+    // not called from this dispatcher yet, but the channel lookup
+    // tracks intent for when it lands).
+    const channel = ctx.resolveNotificationChannel?.(env.workspaceId, 'MENTION') ?? 'BOTH';
+    if (channel === 'OFF' || channel === 'BROWSER') return;
 
     const push = useNotifications.getState().push;
     const url = ctx.resolveMentionUrl?.({

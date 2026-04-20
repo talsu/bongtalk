@@ -37,16 +37,56 @@ model OutboxEvent {
   @@index([aggregateType, aggregateId])
 }
 
+enum PresencePreference {
+  auto
+  dnd
+}
+
+enum NotificationEventType {
+  MENTION
+  REPLY
+  REACTION
+  DIRECT
+}
+
+enum NotificationChannel {
+  TOAST
+  BROWSER
+  BOTH
+  OFF
+}
+
+model UserNotificationPreference {
+  id          String                 @id @default(uuid()) @db.Uuid
+  userId      String                 @db.Uuid
+  workspaceId String?                @db.Uuid
+  eventType   NotificationEventType
+  channel     NotificationChannel
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([userId, eventType])
+  @@index([userId, workspaceId])
+}
+
 model User {
-  id                  String    @id @db.Uuid
-  email               String    @unique
-  username            String    @unique
+  id                  String             @id @db.Uuid
+  email               String             @unique
+  username            String             @unique
   passwordHash        String
   lastLoginAt         DateTime?
-  failedLoginAttempts Int       @default(0)
+  failedLoginAttempts Int                @default(0)
   lockedUntil         DateTime?
-  createdAt           DateTime  @default(now())
-  updatedAt           DateTime  @updatedAt
+  // task-019-C: static DnD preference consulted by the WS gateway at
+  // connect time. "auto" keeps 005 semantics; "dnd" shows as Do Not
+  // Disturb until the user flips it back. Runtime presence state (in
+  // Redis via PresenceService) still goes to `offline` on disconnect.
+  presencePreference  PresencePreference @default(auto)
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
   memberships     WorkspaceMember[]
@@ -56,6 +96,7 @@ model User {
   attachments     Attachment[]
   reactions       MessageReaction[]
   feedback        Feedback[]
+  notificationPreferences UserNotificationPreference[]
 }
 
 model RefreshToken {
@@ -95,6 +136,7 @@ model Workspace {
   categories Category[]
   invites    Invite[]
   feedback   Feedback[]
+  notificationPreferences UserNotificationPreference[]
 
   @@index([ownerId])
   @@index([deletedAt])

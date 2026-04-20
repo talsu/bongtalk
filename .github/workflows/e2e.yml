@@ -9,8 +9,18 @@ jobs:
   e2e:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    # task-019-B (017-follow-2): run the full e2e suite twice per
+    # commit — once with the beta invite gate OFF (open signup, the
+    # current dev NAS shape) and once with it ON (production mode).
+    # Both legs share the same compose stack; only BETA_INVITE_REQUIRED
+    # flips, and the beta-invite-required.e2e.ts spec branches on it.
+    strategy:
+      fail-fast: false
+      matrix:
+        betaGate: [false, true]
     env:
       COMPOSE_FILE: docker-compose.test.yml
+      BETA_INVITE_REQUIRED: ${{ matrix.betaGate }}
     steps:
       - uses: actions/checkout@v4
 

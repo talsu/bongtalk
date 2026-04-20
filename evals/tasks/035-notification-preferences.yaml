@@ -1,0 +1,32 @@
+id: 035
+title: Notification preferences — UI + API + dispatcher gating
+goal: |
+  User can flip per-workspace notification preferences from
+  /settings/notifications. The resolver follows a 3-step fallback:
+  (userId, workspaceId, eventType) → (userId, NULL, eventType) →
+  hardcoded default. Dispatcher consults the resolver before firing
+  toast / browser Notification; OFF silences both. PUT refuses a
+  workspaceId the caller isn't a member of (404 WORKSPACE_NOT_MEMBER).
+  Invalid enum values return VALIDATION_FAILED.
+dod:
+  - command: pnpm --filter @qufox/api test:int --run test/int/channels/notification-preferences.int.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test:e2e --grep "task-019-D"
+    expect: exit 0
+  - scope_allow:
+      - apps/api/prisma/migrations/20260426000100_add_user_notification_preferences/**
+      - apps/api/src/notifications/**
+      - apps/api/src/app.module.ts
+      - apps/api/test/int/channels/notification-preferences.int.spec.ts
+      - apps/web/src/features/notifications/**
+      - apps/web/src/features/settings/**
+      - apps/web/src/features/realtime/dispatcher.ts
+      - apps/web/src/features/realtime/useRealtimeConnection.ts
+      - apps/web/src/shell/Shell.tsx
+      - apps/web/src/shell/BottomBar.tsx
+      - apps/web/src/App.tsx
+      - apps/web/src/lib/query-keys.ts
+      - packages/shared-types/src/notifications.ts
+      - packages/shared-types/src/index.ts
+      - apps/web/e2e/shell/notification-settings.e2e.ts
+max_turns: 50

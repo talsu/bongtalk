@@ -25,6 +25,11 @@ const InviteAcceptPage = lazy(() =>
     default: m.InviteAcceptPage,
   })),
 );
+const NotificationSettingsPage = lazy(() =>
+  import('./features/settings/NotificationSettingsPage').then((m) => ({
+    default: m.NotificationSettingsPage,
+  })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -58,6 +63,21 @@ function ProtectedShellRoute(): JSX.Element {
   );
 }
 
+/**
+ * Task-019-D: settings routes share the auth gate with the shell but
+ * render a different tree (user-scoped, not workspace-scoped).
+ */
+function ProtectedSettingsRoute({ page }: { page: 'notifications' }): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {page === 'notifications' ? <NotificationSettingsPage /> : <LoadingFallback />}
+    </Suspense>
+  );
+}
+
 export default function App(): JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
@@ -71,6 +91,14 @@ export default function App(): JSX.Element {
                   <Route path="/signup" element={<SignupPage />} />
                   <Route path="/invite/:code" element={<InviteAcceptPage />} />
                   <Route path="/w/new" element={<CreateWorkspacePage />} />
+                  <Route
+                    path="/settings"
+                    element={<Navigate to="/settings/notifications" replace />}
+                  />
+                  <Route
+                    path="/settings/notifications"
+                    element={<ProtectedSettingsRoute page="notifications" />}
+                  />
                   <Route path="/" element={<ProtectedShellRoute />} />
                   {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
