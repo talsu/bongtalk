@@ -3,7 +3,9 @@ import {
   closestCorners,
   DndContext,
   type DragEndEvent,
+  type DragStartEvent,
   PointerSensor,
+  useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
@@ -16,10 +18,9 @@ import {
 import { CSS } from '@dnd-kit/utilities';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
-import { useChannelList, useMoveChannel } from './useChannels';
+import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
 import { useUnreadSummary } from './useUnread';
 import { CreateChannelModal } from './CreateChannelModal';
-import { CreateCategoryModal } from './CreateCategoryModal';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -32,17 +33,28 @@ type Props = {
 /**
  * Discord-style channel list (task-020).
  *
- * - Uncategorized channels live under a synthesized "채널" group
- *   treated identically to real categories — every section header
- *   shows a right-aligned `+` that opens the channel-create modal
- *   scoped to that section.
- * - List footer has a compact `+` button that opens the category-
- *   create modal.
- * - Channels drag within AND across sections. The default group's
- *   dnd id is `ROOT_CATEGORY_ID`; real category rows use their uuid.
- *   On drop we POST `/channels/:id/move` with `{ categoryId,
- *   beforeId, afterId }`, the same endpoint used for in-section
- *   reordering since 008. Cross-section drops just flip categoryId.
+ * - Uncategorized channels live under a synthesized "채널" group at the
+ *   top. Treated like a category for drop + `+` button purposes but
+ *   NOT draggable (always first, `categoryId: null` at the API edge).
+ * - Every section header (default + real categories) has a right-
+ *   aligned `+` that opens the channel-create modal scoped to that
+ *   section's categoryId.
+ * - Category creation moved to the workspace dropdown (see
+ *   ChannelColumn) — no bottom + button here any more.
+ *
+ * Drag-and-drop (task-020-follow, user request 2026-04-21):
+ * 1. Channels drag within a section (reorder).
+ * 2. Channels drag across sections (change categoryId). Empty
+ *    categories ARE valid drop targets because the section wrapper
+ *    `useDroppable({ id: sectionId })` catches pointer hits on the
+ *    header — not just on the channel rows.
+ * 3. Visual feedback: when a channel-drag hovers over a section, its
+ *    header + body gain a subtle ring so the user predicts the drop.
+ * 4. Categories themselves drag-reorder via POST /categories/:id/move.
+ *    Default "채널" is always first and not part of the sortable list.
+ *
+ * `active.data.current.type` distinguishes 'channel' vs 'category' so
+ * drag-end routes to the correct mutation.
  */
 
 const ROOT_CATEGORY_ID = '__root__';
@@ -81,6 +93,7 @@ function DraggableChannelRow({
 }): JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: channel.id,
+    data: { type: 'channel', channelId: channel.id, categoryId: channel.categoryId },
   });
   const style = {
     transform: CSS.Transform.toString(transform),
@@ -127,26 +140,22 @@ function DraggableChannelRow({
   );
 }
 
-function SectionHeader({
-  label,
+function DefaultSectionHeader({
   onAddChannel,
   canManage,
-  testId,
 }: {
-  label: string;
   onAddChannel: () => void;
   canManage: boolean;
-  testId: string;
 }): JSX.Element {
   return (
     <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
-      <span className="truncate">{label}</span>
+      <span className="truncate">채널</span>
       {canManage ? (
         <button
           type="button"
           onClick={onAddChannel}
-          data-testid={testId}
-          aria-label={`${label}에 채널 추가`}
+          data-testid="channel-default-add"
+          aria-label="채널에 채널 추가"
           className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
         >
           +
@@ -156,37 +165,154 @@ function SectionHeader({
   );
 }
 
-function ChannelSection({
-  sectionId,
-  label,
+function SortableCategorySection({
+  category,
   channels,
   workspaceSlug,
   activeChannelName,
   unreadByChannel,
   canManage,
   onAddChannel,
-  testIdPrefix,
 }: {
-  sectionId: string;
-  label: string;
+  category: { id: string; name: string };
   channels: Channel[];
   workspaceSlug: string;
   activeChannelName: string | null;
   unreadByChannel: Map<string, { count: number; mention: boolean }>;
   canManage: boolean;
   onAddChannel: () => void;
-  testIdPrefix: string;
 }): JSX.Element {
+  // Sortable for category reordering.
+  const {
+    attributes,
+    listeners,
+    setNodeRef: setSortableRef,
+    transform,
+    transition,
+    isDragging: isCategoryDragging,
+  } = useSortable({
+    id: category.id,
+    data: { type: 'category', categoryId: category.id },
+  });
+  // Separate droppable for catching channel drops on the whole section
+  // (header + empty-body area). Uses the same id so over.id === category.id.
+  const {
+    setNodeRef: setDroppableRef,
+    isOver,
+    active,
+  } = useDroppable({
+    id: category.id,
+    data: { type: 'section', categoryId: category.id },
+  });
+
+  // Compose both refs (sortable + droppable) onto the outer section.
+  const composedRef = (node: HTMLElement | null): void => {
+    setSortableRef(node);
+    setDroppableRef(node);
+  };
+
+  const incomingChannel = active?.data.current?.type === 'channel' && isOver;
+  const sortStyle = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isCategoryDragging ? 0.4 : 1,
+  };
   return (
-    <section data-testid={`${testIdPrefix}-section`} data-section-id={sectionId}>
-      <SectionHeader
-        label={label}
-        onAddChannel={onAddChannel}
-        canManage={canManage}
-        testId={`${testIdPrefix}-add`}
-      />
+    <section
+      ref={composedRef}
+      style={sortStyle}
+      data-testid={`channel-cat-${category.name}-section`}
+      data-section-id={category.id}
+      className={cn(
+        'rounded-[var(--r-md)] transition-colors',
+        incomingChannel && 'bg-accent-subtle ring-2 ring-accent',
+      )}
+    >
+      <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
+        <span
+          {...attributes}
+          {...listeners}
+          data-testid={`category-drag-${category.name}`}
+          aria-label={`카테고리 ${category.name} 드래그`}
+          className="flex min-w-0 flex-1 cursor-grab items-center truncate"
+        >
+          {category.name}
+        </span>
+        {canManage ? (
+          <button
+            type="button"
+            onClick={onAddChannel}
+            data-testid={`channel-cat-${category.name}-add`}
+            aria-label={`${category.name}에 채널 추가`}
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+          >
+            +
+          </button>
+        ) : null}
+      </div>
       <SortableContext items={channels.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <ul className="mt-1">
+        <ul className="mt-1 min-h-[var(--s-5)]">
+          {channels.map((ch) => {
+            const u = unreadByChannel.get(ch.id);
+            const isActive = activeChannelName === ch.name;
+            return (
+              <DraggableChannelRow
+                key={ch.id}
+                channel={ch}
+                workspaceSlug={workspaceSlug}
+                active={isActive}
+                unreadCount={!isActive ? (u?.count ?? 0) : 0}
+                hasMention={!isActive && (u?.mention ?? false)}
+              />
+            );
+          })}
+          {channels.length === 0 ? (
+            <li
+              aria-hidden
+              className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted italic"
+            >
+              채널 없음
+            </li>
+          ) : null}
+        </ul>
+      </SortableContext>
+    </section>
+  );
+}
+
+function DefaultSection({
+  channels,
+  workspaceSlug,
+  activeChannelName,
+  unreadByChannel,
+  canManage,
+  onAddChannel,
+}: {
+  channels: Channel[];
+  workspaceSlug: string;
+  activeChannelName: string | null;
+  unreadByChannel: Map<string, { count: number; mention: boolean }>;
+  canManage: boolean;
+  onAddChannel: () => void;
+}): JSX.Element {
+  const { setNodeRef, isOver, active } = useDroppable({
+    id: ROOT_CATEGORY_ID,
+    data: { type: 'section', categoryId: null },
+  });
+  const incomingChannel = active?.data.current?.type === 'channel' && isOver;
+  return (
+    <section
+      ref={setNodeRef}
+      data-testid="channel-default-section"
+      data-section-id={ROOT_CATEGORY_ID}
+      className={cn(
+        'rounded-[var(--r-md)] transition-colors',
+        incomingChannel && 'bg-accent-subtle ring-2 ring-accent',
+      )}
+    >
+      <DefaultSectionHeader onAddChannel={onAddChannel} canManage={canManage} />
+      <SortableContext items={channels.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+        <ul className="mt-1 min-h-[var(--s-5)]">
           {channels.map((ch) => {
             const u = unreadByChannel.get(ch.id);
             const isActive = activeChannelName === ch.name;
@@ -215,20 +341,19 @@ export function ChannelList({
 }: Props): JSX.Element {
   const { data } = useChannelList(workspaceId);
   const { data: unread } = useUnreadSummary(workspaceId);
-  const moveMut = useMoveChannel(workspaceId);
+  const moveChannelMut = useMoveChannel(workspaceId);
+  const moveCategoryMut = useMoveCategory(workspaceId);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
+  const [activeDragType, setActiveDragType] = useState<'channel' | 'category' | null>(null);
   const [channelModal, setChannelModal] = useState<null | {
     categoryId: string | null;
     categoryLabel: string;
   }>(null);
-  const [categoryModalOpen, setCategoryModalOpen] = useState(false);
 
   const uncategorized = useMemo(() => data?.uncategorized ?? [], [data]);
   const categories = useMemo(() => data?.categories ?? [], [data]);
 
-  // Flat (channelId → sectionId) map so drag-end can resolve new positions
-  // without re-walking React nodes.
   const sectionOf = useMemo(() => {
     const m = new Map<string, string>();
     for (const c of uncategorized) m.set(c.id, ROOT_CATEGORY_ID);
@@ -253,23 +378,51 @@ export function ChannelList({
     return m;
   }, [unread]);
 
+  const handleDragStart = (evt: DragStartEvent): void => {
+    const t = (evt.active.data.current as { type?: string } | undefined)?.type;
+    if (t === 'channel' || t === 'category') setActiveDragType(t);
+  };
+
   async function handleDragEnd(evt: DragEndEvent): Promise<void> {
+    setActiveDragType(null);
     const { active, over } = evt;
     if (!over) return;
     const activeId = active.id as string;
     const overId = over.id as string;
     if (activeId === overId) return;
 
+    const type = (active.data.current as { type?: string } | undefined)?.type;
+
+    if (type === 'category') {
+      // Categories reorder — only real categories participate (default
+      // section not in the sortable list).
+      const ids = categories.map((c) => c.id);
+      const fromIdx = ids.indexOf(activeId);
+      const toIdx = ids.indexOf(overId);
+      if (fromIdx < 0 || toIdx < 0) return;
+      const newOrder = arrayMove(ids, fromIdx, toIdx);
+      const newIndex = newOrder.indexOf(activeId);
+      const before = newOrder[newIndex + 1];
+      const after = newOrder[newIndex - 1];
+      await moveCategoryMut
+        .mutateAsync({
+          id: activeId,
+          input: before ? { beforeId: before } : after ? { afterId: after } : {},
+        })
+        .catch(() => undefined);
+      return;
+    }
+
+    // type === 'channel' (default)
     const fromSection = sectionOf.get(activeId);
     if (!fromSection) return;
 
-    // overId might be another channel id OR (future) a section container
-    // id when an empty section is dropped into.
+    // Resolve destination: overId may be (a) another channel's id OR (b)
+    // a section id (category uuid or ROOT_CATEGORY_ID) when the drop
+    // lands on the section wrapper / empty area / header row.
     let toSection = sectionOf.get(overId);
-    if (!toSection) {
-      if (overId === ROOT_CATEGORY_ID || channelsBySection.has(overId)) {
-        toSection = overId;
-      }
+    if (!toSection && channelsBySection.has(overId)) {
+      toSection = overId;
     }
     if (!toSection) return;
 
@@ -281,26 +434,29 @@ export function ChannelList({
     if (fromSection === toSection) {
       const fromIdx = sourceList.findIndex((c) => c.id === activeId);
       const toIdx = sourceList.findIndex((c) => c.id === overId);
-      if (fromIdx < 0 || toIdx < 0) return;
+      if (fromIdx < 0) return;
+      if (toIdx < 0) {
+        // Dropping onto the section wrapper (no specific channel hit) —
+        // keep in place. Caller can still move via a specific channel.
+        return;
+      }
       newOrder = arrayMove(sourceList, fromIdx, toIdx);
       newIndex = newOrder.findIndex((c) => c.id === activeId);
     } else {
       const moved = sourceList.find((c) => c.id === activeId);
       if (!moved) return;
       const overIdx = targetList.findIndex((c) => c.id === overId);
+      // If the drop fell on the section wrapper (no specific channel),
+      // append to the end of the target list.
       const insertAt = overIdx >= 0 ? overIdx : targetList.length;
       newOrder = [...targetList.slice(0, insertAt), moved, ...targetList.slice(insertAt)];
       newIndex = insertAt;
     }
 
-    // Gap-based position algorithm (task-008): caller supplies the
-    // neighbour channel ids; server picks a midpoint between their
-    // Decimal `position` values. beforeId / afterId are mutually
-    // exclusive per the schema — pick one.
     const before = newOrder[newIndex + 1]?.id;
     const after = newOrder[newIndex - 1]?.id;
 
-    await moveMut
+    await moveChannelMut
       .mutateAsync({
         id: activeId,
         input: {
@@ -315,46 +471,45 @@ export function ChannelList({
     setChannelModal({ categoryId, categoryLabel });
   };
 
+  // Silence unused-var noise — activeDragType can inform a future drag
+  // overlay; for now the dependency keeps render cycles consistent with
+  // the live drag-start / drag-end lifecycle.
+  void activeDragType;
+
   return (
     <>
-      <DndContext sensors={sensors} collisionDetection={closestCorners} onDragEnd={handleDragEnd}>
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCorners}
+        onDragStart={handleDragStart}
+        onDragEnd={handleDragEnd}
+      >
         <nav className="flex flex-col gap-3" data-testid="channel-sidebar" aria-label="채널">
-          <ChannelSection
-            sectionId={ROOT_CATEGORY_ID}
-            label="채널"
+          <DefaultSection
             channels={uncategorized}
             workspaceSlug={workspaceSlug}
             activeChannelName={activeChannelName}
             unreadByChannel={unreadByChannel}
             canManage={canManage}
             onAddChannel={() => openChannelCreate(null, '채널')}
-            testIdPrefix="channel-default"
           />
-          {categories.map((cat) => (
-            <ChannelSection
-              key={cat.id}
-              sectionId={cat.id}
-              label={cat.name}
-              channels={cat.channels}
-              workspaceSlug={workspaceSlug}
-              activeChannelName={activeChannelName}
-              unreadByChannel={unreadByChannel}
-              canManage={canManage}
-              onAddChannel={() => openChannelCreate(cat.id, cat.name)}
-              testIdPrefix={`channel-cat-${cat.name}`}
-            />
-          ))}
-          {canManage ? (
-            <button
-              type="button"
-              data-testid="category-create-btn"
-              aria-label="카테고리 추가"
-              onClick={() => setCategoryModalOpen(true)}
-              className="qf-btn qf-btn--ghost qf-btn--sm mx-[var(--s-2)] mt-[var(--s-3)] justify-center"
-            >
-              +
-            </button>
-          ) : null}
+          <SortableContext
+            items={categories.map((c) => c.id)}
+            strategy={verticalListSortingStrategy}
+          >
+            {categories.map((cat) => (
+              <SortableCategorySection
+                key={cat.id}
+                category={cat}
+                channels={cat.channels}
+                workspaceSlug={workspaceSlug}
+                activeChannelName={activeChannelName}
+                unreadByChannel={unreadByChannel}
+                canManage={canManage}
+                onAddChannel={() => openChannelCreate(cat.id, cat.name)}
+              />
+            ))}
+          </SortableContext>
         </nav>
       </DndContext>
 
@@ -364,11 +519,6 @@ export function ChannelList({
         categoryLabel={channelModal?.categoryLabel ?? '채널'}
         open={channelModal !== null}
         onClose={() => setChannelModal(null)}
-      />
-      <CreateCategoryModal
-        workspaceId={workspaceId}
-        open={categoryModalOpen}
-        onClose={() => setCategoryModalOpen(false)}
       />
     </>
   );
