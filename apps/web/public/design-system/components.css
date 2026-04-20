@@ -439,3 +439,9 @@
 
 /* Eyebrow label */
 .qf-eyebrow { font: 600 var(--fs-11) var(--font-mono); text-transform: uppercase; letter-spacing: var(--tracking-caps); color: var(--accent); }
+
+/* Drop insertion indicator — thin splitter-like line shown at the
+   point where a dragged channel/category will land. Token-driven,
+   2px tall, accent-colored. Rendered between rows/sections by
+   ChannelList during an active drag. */
+.qf-dropline { height: 2px; margin: 1px var(--s-3); border-radius: var(--r-pill); background: var(--accent); }

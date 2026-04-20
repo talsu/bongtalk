@@ -3,19 +3,14 @@ import {
   closestCorners,
   DndContext,
   type DragEndEvent,
+  type DragOverEvent,
   type DragStartEvent,
   PointerSensor,
   useDroppable,
   useSensor,
   useSensors,
 } from '@dnd-kit/core';
-import {
-  arrayMove,
-  SortableContext,
-  useSortable,
-  verticalListSortingStrategy,
-} from '@dnd-kit/sortable';
-import { CSS } from '@dnd-kit/utilities';
+import { arrayMove, SortableContext, useSortable } from '@dnd-kit/sortable';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
@@ -43,15 +38,21 @@ type Props = {
  *   ChannelColumn) — no bottom + button here any more.
  *
  * Drag-and-drop (task-020-follow, user request 2026-04-21):
- * 1. Channels drag within a section (reorder).
- * 2. Channels drag across sections (change categoryId). Empty
- *    categories ARE valid drop targets because the section wrapper
- *    `useDroppable({ id: sectionId })` catches pointer hits on the
- *    header — not just on the channel rows.
- * 3. Visual feedback: when a channel-drag hovers over a section, its
- *    header + body gain a subtle ring so the user predicts the drop.
- * 4. Categories themselves drag-reorder via POST /categories/:id/move.
- *    Default "채널" is always first and not part of the sortable list.
+ * 1. Channels / categories drag within + across sections.
+ * 2. Permission gate: when canManage=false, useSortable/useDroppable
+ *    are `disabled` so a drag literally can't start. No handle, no
+ *    hover styling, no API noise.
+ * 3. Visual feedback unified as a **thin insertion-line** (splitter)
+ *    shown at the drop point instead of ring/background/pre-shuffle.
+ *    - `dragOverId` (DndContext.onDragOver) tracks the current target.
+ *    - Strategy is `() => null` so siblings don't pre-shuffle.
+ *    - Active row's transform is discarded so it stays dimmed in
+ *      place — the line is the only motion.
+ *    - Line above a channel row → insert before that row.
+ *    - Line below a section body → drop at the end of the section
+ *      (cross-section move / empty category).
+ * 4. Categories drag-reorder via POST /categories/:id/move. Default
+ *    "채널" is always first and not part of the sortable list.
  *
  * `active.data.current.type` distinguishes 'channel' vs 'category' so
  * drag-end routes to the correct mutation.
@@ -78,65 +79,81 @@ function UnreadIndicator({
   );
 }
 
+function DropLine(): JSX.Element {
+  return <div data-testid="dnd-dropline" aria-hidden="true" className="qf-dropline" />;
+}
+
 function DraggableChannelRow({
   channel,
   workspaceSlug,
   active,
   unreadCount,
   hasMention,
+  canManage,
+  isDropTarget,
 }: {
   channel: Channel;
   workspaceSlug: string;
   active: boolean;
   unreadCount: number;
   hasMention: boolean;
+  canManage: boolean;
+  isDropTarget: boolean;
 }): JSX.Element {
-  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+  // user request 2026-04-21:
+  //  - `disabled: !canManage` stops the sortable from reacting to
+  //    pointer events for non-managers (no drag starts at all).
+  //  - Drag handle removed; listeners now spread on the whole row.
+  //    PointerSensor `activationConstraint: { distance: 4 }` (set
+  //    on the outer DndContext) ensures a plain click still routes
+  //    to the <Link> for navigation.
+  const { attributes, listeners, setNodeRef, isDragging } = useSortable({
     id: channel.id,
     data: { type: 'channel', channelId: channel.id, categoryId: channel.categoryId },
+    disabled: !canManage,
   });
+  // Sibling pre-shuffle is disabled via the parent SortableContext
+  // strategy (() => null). Active row keeps its place but dims; the
+  // dropline alone indicates the insertion point.
   const style = {
-    transform: CSS.Transform.toString(transform),
-    transition,
     opacity: isDragging ? 0.4 : 1,
   };
   const hasUnread = unreadCount > 0;
   return (
-    <li
-      ref={setNodeRef}
-      style={style}
-      aria-selected={active || undefined}
-      className={cn('qf-channel group', hasUnread && !active && 'qf-channel--unread')}
-      data-testid={`channel-${channel.name}`}
-      data-unread={hasUnread ? 'true' : 'false'}
-      data-mention={hasMention ? 'true' : 'false'}
-    >
-      <span
-        {...attributes}
-        {...listeners}
-        data-testid={`channel-drag-${channel.name}`}
-        aria-label={`채널 ${channel.name} 드래그`}
-        className="cursor-grab text-text-muted opacity-0 transition-opacity group-hover:opacity-100"
-      >
-        ⋮⋮
-      </span>
-      <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
-        <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
-        {hasUnread && !active && (
-          <span
-            data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
-            aria-hidden="true"
-            className={cn(
-              'ml-1 inline-block h-1.5 w-1.5 rounded-full',
-              hasMention ? 'bg-danger' : 'bg-accent',
-            )}
-          />
+    <>
+      {isDropTarget ? <DropLine /> : null}
+      <li
+        ref={setNodeRef}
+        {...(canManage ? { ...attributes, ...listeners } : {})}
+        style={style}
+        aria-selected={active || undefined}
+        className={cn(
+          'qf-channel group',
+          hasUnread && !active && 'qf-channel--unread',
+          canManage && !isDragging && 'cursor-grab',
         )}
-      </Link>
-      <span className="qf-channel__suffix">
-        <UnreadIndicator count={unreadCount} hasMention={hasMention} />
-      </span>
-    </li>
+        data-testid={`channel-${channel.name}`}
+        data-unread={hasUnread ? 'true' : 'false'}
+        data-mention={hasMention ? 'true' : 'false'}
+      >
+        <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
+          <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
+          {hasUnread && !active && (
+            <span
+              data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
+              aria-hidden="true"
+              className={cn(
+                'ml-1 inline-block h-1.5 w-1.5 rounded-full',
+                hasMention ? 'bg-danger' : 'bg-accent',
+              )}
+            />
+          )}
+        </Link>
+        <span className="qf-channel__suffix">
+          <UnreadIndicator count={unreadCount} hasMention={hasMention} />
+        </span>
+      </li>
+    </>
   );
 }
 
@@ -173,6 +190,9 @@ function SortableCategorySection({
   unreadByChannel,
   canManage,
   onAddChannel,
+  dragOverId,
+  activeType,
+  isCategoryDropTarget,
 }: {
   category: { id: string; name: string };
   channels: Channel[];
@@ -181,28 +201,27 @@ function SortableCategorySection({
   unreadByChannel: Map<string, { count: number; mention: boolean }>;
   canManage: boolean;
   onAddChannel: () => void;
+  dragOverId: string | null;
+  activeType: 'channel' | 'category' | null;
+  isCategoryDropTarget: boolean;
 }): JSX.Element {
   // Sortable for category reordering.
   const {
     attributes,
     listeners,
     setNodeRef: setSortableRef,
-    transform,
-    transition,
     isDragging: isCategoryDragging,
   } = useSortable({
     id: category.id,
     data: { type: 'category', categoryId: category.id },
+    disabled: !canManage,
   });
   // Separate droppable for catching channel drops on the whole section
   // (header + empty-body area). Uses the same id so over.id === category.id.
-  const {
-    setNodeRef: setDroppableRef,
-    isOver,
-    active,
-  } = useDroppable({
+  const { setNodeRef: setDroppableRef } = useDroppable({
     id: category.id,
     data: { type: 'section', categoryId: category.id },
+    disabled: !canManage,
   });
 
   // Compose both refs (sortable + droppable) onto the outer section.
@@ -211,72 +230,79 @@ function SortableCategorySection({
     setDroppableRef(node);
   };
 
-  const incomingChannel = active?.data.current?.type === 'channel' && isOver;
-  const sortStyle = {
-    transform: CSS.Transform.toString(transform),
-    transition,
-    opacity: isCategoryDragging ? 0.4 : 1,
-  };
+  // Show a dropline at the end of this section's channel list when a
+  // channel is being dragged over the section wrapper (not onto a
+  // specific row). Matches the "insert at end" semantics in
+  // handleDragEnd's cross-section branch.
+  const sectionDropLine = activeType === 'channel' && dragOverId === category.id;
+  const sectionStyle = { opacity: isCategoryDragging ? 0.4 : 1 };
   return (
-    <section
-      ref={composedRef}
-      style={sortStyle}
-      data-testid={`channel-cat-${category.name}-section`}
-      data-section-id={category.id}
-      className={cn(
-        'rounded-[var(--r-md)] transition-colors',
-        incomingChannel && 'bg-accent-subtle ring-2 ring-accent',
-      )}
-    >
-      <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
-        <span
-          {...attributes}
-          {...listeners}
-          data-testid={`category-drag-${category.name}`}
-          aria-label={`카테고리 ${category.name} 드래그`}
-          className="flex min-w-0 flex-1 cursor-grab items-center truncate"
-        >
-          {category.name}
-        </span>
-        {canManage ? (
-          <button
-            type="button"
-            onClick={onAddChannel}
-            data-testid={`channel-cat-${category.name}-add`}
-            aria-label={`${category.name}에 채널 추가`}
-            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
-          >
-            +
-          </button>
-        ) : null}
-      </div>
-      <SortableContext items={channels.map((c) => c.id)} strategy={verticalListSortingStrategy}>
-        <ul className="mt-1 min-h-[var(--s-5)]">
-          {channels.map((ch) => {
-            const u = unreadByChannel.get(ch.id);
-            const isActive = activeChannelName === ch.name;
-            return (
-              <DraggableChannelRow
-                key={ch.id}
-                channel={ch}
-                workspaceSlug={workspaceSlug}
-                active={isActive}
-                unreadCount={!isActive ? (u?.count ?? 0) : 0}
-                hasMention={!isActive && (u?.mention ?? false)}
-              />
-            );
-          })}
-          {channels.length === 0 ? (
-            <li
-              aria-hidden
-              className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted italic"
+    <>
+      {isCategoryDropTarget ? <DropLine /> : null}
+      <section
+        ref={composedRef}
+        style={sectionStyle}
+        data-testid={`channel-cat-${category.name}-section`}
+        data-section-id={category.id}
+        className="rounded-[var(--r-md)]"
+      >
+        <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
+          {canManage ? (
+            <span
+              {...attributes}
+              {...listeners}
+              data-testid={`category-drag-${category.name}`}
+              aria-label={`카테고리 ${category.name} 드래그`}
+              className="flex min-w-0 flex-1 cursor-grab items-center truncate"
             >
-              채널 없음
-            </li>
+              {category.name}
+            </span>
+          ) : (
+            <span className="flex min-w-0 flex-1 items-center truncate">{category.name}</span>
+          )}
+          {canManage ? (
+            <button
+              type="button"
+              onClick={onAddChannel}
+              data-testid={`channel-cat-${category.name}-add`}
+              aria-label={`${category.name}에 채널 추가`}
+              className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+            >
+              +
+            </button>
           ) : null}
-        </ul>
-      </SortableContext>
-    </section>
+        </div>
+        <SortableContext items={channels.map((c) => c.id)} strategy={() => null}>
+          <ul className="mt-1 min-h-[var(--s-5)]">
+            {channels.map((ch) => {
+              const u = unreadByChannel.get(ch.id);
+              const isActive = activeChannelName === ch.name;
+              return (
+                <DraggableChannelRow
+                  key={ch.id}
+                  channel={ch}
+                  workspaceSlug={workspaceSlug}
+                  active={isActive}
+                  unreadCount={!isActive ? (u?.count ?? 0) : 0}
+                  hasMention={!isActive && (u?.mention ?? false)}
+                  canManage={canManage}
+                  isDropTarget={activeType === 'channel' && dragOverId === ch.id}
+                />
+              );
+            })}
+            {channels.length === 0 ? (
+              <li
+                aria-hidden
+                className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted italic"
+              >
+                채널 없음
+              </li>
+            ) : null}
+            {sectionDropLine ? <DropLine /> : null}
+          </ul>
+        </SortableContext>
+      </section>
+    </>
   );
 }
 
@@ -287,6 +313,8 @@ function DefaultSection({
   unreadByChannel,
   canManage,
   onAddChannel,
+  dragOverId,
+  activeType,
 }: {
   channels: Channel[];
   workspaceSlug: string;
@@ -294,24 +322,24 @@ function DefaultSection({
   unreadByChannel: Map<string, { count: number; mention: boolean }>;
   canManage: boolean;
   onAddChannel: () => void;
+  dragOverId: string | null;
+  activeType: 'channel' | 'category' | null;
 }): JSX.Element {
-  const { setNodeRef, isOver, active } = useDroppable({
+  const { setNodeRef } = useDroppable({
     id: ROOT_CATEGORY_ID,
     data: { type: 'section', categoryId: null },
+    disabled: !canManage,
   });
-  const incomingChannel = active?.data.current?.type === 'channel' && isOver;
+  const sectionDropLine = activeType === 'channel' && dragOverId === ROOT_CATEGORY_ID;
   return (
     <section
       ref={setNodeRef}
       data-testid="channel-default-section"
       data-section-id={ROOT_CATEGORY_ID}
-      className={cn(
-        'rounded-[var(--r-md)] transition-colors',
-        incomingChannel && 'bg-accent-subtle ring-2 ring-accent',
-      )}
+      className="rounded-[var(--r-md)]"
     >
       <DefaultSectionHeader onAddChannel={onAddChannel} canManage={canManage} />
-      <SortableContext items={channels.map((c) => c.id)} strategy={verticalListSortingStrategy}>
+      <SortableContext items={channels.map((c) => c.id)} strategy={() => null}>
         <ul className="mt-1 min-h-[var(--s-5)]">
           {channels.map((ch) => {
             const u = unreadByChannel.get(ch.id);
@@ -324,9 +352,12 @@ function DefaultSection({
                 active={isActive}
                 unreadCount={!isActive ? (u?.count ?? 0) : 0}
                 hasMention={!isActive && (u?.mention ?? false)}
+                canManage={canManage}
+                isDropTarget={activeType === 'channel' && dragOverId === ch.id}
               />
             );
           })}
+          {sectionDropLine ? <DropLine /> : null}
         </ul>
       </SortableContext>
     </section>
@@ -346,6 +377,7 @@ export function ChannelList({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
 
   const [activeDragType, setActiveDragType] = useState<'channel' | 'category' | null>(null);
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
   const [channelModal, setChannelModal] = useState<null | {
     categoryId: string | null;
     categoryLabel: string;
@@ -383,8 +415,18 @@ export function ChannelList({
     if (t === 'channel' || t === 'category') setActiveDragType(t);
   };
 
+  const handleDragOver = (evt: DragOverEvent): void => {
+    setDragOverId(evt.over ? (evt.over.id as string) : null);
+  };
+
+  const handleDragCancel = (): void => {
+    setActiveDragType(null);
+    setDragOverId(null);
+  };
+
   async function handleDragEnd(evt: DragEndEvent): Promise<void> {
     setActiveDragType(null);
+    setDragOverId(null);
     const { active, over } = evt;
     if (!over) return;
     const activeId = active.id as string;
@@ -471,18 +513,15 @@ export function ChannelList({
     setChannelModal({ categoryId, categoryLabel });
   };
 
-  // Silence unused-var noise — activeDragType can inform a future drag
-  // overlay; for now the dependency keeps render cycles consistent with
-  // the live drag-start / drag-end lifecycle.
-  void activeDragType;
-
   return (
     <>
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
         onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
         onDragEnd={handleDragEnd}
+        onDragCancel={handleDragCancel}
       >
         <nav className="flex flex-col gap-3" data-testid="channel-sidebar" aria-label="채널">
           <DefaultSection
@@ -492,11 +531,10 @@ export function ChannelList({
             unreadByChannel={unreadByChannel}
             canManage={canManage}
             onAddChannel={() => openChannelCreate(null, '채널')}
+            dragOverId={dragOverId}
+            activeType={activeDragType}
           />
-          <SortableContext
-            items={categories.map((c) => c.id)}
-            strategy={verticalListSortingStrategy}
-          >
+          <SortableContext items={categories.map((c) => c.id)} strategy={() => null}>
             {categories.map((cat) => (
               <SortableCategorySection
                 key={cat.id}
@@ -507,6 +545,9 @@ export function ChannelList({
                 unreadByChannel={unreadByChannel}
                 canManage={canManage}
                 onAddChannel={() => openChannelCreate(cat.id, cat.name)}
+                dragOverId={dragOverId}
+                activeType={activeDragType}
+                isCategoryDropTarget={activeDragType === 'category' && dragOverId === cat.id}
               />
             ))}
           </SortableContext>
