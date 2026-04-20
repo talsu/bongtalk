@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
@@ -57,13 +57,34 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
     }
   });
 
-  // Auto-scroll to bottom when new messages arrive, unless user is reading
-  // older history (i.e. not already near the bottom).
+  // task-021-R1-scroll-jumps-on-new-message: track whether the user
+  // was anchored to the bottom BEFORE the latest append. The previous
+  // single-effect implementation read scrollHeight AFTER append, which
+  // conflated "user was at bottom" with "new message grew the list",
+  // so the nearBottom check misfired when a tall message arrived.
+  // A scroll listener stamps the ref on every scroll; the post-append
+  // effect consults the ref to decide whether to auto-scroll.
+  const wasAtBottomRef = useRef(true);
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (nearBottom) el.scrollTop = el.scrollHeight;
+    const onScroll = (): void => {
+      wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    };
+    onScroll();
+    el.addEventListener('scroll', onScroll, { passive: true });
+    return () => el.removeEventListener('scroll', onScroll);
+  }, []);
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    // Only auto-pin to bottom when the user was anchored there BEFORE
+    // the append. Otherwise do nothing — their scroll position stays
+    // exactly where it was.
+    if (wasAtBottomRef.current) {
+      el.scrollTop = el.scrollHeight;
+    }
   }, [messages.length]);
 
   return (
