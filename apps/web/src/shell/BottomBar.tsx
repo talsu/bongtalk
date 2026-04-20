@@ -1,5 +1,5 @@
 import { useAuth } from '../features/auth/AuthProvider';
-import { Avatar, PresenceDot, Tooltip } from '../design-system/primitives';
+import { Avatar, Tooltip } from '../design-system/primitives';
 import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useUI } from '../stores/ui-store';
 
@@ -14,12 +14,7 @@ export function BottomBar(): JSX.Element {
       className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[length:var(--fs-13)]"
     >
       <div className="flex items-center gap-2">
-        <div className="relative">
-          <Avatar name={user?.username ?? '??'} size="sm" />
-          <span className="absolute -right-0.5 -bottom-0.5">
-            <PresenceDot status="online" size="xs" />
-          </span>
-        </div>
+        <Avatar name={user?.username ?? '??'} size="sm" status="online" />
         <div className="leading-tight">
           <div
             data-testid="home-username"

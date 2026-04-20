@@ -1,4 +1,5 @@
 import { cn } from '../../lib/cn';
+import type { PresenceStatus } from '../../features/presence/presenceStatus';
 
 export type AvatarSize = 'xs' | 'sm' | 'md' | 'lg' | 'xl';
 
@@ -8,6 +9,11 @@ const SIZE_TEXT: Record<AvatarSize, string> = {
   md: 'text-[length:var(--fs-13)]',
   lg: 'text-[length:var(--fs-15)]',
   xl: 'text-[length:var(--fs-18)]',
+};
+
+const STATUS_LABEL: Record<Exclude<PresenceStatus, 'offline'>, string> = {
+  online: '온라인',
+  dnd: '방해 금지',
 };
 
 // Deterministic per-user color derived from the name hash. Content-data
@@ -24,9 +30,16 @@ type Props = {
   name: string;
   size?: AvatarSize;
   className?: string;
+  /**
+   * Presence status overlay. Renders `qf-avatar__status qf-avatar__status--<state>`
+   * for online/dnd; offline emits no dot (the member row itself fades
+   * via opacity at the caller). `undefined` means "no presence concept
+   * applies" — e.g. the brand avatar in the composer.
+   */
+  status?: PresenceStatus;
 };
 
-export function Avatar({ name, size = 'md', className }: Props): JSX.Element {
+export function Avatar({ name, size = 'md', className, status }: Props): JSX.Element {
   const initials = name.slice(0, 2).toUpperCase();
   return (
     <span
@@ -41,6 +54,13 @@ export function Avatar({ name, size = 'md', className }: Props): JSX.Element {
       style={{ background: colorFromSeed(name) }}
     >
       {initials}
+      {status && status !== 'offline' ? (
+        <span
+          className={`qf-avatar__status qf-avatar__status--${status}`}
+          role="img"
+          aria-label={STATUS_LABEL[status]}
+        />
+      ) : null}
     </span>
   );
 }
