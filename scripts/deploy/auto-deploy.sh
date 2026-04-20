@@ -67,7 +67,7 @@ fi
 # inside the webhook container whose env comes from .env.deploy, so the
 # password was empty and every migration authentication-failed.
 log "run prisma migrate deploy"
-if ! docker compose --env-file .env.prod -f docker-compose.prod.yml run --rm \
+if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml run --rm \
       qufox-api pnpm --filter @qufox/api db:migrate; then
   log "migration failed — aborting deploy (previous containers still serving)" >&2
   exit 1
@@ -90,7 +90,7 @@ done
 if [[ "${#HOOKS[@]}" -gt 0 ]]; then
   for f in "${HOOKS[@]}"; do
     log "deploy-hook SQL: $(basename "$f")"
-    if ! docker compose --env-file .env.prod -f docker-compose.prod.yml exec -T \
+    if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml exec -T \
           qufox-postgres-prod \
           sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox' \
           < "$f"; then
