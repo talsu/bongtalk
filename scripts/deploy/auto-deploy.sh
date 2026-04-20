@@ -20,6 +20,14 @@ set -euo pipefail
 REPO="${REPO_PATH:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO"
 
+# task-016 ops fix-forward: the webhook container runs as root and
+# bind-mounts /volume2/dockers/qufox (admin:users on the host) as
+# /repo. Git >= 2.35 refuses `git fetch` inside such a tree unless
+# the path is explicitly marked safe (the "dubious ownership" error).
+# Mark it here at the top of the deploy so the setting survives
+# across the fetch/checkout block below. Scoped to this repo only.
+git config --global --add safe.directory "$REPO" 2>/dev/null || true
+
 # shellcheck source=/volume2/dockers/qufox/scripts/deploy/lock.sh
 . "$REPO/scripts/deploy/lock.sh"
 
