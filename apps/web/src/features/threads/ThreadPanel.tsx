@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { MessageDto } from '@qufox/shared-types';
+import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
 import { MessageItem } from '../messages/MessageItem';
@@ -38,6 +38,12 @@ export function ThreadPanel({
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members?.members ?? []) map.set(m.userId, m.user.username);
+    return map;
+  }, [members]);
+
+  const roleById = useMemo(() => {
+    const map = new Map<string, WorkspaceRole>();
+    for (const m of members?.members ?? []) map.set(m.userId, m.role);
     return map;
   }, [members]);
 
@@ -99,6 +105,7 @@ export function ThreadPanel({
               msg={root}
               isMine={root.authorId === user?.id}
               authorName={nameById.get(root.authorId)}
+              authorRole={roleById.get(root.authorId) ?? null}
               onEditSave={async () => undefined}
               onDelete={() => undefined}
             />
@@ -120,6 +127,7 @@ export function ThreadPanel({
             msg={m}
             isMine={m.authorId === user?.id}
             authorName={nameById.get(m.authorId)}
+            authorRole={roleById.get(m.authorId) ?? null}
             onEditSave={async () => undefined}
             onDelete={() => undefined}
           />
