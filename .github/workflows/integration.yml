@@ -11,8 +11,13 @@ jobs:
     # api + web with --no-cache, then probes every regular file in the
     # built images for the world-read bit. Runs on every PR + push to
     # develop/main so a Dockerfile edit can't silently regress.
+    #
+    # Reviewer round-1 HIGH: `--no-cache` for two sequential multi-
+    # stage builds (pnpm install + prisma generate + Vite) can take
+    # 12-18 min on a cold ubuntu-latest runner; 30-min timeout gives
+    # headroom without hiding a genuinely broken build.
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - name: Run Dockerfile umask smoke

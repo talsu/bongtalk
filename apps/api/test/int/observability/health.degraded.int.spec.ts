@@ -2,6 +2,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { MsgIntEnv, setupMsgIntEnv } from '../messages/helpers';
 import { MetricsService } from '../../../src/observability/metrics/metrics.service';
+import { OutboxHealthIndicator } from '../../../src/health/outbox-health.indicator';
 
 /**
  * Task-020-A: legacy degraded-state test updated for the new
@@ -22,9 +23,10 @@ afterAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
-  await env.prisma.outboxEvent.deleteMany({});
+  await env.prisma.outboxEvent.deleteMany({ where: { aggregateType: 'Message' } });
   const metrics = env.app.get(MetricsService);
   metrics.outboxLastDispatchTimestampSeconds.set(0);
+  env.app.get(OutboxHealthIndicator).invalidateCache();
 });
 
 describe('/readyz degraded state (task-020-A)', () => {

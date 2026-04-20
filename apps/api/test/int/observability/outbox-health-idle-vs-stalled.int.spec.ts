@@ -3,6 +3,7 @@ import request from 'supertest';
 import { MsgIntEnv, setupMsgIntEnv } from '../messages/helpers';
 import { MetricsService } from '../../../src/observability/metrics/metrics.service';
 import { OutboxDispatcher } from '../../../src/common/outbox/outbox.dispatcher';
+import { OutboxHealthIndicator } from '../../../src/health/outbox-health.indicator';
 
 /**
  * Task-020-A: three-state regression guard for the rewritten
@@ -31,11 +32,13 @@ afterAll(async () => {
 }, 60_000);
 
 beforeEach(async () => {
-  // Clear any outbox rows left over from sibling specs.
-  await env.prisma.outboxEvent.deleteMany({});
-  // Reset the last-dispatch gauge so each case starts from zero.
+  // Clear outbox rows from sibling specs (scoped to the stub aggregate
+  // type this file uses so cross-spec isolation stays tight).
+  await env.prisma.outboxEvent.deleteMany({ where: { aggregateType: 'Message' } });
   const metrics = env.app.get(MetricsService);
   metrics.outboxLastDispatchTimestampSeconds.set(0);
+  // Reset the 1-second backlog cache so each case reads fresh data.
+  env.app.get(OutboxHealthIndicator).invalidateCache();
 });
 
 describe('OutboxHealthIndicator idle vs stalled (task-020-A)', () => {
@@ -88,11 +91,16 @@ describe('OutboxHealthIndicator idle vs stalled (task-020-A)', () => {
     const dispatcher = env.app.get(OutboxDispatcher);
     await dispatcher.drain();
 
+    // Reviewer round-1 LOW: assert exact 'ok' — post-drain the backlog
+    // is empty AND the gauge is recent, so state=healthy collapses to
+    // the word "ok". Allowing "idle" here would mask a gauge-timing
+    // regression where the dispatcher tick didn't update the gauge.
+    // invalidateCache so the next /readyz reads the fresh (empty)
+    // backlog count instead of the 1s-TTL cached number from pre.
+    env.app.get(OutboxHealthIndicator).invalidateCache();
     const post = await request(env.baseUrl).get('/readyz');
     expect(post.status).toBe(200);
     expect(post.body.status).toBe('ok');
-    // After drain the backlog is empty AND the gauge is recent →
-    // state=healthy, word="ok" (not "idle").
-    expect(['ok', 'idle']).toContain(post.body.checks.outbox);
+    expect(post.body.checks.outbox).toBe('ok');
   });
 });
