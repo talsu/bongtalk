@@ -28,6 +28,22 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     lastPingRef.current = 0;
   }, [channelId]);
 
+  // task-021-R1 reviewer HIGH fix: when the user switches channels
+  // (or unmounts the composer entirely), send typing.stop for the
+  // channel that the composer was mounted on so observers don't see
+  // a stale indicator for up to 5s until Redis TTL. `prev` is
+  // captured in the closure so cleanup sees the channel that was
+  // active when the effect registered.
+  useEffect(() => {
+    const prev = channelId;
+    return () => {
+      const socket = getSocket();
+      if (socket?.connected) {
+        socket.emit('typing.stop', { channelId: prev });
+      }
+    };
+  }, [channelId]);
+
   const maybePing = (): void => {
     const now = Date.now();
     if (now - lastPingRef.current < TYPING_EMIT_INTERVAL_MS) return;

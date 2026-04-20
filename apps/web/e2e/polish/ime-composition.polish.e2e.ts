@@ -83,3 +83,76 @@ test('polish: Enter during IME composition does NOT send (R1-ime-enter-half-send
   await page.waitForTimeout(1500);
   expect(messagesPosted).toBeGreaterThanOrEqual(1);
 });
+
+// Reviewer R1 HIGH coverage: ThreadPanel's reply composer got the
+// identical Enter-during-composition guard; this case exercises it so
+// a future refactor can't silently reintroduce the bug.
+test('polish: Enter during IME composition on thread reply does NOT send (R1-ime-enter-thread)', async ({
+  page,
+  request,
+}) => {
+  const stamp = Date.now() + 42;
+  const slug = `polit-${stamp.toString(36)}`;
+  const res = await request.post(`${API}/auth/signup`, {
+    headers: { origin: ORIGIN },
+    data: { email: `polit-${stamp}@qufox.dev`, username: `polit${stamp}`, password: PW },
+  });
+  const token = (await res.json()).accessToken as string;
+  const ws = await request.post(`${API}/workspaces`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+    data: { name: 'IMEThread', slug },
+  });
+  const wsId = (await ws.json()).id as string;
+  const ch = await request.post(`${API}/workspaces/${wsId}/channels`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+    data: { name: 'general', type: 'TEXT' },
+  });
+  const chId = (await ch.json()).id as string;
+  const m = await request.post(`${API}/workspaces/${wsId}/channels/${chId}/messages`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      origin: ORIGIN,
+      'idempotency-key': crypto.randomUUID(),
+    },
+    data: { content: 'thread root' },
+  });
+  const msgId = (await m.json()).id as string;
+
+  await page.goto('/login');
+  await page.getByTestId('login-email').fill(`polit-${stamp}@qufox.dev`);
+  await page.getByTestId('login-password').fill(PW);
+  await page.getByTestId('login-submit').click();
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}`));
+  await page.getByTestId('channel-general').click();
+
+  await page.goto(`/w/${slug}/general?thread=${msgId}`);
+  await expect(page.getByTestId('thread-input')).toBeVisible();
+
+  let postsToReply = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'POST' && /\/messages(\?|$)/.test(req.url())) {
+      postsToReply += 1;
+    }
+  });
+
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLTextAreaElement>('[data-testid="thread-input"]');
+    if (!el) throw new Error('thread-input not found');
+    el.focus();
+    el.dispatchEvent(new CompositionEvent('compositionstart'));
+    el.value = '하';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  expect(postsToReply).toBe(0);
+
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLTextAreaElement>('[data-testid="thread-input"]');
+    if (!el) return;
+    el.dispatchEvent(new CompositionEvent('compositionend', { data: '하' }));
+  });
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  expect(postsToReply).toBeGreaterThanOrEqual(1);
+});
