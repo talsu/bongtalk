@@ -17,7 +17,11 @@ RUN pnpm --filter @qufox/webhook build \
  && pnpm --filter @qufox/webhook --prod --legacy deploy /out
 
 FROM node:20.9.0-alpine AS runtime
-RUN apk add --no-cache docker-cli bash git curl tini openssh-client
+# docker-cli-compose carries the `docker compose` subcommand (plugin
+# form). Without it `docker compose --env-file …` fails with
+# "unknown flag: --env-file" on the first migrate-deploy run, which
+# is exactly what auto-deploy.sh shells out every webhook call.
+RUN apk add --no-cache docker-cli docker-cli-compose bash git curl tini openssh-client
 WORKDIR /app
 # `pnpm deploy --legacy` emits a flat project with a real node_modules
 # tree (no pnpm symlink farm), so prom-client + any other dep resolves
