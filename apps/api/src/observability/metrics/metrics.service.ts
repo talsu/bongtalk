@@ -146,6 +146,8 @@ export class MetricsService {
   readonly authLoginsTotal: Counter;
   readonly authSessionCompromisedTotal: Counter;
   readonly authRefreshRotationsTotal: Counter;
+  // ----- Active users (task-016-C-4)
+  readonly activeUsers: Gauge;
 
   constructor() {
     this.registry = new Registry();
@@ -325,6 +327,15 @@ export class MetricsService {
     this.authRefreshRotationsTotal = new Counter({
       name: 'auth_refresh_rotations_total',
       help: 'Successful refresh-token rotations',
+      registers: [this.registry],
+    });
+    // task-016-C-4: DAU / WAU / MAU proxy from refresh-token rotation
+    // timestamps. ActiveUsersCollector refreshes this hourly so /metrics
+    // always has a warm value even if the cron is late.
+    this.activeUsers = new Gauge({
+      name: 'qufox_active_users',
+      help: 'Distinct users with a refresh-token rotation in the last N days',
+      labelNames: ['window'],
       registers: [this.registry],
     });
   }
