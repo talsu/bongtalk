@@ -11,9 +11,12 @@ beforeEach(() => {
 
 const prismaStub = { $queryRaw: vi.fn(async () => [{ '?column?': 1 }]) };
 const redisStub = { ping: vi.fn(async () => 'PONG') };
-const outboxOk = { check: vi.fn(async () => ({ ok: true })) };
+// task-020-A: OutboxHealthIndicator.check() now returns { ok, state,
+// reason? } where state ∈ healthy / idle / stalled.
+const outboxOk = { check: vi.fn(async () => ({ ok: true, state: 'healthy' })) };
+const outboxIdle = { check: vi.fn(async () => ({ ok: true, state: 'idle' })) };
 const outboxStalled = {
-  check: vi.fn(async () => ({ ok: false, reason: 'stalled (42s)' })),
+  check: vi.fn(async () => ({ ok: false, state: 'stalled', reason: 'stalled (42s)' })),
 };
 
 function mockRes() {
@@ -87,6 +90,22 @@ describe('HealthController', () => {
     expect(res.status).toBe('degraded');
     expect(res.checks.redis).toBe('fail');
     expect(m.status).toBe(503);
+  });
+
+  it('/readyz stays 200 when outbox is idle (task-020-A: empty backlog, quiet dispatcher)', async () => {
+    const mod = await Test.createTestingModule({
+      controllers: [HealthController],
+      providers: [
+        { provide: PrismaService, useValue: prismaStub },
+        { provide: REDIS, useValue: redisStub },
+        { provide: OutboxHealthIndicator, useValue: outboxIdle },
+      ],
+    }).compile();
+    const m = mockRes();
+    const res = await mod.get(HealthController).ready(m.res as never);
+    expect(res.status).toBe('ok');
+    expect(res.checks.outbox).toBe('idle');
+    expect(m.status).toBe(200);
   });
 
   it('/readyz reports outbox stalled with reason', async () => {

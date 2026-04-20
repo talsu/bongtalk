@@ -29,6 +29,7 @@
     "test:watch": "turbo run test -- --watch",
     "verify": "turbo run lint typecheck test",
     "smoke": "bash scripts/smoke.sh",
+    "docker:build:smoke": "bash scripts/deploy/tests/dockerfile-umask-smoke.sh",
     "eval": "tsx evals/run.ts",
     "soak": "tsx evals/soak/run.ts",
     "soak:local": "SOAK_DURATION_MINUTES=15 tsx evals/soak/run.ts",

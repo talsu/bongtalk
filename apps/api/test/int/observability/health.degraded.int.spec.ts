@@ -1,12 +1,16 @@
-import { afterAll, beforeAll, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import { MsgIntEnv, setupMsgIntEnv } from '../messages/helpers';
 import { MetricsService } from '../../../src/observability/metrics/metrics.service';
+import { OutboxHealthIndicator } from '../../../src/health/outbox-health.indicator';
 
 /**
- * Forces the outbox dispatcher into a stale state by rolling the
- * `outbox_last_dispatch_timestamp_seconds` gauge back into the past, then
- * asserts /readyz flips to 503.
+ * Task-020-A: legacy degraded-state test updated for the new
+ * idle-vs-stalled discriminator. Pre-020 the test drove stale by
+ * rolling the last-dispatch gauge backwards; that now yields "idle"
+ * (200) when the outbox is empty. Comprehensive 3-case coverage
+ * lives in `outbox-health-idle-vs-stalled.int.spec.ts`; this file
+ * keeps the narrow 019-era regression surface intact.
  */
 let env: MsgIntEnv;
 
@@ -18,11 +22,25 @@ afterAll(async () => {
   await env?.stop();
 }, 60_000);
 
-describe('/readyz degraded state', () => {
-  it('returns 503 when outbox has not dispatched in > 10s', async () => {
-    const metrics = env.app.get(MetricsService);
-    // Set the gauge 60s in the past.
-    metrics.outboxLastDispatchTimestampSeconds.set(Date.now() / 1000 - 60);
+beforeEach(async () => {
+  await env.prisma.outboxEvent.deleteMany({ where: { aggregateType: 'Message' } });
+  const metrics = env.app.get(MetricsService);
+  metrics.outboxLastDispatchTimestampSeconds.set(0);
+  env.app.get(OutboxHealthIndicator).invalidateCache();
+});
+
+describe('/readyz degraded state (task-020-A)', () => {
+  it('returns 503 when an old undispatched row sits in the outbox and no tick fires', async () => {
+    await env.prisma.outboxEvent.create({
+      data: {
+        aggregateType: 'Message',
+        aggregateId: '00000000-0000-0000-0000-0000000000cc',
+        eventType: 'message.created',
+        payload: { stub: true },
+        occurredAt: new Date(Date.now() - 60_000),
+        dispatchedAt: null,
+      },
+    });
 
     const res = await request(env.baseUrl).get('/readyz');
     expect(res.status).toBe(503);
