@@ -45,11 +45,8 @@ export function Shell(): JSX.Element {
 
   if (isLoading) {
     return (
-      <div
-        data-testid="shell-loading"
-        className="grid h-full place-items-center text-sm text-text-muted"
-      >
-        loading…
+      <div data-testid="shell-loading" className="qf-empty h-full">
+        <div className="qf-empty__body">loading…</div>
       </div>
     );
   }
@@ -62,8 +59,8 @@ export function Shell(): JSX.Element {
   // Workspace id in URL but doesn't exist for me → go home.
   if (slug && !active) {
     return (
-      <div data-testid="shell-ws-not-found" className="grid h-full place-items-center text-sm">
-        workspace not found
+      <div data-testid="shell-ws-not-found" className="qf-empty h-full">
+        <div className="qf-empty__title">워크스페이스를 찾을 수 없습니다</div>
       </div>
     );
   }
@@ -88,8 +85,13 @@ export function Shell(): JSX.Element {
             channelName={activeChannel.name}
           />
         ) : (
-          <main className="flex-1 grid place-items-center text-sm text-text-muted">
-            {active ? '채널을 선택하세요.' : '워크스페이스를 선택하세요.'}
+          <main className="qf-empty flex-1">
+            <div className="qf-empty__title">
+              {active ? '채널을 선택하세요.' : '워크스페이스를 선택하세요.'}
+            </div>
+            <div className="qf-empty__body">
+              좌측 사이드바에서 {active ? '채널' : '워크스페이스'}을(를) 선택해 대화를 시작하세요.
+            </div>
           </main>
         )}
         {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
