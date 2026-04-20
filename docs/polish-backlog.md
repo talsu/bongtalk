@@ -17,22 +17,23 @@ Managed by Task 021+. Source of truth for polish Round selection.
 
 ## Rows
 
-| id                          | severity | area     | title                                                                   | status       | detected | resolved | notes                                                                                                                                                                |
-| --------------------------- | -------- | -------- | ----------------------------------------------------------------------- | ------------ | -------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| ime-enter-half-sends        | HIGH     | ui       | Pressing Enter during Korean IME composition sends the half-formed text | fixed-R1     | INIT     | R1       | MessageComposer + ThreadPanel both guard on nativeEvent.isComposing / keyCode 229; harness ime-composition.polish.e2e.ts asserts no POST during composition          |
-| typing-stale-on-clear       | HIGH     | realtime | Typing indicator hangs up to 5s after the user deletes all text         | fixed-R1     | INIT     | R1       | New WS event typing.stop + TypingService.stop SREM + throttle DEL; client fires on empty draft + on submit                                                           |
-| typing-stale-on-tab-close   | HIGH     | realtime | Typing indicator lingers after tab close / network drop                 | deferred     | INIT     |          | 018-F disconnect hook already SREMs + re-broadcasts; harness typing-accuracy.polish.e2e.ts second scenario asserts ≤7s                                               |
-| presence-lag-on-disconnect  | HIGH     | realtime | Presence offline flip on force-close bounded by session TTL             | deferred     | INIT     |          | 005 disconnect hook fires immediately + presence throttler broadcasts within 2s; harness asserts ≤10s. True <5s guarantee requires shorter TTL — out of polish scope |
-| unread-sidebar-lag          | HIGH     | realtime | Sidebar unread dot sometimes delays > 2s after cross-channel message    | deferred     | INIT     |          | Dispatcher already invalidates unread-summary + workspace-totals; harness asserts ≤2.5s as regression guard                                                          |
-| scroll-jumps-on-new-message | HIGH     | ui       | New message arrival can yank scroll position                            | fixed-R1     | INIT     | R1       | Root cause: nearBottom checked post-append on grown scrollHeight. Fix: wasAtBottomRef stamped on scroll events; useLayoutEffect consults ref post-append             |
-| reaction-flicker-own-toggle | MED      | ui       | Own-reaction pill briefly disappears between optimistic + WS echo       | cannot-repro | INIT     | R1       | upsertReactionBucket preserves byMe when mineChanges=true; onMutate sets byMe=true optimistically; harness samples 40× over 2s — reopen if harness fails in Round 2  |
+| id                          | severity | area     | title                                                                   | status       | detected | resolved | notes                                                                                                                                                                                         |
+| --------------------------- | -------- | -------- | ----------------------------------------------------------------------- | ------------ | -------- | -------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| ime-enter-half-sends        | HIGH     | ui       | Pressing Enter during Korean IME composition sends the half-formed text | fixed-R1     | INIT     | R1       | MessageComposer + ThreadPanel both guard on nativeEvent.isComposing / keyCode 229; harness ime-composition.polish.e2e.ts asserts no POST during composition                                   |
+| typing-stale-on-clear       | HIGH     | realtime | Typing indicator hangs up to 5s after the user deletes all text         | fixed-R1     | INIT     | R1       | New WS event typing.stop + TypingService.stop SREM + throttle DEL; client fires on empty draft + on submit                                                                                    |
+| typing-stale-on-tab-close   | HIGH     | realtime | Typing indicator lingers after tab close / network drop                 | deferred     | INIT     |          | 018-F disconnect hook already SREMs + re-broadcasts; harness typing-accuracy.polish.e2e.ts second scenario asserts ≤7s                                                                        |
+| presence-lag-on-disconnect  | HIGH     | realtime | Presence offline flip on force-close bounded by session TTL             | deferred     | INIT     |          | 005 disconnect hook fires immediately + presence throttler broadcasts within 2s; harness asserts ≤10s. True <5s guarantee requires shorter TTL — out of polish scope                          |
+| unread-sidebar-lag          | HIGH     | realtime | Sidebar unread dot sometimes delays > 2s after cross-channel message    | deferred     | INIT     |          | Dispatcher already invalidates unread-summary + workspace-totals; harness asserts ≤2.5s as regression guard                                                                                   |
+| scroll-jumps-on-new-message | HIGH     | ui       | New message arrival can yank scroll position                            | fixed-R1     | INIT     | R1       | Root cause: nearBottom checked post-append on grown scrollHeight. Fix: wasAtBottomRef stamped on scroll events; useLayoutEffect consults ref post-append                                      |
+| reaction-flicker-own-toggle | MED      | ui       | Own-reaction pill briefly disappears between optimistic + WS echo       | cannot-repro | INIT     | R1       | upsertReactionBucket preserves byMe when mineChanges=true; onMutate sets byMe=true optimistically; harness samples 40× over 2s — reopen if harness fails in Round 2                           |
+| ime-edit-half-saves         | HIGH     | ui       | Pressing Enter mid-IME-composition in message edit saves half-syllable  | fixed-R2     | R2       | R2       | Same root cause as R1 ime-enter-half-sends — MessageItem.tsx edit input lacked the guard. Fix mirrors MessageComposer / ThreadPanel; regression harness extends ime-composition.polish.e2e.ts |
 
-## Status summary (Round 1 close)
+## Status summary (Round 2 close)
 
 | Severity | Open | In-progress | Fixed | Cannot-repro | Deferred |
 | -------- | ---- | ----------- | ----- | ------------ | -------- |
 | CRITICAL | 0    | 0           | 0     | 0            | 0        |
-| HIGH     | 0    | 0           | 3     | 0            | 3        |
+| HIGH     | 0    | 0           | 4     | 0            | 3        |
 | MED      | 0    | 0           | 0     | 1            | 0        |
 | LOW      | 0    | 0           | 0     | 0            | 0        |
 
@@ -40,6 +41,11 @@ Three HIGH rows are `deferred` because the backend plumbing from 005 / 018-F alr
 implements the correct SLA behavior; the polish-harness specs serve as live regression
 guards rather than motivating new code. If any harness spec turns red in a future
 Round's Discovery, the corresponding row reopens.
+
+Round 2 surfaced 1 new HIGH (`ime-edit-half-saves`) via grep-audit on the R1 touched
+surface — the edit-in-place input path had been missed when R1 patched composer +
+thread reply. Fixed in R2 with the identical isComposing / keyCode 229 guard, and
+the polish harness now covers all three IME entry points.
 
 ## Round summaries
 

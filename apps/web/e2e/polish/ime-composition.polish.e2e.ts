@@ -156,3 +156,81 @@ test('polish: Enter during IME composition on thread reply does NOT send (R1-ime
   await page.waitForTimeout(1500);
   expect(postsToReply).toBeGreaterThanOrEqual(1);
 });
+
+// Reviewer R2 discovery: MessageItem's inline edit input had the same
+// Enter-during-composition bug — editing a message + pressing Enter
+// mid-composition saved a half-formed syllable. Regression harness
+// mirrors the composer / thread tests.
+test('polish: Enter during IME composition on message edit does NOT save (R2-ime-edit-half-saves)', async ({
+  page,
+  request,
+}) => {
+  const stamp = Date.now() + 108;
+  const slug = `polie-${stamp.toString(36)}`;
+  const res = await request.post(`${API}/auth/signup`, {
+    headers: { origin: ORIGIN },
+    data: { email: `polie-${stamp}@qufox.dev`, username: `polie${stamp}`, password: PW },
+  });
+  const token = (await res.json()).accessToken as string;
+  const ws = await request.post(`${API}/workspaces`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+    data: { name: 'IMEEdit', slug },
+  });
+  const wsId = (await ws.json()).id as string;
+  const ch = await request.post(`${API}/workspaces/${wsId}/channels`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+    data: { name: 'general', type: 'TEXT' },
+  });
+  const chId = (await ch.json()).id as string;
+  const m = await request.post(`${API}/workspaces/${wsId}/channels/${chId}/messages`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      origin: ORIGIN,
+      'idempotency-key': crypto.randomUUID(),
+    },
+    data: { content: 'editable' },
+  });
+  const msgId = (await m.json()).id as string;
+
+  await page.goto('/login');
+  await page.getByTestId('login-email').fill(`polie-${stamp}@qufox.dev`);
+  await page.getByTestId('login-password').fill(PW);
+  await page.getByTestId('login-submit').click();
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}`));
+  await page.getByTestId('channel-general').click();
+
+  const row = page.getByTestId(`msg-${msgId}`);
+  await expect(row).toBeVisible();
+  await row.hover();
+  await page.getByTestId(`msg-edit-btn-${msgId}`).click();
+  const editInput = page.getByTestId(`msg-edit-${msgId}`);
+  await expect(editInput).toBeVisible();
+
+  let patchCalls = 0;
+  page.on('request', (req) => {
+    if (req.method() === 'PATCH' && /\/messages\/[^/]+(\?|$)/.test(req.url())) {
+      patchCalls += 1;
+    }
+  });
+
+  await page.evaluate((id) => {
+    const el = document.querySelector<HTMLInputElement>(`[data-testid="msg-edit-${id}"]`);
+    if (!el) throw new Error('edit input not found');
+    el.focus();
+    el.dispatchEvent(new CompositionEvent('compositionstart'));
+    el.value = 'editable하';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  }, msgId);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  expect(patchCalls).toBe(0);
+
+  await page.evaluate((id) => {
+    const el = document.querySelector<HTMLInputElement>(`[data-testid="msg-edit-${id}"]`);
+    if (!el) return;
+    el.dispatchEvent(new CompositionEvent('compositionend', { data: '하' }));
+  }, msgId);
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(1500);
+  expect(patchCalls).toBeGreaterThanOrEqual(1);
+});
