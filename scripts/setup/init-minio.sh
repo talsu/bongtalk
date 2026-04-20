@@ -103,7 +103,7 @@ fi
 mc() {
   docker run --rm --network internal \
     -e MC_HOST_qufox="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@qufox-minio:9000" \
-    minio/mc:RELEASE.2024-09-09T16-17-43Z "$@"
+    minio/mc:latest "$@"
 }
 
 log "waiting for qufox-minio to be reachable…"
@@ -145,7 +145,7 @@ mc_with_policy() {
   docker run --rm --network internal \
     -e MC_HOST_qufox="http://${MINIO_ROOT_USER}:${MINIO_ROOT_PASSWORD}@qufox-minio:9000" \
     -v "$TMP_POLICY:/tmp/policy.json:ro" \
-    minio/mc:RELEASE.2024-09-09T16-17-43Z "$@"
+    minio/mc:latest "$@"
 }
 # Idempotent via an explicit info check rather than the failure-
 # swallowing `|| true` pattern the reviewer flagged.

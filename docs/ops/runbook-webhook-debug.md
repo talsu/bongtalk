@@ -55,14 +55,19 @@ docker compose --env-file .env.deploy -f compose.deploy.yml build qufox-webhook
 docker compose --env-file .env.deploy -f compose.deploy.yml up -d qufox-webhook
 ```
 
-## Nginx not routing `deploy.qufox.com`
+## Nginx not routing `/hooks/github`
 
 ```sh
-curl -sk -o /dev/null -w '%{http_code}\n' https://deploy.qufox.com/healthz
+# Task-016 ops moved the webhook from `deploy.qufox.com` subdomain
+# onto qufox.com apex as a `/hooks/github` location.
+curl -sk -o /dev/null -w '%{http_code}\n' -X POST https://qufox.com/hooks/github
 ```
 
-Expected: `200`. Anything else → nginx config missing the block (see
-`runbook-nginx-diff.md`) or cert not issued for the new hostname.
+Expected: `401` (HMAC gate active; nginx reached the webhook).
+Anything else — especially `502` or `404` — means the location is
+missing from the qufox.com server block. Re-emit with
+`scripts/setup/apply-nginx-diff.sh --webhook` and paste inside the
+existing server block, then `nginx -t && nginx -s reload`.
 
 ## Deploy ran but failed (202 but no success in slack)
 
@@ -93,3 +98,49 @@ DEPLOY_SHA=$(git rev-parse origin/main) \
 DEPLOY_BRANCH=main DEPLOY_PUSHER=manual \
   bash scripts/deploy/auto-deploy.sh
 ```
+
+## Worktree layout (task-017-B)
+
+`qufox-webhook` bind-mounts a **dedicated git worktree** at
+`/volume2/dockers/qufox-deploy`, NOT the operator's working tree at
+`/volume2/dockers/qufox`. Shared objects + refs via `.git/worktrees/`,
+independent HEAD + index.
+
+**Why:** before 017, `auto-deploy.sh` ran `git checkout --force <sha>`
+inside the operator's tree → every deploy put `/volume2/dockers/qufox`
+into detached HEAD and the operator ran `git checkout main` to
+recover. Worktree isolation makes the webhook self-contained.
+
+**One-shot migration (operator, on the NAS):**
+
+```sh
+cd /volume2/dockers/qufox
+bash scripts/setup/migrate-webhook-worktree.sh --dry-run   # preview
+bash scripts/setup/migrate-webhook-worktree.sh             # apply
+```
+
+Idempotent — rerunning on an already-migrated install is a no-op.
+
+**Verify:**
+
+```sh
+git -C /volume2/dockers/qufox          branch --show-current   # → main (operator)
+git -C /volume2/dockers/qufox-deploy   branch --show-current   # → main (or detached <sha> right after a deploy)
+docker exec qufox-webhook sh -c 'cd /repo && git rev-parse --abbrev-ref HEAD'  # → main
+```
+
+**What if the worktree directory is deleted?** Re-run the migrate
+script; it recreates the worktree and recreates the webhook
+container. No data loss — the worktree holds only checked-out
+files, never state.
+
+**What if the operator needs `main` in BOTH trees at the same
+commit?** Fine — git allows two worktrees on the same branch if
+you use `git worktree add --detach` + manual checkout. In practice,
+the operator works on feature branches in `/volume2/dockers/qufox`
+and lets webhook-`main` run loose in `/qufox-deploy`; the two rarely
+collide.
+
+**If `/volume2/dockers/qufox` is moved or renamed later**, the
+`/qufox-deploy/.git` pointer file breaks. Run `git worktree repair`
+from the new main-repo path to refresh the link.

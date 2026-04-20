@@ -33,13 +33,26 @@ services:
       REPO_PATH: /repo
       WEBHOOK_AUDIT_PATH: /repo/.deploy/audit.jsonl
     ports:
-      # Host-bound to 127.0.0.1 only — nginx proxies from
-      # deploy.qufox.com to this port. The webhook is HMAC-gated but
-      # still shouldn't be reachable on the public interface directly.
+      # Host-bound to 127.0.0.1 only — public traffic arrives via the
+      # `/hooks/github` location inside the existing qufox.com nginx
+      # server block (task-016 ops: no deploy.qufox.com subdomain).
+      # The loopback bind stays so internal-metrics tooling on the NAS
+      # host can reach /internal/* without going through nginx.
       - '127.0.0.1:${WEBHOOK_PORT:-9000}:9000'
     volumes:
-      # Entire repo. The webhook shells out into it to run scripts/deploy/*.
-      - .:/repo
+      # task-017-B: dedicated worktree at ${DEPLOY_WORKTREE} (default
+      # /volume2/dockers/qufox-deploy). Host's /volume2/dockers/qufox
+      # is operator-owned; webhook's `git checkout --force <sha>`
+      # previously dragged THAT tree into detached HEAD every deploy.
+      # Worktree isolation solves it: both trees share objects + refs
+      # via git's `.git/worktrees/` pointer but have independent HEAD
+      # + index + working files.
+      #
+      # IMPORTANT: the worktree must exist before `docker compose up`.
+      # Run `scripts/setup/migrate-webhook-worktree.sh` once on the
+      # NAS to create it. The script is idempotent so re-runs are
+      # cheap.
+      - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}:/repo
       # Docker daemon socket — the webhook invokes `docker compose` via
       # the host daemon to rebuild qufox-api / qufox-web. This is
       # effectively root-equivalent on the host, so the HMAC gate is

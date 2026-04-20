@@ -42,3 +42,14 @@ apps/api/dist
 *.tfstate
 *.tfstate.backup
 .terraform.lock.hcl
+
+# task-017: local .env.prod backups (task-016 deploy produced one).
+# Never commit — these carry live credentials (webhook secret, Minio
+# root password, S3 access keys, JWT secret) plus a timestamp.
+.env.prod.bak.*
+
+# Ad-hoc binary artefacts that shouldn't be tracked — design exports,
+# screenshots, etc. Placed here so `git add -A` doesn't pick them up.
+*.zip
+*.tar.gz
+qufox-design.zip

@@ -66,6 +66,15 @@ BACKUP_WEEKLY_KEEP=8
 BACKUP_CRON='30 3 * * *'
 RESTORE_TEST_CRON='45 4 * * 0'
 IMAGE_HISTORY_KEEP=10
+
+# task-017-A-2 (task-016-follow-4 closure): surface the closed-beta
+# gate flag here even though qufox-api reads it from .env.prod. Having
+# it visible in .env.deploy makes the webhook container aware of the
+# operator's intent too — useful when scripts in this stack log an
+# operator-facing summary (e.g. post-switchover-smoke prints the
+# current mode). Flip to `false` via .env.prod when you want signup
+# open.
+BETA_INVITE_REQUIRED=true
 EOF
 )
 
@@ -91,7 +100,7 @@ echo "│  GITHUB WEBHOOK SECRET — paste into GitHub                   │"
 echo "│                                                              │"
 echo "│  Repo → Settings → Webhooks → Add webhook (or Edit existing) │"
 echo "│                                                              │"
-echo "│  Payload URL:   https://deploy.qufox.com/hooks/github        │"
+echo "│  Payload URL:   https://qufox.com/hooks/github               │"
 echo "│  Content type:  application/json                             │"
 echo "│  Secret:        (paste the value below)                      │"
 echo "│  Events:        Just the push event                          │"

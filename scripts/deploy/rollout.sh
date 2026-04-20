@@ -29,7 +29,7 @@ case "$SERVICE" in
   *) echo "rollout.sh: unknown service '$SERVICE'" >&2; exit 2 ;;
 esac
 
-COMPOSE=(docker compose --env-file .env.prod -f docker-compose.prod.yml)
+COMPOSE=(docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml)
 
 log() { printf '[rollout:%s] %s\n' "$SERVICE" "$*"; }
 

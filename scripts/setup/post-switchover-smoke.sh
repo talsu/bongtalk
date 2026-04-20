@@ -13,10 +13,28 @@ echo "== task-011 post-switchover smoke =="
 echo
 
 echo "1/4 webhook container health"
-if curl -skf --max-time 5 https://deploy.qufox.com/healthz >/dev/null; then
-  pass 'deploy.qufox.com/healthz → 200'
+# task-016 ops: the webhook was merged into the qufox.com apex
+# instead of the original deploy.qufox.com subdomain, and internal
+# /healthz is not exposed through the public nginx location. Reach
+# it via docker exec so the HMAC-gated public path stays untouched.
+if docker ps --filter name=qufox-webhook --format '{{.Names}}' | grep -qx qufox-webhook; then
+  if docker exec qufox-webhook wget -qO- --tries=1 --timeout=5 http://127.0.0.1:9000/healthz \
+      2>/dev/null | grep -q '"status":"ok"'; then
+    pass 'qufox-webhook /healthz (internal) → ok'
+  else
+    fail 'qufox-webhook /healthz (internal) — container is Up but healthz did not return ok'
+  fi
+  # Public surface: any POST without a signature should be 401 — proves
+  # the /hooks/github location is reachable and the HMAC gate is active.
+  PUB_STATUS=$(curl -sk --max-time 5 -o /dev/null -w '%{http_code}' \
+    -X POST https://qufox.com/hooks/github || echo 000)
+  if [[ "$PUB_STATUS" == "401" ]]; then
+    pass 'qufox.com/hooks/github (unsigned POST) → 401 (gate active)'
+  else
+    fail "qufox.com/hooks/github (unsigned POST) → $PUB_STATUS (expected 401 — check nginx location)"
+  fi
 else
-  fail 'deploy.qufox.com/healthz NOT reachable — nginx block or TLS cert issue'
+  fail 'qufox-webhook container is NOT Up — bring up compose.deploy.yml first'
 fi
 
 echo "2/4 docker containers Up"
@@ -50,7 +68,7 @@ echo "  GITHUB_WEBHOOK_SECRET from .env.deploy):"
 echo
 echo "    PAYLOAD='{}'"
 echo '    SIG=$(printf "%s" "$PAYLOAD" | openssl dgst -sha256 -hmac "<secret>" | awk "{print \$2}")'
-echo "    curl -sk -X POST https://deploy.qufox.com/hooks/github \\"
+echo "    curl -sk -X POST https://qufox.com/hooks/github \\"
 echo "      -H 'x-github-event: ping' \\"
 echo "      -H \"x-hub-signature-256: sha256=\$SIG\" \\"
 echo "      -d \"\$PAYLOAD\""
