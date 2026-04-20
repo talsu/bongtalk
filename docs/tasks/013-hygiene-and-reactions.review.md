@@ -131,3 +131,33 @@ chain (outbox dispatch, WS envelope building, guard chain).
 - **TODO(task-013-follow-6)** (L1): add `trap 'rm -f "$OUT_FILE.tmp"' EXIT` to `scripts/backup/db-backup.sh` and `scripts/backup/redis-backup.sh` to clean up `.tmp` leaks from a crash between `pg_dump --file "$OUT_FILE.tmp"` and `mv "$OUT_FILE.tmp" "$OUT_FILE"`. Task-009-low-1 closure.
 - **TODO(task-013-follow-7)** (N2): extend `apps/web/e2e/messages/reactions.e2e.ts` to multi-context (two browser contexts, A reacts → B sees within 2s) + a rate-limit assertion (70 clicks in 60s → 10 drops with `NODE_ENV=test` cap-bump). Current happy-path smoke is sufficient for MVP.
 - **TODO(task-013-follow-8)** (N3): rename `S3_ENDPOINT` / `S3_PUBLIC_ENDPOINT` to `S3_ENDPOINT_INTERNAL` / `S3_ENDPOINT_EXTERNAL` per the task-012-follow-3 original proposal if naming precision matters; current behavior is correct. Low value, cosmetic.
+
+---
+
+## Re-review (f4e949d)
+
+**Branch**: feat/task-013-hygiene-and-reactions @ f4e949d
+**Base**: develop @ fcf1bb5
+**Verdict**: approve
+
+Fix-forward commit `f4e949d` addresses the two non-defer items from the initial review. Read both changed files at HEAD — no reliance on the commit message.
+
+### H1 — `invites-rate-limit.int.spec.ts` → **RESOLVED**
+
+File landed at `apps/api/test/int/workspaces/invites-rate-limit.int.spec.ts` (172 lines). All five required cases verified in source:
+
+- (a) per-user accept 30/min: lines 73-104 — joiner replays `POST /invites/:code/accept` in a loop, breaks on first 429 with `errorCode === 'RATE_LIMITED'`. Loop bound is 30 so the 31st hit (counting the initial 201) trips the bucket — signature matches the 30/min cap.
+- (b) per-code accept 10/min: lines 106-128 — 11 fresh joiners, asserts `okCount === 10 && limited === 1`. No per-user contamination because each joiner has a fresh token.
+- (c) preview IP 60/min: lines 60-71 — 60 iterations of `GET /invites/:code` must return 200, 61st asserts 429 + `RATE_LIMITED`.
+- (d) revoked → 410 `INVITE_REVOKED`: lines 132-157 — owner revokes via `DELETE /workspaces/:ws/invites/:id` (204), then joiner accept asserts `status === 410 && errorCode === 'INVITE_REVOKED'`. Exactly the task-032 fidelity contract.
+- (e) expired → 410 `INVITE_EXPIRED`: lines 159-170 — `expiresAt` set 5s in the past, assert `410 / INVITE_EXPIRED`. Confirms REVOKED didn't cannibalize EXPIRED.
+
+`beforeEach` at line 27-33 scrubs `rl:invite:*` Redis keys so the spec doesn't false-429 from sibling specs sharing the stack. Setup uses the existing `WsIntEnv` + `signupAsUser` helpers — no new testcontainer boilerplate.
+
+### M3 — reaction POST replay returns 200 → **RESOLVED**
+
+`apps/api/src/reactions/reactions.controller.ts:84` now reads `res.status(result.created ? 201 : 200)`. Comment at lines 80-83 documents the 201-first / 200-replay idempotency convention, mirroring the message-send contract. `apps/api/test/int/reactions/reactions.int.spec.ts:62` asserts `expect(a2.status).toBe(200)` on the idempotent repeat, with the first call still at 201 (line 52). The list/admin-view follow-ups are untouched and remain correct.
+
+### Residual
+
+None from the two flagged items. Deferred `TODO(task-013-follow-1)` through `-follow-8)` minus `-follow-2)` (H1, now closed) and `-follow-5)` (M3, now closed) remain open as previously scoped — no re-classification needed. `pnpm verify` reported green by the implementer; not re-run here per re-review charter.
