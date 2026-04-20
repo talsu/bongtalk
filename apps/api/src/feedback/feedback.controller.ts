@@ -6,6 +6,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
+import { PrismaService } from '../prisma/prisma.module';
 import { FeedbackService } from './feedback.service';
 
 const CATEGORIES: ReadonlySet<string> = new Set(['BUG', 'FEATURE', 'OTHER']);
@@ -32,6 +33,7 @@ export class FeedbackController {
   constructor(
     private readonly feedback: FeedbackService,
     private readonly rate: RateLimitService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post()
@@ -50,14 +52,30 @@ export class FeedbackController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'category must be BUG|FEATURE|OTHER');
     }
     const category = categoryRaw as FeedbackCategory;
+    const workspaceId =
+      typeof body.workspaceId === 'string' && body.workspaceId.length > 0 ? body.workspaceId : null;
+    // task-017-A-2 (task-016-follow-5): trust-no-client on workspaceId.
+    // A malicious caller could point `workspaceId` at a workspace they
+    // don't belong to and pollute that org's feedback queue. Verify
+    // membership before persisting. `workspaceId=null` (global feedback)
+    // stays allowed — no workspace to bind to.
+    if (workspaceId !== null) {
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: user.id } },
+        select: { role: true },
+      });
+      if (!member) {
+        throw new DomainError(
+          ErrorCode.WORKSPACE_NOT_MEMBER,
+          'caller is not a member of the workspace this feedback is tagged to',
+        );
+      }
+    }
     const page = typeof req.headers.referer === 'string' ? req.headers.referer.slice(0, 500) : null;
     const ua = typeof userAgent === 'string' ? userAgent.slice(0, 500) : null;
     const { id, createdAt } = await this.feedback.submit({
       userId: user.id,
-      workspaceId:
-        typeof body.workspaceId === 'string' && body.workspaceId.length > 0
-          ? body.workspaceId
-          : null,
+      workspaceId,
       category,
       content: body.content,
       page,
