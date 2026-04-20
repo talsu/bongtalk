@@ -42,6 +42,12 @@ type MessageRow = {
   idempotencyKey: string | null;
 };
 
+export type ReactionSummary = {
+  emoji: string;
+  count: number;
+  byMe: boolean;
+};
+
 export type MessageDto = {
   id: string;
   channelId: string;
@@ -52,6 +58,7 @@ export type MessageDto = {
   deleted: boolean;
   createdAt: string;
   editedAt: string | null;
+  reactions: ReactionSummary[];
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -73,7 +80,7 @@ export class MessagesService {
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
-  toDto(row: MessageRow): MessageDto {
+  toDto(row: MessageRow, reactions: ReactionSummary[] = []): MessageDto {
     const isDeleted = row.deletedAt !== null;
     const mentions = (row.mentions ?? {
       users: [],
@@ -93,7 +100,39 @@ export class MessagesService {
       deleted: isDeleted,
       createdAt: row.createdAt.toISOString(),
       editedAt: row.editedAt?.toISOString() ?? null,
+      reactions,
     };
+  }
+
+  /**
+   * Task-013-B: aggregate reactions across many message ids in a single
+   * GROUP BY pass. Returns a Map keyed by messageId so the caller can
+   * splice results onto each DTO without an N+1. `byMe` piggybacks on
+   * the same query via `BOOL_OR("userId" = $viewerId)`.
+   */
+  async aggregateReactions(
+    messageIds: string[],
+    viewerId: string,
+  ): Promise<Map<string, ReactionSummary[]>> {
+    const out = new Map<string, ReactionSummary[]>();
+    if (messageIds.length === 0) return out;
+    const rows = await this.prisma.$queryRaw<
+      { messageId: string; emoji: string; count: bigint; byMe: boolean }[]
+    >(Prisma.sql`
+      SELECT "messageId", emoji,
+             COUNT(*)::bigint AS count,
+             BOOL_OR("userId" = ${viewerId}::uuid) AS "byMe"
+        FROM "MessageReaction"
+       WHERE "messageId" IN (${Prisma.join(messageIds.map((id) => Prisma.sql`${id}::uuid`))})
+       GROUP BY "messageId", emoji
+       ORDER BY "messageId", count DESC, emoji ASC
+    `);
+    for (const r of rows) {
+      const list = out.get(r.messageId) ?? [];
+      list.push({ emoji: r.emoji, count: Number(r.count), byMe: r.byMe });
+      out.set(r.messageId, list);
+    }
+    return out;
   }
 
   // ------------------------------------------------------------------ send

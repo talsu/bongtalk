@@ -20,6 +20,16 @@ export const CursorPayloadSchema = z.object({
 });
 export type CursorPayload = z.infer<typeof CursorPayloadSchema>;
 
+// Task-013-B: per-message reaction summary. `byMe` is viewer-scoped so
+// the same message row can serialize differently depending on which
+// authenticated user hits the endpoint.
+export const ReactionSummarySchema = z.object({
+  emoji: z.string().min(1).max(64),
+  count: z.number().int().nonnegative(),
+  byMe: z.boolean(),
+});
+export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
+
 export const MessageDtoSchema = z.object({
   id: z.string().uuid(),
   channelId: z.string().uuid(),
@@ -30,8 +40,18 @@ export const MessageDtoSchema = z.object({
   deleted: z.boolean(),
   createdAt: z.string().datetime(),
   editedAt: z.string().datetime().nullable(),
+  // Default to [] so clients on older API builds don't break — this
+  // keeps the schema forwards-compatible during gradual rollout.
+  reactions: z.array(ReactionSummarySchema).default([]),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
+
+// POST /messages/:id/reactions + DELETE counterpart — simple enough we
+// reuse the ReactionSummary shape on the response.
+export const AddReactionRequestSchema = z.object({
+  emoji: z.string().min(1).max(64),
+});
+export type AddReactionRequest = z.infer<typeof AddReactionRequestSchema>;
 
 export const SendMessageRequestSchema = z.object({
   content: MessageContentSchema,

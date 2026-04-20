@@ -54,6 +54,7 @@ model User {
   invitesCreated  Invite[]          @relation("InviteCreator")
   refreshTokens   RefreshToken[]
   attachments     Attachment[]
+  reactions       MessageReaction[]
 }
 
 model RefreshToken {
@@ -187,9 +188,10 @@ model Message {
   // to skip since unauthenticated sends never carry a key).
   idempotencyKey String?   @db.Uuid
 
-  channel     Channel      @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author      User         @relation(fields: [authorId], references: [id])
+  channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author      User              @relation(fields: [authorId], references: [id])
   attachments Attachment[]
+  reactions   MessageReaction[]
 
   // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
   // row-value comparison WHERE (createdAt, id) < ($1, $2).
@@ -197,6 +199,24 @@ model Message {
   // includeDeleted=false default path (soft-delete filter).
   @@index([channelId, deletedAt, createdAt])
   @@index([authorId])
+}
+
+// Task-013-B: per-message reactions. `emoji` is the literal unicode
+// string as picked; VARCHAR(64) gives room for ZWJ sequences. API
+// enforces ≤4 codepoint cap on top. (messageId, userId, emoji) is
+// unique so POST is naturally idempotent — see ReactionsService.
+model MessageReaction {
+  id        String   @id @default(uuid()) @db.Uuid
+  messageId String   @db.Uuid
+  userId    String   @db.Uuid
+  emoji     String   @db.VarChar(64)
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([messageId, userId, emoji])
+  @@index([messageId, emoji])
 }
 
 enum AttachmentKind {
