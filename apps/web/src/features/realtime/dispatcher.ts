@@ -5,6 +5,7 @@ import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
 import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentions';
 import { useNotifications } from '../../stores/notification-store';
+import { useTypingStore } from '../typing/useTypingStore';
 
 export interface DispatcherContext {
   viewerId: () => string | null;
@@ -462,6 +463,12 @@ export function installRealtimeDispatcher(
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.channels.list(env.workspaceId) });
   });
 
+  // ---------- Typing (task-018-F) ----------
+  on<{ channelId: string; typingUserIds: string[] }>('typing.updated', (env) => {
+    if (!env.channelId) return;
+    useTypingStore.getState().set(env.channelId, env.typingUserIds ?? []);
+  });
+
   // ---------- Members / Workspace ----------
   on<{ workspaceId: string }>('workspace.member.joined', (env) => {
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
@@ -583,4 +590,5 @@ export const DISPATCHED_EVENTS = [
   'message.reaction.added',
   'message.reaction.removed',
   'message.thread.replied',
+  'typing.updated',
 ] as const;

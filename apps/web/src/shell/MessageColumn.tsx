@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useUI } from '../stores/ui-store';
 import { useMarkChannelRead } from '../features/channels/useUnread';
@@ -6,6 +6,8 @@ import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
+import { TypingIndicator } from '../features/typing/TypingIndicator';
+import { useAuth } from '../features/auth/AuthProvider';
 import { Tooltip } from '../design-system/primitives';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
@@ -34,8 +36,14 @@ export function MessageColumn({
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
   const setOpenModal = useUI((s) => s.setOpenModal);
+  const { user } = useAuth();
   const { data: members } = useMembers(workspaceId);
   const memberCount = members?.members.length ?? 0;
+  const nameByUserId = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const mm of members?.members ?? []) m.set(mm.userId, mm.user.username);
+    return m;
+  }, [members]);
   const qc = useQueryClient();
 
   // task-014-C: thread panel opens via `?thread=<rootId>` query param.
@@ -165,6 +173,11 @@ export function MessageColumn({
           workspaceId={workspaceId}
           channelId={channelId}
           onOpenThread={(rootId) => setActiveThread(rootId)}
+        />
+        <TypingIndicator
+          channelId={channelId}
+          viewerId={user?.id ?? null}
+          nameByUserId={nameByUserId}
         />
         <MessageComposer
           workspaceId={workspaceId}

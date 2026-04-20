@@ -15,6 +15,7 @@ import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware'
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
+import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { rooms } from './rooms/room-names';
 import { MetricsService } from '../observability/metrics/metrics.service';
@@ -53,6 +54,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private readonly presence: PresenceService,
     private readonly throttler: PresenceThrottler,
     private readonly replay: ReplayBufferService,
+    private readonly typing: TypingService,
     private readonly prisma: PrismaService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
@@ -139,8 +141,21 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     for (const wsId of goneFrom) {
       this.schedulePresenceBroadcast(wsId);
     }
+    // task-018-F: also clear the user from any typing sets so the
+    // indicator drops before the TTL (up to 5 s faster).
+    const clearedTypingChannels = await this.typing.dropForUser(
+      state.user.userId,
+      state.channelIds,
+    );
+    for (const chId of clearedTypingChannels) {
+      const typingUserIds = await this.typing.currentlyTyping(chId);
+      this.server.to(rooms.channel(chId)).emit('typing.updated', {
+        channelId: chId,
+        typingUserIds,
+      });
+    }
     this.logger.log(
-      `[ws] -disconnect user=${state.user.userId} sid=${state.user.sessionId} goneFromWs=${goneFrom.length}`,
+      `[ws] -disconnect user=${state.user.userId} sid=${state.user.sessionId} goneFromWs=${goneFrom.length} clearedTyping=${clearedTypingChannels.length}`,
     );
   }
 
@@ -171,6 +186,22 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     const state = client.data.state as SocketState | undefined;
     if (!state) return;
     await this.presence.setCurrentChannel(state.user.sessionId, null);
+  }
+
+  @SubscribeMessage('typing.ping')
+  async onTypingPing(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { channelId?: string },
+  ): Promise<void> {
+    const state = client.data.state as SocketState | undefined;
+    if (!state || !body?.channelId) return;
+    if (!state.channelIds.includes(body.channelId)) return; // not a channel member
+    const typingUserIds = await this.typing.ping(state.user.userId, body.channelId);
+    if (!typingUserIds) return; // throttled — a recent broadcast already named us
+    this.server.to(rooms.channel(body.channelId)).emit('typing.updated', {
+      channelId: body.channelId,
+      typingUserIds,
+    });
   }
 
   @SubscribeMessage('channel:read')
