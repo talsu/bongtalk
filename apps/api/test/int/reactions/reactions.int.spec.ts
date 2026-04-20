@@ -52,12 +52,14 @@ describe('Reactions API (task-013-B)', () => {
     expect(a1.status).toBe(201);
     expect(a1.body).toMatchObject({ emoji: '👍', count: 1, byMe: true });
 
-    // Idempotent repeat: same row → same count, still 201 (no 409).
+    // Idempotent repeat: same row → 200 (not 409, not 201). Differs from
+    // first-create so clients can tell "I made this" from "this was already
+    // there", matching the message-send idempotency contract.
     const a2 = await request(env.baseUrl)
       .post(`/messages/${msgId}/reactions`)
       .set(bearer(stack.member.accessToken))
       .send({ emoji: '👍' });
-    expect(a2.status).toBe(201);
+    expect(a2.status).toBe(200);
     expect(a2.body.count).toBe(1);
 
     const list = await request(env.baseUrl)

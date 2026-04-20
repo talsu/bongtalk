@@ -6,8 +6,10 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
@@ -61,6 +63,7 @@ export class ReactionsController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: { emoji: string },
+    @Res({ passthrough: true }) res: Response,
   ) {
     // Task-013-B rate limit: 60 reactions / minute per user.
     await this.rateLimit.enforce([{ key: `reactions:${user.id}`, windowSec: 60, max: 60 }]);
@@ -74,6 +77,11 @@ export class ReactionsController {
       user.id,
       body?.emoji ?? '',
     );
+    // Idempotent POST convention: 201 on first create, 200 when replaying
+    // an existing (message, user, emoji) row. Mirrors the message-send
+    // idempotency contract so clients can reason about "did I cause this"
+    // uniformly across endpoints.
+    res.status(result.created ? 201 : 200);
     return { emoji: result.emoji, count: result.count, byMe: true };
   }
 
