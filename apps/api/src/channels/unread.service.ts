@@ -30,6 +30,17 @@ export interface UnreadWorkspaceTotal {
  * Mentions are detected via JSONB containment: `mentions @>
  * '{"users":[<userId>]}'` matches the exact user id; an `everyone: true`
  * also lights the has-mention flag.
+ *
+ * Task-019-A: channel visibility is now enforced SQL-side. The
+ * `visible_channels` CTE mirrors `channels.service.ts::listByWorkspace`'s
+ * in-app filter: public channels are always included; private channels
+ * need either a role=OWNER caller or at least one matching
+ * ChannelPermissionOverride row with allowMask > 0 for (USER=caller) or
+ * (ROLE=caller's role). Before 019, private channels' unread counts
+ * leaked through `summarize` + `summarizeWorkspaceTotals` to any
+ * workspace member — an IDOR-grade information disclosure closed in
+ * 018-follow-1. Integration regression guard:
+ * `apps/api/test/int/channels/unread-private-acl.int.spec.ts`.
  */
 @Injectable()
 export class UnreadService {
@@ -44,12 +55,37 @@ export class UnreadService {
         last_message_at: Date | null;
       }>
     >`
+      WITH me AS (
+        SELECT role
+          FROM "WorkspaceMember"
+         WHERE "workspaceId" = ${workspaceId}::uuid
+           AND "userId" = ${userId}::uuid
+      ),
+      visible_channels AS (
+        SELECT c.id, c."createdAt"
+          FROM "Channel" c
+         WHERE c."workspaceId" = ${workspaceId}::uuid
+           AND c."deletedAt" IS NULL
+           AND (
+             c."isPrivate" = false
+             OR (SELECT role FROM me) = 'OWNER'
+             OR EXISTS (
+               SELECT 1 FROM "ChannelPermissionOverride" cpo
+                WHERE cpo."channelId" = c.id
+                  AND cpo."allowMask" > 0
+                  AND (
+                    (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+                    OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role FROM me))
+                  )
+             )
+           )
+      )
       SELECT
         c.id AS channel_id,
         COALESCE(m.count_after, 0)      AS unread_count,
         COALESCE(m.has_mention, false)  AS has_mention,
         m.latest_at                     AS last_message_at
-      FROM "Channel" c
+      FROM visible_channels c
       LEFT JOIN "UserChannelReadState" rs
         ON rs."userId" = ${userId}::uuid
        AND rs."channelId" = c.id
@@ -67,8 +103,6 @@ export class UnreadService {
           AND msg."authorId" <> ${userId}::uuid
           AND (rs."lastReadAt" IS NULL OR msg."createdAt" > rs."lastReadAt")
       ) m ON true
-      WHERE c."workspaceId" = ${workspaceId}::uuid
-        AND c."deletedAt" IS NULL
       ORDER BY c."createdAt" ASC
     `;
 
@@ -88,12 +122,18 @@ export class UnreadService {
    * the frontend can render all server-rail buttons from a single fetch.
    *
    * EXPLAIN shape (confirmed during dev — asserted by the integration
-   * test apps/api/test/integration/me-unread-totals.int.spec.ts):
+   * test apps/api/test/int/channels/me-unread-totals.int.spec.ts):
    *   Aggregate on workspace_id ← Hash Join (WorkspaceMember,
    *   LATERAL Unread) ← Seq Scan on WorkspaceMember (filtered by user).
    * The per-channel LATERAL reuses the `(channelId, createdAt)` index
    * already validated by task-010-B; this rollup adds one hash aggregate
    * but no new index.
+   *
+   * Task-019-A: private-channel ACL filter — the JOIN now excludes
+   * channels the caller cannot read. Public channels stay in; private
+   * channels require either an OWNER caller or a matching
+   * ChannelPermissionOverride ALLOW row. Before 019, unread counts
+   * from private channels leaked into the server-rail total.
    */
   async summarizeWorkspaceTotals(userId: string): Promise<UnreadWorkspaceTotal[]> {
     const rows = await this.prisma.$queryRaw<
@@ -111,6 +151,19 @@ export class UnreadService {
       JOIN "Channel" c
         ON c."workspaceId" = wm."workspaceId"
        AND c."deletedAt" IS NULL
+       AND (
+         c."isPrivate" = false
+         OR wm.role = 'OWNER'
+         OR EXISTS (
+           SELECT 1 FROM "ChannelPermissionOverride" cpo
+            WHERE cpo."channelId" = c.id
+              AND cpo."allowMask" > 0
+              AND (
+                (cpo."principalType" = 'USER' AND cpo."principalId" = wm."userId"::text)
+                OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+              )
+         )
+       )
       LEFT JOIN "UserChannelReadState" rs
         ON rs."userId" = wm."userId"
        AND rs."channelId" = c.id
