@@ -28,6 +28,14 @@ cd "$REPO"
 # across the fetch/checkout block below. Scoped to this repo only.
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
 
+# Task-017-D: redirect OpenSSH's known_hosts writes to tmpfs so every
+# deploy log stops carrying
+#   "hostfile_replace_entries: mkstemp: Read-only file system"
+# (the deploy-key dir is bind-mounted :ro). Build-time seed lives at
+# /tmp/known_hosts-seed; the container's CMD copies it onto
+# /tmp/known_hosts at boot, so git's ssh only needs to point at it.
+export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/tmp/known_hosts -o StrictHostKeyChecking=yes"
+
 # shellcheck source=/volume2/dockers/qufox/scripts/deploy/lock.sh
 . "$REPO/scripts/deploy/lock.sh"
 
