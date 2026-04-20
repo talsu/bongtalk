@@ -135,9 +135,19 @@ workspaceId, mentionedUserId, snippet }`. Reuses the
 - Both workflows are required checks for merging to develop (set in
   branch protection — operator opt-in, since direct-merge bypasses
   PR but CI still runs on push).
-- Drop the existing `.github/workflows/integration.yml` and
-  `.github/workflows/e2e.yml` placeholders that print
-  `TODO(task-010)` — they're empty shells today.
+- Rewrite (not drop) the existing `.github/workflows/integration.yml`
+  and `.github/workflows/e2e.yml` placeholders into real workflows:
+  integration spins a Postgres 16 service container + runs
+  `pnpm --filter @qufox/api test:int`; e2e runs docker-compose on
+  the runner + Playwright. The three K8s-path workflow files
+  (`deploy-prod.yml`, `deploy-staging.yml`, `db-migrate.yml`) are the
+  ones actually removed — they pointed at a canary path that isn't
+  the 009/010 NAS pipeline shipped in this project.
+
+  (Task-016-A / 011-follow-9 closure — the original phrasing said
+  "drop integration.yml + e2e.yml placeholders" but what actually
+  shipped was rewriting those two and removing the three K8s ones.
+  Reconciled here for readers cross-referencing the review.md.)
 
 ## Scope (OUT) — future tasks
 

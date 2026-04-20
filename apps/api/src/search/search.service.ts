@@ -1,8 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
-import { ChannelAccessService } from '../channels/permission/channel-access.service';
-import { Permission } from '../auth/permissions';
+import { Permission, PermissionMatrix } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -47,10 +46,7 @@ function decodeCursor(raw: string): SearchCursor {
 
 @Injectable()
 export class SearchService {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly access: ChannelAccessService,
-  ) {}
+  constructor(private readonly prisma: PrismaService) {}
 
   /**
    * Resolve the viewer's channel visibility set within a workspace.
@@ -58,25 +54,67 @@ export class SearchService {
    * channels never enter the planner's scope. A second per-result
    * check happens in `search()` to cover the edge case where ACL
    * flipped between query and response assembly.
+   *
+   * Task-016-B (015-follow-2 closure): previously looped
+   * `resolveEffective` per channel — O(channels) round trips. Now
+   * two batched queries + in-memory fold through `PermissionMatrix`.
    */
   private async visibleChannelIds(workspaceId: string, userId: string): Promise<string[]> {
-    // Pull every non-deleted channel in the workspace + the viewer's
-    // membership + any user/role overrides in one round trip each.
-    // For beta-volume (tens-to-low-hundreds of channels per
-    // workspace) the N^2 is negligible. When scale demands, fold the
-    // loop into a single SQL aggregate.
-    const channels = await this.prisma.channel.findMany({
-      where: { workspaceId, deletedAt: null, archivedAt: null },
-      select: { id: true, workspaceId: true, isPrivate: true },
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { role: true },
     });
+    if (!member) return []; // non-member sees nothing
+    const [channels, overrides] = await Promise.all([
+      this.prisma.channel.findMany({
+        where: { workspaceId, deletedAt: null, archivedAt: null },
+        select: { id: true, workspaceId: true, isPrivate: true },
+      }),
+      this.prisma.channelPermissionOverride.findMany({
+        where: {
+          channel: { workspaceId, deletedAt: null, archivedAt: null },
+          OR: [
+            { principalType: 'USER', principalId: userId },
+            { principalType: 'ROLE', principalId: member.role },
+          ],
+        },
+        select: {
+          channelId: true,
+          principalType: true,
+          principalId: true,
+          allowMask: true,
+          denyMask: true,
+        },
+      }),
+    ]);
+    const byChannel = new Map<
+      string,
+      Array<{
+        principalType: 'USER' | 'ROLE';
+        principalId: string;
+        allowMask: number;
+        denyMask: number;
+      }>
+    >();
+    for (const o of overrides) {
+      const list = byChannel.get(o.channelId) ?? [];
+      list.push({
+        principalType: o.principalType as 'USER' | 'ROLE',
+        principalId: o.principalId,
+        allowMask: o.allowMask,
+        denyMask: o.denyMask,
+      });
+      byChannel.set(o.channelId, list);
+    }
     const ids: string[] = [];
     for (const ch of channels) {
-      try {
-        const eff = await this.access.resolveEffective(ch, userId);
-        if ((eff & Permission.READ) === Permission.READ) ids.push(ch.id);
-      } catch {
-        // Non-member / permission denied — just skip.
-      }
+      const eff = PermissionMatrix.effective({
+        role: member.role,
+        isPrivate: ch.isPrivate,
+        userId,
+        overrides: byChannel.get(ch.id) ?? [],
+      });
+      if ((eff & Permission.READ) === Permission.READ) ids.push(ch.id);
     }
     return ids;
   }
@@ -104,14 +142,15 @@ export class SearchService {
       return { results: [], nextCursor: null };
     }
 
-    // Keyset predicate. Omitted when no cursor. Uses the
-    // (rank DESC, createdAt DESC, id DESC) tuple that matches the
-    // ORDER BY, hitting a Sort node on top of the GIN match.
+    // task-016-B (015-follow-3 closure): wrap the base match in a
+    // subquery that computes `rank` once per row. The cursor
+    // predicate and the ORDER BY both reference the aliased value
+    // instead of re-evaluating `ts_rank(...)` — verified by EXPLAIN,
+    // the Function Scan on ts_rank appears exactly once per row.
     const cursorWhere = cursor
       ? Prisma.sql`
-          AND (ts_rank(m."search_tsv", plainto_tsquery('simple', ${q})),
-               m."createdAt", m.id)
-              < (${cursor.rank}::float4, ${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
+          WHERE (base.rank, base."createdAt", base.id)
+                < (${cursor.rank}::float4, ${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
         `
       : Prisma.empty;
 
@@ -128,39 +167,48 @@ export class SearchService {
         rank: number;
       }[]
     >(Prisma.sql`
+      WITH base AS (
+        SELECT
+          m.id            AS id,
+          m."channelId"   AS "channelId",
+          m."authorId"    AS "authorId",
+          m."createdAt"   AS "createdAt",
+          m."content"     AS content,
+          ts_rank(m."search_tsv", plainto_tsquery('simple', ${q})) AS rank
+          FROM "Message" m
+         WHERE m."deletedAt" IS NULL
+           AND m."channelId" = ANY(
+                 ARRAY[${Prisma.join(visibleIds.map((id) => Prisma.sql`${id}::uuid`))}]::uuid[]
+               )
+           AND (
+                m."search_tsv" @@ plainto_tsquery('simple', ${q})
+             OR m."content" ILIKE '%' || ${q} || '%'
+           )
+      )
       SELECT
-        m.id            AS "messageId",
-        m."channelId"   AS "channelId",
-        c.name          AS "channelName",
-        m."authorId"    AS "senderId",
-        u.username      AS "senderName",
-        m."createdAt"   AS "createdAt",
+        base.id            AS "messageId",
+        base."channelId"   AS "channelId",
+        c.name             AS "channelName",
+        base."authorId"    AS "senderId",
+        u.username         AS "senderName",
+        base."createdAt"   AS "createdAt",
         -- HTML-escape the content BEFORE ts_headline so the only
         -- HTML in the snippet is the StartSel/StopSel markers we
         -- told Postgres to use. Frontend can then render with
-        -- dangerouslySetInnerHTML without pulling DOMPurify — only
-        -- <mark>…</mark> tags ever make it to the wire.
+        -- dangerouslySetInnerHTML (via the mark-only sanitizer) —
+        -- only <mark>…</mark> tags ever make it to the wire.
         ts_headline(
           'simple',
-          replace(replace(replace(m."content", '&', '&amp;'), '<', '&lt;'), '>', '&gt;'),
+          replace(replace(replace(base.content, '&', '&amp;'), '<', '&lt;'), '>', '&gt;'),
           plainto_tsquery('simple', ${q}),
           'StartSel=<mark>,StopSel=</mark>,MaxWords=18,MinWords=3'
         ) AS snippet,
-        ts_rank(m."search_tsv", plainto_tsquery('simple', ${q}))
-                                       AS rank
-        FROM "Message" m
-        JOIN "Channel" c ON c.id = m."channelId"
-        JOIN "User"    u ON u.id = m."authorId"
-       WHERE m."deletedAt" IS NULL
-         AND m."channelId" = ANY(
-               ARRAY[${Prisma.join(visibleIds.map((id) => Prisma.sql`${id}::uuid`))}]::uuid[]
-             )
-         AND (
-              m."search_tsv" @@ plainto_tsquery('simple', ${q})
-           OR m."content" ILIKE '%' || ${q} || '%'
-         )
-         ${cursorWhere}
-       ORDER BY rank DESC, m."createdAt" DESC, m.id DESC
+        base.rank          AS rank
+        FROM base
+        JOIN "Channel" c ON c.id = base."channelId"
+        JOIN "User"    u ON u.id = base."authorId"
+       ${cursorWhere}
+       ORDER BY base.rank DESC, base."createdAt" DESC, base.id DESC
        LIMIT ${args.limit + 1}
     `);
 

@@ -161,8 +161,11 @@ export class OutboxDispatcher implements OnModuleInit, OnModuleDestroy {
         });
         dispatched++;
         const latencySec = (Date.now() - row.occurredAt.getTime()) / 1000;
-        this.metrics?.outboxEventsDispatchedTotal.labels(row.eventType, 'success').inc();
-        this.metrics?.outboxEventDispatchLatencySeconds.labels(row.eventType).observe(latencySec);
+        // task-016-B (009-nit-4): bucket raw eventType through the
+        // allowlist so a misconfigured emitter can't explode series.
+        const et = this.metrics?.bucket('outboxEventType', row.eventType) ?? row.eventType;
+        this.metrics?.outboxEventsDispatchedTotal.labels(et, 'success').inc();
+        this.metrics?.outboxEventDispatchLatencySeconds.labels(et).observe(latencySec);
         this.metrics?.outboxLastDispatchTimestampSeconds.set(Date.now() / 1000);
       } catch (err) {
         const message = err instanceof Error ? err.message.slice(0, 500) : String(err);
@@ -170,7 +173,9 @@ export class OutboxDispatcher implements OnModuleInit, OnModuleDestroy {
           where: { id: row.id },
           data: { lastError: message },
         });
-        this.metrics?.outboxEventsDispatchedTotal.labels(row.eventType, 'failure').inc();
+        this.metrics?.outboxEventsDispatchedTotal
+          .labels(this.metrics.bucket('outboxEventType', row.eventType), 'failure')
+          .inc();
         this.logger.warn(
           `[outbox] dispatch failed id=${row.id} type=${row.eventType} attempts=${row.attempts} err=${message}`,
         );

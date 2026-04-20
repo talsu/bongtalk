@@ -44,6 +44,67 @@ const L = {
   replayResult: new Set(['served', 'truncated']),
   authResult: new Set(['success', 'invalid_credentials', 'locked', 'rate_limited']),
   poolState: new Set(['active', 'idle', 'pending']),
+  // task-016-B (009-nit-4 closure): the previous raw event_type
+  // labels bypassed the bucket allowlist, so a new event type landing
+  // on the system would add an unbounded series. Listing the full
+  // enum here plus a task-013 reaction/thread update.
+  outboxEventType: new Set([
+    'workspace.created',
+    'workspace.deleted',
+    'workspace.restored',
+    'workspace.member.joined',
+    'workspace.member.left',
+    'workspace.member.removed',
+    'workspace.role.changed',
+    'workspace.ownership.transferred',
+    'workspace.invite.created',
+    'workspace.invite.revoked',
+    'workspace.invite.accepted',
+    'channel.created',
+    'channel.updated',
+    'channel.deleted',
+    'channel.restored',
+    'channel.archived',
+    'channel.unarchived',
+    'channel.moved',
+    'category.created',
+    'category.updated',
+    'category.deleted',
+    'category.moved',
+    'message.created',
+    'message.updated',
+    'message.deleted',
+    'message.reaction.added',
+    'message.reaction.removed',
+    'message.thread.replied',
+    'mention.received',
+    '_other',
+  ]),
+  wsEventType: new Set([
+    // WS event types are a strict subset of outbox event types
+    // (handlers may drop some as client-only), so we reuse the same
+    // enumeration values. Kept as a separate key so a future
+    // client-only event doesn't force a contrived outbox entry.
+    'message.created',
+    'message.updated',
+    'message.deleted',
+    'message.reaction.added',
+    'message.reaction.removed',
+    'message.thread.replied',
+    'mention.received',
+    'channel.created',
+    'channel.updated',
+    'channel.deleted',
+    'channel.moved',
+    'channel.archived',
+    'channel.unarchived',
+    'workspace.member.joined',
+    'workspace.member.left',
+    'workspace.member.removed',
+    'workspace.role.changed',
+    'presence.updated',
+    '_other',
+  ]),
 } as const;
 
 @Injectable()

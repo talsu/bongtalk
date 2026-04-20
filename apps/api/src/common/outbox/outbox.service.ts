@@ -37,7 +37,9 @@ export class OutboxService {
         payload: payload as Prisma.InputJsonValue,
       },
     });
-    this.metrics?.outboxEventsRecordedTotal.labels(input.eventType).inc();
+    this.metrics?.outboxEventsRecordedTotal
+      .labels(this.metrics.bucket('outboxEventType', input.eventType))
+      .inc();
     return row.id;
   }
 }
