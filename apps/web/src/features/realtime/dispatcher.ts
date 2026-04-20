@@ -29,6 +29,45 @@ const DEFAULT_CTX: DispatcherContext = {
 };
 
 /**
+ * Task-013-B: fold a reaction add/remove into the message's bucket list.
+ *   - Server-authoritative `count` is assigned directly (no ±1 drift).
+ *   - `mineChanges` is true when the event originated from the viewer;
+ *     only then does `byMe` flip. When someone else reacts, the viewer's
+ *     `byMe` must stay untouched.
+ *   - count<=0 drops the bucket so the UI doesn't render empty pills.
+ *   - New emoji rows append at the end (matches the server's GROUP BY
+ *     count-desc, then emoji-asc ordering on subsequent paginated loads).
+ */
+export function upsertReactionBucket(
+  existing: { emoji: string; count: number; byMe: boolean }[],
+  args: { emoji: string; count: number; kind: 'added' | 'removed'; mineChanges: boolean },
+): { emoji: string; count: number; byMe: boolean }[] {
+  const idx = existing.findIndex((r) => r.emoji === args.emoji);
+  if (idx === -1) {
+    if (args.count <= 0) return existing;
+    return [
+      ...existing,
+      {
+        emoji: args.emoji,
+        count: args.count,
+        byMe: args.mineChanges && args.kind === 'added',
+      },
+    ];
+  }
+  if (args.count <= 0) return existing.filter((_, i) => i !== idx);
+  const prev = existing[idx];
+  return existing.map((r, i) =>
+    i === idx
+      ? {
+          ...r,
+          count: args.count,
+          byMe: args.mineChanges ? args.kind === 'added' : prev.byMe,
+        }
+      : r,
+  );
+}
+
+/**
  * Task-011-B mention toast throttle. Per-viewer token bucket:
  *   - capacity 5 toasts
  *   - refill 5 tokens / second
@@ -214,6 +253,70 @@ export function installRealtimeDispatcher(
     },
   );
 
+  // ---------- Reactions (task-013-B) ----------
+  // One server event per (message, user, emoji) action. The payload's
+  // `count` is the authoritative server total for that emoji, so we
+  // overwrite the bucket's count rather than ±1 — avoids drift when
+  // events arrive out of order or after a reconnect replay.
+  const applyReaction = (
+    env: {
+      messageId: string;
+      channelId: string;
+      workspaceId: string;
+      userId: string;
+      emoji: string;
+      count: number;
+    },
+    kind: 'added' | 'removed',
+  ) => {
+    if (!env.channelId || !env.workspaceId || !env.messageId) return;
+    const viewer = ctx.viewerId();
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) => {
+              if (m.id !== env.messageId) return m;
+              const existing = m.reactions ?? [];
+              // Recompute byMe: if the event was mine, apply directly;
+              // otherwise keep whatever byMe the row already had (other
+              // users' actions don't change whether *I* reacted).
+              const mineChanges = viewer !== null && env.userId === viewer;
+              const next = upsertReactionBucket(existing, {
+                emoji: env.emoji,
+                count: env.count,
+                kind,
+                mineChanges,
+              });
+              return { ...m, reactions: next };
+            }),
+          })),
+        };
+      },
+    );
+  };
+
+  on<{
+    messageId: string;
+    channelId: string;
+    workspaceId: string;
+    userId: string;
+    emoji: string;
+    count: number;
+  }>('message.reaction.added', (env) => applyReaction(env, 'added'));
+  on<{
+    messageId: string;
+    channelId: string;
+    workspaceId: string;
+    userId: string;
+    emoji: string;
+    count: number;
+  }>('message.reaction.removed', (env) => applyReaction(env, 'removed'));
+
   // ---------- Channels ----------
   on<{ workspaceId: string }>('channel.created', (env) => {
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.channels.list(env.workspaceId) });
@@ -352,4 +455,6 @@ export const DISPATCHED_EVENTS = [
   'workspace.role.changed',
   'presence.updated',
   'mention.received',
+  'message.reaction.added',
+  'message.reaction.removed',
 ] as const;

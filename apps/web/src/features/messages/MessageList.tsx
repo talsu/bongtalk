@@ -9,6 +9,7 @@ import {
   useUpdateMessage,
 } from './useMessages';
 import { MessageItem } from './MessageItem';
+import { useToggleReaction } from '../reactions/useReactions';
 import { Scrollable } from '../../design-system/primitives';
 
 type Props = {
@@ -28,6 +29,7 @@ export function MessageList({ workspaceId, channelId }: Props): JSX.Element {
   const history = useMessageHistory(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
+  const reactMut = useToggleReaction(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const messages = useMemo<MessageDto[]>(() => {
@@ -87,6 +89,12 @@ export function MessageList({ workspaceId, channelId }: Props): JSX.Element {
           }}
           onDelete={() => {
             void delMut.mutate(m.id);
+          }}
+          onToggleReaction={(emoji, byMe) => {
+            // Optimistic rows have tempIds — they can't accept reactions
+            // until the server roundtrip replaces them with a real id.
+            if (m.id.startsWith('tmp-')) return;
+            reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
           }}
         />
       ))}
