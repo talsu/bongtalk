@@ -237,10 +237,10 @@ test('polish: Enter during IME composition on message edit does NOT save (R2-ime
 
 // Reviewer R2 second discovery: Ctrl+K command palette input — same
 // Enter-during-composition bug. Committing a Korean search term used
-// to fire the first filtered action. This scenario just asserts that
-// Enter during composition does NOT close the palette; the inverse
-// (post-composition Enter runs) is covered by existing shell/keyboard
-// suites.
+// to fire the first filtered action. The negative half (Enter mid-
+// composition) is the regression we guard; the positive half is
+// asserted immediately after by ending composition + pressing Enter
+// on a concrete channel match and checking the URL transitions.
 test('polish: Enter during IME composition in Ctrl+K palette does NOT run (R2-ime-palette-half-runs)', async ({
   page,
   request,
@@ -293,4 +293,18 @@ test('polish: Enter during IME composition in Ctrl+K palette does NOT run (R2-im
   await page.waitForTimeout(400);
   expect(page.url()).toBe(beforeUrl);
   await expect(input).toBeVisible();
+
+  // Positive half: end composition, replace query with a deterministic
+  // channel name match, then Enter navigates. This matches the dual
+  // assertion shape used by the composer / thread / edit IME specs.
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLInputElement>('[data-testid="palette-input"]');
+    if (!el) throw new Error('palette-input not found');
+    el.dispatchEvent(new CompositionEvent('compositionend', { data: '하' }));
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+    setter?.call(el, 'random');
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  await page.keyboard.press('Enter');
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}/random`));
 });
