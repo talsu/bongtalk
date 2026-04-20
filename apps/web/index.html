@@ -1,5 +1,7 @@
 <!doctype html>
-<html lang="ko">
+<!-- Dark-first. Light is a [data-theme="light"] flip handled entirely
+     inside /design-system/tokens.css — do NOT rebuild it per component. -->
+<html lang="ko" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -13,6 +15,11 @@
       href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+
+    <!-- Design system — imported here (before Vite-bundled CSS) so tokens
+         are available to both app styles and any late-hydrated HTML. -->
+    <link rel="stylesheet" href="/design-system/tokens.css" />
+    <link rel="stylesheet" href="/design-system/components.css" />
 
     <!-- Favicons -->
     <link rel="icon" href="/brand-assets/png/favicon-32.png" sizes="32x32" type="image/png" />

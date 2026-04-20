@@ -25,11 +25,23 @@ export function ShortcutHelp(): JSX.Element | null {
       title="단축키"
       description="Discord와 유사한 기본 키맵"
     >
-      <ul className="divide-y divide-border-subtle">
+      <ul>
         {SHORTCUTS.map((s) => (
-          <li key={s.combo} className="flex items-center justify-between py-2 text-sm">
-            <span className="text-foreground">{s.desc}</span>
-            <kbd className="rounded border border-border-subtle bg-bg-subtle px-2 py-0.5 font-mono text-[11px] text-text-muted">
+          <li
+            key={s.combo}
+            className="flex items-center justify-between py-[var(--s-3)] text-[14px]"
+            style={{ borderBottom: '1px solid var(--divider)' }}
+          >
+            <span className="text-text">{s.desc}</span>
+            <kbd
+              className="qf-menu__kbd"
+              style={{
+                border: '1px solid var(--border)',
+                borderRadius: 'var(--r-xs)',
+                padding: '2px 6px',
+                background: 'var(--bg-panel)',
+              }}
+            >
               {s.combo}
             </kbd>
           </li>

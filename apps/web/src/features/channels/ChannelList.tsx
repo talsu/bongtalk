@@ -21,14 +21,6 @@ type Props = {
   activeChannelName: string | null;
 };
 
-/**
- * Channel / category list. Was called `ChannelSidebar` pre-task-008 — the
- * column frame is now provided by `shell/ChannelColumn.tsx` so this file
- * is purely the list, reusable in other layouts (e.g. command palette).
- *
- * Drag handle stays on uncategorized channels only for task-008. Dragging
- * into/out of categories is TODO(task-016).
- */
 function UnreadIndicator({
   count,
   hasMention,
@@ -41,10 +33,7 @@ function UnreadIndicator({
     <span
       data-testid={hasMention ? 'unread-pill-mention' : 'unread-pill'}
       aria-label={hasMention ? `읽지 않은 멘션 ${count}개` : `읽지 않음 ${count}개`}
-      className={cn(
-        'ml-auto inline-flex h-4 min-w-4 items-center justify-center rounded-full px-1 text-[10px] font-semibold',
-        hasMention ? 'bg-danger text-fg-primary' : 'bg-bg-primary text-fg-primary',
-      )}
+      className={cn('qf-badge qf-badge--count', !hasMention && 'bg-accent')}
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -73,14 +62,8 @@ function ChannelRow({
     <li
       ref={setNodeRef}
       style={style}
-      className={cn(
-        'group flex items-center gap-1 rounded-md px-2 py-1 text-sm',
-        active
-          ? 'bg-bg-accent text-foreground'
-          : hasUnread
-            ? 'text-foreground hover:bg-bg-accent'
-            : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
-      )}
+      aria-selected={active || undefined}
+      className={cn('qf-channel group', hasUnread && !active && 'qf-channel--unread')}
       data-testid={`channel-${channel.name}`}
       data-unread={hasUnread ? 'true' : 'false'}
       data-mention={hasMention ? 'true' : 'false'}
@@ -95,19 +78,21 @@ function ChannelRow({
         ⋮⋮
       </span>
       <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
-        <span className="text-text-muted">#</span>&nbsp;{channel.name}
+        <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
         {hasUnread && !active && (
           <span
             data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
             aria-hidden="true"
             className={cn(
               'ml-1 inline-block h-1.5 w-1.5 rounded-full',
-              hasMention ? 'bg-danger' : 'bg-bg-primary',
+              hasMention ? 'bg-danger' : 'bg-accent',
             )}
           />
         )}
       </Link>
-      <UnreadIndicator count={unreadCount} hasMention={hasMention} />
+      <span className="qf-channel__suffix">
+        <UnreadIndicator count={unreadCount} hasMention={hasMention} />
+      </span>
     </li>
   );
 }
@@ -158,10 +143,8 @@ export function ChannelList({
     <nav className="flex flex-col gap-3" data-testid="channel-sidebar" aria-label="채널">
       {(data?.categories ?? []).map((cat) => (
         <section key={cat.id}>
-          <h3 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-            {cat.name}
-          </h3>
-          <ul className="mt-1 space-y-0.5">
+          <h3 className="qf-category">{cat.name}</h3>
+          <ul className="mt-1">
             {cat.channels.map((ch) => {
               const u = unreadByChannel.get(ch.id);
               const active = activeChannelName === ch.name;
@@ -170,32 +153,28 @@ export function ChannelList({
               return (
                 <li
                   key={ch.id}
-                  className={cn(
-                    'flex items-center rounded-md px-2 py-1 text-sm',
-                    active
-                      ? 'bg-bg-accent text-foreground'
-                      : hasUnread
-                        ? 'text-foreground hover:bg-bg-accent'
-                        : 'text-text-muted hover:bg-bg-accent hover:text-foreground',
-                  )}
+                  aria-selected={active || undefined}
+                  className={cn('qf-channel', hasUnread && 'qf-channel--unread')}
                   data-testid={`channel-${ch.name}`}
                   data-unread={hasUnread ? 'true' : 'false'}
                   data-mention={hasMention ? 'true' : 'false'}
                 >
                   <Link to={`/w/${workspaceSlug}/${ch.name}`} className="flex-1 truncate">
-                    <span className="text-text-muted">#</span>&nbsp;{ch.name}
+                    <span className="qf-channel__prefix">#</span>&nbsp;{ch.name}
                     {hasUnread && (
                       <span
                         data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
                         aria-hidden="true"
                         className={cn(
                           'ml-1 inline-block h-1.5 w-1.5 rounded-full',
-                          hasMention ? 'bg-danger' : 'bg-bg-primary',
+                          hasMention ? 'bg-danger' : 'bg-accent',
                         )}
                       />
                     )}
                   </Link>
-                  <UnreadIndicator count={u?.count ?? 0} hasMention={u?.mention ?? false} />
+                  <span className="qf-channel__suffix">
+                    <UnreadIndicator count={u?.count ?? 0} hasMention={u?.mention ?? false} />
+                  </span>
                 </li>
               );
             })}
@@ -204,15 +183,13 @@ export function ChannelList({
       ))}
 
       <section>
-        <h3 className="px-2 text-[10px] font-semibold uppercase tracking-wider text-text-muted">
-          채널
-        </h3>
+        <h3 className="qf-category">채널</h3>
         <DndContext sensors={sensors} onDragEnd={handleDragEnd}>
           <SortableContext
             items={uncategorized.map((c) => c.id)}
             strategy={verticalListSortingStrategy}
           >
-            <ul className="mt-1 space-y-0.5">
+            <ul className="mt-1">
               {uncategorized.map((ch) => {
                 const u = unreadByChannel.get(ch.id);
                 return (
@@ -231,7 +208,7 @@ export function ChannelList({
         </DndContext>
 
         {canManage && (
-          <div className="mt-2 space-y-2 px-2" data-testid="channel-create-panel">
+          <div className="mt-2 flex flex-col gap-2 px-2" data-testid="channel-create-panel">
             <form
               onSubmit={async (e) => {
                 e.preventDefault();
@@ -247,7 +224,7 @@ export function ChannelList({
                 value={newChannel}
                 onChange={(e) => setNewChannel(e.target.value)}
                 placeholder="new-channel"
-                className="h-7 text-xs"
+                className="h-8 text-[13px]"
               />
               <Button
                 data-testid="new-channel-submit"
@@ -255,7 +232,6 @@ export function ChannelList({
                 variant="primary"
                 size="sm"
                 aria-label="채널 생성"
-                className="h-7 px-2 text-xs"
               >
                 +
               </Button>
@@ -275,7 +251,7 @@ export function ChannelList({
                 value={newCategory}
                 onChange={(e) => setNewCategory(e.target.value)}
                 placeholder="category name"
-                className="h-7 text-xs"
+                className="h-8 text-[13px]"
               />
               <Button
                 data-testid="new-category-submit"
@@ -283,7 +259,6 @@ export function ChannelList({
                 variant="secondary"
                 size="sm"
                 aria-label="카테고리 생성"
-                className="h-7 px-2 text-xs"
               >
                 + cat
               </Button>

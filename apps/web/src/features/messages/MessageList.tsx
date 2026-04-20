@@ -67,16 +67,17 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
       role="log"
       aria-live="polite"
       aria-label="메시지"
-      className="flex-1 px-2 py-3"
+      className="flex-1 py-[var(--s-3)]"
     >
       {history.hasNextPage ? (
-        <div className="py-2 text-center text-[11px] text-text-muted">
+        <div className="py-[var(--s-3)] text-center text-[11px] text-text-muted">
           {history.isFetchingNextPage ? '이전 메시지 불러오는 중…' : '스크롤해 더 보기'}
         </div>
       ) : null}
       {messages.length === 0 ? (
-        <div className="py-8 text-center text-xs text-text-muted">
-          아직 메시지가 없습니다. 아래에서 첫 메시지를 보내보세요.
+        <div className="qf-empty">
+          <div className="qf-empty__title">채널이 한산하네요</div>
+          <div className="qf-empty__body">아래에서 첫 메시지를 보내 대화를 시작하세요.</div>
         </div>
       ) : null}
       {messages.map((m) => (

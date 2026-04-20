@@ -19,10 +19,7 @@ export function DropdownContent({
       <RDropdown.Content
         align={align}
         sideOffset={4}
-        className={cn(
-          'z-overlay min-w-[160px] rounded-md border border-border-subtle bg-bg-surface p-1 text-sm shadow-md',
-          className,
-        )}
+        className={cn('qf-menu z-overlay', className)}
       >
         {children}
       </RDropdown.Content>
@@ -41,11 +38,7 @@ export function DropdownItem({
 }): JSX.Element {
   return (
     <RDropdown.Item
-      className={cn(
-        'cursor-pointer rounded px-2 py-1.5 outline-none',
-        'focus:bg-bg-accent focus:text-foreground',
-        danger && 'text-danger focus:text-danger',
-      )}
+      className={cn('qf-menu__item outline-none', danger && 'qf-menu__item--danger')}
       onSelect={(e) => {
         e.preventDefault();
         onSelect?.();
@@ -57,5 +50,5 @@ export function DropdownItem({
 }
 
 export function DropdownSeparator(): JSX.Element {
-  return <RDropdown.Separator className="my-1 h-px bg-border-subtle" />;
+  return <RDropdown.Separator className="qf-menu__separator" />;
 }

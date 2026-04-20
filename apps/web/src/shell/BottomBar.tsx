@@ -3,10 +3,6 @@ import { Avatar, PresenceDot, Tooltip } from '../design-system/primitives';
 import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useUI } from '../stores/ui-store';
 
-/**
- * The 32px-ish strip at the very bottom. Avatar + username on the left,
- * quick controls (theme toggle, shortcut help, logout) on the right.
- */
 export function BottomBar(): JSX.Element {
   const { user, logout } = useAuth();
   const { resolved, toggle } = useTheme();
@@ -15,7 +11,7 @@ export function BottomBar(): JSX.Element {
   return (
     <footer
       data-testid="bottom-bar"
-      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-subtle px-3 text-xs"
+      className="flex h-10 shrink-0 items-center justify-between border-t border-border-subtle bg-bg-panel px-3 text-[13px]"
     >
       <div className="flex items-center gap-2">
         <div className="relative">
@@ -25,10 +21,10 @@ export function BottomBar(): JSX.Element {
           </span>
         </div>
         <div className="leading-tight">
-          <div data-testid="home-username" className="font-medium text-foreground">
+          <div data-testid="home-username" className="text-[13px] font-semibold text-text-strong">
             {user?.username ?? ''}
           </div>
-          <div className="text-[10px] text-text-muted">online</div>
+          <div className="text-[11px] text-text-muted">online</div>
         </div>
       </div>
 
@@ -38,7 +34,7 @@ export function BottomBar(): JSX.Element {
             data-testid="theme-toggle"
             aria-label="테마 전환"
             onClick={toggle}
-            className="rounded-md p-1.5 text-text-muted hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
             {resolved === 'dark' ? '☀' : '☾'}
           </button>
@@ -48,9 +44,9 @@ export function BottomBar(): JSX.Element {
             data-testid="feedback-open"
             aria-label="피드백 보내기"
             onClick={() => setOpenModal('feedback')}
-            className="rounded-md p-1.5 text-text-muted hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
-            💬
+            ✎
           </button>
         </Tooltip>
         <Tooltip label="단축키 (?)" side="top">
@@ -58,7 +54,7 @@ export function BottomBar(): JSX.Element {
             data-testid="shortcut-help"
             aria-label="단축키 도움말"
             onClick={() => setOpenModal('shortcut-help')}
-            className="rounded-md p-1.5 text-text-muted hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
             ?
           </button>
@@ -70,7 +66,7 @@ export function BottomBar(): JSX.Element {
             onClick={() => {
               void logout();
             }}
-            className="rounded-md p-1.5 text-text-muted hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
             ⎋
           </button>

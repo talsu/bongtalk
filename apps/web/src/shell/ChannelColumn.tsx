@@ -26,13 +26,6 @@ type Props = {
   activeChannelName: string | null;
 };
 
-/**
- * 240px second column. Top: workspace name + settings dropdown. Below the
- * header, a collapsible members panel (so legacy role-change E2Es can
- * target `role-select-{username}` without needing a separate settings page).
- * Middle: the ChannelList. Bottom: nothing — global user controls live on
- * the BottomBar.
- */
 export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Element {
   const { data: wsData } = useWorkspace(workspace.id);
   const myRole = wsData?.myRole ?? 'MEMBER';
@@ -45,28 +38,18 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
   const notify = useNotifications((s) => s.push);
   const [open, setOpen] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
-  // Default to open for managers so the legacy role-change E2E flow (clicks
-  // the role-select dropdown without any intermediate "open members" step)
-  // keeps working. Regular members see it collapsed by default.
   const [membersOpen, setMembersOpen] = useState(canManage);
-  // Task-011-B: unread mention count across all channels the caller
-  // can read. Dispatcher keeps this cache live as mention.received
-  // events arrive over WS; opening a channel clears its mentions via
-  // the shared lastReadAt stamp (see MeMentionsService).
   const { data: mentionInbox } = useMentionInbox();
   const mentionCount = mentionInbox?.unreadCount ?? 0;
 
   return (
-    <div
-      data-testid="channel-column"
-      className="flex w-60 shrink-0 flex-col border-r border-border-subtle bg-bg-subtle"
-    >
-      <div className="flex h-12 items-center border-b border-border-subtle">
+    <div data-testid="channel-column" className="qf-channellist">
+      <div className="qf-channellist__head">
         <DropdownRoot open={open} onOpenChange={setOpen}>
           <DropdownTrigger asChild>
             <button
               data-testid="ws-header-trigger"
-              className="flex h-full flex-1 items-center justify-between px-3 text-sm font-semibold text-foreground hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+              className="flex flex-1 items-center justify-between gap-2 bg-transparent text-left text-text-strong hover:text-text-strong"
             >
               <span data-testid="ws-name" className="truncate">
                 {workspace.name}
@@ -122,16 +105,16 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
                 });
               }
             }}
-            className="mr-2 rounded-md px-2 py-1 text-xs text-text-muted hover:bg-bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-btn qf-btn--ghost qf-btn--sm"
           >
-            +초대
+            + 초대
           </button>
         ) : null}
       </div>
       {inviteUrl ? (
         <div
           data-testid="ws-invite-url"
-          className="border-b border-border-subtle bg-bg-accent px-3 py-2 text-[10px] break-all text-foreground"
+          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[11px] break-all text-text"
         >
           {inviteUrl}
         </div>
@@ -140,15 +123,17 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <ul
           data-testid="members-list"
           aria-label="워크스페이스 멤버"
-          className="max-h-40 overflow-y-auto border-b border-border-subtle px-2 py-2 text-xs"
+          className="max-h-40 overflow-y-auto border-b border-border-subtle px-2 py-2 text-[13px]"
         >
           {(members?.members ?? []).map((m) => (
             <li
               key={m.userId}
               data-testid={`member-${m.user.username}`}
-              className="flex items-center justify-between py-1"
+              className="flex items-center justify-between py-1 text-text-secondary"
             >
-              <span className={cn('truncate', m.role === 'OWNER' && 'font-semibold')}>
+              <span
+                className={cn('truncate', m.role === 'OWNER' && 'font-semibold text-text-strong')}
+              >
                 {m.user.username}
               </span>
               {canManage && m.role !== 'OWNER' ? (
@@ -169,7 +154,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
                       });
                     }
                   }}
-                  className="rounded border border-border-subtle bg-bg-surface px-1 py-0.5 text-[10px]"
+                  className="qf-input qf-btn--sm !h-6 !w-auto !px-2 text-[11px]"
                 >
                   <option value="MEMBER">MEMBER</option>
                   <option value="ADMIN">ADMIN</option>
@@ -187,15 +172,15 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <div
           data-testid="mention-badge"
           aria-label={`읽지 않은 멘션 ${mentionCount}개`}
-          className="flex items-center justify-between border-b border-border-subtle bg-bg-accent px-3 py-1.5 text-xs text-foreground"
+          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-1.5 text-[13px] text-text"
         >
           <span>@ 멘션</span>
-          <span className="inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-danger px-1 text-[10px] font-semibold text-fg-primary">
+          <span className="qf-badge qf-badge--count">
             {mentionCount > 99 ? '99+' : mentionCount}
           </span>
         </div>
       ) : null}
-      <div className="flex-1 overflow-y-auto px-2 py-2">
+      <div className="qf-channellist__body">
         <OnboardingCard />
         <ChannelList
           workspaceId={workspace.id}

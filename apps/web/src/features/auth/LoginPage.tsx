@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginRequest, LoginRequestSchema } from '@qufox/shared-types';
-import { Button } from '../../design-system/primitives';
+import { Button, Input } from '../../design-system/primitives';
 import { BrandMark } from '../../design-system/brand/BrandMark';
 import { useAuth } from './AuthProvider';
 
@@ -31,38 +31,49 @@ export function LoginPage(): JSX.Element {
   });
 
   return (
-    <main className="min-h-screen flex items-center justify-center bg-background">
-      <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow">
-        <BrandMark variant="wordmark" size={28} className="mb-5" />
-        <h1 className="text-2xl font-semibold text-foreground">Log in</h1>
-        <p className="mt-1 text-sm text-text-muted">Welcome back.</p>
-        <form className="mt-6 space-y-4" onSubmit={onSubmit}>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Email</label>
-            <input
+    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+      <section
+        className="w-full max-w-md p-[var(--s-9)]"
+        style={{
+          background: 'var(--bg-elevated)',
+          border: '1px solid var(--border)',
+          borderRadius: 'var(--r-xl)',
+          boxShadow: 'var(--elev-2)',
+        }}
+      >
+        <BrandMark variant="wordmark" size={28} className="mb-[var(--s-6)]" />
+        <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign in</div>
+        <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+          다시 만나서 반가워요
+        </h1>
+        <p className="mt-[var(--s-2)] text-[13px] text-text-muted">
+          이메일과 비밀번호를 입력해 로그인하세요.
+        </p>
+        <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
+          <div className="qf-field">
+            <label className="qf-field__label">Email</label>
+            <Input
               data-testid="login-email"
               type="email"
               autoComplete="email"
-              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
+              invalid={!!errors.email}
               {...register('email')}
             />
-            {errors.email && <p className="mt-1 text-xs text-danger">{errors.email.message}</p>}
+            {errors.email && <p className="qf-field__error">{errors.email.message}</p>}
           </div>
-          <div>
-            <label className="block text-sm font-medium text-foreground">Password</label>
-            <input
+          <div className="qf-field">
+            <label className="qf-field__label">Password</label>
+            <Input
               data-testid="login-password"
               type="password"
               autoComplete="current-password"
-              className="mt-1 w-full rounded-md border border-border-strong bg-bg-surface px-3 py-2 text-sm text-foreground"
+              invalid={!!errors.password}
               {...register('password')}
             />
-            {errors.password && (
-              <p className="mt-1 text-xs text-danger">{errors.password.message}</p>
-            )}
+            {errors.password && <p className="qf-field__error">{errors.password.message}</p>}
           </div>
           {serverError && (
-            <p data-testid="login-error" className="text-xs text-danger">
+            <p data-testid="login-error" className="qf-field__error">
               {serverError}
             </p>
           )}
@@ -70,15 +81,16 @@ export function LoginPage(): JSX.Element {
             data-testid="login-submit"
             type="submit"
             disabled={isSubmitting}
+            size="lg"
             className="w-full"
           >
-            {isSubmitting ? 'Signing in…' : 'Sign in'}
+            {isSubmitting ? '로그인 중…' : '로그인'}
           </Button>
         </form>
-        <p className="mt-6 text-sm text-text-muted">
-          Need an account?{' '}
-          <Link to="/signup" className="font-medium text-foreground underline">
-            Sign up
+        <p className="mt-[var(--s-6)] text-[13px] text-text-muted">
+          계정이 없으신가요?{' '}
+          <Link to="/signup" className="font-medium text-link hover:text-link-hover">
+            가입하기
           </Link>
         </p>
       </section>

@@ -1,0 +1,234 @@
+/* qufox · design-system tokens
+ * Dark-first. Semantic aliases flip under [data-theme="light"].
+ * Import at the root of your stylesheet:
+ *   @import "/design-system/tokens.css";
+ */
+
+:root {
+  /* ───── Brand (from brand-assets/tokens.css) ───── */
+  --qufox-night:    #1E1B4B;
+  --qufox-lavender: #E9D5FF;
+  --qufox-violet:   #8B5CF6;
+  --qufox-paper:    #FAFAFF;
+
+  /* ───── Neutral scale (cool-navy tinted) ─────────
+   * Used for all surfaces, borders, and text in dark mode.
+   * Generated along the night-lavender axis so chrome harmonizes with brand. */
+  --n-0:   #0E0C2A;   /* deepest — app shell background */
+  --n-1:   #141232;   /* chat canvas */
+  --n-2:   #1A1840;   /* sidebar / panels */
+  --n-3:   #221F4F;   /* elevated surface (modals, popovers) */
+  --n-4:   #2C285E;   /* hovered surface */
+  --n-5:   #3A3570;   /* pressed / selected */
+  --n-6:   #4D4780;   /* dividers / strong borders */
+  --n-7:   #6B6599;   /* disabled text */
+  --n-8:   #9892BF;   /* muted text (timestamps, helpers) */
+  --n-9:   #C4BFDC;   /* secondary text */
+  --n-10:  #E9D5FF;   /* primary text (= lavender) */
+  --n-11:  #F7F1FF;   /* headings, emphasized */
+
+  /* ───── Accent scale (violet) ───── */
+  --a-50:  #F5EEFF;
+  --a-100: #E9DCFF;
+  --a-200: #D4B8FF;
+  --a-300: #B48EFF;
+  --a-400: #9D6FFD;
+  --a-500: #8B5CF6;   /* primary accent */
+  --a-600: #7848E0;
+  --a-700: #5F38B8;
+  --a-800: #472A8C;
+  --a-900: #2F1C5E;
+
+  /* ───── Semantic status ───── */
+  --ok-400:     #4ADE80;   /* online / success */
+  --ok-600:     #16A34A;
+  --warn-400:   #FBBF24;   /* idle */
+  --warn-600:   #D97706;
+  --danger-400: #F87171;   /* DnD / error */
+  --danger-600: #DC2626;
+  --info-400:   #60A5FA;
+  --info-600:   #2563EB;
+
+  /* ───── Typography ───── */
+  --font-sans:    "Space Grotesk", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --font-mono:    "Geist Mono", ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+
+  --fs-11:  0.6875rem;   /* 11px — timestamps, tags */
+  --fs-12:  0.75rem;     /* 12px — small labels */
+  --fs-13:  0.8125rem;   /* 13px — helpers, metadata */
+  --fs-14:  0.875rem;    /* 14px — secondary body */
+  --fs-15:  0.9375rem;   /* 15px — message body (base) */
+  --fs-16:  1rem;        /* 16px — settings body */
+  --fs-18:  1.125rem;    /* 18px — section titles */
+  --fs-20:  1.25rem;     /* 20px — modal titles */
+  --fs-24:  1.5rem;      /* 24px — page titles */
+  --fs-32:  2rem;        /* 32px — display */
+
+  --lh-tight:  1.2;
+  --lh-snug:   1.35;
+  --lh-normal: 1.5;
+  --lh-loose:  1.65;
+
+  --tracking-tight:  -0.02em;   /* headings */
+  --tracking-normal: 0;
+  --tracking-caps:   0.12em;    /* eyebrow caps */
+
+  /* ───── Spacing (4px base) ───── */
+  --s-0:   0;
+  --s-1:   2px;
+  --s-2:   4px;
+  --s-3:   8px;
+  --s-4:   12px;
+  --s-5:   16px;
+  --s-6:   20px;
+  --s-7:   24px;
+  --s-8:   32px;
+  --s-9:   40px;
+  --s-10:  48px;
+  --s-11:  64px;
+  --s-12:  80px;
+
+  /* ───── Radii (medium — 8–14px, per brand direction) ───── */
+  --r-xs:    4px;   /* badges, tags */
+  --r-sm:    6px;   /* chips, small inputs */
+  --r-md:    8px;   /* buttons */
+  --r-lg:    10px;  /* inputs, menus */
+  --r-xl:    14px;  /* cards, modals */
+  --r-2xl:   20px;  /* large surfaces */
+  --r-pill:  999px; /* avatars, pills */
+
+  /* ───── Elevation (dark-tuned shadows + borders) ───── */
+  --elev-1: 0 1px 2px rgba(0,0,0,0.35);
+  --elev-2: 0 2px 6px rgba(0,0,0,0.4), 0 1px 2px rgba(0,0,0,0.3);
+  --elev-3: 0 6px 16px rgba(0,0,0,0.45), 0 2px 4px rgba(0,0,0,0.3);
+  --elev-4: 0 16px 40px rgba(0,0,0,0.55), 0 4px 8px rgba(0,0,0,0.35);
+  --ring-accent:  0 0 0 2px var(--a-500);
+  --ring-focus:   0 0 0 2px var(--a-400), 0 0 0 4px rgba(139,92,246,0.3);
+  --ring-danger:  0 0 0 2px var(--danger-400);
+
+  /* ───── Motion ───── */
+  --ease-standard: cubic-bezier(0.2, 0, 0, 1);
+  --ease-emphasized: cubic-bezier(0.3, 0, 0, 1);
+  --ease-spring:   cubic-bezier(0.34, 1.56, 0.64, 1);
+  --dur-instant:   80ms;
+  --dur-fast:      140ms;
+  --dur-base:      220ms;
+  --dur-slow:      320ms;
+  --dur-deliberate: 520ms;
+
+  /* ───── Z-index layers ───── */
+  --z-base:      0;
+  --z-header:    10;
+  --z-dropdown:  20;
+  --z-sticky:    30;
+  --z-modal-bg:  40;
+  --z-modal:     41;
+  --z-toast:     50;
+  --z-tooltip:   60;
+
+  /* ───── Layout widths ───── */
+  --w-serverlist:  72px;
+  --w-channellist: 240px;
+  --w-memberlist:  240px;
+  --h-topbar:      48px;
+  --h-typingbar:   24px;
+
+  /* ───── Semantic aliases (dark default) ───── */
+  --bg-app:        var(--n-0);
+  --bg-chat:       var(--n-1);
+  --bg-panel:      var(--n-2);
+  --bg-elevated:   var(--n-3);
+  --bg-hover:      var(--n-4);
+  --bg-selected:   var(--n-5);
+  --bg-input:      var(--n-0);
+  --border:        var(--n-4);
+  --border-strong: var(--n-6);
+  --divider:       var(--n-3);
+
+  --text:          var(--n-10);
+  --text-strong:   var(--n-11);
+  --text-secondary:var(--n-9);
+  --text-muted:    var(--n-8);
+  --text-disabled: var(--n-7);
+  --text-onAccent: #FFFFFF;
+
+  --accent:        var(--a-500);
+  --accent-hover:  var(--a-400);
+  --accent-press:  var(--a-600);
+  --accent-subtle: var(--a-900);
+
+  --link:          var(--a-300);
+  --link-hover:    var(--a-200);
+  --mention-bg:    rgba(139,92,246,0.15);
+  --mention-bgHov: rgba(139,92,246,0.25);
+
+  --status-online: var(--ok-400);
+  --status-idle:   var(--warn-400);
+  --status-dnd:    var(--danger-400);
+  --status-offline:var(--n-7);
+
+  --scrollbar-thumb: rgba(233,213,255,0.12);
+  --scrollbar-thumbH: rgba(233,213,255,0.24);
+}
+
+[data-theme="light"] {
+  --bg-app:        var(--qufox-paper);
+  --bg-chat:       #FFFFFF;
+  --bg-panel:      #F4F1FA;
+  --bg-elevated:   #FFFFFF;
+  --bg-hover:      #EDE7F7;
+  --bg-selected:   #E1D6F2;
+  --bg-input:      #FFFFFF;
+  --border:        #E1DCEC;
+  --border-strong: #C9C2DB;
+  --divider:       #EDE9F4;
+
+  --text:          var(--qufox-night);
+  --text-strong:   #0F0C2B;
+  --text-secondary:#3F3A5C;
+  --text-muted:    #6A6689;
+  --text-disabled: #A49FBB;
+  --text-onAccent: #FFFFFF;
+
+  --accent:        var(--a-500);
+  --accent-hover:  var(--a-600);
+  --accent-press:  var(--a-700);
+  --accent-subtle: #F0E8FF;
+
+  --link:          var(--a-600);
+  --link-hover:    var(--a-700);
+  --mention-bg:    rgba(139,92,246,0.10);
+  --mention-bgHov: rgba(139,92,246,0.18);
+
+  --elev-1: 0 1px 2px rgba(30,27,75,0.08);
+  --elev-2: 0 2px 8px rgba(30,27,75,0.10), 0 1px 2px rgba(30,27,75,0.05);
+  --elev-3: 0 8px 24px rgba(30,27,75,0.12), 0 2px 4px rgba(30,27,75,0.06);
+  --elev-4: 0 20px 48px rgba(30,27,75,0.18);
+
+  --scrollbar-thumb: rgba(30,27,75,0.15);
+  --scrollbar-thumbH: rgba(30,27,75,0.28);
+}
+
+/* ───── Base element styles ───── */
+html, body {
+  margin: 0;
+  background: var(--bg-app);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-15);
+  line-height: var(--lh-normal);
+  font-feature-settings: "ss01", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+* { box-sizing: border-box; }
+
+/* Scrollbars (dark-aware) */
+*::-webkit-scrollbar { width: 8px; height: 8px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
+*::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumbH); }
+
+/* Focus ring — always visible via keyboard, hidden on mouse click */
+:focus-visible { outline: none; box-shadow: var(--ring-focus); }
+
+::selection { background: var(--accent); color: white; }
