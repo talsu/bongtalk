@@ -97,13 +97,15 @@ test('unread dot bumps on realtime message and clears on channel open', async ({
   });
 
   // Member's sidebar should flip #general into unread. Give the
-  // WS propagation up to 10s.
-  const unreadDot = memberPage.locator('[data-testid=channel-general] [data-testid^=unread-dot]');
-  await expect(unreadDot).toBeVisible({ timeout: 10_000 });
+  // WS propagation up to 10s. DS mockup uses a single count pill
+  // (`qf-badge--count`) rather than an inline dot — select on the
+  // pill testid.
+  const unreadPill = memberPage.locator('[data-testid=channel-general] [data-testid^=unread-pill]');
+  await expect(unreadPill).toBeVisible({ timeout: 10_000 });
 
   // Opening #general clears the unread.
   await memberPage.goto(`/w/${workspace.slug}/${general.name}`);
-  await expect(unreadDot).toBeHidden({ timeout: 5_000 });
+  await expect(unreadPill).toBeHidden({ timeout: 5_000 });
 
   // Mention variant: owner @mentions the member while the member is
   // looking at #offtopic.
@@ -125,10 +127,10 @@ test('unread dot bumps on realtime message and clears on channel open', async ({
     // never saw.
     data: { content: `@${memberUsername} ping` },
   });
-  const mentionDot = memberPage.locator(
-    '[data-testid=channel-general] [data-testid=unread-dot-mention]',
+  const mentionPill = memberPage.locator(
+    '[data-testid=channel-general] [data-testid=unread-pill-mention]',
   );
-  await expect(mentionDot).toBeVisible({ timeout: 10_000 });
+  await expect(mentionPill).toBeVisible({ timeout: 10_000 });
 
   await memberPage.close();
   await ownerCtx.close();

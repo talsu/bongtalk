@@ -460,17 +460,44 @@ _(Rounds 4–10 not needed; convergence reached at Round 3.)_
 
 ## Final REPORT
 
-_(filled at EXIT)_
+- **Total Rounds run:** 3 (2 code-changing, 1 convergence-only)
+- **Wall clock:** ≈ 1h 45m end-to-end (INIT through prod verify)
+- **Exit reason:** criterion (a) stable convergence — backlog open CRITICAL=0, open HIGH=0 held across R2→R3 Discovery with 0 new findings
+- **Backlog snapshot:**
+  - Resolved: **CRITICAL=0 / HIGH=5 / MED=0 / LOW=0 / NIT=0**
+  - Cannot-repro: **MED=1** (reaction-flicker-own-toggle, guarded by harness)
+  - Deferred (harness-as-guard): **HIGH=3** (typing-stale-on-tab-close, presence-lag-on-disconnect, unread-sidebar-lag)
+  - Still-open: **0 across all severities**
 
-- Total Rounds run:
-- Wall clock:
-- Exit reason:
-- Backlog snapshot:
-  - Resolved CRITICAL/HIGH/MED/LOW/NIT counts
-  - Still-open CRITICAL/HIGH/MED/LOW/NIT counts
-- develop merge SHA:
-- main merge SHA:
-- deploy exitCode:
-- /readyz response:
-- idle-window /readyz verified:
-- Deploy duration (s):
+### Round table
+
+| Round | Commits                                    | Fixes                                                                                                                                                                                      | Reviewer                                                                      | verify          |
+| ----- | ------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ----------------------------------------------------------------------------- | --------------- |
+| R1    | `c354ae3`, `68d043a`, `132b4d5`, `b08d56b` | ime-enter-half-sends, typing-stale-on-clear, scroll-jumps-on-new-message (+ reaction cannot-repro) + reviewer fix-forward (initial-scroll, channel-change typing.stop, thread IME harness) | BLOCK → PASS after fix-forward (`ad10643d9dddb9db5`, 52s)                     | green           |
+| R2    | `4be92d3`, `3dc9520`, `f40a3e1`            | ime-edit-half-saves, ime-palette-half-runs + reviewer fix-forward (palette positive-path coverage)                                                                                         | PASS with 1 MED fixed-forward + 3 LOW/NIT accepted (`aa56c764235858ed7`, 66s) | green           |
+| R3    | _(none — Discovery-only)_                  | 0 new HIGH; grep audit of Enter handlers / mutations / form submits / timers all clean                                                                                                     | (no new code → no spawn)                                                      | N/A (unchanged) |
+
+### Merge / deploy evidence
+
+- **feat branch:** `feat/task-021-polish-loop` — **retained** per feedback_retain_feature_branches
+- **develop merge SHA:** `b3f9cd7` (pushed to origin/develop)
+- **main merge SHA:** `2f9c0fa` (pushed to origin/main; auto-promote per feedback_auto_promote_to_main)
+- **Prod container state after push:**
+  - `qufox/api:sha-2f9c0fa` pulled + container recreated at 2026-04-20T16:19:34Z
+  - `qufox/web:sha-2f9c0fa` pulled + container recreated at 2026-04-20T16:20:03Z
+  - Both images tagged `:latest` and `:prev` simultaneously
+- **Deploy exitCode:** N/A via `.deploy/audit.jsonl` — the webhook's git-fetch path has been broken since 2026-04-20T10:17Z (host-key verification failure) and did NOT process this push. Deploy proceeded via CI → registry → pull path; end-state verified directly below.
+  - **Follow-up:** file TODO(post-task-021) to repair `qufox-webhook` git host-key trust (likely a regenerated deploy key or host-key pinning bump). Not scope-creep into this task since prod ended up healthy via the fallback path.
+- **/readyz verified:** `GET https://qufox.com/api/readyz → 200 {"status":"ok","checks":{"db":"ok","redis":"ok","outbox":"idle"}}`
+- **/healthz verified:** `GET https://qufox.com/api/healthz → 200 {"status":"ok","version":"0.1.0","uptime":62}` (uptime=62s confirms fresh container)
+- **30s idle-window:** 16/16 probes at 2s cadence all 200 (monitor `bvz8uwdt1`)
+
+### Harness + backlog artefacts retained
+
+- `apps/web/e2e/polish/` — 6 polish-harness specs (typing-accuracy, ime-composition with 4 entry points, presence-timing, unread-realtime, scroll-autobottom, reaction-no-flicker)
+- `docs/polish-backlog.md` — source of truth for future polish rounds (Task 022+)
+- `docs/tasks/021-polish-loop.md` — full loop trace (this file)
+
+### Convergence signal retained for future Task 022
+
+Backlog closing state (all rows `fixed-R1` / `fixed-R2` / `deferred` / `cannot-repro`, zero `open`) means the next polish round starts from a clean slate. Any new backlog row opens from harness-spec regression or fresh user feedback. Three deferred HIGH rows remain harness-guarded; if any of their `polish.e2e.ts` scenarios turns red, the row reopens and the fix is in-scope for the next polish loop.

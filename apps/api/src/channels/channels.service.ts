@@ -103,6 +103,7 @@ export class ChannelsService {
         id: cat.id,
         workspaceId: cat.workspaceId,
         name: cat.name,
+        description: cat.description,
         position: cat.position.toString(),
         createdAt: cat.createdAt.toISOString(),
         channels: (byCat.get(cat.id) ?? []).map((c) => this.toDto(c)),

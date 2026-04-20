@@ -41,7 +41,12 @@ export class CategoriesService {
     try {
       return await this.prisma.$transaction(async (tx) => {
         const cat = await tx.category.create({
-          data: { workspaceId, name: input.name, position },
+          data: {
+            workspaceId,
+            name: input.name,
+            description: input.description ?? null,
+            position,
+          },
         });
         await this.outbox.record(tx, {
           aggregateType: 'category',
@@ -54,6 +59,7 @@ export class CategoriesService {
               id: cat.id,
               workspaceId: cat.workspaceId,
               name: cat.name,
+              description: cat.description,
               position: cat.position.toString(),
             },
           },
@@ -83,7 +89,10 @@ export class CategoriesService {
         // we can't touch a category that belongs to a different workspace.
         const result = await tx.category.updateMany({
           where: { id: categoryId, workspaceId },
-          data: { ...(input.name !== undefined ? { name: input.name } : {}) },
+          data: {
+            ...(input.name !== undefined ? { name: input.name } : {}),
+            ...(input.description !== undefined ? { description: input.description } : {}),
+          },
         });
         if (result.count === 0) {
           throw new DomainError(ErrorCode.CATEGORY_NOT_FOUND, 'category not found');
@@ -101,6 +110,7 @@ export class CategoriesService {
               id: cat.id,
               workspaceId: cat.workspaceId,
               name: cat.name,
+              description: cat.description,
               position: cat.position.toString(),
             },
           },
@@ -132,12 +142,7 @@ export class CategoriesService {
     });
   }
 
-  async move(
-    workspaceId: string,
-    categoryId: string,
-    actorId: string,
-    input: MoveCategoryRequest,
-  ) {
+  async move(workspaceId: string, categoryId: string, actorId: string, input: MoveCategoryRequest) {
     return this.prisma.$transaction(async (tx) => {
       // Scope the target category by workspaceId — prevents an ADMIN of
       // workspace A from reordering workspace B's categories.
@@ -190,6 +195,7 @@ export class CategoriesService {
             id: cat.id,
             workspaceId: cat.workspaceId,
             name: cat.name,
+            description: cat.description,
             position: cat.position.toString(),
           },
         },

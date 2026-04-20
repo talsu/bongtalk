@@ -26,6 +26,7 @@ export function CreateChannelModal({
   onClose,
 }: Props): JSX.Element | null {
   const [name, setName] = useState('');
+  const [topic, setTopic] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const notify = useNotifications((s) => s.push);
   const createMut = useCreateChannel(workspaceId);
@@ -33,6 +34,7 @@ export function CreateChannelModal({
   useEffect(() => {
     if (open) {
       setName('');
+      setTopic('');
       setSubmitting(false);
     }
   }, [open]);
@@ -45,10 +47,12 @@ export function CreateChannelModal({
     if (!canSubmit) return;
     setSubmitting(true);
     try {
+      const trimmedTopic = topic.trim();
       await createMut.mutateAsync({
         name: name.trim(),
         type: 'TEXT',
         categoryId: categoryId ?? undefined,
+        ...(trimmedTopic ? { topic: trimmedTopic } : {}),
       });
       onClose();
     } catch (err) {
@@ -92,6 +96,22 @@ export function CreateChannelModal({
             maxLength={80}
           />
           <p className="qf-field__hint">공백 대신 하이픈(-)을 쓰면 깔끔해 보여요.</p>
+        </div>
+        <div className="qf-field">
+          <label className="qf-field__label" htmlFor="create-channel-topic">
+            설명 <span className="text-text-muted">(선택)</span>
+          </label>
+          <Input
+            id="create-channel-topic"
+            data-testid="create-channel-topic"
+            value={topic}
+            onChange={(e) => setTopic(e.target.value)}
+            placeholder="예: 공지 · 일반 대화"
+            maxLength={1024}
+          />
+          <p className="qf-field__hint">
+            채널 상단 제목 옆에 표시됩니다. 나중에 언제든 수정할 수 있어요.
+          </p>
         </div>
         <div className="qf-modal__footer">
           <Button type="button" variant="ghost" onClick={onClose}>

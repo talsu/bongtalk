@@ -5,7 +5,11 @@ const API = 'http://localhost:43001';
 const ORIGIN = 'http://localhost:45173';
 
 test.setTimeout(60_000);
-test('OWNER promotes MEMBER → ADMIN via dropdown; MEMBER leaves workspace', async ({ page, request, context }) => {
+test('OWNER promotes MEMBER → ADMIN via dropdown; MEMBER leaves workspace', async ({
+  page,
+  request,
+  context,
+}) => {
   const stamp = Date.now();
   const slug = `rl-${stamp.toString(36)}`;
 
@@ -65,24 +69,33 @@ test('OWNER promotes MEMBER → ADMIN via dropdown; MEMBER leaves workspace', as
     headers: { origin: ORIGIN, authorization: `Bearer ${bToken}` },
   });
   expect(acceptRes.status()).toBe(201);
-  const bUserId = (await request.get(`${API}/auth/me`, {
-    headers: { authorization: `Bearer ${bToken}` },
-  }).then((r) => r.json())).id as string;
+  const bUserId = (
+    await request
+      .get(`${API}/auth/me`, {
+        headers: { authorization: `Bearer ${bToken}` },
+      })
+      .then((r) => r.json())
+  ).id as string;
 
-  // --- Owner (in UI) promotes B → ADMIN via dropdown ---
+  // --- Owner (in UI) promotes B → ADMIN via the members modal ---
   await page.reload();
-  await expect(page.getByTestId(`member-${usernameB}`)).toBeVisible();
-  await page.getByTestId(`role-select-${usernameB}`).selectOption('ADMIN');
-  await expect(page.getByTestId(`role-${usernameB}`)).toHaveText('ADMIN');
+  await page.getByTestId('ws-header-trigger').click();
+  await page.getByTestId('ws-open-members').click();
+  await expect(page.getByTestId(`ws-member-${usernameB}`)).toBeVisible();
+  await page.getByTestId(`ws-role-select-${usernameB}`).selectOption('ADMIN');
+  await expect(page.getByTestId(`ws-role-select-${usernameB}`)).toHaveValue('ADMIN');
+  await page.keyboard.press('Escape');
 
   // --- B removes themselves via API (same effect as "leave" button) ---
   const leaveRes = await request.post(`${API}/workspaces/${wsId}/members/me/leave`, {
     headers: { origin: ORIGIN, authorization: `Bearer ${bToken}` },
   });
   expect(leaveRes.status()).toBe(204);
-  // Smoke-check: the member row disappears from the UI on reload.
+  // Smoke-check: the member row disappears from the modal on reload.
   await page.reload();
-  await expect(page.getByTestId(`member-${usernameB}`)).toHaveCount(0);
+  await page.getByTestId('ws-header-trigger').click();
+  await page.getByTestId('ws-open-members').click();
+  await expect(page.getByTestId(`ws-member-${usernameB}`)).toHaveCount(0);
   // Suppress unused var warnings
   expect(bUserId).toBeDefined();
 });
