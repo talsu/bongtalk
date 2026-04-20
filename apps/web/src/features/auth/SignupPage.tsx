@@ -4,6 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { SignupRequest, SignupRequestSchema } from '@qufox/shared-types';
 import { Button } from '../../design-system/primitives';
+import { BrandMark } from '../../design-system/brand/BrandMark';
 import { useAuth } from './AuthProvider';
 
 export function SignupPage(): JSX.Element {
@@ -29,8 +30,9 @@ export function SignupPage(): JSX.Element {
   return (
     <main className="min-h-screen flex items-center justify-center bg-background">
       <section className="w-full max-w-md rounded-2xl border border-border-subtle bg-bg-surface p-8 shadow">
+        <BrandMark variant="wordmark" size={28} className="mb-5" />
         <h1 className="text-2xl font-semibold text-foreground">Create account</h1>
-        <p className="mt-1 text-sm text-text-muted">Start talking on qufox in under a minute.</p>
+        <p className="mt-1 text-sm text-text-muted">Start talking in under a minute.</p>
         <form className="mt-6 space-y-4" onSubmit={onSubmit}>
           <div>
             <label className="block text-sm font-medium text-foreground">Email</label>

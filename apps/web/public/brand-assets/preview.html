@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<title>qufox · Brand assets preview</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="tokens.css">
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 48px; background: var(--qufox-paper);
+    font: 400 15px/1.55 var(--font-sans); color: var(--qufox-night);
+  }
+  h1 {
+    font-weight: 600; letter-spacing: -0.03em; font-size: 44px;
+    margin: 0 0 4px;
+  }
+  .eyebrow {
+    font: 500 11px var(--font-mono); text-transform: uppercase;
+    letter-spacing: 2px; color: var(--qufox-violet); margin-bottom: 10px;
+  }
+  .lede { opacity: 0.7; max-width: 680px; margin: 0 0 40px; }
+  section { margin: 48px 0 64px; }
+  h2 {
+    font-weight: 600; font-size: 22px; margin: 0 0 4px;
+    letter-spacing: -0.01em;
+  }
+  .sub { opacity: 0.6; font-size: 13px; margin-bottom: 18px; }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+  }
+  .card {
+    border: 1px solid rgba(30,27,75,0.12);
+    border-radius: var(--radius-lg); overflow: hidden;
+    background: #fff; display: flex; flex-direction: column;
+  }
+  .card .preview {
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px; min-height: 140px;
+    background: #fff;
+  }
+  .card .preview.dark { background: var(--qufox-night); }
+  .card .preview.checker {
+    background-image:
+      linear-gradient(45deg, #eee 25%, transparent 25%),
+      linear-gradient(-45deg, #eee 25%, transparent 25%),
+      linear-gradient(45deg, transparent 75%, #eee 75%),
+      linear-gradient(-45deg, transparent 75%, #eee 75%);
+    background-size: 16px 16px;
+    background-position: 0 0, 0 8px, 8px -8px, -8px 0;
+    background-color: #fff;
+  }
+  .card .meta {
+    padding: 12px 14px; border-top: 1px solid rgba(30,27,75,0.08);
+    font: 500 11px var(--font-mono);
+    display: flex; justify-content: space-between; align-items: center;
+    gap: 8px;
+  }
+  .card .meta .name { color: var(--qufox-night); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .card .meta .size { opacity: 0.5; font-size: 10px; }
+  .swatch-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; }
+  .swatch {
+    border-radius: var(--radius-md); padding: 20px; display: flex;
+    flex-direction: column; justify-content: space-between; min-height: 140px;
+    border: 1px solid rgba(30,27,75,0.08);
+  }
+  .swatch .hex { font: 500 12px var(--font-mono); opacity: 0.8; }
+  .swatch .name { font-weight: 600; font-size: 15px; }
+  .favs { display: flex; gap: 20px; align-items: flex-end; padding: 24px; background: #fff; border: 1px solid rgba(30,27,75,0.12); border-radius: var(--radius-lg); }
+  .favs .item { text-align: center; }
+  .favs img { display: block; margin: 0 auto 8px; }
+  .favs .label { font: 500 10px var(--font-mono); opacity: 0.5; text-transform: uppercase; letter-spacing: 1px; }
+  .tip {
+    margin-top: 10px; padding: 12px 14px; background: #F5EEFF;
+    border-radius: var(--radius-md); font-size: 13px; color: var(--qufox-night);
+  }
+  code {
+    font: 500 12px var(--font-mono);
+    background: rgba(30,27,75,0.06);
+    padding: 1px 6px; border-radius: 4px;
+  }
+</style>
+</head>
+<body>
+
+<div class="eyebrow">qufox · brand-assets/ · preview</div>
+<h1>Brand asset preview</h1>
+<p class="lede">
+  <code>brand-assets/</code> 폴더의 모든 에셋을 한 페이지에서 확인하세요.
+  실제 사용법과 head 스니펫은 <code>BRAND.md</code>를 참고하세요.
+</p>
+
+<section>
+  <h2>Palette</h2>
+  <div class="sub">Core tokens — tokens.css에 정의됨</div>
+  <div class="swatch-row">
+    <div class="swatch" style="background:#1E1B4B; color:#E9D5FF;">
+      <div class="name">Night</div>
+      <div class="hex">#1E1B4B</div>
+    </div>
+    <div class="swatch" style="background:#E9D5FF; color:#1E1B4B;">
+      <div class="name">Lavender</div>
+      <div class="hex">#E9D5FF</div>
+    </div>
+    <div class="swatch" style="background:#8B5CF6; color:#fff;">
+      <div class="name">Violet</div>
+      <div class="hex">#8B5CF6</div>
+    </div>
+    <div class="swatch" style="background:#FAFAFF; color:#1E1B4B;">
+      <div class="name">Paper</div>
+      <div class="hex">#FAFAFF</div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Symbol variants · SVG</h2>
+  <div class="sub">4개 배리언트. 배경에 따라 골라 쓰세요.</div>
+  <div class="grid">
+    <div class="card">
+      <div class="preview"><img src="svg/fox-symbol-dark.svg" width="96" height="96" alt=""></div>
+      <div class="meta"><span class="name">fox-symbol-dark.svg</span><span class="size">SVG</span></div>
+    </div>
+    <div class="card">
+      <div class="preview"><img src="svg/fox-symbol-light.svg" width="96" height="96" alt=""></div>
+      <div class="meta"><span class="name">fox-symbol-light.svg</span><span class="size">SVG</span></div>
+    </div>
+    <div class="card">
+      <div class="preview checker"><img src="svg/fox-symbol-flat.svg" width="96" height="96" alt=""></div>
+      <div class="meta"><span class="name">fox-symbol-flat.svg</span><span class="size">transparent</span></div>
+    </div>
+    <div class="card">
+      <div class="preview checker" style="color: #1E1B4B;"><span style="color:#1E1B4B; display:inline-flex;"><svg width="96" height="96" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 120" shape-rendering="crispEdges">
+  <defs>
+    <mask id="fox-mask">
+      <rect x="30" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="75" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="52.5" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="60" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+    </mask>
+  </defs>
+  <rect width="120" height="120" fill="currentColor" mask="url(#fox-mask)"></rect>
+</svg></span></div>
+      <div class="meta"><span class="name">fox-symbol-mono.svg</span><span class="size">currentColor</span></div>
+    </div>
+  </div>
+  <div class="tip"><strong>mono</strong>는 <code>currentColor</code>를 사용하므로 CSS에서 <code>color</code>로 틴트 가능합니다. 다크모드 아이콘에 유용.</div>
+</section>
+
+<section>
+  <h2>Wordmark lockups · SVG</h2>
+  <div class="sub">라이트 / 다크 / mono 세 가지</div>
+  <div class="grid">
+    <div class="card">
+      <div class="preview"><img src="svg/fox-wordmark-dark-on-light.svg" height="60" alt="qufox"></div>
+      <div class="meta"><span class="name">fox-wordmark-dark-on-light.svg</span></div>
+    </div>
+    <div class="card">
+      <div class="preview dark"><img src="svg/fox-wordmark-light-on-dark.svg" height="60" alt="qufox"></div>
+      <div class="meta"><span class="name">fox-wordmark-light-on-dark.svg</span></div>
+    </div>
+    <div class="card">
+      <div class="preview" style="color: #8B5CF6;"><span style="color:#8B5CF6; display:inline-flex; height:60px;"><svg height="60" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 353.84 144" shape-rendering="crispEdges">
+  <defs>
+    <mask id="wm-fg">
+      <rect x="30" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="22.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="22.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="90" y="45" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="52.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="60" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="67.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="75" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="82.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="45" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="67.5" y="90" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="52.5" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="60" y="97.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="75" y="60" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="52.5" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+      <rect x="60" y="82.5" width="7.5" height="7.5" fill="black"></rect>
+    </mask>
+    <mask id="wm-acc">
+      <rect x="30" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="30" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="30" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="37.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="75" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+      <rect x="82.5" y="37.5" width="8.1" height="8.1" fill="white"></rect>
+    </mask>
+  </defs>
+  <text x="24" y="72" font-family="Space Grotesk, -apple-system, sans-serif" font-weight="600" font-size="96" letter-spacing="-0.04em" fill="currentColor" dominant-baseline="central">qu</text>
+  <g transform="translate(113.23, 16.36) scale(0.87273)">
+    <rect width="120" height="120" fill="currentColor" mask="url(#wm-fg)"></rect>
+    <rect width="120" height="120" fill="currentColor" mask="url(#wm-acc)"></rect>
+  </g>
+  <text x="206.00" y="72" font-family="Space Grotesk, -apple-system, sans-serif" font-weight="600" font-size="96" letter-spacing="-0.04em" fill="currentColor" dominant-baseline="central">fox</text>
+</svg></span></div>
+      <div class="meta"><span class="name">fox-wordmark-mono.svg</span></div>
+    </div>
+  </div>
+  <div class="tip">워드마크는 항상 SVG로 사용하세요 — 래스터화하면 인라인 여우가 흐려집니다. 최소 높이 20px.</div>
+</section>
+
+<section>
+  <h2>Favicons &amp; app icons · PNG</h2>
+  <div class="sub">브라우저 탭, iOS 홈, PWA</div>
+  <div class="favs">
+    <div class="item"><img src="png/favicon-16.png" width="16" height="16" alt=""><div class="label">16</div></div>
+    <div class="item"><img src="png/favicon-32.png" width="32" height="32" alt=""><div class="label">32</div></div>
+    <div class="item"><img src="png/favicon-48.png" width="48" height="48" alt=""><div class="label">48</div></div>
+    <div class="item"><img src="png/apple-touch-icon.png" width="80" height="80" alt=""><div class="label">apple-touch 180</div></div>
+    <div class="item"><img src="png/icon-192.png" width="96" height="96" alt=""><div class="label">pwa 192</div></div>
+    <div class="item"><img src="png/icon-512.png" width="128" height="128" alt=""><div class="label">pwa 512</div></div>
+    <div class="item"><img src="png/icon-maskable-512.png" width="128" height="128" alt=""><div class="label">maskable 512</div></div>
+  </div>
+</section>
+
+<section>
+  <h2>Open Graph card</h2>
+  <div class="sub">1200×630 · 소셜 공유 미리보기용</div>
+  <img src="png/og-image.png" alt="" style="max-width: 600px; width: 100%; border-radius: var(--radius-lg); border: 1px solid rgba(30,27,75,0.12);">
+</section>
+
+<section>
+  <h2>Drop-in HTML</h2>
+  <div class="sub">BRAND.md의 head 스니펫을 복사해서 모든 페이지 &lt;head&gt;에 붙여넣으세요.</div>
+  <a href="BRAND.md" style="color: var(--qufox-violet); font-weight: 500;">→ Read BRAND.md</a>
+</section>
+
+</body>
+</html>

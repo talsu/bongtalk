@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { Tooltip } from '../design-system/primitives';
+import { BrandMark } from '../design-system/brand/BrandMark';
 import { cn } from '../lib/cn';
 
 type Props = {
@@ -21,6 +22,20 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
       data-testid="workspace-nav"
       className="flex w-[72px] shrink-0 flex-col items-center gap-2 border-r border-border-subtle bg-bg-subtle py-3"
     >
+      {/* Brand symbol at the top of the rail — clicking returns the
+          user to the home redirect (first workspace), matching the
+          Discord-style "guild list" UX. */}
+      <Tooltip label="qufox 홈" side="right">
+        <Link
+          to="/"
+          data-testid="ws-nav-home"
+          aria-label="qufox 홈"
+          className="flex h-10 w-10 items-center justify-center rounded-xl bg-bg-surface transition-all hover:rounded-md"
+        >
+          <BrandMark variant="symbol" size={28} decorative />
+        </Link>
+      </Tooltip>
+      <div className="my-1 h-px w-6 bg-border-subtle" aria-hidden />
       {workspaces.map((ws) => {
         const active = ws.slug === activeSlug;
         return (
