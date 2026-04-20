@@ -73,8 +73,12 @@ export function upsertReactionBucket(
  *   - refill 5 tokens / second
  * Excess mentions do NOT drop — they collapse into a single
  * "N more mentions" toast that re-issues on the next tick.
+ *
+ * Exported so `mention-throttle.spec.ts` can exercise the clock-sensitive
+ * branches with `vi.useFakeTimers` (task-014-A / task-011-follow-7
+ * closure).
  */
-class MentionThrottle {
+export class MentionThrottle {
   private tokens = 5;
   private readonly capacity = 5;
   private readonly refillPerSec = 5;

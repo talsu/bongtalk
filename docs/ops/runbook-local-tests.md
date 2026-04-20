@@ -88,12 +88,12 @@ pass `--reporter=list` to skip the HTML write.
 
 ## Attachment E2E on the NAS
 
-The three attachment-related E2Es in task-012-C/E require a real
-MinIO instance reachable from the test-api container. `docker-compose
-.test.yml` does **not** include MinIO yet (tracked as
-`TODO(task-012-follow-test-minio)`). Until then these three run on
-GHA only; local runs will fail on the first `POST /attachments/presign
--upload`. Running the rest of the e2e suite is fine.
+Task-013-A4 added `test-minio` + `test-minio-init` services to
+`docker-compose.test.yml` so the three attachment E2Es from
+task-012-C/E run locally end-to-end. `docker compose -f docker-compose
+.test.yml up -d --build` spins MinIO alongside Postgres / Redis;
+attach the `qufox-attachments` bucket is seeded by the init
+container and ready before `test-api` reports healthy.
 
 ## Troubleshooting
 

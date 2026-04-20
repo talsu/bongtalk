@@ -4,6 +4,8 @@ import type { Request } from 'express';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { ChannelAccessService } from '../permission/channel-access.service';
+import { Permission } from '../../auth/permissions';
 
 export const ALLOW_ARCHIVED_KEY = 'allowArchivedChannel';
 
@@ -21,6 +23,7 @@ export class ChannelAccessGuard implements CanActivate {
   constructor(
     @Inject(PrismaService) private readonly prisma: PrismaService,
     @Inject(Reflector) private readonly reflector: Reflector,
+    @Inject(ChannelAccessService) private readonly access: ChannelAccessService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -57,26 +60,18 @@ export class ChannelAccessGuard implements CanActivate {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
     }
 
-    // Task-012-D: private channels hide from non-members. Workspace
-    // membership is already proven by WorkspaceMemberGuard, so the
-    // caller IS in this workspace — what we check here is whether
-    // they have an explicit allow (USER override, ROLE override, or
-    // OWNER role).
+    // Task-014-A (task-012-follow-13): private-channel visibility uses
+    // the shared ChannelAccessService so the effective-mask fold
+    // (role base + overrides + DENY > ALLOW) matches what the
+    // attachment / reaction / thread controllers see. Before 014 the
+    // guard did a bare `allowMask > 0` count that drifted from
+    // `PermissionMatrix.effective`.
     if (channel.isPrivate) {
       const user = (req as { user?: { id: string } }).user;
       const member = (req as { member?: { role: string } }).member;
       if (user && member && member.role !== 'OWNER') {
-        const overrideCount = await this.prisma.channelPermissionOverride.count({
-          where: {
-            channelId: channel.id,
-            allowMask: { gt: 0 },
-            OR: [
-              { principalType: 'USER', principalId: user.id },
-              { principalType: 'ROLE', principalId: member.role },
-            ],
-          },
-        });
-        if (overrideCount === 0) {
+        const effective = await this.access.resolveEffective(channel, user.id);
+        if ((effective & Permission.READ) !== Permission.READ) {
           throw new DomainError(ErrorCode.CHANNEL_NOT_VISIBLE, 'channel not visible to this user');
         }
       }

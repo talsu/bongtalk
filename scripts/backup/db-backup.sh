@@ -29,6 +29,12 @@ OUT_FILE="$OUT_DIR/qufox-$STAMP.dump"
 
 log() { printf '[db-backup] %s\n' "$*"; }
 
+# task-014-A (task-009-low-1 closure): clean up the half-written `.tmp`
+# on ENOSPC / SIGTERM / unclean exit so the next scheduled run doesn't
+# reject on a stale leftover that pg_dump won't overwrite. Fires on
+# both error and clean exit; the post-mv path is a no-op (`.tmp` gone).
+trap 'rm -f "$OUT_FILE.tmp"' EXIT
+
 log "pg_dump → $OUT_FILE"
 PGPASSWORD="$POSTGRES_PASSWORD" pg_dump \
   --host "$PG_HOST" --username "$PG_USER" --dbname "$PG_DB" \
