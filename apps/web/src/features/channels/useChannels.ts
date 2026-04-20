@@ -5,6 +5,7 @@ import {
   createChannel,
   deleteChannel,
   listChannels,
+  moveCategory,
   moveChannel,
   unarchiveChannel,
   updateChannel,
@@ -76,6 +77,15 @@ export function useCreateCategory(wsId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof createCategory>[1]) => createCategory(wsId, input),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
+  });
+}
+
+export function useMoveCategory(wsId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, input }: { id: string; input: Parameters<typeof moveCategory>[2] }) =>
+      moveCategory(wsId, id, input),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
   });
 }

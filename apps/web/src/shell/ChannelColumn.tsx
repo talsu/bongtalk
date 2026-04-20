@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
+import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
 import { useMentionInbox } from '../features/mentions/useMentions';
 import { OnboardingCard } from '../features/onboarding/OnboardingCard';
 import {
@@ -39,6 +40,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
   const [open, setOpen] = useState(false);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [membersOpen, setMembersOpen] = useState(canManage);
+  const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
   const { data: mentionInbox } = useMentionInbox();
   const mentionCount = mentionInbox?.unreadCount ?? 0;
 
@@ -63,6 +65,11 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
             <DropdownItem onSelect={() => setMembersOpen((v) => !v)}>
               {membersOpen ? '멤버 숨기기' : '멤버 관리'}
             </DropdownItem>
+            {canManage ? (
+              <DropdownItem onSelect={() => setCreateCategoryOpen(true)}>
+                <span data-testid="ws-create-category">카테고리 추가</span>
+              </DropdownItem>
+            ) : null}
             {myRole !== 'OWNER' ? (
               <>
                 <DropdownSeparator />
@@ -189,6 +196,11 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
           activeChannelName={activeChannelName}
         />
       </div>
+      <CreateCategoryModal
+        workspaceId={workspace.id}
+        open={createCategoryOpen}
+        onClose={() => setCreateCategoryOpen(false)}
+      />
     </div>
   );
 }

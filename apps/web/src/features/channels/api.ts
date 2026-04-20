@@ -4,6 +4,7 @@ import type {
   ChannelListResponse,
   CreateCategoryRequest,
   CreateChannelRequest,
+  MoveCategoryRequest,
   MoveChannelRequest,
   UpdateChannelRequest,
   Category,
@@ -53,4 +54,15 @@ export function moveChannel(
 
 export function createCategory(wsId: string, input: CreateCategoryRequest): Promise<Category> {
   return apiRequest(`/workspaces/${wsId}/categories`, { method: 'POST', body: input });
+}
+
+export function moveCategory(
+  wsId: string,
+  categoryId: string,
+  input: MoveCategoryRequest,
+): Promise<Category> {
+  return apiRequest(`/workspaces/${wsId}/categories/${categoryId}/move`, {
+    method: 'POST',
+    body: input,
+  });
 }
