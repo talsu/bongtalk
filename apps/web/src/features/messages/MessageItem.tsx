@@ -11,6 +11,7 @@ type Props = {
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
+  onOpenThread?: (rootId: string) => void;
 };
 
 /**
@@ -25,6 +26,7 @@ export function MessageItem({
   onEditSave,
   onDelete,
   onToggleReaction,
+  onOpenThread,
 }: Props): JSX.Element {
   const [editing, setEditing] = useState<string | null>(null);
 
@@ -96,6 +98,24 @@ export function MessageItem({
             reactions={msg.reactions ?? []}
             onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
           />
+        ) : null}
+        {onOpenThread && msg.thread && msg.thread.replyCount > 0 ? (
+          <button
+            type="button"
+            data-testid={`thread-open-${msg.id}`}
+            onClick={() => onOpenThread(msg.id)}
+            className="mt-1 inline-flex items-center gap-1 rounded-full border border-border-subtle bg-bg-surface px-2 py-0.5 text-xs text-accent-foreground hover:border-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            aria-label={`${msg.thread.replyCount}개 답글 보기`}
+          >
+            <span>💬</span>
+            <span className="font-medium">{msg.thread.replyCount}</span>
+            <span className="text-text-muted">
+              답글
+              {msg.thread.lastRepliedAt
+                ? ` · 최근 ${new Date(msg.thread.lastRepliedAt).toLocaleTimeString()}`
+                : ''}
+            </span>
+          </button>
         ) : null}
       </div>
       {isMine && editing === null ? (

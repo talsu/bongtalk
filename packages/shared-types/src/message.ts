@@ -30,6 +30,18 @@ export const ReactionSummarySchema = z.object({
 });
 export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
 
+// Task-014-B: root messages expose a thread summary. All three fields
+// come from the same GROUP BY aggregate over replies — replyCount is
+// the COUNT, lastRepliedAt the MAX(createdAt), recentReplyUserIds the
+// last 3 distinct authors (for the avatar stack). `null`/`[]` when
+// there are no replies yet so the UI can suppress the summary row.
+export const ThreadSummarySchema = z.object({
+  replyCount: z.number().int().nonnegative(),
+  lastRepliedAt: z.string().datetime().nullable(),
+  recentReplyUserIds: z.array(z.string().uuid()).max(3),
+});
+export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
+
 export const MessageDtoSchema = z.object({
   id: z.string().uuid(),
   channelId: z.string().uuid(),
@@ -43,6 +55,10 @@ export const MessageDtoSchema = z.object({
   // Default to [] so clients on older API builds don't break — this
   // keeps the schema forwards-compatible during gradual rollout.
   reactions: z.array(ReactionSummarySchema).default([]),
+  // task-014-B: null for replies (thread panel context) OR root messages
+  // that haven't been replied to yet — the UI branches on presence+count.
+  parentMessageId: z.string().uuid().nullable().default(null),
+  thread: ThreadSummarySchema.nullable().default(null),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 
@@ -55,6 +71,10 @@ export type AddReactionRequest = z.infer<typeof AddReactionRequestSchema>;
 
 export const SendMessageRequestSchema = z.object({
   content: MessageContentSchema,
+  // task-014-B: optional reply target. Server validates that the parent
+  // exists, lives in the same channel, and is itself a root message
+  // (single-level depth — parent.parentMessageId must be null).
+  parentMessageId: z.string().uuid().optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
@@ -91,3 +111,18 @@ export const ListMessagesResponseSchema = z.object({
   pageInfo: PageInfoSchema,
 });
 export type ListMessagesResponse = z.infer<typeof ListMessagesResponseSchema>;
+
+// Task-014-B: GET /messages/:id/thread returns this. Replies sorted ASC
+// (oldest first) for the side panel — opposite of the main channel list.
+export const ListThreadRepliesQuerySchema = z.object({
+  cursor: CursorStringSchema.optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+export type ListThreadRepliesQuery = z.infer<typeof ListThreadRepliesQuerySchema>;
+
+export const ListThreadRepliesResponseSchema = z.object({
+  root: MessageDtoSchema,
+  replies: z.array(MessageDtoSchema),
+  pageInfo: PageInfoSchema,
+});
+export type ListThreadRepliesResponse = z.infer<typeof ListThreadRepliesResponseSchema>;

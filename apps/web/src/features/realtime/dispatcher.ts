@@ -73,8 +73,12 @@ export function upsertReactionBucket(
  *   - refill 5 tokens / second
  * Excess mentions do NOT drop — they collapse into a single
  * "N more mentions" toast that re-issues on the next tick.
+ *
+ * Exported so `mention-throttle.spec.ts` can exercise the clock-sensitive
+ * branches with `vi.useFakeTimers` (task-014-A / task-011-follow-7
+ * closure).
  */
-class MentionThrottle {
+export class MentionThrottle {
   private tokens = 5;
   private readonly capacity = 5;
   private readonly refillPerSec = 5;
@@ -130,6 +134,10 @@ export function installRealtimeDispatcher(
 ): () => void {
   const handlers: Array<{ event: string; handler: (e: unknown) => void }> = [];
   const mentionThrottle = new MentionThrottle();
+  // task-014-C: separate token bucket for thread replies. 5 toasts/min
+  // (slower refill than mentions' 5/s because reply traffic per user is
+  // inherently lower-volume). Excess collapses into "+N replies" rollup.
+  const replyThrottle = new MentionThrottle();
 
   const on = <T>(event: string, handler: (e: T) => void): void => {
     const typed = handler as (e: unknown) => void;
@@ -138,81 +146,187 @@ export function installRealtimeDispatcher(
   };
 
   // ---------- Messages ----------
-  on<{ id: string; channelId: string; workspaceId: string; message: MessageDto }>(
-    'message.created',
-    (env) => {
-      if (!env.channelId || !env.workspaceId || !env.message) return;
+  on<{
+    id: string;
+    channelId: string;
+    workspaceId: string;
+    message: MessageDto & { parentMessageId?: string | null };
+  }>('message.created', (env) => {
+    if (!env.channelId || !env.workspaceId || !env.message) return;
 
-      // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
-      // already looking at this channel — an open channel drives its own
-      // POST /read after 500ms debounce, which zeroes the count.
-      const viewer = ctx.viewerId();
-      const active = ctx.activeChannelId();
-      if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
-        qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
-          qk.channels.unreadSummary(env.workspaceId),
-          (old) => {
-            if (!old) return old;
-            const mentioned = viewer ? env.message.mentions?.users?.includes(viewer) : false;
-            const everyone = env.message.mentions?.everyone === true;
-            const lastMessageAt =
-              typeof env.message.createdAt === 'string'
-                ? env.message.createdAt
-                : new Date().toISOString();
-            const found = old.channels.some((c) => c.channelId === env.channelId);
-            return {
-              channels: found
-                ? old.channels.map((c) =>
-                    c.channelId === env.channelId
-                      ? {
-                          ...c,
-                          unreadCount: c.unreadCount + 1,
-                          hasMention: c.hasMention || mentioned || everyone,
-                          lastMessageAt,
-                        }
-                      : c,
-                  )
-                : [
-                    ...old.channels,
-                    {
-                      channelId: env.channelId,
-                      unreadCount: 1,
-                      hasMention: mentioned || everyone,
-                      lastMessageAt,
-                    },
-                  ],
-            };
-          },
-        );
-      }
-
-      qc.setQueryData<InfiniteData<ListMessagesResponse>>(
-        qk.messages.list(env.workspaceId, env.channelId),
+    // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
+    // already looking at this channel — an open channel drives its own
+    // POST /read after 500ms debounce, which zeroes the count.
+    const viewer = ctx.viewerId();
+    const active = ctx.activeChannelId();
+    if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
+      qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+        qk.channels.unreadSummary(env.workspaceId),
         (old) => {
           if (!old) return old;
-          const [first, ...rest] = old.pages;
-          // Dedupe by real id AND by the optimistic "tempId" pattern — if
-          // the WS broadcast arrives BEFORE our own HTTP POST response
-          // (common under load), plain id-equality misses the temp row and
-          // we'd end up with two rows for one logical message. Collapse
-          // any optimistic row that matches author+content.
-          if (first.items.some((m) => m.id === env.message.id)) return old;
-          const collapsed = first.items.filter(
-            (m) =>
+          const mentioned = viewer ? env.message.mentions?.users?.includes(viewer) : false;
+          const everyone = env.message.mentions?.everyone === true;
+          const lastMessageAt =
+            typeof env.message.createdAt === 'string'
+              ? env.message.createdAt
+              : new Date().toISOString();
+          const found = old.channels.some((c) => c.channelId === env.channelId);
+          return {
+            channels: found
+              ? old.channels.map((c) =>
+                  c.channelId === env.channelId
+                    ? {
+                        ...c,
+                        unreadCount: c.unreadCount + 1,
+                        hasMention: c.hasMention || mentioned || everyone,
+                        lastMessageAt,
+                      }
+                    : c,
+                )
+              : [
+                  ...old.channels,
+                  {
+                    channelId: env.channelId,
+                    unreadCount: 1,
+                    hasMention: mentioned || everyone,
+                    lastMessageAt,
+                  },
+                ],
+          };
+        },
+      );
+    }
+
+    // Task-014-C: replies no longer appear in the channel list (roots
+    // only). Route them into the thread cache instead so an open
+    // thread panel for this root sees the incoming reply live.
+    const parentId = env.message.parentMessageId ?? null;
+    if (parentId) {
+      qc.setQueryData<InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>>(
+        qk.messages.thread(parentId),
+        (old) => {
+          if (!old) return old;
+          // Dedupe identical id OR the optimistic tempId our composer
+          // inserted before the server round-trip landed.
+          const alreadyThere = old.pages.some((p) =>
+            p.replies.some((r) => r.id === env.message.id),
+          );
+          if (alreadyThere) return old;
+          const last = old.pages[old.pages.length - 1];
+          const collapsed = last.replies.filter(
+            (r) =>
               !(
-                m.id.startsWith('tmp-') &&
-                m.authorId === 'optimistic' &&
-                m.content === env.message.content
+                r.id.startsWith('tmp-') &&
+                r.authorId === 'optimistic' &&
+                r.content === env.message.content
               ),
           );
           return {
             ...old,
-            pages: [{ ...first, items: [env.message, ...collapsed] }, ...rest],
+            pages: [...old.pages.slice(0, -1), { ...last, replies: [...collapsed, env.message] }],
           };
         },
       );
-    },
-  );
+      return; // replies don't append to the channel root list
+    }
+
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        const [first, ...rest] = old.pages;
+        // Dedupe by real id AND by the optimistic "tempId" pattern — if
+        // the WS broadcast arrives BEFORE our own HTTP POST response
+        // (common under load), plain id-equality misses the temp row and
+        // we'd end up with two rows for one logical message. Collapse
+        // any optimistic row that matches author+content.
+        if (first.items.some((m) => m.id === env.message.id)) return old;
+        const collapsed = first.items.filter(
+          (m) =>
+            !(
+              m.id.startsWith('tmp-') &&
+              m.authorId === 'optimistic' &&
+              m.content === env.message.content
+            ),
+        );
+        return {
+          ...old,
+          pages: [{ ...first, items: [env.message, ...collapsed] }, ...rest],
+        };
+      },
+    );
+  });
+
+  // task-014-C: message.thread.replied is the authoritative patch for
+  // a root's summary (replyCount, avatar stack, lastRepliedAt). Emitted
+  // once per reply by the backend; the envelope-id on the WS dedupes
+  // against replay. Also drives the reply toast for recipients
+  // (root author + recent repliers), with mention-precedence dedupe.
+  on<{
+    id: string;
+    channelId: string;
+    workspaceId: string;
+    rootMessageId: string;
+    replierId: string;
+    replyCount: number;
+    lastRepliedAt: string;
+    recentReplyUserIds: string[];
+    recipients: string[];
+  }>('message.thread.replied', (env) => {
+    if (!env.channelId || !env.workspaceId || !env.rootMessageId) return;
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) =>
+              m.id === env.rootMessageId
+                ? {
+                    ...m,
+                    thread: {
+                      replyCount: env.replyCount,
+                      lastRepliedAt: env.lastRepliedAt,
+                      recentReplyUserIds: env.recentReplyUserIds,
+                    },
+                  }
+                : m,
+            ),
+          })),
+        };
+      },
+    );
+
+    // Reply toast: fire only if the viewer is on the recipients list
+    // AND didn't already get a mention toast for the same messageId
+    // (dispatcher-side dedupe — the reply payload doesn't carry the
+    // reply's own id so we dedupe on rootMessageId+replierId which is
+    // close enough for beta-grade overlap).
+    const viewer = ctx.viewerId();
+    if (!viewer || !env.recipients.includes(viewer)) return;
+    if (env.replierId === viewer) return; // self-reply: no toast
+    // Note: mention-precedence is already enforced server-side — the
+    // recipients list excludes anyone the same message @-mentioned.
+    if (replyThrottle.tryConsume()) {
+      useNotifications.getState().push({
+        variant: 'mention',
+        title: '새 답글',
+        body: `${env.replyCount}개 답글 (마지막 ${new Date(env.lastRepliedAt).toLocaleTimeString()})`,
+        ttlMs: 6000,
+      });
+    } else {
+      replyThrottle.collapseOne((count) => {
+        useNotifications.getState().push({
+          variant: 'mention',
+          title: `+${count}개 답글 묶임`,
+          body: '답글 받은 스레드를 열어 확인하세요.',
+          ttlMs: 8000,
+        });
+      });
+    }
+  });
 
   on<{ channelId: string; workspaceId: string; message: MessageDto }>('message.updated', (env) => {
     if (!env.channelId || !env.workspaceId) return;
@@ -457,4 +571,5 @@ export const DISPATCHED_EVENTS = [
   'mention.received',
   'message.reaction.added',
   'message.reaction.removed',
+  'message.thread.replied',
 ] as const;

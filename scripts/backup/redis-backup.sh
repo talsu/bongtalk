@@ -29,6 +29,13 @@ OUT_FILE="$OUT_DIR/qufox-$STAMP.rdb.gz"
 
 log() { printf '[redis-backup] %s\n' "$*"; }
 
+# task-014-A (task-009-low-1 closure): clean up partial outputs on an
+# unclean exit. There are two interim artefacts on the redis path — the
+# gzip-in-progress `.tmp` and the `--rdb`-produced `.rdb` before gzip —
+# so trap both. EXIT fires even on success; by then they're already
+# moved and `rm -f` is a no-op.
+trap 'rm -f "$OUT_FILE.tmp" "$OUT_FILE.rdb" "$OUT_FILE.rdb.gz"' EXIT
+
 # Task-011-C MED-4: read LASTSAVE BEFORE issuing BGSAVE, assert the
 # BGSAVE command itself returns success, then poll for the timestamp
 # to advance strictly past `initial`. Previously the `initial` capture

@@ -15,6 +15,7 @@ import { Scrollable } from '../../design-system/primitives';
 type Props = {
   workspaceId: string;
   channelId: string;
+  onOpenThread?: (rootId: string) => void;
 };
 
 /**
@@ -23,7 +24,7 @@ type Props = {
  * surrounding `<Scrollable>` but kept off by default — the 50-message
  * page size keeps DOM cost trivial until we have real steady-state data.
  */
-export function MessageList({ workspaceId, channelId }: Props): JSX.Element {
+export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId);
   const history = useMessageHistory(workspaceId, channelId);
@@ -96,6 +97,9 @@ export function MessageList({ workspaceId, channelId }: Props): JSX.Element {
             if (m.id.startsWith('tmp-')) return;
             reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
           }}
+          onOpenThread={
+            onOpenThread && !m.id.startsWith('tmp-') ? (rootId) => onOpenThread(rootId) : undefined
+          }
         />
       ))}
     </Scrollable>

@@ -50,6 +50,31 @@ export class OutboxToWsSubscriber {
     const chId = env.channelId ?? (env as { message?: { channelId?: string } }).message?.channelId;
     if (!chId) return;
     await this.emitAndBuffer('channel', chId, env);
+
+    // Task-014-B thread.replied: channel-room fanout above keeps
+    // everyone-in-channel's count/avatar stack in sync. For reply
+    // notifications (toast + inbox bump) we additionally emit to each
+    // recipient's private room so offline users catch up on reconnect
+    // via user-scoped replay. Dedupe vs mention.received happens on
+    // the client side (same-message preference).
+    if (env.type === 'message.thread.replied' && this.io) {
+      const recipients = (env as { recipients?: string[] }).recipients ?? [];
+      for (const uid of recipients) {
+        try {
+          await this.replay.append('user', uid, {
+            id: env.id,
+            type: env.type,
+            occurredAt: env.occurredAt,
+            payload: env,
+          });
+        } catch (err) {
+          this.logger.warn(
+            `[realtime] reply replay append failed uid=${uid} ev=${env.id} err=${String(err).slice(0, 200)}`,
+          );
+        }
+        this.io.to(rooms.user(uid)).emit(env.type, env);
+      }
+    }
   }
 
   /**

@@ -1,0 +1,194 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import type { MessageDto } from '@qufox/shared-types';
+import { useAuth } from '../auth/AuthProvider';
+import { useMembers } from '../workspaces/useWorkspaces';
+import { MessageItem } from '../messages/MessageItem';
+import { Scrollable } from '../../design-system/primitives';
+import { useThreadReplies, useSendReply } from './useThread';
+
+type Props = {
+  workspaceId: string;
+  channelId: string;
+  rootId: string;
+  onClose: () => void;
+};
+
+/**
+ * Task-014-C: right-side thread panel. Header renders the root
+ * message, body lists replies, footer is a composer bound to the
+ * root id. Closes on X click, ESC, or the parent removing the
+ * `?thread=` query param (owned by the route).
+ */
+export function ThreadPanel({
+  workspaceId,
+  channelId,
+  rootId,
+  onClose,
+}: Props): JSX.Element | null {
+  const { user } = useAuth();
+  const { data: members } = useMembers(workspaceId);
+  const history = useThreadReplies(rootId);
+  const reply = useSendReply(workspaceId, channelId, rootId);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const pages = history.data?.pages ?? [];
+  const root: MessageDto | undefined = pages[0]?.root;
+  const replies = useMemo<MessageDto[]>(() => pages.flatMap((p) => p.replies), [pages]);
+
+  const nameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of members?.members ?? []) map.set(m.userId, m.user.username);
+    return map;
+  }, [members]);
+
+  // Scroll to bottom when new replies arrive.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (near) el.scrollTop = el.scrollHeight;
+  }, [replies.length]);
+
+  // ESC closes the panel — scoped to this panel's mount lifetime so
+  // the channel view's own ESC bindings still work when the panel is
+  // not open.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
+
+  if (!rootId) return null;
+
+  return (
+    <aside
+      data-testid="thread-panel"
+      aria-label="스레드"
+      className="flex h-full w-full flex-col border-l border-border-subtle bg-bg-surface md:w-[420px]"
+    >
+      <header className="flex items-center justify-between border-b border-border-subtle px-3 py-2">
+        <div className="text-sm font-semibold text-foreground">스레드</div>
+        <button
+          type="button"
+          data-testid="thread-close"
+          onClick={onClose}
+          aria-label="스레드 닫기"
+          className="rounded px-2 py-0.5 text-xs text-text-muted hover:bg-bg-accent hover:text-foreground"
+        >
+          ✕
+        </button>
+      </header>
+      <Scrollable
+        ref={scrollRef}
+        data-testid="thread-body"
+        role="log"
+        aria-live="polite"
+        className="flex-1 px-2 py-3"
+      >
+        {!root && history.isLoading ? (
+          <div className="py-4 text-center text-xs text-text-muted">불러오는 중…</div>
+        ) : null}
+        {root ? (
+          <div
+            data-testid="thread-root"
+            className="mb-2 rounded-md border border-border-subtle bg-bg-subtle/40"
+          >
+            <MessageItem
+              msg={root}
+              isMine={root.authorId === user?.id}
+              authorName={nameById.get(root.authorId)}
+              onEditSave={async () => undefined}
+              onDelete={() => undefined}
+            />
+          </div>
+        ) : null}
+        {history.hasNextPage ? (
+          <button
+            type="button"
+            data-testid="thread-load-more"
+            onClick={() => history.fetchNextPage()}
+            className="block w-full py-2 text-center text-[11px] text-text-muted underline"
+          >
+            {history.isFetchingNextPage ? '불러오는 중…' : '이전 답글 보기'}
+          </button>
+        ) : null}
+        {replies.map((m) => (
+          <MessageItem
+            key={m.id}
+            msg={m}
+            isMine={m.authorId === user?.id}
+            authorName={nameById.get(m.authorId)}
+            onEditSave={async () => undefined}
+            onDelete={() => undefined}
+          />
+        ))}
+      </Scrollable>
+      <footer className="border-t border-border-subtle p-2">
+        <ReplyComposer
+          disabled={reply.isPending}
+          onSubmit={(content) =>
+            reply.mutate({
+              content,
+              tempId: `tmp-${crypto.randomUUID()}`,
+              idempotencyKey: crypto.randomUUID(),
+            })
+          }
+        />
+      </footer>
+    </aside>
+  );
+}
+
+function ReplyComposer({
+  onSubmit,
+  disabled,
+}: {
+  onSubmit: (content: string) => void;
+  disabled: boolean;
+}): JSX.Element {
+  const [draft, setDraft] = useState('');
+  const submit = () => {
+    const trimmed = draft.trim();
+    if (!trimmed) return;
+    onSubmit(trimmed);
+    setDraft('');
+  };
+  return (
+    <form
+      data-testid="thread-composer"
+      onSubmit={(e) => {
+        e.preventDefault();
+        submit();
+      }}
+    >
+      <textarea
+        data-testid="thread-input"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            submit();
+          }
+        }}
+        rows={2}
+        maxLength={4000}
+        placeholder="답글 남기기"
+        className="w-full resize-none rounded-md border border-border-subtle bg-bg-surface px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      />
+      <div className="mt-1 flex items-center justify-between text-[11px] text-text-muted">
+        <span>Enter 전송, Shift+Enter 줄바꿈</span>
+        <button
+          type="submit"
+          data-testid="thread-send"
+          disabled={disabled || draft.trim().length === 0}
+          className="rounded-md bg-bg-primary px-3 py-1 text-[11px] font-semibold text-fg-primary disabled:opacity-50"
+        >
+          답글
+        </button>
+      </div>
+    </form>
+  );
+}
