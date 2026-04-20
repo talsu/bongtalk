@@ -43,7 +43,16 @@ export class HealthController {
   @Get('readyz')
   async ready(@Res({ passthrough: true }) res: Response): Promise<{
     status: 'ok' | 'degraded';
-    checks: { db: 'ok' | 'fail'; redis: 'ok' | 'fail'; outbox: 'ok' | 'stalled' };
+    checks: {
+      db: 'ok' | 'fail';
+      redis: 'ok' | 'fail';
+      // task-020-A: the outbox row now splits "idle" (no work,
+      // dispatcher quiet) from "stalled" (backlog piling up). The
+      // previous string "stalled" kept only the failure state so
+      // existing dashboards / logs still alert on it; new "idle"
+      // surfaces as ok so /readyz stops flapping on quiet windows.
+      outbox: 'ok' | 'stalled' | 'idle';
+    };
     details?: { outbox?: string };
   }> {
     const [dbOk, redisOk] = await Promise.all([
@@ -64,12 +73,20 @@ export class HealthController {
     const outbox = await this.outboxHealth.check();
     const ok = dbOk && redisOk && outbox.ok;
     if (!ok) res.status(HttpStatus.SERVICE_UNAVAILABLE);
+    // Map the richer state onto the two-word API surface: idle/healthy
+    // both collapse to "ok"; "stalled" is the only word that paints
+    // red on dashboards.
+    const outboxWord: 'ok' | 'stalled' | 'idle' = outbox.ok
+      ? outbox.state === 'idle'
+        ? 'idle'
+        : 'ok'
+      : 'stalled';
     return {
       status: ok ? 'ok' : 'degraded',
       checks: {
         db: dbOk ? 'ok' : 'fail',
         redis: redisOk ? 'ok' : 'fail',
-        outbox: outbox.ok ? 'ok' : 'stalled',
+        outbox: outboxWord,
       },
       ...(outbox.reason ? { details: { outbox: outbox.reason } } : {}),
     };

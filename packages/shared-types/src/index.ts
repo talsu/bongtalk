@@ -34,9 +34,19 @@ export type HealthResponse = z.infer<typeof HealthResponseSchema>;
 export const ReadyResponseSchema = z.object({
   status: z.enum(['ok', 'degraded']),
   checks: z.object({
-    db: z.boolean(),
-    redis: z.boolean(),
+    db: z.enum(['ok', 'fail']),
+    redis: z.enum(['ok', 'fail']),
+    // task-020-A: outbox reports three-state now — "ok" = healthy or
+    // draining, "idle" = empty backlog + quiet dispatcher, "stalled"
+    // = backlog + no tick. Frontend health pages + smoke scripts can
+    // branch on all three.
+    outbox: z.enum(['ok', 'idle', 'stalled']),
   }),
+  details: z
+    .object({
+      outbox: z.string().optional(),
+    })
+    .optional(),
 });
 export type ReadyResponse = z.infer<typeof ReadyResponseSchema>;
 

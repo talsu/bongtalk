@@ -65,13 +65,24 @@ spec:
     - name: qufox.outbox
       rules:
         - alert: OutboxDispatcherStalled
-          # No successful dispatch tick in last 10s → dispatcher stuck.
-          expr: time() - max(outbox_last_dispatch_timestamp_seconds) > 10
+          # task-020-A (reviewer round-1 BLOCKER fix): both sides
+          # aggregated with `max()` so they carry matching (empty)
+          # label sets — `and` would otherwise produce an empty
+          # intersection because `outbox_pending_events` is scraped
+          # per-instance while the gauge subtraction on the RHS yields
+          # labelless scalar-vector. Backlog-aware: page only when
+          # there IS work to do AND the dispatcher hasn't ticked in
+          # 10s+. Quiet idle windows (no rows to dispatch) no longer
+          # flap this alert.
+          expr: |
+            max(outbox_pending_events) > 0
+            and
+            (time() - max(outbox_last_dispatch_timestamp_seconds) > 10)
           for: 1m
           labels:
             severity: page
           annotations:
-            summary: 'Outbox dispatcher has not ticked in 10s'
+            summary: 'Outbox dispatcher stalled (backlog > 0, no tick 10s+)'
         - alert: OutboxBacklogGrowing
           expr: outbox_pending_events > 1000
           for: 10m

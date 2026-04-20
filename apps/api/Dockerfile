@@ -34,6 +34,11 @@ RUN apk add --no-cache openssl libc6-compat tini \
 ENV NODE_ENV=production
 COPY --from=build /out /app
 RUN prisma generate --schema=prisma/schema.prisma
+# task-020-B: normalise file permissions so a NAS host with umask 0077
+# can't ship 0600 files that the runtime user would refuse to read.
+# `a+rX` grants read on every file and execute on every directory
+# (but NOT on files) — safe mirror of apps/web/Dockerfile's 019 fix.
+RUN chmod -R a+rX /app
 EXPOSE 3001
 ENTRYPOINT ["/sbin/tini","--"]
 CMD ["sh","-c","prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]

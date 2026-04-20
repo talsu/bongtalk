@@ -1,0 +1,20 @@
+id: 036
+title: OutboxHealthIndicator idle vs stalled
+goal: |
+  /readyz must return 200 when the outbox is empty and the dispatcher
+  is quiet (legitimate idle window, e.g. post-deploy). /readyz must
+  return 503 only when undispatched rows older than the 10s threshold
+  are piling up AND the dispatcher has not ticked recently.
+  Recovery after a single drain tick yields 200 again. Mirrors the
+  2026-04-20 auto-deploy flap.
+dod:
+  - command: pnpm --filter @qufox/api test:int --run test/int/observability/outbox-health-idle-vs-stalled.int.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test --run test/health.spec.ts
+    expect: exit 0
+  - scope_allow:
+      - apps/api/src/health/**
+      - apps/api/test/health.spec.ts
+      - apps/api/test/int/observability/**
+      - infra/k8s/monitoring/alerts.yaml
+max_turns: 25
