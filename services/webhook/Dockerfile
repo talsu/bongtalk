@@ -13,14 +13,20 @@ FROM deps AS build
 WORKDIR /app
 COPY services/webhook services/webhook
 COPY tsconfig.base.json ./
-RUN pnpm --filter @qufox/webhook build
+RUN pnpm --filter @qufox/webhook build \
+ && pnpm --filter @qufox/webhook --prod --legacy deploy /out
 
 FROM node:20.9.0-alpine AS runtime
-RUN apk add --no-cache docker-cli bash git curl tini
+RUN apk add --no-cache docker-cli bash git curl tini openssh-client
 WORKDIR /app
-COPY --from=build /app/services/webhook/dist ./dist
-COPY --from=build /app/services/webhook/package.json ./package.json
-COPY --from=deps /app/node_modules ./node_modules
+# `pnpm deploy --legacy` emits a flat project with a real node_modules
+# tree (no pnpm symlink farm), so prom-client + any other dep resolves
+# at runtime. The earlier `COPY --from=deps /app/node_modules` brought
+# only the hoisted root modules and missed services/webhook-scoped
+# ones — boot crashed with `Cannot find module 'prom-client'`.
+COPY --from=build /out/dist ./dist
+COPY --from=build /out/package.json ./package.json
+COPY --from=build /out/node_modules ./node_modules
 ENV NODE_ENV=production
 EXPOSE 9000
 ENTRYPOINT ["tini", "--"]

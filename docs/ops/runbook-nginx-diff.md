@@ -1,107 +1,76 @@
-# Runbook — Nginx diff for `deploy.qufox.com` and `qufox.com /attachments/`
+# Runbook — Nginx diff for `qufox.com /hooks/github` and `/attachments/`
 
-Task-009 landed the `deploy.qufox.com` block; task-012-F extends the
-existing `qufox.com` block with an `/attachments/` location that
-proxies to `qufox-minio:9000`. The operator applies each section once
-at the corresponding switchover step (see
-`docs/ops/deploy-inventory.md` + `docs/ops/switchover-checklist.md`).
+The webhook + attachments both live under the existing `qufox.com`
+server block as additional `location` directives. There is **no**
+`deploy.qufox.com` subdomain — that was the original 009 design but
+the operator decided to keep everything on the apex domain, so the
+server block, DNS record, and TLS SAN for `deploy.qufox.com` are
+unneeded and should NOT be added.
 
-## Prerequisite: TLS cert
+## Prerequisite
 
-The existing wildcard-ish cert at `/etc/letsencrypt/live/talsu.net/`
-serves `qufox.com`, `stream.qufox.com`, etc. Add `deploy.qufox.com`
-to its SAN:
+`qufox.com` already has a TLS cert and a server block in
+`/volume2/dockers/nginx/nginx.conf`. Nothing new at the cert or DNS
+layer — this runbook is purely about adding two location directives
+inside the block that is already there.
 
-```sh
-# inside the certbot container (same pattern used for other *.qufox.com)
-certbot --nginx -d talsu.net -d qufox.com -d stream.qufox.com \
-  -d deploy.qufox.com   # ← new
-# or with the DNS-01 plugin, reuse whatever issued the current cert
-```
+## The snippets
 
-DNS: point `deploy.qufox.com` A record at the same public IP as
-`qufox.com`.
-
-## The diff
-
-Drop this block into `/volume2/dockers/nginx/nginx.conf` next to the
-existing `qufox.com` server block:
+Run `scripts/setup/apply-nginx-diff.sh --all` to print both blocks
+formatted for paste. Drop them INSIDE the existing `qufox.com`
+server block (near the `/api/` location is a good spot).
 
 ```nginx
-# deploy.qufox.com — GitHub webhook receiver (qufox-webhook)
-server {
-    listen 443 ssl http2;
-    server_name  deploy.qufox.com;
+# task-016 ops: GitHub webhook receiver → qufox-webhook container.
+# HMAC-verified inside the app; this location exists purely to give
+# GitHub a stable public URL. No /internal/* forwarding — internal
+# metrics stay loopback-only on port 9000 of the host.
+location /hooks/github {
+    set $upstream_qufox_webhook http://qufox-webhook:9000;
+    proxy_pass $upstream_qufox_webhook;
+    proxy_http_version 1.1;
 
-    ssl_certificate     /etc/letsencrypt/live/talsu.net/fullchain.pem;
-    ssl_certificate_key /etc/letsencrypt/live/talsu.net/privkey.pem;
-
-    # Accept GitHub's payload up to 25 MB (matches main qufox.com).
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto https;
+    proxy_read_timeout  10s;
+    proxy_send_timeout  10s;
     client_max_body_size 25m;
-
-    # Anti-abuse: only accept POST /hooks/* and GET /healthz.
-    # Everything else is 404 — the receiver also does this, but a second
-    # layer at the edge trims log noise and cuts port-scan surface.
-    location = /healthz {
-        proxy_pass http://qufox-webhook:9000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-    }
-
-    location /hooks/ {
-        # GitHub delivers push events up to ~24 MB (monorepo diffs).
-        proxy_pass http://qufox-webhook:9000;
-        proxy_http_version 1.1;
-        proxy_set_header Host $host;
-        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
-
-        # GitHub waits up to 10s before marking a delivery failed.
-        proxy_read_timeout  10s;
-        proxy_send_timeout  10s;
-    }
-
-    location / {
-        return 404;
-    }
 }
-
-# Also add deploy.qufox.com to the port 80 → 443 redirect server.
-# In the existing server_name list find:
-#     server_name  talsu.net git.talsu.net ... qufox.com ...
-# Append:
-#     deploy.qufox.com
 ```
+
+(See the `--attachments` mode in the same script for the
+`/attachments/` location — same shape but 100 MB body + buffering
+off + 600 s timeout.)
 
 ## Apply
 
 ```sh
-# 1. test the config before reloading
 docker exec nginx-proxy-1 nginx -t
-# 2. reload
 docker exec nginx-proxy-1 nginx -s reload
 ```
 
 ## Verify
 
 ```sh
-curl -sk -o /dev/null -w '%{http_code}\n' https://deploy.qufox.com/healthz
-# → 200
-curl -sk -X POST https://deploy.qufox.com/hooks/github \
-  -H 'x-github-event: ping' -d '{}'
-# → 401 (bad signature) — this is correct: nginx reached the webhook
+# Unsigned POST — expected 401 (HMAC gate active, nginx reached the webhook).
+curl -sk -o /dev/null -w '%{http_code}\n' -X POST https://qufox.com/hooks/github
+# → 401
+
+# Internal healthz (not exposed publicly — loopback only):
+docker exec qufox-webhook wget -qO- http://127.0.0.1:9000/healthz
+# → {"status":"ok", ...}
 ```
 
 ## Rollback
 
-If the new block breaks something:
+If a location directive breaks something:
 
 ```sh
-# 1. comment out the new server{} block
+# 1. comment out the new location{} block inside the qufox.com server{}
 # 2. reload
 docker exec nginx-proxy-1 nginx -s reload
-# app stays up because the edge change is additive and the app has its
-# own hostname (qufox.com) untouched.
+# app stays up because the rest of the server block is untouched.
 ```
 
 ---
