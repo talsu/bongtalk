@@ -80,8 +80,14 @@ export class DeployQueue {
       for (const fn of this.listeners) {
         try {
           fn(current, outcome);
-        } catch {
-          /* listener errors never break the queue */
+        } catch (err) {
+          // task-013-A3 (task-009-nit-1 closure): surface the error
+          // via stderr instead of swallowing it silently. Queue
+          // processing still continues — one misbehaving listener
+          // must not block future deploys.
+          process.stderr.write(
+            `[webhook.queue] listener error: ${(err as Error)?.message ?? String(err)}\n`,
+          );
         }
       }
       this.active = this.pending;

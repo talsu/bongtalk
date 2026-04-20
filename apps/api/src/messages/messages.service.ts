@@ -116,6 +116,17 @@ export class MessagesService {
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
     const mentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
+    // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
+    // 500 WS sends in one tx — tangible latency and a DoS vector. 50
+    // is generous for any legitimate conversation; overage returns
+    // 422 so the client can trim.
+    if ((mentions.users?.length ?? 0) > 50) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_CONTENT_INVALID,
+        'message mentions too many users (max 50)',
+      );
+    }
     const contentPlain = normalizeContent(args.content);
 
     try {

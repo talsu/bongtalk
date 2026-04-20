@@ -1,3 +1,4 @@
+import { timingSafeEqual } from 'node:crypto';
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http';
 import type { AuditLog } from './audit';
 import { extractBranch, verifySignature } from './hmac';
@@ -16,16 +17,48 @@ export interface ServerDeps {
 
 /**
  * Only these peer IPs are allowed to hit `/internal/*`. The webhook
- * container binds to 127.0.0.1:9000 on the host, so the internal routes
- * accept loopback + the Docker bridge range (Prometheus sidecar scrapes
- * over `internal` network). We reject everything else so a misconfigured
- * nginx upstream couldn't accidentally expose metrics.
+ * container binds to 127.0.0.1:9000 on the host, so loopback is always
+ * in (that's the deploy scripts on the same host). The Docker bridge
+ * range is ALSO allowed BUT only when the optional
+ * `INTERNAL_METRICS_SECRET` env var matches a
+ * `X-Internal-Auth: <secret>` header. Without the header + matching
+ * secret, non-loopback requests 403 — so a sibling container on the
+ * same bridge can't spuriously bump the rollback counter just by
+ * being on the network. task-013-A3 (task-010-follow-3 closure).
  */
-const INTERNAL_ALLOWED_PREFIXES = ['127.', '::1', '::ffff:127.', '172.', '10.', '192.168.'];
+const LOOPBACK_PREFIXES = ['127.', '::1', '::ffff:127.'];
+const BRIDGE_PREFIXES = ['172.', '10.', '192.168.'];
+
+function isLoopbackPeer(req: IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? '';
+  return LOOPBACK_PREFIXES.some((p) => addr.startsWith(p));
+}
+
+function isAuthorisedBridgePeer(req: IncomingMessage): boolean {
+  const addr = req.socket.remoteAddress ?? '';
+  const secret = process.env.INTERNAL_METRICS_SECRET;
+  if (!secret) return false;
+  const providedRaw = req.headers['x-internal-auth'];
+  const provided =
+    typeof providedRaw === 'string'
+      ? providedRaw
+      : Array.isArray(providedRaw)
+        ? providedRaw[0]
+        : '';
+  if (!provided || provided.length !== secret.length) return false;
+  // Constant-time compare on same-length strings; Buffer.compare isn't
+  // timing-safe, but `crypto.timingSafeEqual` is. Use it when the
+  // lengths match.
+  try {
+    if (!timingSafeEqual(Buffer.from(provided), Buffer.from(secret))) return false;
+  } catch {
+    return false;
+  }
+  return BRIDGE_PREFIXES.some((p) => addr.startsWith(p));
+}
 
 function isInternalPeer(req: IncomingMessage): boolean {
-  const addr = req.socket.remoteAddress ?? '';
-  return INTERNAL_ALLOWED_PREFIXES.some((p) => addr.startsWith(p));
+  return isLoopbackPeer(req) || isAuthorisedBridgePeer(req);
 }
 
 interface PushPayload {
@@ -173,7 +206,14 @@ async function handle(req: IncomingMessage, res: ServerResponse, deps: ServerDep
   }
 
   const branch = typeof payload.ref === 'string' ? extractBranch(payload.ref) : null;
-  const sha = typeof payload.after === 'string' ? payload.after : null;
+  // task-013-A3 (task-009-low-2 closure): payload.after goes straight
+  // into `git checkout --force <sha>` inside auto-deploy.sh. GitHub
+  // guarantees a 40-char hex SHA-1; a malformed value never passes
+  // through to the shell argument.
+  const sha =
+    typeof payload.after === 'string' && /^[0-9a-f]{40}$/.test(payload.after)
+      ? payload.after
+      : null;
   const pusher =
     payload.pusher && typeof payload.pusher.name === 'string' ? payload.pusher.name : 'unknown';
 

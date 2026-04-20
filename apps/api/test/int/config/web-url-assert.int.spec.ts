@@ -35,6 +35,21 @@ describe('assertProductionEnv — WEB_URL', () => {
     ).toThrow(/development default/);
   });
 
+  it('catches case-insensitive + trailing-slash + 127.0.0.1 variants (task-013-A3)', () => {
+    for (const url of [
+      'HTTP://LOCALHOST:5173',
+      'http://localhost:5173/',
+      'http://127.0.0.1:5173',
+      'https://127.0.0.1/',
+      'http://LocalHost',
+      'http://localhost', // no port
+    ]) {
+      expect(() => assertProductionEnv({ NODE_ENV: 'production', WEB_URL: url })).toThrow(
+        /development default/,
+      );
+    }
+  });
+
   it('accepts a real public URL in production', () => {
     expect(() =>
       assertProductionEnv({ NODE_ENV: 'production', WEB_URL: 'https://qufox.com' }),
