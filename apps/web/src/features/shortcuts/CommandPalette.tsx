@@ -111,9 +111,11 @@ export function CommandPalette(): JSX.Element | null {
           }
         }}
       />
-      <ul id={listboxId} role="listbox" className="mt-3 max-h-72 overflow-y-auto">
+      <ul id={listboxId} role="listbox" className="mt-[var(--s-4)] max-h-72 overflow-y-auto">
         {filtered.length === 0 ? (
-          <li className="px-2 py-6 text-center text-xs text-text-muted">결과 없음</li>
+          <li className="qf-empty !py-[var(--s-7)]">
+            <div className="qf-empty__body">결과 없음</div>
+          </li>
         ) : null}
         {filtered.map((a, i) => (
           <li
@@ -124,12 +126,14 @@ export function CommandPalette(): JSX.Element | null {
             data-testid={`palette-item-${i}`}
             onMouseEnter={() => setFocusIdx(i)}
             onClick={() => a.run()}
-            className={`flex cursor-pointer items-center justify-between rounded-md px-2 py-2 text-sm ${
-              i === focusIdx ? 'bg-bg-accent text-foreground' : 'text-text-muted'
-            }`}
+            className="qf-menu__item justify-between"
+            style={{
+              background: i === focusIdx ? 'var(--bg-selected)' : 'transparent',
+              color: i === focusIdx ? 'var(--text-strong)' : 'var(--text-secondary)',
+            }}
           >
             <span>{a.label}</span>
-            {a.hint ? <span className="text-[10px] text-text-muted">{a.hint}</span> : null}
+            {a.hint ? <span className="qf-menu__kbd">{a.hint}</span> : null}
           </li>
         ))}
       </ul>

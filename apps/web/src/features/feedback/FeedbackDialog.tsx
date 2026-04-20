@@ -8,12 +8,6 @@ import { submitFeedback, type FeedbackCategory } from './api';
 
 const MAX_CONTENT = 2000;
 
-/**
- * Task-016-C-3: feedback modal. Opened from the BottomBar. Three
- * categories (BUG / FEATURE / OTHER), content textarea with character
- * counter, submit → POST /feedback. Success shows a toast; failure
- * keeps the form open + shows an error so the user can retry.
- */
 export function FeedbackDialog(): JSX.Element | null {
   const openModal = useUI((s) => s.openModal);
   const setOpenModal = useUI((s) => s.setOpenModal);
@@ -61,24 +55,24 @@ export function FeedbackDialog(): JSX.Element | null {
       open={isOpen}
       onOpenChange={(v) => setOpenModal(v ? 'feedback' : null)}
       title="피드백 보내기"
-      className="max-w-lg"
+      description="버그 신고, 기능 제안, 기타 의견 무엇이든 환영합니다."
     >
-      <div className="space-y-3">
-        <label className="block text-xs text-text-muted">
-          카테고리
+      <div className="flex flex-col gap-[var(--s-4)]">
+        <div className="qf-field">
+          <label className="qf-field__label">카테고리</label>
           <select
             data-testid="feedback-category"
             value={category}
             onChange={(e) => setCategory(e.target.value as FeedbackCategory)}
-            className="mt-1 block w-full rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-input"
           >
-            <option value="BUG">🐛 버그</option>
-            <option value="FEATURE">✨ 기능 제안</option>
-            <option value="OTHER">💬 기타</option>
+            <option value="BUG">버그</option>
+            <option value="FEATURE">기능 제안</option>
+            <option value="OTHER">기타</option>
           </select>
-        </label>
-        <label className="block text-xs text-text-muted">
-          내용
+        </div>
+        <div className="qf-field">
+          <label className="qf-field__label">내용</label>
           <textarea
             data-testid="feedback-content"
             value={content}
@@ -86,21 +80,24 @@ export function FeedbackDialog(): JSX.Element | null {
             maxLength={MAX_CONTENT}
             rows={6}
             placeholder="무엇을 발견하셨나요? 무엇이 필요한가요?"
-            className="mt-1 block w-full resize-none rounded-md border border-border-subtle bg-bg-surface px-2 py-1 text-sm text-foreground placeholder:text-text-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            className="qf-input qf-textarea"
           />
-        </label>
-        <div className="flex items-center justify-between text-[11px] text-text-muted">
-          <span>{`${content.length} / ${MAX_CONTENT}`}</span>
-          <button
-            type="button"
-            data-testid="feedback-submit"
-            onClick={submit}
-            disabled={!canSubmit}
-            className="rounded-md bg-bg-primary px-3 py-1 text-xs font-semibold text-fg-primary disabled:opacity-50"
-          >
-            {submitting ? '보내는 중…' : '보내기'}
-          </button>
+          <p className="qf-field__hint">{`${content.length} / ${MAX_CONTENT}`}</p>
         </div>
+      </div>
+      <div className="qf-modal__footer">
+        <button type="button" onClick={() => setOpenModal(null)} className="qf-btn qf-btn--ghost">
+          취소
+        </button>
+        <button
+          type="button"
+          data-testid="feedback-submit"
+          onClick={submit}
+          disabled={!canSubmit}
+          className="qf-btn qf-btn--primary"
+        >
+          {submitting ? '보내는 중…' : '보내기'}
+        </button>
       </div>
     </Dialog>
   );
