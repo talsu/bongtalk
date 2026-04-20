@@ -31,4 +31,11 @@ RUN pnpm --filter @qufox/shared-types build \
 FROM nginx:1.25-alpine AS runtime
 COPY --from=build /repo/apps/web/dist /usr/share/nginx/html
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
+# task-019 hotfix: normalise file permissions so nginx worker (runs as
+# the `nginx` user) can read everything. NAS host umask is 0077, which
+# meant files under apps/web/public/ (copied verbatim by Vite into
+# dist/) carried mode 0600 into the image → 403 on /design-system/* +
+# /brand-assets/*. `a+rX` grants read everywhere + execute only on
+# directories so traversal still works; owner-write stays untouched.
+RUN chmod -R a+rX /usr/share/nginx/html
 EXPOSE 80
