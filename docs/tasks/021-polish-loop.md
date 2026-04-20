@@ -443,9 +443,20 @@ _One subsection per Round. Implementer appends._
 
 ### Round 3
 
-_(not yet run)_
+- Commits: _(none — Discovery-only round, convergence confirmation)_
+- Discovery audit scope:
+  - grep `onKeyDown|onKeyPress` over `apps/web/src` → 4 handlers, all already IME-guarded (composer / thread / msg edit / palette)
+  - grep `mutate\(|mutateAsync` → 16 call sites; form submit sites use `canSubmit` / `submitting` guards; list/list-item mutations are idempotent at server
+  - grep `onSubmit|e\.preventDefault` → react-hook-form + manual-submit handlers all guarded against double-submit via `isPending` / `submitting` state
+  - grep `setTimeout|setInterval` → 6 sites; all have cleanup-on-unmount (`MessageColumn` markRead debounce, `Toast` dismiss, `useRealtimeConnection` presence ping clear, `dispatcher` collapsed timer, `SearchOverlay` debounce)
+  - `ReactionBar` toggle path — idempotent server-side; optimistic upsertReactionBucket preserves `byMe`
+  - Deferred backlog rows (`typing-stale-on-tab-close`, `presence-lag-on-disconnect`, `unread-sidebar-lag`) — harness specs still asserting SLA
+- New discoveries: **0 new HIGH, 0 new CRITICAL**
+- Reviewer verdict: _(no code changes in R3 → no reviewer spawn; the R2 reviewer PASS is the binding verdict)_
+- pnpm verify: R2 run at `85423e0` already green; no new commits in R3.
+- Exit check: backlog open CRITICAL=0, open HIGH=0 held across R2→R3 Discovery with 0 new findings — **criterion (a) "stable convergence" MET**. Loop exits.
 
-_... up to Round 10 if needed._
+_(Rounds 4–10 not needed; convergence reached at Round 3.)_
 
 ## Final REPORT
 
