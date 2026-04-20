@@ -57,8 +57,20 @@ test('notification settings: flip MENTION to OFF silences toast, BOTH restores i
   await expect(page).toHaveURL(new RegExp(`/w/${slug}`));
 
   // Open settings from the BottomBar dropdown.
+  // task-020-C: explicitly await the preferences fetch before clicking
+  // a radio. Without this, the radio-click races the GET and the
+  // dispatcher's synchronous lookup can still see the PREV cached
+  // channel (BOTH) when the mention fans out. Response-level wait is
+  // what flipped the spec from "3× flake on GHA" to "stable".
+  const prefsLoaded = page.waitForResponse(
+    (r) =>
+      r.url().includes('/me/notification-preferences') &&
+      r.request().method() === 'GET' &&
+      r.status() === 200,
+  );
   await page.goto('/settings/notifications');
   await expect(page.getByTestId('notification-settings-page')).toBeVisible();
+  await prefsLoaded;
 
   // Flip MENTION on this workspace to OFF.
   await page.getByTestId(`notif-tab-${wsId}`).click();
