@@ -75,9 +75,12 @@ services:
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:?set in .env.prod}
       MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:?set in .env.prod}
-      # Public URL the API presigns against — the browser reaches it
-      # through the nginx `/attachments/` location (see runbook-nginx-diff).
-      MINIO_SERVER_URL: https://qufox.com/attachments
+      # NOTE (ops, 2026-04-20): MinIO refuses MINIO_SERVER_URL values
+      # with a path suffix (e.g. `/attachments`), so the browser-facing
+      # public URL is managed entirely by the API's S3_PUBLIC_ENDPOINT
+      # presign path + the nginx `/attachments/*` rewrite. MinIO itself
+      # only needs the root host, which it derives from the incoming
+      # request when nginx forwards it.
       MINIO_API_CORS_ALLOW_ORIGIN: https://qufox.com
     volumes:
       - /volume3/qufox-data/minio:/data
