@@ -53,6 +53,14 @@ services:
       # NAS to create it. The script is idempotent so re-runs are
       # cheap.
       - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}:/repo
+      # task-017-B live fix: `.env.prod` + `.env.deploy` are .gitignored
+      # so the sibling clone doesn't carry them. A host-side symlink
+      # into the operator tree dangles from the container's POV
+      # (`/volume2/dockers/qufox` isn't mounted), so bind the files
+      # directly read-only. `docker compose --env-file .env.prod`
+      # inside the container now finds them at /repo/.env.{prod,deploy}.
+      - /volume2/dockers/qufox/.env.prod:/repo/.env.prod:ro
+      - /volume2/dockers/qufox/.env.deploy:/repo/.env.deploy:ro
       # Docker daemon socket — the webhook invokes `docker compose` via
       # the host daemon to rebuild qufox-api / qufox-web. This is
       # effectively root-equivalent on the host, so the HMAC gate is
