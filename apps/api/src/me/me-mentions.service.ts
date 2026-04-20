@@ -21,6 +21,13 @@ export interface MentionSummary {
  * reads #general clears its mentions at the same time. This keeps
  * state minimal (no separate mention-read table) and matches the
  * Discord "visiting the channel acknowledges its mentions" UX.
+ *
+ * Task-019-A (reviewer BLOCKER-2 fix): private-channel ACL filter is
+ * applied SQL-side — a mention record whose channel is private and
+ * the caller isn't whitelisted for MUST NOT leak its contentPlain
+ * snippet back. Public channels pass through unchanged; OWNER sees
+ * everything; otherwise `(allow & ~deny) & READ_BIT > 0` must hold
+ * against the workspace member's role and userId.
  */
 @Injectable()
 export class MeMentionsService {
@@ -54,7 +61,7 @@ export class MeMentionsService {
         m."createdAt" AS "createdAt",
         (m.mentions->>'everyone')::boolean AS "everyone"
       FROM "Message" m
-      JOIN "Channel" c ON c.id = m."channelId"
+      JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
       -- task-011 reviewer MED-3 fix: kicked members should NOT see
       -- retained mentions from the workspace they no longer belong to.
       -- Existing @@unique([workspaceId, userId]) index makes this join
@@ -67,6 +74,22 @@ export class MeMentionsService {
         AND (
           m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
           OR (m.mentions->>'everyone')::boolean IS TRUE
+        )
+        -- task-019-A: private-channel ACL filter. Public channels pass;
+        -- OWNER sees all; else (allow & ~deny) & READ_BIT > 0 required.
+        AND (
+          c."isPrivate" = false
+          OR wm.role = 'OWNER'
+          OR COALESCE(
+               (SELECT (bit_or(cpo."allowMask") & ~bit_or(cpo."denyMask")) & 1
+                  FROM "ChannelPermissionOverride" cpo
+                 WHERE cpo."channelId" = c.id
+                   AND (
+                     (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+                     OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                   )),
+               0
+             ) > 0
         )
       ORDER BY m."createdAt" DESC
       LIMIT ${capped}
@@ -91,7 +114,7 @@ export class MeMentionsService {
     const result = await this.prisma.$queryRaw<[{ count: bigint | number }]>`
       SELECT COUNT(*)::bigint AS count
       FROM "Message" m
-      JOIN "Channel" c ON c.id = m."channelId"
+      JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
       -- task-011 reviewer MED-3 fix (same as recent()): workspace
       -- membership gate.
       JOIN "WorkspaceMember" wm
@@ -106,6 +129,21 @@ export class MeMentionsService {
         AND (
           m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
           OR (m.mentions->>'everyone')::boolean IS TRUE
+        )
+        -- task-019-A: private-channel ACL filter (mirrors recent()).
+        AND (
+          c."isPrivate" = false
+          OR wm.role = 'OWNER'
+          OR COALESCE(
+               (SELECT (bit_or(cpo."allowMask") & ~bit_or(cpo."denyMask")) & 1
+                  FROM "ChannelPermissionOverride" cpo
+                 WHERE cpo."channelId" = c.id
+                   AND (
+                     (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+                     OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                   )),
+               0
+             ) > 0
         )
     `;
     const row = result[0];

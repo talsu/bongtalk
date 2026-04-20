@@ -122,7 +122,7 @@ export function NotificationSettingsPage(): JSX.Element {
                   <tr
                     key={ev}
                     data-testid={`notif-row-${ev}`}
-                    className="border-t border-divider text-[length:var(--fs-14)] text-text"
+                    className="border-t border-border-subtle text-[length:var(--fs-14)] text-text"
                   >
                     <td className="px-[var(--s-5)] py-[var(--s-4)] font-medium">
                       {EVENT_LABEL[ev]}

@@ -61,23 +61,32 @@ export class UnreadService {
          WHERE "workspaceId" = ${workspaceId}::uuid
            AND "userId" = ${userId}::uuid
       ),
+      -- task-019-A + reviewer BLOCKER-1 fix: effective READ = ALLOW & ~DENY.
+      -- Aggregate every applicable override (USER=me OR ROLE=my role),
+      -- then a private channel is visible iff (allow & ~deny) & READ_BIT > 0.
+      -- READ_BIT = 0x0001 per apps/api/src/auth/permissions.ts.
+      overrides AS (
+        SELECT
+          cpo."channelId",
+          COALESCE(bit_or(cpo."allowMask"), 0) AS allow_mask,
+          COALESCE(bit_or(cpo."denyMask"), 0)  AS deny_mask
+        FROM "ChannelPermissionOverride" cpo
+        WHERE (
+          (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role FROM me))
+        )
+        GROUP BY cpo."channelId"
+      ),
       visible_channels AS (
         SELECT c.id, c."createdAt"
           FROM "Channel" c
+          LEFT JOIN overrides o ON o."channelId" = c.id
          WHERE c."workspaceId" = ${workspaceId}::uuid
            AND c."deletedAt" IS NULL
            AND (
              c."isPrivate" = false
              OR (SELECT role FROM me) = 'OWNER'
-             OR EXISTS (
-               SELECT 1 FROM "ChannelPermissionOverride" cpo
-                WHERE cpo."channelId" = c.id
-                  AND cpo."allowMask" > 0
-                  AND (
-                    (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                    OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role FROM me))
-                  )
-             )
+             OR (COALESCE(o.allow_mask, 0) & ~COALESCE(o.deny_mask, 0) & 1) > 0
            )
       )
       SELECT
@@ -154,15 +163,19 @@ export class UnreadService {
        AND (
          c."isPrivate" = false
          OR wm.role = 'OWNER'
-         OR EXISTS (
-           SELECT 1 FROM "ChannelPermissionOverride" cpo
-            WHERE cpo."channelId" = c.id
-              AND cpo."allowMask" > 0
-              AND (
-                (cpo."principalType" = 'USER' AND cpo."principalId" = wm."userId"::text)
-                OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
-              )
-         )
+         -- reviewer BLOCKER-1: enforce DENY > ALLOW for the caller. Aggregate
+         -- every applicable CPO row (USER or ROLE match) with bit_or, then
+         -- require (allow & ~deny) & READ_BIT > 0.
+         OR COALESCE(
+              (SELECT (bit_or(cpo."allowMask") & ~bit_or(cpo."denyMask")) & 1
+                 FROM "ChannelPermissionOverride" cpo
+                WHERE cpo."channelId" = c.id
+                  AND (
+                    (cpo."principalType" = 'USER' AND cpo."principalId" = wm."userId"::text)
+                    OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                  )),
+              0
+            ) > 0
        )
       LEFT JOIN "UserChannelReadState" rs
         ON rs."userId" = wm."userId"

@@ -146,4 +146,101 @@ describe('unread private-channel ACL (task-019-A, 018-follow-1)', () => {
     expect(row).toBeDefined();
     expect(row?.unreadCount).toBe(1);
   });
+
+  it('ROLE override (principalType=ROLE) lets every member of that role see the private channel', async () => {
+    const { workspaceId, owner, admin } = await seedWorkspaceWithRoles(env.baseUrl);
+
+    const privCh = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ name: 'admin-only', type: 'TEXT', isPrivate: true });
+    expect(privCh.status).toBe(201);
+
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: privCh.body.id,
+        principalType: 'ROLE',
+        principalId: 'ADMIN',
+        allowMask: 0x0001,
+        denyMask: 0,
+      },
+    });
+
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels/${privCh.body.id}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ content: 'admins only' });
+
+    const sumRes = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(admin.accessToken));
+    expect(sumRes.status).toBe(200);
+    const summarized = sumRes.body.channels as Array<{
+      channelId: string;
+      unreadCount: number;
+    }>;
+    const row = summarized.find((c) => c.channelId === privCh.body.id);
+    expect(row).toBeDefined();
+    expect(row?.unreadCount).toBe(1);
+  });
+
+  it('DENY beats ALLOW (reviewer BLOCKER-1 regression): USER deny on READ hides the channel', async () => {
+    const { workspaceId, owner, member } = await seedWorkspaceWithRoles(env.baseUrl);
+
+    const privCh = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ name: 'deny-wins', type: 'TEXT', isPrivate: true });
+    expect(privCh.status).toBe(201);
+
+    // Two rows — ALLOW on READ at ROLE level, DENY on READ at USER level.
+    // Effective = allow & ~deny = 0 → member must NOT see it.
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: privCh.body.id,
+        principalType: 'ROLE',
+        principalId: 'MEMBER',
+        allowMask: 0x0001,
+        denyMask: 0,
+      },
+    });
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: privCh.body.id,
+        principalType: 'USER',
+        principalId: member.userId,
+        allowMask: 0,
+        denyMask: 0x0001,
+      },
+    });
+
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels/${privCh.body.id}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ content: 'should not leak' });
+
+    const sumRes = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(member.accessToken));
+    expect(sumRes.status).toBe(200);
+    const channelIds = (sumRes.body.channels as Array<{ channelId: string }>).map(
+      (c) => c.channelId,
+    );
+    expect(channelIds).not.toContain(privCh.body.id);
+
+    const totRes = await request(env.baseUrl)
+      .get('/me/unread-totals')
+      .set('origin', ORIGIN)
+      .set(bearer(member.accessToken));
+    const myTotal = (
+      totRes.body.totals as Array<{ workspaceId: string; unreadCount: number }>
+    ).find((t) => t.workspaceId === workspaceId);
+    expect(myTotal?.unreadCount).toBe(0);
+  });
 });

@@ -4,11 +4,6 @@ import { PrismaService } from '../prisma/prisma.module';
 
 export type ResolvedChannel = 'TOAST' | 'BROWSER' | 'BOTH' | 'OFF';
 
-export interface ResolvedDelivery {
-  toast: boolean;
-  browser: boolean;
-}
-
 /**
  * Task-019-D: notification preference lookup.
  *
@@ -17,11 +12,16 @@ export interface ResolvedDelivery {
  *   2. (userId, NULL, eventType)         — global default
  *   3. hardcoded fallback                — ships with the app
  *
- * The dispatcher calls `resolveDelivery` before firing toast / Notification
- * API for mention.received, message.thread.replied, message.reaction.added
- * (DIRECT is reserved for future DMs). An in-memory cache keeps each
- * lookup cheap under a mention burst — 5 minute TTL per the task doc's
- * documented UX tradeoff ("flip MENTION=OFF takes up to 5 min to stick").
+ * For MVP, dispatcher-side gating lives in the web client (matching
+ * `resolveChannel` in apps/web/src/features/notifications/useNotificationPreferences.ts).
+ * The server mirror exists so a future task (outbox → WS projector
+ * filter, browser-native Notification API, or email/push channels)
+ * can drop WS events for OFF users without re-inventing the lookup.
+ * In-memory cache keeps each lookup cheap under a mention burst —
+ * 5 minute TTL per the documented UX tradeoff ("flip MENTION=OFF takes
+ * up to 5 min to stick"). Reviewer task-019 HIGH-1: `resolveDelivery`
+ * + `channelToDelivery` wrappers removed until a consumer lands, to
+ * keep the public surface honest.
  */
 const HARDCODED_DEFAULTS: Record<NET, ResolvedChannel> = {
   MENTION: 'BOTH',
@@ -31,13 +31,6 @@ const HARDCODED_DEFAULTS: Record<NET, ResolvedChannel> = {
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
-
-function channelToDelivery(channel: ResolvedChannel): ResolvedDelivery {
-  return {
-    toast: channel === 'TOAST' || channel === 'BOTH',
-    browser: channel === 'BROWSER' || channel === 'BOTH',
-  };
-}
 
 @Injectable()
 export class NotificationPreferencesService {
@@ -110,15 +103,6 @@ export class NotificationPreferencesService {
     });
     this.invalidateUser(userId);
     return row;
-  }
-
-  async resolveDelivery(
-    userId: string,
-    workspaceId: string,
-    eventType: NET,
-  ): Promise<ResolvedDelivery> {
-    const channel = await this.resolveChannel(userId, workspaceId, eventType);
-    return channelToDelivery(channel);
   }
 
   async resolveChannel(
