@@ -132,6 +132,13 @@ if [[ "$STATE" == "absent" ]]; then
   if ! git -C "$WORKTREE_PATH" fetch --dry-run origin "$WORKTREE_BRANCH" 2>/dev/null; then
     log "(note) initial ssh fetch against $ORIGIN_URL failed; webhook will retry on first deploy."
   fi
+  # `.env.prod` + `.env.deploy` are `.gitignore`d, so `git clone`
+  # didn't bring them. Symlink to the operator tree's copies so
+  # they stay single-sourced (operator rotates a secret → webhook
+  # sees it on the next deploy without another script run).
+  log "symlinking .env.prod + .env.deploy from $REPO_ROOT"
+  ln -sf "$REPO_ROOT/.env.prod"   "$WORKTREE_PATH/.env.prod"
+  ln -sf "$REPO_ROOT/.env.deploy" "$WORKTREE_PATH/.env.deploy"
 fi
 
 log "recreating $CONTAINER so the new bind mount takes effect"
