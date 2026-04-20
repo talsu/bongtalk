@@ -18,6 +18,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { SearchModule } from './search/search.module';
+import { FeedbackModule } from './feedback/feedback.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 
@@ -41,6 +42,7 @@ import { ObservabilityModule } from './observability/observability.module';
     AttachmentsModule,
     ReactionsModule,
     SearchModule,
+    FeedbackModule,
     RealtimeModule,
   ],
   controllers: [HealthController],

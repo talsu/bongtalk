@@ -43,6 +43,16 @@ export function BottomBar(): JSX.Element {
             {resolved === 'dark' ? '☀' : '☾'}
           </button>
         </Tooltip>
+        <Tooltip label="피드백 보내기" side="top">
+          <button
+            data-testid="feedback-open"
+            aria-label="피드백 보내기"
+            onClick={() => setOpenModal('feedback')}
+            className="rounded-md p-1.5 text-text-muted hover:bg-bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          >
+            💬
+          </button>
+        </Tooltip>
         <Tooltip label="단축키 (?)" side="top">
           <button
             data-testid="shortcut-help"
