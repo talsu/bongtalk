@@ -67,8 +67,14 @@ fi
 # inside the webhook container whose env comes from .env.deploy, so the
 # password was empty and every migration authentication-failed.
 log "run prisma migrate deploy"
+# Runtime image ships a global `prisma` CLI but NO `pnpm` (prod-only
+# slim). The earlier `pnpm --filter @qufox/api db:migrate` call was a
+# dev shape that crashed with "No such file or directory" on a real
+# webhook deploy. Overriding the entrypoint sidesteps the CMD's
+# `prisma migrate deploy && node dist/main.js` — we want only the
+# migrate half here, and node startup follows during the rollout.
 if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml run --rm \
-      qufox-api pnpm --filter @qufox/api db:migrate; then
+      --entrypoint prisma qufox-api migrate deploy --schema=prisma/schema.prisma; then
   log "migration failed — aborting deploy (previous containers still serving)" >&2
   exit 1
 fi
