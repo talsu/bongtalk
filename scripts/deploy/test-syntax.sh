@@ -8,7 +8,7 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 
 fail=0
-for f in scripts/deploy/*.sh scripts/backup/*.sh scripts/setup/*.sh services/backup/entrypoint.sh; do
+for f in scripts/deploy/*.sh scripts/backup/*.sh scripts/setup/*.sh scripts/workers/*.sh services/backup/entrypoint.sh; do
   if [[ -f "$f" ]] && ! bash -n "$f"; then
     echo "✗ $f" >&2
     fail=1

@@ -12,6 +12,10 @@ set -euo pipefail
 : "${BACKUP_CRON_MINIO:=0 */4 * * *}"
 : "${RESTORE_TEST_CRON_MINIO:=15 4 * * 0}"
 : "${ORPHAN_GC_CRON:=30 4 * * *}"
+# task-013-A2 (task-034 closure): workspace soft-delete purge worker.
+# Runs after the overnight backup pair so a last-good snapshot of the
+# about-to-be-purged rows exists.
+: "${WORKSPACE_PURGE_CRON:=0 5 * * *}"
 
 cat >/etc/crontabs/root <<EOF
 # qufox backup schedule (UTC)
@@ -21,6 +25,7 @@ $RESTORE_TEST_CRON /app/scripts/backup/restore-test.sh >/proc/1/fd/1 2>/proc/1/f
 $BACKUP_CRON_MINIO /app/scripts/backup/minio-backup.sh >/proc/1/fd/1 2>/proc/1/fd/2
 $RESTORE_TEST_CRON_MINIO /app/scripts/backup/minio-restore-test.sh >/proc/1/fd/1 2>/proc/1/fd/2
 $ORPHAN_GC_CRON /app/scripts/backup/attachment-orphan-gc.sh >/proc/1/fd/1 2>/proc/1/fd/2
+$WORKSPACE_PURGE_CRON /app/scripts/workers/workspace-purge.sh >/proc/1/fd/1 2>/proc/1/fd/2
 EOF
 
 # One-shot on boot so the first snapshot lands without waiting up to 24h.
