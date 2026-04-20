@@ -413,18 +413,33 @@ _One subsection per Round. Implementer appends._
 
 ### Round 1
 
-_(not yet run)_
-
 - Commits:
-- Fixes (backlog rows closed):
-- New discoveries (backlog rows opened):
-- Reviewer verdict:
-- pnpm verify:
-- Wall clock:
+  - `c354ae3` fix(polish-R1-ime-enter-half-sends)
+  - `68d043a` fix(polish-R1-typing-stale-on-clear)
+  - `132b4d5` fix(polish-R1-scroll-jumps-on-new-message)
+  - `b08d56b` fix(polish-R1-reviewer): initial scroll + channel-change typing.stop + thread IME harness
+- Fixes closed in R1:
+  - `ime-enter-half-sends` → fixed-R1 (MessageComposer + ThreadPanel)
+  - `typing-stale-on-clear` → fixed-R1 (new WS `typing.stop` event + client emits on empty + submit + channel change)
+  - `scroll-jumps-on-new-message` → fixed-R1 (pre-append wasAtBottomRef + first-paint anchor)
+  - `reaction-flicker-own-toggle` → cannot-repro (harness samples 40× over 2s with no misstate)
+- Deferred (harness-as-guard): `typing-stale-on-tab-close`, `presence-lag-on-disconnect`, `unread-sidebar-lag` — backend already delivers the target SLA; harness reopens on regression.
+- New discoveries: none (initial Round on seeded backlog).
+- Reviewer verdict: BLOCK (agent `ad10643d9dddb9db5`, 31,773 tokens, 7 tools, 52s) — 1 BLOCKER + 2 HIGH; all fix-forward in `b08d56b`.
+- pnpm verify: api typecheck + 64/64 unit, web typecheck + lint (0 errors) + 36/36 vitest + build → green.
 
 ### Round 2
 
-_(not yet run)_
+- Commits:
+  - `4be92d3` fix(polish-R2-ime-edit-half-saves)
+  - `3dc9520` fix(polish-R2-ime-palette-half-runs)
+  - `f40a3e1` fix(polish-R2-reviewer): palette IME test asserts positive post-composition path
+- New discoveries (grep-audit on Enter handlers R1 missed):
+  - `ime-edit-half-saves` → fixed-R2 (MessageItem edit input, identical guard to R1)
+  - `ime-palette-half-runs` → fixed-R2 (CommandPalette input, identical guard to R1)
+- Reviewer verdict: PASS (agent `aa56c764235858ed7`, 39,273 tokens, 13 tools, 66s) — 0 BLOCKER / 0 HIGH / 1 MED (inaccurate coverage claim) fixed-forward in `f40a3e1`; 3 LOW/NIT noted and accepted.
+- pnpm verify: 19/19 tasks green, 0 errors (188 pre-existing warnings unchanged).
+- Exit check: backlog open HIGH=0, open CRITICAL=0 → criterion (a) met; however R2 surfaced 2 new HIGH (both fixed in this Round) → criterion (b) 2-consecutive-rounds-0-new-HIGH is NOT met. Continue to Round 3 for convergence confirmation.
 
 ### Round 3
 
