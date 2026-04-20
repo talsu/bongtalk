@@ -68,11 +68,16 @@ function UnreadIndicator({
   hasMention: boolean;
 }): JSX.Element | null {
   if (count <= 0) return null;
+  // DS mockup (/design-system/index.html full-chat column) shows a
+  // single `qf-badge qf-badge--count` pill at the right of the row —
+  // no inline dot next to the name, no accent-colour override. The
+  // mention-vs-regular distinction stays encoded in the testid so
+  // existing test selectors keep working.
   return (
     <span
       data-testid={hasMention ? 'unread-pill-mention' : 'unread-pill'}
       aria-label={hasMention ? `읽지 않은 멘션 ${count}개` : `읽지 않음 ${count}개`}
-      className={cn('qf-badge qf-badge--count', !hasMention && 'bg-accent')}
+      className="qf-badge qf-badge--count"
     >
       {count > 99 ? '99+' : count}
     </span>
@@ -138,16 +143,6 @@ function DraggableChannelRow({
       >
         <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
           <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
-          {hasUnread && !active && (
-            <span
-              data-testid={hasMention ? 'unread-dot-mention' : 'unread-dot'}
-              aria-hidden="true"
-              className={cn(
-                'ml-1 inline-block h-1.5 w-1.5 rounded-full',
-                hasMention ? 'bg-danger' : 'bg-accent',
-              )}
-            />
-          )}
         </Link>
         <span className="qf-channel__suffix">
           <UnreadIndicator count={unreadCount} hasMention={hasMention} />
