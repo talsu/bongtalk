@@ -1,0 +1,42 @@
+id: 031
+title: Beta readiness — deploy-hook SQL + onboarding + invite-gate + feedback + DAU
+goal: |
+  Four beta-operations items ship alongside the deploy-hook SQL
+  that closes task-015-follow-1 and seven priority hygiene items.
+
+  Deploy hook: `scripts/deploy/sql/task-015-message-search-concurrent.sql`
+  rebuilds the two FTS indexes with CREATE INDEX CONCURRENTLY IF NOT
+  EXISTS outside the Prisma migration transaction. `auto-deploy.sh`
+  iterates `scripts/deploy/sql/*.sql` after `prisma migrate deploy`
+  and aborts the deploy before rollout on hook failure.
+
+  Onboarding checklist (GET /me/onboarding-status): four counts
+  (workspaces, channels, invitesIssued, messagesSent) drive a sidebar
+  card that auto-dismisses when all four are satisfied.
+
+  Closed-beta signup: `BetaInviteRequiredGuard` on POST /auth/signup
+  rejects with 403 `BETA_INVITE_REQUIRED` when the flag is true and
+  the body lacks a valid inviteCode. Boot-time WARN for production
+  missing the flag. `scripts/setup/init-admin.sh` bootstraps the
+  first admin via stdin prompts (never env — avoids docker inspect
+  leak).
+
+  Feedback widget: POST /feedback (BUG/FEATURE/OTHER + text + page
+  + UA) writes a Feedback row; rate-limited 5/hour/user. No admin
+  UI (operator uses psql).
+
+  DAU/MAU: `qufox_active_users{window="1d|7d|30d"}` gauge populated
+  hourly from `COUNT(DISTINCT userId) FROM RefreshToken WHERE
+  createdAt > now() - interval`. Rotation writes a new row each
+  refresh so createdAt is the "last active" proxy without needing a
+  lastUsedAt column.
+dod:
+  - command: pnpm --filter @qufox/api test
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test
+    expect: exit 0
+  - command: pnpm --filter @qufox/webhook test
+    expect: exit 0
+max_turns: 24

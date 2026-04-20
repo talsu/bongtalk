@@ -19,33 +19,29 @@ export class OnboardingController {
 
   @Get('onboarding-status')
   async status(@CurrentUser() user: CurrentUserPayload) {
-    // Run all four counts in parallel. The individual indexes already
-    // exist from task-002/003/005/011 (WorkspaceMember.userId,
-    // Channel.workspaceId, Invite.createdById, Message.authorId). No
-    // extra migration needed.
-    const [workspaceRow, workspaceCount, channelCount, invitesIssued, messagesSent] =
-      await Promise.all([
-        // Pick an arbitrary workspace for the "second channel" check —
-        // the checklist treats any workspace as representative; real
-        // multi-workspace users already have multi-channel elsewhere.
-        this.prisma.workspaceMember.findFirst({
-          where: { userId: user.id },
-          select: { workspaceId: true },
-          orderBy: { joinedAt: 'asc' },
-        }),
-        this.prisma.workspaceMember.count({ where: { userId: user.id } }),
-        // channelCount resolved against the user's first workspace so
-        // "second channel" means "beyond the default #general".
-        Promise.resolve(0), // filled below
-        this.prisma.invite.count({ where: { createdById: user.id } }),
-        this.prisma.message.count({ where: { authorId: user.id, deletedAt: null } }),
-      ]);
+    // Four counts in two phases: the three that only need userId run
+    // together, then channel count runs once we know which workspace
+    // row to aim at. Task-016 reviewer NIT cleanup: the earlier
+    // parallel call carried a `Promise.resolve(0)` placeholder that
+    // ran an unused slot in the tuple.
+    const [workspaceRow, workspaceCount, invitesIssued, messagesSent] = await Promise.all([
+      // Pick the oldest workspace for the "second channel" check so
+      // the checklist stays stable when the user joins additional
+      // workspaces later.
+      this.prisma.workspaceMember.findFirst({
+        where: { userId: user.id },
+        select: { workspaceId: true },
+        orderBy: { joinedAt: 'asc' },
+      }),
+      this.prisma.workspaceMember.count({ where: { userId: user.id } }),
+      this.prisma.invite.count({ where: { createdById: user.id } }),
+      this.prisma.message.count({ where: { authorId: user.id, deletedAt: null } }),
+    ]);
     const channels = workspaceRow
       ? await this.prisma.channel.count({
           where: { workspaceId: workspaceRow.workspaceId, deletedAt: null },
         })
       : 0;
-    void channelCount;
 
     return {
       workspaces: workspaceCount,

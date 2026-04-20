@@ -99,6 +99,33 @@ psql -v ON_ERROR_STOP=1 -U qufox -d qufox -f scripts/deploy/sql/<file>.sql
 psql -v ON_ERROR_STOP=1 -U qufox -d qufox -f scripts/deploy/sql/<file>.sql
 ```
 
+### Populated-prod first-deploy of the 015 FTS indexes
+
+Task-015 shipped the two GIN indexes via a plain `CREATE INDEX IF
+NOT EXISTS` in the migration transaction. Fine for dev/test (empty
+`Message`) — but on a populated prod the first deploy of that
+migration takes an AccessExclusive lock for the index-build
+duration, i.e. the chat system goes dark.
+
+One-time mitigation, ran by hand on the NAS BEFORE letting the
+webhook apply 015 to prod:
+
+```sh
+docker exec -i qufox-postgres-prod \
+  sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox' \
+  < scripts/deploy/sql/task-015-message-search-concurrent.sql
+```
+
+The hook uses `CREATE INDEX CONCURRENTLY IF NOT EXISTS` — no lock,
+same result. Once both indexes exist, `prisma migrate deploy` for
+015's migration short-circuits via the migration's `IF NOT EXISTS`
+guards, the normal deploy continues, and the hook runs again
+afterwards as a no-op (idempotent).
+
+Future FTS-style migrations should ship their concurrent-build
+counterpart as a hook AND use `IF NOT EXISTS` in the migration so
+the same operator one-liner is the standard populated-prod pattern.
+
 ## Things that don't auto-deploy
 
 - `nginx.conf` edits (operator applies + `nginx -s reload`)

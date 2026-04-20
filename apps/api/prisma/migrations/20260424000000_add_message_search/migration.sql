@@ -30,10 +30,16 @@ ALTER TABLE "Message"
   ADD COLUMN "search_tsv" tsvector
     GENERATED ALWAYS AS (to_tsvector('simple', coalesce("content", ''))) STORED;
 
-CREATE INDEX "Message_search_tsv_idx"
+-- task-016-A fix-forward: `IF NOT EXISTS` makes these statements
+-- no-ops when the populated-prod deploy ran the
+-- `task-015-message-search-concurrent.sql` hook ahead of time (see
+-- runbook-deploy.md "Populated-prod first-deploy of task-015"). On
+-- fresh dev/test installs the indexes don't exist yet, so the plain
+-- CREATE runs as before.
+CREATE INDEX IF NOT EXISTS "Message_search_tsv_idx"
   ON "Message" USING GIN ("search_tsv")
   WHERE "deletedAt" IS NULL;
 
-CREATE INDEX "Message_content_trgm_idx"
+CREATE INDEX IF NOT EXISTS "Message_content_trgm_idx"
   ON "Message" USING GIN ("content" gin_trgm_ops)
   WHERE "deletedAt" IS NULL;
