@@ -1,0 +1,23 @@
+id: 033
+title: DS Full Chat Mockup VR parity
+goal: |
+  The live shell must render at visual parity with the DS Full Chat
+  Mockup (apps/web/public/design-system/index.html lines 549-628) in
+  both light and dark themes. Structural classes — qf-serverlist /
+  qf-channellist / qf-topbar / qf-memberlist / qf-topbar__title /
+  qf-topbar__topic — must all render. Tolerance: maxDiffPixelRatio
+  0.02 (env-overridable via DS_PARITY_THRESHOLD).
+dod:
+  - command: pnpm --filter @qufox/web test:e2e --grep "task-018-G"
+    expect: exit 0
+  - command: >
+      grep -rn '#[0-9a-fA-F]\{3,6\}\b\|\[[0-9]\+px\]\|rgba(\|box-shadow:\s*[0-9]'
+      apps/web/src --include='*.tsx' --include='*.ts' --include='*.css'
+    expect_empty: true
+  - scope_allow:
+      - apps/web/e2e/ds-mockup-parity.e2e.ts
+      - apps/web/e2e/__screenshots__/**
+      - apps/web/src/**
+      - apps/web/public/design-system/**
+      - eslint.config.mjs
+max_turns: 60
