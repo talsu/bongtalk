@@ -53,7 +53,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
                 {workspace.name}
               </span>
               <span aria-hidden className="text-text-muted">
-                ▾
+                ⌄
               </span>
             </button>
           </DropdownTrigger>

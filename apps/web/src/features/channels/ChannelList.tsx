@@ -166,7 +166,9 @@ function DefaultSectionHeader({
 }): JSX.Element {
   return (
     <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
-      <span className="truncate">채널</span>
+      <span className="truncate">
+        <span aria-hidden="true">▾ </span>채널
+      </span>
       {canManage ? (
         <button
           type="button"
@@ -255,10 +257,14 @@ function SortableCategorySection({
               aria-label={`카테고리 ${category.name} 드래그`}
               className="flex min-w-0 flex-1 cursor-grab items-center truncate"
             >
+              <span aria-hidden="true">▾&nbsp;</span>
               {category.name}
             </span>
           ) : (
-            <span className="flex min-w-0 flex-1 items-center truncate">{category.name}</span>
+            <span className="flex min-w-0 flex-1 items-center truncate">
+              <span aria-hidden="true">▾&nbsp;</span>
+              {category.name}
+            </span>
           )}
           {canManage ? (
             <button
@@ -523,7 +529,7 @@ export function ChannelList({
         onDragEnd={handleDragEnd}
         onDragCancel={handleDragCancel}
       >
-        <nav className="flex flex-col gap-3" data-testid="channel-sidebar" aria-label="채널">
+        <nav className="flex flex-col" data-testid="channel-sidebar" aria-label="채널">
           <DefaultSection
             channels={uncategorized}
             workspaceSlug={workspaceSlug}
