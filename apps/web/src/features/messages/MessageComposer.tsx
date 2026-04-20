@@ -38,11 +38,28 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     }
   };
 
+  // task-021-R1-typing-stale-on-clear: proactively tell the server we
+  // stopped typing when the draft empties, so observers' indicators
+  // clear within ~200 ms of a WS round-trip instead of waiting for the
+  // 5 s Redis TTL.
+  const sendTypingStop = (): void => {
+    const socket = getSocket();
+    if (socket?.connected) {
+      socket.emit('typing.stop', { channelId });
+    }
+    // Reset local throttle so the next real keystroke re-fires
+    // typing.ping immediately.
+    lastPingRef.current = 0;
+  };
+
   const submit = (): void => {
     const trimmed = draft.trim();
     if (!trimmed) return;
     send(trimmed);
     clearDraft(channelId);
+    // task-021-R1: after submit the draft is empty → signal stop so
+    // observers' indicators clear immediately.
+    sendTypingStop();
   };
 
   return (
@@ -63,8 +80,13 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
         data-testid="msg-input"
         value={draft}
         onChange={(e) => {
-          setDraft(channelId, e.target.value);
-          if (e.target.value.length > 0) maybePing();
+          const next = e.target.value;
+          setDraft(channelId, next);
+          if (next.length > 0) {
+            maybePing();
+          } else {
+            sendTypingStop();
+          }
         }}
         onKeyDown={(e) => {
           // task-021-R1-ime-enter-half-sends: skip Enter when an IME
