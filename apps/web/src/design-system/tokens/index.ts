@@ -1,4 +1,5 @@
-export * from './colors';
+// Color tokens now live in /design-system/tokens.css — the attribute-only
+// ThemeProvider flips [data-theme] and lets the stylesheet do the rest.
 export * from './spacing';
 export * from './radius';
 export * from './shadows';
