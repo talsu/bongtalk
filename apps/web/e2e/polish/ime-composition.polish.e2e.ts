@@ -234,3 +234,63 @@ test('polish: Enter during IME composition on message edit does NOT save (R2-ime
   await page.waitForTimeout(1500);
   expect(patchCalls).toBeGreaterThanOrEqual(1);
 });
+
+// Reviewer R2 second discovery: Ctrl+K command palette input — same
+// Enter-during-composition bug. Committing a Korean search term used
+// to fire the first filtered action. This scenario just asserts that
+// Enter during composition does NOT close the palette; the inverse
+// (post-composition Enter runs) is covered by existing shell/keyboard
+// suites.
+test('polish: Enter during IME composition in Ctrl+K palette does NOT run (R2-ime-palette-half-runs)', async ({
+  page,
+  request,
+}) => {
+  const stamp = Date.now() + 216;
+  const slug = `polip-${stamp.toString(36)}`;
+  const res = await request.post(`${API}/auth/signup`, {
+    headers: { origin: ORIGIN },
+    data: { email: `polip-${stamp}@qufox.dev`, username: `polip${stamp}`, password: PW },
+  });
+  const token = (await res.json()).accessToken as string;
+  const ws = await request.post(`${API}/workspaces`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+    data: { name: 'IMEPal', slug },
+  });
+  const wsId = (await ws.json()).id as string;
+  for (const name of ['general', 'random']) {
+    await request.post(`${API}/workspaces/${wsId}/channels`, {
+      headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+      data: { name, type: 'TEXT' },
+    });
+  }
+
+  await page.goto('/login');
+  await page.getByTestId('login-email').fill(`polip-${stamp}@qufox.dev`);
+  await page.getByTestId('login-password').fill(PW);
+  await page.getByTestId('login-submit').click();
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}$`));
+  await page.getByTestId('channel-general').click();
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}/general`));
+
+  // Open palette.
+  await page.locator('body').click();
+  await page.keyboard.press('Control+k');
+  const input = page.getByTestId('palette-input');
+  await expect(input).toBeVisible();
+
+  // Dispatch a composition; Enter mid-composition must not dismiss
+  // the palette or navigate.
+  await page.evaluate(() => {
+    const el = document.querySelector<HTMLInputElement>('[data-testid="palette-input"]');
+    if (!el) throw new Error('palette-input not found');
+    el.focus();
+    el.dispatchEvent(new CompositionEvent('compositionstart'));
+    el.value = '하';
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+  });
+  const beforeUrl = page.url();
+  await page.keyboard.press('Enter');
+  await page.waitForTimeout(400);
+  expect(page.url()).toBe(beforeUrl);
+  await expect(input).toBeVisible();
+});
