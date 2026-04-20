@@ -214,6 +214,28 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     });
   }
 
+  /**
+   * task-021-R1-typing-stale-on-clear: fires when the client's composer
+   * draft becomes empty. Removes the user from the typing set + clears
+   * the per-(user, channel) throttle so the next keystroke isn't
+   * silently suppressed for up to 3 s. Broadcasts the refreshed set.
+   */
+  @SubscribeMessage('typing.stop')
+  async onTypingStop(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: { channelId?: string },
+  ): Promise<void> {
+    const state = client.data.state as SocketState | undefined;
+    if (!state || !body?.channelId) return;
+    if (!state.channelIds.includes(body.channelId)) return;
+    const res = await this.typing.stop(state.user.userId, body.channelId);
+    if (!res.changed) return;
+    this.server.to(rooms.channel(body.channelId)).emit('typing.updated', {
+      channelId: body.channelId,
+      typingUserIds: res.members,
+    });
+  }
+
   @SubscribeMessage('channel:read')
   async onRead(
     @ConnectedSocket() client: Socket,

@@ -28,6 +28,22 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     lastPingRef.current = 0;
   }, [channelId]);
 
+  // task-021-R1 reviewer HIGH fix: when the user switches channels
+  // (or unmounts the composer entirely), send typing.stop for the
+  // channel that the composer was mounted on so observers don't see
+  // a stale indicator for up to 5s until Redis TTL. `prev` is
+  // captured in the closure so cleanup sees the channel that was
+  // active when the effect registered.
+  useEffect(() => {
+    const prev = channelId;
+    return () => {
+      const socket = getSocket();
+      if (socket?.connected) {
+        socket.emit('typing.stop', { channelId: prev });
+      }
+    };
+  }, [channelId]);
+
   const maybePing = (): void => {
     const now = Date.now();
     if (now - lastPingRef.current < TYPING_EMIT_INTERVAL_MS) return;
@@ -38,11 +54,28 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     }
   };
 
+  // task-021-R1-typing-stale-on-clear: proactively tell the server we
+  // stopped typing when the draft empties, so observers' indicators
+  // clear within ~200 ms of a WS round-trip instead of waiting for the
+  // 5 s Redis TTL.
+  const sendTypingStop = (): void => {
+    const socket = getSocket();
+    if (socket?.connected) {
+      socket.emit('typing.stop', { channelId });
+    }
+    // Reset local throttle so the next real keystroke re-fires
+    // typing.ping immediately.
+    lastPingRef.current = 0;
+  };
+
   const submit = (): void => {
     const trimmed = draft.trim();
     if (!trimmed) return;
     send(trimmed);
     clearDraft(channelId);
+    // task-021-R1: after submit the draft is empty → signal stop so
+    // observers' indicators clear immediately.
+    sendTypingStop();
   };
 
   return (
@@ -63,10 +96,23 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
         data-testid="msg-input"
         value={draft}
         onChange={(e) => {
-          setDraft(channelId, e.target.value);
-          if (e.target.value.length > 0) maybePing();
+          const next = e.target.value;
+          setDraft(channelId, next);
+          if (next.length > 0) {
+            maybePing();
+          } else {
+            sendTypingStop();
+          }
         }}
         onKeyDown={(e) => {
+          // task-021-R1-ime-enter-half-sends: skip Enter when an IME
+          // composition is in flight. `nativeEvent.isComposing` is the
+          // standard signal; `keyCode === 229` covers older browsers /
+          // Korean IMEs that dispatch the pseudo-key before composition
+          // end. Without this guard, pressing Enter mid-composition
+          // sends the half-formed Hangul syllable.
+          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+          if (native.isComposing || e.keyCode === 229) return;
           if (e.key === 'Enter' && !e.shiftKey) {
             e.preventDefault();
             submit();

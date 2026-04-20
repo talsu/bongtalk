@@ -99,6 +99,12 @@ export function CommandPalette(): JSX.Element | null {
           setFocusIdx(0);
         }}
         onKeyDown={(e) => {
+          // task-021-R2-ime-palette-half-runs: same IME guard family
+          // as MessageComposer / ThreadPanel / MessageItem. Pressing
+          // Enter to commit a Korean composition would otherwise fire
+          // the first filtered action.
+          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+          if (native.isComposing || e.keyCode === 229) return;
           if (e.key === 'ArrowDown') {
             e.preventDefault();
             setFocusIdx((i) => Math.min(i + 1, filtered.length - 1));

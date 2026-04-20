@@ -67,6 +67,25 @@ export class TypingService {
   }
 
   /**
+   * task-021-R1-typing-stale-on-clear: client-originated stop signal
+   * fired when the user empties their draft. Removes the user from the
+   * typing set AND evicts the throttle key so a subsequent ping isn't
+   * silently suppressed for up to 3s. Caller broadcasts the updated
+   * set to the channel room.
+   */
+  async stop(userId: string, channelId: string): Promise<{ changed: boolean; members: string[] }> {
+    const sk = this.channelKey(channelId);
+    const tk = this.throttleKey(userId, channelId);
+    const pipe = this.redis.multi();
+    pipe.srem(sk, userId);
+    pipe.del(tk);
+    const res = (await pipe.exec()) ?? [];
+    const sremCount = Number(res[0]?.[1] ?? 0);
+    const members = await this.redis.smembers(sk);
+    return { changed: sremCount > 0, members };
+  }
+
+  /**
    * Proactively drop a user from every channel set they may be in.
    * Used by the disconnect hook so the indicator clears faster than
    * the TTL would. `channelIds` comes from the socket state so we
