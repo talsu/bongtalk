@@ -40,8 +40,19 @@ services:
       # host can reach /internal/* without going through nginx.
       - '127.0.0.1:${WEBHOOK_PORT:-9000}:9000'
     volumes:
-      # Entire repo. The webhook shells out into it to run scripts/deploy/*.
-      - .:/repo
+      # task-017-B: dedicated worktree at ${DEPLOY_WORKTREE} (default
+      # /volume2/dockers/qufox-deploy). Host's /volume2/dockers/qufox
+      # is operator-owned; webhook's `git checkout --force <sha>`
+      # previously dragged THAT tree into detached HEAD every deploy.
+      # Worktree isolation solves it: both trees share objects + refs
+      # via git's `.git/worktrees/` pointer but have independent HEAD
+      # + index + working files.
+      #
+      # IMPORTANT: the worktree must exist before `docker compose up`.
+      # Run `scripts/setup/migrate-webhook-worktree.sh` once on the
+      # NAS to create it. The script is idempotent so re-runs are
+      # cheap.
+      - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}:/repo
       # Docker daemon socket — the webhook invokes `docker compose` via
       # the host daemon to rebuild qufox-api / qufox-web. This is
       # effectively root-equivalent on the host, so the HMAC gate is
