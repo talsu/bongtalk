@@ -42,6 +42,21 @@ export const ThreadSummarySchema = z.object({
 });
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 
+// Trimmed Attachment projection embedded on each MessageDto. The
+// upload flow stays the same (presigned upload + finalize), but the
+// message list endpoint now returns the attachments inline so the UI
+// can render images / videos / file cards without an extra fan-out.
+// Mirrors `apps/web/src/features/messages/AttachmentsList.tsx`'s
+// AttachmentLite interface.
+export const AttachmentLiteSchema = z.object({
+  id: z.string().uuid(),
+  kind: z.enum(['IMAGE', 'VIDEO', 'FILE']),
+  mime: z.string().min(1).max(255),
+  sizeBytes: z.number().int().nonnegative(),
+  originalName: z.string().min(1).max(512),
+});
+export type AttachmentLite = z.infer<typeof AttachmentLiteSchema>;
+
 export const MessageDtoSchema = z.object({
   id: z.string().uuid(),
   channelId: z.string().uuid(),
@@ -59,6 +74,10 @@ export const MessageDtoSchema = z.object({
   // that haven't been replied to yet — the UI branches on presence+count.
   parentMessageId: z.string().uuid().nullable().default(null),
   thread: ThreadSummarySchema.nullable().default(null),
+  // Inline attachments per message (IMAGE / VIDEO / FILE). Default `[]`
+  // for older API builds and for messages that were sent without an
+  // attachment batch.
+  attachments: z.array(AttachmentLiteSchema).default([]),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 

@@ -130,30 +130,48 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
           <div className="qf-empty__body">아래에서 첫 메시지를 보내 대화를 시작하세요.</div>
         </div>
       ) : null}
-      {messages.map((m) => (
-        <MessageItem
-          key={m.id}
-          msg={m}
-          isMine={m.authorId === user?.id}
-          authorName={nameById.get(m.authorId)}
-          authorRole={roleById.get(m.authorId) ?? null}
-          onEditSave={async (content) => {
-            await updMut.mutateAsync({ msgId: m.id, content });
-          }}
-          onDelete={() => {
-            void delMut.mutate(m.id);
-          }}
-          onToggleReaction={(emoji, byMe) => {
-            // Optimistic rows have tempIds — they can't accept reactions
-            // until the server roundtrip replaces them with a real id.
-            if (m.id.startsWith('tmp-')) return;
-            reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
-          }}
-          onOpenThread={
-            onOpenThread && !m.id.startsWith('tmp-') ? (rootId) => onOpenThread(rootId) : undefined
-          }
-        />
-      ))}
+      {messages.map((m, idx) => {
+        // Discord-like continuation rule: collapse the avatar + meta of
+        // consecutive messages from the same author within 5 minutes,
+        // provided both live in the same thread context (both roots OR
+        // both replies to the same parent). Deleted messages reset the
+        // grouping so the "(삭제된 메시지)" line stands alone.
+        const prev = idx > 0 ? messages[idx - 1] : null;
+        const isContinuation =
+          !!prev &&
+          !prev.deleted &&
+          !m.deleted &&
+          prev.authorId === m.authorId &&
+          prev.parentMessageId === m.parentMessageId &&
+          new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
+        return (
+          <MessageItem
+            key={m.id}
+            msg={m}
+            isMine={m.authorId === user?.id}
+            isContinuation={isContinuation}
+            authorName={nameById.get(m.authorId)}
+            authorRole={roleById.get(m.authorId) ?? null}
+            onEditSave={async (content) => {
+              await updMut.mutateAsync({ msgId: m.id, content });
+            }}
+            onDelete={() => {
+              void delMut.mutate(m.id);
+            }}
+            onToggleReaction={(emoji, byMe) => {
+              // Optimistic rows have tempIds — they can't accept reactions
+              // until the server roundtrip replaces them with a real id.
+              if (m.id.startsWith('tmp-')) return;
+              reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
+            }}
+            onOpenThread={
+              onOpenThread && !m.id.startsWith('tmp-')
+                ? (rootId) => onOpenThread(rootId)
+                : undefined
+            }
+          />
+        );
+      })}
     </Scrollable>
   );
 }
