@@ -89,9 +89,19 @@ export function MessageItem({
           className="qf-message__avatar"
         />
       ) : (
-        // Placeholder column so the body keeps its left indent on
-        // continuation rows — matches the DS sample.
-        <div className="qf-message__avatar" aria-hidden />
+        // Continuation gutter: mirrors .qf-avatar--md width so the body
+        // column aligns with head rows, and reveals a short time label
+        // ("오후 11:34") on message hover. Distinct class from
+        // .qf-message__avatar so the DS `visibility:hidden; height:0`
+        // collapse rule doesn't strip the time.
+        <div className="qf-message__gutter" aria-hidden="true">
+          <time dateTime={msg.createdAt} className="qf-message__gutter-time">
+            {new Date(msg.createdAt).toLocaleTimeString('ko-KR', {
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </time>
+        </div>
       )}
       <div className="min-w-0">
         {isHead ? (

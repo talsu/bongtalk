@@ -233,6 +233,28 @@
 .qf-message--cont .qf-message__avatar { visibility: hidden; height: 0; }
 .qf-message--cont .qf-message__meta { display: none; }
 .qf-message__avatar { grid-row: span 2; }
+/* Continuation gutter: sits in the avatar column of qf-message--cont so
+   the body keeps its left alignment with head rows. Width matches
+   .qf-avatar--md (40px); hover reveals the short time (Discord-style
+   gutter cue). Separate class from .qf-message__avatar so the
+   legacy `visibility: hidden; height: 0` collapse rule doesn't blank
+   the time label. */
+.qf-message__gutter {
+  grid-row: span 2;
+  width: 40px;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-right: var(--s-2);
+}
+.qf-message__gutter-time {
+  font-size: var(--fs-11);
+  color: var(--text-muted);
+  opacity: 0;
+  transition: opacity var(--dur-fast);
+  user-select: none;
+}
+.qf-message:hover .qf-message__gutter-time { opacity: 1; }
 .qf-message__meta {
   display: flex; align-items: baseline; gap: var(--s-3);
   margin-bottom: var(--s-1);
