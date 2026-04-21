@@ -36,8 +36,23 @@ export function useSendMessage(wsId: string, channelId: string) {
   const { user } = useAuth();
 
   const mutation = useMutation({
-    mutationFn: async (args: { content: string; tempId: string; idempotencyKey: string }) =>
-      sendMessage(wsId, channelId, { content: args.content }, args.idempotencyKey),
+    mutationFn: async (args: {
+      content: string;
+      tempId: string;
+      idempotencyKey: string;
+      attachmentIds?: string[];
+    }) =>
+      sendMessage(
+        wsId,
+        channelId,
+        {
+          content: args.content,
+          ...(args.attachmentIds && args.attachmentIds.length > 0
+            ? { attachmentIds: args.attachmentIds }
+            : {}),
+        },
+        args.idempotencyKey,
+      ),
     onMutate: async ({ content, tempId }) => {
       await qc.cancelQueries({ queryKey: keys.list(wsId, channelId) });
       const prev = qc.getQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId));
@@ -94,10 +109,10 @@ export function useSendMessage(wsId: string, channelId: string) {
   });
 
   const send = useCallback(
-    (content: string) => {
+    (content: string, attachmentIds?: string[]) => {
       const tempId = `tmp-${crypto.randomUUID()}`;
       const idempotencyKey = crypto.randomUUID();
-      mutation.mutate({ content, tempId, idempotencyKey });
+      mutation.mutate({ content, tempId, idempotencyKey, attachmentIds });
     },
     [mutation],
   );

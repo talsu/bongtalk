@@ -8,16 +8,25 @@ export const DropdownTrigger = RDropdown.Trigger;
 export function DropdownContent({
   children,
   align = 'end',
+  side = 'bottom',
   className,
 }: {
   children: ReactNode;
   align?: 'start' | 'center' | 'end';
+  /**
+   * Which side of the trigger the menu renders on. Defaults to 'bottom'
+   * — the common dropdown case. The message composer uses 'top' so the
+   * + menu opens upward over the chat area instead of clipping into
+   * the footer.
+   */
+  side?: 'top' | 'right' | 'bottom' | 'left';
   className?: string;
 }): JSX.Element {
   return (
     <RDropdown.Portal>
       <RDropdown.Content
         align={align}
+        side={side}
         sideOffset={4}
         className={cn('qf-menu z-overlay', className)}
       >

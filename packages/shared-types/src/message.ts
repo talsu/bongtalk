@@ -94,6 +94,12 @@ export const SendMessageRequestSchema = z.object({
   // exists, lives in the same channel, and is itself a root message
   // (single-level depth — parent.parentMessageId must be null).
   parentMessageId: z.string().uuid().optional(),
+  // Previously-uploaded attachments to link to this message. Each id
+  // must reference a finalized Attachment row for the same channel
+  // that the uploader still owns; the server rejects mismatches.
+  // Cap 10 per message matches the DS attachment grid's max visible
+  // count — large galleries belong in a separate upload batch.
+  attachmentIds: z.array(z.string().uuid()).max(10).optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 

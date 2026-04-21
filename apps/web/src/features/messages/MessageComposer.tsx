@@ -1,7 +1,17 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSendMessage } from './useMessages';
 import { useCompose } from '../../stores/compose-store';
 import { getSocket } from '../../lib/socket';
+import { useNotifications } from '../../stores/notification-store';
+import {
+  DropdownRoot,
+  DropdownTrigger,
+  DropdownContent,
+  DropdownItem,
+} from '../../design-system/primitives';
+import { EmojiPicker } from '../reactions/EmojiPicker';
+import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
+import { cn } from '../../lib/cn';
 
 type Props = {
   workspaceId: string;
@@ -14,26 +24,43 @@ type Props = {
 // but re-emitting at 1.5 s keeps the indicator alive across brief pauses
 // without flooding the socket. The server still enforces the floor.
 const TYPING_EMIT_INTERVAL_MS = 1500;
+// Single-line initial height (matches the DS composer mockup's
+// `qf-input` one-row shape). Grows with content up to 200px, then
+// scrolls internally.
+const MIN_HEIGHT_PX = 22;
+const MAX_HEIGHT_PX = 200;
+
+function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
 
 export function MessageComposer({ workspaceId, channelId, channelName }: Props): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
   const clearDraft = useCompose((s) => s.clearDraft);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const lastPingRef = useRef<number>(0);
   const { send, mutation } = useSendMessage(workspaceId, channelId);
+  const notify = useNotifications((s) => s.push);
+  const [emojiOpen, setEmojiOpen] = useState(false);
+  // Uploaded-but-not-yet-sent attachments. Flushed after submit.
+  const [pending, setPending] = useState<UploadedAttachment[]>([]);
+  const [uploading, setUploading] = useState(0);
 
   useEffect(() => {
     textareaRef.current?.focus();
     lastPingRef.current = 0;
+    setPending([]);
+    setEmojiOpen(false);
   }, [channelId]);
 
   // task-021-R1 reviewer HIGH fix: when the user switches channels
   // (or unmounts the composer entirely), send typing.stop for the
   // channel that the composer was mounted on so observers don't see
-  // a stale indicator for up to 5s until Redis TTL. `prev` is
-  // captured in the closure so cleanup sees the channel that was
-  // active when the effect registered.
+  // a stale indicator for up to 5s until Redis TTL.
   useEffect(() => {
     const prev = channelId;
     return () => {
@@ -44,96 +71,241 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     };
   }, [channelId]);
 
+  // Auto-grow textarea: reset to 0 to re-measure scrollHeight after
+  // every change. Clamp between MIN and MAX; beyond MAX the textarea
+  // keeps its max height and scrolls internally.
+  useLayoutEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = '0px';
+    const next = Math.min(MAX_HEIGHT_PX, Math.max(MIN_HEIGHT_PX, el.scrollHeight));
+    el.style.height = `${next}px`;
+  }, [draft]);
+
   const maybePing = (): void => {
     const now = Date.now();
     if (now - lastPingRef.current < TYPING_EMIT_INTERVAL_MS) return;
     lastPingRef.current = now;
     const socket = getSocket();
-    if (socket?.connected) {
-      socket.emit('typing.ping', { channelId });
-    }
+    if (socket?.connected) socket.emit('typing.ping', { channelId });
   };
 
-  // task-021-R1-typing-stale-on-clear: proactively tell the server we
-  // stopped typing when the draft empties, so observers' indicators
-  // clear within ~200 ms of a WS round-trip instead of waiting for the
-  // 5 s Redis TTL.
   const sendTypingStop = (): void => {
     const socket = getSocket();
-    if (socket?.connected) {
-      socket.emit('typing.stop', { channelId });
-    }
-    // Reset local throttle so the next real keystroke re-fires
-    // typing.ping immediately.
+    if (socket?.connected) socket.emit('typing.stop', { channelId });
     lastPingRef.current = 0;
   };
 
   const submit = (): void => {
     const trimmed = draft.trim();
-    if (!trimmed) return;
-    send(trimmed);
+    if (!trimmed && pending.length === 0) return;
+    send(trimmed || ' ', pending.length > 0 ? pending.map((p) => p.id) : undefined);
     clearDraft(channelId);
-    // task-021-R1: after submit the draft is empty → signal stop so
-    // observers' indicators clear immediately.
+    setPending([]);
     sendTypingStop();
   };
 
+  const insertAtCursor = (text: string): void => {
+    const el = textareaRef.current;
+    const cur = draft;
+    if (!el) {
+      setDraft(channelId, cur + text);
+      return;
+    }
+    const start = el.selectionStart ?? cur.length;
+    const end = el.selectionEnd ?? cur.length;
+    const next = cur.slice(0, start) + text + cur.slice(end);
+    setDraft(channelId, next);
+    // Restore caret after the inserted run — schedule for post-render
+    // so the textarea's new value is in the DOM.
+    queueMicrotask(() => {
+      if (!textareaRef.current) return;
+      const pos = start + text.length;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(pos, pos);
+    });
+  };
+
+  const onFiles = async (files: FileList | null): Promise<void> => {
+    if (!files || files.length === 0) return;
+    const arr = Array.from(files);
+    setUploading((n) => n + arr.length);
+    try {
+      const results = await Promise.all(
+        arr.map((f) =>
+          uploadAttachment(channelId, f).catch((err) => {
+            notify({
+              variant: 'danger',
+              title: '업로드 실패',
+              body: `${f.name}: ${(err as Error).message}`,
+            });
+            return null;
+          }),
+        ),
+      );
+      const ok = results.filter((r): r is UploadedAttachment => r !== null);
+      setPending((p) => [...p, ...ok]);
+    } finally {
+      setUploading((n) => n - arr.length);
+    }
+  };
+
   return (
-    <form
-      data-testid="msg-composer"
-      className="border-t border-border-subtle bg-chat p-[var(--s-4)]"
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <label className="sr-only" htmlFor="msg-input">
-        {`# ${channelName} 로 메시지 보내기`}
-      </label>
-      <textarea
-        id="msg-input"
-        ref={textareaRef}
-        data-testid="msg-input"
-        value={draft}
-        onChange={(e) => {
-          const next = e.target.value;
-          setDraft(channelId, next);
-          if (next.length > 0) {
-            maybePing();
-          } else {
-            sendTypingStop();
-          }
+    <div className="px-[var(--s-5)] pb-[var(--s-5)] pt-0">
+      {/* Pending attachments: chips above the composer so the user sees
+          what'll go out with the next send. Removable before submit. */}
+      {pending.length > 0 || uploading > 0 ? (
+        <ul
+          data-testid="composer-pending-attachments"
+          className="mb-[var(--s-2)] flex flex-wrap gap-[var(--s-2)]"
+        >
+          {pending.map((a) => (
+            <li
+              key={a.id}
+              data-testid={`composer-attachment-${a.id}`}
+              className="flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border border-border-subtle bg-bg-elevated px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)]"
+            >
+              <span className="truncate">{a.originalName}</span>
+              <span className="text-text-muted">{formatSize(a.sizeBytes)}</span>
+              <button
+                type="button"
+                aria-label={`${a.originalName} 첨부 제거`}
+                onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
+                className="text-text-muted hover:text-text-strong"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+          {uploading > 0 ? (
+            <li className="flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border border-border-subtle bg-bg-elevated px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
+              업로드 중… ({uploading})
+            </li>
+          ) : null}
+        </ul>
+      ) : null}
+      <form
+        data-testid="msg-composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
         }}
-        onKeyDown={(e) => {
-          // task-021-R1-ime-enter-half-sends: skip Enter when an IME
-          // composition is in flight. `nativeEvent.isComposing` is the
-          // standard signal; `keyCode === 229` covers older browsers /
-          // Korean IMEs that dispatch the pseudo-key before composition
-          // end. Without this guard, pressing Enter mid-composition
-          // sends the half-formed Hangul syllable.
-          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
-          if (native.isComposing || e.keyCode === 229) return;
-          if (e.key === 'Enter' && !e.shiftKey) {
-            e.preventDefault();
-            submit();
-          }
-        }}
-        rows={2}
-        maxLength={4000}
-        placeholder={`# ${channelName} 에 메시지…`}
-        className="qf-input qf-textarea"
-      />
-      <div className="mt-[var(--s-2)] flex items-center justify-between text-[length:var(--fs-11)] text-text-muted">
-        <span>{draft.length} / 4000 · Enter 전송, Shift+Enter 줄바꿈</span>
+      >
+        <label className="sr-only" htmlFor="msg-input">
+          {`# ${channelName} 로 메시지 보내기`}
+        </label>
+        {/* DS mockup (§ full chat column): rounded --r-lg container with
+            --bg-input surface and a + button / input / emoji trigger
+            inline. No send button — Enter submits. */}
+        <div
+          className={cn(
+            'relative flex items-end gap-[var(--s-3)]',
+            'rounded-[var(--r-lg)] border border-border-subtle bg-bg-input',
+            'px-[var(--s-4)] py-[var(--s-3)]',
+          )}
+        >
+          <DropdownRoot>
+            <DropdownTrigger asChild>
+              <button
+                type="button"
+                data-testid="composer-plus"
+                aria-label="첨부 및 기타 작업"
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm self-end"
+              >
+                +
+              </button>
+            </DropdownTrigger>
+            <DropdownContent align="start" side="top">
+              <DropdownItem onSelect={() => fileInputRef.current?.click()}>
+                <span data-testid="composer-attach-file">📎 파일 업로드</span>
+              </DropdownItem>
+              {/* Placeholder for future extensions (voice memo, poll,
+                  slash commands…). Keeping the dropdown here means the
+                  later additions just append items. */}
+              <DropdownItem disabled>
+                <span className="text-text-muted">🎙 음성 메모 — 곧 지원</span>
+              </DropdownItem>
+            </DropdownContent>
+          </DropdownRoot>
+          <input
+            ref={fileInputRef}
+            type="file"
+            multiple
+            hidden
+            data-testid="composer-file-input"
+            onChange={(e) => {
+              void onFiles(e.target.files);
+              // Reset so the same file can be picked twice in a row.
+              e.target.value = '';
+            }}
+          />
+          <textarea
+            id="msg-input"
+            ref={textareaRef}
+            data-testid="msg-input"
+            value={draft}
+            rows={1}
+            onChange={(e) => {
+              const next = e.target.value;
+              setDraft(channelId, next);
+              if (next.length > 0) maybePing();
+              else sendTypingStop();
+            }}
+            onKeyDown={(e) => {
+              // task-021-R1-ime-enter-half-sends: skip Enter when an IME
+              // composition is in flight. `nativeEvent.isComposing` is
+              // the standard signal; `keyCode === 229` covers older
+              // browsers / Korean IMEs that dispatch the pseudo-key
+              // before composition end.
+              const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+              if (native.isComposing || e.keyCode === 229) return;
+              if (e.key === 'Enter' && !e.shiftKey) {
+                e.preventDefault();
+                submit();
+              }
+            }}
+            maxLength={4000}
+            placeholder={`# ${channelName} 에 메시지…`}
+            className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
+            style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
+          />
+          <button
+            type="button"
+            data-testid="composer-emoji"
+            aria-label="이모티콘 삽입"
+            aria-expanded={emojiOpen}
+            onClick={() => setEmojiOpen((v) => !v)}
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm self-end"
+          >
+            😀
+          </button>
+          {emojiOpen ? (
+            <EmojiPicker
+              className="absolute bottom-full right-0 mb-[var(--s-2)]"
+              onSelect={(emoji) => {
+                insertAtCursor(emoji);
+                // Keep the picker open so the user can pick multiple —
+                // matches Slack/Discord composer behaviour. Dismiss via
+                // outside click or Escape (handled inside EmojiPicker).
+              }}
+              onDismiss={() => setEmojiOpen(false)}
+            />
+          ) : null}
+        </div>
+        {/* Hidden submit so the form's onSubmit fires on Enter. No
+            visible send button per the DS composer sample. */}
         <button
           type="submit"
+          hidden
+          aria-hidden="true"
           data-testid="msg-send"
-          disabled={mutation.isPending || draft.trim().length === 0}
-          className="qf-btn qf-btn--primary qf-btn--sm"
-        >
-          전송
-        </button>
-      </div>
-    </form>
+          disabled={
+            mutation.isPending ||
+            uploading > 0 ||
+            (draft.trim().length === 0 && pending.length === 0)
+          }
+        />
+      </form>
+    </div>
   );
 }

@@ -164,6 +164,7 @@ export class MessagesController {
       content: parsed.data.content,
       idempotencyKey,
       parentMessageId: parsed.data.parentMessageId ?? null,
+      attachmentIds: parsed.data.attachmentIds,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
