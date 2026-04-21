@@ -1,14 +1,29 @@
 import { useState } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
-import { Avatar } from '../../design-system/primitives';
+import {
+  Avatar,
+  DropdownRoot,
+  DropdownTrigger,
+  DropdownContent,
+  DropdownItem,
+  DropdownSeparator,
+} from '../../design-system/primitives';
+import { useNotifications } from '../../stores/notification-store';
 import { ReactionBar } from '../reactions/ReactionBar';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent } from './parseContent';
+import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 
 type Props = {
   msg: MessageDto;
   isMine: boolean;
+  /**
+   * True when the previous message is from the same author within the
+   * grouping window (see MessageList). Collapses avatar + meta to
+   * produce Discord-like read flow.
+   */
+  isContinuation?: boolean;
   authorName?: string;
   authorRole?: WorkspaceRole | null;
   onEditSave: (content: string) => void | Promise<void>;
@@ -20,6 +35,7 @@ type Props = {
 export function MessageItem({
   msg,
   isMine,
+  isContinuation,
   authorName,
   authorRole,
   onEditSave,
@@ -29,6 +45,8 @@ export function MessageItem({
 }: Props): JSX.Element {
   const badge = roleBadgeLabel(authorRole);
   const [editing, setEditing] = useState<string | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const notify = useNotifications((s) => s.push);
 
   if (msg.deleted) {
     return (
@@ -43,28 +61,48 @@ export function MessageItem({
     );
   }
 
+  // DS mockup (§ Message · Reaction · Embed): head rows render the
+  // avatar + meta; continuation rows reuse qf-message--cont to
+  // collapse them. The same layout grid keeps the body/toolbar
+  // columns aligned across both variants.
+  const isHead = !isContinuation;
+  const attachments: AttachmentLite[] = (msg.attachments ?? []) as AttachmentLite[];
+  const messageUrl =
+    typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
+
   return (
-    <article data-testid={`msg-${msg.id}`} className="qf-message qf-message--head group">
-      <Avatar
-        name={authorName ?? msg.authorId.slice(0, 2)}
-        size="md"
-        className="qf-message__avatar"
-      />
+    <article
+      data-testid={`msg-${msg.id}`}
+      className={cn('qf-message group', isHead ? 'qf-message--head' : 'qf-message--cont')}
+    >
+      {isHead ? (
+        <Avatar
+          name={authorName ?? msg.authorId.slice(0, 2)}
+          size="md"
+          className="qf-message__avatar"
+        />
+      ) : (
+        // Placeholder column so the body keeps its left indent on
+        // continuation rows — matches the DS sample.
+        <div className="qf-message__avatar" aria-hidden />
+      )}
       <div className="min-w-0">
-        <div className="qf-message__meta">
-          <span className="qf-message__author">{authorName ?? 'unknown'}</span>
-          {badge ? (
-            <span data-testid={`msg-role-${msg.id}`} className="qf-badge qf-badge--accent">
-              {badge}
-            </span>
-          ) : null}
-          <time className="qf-message__time">{new Date(msg.createdAt).toLocaleTimeString()}</time>
-          {msg.edited ? (
-            <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
-              (수정됨)
-            </span>
-          ) : null}
-        </div>
+        {isHead ? (
+          <div className="qf-message__meta">
+            <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+            {badge ? (
+              <span data-testid={`msg-role-${msg.id}`} className="qf-badge qf-badge--accent">
+                {badge}
+              </span>
+            ) : null}
+            <time className="qf-message__time">{new Date(msg.createdAt).toLocaleTimeString()}</time>
+            {msg.edited ? (
+              <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
+                (수정됨)
+              </span>
+            ) : null}
+          </div>
+        ) : null}
         {editing !== null ? (
           <div className="mt-1 flex items-center gap-2">
             <input
@@ -101,14 +139,17 @@ export function MessageItem({
         ) : (
           <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
             {renderMessageContent(msg.content ?? '')}
+            {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
+            {onToggleReaction ? (
+              <ReactionBar
+                reactions={msg.reactions ?? []}
+                pickerOpen={pickerOpen}
+                onPickerOpenChange={setPickerOpen}
+                onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
+              />
+            ) : null}
           </div>
         )}
-        {onToggleReaction ? (
-          <ReactionBar
-            reactions={msg.reactions ?? []}
-            onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
-          />
-        ) : null}
         {onOpenThread && msg.thread && msg.thread.replyCount > 0 ? (
           <button
             type="button"
@@ -125,26 +166,97 @@ export function MessageItem({
           </button>
         ) : null}
       </div>
-      {isMine && editing === null ? (
+      {editing === null ? (
         <div className={cn('qf-message__toolbar absolute', 'group-hover:!flex')}>
-          <button
-            type="button"
-            data-testid={`msg-edit-btn-${msg.id}`}
-            onClick={() => setEditing(msg.content ?? '')}
-            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
-            aria-label="메시지 수정"
-          >
-            ✎
-          </button>
-          <button
-            type="button"
-            data-testid={`msg-delete-${msg.id}`}
-            onClick={onDelete}
-            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm text-danger"
-            aria-label="메시지 삭제"
-          >
-            ✕
-          </button>
+          {onToggleReaction ? (
+            <button
+              type="button"
+              data-testid={`msg-react-btn-${msg.id}`}
+              onClick={() => setPickerOpen((v) => !v)}
+              aria-label="리액션 추가"
+              className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+            >
+              😀
+            </button>
+          ) : null}
+          {onOpenThread && !msg.id.startsWith('tmp-') && !msg.parentMessageId ? (
+            <button
+              type="button"
+              data-testid={`msg-thread-btn-${msg.id}`}
+              onClick={() => onOpenThread(msg.id)}
+              aria-label="스레드 열기"
+              className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+            >
+              💬
+            </button>
+          ) : null}
+          <DropdownRoot>
+            <DropdownTrigger asChild>
+              <button
+                type="button"
+                data-testid={`msg-more-btn-${msg.id}`}
+                aria-label="메시지 메뉴"
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                ⋯
+              </button>
+            </DropdownTrigger>
+            <DropdownContent align="end">
+              {isMine ? (
+                <DropdownItem onSelect={() => setEditing(msg.content ?? '')}>
+                  <span data-testid={`msg-edit-btn-${msg.id}`}>메시지 수정</span>
+                </DropdownItem>
+              ) : null}
+              <DropdownItem
+                onSelect={async () => {
+                  try {
+                    await navigator.clipboard.writeText(msg.content ?? '');
+                    notify({
+                      variant: 'success',
+                      title: '복사됨',
+                      body: '메시지 내용을 복사했어요.',
+                    });
+                  } catch {
+                    notify({
+                      variant: 'danger',
+                      title: '복사 실패',
+                      body: '브라우저가 복사를 차단했어요.',
+                    });
+                  }
+                }}
+              >
+                <span data-testid={`msg-copy-text-${msg.id}`}>텍스트 복사</span>
+              </DropdownItem>
+              <DropdownItem
+                onSelect={async () => {
+                  try {
+                    const full =
+                      typeof window !== 'undefined'
+                        ? window.location.origin + messageUrl
+                        : messageUrl;
+                    await navigator.clipboard.writeText(full);
+                    notify({ variant: 'success', title: '링크 복사됨', body: full });
+                  } catch {
+                    notify({
+                      variant: 'danger',
+                      title: '복사 실패',
+                      body: '브라우저가 복사를 차단했어요.',
+                    });
+                  }
+                }}
+              >
+                <span data-testid={`msg-copy-link-${msg.id}`}>메시지 링크 복사</span>
+              </DropdownItem>
+              {isMine ? (
+                <>
+                  <DropdownSeparator />
+                  <DropdownItem danger onSelect={onDelete}>
+                    <span data-testid={`msg-delete-${msg.id}`}>메시지 삭제</span>
+                  </DropdownItem>
+                </>
+              ) : null}
+            </DropdownContent>
+          </DropdownRoot>
         </div>
       ) : null}
     </article>

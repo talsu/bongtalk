@@ -202,6 +202,8 @@ test('polish: Enter during IME composition on message edit does NOT save (R2-ime
   const row = page.getByTestId(`msg-${msgId}`);
   await expect(row).toBeVisible();
   await row.hover();
+  // DS-parity: edit/delete moved under the ⋯ more menu.
+  await page.getByTestId(`msg-more-btn-${msgId}`).click();
   await page.getByTestId(`msg-edit-btn-${msgId}`).click();
   const editInput = page.getByTestId(`msg-edit-${msgId}`);
   await expect(editInput).toBeVisible();

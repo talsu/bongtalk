@@ -59,6 +59,14 @@ export type ReactionSummary = {
   byMe: boolean;
 };
 
+export type AttachmentLite = {
+  id: string;
+  kind: 'IMAGE' | 'VIDEO' | 'FILE';
+  mime: string;
+  sizeBytes: number;
+  originalName: string;
+};
+
 export type MessageDto = {
   id: string;
   channelId: string;
@@ -72,6 +80,7 @@ export type MessageDto = {
   reactions: ReactionSummary[];
   parentMessageId: string | null;
   thread: ThreadSummary | null;
+  attachments: AttachmentLite[];
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -97,6 +106,7 @@ export class MessagesService {
     row: MessageRow,
     reactions: ReactionSummary[] = [],
     thread: ThreadSummary | null = null,
+    attachments: AttachmentLite[] = [],
   ): MessageDto {
     const isDeleted = row.deletedAt !== null;
     const mentions = (row.mentions ?? {
@@ -120,7 +130,46 @@ export class MessagesService {
       reactions,
       parentMessageId: row.parentMessageId,
       thread,
+      // Deleted messages drop their attachments too — the wire shape
+      // matches the content-masking rule above.
+      attachments: isDeleted ? [] : attachments,
     };
+  }
+
+  /**
+   * Batch-fetch finalized attachments for a set of messages in one
+   * round-trip, grouped per messageId. Same one-query-per-page pattern
+   * as `aggregateReactions` / `aggregateThreadSummaries`.
+   */
+  async aggregateAttachments(messageIds: string[]): Promise<Map<string, AttachmentLite[]>> {
+    const out = new Map<string, AttachmentLite[]>();
+    if (messageIds.length === 0) return out;
+    const rows = await this.prisma.attachment.findMany({
+      where: { messageId: { in: messageIds }, finalizedAt: { not: null } },
+      orderBy: { createdAt: 'asc' },
+      select: {
+        id: true,
+        messageId: true,
+        kind: true,
+        mime: true,
+        sizeBytes: true,
+        originalName: true,
+      },
+    });
+    for (const a of rows) {
+      if (!a.messageId) continue;
+      const lite: AttachmentLite = {
+        id: a.id,
+        kind: a.kind as 'IMAGE' | 'VIDEO' | 'FILE',
+        mime: a.mime,
+        sizeBytes: Number(a.sizeBytes),
+        originalName: a.originalName,
+      };
+      const list = out.get(a.messageId) ?? [];
+      list.push(lite);
+      out.set(a.messageId, list);
+    }
+    return out;
   }
 
   /**

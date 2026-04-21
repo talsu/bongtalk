@@ -51,12 +51,17 @@ test('edit own message → shows (edited); delete → placeholder', async ({ pag
   expect(msgId).toBeTruthy();
   const idPart = msgId!.replace(/^msg-/, '');
 
+  // Edit + delete live under the unified "⋯" more menu (DS parity).
+  await page.getByTestId(`msg-${idPart}`).hover();
+  await page.getByTestId(`msg-more-btn-${idPart}`).click();
   await page.getByTestId(`msg-edit-btn-${idPart}`).click();
   await page.getByTestId(`msg-edit-${idPart}`).fill('final version');
   await page.getByTestId(`msg-edit-save-${idPart}`).click();
   await expect(page.getByTestId(`msg-edited-${idPart}`)).toBeVisible();
   await expect(page.getByText('final version')).toBeVisible();
 
+  await page.getByTestId(`msg-${idPart}`).hover();
+  await page.getByTestId(`msg-more-btn-${idPart}`).click();
   await page.getByTestId(`msg-delete-${idPart}`).click();
   await expect(page.getByTestId(`msg-deleted-${idPart}`)).toBeVisible();
 });
