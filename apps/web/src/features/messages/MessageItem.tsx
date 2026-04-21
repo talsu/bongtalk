@@ -90,18 +90,10 @@ export function MessageItem({
         />
       ) : (
         // Continuation gutter: mirrors .qf-avatar--md width so the body
-        // column aligns with head rows, and reveals a short time label
-        // ("오후 11:34") on message hover. Distinct class from
+        // column aligns with head rows. Distinct class from
         // .qf-message__avatar so the DS `visibility:hidden; height:0`
-        // collapse rule doesn't strip the time.
-        <div className="qf-message__gutter" aria-hidden="true">
-          <time dateTime={msg.createdAt} className="qf-message__gutter-time">
-            {new Date(msg.createdAt).toLocaleTimeString('ko-KR', {
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
-          </time>
-        </div>
+        // collapse rule doesn't re-flatten the cell.
+        <div className="qf-message__gutter" aria-hidden="true" />
       )}
       <div className="min-w-0">
         {isHead ? (
