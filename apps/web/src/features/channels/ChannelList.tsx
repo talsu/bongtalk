@@ -145,6 +145,25 @@ function DraggableChannelRow({
           <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
         </Link>
         <span className="qf-channel__suffix">
+          {canManage ? (
+            <Link
+              to={`/w/${workspaceSlug}/${channel.name}/settings`}
+              data-testid={`channel-settings-btn-${channel.name}`}
+              aria-label={`# ${channel.name} 설정`}
+              title="채널 설정"
+              onClick={(e) => e.stopPropagation()}
+              onPointerDown={(e) => e.stopPropagation()}
+              className={cn(
+                'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
+                'transition-opacity',
+                active
+                  ? 'opacity-100'
+                  : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+              )}
+            >
+              ⚙
+            </Link>
+          ) : null}
           <UnreadIndicator count={unreadCount} hasMention={hasMention} />
         </span>
       </li>

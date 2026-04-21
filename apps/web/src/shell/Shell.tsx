@@ -9,6 +9,7 @@ import { ChannelColumn } from './ChannelColumn';
 import { MessageColumn } from './MessageColumn';
 import { MemberColumn } from './MemberColumn';
 import { BottomBar } from './BottomBar';
+import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { ToastViewport } from '../design-system/primitives';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
@@ -31,6 +32,11 @@ export function Shell(): JSX.Element {
   const slug = params.slug;
   const rest = (params['*'] ?? '').split('/').filter(Boolean);
   const channelName = rest[0] ?? undefined;
+  // URL shape: /w/:slug/:channel[/settings[/:section]]. Anything in rest[1]
+  // named "settings" switches the middle column from MessageColumn to
+  // ChannelSettingsPage while keeping the left rail + channel list intact.
+  const inChannelSettings = rest[1] === 'settings';
+  const settingsSection: 'general' = 'general';
   const { data: mine, isLoading } = useMyWorkspaces();
   useRealtimeConnection();
   useGlobalShortcuts();
@@ -89,7 +95,16 @@ export function Shell(): JSX.Element {
         </div>
         <BottomBar />
       </div>
-      {active && activeChannel ? (
+      {active && activeChannel && inChannelSettings ? (
+        <div className="flex min-w-0 flex-1">
+          <ChannelSettingsPage
+            workspaceId={active.id}
+            workspaceSlug={active.slug}
+            channel={activeChannel}
+            section={settingsSection}
+          />
+        </div>
+      ) : active && activeChannel ? (
         <MessageColumn
           workspaceId={active.id}
           workspaceSlug={active.slug}
@@ -107,7 +122,9 @@ export function Shell(): JSX.Element {
           </div>
         </main>
       )}
-      {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
+      {active && activeChannel && !inChannelSettings ? (
+        <MemberColumn workspaceId={active.id} />
+      ) : null}
       <CommandPalette />
       <ShortcutHelp />
       <SearchOverlay />
