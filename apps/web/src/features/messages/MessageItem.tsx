@@ -89,11 +89,14 @@ export function MessageItem({
           className="qf-message__avatar"
         />
       ) : (
-        // Continuation gutter: mirrors .qf-avatar--md width so the body
-        // column aligns with head rows. Distinct class from
-        // .qf-message__avatar so the DS `visibility:hidden; height:0`
-        // collapse rule doesn't re-flatten the cell.
-        <div className="qf-message__gutter" aria-hidden="true" />
+        // DS contract for cont rows (§ Message · Reaction · Embed mockup):
+        // render an avatar-shaped ghost in the first grid column.
+        // `.qf-avatar--md` gives it the 40px intrinsic width the grid
+        // `auto` column needs to size to, and DS rule
+        // `.qf-message--cont .qf-message__avatar { visibility: hidden;
+        // height: 0 }` hides it visually while preserving column width —
+        // the body then lines up with head rows exactly.
+        <span className="qf-avatar qf-avatar--md qf-message__avatar" aria-hidden="true" />
       )}
       <div className="min-w-0">
         {isHead ? (
