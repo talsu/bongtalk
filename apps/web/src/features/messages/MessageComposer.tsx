@@ -196,10 +196,15 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
         </label>
         {/* DS mockup (§ full chat column): rounded --r-lg container with
             --bg-input surface and a + button / input / emoji trigger
-            inline. No send button — Enter submits. */}
+            inline. No send button — Enter submits.
+            items-center: symmetric top/bottom padding around a
+            single-line textarea (items-end dropped the text to the
+            bottom while the padding kept the full height). For
+            multi-line textareas the 28px buttons center against the
+            taller textarea, mirroring Discord / Slack. */}
         <div
           className={cn(
-            'relative flex items-end gap-[var(--s-3)]',
+            'relative flex items-center gap-[var(--s-3)]',
             'rounded-[var(--r-lg)] border border-border-subtle bg-bg-input',
             'px-[var(--s-4)] py-[var(--s-3)]',
           )}
@@ -210,7 +215,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
                 type="button"
                 data-testid="composer-plus"
                 aria-label="첨부 및 기타 작업"
-                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm self-end"
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
                 +
               </button>

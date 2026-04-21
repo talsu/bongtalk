@@ -232,7 +232,15 @@ html, body {
 *::-webkit-scrollbar-thumb { background: var(--scrollbar-thumb); border-radius: 4px; }
 *::-webkit-scrollbar-thumb:hover { background: var(--scrollbar-thumbH); }
 
-/* Focus ring — always visible via keyboard, hidden on mouse click */
+/* Focus ring — always visible via keyboard, hidden on mouse click. */
 :focus-visible { outline: none; box-shadow: var(--ring-focus); }
+/* Text inputs opt out of the halo — the caret is the focus cue, and
+   the ring was causing a visible border flash during typing. Kept for
+   buttons, links, and other interactive chrome where keyboard users
+   need an explicit target. */
+input:focus-visible,
+textarea:focus-visible,
+select:focus-visible,
+[contenteditable]:focus-visible { box-shadow: none; }
 
 ::selection { background: var(--accent); color: white; }

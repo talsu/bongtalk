@@ -71,7 +71,10 @@
 }
 .qf-input::placeholder { color: var(--text-muted); }
 .qf-input:hover:not(:focus) { border-color: var(--border-strong); }
-.qf-input:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring-focus); }
+/* No focus halo on text inputs — the caret is the cue. Keeps border
+   neutral so the typing experience feels calm. aria-invalid=true is
+   the only state that changes the border (for error affordance). */
+.qf-input:focus { outline: none; }
 .qf-input[aria-invalid="true"] { border-color: var(--danger-400); box-shadow: var(--ring-danger); }
 .qf-textarea { height: auto; min-height: 80px; padding: var(--s-3) var(--s-4); resize: vertical; }
 
