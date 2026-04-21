@@ -291,6 +291,149 @@
 .qf-replybar__arrow { width: 24px; height: 10px; border: 2px solid var(--border-strong); border-right: none; border-bottom: none; border-radius: 6px 0 0 0; margin-left: -6px; }
 .qf-replybar__author { color: var(--text-secondary); font-weight: 500; }
 
+/* ───── Chat: Thread ───── */
+/* Inline thread-preview chip attached under a message.
+   Aligns with the message body (past avatar column): s-8 + avatar-md(40) + s-4 gap = 88px. */
+.qf-thread-chip {
+  display: inline-flex; align-items: center; gap: var(--s-2);
+  margin: 2px var(--s-7) var(--s-2) 88px;
+  padding: 4px 10px 4px 6px;
+  background: var(--bg-panel); border: 1px solid transparent;
+  border-radius: var(--r-md); cursor: pointer;
+  font: 500 var(--fs-13) var(--font-sans); color: var(--text-secondary);
+  white-space: nowrap; max-width: calc(100% - 88px - var(--s-7));
+  transition: background var(--dur-fast) var(--ease-standard),
+              border-color var(--dur-fast) var(--ease-standard);
+}
+.qf-thread-chip:hover { background: var(--bg-elevated); border-color: var(--border); color: var(--text); }
+.qf-thread-chip__avatars { display: flex; }
+.qf-thread-chip__avatars > * { margin-left: -4px; border: 2px solid var(--bg-chat); border-radius: 50%; }
+.qf-thread-chip__avatars > *:first-child { margin-left: 0; }
+.qf-thread-chip__count { color: var(--accent); font-weight: 600; }
+.qf-thread-chip__last { color: var(--text-muted); font-weight: 500; }
+.qf-thread-chip__cta { color: var(--text-muted); font-size: var(--fs-11); }
+.qf-thread-chip:hover .qf-thread-chip__cta { color: var(--accent); }
+
+/* Thread side panel (right rail, Discord style) */
+.qf-thread-panel {
+  display: flex; flex-direction: column;
+  width: 420px; flex-shrink: 0; min-height: 0;
+  background: var(--bg-chat);
+  border-left: 1px solid var(--divider);
+  align-self: stretch;
+}
+.qf-thread-panel__header {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: 0 var(--s-5); height: var(--h-topbar);
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--divider);
+  box-shadow: var(--elev-1);
+}
+.qf-thread-panel__icon { color: var(--text-muted); font-size: 16px; }
+.qf-thread-panel__title {
+  font: 600 var(--fs-15) var(--font-sans); color: var(--text-strong);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  flex: 1; min-width: 0;
+}
+.qf-thread-panel__sub {
+  font: 500 var(--fs-11) var(--font-mono);
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: var(--tracking-caps);
+}
+.qf-thread-panel__close {
+  margin-left: auto; border: none; background: transparent;
+  color: var(--text-muted); cursor: pointer;
+  width: 28px; height: 28px; border-radius: var(--r-sm);
+  display: grid; place-items: center;
+}
+.qf-thread-panel__close:hover { background: var(--bg-hover); color: var(--text); }
+
+/* Thread origin card (parent message pinned at top of panel) */
+.qf-thread-origin {
+  margin: var(--s-4) var(--s-5) var(--s-2);
+  padding: var(--s-3) var(--s-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+  position: relative;
+}
+.qf-thread-origin::before {
+  content: ''; position: absolute; left: 0; top: var(--s-3); bottom: var(--s-3);
+  width: 3px; background: var(--accent); border-radius: var(--r-xs);
+}
+.qf-thread-origin__meta {
+  display: flex; align-items: baseline; gap: var(--s-2);
+  font-size: var(--fs-13); margin-bottom: 2px;
+}
+.qf-thread-origin__author { font-weight: 600; color: var(--text-strong); }
+.qf-thread-origin__time { color: var(--text-muted); font-size: var(--fs-11); }
+.qf-thread-origin__body {
+  font-size: var(--fs-14); color: var(--text);
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+/* Thread body (scrolls) */
+.qf-thread-body { flex: 1; min-height: 0; overflow-y: auto; padding-bottom: var(--s-3); }
+
+/* Day divider inside thread */
+.qf-thread-divider {
+  display: flex; align-items: center; gap: var(--s-3);
+  padding: var(--s-4) var(--s-5) var(--s-2);
+  font: 500 var(--fs-11) var(--font-mono);
+  color: var(--text-muted);
+  text-transform: uppercase; letter-spacing: var(--tracking-caps);
+}
+.qf-thread-divider::before,
+.qf-thread-divider::after {
+  content: ''; flex: 1; height: 1px; background: var(--divider);
+}
+
+/* Thread message (compact variant of qf-message) */
+.qf-thread-msg {
+  padding: var(--s-2) var(--s-5);
+  display: grid; grid-template-columns: 32px 1fr; gap: 0 var(--s-3);
+  position: relative;
+}
+.qf-thread-msg:hover { background: rgba(233,213,255,0.02); }
+[data-theme="light"] .qf-thread-msg:hover { background: rgba(30,27,75,0.03); }
+.qf-thread-msg--head { padding-top: var(--s-4); }
+.qf-thread-msg--cont .qf-thread-msg__avatar { visibility: hidden; height: 0; }
+.qf-thread-msg--cont .qf-thread-msg__meta { display: none; }
+.qf-thread-msg__avatar { grid-row: span 2; }
+.qf-thread-msg__meta {
+  display: flex; align-items: baseline; gap: var(--s-2);
+  font-size: var(--fs-13); margin-bottom: 2px;
+}
+.qf-thread-msg__author { font: 600 var(--fs-14) var(--font-sans); color: var(--text-strong); }
+.qf-thread-msg__time { font-size: 10px; color: var(--text-muted); }
+.qf-thread-msg__body { font-size: var(--fs-14); line-height: var(--lh-normal); color: var(--text); word-wrap: break-word; }
+
+/* Thread composer (smaller than main) */
+.qf-thread-composer {
+  flex-shrink: 0;
+  padding: var(--s-3) var(--s-5) var(--s-4);
+  border-top: 1px solid var(--divider);
+}
+.qf-thread-composer__options {
+  display: flex; align-items: center; gap: var(--s-2);
+  margin-top: var(--s-2); font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+.qf-thread-composer__checkbox {
+  display: inline-flex; align-items: center; gap: 6px; cursor: pointer;
+}
+.qf-thread-composer__checkbox input { accent-color: var(--accent); }
+
+/* Thread-start indicator under a message (Slack-style "N replies") */
+.qf-thread-followup {
+  margin: var(--s-1) 0 0 var(--s-8);
+  display: flex; align-items: center; gap: var(--s-2);
+  font-size: var(--fs-12); color: var(--text-muted);
+}
+.qf-thread-followup__dot { width: 4px; height: 4px; border-radius: 50%; background: var(--text-muted); }
+.qf-thread-followup__last { color: var(--text-muted); }
+
 /* Code block */
 .qf-code-inline {
   padding: 1px 5px; border-radius: var(--r-xs);

@@ -189,6 +189,7 @@ export function MessageColumn({
         <ThreadPanel
           workspaceId={workspaceId}
           channelId={channelId}
+          channelName={channelName}
           rootId={activeThread}
           onClose={() => setActiveThread(null)}
         />
