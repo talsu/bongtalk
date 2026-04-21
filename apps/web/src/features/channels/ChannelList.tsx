@@ -291,14 +291,6 @@ function SortableCategorySection({
                 />
               );
             })}
-            {channels.length === 0 ? (
-              <li
-                aria-hidden
-                className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted italic"
-              >
-                채널 없음
-              </li>
-            ) : null}
             {sectionDropLine ? <DropLine /> : null}
           </ul>
         </SortableContext>
