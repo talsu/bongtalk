@@ -8,6 +8,7 @@ import {
 import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import { deleteMessage, listMessages, sendMessage, updateMessage } from './api';
 import { qk } from '../../lib/query-keys';
+import { useAuth } from '../auth/AuthProvider';
 
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
@@ -32,6 +33,7 @@ export function useMessageHistory(wsId: string, channelId: string) {
 
 export function useSendMessage(wsId: string, channelId: string) {
   const qc = useQueryClient();
+  const { user } = useAuth();
 
   const mutation = useMutation({
     mutationFn: async (args: { content: string; tempId: string; idempotencyKey: string }) =>
@@ -40,10 +42,14 @@ export function useSendMessage(wsId: string, channelId: string) {
       await qc.cancelQueries({ queryKey: keys.list(wsId, channelId) });
       const prev = qc.getQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId));
       // Optimistic prepend with a tempId — server roundtrip replaces it.
+      // authorId resolves to the real viewer id so MessageList's
+      // continuation rule (same author + <5min gap) matches the
+      // previous row without waiting for the server echo — avoids a
+      // head→cont visual flip on every send.
       const optimistic: MessageDto = {
         id: tempId,
         channelId,
-        authorId: 'optimistic',
+        authorId: user?.id ?? 'optimistic',
         content,
         mentions: { users: [], channels: [], everyone: false },
         edited: false,

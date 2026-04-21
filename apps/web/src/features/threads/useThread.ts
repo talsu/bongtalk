@@ -8,6 +8,7 @@ import type { ListThreadRepliesResponse, MessageDto } from '@qufox/shared-types'
 import { listThreadReplies } from './api';
 import { sendMessage } from '../messages/api';
 import { qk } from '../../lib/query-keys';
+import { useAuth } from '../auth/AuthProvider';
 
 /**
  * Task-014-B: side-panel thread reader. Cursor-paginates via
@@ -39,6 +40,7 @@ export function useThreadReplies(rootId: string | null) {
  */
 export function useSendReply(wsId: string, channelId: string, rootId: string) {
   const qc = useQueryClient();
+  const { user } = useAuth();
   const threadKey = qk.messages.thread(rootId);
 
   return useMutation({
@@ -52,10 +54,12 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
     onMutate: async ({ content, tempId }) => {
       await qc.cancelQueries({ queryKey: threadKey });
       const prev = qc.getQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey);
+      // Resolve the viewer id up-front so MessageList/ThreadPanel's
+      // same-author continuation rule matches without the server echo.
       const optimistic: MessageDto = {
         id: tempId,
         channelId,
-        authorId: 'optimistic',
+        authorId: user?.id ?? 'optimistic',
         content,
         mentions: { users: [], channels: [], everyone: false },
         edited: false,

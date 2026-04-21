@@ -233,15 +233,6 @@
 .qf-message--cont .qf-message__avatar { visibility: hidden; height: 0; }
 .qf-message--cont .qf-message__meta { display: none; }
 .qf-message__avatar { grid-row: span 2; }
-/* Continuation gutter: sits in the avatar column of qf-message--cont
-   so the body keeps its left alignment with head rows. Width matches
-   .qf-avatar--md (40px); the cell is otherwise empty. Separate class
-   from .qf-message__avatar so the legacy `visibility: hidden;
-   height: 0` collapse rule doesn't re-flatten the cell. */
-.qf-message__gutter {
-  grid-row: span 2;
-  width: 40px;
-}
 .qf-message__meta {
   display: flex; align-items: baseline; gap: var(--s-3);
   margin-bottom: var(--s-1);
