@@ -273,7 +273,28 @@ export class MessagesService {
     content: string;
     idempotencyKey: string | null;
     parentMessageId?: string | null;
+    attachmentIds?: string[];
   }): Promise<{ message: MessageRow; replayed: boolean }> {
+    // Validate attachment ownership + channel scope BEFORE the insert
+    // transaction so a bad id fails fast without an uncommitted row.
+    if (args.attachmentIds && args.attachmentIds.length > 0) {
+      const rows = await this.prisma.attachment.findMany({
+        where: {
+          id: { in: args.attachmentIds },
+          channelId: args.channelId,
+          uploaderId: args.authorId,
+          finalizedAt: { not: null },
+          messageId: null,
+        },
+        select: { id: true },
+      });
+      if (rows.length !== args.attachmentIds.length) {
+        throw new DomainError(
+          ErrorCode.ATTACHMENT_NOT_FOUND,
+          'one or more attachments are not finalized or already linked',
+        );
+      }
+    }
     // task-014-B: validate reply target BEFORE the insert tx so we don't
     // need to unwind on a bad parent. Single-level depth is enforced
     // here — parent.parentMessageId must be null.
@@ -324,6 +345,20 @@ export class MessagesService {
             parentMessageId: args.parentMessageId ?? null,
           },
         });
+        if (args.attachmentIds && args.attachmentIds.length > 0) {
+          // Link the finalized attachments to the message. The pre-tx
+          // validation above bounded the set to ids owned by this user
+          // + unlinked + same channel, so a raw updateMany is safe.
+          await tx.attachment.updateMany({
+            where: {
+              id: { in: args.attachmentIds },
+              messageId: null,
+              uploaderId: args.authorId,
+              channelId: args.channelId,
+            },
+            data: { messageId: created.id },
+          });
+        }
         const payload: MessageCreatedPayload = {
           workspaceId: args.workspaceId,
           channelId: args.channelId,
