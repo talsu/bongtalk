@@ -46,6 +46,13 @@ export function MessageItem({
   const badge = roleBadgeLabel(authorRole);
   const [editing, setEditing] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  // The more-menu lives inside .qf-message__toolbar which the DS CSS
+  // toggles to display:flex only on `.qf-message:hover`. Radix opens
+  // its portal over the trigger's getBoundingClientRect(); if the
+  // dropdown portal steals focus, the toolbar reverts to display:none,
+  // the trigger's rect becomes 0,0, and Radix re-anchors to the viewport
+  // top-left. Keep the toolbar visible while the menu is open.
+  const [moreOpen, setMoreOpen] = useState(false);
   const notify = useNotifications((s) => s.push);
 
   if (msg.deleted) {
@@ -167,7 +174,9 @@ export function MessageItem({
         ) : null}
       </div>
       {editing === null ? (
-        <div className={cn('qf-message__toolbar absolute', 'group-hover:!flex')}>
+        <div
+          className={cn('qf-message__toolbar absolute', 'group-hover:!flex', moreOpen && '!flex')}
+        >
           {onToggleReaction ? (
             <button
               type="button"
@@ -190,7 +199,7 @@ export function MessageItem({
               💬
             </button>
           ) : null}
-          <DropdownRoot>
+          <DropdownRoot open={moreOpen} onOpenChange={setMoreOpen}>
             <DropdownTrigger asChild>
               <button
                 type="button"
