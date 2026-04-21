@@ -65,6 +65,7 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         reactions: [],
         parentMessageId: rootId,
         thread: null,
+        attachments: [],
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;

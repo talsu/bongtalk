@@ -62,7 +62,13 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
   // (3–32 chars per shared-types, but we allow the shorter 1+ match so a
   // user typing `@a` still sees the intermediate pill). Drift with the
   // server-side mention-extractor was caught by task-018 reviewer HIGH-1.
-  const pattern = /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})/g;
+  //
+  // URL matcher: http(s) only, stops at whitespace + a trailing-punct
+  // guard so "https://example.com." renders without the trailing dot
+  // swallowed into the href. Rich embed cards remain a backend follow-up
+  // (OpenGraph scraper with SSRF guards); the DS `.qf-embed` card stays
+  // unused until that ships.
+  const pattern = /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})|(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   let idx = 0;
@@ -81,6 +87,18 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
         <span key={`${keyPrefix}-m-${idx++}`} className="qf-mention">
           @{m[2]}
         </span>,
+      );
+    } else if (m[3] !== undefined) {
+      out.push(
+        <a
+          key={`${keyPrefix}-u-${idx++}`}
+          href={m[3]}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-accent underline decoration-accent/40 underline-offset-2 hover:decoration-accent"
+        >
+          {m[3]}
+        </a>,
       );
     }
     cursor = m.index + m[0].length;

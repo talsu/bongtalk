@@ -87,14 +87,23 @@ export class MessagesController {
     // task-013-B: reactions join is one extra round-trip per page, not per
     // message. Empty page → skip the query entirely.
     const ids = result.items.map((r) => r.id);
-    const [reactionMap, threadMap] = await Promise.all([
+    const [reactionMap, threadMap, attachmentMap] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
       // task-014-B: thread summary join, same one-per-page round trip.
       this.messages.aggregateThreadSummaries(ids),
+      // Inline attachments projection — same batched pattern so a page
+      // of 50 messages costs one reactions / one thread / one attachment
+      // query regardless of how many of them have media.
+      this.messages.aggregateAttachments(ids),
     ]);
     return {
       items: result.items.map((r) =>
-        this.messages.toDto(r, reactionMap.get(r.id) ?? [], threadMap.get(r.id) ?? null),
+        this.messages.toDto(
+          r,
+          reactionMap.get(r.id) ?? [],
+          threadMap.get(r.id) ?? null,
+          attachmentMap.get(r.id) ?? [],
+        ),
       ),
       pageInfo: {
         hasMore: result.hasMore,
@@ -120,8 +129,13 @@ export class MessagesController {
       msgId,
       includeDeleted: this.isAdminOrOwner(m.role),
     });
-    const rmap = await this.messages.aggregateReactions([row.id], user.id);
-    return { message: this.messages.toDto(row, rmap.get(row.id) ?? []) };
+    const [rmap, amap] = await Promise.all([
+      this.messages.aggregateReactions([row.id], user.id),
+      this.messages.aggregateAttachments([row.id]),
+    ]);
+    return {
+      message: this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? []),
+    };
   }
 
   @Post()
@@ -178,8 +192,13 @@ export class MessagesController {
       actorId: user.id,
       content: parsed.data.content,
     });
-    const rmap = await this.messages.aggregateReactions([row.id], user.id);
-    return { message: this.messages.toDto(row, rmap.get(row.id) ?? []) };
+    const [rmap, amap] = await Promise.all([
+      this.messages.aggregateReactions([row.id], user.id),
+      this.messages.aggregateAttachments([row.id]),
+    ]);
+    return {
+      message: this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? []),
+    };
   }
 
   // DELETE permits author OR ADMIN+. MessageAuthorGuard is intentionally NOT

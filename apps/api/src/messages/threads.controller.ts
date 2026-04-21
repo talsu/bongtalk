@@ -77,16 +77,28 @@ export class ThreadsController {
     });
 
     const ids = [page.root.id, ...page.items.map((r) => r.id)];
-    // Reactions on both the root + replies for a single-query join.
-    const reactions = await this.messages.aggregateReactions(ids, user.id);
-    const rootSummary = (await this.messages.aggregateThreadSummaries([page.root.id])).get(
-      page.root.id,
-    );
+    // Reactions + attachments on both the root + replies for a single-query join.
+    const [reactions, rootSummaries, attachments] = await Promise.all([
+      this.messages.aggregateReactions(ids, user.id),
+      this.messages.aggregateThreadSummaries([page.root.id]),
+      this.messages.aggregateAttachments(ids),
+    ]);
+    const rootSummary = rootSummaries.get(page.root.id);
 
     return {
-      root: this.messages.toDto(page.root, reactions.get(page.root.id) ?? [], rootSummary ?? null),
+      root: this.messages.toDto(
+        page.root,
+        reactions.get(page.root.id) ?? [],
+        rootSummary ?? null,
+        attachments.get(page.root.id) ?? [],
+      ),
       replies: page.items.map((r) =>
-        this.messages.toDto(r, reactions.get(r.id) ?? [], null /* replies are leaves */),
+        this.messages.toDto(
+          r,
+          reactions.get(r.id) ?? [],
+          null /* replies are leaves */,
+          attachments.get(r.id) ?? [],
+        ),
       ),
       pageInfo: {
         hasMore: page.hasMore,
