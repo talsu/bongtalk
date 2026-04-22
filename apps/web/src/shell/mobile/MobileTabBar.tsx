@@ -18,11 +18,13 @@ export function MobileTabBar({
   onHome,
   onYou,
   onActivity,
+  onDms,
 }: {
   active?: 'home' | 'dms' | 'activity' | 'you';
   onHome: () => void;
   onYou: () => void;
   onActivity?: () => void;
+  onDms?: () => void;
 }): JSX.Element {
   const { data: unread } = useActivityUnread();
   const activityBadge = unread?.total ?? 0;
@@ -40,7 +42,13 @@ export function MobileTabBar({
         selected={active === 'home'}
         onClick={onHome}
       />
-      <Tab testId="mobile-tab-dms" label="DM" icon="message" disabled />
+      <Tab
+        testId="mobile-tab-dms"
+        label="DM"
+        icon="message"
+        selected={active === 'dms'}
+        onClick={onDms}
+      />
       <Tab
         testId="mobile-tab-activity"
         label="활동"

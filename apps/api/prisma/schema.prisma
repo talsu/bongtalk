@@ -20,6 +20,7 @@ enum ChannelType {
   TEXT
   VOICE
   ANNOUNCEMENT
+  DIRECT
 }
 
 model OutboxEvent {
