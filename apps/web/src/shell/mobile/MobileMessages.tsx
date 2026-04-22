@@ -1,4 +1,4 @@
-import { useLayoutEffect, useMemo, useRef, useState, type TouchEvent } from 'react';
+import { useLayoutEffect, useMemo, useRef, useState, type RefObject, type TouchEvent } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useMembers } from '../../features/workspaces/useWorkspaces';
@@ -42,7 +42,9 @@ export function MobileMessages({
   const reactMut = useToggleReaction(workspaceId, channelId);
   const { send } = useSendMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const composerInputRef = useRef<HTMLInputElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
+  const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
   // suppress unused warnings until wired into sheet actions
   void updMut;
@@ -104,10 +106,22 @@ export function MobileMessages({
             isMine={m.authorId === user?.id}
             authorName={nameById.get(m.authorId)}
             onLongPress={() => setSheetMsg(m)}
+            onSwipeReply={() => {
+              setReplyTarget(channelId, {
+                messageId: m.id,
+                authorName: nameById.get(m.authorId) ?? 'unknown',
+              });
+              composerInputRef.current?.focus();
+            }}
           />
         ))}
       </div>
-      <MobileComposer channelId={channelId} channelName={channelName} send={send} />
+      <MobileComposer
+        channelId={channelId}
+        channelName={channelName}
+        send={send}
+        inputRef={composerInputRef}
+      />
       {sheetMsg ? (
         <MobileMessageSheet
           msg={sheetMsg}
@@ -142,11 +156,13 @@ function MobileMessageRow({
   isMine,
   authorName,
   onLongPress,
+  onSwipeReply,
 }: {
   msg: MessageDto;
   isMine: boolean;
   authorName?: string;
   onLongPress: () => void;
+  onSwipeReply: () => void;
 }): JSX.Element {
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -179,7 +195,9 @@ function MobileMessageRow({
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
     if (swipeOffset >= SWIPE_THRESHOLD_PX) {
-      onLongPress(); // swipe-right → open sheet (user picks "reply" there)
+      // task-025 follow-2: swipe-right bypasses the sheet and enters
+      // reply-mode directly (sets replyTarget + focuses composer).
+      onSwipeReply();
     }
     setSwipeOffset(0);
     touchStart.current = null;
@@ -231,63 +249,90 @@ function MobileComposer({
   channelId,
   channelName,
   send,
+  inputRef,
 }: {
   channelId: string;
   channelName: string;
   send: (content: string) => void;
+  inputRef: RefObject<HTMLInputElement>;
 }): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
   const clearDraft = useCompose((s) => s.clearDraft);
+  const replyTarget = useCompose((s) => s.replyTargets[channelId]);
+  const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
   const submit = (): void => {
     const trimmed = draft.trim();
     if (!trimmed) return;
     send(trimmed);
     clearDraft(channelId);
+    setReplyTarget(channelId, null);
   };
 
   return (
-    <form
-      data-testid="mobile-composer"
-      className="qf-m-composer qf-m-safe-bottom"
-      onSubmit={(e) => {
-        e.preventDefault();
-        submit();
-      }}
-    >
-      <button
-        type="button"
-        data-testid="mobile-composer-plus"
-        aria-label="첨부 추가"
-        className="qf-m-composer__plus"
-      >
-        <Icon name="plus-circle" size="md" />
-      </button>
-      <input
-        data-testid="mobile-msg-input"
-        className="qf-m-composer__input"
-        value={draft}
-        onChange={(e) => setDraft(channelId, e.target.value)}
-        placeholder={`# ${channelName}`}
-        onKeyDown={(e) => {
-          const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
-          if (native.isComposing || e.keyCode === 229) return;
-          if (e.key === 'Enter') {
-            e.preventDefault();
-            submit();
-          }
+    <div className="qf-m-safe-bottom">
+      {replyTarget ? (
+        <div
+          data-testid="mobile-reply-banner"
+          data-reply-to={replyTarget.messageId}
+          className="flex items-center gap-[var(--s-2)] px-[var(--s-4)] py-[var(--s-2)] bg-bg-panel border-t border-divider text-[length:var(--fs-13)] text-text-muted"
+        >
+          <Icon name="reply" size="sm" />
+          <span className="flex-1 truncate">@{replyTarget.authorName}에게 답장</span>
+          <button
+            type="button"
+            aria-label="답장 취소"
+            data-testid="mobile-reply-cancel"
+            onClick={() => setReplyTarget(channelId, null)}
+            className="p-[var(--s-1)]"
+          >
+            <Icon name="x" size="sm" />
+          </button>
+        </div>
+      ) : null}
+      <form
+        data-testid="mobile-composer"
+        className="qf-m-composer"
+        onSubmit={(e) => {
+          e.preventDefault();
+          submit();
         }}
-      />
-      <button
-        type="submit"
-        data-testid="mobile-composer-send"
-        aria-label="전송"
-        className="qf-m-composer__send"
-        disabled={draft.trim().length === 0}
       >
-        <Icon name="send" size="md" />
-      </button>
-    </form>
+        <button
+          type="button"
+          data-testid="mobile-composer-plus"
+          aria-label="첨부 추가"
+          className="qf-m-composer__plus"
+        >
+          <Icon name="plus-circle" size="md" />
+        </button>
+        <input
+          ref={inputRef}
+          data-testid="mobile-msg-input"
+          className="qf-m-composer__input"
+          value={draft}
+          onChange={(e) => setDraft(channelId, e.target.value)}
+          placeholder={replyTarget ? `@${replyTarget.authorName}에게 답장…` : `# ${channelName}`}
+          onKeyDown={(e) => {
+            const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
+            if (native.isComposing || e.keyCode === 229) return;
+            if (e.key === 'Enter') {
+              e.preventDefault();
+              submit();
+            }
+          }}
+        />
+        <button
+          type="submit"
+          data-testid="mobile-composer-send"
+          aria-label="전송"
+          className="qf-m-composer__send"
+          disabled={draft.trim().length === 0}
+        >
+          <Icon name="send" size="md" />
+        </button>
+      </form>
+    </div>
   );
 }
