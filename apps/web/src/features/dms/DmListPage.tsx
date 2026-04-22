@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { Icon, Avatar } from '../../design-system/primitives';
 import { useMyWorkspaces, useMembers } from '../workspaces/useWorkspaces';
+import { useAuth } from '../auth/AuthProvider';
 import { useDmList, useCreateOrGetDm } from './useDms';
 import { cn } from '../../lib/cn';
 
@@ -12,6 +13,7 @@ import { cn } from '../../lib/cn';
 export function DmListPage(): JSX.Element {
   const { slug } = useParams<{ slug: string }>();
   const navigate = useNavigate();
+  const { user } = useAuth();
   const { data: mine } = useMyWorkspaces();
   const ws = useMemo(() => mine?.workspaces.find((w) => w.slug === slug), [mine, slug]);
   const { data: members } = useMembers(ws?.id);
@@ -24,9 +26,9 @@ export function DmListPage(): JSX.Element {
   const filteredDms = (dms?.items ?? []).filter(
     (d) => !norm || d.otherUsername.toLowerCase().includes(norm),
   );
-  const memberCandidates = (members?.members ?? []).filter(
-    (m) => !norm || m.user.username.toLowerCase().includes(norm),
-  );
+  const memberCandidates = (members?.members ?? [])
+    .filter((m) => m.userId !== user?.id) // task-028-R8 follow: exclude self
+    .filter((m) => !norm || m.user.username.toLowerCase().includes(norm));
 
   const startDm = async (otherUserId: string): Promise<void> => {
     const res = await createDm.mutateAsync({ userId: otherUserId });
