@@ -1,21 +1,32 @@
 import { Icon } from '../../design-system/primitives';
+import type { IconName } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
+import { useActivityUnread } from '../../features/activity/useActivity';
 
 /**
  * Bottom tab bar pinned above the home indicator. qf-m-tabbar grid
- * with 4 slots — only Home + You are wired in MVP. DMs and Activity
- * are rendered disabled (aria-disabled) so the visual layout is
- * final and we can flip them on without shifting icons later.
+ * with 4 slots. task-024 landed Home + You; task-026-F/G enables the
+ * Activity tab with a qf-m-tab__badge driven by useActivityUnread.
+ * DMs stays disabled until DM surface lands.
+ *
+ * Each tab renders the DS-defined internal structure (qf-m-tab__icon
+ * / __label / __badge / __dot) so the layout exactly matches the
+ * mobile-mockups.jsx TabBar component.
  */
 export function MobileTabBar({
   active = 'home',
   onHome,
   onYou,
+  onActivity,
 }: {
   active?: 'home' | 'dms' | 'activity' | 'you';
   onHome: () => void;
   onYou: () => void;
+  onActivity?: () => void;
 }): JSX.Element {
+  const { data: unread } = useActivityUnread();
+  const activityBadge = unread?.total ?? 0;
+
   return (
     <nav
       data-testid="mobile-tabbar"
@@ -30,7 +41,14 @@ export function MobileTabBar({
         onClick={onHome}
       />
       <Tab testId="mobile-tab-dms" label="DM" icon="message" disabled />
-      <Tab testId="mobile-tab-activity" label="활동" icon="inbox" disabled />
+      <Tab
+        testId="mobile-tab-activity"
+        label="활동"
+        icon="bell"
+        selected={active === 'activity'}
+        onClick={onActivity}
+        badgeCount={activityBadge}
+      />
       <Tab
         testId="mobile-tab-you"
         label="내 정보"
@@ -49,14 +67,18 @@ function Tab({
   selected,
   disabled,
   onClick,
+  badgeCount,
 }: {
   testId: string;
   label: string;
-  icon: 'home' | 'message' | 'inbox' | 'user';
+  icon: IconName;
   selected?: boolean;
   disabled?: boolean;
   onClick?: () => void;
+  badgeCount?: number;
 }): JSX.Element {
+  const showBadge = !!badgeCount && badgeCount > 9;
+  const showDot = !!badgeCount && badgeCount > 0 && badgeCount <= 9;
   return (
     <button
       type="button"
@@ -69,6 +91,12 @@ function Tab({
     >
       <span className="qf-m-tab__icon" aria-hidden>
         <Icon name={icon} size="md" />
+        {showDot ? <span className="qf-m-tab__dot" data-testid={`${testId}-dot`} /> : null}
+        {showBadge ? (
+          <span className="qf-m-tab__badge" data-testid={`${testId}-badge`}>
+            {badgeCount! > 99 ? '99+' : badgeCount}
+          </span>
+        ) : null}
       </span>
       <span className="qf-m-tab__label">{label}</span>
     </button>

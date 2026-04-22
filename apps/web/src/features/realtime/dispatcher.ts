@@ -296,6 +296,13 @@ export function installRealtimeDispatcher(
     recipients: string[];
   }>('message.thread.replied', (env) => {
     if (!env.channelId || !env.workspaceId || !env.rootMessageId) return;
+    // task-026-E: replies to the viewer's threads feed Activity. Skip
+    // the invalidation if the viewer is the replier (you don't need
+    // a badge for your own reply).
+    const viewerForActivity = ctx.viewerId();
+    if (viewerForActivity && env.replierId !== viewerForActivity) {
+      qc.invalidateQueries({ queryKey: ['me', 'activity'] });
+    }
     qc.setQueryData<InfiniteData<ListMessagesResponse>>(
       qk.messages.list(env.workspaceId, env.channelId),
       (old) => {
@@ -446,7 +453,13 @@ export function installRealtimeDispatcher(
     userId: string;
     emoji: string;
     count: number;
-  }>('message.reaction.added', (env) => applyReaction(env, 'added'));
+  }>('message.reaction.added', (env) => {
+    applyReaction(env, 'added');
+    // task-026-E: reactions on the viewer's own messages feed the
+    // Activity inbox — invalidate both list + unread counts so the
+    // Bell / tabbar badge reflect the increment within ~1 RTT.
+    qc.invalidateQueries({ queryKey: ['me', 'activity'] });
+  });
   on<{
     messageId: string;
     channelId: string;
@@ -535,6 +548,10 @@ export function installRealtimeDispatcher(
   }>('mention.received', (env) => {
     const viewer = ctx.viewerId();
     if (!viewer || env.targetUserId !== viewer) return;
+    // task-026-E: mention also feeds Activity — invalidate before the
+    // channel-presence skip below so unread count reflects even when
+    // the user is currently on the target channel.
+    qc.invalidateQueries({ queryKey: ['me', 'activity'] });
     // Skip when the user is already looking at the channel — no
     // need to toast yourself about a message you can see.
     if (ctx.activeChannelId() === env.channelId) return;

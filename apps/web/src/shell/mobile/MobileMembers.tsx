@@ -1,6 +1,6 @@
 import { useMembers } from '../../features/workspaces/useWorkspaces';
 import { usePresence } from '../../features/realtime/usePresence';
-import { Avatar } from '../../design-system/primitives';
+import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
 /**
@@ -44,6 +44,11 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
                 <div className="qf-m-row__primary">{m.user.username}</div>
                 <div className="qf-m-row__secondary">{m.role}</div>
               </div>
+              {m.role === 'OWNER' ? (
+                <div className="qf-m-row__aside" aria-label="Owner">
+                  <Icon name="crown" size="sm" />
+                </div>
+              ) : null}
             </div>
           ))}
         </>
@@ -65,6 +70,11 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
                 <div className="qf-m-row__primary">{m.user.username}</div>
                 <div className="qf-m-row__secondary">{m.role}</div>
               </div>
+              {m.role === 'OWNER' ? (
+                <div className="qf-m-row__aside" aria-label="Owner">
+                  <Icon name="crown" size="sm" />
+                </div>
+              ) : null}
             </div>
           ))}
         </>
