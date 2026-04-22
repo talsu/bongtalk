@@ -15,6 +15,8 @@ import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
+import { useIsMobile } from '../lib/useBreakpoint';
+import { MobileShell } from './MobileShell';
 
 /**
  * Top-level Discord-style 3-column layout (4 counting the leftmost rail).
@@ -23,6 +25,16 @@ import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
  * shell.
  */
 export function Shell(): JSX.Element {
+  const isMobile = useIsMobile();
+  // Task-024: branch on viewport at mount time. Crossing the 768px
+  // breakpoint remounts via React's key-based reconciliation below —
+  // live reflow across layouts isn't required and creates subtle
+  // drag-state / scroll-state leaks.
+  if (isMobile) return <MobileShell key="mobile" />;
+  return <DesktopShell key="desktop" />;
+}
+
+function DesktopShell(): JSX.Element {
   // With the splat route `/w/:slug/*`, React Router delivers the
   // remainder under the `'*'` key. Parsing here keeps `channelName`
   // behaviour identical to the old discrete-param version without
