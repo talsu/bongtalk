@@ -18,7 +18,7 @@ import './mobile/mobile-touch-target.css';
 /**
  * Task-024 mobile shell — qf-m-screen root, qf-m-topbar header,
  * qf-m-body scrollable middle, qf-m-tabbar footer. Left drawer
- * (☰ → workspaces + channels) + right drawer (👥 → members).
+ * (menu → workspaces + channels) + right drawer (users → members).
  * Desktop shell stays unchanged; Shell.tsx branches on a 768px
  * media-query via useIsMobile.
  *
@@ -138,6 +138,7 @@ export function MobileShell(): JSX.Element {
       <MobileTabBar
         onHome={() => navigate(`/w/${active.slug}`)}
         onYou={() => navigate('/settings')}
+        onActivity={() => navigate('/activity')}
       />
 
       {/* Left drawer: workspace + channel list */}

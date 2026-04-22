@@ -8,8 +8,10 @@ import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
+import { useNavigate } from 'react-router-dom';
 import { Icon, Tooltip } from '../design-system/primitives';
 import { SearchInput } from '../features/search/SearchInput';
+import { useActivityUnread } from '../features/activity/useActivity';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
 import type { UnreadChannelSummary } from '../features/channels/useUnread';
@@ -137,6 +139,7 @@ export function MessageColumn({
           {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
           <div className="ml-auto flex items-center gap-[var(--s-3)]">
             <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+            <ActivityBellButton />
             <Tooltip label="곧 제공 예정" side="bottom">
               <button
                 type="button"
@@ -212,4 +215,32 @@ function useThreadQueryState(
     setRootId(next);
   }, []);
   return [rootId, set];
+}
+
+function ActivityBellButton(): JSX.Element {
+  const { data } = useActivityUnread();
+  const navigate = useNavigate();
+  const count = data?.total ?? 0;
+  return (
+    <Tooltip label="Activity" side="bottom">
+      <button
+        type="button"
+        data-testid="topbar-activity-bell"
+        aria-label={`Activity (${count})`}
+        onClick={() => navigate('/activity')}
+        className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm relative"
+      >
+        <Icon name="bell" size="sm" />
+        {count > 0 ? (
+          <span
+            data-testid="topbar-activity-badge"
+            className="qf-badge qf-badge--count"
+            style={{ position: 'absolute', top: '-4px', right: '-4px' }}
+          >
+            {count > 99 ? '99+' : count}
+          </span>
+        ) : null}
+      </button>
+    </Tooltip>
+  );
 }
