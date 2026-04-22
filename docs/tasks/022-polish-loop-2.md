@@ -367,23 +367,28 @@ _Implementer appends one subsection per Round._
 
 ### Round 5
 
-_(not yet run)_
+- Commits: _(none — Discovery-only convergence pass)_
+- Discovery audit scope (via Explore agent): MessageComposer `jobs` state machine, threadDraftKey collision space, useUpdateChannel invalidation, dispatcher `channel.updated` handler, SettingsOverlay z-stack under palette, composer-upload route stubs, e2e determinism.
+- New discoveries: **0 new HIGH**, 1 new MED (thread-draft-store unbounded growth — non-critical).
+- Reviewer verdict: _(no code changes → no reviewer spawn)_.
+- pnpm verify: R4 run at `3bf43aa` already green; R5 adds no commits.
+- Exit check: backlog open CRITICAL=0, open HIGH=0 across R4→R5 Discovery → **criterion (a) stable convergence + criterion (b) 2-consecutive Rounds with 0 new HIGH both MET**. Loop exits to FINAL.
 
 ### Round 6
 
-_(not yet run)_
+_(not needed — converged at R5)_
 
 ### Round 7
 
-_(not yet run)_
+_(not needed)_
 
 ### Round 8
 
-_(not yet run)_
+_(not needed)_
 
 ### Round 9
 
-_(not yet run)_
+_(not needed)_
 
 ## Final REPORT
 
