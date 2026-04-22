@@ -39,18 +39,68 @@ export const SlugSchema = z
   .max(32)
   .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/, 'slug must be lowercase letters, digits, or hyphens');
 
-export const CreateWorkspaceRequestSchema = z.object({
-  name: z.string().min(1).max(64),
-  slug: SlugSchema,
-  description: z.string().max(280).optional(),
-  iconUrl: z.string().url().max(512).optional(),
-});
+// task-030: Workspace discovery
+export const WorkspaceVisibilitySchema = z.enum(['PUBLIC', 'PRIVATE']);
+export type WorkspaceVisibility = z.infer<typeof WorkspaceVisibilitySchema>;
+
+export const WorkspaceCategorySchema = z.enum([
+  'PROGRAMMING',
+  'GAMING',
+  'MUSIC',
+  'ENTERTAINMENT',
+  'SCIENCE',
+  'TECH',
+  'EDUCATION',
+  'OTHER',
+]);
+export type WorkspaceCategory = z.infer<typeof WorkspaceCategorySchema>;
+
+export const WORKSPACE_CATEGORY_META: Record<WorkspaceCategory, { label: string; icon: string }> = {
+  PROGRAMMING: { label: '프로그래밍', icon: 'code' },
+  GAMING: { label: '게이밍', icon: 'compass' },
+  MUSIC: { label: '음악', icon: 'headphones' },
+  ENTERTAINMENT: { label: '엔터테인먼트', icon: 'video' },
+  SCIENCE: { label: '과학', icon: 'compass' },
+  TECH: { label: '기술', icon: 'compass' },
+  EDUCATION: { label: '교육', icon: 'bookmark' },
+  OTHER: { label: '기타', icon: 'hash' },
+};
+
+export const CreateWorkspaceRequestSchema = z
+  .object({
+    name: z.string().min(1).max(64),
+    slug: SlugSchema,
+    description: z.string().max(500).optional(),
+    iconUrl: z.string().url().max(512).optional(),
+    visibility: WorkspaceVisibilitySchema.optional(),
+    category: WorkspaceCategorySchema.optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.visibility === 'PUBLIC') {
+      if (!data.category) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['category'],
+          message: 'category is required for PUBLIC workspaces',
+        });
+      }
+      if (!data.description || data.description.trim().length === 0) {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: ['description'],
+          message: 'description is required for PUBLIC workspaces',
+        });
+      }
+    }
+  });
 export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema>;
 
 export const UpdateWorkspaceRequestSchema = z.object({
   name: z.string().min(1).max(64).optional(),
-  description: z.string().max(280).nullable().optional(),
+  description: z.string().max(500).nullable().optional(),
   iconUrl: z.string().url().max(512).nullable().optional(),
+  visibility: WorkspaceVisibilitySchema.optional(),
+  category: WorkspaceCategorySchema.nullable().optional(),
 });
 export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
 
@@ -61,11 +111,31 @@ export const WorkspaceSchema = z.object({
   description: z.string().nullable(),
   iconUrl: z.string().nullable(),
   ownerId: z.string().uuid(),
+  visibility: WorkspaceVisibilitySchema.default('PRIVATE'),
+  category: WorkspaceCategorySchema.nullable(),
   createdAt: z.string().datetime(),
   deletedAt: z.string().datetime().nullable(),
   deleteAt: z.string().datetime().nullable(),
 });
 export type Workspace = z.infer<typeof WorkspaceSchema>;
+
+export const DiscoveryWorkspaceSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  slug: SlugSchema,
+  description: z.string().nullable(),
+  iconUrl: z.string().nullable(),
+  category: WorkspaceCategorySchema,
+  memberCount: z.number().int().nonnegative(),
+  lastActivityAt: z.string().datetime().nullable(),
+});
+export type DiscoveryWorkspace = z.infer<typeof DiscoveryWorkspaceSchema>;
+
+export const DiscoveryPageSchema = z.object({
+  items: z.array(DiscoveryWorkspaceSchema),
+  nextCursor: z.string().nullable(),
+});
+export type DiscoveryPage = z.infer<typeof DiscoveryPageSchema>;
 
 export const WorkspaceWithMyRoleSchema = WorkspaceSchema.extend({
   myRole: WorkspaceRoleSchema,

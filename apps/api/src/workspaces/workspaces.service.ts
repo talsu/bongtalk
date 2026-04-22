@@ -48,6 +48,11 @@ export class WorkspacesService {
             slug: input.slug,
             description: input.description ?? null,
             iconUrl: input.iconUrl ?? null,
+            // task-030: visibility defaults to PRIVATE. When PUBLIC, the
+            // shared-types schema has already enforced category +
+            // description at the zod layer.
+            visibility: input.visibility ?? 'PRIVATE',
+            category: input.category ?? null,
             ownerId: userId,
             members: {
               create: { userId, role: WorkspaceRole.OWNER },
@@ -94,14 +99,135 @@ export class WorkspacesService {
   }
 
   async update(workspaceId: string, input: UpdateWorkspaceRequest) {
+    // task-030: PUBLIC transition requires category + description to be
+    // present on the merged state (either pre-existing or in this patch).
+    if (input.visibility === 'PUBLIC') {
+      const current = await this.prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { category: true, description: true },
+      });
+      const merged = {
+        category: input.category !== undefined ? input.category : current?.category,
+        description: input.description !== undefined ? input.description : current?.description,
+      };
+      if (!merged.category) {
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          'category is required when switching to PUBLIC',
+        );
+      }
+      if (!merged.description || merged.description.trim().length === 0) {
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          'description is required when switching to PUBLIC',
+        );
+      }
+    }
     return this.prisma.workspace.update({
       where: { id: workspaceId },
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
         ...(input.iconUrl !== undefined ? { iconUrl: input.iconUrl } : {}),
+        ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
+        ...(input.category !== undefined ? { category: input.category } : {}),
       },
     });
+  }
+
+  async discover(opts: { category?: string; q?: string; cursor: string | null; limit: number }) {
+    const capped = Math.max(1, Math.min(50, opts.limit));
+    const q = (opts.q ?? '').trim();
+    const cat = (opts.category ?? '').trim();
+    let cursorParts: { memberCount: number; id: string } | null = null;
+    if (opts.cursor) {
+      const [mc, id] = opts.cursor.split('|');
+      if (mc && id) cursorParts = { memberCount: parseInt(mc, 10), id };
+    }
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        id: string;
+        name: string;
+        slug: string;
+        description: string | null;
+        iconUrl: string | null;
+        category: string;
+        memberCount: bigint;
+        lastActivityAt: Date | null;
+      }>
+    >`
+      SELECT
+        w.id,
+        w.name,
+        w.slug,
+        w.description,
+        w."iconUrl",
+        w.category::text AS category,
+        COUNT(wm.*)::bigint AS "memberCount",
+        MAX(m."createdAt") AS "lastActivityAt"
+      FROM "Workspace" w
+      LEFT JOIN "WorkspaceMember" wm ON wm."workspaceId" = w.id
+      LEFT JOIN "Channel" c ON c."workspaceId" = w.id AND c."deletedAt" IS NULL
+      LEFT JOIN "Message" m ON m."channelId" = c.id AND m."deletedAt" IS NULL
+      WHERE w."deletedAt" IS NULL
+        AND w.visibility = 'PUBLIC'
+        AND w.category IS NOT NULL
+        AND (${cat}::text = '' OR w.category::text = ${cat}::text)
+        AND (${q}::text = '' OR w.name ILIKE '%' || ${q}::text || '%')
+      GROUP BY w.id
+      HAVING (
+        ${cursorParts === null ? null : cursorParts.memberCount}::int IS NULL
+        OR COUNT(wm.*)::int < ${cursorParts === null ? 0 : cursorParts.memberCount}::int
+        OR (
+          COUNT(wm.*)::int = ${cursorParts === null ? 0 : cursorParts.memberCount}::int
+          AND w.id::text < ${cursorParts === null ? '' : cursorParts.id}::text
+        )
+      )
+      ORDER BY COUNT(wm.*) DESC, w.id DESC
+      LIMIT ${capped + 1}
+    `;
+    const hasMore = rows.length > capped;
+    const items = (hasMore ? rows.slice(0, capped) : rows).map((r) => ({
+      id: r.id,
+      name: r.name,
+      slug: r.slug,
+      description: r.description,
+      iconUrl: r.iconUrl,
+      category: r.category,
+      memberCount: Number(r.memberCount),
+      lastActivityAt: r.lastActivityAt ? r.lastActivityAt.toISOString() : null,
+    }));
+    const nextCursor = hasMore
+      ? `${items[items.length - 1].memberCount}|${items[items.length - 1].id}`
+      : null;
+    return { items, nextCursor };
+  }
+
+  async joinPublic(
+    workspaceId: string,
+    userId: string,
+  ): Promise<{ workspaceId: string; alreadyMember: boolean }> {
+    const ws = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { id: true, visibility: true, deletedAt: true },
+    });
+    if (!ws || ws.deletedAt) {
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
+    }
+    if (ws.visibility !== 'PUBLIC') {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_NOT_PUBLIC,
+        'workspace is not joinable without invite',
+      );
+    }
+    const existing = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+    });
+    if (existing) return { workspaceId, alreadyMember: true };
+    await this.prisma.workspaceMember.create({
+      data: { workspaceId, userId, role: WorkspaceRole.MEMBER },
+    });
+    return { workspaceId, alreadyMember: false };
   }
 
   async softDelete(workspaceId: string, actorId: string) {
