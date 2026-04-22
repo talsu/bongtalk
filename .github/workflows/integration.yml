@@ -23,6 +23,27 @@ jobs:
       - name: Run Dockerfile umask smoke
         run: bash scripts/deploy/tests/dockerfile-umask-smoke.sh
 
+  dist-css-link-smoke:
+    # task-029-D: build the web app and assert dist/index.html links all
+    # four DS stylesheets (tokens + components + mobile + icons). 029
+    # shipped with mobile.css missing — every mobile viewport in prod
+    # rendered without DS rules. Fail the build at CI so a regression
+    # surfaces before the user does.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Run DS stylesheet link smoke
+        run: pnpm ds:smoke
+
   integration:
     # Integration tests use testcontainers to spin their own
     # postgres + redis — ubuntu-latest ships the docker daemon socket,
