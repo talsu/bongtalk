@@ -121,10 +121,16 @@
   --z-header:    10;
   --z-dropdown:  20;
   --z-sticky:    30;
-  --z-modal-bg:  40;
-  --z-modal:     41;
-  --z-toast:     50;
-  --z-tooltip:   60;
+  /* Settings overlay (full-viewport popup) sits below alert dialogs so
+     confirm prompts opened from within settings still land on top. */
+  --z-settings-bg: 50;
+  --z-settings:    51;
+  --z-toast:       60;
+  /* Modal / alert dialog — always top-of-stack so destructive confirms
+     are visible even when opened from inside a settings overlay. */
+  --z-modal-bg:    70;
+  --z-modal:       71;
+  --z-tooltip:     80;
 
   /* ───── Layout widths ───── */
   --w-serverlist:  72px;
