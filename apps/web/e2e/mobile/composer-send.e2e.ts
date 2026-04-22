@@ -35,5 +35,17 @@ test('mobile composer: type + send surfaces a qf-m-message row', async ({ browse
   await expect(input).toHaveValue('');
   await expect(page.getByTestId('mobile-message-list')).toContainText('hello from a phone');
 
+  // Keyboard dodge (task-025 follow-1). Simulate the software keyboard
+  // via a --m-kb-inset bump on <html>; the composer's padding-bottom
+  // must grow to consume it so the input stays above the keyboard.
+  await page.evaluate(() => {
+    document.documentElement.style.setProperty('--m-kb-inset', '240px');
+  });
+  const paddingBottom = await page
+    .getByTestId('mobile-composer')
+    .evaluate((el) => getComputedStyle(el as HTMLElement).paddingBottom);
+  const px = parseFloat(paddingBottom);
+  expect(px).toBeGreaterThan(240);
+
   await context.close();
 });
