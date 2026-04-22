@@ -120,17 +120,38 @@ model RefreshToken {
   @@index([expiresAt])
 }
 
+enum WorkspaceVisibility {
+  PUBLIC
+  PRIVATE
+}
+
+enum WorkspaceCategory {
+  PROGRAMMING
+  GAMING
+  MUSIC
+  ENTERTAINMENT
+  SCIENCE
+  TECH
+  EDUCATION
+  OTHER
+}
+
 model Workspace {
-  id          String    @id @db.Uuid
+  id          String              @id @db.Uuid
   name        String
-  slug        String    @unique
+  slug        String              @unique
   description String?
   iconUrl     String?
-  ownerId     String    @db.Uuid
+  ownerId     String              @db.Uuid
+  // task-030: visibility + category drive /workspaces/discover. Existing
+  // rows backfill to PRIVATE (reversible): discovery page shows zero
+  // pre-existing workspaces until owners opt in via Settings.
+  visibility  WorkspaceVisibility @default(PRIVATE)
+  category    WorkspaceCategory?
   deletedAt   DateTime?
   deleteAt    DateTime?
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  createdAt   DateTime            @default(now())
+  updatedAt   DateTime            @updatedAt
 
   owner      User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
   members    WorkspaceMember[]
@@ -142,6 +163,7 @@ model Workspace {
 
   @@index([ownerId])
   @@index([deletedAt])
+  @@index([visibility, category])
 }
 
 model WorkspaceMember {

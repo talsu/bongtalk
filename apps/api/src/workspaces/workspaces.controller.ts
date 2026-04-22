@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  DefaultValuePipe,
   Delete,
   Get,
   HttpCode,
@@ -8,6 +9,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -33,10 +35,7 @@ export class WorkspacesController {
   constructor(private readonly workspaces: WorkspacesService) {}
 
   @Post()
-  async create(
-    @CurrentUser() user: CurrentUserPayload,
-    @Body() body: unknown,
-  ) {
+  async create(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
     const parsed = CreateWorkspaceRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -50,6 +49,30 @@ export class WorkspacesController {
     return { workspaces };
   }
 
+  @Get('discover')
+  async discover(
+    @Query('category') category: string | undefined,
+    @Query('q') q: string | undefined,
+    @Query('cursor') cursor: string | undefined,
+    @Query('limit', new DefaultValuePipe(20)) limitRaw: string | number,
+  ) {
+    const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
+    return this.workspaces.discover({
+      category,
+      q,
+      cursor: cursor ?? null,
+      limit: limit || 20,
+    });
+  }
+
+  @Post(':id/join')
+  async joinPublic(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.workspaces.joinPublic(id, user.id);
+  }
+
   @UseGuards(WorkspaceMemberGuard)
   @Get(':id')
   async get(@Param('id', new ParseUUIDPipe()) id: string, @CurrentUser() user: CurrentUserPayload) {
@@ -61,13 +84,16 @@ export class WorkspacesController {
   @Patch(':id')
   async update(
     @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentMember() member: CurrentMemberPayload,
     @Body() body: unknown,
   ) {
     const parsed = UpdateWorkspaceRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    return this.workspaces.update(id, parsed.data as UpdateWorkspaceRequest);
+    // task-030 reviewer B1: pass actor role so service can block ADMIN
+    // attempts to flip visibility/category — OWNER-only.
+    return this.workspaces.update(id, parsed.data as UpdateWorkspaceRequest, member.role);
   }
 
   @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
