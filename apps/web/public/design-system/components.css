@@ -591,3 +591,38 @@
    2px tall, accent-colored. Rendered between rows/sections by
    ChannelList during an active drag. */
 .qf-dropline { height: 2px; margin: 1px var(--s-3); border-radius: var(--r-pill); background: var(--accent); }
+
+/* ───── Settings overlay ───── */
+/* Full-viewport layered popup for app settings, channel settings,
+   workspace settings, etc. Backdrop + card pattern shared across
+   every settings surface — nav + main go inside the card. */
+.qf-settings-overlay__backdrop {
+  position: fixed; inset: 0;
+  background: rgba(0, 0, 0, 0.55);
+  z-index: 60;
+}
+.qf-settings-overlay__card {
+  position: fixed;
+  top: var(--s-8); bottom: var(--s-8);
+  left: 50%;
+  transform: translateX(-50%);
+  width: calc(100vw - 2 * var(--s-8));
+  max-width: 1200px;
+  background: var(--bg-app);
+  border-radius: var(--r-xl);
+  box-shadow: var(--elev-4);
+  overflow: hidden;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+}
+.qf-settings-overlay__close {
+  position: absolute;
+  top: var(--s-3); right: var(--s-3);
+  width: 32px; height: 32px;
+  display: grid; place-items: center;
+  background: transparent; border: none; border-radius: var(--r-sm);
+  color: var(--text-muted); font-size: 18px; cursor: pointer;
+  z-index: 1;
+}
+.qf-settings-overlay__close:hover { background: var(--bg-hover); color: var(--text); }
