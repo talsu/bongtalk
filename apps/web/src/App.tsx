@@ -48,6 +48,12 @@ const MobileDmList = lazy(() =>
 const MobileDmChat = lazy(() =>
   import('./shell/mobile/MobileDmChat').then((m) => ({ default: m.MobileDmChat })),
 );
+const DiscoverPage = lazy(() =>
+  import('./features/discovery/DiscoverPage').then((m) => ({ default: m.DiscoverPage })),
+);
+const MobileDiscover = lazy(() =>
+  import('./shell/mobile/MobileDiscover').then((m) => ({ default: m.MobileDiscover })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -130,6 +136,18 @@ function ProtectedDesktopDmListRoute(): JSX.Element {
   );
 }
 
+function ProtectedDiscoverRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {isMobile ? <MobileDiscover /> : <DiscoverPage />}
+    </Suspense>
+  );
+}
+
 function ProtectedDesktopDmChatRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
@@ -174,6 +192,7 @@ export default function App(): JSX.Element {
                     element={<ProtectedSettingsRoute page="notifications" />}
                   />
                   <Route path="/activity" element={<ProtectedActivityRoute />} />
+                  <Route path="/discover" element={<ProtectedDiscoverRoute />} />
                   <Route path="/dms" element={<ProtectedDmListRoute />} />
                   <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
                   <Route path="/w/:slug/dm" element={<ProtectedDesktopDmListRoute />} />

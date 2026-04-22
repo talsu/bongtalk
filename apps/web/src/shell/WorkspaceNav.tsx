@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
-import { Tooltip } from '../design-system/primitives';
+import { Icon, Tooltip } from '../design-system/primitives';
 import { BrandMark } from '../design-system/brand/BrandMark';
 import { useWorkspaceUnreadTotals } from '../features/workspaces/useUnreadTotals';
 
@@ -57,6 +57,16 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
         );
       })}
       <div aria-hidden className="h-px w-6 bg-border" />
+      <Tooltip label="찾기" side="right">
+        <Link
+          to="/discover"
+          data-testid="ws-nav-discover"
+          aria-label="공개 워크스페이스 찾기"
+          className="qf-server-btn"
+        >
+          <Icon name="compass" size="md" />
+        </Link>
+      </Tooltip>
       <Tooltip label="새 워크스페이스" side="right">
         <Link
           to="/w/new"
