@@ -82,12 +82,18 @@ export class WorkspacesController {
   @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
   @Roles('ADMIN')
   @Patch(':id')
-  async update(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
+  async update(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentMember() member: CurrentMemberPayload,
+    @Body() body: unknown,
+  ) {
     const parsed = UpdateWorkspaceRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    return this.workspaces.update(id, parsed.data as UpdateWorkspaceRequest);
+    // task-030 reviewer B1: pass actor role so service can block ADMIN
+    // attempts to flip visibility/category — OWNER-only.
+    return this.workspaces.update(id, parsed.data as UpdateWorkspaceRequest, member.role);
   }
 
   @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)

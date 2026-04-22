@@ -98,7 +98,17 @@ export class WorkspacesService {
     return { workspace, myRole: member.role as SharedWorkspaceRole };
   }
 
-  async update(workspaceId: string, input: UpdateWorkspaceRequest) {
+  async update(workspaceId: string, input: UpdateWorkspaceRequest, actorRole?: string) {
+    // task-030 reviewer BLOCKER-1: visibility + category changes are OWNER
+    // only. The PATCH route is shared with name/description (ADMIN-allowed),
+    // so we enforce the OWNER gate at the service level when the incoming
+    // patch touches visibility or category.
+    if ((input.visibility !== undefined || input.category !== undefined) && actorRole !== 'OWNER') {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'only OWNER can change visibility or category',
+      );
+    }
     // task-030: PUBLIC transition requires category + description to be
     // present on the merged state (either pre-existing or in this patch).
     if (input.visibility === 'PUBLIC') {

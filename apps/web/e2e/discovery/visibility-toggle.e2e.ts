@@ -35,4 +35,28 @@ test('PATCH visibility=PUBLIC requires category + description on merged state', 
     data: { visibility: 'PUBLIC', category: 'MUSIC', description: 'good music' },
   });
   expect(flip2.ok()).toBeTruthy();
+
+  // task-030 reviewer B1: ADMIN cannot flip visibility — only OWNER.
+  const admin = await request.post(`${API}/auth/signup`, {
+    headers: { origin: ORIGIN },
+    data: { email: `vt-a-${stamp}@qufox.dev`, username: `vta${stamp}`, password: PW },
+  });
+  const adminBody = (await admin.json()) as { accessToken: string; user: { id: string } };
+  const inv = await request.post(`${API}/workspaces/${privBody.id}/invites`, {
+    headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },
+    data: {},
+  });
+  const invCode = ((await inv.json()) as { code: string }).code;
+  await request.post(`${API}/invites/${invCode}/accept`, {
+    headers: { authorization: `Bearer ${adminBody.accessToken}`, origin: ORIGIN },
+  });
+  await request.patch(`${API}/workspaces/${privBody.id}/members/${adminBody.user.id}/role`, {
+    headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },
+    data: { role: 'ADMIN' },
+  });
+  const flip3 = await request.patch(`${API}/workspaces/${privBody.id}`, {
+    headers: { authorization: `Bearer ${adminBody.accessToken}`, origin: ORIGIN },
+    data: { visibility: 'PRIVATE' },
+  });
+  expect(flip3.status()).toBe(403);
 });
