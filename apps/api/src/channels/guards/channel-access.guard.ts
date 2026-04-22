@@ -68,7 +68,12 @@ export class ChannelAccessGuard implements CanActivate {
     // `PermissionMatrix.effective`.
     if (channel.isPrivate) {
       const user = (req as { user?: { id: string } }).user;
-      const member = (req as { member?: { role: string } }).member;
+      // task-027 reviewer BLOCKER: previous code read `req.member`,
+      // but WorkspaceMemberGuard assigns to `req.workspaceMember`.
+      // The private-channel gate has been a silent no-op since
+      // task-012; 027 is the first task to actually depend on it
+      // firing (DM OWNER isolation).
+      const member = (req as { workspaceMember?: { role: string } }).workspaceMember;
       // task-027-B: DIRECT channels are 1:1 and bypass the OWNER escape
       // hatch — only the two participants (explicit USER-level ALLOW
       // override) may access. OWNERs/ADMINs of the workspace are

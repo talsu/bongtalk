@@ -62,32 +62,48 @@ export class DirectMessagesService {
     if (existing) return { channelId: existing.id, created: false };
 
     // Transaction: new Channel + two ChannelPermissionOverride rows.
-    const created = await this.prisma.$transaction(async (tx) => {
-      const ch = await tx.channel.create({
-        data: {
-          workspaceId,
-          name,
-          type: 'DIRECT',
-          isPrivate: true,
-          topic: null,
-          position: 0,
-          categoryId: null,
-        },
-      });
-      for (const uid of [meId, otherUserId]) {
-        await tx.channelPermissionOverride.create({
+    // task-027 reviewer H1: two concurrent POSTs for the same pair race
+    // the findFirst→create gap. Channel has @@unique([workspaceId, name])
+    // so the loser hits P2002 on the DB; catch and re-run findFirst so
+    // the caller gets the winner's channelId instead of a 500.
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const ch = await tx.channel.create({
           data: {
-            channelId: ch.id,
-            principalType: 'USER',
-            principalId: uid,
-            allowMask: DM_ALLOW_MASK,
-            denyMask: 0,
+            workspaceId,
+            name,
+            type: 'DIRECT',
+            isPrivate: true,
+            topic: null,
+            position: 0,
+            categoryId: null,
           },
         });
+        for (const uid of [meId, otherUserId]) {
+          await tx.channelPermissionOverride.create({
+            data: {
+              channelId: ch.id,
+              principalType: 'USER',
+              principalId: uid,
+              allowMask: DM_ALLOW_MASK,
+              denyMask: 0,
+            },
+          });
+        }
+        return ch;
+      });
+      return { channelId: created.id, created: true };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'P2002') {
+        const winner = await this.prisma.channel.findFirst({
+          where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+          select: { id: true },
+        });
+        if (winner) return { channelId: winner.id, created: false };
       }
-      return ch;
-    });
-    return { channelId: created.id, created: true };
+      throw err;
+    }
   }
 
   async list(workspaceId: string, meId: string, limit = 50): Promise<DmListItem[]> {
