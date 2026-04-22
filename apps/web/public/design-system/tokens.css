@@ -125,11 +125,14 @@
      confirm prompts opened from within settings still land on top. */
   --z-settings-bg: 50;
   --z-settings:    51;
-  --z-toast:       60;
-  /* Modal / alert dialog — always top-of-stack so destructive confirms
-     are visible even when opened from inside a settings overlay. */
-  --z-modal-bg:    70;
-  --z-modal:       71;
+  /* Modal / alert dialog — above settings so destructive confirms are
+     visible even when opened from inside a settings overlay. */
+  --z-modal-bg:    60;
+  --z-modal:       61;
+  /* Toasts float above every overlay so notifications stay visible
+     even during a modal confirm (e.g. "저장됨" right after the user
+     clicks Save inside a settings dialog). */
+  --z-toast:       70;
   --z-tooltip:     80;
 
   /* ───── Layout widths ───── */
