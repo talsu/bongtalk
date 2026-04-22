@@ -63,11 +63,13 @@ export function useGlobalShortcuts(): void {
         return;
       }
 
-      // task-015-C: Ctrl/Cmd + / → search overlay (moved from help
-      // to match Slack/GitHub convention). Help is now `?` alone.
+      // task-015-C: Ctrl/Cmd + / → focus the inline topbar search.
+      // Help is `?` alone. Previously this opened a modal; the
+      // search UX now lives in the topbar input with an inline
+      // results dropdown, so we just focus the input.
       if (matches(e, { key: '/', ctrlOrMeta: true })) {
         e.preventDefault();
-        setOpenModal(openModal === 'search' ? null : 'search');
+        window.dispatchEvent(new CustomEvent('qufox.search.focus'));
         return;
       }
 
