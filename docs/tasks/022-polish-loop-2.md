@@ -353,14 +353,17 @@ _Implementer appends one subsection per Round._
 
 ### Round 4
 
-_(not yet run)_
-
 - Commits:
-- Fixes (backlog rows closed):
-- New discoveries (backlog rows opened):
-- Reviewer verdict:
-- `pnpm verify`:
-- Wall clock:
+  - `7e009b7` chore(polish-INIT-022): 8 new harness specs + backlog rows seeded
+  - `b4c614a` fix(polish-R4-composer-upload-error-state): retryable failure chip
+  - `233572e` fix(polish-R4-thread-panel-draft-loss): persist thread reply drafts
+- Fixes closed (2 HIGH):
+  - `composer-upload-error-state-missing` → fixed-R4 (failed upload chips persist with retry)
+  - `thread-panel-draft-loss` → fixed-R4 (compose-store keyed by `thread:<rootId>`)
+- Reclassified cannot-repro after Discovery audit (9 rows): composer-autogrow-cap-missing, settings-overlay-esc-palette-conflict, settings-overlay-backdrop-click, channel-settings-save-echo-lag, members-modal-keyboard-nav, channel-dnd-permission-feedback, channel-dnd-cross-category-drop, inline-search-keyboard-nav, inline-search-old-route-leak.
+- Reviewer verdict: PASS (agent `af27f7b787cffeaf6`, 62,532 tokens, 23 tools, 106s) — 0 BLOCKER / 0 HIGH / 4 MED (job-clear-on-submit, retry UUID regen, setDraft closure, stacking test walk-up). All MED judged acceptable; no fix-forward.
+- pnpm verify: 19/19 green, 0 errors.
+- Exit check: open CRITICAL=0, open HIGH=0 → criterion (a) MET. R5 will run a confirm-pass (discovery-only) to satisfy criterion (b) 2-consecutive-Rounds convergence before FINAL.
 
 ### Round 5
 
