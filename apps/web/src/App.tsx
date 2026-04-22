@@ -30,6 +30,12 @@ const NotificationSettingsPage = lazy(() =>
     default: m.NotificationSettingsPage,
   })),
 );
+const ActivityPage = lazy(() =>
+  import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage })),
+);
+const MobileActivity = lazy(() =>
+  import('./shell/mobile/MobileActivity').then((m) => ({ default: m.MobileActivity })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -67,6 +73,21 @@ function ProtectedShellRoute(): JSX.Element {
  * Task-019-D: settings routes share the auth gate with the shell but
  * render a different tree (user-scoped, not workspace-scoped).
  */
+function ProtectedActivityRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  // Mobile viewport → mobile screen; else desktop page. Branching at the
+  // route level (not inside Shell) so the mobile screen can be a full
+  // qf-m-screen without the desktop shell chrome.
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {isMobile ? <MobileActivity /> : <ActivityPage />}
+    </Suspense>
+  );
+}
+
 function ProtectedSettingsRoute({ page }: { page: 'notifications' }): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
@@ -99,6 +120,7 @@ export default function App(): JSX.Element {
                     path="/settings/notifications"
                     element={<ProtectedSettingsRoute page="notifications" />}
                   />
+                  <Route path="/activity" element={<ProtectedActivityRoute />} />
                   <Route path="/" element={<ProtectedShellRoute />} />
                   {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
