@@ -506,11 +506,20 @@ export function installRealtimeDispatcher(
   });
 
   // ---------- Presence ----------
-  on<{ workspaceId: string; onlineUserIds: string[] }>('presence.updated', (env) => {
-    if (env.workspaceId) {
-      qc.setQueryData(qk.presence.workspace(env.workspaceId), env.onlineUserIds);
-    }
-  });
+  on<{ workspaceId: string; onlineUserIds: string[]; dndUserIds?: string[] }>(
+    'presence.updated',
+    (env) => {
+      if (!env.workspaceId) return;
+      // Write the full shape so the usePresence hook can reconstruct
+      // both the online + dnd sets from the cache; mounts that arrive
+      // after the socket's initial snapshot still read the latest state
+      // instead of sitting at empty until the next broadcast.
+      qc.setQueryData(qk.presence.workspace(env.workspaceId), {
+        online: env.onlineUserIds ?? [],
+        dnd: env.dndUserIds ?? [],
+      });
+    },
+  );
 
   // ---------- Mentions (task-011-B) ----------
   on<{
