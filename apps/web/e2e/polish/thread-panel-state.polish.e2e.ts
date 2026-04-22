@@ -87,8 +87,14 @@ test('polish: thread panel URL reload + channel switch closes (R4-thread-panel-s
   await expect(page.getByTestId('thread-panel')).toHaveCount(0);
   expect(page.url()).not.toContain('thread=');
 
-  // Reopen → reply input is empty (draft loss is acceptable).
+  // Type a draft in the thread input, close panel, reopen → draft
+  // is preserved (compose-store keyed by thread:<rootId>).
   await page.goto(`/w/${slug}/general?thread=${msgId}`);
-  await expect(page.getByTestId('thread-input')).toBeVisible();
-  await expect(page.getByTestId('thread-input')).toHaveValue('');
+  const threadInput = page.getByTestId('thread-input');
+  await expect(threadInput).toBeVisible();
+  await threadInput.fill('half-typed reply');
+  await page.getByTestId('thread-close').click();
+  await expect(page.getByTestId('thread-panel')).toHaveCount(0);
+  await page.goto(`/w/${slug}/general?thread=${msgId}`);
+  await expect(page.getByTestId('thread-input')).toHaveValue('half-typed reply');
 });

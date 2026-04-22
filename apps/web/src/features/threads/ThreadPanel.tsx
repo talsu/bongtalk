@@ -1,7 +1,8 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useMembers } from '../workspaces/useWorkspaces';
 import { Avatar, Icon } from '../../design-system/primitives';
+import { useCompose, threadDraftKey } from '../../stores/compose-store';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
 import { cn } from '../../lib/cn';
@@ -144,6 +145,7 @@ export function ThreadPanel({
       </div>
 
       <ThreadComposer
+        rootId={rootId}
         disabled={reply.isPending}
         onSubmit={(content) =>
           reply.mutate({
@@ -213,13 +215,22 @@ function ThreadReplyRow({
 }
 
 function ThreadComposer({
+  rootId,
   onSubmit,
   disabled,
 }: {
+  rootId: string;
   onSubmit: (content: string) => void;
   disabled: boolean;
 }): JSX.Element {
-  const [draft, setDraft] = useState('');
+  // Persist the draft via compose-store keyed by thread:<rootId> so
+  // closing + reopening the panel (or `?thread=` URL reload) keeps
+  // what the user was mid-typing. Cleared on successful submit only.
+  const key = threadDraftKey(rootId);
+  const draft = useCompose((s) => s.drafts[key] ?? '');
+  const setDraftStore = useCompose((s) => s.setDraft);
+  const clearDraftStore = useCompose((s) => s.clearDraft);
+  const setDraft = (v: string): void => setDraftStore(key, v);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Same auto-grow rule as MessageComposer — single-line start, grows
@@ -236,7 +247,7 @@ function ThreadComposer({
     const trimmed = draft.trim();
     if (!trimmed) return;
     onSubmit(trimmed);
-    setDraft('');
+    clearDraftStore(key);
   };
 
   return (
