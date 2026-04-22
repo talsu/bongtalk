@@ -77,6 +77,7 @@ export function ActivityPage(): JSX.Element {
             { id: 'mentions', label: '@멘션', count: unread?.mentions },
             { id: 'replies', label: '답글', count: unread?.replies },
             { id: 'reactions', label: '반응', count: unread?.reactions },
+            { id: 'directs', label: 'DM', count: unread?.directs },
           ] as const
         ).map((t) => (
           <button
@@ -142,6 +143,8 @@ function verbFor(row: ActivityRow): string {
       return '님이 답글을 남김';
     case 'reaction':
       return `님이 ${row.snippet || '반응'} 을 남김`;
+    case 'direct':
+      return '님이 DM을 보냄';
   }
 }
 

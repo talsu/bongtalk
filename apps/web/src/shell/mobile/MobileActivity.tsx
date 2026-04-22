@@ -94,6 +94,7 @@ export function MobileActivity(): JSX.Element {
               { id: 'mentions', label: '@멘션' },
               { id: 'replies', label: '답글' },
               { id: 'reactions', label: '반응' },
+              { id: 'directs', label: 'DM' },
             ] as const
           ).map((t) => (
             <button
@@ -182,6 +183,8 @@ function verbFor(row: ActivityRow): string {
       return '님이 답글을 남김';
     case 'reaction':
       return `님이 ${row.snippet || '반응'} 을 남김`;
+    case 'direct':
+      return '님이 DM을 보냄';
   }
 }
 

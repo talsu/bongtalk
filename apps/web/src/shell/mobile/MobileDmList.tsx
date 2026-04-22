@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { useMyWorkspaces, useMembers } from '../../features/workspaces/useWorkspaces';
+import { useAuth } from '../../features/auth/AuthProvider';
 import { useDmList, useCreateOrGetDm } from '../../features/dms/useDms';
 import { MobileTabBar } from './MobileTabBar';
 
@@ -13,6 +14,7 @@ import { MobileTabBar } from './MobileTabBar';
  */
 export function MobileDmList(): JSX.Element {
   const { data: mine } = useMyWorkspaces();
+  const { user } = useAuth();
   const navigate = useNavigate();
   const active = useMemo(() => mine?.workspaces[0], [mine]);
   const { data: dms, isLoading } = useDmList(active?.id);
@@ -25,9 +27,9 @@ export function MobileDmList(): JSX.Element {
   const rows = (dms?.items ?? []).filter(
     (d) => !norm || d.otherUsername.toLowerCase().includes(norm),
   );
-  const memberCandidates = (members?.members ?? []).filter(
-    (m) => !norm || m.user.username.toLowerCase().includes(norm),
-  );
+  const memberCandidates = (members?.members ?? [])
+    .filter((m) => m.userId !== user?.id)
+    .filter((m) => !norm || m.user.username.toLowerCase().includes(norm));
 
   const startDm = async (otherUserId: string): Promise<void> => {
     if (!active) return;
