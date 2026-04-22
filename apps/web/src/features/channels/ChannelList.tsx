@@ -155,7 +155,7 @@ function DraggableChannelRow({
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               className={cn(
-                'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
+                'qf-row-iconbtn',
                 'transition-opacity',
                 active
                   ? 'opacity-100'
@@ -190,9 +190,9 @@ function DefaultSectionHeader({
           onClick={onAddChannel}
           data-testid="channel-default-add"
           aria-label="채널에 채널 추가"
-          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+          className="qf-row-iconbtn"
         >
-          +
+          <Icon name="plus" size="sm" />
         </button>
       ) : null}
     </div>
@@ -287,9 +287,9 @@ function SortableCategorySection({
               onClick={onAddChannel}
               data-testid={`channel-cat-${category.name}-add`}
               aria-label={`${category.name}에 채널 추가`}
-              className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              className="qf-row-iconbtn"
             >
-              +
+              <Icon name="plus" size="sm" />
             </button>
           ) : null}
         </div>

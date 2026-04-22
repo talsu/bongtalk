@@ -60,6 +60,22 @@
 .qf-btn--icon.qf-btn--sm { width: 28px; }
 .qf-btn--icon.qf-btn--lg { width: 44px; }
 
+/* Tight icon-only button for tight list rows (channel / category
+   suffix). No rectangular shell at rest, just the icon in
+   text-muted; hover colour-lifts to text-strong. Used where qf-btn
+   (28-36px) would inflate row height. */
+.qf-row-iconbtn {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px;
+  padding: 0; border: none; background: transparent;
+  border-radius: var(--r-xs);
+  color: var(--text-muted); cursor: pointer;
+  flex-shrink: 0;
+}
+.qf-row-iconbtn:hover  { color: var(--text-strong); }
+.qf-row-iconbtn:active { color: var(--accent); }
+.qf-row-iconbtn:disabled { opacity: 0.5; cursor: not-allowed; }
+
 /* ───── Input ───── */
 .qf-input {
   display: block; width: 100%; height: 40px;
