@@ -7,9 +7,10 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="tokens.css">
-<link rel="stylesheet" href="components.css">
-<link rel="stylesheet" href="mobile.css">
+<link rel="stylesheet" href="tokens.css?v=6">
+<link rel="stylesheet" href="components.css?v=6">
+<link rel="stylesheet" href="mobile.css?v=6">
+<link rel="stylesheet" href="icons.css?v=1">
 <style>
   body { min-height: 100vh; }
   .layout { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; }
@@ -63,6 +64,112 @@
 </head>
 <body>
 
+<!-- Inline icon sprite — all 100+ icons. Uses currentColor; size via .qf-icon modifier -->
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none" aria-hidden="true">
+  <symbol id="qf-i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="qf-i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5z"/></symbol>
+  <symbol id="qf-i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 3l-2 18M16 3l-2 18"/></symbol>
+  <symbol id="qf-i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></symbol>
+  <symbol id="qf-i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"/><path d="M17 8a5 5 0 0 1 0 8"/><path d="M19.5 5.5a9 9 0 0 1 0 13"/></symbol>
+  <symbol id="qf-i-megaphone" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l7 5V4L7 9H4a1 1 0 0 0-1 1z"/><path d="M18 8a5 5 0 0 1 0 8"/></symbol>
+  <symbol id="qf-i-inbox" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"/><path d="M5 4h14l2 9v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"/></symbol>
+  <symbol id="qf-i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2v1H4v-1z"/><path d="M10 21a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="qf-i-bell-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M18 16V11a6 6 0 0 0-10.5-4"/><path d="M6 16V11c0-.4 0-.8.1-1.2"/><path d="M20 18H4v-1l2-2"/><path d="M10 21a2 2 0 0 0 4 0"/></symbol>
+  <symbol id="qf-i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="m21 21-5-5"/></symbol>
+  <symbol id="qf-i-send" viewBox="0 0 24 24"><path d="M3 11 21 3l-7 18-3-7z"/><path d="m11 14 3-3"/></symbol>
+  <symbol id="qf-i-reply" viewBox="0 0 24 24"><path d="M9 7 3 12l6 5"/><path d="M3 12h10a7 7 0 0 1 7 7v1"/></symbol>
+  <symbol id="qf-i-reply-all" viewBox="0 0 24 24"><path d="M7 7 3 12l4 5"/><path d="M13 7 9 12l4 5"/><path d="M9 12h6a6 6 0 0 1 6 6v1"/></symbol>
+  <symbol id="qf-i-forward" viewBox="0 0 24 24"><path d="m15 7 6 5-6 5"/><path d="M21 12H11a7 7 0 0 0-7 7v1"/></symbol>
+  <symbol id="qf-i-message" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/></symbol>
+  <symbol id="qf-i-thread" viewBox="0 0 24 24"><path d="M4 5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9l-3 2v-2H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"/><path d="M9 19h11a1 1 0 0 0 1-1v-3"/><path d="m19 12 2 3-3 2"/></symbol>
+  <symbol id="qf-i-pin" viewBox="0 0 24 24"><path d="m14 3 7 7-3 1-3 5-2-2-5 5-1-1 5-5-2-2 5-3z"/></symbol>
+  <symbol id="qf-i-emoji" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M8 14c1.5 2 6.5 2 8 0"/><circle cx="9" cy="10" r=".5" fill="currentColor"/><circle cx="15" cy="10" r=".5" fill="currentColor"/></symbol>
+  <symbol id="qf-i-gif" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="M9 10H7v4h2v-1.5H8"/><path d="M11 10v4"/><path d="M14 14v-4h3m-3 2h2"/></symbol>
+  <symbol id="qf-i-sticker" viewBox="0 0 24 24"><path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10l6-6V5a2 2 0 0 0-2-2h-5"/><path d="M15 21v-5a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="qf-i-mention" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M16 12v2a3 3 0 0 0 5 0v-2a9 9 0 1 0-5 8"/></symbol>
+  <symbol id="qf-i-quote" viewBox="0 0 24 24"><path d="M7 7h3v4H7a2 2 0 0 1 0-4zM7 13v4c2 0 3-1 3-3"/><path d="M15 7h3v4h-3a2 2 0 0 1 0-4zM15 13v4c2 0 3-1 3-3"/></symbol>
+  <symbol id="qf-i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"/></symbol>
+  <symbol id="qf-i-star" viewBox="0 0 24 24"><path d="m12 3 2.6 5.8 6.4.6-4.8 4.3 1.4 6.3L12 17l-5.6 3 1.4-6.3L3 9.4l6.4-.6z"/></symbol>
+  <symbol id="qf-i-reaction-add" viewBox="0 0 24 24"><circle cx="11" cy="12" r="8"/><path d="M7 13c1 1.5 5 1.5 6 0"/><circle cx="9" cy="10" r=".5" fill="currentColor"/><circle cx="13" cy="10" r=".5" fill="currentColor"/><path d="M19 3v6M16 6h6"/></symbol>
+  <symbol id="qf-i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+  <symbol id="qf-i-plus-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 8v8M8 12h8"/></symbol>
+  <symbol id="qf-i-attach" viewBox="0 0 24 24"><path d="m21 10-8.5 8.5a5 5 0 0 1-7-7L14 3a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 6"/></symbol>
+  <symbol id="qf-i-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"/><circle cx="9" cy="10" r="1.5"/><path d="m3 17 5-5 4 4 3-3 6 6"/></symbol>
+  <symbol id="qf-i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"/><circle cx="12" cy="13" r="3.5"/></symbol>
+  <symbol id="qf-i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/></symbol>
+  <symbol id="qf-i-file-text" viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"/><path d="M14 3v5h5"/><path d="M8 13h8M8 17h6"/></symbol>
+  <symbol id="qf-i-folder" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"/></symbol>
+  <symbol id="qf-i-download" viewBox="0 0 24 24"><path d="M12 4v12"/><path d="m7 11 5 5 5-5"/><path d="M5 20h14"/></symbol>
+  <symbol id="qf-i-upload" viewBox="0 0 24 24"><path d="M12 20V8"/><path d="m7 13 5-5 5 5"/><path d="M5 4h14"/></symbol>
+  <symbol id="qf-i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 1 0-5.7l3-3a4 4 0 1 1 5.7 5.7L17 12.5"/><path d="M14 10a4 4 0 0 1 0 5.7l-3 3a4 4 0 1 1-5.7-5.7L7 11.5"/></symbol>
+  <symbol id="qf-i-code" viewBox="0 0 24 24"><path d="m9 8-5 4 5 4M15 8l5 4-5 4M14 5l-4 14"/></symbol>
+  <symbol id="qf-i-bold" viewBox="0 0 24 24"><path d="M7 4h6a4 4 0 0 1 0 8H7zM7 12h7a4 4 0 0 1 0 8H7z"/></symbol>
+  <symbol id="qf-i-italic" viewBox="0 0 24 24"><path d="M10 4h9M5 20h9M14 4l-4 16"/></symbol>
+  <symbol id="qf-i-underline" viewBox="0 0 24 24"><path d="M7 4v8a5 5 0 0 0 10 0V4M5 20h14"/></symbol>
+  <symbol id="qf-i-strike" viewBox="0 0 24 24"><path d="M4 12h16"/><path d="M16 7a4 4 0 0 0-4-3c-2.5 0-4 1.5-4 3.5 0 2 2 3 4 3.5"/><path d="M8 17a4 4 0 0 0 4 3c2.5 0 4-1.5 4-3.5 0-.8-.3-1.4-.7-2"/></symbol>
+  <symbol id="qf-i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"/><path d="M5 11a7 7 0 0 0 14 0"/><path d="M12 18v3M9 21h6"/></symbol>
+  <symbol id="qf-i-mic-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M9 4.5A3 3 0 0 1 15 6v5m0 3a3 3 0 0 1-6 0V9"/><path d="M5 11a7 7 0 0 0 11.5 5.4"/><path d="M19 11a7 7 0 0 1-.5 2.6"/><path d="M12 18v3M9 21h6"/></symbol>
+  <symbol id="qf-i-headphones" viewBox="0 0 24 24"><path d="M4 16v-4a8 8 0 0 1 16 0v4"/><path d="M4 16a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2z"/><path d="M20 16a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"/></symbol>
+  <symbol id="qf-i-headphones-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M4 16v-4a8 8 0 0 1 11.5-7.2"/><path d="M20 13v3a2 2 0 0 1-2 2h-1v-6h1c.4 0 .7 0 1 .2"/><path d="M4 16a2 2 0 0 0 2 2h1v-5"/></symbol>
+  <symbol id="qf-i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"/><path d="m21 8-5 4 5 4z"/></symbol>
+  <symbol id="qf-i-video-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M6 6a2 2 0 0 0-3 2v8a2 2 0 0 0 2 2h10"/><path d="m21 8-5 4 5 4z"/><path d="M16 12V8a2 2 0 0 0-2-2H9"/></symbol>
+  <symbol id="qf-i-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-3 2a11 11 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></symbol>
+  <symbol id="qf-i-phone-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M10.5 5.5 12 9l-3 2a11 11 0 0 0 2 2.5"/><path d="M14 16.5 16 14l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 7 16"/></symbol>
+  <symbol id="qf-i-screenshare" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/><path d="m9 11 3-3 3 3M12 8v6"/></symbol>
+  <symbol id="qf-i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"/><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"/></symbol>
+  <symbol id="qf-i-check" viewBox="0 0 24 24"><path d="m5 13 4 4 10-10"/></symbol>
+  <symbol id="qf-i-check-double" viewBox="0 0 24 24"><path d="m3 13 4 4 7-7"/><path d="m11 13 4 4 7-7"/></symbol>
+  <symbol id="qf-i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6l-12 12"/></symbol>
+  <symbol id="qf-i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m9 9 6 6M15 9l-6 6"/></symbol>
+  <symbol id="qf-i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r=".5" fill="currentColor"/></symbol>
+  <symbol id="qf-i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"/><path d="M12 10v5"/><circle cx="12" cy="18" r=".5" fill="currentColor"/></symbol>
+  <symbol id="qf-i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M9 9.5a3 3 0 0 1 6 0c0 2-3 2-3 4"/><circle cx="12" cy="17" r=".5" fill="currentColor"/></symbol>
+  <symbol id="qf-i-loading" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"/></symbol>
+  <symbol id="qf-i-idle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M15 15a4.5 4.5 0 0 1-6-6 5 5 0 1 0 6 6z"/></symbol>
+  <symbol id="qf-i-dnd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M7 12h10"/></symbol>
+  <symbol id="qf-i-offline" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/></symbol>
+  <symbol id="qf-i-user" viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></symbol>
+  <symbol id="qf-i-users" viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"/><path d="M2 20a7 7 0 0 1 14 0"/><path d="M16 4a4 4 0 0 1 0 8"/><path d="M17 13a6 6 0 0 1 5 7"/></symbol>
+  <symbol id="qf-i-user-plus" viewBox="0 0 24 24"><circle cx="10" cy="9" r="4"/><path d="M3 21a7 7 0 0 1 14 0"/><path d="M19 5v6M16 8h6"/></symbol>
+  <symbol id="qf-i-crown" viewBox="0 0 24 24"><path d="M3 7l3 10h12l3-10-5 4-4-7-4 7z"/><path d="M5 20h14"/></symbol>
+  <symbol id="qf-i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 4 8 8 9 4-1 8-4 8-9V6z"/></symbol>
+  <symbol id="qf-i-shield-check" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 4 8 8 9 4-1 8-4 8-9V6z"/><path d="m9 12 2 2 4-4"/></symbol>
+  <symbol id="qf-i-badge" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"/><path d="m9 13-3 8 6-3 6 3-3-8"/></symbol>
+  <symbol id="qf-i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1"/><rect x="3" y="13" width="18" height="7" rx="1"/><circle cx="7" cy="7.5" r=".5" fill="currentColor"/><circle cx="7" cy="16.5" r=".5" fill="currentColor"/></symbol>
+  <symbol id="qf-i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></symbol>
+  <symbol id="qf-i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"/><path d="m3 13 9 5 9-5M3 18l9 5 9-5"/></symbol>
+  <symbol id="qf-i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"/><rect x="13" y="4" width="7" height="7" rx="1"/><rect x="4" y="13" width="7" height="7" rx="1"/><rect x="13" y="13" width="7" height="7" rx="1"/></symbol>
+  <symbol id="qf-i-sparkle" viewBox="0 0 24 24"><path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"/></symbol>
+  <symbol id="qf-i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 14a1.65 1.65 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.65 1.65 0 0 0-1.8-.3 1.65 1.65 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.2a1.65 1.65 0 0 0-1-1.5 1.65 1.65 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.65 1.65 0 0 0 .3-1.8 1.65 1.65 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.2a1.65 1.65 0 0 0 1.5-1 1.65 1.65 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.65 1.65 0 0 0 1.8.3H10a1.65 1.65 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.2a1.65 1.65 0 0 0 1 1.5 1.65 1.65 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.65 1.65 0 0 0-.3 1.8V10a1.65 1.65 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.2a1.65 1.65 0 0 0-1.5 1z"/></symbol>
+  <symbol id="qf-i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="14" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></symbol>
+  <symbol id="qf-i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 9v6l-4-2v-4z"/></symbol>
+  <symbol id="qf-i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"/></symbol>
+  <symbol id="qf-i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="18" cy="12" r="1" fill="currentColor"/></symbol>
+  <symbol id="qf-i-more-v" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="18" r="1" fill="currentColor"/></symbol>
+  <symbol id="qf-i-edit" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"/><path d="m14 6 4 4"/></symbol>
+  <symbol id="qf-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6"/></symbol>
+  <symbol id="qf-i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="1"/><path d="M4 16V4a1 1 0 0 1 1-1h11"/></symbol>
+  <symbol id="qf-i-clipboard" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="1"/><rect x="9" y="3" width="6" height="4" rx="1"/></symbol>
+  <symbol id="qf-i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"/><path d="M20 4 10 14"/><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"/></symbol>
+  <symbol id="qf-i-logout" viewBox="0 0 24 24"><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"/><path d="M10 8l-4 4 4 4M6 12h10"/></symbol>
+  <symbol id="qf-i-login" viewBox="0 0 24 24"><path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"/><path d="m14 8 4 4-4 4M18 12H8"/></symbol>
+  <symbol id="qf-i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14 6l-2 2M4 12a8 8 0 0 1 14-6l2-2"/><path d="M20 4v4h-4M4 20v-4h4"/></symbol>
+  <symbol id="qf-i-moon" viewBox="0 0 24 24"><path d="M20 14A8 8 0 1 1 10 4a7 7 0 0 0 10 10z"/></symbol>
+  <symbol id="qf-i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"/></symbol>
+  <symbol id="qf-i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"/><circle cx="12" cy="12" r="3"/></symbol>
+  <symbol id="qf-i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16"/><path d="M10.5 6.5A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3 4"/><path d="M6 8a18 18 0 0 0-4 4s4 7 10 7c1.5 0 3-.4 4.3-1"/><path d="M9.5 9.5a3 3 0 0 0 4 4"/></symbol>
+  <symbol id="qf-i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="1"/><path d="M3 10h18M8 3v4M16 3v4"/></symbol>
+  <symbol id="qf-i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></symbol>
+  <symbol id="qf-i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"/></symbol>
+  <symbol id="qf-i-chevron-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"/></symbol>
+  <symbol id="qf-i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"/></symbol>
+  <symbol id="qf-i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+  <symbol id="qf-i-arrow-left" viewBox="0 0 24 24"><path d="M20 12H4M10 6l-6 6 6 6"/></symbol>
+  <symbol id="qf-i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"/></symbol>
+  <symbol id="qf-i-fullscreen" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></symbol>
+  <symbol id="qf-i-minimize" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></symbol>
+</svg>
+
 <button class="qf-btn qf-btn--secondary qf-btn--sm theme-toggle" onclick="toggleTheme()" id="themeBtn">Light ▸</button>
 
 <div class="layout">
@@ -98,6 +205,10 @@
     <div class="sidebar__group">
       <div class="sidebar__group-title">Mobile</div>
       <a class="sidebar__link" data-page="mobile" onclick="nav('mobile')">iOS · Android screens</a>
+    </div>
+    <div class="sidebar__group">
+      <div class="sidebar__group-title">Assets</div>
+      <a class="sidebar__link" data-page="icons" onclick="nav('icons')">Icons · 100+ pack</a>
     </div>
   </aside>
 
@@ -425,6 +536,176 @@
       </div>
     </div>
 
+    <h2>Thread</h2>
+    <div class="subtle">메시지 우측 말풍선 아이콘 → 스레드 시작. 원본 메시지 아래에는 inline chip이, 우측에는 thread panel이 열립니다.</div>
+
+    <h3>Inline thread chip (Discord 스타일)</h3>
+    <p style="color:var(--text-secondary);font-size:var(--fs-14);max-width:640px;">원본 메시지 바로 아래에 참여자 아바타 스택 + 답글 수 + 마지막 활동 시각이 요약된 칩. 클릭하면 우측에 스레드 패널이 열립니다.</p>
+    <div class="mockup" style="background:var(--bg-chat);padding:var(--s-5) 0;">
+      <div class="qf-message qf-message--head">
+        <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500);"><span class="qf-avatar__status qf-avatar__status--online"></span></div></div>
+        <div>
+          <div class="qf-message__meta">
+            <span class="qf-message__author">dev_lee</span>
+            <span class="qf-badge qf-badge--accent">MOD</span>
+            <span class="qf-message__time">오늘 오후 3:12</span>
+          </div>
+          <div class="qf-message__body">
+            <p>v2 배포 전에 <span class="qf-mention">@eng-team</span> 로그 필터링 규칙 한 번 더 리뷰 가능할까요? 특히 에러 샘플링 로직이요.</p>
+          </div>
+        </div>
+      </div>
+      <div class="qf-thread-chip" role="button" tabindex="0">
+        <div class="qf-thread-chip__avatars">
+          <div class="qf-avatar qf-avatar--xs" style="background:var(--a-700);"></div>
+          <div class="qf-avatar qf-avatar--xs" style="background:var(--a-400);"></div>
+          <div class="qf-avatar qf-avatar--xs" style="background:var(--warn-400);"></div>
+        </div>
+        <span class="qf-thread-chip__count">7개 답글</span>
+        <span class="qf-thread-chip__last">· 마지막 답글 방금 전</span>
+        <span class="qf-thread-chip__cta">▸ 스레드 보기</span>
+      </div>
+    </div>
+
+    <h3>Slack 스타일 followup</h3>
+    <p style="color:var(--text-secondary);font-size:var(--fs-14);max-width:640px;">더 조용한 표시가 필요할 때. 메타 라인 한 줄로만 요약 — 호버 시 강조.</p>
+    <div class="mockup" style="background:var(--bg-chat);padding:var(--s-5) 0;">
+      <div class="qf-message qf-message--head">
+        <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-600);"></div></div>
+        <div>
+          <div class="qf-message__meta">
+            <span class="qf-message__author">pm_choi</span>
+            <span class="qf-message__time">오늘 오전 11:20</span>
+          </div>
+          <div class="qf-message__body">
+            <p>다음 스프린트 기획안 공유드립니다. 피드백은 스레드로 부탁드려요.</p>
+          </div>
+          <div class="qf-thread-followup">
+            <strong style="color:var(--accent);">💬 3 replies</strong>
+            <span class="qf-thread-followup__dot"></span>
+            <span class="qf-thread-followup__last">designer_kim 님의 마지막 답글 · 22분 전</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Thread panel (우측 사이드)</h3>
+    <p style="color:var(--text-secondary);font-size:var(--fs-14);max-width:640px;">원본 메시지를 상단에 고정 + 스레드 답글 목록 + 전용 composer. 메인 채널 컨텍스트는 왼쪽에 그대로 유지됩니다.</p>
+    <div style="overflow-x:auto;border-radius:var(--r-lg);">
+    <div class="mockup" style="background:var(--bg-chat);height:620px;display:flex;min-width:900px;margin:0;align-items:stretch;">
+      <!-- main column (abbrev) -->
+      <div style="flex:1 1 0;min-width:360px;display:flex;flex-direction:column;min-height:0;border-right:1px solid var(--divider);">
+        <div class="qf-topbar" style="flex-shrink:0;">
+          <div class="qf-topbar__channel"><span style="color:var(--text-muted);">#</span> general</div>
+          <div class="qf-topbar__topic">qufox 팀 공지 채널</div>
+        </div>
+        <div style="flex:1;overflow-y:auto;padding:var(--s-4) 0;">
+          <div class="qf-message qf-message--head">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500);"><span class="qf-avatar__status qf-avatar__status--online"></span></div></div>
+            <div>
+              <div class="qf-message__meta">
+                <span class="qf-message__author">dev_lee</span>
+                <span class="qf-badge qf-badge--accent">MOD</span>
+                <span class="qf-message__time">오후 3:12</span>
+              </div>
+              <div class="qf-message__body"><p>v2 배포 전에 <span class="qf-mention">@eng-team</span> 로그 필터링 규칙 리뷰 가능할까요?</p></div>
+            </div>
+          </div>
+          <div class="qf-thread-chip" style="background:var(--bg-elevated);border-color:var(--border);color:var(--text);">
+            <div class="qf-thread-chip__avatars">
+              <div class="qf-avatar qf-avatar--xs" style="background:var(--a-700);"></div>
+              <div class="qf-avatar qf-avatar--xs" style="background:var(--a-400);"></div>
+              <div class="qf-avatar qf-avatar--xs" style="background:var(--warn-400);"></div>
+            </div>
+            <span class="qf-thread-chip__count">7개 답글</span>
+            <span class="qf-thread-chip__last">· 방금 전</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- thread panel -->
+      <aside class="qf-thread-panel">
+        <div class="qf-thread-panel__header">
+          <span class="qf-thread-panel__icon">💬</span>
+          <div style="flex:1;min-width:0;">
+            <div class="qf-thread-panel__title">스레드</div>
+            <div class="qf-thread-panel__sub">#general · 7 replies</div>
+          </div>
+          <button class="qf-thread-panel__close" aria-label="닫기">✕</button>
+        </div>
+
+        <div class="qf-thread-body">
+          <div class="qf-thread-origin">
+            <div class="qf-thread-origin__meta">
+              <span class="qf-thread-origin__author">dev_lee</span>
+              <span class="qf-thread-origin__time">오후 3:12</span>
+            </div>
+            <div class="qf-thread-origin__body">v2 배포 전에 @eng-team 로그 필터링 규칙 한 번 더 리뷰 가능할까요? 특히 에러 샘플링 로직이요.</div>
+          </div>
+
+          <div class="qf-thread-divider">7 replies · Today</div>
+
+          <div class="qf-thread-msg qf-thread-msg--head">
+            <div class="qf-thread-msg__avatar"><div class="qf-avatar qf-avatar--sm" style="background:var(--a-700);"></div></div>
+            <div>
+              <div class="qf-thread-msg__meta">
+                <span class="qf-thread-msg__author">eng_jung</span>
+                <span class="qf-thread-msg__time">3:14</span>
+              </div>
+              <div class="qf-thread-msg__body">샘플링 비율 5%로 내려도 될 것 같아요. 지금 1%에서 드롭되는 케이스가 꽤 있네요.</div>
+            </div>
+          </div>
+          <div class="qf-thread-msg qf-thread-msg--cont">
+            <div class="qf-thread-msg__avatar"><div class="qf-avatar qf-avatar--sm"></div></div>
+            <div><div class="qf-thread-msg__body">특히 webhook 리트라이 로그.</div></div>
+          </div>
+
+          <div class="qf-thread-msg qf-thread-msg--head">
+            <div class="qf-thread-msg__avatar"><div class="qf-avatar qf-avatar--sm" style="background:var(--a-400);"></div></div>
+            <div>
+              <div class="qf-thread-msg__meta">
+                <span class="qf-thread-msg__author">ops_han</span>
+                <span class="qf-thread-msg__time">3:22</span>
+              </div>
+              <div class="qf-thread-msg__body">+1. 저도 같은 의견입니다. 대신 info 레벨은 10%로 올리는 게 어떨까요?
+                <div class="qf-reactions" style="margin-top:var(--s-2);">
+                  <div class="qf-reaction qf-reaction--me">👍 <span>3</span></div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="qf-thread-msg qf-thread-msg--head">
+            <div class="qf-thread-msg__avatar"><div class="qf-avatar qf-avatar--sm" style="background:var(--warn-400);"></div></div>
+            <div>
+              <div class="qf-thread-msg__meta">
+                <span class="qf-thread-msg__author">founder_park</span>
+                <span class="qf-thread-msg__time">3:28</span>
+              </div>
+              <div class="qf-thread-msg__body">좋아요. 금요일 배포 전까지 PR 올려주시면 제가 리뷰 갈게요.</div>
+            </div>
+          </div>
+
+          <div class="qf-typing" style="padding:var(--s-1) var(--s-5);">
+            <span class="qf-typing__dots"><span></span><span></span><span></span></span>
+            <span><strong style="color:var(--text-secondary);">eng_jung</strong> 입력 중…</span>
+          </div>
+        </div>
+
+        <div class="qf-thread-composer">
+          <div class="qf-input-wrap">
+            <textarea class="qf-input" rows="1" placeholder="스레드에 답글…" style="resize:none;"></textarea>
+          </div>
+          <div class="qf-thread-composer__options">
+            <label class="qf-thread-composer__checkbox">
+              <input type="checkbox"> 채널에도 공유
+            </label>
+          </div>
+        </div>
+      </aside>
+    </div>
+    </div>
+
     <h2>Mention · Code inline · Link</h2>
     <div class="card__preview" style="flex-direction:column;align-items:flex-start;gap:var(--s-3);">
       <p><span class="qf-mention">@everyone</span> 금요일 스프린트 리뷰 시간입니다.</p>
@@ -632,6 +913,126 @@
     </div>
   </section>
 
+  <!-- ─── ICONS ─── -->
+  <section class="page" data-page="icons">
+    <div class="qf-eyebrow">Assets</div>
+    <h1 class="page-title">Icon pack · 100+</h1>
+    <p class="page-lede">채팅 UI에 필요한 아이콘을 한 세트로. 모두 <strong>24×24 viewBox · SVG path · stroke=currentColor</strong>로 그려졌고, Discord/Slack 패턴을 덮습니다. 색상은 CSS <code class="qf-code-inline">color</code>로, 크기는 사이즈 modifier로 조절해요.</p>
+
+    <h2>Usage</h2>
+    <pre class="code">&lt;!-- 1. 한 번만 문서에 로드 --&gt;
+&lt;link rel="stylesheet" href="/design-system/icons.css"&gt;
+
+&lt;!-- 2. symbol ID로 참조 --&gt;
+&lt;svg class="qf-icon"&gt;&lt;use href="/design-system/icons.svg#qf-i-send"/&gt;&lt;/svg&gt;
+
+&lt;!-- 사이즈 / 색상 modifier --&gt;
+&lt;svg class="qf-icon qf-icon--sm"&gt;...&lt;/svg&gt;      /* 16 */
+&lt;svg class="qf-icon qf-icon--lg qf-icon--accent"&gt;...&lt;/svg&gt;</pre>
+
+    <h2>Sizes</h2>
+    <div class="card__preview" style="gap:var(--s-6);">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:var(--text);"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-send"/></svg><span class="card__label">sm · 16</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:var(--text);"><svg class="qf-icon qf-icon--md"><use href="#qf-i-send"/></svg><span class="card__label">md · 20</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:var(--text);"><svg class="qf-icon qf-icon--lg"><use href="#qf-i-send"/></svg><span class="card__label">lg · 24</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:var(--text);"><svg class="qf-icon qf-icon--xl"><use href="#qf-i-send"/></svg><span class="card__label">xl · 28</span></div>
+    </div>
+
+    <h2>Colors</h2>
+    <div class="card__preview" style="gap:var(--s-6);">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:var(--text);"><svg class="qf-icon qf-icon--lg"><use href="#qf-i-bell"/></svg><span class="card__label">currentColor</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);"><svg class="qf-icon qf-icon--lg qf-icon--accent"><use href="#qf-i-bell"/></svg><span class="card__label">--accent</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);"><svg class="qf-icon qf-icon--lg qf-icon--muted"><use href="#qf-i-bell"/></svg><span class="card__label">--muted</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:#22C55E;"><svg class="qf-icon qf-icon--lg"><use href="#qf-i-check"/></svg><span class="card__label">success</span></div>
+      <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-2);color:#EF4444;"><svg class="qf-icon qf-icon--lg"><use href="#qf-i-trash"/></svg><span class="card__label">danger</span></div>
+    </div>
+
+    <h2>In-context examples</h2>
+    <div class="grid grid--3">
+      <!-- button example -->
+      <div class="card">
+        <div class="card__preview">
+          <button class="qf-btn qf-btn--primary" style="display:inline-flex;align-items:center;gap:var(--s-2);"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-send"/></svg>Send</button>
+          <button class="qf-btn qf-btn--secondary" style="display:inline-flex;align-items:center;gap:var(--s-2);"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-attach"/></svg>Attach</button>
+        </div>
+        <div class="card__label">in buttons</div>
+      </div>
+      <!-- toolbar example -->
+      <div class="card">
+        <div class="card__preview" style="gap:var(--s-2);">
+          <button class="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-reaction-add"/></svg></button>
+          <button class="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-reply"/></svg></button>
+          <button class="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-thread"/></svg></button>
+          <button class="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-more-v"/></svg></button>
+        </div>
+        <div class="card__label">message hover toolbar</div>
+      </div>
+      <!-- composer example -->
+      <div class="card">
+        <div class="card__preview">
+          <div style="width:100%;background:var(--bg-input);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s-3) var(--s-4);display:flex;align-items:center;gap:var(--s-3);color:var(--text-muted);">
+            <svg class="qf-icon qf-icon--md"><use href="#qf-i-plus-circle"/></svg>
+            <span style="flex:1;">Message #general</span>
+            <svg class="qf-icon qf-icon--md"><use href="#qf-i-gif"/></svg>
+            <svg class="qf-icon qf-icon--md"><use href="#qf-i-emoji"/></svg>
+            <svg class="qf-icon qf-icon--md qf-icon--accent"><use href="#qf-i-send"/></svg>
+          </div>
+        </div>
+        <div class="card__label">composer</div>
+      </div>
+      <!-- voice controls -->
+      <div class="card">
+        <div class="card__preview" style="background:#1A1840;gap:var(--s-3);">
+          <button class="qf-btn qf-btn--icon" style="background:var(--n-3);color:#fff;"><svg class="qf-icon qf-icon--md"><use href="#qf-i-mic"/></svg></button>
+          <button class="qf-btn qf-btn--icon" style="background:var(--n-3);color:#fff;"><svg class="qf-icon qf-icon--md"><use href="#qf-i-headphones"/></svg></button>
+          <button class="qf-btn qf-btn--icon" style="background:var(--n-3);color:#fff;"><svg class="qf-icon qf-icon--md"><use href="#qf-i-screenshare"/></svg></button>
+          <button class="qf-btn qf-btn--icon" style="background:#EF4444;color:#fff;"><svg class="qf-icon qf-icon--md"><use href="#qf-i-phone-off"/></svg></button>
+        </div>
+        <div class="card__label">voice controls</div>
+      </div>
+      <!-- status pills -->
+      <div class="card">
+        <div class="card__preview" style="flex-direction:column;gap:var(--s-3);align-items:flex-start;padding:var(--s-5);">
+          <div style="display:flex;align-items:center;gap:var(--s-2);color:#22C55E;"><svg class="qf-icon qf-icon--sm qf-icon--solid"><use href="#qf-i-offline"/></svg><span style="color:var(--text);">Online</span></div>
+          <div style="display:flex;align-items:center;gap:var(--s-2);color:#FBBF24;"><svg class="qf-icon qf-icon--sm qf-icon--solid"><use href="#qf-i-idle"/></svg><span style="color:var(--text);">Idle</span></div>
+          <div style="display:flex;align-items:center;gap:var(--s-2);color:#EF4444;"><svg class="qf-icon qf-icon--sm qf-icon--solid"><use href="#qf-i-dnd"/></svg><span style="color:var(--text);">Do not disturb</span></div>
+        </div>
+        <div class="card__label">presence</div>
+      </div>
+      <!-- menu -->
+      <div class="card">
+        <div class="card__preview">
+          <div class="qf-menu" style="min-width:220px;">
+            <div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);"><svg class="qf-icon qf-icon--sm qf-icon--muted"><use href="#qf-i-edit"/></svg>Edit message</div>
+            <div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);"><svg class="qf-icon qf-icon--sm qf-icon--muted"><use href="#qf-i-pin"/></svg>Pin message</div>
+            <div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);"><svg class="qf-icon qf-icon--sm qf-icon--muted"><use href="#qf-i-link"/></svg>Copy link</div>
+            <div class="qf-menu__separator"></div>
+            <div class="qf-menu__item qf-menu__item--danger" style="display:flex;align-items:center;gap:var(--s-3);"><svg class="qf-icon qf-icon--sm"><use href="#qf-i-trash"/></svg>Delete</div>
+          </div>
+        </div>
+        <div class="card__label">dropdown menu</div>
+      </div>
+    </div>
+
+    <!-- Gallery -->
+    <h2>전체 목록</h2>
+    <div class="subtle">클릭하면 <code class="qf-code-inline">&lt;use href="#..."/&gt;</code> 문자열이 복사돼요.</div>
+
+    <style>
+      .icon-gallery { display:grid; grid-template-columns:repeat(auto-fill, minmax(112px, 1fr)); gap:var(--s-3); margin-top:var(--s-5); }
+      .icon-tile { aspect-ratio: 1; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:var(--s-2); background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--r-lg); color:var(--text-secondary); cursor:pointer; transition:all var(--dur-fast) var(--ease-standard); padding:var(--s-3); }
+      .icon-tile:hover { color:var(--text-strong); border-color:var(--accent); background:var(--bg-hover); transform:translateY(-1px); }
+      .icon-tile__name { font:500 10px var(--font-mono); color:var(--text-muted); text-align:center; line-height:1.2; word-break:break-all; }
+      .icon-tile:hover .icon-tile__name { color:var(--text-secondary); }
+      .icon-section-title { font:600 var(--fs-13) var(--font-mono); color:var(--accent); text-transform:uppercase; letter-spacing:var(--tracking-caps); margin:var(--s-7) 0 var(--s-2); }
+      .icon-copied { position:fixed; bottom:var(--s-7); left:50%; transform:translateX(-50%); background:var(--n-11); color:var(--n-0); padding:var(--s-3) var(--s-5); border-radius:var(--r-md); font:500 var(--fs-13) var(--font-mono); box-shadow:var(--elev-3); opacity:0; pointer-events:none; transition:opacity var(--dur-base); z-index:100; }
+      .icon-copied.show { opacity:1; }
+    </style>
+
+    <div id="iconGalleryMount"></div>
+    <div id="iconToast" class="icon-copied">copied</div>
+  </section>
+
   <!-- ─── MOBILE ─── -->
   <section class="page" data-page="mobile">
     <div class="qf-eyebrow">Mobile</div>
@@ -708,6 +1109,46 @@
 <script type="text/babel" src="mobile-mockups.jsx"></script>
 
 <script>
+  // ─── Icon gallery ───
+  const ICON_GROUPS = [
+    ['Navigation', ['home','compass','hash','lock','volume','megaphone','inbox','bell','bell-off','search']],
+    ['Chat actions', ['send','reply','reply-all','forward','message','thread','pin','emoji','gif','sticker','mention','quote','bookmark','star','reaction-add']],
+    ['Composer / attach', ['plus','plus-circle','attach','image','camera','file','file-text','folder','download','upload','link','code']],
+    ['Text format', ['bold','italic','underline','strike']],
+    ['Voice / Video', ['mic','mic-off','headphones','headphones-off','video','video-off','phone','phone-off','screenshare','live']],
+    ['Status', ['check','check-double','x','x-circle','info','alert','help','loading','idle','dnd','offline']],
+    ['Users / roles', ['user','users','user-plus','crown','shield','shield-check','badge']],
+    ['Space', ['server','globe','layers','grid','sparkle']],
+    ['Settings / misc', ['settings','sliders','filter','sort','more','more-v','edit','trash','copy','clipboard','external','logout','login','refresh','moon','sun','eye','eye-off','calendar','clock']],
+    ['Arrows', ['chevron-down','chevron-up','chevron-left','chevron-right','arrow-left','arrow-right','fullscreen','minimize']],
+  ];
+  function buildIconGallery() {
+    const mount = document.getElementById('iconGalleryMount');
+    if (!mount) return;
+    mount.innerHTML = ICON_GROUPS.map(([group, names]) => `
+      <div class="icon-section-title">${group} · ${names.length}</div>
+      <div class="icon-gallery">
+        ${names.map(n => `
+          <div class="icon-tile" data-name="qf-i-${n}" title="click to copy">
+            <svg class="qf-icon qf-icon--lg"><use href="#qf-i-${n}"/></svg>
+            <span class="icon-tile__name">${n}</span>
+          </div>
+        `).join('')}
+      </div>
+    `).join('');
+    const toast = document.getElementById('iconToast');
+    mount.querySelectorAll('.icon-tile').forEach(el => {
+      el.addEventListener('click', () => {
+        const snippet = `<svg class="qf-icon"><use href="#${el.dataset.name}"/></svg>`;
+        navigator.clipboard?.writeText(snippet);
+        toast.textContent = `copied · ${el.dataset.name}`;
+        toast.classList.add('show');
+        setTimeout(() => toast.classList.remove('show'), 1200);
+      });
+    });
+  }
+  buildIconGallery();
+
   function nav(p) {
     document.querySelectorAll('.page').forEach(el => el.classList.toggle('active', el.dataset.page === p));
     document.querySelectorAll('.sidebar__link').forEach(el => el.classList.toggle('active', el.dataset.page === p));
@@ -722,7 +1163,7 @@
     localStorage.setItem('qf-ds-theme', next);
   }
   // Restore state
-  const savedP = localStorage.getItem('qf-ds-page');
+  const savedP = localStorage.getItem('qf-ds-page') || 'icons';
   if (savedP) nav(savedP);
   const savedT = localStorage.getItem('qf-ds-theme');
   if (savedT) { document.documentElement.dataset.theme = savedT; document.getElementById('themeBtn').textContent = savedT === 'dark' ? 'Light ▸' : 'Dark ▸'; }
