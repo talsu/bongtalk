@@ -17,6 +17,7 @@ export function MobileMessageSheet({
   onDelete,
   onCopy,
   onReact,
+  onReply,
 }: {
   msg: MessageDto;
   isMine: boolean;
@@ -24,6 +25,7 @@ export function MobileMessageSheet({
   onDelete: () => void;
   onCopy: () => void;
   onReact: (emoji: string) => void;
+  onReply: () => void;
 }): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -51,13 +53,24 @@ export function MobileMessageSheet({
               type="button"
               data-testid={`mobile-quick-react-${e}`}
               onClick={() => onReact(e)}
-              className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-hover"
+              className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-muted"
             >
               {e}
             </button>
           ))}
         </div>
         <div className="qf-m-sheet__divider" aria-hidden />
+        <button
+          type="button"
+          data-testid="mobile-msg-reply"
+          onClick={onReply}
+          className="qf-m-sheet__item"
+        >
+          <span className="qf-m-sheet__icon">
+            <Icon name="reply" size="sm" />
+          </span>
+          <span>답장</span>
+        </button>
         <button
           type="button"
           data-testid="mobile-msg-copy"

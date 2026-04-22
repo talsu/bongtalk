@@ -1,0 +1,18 @@
+/*
+ * Supplementary mobile rule: extend qf-m-composer's padding-bottom so
+ * it stays above the software keyboard. DS mobile.css is the source
+ * of truth and is never edited; this file is imported from MobileShell
+ * so the rule only loads when the mobile shell is mounted.
+ *
+ * useKeyboardDodge() publishes the visualViewport delta as
+ * --m-kb-inset on <html>. The rule below reads that var and stacks it
+ * on top of the baseline safe-area inset, so the composer lifts when
+ * the keyboard opens and drops back down when it closes.
+ *
+ * task-025 follow-1 regression for task-024 HIGH.
+ */
+.qf-m-composer {
+  padding-bottom: calc(
+    var(--s-3) + env(safe-area-inset-bottom) + var(--m-kb-inset, 0px)
+  );
+}
