@@ -16,6 +16,12 @@ set -euo pipefail
 # Runs after the overnight backup pair so a last-good snapshot of the
 # about-to-be-purged rows exists.
 : "${WORKSPACE_PURGE_CRON:=0 5 * * *}"
+# task-023-D: deploy-pipeline heartbeat. Lint the webhook's audit.jsonl
+# mtime every 30 minutes — if nothing has landed in 24 h the webhook
+# is silently stuck (as the 2026-04-20T10:17Z incident proved) and
+# we want to know before the next push expects a rollout. Alerts
+# land in .deploy/heartbeat-alerts.log + optional Slack.
+: "${WEBHOOK_HEARTBEAT_CRON:=*/30 * * * *}"
 
 cat >/etc/crontabs/root <<EOF
 # qufox backup schedule (UTC)
@@ -26,6 +32,7 @@ $BACKUP_CRON_MINIO /app/scripts/backup/minio-backup.sh >/proc/1/fd/1 2>/proc/1/f
 $RESTORE_TEST_CRON_MINIO /app/scripts/backup/minio-restore-test.sh >/proc/1/fd/1 2>/proc/1/fd/2
 $ORPHAN_GC_CRON /app/scripts/backup/attachment-orphan-gc.sh >/proc/1/fd/1 2>/proc/1/fd/2
 $WORKSPACE_PURGE_CRON /app/scripts/workers/workspace-purge.sh >/proc/1/fd/1 2>/proc/1/fd/2
+$WEBHOOK_HEARTBEAT_CRON /app/scripts/deploy/tests/webhook-heartbeat.sh >/proc/1/fd/1 2>/proc/1/fd/2
 EOF
 
 # One-shot on boot so the first snapshot lands without waiting up to 24h.
