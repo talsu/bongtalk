@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react';
-import { Navigate, useParams, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
 import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
@@ -49,6 +49,15 @@ export function MobileShell(): JSX.Element {
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const navigate = useNavigate();
+  const location = useLocation();
+
+  // Close both drawers on route change — covers hardware back, channel
+  // picks that navigate, and tab taps. Matches user intent: the drawer
+  // is a per-screen modal, not a persistent surface.
+  useEffect(() => {
+    setLeftOpen(false);
+    setRightOpen(false);
+  }, [location.pathname]);
 
   if (isLoading) {
     return (

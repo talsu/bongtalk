@@ -11,10 +11,11 @@ import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_he
  * Row covered by polish-backlog.md `mobile-touch-target-small`.
  */
 const MIN_PX = 44;
-const WHITELIST = new Set<string>([
-  // Workspace rail uses 48x48 Avatar tiles but overall <Link> may be
-  // slightly smaller than 44px on the narrower axis due to gap=1 layout.
-]);
+// Workspace-rail Links wrap a 24px Avatar in p-1 → ~32px tile; they
+// only render when len(workspaces) > 1, so the harness seeds one
+// workspace. Whitelisted here so the guard is future-proof against
+// multi-workspace fixtures.
+const WHITELIST = new Set<string>();
 
 test.setTimeout(90_000);
 
@@ -31,9 +32,49 @@ test('every qf-m-* interactive hits 44×44 minimum', async ({ browser, request }
     channels: ['general'],
   });
 
-  const context = await browser.newContext({ viewport: MOBILE_VIEWPORT });
+  const context = await browser.newContext({
+    viewport: MOBILE_VIEWPORT,
+    hasTouch: true,
+  });
   const page = await context.newPage();
   await loginUI(page, email, slug);
+
+  // Mount MobileMessages (composer + reply flow) before enumerating,
+  // otherwise qf-m-composer__plus / __send / mobile-reply-cancel are
+  // never in the DOM and the guard passes vacuously.
+  await page.getByTestId('mobile-topbar-menu').click();
+  await page.getByTestId('mobile-channel-general').click();
+  await page.getByTestId('mobile-msg-input').fill('press-me');
+  await page.getByTestId('mobile-composer-send').click();
+  await expect(page.getByTestId('mobile-message-list')).toContainText('press-me');
+
+  // Open the long-press sheet so the Reply / Copy / Delete hit-areas
+  // are sampled too.
+  const row = page
+    .getByTestId('mobile-message-list')
+    .locator('[data-testid^="mobile-msg-"][data-mine="true"]')
+    .first();
+  await row.evaluate((el) => {
+    const target = el as HTMLElement;
+    const r = target.getBoundingClientRect();
+    const touch = new Touch({
+      identifier: 1,
+      target,
+      clientX: r.left + r.width / 2,
+      clientY: r.top + r.height / 2,
+    });
+    target.dispatchEvent(
+      new TouchEvent('touchstart', {
+        touches: [touch],
+        targetTouches: [touch],
+        changedTouches: [touch],
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await page.waitForTimeout(650);
+  await expect(page.locator('[data-testid^="mobile-msg-sheet-"]')).toBeVisible();
 
   // Collect interactive elements inside the mobile shell.
   await expect(page.getByTestId('mobile-shell')).toBeVisible();
