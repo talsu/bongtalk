@@ -16,6 +16,7 @@ import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
 import { useUnreadSummary } from './useUnread';
 import { CreateChannelModal } from './CreateChannelModal';
+import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -161,7 +162,7 @@ function DraggableChannelRow({
                   : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
               )}
             >
-              ⚙
+              <Icon name="settings" size="sm" />
             </Link>
           ) : null}
           <UnreadIndicator count={unreadCount} hasMention={hasMention} />

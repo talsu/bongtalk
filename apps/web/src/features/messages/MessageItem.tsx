@@ -8,6 +8,7 @@ import {
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
+  Icon,
 } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { ReactionBar } from '../reactions/ReactionBar';
@@ -181,7 +182,7 @@ export function MessageItem({
                 aria-label="리액션 추가"
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                😀
+                <Icon name="reaction-add" size="sm" />
               </button>
             ) : null}
             {onOpenThread && !msg.id.startsWith('tmp-') && !msg.parentMessageId ? (
@@ -192,7 +193,7 @@ export function MessageItem({
                 aria-label="스레드 열기"
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                💬
+                <Icon name="thread" size="sm" />
               </button>
             ) : null}
             <DropdownRoot open={moreOpen} onOpenChange={setMoreOpen}>
@@ -203,7 +204,7 @@ export function MessageItem({
                   aria-label="메시지 메뉴"
                   className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
                 >
-                  ⋯
+                  <Icon name="more" size="sm" />
                 </button>
               </DropdownTrigger>
               <DropdownContent align="end">

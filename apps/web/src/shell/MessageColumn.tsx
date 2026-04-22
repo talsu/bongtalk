@@ -8,7 +8,7 @@ import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
-import { Tooltip } from '../design-system/primitives';
+import { Icon, Tooltip } from '../design-system/primitives';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
 import type { UnreadChannelSummary } from '../features/channels/useUnread';
@@ -152,7 +152,7 @@ export function MessageColumn({
                 aria-label="고정된 메시지"
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                📌
+                <Icon name="pin" size="sm" />
               </button>
             </Tooltip>
             <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
@@ -164,7 +164,7 @@ export function MessageColumn({
                 onClick={toggleMemberList}
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                👥
+                <Icon name="users" size="sm" />
               </button>
             </Tooltip>
           </div>

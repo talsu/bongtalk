@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<svg xmlns="http://www.w3.org/2000/svg" style="display:none">
+  <defs>
+    
+  </defs>
+
+  
+  <symbol id="qf-i-home" viewBox="0 0 24 24"><path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6h-6v6H4a1 1 0 0 1-1-1z"></path></symbol>
+  <symbol id="qf-i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m15.5 8.5-2 5-5 2 2-5z"></path></symbol>
+  <symbol id="qf-i-hash" viewBox="0 0 24 24"><path d="M5 9h14M5 15h14M10 3l-2 18M16 3l-2 18"></path></symbol>
+  <symbol id="qf-i-lock" viewBox="0 0 24 24"><rect x="4" y="10" width="16" height="11" rx="2"></rect><path d="M8 10V7a4 4 0 0 1 8 0v3"></path></symbol>
+  <symbol id="qf-i-volume" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z"></path><path d="M17 8a5 5 0 0 1 0 8"></path><path d="M19.5 5.5a9 9 0 0 1 0 13"></path></symbol>
+  <symbol id="qf-i-megaphone" viewBox="0 0 24 24"><path d="M3 10v4a1 1 0 0 0 1 1h3l7 5V4L7 9H4a1 1 0 0 0-1 1z"></path><path d="M18 8a5 5 0 0 1 0 8"></path></symbol>
+  <symbol id="qf-i-inbox" viewBox="0 0 24 24"><path d="M3 13h4l2 3h6l2-3h4"></path><path d="M5 4h14l2 9v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1v-6z"></path></symbol>
+  <symbol id="qf-i-bell" viewBox="0 0 24 24"><path d="M6 16V11a6 6 0 1 1 12 0v5l2 2v1H4v-1z"></path><path d="M10 21a2 2 0 0 0 4 0"></path></symbol>
+  <symbol id="qf-i-bell-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M18 16V11a6 6 0 0 0-10.5-4"></path><path d="M6 16V11c0-.4 0-.8.1-1.2"></path><path d="M20 18H4v-1l2-2"></path><path d="M10 21a2 2 0 0 0 4 0"></path></symbol>
+  <symbol id="qf-i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"></circle><path d="m21 21-5-5"></path></symbol>
+
+  
+  <symbol id="qf-i-send" viewBox="0 0 24 24"><path d="M3 11 21 3l-7 18-3-7z"></path><path d="m11 14 3-3"></path></symbol>
+  <symbol id="qf-i-reply" viewBox="0 0 24 24"><path d="M9 7 3 12l6 5"></path><path d="M3 12h10a7 7 0 0 1 7 7v1"></path></symbol>
+  <symbol id="qf-i-reply-all" viewBox="0 0 24 24"><path d="M7 7 3 12l4 5"></path><path d="M13 7 9 12l4 5"></path><path d="M9 12h6a6 6 0 0 1 6 6v1"></path></symbol>
+  <symbol id="qf-i-forward" viewBox="0 0 24 24"><path d="m15 7 6 5-6 5"></path><path d="M21 12H11a7 7 0 0 0-7 7v1"></path></symbol>
+  <symbol id="qf-i-message" viewBox="0 0 24 24"><path d="M4 5h16a1 1 0 0 1 1 1v11a1 1 0 0 1-1 1h-9l-4 3v-3H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"></path></symbol>
+  <symbol id="qf-i-thread" viewBox="0 0 24 24"><path d="M4 5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H9l-3 2v-2H4a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z"></path><path d="M9 19h11a1 1 0 0 0 1-1v-3"></path><path d="m19 12 2 3-3 2"></path></symbol>
+  <symbol id="qf-i-pin" viewBox="0 0 24 24"><path d="m14 3 7 7-3 1-3 5-2-2-5 5-1-1 5-5-2-2 5-3z"></path></symbol>
+  <symbol id="qf-i-emoji" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M8 14c1.5 2 6.5 2 8 0"></path><circle cx="9" cy="10" r=".5" fill="currentColor"></circle><circle cx="15" cy="10" r=".5" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-gif" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><path d="M9 10H7v4h2v-1.5H8"></path><path d="M11 10v4"></path><path d="M14 14v-4h3m-3 2h2"></path></symbol>
+  <symbol id="qf-i-sticker" viewBox="0 0 24 24"><path d="M14 3H5a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10l6-6V5a2 2 0 0 0-2-2h-5"></path><path d="M15 21v-5a1 1 0 0 1 1-1h5"></path></symbol>
+  <symbol id="qf-i-mention" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M16 12v2a3 3 0 0 0 5 0v-2a9 9 0 1 0-5 8"></path></symbol>
+  <symbol id="qf-i-quote" viewBox="0 0 24 24"><path d="M7 7h3v4H7a2 2 0 0 1 0-4zM7 13v4c2 0 3-1 3-3"></path><path d="M15 7h3v4h-3a2 2 0 0 1 0-4zM15 13v4c2 0 3-1 3-3"></path></symbol>
+  <symbol id="qf-i-bookmark" viewBox="0 0 24 24"><path d="M6 3h12v18l-6-4-6 4z"></path></symbol>
+  <symbol id="qf-i-star" viewBox="0 0 24 24"><path d="m12 3 2.6 5.8 6.4.6-4.8 4.3 1.4 6.3L12 17l-5.6 3 1.4-6.3L3 9.4l6.4-.6z"></path></symbol>
+  <symbol id="qf-i-reaction-add" viewBox="0 0 24 24"><circle cx="11" cy="12" r="8"></circle><path d="M7 13c1 1.5 5 1.5 6 0"></path><circle cx="9" cy="10" r=".5" fill="currentColor"></circle><circle cx="13" cy="10" r=".5" fill="currentColor"></circle><path d="M19 3v6M16 6h6"></path></symbol>
+
+  
+  <symbol id="qf-i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"></path></symbol>
+  <symbol id="qf-i-plus-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 8v8M8 12h8"></path></symbol>
+  <symbol id="qf-i-attach" viewBox="0 0 24 24"><path d="m21 10-8.5 8.5a5 5 0 0 1-7-7L14 3a3.5 3.5 0 0 1 5 5l-8.5 8.5a2 2 0 0 1-3-3L15 6"></path></symbol>
+  <symbol id="qf-i-image" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="2"></rect><circle cx="9" cy="10" r="1.5"></circle><path d="m3 17 5-5 4 4 3-3 6 6"></path></symbol>
+  <symbol id="qf-i-camera" viewBox="0 0 24 24"><path d="M4 8h3l2-3h6l2 3h3a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9a1 1 0 0 1 1-1z"></path><circle cx="12" cy="13" r="3.5"></circle></symbol>
+  <symbol id="qf-i-file" viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v5h5"></path></symbol>
+  <symbol id="qf-i-file-text" viewBox="0 0 24 24"><path d="M6 3h8l5 5v12a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1z"></path><path d="M14 3v5h5"></path><path d="M8 13h8M8 17h6"></path></symbol>
+  <symbol id="qf-i-folder" viewBox="0 0 24 24"><path d="M3 7a1 1 0 0 1 1-1h5l2 2h9a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1z"></path></symbol>
+  <symbol id="qf-i-download" viewBox="0 0 24 24"><path d="M12 4v12"></path><path d="m7 11 5 5 5-5"></path><path d="M5 20h14"></path></symbol>
+  <symbol id="qf-i-upload" viewBox="0 0 24 24"><path d="M12 20V8"></path><path d="m7 13 5-5 5 5"></path><path d="M5 4h14"></path></symbol>
+  <symbol id="qf-i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 1 0-5.7l3-3a4 4 0 1 1 5.7 5.7L17 12.5"></path><path d="M14 10a4 4 0 0 1 0 5.7l-3 3a4 4 0 1 1-5.7-5.7L7 11.5"></path></symbol>
+  <symbol id="qf-i-code" viewBox="0 0 24 24"><path d="m9 8-5 4 5 4M15 8l5 4-5 4M14 5l-4 14"></path></symbol>
+
+  
+  <symbol id="qf-i-bold" viewBox="0 0 24 24"><path d="M7 4h6a4 4 0 0 1 0 8H7zM7 12h7a4 4 0 0 1 0 8H7z"></path></symbol>
+  <symbol id="qf-i-italic" viewBox="0 0 24 24"><path d="M10 4h9M5 20h9M14 4l-4 16"></path></symbol>
+  <symbol id="qf-i-underline" viewBox="0 0 24 24"><path d="M7 4v8a5 5 0 0 0 10 0V4M5 20h14"></path></symbol>
+  <symbol id="qf-i-strike" viewBox="0 0 24 24"><path d="M4 12h16"></path><path d="M16 7a4 4 0 0 0-4-3c-2.5 0-4 1.5-4 3.5 0 2 2 3 4 3.5"></path><path d="M8 17a4 4 0 0 0 4 3c2.5 0 4-1.5 4-3.5 0-.8-.3-1.4-.7-2"></path></symbol>
+
+  
+  <symbol id="qf-i-mic" viewBox="0 0 24 24"><rect x="9" y="3" width="6" height="12" rx="3"></rect><path d="M5 11a7 7 0 0 0 14 0"></path><path d="M12 18v3M9 21h6"></path></symbol>
+  <symbol id="qf-i-mic-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M9 4.5A3 3 0 0 1 15 6v5m0 3a3 3 0 0 1-6 0V9"></path><path d="M5 11a7 7 0 0 0 11.5 5.4"></path><path d="M19 11a7 7 0 0 1-.5 2.6"></path><path d="M12 18v3M9 21h6"></path></symbol>
+  <symbol id="qf-i-headphones" viewBox="0 0 24 24"><path d="M4 16v-4a8 8 0 0 1 16 0v4"></path><path d="M4 16a2 2 0 0 0 2 2h1v-6H6a2 2 0 0 0-2 2z"></path><path d="M20 16a2 2 0 0 1-2 2h-1v-6h1a2 2 0 0 1 2 2z"></path></symbol>
+  <symbol id="qf-i-headphones-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M4 16v-4a8 8 0 0 1 11.5-7.2"></path><path d="M20 13v3a2 2 0 0 1-2 2h-1v-6h1c.4 0 .7 0 1 .2"></path><path d="M4 16a2 2 0 0 0 2 2h1v-5"></path></symbol>
+  <symbol id="qf-i-video" viewBox="0 0 24 24"><rect x="3" y="6" width="13" height="12" rx="2"></rect><path d="m21 8-5 4 5 4z"></path></symbol>
+  <symbol id="qf-i-video-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M6 6a2 2 0 0 0-3 2v8a2 2 0 0 0 2 2h10"></path><path d="m21 8-5 4 5 4z"></path><path d="M16 12V8a2 2 0 0 0-2-2H9"></path></symbol>
+  <symbol id="qf-i-phone" viewBox="0 0 24 24"><path d="M5 4h4l2 5-3 2a11 11 0 0 0 5 5l2-3 5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"></path></symbol>
+  <symbol id="qf-i-phone-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M10.5 5.5 12 9l-3 2a11 11 0 0 0 2 2.5"></path><path d="M14 16.5 16 14l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 7 16"></path></symbol>
+  <symbol id="qf-i-screenshare" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="13" rx="2"></rect><path d="M8 21h8"></path><path d="M12 17v4"></path><path d="m9 11 3-3 3 3M12 8v6"></path></symbol>
+  <symbol id="qf-i-live" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M5.6 5.6a9 9 0 0 0 0 12.8M18.4 5.6a9 9 0 0 1 0 12.8"></path><path d="M8.5 8.5a5 5 0 0 0 0 7M15.5 8.5a5 5 0 0 1 0 7"></path></symbol>
+
+  
+  <symbol id="qf-i-check" viewBox="0 0 24 24"><path d="m5 13 4 4 10-10"></path></symbol>
+  <symbol id="qf-i-check-double" viewBox="0 0 24 24"><path d="m3 13 4 4 7-7"></path><path d="m11 13 4 4 7-7"></path></symbol>
+  <symbol id="qf-i-x" viewBox="0 0 24 24"><path d="M6 6l12 12M18 6l-12 12"></path></symbol>
+  <symbol id="qf-i-x-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="m9 9 6 6M15 9l-6 6"></path></symbol>
+  <symbol id="qf-i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 11v5"></path><circle cx="12" cy="8" r=".5" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-alert" viewBox="0 0 24 24"><path d="M12 3 2 20h20z"></path><path d="M12 10v5"></path><circle cx="12" cy="18" r=".5" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M9 9.5a3 3 0 0 1 6 0c0 2-3 2-3 4"></path><circle cx="12" cy="17" r=".5" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-loading" viewBox="0 0 24 24"><path d="M12 3v4M12 17v4M3 12h4M17 12h4M5.6 5.6l2.8 2.8M15.6 15.6l2.8 2.8M5.6 18.4l2.8-2.8M15.6 8.4l2.8-2.8"></path></symbol>
+  <symbol id="qf-i-idle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M15 15a4.5 4.5 0 0 1-6-6 5 5 0 1 0 6 6z"></path></symbol>
+  <symbol id="qf-i-dnd" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M7 12h10"></path></symbol>
+  <symbol id="qf-i-offline" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle></symbol>
+
+  
+  <symbol id="qf-i-user" viewBox="0 0 24 24"><circle cx="12" cy="9" r="4"></circle><path d="M4 21a8 8 0 0 1 16 0"></path></symbol>
+  <symbol id="qf-i-users" viewBox="0 0 24 24"><circle cx="9" cy="9" r="4"></circle><path d="M2 20a7 7 0 0 1 14 0"></path><path d="M16 4a4 4 0 0 1 0 8"></path><path d="M17 13a6 6 0 0 1 5 7"></path></symbol>
+  <symbol id="qf-i-user-plus" viewBox="0 0 24 24"><circle cx="10" cy="9" r="4"></circle><path d="M3 21a7 7 0 0 1 14 0"></path><path d="M19 5v6M16 8h6"></path></symbol>
+  <symbol id="qf-i-crown" viewBox="0 0 24 24"><path d="M3 7l3 10h12l3-10-5 4-4-7-4 7z"></path><path d="M5 20h14"></path></symbol>
+  <symbol id="qf-i-shield" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 4 8 8 9 4-1 8-4 8-9V6z"></path></symbol>
+  <symbol id="qf-i-shield-check" viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 4 8 8 9 4-1 8-4 8-9V6z"></path><path d="m9 12 2 2 4-4"></path></symbol>
+  <symbol id="qf-i-badge" viewBox="0 0 24 24"><circle cx="12" cy="9" r="5"></circle><path d="m9 13-3 8 6-3 6 3-3-8"></path></symbol>
+
+  
+  <symbol id="qf-i-server" viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="1"></rect><rect x="3" y="13" width="18" height="7" rx="1"></rect><circle cx="7" cy="7.5" r=".5" fill="currentColor"></circle><circle cx="7" cy="16.5" r=".5" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-globe" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"></path></symbol>
+  <symbol id="qf-i-layers" viewBox="0 0 24 24"><path d="m12 3 9 5-9 5-9-5z"></path><path d="m3 13 9 5 9-5M3 18l9 5 9-5"></path></symbol>
+  <symbol id="qf-i-grid" viewBox="0 0 24 24"><rect x="4" y="4" width="7" height="7" rx="1"></rect><rect x="13" y="4" width="7" height="7" rx="1"></rect><rect x="4" y="13" width="7" height="7" rx="1"></rect><rect x="13" y="13" width="7" height="7" rx="1"></rect></symbol>
+  <symbol id="qf-i-sparkle" viewBox="0 0 24 24"><path d="M12 3v5M12 16v5M3 12h5M16 12h5M6 6l3 3M15 15l3 3M18 6l-3 3M9 15l-3 3"></path></symbol>
+
+  
+  <symbol id="qf-i-settings" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"></circle><path d="M19.4 14a1.65 1.65 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.65 1.65 0 0 0-1.8-.3 1.65 1.65 0 0 0-1 1.5V20a2 2 0 1 1-4 0v-.2a1.65 1.65 0 0 0-1-1.5 1.65 1.65 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.65 1.65 0 0 0 .3-1.8 1.65 1.65 0 0 0-1.5-1H4a2 2 0 1 1 0-4h.2a1.65 1.65 0 0 0 1.5-1 1.65 1.65 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.65 1.65 0 0 0 1.8.3H10a1.65 1.65 0 0 0 1-1.5V4a2 2 0 1 1 4 0v.2a1.65 1.65 0 0 0 1 1.5 1.65 1.65 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.65 1.65 0 0 0-.3 1.8V10a1.65 1.65 0 0 0 1.5 1H20a2 2 0 1 1 0 4h-.2a1.65 1.65 0 0 0-1.5 1z"></path></symbol>
+  <symbol id="qf-i-sliders" viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"></path><circle cx="14" cy="6" r="2"></circle><circle cx="10" cy="12" r="2"></circle><circle cx="18" cy="18" r="2"></circle></symbol>
+  <symbol id="qf-i-filter" viewBox="0 0 24 24"><path d="M3 5h18l-7 9v6l-4-2v-4z"></path></symbol>
+  <symbol id="qf-i-sort" viewBox="0 0 24 24"><path d="M7 4v16M3 8l4-4 4 4M17 20V4M13 16l4 4 4-4"></path></symbol>
+  <symbol id="qf-i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1" fill="currentColor"></circle><circle cx="12" cy="12" r="1" fill="currentColor"></circle><circle cx="18" cy="12" r="1" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-more-v" viewBox="0 0 24 24"><circle cx="12" cy="6" r="1" fill="currentColor"></circle><circle cx="12" cy="12" r="1" fill="currentColor"></circle><circle cx="12" cy="18" r="1" fill="currentColor"></circle></symbol>
+  <symbol id="qf-i-edit" viewBox="0 0 24 24"><path d="M4 20h4L20 8l-4-4L4 16z"></path><path d="m14 6 4 4"></path></symbol>
+  <symbol id="qf-i-trash" viewBox="0 0 24 24"><path d="M4 7h16M9 7V4h6v3M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13M10 11v6M14 11v6"></path></symbol>
+  <symbol id="qf-i-copy" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="1"></rect><path d="M4 16V4a1 1 0 0 1 1-1h11"></path></symbol>
+  <symbol id="qf-i-clipboard" viewBox="0 0 24 24"><rect x="6" y="5" width="12" height="16" rx="1"></rect><rect x="9" y="3" width="6" height="4" rx="1"></rect></symbol>
+  <symbol id="qf-i-external" viewBox="0 0 24 24"><path d="M14 4h6v6"></path><path d="M20 4 10 14"></path><path d="M20 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1h5"></path></symbol>
+  <symbol id="qf-i-logout" viewBox="0 0 24 24"><path d="M14 4h5a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1h-5"></path><path d="M10 8l-4 4 4 4M6 12h10"></path></symbol>
+  <symbol id="qf-i-login" viewBox="0 0 24 24"><path d="M10 4H5a1 1 0 0 0-1 1v14a1 1 0 0 0 1 1h5"></path><path d="m14 8 4 4-4 4M18 12H8"></path></symbol>
+  <symbol id="qf-i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 0 1-14 6l-2 2M4 12a8 8 0 0 1 14-6l2-2"></path><path d="M20 4v4h-4M4 20v-4h4"></path></symbol>
+  <symbol id="qf-i-moon" viewBox="0 0 24 24"><path d="M20 14A8 8 0 1 1 10 4a7 7 0 0 0 10 10z"></path></symbol>
+  <symbol id="qf-i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"></circle><path d="M12 3v2M12 19v2M3 12h2M19 12h2M5.6 5.6l1.4 1.4M17 17l1.4 1.4M5.6 18.4 7 17M17 7l1.4-1.4"></path></symbol>
+  <symbol id="qf-i-eye" viewBox="0 0 24 24"><path d="M2 12s4-7 10-7 10 7 10 7-4 7-10 7S2 12 2 12z"></path><circle cx="12" cy="12" r="3"></circle></symbol>
+  <symbol id="qf-i-eye-off" viewBox="0 0 24 24"><path d="M4 4l16 16"></path><path d="M10.5 6.5A10 10 0 0 1 12 5c6 0 10 7 10 7a17 17 0 0 1-3 4"></path><path d="M6 8a18 18 0 0 0-4 4s4 7 10 7c1.5 0 3-.4 4.3-1"></path><path d="M9.5 9.5a3 3 0 0 0 4 4"></path></symbol>
+  <symbol id="qf-i-calendar" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="1"></rect><path d="M3 10h18M8 3v4M16 3v4"></path></symbol>
+  <symbol id="qf-i-clock" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"></circle><path d="M12 7v5l3 2"></path></symbol>
+  <symbol id="qf-i-chevron-down" viewBox="0 0 24 24"><path d="m6 9 6 6 6-6"></path></symbol>
+  <symbol id="qf-i-chevron-up" viewBox="0 0 24 24"><path d="m6 15 6-6 6 6"></path></symbol>
+  <symbol id="qf-i-chevron-left" viewBox="0 0 24 24"><path d="m15 6-6 6 6 6"></path></symbol>
+  <symbol id="qf-i-chevron-right" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"></path></symbol>
+  <symbol id="qf-i-arrow-left" viewBox="0 0 24 24"><path d="M20 12H4M10 6l-6 6 6 6"></path></symbol>
+  <symbol id="qf-i-arrow-right" viewBox="0 0 24 24"><path d="M4 12h16M14 6l6 6-6 6"></path></symbol>
+  <symbol id="qf-i-fullscreen" viewBox="0 0 24 24"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"></path></symbol>
+  <symbol id="qf-i-minimize" viewBox="0 0 24 24"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"></path></symbol>
+
+</svg>

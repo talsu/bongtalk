@@ -8,6 +8,7 @@ import {
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
+  Icon,
   Tooltip,
 } from '../design-system/primitives';
 import { useTheme } from '../design-system/theme/ThemeProvider';
@@ -93,7 +94,7 @@ export function BottomBar(): JSX.Element {
             onClick={toggle}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
-            {resolved === 'dark' ? '☀' : '☾'}
+            <Icon name={resolved === 'dark' ? 'sun' : 'moon'} size="sm" />
           </button>
         </Tooltip>
         <Tooltip label="피드백 보내기" side="top">
@@ -103,7 +104,7 @@ export function BottomBar(): JSX.Element {
             onClick={() => setOpenModal('feedback')}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
-            ✎
+            <Icon name="edit" size="sm" />
           </button>
         </Tooltip>
         <Tooltip label="단축키 (?)" side="top">
@@ -113,7 +114,7 @@ export function BottomBar(): JSX.Element {
             onClick={() => setOpenModal('shortcut-help')}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
-            ?
+            <Icon name="help" size="sm" />
           </button>
         </Tooltip>
         <Tooltip label="로그아웃" side="top">
@@ -125,7 +126,7 @@ export function BottomBar(): JSX.Element {
             }}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
-            ⎋
+            <Icon name="logout" size="sm" />
           </button>
         </Tooltip>
       </div>

@@ -11,6 +11,7 @@ import {
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
+  Icon,
 } from '../design-system/primitives';
 import {
   useWorkspace,
@@ -52,9 +53,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
               <span data-testid="ws-name" className="truncate">
                 {workspace.name}
               </span>
-              <span aria-hidden className="text-text-muted">
-                ⌄
-              </span>
+              <Icon name="chevron-down" size="sm" className="text-text-muted" />
             </button>
           </DropdownTrigger>
           <DropdownContent align="start">
