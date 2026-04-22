@@ -134,18 +134,30 @@ function DraggableChannelRow({
         style={style}
         aria-selected={active || undefined}
         className={cn(
-          'qf-channel group',
+          'qf-channel group relative',
           hasUnread && !active && 'qf-channel--unread',
-          canManage && !isDragging && 'cursor-grab',
+          isDragging ? 'cursor-grabbing' : canManage ? 'cursor-grab' : 'cursor-pointer',
         )}
         data-testid={`channel-${channel.name}`}
         data-unread={hasUnread ? 'true' : 'false'}
         data-mention={hasMention ? 'true' : 'false'}
       >
-        <Link to={`/w/${workspaceSlug}/${channel.name}`} className="flex-1 truncate">
-          <span className="qf-channel__prefix">#</span>&nbsp;{channel.name}
-        </Link>
-        <span className="qf-channel__suffix">
+        {/* Full-row navigation overlay. Renders as absolute(inset:0) so
+            the entire hover-highlighted rectangle is the click target —
+            users shouldn't have to aim at the text. The prefix + name
+            are marked pointer-events-none so clicks fall through; the
+            suffix (settings button + unread pill) is raised above the
+            overlay with z-10 + pointer-events-auto so its own
+            interactive children still receive pointer events. */}
+        <Link
+          to={`/w/${workspaceSlug}/${channel.name}`}
+          tabIndex={-1}
+          aria-label={`# ${channel.name} 채널 열기`}
+          className="absolute inset-0"
+        />
+        <span className="qf-channel__prefix pointer-events-none relative">#</span>
+        <span className="pointer-events-none relative flex-1 truncate">&nbsp;{channel.name}</span>
+        <span className="qf-channel__suffix pointer-events-auto relative z-10">
           {canManage ? (
             <Link
               to={`/w/${workspaceSlug}/${channel.name}/settings`}
