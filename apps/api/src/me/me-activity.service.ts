@@ -12,7 +12,7 @@ import { PrismaService } from '../prisma/prisma.module';
  * mirrors me-mentions (public channels pass, OWNER sees all, else
  * ChannelPermissionOverride mask bit must be set).
  */
-export type ActivityKind = 'mention' | 'reply' | 'reaction';
+export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct';
 
 export interface ActivityRow {
   activityKey: string;
@@ -37,6 +37,7 @@ export interface UnreadCounts {
   mentions: number;
   replies: number;
   reactions: number;
+  directs: number;
 }
 
 const DEFAULT_LIMIT = 25;
@@ -48,7 +49,7 @@ export class MeActivityService {
 
   async page(
     userId: string,
-    filter: 'all' | 'mentions' | 'replies' | 'reactions',
+    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs',
     cursor: string | null,
     limit: number,
   ): Promise<ActivityPage> {
@@ -67,6 +68,7 @@ export class MeActivityService {
     const includeMention = filter === 'all' || filter === 'mentions';
     const includeReply = filter === 'all' || filter === 'replies';
     const includeReaction = filter === 'all' || filter === 'reactions';
+    const includeDirect = filter === 'all' || filter === 'directs';
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -163,12 +165,35 @@ export class MeActivityService {
           AND mr."userId" <> ${userId}::uuid
           AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),
+      directs AS (
+        SELECT
+          ('direct:' || m.id::text) AS "activityKey",
+          'direct'::text            AS "kind",
+          c."workspaceId",
+          m."channelId",
+          m.id                      AS "messageId",
+          m."authorId"              AS "actorId",
+          LEFT(m."contentPlain", 140) AS "snippet",
+          m."createdAt"
+        FROM "Message" m
+        JOIN "Channel" c ON c.id = m."channelId" AND c.type = 'DIRECT' AND c."deletedAt" IS NULL
+        JOIN "ChannelPermissionOverride" mine
+          ON mine."channelId" = c.id
+         AND mine."principalType" = 'USER'
+         AND mine."principalId" = ${userId}::text
+         AND (mine."allowMask" & 1) > 0
+        WHERE ${includeDirect}
+          AND m."deletedAt" IS NULL
+          AND m."authorId" <> ${userId}::uuid
+      ),
       combined AS (
         SELECT * FROM mentions
         UNION ALL
         SELECT * FROM replies
         UNION ALL
         SELECT * FROM reactions
+        UNION ALL
+        SELECT * FROM directs
       )
       SELECT
         combined.*,
@@ -257,12 +282,26 @@ export class MeActivityService {
            AND mr."userId" <> ${userId}::uuid
            AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),
+      unread_directs AS (
+        SELECT 'direct'::text AS kind, ('direct:' || m.id::text) AS k
+          FROM "Message" m
+          JOIN "Channel" c ON c.id = m."channelId" AND c.type = 'DIRECT' AND c."deletedAt" IS NULL
+          JOIN "ChannelPermissionOverride" mine
+            ON mine."channelId" = c.id
+           AND mine."principalType" = 'USER'
+           AND mine."principalId" = ${userId}::text
+           AND (mine."allowMask" & 1) > 0
+         WHERE m."deletedAt" IS NULL
+           AND m."authorId" <> ${userId}::uuid
+      ),
       combined AS (
         SELECT * FROM unread_mentions
         UNION ALL
         SELECT * FROM unread_replies
         UNION ALL
         SELECT * FROM unread_reactions
+        UNION ALL
+        SELECT * FROM unread_directs
       )
       SELECT combined.kind, COUNT(*)::bigint AS cnt
         FROM combined
@@ -273,12 +312,13 @@ export class MeActivityService {
        GROUP BY combined.kind
     `;
 
-    const counts: UnreadCounts = { total: 0, mentions: 0, replies: 0, reactions: 0 };
+    const counts: UnreadCounts = { total: 0, mentions: 0, replies: 0, reactions: 0, directs: 0 };
     for (const r of rows) {
       const n = Number(r.cnt);
       if (r.kind === 'mention') counts.mentions = n;
       if (r.kind === 'reply') counts.replies = n;
       if (r.kind === 'reaction') counts.reactions = n;
+      if (r.kind === 'direct') counts.directs = n;
       counts.total += n;
     }
     return counts;
@@ -294,7 +334,7 @@ export class MeActivityService {
 
   async markAllRead(
     userId: string,
-    filter: 'all' | 'mentions' | 'replies' | 'reactions',
+    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs',
   ): Promise<{ count: number }> {
     // Load the unread activityKeys for the filter, upsert each. Bulk
     // upsert via executeRaw keeps us under the round-trip cost.

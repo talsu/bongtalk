@@ -13,10 +13,12 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { MeActivityService, type ActivityPage, type UnreadCounts } from './me-activity.service';
 
-type Filter = 'all' | 'mentions' | 'replies' | 'reactions';
+type Filter = 'all' | 'mentions' | 'replies' | 'reactions' | 'directs';
 
 function normalizeFilter(raw: string | undefined): Filter {
-  if (raw === 'mentions' || raw === 'replies' || raw === 'reactions') return raw;
+  if (raw === 'mentions' || raw === 'replies' || raw === 'reactions' || raw === 'directs') {
+    return raw;
+  }
   return 'all';
 }
 
