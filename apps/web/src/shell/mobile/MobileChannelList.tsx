@@ -49,7 +49,7 @@ export function MobileChannelList({
               onClick={onPick}
               className={cn(
                 'inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]',
-                w.slug === workspace.slug ? 'bg-bg-selected' : '',
+                w.slug === workspace.slug ? 'bg-bg-accent' : '',
               )}
               data-testid={`mobile-ws-${w.slug}`}
             >

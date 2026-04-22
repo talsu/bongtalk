@@ -51,7 +51,7 @@ export function MobileMessageSheet({
               type="button"
               data-testid={`mobile-quick-react-${e}`}
               onClick={() => onReact(e)}
-              className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-hover"
+              className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-muted"
             >
               {e}
             </button>

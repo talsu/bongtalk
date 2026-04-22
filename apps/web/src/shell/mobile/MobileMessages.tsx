@@ -291,7 +291,7 @@ function MobileComposer({
         <div
           data-testid="mobile-reply-banner"
           data-reply-to={replyTarget.messageId}
-          className="flex items-center gap-[var(--s-2)] px-[var(--s-4)] py-[var(--s-2)] bg-bg-panel border-t border-divider text-[length:var(--fs-13)] text-text-muted"
+          className="flex items-center gap-[var(--s-2)] px-[var(--s-4)] py-[var(--s-2)] bg-bg-subtle border-t border-border-subtle text-[length:var(--fs-13)] text-text-muted"
         >
           <Icon name="reply" size="sm" />
           <span className="flex-1 truncate">@{replyTarget.authorName}에게 답장</span>
