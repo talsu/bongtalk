@@ -39,10 +39,12 @@ test('topbar renders search input, disabled pin, and member toggle (task-018-B)'
   await page.getByTestId('topbar-pin').hover();
   await expect(page.getByTestId('topbar-pin')).toBeDisabled();
 
+  // Inline topbar search — focus opens the dropdown (recents or
+  // results), Escape collapses it. Input itself stays mounted.
   await page.getByTestId('topbar-search').click();
-  await expect(page.getByTestId('search-input')).toBeVisible();
+  await expect(page.getByTestId('search-dropdown')).toBeVisible();
   await page.keyboard.press('Escape');
-  await expect(page.getByTestId('search-input')).not.toBeVisible();
+  await expect(page.getByTestId('search-dropdown')).not.toBeVisible();
 
   const memberCol = page.getByTestId('member-column');
   await expect(memberCol).toBeVisible();
