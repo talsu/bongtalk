@@ -52,7 +52,9 @@ export class ChannelsService {
         orderBy: { position: 'asc' },
       }),
       this.prisma.channel.findMany({
-        where: { workspaceId, deletedAt: null },
+        // task-027-B: DIRECT channels belong to the DM inbox, not the
+        // workspace channel list. Filter them out at the query level.
+        where: { workspaceId, deletedAt: null, type: { not: 'DIRECT' } },
         orderBy: [{ categoryId: 'asc' }, { position: 'asc' }],
       }),
       callerId

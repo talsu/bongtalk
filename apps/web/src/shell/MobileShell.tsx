@@ -139,6 +139,7 @@ export function MobileShell(): JSX.Element {
         onHome={() => navigate(`/w/${active.slug}`)}
         onYou={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
+        onDms={() => navigate('/dms')}
       />
 
       {/* Left drawer: workspace + channel list */}
