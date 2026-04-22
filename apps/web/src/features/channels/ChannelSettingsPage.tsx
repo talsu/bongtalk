@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Channel } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
-import { Dialog, Button, Input } from '../../design-system/primitives';
+import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
 
@@ -58,115 +58,115 @@ export function ChannelSettingsPage({
   };
 
   return (
-    <main
-      data-testid="channel-settings"
-      className="qf-settings"
-      aria-label={`#${channel.name} 설정`}
+    <SettingsOverlay
+      open
+      onClose={closeSettings}
+      title={`#${channel.name} 설정`}
+      testId="channel-settings-overlay"
     >
-      <nav className="qf-settings__nav">
-        <div className="qf-settings__nav-head"># {channel.name}</div>
-        {NAV_ITEMS.map((item) => {
-          if (item.type === 'section') {
-            const active = section === item.id;
+      <div
+        data-testid="channel-settings"
+        className="qf-settings flex-1"
+        aria-label={`#${channel.name} 설정`}
+      >
+        <nav className="qf-settings__nav">
+          <div className="qf-settings__nav-head"># {channel.name}</div>
+          {NAV_ITEMS.map((item) => {
+            if (item.type === 'section') {
+              const active = section === item.id;
+              return (
+                <button
+                  key={item.id}
+                  type="button"
+                  data-testid={`channel-settings-nav-${item.id}`}
+                  aria-selected={active}
+                  onClick={() =>
+                    navigate(`/w/${workspaceSlug}/${channel.name}/settings/${item.id}`)
+                  }
+                  className="qf-settings__nav-item w-full text-left"
+                >
+                  {item.label}
+                </button>
+              );
+            }
             return (
               <button
                 key={item.id}
                 type="button"
                 data-testid={`channel-settings-nav-${item.id}`}
-                aria-selected={active}
-                onClick={() => navigate(`/w/${workspaceSlug}/${channel.name}/settings/${item.id}`)}
+                onClick={() => setDeleteOpen(true)}
                 className="qf-settings__nav-item w-full text-left"
+                style={{ color: 'var(--danger-400)' }}
               >
                 {item.label}
               </button>
             );
-          }
-          return (
-            <button
-              key={item.id}
-              type="button"
-              data-testid={`channel-settings-nav-${item.id}`}
-              onClick={() => setDeleteOpen(true)}
-              className="qf-settings__nav-item w-full text-left"
-              style={{ color: 'var(--danger-400)' }}
-            >
-              {item.label}
-            </button>
-          );
-        })}
-      </nav>
+          })}
+        </nav>
 
-      <section className="qf-settings__main">
-        <header className="mb-[var(--s-5)] flex items-center justify-between">
-          <h2 className="m-0" style={{ font: '600 var(--fs-18) var(--font-sans)' }}>
-            {section === 'general' ? '일반' : ''}
-          </h2>
-          <button
-            type="button"
-            data-testid="channel-settings-close"
-            aria-label="설정 닫기"
-            onClick={closeSettings}
-            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+        <section className="qf-settings__main">
+          <header className="mb-[var(--s-5)]">
+            <h2 className="m-0" style={{ font: '600 var(--fs-18) var(--font-sans)' }}>
+              {section === 'general' ? '일반' : ''}
+            </h2>
+          </header>
+
+          {section === 'general' ? (
+            <GeneralSection
+              workspaceId={workspaceId}
+              workspaceSlug={workspaceSlug}
+              channel={channel}
+            />
+          ) : null}
+        </section>
+
+        {deleteOpen ? (
+          <Dialog
+            open={deleteOpen}
+            onOpenChange={(v) => {
+              if (!v) setDeleteOpen(false);
+            }}
+            title="채널을 삭제할까요?"
+            description={`#${channel.name} 채널의 모든 메시지가 사라지며, 되돌릴 수 없습니다.`}
           >
-            ✕
-          </button>
-        </header>
-
-        {section === 'general' ? (
-          <GeneralSection
-            workspaceId={workspaceId}
-            workspaceSlug={workspaceSlug}
-            channel={channel}
-          />
+            <div className="qf-modal__footer">
+              <Button type="button" variant="ghost" onClick={() => setDeleteOpen(false)}>
+                취소
+              </Button>
+              <Button
+                type="button"
+                variant="danger"
+                data-testid="channel-settings-delete-confirm"
+                onClick={() => {
+                  // Mutation + navigation handled inline so we can close the
+                  // dialog synchronously on optimistic dispatch.
+                  setDeleteOpen(false);
+                  void (async () => {
+                    try {
+                      await deleteMut.mutateAsync(channel.id);
+                      notify({
+                        variant: 'success',
+                        title: '채널 삭제됨',
+                        body: `#${channel.name} 이(가) 삭제되었습니다.`,
+                      });
+                      navigate(`/w/${workspaceSlug}`);
+                    } catch (err) {
+                      notify({
+                        variant: 'danger',
+                        title: '채널 삭제 실패',
+                        body: (err as Error).message,
+                      });
+                    }
+                  })();
+                }}
+              >
+                삭제하기
+              </Button>
+            </div>
+          </Dialog>
         ) : null}
-      </section>
-
-      {deleteOpen ? (
-        <Dialog
-          open={deleteOpen}
-          onOpenChange={(v) => {
-            if (!v) setDeleteOpen(false);
-          }}
-          title="채널을 삭제할까요?"
-          description={`#${channel.name} 채널의 모든 메시지가 사라지며, 되돌릴 수 없습니다.`}
-        >
-          <div className="qf-modal__footer">
-            <Button type="button" variant="ghost" onClick={() => setDeleteOpen(false)}>
-              취소
-            </Button>
-            <Button
-              type="button"
-              variant="danger"
-              data-testid="channel-settings-delete-confirm"
-              onClick={() => {
-                // Mutation + navigation handled inline so we can close the
-                // dialog synchronously on optimistic dispatch.
-                setDeleteOpen(false);
-                void (async () => {
-                  try {
-                    await deleteMut.mutateAsync(channel.id);
-                    notify({
-                      variant: 'success',
-                      title: '채널 삭제됨',
-                      body: `#${channel.name} 이(가) 삭제되었습니다.`,
-                    });
-                    navigate(`/w/${workspaceSlug}`);
-                  } catch (err) {
-                    notify({
-                      variant: 'danger',
-                      title: '채널 삭제 실패',
-                      body: (err as Error).message,
-                    });
-                  }
-                })();
-              }}
-            >
-              삭제하기
-            </Button>
-          </div>
-        </Dialog>
-      ) : null}
-    </main>
+      </div>
+    </SettingsOverlay>
   );
 }
 

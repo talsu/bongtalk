@@ -95,16 +95,7 @@ export function Shell(): JSX.Element {
         </div>
         <BottomBar />
       </div>
-      {active && activeChannel && inChannelSettings ? (
-        <div className="flex min-w-0 flex-1">
-          <ChannelSettingsPage
-            workspaceId={active.id}
-            workspaceSlug={active.slug}
-            channel={activeChannel}
-            section={settingsSection}
-          />
-        </div>
-      ) : active && activeChannel ? (
+      {active && activeChannel ? (
         <MessageColumn
           workspaceId={active.id}
           workspaceSlug={active.slug}
@@ -122,8 +113,18 @@ export function Shell(): JSX.Element {
           </div>
         </main>
       )}
-      {active && activeChannel && !inChannelSettings ? (
-        <MemberColumn workspaceId={active.id} />
+      {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
+      {/* Settings screens are full-viewport overlays — they sit on top
+          of the shell via a portal. Reusing SettingsOverlay for every
+          future settings surface (workspace, account, …) keeps the
+          chrome consistent. */}
+      {active && activeChannel && inChannelSettings ? (
+        <ChannelSettingsPage
+          workspaceId={active.id}
+          workspaceSlug={active.slug}
+          channel={activeChannel}
+          section={settingsSection}
+        />
       ) : null}
       <CommandPalette />
       <ShortcutHelp />
