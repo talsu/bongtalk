@@ -97,6 +97,7 @@ model User {
   reactions       MessageReaction[]
   feedback        Feedback[]
   notificationPreferences UserNotificationPreference[]
+  activityReadStates      UserActivityReadState[]
 }
 
 model RefreshToken {
@@ -324,6 +325,23 @@ model UserChannelReadState {
 
   @@id([userId, channelId])
   @@index([channelId])
+}
+
+// task-026: Activity inbox read state. Keyed per-user + per-activityKey
+// (synthesised from the underlying messages / reactions record), so a
+// user can mark a specific mention / reply / reaction row as read
+// without affecting the channel-level read state.
+model UserActivityReadState {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  activityKey String
+  readAt      DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, activityKey])
+  @@index([userId, readAt(sort: Desc)])
 }
 
 model Invite {
