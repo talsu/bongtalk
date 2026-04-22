@@ -74,19 +74,34 @@ export function MobileMessages({
     if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
   });
 
-  // Auto-scroll to bottom on mount + new incoming.
+  // Auto-scroll to bottom on mount + new incoming. task-025 follow-4:
+  // history prepend grows messages.length while isFetchingNextPage is
+  // true and wasAtBottomRef stays true, so without a gate the old code
+  // snapped the view to the bottom mid-fetch and threw the user off
+  // the history they had just requested.
   const wasAtBottomRef = useRef(true);
   const hasAnchoredRef = useRef(false);
+  const prevScrollHeightRef = useRef(0);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || messages.length === 0) return;
     if (!hasAnchoredRef.current) {
       el.scrollTop = el.scrollHeight;
       hasAnchoredRef.current = true;
+      prevScrollHeightRef.current = el.scrollHeight;
+      return;
+    }
+    if (history.isFetchingNextPage) {
+      // Mid-prepend: preserve the user's anchor by shifting scrollTop
+      // by however much the list grew upward.
+      const delta = el.scrollHeight - prevScrollHeightRef.current;
+      if (delta > 0) el.scrollTop = el.scrollTop + delta;
+      prevScrollHeightRef.current = el.scrollHeight;
       return;
     }
     if (wasAtBottomRef.current) el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+    prevScrollHeightRef.current = el.scrollHeight;
+  }, [messages.length, history.isFetchingNextPage]);
 
   return (
     <>
