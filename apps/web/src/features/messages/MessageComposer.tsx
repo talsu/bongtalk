@@ -49,12 +49,25 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
   const [emojiOpen, setEmojiOpen] = useState(false);
   // Uploaded-but-not-yet-sent attachments. Flushed after submit.
   const [pending, setPending] = useState<UploadedAttachment[]>([]);
-  const [uploading, setUploading] = useState(0);
+  // In-flight / failed upload jobs. `pending` holds the finalized rows
+  // only (attachmentId the server knows about); `jobs` holds the
+  // lifecycle state so the chip UI can show "업로드 중…" and
+  // "업로드 실패 · 재시도" with a retry button. Cleared after send.
+  const [jobs, setJobs] = useState<
+    Array<{
+      id: string;
+      file: File;
+      status: 'uploading' | 'failed';
+      error?: string;
+    }>
+  >([]);
+  const uploading = jobs.filter((j) => j.status === 'uploading').length;
 
   useEffect(() => {
     textareaRef.current?.focus();
     lastPingRef.current = 0;
     setPending([]);
+    setJobs([]);
     setEmojiOpen(false);
   }, [channelId]);
 
@@ -127,35 +140,54 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     });
   };
 
+  const runUpload = async (jobId: string, file: File): Promise<void> => {
+    try {
+      const uploaded = await uploadAttachment(channelId, file);
+      setPending((p) => [...p, uploaded]);
+      setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    } catch (err) {
+      const msg = (err as Error).message;
+      setJobs((prev) =>
+        prev.map((j) => (j.id === jobId ? { ...j, status: 'failed', error: msg } : j)),
+      );
+      notify({
+        variant: 'danger',
+        title: '업로드 실패',
+        body: `${file.name}: ${msg}`,
+      });
+    }
+  };
+
   const onFiles = async (files: FileList | null): Promise<void> => {
     if (!files || files.length === 0) return;
     const arr = Array.from(files);
-    setUploading((n) => n + arr.length);
-    try {
-      const results = await Promise.all(
-        arr.map((f) =>
-          uploadAttachment(channelId, f).catch((err) => {
-            notify({
-              variant: 'danger',
-              title: '업로드 실패',
-              body: `${f.name}: ${(err as Error).message}`,
-            });
-            return null;
-          }),
-        ),
-      );
-      const ok = results.filter((r): r is UploadedAttachment => r !== null);
-      setPending((p) => [...p, ...ok]);
-    } finally {
-      setUploading((n) => n - arr.length);
-    }
+    const newJobs = arr.map((file) => ({
+      id: crypto.randomUUID(),
+      file,
+      status: 'uploading' as const,
+    }));
+    setJobs((prev) => [...prev, ...newJobs]);
+    await Promise.all(newJobs.map((job) => runUpload(job.id, job.file)));
+  };
+
+  const retryJob = (jobId: string): void => {
+    const job = jobs.find((j) => j.id === jobId);
+    if (!job) return;
+    setJobs((prev) =>
+      prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading', error: undefined } : j)),
+    );
+    void runUpload(jobId, job.file);
+  };
+
+  const removeJob = (jobId: string): void => {
+    setJobs((prev) => prev.filter((j) => j.id !== jobId));
   };
 
   return (
     <div className="px-[var(--s-5)] pb-[var(--s-5)] pt-0">
       {/* Pending attachments: chips above the composer so the user sees
           what'll go out with the next send. Removable before submit. */}
-      {pending.length > 0 || uploading > 0 ? (
+      {pending.length > 0 || jobs.length > 0 ? (
         <ul
           data-testid="composer-pending-attachments"
           className="mb-[var(--s-2)] flex flex-wrap gap-[var(--s-2)]"
@@ -178,11 +210,47 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
               </button>
             </li>
           ))}
-          {uploading > 0 ? (
-            <li className="flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border border-border-subtle bg-bg-elevated px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
-              업로드 중… ({uploading})
+          {jobs.map((j) => (
+            <li
+              key={j.id}
+              data-testid={`composer-upload-job-${j.id}`}
+              data-status={j.status}
+              className={cn(
+                'flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)]',
+                j.status === 'failed'
+                  ? 'border-danger/60 bg-danger/10 text-danger'
+                  : 'border-border-subtle bg-bg-elevated text-text-muted',
+              )}
+            >
+              <span className="truncate">{j.file.name}</span>
+              <span className="text-text-muted">{formatSize(j.file.size)}</span>
+              {j.status === 'uploading' ? (
+                <span className="text-text-muted">업로드 중…</span>
+              ) : (
+                <>
+                  <span className="truncate">실패</span>
+                  <button
+                    type="button"
+                    data-testid={`composer-upload-retry-${j.id}`}
+                    aria-label={`${j.file.name} 업로드 재시도`}
+                    onClick={() => retryJob(j.id)}
+                    className="qf-btn qf-btn--ghost qf-btn--sm !h-auto !px-[var(--s-2)] !py-0 text-accent"
+                  >
+                    재시도
+                  </button>
+                </>
+              )}
+              <button
+                type="button"
+                data-testid={`composer-upload-remove-${j.id}`}
+                aria-label={`${j.file.name} 업로드 제거`}
+                onClick={() => removeJob(j.id)}
+                className="text-text-muted hover:text-text-strong"
+              >
+                <Icon name="x" size="sm" />
+              </button>
             </li>
-          ) : null}
+          ))}
         </ul>
       ) : null}
       <form
