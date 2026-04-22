@@ -1,0 +1,19 @@
+/*
+ * Additive mobile override for WCAG 2.5.5 AA / Apple HIG touch
+ * targets (44×44 CSS px minimum). DS mobile.css is the source of
+ * truth and stays unmodified; this file ships the minimum
+ * expansion needed to keep qf-m-composer* buttons above the floor
+ * without growing the visual icon.
+ *
+ * The DS rule sets width/height: 36px on qf-m-composer__plus and
+ * qf-m-composer__send. We keep that visual size but grow the
+ * clickable box via min-width/min-height so the fingertip lands
+ * anywhere in the 44-px square.
+ *
+ * task-025 polish Round 6 fix for mobile-touch-target-small.
+ */
+.qf-m-composer__plus,
+.qf-m-composer__send {
+  min-width: var(--m-touch);
+  min-height: var(--m-touch);
+}

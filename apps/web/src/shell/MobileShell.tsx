@@ -13,6 +13,7 @@ import { MobileTabBar } from './mobile/MobileTabBar';
 import { MobileDrawer } from './mobile/MobileDrawer';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
+import './mobile/mobile-touch-target.css';
 
 /**
  * Task-024 mobile shell — qf-m-screen root, qf-m-topbar header,

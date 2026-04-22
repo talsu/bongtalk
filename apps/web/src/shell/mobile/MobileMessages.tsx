@@ -300,7 +300,8 @@ function MobileComposer({
             aria-label="답장 취소"
             data-testid="mobile-reply-cancel"
             onClick={() => setReplyTarget(channelId, null)}
-            className="p-[var(--s-1)]"
+            style={{ minWidth: 'var(--m-touch)', minHeight: 'var(--m-touch)' }}
+            className="grid place-items-center"
           >
             <Icon name="x" size="sm" />
           </button>
