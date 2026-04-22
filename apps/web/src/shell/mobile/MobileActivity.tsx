@@ -168,6 +168,7 @@ export function MobileActivity(): JSX.Element {
         active="activity"
         onHome={() => navigate('/')}
         onYou={() => navigate('/settings/notifications')}
+        onDms={() => navigate('/dms')}
       />
     </div>
   );

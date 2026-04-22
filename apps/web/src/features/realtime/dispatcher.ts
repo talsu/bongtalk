@@ -170,6 +170,11 @@ export function installRealtimeDispatcher(
   }>('message.created', (env) => {
     if (!env.channelId || !env.workspaceId || !env.message) return;
 
+    // task-027-E: DM channels feed the DM list cache too. Invalidation
+    // only — the server ranking (last-message desc + unread counts)
+    // is the source of truth.
+    qc.invalidateQueries({ queryKey: ['dm', 'list'] });
+
     // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
     // already looking at this channel — an open channel drives its own
     // POST /read after 500ms debounce, which zeroes the count.

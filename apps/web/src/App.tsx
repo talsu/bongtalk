@@ -36,6 +36,18 @@ const ActivityPage = lazy(() =>
 const MobileActivity = lazy(() =>
   import('./shell/mobile/MobileActivity').then((m) => ({ default: m.MobileActivity })),
 );
+const DmListPage = lazy(() =>
+  import('./features/dms/DmListPage').then((m) => ({ default: m.DmListPage })),
+);
+const DmChatPage = lazy(() =>
+  import('./features/dms/DmChatPage').then((m) => ({ default: m.DmChatPage })),
+);
+const MobileDmList = lazy(() =>
+  import('./shell/mobile/MobileDmList').then((m) => ({ default: m.MobileDmList })),
+);
+const MobileDmChat = lazy(() =>
+  import('./shell/mobile/MobileDmChat').then((m) => ({ default: m.MobileDmChat })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -77,13 +89,54 @@ function ProtectedActivityRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  // Mobile viewport → mobile screen; else desktop page. Branching at the
-  // route level (not inside Shell) so the mobile screen can be a full
-  // qf-m-screen without the desktop shell chrome.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileActivity /> : <ActivityPage />}
+    </Suspense>
+  );
+}
+
+function ProtectedDmListRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <MobileDmList />
+    </Suspense>
+  );
+}
+
+function ProtectedDmChatRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <MobileDmChat />
+    </Suspense>
+  );
+}
+
+function ProtectedDesktopDmListRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <DmListPage />
+    </Suspense>
+  );
+}
+
+function ProtectedDesktopDmChatRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <DmChatPage />
     </Suspense>
   );
 }
@@ -121,6 +174,10 @@ export default function App(): JSX.Element {
                     element={<ProtectedSettingsRoute page="notifications" />}
                   />
                   <Route path="/activity" element={<ProtectedActivityRoute />} />
+                  <Route path="/dms" element={<ProtectedDmListRoute />} />
+                  <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
+                  <Route path="/w/:slug/dm" element={<ProtectedDesktopDmListRoute />} />
+                  <Route path="/w/:slug/dm/:userId" element={<ProtectedDesktopDmChatRoute />} />
                   <Route path="/" element={<ProtectedShellRoute />} />
                   {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
