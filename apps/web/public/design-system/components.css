@@ -599,7 +599,7 @@
 .qf-settings-overlay__backdrop {
   position: fixed; inset: 0;
   background: rgba(0, 0, 0, 0.55);
-  z-index: 60;
+  z-index: var(--z-settings-bg);
 }
 .qf-settings-overlay__card {
   position: fixed;
@@ -612,7 +612,7 @@
   border-radius: var(--r-xl);
   box-shadow: var(--elev-4);
   overflow: hidden;
-  z-index: 61;
+  z-index: var(--z-settings);
   display: flex;
   flex-direction: column;
 }
