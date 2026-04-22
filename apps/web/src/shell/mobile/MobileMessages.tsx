@@ -150,6 +150,14 @@ export function MobileMessages({
             void navigator.clipboard?.writeText(sheetMsg.content ?? '');
             setSheetMsg(null);
           }}
+          onReply={() => {
+            setReplyTarget(channelId, {
+              messageId: sheetMsg.id,
+              authorName: nameById.get(sheetMsg.authorId) ?? 'unknown',
+            });
+            setSheetMsg(null);
+            composerInputRef.current?.focus();
+          }}
           onReact={(emoji) => {
             if (!sheetMsg.id.startsWith('tmp-')) {
               reactMut.mutate({
