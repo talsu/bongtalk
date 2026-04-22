@@ -85,10 +85,11 @@ test('search overlay: type hello, see highlighted result, click → ?msg=', asyn
   await bPage.waitForURL(/\/w\//);
   await bPage.goto(`/w/${workspace.slug}/${general.name}`);
 
-  // Ctrl+/ opens the search overlay.
+  // Ctrl+/ focuses the inline topbar search + opens the result
+  // dropdown once the 300ms debounce elapses.
   await bPage.keyboard.press('Control+/');
-  await expect(bPage.getByTestId('search-input')).toBeVisible();
-  await bPage.getByTestId('search-input').fill('hello');
+  await expect(bPage.getByTestId('topbar-search')).toBeFocused();
+  await bPage.getByTestId('topbar-search').fill('hello');
 
   // Wait past the 300ms debounce.
   await bPage.waitForTimeout(450);
@@ -108,12 +109,14 @@ test('search overlay: type hello, see highlighted result, click → ?msg=', asyn
     await expect(block).toContainText(`# ${general.name}`);
   }
 
-  // Click → navigates with ?msg= and closes the overlay.
+  // Click → navigates with ?msg= and collapses the dropdown. The
+  // topbar input itself stays mounted (it lives in the chat chrome),
+  // only the results dropdown goes away.
   await pubResult.click();
   await bPage.waitForURL(/\?msg=/);
   expect(bPage.url()).toContain(`/w/${workspace.slug}/${general.name}`);
   expect(bPage.url()).toContain('?msg=');
-  await expect(bPage.getByTestId('search-input')).toHaveCount(0);
+  await expect(bPage.getByTestId('search-dropdown')).toHaveCount(0);
 
   await bPage.close();
   await aCtx.close();

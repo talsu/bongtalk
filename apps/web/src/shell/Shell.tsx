@@ -13,7 +13,6 @@ import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { ToastViewport } from '../design-system/primitives';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
-import { SearchOverlay } from '../features/search/SearchOverlay';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
 
@@ -128,7 +127,6 @@ export function Shell(): JSX.Element {
       ) : null}
       <CommandPalette />
       <ShortcutHelp />
-      <SearchOverlay />
       <FeedbackDialog />
       <ToastViewport />
     </div>

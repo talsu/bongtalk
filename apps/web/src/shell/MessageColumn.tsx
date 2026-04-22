@@ -9,6 +9,7 @@ import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
 import { Icon, Tooltip } from '../design-system/primitives';
+import { SearchInput } from '../features/search/SearchInput';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
 import type { UnreadChannelSummary } from '../features/channels/useUnread';
@@ -28,6 +29,7 @@ type Props = {
  */
 export function MessageColumn({
   workspaceId,
+  workspaceSlug,
   channelId,
   channelName,
   channelTopic,
@@ -35,7 +37,6 @@ export function MessageColumn({
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
-  const setOpenModal = useUI((s) => s.setOpenModal);
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId);
   const memberCount = members?.members.length ?? 0;
@@ -135,15 +136,7 @@ export function MessageColumn({
           </h2>
           {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
           <div className="ml-auto flex items-center gap-[var(--s-3)]">
-            <input
-              data-testid="topbar-search"
-              readOnly
-              onFocus={() => setOpenModal('search')}
-              onClick={() => setOpenModal('search')}
-              placeholder="검색"
-              aria-label="메시지 검색"
-              className="qf-input h-topbar-search w-topbar-search text-[length:var(--fs-13)]"
-            />
+            <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
             <Tooltip label="곧 제공 예정" side="bottom">
               <button
                 type="button"
