@@ -47,7 +47,7 @@ export function MobileDrawer({
         data-testid={testId}
         style={{ width: '86%', maxWidth: '360px', boxShadow: 'var(--elev-3)' }}
         className={cn(
-          'absolute top-0 bottom-0 bg-bg-panel overflow-y-auto',
+          'absolute top-0 bottom-0 bg-bg-subtle overflow-y-auto',
           side === 'left' ? 'left-0' : 'right-0',
         )}
       >
