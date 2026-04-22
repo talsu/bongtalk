@@ -1,26 +1,32 @@
 import { create } from 'zustand';
 
 /**
- * Composer drafts keyed by channel id. Keeping the draft in memory (not
- * localStorage) so it survives channel-switches in a single session but
- * doesn't grow unboundedly across logins.
+ * Composer drafts keyed by channel id + (optionally) thread root id.
+ * Keeping the draft in memory (not localStorage) so it survives channel
+ * switches / thread panel close-reopen in a single session without
+ * growing unboundedly across logins.
+ *
+ * Thread reply drafts use `thread:<rootId>` as their key so channel
+ * drafts and thread drafts never collide.
  */
 type ComposeState = {
   drafts: Record<string, string>;
-  getDraft: (channelId: string) => string;
-  setDraft: (channelId: string, content: string) => void;
-  clearDraft: (channelId: string) => void;
+  getDraft: (key: string) => string;
+  setDraft: (key: string, content: string) => void;
+  clearDraft: (key: string) => void;
 };
 
 export const useCompose = create<ComposeState>((set, get) => ({
   drafts: {},
-  getDraft: (channelId) => get().drafts[channelId] ?? '',
-  setDraft: (channelId, content) => set((s) => ({ drafts: { ...s.drafts, [channelId]: content } })),
-  clearDraft: (channelId) =>
+  getDraft: (key) => get().drafts[key] ?? '',
+  setDraft: (key, content) => set((s) => ({ drafts: { ...s.drafts, [key]: content } })),
+  clearDraft: (key) =>
     set((s) => {
-      if (!(channelId in s.drafts)) return s;
-      const { [channelId]: _drop, ...rest } = s.drafts;
+      if (!(key in s.drafts)) return s;
+      const { [key]: _drop, ...rest } = s.drafts;
       void _drop;
       return { drafts: rest };
     }),
 }));
+
+export const threadDraftKey = (rootId: string): string => `thread:${rootId}`;
