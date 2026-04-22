@@ -1,5 +1,6 @@
 import * as RDialog from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
+import { Icon } from './Icon';
 
 /**
  * Reusable full-viewport settings popup.
@@ -43,7 +44,7 @@ export function SettingsOverlay({
             onClick={onClose}
             className="qf-settings-overlay__close"
           >
-            ✕
+            <Icon name="x" size="md" />
           </button>
           {children}
         </RDialog.Content>

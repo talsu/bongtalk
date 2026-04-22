@@ -8,6 +8,7 @@ import {
   DropdownTrigger,
   DropdownContent,
   DropdownItem,
+  Icon,
 } from '../../design-system/primitives';
 import { EmojiPicker } from '../reactions/EmojiPicker';
 import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
@@ -173,7 +174,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
                 onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
                 className="text-text-muted hover:text-text-strong"
               >
-                ✕
+                <Icon name="x" size="sm" />
               </button>
             </li>
           ))}
@@ -217,18 +218,27 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
                 aria-label="첨부 및 기타 작업"
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                +
+                <Icon name="plus-circle" size="md" />
               </button>
             </DropdownTrigger>
             <DropdownContent align="start" side="top">
               <DropdownItem onSelect={() => fileInputRef.current?.click()}>
-                <span data-testid="composer-attach-file">📎 파일 업로드</span>
+                <span
+                  data-testid="composer-attach-file"
+                  className="inline-flex items-center gap-[var(--s-2)]"
+                >
+                  <Icon name="attach" size="sm" />
+                  파일 업로드
+                </span>
               </DropdownItem>
               {/* Placeholder for future extensions (voice memo, poll,
                   slash commands…). Keeping the dropdown here means the
                   later additions just append items. */}
               <DropdownItem disabled>
-                <span className="text-text-muted">🎙 음성 메모 — 곧 지원</span>
+                <span className="inline-flex items-center gap-[var(--s-2)] text-text-muted">
+                  <Icon name="mic" size="sm" />
+                  음성 메모 — 곧 지원
+                </span>
               </DropdownItem>
             </DropdownContent>
           </DropdownRoot>
@@ -282,7 +292,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
             onClick={() => setEmojiOpen((v) => !v)}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm self-end"
           >
-            😀
+            <Icon name="emoji" size="md" />
           </button>
           {emojiOpen ? (
             <EmojiPicker

@@ -1,0 +1,31 @@
+/* qufox icon pack · usage:
+   <svg class="qf-icon"><use href="/design-system/icons.svg#qf-i-home"/></svg>
+   size via modifier: .qf-icon--sm (16px) .qf-icon--md (20px, default) .qf-icon--lg (24px) .qf-icon--xl (28px)
+   All icons are stroke-based, currentColor. Set color via CSS color property on parent. */
+
+.qf-icon {
+  width: 20px; height: 20px;
+  display: inline-block;
+  flex-shrink: 0;
+  color: currentColor;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.75;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  vertical-align: -0.2em;
+}
+
+.qf-icon--sm { width: 16px; height: 16px; stroke-width: 1.9; }
+.qf-icon--md { width: 20px; height: 20px; }
+.qf-icon--lg { width: 24px; height: 24px; stroke-width: 1.6; }
+.qf-icon--xl { width: 28px; height: 28px; stroke-width: 1.5; }
+
+/* Filled / solid variant — stroke same as fill for mass */
+.qf-icon--solid { fill: currentColor; stroke: none; }
+
+/* Accent color override */
+.qf-icon--accent { color: var(--accent); }
+.qf-icon--muted  { color: var(--text-muted); }
+.qf-icon--danger { color: var(--danger, #EF4444); }
+.qf-icon--ok     { color: var(--ok, #22C55E); }

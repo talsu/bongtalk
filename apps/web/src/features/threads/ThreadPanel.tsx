@@ -1,7 +1,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useMembers } from '../workspaces/useWorkspaces';
-import { Avatar } from '../../design-system/primitives';
+import { Avatar, Icon } from '../../design-system/primitives';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
 import { cn } from '../../lib/cn';
@@ -74,9 +74,7 @@ export function ThreadPanel({
   return (
     <aside data-testid="thread-panel" aria-label="스레드" className="qf-thread-panel">
       <header className="qf-thread-panel__header">
-        <span className="qf-thread-panel__icon" aria-hidden>
-          💬
-        </span>
+        <Icon name="thread" size="sm" className="qf-thread-panel__icon" />
         <div className="min-w-0 flex-1">
           <div className="qf-thread-panel__title">스레드</div>
           <div className="qf-thread-panel__sub">
@@ -91,7 +89,7 @@ export function ThreadPanel({
           aria-label="스레드 닫기"
           className="qf-thread-panel__close"
         >
-          ✕
+          <Icon name="x" size="sm" />
         </button>
       </header>
 

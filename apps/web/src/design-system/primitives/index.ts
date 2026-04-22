@@ -5,6 +5,8 @@ export { PresenceDot } from './PresenceDot';
 export { Tooltip, TooltipProvider } from './Tooltip';
 export { Dialog } from './Dialog';
 export { SettingsOverlay } from './SettingsOverlay';
+export { Icon } from './Icon';
+export type { IconName } from './Icon';
 export {
   DropdownRoot,
   DropdownTrigger,
