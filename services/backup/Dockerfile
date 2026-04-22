@@ -18,8 +18,12 @@ RUN apk add --no-cache \
 WORKDIR /app
 COPY scripts/backup /app/scripts/backup
 COPY scripts/workers /app/scripts/workers
+# task-023-D: ship the webhook heartbeat lint here so the existing
+# qufox-backup crond is the single cron host on the NAS. See
+# entrypoint.sh for the schedule entry.
+COPY scripts/deploy/tests /app/scripts/deploy/tests
 COPY services/backup/entrypoint.sh /entrypoint.sh
-RUN chmod +x /app/scripts/backup/*.sh /app/scripts/workers/*.sh /entrypoint.sh
+RUN chmod +x /app/scripts/backup/*.sh /app/scripts/workers/*.sh /app/scripts/deploy/tests/*.sh /entrypoint.sh
 
 ENV TZ=UTC \
     BACKUP_DIR=/backups \

@@ -104,6 +104,13 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-qufox-api}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY via scripts/setup/init-minio.sh}
       DATABASE_URL: postgresql://qufox:${POSTGRES_PASSWORD}@qufox-postgres-prod:5432/qufox?schema=public
+      # task-023-D: webhook heartbeat lint configuration. `QUFOX_AUDIT_PATH`
+      # points at the webhook's worktree-mounted audit.jsonl (see
+      # volumes). Alerts land in a sibling `heartbeat-alerts.log`.
+      QUFOX_AUDIT_PATH: /repo/.deploy/audit.jsonl
+      QUFOX_HEARTBEAT_ALERT_LOG: /repo/.deploy/heartbeat-alerts.log
+      QUFOX_HEARTBEAT_MAX_AGE_HOURS: ${WEBHOOK_HEARTBEAT_MAX_AGE_HOURS:-24}
+      WEBHOOK_HEARTBEAT_CRON: ${WEBHOOK_HEARTBEAT_CRON:-*/30 * * * *}
     volumes:
       - ${BACKUP_DIR:-/volume3/qufox-data/backups/qufox}:/backups
       # Postgres data dir — read-only, just for consistency spot-checks
@@ -116,6 +123,10 @@ services:
       # Docker socket so restore-test.sh can spin an ephemeral postgres
       # (+ minio-restore-test.sh an ephemeral minio).
       - /var/run/docker.sock:/var/run/docker.sock
+      # task-023-D: webhook audit log for heartbeat lint. Read-write
+      # because webhook-heartbeat.sh appends to
+      # .deploy/heartbeat-alerts.log when the audit.jsonl is stale.
+      - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}/.deploy:/repo/.deploy:rw
     networks: [internal]
 
 networks:
