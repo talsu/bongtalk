@@ -32,16 +32,39 @@ export class RoomManagerService {
       },
     });
 
+    // 033/034 DM follow-up: private channels (incl. workspace-less
+    // DIRECT) are admitted via USER-level ALLOW overrides, not
+    // workspace membership. Fetch every channel the user has a
+    // non-zero allowMask on so inbound DM events reach the socket.
+    const overrideChannels = await this.prisma.channelPermissionOverride.findMany({
+      where: {
+        principalType: 'USER',
+        principalId: userId,
+        allowMask: { gt: 0 },
+        channel: { deletedAt: null },
+      },
+      select: { channelId: true },
+    });
+
     const workspaceIds: string[] = [];
     const channelIds: string[] = [];
     const joined: string[] = [rooms.user(userId)];
+    const seenChannels = new Set<string>();
     for (const m of memberships) {
       workspaceIds.push(m.workspaceId);
       joined.push(rooms.workspace(m.workspaceId));
       for (const c of m.workspace.channels) {
+        if (seenChannels.has(c.id)) continue;
+        seenChannels.add(c.id);
         channelIds.push(c.id);
         joined.push(rooms.channel(c.id));
       }
+    }
+    for (const o of overrideChannels) {
+      if (seenChannels.has(o.channelId)) continue;
+      seenChannels.add(o.channelId);
+      channelIds.push(o.channelId);
+      joined.push(rooms.channel(o.channelId));
     }
     return { rooms: joined, workspaceIds, channelIds };
   }
