@@ -10,14 +10,10 @@ export const UserSchema = z.object({
 });
 export type User = z.infer<typeof UserSchema>;
 
-export const WorkspaceSchema = z.object({
-  id: UuidSchema,
-  name: z.string().min(1).max(64),
-  slug: z.string().min(2).max(64),
-  ownerId: UuidSchema,
-  createdAt: z.string().datetime(),
-});
-export type Workspace = z.infer<typeof WorkspaceSchema>;
+// task-031-A: Workspace + WorkspaceSchema are defined in ./workspace
+// and re-exported via `export * from './workspace'` below. The previous
+// duplicate here shadowed the richer schema (visibility + category
+// were missing from the type that 030 added).
 
 // Channel/ChannelType schemas were moved to `./channel.ts` in task-003 and
 // are re-exported at the bottom of this file.

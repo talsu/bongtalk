@@ -21,6 +21,7 @@ import {
   UpdateWorkspaceRequestSchema,
 } from '@qufox/shared-types';
 import { WorkspacesService } from './workspaces.service';
+import { RateLimitService } from '../auth/services/rate-limit.service';
 import { Roles } from './decorators/roles.decorator';
 import { AllowSoftDeleted } from './decorators/allow-soft-deleted.decorator';
 import { CurrentMember, CurrentMemberPayload } from './decorators/current-member.decorator';
@@ -32,7 +33,10 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 
 @Controller('workspaces')
 export class WorkspacesController {
-  constructor(private readonly workspaces: WorkspacesService) {}
+  constructor(
+    private readonly workspaces: WorkspacesService,
+    private readonly rateLimit: RateLimitService,
+  ) {}
 
   @Post()
   async create(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
@@ -70,6 +74,9 @@ export class WorkspacesController {
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
   ) {
+    // task-031-B: 5/min/user on PUBLIC join (abuse mitigation — a single
+    // account sweeping hundreds of public workspaces).
+    await this.rateLimit.enforce([{ key: `ws:join:${user.id}`, windowSec: 60, max: 5 }]);
     return this.workspaces.joinPublic(id, user.id);
   }
 
@@ -90,6 +97,11 @@ export class WorkspacesController {
     const parsed = UpdateWorkspaceRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    // task-031-B: 10/hour/workspace on visibility changes only. Keep the
+    // name/description PATCH path unthrottled since it's an everyday op.
+    if (parsed.data.visibility !== undefined) {
+      await this.rateLimit.enforce([{ key: `ws:visibility:${id}`, windowSec: 3600, max: 10 }]);
     }
     // task-030 reviewer B1: pass actor role so service can block ADMIN
     // attempts to flip visibility/category — OWNER-only.
