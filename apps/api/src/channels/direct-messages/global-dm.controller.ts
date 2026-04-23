@@ -15,9 +15,9 @@ import { DirectMessagesService, type DmListItem } from './direct-messages.servic
 
 /**
  * task-033-B: global DM endpoints under /me/dms. Same service as the
- * 027 /me/workspaces/:wsId/dms path but with workspaceId=null
- * (friend-gated, no workspace). The 027 controller is kept intact and
- * marked deprecated at the response header level.
+ * original workspace-scoped DM path but with workspaceId=null
+ * (friend-gated, no workspace). task-037-A removed the old
+ * workspace-scoped controller — this is the sole DM surface now.
  */
 @UseGuards(JwtAuthGuard)
 @Controller('me/dms')
