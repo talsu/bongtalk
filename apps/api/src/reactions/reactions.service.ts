@@ -55,7 +55,7 @@ export class ReactionsService {
   async add(
     messageId: string,
     channelId: string,
-    workspaceId: string,
+    workspaceId: string | null,
     userId: string,
     rawEmoji: string,
   ): Promise<{ emoji: string; count: number; byMe: true; created: boolean }> {
@@ -102,7 +102,7 @@ export class ReactionsService {
   async remove(
     messageId: string,
     channelId: string,
-    workspaceId: string,
+    workspaceId: string | null,
     userId: string,
     rawEmoji: string,
   ): Promise<void> {

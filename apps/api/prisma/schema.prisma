@@ -206,15 +206,19 @@ model Category {
 
 model Channel {
   id          String      @id @default(uuid()) @db.Uuid
-  // task-033 note: Global DM (workspaceId-agnostic) was planned to
-  // drop NOT NULL here, but the cascade through 10+ downstream
-  // services (ACL / attachments / reactions / threads) would balloon
-  // this task. Kept NOT NULL for now; Global DM surface in 033 uses
-  // the user's FIRST workspace as the implicit host to preserve the
-  // invariant. TODO(task-033-follow-nullable-workspace) tracks the
-  // proper cleanup that widens every channel-carrying service to
-  // accept `workspaceId: string | null`.
-  workspaceId String      @db.Uuid
+  // task-034-A: workspaceId is nullable — DIRECT channels live in the
+  // global DM scope (no parent workspace). The DB CHECK in the
+  // migration enforces "(type='DIRECT') OR (workspaceId IS NOT NULL)"
+  // so non-DIRECT rows always have a workspace. The OR is intentionally
+  // NOT XOR: 027-era DIRECT rows with a host workspaceId stay legal
+  // for back-compat.
+  // A partial UNIQUE index (task-034 reviewer HIGH fix) enforces
+  // (name) uniqueness in the null-workspace DIRECT subset — postgres
+  // treats NULL as distinct in standard unique indexes, so the plain
+  // @@unique([workspaceId, name]) below doesn't close the
+  // createOrGet race on its own.
+  // Pre-migration prod audit: 0 DIRECT rows, so no backfill needed.
+  workspaceId String?     @db.Uuid
   categoryId  String?     @db.Uuid
   name        String
   type        ChannelType @default(TEXT)
@@ -226,7 +230,7 @@ model Channel {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  workspace   Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   category    Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   messages    Message[]
   attachments Attachment[]

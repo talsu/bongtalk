@@ -95,12 +95,15 @@ export class S3Service {
    * is the authoritative identity, the filename is for download UX.
    */
   buildKey(
-    workspaceId: string,
+    workspaceId: string | null,
     channelId: string,
     attachmentId: string,
     originalName: string,
   ): string {
-    return `${workspaceId}/${channelId}/${attachmentId}/${sanitizeFilename(originalName)}`;
+    // task-034-A: DIRECT channels have no parent workspace; route them
+    // under a __dm__ prefix so the S3 key space stays collision-free.
+    const prefix = workspaceId ?? '__dm__';
+    return `${prefix}/${channelId}/${attachmentId}/${sanitizeFilename(originalName)}`;
   }
 
   async presignPut(key: string, contentType: string, contentLength: number): Promise<string> {
