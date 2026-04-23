@@ -206,15 +206,13 @@ model Category {
 
 model Channel {
   id          String      @id @default(uuid()) @db.Uuid
-  // task-033 note: Global DM (workspaceId-agnostic) was planned to
-  // drop NOT NULL here, but the cascade through 10+ downstream
-  // services (ACL / attachments / reactions / threads) would balloon
-  // this task. Kept NOT NULL for now; Global DM surface in 033 uses
-  // the user's FIRST workspace as the implicit host to preserve the
-  // invariant. TODO(task-033-follow-nullable-workspace) tracks the
-  // proper cleanup that widens every channel-carrying service to
-  // accept `workspaceId: string | null`.
-  workspaceId String      @db.Uuid
+  // task-034-A: workspaceId is nullable — DIRECT channels live in the
+  // global DM scope (no parent workspace). The DB CHECK in the
+  // migration enforces the invariant "type='DIRECT' XOR workspaceId
+  // IS NOT NULL" so non-DIRECT rows are still required to have a
+  // workspace. Pre-migration audit: 0 DIRECT rows on prod, so no
+  // backfill needed.
+  workspaceId String?     @db.Uuid
   categoryId  String?     @db.Uuid
   name        String
   type        ChannelType @default(TEXT)
@@ -226,7 +224,7 @@ model Channel {
   createdAt   DateTime    @default(now())
   updatedAt   DateTime    @updatedAt
 
-  workspace   Workspace                   @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace   Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   category    Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   messages    Message[]
   attachments Attachment[]

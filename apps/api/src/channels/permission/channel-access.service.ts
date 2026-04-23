@@ -28,9 +28,24 @@ export class ChannelAccessService {
    * `WorkspaceMemberGuard` upstream.
    */
   async resolveEffective(
-    channel: { id: string; workspaceId: string; isPrivate: boolean },
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
   ): Promise<number> {
+    // task-034-A: DIRECT channels have workspaceId=null. Access is
+    // expressed solely via ChannelPermissionOverride (USER rows the
+    // DirectMessagesService creates) — skip the workspace-member gate.
+    if (channel.workspaceId === null) {
+      const overrides = await this.prisma.channelPermissionOverride.findMany({
+        where: { channelId: channel.id, principalType: 'USER', principalId: userId },
+      });
+      let allow = 0;
+      let deny = 0;
+      for (const o of overrides) {
+        allow |= o.allowMask;
+        deny |= o.denyMask;
+      }
+      return allow & ~deny;
+    }
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
       select: { role: true },
@@ -68,7 +83,7 @@ export class ChannelAccessService {
    * `FORBIDDEN` so the E2E can distinguish 404-style from 403-style.
    */
   async requirePermission(
-    channel: { id: string; workspaceId: string; isPrivate: boolean },
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
     required: Permission,
   ): Promise<void> {
@@ -83,7 +98,7 @@ export class ChannelAccessService {
 
   /** Shortcut for the visibility check that the URL-path guard runs. */
   async requireVisibility(
-    channel: { id: string; workspaceId: string; isPrivate: boolean },
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
   ): Promise<void> {
     if (!channel.isPrivate) return;

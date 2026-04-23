@@ -234,25 +234,61 @@ export class DirectMessagesService {
         friendship?.status === 'BLOCKED' ? 'cannot DM: blocked' : 'cannot DM: not friends yet',
       );
     }
-    // Find a workspace both users belong to (the contract calls for
-    // global DM = no workspace, but schema keeps Channel.workspaceId
-    // NOT NULL; use the first shared workspace as the implicit host).
-    const shared = await this.prisma.workspaceMember.findFirst({
-      where: {
-        userId: meId,
-        workspace: {
-          members: { some: { userId: otherUserId } },
-          deletedAt: null,
-        },
-      },
-      select: { workspaceId: true },
+    // task-034-A: Channel.workspaceId is nullable now. Global DM is a
+    // DIRECT channel with no workspace. Reuse the createOrGet path by
+    // passing null workspaceId — the service skips the workspace-
+    // member gate when workspaceId is null.
+    return this.createOrGetWorkspaceless(meId, otherUserId);
+  }
+
+  private async createOrGetWorkspaceless(
+    meId: string,
+    otherUserId: string,
+  ): Promise<{ channelId: string; created: boolean }> {
+    const name = this.channelName(meId, otherUserId);
+    const existing = await this.prisma.channel.findFirst({
+      where: { workspaceId: null, name, type: 'DIRECT', deletedAt: null },
+      select: { id: true },
     });
-    if (!shared) {
-      throw new DomainError(
-        ErrorCode.FRIEND_NOT_FOUND,
-        'no shared workspace to host the DM channel (task-033 follow)',
-      );
+    if (existing) return { channelId: existing.id, created: false };
+
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const ch = await tx.channel.create({
+          data: {
+            workspaceId: null,
+            name,
+            type: 'DIRECT',
+            isPrivate: true,
+            topic: null,
+            position: 0,
+            categoryId: null,
+          },
+        });
+        for (const uid of [meId, otherUserId]) {
+          await tx.channelPermissionOverride.create({
+            data: {
+              channelId: ch.id,
+              principalType: 'USER',
+              principalId: uid,
+              allowMask: DM_ALLOW_MASK,
+              denyMask: 0,
+            },
+          });
+        }
+        return ch;
+      });
+      return { channelId: created.id, created: true };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'P2002') {
+        const winner = await this.prisma.channel.findFirst({
+          where: { workspaceId: null, name, type: 'DIRECT', deletedAt: null },
+          select: { id: true },
+        });
+        if (winner) return { channelId: winner.id, created: false };
+      }
+      throw err;
     }
-    return this.createOrGet(shared.workspaceId, meId, otherUserId);
   }
 }

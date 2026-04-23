@@ -30,7 +30,7 @@ const ALLOWED_MIME: Record<string, AttachmentKind> = {
 export interface PresignUploadInput {
   clientAttachmentId: string;
   channelId: string;
-  workspaceId: string;
+  workspaceId: string | null;
   uploaderId: string;
   mime: string;
   sizeBytes: number;
