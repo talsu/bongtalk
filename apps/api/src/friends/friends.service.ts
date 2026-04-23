@@ -85,33 +85,41 @@ export class FriendsService {
       }
       throw new DomainError(ErrorCode.FRIEND_REQUEST_DUPLICATE, 'already requested');
     }
-    const acceptedCount = await this.prisma.friendship.count({
-      where: {
-        status: 'ACCEPTED',
-        OR: [{ requesterId: meId }, { addresseeId: meId }],
-      },
-    });
-    if (acceptedCount >= FRIEND_CAP) {
-      throw new DomainError(ErrorCode.FRIEND_CAP_REACHED, `friend cap ${FRIEND_CAP} reached`);
-    }
+    // task-037-C (closes 032-follow-cap-atomicity): count + create
+    // inside a single Serializable transaction so concurrent requests
+    // can't both pass the check and exceed the cap by one. Postgres
+    // upgrades the snapshot on first read, so a second tx that tries
+    // to read past this point will serialise behind the first.
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const row = await tx.friendship.create({
-          data: { requesterId: meId, addresseeId: target.id, status: 'PENDING' },
-        });
-        await this.outbox.record(tx, {
-          aggregateType: 'friendship',
-          aggregateId: row.id,
-          eventType: FRIEND_REQUEST_RECEIVED,
-          payload: {
-            friendshipId: row.id,
-            requesterId: meId,
-            addresseeId: target.id,
-            requesterUsername: target.username, // actually addressee's username for display symmetry
-          },
-        });
-        return row;
-      });
+      return await this.prisma.$transaction(
+        async (tx) => {
+          const acceptedCount = await tx.friendship.count({
+            where: {
+              status: 'ACCEPTED',
+              OR: [{ requesterId: meId }, { addresseeId: meId }],
+            },
+          });
+          if (acceptedCount >= FRIEND_CAP) {
+            throw new DomainError(ErrorCode.FRIEND_CAP_REACHED, `friend cap ${FRIEND_CAP} reached`);
+          }
+          const row = await tx.friendship.create({
+            data: { requesterId: meId, addresseeId: target.id, status: 'PENDING' },
+          });
+          await this.outbox.record(tx, {
+            aggregateType: 'friendship',
+            aggregateId: row.id,
+            eventType: FRIEND_REQUEST_RECEIVED,
+            payload: {
+              friendshipId: row.id,
+              requesterId: meId,
+              addresseeId: target.id,
+              requesterUsername: target.username,
+            },
+          });
+          return row;
+        },
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         // Lost race — re-read and return current state.
@@ -183,13 +191,29 @@ export class FriendsService {
       }
       // Other side is the requester — delete their row and insert a new
       // row with me as the blocker. Single transaction so there's no
-      // moment where the pair has no row.
-      return this.prisma.$transaction(async (tx) => {
-        await tx.friendship.delete({ where: { id: existing.id } });
-        return tx.friendship.create({
-          data: { requesterId: meId, addresseeId: targetUserId, status: 'BLOCKED' },
+      // moment where the pair has no row. task-037-C (closes 032-follow-
+      // block-flip-p2002): catch P2002 and fall back to a pure update
+      // of the original row so a concurrent double-block collapses to
+      // a single BLOCKED state instead of bubbling a 500.
+      try {
+        return await this.prisma.$transaction(async (tx) => {
+          await tx.friendship.delete({ where: { id: existing.id } });
+          return tx.friendship.create({
+            data: { requesterId: meId, addresseeId: targetUserId, status: 'BLOCKED' },
+          });
         });
-      });
+      } catch (e) {
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          const current = await this.findRow(meId, targetUserId);
+          if (current) {
+            return this.prisma.friendship.update({
+              where: { id: current.id },
+              data: { status: 'BLOCKED' },
+            });
+          }
+        }
+        throw e;
+      }
     }
     return this.prisma.friendship.create({
       data: { requesterId: meId, addresseeId: targetUserId, status: 'BLOCKED' },
