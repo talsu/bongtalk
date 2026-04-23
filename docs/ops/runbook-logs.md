@@ -42,6 +42,33 @@ editing `.env`.
 
 ## When an alert fires
 
+### `LokiHighErrorRate` (task-037-B)
+
+LogQL-backed rule evaluated by Loki's ruler. Fires when aggregate
+`{level="error"}` rate across all qufox containers crosses 10/min
+for 5 consecutive minutes.
+
+- Open the Grafana **qufox / logs** dashboard; the "Recent errors"
+  panel surfaces which container spiked.
+- Pull the last 5 minutes of error logs directly from Loki:
+  ```sh
+  curl -s -G http://127.0.0.1:3100/loki/api/v1/query_range \
+    --data-urlencode 'query=sum by (container) (rate({level="error"}[5m]))' \
+    --data-urlencode 'start='"$(date -u -d '5 minutes ago' +%s)000000000" \
+    --data-urlencode 'end='"$(date -u +%s)000000000" | jq
+  ```
+- Common root causes:
+  - Outbound dependency timeout (postgres / redis / minio) — cross-
+    check `/readyz` on each during the spike.
+  - Migration race after a deploy — the `auto-deploy done` line in
+    `.deploy/audit.jsonl` will be within ~60s of the spike start.
+  - Deploy drift — compare `main` SHA in `.deploy/audit.jsonl`
+    against the container image tag (`docker inspect qufox-api --format
+'{{ index .Config.Labels "org.opencontainers.image.revision" }}'`).
+- If Alertmanager is wired later (TODO(task-037-follow-alertmanager))
+  this alert will also route to the operator channel. For now the
+  dashboard panel is the visible signal.
+
 ### `LokiIngestionStalled`
 
 - Promtail may have crashed or lost docker.sock. Check
