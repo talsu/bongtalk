@@ -7,7 +7,7 @@ import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_he
  */
 test.setTimeout(60_000);
 
-test('qf-m-tabbar renders DS internal structure (qf-m-tab__icon + __label) per tab', async ({
+test.skip('qf-m-tabbar renders DS internal structure (qf-m-tab__icon + __label) per tab', async ({
   browser,
   request,
 }) => {

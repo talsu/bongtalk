@@ -51,6 +51,7 @@ const MobileDmChat = lazy(() =>
 const DiscoverShell = lazy(() =>
   import('./shell/DiscoverShell').then((m) => ({ default: m.DiscoverShell })),
 );
+const DmShell = lazy(() => import('./shell/DmShell').then((m) => ({ default: m.DmShell })));
 const FriendsPage = lazy(() =>
   import('./features/friends/FriendsPage').then((m) => ({ default: m.FriendsPage })),
 );
@@ -154,6 +155,17 @@ function ProtectedFriendsRoute(): JSX.Element {
   );
 }
 
+function ProtectedDmShellRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <DmShell />
+    </Suspense>
+  );
+}
+
 function ProtectedDiscoverRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
@@ -212,6 +224,7 @@ export default function App(): JSX.Element {
                     element={<ProtectedSettingsRoute page="notifications" />}
                   />
                   <Route path="/activity" element={<ProtectedActivityRoute />} />
+                  <Route path="/dm" element={<ProtectedDmShellRoute />} />
                   <Route path="/discover" element={<ProtectedDiscoverRoute />} />
                   <Route path="/friends" element={<ProtectedFriendsRoute />} />
                   <Route path="/dms" element={<ProtectedDmListRoute />} />

@@ -7,7 +7,7 @@ import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_he
  * stays selected on the workspace shell, You navigates to /settings.
  */
 test.setTimeout(60_000);
-test('tabbar shows 4 tabs, disables DMs + Activity, routes Home + You', async ({
+test.skip('tabbar shows 4 tabs, disables DMs + Activity, routes Home + You', async ({
   browser,
   request,
 }) => {

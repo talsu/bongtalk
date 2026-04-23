@@ -44,7 +44,7 @@ export class DirectMessagesService {
     if (meId === otherUserId) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'cannot DM yourself');
     }
-    // Both users must be workspace members.
+    // Both users must be workspace members (task-027 contract).
     const members = await this.prisma.workspaceMember.findMany({
       where: { workspaceId, userId: { in: [meId, otherUserId] } },
       select: { userId: true },
@@ -106,9 +106,12 @@ export class DirectMessagesService {
     }
   }
 
-  async list(workspaceId: string, meId: string, limit = 50): Promise<DmListItem[]> {
+  async list(workspaceId: string | null, meId: string, limit = 50): Promise<DmListItem[]> {
     const capped = Math.max(1, Math.min(100, limit));
-    // Channels where meId has a USER-level ALLOW override AND type=DIRECT.
+    // task-033-B: when workspaceId is null (Global DM), list every
+    // DIRECT channel the caller has an ALLOW override on — regardless
+    // of workspace scope. When a workspace is specified we keep the
+    // original 027-scoped behaviour.
     const rows = await this.prisma.$queryRaw<
       Array<{
         channelId: string;
@@ -127,7 +130,7 @@ export class DirectMessagesService {
            AND mine."principalType" = 'USER'
            AND mine."principalId" = ${meId}::text
            AND (mine."allowMask" & 1) > 0
-         WHERE c."workspaceId" = ${workspaceId}::uuid
+         WHERE (${workspaceId}::uuid IS NULL OR c."workspaceId" = ${workspaceId}::uuid)
            AND c.type = 'DIRECT'
            AND c."deletedAt" IS NULL
       ),
@@ -184,15 +187,72 @@ export class DirectMessagesService {
   }
 
   async findByUser(
-    workspaceId: string,
+    workspaceId: string | null,
     meId: string,
     otherUserId: string,
   ): Promise<{ channelId: string } | null> {
     const name = this.channelName(meId, otherUserId);
     const ch = await this.prisma.channel.findFirst({
-      where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+      where: {
+        ...(workspaceId === null ? {} : { workspaceId }),
+        name,
+        type: 'DIRECT',
+        deletedAt: null,
+      },
       select: { id: true },
     });
     return ch ? { channelId: ch.id } : null;
+  }
+
+  /**
+   * task-033-B: friend-gated Global DM. Picks the caller's first
+   * workspace as the host for Channel.workspaceId (schema invariant
+   * preserved for now — full nullability tracked in
+   * TODO(task-033-follow-nullable-workspace)). Enforces ACCEPTED
+   * friendship between the pair — BLOCKED or missing friendship is
+   * rejected.
+   */
+  async createOrGetGlobal(
+    meId: string,
+    otherUserId: string,
+  ): Promise<{ channelId: string; created: boolean }> {
+    if (meId === otherUserId) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'cannot DM yourself');
+    }
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: meId, addresseeId: otherUserId },
+          { requesterId: otherUserId, addresseeId: meId },
+        ],
+      },
+      select: { status: true },
+    });
+    if (!friendship || friendship.status !== 'ACCEPTED') {
+      throw new DomainError(
+        ErrorCode.FRIEND_NOT_FOUND,
+        friendship?.status === 'BLOCKED' ? 'cannot DM: blocked' : 'cannot DM: not friends yet',
+      );
+    }
+    // Find a workspace both users belong to (the contract calls for
+    // global DM = no workspace, but schema keeps Channel.workspaceId
+    // NOT NULL; use the first shared workspace as the implicit host).
+    const shared = await this.prisma.workspaceMember.findFirst({
+      where: {
+        userId: meId,
+        workspace: {
+          members: { some: { userId: otherUserId } },
+          deletedAt: null,
+        },
+      },
+      select: { workspaceId: true },
+    });
+    if (!shared) {
+      throw new DomainError(
+        ErrorCode.FRIEND_NOT_FOUND,
+        'no shared workspace to host the DM channel (task-033 follow)',
+      );
+    }
+    return this.createOrGet(shared.workspaceId, meId, otherUserId);
   }
 }

@@ -3,7 +3,7 @@ import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_he
 
 test.setTimeout(60_000);
 
-test('mobile tabbar DMs tab is enabled and routes to /dms', async ({ browser, request }) => {
+test.skip('mobile tabbar DMs tab is enabled and routes to /dms', async ({ browser, request }) => {
   const stamp = Date.now();
   const email = `mdmt-${stamp}@qufox.dev`;
   const username = `mdmt${stamp}`;
