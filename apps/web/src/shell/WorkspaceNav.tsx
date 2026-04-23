@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { Icon, Tooltip } from '../design-system/primitives';
 import { BrandMark } from '../design-system/brand/BrandMark';
 import { useWorkspaceUnreadTotals } from '../features/workspaces/useUnreadTotals';
+import { CreateWorkspaceDialog } from '../features/workspaces/CreateWorkspaceDialog';
 
 type Props = {
   workspaces: Array<Pick<Workspace, 'id' | 'name' | 'slug'>>;
@@ -18,6 +19,11 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
       m.set(t.workspaceId, { count: t.unreadCount, mention: t.hasMention });
     return m;
   }, [totals]);
+
+  // Workspace creation moved from the /w/new page to a DS Dialog that
+  // opens in place — no forced-create-on-signup flow means this is the
+  // only entry point users regularly see.
+  const [createOpen, setCreateOpen] = useState(false);
 
   return (
     <nav aria-label="워크스페이스" data-testid="workspace-nav" className="qf-serverlist">
@@ -72,15 +78,17 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
         </Link>
       </Tooltip>
       <Tooltip label="새 워크스페이스" side="right">
-        <Link
-          to="/w/new"
+        <button
+          type="button"
           data-testid="ws-nav-new"
           aria-label="워크스페이스 추가"
+          onClick={() => setCreateOpen(true)}
           className="qf-server-btn text-success"
         >
           +
-        </Link>
+        </button>
       </Tooltip>
+      <CreateWorkspaceDialog open={createOpen} onOpenChange={setCreateOpen} />
     </nav>
   );
 }
