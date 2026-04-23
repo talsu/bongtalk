@@ -148,6 +148,33 @@ export class S3Service {
     }
   }
 
+  /**
+   * task-038-B: fetch the first N bytes of an object for magic-byte
+   * validation on finalize. Costs one range GET (16 bytes in practice);
+   * uses the internal client because we pay no egress and want the
+   * fastest path. Returns null on NotFound (treat as caller's choice —
+   * most paths already HEAD'd before this).
+   */
+  async getObjectRange(key: string, end: number): Promise<Uint8Array | null> {
+    this.requireReady();
+    try {
+      const result = await this.internalClient.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key, Range: `bytes=0-${end}` }),
+      );
+      const body = result.Body;
+      if (!body) return new Uint8Array(0);
+      // AWS SDK v3 Node streams expose transformToByteArray().
+      const bytes = await (
+        body as { transformToByteArray: () => Promise<Uint8Array> }
+      ).transformToByteArray();
+      return bytes;
+    } catch (err) {
+      if (err instanceof NotFound || err instanceof NoSuchKey) return null;
+      this.logger.warn(`getObjectRange failed key=${key} err=${String(err).slice(0, 200)}`);
+      throw err;
+    }
+  }
+
   async deleteObject(key: string): Promise<void> {
     this.requireReady();
     try {

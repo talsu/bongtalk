@@ -56,23 +56,29 @@ fi
 : "${S3_ACCESS_KEY_ID:?S3_ACCESS_KEY_ID required}"
 : "${S3_SECRET_ACCESS_KEY:?S3_SECRET_ACCESS_KEY required}"
 
+# task-038-A follow: Prisma's DATABASE_URL carries `?schema=public`
+# which libpq rejects ("invalid URI query parameter"). psql only needs
+# the base URL; strip the query string before any psql invocation.
+PGURL="${DATABASE_URL%%\?*}"
+
 # Fetch orphan candidates. Psql in the alpine image is available via
 # postgresql16-client. DATABASE_URL carries the creds.
-CANDIDATES=$(psql "$DATABASE_URL" -At -F '|' -c \
+CANDIDATES=$(psql "$PGURL" -At -F '|' -c \
   'SELECT id, "storageKey" FROM "Attachment"
    WHERE "finalizedAt" IS NULL
      AND "createdAt" < NOW() - INTERVAL '"'"'24 hours'"'"'
    LIMIT 500')
 
-if [[ -z "$CANDIDATES" ]]; then
-  log "no orphans"
-  exit 0
-fi
-
-COUNT=0
 export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION="${S3_REGION:-us-east-1}"
+
+# task-038-A: "no attachment orphans" no longer short-circuits the
+# script — the emoji sweep below must run regardless.
+COUNT=0
+if [[ -z "$CANDIDATES" ]]; then
+  log "no attachment orphans"
+fi
 
 while IFS='|' read -r ID KEY; do
   [[ -z "$ID" ]] && continue
@@ -89,7 +95,7 @@ while IFS='|' read -r ID KEY; do
   # key is already absent, which s3api delete-object treats as 204).
   if aws --endpoint-url "$S3_ENDPOINT" s3api delete-object \
        --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1; then
-    psql "$DATABASE_URL" -c "DELETE FROM \"Attachment\" WHERE id = '$ID';" >/dev/null
+    psql "$PGURL" -c "DELETE FROM \"Attachment\" WHERE id = '$ID';" >/dev/null
     log "deleted id=$ID key=$KEY"
   else
     log "(warn) aws delete failed for $KEY — leaving DB row for next run"
@@ -100,4 +106,74 @@ if [[ "$DRY_RUN" -eq 1 ]]; then
   log "dry-run: $COUNT orphan(s) would be deleted"
 else
   log "ok: $COUNT orphan(s) deleted"
+fi
+
+# =============================================================
+# task-038-A: Custom emoji orphan sweep under <wsId>/emojis/
+# =============================================================
+# Attachments use "DB says orphan → delete object" because every
+# presign reserves a row. Custom emoji does the same, but the
+# presigned PUT (15 min TTL) can still land bytes AFTER we've
+# already deleted the row on a HEAD miss in finalize. Those
+# objects end up with no DB pointer → never GC'd.
+#
+# Strategy: list every object under `*/emojis/`, extract the
+# emojiId segment (`<uuid>-<filename>`), and delete any object
+# whose emojiId is not in CustomEmoji.id AND whose LastModified is
+# older than 7 days. The 7-day grace covers the presign-PUT-delay
+# window + any in-flight finalize retry.
+log "emoji-orphan-gc: begin prefix=emojis/"
+
+# Gather known emoji ids from DB (small table — cap 100 per
+# workspace, total realistically < 10k).
+KNOWN_IDS=$(psql "$PGURL" -At -c 'SELECT id FROM "CustomEmoji"')
+KNOWN_SET=$(printf '%s' "$KNOWN_IDS" | awk 'NF' | sort -u)
+
+# List every object under any `<wsId>/emojis/` path. MinIO +
+# path-style means one LIST per bucket gives us the whole set;
+# we filter client-side for `/emojis/` anywhere in the key.
+CUTOFF=$(date -u -d '7 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || \
+         date -u -v-7d +%Y-%m-%dT%H:%M:%SZ)
+
+EMOJI_COUNT=0
+EMOJI_DEL=0
+while IFS=$'\t' read -r LASTMOD KEY; do
+  [[ -z "$KEY" ]] && continue
+  [[ "$KEY" != *"/emojis/"* ]] && continue
+  EMOJI_COUNT=$((EMOJI_COUNT + 1))
+  # Extract `<emojiId>` from `<wsId>/emojis/<emojiId>-<safeName>`.
+  FNAME="${KEY##*/emojis/}"
+  EID="${FNAME%%-*}"
+  # Skip objects younger than the grace period.
+  [[ "$LASTMOD" > "$CUTOFF" ]] && continue
+  # Skip objects whose emojiId IS in the DB (legitimate live row).
+  if [[ -n "$KNOWN_SET" ]] && printf '%s\n' "$KNOWN_SET" | grep -qxF "$EID"; then
+    continue
+  fi
+  if [[ "$DRY_RUN" -eq 1 ]]; then
+    log "emoji dry-run: would delete key=$KEY (emojiId=$EID, lastModified=$LASTMOD)"
+    EMOJI_DEL=$((EMOJI_DEL + 1))
+    continue
+  fi
+  if aws --endpoint-url "$S3_ENDPOINT" s3api delete-object \
+       --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1; then
+    EMOJI_DEL=$((EMOJI_DEL + 1))
+    log "emoji deleted key=$KEY (emojiId=$EID)"
+  else
+    log "(warn) emoji delete failed for $KEY"
+  fi
+# TODO(task-038-follow-list-paginate): list-objects-v2 currently
+# returns only the first page (MinIO caps at 1000 objects). Once the
+# emoji bucket grows past 1000 the sweep silently misses the tail.
+# Fix by looping on NextContinuationToken, or switch to
+# `aws s3 ls --recursive` which paginates automatically.
+done < <(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
+              --bucket "$S3_BUCKET" \
+              --query 'Contents[].[LastModified,Key]' \
+              --output text 2>/dev/null || true)
+
+if [[ "$DRY_RUN" -eq 1 ]]; then
+  log "emoji dry-run: scanned=$EMOJI_COUNT would-delete=$EMOJI_DEL prefix=emojis/"
+else
+  log "emoji ok: scanned=$EMOJI_COUNT deleted=$EMOJI_DEL prefix=emojis/"
 fi

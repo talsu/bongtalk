@@ -69,6 +69,12 @@ export enum ErrorCode {
   CUSTOM_EMOJI_MIME_REJECTED = 'CUSTOM_EMOJI_MIME_REJECTED',
   CUSTOM_EMOJI_TOO_LARGE = 'CUSTOM_EMOJI_TOO_LARGE',
 
+  // task-038-B magic-byte mismatch between declared mime and actual
+  // file prefix. 400 so the client surfaces it as a validation error
+  // (not a content-type 415 — the client DID send a valid mime, it
+  // just doesn't match what they actually uploaded).
+  INVALID_MAGIC_BYTES = 'INVALID_MAGIC_BYTES',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -143,6 +149,7 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CUSTOM_EMOJI_CAP_REACHED]: 422,
   [ErrorCode.CUSTOM_EMOJI_MIME_REJECTED]: 415,
   [ErrorCode.CUSTOM_EMOJI_TOO_LARGE]: 413,
+  [ErrorCode.INVALID_MAGIC_BYTES]: 400,
 
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,

@@ -1,0 +1,43 @@
+name: ds-protection
+
+# task-038-C: design-system/ is the single source of truth for qf-* and
+# qf-m-* tokens/components/mobile/icons. Every UI task to date has been
+# deliberately built around NOT touching these files (see memory
+# `feedback_design_system_source_of_truth.md`). Accidental drift has
+# shipped exactly once (029 mobile.css link regression) and we never
+# want to repeat it.
+#
+# This workflow enforces the rule at PR review time: if a PR touches
+# any of the four DS files, the commit range must contain `[ds-ok]`
+# somewhere in the commit messages — an explicit author opt-in that
+# also shows up in `git log` for future forensics. Merge with the tag
+# = allowed, without = the check blocks the PR.
+
+on:
+  pull_request:
+    paths:
+      - 'apps/web/public/design-system/**'
+
+jobs:
+  guard:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Require [ds-ok] tag in commit message
+        run: |
+          set -euo pipefail
+          base_ref="${{ github.base_ref }}"
+          git fetch origin "$base_ref"
+          range="origin/${base_ref}..HEAD"
+          if git log "$range" --pretty=%B -- apps/web/public/design-system/ | grep -q '\[ds-ok\]'; then
+            echo "DS tag present — change approved."
+            exit 0
+          fi
+          echo "::error::DS files changed but no [ds-ok] tag found in commit message range $range."
+          echo "DS files (tokens.css / components.css / mobile.css / icons.css) are the"
+          echo "source of truth for qf-* / qf-m-* styling (memory:"
+          echo "feedback_design_system_source_of_truth.md). If this change is intentional,"
+          echo "amend the commit message(s) to include the literal string [ds-ok]."
+          exit 1
