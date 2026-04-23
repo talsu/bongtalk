@@ -1,9 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { renderMessageContent } from './parseContent';
+import type { CustomEmoji } from '../emojis/api';
 
-function toHtml(input: string): string {
-  const nodes = renderMessageContent(input);
+function toHtml(input: string, customs?: Map<string, CustomEmoji>): string {
+  const nodes = renderMessageContent(input, customs);
   return renderToStaticMarkup(<>{nodes}</>);
 }
 
@@ -52,5 +53,33 @@ describe('renderMessageContent', () => {
 
   it('empty content produces no nodes', () => {
     expect(renderMessageContent('')).toEqual([]);
+  });
+
+  it('task-037-D: replaces :name: with <img class="qf-emoji-custom"> when known', () => {
+    const map = new Map<string, CustomEmoji>([
+      [
+        'party_parrot',
+        {
+          id: 'e1',
+          name: 'party_parrot',
+          createdBy: 'u1',
+          createdAt: '2026-04-22T00:00:00Z',
+          url: 'https://cdn.example/party.gif',
+          urlExpiresAt: '2026-04-22T00:30:00Z',
+          sizeBytes: 1024,
+          mime: 'image/gif',
+        },
+      ],
+    ]);
+    const html = toHtml('hello :party_parrot: world', map);
+    expect(html).toContain('class="qf-emoji-custom"');
+    expect(html).toContain('src="https://cdn.example/party.gif"');
+    expect(html).toContain('alt=":party_parrot:"');
+  });
+
+  it('task-037-D: unknown :name: falls through as plain text', () => {
+    const html = toHtml('check :missing_emoji: here');
+    expect(html).not.toContain('qf-emoji-custom');
+    expect(html).toContain(':missing_emoji:');
   });
 });

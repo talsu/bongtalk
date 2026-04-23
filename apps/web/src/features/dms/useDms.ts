@@ -10,11 +10,15 @@ export interface DmListItem {
   unreadCount: number;
 }
 
+// task-037-A: all DM hooks now hit the Global DM surface at /me/dms.
+// The workspaceId argument is retained for call-site compatibility
+// but ignored — the server picks the implicit host via friendship.
+
 export function useDmList(workspaceId: string | undefined) {
   return useQuery<{ items: DmListItem[] }>({
-    queryKey: ['dm', 'list', workspaceId],
-    queryFn: () => apiRequest(`/me/workspaces/${workspaceId}/dms`),
-    enabled: !!workspaceId,
+    queryKey: ['dm', 'list', workspaceId ?? 'global'],
+    queryFn: () => apiRequest(`/me/dms`),
+    enabled: true,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
   });
@@ -22,9 +26,9 @@ export function useDmList(workspaceId: string | undefined) {
 
 export function useDmByUser(workspaceId: string | undefined, userId: string | undefined) {
   return useQuery<{ channelId: string | null }>({
-    queryKey: ['dm', 'by-user', workspaceId, userId],
-    queryFn: () => apiRequest(`/me/workspaces/${workspaceId}/dms/by-user/${userId}`),
-    enabled: !!workspaceId && !!userId,
+    queryKey: ['dm', 'by-user', workspaceId ?? 'global', userId],
+    queryFn: () => apiRequest(`/me/dms/by-user/${userId}`),
+    enabled: !!userId,
     staleTime: 60_000,
   });
 }
@@ -32,9 +36,9 @@ export function useDmByUser(workspaceId: string | undefined, userId: string | un
 export function useCreateOrGetDm(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation<{ channelId: string; created: boolean }, Error, { userId: string }>({
-    mutationFn: (body) => apiRequest(`/me/workspaces/${workspaceId}/dms`, { method: 'POST', body }),
+    mutationFn: (body) => apiRequest(`/me/dms`, { method: 'POST', body }),
     onSuccess: () => {
-      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
     },
   });
 }

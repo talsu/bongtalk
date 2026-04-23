@@ -48,7 +48,7 @@ test('DM channel is 403 CHANNEL_NOT_VISIBLE even to workspace OWNER', async ({ r
     });
   }
 
-  const dm = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aBody.accessToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });

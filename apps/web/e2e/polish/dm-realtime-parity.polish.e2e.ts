@@ -42,7 +42,7 @@ test('DM channel gets message append via channel-scoped list endpoint (parity wi
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
 
-  const dm = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aBody.accessToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });

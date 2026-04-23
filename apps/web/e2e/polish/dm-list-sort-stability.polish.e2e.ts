@@ -47,12 +47,12 @@ test('DM list re-orders by last-activity desc when new message arrives', async (
   }
 
   // Open two DMs; only p2 has a message, so p2 must appear first.
-  const dm1 = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm1 = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${meBody.accessToken}`, origin: ORIGIN },
     data: { userId: p1Body.user.id },
   });
   const dm1Ch = ((await dm1.json()) as { channelId: string }).channelId;
-  const dm2 = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm2 = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${meBody.accessToken}`, origin: ORIGIN },
     data: { userId: p2Body.user.id },
   });
@@ -63,7 +63,7 @@ test('DM list re-orders by last-activity desc when new message arrives', async (
     data: { idempotencyKey: `dmls-${stamp}`, content: 'ranking bump' },
   });
 
-  const list = await request.get(`${API}/me/workspaces/${wsId}/dms`, {
+  const list = await request.get(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${meBody.accessToken}`, origin: ORIGIN },
   });
   const body = (await list.json()) as { items: Array<{ channelId: string }> };

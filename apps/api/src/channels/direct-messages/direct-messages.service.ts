@@ -205,10 +205,9 @@ export class DirectMessagesService {
   }
 
   /**
-   * task-033-B: friend-gated Global DM. Picks the caller's first
-   * workspace as the host for Channel.workspaceId (schema invariant
-   * preserved for now — full nullability tracked in
-   * TODO(task-033-follow-nullable-workspace)). Enforces ACCEPTED
+   * task-033-B: friend-gated Global DM. Channel.workspaceId is NULL
+   * for global DMs (034-A widened the schema + 034 review added the
+   * partial UNIQUE on name under that subset). Enforces ACCEPTED
    * friendship between the pair — BLOCKED or missing friendship is
    * rejected.
    */

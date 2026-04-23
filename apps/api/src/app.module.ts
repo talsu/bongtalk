@@ -18,6 +18,7 @@ import { FriendsModule } from './friends/friends.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
+import { EmojisModule } from './emojis/emojis.module';
 import { SearchModule } from './search/search.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -44,6 +45,7 @@ import { ObservabilityModule } from './observability/observability.module';
     StorageModule,
     AttachmentsModule,
     ReactionsModule,
+    EmojisModule,
     SearchModule,
     FeedbackModule,
     NotificationsModule,

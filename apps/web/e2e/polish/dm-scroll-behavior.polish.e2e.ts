@@ -41,7 +41,7 @@ test('DM chat scrolls to bottom on mount; history prepend preserves anchor', asy
   await request.post(`${API}/invites/${invCode}/accept`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
-  const dm = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aBody.accessToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });
