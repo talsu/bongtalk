@@ -9,6 +9,7 @@ import { ChannelAccessService } from './permission/channel-access.service';
 import { ChannelAccessGuard } from './guards/channel-access.guard';
 import { DirectMessagesController } from './direct-messages/direct-messages.controller';
 import { DirectMessagesService } from './direct-messages/direct-messages.service';
+import { GlobalDmController } from './direct-messages/global-dm.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 
@@ -20,6 +21,7 @@ import { OutboxModule } from '../common/outbox/outbox.module';
     UnreadSummaryController,
     ChannelReadController,
     DirectMessagesController,
+    GlobalDmController,
   ],
   // Task-014-A: ChannelAccessService is the single source of truth for
   // channel ACL checks (private-channel visibility, permission-bit

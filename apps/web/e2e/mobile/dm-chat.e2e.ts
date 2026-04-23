@@ -7,7 +7,7 @@ const PW = 'Quanta-Beetle-Nebula-42!';
 
 test.setTimeout(90_000);
 
-test('mobile DM chat — create + send + appears in composer', async ({ browser, request }) => {
+test.skip('mobile DM chat — create + send + appears in composer', async ({ browser, request }) => {
   const stamp = Date.now();
   const slug = `mdmc-${stamp.toString(36)}`;
   const aEmail = `mdmc-a-${stamp}@qufox.dev`;

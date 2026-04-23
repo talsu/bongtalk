@@ -78,6 +78,13 @@ export function BottomBar(): JSX.Element {
             <span data-testid="presence-invisible-disabled">Invisible — 곧 제공 예정</span>
           </DropdownItem>
           <DropdownSeparator />
+          {/* task-033-H: Activity entry point from the desktop profile
+              menu. Mobile gets the same surface via the tabbar 활동 tab. */}
+          <DropdownItem asChild preventDefault={false}>
+            <Link to="/activity" data-testid="bottom-bar-activity" className="w-full">
+              Activity
+            </Link>
+          </DropdownItem>
           <DropdownItem asChild preventDefault={false}>
             <Link to="/settings" data-testid="bottom-bar-settings" className="w-full">
               Settings
