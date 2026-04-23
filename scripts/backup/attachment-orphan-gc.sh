@@ -162,6 +162,11 @@ while IFS=$'\t' read -r LASTMOD KEY; do
   else
     log "(warn) emoji delete failed for $KEY"
   fi
+# TODO(task-038-follow-list-paginate): list-objects-v2 currently
+# returns only the first page (MinIO caps at 1000 objects). Once the
+# emoji bucket grows past 1000 the sweep silently misses the tail.
+# Fix by looping on NextContinuationToken, or switch to
+# `aws s3 ls --recursive` which paginates automatically.
 done < <(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
               --bucket "$S3_BUCKET" \
               --query 'Contents[].[LastModified,Key]' \

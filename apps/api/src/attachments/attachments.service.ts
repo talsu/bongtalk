@@ -172,8 +172,16 @@ export class AttachmentsService {
     // rendered inline in messages, and `application/octet-stream` /
     // `video/*` get forced downloads, not inline rendering. If we start
     // auto-previewing arbitrary mimes, extend the mime list here.
+    // task-038 review H2: image/webp IS inline-rendered and was
+    // missing from the gate; added to the checked set with helper
+    // support for the RIFF/WEBP sentinel.
     const mimeLower = att.mime.toLowerCase();
-    if (mimeLower === 'image/png' || mimeLower === 'image/gif' || mimeLower === 'image/jpeg') {
+    if (
+      mimeLower === 'image/png' ||
+      mimeLower === 'image/gif' ||
+      mimeLower === 'image/jpeg' ||
+      mimeLower === 'image/webp'
+    ) {
       const head16 = await this.s3.getObjectRange(att.storageKey, 15);
       if (!head16 || !matchesMagic(head16, mimeLower as MagicSupportedMime)) {
         await this.s3.deleteObject(att.storageKey);
