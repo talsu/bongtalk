@@ -11,7 +11,13 @@ const UuidSchema = z.string().uuid();
  * global default; a specific workspaceId scopes to that workspace
  * and beats the global row on lookup.
  */
-export const NotificationEventTypeSchema = z.enum(['MENTION', 'REPLY', 'REACTION', 'DIRECT']);
+export const NotificationEventTypeSchema = z.enum([
+  'MENTION',
+  'REPLY',
+  'REACTION',
+  'DIRECT',
+  'FRIEND_REQUEST',
+]);
 export type NotificationEventType = z.infer<typeof NotificationEventTypeSchema>;
 
 export const NotificationChannelSchema = z.enum(['TOAST', 'BROWSER', 'BOTH', 'OFF']);

@@ -28,6 +28,7 @@ const HARDCODED_DEFAULTS: Record<NET, ResolvedChannel> = {
   REPLY: 'BOTH',
   REACTION: 'TOAST',
   DIRECT: 'BOTH',
+  FRIEND_REQUEST: 'BOTH',
 };
 
 const CACHE_TTL_MS = 5 * 60 * 1000;

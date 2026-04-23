@@ -48,6 +48,13 @@ enum NotificationEventType {
   REPLY
   REACTION
   DIRECT
+  FRIEND_REQUEST
+}
+
+enum FriendshipStatus {
+  PENDING
+  ACCEPTED
+  BLOCKED
 }
 
 enum NotificationChannel {
@@ -99,6 +106,8 @@ model User {
   feedback        Feedback[]
   notificationPreferences UserNotificationPreference[]
   activityReadStates      UserActivityReadState[]
+  friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
+  friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
 }
 
 model RefreshToken {
@@ -348,6 +357,27 @@ model UserChannelReadState {
 
   @@id([userId, channelId])
   @@index([channelId])
+}
+
+// task-032: Friendship — single row per directed pair. ACCEPTED +
+// BLOCKED collapse to one row (vs two symmetric ones) to keep unique
+// semantics tight: there can never be two ACCEPTED rows for the same
+// pair. Lookup must check both (requesterId, addresseeId) and
+// (addresseeId, requesterId).
+model Friendship {
+  id          String           @id @default(uuid()) @db.Uuid
+  requesterId String           @db.Uuid
+  addresseeId String           @db.Uuid
+  status      FriendshipStatus @default(PENDING)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  requester User @relation("FriendshipRequester", fields: [requesterId], references: [id], onDelete: Cascade)
+  addressee User @relation("FriendshipAddressee", fields: [addresseeId], references: [id], onDelete: Cascade)
+
+  @@unique([requesterId, addresseeId])
+  @@index([addresseeId, status])
+  @@index([requesterId, status])
 }
 
 // task-026: Activity inbox read state. Keyed per-user + per-activityKey
