@@ -197,7 +197,7 @@ export class ChannelsController {
 
   private shape(c: {
     id: string;
-    workspaceId: string;
+    workspaceId: string | null;
     categoryId: string | null;
     name: string;
     type: string;

@@ -20,14 +20,14 @@ export class ChannelAccessByIdGuard {
   constructor(private readonly access: ChannelAccessService) {}
 
   async requireRead(
-    channel: { id: string; workspaceId: string; isPrivate: boolean },
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
   ): Promise<void> {
     await this.access.requirePermission(channel, userId, Permission.READ);
   }
 
   async requireUpload(
-    channel: { id: string; workspaceId: string; isPrivate: boolean },
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
   ): Promise<void> {
     await this.access.requirePermission(channel, userId, Permission.UPLOAD_ATTACHMENT);
