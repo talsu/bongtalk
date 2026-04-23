@@ -11,8 +11,26 @@ services:
       POSTGRES_USER: qufox
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set in .env.prod}
       POSTGRES_DB: qufox
+    # task-036-D: enable WAL archiving for PITR. archive_command ships
+    # each closed WAL segment into /volume3/qufox-data/backups/pg-wal
+    # via the bind mount below. wal_level=replica is the minimum needed
+    # for archive_mode=on; the backup script (scripts/backup/pg-base-
+    # backup.sh) pairs this with a weekly pg_basebackup.
+    command:
+      - 'postgres'
+      - '-c'
+      - 'wal_level=replica'
+      - '-c'
+      - 'archive_mode=on'
+      - '-c'
+      - 'archive_command=test ! -f /wal-archive/%f && cp %p /wal-archive/%f'
+      - '-c'
+      - 'archive_timeout=300'
+      - '-c'
+      - 'max_wal_senders=3'
     volumes:
       - qufox-prod-pgdata:/var/lib/postgresql/data
+      - /volume3/qufox-data/backups/pg-wal:/wal-archive
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U qufox -d qufox']
       interval: 5s
