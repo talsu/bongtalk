@@ -14,6 +14,7 @@ export const HARDCODED_DEFAULTS: Record<NotificationEventType, NotificationChann
   REPLY: 'BOTH',
   REACTION: 'TOAST',
   DIRECT: 'BOTH',
+  FRIEND_REQUEST: 'BOTH',
 };
 
 export interface ResolvedDelivery {

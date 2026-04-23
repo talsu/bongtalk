@@ -12,7 +12,7 @@ import { PrismaService } from '../prisma/prisma.module';
  * mirrors me-mentions (public channels pass, OWNER sees all, else
  * ChannelPermissionOverride mask bit must be set).
  */
-export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct';
+export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct' | 'friend_request';
 
 export interface ActivityRow {
   activityKey: string;
@@ -38,6 +38,7 @@ export interface UnreadCounts {
   replies: number;
   reactions: number;
   directs: number;
+  friendRequests: number;
 }
 
 const DEFAULT_LIMIT = 25;
@@ -49,7 +50,7 @@ export class MeActivityService {
 
   async page(
     userId: string,
-    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs',
+    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs' | 'friend_requests',
     cursor: string | null,
     limit: number,
   ): Promise<ActivityPage> {
@@ -69,6 +70,7 @@ export class MeActivityService {
     const includeReply = filter === 'all' || filter === 'replies';
     const includeReaction = filter === 'all' || filter === 'reactions';
     const includeDirect = filter === 'all' || filter === 'directs';
+    const includeFriendRequest = filter === 'all' || filter === 'friend_requests';
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -186,6 +188,22 @@ export class MeActivityService {
           AND m."deletedAt" IS NULL
           AND m."authorId" <> ${userId}::uuid
       ),
+      friend_requests AS (
+        SELECT
+          ('friend_request:' || f.id::text) AS "activityKey",
+          'friend_request'::text            AS "kind",
+          NULL::uuid                        AS "workspaceId",
+          NULL::uuid                        AS "channelId",
+          f.id                              AS "messageId",
+          f."requesterId"                   AS "actorId",
+          u.username                        AS "snippet",
+          f."createdAt"
+        FROM "Friendship" f
+        JOIN "User" u ON u.id = f."requesterId"
+        WHERE ${includeFriendRequest}
+          AND f."addresseeId" = ${userId}::uuid
+          AND f.status = 'PENDING'
+      ),
       combined AS (
         SELECT * FROM mentions
         UNION ALL
@@ -194,6 +212,8 @@ export class MeActivityService {
         SELECT * FROM reactions
         UNION ALL
         SELECT * FROM directs
+        UNION ALL
+        SELECT * FROM friend_requests
       )
       SELECT
         combined.*,
@@ -294,6 +314,12 @@ export class MeActivityService {
          WHERE m."deletedAt" IS NULL
            AND m."authorId" <> ${userId}::uuid
       ),
+      unread_friend_requests AS (
+        SELECT 'friend_request'::text AS kind, ('friend_request:' || f.id::text) AS k
+          FROM "Friendship" f
+         WHERE f."addresseeId" = ${userId}::uuid
+           AND f.status = 'PENDING'
+      ),
       combined AS (
         SELECT * FROM unread_mentions
         UNION ALL
@@ -302,6 +328,8 @@ export class MeActivityService {
         SELECT * FROM unread_reactions
         UNION ALL
         SELECT * FROM unread_directs
+        UNION ALL
+        SELECT * FROM unread_friend_requests
       )
       SELECT combined.kind, COUNT(*)::bigint AS cnt
         FROM combined
@@ -312,13 +340,21 @@ export class MeActivityService {
        GROUP BY combined.kind
     `;
 
-    const counts: UnreadCounts = { total: 0, mentions: 0, replies: 0, reactions: 0, directs: 0 };
+    const counts: UnreadCounts = {
+      total: 0,
+      mentions: 0,
+      replies: 0,
+      reactions: 0,
+      directs: 0,
+      friendRequests: 0,
+    };
     for (const r of rows) {
       const n = Number(r.cnt);
       if (r.kind === 'mention') counts.mentions = n;
       if (r.kind === 'reply') counts.replies = n;
       if (r.kind === 'reaction') counts.reactions = n;
       if (r.kind === 'direct') counts.directs = n;
+      if (r.kind === 'friend_request') counts.friendRequests = n;
       counts.total += n;
     }
     return counts;
@@ -334,7 +370,7 @@ export class MeActivityService {
 
   async markAllRead(
     userId: string,
-    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs',
+    filter: 'all' | 'mentions' | 'replies' | 'reactions' | 'directs' | 'friend_requests',
   ): Promise<{ count: number }> {
     // Load the unread activityKeys for the filter, upsert each. Bulk
     // upsert via executeRaw keeps us under the round-trip cost.

@@ -1,8 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api';
 
-export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct';
-export type ActivityFilter = 'all' | 'mentions' | 'replies' | 'reactions' | 'directs';
+export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct' | 'friend_request';
+export type ActivityFilter =
+  | 'all'
+  | 'mentions'
+  | 'replies'
+  | 'reactions'
+  | 'directs'
+  | 'friend_requests';
 
 export interface ActivityRow {
   activityKey: string;
@@ -27,6 +33,7 @@ export interface UnreadCounts {
   replies: number;
   reactions: number;
   directs: number;
+  friendRequests: number;
 }
 
 export function useActivityList(filter: ActivityFilter) {
@@ -57,7 +64,14 @@ export function useMarkActivityRead() {
       // Optimistic: flip readAt + decrement counts.
       await qc.cancelQueries({ queryKey: ['me', 'activity'] });
       const previousByFilter: Record<string, ActivityPage | undefined> = {};
-      for (const f of ['all', 'mentions', 'replies', 'reactions', 'directs'] as const) {
+      for (const f of [
+        'all',
+        'mentions',
+        'replies',
+        'reactions',
+        'directs',
+        'friend_requests',
+      ] as const) {
         const key = ['me', 'activity', f];
         const prev = qc.getQueryData<ActivityPage>(key);
         previousByFilter[f] = prev;
@@ -84,6 +98,10 @@ export function useMarkActivityRead() {
             reactions:
               row.kind === 'reaction' ? Math.max(0, counts.reactions - 1) : counts.reactions,
             directs: row.kind === 'direct' ? Math.max(0, counts.directs - 1) : counts.directs,
+            friendRequests:
+              row.kind === 'friend_request'
+                ? Math.max(0, counts.friendRequests - 1)
+                : counts.friendRequests,
           });
         }
       }
