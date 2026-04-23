@@ -12,6 +12,7 @@ import {
 } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { ReactionBar } from '../reactions/ReactionBar';
+import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent } from './parseContent';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
@@ -45,6 +46,7 @@ export function MessageItem({
   onOpenThread,
 }: Props): JSX.Element {
   const badge = roleBadgeLabel(authorRole);
+  const customEmojis = useCustomEmojiLookup();
   const [editing, setEditing] = useState<string | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
   // The more-menu lives inside .qf-message__toolbar which the DS CSS
@@ -157,7 +159,7 @@ export function MessageItem({
             </div>
           ) : (
             <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
-              {renderMessageContent(msg.content ?? '')}
+              {renderMessageContent(msg.content ?? '', customEmojis.byName)}
               {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
               {onToggleReaction ? (
                 <ReactionBar
@@ -165,6 +167,11 @@ export function MessageItem({
                   pickerOpen={pickerOpen}
                   onPickerOpenChange={setPickerOpen}
                   onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
+                  customEmojis={customEmojis.list.map((ce) => ({
+                    id: ce.id,
+                    name: ce.name,
+                    url: ce.url,
+                  }))}
                 />
               ) : null}
             </div>

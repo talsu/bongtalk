@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { CustomEmoji } from '../emojis/api';
 
 /**
  * Minimal message content renderer — three rules only, chosen by the
@@ -7,6 +8,9 @@ import type { ReactNode } from 'react';
  *   1. Triple-backtick fenced blocks → <pre class="qf-codeblock"><code>…</code></pre>
  *   2. Single-backtick inline code   → <code class="qf-code-inline">…</code>
  *   3. @username mentions             → <span class="qf-mention">@username</span>
+ *   4. task-037-D custom emoji        → <img class="qf-emoji-custom"> for
+ *      `:name:` tokens that match a workspace emoji. Unknown shortcodes
+ *      fall through as plain text so deletes don't break old messages.
  *
  * Bold / italic / heading / list / link parsing is intentionally OUT —
  * importing a full markdown parser (markdown-it is ~40 KB gzipped) is
@@ -19,7 +23,10 @@ import type { ReactNode } from 'react';
  * parser can't emit markup the caller didn't intend. URLs inside
  * mentions / code are not auto-linked.
  */
-export function renderMessageContent(content: string): ReactNode[] {
+export function renderMessageContent(
+  content: string,
+  customEmojis?: Map<string, CustomEmoji>,
+): ReactNode[] {
   if (!content) return [];
 
   // Split on fenced code first so inline rules don't run inside blocks.
@@ -30,7 +37,9 @@ export function renderMessageContent(content: string): ReactNode[] {
   let match: RegExpExecArray | null;
   while ((match = fencePattern.exec(content)) !== null) {
     if (match.index > lastIndex) {
-      out.push(...renderInline(content.slice(lastIndex, match.index), `pre-${key++}`));
+      out.push(
+        ...renderInline(content.slice(lastIndex, match.index), `pre-${key++}`, customEmojis),
+      );
     }
     const lang = match[1];
     const body = match[2];
@@ -43,7 +52,7 @@ export function renderMessageContent(content: string): ReactNode[] {
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {
-    out.push(...renderInline(content.slice(lastIndex), `tail-${key++}`));
+    out.push(...renderInline(content.slice(lastIndex), `tail-${key++}`, customEmojis));
   }
   return out;
 }
@@ -55,7 +64,11 @@ export function renderMessageContent(content: string): ReactNode[] {
  * the user-creation validation in shared-types). Everything else is
  * plain text joined with <br> on newlines.
  */
-function renderInline(text: string, keyPrefix: string): ReactNode[] {
+function renderInline(
+  text: string,
+  keyPrefix: string,
+  customEmojis?: Map<string, CustomEmoji>,
+): ReactNode[] {
   const out: ReactNode[] = [];
   // Combined regex — alternation means we consume whichever comes first.
   // Mention regex matches the shared-types username rule `[a-zA-Z0-9_.-]+`
@@ -68,7 +81,12 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
   // swallowed into the href. Rich embed cards remain a backend follow-up
   // (OpenGraph scraper with SSRF guards); the DS `.qf-embed` card stays
   // unused until that ships.
-  const pattern = /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})|(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])/g;
+  //
+  // task-037-D: `:name:` custom emoji — same name charset the API
+  // validates (`[a-z0-9_]{2,32}`). Unknown names pass through as text
+  // so when an admin deletes an emoji the old messages still read.
+  const pattern =
+    /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})|(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])|:([a-z0-9_]{2,32}):/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   let idx = 0;
@@ -100,6 +118,28 @@ function renderInline(text: string, keyPrefix: string): ReactNode[] {
           {m[3]}
         </a>,
       );
+    } else if (m[4] !== undefined) {
+      const ce = customEmojis?.get(m[4]);
+      if (ce) {
+        out.push(
+          <img
+            key={`${keyPrefix}-e-${idx++}`}
+            src={ce.url}
+            alt={`:${ce.name}:`}
+            title={`:${ce.name}:`}
+            className="qf-emoji-custom"
+            style={{
+              display: 'inline-block',
+              width: 20,
+              height: 20,
+              verticalAlign: 'text-bottom',
+              objectFit: 'contain',
+            }}
+          />,
+        );
+      } else {
+        out.push(...splitLines(m[0], `${keyPrefix}-t-${idx++}`));
+      }
     }
     cursor = m.index + m[0].length;
   }

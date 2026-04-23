@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import type { ReactionSummary } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
-import { EmojiPicker } from './EmojiPicker';
+import { EmojiPicker, type CustomEmojiOption } from './EmojiPicker';
 
 type Props = {
   reactions: ReactionSummary[];
@@ -9,6 +9,8 @@ type Props = {
   /** Controlled picker state so the message toolbar can open it. */
   pickerOpen?: boolean;
   onPickerOpenChange?: (open: boolean) => void;
+  /** task-037-D workspace emoji pack forwarded to the picker. */
+  customEmojis?: CustomEmojiOption[];
 };
 
 export function ReactionBar({
@@ -16,6 +18,7 @@ export function ReactionBar({
   onToggle,
   pickerOpen: controlledOpen,
   onPickerOpenChange,
+  customEmojis,
 }: Props): JSX.Element | null {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -73,6 +76,7 @@ export function ReactionBar({
           }}
           onDismiss={() => setOpen(false)}
           isActive={(emoji) => reactions.find((r) => r.emoji === emoji)?.byMe ?? false}
+          customEmojis={customEmojis}
         />
       ) : null}
     </div>
