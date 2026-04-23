@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
@@ -35,12 +35,6 @@ const ActivityPage = lazy(() =>
 );
 const MobileActivity = lazy(() =>
   import('./shell/mobile/MobileActivity').then((m) => ({ default: m.MobileActivity })),
-);
-const DmListPage = lazy(() =>
-  import('./features/dms/DmListPage').then((m) => ({ default: m.DmListPage })),
-);
-const DmChatPage = lazy(() =>
-  import('./features/dms/DmChatPage').then((m) => ({ default: m.DmChatPage })),
 );
 const MobileDmList = lazy(() =>
   import('./shell/mobile/MobileDmList').then((m) => ({ default: m.MobileDmList })),
@@ -132,17 +126,6 @@ function ProtectedDmChatRoute(): JSX.Element {
   );
 }
 
-function ProtectedDesktopDmListRoute(): JSX.Element {
-  const { status } = useAuth();
-  if (status === 'loading') return <LoadingFallback />;
-  if (status === 'anonymous') return <Navigate to="/login" replace />;
-  return (
-    <Suspense fallback={<LoadingFallback />}>
-      <DmListPage />
-    </Suspense>
-  );
-}
-
 function ProtectedFriendsRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
@@ -180,15 +163,14 @@ function ProtectedDiscoverRoute(): JSX.Element {
   );
 }
 
-function ProtectedDesktopDmChatRoute(): JSX.Element {
-  const { status } = useAuth();
-  if (status === 'loading') return <LoadingFallback />;
-  if (status === 'anonymous') return <Navigate to="/login" replace />;
-  return (
-    <Suspense fallback={<LoadingFallback />}>
-      <DmChatPage />
-    </Suspense>
-  );
+/**
+ * Fold the legacy workspace-scoped `/w/:slug/dm/:userId` URL into the
+ * workspace-free `/dm/:userId`. Kept as a Route element (not a plain
+ * Navigate) so the dynamic :userId segment carries through.
+ */
+function LegacyDmChatRedirect(): JSX.Element {
+  const { userId } = useParams<{ userId: string }>();
+  return <Navigate to={userId ? `/dm/${userId}` : '/dm'} replace />;
 }
 
 function ProtectedSettingsRoute({ page }: { page: 'notifications' }): JSX.Element {
@@ -225,12 +207,15 @@ export default function App(): JSX.Element {
                   />
                   <Route path="/activity" element={<ProtectedActivityRoute />} />
                   <Route path="/dm" element={<ProtectedDmShellRoute />} />
+                  <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
                   <Route path="/discover" element={<ProtectedDiscoverRoute />} />
                   <Route path="/friends" element={<ProtectedFriendsRoute />} />
                   <Route path="/dms" element={<ProtectedDmListRoute />} />
                   <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
-                  <Route path="/w/:slug/dm" element={<ProtectedDesktopDmListRoute />} />
-                  <Route path="/w/:slug/dm/:userId" element={<ProtectedDesktopDmChatRoute />} />
+                  {/* Legacy workspace-scoped DM routes — fold into /dm so
+                      bookmarks + existing deep-links keep working. */}
+                  <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
+                  <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
                   <Route path="/" element={<ProtectedShellRoute />} />
                   {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
