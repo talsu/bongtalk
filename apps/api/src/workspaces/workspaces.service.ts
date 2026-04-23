@@ -183,17 +183,24 @@ export class WorkspacesService {
         AND w.visibility = 'PUBLIC'
         AND w.category IS NOT NULL
         AND (${cat}::text = '' OR w.category::text = ${cat}::text)
-        AND (${q}::text = '' OR w.name ILIKE '%' || ${q}::text || '%')
+        AND (
+          ${q}::text = ''
+          -- task-031-D: expand substring match to description.
+          OR w.name ILIKE '%' || ${q}::text || '%'
+          OR w.description ILIKE '%' || ${q}::text || '%'
+        )
       GROUP BY w.id
       HAVING (
         ${cursorParts === null ? null : cursorParts.memberCount}::int IS NULL
         OR COUNT(wm.*)::int < ${cursorParts === null ? 0 : cursorParts.memberCount}::int
         OR (
           COUNT(wm.*)::int = ${cursorParts === null ? 0 : cursorParts.memberCount}::int
-          AND w.id::text < ${cursorParts === null ? '' : cursorParts.id}::text
+          AND w.id::text > ${cursorParts === null ? '' : cursorParts.id}::text
         )
       )
-      ORDER BY COUNT(wm.*) DESC, w.id DESC
+      -- task-031-D: tie-break on id ASC so (memberCount DESC, id ASC) is a
+      -- total order and the HAVING cursor comparison matches ORDER BY.
+      ORDER BY COUNT(wm.*) DESC, w.id ASC
       LIMIT ${capped + 1}
     `;
     const hasMore = rows.length > capped;
