@@ -114,6 +114,24 @@ export function CreateWorkspaceDialog({
           {errors.slug && <p className="qf-field__error">{errors.slug.message}</p>}
         </div>
 
+        <div className="qf-field" data-testid="ws-description-field">
+          <label className="qf-field__label" htmlFor="ws-description">
+            설명{' '}
+            <span className="text-text-muted">
+              {isPublic ? `(공개 시 필수, ${descriptionLen}/500)` : `(선택, ${descriptionLen}/500)`}
+            </span>
+          </label>
+          <textarea
+            id="ws-description"
+            data-testid="ws-description"
+            rows={3}
+            maxLength={500}
+            className="qf-input"
+            {...register('description')}
+          />
+          {errors.description && <p className="qf-field__error">{errors.description.message}</p>}
+        </div>
+
         <div className="qf-toggle-row">
           <div className="qf-toggle-row__text">
             <div className="qf-toggle-row__title">공개 여부</div>
@@ -157,24 +175,6 @@ export function CreateWorkspaceDialog({
             {errors.category && <p className="qf-field__error">{errors.category.message}</p>}
           </div>
         ) : null}
-
-        <div className="qf-field" data-testid="ws-description-field">
-          <label className="qf-field__label" htmlFor="ws-description">
-            설명{' '}
-            <span className="text-text-muted">
-              {isPublic ? `(공개 시 필수, ${descriptionLen}/500)` : `(선택, ${descriptionLen}/500)`}
-            </span>
-          </label>
-          <textarea
-            id="ws-description"
-            data-testid="ws-description"
-            rows={3}
-            maxLength={500}
-            className="qf-input"
-            {...register('description')}
-          />
-          {errors.description && <p className="qf-field__error">{errors.description.message}</p>}
-        </div>
 
         {serverError && (
           <p data-testid="ws-create-error" className="qf-field__error">
