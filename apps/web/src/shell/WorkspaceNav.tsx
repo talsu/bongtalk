@@ -21,14 +21,12 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
 
   return (
     <nav aria-label="워크스페이스" data-testid="workspace-nav" className="qf-serverlist">
-      {/* task-033-C: "DM" button pinned to the top of the rail. */}
-      <Tooltip label="DM" side="right">
-        <Link to="/dm" data-testid="ws-nav-dm" aria-label="DM" className="qf-server-btn">
-          <Icon name="message" size="md" />
-        </Link>
-      </Tooltip>
-      <Tooltip label="qufox 홈" side="right">
-        <Link to="/" data-testid="ws-nav-home" aria-label="qufox 홈" className="qf-server-btn">
+      {/* task-033-C + user feedback: single brand-mark button at the top
+          of the rail routes to /dm (messages). Previously a separate
+          DM icon sat above Home; folded into one so the BrandMark keeps
+          its visual place but drives the messages surface. */}
+      <Tooltip label="메세지" side="right">
+        <Link to="/dm" data-testid="ws-nav-home" aria-label="메세지" className="qf-server-btn">
           <BrandMark variant="symbol" size={28} decorative />
         </Link>
       </Tooltip>
