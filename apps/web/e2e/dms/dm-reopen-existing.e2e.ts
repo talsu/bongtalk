@@ -33,7 +33,7 @@ test('createOrGet is idempotent — second request returns same channelId', asyn
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
 
-  const first = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const first = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });
@@ -41,7 +41,7 @@ test('createOrGet is idempotent — second request returns same channelId', asyn
   const firstBody = (await first.json()) as { channelId: string; created: boolean };
   expect(firstBody.created).toBe(true);
 
-  const second = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const second = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });
