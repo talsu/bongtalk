@@ -10,6 +10,9 @@ import { MessageColumn } from './MessageColumn';
 import { MemberColumn } from './MemberColumn';
 import { BottomBar } from './BottomBar';
 import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
+import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
+import { useMembers } from '../features/workspaces/useWorkspaces';
+import { useAuth } from '../features/auth/AuthProvider';
 import { ToastViewport } from '../design-system/primitives';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
@@ -42,7 +45,10 @@ function DesktopShell(): JSX.Element {
   const params = useParams<{ slug: string; '*'?: string }>();
   const slug = params.slug;
   const rest = (params['*'] ?? '').split('/').filter(Boolean);
-  const channelName = rest[0] ?? undefined;
+  // task-031-A: /w/:slug/settings opens the workspace-level settings
+  // overlay. rest[0] === 'settings' (no channel segment).
+  const inWorkspaceSettings = rest[0] === 'settings' && !rest[1];
+  const channelName = inWorkspaceSettings ? undefined : rest[0];
   // URL shape: /w/:slug/:channel[/settings[/:section]]. Anything in rest[1]
   // named "settings" switches the middle column from MessageColumn to
   // ChannelSettingsPage while keeping the left rail + channel list intact.
@@ -137,10 +143,47 @@ function DesktopShell(): JSX.Element {
           section={settingsSection}
         />
       ) : null}
+      {active && inWorkspaceSettings ? (
+        <WorkspaceSettingsOverlayHost workspace={active} workspaceSlug={active.slug} />
+      ) : null}
       <CommandPalette />
       <ShortcutHelp />
       <FeedbackDialog />
       <ToastViewport />
     </div>
+  );
+}
+
+function WorkspaceSettingsOverlayHost({
+  workspace,
+  workspaceSlug,
+}: {
+  workspace: {
+    id: string;
+    name: string;
+    description: string | null;
+    visibility: 'PUBLIC' | 'PRIVATE';
+    category: string | null;
+  };
+  workspaceSlug: string;
+}): JSX.Element | null {
+  const { user } = useAuth();
+  const { data: members } = useMembers(workspace.id);
+  const myRole = (members?.members.find((m) => m.userId === user?.id)?.role ?? 'MEMBER') as
+    | 'OWNER'
+    | 'ADMIN'
+    | 'MEMBER';
+  return (
+    <WorkspaceSettingsPage
+      workspace={{
+        id: workspace.id,
+        name: workspace.name,
+        description: workspace.description,
+        visibility: workspace.visibility,
+        category: workspace.category as never,
+      }}
+      myRole={myRole}
+      workspaceSlug={workspaceSlug}
+    />
   );
 }
