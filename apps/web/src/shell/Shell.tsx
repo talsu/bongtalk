@@ -79,9 +79,12 @@ function DesktopShell(): JSX.Element {
     );
   }
 
-  // No workspaces yet → land on create page.
+  // No workspaces yet → land on /dm (messages). DM + discover are both
+  // accessible to a zero-workspace account, so we no longer force the
+  // user into the create-workspace page on signup. They can create one
+  // voluntarily via the "+" button on the server rail.
   if ((mine?.workspaces.length ?? 0) === 0) {
-    return <Navigate to="/w/new" replace />;
+    return <Navigate to="/dm" replace />;
   }
 
   // Workspace id in URL but doesn't exist for me → go home.

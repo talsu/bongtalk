@@ -69,7 +69,10 @@ export function MobileShell(): JSX.Element {
       </div>
     );
   }
-  if ((mine?.workspaces.length ?? 0) === 0) return <Navigate to="/w/new" replace />;
+  // No workspaces yet → land on /dm instead of forcing workspace
+  // creation; DM + discover are both available to a zero-workspace
+  // account. (Desktop Shell.tsx has the same redirect.)
+  if ((mine?.workspaces.length ?? 0) === 0) return <Navigate to="/dm" replace />;
   // task-035-E: mobile base state (/, no slug) renders MobileHome with
   // its own rail/content split. Specific workspace routes (/w/:slug/*)
   // continue to use the drawer-based MobileShell so channel-deep
@@ -91,7 +94,7 @@ export function MobileShell(): JSX.Element {
   if (!slug && mine) {
     return <Navigate to={`/w/${mine.workspaces[0].slug}`} replace />;
   }
-  if (!active) return <Navigate to="/w/new" replace />;
+  if (!active) return <Navigate to="/dm" replace />;
 
   const topbarTitle = activeChannel ? `# ${activeChannel.name}` : active.name;
   const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';

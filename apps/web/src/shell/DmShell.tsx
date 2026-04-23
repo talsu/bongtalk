@@ -103,7 +103,9 @@ export function DmShell(): JSX.Element {
             <div className="qf-empty p-[var(--s-6)]">
               <div className="font-semibold">DM이 아직 없습니다</div>
               <div className="text-text-muted mt-[var(--s-2)]">
-                좌측 친구 목록에서 DM을 시작하세요.
+                {workspaces.length === 0
+                  ? '먼저 /friends 에서 친구를 추가하거나, 왼쪽 나침반 아이콘으로 공개 워크스페이스를 찾아보세요.'
+                  : '좌측 친구 목록에서 DM을 시작하세요.'}
               </div>
             </div>
           ) : (
