@@ -7,6 +7,7 @@ import { useNotificationPreferences } from '../features/notifications/useNotific
 import { Icon, ToastViewport } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { MobileChannelList } from './mobile/MobileChannelList';
+import { MobileHome } from './mobile/MobileHome';
 import { MobileMessages } from './mobile/MobileMessages';
 import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
@@ -69,6 +70,13 @@ export function MobileShell(): JSX.Element {
     );
   }
   if ((mine?.workspaces.length ?? 0) === 0) return <Navigate to="/w/new" replace />;
+  // task-035-E: mobile base state (/, no slug) renders MobileHome with
+  // its own rail/content split. Specific workspace routes (/w/:slug/*)
+  // continue to use the drawer-based MobileShell so channel-deep
+  // navigation stays identical to 024's behaviour.
+  if (!slug) {
+    return <MobileHome />;
+  }
   if (slug && !active) {
     return (
       <div data-testid="mobile-shell-ws-not-found" className="qf-m-screen">
