@@ -1,0 +1,44 @@
+id: 048
+title: Cleanup sweep + custom emoji pack
+goal: |
+  Custom emoji upload goes through a three-step presign/PUT/finalize flow
+  identical to the 012 attachments pattern, gated by OWNER/ADMIN,
+  capped at 100 per workspace (enforced inside a Serializable transaction
+  so the TOCTOU race cannot exceed the cap by one), mime-restricted to
+  PNG/GIF under 256 KB. `:name:` tokens in message content substitute
+  with <img class="qf-emoji-custom"> when the workspace defines that
+  emoji; unknown names fall through as plain text so a deleted emoji
+  never breaks old messages. Also removes 027 deprecated workspace-
+  scoped DM endpoints (grep 0 hits in live code), wires Loki Ruler with
+  a LokiHighErrorRate rule, and processes ≥5 TODO(task-03[2-6]-follow)
+  markers with fix(cleanup-*) commits.
+dod:
+  - command: pnpm --filter @qufox/api test --run test/unit/emojis/custom-emoji.service.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/web test --run src/features/messages/parseContent.spec.tsx
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: git diff --stat apps/web/public/design-system/
+    expect: empty output
+  - scope_allow:
+      - apps/api/prisma/migrations/20260506000000_add_custom_emoji/**
+      - apps/api/prisma/schema.prisma
+      - apps/api/src/emojis/**
+      - apps/api/src/app.module.ts
+      - apps/api/src/common/errors/error-code.enum.ts
+      - apps/api/src/channels/direct-messages/**
+      - apps/api/src/channels/channels.module.ts
+      - apps/api/src/friends/friends.service.ts
+      - apps/api/test/unit/emojis/**
+      - apps/web/src/features/emojis/**
+      - apps/web/src/features/messages/**
+      - apps/web/src/features/reactions/**
+      - apps/web/src/features/workspaces/WorkspaceSettingsPage.tsx
+      - apps/web/src/features/dms/**
+      - packages/shared-types/src/index.ts
+      - docs/tasks/037-cleanup-and-custom-emoji.md
+      - docs/reviews/task-037-cleanup-custom-emoji-review.md
+      - docs/ops/runbook-logs.md
+      - evals/tasks/048-cleanup-custom-emoji.yaml
+max_turns: 60

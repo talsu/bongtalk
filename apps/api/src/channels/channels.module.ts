@@ -7,7 +7,8 @@ import { ChannelReadController, UnreadSummaryController } from './unread.control
 import { UnreadService } from './unread.service';
 import { ChannelAccessService } from './permission/channel-access.service';
 import { ChannelAccessGuard } from './guards/channel-access.guard';
-import { DirectMessagesController } from './direct-messages/direct-messages.controller';
+// task-037-A: DirectMessagesController removed (027 workspace-scoped DM
+// endpoints). GlobalDmController at /me/dms is the sole DM surface.
 import { DirectMessagesService } from './direct-messages/direct-messages.service';
 import { GlobalDmController } from './direct-messages/global-dm.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
@@ -20,7 +21,6 @@ import { OutboxModule } from '../common/outbox/outbox.module';
     CategoriesController,
     UnreadSummaryController,
     ChannelReadController,
-    DirectMessagesController,
     GlobalDmController,
   ],
   // Task-014-A: ChannelAccessService is the single source of truth for

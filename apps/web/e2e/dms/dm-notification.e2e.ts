@@ -34,7 +34,7 @@ test('DM message surfaces in recipient /dms list', async ({ request }) => {
   await request.post(`${API}/invites/${invCode}/accept`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
-  const dm = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aBody.accessToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });
@@ -46,7 +46,7 @@ test('DM message surfaces in recipient /dms list', async ({ request }) => {
   });
 
   // B should see the DM in their list with unread = 1.
-  const list = await request.get(`${API}/me/workspaces/${wsId}/dms`, {
+  const list = await request.get(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
   expect(list.ok()).toBeTruthy();

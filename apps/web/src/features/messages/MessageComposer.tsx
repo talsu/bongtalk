@@ -11,6 +11,7 @@ import {
   Icon,
 } from '../../design-system/primitives';
 import { EmojiPicker } from '../reactions/EmojiPicker';
+import { useCustomEmojis } from '../emojis/useCustomEmojis';
 import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
 import { cn } from '../../lib/cn';
 
@@ -46,6 +47,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
   const lastPingRef = useRef<number>(0);
   const { send, mutation } = useSendMessage(workspaceId, channelId);
   const notify = useNotifications((s) => s.push);
+  const { data: customEmojiData } = useCustomEmojis(workspaceId);
   const [emojiOpen, setEmojiOpen] = useState(false);
   // Uploaded-but-not-yet-sent attachments. Flushed after submit.
   const [pending, setPending] = useState<UploadedAttachment[]>([]);
@@ -372,6 +374,11 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
                 // outside click or Escape (handled inside EmojiPicker).
               }}
               onDismiss={() => setEmojiOpen(false)}
+              customEmojis={customEmojiData?.items.map((ce) => ({
+                id: ce.id,
+                name: ce.name,
+                url: ce.url,
+              }))}
             />
           ) : null}
         </div>

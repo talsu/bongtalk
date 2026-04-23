@@ -33,7 +33,7 @@ test('DM unread bumps list row within 2s; opening chat clears it', async ({ requ
   await request.post(`${API}/invites/${invCode}/accept`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
-  const dm = await request.post(`${API}/me/workspaces/${wsId}/dms`, {
+  const dm = await request.post(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${aBody.accessToken}`, origin: ORIGIN },
     data: { userId: bBody.user.id },
   });
@@ -45,7 +45,7 @@ test('DM unread bumps list row within 2s; opening chat clears it', async ({ requ
   });
 
   // B reads the DM list via API — row should show unread=1.
-  const list = await request.get(`${API}/me/workspaces/${wsId}/dms`, {
+  const list = await request.get(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
   const body = (await list.json()) as { items: Array<{ channelId: string; unreadCount: number }> };
@@ -57,7 +57,7 @@ test('DM unread bumps list row within 2s; opening chat clears it', async ({ requ
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
     data: {},
   });
-  const list2 = await request.get(`${API}/me/workspaces/${wsId}/dms`, {
+  const list2 = await request.get(`${API}/me/dms`, {
     headers: { authorization: `Bearer ${bBody.accessToken}`, origin: ORIGIN },
   });
   const body2 = (await list2.json()) as {

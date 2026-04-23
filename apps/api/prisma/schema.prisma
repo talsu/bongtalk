@@ -108,6 +108,7 @@ model User {
   activityReadStates      UserActivityReadState[]
   friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
+  customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
 }
 
 model RefreshToken {
@@ -169,6 +170,7 @@ model Workspace {
   invites    Invite[]
   feedback   Feedback[]
   notificationPreferences UserNotificationPreference[]
+  customEmojis CustomEmoji[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -355,6 +357,26 @@ model Attachment {
   // Indexes are created in the migration as partial indexes (Prisma
   // has no @@index-with-WHERE syntax). See
   // 20260421000000_add_attachment_table/migration.sql.
+}
+
+// task-037-D: workspace-scoped custom emoji pack. MinIO-backed (see
+// scripts/setup/init-minio.sh for the bucket setup). cap = 100
+// emojis per workspace is enforced at the API layer.
+model CustomEmoji {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  name        String   @db.VarChar(32)
+  createdBy   String   @db.Uuid
+  storageKey  String
+  mime        String   @db.VarChar(127)
+  sizeBytes   BigInt
+  createdAt   DateTime @default(now())
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User      @relation("CustomEmojiCreator", fields: [createdBy], references: [id])
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
 }
 
 model UserChannelReadState {
