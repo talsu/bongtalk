@@ -14,6 +14,7 @@ import { WorkspacesModule } from './workspaces/workspaces.module';
 import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
 import { MeModule } from './me/me.module';
+import { FriendsModule } from './friends/friends.module';
 import { AttachmentsModule } from './attachments/attachments.module';
 import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
@@ -39,6 +40,7 @@ import { ObservabilityModule } from './observability/observability.module';
     ChannelsModule,
     MessagesModule,
     MeModule,
+    FriendsModule,
     StorageModule,
     AttachmentsModule,
     ReactionsModule,

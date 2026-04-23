@@ -185,6 +185,8 @@ function verbFor(row: ActivityRow): string {
       return `님이 ${row.snippet || '반응'} 을 남김`;
     case 'direct':
       return '님이 DM을 보냄';
+    case 'friend_request':
+      return '님이 친구 요청을 보냄';
   }
 }
 

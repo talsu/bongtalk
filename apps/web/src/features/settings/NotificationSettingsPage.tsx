@@ -14,14 +14,21 @@ import {
   useUpsertNotificationPreference,
 } from '../notifications/useNotificationPreferences';
 
-const EVENT_TYPES: readonly NotificationEventType[] = ['MENTION', 'REPLY', 'REACTION', 'DIRECT'];
+const EVENT_TYPES: readonly NotificationEventType[] = [
+  'MENTION',
+  'REPLY',
+  'REACTION',
+  'DIRECT',
+  'FRIEND_REQUEST',
+];
 const CHANNELS: readonly NotificationChannel[] = ['TOAST', 'BROWSER', 'BOTH', 'OFF'];
 
 const EVENT_LABEL: Record<NotificationEventType, string> = {
   MENTION: '@멘션',
   REPLY: '스레드 답글',
   REACTION: '리액션',
-  DIRECT: 'DM (예정)',
+  DIRECT: 'DM',
+  FRIEND_REQUEST: '친구 요청',
 };
 
 const CHANNEL_LABEL: Record<NotificationChannel, string> = {
