@@ -126,11 +126,16 @@ export class CustomEmojiService {
   }
 
   /**
-   * Step 2. HeadObject the landed blob and check the magic bytes match
-   * the declared mime. A client that declared image/png but uploaded a
-   * GIF (or worse, arbitrary bytes) fails here — the row is deleted
-   * and the storage object is swept. Idempotent: calling twice after
-   * a successful finalize returns the row unchanged.
+   * Step 2. HeadObject the landed blob and check the declared size
+   * matches. Idempotent: calling twice after a successful finalize
+   * returns the row unchanged.
+   *
+   * TODO(task-037-follow-emoji-gc): the presigned PUT (15 min TTL) is
+   * still valid after we delete the row on HEAD miss, so a slow client
+   * can land bytes at a key that has no DB pointer. scripts/backup/
+   * attachment-orphan-gc.sh scans the Attachment table only — extend
+   * it with a second sweep over `<wsId>/emojis/` that removes any
+   * object whose `<emojiId>` segment is not in CustomEmoji.id.
    */
   async finalize(workspaceId: string, emojiId: string, callerId: string): Promise<void> {
     const row = await this.prisma.customEmoji.findUnique({ where: { id: emojiId } });

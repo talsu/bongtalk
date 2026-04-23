@@ -21,8 +21,10 @@ import { PresignEmojiUploadDto } from './dto/presign-emoji-upload.dto';
 /**
  * task-037-D: workspace emoji pack REST surface.
  *
- * - Any member can GET /list + react with existing emoji (list rate-
- *   limited 30/min/user to keep the picker cheap to poll).
+ * - Any member can GET /list + react with existing emoji. Picker opens
+ *   are cached by React Query (10-min staleTime) so the unrated GET is
+ *   not the hot path; if a future client bypasses the cache we'll
+ *   revisit adding a bucket.
  * - Upload + delete are OWNER/ADMIN only, mirroring the channel admin
  *   gate used in 011. Upload is 10/min per (workspace, user); delete
  *   is 30/min per user — cheap ops, bulk cleanup stays practical.
