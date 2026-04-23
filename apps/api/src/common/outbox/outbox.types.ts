@@ -10,7 +10,8 @@ export type OutboxAggregate =
   | 'channel'
   | 'category'
   | 'Message'
-  | 'UserMention';
+  | 'UserMention'
+  | 'friendship';
 
 export type OutboxRecordInput = {
   aggregateType: OutboxAggregate;

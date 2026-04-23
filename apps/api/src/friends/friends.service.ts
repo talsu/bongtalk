@@ -3,6 +3,10 @@ import { Prisma, FriendshipStatus } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { OutboxService } from '../common/outbox/outbox.service';
+
+export const FRIEND_REQUEST_RECEIVED = 'friend.request.received';
+export const FRIEND_REQUEST_ACCEPTED = 'friend.request.accepted';
 
 export type FriendsFilter = 'accepted' | 'pending_incoming' | 'pending_outgoing' | 'blocked';
 
@@ -25,7 +29,10 @@ const FRIEND_CAP = 1000;
  */
 @Injectable()
 export class FriendsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+  ) {}
 
   private async findRow(userA: string, userB: string) {
     return this.prisma.friendship.findFirst({
@@ -57,9 +64,23 @@ export class FriendsService {
       }
       // PENDING from the other side → auto-accept so no duplicate rows.
       if (existing.addresseeId === meId) {
-        return this.prisma.friendship.update({
-          where: { id: existing.id },
-          data: { status: 'ACCEPTED' },
+        // Auto-accept the existing request from the other side.
+        return this.prisma.$transaction(async (tx) => {
+          const updated = await tx.friendship.update({
+            where: { id: existing.id },
+            data: { status: 'ACCEPTED' },
+          });
+          await this.outbox.record(tx, {
+            aggregateType: 'friendship',
+            aggregateId: updated.id,
+            eventType: FRIEND_REQUEST_ACCEPTED,
+            payload: {
+              friendshipId: updated.id,
+              requesterId: updated.requesterId,
+              addresseeId: updated.addresseeId,
+            },
+          });
+          return updated;
         });
       }
       throw new DomainError(ErrorCode.FRIEND_REQUEST_DUPLICATE, 'already requested');
@@ -74,8 +95,22 @@ export class FriendsService {
       throw new DomainError(ErrorCode.FRIEND_CAP_REACHED, `friend cap ${FRIEND_CAP} reached`);
     }
     try {
-      return await this.prisma.friendship.create({
-        data: { requesterId: meId, addresseeId: target.id, status: 'PENDING' },
+      return await this.prisma.$transaction(async (tx) => {
+        const row = await tx.friendship.create({
+          data: { requesterId: meId, addresseeId: target.id, status: 'PENDING' },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'friendship',
+          aggregateId: row.id,
+          eventType: FRIEND_REQUEST_RECEIVED,
+          payload: {
+            friendshipId: row.id,
+            requesterId: meId,
+            addresseeId: target.id,
+            requesterUsername: target.username, // actually addressee's username for display symmetry
+          },
+        });
+        return row;
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -93,9 +128,22 @@ export class FriendsService {
     if (row.addresseeId !== meId || row.status !== 'PENDING') {
       throw new DomainError(ErrorCode.FRIEND_INVALID_STATE, 'cannot accept');
     }
-    return this.prisma.friendship.update({
-      where: { id: friendshipId },
-      data: { status: 'ACCEPTED' },
+    return this.prisma.$transaction(async (tx) => {
+      const updated = await tx.friendship.update({
+        where: { id: friendshipId },
+        data: { status: 'ACCEPTED' },
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'friendship',
+        aggregateId: updated.id,
+        eventType: FRIEND_REQUEST_ACCEPTED,
+        payload: {
+          friendshipId: updated.id,
+          requesterId: updated.requesterId,
+          addresseeId: updated.addresseeId,
+        },
+      });
+      return updated;
     });
   }
 
