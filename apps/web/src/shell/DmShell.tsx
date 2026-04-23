@@ -1,27 +1,37 @@
-import { useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Icon } from '../design-system/primitives';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
-import { useDmList, useCreateOrGetDm } from '../features/dms/useDms';
+import { useDmList, useCreateOrGetDm, useDmByUser } from '../features/dms/useDms';
 import { useFriendsList } from '../features/friends/useFriends';
 import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
+import { MessageColumn } from './MessageColumn';
 import { ToastViewport } from '../design-system/primitives';
 import { cn } from '../lib/cn';
 
 /**
- * task-033-C/D: desktop `/dm` shell. Left column is the server rail
- * (shared with Shell.tsx) + a "친구" sidebar replacing the channel list.
- * Main column is the DM list; picking a friend starts (or resumes) a
- * DM via the existing createOrGet service.
+ * task-033-C/D + follow: desktop Global DM surface. Three-column layout
+ * mirroring Shell's (rail + list + message column). Route shape is
+ * workspace-free — `/dm` for the list, `/dm/:userId` for a selected
+ * conversation. The old `/w/:slug/dm[/:userId]` URLs redirect into here.
+ *
+ * Selecting a friend/DM row updates the `:userId` param in place; the
+ * right column swaps from the DM list to `MessageColumn` without a
+ * full-page navigate, so the left rail + friends pane stay mounted.
  */
 export function DmShell(): JSX.Element {
+  const { userId: routeUserId } = useParams<{ userId?: string }>();
   const navigate = useNavigate();
   const { data: mine } = useMyWorkspaces();
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
-  // Global DM surface: first workspace is the implicit host for now.
+  // The message path at /workspaces/:wsId/channels/:chid/messages still
+  // needs a workspace on the URL for the WorkspaceMemberGuard — the
+  // server resolves the DM channel by id alone via the DIRECT bypass in
+  // ChannelAccessGuard, so any workspace the caller is a member of
+  // works. Pick the first one as the "host" for bookkeeping.
   const primary = workspaces[0];
   const { data: dms } = useDmList(primary?.id);
   const { data: friends } = useFriendsList('accepted');
@@ -30,15 +40,36 @@ export function DmShell(): JSX.Element {
   useRealtimeConnection();
   useNotificationPreferences();
 
+  // Resolve the DM channel for the selected :userId. The /me/dms POST
+  // is idempotent — safe to call on every route change that lands on a
+  // user without a known channelId.
+  const { data: byUser } = useDmByUser(primary?.id, routeUserId);
+  const selectedChannelId = byUser?.channelId ?? null;
+
+  useEffect(() => {
+    // If the user picked a friend who has never been DM'd, reserve the
+    // channel now so MessageColumn has a channelId to render against.
+    if (!routeUserId || selectedChannelId || byUser === undefined) return;
+    void createDm.mutateAsync({ userId: routeUserId }).catch(() => undefined);
+    // mutation invalidation will refresh byUser via queryKey side-effect
+  }, [routeUserId, selectedChannelId, byUser, createDm]);
+
   const norm = query.trim().toLowerCase();
   const filtered = (dms?.items ?? []).filter(
     (d) => !norm || d.otherUsername.toLowerCase().includes(norm),
   );
 
-  const start = async (userId: string): Promise<void> => {
-    if (!primary) return;
-    const res = await createDm.mutateAsync({ userId });
-    navigate(`/w/${primary.slug}/dm/${userId}?c=${res.channelId}`);
+  const selectedFriend = useMemo(() => {
+    if (!routeUserId) return null;
+    const fromFriends = (friends?.items ?? []).find((f) => f.otherUserId === routeUserId);
+    if (fromFriends) return { userId: routeUserId, username: fromFriends.otherUsername };
+    const fromDms = (dms?.items ?? []).find((d) => d.otherUserId === routeUserId);
+    if (fromDms) return { userId: routeUserId, username: fromDms.otherUsername };
+    return { userId: routeUserId, username: '' };
+  }, [routeUserId, friends, dms]);
+
+  const openDm = (userId: string): void => {
+    navigate(`/dm/${userId}`);
   };
 
   return (
@@ -52,23 +83,65 @@ export function DmShell(): JSX.Element {
             data-testid="dm-side-friends"
           >
             <header className="qf-topbar">
-              <h2 className="qf-topbar__title">친구</h2>
+              <h2 className="qf-topbar__title">다이렉트 메시지</h2>
             </header>
-            <nav className="flex-1 overflow-y-auto" aria-label="친구 목록">
+            <div className="px-[var(--s-3)] py-[var(--s-2)]">
+              <input
+                type="search"
+                data-testid="dm-shell-search"
+                placeholder="이름으로 검색"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="qf-input w-full"
+              />
+            </div>
+            <nav className="flex-1 overflow-y-auto" aria-label="DM + 친구 목록">
               <Link to="/friends" data-testid="dm-side-friends-link" className="qf-channel">
                 <Icon name="users" size="sm" className="text-text-muted" />
                 <span className="flex-1">친구 관리</span>
               </Link>
-              <div className="qf-section">
-                <div className="qf-section__title">온라인 친구</div>
-              </div>
+              {filtered.length > 0 ? (
+                <div className="qf-section">
+                  <div className="qf-section__title">대화 목록</div>
+                </div>
+              ) : null}
+              {filtered.map((d) => (
+                <button
+                  key={d.channelId}
+                  type="button"
+                  data-testid={`dm-shell-row-${d.otherUsername}`}
+                  onClick={() => openDm(d.otherUserId)}
+                  aria-selected={d.otherUserId === routeUserId}
+                  className={cn(
+                    'qf-channel w-full text-left',
+                    d.otherUserId === routeUserId && 'qf-channel--active',
+                  )}
+                >
+                  <Avatar name={d.otherUsername} size="sm" />
+                  <span className="flex-1 truncate">{d.otherUsername}</span>
+                  {d.unreadCount > 0 ? (
+                    <span className="qf-badge qf-badge--count">
+                      {d.unreadCount > 99 ? '99+' : d.unreadCount}
+                    </span>
+                  ) : null}
+                </button>
+              ))}
+              {(friends?.items ?? []).length > 0 ? (
+                <div className="qf-section">
+                  <div className="qf-section__title">친구</div>
+                </div>
+              ) : null}
               {(friends?.items ?? []).map((f) => (
                 <button
                   key={f.otherUserId}
                   type="button"
                   data-testid={`dm-side-friend-${f.otherUsername}`}
-                  onClick={() => start(f.otherUserId)}
-                  className={cn('qf-channel w-full text-left')}
+                  onClick={() => openDm(f.otherUserId)}
+                  aria-selected={f.otherUserId === routeUserId}
+                  className={cn(
+                    'qf-channel w-full text-left',
+                    f.otherUserId === routeUserId && 'qf-channel--active',
+                  )}
                 >
                   <Avatar name={f.otherUsername} size="sm" />
                   <span className="flex-1 truncate">{f.otherUsername}</span>
@@ -79,65 +152,30 @@ export function DmShell(): JSX.Element {
         </div>
         <BottomBar />
       </div>
-      <main
-        data-testid="dm-main"
-        className="flex-1 flex flex-col"
-        style={{ background: 'var(--bg-app)' }}
-      >
-        <header className="flex items-center gap-[var(--s-3)] px-[var(--s-6)] h-[var(--h-topbar)] border-b border-border-subtle">
-          <Icon name="message" size="md" />
-          <div className="font-semibold text-[length:var(--fs-16)]">다이렉트 메시지</div>
-          <div className="ml-auto">
-            <input
-              type="search"
-              data-testid="dm-shell-search"
-              placeholder="이름으로 검색"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="qf-input"
-            />
+      {routeUserId && selectedChannelId && primary ? (
+        <MessageColumn
+          workspaceId={primary.id}
+          workspaceSlug={primary.slug}
+          channelId={selectedChannelId}
+          channelName={selectedFriend?.username || '…'}
+          channelTopic={null}
+        />
+      ) : routeUserId ? (
+        <main className="qf-empty flex-1" data-testid="dm-shell-loading">
+          <div className="qf-empty__title">대화를 준비 중…</div>
+        </main>
+      ) : (
+        <main className="qf-empty flex-1" data-testid="dm-shell-empty">
+          <div className="qf-empty__title">
+            {workspaces.length === 0 ? '먼저 친구를 추가해보세요' : '대화할 친구를 선택하세요'}
           </div>
-        </header>
-        <section className="flex-1 overflow-y-auto" data-testid="dm-shell-list">
-          {filtered.length === 0 ? (
-            <div className="qf-empty p-[var(--s-6)]">
-              <div className="font-semibold">DM이 아직 없습니다</div>
-              <div className="text-text-muted mt-[var(--s-2)]">
-                {workspaces.length === 0
-                  ? '먼저 /friends 에서 친구를 추가하거나, 왼쪽 나침반 아이콘으로 공개 워크스페이스를 찾아보세요.'
-                  : '좌측 친구 목록에서 DM을 시작하세요.'}
-              </div>
-            </div>
-          ) : (
-            filtered.map((d) => (
-              <button
-                key={d.channelId}
-                type="button"
-                data-testid={`dm-shell-row-${d.otherUsername}`}
-                onClick={() =>
-                  primary && navigate(`/w/${primary.slug}/dm/${d.otherUserId}?c=${d.channelId}`)
-                }
-                className="w-full text-left qf-m-row"
-              >
-                <Avatar name={d.otherUsername} size="md" />
-                <div className="min-w-0 flex-1">
-                  <div className="qf-m-row__primary">{d.otherUsername}</div>
-                  <div className="qf-m-row__secondary">
-                    {d.lastMessagePreview ?? '대화를 시작하세요'}
-                  </div>
-                </div>
-                {d.unreadCount > 0 ? (
-                  <div className="qf-m-row__aside">
-                    <span className="qf-badge qf-badge--count">
-                      {d.unreadCount > 99 ? '99+' : d.unreadCount}
-                    </span>
-                  </div>
-                ) : null}
-              </button>
-            ))
-          )}
-        </section>
-      </main>
+          <div className="qf-empty__body">
+            {workspaces.length === 0
+              ? '/friends 에서 친구를 추가하거나, 왼쪽 나침반으로 공개 워크스페이스를 찾아보세요.'
+              : '좌측 목록에서 친구 또는 기존 대화를 클릭하세요.'}
+          </div>
+        </main>
+      )}
       <ToastViewport />
     </div>
   );
