@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.module';
 import { S3Service, sanitizeFilename } from '../storage/s3.service';
+import { matchesMagic, type MagicSupportedMime } from '../storage/validate-magic-bytes';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -157,6 +158,22 @@ export class CustomEmojiService {
       throw new DomainError(
         ErrorCode.CUSTOM_EMOJI_TOO_LARGE,
         `declared ${row.sizeBytes} bytes, actual ${head.contentLength}`,
+      );
+    }
+
+    // task-038-B: magic-byte validation. Presign trusted the client's
+    // declared mime; finalize is the first server-side chance to see
+    // the actual bytes. Range GET for the first 16 bytes is cheap and
+    // catches "PNG header uploaded with GIF mime", or worse — arbitrary
+    // HTML declared as image/png. Mismatch → delete object + row +
+    // 400 INVALID_MAGIC_BYTES so the blob never serves at any URL.
+    const head16 = await this.s3.getObjectRange(row.storageKey, 15);
+    if (!head16 || !matchesMagic(head16, row.mime as MagicSupportedMime)) {
+      await this.s3.deleteObject(row.storageKey);
+      await this.prisma.customEmoji.delete({ where: { id: emojiId } });
+      throw new DomainError(
+        ErrorCode.INVALID_MAGIC_BYTES,
+        `declared ${row.mime} but file magic does not match`,
       );
     }
     // Nothing else to flip — CustomEmoji has no finalizedAt column;

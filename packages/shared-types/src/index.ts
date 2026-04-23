@@ -118,6 +118,8 @@ export const ErrorCodeSchema = z.enum([
   'CUSTOM_EMOJI_CAP_REACHED',
   'CUSTOM_EMOJI_MIME_REJECTED',
   'CUSTOM_EMOJI_TOO_LARGE',
+  // task-038-B magic-byte validation
+  'INVALID_MAGIC_BYTES',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
