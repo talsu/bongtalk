@@ -48,8 +48,8 @@ const MobileDmList = lazy(() =>
 const MobileDmChat = lazy(() =>
   import('./shell/mobile/MobileDmChat').then((m) => ({ default: m.MobileDmChat })),
 );
-const DiscoverPage = lazy(() =>
-  import('./features/discovery/DiscoverPage').then((m) => ({ default: m.DiscoverPage })),
+const DiscoverShell = lazy(() =>
+  import('./shell/DiscoverShell').then((m) => ({ default: m.DiscoverShell })),
 );
 const MobileDiscover = lazy(() =>
   import('./shell/mobile/MobileDiscover').then((m) => ({ default: m.MobileDiscover })),
@@ -140,10 +140,12 @@ function ProtectedDiscoverRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
+  // Desktop keeps the server rail + bottom bar chrome via DiscoverShell;
+  // mobile renders the full-screen qf-m-screen variant.
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
-      {isMobile ? <MobileDiscover /> : <DiscoverPage />}
+      {isMobile ? <MobileDiscover /> : <DiscoverShell />}
     </Suspense>
   );
 }
