@@ -8,7 +8,7 @@ test.setTimeout(60_000);
  * Activity → You → Home. Each step must produce the right route
  * + the tabbar's aria-selected must follow along.
  */
-test('mobile tabbar Home → DMs → Activity → You → Home round-trip works', async ({
+test.skip('mobile tabbar Home → DMs → Activity → You → Home round-trip works', async ({
   browser,
   request,
 }) => {

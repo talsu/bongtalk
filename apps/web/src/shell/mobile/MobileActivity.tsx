@@ -168,8 +168,7 @@ export function MobileActivity(): JSX.Element {
       <MobileTabBar
         active="activity"
         onHome={() => navigate('/')}
-        onYou={() => navigate('/settings/notifications')}
-        onDms={() => navigate('/dms')}
+        onSettings={() => navigate('/settings/notifications')}
       />
     </div>
   );

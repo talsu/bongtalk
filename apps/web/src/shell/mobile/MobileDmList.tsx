@@ -123,11 +123,10 @@ export function MobileDmList(): JSX.Element {
       </button>
 
       <MobileTabBar
-        active="dms"
+        active="home"
         onHome={() => navigate(active ? `/w/${active.slug}` : '/')}
-        onYou={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings/notifications')}
         onActivity={() => navigate('/activity')}
-        onDms={() => navigate('/dms')}
       />
 
       {newOpen ? (

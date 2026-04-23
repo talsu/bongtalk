@@ -21,6 +21,12 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
 
   return (
     <nav aria-label="워크스페이스" data-testid="workspace-nav" className="qf-serverlist">
+      {/* task-033-C: "DM" button pinned to the top of the rail. */}
+      <Tooltip label="DM" side="right">
+        <Link to="/dm" data-testid="ws-nav-dm" aria-label="DM" className="qf-server-btn">
+          <Icon name="message" size="md" />
+        </Link>
+      </Tooltip>
       <Tooltip label="qufox 홈" side="right">
         <Link to="/" data-testid="ws-nav-home" aria-label="qufox 홈" className="qf-server-btn">
           <BrandMark variant="symbol" size={28} decorative />

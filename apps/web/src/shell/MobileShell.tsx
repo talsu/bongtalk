@@ -137,9 +137,8 @@ export function MobileShell(): JSX.Element {
 
       <MobileTabBar
         onHome={() => navigate(`/w/${active.slug}`)}
-        onYou={() => navigate('/settings')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
-        onDms={() => navigate('/dms')}
       />
 
       {/* Left drawer: workspace + channel list */}

@@ -4,27 +4,21 @@ import { cn } from '../../lib/cn';
 import { useActivityUnread } from '../../features/activity/useActivity';
 
 /**
- * Bottom tab bar pinned above the home indicator. qf-m-tabbar grid
- * with 4 slots. task-024 landed Home + You; task-026-F/G enables the
- * Activity tab with a qf-m-tab__badge driven by useActivityUnread.
- * DMs stays disabled until DM surface lands.
- *
- * Each tab renders the DS-defined internal structure (qf-m-tab__icon
- * / __label / __badge / __dot) so the layout exactly matches the
- * mobile-mockups.jsx TabBar component.
+ * Bottom tab bar pinned above the home indicator. task-033 restructure:
+ * 3 tabs — Home / Activity / Settings. DMs tab is removed; DMs live
+ * inside Home now. "You" was renamed to Settings to match the new
+ * nav model.
  */
 export function MobileTabBar({
   active = 'home',
   onHome,
-  onYou,
+  onSettings,
   onActivity,
-  onDms,
 }: {
-  active?: 'home' | 'dms' | 'activity' | 'you';
+  active?: 'home' | 'activity' | 'settings';
   onHome: () => void;
-  onYou: () => void;
+  onSettings: () => void;
   onActivity?: () => void;
-  onDms?: () => void;
 }): JSX.Element {
   const { data: unread } = useActivityUnread();
   const activityBadge = unread?.total ?? 0;
@@ -43,13 +37,6 @@ export function MobileTabBar({
         onClick={onHome}
       />
       <Tab
-        testId="mobile-tab-dms"
-        label="DM"
-        icon="message"
-        selected={active === 'dms'}
-        onClick={onDms}
-      />
-      <Tab
         testId="mobile-tab-activity"
         label="활동"
         icon="bell"
@@ -58,11 +45,11 @@ export function MobileTabBar({
         badgeCount={activityBadge}
       />
       <Tab
-        testId="mobile-tab-you"
-        label="내 정보"
-        icon="user"
-        selected={active === 'you'}
-        onClick={onYou}
+        testId="mobile-tab-settings"
+        label="설정"
+        icon="settings"
+        selected={active === 'settings'}
+        onClick={onSettings}
       />
     </nav>
   );
