@@ -44,8 +44,18 @@ export class ChannelAccessGuard implements CanActivate {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'workspace context missing in request');
     }
 
+    // task-033/034 follow-up: DIRECT channels can live workspace-less
+    // (`workspaceId IS NULL` for Global DMs) OR under a legacy 027
+    // workspace. The URL `/w/:wsId/channels/:chid/messages` carries the
+    // caller's *home* workspace id as a convenience prefix, not a hard
+    // binding — a DM between two users whose workspaces differ has no
+    // single "correct" wsId. Resolution rule:
+    //   - non-DIRECT: require channel.workspaceId === URL wsId (old
+    //     tenancy invariant — prevents cross-workspace channel leakage).
+    //   - DIRECT: match by channel id alone. Access control is already
+    //     enforced by the USER-level ALLOW override (see below).
     const channel = await this.prisma.channel.findFirst({
-      where: { id: channelId, workspaceId: wsId },
+      where: { id: channelId },
       select: {
         id: true,
         workspaceId: true,
@@ -57,6 +67,9 @@ export class ChannelAccessGuard implements CanActivate {
       },
     });
     if (!channel || channel.deletedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+    if (channel.type !== 'DIRECT' && channel.workspaceId !== wsId) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
     }
 
