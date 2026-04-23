@@ -53,11 +53,12 @@ docker exec -u root "$CONTAINER_NAME" sh -c '
   rm -rf "$PGDATA"/*
   chown postgres:postgres "$PGDATA"
 '
-# Copy the tarballs in.
+# Copy the tarballs in as root, then chown so postgres can read.
 docker cp "$LATEST/base.tar.gz" "$CONTAINER_NAME:/tmp/base.tar.gz"
 if [ -f "$LATEST/pg_wal.tar.gz" ]; then
   docker cp "$LATEST/pg_wal.tar.gz" "$CONTAINER_NAME:/tmp/pg_wal.tar.gz"
 fi
+docker exec -u root "$CONTAINER_NAME" sh -c 'chown postgres:postgres /tmp/*.tar.gz'
 docker exec -u postgres "$CONTAINER_NAME" sh -c '
   set -e
   PGDATA=/var/lib/postgresql/data
@@ -69,9 +70,14 @@ docker exec -u postgres "$CONTAINER_NAME" sh -c '
   printf "restore_command = '\''cp /wal-archive/%%f %%p'\''\n" >> "$PGDATA/postgresql.auto.conf"
 '
 
-# Start postgres proper and wait for readiness.
-docker exec -u root "$CONTAINER_NAME" killall tail 2>/dev/null || true
-docker restart "$CONTAINER_NAME" >/dev/null
+# Recreate container with the standard postgres entrypoint so recovery
+# kicks off against the restored PGDATA. Keep the same name + volume.
+docker rm -f "$CONTAINER_NAME" >/dev/null
+docker run -d --name "$CONTAINER_NAME" \
+  -e POSTGRES_PASSWORD=tmp \
+  -v "$TMP_VOL":/var/lib/postgresql/data \
+  -v "$WAL_DIR":/wal-archive:ro \
+  postgres:16-alpine >/dev/null
 
 for i in $(seq 1 40); do
   if docker exec -u postgres "$CONTAINER_NAME" pg_isready -d qufox >/dev/null 2>&1; then
