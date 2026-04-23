@@ -37,8 +37,14 @@ export function useCreateOrGetDm(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation<{ channelId: string; created: boolean }, Error, { userId: string }>({
     mutationFn: (body) => apiRequest(`/me/dms`, { method: 'POST', body }),
-    onSuccess: () => {
+    onSuccess: (_res, vars) => {
       void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
+      // Also invalidate the /me/dms/by-user cache so DmShell's inline
+      // channel resolver picks up the newly-created channelId without
+      // the user having to refresh or re-click.
+      void qc.invalidateQueries({
+        queryKey: ['dm', 'by-user', workspaceId ?? 'global', vars.userId],
+      });
     },
   });
 }
