@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { S3Service } from '../storage/s3.service';
+import { matchesMagic, type MagicSupportedMime } from '../storage/validate-magic-bytes';
 
 /**
  * Mime allowlist. Deliberately narrow at beta:
@@ -165,6 +166,25 @@ export class AttachmentsService {
         `declared ${att.sizeBytes} bytes, actual ${head.contentLength}`,
       );
     }
+
+    // task-038-B: magic-byte validation on image mimes. VIDEO / FILE /
+    // plain-text are left alone for now — the risk model is "img src"
+    // rendered inline in messages, and `application/octet-stream` /
+    // `video/*` get forced downloads, not inline rendering. If we start
+    // auto-previewing arbitrary mimes, extend the mime list here.
+    const mimeLower = att.mime.toLowerCase();
+    if (mimeLower === 'image/png' || mimeLower === 'image/gif' || mimeLower === 'image/jpeg') {
+      const head16 = await this.s3.getObjectRange(att.storageKey, 15);
+      if (!head16 || !matchesMagic(head16, mimeLower as MagicSupportedMime)) {
+        await this.s3.deleteObject(att.storageKey);
+        await this.prisma.attachment.delete({ where: { id: att.id } });
+        throw new DomainError(
+          ErrorCode.INVALID_MAGIC_BYTES,
+          `declared ${att.mime} but file magic does not match`,
+        );
+      }
+    }
+
     await this.prisma.attachment.update({
       where: { id: att.id },
       data: { finalizedAt: new Date() },

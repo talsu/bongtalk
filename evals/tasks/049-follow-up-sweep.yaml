@@ -1,0 +1,40 @@
+id: 049
+title: 037 follow-up sweep — emoji orphan-gc + magic-bytes + DS guard
+goal: |
+  CustomEmojiService.finalize and AttachmentService.finalize reject
+  uploads whose declared mime disagrees with the actual file magic
+  (first 16 bytes fetched via GetObject range), and on mismatch they
+  delete both the MinIO object and the DB row so the blob never
+  serves at any URL. The nightly attachment-orphan-gc cron now also
+  sweeps `<wsId>/emojis/` objects that lack a CustomEmoji row after a
+  7-day grace, closing the orphan leak from task-037 reviewer HIGH-1.
+  A CI workflow blocks PRs that touch apps/web/public/design-system/**
+  unless the commit message range contains `[ds-ok]`, backing up the
+  "DS is the source of truth" memory with a mechanical gate.
+dod:
+  - command: pnpm --filter @qufox/api test --run test/unit/storage/validate-magic-bytes.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test:int --run test/int/emojis/magic-bytes-emoji.int.spec.ts test/int/attachments/magic-bytes-attachment.int.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/shared-types test
+    expect: exit 0
+  - command: bash -n scripts/backup/attachment-orphan-gc.sh
+    expect: exit 0
+  - command: git diff --stat e6ee320..HEAD -- apps/web/public/design-system/
+    expect: empty output
+  - scope_allow:
+      - apps/api/src/storage/**
+      - apps/api/src/emojis/custom-emoji.service.ts
+      - apps/api/src/attachments/attachments.service.ts
+      - apps/api/src/common/errors/error-code.enum.ts
+      - apps/api/test/unit/storage/**
+      - apps/api/test/int/emojis/**
+      - apps/api/test/int/attachments/**
+      - packages/shared-types/src/index.ts
+      - scripts/backup/attachment-orphan-gc.sh
+      - .github/workflows/ds-protection.yml
+      - docs/tasks/038-follow-up-sweep.md
+      - docs/tasks/038-follow-up-sweep.PR.md
+      - docs/reviews/task-038-follow-up-sweep-review.md
+      - evals/tasks/049-follow-up-sweep.yaml
+max_turns: 60
