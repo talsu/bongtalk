@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Icon } from '../design-system/primitives';
+import { useAuth } from '../features/auth/AuthProvider';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
@@ -25,6 +26,7 @@ import { cn } from '../lib/cn';
 export function DmShell(): JSX.Element {
   const { userId: routeUserId } = useParams<{ userId?: string }>();
   const navigate = useNavigate();
+  const { user: me } = useAuth();
   const { data: mine } = useMyWorkspaces();
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
   // The message path at /workspaces/:wsId/channels/:chid/messages still
@@ -67,6 +69,18 @@ export function DmShell(): JSX.Element {
     if (fromDms) return { userId: routeUserId, username: fromDms.otherUsername };
     return { userId: routeUserId, username: '' };
   }, [routeUserId, friends, dms]);
+
+  // DM author map: MessageList falls back to `useMembers(primary.id)`
+  // which never sees the other participant when they belong to a
+  // different workspace (or no workspace at all). Supply the pair
+  // here so MessageItem stops rendering the other side as "unknown".
+  const extraNames = useMemo(() => {
+    const m = new Map<string, string>();
+    if (me?.id && me?.username) m.set(me.id, me.username);
+    if (selectedFriend?.userId && selectedFriend.username)
+      m.set(selectedFriend.userId, selectedFriend.username);
+    return m;
+  }, [me, selectedFriend]);
 
   const openDm = (userId: string): void => {
     navigate(`/dm/${userId}`);
@@ -159,6 +173,7 @@ export function DmShell(): JSX.Element {
           channelId={selectedChannelId}
           channelName={selectedFriend?.username || '…'}
           channelTopic={null}
+          extraNames={extraNames}
         />
       ) : routeUserId ? (
         <main className="qf-empty flex-1" data-testid="dm-shell-loading">
