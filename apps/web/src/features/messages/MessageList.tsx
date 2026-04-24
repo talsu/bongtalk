@@ -17,6 +17,13 @@ type Props = {
   workspaceId: string;
   channelId: string;
   onOpenThread?: (rootId: string) => void;
+  /**
+   * Fallback username lookup for authors NOT in the workspace member
+   * list — needed for DMs where the other participant may belong to
+   * a different workspace (or no workspace at all). Keys are userIds,
+   * values are the usernames to show in the message header.
+   */
+  extraNames?: Map<string, string>;
 };
 
 /**
@@ -25,7 +32,12 @@ type Props = {
  * surrounding `<Scrollable>` but kept off by default — the 50-message
  * page size keeps DOM cost trivial until we have real steady-state data.
  */
-export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JSX.Element {
+export function MessageList({
+  workspaceId,
+  channelId,
+  onOpenThread,
+  extraNames,
+}: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId);
   const history = useMessageHistory(workspaceId, channelId);
@@ -152,7 +164,7 @@ export function MessageList({ workspaceId, channelId, onOpenThread }: Props): JS
               msg={m}
               isMine={m.authorId === user?.id}
               isContinuation={isContinuation}
-              authorName={nameById.get(m.authorId)}
+              authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
               authorRole={roleById.get(m.authorId) ?? null}
               onEditSave={async (content) => {
                 await updMut.mutateAsync({ msgId: m.id, content });
