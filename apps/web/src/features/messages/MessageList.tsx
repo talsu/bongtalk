@@ -14,7 +14,8 @@ import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
 import { Scrollable } from '../../design-system/primitives';
 
 type Props = {
-  workspaceId: string;
+  /** null for Global DM channels (no host workspace). */
+  workspaceId: string | null;
   channelId: string;
   onOpenThread?: (rootId: string) => void;
   /**
@@ -39,7 +40,7 @@ export function MessageList({
   extraNames,
 }: Props): JSX.Element {
   const { user } = useAuth();
-  const { data: members } = useMembers(workspaceId);
+  const { data: members } = useMembers(workspaceId ?? undefined);
   const history = useMessageHistory(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);

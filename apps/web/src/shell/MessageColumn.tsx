@@ -17,8 +17,10 @@ import { qk } from '../lib/query-keys';
 import type { UnreadChannelSummary } from '../features/channels/useUnread';
 
 type Props = {
-  workspaceId: string;
-  workspaceSlug: string;
+  /** null for Global DM channels — disables workspace-only chrome
+      (search, unread mark, member list, thread panel). */
+  workspaceId: string | null;
+  workspaceSlug: string | null;
   channelId: string;
   channelName: string;
   channelTopic: string | null;
@@ -48,7 +50,8 @@ export function MessageColumn({
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
   const { user } = useAuth();
-  const { data: members } = useMembers(workspaceId);
+  const isDm = workspaceId === null;
+  const { data: members } = useMembers(workspaceId ?? undefined);
   const memberCount = members?.members.length ?? 0;
   const nameByUserId = useMemo(() => {
     const m = new Map<string, string>();
@@ -85,7 +88,7 @@ export function MessageColumn({
     }
   }, [channelId, setActiveThread]);
 
-  useLiveMessages(workspaceId, channelId);
+  useLiveMessages(workspaceId ?? '', channelId);
 
   // Task-010 reviewer finding-1 fix: announce the active channel to the
   // UI store so the realtime dispatcher skips unread-bumps for messages
@@ -110,9 +113,15 @@ export function MessageColumn({
   // channel, but if the server-side lastReadAt falls behind we still
   // want an occasional refresh. Implemented by zeroing the cached
   // count directly (optimistic) and debouncing the POST.
-  const markRead = useMarkChannelRead(workspaceId);
+  const markRead = useMarkChannelRead(workspaceId ?? undefined);
   const pendingRead = useRef<number | null>(null);
   useEffect(() => {
+    // DM channels have no workspace-scoped unread summary; skip the
+    // optimistic patch + POST. The `/me/channels/read` call itself is
+    // workspace-agnostic (takes channelId only), so we could still
+    // call it — but without the summary row to prettify, the RTT buys
+    // us nothing here.
+    if (workspaceId === null) return;
     // Optimistically zero the cached unread for this channel so the
     // pill disappears immediately rather than waiting 500ms + rtt.
     qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
@@ -150,7 +159,9 @@ export function MessageColumn({
           </h2>
           {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
           <div className="ml-auto flex items-center gap-[var(--s-3)]">
-            <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+            {!isDm && workspaceId && workspaceSlug ? (
+              <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
+            ) : null}
             <ActivityBellButton />
             <Tooltip label="곧 제공 예정" side="bottom">
               <button
@@ -194,7 +205,7 @@ export function MessageColumn({
           channelName={channelName}
         />
       </main>
-      {activeThread ? (
+      {activeThread && !isDm && workspaceId ? (
         <ThreadPanel
           workspaceId={workspaceId}
           channelId={channelId}
