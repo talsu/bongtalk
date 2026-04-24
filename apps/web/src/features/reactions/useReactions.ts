@@ -11,9 +11,9 @@ import { upsertReactionBucket } from '../realtime/dispatcher';
  * exists only so the UI flips instantly on click. `onError` rolls back
  * by restoring the pre-mutation bucket.
  */
-export function useToggleReaction(wsId: string, channelId: string) {
+export function useToggleReaction(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
-  const key = qk.messages.list(wsId, channelId);
+  const key = qk.messages.list(wsId ?? 'global', channelId);
 
   return useMutation({
     mutationFn: async (args: { messageId: string; emoji: string; currentlyByMe: boolean }) => {

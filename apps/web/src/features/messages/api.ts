@@ -17,21 +17,33 @@ function toQuery(q: Partial<ListMessagesQuery>): string {
   return params.length ? `?${params.join('&')}` : '';
 }
 
+/**
+ * Route selector: `null` wsId → Global DM endpoint at
+ * `/me/dms/:channelId/messages`. This lets zero-workspace users
+ * (friends-only signup flow) send + receive DMs without pretending
+ * to be a member of some host workspace.
+ */
+function basePath(wsId: string | null, channelId: string): string {
+  return wsId === null
+    ? `/me/dms/${channelId}/messages`
+    : `/workspaces/${wsId}/channels/${channelId}/messages`;
+}
+
 export function listMessages(
-  wsId: string,
+  wsId: string | null,
   channelId: string,
   query: Partial<ListMessagesQuery> = {},
 ): Promise<ListMessagesResponse> {
-  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages${toQuery(query)}`);
+  return apiRequest(`${basePath(wsId, channelId)}${toQuery(query)}`);
 }
 
 export function sendMessage(
-  wsId: string,
+  wsId: string | null,
   channelId: string,
   input: SendMessageRequest,
   idempotencyKey: string,
 ): Promise<{ message: MessageDto; replayed: boolean }> {
-  return apiRequestRaw(`/workspaces/${wsId}/channels/${channelId}/messages`, {
+  return apiRequestRaw(basePath(wsId, channelId), {
     method: 'POST',
     body: input,
     headers: { 'Idempotency-Key': idempotencyKey },
@@ -39,19 +51,23 @@ export function sendMessage(
 }
 
 export function updateMessage(
-  wsId: string,
+  wsId: string | null,
   channelId: string,
   msgId: string,
   input: UpdateMessageRequest,
 ): Promise<{ message: MessageDto }> {
-  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}`, {
+  return apiRequest(`${basePath(wsId, channelId)}/${msgId}`, {
     method: 'PATCH',
     body: input,
   });
 }
 
-export function deleteMessage(wsId: string, channelId: string, msgId: string): Promise<void> {
-  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}`, {
+export function deleteMessage(
+  wsId: string | null,
+  channelId: string,
+  msgId: string,
+): Promise<void> {
+  return apiRequest(`${basePath(wsId, channelId)}/${msgId}`, {
     method: 'DELETE',
   });
 }

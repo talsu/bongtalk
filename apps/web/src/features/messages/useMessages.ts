@@ -13,10 +13,12 @@ import { useAuth } from '../auth/AuthProvider';
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
   // this hook build the IDENTICAL tuple — reviewer flagged drift risk.
-  list: (wsId: string, channelId: string) => qk.messages.list(wsId, channelId),
+  // DM callers pass null for wsId; the qk helper accepts the sentinel
+  // 'global' to keep tuples distinct across DM channels.
+  list: (wsId: string | null, channelId: string) => qk.messages.list(wsId ?? 'global', channelId),
 };
 
-export function useMessageHistory(wsId: string, channelId: string) {
+export function useMessageHistory(wsId: string | null, channelId: string) {
   return useInfiniteQuery({
     queryKey: keys.list(wsId, channelId),
     queryFn: ({ pageParam }) =>
@@ -31,7 +33,7 @@ export function useMessageHistory(wsId: string, channelId: string) {
   });
 }
 
-export function useSendMessage(wsId: string, channelId: string) {
+export function useSendMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   const { user } = useAuth();
 
@@ -120,7 +122,7 @@ export function useSendMessage(wsId: string, channelId: string) {
   return { send, mutation };
 }
 
-export function useUpdateMessage(wsId: string, channelId: string) {
+export function useUpdateMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({ msgId, content }: { msgId: string; content: string }) =>
@@ -129,7 +131,7 @@ export function useUpdateMessage(wsId: string, channelId: string) {
   });
 }
 
-export function useDeleteMessage(wsId: string, channelId: string) {
+export function useDeleteMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (msgId: string) => deleteMessage(wsId, channelId, msgId),

@@ -18,9 +18,15 @@ const MENTION_EVERYONE_RE = /(?<![A-Za-z0-9_])@everyone(?![A-Za-z0-9_])/;
  */
 export async function extractMentions(
   prisma: PrismaClient,
-  workspaceId: string,
+  workspaceId: string | null,
   text: string,
 ): Promise<Mentions> {
+  // Global DMs have no workspace scope — there is no member/channel
+  // namespace to resolve @handles against, so drop mentions entirely.
+  // `@everyone` in a DM would also be meaningless.
+  if (workspaceId === null) {
+    return { users: [], channels: [], everyone: false };
+  }
   const everyone = MENTION_EVERYONE_RE.test(text);
 
   const usernames = new Set<string>();
