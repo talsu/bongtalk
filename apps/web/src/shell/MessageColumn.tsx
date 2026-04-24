@@ -22,6 +22,13 @@ type Props = {
   channelId: string;
   channelName: string;
   channelTopic: string | null;
+  /**
+   * DM callers pass a Map keyed by userId so MessageList can resolve
+   * authors who are not members of `workspaceId` (e.g. the other
+   * participant in a workspace-less DM). Merged on top of the workspace
+   * members fallback inside MessageList.
+   */
+  extraNames?: Map<string, string>;
 };
 
 /**
@@ -35,6 +42,7 @@ export function MessageColumn({
   channelId,
   channelName,
   channelTopic,
+  extraNames,
 }: Props): JSX.Element {
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
@@ -44,9 +52,13 @@ export function MessageColumn({
   const memberCount = members?.members.length ?? 0;
   const nameByUserId = useMemo(() => {
     const m = new Map<string, string>();
+    // Workspace members win when present — their role/role-badge data
+    // flows through the same map. DM callers pass `extraNames` so the
+    // typing indicator can still label the other participant by name.
     for (const mm of members?.members ?? []) m.set(mm.userId, mm.user.username);
+    if (extraNames) for (const [k, v] of extraNames) if (!m.has(k)) m.set(k, v);
     return m;
-  }, [members]);
+  }, [members, extraNames]);
   const qc = useQueryClient();
 
   // task-014-C: thread panel opens via `?thread=<rootId>` query param.
@@ -169,6 +181,7 @@ export function MessageColumn({
           workspaceId={workspaceId}
           channelId={channelId}
           onOpenThread={(rootId) => setActiveThread(rootId)}
+          extraNames={extraNames}
         />
         <TypingIndicator
           channelId={channelId}
