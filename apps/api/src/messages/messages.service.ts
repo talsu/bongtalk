@@ -267,7 +267,10 @@ export class MessagesService {
    *   - If it exists with DIFFERENT content → 409 IDEMPOTENCY_KEY_REUSE_CONFLICT.
    */
   async send(args: {
-    workspaceId: string;
+    // null for Global DM channels — mention extraction is skipped and
+    // outbox payloads carry workspaceId=null so the WS dispatcher
+    // routes by channel room only.
+    workspaceId: string | null;
     channelId: string;
     authorId: string;
     content: string;
@@ -479,7 +482,7 @@ export class MessagesService {
     rootId: string,
     _newReplyId: string,
     channelId: string,
-    workspaceId: string,
+    workspaceId: string | null,
     replierId: string,
     replyCreatedAt: Date,
     excludeRecipients: Set<string>,
@@ -786,7 +789,7 @@ export class MessagesService {
   // ------------------------------------------------------------------ update
 
   async update(args: {
-    workspaceId: string;
+    workspaceId: string | null;
     channelId: string;
     msgId: string;
     actorId: string;
@@ -839,7 +842,7 @@ export class MessagesService {
   // ------------------------------------------------------------------ delete
 
   async softDelete(args: {
-    workspaceId: string;
+    workspaceId: string | null;
     channelId: string;
     msgId: string;
     actorId: string;

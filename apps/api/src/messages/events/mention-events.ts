@@ -10,7 +10,11 @@ export const MENTION_RECEIVED = 'mention.received';
 
 export type MentionReceivedPayload = {
   targetUserId: string;
-  workspaceId: string;
+  // task-034-follow: Global DM messages can't mention workspace
+  // members; extractMentions returns empty for null so this branch
+  // never fires in practice, but the type needs to be widened so the
+  // enclosing MessagesService can compile with a nullable workspaceId.
+  workspaceId: string | null;
   channelId: string;
   messageId: string;
   actorId: string;

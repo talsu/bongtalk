@@ -29,15 +29,13 @@ export function DmShell(): JSX.Element {
   const { user: me } = useAuth();
   const { data: mine } = useMyWorkspaces();
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
-  // The message path at /workspaces/:wsId/channels/:chid/messages still
-  // needs a workspace on the URL for the WorkspaceMemberGuard — the
-  // server resolves the DM channel by id alone via the DIRECT bypass in
-  // ChannelAccessGuard, so any workspace the caller is a member of
-  // works. Pick the first one as the "host" for bookkeeping.
-  const primary = workspaces[0];
-  const { data: dms } = useDmList(primary?.id);
+  // DM is workspace-free end to end now — list / by-user / create
+  // mutate `/me/dms/*`, and MessageColumn below routes messages
+  // through `/me/dms/:channelId/messages` regardless of whether the
+  // caller has any workspace membership.
+  const { data: dms } = useDmList(undefined);
   const { data: friends } = useFriendsList('accepted');
-  const createDm = useCreateOrGetDm(primary?.id);
+  const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
   useRealtimeConnection();
   useNotificationPreferences();
@@ -45,7 +43,7 @@ export function DmShell(): JSX.Element {
   // Resolve the DM channel for the selected :userId. The /me/dms POST
   // is idempotent — safe to call on every route change that lands on a
   // user without a known channelId.
-  const { data: byUser } = useDmByUser(primary?.id, routeUserId);
+  const { data: byUser } = useDmByUser(undefined, routeUserId);
   const selectedChannelId = byUser?.channelId ?? null;
 
   useEffect(() => {
@@ -166,10 +164,10 @@ export function DmShell(): JSX.Element {
         </div>
         <BottomBar />
       </div>
-      {routeUserId && selectedChannelId && primary ? (
+      {routeUserId && selectedChannelId ? (
         <MessageColumn
-          workspaceId={primary.id}
-          workspaceSlug={primary.slug}
+          workspaceId={null}
+          workspaceSlug={null}
           channelId={selectedChannelId}
           channelName={selectedFriend?.username || '…'}
           channelTopic={null}
@@ -182,10 +180,12 @@ export function DmShell(): JSX.Element {
       ) : (
         <main className="qf-empty flex-1" data-testid="dm-shell-empty">
           <div className="qf-empty__title">
-            {workspaces.length === 0 ? '먼저 친구를 추가해보세요' : '대화할 친구를 선택하세요'}
+            {(friends?.items ?? []).length === 0
+              ? '먼저 친구를 추가해보세요'
+              : '대화할 친구를 선택하세요'}
           </div>
           <div className="qf-empty__body">
-            {workspaces.length === 0
+            {(friends?.items ?? []).length === 0
               ? '/friends 에서 친구를 추가하거나, 왼쪽 나침반으로 공개 워크스페이스를 찾아보세요.'
               : '좌측 목록에서 친구 또는 기존 대화를 클릭하세요.'}
           </div>

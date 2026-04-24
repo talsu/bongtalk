@@ -16,7 +16,8 @@ import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload
 import { cn } from '../../lib/cn';
 
 type Props = {
-  workspaceId: string;
+  /** null for Global DM channels — custom emoji picker is empty then. */
+  workspaceId: string | null;
   channelId: string;
   channelName: string;
 };

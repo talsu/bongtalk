@@ -10,7 +10,12 @@ export const MESSAGE_DELETED = 'message.deleted';
 export const MESSAGE_THREAD_REPLIED = 'message.thread.replied';
 
 export type MessageCreatedPayload = {
-  workspaceId: string;
+  // null for Global DM channels (Channel.workspaceId IS NULL). The
+  // outbox-to-ws subscriber routes message events by channel room
+  // first and only falls back to the workspace room on
+  // membership/workspace events, so a null here is benign — consumers
+  // already guard on falsy workspaceId.
+  workspaceId: string | null;
   channelId: string;
   actorId: string;
   message: {
@@ -26,7 +31,7 @@ export type MessageCreatedPayload = {
 };
 
 export type MessageThreadRepliedPayload = {
-  workspaceId: string;
+  workspaceId: string | null;
   channelId: string;
   rootMessageId: string;
   replierId: string;
@@ -43,7 +48,7 @@ export type MessageThreadRepliedPayload = {
 };
 
 export type MessageUpdatedPayload = {
-  workspaceId: string;
+  workspaceId: string | null;
   channelId: string;
   actorId: string;
   message: {
@@ -56,7 +61,7 @@ export type MessageUpdatedPayload = {
 };
 
 export type MessageDeletedPayload = {
-  workspaceId: string;
+  workspaceId: string | null;
   channelId: string;
   actorId: string;
   message: { id: string; authorId: string; deletedAt: string };

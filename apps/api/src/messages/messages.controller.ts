@@ -32,6 +32,7 @@ import {
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
+import { validateIdempotencyKey } from './idempotency';
 
 type WorkspaceRoleStr = 'OWNER' | 'ADMIN' | 'MEMBER';
 
@@ -246,15 +247,4 @@ export class MessagesController {
   private rateChannelMax(): number {
     return Number(process.env.MESSAGE_RATE_CHANNEL_MAX ?? 60);
   }
-}
-
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-function validateIdempotencyKey(raw: string | undefined): string | null {
-  if (!raw) return null;
-  const trimmed = raw.trim();
-  if (trimmed.length === 0) return null;
-  if (!UUID_RE.test(trimmed)) {
-    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'Idempotency-Key must be a UUID');
-  }
-  return trimmed;
 }
