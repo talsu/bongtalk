@@ -29,7 +29,11 @@ export function useMessageHistory(wsId: string | null, channelId: string) {
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: ListMessagesResponse) =>
       last.pageInfo.hasMore ? (last.pageInfo.nextCursor ?? undefined) : undefined,
-    enabled: !!wsId && !!channelId,
+    // DM mode passes wsId=null intentionally (routes to /me/dms/…); the
+    // enabled gate must only require channelId so the history still
+    // loads. The previous `!!wsId && !!channelId` left DMs stuck on
+    // the empty-state placeholder.
+    enabled: !!channelId,
   });
 }
 
