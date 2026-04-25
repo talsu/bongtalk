@@ -17,14 +17,17 @@ export function MobileOverlay({
   workspaceSlug,
   channelId,
   channelName,
+  extraNames,
   ...rest
 }: {
   title: string;
   onClose: () => void;
-  workspaceId: string;
-  workspaceSlug: string;
+  /** null for Global DM channels (no host workspace). */
+  workspaceId: string | null;
+  workspaceSlug: string | null;
   channelId: string;
   channelName: string;
+  extraNames?: Map<string, string>;
   'data-testid'?: string;
 }): JSX.Element {
   const [mounted, setMounted] = useState(false);
@@ -115,6 +118,7 @@ export function MobileOverlay({
           workspaceSlug={workspaceSlug}
           channelId={channelId}
           channelName={channelName}
+          extraNames={extraNames}
         />
       </div>
     </div>

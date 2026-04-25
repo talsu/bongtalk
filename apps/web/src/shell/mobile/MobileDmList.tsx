@@ -1,10 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
-import { useMyWorkspaces, useMembers } from '../../features/workspaces/useWorkspaces';
-import { useAuth } from '../../features/auth/AuthProvider';
 import { useDmList, useCreateOrGetDm } from '../../features/dms/useDms';
+import { useFriendsList } from '../../features/friends/useFriends';
 import { MobileTabBar } from './MobileTabBar';
 
 /**
@@ -13,13 +12,12 @@ import { MobileTabBar } from './MobileTabBar';
  * qf-m-row list + qf-m-fab "New DM" + qf-m-tabbar.
  */
 export function MobileDmList(): JSX.Element {
-  const { data: mine } = useMyWorkspaces();
-  const { user } = useAuth();
   const navigate = useNavigate();
-  const active = useMemo(() => mine?.workspaces[0], [mine]);
-  const { data: dms, isLoading } = useDmList(active?.id);
-  const { data: members } = useMembers(active?.id);
-  const createDm = useCreateOrGetDm(active?.id);
+  // Global DM — workspace-agnostic. /me/dms ignores the wsId arg, the
+  // friends list is the candidate source for "새 DM".
+  const { data: dms, isLoading } = useDmList(undefined);
+  const { data: friends } = useFriendsList('accepted');
+  const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
   const [newOpen, setNewOpen] = useState(false);
 
@@ -27,12 +25,11 @@ export function MobileDmList(): JSX.Element {
   const rows = (dms?.items ?? []).filter(
     (d) => !norm || d.otherUsername.toLowerCase().includes(norm),
   );
-  const memberCandidates = (members?.members ?? [])
-    .filter((m) => m.userId !== user?.id)
-    .filter((m) => !norm || m.user.username.toLowerCase().includes(norm));
+  const friendCandidates = (friends?.items ?? []).filter(
+    (f) => !norm || f.otherUsername.toLowerCase().includes(norm),
+  );
 
   const startDm = async (otherUserId: string): Promise<void> => {
-    if (!active) return;
     const res = await createDm.mutateAsync({ userId: otherUserId });
     setNewOpen(false);
     navigate(`/dms/${otherUserId}?c=${res.channelId}`);
@@ -43,8 +40,7 @@ export function MobileDmList(): JSX.Element {
       <header className="qf-m-topbar qf-m-safe-top">
         <div />
         <div className="qf-m-topbar__titleBlock">
-          <div className="qf-m-topbar__title">Direct messages</div>
-          <div className="qf-m-topbar__subtitle">{active?.name ?? ''}</div>
+          <div className="qf-m-topbar__title">다이렉트 메시지</div>
         </div>
         <div className="qf-m-topbar__actions">
           <button type="button" className="qf-m-topbar__action" aria-label="검색">
@@ -124,7 +120,7 @@ export function MobileDmList(): JSX.Element {
 
       <MobileTabBar
         active="home"
-        onHome={() => navigate(active ? `/w/${active.slug}` : '/')}
+        onHome={() => navigate('/')}
         onSettings={() => navigate('/settings/notifications')}
         onActivity={() => navigate('/activity')}
       />
@@ -154,22 +150,33 @@ export function MobileDmList(): JSX.Element {
               </div>
             </div>
             <ul role="list" className="max-h-[50vh] overflow-y-auto">
-              {memberCandidates.map((m) => (
-                <li key={m.userId}>
-                  <button
-                    type="button"
-                    data-testid={`mobile-dm-new-candidate-${m.user.username}`}
-                    className="w-full text-left qf-m-row"
-                    onClick={() => startDm(m.userId)}
-                  >
-                    <Avatar name={m.user.username} size="sm" />
-                    <div className="min-w-0 flex-1">
-                      <div className="qf-m-row__primary">{m.user.username}</div>
-                      <div className="qf-m-row__secondary">{m.role}</div>
+              {friendCandidates.length === 0 ? (
+                <li>
+                  <div className="qf-m-empty">
+                    <div className="qf-m-empty__title">친구가 없습니다</div>
+                    <div className="qf-m-empty__body">
+                      먼저 /friends 에서 친구 요청을 보내주세요.
                     </div>
-                  </button>
+                  </div>
                 </li>
-              ))}
+              ) : (
+                friendCandidates.map((f) => (
+                  <li key={f.otherUserId}>
+                    <button
+                      type="button"
+                      data-testid={`mobile-dm-new-candidate-${f.otherUsername}`}
+                      className="w-full text-left qf-m-row"
+                      onClick={() => startDm(f.otherUserId)}
+                    >
+                      <Avatar name={f.otherUsername} size="sm" />
+                      <div className="min-w-0 flex-1">
+                        <div className="qf-m-row__primary">{f.otherUsername}</div>
+                        <div className="qf-m-row__secondary">친구</div>
+                      </div>
+                    </button>
+                  </li>
+                ))
+              )}
             </ul>
           </div>
         </div>
