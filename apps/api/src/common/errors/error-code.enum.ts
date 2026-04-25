@@ -149,7 +149,12 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CUSTOM_EMOJI_CAP_REACHED]: 422,
   [ErrorCode.CUSTOM_EMOJI_MIME_REJECTED]: 415,
   [ErrorCode.CUSTOM_EMOJI_TOO_LARGE]: 413,
-  [ErrorCode.INVALID_MAGIC_BYTES]: 400,
+  // task-039-D: 422 (Unprocessable Entity) is more accurate than 400
+  // — the request envelope is well-formed JSON with valid fields, but
+  // the uploaded payload's magic bytes do not match the declared
+  // mime, so the server cannot process it. 400 was reserved for
+  // shape errors (parse failures / missing required fields).
+  [ErrorCode.INVALID_MAGIC_BYTES]: 422,
 
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,

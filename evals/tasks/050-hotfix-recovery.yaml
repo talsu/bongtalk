@@ -1,0 +1,42 @@
+id: 050
+title: Hot-fix recovery + 038 deferred sweep
+goal: |
+  Add regression coverage for the eleven post-038 hot-fixes that
+  shipped to main without a task contract: six DM-workspaceless
+  patches, five workspace-creation / discover-UX patches. New tests
+  live in apps/api/test/int/dms (workspaceless message round-trip,
+  participant name) and apps/web/e2e (workspaceless flow on desktop +
+  mobile, realtime fanout, create-dialog field order, discover three-
+  column layout, zero-workspace landing, brand-mark fold). Closes the
+  remaining 038 deferred items: orphan-gc list-objects-v2 pagination
+  via ContinuationToken loop (proven against a 1500-object MinIO
+  fixture) and tightens INVALID_MAGIC_BYTES from HTTP 400 → 422.
+  Alertmanager wiring stays OUT — moves to task 040.
+dod:
+  - command: pnpm --filter @qufox/api test --run test/error-code.spec.ts
+    expect: exit 0
+  - command: pnpm --filter @qufox/api test:int --run test/int/dms/dm-workspaceless-message.int.spec.ts test/int/dms/dm-participant-name.int.spec.ts
+    expect: exit 0
+  - command: bash -n scripts/backup/attachment-orphan-gc.sh
+    expect: exit 0
+  - command: bash -n scripts/backup/test/orphan-gc-pagination.test.sh
+    expect: exit 0
+  - command: git diff --stat e6ee320..HEAD -- apps/web/public/design-system/
+    expect: empty output
+  - scope_allow:
+      - apps/api/src/common/errors/error-code.enum.ts
+      - apps/api/test/error-code.spec.ts
+      - apps/api/test/int/dms/**
+      - apps/web/e2e/dms/dm-workspaceless-flow.e2e.ts
+      - apps/web/e2e/dms/dm-realtime-fanout.e2e.ts
+      - apps/web/e2e/workspaces/workspace-create-dialog.e2e.ts
+      - apps/web/e2e/discovery/discover-three-column-layout.e2e.ts
+      - apps/web/e2e/shell/zero-workspace-landing.e2e.ts
+      - apps/web/e2e/shell/home-dm-brand-mark-fold.e2e.ts
+      - scripts/backup/attachment-orphan-gc.sh
+      - scripts/backup/test/orphan-gc-pagination.test.sh
+      - docs/tasks/039-hotfix-recovery-and-deferred-sweep.md
+      - docs/tasks/039-hotfix-recovery-and-deferred-sweep.PR.md
+      - docs/reviews/task-039-hotfix-recovery-and-deferred-sweep-review.md
+      - evals/tasks/050-hotfix-recovery.yaml
+max_turns: 60
