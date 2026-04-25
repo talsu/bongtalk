@@ -162,15 +162,59 @@ while IFS=$'\t' read -r LASTMOD KEY; do
   else
     log "(warn) emoji delete failed for $KEY"
   fi
-# TODO(task-038-follow-list-paginate): list-objects-v2 currently
-# returns only the first page (MinIO caps at 1000 objects). Once the
-# emoji bucket grows past 1000 the sweep silently misses the tail.
-# Fix by looping on NextContinuationToken, or switch to
-# `aws s3 ls --recursive` which paginates automatically.
-done < <(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
+# task-039-C (closes TODO(task-038-follow-list-paginate)): paginate
+# list-objects-v2 by ContinuationToken so a bucket past the 1000
+# default page size gets fully scanned. Streamed via process
+# substitution so the read loop above sees one (LastModified, Key)
+# pair per line regardless of how many pages we walked. Uses python3
+# (already a backup-container dependency) instead of jq for parsing.
+done < <(
+  # task-039 review HIGH-2: do NOT silently swallow AWS errors with
+  # `|| echo '{}'`. A page-N-of-M failure would truncate the scan and
+  # the cron summary would still report "ok". Capture the exit code,
+  # log a (warn) line on failure with the stderr tail, and stop the
+  # pagination loop so the half-scanned state is visible upstream
+  # rather than masquerading as a clean run.
+  TOKEN=""
+  AWS_STDERR=$(mktemp)
+  while :; do
+    set +e
+    if [[ -z "$TOKEN" ]]; then
+      RESP=$(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
               --bucket "$S3_BUCKET" \
-              --query 'Contents[].[LastModified,Key]' \
-              --output text 2>/dev/null || true)
+              --max-keys 1000 \
+              --output json 2>"$AWS_STDERR")
+    else
+      RESP=$(aws --endpoint-url "$S3_ENDPOINT" s3api list-objects-v2 \
+              --bucket "$S3_BUCKET" \
+              --max-keys 1000 \
+              --continuation-token "$TOKEN" \
+              --output json 2>"$AWS_STDERR")
+    fi
+    RC=$?
+    set -e
+    if [[ "$RC" -ne 0 ]]; then
+      echo "[orphan-gc] (warn) list-objects-v2 rc=$RC stderr=$(tr -d '\n' < "$AWS_STDERR" | cut -c1-200)" >&2
+      break
+    fi
+    printf '%s\n' "$RESP" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+for o in data.get("Contents", []) or []:
+    lm = o.get("LastModified", "")
+    k = o.get("Key", "")
+    if k:
+        print(f"{lm}\t{k}")
+'
+    TOKEN=$(printf '%s\n' "$RESP" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)
+print(data.get("NextContinuationToken") or "")
+')
+    [[ -z "$TOKEN" ]] && break
+  done
+  rm -f "$AWS_STDERR"
+)
 
 if [[ "$DRY_RUN" -eq 1 ]]; then
   log "emoji dry-run: scanned=$EMOJI_COUNT would-delete=$EMOJI_DEL prefix=emojis/"

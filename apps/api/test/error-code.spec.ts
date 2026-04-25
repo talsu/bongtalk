@@ -30,4 +30,12 @@ describe('ErrorCode enum', () => {
       expect(typeof ERROR_CODE_HTTP_STATUS[code]).toBe('number');
     }
   });
+
+  it('task-039-D: INVALID_MAGIC_BYTES maps to 422 (not 400)', () => {
+    // Magic-byte mismatch is a semantic / processing failure on a
+    // syntactically valid request → 422 Unprocessable Entity. Locking
+    // this in stops a future "tighten everything to 400" sweep from
+    // silently regressing it.
+    expect(ERROR_CODE_HTTP_STATUS[ErrorCode.INVALID_MAGIC_BYTES]).toBe(422);
+  });
 });

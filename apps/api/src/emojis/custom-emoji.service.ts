@@ -166,7 +166,9 @@ export class CustomEmojiService {
     // the actual bytes. Range GET for the first 16 bytes is cheap and
     // catches "PNG header uploaded with GIF mime", or worse — arbitrary
     // HTML declared as image/png. Mismatch → delete object + row +
-    // 400 INVALID_MAGIC_BYTES so the blob never serves at any URL.
+    // 422 INVALID_MAGIC_BYTES so the blob never serves at any URL
+    // (task-039-D tightened this from 400 — the request envelope is
+    // valid, the body just doesn't match the declared mime).
     const head16 = await this.s3.getObjectRange(row.storageKey, 15);
     if (!head16 || !matchesMagic(head16, row.mime as MagicSupportedMime)) {
       await this.s3.deleteObject(row.storageKey);
