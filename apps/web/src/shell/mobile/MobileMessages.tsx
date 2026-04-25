@@ -28,14 +28,21 @@ export function MobileMessages({
   workspaceSlug,
   channelId,
   channelName,
+  extraNames,
 }: {
-  workspaceId: string;
-  workspaceSlug: string;
+  /** null for Global DM channels — routes through /me/dms/:ch/messages. */
+  workspaceId: string | null;
+  workspaceSlug: string | null;
   channelId: string;
   channelName: string;
+  /**
+   * DM callers pass {userId→username} so authors who don't share a
+   * workspace with the viewer still render with their real name.
+   */
+  extraNames?: Map<string, string>;
 }): JSX.Element {
   const { user } = useAuth();
-  const { data: members } = useMembers(workspaceId);
+  const { data: members } = useMembers(workspaceId ?? undefined);
   const history = useMessageHistory(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
@@ -60,8 +67,9 @@ export function MobileMessages({
   const nameById = useMemo(() => {
     const m = new Map<string, string>();
     for (const x of members?.members ?? []) m.set(x.userId, x.user.username);
+    if (extraNames) for (const [k, v] of extraNames) if (!m.has(k)) m.set(k, v);
     return m;
-  }, [members]);
+  }, [members, extraNames]);
 
   const roleById = useMemo(() => {
     const m = new Map<string, WorkspaceRole>();

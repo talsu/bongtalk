@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
+import { useAuth } from '../../features/auth/AuthProvider';
 import { useMyWorkspaces, useMembers } from '../../features/workspaces/useWorkspaces';
 import { useChannelList } from '../../features/channels/useChannels';
 import { useDmList } from '../../features/dms/useDms';
@@ -25,6 +26,7 @@ import { cn } from '../../lib/cn';
 export function MobileHome(): JSX.Element {
   const navigate = useNavigate();
   const [sp, setSp] = useSearchParams();
+  const { user: me } = useAuth();
   useRealtimeConnection();
   useNotificationPreferences();
   const { data: mine } = useMyWorkspaces();
@@ -37,8 +39,9 @@ export function MobileHome(): JSX.Element {
 
   const active = workspaces.find((w) => w.id === selected);
   const { data: channels } = useChannelList(active?.id);
-  const primary = workspaces[0];
-  const { data: dms } = useDmList(primary?.id);
+  // DM list is workspace-agnostic post-034; pass undefined so the
+  // query fires for zero-workspace users too.
+  const { data: dms } = useDmList(undefined);
   const { data: friends } = useFriendsList('accepted');
   const { data: members } = useMembers(active?.id);
   const { onlineUserIds } = usePresence(active?.id);
@@ -178,15 +181,29 @@ export function MobileHome(): JSX.Element {
         onActivity={() => navigate('/activity')}
       />
 
-      {chatChannelId && primary ? (
+      {chatChannelId ? (
         <MobileOverlay
           data-testid="mobile-home-chat-overlay"
           title={chatOther ?? '대화'}
           onClose={closeChat}
-          workspaceId={primary.id}
-          workspaceSlug={primary.slug}
+          /* DM rail (selected==='dm') always opens the channel as a
+             Global DM (workspaceId=null). Workspace channels still
+             pass through their host workspace so member/role lookup +
+             unread mark-read keep working. */
+          workspaceId={selected === 'dm' ? null : (active?.id ?? null)}
+          workspaceSlug={selected === 'dm' ? null : (active?.slug ?? null)}
           channelId={chatChannelId}
           channelName={chatOther ?? 'dm'}
+          extraNames={
+            selected === 'dm'
+              ? new Map([
+                  ...(me?.id && me?.username ? ([[me.id, me.username]] as [string, string][]) : []),
+                  ...(friends?.items ?? []).map(
+                    (f) => [f.otherUserId, f.otherUsername] as [string, string],
+                  ),
+                ])
+              : undefined
+          }
         />
       ) : null}
     </div>
