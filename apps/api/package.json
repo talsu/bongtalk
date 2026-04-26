@@ -61,7 +61,7 @@
     "@swc-node/register": "1.10.9",
     "@swc/cli": "0.5.2",
     "@swc/core": "1.9.3",
-    "@types/cookie-parser": "1.4.8",
+    "@types/cookie-parser": "1.4.10",
     "@types/express": "5.0.0",
     "@types/node": "20.11.30",
     "@types/passport-jwt": "4.0.1",
