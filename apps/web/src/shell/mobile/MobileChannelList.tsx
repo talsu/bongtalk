@@ -79,6 +79,7 @@ export function MobileChannelList({
           <input
             type="search"
             className="qf-m-search__input"
+            aria-label="채널 검색"
             placeholder="채널 검색"
             value={filter}
             onChange={(e) => setFilter(e.target.value)}

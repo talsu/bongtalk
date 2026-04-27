@@ -50,6 +50,7 @@ export function MobileDiscover(): JSX.Element {
             <input
               type="search"
               className="qf-m-search__input"
+              aria-label="워크스페이스 검색"
               placeholder="이름으로 검색"
               value={q}
               onChange={(e) => setQ(e.target.value)}

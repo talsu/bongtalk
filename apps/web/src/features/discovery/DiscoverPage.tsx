@@ -37,6 +37,7 @@ export function DiscoverPage(): JSX.Element {
           <input
             type="search"
             placeholder="워크스페이스 검색"
+            aria-label="워크스페이스 검색"
             data-testid="discover-search"
             value={q}
             onChange={(e) => setQ(e.target.value)}
