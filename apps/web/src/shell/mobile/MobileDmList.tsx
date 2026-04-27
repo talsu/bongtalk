@@ -56,6 +56,7 @@ export function MobileDmList(): JSX.Element {
             <input
               type="search"
               className="qf-m-search__input"
+              aria-label="다이렉트 메시지 검색"
               placeholder="DM 검색"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
@@ -141,6 +142,7 @@ export function MobileDmList(): JSX.Element {
                 <input
                   type="search"
                   className="qf-m-search__input"
+                  aria-label="새 다이렉트 메시지 멤버 검색"
                   placeholder="멤버 검색"
                   value={query}
                   onChange={(e) => setQuery(e.target.value)}

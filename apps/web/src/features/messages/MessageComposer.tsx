@@ -318,6 +318,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
             type="file"
             multiple
             hidden
+            aria-label="파일 첨부"
             data-testid="composer-file-input"
             onChange={(e) => {
               void onFiles(e.target.files);

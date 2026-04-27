@@ -101,6 +101,7 @@ export function DmShell(): JSX.Element {
               <input
                 type="search"
                 data-testid="dm-shell-search"
+                aria-label="다이렉트 메시지 검색"
                 placeholder="이름으로 검색"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
