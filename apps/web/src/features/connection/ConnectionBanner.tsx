@@ -37,8 +37,16 @@ export function ConnectionBanner({
   const state = computeConnectionBanner({ online, realtimeStatus, replaying });
   if (!state.visible) return null;
 
-  // Inline styles use existing DS tokens (var(--warn-*) / var(--bg-*))
-  // — DS 4 source files stay byte-identical; no new qf-* class added.
+  // task-041 A-1 (review M1 follow-up): renders in normal flow as the
+  // first row of a flex-column wrapper at App root (see App.tsx
+  // `AppLayout`). Previously `position: fixed; z-index: 9999` overlay
+  // covered the topbar — `qf-m-topbar` (z-index 2) and the desktop
+  // `qf-topbar` were both shadowed when the banner fired. With the
+  // wrapper at #root level enforcing flex-column, the banner now
+  // pushes the rest of the layout down by its own height; overlap = 0.
+  //
+  // Mobile safe-area: padding-top respects env(safe-area-inset-top)
+  // so on devices with a notch the warning row clears the system bar.
   return (
     <div
       data-testid="connection-banner"
@@ -46,12 +54,9 @@ export function ConnectionBanner({
       role="status"
       aria-live="polite"
       style={{
-        position: 'fixed',
-        top: 0,
-        left: 0,
-        right: 0,
-        zIndex: 9999,
-        padding: 'var(--s-2) var(--s-4)',
+        flexShrink: 0,
+        padding:
+          'calc(var(--s-2) + env(safe-area-inset-top, 0px)) var(--s-4) var(--s-2) var(--s-4)',
         background: 'var(--warn-400)',
         color: 'var(--text-strong)',
         fontSize: 'var(--fs-13)',

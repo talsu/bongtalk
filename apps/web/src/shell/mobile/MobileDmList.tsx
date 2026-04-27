@@ -4,6 +4,7 @@ import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { useDmList, useCreateOrGetDm } from '../../features/dms/useDms';
 import { useFriendsList } from '../../features/friends/useFriends';
+import { useDmPresence } from '../../features/realtime/useDmPresence';
 import { MobileTabBar } from './MobileTabBar';
 
 /**
@@ -20,6 +21,8 @@ export function MobileDmList(): JSX.Element {
   const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
   const [newOpen, setNewOpen] = useState(false);
+  // task-041 A-3: aggregated workspace presence for the DM peer dot.
+  const { getStatus } = useDmPresence();
 
   const norm = query.trim().toLowerCase();
   const rows = (dms?.items ?? []).filter(
@@ -87,7 +90,7 @@ export function MobileDmList(): JSX.Element {
               onClick={() => navigate(`/dms/${d.otherUserId}?c=${d.channelId}`)}
               className={cn('w-full text-left qf-m-row', d.unreadCount > 0 && 'qf-m-row--unread')}
             >
-              <Avatar name={d.otherUsername} size="md" />
+              <Avatar name={d.otherUsername} size="md" status={getStatus(d.otherUserId)} />
               <div className="min-w-0 flex-1">
                 <div className="qf-m-row__primary">{d.otherUsername}</div>
                 <div className="qf-m-row__secondary">
@@ -170,7 +173,7 @@ export function MobileDmList(): JSX.Element {
                       className="w-full text-left qf-m-row"
                       onClick={() => startDm(f.otherUserId)}
                     >
-                      <Avatar name={f.otherUsername} size="sm" />
+                      <Avatar name={f.otherUsername} size="sm" status={getStatus(f.otherUserId)} />
                       <div className="min-w-0 flex-1">
                         <div className="qf-m-row__primary">{f.otherUsername}</div>
                         <div className="qf-m-row__secondary">친구</div>
