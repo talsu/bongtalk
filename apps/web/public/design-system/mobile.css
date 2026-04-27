@@ -126,6 +126,14 @@
   min-height: 64px;
   cursor: pointer;
   position: relative;
+  /* DS bundle update 2026-04-27 [ds-ok]: when used as a `<button>` (DM
+     list rows, friend rows) the browser default chrome leaks through.
+     Reset background/border/color/font here so the row sits flush
+     against the screen background regardless of the host element. */
+  background: transparent;
+  border: none;
+  color: var(--text);
+  font-family: inherit;
 }
 .qf-m-row:active { background: var(--bg-hover); }
 .qf-m-row + .qf-m-row::before {
