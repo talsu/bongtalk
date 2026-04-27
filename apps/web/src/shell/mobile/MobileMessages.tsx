@@ -342,6 +342,7 @@ function MobileComposer({
         <input
           ref={inputRef}
           data-testid="mobile-msg-input"
+          aria-label="메시지 입력"
           className="qf-m-composer__input"
           value={draft}
           onChange={(e) => setDraft(channelId, e.target.value)}

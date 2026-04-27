@@ -2,7 +2,6 @@ import { useMemo } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
-import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { WorkspaceNav } from './WorkspaceNav';
 import { ChannelColumn } from './ChannelColumn';
@@ -55,7 +54,11 @@ function DesktopShell(): JSX.Element {
   const inChannelSettings = rest[1] === 'settings';
   const settingsSection: 'general' = 'general';
   const { data: mine, isLoading } = useMyWorkspaces();
-  useRealtimeConnection();
+  // task-040 R3 + reviewer H1: realtime is now installed once at App
+  // root via AppRealtimeHost so the ConnectionBanner survives every
+  // shell early-return path. Shell only needs the side-effects of
+  // the dispatcher being installed — the singleton in socket.ts is
+  // already running.
   useGlobalShortcuts();
   // task-019-D: warm the notification-preferences cache so the
   // dispatcher's synchronous resolver hits immediately instead of

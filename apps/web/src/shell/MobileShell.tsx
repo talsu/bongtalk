@@ -2,7 +2,6 @@ import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
-import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { Icon, ToastViewport } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
@@ -33,7 +32,8 @@ export function MobileShell(): JSX.Element {
   const rest = (params['*'] ?? '').split('/').filter(Boolean);
   const channelName = rest[0] ?? undefined;
   const { data: mine, isLoading } = useMyWorkspaces();
-  useRealtimeConnection();
+  // task-040 R3 + reviewer H1: realtime now App-level (see App.tsx
+  // AppRealtimeHost). Banner survives mobile early-returns.
   useNotificationPreferences();
   // visualViewport-driven keyboard dodge — shrinks qf-m-body when the
   // software keyboard opens so the composer doesn't get covered.

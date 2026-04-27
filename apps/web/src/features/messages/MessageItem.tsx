@@ -128,6 +128,7 @@ export function MessageItem({
             <div className="mt-1 flex items-center gap-2">
               <input
                 data-testid={`msg-edit-${msg.id}`}
+                aria-label="메시지 편집"
                 className="qf-input flex-1"
                 value={editing}
                 onChange={(e) => setEditing(e.target.value)}

@@ -6,6 +6,9 @@ export const ORIGIN = 'http://localhost:45173';
 
 export const MOBILE_VIEWPORT = { width: 375, height: 667 } as const; // iPhone SE
 export const MOBILE_VIEWPORT_PRO = { width: 390, height: 844 } as const; // iPhone 13/14
+// task-040 R5: pixel-class viewport for the wider mobile band (iPhone XR / Plus).
+export const MOBILE_VIEWPORT_XR = { width: 414, height: 896 } as const; // iPhone XR / 11
+export const MOBILE_VIEWPORTS = [MOBILE_VIEWPORT, MOBILE_VIEWPORT_PRO, MOBILE_VIEWPORT_XR] as const;
 
 export async function signupToken(
   request: APIRequestContext,

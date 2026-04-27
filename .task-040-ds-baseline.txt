@@ -1,0 +1,7 @@
+DS source-of-truth baseline at task 040 start (branched off main 6a0df0a).
+DS 4 files MUST remain byte-identical for entire task duration.
+
+components.css  45890a91e3bb4880c63697a7c39f2db9
+icons.css       388668133693a5ab6f391d23554db252
+mobile.css      64bd048551d77a9d199163d6751ba668
+tokens.css      8608cbaa49d605b17c6063ee6bff821b

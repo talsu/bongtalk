@@ -3,7 +3,6 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Icon } from '../design-system/primitives';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
-import { useRealtimeConnection } from '../features/realtime/useRealtimeConnection';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { useDmList, useCreateOrGetDm, useDmByUser } from '../features/dms/useDms';
 import { useFriendsList } from '../features/friends/useFriends';
@@ -37,7 +36,7 @@ export function DmShell(): JSX.Element {
   const { data: friends } = useFriendsList('accepted');
   const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
-  useRealtimeConnection();
+  // task-040 R3 + reviewer H1: realtime now App-level.
   useNotificationPreferences();
 
   // Resolve the DM channel for the selected :userId. The /me/dms POST
@@ -101,6 +100,7 @@ export function DmShell(): JSX.Element {
               <input
                 type="search"
                 data-testid="dm-shell-search"
+                aria-label="다이렉트 메시지 검색"
                 placeholder="이름으로 검색"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
