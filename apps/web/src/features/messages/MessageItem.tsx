@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import {
@@ -54,6 +54,20 @@ export function MessageItem({
   // (covered for `send`) extends to `update`/`delete` as well.
   const [editPending, setEditPending] = useState(false);
   const [deletePending, setDeletePending] = useState(false);
+  // task-042 R0 F4 (review M3 follow): track mount state so setState
+  // in the mutation finally-blocks doesn't fire after unmount —
+  // happens when the user channel-switches mid-delete and React 18
+  // logs a console.error.
+  const isMountedRef = useRef(true);
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+  const safeSet = <T,>(setter: (v: T) => void, value: T): void => {
+    if (isMountedRef.current) setter(value);
+  };
   const [pickerOpen, setPickerOpen] = useState(false);
   // The more-menu lives inside .qf-message__toolbar which the DS CSS
   // toggles to display:flex only on `.qf-message:hover`. Radix opens
@@ -155,16 +169,18 @@ export function MessageItem({
                     setEditPending(true);
                     try {
                       await onEditSave(editing);
-                      setEditing(null);
+                      safeSet(setEditing, null);
                     } catch {
-                      notify({
-                        variant: 'danger',
-                        title: '메시지 수정 실패',
-                        body: '잠시 후 다시 시도하세요.',
-                        ttlMs: 4000,
-                      });
+                      if (isMountedRef.current) {
+                        notify({
+                          variant: 'danger',
+                          title: '메시지 수정 실패',
+                          body: '잠시 후 다시 시도하세요.',
+                          ttlMs: 4000,
+                        });
+                      }
                     } finally {
-                      setEditPending(false);
+                      safeSet(setEditPending, false);
                     }
                   }
                   if (e.key === 'Escape') setEditing(null);
@@ -179,16 +195,18 @@ export function MessageItem({
                   setEditPending(true);
                   try {
                     await onEditSave(editing);
-                    setEditing(null);
+                    safeSet(setEditing, null);
                   } catch {
-                    notify({
-                      variant: 'danger',
-                      title: '메시지 수정 실패',
-                      body: '잠시 후 다시 시도하세요.',
-                      ttlMs: 4000,
-                    });
+                    if (isMountedRef.current) {
+                      notify({
+                        variant: 'danger',
+                        title: '메시지 수정 실패',
+                        body: '잠시 후 다시 시도하세요.',
+                        ttlMs: 4000,
+                      });
+                    }
                   } finally {
-                    setEditPending(false);
+                    safeSet(setEditPending, false);
                   }
                 }}
                 disabled={editPending}
@@ -306,22 +324,35 @@ export function MessageItem({
                     <DropdownItem
                       danger
                       onSelect={async () => {
-                        // task-041 A-2: surface delete pending state
-                        // + failure toast. The mutation hook returns
-                        // a Promise; await it inside try/catch so the
-                        // skeleton overlay reflects in-flight delete.
+                        // task-041 A-2 + task-042 R0 F4 + F5: surface
+                        // delete pending state, success toast (review
+                        // M4), failure toast, and unmount-safe setState
+                        // (review M3). The mutation hook returns a
+                        // Promise; await + try/catch.
                         setDeletePending(true);
                         try {
-                          await Promise.resolve(onDelete());
+                          await onDelete();
+                          // F5: success path — symmetric with failure
+                          // toast so a slow successful delete is not a
+                          // silent fade-and-vanish.
+                          if (isMountedRef.current) {
+                            notify({
+                              variant: 'success',
+                              title: '메시지 삭제 완료',
+                              ttlMs: 2500,
+                            });
+                          }
                         } catch {
-                          notify({
-                            variant: 'danger',
-                            title: '메시지 삭제 실패',
-                            body: '잠시 후 다시 시도하세요.',
-                            ttlMs: 4000,
-                          });
+                          if (isMountedRef.current) {
+                            notify({
+                              variant: 'danger',
+                              title: '메시지 삭제 실패',
+                              body: '잠시 후 다시 시도하세요.',
+                              ttlMs: 4000,
+                            });
+                          }
                         } finally {
-                          setDeletePending(false);
+                          safeSet(setDeletePending, false);
                         }
                       }}
                     >

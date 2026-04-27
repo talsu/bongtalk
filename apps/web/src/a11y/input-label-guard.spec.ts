@@ -52,38 +52,48 @@ function scan(files: string[], root: string): Finding[] {
     if (ALLOWLIST.has(rel)) continue;
     const src = readFileSync(abs, 'utf8');
     // task-041 reviewer H3: extend regex from <input> to also cover
-    // <textarea> and <select> — both are flagged by axe-core's
-    // `label` rule. The previous regex silently skipped FeedbackDialog
-    // (select + textarea) and any future textarea/select that lacks
-    // an htmlFor binding.
-    const re = /<(input|textarea|select)\b([^>]*?)(\/?)>/g;
-    let m: RegExpExecArray | null;
-    while ((m = re.exec(src)) !== null) {
-      const tagName = m[1];
-      const attrs = m[2];
-      if (/type="hidden"/.test(attrs)) continue;
-      if (/type="checkbox"/.test(attrs) && /disabled\b/.test(attrs)) continue;
-      if (/aria-label\b/.test(attrs)) continue;
-      if (/aria-labelledby\b/.test(attrs)) continue;
-      // task-041 C-1: surrounding <label> wrapper detection. Walk
-      // up to 1500 chars of preceding source — long enough to cover
-      // a sibling-radio fieldset (WorkspaceSettings PRIVATE/PUBLIC
-      // radios put the second input ~480 chars after the first
-      // <label>). If labelOpen > labelClose, the input sits inside
-      // an open label.
-      const before = src.slice(Math.max(0, m.index - 1500), m.index);
-      const labelOpen = (before.match(/<label\b/g) || []).length;
-      const labelClose = (before.match(/<\/label>/g) || []).length;
-      if (labelOpen > labelClose) continue;
-      // htmlFor association (case-insensitive id lookup)
-      const idMatch = /\bid="([^"]+)"/.exec(attrs);
-      if (idMatch) {
-        const target = idMatch[1];
-        if (src.includes(`htmlFor="${target}"`)) continue;
-        if (src.includes(`htmlFor={'${target}'}`)) continue;
+    // <textarea> and <select>.
+    // task-042 R0 F1 (review H3 잔여): also scan capitalized DS form
+    // components (`<Input `, `<Textarea `, `<Select `, `<TextField `).
+    // The DS Input forwards aria-label / id from props; if a consumer
+    // mounts <Input> with no id + no aria-label AND no surrounding
+    // <label>, axe-core would flag the rendered DOM. Static-grep
+    // catches the consumer-side miss without needing a jsdom render.
+    // To avoid false positives the capital-component scan only runs
+    // when the file is a consumer (not the DS primitive folder).
+    const lcRe = /<(input|textarea|select)\b([^>]*?)(\/?)>/g;
+    const ucRe = /<(Input|Textarea|Select|TextField)\b([^>]*?)(\/?)>/g;
+    const isDsPrimitive = rel.startsWith('apps/web/src/design-system/');
+    const passes: Array<{ re: RegExp; capital: boolean }> = [{ re: lcRe, capital: false }];
+    if (!isDsPrimitive) passes.push({ re: ucRe, capital: true });
+
+    for (const { re, capital } of passes) {
+      let m: RegExpExecArray | null;
+      while ((m = re.exec(src)) !== null) {
+        const tagName = m[1];
+        const attrs = m[2];
+        if (/type="hidden"/.test(attrs)) continue;
+        if (/type="checkbox"/.test(attrs) && /disabled\b/.test(attrs)) continue;
+        if (/aria-label\b/.test(attrs)) continue;
+        if (/aria-labelledby\b/.test(attrs)) continue;
+        // task-041 C-1: surrounding <label> wrapper detection — walk
+        // up to 1500 chars of preceding source.
+        const before = src.slice(Math.max(0, m.index - 1500), m.index);
+        const labelOpen = (before.match(/<label\b/g) || []).length;
+        const labelClose = (before.match(/<\/label>/g) || []).length;
+        if (labelOpen > labelClose) continue;
+        // htmlFor association: capital-component scan looks for the
+        // SAME-id pattern at consumer level since DS forwards `id`.
+        const idMatch = /\bid="([^"]+)"/.exec(attrs);
+        if (idMatch) {
+          const target = idMatch[1];
+          if (src.includes(`htmlFor="${target}"`)) continue;
+          if (src.includes(`htmlFor={'${target}'}`)) continue;
+        }
+        const line = src.slice(0, m.index).split('\n').length;
+        const prefix = capital ? `<${tagName}/>` : `<${tagName}>`;
+        out.push({ file: rel, line, attrs: `${prefix} ${attrs.trim().slice(0, 80)}` });
       }
-      const line = src.slice(0, m.index).split('\n').length;
-      out.push({ file: rel, line, attrs: `<${tagName}> ${attrs.trim().slice(0, 80)}` });
     }
   }
   return out;

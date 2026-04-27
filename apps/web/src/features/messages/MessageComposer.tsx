@@ -65,6 +65,23 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
       error?: string;
     }>
   >([]);
+  // task-042 R0 F3 (review M2 follow): refs mirror pending/jobs so
+  // `onFiles` reading mid-async never sees stale closure values. The
+  // race the reviewer flagged is "user picks files via dropdown then
+  // immediately drops more files before React re-renders" — both
+  // closures read the same `pending.length + jobs.length` snapshot,
+  // both pass the cap check, sum exceeds 10. Refs are updated on
+  // every state change (synchronous via useEffect → not perfect but
+  // covers the typical 100ms double-pick window) so the clamp reads
+  // the latest count.
+  const pendingRef = useRef(pending);
+  const jobsRef = useRef(jobs);
+  useEffect(() => {
+    pendingRef.current = pending;
+  }, [pending]);
+  useEffect(() => {
+    jobsRef.current = jobs;
+  }, [jobs]);
   const uploading = jobs.filter((j) => j.status === 'uploading').length;
 
   useEffect(() => {
@@ -164,12 +181,15 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
 
   const onFiles = async (files: FileList | null): Promise<void> => {
     if (!files || files.length === 0) return;
-    // task-040 R4: clamp to server-side cap (10). Without this the
-    // 11th+ files upload, then `send` 422s on submit — bandwidth +
-    // orphan-gc churn for nothing. Inform the user about the rejected
-    // tail via toast, but accept the head.
+    // task-040 R4 + task-042 R0 F3 (review M2): clamp via refs so two
+    // racing onFiles calls each see the latest pending+jobs state.
+    // Without refs both calls read the same render-snapshot count and
+    // could collectively exceed MAX_ATTACHMENTS. The refs are updated
+    // synchronously by the useEffect mirror above; even back-to-back
+    // calls in the same tick now serialize via reading pendingRef +
+    // jobsRef before deciding the slice.
     const incoming = Array.from(files);
-    const currentCount = pending.length + jobs.length;
+    const currentCount = pendingRef.current.length + jobsRef.current.length;
     const { accepted, rejected, truncated } = clampAttachments({ currentCount, incoming });
     if (truncated) {
       notify({
@@ -185,7 +205,14 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
       file,
       status: 'uploading' as const,
     }));
-    setJobs((prev) => [...prev, ...newJobs]);
+    // Functional updater so the append is correct even if React
+    // batches the state update. Ref mirror above guarantees the next
+    // racing onFiles call sees these jobs in its currentCount.
+    setJobs((prev) => {
+      const next = [...prev, ...newJobs];
+      jobsRef.current = next;
+      return next;
+    });
     await Promise.all(newJobs.map((job) => runUpload(job.id, job.file)));
   };
 
