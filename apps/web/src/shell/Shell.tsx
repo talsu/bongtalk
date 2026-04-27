@@ -14,6 +14,7 @@ import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsP
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useAuth } from '../features/auth/AuthProvider';
 import { ToastViewport } from '../design-system/primitives';
+import { ConnectionBanner } from '../features/connection/ConnectionBanner';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
@@ -55,7 +56,7 @@ function DesktopShell(): JSX.Element {
   const inChannelSettings = rest[1] === 'settings';
   const settingsSection: 'general' = 'general';
   const { data: mine, isLoading } = useMyWorkspaces();
-  useRealtimeConnection();
+  const { status: realtimeStatus, replaying } = useRealtimeConnection();
   useGlobalShortcuts();
   // task-019-D: warm the notification-preferences cache so the
   // dispatcher's synchronous resolver hits immediately instead of
@@ -153,6 +154,7 @@ function DesktopShell(): JSX.Element {
       <ShortcutHelp />
       <FeedbackDialog />
       <ToastViewport />
+      <ConnectionBanner realtimeStatus={realtimeStatus} replaying={replaying} />
     </div>
   );
 }

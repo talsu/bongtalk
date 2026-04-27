@@ -5,6 +5,7 @@ import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
 import { DiscoverPage } from '../features/discovery/DiscoverPage';
 import { Icon, ToastViewport } from '../design-system/primitives';
+import { ConnectionBanner } from '../features/connection/ConnectionBanner';
 
 /**
  * task-030 follow: the /discover page used to replace the whole viewport,
@@ -25,7 +26,7 @@ export function DiscoverShell(): JSX.Element {
   const { data: mine, isLoading } = useMyWorkspaces();
   // Keep realtime + prefs warm so navigating back to a workspace doesn't
   // re-subscribe from scratch.
-  useRealtimeConnection();
+  const { status: realtimeStatus, replaying } = useRealtimeConnection();
   useNotificationPreferences();
 
   if (isLoading) {
@@ -67,6 +68,7 @@ export function DiscoverShell(): JSX.Element {
         <DiscoverPage />
       </div>
       <ToastViewport />
+      <ConnectionBanner realtimeStatus={realtimeStatus} replaying={replaying} />
     </div>
   );
 }
