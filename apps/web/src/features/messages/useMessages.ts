@@ -9,6 +9,7 @@ import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import { deleteMessage, listMessages, sendMessage, updateMessage } from './api';
 import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
+import { useNotifications } from '../../stores/notification-store';
 
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
@@ -92,8 +93,24 @@ export function useSendMessage(wsId: string | null, channelId: string) {
       });
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(keys.list(wsId, channelId), ctx.prev);
+      // task-040 R3: surface send-failure to the user. Without this the
+      // optimistic message simply disappears on rollback and the user
+      // has no signal that anything went wrong (especially on flaky
+      // 5xx). The body holds the server message when bubbleError parsed
+      // a JSON envelope; falls back to a generic Korean string.
+      const status = (err as { status?: number } | undefined)?.status;
+      const code = (err as { errorCode?: string } | undefined)?.errorCode;
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '메시지 전송 실패',
+        body:
+          status === undefined
+            ? '네트워크 연결을 확인하세요.'
+            : `서버 응답 ${status}${code ? ` (${code})` : ''}. 잠시 후 다시 시도하세요.`,
+        ttlMs: 5000,
+      });
     },
     onSuccess: (result, { tempId }) => {
       // Replace optimistic row (by tempId) with the server row.

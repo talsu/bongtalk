@@ -11,6 +11,7 @@ import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
 import { MessageColumn } from './MessageColumn';
 import { ToastViewport } from '../design-system/primitives';
+import { ConnectionBanner } from '../features/connection/ConnectionBanner';
 import { cn } from '../lib/cn';
 
 /**
@@ -37,7 +38,7 @@ export function DmShell(): JSX.Element {
   const { data: friends } = useFriendsList('accepted');
   const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
-  useRealtimeConnection();
+  const { status: realtimeStatus, replaying } = useRealtimeConnection();
   useNotificationPreferences();
 
   // Resolve the DM channel for the selected :userId. The /me/dms POST
@@ -193,6 +194,7 @@ export function DmShell(): JSX.Element {
         </main>
       )}
       <ToastViewport />
+      <ConnectionBanner realtimeStatus={realtimeStatus} replaying={replaying} />
     </div>
   );
 }
