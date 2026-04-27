@@ -1,0 +1,45 @@
+id: 051-polish-loop-4
+title: Polish Loop 4 — Channels + DMs (8 dimensions × ≤3 rounds)
+goal: |
+  Run 8-dimension self-converging polish loop on channel/DM critical
+  path (visual / a11y / error-empty-loading / edge / mobile / channel
+  msg / DM / perf). Each dimension reaches 0 BLOCKER + 0 HIGH for
+  2 consecutive rounds OR hits cap at round 3. Loop ends when all 8
+  dimensions resolved or cumulative 24 rounds reached. Every fix
+  carries a regression spec. DS 4 files (tokens / components / mobile
+  / icons.css) untouched.
+
+dod:
+  - 'pnpm verify exits 0 at loop end'
+  - 'docs/tasks/040-round-N-<dim>.md exists for every executed round'
+  - 'docs/tasks/040-dimension-matrix.md filled for all 8 dimensions'
+  - 'All BLOCKER + HIGH issues either fixed (with regression spec)
+    or explicitly carried over via TODO(task-040-follow-*)'
+  - 'axe-core: 0 critical, 0 serious violations on covered surfaces'
+  - 'Performance baseline meets: FCP < 1.8s, LCP < 2.5s, CLS < 0.1,
+    scroll FPS ≥ 60 desktop / ≥ 50 mobile, bundle size delta vs 039
+    baseline ≤ +5%, Lighthouse mobile ≥ 85, desktop ≥ 90'
+  - 'Reviewer subagent spawned exactly once after loop end with
+    transcript token count recorded'
+  - 'develop merged to main exactly once after loop end (auto-promote)'
+  - '.deploy/audit.jsonl last entry exitCode=0 + sha matches main tip'
+  - 'GET https://qufox.com/api/readyz returns 200 with idle window 30s'
+  - 'Pane 1 auto-forward fires exactly once after FINAL REPORT'
+  - 'DS 4 files have git diff 0 vs 040 baseline (md5 unchanged)'
+  - 'FINAL REPORT printed with: dimension matrix, fix commit table,
+    regression spec table, perf baseline, capture set, axe summary,
+    follow-up TODO list, round count, wall clock'
+
+scoring:
+  verify_green: 0.20
+  dimension_matrix_complete: 0.10
+  regression_spec_per_fix: 0.15
+  axe_zero_critical_serious: 0.15
+  perf_budget_met: 0.10
+  reviewer_subagent_spawned: 0.05
+  main_promotion_clean: 0.10
+  pane1_forward_fired: 0.05
+  ds_files_untouched: 0.05
+  final_report_complete: 0.05
+
+tags: [polish, loop, channels, dms, accessibility, performance]
