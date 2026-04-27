@@ -4,6 +4,8 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { TooltipProvider } from './design-system/primitives';
+import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
+import { ConnectionBanner } from './features/connection/ConnectionBanner';
 
 // Shell and ancillary pages are code-split so the initial JS for a
 // logged-out visitor (login/signup/invite) stays small. See
@@ -184,6 +186,25 @@ function ProtectedSettingsRoute({ page }: { page: 'notifications' }): JSX.Elemen
   );
 }
 
+/**
+ * task-040 R3 + reviewer H1: install the realtime socket once at the
+ * top of the auth-protected tree so the ConnectionBanner survives
+ * every shell early-return path (loading / 0-workspaces / not-found
+ * states). Previously each Shell rendered its own `<ConnectionBanner>`
+ * inside the FINAL return, missing all early-returns. Hoisting also
+ * deduplicates the per-shell `useRealtimeConnection()` call (which
+ * was a singleton anyway thanks to socket.ts but cost a needless
+ * reconnect on shell remount).
+ *
+ * Lives inside AuthProvider because the hook needs the viewer id for
+ * dispatcher install. Above Routes so the banner renders on every
+ * authenticated route — including the bootstrap blank page.
+ */
+function AppRealtimeHost(): JSX.Element {
+  const { status: realtimeStatus, replaying } = useRealtimeConnection();
+  return <ConnectionBanner realtimeStatus={realtimeStatus} replaying={replaying} />;
+}
+
 export default function App(): JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
@@ -191,6 +212,7 @@ export default function App(): JSX.Element {
         <TooltipProvider>
           <BrowserRouter>
             <AuthProvider>
+              <AppRealtimeHost />
               <Suspense fallback={<LoadingFallback />}>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
