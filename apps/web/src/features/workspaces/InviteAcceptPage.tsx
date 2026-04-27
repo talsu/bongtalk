@@ -21,7 +21,7 @@ export function InviteAcceptPage(): JSX.Element {
     return (
       <div
         data-testid="invite-loading"
-        className="qf-empty flex min-h-screen items-center justify-center"
+        className="qf-empty flex min-h-full items-center justify-center"
       >
         <div className="qf-empty__body">초대를 확인하는 중…</div>
       </div>
@@ -29,7 +29,7 @@ export function InviteAcceptPage(): JSX.Element {
   }
   if (error || !preview) {
     return (
-      <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+      <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
         <section
           data-testid="invite-invalid"
           className="max-w-md p-[var(--s-9)] text-center"
@@ -47,7 +47,7 @@ export function InviteAcceptPage(): JSX.Element {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+    <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
       <section className="w-full max-w-md p-[var(--s-9)] text-center" style={CARD_STYLE}>
         <div className="qf-eyebrow mb-[var(--s-3)]">workspace invite</div>
         <h1

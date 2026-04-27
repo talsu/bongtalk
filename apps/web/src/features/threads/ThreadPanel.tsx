@@ -269,6 +269,7 @@ function ThreadComposer({
         <textarea
           ref={textareaRef}
           data-testid="thread-input"
+          aria-label="스레드 답장"
           value={draft}
           rows={1}
           onChange={(e) => setDraft(e.target.value)}

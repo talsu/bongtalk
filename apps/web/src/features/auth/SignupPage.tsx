@@ -28,7 +28,7 @@ export function SignupPage(): JSX.Element {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+    <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
       <section
         className="w-full max-w-md p-[var(--s-9)]"
         style={{
@@ -48,8 +48,11 @@ export function SignupPage(): JSX.Element {
         </p>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
           <div className="qf-field">
-            <label className="qf-field__label">Email</label>
+            <label className="qf-field__label" htmlFor="signup-email">
+              Email
+            </label>
             <Input
+              id="signup-email"
               data-testid="signup-email"
               type="email"
               autoComplete="email"
@@ -59,8 +62,11 @@ export function SignupPage(): JSX.Element {
             {errors.email && <p className="qf-field__error">{errors.email.message}</p>}
           </div>
           <div className="qf-field">
-            <label className="qf-field__label">Username</label>
+            <label className="qf-field__label" htmlFor="signup-username">
+              Username
+            </label>
             <Input
+              id="signup-username"
               data-testid="signup-username"
               type="text"
               autoComplete="username"
@@ -70,8 +76,11 @@ export function SignupPage(): JSX.Element {
             {errors.username && <p className="qf-field__error">{errors.username.message}</p>}
           </div>
           <div className="qf-field">
-            <label className="qf-field__label">Password</label>
+            <label className="qf-field__label" htmlFor="signup-password">
+              Password
+            </label>
             <Input
+              id="signup-password"
               data-testid="signup-password"
               type="password"
               autoComplete="new-password"
