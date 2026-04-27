@@ -47,7 +47,7 @@ export function ActivityPage(): JSX.Element {
   return (
     <div
       data-testid="activity-page"
-      className="h-screen flex flex-col bg-bg-app"
+      className="h-full flex flex-col bg-bg-app"
       style={{ background: 'var(--bg-app)' }}
     >
       <header className="flex items-center gap-[var(--s-3)] px-[var(--s-6)] h-[var(--h-topbar)] border-b border-border-subtle">

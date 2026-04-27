@@ -78,7 +78,7 @@ export function NotificationSettingsPage(): JSX.Element {
 
   return (
     <main
-      className="min-h-screen bg-background p-[var(--s-7)]"
+      className="min-h-full bg-background p-[var(--s-7)]"
       data-testid="notification-settings-page"
     >
       <div className="mx-auto max-w-[var(--w-settings)]">

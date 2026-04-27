@@ -8,7 +8,7 @@ export function ProtectedRoute({ children }: { children: ReactNode }): JSX.Eleme
 
   if (status === 'loading') {
     return (
-      <div data-testid="auth-loading" className="min-h-screen flex items-center justify-center">
+      <div data-testid="auth-loading" className="min-h-full flex items-center justify-center">
         <span className="text-text-muted text-sm">loading session…</span>
       </div>
     );

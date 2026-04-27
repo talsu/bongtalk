@@ -50,6 +50,7 @@ export function WorkspaceMembersModal({
             {canManage && m.role !== 'OWNER' ? (
               <select
                 data-testid={`ws-role-select-${m.user.username}`}
+                aria-label={`${m.user.username} 의 역할 변경`}
                 value={m.role}
                 onChange={async (e) => {
                   try {

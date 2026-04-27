@@ -45,7 +45,7 @@ export function FriendsPage(): JSX.Element {
   return (
     <div
       data-testid="friends-page"
-      className="h-screen flex flex-col"
+      className="h-full flex flex-col"
       style={{ background: 'var(--bg-app)' }}
     >
       <header className="flex items-center gap-[var(--s-3)] px-[var(--s-6)] h-[var(--h-topbar)] border-b border-border-subtle">

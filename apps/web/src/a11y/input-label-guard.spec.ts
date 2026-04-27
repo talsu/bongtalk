@@ -51,10 +51,16 @@ function scan(files: string[], root: string): Finding[] {
     const rel = abs.replace(root + '/', '');
     if (ALLOWLIST.has(rel)) continue;
     const src = readFileSync(abs, 'utf8');
-    const re = /<input\b([^>]*?)\/?>/g;
+    // task-041 reviewer H3: extend regex from <input> to also cover
+    // <textarea> and <select> — both are flagged by axe-core's
+    // `label` rule. The previous regex silently skipped FeedbackDialog
+    // (select + textarea) and any future textarea/select that lacks
+    // an htmlFor binding.
+    const re = /<(input|textarea|select)\b([^>]*?)(\/?)>/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(src)) !== null) {
-      const attrs = m[1];
+      const tagName = m[1];
+      const attrs = m[2];
       if (/type="hidden"/.test(attrs)) continue;
       if (/type="checkbox"/.test(attrs) && /disabled\b/.test(attrs)) continue;
       if (/aria-label\b/.test(attrs)) continue;
@@ -77,7 +83,7 @@ function scan(files: string[], root: string): Finding[] {
         if (src.includes(`htmlFor={'${target}'}`)) continue;
       }
       const line = src.slice(0, m.index).split('\n').length;
-      out.push({ file: rel, line, attrs: attrs.trim().slice(0, 100) });
+      out.push({ file: rel, line, attrs: `<${tagName}> ${attrs.trim().slice(0, 80)}` });
     }
   }
   return out;

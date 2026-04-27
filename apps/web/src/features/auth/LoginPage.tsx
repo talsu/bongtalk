@@ -31,7 +31,7 @@ export function LoginPage(): JSX.Element {
   });
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-background p-[var(--s-6)]">
+    <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
       <section
         className="w-full max-w-md p-[var(--s-9)]"
         style={{
