@@ -59,8 +59,11 @@ export function FeedbackDialog(): JSX.Element | null {
     >
       <div className="flex flex-col gap-[var(--s-4)]">
         <div className="qf-field">
-          <label className="qf-field__label">카테고리</label>
+          <label className="qf-field__label" htmlFor="feedback-category">
+            카테고리
+          </label>
           <select
+            id="feedback-category"
             data-testid="feedback-category"
             value={category}
             onChange={(e) => setCategory(e.target.value as FeedbackCategory)}
@@ -72,8 +75,11 @@ export function FeedbackDialog(): JSX.Element | null {
           </select>
         </div>
         <div className="qf-field">
-          <label className="qf-field__label">내용</label>
+          <label className="qf-field__label" htmlFor="feedback-content">
+            내용
+          </label>
           <textarea
+            id="feedback-content"
             data-testid="feedback-content"
             value={content}
             onChange={(e) => setContent(e.target.value)}

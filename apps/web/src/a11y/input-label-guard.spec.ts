@@ -2,23 +2,28 @@ import { describe, it, expect } from 'vitest';
 import { readFileSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 
-// task-040 round 2 (a11y): static guard preventing regression of the
-// 9 critical-path <input> aria-label fixes. axe-core flags an unlabeled
-// form input as a serious-level `label` violation; the channel/DM
-// surfaces (composer, search, edit, file-attach) MUST stay labelled.
+// task-040 R2 + task-041 C-1/C-2 (review M4 follow): static guard
+// preventing regression of <input> aria-label fixes across the entire
+// apps/web/src tree (not just channel/DM critical path). axe-core
+// flags an unlabeled form input as a serious-level `label` violation.
 //
-// Allowlist holds inputs we deliberately leave for follow-up (out-of-
-// scope: workspace settings, friends, notification settings, emoji
-// manager, thread checkbox-disabled, internal DS primitive that
-// forwards aria-label from props).
+// 040 R2 covered 9 channel/DM inputs and ALLOWLISTED 6 surfaces as
+// "out of scope". 041 C sweep removed all 6 from the ALLOWLIST after
+// either adding aria-label or relying on a wrapping <label>:
+//
+//   - WorkspaceSettings (visibility radios → wrapped <label>; category
+//     input → htmlFor)
+//   - NotificationSettings (radios → aria-label + wrapped <label>)
+//   - FriendsPage / MobileFriends (username input → aria-label)
+//   - WorkspaceEmojiManager (file → aria-label; name → wrapped qf-field)
+//   - ThreadPanel (disabled checkbox → wrapped <label>)
+//
+// The DS Input primitive stays allowlisted: it accepts aria-label as a
+// prop and forwards it to the underlying <input>. The guard sees the
+// internal <input ref={ref} ...> and would false-positive without the
+// allowlist entry.
 
 const ALLOWLIST = new Set([
-  'apps/web/src/features/workspaces/WorkspaceSettingsPage.tsx',
-  'apps/web/src/features/settings/NotificationSettingsPage.tsx',
-  'apps/web/src/features/friends/FriendsPage.tsx',
-  'apps/web/src/shell/mobile/MobileFriends.tsx',
-  'apps/web/src/features/emojis/WorkspaceEmojiManager.tsx',
-  'apps/web/src/features/threads/ThreadPanel.tsx',
   'apps/web/src/design-system/primitives/Input.tsx', // forwards from props
 ]);
 
@@ -46,16 +51,27 @@ function scan(files: string[], root: string): Finding[] {
     const rel = abs.replace(root + '/', '');
     if (ALLOWLIST.has(rel)) continue;
     const src = readFileSync(abs, 'utf8');
-    const re = /<input\b([^>]*?)\/?>/g;
+    // task-041 reviewer H3: extend regex from <input> to also cover
+    // <textarea> and <select> — both are flagged by axe-core's
+    // `label` rule. The previous regex silently skipped FeedbackDialog
+    // (select + textarea) and any future textarea/select that lacks
+    // an htmlFor binding.
+    const re = /<(input|textarea|select)\b([^>]*?)(\/?)>/g;
     let m: RegExpExecArray | null;
     while ((m = re.exec(src)) !== null) {
-      const attrs = m[1];
+      const tagName = m[1];
+      const attrs = m[2];
       if (/type="hidden"/.test(attrs)) continue;
       if (/type="checkbox"/.test(attrs) && /disabled\b/.test(attrs)) continue;
       if (/aria-label\b/.test(attrs)) continue;
       if (/aria-labelledby\b/.test(attrs)) continue;
-      // surrounding <label> wrapper (parent in same JSX)
-      const before = src.slice(Math.max(0, m.index - 400), m.index);
+      // task-041 C-1: surrounding <label> wrapper detection. Walk
+      // up to 1500 chars of preceding source — long enough to cover
+      // a sibling-radio fieldset (WorkspaceSettings PRIVATE/PUBLIC
+      // radios put the second input ~480 chars after the first
+      // <label>). If labelOpen > labelClose, the input sits inside
+      // an open label.
+      const before = src.slice(Math.max(0, m.index - 1500), m.index);
       const labelOpen = (before.match(/<label\b/g) || []).length;
       const labelClose = (before.match(/<\/label>/g) || []).length;
       if (labelOpen > labelClose) continue;
@@ -67,7 +83,7 @@ function scan(files: string[], root: string): Finding[] {
         if (src.includes(`htmlFor={'${target}'}`)) continue;
       }
       const line = src.slice(0, m.index).split('\n').length;
-      out.push({ file: rel, line, attrs: attrs.trim().slice(0, 100) });
+      out.push({ file: rel, line, attrs: `<${tagName}> ${attrs.trim().slice(0, 80)}` });
     }
   }
   return out;

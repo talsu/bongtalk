@@ -1,0 +1,43 @@
+id: 052-040-follow-med-sweep
+title: Task 040 follow MED+ sweep — 9 items in 4 chunks
+goal: |
+  Sweep 9 of 11 deferred TODO(task-040-follow-*) items in 4 chunks
+  (UX / spec / a11y / visual). Lighthouse-CI + virtualization carved
+  out as separate tasks. DS 4 files untouched. Zero new features.
+
+dod:
+  - 'pnpm verify exits 0 at task end'
+  - 'A-1 ConnectionBanner does not visually overlap topbar
+    (boundingBox or screenshot diff = 0px on desktop + mobile)'
+  - 'A-2 message edit/delete shows skeleton + failure toast retry'
+  - 'A-3 DM list rows display presence dot (online/away/offline)
+    sourced from aggregated workspace presence'
+  - 'B-1 banner DOM render e2e covers normal/disconnect/reconnect +
+    single-mount across 4 shells'
+  - 'B-2 useSendMessage mutation onError test mocks the toast push'
+  - 'B-3 clamp-race spec covers Promise.all + immutable + 12→10'
+  - 'C-1 input-label-guard ALLOWLIST shrinks; settings/discover/
+    signup/friends inputs covered'
+  - 'D inline-px raw values converted ≥ 10 (cap 30); residual <
+    50% of baseline; DS 4 files untouched'
+  - 'reviewer subagent spawned exactly once with transcript token count'
+  - 'develop merged to main (auto-promote via webhook)'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl last entry
+    exitCode=0 + sha matches main tip'
+  - 'GET https://qufox.com/api/readyz returns 200 + idle 30s'
+  - 'Pane 1 auto-forward fires exactly once after FINAL REPORT'
+  - 'DS 4 files git diff 0 vs 040 baseline'
+  - 'FINAL REPORT prints 11 follow → done/deferred mapping table'
+
+scoring:
+  verify_green: 0.15
+  chunk_a_complete: 0.20
+  chunk_b_complete: 0.20
+  chunk_c_complete: 0.10
+  chunk_d_complete: 0.10
+  reviewer_subagent_spawned: 0.05
+  main_promotion_clean: 0.10
+  pane1_forward_fired: 0.05
+  ds_files_untouched: 0.05
+
+tags: [040, sweep, follow-up, ux, a11y, visual, spec]

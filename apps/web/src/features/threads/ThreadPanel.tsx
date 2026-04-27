@@ -269,6 +269,7 @@ function ThreadComposer({
         <textarea
           ref={textareaRef}
           data-testid="thread-input"
+          aria-label="스레드 답장"
           value={draft}
           rows={1}
           onChange={(e) => setDraft(e.target.value)}
@@ -286,7 +287,10 @@ function ThreadComposer({
           maxLength={4000}
           placeholder="스레드에 답글…"
           className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
-          style={{ minHeight: '22px', maxHeight: '160px' }}
+          // task-041 D: textarea sizing — minHeight matches the qf-input
+          // 1-line baseline (22 ≈ --s-7), maxHeight = 8 × line-height
+          // before internal scroll kicks in.
+          style={{ minHeight: 'var(--s-7)', maxHeight: 'calc(var(--s-12) * 2)' }}
         />
       </div>
       <div className="qf-thread-composer__options">

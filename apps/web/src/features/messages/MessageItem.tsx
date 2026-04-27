@@ -29,7 +29,7 @@ type Props = {
   authorName?: string;
   authorRole?: WorkspaceRole | null;
   onEditSave: (content: string) => void | Promise<void>;
-  onDelete: () => void;
+  onDelete: () => void | Promise<void>;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
   onOpenThread?: (rootId: string) => void;
 };
@@ -48,6 +48,12 @@ export function MessageItem({
   const badge = roleBadgeLabel(authorRole);
   const customEmojis = useCustomEmojiLookup();
   const [editing, setEditing] = useState<string | null>(null);
+  // task-041 A-2 (R3 follow-up): mutation-pending state surfaces a
+  // skeleton on the row while edit/delete is in flight. On failure,
+  // notify the user via toast so the silent rollback path of 040 R3
+  // (covered for `send`) extends to `update`/`delete` as well.
+  const [editPending, setEditPending] = useState(false);
+  const [deletePending, setDeletePending] = useState(false);
   const [pickerOpen, setPickerOpen] = useState(false);
   // The more-menu lives inside .qf-message__toolbar which the DS CSS
   // toggles to display:flex only on `.qf-message:hover`. Radix opens
@@ -83,10 +89,17 @@ export function MessageItem({
   const thread = msg.thread;
   const threadChipVisible = !!onOpenThread && !!thread && thread.replyCount > 0;
 
+  // task-041 A-2: skeleton overlay during edit/delete. Reduces opacity
+  // + adds a small inline label so the user sees the row is being
+  // mutated. data-mutation-pending hook for e2e selectors.
+  const mutationPending = editPending || deletePending;
+
   return (
     <>
       <article
         data-testid={`msg-${msg.id}`}
+        data-mutation-pending={mutationPending ? (deletePending ? 'delete' : 'edit') : undefined}
+        style={mutationPending ? { opacity: 0.55, pointerEvents: 'none' } : undefined}
         className={cn('qf-message group', isHead ? 'qf-message--head' : 'qf-message--cont')}
       >
         {isHead ? (
@@ -139,23 +152,49 @@ export function MessageItem({
                   const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
                   if (native.isComposing || e.keyCode === 229) return;
                   if (e.key === 'Enter') {
-                    await onEditSave(editing);
-                    setEditing(null);
+                    setEditPending(true);
+                    try {
+                      await onEditSave(editing);
+                      setEditing(null);
+                    } catch {
+                      notify({
+                        variant: 'danger',
+                        title: '메시지 수정 실패',
+                        body: '잠시 후 다시 시도하세요.',
+                        ttlMs: 4000,
+                      });
+                    } finally {
+                      setEditPending(false);
+                    }
                   }
                   if (e.key === 'Escape') setEditing(null);
                 }}
                 autoFocus
+                disabled={editPending}
               />
               <button
                 type="button"
                 data-testid={`msg-edit-save-${msg.id}`}
                 onClick={async () => {
-                  await onEditSave(editing);
-                  setEditing(null);
+                  setEditPending(true);
+                  try {
+                    await onEditSave(editing);
+                    setEditing(null);
+                  } catch {
+                    notify({
+                      variant: 'danger',
+                      title: '메시지 수정 실패',
+                      body: '잠시 후 다시 시도하세요.',
+                      ttlMs: 4000,
+                    });
+                  } finally {
+                    setEditPending(false);
+                  }
                 }}
+                disabled={editPending}
                 className="qf-btn qf-btn--ghost qf-btn--sm"
               >
-                저장
+                {editPending ? '저장 중…' : '저장'}
               </button>
             </div>
           ) : (
@@ -264,7 +303,28 @@ export function MessageItem({
                 {isMine ? (
                   <>
                     <DropdownSeparator />
-                    <DropdownItem danger onSelect={onDelete}>
+                    <DropdownItem
+                      danger
+                      onSelect={async () => {
+                        // task-041 A-2: surface delete pending state
+                        // + failure toast. The mutation hook returns
+                        // a Promise; await it inside try/catch so the
+                        // skeleton overlay reflects in-flight delete.
+                        setDeletePending(true);
+                        try {
+                          await Promise.resolve(onDelete());
+                        } catch {
+                          notify({
+                            variant: 'danger',
+                            title: '메시지 삭제 실패',
+                            body: '잠시 후 다시 시도하세요.',
+                            ttlMs: 4000,
+                          });
+                        } finally {
+                          setDeletePending(false);
+                        }
+                      }}
+                    >
                       <span data-testid={`msg-delete-${msg.id}`}>메시지 삭제</span>
                     </DropdownItem>
                   </>

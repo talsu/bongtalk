@@ -132,6 +132,7 @@ export function WorkspaceEmojiManager({ workspaceId }: { workspaceId: string }):
             ref={fileRef}
             type="file"
             accept="image/png,image/gif"
+            aria-label="커스텀 이모지 이미지 파일 선택"
             data-testid="emoji-file-input"
             onChange={(e) => stage(e.target.files?.[0] ?? null)}
           />

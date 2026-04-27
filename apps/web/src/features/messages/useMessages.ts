@@ -19,6 +19,30 @@ const keys = {
   list: (wsId: string | null, channelId: string) => qk.messages.list(wsId ?? 'global', channelId),
 };
 
+/**
+ * task-041 B-2 (review M2): pure body builder for the send-failure
+ * toast. Takes the bubbled API error (which may carry `.status` /
+ * `.errorCode` from `bubbleError` in `lib/api.ts`) and returns the
+ * Korean title + body. Branches:
+ *   - undefined status → network down ("네트워크 연결을 확인하세요.")
+ *   - status without errorCode → "서버 응답 NNN. ..."
+ *   - status with errorCode    → "서버 응답 NNN (CODE). ..."
+ *
+ * Exported for testing — the mutation-driven spec asserts each branch
+ * without rendering React, fixing review M2's "grep-only" coverage.
+ */
+export function buildSendFailureToastBody(err: unknown): { title: string; body: string } {
+  const status = (err as { status?: number } | undefined)?.status;
+  const code = (err as { errorCode?: string } | undefined)?.errorCode;
+  return {
+    title: '메시지 전송 실패',
+    body:
+      status === undefined
+        ? '네트워크 연결을 확인하세요.'
+        : `서버 응답 ${status}${code ? ` (${code})` : ''}. 잠시 후 다시 시도하세요.`,
+  };
+}
+
 export function useMessageHistory(wsId: string | null, channelId: string) {
   return useInfiniteQuery({
     queryKey: keys.list(wsId, channelId),
@@ -95,20 +119,13 @@ export function useSendMessage(wsId: string | null, channelId: string) {
     },
     onError: (err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(keys.list(wsId, channelId), ctx.prev);
-      // task-040 R3: surface send-failure to the user. Without this the
-      // optimistic message simply disappears on rollback and the user
-      // has no signal that anything went wrong (especially on flaky
-      // 5xx). The body holds the server message when bubbleError parsed
-      // a JSON envelope; falls back to a generic Korean string.
-      const status = (err as { status?: number } | undefined)?.status;
-      const code = (err as { errorCode?: string } | undefined)?.errorCode;
+      // task-040 R3 + task-041 B-2 (review M2 follow): surface send
+      // failure via a danger toast. Body builder extracted so the
+      // mutation-driven test can assert each error-shape branch
+      // without spinning up React.
       useNotifications.getState().push({
         variant: 'danger',
-        title: '메시지 전송 실패',
-        body:
-          status === undefined
-            ? '네트워크 연결을 확인하세요.'
-            : `서버 응답 ${status}${code ? ` (${code})` : ''}. 잠시 후 다시 시도하세요.`,
+        ...buildSendFailureToastBody(err),
         ttlMs: 5000,
       });
     },
