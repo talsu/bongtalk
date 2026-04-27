@@ -13,6 +13,7 @@ import {
 import { EmojiPicker } from '../reactions/EmojiPicker';
 import { useCustomEmojis } from '../emojis/useCustomEmojis';
 import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
+import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -163,8 +164,23 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
 
   const onFiles = async (files: FileList | null): Promise<void> => {
     if (!files || files.length === 0) return;
-    const arr = Array.from(files);
-    const newJobs = arr.map((file) => ({
+    // task-040 R4: clamp to server-side cap (10). Without this the
+    // 11th+ files upload, then `send` 422s on submit — bandwidth +
+    // orphan-gc churn for nothing. Inform the user about the rejected
+    // tail via toast, but accept the head.
+    const incoming = Array.from(files);
+    const currentCount = pending.length + jobs.length;
+    const { accepted, rejected, truncated } = clampAttachments({ currentCount, incoming });
+    if (truncated) {
+      notify({
+        variant: 'warning',
+        title: '첨부 파일 한도',
+        body: `최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다. ${rejected}개를 무시했습니다.`,
+        ttlMs: 4000,
+      });
+    }
+    if (accepted.length === 0) return;
+    const newJobs = accepted.map((file) => ({
       id: crypto.randomUUID(),
       file,
       status: 'uploading' as const,
