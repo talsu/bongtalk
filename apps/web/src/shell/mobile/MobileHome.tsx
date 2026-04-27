@@ -83,7 +83,9 @@ export function MobileHome(): JSX.Element {
           aria-label="rail"
           className="flex flex-col items-center gap-[var(--s-2)] py-[var(--s-3)] overflow-y-auto qf-m-safe-top"
           style={{
-            width: '76px',
+            // task-041 D: rail width tracks --w-serverlist (72px) plus
+            // 4px breathing room for the safe-area on iPhone XR / Plus.
+            width: 'calc(var(--w-serverlist) + var(--s-2))',
             background: 'var(--bg-serverlist, var(--bg-panel))',
             borderRight: '1px solid var(--divider)',
           }}
@@ -97,7 +99,14 @@ export function MobileHome(): JSX.Element {
           />
           <div
             aria-hidden
-            style={{ height: '1px', width: '40px', background: 'var(--divider)', margin: '4px 0' }}
+            // task-041 D: 1px divider; width = --s-9 (40px), margin
+            // = --s-2 (4px) — values derived from DS spacing scale.
+            style={{
+              height: '1px',
+              width: 'var(--s-9)',
+              background: 'var(--divider)',
+              margin: 'var(--s-2) 0',
+            }}
           />
           {workspaces.map((w) => (
             <RailAvatar
@@ -114,8 +123,9 @@ export function MobileHome(): JSX.Element {
             aria-label="새 워크스페이스"
             className="grid place-items-center"
             style={{
-              width: '48px',
-              height: '48px',
+              // task-041 D: 48px = --s-10 (DS spacing scale).
+              width: 'var(--s-10)',
+              height: 'var(--s-10)',
               borderRadius: 'var(--r-pill)',
               border: '1px dashed var(--divider)',
               color: 'var(--text-muted)',
@@ -129,8 +139,8 @@ export function MobileHome(): JSX.Element {
             aria-label="찾기"
             className="grid place-items-center"
             style={{
-              width: '48px',
-              height: '48px',
+              width: 'var(--s-10)',
+              height: 'var(--s-10)',
               borderRadius: 'var(--r-pill)',
               color: 'var(--text-muted)',
             }}
@@ -232,8 +242,9 @@ function RailBtn({
       onClick={onClick}
       className={cn('grid place-items-center')}
       style={{
-        width: '48px',
-        height: '48px',
+        // task-041 D: 48px = --s-10 (DS spacing scale).
+        width: 'var(--s-10)',
+        height: 'var(--s-10)',
         borderRadius: selected ? 'var(--r-md)' : 'var(--r-pill)',
         background: selected ? 'var(--accent)' : 'var(--bg-elevated)',
         color: selected ? 'var(--text-onAccent)' : 'var(--text)',
@@ -265,8 +276,9 @@ function RailAvatar({
       onClick={onClick}
       className="grid place-items-center"
       style={{
-        width: '48px',
-        height: '48px',
+        // task-041 D: 48px = --s-10 (DS spacing scale).
+        width: 'var(--s-10)',
+        height: 'var(--s-10)',
         borderRadius: selected ? 'var(--r-md)' : 'var(--r-pill)',
         transition: 'border-radius var(--dur-fast) var(--ease-standard)',
         boxShadow: selected ? '0 0 0 2px var(--accent)' : 'none',

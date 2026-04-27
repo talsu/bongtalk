@@ -51,8 +51,11 @@ export function LoginPage(): JSX.Element {
         </p>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
           <div className="qf-field">
-            <label className="qf-field__label">Email</label>
+            <label className="qf-field__label" htmlFor="login-email">
+              Email
+            </label>
             <Input
+              id="login-email"
               data-testid="login-email"
               type="email"
               autoComplete="email"
@@ -62,8 +65,11 @@ export function LoginPage(): JSX.Element {
             {errors.email && <p className="qf-field__error">{errors.email.message}</p>}
           </div>
           <div className="qf-field">
-            <label className="qf-field__label">Password</label>
+            <label className="qf-field__label" htmlFor="login-password">
+              Password
+            </label>
             <Input
+              id="login-password"
               data-testid="login-password"
               type="password"
               autoComplete="current-password"

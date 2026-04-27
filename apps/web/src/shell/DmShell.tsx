@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { Avatar, Icon } from '../design-system/primitives';
+import { useDmPresence } from '../features/realtime/useDmPresence';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
@@ -38,6 +39,9 @@ export function DmShell(): JSX.Element {
   const [query, setQuery] = useState('');
   // task-040 R3 + reviewer H1: realtime now App-level.
   useNotificationPreferences();
+  // task-041 A-3: aggregate workspace presence so DM list rows show
+  // online/dnd/offline dots even though DMs are workspaceless.
+  const { getStatus } = useDmPresence();
 
   // Resolve the DM channel for the selected :userId. The /me/dms POST
   // is idempotent — safe to call on every route change that lands on a
@@ -129,7 +133,7 @@ export function DmShell(): JSX.Element {
                     d.otherUserId === routeUserId && 'qf-channel--active',
                   )}
                 >
-                  <Avatar name={d.otherUsername} size="sm" />
+                  <Avatar name={d.otherUsername} size="sm" status={getStatus(d.otherUserId)} />
                   <span className="flex-1 truncate">{d.otherUsername}</span>
                   {d.unreadCount > 0 ? (
                     <span className="qf-badge qf-badge--count">
@@ -155,7 +159,7 @@ export function DmShell(): JSX.Element {
                     f.otherUserId === routeUserId && 'qf-channel--active',
                   )}
                 >
-                  <Avatar name={f.otherUsername} size="sm" />
+                  <Avatar name={f.otherUsername} size="sm" status={getStatus(f.otherUserId)} />
                   <span className="flex-1 truncate">{f.otherUsername}</span>
                 </button>
               ))}

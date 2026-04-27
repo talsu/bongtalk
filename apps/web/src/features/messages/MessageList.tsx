@@ -170,8 +170,11 @@ export function MessageList({
               onEditSave={async (content) => {
                 await updMut.mutateAsync({ msgId: m.id, content });
               }}
-              onDelete={() => {
-                void delMut.mutate(m.id);
+              onDelete={async () => {
+                // task-041 A-2: mutateAsync so the MessageItem caller
+                // can await + catch failure for the delete-pending
+                // toast wiring.
+                await delMut.mutateAsync(m.id);
               }}
               onToggleReaction={(emoji, byMe) => {
                 // Optimistic rows have tempIds — they can't accept reactions

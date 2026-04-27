@@ -116,6 +116,7 @@ export function FriendsPage(): JSX.Element {
             <input
               type="text"
               data-testid="friends-add-username"
+              aria-label="추가할 친구의 사용자 이름"
               placeholder="username"
               value={username}
               onChange={(e) => setUsername(e.target.value)}

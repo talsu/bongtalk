@@ -33,7 +33,10 @@ export function clampAttachments({ currentCount, incoming }: ClampInput): ClampR
   }
   const remaining = MAX_ATTACHMENTS - currentCount;
   if (incoming.length <= remaining) {
-    return { accepted: incoming, rejected: 0, truncated: false };
+    // task-041 B-3: always return a fresh array — never alias the
+    // caller's incoming reference. Prevents caller-side mutation
+    // (e.g. `accepted.push(...)`) from rippling back into `incoming`.
+    return { accepted: incoming.slice(), rejected: 0, truncated: false };
   }
   return {
     accepted: incoming.slice(0, remaining),

@@ -36,5 +36,9 @@ export const qk = {
   },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,
+    // task-041 A-3: prefix-only key for DM presence aggregation.
+    // useDmPresence calls `qc.getQueriesData({ queryKey: qk.presence.all() })`
+    // to walk every per-workspace presence snapshot in cache.
+    all: () => ['presence'] as const,
   },
 } as const;

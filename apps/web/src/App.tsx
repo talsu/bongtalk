@@ -205,6 +205,23 @@ function AppRealtimeHost(): JSX.Element {
   return <ConnectionBanner realtimeStatus={realtimeStatus} replaying={replaying} />;
 }
 
+/**
+ * task-041 A-1 (review M1 follow): wrap the banner + Routes in a
+ * single flex column so the banner pushes content down via normal
+ * flow instead of overlaying it. With #root sized to 100% by
+ * index.css, this column inherits the full viewport; banner takes
+ * its natural height, Routes fills the remainder with min-height: 0
+ * so inner overflow targets (message list, etc.) still scroll.
+ */
+function AppLayout({ children }: { children: React.ReactNode }): JSX.Element {
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
+      <AppRealtimeHost />
+      <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>{children}</div>
+    </div>
+  );
+}
+
 export default function App(): JSX.Element {
   return (
     <QueryClientProvider client={queryClient}>
@@ -212,42 +229,43 @@ export default function App(): JSX.Element {
         <TooltipProvider>
           <BrowserRouter>
             <AuthProvider>
-              <AppRealtimeHost />
-              <Suspense fallback={<LoadingFallback />}>
-                <Routes>
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/signup" element={<SignupPage />} />
-                  <Route path="/invite/:code" element={<InviteAcceptPage />} />
-                  <Route path="/w/new" element={<CreateWorkspacePage />} />
-                  <Route
-                    path="/settings"
-                    element={<Navigate to="/settings/notifications" replace />}
-                  />
-                  <Route
-                    path="/settings/notifications"
-                    element={<ProtectedSettingsRoute page="notifications" />}
-                  />
-                  <Route path="/activity" element={<ProtectedActivityRoute />} />
-                  <Route path="/dm" element={<ProtectedDmShellRoute />} />
-                  <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
-                  <Route path="/discover" element={<ProtectedDiscoverRoute />} />
-                  <Route path="/friends" element={<ProtectedFriendsRoute />} />
-                  <Route path="/dms" element={<ProtectedDmListRoute />} />
-                  <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
-                  {/* Legacy workspace-scoped DM routes — fold into /dm so
+              <AppLayout>
+                <Suspense fallback={<LoadingFallback />}>
+                  <Routes>
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/signup" element={<SignupPage />} />
+                    <Route path="/invite/:code" element={<InviteAcceptPage />} />
+                    <Route path="/w/new" element={<CreateWorkspacePage />} />
+                    <Route
+                      path="/settings"
+                      element={<Navigate to="/settings/notifications" replace />}
+                    />
+                    <Route
+                      path="/settings/notifications"
+                      element={<ProtectedSettingsRoute page="notifications" />}
+                    />
+                    <Route path="/activity" element={<ProtectedActivityRoute />} />
+                    <Route path="/dm" element={<ProtectedDmShellRoute />} />
+                    <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
+                    <Route path="/discover" element={<ProtectedDiscoverRoute />} />
+                    <Route path="/friends" element={<ProtectedFriendsRoute />} />
+                    <Route path="/dms" element={<ProtectedDmListRoute />} />
+                    <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
+                    {/* Legacy workspace-scoped DM routes — fold into /dm so
                       bookmarks + existing deep-links keep working. */}
-                  <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
-                  <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
-                  <Route path="/" element={<ProtectedShellRoute />} />
-                  {/* Single splat route so React Router does NOT remount
+                    <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
+                    <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
+                    <Route path="/" element={<ProtectedShellRoute />} />
+                    {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the
                       path from useParams()['*']. Reviewer flagged the
                       earlier 3-route version as likely to remount. */}
-                  <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
-                  <Route path="*" element={<Navigate to="/" replace />} />
-                </Routes>
-              </Suspense>
+                    <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                  </Routes>
+                </Suspense>
+              </AppLayout>
             </AuthProvider>
           </BrowserRouter>
         </TooltipProvider>
