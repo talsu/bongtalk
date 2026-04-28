@@ -86,6 +86,7 @@ export function CommandPalette(): JSX.Element | null {
     >
       <Input
         data-testid="palette-input"
+        aria-label="채널 또는 워크스페이스 빠른 이동"
         autoFocus
         placeholder="채널 또는 워크스페이스 이름"
         role="combobox"
