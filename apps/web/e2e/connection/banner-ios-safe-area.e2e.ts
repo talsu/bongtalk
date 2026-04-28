@@ -38,9 +38,15 @@ test('banner respects iOS safe-area-inset-top on iPhone 13 (task-042 R0 F7)', as
   const paddingTop = await banner.evaluate((el) => {
     return window.getComputedStyle(el).paddingTop;
   });
-  // Expect non-zero numeric pixel value.
   const px = parseFloat(paddingTop);
   expect(px).toBeGreaterThanOrEqual(4);
+
+  // task-042 reviewer M2: also verify the inline style string itself
+  // includes the safe-area-inset-top env() chain — guards against a
+  // regression that strips env() (computed style would still show 4px
+  // and fool the floor assertion above).
+  const inlinePadding = await banner.evaluate((el) => (el as HTMLElement).style.padding);
+  expect(inlinePadding).toContain('safe-area-inset-top');
 
   // Save the screenshot to test-results/ for human review.
   await banner.screenshot({ path: 'test-results/banner-ios-safe-area.png' });
