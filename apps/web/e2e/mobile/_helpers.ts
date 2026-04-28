@@ -8,7 +8,20 @@ export const MOBILE_VIEWPORT = { width: 375, height: 667 } as const; // iPhone S
 export const MOBILE_VIEWPORT_PRO = { width: 390, height: 844 } as const; // iPhone 13/14
 // task-040 R5: pixel-class viewport for the wider mobile band (iPhone XR / Plus).
 export const MOBILE_VIEWPORT_XR = { width: 414, height: 896 } as const; // iPhone XR / 11
-export const MOBILE_VIEWPORTS = [MOBILE_VIEWPORT, MOBILE_VIEWPORT_PRO, MOBILE_VIEWPORT_XR] as const;
+// task-042 R5: tablet portrait (iPad mini portrait, 768 wide). At
+// exactly 768 the desktop shell mounts (App's matchMedia is `(max-
+// width: 767px)`), so this band tests the narrowest desktop layout.
+// Useful for catching desktop shell bugs that only appear under
+// 800-900 widths. Listed in MOBILE_VIEWPORTS because the helper
+// constant location matches the dim sweep convention; it is
+// effectively a "narrow-desktop" probe.
+export const TABLET_VIEWPORT_PORTRAIT = { width: 768, height: 1024 } as const;
+export const MOBILE_VIEWPORTS = [
+  MOBILE_VIEWPORT,
+  MOBILE_VIEWPORT_PRO,
+  MOBILE_VIEWPORT_XR,
+  TABLET_VIEWPORT_PORTRAIT,
+] as const;
 
 export async function signupToken(
   request: APIRequestContext,
