@@ -2,16 +2,15 @@ import { test, expect } from '@playwright/test';
 import { bootstrapWorkspace, loginUI, signupToken, API, ORIGIN } from '../mobile/_helpers';
 
 /**
- * task-043 C: virtualization e2e. Seeds 1000 messages into a fresh
- * channel, opens it, and asserts the rendered DOM holds at most a
- * small bounded number of `[data-testid="message-row"]` nodes — the
- * virtualizer's visible window plus 8 rows of overscan, never the
- * full 1000.
+ * task-043 C: virtualization e2e. Seeds 120 messages (paced under
+ * the API rate limit) into a fresh channel, opens it, and asserts
+ * the rendered DOM holds <= 50 `[data-testid="message-row"]` nodes
+ * — the virtualizer's visible window plus 8 rows of overscan, never
+ * the full seed count.
  *
- * Seeding shape: we drive the public `POST /workspaces/:wsId/channels/
- * :ch/messages` endpoint with the bootstrapping token. 1000 inserts
- * over HTTP keepalive run in parallel batches; expected wall-clock
- * 5–15 s on a warm NAS Postgres.
+ * task-043 reviewer M3: tightened the cap from 60 → 50 so a partial-
+ * virtualization regression (e.g. accidentally rendering all rows
+ * above the viewport) actually fails the assertion.
  */
 
 test.setTimeout(180_000);
@@ -25,8 +24,12 @@ async function seedMessages(
   channelId: string,
   count: number,
 ): Promise<void> {
+  // task-043 reviewer H6: API rate-limits at MESSAGE_RATE_USER_MAX =
+  // 30/10s per user. Pace at 5 inserts every 1.7s ≈ 17.6/10s, well
+  // under limit.
   const headers = { authorization: `Bearer ${token}`, origin: ORIGIN };
-  const BATCH = 25;
+  const BATCH = 5;
+  const PACE_MS = 1700;
   for (let i = 0; i < count; i += BATCH) {
     const slice = Array.from({ length: Math.min(BATCH, count - i) }, (_, k) => i + k);
     await Promise.all(
@@ -43,6 +46,7 @@ async function seedMessages(
         }
       }),
     );
+    if (i + BATCH < count) await new Promise((res) => setTimeout(res, PACE_MS));
   }
 }
 
