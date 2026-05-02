@@ -1,17 +1,19 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useVirtualizer } from '@tanstack/react-virtual';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
-import {
-  useDeleteMessage,
-  useMessageHistory,
-  useScrollFetch,
-  useUpdateMessage,
-} from './useMessages';
+import { useDeleteMessage, useMessageHistory, useUpdateMessage } from './useMessages';
 import { MessageItem } from './MessageItem';
 import { useToggleReaction } from '../reactions/useReactions';
 import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
 import { Scrollable } from '../../design-system/primitives';
+import {
+  takeAnchorSnapshot,
+  restoreAnchorScrollTop,
+  isNearBottom,
+  type AnchorSnapshot,
+} from './messageAnchor';
 
 type Props = {
   /** null for Global DM channels (no host workspace). */
@@ -28,10 +30,34 @@ type Props = {
 };
 
 /**
- * The scrollable body of the message column. Infinite-scroll upward via
- * `useScrollFetch`. Virtualization (react-virtual) is prepared by the
- * surrounding `<Scrollable>` but kept off by default — the 50-message
- * page size keeps DOM cost trivial until we have real steady-state data.
+ * Estimated row height before measureElement reports the real one.
+ * 64px is a reasonable midpoint between a single-line continuation
+ * row (~32px) and a head row with avatar + meta + body (~96px). The
+ * virtualizer remeasures on mount + ResizeObserver, so the estimate
+ * only matters for the first paint's reserved height.
+ */
+const ESTIMATED_ROW_HEIGHT = 64;
+
+/**
+ * task-043: virtualized message list. Render order is oldest-first
+ * ASC (index 0 at top). Virtualizer mounts only the visible window
+ * + 8 rows of overscan, dropping DOM cost from O(N) to O(visible).
+ *
+ * Anchor invariants kept across virtualization:
+ *   - First paint with non-empty history pins to bottom
+ *     (`scrollToIndex(N-1, 'end')`) — same as the old non-virtualized
+ *     behavior.
+ *   - WS append (messages.length grows): if the user was within 100px
+ *     of bottom, auto-scroll to the new last index. Otherwise hold.
+ *   - History prepend (older page fetched): take a snapshot of the
+ *     top visible row's id + in-row offset BEFORE the fetch, then
+ *     after the new pages land restore scrollTop to keep that row
+ *     pinned to the same position. Avoids the "user scrolls up,
+ *     screen jumps to new old messages" bug.
+ *
+ * Older-fetch trigger replaces the earlier `useScrollFetch` (DOM
+ * scroll listener) with the same listener inlined here so we can
+ * snapshot the anchor at the same instant the fetch is queued.
  */
 export function MessageList({
   workspaceId,
@@ -53,6 +79,8 @@ export function MessageList({
     return [...all].reverse(); // DESC pages → ASC render order
   }, [history.data]);
 
+  const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
     for (const m of members?.members ?? []) map.set(m.userId, m.user.username);
@@ -65,64 +93,111 @@ export function MessageList({
     return map;
   }, [members]);
 
-  useScrollFetch(scrollRef, () => {
-    if (history.hasNextPage && !history.isFetchingNextPage) {
-      void history.fetchNextPage();
-    }
+  const virtualizer = useVirtualizer({
+    count: messages.length,
+    getScrollElement: () => scrollRef.current,
+    estimateSize: () => ESTIMATED_ROW_HEIGHT,
+    overscan: 8,
   });
 
   // task-021-R1-scroll-jumps-on-new-message: track whether the user
-  // was anchored to the bottom BEFORE the latest append. The previous
-  // single-effect implementation read scrollHeight AFTER append,
-  // conflating "user was at bottom" with "new message grew the list"
-  // — the nearBottom check misfired when a tall message arrived.
-  // A scroll listener stamps the ref on every scroll; the post-append
-  // effect consults the ref to decide whether to auto-scroll.
-  //
-  // Reviewer R1 BLOCKER fix: on INITIAL channel open the scroll
-  // listener's synchronous warm-up read `scrollTop=0, scrollHeight
-  // large` → stamped `false` → user landed at the top of history
-  // instead of the latest message. A separate `hasAnchoredRef` flag
-  // guarantees the very first `messages.length > 0` transition pins
-  // to bottom regardless of the ref.
+  // was anchored to the bottom BEFORE the latest append.
   const wasAtBottomRef = useRef(true);
   const hasAnchoredRef = useRef(false);
+  // task-043 B-1: snapshot of the topmost visible row before a
+  // history-prepend so we can restore the scroll anchor afterward.
+  const anchorSnapshotRef = useRef<AnchorSnapshot | null>(null);
+  // Length BEFORE the latest render. Used to detect prepends.
+  const prevLengthRef = useRef(0);
+
+  // Scroll listener: track bottom-near for B-2 + trigger older-page
+  // fetch when the user crosses the top threshold.
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
     const onScroll = (): void => {
-      wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+      wasAtBottomRef.current = isNearBottom({
+        scrollTop: el.scrollTop,
+        scrollHeight: el.scrollHeight,
+        clientHeight: el.clientHeight,
+        slack: 100,
+      });
+      if (el.scrollTop < 100 && history.hasNextPage && !history.isFetchingNextPage) {
+        // Snapshot BEFORE kicking off the fetch so the post-prepend
+        // layout effect knows where to restore.
+        anchorSnapshotRef.current = takeAnchorSnapshot({
+          scrollTop: el.scrollTop,
+          virtualItems: virtualizer.getVirtualItems(),
+          messageIds,
+        });
+        void history.fetchNextPage();
+      }
     };
-    // Do NOT call onScroll() synchronously on mount — the channel is
-    // about to scroll to bottom via the layout-effect below.
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, []);
+  }, [history, messageIds, virtualizer]);
+
+  // task-021-R1: on channel switch, reset anchor + snapshot state.
+  useEffect(() => {
+    hasAnchoredRef.current = false;
+    wasAtBottomRef.current = true;
+    anchorSnapshotRef.current = null;
+    prevLengthRef.current = 0;
+  }, [channelId]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
-    if (!el || messages.length === 0) return;
-    // First paint with non-empty history → pin to bottom unconditionally.
+    if (!el || messages.length === 0) {
+      prevLengthRef.current = messages.length;
+      return;
+    }
+
+    const prevLen = prevLengthRef.current;
+    prevLengthRef.current = messages.length;
+
+    // First paint with non-empty history → pin to bottom.
     if (!hasAnchoredRef.current) {
-      el.scrollTop = el.scrollHeight;
+      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
       hasAnchoredRef.current = true;
       wasAtBottomRef.current = true;
       return;
     }
-    // Subsequent appends: only pin if the user was anchored to the
-    // bottom BEFORE this update.
-    if (wasAtBottomRef.current) {
-      el.scrollTop = el.scrollHeight;
-    }
-  }, [messages.length]);
 
-  // task-021-R1: on channel switch (mount of a new MessageList /
-  // effect re-run via channelId-driven remount), reset the anchored
-  // flag so the next history load pins to bottom again.
-  useEffect(() => {
-    hasAnchoredRef.current = false;
-    wasAtBottomRef.current = true;
-  }, [channelId]);
+    // History prepend: messages length grew at the FRONT (older page
+    // arrived). Restore the snapshot anchor so the user's view
+    // doesn't jump to the new old messages.
+    if (anchorSnapshotRef.current && messages.length > prevLen) {
+      const restored = restoreAnchorScrollTop({
+        snapshot: anchorSnapshotRef.current,
+        messageIds,
+        startForIndex: (i) => {
+          const item = virtualizer.getVirtualItems().find((v) => v.index === i);
+          if (item) return item.start;
+          // Fallback: the virtualizer's getOffsetForIndex returns the
+          // computed start for any index even when not in the visible
+          // window; multiplying by the estimate is the cheap proxy
+          // that respects measured heights of the new rows once they
+          // mount.
+          return i * ESTIMATED_ROW_HEIGHT;
+        },
+      });
+      anchorSnapshotRef.current = null;
+      if (restored !== null) {
+        el.scrollTop = restored;
+        return;
+      }
+    }
+
+    // WS append: bottom-near → auto scroll-to-bottom.
+    if (wasAtBottomRef.current) {
+      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+    }
+    // Otherwise hold position; the user has scrolled up and a new
+    // message arrived. Existing unread / new-message divider UX
+    // (when added) layers on top of this hold.
+  }, [messages.length, messageIds, virtualizer]);
+
+  const items = virtualizer.getVirtualItems();
 
   return (
     <CustomEmojiProvider workspaceId={workspaceId}>
@@ -144,52 +219,67 @@ export function MessageList({
             <div className="qf-empty__title">채널이 한산하네요</div>
             <div className="qf-empty__body">아래에서 첫 메시지를 보내 대화를 시작하세요.</div>
           </div>
-        ) : null}
-        {messages.map((m, idx) => {
-          // Discord-like continuation rule: collapse the avatar + meta of
-          // consecutive messages from the same author within 5 minutes,
-          // provided both live in the same thread context (both roots OR
-          // both replies to the same parent). Deleted messages reset the
-          // grouping so the "(삭제된 메시지)" line stands alone.
-          const prev = idx > 0 ? messages[idx - 1] : null;
-          const isContinuation =
-            !!prev &&
-            !prev.deleted &&
-            !m.deleted &&
-            prev.authorId === m.authorId &&
-            prev.parentMessageId === m.parentMessageId &&
-            new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
-          return (
-            <MessageItem
-              key={m.id}
-              msg={m}
-              isMine={m.authorId === user?.id}
-              isContinuation={isContinuation}
-              authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
-              authorRole={roleById.get(m.authorId) ?? null}
-              onEditSave={async (content) => {
-                await updMut.mutateAsync({ msgId: m.id, content });
-              }}
-              onDelete={async () => {
-                // task-041 A-2: mutateAsync so the MessageItem caller
-                // can await + catch failure for the delete-pending
-                // toast wiring.
-                await delMut.mutateAsync(m.id);
-              }}
-              onToggleReaction={(emoji, byMe) => {
-                // Optimistic rows have tempIds — they can't accept reactions
-                // until the server roundtrip replaces them with a real id.
-                if (m.id.startsWith('tmp-')) return;
-                reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
-              }}
-              onOpenThread={
-                onOpenThread && !m.id.startsWith('tmp-')
-                  ? (rootId) => onOpenThread(rootId)
-                  : undefined
-              }
-            />
-          );
-        })}
+        ) : (
+          <div
+            data-testid="virtual-list-inner"
+            style={{
+              height: virtualizer.getTotalSize(),
+              position: 'relative',
+              width: '100%',
+            }}
+          >
+            {items.map((vi) => {
+              const m = messages[vi.index];
+              if (!m) return null;
+              const prev = vi.index > 0 ? messages[vi.index - 1] : null;
+              const isContinuation =
+                !!prev &&
+                !prev.deleted &&
+                !m.deleted &&
+                prev.authorId === m.authorId &&
+                prev.parentMessageId === m.parentMessageId &&
+                new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
+              return (
+                <div
+                  key={m.id}
+                  data-testid="message-row"
+                  data-index={vi.index}
+                  ref={virtualizer.measureElement}
+                  style={{
+                    position: 'absolute',
+                    top: 0,
+                    left: 0,
+                    width: '100%',
+                    transform: `translateY(${vi.start}px)`,
+                  }}
+                >
+                  <MessageItem
+                    msg={m}
+                    isMine={m.authorId === user?.id}
+                    isContinuation={isContinuation}
+                    authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
+                    authorRole={roleById.get(m.authorId) ?? null}
+                    onEditSave={async (content) => {
+                      await updMut.mutateAsync({ msgId: m.id, content });
+                    }}
+                    onDelete={async () => {
+                      await delMut.mutateAsync(m.id);
+                    }}
+                    onToggleReaction={(emoji, byMe) => {
+                      if (m.id.startsWith('tmp-')) return;
+                      reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
+                    }}
+                    onOpenThread={
+                      onOpenThread && !m.id.startsWith('tmp-')
+                        ? (rootId) => onOpenThread(rootId)
+                        : undefined
+                    }
+                  />
+                </div>
+              );
+            })}
+          </div>
+        )}
       </Scrollable>
     </CustomEmojiProvider>
   );
