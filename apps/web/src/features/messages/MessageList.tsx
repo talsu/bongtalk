@@ -109,9 +109,28 @@ export function MessageList({
   const anchorSnapshotRef = useRef<AnchorSnapshot | null>(null);
   // Length BEFORE the latest render. Used to detect prepends.
   const prevLengthRef = useRef(0);
+  // task-043 reviewer H4: track the FIRST id and the LAST id from the
+  // previous render so the layout effect can tell prepend (first id
+  // changed) from append (last id changed) when the snapshot is set
+  // but a WS message arrives before the older page lands.
+  const prevFirstIdRef = useRef<string | null>(null);
+  const prevLastIdRef = useRef<string | null>(null);
+
+  // task-043 reviewer H5: refs mirror the closures the scroll listener
+  // needs so the listener can attach exactly once and never see stale
+  // state. Without these the effect re-binds on every messages-array
+  // change (every WS message), opening a remove/add window where
+  // momentum-scroll events can be dropped.
+  const messageIdsRef = useRef(messageIds);
+  messageIdsRef.current = messageIds;
+  const historyRef = useRef(history);
+  historyRef.current = history;
+  const virtualizerRef = useRef(virtualizer);
+  virtualizerRef.current = virtualizer;
 
   // Scroll listener: track bottom-near for B-2 + trigger older-page
-  // fetch when the user crosses the top threshold.
+  // fetch when the user crosses the top threshold. Attached ONCE per
+  // mount (refs above carry the latest closure data).
   useEffect(() => {
     const el = scrollRef.current;
     if (!el) return;
@@ -122,20 +141,21 @@ export function MessageList({
         clientHeight: el.clientHeight,
         slack: 100,
       });
-      if (el.scrollTop < 100 && history.hasNextPage && !history.isFetchingNextPage) {
+      const h = historyRef.current;
+      if (el.scrollTop < 100 && h.hasNextPage && !h.isFetchingNextPage) {
         // Snapshot BEFORE kicking off the fetch so the post-prepend
         // layout effect knows where to restore.
         anchorSnapshotRef.current = takeAnchorSnapshot({
           scrollTop: el.scrollTop,
-          virtualItems: virtualizer.getVirtualItems(),
-          messageIds,
+          virtualItems: virtualizerRef.current.getVirtualItems(),
+          messageIds: messageIdsRef.current,
         });
-        void history.fetchNextPage();
+        void h.fetchNextPage();
       }
     };
     el.addEventListener('scroll', onScroll, { passive: true });
     return () => el.removeEventListener('scroll', onScroll);
-  }, [history, messageIds, virtualizer]);
+  }, []);
 
   // task-021-R1: on channel switch, reset anchor + snapshot state.
   useEffect(() => {
@@ -143,17 +163,27 @@ export function MessageList({
     wasAtBottomRef.current = true;
     anchorSnapshotRef.current = null;
     prevLengthRef.current = 0;
+    prevFirstIdRef.current = null;
+    prevLastIdRef.current = null;
   }, [channelId]);
 
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || messages.length === 0) {
       prevLengthRef.current = messages.length;
+      prevFirstIdRef.current = null;
+      prevLastIdRef.current = null;
       return;
     }
 
     const prevLen = prevLengthRef.current;
+    const prevFirstId = prevFirstIdRef.current;
+    const prevLastId = prevLastIdRef.current;
+    const newFirstId = messageIds[0] ?? null;
+    const newLastId = messageIds[messageIds.length - 1] ?? null;
     prevLengthRef.current = messages.length;
+    prevFirstIdRef.current = newFirstId;
+    prevLastIdRef.current = newLastId;
 
     // First paint with non-empty history → pin to bottom.
     if (!hasAnchoredRef.current) {
@@ -163,34 +193,50 @@ export function MessageList({
       return;
     }
 
-    // History prepend: messages length grew at the FRONT (older page
-    // arrived). Restore the snapshot anchor so the user's view
-    // doesn't jump to the new old messages.
-    if (anchorSnapshotRef.current && messages.length > prevLen) {
+    // task-043 reviewer H4: distinguish prepend vs append by which end
+    // of the array changed. Prepend = newFirstId differs from prev
+    // first id (older page landed at index 0). Append = newLastId
+    // differs from prev last id (WS event added to the tail). Length
+    // grew but neither end changed → idempotent re-render, do nothing.
+    const isPrepend =
+      messages.length > prevLen && prevFirstId !== null && newFirstId !== prevFirstId;
+    const isAppend = messages.length > prevLen && prevLastId !== null && newLastId !== prevLastId;
+
+    // History prepend: restore the snapshot anchor.
+    if (isPrepend && anchorSnapshotRef.current) {
       const restored = restoreAnchorScrollTop({
         snapshot: anchorSnapshotRef.current,
         messageIds,
         startForIndex: (i) => {
           const item = virtualizer.getVirtualItems().find((v) => v.index === i);
           if (item) return item.start;
-          // Fallback: the virtualizer's getOffsetForIndex returns the
-          // computed start for any index even when not in the visible
-          // window; multiplying by the estimate is the cheap proxy
-          // that respects measured heights of the new rows once they
-          // mount.
+          // Fallback: read the virtualizer's measurementsCache which
+          // holds heights for every measured row; ESTIMATED_ROW_HEIGHT
+          // is the floor for never-seen rows.
+          const cache = virtualizer.measurementsCache;
+          const cached = cache && cache[i];
+          if (cached && typeof cached.start === 'number') return cached.start;
           return i * ESTIMATED_ROW_HEIGHT;
         },
       });
       anchorSnapshotRef.current = null;
       if (restored !== null) {
-        el.scrollTop = restored;
+        // Clamp negative scrollTop to 0 (browsers do this anyway).
+        el.scrollTop = Math.max(0, restored);
         return;
       }
     }
 
-    // WS append: bottom-near → auto scroll-to-bottom.
-    if (wasAtBottomRef.current) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+    // WS append: bottom-near → auto scroll-to-bottom. Also clear any
+    // stale snapshot — the scroll listener may have set one without a
+    // prepend ever landing (e.g. user scrolled up while at top
+    // threshold but the fetch was deduped because hasNextPage flipped
+    // to false).
+    if (isAppend) {
+      anchorSnapshotRef.current = null;
+      if (wasAtBottomRef.current) {
+        virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+      }
     }
     // Otherwise hold position; the user has scrolled up and a new
     // message arrived. Existing unread / new-message divider UX
@@ -207,7 +253,16 @@ export function MessageList({
         role="log"
         aria-live="polite"
         aria-label="메시지"
-        className="flex-1 py-[var(--s-3)]"
+        // task-043 reviewer H2: the `py-[var(--s-3)]` padding used to
+        // sit on this Scrollable, but the inner `virtual-list-inner`
+        // wrapper carries `height: virtualizer.getTotalSize()` which
+        // is anchored at offsetTop=0 inside the scroll container.
+        // External padding offset the inner-wrapper top by 8px and
+        // every restoreAnchorScrollTop drifted by exactly that
+        // amount. Move the visual breathing room INTO the inner
+        // wrapper so the virtualizer's coordinate system stays
+        // congruent with `el.scrollTop`.
+        className="flex-1"
       >
         {history.hasNextPage ? (
           <div className="py-[var(--s-3)] text-center text-[length:var(--fs-11)] text-text-muted">
