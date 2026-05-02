@@ -1,0 +1,45 @@
+id: 053-virtualization
+title: Message List Virtualization (react-virtual)
+goal: |
+  Replace the all-rows-mounted MessageList with a virtualized list
+  using @tanstack/react-virtual. Keep scroll behavior identical:
+  initial mount pins to bottom, WS append auto-scrolls when near
+  bottom, older-history prepend preserves the user's scroll anchor.
+  DOM node count drops from O(N) to O(visible window + overscan).
+
+dod:
+  - 'pnpm verify exits 0'
+  - '@tanstack/react-virtual already installed (no dep churn)'
+  - 'apps/web/src/features/messages/MessageList.tsx imports useVirtualizer'
+  - 'each rendered row carries data-testid="message-row" so e2e can
+    count DOM nodes'
+  - 'on a 1000-message fixture, DOM row count <= 50 (visible + overscan*2)'
+  - 'history-prepend anchor: first visible message scrollOffset diff
+    <= 5px after older-page fetch'
+  - 'WS append: bottom-near (<= 100px) → auto scroll, otherwise keep'
+  - 'resize / row-height-change: layout does not jump'
+  - 'bundle delta vs 042 baseline (initial entry + Shell chunk) <=
+    +5 KB gzip'
+  - 'DS 4 files md5 == .task-040-ds-baseline.txt'
+  - '3 artefacts: 043-*.md / 043-*.PR.md / 043-*.review.md'
+  - 'reviewer subagent spawned exactly once with transcript token count'
+  - 'develop merged to main once at task end (auto-promote via webhook)'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl last entry
+    exitCode=0 + sha matches main tip'
+  - 'GET https://qufox.com/api/readyz returns 200 + idle 30s'
+  - 'Pane 1 auto-forward fires exactly once after FINAL REPORT'
+  - 'FINAL REPORT prints DOM count before/after + bundle delta +
+    anchor 4-scenario results + perf stopwatch'
+
+scoring:
+  verify_green: 0.15
+  virtualizer_applied: 0.20
+  dom_count_below_50: 0.15
+  anchor_preservation: 0.15
+  bundle_delta_within_budget: 0.10
+  ds_files_untouched: 0.05
+  reviewer_subagent_spawned: 0.05
+  main_promotion_clean: 0.10
+  pane1_forward_fired: 0.05
+
+tags: [virtualization, performance, channels, dms, dom-cost]
