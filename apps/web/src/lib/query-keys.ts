@@ -25,6 +25,8 @@ export const qk = {
   me: {
     unreadTotals: () => ['me', 'unread-totals'] as const,
     notificationPreferences: () => ['me', 'notification-preferences'] as const,
+    // task-047 iter4 (M3): profile (bio + links + customStatus)
+    profile: () => ['me', 'profile'] as const,
   },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,
