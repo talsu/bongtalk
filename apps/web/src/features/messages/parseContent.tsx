@@ -2,26 +2,26 @@ import type { ReactNode } from 'react';
 import type { CustomEmoji } from '../emojis/api';
 
 /**
- * Minimal message content renderer — three rules only, chosen by the
- * task-018 mockup (Full Chat Mockup lines 591-599):
+ * Message content renderer — task-044 iteration 1 으로 markdown 인라인
+ * (bold/italic/strike) + line-prefix block quote 를 추가했습니다.
  *
  *   1. Triple-backtick fenced blocks → <pre class="qf-codeblock"><code>…</code></pre>
  *   2. Single-backtick inline code   → <code class="qf-code-inline">…</code>
  *   3. @username mentions             → <span class="qf-mention">@username</span>
  *   4. task-037-D custom emoji        → <img class="qf-emoji-custom"> for
- *      `:name:` tokens that match a workspace emoji. Unknown shortcodes
- *      fall through as plain text so deletes don't break old messages.
+ *      `:name:` tokens that match a workspace emoji.
+ *   5. URLs http(s)                   → <a target="_blank" rel="noopener noreferrer">
+ *   6. task-044 markdown:
+ *      - **bold**           → <strong class="font-semibold">
+ *      - *em* / _em_         → <em class="italic">
+ *      - ~~strike~~          → <s class="line-through">
+ *      - 라인 프리픽스 `> ` → <blockquote class="…border-l-2…">
  *
- * Bold / italic / heading / list / link parsing is intentionally OUT —
- * importing a full markdown parser (markdown-it is ~40 KB gzipped) is
- * over-provisioned for a closed-beta app where the DS only prescribes
- * those three patterns. The Shell chunk currently sits at ~18 KB gzip
- * against an 80 KB budget, so adding markdown-it would be fine on paper
- * — the decision here is scope, not bundle.
+ * DS 4 파일 (`tokens.css` / `components.css` / `mobile.css` / `icons.css`)
+ * 은 수정하지 않습니다. semantic 태그 + Tailwind utility (모두 DS 토큰
+ * alias 로 라우트) 만 사용합니다. 외부 markdown 파서 도입 X.
  *
- * All output is plain React nodes (no dangerouslySetInnerHTML), so the
- * parser can't emit markup the caller didn't intend. URLs inside
- * mentions / code are not auto-linked.
+ * 출력은 plain React nodes 만 — `dangerouslySetInnerHTML` 사용 안 함.
  */
 export function renderMessageContent(
   content: string,
@@ -38,7 +38,11 @@ export function renderMessageContent(
   while ((match = fencePattern.exec(content)) !== null) {
     if (match.index > lastIndex) {
       out.push(
-        ...renderInline(content.slice(lastIndex, match.index), `pre-${key++}`, customEmojis),
+        ...renderQuotedSegments(
+          content.slice(lastIndex, match.index),
+          `pre-${key++}`,
+          customEmojis,
+        ),
       );
     }
     const lang = match[1];
@@ -52,9 +56,67 @@ export function renderMessageContent(
     lastIndex = match.index + match[0].length;
   }
   if (lastIndex < content.length) {
-    out.push(...renderInline(content.slice(lastIndex), `tail-${key++}`, customEmojis));
+    out.push(...renderQuotedSegments(content.slice(lastIndex), `tail-${key++}`, customEmojis));
   }
   return out;
+}
+
+/**
+ * 라인 프리픽스 `> ` 를 감지해 연속 라인을 하나의 blockquote 로 묶고,
+ * 비-quote 세그먼트는 inline pass 로 전달합니다. fenced 외부에서만
+ * 호출됩니다.
+ */
+function renderQuotedSegments(
+  text: string,
+  keyPrefix: string,
+  customEmojis?: Map<string, CustomEmoji>,
+): ReactNode[] {
+  if (!text) return [];
+  // 라인을 보존해야 inline 의 splitLines 가 <br> 를 제대로 만듭니다.
+  const lines = text.split('\n');
+  const out: ReactNode[] = [];
+  let i = 0;
+  let segIdx = 0;
+  while (i < lines.length) {
+    if (isQuoteLine(lines[i])) {
+      // quote 블록 누적
+      const quoteLines: string[] = [];
+      while (i < lines.length && isQuoteLine(lines[i])) {
+        quoteLines.push(stripQuotePrefix(lines[i]));
+        i += 1;
+      }
+      const inner = quoteLines.join('\n');
+      out.push(
+        <blockquote
+          key={`${keyPrefix}-q-${segIdx++}`}
+          className="my-1 border-l-2 border-border-subtle pl-3 text-text-secondary"
+        >
+          {renderInline(inner, `${keyPrefix}-qi-${segIdx}`, customEmojis)}
+        </blockquote>,
+      );
+    } else {
+      // 비-quote 라인 누적 (다음 quote 가 나올 때까지)
+      const plainLines: string[] = [];
+      while (i < lines.length && !isQuoteLine(lines[i])) {
+        plainLines.push(lines[i]);
+        i += 1;
+      }
+      const inner = plainLines.join('\n');
+      if (inner.length > 0) {
+        out.push(...renderInline(inner, `${keyPrefix}-p-${segIdx++}`, customEmojis));
+      }
+    }
+  }
+  return out;
+}
+
+function isQuoteLine(line: string): boolean {
+  // `>` 또는 `> ` 시작. 여러 `>` (중첩) 도 단일 quote 로 평탄화합니다.
+  return /^>\s?/.test(line);
+}
+
+function stripQuotePrefix(line: string): string {
+  return line.replace(/^>\s?/, '');
 }
 
 /**
@@ -85,8 +147,13 @@ function renderInline(
   // task-037-D: `:name:` custom emoji — same name charset the API
   // validates (`[a-z0-9_]{2,32}`). Unknown names pass through as text
   // so when an admin deletes an emoji the old messages still read.
+  // task-044: markdown bold (`**…**`) / strike (`~~…~~`) / italic
+  // (`*…*` 또는 `_…_`). 우선순위는 alternation 순서로 보장 — `**` 가
+  // `*` 보다 먼저 매칭되어야 bold 가 italic 으로 잘리지 않습니다.
+  // Bold inner allows single `*` (so nested italic survives as raw text
+  // inside the bold span without breaking the match): `(?:[^*\n]|\*(?!\*))+?`.
   const pattern =
-    /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})|(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])|:([a-z0-9_]{2,32}):/g;
+    /`([^`\n]+)`|@([A-Za-z0-9_.-]{1,32})|(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])|:([a-z0-9_]{2,32}):|\*\*((?:[^*\n]|\*(?!\*))+?)\*\*|~~([^~\n]+?)~~|\*([^*\n]+?)\*|_([^_\n]+?)_/g;
   let cursor = 0;
   let m: RegExpExecArray | null;
   let idx = 0;
@@ -140,6 +207,30 @@ function renderInline(
       } else {
         out.push(...splitLines(m[0], `${keyPrefix}-t-${idx++}`));
       }
+    } else if (m[5] !== undefined) {
+      out.push(
+        <strong key={`${keyPrefix}-b-${idx++}`} className="font-semibold">
+          {m[5]}
+        </strong>,
+      );
+    } else if (m[6] !== undefined) {
+      out.push(
+        <s key={`${keyPrefix}-s-${idx++}`} className="line-through">
+          {m[6]}
+        </s>,
+      );
+    } else if (m[7] !== undefined) {
+      out.push(
+        <em key={`${keyPrefix}-i-${idx++}`} className="italic">
+          {m[7]}
+        </em>,
+      );
+    } else if (m[8] !== undefined) {
+      out.push(
+        <em key={`${keyPrefix}-iu-${idx++}`} className="italic">
+          {m[8]}
+        </em>,
+      );
     }
     cursor = m.index + m[0].length;
   }
