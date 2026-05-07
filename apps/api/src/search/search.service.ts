@@ -124,6 +124,14 @@ export class SearchService {
     workspaceId: string;
     userId: string;
     channelId?: string;
+    /** task-046 iter3 (J3): filter by message author */
+    senderId?: string;
+    /** task-046 iter3 (J3): inclusive lower bound on createdAt */
+    since?: Date;
+    /** task-046 iter3 (J3): exclusive upper bound on createdAt */
+    until?: Date;
+    /** task-046 iter3 (J3): when true, only messages with at least 1 attachment */
+    hasAttachment?: boolean;
     cursor?: string;
     limit: number;
   }): Promise<{ results: SearchResultRow[]; nextCursor: string | null }> {
@@ -151,6 +159,26 @@ export class SearchService {
       ? Prisma.sql`
           WHERE (base.rank, base."createdAt", base.id)
                 < (${cursor.rank}::float4, ${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
+        `
+      : Prisma.empty;
+
+    // task-046 iter3 (J3): optional filter clauses on the base CTE.
+    const senderClause = args.senderId
+      ? Prisma.sql`AND m."authorId" = ${args.senderId}::uuid`
+      : Prisma.empty;
+    const sinceClause = args.since
+      ? Prisma.sql`AND m."createdAt" >= ${args.since}::timestamp`
+      : Prisma.empty;
+    const untilClause = args.until
+      ? Prisma.sql`AND m."createdAt" < ${args.until}::timestamp`
+      : Prisma.empty;
+    const attachmentClause = args.hasAttachment
+      ? Prisma.sql`
+          AND EXISTS (
+            SELECT 1 FROM "Attachment" att
+             WHERE att."messageId" = m.id
+               AND att."deletedAt" IS NULL
+          )
         `
       : Prisma.empty;
 
@@ -184,6 +212,10 @@ export class SearchService {
                 m."search_tsv" @@ plainto_tsquery('simple', ${q})
              OR m."content" ILIKE '%' || ${q} || '%'
            )
+           ${senderClause}
+           ${sinceClause}
+           ${untilClause}
+           ${attachmentClause}
       )
       SELECT
         base.id            AS "messageId",
@@ -235,6 +267,60 @@ export class SearchService {
               id: last.messageId,
             })
           : null,
+    };
+  }
+
+  /**
+   * task-046 iter3 (J1): typing-time suggestions — autocomplete prefix.
+   *
+   * 사용자가 검색어 typing 중에 빠른 후보 제안을 위해 호출. 워크스페이스
+   * scope 안의 channel 이름 + 멤버 username 을 prefix-match (ILIKE) 로
+   * 가져옴. 메시지 본문 검색 (search()) 과 별개의 lightweight path.
+   *
+   * 결과는 채널 + 사용자 통합 list, 합 max 10. ranking 은 prefix exact
+   * 우선 → 길이 순 (짧은 것 먼저).
+   */
+  async suggest(args: {
+    workspaceId: string;
+    userId: string;
+    prefix: string;
+    limit?: number;
+  }): Promise<{
+    channels: Array<{ id: string; name: string }>;
+    users: Array<{ id: string; username: string }>;
+  }> {
+    const p = args.prefix.trim();
+    if (p.length === 0) return { channels: [], users: [] };
+    const cap = Math.max(1, Math.min(20, args.limit ?? 5));
+
+    const visibleIds = await this.visibleChannelIds(args.workspaceId, args.userId);
+    if (visibleIds.length === 0) return { channels: [], users: [] };
+
+    const channels = await this.prisma.channel.findMany({
+      where: {
+        id: { in: visibleIds },
+        deletedAt: null,
+        name: { startsWith: p, mode: 'insensitive' },
+      },
+      select: { id: true, name: true },
+      orderBy: [{ name: 'asc' }],
+      take: cap,
+    });
+
+    // 멤버는 워크스페이스 scope 의 사용자 — workspaceMember + User join.
+    const memberRows = await this.prisma.workspaceMember.findMany({
+      where: {
+        workspaceId: args.workspaceId,
+        user: { username: { startsWith: p, mode: 'insensitive' } },
+      },
+      include: { user: { select: { id: true, username: true } } },
+      orderBy: { user: { username: 'asc' } },
+      take: cap,
+    });
+
+    return {
+      channels: channels.map((c) => ({ id: c.id, name: c.name })),
+      users: memberRows.map((m) => ({ id: m.user.id, username: m.user.username })),
     };
   }
 }
