@@ -61,7 +61,7 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         channelId,
         authorId: user?.id ?? 'optimistic',
         content,
-        mentions: { users: [], channels: [], everyone: false },
+        mentions: { users: [], channels: [], everyone: false, here: false },
         edited: false,
         deleted: false,
         createdAt: new Date().toISOString(),

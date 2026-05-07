@@ -1,5 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { DndScheduleService } from '../../../src/me/dnd-schedule.service';
+import { DomainError } from '../../../src/common/errors/domain-error';
+import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -14,6 +16,31 @@ describe('DndScheduleService.validate (task-046 K1)', () => {
   it('object 가 아니면 throw', () => {
     expect(() => DndScheduleService.validate('hi' as unknown)).toThrow(/object or null/);
     expect(() => DndScheduleService.validate(42 as unknown)).toThrow(/object or null/);
+  });
+
+  /**
+   * task-047 iter0 (MED-046-4): validate() 가 raw Error 가 아닌
+   * DomainError(VALIDATION_FAILED) 을 throw. 도메인 에러 계층 컨벤션
+   * 일관성 검증.
+   */
+  it('throw 되는 에러는 DomainError(VALIDATION_FAILED) 인스턴스', () => {
+    try {
+      DndScheduleService.validate('not-an-object' as unknown);
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(DomainError);
+      expect((e as DomainError).code).toBe(ErrorCode.VALIDATION_FAILED);
+    }
+  });
+
+  it('day 범위 위반도 DomainError 로 throw', () => {
+    try {
+      DndScheduleService.validate({ days: [{ day: 9, startMin: 0, endMin: 60 }] });
+      throw new Error('expected throw');
+    } catch (e) {
+      expect(e).toBeInstanceOf(DomainError);
+      expect((e as DomainError).code).toBe(ErrorCode.VALIDATION_FAILED);
+    }
   });
 
   it('days 배열 누락 시 throw', () => {
