@@ -5,6 +5,7 @@ import { Icon, Tooltip } from '../design-system/primitives';
 import { BrandMark } from '../design-system/brand/BrandMark';
 import { useWorkspaceUnreadTotals } from '../features/workspaces/useUnreadTotals';
 import { CreateWorkspaceDialog } from '../features/workspaces/CreateWorkspaceDialog';
+import { badgeVariant, badgeAriaLabel, badgeText } from '../features/notifications/badge-variant';
 
 type Props = {
   workspaces: Array<Pick<Workspace, 'id' | 'name' | 'slug'>>;
@@ -56,10 +57,11 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
               {count > 0 ? (
                 <span
                   data-testid={`ws-unread-${ws.slug}`}
+                  data-variant={badgeVariant(count, !!u?.mention)}
                   className="qf-server-btn__unread"
-                  aria-label={u?.mention ? `읽지 않은 멘션 ${count}개` : `읽지 않음 ${count}개`}
+                  aria-label={badgeAriaLabel(count, !!u?.mention) ?? undefined}
                 >
-                  {count > 99 ? '99+' : count}
+                  {badgeText(count)}
                 </span>
               ) : null}
             </Link>
