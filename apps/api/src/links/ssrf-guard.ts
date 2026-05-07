@@ -68,24 +68,111 @@ export function isPrivateIPv4(ip: string): boolean {
   return false;
 }
 
+/**
+ * task-046 iter0 (HIGH-1 carry-over): IPv6 변종 전체 차단.
+ *
+ * IPv4-in-IPv6 매핑 / NAT64 / discard prefix 모두 cover 합니다. regex 의존
+ * 패턴 (`^::ffff:...$`) 은 prefix anchor 가 strict 해 IPv4-translated
+ * (`::ffff:0:0/96`) / NAT64 (`64:ff9b::/96`) 같은 변형을 놓치므로
+ * group 단위 검사로 대체합니다.
+ *
+ * 차단 prefix:
+ *  - `::1`, `::` (loopback / unspecified)
+ *  - `fc00::/7` (ULA), `fe80::/10` (link-local), `ff00::/8` (multicast)
+ *  - `::ffff:0:0/96` (IPv4-mapped, RFC 4291)
+ *  - `::ffff:0:0:0/96` (IPv4-translated, RFC 2765)
+ *  - `64:ff9b::/96` (NAT64 well-known, RFC 6052)
+ *  - `64:ff9b:1::/48` (NAT64 RFC 8215 LIR-local) → 추출 IPv4 가 사설일 때만
+ *  - `100::/64` (discard, RFC 6666)
+ *  - `2001:db8::/32` (documentation, RFC 3849)
+ *  - `2001::/32` (Teredo) — group[2,3] 의 obfuscated IPv4 검증
+ */
 export function isPrivateIPv6(ip: string): boolean {
-  // IPv4-mapped (::ffff:1.2.3.4) → 추출 후 IPv4 검증.
-  const mapped = ip.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i);
-  if (mapped) return isPrivateIPv4(mapped[1]);
   const lower = ip.toLowerCase();
   if (lower === '::1' || lower === '::') return true;
-  // fc00::/7 (ULA): first byte 0xfc or 0xfd.
-  // fe80::/10 (link-local): first 10 bits 1111 1110 10.
-  // ff00::/8 (multicast).
-  // Use byte-prefix check on the expanded form.
-  // Expand ::-shorthand minimally: split → groups, fill ::.
   const groups = expandIPv6(lower);
   if (groups === null) return true; // malformed → 보수적 차단
+
+  // IPv4-mapped (`::ffff:0:0/96`) → groups[0..4]=0, groups[5]=0xffff,
+  // IPv4 = (groups[6]<<16)|groups[7]. groups[5]=0xffff regex anchor 의
+  // 변종 (`0:0:0:0:0:ffff:1.2.3.4`, `0::ffff:1.2.3.4`) 도 cover.
+  if (
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0xffff
+  ) {
+    return isPrivateIPv4(ipv4FromGroups(groups[6], groups[7]));
+  }
+
+  // IPv4-translated (`::ffff:0:0:0/96`, RFC 2765) — groups[4]=0xffff && groups[5]=0
+  if (
+    groups[0] === 0 &&
+    groups[1] === 0 &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0xffff &&
+    groups[5] === 0
+  ) {
+    return isPrivateIPv4(ipv4FromGroups(groups[6], groups[7]));
+  }
+
+  // NAT64 well-known (`64:ff9b::/96`, RFC 6052) — 본 prefix 자체가 internal
+  // gateway 통과를 의미하므로 항상 차단 (prefix match 만으로 결정, IPv4 검증 X).
+  if (
+    groups[0] === 0x0064 &&
+    groups[1] === 0xff9b &&
+    groups[2] === 0 &&
+    groups[3] === 0 &&
+    groups[4] === 0 &&
+    groups[5] === 0
+  ) {
+    return true;
+  }
+
+  // NAT64 LIR-local (`64:ff9b:1::/48`, RFC 8215) — 동일 차단.
+  if (groups[0] === 0x0064 && groups[1] === 0xff9b && groups[2] === 0x0001) {
+    return true;
+  }
+
+  // discard prefix (`100::/64`, RFC 6666)
+  if (groups[0] === 0x0100 && groups[1] === 0 && groups[2] === 0 && groups[3] === 0) {
+    return true;
+  }
+
+  // documentation prefix (`2001:db8::/32`, RFC 3849) — public 라우팅 안 됨.
+  if (groups[0] === 0x2001 && groups[1] === 0x0db8) return true;
+
+  // Teredo (`2001::/32`, RFC 4380) — groups[2,3]=server flags, groups[4,5]=
+  // obfuscated 클라이언트 port/IPv4. groups[6]^0xffff, groups[7]^0xffff 이
+  // 클라이언트 IPv4. 사설 클라이언트가 internal 연결을 트릭할 수 있음.
+  if (groups[0] === 0x2001 && groups[1] === 0x0000) {
+    const c1 = (groups[6] ^ 0xffff) & 0xffff;
+    const c2 = (groups[7] ^ 0xffff) & 0xffff;
+    if (isPrivateIPv4(ipv4FromGroups(c1, c2))) return true;
+  }
+
+  // 6to4 (`2002::/16`, RFC 3056) — groups[1,2]=embedded IPv4 (high/low 16-bit).
+  // 사설 IPv4 가 6to4 캡슐화로 internal 라우트 가능 → 차단.
+  if (groups[0] === 0x2002) {
+    if (isPrivateIPv4(ipv4FromGroups(groups[1], groups[2]))) return true;
+  }
+
   const firstByte = (groups[0] >> 8) & 0xff;
   if (firstByte === 0xfc || firstByte === 0xfd) return true; // ULA
   if (firstByte === 0xfe && (groups[0] & 0x00c0) === 0x0080) return true; // fe80::/10
   if (firstByte === 0xff) return true; // multicast
   return false;
+}
+
+function ipv4FromGroups(hi: number, lo: number): string {
+  const a = (hi >> 8) & 0xff;
+  const b = hi & 0xff;
+  const c = (lo >> 8) & 0xff;
+  const d = lo & 0xff;
+  return `${a}.${b}.${c}.${d}`;
 }
 
 function expandIPv6(ip: string): number[] | null {
@@ -100,9 +187,28 @@ function expandIPv6(ip: string): number[] | null {
   } else {
     head = ip.split(':');
   }
-  const fillCount = 8 - head.length - tail.length;
+  // RFC 4291: 마지막 segment 가 dotted-quad IPv4 (`::ffff:1.2.3.4`,
+  // `64:ff9b::8.8.8.8`) 면 두 16-bit 그룹으로 분해.
+  const expandDottedQuad = (segments: string[]): string[] | null => {
+    if (segments.length === 0) return segments;
+    const last = segments[segments.length - 1];
+    if (!last.includes('.')) return segments;
+    const parts = last.split('.').map(Number);
+    if (parts.length !== 4 || parts.some((p) => Number.isNaN(p) || p < 0 || p > 255)) {
+      return null;
+    }
+    const hi = ((parts[0] & 0xff) << 8) | (parts[1] & 0xff);
+    const lo = ((parts[2] & 0xff) << 8) | (parts[3] & 0xff);
+    return [...segments.slice(0, -1), hi.toString(16), lo.toString(16)];
+  };
+  const headExp = expandDottedQuad(head);
+  const tailExp = expandDottedQuad(tail);
+  if (headExp === null || tailExp === null) return null;
+  const fillCount = 8 - headExp.length - tailExp.length;
   if (fillCount < 0) return null;
-  const groups = [...head, ...new Array(fillCount).fill('0'), ...tail].map((g) => parseInt(g, 16));
+  const groups = [...headExp, ...new Array(fillCount).fill('0'), ...tailExp].map((g) =>
+    parseInt(g, 16),
+  );
   if (groups.length !== 8 || groups.some((g) => Number.isNaN(g) || g < 0 || g > 0xffff)) {
     return null;
   }
