@@ -54,6 +54,8 @@ type TxStub = {
     count: ReturnType<typeof vi.fn>;
     update: ReturnType<typeof vi.fn>;
   };
+  // task-045 iter1: advisory lock 호출 검증을 위한 $queryRaw stub.
+  $queryRaw: ReturnType<typeof vi.fn>;
 };
 
 function makeServiceWith(opts: {
@@ -61,9 +63,11 @@ function makeServiceWith(opts: {
   count: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   outboxRecord?: ReturnType<typeof vi.fn>;
+  queryRaw?: ReturnType<typeof vi.fn>;
 }) {
   const tx: TxStub = {
     message: { findFirst: opts.findFirst, count: opts.count, update: opts.update },
+    $queryRaw: opts.queryRaw ?? vi.fn().mockResolvedValue([]),
   };
   const prisma = {
     $transaction: vi.fn(async (cb: (tx: TxStub) => Promise<unknown>) => cb(tx)),
@@ -151,6 +155,69 @@ describe('MessagesService.pin', () => {
         actorId: ACTOR,
       }),
     ).rejects.toThrow(/not found or deleted/);
+  });
+
+  // task-045 iter1: H1 race fix — advisory lock 호출 + 순서 검증.
+  it('H1 fix: pin tx 시작 시 pg_advisory_xact_lock 을 channelId 기반으로 호출', async () => {
+    const queryRaw = vi.fn().mockResolvedValue([]);
+    const findFirstFn = vi.fn().mockResolvedValue(makeRow());
+    const countFn = vi.fn().mockResolvedValue(0);
+    const updateFn = vi.fn().mockResolvedValue(makeRow({ pinnedAt: new Date(), pinnedBy: ACTOR }));
+    const { service } = makeServiceWith({
+      findFirst: findFirstFn,
+      count: countFn,
+      update: updateFn,
+      queryRaw,
+    });
+    await service.pin({
+      workspaceId: null,
+      channelId: makeRow().channelId,
+      msgId: makeRow().id,
+      actorId: ACTOR,
+    });
+    // advisory lock 이 정확히 1회 호출됐고, prefix 'pin:' + channelId 가
+    // 인자로 전달됐는지 검증.
+    expect(queryRaw).toHaveBeenCalledOnce();
+    const call = queryRaw.mock.calls[0];
+    // template literal: first arg is TemplateStringsArray, rest are values.
+    // values[0] should equal `pin:${channelId}`.
+    expect(call[1]).toBe(`pin:${makeRow().channelId}`);
+  });
+
+  it('H1 fix: advisory lock 이 findFirst/count/update 보다 먼저 호출됨', async () => {
+    const callOrder: string[] = [];
+    const queryRaw = vi.fn(async () => {
+      callOrder.push('lock');
+      return [];
+    });
+    const findFirstFn = vi.fn(async () => {
+      callOrder.push('findFirst');
+      return makeRow();
+    });
+    const countFn = vi.fn(async () => {
+      callOrder.push('count');
+      return 0;
+    });
+    const updateFn = vi.fn(async () => {
+      callOrder.push('update');
+      return makeRow({ pinnedAt: new Date(), pinnedBy: ACTOR });
+    });
+    const { service } = makeServiceWith({
+      findFirst: findFirstFn,
+      count: countFn,
+      update: updateFn,
+      queryRaw,
+    });
+    await service.pin({
+      workspaceId: null,
+      channelId: makeRow().channelId,
+      msgId: makeRow().id,
+      actorId: ACTOR,
+    });
+    // lock 이 첫 번째 — 직렬화 보장의 핵심.
+    expect(callOrder[0]).toBe('lock');
+    // 그 다음 순서: findFirst → count → update.
+    expect(callOrder.slice(0, 4)).toEqual(['lock', 'findFirst', 'count', 'update']);
   });
 });
 
