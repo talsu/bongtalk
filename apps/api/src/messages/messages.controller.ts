@@ -196,6 +196,8 @@ export class MessagesController {
       idempotencyKey,
       parentMessageId: parsed.data.parentMessageId ?? null,
       attachmentIds: parsed.data.attachmentIds,
+      // task-044-iter3: pass sender role so mentions.everyone is gated.
+      actorRole: m.role,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
@@ -223,6 +225,8 @@ export class MessagesController {
       msgId,
       actorId: user.id,
       content: parsed.data.content,
+      // task-044-iter3: edit 시점도 동일하게 게이트.
+      actorRole: m.role,
     });
     const [rmap, amap] = await Promise.all([
       this.messages.aggregateReactions([row.id], user.id),

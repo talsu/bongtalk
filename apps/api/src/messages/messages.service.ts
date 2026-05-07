@@ -8,6 +8,7 @@ import { OutboxService } from '../common/outbox/outbox.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 import { extractMentions, normalizeContent } from './mentions/mention-extractor';
+import { gateEveryoneMention, type GateActorRole } from './mentions/gate';
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
@@ -294,6 +295,11 @@ export class MessagesService {
     idempotencyKey: string | null;
     parentMessageId?: string | null;
     attachmentIds?: string[];
+    // task-044-iter3: sender role (`OWNER` / `ADMIN` / `MEMBER`) used to
+    // gate `@everyone` fanout. Optional for back-compat with existing
+    // callers (including DM channels where the workspace member concept
+    // is N/A) — defaults to MEMBER which downgrades `everyone=true`.
+    actorRole?: GateActorRole;
   }): Promise<{ message: MessageRow; replayed: boolean }> {
     // Validate attachment ownership + channel scope BEFORE the insert
     // transaction so a bad id fails fast without an uncommitted row.
@@ -338,7 +344,11 @@ export class MessagesService {
     }
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
-    const mentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    // task-044-iter3: silently downgrade `@everyone` for non-OWNER/ADMIN.
+    // Default `MEMBER` 으로 보수적 처리 — DM 채널 등 actorRole 미정 호출
+    // 도 자동으로 거부됩니다.
+    const mentions = gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER');
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
     // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
     // 500 WS sends in one tx — tangible latency and a DoS vector. 50
@@ -813,8 +823,12 @@ export class MessagesService {
     msgId: string;
     actorId: string;
     content: string;
+    // task-044-iter3: edit 도중 사용자가 `@everyone` 추가하면 send 와
+    // 동일하게 권한 체크. 미지정 시 MEMBER 로 보수 처리.
+    actorRole?: GateActorRole;
   }): Promise<MessageRow> {
-    const mentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    const mentions = gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER');
     const contentPlain = normalizeContent(args.content);
     const editedAt = new Date();
 
