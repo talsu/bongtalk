@@ -28,10 +28,22 @@ type Props = {
   isContinuation?: boolean;
   authorName?: string;
   authorRole?: WorkspaceRole | null;
+  /**
+   * task-045 iter1: viewer (현재 로그인 사용자) 의 워크스페이스 role.
+   * `OWNER` / `ADMIN` 만 Pin/Unpin 메뉴 노출. DM 채널은 wsId 가 없어
+   * pin 미지원이므로 부모가 `null` 전달 시 Pin/Unpin 자동 hide.
+   */
+  viewerRole?: WorkspaceRole | null;
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
   onOpenThread?: (rootId: string) => void;
+  /**
+   * task-045 iter1: pin/unpin 핸들러. 부모가 wsId 존재 + viewerRole
+   * OWNER/ADMIN 일 때만 전달; 그 외에는 undefined → 메뉴 hide.
+   */
+  onPin?: () => void | Promise<void>;
+  onUnpin?: () => void | Promise<void>;
 };
 
 export function MessageItem({
@@ -40,10 +52,13 @@ export function MessageItem({
   isContinuation,
   authorName,
   authorRole,
+  viewerRole,
   onEditSave,
   onDelete,
   onToggleReaction,
   onOpenThread,
+  onPin,
+  onUnpin,
 }: Props): JSX.Element {
   const badge = roleBadgeLabel(authorRole);
   const customEmojis = useCustomEmojiLookup();
@@ -147,6 +162,20 @@ export function MessageItem({
               {msg.edited ? (
                 <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
                   (수정됨)
+                </span>
+              ) : null}
+              {msg.pinnedAt ? (
+                // task-045 iter1: pin marker. semantic + screen-reader
+                // friendly — `<span role="img" aria-label="고정된 메시지">`
+                // 로 SR 가 핀 상태를 인식. DS qf-i-pin icon 재사용.
+                <span
+                  role="img"
+                  aria-label="고정된 메시지"
+                  data-testid={`msg-pinned-${msg.id}`}
+                  className="qf-message__time inline-flex items-center gap-0.5"
+                  title={`pinned at ${new Date(msg.pinnedAt).toLocaleString()}`}
+                >
+                  <Icon name="pin" size="sm" />
                 </span>
               ) : null}
             </div>
@@ -318,6 +347,64 @@ export function MessageItem({
                 >
                   <span data-testid={`msg-copy-link-${msg.id}`}>메시지 링크 복사</span>
                 </DropdownItem>
+                {(viewerRole === 'OWNER' || viewerRole === 'ADMIN') &&
+                !msg.id.startsWith('tmp-') &&
+                (onPin || onUnpin) ? (
+                  <>
+                    <DropdownSeparator />
+                    {msg.pinnedAt ? (
+                      onUnpin ? (
+                        <DropdownItem
+                          onSelect={async () => {
+                            try {
+                              await onUnpin();
+                              notify({
+                                variant: 'success',
+                                title: '메시지 고정 해제',
+                                ttlMs: 2000,
+                              });
+                            } catch {
+                              notify({
+                                variant: 'danger',
+                                title: '고정 해제 실패',
+                                body: '잠시 후 다시 시도하세요.',
+                                ttlMs: 4000,
+                              });
+                            }
+                          }}
+                        >
+                          <span data-testid={`msg-unpin-${msg.id}`}>메시지 고정 해제</span>
+                        </DropdownItem>
+                      ) : null
+                    ) : onPin ? (
+                      <DropdownItem
+                        onSelect={async () => {
+                          try {
+                            await onPin();
+                            notify({
+                              variant: 'success',
+                              title: '메시지 고정',
+                              ttlMs: 2000,
+                            });
+                          } catch (e) {
+                            const code = (e as { errorCode?: string } | undefined)?.errorCode;
+                            notify({
+                              variant: 'danger',
+                              title: '고정 실패',
+                              body:
+                                code === 'MESSAGE_PIN_CAP_EXCEEDED'
+                                  ? '채널당 최대 50개까지 고정할 수 있습니다'
+                                  : '잠시 후 다시 시도하세요.',
+                              ttlMs: 4000,
+                            });
+                          }
+                        }}
+                      >
+                        <span data-testid={`msg-pin-${msg.id}`}>메시지 고정</span>
+                      </DropdownItem>
+                    ) : null}
+                  </>
+                ) : null}
                 {isMine ? (
                   <>
                     <DropdownSeparator />

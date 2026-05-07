@@ -3,7 +3,13 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
-import { useDeleteMessage, useMessageHistory, useUpdateMessage } from './useMessages';
+import {
+  useDeleteMessage,
+  useMessageHistory,
+  usePinMessage,
+  useUnpinMessage,
+  useUpdateMessage,
+} from './useMessages';
 import { MessageItem } from './MessageItem';
 import { useToggleReaction } from '../reactions/useReactions';
 import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
@@ -71,6 +77,11 @@ export function MessageList({
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
   const reactMut = useToggleReaction(workspaceId, channelId);
+  // task-045 iter1: pin/unpin mutations. DM 채널 (workspaceId=null) 은
+  // hook 안에서 reject 하므로 호출 자체는 항상 가능. UI 쪽에서 wsId 가
+  // null 이면 onPin/onUnpin 콜백 자체를 undefined 로 전달해 메뉴 hide.
+  const pinMut = usePinMessage(workspaceId, channelId);
+  const unpinMut = useUnpinMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const messages = useMemo<MessageDto[]>(() => {
@@ -92,6 +103,15 @@ export function MessageList({
     for (const m of members?.members ?? []) map.set(m.userId, m.role);
     return map;
   }, [members]);
+
+  // task-045 iter1: viewer 의 워크스페이스 role. members 응답은 viewer
+  // 자신도 포함 — userId 매칭으로 role 추출. DM 채널 (workspaceId=null)
+  // 또는 viewer 가 멤버 list 에 없으면 null → MessageItem 의 Pin 메뉴
+  // 자동 hide.
+  const viewerRole = useMemo<WorkspaceRole | null>(() => {
+    if (!user) return null;
+    return roleById.get(user.id) ?? null;
+  }, [roleById, user]);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -314,6 +334,7 @@ export function MessageList({
                     isContinuation={isContinuation}
                     authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
                     authorRole={roleById.get(m.authorId) ?? null}
+                    viewerRole={viewerRole}
                     onEditSave={async (content) => {
                       await updMut.mutateAsync({ msgId: m.id, content });
                     }}
@@ -327,6 +348,22 @@ export function MessageList({
                     onOpenThread={
                       onOpenThread && !m.id.startsWith('tmp-')
                         ? (rootId) => onOpenThread(rootId)
+                        : undefined
+                    }
+                    onPin={
+                      // task-045 iter1: DM (wsId=null) + tmp 메시지는
+                      // pin 불가. OWNER/ADMIN gate 는 MessageItem 안.
+                      workspaceId && !m.id.startsWith('tmp-') && !m.pinnedAt
+                        ? async () => {
+                            await pinMut.mutateAsync(m.id);
+                          }
+                        : undefined
+                    }
+                    onUnpin={
+                      workspaceId && !m.id.startsWith('tmp-') && !!m.pinnedAt
+                        ? async () => {
+                            await unpinMut.mutateAsync(m.id);
+                          }
                         : undefined
                     }
                   />

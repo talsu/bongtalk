@@ -6,7 +6,14 @@ import {
   type InfiniteData,
 } from '@tanstack/react-query';
 import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
-import { deleteMessage, listMessages, sendMessage, updateMessage } from './api';
+import {
+  deleteMessage,
+  listMessages,
+  pinMessage,
+  sendMessage,
+  unpinMessage,
+  updateMessage,
+} from './api';
 import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
 import { useNotifications } from '../../stores/notification-store';
@@ -176,6 +183,39 @@ export function useDeleteMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (msgId: string) => deleteMessage(wsId, channelId, msgId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+  });
+}
+
+/**
+ * task-045 iter1: pin / unpin mutations. DM 채널 (wsId=null) 은
+ * BE 가 pinned 미지원 — 호출자가 wsId 존재 시에만 dropdown 노출
+ * 책임집니다. 성공 시 invalidate 하여 메시지 list 의 pinnedAt 갱신.
+ * (WS dispatcher 의 MESSAGE_PIN_TOGGLED 가 broadcast 단에서도 별도
+ * 갱신 — 두 path 가 idempotent 하게 동일한 cache 도달.)
+ */
+export function usePinMessage(wsId: string | null, channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (msgId: string) => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 메시지 고정을 지원하지 않습니다'));
+      }
+      return pinMessage(wsId, channelId, msgId);
+    },
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+  });
+}
+
+export function useUnpinMessage(wsId: string | null, channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (msgId: string) => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 메시지 고정을 지원하지 않습니다'));
+      }
+      return unpinMessage(wsId, channelId, msgId);
+    },
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
   });
 }
