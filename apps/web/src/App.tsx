@@ -35,6 +35,10 @@ const NotificationSettingsPage = lazy(() =>
 const ActivityPage = lazy(() =>
   import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage })),
 );
+// task-047 iter4 (M3): profile page (data 만, surface 단순)
+const MyProfilePage = lazy(() =>
+  import('./features/users/MyProfilePage').then((m) => ({ default: m.MyProfilePage })),
+);
 const MobileActivity = lazy(() =>
   import('./shell/mobile/MobileActivity').then((m) => ({ default: m.MobileActivity })),
 );
@@ -102,6 +106,19 @@ function ProtectedActivityRoute(): JSX.Element {
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileActivity /> : <ActivityPage />}
+    </Suspense>
+  );
+}
+
+// task-047 iter4 (M3): /me/profile route. 데스크톱 + 모바일 동일
+// 컴포넌트 (responsive layout via DS tokens).
+function ProtectedMyProfileRoute(): JSX.Element {
+  const { status } = useAuth();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <MyProfilePage />
     </Suspense>
   );
 }
@@ -245,6 +262,8 @@ export default function App(): JSX.Element {
                       element={<ProtectedSettingsRoute page="notifications" />}
                     />
                     <Route path="/activity" element={<ProtectedActivityRoute />} />
+                    {/* task-047 iter4 (M3): profile page */}
+                    <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
                     <Route path="/dm" element={<ProtectedDmShellRoute />} />
                     <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
                     <Route path="/discover" element={<ProtectedDiscoverRoute />} />
