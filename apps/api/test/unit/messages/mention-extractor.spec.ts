@@ -64,7 +64,32 @@ describe('extractMentions', () => {
   it('mixes user, channel, and everyone in one message', async () => {
     const fake = makePrisma([{ id: 'u1' }], [{ id: 'c1' }]);
     const out = await extractMentions(fake as any, WS, '@alice ping #general @everyone');
-    expect(out).toEqual({ users: ['u1'], channels: ['c1'], everyone: true });
+    expect(out).toEqual({ users: ['u1'], channels: ['c1'], everyone: true, here: false });
+  });
+
+  /**
+   * task-046 iter8 (A9): `@here` 인식.
+   */
+  it('detects @here as a separate flag (not a username)', async () => {
+    const fake = makePrisma([], []);
+    const out = await extractMentions(fake as any, WS, 'pls @here check');
+    expect(out.here).toBe(true);
+    expect(out.users).toEqual([]);
+    expect(out.everyone).toBe(false);
+  });
+
+  it('@here at line boundaries with surrounding tokens', async () => {
+    const fake = makePrisma([{ id: 'u1' }], []);
+    const out = await extractMentions(fake as any, WS, '@here @alice ping');
+    expect(out.here).toBe(true);
+    expect(out.users).toEqual(['u1']);
+    expect(out.everyone).toBe(false);
+  });
+
+  it('hereisnotaword 같은 단어 안의 here 는 무시', async () => {
+    const fake = makePrisma([], []);
+    const out = await extractMentions(fake as any, WS, 'this iswhereiwantto @hereisnotaword');
+    expect(out.here).toBe(false);
   });
 });
 
