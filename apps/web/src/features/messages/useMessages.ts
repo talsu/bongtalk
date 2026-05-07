@@ -106,6 +106,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         parentMessageId: null,
         thread: null,
         attachments: [],
+        // task-044-iter2: optimistic 메시지는 항상 미고정 상태입니다.
+        pinnedAt: null,
+        pinnedBy: null,
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
         if (!old) return old;

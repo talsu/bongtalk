@@ -78,8 +78,29 @@ export const MessageDtoSchema = z.object({
   // for older API builds and for messages that were sent without an
   // attachment batch.
   attachments: z.array(AttachmentLiteSchema).default([]),
+  // task-044-iter2: pinned message marker. `null` when 미고정.
+  // `pinnedBy` 는 OWNER/ADMIN 의 userId — author 와 다를 수 있다.
+  pinnedAt: z.string().datetime().nullable().default(null),
+  pinnedBy: z.string().uuid().nullable().default(null),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
+
+// task-044-iter2: pinned messages — Discord-parity cap 50/channel.
+export const MESSAGE_PIN_CAP = 50;
+
+export const PinMessageResponseSchema = z.object({
+  id: z.string().uuid(),
+  pinnedAt: z.string().datetime(),
+  pinnedBy: z.string().uuid(),
+});
+export type PinMessageResponse = z.infer<typeof PinMessageResponseSchema>;
+
+export const ListPinsResponseSchema = z.object({
+  items: z.array(MessageDtoSchema),
+  cap: z.number().int().positive(),
+  used: z.number().int().nonnegative(),
+});
+export type ListPinsResponse = z.infer<typeof ListPinsResponseSchema>;
 
 // POST /messages/:id/reactions + DELETE counterpart — simple enough we
 // reuse the ReactionSummary shape on the response.
