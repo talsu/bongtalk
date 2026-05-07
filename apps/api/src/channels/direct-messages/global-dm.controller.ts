@@ -77,4 +77,30 @@ export class GlobalDmController {
         : null;
     return this.svc.createGroupDm({ workspaceId, meId: user.id, memberIds });
   }
+
+  /**
+   * task-045 iter8: 사용자가 멤버인 group DM 목록.
+   * 1:1 DM 은 GET /me/dms 가 처리. group 만 별도 listing 으로 분리해
+   * UI 가 두 영역을 섞지 않고 표시 가능.
+   *
+   *   GET /me/dms/groups
+   *   Response: { items: [{ channelId, memberIds, lastMessageAt, lastMessagePreview, createdAt }] }
+   */
+  @Get('groups')
+  async listGroups(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('limit', new DefaultValuePipe(50)) limitRaw: string | number,
+  ): Promise<{
+    items: Array<{
+      channelId: string;
+      memberIds: string[];
+      lastMessageAt: string | null;
+      lastMessagePreview: string | null;
+      createdAt: string;
+    }>;
+  }> {
+    const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
+    const items = await this.svc.listGroups(null, user.id, limit || 50);
+    return { items };
+  }
 }
