@@ -8,7 +8,7 @@ import { OutboxService } from '../common/outbox/outbox.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 import { extractMentions, normalizeContent } from './mentions/mention-extractor';
-import { gateEveryoneMention, type GateActorRole } from './mentions/gate';
+import { gateEveryoneMention, gateHereMention, type GateActorRole } from './mentions/gate';
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
@@ -348,7 +348,10 @@ export class MessagesService {
     // task-044-iter3: silently downgrade `@everyone` for non-OWNER/ADMIN.
     // Default `MEMBER` 으로 보수적 처리 — DM 채널 등 actorRole 미정 호출
     // 도 자동으로 거부됩니다.
-    const mentions = gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER');
+    const mentions = gateHereMention(
+      gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+      args.actorRole ?? 'MEMBER',
+    );
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
     // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
     // 500 WS sends in one tx — tangible latency and a DoS vector. 50
@@ -847,7 +850,10 @@ export class MessagesService {
     actorRole?: GateActorRole;
   }): Promise<MessageRow> {
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
-    const mentions = gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER');
+    const mentions = gateHereMention(
+      gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+      args.actorRole ?? 'MEMBER',
+    );
     const contentPlain = normalizeContent(args.content);
     const editedAt = new Date();
 
