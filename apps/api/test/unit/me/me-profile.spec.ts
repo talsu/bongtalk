@@ -13,10 +13,12 @@ function makeCtrl({
   findUnique,
   update,
 }: { findUnique?: ReturnType<typeof vi.fn>; update?: ReturnType<typeof vi.fn> } = {}) {
+  // task-047 iter3 (M2): default mock 가 controller 의 select 결과 shape
+  // ({ bio, links }) 를 반환하도록 보강. 개별 spec 은 mock override.
   const prisma = {
     user: {
       findUnique: findUnique ?? vi.fn(),
-      update: update ?? vi.fn().mockResolvedValue({}),
+      update: update ?? vi.fn().mockResolvedValue({ bio: null, links: null }),
     },
   } as unknown as PrismaService;
   const rate = { enforce: vi.fn().mockResolvedValue(undefined) } as unknown as RateLimitService;
@@ -113,5 +115,84 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     expect(rate.enforce).toHaveBeenCalledWith([
       { key: `me-profile:u:${ME}`, windowSec: 60, max: 10 },
     ]);
+  });
+
+  /**
+   * task-047 iter3 (M2): links 검증.
+   */
+  it('links null → 저장 시 Prisma.JsonNull (links: null 반환)', async () => {
+    const update = vi.fn().mockResolvedValue({ bio: null, links: null });
+    const { ctrl } = makeCtrl({ update });
+    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links: null });
+    expect(res.links).toBeNull();
+  });
+
+  it('links 빈 배열 → null', async () => {
+    const update = vi.fn().mockResolvedValue({ bio: null, links: null });
+    const { ctrl } = makeCtrl({ update });
+    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links: [] });
+    expect(res.links).toBeNull();
+  });
+
+  it('links 정상 1개 (url + label)', async () => {
+    const expected = [{ url: 'https://example.com', label: 'home' }];
+    const update = vi.fn().mockResolvedValue({ bio: null, links: expected });
+    const { ctrl } = makeCtrl({ update });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      { links: expected },
+    );
+    expect(res.links).toEqual(expected);
+  });
+
+  it('links url 이 https?:// 시작 안 하면 VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.patch(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        { links: [{ url: 'javascript:alert(1)' }] },
+      ),
+    ).rejects.toThrow(/http:\/\/ or https:\/\//);
+  });
+
+  it('links 4개 → too many links', async () => {
+    const links = Array.from({ length: 4 }, (_, i) => ({ url: `https://e${i}.com` }));
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links }),
+    ).rejects.toThrow(/too many links/);
+  });
+
+  it('links url 누락 → VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.patch(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        { links: [{ label: 'no url' } as { url?: string; label?: string }] },
+      ),
+    ).rejects.toThrow(/non-empty string/);
+  });
+
+  it('links label 33 chars → too long', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.patch(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        { links: [{ url: 'https://example.com', label: 'x'.repeat(33) }] },
+      ),
+    ).rejects.toThrow(/label too long/);
+  });
+
+  it('bio + links 동시 update', async () => {
+    const update = vi
+      .fn()
+      .mockResolvedValue({ bio: 'hi', links: [{ url: 'https://example.com' }] });
+    const { ctrl } = makeCtrl({ update });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      { bio: 'hi', links: [{ url: 'https://example.com' }] },
+    );
+    expect(res.bio).toBe('hi');
+    expect(res.links).toEqual([{ url: 'https://example.com' }]);
   });
 });
