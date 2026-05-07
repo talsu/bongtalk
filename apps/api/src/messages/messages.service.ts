@@ -9,6 +9,7 @@ import { MetricsService } from '../observability/metrics/metrics.service';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 import { extractMentions, normalizeContent } from './mentions/mention-extractor';
 import { gateEveryoneMention, gateHereMention, type GateActorRole } from './mentions/gate';
+import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
@@ -114,6 +115,11 @@ export class MessagesService {
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
     @Optional() private readonly metrics?: MetricsService,
+    // task-047 iter5 (N3): 자동 follow — root 작성자 + reply 작성자가
+    // thread 의 follower 가 되도록 messages.service 가 직접 subscribe 호출.
+    // ThreadSubscriptionsService 는 같은 module 내 provider 라 직접 inject.
+    @Optional()
+    private readonly threadSubscriptions?: ThreadSubscriptionsService,
   ) {}
 
   toDto(
@@ -422,6 +428,23 @@ export class MessagesService {
           eventType: MESSAGE_CREATED,
           payload,
         });
+
+        // task-047 iter5 (N3): 자동 follow.
+        //  - root 작성 (parentMessageId === null) → 본인이 root 의 follower
+        //  - reply 작성 → 본인이 root 의 follower (이미 follower 면 idempotent)
+        // ThreadSubscriptionsService.subscribe 가 channel ACL 까지 검증하나
+        // 본인 작성 메시지의 채널 access 는 자명 — bypass 안 함, 일관성
+        // 위해 동일 path 사용. tx 주입으로 동일 transaction 안에서 처리.
+        if (this.threadSubscriptions) {
+          const threadRootId = created.parentMessageId ?? created.id;
+          await this.threadSubscriptions
+            .subscribe({
+              userId: args.authorId,
+              threadParentId: threadRootId,
+              tx: tx as Parameters<ThreadSubscriptionsService['subscribe']>[0]['tx'],
+            })
+            .catch(() => undefined); // root 작성자가 자기 메시지에 follower 추가 실패는 비-치명
+        }
 
         // Task-011-B: one mention.received outbox event per unique
         // mentioned user. Deduped here (extractMentions can return the
