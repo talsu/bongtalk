@@ -153,3 +153,92 @@ describe('DirectMessagesService.createGroupDm', () => {
     expect(name1).toBe(name2);
   });
 });
+
+/**
+ * task-046 iter0 (HIGH-2 carry-over): GDM 멤버 list endpoint.
+ *
+ * 권한: meId 가 GDM 멤버여야 200, 그 외 모두 404 (존재 leak 방지).
+ * 본 spec 은 mock prisma 로 channel.findFirst / override.findFirst /
+ * $queryRaw 를 자극.
+ */
+describe('DirectMessagesService.getGroupMembers', () => {
+  const GDM = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+  function svcWith({
+    channel,
+    override,
+    raw,
+  }: {
+    channel?: ReturnType<typeof vi.fn>;
+    override?: ReturnType<typeof vi.fn>;
+    raw?: ReturnType<typeof vi.fn>;
+  }) {
+    const channelFindFirst = channel ?? vi.fn().mockResolvedValue(null);
+    const overrideFindFirst = override ?? vi.fn().mockResolvedValue(null);
+    const queryRaw = raw ?? vi.fn().mockResolvedValue([]);
+    const prisma = {
+      channel: { findFirst: channelFindFirst, create: vi.fn() },
+      channelPermissionOverride: { findFirst: overrideFindFirst, create: vi.fn() },
+      workspaceMember: { findMany: vi.fn() },
+      $transaction: vi.fn(),
+      $queryRaw: queryRaw,
+    } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
+    return new DirectMessagesService(prisma);
+  }
+
+  it('채널 부재 → CHANNEL_NOT_FOUND', async () => {
+    const svc = svcWith({ channel: vi.fn().mockResolvedValue(null) });
+    await expect(svc.getGroupMembers(ME, GDM)).rejects.toThrow(/group DM not found/);
+  });
+
+  it('채널이 gdm: prefix 가 아니면 (1:1 DM) → CHANNEL_NOT_FOUND', async () => {
+    const svc = svcWith({
+      channel: vi.fn().mockResolvedValue({ id: GDM, name: 'dm:x:y' }),
+    });
+    await expect(svc.getGroupMembers(ME, GDM)).rejects.toThrow(/group DM not found/);
+  });
+
+  it('caller 가 GDM 멤버 아니면 (override 없음) → CHANNEL_NOT_FOUND', async () => {
+    const svc = svcWith({
+      channel: vi.fn().mockResolvedValue({ id: GDM, name: `gdm:${A}:${B}:${ME}` }),
+      override: vi.fn().mockResolvedValue(null),
+    });
+    await expect(svc.getGroupMembers(ME, GDM)).rejects.toThrow(/group DM not found/);
+  });
+
+  it('caller override allowMask & READ = 0 (leave 후) → CHANNEL_NOT_FOUND', async () => {
+    const svc = svcWith({
+      channel: vi.fn().mockResolvedValue({ id: GDM, name: `gdm:${A}:${B}:${ME}` }),
+      override: vi.fn().mockResolvedValue({ allowMask: 0 }),
+    });
+    await expect(svc.getGroupMembers(ME, GDM)).rejects.toThrow(/group DM not found/);
+  });
+
+  it('caller 가 GDM 멤버이면 모든 멤버 username + customStatus 반환', async () => {
+    const rawRows = [
+      { userId: A, username: 'alice', customStatus: '☕ working' },
+      { userId: B, username: 'bob', customStatus: null },
+      { userId: ME, username: 'me', customStatus: '🚀 OOO' },
+    ];
+    const svc = svcWith({
+      channel: vi.fn().mockResolvedValue({ id: GDM, name: `gdm:${A}:${B}:${ME}` }),
+      override: vi.fn().mockResolvedValue({ allowMask: 1 }),
+      raw: vi.fn().mockResolvedValue(rawRows),
+    });
+    const res = await svc.getGroupMembers(ME, GDM);
+    expect(res).toEqual([
+      { userId: A, username: 'alice', customStatus: '☕ working' },
+      { userId: B, username: 'bob', customStatus: null },
+      { userId: ME, username: 'me', customStatus: '🚀 OOO' },
+    ]);
+  });
+
+  it('soft-deleted 채널 (deletedAt!=null) → channel.findFirst 가 deletedAt:null where 로 null → CHANNEL_NOT_FOUND', async () => {
+    // 서비스의 findFirst 호출 시 deletedAt=null 을 강제하는지 검증.
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const svc = svcWith({ channel: findFirst });
+    await expect(svc.getGroupMembers(ME, GDM)).rejects.toThrow(/group DM not found/);
+    const callArg = findFirst.mock.calls[0][0];
+    expect(callArg.where.deletedAt).toBe(null);
+    expect(callArg.where.type).toBe('DIRECT');
+  });
+});

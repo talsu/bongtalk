@@ -5,6 +5,7 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { PrismaService } from '../prisma/prisma.module';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
+import { StatusBroadcastThrottler } from './status-broadcast-throttler';
 
 /**
  * task-045 iter4: 자유 문자열 custom status text — Discord parity.
@@ -30,6 +31,7 @@ export class MeStatusController {
     private readonly prisma: PrismaService,
     private readonly rate: RateLimitService,
     private readonly gateway: RealtimeGateway,
+    private readonly throttler: StatusBroadcastThrottler,
   ) {}
 
   @Get()
@@ -72,16 +74,23 @@ export class MeStatusController {
     });
     // task-045 iter7: WS broadcast — 사용자의 모든 워크스페이스 룸으로
     // user.profile.updated emit. dispatcher 가 받아 user 행 cache 갱신.
-    // workspaceIds 는 본인이 멤버인 워크스페이스. throttle 은 follow-up
-    // (현재는 raw emit — PATCH 자체가 rate 60/min 으로 제한됨).
-    const memberships = await this.prisma.workspaceMember.findMany({
-      where: { userId: user.id, workspace: { deletedAt: null } },
-      select: { workspaceId: true },
-    });
-    this.gateway.broadcastUserProfileUpdate({
-      userId: user.id,
-      workspaceIds: memberships.map((m) => m.workspaceId),
-      customStatus: next,
+    // task-046 iter0 (MED-1): StatusBroadcastThrottler 로 5s window 단위
+    // coalesce — 60/min × N 워크스페이스 spam 차단. flush 시점에 최신
+    // customStatus 를 DB 에서 재조회 → 빠른 토글 시 마지막 값 반영.
+    this.throttler.schedule(user.id, async () => {
+      const fresh = await this.prisma.user.findUnique({
+        where: { id: user.id },
+        select: { customStatus: true },
+      });
+      const memberships = await this.prisma.workspaceMember.findMany({
+        where: { userId: user.id, workspace: { deletedAt: null } },
+        select: { workspaceId: true },
+      });
+      this.gateway.broadcastUserProfileUpdate({
+        userId: user.id,
+        workspaceIds: memberships.map((m) => m.workspaceId),
+        customStatus: fresh?.customStatus ?? null,
+      });
     });
     return { customStatus: next };
   }

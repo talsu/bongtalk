@@ -47,6 +47,64 @@ describe('isPrivateIPv6', () => {
   ])('IPv6 %s → private=%s', (ip, expected) => {
     expect(isPrivateIPv6(ip)).toBe(expected);
   });
+
+  /**
+   * task-046 iter0 (HIGH-1): IPv6 변종 차단 회귀.
+   * 045 reviewer 가 발견한 anchor-strict regex 결함의 모든 변종을 cover.
+   */
+  describe('task-046 IPv6 variants (HIGH-1 carry-over)', () => {
+    it.each([
+      // IPv4-mapped (`::ffff:0:0/96`) — group form variations
+      ['0:0:0:0:0:ffff:7f00:1', true], // 127.0.0.1 expanded form
+      ['0:0:0:0:0:ffff:0a00:1', true], // 10.0.0.1
+      ['0::ffff:c0a8:101', true], // 192.168.1.1 short form (leading 0::)
+      ['::ffff:0808:0808', false], // 8.8.8.8 (public, expressed as group)
+      ['::ffff:a9fe:a9fe', true], // 169.254.169.254 metadata
+      ['::ffff:6440:1', true], // 100.64.0.1 CGNAT mapped
+
+      // IPv4-translated (`::ffff:0:0:0/96`, RFC 2765)
+      ['0:0:0:0:ffff:0:7f00:1', true], // 127.0.0.1 translated
+      ['0:0:0:0:ffff:0:0a00:1', true], // 10.0.0.1 translated
+
+      // NAT64 well-known (`64:ff9b::/96`, RFC 6052) — prefix match always blocks
+      ['64:ff9b::1', true],
+      ['64:ff9b::7f00:1', true], // 127.0.0.1 via NAT64 (still blocked)
+      ['64:ff9b::8.8.8.8', true], // public via NAT64 still blocks (gateway path)
+
+      // NAT64 LIR-local (`64:ff9b:1::/48`, RFC 8215)
+      ['64:ff9b:1::1', true],
+      ['64:ff9b:1:5678::1', true],
+
+      // discard prefix (`100::/64`, RFC 6666)
+      ['100::1', true],
+      ['100:0:0:0:1234:5678:9abc:def0', true],
+
+      // documentation prefix (`2001:db8::/32`)
+      ['2001:db8::1', true],
+      ['2001:db8:1234:5678::1', true],
+
+      // Teredo (`2001::/32`) with private embedded IPv4
+      // 2001:0::ffff:ffff:80a8:fdfd → server=ffff:ffff (irrelevant), client=192.168.2.2
+      // (XOR ffff: 80a8 ^ ffff = 7f57 hmm, let's compute proper Teredo private)
+      // 192.168.1.1 → XOR ffff = 3f57:fefe
+      ['2001:0:0:0:0:0:3f57:fefe', true], // Teredo wrapping 192.168.1.1
+      ['2001::3f57:fefe', true], // shortened
+      // public Teredo client should pass when "public" requested (8.8.8.8 → XOR f7f7:f7f7)
+      ['2001::f7f7:f7f7', false],
+
+      // 6to4 (`2002::/16`) wrapping private IPv4
+      // 192.168.1.1 → 0xc0a8:0x0101
+      ['2002:c0a8:101::', true],
+      ['2002:0a00:1::', true], // 10.0.0.1
+      ['2002:7f00:1::', true], // 127.0.0.1 wrapped
+      ['2002:0808:808::', false], // 8.8.8.8 wrapped (public)
+
+      // public IPv6 untouched
+      ['2620:fe::fe', false], // Quad9
+    ])('IPv6 variant %s → private=%s', (ip, expected) => {
+      expect(isPrivateIPv6(ip)).toBe(expected);
+    });
+  });
 });
 
 describe('ssrfGuard', () => {

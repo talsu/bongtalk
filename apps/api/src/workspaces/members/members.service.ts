@@ -17,7 +17,11 @@ export class MembersService {
   list(workspaceId: string) {
     return this.prisma.workspaceMember.findMany({
       where: { workspaceId },
-      include: { user: { select: { id: true, email: true, username: true } } },
+      // task-046 iter0 (MED-5 carry-over): customStatus 를 첫 페인트부터
+      // 노출 — 기존엔 WS user.profile.updated 이벤트 도착 후에야 표시됐다.
+      include: {
+        user: { select: { id: true, email: true, username: true, customStatus: true } },
+      },
       orderBy: { joinedAt: 'asc' },
     });
   }
@@ -39,10 +43,7 @@ export class MembersService {
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
     });
     if (!target) {
-      throw new DomainError(
-        ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
-        'target user is not a member',
-      );
+      throw new DomainError(ErrorCode.WORKSPACE_TARGET_NOT_MEMBER, 'target user is not a member');
     }
     if (target.role === WorkspaceRole.OWNER) {
       throw new DomainError(
@@ -50,10 +51,7 @@ export class MembersService {
         'owner must use transfer-ownership',
       );
     }
-    if (
-      ROLE_RANK[actorRole] <= ROLE_RANK[target.role as SharedRole] &&
-      actorRole !== 'OWNER'
-    ) {
+    if (ROLE_RANK[actorRole] <= ROLE_RANK[target.role as SharedRole] && actorRole !== 'OWNER') {
       throw new DomainError(
         ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
         'cannot modify a member of equal or higher rank',
@@ -80,12 +78,7 @@ export class MembersService {
     });
   }
 
-  async remove(
-    workspaceId: string,
-    actorId: string,
-    actorRole: SharedRole,
-    targetUserId: string,
-  ) {
+  async remove(workspaceId: string, actorId: string, actorRole: SharedRole, targetUserId: string) {
     if (actorId === targetUserId) {
       throw new DomainError(
         ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
@@ -96,10 +89,7 @@ export class MembersService {
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
     });
     if (!target) {
-      throw new DomainError(
-        ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
-        'target user is not a member',
-      );
+      throw new DomainError(ErrorCode.WORKSPACE_TARGET_NOT_MEMBER, 'target user is not a member');
     }
     if (target.role === WorkspaceRole.OWNER) {
       throw new DomainError(
@@ -107,10 +97,7 @@ export class MembersService {
         'owner cannot be removed — transfer ownership first',
       );
     }
-    if (
-      ROLE_RANK[actorRole] <= ROLE_RANK[target.role as SharedRole] &&
-      actorRole !== 'OWNER'
-    ) {
+    if (ROLE_RANK[actorRole] <= ROLE_RANK[target.role as SharedRole] && actorRole !== 'OWNER') {
       throw new DomainError(
         ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
         'cannot remove a member of equal or higher rank',
