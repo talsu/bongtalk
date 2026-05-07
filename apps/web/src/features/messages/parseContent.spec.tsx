@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { renderMessageContent } from './parseContent';
+import {
+  renderMessageContent,
+  extractMessageUrls,
+  LINK_PREVIEW_CAP_PER_MESSAGE,
+} from './parseContent';
 import type { CustomEmoji } from '../emojis/api';
 
 function toHtml(input: string, customs?: Map<string, CustomEmoji>): string {
@@ -159,6 +163,57 @@ describe('renderMessageContent', () => {
       const html = toHtml('a > b');
       expect(html).not.toContain('<blockquote');
       expect(html).toContain('a &gt; b');
+    });
+  });
+
+  // task-045 iter6: extractMessageUrls — link unfurl 카드를 위한 URL 추출.
+  describe('task-045 extractMessageUrls', () => {
+    it('빈 입력 → 빈 배열', () => {
+      expect(extractMessageUrls('')).toEqual([]);
+    });
+
+    it('단일 URL 추출', () => {
+      const out = extractMessageUrls('hi https://example.com bye');
+      expect(out).toEqual(['https://example.com']);
+    });
+
+    it('http(s) 외 scheme 무시', () => {
+      const out = extractMessageUrls('check ftp://example.com or file:///etc/passwd');
+      expect(out).toEqual([]);
+    });
+
+    it('중복 URL 은 한 번만', () => {
+      const out = extractMessageUrls('a https://x.test b https://x.test c');
+      expect(out).toEqual(['https://x.test']);
+    });
+
+    it(`최대 ${LINK_PREVIEW_CAP_PER_MESSAGE} 개까지`, () => {
+      const out = extractMessageUrls(
+        'https://a.test https://b.test https://c.test https://d.test https://e.test',
+      );
+      expect(out).toHaveLength(LINK_PREVIEW_CAP_PER_MESSAGE);
+      expect(out).toEqual(['https://a.test', 'https://b.test', 'https://c.test']);
+    });
+
+    it('fenced code 안의 URL 무시', () => {
+      const out = extractMessageUrls('see ```\nhttps://hidden.test\n``` then https://shown.test');
+      expect(out).toEqual(['https://shown.test']);
+    });
+
+    it('inline code 안의 URL 무시', () => {
+      const out = extractMessageUrls('use `https://hidden.test` then https://shown.test');
+      expect(out).toEqual(['https://shown.test']);
+    });
+
+    it('quote 라인 안의 URL 도 추출 (전체 텍스트로 인식)', () => {
+      // quote prefix 만 stripping — quote body 의 URL 은 일반 메시지와 동일.
+      const out = extractMessageUrls('> note: https://shown.test\nthen https://other.test');
+      expect(out).toEqual(['https://shown.test', 'https://other.test']);
+    });
+
+    it('trailing punct 보호 — 마침표 swallow 안 함', () => {
+      const out = extractMessageUrls('see https://example.com.');
+      expect(out).toEqual(['https://example.com']);
     });
   });
 });

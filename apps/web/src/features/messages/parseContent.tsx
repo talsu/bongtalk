@@ -120,6 +120,43 @@ function stripQuotePrefix(line: string): string {
 }
 
 /**
+ * task-045 iter6: URL 추출 유틸. MessageItem 이 LinkPreview 카드를
+ * 본문 아래 렌더할 때 사용. inline regex 와 동일한 패턴 + 동일한
+ * trailing-punct 보호. fenced 안의 URL 은 추출 X — fenced 외부
+ * 세그먼트만 스캔.
+ *
+ * Discord 정책: 메시지당 최대 3 카드. 더 많은 URL 이 있어도 처음 3
+ * 개만 미리보기 시도.
+ */
+const URL_EXTRACT_RE = /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])/g;
+const FENCE_RE = /```[\s\S]*?```/g;
+const INLINE_CODE_RE = /`[^`\n]+`/g;
+const QUOTE_LINE_RE = /^>\s?/;
+export const LINK_PREVIEW_CAP_PER_MESSAGE = 3;
+
+export function extractMessageUrls(content: string): string[] {
+  if (!content) return [];
+  // fenced 와 inline code 영역을 zero 로 마스킹 — 그 안의 URL 은
+  // 미리보기 카드 트리거 안 함. quote prefix 도 강조 무관.
+  const masked = content
+    .replace(FENCE_RE, (m) => ' '.repeat(m.length))
+    .replace(INLINE_CODE_RE, (m) => ' '.repeat(m.length))
+    .split('\n')
+    .map((line) => (QUOTE_LINE_RE.test(line) ? line.replace(QUOTE_LINE_RE, '') : line))
+    .join('\n');
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const m of masked.matchAll(URL_EXTRACT_RE)) {
+    const url = m[1];
+    if (seen.has(url)) continue;
+    seen.add(url);
+    out.push(url);
+    if (out.length >= LINK_PREVIEW_CAP_PER_MESSAGE) break;
+  }
+  return out;
+}
+
+/**
  * Inline pass. Walks the string once, emitting <code class="qf-code-inline">
  * for backtick-wrapped spans and <span class="qf-mention"> for
  * `@username` tokens (username = word chars + `_`, 1–32 chars, matching
