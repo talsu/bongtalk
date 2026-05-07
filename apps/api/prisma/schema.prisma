@@ -116,6 +116,12 @@ model User {
   // 100 chars cap (Discord 의 128 보다 보수적). emoji prefix 는
   // follow-up — 현재는 plain text 만.
   customStatus        String?            @db.VarChar(100)
+  // task-046 iter4 (K1): per-day weekly DnD schedule.
+  // shape: { days: [{ day: 0..6 (Sun..Sat), startMin: 0..1439, endMin: 0..1439 }] }
+  // start>end 인 entry 는 overnight (23:00 → 07:00).
+  dndSchedule         Json?
+  // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
+  notificationOnboardingShown Boolean    @default(false)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
