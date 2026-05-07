@@ -17,6 +17,7 @@ import {
 import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
 import { useNotifications } from '../../stores/notification-store';
+import { friendlyError } from '../../lib/error-messages';
 
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
@@ -176,6 +177,16 @@ export function useUpdateMessage(wsId: string | null, channelId: string) {
     mutationFn: ({ msgId, content }: { msgId: string; content: string }) =>
       updateMessage(wsId, channelId, msgId, { content }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+    // task-047 iter6 (P-individual): friendlyError → toast.
+    onError: (err) => {
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '메시지 수정 실패',
+        body: f.message,
+        ttlMs: 5000,
+      });
+    },
   });
 }
 
@@ -184,6 +195,16 @@ export function useDeleteMessage(wsId: string | null, channelId: string) {
   return useMutation({
     mutationFn: (msgId: string) => deleteMessage(wsId, channelId, msgId),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+    // task-047 iter6 (P-individual): friendlyError → toast.
+    onError: (err) => {
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '메시지 삭제 실패',
+        body: f.message,
+        ttlMs: 5000,
+      });
+    },
   });
 }
 
@@ -204,6 +225,15 @@ export function usePinMessage(wsId: string | null, channelId: string) {
       return pinMessage(wsId, channelId, msgId);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+    onError: (err) => {
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '메시지 고정 실패',
+        body: f.message,
+        ttlMs: 5000,
+      });
+    },
   });
 }
 
@@ -217,6 +247,15 @@ export function useUnpinMessage(wsId: string | null, channelId: string) {
       return unpinMessage(wsId, channelId, msgId);
     },
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
+    onError: (err) => {
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '메시지 고정 해제 실패',
+        body: f.message,
+        ttlMs: 5000,
+      });
+    },
   });
 }
 
