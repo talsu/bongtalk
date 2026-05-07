@@ -1,0 +1,51 @@
+id: 054-discord-slack-parity-mega-loop
+title: Discord / Slack Parity Mega-Loop (DSPM)
+goal: |
+  Beta 진입 전 텍스트 채팅 + DM 영역을 Discord/Slack 수준으로 끌어올린다.
+  자율 N-iteration meta-loop 로 parity score 78% → ≥ 90% AND HIGH 갭 = 0
+  (또는 cap 10 / 2 iter 연속 변동 < 1%) 까지 수렴. 음성 / 영상 / Huddle 은 OUT.
+
+  Iteration 8-step: AUDIT → PRIORITIZE → PLAN → IMPLEMENT → UI/UX 검증
+  → REGRESSION → DEPLOY → DECIDE.
+
+dod:
+  - 'pnpm verify exits 0 (cumulative, loop 종료 시)'
+  - 'iteration 별 audit / plan / commit / spec 누적 기록'
+  - 'parity score ≥ 90% AND HIGH 갭 = 0 (또는 cap 10, 또는 convergence)'
+  - 'BLOCKER + HIGH 모두 fix-forward 또는 명시 이월 + reason'
+  - '회귀 spec: 각 fix 마다 1개 이상 (e2e/int/unit)'
+  - 'DS 4파일 git diff 0 + md5 baseline (.task-040-ds-baseline.txt) 일치'
+  - 'Visual regression baseline 보존 또는 명시 갱신 (의도된 변경)'
+  - 'axe-core: critical=0, serious=0'
+  - 'iteration 별 deploy 성공 + readyz 200 + idle 30s'
+  - '3 artefacts: 044-*.md (task contract + 누적 progress), 044-*.PR.md, 044-*.review.md'
+  - 'iteration 별 audit/plan log: docs/tasks/044-iteration-N-{audit,plan}.md'
+  - '1 eval: evals/tasks/054-discord-slack-parity-mega-loop.yaml (this file)'
+  - 'Reviewer subagent 종료 후 1회 스폰 + transcript token count'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl last entry exitCode=0 + sha = main tip'
+  - 'GET https://qufox.com/api/readyz returns 200 + idle 30s'
+  - 'Pane 1 auto-forward: iteration 별 mini-progress (1줄) + 종료 시 통합 REPORT'
+  - 'Feature branch feat/task-044-dspm retained (메모리 feedback_retain_feature_branches.md)'
+
+scoring:
+  verify_green: 0.10
+  parity_target_or_cap_or_convergence: 0.20
+  high_gaps_resolved_or_deferred: 0.15
+  regression_specs_per_fix: 0.10
+  ds_md5_baseline_match: 0.05
+  visual_baseline_intentional: 0.05
+  axe_critical_serious_zero: 0.05
+  iteration_deploys_succeeded: 0.10
+  artefacts_complete: 0.05
+  reviewer_subagent_spawned: 0.05
+  pane1_auto_forward_fired: 0.05
+  main_promotion_clean: 0.05
+
+tags:
+  - parity
+  - discord
+  - slack
+  - chat
+  - dm
+  - mega-loop
+  - autonomous
