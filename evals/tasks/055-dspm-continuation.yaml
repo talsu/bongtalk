@@ -1,0 +1,56 @@
+id: 055-dspm-continuation
+title: Discord / Slack Parity Mega-Loop Continuation (DSPM-2)
+goal: |
+  Task 044 (DSPM) 가 종료 조건 미충족 상태로 closed. 045 는 continuation
+  으로 잔여 HIGH 갭 4건 (link unfurl / channel mute / group DM / custom
+  status) + reviewer 발견 H1 (pin-cap-race) + H2 (visual baseline 미시드)
+  + pinned UI 누락을 처리합니다. parity 86% → ≥ 90% AND HIGH 갭 = 0
+  (또는 cap 10 / 2 iter convergence < 1%) 까지 strict 종료.
+
+dod:
+  - 'iteration 0 visual baseline seed commit 존재 + snapshot 파일 생성'
+  - 'pnpm verify exits 0 (cumulative)'
+  - 'parity score ≥ 90% AND HIGH 갭 = 0 (또는 cap 10 / convergence)'
+  - 'BLOCKER + HIGH 모두 fix-forward 또는 명시 이월 + reason'
+  - '회귀 spec: 각 fix 마다 1개 이상'
+  - 'DS 4파일 git diff 0 + md5 baseline (.task-040-ds-baseline.txt) 일치'
+  - 'Visual regression baseline 보존 또는 명시 갱신'
+  - 'axe-core: critical=0, serious=0'
+  - 'iteration 별 deploy 성공 + readyz 200 + idle 30s'
+  - '3 artefacts: 045-*.md / 045-*.PR.md / 045-*.review.md'
+  - 'iteration 별 audit/plan log: docs/tasks/045-iteration-N-{audit,plan}.md'
+  - 'Reviewer subagent 종료 후 1회 스폰 + transcript token count'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl exitCode=0 + sha = main tip'
+  - 'GET https://qufox.com/api/readyz 200 + idle 30s'
+  - 'Pane 1 auto-forward iteration 별 (1줄) + 종료 시 통합 REPORT'
+  - 'Feature branch feat/task-045-dspm-continuation retained'
+  - 'STRICT 종료: 명시 3 조건 외 사유로 일찍 종료 결정 시 사용자 질문 trigger'
+
+scoring:
+  iter0_visual_baseline_seeded: 0.10
+  verify_green: 0.10
+  parity_target_or_cap_or_convergence: 0.15
+  high_gaps_resolved_or_deferred: 0.10
+  pin_cap_race_fixed: 0.05
+  pinned_ui_shipped: 0.05
+  link_unfurl_shipped: 0.05
+  channel_mute_shipped: 0.05
+  custom_status_shipped: 0.05
+  group_dm_shipped: 0.05
+  regression_specs_per_fix: 0.05
+  ds_md5_baseline_match: 0.03
+  axe_critical_serious_zero: 0.03
+  reviewer_subagent_spawned: 0.05
+  iteration_deploys_succeeded: 0.05
+  pane1_auto_forward_fired: 0.04
+
+tags:
+  - parity
+  - discord
+  - slack
+  - chat
+  - dm
+  - mega-loop
+  - autonomous
+  - continuation
+  - task-044-followup
