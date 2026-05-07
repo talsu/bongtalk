@@ -75,3 +75,18 @@ export type MessageDeletedPayload = {
  * past a beta scale warrants a per-thread follower set.
  */
 export const THREAD_REPLY_RECIPIENT_CAP = 20;
+
+// task-044-iter2: pinned message toggled. pin/unpin 둘 다 같은 이벤트
+// 종류로 처리하되 pinnedAt 가 null 인지로 구분합니다. 채널 룸 fanout —
+// 워크스페이스 룸 broadcast 는 의도적으로 X (pin 정보는 채널 컨텍스트).
+export const MESSAGE_PIN_TOGGLED = 'message.pin.toggled';
+
+export type MessagePinToggledPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  actorId: string;
+  messageId: string;
+  // pinnedAt = null → unpinned. 둘 다 ISO string 또는 null.
+  pinnedAt: string | null;
+  pinnedBy: string | null;
+};

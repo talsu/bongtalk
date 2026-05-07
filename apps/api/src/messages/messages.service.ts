@@ -11,11 +11,13 @@ import { extractMentions, normalizeContent } from './mentions/mention-extractor'
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
+  MESSAGE_PIN_TOGGLED,
   MESSAGE_THREAD_REPLIED,
   MESSAGE_UPDATED,
   THREAD_REPLY_RECIPIENT_CAP,
   type MessageCreatedPayload,
   type MessageDeletedPayload,
+  type MessagePinToggledPayload,
   type MessageThreadRepliedPayload,
   type MessageUpdatedPayload,
 } from './events/message-events';
@@ -45,7 +47,14 @@ type MessageRow = {
   idempotencyKey: string | null;
   // task-014-B: null for root messages; set for replies.
   parentMessageId: string | null;
+  // task-044-iter2: pinned message marker. null when 미고정.
+  pinnedAt?: Date | null;
+  pinnedBy?: string | null;
 };
+
+// task-044-iter2: Discord-parity cap. Cap 변경 시 shared-types
+// MESSAGE_PIN_CAP 도 동일 값으로 갱신해야 합니다.
+export const MESSAGE_PIN_CAP = 50;
 
 export type ThreadSummary = {
   replyCount: number;
@@ -81,6 +90,10 @@ export type MessageDto = {
   parentMessageId: string | null;
   thread: ThreadSummary | null;
   attachments: AttachmentLite[];
+  // task-044-iter2: pinned message marker. UI 가 행 표시 + 패널 노출
+  // 결정에 사용. NULL = 미고정.
+  pinnedAt: string | null;
+  pinnedBy: string | null;
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -133,6 +146,10 @@ export class MessagesService {
       // Deleted messages drop their attachments too — the wire shape
       // matches the content-masking rule above.
       attachments: isDeleted ? [] : attachments,
+      // task-044-iter2: pinned 정보. soft-deleted 메시지는 자동으로 unpinned
+      // 되도록 deletedAt 핀 표시를 가립니다.
+      pinnedAt: isDeleted ? null : (row.pinnedAt?.toISOString() ?? null),
+      pinnedBy: isDeleted ? null : (row.pinnedBy ?? null),
     };
   }
 
@@ -677,7 +694,8 @@ export class MessagesService {
     // seq scan once replies outnumbered roots.
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
-             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId"
+             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
+             "pinnedAt", "pinnedBy"
         FROM "Message"
        WHERE "channelId" = $1::uuid
              AND "parentMessageId" IS NULL
@@ -733,7 +751,8 @@ export class MessagesService {
     }
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
-             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId"
+             "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
+             "pinnedAt", "pinnedBy"
         FROM "Message"
        WHERE "parentMessageId" = $1::uuid
              AND "deletedAt" IS NULL
@@ -870,5 +889,121 @@ export class MessagesService {
         payload,
       });
     });
+  }
+
+  // ----------------------------------------------- task-044-iter2 pinning
+
+  /**
+   * task-044-iter2: 메시지 pin. 권한 체크는 controller 의 OWNER/ADMIN
+   * 가드에서 수행합니다 — service 는 cap (50) 만 enforce 합니다.
+   * 이미 pinned 된 메시지를 다시 pin 하면 idempotent (기존 pinnedAt 유지).
+   * Soft-deleted 메시지는 pin 불가 (toDto 에서도 마스킹).
+   */
+  async pin(args: {
+    workspaceId: string | null;
+    channelId: string;
+    msgId: string;
+    actorId: string;
+  }): Promise<MessageRow> {
+    return this.prisma.$transaction(async (tx) => {
+      const target = (await tx.message.findFirst({
+        where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
+      })) as (MessageRow & { pinnedAt: Date | null }) | null;
+      if (!target) {
+        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
+      }
+      if (target.pinnedAt) {
+        // idempotent — 같은 row 그대로 반환, outbox 도 다시 emit 안 함.
+        return target as MessageRow;
+      }
+      // cap check: 이 채널의 핀 수가 cap 미만이어야 함. partial 인덱스
+      // (channelId, pinnedAt DESC WHERE pinnedAt IS NOT NULL) 사용.
+      const pinned = await tx.message.count({
+        where: { channelId: args.channelId, pinnedAt: { not: null }, deletedAt: null },
+      });
+      if (pinned >= MESSAGE_PIN_CAP) {
+        throw new DomainError(
+          ErrorCode.MESSAGE_PIN_CAP_EXCEEDED,
+          `최대 ${MESSAGE_PIN_CAP}개까지 고정할 수 있습니다`,
+        );
+      }
+      const pinnedAt = new Date();
+      const updated = await tx.message.update({
+        where: { id: args.msgId },
+        data: { pinnedAt, pinnedBy: args.actorId },
+      });
+      const payload: MessagePinToggledPayload = {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.actorId,
+        messageId: updated.id,
+        pinnedAt: pinnedAt.toISOString(),
+        pinnedBy: args.actorId,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: updated.id,
+        eventType: MESSAGE_PIN_TOGGLED,
+        payload,
+      });
+      return updated as MessageRow;
+    });
+  }
+
+  /**
+   * task-044-iter2: pin 해제. 미고정 상태에서 unpin 호출은 idempotent
+   * (no-op + 같은 row 반환).
+   */
+  async unpin(args: {
+    workspaceId: string | null;
+    channelId: string;
+    msgId: string;
+    actorId: string;
+  }): Promise<MessageRow> {
+    return this.prisma.$transaction(async (tx) => {
+      const target = (await tx.message.findFirst({
+        where: { id: args.msgId, channelId: args.channelId },
+      })) as (MessageRow & { pinnedAt: Date | null }) | null;
+      if (!target) {
+        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
+      }
+      if (!target.pinnedAt) {
+        return target as MessageRow;
+      }
+      const updated = await tx.message.update({
+        where: { id: args.msgId },
+        data: { pinnedAt: null, pinnedBy: null },
+      });
+      const payload: MessagePinToggledPayload = {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.actorId,
+        messageId: updated.id,
+        pinnedAt: null,
+        pinnedBy: null,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: updated.id,
+        eventType: MESSAGE_PIN_TOGGLED,
+        payload,
+      });
+      return updated as MessageRow;
+    });
+  }
+
+  /**
+   * task-044-iter2: 채널의 pinned 메시지 목록. 정렬 pinnedAt DESC,
+   * cap 50 까지. soft-deleted 는 자동으로 제외 (deletedAt IS NULL).
+   * partial index `Message_channelId_pinnedAt_idx` 가 sparse scan
+   * 보장.
+   */
+  async listPins(channelId: string): Promise<{ items: MessageRow[]; cap: number; used: number }> {
+    const items = (await this.prisma.message.findMany({
+      where: { channelId, pinnedAt: { not: null }, deletedAt: null },
+      orderBy: { pinnedAt: 'desc' },
+      take: MESSAGE_PIN_CAP,
+    })) as MessageRow[];
+    return { items, cap: MESSAGE_PIN_CAP, used: items.length };
   }
 }

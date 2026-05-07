@@ -101,6 +101,8 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_NOT_AUTHOR',
   'MESSAGE_THREAD_DEPTH_EXCEEDED',
   'MESSAGE_PARENT_NOT_FOUND',
+  // task-044-iter2: pinned messages cap (50/channel)
+  'MESSAGE_PIN_CAP_EXCEEDED',
   'IDEMPOTENCY_KEY_REUSE_CONFLICT',
   // task-015-A (014-follow-3 closure): attachments + channel
   // visibility + generic forbidden codes. All existed in the backend
