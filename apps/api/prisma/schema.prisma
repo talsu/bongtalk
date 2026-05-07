@@ -122,6 +122,10 @@ model User {
   dndSchedule         Json?
   // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
   notificationOnboardingShown Boolean    @default(false)
+  // task-046 iter5 (M1): Discord-parity profile bio. markdown 허용,
+  // 500 chars cap (app layer). links 는 markdown URL 로 표현 (별도
+  // column 없음).
+  bio                 String?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
