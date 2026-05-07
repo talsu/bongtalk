@@ -114,6 +114,36 @@ export class MessagesController {
     };
   }
 
+  /**
+   * task-044-iter2: 채널의 pinned 메시지 목록.
+   * 정렬 pinnedAt DESC, cap 50 까지. soft-deleted 자동 제외.
+   * 모든 워크스페이스 멤버가 조회 가능 (Discord/Slack 동일).
+   *
+   * 주의: 라우트 순서가 중요합니다 — `Get('pins')` 가
+   * `Get(':msgId')` 보다 먼저 선언되어야 NestJS 가 'pins' 을 UUID 로
+   * 잘못 파싱하지 않습니다.
+   */
+  @Get('pins')
+  async listPins(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const result = await this.messages.listPins(channelId);
+    const ids = result.items.map((r) => r.id);
+    const [reactionMap, attachmentMap] = await Promise.all([
+      this.messages.aggregateReactions(ids, user.id),
+      this.messages.aggregateAttachments(ids),
+    ]);
+    return {
+      items: result.items.map((r) =>
+        this.messages.toDto(r, reactionMap.get(r.id) ?? [], null, attachmentMap.get(r.id) ?? []),
+      ),
+      cap: result.cap,
+      used: result.used,
+    };
+  }
+
   @Get(':msgId')
   async getOne(
     @Param('id', new ParseUUIDPipe()) _wsId: string,
@@ -232,6 +262,73 @@ export class MessagesController {
       msgId,
       actorId: user.id,
     });
+  }
+
+  // ----- task-044-iter2: pinned messages -------------------------------
+
+  /**
+   * 메시지 pin. 워크스페이스 OWNER/ADMIN 만 가능 — MEMBER 는 403.
+   * 채널당 cap 50, 초과 시 422 MESSAGE_PIN_CAP_EXCEEDED.
+   * 이미 pinned 면 idempotent 응답.
+   */
+  @Post(':msgId/pin')
+  @HttpCode(200)
+  async pin(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    if (!this.isAdminOrOwner(m.role)) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'OWNER 또는 ADMIN 만 메시지를 고정할 수 있습니다',
+      );
+    }
+    const row = await this.messages.pin({
+      workspaceId: m.workspaceId,
+      channelId,
+      msgId,
+      actorId: user.id,
+    });
+    return {
+      id: row.id,
+      pinnedAt: (row.pinnedAt ?? new Date()).toISOString(),
+      pinnedBy: row.pinnedBy ?? user.id,
+    };
+  }
+
+  /**
+   * 메시지 pin 해제. 권한은 pin 과 동일 (OWNER/ADMIN). 미고정에서
+   * unpin 호출은 idempotent.
+   */
+  @Delete(':msgId/pin')
+  @HttpCode(200)
+  async unpin(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    if (!this.isAdminOrOwner(m.role)) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'OWNER 또는 ADMIN 만 메시지 고정을 해제할 수 있습니다',
+      );
+    }
+    const row = await this.messages.unpin({
+      workspaceId: m.workspaceId,
+      channelId,
+      msgId,
+      actorId: user.id,
+    });
+    return {
+      id: row.id,
+      pinnedAt: row.pinnedAt?.toISOString() ?? null,
+      pinnedBy: row.pinnedBy ?? null,
+    };
   }
 
   // -----

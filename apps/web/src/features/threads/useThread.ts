@@ -70,6 +70,8 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         parentMessageId: rootId,
         thread: null,
         attachments: [],
+        pinnedAt: null,
+        pinnedBy: null,
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;

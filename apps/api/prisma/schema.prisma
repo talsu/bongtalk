@@ -292,6 +292,12 @@ model Message {
   // never write to it. SELECT paths that need FTS use $queryRaw.
   search_tsv  Unsupported("tsvector")?
 
+  // task-044-iter2: pinned messages. NULL = 미고정. Discord-parity cap
+  // 50/channel enforced at service layer. Author 가 일반 MEMBER 라도
+  // OWNER/ADMIN 이 pin 할 수 있어 pinnedBy 는 author 와 다를 수 있다.
+  pinnedAt   DateTime? @db.Timestamptz
+  pinnedBy   String?   @db.Uuid
+
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User              @relation(fields: [authorId], references: [id])
   attachments Attachment[]
@@ -310,6 +316,10 @@ model Message {
   // + the replies index `(parentMessageId, createdAt ASC)` are defined in
   // the raw-SQL migration (Prisma's @@index doesn't support partial WHERE).
   @@index([parentMessageId, createdAt])
+  // task-044-iter2: pinned list — 채널별 pinned ORDER BY pinnedAt DESC.
+  // Partial WHERE pinnedAt IS NOT NULL 은 raw-SQL migration 으로 보강합니다
+  // (Prisma @@index 가 partial 미지원).
+  @@index([channelId, pinnedAt])
 }
 
 // Task-013-B: per-message reactions. `emoji` is the literal unicode
