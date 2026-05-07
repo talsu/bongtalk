@@ -143,6 +143,22 @@ model User {
   friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
+  threadSubscriptions     ThreadSubscription[]
+}
+
+// task-046 iter6 (N1, N2, N3): thread follow / 구독.
+// follow 상태는 mention dispatcher 가 thread reply 알림 분기에 사용.
+model ThreadSubscription {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  threadParentId  String   @db.Uuid
+  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+
+  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadParent   Message @relation("MessageThreadFollowers", fields: [threadParentId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, threadParentId])
+  @@index([threadParentId])
 }
 
 model RefreshToken {
@@ -339,6 +355,7 @@ model Message {
   reactions   MessageReaction[]
   parent      Message?          @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies     Message[]         @relation("MessageReplies")
+  threadFollowers ThreadSubscription[] @relation("MessageThreadFollowers")
 
   // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
   // row-value comparison WHERE (createdAt, id) < ($1, $2).
