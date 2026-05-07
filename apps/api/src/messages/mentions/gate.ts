@@ -22,3 +22,15 @@ export function gateEveryoneMention(mentions: Mentions, actorRole: GateActorRole
   if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
   return { ...mentions, everyone: false };
 }
+
+/**
+ * task-046 iter8 (A9): `@here` 멘션 권한 게이트.
+ *
+ * `@everyone` 보다 부드러운 성격 (online 멤버만) 이지만 fanout 폭은 클
+ * 수 있어 같은 게이트 적용. MEMBER 가 here=true 입력 시 silently false.
+ */
+export function gateHereMention(mentions: Mentions, actorRole: GateActorRole): Mentions {
+  if (!mentions.here) return mentions;
+  if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
+  return { ...mentions, here: false };
+}
