@@ -92,6 +92,16 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     setEmojiOpen(false);
   }, [channelId]);
 
+  // task-047 iter5 (O1): channel empty state CTA → composer 포커스.
+  // SearchInput 와 동일 패턴 (qufox.search.focus).
+  useEffect(() => {
+    const onFocus = (): void => {
+      textareaRef.current?.focus();
+    };
+    window.addEventListener('qufox.composer.focus', onFocus);
+    return () => window.removeEventListener('qufox.composer.focus', onFocus);
+  }, []);
+
   // task-021-R1 reviewer HIGH fix: when the user switches channels
   // (or unmounts the composer entirely), send typing.stop for the
   // channel that the composer was mounted on so observers don't see

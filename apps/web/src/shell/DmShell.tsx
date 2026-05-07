@@ -190,9 +190,28 @@ export function DmShell(): JSX.Element {
           </div>
           <div className="qf-empty__body">
             {(friends?.items ?? []).length === 0
-              ? '/friends 에서 친구를 추가하거나, 왼쪽 나침반으로 공개 워크스페이스를 찾아보세요.'
+              ? '친구 목록에서 추가하거나, 공개 워크스페이스를 둘러보세요.'
               : '좌측 목록에서 친구 또는 기존 대화를 클릭하세요.'}
           </div>
+          {/* task-047 iter5 (O2): 명시 CTA 버튼 */}
+          {(friends?.items ?? []).length === 0 ? (
+            <div className="flex gap-[var(--s-2)]">
+              <Link
+                to="/friends"
+                data-testid="dm-empty-cta-friends"
+                className="qf-btn qf-btn--primary"
+              >
+                친구 추가
+              </Link>
+              <Link
+                to="/discover"
+                data-testid="dm-empty-cta-discover"
+                className="qf-btn qf-btn--ghost"
+              >
+                워크스페이스 찾기
+              </Link>
+            </div>
+          ) : null}
         </main>
       )}
       <ToastViewport />
