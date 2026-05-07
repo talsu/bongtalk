@@ -14,8 +14,9 @@ import { useNotifications } from '../../stores/notification-store';
 import { ReactionBar } from '../reactions/ReactionBar';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
-import { renderMessageContent } from './parseContent';
+import { renderMessageContent, extractMessageUrls } from './parseContent';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
+import { LinkPreview } from './LinkPreview';
 
 type Props = {
   msg: MessageDto;
@@ -248,6 +249,14 @@ export function MessageItem({
             <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
               {renderMessageContent(msg.content ?? '', customEmojis.byName)}
               {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
+              {/* task-045 iter6: link unfurl `.qf-embed` 카드. URL 1-3개 추출,
+                 lazy-fetch via /links/preview, 메타 도착 시에만 카드 표시. */}
+              {(() => {
+                const urls = extractMessageUrls(msg.content ?? '');
+                return urls.length > 0
+                  ? urls.map((u) => <LinkPreview key={`embed-${u}`} url={u} />)
+                  : null;
+              })()}
               {onToggleReaction ? (
                 <ReactionBar
                   reactions={msg.reactions ?? []}
