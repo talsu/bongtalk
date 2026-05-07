@@ -417,10 +417,29 @@ export class MessagesService {
         // same id twice if a user is named multiple times in one
         // message). Author is NEVER notified for self-mentions.
         const snippet = buildSnippet(args.content);
+        // task-045 iter6: mute dispatcher gate. 채널 muted user 는
+        // mention.received outbox 자체를 스킵 — emit 안 하면 fanout 비용
+        // 도 절약. mute 만료 OR 무기한 모두 처리. cleanup job 없음.
+        const candidateMentionUserIds = mentions.users.filter(
+          (uid) => uid && uid !== args.authorId,
+        );
+        const dedupedMentionUserIds = Array.from(new Set(candidateMentionUserIds));
+        const now = new Date();
+        const mutedRows =
+          dedupedMentionUserIds.length === 0
+            ? []
+            : await tx.userChannelMute.findMany({
+                where: {
+                  channelId: args.channelId,
+                  userId: { in: dedupedMentionUserIds },
+                  OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
+                },
+                select: { userId: true },
+              });
+        const mutedSet = new Set(mutedRows.map((m) => m.userId));
         const mentionedUserIds = new Set<string>();
-        for (const uid of mentions.users) {
-          if (!uid || uid === args.authorId) continue;
-          if (mentionedUserIds.has(uid)) continue;
+        for (const uid of dedupedMentionUserIds) {
+          if (mutedSet.has(uid)) continue;
           mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
