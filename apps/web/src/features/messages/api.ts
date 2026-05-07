@@ -2,7 +2,9 @@ import { apiRequest } from '../../lib/api';
 import type {
   ListMessagesQuery,
   ListMessagesResponse,
+  ListPinsResponse,
   MessageDto,
+  PinMessageResponse,
   SendMessageRequest,
   UpdateMessageRequest,
 } from '@qufox/shared-types';
@@ -70,6 +72,34 @@ export function deleteMessage(
   return apiRequest(`${basePath(wsId, channelId)}/${msgId}`, {
     method: 'DELETE',
   });
+}
+
+// task-045 iter1: 메시지 pin / unpin / list pinned. DM 채널에는
+// pinned messages 가 의미 없도록 BE 가 wsId 기반 routing 만 처리 —
+// FE 도 wsId=null 케이스에서는 호출 자체를 막아야 합니다 (호출 시
+// 404 반환). 호출자가 OWNER/ADMIN 권한 보유 여부도 책임집니다.
+export function pinMessage(
+  wsId: string,
+  channelId: string,
+  msgId: string,
+): Promise<PinMessageResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}/pin`, {
+    method: 'POST',
+  });
+}
+
+export function unpinMessage(
+  wsId: string,
+  channelId: string,
+  msgId: string,
+): Promise<{ id: string; pinnedAt: string | null; pinnedBy: string | null }> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}/pin`, {
+    method: 'DELETE',
+  });
+}
+
+export function listPins(wsId: string, channelId: string): Promise<ListPinsResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/pins`);
 }
 
 /**

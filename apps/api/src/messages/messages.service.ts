@@ -920,6 +920,14 @@ export class MessagesService {
     actorId: string;
   }): Promise<MessageRow> {
     return this.prisma.$transaction(async (tx) => {
+      // task-045 iter1 (H1 fix): advisory lock 으로 채널 단위 직렬화.
+      // 044 reviewer 발견 — count + update race window 로 두 admin 이
+      // 동시에 49→둘 다 49 셈 → cap+1 (51) 가능했음. xact_lock 은 tx
+      // commit/rollback 시 자동 해제, 별도 cleanup 불필요.
+      // hashtextextended 는 PostgreSQL 12+ 에서 bigint key 안전 생성.
+      // prefix `pin:` 으로 다른 advisory lock domain 과 충돌 회피.
+      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pin:${args.channelId}`}, 0))`;
+
       const target = (await tx.message.findFirst({
         where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
       })) as (MessageRow & { pinnedAt: Date | null }) | null;
@@ -930,8 +938,8 @@ export class MessagesService {
         // idempotent — 같은 row 그대로 반환, outbox 도 다시 emit 안 함.
         return target as MessageRow;
       }
-      // cap check: 이 채널의 핀 수가 cap 미만이어야 함. partial 인덱스
-      // (channelId, pinnedAt DESC WHERE pinnedAt IS NOT NULL) 사용.
+      // cap check: 이 채널의 핀 수가 cap 미만이어야 함. advisory lock 보유
+      // 상태에서 count + update 가 직렬화되어 race 가 닫힘.
       const pinned = await tx.message.count({
         where: { channelId: args.channelId, pinnedAt: { not: null }, deletedAt: null },
       });

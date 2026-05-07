@@ -404,6 +404,35 @@ export function installRealtimeDispatcher(
     },
   );
 
+  // task-045 iter1: pinned message toggle. payload 의 pinnedAt 가 null
+  // 이면 unpin, ISO string 이면 pin. 채널 룸 fanout 이라 받는 즉시
+  // 모든 시청자의 cache 행에 patch 적용. workspaceId 가 null 인 DM
+  // 채널은 BE 가 emit 자체를 안 하므로 이 핸들러로 흘러들어오지 않음.
+  on<{
+    channelId: string;
+    workspaceId: string | null;
+    messageId: string;
+    pinnedAt: string | null;
+    pinnedBy: string | null;
+  }>('message.pin.toggled', (env) => {
+    if (!env.channelId || !env.workspaceId || !env.messageId) return;
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) =>
+              m.id === env.messageId ? { ...m, pinnedAt: env.pinnedAt, pinnedBy: env.pinnedBy } : m,
+            ),
+          })),
+        };
+      },
+    );
+  });
+
   // ---------- Reactions (task-013-B) ----------
   // One server event per (message, user, emoji) action. The payload's
   // `count` is the authoritative server total for that emoji, so we
@@ -626,6 +655,7 @@ export const DISPATCHED_EVENTS = [
   'message.created',
   'message.updated',
   'message.deleted',
+  'message.pin.toggled',
   'channel.created',
   'channel.updated',
   'channel.deleted',
