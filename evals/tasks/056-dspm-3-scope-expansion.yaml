@@ -1,0 +1,63 @@
+id: 056-dspm-3-scope-expansion
+title: Discord / Slack Parity Mega-Loop DSPM-3 + Scope Expansion (PL Meta-Loop)
+goal: |
+  Task 045 (DSPM-2, score 86→95%) 종료 후 reviewer 발견 HIGH-1 SSRF-IPv6
+  + HIGH-2 GDM members endpoint + MED 6 carry-over 흡수 + 매트릭스 자체
+  를 8 dimension 확장하여 score 의 정체에서 깸. 확장 후 score 일시
+  하락 (95% → 85-88%) → iteration 2~N 으로 재 ≥ 90% AND HIGH 갭 = 0.
+  strict 3 종료 조건만 (또는 cap 10 / 2 iter convergence < 1%).
+
+dod:
+  - 'iteration 0 carry-over hot-fix commit 존재 (HIGH-1 SSRF + HIGH-2 GDM members + MED 6)'
+  - 'iteration 1 매트릭스 확장 audit 산출 (046-iteration-1-audit.md + score 재산정)'
+  - 'pnpm verify exits 0 (cumulative)'
+  - 'parity score (확장 매트릭스 기준) ≥ 90% AND HIGH 갭 = 0 (또는 cap 10 / convergence)'
+  - 'BLOCKER + HIGH 모두 fix-forward 또는 명시 이월 + reason'
+  - '회귀 spec: 각 fix 마다 1개 이상'
+  - 'DS 4파일 git diff 0 + md5 baseline (.task-040-ds-baseline.txt) 일치'
+  - 'Visual regression baseline 보존 또는 명시 갱신 (모바일 surface 8 추가 시 baseline 시드 commit 분리)'
+  - 'axe-core: critical=0, serious=0'
+  - 'iteration 별 deploy 성공 + readyz 200 + idle 30s (iter 1 audit-only 제외)'
+  - '3 artefacts: 046-*.md / 046-*.PR.md / 046-*.review.md'
+  - 'iteration 별 audit/plan log: docs/tasks/046-iteration-N-{audit,plan}.md'
+  - 'Reviewer subagent 종료 후 1회 스폰 + transcript token count'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl exitCode=0 + sha = main tip'
+  - 'GET https://qufox.com/api/readyz 200 + idle 30s'
+  - 'Pane 1 auto-forward iteration 별 (1줄) + 종료 시 통합 REPORT (iter 0/1 도 mini-progress)'
+  - 'Feature branch feat/task-046-dspm-3-scope-expansion retained'
+  - 'STRICT 종료: 명시 3 조건 외 사유로 일찍 종료 결정 시 사용자 질문 trigger'
+
+scoring:
+  iter0_carryover_landed: 0.10
+  iter1_matrix_expansion_audited: 0.10
+  verify_green: 0.10
+  parity_target_or_cap_or_convergence: 0.10
+  ssrf_ipv6_mapped_fixed: 0.06
+  gdm_members_endpoint_added: 0.06
+  med_carryover_swept: 0.04
+  mobile_visual_baseline_extended: 0.05
+  search_depth_landed: 0.04
+  notification_diversity_landed: 0.04
+  shortcut_cheatsheet_landed: 0.03
+  profile_extension_landed: 0.03
+  thread_follow_landed: 0.03
+  empty_state_consistent: 0.03
+  error_recovery_consistent: 0.03
+  regression_specs_per_fix: 0.04
+  ds_md5_baseline_match: 0.03
+  axe_critical_serious_zero: 0.03
+  reviewer_subagent_spawned: 0.03
+  iteration_deploys_succeeded: 0.03
+  pane1_auto_forward_fired: 0.03
+
+tags:
+  - parity
+  - discord
+  - slack
+  - chat
+  - dm
+  - mega-loop
+  - autonomous
+  - continuation
+  - task-045-followup
+  - matrix-expansion
