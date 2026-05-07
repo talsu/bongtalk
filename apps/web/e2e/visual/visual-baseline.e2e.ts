@@ -105,3 +105,58 @@ test.describe('task-045 visual baseline (mobile)', () => {
     });
   }
 });
+
+/**
+ * task-046 iter2: 모바일 surface 8 추가 — composer / DM thread /
+ * reaction picker / emoji picker / workspace switch / sidebar drawer /
+ * onboarding / pinned panel.
+ *
+ * 단일 mobile DS 페이지의 13 qf-m-screen 섹션 중에서 topbar title 기준
+ * 으로 8 surface 를 ordinal scope. 045 의 mobile-overview (4 frame
+ * 통합) 와 함께 9 개 모바일 baseline 운용 (확장 매트릭스 I1~I8 row 의
+ * visual regression coverage).
+ *
+ * **시드 전략**: 각 surface 가 viewport 안에 들어오도록 element 를
+ * `scrollIntoViewIfNeeded` → `.screenshot()` 으로 element 단위 capture.
+ * full-page screenshot 은 시드 제어가 어려워 element 스코프 사용.
+ *
+ * **threshold**: maxDiffPixelRatio 0.02 (2%).
+ *
+ * **갱신**: DS 의 qf-m-screen 순서 / topbar title 변경은 의도적 변경
+ * 으로 간주, `--update-snapshots` 명시 commit 필요.
+ */
+const MOBILE_SECTIONS_046: Array<{ name: string; nth: number; description: string }> = [
+  { name: 'discover', nth: 0, description: 'I1/I5 — discover/workspace switch (찾기)' },
+  { name: 'workspace-create', nth: 1, description: 'I7 — onboarding (새 워크스페이스)' },
+  { name: 'channel-composer', nth: 2, description: 'I1 — channel composer (#general)' },
+  { name: 'members', nth: 3, description: 'I6 — members drawer (멤버 · 42)' },
+  { name: 'thread', nth: 6, description: 'I2/I3/I4 — thread + reaction/emoji picker' },
+  { name: 'dm-list', nth: 7, description: 'I2 — DM list (메시지)' },
+  { name: 'dm-thread', nth: 8, description: 'I2 — DM thread (민서)' },
+  { name: 'pinned-panel', nth: 4, description: 'I8 — pinned panel (drawer overlay)' },
+];
+
+test.describe('task-046 mobile surface baseline (8 추가)', () => {
+  for (const surface of MOBILE_SECTIONS_046) {
+    test(`mobile · ${surface.name} (${surface.description})`, async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 700 });
+      await page.addInitScript(() => {
+        try {
+          localStorage.setItem('qf-ds-page', 'mobile');
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } catch {
+          /* no-op */
+        }
+      });
+      await page.goto('/design-system/index.html#mobile');
+      await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready);
+      await page.waitForTimeout(150);
+      const handle = page.locator('.qf-m-screen').nth(surface.nth);
+      await handle.scrollIntoViewIfNeeded();
+      await page.waitForTimeout(50);
+      await expect(handle).toHaveScreenshot(`mobile-046-${surface.name}.png`, {
+        maxDiffPixelRatio: THRESHOLD,
+      });
+    });
+  }
+});
