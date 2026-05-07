@@ -8,6 +8,12 @@ export const MessageMentionsSchema = z.object({
   users: z.array(z.string().uuid()),
   channels: z.array(z.string().uuid()),
   everyone: z.boolean(),
+  // task-047 iter0 (HIGH-046-B carry-over): `@here` 멘션 — 채널 멤버 중
+  // 현재 online 인 사람만. 046 iter8 에 extractor + gate 는 추가됐지만
+  // schema/event payload 미플러밍 → 047 에서 e2e 보강. default(false)
+  // 로 기존 row 의 forward-compat 보장 (DB JSONB 가 here 키 누락이어도
+  // 응답 schema 에서 false 채움).
+  here: z.boolean().default(false),
 });
 export type MessageMentions = z.infer<typeof MessageMentionsSchema>;
 

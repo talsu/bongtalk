@@ -21,4 +21,8 @@ export type MentionReceivedPayload = {
   snippet: string;
   createdAt: string;
   everyone: boolean;
+  // task-047 iter0 (HIGH-046-B carry-over): @here mention 도 dispatcher
+  // 측 분기 가능하도록 payload 에 포함. UI 가 @here 표시 / online-only
+  // filter 적용은 후속 dispatcher 통합 (047 follow-up 이거나 별도 task).
+  here: boolean;
 };

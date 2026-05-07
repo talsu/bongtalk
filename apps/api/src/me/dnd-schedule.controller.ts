@@ -31,10 +31,14 @@ export class DndScheduleController {
     @Body() body: { schedule?: unknown },
   ): Promise<{ schedule: DndSchedule | null }> {
     await this.rate.enforce([{ key: `me-dnd:u:${user.id}`, windowSec: 60, max: 30 }]);
+    // task-047 iter0 (MED-046-4): service.set 가 이제 DomainError 를 직접
+    // throw 하므로 그대로 전파. 비-DomainError 만 generic VALIDATION_FAILED 로
+    // wrap (e.g., 예상 못한 prisma 에러 등).
     try {
       const schedule = await this.svc.set(user.id, body?.schedule ?? null);
       return { schedule };
     } catch (e) {
+      if (e instanceof DomainError) throw e;
       const msg = e instanceof Error ? e.message : 'invalid schedule';
       throw new DomainError(ErrorCode.VALIDATION_FAILED, msg);
     }

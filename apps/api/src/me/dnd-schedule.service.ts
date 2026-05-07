@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.module';
+import { DomainError } from '../common/errors/domain-error';
+import { ErrorCode } from '../common/errors/error-code.enum';
 
 /**
  * task-046 iter4 (K1): Discord-parity weekly DnD schedule.
@@ -34,26 +36,34 @@ const MAX_ENTRIES_PER_USER = 14;
 export class DndScheduleService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * task-047 iter0 (MED-046-4): raw `Error` 대신 `DomainError(VALIDATION_FAILED)`
+   * 사용 — 도메인 에러 계층 + errorCode enum 컨벤션 (CLAUDE.md). 클라이언트가
+   * 구조화된 400 + errorCode 받을 수 있도록 함.
+   */
   static validate(raw: unknown): DndSchedule | null {
     if (raw === null || raw === undefined) return null;
     if (typeof raw !== 'object') {
-      throw new Error('schedule must be an object or null');
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'schedule must be an object or null');
     }
     const obj = raw as { days?: unknown };
     if (!Array.isArray(obj.days)) {
-      throw new Error('schedule.days must be an array');
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'schedule.days must be an array');
     }
     if (obj.days.length > MAX_ENTRIES_PER_USER) {
-      throw new Error(`too many entries (max ${MAX_ENTRIES_PER_USER})`);
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        `too many entries (max ${MAX_ENTRIES_PER_USER})`,
+      );
     }
     const validated: DndEntry[] = [];
     for (const e of obj.days) {
       if (typeof e !== 'object' || e === null) {
-        throw new Error('each entry must be an object');
+        throw new DomainError(ErrorCode.VALIDATION_FAILED, 'each entry must be an object');
       }
       const r = e as { day?: unknown; startMin?: unknown; endMin?: unknown };
       if (typeof r.day !== 'number' || r.day < 0 || r.day > 6 || !Number.isInteger(r.day)) {
-        throw new Error('entry.day must be 0..6');
+        throw new DomainError(ErrorCode.VALIDATION_FAILED, 'entry.day must be 0..6');
       }
       if (
         typeof r.startMin !== 'number' ||
@@ -61,7 +71,7 @@ export class DndScheduleService {
         r.startMin > 1439 ||
         !Number.isInteger(r.startMin)
       ) {
-        throw new Error('entry.startMin must be 0..1439');
+        throw new DomainError(ErrorCode.VALIDATION_FAILED, 'entry.startMin must be 0..1439');
       }
       if (
         typeof r.endMin !== 'number' ||
@@ -69,10 +79,13 @@ export class DndScheduleService {
         r.endMin > 1439 ||
         !Number.isInteger(r.endMin)
       ) {
-        throw new Error('entry.endMin must be 0..1439');
+        throw new DomainError(ErrorCode.VALIDATION_FAILED, 'entry.endMin must be 0..1439');
       }
       if (r.startMin === r.endMin) {
-        throw new Error('entry.startMin === endMin (zero-length window)');
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          'entry.startMin === endMin (zero-length window)',
+        );
       }
       validated.push({ day: r.day, startMin: r.startMin, endMin: r.endMin });
     }

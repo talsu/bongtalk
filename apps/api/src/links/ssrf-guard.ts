@@ -93,6 +93,11 @@ export function isPrivateIPv6(ip: string): boolean {
   const groups = expandIPv6(lower);
   if (groups === null) return true; // malformed → 보수적 차단
 
+  // task-047 iter0 (MED-046-1): expanded all-zero (`0:0:0:0:0:0:0:0`,
+  // `::` 의 expanded form) 도 차단. node:net.isIPv6 가 expanded form 도
+  // 통과시키므로 lower 비교 외에 group 단위 검사 필요.
+  if (groups.every((g) => g === 0)) return true;
+
   // IPv4-mapped (`::ffff:0:0/96`) → groups[0..4]=0, groups[5]=0xffff,
   // IPv4 = (groups[6]<<16)|groups[7]. groups[5]=0xffff regex anchor 의
   // 변종 (`0:0:0:0:0:ffff:1.2.3.4`, `0::ffff:1.2.3.4`) 도 cover.
@@ -154,10 +159,13 @@ export function isPrivateIPv6(ip: string): boolean {
     if (isPrivateIPv4(ipv4FromGroups(c1, c2))) return true;
   }
 
-  // 6to4 (`2002::/16`, RFC 3056) — groups[1,2]=embedded IPv4 (high/low 16-bit).
-  // 사설 IPv4 가 6to4 캡슐화로 internal 라우트 가능 → 차단.
+  // 6to4 (`2002::/16`, RFC 3056) — groups[1,2]=embedded IPv4.
+  // task-047 iter0 (MED-046-2): blanket block. RFC 3056 6to4 relay
+  // (192.88.99.1) 는 deprecated (RFC 7526), 그리고 많은 네트워크에서
+  // 내부 endpoint 로 전파되어 SSRF 위협. NAT64 well-known prefix 와
+  // 일관성 있게 prefix-match 만으로 차단.
   if (groups[0] === 0x2002) {
-    if (isPrivateIPv4(ipv4FromGroups(groups[1], groups[2]))) return true;
+    return true;
   }
 
   const firstByte = (groups[0] >> 8) & 0xff;
@@ -206,9 +214,14 @@ function expandIPv6(ip: string): number[] | null {
   if (headExp === null || tailExp === null) return null;
   const fillCount = 8 - headExp.length - tailExp.length;
   if (fillCount < 0) return null;
-  const groups = [...headExp, ...new Array(fillCount).fill('0'), ...tailExp].map((g) =>
-    parseInt(g, 16),
-  );
+  // task-047 iter0 (MED-046-5): hex-strict per group. parseInt('1xx', 16)
+  // 가 1 을 반환하는 식의 partial parse 를 차단. group 은 1~4 hex char
+  // (RFC 4291 §2.2). regex 통과 안 되면 보수적으로 null 반환 → 호출자
+  // 가 expandIPv6 → null → isPrivateIPv6 가 true 로 차단.
+  const HEX_GROUP_RE = /^[0-9a-f]{1,4}$/i;
+  const rawGroups = [...headExp, ...new Array(fillCount).fill('0'), ...tailExp];
+  if (rawGroups.some((g) => !HEX_GROUP_RE.test(g))) return null;
+  const groups = rawGroups.map((g) => parseInt(g, 16));
   if (groups.length !== 8 || groups.some((g) => Number.isNaN(g) || g < 0 || g > 0xffff)) {
     return null;
   }

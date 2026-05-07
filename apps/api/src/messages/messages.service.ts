@@ -123,11 +123,19 @@ export class MessagesService {
     attachments: AttachmentLite[] = [],
   ): MessageDto {
     const isDeleted = row.deletedAt !== null;
-    const mentions = (row.mentions ?? {
+    // task-047 iter0 (HIGH-046-B): here field default(false) 로 forward-compat.
+    const rawMentions = (row.mentions ?? {
       users: [],
       channels: [],
       everyone: false,
-    }) as MessageMentions;
+      here: false,
+    }) as MessageMentions & { here?: boolean };
+    const mentions: MessageMentions = {
+      users: rawMentions.users,
+      channels: rawMentions.channels,
+      everyone: rawMentions.everyone,
+      here: rawMentions.here ?? false,
+    };
     return {
       id: row.id,
       channelId: row.channelId,
@@ -453,6 +461,8 @@ export class MessagesService {
             snippet,
             createdAt: created.createdAt.toISOString(),
             everyone: mentions.everyone === true,
+            // task-047 iter0 (HIGH-046-B): @here e2e payload.
+            here: mentions.here === true,
           };
           await this.outbox.record(tx, {
             aggregateType: 'UserMention',
