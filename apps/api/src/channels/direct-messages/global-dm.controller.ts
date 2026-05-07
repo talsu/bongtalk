@@ -54,4 +54,27 @@ export class GlobalDmController {
     }
     return this.svc.createOrGetGlobal(user.id, otherUserId);
   }
+
+  /**
+   * task-045 iter5: 그룹 DM (3+) 생성 또는 같은 멤버 set 의 기존
+   * 채널 반환. 본인 제외 2-9 명 (총 3-10).
+   *
+   *   POST /me/dms/groups
+   *   Body: { memberIds: string[], workspaceId?: string | null }
+   *
+   * workspaceId omitted → global DM (모든 사용자가 같은 friend graph
+   * 위에 있다고 가정 — friend 관계 검증은 follow-up).
+   */
+  @Post('groups')
+  async createGroupDm(
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { memberIds?: string[]; workspaceId?: string | null },
+  ): Promise<{ channelId: string; created: boolean; memberIds: string[] }> {
+    const memberIds = Array.isArray(body?.memberIds) ? body!.memberIds : [];
+    const workspaceId =
+      typeof body?.workspaceId === 'string' && body.workspaceId.length > 0
+        ? body.workspaceId
+        : null;
+    return this.svc.createGroupDm({ workspaceId, meId: user.id, memberIds });
+  }
 }
