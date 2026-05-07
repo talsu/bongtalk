@@ -3,6 +3,8 @@ import type { ListMessagesResponse } from '@qufox/shared-types';
 import { addReaction, removeReaction } from './api';
 import { qk } from '../../lib/query-keys';
 import { upsertReactionBucket } from '../realtime/dispatcher';
+import { useNotifications } from '../../stores/notification-store';
+import { friendlyError } from '../../lib/error-messages';
 
 /**
  * Task-013-B: toggle reaction mutation with optimistic cache update.
@@ -53,8 +55,17 @@ export function useToggleReaction(wsId: string | null, channelId: string) {
       });
       return { prev };
     },
-    onError: (_err, _vars, ctx) => {
+    onError: (err, _vars, ctx) => {
       if (ctx?.prev) qc.setQueryData(key, ctx.prev);
+      // task-047 iter6 (P-individual): friendlyError → toast.
+      // Reaction 은 빠른 토글 — error 시 silent rollback 위에 toast 추가.
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '리액션 실패',
+        body: f.message,
+        ttlMs: 4000,
+      });
     },
   });
 }
