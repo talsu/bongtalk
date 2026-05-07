@@ -123,6 +123,14 @@ export function ThreadPanel({
 
         {replies.length > 0 ? (
           <div className="qf-thread-divider">{replies.length} replies</div>
+        ) : !history.isLoading ? (
+          // task-047 iter7 (O7): thread empty state — root 만 있고 답글 0
+          <div data-testid="thread-empty" className="qf-empty" style={{ padding: 'var(--s-3)' }}>
+            <div className="qf-empty__title">첫 답글을 시작해보세요</div>
+            <div className="qf-empty__body">
+              아래에서 답글을 작성하면 작성자와 후속 댓글 작성자에게 알림이 갑니다.
+            </div>
+          </div>
         ) : null}
 
         {replies.map((m, idx) => {

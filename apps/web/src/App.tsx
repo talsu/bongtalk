@@ -6,6 +6,8 @@ import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
 import { ConnectionBanner } from './features/connection/ConnectionBanner';
+// task-047 iter7 (P4): 글로벌 에러 boundary.
+import { ErrorBoundary } from './components/ErrorBoundary';
 
 // Shell and ancillary pages are code-split so the initial JS for a
 // logged-out visitor (login/signup/invite) stays small. See
@@ -247,43 +249,45 @@ export default function App(): JSX.Element {
           <BrowserRouter>
             <AuthProvider>
               <AppLayout>
-                <Suspense fallback={<LoadingFallback />}>
-                  <Routes>
-                    <Route path="/login" element={<LoginPage />} />
-                    <Route path="/signup" element={<SignupPage />} />
-                    <Route path="/invite/:code" element={<InviteAcceptPage />} />
-                    <Route path="/w/new" element={<CreateWorkspacePage />} />
-                    <Route
-                      path="/settings"
-                      element={<Navigate to="/settings/notifications" replace />}
-                    />
-                    <Route
-                      path="/settings/notifications"
-                      element={<ProtectedSettingsRoute page="notifications" />}
-                    />
-                    <Route path="/activity" element={<ProtectedActivityRoute />} />
-                    {/* task-047 iter4 (M3): profile page */}
-                    <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
-                    <Route path="/dm" element={<ProtectedDmShellRoute />} />
-                    <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
-                    <Route path="/discover" element={<ProtectedDiscoverRoute />} />
-                    <Route path="/friends" element={<ProtectedFriendsRoute />} />
-                    <Route path="/dms" element={<ProtectedDmListRoute />} />
-                    <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
-                    {/* Legacy workspace-scoped DM routes — fold into /dm so
+                <ErrorBoundary>
+                  <Suspense fallback={<LoadingFallback />}>
+                    <Routes>
+                      <Route path="/login" element={<LoginPage />} />
+                      <Route path="/signup" element={<SignupPage />} />
+                      <Route path="/invite/:code" element={<InviteAcceptPage />} />
+                      <Route path="/w/new" element={<CreateWorkspacePage />} />
+                      <Route
+                        path="/settings"
+                        element={<Navigate to="/settings/notifications" replace />}
+                      />
+                      <Route
+                        path="/settings/notifications"
+                        element={<ProtectedSettingsRoute page="notifications" />}
+                      />
+                      <Route path="/activity" element={<ProtectedActivityRoute />} />
+                      {/* task-047 iter4 (M3): profile page */}
+                      <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
+                      <Route path="/dm" element={<ProtectedDmShellRoute />} />
+                      <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
+                      <Route path="/discover" element={<ProtectedDiscoverRoute />} />
+                      <Route path="/friends" element={<ProtectedFriendsRoute />} />
+                      <Route path="/dms" element={<ProtectedDmListRoute />} />
+                      <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
+                      {/* Legacy workspace-scoped DM routes — fold into /dm so
                       bookmarks + existing deep-links keep working. */}
-                    <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
-                    <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
-                    <Route path="/" element={<ProtectedShellRoute />} />
-                    {/* Single splat route so React Router does NOT remount
+                      <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
+                      <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
+                      <Route path="/" element={<ProtectedShellRoute />} />
+                      {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the
                       path from useParams()['*']. Reviewer flagged the
                       earlier 3-route version as likely to remount. */}
-                    <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
-                    <Route path="*" element={<Navigate to="/" replace />} />
-                  </Routes>
-                </Suspense>
+                      <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
+                      <Route path="*" element={<Navigate to="/" replace />} />
+                    </Routes>
+                  </Suspense>
+                </ErrorBoundary>
               </AppLayout>
             </AuthProvider>
           </BrowserRouter>
