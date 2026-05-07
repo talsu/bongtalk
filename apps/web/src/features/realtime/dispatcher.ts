@@ -568,6 +568,18 @@ export function installRealtimeDispatcher(
     },
   );
 
+  // ---------- task-045 iter7: user profile (custom status) ----------
+  // 본인 또는 다른 사용자의 customStatus 변경 broadcast. dispatcher 는
+  // workspace 멤버 list react-query cache 의 user 객체에 customStatus 만
+  // 패치 — 큰 invalidate 보다 효율적. 멤버 list 가 없으면 무영향.
+  on<{ userId: string; customStatus: string | null }>('user.profile.updated', (env) => {
+    if (!env.userId) return;
+    // 모든 workspace members 캐시 키를 순회 — env 에 workspaceId 가 없어
+    // 사용자가 속한 모든 워크스페이스를 invalidate. 비용 작음 (members
+    // list 자체는 낮은 빈도 fetch).
+    qc.invalidateQueries({ queryKey: ['workspaces', 'members'] });
+  });
+
   // ---------- Mentions (task-011-B) ----------
   on<{
     id?: string;
@@ -656,6 +668,7 @@ export const DISPATCHED_EVENTS = [
   'message.updated',
   'message.deleted',
   'message.pin.toggled',
+  'user.profile.updated',
   'channel.created',
   'channel.updated',
   'channel.deleted',
