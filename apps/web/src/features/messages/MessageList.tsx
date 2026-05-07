@@ -290,9 +290,25 @@ export function MessageList({
           </div>
         ) : null}
         {messages.length === 0 ? (
-          <div className="qf-empty">
+          <div className="qf-empty" data-testid="channel-empty">
             <div className="qf-empty__title">채널이 한산하네요</div>
-            <div className="qf-empty__body">아래에서 첫 메시지를 보내 대화를 시작하세요.</div>
+            <div className="qf-empty__body">
+              아래에서 첫 메시지를 보내 대화를 시작하세요. <kbd className="qf-menu__kbd">Enter</kbd>{' '}
+              로 전송할 수 있습니다.
+            </div>
+            <button
+              type="button"
+              data-testid="channel-empty-cta"
+              className="qf-btn qf-btn--primary"
+              onClick={() => {
+                // task-047 iter5 (O1): CTA — composer 에 포커스. composer
+                // 가 channel 헤더 아래 mounted 라 composer-focus event 로
+                // dispatch (search 와 동일 패턴).
+                window.dispatchEvent(new CustomEvent('qufox.composer.focus'));
+              }}
+            >
+              첫 메시지 작성하기
+            </button>
           </div>
         ) : (
           <div
