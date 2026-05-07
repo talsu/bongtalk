@@ -3,6 +3,7 @@ import { MeMentionsController } from './me-mentions.controller';
 import { MeMentionsService } from './me-mentions.service';
 import { MeUnreadTotalsController } from './me-unread-totals.controller';
 import { MePresenceController } from './me-presence.controller';
+import { MeStatusController } from './me-status.controller';
 import { OnboardingController } from './onboarding.controller';
 import { MeActivityController } from './me-activity.controller';
 import { MeActivityService } from './me-activity.service';
@@ -16,6 +17,7 @@ import { AuthModule } from '../auth/auth.module';
     MeMentionsController,
     MeUnreadTotalsController,
     MePresenceController,
+    MeStatusController,
     OnboardingController,
     MeActivityController,
   ],

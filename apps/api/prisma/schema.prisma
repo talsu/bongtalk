@@ -112,6 +112,10 @@ model User {
   // Disturb until the user flips it back. Runtime presence state (in
   // Redis via PresenceService) still goes to `offline` on disconnect.
   presencePreference  PresencePreference @default(auto)
+  // task-045 iter4: Discord-parity custom status text. null = unset.
+  // 100 chars cap (Discord 의 128 보다 보수적). emoji prefix 는
+  // follow-up — 현재는 plain text 만.
+  customStatus        String?            @db.VarChar(100)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
