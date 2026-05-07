@@ -1,0 +1,67 @@
+id: 057-dspm-4-continuation
+title: Discord / Slack Parity Mega-Loop DSPM-4 Continuation (96-row baseline)
+goal: |
+  Task 046 (DSPM-3, 60→96 row 확장 후 79.95% / HIGH=0 reclass) 종료 후
+  reviewer 발견 HIGH-046-A (thread subscribe ACL bypass) + HIGH-046-B
+  (@here e2e payload) + MED 5 carry-over 흡수 + 96 row 매트릭스 위에서
+  미처리 절반 (J/K/L/M/N/O/P) 처리하여 score 79.95% → 90% 도달 + HIGH=0
+  진짜 fix (reclass 금지). strict 3 종료 조건만 (또는 cap 10 / 2 iter
+  convergence < 1%).
+
+dod:
+  - 'iteration 0 carry-over commit 존재 (HIGH-046-A real fix + HIGH-046-B real fix + MED 5)'
+  - '모바일 4 row production code scope 정리 (실제 ship 또는 분할 명세)'
+  - 'pnpm verify exits 0 (cumulative)'
+  - 'parity score (96 row 기준) ≥ 90% AND HIGH 갭 = 0 (real fix, reclass 금지) — 또는 cap 10 / convergence'
+  - 'BLOCKER + HIGH 모두 fix-forward 또는 명시 이월 + reason'
+  - '회귀 spec: 각 fix 마다 1개 이상'
+  - 'DS 4파일 git diff 0 + md5 baseline (.task-040-ds-baseline.txt) 일치'
+  - '매트릭스 row 추가 금지 (96 cap 유지) — 새 dim 은 048 영역'
+  - 'Visual regression baseline 보존 또는 명시 갱신 (M3 profile page 신규 surface 시)'
+  - 'axe-core: critical=0, serious=0'
+  - 'iteration 별 deploy 성공 + readyz 200 + idle 30s'
+  - '3 artefacts: 047-*.md / 047-*.PR.md / 047-*.review.md'
+  - 'iteration 별 audit/plan log: docs/tasks/047-iteration-N-{audit,plan}.md'
+  - 'Reviewer subagent 종료 후 1회 스폰 + transcript token count'
+  - '/volume2/dockers/qufox-deploy/.deploy/audit.jsonl exitCode=0 + sha = main tip'
+  - 'GET https://qufox.com/api/readyz 200 + idle 30s'
+  - 'Pane 1 auto-forward iteration 별 (1줄) + 종료 시 통합 REPORT'
+  - 'Feature branch feat/task-047-dspm-4-continuation retained'
+  - 'STRICT 종료: 명시 3 조건 외 사유로 일찍 종료 결정 시 사용자 질문 trigger'
+  - 'HIGH=0 closure 의 fix 증거 (commit hash + 회귀 spec 명시, reclass 금지)'
+
+scoring:
+  iter0_carryover_landed: 0.10
+  high_046_a_real_fix: 0.06
+  high_046_b_real_fix: 0.06
+  med_046_swept: 0.04
+  mobile_4_production_scoped: 0.03
+  verify_green: 0.10
+  parity_target_or_cap_or_convergence: 0.10
+  high_zero_real_fix_no_reclass: 0.08
+  search_dim_completed_J2_J4: 0.04
+  notification_dim_completed_K2_K3: 0.04
+  shortcut_learning_L2: 0.03
+  profile_page_M2_M3: 0.04
+  thread_auto_follow_N3: 0.03
+  empty_state_consistent_O: 0.04
+  error_recovery_individual_P: 0.04
+  regression_specs_per_fix: 0.04
+  ds_md5_baseline_match: 0.03
+  axe_critical_serious_zero: 0.03
+  reviewer_subagent_spawned: 0.03
+  iteration_deploys_succeeded: 0.02
+  pane1_auto_forward_fired: 0.02
+
+tags:
+  - parity
+  - discord
+  - slack
+  - chat
+  - dm
+  - mega-loop
+  - autonomous
+  - continuation
+  - task-046-followup
+  - 96-row-baseline
+  - real-fix-only

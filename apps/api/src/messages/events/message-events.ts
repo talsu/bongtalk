@@ -22,7 +22,8 @@ export type MessageCreatedPayload = {
     id: string;
     authorId: string;
     content: string;
-    mentions: { users: string[]; channels: string[]; everyone: boolean };
+    // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
+    mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     createdAt: string;
     // task-014-B: null for root, uuid for reply. Additive — existing
     // 005/011/013 dispatcher branches ignore unknown fields.
@@ -55,7 +56,8 @@ export type MessageUpdatedPayload = {
     id: string;
     authorId: string;
     content: string;
-    mentions: { users: string[]; channels: string[]; everyone: boolean };
+    // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
+    mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     editedAt: string;
   };
 };

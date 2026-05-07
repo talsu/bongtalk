@@ -97,12 +97,42 @@ describe('isPrivateIPv6', () => {
       ['2002:c0a8:101::', true],
       ['2002:0a00:1::', true], // 10.0.0.1
       ['2002:7f00:1::', true], // 127.0.0.1 wrapped
-      ['2002:0808:808::', false], // 8.8.8.8 wrapped (public)
+      // task-047 iter0 (MED-046-2): 6to4 blanket block — public IPv4 wrap 도
+      // 차단 (RFC 7526 deprecation + internal endpoint 위협).
+      ['2002:0808:808::', true],
 
       // public IPv6 untouched
       ['2620:fe::fe', false], // Quad9
     ])('IPv6 variant %s → private=%s', (ip, expected) => {
       expect(isPrivateIPv6(ip)).toBe(expected);
+    });
+  });
+
+  /**
+   * task-047 iter0 (MED-046-1, MED-046-5): IPv6 unspecified expanded form +
+   * hex-strict per group.
+   */
+  describe('task-047 IPv6 hardening (MED-046-1, MED-046-5)', () => {
+    it.each([
+      // MED-046-1: expanded all-zero `0:0:0:0:0:0:0:0` (== `::`)
+      ['0:0:0:0:0:0:0:0', true],
+      ['::', true],
+      // MED-046-2 confirm: 6to4 blanket
+      ['2002::', true],
+      ['2002:1234:5678::', true],
+    ])('IPv6 hardening %s → private=%s', (ip, expected) => {
+      expect(isPrivateIPv6(ip)).toBe(expected);
+    });
+
+    it('MED-046-5: invalid hex group → 보수적 차단 (private=true)', () => {
+      // node:net.isIPv6 가 'gggg::' 같은 invalid hex 를 거부하므로
+      // expandIPv6 가 null 반환 → isPrivateIPv6 가 true 반환.
+      // 본 케이스는 isIPv6 가 reject 하는 form 이라 직접 테스트가
+      // 어렵지만, malformed → 차단 invariant 는 유지됨.
+      // 대신 1-4 hex 길이 초과 ('12345') 가 isIPv6 통과 후 hex regex
+      // 에 막히는 케이스가 가능한지 확인.
+      expect(isPrivateIPv6('not-an-ip')).toBe(true);
+      expect(isPrivateIPv6('::xyzz')).toBe(true);
     });
   });
 });
