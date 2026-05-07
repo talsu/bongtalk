@@ -317,6 +317,25 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
   schedulePresenceBroadcastPublic(workspaceId: string): void {
     this.schedulePresenceBroadcast(workspaceId);
   }
+
+  /**
+   * task-045 iter7: 사용자 프로필 변경 broadcast (custom status 등).
+   * 사용자의 모든 워크스페이스 룸 + DM 피어 룸으로 emit. throttle 은
+   * follow-up — 빈도가 낮은 상태 변경이라 우선 raw emit.
+   */
+  broadcastUserProfileUpdate(args: {
+    userId: string;
+    workspaceIds: string[];
+    customStatus: string | null;
+  }): void {
+    const payload = {
+      userId: args.userId,
+      customStatus: args.customStatus,
+    };
+    for (const wsId of args.workspaceIds) {
+      this.server.to(rooms.workspace(wsId)).emit('user.profile.updated', payload);
+    }
+  }
 }
 
 function pickLastEventId(client: Socket): string | null {
