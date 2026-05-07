@@ -14,6 +14,7 @@ import { StatusBroadcastThrottler } from './status-broadcast-throttler';
 import { DndScheduleController } from './dnd-schedule.controller';
 import { DndScheduleService } from './dnd-schedule.service';
 import { NotificationOnboardingController } from './notification-onboarding.controller';
+import { MeProfileController } from './me-profile.controller';
 
 // task-045 iter7: MeStatusController 가 RealtimeGateway 를 inject 하므로
 // RealtimeModule 이 이미 imports 에 있어야 함 — 그대로 OK.
@@ -30,6 +31,7 @@ import { NotificationOnboardingController } from './notification-onboarding.cont
     MeActivityController,
     DndScheduleController,
     NotificationOnboardingController,
+    MeProfileController,
   ],
   providers: [MeMentionsService, MeActivityService, StatusBroadcastThrottler, DndScheduleService],
   exports: [MeMentionsService, MeActivityService, DndScheduleService],
