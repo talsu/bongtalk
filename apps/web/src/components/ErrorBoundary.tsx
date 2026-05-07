@@ -1,4 +1,4 @@
-import { Component, type ErrorInfo, type ReactNode } from 'react';
+import { Component, Fragment, type ErrorInfo, type ReactNode } from 'react';
 import { friendlyError, RECOVERY_LABEL } from '../lib/error-messages';
 
 /**
@@ -46,8 +46,10 @@ export class ErrorBoundary extends Component<Props, State> {
 
   render(): ReactNode {
     if (!this.state.error) {
-      // resetCount 가 key 로 작동해 reset 시 children re-mount
-      return <div key={this.state.resetCount}>{this.props.children}</div>;
+      // resetCount 가 key 로 작동해 reset 시 children re-mount.
+      // Fragment 사용 — wrapper div 가 부모(AppLayout flex column, height:100vh)
+      // 의 layout 흐름을 끊어 전체 화면이 아이콘 stack 높이로 줄어드는 회귀 발생.
+      return <Fragment key={this.state.resetCount}>{this.props.children}</Fragment>;
     }
     const f = friendlyError(this.state.error);
     const showRetry = f.recovery === 'retry' || f.recovery === 'refresh';
