@@ -299,6 +299,73 @@ export class DirectMessagesService {
     }));
   }
 
+  /**
+   * task-046 iter0 (HIGH-2 carry-over): GDM 멤버 list 조회.
+   *
+   * deep-link / refresh 로 sidebar list 를 거치지 않고 GDM 으로 진입한
+   * 클라이언트가 멤버 username/customStatus 를 표시할 수 있도록
+   * `GET /me/dms/groups/:gdmId/members` 가 호출하는 backend.
+   *
+   * **권한**: caller (meId) 가 같은 GDM 의 멤버 (USER override allowMask
+   * & READ > 0) 여야만 200. 다음은 모두 404 (member 가 아닌 채널의
+   * 존재 자체를 leak 하지 않음):
+   *  - 채널 부재 / soft-deleted
+   *  - 채널 type 이 DIRECT 가 아님
+   *  - channel.name 이 `gdm:` prefix 가 아님 (1:1 DM / 일반 채널)
+   *  - meId 가 멤버 아님 (override 없거나 allowMask & READ = 0)
+   */
+  async getGroupMembers(
+    meId: string,
+    gdmId: string,
+  ): Promise<
+    Array<{
+      userId: string;
+      username: string;
+      customStatus: string | null;
+    }>
+  > {
+    // 1) channel 존재 + type=DIRECT + gdm: prefix
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: gdmId, type: 'DIRECT', deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!channel || !channel.name?.startsWith('gdm:')) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
+    }
+    // 2) caller membership — USER override 의 allowMask & READ > 0
+    const myOverride = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        channelId: gdmId,
+        principalType: 'USER',
+        principalId: meId,
+      },
+      select: { allowMask: true },
+    });
+    if (!myOverride || (myOverride.allowMask & Permission.READ) === 0) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
+    }
+    // 3) 모든 USER override → User.username/customStatus join
+    const rows = await this.prisma.$queryRaw<
+      Array<{ userId: string; username: string; customStatus: string | null }>
+    >`
+      SELECT
+        ovr."principalId" AS "userId",
+        u.username        AS username,
+        u."customStatus"  AS "customStatus"
+        FROM "ChannelPermissionOverride" ovr
+        JOIN "User" u ON u.id = ovr."principalId"::uuid
+       WHERE ovr."channelId" = ${gdmId}::uuid
+         AND ovr."principalType" = 'USER'
+         AND (ovr."allowMask" & 1) > 0
+       ORDER BY u.username ASC
+    `;
+    return rows.map((r) => ({
+      userId: r.userId,
+      username: r.username,
+      customStatus: r.customStatus,
+    }));
+  }
+
   async list(workspaceId: string | null, meId: string, limit = 50): Promise<DmListItem[]> {
     const capped = Math.max(1, Math.min(100, limit));
     // task-033-B: when workspaceId is null (Global DM), list every

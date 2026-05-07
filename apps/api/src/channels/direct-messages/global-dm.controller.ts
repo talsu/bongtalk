@@ -103,4 +103,23 @@ export class GlobalDmController {
     const items = await this.svc.listGroups(null, user.id, limit || 50);
     return { items };
   }
+
+  /**
+   * task-046 iter0 (HIGH-2 carry-over): GDM 멤버 username/customStatus
+   * 조회. deep-link / refresh 시 sidebar list 미경유여도 헤더 표시 가능.
+   *
+   *   GET /me/dms/groups/:gdmId/members
+   *
+   * 호출자가 GDM 멤버일 때만 200. 그 외엔 404 (존재 leak 방지).
+   */
+  @Get('groups/:gdmId/members')
+  async getGroupMembers(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('gdmId', new ParseUUIDPipe()) gdmId: string,
+  ): Promise<{
+    items: Array<{ userId: string; username: string; customStatus: string | null }>;
+  }> {
+    const items = await this.svc.getGroupMembers(user.id, gdmId);
+    return { items };
+  }
 }
