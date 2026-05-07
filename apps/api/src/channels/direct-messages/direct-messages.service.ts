@@ -218,6 +218,87 @@ export class DirectMessagesService {
     }
   }
 
+  /**
+   * task-045 iter8: 사용자가 멤버인 group DM 목록 (3+ members).
+   * naming convention `gdm:` prefix 로 group 만 필터. 1:1 DM 은
+   * 기존 list() 가 처리.
+   *
+   * 정렬: 최근 메시지 desc, 메시지 없으면 channel.createdAt desc.
+   */
+  async listGroups(
+    workspaceId: string | null,
+    meId: string,
+    limit = 50,
+  ): Promise<
+    Array<{
+      channelId: string;
+      memberIds: string[];
+      lastMessageAt: string | null;
+      lastMessagePreview: string | null;
+      createdAt: string;
+    }>
+  > {
+    const capped = Math.max(1, Math.min(100, limit));
+    type Row = {
+      channelId: string;
+      memberIds: string[];
+      lastMessageAt: Date | null;
+      lastMessagePreview: string | null;
+      createdAt: Date;
+    };
+    const rows = await this.prisma.$queryRaw<Row[]>`
+      WITH my_groups AS (
+        SELECT c.id AS "channelId", c."createdAt"
+          FROM "Channel" c
+          JOIN "ChannelPermissionOverride" mine
+            ON mine."channelId" = c.id
+           AND mine."principalType" = 'USER'
+           AND mine."principalId" = ${meId}::text
+           AND (mine."allowMask" & 1) > 0
+         WHERE (${workspaceId}::uuid IS NULL OR c."workspaceId" = ${workspaceId}::uuid)
+           AND c.type = 'DIRECT'
+           AND c.name LIKE 'gdm:%'
+           AND c."deletedAt" IS NULL
+      ),
+      members AS (
+        SELECT mg."channelId",
+               ARRAY_AGG(peer."principalId" ORDER BY peer."principalId") AS "memberIds"
+          FROM my_groups mg
+          JOIN "ChannelPermissionOverride" peer
+            ON peer."channelId" = mg."channelId"
+           AND peer."principalType" = 'USER'
+         GROUP BY mg."channelId"
+      ),
+      last_msg AS (
+        SELECT DISTINCT ON (m."channelId")
+               m."channelId",
+               m."createdAt"           AS "lastMessageAt",
+               LEFT(m."contentPlain", 140) AS "lastMessagePreview"
+          FROM "Message" m
+          JOIN my_groups mg ON mg."channelId" = m."channelId"
+         WHERE m."deletedAt" IS NULL
+         ORDER BY m."channelId", m."createdAt" DESC
+      )
+      SELECT mg."channelId",
+             m."memberIds",
+             lm."lastMessageAt",
+             lm."lastMessagePreview",
+             mg."createdAt"
+        FROM my_groups mg
+        JOIN members m ON m."channelId" = mg."channelId"
+        LEFT JOIN last_msg lm ON lm."channelId" = mg."channelId"
+       ORDER BY COALESCE(lm."lastMessageAt", mg."createdAt") DESC
+       LIMIT ${capped}
+    `;
+    return rows.map((r) => ({
+      channelId: r.channelId,
+      memberIds: r.memberIds,
+      lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
+      lastMessagePreview: r.lastMessagePreview,
+      createdAt: r.createdAt.toISOString(),
+    }));
+  }
+
   async list(workspaceId: string | null, meId: string, limit = 50): Promise<DmListItem[]> {
     const capped = Math.max(1, Math.min(100, limit));
     // task-033-B: when workspaceId is null (Global DM), list every
@@ -245,6 +326,8 @@ export class DirectMessagesService {
          WHERE (${workspaceId}::uuid IS NULL OR c."workspaceId" = ${workspaceId}::uuid)
            AND c.type = 'DIRECT'
            AND c."deletedAt" IS NULL
+           -- task-045 iter8: 1:1 DM 만 — group DM (gdm: prefix) 은 별도 listGroups() 처리.
+           AND c.name NOT LIKE 'gdm:%'
       ),
       peers AS (
         SELECT md."channelId",
