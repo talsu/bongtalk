@@ -80,6 +80,25 @@ model UserNotificationPreference {
   @@index([userId, workspaceId])
 }
 
+// task-045 iter3: channel/DM mute. mute > event-type pref 우선.
+// mutedUntil null = indefinite mute. 미래 시각이면 그 시각까지.
+// 만료된 row 는 cleanup job 없이 query 시 (mutedUntil > now) 필터로 제외.
+// (userId, channelId) 가 unique — 한 채널은 1 행만.
+model UserChannelMute {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  channelId   String    @db.Uuid
+  mutedUntil  DateTime? @db.Timestamptz
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel     Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([channelId])
+}
+
 model User {
   id                  String             @id @db.Uuid
   email               String             @unique
@@ -106,6 +125,7 @@ model User {
   feedback        Feedback[]
   notificationPreferences UserNotificationPreference[]
   activityReadStates      UserActivityReadState[]
+  channelMutes            UserChannelMute[]
   friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
@@ -237,6 +257,7 @@ model Channel {
   messages    Message[]
   attachments Attachment[]
   overrides   ChannelPermissionOverride[]
+  mutes       UserChannelMute[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId, categoryId, position])

@@ -25,6 +25,7 @@ import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { LinksModule } from './links/links.module';
+import { MutesModule } from './notifications/mutes/mutes.module';
 
 @Module({
   imports: [
@@ -52,6 +53,7 @@ import { LinksModule } from './links/links.module';
     NotificationsModule,
     RealtimeModule,
     LinksModule,
+    MutesModule,
   ],
   controllers: [HealthController],
   providers: [OutboxHealthIndicator, { provide: APP_FILTER, useClass: DomainExceptionFilter }],
