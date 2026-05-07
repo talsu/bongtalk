@@ -36,6 +36,118 @@ export class DirectMessagesService {
     return `dm:${x}:${y}`;
   }
 
+  /**
+   * task-045 iter5: Group DM (3+) naming. 모든 멤버 (sender 포함)
+   * userId 를 정렬 후 join — 동일 멤버 set 은 동일 slug → idempotent
+   * createOrGet 보장. cap 10 명 ($10 × 36 = 360 chars + prefix → DB
+   * VARCHAR 텍스트 길이 충분).
+   */
+  private groupChannelName(memberIds: string[]): string {
+    return `gdm:${[...memberIds].sort().join(':')}`;
+  }
+
+  /**
+   * task-045 iter5: Group DM 생성 또는 기존 같은 멤버 set 채널 반환.
+   *
+   * 검증:
+   * - memberIds (sender 제외 다른 사용자) 2-9 명 (총 3-10)
+   * - 본인 (meId) 가 memberIds 에 들어있으면 거부 — 클라이언트 실수 방지
+   * - 모두 unique
+   * - workspaceId 가 주어지면 모든 멤버가 그 워크스페이스 멤버
+   *
+   * 결과: createOrGet 패턴. 같은 멤버 set 이 이미 존재하면 그 채널을
+   * 그대로 반환. permission override 는 1:1 DM 과 같은 USER ALLOW 마스크.
+   */
+  async createGroupDm(args: {
+    workspaceId: string | null;
+    meId: string;
+    memberIds: string[];
+  }): Promise<{ channelId: string; created: boolean; memberIds: string[] }> {
+    const { workspaceId, meId, memberIds } = args;
+    if (memberIds.length < 2) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'group DM requires at least 2 other members',
+      );
+    }
+    if (memberIds.length > 9) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'group DM cap exceeded (max 10 total)');
+    }
+    if (memberIds.some((id) => id === meId)) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'memberIds must not include yourself');
+    }
+    const uniqueIds = new Set(memberIds);
+    if (uniqueIds.size !== memberIds.length) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'memberIds must be unique');
+    }
+    const allMembers = [meId, ...memberIds];
+    if (workspaceId !== null) {
+      const wsMembers = await this.prisma.workspaceMember.findMany({
+        where: { workspaceId, userId: { in: allMembers } },
+        select: { userId: true },
+      });
+      const wsSet = new Set(wsMembers.map((m) => m.userId));
+      for (const id of allMembers) {
+        if (!wsSet.has(id)) {
+          throw new DomainError(
+            ErrorCode.WORKSPACE_NOT_MEMBER,
+            'all members must belong to the workspace',
+          );
+        }
+      }
+    }
+
+    const name = this.groupChannelName(allMembers);
+    const existing = await this.prisma.channel.findFirst({
+      where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) {
+      return { channelId: existing.id, created: false, memberIds: allMembers };
+    }
+
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const ch = await tx.channel.create({
+          data: {
+            workspaceId,
+            name,
+            type: 'DIRECT',
+            isPrivate: true,
+            topic: null,
+            position: 0,
+            categoryId: null,
+          },
+        });
+        for (const uid of allMembers) {
+          await tx.channelPermissionOverride.create({
+            data: {
+              channelId: ch.id,
+              principalType: 'USER',
+              principalId: uid,
+              allowMask: DM_ALLOW_MASK,
+              denyMask: 0,
+            },
+          });
+        }
+        return ch;
+      });
+      return { channelId: created.id, created: true, memberIds: allMembers };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'P2002') {
+        const winner = await this.prisma.channel.findFirst({
+          where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+          select: { id: true },
+        });
+        if (winner) {
+          return { channelId: winner.id, created: false, memberIds: allMembers };
+        }
+      }
+      throw err;
+    }
+  }
+
   async createOrGet(
     workspaceId: string,
     meId: string,
