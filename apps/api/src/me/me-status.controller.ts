@@ -4,6 +4,7 @@ import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { PrismaService } from '../prisma/prisma.module';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 
 /**
  * task-045 iter4: 자유 문자열 custom status text — Discord parity.
@@ -28,6 +29,7 @@ export class MeStatusController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rate: RateLimitService,
+    private readonly gateway: RealtimeGateway,
   ) {}
 
   @Get()
@@ -67,6 +69,19 @@ export class MeStatusController {
     await this.prisma.user.update({
       where: { id: user.id },
       data: { customStatus: next },
+    });
+    // task-045 iter7: WS broadcast — 사용자의 모든 워크스페이스 룸으로
+    // user.profile.updated emit. dispatcher 가 받아 user 행 cache 갱신.
+    // workspaceIds 는 본인이 멤버인 워크스페이스. throttle 은 follow-up
+    // (현재는 raw emit — PATCH 자체가 rate 60/min 으로 제한됨).
+    const memberships = await this.prisma.workspaceMember.findMany({
+      where: { userId: user.id, workspace: { deletedAt: null } },
+      select: { workspaceId: true },
+    });
+    this.gateway.broadcastUserProfileUpdate({
+      userId: user.id,
+      workspaceIds: memberships.map((m) => m.workspaceId),
+      customStatus: next,
     });
     return { customStatus: next };
   }
