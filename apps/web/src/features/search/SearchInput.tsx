@@ -4,7 +4,7 @@ import type { SearchResult } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { useChannelList } from '../channels/useChannels';
 import { useSearch, loadRecentSearches, pushRecentSearch } from './useSearch';
-import { markOnlyHtml } from './sanitize';
+import { searchSnippetHtml } from './sanitize';
 import { cn } from '../../lib/cn';
 
 /**
@@ -72,6 +72,17 @@ export function SearchInput({
   useEffect(() => {
     if (highlight >= results.length) setHighlight(0);
   }, [results.length, highlight]);
+
+  // task-047 iter1 (J2): highlighted result 가 viewport 안으로 scroll —
+  // 키보드 nav 시 dropdown 의 max-height (60vh) 초과 시 자동 따라감.
+  // ResultRefs 는 messageId 기준 ref map.
+  const resultRefs = useRef<Map<string, HTMLLIElement>>(new Map());
+  useEffect(() => {
+    const r = results[highlight];
+    if (!r) return;
+    const el = resultRefs.current.get(r.messageId);
+    if (el) el.scrollIntoView({ block: 'nearest' });
+  }, [highlight, results]);
 
   // Global Ctrl/Cmd + / focus handoff from the shortcut handler.
   useEffect(() => {
@@ -197,6 +208,10 @@ export function SearchInput({
               {results.map((r, i) => (
                 <li
                   key={r.messageId}
+                  ref={(el) => {
+                    if (el) resultRefs.current.set(r.messageId, el);
+                    else resultRefs.current.delete(r.messageId);
+                  }}
                   data-testid={`search-result-${r.messageId}`}
                   data-highlighted={i === highlight ? 'true' : 'false'}
                   className={cn(
@@ -214,8 +229,8 @@ export function SearchInput({
                     <time>{new Date(r.createdAt).toLocaleString()}</time>
                   </div>
                   <p
-                    className="mt-0.5 break-words text-[length:var(--fs-14)] text-text [&_mark]:rounded-[var(--r-xs)] [&_mark]:bg-mention [&_mark]:px-1 [&_mark]:text-text-strong"
-                    dangerouslySetInnerHTML={{ __html: markOnlyHtml(r.snippet) }}
+                    className="mt-0.5 break-words text-[length:var(--fs-14)] text-text [&_mark]:rounded-[var(--r-xs)] [&_mark]:bg-mention [&_mark]:px-1 [&_mark]:text-text-strong [&_.qf-mention]:text-mention-strong [&_.qf-channel-ref]:text-channel-ref [&_.qf-search-code]:rounded-[var(--r-xs)] [&_.qf-search-code]:bg-bg-panel [&_.qf-search-code]:px-1 [&_.qf-search-code]:font-mono"
+                    dangerouslySetInnerHTML={{ __html: searchSnippetHtml(r.snippet) }}
                   />
                 </li>
               ))}
