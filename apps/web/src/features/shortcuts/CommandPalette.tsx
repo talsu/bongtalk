@@ -29,6 +29,37 @@ export function CommandPalette(): JSX.Element | null {
 
   const actions = useMemo<Action[]>(() => {
     const list: Action[] = [];
+    // task-047 iter3 (L2): 단축키 학습 — palette 안에서 단축키 자체를
+    // entry 로 노출. 사용자가 채널/워크스페이스 검색 중 자연스럽게
+    // 발견 + 직접 실행 가능. hint 에 키 조합 표시.
+    list.push({
+      label: '단축키 도움말 열기',
+      hint: '?',
+      run: () => {
+        setOpenModal('shortcut-help');
+      },
+    });
+    list.push({
+      label: '메시지 검색 포커스',
+      hint: 'Ctrl+/',
+      run: () => {
+        setOpenModal(null);
+        window.dispatchEvent(new CustomEvent('qufox.search.focus'));
+      },
+    });
+    if (mine?.workspaces && mine.workspaces.length > 1) {
+      list.push({
+        label: '다음 워크스페이스로 이동',
+        hint: 'Ctrl+Shift+A',
+        run: () => {
+          const list = mine.workspaces;
+          const idx = list.findIndex((w) => w.slug === slug);
+          const next = list[(idx + 1) % list.length];
+          navigate(`/w/${next.slug}`);
+          setOpenModal(null);
+        },
+      });
+    }
     for (const ws of mine?.workspaces ?? []) {
       list.push({
         label: `워크스페이스 · ${ws.name}`,

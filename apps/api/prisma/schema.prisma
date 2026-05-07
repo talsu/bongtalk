@@ -126,6 +126,10 @@ model User {
   // 500 chars cap (app layer). links 는 markdown URL 로 표현 (별도
   // column 없음).
   bio                 String?
+  // task-047 iter3 (M2): Discord-parity profile 외부 링크.
+  // shape: Array<{ url: string, label?: string }>, cap 3 (app layer).
+  // null = no links.
+  links               Json?
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
