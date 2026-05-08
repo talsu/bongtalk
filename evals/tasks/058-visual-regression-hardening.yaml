@@ -1,0 +1,80 @@
+# task-048 (eval id 058) — visual regression layer hardening
+#
+# 048 의 process 결함 정밀 조사 + 검증 layer 보강이 mechanical 으로
+# 측정 가능한 artefact 를 모두 produce 했는지 채점합니다.
+
+id: 058
+task: 048
+goal: |
+  visual regression layer 의 process 결함 (baseline 시드 환경,
+  agent 호출 누락, dev↔prod 차이) 을 정밀 조사하고 검증 layer 를
+  보강합니다. real app routes 에 numeric layout assertion 을 추가해
+  ErrorBoundary 같은 wrapper `<div>` 회귀를 즉시 fail 시킵니다.
+
+dod:
+  - id: chunk-a-broken-baseline-doc
+    description: |
+      docs/visual-regression-broken-baselines.md 가 존재하고 prod
+      reseed diff 표 + broken surface list (mobile-046 8) + real app
+      coverage gap 분석 포함.
+    check: |
+      test -f docs/visual-regression-broken-baselines.md && \
+        grep -q 'mobile-046' docs/visual-regression-broken-baselines.md && \
+        grep -q 'real app' docs/visual-regression-broken-baselines.md
+  - id: chunk-a-baseline-snapshots-present
+    description: |
+      apps/web/e2e/visual/visual-baseline.e2e.ts-snapshots/ 에 8개
+      이상 PNG 가 git-tracked 되어 있어야 함 (기존 시드 보존).
+    check: |
+      [ "$(git ls-files apps/web/e2e/visual/visual-baseline.e2e.ts-snapshots/ | wc -l)" -ge 8 ]
+  - id: chunk-b-app-layout-height-e2e-exists
+    description: |
+      apps/web/e2e/layout/app-layout-height.e2e.ts 가 존재하고
+      7 surface 와 95% viewport height 검증 포함.
+    check: |
+      test -f apps/web/e2e/layout/app-layout-height.e2e.ts && \
+        grep -q 'shell-empty' apps/web/e2e/layout/app-layout-height.e2e.ts && \
+        grep -q '0.95' apps/web/e2e/layout/app-layout-height.e2e.ts
+  - id: chunk-c-agent-audit-doc
+    description: |
+      docs/audits/visual-regression-agent-audit.md 가 존재하고
+      044~047 호출 누락 표 포함.
+    check: |
+      test -f docs/audits/visual-regression-agent-audit.md && \
+        grep -q '044 iter' docs/audits/visual-regression-agent-audit.md && \
+        grep -q '047 iter 7' docs/audits/visual-regression-agent-audit.md
+  - id: chunk-c-vrs-agent-strengthened
+    description: |
+      .claude/agents/visual-regression-scanner.md 에 호출 의무 + prod
+      baseline 시드 강제 + DS-mockup-only 한계 명시.
+    check: |
+      grep -q '반드시 호출' .claude/agents/visual-regression-scanner.md && \
+        grep -q 'prod' .claude/agents/visual-regression-scanner.md && \
+        grep -q 'DS-mockup-only' .claude/agents/visual-regression-scanner.md
+  - id: chunk-d-playwright-config-projects
+    description: |
+      apps/web/playwright.config.ts 에 local-dev / local-dist / prod
+      3 project (또는 동등한 baseURL 분기) 명시.
+    check: |
+      grep -q "local-dist\|prod\|local-dev" apps/web/playwright.config.ts | head
+  - id: ds-files-untouched
+    description: |
+      DS 4파일 md5 가 .task-040-ds-baseline.txt 와 일치.
+    check: |
+      cd apps/web/public/design-system && \
+        md5sum components.css icons.css mobile.css tokens.css > /tmp/048-ds.md5 && \
+        diff <(awk '{print $1}' /tmp/048-ds.md5 | sort) \
+             <(awk '{print $2}' ../../../.task-040-ds-baseline.txt | grep -v '^$' | head -4 | sort)
+  - id: artefacts-trio
+    description: |
+      048-*.md (progress) + 048-*.PR.md + 048-*.review.md 3 artefacts.
+    check: |
+      ls docs/tasks/048-*.md | grep -E '^docs/tasks/048-.*\.md$' | wc -l | grep -q '^[3-9]'
+  - id: pnpm-verify-green
+    description: |
+      pnpm verify 가 통과 (lint + typecheck + unit + contract).
+    check: pnpm verify
+
+scoring:
+  pass_if_all_dod_green: true
+  turn_limit: 1
