@@ -53,14 +53,25 @@ const DESKTOP_SURFACES: Surface[] = [
   { name: 'channel-settings', page: 'app-channel-settings', description: '채널 settings 패널' },
 ];
 
-const MOBILE_SURFACES: Surface[] = [
-  // 모바일 페이지는 4 device frame 을 한 페이지에 보여줍니다.
-  // home / DM list / channel / settings 4 frame 모두 한 snapshot 에 포함.
-  {
-    name: 'mobile-overview',
-    page: 'mobile',
-    description: '모바일 4 frame (home/DM/channel/settings)',
-  },
+// task-049: 모바일 overview 4 frame.
+//
+// **부채**: 기존 045 `mobile-overview` 는 `data-page="mobile"` 페이지를
+// `fullPage: true` 로 캡처했는데, prod 진단 결과 **page scrollHeight 가
+// 5204px ↔ 5222px 로 18px 진동** (폰트/리플로우 타이밍) → toHaveScreenshot
+// 이 안정 dimension 을 못 얻어 "Timeout 5000ms exceeded" 로 항상 fail
+// (threshold 무관, stability 실패). desktop surface 는 page 높이가
+// 안정적이라 fullPage 로도 통과하지만 mobile 페이지만 진동.
+//
+// **정정**: mobile 페이지의 4 device frame (`.qf-m-screen`, 각 304×608
+// 고정 box) 을 **element screenshot** 으로 캡처. element box 는 고정
+// 높이라 page-height 진동의 영향을 받지 않아 결정적 (mobile-046 시드와
+// 동일 전략). 045 의 단일 `mobile-mobile-overview` fullPage baseline 은
+// 폐기하고 frame 별 4 baseline 으로 대체.
+const MOBILE_OVERVIEW_FRAMES: Array<{ name: string; nth: number; description: string }> = [
+  { name: 'dm', nth: 0, description: 'Direct messages' },
+  { name: 'general', nth: 1, description: '# general' },
+  { name: 'activity', nth: 2, description: 'Activity' },
+  { name: 'voice', nth: 3, description: '🔊 voice-lounge' },
 ];
 
 async function navigateAndCapture(
@@ -98,48 +109,9 @@ test.describe('task-045 visual baseline (desktop)', () => {
 });
 
 test.describe('task-045 visual baseline (mobile)', () => {
-  for (const surface of MOBILE_SURFACES) {
-    test(`mobile · ${surface.name} (${surface.description})`, async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 667 });
-      await navigateAndCapture(page, surface, `mobile-${surface.name}.png`);
-    });
-  }
-});
-
-/**
- * task-046 iter2: 모바일 surface 8 추가 — composer / DM thread /
- * reaction picker / emoji picker / workspace switch / sidebar drawer /
- * onboarding / pinned panel.
- *
- * 단일 mobile DS 페이지의 13 qf-m-screen 섹션 중에서 topbar title 기준
- * 으로 8 surface 를 ordinal scope. 045 의 mobile-overview (4 frame
- * 통합) 와 함께 9 개 모바일 baseline 운용 (확장 매트릭스 I1~I8 row 의
- * visual regression coverage).
- *
- * **시드 전략**: 각 surface 가 viewport 안에 들어오도록 element 를
- * `scrollIntoViewIfNeeded` → `.screenshot()` 으로 element 단위 capture.
- * full-page screenshot 은 시드 제어가 어려워 element 스코프 사용.
- *
- * **threshold**: maxDiffPixelRatio 0.02 (2%).
- *
- * **갱신**: DS 의 qf-m-screen 순서 / topbar title 변경은 의도적 변경
- * 으로 간주, `--update-snapshots` 명시 commit 필요.
- */
-const MOBILE_SECTIONS_046: Array<{ name: string; nth: number; description: string }> = [
-  { name: 'discover', nth: 0, description: 'I1/I5 — discover/workspace switch (찾기)' },
-  { name: 'workspace-create', nth: 1, description: 'I7 — onboarding (새 워크스페이스)' },
-  { name: 'channel-composer', nth: 2, description: 'I1 — channel composer (#general)' },
-  { name: 'members', nth: 3, description: 'I6 — members drawer (멤버 · 42)' },
-  { name: 'thread', nth: 6, description: 'I2/I3/I4 — thread + reaction/emoji picker' },
-  { name: 'dm-list', nth: 7, description: 'I2 — DM list (메시지)' },
-  { name: 'dm-thread', nth: 8, description: 'I2 — DM thread (민서)' },
-  { name: 'pinned-panel', nth: 4, description: 'I8 — pinned panel (drawer overlay)' },
-];
-
-test.describe('task-046 mobile surface baseline (8 추가)', () => {
-  for (const surface of MOBILE_SECTIONS_046) {
-    test(`mobile · ${surface.name} (${surface.description})`, async ({ page }) => {
-      await page.setViewportSize({ width: 375, height: 700 });
+  for (const frame of MOBILE_OVERVIEW_FRAMES) {
+    test(`mobile · overview-${frame.name} (${frame.description})`, async ({ page }) => {
+      await page.setViewportSize({ width: 375, height: 900 });
       await page.addInitScript(() => {
         try {
           localStorage.setItem('qf-ds-page', 'mobile');
@@ -151,8 +123,147 @@ test.describe('task-046 mobile surface baseline (8 추가)', () => {
       await page.goto('/design-system/index.html#mobile');
       await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready);
       await page.waitForTimeout(150);
-      const handle = page.locator('.qf-m-screen').nth(surface.nth);
+      const handle = page.locator('section[data-page="mobile"].active .qf-m-screen').nth(frame.nth);
       await handle.scrollIntoViewIfNeeded();
+      // 회귀 내성 (task-049 reviewer #2): DS 페이지에 .qf-m-screen 이
+      // 추가/재정렬되면 positional nth 가 조용히 밀려 픽셀 diff 를 *내용*
+      // 회귀로 오인하게 된다. capture 전에 frame 의 topbar title 을
+      // anchor 검증해 nth 이탈을 명확한 title mismatch 로 실패시킨다.
+      await expect(handle.locator('.qf-m-topbar__title')).toContainText(frame.description);
+      await page.waitForTimeout(50);
+      await expect(handle).toHaveScreenshot(`mobile-overview-${frame.name}.png`, {
+        maxDiffPixelRatio: THRESHOLD,
+      });
+    });
+  }
+});
+
+/**
+ * task-046 iter2 모바일 surface 8 추가 — **task-049 chunk B 에서 시드
+ * 전략 정정**.
+ *
+ * **부채 (task-048 `docs/visual-regression-broken-baselines.md` B 항)**:
+ * 046 iter 2 는 8 surface 를 `#mobile` 페이지에서 `.qf-m-screen .nth(0..8)`
+ * 로 시드하려 했으나 모두 `element is not visible` 로 104회 retry 후
+ * timeout → baseline 디스크 commit 누락 → 매트릭스 broken.
+ *
+ * **근본 원인 (task-049 UNDERSTAND, prod 진단으로 확정)**: 이 8 surface
+ * 의 `.phone` 프레임은 `data-page="mobile"` 페이지가 아니라
+ * `app-workspace` / `app-channel-settings` / `app-modals` / `app-threads`
+ * / `app-dms` **각 페이지**에 흩어져 있다 (`#mobile` 페이지엔 Direct
+ * messages / Activity / voice 4 frame 만 존재). `#mobile` 활성화 시 다른
+ * 페이지 섹션은 `display:none` → 그 안의 `.qf-m-screen` 은 0×0 →
+ * actionability "not visible" 실패. 즉 broken 의 정체는 **global `.nth()`
+ * 인덱싱이 숨겨진(비활성) 페이지의 요소를 가리킨 것**.
+ *
+ * **정정**: 각 surface 를 **자신의 DS 페이지로 navigate** 후, 활성 섹션
+ * 내부의 `.qf-m-screen` 을 within-page nth 로 잡는다. 활성 페이지에서는
+ * 358×718 로 정상 렌더되어 element screenshot 이 동작 (prod 진단 확인).
+ *
+ * **시드 환경**: prod (`--project=prod`) 또는 dist preview. DS 4파일
+ * (`public/design-system/*`) 은 unchanged — test-side 만으로 정정.
+ *
+ * **threshold**: maxDiffPixelRatio 0.02 (2%).
+ *
+ * **갱신**: DS 의 page 별 `.qf-m-screen` 순서 변경은 의도적 변경으로
+ * 간주, `--update-snapshots` 명시 commit 필요.
+ */
+const MOBILE_SURFACES_046: Array<{
+  name: string;
+  dsPage: string;
+  nth: number;
+  description: string;
+  // 회귀 내성 (task-049 reviewer #2): capture 전 anchor 검증할 topbar
+  // title. nth 가 DS 삽입으로 밀리면 title mismatch 로 명확히 실패한다.
+  // overlay 등 topbar title 이 없는 frame 은 null.
+  title: string | null;
+}> = [
+  {
+    name: 'discover',
+    dsPage: 'app-workspace',
+    nth: 0,
+    description: 'I1/I5 — 찾기 (discover)',
+    title: '찾기',
+  },
+  {
+    name: 'workspace-create',
+    dsPage: 'app-workspace',
+    nth: 1,
+    description: 'I7 — 새 워크스페이스 (onboarding)',
+    title: '새 워크스페이스',
+  },
+  {
+    name: 'channel-composer',
+    dsPage: 'app-channel-settings',
+    nth: 0,
+    description: 'I1 — #general composer',
+    title: '#general',
+  },
+  {
+    name: 'members',
+    dsPage: 'app-channel-settings',
+    nth: 1,
+    description: 'I6 — 멤버 · 42 drawer',
+    title: '멤버',
+  },
+  {
+    name: 'pinned-panel',
+    dsPage: 'app-modals',
+    nth: 0,
+    description: 'I8 — pinned panel (drawer overlay)',
+    title: null,
+  },
+  {
+    name: 'thread',
+    dsPage: 'app-threads',
+    nth: 0,
+    description: 'I2/I3/I4 — 스레드 + picker',
+    title: '스레드',
+  },
+  {
+    name: 'dm-list',
+    dsPage: 'app-dms',
+    nth: 0,
+    description: 'I2 — DM list (메시지)',
+    title: '메시지',
+  },
+  {
+    name: 'dm-thread',
+    dsPage: 'app-dms',
+    nth: 1,
+    description: 'I2 — DM thread (민서)',
+    title: '민서',
+  },
+];
+
+test.describe('task-046 mobile surface baseline (8 추가)', () => {
+  for (const surface of MOBILE_SURFACES_046) {
+    test(`mobile · ${surface.name} (${surface.description})`, async ({ page }) => {
+      // 데스크톱 viewport — phone 프레임 (360×720) 이 해당 app-* 페이지
+      // 에서 온전히 렌더되도록. element screenshot 은 viewport 보다 큰
+      // 요소도 자체 compositing 으로 전체 캡처.
+      await page.setViewportSize({ width: 1280, height: 900 });
+      await page.addInitScript((p: string) => {
+        try {
+          localStorage.setItem('qf-ds-page', p);
+          document.documentElement.setAttribute('data-theme', 'dark');
+        } catch {
+          /* no-op */
+        }
+      }, surface.dsPage);
+      await page.goto(`/design-system/index.html#${surface.dsPage}`);
+      await page.evaluate(() => (document as Document & { fonts?: FontFaceSet }).fonts?.ready);
+      await page.waitForTimeout(150);
+      const handle = page
+        .locator(`section[data-page="${surface.dsPage}"].active .qf-m-screen`)
+        .nth(surface.nth);
+      await handle.scrollIntoViewIfNeeded();
+      // 회귀 내성 (task-049 reviewer #2): topbar title 이 있는 frame 은
+      // capture 전 anchor 검증 → DS 삽입/재정렬로 nth 가 밀리면 픽셀 diff
+      // 가 아니라 명확한 title mismatch 로 실패. overlay (title null) 는 skip.
+      if (surface.title) {
+        await expect(handle.locator('.qf-m-topbar__title')).toContainText(surface.title);
+      }
       await page.waitForTimeout(50);
       await expect(handle).toHaveScreenshot(`mobile-046-${surface.name}.png`, {
         maxDiffPixelRatio: THRESHOLD,
