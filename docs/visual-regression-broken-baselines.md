@@ -102,3 +102,54 @@ threshold 무관하게 강함.
 - `TODO(task-048-follow-vrs-call-rule)`: visual-regression-scanner
   agent 호출 의무를 task contract 의 **명시 step 으로 강제** (메모리에
   명시 step 으로 박힘 — agent description 만으로는 약함)
+
+## E. task-049 resolution (부채 청산)
+
+task-049 (Verification & Stability Debt Cleanup) 에서 B / C 항 + D 권고의
+real-app baseline 을 청산:
+
+- **B 항 (mobile-046 8 surface) — RESOLVED**: 근본 원인은 DS visibility
+  한계가 아니라 **global `.nth()` 인덱싱이 비활성(`display:none`) 페이지의
+  `.phone` 요소를 가리킨 것**. prod 진단으로, 8 surface 의 `.phone`
+  프레임은 `data-page="mobile"` 가 아니라 `app-workspace` /
+  `app-channel-settings` / `app-modals` / `app-threads` / `app-dms` 각
+  페이지에 흩어져 있고 (`#mobile` 페이지엔 4 frame 만 존재), `#mobile`
+  활성화 시 나머지는 0×0 → not visible. 정정: 각 surface 를 자기 DS
+  페이지로 navigate 후 활성 섹션 내부 within-page nth 로 캡처 →
+  358×718 정상 렌더. `mobile-046-*.png` × 8 디스크 commit 완료.
+  DS 4파일 unchanged (test-side only).
+- **D `TODO(task-048-follow-real-app-baseline)` — PARTIAL (익명 표면) →
+  RESOLVED-anon**: `apps/web/e2e/visual/real-app-baseline.e2e.ts` 가 실제
+  렌더된 앱 route (`/login`, `/signup`, `/invite/__nonexistent__`) 의
+  픽셀 baseline 을 잡는다. AppLayout / ErrorBoundary 트리가 visual
+  baseline 의 검증 대상이 됨 → 047 iter 7 류 회귀의 픽셀 검출 가능.
+  인증 필요 surface (authenticated shell / channel / dm) 는 fixture
+  workspace 시드 필요 → `TODO(task-049-follow-auth-baseline)` 로 분리.
+- **D `TODO(task-048-follow-vrs-call-rule)` — RESOLVED**:
+  `docs/audits/visual-regression-agent-audit.md` 의 task-049 갱신 참조.
+- **신규 발견 (CI 회귀) — RESOLVED**: 048 chunk D 가 baseURL 분기용
+  local-dev / local-dist / prod 3 project 를 추가했는데 `e2e.yml` /
+  `run-e2e.sh` 가 project filter 없이 `playwright test` 를 돌려 **모든
+  테스트가 4× 실행**, visual snapshot 은 `-chromium-linux` 한 벌만
+  존재하므로 나머지 3 project 에서 전부 fail (prod 실측: `desktop · shell`
+  1 passed / 3 failed). → CI / run-e2e 를 `--project=chromium` 단일
+  스코핑, reseed 도 `--project=chromium` + prod baseURL 로 접미사 통일
+  (task-049 chunk D).
+- **신규 발견 (un-baselined screenshot specs, reviewer #1) — PARTIAL**:
+  `ds-mockup-parity.e2e.ts` (mockup-dark/light) 와 `vr-parity.e2e.ts`
+  (mobile-shell-iphone-se/14) 도 baseline 이 한 번도 commit 된 적 없어
+  `--project=chromium` CI 에서 상시 fail (049 와 무관한 선행 부채).
+  - `mockup-dark/light`: 정적 DS 페이지 → prod 시드 완료 (결정성 2회 확인).
+  - `vr-parity`: 인증된 live mobile shell 캡처라 fixture signup +
+    테스트 스택 필요. live prod NAS 는 host port 5432/6379 를 prod
+    postgres/redis 가 점유 중이라 테스트 스택을 안전 기동 불가 →
+    `test.fixme` 로 명시 skip + `TODO(task-049-follow-vr-parity-baseline)`
+    (CI/테스트 스택 환경에서 시드).
+- **신규 발견 (mobile-overview flake) — RESOLVED**: 045 의
+  `mobile-overview` 는 `data-page="mobile"` 페이지를 `fullPage` 캡처했는데
+  prod 진단 결과 **page scrollHeight 가 5204↔5222px (18px) 진동** →
+  toHaveScreenshot 이 안정 dimension 을 못 얻어 "Timeout 5000ms exceeded"
+  로 항상 fail (threshold 무관). → 4 device frame 을 element screenshot
+  (각 304×608 고정 box) 으로 분리 캡처 (`mobile-overview-{dm,general,
+activity,voice}.png`), 단일 fullPage baseline 폐기. 결정성 2회 연속
+  확인.

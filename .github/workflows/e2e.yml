@@ -62,12 +62,20 @@ jobs:
       - name: Install Playwright browsers
         run: pnpm --filter @qufox/web exec playwright install --with-deps chromium
 
+      # task-049 chunk D: `--project=chromium` 명시. 048 chunk D 가
+      # baseURL 분기용으로 local-dev / local-dist / prod 3 project 를
+      # 추가했는데, project filter 없이 `playwright test` 를 돌리면 모든
+      # 테스트가 4 project 로 4× 실행되고, visual snapshot 은 `-chromium-
+      # linux` baseline 만 존재하므로 나머지 3 project 에서 "snapshot
+      # doesn't exist" 로 전부 fail (task-049 UNDERSTAND 진단으로 확정).
+      # CI 는 단일 chromium project 로만 검증하고, prod / local-dist 는
+      # baseline reseed 전용 (명시적 `--project=prod` 등) 으로 사용한다.
       - name: Run Playwright
         working-directory: apps/web
         env:
           PLAYWRIGHT_BASE_URL: http://localhost:45173
           VITE_API_URL: http://localhost:43001
-        run: pnpm exec playwright test
+        run: pnpm exec playwright test --project=chromium
 
       - name: Stack logs on failure
         if: failure()
