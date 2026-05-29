@@ -108,3 +108,16 @@ description 을 다음과 같이 강화:
   "visual-regression-scanner 호출 N 회 (≥1)" mechanical check 추가
 - `TODO(task-048-follow-vrs-baseline-policy)`: baseline 시드 environment
   를 PR.md 의 표준 첫 row 로 두는 PR template 수정
+
+## task-049 resolution
+
+- **`TODO(task-048-follow-vrs-call-rule)` — RESOLVED**: task-049 AC 에
+  "visual-regression-scanner 호출 ≥ 1회" 를 mechanical check (verifiable
+  artefact = PR.md 의 VRS spawn 요약) 로 명시. 049 가 본문에서 실제로
+  visual-regression-scanner subagent 를 spawn 하여 048 audit 가 지적한
+  "Agent tool 미노출" 이 현 세션에서 해소됐음을 실증 (transcript 요약은
+  049 PR.md 기록). 향후 task contract 의 표준 step 으로 채택.
+- 근본 원인 재확인: 044~047 의 0/15 는 **실행 환경의 Agent tool 미노출**
+  이 1차 원인, baseline 의 DS-mockup-only 한정이 2차 원인. task-049 가
+  후자를 `real-app-baseline.e2e.ts` 로, mobile-046 broken 을
+  page-scoped 시드로 청산.

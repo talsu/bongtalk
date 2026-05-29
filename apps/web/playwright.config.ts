@@ -26,6 +26,19 @@ import { defineConfig, devices } from '@playwright/test';
  * `PLAYWRIGHT_BASE_URL` env 가 명시되면 그게 우선 — CI matrix 에서
  * 환경 별 baseURL 을 한 줄로 override.
  *
+ * **task-049 chunk D — project filter 필수**: project filter 없이
+ * `playwright test` 를 돌리면 아래 4 project (local-dev / local-dist /
+ * prod / chromium) 가 **모든 테스트를 4× 실행**한다. visual snapshot 의
+ * baseline 은 `-chromium-linux` 한 벌만 존재하므로 나머지 3 project 에선
+ * "snapshot doesn't exist" 로 전부 fail 한다 (048 chunk D 가 project 를
+ * 늘리며 생긴 latent 회귀, 049 에서 확정·수정). 따라서:
+ *   - CI / `scripts/run-e2e.sh` 는 항상 `--project=chromium` 로 단일 실행.
+ *   - prod / local-dist 는 baseline **reseed 전용** — 명시적
+ *     `--project=prod ... --update-snapshots` 로만 호출.
+ *   - reseed 시에도 baseline 접미사는 `-chromium-linux` 로 통일하기 위해
+ *     `--project=chromium` + `PLAYWRIGHT_BASE_URL=https://qufox.com` 조합을
+ *     쓴다 (project 이름이 곧 snapshot 접미사이므로).
+ *
  * **dev↔prod 환경 차이 grep 결과** (task-048 chunk D 의 environment
  * audit):
  *

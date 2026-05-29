@@ -1,0 +1,79 @@
+# task-049 (eval id 059) — verification & stability debt cleanup
+#
+# 048 이 deferred 한 검증/안정성 부채 3건 (real-app baseline / mobile-046
+# broken baseline / VRS 호출 rule) + UNDERSTAND 에서 발견한 CI project
+# 스코핑 회귀를 mechanical 으로 청산했는지 채점한다.
+
+id: 059
+task: 049
+goal: |
+  visual regression 검증 layer 의 실제 부채를 청산한다. real app routes
+  의 픽셀 baseline 을 도입하고, mobile-046 8 broken baseline 을 page-scoped
+  시드로 정정하고, VRS 호출을 contract step 으로 승격하고, 048 이 만든 CI
+  4-project 회귀 (visual snapshot 3/4 project fail) 를 단일 chromium
+  project 스코핑으로 수정한다.
+
+dod:
+  - id: chunk-a-real-app-spec-exists
+    description: |
+      apps/web/e2e/visual/real-app-baseline.e2e.ts 가 존재하고 익명
+      real app surface (login / signup / invite) 를 캡처.
+    check: |
+      test -f apps/web/e2e/visual/real-app-baseline.e2e.ts && \
+        grep -q "'/login'" apps/web/e2e/visual/real-app-baseline.e2e.ts && \
+        grep -q 'real-' apps/web/e2e/visual/real-app-baseline.e2e.ts
+  - id: chunk-a-real-app-baselines-present
+    description: |
+      real-login / real-signup / real-invite-invalid baseline PNG 가
+      git-tracked.
+    check: |
+      [ "$(git ls-files 'apps/web/e2e/visual/real-app-baseline.e2e.ts-snapshots/real-*.png' | wc -l)" -ge 3 ]
+  - id: chunk-b-mobile-046-baselines-present
+    description: |
+      mobile-046-*.png 8개가 git-tracked (broken baseline 정정 완료).
+    check: |
+      [ "$(git ls-files 'apps/web/e2e/visual/visual-baseline.e2e.ts-snapshots/mobile-046-*.png' | wc -l)" -ge 8 ]
+  - id: chunk-b-page-scoped-seed
+    description: |
+      visual-baseline.e2e.ts 의 046 블록이 page-scoped 시드 (data-page
+      active 섹션 내부 nth) 로 재설계됨.
+    check: |
+      grep -q 'section\[data-page=' apps/web/e2e/visual/visual-baseline.e2e.ts && \
+        grep -q 'dsPage' apps/web/e2e/visual/visual-baseline.e2e.ts
+  - id: chunk-c-audit-resolution
+    description: |
+      agent-audit + broken-baselines 문서에 task-049 resolution 기록.
+    check: |
+      grep -q 'task-049 resolution' docs/audits/visual-regression-agent-audit.md && \
+        grep -q 'task-049 resolution' docs/visual-regression-broken-baselines.md
+  - id: chunk-d-ci-project-scoping
+    description: |
+      e2e.yml + run-e2e.sh 가 --project=chromium 로 스코핑.
+    check: |
+      grep -q -- '--project=chromium' .github/workflows/e2e.yml && \
+        grep -q 'PLAYWRIGHT_PROJECT' scripts/run-e2e.sh
+  - id: ds-files-untouched
+    description: |
+      DS 4파일 md5 가 .task-040-ds-baseline.txt 와 일치 (unchanged).
+      (reviewer #4: 위치 기반 head -4 대신 32-hex 해시만 grep 해 baseline
+      파일 헤더/prose 변경에 견고.)
+    check: |
+      cd apps/web/public/design-system && \
+        diff <(md5sum components.css icons.css mobile.css tokens.css | grep -oE '^[a-f0-9]{32}' | sort) \
+             <(grep -oE '[a-f0-9]{32}' ../../../../.task-040-ds-baseline.txt | sort)
+  - id: artefacts-trio
+    description: |
+      049-*.md (task) + 049-*.PR.md + 049-*.review.md 3 artefacts 모두 존재.
+      (reviewer #3: glob count 대신 3 파일 각각 test -f.)
+    check: |
+      test -f docs/tasks/049-verification-stability-debt-cleanup.md && \
+        test -f docs/tasks/049-verification-stability-debt-cleanup.PR.md && \
+        test -f docs/tasks/049-verification-stability-debt-cleanup.review.md
+  - id: pnpm-verify-green
+    description: |
+      pnpm verify 가 통과 (lint + typecheck + unit + contract).
+    check: pnpm verify
+
+scoring:
+  pass_if_all_dod_green: true
+  turn_limit: 1
