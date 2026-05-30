@@ -7,9 +7,9 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="tokens.css?v=6">
-<link rel="stylesheet" href="components.css?v=6">
-<link rel="stylesheet" href="mobile.css?v=6">
+<link rel="stylesheet" href="tokens.css?v=7">
+<link rel="stylesheet" href="components.css?v=7">
+<link rel="stylesheet" href="mobile.css?v=7">
 <link rel="stylesheet" href="icons.css?v=1">
 <style>
   body { min-height: 100vh; }
@@ -226,6 +226,14 @@
       <a class="sidebar__link" data-page="app-friends" onclick="nav('app-friends')">Friends</a>
     </div>
     <div class="sidebar__group">
+      <div class="sidebar__group-title">v4 · Slack/Discord (050)</div>
+      <a class="sidebar__link" data-page="v4-composer" onclick="nav('v4-composer')">Composer · Autocomplete</a>
+      <a class="sidebar__link" data-page="v4-palette" onclick="nav('v4-palette')">Command Palette · Emoji</a>
+      <a class="sidebar__link" data-page="v4-overlays" onclick="nav('v4-overlays')">Overlays · Banners</a>
+      <a class="sidebar__link" data-page="v4-actions" onclick="nav('v4-actions')">Message actions · Density</a>
+      <a class="sidebar__link" data-page="v4-mobile" onclick="nav('v4-mobile')">Mobile nav · IA</a>
+    </div>
+    <div class="sidebar__group">
       <div class="sidebar__group-title">Assets</div>
       <a class="sidebar__link" data-page="icons" onclick="nav('icons')">Icons · 100+ pack</a>
     </div>
@@ -412,7 +420,7 @@
   <section class="page" data-page="overlay">
     <div class="qf-eyebrow">Components</div>
     <h1 class="page-title">Modal · Menu · Toast · Tabs · Tooltip</h1>
-    <p class="page-lede">플로팅 UI. z-index 레이어는 tooltip(60) &gt; toast(50) &gt; modal(41) &gt; dropdown(20).</p>
+    <p class="page-lede">플로팅 UI. z-index 레이어는 tooltip(80) &gt; toast(70) &gt; modal(61) &gt; settings(51) &gt; tabbar(40) &gt; sticky(30) &gt; dropdown(20) &gt; drawer(15) &gt; header(10).</p>
 
     <h2>Modal</h2>
     <div class="mockup" style="max-width:520px;">
@@ -2284,6 +2292,851 @@
     &lt;button className="qf-m-composer__send"&gt;➤&lt;/button&gt;
   &lt;/footer&gt;
 &lt;/div&gt;</pre>
+  </section>
+
+  <!-- ─── v4 COMPOSER ─── -->
+  <section class="page" data-page="v4-composer">
+    <div class="qf-eyebrow">v4 · Task 050</div>
+    <h1 class="page-title">Composer · Autocomplete</h1>
+    <p class="page-lede">Slack 수준의 rich 컴포저와 드롭업 자동완성이에요. 포맷바는 <code class="qf-code-inline">qf-composer--rich</code> 또는 focus-within 시 펼쳐지고, @멘션·#채널·:이모지·슬래시 커맨드가 한 골격을 공유합니다.</p>
+
+    <h2>Composer</h2>
+    <div class="subtle">포맷바를 강제로 펼친 rich 상태와, 비어 있는 기본 상태(전송 비활성).</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; padding:var(--s-7);">
+        <div class="qf-composer qf-composer--rich" style="margin:0;">
+          <div class="qf-composer__formatbar">
+            <button class="qf-composer__format-btn" aria-pressed="true" title="굵게"><svg class="qf-icon"><use href="#qf-i-bold"/></svg></button>
+            <button class="qf-composer__format-btn" title="기울임"><svg class="qf-icon"><use href="#qf-i-italic"/></svg></button>
+            <button class="qf-composer__format-btn" title="취소선"><svg class="qf-icon"><use href="#qf-i-strike"/></svg></button>
+            <span class="qf-composer__format-sep"></span>
+            <button class="qf-composer__format-btn" title="코드"><svg class="qf-icon"><use href="#qf-i-code"/></svg></button>
+            <button class="qf-composer__format-btn" title="링크"><svg class="qf-icon"><use href="#qf-i-link"/></svg></button>
+            <span class="qf-composer__format-sep"></span>
+            <button class="qf-composer__format-btn" title="인용"><svg class="qf-icon"><use href="#qf-i-quote"/></svg></button>
+          </div>
+          <div class="qf-composer__row">
+            <button class="qf-composer__attach" title="첨부"><svg class="qf-icon"><use href="#qf-i-plus"/></svg></button>
+            <textarea class="qf-composer__input" rows="1" placeholder="# 디자인 시스템에 메시지 보내기">컴포저 블록 배포할게요, 포맷바까지 깔끔하게 붙었어요</textarea>
+            <div class="qf-composer__actions">
+              <button class="qf-composer__action" title="이모지"><svg class="qf-icon"><use href="#qf-i-emoji"/></svg></button>
+              <button class="qf-composer__action" title="GIF"><svg class="qf-icon"><use href="#qf-i-gif"/></svg></button>
+              <button class="qf-composer__action" title="멘션"><svg class="qf-icon"><use href="#qf-i-mention"/></svg></button>
+              <button class="qf-composer__send" title="전송"><svg class="qf-icon"><use href="#qf-i-send"/></svg></button>
+            </div>
+          </div>
+          <div class="qf-composer__hint">
+            <kbd>Enter</kbd> 전송 · <kbd>Shift</kbd>+<kbd>Enter</kbd> 줄바꿈
+            <span class="qf-composer__hint-count">42 / 2000</span>
+          </div>
+        </div>
+        <div class="qf-composer" style="margin:var(--s-6) 0 0;">
+          <div class="qf-composer__formatbar">
+            <button class="qf-composer__format-btn" title="굵게"><svg class="qf-icon"><use href="#qf-i-bold"/></svg></button>
+            <button class="qf-composer__format-btn" title="기울임"><svg class="qf-icon"><use href="#qf-i-italic"/></svg></button>
+            <button class="qf-composer__format-btn" title="코드"><svg class="qf-icon"><use href="#qf-i-code"/></svg></button>
+          </div>
+          <div class="qf-composer__row">
+            <button class="qf-composer__attach" title="첨부"><svg class="qf-icon"><use href="#qf-i-plus"/></svg></button>
+            <textarea class="qf-composer__input" rows="1" placeholder="# 일반에 메시지 보내기"></textarea>
+            <div class="qf-composer__actions">
+              <button class="qf-composer__action" title="이모지"><svg class="qf-icon"><use href="#qf-i-emoji"/></svg></button>
+              <button class="qf-composer__send" title="전송" disabled><svg class="qf-icon"><use href="#qf-i-send"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-composer · .qf-composer--rich</div>
+    </div>
+
+    <h2>Autocomplete</h2>
+    <div class="subtle">컴포저 위로 뜨는 드롭업. 데모는 backdrop 없이 inner 카드만 인라인 배치(<code class="qf-code-inline">position:static</code>).</div>
+    <div class="grid grid--3">
+      <div class="card">
+        <div class="card__preview" style="display:block; padding:var(--s-5);">
+          <div class="qf-autocomplete" style="position:static; box-shadow:none;">
+            <div class="qf-autocomplete__header">Members</div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--mention" aria-selected="true">
+              <span class="qf-autocomplete__avatar"><div class="qf-avatar qf-avatar--sm" style="background:var(--a-500)"></div></span>
+              <div class="qf-autocomplete__text qf-autocomplete__text--inline">
+                <span class="qf-autocomplete__label">디자인_김</span>
+                <span class="qf-autocomplete__sub">@designer_kim</span>
+              </div>
+              <span class="qf-autocomplete__meta"><span class="qf-autocomplete__meta-dot qf-autocomplete__meta-dot--online"></span></span>
+            </div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--mention">
+              <span class="qf-autocomplete__avatar"><div class="qf-avatar qf-avatar--sm" style="background:var(--a-700)"></div></span>
+              <div class="qf-autocomplete__text qf-autocomplete__text--inline">
+                <span class="qf-autocomplete__label">개발_이</span>
+                <span class="qf-autocomplete__sub">@dev_lee</span>
+              </div>
+              <span class="qf-autocomplete__meta"><span class="qf-autocomplete__meta-dot qf-autocomplete__meta-dot--idle"></span></span>
+            </div>
+          </div>
+        </div>
+        <div class="card__label">@멘션 · --mention</div>
+      </div>
+      <div class="card">
+        <div class="card__preview" style="display:block; padding:var(--s-5);">
+          <div class="qf-autocomplete" style="position:static; box-shadow:none;">
+            <div class="qf-autocomplete__header">Channels</div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--channel" aria-selected="true">
+              <span class="qf-autocomplete__avatar">#</span>
+              <div class="qf-autocomplete__text">
+                <span class="qf-autocomplete__label">일반</span>
+                <span class="qf-autocomplete__sub">멤버 120명</span>
+              </div>
+            </div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--channel">
+              <span class="qf-autocomplete__avatar">#</span>
+              <div class="qf-autocomplete__text">
+                <span class="qf-autocomplete__label">디자인-시스템</span>
+                <span class="qf-autocomplete__sub">멤버 24명</span>
+              </div>
+            </div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--channel">
+              <span class="qf-autocomplete__avatar">#</span>
+              <div class="qf-autocomplete__text">
+                <span class="qf-autocomplete__label">배포-알림</span>
+                <span class="qf-autocomplete__sub">멤버 8명</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="card__label">#채널 · --channel</div>
+      </div>
+      <div class="card">
+        <div class="card__preview" style="display:block; padding:var(--s-5);">
+          <div class="qf-autocomplete" style="position:static; box-shadow:none;">
+            <div class="qf-autocomplete__header">Emoji</div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--emoji" aria-selected="true">
+              <span class="qf-autocomplete__avatar">🎉</span>
+              <span class="qf-autocomplete__shortcode">:tada:</span>
+            </div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--emoji">
+              <span class="qf-autocomplete__avatar">🚀</span>
+              <span class="qf-autocomplete__shortcode">:rocket:</span>
+            </div>
+            <div class="qf-autocomplete__item qf-autocomplete__item--emoji">
+              <span class="qf-autocomplete__avatar">🦊</span>
+              <span class="qf-autocomplete__shortcode">:fox:</span>
+            </div>
+          </div>
+        </div>
+        <div class="card__label">:이모지 · --emoji</div>
+      </div>
+    </div>
+
+    <h2>Slash menu</h2>
+    <div class="subtle">슬래시 커맨드 전용 변형 — 좌측 슬래시 아이콘 + monospace 커맨드명 + 설명 위계.</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; padding:var(--s-5);">
+        <div class="qf-autocomplete qf-slash-menu" style="position:static; box-shadow:none; max-width:440px;">
+          <div class="qf-autocomplete__header">Commands</div>
+          <div class="qf-slash-menu__item" aria-selected="true">
+            <span class="qf-slash-menu__icon">/</span>
+            <div class="qf-slash-menu__text">
+              <div><span class="qf-slash-menu__cmd">/giphy</span><span class="qf-slash-menu__arg">[검색어]</span></div>
+              <div class="qf-slash-menu__desc">검색한 GIF를 채널에 보냅니다</div>
+            </div>
+            <span class="qf-slash-menu__kbd">↵</span>
+          </div>
+          <div class="qf-slash-menu__item">
+            <span class="qf-slash-menu__icon">/</span>
+            <div class="qf-slash-menu__text">
+              <div><span class="qf-slash-menu__cmd">/remind</span><span class="qf-slash-menu__arg">[누가] [무엇] [언제]</span></div>
+              <div class="qf-slash-menu__desc">지정한 시각에 리마인더를 보냅니다</div>
+            </div>
+          </div>
+          <div class="qf-slash-menu__item">
+            <span class="qf-slash-menu__icon">/</span>
+            <div class="qf-slash-menu__text">
+              <div><span class="qf-slash-menu__cmd">/shrug</span></div>
+              <div class="qf-slash-menu__desc">¯\_(ツ)_/¯ 를 메시지 끝에 덧붙입니다</div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-slash-menu</div>
+    </div>
+  </section>
+
+  <!-- ─── v4 PALETTE ─── -->
+  <section class="page" data-page="v4-palette">
+    <div class="qf-eyebrow">v4 · Task 050</div>
+    <h1 class="page-title">Command Palette · Emoji</h1>
+    <p class="page-lede">⌘K 빠른 전환기와 이모지 피커예요. 데모에서는 fixed backdrop 없이 inner 카드만 인라인으로 보여줍니다 — 실제 앱에서는 <code class="qf-code-inline">.qf-cmd-palette-backdrop</code> 위에 떠 있어요.</p>
+
+    <h2>Command palette</h2>
+    <div class="subtle">상단 큰 검색 입력 + 섹션 헤더 + 결과 row(아이콘 · 라벨 · 경로/kbd). 선택 행은 좌측 accent bar로 강조.</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; padding:var(--s-7);">
+        <div class="qf-cmd-palette" style="position:static; max-height:none; margin:0 auto;">
+          <div class="qf-cmd-palette__search">
+            <span class="qf-cmd-palette__search-icon"><svg class="qf-icon"><use href="#qf-i-search"/></svg></span>
+            <input class="qf-cmd-palette__input" type="text" placeholder="채널 · DM · 커맨드로 이동…" value="일반">
+          </div>
+          <div class="qf-cmd-palette__list">
+            <div class="qf-cmd-palette__section">채널</div>
+            <div class="qf-cmd-palette__row" aria-selected="true">
+              <span class="qf-cmd-palette__row-icon"><svg class="qf-icon"><use href="#qf-i-hash"/></svg></span>
+              <span class="qf-cmd-palette__label">일반</span>
+              <span class="qf-cmd-palette__path">qufox HQ</span>
+            </div>
+            <div class="qf-cmd-palette__row">
+              <span class="qf-cmd-palette__row-icon"><svg class="qf-icon"><use href="#qf-i-hash"/></svg></span>
+              <span class="qf-cmd-palette__label">일반-디자인</span>
+              <span class="qf-cmd-palette__path">qufox HQ</span>
+            </div>
+            <div class="qf-cmd-palette__section">다이렉트 메시지</div>
+            <div class="qf-cmd-palette__row">
+              <span class="qf-cmd-palette__row-icon"><svg class="qf-icon"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-cmd-palette__label">designer_kim</span>
+              <span class="qf-cmd-palette__path">온라인</span>
+            </div>
+            <div class="qf-cmd-palette__section">커맨드</div>
+            <div class="qf-cmd-palette__row">
+              <span class="qf-cmd-palette__row-icon"><svg class="qf-icon"><use href="#qf-i-sun"/></svg></span>
+              <span class="qf-cmd-palette__label">테마 전환</span>
+              <span class="qf-cmd-palette__kbd">⌘⇧T</span>
+            </div>
+            <div class="qf-cmd-palette__row">
+              <span class="qf-cmd-palette__row-icon"><svg class="qf-icon"><use href="#qf-i-settings"/></svg></span>
+              <span class="qf-cmd-palette__label">환경설정 열기</span>
+              <span class="qf-cmd-palette__kbd">⌘,</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-cmd-palette · section / row / kbd</div>
+    </div>
+
+    <h2>Emoji picker</h2>
+    <div class="subtle">검색 + 카테고리 탭 + 9열 그리드 + 하단 preview. 350×420 고정 카드.</div>
+    <div class="card">
+      <div class="card__preview" style="padding:var(--s-7);">
+        <div class="qf-emoji-picker">
+          <div class="qf-emoji-picker__search">
+            <div class="qf-emoji-picker__search-field">
+              <span class="qf-emoji-picker__search-icon"><svg class="qf-icon"><use href="#qf-i-search"/></svg></span>
+              <input class="qf-emoji-picker__search-input" type="text" placeholder="이모지 검색">
+            </div>
+          </div>
+          <div class="qf-emoji-picker__tabs" role="tablist">
+            <button class="qf-emoji-picker__tab" aria-selected="true" role="tab">😀</button>
+            <button class="qf-emoji-picker__tab" role="tab">🐻</button>
+            <button class="qf-emoji-picker__tab" role="tab">🍔</button>
+            <button class="qf-emoji-picker__tab" role="tab">⚽</button>
+            <button class="qf-emoji-picker__tab" role="tab">💡</button>
+            <button class="qf-emoji-picker__tab" role="tab">🚀</button>
+          </div>
+          <div class="qf-emoji-picker__grid">
+            <div class="qf-emoji-picker__category-label">스마일 · 사람</div>
+            <div class="qf-emoji-picker__row">
+              <button class="qf-emoji-picker__cell" aria-selected="true">😀</button>
+              <button class="qf-emoji-picker__cell">😃</button>
+              <button class="qf-emoji-picker__cell">😄</button>
+              <button class="qf-emoji-picker__cell">😁</button>
+              <button class="qf-emoji-picker__cell">😆</button>
+              <button class="qf-emoji-picker__cell">😅</button>
+              <button class="qf-emoji-picker__cell">😂</button>
+              <button class="qf-emoji-picker__cell">🙂</button>
+              <button class="qf-emoji-picker__cell">🙃</button>
+            </div>
+            <div class="qf-emoji-picker__row">
+              <button class="qf-emoji-picker__cell">😉</button>
+              <button class="qf-emoji-picker__cell">😊</button>
+              <button class="qf-emoji-picker__cell">😇</button>
+              <button class="qf-emoji-picker__cell">🥰</button>
+              <button class="qf-emoji-picker__cell">😍</button>
+              <button class="qf-emoji-picker__cell">🤩</button>
+              <button class="qf-emoji-picker__cell">😘</button>
+              <button class="qf-emoji-picker__cell">😗</button>
+              <button class="qf-emoji-picker__cell">🦊</button>
+            </div>
+          </div>
+          <div class="qf-emoji-picker__preview">
+            <span class="qf-emoji-picker__preview-emoji">😀</span>
+            <span class="qf-emoji-picker__preview-shortcode">:grinning:</span>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-emoji-picker · tabs / grid / preview</div>
+    </div>
+  </section>
+
+  <!-- ─── v4 OVERLAYS ─── -->
+  <section class="page" data-page="v4-overlays">
+    <div class="qf-eyebrow">v4 · Task 050</div>
+    <h1 class="page-title">Overlays · Banners</h1>
+    <p class="page-lede">상태 피커 · hovercard · 배너 4종 · 단축키 시트 · 역할 칩 · 검색/업로드 오버레이 · 임베드 변형이에요. 플로팅 면은 backdrop 없이 카드만 인라인으로 렌더했습니다.</p>
+
+    <h2>Status picker · Hovercard</h2>
+    <div class="subtle">상태 선택 팝오버와 유저 프로필 hovercard.</div>
+    <div class="card">
+      <div class="card__preview" style="gap:var(--s-8); align-items:flex-start; padding:var(--s-7);">
+        <div class="qf-status-picker">
+          <div class="qf-status-picker__item" aria-selected="true">
+            <span class="qf-status-picker__dot qf-status-picker__dot--online"></span>
+            <span class="qf-status-picker__text"><span class="qf-status-picker__label">온라인</span></span>
+          </div>
+          <div class="qf-status-picker__item">
+            <span class="qf-status-picker__dot qf-status-picker__dot--idle"></span>
+            <span class="qf-status-picker__text"><span class="qf-status-picker__label">자리 비움</span></span>
+          </div>
+          <div class="qf-status-picker__item">
+            <span class="qf-status-picker__dot qf-status-picker__dot--dnd"></span>
+            <span class="qf-status-picker__text"><span class="qf-status-picker__label">방해 금지</span><span class="qf-status-picker__desc">알림을 받지 않습니다</span></span>
+          </div>
+          <div class="qf-status-picker__item">
+            <span class="qf-status-picker__dot qf-status-picker__dot--offline"></span>
+            <span class="qf-status-picker__text"><span class="qf-status-picker__label">오프라인</span></span>
+          </div>
+          <div class="qf-status-picker__sep"></div>
+          <div class="qf-status-picker__custom">
+            <button class="qf-status-picker__emoji" aria-label="이모지">☕</button>
+            <input class="qf-status-picker__custom-input" placeholder="커스텀 상태 입력…">
+          </div>
+        </div>
+        <div class="qf-hovercard">
+          <div class="qf-hovercard__banner"></div>
+          <div class="qf-hovercard__body">
+            <div class="qf-avatar qf-avatar--xl qf-hovercard__avatar" style="background:var(--a-500)"></div>
+            <div class="qf-hovercard__name">박유나</div>
+            <div class="qf-hovercard__handle">@yuna</div>
+            <div class="qf-hovercard__status"><span class="qf-hovercard__status-dot"></span>온라인 · 디자인 중</div>
+            <div class="qf-hovercard__roles">
+              <span class="qf-role-chip qf-role-chip--admin"><span class="qf-role-chip__dot"></span>Admin</span>
+              <span class="qf-role-chip qf-role-chip--mod"><span class="qf-role-chip__dot"></span>Design</span>
+            </div>
+            <div class="qf-hovercard__about">qufox 디자인 시스템을 만드는 사람. 보라색을 좋아합니다.</div>
+            <div class="qf-hovercard__actions"><button class="qf-btn qf-btn--primary">메시지 보내기</button></div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-status-picker · .qf-hovercard</div>
+    </div>
+
+    <h2>Banner</h2>
+    <div class="subtle">info · warn · danger · accent 4변형. 좌측 4px 상태색 바 + 틴트.</div>
+    <div class="vstack" style="gap:var(--s-3);">
+      <div class="qf-banner qf-banner--info">
+        <span class="qf-banner__icon"><svg class="qf-icon"><use href="#qf-i-info"/></svg></span>
+        <span class="qf-banner__msg"><strong>새 버전</strong>이 배포되었습니다. 새로고침하면 적용됩니다.</span>
+        <span class="qf-banner__actions"><button class="qf-btn qf-btn--ghost qf-btn--sm">새로고침</button></span>
+        <button class="qf-banner__close" aria-label="닫기"><svg class="qf-icon"><use href="#qf-i-x"/></svg></button>
+      </div>
+      <div class="qf-banner qf-banner--warn">
+        <span class="qf-banner__icon"><svg class="qf-icon"><use href="#qf-i-alert"/></svg></span>
+        <span class="qf-banner__msg">연결이 불안정합니다. 메시지 전송이 지연될 수 있습니다.</span>
+        <button class="qf-banner__close" aria-label="닫기"><svg class="qf-icon"><use href="#qf-i-x"/></svg></button>
+      </div>
+      <div class="qf-banner qf-banner--danger">
+        <span class="qf-banner__icon"><svg class="qf-icon"><use href="#qf-i-alert"/></svg></span>
+        <span class="qf-banner__msg"><strong>구독 만료</strong> — 일부 기능이 제한되었습니다.</span>
+        <span class="qf-banner__actions"><button class="qf-btn qf-btn--primary qf-btn--sm">갱신</button></span>
+        <button class="qf-banner__close" aria-label="닫기"><svg class="qf-icon"><use href="#qf-i-x"/></svg></button>
+      </div>
+      <div class="qf-banner qf-banner--accent">
+        <span class="qf-banner__icon"><svg class="qf-icon"><use href="#qf-i-sparkle"/></svg></span>
+        <span class="qf-banner__msg"><strong>음성 채널</strong> 베타에 참여해 보세요.</span>
+        <span class="qf-banner__actions"><button class="qf-btn qf-btn--secondary qf-btn--sm">참여</button></span>
+        <button class="qf-banner__close" aria-label="닫기"><svg class="qf-icon"><use href="#qf-i-x"/></svg></button>
+      </div>
+    </div>
+
+    <h2>Keyboard shortcut sheet · Role chips</h2>
+    <div class="subtle">단축키 시트(2열 그룹)와 역할 칩 변형.</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; padding:var(--s-7);">
+        <div class="qf-kbd-sheet">
+          <div class="qf-kbd-sheet__group">
+            <div class="qf-kbd-sheet__group-title">탐색</div>
+            <div class="qf-kbd-sheet__row">빠른 이동<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">⌘</kbd><span class="qf-kbd-sheet__plus">+</span><kbd class="qf-kbd">K</kbd></span></div>
+            <div class="qf-kbd-sheet__row">검색<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">⌘</kbd><span class="qf-kbd-sheet__plus">+</span><kbd class="qf-kbd">F</kbd></span></div>
+            <div class="qf-kbd-sheet__row">읽음 처리<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">Esc</kbd></span></div>
+          </div>
+          <div class="qf-kbd-sheet__group">
+            <div class="qf-kbd-sheet__group-title">메시지</div>
+            <div class="qf-kbd-sheet__row">마지막 편집<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">↑</kbd></span></div>
+            <div class="qf-kbd-sheet__row">답장<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">R</kbd></span></div>
+            <div class="qf-kbd-sheet__row">이모지<span class="qf-kbd-sheet__keys"><kbd class="qf-kbd">⌘</kbd><span class="qf-kbd-sheet__plus">+</span><kbd class="qf-kbd">E</kbd></span></div>
+          </div>
+        </div>
+        <div class="hstack" style="margin-top:var(--s-7);">
+          <span class="qf-role-chip qf-role-chip--admin"><span class="qf-role-chip__dot"></span>Admin</span>
+          <span class="qf-role-chip qf-role-chip--mod"><span class="qf-role-chip__dot"></span>Moderator</span>
+          <span class="qf-role-chip qf-role-chip--online"><span class="qf-role-chip__dot"></span>Active</span>
+          <span class="qf-role-chip qf-role-chip--bot"><span class="qf-role-chip__dot"></span>Bot</span>
+        </div>
+      </div>
+      <div class="card__label">.qf-kbd-sheet · .qf-role-chip</div>
+    </div>
+
+    <h2>Search overlay</h2>
+    <div class="subtle">검색바 + from:/in:/has: 필터 칩 + 결과 미리보기.</div>
+    <div class="card">
+      <div class="card__preview" style="padding:var(--s-7);">
+        <div class="qf-search-overlay">
+          <div class="qf-search-overlay__bar">
+            <svg class="qf-icon"><use href="#qf-i-search"/></svg>
+            <input class="qf-search-overlay__input" placeholder="메시지 검색…" value="로고">
+          </div>
+          <div class="qf-search-overlay__filters">
+            <span class="qf-search-overlay__chip" aria-pressed="true"><span class="qf-search-overlay__chip-key">from:</span>designer_kim</span>
+            <span class="qf-search-overlay__chip"><span class="qf-search-overlay__chip-key">in:</span>일반</span>
+            <span class="qf-search-overlay__chip"><span class="qf-search-overlay__chip-key">has:</span>link</span>
+          </div>
+          <div class="qf-search-overlay__results">
+            <div class="qf-search-overlay__result">
+              <div class="qf-search-overlay__result-ctx"><strong>designer_kim</strong> · # 일반 · 오후 2:34</div>
+              <div class="qf-search-overlay__result-preview"><mark>로고</mark> 크기 120×40으로 확정했어요. SVG 넘겨드릴게요.</div>
+              <span class="qf-search-overlay__jump">Jump</span>
+            </div>
+            <div class="qf-search-overlay__result">
+              <div class="qf-search-overlay__result-ctx"><strong>dev_lee</strong> · # 배포-알림 · 어제</div>
+              <div class="qf-search-overlay__result-preview">새 <mark>로고</mark> 에셋 배포 완료했습니다.</div>
+              <span class="qf-search-overlay__jump">Jump</span>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-search-overlay</div>
+    </div>
+
+    <h2>Upload overlay</h2>
+    <div class="subtle">채팅 영역 위 드래그앤드롭 점선 오버레이(<code class="qf-code-inline">position:absolute</code>이므로 <code class="qf-code-inline">position:relative</code> 박스 안에 안착).</div>
+    <div class="card">
+      <div class="card__preview" style="position:relative; min-height:220px; padding:0;">
+        <div class="qf-upload-overlay">
+          <span class="qf-upload-overlay__icon"><svg class="qf-icon"><use href="#qf-i-upload"/></svg></span>
+          <div class="qf-upload-overlay__title"># 일반에 업로드</div>
+          <div class="qf-upload-overlay__hint">파일을 여기에 끌어다 놓으세요 · 최대 25MB</div>
+        </div>
+      </div>
+      <div class="card__label">.qf-upload-overlay</div>
+    </div>
+
+    <h2>Embed variants</h2>
+    <div class="subtle">이미지 · 비디오 · 봇/앱 메시지 임베드.</div>
+    <div class="grid grid--3">
+      <div class="card">
+        <div class="card__preview" style="padding:var(--s-5);">
+          <div class="qf-embed qf-embed--image">
+            <div class="qf-embed__thumb" style="height:160px; background:linear-gradient(120deg, var(--a-500), var(--a-800));"></div>
+          </div>
+        </div>
+        <div class="card__label">.qf-embed--image</div>
+      </div>
+      <div class="card">
+        <div class="card__preview" style="padding:var(--s-5);">
+          <div class="qf-embed qf-embed--video">
+            <div class="qf-embed__thumb" style="height:160px; background:linear-gradient(120deg, var(--a-700), var(--n-2));"></div>
+            <button class="qf-embed__play" aria-label="재생"><svg class="qf-icon"><use href="#qf-i-video"/></svg></button>
+          </div>
+        </div>
+        <div class="card__label">.qf-embed--video</div>
+      </div>
+      <div class="card">
+        <div class="card__preview" style="display:block; padding:var(--s-5);">
+          <div class="qf-embed qf-embed--bot">
+            <div class="qf-embed__app"><span class="qf-embed__app-badge">qufox-bot</span> APP</div>
+            <div class="qf-embed__title">배포가 완료되었어요</div>
+            <div class="qf-embed__desc">main → NAS 자동 배포 성공. /readyz 200 OK.</div>
+            <div class="qf-embed__actions">
+              <button class="qf-btn qf-btn--secondary qf-btn--sm">로그 보기</button>
+              <button class="qf-btn qf-btn--ghost qf-btn--sm">롤백</button>
+            </div>
+          </div>
+        </div>
+        <div class="card__label">.qf-embed--bot</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── v4 ACTIONS ─── -->
+  <section class="page" data-page="v4-actions">
+    <div class="qf-eyebrow">v4 · Task 050</div>
+    <h1 class="page-title">Message actions · Density</h1>
+    <p class="page-lede">메시지 hover 빠른 반응 · 반응 추가 pill · 코드블록 헤더/복사 · 스레드 참여 아바타 스택, 그리고 같은 메시지를 cozy와 compact 밀도로 나란히 비교합니다.</p>
+
+    <h2>Quick-react · Reaction add</h2>
+    <div class="subtle">hover 액션바 내부 빠른 반응 3슬롯 + 더보기, 그리고 반응 행 끝의 dashed 추가 pill.</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; background:var(--bg-chat); padding:var(--s-5);">
+        <div class="qf-message qf-message--head">
+          <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500)"><span class="qf-avatar__status qf-avatar__status--online"></span></div></div>
+          <div>
+            <div class="qf-message__meta">
+              <span class="qf-message__author">dev_lee</span>
+              <span class="qf-badge qf-badge--accent">MOD</span>
+              <span class="qf-message__time">오늘 오후 2:34</span>
+            </div>
+            <div class="qf-message__body">
+              <p>밀도 토글 오늘 배포합니다. 반응도 바로 붙여볼게요.</p>
+              <div class="qf-reactions">
+                <button class="qf-reaction qf-reaction--me">🚀 <span>3</span></button>
+                <button class="qf-reaction">🎉 <span>1</span></button>
+                <button class="qf-reaction qf-reaction--add" aria-label="반응 추가"><svg class="qf-icon"><use href="#qf-i-reaction-add"/></svg></button>
+              </div>
+            </div>
+          </div>
+          <div class="qf-message__toolbar">
+            <div class="qf-msg-quickreact">
+              <button class="qf-msg-quickreact__slot">👍</button>
+              <button class="qf-msg-quickreact__slot">❤️</button>
+              <button class="qf-msg-quickreact__slot">😂</button>
+              <button class="qf-msg-quickreact__slot qf-msg-quickreact__more" aria-label="더 보기"><svg class="qf-icon"><use href="#qf-i-reaction-add"/></svg></button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="card__label">.qf-msg-quickreact · .qf-reaction--add</div>
+    </div>
+
+    <h2>Code block header · Thread follow-up</h2>
+    <div class="subtle">코드블록 상단 헤더(lang + 복사)와 스레드 참여 아바타 스택 + accent 카운트.</div>
+    <div class="card">
+      <div class="card__preview" style="display:block; padding:var(--s-7);">
+        <div style="max-width:440px;">
+          <div class="qf-codeblock__header">
+            <span class="qf-codeblock__header-lang">typescript</span>
+            <button class="qf-codeblock__copy" data-copied="false"><svg class="qf-icon"><use href="#qf-i-copy"/></svg>Copy</button>
+          </div>
+          <pre class="qf-codeblock qf-codeblock--with-header">const density = useDensity(); // 'cozy' | 'compact'</pre>
+        </div>
+        <div class="qf-thread-followup" style="margin-top:var(--s-6);">
+          <span class="qf-thread-followup__avatars">
+            <span class="qf-avatar qf-avatar--xs" style="background:var(--a-300)"></span>
+            <span class="qf-avatar qf-avatar--xs" style="background:var(--a-500)"></span>
+            <span class="qf-avatar qf-avatar--xs" style="background:var(--a-700)"></span>
+          </span>
+          <span class="qf-thread-followup__count">답글 7개</span>
+          <span class="qf-thread-followup__dot"></span>
+          <span class="qf-thread-followup__last">마지막 답글 2시간 전</span>
+        </div>
+      </div>
+      <div class="card__label">.qf-codeblock__header · .qf-thread-followup__avatars</div>
+    </div>
+
+    <h2>Density — cozy vs compact</h2>
+    <div class="subtle">같은 메시지 그룹을 기본 컨테이너와 <code class="qf-code-inline">data-density="compact"</code> 컨테이너로 나란히 렌더해 비교.</div>
+    <div class="grid" style="grid-template-columns:1fr 1fr; gap:var(--s-5);">
+      <div class="card">
+        <div class="qf-eyebrow" style="margin-bottom:var(--s-3);">Cozy (기본)</div>
+        <div class="card__preview" style="display:block; background:var(--bg-chat); padding:var(--s-4);">
+          <div class="qf-message qf-message--head">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500)"></div></div>
+            <div>
+              <div class="qf-message__meta">
+                <span class="qf-message__author">designer_kim</span>
+                <span class="qf-message__time">오전 10:24</span>
+              </div>
+              <div class="qf-message__body"><p>cozy는 40px 아바타와 넉넉한 간격을 유지해요.</p></div>
+            </div>
+          </div>
+          <div class="qf-message qf-message--cont">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md"></div></div>
+            <div><div class="qf-message__body"><p>연속 메시지도 같은 폭으로 정렬됩니다.</p></div></div>
+          </div>
+          <div class="qf-message qf-message--cont">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md"></div></div>
+            <div><div class="qf-message__body"><p>읽기 흐름이 부드럽게 이어져요.</p></div></div>
+          </div>
+        </div>
+        <div class="card__label">기본 컨테이너</div>
+      </div>
+      <div class="card">
+        <div class="qf-eyebrow" style="margin-bottom:var(--s-3);">Compact</div>
+        <div class="card__preview" data-density="compact" style="display:block; background:var(--bg-chat); padding:var(--s-4);">
+          <div class="qf-message qf-message--head">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-700)"></div></div>
+            <div>
+              <div class="qf-message__meta">
+                <span class="qf-message__author">designer_kim</span>
+                <span class="qf-message__time">오전 10:24</span>
+              </div>
+              <div class="qf-message__body"><p>compact는 아바타를 줄이고 그룹 간격을 좁혀요.</p></div>
+            </div>
+          </div>
+          <div class="qf-message qf-message--cont">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md"></div></div>
+            <div><div class="qf-message__body"><p>연속 메시지는 아바타 폭만큼 인덴트됩니다.</p></div></div>
+          </div>
+          <div class="qf-message qf-message--cont">
+            <div class="qf-message__avatar"><div class="qf-avatar qf-avatar--md"></div></div>
+            <div><div class="qf-message__body"><p>세로 밀도는 높이고 정렬은 그대로.</p></div></div>
+          </div>
+        </div>
+        <div class="card__label">data-density="compact"</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ─── v4 MOBILE ─── -->
+  <section class="page" data-page="v4-mobile">
+    <div class="qf-eyebrow">v4 · Task 050</div>
+    <h1 class="page-title">Mobile nav · IA</h1>
+    <p class="page-lede">모바일 정보구조 업그레이드예요. 하단 탭바 활성 pill · OverlappingPanels 좌 드로어 · 메시지 화면 ergonomics · Home 퀵타일/필터/프로필, 그리고 이모지 드로어를 한 컷씩 보여줍니다.</p>
+
+    <h2>Tab bar · Panels · Message ergonomics</h2>
+    <div class="subtle">(a) 활성 pill + 배지 탭바, (b) 좌 드로어 열린 OverlappingPanels, (c) 미읽 divider + jump 버튼 + accessory 바.</div>
+    <div class="phone-row">
+      <!-- (a) tabbar -->
+      <div class="phone">
+        <div class="qf-m-screen qf-m-screen--bare">
+          <div class="qf-m-topbar">
+            <button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-menu"/></svg></button>
+            <div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title">홈</div></div>
+            <div class="qf-m-topbar__actions"><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-search"/></svg></button></div>
+          </div>
+          <div class="qf-m-body">
+            <div class="qf-m-section">최근 대화</div>
+            <div class="qf-m-row qf-m-row--unread">
+              <div class="qf-avatar qf-avatar--md" style="background:var(--a-500)"></div>
+              <div><div class="qf-m-row__primary">designer_kim</div><div class="qf-m-row__secondary">SVG 넘겨드렸어요 확인 부탁!</div></div>
+              <div class="qf-m-row__aside"><span class="qf-m-row__time">2:34</span></div>
+            </div>
+            <div class="qf-m-row">
+              <div class="qf-avatar qf-avatar--md" style="background:var(--a-700)"></div>
+              <div><div class="qf-m-row__primary"># 배포-알림</div><div class="qf-m-row__secondary">배포가 완료되었어요</div></div>
+              <div class="qf-m-row__aside"><span class="qf-m-row__time">어제</span></div>
+            </div>
+          </div>
+          <nav class="qf-m-tabbar">
+            <button class="qf-m-tab" aria-selected="true">
+              <span class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-home"/></svg></span>
+              <span class="qf-m-tab__label">홈</span>
+              <span class="qf-m-tab__pill"></span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">DM</span>
+              <span class="qf-m-tab__badge">5</span>
+              <span class="qf-m-tab__pill"></span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">활동</span>
+              <span class="qf-m-tab__badge qf-m-tab__badge--mention">2</span>
+              <span class="qf-m-tab__pill"></span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-m-tab__label">나</span>
+              <span class="qf-m-tab__dot"></span>
+              <span class="qf-m-tab__pill"></span>
+            </button>
+          </nav>
+        </div>
+      </div>
+
+      <!-- (b) OverlappingPanels show-left -->
+      <div class="phone">
+        <div class="qf-m-panels qf-m-panels--show-left" style="position:absolute;">
+          <div class="qf-m-panel-left">
+            <button class="qf-m-server-header">
+              <span class="qf-m-server-header__name">qufox HQ</span>
+              <span class="qf-m-server-header__chevron"><svg class="qf-icon"><use href="#qf-i-chevron-down"/></svg></span>
+              <span class="qf-m-server-header__action"><svg class="qf-icon"><use href="#qf-i-plus"/></svg></span>
+            </button>
+            <div class="qf-m-section">텍스트 채널</div>
+            <div class="qf-m-channel qf-m-channel--unread"># 일반</div>
+            <div class="qf-m-channel" aria-selected="true"># 디자인</div>
+            <div class="qf-m-channel"># 배포</div>
+          </div>
+          <div class="qf-m-panel-center">
+            <div class="qf-m-topbar">
+              <button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-menu"/></svg></button>
+              <div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title"># 디자인</div></div>
+              <div class="qf-m-topbar__actions"><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-users"/></svg></button></div>
+            </div>
+            <div class="qf-m-body">
+              <div class="qf-m-msg qf-m-msg--head">
+                <div class="qf-m-msg__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500)"></div></div>
+                <div>
+                  <div class="qf-m-msg__meta"><span class="qf-m-msg__author">designer_kim</span><span class="qf-m-msg__time">오후 2:14</span></div>
+                  <div class="qf-m-msg__body">패널 골격 들어갑니다.</div>
+                </div>
+              </div>
+            </div>
+            <div class="qf-m-drawer-scrim"></div>
+          </div>
+          <div class="qf-m-panel-right"></div>
+        </div>
+      </div>
+
+      <!-- (c) message ergonomics -->
+      <div class="phone">
+        <div class="qf-m-screen qf-m-screen--bare">
+          <div class="qf-m-topbar">
+            <button class="qf-m-topbar__back"><svg class="qf-icon"><use href="#qf-i-chevron-left"/></svg></button>
+            <div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title"># 일반</div></div>
+            <div class="qf-m-topbar__actions"><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-more-v"/></svg></button></div>
+          </div>
+          <div class="qf-m-body">
+            <div class="qf-m-unread-divider">
+              <span class="qf-m-unread-divider__label">새 메시지</span>
+              <span class="qf-m-unread-divider__pill">7</span>
+            </div>
+            <div class="qf-m-msg qf-m-msg--head">
+              <div class="qf-m-msg__avatar"><div class="qf-avatar qf-avatar--md" style="background:var(--a-500)"></div></div>
+              <div>
+                <div class="qf-m-msg__meta"><span class="qf-m-msg__author">designer_kim</span><span class="qf-m-msg__time">오전 9:41</span></div>
+                <div class="qf-m-msg__body">사진 몇 장 올려요</div>
+                <div class="qf-m-img-grid qf-m-img-grid--4" style="margin-top:var(--s-2);">
+                  <div class="qf-m-img-grid__tile" style="background:var(--a-700);"></div>
+                  <div class="qf-m-img-grid__tile" style="background:var(--a-500);"></div>
+                  <div class="qf-m-img-grid__tile" style="background:var(--a-800);"></div>
+                  <div class="qf-m-img-grid__tile" style="background:var(--a-600);"><div class="qf-m-img-grid__more">+5</div></div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <button class="qf-m-jump-btn" style="bottom:var(--s-4);" aria-label="맨 아래로">
+            <svg class="qf-icon"><use href="#qf-i-chevron-down"/></svg>
+            <span class="qf-m-jump-btn__badge">12</span>
+          </button>
+          <div class="qf-m-composer__accessory">
+            <button class="qf-m-composer__accessory-btn"><svg class="qf-icon"><use href="#qf-i-emoji"/></svg></button>
+            <button class="qf-m-composer__accessory-btn"><svg class="qf-icon"><use href="#qf-i-mention"/></svg></button>
+            <button class="qf-m-composer__accessory-btn"><svg class="qf-icon"><use href="#qf-i-hash"/></svg></button>
+            <button class="qf-m-composer__accessory-btn"><svg class="qf-icon"><use href="#qf-i-bold"/></svg></button>
+            <button class="qf-m-composer__accessory-btn"><svg class="qf-icon"><use href="#qf-i-camera"/></svg></button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <h2>Home IA · You · Emoji drawer</h2>
+    <div class="subtle">(d) Home 퀵타일 + 필터칩 + You 헤더, 그리고 모바일 이모지 드로어 한 컷.</div>
+    <div class="phone-row">
+      <!-- (d) Home tiles + filter + you -->
+      <div class="phone">
+        <div class="qf-m-screen qf-m-screen--bare">
+          <div class="qf-m-topbar">
+            <div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title">홈</div></div>
+            <div class="qf-m-topbar__actions"><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-search"/></svg></button></div>
+          </div>
+          <div class="qf-m-body">
+            <div class="qf-m-tile-row">
+              <button class="qf-m-tile qf-m-tile--unread">
+                <span class="qf-m-tile__icon"><svg class="qf-icon"><use href="#qf-i-inbox"/></svg></span>
+                <span class="qf-m-tile__label">Catch Up</span>
+                <span class="qf-m-tile__count">8</span>
+              </button>
+              <button class="qf-m-tile">
+                <span class="qf-m-tile__icon"><svg class="qf-icon"><use href="#qf-i-thread"/></svg></span>
+                <span class="qf-m-tile__label">Threads</span>
+                <span class="qf-m-tile__count">최근 3개</span>
+              </button>
+              <button class="qf-m-tile qf-m-tile--unread">
+                <span class="qf-m-tile__icon"><svg class="qf-icon"><use href="#qf-i-mention"/></svg></span>
+                <span class="qf-m-tile__label">Mentions</span>
+                <span class="qf-m-tile__count">2</span>
+              </button>
+              <button class="qf-m-tile">
+                <span class="qf-m-tile__icon"><svg class="qf-icon"><use href="#qf-i-bookmark"/></svg></span>
+                <span class="qf-m-tile__label">Saved</span>
+                <span class="qf-m-tile__count">12</span>
+              </button>
+            </div>
+            <div class="qf-m-filter-bar">
+              <button class="qf-m-filter-chip qf-m-filter-chip--solid" aria-selected="true">전체 <span class="qf-m-filter-chip__count">24</span></button>
+              <button class="qf-m-filter-chip">멘션 <span class="qf-m-filter-chip__count">2</span></button>
+              <button class="qf-m-filter-chip">스레드 <span class="qf-m-filter-chip__count">5</span></button>
+              <button class="qf-m-filter-chip">미읽 <span class="qf-m-filter-chip__count">8</span></button>
+            </div>
+            <div class="qf-m-section">멤버</div>
+            <div class="qf-m-row">
+              <div class="qf-avatar qf-avatar--md" style="background:var(--a-700)"></div>
+              <div><div class="qf-m-row__primary">dev_lee</div><div class="qf-m-row__secondary">방금 전 활동</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- (d cont) You header -->
+      <div class="phone">
+        <div class="qf-m-screen qf-m-screen--bare">
+          <div class="qf-m-topbar">
+            <div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title">나</div></div>
+            <div class="qf-m-topbar__actions"><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-settings"/></svg></button></div>
+          </div>
+          <div class="qf-m-body">
+            <div class="qf-m-you-header">
+              <div class="qf-avatar qf-avatar--xl" style="background:var(--a-500)"></div>
+              <div class="qf-m-you-header__meta">
+                <div class="qf-m-you-header__name">박유나</div>
+                <div class="qf-m-you-header__handle">@yuna</div>
+                <div class="qf-m-you-header__state">온라인 · 디자인 중</div>
+              </div>
+            </div>
+            <div class="qf-m-you-status">
+              <span class="qf-m-you-status__icon"><svg class="qf-icon"><use href="#qf-i-emoji"/></svg></span>
+              상태 메시지 설정
+              <span class="qf-m-you-status__suffix"><svg class="qf-icon"><use href="#qf-i-chevron-right"/></svg></span>
+            </div>
+            <div class="qf-m-section">설정</div>
+            <div class="qf-m-row">
+              <span class="qf-m-you-status__icon"><svg class="qf-icon"><use href="#qf-i-bell"/></svg></span>
+              <div><div class="qf-m-row__primary">알림</div></div>
+              <div class="qf-m-row__aside"><svg class="qf-icon"><use href="#qf-i-chevron-right"/></svg></div>
+            </div>
+            <div class="qf-m-row">
+              <span class="qf-m-you-status__icon"><svg class="qf-icon"><use href="#qf-i-shield"/></svg></span>
+              <div><div class="qf-m-row__primary">개인정보 · 보안</div></div>
+              <div class="qf-m-row__aside"><svg class="qf-icon"><use href="#qf-i-chevron-right"/></svg></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- emoji drawer -->
+      <div class="phone">
+        <div class="qf-m-screen qf-m-screen--bare" style="justify-content:flex-end; background:var(--bg-chat);">
+          <div class="qf-m-emoji-drawer">
+            <div class="qf-m-emoji-drawer__grab"></div>
+            <div class="qf-m-emoji-drawer__search">
+              <div class="qf-m-emoji-drawer__search-field">
+                <span class="qf-m-emoji-drawer__search-icon"><svg class="qf-icon"><use href="#qf-i-search"/></svg></span>
+                <input class="qf-m-emoji-drawer__search-input" placeholder="이모지 검색">
+              </div>
+            </div>
+            <div class="qf-m-emoji-drawer__tabs">
+              <button class="qf-m-emoji-drawer__tab" aria-selected="true">😀</button>
+              <button class="qf-m-emoji-drawer__tab">🐻</button>
+              <button class="qf-m-emoji-drawer__tab">🍔</button>
+              <button class="qf-m-emoji-drawer__tab">⚽</button>
+              <button class="qf-m-emoji-drawer__tab">🚀</button>
+            </div>
+            <div class="qf-m-emoji-drawer__grid">
+              <div class="qf-m-emoji-drawer__category-label">자주 쓰는</div>
+              <div class="qf-m-emoji-drawer__row">
+                <button class="qf-m-emoji-drawer__cell">😀</button>
+                <button class="qf-m-emoji-drawer__cell">😂</button>
+                <button class="qf-m-emoji-drawer__cell">🥰</button>
+                <button class="qf-m-emoji-drawer__cell">😍</button>
+                <button class="qf-m-emoji-drawer__cell">🙂</button>
+                <button class="qf-m-emoji-drawer__cell">😎</button>
+                <button class="qf-m-emoji-drawer__cell">🤩</button>
+                <button class="qf-m-emoji-drawer__cell">🦊</button>
+              </div>
+              <div class="qf-m-emoji-drawer__row">
+                <button class="qf-m-emoji-drawer__cell">👍</button>
+                <button class="qf-m-emoji-drawer__cell">❤️</button>
+                <button class="qf-m-emoji-drawer__cell">🎉</button>
+                <button class="qf-m-emoji-drawer__cell">🚀</button>
+                <button class="qf-m-emoji-drawer__cell">✅</button>
+                <button class="qf-m-emoji-drawer__cell">🔥</button>
+                <button class="qf-m-emoji-drawer__cell">👀</button>
+                <button class="qf-m-emoji-drawer__cell">💜</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </section>
 
   </main>
