@@ -115,12 +115,15 @@
   --dur-base:      220ms;
   --dur-slow:      320ms;
   --dur-deliberate: 520ms;
+  --dur-longpress: 500ms;   /* mobile press-and-hold → context sheet */
 
   /* ───── Z-index layers ───── */
   --z-base:      0;
   --z-header:    10;
+  --z-drawer:    15;   /* mobile slide-in drawers — above header, below dropdowns */
   --z-dropdown:  20;
   --z-sticky:    30;
+  --z-tabbar:    40;   /* mobile bottom tab bar — global chrome above sticky content */
   /* Settings overlay (full-viewport popup) sits below alert dialogs so
      confirm prompts opened from within settings still land on top. */
   --z-settings-bg: 50;
@@ -138,13 +141,42 @@
   /* ───── Layout widths ───── */
   --w-serverlist:  72px;
   --w-channellist: 240px;
+  --w-channellist-min: 160px;   /* drag-resize lower bound */
+  --w-channellist-max: 400px;   /* drag-resize upper bound */
   --w-memberlist:  240px;
+  --w-drawer-left: calc(var(--w-serverlist) + var(--w-channellist));  /* 312px — mobile left drawer */
   --w-thread:      420px;
   --w-topbar-search: 180px;
   --w-settings:    820px;
   --h-topbar:      48px;
   --h-topbar-search: 28px;
   --h-typingbar:   24px;
+  --h-composer:    48px;   /* desktop composer min input height */
+
+  /* ───── Component sizing & density ───── */
+  --sz-status-dot:      14px;        /* presence dot on avatar-md */
+  --sz-status-dot-sm:   10px;        /* avatar-sm */
+  --sz-status-dot-ring: var(--s-1);  /* 2px ring offset */
+
+  /* Message density — 2-tier: cozy(default) / compact. spacious reserved. */
+  --msg-group-gap-cozy:     var(--s-5);   /* 16px gap before a new author group */
+  --msg-group-gap-compact:  var(--s-2);   /* 4px */
+  --msg-group-gap-spacious: var(--s-6);   /* 20px (reserved) */
+  --msg-pt-head-cozy:       var(--s-5);
+  --msg-pt-head-compact:    var(--s-2);
+  --msg-indent:             calc(var(--s-10) + var(--s-4));   /* 60px = avatar 40 + gap 12 + 8 */
+  --avatar-msg-cozy:        var(--s-10);  /* 40px */
+  --avatar-msg-compact:     var(--s-8);   /* 32px */
+  --msg-group-threshold-ms: 480000;       /* 8min author-grouping window (JS) */
+
+  /* Channel row density (Discord-calibrated: compact default rows) */
+  --h-channel-row-default:  var(--s-8);   /* 32px */
+  --h-channel-row-compact:  var(--s-7);   /* 24px */
+  --h-channel-row-spacious: var(--s-9);   /* 40px (reserved) */
+
+  /* Server rail pill indicator heights */
+  --nav-pill-h-hover:  var(--s-3);   /* 8px */
+  --nav-pill-h-active: var(--s-8);   /* 32px */
 
   /* ───── Semantic aliases (dark default) ───── */
   --bg-app:        var(--n-0);
@@ -153,7 +185,8 @@
   --bg-elevated:   var(--n-3);
   --bg-hover:      var(--n-4);
   --bg-selected:   var(--n-5);
-  --bg-input:      var(--n-0);
+  --bg-input:      var(--n-2);   /* lifted above chat canvas so the compose area reads as a distinct surface (Discord/Slack parity) */
+  --bg-floating:   var(--n-0);   /* popovers / command palette / autocomplete — darkest floating layer */
   --border:        var(--n-4);
   --border-strong: var(--n-6);
   --divider:       var(--n-3);
@@ -174,11 +207,16 @@
   --link-hover:    var(--a-200);
   --mention-bg:    rgba(139,92,246,0.15);
   --mention-bgHov: rgba(139,92,246,0.25);
+  --badge-unread-bg:       var(--a-600);      /* generic unread badge = violet; a-600 so white text clears AA (5.52:1) */
+  --badge-mention-bg:      var(--danger-600); /* @mention badge = danger (distinct meaning) */
+  --unread-divider-accent: var(--a-400);      /* "new messages" line + label — lighter so the 11px label clears AA on dark */
+  --scrim:                 rgba(10, 8, 30, 0.5); /* drawer / sheet dim — neutral night, theme-stable */
 
   --status-online: var(--ok-400);
   --status-idle:   var(--warn-400);
   --status-dnd:    var(--danger-400);
   --status-offline:var(--n-7);
+  --status-streaming: var(--a-400);   /* live / screen-share (violet, not Twitch purple) */
 
   --scrollbar-thumb: rgba(233,213,255,0.12);
   --scrollbar-thumbH: rgba(233,213,255,0.24);
@@ -192,6 +230,7 @@
   --bg-hover:      #EDE7F7;
   --bg-selected:   #E1D6F2;
   --bg-input:      #FFFFFF;
+  --bg-floating:   #FFFFFF;
   --border:        #E1DCEC;
   --border-strong: #C9C2DB;
   --divider:       #EDE9F4;
@@ -253,3 +292,16 @@ select:focus-visible,
 [contenteditable]:focus-visible { box-shadow: none; }
 
 ::selection { background: var(--accent); color: white; }
+
+/* ───── Reduced motion (WCAG 2.3.3) ─────
+   Global guard so every DS animation/transition respects the user's
+   OS-level "reduce motion" preference. Components don't need their own
+   media query — they inherit this. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
