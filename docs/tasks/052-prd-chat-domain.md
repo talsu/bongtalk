@@ -49,11 +49,24 @@ D16 리치 콘텐츠 · D17 실시간/동기화.
 
 ## DoD
 
-- [ ] 17 도메인 + 5 개요 섹션 완성, mock 렌더 정상
-- [ ] 구조 검증(div/section 균형, 미정의 아이콘 0)
-- [ ] Playwright 렌더 캡처
-- [ ] 커밋 + 배포(/prd/ 라이브)
-- [ ] DS+PRD 동시 감사 사이클 진입 준비
+- [x] 17 도메인 + 5 개요 섹션 완성(22 section), mock 렌더 정상
+- [x] 구조 검증(section 22/22, div 2789/2789, 미정의 토큰 0, 미정의 아이콘 0)
+- [x] Playwright 렌더 캡처(overview/ia/D01/D02/D08/D17)
+- [x] 커밋 + 배포 — main `8035819`, deploy exitCode 0, **https://qufox.com/prd/ → 200**
+- [x] DS+PRD 동시 감사 사이클 진입 준비
+
+## Results
+
+- `apps/web/public/prd/index.html` (≈872KB, 14.5k 라인). DS CSS(`?v=7`) 링크 + 아이콘
+  스프라이트 103 + slash 추가. PRD-local 토큰 별칭(에이전트 mock 호환).
+- 22 섹션: 개요 5(비전·범위/로드맵·IA·도메인모델·NFR) + 도메인 17(D01–D17).
+- 리서치 17 도메인 / **299 FR**, 섹션 authoring 16+1(D08 별도) + IA/도메인모델 합성.
+- 배포: main 8035819, develop a193235, feat/task-052 보존. /prd/ 200, /readyz 200.
+
+## 다음 단계 (사용자 계획)
+
+DS + PRD 동시 감사 → 수정사항 도출 → 몇 차례 업데이트 → 실제 서비스 구현.
+구현 의도가 PRD에 드러나 있어야 함(현 PRD가 그 기준선).
 
 ## Note
 
