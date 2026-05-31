@@ -1,4 +1,4 @@
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import {
   useInfiniteQuery,
   useMutation,
@@ -6,7 +6,7 @@ import {
   type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
-import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
+import type { ListMessagesQuery, ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import {
   deleteMessage,
   listMessages,
@@ -27,6 +27,10 @@ import {
   optimisticIdFor,
   type OptimisticMessage,
 } from './sendState';
+import { applyTimeoutFailure } from './timeoutFlip';
+import { messageSendTimeoutMs } from './sendTimeout';
+import { lruKey, useChannelLruStore } from '../realtime/channelLru';
+import { useReadState } from '../realtime/readStateStore';
 
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
@@ -98,14 +102,42 @@ export function buildSendFailureToastBody(err: unknown): { title: string; body: 
   };
 }
 
+/**
+ * S09 (FR-RT-22): 메시지 목록 페이지의 fetch 쿼리 인자 결정 — 단일 출처.
+ *
+ * LRU 로 evict 됐던 채널을 재진입하는 **초기 로드**(pageParam undefined)면,
+ * 보유한 lastReadMessageId 를 중심으로 `around` 재로드해 사용자가 마지막으로
+ * 읽던 지점으로 복원합니다. lastRead 가 없거나 evict 이력이 없으면 around
+ * 없이 최신 로드로 폴백합니다(과설계 방지). older-page fetch(pageParam 존재)는
+ * 항상 `before` 커서를 씁니다.
+ *
+ * 부수효과(consumeAround 1회성 소비)를 포함하므로 queryFn 호출당 한 번만
+ * 호출해야 합니다. 훅과 테스트가 공유합니다.
+ */
+export function resolveListFetchArgs(
+  wsId: string | null,
+  channelId: string,
+  pageParam: string | undefined,
+): Partial<ListMessagesQuery> {
+  if (pageParam === undefined) {
+    const wantsAround = useChannelLruStore.getState().consumeAround(lruKey(wsId, channelId));
+    if (wantsAround) {
+      const around = useReadState.getState().getLastRead(channelId);
+      if (around) return { limit: 50, around };
+    }
+  }
+  return { limit: 50, before: pageParam ?? undefined };
+}
+
 export function useMessageHistory(wsId: string | null, channelId: string) {
   return useInfiniteQuery({
     queryKey: keys.list(wsId, channelId),
     queryFn: ({ pageParam }) =>
-      listMessages(wsId, channelId, {
-        limit: 50,
-        before: (pageParam as string | undefined) ?? undefined,
-      }),
+      listMessages(
+        wsId,
+        channelId,
+        resolveListFetchArgs(wsId, channelId, pageParam as string | undefined),
+      ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: ListMessagesResponse) =>
       last.pageInfo.hasMore ? (last.pageInfo.nextCursor ?? undefined) : undefined,
@@ -121,12 +153,61 @@ export function useSendMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   const { user } = useAuth();
 
+  // S09 (FR-RT-05): in-flight 전송별 타임아웃 타이머 + AbortController.
+  // optimisticId(=`tmp-<nonce>`) 로 키잉해 onSuccess/onError(settle) 시
+  // 해당 타이머를 clear 하고 controller 를 폐기합니다. 재시도는 동일
+  // optimisticId 로 다시 mutate 되므로 이전 엔트리를 덮어씁니다.
+  const pendingRef = useRef<
+    Map<string, { timer: ReturnType<typeof setTimeout>; controller: AbortController }>
+  >(new Map());
+
+  const clearPending = useCallback((optimisticId: string) => {
+    const entry = pendingRef.current.get(optimisticId);
+    if (entry) {
+      clearTimeout(entry.timer);
+      pendingRef.current.delete(optimisticId);
+    }
+  }, []);
+
+  // 언마운트 시 남은 타이머 정리(메모리 누수/유령 flip 방지).
+  useEffect(() => {
+    const pending = pendingRef.current;
+    return () => {
+      for (const { timer } of pending.values()) clearTimeout(timer);
+      pending.clear();
+    };
+  }, []);
+
   const mutation = useMutation({
     // S03 (FR-MSG-04): `clientNonce` is the SINGLE identifier. The optimistic
     // row id is `optimisticIdFor(clientNonce)`, the POST body `nonce` and the
     // `Idempotency-Key` header all derive from it — no separate tempId.
-    mutationFn: async (args: { content: string; clientNonce: string; attachmentIds?: string[] }) =>
-      sendMessage(
+    mutationFn: async (args: {
+      content: string;
+      clientNonce: string;
+      attachmentIds?: string[];
+    }) => {
+      const optimisticId = optimisticIdFor(args.clientNonce);
+      // S09 (FR-RT-05): 전송 시작과 동시에 타임아웃 타이머 + AbortController 를
+      // 건다. 타임아웃 경과해도 201 미수신이면 hung fetch 를 abort 하고 해당
+      // 낙관 행을 'failed' 로 flip 한다(applyTimeoutFailure 가 confirmed/failed
+      // 이면 no-op → onError/onSuccess 와의 이중 flip 을 막음). 같은
+      // optimisticId 로 in-flight 가 남아있으면(재시도) 이전 타이머를 먼저 정리.
+      clearPending(optimisticId);
+      const controller = new AbortController();
+      const timer = setTimeout(() => {
+        // 타이머가 발화하면: 캐시 행이 여전히 pending 일 때만 failed 로 flip.
+        qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) =>
+          applyTimeoutFailure(old, optimisticId),
+        );
+        // hung fetch 를 끊는다. AbortError 가 onError 로 흐를 수 있으나
+        // 행은 이미 failed 이고 applyTimeoutFailure/markOptimisticFailed 는
+        // idempotent 라 이중 flip 이 발생하지 않는다. 전송 실패 토스트는
+        // 1회 노출된다.
+        controller.abort();
+      }, messageSendTimeoutMs());
+      pendingRef.current.set(optimisticId, { timer, controller });
+      return sendMessage(
         wsId,
         channelId,
         {
@@ -137,7 +218,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         },
         // clientNonce → POST body nonce + Idempotency-Key header.
         args.clientNonce,
-      ),
+        controller.signal,
+      );
+    },
     onMutate: async ({ content, clientNonce }) => {
       await qc.cancelQueries({ queryKey: keys.list(wsId, channelId) });
       const optimisticId = optimisticIdFor(clientNonce);
@@ -213,6 +296,13 @@ export function useSendMessage(wsId: string | null, channelId: string) {
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) =>
         confirmOptimistic(old, optimisticId, result.message),
       );
+    },
+    onSettled: (_result, _err, { clientNonce }) => {
+      // S09 (FR-RT-05): 성공/실패 무관하게 settle 되면 타임아웃 타이머를
+      // 즉시 clear 한다 — 정상 201 후 타이머가 늦게 발화해 confirmed 행을
+      // 건드리는 일이 없도록(applyTimeoutFailure 가 no-op 이긴 하나 타이머
+      // 누수를 막는 게 정석).
+      clearPending(optimisticIdFor(clientNonce));
     },
   });
 
