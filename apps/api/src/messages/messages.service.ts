@@ -1318,6 +1318,9 @@ export class MessagesService {
           contentAst: processed.contentAst,
           mentions,
           editedAt: editedAt.toISOString(),
+          // S05 verify (FR-MSG-07): 편집 성공 → edited=true 를 실어 라이브 수신측
+          // 캐시(edited:false)가 (수정됨) 뱃지를 즉시 표시하게 한다.
+          edited: true,
           // S05 (FR-MSG-06): events 계약(MessageUpdatedPayloadSchema)이 요구하는
           // version. 편집 후 새 version 을 실어 라이브 수신측 캐시가 낙관적
           // 잠금 기준을 갱신하게 한다.
@@ -1375,9 +1378,22 @@ export class MessagesService {
   }): Promise<void> {
     const deletedAt = new Date();
     await this.prisma.$transaction(async (tx) => {
-      const updated = await tx.message.update({
-        where: { id: args.msgId },
+      // S05 verify (HIGH): 편집 경로(update)와 동일하게 updateMany +
+      // WHERE { id, channelId, deletedAt: null } 로 채널 격리 + 데이터 레이어
+      // idempotency 를 강제한다. 컨트롤러의 `if (row.deletedAt) return` 선검사는
+      // 트랜잭션 밖 findFirst 라 TOCTOU — 동시/재시도 삭제가 둘 다 통과하면
+      // 직전 update() 가 deletedAt 을 더 늦은 시각으로 덮고 두 번째 MESSAGE_DELETED
+      // 가 중복 fanout 됐다. count===0(부재/타채널/이미 삭제)이면 no-op 으로
+      // 막는다. 또 updateMany 는 행 부재 시 P2025 를 던지지 않는다(update 와 차이).
+      const { count } = await tx.message.updateMany({
+        where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
         data: { deletedAt },
+      });
+      if (count === 0) return;
+      // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용 authorId 만.
+      const updated = await tx.message.findUniqueOrThrow({
+        where: { id: args.msgId },
+        select: { id: true, authorId: true },
       });
       const payload: MessageDeletedPayload = {
         workspaceId: args.workspaceId,

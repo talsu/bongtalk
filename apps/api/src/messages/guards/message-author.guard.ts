@@ -6,11 +6,18 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
 import type { CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 
 /**
- * Loads `:msgId` into `req.message`, scoped to `:chid`. Ensures the caller is
- * the message author. Used by PATCH — editing is author-only by policy
- * (an owner can delete someone else's message but cannot rewrite it).
+ * Loads `:msgId` into `req.message`, scoped to the channel route param.
+ * Ensures the caller is the message author. Used by PATCH — editing is
+ * author-only by policy (an owner can delete someone else's message but
+ * cannot rewrite it).
  *
  * The guard also loads the row so the controller / service never double-fetch.
+ *
+ * BLOCKER fix (S05 verify): the channel id lives under `:chid` on the
+ * workspace route (`workspaces/:id/channels/:chid/messages`) but under
+ * `:channelId` on the workspace-free DM route (`me/dms/:channelId/messages`).
+ * Resolve both, mirroring ChannelAccessGuard's `chid ?? id` fallback —
+ * otherwise every DM edit threw VALIDATION_FAILED before reaching the handler.
  */
 @Injectable()
 export class MessageAuthorGuard implements CanActivate {
@@ -28,7 +35,7 @@ export class MessageAuthorGuard implements CanActivate {
     if (!req.user) {
       throw new DomainError(ErrorCode.AUTH_INVALID_TOKEN, 'authentication required');
     }
-    const channelId = req.params.chid;
+    const channelId = req.params.chid ?? req.params.channelId;
     const msgId = req.params.msgId;
     if (!channelId || !msgId) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'channel / message id missing');

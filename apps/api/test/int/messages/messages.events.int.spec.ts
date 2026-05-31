@@ -96,7 +96,8 @@ describe('Messages outbox events', () => {
     await request(env.baseUrl)
       .patch(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
       .set(bearer(stack.member.accessToken))
-      .send({ content: 'edited' })
+      // S05 (FR-MSG-06): expectedVersion 은 required — 신규 메시지는 version 0.
+      .send({ content: 'edited', expectedVersion: 0 })
       .expect(200);
     await request(env.baseUrl)
       .delete(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)

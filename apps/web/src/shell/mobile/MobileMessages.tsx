@@ -17,7 +17,7 @@ import { MobileMessageSheet } from './MobileMessageSheet';
 import { cn } from '../../lib/cn';
 
 /**
- * Mobile chat screen — scrolling qf-m-message list + qf-m-composer
+ * Mobile chat screen — scrolling qf-m-msg list + qf-m-composer
  * pinned to the bottom above qf-m-tabbar. Long-press on a message
  * opens a bottom sheet (reply / copy / delete). Swipe-right on a
  * message sends the bottom sheet's "reply in thread" action
@@ -235,10 +235,15 @@ function MobileMessageRow({
   };
 
   if (msg.deleted) {
+    // S05 verify: DS 미등록 `qf-m-message` 그리드 클래스(40px 1fr)를 tombstone
+    // 에 붙이면 텍스트가 40px 첫 컬럼에 끼인다. 데스크톱 tombstone(MessageItem)
+    // 처럼 DS 토큰 기반 패딩만 쓰고 그리드는 피한다.
     return (
       <div
         data-testid={`mobile-msg-deleted-${msg.id}`}
-        className="qf-m-message italic text-text-muted"
+        role="note"
+        aria-label="삭제된 메시지"
+        className="px-[var(--m-gutter)] py-[var(--s-2)] text-[length:var(--fs-15)] italic text-text-muted"
       >
         (삭제된 메시지)
       </div>
@@ -249,7 +254,10 @@ function MobileMessageRow({
     <article
       data-testid={`mobile-msg-${msg.id}`}
       data-mine={isMine ? 'true' : 'false'}
-      className={cn('qf-m-message')}
+      // S05 verify: DS 정본은 `qf-m-msg`(+__avatar/__meta/__author/__time/__body).
+      // 기존 `qf-m-message*` 는 DS 미등록이라 스타일이 안 먹었다. `__bubble` 래퍼는
+      // DS 에 없고 grid(40px 1fr)를 깨므로 제거 — avatar/meta/body 를 직접 자식으로.
+      className={cn('qf-m-msg')}
       style={{
         transform: `translateX(${swipeOffset}px)`,
         transition: swipeOffset === 0 ? 'transform 120ms' : undefined,
@@ -261,17 +269,26 @@ function MobileMessageRow({
       <Avatar
         name={authorName ?? msg.authorId.slice(0, 2)}
         size="sm"
-        className="qf-m-message__avatar"
+        className="qf-m-msg__avatar"
       />
-      <div className="qf-m-message__bubble">
-        <div className="qf-m-message__meta">
-          <span className="qf-m-message__author">{authorName ?? 'unknown'}</span>
-          <time className="qf-m-message__time">
-            {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-          </time>
-        </div>
-        <div className="qf-m-message__body">{renderMessageContent(msg.content ?? '')}</div>
+      <div className="qf-m-msg__meta">
+        <span className="qf-m-msg__author">{authorName ?? 'unknown'}</span>
+        <time className="qf-m-msg__time">
+          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+        </time>
+        {msg.edited ? (
+          // S05 (FR-MSG-07) 모바일 parity: (수정됨) 뱃지. 데스크톱 MessageItem
+          // 과 동일하게 시각 토큰(qf-m-msg__time)을 재사용하고 editedAt 을 title 로.
+          <span
+            data-testid={`mobile-msg-edited-${msg.id}`}
+            className="qf-m-msg__time"
+            title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
+          >
+            (수정됨)
+          </span>
+        ) : null}
       </div>
+      <div className="qf-m-msg__body">{renderMessageContent(msg.content ?? '')}</div>
     </article>
   );
 }

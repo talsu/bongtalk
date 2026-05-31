@@ -43,7 +43,8 @@ describe('Messages CRUD + soft delete', () => {
     const patch = await request(env.baseUrl)
       .patch(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
       .set(bearer(stack.member.accessToken))
-      .send({ content: 'hello edited' });
+      // S05 (FR-MSG-06): expectedVersion 은 required — 신규 메시지는 version 0.
+      .send({ content: 'hello edited', expectedVersion: 0 });
     expect(patch.status).toBe(200);
     expect(patch.body.message.content).toBe('hello edited');
     expect(patch.body.message.edited).toBe(true);

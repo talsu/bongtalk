@@ -86,6 +86,11 @@ export type MessageUpdatedPayload = {
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     editedAt: string;
+    // S05 verify (FR-MSG-07): (수정됨) 뱃지의 라이브 전파. 디스패처는 캐시 행
+    // 위에 이 부분 DTO 를 verbatim merge 하므로, `edited` 를 싣지 않으면 편집
+    // 전 캐시(edited:false)를 가진 다른 클라이언트는 REST refetch 전까지 뱃지를
+    // 못 본다. 편집 성공 = 항상 edited:true. Additive — 구 디스패처는 무시.
+    edited: boolean;
     // S05 (FR-MSG-06): 편집 후 새 version. 라이브 수신측 캐시가 낙관적 잠금
     // 기준(MessageDto.version)을 갱신하도록 실어보낸다. Additive — 구
     // 디스패처는 무시.
