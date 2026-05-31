@@ -111,10 +111,11 @@ describe('MRKDWN_PARSE_LIMITS (FR-MSG-23)', () => {
     ]);
   });
 
-  it('lists the 13 AST node types from D16', () => {
+  it('lists the 14 AST node types from D16', () => {
     expect(MRKDWN_AST_NODE_TYPES).toContain('mention_user');
     expect(MRKDWN_AST_NODE_TYPES).toContain('code_block');
-    expect(MRKDWN_AST_NODE_TYPES).toHaveLength(13);
+    expect(MRKDWN_AST_NODE_TYPES).toContain('divider');
+    expect(MRKDWN_AST_NODE_TYPES).toHaveLength(14);
   });
 
   it('every parse error code is a member of the shared ErrorCode enum', () => {
