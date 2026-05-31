@@ -1,7 +1,11 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type Redis from 'ioredis';
-import { MessageMentions } from '@qufox/shared-types';
+import {
+  MessageMentions,
+  type MessageType,
+  renderSystemMessageTemplate,
+} from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
@@ -10,7 +14,12 @@ import { OutboxService } from '../common/outbox/outbox.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import type { RichTextRoot } from '@qufox/shared-types';
 import { cursorFor, decodeCursor } from './cursor/cursor';
-import { extractMentions } from './mentions/mention-extractor';
+import {
+  extractMentions,
+  resolveMentionHandles,
+  resolveMentionLabelMaps,
+} from './mentions/mention-extractor';
+import { normalizeMentions } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
 import { gateEveryoneMention, gateHereMention, type GateActorRole } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
@@ -51,6 +60,9 @@ type MessageRow = {
   // 경로에서 미선택(undefined)일 수 있어 옵셔널로 둡니다.
   contentRaw?: string | null;
   contentAst?: Prisma.JsonValue;
+  // S04 (ADR-2 / FR-MSG-19): 메시지 타입. SELECT 미선택 시 undefined →
+  // toDto 가 DEFAULT 로 폴백합니다(forward-compat).
+  type?: MessageType | null;
   mentions: Prisma.JsonValue;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -97,6 +109,9 @@ export type MessageDto = {
   // deleted 메시지는 마스킹되어 둘 다 null.
   contentRaw: string | null;
   contentAst: RichTextRoot | null;
+  // S04 (ADR-2 / FR-MSG-19): 메시지 타입. SYSTEM_* 는 시스템 행 렌더 +
+  // grouped=false + 편집/삭제 UI 숨김의 클라이언트 분기 키.
+  type: MessageType;
   mentions: MessageMentions;
   edited: boolean;
   deleted: boolean;
@@ -182,6 +197,9 @@ export class MessagesService {
       // contentRaw 정규식 폴백 렌더를 씁니다.
       contentRaw: isDeleted ? null : (row.contentRaw ?? row.content),
       contentAst: isDeleted ? null : ((row.contentAst as RichTextRoot | null) ?? null),
+      // S04: SYSTEM 메시지는 삭제돼도 type 을 유지(삭제 placeholder 분기와
+      // 무관). 기존 row(type 미선택/NULL)는 DEFAULT 폴백.
+      type: row.type ?? 'DEFAULT',
       mentions,
       edited: row.editedAt !== null,
       deleted: isDeleted,
@@ -430,6 +448,17 @@ export class MessagesService {
         );
       }
     }
+    // S04 (FR-MSG-13): 멘션 정규화 — `@username` → `@{cuid2}`. 워크스페이스
+    // 멤버로 핸들을 resolve 한 뒤, 코드 영역을 보존하며 토큰을 치환합니다.
+    // 정규화된 본문이 contentRaw/contentAst 의 단일 출처가 되어 mrkdwn 파서의
+    // mention_user 노드(S02 carryover MED-3)가 활성화됩니다. 미해결 핸들은
+    // literal 로 유지됩니다. `extractMentions` 는 핸들→userId resolve 를 자체
+    // 수행하므로 원본(`args.content`)을 그대로 받습니다.
+    const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
+    const normalizedContent = normalizeMentions(
+      args.content,
+      (h) => handleMap.get(h.toLowerCase()) ?? null,
+    );
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
@@ -466,7 +495,21 @@ export class MessagesService {
     // 한도(MESSAGE_TOO_LONG)는 contentPlain 기준이나, 컨트롤러 DTO
     // (MessageContentSchema.max(4000))가 raw 를 먼저 캡하고 plain ≤ raw 라
     // 실사용에선 DTO 가 우선 거부합니다(파이프라인 enforce 는 방어선).
-    const processed = processMrkdwn(args.content);
+    //
+    // S04: 정규화된 본문(`@{cuid2}`)을 파싱해 contentRaw/contentAst 의 단일
+    // 출처로 삼습니다. 원본 `content`(legacy 컬럼)는 `@username` 표기를
+    // 유지하므로 정규식 폴백 렌더러도 깨지지 않습니다.
+    //
+    // S04 review HIGH (FR-MSG-13): 정규화 시점에 이미 해석한 username/channel
+    // name 을 mention 노드의 label 로 박아, 라이브 렌더가 멤버 맵 도착 전에도
+    // raw cuid 가 아니라 `@username` 을 표시하게 합니다(회귀 방지).
+    const labelMaps = await resolveMentionLabelMaps(this.prisma, args.workspaceId, args.content);
+    const processed = processMrkdwn(normalizedContent, {
+      mentionLabels: {
+        user: (id) => labelMaps.users.get(id),
+        channel: (id) => labelMaps.channels.get(id),
+      },
+    });
     const contentPlain = processed.contentPlain;
 
     try {
@@ -481,7 +524,8 @@ export class MessagesService {
             // 기존 `content`/`contentPlain` 병행 유지, 신규 경로가
             // contentRaw/contentAst/contentPlainV2 를 채웁니다(스키마 무변경).
             // `version` 은 미사용(default 0) — 아래 NOTE 참조.
-            contentRaw: args.content,
+            // S04 (FR-MSG-13): contentRaw 는 정규화된 본문(`@{cuid2}`).
+            contentRaw: normalizedContent,
             contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
             contentPlainV2: contentPlain,
             // NOTE(S02): `version` 은 이 슬라이스에서 쓰지 않습니다 — 스키마
@@ -527,6 +571,13 @@ export class MessagesService {
             // for parity, contentAst is the just-parsed AST.
             contentRaw: created.contentRaw ?? created.content,
             contentAst: processed.contentAst,
+            // S04 (review NIT): carry the canonical message type so the live
+            // WS payload satisfies MessageDto at runtime. Without it the
+            // dispatcher inserts `type: undefined` into the cache (safe today
+            // because isSystemMessageType(undefined) === false, but the typed
+            // contract is violated until a REST refetch). Regular sends are
+            // always 'DEFAULT'.
+            type: created.type,
             mentions,
             createdAt: created.createdAt.toISOString(),
             // task-014-B: extra field is additive — older dispatcher
@@ -790,6 +841,80 @@ export class MessagesService {
     };
   }
 
+  // -------------------------------------------------- S04 system messages
+
+  /**
+   * S04 (FR-MSG-19 / FR-RC10) — 시스템 메시지 생성. SYSTEM_* 타입은 항상
+   * authorType=SYSTEM, contentRaw 는 서버 생성 템플릿(`renderSystemMessageTemplate`),
+   * contentAst 는 그 템플릿을 파싱한 결과입니다. 편집·삭제·멘션 알림 fan-out
+   * 은 발생하지 않습니다(독립 행 · grouped=false 강제는 클라이언트가 type 으로
+   * 분기). `actorId` 는 ADR-2 의 "시스템 메시지도 bot userId" 규약에 따라 행위
+   * 주체(가입/추방/변경 수행자)의 userId 를 authorId 로 저장합니다.
+   *
+   * 멱등성은 호출측(가입·핀·이름변경 도메인)이 책임집니다 — 시스템 메시지는
+   * idempotencyKey 없이 생성됩니다.
+   */
+  async createSystemMessage(args: {
+    workspaceId: string | null;
+    channelId: string;
+    /** 행위 주체 userId — authorId 로 저장(ADR-2: 시스템 메시지도 userId 필수). */
+    actorId: string;
+    type: Exclude<MessageType, 'DEFAULT'>;
+    /** 템플릿 변수(username / old / new / topic 등). */
+    vars: Record<string, string>;
+  }): Promise<MessageRow> {
+    const contentRaw = renderSystemMessageTemplate(args.type, args.vars);
+    const processed = processMrkdwn(contentRaw);
+    const emptyMentions: MessageMentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+    };
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.message.create({
+        data: {
+          channelId: args.channelId,
+          authorId: args.actorId,
+          authorType: 'SYSTEM',
+          type: args.type,
+          content: contentRaw,
+          contentPlain: processed.contentPlain,
+          contentRaw,
+          contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+          contentPlainV2: processed.contentPlain,
+          mentions: emptyMentions as unknown as Prisma.InputJsonValue,
+        },
+      });
+      const payload: MessageCreatedPayload = {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.actorId,
+        nonce: null,
+        message: {
+          id: created.id,
+          authorId: created.authorId,
+          content: created.content,
+          contentRaw: created.contentRaw ?? created.content,
+          contentAst: processed.contentAst,
+          // S04: SYSTEM 메시지 타입을 WS 페이로드에 실어 클라이언트 캐시가
+          // 시스템 행으로 렌더하도록 합니다(additive — 구 디스패처는 무시).
+          type: args.type,
+          mentions: emptyMentions,
+          createdAt: created.createdAt.toISOString(),
+          parentMessageId: created.parentMessageId,
+        },
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: created.id,
+        eventType: MESSAGE_CREATED,
+        payload,
+      });
+      return created as MessageRow;
+    });
+  }
+
   // ------------------------------------------------------------------ list
 
   async list(args: ListMessagesArgs): Promise<{
@@ -917,7 +1042,7 @@ export class MessagesService {
     // seq scan once replies outnumbered roots.
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain",
-             "contentRaw", "contentAst", mentions,
+             "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy"
         FROM "Message"
@@ -976,7 +1101,7 @@ export class MessagesService {
     }
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain",
-             "contentRaw", "contentAst", mentions,
+             "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy"
         FROM "Message"
@@ -1048,9 +1173,22 @@ export class MessagesService {
       gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
       args.actorRole ?? 'MEMBER',
     );
+    // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — `@username` → `@{cuid2}`.
+    const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
+    const normalizedContent = normalizeMentions(
+      args.content,
+      (h) => handleMap.get(h.toLowerCase()) ?? null,
+    );
     // S02: 편집 본문도 동일 파이프라인으로 파싱·검증. 한도 위반 시
     // DomainError(400) — 편집 트랜잭션 진입 전에 거부됩니다.
-    const processed = processMrkdwn(args.content);
+    // S04 review HIGH (FR-MSG-13): 편집 본문도 멘션 label 을 박습니다.
+    const labelMaps = await resolveMentionLabelMaps(this.prisma, args.workspaceId, args.content);
+    const processed = processMrkdwn(normalizedContent, {
+      mentionLabels: {
+        user: (id) => labelMaps.users.get(id),
+        channel: (id) => labelMaps.channels.get(id),
+      },
+    });
     const contentPlain = processed.contentPlain;
     const editedAt = new Date();
 
@@ -1064,7 +1202,8 @@ export class MessagesService {
         data: {
           content: args.content,
           contentPlain,
-          contentRaw: args.content,
+          // S04 (FR-MSG-13): contentRaw 는 정규화된 본문(`@{cuid2}`).
+          contentRaw: normalizedContent,
           contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
           contentPlainV2: contentPlain,
           mentions: mentions as unknown as Prisma.InputJsonValue,

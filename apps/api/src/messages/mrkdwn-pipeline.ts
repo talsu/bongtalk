@@ -4,6 +4,7 @@ import {
   enforceAstByteSize,
   MrkdwnParseError,
   type RichTextRoot,
+  type MentionLabelResolvers,
 } from '@qufox/shared-types';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -44,12 +45,22 @@ export interface ProcessedContent {
 }
 
 /**
+ * S04 review HIGH (FR-MSG-13) — 멘션 label resolver 옵션. 호출측(messages.service)
+ * 이 정규화 단계에서 이미 해석한 userId→username / channelId→name 매핑을
+ * 넘기면, 파싱된 contentAst 의 mention 노드에 표시명(label)이 함께 저장됩니다.
+ * 생략 시 label 없이 파싱(후방호환 — system message 등).
+ */
+export interface ProcessMrkdwnOptions {
+  mentionLabels?: MentionLabelResolvers;
+}
+
+/**
  * 원본 mrkdwn 을 파싱·검증해 저장 가능한 3분리 구조로 변환합니다. 한도
  * 위반은 DomainError 로 던집니다(전역 필터가 HTTP 매핑).
  */
-export function processMrkdwn(contentRaw: string): ProcessedContent {
+export function processMrkdwn(contentRaw: string, opts?: ProcessMrkdwnOptions): ProcessedContent {
   try {
-    const { ast, plain } = parseMrkdwn(contentRaw);
+    const { ast, plain } = parseMrkdwn(contentRaw, { mentionLabels: opts?.mentionLabels });
     // 길이는 평문 기준(FR-MSG-03). 파싱 후 검사해 AST/plain 이 일관되게
     // 도출된 값으로 판정합니다.
     enforceContentLength(plain);

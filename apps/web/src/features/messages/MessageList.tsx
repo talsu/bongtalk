@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
+import { isSystemMessageType, type MessageDto, type WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
 import {
@@ -12,6 +12,9 @@ import {
   useUpdateMessage,
 } from './useMessages';
 import { MessageItem } from './MessageItem';
+import type { MentionLookup } from './renderAst';
+import { SystemMessage } from './SystemMessage';
+import { isContinuation as computeIsContinuation } from './grouping';
 import { useToggleReaction } from '../reactions/useReactions';
 import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
 import { Scrollable } from '../../design-system/primitives';
@@ -117,6 +120,18 @@ export function MessageList({
     if (!user) return null;
     return roleById.get(user.id) ?? null;
   }, [roleById, user]);
+
+  // S04 (FR-MSG-13): mention 표시명 룩업. 서버가 `@username` 을
+  // `@{cuid2}` 로 정규화해 저장하므로 contentAst 의 mention_user 노드는
+  // userId(cuid2) 만 담습니다. 워크스페이스 멤버 맵(nameById) + DM 참가자
+  // fallback(extraNames) 으로 표시명을 다시 해석해 `@username` pill 을
+  // 그립니다. 맵에 없으면 renderAst 가 userId 로 폴백합니다.
+  const mentionLookup = useMemo<MentionLookup>(
+    () => ({
+      userName: (userId: string) => nameById.get(userId) ?? extraNames?.get(userId),
+    }),
+    [nameById, extraNames],
+  );
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -328,13 +343,32 @@ export function MessageList({
               const m = messages[vi.index];
               if (!m) return null;
               const prev = vi.index > 0 ? messages[vi.index - 1] : null;
-              const isContinuation =
-                !!prev &&
-                !prev.deleted &&
-                !m.deleted &&
-                prev.authorId === m.authorId &&
-                prev.parentMessageId === m.parentMessageId &&
-                new Date(m.createdAt).getTime() - new Date(prev.createdAt).getTime() < 5 * 60_000;
+              // S04 (FR-MSG-19): SYSTEM_* 메시지는 항상 독립 행(grouped=false)
+              // 으로 렌더하고, 직전 메시지가 시스템 행이면 현재 메시지의
+              // 그루핑을 끊습니다(±1 인접 재계산). 그루핑은 클라이언트가
+              // 계산하며 서버는 grouped 를 내려주지 않습니다. 술어는
+              // grouping.ts 단일 출처를 공유합니다.
+              const isSystem = isSystemMessageType(m.type);
+              const isContinuation = computeIsContinuation(m, prev);
+              if (isSystem) {
+                return (
+                  <div
+                    key={m.id}
+                    data-testid="message-row"
+                    data-index={vi.index}
+                    ref={virtualizer.measureElement}
+                    style={{
+                      position: 'absolute',
+                      top: 0,
+                      left: 0,
+                      width: '100%',
+                      transform: `translateY(${vi.start}px)`,
+                    }}
+                  >
+                    <SystemMessage msg={m} />
+                  </div>
+                );
+              }
               return (
                 <div
                   key={m.id}
@@ -355,6 +389,7 @@ export function MessageList({
                     isContinuation={isContinuation}
                     authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
                     authorRole={roleById.get(m.authorId) ?? null}
+                    mentions={mentionLookup}
                     viewerRole={viewerRole}
                     onEditSave={async (content) => {
                       await updMut.mutateAsync({ msgId: m.id, content });

@@ -12,11 +12,11 @@ FR-MSG-20,D01-messaging,P0,S02,done
 FR-MSG-04,D01-messaging,P0,S03,done
 FR-MSG-05,D01-messaging,P0,S03,done
 FR-MSG-21,D01-messaging,P0,S03,done
-FR-MSG-02,D01-messaging,P0,S04,todo
-FR-MSG-13,D01-messaging,P0,S04,todo
-FR-MSG-19,D01-messaging,P1,S04,todo
-FR-RC10,D16-richcontent,P0,S04,todo
-FR-RC13,D16-richcontent,P1,S04,todo
+FR-MSG-02,D01-messaging,P0,S04,done
+FR-MSG-13,D01-messaging,P0,S04,done
+FR-MSG-19,D01-messaging,P1,S04,done
+FR-RC10,D16-richcontent,P0,S04,done
+FR-RC13,D16-richcontent,P1,S04,done
 FR-MSG-06,D01-messaging,P0,S05,todo
 FR-MSG-07,D01-messaging,P0,S05,todo
 FR-MSG-09,D01-messaging,P0,S05,todo

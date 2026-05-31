@@ -30,15 +30,35 @@ export const TextNodeSchema = z.object({
 });
 export type TextNode = z.infer<typeof TextNodeSchema>;
 
+/**
+ * S04 review HIGH (FR-MSG-13) — 멘션 표시명(label) additive 필드.
+ *
+ * 멘션 정규화는 `@username` 을 안정 식별자 `@{cuid2}` 토큰으로 저장하므로
+ * (mention-normalizer), AST 의 mention 노드는 cuid 만 담아 왔습니다. 라이브
+ * 렌더에서 워크스페이스 멤버 맵이 아직 도착하지 않으면 렌더러가 raw cuid
+ * (`@clh3z…`)를 그대로 표시하는 회귀가 있었습니다. 서버가 정규화 시점에
+ * 이미 해석한 username/channel name 을 노드에 함께 박아두면, 렌더러가 멤버
+ * 맵 없이도 `@alice` 를 그릴 수 있습니다.
+ *
+ * additive · 후방호환:
+ *   - nullable + optional 이라 label 없는 구(legacy) AST 도 그대로 통과합니다.
+ *   - 길이 한도는 username(2-32)·channel name 보다 넉넉한 100 으로 둡니다.
+ *   - userId/channelId 가 단일 신뢰 출처로 남고, label 은 표시 캐시일 뿐입니다
+ *     (렌더러는 label 없으면 룩업 맵 → id 폴백 순서로 동작).
+ */
 export const MentionUserNodeSchema = z.object({
   type: z.literal('mention_user'),
   userId: Cuid2Schema,
+  /** 정규화 시점에 해석한 username. 표시 전용 캐시 — 없으면 룩업/ id 폴백. */
+  label: z.string().min(1).max(100).nullable().optional(),
 });
 export type MentionUserNode = z.infer<typeof MentionUserNodeSchema>;
 
 export const MentionChannelNodeSchema = z.object({
   type: z.literal('mention_channel'),
   channelId: Cuid2Schema,
+  /** 정규화 시점에 해석한 channel name. 표시 전용 캐시 — 없으면 룩업/ id 폴백. */
+  label: z.string().min(1).max(100).nullable().optional(),
 });
 export type MentionChannelNode = z.infer<typeof MentionChannelNodeSchema>;
 
