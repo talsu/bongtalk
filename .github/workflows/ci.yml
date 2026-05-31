@@ -20,5 +20,14 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter @qufox/api exec prisma generate
       - run: pnpm verify
+      # S04 build gate: `pnpm verify` only runs lint/typecheck/unit/contract,
+      # so a deep-import or other rollup-resolution failure (e.g. highlight.js
+      # subpaths) only surfaced at Docker deploy time. Run the production vite
+      # build here so PR/push catches it before the develop→main→deploy path.
+      - name: production build gate (web rollup + api swc)
+        run: |
+          pnpm --filter @qufox/shared-types build
+          pnpm --filter @qufox/web build
+          pnpm --filter @qufox/api build
       - name: pnpm audit (prod, high+)
         run: pnpm audit --prod --audit-level=high || true
