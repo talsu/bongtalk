@@ -1,6 +1,11 @@
 import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
-import { isSystemMessageType, type MessageDto, type WorkspaceRole } from '@qufox/shared-types';
+import {
+  isSystemMessageType,
+  type Channel,
+  type MessageDto,
+  type WorkspaceRole,
+} from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
 import {
@@ -15,6 +20,8 @@ import { MessageItem } from './MessageItem';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
+import { formatDayDivider, isSameLocalDay, localDayKey } from './formatMessageTime';
+import { useChannelList } from '../channels/useChannels';
 import { useToggleReaction } from '../reactions/useReactions';
 import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
 import { Scrollable } from '../../design-system/primitives';
@@ -77,6 +84,9 @@ export function MessageList({
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
+  // S06 (FR-MSG-22): 빈 채널 상태 보강용 채널 메타(name/type/topic/createdAt).
+  // workspaceId 가 null(DM)이면 hook 이 비활성(enabled:false)이라 undefined.
+  const { data: channelList } = useChannelList(workspaceId ?? undefined);
   const history = useMessageHistory(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
@@ -132,6 +142,18 @@ export function MessageList({
     }),
     [nameById, extraNames],
   );
+
+  // S06 (FR-MSG-22): 현재 채널 메타를 채널 목록에서 찾습니다. 카테고리화된
+  // 채널 + uncategorized 를 모두 훑어 id 매칭. 못 찾거나 DM 이면 undefined →
+  // 빈 상태가 generic 카피로 폴백합니다.
+  const channelMeta = useMemo(() => {
+    if (!channelList) return undefined;
+    const all = [
+      ...channelList.categories.flatMap((c) => c.channels),
+      ...channelList.uncategorized,
+    ];
+    return all.find((c) => c.id === channelId);
+  }, [channelList, channelId]);
 
   const virtualizer = useVirtualizer({
     count: messages.length,
@@ -310,26 +332,7 @@ export function MessageList({
           </div>
         ) : null}
         {messages.length === 0 ? (
-          <div className="qf-empty" data-testid="channel-empty">
-            <div className="qf-empty__title">채널이 한산하네요</div>
-            <div className="qf-empty__body">
-              아래에서 첫 메시지를 보내 대화를 시작하세요. <kbd className="qf-menu__kbd">Enter</kbd>{' '}
-              로 전송할 수 있습니다.
-            </div>
-            <button
-              type="button"
-              data-testid="channel-empty-cta"
-              className="qf-btn qf-btn--primary"
-              onClick={() => {
-                // task-047 iter5 (O1): CTA — composer 에 포커스. composer
-                // 가 channel 헤더 아래 mounted 라 composer-focus event 로
-                // dispatch (search 와 동일 패턴).
-                window.dispatchEvent(new CustomEvent('qufox.composer.focus'));
-              }}
-            >
-              첫 메시지 작성하기
-            </button>
-          </div>
+          <ChannelEmptyState channel={channelMeta} />
         ) : (
           <div
             data-testid="virtual-list-inner"
@@ -343,6 +346,12 @@ export function MessageList({
               const m = messages[vi.index];
               if (!m) return null;
               const prev = vi.index > 0 ? messages[vi.index - 1] : null;
+              // S06 (FR-MSG-11): 이전 메시지와 로컬 달력 일이 바뀌는 지점마다
+              // 날짜 구분선을 행 안에 prepend 합니다. 첫 메시지(prev 없음)
+              // 위에도 그 날짜의 구분선을 둡니다. 가상화 행 안에 두어
+              // measureElement 가 divider 높이까지 함께 측정하게 합니다.
+              const showDayDivider = !prev || !isSameLocalDay(m.createdAt, prev.createdAt);
+              const dayDivider = showDayDivider ? <DayDivider iso={m.createdAt} /> : null;
               // S04 (FR-MSG-19): SYSTEM_* 메시지는 항상 독립 행(grouped=false)
               // 으로 렌더하고, 직전 메시지가 시스템 행이면 현재 메시지의
               // 그루핑을 끊습니다(±1 인접 재계산). 그루핑은 클라이언트가
@@ -365,6 +374,7 @@ export function MessageList({
                       transform: `translateY(${vi.start}px)`,
                     }}
                   >
+                    {dayDivider}
                     <SystemMessage msg={m} />
                   </div>
                 );
@@ -383,6 +393,7 @@ export function MessageList({
                     transform: `translateY(${vi.start}px)`,
                   }}
                 >
+                  {dayDivider}
                   <MessageItem
                     msg={m}
                     isMine={m.authorId === user?.id}
@@ -445,5 +456,109 @@ export function MessageList({
         )}
       </Scrollable>
     </CustomEmojiProvider>
+  );
+}
+
+/**
+ * S06 (FR-MSG-22) — 빈 채널 상태 보강.
+ *
+ * 기존 generic 카피 대신 채널명·생성일·채널 타입별 안내를 보여 줍니다. DS 정본
+ * `.qf-empty` / `.qf-empty__title` / `.qf-empty__body` 를 그대로 사용합니다
+ * (FR 명칭 `qf-channel-empty-state` 는 DS 미존재 → DS 의 `.qf-empty` 채택).
+ *
+ * Channel DTO 에는 name/type/topic/createdAt 만 있고 createdBy(생성자)·
+ * description 필드가 없어, 생성자 표기는 생략하고 설명은 topic 으로 대체합니다.
+ * 채널 메타를 못 찾거나(DM·로딩 중) channel 이 undefined 면 generic 으로 폴백.
+ */
+function ChannelEmptyState({ channel }: { channel: Channel | undefined }): JSX.Element {
+  const focusComposer = (): void => {
+    // task-047 iter5 (O1): CTA — composer 에 포커스. composer 가 channel 헤더
+    // 아래 mounted 라 composer-focus event 로 dispatch(search 와 동일 패턴).
+    window.dispatchEvent(new CustomEvent('qufox.composer.focus'));
+  };
+
+  if (!channel) {
+    // DM / 로딩 중 / 미발견 → 기존 generic 카피 유지(회귀 방지).
+    return (
+      <div className="qf-empty" data-testid="channel-empty">
+        <h2 className="qf-empty__title m-0">채널이 한산하네요</h2>
+        <div className="qf-empty__body">
+          아래에서 첫 메시지를 보내 대화를 시작하세요. <kbd className="qf-menu__kbd">Enter</kbd> 로
+          전송할 수 있습니다.
+        </div>
+        <button
+          type="button"
+          data-testid="channel-empty-cta"
+          className="qf-btn qf-btn--primary"
+          onClick={focusComposer}
+        >
+          첫 메시지 작성하기
+        </button>
+      </div>
+    );
+  }
+
+  const isAnnouncement = channel.type === 'ANNOUNCEMENT';
+  return (
+    <div className="qf-empty" data-testid="channel-empty">
+      <h2 className="qf-empty__title m-0" data-testid="channel-empty-title">
+        #{channel.name} 채널에 오신 것을 환영합니다
+      </h2>
+      <div className="qf-empty__body">
+        {isAnnouncement
+          ? '공지 채널입니다. 중요한 소식을 이곳에 게시해 멤버에게 전달하세요.'
+          : `#${channel.name} 채널의 시작이에요. 아래에서 첫 메시지를 보내 대화를 시작하세요.`}
+        {channel.topic ? (
+          <p
+            className="mb-0 mt-[var(--s-3)] text-[length:var(--fs-13)]"
+            data-testid="channel-empty-topic"
+          >
+            {channel.topic}
+          </p>
+        ) : null}
+        <p className="mb-0 mt-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted">
+          <time dateTime={localDayKey(channel.createdAt)}>
+            {formatDayDivider(channel.createdAt)}
+          </time>
+          에 생성됨
+        </p>
+      </div>
+      <button
+        type="button"
+        data-testid="channel-empty-cta"
+        className="qf-btn qf-btn--primary"
+        onClick={focusComposer}
+      >
+        첫 메시지 작성하기
+      </button>
+    </div>
+  );
+}
+
+/**
+ * S06 (FR-MSG-11) — 채널 날짜 구분선. DS 4 파일에는 채널용 day-divider 전용
+ * 클래스가 없고(`.qf-thread-divider` 는 thread 패널 전용) 이므로, DS 토큰
+ * (--divider / --fs-11 / --s-4)을 Tailwind arbitrary 로만 사용해 구성합니다
+ * (raw hex/px 금지). 가운데 라벨('YYYY년 MM월 DD일') + 양옆 1px 선.
+ */
+function DayDivider({ iso }: { iso: string }): JSX.Element {
+  return (
+    <div
+      role="separator"
+      // a11y(S06 review): separator 가 텍스트 자식을 건너뛰어도 날짜 전환을
+      // 읽도록 컨테이너에 aria-label, 라벨은 기계 판독 가능한 <time> 으로.
+      aria-label={formatDayDivider(iso)}
+      data-testid={`day-divider-${localDayKey(iso)}`}
+      className="flex items-center gap-[var(--s-3)] px-[var(--s-7)] py-[var(--s-4)]"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--divider)]" />
+      <time
+        dateTime={localDayKey(iso)}
+        className="text-[length:var(--fs-11)] font-medium text-text-muted"
+      >
+        {formatDayDivider(iso)}
+      </time>
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--divider)]" />
+    </div>
   );
 }

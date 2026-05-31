@@ -18,6 +18,8 @@ import { renderMessageContent, extractMessageUrls } from './parseContent';
 import { renderAst, type MentionLookup } from './renderAst';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 import { LinkPreview } from './LinkPreview';
+import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
+import { isJumboEmoji } from './jumboEmoji';
 
 type Props = {
   msg: MessageDto;
@@ -131,6 +133,15 @@ export function MessageItem({
   // collapse them. The same layout grid keeps the body/toolbar
   // columns aligned across both variants.
   const isHead = !isContinuation;
+  // S06 (FR-MSG-12): head 행 시각 라벨 + hover tooltip(ISO 전체). clock24h
+  // 설정 wiring 은 D14(S73~S77) 후속이라 현재는 기본값(24h)을 사용합니다.
+  const headTimeLabel = formatMessageTime(msg.createdAt, new Date());
+  const isoTooltip = formatMessageTimeISO(msg.createdAt);
+  // S06 (FR-MSG-10): continuation 행 hover gutter 에 표시할 HH:MM(24h) 시각.
+  const gutterTime = formatClockPart(new Date(msg.createdAt), true);
+  // S06 (FR-RC15, P2): 이모지 1~3개로만 구성된 본문은 32px 로 확대. AST 없는
+  // legacy(content 평문) 행은 판정 불가 → 기본 크기(과확대 회피).
+  const jumbo = isJumboEmoji(msg.contentAst);
   const attachments: AttachmentLite[] = (msg.attachments ?? []) as AttachmentLite[];
   const messageUrl =
     typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
@@ -173,7 +184,21 @@ export function MessageItem({
           // `.qf-message--cont .qf-message__avatar { visibility: hidden;
           // height: 0 }` hides it visually while preserving column width —
           // the body then lines up with head rows exactly.
-          <span className="qf-avatar qf-avatar--md qf-message__avatar" aria-hidden="true" />
+          //
+          // S06 (FR-MSG-10): DS `.qf-message__gutter-time` 는 avatar 칼럼에
+          // 자리하며 평소 opacity:0, 행 hover 시 opacity:1 로 HH:MM 을 노출합니다.
+          // ghost avatar 와 함께 같은 grid-column 1 에 두어 head 행과 정렬됩니다.
+          <>
+            <span className="qf-avatar qf-avatar--md qf-message__avatar" aria-hidden="true" />
+            <time
+              className="qf-message__gutter-time"
+              dateTime={msg.createdAt}
+              title={isoTooltip}
+              data-testid={`msg-gutter-time-${msg.id}`}
+            >
+              {gutterTime}
+            </time>
+          </>
         )}
         <div className="min-w-0">
           {isHead ? (
@@ -184,8 +209,8 @@ export function MessageItem({
                   {badge}
                 </span>
               ) : null}
-              <time className="qf-message__time">
-                {new Date(msg.createdAt).toLocaleTimeString()}
+              <time className="qf-message__time" dateTime={msg.createdAt} title={isoTooltip}>
+                {headTimeLabel}
               </time>
               {msg.edited ? (
                 // S05 (FR-MSG-07): (edited) 뱃지 + hover tooltip(편집 시각).
@@ -280,7 +305,16 @@ export function MessageItem({
               </button>
             </div>
           ) : (
-            <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
+            <div
+              data-testid={`msg-content-${msg.id}`}
+              data-jumbo={jumbo ? 'true' : undefined}
+              className={cn(
+                'qf-message__body',
+                // S06 (FR-RC15): 이모지 1~3개 본문은 32px 확대. DS 토큰 alias
+                // (--fs-32 / --lh-tight) 를 Tailwind arbitrary 로만 사용(raw px 금지).
+                jumbo && 'text-[length:var(--fs-32)] leading-[var(--lh-tight)]',
+              )}
+            >
               {/* S02: 서버가 contentAst 를 채운 신규 메시지는 ReDoS-안전 AST
                  렌더 경로(renderAst — 선형, 한도 enforce 통과한 트리)를 사용.
                  contentAst 가 없는 legacy row 는 기존 정규식 렌더로 폴백. */}

@@ -56,6 +56,25 @@ describe('isContinuation (FR-MSG-10)', () => {
     const a = msg({ authorId: 'u1', createdAt: '2025-01-01T00:00:00.000Z' });
     expect(isContinuation(a, null)).toBe(false);
   });
+
+  // S06 (FR-MSG-11): 로컬 자정 경계를 넘는 인접 메시지는 5분 윈도우 안이라도
+  // 그룹을 강제 분리합니다. 타임존 의존을 피하려 로컬 시각 생성자로 픽스처를
+  // 만듭니다(어제 23:59 ↔ 오늘 00:01, 시차 2분이지만 달력 일이 다름).
+  it('breaks group across a local-day boundary even within 5 minutes', () => {
+    const beforeMidnight = new Date(2025, 0, 1, 23, 59, 0).toISOString();
+    const afterMidnight = new Date(2025, 0, 2, 0, 1, 0).toISOString();
+    const a = msg({ authorId: 'u1', createdAt: beforeMidnight });
+    const b = msg({ authorId: 'u1', createdAt: afterMidnight });
+    expect(isContinuation(b, a)).toBe(false);
+  });
+
+  it('still groups when same author within 5 minutes AND same local day', () => {
+    const t1 = new Date(2025, 0, 1, 10, 0, 0).toISOString();
+    const t2 = new Date(2025, 0, 1, 10, 2, 0).toISOString();
+    const a = msg({ authorId: 'u1', createdAt: t1 });
+    const b = msg({ authorId: 'u1', createdAt: t2 });
+    expect(isContinuation(b, a)).toBe(true);
+  });
 });
 
 describe('SYSTEM_* grouping (FR-MSG-19 — grouped=false + ±1 recompute)', () => {
