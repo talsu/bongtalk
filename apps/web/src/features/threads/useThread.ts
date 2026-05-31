@@ -61,6 +61,10 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         channelId,
         authorId: user?.id ?? 'optimistic',
         content,
+        // S02: optimistic reply 도 서버 파싱 전 — contentAst 없으면
+        // MessageItem 이 contentRaw 폴백 렌더. 서버 에코로 채워짐.
+        contentRaw: content,
+        contentAst: null,
         mentions: { users: [], channels: [], everyone: false, here: false },
         edited: false,
         deleted: false,

@@ -108,8 +108,20 @@ export const MessageCreatedPayloadSchema = z.object({
 export type MessageCreatedPayload = z.infer<typeof MessageCreatedPayloadSchema>;
 
 /**
- * message:updated — D01/ADR-12 정합. contentRaw/contentPlain/contentAst/
- * version/editedAt/mentions 를 포함합니다.
+ * message:updated — D01/ADR-12 정합 (forward-looking S00 계약).
+ * contentRaw/contentPlain/contentAst/version/editedAt/mentions 를 포함합니다.
+ *
+ * ⚠️ S02 NOTE (HIGH-S02-1): 이 평탄(flat) 스키마는 아직 라이브 와이어
+ * 포맷이 아닙니다. 현재 런타임은 outbox→ws 경로로 `message.updated`
+ * (점 표기) 이벤트를 중첩(`{ message: { id, content, contentRaw,
+ * contentAst, mentions, editedAt } }`) 페이로드로 내보냅니다 — 내부
+ * 타입은 apps/api `messages/events/message-events.ts` 의
+ * MessageUpdatedPayload 입니다. 본 스키마(`message:updated`, 콜론 표기)는
+ * WS_EVENT_PAYLOAD_SCHEMAS 의 선언적 목표 계약일 뿐 게이트웨이/클라이언트
+ * 런타임 검증에 연결돼 있지 않습니다(events.spec 단독 참조). S02 에서는
+ * 중첩 페이로드에 contentRaw/contentAst 를 추가해 라이브 렌더가 AST 경로를
+ * 타도록 했고(렌더 회귀 해소), 평탄 스키마로의 통일(messageId/version
+ * 평탄화)은 후속 슬라이스로 이관합니다. follow-up(task): 두 계약 합치기.
  */
 export const MessageUpdatedPayloadSchema = z.object({
   seq: SeqSchema,

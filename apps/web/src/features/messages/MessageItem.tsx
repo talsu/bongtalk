@@ -15,6 +15,7 @@ import { ReactionBar } from '../reactions/ReactionBar';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent, extractMessageUrls } from './parseContent';
+import { renderAst } from './renderAst';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 import { LinkPreview } from './LinkPreview';
 
@@ -247,7 +248,12 @@ export function MessageItem({
             </div>
           ) : (
             <div data-testid={`msg-content-${msg.id}`} className="qf-message__body">
-              {renderMessageContent(msg.content ?? '', customEmojis.byName)}
+              {/* S02: 서버가 contentAst 를 채운 신규 메시지는 ReDoS-안전 AST
+                 렌더 경로(renderAst — 선형, 한도 enforce 통과한 트리)를 사용.
+                 contentAst 가 없는 legacy row 는 기존 정규식 렌더로 폴백. */}
+              {msg.contentAst
+                ? renderAst(msg.contentAst, customEmojis.byName)
+                : renderMessageContent(msg.content ?? '', customEmojis.byName)}
               {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
               {/* task-045 iter6: link unfurl `.qf-embed` 카드. URL 1-3개 추출,
                  lazy-fetch via /links/preview, 메타 도착 시에만 카드 표시. */}
