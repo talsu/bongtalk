@@ -217,6 +217,11 @@ export class DirectMessagesService {
               principalId: uid,
               allowMask: DM_ALLOW_MASK,
               denyMask: 0,
+              // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
+              // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
+              // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
+              // 기준값이 되며, 멤버별로 독립적인 하한선을 가질 수 있게 한다.
+              visibleFrom: new Date(),
             },
           });
         }
@@ -295,6 +300,11 @@ export class DirectMessagesService {
               principalId: uid,
               allowMask: DM_ALLOW_MASK,
               denyMask: 0,
+              // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
+              // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
+              // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
+              // 기준값이 되며, 멤버별로 독립적인 하한선을 가질 수 있게 한다.
+              visibleFrom: new Date(),
             },
           });
         }
@@ -647,6 +657,11 @@ export class DirectMessagesService {
               principalId: uid,
               allowMask: DM_ALLOW_MASK,
               denyMask: 0,
+              // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
+              // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
+              // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
+              // 기준값이 되며, 멤버별로 독립적인 하한선을 가질 수 있게 한다.
+              visibleFrom: new Date(),
             },
           });
         }

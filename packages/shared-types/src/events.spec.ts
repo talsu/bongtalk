@@ -37,6 +37,16 @@ describe('WS_EVENTS catalog (ADR-12 / FR-RC23)', () => {
     expect(WS_EVENTS.TYPING_UPDATE).toBe('typing:update');
   });
 
+  // S17 (FR-DM-19): 차단 해제 갱신 이벤트. blocker 본인 룸으로만 fanout 하며
+  // unblockedUserId 만 싣는다(비노출 — 차단당한 쪽엔 emit 안 함).
+  it('defines user:unblocked with an unblockedUserId payload (S17 · FR-DM-19)', () => {
+    expect(WS_EVENTS.USER_UNBLOCKED).toBe('user:unblocked');
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.USER_UNBLOCKED].parse({
+      unblockedUserId: 'u1',
+    });
+    expect((p as { unblockedUserId: string }).unblockedUserId).toBe('u1');
+  });
+
   it('every event name has a payload schema and names are unique', () => {
     const names = Object.values(WS_EVENTS);
     expect(new Set(names).size).toBe(names.length);

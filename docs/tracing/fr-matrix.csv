@@ -64,11 +64,11 @@ FR-DM-01,D03-dms,P0,S16,done
 FR-DM-02,D03-dms,P0,S16,done
 FR-DM-03,D03-dms,P0,S16,done
 FR-DM-16,D03-dms,P0,S16,done
-FR-DM-13,D03-dms,P0,S17,todo
-FR-DM-17,D03-dms,P0,S17,todo
-FR-DM-18,D03-dms,P0,S17,todo
-FR-DM-19,D03-dms,P1,S17,todo
-FR-TH-19,D04-threads,P1,S17,todo
+FR-DM-13,D03-dms,P0,S17,done
+FR-DM-17,D03-dms,P0,S17,done
+FR-DM-18,D03-dms,P0,S17,done
+FR-DM-19,D03-dms,P1,S17,done
+FR-TH-19,D04-threads,P1,S17,done
 FR-MSG-14,D01-messaging,P1,S18,todo
 FR-MSG-15,D01-messaging,P1,S18,todo
 FR-RC03,D16-richcontent,P0,S18,todo

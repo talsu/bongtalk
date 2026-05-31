@@ -7,6 +7,10 @@ import { OutboxService } from '../common/outbox/outbox.service';
 
 export const FRIEND_REQUEST_RECEIVED = 'friend.request.received';
 export const FRIEND_REQUEST_ACCEPTED = 'friend.request.accepted';
+// S17 (FR-DM-19): 차단 해제. blocker(meId) 의 user:{userId} 룸으로 `user:unblocked`
+// 를 fanout 하기 위해 outbox 에 기록한다. 단수 네임스페이스(friend.) — outbox→WS
+// 구독자가 `friend.**` wildcard 로 받는다.
+export const FRIEND_UNBLOCKED = 'friend.unblocked';
 
 export type FriendsFilter = 'accepted' | 'pending_incoming' | 'pending_outgoing' | 'blocked';
 
@@ -225,7 +229,22 @@ export class FriendsService {
     if (!existing || existing.status !== 'BLOCKED' || existing.requesterId !== meId) {
       return;
     }
-    await this.prisma.friendship.delete({ where: { id: existing.id } });
+    // S17 (FR-DM-19): BLOCKED row 삭제 + 같은 commit 에 friend.unblocked 기록.
+    // outbox→WS 구독자가 blocker(meId) 룸으로 `user:unblocked { unblockedUserId }`
+    // 를 fanout 해 클라이언트가 해당 사용자 메시지의 마스킹을 풀도록 한다.
+    await this.prisma.$transaction(async (tx) => {
+      await tx.friendship.delete({ where: { id: existing.id } });
+      await this.outbox.record(tx, {
+        aggregateType: 'friendship',
+        aggregateId: existing.id,
+        eventType: FRIEND_UNBLOCKED,
+        payload: {
+          // 라우팅: blocker 본인 룸으로만 fanout(차단당한 쪽엔 비노출).
+          targetUserId: meId,
+          unblockedUserId: targetUserId,
+        },
+      });
+    });
   }
 
   async list(meId: string, filter: FriendsFilter): Promise<FriendRow[]> {
