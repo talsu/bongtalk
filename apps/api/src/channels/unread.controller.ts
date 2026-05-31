@@ -34,10 +34,13 @@ export class ChannelReadController {
   constructor(private readonly unread: UnreadService) {}
 
   /**
-   * POST /workspaces/:id/channels/:chid/read — stamp `lastReadAt = now()`
-   * for (caller, channel). Task-010-B: frontend calls this from a
-   * 500ms debounced scroll-to-bottom listener. ChannelAccessGuard
-   * scopes the channel to the caller's workspace + read-perm.
+   * @deprecated S11 (FR-RT-13): use POST .../ack with an explicit
+   * `lastReadMessageId` instead. This endpoint is retained for backward
+   * compatibility; it now marks everything up to the channel's latest
+   * message as read via the same monotonic (createdAt, id) tuple cursor
+   * (UnreadService.markRead → ackRead), so the unread formula stays
+   * consistent. ChannelAccessGuard scopes the channel to the caller's
+   * workspace + read-perm.
    */
   @Post('read')
   @HttpCode(204)

@@ -540,9 +540,21 @@ model UserChannelReadState {
   channelId       String   @db.Uuid
   // Points at an OutboxEvent.id — the last event this user has fully
   // processed client-side. Drives reconnect replay ("replay everything after
-  // X") and, later, the unread-count UI (TODO task-027).
+  // X"). PRESERVED in S11 — reconnect replay still keys off this column.
   lastReadEventId String   @db.Uuid
+  // S11 (FR-RT-14/19): legacy createdAt-only read threshold. PRESERVED so
+  // the mention-inbox proxy (me-mentions.service) keeps working. Channel
+  // unread now drives off the (createdAt, id) tuple below.
   lastReadAt      DateTime @default(now())
+  // S11 (FR-RT-19): monotonic read cursor as a sortable (createdAt, id)
+  // tuple. Message.id is a RANDOM uuid (no S00 sortable-id foundation), so
+  // a bare `id >` comparison is order-meaningless — we instead compare the
+  // (createdAt, id) tuple, matching the canonical message sort the cursor
+  // pagination already uses (messages.service). Both columns are nullable:
+  // existing rows + freshly-joined channels back-fill to NULL ⇒ "every
+  // message is unread", which is the intended UX.
+  lastReadMessageId        String?   @db.Uuid
+  lastReadMessageCreatedAt DateTime? @db.Timestamptz
   updatedAt       DateTime @updatedAt
 
   @@id([userId, channelId])
