@@ -2,10 +2,10 @@ fr_id,domain,priority,slice_id,status
 FR-MSG-23,D01-messaging,P0,S00,done
 FR-RC22,D16-richcontent,P0,S00,done
 FR-RC23,D16-richcontent,P0,S00,done
-FR-RC01,D16-richcontent,P0,S01,todo
-FR-RC02,D16-richcontent,P0,S01,todo
-FR-RC17,D16-richcontent,P1,S01,todo
-FR-RT-18,D17-realtime-sync,P0,S01,todo
+FR-RC01,D16-richcontent,P0,S01,done
+FR-RC02,D16-richcontent,P0,S01,done
+FR-RC17,D16-richcontent,P1,S01,done
+FR-RT-18,D17-realtime-sync,P0,S01,done
 FR-MSG-01,D01-messaging,P0,S02,todo
 FR-MSG-03,D01-messaging,P0,S02,todo
 FR-MSG-20,D01-messaging,P0,S02,todo
