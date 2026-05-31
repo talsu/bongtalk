@@ -1,4 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
+import { isSafeLinkUrl } from '@qufox/shared-types';
 import { apiRequest } from '../../lib/api';
 
 /**
@@ -59,13 +60,23 @@ export function LinkPreview({ url }: Props): JSX.Element | null {
   if (p.statusCode < 200 || p.statusCode >= 300) return null;
   if (!p.title && !p.description) return null;
 
+  // S02 보안(리뷰 HIGH): BE 가 ssrfGuard 통과 URL 을 돌려주지만, 렌더
+  // 측에서도 link 노드와 동일한 2차 스킴 검증을 적용합니다. `p.url` 이
+  // 비안전 스킴(또는 빈 값)이면 클릭 가능한 제목 대신 비링크 텍스트로
+  // 폴백해 XSS/open-redirect 표면을 닫습니다.
+  const titleHref = isSafeLinkUrl(p.url) ? p.url : null;
+
   return (
     <div className="qf-embed" data-testid={`link-preview-${url}`}>
       {p.siteName ? <div className="qf-embed__site">{p.siteName}</div> : null}
       {p.title ? (
-        <a className="qf-embed__title" href={p.url} target="_blank" rel="noopener noreferrer">
-          {p.title}
-        </a>
+        titleHref ? (
+          <a className="qf-embed__title" href={titleHref} target="_blank" rel="noopener noreferrer">
+            {p.title}
+          </a>
+        ) : (
+          <div className="qf-embed__title">{p.title}</div>
+        )
       ) : null}
       {p.description ? <div className="qf-embed__desc">{p.description}</div> : null}
     </div>

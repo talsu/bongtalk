@@ -105,6 +105,12 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         channelId,
         authorId: user?.id ?? 'optimistic',
         content,
+        // S02: optimistic 메시지는 아직 서버 파싱 전이라 contentAst 가 없음.
+        // MessageItem 이 contentAst 부재 시 contentRaw/content 정규식 렌더로
+        // 폴백하므로 pending 상태에서도 본문이 보입니다. 서버 에코로 교체될
+        // 때 contentAst 가 채워집니다.
+        contentRaw: content,
+        contentAst: null,
         mentions: { users: [], channels: [], everyone: false, here: false },
         edited: false,
         deleted: false,

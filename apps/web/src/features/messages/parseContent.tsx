@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { MRKDWN_PARSE_LIMITS } from '@qufox/shared-types';
 import type { CustomEmoji } from '../emojis/api';
 
 /**
@@ -29,17 +30,27 @@ export function renderMessageContent(
 ): ReactNode[] {
   if (!content) return [];
 
+  // S02 (carryover S00 / FR-MSG-23): legacy 폴백 경로의 ReDoS 하드 가드.
+  // 이 함수는 contentAst 가 없는 구 메시지에만 쓰이며(신규는 renderAst AST
+  // 경로), 그래도 fencePattern 의 백트래킹 worst-case 를 막기 위해 입력을
+  // MAX_PLAIN_LENGTH(4,000자)로 자릅니다. 서버가 이미 4,000자를 enforce
+  // 하므로 정상 데이터는 영향받지 않습니다.
+  const bounded =
+    content.length > MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH
+      ? content.slice(0, MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH)
+      : content;
+
   // Split on fenced code first so inline rules don't run inside blocks.
   const fencePattern = /```([a-zA-Z0-9_+-]*)\n?([\s\S]*?)```/g;
   const out: ReactNode[] = [];
   let lastIndex = 0;
   let key = 0;
   let match: RegExpExecArray | null;
-  while ((match = fencePattern.exec(content)) !== null) {
+  while ((match = fencePattern.exec(bounded)) !== null) {
     if (match.index > lastIndex) {
       out.push(
         ...renderQuotedSegments(
-          content.slice(lastIndex, match.index),
+          bounded.slice(lastIndex, match.index),
           `pre-${key++}`,
           customEmojis,
         ),
@@ -55,8 +66,8 @@ export function renderMessageContent(
     );
     lastIndex = match.index + match[0].length;
   }
-  if (lastIndex < content.length) {
-    out.push(...renderQuotedSegments(content.slice(lastIndex), `tail-${key++}`, customEmojis));
+  if (lastIndex < bounded.length) {
+    out.push(...renderQuotedSegments(bounded.slice(lastIndex), `tail-${key++}`, customEmojis));
   }
   return out;
 }
@@ -136,9 +147,19 @@ export const LINK_PREVIEW_CAP_PER_MESSAGE = 3;
 
 export function extractMessageUrls(content: string): string[] {
   if (!content) return [];
+  // S02 보안(리뷰 HIGH): 이 함수는 contentAst 유무와 무관하게
+  // MessageItem 에서 항상 `msg.content` 로 호출됩니다. FENCE_RE/INLINE_CODE_RE
+  // 는 renderMessageContent 와 달리 입력 바운딩이 없었으므로, AST 경로와
+  // 동일하게 MAX_PLAIN_LENGTH(4,000자)로 먼저 잘라 lazy-quantifier
+  // 백트래킹 worst-case 를 차단합니다. 서버가 4,000자를 enforce 하므로
+  // 정상 데이터는 영향 없음.
+  const bounded =
+    content.length > MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH
+      ? content.slice(0, MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH)
+      : content;
   // fenced 와 inline code 영역을 zero 로 마스킹 — 그 안의 URL 은
   // 미리보기 카드 트리거 안 함. quote prefix 도 강조 무관.
-  const masked = content
+  const masked = bounded
     .replace(FENCE_RE, (m) => ' '.repeat(m.length))
     .replace(INLINE_CODE_RE, (m) => ' '.repeat(m.length))
     .split('\n')

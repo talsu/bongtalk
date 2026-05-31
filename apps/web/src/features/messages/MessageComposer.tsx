@@ -14,6 +14,7 @@ import { EmojiPicker } from '../reactions/EmojiPicker';
 import { useCustomEmojis } from '../emojis/useCustomEmojis';
 import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
 import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
+import { computeCounter } from './composerCounter';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -141,7 +142,13 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
     lastPingRef.current = 0;
   };
 
+  // S02 (FR-MSG-03 / FR-RC17): 실시간 글자수 카운터 상태. 4,000자 초과 시
+  // 전송 차단 + danger 색상.
+  const counter = computeCounter(draft);
+
   const submit = (): void => {
+    // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
+    if (counter.overLimit) return;
     const trimmed = draft.trim();
     if (!trimmed && pending.length === 0) return;
     send(trimmed || ' ', pending.length > 0 ? pending.map((p) => p.id) : undefined);
@@ -404,7 +411,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
                 submit();
               }
             }}
-            maxLength={4000}
+            aria-invalid={counter.overLimit}
             placeholder={`# ${channelName} 에 메시지…`}
             className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
@@ -437,6 +444,30 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
             />
           ) : null}
         </div>
+        {/* S02 (FR-MSG-03 / FR-RC17): 실시간 글자수 카운터. 경고 구간부터
+            노출, 초과 시 danger 색상. 색상은 DS 토큰 alias 만 사용. */}
+        {counter.shouldShow ? (
+          <div
+            data-testid="composer-char-counter"
+            data-over-limit={counter.overLimit ? 'true' : 'false'}
+            aria-live="polite"
+            className={cn(
+              'mt-[var(--s-1)] text-right text-[length:var(--fs-11)]',
+              counter.overLimit ? 'text-danger' : 'text-text-muted',
+            )}
+          >
+            {counter.remaining}
+          </div>
+        ) : null}
+        {counter.overLimit ? (
+          <p
+            data-testid="composer-too-long-warning"
+            role="alert"
+            className="mt-[var(--s-1)] text-right text-[length:var(--fs-11)] text-danger"
+          >
+            메시지가 너무 깁니다. 4,000자 이하로 줄여 주세요.
+          </p>
+        ) : null}
         {/* Hidden submit so the form's onSubmit fires on Enter. No
             visible send button per the DS composer sample. */}
         <button
@@ -447,6 +478,7 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
           disabled={
             mutation.isPending ||
             uploading > 0 ||
+            counter.overLimit ||
             (draft.trim().length === 0 && pending.length === 0)
           }
         />
