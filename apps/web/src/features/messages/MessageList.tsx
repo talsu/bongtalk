@@ -31,6 +31,7 @@ import {
   isNearBottom,
   type AnchorSnapshot,
 } from './messageAnchor';
+import { useChannelLru } from '../realtime/channelLru';
 
 type Props = {
   /** null for Global DM channels (no host workspace). */
@@ -87,6 +88,10 @@ export function MessageList({
   // S06 (FR-MSG-22): 빈 채널 상태 보강용 채널 메타(name/type/topic/createdAt).
   // workspaceId 가 null(DM)이면 hook 이 비활성(enabled:false)이라 undefined.
   const { data: channelList } = useChannelList(workspaceId ?? undefined);
+  // S09 (FR-RT-22): 채널 진입(전환)을 LRU 에 기록하고, 상한 초과 채널의
+  // 메시지 목록 캐시를 evict 합니다. useMessageHistory 보다 먼저 호출해
+  // evict 신호(pendingAround)가 초기 로드 시점에 반영되도록 합니다.
+  useChannelLru(workspaceId, channelId);
   const history = useMessageHistory(workspaceId, channelId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
