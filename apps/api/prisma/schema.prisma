@@ -32,6 +32,21 @@ enum AuthorType {
   SYSTEM
 }
 
+// S04 (ADR-2 / FR-MSG-19 / FR-RC10) — MessageType 단일 카노니컬 정의.
+// 값 집합은 packages/shared-types/src/message-type.ts 와 1:1 동기화됩니다.
+// SYSTEM_* 는 authorType=SYSTEM, grouped=false 강제, 편집·삭제 UI 미표시.
+enum MessageType {
+  DEFAULT
+  SYSTEM_MEMBER_JOINED
+  SYSTEM_MEMBER_LEFT
+  SYSTEM_MEMBER_BANNED
+  SYSTEM_PIN
+  SYSTEM_CHANNEL_RENAME
+  SYSTEM_CHANNEL_TOPIC_CHANGED
+  SYSTEM_CHANNEL_ARCHIVED
+  SYSTEM_THREAD_BROADCAST
+}
+
 model OutboxEvent {
   id            String    @id @default(uuid()) @db.Uuid
   aggregateType String
@@ -394,6 +409,9 @@ model Message {
   seq         BigInt?
   // authorType : USER | BOT | SYSTEM. default USER 라 기존 row 안전(ADR-2).
   authorType  AuthorType @default(USER)
+  // S04 (ADR-2 / FR-MSG-19): 메시지 타입. default DEFAULT 라 기존 row 안전
+  // (additive + reversible). SYSTEM_* 는 시스템 행 렌더 + grouped=false 강제.
+  type        MessageType @default(DEFAULT)
 
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User              @relation(fields: [authorId], references: [id])

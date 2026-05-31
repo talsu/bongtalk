@@ -15,7 +15,7 @@ import { ReactionBar } from '../reactions/ReactionBar';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent, extractMessageUrls } from './parseContent';
-import { renderAst } from './renderAst';
+import { renderAst, type MentionLookup } from './renderAst';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 import { LinkPreview } from './LinkPreview';
 
@@ -30,6 +30,13 @@ type Props = {
   isContinuation?: boolean;
   authorName?: string;
   authorRole?: WorkspaceRole | null;
+  /**
+   * S04 (FR-MSG-13): userId→handle 해석 룩업. 서버가 `@username` 을
+   * `@{cuid2}` 로 정규화해 저장하므로 contentAst 의 mention_user 노드는
+   * userId 만 담습니다. 이 룩업으로 다시 표시명 pill 을 그립니다. 미전달
+   * 시 userId 폴백.
+   */
+  mentions?: MentionLookup;
   /**
    * task-045 iter1: viewer (현재 로그인 사용자) 의 워크스페이스 role.
    * `OWNER` / `ADMIN` 만 Pin/Unpin 메뉴 노출. DM 채널은 wsId 가 없어
@@ -60,6 +67,7 @@ export function MessageItem({
   isContinuation,
   authorName,
   authorRole,
+  mentions,
   viewerRole,
   onEditSave,
   onDelete,
@@ -270,7 +278,7 @@ export function MessageItem({
                  렌더 경로(renderAst — 선형, 한도 enforce 통과한 트리)를 사용.
                  contentAst 가 없는 legacy row 는 기존 정규식 렌더로 폴백. */}
               {msg.contentAst
-                ? renderAst(msg.contentAst, customEmojis.byName)
+                ? renderAst(msg.contentAst, customEmojis.byName, mentions)
                 : renderMessageContent(msg.content ?? '', customEmojis.byName)}
               {/* S03 (FR-MSG-05): failed optimistic send — keep the bubble
                  visible with a "다시 시도" control that re-fires the SAME

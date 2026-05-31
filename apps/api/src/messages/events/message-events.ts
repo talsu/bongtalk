@@ -38,6 +38,10 @@ export type MessageCreatedPayload = {
     // here to keep this events module free of the shared-types import.
     contentRaw: string;
     contentAst: unknown;
+    // S04 (FR-MSG-19): 메시지 타입. SYSTEM_* 만 명시(DEFAULT 는 생략 가능 →
+    // 디스패처가 누락 시 'DEFAULT' 로 폴백). 클라이언트 캐시가 시스템 행
+    // 렌더 + grouped=false 분기에 사용. Additive — 구 디스패처는 무시.
+    type?: string;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     createdAt: string;

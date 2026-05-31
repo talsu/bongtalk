@@ -7,6 +7,27 @@ import {
   type TextNode,
 } from '@qufox/shared-types';
 import type { CustomEmoji } from '../emojis/api';
+import { CodeBlock } from './CodeBlock';
+
+/**
+ * S04 (FR-MSG-13) — mention 표시명 해석 룩업.
+ *
+ * 서버는 `@username` 을 `@{cuid2}` 토큰으로 정규화해 저장하므로 AST 의
+ * `mention_user` 노드는 안정적인 userId(cuid2) 를 담습니다. review HIGH
+ * 수정으로 서버가 정규화 시점에 해석한 username/channel name 을 노드에
+ * `label` 로 함께 박아 두므로, 렌더러는 우선 그 label 을 씁니다. label 이
+ * 없는 구(legacy) AST 는 본 룩업(워크스페이스 멤버 맵 userId→handle)으로
+ * 표시명을 해석하고, 그래도 없으면 userId 로 폴백합니다(절대 빈 pill 금지).
+ * channel 도 동일한 label→룩업→id 폴백 전략을 씁니다.
+ */
+export type MentionLookup = {
+  /** userId(cuid2) → 표시명. 없으면 userId 폴백. */
+  userName?: (userId: string) => string | undefined;
+  /** channelId → 채널명. 없으면 channelId 폴백. */
+  channelName?: (channelId: string) => string | undefined;
+  /** roleId → 역할명. 없으면 roleId 폴백. */
+  roleName?: (roleId: string) => string | undefined;
+};
 
 /**
  * S02 — contentAst(rich_text AST) 렌더러 (FR-MSG-01 / FR-MSG-20).
@@ -32,21 +53,23 @@ import type { CustomEmoji } from '../emojis/api';
 export function renderAst(
   ast: RichTextRoot | null | undefined,
   customEmojis?: Map<string, CustomEmoji>,
+  mentions?: MentionLookup,
 ): ReactNode[] {
   if (!ast || ast.nodes.length === 0) return [];
-  return ast.nodes.map((node, i) => renderBlock(node, `b-${i}`, customEmojis));
+  return ast.nodes.map((node, i) => renderBlock(node, `b-${i}`, customEmojis, mentions));
 }
 
 function renderBlock(
   node: RichTextNode,
   key: string,
   customEmojis?: Map<string, CustomEmoji>,
+  mentions?: MentionLookup,
 ): ReactNode {
   switch (node.type) {
     case 'paragraph':
       return (
         <p key={key} className="whitespace-pre-wrap break-words">
-          {node.nodes.map((n, i) => renderInline(n, `${key}-i${i}`, customEmojis))}
+          {node.nodes.map((n, i) => renderInline(n, `${key}-i${i}`, customEmojis, mentions))}
         </p>
       );
     case 'heading': {
@@ -56,7 +79,9 @@ function renderBlock(
           : node.level === 2
             ? 'text-[length:var(--fs-17)] font-semibold'
             : 'text-[length:var(--fs-15)] font-semibold';
-      const children = node.nodes.map((n, i) => renderInline(n, `${key}-i${i}`, customEmojis));
+      const children = node.nodes.map((n, i) =>
+        renderInline(n, `${key}-i${i}`, customEmojis, mentions),
+      );
       if (node.level === 1)
         return (
           <h1 key={key} className={cls}>
@@ -78,7 +103,7 @@ function renderBlock(
     case 'subtext':
       return (
         <p key={key} className="text-[length:var(--fs-11)] text-text-muted">
-          {node.nodes.map((n, i) => renderInline(n, `${key}-i${i}`, customEmojis))}
+          {node.nodes.map((n, i) => renderInline(n, `${key}-i${i}`, customEmojis, mentions))}
         </p>
       );
     case 'blockquote':
@@ -87,20 +112,19 @@ function renderBlock(
           key={key}
           className="my-[var(--s-1)] border-l-2 border-border-subtle pl-[var(--s-3)] text-text-secondary"
         >
-          {node.nodes.map((n, i) => renderBlockOrInline(n, `${key}-c${i}`, customEmojis))}
+          {node.nodes.map((n, i) => renderBlockOrInline(n, `${key}-c${i}`, customEmojis, mentions))}
         </blockquote>
       );
     case 'code_block':
-      return (
-        <pre key={key} className="qf-codeblock">
-          {node.lang ? <span className="qf-codeblock__lang">{node.lang}</span> : null}
-          <code>{node.code}</code>
-        </pre>
-      );
+      // S04 (FR-MSG-02 / FR-RC13): 언어 지정 시 highlight.js 클라 하이라이트,
+      // 미지정/미지원이면 plain 폴백. 서버는 lang 만 보존.
+      return <CodeBlock key={key} code={node.code} lang={node.lang} />;
     case 'list': {
       const items = node.items.map((it, i) => (
         <li key={`${key}-li${i}`}>
-          {it.nodes.map((n, j) => renderBlockOrInline(n, `${key}-li${i}-c${j}`, customEmojis))}
+          {it.nodes.map((n, j) =>
+            renderBlockOrInline(n, `${key}-li${i}-c${j}`, customEmojis, mentions),
+          )}
         </li>
       ));
       return node.ordered ? (
@@ -117,7 +141,7 @@ function renderBlock(
       return <hr key={key} className="my-[var(--s-2)] border-border-subtle" />;
     default:
       // inline node appearing at block level — render inline.
-      return renderInline(node, key, customEmojis);
+      return renderInline(node, key, customEmojis, mentions);
   }
 }
 
@@ -126,6 +150,7 @@ function renderBlockOrInline(
   node: RichTextNode,
   key: string,
   customEmojis?: Map<string, CustomEmoji>,
+  mentions?: MentionLookup,
 ): ReactNode {
   const blockTypes = [
     'paragraph',
@@ -136,36 +161,64 @@ function renderBlockOrInline(
     'list',
     'divider',
   ];
-  if (blockTypes.includes(node.type)) return renderBlock(node, key, customEmojis);
-  return renderInline(node as InlineNode, key, customEmojis);
+  if (blockTypes.includes(node.type)) return renderBlock(node, key, customEmojis, mentions);
+  return renderInline(node as InlineNode, key, customEmojis, mentions);
 }
 
 function renderInline(
   node: RichTextNode,
   key: string,
   customEmojis?: Map<string, CustomEmoji>,
+  mentions?: MentionLookup,
 ): ReactNode {
   switch (node.type) {
     case 'text':
       return renderTextNode(node, key);
-    case 'mention_user':
+    case 'mention_user': {
+      // FR-MSG-13 (review HIGH): 정규화로 저장된 @{cuid2} 를 표시명으로 해석.
+      // 우선순위: AST 노드에 박힌 label(서버가 정규화 시점에 해석한 username)
+      // → 런타임 룩업(워크스페이스 멤버 맵) → userId 폴백. label 이 있으면
+      // 멤버 맵이 아직 도착하지 않아도 raw cuid 가 아니라 @username 을 그려
+      // 라이브 렌더 회귀를 막습니다. 어떤 경우에도 빈 pill 은 금지합니다.
+      const handle = node.label ?? mentions?.userName?.(node.userId) ?? node.userId;
       return (
-        <span key={key} className="qf-mention" data-user-id={node.userId}>
-          @{node.userId}
+        <span
+          key={key}
+          className="qf-mention"
+          data-user-id={node.userId}
+          aria-label={`멘션: @${handle}`}
+        >
+          @{handle}
         </span>
       );
-    case 'mention_channel':
+    }
+    case 'mention_channel': {
+      // 동일 우선순위: 노드 label → 런타임 룩업 → channelId 폴백.
+      const name = node.label ?? mentions?.channelName?.(node.channelId) ?? node.channelId;
       return (
-        <span key={key} className="qf-mention" data-channel-id={node.channelId}>
-          #{node.channelId}
+        <span
+          key={key}
+          className="qf-mention"
+          data-channel-id={node.channelId}
+          aria-label={`채널: #${name}`}
+        >
+          #{name}
         </span>
       );
-    case 'mention_role':
+    }
+    case 'mention_role': {
+      const name = mentions?.roleName?.(node.roleId) ?? node.roleId;
       return (
-        <span key={key} className="qf-mention" data-role-id={node.roleId}>
-          @{node.roleId}
+        <span
+          key={key}
+          className="qf-mention"
+          data-role-id={node.roleId}
+          aria-label={`역할: @${name}`}
+        >
+          @{name}
         </span>
       );
+    }
     case 'emoji': {
       const ce = customEmojis?.get(node.name);
       if (ce) {

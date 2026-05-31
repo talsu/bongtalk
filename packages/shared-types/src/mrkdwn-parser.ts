@@ -55,6 +55,46 @@ export interface ParsedMrkdwn {
 }
 
 /**
+ * S04 review HIGH (FR-MSG-13) — 멘션 표시명(label) 주입.
+ *
+ * 파서는 `@{cuid2}` / `<#cuid2>` 토큰을 mention 노드로 변환할 때, 호출측이
+ * 제공한 resolver 로 표시명을 함께 박아 둡니다. 서버(messages.service)는
+ * 정규화 단계에서 이미 해석한 username/channel name 을 그대로 넘겨, 라이브
+ * 렌더가 멤버 맵 도착 전에도 `@alice` 를 그릴 수 있게 합니다. resolver 가
+ * undefined/null 을 반환하면 label 없이(legacy 와 동일) 노드를 만듭니다.
+ *
+ * resolver 는 순수 동기 함수입니다 — 파서가 환경 중립(no I/O)이라는 계약을
+ * 유지합니다. id→표시명 매핑은 호출측이 미리 준비합니다.
+ */
+export interface MentionLabelResolvers {
+  /** userId(cuid2) → username 표시명. 없으면 undefined/null. */
+  user?: (userId: string) => string | null | undefined;
+  /** channelId(cuid2) → channel name. 없으면 undefined/null. */
+  channel?: (channelId: string) => string | null | undefined;
+}
+
+export interface ParseMrkdwnOptions {
+  /** 멘션 노드에 박을 표시명 resolver. 생략 시 label 없이 파싱(후방호환). */
+  mentionLabels?: MentionLabelResolvers;
+}
+
+/**
+ * resolver 결과를 AST label 형태(string | undefined)로 정규화합니다. 빈
+ * 문자열/null/undefined 는 label 미설정으로 취급합니다 — 스키마가 label 을
+ * `min(1)` 으로 강제하므로 빈 문자열은 절대 박지 않습니다.
+ */
+function resolveLabel(
+  fn: ((id: string) => string | null | undefined) | undefined,
+  id: string,
+): string | undefined {
+  if (!fn) return undefined;
+  const v = fn(id);
+  if (v == null) return undefined;
+  const trimmed = v.trim();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+/**
  * FR-MSG-03 / FR-MSG-20 — contentPlain 4,000자 한도(애플리케이션 계층
  * enforce). 초과 시 MESSAGE_TOO_LONG. 길이는 코드포인트가 아니라 UTF-16
  * 길이(`String.length`)로 측정합니다 — DB TEXT 제약과 동일 기준.
@@ -105,6 +145,8 @@ function utf8ByteLength(s: string): number {
 interface ScanState {
   nodeCount: number;
   deadline: number;
+  /** S04: 멘션 label resolver(선택). 없으면 label 미설정. */
+  mentionLabels?: MentionLabelResolvers;
 }
 
 function bumpNode(state: ScanState): void {
@@ -125,10 +167,11 @@ function bumpNode(state: ScanState): void {
  * qufox mrkdwn → rich_text AST + plain projection.
  * 빈/공백 입력은 빈 root 를 반환합니다(SYSTEM 메시지·빈 본문 forward-compat).
  */
-export function parseMrkdwn(raw: string): ParsedMrkdwn {
+export function parseMrkdwn(raw: string, opts?: ParseMrkdwnOptions): ParsedMrkdwn {
   const state: ScanState = {
     nodeCount: 1, // root
     deadline: Date.now() + MRKDWN_PARSE_LIMITS.TIMEOUT_MS,
+    mentionLabels: opts?.mentionLabels,
   };
   const nodes = parseBlocks(raw, state);
   const ast: RichTextRoot = { type: 'root', nodes };
@@ -330,7 +373,14 @@ function parseInlineRun(text: string, activeMarks: TextMark[], state: ScanState)
     if (um && um.index === 0) {
       flush();
       bumpNode(state);
-      out.push({ type: 'mention_user', userId: um[1] });
+      const userId = um[1];
+      // S04 review HIGH: 정규화 시점에 해석한 username 을 label 로 캐시.
+      const label = resolveLabel(state.mentionLabels?.user, userId);
+      out.push(
+        label === undefined
+          ? { type: 'mention_user', userId }
+          : { type: 'mention_user', userId, label },
+      );
       pos += um[0].length;
       continue;
     }
@@ -341,7 +391,13 @@ function parseInlineRun(text: string, activeMarks: TextMark[], state: ScanState)
     if (cm && cm.index === 0) {
       flush();
       bumpNode(state);
-      out.push({ type: 'mention_channel', channelId: cm[1] });
+      const channelId = cm[1];
+      const label = resolveLabel(state.mentionLabels?.channel, channelId);
+      out.push(
+        label === undefined
+          ? { type: 'mention_channel', channelId }
+          : { type: 'mention_channel', channelId, label },
+      );
       pos += cm[0].length;
       continue;
     }
