@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S15 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S16(D03 DM).** D02(채널) 전체 완료.
+> **S05 검증·S06~S16 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S17(DM visibleFrom/UserBlock/around 정합).** D02(채널) 전체 완료. S16(D03 DM 개설/목록/실시간) 완료 — FR-DM-01/02/03/16 done.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -157,12 +157,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - carryover: MAJOR-1 slowmode-vs-idempotency replay(send 게이트 순서, MED), MAJOR-2 reorder 프론트/멤버수정렬, 2중스킴 심화(D12), nits.
 - 게이트: verify 19(신규 permissions unit 포함) + build 3 + channels int(s15 7 + s14 13 + member-override 8) GREEN. unread-private-acl "DENY beats ALLOW" 1실패 = **선제존재 unread-SQL ACL 버그**(내 PermissionMatrix fix 무관, S11~ carryover). 마이그레이션 reversible. fr-matrix FR-CH-06/08/12/13 done.
 
-## 다음 슬라이스: S16 (D03 DM 개설/목록/실시간)
+## ✅ S16 (D03 DM 개설/목록/실시간) — 완료
 
-- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/dms/**`.
-- 1:1/그룹 DM 개설 + 목록 조회 + dm:created 실시간 알림.
-- FR-DM-01/02/03/16. depends S12(완료),S07(완료).
-- 주의: DM 은 기존 상당 구현(`channels/direct-messages/`, global-dm, makeFriends, DM int 존재 — S05/S11 에서 DM 경로 다수 손댐). 갭만 식별. **D03 진입 carryover**: S14 /join 비공개 403→404 info-leak, S11 DM unread self-inclusion UX·DM unread 테스트, S11 read_state:updated 웹소비(D09지만 DM도). FR 정본: PRD html.
+- FR-DM-01(1:1 createOrGet, `gdm:`/`dm:` 결정적 slug + partial unique 로 중복금지, friendship ACCEPTED 매 호출 재검증), FR-DM-02(group 2-19명, 초과 422 `DM_GROUP_CAP_EXCEEDED`), FR-DM-03(목록 lastMessageAt DESC + unreadCount + preview + participants≤5, group 도 participants≤5), FR-DM-16(`dm:created` outbox `dm.**`→user room fanout + web `useDmCreated` 훅).
+- **리뷰 fix-forward**(reviewer+security+contract 3팀): BLOCKER=group DM global 경로 friendship 게이트 부재(임의 userId 강제편입 harassment) → `assertCanDm(meId,otherId)` 추출, 1:1+group 공유, 비친구/차단 동일 404+중립메시지(차단여부 비노출). HIGH=group/1:1 body class-validator DTO(UUID 검증) + `dm:created` 와이어에서 내부 `recipients` 제거(participant UUID 누출) + blocked-vs-not-friend 메시지 누출 통일. MED=group participants≤5 + docstring/주석 정정(offline replay·group-dedup).
+- 게이트: verify 19 + build 3종 + dms int 19/19(비친구 group 거부·비-UUID 400·group dedup created:false·1:1 중복금지·dm.created emit) GREEN. 마이그레이션 없음(스키마 무변경). 선제존재 int 실패는 DM 무관.
+- carryover(MED): DM rate-limit, DmListItem→shared-types 이관(D12), group true-duplicate 의미(현재 idempotent dedup), useDmCreated Shell 미배선(dormant), uid 로깅, tx 더블캐스트.
+
+## 다음 슬라이스: S17 (DM visibleFrom 필터 + UserBlock 차단/마스킹 + around 정합)
+
+- scope `apps/api/src/channels/**`(messages/DM 경계), 일부 web.
+- FR-DM-13/17/18/19, FR-TH-19. DM 메시지 visibleFrom(가입 이후만) 필터 + UserBlock 양방향 DM 차단/마스킹 + around 커서 정합.
+- 주의: S10 around-pagination slice(1) 경계 fix·S11 (createdAt,id) 튜플 cursor 위에 쌓음. UserBlock 모델 존재 여부 먼저 확인(friendship BLOCKED 와 별개일 수 있음). **D03 진입 carryover**(handoff S16 carryover 참조): /join 403→404, DM unread self-inclusion, useDmCreated Shell 배선. FR 정본: PRD html.
 - **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover).
 
 ---

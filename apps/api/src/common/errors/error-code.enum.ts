@@ -29,6 +29,10 @@ export enum ErrorCode {
   FRIEND_INVALID_STATE = 'FRIEND_INVALID_STATE',
   FRIEND_CAP_REACHED = 'FRIEND_CAP_REACHED',
 
+  // S16 (FR-DM-02): 그룹 DM 구성원 수 상한(본인 포함 ≤20) 초과. 요청 자체는
+  // 형식상 유효하지만 도메인 한도를 넘어 처리 불가 → 422 (Unprocessable Entity).
+  DM_GROUP_CAP_EXCEEDED = 'DM_GROUP_CAP_EXCEEDED',
+
   INVITE_NOT_FOUND = 'INVITE_NOT_FOUND',
   INVITE_EXPIRED = 'INVITE_EXPIRED',
   INVITE_EXHAUSTED = 'INVITE_EXHAUSTED',
@@ -141,6 +145,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.FRIEND_NOT_FOUND]: 404,
   [ErrorCode.FRIEND_INVALID_STATE]: 409,
   [ErrorCode.FRIEND_CAP_REACHED]: 422,
+  // S16 (FR-DM-02): 그룹 DM cap 초과 → 422.
+  [ErrorCode.DM_GROUP_CAP_EXCEEDED]: 422,
 
   [ErrorCode.INVITE_NOT_FOUND]: 404,
   [ErrorCode.INVITE_EXPIRED]: 410,

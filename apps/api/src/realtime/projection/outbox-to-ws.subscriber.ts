@@ -1,6 +1,7 @@
 import { Injectable, Logger, Optional } from '@nestjs/common';
 import { OnEvent } from '@nestjs/event-emitter';
 import type { Server } from 'socket.io';
+import { WS_EVENTS } from '@qufox/shared-types';
 import { RealtimeGateway } from '../realtime.gateway';
 import { rooms } from '../rooms/room-names';
 import { ReplayBufferService } from './replay-buffer.service';
@@ -141,6 +142,62 @@ export class OutboxToWsSubscriber {
   async onCategoryEvent(env: WsEnvelope): Promise<void> {
     if (!env.workspaceId) return;
     await this.emitAndBuffer('workspace', env.workspaceId, env);
+  }
+
+  /**
+   * S16 (FR-DM-16) dm.created. 새 DM·그룹 DM 개설 시 멤버 전원의 private
+   * room(user:{userId})으로 와이어 이벤트 `dm:created` 를 fanout 한다.
+   * 수신자는 아직 채널 룸에 없을 수 있으므로(목록을 막 받는 중) channel 룸이
+   * 아니라 user 룸으로 보낸다. mention.** 와 동일한 recipient 패턴이다.
+   *
+   * S16 (HIGH fix-forward): `recipients` 는 **라우팅 전용**(어느 user 룸으로
+   * 보낼지)이므로 와이어 페이로드에서 제거한다 — 그대로 emit 하면 참여자 UUID
+   * 전체가 모든 수신자에게 노출된다. emit shape 은 { id, type, occurredAt,
+   * channelId, isGroup, participantIds }.
+   *
+   * replay 스코프는 'user' 로 버퍼에 기록은 하지만, 현재 gateway 는 user-scope
+   * 버퍼를 드레인하지 않는다(channel-scope replay 만 재전송). 따라서 클라이언트는
+   * 재연결 시 이 버퍼가 아니라 REST(/me/dms·/me/dms/groups) 재조회로 새 DM 을
+   * 갱신한다. user-scope 버퍼는 향후 gateway 드레인 도입 시를 위한 선행 기록이다.
+   */
+  @OnEvent('dm.**')
+  async onDmEvent(env: WsEnvelope): Promise<void> {
+    if (!this.io) return;
+    // recipients 는 서버에서만 쓰는 라우팅 정보 — 와이어로 내보내지 않는다.
+    const recipients = (env as { recipients?: string[] }).recipients ?? [];
+    if (recipients.length === 0) return;
+    const wire = {
+      id: env.id,
+      type: WS_EVENTS.DM_CREATED,
+      occurredAt: env.occurredAt,
+      channelId: env.channelId ?? (env as { channelId?: string }).channelId,
+      isGroup: (env as { isGroup?: boolean }).isGroup ?? false,
+      participantIds: (env as { participantIds?: string[] }).participantIds ?? [],
+    };
+    for (const uid of recipients) {
+      try {
+        await this.replay.append('user', uid, {
+          id: env.id,
+          type: WS_EVENTS.DM_CREATED,
+          occurredAt: env.occurredAt,
+          payload: wire,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[realtime] dm replay append failed uid=${uid} ev=${env.id} err=${String(err).slice(0, 200)}`,
+        );
+      }
+      await withSpan(
+        'ws.emit',
+        { 'ws.event.type': WS_EVENTS.DM_CREATED, 'ws.room': rooms.user(uid) },
+        async () => {
+          this.io!.to(rooms.user(uid)).emit(WS_EVENTS.DM_CREATED, wire);
+        },
+      );
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.DM_CREATED))
+        .inc();
+    }
   }
 
   @OnEvent('workspace.**')
