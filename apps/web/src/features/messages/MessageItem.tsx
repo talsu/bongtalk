@@ -46,6 +46,12 @@ type Props = {
    */
   onPin?: () => void | Promise<void>;
   onUnpin?: () => void | Promise<void>;
+  /**
+   * S03 (FR-MSG-05): retry a failed optimistic send. Passed only for rows
+   * whose `sendState === 'failed'`; re-fires with the SAME clientNonce
+   * encoded in `msg.id`.
+   */
+  onRetry?: () => void;
 };
 
 export function MessageItem({
@@ -61,7 +67,11 @@ export function MessageItem({
   onOpenThread,
   onPin,
   onUnpin,
+  onRetry,
 }: Props): JSX.Element {
+  // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
+  // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
+  const sendState = (msg as MessageDto & { sendState?: 'pending' | 'failed' }).sendState;
   const badge = roleBadgeLabel(authorRole);
   const customEmojis = useCustomEmojiLookup();
   const [editing, setEditing] = useState<string | null>(null);
@@ -130,7 +140,15 @@ export function MessageItem({
       <article
         data-testid={`msg-${msg.id}`}
         data-mutation-pending={mutationPending ? (deletePending ? 'delete' : 'edit') : undefined}
-        style={mutationPending ? { opacity: 0.55, pointerEvents: 'none' } : undefined}
+        // S03 (FR-MSG-04/05): optimistic send state for e2e + CSS dimming.
+        data-send-state={sendState}
+        style={
+          mutationPending
+            ? { opacity: 0.55, pointerEvents: 'none' }
+            : sendState === 'pending'
+              ? { opacity: 0.6 }
+              : undefined
+        }
         className={cn('qf-message group', isHead ? 'qf-message--head' : 'qf-message--cont')}
       >
         {isHead ? (
@@ -254,6 +272,30 @@ export function MessageItem({
               {msg.contentAst
                 ? renderAst(msg.contentAst, customEmojis.byName)
                 : renderMessageContent(msg.content ?? '', customEmojis.byName)}
+              {/* S03 (FR-MSG-05): failed optimistic send — keep the bubble
+                 visible with a "다시 시도" control that re-fires the SAME
+                 clientNonce (encoded in msg.id). 'pending' just dims the row
+                 via the data-attr below. */}
+              {sendState === 'failed' ? (
+                <div
+                  data-testid={`msg-send-failed-${msg.id}`}
+                  className="qf-message__send-failed mt-1 flex items-center gap-2 text-xs"
+                >
+                  <span role="alert" className="qf-text-danger">
+                    전송 실패
+                  </span>
+                  {onRetry ? (
+                    <button
+                      type="button"
+                      data-testid={`msg-retry-${msg.id}`}
+                      onClick={onRetry}
+                      className="qf-btn qf-btn--ghost qf-btn--sm"
+                    >
+                      다시 시도
+                    </button>
+                  ) : null}
+                </div>
+              ) : null}
               {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
               {/* task-045 iter6: link unfurl `.qf-embed` 카드. URL 1-3개 추출,
                  lazy-fetch via /links/preview, 메타 도착 시에만 카드 표시. */}

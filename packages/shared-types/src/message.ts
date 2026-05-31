@@ -29,12 +29,29 @@ export const MessageMentionsSchema = z.object({
 });
 export type MessageMentions = z.infer<typeof MessageMentionsSchema>;
 
-// Opaque cursor: base64url(JSON.stringify({ t, id })). The UI must treat the
-// string as an opaque token — decoding is server-side.
+// Opaque cursor (FR-MSG-21): base64url(JSON.stringify({ id, createdAt })). The
+// UI MUST treat the string as an opaque token — encode/decode is server-side
+// only.
+//
+// S03 NOTE(expand-contract wire compat): the canonical payload shape per
+// FR-MSG-21 is `{ id, createdAt }`. The legacy slice shipped `{ t, id }`
+// tokens, so the decoder accepts BOTH on the read path (a live client may
+// still hold a `{ t, id }` token across the deploy) but the encoder only
+// ever emits the canonical `{ id, createdAt }` form.
+//
+// NOTE(S03 review MAJOR #2): the cursor `id` is UUID-ONLY — NOT the
+// transitional uuid|cuid2 union. `Message.id` is `@db.Uuid`, the API read path
+// binds `$4::uuid` (a cuid2 cursor would throw a Postgres cast error), and
+// `around` is `z.string().uuid()`. Loosening to cuid2 here was premature and
+// inconsistent with the SQL/PK reality; if the S01 PK→cuid2 transition ever
+// lands, re-loosen this schema, the API decoder, AND the SQL cast together.
 export const CursorStringSchema = z.string().min(1).max(512);
+// Canonical FR-MSG-21 payload. `createdAt` is an ISO-8601 instant; `id` is a
+// uuid (matches the live `@db.Uuid` PK + the `$4::uuid` read-path cast).
+export const CursorIdSchema = z.string().uuid();
 export const CursorPayloadSchema = z.object({
-  t: z.string().datetime(),
-  id: z.string().uuid(),
+  id: CursorIdSchema,
+  createdAt: z.string().datetime(),
 });
 export type CursorPayload = z.infer<typeof CursorPayloadSchema>;
 
@@ -135,6 +152,13 @@ export type AddReactionRequest = z.infer<typeof AddReactionRequestSchema>;
 
 export const SendMessageRequestSchema = z.object({
   content: MessageContentSchema,
+  // S03 (FR-MSG-04): clientNonce — a UUID v4 the client generates ONCE per
+  // logical send. It is echoed back on the `message:created` WS event so the
+  // sending tab can swap its optimistic (pending) row for the confirmed one.
+  // The SAME value is sent in the `Idempotency-Key` header for server-side
+  // dedupe; the client never mints a separate tempId (single-identifier
+  // contract, D17). Optional so older clients / system callers still work.
+  nonce: z.string().uuid().optional(),
   // task-014-B: optional reply target. Server validates that the parent
   // exists, lives in the same channel, and is itself a root message
   // (single-level depth — parent.parentMessageId must be null).
@@ -163,9 +187,20 @@ export const ListMessagesQuerySchema = z
       .union([z.boolean(), z.enum(['true', 'false'])])
       .optional()
       .transform((v) => v === true || v === 'true'),
+    // S03 (FR-MSG-21 edge case): `lastReadMessageId` is a READ-STATE cursor,
+    // NOT a pagination cursor. The pagination contract uses opaque
+    // base64url(JSON{id,createdAt}) tokens only. Accepting `lastReadMessageId`
+    // here lets us reject it explicitly (400) instead of silently ignoring
+    // it — mixing the two cursor namespaces is a client bug we surface loudly.
+    lastReadMessageId: z.string().optional(),
   })
   .refine((q) => [q.before, q.after, q.around].filter(Boolean).length <= 1, {
     message: 'before / after / around are mutually exclusive',
+  })
+  .refine((q) => q.lastReadMessageId === undefined, {
+    message:
+      'lastReadMessageId must not be used as a pagination cursor — use the opaque before/after token',
+    path: ['lastReadMessageId'],
   });
 export type ListMessagesQuery = z.infer<typeof ListMessagesQuerySchema>;
 

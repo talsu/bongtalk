@@ -7,6 +7,7 @@ import {
   useDeleteMessage,
   useMessageHistory,
   usePinMessage,
+  useSendMessage,
   useUnpinMessage,
   useUpdateMessage,
 } from './useMessages';
@@ -82,6 +83,10 @@ export function MessageList({
   // null 이면 onPin/onUnpin 콜백 자체를 undefined 로 전달해 메뉴 hide.
   const pinMut = usePinMessage(workspaceId, channelId);
   const unpinMut = useUnpinMessage(workspaceId, channelId);
+  // S03 (FR-MSG-05): retry a failed optimistic send. Reuses the SAME
+  // clientNonce encoded in the failed row id so the server dedupes against
+  // the original Idempotency-Key.
+  const { retry } = useSendMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const messages = useMemo<MessageDto[]>(() => {
@@ -380,6 +385,14 @@ export function MessageList({
                         ? async () => {
                             await unpinMut.mutateAsync(m.id);
                           }
+                        : undefined
+                    }
+                    // S03 (FR-MSG-05): retry a failed optimistic send with the
+                    // SAME clientNonce (encoded in the row id).
+                    onRetry={
+                      (m as MessageDto & { sendState?: 'pending' | 'failed' }).sendState ===
+                      'failed'
+                        ? () => retry(m.id, m.content ?? '')
                         : undefined
                     }
                   />

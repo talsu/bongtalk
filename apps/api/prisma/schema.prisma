@@ -339,10 +339,20 @@ model Message {
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   // client-generated uuid for POST retry dedupe — null when no header was sent.
-  // Uniqueness enforced by a PARTIAL unique index created in raw SQL
-  // (schema-level `@@unique` would index every NULL row too, which we want
-  // to skip since unauthenticated sends never carry a key).
+  // S03 (ADR-2 / FR-MSG-05): uniqueness is USER-scoped via a PARTIAL unique
+  // index `(authorId, idempotencyKey) WHERE idempotencyKey IS NOT NULL`
+  // created in raw SQL (schema-level `@@unique` would index every NULL row
+  // too, and Prisma can't express the partial WHERE). User A's key reused by
+  // user B yields a new row. The legacy channel-scoped index is retained
+  // through the expand window and dropped in the same migration's down.sql.
+  // `nonce` (clientNonce) lives separately as an optimistic-UI echo only;
+  // we store it on send so reconnect-resend dedupe is observable.
   idempotencyKey String?   @db.Uuid
+  // S03 (FR-MSG-04): clientNonce echo. UUID v4 the client sends in the POST
+  // body; mirrored on the message:created WS event for optimistic swap.
+  // Additive nullable — system/legacy rows are NULL. NOT a dedupe key
+  // (that is idempotencyKey); persisted for observability + reconnect flows.
+  nonce          String?   @db.Uuid
   // task-014-B: single-level threads. Self-FK; ON DELETE SET NULL means
   // a hard-deleted root turns its replies into pseudo-roots (purge
   // worker is the only path that hard-deletes). Soft delete leaves the

@@ -88,4 +88,55 @@ describe('Idempotent send', () => {
     expect(b.status).toBe(201);
     expect(a.body.message.id).not.toBe(b.body.message.id);
   });
+
+  // S03 (ADR-2 / FR-MSG-05): the unique scope is `(authorId, idempotencyKey)`
+  // — channel-INDEPENDENT. The SAME user replaying the SAME key into a DIFFERENT
+  // channel must still dedupe to the original row (200 replay), NOT create a new
+  // one. This is the behavioural delta vs the old channel-scoped index.
+  it('user scope is channel-independent: same key in a second channel → 200 replay', async () => {
+    // Create a second channel in the same workspace.
+    const ch2 = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.owner.accessToken))
+      .send({ name: 's03-second', type: 'TEXT' });
+    expect(ch2.status).toBe(201);
+    const channel2Id = ch2.body.id as string;
+
+    const key = randomUUID();
+    const first = await send('shared-key', key, stack.member.accessToken);
+    expect(first.status).toBe(201);
+
+    const second = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${channel2Id}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.member.accessToken))
+      .set('Idempotency-Key', key)
+      .send({ content: 'shared-key' });
+
+    // Same user + same key, different channel → replay of the original row.
+    expect(second.status).toBe(200);
+    expect(second.body.message.id).toBe(first.body.message.id);
+
+    // Only one row exists across BOTH channels for this (author, key).
+    const rows = await env.prisma.message.findMany({
+      where: { authorId: stack.member.userId, idempotencyKey: key },
+    });
+    expect(rows).toHaveLength(1);
+
+    await env.prisma.message.deleteMany({ where: { channelId: channel2Id } });
+  });
+
+  // S03 (FR-MSG-04): the POST body `nonce` is echoed on the row + persisted.
+  it('persists clientNonce from the POST body on the message row', async () => {
+    const nonce = randomUUID();
+    const r = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.member.accessToken))
+      .send({ content: 'with nonce', nonce });
+    expect(r.status).toBe(201);
+    const row = await env.prisma.message.findUnique({ where: { id: r.body.message.id } });
+    expect(row?.nonce).toBe(nonce);
+  });
 });

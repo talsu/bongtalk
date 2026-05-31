@@ -66,6 +66,16 @@ export class MessagesController {
     @CurrentUser() user: CurrentUserPayload,
     @Query() rawQuery: Record<string, unknown>,
   ) {
+    // S03 (FR-MSG-21): `lastReadMessageId` must not be smuggled in as a
+    // pagination cursor. Surface it as a cursor error (400) BEFORE the generic
+    // schema parse so the message is specific. before/after/around must stay
+    // opaque base64url(JSON{id,createdAt}) tokens.
+    if (rawQuery.lastReadMessageId !== undefined) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_CURSOR_INVALID,
+        'lastReadMessageId is a read-state cursor and cannot be used for pagination — use the opaque before/after token',
+      );
+    }
     const parsed = ListMessagesQuerySchema.safeParse(rawQuery);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -194,6 +204,9 @@ export class MessagesController {
       authorId: user.id,
       content: parsed.data.content,
       idempotencyKey,
+      // S03 (FR-MSG-04): echo clientNonce on message:created so the sending
+      // tab swaps its optimistic row. Distinct ROLE from idempotencyKey.
+      nonce: parsed.data.nonce ?? null,
       parentMessageId: parsed.data.parentMessageId ?? null,
       attachmentIds: parsed.data.attachmentIds,
       // task-044-iter3: pass sender role so mentions.everyone is gated.

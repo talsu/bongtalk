@@ -67,6 +67,109 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('message.created with nonce swaps the matching optimistic row (FR-MSG-04)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    const nonce = '11111111-1111-4111-8111-111111111111';
+    // Optimistic pending row whose id encodes the clientNonce (tmp-<nonce>).
+    qc.setQueryData(key, {
+      pages: [
+        {
+          items: [
+            {
+              id: `tmp-${nonce}`,
+              channelId: 'ch-1',
+              authorId: 'optimistic',
+              content: 'hi',
+              mentions: { users: [], channels: [], everyone: false, here: false },
+              edited: false,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              editedAt: null,
+              reactions: [],
+              sendState: 'pending',
+            },
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.created', {
+      id: 'ev-1',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      nonce, // server echoes the clientNonce
+      message: {
+        id: 'real-server-id',
+        channelId: 'ch-1',
+        authorId: 'u-1',
+        content: 'hi',
+        mentions: { users: [], channels: [], everyone: false, here: false },
+        edited: false,
+        deleted: false,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
+      },
+    });
+    const state = qc.getQueryData(key) as { pages: Array<{ items: Array<{ id: string }> }> };
+    // Exactly one row, the optimistic tmp-<nonce> replaced by the server id.
+    expect(state.pages[0].items.map((i) => i.id)).toEqual(['real-server-id']);
+    detach();
+  });
+
+  it('message.created dedupes by messageId across tabs even when nonce is absent', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    // Other tab: the confirmed row already landed by id; a re-broadcast must
+    // not duplicate it (FR-RT-24).
+    qc.setQueryData(key, {
+      pages: [
+        {
+          items: [
+            {
+              id: 'real-server-id',
+              channelId: 'ch-1',
+              authorId: 'u-1',
+              content: 'hi',
+              mentions: { users: [], channels: [], everyone: false, here: false },
+              edited: false,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              editedAt: null,
+              reactions: [],
+            },
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.created', {
+      id: 'ev-1',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: {
+        id: 'real-server-id',
+        channelId: 'ch-1',
+        authorId: 'u-1',
+        content: 'hi',
+        mentions: { users: [], channels: [], everyone: false, here: false },
+        edited: false,
+        deleted: false,
+        createdAt: new Date().toISOString(),
+        editedAt: null,
+      },
+    });
+    const state = qc.getQueryData(key) as { pages: Array<{ items: Array<{ id: string }> }> };
+    expect(state.pages[0].items.map((i) => i.id)).toEqual(['real-server-id']);
+    detach();
+  });
+
   it('upsertReactionBucket: server count overwrites, byMe flips only for my event', () => {
     // Empty → add: creates a new bucket at count 1 / byMe=true when it's mine.
     expect(

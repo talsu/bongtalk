@@ -5,7 +5,7 @@ import {
   useQueryClient,
   type InfiniteData,
 } from '@tanstack/react-query';
-import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
+import type { ListMessagesResponse } from '@qufox/shared-types';
 import {
   deleteMessage,
   listMessages,
@@ -18,6 +18,14 @@ import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
 import { useNotifications } from '../../stores/notification-store';
 import { friendlyError } from '../../lib/error-messages';
+import {
+  confirmOptimistic,
+  markOptimisticFailed,
+  markOptimisticPending,
+  nonceFromOptimisticId,
+  optimisticIdFor,
+  type OptimisticMessage,
+} from './sendState';
 
 const keys = {
   // Route through the single qk registry so the realtime dispatcher and
@@ -75,12 +83,10 @@ export function useSendMessage(wsId: string | null, channelId: string) {
   const { user } = useAuth();
 
   const mutation = useMutation({
-    mutationFn: async (args: {
-      content: string;
-      tempId: string;
-      idempotencyKey: string;
-      attachmentIds?: string[];
-    }) =>
+    // S03 (FR-MSG-04): `clientNonce` is the SINGLE identifier. The optimistic
+    // row id is `optimisticIdFor(clientNonce)`, the POST body `nonce` and the
+    // `Idempotency-Key` header all derive from it — no separate tempId.
+    mutationFn: async (args: { content: string; clientNonce: string; attachmentIds?: string[] }) =>
       sendMessage(
         wsId,
         channelId,
@@ -90,18 +96,20 @@ export function useSendMessage(wsId: string | null, channelId: string) {
             ? { attachmentIds: args.attachmentIds }
             : {}),
         },
-        args.idempotencyKey,
+        // clientNonce → POST body nonce + Idempotency-Key header.
+        args.clientNonce,
       ),
-    onMutate: async ({ content, tempId }) => {
+    onMutate: async ({ content, clientNonce }) => {
       await qc.cancelQueries({ queryKey: keys.list(wsId, channelId) });
-      const prev = qc.getQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId));
-      // Optimistic prepend with a tempId — server roundtrip replaces it.
-      // authorId resolves to the real viewer id so MessageList's
-      // continuation rule (same author + <5min gap) matches the
-      // previous row without waiting for the server echo — avoids a
-      // head→cont visual flip on every send.
-      const optimistic: MessageDto = {
-        id: tempId,
+      const optimisticId = optimisticIdFor(clientNonce);
+      // Optimistic prepend. authorId resolves to the real viewer id so
+      // MessageList's continuation rule (same author + <5min gap) matches the
+      // previous row without waiting for the server echo. `sendState:'pending'`
+      // drives the clock/spinner affordance; on failure we flip it to 'failed'
+      // and KEEP the row (FR-MSG-05) so a "다시 시도" button can re-fire the
+      // same clientNonce.
+      const optimistic: OptimisticMessage = {
+        id: optimisticId,
         channelId,
         authorId: user?.id ?? 'optimistic',
         content,
@@ -123,58 +131,82 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // task-044-iter2: optimistic 메시지는 항상 미고정 상태입니다.
         pinnedAt: null,
         pinnedBy: null,
+        sendState: 'pending',
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
         if (!old) return old;
         const [first, ...rest] = old.pages;
-        return {
-          ...old,
-          pages: [{ ...first, items: [optimistic, ...first.items] }, ...rest],
-        };
+        if (!first) return old;
+        // If this is a RETRY, the failed row already exists — flip it back to
+        // pending instead of duplicating it.
+        const exists = first.items.some((m) => m.id === optimisticId);
+        if (exists) return markOptimisticPending(old, optimisticId) ?? old;
+        return { ...old, pages: [{ ...first, items: [optimistic, ...first.items] }, ...rest] };
       });
-      return { prev };
+      return { optimisticId };
     },
-    onError: (err, _vars, ctx) => {
-      if (ctx?.prev) qc.setQueryData(keys.list(wsId, channelId), ctx.prev);
-      // task-040 R3 + task-041 B-2 (review M2 follow): surface send
-      // failure via a danger toast. Body builder extracted so the
-      // mutation-driven test can assert each error-shape branch
-      // without spinning up React.
+    onError: (err, vars, ctx) => {
+      // FR-MSG-05: do NOT roll the row out — mark it failed so the bubble keeps
+      // showing the content + a "다시 시도" button (same clientNonce on retry).
+      const optimisticId = ctx?.optimisticId ?? optimisticIdFor(vars.clientNonce);
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) =>
+        markOptimisticFailed(old, optimisticId),
+      );
+      // task-040 R3 + task-041 B-2 (review M2 follow): surface send failure via
+      // a danger toast. Body builder extracted so the mutation-driven test can
+      // assert each error-shape branch without spinning up React.
       useNotifications.getState().push({
         variant: 'danger',
         ...buildSendFailureToastBody(err),
         ttlMs: 5000,
       });
     },
-    onSuccess: (result, { tempId }) => {
-      // Replace optimistic row (by tempId) with the server row.
-      qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((p, i) =>
-            i === 0
-              ? {
-                  ...p,
-                  items: p.items.map((m) => (m.id === tempId ? result.message : m)),
-                }
-              : p,
-          ),
-        };
-      });
+    onSuccess: (result, { clientNonce }) => {
+      // Replace the optimistic row with the confirmed server row. The
+      // message:created WS echo may race this — confirmOptimistic is
+      // idempotent (no-op if the row is already gone, FR-RT-24 dedupe).
+      const optimisticId = optimisticIdFor(clientNonce);
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) =>
+        confirmOptimistic(old, optimisticId, result.message),
+      );
     },
   });
 
   const send = useCallback(
     (content: string, attachmentIds?: string[]) => {
-      const tempId = `tmp-${crypto.randomUUID()}`;
-      const idempotencyKey = crypto.randomUUID();
-      mutation.mutate({ content, tempId, idempotencyKey, attachmentIds });
+      // FR-MSG-04: ONE UUID v4 — used as the optimistic id seed, POST body
+      // nonce, and Idempotency-Key header.
+      const clientNonce = crypto.randomUUID();
+      mutation.mutate({ content, clientNonce, attachmentIds });
     },
     [mutation],
   );
 
-  return { send, mutation };
+  /**
+   * FR-MSG-05: retry a failed send. The caller passes the optimistic row's id
+   * (which encodes the original clientNonce); the retry re-fires with the SAME
+   * nonce so the server dedupes against the original Idempotency-Key.
+   */
+  const retry = useCallback(
+    (failedId: string, content: string, attachmentIds?: string[]) => {
+      // S03 review NIT: recover the original clientNonce from the optimistic
+      // row id (`tmp-<nonce>`). A failed row id is ALWAYS optimistic, so a
+      // null here means the caller passed a confirmed/server id by mistake —
+      // feeding that raw into `nonce: z.string().uuid()` would 400 with a
+      // generic toast. Bail loudly in dev instead of silently misfiring.
+      const clientNonce = nonceFromOptimisticId(failedId);
+      if (clientNonce === null) {
+        if (import.meta.env.DEV) {
+          throw new Error(`retry() expected an optimistic id, got "${failedId}"`);
+        }
+        return;
+      }
+      mutation.mutate({ content, clientNonce, attachmentIds });
+    },
+    [mutation],
+  );
+
+  return { send, retry, mutation };
 }
 
 export function useUpdateMessage(wsId: string | null, channelId: string) {
