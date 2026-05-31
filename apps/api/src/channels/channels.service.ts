@@ -16,7 +16,10 @@ import {
   CHANNEL_ARCHIVED,
   CHANNEL_CREATED,
   CHANNEL_DELETED,
+  CHANNEL_MEMBER_ADDED,
+  CHANNEL_MEMBER_REMOVED,
   CHANNEL_MOVED,
+  CHANNEL_PERMISSION_CHANGED,
   CHANNEL_RESTORED,
   CHANNEL_UNARCHIVED,
   CHANNEL_UPDATED,
@@ -272,10 +275,32 @@ export class ChannelsService {
     }
     // S13 (FR-CH-09): 토픽 변경 시스템 메시지는 "실제로 바뀐 경우"에만 발행한다.
     // 갱신 전 토픽을 읽어 새 값과 비교한다(같은 값으로 PATCH 하면 무발행).
+    // S14 (FR-CH-05): 공개/비공개 전환 판단을 위해 현재 isPrivate / name 도 읽는다.
     const before = await this.prisma.channel.findUnique({
       where: { id: channelId },
-      select: { topic: true },
+      select: { topic: true, isPrivate: true, name: true },
     });
+    if (!before) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+
+    // S14 (FR-CH-05): 공개/비공개 전환 confirm 토큰 검증.
+    //   - 비공개(true) → 공개(false) 전환: 파괴적·되돌릴 수 없는 변경이므로
+    //     confirmName 이 채널의 현재 name 과 정확히 일치해야 한다(누락/불일치 시
+    //     CHANNEL_CONFIRM_REQUIRED). 이전 공유 파일이 전 멤버에게 공개되는 것을
+    //     실수로 트리거하지 않도록 하는 서버측 게이트.
+    //   - 공개 → 비공개 전환, 또는 isPrivate 미변경 PATCH 에는 토큰 불요.
+    const privacyChanging = input.isPrivate !== undefined && input.isPrivate !== before.isPrivate;
+    const goingPublic = privacyChanging && input.isPrivate === false;
+    if (goingPublic) {
+      if (input.confirmName === undefined || input.confirmName !== before.name) {
+        throw new DomainError(
+          ErrorCode.CHANNEL_CONFIRM_REQUIRED,
+          'confirmName must match the channel name to switch a private channel to public',
+        );
+      }
+    }
+
     let channel: ChannelRow;
     try {
       channel = await this.prisma.$transaction(async (tx) => {
@@ -287,6 +312,8 @@ export class ChannelsService {
             // S13 (FR-CH-10): description — null 은 삭제, 미지정은 변경 없음.
             ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
+            // S14 (FR-CH-05): isPrivate 전환 반영(confirm 검증은 위에서 끝남).
+            ...(privacyChanging ? { isPrivate: input.isPrivate } : {}),
           },
         });
         await this.outbox.record(tx, {
@@ -476,10 +503,11 @@ export class ChannelsService {
       await this.outbox.record(tx, {
         aggregateType: 'channel',
         aggregateId: channelId,
-        eventType: 'channel.permission.changed',
+        eventType: CHANNEL_PERMISSION_CHANGED,
         payload: {
           workspaceId,
           channelId,
+          principalType: 'USER',
           targetUserId,
           allowMask,
           denyMask,
@@ -497,6 +525,185 @@ export class ChannelsService {
       allowMask: row.allowMask,
       denyMask: row.denyMask,
     };
+  }
+
+  /**
+   * S14 (FR-CH-11): upsert a ROLE-principal override on a channel.
+   * principalId is the WorkspaceRole literal (OWNER/ADMIN/MEMBER). The
+   * caller route gates on OWNER/ADMIN (@Roles + MANAGE_CHANNEL surface)
+   * and bounds the masks against the enforcement bitfield (0xFF) before
+   * we get here, mirroring the USER-override path. Emits the same
+   * `channel.permission.changed` outbox event so the realtime projection
+   * can refresh affected members' channel lists.
+   */
+  async addChannelRoleOverride(
+    workspaceId: string,
+    channelId: string,
+    role: 'OWNER' | 'ADMIN' | 'MEMBER',
+    allowMask: number,
+    denyMask: number,
+  ) {
+    // Channel must live in this workspace (prevents cross-workspace
+    // override insertion) and not be soft-deleted.
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    const row = await this.prisma.$transaction(async (tx) => {
+      const upserted = await tx.channelPermissionOverride.upsert({
+        where: {
+          channelId_principalType_principalId: {
+            channelId,
+            principalType: 'ROLE',
+            principalId: role,
+          },
+        },
+        create: {
+          channelId,
+          principalType: 'ROLE',
+          principalId: role,
+          allowMask,
+          denyMask,
+        },
+        update: { allowMask, denyMask },
+      });
+      const effectiveMask = (allowMask & ~denyMask) >>> 0;
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: CHANNEL_PERMISSION_CHANGED,
+        payload: {
+          workspaceId,
+          channelId,
+          principalType: 'ROLE',
+          role,
+          allowMask,
+          denyMask,
+          effectiveMask,
+        },
+      });
+      return upserted;
+    });
+    return {
+      id: row.id,
+      channelId: row.channelId,
+      principalType: row.principalType,
+      principalId: row.principalId,
+      allowMask: row.allowMask,
+      denyMask: row.denyMask,
+    };
+  }
+
+  /**
+   * S14 (FR-CH-07): 채널 가입. 멤버십 모델 결정(REPORT 참조):
+   *   - 채널별 멤버십 테이블은 없다. 공개 채널은 workspace 멤버 전원이 자동
+   *     가시·접근하므로(listByWorkspace), 공개 채널의 "가입"은 호출자 본인에 대한
+   *     USER ALLOW override(opt-in 표식)를 upsert 하는 것으로 표현한다. 이미
+   *     접근 가능한 멤버이므로 권한 변동은 없고(allow=ALL_PERMISSIONS·deny=0),
+   *     member_added 이벤트로 사이드바/목록 갱신만 트리거한다.
+   *   - 비공개 채널은 초대 기반(admin 의 addChannelMemberOverride)만 허용 —
+   *     자유 가입 시도는 CHANNEL_PRIVATE_INVITE_ONLY(403) 로 거부한다.
+   *
+   * 읽기 상태(UserChannelReadState)는 가입으로 생성/삭제하지 않는다(메시지
+   * ack 경로가 소유). idempotent: 이미 override 가 있으면 그대로 둔다.
+   */
+  async joinChannel(workspaceId: string, channelId: string, userId: string) {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true, isPrivate: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    if (channel.isPrivate) {
+      throw new DomainError(
+        ErrorCode.CHANNEL_PRIVATE_INVITE_ONLY,
+        'private channels are invite-only — ask an admin to add you',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.channelPermissionOverride.upsert({
+        where: {
+          channelId_principalType_principalId: {
+            channelId,
+            principalType: 'USER',
+            principalId: userId,
+          },
+        },
+        // review S14 HIGH(privilege escalation) fix: 자유 가입은 **순수 opt-in
+        // 표식**(allowMask 0)이다. 공개 채널은 이미 baseline 으로 접근 가능하므로
+        // override 가 권한을 더 줄 필요가 없다. 이전 allowMask:0xFF 는 S14 의 5단계
+        // (개인 ALLOW > 역할 DENY)와 결합해, MEMBER 가 가입만으로 ADMIN 이 건 역할
+        // DENY(예: WRITE_MESSAGE 읽기전용)를 0xFF 로 덮어 권한 상승하는 구멍이었다.
+        // allowMask 0 이면 fold 가 비트를 더하지 않아 역할 DENY 가 유지된다.
+        create: {
+          channelId,
+          principalType: 'USER',
+          principalId: userId,
+          allowMask: 0,
+          denyMask: 0,
+        },
+        update: {},
+      });
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: CHANNEL_MEMBER_ADDED,
+        payload: { workspaceId, channelId, userId },
+      });
+    });
+    return { channelId, userId };
+  }
+
+  /**
+   * S14 (FR-CH-07): 채널 탈퇴. 호출자 본인의 USER override 행을 제거한다.
+   * 읽기 상태(UserChannelReadState)는 보존한다 — 재가입 시 미읽음 누적이
+   * 복원되도록(FR-CH-07 명시 요구). override 가 없으면(=채널 멤버가 아님)
+   * CHANNEL_NOT_MEMBER(409). member_removed 이벤트로 사이드바 갱신.
+   */
+  async leaveChannel(workspaceId: string, channelId: string, userId: string) {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    const existing = await this.prisma.channelPermissionOverride.findUnique({
+      where: {
+        channelId_principalType_principalId: {
+          channelId,
+          principalType: 'USER',
+          principalId: userId,
+        },
+      },
+      select: { id: true },
+    });
+    if (!existing) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_MEMBER, 'you are not a member of this channel');
+    }
+    await this.prisma.$transaction(async (tx) => {
+      await tx.channelPermissionOverride.delete({
+        where: {
+          channelId_principalType_principalId: {
+            channelId,
+            principalType: 'USER',
+            principalId: userId,
+          },
+        },
+      });
+      // 읽기 상태(UserChannelReadState)는 의도적으로 보존 — 삭제하지 않는다.
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: CHANNEL_MEMBER_REMOVED,
+        payload: { workspaceId, channelId, userId },
+      });
+    });
+    return { channelId, userId };
   }
 
   /**

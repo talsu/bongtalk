@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S13 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S14(D02 채널 권한 오버라이드).**
+> **S05 검증·S06~S14 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S15(D02 채널 브라우저/카테고리/정렬/slowmode).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -134,12 +134,23 @@ D02 아카이브/토픽/설명/공지제한. **마이그레이션 슬라이스**
 - 다팀리뷰(reviewer/security): **보안 게이트 우회 불가**(서버 최종집행). 블로커 없음. carryover: 프론트 게이트가 override 무시(MAJOR-3, override UI 미존재라 현재 무해→S14/15), forwardRef 3중 순환(이벤트 디커플 권장), 게이트 수동 fold(resolveEffective 권장), 비트랜잭션 시스템메시지/nit.
 - 게이트: verify 19 + build 3 + channels int(s13 9 + channels 10 = 19) GREEN. fr-matrix S13 4개 done.
 
-## 다음 슬라이스: S14 (D02 채널 권한 오버라이드)
+## ✅ S14 완료 (2026-06-01, 이 세션)
 
-- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**,packages/shared-types/**`.
-- 채널 권한 오버라이드(5단계 계산) + 공개/비공개 전환 confirm + 가입/탈퇴.
-- FR-CH-05/07/11. depends S12(완료),S00(완료).
-- **⚠️ S14 에서 함께 처리할 carryover**: (a) **S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 배선** — messages softDelete/history 가 role 기반 보수 게이트 → 채널 ACL 비트 기반 전환(원래 S12~S15 carryover). (b) S13 MAJOR-3 프론트 게시 게이트가 effective 권한(override) 반영(per-viewer canPost). (c) **권한 스킴 2중화**(shared-types PERMISSIONS 0-12 vs 집행 0xFF) 수렴 — 5단계 계산이 어느 스킴인지 명확히. resolveEffective/PermissionMatrix 가 5단계 계산의 본체일 가능성(기존 구현 확인). FR 정본: PRD html.
+D02 채널 권한 오버라이드/전환/가입.
+
+- **FR-CH-11**: **실제 버그 fix** — `PermissionMatrix.effective` 가 2단계(모든 ALLOW/DENY union 후 1회 `&~`)라 "개인 ALLOW>역할 DENY" 표현 불가였음 → **5단계 fold**(base→roleAllow→roleDeny→userAllow→userDeny, 나중 우선=FR 순서)로 교정(unit 5종). ROLE override 엔드포인트(`POST :chid/roles`, 0xFF 범위검증). 집행 8bit 스킴 기준.
+- **FR-CH-05**: 비공개→공개 flip 시 `confirmName`==채널명 서버 강제(CHANNEL_CONFIRM_REQUIRED 400) + 프론트 alertdialog 모달(경고/이름재입력/모바일 fullscreen).
+- **FR-CH-07**: join/leave(override 기반 opt-in/out, read-state 보존, member_added/removed). 비공개 join 403.
+- 다팀리뷰(security/reviewer) → **HIGH fix-forward**: joinChannel 이 allowMask:0xFF 부여 → 새 5단계와 결합해 자유가입이 역할 DENY 우회·권한상승 → **0(순수 마커)로 수정** + int 단언. 5단계 fold 는 무회귀(DM 미적용, deny-wins 보존).
+- 게이트: verify 19 + build 6 + channels int(s14 13 + permissions unit 14) GREEN. 마이그레이션 없음(ChannelPermissionOverride 재사용). fr-matrix FR-CH-05/07/11 done.
+- carryover: /join 비공개 403→404 정보누수(MED), 공개 leave cosmetic(listByWorkspace 미반영, MED), 권한스킴 2중화(D12), S05 마스크 배선(S15/messages-perm), S13 MAJOR-3(per-viewer canPost), nits.
+
+## 다음 슬라이스: S15 (D02 채널 브라우저/카테고리/정렬/slowmode)
+
+- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**`.
+- 채널 브라우저 + 카테고리 CRUD + 위치 재정렬 + slowmode.
+- FR-CH-06/08/12/13. depends S12(완료),S14(완료).
+- 주의: 카테고리 CRUD(`channels/categories/`)·positioning(`channels/positioning/`)·reorder int 가 이미 존재 — 갭만 식별. slowmode(채널 slowmode 초 + 송신 rate gate)는 신규 가능. **positioning fractional 10^10 오버플로(선제존재 carryover)** 도 이 슬라이스에서 정규화 검토. FR 정본: PRD html.
 
 ---
 

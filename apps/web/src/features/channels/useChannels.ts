@@ -4,6 +4,8 @@ import {
   createCategory,
   createChannel,
   deleteChannel,
+  joinChannel,
+  leaveChannel,
   listChannels,
   moveCategory,
   moveChannel,
@@ -60,6 +62,24 @@ export function useUnarchiveChannel(wsId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (id: string) => unarchiveChannel(wsId, id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
+  });
+}
+
+// S14 (FR-CH-07): 채널 가입/탈퇴. 성공 시 채널 목록을 무효화해 사이드바
+// 가시성/멤버십을 갱신한다.
+export function useJoinChannel(wsId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) => joinChannel(wsId, channelId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
+  });
+}
+
+export function useLeaveChannel(wsId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) => leaveChannel(wsId, channelId),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
   });
 }

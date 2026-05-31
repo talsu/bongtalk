@@ -155,3 +155,124 @@ describe('PermissionMatrix.effective (task-012-D)', () => {
     expect(PermissionMatrix.has(eff, Permission.DELETE_ANY_MESSAGE)).toBe(false);
   });
 });
+
+/**
+ * S14 (FR-CH-11): 5단계 권한 오버라이드 계산 순서 고정.
+ *
+ * 우선순위(내림차순): 개인 DENY > 개인 ALLOW > 역할 DENY > 역할 ALLOW > 서버 기본.
+ * 적용은 그 역순으로 누적한다:
+ *   mask = base
+ *   mask |= roleAllow      (역할 ALLOW)
+ *   mask &= ~roleDeny      (역할 DENY)
+ *   mask |= userAllow      (개인 ALLOW) — 역할 DENY 를 이긴다
+ *   mask &= ~userDeny      (개인 DENY) — 최종 최우선
+ *
+ * 기존 effective 는 모든 ALLOW 를 합치고 모든 DENY 를 합쳐 마지막에 한 번
+ * `allow & ~deny` 로 적용했다. 그 모델에서는 "개인 ALLOW 가 역할 DENY 를 이긴다"
+ * 를 표현할 수 없다(역할 DENY 가 개인 ALLOW 와 함께 union 되어 항상 이김).
+ * 아래 케이스가 그 경계를 고정한다.
+ */
+describe('PermissionMatrix.effective — S14 FR-CH-11 5단계 순서 고정', () => {
+  it('개인 ALLOW 가 역할 DENY 를 이긴다 (priority: user ALLOW > role DENY)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: false,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'ROLE',
+          principalId: 'MEMBER',
+          allowMask: 0,
+          denyMask: Permission.WRITE_MESSAGE,
+        },
+        {
+          principalType: 'USER',
+          principalId: me,
+          allowMask: Permission.WRITE_MESSAGE,
+          denyMask: 0,
+        },
+      ],
+    });
+    // 개인 ALLOW(WRITE) 가 역할 DENY(WRITE) 보다 우선 → WRITE 유지.
+    expect(PermissionMatrix.has(eff, Permission.WRITE_MESSAGE)).toBe(true);
+  });
+
+  it('개인 DENY 가 개인 ALLOW 보다 우선한다 (동일 비트, user DENY > user ALLOW)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: false,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'USER',
+          principalId: me,
+          allowMask: Permission.PIN_MESSAGE,
+          denyMask: Permission.PIN_MESSAGE,
+        },
+      ],
+    });
+    // 동일 프린시펄·동일 비트에서 DENY 가 ALLOW 보다 나중(우선) 적용.
+    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(false);
+  });
+
+  it('역할 DENY 가 역할 ALLOW 보다 우선한다 (동일 비트, role DENY > role ALLOW)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: false,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'ROLE',
+          principalId: 'MEMBER',
+          allowMask: Permission.PIN_MESSAGE,
+          denyMask: Permission.PIN_MESSAGE,
+        },
+      ],
+    });
+    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(false);
+  });
+
+  it('역할 ALLOW 가 서버 기본에 비트를 더한다 (role ALLOW > base)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: false,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'ROLE',
+          principalId: 'MEMBER',
+          // MEMBER 기본에는 없는 PIN_MESSAGE 를 역할 ALLOW 로 부여.
+          allowMask: Permission.PIN_MESSAGE,
+          denyMask: 0,
+        },
+      ],
+    });
+    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(true);
+    // 기존 baseline 비트는 유지.
+    expect(PermissionMatrix.has(eff, Permission.READ)).toBe(true);
+  });
+
+  it('개인 DENY 가 역할 ALLOW + 서버 기본을 모두 이긴다 (최우선 DENY)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: false,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'ROLE',
+          principalId: 'MEMBER',
+          allowMask: Permission.WRITE_MESSAGE,
+          denyMask: 0,
+        },
+        {
+          principalType: 'USER',
+          principalId: me,
+          allowMask: 0,
+          denyMask: Permission.WRITE_MESSAGE,
+        },
+      ],
+    });
+    expect(PermissionMatrix.has(eff, Permission.WRITE_MESSAGE)).toBe(false);
+    expect(PermissionMatrix.has(eff, Permission.READ)).toBe(true);
+  });
+});
