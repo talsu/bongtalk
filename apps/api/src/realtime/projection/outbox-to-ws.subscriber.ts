@@ -4,6 +4,7 @@ import type { Server } from 'socket.io';
 import { RealtimeGateway } from '../realtime.gateway';
 import { rooms } from '../rooms/room-names';
 import { ReplayBufferService } from './replay-buffer.service';
+import { ChannelSeqService } from './channel-seq.service';
 import type { WsEnvelope } from '../events/ws-event-envelope';
 import { MetricsService } from '../../observability/metrics/metrics.service';
 import { withSpan } from '../../observability/otel/propagation';
@@ -38,6 +39,7 @@ export class OutboxToWsSubscriber {
   constructor(
     private readonly gateway: RealtimeGateway,
     private readonly replay: ReplayBufferService,
+    private readonly seq: ChannelSeqService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -198,6 +200,16 @@ export class OutboxToWsSubscriber {
     env: WsEnvelope,
   ): Promise<void> {
     if (!this.io) return;
+    // FR-RT-06: 채널 스코프 이벤트마다 채널별 단조 seq 를 발급해 페이로드에
+    // 싣습니다(갭 감지 힌트). Redis 장애 시 ChannelSeqService 가 SEQ_SENTINEL 을
+    // 반환하므로 throw 없이 fanout 이 계속됩니다. workspace 스코프 이벤트는
+    // 채널 갭 감지 대상이 아니라 seq 를 붙이지 않습니다. 같은 env 가 channel +
+    // workspace 룸으로 두 번 emit 되는 channel.* 이벤트의 경우, seq 는 채널
+    // 발급분으로 한 번 채워지며 workspace 재emit 에도 그대로 실립니다(클라
+    // 워크스페이스 뷰는 seq 를 쓰지 않으므로 무해).
+    if (scope === 'channel' && typeof env.seq !== 'number') {
+      env.seq = await this.seq.next(id);
+    }
     try {
       await this.replay.append(scope, id, {
         id: env.id,

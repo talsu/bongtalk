@@ -42,6 +42,16 @@ export const PRESENCE_OFFLINE_GRACE = 35;
 export const SEQ_SENTINEL = -1;
 
 /**
+ * 동시 gap-fetch 채널 수 상한 (FR-RT-23 / D17).
+ *
+ * 재연결 후 여러 채널이 동시에 GAP_FETCHING 으로 진입하면 REST 폭주가
+ * 납니다. 동시에 실제로 gap-fetch 를 수행하는 채널 수를 이 값으로 제한하고,
+ * 초과 채널은 FIFO 큐에서 대기하다 슬롯이 비면 순차 실행합니다. 웹 클라이언트는
+ * `VITE_GAP_FETCH_CONCURRENCY` 로 override 합니다(기본 5).
+ */
+export const GAP_FETCH_CONCURRENCY = 5;
+
+/**
  * 사용자당 동시 eager-join 채널 room 상한 (FR-RT-02 / D17).
  *
  * connect 시 RoomManager 가 viewable 채널을 최신 우선으로 정렬해 상위
@@ -66,4 +76,8 @@ export const SHARED_CONSTANTS = {
   TYPING_BATCH_INTERVAL,
   PRESENCE_OFFLINE_GRACE,
   SEQ_SENTINEL,
+  GAP_FETCH_CONCURRENCY,
+  // S10 fix-forward (FIX #6): S07 에서 추가된 상수가 단일 객체 노출에서 누락돼
+  // 있었습니다. 키 순회/테스트 경로가 이 객체만 보므로 함께 노출합니다.
+  MAX_JOINED_CHANNELS,
 } as const;

@@ -62,10 +62,18 @@ export const ChannelJoinedPayloadSchema = z.object({
   channelId: ChannelIdSchema,
   /** join 시점 채널 seq 스냅샷(Redis seq:{channelId} 현재값). */
   seq: SeqSchema,
+  // S10 fix-forward (MAJOR #2): connect 직후 채널별 seq baseline 을 클라에
+  // 내려 SeqTracker.setBaseline 을 채우는 것이 이 이벤트의 1차 용도입니다.
+  // lastMessageId / unreadCount / lastReadMessageId 는 read-state·around-reload
+  // 보조용 *선언적* 필드인데, 현재 어떤 클라 dispatcher 도 이 이벤트에서
+  // 소비하지 않습니다(unread 레일·readStateStore 는 별도 경로). 연결당 채널
+  // 50개에 대한 per-channel unread 서브쿼리 부하를 피하기 위해, baseline-only
+  // 경량 emit 이 이 셋을 생략할 수 있도록 optional 로 둡니다(additive·무회귀).
+  // 후속 슬라이스에서 채워질 때까지 안전하게 누락 허용.
   /** Channel.lastMessageId — 서버 최신 메시지 id 참조값. */
-  lastMessageId: z.string().nullable(),
-  unreadCount: z.number().int().nonnegative(),
-  lastReadMessageId: z.string().nullable(),
+  lastMessageId: z.string().nullable().optional(),
+  unreadCount: z.number().int().nonnegative().optional(),
+  lastReadMessageId: z.string().nullable().optional(),
 });
 export type ChannelJoinedPayload = z.infer<typeof ChannelJoinedPayloadSchema>;
 
