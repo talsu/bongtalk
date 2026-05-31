@@ -27,11 +27,16 @@ export const ChannelNameSchema = z
   .max(32)
   .regex(/^[a-z0-9][a-z0-9_-]*$/, 'channel name must be lowercase alphanum / _ / -');
 
-export const CategoryNameSchema = z.string().min(1).max(32);
+// S15 (FR-CH-12): 카테고리 이름 2~50자. (이전 1~32 에서 PRD 명세에 맞춰 확장.)
+export const CategoryNameSchema = z.string().min(2).max(50);
 
 // S13 (FR-CH-10): 채널 설명. 채널 브라우저/헤더에 노출되는 ≤500자 자유 텍스트.
 // DB 는 VarChar(500), 여기서 길이를 강제한다.
 export const ChannelDescriptionSchema = z.string().max(500);
+
+// S15 (FR-CH-08): 슬로우모드 간격(초). 0=비활성, 상한 6시간(21600초, Discord 동일).
+// 비정수/음수/상한 초과는 거부한다.
+export const SlowmodeSecondsSchema = z.number().int().min(0).max(21600);
 
 export const CreateChannelRequestSchema = z.object({
   name: ChannelNameSchema,
@@ -57,6 +62,8 @@ export const UpdateChannelRequestSchema = z.object({
   // S13 (FR-CH-10): null 로 설명 삭제, 문자열로 갱신, undefined 면 변경 없음.
   description: ChannelDescriptionSchema.nullable().optional(),
   categoryId: z.string().uuid().nullable().optional(),
+  // S15 (FR-CH-08): 슬로우모드 간격(초). 미지정이면 변경 없음, 0 이면 비활성화.
+  slowmodeSeconds: SlowmodeSecondsSchema.optional(),
   // OWNER/ADMIN flip of privacy; enforced in ChannelsService.update.
   isPrivate: z.boolean().optional(),
   // S14 (FR-CH-05): 비공개→공개 전환 confirm 토큰. 서버는 isPrivate:false 로의
@@ -88,6 +95,27 @@ export const MoveChannelRequestSchema = z
   });
 export type MoveChannelRequest = z.infer<typeof MoveChannelRequestSchema>;
 
+// S15 (FR-CH-13): 배치 재정렬. 클라이언트가 최종 순서(id 배열)를 통째로 보내면
+// 서버가 1000 등간격(fractional position)으로 재정규화한다. channel 항목은
+// categoryId 도 함께 전달해 카테고리 간 이동을 한 번에 반영한다. id 는 1~200개.
+export const ReorderChannelsRequestSchema = z.object({
+  items: z
+    .array(
+      z.object({
+        id: z.string().uuid(),
+        categoryId: z.string().uuid().nullable(),
+      }),
+    )
+    .min(1)
+    .max(200),
+});
+export type ReorderChannelsRequest = z.infer<typeof ReorderChannelsRequestSchema>;
+
+export const ReorderCategoriesRequestSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+});
+export type ReorderCategoriesRequest = z.infer<typeof ReorderCategoriesRequestSchema>;
+
 // S12 BLOCKER: body of POST /channels/:chid/members. The masks default to 0
 // (no-op override) and are bounded by PermissionMaskSchema so an ADMIN cannot
 // inject an out-of-range / negative mask to escalate privileges.
@@ -108,6 +136,8 @@ export const ChannelSchema = z.object({
   // S13 (FR-CH-10): 채널 목록/단건 응답에 노출.
   description: z.string().nullable(),
   position: z.string(),
+  // S15 (FR-CH-08): 슬로우모드 간격(초). 0=비활성.
+  slowmodeSeconds: z.number().int().nonnegative(),
   isPrivate: z.boolean(),
   archivedAt: z.string().datetime().nullable(),
   deletedAt: z.string().datetime().nullable(),

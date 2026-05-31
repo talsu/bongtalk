@@ -80,6 +80,28 @@ describe('PermissionMatrix.effective (task-012-D)', () => {
     expect(PermissionMatrix.has(eff, Permission.READ)).toBe(true);
   });
 
+  it('private channel STAYS HIDDEN when a non-READ bit (BYPASS_SLOWMODE) is granted without READ (S15 HIGH fix)', () => {
+    const eff = PermissionMatrix.effective({
+      role: WorkspaceRole.MEMBER,
+      isPrivate: true,
+      userId: me,
+      overrides: [
+        {
+          principalType: 'USER',
+          principalId: me,
+          // Granting only BYPASS_SLOWMODE must NOT restore the MEMBER baseline
+          // / open private-channel visibility — the gate requires explicit READ.
+          allowMask: Permission.BYPASS_SLOWMODE,
+          denyMask: 0,
+        },
+      ],
+    });
+    expect(PermissionMatrix.has(eff, Permission.READ)).toBe(false);
+    expect(PermissionMatrix.has(eff, Permission.WRITE_MESSAGE)).toBe(false);
+    // The granted bit itself is present (it just doesn't open the channel).
+    expect(PermissionMatrix.has(eff, Permission.BYPASS_SLOWMODE)).toBe(true);
+  });
+
   it('USER-level deny wins over ROLE-level allow on the same channel (DENY > ALLOW)', () => {
     const eff = PermissionMatrix.effective({
       role: WorkspaceRole.MEMBER,

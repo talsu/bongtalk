@@ -61,6 +61,9 @@ export class ChannelAccessGuard implements CanActivate {
         workspaceId: true,
         name: true,
         type: true,
+        // S15 (FR-CH-08): 송신 경로 슬로우모드 게이트용. 가드가 이미 채널을
+        // 로드하므로 함께 select 한다(추가 round-trip 없음).
+        slowmodeSeconds: true,
         archivedAt: true,
         deletedAt: true,
         isPrivate: true,

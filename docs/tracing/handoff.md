@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S14 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S15(D02 채널 브라우저/카테고리/정렬/slowmode).**
+> **S05 검증·S06~S15 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S16(D03 DM).** D02(채널) 전체 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -145,12 +145,25 @@ D02 채널 권한 오버라이드/전환/가입.
 - 게이트: verify 19 + build 6 + channels int(s14 13 + permissions unit 14) GREEN. 마이그레이션 없음(ChannelPermissionOverride 재사용). fr-matrix FR-CH-05/07/11 done.
 - carryover: /join 비공개 403→404 정보누수(MED), 공개 leave cosmetic(listByWorkspace 미반영, MED), 권한스킴 2중화(D12), S05 마스크 배선(S15/messages-perm), S13 MAJOR-3(per-viewer canPost), nits.
 
-## 다음 슬라이스: S15 (D02 채널 브라우저/카테고리/정렬/slowmode)
+## ✅ S15 완료 (2026-06-01, 이 세션) — **마이그레이션**
 
-- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**`.
-- 채널 브라우저 + 카테고리 CRUD + 위치 재정렬 + slowmode.
-- FR-CH-06/08/12/13. depends S12(완료),S14(완료).
-- 주의: 카테고리 CRUD(`channels/categories/`)·positioning(`channels/positioning/`)·reorder int 가 이미 존재 — 갭만 식별. slowmode(채널 slowmode 초 + 송신 rate gate)는 신규 가능. **positioning fractional 10^10 오버플로(선제존재 carryover)** 도 이 슬라이스에서 정규화 검토. FR 정본: PRD html.
+D02 브라우저/카테고리/정렬/slowmode.
+
+- **FR-CH-08** slowmode: 마이그레이션 Channel.slowmodeSeconds + SlowmodeService(Redis PTTL+429 CHANNEL_SLOWMODE_ACTIVE+retryAfterMs+SET EX NX) + BYPASS_SLOWMODE(0x100, 집행 ALL_PERMISSIONS 0xFF→0x1FF) + Redis-fail DB fallback. messages send 게이트.
+- **FR-CH-12** 카테고리 soft-delete: 마이그레이션 Category.deletedAt + partial unique + same-tx categoryId=NULL + 이벤트.
+- **FR-CH-13** reorder 배치: PATCH /channels|categories/positions + 항상 1000 등간격 재정규화(SELECT FOR UPDATE) + reordered 이벤트.
+- **FR-CH-06** 브라우저: ChannelBrowser(검색/정렬/join/empty). 멤버수 정렬 보류(DTO 집계 부재).
+- 다팀리뷰(security/reviewer) → **fix-forward**: BLOCKER 재정렬 이벤트 복수형→**단수**(channel./category.reordered, wildcard 무음드롭 해소), HIGH private-gate **READ 비트 요구**(아무비트→baseline 복원 격리누수 해소) + unit.
+- carryover: MAJOR-1 slowmode-vs-idempotency replay(send 게이트 순서, MED), MAJOR-2 reorder 프론트/멤버수정렬, 2중스킴 심화(D12), nits.
+- 게이트: verify 19(신규 permissions unit 포함) + build 3 + channels int(s15 7 + s14 13 + member-override 8) GREEN. unread-private-acl "DENY beats ALLOW" 1실패 = **선제존재 unread-SQL ACL 버그**(내 PermissionMatrix fix 무관, S11~ carryover). 마이그레이션 reversible. fr-matrix FR-CH-06/08/12/13 done.
+
+## 다음 슬라이스: S16 (D03 DM 개설/목록/실시간)
+
+- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/dms/**`.
+- 1:1/그룹 DM 개설 + 목록 조회 + dm:created 실시간 알림.
+- FR-DM-01/02/03/16. depends S12(완료),S07(완료).
+- 주의: DM 은 기존 상당 구현(`channels/direct-messages/`, global-dm, makeFriends, DM int 존재 — S05/S11 에서 DM 경로 다수 손댐). 갭만 식별. **D03 진입 carryover**: S14 /join 비공개 403→404 info-leak, S11 DM unread self-inclusion UX·DM unread 테스트, S11 read_state:updated 웹소비(D09지만 DM도). FR 정본: PRD html.
+- **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover).
 
 ---
 

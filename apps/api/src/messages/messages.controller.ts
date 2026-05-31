@@ -25,6 +25,8 @@ import { MessageAuthorGuard } from './guards/message-author.guard';
 import { CurrentMessage, CurrentMessagePayload } from './decorators/current-message.decorator';
 import { ChannelAccessGuard } from '../channels/guards/channel-access.guard';
 import { ChannelAccessService } from '../channels/permission/channel-access.service';
+import { Permission } from '../auth/permissions';
+import { SlowmodeService } from '../channels/slowmode/slowmode.service';
 import {
   CurrentChannel,
   CurrentChannelPayload,
@@ -64,6 +66,8 @@ export class MessagesController {
     private readonly rate: RateLimitService,
     // S13 (FR-CH-19): ANNOUNCEMENT 게시 게이트(CHANNEL_POSTING_RESTRICTED).
     private readonly channelAccess: ChannelAccessService,
+    // S15 (FR-CH-08): 채널 슬로우모드 게이트.
+    private readonly slowmode: SlowmodeService,
   ) {}
 
   @Get()
@@ -249,6 +253,22 @@ export class MessagesController {
       { key: `msg:send:u:${user.id}`, windowSec: 10, max: this.rateUserMax() },
       { key: `msg:send:c:${channelId}`, windowSec: 10, max: this.rateChannelMax() },
     ]);
+    // S15 (FR-CH-08): 채널 슬로우모드 게이트. slowmodeSeconds=0 이면 무동작.
+    // BYPASS_SLOWMODE 비트 보유자(OWNER/ADMIN baseline + 채널 override)는 면제.
+    // 잔여 쿨다운이 있으면 CHANNEL_SLOWMODE_ACTIVE(429) + retryAfterMs.
+    if (channel && channel.slowmodeSeconds > 0) {
+      const hasBypass = await this.channelAccess.hasPermission(
+        { id: channel.id, workspaceId: channel.workspaceId, isPrivate: channel.isPrivate },
+        user.id,
+        Permission.BYPASS_SLOWMODE,
+      );
+      await this.slowmode.enforce({
+        channelId: channel.id,
+        userId: user.id,
+        slowmodeSeconds: channel.slowmodeSeconds,
+        hasBypass,
+      });
+    }
     const idempotencyKey = validateIdempotencyKey(idempotencyHeader);
     const { message, replayed } = await this.messages.send({
       workspaceId: m.workspaceId,
