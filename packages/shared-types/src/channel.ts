@@ -57,10 +57,25 @@ export const UpdateChannelRequestSchema = z.object({
   // S13 (FR-CH-10): null 로 설명 삭제, 문자열로 갱신, undefined 면 변경 없음.
   description: ChannelDescriptionSchema.nullable().optional(),
   categoryId: z.string().uuid().nullable().optional(),
-  // OWNER-only flip of privacy; enforced in ChannelsService.update.
+  // OWNER/ADMIN flip of privacy; enforced in ChannelsService.update.
   isPrivate: z.boolean().optional(),
+  // S14 (FR-CH-05): 비공개→공개 전환 confirm 토큰. 서버는 isPrivate:false 로의
+  // 전환(현재 비공개 → 공개)일 때 이 값이 채널의 현재 name 과 정확히 일치하는지
+  // 검증한다. 누락/불일치 시 CHANNEL_CONFIRM_REQUIRED(400). 공개→비공개 또는
+  // 권한 변경 없는 PATCH 에는 불요. 길이 상한은 채널명과 동일(32).
+  confirmName: z.string().max(64).optional(),
 });
 export type UpdateChannelRequest = z.infer<typeof UpdateChannelRequestSchema>;
+
+// S14 (FR-CH-11): ROLE-principal 권한 오버라이드 설정 바디. allow/deny 마스크는
+// 집행 비트필드(0xFF) 범위로 검증한다(controller 의 ALL_PERMISSIONS 범위 체크
+// 재사용). role 은 WorkspaceRole 리터럴. allowMask/denyMask 0 은 no-op(해제).
+export const ChannelRoleOverrideRequestSchema = z.object({
+  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']),
+  allowMask: PermissionMaskSchema.optional().default(0),
+  denyMask: PermissionMaskSchema.optional().default(0),
+});
+export type ChannelRoleOverrideRequest = z.infer<typeof ChannelRoleOverrideRequestSchema>;
 
 export const MoveChannelRequestSchema = z
   .object({

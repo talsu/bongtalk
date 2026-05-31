@@ -96,6 +96,13 @@ export const ErrorCodeSchema = z.enum([
   // S13 (FR-CH-19): ANNOUNCEMENT 채널 게시 제한 → 403. 클라이언트는 이 코드를
   // 받으면 "공지 채널은 관리자만 게시" 안내로 분기한다(일반 FORBIDDEN 과 구분).
   'CHANNEL_POSTING_RESTRICTED',
+  // S14 (FR-CH-05): 비공개→공개 전환 confirmName 누락/불일치 → 400. 클라이언트는
+  // 이 코드를 받으면 "채널 이름 재입력" confirm 모달의 검증 실패로 분기한다.
+  'CHANNEL_CONFIRM_REQUIRED',
+  // S14 (FR-CH-07): 비공개 채널 자유 가입 거부 → 403(초대 기반 가입만).
+  'CHANNEL_PRIVATE_INVITE_ONLY',
+  // S14 (FR-CH-07): 비멤버 탈퇴 → 409.
+  'CHANNEL_NOT_MEMBER',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
   'MESSAGE_NOT_FOUND',

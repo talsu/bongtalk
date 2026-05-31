@@ -46,6 +46,14 @@ export enum ErrorCode {
   // WRITE_MESSAGE 비트) 없는 역할이 메시지를 POST → 403. 일반 권한 부족
   // (FORBIDDEN) 과 구분해 프론트가 "공지 채널 게시 제한" UI 를 띄울 수 있게 한다.
   CHANNEL_POSTING_RESTRICTED = 'CHANNEL_POSTING_RESTRICTED',
+  // S14 (FR-CH-05): 비공개→공개 전환 시 confirmName(채널 이름) 누락/불일치.
+  // 파괴적·되돌릴 수 없는 변경이므로 전용 코드로 분리해 클라이언트가
+  // "이름 재입력" UI 를 띄울 수 있게 한다. → 400.
+  CHANNEL_CONFIRM_REQUIRED = 'CHANNEL_CONFIRM_REQUIRED',
+  // S14 (FR-CH-07): 비공개 채널은 초대 기반 가입만 허용 — 자유 가입 시도 거부. → 403.
+  CHANNEL_PRIVATE_INVITE_ONLY = 'CHANNEL_PRIVATE_INVITE_ONLY',
+  // S14 (FR-CH-07): 채널 멤버가 아닌데 탈퇴 시도. → 409.
+  CHANNEL_NOT_MEMBER = 'CHANNEL_NOT_MEMBER',
   CATEGORY_NOT_FOUND = 'CATEGORY_NOT_FOUND',
   CATEGORY_NAME_TAKEN = 'CATEGORY_NAME_TAKEN',
 
@@ -145,6 +153,12 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CHANNEL_ARCHIVED]: 409,
   // S13 (FR-CH-19): 공지 채널 게시 제한 → 403.
   [ErrorCode.CHANNEL_POSTING_RESTRICTED]: 403,
+  // S14 (FR-CH-05): confirmName 누락/불일치는 400(검증 실패 계열).
+  [ErrorCode.CHANNEL_CONFIRM_REQUIRED]: 400,
+  // S14 (FR-CH-07): 비공개 채널 자유 가입 거부는 403.
+  [ErrorCode.CHANNEL_PRIVATE_INVITE_ONLY]: 403,
+  // S14 (FR-CH-07): 비멤버 탈퇴는 409(상태 충돌).
+  [ErrorCode.CHANNEL_NOT_MEMBER]: 409,
   [ErrorCode.CATEGORY_NOT_FOUND]: 404,
   [ErrorCode.CATEGORY_NAME_TAKEN]: 409,
 
