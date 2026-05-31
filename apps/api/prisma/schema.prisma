@@ -20,6 +20,7 @@ enum ChannelType {
   TEXT
   VOICE
   ANNOUNCEMENT
+  FORUM
   DIRECT
 }
 
@@ -317,7 +318,12 @@ model Channel {
   overrides   ChannelPermissionOverride[]
   mutes       UserChannelMute[]
 
-  @@unique([workspaceId, name])
+  // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
+  // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
+  // (raw SQL in 20260531180000_s12_channel_name_partial_unique — Prisma's
+  // @@unique can't express the partial WHERE). A soft-deleted row no longer
+  // occupies its name, so the name is immediately reusable. The full-table
+  // @@unique([workspaceId, name]) was dropped in that migration.
   @@index([workspaceId, categoryId, position])
   @@index([workspaceId, deletedAt])
 }

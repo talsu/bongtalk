@@ -112,6 +112,28 @@ export function serializePermissions(mask: bigint): string {
   return mask.toString();
 }
 
+/**
+ * S12 BLOCKER: validate a permission mask supplied as a JS number (the
+ * ChannelPermissionOverride masks are stored as `Int` columns). Rejects
+ * non-integers, negatives (two's-complement `-1` would set every bit and
+ * smuggle in ADMINISTRATOR / undefined bits) and any bit outside the defined
+ * ALL_PERMISSIONS range. Returns the same value on success so callers can use
+ * it inline.
+ */
+export function assertValidPermissionMaskNumber(value: number): number {
+  if (!Number.isInteger(value) || value < 0) {
+    throw new RangeError(`permission mask must be a non-negative integer: ${value}`);
+  }
+  if ((BigInt(value) & ~ALL_PERMISSIONS) !== 0n) {
+    throw new RangeError(`permission mask out of range: ${value}`);
+  }
+  return value;
+}
+
+export function isValidPermissionMaskNumber(value: number): boolean {
+  return Number.isInteger(value) && value >= 0 && (BigInt(value) & ~ALL_PERMISSIONS) === 0n;
+}
+
 export function deserializePermissions(value: string): bigint {
   // 권한 마스크는 부호 없는 비트필드. 음수("-1")를 허용하면 2의 보수로
   // 모든 비트가 켜진 것처럼 동작해 ADMINISTRATOR 비트가 포함되는 권한
