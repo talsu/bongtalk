@@ -42,6 +42,15 @@ export const PRESENCE_OFFLINE_GRACE = 35;
 export const SEQ_SENTINEL = -1;
 
 /**
+ * 사용자당 동시 eager-join 채널 room 상한 (FR-RT-02 / D17).
+ *
+ * connect 시 RoomManager 가 viewable 채널을 최신 우선으로 정렬해 상위
+ * 이 개수만 채널 room 에 join 합니다. user / workspace room 은 상한 대상이
+ * 아닙니다. 초과분은 user room 의 unread 이벤트 + REST 로 보완합니다.
+ */
+export const MAX_JOINED_CHANNELS = 50;
+
+/**
  * ADR-8 상수 전체를 단일 객체로도 노출합니다(분산 락/테스트 등에서 키 순회용).
  */
 export const SHARED_CONSTANTS = {

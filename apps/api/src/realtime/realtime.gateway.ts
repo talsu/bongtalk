@@ -10,6 +10,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
+import { WS_EVENTS } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
@@ -40,9 +41,18 @@ type SocketState = {
  * this file focused on lifecycle + a handful of client→server events makes
  * it reviewable on one screen.
  */
+// FR-RT-20: websocket-only transport (HTTP long-polling disabled), tuned
+// engine.io heartbeat, and a 1 MB max frame. The web client
+// (apps/web/src/lib/socket.ts) already requests transports:['websocket'],
+// so disabling polling server-side is non-breaking. The Node heap flag
+// (--max-old-space-size) is a runtime/CMD concern → compose follow-up,
+// out of code scope.
 @WebSocketGateway({
   cors: { origin: true, credentials: true },
-  transports: ['websocket', 'polling'],
+  transports: ['websocket'],
+  pingInterval: 25000,
+  pingTimeout: 20000,
+  maxHttpBufferSize: 1024 * 1024,
 })
 export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   private readonly logger = new Logger(RealtimeGateway.name);
@@ -100,6 +110,14 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       preference,
     });
     this.metrics?.wsPresenceSessionsActive.inc();
+
+    // FR-RT-01: signal the client that rooms are joined + presence is
+    // registered. Emitted before any replay so the client can flip its
+    // connection state to "ready" prior to catch-up events landing.
+    client.emit(WS_EVENTS.CONNECTION_READY, {
+      userId: user.userId,
+      sessionId: user.sessionId,
+    });
 
     // Schedule a throttled presence broadcast per workspace the user just
     // joined — the throttler guarantees one emit per 2s window per workspace.

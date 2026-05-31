@@ -28,11 +28,11 @@ FR-MSG-16,D01-messaging,P1,S06,done
 FR-MSG-22,D01-messaging,P1,S06,done
 FR-RC14,D16-richcontent,P1,S06,done
 FR-RC15,D16-richcontent,P2,S06,done
-FR-RT-01,D17-realtime-sync,P0,S07,todo
-FR-RT-02,D17-realtime-sync,P0,S07,todo
-FR-RT-16,D17-realtime-sync,P1,S07,todo
-FR-RT-20,D17-realtime-sync,P1,S07,todo
-FR-RT-21,D17-realtime-sync,P0,S07,todo
+FR-RT-01,D17-realtime-sync,P0,S07,done
+FR-RT-02,D17-realtime-sync,P0,S07,done
+FR-RT-16,D17-realtime-sync,P1,S07,done
+FR-RT-20,D17-realtime-sync,P1,S07,done
+FR-RT-21,D17-realtime-sync,P0,S07,done
 FR-RT-03,D17-realtime-sync,P0,S08,todo
 FR-RT-04,D17-realtime-sync,P0,S08,todo
 FR-RT-15,D17-realtime-sync,P0,S08,todo

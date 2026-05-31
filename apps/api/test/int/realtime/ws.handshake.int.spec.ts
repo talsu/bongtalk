@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
-import { connectClient, seedRtStack, setupRtIntEnv, type RtIntEnv } from './helpers';
+import { connectClient, seedRtStack, setupRtIntEnv, waitForEvent, type RtIntEnv } from './helpers';
 
 let env: RtIntEnv;
 let stack: Awaited<ReturnType<typeof seedRtStack>>;
@@ -17,6 +17,19 @@ describe('WS handshake', () => {
   it('accepts a valid access token and joins workspace + channel rooms', async () => {
     const socket = await connectClient(env.wsUrl, stack.member.accessToken);
     expect(socket.connected).toBe(true);
+    socket.disconnect();
+  });
+
+  it('emits connection:ready with {userId, sessionId} on connect (FR-RT-01)', async () => {
+    const socket = await connectClient(env.wsUrl, stack.member.accessToken);
+    const ready = await waitForEvent<{ userId: string; sessionId: string }>(
+      socket,
+      'connection:ready',
+      3000,
+    );
+    expect(ready.userId).toBe(stack.member.userId);
+    expect(typeof ready.sessionId).toBe('string');
+    expect(ready.sessionId.length).toBeGreaterThan(0);
     socket.disconnect();
   });
 
