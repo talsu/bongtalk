@@ -9,9 +9,9 @@ FR-RT-18,D17-realtime-sync,P0,S01,done
 FR-MSG-01,D01-messaging,P0,S02,done
 FR-MSG-03,D01-messaging,P0,S02,done
 FR-MSG-20,D01-messaging,P0,S02,done
-FR-MSG-04,D01-messaging,P0,S03,todo
-FR-MSG-05,D01-messaging,P0,S03,todo
-FR-MSG-21,D01-messaging,P0,S03,todo
+FR-MSG-04,D01-messaging,P0,S03,done
+FR-MSG-05,D01-messaging,P0,S03,done
+FR-MSG-21,D01-messaging,P0,S03,done
 FR-MSG-02,D01-messaging,P0,S04,todo
 FR-MSG-13,D01-messaging,P0,S04,todo
 FR-MSG-19,D01-messaging,P1,S04,todo

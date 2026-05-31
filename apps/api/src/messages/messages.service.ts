@@ -1,7 +1,9 @@
-import { Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type Redis from 'ioredis';
 import { MessageMentions } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
+import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
@@ -132,7 +134,19 @@ export class MessagesService {
     // ThreadSubscriptionsService 는 같은 module 내 provider 라 직접 inject.
     @Optional()
     private readonly threadSubscriptions?: ThreadSubscriptionsService,
+    // S03 (FR-MSG-05 / FR-RT-04): Redis idempotency 2차 캐시. DB UNIQUE 가
+    // 1차 방어선이고, Redis `idem:{userId}:{idempotencyKey}` (TTL 24h) 는
+    // read-through 2차 캐시로 재전송 시 DB INSERT 시도 자체를 생략합니다.
+    // @Optional 이라 Redis 미주입 단위 테스트는 캐시 없이 DB 경로만 탑니다.
+    @Optional()
+    @Inject(REDIS)
+    private readonly redis?: Redis,
   ) {}
+
+  /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
+  private idemCacheKey(userId: string, idempotencyKey: string): string {
+    return `idem:${userId}:${idempotencyKey}`;
+  }
 
   toDto(
     row: MessageRow,
@@ -309,11 +323,15 @@ export class MessagesService {
   // ------------------------------------------------------------------ send
 
   /**
-   * Persist a new message. Idempotency semantics:
+   * Persist a new message. Idempotency semantics (S03 / FR-MSG-05 / ADR-2):
    *   - If `idempotencyKey` is null → always create.
-   *   - If the `(authorId, channelId, idempotencyKey)` row already exists with
-   *     the SAME content → return that row, mark `replayed=true` so the
-   *     controller can set the `Idempotency-Replayed` header.
+   *   - Scope is `@@unique([authorId, idempotencyKey])` — a USER-scoped key
+   *     (channel-independent). User A's key reused by user B yields a NEW row.
+   *   - 2-tier dedupe: Redis `idem:{userId}:{key}` (24h) is a read-through
+   *     cache that short-circuits the DB INSERT on a retry; the DB PARTIAL
+   *     UNIQUE index is the authoritative 1차 defence.
+   *   - If a row already exists with the SAME content → return it, mark
+   *     `replayed=true` so the controller can set `Idempotency-Replayed` + 200.
    *   - If it exists with DIFFERENT content → 409 IDEMPOTENCY_KEY_REUSE_CONFLICT.
    */
   async send(args: {
@@ -325,6 +343,11 @@ export class MessagesService {
     authorId: string;
     content: string;
     idempotencyKey: string | null;
+    // S03 (FR-MSG-04): clientNonce echoed on the message:created WS event so
+    // the sending tab swaps its optimistic row. Distinct from idempotencyKey
+    // in ROLE (UI mapping vs server dedupe) even though the client sends the
+    // same UUID for both.
+    nonce?: string | null;
     parentMessageId?: string | null;
     attachmentIds?: string[];
     // task-044-iter3: sender role (`OWNER` / `ADMIN` / `MEMBER`) used to
@@ -333,6 +356,39 @@ export class MessagesService {
     // is N/A) — defaults to MEMBER which downgrades `everyone=true`.
     actorRole?: GateActorRole;
   }): Promise<{ message: MessageRow; replayed: boolean }> {
+    // S03 (FR-MSG-05 / FR-RT-04): Redis read-through 2차 캐시. 재전송 시
+    // 동일 키가 캐시에 있으면 DB INSERT 시도 자체를 생략하고 캐시된
+    // messageId 로 행을 되돌립니다(replayed). 캐시 미스/Redis 장애는
+    // 조용히 통과 — DB UNIQUE 가 1차 방어선이라 정합성은 유지됩니다.
+    if (args.idempotencyKey && this.redis) {
+      const cached = await this.readIdemCache(args.authorId, args.idempotencyKey);
+      if (cached) {
+        const existing = (await this.prisma.message.findUnique({
+          where: { id: cached },
+        })) as MessageRow | null;
+        if (existing) {
+          // S03 review SEC-03 (intentional, documented): the idempotency key is
+          // USER-scoped and channel-INDEPENDENT by design (ADR-2 / FR-MSG-05) —
+          // the SAME user replaying the SAME key+content into a DIFFERENT
+          // channel dedupes to the original row (200 replay). This is the
+          // documented behavioural delta vs the old channel-scoped index and is
+          // covered by the int spec. Cross-channel message-BODY access is still
+          // gated upstream by ChannelAccessGuard before this code runs, so the
+          // replay leaks no row the caller couldn't already create; we therefore
+          // do NOT 409 on a channel mismatch. Only a CONTENT mismatch (same key,
+          // different content) is a client reuse bug → 409.
+          if (existing.content !== args.content) {
+            throw new DomainError(
+              ErrorCode.IDEMPOTENCY_KEY_REUSE_CONFLICT,
+              'idempotency key already used with different content',
+            );
+          }
+          this.metrics?.messagesSentIdempotentReplayedTotal.inc();
+          return { message: existing, replayed: true };
+        }
+        // Cache pointed at a vanished row (purge race) → fall through to DB.
+      }
+    }
     // Validate attachment ownership + channel scope BEFORE the insert
     // transaction so a bad id fails fast without an uncommitted row.
     if (args.attachmentIds && args.attachmentIds.length > 0) {
@@ -434,6 +490,9 @@ export class MessagesService {
             // 요구하나(events.ts 참조) 라이브 와이어는 중첩 페이로드라 미사용.
             mentions: mentions as unknown as Prisma.InputJsonValue,
             idempotencyKey: args.idempotencyKey,
+            // S03 (FR-MSG-04): persist clientNonce. Echoed on message:created;
+            // also lets a reconnect-resend path observe the prior send.
+            nonce: args.nonce ?? null,
             parentMessageId: args.parentMessageId ?? null,
           },
         });
@@ -455,6 +514,9 @@ export class MessagesService {
           workspaceId: args.workspaceId,
           channelId: args.channelId,
           actorId: args.authorId,
+          // S03 (FR-MSG-04): echo clientNonce so the sending tab swaps its
+          // optimistic row. `?? null` keeps the JSON payload stable.
+          nonce: args.nonce ?? null,
           message: {
             id: created.id,
             authorId: created.authorId,
@@ -574,23 +636,34 @@ export class MessagesService {
         return created as MessageRow;
       });
       this.metrics?.messagesSentTotal.inc();
+      // S03: populate the Redis 2차 cache so a retry of THIS key skips the
+      // DB INSERT entirely. Best-effort — a Redis failure never fails the send.
+      if (args.idempotencyKey) {
+        await this.writeIdemCache(args.authorId, args.idempotencyKey, row.id);
+      }
       return { message: row, replayed: false };
     } catch (e) {
-      // P2002 = unique violation. With null-safe partial index this only fires
-      // when a real duplicate (authorId+channelId+idempotencyKey) exists.
+      // P2002 = unique violation. With the S03 USER-scoped partial index
+      // (authorId, idempotencyKey) WHERE idempotencyKey IS NOT NULL, this
+      // fires when the same user reuses a key — regardless of channel.
       if (
         args.idempotencyKey &&
         e instanceof Prisma.PrismaClientKnownRequestError &&
         e.code === 'P2002'
       ) {
+        // S03 (ADR-2 / FR-MSG-05): lookup is USER-scoped — NOT channel-scoped.
+        // The same key is unique per author across all channels, so the
+        // existing row is found by (authorId, idempotencyKey) alone.
         const existing = await this.prisma.message.findFirst({
           where: {
             authorId: args.authorId,
-            channelId: args.channelId,
             idempotencyKey: args.idempotencyKey,
           },
         });
         if (!existing) throw e; // race: row vanished → surface original error
+        // S03 review SEC-03: USER-scoped key is channel-INDEPENDENT by design
+        // (see the cache-hit branch above) — a different channel is a valid
+        // replay, NOT a conflict. Only a content mismatch is a reuse conflict.
         if (existing.content !== args.content) {
           throw new DomainError(
             ErrorCode.IDEMPOTENCY_KEY_REUSE_CONFLICT,
@@ -598,9 +671,41 @@ export class MessagesService {
           );
         }
         this.metrics?.messagesSentIdempotentReplayedTotal.inc();
+        // Warm the cache so subsequent retries short-circuit before the DB.
+        await this.writeIdemCache(args.authorId, args.idempotencyKey, existing.id);
         return { message: existing as MessageRow, replayed: true };
       }
       throw e;
+    }
+  }
+
+  /**
+   * S03 (FR-MSG-05 / FR-RT-04): read the Redis idempotency 2차 cache. Returns
+   * the cached messageId or null. Best-effort — a Redis error returns null so
+   * the caller falls back to the authoritative DB UNIQUE path.
+   */
+  private async readIdemCache(userId: string, key: string): Promise<string | null> {
+    if (!this.redis) return null;
+    try {
+      return await this.redis.get(this.idemCacheKey(userId, key));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * Write the Redis idempotency 2차 cache with a 24h TTL (ADR-8 — Redis 전용
+   * 상태 카탈로그: `idem:{userId}:{idempotencyKey}` TTL 24h). Best-effort.
+   */
+  private async writeIdemCache(userId: string, key: string, messageId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      // EX 86400 = 24h. The DB UNIQUE index outlives the cache, so a TTL
+      // expiry merely means a post-24h retry re-checks the DB (intended —
+      // see FR-RT edge case "idempotencyKey 24h 만료 후 재전송").
+      await this.redis.set(this.idemCacheKey(userId, key), messageId, 'EX', 86400);
+    } catch {
+      // swallow — cache miss on the next retry is harmless (DB is canonical).
     }
   }
 
@@ -716,7 +821,7 @@ export class MessagesService {
       const beforeItems = await this.rawList({
         channelId,
         direction: 'before',
-        cursor: { t: anchor.createdAt.toISOString(), id: anchor.id },
+        cursor: { createdAt: anchor.createdAt.toISOString(), id: anchor.id },
         inclusive: true,
         limit: half + 1,
         includeDeleted,
@@ -724,7 +829,7 @@ export class MessagesService {
       const afterItems = await this.rawList({
         channelId,
         direction: 'after',
-        cursor: { t: anchor.createdAt.toISOString(), id: anchor.id },
+        cursor: { createdAt: anchor.createdAt.toISOString(), id: anchor.id },
         inclusive: false,
         limit: half,
         includeDeleted,
@@ -783,7 +888,9 @@ export class MessagesService {
   private async rawList(args: {
     channelId: string;
     direction: 'before' | 'after';
-    cursor: { t: string; id: string } | null;
+    // S03: cursor tuple uses the canonical `{ createdAt, id }` shape (FR-MSG-21);
+    // decodeCursor normalises legacy `{ t, id }` tokens to this on the way in.
+    cursor: { createdAt: string; id: string } | null;
     inclusive: boolean; // true = use <=/>= (used for around-anchor inclusion)
     limit: number;
     includeDeleted: boolean;
@@ -795,7 +902,7 @@ export class MessagesService {
     let cursorSql = '';
     let orderSql = '';
     if (args.cursor) {
-      params.push(args.cursor.t, args.cursor.id);
+      params.push(args.cursor.createdAt, args.cursor.id);
       const op =
         args.direction === 'before' ? (args.inclusive ? '<=' : '<') : args.inclusive ? '>=' : '>';
       cursorSql = `AND ("createdAt", id) ${op} ($3::timestamp, $4::uuid)`;
@@ -839,14 +946,15 @@ export class MessagesService {
   async listThreadReplies(args: {
     channelId: string;
     rootId: string;
-    cursor: { t: string; id: string } | null;
+    // S03: canonical `{ createdAt, id }` cursor tuple (FR-MSG-21).
+    cursor: { createdAt: string; id: string } | null;
     limit: number;
   }): Promise<{
     root: MessageRow;
     items: MessageRow[];
     hasMore: boolean;
-    nextCursor: { t: Date; id: string } | null;
-    prevCursor: { t: Date; id: string } | null;
+    nextCursor: { createdAt: Date; id: string } | null;
+    prevCursor: { createdAt: Date; id: string } | null;
   }> {
     const root = (await this.prisma.message.findFirst({
       where: { id: args.rootId, channelId: args.channelId, deletedAt: null },
@@ -863,7 +971,7 @@ export class MessagesService {
     const params: unknown[] = [args.rootId, args.limit + 1];
     let cursorSql = '';
     if (args.cursor) {
-      params.push(args.cursor.t, args.cursor.id);
+      params.push(args.cursor.createdAt, args.cursor.id);
       cursorSql = `AND ("createdAt", id) > ($3::timestamp, $4::uuid)`;
     }
     const sql = `
@@ -888,10 +996,10 @@ export class MessagesService {
       // Always produce both cursors so the client can jump either way.
       // The main list uses opaque strings, we return structured shapes
       // here so the controller can encode via `cursorFor`.
-      prevCursor: items.length > 0 ? { t: items[0].createdAt, id: items[0].id } : null,
+      prevCursor: items.length > 0 ? { createdAt: items[0].createdAt, id: items[0].id } : null,
       nextCursor:
         items.length > 0
-          ? { t: items[items.length - 1].createdAt, id: items[items.length - 1].id }
+          ? { createdAt: items[items.length - 1].createdAt, id: items[items.length - 1].id }
           : null,
     };
   }

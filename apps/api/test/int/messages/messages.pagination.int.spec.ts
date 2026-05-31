@@ -165,6 +165,30 @@ describe('Messages pagination — edge cases', () => {
     expect(parseFail.body.errorCode).toBe('MESSAGE_CURSOR_INVALID');
   });
 
+  // S03 (FR-MSG-21): response cursors are base64url(JSON{id,createdAt}) opaque.
+  it('response nextCursor decodes to canonical { id, createdAt } (FR-MSG-21)', async () => {
+    await seedRawMessages(env.prisma, {
+      channelId: stack.channelId,
+      authorId: stack.member.userId,
+      count: 30,
+    });
+    const r = await list('?limit=20');
+    expect(r.status).toBe(200);
+    expect(r.body.pageInfo.hasMore).toBe(true);
+    const token = r.body.pageInfo.nextCursor as string;
+    expect(typeof token).toBe('string');
+    const decoded = JSON.parse(Buffer.from(token, 'base64url').toString('utf8'));
+    expect(Object.keys(decoded).sort()).toEqual(['createdAt', 'id']);
+    expect(decoded).not.toHaveProperty('t');
+  });
+
+  // S03 (FR-MSG-21 edge case): lastReadMessageId must NOT be a pagination cursor.
+  it('lastReadMessageId as a cursor → 400 MESSAGE_CURSOR_INVALID', async () => {
+    const r = await list('?lastReadMessageId=11111111-1111-4111-8111-111111111111');
+    expect(r.status).toBe(400);
+    expect(r.body.errorCode).toBe('MESSAGE_CURSOR_INVALID');
+  });
+
   it('empty channel returns items=[] and cursors null', async () => {
     const r = await list('?limit=10');
     expect(r.status).toBe(200);
