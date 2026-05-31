@@ -91,8 +91,12 @@ export const MRKDWN_PARSE_ERROR_CODES = [
 export type MrkdwnParseErrorCode = (typeof MRKDWN_PARSE_ERROR_CODES)[number];
 
 /**
- * mrkdwn AST 노드 타입(D16). root/paragraph/heading/blockquote/code_block/
- * list/subtext/text/mention_user/mention_channel/mention_role/emoji/link.
+ * mrkdwn AST 노드 타입(D16) 단일 출처. root/paragraph/heading/blockquote/
+ * code_block/list/subtext/divider/text/mention_user/mention_channel/
+ * mention_role/emoji/link. mrkdwn-ast.ts 의 RichTextNode union 과 정합하며,
+ * divider 는 자식 없는 block 노드입니다(reviewer S01 MAJOR 정합 수정).
+ * 주: list_item 은 별도 노드 타입이 아니라 `{ nodes }` 래퍼이므로 본
+ * 목록에 포함하지 않습니다.
  */
 export const MRKDWN_AST_NODE_TYPES = [
   'root',
@@ -102,6 +106,7 @@ export const MRKDWN_AST_NODE_TYPES = [
   'code_block',
   'list',
   'subtext',
+  'divider',
   'text',
   'mention_user',
   'mention_channel',

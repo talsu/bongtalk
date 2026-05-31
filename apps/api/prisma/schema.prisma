@@ -23,6 +23,15 @@ enum ChannelType {
   DIRECT
 }
 
+// S01 (ADR-2): Message author classification. Default USER keeps every
+// existing row valid without a backfill (DB default fills NULLs at add
+// time). BOT / SYSTEM land in later slices (webhooks / system messages).
+enum AuthorType {
+  USER
+  BOT
+  SYSTEM
+}
+
 model OutboxEvent {
   id            String    @id @default(uuid()) @db.Uuid
   aggregateType String
@@ -353,6 +362,29 @@ model Message {
   pinnedAt   DateTime? @db.Timestamptz
   pinnedBy   String?   @db.Uuid
 
+  // ── S01 (ADR-2 카노니컬 additive 토대) ────────────────────────────────────
+  // expand-contract: 이번 슬라이스는 ADDITIVE 만. 신규 컬럼은 전부 nullable
+  // 또는 default 동반이라 기존 row 가 안전하다. 기존 `content` / `contentPlain`
+  // 컬럼은 그대로 유지(병행) — cuid2 PK 전환과 raw/ast 백필은 별도 트랙.
+  //
+  // contentRaw : 원본 mrkdwn (편집 diff용). 기존 row 는 NULL — 서비스
+  //   레이어가 읽을 때 `content` 로 폴백한다. 신규 write 경로가 채운다.
+  contentRaw  String?   @db.Text
+  // contentAst : 파싱된 rich_text AST(JSONB). 구조 계약은
+  //   packages/shared-types RichTextRootSchema. 기존 row 는 NULL.
+  contentAst  Json?
+  // contentPlainV2 : ADR-2 contentPlain 의 신규 nullable 슬롯. 기존 NOT NULL
+  //   `contentPlain` 컬럼과 병행한다(기존 컬럼 타입/제약 변경 금지 규칙).
+  //   백필 완료 후 contract 단계에서 단일화한다.
+  contentPlainV2 String? @db.Text
+  // version : 낙관적 잠금 버전. default 0 이라 기존 row 는 자동 0.
+  version     Int       @default(0)
+  // seq : 채널 단위 단조 증가(Redis INCR seq:{channelId}) 발급값 영속 사본.
+  //   힌트 용도이며 렌더 정렬 기준은 아님(D17). 기존 row 는 NULL.
+  seq         BigInt?
+  // authorType : USER | BOT | SYSTEM. default USER 라 기존 row 안전(ADR-2).
+  authorType  AuthorType @default(USER)
+
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User              @relation(fields: [authorId], references: [id])
   attachments Attachment[]
@@ -364,6 +396,8 @@ model Message {
   // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
   // row-value comparison WHERE (createdAt, id) < ($1, $2).
   @@index([channelId, createdAt, id])
+  // S01 (ADR-2 / FR-RT-18): 단순 ID 조회 보조 + cuid2 커서(id DESC) 경로.
+  @@index([channelId, id])
   // includeDeleted=false default path (soft-delete filter).
   @@index([channelId, deletedAt, createdAt])
   @@index([authorId])

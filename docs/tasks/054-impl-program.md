@@ -61,3 +61,17 @@ PRD v3(`/prd/`, 17도메인 · 299 FR)를 **충실하게 전부 구현**한다. 
 - [ ] 슬라이스 0(shared-types 컨트랙트) green·배포
 - [ ] P-1~P3 전 슬라이스 구현·머지·배포, fr-matrix 전 status=done
 - [ ] PRD 전 FR이 코드+테스트로 추적됨
+
+## ID 전략 결정 (2026-05-31, 사용자 승인)
+
+**cuid2 전면 PK 전환 (ADR-1 충실)** 채택. 라이브 DB 20+ 테이블이라 **전용
+expand-contract 트랙**으로 분리 실행(모놀리식 destructive 금지):
+
+- **cuid-ADD**: 각 테이블에 `idC String? @unique`(cuid2) 신컬럼 + FK shadow 컬럼 추가,
+  결정적 백필(기존 uuid→cuid2 매핑 테이블 또는 deterministic seed), 신규 row dual-write.
+  전부 additive·reversible → 라이브 무중단.
+- **cuid-SWITCH**: 앱이 cuid2 컬럼을 키로 사용, FK 를 cuid2 로 스위치(코드/쿼리 정렬).
+- **cuid-CONTRACT**: 구 uuid 컬럼 제거 + cuid2→`id` 리네임.
+
+shared-types `TransitionalIdSchema(uuid|cuid2)` 가 전환 기간 검증을 양쪽 수용(S00 적용).
+각 단계는 별도 슬라이스로 백로그에 삽입. 그 외 모든 카노니컬 필드는 additive 로 선행.

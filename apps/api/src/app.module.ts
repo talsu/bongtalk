@@ -23,6 +23,7 @@ import { SearchModule } from './search/search.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './common/outbox/outbox.module';
+import { CommonModule } from './common/common.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { LinksModule } from './links/links.module';
 import { MutesModule } from './notifications/mutes/mutes.module';
@@ -33,6 +34,7 @@ import { MutesModule } from './notifications/mutes/mutes.module';
     // realtime projection. The existing channel/workspace emitters use
     // exact event names so flipping this on is additive.
     EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
+    CommonModule,
     ObservabilityModule,
     PrismaModule,
     RedisModule,

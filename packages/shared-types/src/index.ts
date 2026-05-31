@@ -155,3 +155,6 @@ export * from './permissions';
 export * from './constants';
 export * from './mrkdwn';
 export * from './events';
+// S01 — 카노니컬 additive 토대 (ADR-2 / ADR-11 + FR-RC02)
+export * from './mrkdwn-ast';
+export * from './bigint';
