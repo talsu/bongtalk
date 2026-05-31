@@ -86,6 +86,10 @@ export type MessageUpdatedPayload = {
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     editedAt: string;
+    // S05 (FR-MSG-06): 편집 후 새 version. 라이브 수신측 캐시가 낙관적 잠금
+    // 기준(MessageDto.version)을 갱신하도록 실어보낸다. Additive — 구
+    // 디스패처는 무시.
+    version: number;
   };
 };
 

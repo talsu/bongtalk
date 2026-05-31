@@ -39,6 +39,7 @@ function makeMsg(id: string, extra: Partial<MessageDto> = {}): MessageDto {
     attachments: [],
     pinnedAt: null,
     pinnedBy: null,
+    version: 0,
     ...extra,
   };
 }

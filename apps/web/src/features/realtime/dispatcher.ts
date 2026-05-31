@@ -385,7 +385,11 @@ export function installRealtimeDispatcher(
     }
   });
 
-  on<{ channelId: string; workspaceId: string; message: MessageDto }>('message.updated', (env) => {
+  on<{
+    channelId: string;
+    workspaceId: string;
+    message: Partial<MessageDto> & { id: string };
+  }>('message.updated', (env) => {
     if (!env.channelId || !env.workspaceId) return;
     qc.setQueryData<InfiniteData<ListMessagesResponse>>(
       qk.messages.list(env.workspaceId, env.channelId),
@@ -395,7 +399,11 @@ export function installRealtimeDispatcher(
           ...old,
           pages: old.pages.map((p) => ({
             ...p,
-            items: p.items.map((m) => (m.id === env.message.id ? env.message : m)),
+            // S05 (FR-MSG-06): WS 페이로드는 편집된 본문 + 새 version 만 담은
+            // 부분 DTO. 기존 캐시 행 위에 merge 해 reactions/thread/attachments
+            // 등 미동봉 필드를 보존하고 version 을 갱신한다(다음 편집의 낙관적
+            // 잠금 기준이 최신값이 되도록).
+            items: p.items.map((m) => (m.id === env.message.id ? { ...m, ...env.message } : m)),
           })),
         };
       },
@@ -410,14 +418,30 @@ export function installRealtimeDispatcher(
         qk.messages.list(env.workspaceId, env.channelId),
         (old) => {
           if (!old) return old;
+          // S05 (FR-MSG-09): 스레드 reply 가 달린 root 는 플레이스홀더로 대체
+          // (deleted:true 마킹 → MessageItem 이 "(삭제된 메시지)" 렌더), reply
+          // 없는 단독 메시지는 목록에서 즉시 제거. reply 존재 여부는 캐시 행의
+          // thread.replyCount 로 판정한다(서버 events 스키마 변경 없이 결정).
           return {
             ...old,
-            pages: old.pages.map((p) => ({
-              ...p,
-              items: p.items.map((m) =>
-                m.id === env.message.id ? { ...m, deleted: true, content: null } : m,
-              ),
-            })),
+            pages: old.pages.map((p) => {
+              const target = p.items.find((m) => m.id === env.message.id);
+              const isThreadRootWithReplies =
+                !!target &&
+                target.parentMessageId === null &&
+                !!target.thread &&
+                target.thread.replyCount > 0;
+              if (target && !isThreadRootWithReplies) {
+                // 단독 메시지(또는 reply 자신) → 즉시 제거.
+                return { ...p, items: p.items.filter((m) => m.id !== env.message.id) };
+              }
+              return {
+                ...p,
+                items: p.items.map((m) =>
+                  m.id === env.message.id ? { ...m, deleted: true, content: null } : m,
+                ),
+              };
+            }),
           };
         },
       );

@@ -170,6 +170,9 @@ export class GlobalDmMessagesController {
       msgId,
       actorId: user.id,
       content: parsed.data.content,
+      // S05 (FR-MSG-06): DM 편집도 동일하게 낙관적 잠금. 불일치 시 409 +
+      // 현재 DTO(details.current)를 service 가 throw.
+      expectedVersion: parsed.data.expectedVersion,
     });
     return { message: this.messages.toDto(updated) };
   }
