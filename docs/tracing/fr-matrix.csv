@@ -19,7 +19,7 @@ FR-RC10,D16-richcontent,P0,S04,done
 FR-RC13,D16-richcontent,P1,S04,done
 FR-MSG-06,D01-messaging,P0,S05,done
 FR-MSG-07,D01-messaging,P0,S05,done
-FR-MSG-09,D01-messaging,P0,S05,done
+FR-MSG-09,D01-messaging,P0,S05,partial
 FR-RC16,D16-richcontent,P1,S05,done
 FR-MSG-10,D01-messaging,P1,S06,todo
 FR-MSG-11,D01-messaging,P1,S06,todo
