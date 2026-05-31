@@ -28,6 +28,7 @@ function msg(
     attachments: [],
     pinnedAt: null,
     pinnedBy: null,
+    version: 0,
     ...partial,
   } as MessageDto;
 }

@@ -5,6 +5,8 @@ import {
   MessageMentions,
   type MessageType,
   renderSystemMessageTemplate,
+  EDIT_HISTORY_CAP,
+  type EditHistoryDto,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
@@ -73,6 +75,9 @@ type MessageRow = {
   // task-044-iter2: pinned message marker. null when 미고정.
   pinnedAt?: Date | null;
   pinnedBy?: string | null;
+  // S05 (FR-MSG-06): 낙관적 잠금 버전. SELECT 미선택 시 undefined →
+  // toDto 가 0 으로 폴백(forward-compat). 편집마다 +1.
+  version?: number | null;
 };
 
 // task-044-iter2: Discord-parity cap. Cap 변경 시 shared-types
@@ -125,6 +130,9 @@ export type MessageDto = {
   // 결정에 사용. NULL = 미고정.
   pinnedAt: string | null;
   pinnedBy: string | null;
+  // S05 (FR-MSG-06): 낙관적 잠금 버전. 클라이언트가 편집창 오픈 시 스냅샷해
+  // PATCH expectedVersion 으로 보냅니다.
+  version: number;
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -215,6 +223,8 @@ export class MessagesService {
       // 되도록 deletedAt 핀 표시를 가립니다.
       pinnedAt: isDeleted ? null : (row.pinnedAt?.toISOString() ?? null),
       pinnedBy: isDeleted ? null : (row.pinnedBy ?? null),
+      // S05 (FR-MSG-06): version 노출. SELECT 미선택/legacy row 는 0 폴백.
+      version: row.version ?? 0,
     };
   }
 
@@ -1044,7 +1054,7 @@ export class MessagesService {
       SELECT id, "channelId", "authorId", content, "contentPlain",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy"
+             "pinnedAt", "pinnedBy", "version"
         FROM "Message"
        WHERE "channelId" = $1::uuid
              AND "parentMessageId" IS NULL
@@ -1103,7 +1113,7 @@ export class MessagesService {
       SELECT id, "channelId", "authorId", content, "contentPlain",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy"
+             "pinnedAt", "pinnedBy", "version"
         FROM "Message"
        WHERE "parentMessageId" = $1::uuid
              AND "deletedAt" IS NULL
@@ -1164,6 +1174,10 @@ export class MessagesService {
     msgId: string;
     actorId: string;
     content: string;
+    // S05 (FR-MSG-06): 낙관적 잠금 기대 version. 클라이언트가 편집창 오픈
+    // 시 스냅샷한 MessageDto.version. 현재 row.version 과 불일치하면 409
+    // (MESSAGE_VERSION_CONFLICT) + 현재 MessageDto 를 details.current 로 반환.
+    expectedVersion: number;
     // task-044-iter3: edit 도중 사용자가 `@everyone` 추가하면 send 와
     // 동일하게 권한 체크. 미지정 시 MEMBER 로 보수 처리.
     actorRole?: GateActorRole;
@@ -1193,12 +1207,32 @@ export class MessagesService {
     const editedAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {
-      // Defensive check: even though MessageAuthorGuard 404s on deleted rows,
-      // the service is also callable from tests/scripts. `updateMany` returns
-      // count=0 when the soft-delete predicate fails, so we can tell apart
-      // "no such row" from "row was soft-deleted" without a second query.
+      // S05 (FR-MSG-06) 1단계: 편집 전 현재 row 스냅샷. version 검증 + 이력
+      // 적재의 원자성을 위해 트랜잭션 안에서 먼저 읽는다. deletedAt 무관하게
+      // 읽되, soft-deleted 면 아래 낙관적 UPDATE 가 count=0 으로 거른다.
+      const before = await tx.message.findFirst({
+        where: { id: args.msgId, channelId: args.channelId },
+        select: {
+          version: true,
+          contentRaw: true,
+          contentAst: true,
+          contentPlainV2: true,
+          contentPlain: true,
+          deletedAt: true,
+        },
+      });
+
+      // S05 (FR-MSG-06) 2단계: 낙관적 UPDATE. version=version+1 + WHERE 절에
+      // version=expectedVersion AND deletedAt IS NULL 을 박아 동시 편집을
+      // 직렬화한다. `updateMany` 가 count=0 이면 행 부재 / soft-deleted /
+      // version 불일치 셋 중 하나 — 위 `before` 로 케이스를 가른다.
       const { count } = await tx.message.updateMany({
-        where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
+        where: {
+          id: args.msgId,
+          channelId: args.channelId,
+          deletedAt: null,
+          version: args.expectedVersion,
+        },
         data: {
           content: args.content,
           contentPlain,
@@ -1208,11 +1242,65 @@ export class MessagesService {
           contentPlainV2: contentPlain,
           mentions: mentions as unknown as Prisma.InputJsonValue,
           editedAt,
+          // 낙관적 잠금 bump. updatedAt 은 @updatedAt 으로 자동 갱신.
+          version: { increment: 1 },
         },
       });
       if (count === 0) {
-        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
+        // 행 부재 또는 soft-deleted → NOT_FOUND.
+        if (!before || before.deletedAt !== null) {
+          throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
+        }
+        // 행은 살아있으나 version 불일치 → 409 + 현재 MessageDto(details.current).
+        // 다른 곳에서 이미 편집되어 클라이언트 스냅샷이 stale 한 경우.
+        // security HIGH-02: channelId 를 함께 걸어 교차 채널/워크스페이스
+        // 메시지가 details.current 로 새지 않도록 서비스 레이어에서도 격리한다.
+        const current = (await tx.message.findFirst({
+          where: { id: args.msgId, channelId: args.channelId },
+        })) as MessageRow | null;
+        // reviewer LOW-1: 회수 사이에 행이 사라졌다면(희박) 409 가 아니라
+        // NOT_FOUND 가 의미상 정확하다 — 클라이언트가 stale 편집창을 닫게 한다.
+        if (!current) {
+          throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
+        }
+        throw new DomainError(
+          ErrorCode.MESSAGE_VERSION_CONFLICT,
+          'message was edited elsewhere — reload and retry',
+          { current: this.toDto(current) },
+        );
       }
+
+      // S05 (FR-MSG-06) 3단계: 편집 전 스냅샷을 EditHistory 에 적재. version 은
+      // 편집 전 값(before.version). before 는 count>0 이므로 항상 non-null.
+      await tx.messageEditHistory.create({
+        data: {
+          messageId: args.msgId,
+          version: before!.version,
+          contentRaw: before!.contentRaw,
+          contentAst: (before!.contentAst ?? Prisma.DbNull) as Prisma.InputJsonValue,
+          // contentPlain 스냅샷: 신규 슬롯(contentPlainV2) 우선, 없으면 legacy.
+          contentPlain: before!.contentPlainV2 ?? before!.contentPlain,
+          editedAt,
+        },
+      });
+
+      // S05 (FR-MSG-06) 4단계: ring buffer cap(10) enforce. 11번째 편집이면
+      // 가장 오래된 version 1개를 DELETE 한다. version asc 로 oldest 식별.
+      const historyCount = await tx.messageEditHistory.count({
+        where: { messageId: args.msgId },
+      });
+      if (historyCount > EDIT_HISTORY_CAP) {
+        const oldest = await tx.messageEditHistory.findMany({
+          where: { messageId: args.msgId },
+          orderBy: { version: 'asc' },
+          take: historyCount - EDIT_HISTORY_CAP,
+          select: { id: true },
+        });
+        await tx.messageEditHistory.deleteMany({
+          where: { id: { in: oldest.map((h) => h.id) } },
+        });
+      }
+
       const updated = (await tx.message.findUnique({ where: { id: args.msgId } }))!;
       const payload: MessageUpdatedPayload = {
         workspaceId: args.workspaceId,
@@ -1230,6 +1318,10 @@ export class MessagesService {
           contentAst: processed.contentAst,
           mentions,
           editedAt: editedAt.toISOString(),
+          // S05 (FR-MSG-06): events 계약(MessageUpdatedPayloadSchema)이 요구하는
+          // version. 편집 후 새 version 을 실어 라이브 수신측 캐시가 낙관적
+          // 잠금 기준을 갱신하게 한다.
+          version: updated.version,
         },
       };
       await this.outbox.record(tx, {
@@ -1240,6 +1332,37 @@ export class MessagesService {
       });
       return updated as MessageRow;
     });
+  }
+
+  // ----------------------------------------------- S05 edit history (FR-RC16)
+
+  /**
+   * S05 (FR-RC16): 메시지 편집 이력 조회. 권한(작성자 본인 또는
+   * MANAGE_MESSAGES 권한자)은 controller 에서 게이트하므로 service 는 단순
+   * 조회만 수행합니다. version desc(최신 편집 먼저), 최대 EDIT_HISTORY_CAP 개.
+   */
+  async listEditHistory(args: { channelId: string; msgId: string }): Promise<EditHistoryDto[]> {
+    // 메시지 존재 확인(deletedAt 무관 — 삭제된 메시지의 이력도 모더레이터가
+    // 조회 가능). 부재 시 404.
+    const exists = await this.prisma.message.findFirst({
+      where: { id: args.msgId, channelId: args.channelId },
+      select: { id: true },
+    });
+    if (!exists) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
+    }
+    const rows = await this.prisma.messageEditHistory.findMany({
+      where: { messageId: args.msgId },
+      orderBy: { version: 'desc' },
+      take: EDIT_HISTORY_CAP,
+    });
+    return rows.map((r) => ({
+      version: r.version,
+      contentRaw: r.contentRaw,
+      contentAst: (r.contentAst as EditHistoryDto['contentAst']) ?? null,
+      contentPlain: r.contentPlain,
+      editedAt: r.editedAt.toISOString(),
+    }));
   }
 
   // ------------------------------------------------------------------ delete

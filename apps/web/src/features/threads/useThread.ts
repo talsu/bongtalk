@@ -78,6 +78,8 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         attachments: [],
         pinnedAt: null,
         pinnedBy: null,
+        // S05 (FR-MSG-06): optimistic reply 는 서버 row 전이라 version 0.
+        version: 0,
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;

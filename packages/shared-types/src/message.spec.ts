@@ -1,5 +1,14 @@
 import { describe, it, expect } from 'vitest';
-import { CursorPayloadSchema, ListMessagesQuerySchema, SendMessageRequestSchema } from './message';
+import {
+  CursorPayloadSchema,
+  ListMessagesQuerySchema,
+  SendMessageRequestSchema,
+  UpdateMessageRequestSchema,
+  MessageDtoSchema,
+  EditHistoryDtoSchema,
+  ListEditHistoryResponseSchema,
+  EDIT_HISTORY_CAP,
+} from './message';
 
 /**
  * S03 (FR-MSG-04 / FR-MSG-21) shared-contract spec.
@@ -94,5 +103,84 @@ describe('ListMessagesQuerySchema lastReadMessageId guard (FR-MSG-21)', () => {
   it('still enforces before/after/around mutual exclusion', () => {
     const parsed = ListMessagesQuerySchema.safeParse({ before: 'a', after: 'b' });
     expect(parsed.success).toBe(false);
+  });
+});
+
+// ── S05 (FR-MSG-06 / FR-RC16) edit/delete + 낙관적 잠금 + 이력 계약 ──────────
+describe('UpdateMessageRequestSchema.expectedVersion (FR-MSG-06)', () => {
+  it('requires expectedVersion alongside content', () => {
+    const ok = UpdateMessageRequestSchema.safeParse({ content: 'hi', expectedVersion: 3 });
+    expect(ok.success).toBe(true);
+  });
+
+  it('rejects a PATCH without expectedVersion', () => {
+    const bad = UpdateMessageRequestSchema.safeParse({ content: 'hi' });
+    expect(bad.success).toBe(false);
+  });
+
+  it('rejects a negative expectedVersion', () => {
+    const bad = UpdateMessageRequestSchema.safeParse({ content: 'hi', expectedVersion: -1 });
+    expect(bad.success).toBe(false);
+  });
+});
+
+describe('MessageDtoSchema.version (FR-MSG-06)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111',
+    channelId: '22222222-2222-4222-8222-222222222222',
+    authorId: '33333333-3333-4333-8333-333333333333',
+    content: 'hi',
+    mentions: { users: [], channels: [], everyone: false, here: false },
+    edited: false,
+    deleted: false,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    editedAt: null,
+  };
+
+  it('defaults version to 0 when omitted (forward-compat with older API builds)', () => {
+    const parsed = MessageDtoSchema.parse(base);
+    expect(parsed.version).toBe(0);
+  });
+
+  it('carries an explicit version through', () => {
+    const parsed = MessageDtoSchema.parse({ ...base, version: 7 });
+    expect(parsed.version).toBe(7);
+  });
+});
+
+describe('EditHistoryDtoSchema / ListEditHistoryResponseSchema (FR-RC16)', () => {
+  const entry = {
+    version: 1,
+    contentRaw: 'old',
+    contentAst: null,
+    contentPlain: 'old',
+    editedAt: '2025-01-01T00:00:00.000Z',
+  };
+
+  it('parses a valid edit-history entry', () => {
+    expect(EditHistoryDtoSchema.safeParse(entry).success).toBe(true);
+  });
+
+  it('allows null contentRaw / contentAst (legacy snapshot)', () => {
+    expect(
+      EditHistoryDtoSchema.safeParse({ ...entry, contentRaw: null, contentAst: null }).success,
+    ).toBe(true);
+  });
+
+  it('rejects a non-datetime editedAt', () => {
+    expect(EditHistoryDtoSchema.safeParse({ ...entry, editedAt: 'nope' }).success).toBe(false);
+  });
+
+  it('accepts up to EDIT_HISTORY_CAP items', () => {
+    const items = Array.from({ length: EDIT_HISTORY_CAP }, (_, i) => ({ ...entry, version: i }));
+    expect(ListEditHistoryResponseSchema.safeParse({ items }).success).toBe(true);
+  });
+
+  it('rejects more than EDIT_HISTORY_CAP items', () => {
+    const items = Array.from({ length: EDIT_HISTORY_CAP + 1 }, (_, i) => ({
+      ...entry,
+      version: i,
+    }));
+    expect(ListEditHistoryResponseSchema.safeParse({ items }).success).toBe(false);
   });
 });

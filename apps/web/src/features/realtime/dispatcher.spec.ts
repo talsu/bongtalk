@@ -408,4 +408,119 @@ describe('realtime dispatcher', () => {
     detach();
     expect(offSpy).toHaveBeenCalledTimes(DISPATCHED_EVENTS.length);
   });
+
+  // ── S05 (FR-MSG-06 / FR-MSG-09) edit/delete cache patches ──────────────
+  function seedMsg(overrides: Record<string, unknown> = {}) {
+    return {
+      id: 'msg-x',
+      channelId: 'ch-1',
+      authorId: 'u-1',
+      content: 'orig',
+      contentRaw: 'orig',
+      contentAst: null,
+      type: 'DEFAULT',
+      mentions: { users: [], channels: [], everyone: false, here: false },
+      edited: false,
+      deleted: false,
+      createdAt: '2025-01-01T00:00:00.000Z',
+      editedAt: null,
+      reactions: [],
+      parentMessageId: null,
+      thread: null,
+      attachments: [],
+      pinnedAt: null,
+      pinnedBy: null,
+      version: 0,
+      ...overrides,
+    };
+  }
+
+  type CachePage = { items: ReturnType<typeof seedMsg>[]; pageInfo: unknown };
+  function readItems(qc: QueryClient): ReturnType<typeof seedMsg>[] {
+    const data = qc.getQueryData(qk.messages.list('ws-1', 'ch-1')) as
+      | { pages: CachePage[] }
+      | undefined;
+    return data?.pages[0]?.items ?? [];
+  }
+
+  it('message.updated merges new content + version into the cached row (FR-MSG-06)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [seedMsg({ reactions: [{ emoji: '👍', count: 1, byMe: true }] })],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.updated', {
+      id: 'ev-u',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-x', content: 'edited!', edited: true, version: 1 },
+    });
+    const row = readItems(qc)[0];
+    expect(row.content).toBe('edited!');
+    expect(row.version).toBe(1);
+    // 미동봉 필드(reactions)는 보존된다(merge, not replace).
+    expect(row.reactions).toHaveLength(1);
+    detach();
+  });
+
+  it('message.deleted on a single message removes it from the list (FR-MSG-09)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [seedMsg({ id: 'msg-solo' })],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.deleted', {
+      id: 'ev-d',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-solo' },
+    });
+    expect(readItems(qc).find((m) => m.id === 'msg-solo')).toBeUndefined();
+    detach();
+  });
+
+  it('message.deleted on a thread root with replies keeps a placeholder (FR-MSG-09)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [
+            seedMsg({
+              id: 'msg-root',
+              thread: { replyCount: 2, lastRepliedAt: null, recentReplyUserIds: [] },
+            }),
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.deleted', {
+      id: 'ev-d2',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-root' },
+    });
+    const row = readItems(qc).find((m) => m.id === 'msg-root');
+    expect(row).toBeDefined();
+    expect(row?.deleted).toBe(true);
+    expect(row?.content).toBeNull();
+    detach();
+  });
 });

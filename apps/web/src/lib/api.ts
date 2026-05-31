@@ -50,10 +50,7 @@ export type RequestOpts = {
   retryOn401?: boolean;
 };
 
-export async function apiRequest<T>(
-  path: string,
-  opts: RequestOpts = {},
-): Promise<T> {
+export async function apiRequest<T>(path: string, opts: RequestOpts = {}): Promise<T> {
   const headers: Record<string, string> = {};
   if (opts.body !== undefined && opts.json !== false) {
     headers['content-type'] = 'application/json';
@@ -91,9 +88,17 @@ async function bubbleError(res: Response): Promise<Error> {
   try {
     const body = await res.json();
     const msg = typeof body?.message === 'string' ? body.message : `http ${res.status}`;
-    const err = new Error(msg) as Error & { errorCode?: string; status?: number };
+    const err = new Error(msg) as Error & {
+      errorCode?: string;
+      status?: number;
+      details?: unknown;
+    };
     err.errorCode = body?.errorCode;
     err.status = res.status;
+    // S05 (FR-MSG-06): 낙관적 잠금 충돌(MESSAGE_VERSION_CONFLICT) 응답은
+    // body.details.current 에 서버 최신 MessageDto 를 싣는다. 편집창 롤백에
+    // 쓰도록 에러에 그대로 전달한다(다른 에러는 details 미포함이라 무해).
+    err.details = body?.details;
     return err;
   } catch {
     return new Error(`http ${res.status}`);

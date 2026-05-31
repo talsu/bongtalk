@@ -61,6 +61,10 @@ export enum ErrorCode {
   MESSAGE_PARENT_NOT_FOUND = 'MESSAGE_PARENT_NOT_FOUND',
   // task-044-iter2: pinned messages cap (50/channel, Discord parity).
   MESSAGE_PIN_CAP_EXCEEDED = 'MESSAGE_PIN_CAP_EXCEEDED',
+  // S05 (FR-MSG-06): 편집 낙관적 잠금 충돌. expectedVersion ≠ 현재 version
+  // → 409. 필터가 details.current(현재 MessageDto)를 응답 body 에 실어
+  // 클라이언트가 편집창을 서버 최신값으로 롤백할 수 있게 합니다.
+  MESSAGE_VERSION_CONFLICT = 'MESSAGE_VERSION_CONFLICT',
   IDEMPOTENCY_KEY_REUSE_CONFLICT = 'IDEMPOTENCY_KEY_REUSE_CONFLICT',
 
   // task-012-B attachments + task-012-D channel ACL
@@ -152,6 +156,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.MESSAGE_THREAD_DEPTH_EXCEEDED]: 400,
   [ErrorCode.MESSAGE_PARENT_NOT_FOUND]: 404,
   [ErrorCode.MESSAGE_PIN_CAP_EXCEEDED]: 422,
+  // S05 (FR-MSG-06): 낙관적 잠금 충돌은 409 (IDEMPOTENCY_KEY_REUSE_CONFLICT 와 동일 매핑).
+  [ErrorCode.MESSAGE_VERSION_CONFLICT]: 409,
   [ErrorCode.IDEMPOTENCY_KEY_REUSE_CONFLICT]: 409,
 
   [ErrorCode.ATTACHMENT_NOT_FOUND]: 404,

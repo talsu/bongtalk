@@ -111,6 +111,10 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_PARENT_NOT_FOUND',
   // task-044-iter2: pinned messages cap (50/channel)
   'MESSAGE_PIN_CAP_EXCEEDED',
+  // S05 (FR-MSG-06): 낙관적 잠금 충돌. PATCH expectedVersion 이 서버
+  // version 과 불일치 → 409. 응답은 표준 에러 envelope + `details.current`
+  // 에 현재 MessageDto 를 실어 클라이언트가 편집창을 최신값으로 롤백.
+  'MESSAGE_VERSION_CONFLICT',
   'IDEMPOTENCY_KEY_REUSE_CONFLICT',
   // task-015-A (014-follow-3 closure): attachments + channel
   // visibility + generic forbidden codes. All existed in the backend

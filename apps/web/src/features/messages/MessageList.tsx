@@ -392,7 +392,14 @@ export function MessageList({
                     mentions={mentionLookup}
                     viewerRole={viewerRole}
                     onEditSave={async (content) => {
-                      await updMut.mutateAsync({ msgId: m.id, content });
+                      // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
+                      // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →
+                      // 훅 onError 가 캐시를 서버 최신 DTO 로 롤백 + 토스트.
+                      await updMut.mutateAsync({
+                        msgId: m.id,
+                        content,
+                        expectedVersion: m.version ?? 0,
+                      });
                     }}
                     onDelete={async () => {
                       await delMut.mutateAsync(m.id);

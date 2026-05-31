@@ -420,6 +420,9 @@ model Message {
   parent      Message?          @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies     Message[]         @relation("MessageReplies")
   threadFollowers ThreadSubscription[] @relation("MessageThreadFollowers")
+  // S05 (FR-MSG-06): 편집 이력 스냅샷(ring buffer cap 10). 메시지 hard
+  // delete 시 Cascade 로 함께 정리됩니다.
+  editHistory MessageEditHistory[] @relation("MessageEditHistory")
 
   // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
   // row-value comparison WHERE (createdAt, id) < ($1, $2).
@@ -456,6 +459,31 @@ model MessageReaction {
 
   @@unique([messageId, userId, emoji])
   @@index([messageId, emoji])
+}
+
+// S05 (FR-MSG-06 / FR-RC16): 메시지 편집 이력 스냅샷.
+// 편집(PATCH) 시 직전 본문(contentRaw/contentAst/contentPlain)을 한 행으로
+// 적재합니다. `version` 은 스냅샷 당시(편집 전) 메시지 version 입니다. 채널당
+// 메시지별 ring buffer cap 은 서비스 레이어에서 10 으로 enforce 하며, 11번째
+// 편집 시 가장 오래된 version 1개를 DELETE 합니다(DB 제약 아님 — 운영 유연성).
+// additive only — 신규 테이블이라 기존 row 영향 없음. seed 결정성 무관.
+model MessageEditHistory {
+  id          String   @id @default(uuid()) @db.Uuid
+  messageId   String   @db.Uuid
+  // 스냅샷 당시(편집 전) 메시지 version.
+  version     Int
+  // 편집 전 본문 스냅샷. contentRaw 는 legacy row 에서 NULL 가능.
+  contentRaw  String?  @db.Text
+  contentAst  Json?
+  contentPlain String  @db.Text
+  // 스냅샷 생성(=해당 편집 발생) 시각.
+  editedAt    DateTime @db.Timestamptz
+  createdAt   DateTime @default(now())
+
+  message Message @relation("MessageEditHistory", fields: [messageId], references: [id], onDelete: Cascade)
+
+  // ring buffer 정렬(version asc/desc) + (messageId, version) 조회 경로.
+  @@index([messageId, version])
 }
 
 enum AttachmentKind {
