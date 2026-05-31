@@ -125,6 +125,7 @@ function DesktopShell(): JSX.Element {
           channelId={activeChannel.id}
           channelName={activeChannel.name}
           channelTopic={activeChannel.topic ?? null}
+          channelType={activeChannel.type}
         />
       ) : (
         <main className="qf-empty flex-1">

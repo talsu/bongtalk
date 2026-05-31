@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { ChannelsController } from './channels.controller';
 import { ChannelsService } from './channels.service';
 import { CategoriesController } from './categories/categories.controller';
@@ -13,9 +13,13 @@ import { DirectMessagesService } from './direct-messages/direct-messages.service
 import { GlobalDmController } from './direct-messages/global-dm.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
+import { MessagesModule } from '../messages/messages.module';
 
 @Module({
-  imports: [WorkspacesModule, OutboxModule],
+  // S13 (FR-CH-09/04): ChannelsService → MessagesService.createSystemMessage
+  // 역참조용 forwardRef. MessagesModule 도 ChannelsModule 을 forwardRef 로
+  // 가져오므로 양방향 순환이 끊긴다.
+  imports: [WorkspacesModule, OutboxModule, forwardRef(() => MessagesModule)],
   controllers: [
     ChannelsController,
     CategoriesController,

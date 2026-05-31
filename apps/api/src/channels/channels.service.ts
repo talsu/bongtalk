@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable } from '@nestjs/common';
 import { ChannelType, Prisma } from '@prisma/client';
 import {
   CHANNEL_RESERVED_NAMES,
@@ -10,6 +10,7 @@ import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+import { MessagesService } from '../messages/messages.service';
 import { calcBetween } from './positioning/fractional-position';
 import {
   CHANNEL_ARCHIVED,
@@ -28,7 +29,39 @@ export class ChannelsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    // S13 (FR-CH-09 / FR-CH-04): 토픽 변경·아카이브 시 시스템 메시지를
+    // createSystemMessage 로 발행한다. MessagesModule → ChannelsModule
+    // 단방향 의존이라 역방향 주입은 forwardRef 로 순환을 끊는다.
+    @Inject(forwardRef(() => MessagesService))
+    private readonly messages: MessagesService,
   ) {}
+
+  /**
+   * S13 (FR-CH-09 / FR-CH-04): 시스템 메시지를 채널에 발행한다. 발행 자체는
+   * createSystemMessage 가 자체 트랜잭션으로 처리하므로 도메인 변경
+   * 트랜잭션이 커밋된 뒤 호출한다. 시스템 메시지 발행 실패가 도메인 변경
+   * (토픽/아카이브)을 롤백시키지 않도록 best-effort 로 감싼다.
+   */
+  private async emitChannelSystemMessage(args: {
+    workspaceId: string;
+    channelId: string;
+    actorId: string;
+    type: 'SYSTEM_CHANNEL_RENAME' | 'SYSTEM_CHANNEL_TOPIC_CHANGED' | 'SYSTEM_CHANNEL_ARCHIVED';
+    /** username 은 호출측이 채우지 않아도 actorId 로 해석한다. */
+    vars: Record<string, string>;
+  }): Promise<void> {
+    const actor = await this.prisma.user.findUnique({
+      where: { id: args.actorId },
+      select: { username: true },
+    });
+    await this.messages.createSystemMessage({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      actorId: args.actorId,
+      type: args.type,
+      vars: { username: actor?.username ?? '', ...args.vars },
+    });
+  }
 
   // S12 (FR-CH-01): TEXT / ANNOUNCEMENT / FORUM are the creatable text-surface
   // types. VOICE waits on the voice slice; DIRECT is created only through the
@@ -161,6 +194,8 @@ export class ChannelsService {
             name: input.name,
             type: input.type as ChannelType,
             topic: input.topic ?? null,
+            // S13 (FR-CH-10): 설명은 생성 시 선택 입력.
+            description: input.description ?? null,
             categoryId: input.categoryId ?? null,
             position,
             // Task-012-D: honour the isPrivate flag from the DTO.
@@ -235,23 +270,32 @@ export class ChannelsService {
         throw new DomainError(ErrorCode.CATEGORY_NOT_FOUND, 'category not found');
       }
     }
+    // S13 (FR-CH-09): 토픽 변경 시스템 메시지는 "실제로 바뀐 경우"에만 발행한다.
+    // 갱신 전 토픽을 읽어 새 값과 비교한다(같은 값으로 PATCH 하면 무발행).
+    const before = await this.prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { topic: true },
+    });
+    let channel: ChannelRow;
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const channel = await tx.channel.update({
+      channel = await this.prisma.$transaction(async (tx) => {
+        const updated = await tx.channel.update({
           where: { id: channelId },
           data: {
             ...(input.name !== undefined ? { name: input.name } : {}),
             ...(input.topic !== undefined ? { topic: input.topic } : {}),
+            // S13 (FR-CH-10): description — null 은 삭제, 미지정은 변경 없음.
+            ...(input.description !== undefined ? { description: input.description } : {}),
             ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
           },
         });
         await this.outbox.record(tx, {
           aggregateType: 'channel',
-          aggregateId: channel.id,
+          aggregateId: updated.id,
           eventType: CHANNEL_UPDATED,
-          payload: { workspaceId, actorId, channel: this.toDto(channel) },
+          payload: { workspaceId, actorId, channel: this.toDto(updated) },
         });
-        return channel;
+        return updated;
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -259,6 +303,19 @@ export class ChannelsService {
       }
       throw e;
     }
+    // S13 (FR-CH-09): channel.updated 이벤트는 위에서 그대로 유지. 토픽이 실제로
+    // 바뀌었으면 추가로 SYSTEM_CHANNEL_TOPIC_CHANGED 시스템 메시지를 발행한다.
+    // 트랜잭션 커밋 뒤 호출(createSystemMessage 가 자체 트랜잭션).
+    if (input.topic !== undefined && (before?.topic ?? null) !== (input.topic ?? null)) {
+      await this.emitChannelSystemMessage({
+        workspaceId,
+        channelId,
+        actorId,
+        type: 'SYSTEM_CHANNEL_TOPIC_CHANGED',
+        vars: { topic: input.topic ?? '' },
+      });
+    }
+    return channel;
   }
 
   async softDelete(workspaceId: string, channelId: string, actorId: string) {
@@ -312,19 +369,35 @@ export class ChannelsService {
   }
 
   async archive(workspaceId: string, channelId: string, actorId: string) {
-    return this.prisma.$transaction(async (tx) => {
-      const channel = await tx.channel.update({
+    // S13 (FR-CH-04): 이미 보관 상태면 시스템 메시지를 중복 발행하지 않는다.
+    const before = await this.prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { archivedAt: true },
+    });
+    const channel = await this.prisma.$transaction(async (tx) => {
+      const updated = await tx.channel.update({
         where: { id: channelId },
         data: { archivedAt: new Date() },
       });
       await this.outbox.record(tx, {
         aggregateType: 'channel',
-        aggregateId: channel.id,
+        aggregateId: updated.id,
         eventType: CHANNEL_ARCHIVED,
         payload: { workspaceId, actorId, channelId },
       });
-      return channel;
+      return updated;
     });
+    // S13 (FR-CH-04): 보관 전환 시 SYSTEM_CHANNEL_ARCHIVED 시스템 메시지 발행.
+    if (!before?.archivedAt) {
+      await this.emitChannelSystemMessage({
+        workspaceId,
+        channelId,
+        actorId,
+        type: 'SYSTEM_CHANNEL_ARCHIVED',
+        vars: {},
+      });
+    }
+    return channel;
   }
 
   async unarchive(workspaceId: string, channelId: string, actorId: string) {
@@ -517,6 +590,8 @@ export class ChannelsService {
       name: c.name,
       type: c.type,
       topic: c.topic,
+      // S13 (FR-CH-10): 설명을 채널 목록/단건 DTO 에 노출.
+      description: c.description,
       position: c.position.toString(),
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,
