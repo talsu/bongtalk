@@ -1,0 +1,869 @@
+[
+  {
+    "slice_id": "S00",
+    "phase": "P-1",
+    "title": "shared-types 컨트랙트 수렴: WS_EVENTS 단일출처 + 권한 비트마스크 + MENTION_USER_RE + 파서 가드 계약",
+    "domain": "foundation",
+    "fr_ids": ["FR-RC22", "FR-RC23", "FR-MSG-23"],
+    "depends_on": [],
+    "kind": "contract",
+    "scope_allow": "packages/shared-types/**"
+  },
+  {
+    "slice_id": "S01",
+    "phase": "P-1",
+    "title": "카노니컬 Prisma 마이그레이션 토대(cuid2 ID, Message contentRaw/contentAst/contentTsv, version 낙관잠금, seq, channelId+id DESC 인덱스) + BigInt 인터셉터 + Tiptap AST serializer 계약",
+    "domain": "foundation",
+    "fr_ids": ["FR-RC01", "FR-RC02", "FR-RC17", "FR-RT-18"],
+    "depends_on": ["S00"],
+    "kind": "migration",
+    "scope_allow": "apps/api/prisma/**,packages/shared-types/**,apps/api/src/common/**,apps/web/src/features/messages/composer/**"
+  },
+  {
+    "slice_id": "S02",
+    "phase": "P0",
+    "title": "메시지 mrkdwn 송수신 코어: 구문 전체 + XSS escape/링크 sanitize + 길이 4000자 카운터",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-01", "FR-MSG-03", "FR-MSG-20"],
+    "depends_on": ["S00", "S01"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S03",
+    "phase": "P0",
+    "title": "메시지 멱등 전송/재시도/커서 페이지네이션: clientNonce=Idempotency-Key, 전송실패 재시도, base64 opaque 커서",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-04", "FR-MSG-05", "FR-MSG-21"],
+    "depends_on": ["S02"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S04",
+    "phase": "P0",
+    "title": "코드블록 하이라이트 + 멘션 정규화 + 메시지 타입 enum + 시스템 메시지 렌더",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-02", "FR-MSG-13", "FR-MSG-19", "FR-RC10", "FR-RC13"],
+    "depends_on": ["S02"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S05",
+    "phase": "P0",
+    "title": "메시지 편집/삭제: version 낙관잠금 + EditHistory 스냅샷 + (edited) 뱃지 + soft delete 플레이스홀더 + suppress embed",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-06", "FR-MSG-07", "FR-MSG-09", "FR-RC16"],
+    "depends_on": ["S03", "S04"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S06",
+    "phase": "P1",
+    "title": "메시지 그룹핑/타임스탬프/날짜구분선/스포일러/빈 채널 상태 + 큰 이모지",
+    "domain": "D01-messaging",
+    "fr_ids": [
+      "FR-MSG-10",
+      "FR-MSG-11",
+      "FR-MSG-12",
+      "FR-MSG-16",
+      "FR-MSG-22",
+      "FR-RC14",
+      "FR-RC15"
+    ],
+    "depends_on": ["S04"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S07",
+    "phase": "P0",
+    "title": "realtime 연결/인증/채널 join 게이트 + user:room fanout + Redis adapter + transport 설정",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-01", "FR-RT-02", "FR-RT-16", "FR-RT-20", "FR-RT-21"],
+    "depends_on": ["S00", "S01"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/realtime/**,apps/web/src/features/realtime/**,apps/web/src/features/connection/**"
+  },
+  {
+    "slice_id": "S08",
+    "phase": "P0",
+    "title": "REST POST 메시지 → WS message:created fanout + DB UNIQUE 멱등 1차방어 + 커서 페이지네이션 정합",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-03", "FR-RT-04", "FR-RT-15"],
+    "depends_on": ["S07", "S03"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/messages/**,apps/api/src/realtime/**"
+  },
+  {
+    "slice_id": "S09",
+    "phase": "P0",
+    "title": "낙관 UI/전송 타임아웃 + LRU 채널 캐시 + 다중탭 messageId dedup",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-05", "FR-RT-22", "FR-RT-24"],
+    "depends_on": ["S08"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/**,apps/web/src/features/realtime/**"
+  },
+  {
+    "slice_id": "S10",
+    "phase": "P0",
+    "title": "seq 갭 감지 + 재연결 FSM(GAP_FETCHING) gap-fetch + WS 이벤트명 과거분사 단일출처 적용",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-06", "FR-RT-07", "FR-RT-23"],
+    "depends_on": ["S08", "S09"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/realtime/**,apps/web/src/features/realtime/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S11",
+    "phase": "P0",
+    "title": "읽음 동기화 WS: ack debounce + read_state:updated user:room emit + unread 카노니컬 공식 + visibleFrom 정합",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-13", "FR-RT-14", "FR-RT-19"],
+    "depends_on": ["S08"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/realtime/**,apps/api/src/channels/**,apps/api/src/me/**"
+  },
+  {
+    "slice_id": "S12",
+    "phase": "P0",
+    "title": "채널 CRUD: 생성/편집/삭제 + 사이드바 목록 + channel.* 이벤트",
+    "domain": "D02-channels",
+    "fr_ids": ["FR-CH-01", "FR-CH-02", "FR-CH-03", "FR-CH-20"],
+    "depends_on": ["S07"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S13",
+    "phase": "P0",
+    "title": "채널 아카이브 + 토픽/설명 + ANNOUNCEMENT 게시 제한 + 시스템 메시지",
+    "domain": "D02-channels",
+    "fr_ids": ["FR-CH-04", "FR-CH-09", "FR-CH-10", "FR-CH-19"],
+    "depends_on": ["S12"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S14",
+    "phase": "P0",
+    "title": "채널 권한 오버라이드(5단계 계산) + 공개/비공개 전환 confirm + 가입/탈퇴",
+    "domain": "D02-channels",
+    "fr_ids": ["FR-CH-05", "FR-CH-07", "FR-CH-11"],
+    "depends_on": ["S12", "S00"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/channels/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S15",
+    "phase": "P0",
+    "title": "채널 브라우저 + 카테고리 CRUD + 위치 재정렬 + slowmode",
+    "domain": "D02-channels",
+    "fr_ids": ["FR-CH-06", "FR-CH-08", "FR-CH-12", "FR-CH-13"],
+    "depends_on": ["S12", "S14"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S16",
+    "phase": "P0",
+    "title": "1:1/그룹 DM 개설 + 목록 조회 + dm:created 실시간 알림",
+    "domain": "D03-dms",
+    "fr_ids": ["FR-DM-01", "FR-DM-02", "FR-DM-03", "FR-DM-16"],
+    "depends_on": ["S12", "S07"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/dms/**"
+  },
+  {
+    "slice_id": "S17",
+    "phase": "P0",
+    "title": "DM 메시지 visibleFrom 필터 + UserBlock DM 차단/마스킹 + around 커서 정합",
+    "domain": "D03-dms",
+    "fr_ids": ["FR-DM-13", "FR-DM-17", "FR-DM-18", "FR-DM-19", "FR-TH-19"],
+    "depends_on": ["S16", "S08"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/messages/**,apps/api/src/users/**"
+  },
+  {
+    "slice_id": "S18",
+    "phase": "P1",
+    "title": "멘션 자동완성/특수멘션 confirm + 컴포저 @#: 자동완성 ARIA Combobox",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-14", "FR-MSG-15", "FR-RC03", "FR-RC04", "FR-RC05", "FR-RC06"],
+    "depends_on": ["S04"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/composer/**,apps/web/src/features/mentions/**"
+  },
+  {
+    "slice_id": "S19",
+    "phase": "P0",
+    "title": "그룹 DM 멤버 추가/강퇴/나가기 + owner 승계 + DM 수신권한",
+    "domain": "D03-dms",
+    "fr_ids": ["FR-DM-07", "FR-DM-08", "FR-DM-09", "FR-DM-12"],
+    "depends_on": ["S16"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/dms/**,apps/api/src/me/**"
+  },
+  {
+    "slice_id": "S20",
+    "phase": "P1",
+    "title": "DM 검색/이름변경/아이콘/숨기기/뮤트",
+    "domain": "D03-dms",
+    "fr_ids": ["FR-DM-04", "FR-DM-05", "FR-DM-06", "FR-DM-10", "FR-DM-11"],
+    "depends_on": ["S16", "S19"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/dms/**,apps/api/src/storage/**"
+  },
+  {
+    "slice_id": "S21",
+    "phase": "P0",
+    "title": "읽음상태 코어: ACK/멀티세션 브로드캐스트 + unread/mention 카노니컬 공식 + 신규가입 초기화 + 후진방지 경합 + Redis 캐시",
+    "domain": "D09-readstate",
+    "fr_ids": ["FR-RS-01", "FR-RS-03", "FR-RS-14", "FR-RS-16", "FR-RS-17"],
+    "depends_on": ["S11"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/me/**,apps/api/src/redis/**"
+  },
+  {
+    "slice_id": "S22",
+    "phase": "P0",
+    "title": "읽음 사이드바 2계층 표시 + 디바운스/즉시 ACK + 뮤트 억제 + 서버버튼 멘션 뱃지 + DM 미읽 배지",
+    "domain": "D09-readstate",
+    "fr_ids": ["FR-DM-15", "FR-RS-02", "FR-RS-04", "FR-RS-05", "FR-RS-15"],
+    "depends_on": ["S21"],
+    "kind": "fullstack",
+    "scope_allow": "apps/web/src/features/channels/**,apps/web/src/features/dms/**,apps/api/src/channels/**"
+  },
+  {
+    "slice_id": "S23",
+    "phase": "P0",
+    "title": "NEW MESSAGES 구분선 + Jump-to-Unread + 수동 미읽 표시",
+    "domain": "D09-readstate",
+    "fr_ids": ["FR-RS-06", "FR-RS-07", "FR-RS-11"],
+    "depends_on": ["S22"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S24",
+    "phase": "P1",
+    "title": "수동 미읽/컨텍스트 메뉴 읽음 + Unreads View + 단축키 + mark-all-read Undo",
+    "domain": "D09-readstate",
+    "fr_ids": ["FR-RS-08", "FR-RS-09", "FR-RS-10", "FR-RS-18"],
+    "depends_on": ["S22", "S23"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/me/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S25",
+    "phase": "P1",
+    "title": "프레즌스 코어: 상태 5종 + activity/IDLE 전환 + grace 재연결 + 다중디바이스 세션",
+    "domain": "D08-presence-status",
+    "fr_ids": ["FR-P01", "FR-P02", "FR-P03", "FR-RT-10", "FR-RT-11"],
+    "depends_on": ["S07"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/realtime/**,apps/api/src/users/**,apps/api/src/redis/**,apps/web/src/features/presence/**"
+  },
+  {
+    "slice_id": "S26",
+    "phase": "P0",
+    "title": "프레즌스 구독/벌크 응답 + unsubscribe TTL 복원 + 타이핑 인디케이터(DM 통일)",
+    "domain": "D08-presence-status",
+    "fr_ids": ["FR-DM-14", "FR-P07", "FR-P14", "FR-P16", "FR-RT-12"],
+    "depends_on": ["S25"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/realtime/**,apps/web/src/features/presence/**,apps/web/src/features/typing/**"
+  },
+  {
+    "slice_id": "S27",
+    "phase": "P0",
+    "title": "멤버 목록 API(status/hoist 그룹, N+1 제거) + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외",
+    "domain": "D08-presence-status",
+    "fr_ids": ["FR-P08", "FR-P09", "FR-P10", "FR-P11", "FR-P12", "FR-P15"],
+    "depends_on": ["S25"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/users/**,apps/web/src/features/presence/**"
+  },
+  {
+    "slice_id": "S28",
+    "phase": "P0",
+    "title": "커스텀 상태(만료 프리셋/스케줄러) + DND 수동/스케줄 + 알림 차단 연동",
+    "domain": "D08-presence-status",
+    "fr_ids": ["FR-P04", "FR-P05", "FR-P06", "FR-P17"],
+    "depends_on": ["S25"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/users/**,apps/api/src/notifications/**,apps/web/src/features/presence/**"
+  },
+  {
+    "slice_id": "S29",
+    "phase": "P2",
+    "title": "검색 코어: 권한필터링 오라클방지 + 수식어 파서 has/is + deleted 제외 + 정렬",
+    "domain": "D07-search",
+    "fr_ids": ["FR-S04", "FR-S05", "FR-S08", "FR-S15"],
+    "depends_on": ["S08", "S14"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/search/**"
+  },
+  {
+    "slice_id": "S30",
+    "phase": "P2",
+    "title": "검색 결과 패널/카드/컨텍스트 + Jump 시퀀스 + 페이지네이션 + 스레드답글 권한필터",
+    "domain": "D07-search",
+    "fr_ids": ["FR-S03", "FR-S06", "FR-S07", "FR-S09", "FR-S10"],
+    "depends_on": ["S29"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/search/**,apps/web/src/features/search/**"
+  },
+  {
+    "slice_id": "S31",
+    "phase": "P2",
+    "title": "검색 자동완성/최근검색/치트시트/로컬검색/빈상태/클라이언트 거부",
+    "domain": "D07-search",
+    "fr_ids": ["FR-S01", "FR-S02", "FR-S11", "FR-S12", "FR-S13", "FR-S14"],
+    "depends_on": ["S30"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/search/**,apps/web/src/features/search/**,apps/api/src/redis/**"
+  },
+  {
+    "slice_id": "S32",
+    "phase": "P3",
+    "title": "realtime 회복탄력성: 타이핑 배치/스로틀 + SYNC_FAILED 백오프 + Redis typing TTL stale 방어",
+    "domain": "D17-realtime-sync",
+    "fr_ids": ["FR-RT-08", "FR-RT-09", "FR-RT-17"],
+    "depends_on": ["S10", "S26"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/realtime/**,apps/web/src/features/realtime/**,apps/web/src/features/typing/**"
+  },
+  {
+    "slice_id": "S33",
+    "phase": "P1",
+    "title": "스레드 코어: Reply in thread + 단일깊이 제약 + 답글 커서 페이지네이션 + 채널목록 threadMeta(N+1 없음)",
+    "domain": "D04-threads",
+    "fr_ids": ["FR-TH-01", "FR-TH-02", "FR-TH-15", "FR-TH-16"],
+    "depends_on": ["S08"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/messages/**,apps/api/src/channels/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S34",
+    "phase": "P1",
+    "title": "스레드 트랜잭션: reply INSERT + replyCount/latestReplyAt + ThreadSubscription upsert 원자처리 + reply bar",
+    "domain": "D04-threads",
+    "fr_ids": ["FR-TH-03", "FR-TH-07", "FR-TH-17"],
+    "depends_on": ["S33"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/threads/**"
+  },
+  {
+    "slice_id": "S35",
+    "phase": "P1",
+    "title": "Thread Panel(반응형) + 브로드캐스트 메시지 + 초기스크롤 + 채널-패널 공유상태 동기화",
+    "domain": "D04-threads",
+    "fr_ids": ["FR-TH-05", "FR-TH-06", "FR-TH-18", "FR-TH-20"],
+    "depends_on": ["S34"],
+    "kind": "fullstack",
+    "scope_allow": "apps/web/src/features/threads/**,apps/api/src/messages/**"
+  },
+  {
+    "slice_id": "S36",
+    "phase": "P1",
+    "title": "스레드 미읽: ThreadReadState 독립계산 + unread indicator + ack upsert + isBroadcast 중복방지",
+    "domain": "D04-threads",
+    "fr_ids": ["FR-RS-12", "FR-TH-04", "FR-TH-11", "FR-TH-12", "FR-TH-14"],
+    "depends_on": ["S34", "S21"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/api/src/me/**,apps/web/src/features/threads/**"
+  },
+  {
+    "slice_id": "S37",
+    "phase": "P1",
+    "title": "메시지 편집이력 팝오버 + 메시지/링크 복사 + permalink 네비게이션",
+    "domain": "D01-messaging",
+    "fr_ids": ["FR-MSG-08", "FR-MSG-17", "FR-MSG-18"],
+    "depends_on": ["S05"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S38",
+    "phase": "P1",
+    "title": "스레드 구독 UI/알림레벨 + Threads 뷰 + mark-all-read + 스레드 잠금",
+    "domain": "D04-threads",
+    "fr_ids": ["FR-TH-08", "FR-TH-09", "FR-TH-10", "FR-TH-13"],
+    "depends_on": ["S35", "S36"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/api/src/me/**,apps/web/src/features/threads/**"
+  },
+  {
+    "slice_id": "S39",
+    "phase": "P1",
+    "title": "반응 코어: 토글/낙관롤백 + 20종 동시성 제어 + reaction:updated fanout + 집계 조회 + 삭제메시지 404",
+    "domain": "D05-reactions-emoji",
+    "fr_ids": ["FR-RE01", "FR-RE02", "FR-RE03", "FR-RE04", "FR-RE06"],
+    "depends_on": ["S08"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/reactions/**,apps/web/src/features/reactions/**"
+  },
+  {
+    "slice_id": "S40",
+    "phase": "P1",
+    "title": "반응 사용자목록 페이지네이션 + REACT 권한 게이트 + OWNER 타인반응 제거 + 일괄 삭제",
+    "domain": "D05-reactions-emoji",
+    "fr_ids": ["FR-RE05", "FR-RE07", "FR-RE08", "FR-RE09"],
+    "depends_on": ["S39", "S14"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/reactions/**,apps/web/src/features/reactions/**"
+  },
+  {
+    "slice_id": "S41",
+    "phase": "P1",
+    "title": "커스텀 이모지: presigned 업로드/리사이즈 + 워크스페이스 100개 제한 + 목록/삭제 + 삭제 placeholder",
+    "domain": "D05-reactions-emoji",
+    "fr_ids": ["FR-EM01", "FR-EM02", "FR-EM03", "FR-EM04", "FR-EM06", "FR-RC20"],
+    "depends_on": ["S39"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/emojis/**,apps/api/src/storage/**,apps/web/src/features/emojis/**"
+  },
+  {
+    "slice_id": "S42",
+    "phase": "P1",
+    "title": "이모지 별칭 + :slug: 파서연동 + emoji-picker-data + 입력 자동완성 + 사용자 선호/퀵반응",
+    "domain": "D05-reactions-emoji",
+    "fr_ids": ["FR-EM05", "FR-EM07", "FR-PK01", "FR-PK02", "FR-PK03", "FR-PK04"],
+    "depends_on": ["S41", "S18"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/emojis/**,apps/api/src/me/**,apps/web/src/features/emojis/**"
+  },
+  {
+    "slice_id": "S43",
+    "phase": "P1",
+    "title": "채널 즐겨찾기/뮤트/사이드바 섹션 + 권한없는 특수멘션 일반텍스트 처리",
+    "domain": "D02-channels",
+    "fr_ids": ["FR-CH-14", "FR-CH-15", "FR-CH-16", "FR-CH-17"],
+    "depends_on": ["S15", "S22"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/me/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S44",
+    "phase": "P1",
+    "title": "멘션 코어: @username MentionRecord + mention:new + 자동완성 + 권한 게이트",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-01", "FR-MN-02", "FR-MN-04", "FR-MN-16"],
+    "depends_on": ["S18", "S07"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/notifications/**,apps/api/src/messages/**,apps/web/src/features/mentions/**"
+  },
+  {
+    "slice_id": "S45",
+    "phase": "P1",
+    "title": "@role 멘션 fan-out BullMQ 큐 + rate-limit + 멱등 + SLO 검증 eval",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-03", "FR-MN-19", "FR-MN-21"],
+    "depends_on": ["S44"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/notifications/**,evals/**"
+  },
+  {
+    "slice_id": "S46",
+    "phase": "P0",
+    "title": "알림 수준 계층: 글로벌/서버/채널 오버라이드 + 뮤트 자동해제(Redis TTL+cron)",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-05", "FR-MN-06", "FR-MN-07", "FR-MN-08"],
+    "depends_on": ["S44"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/notifications/**,apps/api/src/me/**,apps/web/src/features/notifications/**"
+  },
+  {
+    "slice_id": "S47",
+    "phase": "P0",
+    "title": "Activity Inbox 패널 + 알림 배지/favicon + 배지 재동기화(reconnect/visibility)",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-13", "FR-MN-14", "FR-MN-20"],
+    "depends_on": ["S46"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/notifications/**,apps/web/src/features/notifications/**,apps/web/src/features/activity/**"
+  },
+  {
+    "slice_id": "S48",
+    "phase": "P1",
+    "title": "suppress 토글 + 키워드 알림 + DND snooze/스케줄",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-09", "FR-MN-10", "FR-MN-11", "FR-MN-12"],
+    "depends_on": ["S46"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/notifications/**,apps/api/src/me/**,apps/web/src/features/notifications/**"
+  },
+  {
+    "slice_id": "S49",
+    "phase": "P1",
+    "title": "Web Push VAPID + 뮤트 목록 UI + 채널별 데스크톱/모바일 독립 설정",
+    "domain": "D06-mentions-notif",
+    "fr_ids": ["FR-MN-15", "FR-MN-17", "FR-MN-18"],
+    "depends_on": ["S46", "S47"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/notifications/**,apps/web/src/features/notifications/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S50",
+    "phase": "P1",
+    "title": "채널 핀 코어: 추가/목록/시스템메시지/이벤트 + 50/55 제한 + idempotent + 삭제연동 + 저장함 차단마스킹",
+    "domain": "D10-pins-saved",
+    "fr_ids": ["FR-PS-01", "FR-PS-02", "FR-PS-03", "FR-PS-04", "FR-PS-06", "FR-PS-14"],
+    "depends_on": ["S08", "S14"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/messages/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S51",
+    "phase": "P1",
+    "title": "핀 권한 오버라이드 + 시스템메시지 삭제 정책 + 개인 저장함(SavedMessage)",
+    "domain": "D10-pins-saved",
+    "fr_ids": ["FR-PS-05", "FR-PS-07", "FR-PS-15"],
+    "depends_on": ["S50"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/me/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S52",
+    "phase": "P1",
+    "title": "저장함 3탭 뷰 + 북마크 토글 + 삭제메시지 placeholder",
+    "domain": "D10-pins-saved",
+    "fr_ids": ["FR-PS-08", "FR-PS-12", "FR-PS-13"],
+    "depends_on": ["S51"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/me/**,apps/web/src/features/messages/**,apps/web/src/features/users/**"
+  },
+  {
+    "slice_id": "S53",
+    "phase": "P1",
+    "title": "저장함 리마인더/프리셋/스누즈 + 500개 상한",
+    "domain": "D10-pins-saved",
+    "fr_ids": ["FR-PS-09", "FR-PS-10", "FR-PS-11"],
+    "depends_on": ["S52"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/me/**,apps/api/src/notifications/**,apps/web/src/features/users/**"
+  },
+  {
+    "slice_id": "S54",
+    "phase": "P1",
+    "title": "첨부 업로드 검증 코어: presigned 3단계 + 크기/개수/차단확장자/MIME 화이트리스트 + rate-limit (DND snooze/markAsReadMode 설정 동반)",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-03", "FR-AM-04", "FR-AM-05", "FR-AM-06", "FR-AM-27", "FR-P13", "FR-RS-13"],
+    "depends_on": ["S08"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/attachments/**,apps/api/src/storage/**,apps/api/src/users/**"
+  },
+  {
+    "slice_id": "S55",
+    "phase": "P0",
+    "title": "첨부 프록시 서빙(isPrivate 강제) + magic bytes 재검증 + parser 가드 + orphan GC + FORUM 채널",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-17", "FR-AM-20", "FR-AM-23", "FR-AM-26", "FR-AM-29", "FR-CH-18"],
+    "depends_on": ["S54", "S14"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/attachments/**,apps/api/src/storage/**,apps/api/src/channels/**"
+  },
+  {
+    "slice_id": "S56",
+    "phase": "P0",
+    "title": "첨부 UI: 버튼/DnD/Ctrl+V + Preview Tray + 드롭존 오버레이 + 진행률",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-01", "FR-AM-02", "FR-AM-21", "FR-AM-22"],
+    "depends_on": ["S54"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/**,apps/web/src/features/attachments/**"
+  },
+  {
+    "slice_id": "S57",
+    "phase": "P0",
+    "title": "첨부 전송 상태기계 + complete 검증 + sessionStorage 복원 + 썸네일 워커",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-18", "FR-AM-24", "FR-AM-28"],
+    "depends_on": ["S55", "S56"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/attachments/**,apps/web/src/features/attachments/**"
+  },
+  {
+    "slice_id": "S58",
+    "phase": "P0",
+    "title": "이미지 인라인/비디오 다운로드 카드 + Mosaic 그리드 + 썸네일 skeleton",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-07", "FR-AM-08", "FR-AM-09", "FR-AM-25"],
+    "depends_on": ["S57"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/attachments/**,apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S59",
+    "phase": "P1",
+    "title": "라이트박스(focus-trap/줌/패닝/다운로드) + 스포일러 첨부 + 비디오 P2 가드",
+    "domain": "D11-attachments",
+    "fr_ids": ["FR-AM-10", "FR-AM-11", "FR-AM-12", "FR-AM-19", "FR-AM-30"],
+    "depends_on": ["S58"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/attachments/**"
+  },
+  {
+    "slice_id": "S60",
+    "phase": "P0",
+    "title": "URL unfurl 워커: SSRF/DNS rebinding 방어 + OG 캐시 + suppress + 프록시 서빙 + nosniff",
+    "domain": "D11-attachments",
+    "fr_ids": [
+      "FR-AM-13",
+      "FR-AM-14",
+      "FR-AM-15",
+      "FR-AM-16",
+      "FR-RC07",
+      "FR-RC08",
+      "FR-RC09",
+      "FR-RC21"
+    ],
+    "depends_on": ["S55", "S05"],
+    "kind": "backend",
+    "scope_allow": "apps/api/src/links/**,apps/api/src/attachments/**,apps/api/src/storage/**,apps/web/src/features/messages/**"
+  },
+  {
+    "slice_id": "S61",
+    "phase": "P2",
+    "title": "역할 코어: 시스템5+커스텀 역할 + BigInt 14비트 권한 + 채널 override 5단계 + 계층 모더레이션 방어 + cascade 재계산",
+    "domain": "D12-roles-moderation",
+    "fr_ids": ["FR-RM01", "FR-RM02", "FR-RM03", "FR-RM04", "FR-RM15"],
+    "depends_on": ["S14", "S00"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/channels/**,apps/web/src/features/workspaces/**,packages/shared-types/**"
+  },
+  {
+    "slice_id": "S62",
+    "phase": "P2",
+    "title": "채널 override UI 캐시무효화 + ADMINISTRATOR bypass 감사 + 역할 색상 + 반응20종 동시성",
+    "domain": "D12-roles-moderation",
+    "fr_ids": ["FR-RM13", "FR-RM14", "FR-RM16", "FR-RM17"],
+    "depends_on": ["S61"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/workspaces/**,apps/api/src/redis/**,apps/web/src/features/channels/**"
+  },
+  {
+    "slice_id": "S63",
+    "phase": "P2",
+    "title": "모더레이션 Kick/Ban/Timeout + slowmode + undoToken + force:disconnect",
+    "domain": "D12-roles-moderation",
+    "fr_ids": ["FR-RM05", "FR-RM06", "FR-RM07", "FR-RM08"],
+    "depends_on": ["S61"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/realtime/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S64",
+    "phase": "P2",
+    "title": "대량삭제 + AutoMod 룰(ReDoS 격리) + 신고 큐 + 감사 로그(append-only)",
+    "domain": "D12-roles-moderation",
+    "fr_ids": ["FR-RM09", "FR-RM10", "FR-RM11", "FR-RM12"],
+    "depends_on": ["S63"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/messages/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S65",
+    "phase": "P2",
+    "title": "워크스페이스 생성 트랜잭션 + 나가기/소유권양도 + 기본채널 변경",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W01", "FR-W13", "FR-W14", "FR-W19"],
+    "depends_on": ["S12", "S61"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S66",
+    "phase": "P2",
+    "title": "emailVerified P0 가드 + 인증 대기화면 + 초대링크 만료 UX",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W05a", "FR-W05b", "FR-W21"],
+    "depends_on": ["S65"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/auth/**,apps/api/src/workspaces/**,apps/web/src/features/auth/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S67",
+    "phase": "P2",
+    "title": "초대링크 생성/관리목록 + 도메인 화이트리스트",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W02", "FR-W03", "FR-W17"],
+    "depends_on": ["S65", "S66"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S68",
+    "phase": "P2",
+    "title": "이메일 직접초대(tokenHash) + 수락 플로우 분기 + 보류 초대 관리",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W04", "FR-W04a", "FR-W05", "FR-W18"],
+    "depends_on": ["S67"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/auth/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S69",
+    "phase": "P2",
+    "title": "멤버 디렉터리 + 멤버관리 액션 + 다중워크스페이스 전환/unread 동기화",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W10", "FR-W11", "FR-W20", "FR-W23"],
+    "depends_on": ["S65", "S22"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/web/src/features/workspaces/**"
+  },
+  {
+    "slice_id": "S70",
+    "phase": "P2",
+    "title": "APPLY 가입승인 플로우 + 대기화면 실시간 + 임시 멤버십 자동강퇴",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W06", "FR-W06a", "FR-W12"],
+    "depends_on": ["S67"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/api/src/realtime/**,apps/web/src/features/workspaces/**,apps/web/src/features/onboarding/**"
+  },
+  {
+    "slice_id": "S71",
+    "phase": "P2",
+    "title": "온보딩 3단계(규칙동의/관심사/웰컴) + 생성자 온보딩",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W07", "FR-W08", "FR-W09", "FR-W09a"],
+    "depends_on": ["S65"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/web/src/features/onboarding/**"
+  },
+  {
+    "slice_id": "S72",
+    "phase": "P2",
+    "title": "워크스페이스 삭제/purge + 디스커버리 + IP soft-block",
+    "domain": "D13-workspace-invite",
+    "fr_ids": ["FR-W15", "FR-W16", "FR-W22"],
+    "depends_on": ["S65", "S64"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/workspaces/**,apps/web/src/features/discovery/**"
+  },
+  {
+    "slice_id": "S73",
+    "phase": "P2",
+    "title": "프로필 코어: 아바타 리사이즈 + 표시이름/핸들 편집 + 핸들 쿨다운 + 프레즌스 상태",
+    "domain": "D14-profile-settings",
+    "fr_ids": ["FR-PS-01", "FR-PS-02", "FR-PS-03", "FR-PS-17"],
+    "depends_on": ["S25"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/users/**,apps/api/src/me/**,apps/api/src/storage/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S74",
+    "phase": "P2",
+    "title": "커스텀 상태(UserPresence 저장) + 배너 + 워크스페이스별 닉네임/아바타",
+    "domain": "D14-profile-settings",
+    "fr_ids": ["FR-PS-04", "FR-PS-05", "FR-PS-06"],
+    "depends_on": ["S73", "S28"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/users/**,apps/api/src/workspaces/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S75",
+    "phase": "P2",
+    "title": "프로필 팝오버/패널(접근성) + 차단(Redis Set 캐싱)",
+    "domain": "D14-profile-settings",
+    "fr_ids": ["FR-PS-07", "FR-PS-08", "FR-PS-14"],
+    "depends_on": ["S73"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/users/**,apps/web/src/features/users/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S76",
+    "phase": "P2",
+    "title": "외관/알림 설정(자동저장) + DND 억제 + 설정 IA 7탭/단축키",
+    "domain": "D14-profile-settings",
+    "fr_ids": ["FR-PS-09", "FR-PS-10", "FR-PS-11", "FR-PS-18"],
+    "depends_on": ["S73", "S46"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/me/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S77",
+    "phase": "P2",
+    "title": "접근성(reduceMotion/highContrast) + 프라이버시 + 보안강화(2FA/세션) + 비활성화/익명화 정책 + TOTP setup",
+    "domain": "D14-profile-settings",
+    "fr_ids": ["FR-PS-12", "FR-PS-13", "FR-PS-15", "FR-PS-16", "FR-PS-19", "FR-PS-20"],
+    "depends_on": ["S73"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/users/**,apps/api/src/auth/**,apps/api/src/me/**,apps/web/src/features/settings/**"
+  },
+  {
+    "slice_id": "S78",
+    "phase": "P2",
+    "title": "마크다운 렌더 + 스포일러 blur + 공용 aria-live announcer",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-A11Y-01", "FR-MD-01", "FR-MD-02"],
+    "depends_on": ["S04"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/**,apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S79",
+    "phase": "P2",
+    "title": "슬래시 자동완성 팝업(ARIA listbox) + 퍼지필터 + Tab/Enter/Esc 동작",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-SC-01", "FR-SC-02", "FR-SC-03"],
+    "depends_on": ["S78"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S80",
+    "phase": "P2",
+    "title": "빌트인 커맨드(/shrug,/me,/status,/dnd,/remind) + /me 메시지타입",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-SC-04", "FR-SC-05", "FR-SC-06", "FR-RC18"],
+    "depends_on": ["S79", "S28"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/me/**,apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S81",
+    "phase": "P2",
+    "title": "커맨드 확장(/msg,/invite,/kick,/giphy 등) + 커스텀 슬래시 커맨드 등록/실행",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-SC-07", "FR-SC-08", "FR-SC-09", "FR-SC-10"],
+    "depends_on": ["S79"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/channels/**,apps/api/src/workspaces/**,apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S82",
+    "phase": "P2",
+    "title": "퀵스위처(Ctrl+K) 모달 + 기본표시/키보드 네비 + 빈상태 + 미읽 채널 이동",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-KS-01", "FR-KS-02", "FR-KS-03", "FR-KS-04", "FR-KS-11"],
+    "depends_on": ["S78"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S83",
+    "phase": "P2",
+    "title": "포맷 단축키 + ↑편집 + Shift+Enter + 메시지 액션 단일키 + 인라인 포맷툴바 + 치트시트",
+    "domain": "D15-commands-shortcuts",
+    "fr_ids": ["FR-KS-05", "FR-KS-06", "FR-KS-07", "FR-KS-08", "FR-KS-09", "FR-KS-10"],
+    "depends_on": ["S78"],
+    "kind": "frontend",
+    "scope_allow": "apps/web/src/features/messages/composer/**,apps/web/src/features/shortcuts/**"
+  },
+  {
+    "slice_id": "S84",
+    "phase": "P2",
+    "title": "웹훅/봇 메시지(BOT authorType, 토큰 sha256/rotate) + embed 배열 + 링크미리보기 전역 비활성화",
+    "domain": "D16-richcontent",
+    "fr_ids": ["FR-RC11", "FR-RC12", "FR-RC19"],
+    "depends_on": ["S60", "S61"],
+    "kind": "fullstack",
+    "scope_allow": "apps/api/src/messages/**,apps/api/src/workspaces/**,apps/web/src/features/messages/**,apps/web/src/features/settings/**"
+  }
+]
