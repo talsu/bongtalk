@@ -1,10 +1,4 @@
-import {
-  ArgumentsHost,
-  Catch,
-  ExceptionFilter,
-  HttpException,
-  Logger,
-} from '@nestjs/common';
+import { ArgumentsHost, Catch, ExceptionFilter, HttpException, Logger } from '@nestjs/common';
 import type { Request, Response } from 'express';
 import { DomainError } from '../errors/domain-error';
 import { ERROR_CODE_HTTP_STATUS, ErrorCode } from '../errors/error-code.enum';
@@ -23,14 +17,22 @@ export class DomainExceptionFilter implements ExceptionFilter {
     let status = 500;
     let message = 'Internal error';
     let retryAfterSec: number | undefined;
+    // S05 (FR-MSG-06): 낙관적 잠금 충돌(MESSAGE_VERSION_CONFLICT) 시 서버 측
+    // 현재 MessageDto 를 응답 body 의 `details.current` 로 그대로 실어보내
+    // 클라이언트가 편집창을 최신값으로 롤백하게 합니다. 표준 에러 envelope
+    // (errorCode/message/requestId)는 유지한 채 details 만 추가합니다.
+    let details: unknown;
 
     if (exception instanceof DomainError) {
       code = exception.code;
       status = ERROR_CODE_HTTP_STATUS[code];
       message = exception.message;
-      const details = exception.details as { retryAfterSec?: number } | undefined;
-      if (details && typeof details.retryAfterSec === 'number') {
-        retryAfterSec = details.retryAfterSec;
+      const d = exception.details as { retryAfterSec?: number; current?: unknown } | undefined;
+      if (d && typeof d.retryAfterSec === 'number') {
+        retryAfterSec = d.retryAfterSec;
+      }
+      if (d && d.current !== undefined) {
+        details = { current: d.current };
       }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();
@@ -59,12 +61,19 @@ export class DomainExceptionFilter implements ExceptionFilter {
     if (retryAfterSec !== undefined) {
       res.setHeader('retry-after', String(retryAfterSec));
     }
-    const body: { errorCode: string; message: string; requestId: string; retryAfterSec?: number } = {
+    const body: {
+      errorCode: string;
+      message: string;
+      requestId: string;
+      retryAfterSec?: number;
+      details?: unknown;
+    } = {
       errorCode: code,
       message,
       requestId,
     };
     if (retryAfterSec !== undefined) body.retryAfterSec = retryAfterSec;
+    if (details !== undefined) body.details = details;
     res.status(status).json(body);
   }
 }

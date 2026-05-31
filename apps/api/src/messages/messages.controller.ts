@@ -18,6 +18,7 @@ import {
   ListMessagesQuerySchema,
   SendMessageRequestSchema,
   UpdateMessageRequestSchema,
+  type ListEditHistoryResponse,
 } from '@qufox/shared-types';
 import { MessagesService } from './messages.service';
 import { MessageAuthorGuard } from './guards/message-author.guard';
@@ -154,6 +155,40 @@ export class MessagesController {
     };
   }
 
+  /**
+   * S05 (FR-RC16): 메시지 편집 이력. 작성자 본인 또는 MANAGE_MESSAGES
+   * 권한자(여기서는 보수적으로 OWNER/ADMIN — 채널 권한 마스크 헬퍼가
+   * messages 모듈에 미배선이라 carryover)만 전체 이력을 조회합니다. 일반
+   * 멤버(비작성자)는 403(MESSAGE_NOT_AUTHOR). 반환은 version desc, 최대 10개.
+   * (FR-MSG-08 의 이력 팝오버 UI 는 S06 에서 이 엔드포인트를 소비.)
+   *
+   * security HIGH-01: `:msgId/history` 는 `:msgId` 보다 먼저 선언한다 —
+   * 'pins' 와 동일한 이유로, 권한 게이트가 붙은 이 고정 서브경로가 동적
+   * `:msgId` 단일 세그먼트 매칭에 가려지지 않도록 한다.
+   */
+  @Get(':msgId/history')
+  async history(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ListEditHistoryResponse> {
+    // 권한 게이트: 작성자 본인 OR OWNER/ADMIN. 삭제된 메시지도 모더레이터는
+    // 이력 조회 가능하므로 includeDeleted=true 로 author 판정용 row 를 읽는다.
+    const row = await this.messages.requireOne({ channelId, msgId, includeDeleted: true });
+    const isAuthor = row.authorId === user.id;
+    const isMod = this.isAdminOrOwner(m.role);
+    if (!isAuthor && !isMod) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_NOT_AUTHOR,
+        'only the author or a moderator can view edit history',
+      );
+    }
+    const items = await this.messages.listEditHistory({ channelId, msgId });
+    return { items };
+  }
+
   @Get(':msgId')
   async getOne(
     @Param('id', new ParseUUIDPipe()) _wsId: string,
@@ -238,6 +273,10 @@ export class MessagesController {
       msgId,
       actorId: user.id,
       content: parsed.data.content,
+      // S05 (FR-MSG-06): 낙관적 잠금 기대 version. 불일치 시 service 가
+      // MESSAGE_VERSION_CONFLICT(409) + 현재 DTO(details.current)를 throw 하고
+      // DomainExceptionFilter 가 표준 envelope 에 details 를 실어 응답한다.
+      expectedVersion: parsed.data.expectedVersion,
       // task-044-iter3: edit 시점도 동일하게 게이트.
       actorRole: m.role,
     });

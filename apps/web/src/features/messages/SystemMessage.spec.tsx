@@ -27,6 +27,7 @@ function makeMsg(type: MessageType, contentRaw: string): MessageDto {
     attachments: [],
     pinnedAt: null,
     pinnedBy: null,
+    version: 0,
   };
 }
 

@@ -129,6 +129,13 @@ export const MessageDtoSchema = z.object({
   // `pinnedBy` 는 OWNER/ADMIN 의 userId — author 와 다를 수 있다.
   pinnedAt: z.string().datetime().nullable().default(null),
   pinnedBy: z.string().uuid().nullable().default(null),
+  // S05 (FR-MSG-06): 낙관적 잠금 버전. 편집 시 +1 됩니다. 클라이언트는
+  // 편집창 오픈 시 이 값을 스냅샷해 PATCH 의 expectedVersion 으로 보내고,
+  // 서버는 version 불일치 시 409 + 현재 DTO 를 반환합니다. default(0) 라
+  // 구 API 빌드 응답(version 누락)도 forward-compat 합니다.
+  // 상한은 Postgres INT4 최대값(2,147,483,647) — DB 컬럼이 Int 라 초과 시
+  // 쿼리 단계에서 numeric overflow(500) 가 나므로 계약 레벨에서 막습니다.
+  version: z.number().int().nonnegative().max(2_147_483_647).default(0),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 
@@ -180,8 +187,38 @@ export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
 export const UpdateMessageRequestSchema = z.object({
   content: MessageContentSchema,
+  // S05 (FR-MSG-06): 낙관적 잠금. 편집창 오픈 시점의 MessageDto.version
+  // 스냅샷을 항상 동봉합니다. 서버 측 version 과 불일치하면 409 +
+  // MESSAGE_VERSION_CONFLICT (현재 MessageDto 포함) 로 거부합니다.
+  // 상한 = Postgres INT4 max. 초과값은 WHERE version=:expected 바인딩 시
+  // overflow(500) 를 유발하므로 계약에서 차단합니다.
+  expectedVersion: z.number().int().nonnegative().max(2_147_483_647),
 });
 export type UpdateMessageRequest = z.infer<typeof UpdateMessageRequestSchema>;
+
+// ── S05 (FR-MSG-06 / FR-RC16): 메시지 편집 이력 ────────────────────────────
+// 편집 시 직전 본문 스냅샷을 MessageEditHistory 에 적재합니다. 작성자 본인
+// 또는 MANAGE_MESSAGES 권한자만 GET .../:msgId/history 로 최대 10개(ring
+// buffer)까지 조회할 수 있습니다(일반 멤버는 403). FR-MSG-08 의 이력
+// 팝오버 UI 는 S06 에서 이 계약을 소비합니다.
+export const EDIT_HISTORY_CAP = 10;
+
+export const EditHistoryDtoSchema = z.object({
+  // 스냅샷 당시(편집 전) 메시지 version.
+  version: z.number().int().nonnegative(),
+  contentRaw: z.string().nullable(),
+  contentAst: RichTextRootSchema.nullable(),
+  contentPlain: z.string(),
+  // 스냅샷 생성(=해당 편집 발생) 시각.
+  editedAt: z.string().datetime(),
+});
+export type EditHistoryDto = z.infer<typeof EditHistoryDtoSchema>;
+
+export const ListEditHistoryResponseSchema = z.object({
+  // version desc (최신 편집 먼저), 최대 EDIT_HISTORY_CAP 개.
+  items: z.array(EditHistoryDtoSchema).max(EDIT_HISTORY_CAP),
+});
+export type ListEditHistoryResponse = z.infer<typeof ListEditHistoryResponseSchema>;
 
 export const ListMessagesQuerySchema = z
   .object({

@@ -188,7 +188,14 @@ export function MessageItem({
                 {new Date(msg.createdAt).toLocaleTimeString()}
               </time>
               {msg.edited ? (
-                <span data-testid={`msg-edited-${msg.id}`} className="qf-message__time">
+                // S05 (FR-MSG-07): (edited) 뱃지 + hover tooltip(편집 시각).
+                // editedAt 은 ISO; title 에 로컬 표기로 노출해 마우스 hover 시
+                // 최초/최신 편집 시각을 확인하게 한다. DS qf-message__time 토큰 재사용.
+                <span
+                  data-testid={`msg-edited-${msg.id}`}
+                  className="qf-message__time"
+                  title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
+                >
                   (수정됨)
                 </span>
               ) : null}

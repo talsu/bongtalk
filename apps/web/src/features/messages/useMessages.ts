@@ -4,8 +4,9 @@ import {
   useMutation,
   useQueryClient,
   type InfiniteData,
+  type QueryClient,
 } from '@tanstack/react-query';
-import type { ListMessagesResponse } from '@qufox/shared-types';
+import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
 import {
   deleteMessage,
   listMessages,
@@ -34,6 +35,44 @@ const keys = {
   // 'global' to keep tuples distinct across DM channels.
   list: (wsId: string | null, channelId: string) => qk.messages.list(wsId ?? 'global', channelId),
 };
+
+/**
+ * S05 (FR-MSG-06): 편집 낙관적 잠금 409 처리. 단일 출처 — useUpdateMessage 의
+ * onError 와 editConflict.spec 이 **이 동일 함수**를 공유해 테스트 drift 를
+ * 막는다(reviewer MED-2). 에러가 MESSAGE_VERSION_CONFLICT 면 서버가 details.current
+ * 로 실어보낸 최신 MessageDto 로 캐시 행을 교체(낙관적 편집 롤백 + 최신 본문 반영)
+ * 하고 안내 토스트를 push 한 뒤 `true` 를 반환한다. 그 외 코드면 아무것도 안 하고
+ * `false` 를 반환해 호출부가 일반 에러 처리로 이어가게 한다.
+ */
+export function applyEditConflict(
+  qc: QueryClient,
+  wsId: string | null,
+  channelId: string,
+  err: unknown,
+): boolean {
+  const code = (err as { errorCode?: string } | undefined)?.errorCode;
+  if (code !== 'MESSAGE_VERSION_CONFLICT') return false;
+  const current = (err as { details?: { current?: MessageDto } } | undefined)?.details?.current;
+  if (current) {
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
+      if (!old) return old;
+      return {
+        ...old,
+        pages: old.pages.map((p) => ({
+          ...p,
+          items: p.items.map((m) => (m.id === current.id ? current : m)),
+        })),
+      };
+    });
+  }
+  useNotifications.getState().push({
+    variant: 'danger',
+    title: '메시지 수정 실패',
+    body: '다른 곳에서 수정되었습니다. 최신 내용을 확인하세요.',
+    ttlMs: 5000,
+  });
+  return true;
+}
 
 /**
  * task-041 B-2 (review M2): pure body builder for the send-failure
@@ -133,6 +172,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // task-044-iter2: optimistic 메시지는 항상 미고정 상태입니다.
         pinnedAt: null,
         pinnedBy: null,
+        // S05 (FR-MSG-06): optimistic 메시지는 아직 서버 row 가 없어 version 0.
+        // 서버 에코(message:created)로 실제 version 으로 교체됩니다.
+        version: 0,
         sendState: 'pending',
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
@@ -211,14 +253,33 @@ export function useSendMessage(wsId: string | null, channelId: string) {
   return { send, retry, mutation };
 }
 
+/**
+ * S05 (FR-MSG-06): 메시지 편집 mutation. 편집창 오픈 시 스냅샷한
+ * `expectedVersion` 을 PATCH 에 항상 동봉합니다(낙관적 잠금).
+ *
+ * 409(MESSAGE_VERSION_CONFLICT) 수신 시: 서버가 details.current 로 실어보낸
+ * 최신 MessageDto 로 캐시 행을 즉시 교체(낙관적 편집 롤백 + 최신 본문 반영)
+ * 하고 "다른 곳에서 수정되었습니다" 안내 토스트를 띄웁니다. MessageItem 의
+ * onEditSave 가 reject 를 받으므로 편집창은 닫히지 않고 유지됩니다.
+ */
 export function useUpdateMessage(wsId: string | null, channelId: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ msgId, content }: { msgId: string; content: string }) =>
-      updateMessage(wsId, channelId, msgId, { content }),
+    mutationFn: ({
+      msgId,
+      content,
+      expectedVersion,
+    }: {
+      msgId: string;
+      content: string;
+      expectedVersion: number;
+    }) => updateMessage(wsId, channelId, msgId, { content, expectedVersion }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
-    // task-047 iter6 (P-individual): friendlyError → toast.
     onError: (err) => {
+      // S05 (FR-MSG-06): 낙관적 잠금 충돌이면 공유 함수가 캐시 롤백 + 토스트를
+      // 처리하고 true 를 반환한다 — 그 외 에러만 아래 일반 처리로 내려간다.
+      if (applyEditConflict(qc, wsId, channelId, err)) return;
+      // task-047 iter6 (P-individual): friendlyError → toast.
       const f = friendlyError(err);
       useNotifications.getState().push({
         variant: 'danger',
