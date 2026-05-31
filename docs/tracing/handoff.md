@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S12 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S13(D02 채널 아카이브/공지).**
+> **S05 검증·S06~S13 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S14(D02 채널 권한 오버라이드).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -123,12 +123,23 @@ D02 채널 CRUD. 기존 구현 상당 → 갭/BLOCKER:
 - 게이트: verify 19 + build + channels int(channels 10 + member-override 8) GREEN.
 - DEFER(→S14): S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 배선(softDelete/history role→bit).
 
-## 다음 슬라이스: S13 (D02 채널 아카이브/공지)
+## ✅ S13 완료 (2026-06-01, 이 세션)
 
-- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**`.
-- 채널 아카이브 + 토픽/설명 + ANNOUNCEMENT 게시 제한 + 시스템 메시지.
-- FR-CH-04/09/10/19. depends S12(완료).
-- 주의: 아카이브(archive/unarchive)·토픽은 기존 구현 가능성(channels.service archive + AllowArchivedChannel 데코) — 갭만 식별. ANNOUNCEMENT 게시 제한(관리자만 작성)은 FR-CH 신규 가능. FR 정본: PRD html.
+D02 아카이브/토픽/설명/공지제한. **마이그레이션 슬라이스**.
+
+- **FR-CH-04** done: archive/unarchive(기존) + archived send 차단(409 CHANNEL_ARCHIVED, 기존 — 플랜 403 대신 일관 유지) + `SYSTEM_CHANNEL_ARCHIVED` 시스템메시지 신규. (기본채널 아카이브불가 defer→D13.)
+- **FR-CH-09** done: 토픽 실제 변경 시에만 `SYSTEM_CHANNEL_TOPIC_CHANGED` emit + channel.updated 유지.
+- **FR-CH-10** done: 마이그레이션 `20260601000000`(description VARCHAR(500) + GIN to_tsvector 인덱스, reversible) + CRUD + 브라우저 노출 + 설정 UI. (FTS 쿼리는 D07.)
+- **FR-CH-19** done: ANNOUNCEMENT 게시제한 — 신규 `CHANNEL_POSTING_RESTRICTED`(403) + `requireAnnouncementPostingAllowed`(OWNER/ADMIN 또는 명시 WRITE_MESSAGE override; MEMBER 차단, ANNOUNCEMENT 한정) + 프론트(composer disabled/placeholder/툴팁 + megaphone 배지).
+- 다팀리뷰(reviewer/security): **보안 게이트 우회 불가**(서버 최종집행). 블로커 없음. carryover: 프론트 게이트가 override 무시(MAJOR-3, override UI 미존재라 현재 무해→S14/15), forwardRef 3중 순환(이벤트 디커플 권장), 게이트 수동 fold(resolveEffective 권장), 비트랜잭션 시스템메시지/nit.
+- 게이트: verify 19 + build 3 + channels int(s13 9 + channels 10 = 19) GREEN. fr-matrix S13 4개 done.
+
+## 다음 슬라이스: S14 (D02 채널 권한 오버라이드)
+
+- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**,packages/shared-types/**`.
+- 채널 권한 오버라이드(5단계 계산) + 공개/비공개 전환 confirm + 가입/탈퇴.
+- FR-CH-05/07/11. depends S12(완료),S00(완료).
+- **⚠️ S14 에서 함께 처리할 carryover**: (a) **S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 배선** — messages softDelete/history 가 role 기반 보수 게이트 → 채널 ACL 비트 기반 전환(원래 S12~S15 carryover). (b) S13 MAJOR-3 프론트 게시 게이트가 effective 권한(override) 반영(per-viewer canPost). (c) **권한 스킴 2중화**(shared-types PERMISSIONS 0-12 vs 집행 0xFF) 수렴 — 5단계 계산이 어느 스킴인지 명확히. resolveEffective/PermissionMatrix 가 5단계 계산의 본체일 가능성(기존 구현 확인). FR 정본: PRD html.
 
 ---
 

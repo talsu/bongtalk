@@ -224,6 +224,7 @@ export class ChannelsController {
     name: string;
     type: string;
     topic: string | null;
+    description: string | null;
     position: { toString: () => string };
     isPrivate: boolean;
     archivedAt: Date | null;
@@ -237,6 +238,8 @@ export class ChannelsController {
       name: c.name,
       type: c.type,
       topic: c.topic,
+      // S13 (FR-CH-10): 설명을 단건 채널 응답에 노출.
+      description: c.description,
       position: c.position.toString(),
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,

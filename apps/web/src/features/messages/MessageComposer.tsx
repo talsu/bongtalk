@@ -9,6 +9,7 @@ import {
   DropdownContent,
   DropdownItem,
   Icon,
+  Tooltip,
 } from '../../design-system/primitives';
 import { EmojiPicker } from '../reactions/EmojiPicker';
 import { useCustomEmojis } from '../emojis/useCustomEmojis';
@@ -22,6 +23,12 @@ type Props = {
   workspaceId: string | null;
   channelId: string;
   channelName: string;
+  /**
+   * S13 (FR-CH-19): ANNOUNCEMENT 채널에서 게시 권한이 없는 사용자에게는
+   * composer 를 비활성화한다. true 일 때 입력·전송·첨부가 모두 막히고
+   * 안내 placeholder + 툴팁을 표시한다.
+   */
+  postingRestricted?: boolean;
 };
 
 // Task-018-F: client-side safety margin for the typing ping cadence. The
@@ -41,7 +48,12 @@ function formatSize(bytes: number): string {
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
-export function MessageComposer({ workspaceId, channelId, channelName }: Props): JSX.Element {
+export function MessageComposer({
+  workspaceId,
+  channelId,
+  channelName,
+  postingRestricted = false,
+}: Props): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
   const clearDraft = useCompose((s) => s.clearDraft);
@@ -245,6 +257,36 @@ export function MessageComposer({ workspaceId, channelId, channelName }: Props):
   const removeJob = (jobId: string): void => {
     setJobs((prev) => prev.filter((j) => j.id !== jobId));
   };
+
+  // S13 (FR-CH-19): 게시 권한이 없는 ANNOUNCEMENT 채널이면 입력 자체를
+  // 비활성화한다 — disabled textarea + 안내 placeholder + 클릭 시 툴팁.
+  if (postingRestricted) {
+    return (
+      <div className="px-[var(--s-5)] pb-[var(--s-5)] pt-0">
+        <Tooltip label="게시 권한이 없습니다" side="top">
+          <div
+            data-testid="composer-posting-restricted"
+            className={cn(
+              'flex items-center gap-[var(--s-3)]',
+              'rounded-[var(--r-lg)] border border-border-subtle bg-bg-input',
+              'px-[var(--s-4)] py-[var(--s-3)] cursor-not-allowed',
+            )}
+          >
+            <Icon name="megaphone" size="md" className="text-text-muted" />
+            <textarea
+              data-testid="msg-input"
+              rows={1}
+              disabled
+              aria-label="이 채널은 관리자만 게시할 수 있습니다"
+              placeholder="이 채널은 관리자만 게시할 수 있습니다"
+              className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text cursor-not-allowed"
+              style={{ minHeight: `${MIN_HEIGHT_PX}px` }}
+            />
+          </div>
+        </Tooltip>
+      </div>
+    );
+  }
 
   return (
     <div className="px-[var(--s-5)] pb-[var(--s-5)] pt-0">

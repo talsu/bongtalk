@@ -184,9 +184,14 @@ function GeneralSection({
   const updateMut = useUpdateChannel(workspaceId);
   const [name, setName] = useState(channel.name);
   const [topic, setTopic] = useState(channel.topic ?? '');
+  // S13 (FR-CH-10): 채널 설명(≤500자). 토픽과 별개의 긴 소개 텍스트.
+  const [description, setDescription] = useState(channel.description ?? '');
   const [submitting, setSubmitting] = useState(false);
 
-  const dirty = name.trim() !== channel.name || (topic.trim() || null) !== (channel.topic || null);
+  const dirty =
+    name.trim() !== channel.name ||
+    (topic.trim() || null) !== (channel.topic || null) ||
+    (description.trim() || null) !== (channel.description || null);
   const canSave = !submitting && dirty && name.trim().length > 0;
 
   const save = async (): Promise<void> => {
@@ -200,6 +205,9 @@ function GeneralSection({
           ...(newName !== channel.name ? { name: newName } : {}),
           ...((topic.trim() || null) !== (channel.topic || null)
             ? { topic: topic.trim() || null }
+            : {}),
+          ...((description.trim() || null) !== (channel.description || null)
+            ? { description: description.trim() || null }
             : {}),
         },
       });
@@ -246,7 +254,7 @@ function GeneralSection({
       </div>
       <div className="qf-field">
         <label className="qf-field__label" htmlFor="channel-settings-topic">
-          설명 <span className="text-text-muted">(선택)</span>
+          토픽 <span className="text-text-muted">(선택)</span>
         </label>
         <Input
           id="channel-settings-topic"
@@ -257,6 +265,23 @@ function GeneralSection({
           maxLength={1024}
         />
         <p className="qf-field__hint">채널 상단 제목 옆에 표시됩니다.</p>
+      </div>
+      {/* S13 (FR-CH-10): 채널 설명 — 채널 브라우저/소개에 노출되는 ≤500자 텍스트. */}
+      <div className="qf-field">
+        <label className="qf-field__label" htmlFor="channel-settings-description">
+          채널 설명 <span className="text-text-muted">(선택)</span>
+        </label>
+        <textarea
+          id="channel-settings-description"
+          data-testid="channel-settings-description"
+          value={description}
+          onChange={(e) => setDescription(e.target.value)}
+          placeholder="이 채널은 어떤 곳인지 소개해 주세요."
+          maxLength={500}
+          rows={3}
+          className="qf-input resize-none"
+        />
+        <p className="qf-field__hint">채널 브라우저 목록에 표시됩니다. 최대 500자.</p>
       </div>
       <div className={cn('mt-[var(--s-2)]', !dirty && 'opacity-0 pointer-events-none')}>
         <Button
