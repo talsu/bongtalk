@@ -54,6 +54,10 @@ export enum ErrorCode {
   CHANNEL_PRIVATE_INVITE_ONLY = 'CHANNEL_PRIVATE_INVITE_ONLY',
   // S14 (FR-CH-07): 채널 멤버가 아닌데 탈퇴 시도. → 409.
   CHANNEL_NOT_MEMBER = 'CHANNEL_NOT_MEMBER',
+  // S15 (FR-CH-08): 슬로우모드 활성 중 잔여 시간 내 재송신. → 429 + retry-after.
+  // retryAfterMs(details) 로 잔여 밀리초를 실어보내 클라이언트가 카운트다운을
+  // 띄울 수 있게 한다. BYPASS_SLOWMODE 비트 보유자는 이 게이트를 우회한다.
+  CHANNEL_SLOWMODE_ACTIVE = 'CHANNEL_SLOWMODE_ACTIVE',
   CATEGORY_NOT_FOUND = 'CATEGORY_NOT_FOUND',
   CATEGORY_NAME_TAKEN = 'CATEGORY_NAME_TAKEN',
 
@@ -159,6 +163,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CHANNEL_PRIVATE_INVITE_ONLY]: 403,
   // S14 (FR-CH-07): 비멤버 탈퇴는 409(상태 충돌).
   [ErrorCode.CHANNEL_NOT_MEMBER]: 409,
+  // S15 (FR-CH-08): 슬로우모드 활성은 429(rate-limit 계열) + retry-after.
+  [ErrorCode.CHANNEL_SLOWMODE_ACTIVE]: 429,
   [ErrorCode.CATEGORY_NOT_FOUND]: 404,
   [ErrorCode.CATEGORY_NAME_TAKEN]: 409,
 

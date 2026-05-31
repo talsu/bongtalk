@@ -2,7 +2,10 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
+import { ChannelBrowser } from '../features/channels/ChannelBrowser';
 import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
+import { CreateChannelModal } from '../features/channels/CreateChannelModal';
+import { SettingsOverlay } from '../design-system/primitives';
 import { useMentionInbox } from '../features/mentions/useMentions';
 import { OnboardingCard } from '../features/onboarding/OnboardingCard';
 import {
@@ -38,6 +41,9 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [membersModalOpen, setMembersModalOpen] = useState(false);
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
+  // S15 (FR-CH-06): 채널 둘러보기 오버레이 + 빈 상태 CTA 의 채널 생성 모달.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const { data: mentionInbox } = useMentionInbox();
   const mentionCount = mentionInbox?.unreadCount ?? 0;
 
@@ -59,6 +65,10 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
           <DropdownContent align="start">
             <DropdownItem onSelect={() => setMembersModalOpen(true)}>
               <span data-testid="ws-open-members">멤버 관리</span>
+            </DropdownItem>
+            {/* S15 (FR-CH-06): 채널 둘러보기 — 공개 채널 탐색/가입. 모든 멤버. */}
+            <DropdownItem onSelect={() => setBrowseOpen(true)}>
+              <span data-testid="ws-browse-channels">채널 둘러보기</span>
             </DropdownItem>
             {canManage ? (
               <DropdownItem onSelect={() => setCreateCategoryOpen(true)}>
@@ -142,6 +152,30 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
           activeChannelName={activeChannelName}
         />
       </div>
+      {/* S15 (FR-CH-06): 채널 둘러보기 오버레이. */}
+      <SettingsOverlay
+        open={browseOpen}
+        onClose={() => setBrowseOpen(false)}
+        title="채널 둘러보기"
+        testId="channel-browser-overlay"
+      >
+        <ChannelBrowser
+          workspaceId={workspace.id}
+          workspaceSlug={workspace.slug}
+          canManage={canManage}
+          onCreateChannel={() => {
+            setBrowseOpen(false);
+            setCreateChannelOpen(true);
+          }}
+        />
+      </SettingsOverlay>
+      <CreateChannelModal
+        workspaceId={workspace.id}
+        categoryId={null}
+        categoryLabel="채널"
+        open={createChannelOpen}
+        onClose={() => setCreateChannelOpen(false)}
+      />
       <CreateCategoryModal
         workspaceId={workspace.id}
         open={createCategoryOpen}

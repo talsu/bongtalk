@@ -17,6 +17,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
     let status = 500;
     let message = 'Internal error';
     let retryAfterSec: number | undefined;
+    // S15 (FR-CH-08): 슬로우모드 잔여 시간을 밀리초 단위로 클라이언트에 전달한다
+    // (CHANNEL_SLOWMODE_ACTIVE). retry-after 헤더는 초 단위(HTTP 표준)로 올림하고,
+    // 정밀 카운트다운용 retryAfterMs 는 body 에 함께 싣는다.
+    let retryAfterMs: number | undefined;
     // S05 (FR-MSG-06): 낙관적 잠금 충돌(MESSAGE_VERSION_CONFLICT) 시 서버 측
     // 현재 MessageDto 를 응답 body 의 `details.current` 로 그대로 실어보내
     // 클라이언트가 편집창을 최신값으로 롤백하게 합니다. 표준 에러 envelope
@@ -27,9 +31,18 @@ export class DomainExceptionFilter implements ExceptionFilter {
       code = exception.code;
       status = ERROR_CODE_HTTP_STATUS[code];
       message = exception.message;
-      const d = exception.details as { retryAfterSec?: number; current?: unknown } | undefined;
+      const d = exception.details as
+        | { retryAfterSec?: number; retryAfterMs?: number; current?: unknown }
+        | undefined;
       if (d && typeof d.retryAfterSec === 'number') {
         retryAfterSec = d.retryAfterSec;
+      }
+      if (d && typeof d.retryAfterMs === 'number') {
+        retryAfterMs = d.retryAfterMs;
+        // HTTP retry-after 헤더는 초 단위 정수. 잔여가 1초 미만이어도 최소 1초.
+        if (retryAfterSec === undefined) {
+          retryAfterSec = Math.max(1, Math.ceil(d.retryAfterMs / 1000));
+        }
       }
       if (d && d.current !== undefined) {
         details = { current: d.current };
@@ -66,6 +79,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       message: string;
       requestId: string;
       retryAfterSec?: number;
+      retryAfterMs?: number;
       details?: unknown;
     } = {
       errorCode: code,
@@ -73,6 +87,7 @@ export class DomainExceptionFilter implements ExceptionFilter {
       requestId,
     };
     if (retryAfterSec !== undefined) body.retryAfterSec = retryAfterSec;
+    if (retryAfterMs !== undefined) body.retryAfterMs = retryAfterMs;
     if (details !== undefined) body.details = details;
     res.status(status).json(body);
   }

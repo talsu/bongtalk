@@ -108,17 +108,19 @@ describe('S12 channel member override — mask validation (privilege-escalation 
 
   // review S12 BLOCKER-1: the override allowMask/denyMask columns are
   // interpreted by ChannelAccessService against the ENFORCEMENT bitfield
-  // (auth/permissions ALL_PERMISSIONS = 0xFF, bits 0..7). 0x100 (bit 8) exists
-  // in the broader shared-types PERMISSIONS catalog (MANAGE_CHANNEL) but is
-  // OUTSIDE the enforcement set — enforcement would ignore it, so persisting it
-  // is garbage. The controller's range check (mask > ALL_PERMISSIONS) rejects it.
-  it('rejects a bit inside the shared catalog but outside the enforcement set (0x100) with 400', async () => {
+  // (auth/permissions ALL_PERMISSIONS). S15 expanded the enforcement set to
+  // 0x1FF (bits 0..8) by adding BYPASS_SLOWMODE=0x100, so the "inside the
+  // shared catalog but outside enforcement" probe now uses 0x800
+  // (USE_EXTERNAL_EMOJI) — it exists in the shared-types PERMISSIONS catalog
+  // (zod passes it) but is OUTSIDE the enforcement set, so the controller's
+  // range check (mask > ALL_PERMISSIONS) rejects it as garbage.
+  it('rejects a bit inside the shared catalog but outside the enforcement set (0x800) with 400', async () => {
     const channelId = await createChannel('ovr-enf');
     const res = await request(env.baseUrl)
       .post(`/workspaces/${seed.workspaceId}/channels/${channelId}/members`)
       .set('origin', ORIGIN)
       .set(bearer(seed.admin.accessToken))
-      .send({ userId: seed.member.userId, allowMask: 0x100 });
+      .send({ userId: seed.member.userId, allowMask: 0x800 });
     expect(res.status).toBe(400);
     expect(res.body.errorCode).toBe('VALIDATION_FAILED');
   });
