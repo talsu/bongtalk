@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06·S07·S08·S09 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S10.**
+> **S05 검증·S06·S07·S08·S09·S10 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S11.**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -89,14 +89,24 @@ D17 realtime frontend. dedup 은 기존 구현 → 갭만:
 - 다팀 리뷰(reviewer/perf) → observer 가드 fix-forward. around 미활성(HIGH-1)·consumeAround retry 취약(HIGH-2)은 D09/D17 활성화 시 함께 hardening(carryover).
 - 게이트: verify 19 + web build + web 단위 272(+신규 LRU/타임아웃 유닛) GREEN. fr-matrix S09: 05/24 done, 22 partial. (S08 검증 tracking 동봉 커밋.)
 
-## 다음 슬라이스: S10 (D17 realtime fullstack)
+## ✅ S10 완료 (2026-05-31, 이 세션 — 최대 규모)
 
-- fullstack, scope `apps/api/src/realtime/**,apps/web/src/features/realtime/**,packages/shared-types/**`.
-- seq 갭 감지 + 재연결 FSM(GAP_FETCHING) gap-fetch + **WS 이벤트명 과거분사 단일출처 적용(FR-RT-23)**.
-- FR-RT-06/07/23. depends S08(완료),S09(완료).
-- **fullstack + WS — `test:int`(realtime) 실DB 검증 필수**. 기존 `apps/api/test/int/realtime/*` 활용.
-- **S10 에서 처리할 S07/S09 carryover**: (a) WS 이벤트명 콜론(WS_EVENTS)/닷(outbox env.type) 단일출처 정비 — FR-RT-23 본체, (b) S09 FR-RT-22 GAP_FETCHING reset 을 channelLru evict 루프 TODO(S10) seam 에 연결.
-- 주의: gap-fetch/seq 갭은 reconnect-replay(S07 int)와 인접 — 기존 replay 경로 무회귀 주의.
+D17 realtime fullstack: 서버 seq + 클라 재연결 FSM + gap-fetch. 계약(SeqSchema/상수/channel:synced)은 S00/S01 토대, **동작은 전부 신규 구현**.
+
+- **FR-RT-06**: ChannelSeqService(Redis INCR seq:{channelId}, -1 sentinel) → outbox-to-ws emitAndBuffer 가 channel 스코프 이벤트에 seq 1회 stamp.
+- **FR-RT-07**: 채널 단위 FSM(DISCONNECTED→RECONNECTING→GAP_FETCHING→SYNCED/SYNC_FAILED) + SeqTracker hole 감지 + gapFetch(after 재귀, MAX_PAGES 10) + gapMerge(messageId dedup) + PendingEventBuffer(200) + Backoff(3). 기존 서버-push replay 와 **공존**(replay.complete→SYNCED, truncated/hole→GAP_FETCHING).
+- **FR-RT-23**: GapFetchQueue(GAP_FETCH_CONCURRENCY=5 FIFO).
+- 다팀 리뷰(reviewer/security/contract/perf) → **fix-forward**: **BLOCKER**(after-페이지네이션 경계 메시지 손실 — messages.service.ts, revert-test 로 손실 재현·수정 후 0 손실 검증), **MAJOR**(재연결 baseline 미부트스트랩 → 서버 channel:joined{seq} emit + 클라 setBaseline), **MAJOR**(replay.truncated channelIds 화), MED(backoff 이중호출), perf(seqTracker evict reset), contract(SHARED_CONSTANTS). 재리뷰 **approve**.
+- carryover: retry 타이머 detach 미정리(MED), NaN 가드/glue 테스트(NIT), Redis INCR 파이프라이닝·gapMerge perf 등(LOW), **WS 이벤트명 단일출처(콜론/닷) 미정비**(슬라이스 제목분, 범위 외 연기). S09 GAP_FETCHING reset seam 은 FSM 도입으로 evict→channelSyncStore.reset 연결됨.
+- 게이트: verify 19(shared-types 165/web 321/api 316/webhook 50) + 빌드 3종 + int(gap-fetch 3 BLOCKER + seq-emission 4 + reconnect-replay 2 무회귀 + multi-node/handshake) GREEN.
+
+## 다음 슬라이스: S11 (D17 realtime backend)
+
+- backend, scope `apps/api/src/realtime/**,apps/api/src/channels/**,apps/api/src/me/**`.
+- 읽음 동기화 WS: ack debounce + read_state:updated user:room emit + unread 카노니컬 공식 + visibleFrom 정합.
+- FR-RT-13/14/19. depends S08(완료).
+- **backend — `test:int` 실DB 검증 필수**. 읽음/unread 는 D09(S21~S24)와 인접 — S11 은 WS 동기화 경로(read_state:updated emit + unread 공식)에 집중. 기존 `apps/api/test/int/channels/{me-unread-totals,unread-*}` 활용.
+- 주의: unread/read-state 일부는 기존 구현 가능성(me-unread int 존재) — 갭만 식별.
 
 ---
 

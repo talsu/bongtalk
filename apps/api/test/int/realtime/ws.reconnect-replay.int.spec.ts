@@ -80,8 +80,16 @@ describe('reconnect replay', () => {
       const socket = await connectClient(env.wsUrl, stack.member.accessToken, {
         lastEventId: '00000000-0000-4000-8000-000000000001',
       });
-      const t = await waitForEvent<{ lastEventId: string }>(socket, 'replay.truncated', 5000);
+      const t = await waitForEvent<{ lastEventId: string; channelIds?: string[] }>(
+        socket,
+        'replay.truncated',
+        5000,
+      );
       expect(t.lastEventId).toBe('00000000-0000-4000-8000-000000000001');
+      // S10 fix-forward (MAJOR #3): payload 가 truncated 된 channelId(s) 를 실어
+      // 클라가 해당 채널만 gap-fetch 하도록 한다(전 채널 fan-out 회귀 방지).
+      expect(Array.isArray(t.channelIds)).toBe(true);
+      expect(t.channelIds).toContain(stack.channelId);
       socket.disconnect();
     } finally {
       if (origCap) process.env.WS_REPLAY_BUFFER_SIZE = origCap;
