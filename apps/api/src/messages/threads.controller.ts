@@ -103,10 +103,10 @@ export class ThreadsController {
       pageInfo: {
         hasMore: page.hasMore,
         nextCursor: page.nextCursor
-          ? cursorFor({ id: page.nextCursor.id, createdAt: page.nextCursor.t })
+          ? cursorFor({ id: page.nextCursor.id, createdAt: page.nextCursor.createdAt })
           : null,
         prevCursor: page.prevCursor
-          ? cursorFor({ id: page.prevCursor.id, createdAt: page.prevCursor.t })
+          ? cursorFor({ id: page.prevCursor.id, createdAt: page.prevCursor.createdAt })
           : null,
       },
     };

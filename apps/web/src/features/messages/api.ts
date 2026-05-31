@@ -39,16 +39,22 @@ export function listMessages(
   return apiRequest(`${basePath(wsId, channelId)}${toQuery(query)}`);
 }
 
+/**
+ * S03 (FR-MSG-04): the clientNonce is the SINGLE identifier — it is sent both
+ * as the POST body `nonce` (echoed on message:created for the optimistic swap)
+ * AND as the `Idempotency-Key` header (server-side dedupe). The caller never
+ * mints a separate tempId.
+ */
 export function sendMessage(
   wsId: string | null,
   channelId: string,
   input: SendMessageRequest,
-  idempotencyKey: string,
+  clientNonce: string,
 ): Promise<{ message: MessageDto; replayed: boolean }> {
   return apiRequestRaw(basePath(wsId, channelId), {
     method: 'POST',
-    body: input,
-    headers: { 'Idempotency-Key': idempotencyKey },
+    body: { ...input, nonce: clientNonce },
+    headers: { 'Idempotency-Key': clientNonce },
   });
 }
 

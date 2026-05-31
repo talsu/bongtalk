@@ -18,6 +18,11 @@ export type MessageCreatedPayload = {
   workspaceId: string | null;
   channelId: string;
   actorId: string;
+  // S03 (FR-MSG-04): clientNonce echo. The sending tab matches this against
+  // its optimistic (pending) row's nonce to swap it for the confirmed
+  // message; other tabs / devices ignore it and dedupe by messageId (FR-RT-24).
+  // null/undefined when the client sent no nonce (e.g. system messages).
+  nonce?: string | null;
   message: {
     id: string;
     authorId: string;

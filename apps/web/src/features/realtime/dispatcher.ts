@@ -166,6 +166,10 @@ export function installRealtimeDispatcher(
     id: string;
     channelId: string;
     workspaceId: string;
+    // S03 (FR-MSG-04): clientNonce echo. Present on sends that carried a nonce;
+    // the SENDING tab uses it to swap its optimistic row deterministically.
+    // Other tabs / devices ignore it and dedupe by messageId (FR-RT-24).
+    nonce?: string | null;
     message: MessageDto & { parentMessageId?: string | null };
   }>('message.created', (env) => {
     if (!env.channelId || !env.workspaceId || !env.message) return;
@@ -262,12 +266,28 @@ export function installRealtimeDispatcher(
       (old) => {
         if (!old) return old;
         const [first, ...rest] = old.pages;
-        // Dedupe by real id AND by the optimistic "tempId" pattern — if
-        // the WS broadcast arrives BEFORE our own HTTP POST response
-        // (common under load), plain id-equality misses the temp row and
-        // we'd end up with two rows for one logical message. Collapse
-        // any optimistic row that matches author+content.
+        // FR-RT-24: always dedupe by real messageId first (idempotent across
+        // tabs / a racing HTTP-POST onSuccess).
         if (first.items.some((m) => m.id === env.message.id)) return old;
+        // S03 (FR-MSG-04): if this echo carries our clientNonce, swap the
+        // matching optimistic row (`tmp-<nonce>`) deterministically — no
+        // author/content heuristic needed.
+        const optimisticId = env.nonce ? `tmp-${env.nonce}` : null;
+        if (optimisticId && first.items.some((m) => m.id === optimisticId)) {
+          return {
+            ...old,
+            pages: [
+              {
+                ...first,
+                items: first.items.map((m) => (m.id === optimisticId ? env.message : m)),
+              },
+              ...rest,
+            ],
+          };
+        }
+        // Fallback (no nonce, or WS broadcast arrived before our own optimistic
+        // insert): collapse any optimistic row matching author+content so a
+        // single logical message never renders twice.
         const collapsed = first.items.filter(
           (m) =>
             !(

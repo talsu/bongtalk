@@ -70,6 +70,13 @@ export class GlobalDmMessagesController {
     @Query() rawQuery: Record<string, unknown>,
   ) {
     const channel = this.readChannel(req);
+    // S03 (FR-MSG-21): reject lastReadMessageId as a pagination cursor.
+    if (rawQuery.lastReadMessageId !== undefined) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_CURSOR_INVALID,
+        'lastReadMessageId is a read-state cursor and cannot be used for pagination — use the opaque before/after token',
+      );
+    }
     const parsed = ListMessagesQuerySchema.safeParse(rawQuery);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -134,6 +141,8 @@ export class GlobalDmMessagesController {
       authorId: user.id,
       content: parsed.data.content,
       idempotencyKey,
+      // S03 (FR-MSG-04): clientNonce echo for optimistic swap.
+      nonce: parsed.data.nonce ?? null,
       parentMessageId: parsed.data.parentMessageId ?? null,
       attachmentIds: parsed.data.attachmentIds,
     });
