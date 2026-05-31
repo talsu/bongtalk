@@ -12,6 +12,8 @@ import {
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 import { DirectMessagesService, type DmListItem } from './direct-messages.service';
+import { CreateDmDto } from './dto/create-dm.dto';
+import { CreateGroupDmDto } from './dto/create-group-dm.dto';
 
 /**
  * task-033-B: global DM endpoints under /me/dms. Same service as the
@@ -46,36 +48,31 @@ export class GlobalDmController {
   @Post()
   async createOrGet(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { userId?: string },
+    @Body() body: CreateDmDto,
   ): Promise<{ channelId: string; created: boolean }> {
-    const otherUserId = body?.userId;
-    if (!otherUserId) {
-      return { channelId: '', created: false };
-    }
-    return this.svc.createOrGetGlobal(user.id, otherUserId);
+    return this.svc.createOrGetGlobal(user.id, body.userId);
   }
 
   /**
    * task-045 iter5: 그룹 DM (3+) 생성 또는 같은 멤버 set 의 기존
-   * 채널 반환. 본인 제외 2-9 명 (총 3-10).
+   * 채널 반환. S16 (FR-DM-02): 본인 제외 2-19 명 (총 3-20). 초과 시
+   * 422 (DM_GROUP_CAP_EXCEEDED).
    *
    *   POST /me/dms/groups
-   *   Body: { memberIds: string[], workspaceId?: string | null }
+   *   Body: { memberIds: string[], workspaceId?: string }
    *
-   * workspaceId omitted → global DM (모든 사용자가 같은 friend graph
-   * 위에 있다고 가정 — friend 관계 검증은 follow-up).
+   * workspaceId omitted → global DM. S16 (BLOCKER fix-forward): 전역 그룹은
+   * 각 memberId 마다 친구(ACCEPTED) 게이트를 강제한다(서비스 레이어). 형식
+   * 검증(배열·UUID)은 CreateGroupDmDto + ValidationPipe 가 담당한다.
    */
   @Post('groups')
   async createGroupDm(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { memberIds?: string[]; workspaceId?: string | null },
+    @Body() body: CreateGroupDmDto,
   ): Promise<{ channelId: string; created: boolean; memberIds: string[] }> {
-    const memberIds = Array.isArray(body?.memberIds) ? body!.memberIds : [];
     const workspaceId =
-      typeof body?.workspaceId === 'string' && body.workspaceId.length > 0
-        ? body.workspaceId
-        : null;
-    return this.svc.createGroupDm({ workspaceId, meId: user.id, memberIds });
+      typeof body.workspaceId === 'string' && body.workspaceId.length > 0 ? body.workspaceId : null;
+    return this.svc.createGroupDm({ workspaceId, meId: user.id, memberIds: body.memberIds });
   }
 
   /**
@@ -84,7 +81,8 @@ export class GlobalDmController {
    * UI 가 두 영역을 섞지 않고 표시 가능.
    *
    *   GET /me/dms/groups
-   *   Response: { items: [{ channelId, memberIds, lastMessageAt, lastMessagePreview, createdAt }] }
+   *   Response: { items: [{ channelId, memberIds, participants(≤5),
+   *               lastMessageAt, lastMessagePreview, createdAt }] }
    */
   @Get('groups')
   async listGroups(
@@ -94,6 +92,7 @@ export class GlobalDmController {
     items: Array<{
       channelId: string;
       memberIds: string[];
+      participants: Array<{ userId: string; username: string }>;
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;

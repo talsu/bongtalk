@@ -37,6 +37,9 @@ export const WS_EVENTS = {
   // 읽음 / 미읽
   READ_STATE_UPDATED: 'read_state:updated',
   UNREAD_COUNT_INCREMENT: 'unread_count:increment',
+  // DM / 그룹 DM (S16 · FR-DM-16): 새 DM·그룹 DM 개설 또는 멤버 추가 시 대상
+  // 참여자의 user:{userId} 룸으로 push. 클라이언트는 DM 목록 캐시를 무효화한다.
+  DM_CREATED: 'dm:created',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -236,6 +239,22 @@ export const UnreadCountIncrementPayloadSchema = z.object({
 export type UnreadCountIncrementPayload = z.infer<typeof UnreadCountIncrementPayloadSchema>;
 
 /**
+ * dm:created — 각 참여자의 user:{userId} 룸으로 emit (S16 · FR-DM-16).
+ * `isGroup` 으로 1:1 / 그룹 DM 을 구분하고, `participantIds` 로 멤버 set 을 싣는다.
+ *
+ * S16 (HIGH fix-forward): 내부 라우팅용 `recipients` 필드는 **와이어 페이로드에서
+ * 제거**한다. recipients 는 outbox payload 에만 남아 구독자가 어느 user 룸으로
+ * fanout 할지 결정하는 서버 전용 정보이며, 클라이언트로 노출되면 참여자 UUID
+ * 전체가 새므로 emit 직전에 제거한다(id/type/channelId/isGroup/participantIds 만).
+ */
+export const DmCreatedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  isGroup: z.boolean(),
+  participantIds: z.array(UserIdSchema),
+});
+export type DmCreatedPayload = z.infer<typeof DmCreatedPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -260,4 +279,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.PRESENCE_UPDATE]: PresenceUpdatePayloadSchema,
   [WS_EVENTS.READ_STATE_UPDATED]: ReadStateUpdatedPayloadSchema,
   [WS_EVENTS.UNREAD_COUNT_INCREMENT]: UnreadCountIncrementPayloadSchema,
+  [WS_EVENTS.DM_CREATED]: DmCreatedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

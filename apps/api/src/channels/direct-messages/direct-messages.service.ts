@@ -3,12 +3,23 @@ import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { Permission } from '../../auth/permissions';
+import { OutboxService } from '../../common/outbox/outbox.service';
+import type { OutboxTxClient } from '../../common/outbox/outbox.types';
+import { DM_CREATED } from '../events/channel-events';
 
 const DM_ALLOW_MASK =
   Permission.READ |
   Permission.WRITE_MESSAGE |
   Permission.DELETE_OWN_MESSAGE |
   Permission.UPLOAD_ATTACHMENT;
+
+// S16 (FR-DM-02): 그룹 DM 구성원 상한 — 본인 포함 ≤20 (= 본인 외 2~19명).
+const GROUP_DM_MAX_TOTAL = 20;
+
+export interface DmParticipantProfile {
+  userId: string;
+  username: string;
+}
 
 export interface DmListItem {
   channelId: string;
@@ -17,6 +28,10 @@ export interface DmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
+  // S16 (FR-DM-03): 미리보기용 참여자 프로필(상대방 측). 1:1 DM 목록(list)에서는
+  // 본인 제외 상대 1명이라 **항상 정확히 1개 요소**다. 그룹 목록(listGroups)이
+  // 같은 shape 으로 ≤5 슬라이스를 싣는다. 헤더/아바타 스택이 멤버 set 일관 렌더.
+  participants: DmParticipantProfile[];
 }
 
 /**
@@ -29,7 +44,64 @@ export interface DmListItem {
  */
 @Injectable()
 export class DirectMessagesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outbox: OutboxService,
+  ) {}
+
+  /**
+   * S16 (FR-DM-16): DM·그룹 DM 개설 시 outbox 에 `dm.created` 를 기록한다.
+   * 생성 트랜잭션과 같은 commit 에 row 가 보이도록 tx 안에서 호출한다. recipients
+   * 는 **outbox→WS 라우팅 전용**(각 user:{userId} 룸으로 fanout 할 대상)이며 outbox
+   * payload 에만 남는다. 와이어로 나가는 `dm:created` 페이로드에는 참여자 UUID 전체
+   * 노출을 막기 위해 구독자가 recipients 를 제거한 뒤 emit 한다(H-03 참조).
+   */
+  private async recordDmCreated(
+    tx: OutboxTxClient,
+    args: { channelId: string; participantIds: string[]; isGroup: boolean },
+  ): Promise<void> {
+    await this.outbox.record(tx, {
+      aggregateType: 'channel',
+      aggregateId: args.channelId,
+      eventType: DM_CREATED,
+      payload: {
+        channelId: args.channelId,
+        isGroup: args.isGroup,
+        participantIds: args.participantIds,
+        // 라우팅 전용: 모든 참여자에게 push — 개설자 본인 탭도 다른 디바이스에서
+        // 목록을 갱신한다. 와이어 emit 페이로드에서는 구독자가 이 필드를 제거한다.
+        recipients: args.participantIds,
+      },
+    });
+  }
+
+  /**
+   * S16 (BLOCKER fix-forward): 전역(workspace 없는) DM·그룹 DM 의 친구 게이트.
+   * `meId` 와 `otherId` 사이에 ACCEPTED friendship 이 없으면(미친구·BLOCKED·
+   * 본인) 거부한다. createOrGetGlobal(1:1) 과 createGroupDm(global) 이 공유한다.
+   *
+   * 차단 여부 비노출(H-03): 미친구와 차단을 **동일 status + 동일 중립 메시지**로
+   * 거부한다. status code(FRIEND_NOT_FOUND → 404)는 기존 1:1 계약을 유지하되
+   * 메시지만 중립화해 상대의 차단/친구 상태를 추론할 수 없게 한다.
+   */
+  private async assertCanDm(meId: string, otherId: string): Promise<void> {
+    if (meId === otherId) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'cannot DM yourself');
+    }
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        OR: [
+          { requesterId: meId, addresseeId: otherId },
+          { requesterId: otherId, addresseeId: meId },
+        ],
+      },
+      select: { status: true },
+    });
+    if (!friendship || friendship.status !== 'ACCEPTED') {
+      // blocked·not-friend 모두 동일 status + 동일 중립 메시지(차단 여부 비노출).
+      throw new DomainError(ErrorCode.FRIEND_NOT_FOUND, 'cannot DM: not permitted');
+    }
+  }
 
   private channelName(a: string, b: string): string {
     const [x, y] = [a, b].sort();
@@ -39,8 +111,15 @@ export class DirectMessagesService {
   /**
    * task-045 iter5: Group DM (3+) naming. 모든 멤버 (sender 포함)
    * userId 를 정렬 후 join — 동일 멤버 set 은 동일 slug → idempotent
-   * createOrGet 보장. cap 10 명 ($10 × 36 = 360 chars + prefix → DB
-   * VARCHAR 텍스트 길이 충분).
+   * createOrGet 보장. S16 (FR-DM-02): cap 20명 (20 × 36 = 720 chars +
+   * prefix → Channel.name 은 unbounded text 라 길이 충분).
+   *
+   * 주의: participantHash 별도 컬럼 없이 이 slug + 부분 유니크 인덱스가 1:1 DM
+   * 중복을 막는다. 그룹도 마찬가지로 `gdm:` slug 가 `Channel_global_dm_name_uniq`
+   * 에 걸리므로 **동일 구성원 set 은 dedup 된다** — createGroupDm 이 기존 채널을
+   * 반환(created:false)하는 idempotent 동작이다. FR-DM-02 의 duplicates-allowed
+   * 의도와는 편차가 있으나(true-duplicate 의미 결정은 carryover), 현재 동작은
+   * 동일 set 재생성 시 기존 채널 반환이다. 그룹 DM 은 cap 만 추가로 강제한다.
    */
   private groupChannelName(memberIds: string[]): string {
     return `gdm:${[...memberIds].sort().join(':')}`;
@@ -50,7 +129,7 @@ export class DirectMessagesService {
    * task-045 iter5: Group DM 생성 또는 기존 같은 멤버 set 채널 반환.
    *
    * 검증:
-   * - memberIds (sender 제외 다른 사용자) 2-9 명 (총 3-10)
+   * - memberIds (sender 제외 다른 사용자) 2-19 명 (총 3-20, FR-DM-02)
    * - 본인 (meId) 가 memberIds 에 들어있으면 거부 — 클라이언트 실수 방지
    * - 모두 unique
    * - workspaceId 가 주어지면 모든 멤버가 그 워크스페이스 멤버
@@ -70,8 +149,12 @@ export class DirectMessagesService {
         'group DM requires at least 2 other members',
       );
     }
-    if (memberIds.length > 9) {
-      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'group DM cap exceeded (max 10 total)');
+    // S16 (FR-DM-02): 본인 포함 ≤20 → 본인 외 ≤19. 초과 시 422 (DM_GROUP_CAP_EXCEEDED).
+    if (memberIds.length > GROUP_DM_MAX_TOTAL - 1) {
+      throw new DomainError(
+        ErrorCode.DM_GROUP_CAP_EXCEEDED,
+        `group DM cap exceeded (max ${GROUP_DM_MAX_TOTAL} total)`,
+      );
     }
     if (memberIds.some((id) => id === meId)) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'memberIds must not include yourself');
@@ -94,6 +177,13 @@ export class DirectMessagesService {
             'all members must belong to the workspace',
           );
         }
+      }
+    } else {
+      // S16 (BLOCKER fix-forward): 전역 그룹 DM 은 워크스페이스 멤버십 게이트가
+      // 없으므로 각 멤버에 대해 친구 게이트를 강제한다. 미친구·차단 사용자를
+      // 임의 userId 로 그룹에 강제 편입시키는 harassment 경로를 차단한다.
+      for (const memberId of memberIds) {
+        await this.assertCanDm(meId, memberId);
       }
     }
 
@@ -130,6 +220,12 @@ export class DirectMessagesService {
             },
           });
         }
+        // S16 (FR-DM-16): 같은 commit 에 dm.created 기록 → 멤버 전원 룸으로 fanout.
+        await this.recordDmCreated(tx as unknown as OutboxTxClient, {
+          channelId: ch.id,
+          participantIds: allMembers,
+          isGroup: true,
+        });
         return ch;
       });
       return { channelId: created.id, created: true, memberIds: allMembers };
@@ -202,6 +298,12 @@ export class DirectMessagesService {
             },
           });
         }
+        // S16 (FR-DM-16): 같은 commit 에 dm.created 기록.
+        await this.recordDmCreated(tx as unknown as OutboxTxClient, {
+          channelId: ch.id,
+          participantIds: [meId, otherUserId],
+          isGroup: false,
+        });
         return ch;
       });
       return { channelId: created.id, created: true };
@@ -233,6 +335,10 @@ export class DirectMessagesService {
     Array<{
       channelId: string;
       memberIds: string[];
+      // S16 (FR-DM-03): 미리보기용 멤버 프로필(≤5, username 정렬). 1:1 list() 와
+      // 동일 shape 으로 헤더/아바타 스택이 멤버 set 을 일관 렌더한다. memberIds 는
+      // 전체 id 집합(권한·라우팅용), participants 는 ≤5 표시용 슬라이스.
+      participants: DmParticipantProfile[];
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
@@ -290,9 +396,23 @@ export class DirectMessagesService {
        ORDER BY COALESCE(lm."lastMessageAt", mg."createdAt") DESC
        LIMIT ${capped}
     `;
+    if (rows.length === 0) return [];
+    // S16 (FR-DM-03): 표시용 멤버 username 을 ≤5 로 조회. 전체 멤버 id 를 모아
+    // 한 번에 User 를 조회한 뒤 채널별로 (정렬·≤5) 슬라이스한다.
+    const allMemberIds = Array.from(new Set(rows.flatMap((r) => r.memberIds)));
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: allMemberIds } },
+      select: { id: true, username: true },
+    });
+    const nameById = new Map(users.map((u) => [u.id, u.username]));
     return rows.map((r) => ({
       channelId: r.channelId,
       memberIds: r.memberIds,
+      participants: r.memberIds
+        .slice()
+        .sort((a, b) => (nameById.get(a) ?? '').localeCompare(nameById.get(b) ?? ''))
+        .slice(0, 5)
+        .map((id) => ({ userId: id, username: nameById.get(id) ?? '' })),
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       createdAt: r.createdAt.toISOString(),
@@ -449,6 +569,10 @@ export class DirectMessagesService {
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       unreadCount: Number(r.unreadCount),
+      // FR-DM-03: 1:1 DM 의 상대방 프로필을 참여자 배열로도 노출(헤더/아바타 스택이
+      // 멤버 set 을 일관 렌더). 1:1 은 본인을 제외한 상대 1명이므로 **항상 정확히
+      // 1개 요소**다(그룹 listGroups 의 ≤5 슬라이스와 shape 만 동일).
+      participants: [{ userId: r.otherUserId, username: r.otherUsername }],
     }));
   }
 
@@ -481,24 +605,9 @@ export class DirectMessagesService {
     meId: string,
     otherUserId: string,
   ): Promise<{ channelId: string; created: boolean }> {
-    if (meId === otherUserId) {
-      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'cannot DM yourself');
-    }
-    const friendship = await this.prisma.friendship.findFirst({
-      where: {
-        OR: [
-          { requesterId: meId, addresseeId: otherUserId },
-          { requesterId: otherUserId, addresseeId: meId },
-        ],
-      },
-      select: { status: true },
-    });
-    if (!friendship || friendship.status !== 'ACCEPTED') {
-      throw new DomainError(
-        ErrorCode.FRIEND_NOT_FOUND,
-        friendship?.status === 'BLOCKED' ? 'cannot DM: blocked' : 'cannot DM: not friends yet',
-      );
-    }
+    // S16 (H-03): 친구 게이트는 assertCanDm 로 추출됨. self·미친구·BLOCKED 를
+    // 동일 status(404) + 동일 중립 메시지로 거부(차단 여부 비노출).
+    await this.assertCanDm(meId, otherUserId);
     // task-034-A: Channel.workspaceId is nullable now. Global DM is a
     // DIRECT channel with no workspace. Reuse the createOrGet path by
     // passing null workspaceId — the service skips the workspace-
@@ -541,6 +650,12 @@ export class DirectMessagesService {
             },
           });
         }
+        // S16 (FR-DM-16): 같은 commit 에 dm.created 기록.
+        await this.recordDmCreated(tx as unknown as OutboxTxClient, {
+          channelId: ch.id,
+          participantIds: [meId, otherUserId],
+          isGroup: false,
+        });
         return ch;
       });
       return { channelId: created.id, created: true };

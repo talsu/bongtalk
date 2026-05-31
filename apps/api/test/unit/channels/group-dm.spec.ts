@@ -1,6 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { DirectMessagesService } from '../../../src/channels/direct-messages/direct-messages.service';
 import { DomainError } from '../../../src/common/errors/domain-error';
+import { ErrorCode } from '../../../src/common/errors/error-code.enum';
+import type { OutboxService } from '../../../src/common/outbox/outbox.service';
+
+// S16 (FR-DM-16): DirectMessagesService 가 outbox 에 dm.created 를 기록하므로
+// 단위 테스트는 record() 를 캡처하는 fake outbox 를 주입한다(외부 모킹 라이브러리
+// 금지 — vi.fn() 만).
+function fakeOutbox(): OutboxService {
+  return { record: vi.fn().mockResolvedValue('outbox-id') } as unknown as OutboxService;
+}
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -17,6 +26,9 @@ type Stub = {
   channelCreate?: ReturnType<typeof vi.fn>;
   overrideCreate?: ReturnType<typeof vi.fn>;
   transaction?: ReturnType<typeof vi.fn>;
+  // S16 (BLOCKER fix-forward): 전역 그룹 경로가 멤버별 친구 게이트(assertCanDm →
+  // friendship.findFirst)를 호출하므로 기본 ACCEPTED 를 돌려주는 stub 을 둔다.
+  friendshipFindFirst?: ReturnType<typeof vi.fn>;
 };
 
 type TxStub = {
@@ -33,13 +45,17 @@ function makeService(stub: Stub) {
   const workspaceMember = {
     findMany: stub.workspaceMemberFindMany ?? vi.fn().mockResolvedValue([]),
   };
+  const friendship = {
+    findFirst: stub.friendshipFindFirst ?? vi.fn().mockResolvedValue({ status: 'ACCEPTED' }),
+  };
   const tx: TxStub = { channel, channelPermissionOverride };
   const prisma = {
     channel,
     workspaceMember,
+    friendship,
     $transaction: stub.transaction ?? vi.fn(async (cb: (tx: TxStub) => Promise<unknown>) => cb(tx)),
   } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
-  return new DirectMessagesService(prisma);
+  return new DirectMessagesService(prisma, fakeOutbox());
 }
 
 describe('DirectMessagesService.createGroupDm', () => {
@@ -50,15 +66,30 @@ describe('DirectMessagesService.createGroupDm', () => {
     ).rejects.toThrow(DomainError);
   });
 
-  it('memberIds 길이 > 9 (총 11명) → VALIDATION_FAILED', async () => {
+  it('FR-DM-02: memberIds 길이 > 19 (총 21명) → DM_GROUP_CAP_EXCEEDED', async () => {
     const svc = makeService({});
     const tooMany = Array.from(
-      { length: 10 },
+      { length: 20 },
       (_, i) => `${i.toString().padStart(8, '0')}-1111-4111-8111-111111111111`,
     );
     await expect(
       svc.createGroupDm({ workspaceId: null, meId: ME, memberIds: tooMany }),
-    ).rejects.toThrow(/cap exceeded/);
+    ).rejects.toMatchObject({ code: ErrorCode.DM_GROUP_CAP_EXCEEDED });
+  });
+
+  it('FR-DM-02: 본인 외 19명(총 20, cap 경계) 은 통과 → 신규 채널 생성', async () => {
+    const findFirst = vi.fn().mockResolvedValue(null);
+    const channelCreate = vi.fn().mockResolvedValue({ id: 'ch-cap' });
+    const overrideCreate = vi.fn();
+    const svc = makeService({ findFirst, channelCreate, overrideCreate });
+    const others = Array.from(
+      { length: 19 },
+      (_, i) => `${i.toString().padStart(8, '0')}-2222-4222-8222-222222222222`,
+    );
+    const result = await svc.createGroupDm({ workspaceId: null, meId: ME, memberIds: others });
+    expect(result.created).toBe(true);
+    // 본인 + 19 = 20 override 행
+    expect(overrideCreate).toHaveBeenCalledTimes(20);
   });
 
   it('memberIds 에 본인 포함 시 VALIDATION_FAILED', async () => {
@@ -108,6 +139,52 @@ describe('DirectMessagesService.createGroupDm', () => {
     const args = (channelCreate.mock.calls[0][0] as { data: { name: string } }).data;
     // gdm: 접두사 + 정렬된 ids
     expect(args.name.startsWith('gdm:')).toBe(true);
+  });
+
+  it('BLOCKER fix-forward: global scope 에서 비친구 memberId 있으면 FRIEND_NOT_FOUND', async () => {
+    // 첫 멤버(A)는 ACCEPTED, 두 번째 멤버(B)는 친구 아님(null) → 거부.
+    const friendshipFindFirst = vi
+      .fn()
+      .mockResolvedValueOnce({ status: 'ACCEPTED' })
+      .mockResolvedValueOnce(null);
+    const channelCreate = vi.fn();
+    const svc = makeService({ friendshipFindFirst, channelCreate });
+    await expect(
+      svc.createGroupDm({ workspaceId: null, meId: ME, memberIds: [A, B] }),
+    ).rejects.toMatchObject({ code: ErrorCode.FRIEND_NOT_FOUND });
+    // 채널 생성까지 가지 않는다(게이트가 먼저 끊음).
+    expect(channelCreate).not.toHaveBeenCalled();
+  });
+
+  it('BLOCKER fix-forward: BLOCKED 친구도 동일하게 거부(중립) — global scope', async () => {
+    const friendshipFindFirst = vi.fn().mockResolvedValue({ status: 'BLOCKED' });
+    const svc = makeService({ friendshipFindFirst });
+    await expect(
+      svc.createGroupDm({ workspaceId: null, meId: ME, memberIds: [A] }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED }); // length<2
+    // 길이 2 이상으로 다시 — BLOCKED → FRIEND_NOT_FOUND.
+    await expect(
+      svc.createGroupDm({ workspaceId: null, meId: ME, memberIds: [A, B] }),
+    ).rejects.toMatchObject({ code: ErrorCode.FRIEND_NOT_FOUND });
+  });
+
+  it('workspace scope 는 친구 게이트를 거치지 않는다(멤버십 게이트만)', async () => {
+    // workspace 멤버 전원 충족 → friendship.findFirst 가 호출되지 않아야 한다.
+    const workspaceMemberFindMany = vi
+      .fn()
+      .mockResolvedValue([{ userId: ME }, { userId: A }, { userId: B }]);
+    const friendshipFindFirst = vi.fn();
+    const channelCreate = vi.fn().mockResolvedValue({ id: 'ch-ws' });
+    const overrideCreate = vi.fn();
+    const svc = makeService({
+      workspaceMemberFindMany,
+      friendshipFindFirst,
+      channelCreate,
+      overrideCreate,
+    });
+    const result = await svc.createGroupDm({ workspaceId: 'ws-1', meId: ME, memberIds: [A, B] });
+    expect(result.created).toBe(true);
+    expect(friendshipFindFirst).not.toHaveBeenCalled();
   });
 
   it('workspace scope: 멤버 중 워크스페이스 비멤버 있으면 WORKSPACE_NOT_MEMBER', async () => {
@@ -182,7 +259,7 @@ describe('DirectMessagesService.getGroupMembers', () => {
       $transaction: vi.fn(),
       $queryRaw: queryRaw,
     } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
-    return new DirectMessagesService(prisma);
+    return new DirectMessagesService(prisma, fakeOutbox());
   }
 
   it('채널 부재 → CHANNEL_NOT_FOUND', async () => {
