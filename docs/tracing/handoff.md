@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06·S07·S08·S09·S10 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S11.**
+> **S05 검증·S06~S11 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S12(D02 채널).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -100,13 +100,25 @@ D17 realtime fullstack: 서버 seq + 클라 재연결 FSM + gap-fetch. 계약(Se
 - carryover: retry 타이머 detach 미정리(MED), NaN 가드/glue 테스트(NIT), Redis INCR 파이프라이닝·gapMerge perf 등(LOW), **WS 이벤트명 단일출처(콜론/닷) 미정비**(슬라이스 제목분, 범위 외 연기). S09 GAP_FETCHING reset seam 은 FSM 도입으로 evict→channelSyncStore.reset 연결됨.
 - 게이트: verify 19(shared-types 165/web 321/api 316/webhook 50) + 빌드 3종 + int(gap-fetch 3 BLOCKER + seq-emission 4 + reconnect-replay 2 무회귀 + multi-node/handshake) GREEN.
 
-## 다음 슬라이스: S11 (D17 realtime backend)
+## ✅ S11 완료 (2026-06-01, 이 세션)
 
-- backend, scope `apps/api/src/realtime/**,apps/api/src/channels/**,apps/api/src/me/**`.
-- 읽음 동기화 WS: ack debounce + read_state:updated user:room emit + unread 카노니컬 공식 + visibleFrom 정합.
-- FR-RT-13/14/19. depends S08(완료).
-- **backend — `test:int` 실DB 검증 필수**. 읽음/unread 는 D09(S21~S24)와 인접 — S11 은 WS 동기화 경로(read_state:updated emit + unread 공식)에 집중. 기존 `apps/api/test/int/channels/{me-unread-totals,unread-*}` 활용.
-- 주의: unread/read-state 일부는 기존 구현 가능성(me-unread int 존재) — 갭만 식별.
+D17 읽음 동기화 backend. **마이그레이션 슬라이스**(reversible up/down 검증).
+
+- **설계**: Message.id 가 랜덤 uuid(cuid2 토대 미구현)라 FR 의 `id > lastReadMessageId` 대신 **`(createdAt, id)` 튜플 비교**로 unread 구현(페이지네이션 정합). UserChannelReadState += `lastReadMessageId`(uuid?) + `lastReadMessageCreatedAt`(timestamptz?), 레거시 `lastReadEventId`(replay)·`lastReadAt`(mention-inbox) 보존.
+- **FR-RT-19**: monotonic upsert(ON CONFLICT WHERE 기존튜플<새튜플) — 퇴행 ack no-op.
+- **FR-RT-14**: 튜플 unread 공식(row-value `(m.createdAt,m.id) > (rs....)`, deletedAt 제외, **자기메시지 포함**) — summarize/totals/DM 일관 전환.
+- **FR-RT-13**: `POST .../ack{lastReadMessageId,clientTimestamp}` 신규 + `read_state:updated{channelId,lastReadMessageId,unreadCount}` user:room emit. `/read` deprecate(ackRead 위임). WS channel:read 정합. 5s debounce 는 프론트(D09).
+- 다팀 리뷰(reviewer **approve** + contract): SQL/upsert/마이그레이션/emit/ACL 정확. carryover: read_state:updated **웹 dispatcher 소비**+/ack 채택(→D09 S22/23, S09 around-reload seam 도 이때 활성), DM self-inclusion UX·DM unread 테스트(→D03), 채널 join unreadCount(보류).
+- **선제존재 int 실패 3건**(@everyone hasMention/DENY-ALLOW/totals-zero) = S11 무관(reviewer byte-identical 확인, int 미실행 누적) → D09 조사 carryover. ack-read-sync 5/5 등 S11 신규는 전부 GREEN.
+- 게이트: verify 19/19 + build 6/6 + int(ack-read-sync 5 + unread-summary S11 케이스) GREEN.
+
+## 다음 슬라이스: S12 (D02 채널 CRUD)
+
+- fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**`.
+- 채널 생성/편집/삭제 + 사이드바 목록 + channel.\* 이벤트.
+- FR-CH-01/02/03/20. depends S07(완료).
+- 주의: 채널 CRUD 는 기존 구현 상당(channels.service/controller + int 존재) — 갭만 식별.
+- **⚠️ S12~S15(D02) 진입 시 함께 처리할 carryover**: (a) **S00 allowMask/denyMask BLOCKER**(channels.controller class-validator 미적용 → ADMIN 권한상승 주입; DTO + `& ALL_PERMISSIONS` 마스킹), (b) S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 미배선(softDelete/history 가 role 기반 보수 게이트 → 비트 기반 전환). FR 정본: PRD html.
 
 ---
 

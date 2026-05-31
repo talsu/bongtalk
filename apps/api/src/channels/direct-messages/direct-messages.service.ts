@@ -429,8 +429,12 @@ export class DirectMessagesService {
              AND rs."channelId" = m2."channelId"
            WHERE m2."channelId" = p."channelId"
              AND m2."deletedAt" IS NULL
-             AND m2."authorId" <> ${meId}::uuid
-             AND (rs."lastReadAt" IS NULL OR m2."createdAt" > rs."lastReadAt")
+             -- S11 (FR-RT-14): (createdAt, id) 튜플 커서로 통일. read-state
+             -- NULL ⇒ 전부 미읽음. senderId 제외 없음(자기 메시지 포함).
+             AND (
+               rs."lastReadMessageCreatedAt" IS NULL
+               OR (m2."createdAt", m2.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
+             )
         ), 0) AS "unreadCount"
       FROM peers p
       JOIN "User" u ON u.id = p."otherUserId"::uuid
