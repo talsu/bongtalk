@@ -277,12 +277,19 @@ model Category {
   name        String
   description String?
   position    Decimal   @db.Decimal(20, 10)
+  // S15 (FR-CH-12): 카테고리 soft-delete. 삭제 시 deletedAt 을 찍고 소속 채널의
+  // categoryId 를 NULL 로 끊는다(동일 트랜잭션). 동명 재사용은 부분 유니크
+  // `(workspaceId, name) WHERE "deletedAt" IS NULL` (raw SQL 마이그레이션
+  // 20260601100000_s15_category_soft_delete) 으로 보장한다 — Prisma @@unique 는
+  // 부분 WHERE 를 표현할 수 없어 전체-테이블 @@unique 는 그 마이그레이션에서
+  // DROP 한다(채널 partial-unique 와 동일 패턴, S12).
+  deletedAt   DateTime?
   createdAt   DateTime  @default(now())
   updatedAt   DateTime  @updatedAt
   channels    Channel[]
 
-  @@unique([workspaceId, name])
   @@index([workspaceId, position])
+  @@index([workspaceId, deletedAt])
 }
 
 model Channel {
@@ -310,6 +317,11 @@ model Channel {
   // 없어 20260601000000_s13_channel_description 마이그레이션 raw SQL 로만 둔다.
   description String?     @db.VarChar(500)
   position    Decimal     @db.Decimal(20, 10)
+  // S15 (FR-CH-08): 채널별 슬로우모드 간격(초). 0 이면 게이트 무동작. 송신
+  // 경로(MessagesController.send)가 Redis `slowmode:{channelId}:{userId}` TTL 로
+  // 집행하며, BYPASS_SLOWMODE 비트 보유자(OWNER/ADMIN baseline + 채널 override)는
+  // 면제한다.
+  slowmodeSeconds Int     @default(0)
   isPrivate   Boolean     @default(false)
   archivedAt  DateTime?
   deletedAt   DateTime?

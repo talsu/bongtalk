@@ -22,7 +22,13 @@ export enum Permission {
   MANAGE_CHANNEL = 0x0020,
   UPLOAD_ATTACHMENT = 0x0040,
   PIN_MESSAGE = 0x0080,
-  // 0x0100+ reserved for future voice / video channel types.
+  // S15 (FR-CH-08): 슬로우모드 면제 비트. 보유자는 송신 경로의 slowmode
+  // TTL 게이트를 우회한다(BYPASS_SLOWMODE). OWNER/ADMIN baseline 에 기본
+  // 포함되며, 채널 override(USER/ROLE)로도 부여할 수 있다. shared-types 카탈로그의
+  // BYPASS_SLOWMODE(0x1000)와 비트 위치는 다르나, 집행 비트필드는 본 enum 이
+  // 단일 출처다(0x0100 은 종전 voice 예약 슬롯 — 현재 미사용이라 슬로우모드에 할당).
+  BYPASS_SLOWMODE = 0x0100,
+  // 0x0200+ reserved for future voice / video channel types.
 }
 
 /** Convenience: every bit set. */
@@ -34,7 +40,8 @@ export const ALL_PERMISSIONS =
   Permission.MANAGE_MEMBERS |
   Permission.MANAGE_CHANNEL |
   Permission.UPLOAD_ATTACHMENT |
-  Permission.PIN_MESSAGE;
+  Permission.PIN_MESSAGE |
+  Permission.BYPASS_SLOWMODE;
 
 /**
  * Workspace-role baseline. This is the mask every channel starts
@@ -55,7 +62,9 @@ export const ROLE_BASELINE: Record<WorkspaceRole, number> = {
     Permission.MANAGE_MEMBERS |
     Permission.MANAGE_CHANNEL |
     Permission.UPLOAD_ATTACHMENT |
-    Permission.PIN_MESSAGE,
+    Permission.PIN_MESSAGE |
+    // S15 (FR-CH-08): ADMIN 은 슬로우모드 면제. OWNER 는 ALL_PERMISSIONS 로 자동 포함.
+    Permission.BYPASS_SLOWMODE,
   MEMBER:
     Permission.READ |
     Permission.WRITE_MESSAGE |
@@ -134,10 +143,14 @@ export class PermissionMatrix {
       return this.fold(ROLE_BASELINE.OWNER, roleAllow, roleDeny, userAllow, userDeny);
     }
 
-    // Private-channel visibility gate: base is suppressed until an
-    // explicit ALLOW grants access. Both USER and ROLE allows count.
-    const hasExplicitAllow = userAllow !== 0 || roleAllow !== 0;
-    const channelOk = input.isPrivate ? hasExplicitAllow : true;
+    // Private-channel visibility gate: base is suppressed until an explicit
+    // READ allow grants access. review S15 HIGH fix: previously ANY allow bit
+    // (`userAllow !== 0 || roleAllow !== 0`) opened the channel — so granting a
+    // narrow permission like BYPASS_SLOWMODE alone accidentally restored the full
+    // MEMBER baseline (READ|WRITE|…) and exposed the private channel. Require the
+    // READ bit specifically; non-READ grants no longer leak visibility.
+    const hasExplicitRead = ((userAllow | roleAllow) & Permission.READ) === Permission.READ;
+    const channelOk = input.isPrivate ? hasExplicitRead : true;
     const base = channelOk ? baseline : 0;
 
     return this.fold(base, roleAllow, roleDeny, userAllow, userDeny);

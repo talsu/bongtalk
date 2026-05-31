@@ -12,6 +12,7 @@ import {
 import {
   CreateCategoryRequestSchema,
   MoveCategoryRequestSchema,
+  ReorderCategoriesRequestSchema,
   UpdateCategoryRequestSchema,
 } from '@qufox/shared-types';
 import { CategoriesService } from './categories.service';
@@ -45,6 +46,25 @@ export class CategoriesController {
     }
     const cat = await this.categories.create(m.workspaceId, user.id, parsed.data);
     return this.shape(cat);
+  }
+
+  /**
+   * S15 (FR-CH-13): 카테고리 배치 재정렬 + 재정규화. MANAGE_CHANNEL(=ADMIN) 전용.
+   * `positions` 는 `:catid`(ParseUUIDPipe) 보다 먼저 선언한다(라우트 매칭 순서).
+   */
+  @Roles('ADMIN')
+  @Patch('positions')
+  async reorder(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ) {
+    const parsed = ReorderCategoriesRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    return this.categories.reorderCategories(m.workspaceId, user.id, parsed.data.ids);
   }
 
   @Roles('ADMIN')

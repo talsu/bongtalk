@@ -103,6 +103,8 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_PRIVATE_INVITE_ONLY',
   // S14 (FR-CH-07): 비멤버 탈퇴 → 409.
   'CHANNEL_NOT_MEMBER',
+  // S15 (FR-CH-08): 슬로우모드 활성 중 재송신 → 429 + retryAfterMs.
+  'CHANNEL_SLOWMODE_ACTIVE',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
   'MESSAGE_NOT_FOUND',

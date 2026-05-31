@@ -20,6 +20,7 @@ import {
   CHANNEL_MEMBER_REMOVED,
   CHANNEL_MOVED,
   CHANNEL_PERMISSION_CHANGED,
+  CHANNEL_REORDERED,
   CHANNEL_RESTORED,
   CHANNEL_UNARCHIVED,
   CHANNEL_UPDATED,
@@ -93,7 +94,8 @@ export class ChannelsService {
   async listByWorkspace(workspaceId: string, callerId?: string) {
     const [categories, channels, memberRow] = await Promise.all([
       this.prisma.category.findMany({
-        where: { workspaceId },
+        // S15 (FR-CH-12): soft-delete 된 카테고리는 채널 목록에서 제외.
+        where: { workspaceId, deletedAt: null },
         orderBy: { position: 'asc' },
       }),
       this.prisma.channel.findMany({
@@ -168,8 +170,9 @@ export class ChannelsService {
     this.assertTypeImplemented(input.type as ChannelType);
 
     if (input.categoryId) {
+      // S15 (FR-CH-12): soft-delete 된 카테고리에는 채널을 배치할 수 없다.
       const cat = await this.prisma.category.findFirst({
-        where: { id: input.categoryId, workspaceId },
+        where: { id: input.categoryId, workspaceId, deletedAt: null },
         select: { id: true },
       });
       if (!cat) {
@@ -265,8 +268,9 @@ export class ChannelsService {
   ) {
     if (input.name !== undefined) this.assertNameAllowed(input.name);
     if (input.categoryId !== undefined && input.categoryId !== null) {
+      // S15 (FR-CH-12): soft-delete 된 카테고리로는 이동 불가.
       const cat = await this.prisma.category.findFirst({
-        where: { id: input.categoryId, workspaceId },
+        where: { id: input.categoryId, workspaceId, deletedAt: null },
         select: { id: true },
       });
       if (!cat) {
@@ -311,6 +315,10 @@ export class ChannelsService {
             ...(input.topic !== undefined ? { topic: input.topic } : {}),
             // S13 (FR-CH-10): description — null 은 삭제, 미지정은 변경 없음.
             ...(input.description !== undefined ? { description: input.description } : {}),
+            // S15 (FR-CH-08): slowmodeSeconds — 미지정은 변경 없음, 0 은 비활성화.
+            ...(input.slowmodeSeconds !== undefined
+              ? { slowmodeSeconds: input.slowmodeSeconds }
+              : {}),
             ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
             // S14 (FR-CH-05): isPrivate 전환 반영(confirm 검증은 위에서 끝남).
             ...(privacyChanging ? { isPrivate: input.isPrivate } : {}),
@@ -724,8 +732,9 @@ export class ChannelsService {
       const nextCategoryId = input.categoryId !== undefined ? input.categoryId : current.categoryId;
 
       if (nextCategoryId) {
+        // S15 (FR-CH-12): soft-delete 된 카테고리로는 move 불가.
         const cat = await tx.category.findFirst({
-          where: { id: nextCategoryId, workspaceId },
+          where: { id: nextCategoryId, workspaceId, deletedAt: null },
           select: { id: true },
         });
         if (!cat) {
@@ -783,6 +792,85 @@ export class ChannelsService {
     });
   }
 
+  /**
+   * S15 (FR-CH-13): 채널 배치 재정렬 + 재정규화.
+   *
+   * 클라이언트가 보낸 최종 순서(`items`: id + 목표 categoryId)를 그대로 적용하되,
+   * fractional midpoint 누적으로 인접 차가 1e-10 미만으로 수렴(또는 선제존재
+   * positioning 오버플로)하는 경우를 근본적으로 피하기 위해 **항상 1000 등간격으로
+   * 재정규화**한다. 단일 트랜잭션 + SELECT FOR UPDATE 로 동시 재정렬 레이스를 직렬화한다.
+   *
+   * 재정규화 후 `channels.reordered` 이벤트에 전체 채널 position 목록을 실어
+   * 브로드캐스트한다. 단건 move 와 정합: move 의 fractional midpoint 가 차를 소진하면
+   * (CHANNEL_POSITION_INVALID) 클라이언트가 이 배치 경로로 재정규화를 트리거한다.
+   *
+   * categoryId 별로 독립 시퀀스(1000, 2000, ...)를 부여한다 — 채널 목록은
+   * (categoryId asc, position asc) 로 그룹 정렬되므로 카테고리 간 position
+   * 충돌은 무의미하다.
+   */
+  async reorderChannels(
+    workspaceId: string,
+    actorId: string,
+    items: { id: string; categoryId: string | null }[],
+  ) {
+    const RENORMALIZE_STRIDE = new Prisma.Decimal('1000');
+    return this.prisma.$transaction(async (tx) => {
+      const ids = items.map((i) => i.id);
+      // SELECT FOR UPDATE: 동시 재정렬을 직렬화해 마지막-쓰기-승 + position 단사성 보장.
+      // (raw query — Prisma 는 findMany 에 row-lock 을 노출하지 않음.)
+      const locked = await tx.$queryRaw<{ id: string }[]>(
+        Prisma.sql`SELECT "id" FROM "Channel"
+                   WHERE "workspaceId" = ${workspaceId}::uuid
+                     AND "deletedAt" IS NULL
+                     AND "id" IN (${Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`))})
+                   FOR UPDATE`,
+      );
+      const lockedSet = new Set(locked.map((r) => r.id));
+      // 잠금된(=이 워크스페이스에 실재하는) 채널만 적용. 모르는 id 는 무시한다
+      // (IDOR/stale 클라이언트 방어 — 타 워크스페이스 채널은 lockedSet 에 없다).
+      const applicable = items.filter((i) => lockedSet.has(i.id));
+      if (applicable.length === 0) {
+        throw new DomainError(
+          ErrorCode.CHANNEL_NOT_FOUND,
+          'no reorderable channels in this workspace',
+        );
+      }
+
+      // 카테고리별 1000 등간격 시퀀스를 부여한다(items 순서 보존).
+      const seqByCategory = new Map<string | null, number>();
+      for (const item of applicable) {
+        const n = (seqByCategory.get(item.categoryId) ?? 0) + 1;
+        seqByCategory.set(item.categoryId, n);
+        const position = RENORMALIZE_STRIDE.times(n);
+        await tx.channel.update({
+          where: { id: item.id },
+          data: { position, categoryId: item.categoryId },
+        });
+      }
+
+      const channels = await tx.channel.findMany({
+        where: { workspaceId, deletedAt: null, type: { not: 'DIRECT' } },
+        orderBy: [{ categoryId: 'asc' }, { position: 'asc' }],
+      });
+      const dtos = channels.map((c) => this.toDto(c));
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: workspaceId,
+        eventType: CHANNEL_REORDERED,
+        payload: {
+          workspaceId,
+          actorId,
+          channels: dtos.map((c) => ({
+            id: c.id,
+            categoryId: c.categoryId,
+            position: c.position,
+          })),
+        },
+      });
+      return { channels: dtos };
+    });
+  }
+
   /** Single-channel DTO for routes that already have a loaded row. */
   async toPublicDto(channelId: string) {
     const c = await this.prisma.channel.findUniqueOrThrow({ where: { id: channelId } });
@@ -800,6 +888,8 @@ export class ChannelsService {
       // S13 (FR-CH-10): 설명을 채널 목록/단건 DTO 에 노출.
       description: c.description,
       position: c.position.toString(),
+      // S15 (FR-CH-08): 슬로우모드 간격을 DTO 에 노출.
+      slowmodeSeconds: c.slowmodeSeconds,
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,
       deletedAt: c.deletedAt?.toISOString() ?? null,

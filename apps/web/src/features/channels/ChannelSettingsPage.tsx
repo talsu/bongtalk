@@ -7,6 +7,19 @@ import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
 import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
 
+// S15 (FR-CH-08): 슬로우모드 간격 프리셋(초). Discord 와 동일한 구간.
+const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
+  { seconds: 0, label: '비활성' },
+  { seconds: 5, label: '5초' },
+  { seconds: 10, label: '10초' },
+  { seconds: 30, label: '30초' },
+  { seconds: 60, label: '1분' },
+  { seconds: 300, label: '5분' },
+  { seconds: 900, label: '15분' },
+  { seconds: 3600, label: '1시간' },
+  { seconds: 21600, label: '6시간' },
+];
+
 type SectionId = 'general';
 
 type NavItem =
@@ -187,6 +200,8 @@ function GeneralSection({
   const [topic, setTopic] = useState(channel.topic ?? '');
   // S13 (FR-CH-10): 채널 설명(≤500자). 토픽과 별개의 긴 소개 텍스트.
   const [description, setDescription] = useState(channel.description ?? '');
+  // S15 (FR-CH-08): 슬로우모드 간격(초). 0=비활성.
+  const [slowmodeSeconds, setSlowmodeSeconds] = useState<number>(channel.slowmodeSeconds ?? 0);
   const [submitting, setSubmitting] = useState(false);
   // S14 (FR-CH-05): 공개/비공개 전환. 비공개→공개는 2단계 confirm 모달을 거친다.
   const [privacyConfirmOpen, setPrivacyConfirmOpen] = useState(false);
@@ -237,7 +252,8 @@ function GeneralSection({
   const dirty =
     name.trim() !== channel.name ||
     (topic.trim() || null) !== (channel.topic || null) ||
-    (description.trim() || null) !== (channel.description || null);
+    (description.trim() || null) !== (channel.description || null) ||
+    slowmodeSeconds !== (channel.slowmodeSeconds ?? 0);
   const canSave = !submitting && dirty && name.trim().length > 0;
 
   const save = async (): Promise<void> => {
@@ -255,6 +271,8 @@ function GeneralSection({
           ...((description.trim() || null) !== (channel.description || null)
             ? { description: description.trim() || null }
             : {}),
+          // S15 (FR-CH-08): slowmodeSeconds 변경분만 전송.
+          ...(slowmodeSeconds !== (channel.slowmodeSeconds ?? 0) ? { slowmodeSeconds } : {}),
         },
       });
       notify({ variant: 'success', title: '저장됨', body: '채널 설정이 업데이트됐어요.' });
@@ -328,6 +346,28 @@ function GeneralSection({
           className="qf-input resize-none"
         />
         <p className="qf-field__hint">채널 브라우저 목록에 표시됩니다. 최대 500자.</p>
+      </div>
+      {/* S15 (FR-CH-08): 슬로우모드 — 멤버가 메시지 사이에 기다려야 하는 간격. */}
+      <div className="qf-field">
+        <label className="qf-field__label" htmlFor="channel-settings-slowmode">
+          슬로우모드 <span className="text-text-muted">(선택)</span>
+        </label>
+        <select
+          id="channel-settings-slowmode"
+          data-testid="channel-settings-slowmode"
+          value={slowmodeSeconds}
+          onChange={(e) => setSlowmodeSeconds(Number(e.target.value))}
+          className="qf-input"
+        >
+          {SLOWMODE_OPTIONS.map((opt) => (
+            <option key={opt.seconds} value={opt.seconds}>
+              {opt.label}
+            </option>
+          ))}
+        </select>
+        <p className="qf-field__hint">
+          관리자는 슬로우모드의 영향을 받지 않습니다. 끄려면 “비활성”을 선택하세요.
+        </p>
       </div>
       {/* S14 (FR-CH-05): 공개/비공개 전환. 비공개→공개는 confirm 모달을 거친다. */}
       <div className="qf-field">

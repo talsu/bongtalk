@@ -15,6 +15,7 @@ import {
   ChannelRoleOverrideRequestSchema,
   CreateChannelRequestSchema,
   MoveChannelRequestSchema,
+  ReorderChannelsRequestSchema,
   UpdateChannelRequestSchema,
 } from '@qufox/shared-types';
 import { ChannelsService } from './channels.service';
@@ -63,6 +64,29 @@ export class ChannelsController {
     }
     const channel = await this.channels.create(m.workspaceId, user.id, parsed.data);
     return this.shape(channel);
+  }
+
+  /**
+   * S15 (FR-CH-13): 채널 배치 재정렬 + 재정규화. MANAGE_CHANNEL(=ADMIN) 전용.
+   * 클라이언트가 최종 순서(id + categoryId)를 통째로 보내면 서버가 1000 등간격으로
+   * 재정규화하고 channels.reordered 를 브로드캐스트한다.
+   *
+   * 라우트 순서 주의: `positions` 는 `:chid`(ParseUUIDPipe) 보다 먼저 선언해야
+   * NestJS 가 'positions' 를 UUID 로 잘못 파싱하지 않는다(pins/history 와 동일 패턴).
+   */
+  @Roles('ADMIN')
+  @Patch('positions')
+  async reorder(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ) {
+    const parsed = ReorderChannelsRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    return this.channels.reorderChannels(m.workspaceId, user.id, parsed.data.items);
   }
 
   @UseGuards(ChannelAccessGuard)
@@ -144,19 +168,20 @@ export class ChannelsController {
     // an ADMIN inject allowMask:-1 or an undefined bit to escalate. zod first
     // bounds userId (uuid) + masks (non-negative int32 shape). Then we bound
     // against the **enforcement** bitfield — `ALL_PERMISSIONS` from
-    // auth/permissions (0xFF: the 8 channel-override bits ChannelAccessService
-    // actually interprets), NOT the broader shared-types PERMISSIONS catalog
-    // (which includes ADMINISTRATOR + reserved bits the override layer ignores).
-    // Bits outside 0xFF are meaningless to enforcement and would persist as
-    // garbage, so reject them. review S12 BLOCKER-1 fix.
+    // auth/permissions (0x1FF: the 9 channel-override bits ChannelAccessService
+    // actually interprets — S15 added BYPASS_SLOWMODE=0x0100), NOT the broader
+    // shared-types PERMISSIONS catalog (which includes ADMINISTRATOR + reserved
+    // bits the override layer ignores). Bits outside 0x1FF are meaningless to
+    // enforcement and would persist as garbage, so reject them. review S12
+    // BLOCKER-1 fix.
     const parsed = ChannelMemberOverrideRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     const { userId, allowMask, denyMask } = parsed.data;
-    // ALL_PERMISSIONS (0xFF) is contiguous bits 0..7, so a numeric range check
+    // ALL_PERMISSIONS (0x1FF) is contiguous bits 0..8, so a numeric range check
     // is equivalent to a bit-subset check AND avoids JS int32 bitwise wrap
-    // (e.g. 2^63 & ~0xFF would wrap to 0 and slip through; 2^63 > 0xFF does not).
+    // (e.g. 2^63 & ~0x1FF would wrap to 0 and slip through; 2^63 > 0x1FF does not).
     if (allowMask > ALL_PERMISSIONS || denyMask > ALL_PERMISSIONS) {
       throw new DomainError(
         ErrorCode.VALIDATION_FAILED,
@@ -302,6 +327,7 @@ export class ChannelsController {
     topic: string | null;
     description: string | null;
     position: { toString: () => string };
+    slowmodeSeconds: number;
     isPrivate: boolean;
     archivedAt: Date | null;
     deletedAt: Date | null;
@@ -317,6 +343,8 @@ export class ChannelsController {
       // S13 (FR-CH-10): 설명을 단건 채널 응답에 노출.
       description: c.description,
       position: c.position.toString(),
+      // S15 (FR-CH-08): 슬로우모드 간격을 단건 채널 응답에 노출.
+      slowmodeSeconds: c.slowmodeSeconds,
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,
       deletedAt: c.deletedAt?.toISOString() ?? null,

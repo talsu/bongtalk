@@ -7,6 +7,7 @@ import { ChannelReadController, UnreadSummaryController } from './unread.control
 import { UnreadService } from './unread.service';
 import { ChannelAccessService } from './permission/channel-access.service';
 import { ChannelAccessGuard } from './guards/channel-access.guard';
+import { SlowmodeService } from './slowmode/slowmode.service';
 // task-037-A: DirectMessagesController removed (027 workspace-scoped DM
 // endpoints). GlobalDmController at /me/dms is the sole DM surface.
 import { DirectMessagesService } from './direct-messages/direct-messages.service';
@@ -39,6 +40,8 @@ import { MessagesModule } from '../messages/messages.module';
     ChannelAccessService,
     ChannelAccessGuard,
     DirectMessagesService,
+    // S15 (FR-CH-08): 슬로우모드 게이트. MessagesController 가 송신 경로에서 소비.
+    SlowmodeService,
   ],
   exports: [
     ChannelsService,
@@ -47,6 +50,7 @@ import { MessagesModule } from '../messages/messages.module';
     ChannelAccessService,
     ChannelAccessGuard,
     DirectMessagesService,
+    SlowmodeService,
   ],
 })
 export class ChannelsModule {}

@@ -6,6 +6,8 @@ import type {
   CreateChannelRequest,
   MoveCategoryRequest,
   MoveChannelRequest,
+  ReorderCategoriesRequest,
+  ReorderChannelsRequest,
   UpdateChannelRequest,
   Category,
 } from '@qufox/shared-types';
@@ -79,6 +81,29 @@ export function moveCategory(
 ): Promise<Category> {
   return apiRequest(`/workspaces/${wsId}/categories/${categoryId}/move`, {
     method: 'POST',
+    body: input,
+  });
+}
+
+// S15 (FR-CH-13): 채널 배치 재정렬. 서버가 1000 등간격으로 재정규화한 전체
+// 채널 목록을 반환한다.
+export function reorderChannels(
+  wsId: string,
+  input: ReorderChannelsRequest,
+): Promise<{ channels: Channel[] }> {
+  return apiRequest(`/workspaces/${wsId}/channels/positions`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+// S15 (FR-CH-13): 카테고리 배치 재정렬.
+export function reorderCategories(
+  wsId: string,
+  input: ReorderCategoriesRequest,
+): Promise<{ categories: Category[] }> {
+  return apiRequest(`/workspaces/${wsId}/categories/positions`, {
+    method: 'PATCH',
     body: input,
   });
 }

@@ -18,3 +18,12 @@ export const CATEGORY_CREATED = 'category.created';
 export const CATEGORY_UPDATED = 'category.updated';
 export const CATEGORY_DELETED = 'category.deleted';
 export const CATEGORY_MOVED = 'category.moved';
+// S15 (FR-CH-13): 배치 재정렬/재정규화 후 전체 position 목록을 브로드캐스트한다.
+// 단건 move 의 channel.moved 와 달리, 재정규화가 다수 행의 position 을 동시에
+// 바꾸므로 클라이언트가 한 번에 동기화할 수 있도록 전체 목록을 싣는다.
+// review S15 BLOCKER fix: **단수** 네임스페이스(channel./category.) 사용 — outbox→WS
+// 구독자가 `@OnEvent('channel.**')`/`'category.**'` 로 받는다. 이전 복수형
+// 'channels.reordered'/'categories.reordered' 는 EventEmitter2 delimiter wildcard
+// (첫 토큰 정확매치)에서 어디에도 매치되지 않아 fanout 이 무음 드롭됐다.
+export const CHANNEL_REORDERED = 'channel.reordered';
+export const CATEGORY_REORDERED = 'category.reordered';

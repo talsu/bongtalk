@@ -92,14 +92,18 @@ describe('S14 FR-CH-11 — ROLE override endpoint', () => {
     expect(row?.allowMask).toBe(PIN);
   });
 
-  it('rejects an out-of-enforcement-set mask (0x100) with 400 VALIDATION_FAILED', async () => {
+  // S15: 집행 비트필드가 0x1FF 로 확장(BYPASS_SLOWMODE=0x100 추가)되었으므로,
+  // "집행 세트 밖" 마스크는 shared-types 카탈로그에는 있으나(zod 통과) 집행
+  // enum 밖인 0x800(USE_EXTERNAL_EMOJI)을 사용한다. controller 의 0x1FF 범위
+  // 체크가 거부해야 한다.
+  it('rejects an out-of-enforcement-set mask (0x800) with 400 VALIDATION_FAILED', async () => {
     const channelId = (await createChannel(seed.admin.accessToken, { name: `role-oob-${rnd()}` }))
       .body.id as string;
     const res = await request(env.baseUrl)
       .post(`/workspaces/${seed.workspaceId}/channels/${channelId}/roles`)
       .set('origin', ORIGIN)
       .set(bearer(seed.admin.accessToken))
-      .send({ role: 'MEMBER', allowMask: 0x100 });
+      .send({ role: 'MEMBER', allowMask: 0x800 });
     expect(res.status).toBe(400);
     expect(res.body.errorCode).toBe('VALIDATION_FAILED');
   });

@@ -96,6 +96,19 @@ export class ChannelAccessService {
     }
   }
 
+  /**
+   * S15 (FR-CH-08): 호출자가 채널에서 특정 권한 비트를 가지는지 boolean 으로
+   * 반환한다(throw 없이). 슬로우모드 BYPASS_SLOWMODE 면제 판정에 사용한다.
+   */
+  async hasPermission(
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
+    userId: string,
+    required: Permission,
+  ): Promise<boolean> {
+    const effective = await this.resolveEffective(channel, userId);
+    return (effective & required) === required;
+  }
+
   /** Shortcut for the visibility check that the URL-path guard runs. */
   async requireVisibility(
     channel: { id: string; workspaceId: string | null; isPrivate: boolean },
