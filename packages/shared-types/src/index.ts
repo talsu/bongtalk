@@ -98,6 +98,12 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_NOT_FOUND',
   'MESSAGE_CONTENT_INVALID',
   'MESSAGE_CURSOR_INVALID',
+  // S00 (FR-MSG-23): mrkdwn 파서 ReDoS 방어 한도 초과. 모두 400.
+  // 한도/매핑은 packages/shared-types/src/mrkdwn.ts MRKDWN_PARSE_LIMITS.
+  'PARSE_TIMEOUT',
+  'PARSE_DEPTH_EXCEEDED',
+  'PARSE_NODE_LIMIT',
+  'PARSE_AST_TOO_LARGE',
   'MESSAGE_NOT_AUTHOR',
   'MESSAGE_THREAD_DEPTH_EXCEEDED',
   'MESSAGE_PARENT_NOT_FOUND',
@@ -144,3 +150,8 @@ export * from './channel';
 export * from './message';
 export * from './presence';
 export * from './notifications';
+// S00 — shared-types 컨트랙트 수렴 (ADR-4 / ADR-8 / ADR-12 + FR-RC22/RC23/MSG-23)
+export * from './permissions';
+export * from './constants';
+export * from './mrkdwn';
+export * from './events';
