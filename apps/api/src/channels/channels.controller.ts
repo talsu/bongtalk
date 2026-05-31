@@ -12,6 +12,7 @@ import {
 } from '@nestjs/common';
 import {
   ChannelMemberOverrideRequestSchema,
+  ChannelRoleOverrideRequestSchema,
   CreateChannelRequestSchema,
   MoveChannelRequestSchema,
   UpdateChannelRequestSchema,
@@ -170,6 +171,81 @@ export class ChannelsController {
       denyMask,
     );
     return { override: result };
+  }
+
+  /**
+   * S14 (FR-CH-11): set a ROLE-level permission override on a channel.
+   * OWNER/ADMIN only (MANAGE_CHANNEL surface). Body `{ role, allowMask?,
+   * denyMask? }`. Masks are bounded against the enforcement bitfield
+   * (0xFF) exactly like the USER-override path — bits outside the set are
+   * meaningless to enforcement and rejected so they don't persist as
+   * garbage. Reuses the S12 range check.
+   */
+  @Roles('ADMIN')
+  @UseGuards(ChannelAccessGuard)
+  @AllowArchivedChannel()
+  @Post(':chid/roles')
+  async addChannelRoleOverride(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @Body() body: unknown,
+  ) {
+    const parsed = ChannelRoleOverrideRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    const { role, allowMask, denyMask } = parsed.data;
+    // S12 BLOCKER-1 reuse: bound masks against the enforcement set (0xFF).
+    if (allowMask > ALL_PERMISSIONS || denyMask > ALL_PERMISSIONS) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'permission mask has bits outside the channel permission set',
+      );
+    }
+    const result = await this.channels.addChannelRoleOverride(
+      m.workspaceId,
+      channelId,
+      role,
+      allowMask,
+      denyMask,
+    );
+    return { override: result };
+  }
+
+  /**
+   * S14 (FR-CH-07): join a channel. Any workspace member may join a PUBLIC
+   * channel (free join → self USER ALLOW override + member_added event).
+   * Private channels are invite-only → CHANNEL_PRIVATE_INVITE_ONLY (403).
+   * No @Roles gate (members self-serve). No ChannelAccessGuard — a member
+   * joining a public channel is allowed even before they hold an override,
+   * and the private-channel rejection is enforced in the service.
+   */
+  @Post(':chid/join')
+  @HttpCode(201)
+  async join(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.channels.joinChannel(m.workspaceId, channelId, user.id);
+  }
+
+  /**
+   * S14 (FR-CH-07): leave a channel. Removes the caller's own USER override
+   * row; the read state (UserChannelReadState) is PRESERVED so re-joining
+   * restores the unread cursor. Non-members get CHANNEL_NOT_MEMBER (409).
+   */
+  @Post(':chid/leave')
+  @HttpCode(200)
+  async leave(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.channels.leaveChannel(m.workspaceId, channelId, user.id);
   }
 
   @Roles('ADMIN')

@@ -53,9 +53,9 @@ FR-CH-04,D02-channels,P0,S13,done
 FR-CH-09,D02-channels,P1,S13,done
 FR-CH-10,D02-channels,P1,S13,done
 FR-CH-19,D02-channels,P1,S13,done
-FR-CH-05,D02-channels,P0,S14,todo
-FR-CH-07,D02-channels,P0,S14,todo
-FR-CH-11,D02-channels,P0,S14,todo
+FR-CH-05,D02-channels,P0,S14,done
+FR-CH-07,D02-channels,P0,S14,done
+FR-CH-11,D02-channels,P0,S14,done
 FR-CH-06,D02-channels,P0,S15,todo
 FR-CH-08,D02-channels,P0,S15,todo
 FR-CH-12,D02-channels,P0,S15,todo

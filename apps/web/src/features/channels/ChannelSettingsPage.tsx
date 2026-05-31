@@ -5,6 +5,7 @@ import { cn } from '../../lib/cn';
 import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
+import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
 
 type SectionId = 'general';
 
@@ -187,6 +188,51 @@ function GeneralSection({
   // S13 (FR-CH-10): 채널 설명(≤500자). 토픽과 별개의 긴 소개 텍스트.
   const [description, setDescription] = useState(channel.description ?? '');
   const [submitting, setSubmitting] = useState(false);
+  // S14 (FR-CH-05): 공개/비공개 전환. 비공개→공개는 2단계 confirm 모달을 거친다.
+  const [privacyConfirmOpen, setPrivacyConfirmOpen] = useState(false);
+  const [privacySubmitting, setPrivacySubmitting] = useState(false);
+
+  // 공개→비공개: 토큰 불요, 즉시 전환. 비공개→공개: confirm 모달 오픈.
+  const togglePrivacy = (): void => {
+    if (channel.isPrivate) {
+      setPrivacyConfirmOpen(true);
+      return;
+    }
+    void (async () => {
+      setPrivacySubmitting(true);
+      try {
+        await updateMut.mutateAsync({ id: channel.id, patch: { isPrivate: true } });
+        notify({
+          variant: 'success',
+          title: '비공개로 전환됨',
+          body: '이제 초대받은 멤버만 볼 수 있어요.',
+        });
+      } catch (err) {
+        notify({ variant: 'danger', title: '전환 실패', body: (err as Error).message });
+      } finally {
+        setPrivacySubmitting(false);
+      }
+    })();
+  };
+
+  const confirmGoPublic = (confirmName: string): void => {
+    void (async () => {
+      setPrivacySubmitting(true);
+      try {
+        await updateMut.mutateAsync({ id: channel.id, patch: { isPrivate: false, confirmName } });
+        notify({
+          variant: 'success',
+          title: '공개로 전환됨',
+          body: '이제 모든 멤버가 볼 수 있어요.',
+        });
+        setPrivacyConfirmOpen(false);
+      } catch (err) {
+        notify({ variant: 'danger', title: '전환 실패', body: (err as Error).message });
+      } finally {
+        setPrivacySubmitting(false);
+      }
+    })();
+  };
 
   const dirty =
     name.trim() !== channel.name ||
@@ -283,6 +329,26 @@ function GeneralSection({
         />
         <p className="qf-field__hint">채널 브라우저 목록에 표시됩니다. 최대 500자.</p>
       </div>
+      {/* S14 (FR-CH-05): 공개/비공개 전환. 비공개→공개는 confirm 모달을 거친다. */}
+      <div className="qf-field">
+        <span className="qf-field__label">공개 범위</span>
+        <div className="flex items-center justify-between gap-[var(--s-4)]">
+          <p className="qf-field__hint m-0">
+            {channel.isPrivate
+              ? '비공개 채널 — 초대받은 멤버만 볼 수 있어요.'
+              : '공개 채널 — 워크스페이스의 모든 멤버가 볼 수 있어요.'}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid="channel-settings-privacy-toggle"
+            disabled={privacySubmitting}
+            onClick={togglePrivacy}
+          >
+            {channel.isPrivate ? '공개로 전환' : '비공개로 전환'}
+          </Button>
+        </div>
+      </div>
       <div className={cn('mt-[var(--s-2)]', !dirty && 'opacity-0 pointer-events-none')}>
         <Button
           type="submit"
@@ -293,6 +359,13 @@ function GeneralSection({
           {submitting ? '저장 중…' : '저장하기'}
         </Button>
       </div>
+      <ChannelPrivacyConfirmModal
+        open={privacyConfirmOpen}
+        channelName={channel.name}
+        submitting={privacySubmitting}
+        onConfirm={confirmGoPublic}
+        onCancel={() => setPrivacyConfirmOpen(false)}
+      />
     </form>
   );
 }
