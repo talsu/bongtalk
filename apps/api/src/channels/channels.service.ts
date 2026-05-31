@@ -30,8 +30,17 @@ export class ChannelsService {
     private readonly outbox: OutboxService,
   ) {}
 
+  // S12 (FR-CH-01): TEXT / ANNOUNCEMENT / FORUM are the creatable text-surface
+  // types. VOICE waits on the voice slice; DIRECT is created only through the
+  // DM path, never the workspace channel CRUD — both stay rejected here.
+  private static readonly CREATABLE_TYPES: ReadonlySet<ChannelType> = new Set([
+    ChannelType.TEXT,
+    ChannelType.ANNOUNCEMENT,
+    ChannelType.FORUM,
+  ]);
+
   private assertTypeImplemented(type: ChannelType): void {
-    if (type !== ChannelType.TEXT) {
+    if (!ChannelsService.CREATABLE_TYPES.has(type)) {
       throw new DomainError(
         ErrorCode.CHANNEL_TYPE_NOT_IMPLEMENTED,
         `channel type ${type} is not implemented yet`,

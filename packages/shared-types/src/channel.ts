@@ -1,7 +1,23 @@
 import { z } from 'zod';
+import { isValidPermissionMaskNumber } from './permissions';
 
-export const ChannelTypeSchema = z.enum(['TEXT', 'VOICE', 'ANNOUNCEMENT']);
+// S12 (FR-CH-01): FORUM is the third creatable text-surface type alongside
+// TEXT and ANNOUNCEMENT. VOICE stays in the enum for back-compat / future
+// voice slices but is rejected at the service layer as not-implemented.
+export const ChannelTypeSchema = z.enum(['TEXT', 'VOICE', 'ANNOUNCEMENT', 'FORUM']);
 export type ChannelType = z.infer<typeof ChannelTypeSchema>;
+
+// S12 BLOCKER: a permission mask carried over the wire as a JS number. Must be
+// a non-negative integer whose bits all fall inside the defined permission set
+// (ALL_PERMISSIONS). Blocks privilege escalation via allowMask:-1 or undefined
+// bits (e.g. ADMINISTRATOR / reserved bits 13..62).
+export const PermissionMaskSchema = z
+  .number()
+  .int()
+  .nonnegative()
+  .refine((v) => isValidPermissionMaskNumber(v), {
+    message: 'permission mask out of range',
+  });
 
 export const CHANNEL_RESERVED_NAMES: ReadonlySet<string> = new Set(['everyone', 'here']);
 
@@ -48,6 +64,16 @@ export const MoveChannelRequestSchema = z
     message: 'beforeId and afterId are mutually exclusive',
   });
 export type MoveChannelRequest = z.infer<typeof MoveChannelRequestSchema>;
+
+// S12 BLOCKER: body of POST /channels/:chid/members. The masks default to 0
+// (no-op override) and are bounded by PermissionMaskSchema so an ADMIN cannot
+// inject an out-of-range / negative mask to escalate privileges.
+export const ChannelMemberOverrideRequestSchema = z.object({
+  userId: z.string().uuid(),
+  allowMask: PermissionMaskSchema.optional().default(0),
+  denyMask: PermissionMaskSchema.optional().default(0),
+});
+export type ChannelMemberOverrideRequest = z.infer<typeof ChannelMemberOverrideRequestSchema>;
 
 export const ChannelSchema = z.object({
   id: z.string().uuid(),
