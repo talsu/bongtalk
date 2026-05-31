@@ -50,11 +50,15 @@ export function sendMessage(
   channelId: string,
   input: SendMessageRequest,
   clientNonce: string,
+  // S09 (FR-RT-05): 전송 타임아웃 시 hung fetch 를 끊기 위한 abort 신호.
+  // 미지정 시 abort 없이 동작(기존 호출부 호환).
+  signal?: AbortSignal,
 ): Promise<{ message: MessageDto; replayed: boolean }> {
   return apiRequestRaw(basePath(wsId, channelId), {
     method: 'POST',
     body: { ...input, nonce: clientNonce },
     headers: { 'Idempotency-Key': clientNonce },
+    signal,
   });
 }
 
@@ -120,6 +124,8 @@ async function apiRequestRaw(
     method: string;
     body: unknown;
     headers?: Record<string, string>;
+    // S09 (FR-RT-05): 타임아웃 시 fetch 를 끊기 위한 abort 신호(선택).
+    signal?: AbortSignal;
   },
 ): Promise<{ message: MessageDto; replayed: boolean }> {
   const { getAccessToken, onForcedLogout } = await import('../../lib/api');
@@ -135,6 +141,7 @@ async function apiRequestRaw(
     headers,
     credentials: 'include',
     body: JSON.stringify(opts.body),
+    signal: opts.signal,
   });
   if (!res.ok) {
     const errBody = await res.json().catch(() => ({}));
