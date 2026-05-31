@@ -208,6 +208,18 @@ export const PresenceUpdatePayloadSchema = PresenceEntrySchema;
 export type PresenceUpdatePayload = z.infer<typeof PresenceUpdatePayloadSchema>;
 
 // ── 읽음 / 미읽 ──────────────────────────────────────────────────────────────
+/**
+ * S11 (FR-RT-13): POST /workspaces/:id/channels/:chid/ack 요청 바디.
+ * lastReadMessageId 는 클라가 화면에서 마지막으로 본 메시지 id, clientTimestamp
+ * 는 클라 시계(관측용 epoch ms). 5초 debounce 는 프론트(클라) 책임이며 S11
+ * 백엔드 범위 밖이다 — 서버는 매 ack 를 monotonic upsert 로 처리한다(퇴행 무시).
+ */
+export const AckReadRequestSchema = z.object({
+  lastReadMessageId: z.string().uuid(),
+  clientTimestamp: z.number().int().nonnegative().optional(),
+});
+export type AckReadRequest = z.infer<typeof AckReadRequestSchema>;
+
 /** read_state:updated — user:{userId} 룸으로만 emit. */
 export const ReadStateUpdatedPayloadSchema = z.object({
   channelId: ChannelIdSchema,

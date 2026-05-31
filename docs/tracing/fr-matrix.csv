@@ -42,9 +42,9 @@ FR-RT-24,D17-realtime-sync,P1,S09,done
 FR-RT-06,D17-realtime-sync,P1,S10,done
 FR-RT-07,D17-realtime-sync,P0,S10,done
 FR-RT-23,D17-realtime-sync,P1,S10,done
-FR-RT-13,D17-realtime-sync,P0,S11,todo
-FR-RT-14,D17-realtime-sync,P0,S11,todo
-FR-RT-19,D17-realtime-sync,P0,S11,todo
+FR-RT-13,D17-realtime-sync,P0,S11,done
+FR-RT-14,D17-realtime-sync,P0,S11,done
+FR-RT-19,D17-realtime-sync,P0,S11,done
 FR-CH-01,D02-channels,P0,S12,todo
 FR-CH-02,D02-channels,P0,S12,todo
 FR-CH-03,D02-channels,P0,S12,todo

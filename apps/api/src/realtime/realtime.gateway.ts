@@ -10,8 +10,13 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { WS_EVENTS, type ChannelJoinedPayload } from '@qufox/shared-types';
+import {
+  WS_EVENTS,
+  type ChannelJoinedPayload,
+  type ReadStateUpdatedPayload,
+} from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
+import { UnreadService } from '../channels/unread.service';
 import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
@@ -69,6 +74,9 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private readonly prisma: PrismaService,
     // S10 fix-forward (MAJOR #2): connect 시 채널별 seq baseline 스냅샷 발행기.
     private readonly seq: ChannelSeqService,
+    // S11 (FR-RT-13/14/19): channel:read 핸들러가 monotonic upsert + unread
+    // 재계산에 사용. read-sync 공식 단일 출처(unread.service)를 재사용한다.
+    private readonly unread: UnreadService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -282,25 +290,70 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     });
   }
 
+  /**
+   * S11 (FR-RT-13/19): channel:read WS 핸들러. 두 관심사를 다룬다.
+   *
+   *  - `eventId` (legacy / reconnect replay): lastReadEventId 포인터를
+   *    갱신한다. 기존 동작 보존 — replay-buffer 의 "X 이후 재생" 키.
+   *  - `lastReadMessageId` (S11): unread.service.ackRead 로 monotonic
+   *    (createdAt, id) 튜플 upsert + unread 재계산 후
+   *    `read_state:updated` 를 user:{userId} 룸으로 emit. HTTP /ack 와
+   *    동일한 단일 공식을 재사용해 두 경로가 항상 정합한다(퇴행 무시).
+   */
   @SubscribeMessage('channel:read')
   async onRead(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { channelId?: string; eventId?: string },
+    @MessageBody() body: { channelId?: string; eventId?: string; lastReadMessageId?: string },
   ): Promise<void> {
     const state = client.data.state as SocketState | undefined;
-    if (!state || !body?.channelId || !body?.eventId) return;
+    if (!state || !body?.channelId) return;
     if (!state.channelIds.includes(body.channelId)) return;
-    await this.prisma.userChannelReadState.upsert({
-      where: {
-        userId_channelId: { userId: state.user.userId, channelId: body.channelId },
-      },
-      create: {
-        userId: state.user.userId,
-        channelId: body.channelId,
-        lastReadEventId: body.eventId,
-      },
-      update: { lastReadEventId: body.eventId, lastReadAt: new Date() },
-    });
+
+    // Reconnect-replay pointer (unchanged 005 behaviour).
+    if (body.eventId) {
+      await this.prisma.userChannelReadState.upsert({
+        where: {
+          userId_channelId: { userId: state.user.userId, channelId: body.channelId },
+        },
+        create: {
+          userId: state.user.userId,
+          channelId: body.channelId,
+          lastReadEventId: body.eventId,
+        },
+        update: { lastReadEventId: body.eventId, lastReadAt: new Date() },
+      });
+    }
+
+    // S11 message-cursor ack + emit.
+    if (body.lastReadMessageId) {
+      try {
+        const payload = await this.unread.ackRead({
+          userId: state.user.userId,
+          channelId: body.channelId,
+          lastReadMessageId: body.lastReadMessageId,
+        });
+        this.emitReadStateUpdated(state.user.userId, payload);
+      } catch (err) {
+        // A bad message id (not in this channel) is a client error, not a
+        // gateway fault — swallow so one stray ack can't disrupt the socket.
+        this.logger.warn(
+          `[ws] channel:read ack ignored user=${state.user.userId} ch=${body.channelId} err=${String(err).slice(0, 160)}`,
+        );
+      }
+    }
+  }
+
+  /**
+   * S11 (FR-RT-13): emit `read_state:updated` to the user's private room.
+   * Shared by the WS channel:read handler and the HTTP POST /ack path so a
+   * read on one device syncs the badge on the user's other devices/tabs.
+   */
+  emitReadStateUpdated(userId: string, payload: ReadStateUpdatedPayload): void {
+    if (!this.server) return;
+    this.server.to(rooms.user(userId)).emit(WS_EVENTS.READ_STATE_UPDATED, payload);
+    this.metrics?.wsEventsEmittedTotal
+      .labels(this.metrics.bucket('wsEventType', WS_EVENTS.READ_STATE_UPDATED))
+      .inc();
   }
 
   /**

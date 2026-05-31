@@ -26,6 +26,10 @@ export type ChIntEnv = {
 export const STRONG_PW = 'Quanta-Beetle-Nebula-42!';
 export const ORIGIN = 'http://localhost:45173';
 
+// S11: monotonic per-process counter so seeded workspace slugs are unique
+// even when the system clock is frozen via vi.setSystemTime.
+let seedCounter = 0;
+
 export async function setupChIntEnv(): Promise<ChIntEnv> {
   process.env.TESTCONTAINERS_RYUK_DISABLED = 'true';
   const redis = await new GenericContainer('redis:7-alpine').withExposedPorts(6379).start();
@@ -111,9 +115,7 @@ export async function signup(baseUrl: string, prefix: string): Promise<Actor> {
   return { userId: res.body.user.id, email, username, accessToken: res.body.accessToken };
 }
 
-export async function seedWorkspaceWithRoles(
-  baseUrl: string,
-): Promise<{
+export async function seedWorkspaceWithRoles(baseUrl: string): Promise<{
   workspaceId: string;
   owner: Actor;
   admin: Actor;
@@ -125,11 +127,16 @@ export async function seedWorkspaceWithRoles(
   const member = await signup(baseUrl, 'chm');
   const nonMember = await signup(baseUrl, 'chn');
 
+  // S11: derive the slug from a process-unique counter + randomness rather
+  // than Date.now() — `vi.setSystemTime` freezes the clock in these specs, so
+  // a clock-derived slug collides (WORKSPACE_SLUG_TAKEN) when a single spec
+  // file seeds more than one workspace.
+  const slug = `chws-${(seedCounter++).toString(36)}-${Math.floor(Math.random() * 1e9).toString(36)}`;
   const ws = await request(baseUrl)
     .post('/workspaces')
     .set('origin', ORIGIN)
     .set('Authorization', `Bearer ${owner.accessToken}`)
-    .send({ name: 'ChWs', slug: `chws-${Date.now().toString(36)}` });
+    .send({ name: 'ChWs', slug });
   if (ws.status !== 201) throw new Error(`ws create failed: ${ws.status} ${ws.text}`);
   const workspaceId = ws.body.id as string;
 
