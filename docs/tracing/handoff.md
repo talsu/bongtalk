@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06 모두 완료(아래 ✅)되었고, 다음 활성 슬라이스는 S07 입니다.**
+> **S05 검증·S06·S07 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S08.**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -58,13 +58,26 @@ frontend-only(`apps/web/src/features/messages/**`). 조사 결과 그룹핑(FR-M
 - MED/LOW(키보드 hover 접근=DS 후속, React.memo perf, e2e 커버리지, 커스텀이모지 jumbo)는 carryover.
 - 게이트: verify 19 + 빌드 3종 + web 단위 159 GREEN. fr-matrix S06 7개 done.
 
-## 다음 슬라이스: S07 (D17 realtime backend)
+## ✅ S07 완료 (2026-05-31, 이 세션)
 
-- backend, scope `apps/api/src/realtime/**,apps/web/src/features/realtime/**,apps/web/src/features/connection/**`.
-- realtime 연결/인증/채널 join 게이트 + user:room fanout + Redis adapter + transport 설정.
-- FR-RT-01/02/16/20/21. depends S00,S01(완료).
-- **backend 슬라이스라 `test:int` 실DB(WS) 검증 필수**(S05 교훈). 기존 `apps/api/test/int/realtime/` 활용.
-- FR 정본 텍스트: `apps/web/public/prd/index.html`의 FR 테이블.
+D17 realtime backend. 게이트웨이가 이미 성숙(CONNECTION_READY 스키마·ws-auth·eager-join·redis adapter) → 갭만 최소 변경:
+
+- **FR-RT-20** transports:['websocket'] 전용 + pingInterval 25000/pingTimeout 20000/maxHttpBufferSize 1MB(Node 힙은 compose 후속).
+- **FR-RT-02** 채널 50-cap(eager-join, newest-first; **DM/override 우선 정렬로 cap 면제 — review MAJOR-2 fix**).
+- **FR-RT-16** sharded redis adapter(createShardedAdapter) + **adapter 클라 keyPrefix='' — review BLOCKER-1 fix**(qufox: prefix 가 sharded SSUBSCRIBE 채널 라우팅을 깨던 무음 드롭 해소).
+- **FR-RT-01** CONNECTION_READY{userId,sessionId} emit — **실제 갭이었음**(스키마만 있고 게이트웨이 미emit) → 추가.
+- **FR-RT-21** user room join + userId-scoped 라우팅 — 이미 충족(확인).
+- 다팀 리뷰(reviewer/security/contract) → BLOCKER-1·MAJOR-2 fix-forward. MED/LOW(WS CORS origin:true, connection:ready 명명=S10, refresh leave 비대칭)는 carryover.
+- 게이트: verify 19 + api build + realtime int(multi-node/fanout/handshake/reconnect/channel-cap 3, sharded cross-node 검증) GREEN. fr-matrix S07 5개 done.
+
+## 다음 슬라이스: S08 (D17 realtime backend)
+
+- backend, scope `apps/api/src/messages/**,apps/api/src/realtime/**`.
+- REST POST 메시지 → WS message:created fanout + DB UNIQUE 멱등 1차방어 + 커서 페이지네이션 정합.
+- FR-RT-03/04/15. depends S07(완료),S03(완료).
+- **backend 슬라이스라 `test:int` 실DB(WS) 검증 필수**. 기존 `apps/api/test/int/messages|realtime/` 활용.
+- 주의: 메시지 send→outbox→WS fanout 경로는 이미 성숙(S02~S05) — 갭만 식별해 최소 변경. FR 정본: PRD html.
+- **참고**: S10(FR-RT-23)에서 WS 이벤트명 콜론/닷 단일출처 정비 예정(S07 carryover).
 
 ---
 
