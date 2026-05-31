@@ -6,9 +6,9 @@ FR-RC01,D16-richcontent,P0,S01,done
 FR-RC02,D16-richcontent,P0,S01,done
 FR-RC17,D16-richcontent,P1,S01,done
 FR-RT-18,D17-realtime-sync,P0,S01,done
-FR-MSG-01,D01-messaging,P0,S02,todo
-FR-MSG-03,D01-messaging,P0,S02,todo
-FR-MSG-20,D01-messaging,P0,S02,todo
+FR-MSG-01,D01-messaging,P0,S02,done
+FR-MSG-03,D01-messaging,P0,S02,done
+FR-MSG-20,D01-messaging,P0,S02,done
 FR-MSG-04,D01-messaging,P0,S03,todo
 FR-MSG-05,D01-messaging,P0,S03,todo
 FR-MSG-21,D01-messaging,P0,S03,todo

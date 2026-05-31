@@ -215,5 +215,20 @@ describe('renderMessageContent', () => {
       const out = extractMessageUrls('see https://example.com.');
       expect(out).toEqual(['https://example.com']);
     });
+
+    // S02 보안(리뷰 HIGH): contentAst 유무와 무관하게 항상 msg.content 로
+    // 호출되므로 FENCE_RE lazy-quantifier 백트래킹 worst-case 를 막기 위해
+    // MAX_PLAIN_LENGTH(4,000자) 로 입력을 먼저 자른다. 4,000자 경계 너머의
+    // URL 은 추출되지 않아야 한다(렌더 경로의 bounded 와 동일 계약).
+    it('4,000자 초과 입력은 잘려 경계 밖 URL 미추출', () => {
+      const padding = 'x'.repeat(4000);
+      const out = extractMessageUrls(`${padding} https://past-bound.test`);
+      expect(out).toEqual([]);
+    });
+
+    it('4,000자 경계 안의 URL 은 정상 추출', () => {
+      const out = extractMessageUrls(`https://within-bound.test ${'x'.repeat(3000)}`);
+      expect(out).toEqual(['https://within-bound.test']);
+    });
   });
 });

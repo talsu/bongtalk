@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { Cuid2Schema } from './mrkdwn';
+import { RichTextRootSchema } from './mrkdwn-ast';
 
 export const MESSAGE_MAX_LENGTH = 4000;
 
@@ -79,6 +80,12 @@ export const MessageDtoSchema = z.object({
   channelId: z.string().uuid(),
   authorId: z.string().uuid(),
   content: MessageContentSchema.nullable(),
+  // S02 (ADR-2 / FR-RC02): rich content 송수신 코어. 기존 `content` 와
+  // 병행하는 additive 필드 — 구 클라이언트는 무시하고 신규 렌더러는
+  // contentAst 를 우선 사용합니다. 서버가 채우기 전 row(또는 SYSTEM 메시지)
+  // 는 둘 다 null 이라 forward-compat. deleted 메시지는 마스킹되어 null.
+  contentRaw: z.string().nullable().default(null),
+  contentAst: RichTextRootSchema.nullable().default(null),
   mentions: MessageMentionsSchema,
   edited: z.boolean(),
   deleted: z.boolean(),

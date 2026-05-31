@@ -100,7 +100,7 @@ export type InlineNode =
 
 // ── 블록 노드 ────────────────────────────────────────────────────────────────
 // list item / blockquote 는 인라인/블록 혼합 children 을 가질 수 있어 재귀 정의.
-type ListItem = { nodes: RichTextNode[] };
+export type ListItem = { nodes: RichTextNode[] };
 
 export const ParagraphNodeSchema = z.object({
   type: z.literal('paragraph'),

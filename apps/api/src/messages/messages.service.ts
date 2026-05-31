@@ -6,8 +6,10 @@ import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
+import type { RichTextRoot } from '@qufox/shared-types';
 import { cursorFor, decodeCursor } from './cursor/cursor';
-import { extractMentions, normalizeContent } from './mentions/mention-extractor';
+import { extractMentions } from './mentions/mention-extractor';
+import { processMrkdwn } from './mrkdwn-pipeline';
 import { gateEveryoneMention, gateHereMention, type GateActorRole } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import {
@@ -42,6 +44,11 @@ type MessageRow = {
   authorId: string;
   content: string;
   contentPlain: string;
+  // S02 (ADR-2 / FR-RC02): rich content 컬럼. S01 additive 컬럼이므로
+  // 기존 row 는 NULL — 신규 write 경로(send/update)가 채웁니다. SELECT
+  // 경로에서 미선택(undefined)일 수 있어 옵셔널로 둡니다.
+  contentRaw?: string | null;
+  contentAst?: Prisma.JsonValue;
   mentions: Prisma.JsonValue;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -83,6 +90,11 @@ export type MessageDto = {
   channelId: string;
   authorId: string;
   content: string | null; // masked when deleted
+  // S02 (ADR-2 / FR-RC02): rich content. `content` 와 병행하는 additive
+  // 필드 — 신규 렌더러는 contentAst 를 렌더하고 구 클라이언트는 무시합니다.
+  // deleted 메시지는 마스킹되어 둘 다 null.
+  contentRaw: string | null;
+  contentAst: RichTextRoot | null;
   mentions: MessageMentions;
   edited: boolean;
   deleted: boolean;
@@ -150,6 +162,12 @@ export class MessagesService {
       // body is masked in the wire format — ADMINs see content via the
       // includeDeleted=true path which returns rows unmasked for moderation.
       content: isDeleted ? null : row.content,
+      // S02: rich content 노출. contentRaw 가 NULL 인 legacy row 는 원본
+      // `content` 로 폴백해 신규 렌더러도 항상 무언가를 렌더할 수 있게
+      // 합니다. contentAst 는 backfill 전 row 에서 NULL 이라 클라이언트가
+      // contentRaw 정규식 폴백 렌더를 씁니다.
+      contentRaw: isDeleted ? null : (row.contentRaw ?? row.content),
+      contentAst: isDeleted ? null : ((row.contentAst as RichTextRoot | null) ?? null),
       mentions,
       edited: row.editedAt !== null,
       deleted: isDeleted,
@@ -377,7 +395,23 @@ export class MessagesService {
         'message mentions too many users (max 50)',
       );
     }
-    const contentPlain = normalizeContent(args.content);
+    // S02 (FR-MSG-01/03/20/23): mrkdwn 송수신 코어. 원본 → AST + plain 으로
+    // 파싱·검증(AST 64KB / 깊이 / 노드 한도). 한도 위반은 DomainError
+    // (PARSE_* / MESSAGE_TOO_LONG) 로 던져 전역 필터가 400 매핑.
+    //
+    // NOTE(S02 정확화 — 리뷰 MED#2/#4): contentPlain 은 파서 평문
+    // (astToPlain→collapsePlain)을 사용합니다. 이는 기존 normalizeContent
+    // 와 *동작 동치가 아닙니다*: 구 normalizeContent 는 `@`/`#` sigil 만
+    // 떼고 핸들은 남겼으나(@alice→alice), 신규 평문은 파서가 `@{cuid2}`
+    // 토큰만 mention 노드로 인식하므로 라이브 composer 가 보내는 평문
+    // `@username` 은 리터럴 텍스트로 sigil 채 유지됩니다. contentPlain 은
+    // search_tsv / LEFT(contentPlain,140) 스니펫에 쓰이므로 FTS 토큰·미리보기
+    // 가 미세하게 달라질 수 있습니다(의도된 변경 — 단일 출처 통일). 길이
+    // 한도(MESSAGE_TOO_LONG)는 contentPlain 기준이나, 컨트롤러 DTO
+    // (MessageContentSchema.max(4000))가 raw 를 먼저 캡하고 plain ≤ raw 라
+    // 실사용에선 DTO 가 우선 거부합니다(파이프라인 enforce 는 방어선).
+    const processed = processMrkdwn(args.content);
+    const contentPlain = processed.contentPlain;
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -387,6 +421,17 @@ export class MessagesService {
             authorId: args.authorId,
             content: args.content,
             contentPlain,
+            // S02 additive 컬럼(S01 nullable 추가분). expand-contract:
+            // 기존 `content`/`contentPlain` 병행 유지, 신규 경로가
+            // contentRaw/contentAst/contentPlainV2 를 채웁니다(스키마 무변경).
+            // `version` 은 미사용(default 0) — 아래 NOTE 참조.
+            contentRaw: args.content,
+            contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+            contentPlainV2: contentPlain,
+            // NOTE(S02): `version` 은 이 슬라이스에서 쓰지 않습니다 — 스키마
+            // default(0) 유지. optimistic-lock 버전 증가는 편집 충돌 처리와
+            // 함께 후속 슬라이스로 이관합니다. S00 평탄 스키마가 version 을
+            // 요구하나(events.ts 참조) 라이브 와이어는 중첩 페이로드라 미사용.
             mentions: mentions as unknown as Prisma.InputJsonValue,
             idempotencyKey: args.idempotencyKey,
             parentMessageId: args.parentMessageId ?? null,
@@ -414,6 +459,12 @@ export class MessagesService {
             id: created.id,
             authorId: created.authorId,
             content: created.content,
+            // S02 (HIGH-S02-1): carry the rich fields the client cache
+            // needs so live messages render via renderAst, not the regex
+            // fallback. Mirrors toDto: contentRaw falls back to `content`
+            // for parity, contentAst is the just-parsed AST.
+            contentRaw: created.contentRaw ?? created.content,
+            contentAst: processed.contentAst,
             mentions,
             createdAt: created.createdAt.toISOString(),
             // task-014-B: extra field is additive — older dispatcher
@@ -758,7 +809,8 @@ export class MessagesService {
     // this on an index scan; without the predicate EXPLAIN showed a
     // seq scan once replies outnumbered roots.
     const sql = `
-      SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
+      SELECT id, "channelId", "authorId", content, "contentPlain",
+             "contentRaw", "contentAst", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy"
         FROM "Message"
@@ -815,7 +867,8 @@ export class MessagesService {
       cursorSql = `AND ("createdAt", id) > ($3::timestamp, $4::uuid)`;
     }
     const sql = `
-      SELECT id, "channelId", "authorId", content, "contentPlain", mentions,
+      SELECT id, "channelId", "authorId", content, "contentPlain",
+             "contentRaw", "contentAst", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy"
         FROM "Message"
@@ -887,7 +940,10 @@ export class MessagesService {
       gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
       args.actorRole ?? 'MEMBER',
     );
-    const contentPlain = normalizeContent(args.content);
+    // S02: 편집 본문도 동일 파이프라인으로 파싱·검증. 한도 위반 시
+    // DomainError(400) — 편집 트랜잭션 진입 전에 거부됩니다.
+    const processed = processMrkdwn(args.content);
+    const contentPlain = processed.contentPlain;
     const editedAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {
@@ -900,6 +956,9 @@ export class MessagesService {
         data: {
           content: args.content,
           contentPlain,
+          contentRaw: args.content,
+          contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+          contentPlainV2: contentPlain,
           mentions: mentions as unknown as Prisma.InputJsonValue,
           editedAt,
         },
@@ -916,6 +975,12 @@ export class MessagesService {
           id: updated.id,
           authorId: updated.authorId,
           content: updated.content,
+          // S02 (HIGH-S02-1): carry the re-parsed rich fields so a live
+          // edit updates the cached MessageDto with the new AST instead of
+          // dropping to the regex fallback. Mirrors toDto's contentRaw
+          // fallback; contentAst is the AST from this edit's parse.
+          contentRaw: updated.contentRaw ?? updated.content,
+          contentAst: processed.contentAst,
           mentions,
           editedAt: editedAt.toISOString(),
         },

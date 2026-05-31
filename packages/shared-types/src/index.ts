@@ -98,6 +98,8 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_NOT_FOUND',
   'MESSAGE_CONTENT_INVALID',
   'MESSAGE_CURSOR_INVALID',
+  // S02 (FR-MSG-03 / FR-MSG-20): contentPlain 4,000자 초과 시 400.
+  'MESSAGE_TOO_LONG',
   // S00 (FR-MSG-23): mrkdwn 파서 ReDoS 방어 한도 초과. 모두 400.
   // 한도/매핑은 packages/shared-types/src/mrkdwn.ts MRKDWN_PARSE_LIMITS.
   'PARSE_TIMEOUT',
@@ -158,3 +160,5 @@ export * from './events';
 // S01 — 카노니컬 additive 토대 (ADR-2 / ADR-11 + FR-RC02)
 export * from './mrkdwn-ast';
 export * from './bigint';
+// S02 — mrkdwn 송수신 코어 파서 (FR-MSG-01 / FR-MSG-03 / FR-MSG-20 / FR-MSG-23)
+export * from './mrkdwn-parser';

@@ -42,12 +42,24 @@ describe('Messages outbox events', () => {
       workspaceId: string;
       channelId: string;
       actorId: string;
-      message: { id: string; content: string };
+      message: {
+        id: string;
+        content: string;
+        contentRaw: string;
+        contentAst: { type: string; nodes: unknown[] };
+      };
     };
     expect(payload.workspaceId).toBe(stack.workspaceId);
     expect(payload.channelId).toBe(stack.channelId);
     expect(payload.actorId).toBe(stack.member.userId);
     expect(payload.message.content).toBe('hello outbox');
+    // S02 (HIGH-S02-1): the WS create payload must carry the rich fields
+    // the client cache inserts as a MessageDto, so live messages render
+    // via renderAst rather than the regex fallback. Pin the contract.
+    expect(payload.message.contentRaw).toBe('hello outbox');
+    expect(payload.message.contentAst).toBeDefined();
+    expect(payload.message.contentAst.type).toBe('root');
+    expect(Array.isArray(payload.message.contentAst.nodes)).toBe(true);
   });
 
   it('dispatcher drain emits an envelope with id + type + occurredAt', async () => {

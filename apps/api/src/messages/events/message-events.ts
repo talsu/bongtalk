@@ -22,6 +22,17 @@ export type MessageCreatedPayload = {
     id: string;
     authorId: string;
     content: string;
+    // S02 (HIGH-S02-1): rich content e2e propagation. The client
+    // dispatcher inserts `message` directly into the message-list cache
+    // as a MessageDto, so the WS payload must carry the same rich fields
+    // the REST projection does — otherwise the new renderAst path silently
+    // degrades to the regex fallback for live messages until a REST
+    // refetch. Additive: legacy dispatcher branches that read only
+    // {id, authorId, content, …} ignore these. contentAst is the parsed
+    // rich_text AST (RichTextRoot); JSON-serializable, so typed `unknown`
+    // here to keep this events module free of the shared-types import.
+    contentRaw: string;
+    contentAst: unknown;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     createdAt: string;
@@ -56,6 +67,13 @@ export type MessageUpdatedPayload = {
     id: string;
     authorId: string;
     content: string;
+    // S02 (HIGH-S02-1): rich content e2e propagation on edit. Same
+    // rationale as MessageCreatedPayload — the client replaces the cached
+    // MessageDto with `message` verbatim, so a live edit must carry the
+    // re-parsed AST or the bubble silently reverts to the regex fallback
+    // until the next REST refetch. contentAst is the parsed RichTextRoot.
+    contentRaw: string;
+    contentAst: unknown;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
     editedAt: string;
