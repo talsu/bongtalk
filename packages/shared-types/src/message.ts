@@ -1,12 +1,23 @@
 import { z } from 'zod';
+import { Cuid2Schema } from './mrkdwn';
 
 export const MESSAGE_MAX_LENGTH = 4000;
 
 export const MessageContentSchema = z.string().min(1).max(MESSAGE_MAX_LENGTH);
 
+// 과도기(expand-contract) ID: 라이브 데이터는 아직 uuid, mrkdwn 파서는
+// cuid2 토큰을 추출 → 둘 다 허용한다. S01 데이터 마이그레이션 완료 후
+// Cuid2Schema 단독으로 좁힌다(현재 좁히면 라이브 uuid 멘션이 깨짐).
+export const TransitionalIdSchema = z.string().uuid().or(Cuid2Schema);
+
 export const MessageMentionsSchema = z.object({
-  users: z.array(z.string().uuid()),
-  channels: z.array(z.string().uuid()),
+  // ADR-1 / FR-RC22: 멘션 ID. 과도기엔 uuid|cuid2 둘 다 수용(위 NOTE).
+  // 이전 `z.string().uuid()` 단독은 파서가 뽑은 cuid2 토큰을 거부해
+  // MessageUpdatedPayload.mentions 가 런타임에서 깨졌다(리뷰 [H2]).
+  // NOTE(S01): id/channelId/authorId 등 나머지 ID 필드 + 본 union 의
+  // cuid2 단독 전환은 S01 마이그레이션에서 처리.
+  users: z.array(TransitionalIdSchema),
+  channels: z.array(TransitionalIdSchema),
   everyone: z.boolean(),
   // task-047 iter0 (HIGH-046-B carry-over): `@here` 멘션 — 채널 멤버 중
   // 현재 online 인 사람만. 046 iter8 에 extractor + gate 는 추가됐지만
