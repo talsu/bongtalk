@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S16 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S17(DM visibleFrom/UserBlock/around 정합).** D02(채널) 전체 완료. S16(D03 DM 개설/목록/실시간) 완료 — FR-DM-01/02/03/16 done.
+> **S05 검증·S06~S17 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S18(멘션 자동완성/특수멘션 confirm + 컴포저 @#: ARIA Combobox).** D02(채널) 전체 완료. S16(DM 개설/목록/실시간)·S17(DM visibleFrom + 차단 send-block/마스킹 + around 정합) 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -164,11 +164,19 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + dms int 19/19(비친구 group 거부·비-UUID 400·group dedup created:false·1:1 중복금지·dm.created emit) GREEN. 마이그레이션 없음(스키마 무변경). 선제존재 int 실패는 DM 무관.
 - carryover(MED): DM rate-limit, DmListItem→shared-types 이관(D12), group true-duplicate 의미(현재 idempotent dedup), useDmCreated Shell 미배선(dormant), uid 로깅, tx 더블캐스트.
 
-## 다음 슬라이스: S17 (DM visibleFrom 필터 + UserBlock 차단/마스킹 + around 정합)
+## ✅ S17 (DM visibleFrom + 차단 send-block/마스킹 + around 정합) — 완료
 
-- scope `apps/api/src/channels/**`(messages/DM 경계), 일부 web.
-- FR-DM-13/17/18/19, FR-TH-19. DM 메시지 visibleFrom(가입 이후만) 필터 + UserBlock 양방향 DM 차단/마스킹 + around 커서 정합.
-- 주의: S10 around-pagination slice(1) 경계 fix·S11 (createdAt,id) 튜플 cursor 위에 쌓음. UserBlock 모델 존재 여부 먼저 확인(friendship BLOCKED 와 별개일 수 있음). **D03 진입 carryover**(handoff S16 carryover 참조): /join 403→404, DM unread self-inclusion, useDmCreated Shell 배선. FR 정본: PRD html.
+- FR-DM-13(1:1 DM send/edit 시점 양방향 Friendship BLOCKED → 403 중립, `assertNotBlockedForDmSend`), FR-DM-17/TH-19(visibleFrom=ChannelPermissionOverride 신규 nullable 컬럼, list before/after/around/initial + around contextBefore + getOne + around anchor 전 경로 `createdAt>=visibleFrom`), FR-DM-18(그룹 DM 차단 author 메시지 `[차단된 사용자의 메시지]` placeholder 마스킹 — list/thread/getOne, 단일 SELECT blocked-set, mentions 도 비움), FR-DM-19(`friend.unblocked`→`user:unblocked` blocker 룸 emit + web `useUserUnblocked` dormant).
+- **방침**: 별도 UserBlock 모델 미생성 → Friendship BLOCKED 재사용(S16 participantHash·권한 2중스킴과 동일 PRD↔구현 편차 처리). visibleFrom=ChannelPermissionOverride USER row.
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀): BLOCKER 2(차단 마스킹이 thread/getOne 읽기경로 우회) → 두 경로에 마스킹+visibleFrom 적용. MAJOR(편집 PATCH 가 send-block 우회) → update 게이트. perf-critical(send 시 채널 중복 SELECT) → readChannel 타입 확장+채널메타 인자화로 제거. NIT(around anchor oracle 404, mentions 잔존, type guard).
+- 게이트: verify 19 + build 3종 + dm-s17 int 9/9 + getOne 3/3 GREEN. 마이그레이션 reversible(`20260601200000_s17_dm_visible_from` up/down PG16 검증).
+- carryover(MED): blocked-set 캐싱, FRIEND_BLOCKED oracle 중립코드, unread visibleFrom 미인지(hidden-restore 결합), masked DTO flag, hidden-DM-restore visibleFrom 갱신, Shell 배선.
+
+## 다음 슬라이스: S18 (멘션 자동완성/특수멘션 confirm + 컴포저 @#: ARIA Combobox)
+
+- scope 주로 web(`apps/web/src/features/**` 컴포저/멘션), 일부 api(멘션 검색).
+- FR-MSG-14/15, FR-RC03/04/05/06. 컴포저 @(유저)·#(채널)·:(이모지) 자동완성 ARIA Combobox + @everyone/@here 등 특수멘션 confirm.
+- 주의: **UI 슬라이스 → ui-designer + visual-regression-scanner 리뷰 필수**(DS 4파일 무수정, qf-_/qf-m-_ 토큰만). 기존 멘션 시스템(S04 codeblock-mention-system, task-013/014) 위에 자동완성 UI. FR 정본: PRD html(FR-RC 섹션).
 - **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover).
 
 ---

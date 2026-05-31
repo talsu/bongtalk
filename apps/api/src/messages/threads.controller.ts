@@ -59,6 +59,10 @@ export class ThreadsController {
             isPrivate: true,
             archivedAt: true,
             deletedAt: true,
+            // S17 BLOCKER (read-path bypass): DIRECT 여부 판정용. 스레드 응답에도
+            // DM 차단 마스킹을 걸기 위해 채널 type 을 함께 로드한다(추가 round-trip
+            // 없음 — 동일 channel relation select).
+            type: true,
           },
         },
       },
@@ -78,21 +82,31 @@ export class ThreadsController {
 
     const ids = [page.root.id, ...page.items.map((r) => r.id)];
     // Reactions + attachments on both the root + replies for a single-query join.
-    const [reactions, rootSummaries, attachments] = await Promise.all([
+    // S17 BLOCKER (read-path bypass): DIRECT 채널(1:1/그룹 DM) 스레드면 차단
+    // 사용자 집합을 함께 로드해 루트·답변 DTO 모두에 마스킹을 건다. 비-DIRECT
+    // 채널은 빈 집합이라 maskBlockedAuthors 가 무동작(early return, 회귀 없음).
+    const isDirect = msg.channel.type === 'DIRECT';
+    const [reactions, rootSummaries, attachments, blockedIds] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
       this.messages.aggregateThreadSummaries([page.root.id]),
       this.messages.aggregateAttachments(ids),
+      isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
     ]);
     const rootSummary = rootSummaries.get(page.root.id);
 
-    return {
-      root: this.messages.toDto(
-        page.root,
-        reactions.get(page.root.id) ?? [],
-        rootSummary ?? null,
-        attachments.get(page.root.id) ?? [],
-      ),
-      replies: page.items.map((r) =>
+    const [rootDto] = this.messages.maskBlockedAuthors(
+      [
+        this.messages.toDto(
+          page.root,
+          reactions.get(page.root.id) ?? [],
+          rootSummary ?? null,
+          attachments.get(page.root.id) ?? [],
+        ),
+      ],
+      blockedIds,
+    );
+    const replyDtos = this.messages.maskBlockedAuthors(
+      page.items.map((r) =>
         this.messages.toDto(
           r,
           reactions.get(r.id) ?? [],
@@ -100,6 +114,12 @@ export class ThreadsController {
           attachments.get(r.id) ?? [],
         ),
       ),
+      blockedIds,
+    );
+
+    return {
+      root: rootDto,
+      replies: replyDtos,
       pageInfo: {
         hasMore: page.hasMore,
         nextCursor: page.nextCursor

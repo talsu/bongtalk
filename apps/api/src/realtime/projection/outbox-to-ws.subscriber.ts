@@ -200,6 +200,55 @@ export class OutboxToWsSubscriber {
     }
   }
 
+  /**
+   * S17 (FR-DM-19) friend.unblocked. 차단 해제 시 blocker(targetUserId)의
+   * user:{userId} 룸으로 와이어 이벤트 `user:unblocked { unblockedUserId }` 를
+   * emit 한다. 차단당한 쪽에는 보내지 않는다(비노출 — outbox payload 의
+   * targetUserId 는 항상 blocker 본인). 클라이언트는 이 id 가 작성한 메시지의
+   * 마스킹을 풀기 위해 현재 채널 메시지 캐시를 무효화/재로드한다. mention.** ·
+   * dm.** 와 동일한 user-room fanout 패턴이다.
+   */
+  @OnEvent('friend.**')
+  async onFriendEvent(env: WsEnvelope): Promise<void> {
+    if (!this.io) return;
+    if (env.type !== 'friend.unblocked') return; // request/accepted 는 me-activity 가 소비.
+    const targetUserId = pickTargetUserId(env);
+    // S17 NIT (poison-payload defense): unblockedUserId 는 outbox payload 스프레드로
+    // 들어오므로 string 타입을 강제 검증한 뒤 early return 한다(오염/누락 방어).
+    const rawUnblocked = (env as { unblockedUserId?: unknown }).unblockedUserId;
+    if (typeof rawUnblocked !== 'string') return;
+    const unblockedUserId = rawUnblocked;
+    if (!targetUserId) return;
+    const wire = {
+      id: env.id,
+      type: WS_EVENTS.USER_UNBLOCKED,
+      occurredAt: env.occurredAt,
+      unblockedUserId,
+    };
+    try {
+      await this.replay.append('user', targetUserId, {
+        id: env.id,
+        type: WS_EVENTS.USER_UNBLOCKED,
+        occurredAt: env.occurredAt,
+        payload: wire,
+      });
+    } catch (err) {
+      this.logger.warn(
+        `[realtime] unblock replay append failed uid=${targetUserId} ev=${env.id} err=${String(err).slice(0, 200)}`,
+      );
+    }
+    await withSpan(
+      'ws.emit',
+      { 'ws.event.type': WS_EVENTS.USER_UNBLOCKED, 'ws.room': rooms.user(targetUserId) },
+      async () => {
+        this.io!.to(rooms.user(targetUserId)).emit(WS_EVENTS.USER_UNBLOCKED, wire);
+      },
+    );
+    this.metrics?.wsEventsEmittedTotal
+      .labels(this.metrics.bucket('wsEventType', WS_EVENTS.USER_UNBLOCKED))
+      .inc();
+  }
+
   @OnEvent('workspace.**')
   async onWorkspaceEvent(env: WsEnvelope): Promise<void> {
     if (!env.workspaceId) return;

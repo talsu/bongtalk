@@ -76,6 +76,7 @@ export class MessagesController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
     @Query() rawQuery: Record<string, unknown>,
   ) {
     // S03 (FR-MSG-21): `lastReadMessageId` must not be smuggled in as a
@@ -99,6 +100,17 @@ export class MessagesController {
       );
     }
     await this.rate.enforce([{ key: `msg:get:u:${user.id}`, windowSec: 60, max: 600 }]);
+    // S17 (FR-DM-17/18 / FR-TH-19): DM(DIRECT) 채널일 때만 가시성 하한선 필터
+    // + 차단 사용자 마스킹을 적용한다. 일반 텍스트 채널(TEXT/ANNOUNCEMENT 등)은
+    // visibleFrom=null + blockedIds=∅ 로 무영향이다(회귀 없음). 027-era 워크스페이스
+    // 스코프 DIRECT 채널도 여기로 들어오므로 동일 게이트를 건다.
+    const isDirect = channel?.type === 'DIRECT';
+    const [visibleFrom, blockedIds] = isDirect
+      ? await Promise.all([
+          this.messages.resolveDmVisibleFrom(channelId, user.id),
+          this.messages.loadBlockedUserIds(user.id),
+        ])
+      : [null, new Set<string>()];
     const result = await this.messages.list({
       channelId,
       before: parsed.data.before,
@@ -106,6 +118,7 @@ export class MessagesController {
       around: parsed.data.around,
       limit: parsed.data.limit,
       includeDeleted: parsed.data.includeDeleted ?? false,
+      visibleFrom,
     });
     // task-013-B: reactions join is one extra round-trip per page, not per
     // message. Empty page → skip the query entirely.
@@ -119,15 +132,16 @@ export class MessagesController {
       // query regardless of how many of them have media.
       this.messages.aggregateAttachments(ids),
     ]);
-    return {
-      items: result.items.map((r) =>
-        this.messages.toDto(
-          r,
-          reactionMap.get(r.id) ?? [],
-          threadMap.get(r.id) ?? null,
-          attachmentMap.get(r.id) ?? [],
-        ),
+    const dtos = result.items.map((r) =>
+      this.messages.toDto(
+        r,
+        reactionMap.get(r.id) ?? [],
+        threadMap.get(r.id) ?? null,
+        attachmentMap.get(r.id) ?? [],
       ),
+    );
+    return {
+      items: this.messages.maskBlockedAuthors(dtos, blockedIds),
       pageInfo: {
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,
@@ -207,6 +221,7 @@ export class MessagesController {
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
   ) {
     // Soft-delete visibility rule: non-admin members get 404 on deleted rows
     // (matches the list path's includeDeleted=false default). ADMIN+ can see
@@ -216,6 +231,28 @@ export class MessagesController {
       msgId,
       includeDeleted: this.isAdminOrOwner(m.role),
     });
+    // S17 BLOCKER (read-path bypass): DM(DIRECT) 단건 조회에도 list 와 동일한
+    // 가시성 하한선 + 차단 마스킹을 적용한다. 게이트가 없으면 visibleFrom 이전
+    // 메시지를 단건으로 열람하거나 차단 author 원문을 단건으로 우회 노출할 수
+    // 있다. 비-DIRECT 채널은 무영향(early skip).
+    if (channel?.type === 'DIRECT') {
+      const visibleFrom = await this.messages.resolveDmVisibleFrom(channelId, user.id);
+      // visibleFrom 이전 메시지는 list 에서 안 보이므로 단건도 404 로 통일한다
+      // (모더레이터 includeDeleted 경로와 무관 — 가시성은 차단/하한선 정책).
+      if (visibleFrom && row.createdAt < visibleFrom) {
+        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
+      }
+      const [rmap, amap, blockedIds] = await Promise.all([
+        this.messages.aggregateReactions([row.id], user.id),
+        this.messages.aggregateAttachments([row.id]),
+        this.messages.loadBlockedUserIds(user.id),
+      ]);
+      const [dto] = this.messages.maskBlockedAuthors(
+        [this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? [])],
+        blockedIds,
+      );
+      return { message: dto };
+    }
     const [rmap, amap] = await Promise.all([
       this.messages.aggregateReactions([row.id], user.id),
       this.messages.aggregateAttachments([row.id]),
@@ -248,6 +285,16 @@ export class MessagesController {
         user.id,
         m.role,
       );
+    }
+    // S17 (FR-DM-13): 027-era 워크스페이스 스코프 1:1 DM(DIRECT)에도 send 시점
+    // BLOCKED 재검증을 적용한다. ChannelAccessGuard 가 이미 로드한 채널 메타
+    // (type/name)를 넘겨 send hot-path 의 중복 채널 SELECT 를 없앤다. 비-DIRECT·
+    // 그룹 DM 은 메서드 내부에서 스킵.
+    if (channel) {
+      await this.messages.assertNotBlockedForDmSend(channel.id, user.id, {
+        type: channel.type,
+        name: channel.name ?? null,
+      });
     }
     await this.rate.enforce([
       { key: `msg:send:u:${user.id}`, windowSec: 10, max: this.rateUserMax() },
@@ -297,12 +344,23 @@ export class MessagesController {
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
     @CurrentMessage() _msg: CurrentMessagePayload,
     @Body() body: unknown,
   ) {
     const parsed = UpdateMessageRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
+    }
+    // S17 MAJOR (edit bypasses send-block gate): 1:1 DM 편집(PATCH)도 send 와
+    // 동일하게 BLOCKED 게이트를 건다. 게이트가 없으면 차단 후에도 편집이 가능해
+    // message.updated 가 피차단자에게 실시간 push 된다. guard 가 이미 로드한
+    // 채널 메타를 넘겨 추가 SELECT 없이 판정. 비-DIRECT·그룹 DM 은 내부 스킵.
+    if (channel) {
+      await this.messages.assertNotBlockedForDmSend(channel.id, user.id, {
+        type: channel.type,
+        name: channel.name ?? null,
+      });
     }
     const row = await this.messages.update({
       workspaceId: m.workspaceId,
