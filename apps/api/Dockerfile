@@ -12,7 +12,9 @@ COPY apps/web/package.json apps/web/package.json
 COPY packages/shared-types/package.json packages/shared-types/package.json
 COPY packages/config/package.json packages/config/package.json
 COPY packages/ui/package.json packages/ui/package.json
-RUN pnpm install --no-frozen-lockfile
+# S04: lockfile drift resolved (highlight.js declared) — restore
+# --frozen-lockfile so deploy builds stay reproducible and reject silent drift.
+RUN pnpm install --frozen-lockfile
 
 FROM deps AS build
 WORKDIR /repo
