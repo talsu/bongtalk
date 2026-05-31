@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증은 완료(아래 ✅)되었고, 현재 활성 슬라이스는 S06 입니다.**
+> **S05 검증·S06 모두 완료(아래 ✅)되었고, 다음 활성 슬라이스는 S07 입니다.**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -42,11 +42,28 @@
 
 ---
 
-## 다음 슬라이스: S06 (검증 마감 후)
+## ✅ S06 완료 (2026-05-31, 이 세션)
 
-- frontend-only, scope `apps/web/src/features/messages/**`.
-- 메시지 그룹핑/타임스탬프/날짜구분선/스포일러/빈 채널 상태/큰 이모지.
-- FR-MSG-10/11/12/16/22, FR-RC14/15. depends S04(완료).
+frontend-only(`apps/web/src/features/messages/**`). 조사 결과 그룹핑(FR-MSG-10)·
+스포일러(FR-MSG-16/RC14)는 S04/renderAst 에 이미 존재 → 재구현 없이 미구현분만 구현:
+
+- **FR-MSG-12** 정밀 타임스탬프 포맷터(`formatMessageTime.ts`): 오늘 HH:MM(24h)/오전·오후(12h)·
+  어제·N일 전·이전 'YYYY년 MM월 DD일' + ISO tooltip. clock24h 12/24h 토글 store 는 D14 후속(기본 24h).
+- **FR-MSG-11** 날짜 구분선 + 자정 경계 그룹 강제 분리(grouping.ts `isSameLocalDay`).
+- **FR-MSG-10** continuation 행 hover gutter 시각(`qf-message__gutter-time`).
+- **FR-RC15** 이모지 1~3개 본문 32px(`jumboEmoji.ts`, `--fs-32`).
+- **FR-MSG-22** 빈 채널 상태 보강(채널명·생성일·타입별 카피·topic; DS `.qf-empty`).
+- 구현은 `feature-implementer` 위임 → 5팀 리뷰(reviewer/ui-designer/a11y/visual/perf) →
+  fix-forward: invalid-iso 가드(F1, 렌더 크래시 회귀), 날짜 구분선/빈상태 a11y(`<time>`·h2·aria-label).
+- MED/LOW(키보드 hover 접근=DS 후속, React.memo perf, e2e 커버리지, 커스텀이모지 jumbo)는 carryover.
+- 게이트: verify 19 + 빌드 3종 + web 단위 159 GREEN. fr-matrix S06 7개 done.
+
+## 다음 슬라이스: S07 (D17 realtime backend)
+
+- backend, scope `apps/api/src/realtime/**,apps/web/src/features/realtime/**,apps/web/src/features/connection/**`.
+- realtime 연결/인증/채널 join 게이트 + user:room fanout + Redis adapter + transport 설정.
+- FR-RT-01/02/16/20/21. depends S00,S01(완료).
+- **backend 슬라이스라 `test:int` 실DB(WS) 검증 필수**(S05 교훈). 기존 `apps/api/test/int/realtime/` 활용.
 - FR 정본 텍스트: `apps/web/public/prd/index.html`의 FR 테이블.
 
 ---
