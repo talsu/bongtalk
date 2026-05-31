@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useSendMessage } from './useMessages';
 import { useCompose } from '../../stores/compose-store';
 import { getSocket } from '../../lib/socket';
@@ -13,10 +13,33 @@ import {
 } from '../../design-system/primitives';
 import { EmojiPicker } from '../reactions/EmojiPicker';
 import { useCustomEmojis } from '../emojis/useCustomEmojis';
+import { useMembers, useWorkspace } from '../workspaces/useWorkspaces';
+import { useAuth } from '../auth/AuthProvider';
+import { useChannelList } from '../channels/useChannels';
+import { usePresence } from '../realtime/usePresence';
 import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
 import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
 import { computeCounter } from './composerCounter';
 import { cn } from '../../lib/cn';
+import { Autocomplete } from './autocomplete/Autocomplete';
+import { SpecialMentionConfirmDialog } from './autocomplete/SpecialMentionConfirmDialog';
+import {
+  useAutocomplete,
+  type AutocompleteRow,
+  type AutocompleteSources,
+} from './autocomplete/useAutocomplete';
+import { insertToken } from './autocomplete/insertToken';
+import { detectTrigger, type TriggerKind } from './autocomplete/detectTrigger';
+import { useAutocompleteMaxHeight } from './autocomplete/popupMaxHeight';
+import {
+  canUseSpecialMention,
+  needsSpecialMentionConfirm,
+  type SpecialMentionKey,
+  type WorkspaceRole,
+} from './autocomplete/specialMention';
+import type { RankableMember } from './autocomplete/rankMembers';
+import type { RankableChannel } from './autocomplete/filterChannels';
+import type { EmojiCandidate } from './autocomplete/filterEmojis';
 
 type Props = {
   /** null for Global DM channels — custom emoji picker is empty then. */
@@ -46,6 +69,37 @@ function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
   return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+// A-03: 자동완성 종류별 sr-only 통지 명사. "멤버 3개" 처럼 결과 수와 결합한다.
+const AC_SECTION_NOUN: Record<TriggerKind, string> = {
+  mention: '멤버',
+  channel: '채널',
+  emoji: '이모지',
+};
+
+/**
+ * S18 (FR-RC06): 선택된 자동완성 행을 컴포저에 삽입할 토큰으로 변환.
+ *   - 멤버/특수멘션 → `@username` / `@everyone`
+ *   - 채널          → `#name`
+ *   - 이모지        → 유니코드 글리프 또는 `:name:`(커스텀)
+ */
+function tokenForRow(row: AutocompleteRow): string {
+  if (row.type === 'special') return row.item.token;
+  if (row.type === 'member') return `@${row.member.username}`;
+  if (row.type === 'channel') return `#${row.channel.name}`;
+  return row.emoji.kind === 'unicode' ? row.emoji.glyph : `:${row.emoji.name}:`;
+}
+
+/** insertToken 래퍼 — caret 키 이름을 컴포저 로컬 표기에 맞춘다. */
+function applyToken(
+  text: string,
+  start: number,
+  end: number,
+  token: string,
+): { text: string; caretPos: number } {
+  const r = insertToken({ text, start, end, token });
+  return { text: r.text, caretPos: r.caret };
 }
 
 export function MessageComposer({
@@ -158,15 +212,172 @@ export function MessageComposer({
   // 전송 차단 + danger 색상.
   const counter = computeCounter(draft);
 
-  const submit = (): void => {
-    // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
-    if (counter.overLimit) return;
+  // ───── S18 (FR-RC03/04/05/06 · FR-MSG-14/15): 컴포저 자동완성 ─────
+  // 데이터 소스: 워크스페이스 멤버/채널/온라인 presence/커스텀 이모지/역할.
+  // 서버 검색 엔드포인트는 신설하지 않고 기존 목록 query 를 클라에서 필터한다.
+  const { user } = useAuth();
+  const { data: membersData } = useMembers(workspaceId ?? undefined);
+  const { data: wsData } = useWorkspace(workspaceId ?? undefined);
+  const { data: channelData } = useChannelList(workspaceId ?? undefined);
+  const { onlineUserIds, dndUserIds } = usePresence(workspaceId ?? undefined);
+
+  const myRole: WorkspaceRole =
+    wsData?.myRole ??
+    (membersData?.members.find((m) => m.userId === user?.id)?.role as WorkspaceRole | undefined) ??
+    'MEMBER';
+
+  const memberCount = membersData?.members.length ?? 0;
+
+  const acMembers = useMemo<RankableMember[]>(
+    () =>
+      (membersData?.members ?? [])
+        .filter((m) => m.userId !== user?.id)
+        .map((m) => ({ userId: m.userId, username: m.user.username })),
+    [membersData, user?.id],
+  );
+
+  const acChannels = useMemo<RankableChannel[]>(() => {
+    if (!channelData) return [];
+    const flat = [
+      ...channelData.uncategorized,
+      ...channelData.categories.flatMap((c) => c.channels),
+    ];
+    return flat.map((c) => ({ id: c.id, name: c.name, topic: c.topic ?? null }));
+  }, [channelData]);
+
+  const acCustomEmojis = useMemo<EmojiCandidate[]>(
+    () =>
+      (customEmojiData?.items ?? []).map(
+        (ce): EmojiCandidate => ({ kind: 'custom', name: ce.name, url: ce.url }),
+      ),
+    [customEmojiData],
+  );
+
+  const acOnline = useMemo(
+    () => new Set<string>([...onlineUserIds, ...dndUserIds]),
+    [onlineUserIds, dndUserIds],
+  );
+
+  const acSources = useMemo<AutocompleteSources>(
+    () => ({
+      members: acMembers,
+      channels: acChannels,
+      customEmojis: acCustomEmojis,
+      online: acOnline,
+      // 최근 대화상대/이모지 가중치는 후속 데이터 소스 도입 시 채운다(DEFER).
+      recentMembers: [],
+      recentEmojis: [],
+      role: myRole,
+    }),
+    [acMembers, acChannels, acCustomEmojis, acOnline, myRole],
+  );
+
+  const [caret, setCaret] = useState(0);
+  // 채널 전환 시 caret 을 새 draft 끝으로 동기화해 이전 채널의 트리거가
+  // 잔류하지 않게 한다. draft 길이는 ref 로 읽어 매 키 입력마다 caret 이
+  // 끝으로 튀지 않게 한다(채널 전환 시에만 적용).
+  const draftLenRef = useRef(draft.length);
+  draftLenRef.current = draft.length;
+  useEffect(() => {
+    setCaret(draftLenRef.current);
+  }, [channelId]);
+  const {
+    state: acState,
+    move: acMove,
+    setActiveIndex: acSetActive,
+    activeRow: acActiveRow,
+    close: acClose,
+  } = useAutocomplete({
+    text: draft,
+    caret,
+    sources: acSources,
+    // Global DM(workspaceId=null)은 멘션/채널 네임스페이스가 없어 끈다.
+    enabled: workspaceId !== null,
+  });
+
+  const listboxId = useId();
+  const optionId = (index: number): string => `${listboxId}-opt-${index}`;
+  const acMaxHeight = useAutocompleteMaxHeight(acState.open);
+
+  // A-03: 팝업 등장/결과 수를 sr-only aria-live 로 통지한다. 닫히면 빈
+  // 문자열로 되돌려(무음) 다음 open 전환에서 다시 읽히게 한다. live region
+  // 노드는 항상 마운트해 둬야 SR 이 텍스트 변경을 감지한다.
+  const acAnnouncement = acState.open
+    ? `${AC_SECTION_NOUN[acState.kind]} ${acState.rows.length}개`
+    : '';
+
+  // 선택된 행을 컴포저에 삽입하고 트리거 범위를 토큰으로 치환한다.
+  //
+  // S18 리뷰 BLOCKER: acState.trigger 는 debounce(150ms) 스냅샷 기준 offset 이라
+  // 빠르게 타이핑한 뒤 debounce 가 끝나기 전에 Enter/클릭으로 삽입하면 stale
+  // offset 으로 live draft 를 치환해 텍스트가 깨졌다. 삽입 직전에 live draft/
+  // caret 으로 detectTrigger 를 동기 재실행해 치환 범위를 다시 구한다. 더 이상
+  // 트리거가 매치하지 않으면(이미 닫힌 토큰 등) 아무 것도 하지 않고 bail.
+  const applyAutocompleteRow = (row: AutocompleteRow): void => {
+    if (!acState.open) return;
+    const el = textareaRef.current;
+    const liveCaret = el?.selectionStart ?? caret;
+    const liveTrigger = detectTrigger(draft, liveCaret);
+    if (!liveTrigger) {
+      acClose();
+      return;
+    }
+    const token = tokenForRow(row);
+    const { text, caretPos } = applyToken(draft, liveTrigger.start, liveTrigger.end, token);
+    setDraft(channelId, text);
+    acClose();
+    queueMicrotask(() => {
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(caretPos, caretPos);
+      setCaret(caretPos);
+    });
+  };
+
+  // FR-MSG-14: @everyone/@channel/@here confirm dialog 상태.
+  const [pendingSpecial, setPendingSpecial] = useState<SpecialMentionKey | null>(null);
+
+  // 현재 draft 에서 confirm 이 필요한 특수멘션(권한 보유분)을 찾는다.
+  // 게이트는 서버(gateEveryoneMention / gateHereMention)와 동일 역할 로직을
+  // canUseSpecialMention 으로 공유한다 — 권한 없으면 서버가 fanout 을 무효화
+  // (FR-MSG-15)하므로 confirm 도 띄우지 않는다. `@channel` 은 서버 extractor 가
+  // 추출하지 않아 알림이 안 가므로 confirm 세트에서 제외한다(거짓 약속 방지).
+  const findSpecialNeedingConfirm = (text: string): SpecialMentionKey | null => {
+    const lower = text.toLowerCase();
+    const keys: SpecialMentionKey[] = ['everyone', 'here'];
+    for (const key of keys) {
+      const re = new RegExp(`(?<![A-Za-z0-9_])@${key}(?![A-Za-z0-9_])`);
+      if (!re.test(lower)) continue;
+      // 권한 없으면 서버가 fanout 을 무효화(FR-MSG-15) — confirm 불필요.
+      if (!canUseSpecialMention(key, myRole)) continue;
+      if (needsSpecialMentionConfirm(key, memberCount)) return key;
+    }
+    return null;
+  };
+
+  const doSend = (): void => {
     const trimmed = draft.trim();
     if (!trimmed && pending.length === 0) return;
     send(trimmed || ' ', pending.length > 0 ? pending.map((p) => p.id) : undefined);
     clearDraft(channelId);
     setPending([]);
+    setPendingSpecial(null);
     sendTypingStop();
+  };
+
+  const submit = (): void => {
+    // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
+    if (counter.overLimit) return;
+    const trimmed = draft.trim();
+    if (!trimmed && pending.length === 0) return;
+    // FR-MSG-14: 대규모 특수멘션이면 먼저 confirm dialog 를 띄운다.
+    const special = findSpecialNeedingConfirm(draft);
+    if (special) {
+      setPendingSpecial(special);
+      return;
+    }
+    doSend();
   };
 
   const insertAtCursor = (text: string): void => {
@@ -187,6 +398,9 @@ export function MessageComposer({
       const pos = start + text.length;
       textareaRef.current.focus();
       textareaRef.current.setSelectionRange(pos, pos);
+      // S18 리뷰 NIT: caret state 를 삽입 위치로 동기화해 트리거 재평가가
+      // stale offset 을 보지 않게 한다(applyAutocompleteRow 와 동일).
+      setCaret(pos);
     });
   };
 
@@ -274,6 +488,7 @@ export function MessageComposer({
           >
             <Icon name="megaphone" size="md" className="text-text-muted" />
             <textarea
+              id="msg-input"
               data-testid="msg-input"
               rows={1}
               disabled
@@ -434,11 +649,39 @@ export function MessageComposer({
             data-testid="msg-input"
             value={draft}
             rows={1}
+            // S18 (FR-RC06): WAI-ARIA Combobox(activedescendant 패턴). 포커스는
+            // textarea 에 유지하고 active 항목만 aria-activedescendant 로 가리킨다.
+            role="combobox"
+            // A-02: 팝업 종류가 listbox 임을 항상 노출.
+            aria-haspopup="listbox"
+            aria-expanded={acState.open}
+            aria-autocomplete="list"
+            // A-01: aria-controls 는 팝업 닫힘에도 제거하지 않고 항상 listboxId 를
+            // 가리킨다(일부 SR 은 닫힘→열림 전환 시 controls 재해석을 놓친다).
+            aria-controls={listboxId}
+            aria-activedescendant={
+              acState.open && acState.activeIndex >= 0 ? optionId(acState.activeIndex) : undefined
+            }
             onChange={(e) => {
               const next = e.target.value;
               setDraft(channelId, next);
+              setCaret(e.target.selectionStart ?? next.length);
               if (next.length > 0) maybePing();
               else sendTypingStop();
+            }}
+            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onKeyUp={(e) => {
+              // 방향키/Home/End 등으로 캐럿이 움직이면 트리거 재평가를 위해
+              // caret 을 동기화한다(삽입/제출 키는 keyDown 에서 이미 처리).
+              if (
+                e.key === 'ArrowLeft' ||
+                e.key === 'ArrowRight' ||
+                e.key === 'Home' ||
+                e.key === 'End'
+              ) {
+                setCaret(e.currentTarget.selectionStart ?? 0);
+              }
             }}
             onKeyDown={(e) => {
               // task-021-R1-ime-enter-half-sends: skip Enter when an IME
@@ -448,16 +691,76 @@ export function MessageComposer({
               // before composition end.
               const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
               if (native.isComposing || e.keyCode === 229) return;
+              // S18 (FR-RC06): 자동완성 팝업이 열려 있으면 ↑↓ 이동,
+              // Enter/Tab 삽입, Esc 닫기를 컴포저 제출보다 먼저 처리한다.
+              if (acState.open) {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  acMove('down');
+                  return;
+                }
+                if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  acMove('up');
+                  return;
+                }
+                if (e.key === 'Enter' || e.key === 'Tab') {
+                  if (acActiveRow) {
+                    // 활성 행이 있으면 삽입 + 닫기(applyAutocompleteRow 가 close).
+                    e.preventDefault();
+                    applyAutocompleteRow(acActiveRow);
+                    return;
+                  }
+                  // A-10: 활성 행이 없는데 팝업만 떠 있으면 Tab 이 팝업을
+                  // 잔류시킨 채 통과한다. Tab 은 팝업을 닫고 기본 포커스
+                  // 이동을 허용한다(preventDefault 안 함). Enter 는 아래
+                  // 제출 분기로 흘려보낸다.
+                  if (e.key === 'Tab') {
+                    acClose();
+                    return;
+                  }
+                }
+                if (e.key === 'Escape') {
+                  e.preventDefault();
+                  acClose();
+                  return;
+                }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 submit();
               }
             }}
-            aria-invalid={counter.overLimit}
+            aria-invalid={counter.overLimit || undefined}
             placeholder={`# ${channelName} 에 메시지…`}
             className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />
+          {acState.open ? (
+            <Autocomplete
+              kind={acState.kind}
+              rows={acState.rows}
+              activeIndex={acState.activeIndex}
+              listboxId={listboxId}
+              optionId={optionId}
+              maxHeight={acMaxHeight}
+              onSelect={(index) => {
+                const row = acState.rows[index];
+                if (row) applyAutocompleteRow(row);
+              }}
+              onHover={(index) => acSetActive(index)}
+            />
+          ) : null}
+          {/* A-03: 자동완성 팝업 등장/결과 수 통지. 항상 마운트(무음 시 빈
+              텍스트)해 SR 이 open 전환의 텍스트 변경을 감지하게 한다. */}
+          <span
+            className="sr-only"
+            role="status"
+            aria-live="polite"
+            data-testid="autocomplete-live"
+          >
+            {acAnnouncement}
+          </span>
           <button
             type="button"
             data-testid="composer-emoji"
@@ -525,6 +828,14 @@ export function MessageComposer({
           }
         />
       </form>
+      {/* S18 (FR-MSG-14): 대규모 특수멘션 전송 전 확인 dialog. 수신자 수는
+          정확한 채널 멤버 수 소스가 없어 dialog 가 범위만 완곡히 안내한다. */}
+      <SpecialMentionConfirmDialog
+        open={pendingSpecial !== null}
+        mentionKey={pendingSpecial}
+        onConfirm={doSend}
+        onCancel={() => setPendingSpecial(null)}
+      />
     </div>
   );
 }

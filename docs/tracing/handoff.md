@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S17 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S18(멘션 자동완성/특수멘션 confirm + 컴포저 @#: ARIA Combobox).** D02(채널) 전체 완료. S16(DM 개설/목록/실시간)·S17(DM visibleFrom + 차단 send-block/마스킹 + around 정합) 완료.
+> **S05 검증·S06~S18 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S19(그룹 DM 멤버 추가/강퇴/나가기 + owner 승계 + DM 수신권한).** D02(채널) 전체 완료. S16(DM 개설/목록)·S17(DM visibleFrom/차단)·S18(컴포저 @#: 자동완성 ARIA Combobox + 특수멘션 confirm) 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -172,11 +172,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + dm-s17 int 9/9 + getOne 3/3 GREEN. 마이그레이션 reversible(`20260601200000_s17_dm_visible_from` up/down PG16 검증).
 - carryover(MED): blocked-set 캐싱, FRIEND_BLOCKED oracle 중립코드, unread visibleFrom 미인지(hidden-restore 결합), masked DTO flag, hidden-DM-restore visibleFrom 갱신, Shell 배선.
 
-## 다음 슬라이스: S18 (멘션 자동완성/특수멘션 confirm + 컴포저 @#: ARIA Combobox)
+## ✅ S18 (컴포저 @#: 자동완성 ARIA Combobox + 특수멘션 confirm) — 완료
 
-- scope 주로 web(`apps/web/src/features/**` 컴포저/멘션), 일부 api(멘션 검색).
-- FR-MSG-14/15, FR-RC03/04/05/06. 컴포저 @(유저)·#(채널)·:(이모지) 자동완성 ARIA Combobox + @everyone/@here 등 특수멘션 confirm.
-- 주의: **UI 슬라이스 → ui-designer + visual-regression-scanner 리뷰 필수**(DS 4파일 무수정, qf-_/qf-m-_ 토큰만). 기존 멘션 시스템(S04 codeblock-mention-system, task-013/014) 위에 자동완성 UI. FR 정본: PRD html(FR-RC 섹션).
+- FR-RC03(@ 멤버 debounce 150ms·최대8·온라인 가중치·@here/@everyone 특수항목), FR-RC04(# 채널 아이콘+이름+topic), FR-RC05(: 이모지 ≥2자·유니코드+커스텀·최대12), FR-RC06(↑↓/Enter/Tab/Esc·`.qf-mention` pill·WAI-ARIA Combobox), FR-MSG-15(권한없는 특수멘션 plain text — 서버 gate.ts 기존), FR-MSG-14(**partial** — confirm 임계값 6/50). 신규 `apps/web/src/features/messages/autocomplete/**` 12모듈.
+- **리뷰 fix-forward**(reviewer+a11y+ui-designer+visual 4팀): correctness BLOCKER(debounce trigger offset 로 live draft 치환 → 범위손상 → live detectTrigger 동기 재계산). MAJOR×3(@channel 거짓약속 → 제거; @here MEMBER confirm → 서버 gate 정합 OWNER/ADMIN 전용; 수신자수 워크스페이스 오인 → 카피 완곡화). a11y BLOCKER×6(aria-controls 유지/aria-haspopup/live-region/이모지 aria-hidden/온라인 sr-only/active scrollIntoView). DS BLOCKER×2(confirm dialog 가 !important 로 DS 뚫음+qf-modal 구조이탈 → ChannelPrivacyConfirmModal 패턴 재작성).
+- 게이트: verify 19 + build 3종 + web 385 단위 GREEN. **DS 4파일 무수정** 확인. api 무변경·마이그레이션 없음(web-only).
+- carryover(MED): 서버 @channel fanout(D04), @here FR↔서버 권한편차, confirm 정확 수신자수, A-08/09 DS 토큰 대비, DS-3 Tailwind 키 선제존재, visual baseline(Docker Playwright).
+
+## 다음 슬라이스: S19 (그룹 DM 멤버 추가/강퇴/나가기 + owner 승계 + DM 수신권한)
+
+- scope `apps/api/src/channels/direct-messages/**`, 일부 web.
+- FR-DM-07/08/09/12. 그룹 DM 멤버 추가/강퇴/나가기 + (owner 개념 있으면) 승계 + DM 수신권한 게이트.
+- 주의: S16 group DM(createGroupDm, ChannelPermissionOverride USER row 멤버십, slug dedup) 위에. **그룹 멤버 변경 시 friendship 게이트**(S16 assertCanDm 재사용) + 멤버변경 실시간(dm:created 패턴). cap 20 유지. slug dedup 이 멤버 변경 후 깨지는지 주의(gdm: slug 가 멤버셋 기반). FR 정본: PRD html.
 - **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover).
 
 ---
