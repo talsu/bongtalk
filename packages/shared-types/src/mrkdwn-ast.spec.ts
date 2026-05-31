@@ -4,6 +4,7 @@ import {
   RichTextNodeSchema,
   TextNodeSchema,
   MentionUserNodeSchema,
+  MentionChannelNodeSchema,
   CodeBlockNodeSchema,
   DividerNodeSchema,
   LinkNodeSchema,
@@ -112,6 +113,55 @@ describe('MentionUserNodeSchema (FR-RC02)', () => {
 
   it('rejects a non-cuid2 userId', () => {
     expect(() => MentionUserNodeSchema.parse({ type: 'mention_user', userId: 'BAD' })).toThrow();
+  });
+
+  // S04 review HIGH (FR-MSG-13): mention 노드에 optional label 을 additive 로
+  // 추가합니다. 서버가 정규화 시점에 해석한 username 을 박아, 렌더러가 멤버 맵
+  // 도착 전에도 raw cuid 대신 @username 을 그릴 수 있게 합니다.
+  it('accepts an optional label alongside the userId (additive)', () => {
+    const parsed = MentionUserNodeSchema.parse({
+      type: 'mention_user',
+      userId: 'clh3z2k0v0000abcd1234ef',
+      label: 'alice',
+    });
+    expect(parsed.label).toBe('alice');
+  });
+
+  it('stays backward-compatible when label is omitted (legacy AST)', () => {
+    const parsed = MentionUserNodeSchema.parse({
+      type: 'mention_user',
+      userId: 'clh3z2k0v0000abcd1234ef',
+    });
+    expect(parsed.label).toBeUndefined();
+  });
+
+  it('rejects an empty-string label (min length 1 — never an empty pill source)', () => {
+    expect(() =>
+      MentionUserNodeSchema.parse({
+        type: 'mention_user',
+        userId: 'clh3z2k0v0000abcd1234ef',
+        label: '',
+      }),
+    ).toThrow();
+  });
+});
+
+describe('MentionChannelNodeSchema label (S04 review HIGH / FR-MSG-13)', () => {
+  it('accepts an optional channel-name label (additive)', () => {
+    const parsed = MentionChannelNodeSchema.parse({
+      type: 'mention_channel',
+      channelId: 'clh3z2k0v0000abcd1234ef',
+      label: 'general',
+    });
+    expect(parsed.label).toBe('general');
+  });
+
+  it('stays backward-compatible when label is omitted', () => {
+    const parsed = MentionChannelNodeSchema.parse({
+      type: 'mention_channel',
+      channelId: 'clh3z2k0v0000abcd1234ef',
+    });
+    expect(parsed.label).toBeUndefined();
   });
 });
 

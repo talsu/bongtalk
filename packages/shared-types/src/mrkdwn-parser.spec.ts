@@ -152,6 +152,64 @@ describe('parseMrkdwn — mention tokens (FR-RC02 / FR-RC22)', () => {
     const mention = p.nodes.find((n) => n.type === 'mention_user');
     expect(mention).toMatchObject({ type: 'mention_user', userId: 'clh3z2k0v0000abcd1234ef' });
   });
+
+  it('leaves the mention_user label undefined when no resolver is given (legacy)', () => {
+    const p = firstParagraph('hi @{clh3z2k0v0000abcd1234ef}');
+    const mention = p.nodes.find((n) => n.type === 'mention_user');
+    expect(mention).toMatchObject({ type: 'mention_user', userId: 'clh3z2k0v0000abcd1234ef' });
+    expect((mention as { label?: string }).label).toBeUndefined();
+  });
+});
+
+// S04 review HIGH (FR-MSG-13): 정규화는 @username 을 @{cuid2} 로 저장하므로
+// 파서가 mention 노드에 표시명(label)을 박을 수 있어야, 라이브 렌더가 멤버 맵
+// 도착 전에도 raw cuid 가 아니라 @username 을 그립니다(회귀 방지).
+describe('parseMrkdwn — mention label injection (S04 review HIGH / FR-MSG-13)', () => {
+  it('populates mention_user.label from the user resolver', () => {
+    const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}', {
+      mentionLabels: { user: (id) => (id === 'clh3z2k0v0000abcd1234ef' ? 'alice' : undefined) },
+    });
+    const p = ast.nodes[0] as ParagraphNode;
+    const mention = p.nodes.find((n) => n.type === 'mention_user');
+    expect(mention).toMatchObject({
+      type: 'mention_user',
+      userId: 'clh3z2k0v0000abcd1234ef',
+      label: 'alice',
+    });
+  });
+
+  it('populates mention_channel.label from the channel resolver', () => {
+    const { ast } = parseMrkdwn('see <#clh3z2k0v0000chan1234ab>', {
+      mentionLabels: {
+        channel: (id) => (id === 'clh3z2k0v0000chan1234ab' ? 'general' : undefined),
+      },
+    });
+    const p = ast.nodes[0] as ParagraphNode;
+    const mention = p.nodes.find((n) => n.type === 'mention_channel');
+    expect(mention).toMatchObject({
+      type: 'mention_channel',
+      channelId: 'clh3z2k0v0000chan1234ab',
+      label: 'general',
+    });
+  });
+
+  it('omits label when the resolver returns undefined / null / empty', () => {
+    for (const ret of [undefined, null, '', '   '] as const) {
+      const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}', {
+        mentionLabels: { user: () => ret },
+      });
+      const p = ast.nodes[0] as ParagraphNode;
+      const mention = p.nodes.find((n) => n.type === 'mention_user');
+      expect((mention as { label?: string }).label).toBeUndefined();
+    }
+  });
+
+  it('still produces a schema-valid root with labels present', () => {
+    const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}', {
+      mentionLabels: { user: () => 'alice' },
+    });
+    expect(isRichTextRoot(ast)).toBe(true);
+  });
 });
 
 describe('parseMrkdwn — ReDoS / DoS guards (FR-MSG-23)', () => {

@@ -27,6 +27,7 @@ function makeMsg(id: string, extra: Partial<MessageDto> = {}): MessageDto {
     content: 'hi',
     contentRaw: 'hi',
     contentAst: null,
+    type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false },
     edited: false,
     deleted: false,

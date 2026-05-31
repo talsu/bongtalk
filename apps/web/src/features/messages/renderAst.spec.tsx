@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { parseMrkdwn, type RichTextRoot } from '@qufox/shared-types';
-import { renderAst } from './renderAst';
+import { renderAst, type MentionLookup } from './renderAst';
 import type { CustomEmoji } from '../emojis/api';
 
 beforeEach(() => {
@@ -87,9 +87,20 @@ describe('renderAst — links (FR-MSG-20)', () => {
 });
 
 describe('renderAst — blocks (FR-MSG-01)', () => {
-  it('renders a fenced code block', () => {
+  it('renders a fenced code block with syntax highlight for a known lang (FR-MSG-02)', () => {
     const out = html('```ts\nconst a = 1;\n```');
     expect(out).toContain('qf-codeblock');
+    // S04: lang-tagged code blocks are highlighted client-side via
+    // highlight.js — the text is split into hljs-* token spans, so we
+    // assert the token markup rather than the raw literal.
+    expect(out).toContain('data-highlighted="true"');
+    expect(out).toContain('hljs-keyword');
+  });
+
+  it('renders a fenced code block without lang as plain text (FR-MSG-02 fallback)', () => {
+    const out = html('```\nconst a = 1;\n```');
+    expect(out).toContain('qf-codeblock');
+    expect(out).toContain('data-highlighted="false"');
     expect(out).toContain('const a = 1;');
   });
 
@@ -120,6 +131,114 @@ describe('renderAst — mentions / emoji', () => {
   it('renders a user mention pill', () => {
     const out = html('hi @{clh3z2k0v0000abcd1234ef}');
     expect(out).toContain('qf-mention');
+  });
+
+  // S04 FR-MSG-13 (review HIGH): the normalizer stores `@username` as the
+  // stable `@{cuid2}` token, so the renderer MUST resolve userId→handle
+  // back to the display name. Without the lookup the pill would show the
+  // raw cuid — strictly worse than the pre-slice `@username` text.
+  it('resolves a user mention to the handle via the mention lookup', () => {
+    const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}');
+    const mentions: MentionLookup = {
+      userName: (id) => (id === 'clh3z2k0v0000abcd1234ef' ? 'alice' : undefined),
+    };
+    const out = renderToStaticMarkup(<>{renderAst(ast, undefined, mentions)}</>);
+    expect(out).toContain('@alice');
+    // the stable id stays on the pill for the click/hover affordance.
+    expect(out).toContain('data-user-id="clh3z2k0v0000abcd1234ef"');
+    // and the raw cuid must NOT leak into the visible handle text.
+    expect(out).not.toContain('@clh3z2k0v0000abcd1234ef');
+  });
+
+  it('falls back to the userId when the lookup has no match (never empty pill)', () => {
+    const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}');
+    const mentions: MentionLookup = { userName: () => undefined };
+    const out = renderToStaticMarkup(<>{renderAst(ast, undefined, mentions)}</>);
+    expect(out).toContain('@clh3z2k0v0000abcd1234ef');
+    expect(out).toContain('data-user-id="clh3z2k0v0000abcd1234ef"');
+  });
+
+  // S04 review HIGH (FR-MSG-13): 서버가 정규화 시점에 해석한 username 을 AST
+  // 노드의 label 로 박으므로, 워크스페이스 멤버 맵(lookup)이 아직 없어도 raw
+  // cuid 가 아니라 @username 을 그려야 합니다(라이브 렌더 회귀 방지).
+  it('renders the AST node label even without a lookup map (live-render regression guard)', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [{ type: 'mention_user', userId: 'clh3z2k0v0000abcd1234ef', label: 'alice' }],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    // no mention lookup passed at all — the label must still surface.
+    const out = renderToStaticMarkup(<>{renderAst(ast)}</>);
+    expect(out).toContain('@alice');
+    expect(out).toContain('data-user-id="clh3z2k0v0000abcd1234ef"');
+    expect(out).not.toContain('@clh3z2k0v0000abcd1234ef');
+  });
+
+  it('prefers the AST node label over the runtime lookup', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [{ type: 'mention_user', userId: 'clh3z2k0v0000abcd1234ef', label: 'alice' }],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    // lookup says "stale-name"; the persisted label wins.
+    const mentions: MentionLookup = { userName: () => 'stale-name' };
+    const out = renderToStaticMarkup(<>{renderAst(ast, undefined, mentions)}</>);
+    expect(out).toContain('@alice');
+    expect(out).not.toContain('stale-name');
+  });
+
+  it('renders a channel mention from the AST node label', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [
+            { type: 'mention_channel', channelId: 'clh3z2k0v0000chan1234ab', label: 'general' },
+          ],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const out = renderToStaticMarkup(<>{renderAst(ast)}</>);
+    expect(out).toContain('#general');
+    expect(out).toContain('data-channel-id="clh3z2k0v0000chan1234ab"');
+  });
+
+  it('escapes a malicious AST node label (no markup injection)', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [
+            {
+              type: 'mention_user',
+              userId: 'clh3z2k0v0000abcd1234ef',
+              label: '<script>alert(1)</script>',
+            },
+          ],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const out = renderToStaticMarkup(<>{renderAst(ast)}</>);
+    expect(out).not.toContain('<script>');
+    expect(out).toContain('&lt;script&gt;');
+  });
+
+  it('escapes a malicious handle returned by the lookup (no markup injection)', () => {
+    const { ast } = parseMrkdwn('hi @{clh3z2k0v0000abcd1234ef}');
+    const mentions: MentionLookup = { userName: () => '<script>alert(1)</script>' };
+    const out = renderToStaticMarkup(<>{renderAst(ast, undefined, mentions)}</>);
+    expect(out).not.toContain('<script>');
+    expect(out).toContain('&lt;script&gt;');
   });
 
   it('renders a known custom emoji as an img', () => {

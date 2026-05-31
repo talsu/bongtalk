@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { Cuid2Schema } from './mrkdwn';
 import { RichTextRootSchema } from './mrkdwn-ast';
+import { MessageTypeSchema } from './message-type';
 
 export const MESSAGE_MAX_LENGTH = 4000;
 
@@ -103,6 +104,11 @@ export const MessageDtoSchema = z.object({
   // 는 둘 다 null 이라 forward-compat. deleted 메시지는 마스킹되어 null.
   contentRaw: z.string().nullable().default(null),
   contentAst: RichTextRootSchema.nullable().default(null),
+  // S04 (ADR-2 / FR-MSG-19 / FR-RC10): 메시지 타입. 기존 row 와 구
+  // 클라이언트는 DEFAULT 로 forward-compat. SYSTEM_* 타입은 렌더러가
+  // 시스템 행(아이콘 + 이탤릭, 편집·삭제 미표시)으로 표시하고 그루핑에서
+  // grouped=false 를 강제합니다.
+  type: MessageTypeSchema.default('DEFAULT'),
   mentions: MessageMentionsSchema,
   edited: z.boolean(),
   deleted: z.boolean(),

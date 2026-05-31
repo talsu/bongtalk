@@ -79,6 +79,100 @@ export async function extractMentions(
 }
 
 /**
+ * S04 (FR-MSG-13) — `@username` 핸들을 userId(cuid2/uuid) 로 resolve 하는
+ * lookup 맵을 만듭니다. 키는 소문자 핸들(case-insensitive 매칭). 워크스페이스
+ * 멤버로 스코프를 좁혀 멘션이 워크스페이스 경계를 넘지 못하게 합니다 —
+ * extractMentions 와 동일한 신뢰 모델. Global DM(workspaceId=null)은 멘션
+ * 네임스페이스가 없어 빈 맵을 반환합니다.
+ *
+ * `normalizeMentions` 의 resolver 로 주입합니다. 미해결 핸들은 맵에 없어
+ * 토큰이 literal 로 보존됩니다.
+ */
+export async function resolveMentionHandles(
+  prisma: PrismaClient,
+  workspaceId: string | null,
+  text: string,
+): Promise<Map<string, string>> {
+  const out = new Map<string, string>();
+  if (workspaceId === null) return out;
+  const usernames = new Set<string>();
+  for (const m of text.matchAll(MENTION_USER_RE)) {
+    const lower = m[1].toLowerCase();
+    if (lower === 'everyone' || lower === 'here' || lower === 'channel') continue;
+    usernames.add(m[1]);
+  }
+  if (usernames.size === 0) return out;
+  const rows = await prisma.user.findMany({
+    where: {
+      username: { in: [...usernames] },
+      memberships: { some: { workspaceId } },
+    },
+    select: { id: true, username: true },
+  });
+  for (const r of rows) out.set(r.username.toLowerCase(), r.id);
+  return out;
+}
+
+/**
+ * S04 review HIGH (FR-MSG-13) — 멘션 노드에 박을 표시명(label) 맵을 만듭니다.
+ *
+ * 정규화는 `@username` 을 안정 식별자 `@{cuid2}` 로 저장하므로, 라이브 렌더가
+ * 워크스페이스 멤버 맵 도착 전에는 raw cuid 를 그대로 표시하는 회귀가 있었습니다.
+ * 저장 시점에 이미 DB 에서 해석한 username/channel name 을 contentAst 의 mention
+ * 노드에 함께 박아 두면, 렌더러가 멤버 맵 없이도 `@alice` 를 그릴 수 있습니다.
+ *
+ * 반환:
+ *   - `users`  : userId(cuid2) → username (원본 대소문자 보존, 표시용)
+ *   - `channels`: channelId(cuid2) → channel name
+ *
+ * 신뢰 모델은 extractMentions / resolveMentionHandles 와 동일합니다 — 워크스페이스
+ * 멤버/채널로 스코프를 좁혀 멘션이 경계를 넘지 못하게 하고, Global DM
+ * (workspaceId=null)은 빈 맵을 반환합니다. label 은 표시 캐시일 뿐이며 단일
+ * 신뢰 출처는 여전히 userId/channelId 입니다.
+ */
+export async function resolveMentionLabelMaps(
+  prisma: PrismaClient,
+  workspaceId: string | null,
+  text: string,
+): Promise<{ users: Map<string, string>; channels: Map<string, string> }> {
+  const users = new Map<string, string>();
+  const channels = new Map<string, string>();
+  if (workspaceId === null) return { users, channels };
+
+  const usernames = new Set<string>();
+  for (const m of text.matchAll(MENTION_USER_RE)) {
+    const lower = m[1].toLowerCase();
+    if (lower === 'everyone' || lower === 'here' || lower === 'channel') continue;
+    usernames.add(m[1]);
+  }
+  const channelNames = new Set<string>();
+  for (const m of text.matchAll(MENTION_CHANNEL_RE)) {
+    channelNames.add(m[1]);
+  }
+
+  const [userRows, channelRows] = await Promise.all([
+    usernames.size === 0
+      ? Promise.resolve([] as { id: string; username: string }[])
+      : prisma.user.findMany({
+          where: {
+            username: { in: [...usernames] },
+            memberships: { some: { workspaceId } },
+          },
+          select: { id: true, username: true },
+        }),
+    channelNames.size === 0
+      ? Promise.resolve([] as { id: string; name: string }[])
+      : prisma.channel.findMany({
+          where: { workspaceId, deletedAt: null, name: { in: [...channelNames] } },
+          select: { id: true, name: true },
+        }),
+  ]);
+  for (const r of userRows) users.set(r.id, r.username);
+  for (const r of channelRows) channels.set(r.id, r.name);
+  return { users, channels };
+}
+
+/**
  * Best-effort normalization for full-text search / future moderation. We keep
  * the letter content but strip the mention sigils and collapse whitespace so
  * "Hey @alice, look at #general!" → "Hey alice, look at general!".

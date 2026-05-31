@@ -162,3 +162,5 @@ export * from './mrkdwn-ast';
 export * from './bigint';
 // S02 — mrkdwn 송수신 코어 파서 (FR-MSG-01 / FR-MSG-03 / FR-MSG-20 / FR-MSG-23)
 export * from './mrkdwn-parser';
+// S04 — MessageType enum 단일 정의 (ADR-2 / FR-MSG-19 / FR-RC10)
+export * from './message-type';

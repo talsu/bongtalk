@@ -119,6 +119,8 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // 때 contentAst 가 채워집니다.
         contentRaw: content,
         contentAst: null,
+        // S04: optimistic 메시지는 항상 일반 메시지(DEFAULT).
+        type: 'DEFAULT',
         mentions: { users: [], channels: [], everyone: false, here: false },
         edited: false,
         deleted: false,
