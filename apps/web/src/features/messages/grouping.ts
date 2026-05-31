@@ -1,4 +1,5 @@
 import { isSystemMessageType, type MessageDto } from '@qufox/shared-types';
+import { isSameLocalDay } from './formatMessageTime';
 
 /**
  * S04 (FR-MSG-10 / FR-MSG-19) — 메시지 그루핑 계산(클라이언트 전용).
@@ -28,6 +29,10 @@ export function isContinuation(curr: MessageDto, prev: MessageDto | null): boole
   if (prev.deleted || curr.deleted) return false;
   if (prev.authorId !== curr.authorId) return false;
   if (prev.parentMessageId !== curr.parentMessageId) return false;
+  // S06 (FR-MSG-11): 로컬 자정 경계를 넘으면(다른 달력 일) 5분 윈도우 안이라도
+  // 그룹을 강제 분리합니다. MessageList 가 같은 경계에서 날짜 구분선을
+  // 삽입하므로, 날짜가 바뀐 첫 메시지는 head 행으로 그려져야 자연스럽습니다.
+  if (!isSameLocalDay(curr.createdAt, prev.createdAt)) return false;
   return (
     new Date(curr.createdAt).getTime() - new Date(prev.createdAt).getTime() < GROUPING_WINDOW_MS
   );
