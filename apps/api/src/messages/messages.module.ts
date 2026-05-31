@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { MessagesController } from './messages.controller';
 import { MessagesService } from './messages.service';
 import { ThreadsController } from './threads.controller';
@@ -17,7 +17,15 @@ import { AttachmentsModule } from '../attachments/attachments.module';
   // the thread-replies endpoint uses to gate the READ permission
   // (symmetric with reactions).
   // task-046 iter6: ThreadSubscriptions (N1/N2/N3).
-  imports: [WorkspacesModule, ChannelsModule, OutboxModule, AuthModule, AttachmentsModule],
+  // S13 (FR-CH-09/04): ChannelsService 가 MessagesService.createSystemMessage 를
+  // 역참조하므로 ChannelsModule ↔ MessagesModule 순환을 forwardRef 로 끊는다.
+  imports: [
+    WorkspacesModule,
+    forwardRef(() => ChannelsModule),
+    OutboxModule,
+    AuthModule,
+    AttachmentsModule,
+  ],
   controllers: [
     MessagesController,
     ThreadsController,

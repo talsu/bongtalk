@@ -175,6 +175,7 @@ export function DmShell(): JSX.Element {
           channelId={selectedChannelId}
           channelName={selectedFriend?.username || '…'}
           channelTopic={null}
+          channelType="DIRECT"
           extraNames={extraNames}
         />
       ) : routeUserId ? (

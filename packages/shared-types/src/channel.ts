@@ -29,10 +29,16 @@ export const ChannelNameSchema = z
 
 export const CategoryNameSchema = z.string().min(1).max(32);
 
+// S13 (FR-CH-10): 채널 설명. 채널 브라우저/헤더에 노출되는 ≤500자 자유 텍스트.
+// DB 는 VarChar(500), 여기서 길이를 강제한다.
+export const ChannelDescriptionSchema = z.string().max(500);
+
 export const CreateChannelRequestSchema = z.object({
   name: ChannelNameSchema,
   type: ChannelTypeSchema.default('TEXT'),
   topic: z.string().max(1024).optional(),
+  // S13 (FR-CH-10): 생성 시 선택 입력. 미지정이면 null.
+  description: ChannelDescriptionSchema.optional(),
   categoryId: z.string().uuid().nullable().optional(),
   // Task-012-D reviewer HIGH-1 fix: without this field, `zod.parse`
   // strips `isPrivate` silently and private channels are only
@@ -48,6 +54,8 @@ export type CreateChannelRequest = z.input<typeof CreateChannelRequestSchema>;
 export const UpdateChannelRequestSchema = z.object({
   name: ChannelNameSchema.optional(),
   topic: z.string().max(1024).nullable().optional(),
+  // S13 (FR-CH-10): null 로 설명 삭제, 문자열로 갱신, undefined 면 변경 없음.
+  description: ChannelDescriptionSchema.nullable().optional(),
   categoryId: z.string().uuid().nullable().optional(),
   // OWNER-only flip of privacy; enforced in ChannelsService.update.
   isPrivate: z.boolean().optional(),
@@ -82,6 +90,8 @@ export const ChannelSchema = z.object({
   name: ChannelNameSchema,
   type: ChannelTypeSchema,
   topic: z.string().nullable(),
+  // S13 (FR-CH-10): 채널 목록/단건 응답에 노출.
+  description: z.string().nullable(),
   position: z.string(),
   isPrivate: z.boolean(),
   archivedAt: z.string().datetime().nullable(),

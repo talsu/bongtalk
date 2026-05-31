@@ -49,10 +49,10 @@ FR-CH-01,D02-channels,P0,S12,done
 FR-CH-02,D02-channels,P0,S12,done
 FR-CH-03,D02-channels,P0,S12,partial
 FR-CH-20,D02-channels,P0,S12,done
-FR-CH-04,D02-channels,P0,S13,todo
-FR-CH-09,D02-channels,P1,S13,todo
-FR-CH-10,D02-channels,P1,S13,todo
-FR-CH-19,D02-channels,P1,S13,todo
+FR-CH-04,D02-channels,P0,S13,done
+FR-CH-09,D02-channels,P1,S13,done
+FR-CH-10,D02-channels,P1,S13,done
+FR-CH-19,D02-channels,P1,S13,done
 FR-CH-05,D02-channels,P0,S14,todo
 FR-CH-07,D02-channels,P0,S14,todo
 FR-CH-11,D02-channels,P0,S14,todo

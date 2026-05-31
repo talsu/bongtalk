@@ -24,6 +24,11 @@ import { MessagesService } from './messages.service';
 import { MessageAuthorGuard } from './guards/message-author.guard';
 import { CurrentMessage, CurrentMessagePayload } from './decorators/current-message.decorator';
 import { ChannelAccessGuard } from '../channels/guards/channel-access.guard';
+import { ChannelAccessService } from '../channels/permission/channel-access.service';
+import {
+  CurrentChannel,
+  CurrentChannelPayload,
+} from '../channels/decorators/current-channel.decorator';
 import { WorkspaceMemberGuard } from '../workspaces/guards/workspace-member.guard';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import {
@@ -57,6 +62,8 @@ export class MessagesController {
   constructor(
     private readonly messages: MessagesService,
     private readonly rate: RateLimitService,
+    // S13 (FR-CH-19): ANNOUNCEMENT 게시 게이트(CHANNEL_POSTING_RESTRICTED).
+    private readonly channelAccess: ChannelAccessService,
   ) {}
 
   @Get()
@@ -220,6 +227,7 @@ export class MessagesController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
     @Headers('idempotency-key') idempotencyHeader: string | undefined,
     @Body() body: unknown,
     @Res({ passthrough: true }) res: Response,
@@ -227,6 +235,15 @@ export class MessagesController {
     const parsed = SendMessageRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
+    }
+    // S13 (FR-CH-19): ANNOUNCEMENT 채널은 OWNER/ADMIN/허용역할만 게시 가능.
+    // ChannelAccessGuard 가 req.channel(type 포함)을 주입한 뒤 실행된다.
+    if (channel) {
+      await this.channelAccess.requireAnnouncementPostingAllowed(
+        { id: channel.id, type: channel.type },
+        user.id,
+        m.role,
+      );
     }
     await this.rate.enforce([
       { key: `msg:send:u:${user.id}`, windowSec: 10, max: this.rateUserMax() },

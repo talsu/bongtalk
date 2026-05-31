@@ -25,6 +25,11 @@ type Props = {
   channelName: string;
   channelTopic: string | null;
   /**
+   * S13 (FR-CH-19): 채널 타입. ANNOUNCEMENT 면 게시 권한이 없는 사용자에게
+   * composer 비활성화 + 헤더 배지를 표시한다. DM 은 'DIRECT'.
+   */
+  channelType: string;
+  /**
    * DM callers pass a Map keyed by userId so MessageList can resolve
    * authors who are not members of `workspaceId` (e.g. the other
    * participant in a workspace-less DM). Merged on top of the workspace
@@ -44,6 +49,7 @@ export function MessageColumn({
   channelId,
   channelName,
   channelTopic,
+  channelType,
   extraNames,
 }: Props): JSX.Element {
   const memberListOpen = useUI((s) => s.memberListOpen);
@@ -53,6 +59,17 @@ export function MessageColumn({
   const isDm = workspaceId === null;
   const { data: members } = useMembers(workspaceId ?? undefined);
   const memberCount = members?.members.length ?? 0;
+  // S13 (FR-CH-19): 호출자의 워크스페이스 역할 — 멤버 목록에서 본인 행으로
+  // 해석. ANNOUNCEMENT 채널은 OWNER/ADMIN 만 게시 가능, 그 외 게시 제한.
+  // 권한 비트 오버라이드(허용역할)는 서버가 최종 판정(403)하며, 여기서는
+  // 기본 역할 기준의 UX 게이트만 둔다 — 서버가 단일 진실원.
+  const myRole = useMemo(
+    () => members?.members.find((mm) => mm.userId === user?.id)?.role ?? null,
+    [members, user?.id],
+  );
+  const isAnnouncement = channelType === 'ANNOUNCEMENT';
+  const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
+  const postingRestricted = !isDm && isAnnouncement && !canManage;
   const nameByUserId = useMemo(() => {
     const m = new Map<string, string>();
     // Workspace members win when present — their role/role-badge data
@@ -158,6 +175,17 @@ export function MessageColumn({
             {channelName}
           </h2>
           {channelTopic ? <div className="qf-topbar__topic">{channelTopic}</div> : null}
+          {/* S13 (FR-CH-19): 공지 채널 배지. 게시 권한이 없는 사용자에게는
+              "ADMIN 이상만 게시" 안내를 함께 보여준다. DS qf-badge + 토큰만 사용. */}
+          {!isDm && isAnnouncement ? (
+            <span
+              data-testid="topbar-announcement-badge"
+              className="qf-badge inline-flex items-center gap-[var(--s-1)]"
+            >
+              <Icon name="megaphone" size="sm" />
+              {postingRestricted ? '공지 채널 — ADMIN 이상만 게시' : '공지 채널'}
+            </span>
+          ) : null}
           <div className="ml-auto flex items-center gap-[var(--s-3)]">
             {!isDm && workspaceId && workspaceSlug ? (
               <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
@@ -203,6 +231,7 @@ export function MessageColumn({
           workspaceId={workspaceId}
           channelId={channelId}
           channelName={channelName}
+          postingRestricted={postingRestricted}
         />
       </main>
       {activeThread && !isDm && workspaceId ? (

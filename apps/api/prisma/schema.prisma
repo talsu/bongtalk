@@ -304,6 +304,11 @@ model Channel {
   name        String
   type        ChannelType @default(TEXT)
   topic       String?
+  // S13 (FR-CH-10): 채널 설명. ≤500자는 zod(Create/UpdateChannelRequest)가
+  // 강제하고 DB 는 VarChar(500) 으로 상한을 둔다. 전문검색용 GIN 식 인덱스
+  // (to_tsvector('simple', coalesce(description,''))) 는 Prisma 가 표현할 수
+  // 없어 20260601000000_s13_channel_description 마이그레이션 raw SQL 로만 둔다.
+  description String?     @db.VarChar(500)
   position    Decimal     @db.Decimal(20, 10)
   isPrivate   Boolean     @default(false)
   archivedAt  DateTime?

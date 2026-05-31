@@ -93,6 +93,9 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_PURGED',
   'CHANNEL_POSITION_INVALID',
   'CHANNEL_ARCHIVED',
+  // S13 (FR-CH-19): ANNOUNCEMENT 채널 게시 제한 → 403. 클라이언트는 이 코드를
+  // 받으면 "공지 채널은 관리자만 게시" 안내로 분기한다(일반 FORBIDDEN 과 구분).
+  'CHANNEL_POSTING_RESTRICTED',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
   'MESSAGE_NOT_FOUND',
