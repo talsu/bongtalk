@@ -11,6 +11,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ChannelMemberOverrideRequestSchema,
   CreateChannelRequestSchema,
   MoveChannelRequestSchema,
   UpdateChannelRequestSchema,
@@ -27,6 +28,7 @@ import {
 import { WorkspaceMemberGuard } from '../workspaces/guards/workspace-member.guard';
 import { WorkspaceRoleGuard } from '../workspaces/guards/workspace-role.guard';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
+import { ALL_PERMISSIONS } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -135,17 +137,37 @@ export class ChannelsController {
     @Param('id', new ParseUUIDPipe()) _wsId: string,
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentMember() m: CurrentMemberPayload,
-    @Body() body: { userId: string; allowMask?: number; denyMask?: number },
+    @Body() body: unknown,
   ) {
-    if (!body?.userId || typeof body.userId !== 'string') {
-      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'userId required');
+    // S12 BLOCKER (S00 carryover): masks were previously accepted raw, letting
+    // an ADMIN inject allowMask:-1 or an undefined bit to escalate. zod first
+    // bounds userId (uuid) + masks (non-negative int32 shape). Then we bound
+    // against the **enforcement** bitfield — `ALL_PERMISSIONS` from
+    // auth/permissions (0xFF: the 8 channel-override bits ChannelAccessService
+    // actually interprets), NOT the broader shared-types PERMISSIONS catalog
+    // (which includes ADMINISTRATOR + reserved bits the override layer ignores).
+    // Bits outside 0xFF are meaningless to enforcement and would persist as
+    // garbage, so reject them. review S12 BLOCKER-1 fix.
+    const parsed = ChannelMemberOverrideRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    const { userId, allowMask, denyMask } = parsed.data;
+    // ALL_PERMISSIONS (0xFF) is contiguous bits 0..7, so a numeric range check
+    // is equivalent to a bit-subset check AND avoids JS int32 bitwise wrap
+    // (e.g. 2^63 & ~0xFF would wrap to 0 and slip through; 2^63 > 0xFF does not).
+    if (allowMask > ALL_PERMISSIONS || denyMask > ALL_PERMISSIONS) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'permission mask has bits outside the channel permission set',
+      );
     }
     const result = await this.channels.addChannelMemberOverride(
       m.workspaceId,
       channelId,
-      body.userId,
-      body.allowMask ?? 0,
-      body.denyMask ?? 0,
+      userId,
+      allowMask,
+      denyMask,
     );
     return { override: result };
   }

@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S11 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S12(D02 채널).**
+> **S05 검증·S06~S12 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S13(D02 채널 아카이브/공지).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -112,13 +112,23 @@ D17 읽음 동기화 backend. **마이그레이션 슬라이스**(reversible up/
 - **선제존재 int 실패 3건**(@everyone hasMention/DENY-ALLOW/totals-zero) = S11 무관(reviewer byte-identical 확인, int 미실행 누적) → D09 조사 carryover. ack-read-sync 5/5 등 S11 신규는 전부 GREEN.
 - 게이트: verify 19/19 + build 6/6 + int(ack-read-sync 5 + unread-summary S11 케이스) GREEN.
 
-## 다음 슬라이스: S12 (D02 채널 CRUD)
+## ✅ S12 완료 (2026-06-01, 이 세션)
+
+D02 채널 CRUD. 기존 구현 상당 → 갭/BLOCKER:
+
+- **🔴 S00 allowMask BLOCKER 닫음**: `addChannelMember`(POST :chid/members) 가 raw 마스크 무검증 → ADMIN 권한상승. zod(ChannelMemberOverrideRequestSchema, userId uuid + non-negative int) + 컨트롤러 **집행 비트필드 범위검증**(auth/permissions ALL_PERMISSIONS=0xFF, `mask>0xFF` 거부; int32 wrap 회피). int 8/8.
+- **FR-CH-01** done(FORUM 타입 추가 — enum 마이그레이션; 타입선택 UI 는 백엔드만 수용·UI 후속). **FR-CH-02/20** done(기존). **FR-CH-03 partial**: 삭제후 이름재사용(partial unique `WHERE deletedAt IS NULL` 마이그레이션) done, **default-channel 삭제보호(409) 미구현**(Workspace.defaultChannelId 부재 → D13).
+- 마이그레이션 `20260531180000`(reversible, down.sql purge 보강): FORUM enum + 채널명 부분유니크.
+- 다팀 리뷰(security/reviewer) → BLOCKER-1(잘못된 비트필드) fix-forward. **carryover 중요: 권한 스킴 2중화(shared-types PERMISSIONS bit0-12 vs 집행 Permission 0xFF — 같은 override 컬럼·다른 의미) → D12 수렴 필요**. ADMIN 위임상한·DM body zod 등 LOW.
+- 게이트: verify 19 + build + channels int(channels 10 + member-override 8) GREEN.
+- DEFER(→S14): S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 배선(softDelete/history role→bit).
+
+## 다음 슬라이스: S13 (D02 채널 아카이브/공지)
 
 - fullstack, scope `apps/api/src/channels/**,apps/web/src/features/channels/**`.
-- 채널 생성/편집/삭제 + 사이드바 목록 + channel.\* 이벤트.
-- FR-CH-01/02/03/20. depends S07(완료).
-- 주의: 채널 CRUD 는 기존 구현 상당(channels.service/controller + int 존재) — 갭만 식별.
-- **⚠️ S12~S15(D02) 진입 시 함께 처리할 carryover**: (a) **S00 allowMask/denyMask BLOCKER**(channels.controller class-validator 미적용 → ADMIN 권한상승 주입; DTO + `& ALL_PERMISSIONS` 마스킹), (b) S05 채널 권한 마스크(MANAGE_MESSAGES 비트) 헬퍼 미배선(softDelete/history 가 role 기반 보수 게이트 → 비트 기반 전환). FR 정본: PRD html.
+- 채널 아카이브 + 토픽/설명 + ANNOUNCEMENT 게시 제한 + 시스템 메시지.
+- FR-CH-04/09/10/19. depends S12(완료).
+- 주의: 아카이브(archive/unarchive)·토픽은 기존 구현 가능성(channels.service archive + AllowArchivedChannel 데코) — 갭만 식별. ANNOUNCEMENT 게시 제한(관리자만 작성)은 FR-CH 신규 가능. FR 정본: PRD html.
 
 ---
 

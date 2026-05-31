@@ -1,12 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import {
-  ChIntEnv,
-  ORIGIN,
-  setupChIntEnv,
-  seedWorkspaceWithRoles,
-  bearer,
-} from './helpers';
+import { ChIntEnv, ORIGIN, setupChIntEnv, seedWorkspaceWithRoles, bearer } from './helpers';
 
 let env: ChIntEnv;
 let seed: Awaited<ReturnType<typeof seedWorkspaceWithRoles>>;
@@ -74,6 +68,19 @@ describe('Channels CRUD', () => {
     expect(res.body.errorCode).toBe('CHANNEL_TYPE_NOT_IMPLEMENTED');
   });
 
+  // FR-CH-01: TEXT / ANNOUNCEMENT / FORUM are the three creatable text-surface
+  // channel types. ANNOUNCEMENT + FORUM were previously rejected as
+  // not-implemented; the slice opens them up while keeping VOICE deferred.
+  it.each(['ANNOUNCEMENT', 'FORUM'] as const)('creates a %s channel (FR-CH-01)', async (type) => {
+    const res = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.admin.accessToken))
+      .send({ name: `${type.toLowerCase()}-${Math.random().toString(36).slice(2, 8)}`, type });
+    expect(res.status).toBe(201);
+    expect(res.body.type).toBe(type);
+  });
+
   it('rejects duplicate channel name with 409 CHANNEL_NAME_TAKEN', async () => {
     const name = `dup-${Date.now().toString(36)}`;
     const first = await request(env.baseUrl)
@@ -110,7 +117,9 @@ describe('Channels soft delete + restore + archive', () => {
     const listAfter = await request(env.baseUrl)
       .get(`/workspaces/${workspaceId}/channels`)
       .set(bearer(admin.accessToken));
-    expect(listAfter.body.uncategorized.some((c: { id: string }) => c.id === channelId)).toBe(false);
+    expect(listAfter.body.uncategorized.some((c: { id: string }) => c.id === channelId)).toBe(
+      false,
+    );
 
     const restore = await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/channels/${channelId}/restore`)
@@ -122,6 +131,36 @@ describe('Channels soft delete + restore + archive', () => {
       .get(`/workspaces/${workspaceId}/channels`)
       .set(bearer(admin.accessToken));
     expect(listAgain.body.uncategorized.some((c: { id: string }) => c.id === channelId)).toBe(true);
+  });
+
+  // FR-CH-03: a soft-deleted channel name is immediately reusable. The plain
+  // @@unique([workspaceId, name]) blocked reuse (deleted row still occupies the
+  // name); the partial unique index `WHERE "deletedAt" IS NULL` frees it.
+  it('frees a soft-deleted channel name for immediate reuse (FR-CH-03)', async () => {
+    const { workspaceId, owner, admin } = seed;
+    const name = `reuse-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
+
+    const first = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(admin.accessToken))
+      .send({ name, type: 'TEXT' });
+    expect(first.status).toBe(201);
+
+    const del = await request(env.baseUrl)
+      .delete(`/workspaces/${workspaceId}/channels/${first.body.id}`)
+      .set(bearer(owner.accessToken));
+    expect(del.status).toBe(202);
+
+    // Same name should now create cleanly (no CHANNEL_NAME_TAKEN).
+    const second = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(admin.accessToken))
+      .send({ name, type: 'TEXT' });
+    expect(second.status).toBe(201);
+    expect(second.body.id).not.toBe(first.body.id);
+    expect(second.body.name).toBe(name);
   });
 
   it('archive blocks mutating updates; unarchive restores', async () => {
