@@ -3,6 +3,8 @@ import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { create } from 'zustand';
 import { qk } from '../../lib/query-keys';
 import { touchChannel } from '../messages/channelLruCache';
+import { useChannelSyncStore } from './channelSyncStore';
+import { resetSeqForChannel } from './seqTrackerRegistry';
 
 /**
  * S09 (FR-RT-22): 채널 메시지 목록 LRU 캐시 — React Query 부수효과 계층.
@@ -83,10 +85,10 @@ export const useChannelLruStore = create<ChannelLruState>((set, get) => ({
  * 단일 출처(테스트 drift 방지). React 의존이 없어 QueryClient 만 있으면
  * 직접 호출/검증할 수 있습니다.
  *
- * NOTE(S10): GAP_FETCHING reset 하위요건(FR-RT-06/07 FSM)은 본 슬라이스
- * 범위 밖입니다. evict/재진입 시 진행 중 GAP 복구 상태를 리셋해야 하지만
- * FSM 이 아직 없어 여기서는 seam 만 둡니다 — FSM 도입(S10) 시 아래 evict
- * 루프에 GAP 리셋을 연결합니다.
+ * S10(FR-RT-07): evict 된 채널은 진행 중이던 동기화 FSM 상태도 함께 리셋합니다.
+ * 캐시가 사라진 채널의 GAP_FETCHING/SYNC_FAILED 상태가 남아 있으면 재진입 시
+ * 정상 초기 로드를 방해할 수 있어, 메시지 목록 query 제거와 같은 시점에
+ * channelSyncStore 항목을 정리합니다.
  */
 export function runChannelLruEntry(
   qc: QueryClient,
@@ -108,7 +110,13 @@ export function runChannelLruEntry(
     // gcTime 자연 만료에 맡긴다.
     const observed = (cache.find({ queryKey })?.getObserversCount() ?? 0) > 0;
     if (!observed) qc.removeQueries({ queryKey });
-    // TODO(S10): FSM 도입 시 여기서 evict 된 채널의 GAP_FETCHING 상태를 리셋.
+    // S10(FR-RT-07): evict 된 채널의 동기화 FSM 상태도 리셋.
+    useChannelSyncStore.getState().reset(ch);
+    // FIX #5 (S10 review): SeqTracker 도 함께 reset. 안 하면 evict 후 재진입
+    // 채널의 stale lastSeq 가 남아, 다음 라이브 이벤트가 직전+1 이 아닌 값으로
+    // 보여 불필요한 hole→gap-fetch 가 돕니다. SeqTracker 는 소켓 클로저 안이라
+    // seqTrackerRegistry 를 통해 활성 인스턴스의 해당 채널만 비웁니다.
+    resetSeqForChannel(ch);
   }
   return evicted;
 }

@@ -10,7 +10,7 @@ import {
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { Server, Socket } from 'socket.io';
-import { WS_EVENTS } from '@qufox/shared-types';
+import { WS_EVENTS, type ChannelJoinedPayload } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
@@ -18,6 +18,7 @@ import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
 import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
+import { ChannelSeqService } from './projection/channel-seq.service';
 import { rooms } from './rooms/room-names';
 import { MetricsService } from '../observability/metrics/metrics.service';
 
@@ -66,6 +67,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     private readonly replay: ReplayBufferService,
     private readonly typing: TypingService,
     private readonly prisma: PrismaService,
+    // S10 fix-forward (MAJOR #2): connect 시 채널별 seq baseline 스냅샷 발행기.
+    private readonly seq: ChannelSeqService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -119,6 +122,22 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       sessionId: user.sessionId,
     });
 
+    // S10 fix-forward (MAJOR #2): connect 직후 eager-join 한 채널마다 현재 seq
+    // 스냅샷을 baseline 으로 내려보냅니다. 이게 없으면 이번 세션에 라이브
+    // 메시지가 없던 채널은 클라 SeqTracker 가 비어 재연결 시 gap-fetch 대상에서
+    // 통째로 빠집니다("절전 후 재연결" 케이스). 부하 가드: 채널 seq 는 단일
+    // MGET 으로 묶어 연결당 1 라운드트립, 채널당 emit 1회뿐입니다. unread/
+    // lastMessage 등 무거운 필드는 싣지 않습니다(현재 소비처 없음 + per-channel
+    // 서브쿼리 폭주 회피 — 스키마에서 optional).
+    const seqByChannel = await this.seq.currentMany(channelIds);
+    for (const chId of channelIds) {
+      const snapshot: ChannelJoinedPayload = {
+        channelId: chId,
+        seq: seqByChannel.get(chId) ?? 0,
+      };
+      client.emit(WS_EVENTS.CHANNEL_JOINED, snapshot);
+    }
+
     // Schedule a throttled presence broadcast per workspace the user just
     // joined — the throttler guarantees one emit per 2s window per workspace.
     for (const wsId of workspaceIds) {
@@ -132,11 +151,16 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     const lastEventId = pickLastEventId(client);
     if (lastEventId) {
       let replayed = 0;
-      let truncated = false;
+      // S10 fix-forward (MAJOR #3): truncated 를 채널별로 수집합니다. 예전엔
+      // boolean 단일 플래그라 한 채널의 버퍼 미스가 `replay.truncated` 단일
+      // emit → 클라가 추적 중인 *모든* 채널을 gap-fetch 하는 N채널 폭주를
+      // 유발했습니다. 이제 어떤 채널이 truncated 됐는지 id 목록으로 실어
+      // 클라가 해당 채널만 gap-fetch 하도록 합니다.
+      const truncatedChannelIds: string[] = [];
       for (const chId of channelIds) {
         const res = await this.replay.rangeAfter('channel', chId, lastEventId);
         if (res.truncated) {
-          truncated = true;
+          truncatedChannelIds.push(chId);
           continue;
         }
         for (const ev of res.events) {
@@ -144,7 +168,11 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
           replayed++;
         }
       }
-      if (truncated) client.emit('replay.truncated', { lastEventId });
+      if (truncatedChannelIds.length > 0) {
+        // `lastEventId` 는 진단용으로 유지(기존 구 클라 호환). `channelIds` 가
+        // 신규 라우팅 키입니다.
+        client.emit('replay.truncated', { lastEventId, channelIds: truncatedChannelIds });
+      }
       client.emit('replay.complete', { replayed });
     }
 

@@ -6,6 +6,7 @@ import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
 import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
+import { ChannelSeqService } from './projection/channel-seq.service';
 import { OutboxToWsSubscriber } from './projection/outbox-to-ws.subscriber';
 import { MembershipRevocationListener } from './projection/membership-revocation.listener';
 // PresenceService unused by the trimmed listener — re-import only if a new
@@ -22,9 +23,10 @@ import { AuthModule } from '../auth/auth.module';
     PresenceThrottler,
     TypingService,
     ReplayBufferService,
+    ChannelSeqService,
     OutboxToWsSubscriber,
     MembershipRevocationListener,
   ],
-  exports: [RealtimeGateway, PresenceService, TypingService],
+  exports: [RealtimeGateway, PresenceService, TypingService, ChannelSeqService],
 })
 export class RealtimeModule {}

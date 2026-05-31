@@ -6,6 +6,7 @@ import { getAccessToken } from '../../lib/api';
 import { useUI } from '../../stores/ui-store';
 import { useAuth } from '../auth/AuthProvider';
 import { installRealtimeDispatcher, DISPATCHED_EVENTS } from './dispatcher';
+import { installChannelSync } from './useChannelSync';
 import { qk } from '../../lib/query-keys';
 import { resolveChannel } from '../notifications/useNotificationPreferences';
 
@@ -97,6 +98,29 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
       },
     });
 
+    // S10 (FR-RT-06/07/23): 재연결 동기화 오케스트레이터. dispatcher 와 같은
+    // 소켓 생명주기로 설치합니다. 채널 → wsId 라우팅은 이미 fetch 된
+    // workspaces/channels 캐시에서 해석합니다(miss 면 gap-fetch 없이 SYNCED
+    // 종료 + 버퍼 flush — 다음 채널 진입의 정상 로드가 흡수).
+    const detachSync = installChannelSync(socket, qc, {
+      resolveChannelRoute: (channelId: string) => {
+        const workspaces = qc.getQueryData<{ workspaces: Array<{ id: string }> }>(['workspaces']);
+        for (const w of workspaces?.workspaces ?? []) {
+          const channels = qc.getQueryData<{
+            categories: Array<{ channels: Array<{ id: string }> }>;
+            uncategorized: Array<{ id: string }>;
+          }>(['workspaces', w.id, 'channels']);
+          const all = [
+            ...(channels?.uncategorized ?? []),
+            ...(channels?.categories.flatMap((c) => c.channels) ?? []),
+          ];
+          if (all.some((c) => c.id === channelId)) return { wsId: w.id };
+        }
+        // 워크스페이스 채널에서 못 찾으면 DM(global) 로 라우팅(wsId=null).
+        return { wsId: null };
+      },
+    });
+
     // Independent side: track envelope.id into localStorage so a later
     // reconnect can ask the server for replay-after.
     const trackId = (e: { id?: string }): void => {
@@ -113,6 +137,7 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
     return () => {
       clearInterval(ping);
       for (const t of DISPATCHED_EVENTS) socket.off(t, trackId);
+      detachSync();
       detach();
       disconnect();
     };

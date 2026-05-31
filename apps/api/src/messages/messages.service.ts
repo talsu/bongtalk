@@ -1003,7 +1003,22 @@ export class MessagesService {
       includeDeleted,
     });
     const hasMore = fetched.length > limit;
-    const items = fetched.slice(0, limit);
+    // BLOCKER fix (S10 review): `fetched` is ALWAYS DESC by (createdAt, id)
+    // — `rawList` reverses the ASC `after` rows before returning here. The
+    // extra (limit+1)-th row only marks the page boundary and must be trimmed
+    // on the side that does NOT abut the NEXT page's cursor:
+    //   - before: the next page walks OLDER via nextCursor (= the OLDEST/last
+    //     item). The surplus row is the OLDEST (DESC tail) → drop the tail;
+    //     `slice(0, limit)` is correct and unchanged.
+    //   - after:  gap-fetch walks NEWER and advances by prevCursor (= the
+    //     NEWEST/first item). The surplus row is therefore the NEWEST (DESC
+    //     head). The old `slice(0, limit)` dropped the OLDEST row — the one
+    //     closest to the `after` cursor — so every full page (>limit gap)
+    //     permanently lost exactly one message at the boundary. Dropping the
+    //     HEAD instead keeps the `limit` rows nearest the cursor, so paging
+    //     by prevCursor covers the whole range with zero loss. `before` is
+    //     untouched (no regression).
+    const items = direction === 'after' && hasMore ? fetched.slice(1) : fetched.slice(0, limit);
 
     return {
       items,
