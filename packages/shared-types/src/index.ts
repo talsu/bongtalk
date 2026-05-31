@@ -74,6 +74,8 @@ export const ErrorCodeSchema = z.enum([
   'FRIEND_NOT_FOUND',
   'FRIEND_INVALID_STATE',
   'FRIEND_CAP_REACHED',
+  // S16 (FR-DM-02): 그룹 DM 구성원 cap 초과 → 422.
+  'DM_GROUP_CAP_EXCEEDED',
   'INVITE_NOT_FOUND',
   'INVITE_EXPIRED',
   'INVITE_EXHAUSTED',

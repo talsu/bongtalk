@@ -78,6 +78,8 @@ const L = {
     'message.reaction.removed',
     'message.thread.replied',
     'mention.received',
+    // S16 (FR-DM-16): DM·그룹 DM 개설 outbox 이벤트.
+    'dm.created',
     '_other',
   ]),
   wsEventType: new Set([
@@ -103,6 +105,8 @@ const L = {
     'workspace.member.removed',
     'workspace.role.changed',
     'presence.updated',
+    // S16 (FR-DM-16): 와이어 이벤트명(콜론형).
+    'dm:created',
     '_other',
   ]),
 } as const;

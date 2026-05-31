@@ -27,3 +27,7 @@ export const CATEGORY_MOVED = 'category.moved';
 // (첫 토큰 정확매치)에서 어디에도 매치되지 않아 fanout 이 무음 드롭됐다.
 export const CHANNEL_REORDERED = 'channel.reordered';
 export const CATEGORY_REORDERED = 'category.reordered';
+// S16 (FR-DM-16): 새 DM·그룹 DM 개설 시 발행. outbox→WS 구독자가 envelope.recipients
+// 의 각 user:{userId} 룸으로 `dm:created` 와이어 이벤트를 fanout 한다. 단수
+// 네임스페이스(dm.) 사용 — EventEmitter2 delimiter wildcard(`dm.**`) 매치를 보장한다.
+export const DM_CREATED = 'dm.created';
