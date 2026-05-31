@@ -51,8 +51,20 @@ export class GlobalDmMessagesController {
     private readonly rate: RateLimitService,
   ) {}
 
-  private readChannel(req: Request): { id: string; workspaceId: string | null } {
-    const ch = (req as unknown as { channel?: { id: string; workspaceId: string | null } }).channel;
+  // S17 perf (review): DmChannelAccessGuard 가 채널을 로드할 때 type/name 까지
+  // select 해 req.channel 에 실어둔다. 반환 타입을 확장해 send/edit 차단 게이트가
+  // 채널을 다시 SELECT 하지 않고 이 메타를 그대로 넘길 수 있게 한다.
+  private readChannel(req: Request): {
+    id: string;
+    workspaceId: string | null;
+    type: string;
+    name: string | null;
+  } {
+    const ch = (
+      req as unknown as {
+        channel?: { id: string; workspaceId: string | null; type: string; name: string | null };
+      }
+    ).channel;
     if (!ch) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not resolved');
     }
@@ -82,6 +94,12 @@ export class GlobalDmMessagesController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     await this.rate.enforce([{ key: `msg:get:u:${user.id}`, windowSec: 60, max: 600 }]);
+    // S17 (FR-DM-17 / FR-TH-19): 요청자 DM 가시성 하한선 + (FR-DM-18) 차단
+    // 사용자 집합을 메시지 조회 전에 단일 SELECT 씩 로드한다(N+1 회피).
+    const [visibleFrom, blockedIds] = await Promise.all([
+      this.messages.resolveDmVisibleFrom(channel.id, user.id),
+      this.messages.loadBlockedUserIds(user.id),
+    ]);
     const result = await this.messages.list({
       channelId: channel.id,
       before: parsed.data.before,
@@ -89,6 +107,7 @@ export class GlobalDmMessagesController {
       around: parsed.data.around,
       limit: parsed.data.limit,
       includeDeleted: false,
+      visibleFrom,
     });
     const ids = result.items.map((r) => r.id);
     const [reactionMap, threadMap, attachmentMap] = await Promise.all([
@@ -96,15 +115,20 @@ export class GlobalDmMessagesController {
       this.messages.aggregateThreadSummaries(ids),
       this.messages.aggregateAttachments(ids),
     ]);
-    return {
-      items: result.items.map((r) =>
-        this.messages.toDto(
-          r,
-          reactionMap.get(r.id) ?? [],
-          threadMap.get(r.id) ?? null,
-          attachmentMap.get(r.id) ?? [],
-        ),
+    const dtos = result.items.map((r) =>
+      this.messages.toDto(
+        r,
+        reactionMap.get(r.id) ?? [],
+        threadMap.get(r.id) ?? null,
+        attachmentMap.get(r.id) ?? [],
       ),
+    );
+    return {
+      // S17 (FR-DM-18): 그룹 DM 에서 차단한 사용자의 메시지를 placeholder 로
+      // 마스킹한다(삭제 아님 — 자리 유지). 1:1 DM 은 보통 차단 시 send 자체가
+      // 막히지만(FR-DM-13), 차단 이전 히스토리에 상대 메시지가 남아있을 수
+      // 있어 동일 마스킹을 적용한다.
+      items: this.messages.maskBlockedAuthors(dtos, blockedIds),
       pageInfo: {
         hasMore: result.hasMore,
         prevCursor: result.prevCursor,
@@ -126,6 +150,14 @@ export class GlobalDmMessagesController {
     if ((effective & Permission.WRITE_MESSAGE) !== Permission.WRITE_MESSAGE) {
       throw new DomainError(ErrorCode.FORBIDDEN, 'cannot write to this DM');
     }
+    // S17 (FR-DM-13): 이미 열린 1:1 DM 에 send 시점 BLOCKED 재검증. S16
+    // assertCanDm 는 개설 시점만 검사하므로, 그 이후 차단된 경우를 send 경로에서
+    // 매번 막는다. guard 가 이미 로드한 채널 메타를 넘겨 중복 SELECT 를 없앤다.
+    // 그룹 DM·비-DIRECT 는 메서드 내부에서 무동작/스킵.
+    await this.messages.assertNotBlockedForDmSend(channel.id, user.id, {
+      type: channel.type,
+      name: channel.name,
+    });
     const parsed = SendMessageRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
@@ -160,6 +192,14 @@ export class GlobalDmMessagesController {
     @Body() body: unknown,
   ) {
     const channel = this.readChannel(req);
+    // S17 MAJOR (edit bypasses send-block gate): 1:1 DM 편집(PATCH)도 send 와
+    // 동일하게 BLOCKED 게이트를 건다. 게이트가 없으면 차단 후에도 편집이 가능해
+    // message.updated 가 피차단자에게 push 된다. guard 가 로드한 채널 메타로
+    // 추가 SELECT 없이 판정(그룹 DM·비-DIRECT 는 내부 스킵).
+    await this.messages.assertNotBlockedForDmSend(channel.id, user.id, {
+      type: channel.type,
+      name: channel.name,
+    });
     const parsed = UpdateMessageRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);

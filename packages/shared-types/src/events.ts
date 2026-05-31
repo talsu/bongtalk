@@ -40,6 +40,10 @@ export const WS_EVENTS = {
   // DM / 그룹 DM (S16 · FR-DM-16): 새 DM·그룹 DM 개설 또는 멤버 추가 시 대상
   // 참여자의 user:{userId} 룸으로 push. 클라이언트는 DM 목록 캐시를 무효화한다.
   DM_CREATED: 'dm:created',
+  // 차단 해제 (S17 · FR-DM-19): 차단 해제 시 차단 해제자(blocker)의 user:{userId}
+  // 룸으로 push. 클라이언트는 해당 사용자가 작성한 메시지의 마스킹을 풀기 위해
+  // 현재 채널 메시지 캐시를 무효화/재로드한다.
+  USER_UNBLOCKED: 'user:unblocked',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -255,6 +259,20 @@ export const DmCreatedPayloadSchema = z.object({
 export type DmCreatedPayload = z.infer<typeof DmCreatedPayloadSchema>;
 
 /**
+ * user:unblocked — 차단 해제자(blocker)의 user:{userId} 룸으로 emit
+ * (S17 · FR-DM-19). `unblockedUserId` 는 차단이 풀린 상대 userId. 클라이언트는
+ * 이 id 가 작성한 메시지의 마스킹(`[차단된 사용자의 메시지]`)을 풀기 위해 현재
+ * 채널의 메시지 캐시를 무효화/재로드한다. 차단을 *건* 이벤트는 별도로 emit 하지
+ * 않는다(차단 시점 마스킹은 다음 list 응답에서 자연히 반영되며, 즉시 마스킹이
+ * 필요하면 클라이언트가 로컬에서 처리). 비노출 정책상 차단당한 쪽에는 보내지
+ * 않는다 — blocker 본인 룸으로만 fanout 한다.
+ */
+export const UserUnblockedPayloadSchema = z.object({
+  unblockedUserId: UserIdSchema,
+});
+export type UserUnblockedPayload = z.infer<typeof UserUnblockedPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -280,4 +298,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.READ_STATE_UPDATED]: ReadStateUpdatedPayloadSchema,
   [WS_EVENTS.UNREAD_COUNT_INCREMENT]: UnreadCountIncrementPayloadSchema,
   [WS_EVENTS.DM_CREATED]: DmCreatedPayloadSchema,
+  [WS_EVENTS.USER_UNBLOCKED]: UserUnblockedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

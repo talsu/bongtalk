@@ -356,6 +356,13 @@ model ChannelPermissionOverride {
   principalId   String   @db.VarChar(64)
   allowMask     Int      @default(0)
   denyMask      Int      @default(0)
+  // S17 (FR-DM-17 / FR-TH-19): DM 가시성 하한선. DM·그룹 DM 의 USER 멤버십
+  // row(이 모델이 DM 멤버십의 canonical per-(user,channel) 레코드 — S16)에만
+  // 의미가 있다. NULL = 전체 히스토리 가시(비-DIRECT 채널·ROLE override·legacy
+  // DM row 는 항상 NULL → 필터 무영향). DM 개설/복원(숨겨진 DM 재진입) 시점에
+  // 그 시각으로 세팅되며, 메시지 list(before/after/around/initial) 전 경로가
+  // `createdAt >= visibleFrom` 으로 요청자 본인 시점 이전 메시지를 제외한다.
+  visibleFrom   DateTime? @db.Timestamptz
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

@@ -84,6 +84,10 @@ type MessageRow = {
 // MESSAGE_PIN_CAP 도 동일 값으로 갱신해야 합니다.
 export const MESSAGE_PIN_CAP = 50;
 
+// S17 (FR-DM-18): 그룹 DM 에서 차단한 사용자의 메시지 본문 placeholder.
+// 삭제가 아니라 자리를 유지한 채 본문만 치환한다(UX). 한국어 존댓말 표기.
+export const BLOCKED_MESSAGE_PLACEHOLDER = '[차단된 사용자의 메시지]';
+
 export type ThreadSummary = {
   replyCount: number;
   lastRepliedAt: string | null;
@@ -144,6 +148,12 @@ export type ListMessagesArgs = {
   around?: string;
   limit: number;
   includeDeleted: boolean;
+  // S17 (FR-DM-17 / FR-TH-19): DM 가시성 하한선. 요청자의 DM 멤버십
+  // (ChannelPermissionOverride USER row) visibleFrom 을 그대로 전달한다.
+  // null/undefined = 필터 없음(비-DIRECT 채널·legacy DM row). 설정 시 모든
+  // 경로(before/after/around/initial)에서 `createdAt >= visibleFrom` 으로
+  // 그 시각 이전 메시지를 제외한다 — around 의 contextBefore 도 동일(FR-TH-19).
+  visibleFrom?: Date | null;
 };
 
 @Injectable()
@@ -346,6 +356,130 @@ export class MessagesService {
       out.set(r.messageId, list);
     }
     return out;
+  }
+
+  /**
+   * S17 (FR-DM-13): 이미 열린 1:1 DM 에 send 시점 BLOCKED 재검증. S16
+   * assertCanDm 은 DM *개설* 시 ACCEPTED 를 요구하지만, 그 이후 한쪽이
+   * 차단하면 채널은 그대로 살아있다 — send 경로에서 매번 재검증해야 한다.
+   *
+   * 차단 = Friendship status='BLOCKED'. 양방향 거부: 내가 상대를 차단했거나
+   * (requesterId=author) 상대가 나를 차단했거나(addresseeId=author) 둘 다
+   * 전송 불가. blocker/blocked 어느 쪽인지는 응답에 노출하지 않기 위해 중립
+   * 메시지 + FRIEND_BLOCKED(403)로 통일한다.
+   *
+   * 1:1 DM 에만 적용한다(채널명 `gdm:` 아님). 그룹 DM 은 멤버 1인 차단으로
+   * 그룹 전체 전송을 막지 않으며, 대신 FR-DM-18 마스킹으로 처리한다. 비-DIRECT
+   * 채널은 무동작.
+   *
+   * NOTE: 송신 hot-path 에 채널 조회 1회를 추가하지 않도록, 이 게이트는
+   * `send()` 내부가 아니라 DM 컨텍스트를 이미 아는 컨트롤러(GlobalDmMessages
+   * Controller / 워크스페이스 MessagesController 의 DIRECT 분기)에서만 호출한다.
+   * 일반 텍스트 채널 송신은 이 메서드를 거치지 않는다.
+   *
+   * perf (S17 review): 채널 메타(type/name)는 두 컨트롤러의 guard
+   * (DmChannelAccessGuard / ChannelAccessGuard)가 이미 로드해 req.channel 에
+   * 실어 두므로, 중복 SELECT 를 피하려 호출측이 인자로 넘긴다. DIRECT/`gdm:`
+   * 판정은 전달받은 메타로 한다 — send hot-path 채널 재조회 0회.
+   */
+  async assertNotBlockedForDmSend(
+    channelId: string,
+    authorId: string,
+    channelMeta: { type: string; name: string | null },
+  ): Promise<void> {
+    if (channelMeta.type !== 'DIRECT') return;
+    if (channelMeta.name?.startsWith('gdm:')) return; // 그룹 DM 은 마스킹으로 처리.
+
+    // 상대 참여자(USER override, 본인 제외) 조회.
+    const peers = await this.prisma.channelPermissionOverride.findMany({
+      where: {
+        channelId,
+        principalType: 'USER',
+        principalId: { not: authorId },
+      },
+      select: { principalId: true },
+    });
+    const peerIds = peers.map((p) => p.principalId);
+    if (peerIds.length === 0) return;
+
+    const blocked = await this.prisma.friendship.findFirst({
+      where: {
+        status: 'BLOCKED',
+        OR: [
+          { requesterId: authorId, addresseeId: { in: peerIds } },
+          { requesterId: { in: peerIds }, addresseeId: authorId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (blocked) {
+      // 중립 처리: blocker/blocked 방향 비노출.
+      throw new DomainError(ErrorCode.FRIEND_BLOCKED, 'cannot send: not permitted');
+    }
+  }
+
+  // ------------------------------------------------- S17 DM visibility/block
+
+  /**
+   * S17 (FR-DM-17 / FR-TH-19): 요청자의 DM 가시성 하한선(visibleFrom)을
+   * 조회한다. DM 멤버십은 ChannelPermissionOverride 의 USER-principal row
+   * 로 표현되므로(S16), 그 row 의 visibleFrom 을 그대로 반환한다. DIRECT
+   * 가 아닌 채널·멤버십 row 부재·legacy DM row(NULL)는 모두 null 을 돌려
+   * 필터가 무영향이게 한다. 호출측(list 컨트롤러)이 ListMessagesArgs.visibleFrom
+   * 으로 넘긴다.
+   */
+  async resolveDmVisibleFrom(channelId: string, userId: string): Promise<Date | null> {
+    const override = await this.prisma.channelPermissionOverride.findFirst({
+      where: { channelId, principalType: 'USER', principalId: userId },
+      select: { visibleFrom: true },
+    });
+    return override?.visibleFrom ?? null;
+  }
+
+  /**
+   * S17 (FR-DM-18): blocker(요청자)가 BLOCKED 한 상대 userId 집합을 단일
+   * SELECT 로 로드한다(N+1 회피). 차단 = Friendship status='BLOCKED' 이며
+   * blocker 는 항상 requesterId 다(friends.service 의 block 이 row 를 그렇게
+   * 정렬). 따라서 `requesterId=blockerId AND status='BLOCKED'` 의 addresseeId
+   * 를 모은다. 그룹 DM 메시지 목록 마스킹에 사용한다.
+   */
+  async loadBlockedUserIds(blockerId: string): Promise<Set<string>> {
+    const rows = await this.prisma.friendship.findMany({
+      where: { requesterId: blockerId, status: 'BLOCKED' },
+      select: { addresseeId: true },
+    });
+    return new Set(rows.map((r) => r.addresseeId));
+  }
+
+  /**
+   * S17 (FR-DM-18): authorId 가 blocked-set 에 든 메시지의 본문을 placeholder
+   * 로 마스킹한다(삭제 아님 — 자리 유지). content/contentRaw/contentAst 를
+   * 일관 치환해 라이브 렌더러와 정규식 폴백 둘 다 placeholder 를 표시하게 한다.
+   * deleted 메시지는 이미 toDto 가 null 로 마스킹했으므로 건드리지 않는다.
+   *
+   * NIT (S17 review): mentions 도 빈 값으로 비운다. placeholder 로 본문을 가려도
+   * mentions.users/everyone/here 가 살아있으면 마스킹된 메시지가 멘션 badge 를
+   * 점등시키거나 멘션 패널/언리드에 차단 author 의 흔적을 남긴다. content 와
+   * 동일하게 비노출 처리한다(reactions/thread 메타는 count·emoji 집계라 author
+   * 정체를 드러내지 않으므로 유지 — 단방향 마스킹 정책과 일관).
+   *
+   * NOTE (단방향 마스킹 정책 — 의도된 동작): blocked-set 은 `loadBlockedUserIds`
+   * 가 "내가(blocker=requesterId) 차단한 상대"만 모은다. 즉 내가 차단한 사람의
+   * 메시지만 *나에게* 마스킹되고, 나를 차단한 상대에게는 내 메시지가 그대로
+   * 보인다 — Discord 의 차단 의미(상호 숨김 아님)와 동일하다.
+   */
+  maskBlockedAuthors(dtos: MessageDto[], blockedIds: Set<string>): MessageDto[] {
+    if (blockedIds.size === 0) return dtos;
+    return dtos.map((dto) => {
+      if (!blockedIds.has(dto.authorId) || dto.deleted) return dto;
+      return {
+        ...dto,
+        content: BLOCKED_MESSAGE_PLACEHOLDER,
+        contentRaw: BLOCKED_MESSAGE_PLACEHOLDER,
+        contentAst: null,
+        mentions: { users: [], channels: [], everyone: false, here: false },
+      };
+    });
   }
 
   // ------------------------------------------------------------------ send
@@ -934,6 +1068,9 @@ export class MessagesService {
     nextCursor: string | null;
   }> {
     const { channelId, limit, includeDeleted } = args;
+    // S17 (FR-DM-17 / FR-TH-19): 가시성 하한선. 모든 하위 경로(around split
+    // 포함)의 rawList 호출에 그대로 전달한다.
+    const visibleFrom = args.visibleFrom ?? null;
 
     const directions = [args.before, args.after, args.around].filter(Boolean).length;
     if (directions > 1) {
@@ -946,7 +1083,16 @@ export class MessagesService {
     // -------- around: split into before(limit/2) + after(limit/2) around msgId
     if (args.around) {
       const anchor = await this.prisma.message.findFirst({
-        where: { id: args.around, channelId },
+        where: {
+          id: args.around,
+          channelId,
+          // S17 NIT (info-leak oracle): anchor 도 visibleFrom 게이트를 거친다.
+          // 게이트가 없으면 `around=<visibleFrom 이전 msgId>` 가 200(빈 윈도)을,
+          // 존재하지 않는 id 는 404 를 돌려 "그 시각 이전에 메시지가 존재하는가"를
+          // 200/404 로 구분하는 oracle 이 된다. visibleFrom 이전 anchor 는 list
+          // 와 동일하게 MESSAGE_NOT_FOUND 로 통일한다.
+          ...(visibleFrom ? { createdAt: { gte: visibleFrom } } : {}),
+        },
         select: { createdAt: true, id: true },
       });
       if (!anchor) {
@@ -960,6 +1106,9 @@ export class MessagesService {
         inclusive: true,
         limit: half + 1,
         includeDeleted,
+        // S17 (FR-TH-19): around 의 contextBefore 도 visibleFrom 이전 메시지를
+        // 제외한다 — anchor 가 visibleFrom 이후여도 더 과거 컨텍스트가 새지 않게.
+        visibleFrom,
       });
       const afterItems = await this.rawList({
         channelId,
@@ -968,6 +1117,7 @@ export class MessagesService {
         inclusive: false,
         limit: half,
         includeDeleted,
+        visibleFrom,
       });
       // Merge → dedupe anchor → always DESC by (createdAt, id)
       const byId = new Map<string, MessageRow>();
@@ -1001,6 +1151,7 @@ export class MessagesService {
       inclusive: false,
       limit: limit + 1,
       includeDeleted,
+      visibleFrom,
     });
     const hasMore = fetched.length > limit;
     // BLOCKER fix (S10 review): `fetched` is ALWAYS DESC by (createdAt, id)
@@ -1044,6 +1195,8 @@ export class MessagesService {
     inclusive: boolean; // true = use <=/>= (used for around-anchor inclusion)
     limit: number;
     includeDeleted: boolean;
+    // S17 (FR-DM-17 / FR-TH-19): 요청자 DM 가시성 하한선. null = 무필터.
+    visibleFrom?: Date | null;
   }): Promise<MessageRow[]> {
     const params: unknown[] = [args.channelId, args.limit];
     const deletedFilter = args.includeDeleted ? '' : 'AND "deletedAt" IS NULL';
@@ -1061,6 +1214,18 @@ export class MessagesService {
       orderSql = 'DESC'; // initial = newest first
     }
 
+    // S17 (FR-DM-17 / FR-TH-19): DM 가시성 하한선. visibleFrom 이 설정되면
+    // `createdAt >= visibleFrom` 으로 그 시각 이전 메시지를 모든 경로에서
+    // 제외한다. 파라미터 번호는 cursor 유무에 따라 달라지므로(있으면 $5,
+    // 없으면 $3) 동적으로 부여한다. NULL/undefined 면 절을 아예 비워 비-DM
+    // 채널·legacy DM 에는 무영향이다.
+    let visibleFromSql = '';
+    if (args.visibleFrom) {
+      params.push(args.visibleFrom);
+      const idx = params.length;
+      visibleFromSql = `AND "createdAt" >= $${idx}::timestamptz`;
+    }
+
     // task-014-B: channel list is ROOTS ONLY. Replies live behind the
     // thread panel. Partial index `Message_channel_roots_idx` keeps
     // this on an index scan; without the predicate EXPLAIN showed a
@@ -1075,6 +1240,7 @@ export class MessagesService {
              AND "parentMessageId" IS NULL
              ${deletedFilter}
              ${cursorSql}
+             ${visibleFromSql}
        ORDER BY "createdAt" ${orderSql}, id ${orderSql}
        LIMIT $2
     `;
