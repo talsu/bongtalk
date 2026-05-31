@@ -96,4 +96,41 @@ describe('Global DM workspaceless message flow (int)', () => {
     expect(b.body.message.id).toBe(a.body.message.id);
     expect(b.headers['idempotency-replayed']).toBe('true');
   });
+
+  // S05 verify (BLOCKER fix): MessageAuthorGuard 가 `:chid` 만 읽어 DM 라우트
+  // (`me/dms/:channelId/messages`)의 PATCH 가 무조건 400 VALIDATION_FAILED 였다.
+  // 가드를 `chid ?? channelId` 로 고쳐 DM 편집이 실제로 동작함을 증명한다.
+  it('PATCH /me/dms/:channelId/messages/:msgId → 작성자 편집 성공(version+1, edited)', async () => {
+    const post = await request(env.baseUrl)
+      .post(`/me/dms/${channelId}/messages`)
+      .set(bearer(alice.accessToken))
+      .send({ content: 'dm to edit' });
+    expect(post.status).toBe(201);
+    const msgId = post.body.message.id as string;
+    expect(post.body.message.version).toBe(0);
+
+    const patch = await request(env.baseUrl)
+      .patch(`/me/dms/${channelId}/messages/${msgId}`)
+      .set(bearer(alice.accessToken))
+      .send({ content: 'dm edited', expectedVersion: 0 });
+    expect(patch.status).toBe(200);
+    expect(patch.body.message.content).toBe('dm edited');
+    expect(patch.body.message.edited).toBe(true);
+    expect(patch.body.message.version).toBe(1);
+  });
+
+  it('PATCH by non-author(recipient) → 403 MESSAGE_NOT_AUTHOR (400 아님)', async () => {
+    const post = await request(env.baseUrl)
+      .post(`/me/dms/${channelId}/messages`)
+      .set(bearer(alice.accessToken))
+      .send({ content: 'alice only' });
+    const msgId = post.body.message.id as string;
+
+    const patch = await request(env.baseUrl)
+      .patch(`/me/dms/${channelId}/messages/${msgId}`)
+      .set(bearer(bob.accessToken))
+      .send({ content: 'bob hijack', expectedVersion: 0 });
+    expect(patch.status).toBe(403);
+    expect(patch.body.errorCode).toBe('MESSAGE_NOT_AUTHOR');
+  });
 });
