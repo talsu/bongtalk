@@ -494,6 +494,130 @@ describe('GET /search (task-015-B)', () => {
     expect(ids).not.toContain(withoutAtt!.id);
   });
 
+  // ── S30 (결과 컨텍스트 / 스레드 / 최근검색) ───────────────────────────────
+
+  it('S30 FR-S06: withContext — 결과의 전/후 1메시지 컨텍스트 첨부', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'context boundary before');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'context target needle');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'context boundary after');
+
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=needle&withContext=true`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    const hit = r.body.results[0];
+    expect(hit.contextBefore).toBeTruthy();
+    expect(hit.contextBefore.masked).toBe(false);
+    expect(hit.contextBefore.text).toContain('context boundary before');
+    expect(hit.contextAfter).toBeTruthy();
+    expect(hit.contextAfter.masked).toBe(false);
+    expect(hit.contextAfter.text).toContain('context boundary after');
+  });
+
+  it('S30 FR-S06: 컨텍스트 권한 재검증 — 쿼리 후 비공개 전환된 채널의 인접 메시지 마스킹', async () => {
+    const s = await seed();
+    // member 가 가입한 공개 채널.
+    const chRes = await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ name: 'ctx-acl', type: 'TEXT' });
+    const ch = chRes.body.id as string;
+    await post(s.ownerToken, s.workspaceId, ch, 'ctxacl prior message');
+    await post(s.ownerToken, s.workspaceId, ch, 'ctxacl matched needle');
+    await post(s.ownerToken, s.workspaceId, ch, 'ctxacl next message');
+
+    // 기준선: member 가시 → 컨텍스트 본문 노출.
+    const before = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=needle&withContext=true&channelId=${ch}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(before.status).toBe(200);
+    expect(before.body.results[0].contextBefore.masked).toBe(false);
+
+    // 채널을 비공개로 전환 → member 비멤버. visibleChannelIds 스냅샷이 stale
+    // 하더라도 per-msg 권한 재검증이 인접 메시지를 마스킹해야 한다.
+    // (결과 행 자체는 per-result Set 필터로 제외되므로, 마스킹은 컨텍스트
+    // 계산 시 visibleSet 에서 채널이 빠진 경우를 직접 검증한다.)
+    await env.prisma.channel.update({ where: { id: ch }, data: { isPrivate: true } });
+    const after = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=needle&withContext=true&channelId=${ch}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(after.status).toBe(200);
+    // 비공개 전환 후 결과 자체가 제외(per-result ACL) → 0건.
+    expect(after.body.results).toEqual([]);
+  });
+
+  it('S30 FR-S10: 스레드 답글 검색 — In Thread + 루트 excerpt, 루트채널 가시성', async () => {
+    const s = await seed();
+    // 루트 메시지 작성 후 답글 작성.
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'thread root anchor topic');
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${s.workspaceId}/channels/${s.publicChannelId}/messages?limit=50`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    const root = list.body.items.find(
+      (m: { content: string }) => m.content === 'thread root anchor topic',
+    );
+    await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels/${s.publicChannelId}/messages`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ content: 'reply needle inside thread', parentMessageId: root.id })
+      .expect(201);
+
+    const r = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('reply needle')}&withContext=true`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    const reply = r.body.results.find((x: { snippet: string }) => x.snippet.includes('needle'));
+    expect(reply).toBeTruthy();
+    expect(reply.inThread).toBe(true);
+    expect(reply.threadRootExcerpt).toContain('thread root anchor topic');
+  });
+
+  it('S30 FR-S10: 비스레드 결과는 inThread=false + threadRootExcerpt null', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'standalone lonely needle');
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=lonely&withContext=true`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    const hit = r.body.results[0];
+    expect(hit.inThread).toBe(false);
+    expect(hit.threadRootExcerpt).toBeNull();
+  });
+
+  it('S30 FR-S07: 최근 검색 — 결과 쿼리 후 GET /search/recent 에 newest-first 노출', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'recenttoken alpha body');
+    // 세 번 검색 — 중복 제거 + newest-first 확인.
+    await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=recenttoken`)
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+    await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=alpha`)
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+    // 중복(recenttoken 재검색) → 한 번만 남고 맨 앞으로.
+    await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=recenttoken`)
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+
+    const recent = await request(env.baseUrl)
+      .get(`/search/recent`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(recent.status).toBe(200);
+    expect(recent.body.recents[0]).toBe('recenttoken');
+    expect(recent.body.recents).toContain('alpha');
+    // 중복 제거 — recenttoken 은 1회만.
+    expect(recent.body.recents.filter((x: string) => x === 'recenttoken')).toHaveLength(1);
+  });
+
   it('EXPLAIN: search plan uses a GIN index (no Seq Scan)', async () => {
     const s = await seed();
     // Seed enough rows so the planner has a real choice.

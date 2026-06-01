@@ -73,6 +73,11 @@ const REDIS_COMMAND_ALLOWLIST = new Set([
   'smembers',
   'sismember',
   'sunion',
+  // S30 (FR-S07): 최근 검색 LIST(LPUSH/LREM/LTRIM/LRANGE).
+  'lpush',
+  'lrem',
+  'ltrim',
+  'lrange',
   'keys',
   'scan',
   'xadd',

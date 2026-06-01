@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S29 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S30(검색 결과 패널/카드/컨텍스트 + Jump + 페이지네이션 + 스레드답글 권한필터).** D02·D03·D08(프레즌스)·D09 완료. D07(검색, S29~) 진행 중. **진행률: 120/354 FR done(+6 partial).**
+> **S05 검증·S06~S30 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S31(검색 필터/연산자/정렬 UI + 잔여 검색 FR — D07-search 마무리).** D02·D03·D08(프레즌스)·D09 완료. D07(검색, S29~S31) 진행 중 — S29 코어·S30 결과패널/Jump 완료. **진행률: 125/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -260,11 +260,25 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19(api 395) + build 3종 + search int 21 GREEN. DS 무수정. 마이그레이션 PG16(비정규화 컬럼).
 - carryover: perf(FTS OR ILIKE GIN 폴백·visibleChannelIds 캐시·ANY plan-cache·username lower() 인덱스·backfill 배치), web 검색 필터 UI(task-046 iter3), pin advisory-lock 500(별도).
 
-## 다음 슬라이스: S30 (검색 결과 패널/카드/컨텍스트 + Jump 시퀀스 + 페이지네이션 + 스레드답글 권한필터)
+## ✅ S30 (검색 결과 패널/카드/컨텍스트 + Jump + 페이지네이션 + 스레드답글 권한필터) — 완료 (2026-06-02, 이 세션)
 
-- scope 주로 web(`apps/web/src/features/search/**`) + 일부 api. FR-S03/06/07/09/10.
-- FR-S03(검색 결과 패널/카드 UI), FR-S06(결과 클릭→메시지 컨텍스트 점프 — S23 Jump-to-Unread/around 시퀀스 재사용), FR-S07(컨텍스트 표시), FR-S09(cursor 페이지네이션 20/100 — S29 기존), FR-S10(스레드 답글도 권한 필터 — S29 visibleChannelIds 가 thread reply 검색에도).
-- 주의: **UI 슬라이스 → ui-designer + visual-regression 필수**(DS qf-search\* 클래스). S29 검색 코어(GET /search, per-result ACL, sort) 위. Jump=S23 around 점프 시퀀스. 스레드 답글 권한필터(parentMessageId 채널 가시성). FR 정본: PRD html FR-S03/06/07/09/10.
+- FR-S03(슬라이드인 결과 패널 `qf-search-overlay`, 우측 슬롯 MemberColumn 대체, 0건 `data-state=empty`+힌트), FR-S06(카드+전후 컨텍스트 회색줄 + **클릭→`?msg=` 점프**: MessageList/useMessages 에 `?msg=` 소비자 추가 — `resolveListFetchArgs(jumpMessageId)` around anchor 우선 + scrollToIndex + ~2s 하이라이트 펄스), FR-S07(컨텍스트 표시 + index-update 배너 `qufox.search.activity` + Redis `search:recent:{userId}` 최근검색), FR-S09(infinite 페이지네이션 20/100), FR-S10(스레드답글 In Thread 레이블 + 루트 excerpt, 루트 채널 가시성 검증).
+- **4팀 적대적 리뷰**(reviewer/security/ui-designer/a11y) → fix-forward(`feature-implementer`):
+  - **BLOCKER 보안 A1**: `neighborMessage` masked 분기가 messageId/createdAt 메타 누출 → 가시성 검사를 쿼리 **이전**으로 이동, 불가시 채널은 쿼리 없이 전 필드 null placeholder.
+  - **HIGH 보안 A2**: `threadRootExcerpt` 루트 채널 가시성 미검증(시한폭탄) → `visibleIds` 인자 + `root.channelId` 검사, 불가시면 excerpt null.
+  - **BLOCKER 기능 M2**: `?msg=` Jump 소비자 부재(헤드라인 무동작) → MessageColumn/MessageList around+scroll+highlight 소비자 신설.
+  - **MAJOR M3**: index-update 배너 자기메시지 노이즈 → dispatcher 가 `authorId !== viewer` 일 때만 발화.
+  - **a11y**: 카드 `aria-label`(접근명), 패널 열림 포커스, Esc 닫기, results `aria-live` + sr-only status, 최근검색 `<button>`, `<time dateTime>`/장식 aria-hidden/In Thread·masked aria-label.
+  - **DS**: `qf-search-overlay` 70vh 클리핑 → `max-h-none rounded-none shadow-none` 오버라이드(DS 미수정). inert broken selector(`text-channel-ref`/`text-mention-strong`) 제거.
+- shared-types `SearchContextMessage.messageId/createdAt` nullable(masked placeholder). 마이그레이션 없음(Redis-only recent).
+- 게이트: `pnpm verify` 19 tasks GREEN(api 403·web 516) + 빌드 3종 + 신규 단위 9(masking 4·dispatcher 2·aroundReload jump 3). DS 무수정 확인.
+- carryover: SearchInput 선존 broken Tailwind(`bg-bg-hover`/`bg-bg-elevated`/`bg-bg-panel`/`text-text`)·combobox ARIA → a11y/DS-cleanup. DS contrast(mark/accent/text-muted, tokens.css 필요) → DS-owner. 모바일 검색 패널 → mobile parity. recent 워크스페이스 scope(F-05)·search() visibleIds 이중계산(F-03)·pushRecent 성공후이동(F-04)·redis multi 파이프라인(L2) → perf/minor. 동일채널 out-of-window 점프 재로드 누락 → carryover. M1(채널전환 패널유지)=by-design(Discord식, Esc/닫기로 종료).
+
+## 다음 슬라이스: S31 (검색 필터/연산자/정렬 UI + 잔여 검색 FR — D07-search 마무리)
+
+- scope 주로 web(`apps/web/src/features/search/**`). FR-S01/S02/S11/S12/S13/S14.
+- FR 정본 PRD html 에서 재확인 필수. 예상: 검색 필터 칩 UI(in:#channel·from:@user·has:·before/after — S29 파서/`suggest` 백엔드 위), 정렬 토글 UI(관련도/최신 — FR-S08 백엔드 위), 검색 진입(단축키/토픽바), 결과 그룹핑/날짜 등. **task-046 iter3(검색 필터 UI) 번들이 여기서 소진**.
+- 주의: **UI 슬라이스 → ui-designer + visual-regression 필수**. S29 코어(파서·`suggest`·sort)·S30 패널 위. SearchInput 선존 a11y(combobox ARIA)·broken Tailwind 가 이 슬라이스 범위와 겹치면 함께 정리 후보. DS `qf-search-overlay__chip`/`__filters` 활용 검토.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

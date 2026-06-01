@@ -293,6 +293,29 @@ export const ListThreadRepliesResponseSchema = z.object({
 });
 export type ListThreadRepliesResponse = z.infer<typeof ListThreadRepliesResponseSchema>;
 
+// S30 (FR-S06): 결과 카드의 전/후 컨텍스트 메시지 한 줄.
+// `senderName` / `text` 는 권한 재검증을 통과한 경우에만 채워집니다.
+// 채널 VIEW_CHANNEL 권한이 없으면 `masked: true` 로 내려보내고 본문 자리에
+// "[접근 불가 메시지]" 를 표기합니다(프런트가 회색 placeholder 렌더).
+//
+// S30 fix-forward (BLOCKER 보안 A1): masked=true 인 컨텍스트는 식별정보를
+// 0 으로 만듭니다. 종전엔 본문(text/senderName)만 가리고 `messageId`(인접
+// 메시지 PK)와 정확한 `createdAt` 시각을 그대로 내려보내, 권한 없는 채널
+// 메시지의 ID·시각이 누출됐습니다. 이제 마스킹 시 둘 다 null 입니다 —
+// 그래서 두 필드를 nullable 로 좁힙니다(masked 가 아니면 항상 채워짐).
+export const SearchContextMessageSchema = z.object({
+  /** 마스킹 시 null — 권한 없는 채널 메시지의 PK 노출 차단(BLOCKER 보안 A1). */
+  messageId: z.string().uuid().nullable(),
+  senderName: z.string().nullable(),
+  /** HTML-escaped plain excerpt (no <mark>). null when masked. */
+  text: z.string().nullable(),
+  /** 마스킹 시 null — 권한 없는 채널 메시지의 정확한 시각 노출 차단(A1). */
+  createdAt: z.string().datetime().nullable(),
+  /** 권한 재검증 실패 시 true — 본문은 placeholder 로 대체. */
+  masked: z.boolean(),
+});
+export type SearchContextMessage = z.infer<typeof SearchContextMessageSchema>;
+
 // Task-015-B: message full-text search. Snippet carries `<mark>` HTML
 // from Postgres ts_headline; frontends must sanitize with DOMPurify.
 export const SearchResultSchema = z.object({
@@ -304,6 +327,17 @@ export const SearchResultSchema = z.object({
   createdAt: z.string().datetime(),
   snippet: z.string(),
   rank: z.number(),
+  // ── S30 (FR-S06 / FR-S10) — additive optional fields ──────────────────────
+  // 기존 search() 응답은 이 필드를 생략하므로 전부 optional. withContext=true
+  // 호출 시에만 채워집니다.
+  /** FR-S06: 직전 1메시지(회색 컨텍스트). 권한 재검증 적용. */
+  contextBefore: SearchContextMessageSchema.nullable().optional(),
+  /** FR-S06: 직후 1메시지(회색 컨텍스트). 권한 재검증 적용. */
+  contextAfter: SearchContextMessageSchema.nullable().optional(),
+  /** FR-S10: 스레드 답글이면 true (parentMessageId != null). */
+  inThread: z.boolean().optional(),
+  /** FR-S10: 스레드 답글일 때 루트 메시지 본문 excerpt(HTML-escaped). */
+  threadRootExcerpt: z.string().nullable().optional(),
 });
 export type SearchResult = z.infer<typeof SearchResultSchema>;
 
@@ -316,6 +350,14 @@ export type SearchResponse = z.infer<typeof SearchResponseSchema>;
 // S29 (FR-S08): 검색 정렬 모드. relevance(ts_rank_cd, 기본) | recent(createdAt DESC).
 export const SearchSortSchema = z.enum(['relevance', 'recent']);
 export type SearchSort = z.infer<typeof SearchSortSchema>;
+
+// S30 (FR-S07): 서버측 최근 검색어. Redis `search:recent:{userId}` LPUSH 로
+// 중복 제거 + 상한 N 유지. 패널 빈 상태에서 노출합니다(PII 는 워크스페이스
+// scope 키에 머무름).
+export const RecentSearchesResponseSchema = z.object({
+  recents: z.array(z.string()),
+});
+export type RecentSearchesResponse = z.infer<typeof RecentSearchesResponseSchema>;
 
 // S29 (FR-S05): 검색 수식어(클라이언트 문서용). 쿼리 문자열 안에 인라인으로
 // 작성한다 — `from:@user in:#channel has:link|image|file before:YYYY-MM-DD

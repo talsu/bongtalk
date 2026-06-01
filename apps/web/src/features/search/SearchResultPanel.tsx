@@ -1,0 +1,346 @@
+import { useEffect, useRef } from 'react';
+import type { SearchResult } from '@qufox/shared-types';
+import { Avatar, Icon } from '../../design-system/primitives';
+import { searchSnippetHtml } from './sanitize';
+import {
+  IN_THREAD_LABEL,
+  INDEX_UPDATE_BANNER_TEXT,
+  contextDisplayText,
+  emptyStateHint,
+} from './searchResultView';
+
+/**
+ * S30 fix-forward (a11y A-1): 결과 카드 접근명에 쓸 plain-text snippet.
+ * snippet 은 ts_headline 의 `<mark>` HTML 을 담으므로 태그를 제거해
+ * aria-label 에 안전한 평문만 남깁니다(시각 렌더는 sanitize 경로가 별도 처리).
+ */
+function stripTags(html: string): string {
+  return html.replace(/<[^>]*>/g, '');
+}
+
+/**
+ * S30 (FR-S03 / FR-S06 / FR-S07 / FR-S09 / FR-S10):
+ * 검색 결과 패널(슬라이드인, 우측 패널 대체). 순수 표시 컴포넌트 — 데이터/콜백을
+ * prop 으로 받아 DS `qf-search-overlay*` 클래스로 렌더합니다. 점프/페이지네이션/
+ * 재검색/최근선택 동작은 모두 콜백으로 위임합니다(상태는 상위 hook 이 소유).
+ *
+ * 사용 DS 클래스: qf-search-overlay, __results, __result, __result-ctx,
+ * __result-preview, __jump (전부 기존 — 신규 0). 신규 시각 요소(배너/빈상태/
+ * 컨텍스트 회색줄/In Thread)는 DS 토큰만 사용한 Tailwind arbitrary 로 표현합니다.
+ */
+
+type Props = {
+  /** 디바운스된 현재 쿼리(빈 문자열이면 최근검색 노출). */
+  query: string;
+  results: SearchResult[];
+  channelNameById: Map<string, string>;
+  isLoading: boolean;
+  hasNextPage: boolean;
+  isFetchingNextPage: boolean;
+  /** FR-S07: 새 결과 가능 배너 표시 여부. */
+  indexUpdateAvailable: boolean;
+  /** FR-S07: 패널 빈 상태에 노출할 최근 검색어(서버/로컬 병합). */
+  recents: string[];
+  onJump: (_r: SearchResult) => void;
+  onLoadMore: () => void;
+  onReSearch: () => void;
+  onPickRecent: (_q: string) => void;
+  onClose: () => void;
+};
+
+export function SearchResultPanel({
+  query,
+  results,
+  channelNameById,
+  isLoading,
+  hasNextPage,
+  isFetchingNextPage,
+  indexUpdateAvailable,
+  recents,
+  onJump,
+  onLoadMore,
+  onReSearch,
+  onPickRecent,
+  onClose,
+}: Props): JSX.Element {
+  const trimmed = query.trim();
+  const showRecents = trimmed.length === 0;
+  const isEmpty = !showRecents && !isLoading && results.length === 0;
+
+  // a11y A-4: 패널이 열리면 포커스를 패널로 옮겨 키보드/SR 사용자가 맥락을
+  // 잃지 않게 합니다(tabIndex=-1 로 프로그램적 포커스만 허용).
+  const panelRef = useRef<HTMLElement>(null);
+  useEffect(() => {
+    panelRef.current?.focus();
+  }, []);
+
+  // a11y A-6: 결과 상태를 aria-live 영역에 1줄로 통지(SR 전용).
+  const statusText = isLoading
+    ? '검색 중'
+    : isEmpty
+      ? '결과 없음'
+      : showRecents
+        ? ''
+        : `${results.length}건의 검색 결과`;
+
+  return (
+    <aside
+      ref={panelRef}
+      data-testid="search-result-panel"
+      // DS violation 회피(70vh 클리핑): qf-search-overlay 는 DS 에서 floating
+      // overlay(max-height:70vh + radius + shadow)라 floor-to-ceiling 슬롯에서
+      // 잘리고 라운드/그림자가 뜬다. DS 수정 금지이므로 Tailwind 로 오버라이드.
+      className="qf-search-overlay h-full w-thread max-w-full max-h-none rounded-none shadow-none"
+      // 우측 패널(ThreadPanel 과 동일 슬롯) 자리에 floor-to-ceiling.
+      role="complementary"
+      aria-label="검색 결과"
+      tabIndex={-1}
+    >
+      <div className="qf-search-overlay__bar">
+        <Icon name="search" />
+        <span className="qf-search-overlay__input flex items-center">
+          {trimmed.length > 0 ? `검색: ${trimmed}` : '검색'}
+        </span>
+        <button
+          type="button"
+          data-testid="search-panel-close"
+          aria-label="검색 결과 닫기"
+          onClick={onClose}
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+        >
+          <Icon name="x" size="sm" />
+        </button>
+      </div>
+
+      {/* FR-S07: index-update 배너 — 패널 닫힘/재검색까지 유지. */}
+      {indexUpdateAvailable ? (
+        <button
+          type="button"
+          data-testid="search-index-update-banner"
+          onClick={onReSearch}
+          className="flex w-full items-center gap-[var(--s-2)] border-b border-[var(--divider)] bg-[var(--accent-subtle)] px-[var(--s-5)] py-[var(--s-2)] text-left text-[length:var(--fs-12)] text-[color:var(--a-200)]"
+        >
+          <Icon name="refresh" size="sm" />
+          {INDEX_UPDATE_BANNER_TEXT}
+        </button>
+      ) : null}
+
+      <div
+        className="qf-search-overlay__results"
+        data-testid="search-panel-results"
+        // a11y A-6: 결과 갱신을 SR 에 부드럽게 통지(정중하게, 누적 X).
+        aria-live="polite"
+        aria-atomic="false"
+      >
+        {/* a11y A-6: SR 전용 상태 텍스트(시각 숨김). 빈 문자열이면 침묵. */}
+        <span role="status" className="sr-only" data-testid="search-panel-status">
+          {statusText}
+        </span>
+        {showRecents ? (
+          <RecentSearchList recents={recents} onPick={onPickRecent} />
+        ) : isLoading ? (
+          <div
+            data-testid="search-panel-loading"
+            className="px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
+          >
+            검색 중…
+          </div>
+        ) : isEmpty ? (
+          <div
+            data-testid="search-panel-empty"
+            data-state="empty"
+            className="px-[var(--s-4)] py-[var(--s-6)] text-center"
+          >
+            <div className="text-[length:var(--fs-14)] text-[color:var(--text-secondary)]">
+              결과가 없습니다.
+            </div>
+            <div
+              data-testid="search-panel-empty-hint"
+              className="mt-[var(--s-2)] text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
+            >
+              {emptyStateHint(trimmed)}
+            </div>
+          </div>
+        ) : (
+          <ul data-testid="search-panel-result-list">
+            {results.map((r) => (
+              <ResultCard
+                key={r.messageId}
+                result={r}
+                channelName={channelNameById.get(r.channelId) ?? r.channelName}
+                onJump={() => onJump(r)}
+              />
+            ))}
+            {/* FR-S09: 페이지네이션 — 더 보기(20/페이지, 최대 100). */}
+            {hasNextPage ? (
+              <li className="px-[var(--s-2)] py-[var(--s-3)] text-center">
+                <button
+                  type="button"
+                  data-testid="search-panel-load-more"
+                  onClick={onLoadMore}
+                  // a11y nit: 페이지 로딩 중임을 SR 에 알림.
+                  aria-busy={isFetchingNextPage}
+                  className="text-[length:var(--fs-12)] text-[color:var(--text-muted)] underline"
+                >
+                  {isFetchingNextPage ? '불러오는 중…' : '더 보기'}
+                </button>
+              </li>
+            ) : null}
+          </ul>
+        )}
+      </div>
+    </aside>
+  );
+}
+
+function ResultCard({
+  result,
+  channelName,
+  onJump,
+}: {
+  result: SearchResult;
+  channelName: string;
+  onJump: () => void;
+}): JSX.Element {
+  const before = result.contextBefore ?? null;
+  const after = result.contextAfter ?? null;
+  // a11y A-1: 결과 카드 접근명. role=button 인 div 는 내부에 block/img 를 담아
+  // <button> 으로 못 바꾸므로(invalid HTML) aria-label 로 접근명을 부여한다.
+  // "#채널 · 작성자 · 시각[ · 스레드 답글]: 본문평문" 형태.
+  const accessibleName =
+    `#${channelName} · ${result.senderName} · ${new Date(result.createdAt).toLocaleString()}` +
+    `${result.inThread ? ' · 스레드 답글' : ''}: ${stripTags(result.snippet)}`;
+  return (
+    <li>
+      <div
+        data-testid={`search-card-${result.messageId}`}
+        className="qf-search-overlay__result"
+        role="button"
+        tabIndex={0}
+        aria-label={accessibleName}
+        onClick={onJump}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onJump();
+          }
+        }}
+      >
+        {/* 채널 + 작성자 아바타/이름/타임스탬프 */}
+        <div className="qf-search-overlay__result-ctx">
+          <span data-testid="search-card-channel"># {channelName}</span>
+          <span aria-hidden="true">·</span>
+          {/* 이름은 텍스트로 이미 노출되며 Avatar 는 내부적으로 aria-hidden 이다. */}
+          <Avatar name={result.senderName} size="xs" />
+          <strong>{result.senderName}</strong>
+          <span aria-hidden="true">·</span>
+          <time dateTime={result.createdAt}>{new Date(result.createdAt).toLocaleString()}</time>
+          {/* FR-S10: In Thread 레이블 */}
+          {result.inThread ? (
+            <span
+              data-testid="search-card-in-thread"
+              aria-label="스레드 답글"
+              className="ml-[var(--s-1)] rounded-[var(--r-xs)] bg-[var(--bg-input)] px-[var(--s-2)] text-[length:var(--fs-11)] text-[color:var(--text-secondary)]"
+            >
+              {IN_THREAD_LABEL}
+            </span>
+          ) : null}
+        </div>
+
+        {/* FR-S10: 스레드면 루트 메시지 excerpt(회색) */}
+        {result.inThread && result.threadRootExcerpt ? (
+          <div
+            data-testid="search-card-thread-root"
+            className="text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
+          >
+            <span aria-hidden="true">↳</span>
+            <span className="sr-only">원본 메시지: </span> {result.threadRootExcerpt}
+          </div>
+        ) : null}
+
+        {/* FR-S06: 전 컨텍스트(회색) */}
+        {before ? <ContextLine kind="before" ctx={before} /> : null}
+
+        {/* 검색어 하이라이트 본문(최대 3줄 truncate) */}
+        <p
+          data-testid="search-card-preview"
+          className="qf-search-overlay__result-preview line-clamp-3 [&_.qf-search-code]:rounded-[var(--r-xs)] [&_.qf-search-code]:bg-[var(--bg-panel)] [&_.qf-search-code]:px-1 [&_.qf-search-code]:font-mono"
+          dangerouslySetInnerHTML={{ __html: searchSnippetHtml(result.snippet) }}
+        />
+
+        {/* FR-S06: 후 컨텍스트(회색) */}
+        {after ? <ContextLine kind="after" ctx={after} /> : null}
+
+        <span className="qf-search-overlay__jump" aria-hidden="true">
+          JUMP
+        </span>
+      </div>
+    </li>
+  );
+}
+
+/**
+ * FR-S06: 전/후 컨텍스트 한 줄(회색). 마스킹이면 placeholder, 아니면 서버가
+ * 내려준 HTML-escaped 본문을 그대로 텍스트로 렌더(추가 escape 없음).
+ */
+function ContextLine({
+  kind,
+  ctx,
+}: {
+  kind: 'before' | 'after';
+  ctx: NonNullable<SearchResult['contextBefore']>;
+}): JSX.Element {
+  const masked = ctx.masked || ctx.text === null;
+  return (
+    <div
+      data-testid={`search-card-context-${kind}`}
+      data-masked={masked ? 'true' : 'false'}
+      // a11y: 마스킹된 컨텍스트는 placeholder 만 보이므로 접근명을 명시한다.
+      aria-label={masked ? '접근 권한이 없는 메시지' : undefined}
+      className="truncate text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
+    >
+      {ctx.senderName ? <span className="font-medium">{ctx.senderName}: </span> : null}
+      {contextDisplayText(ctx)}
+    </div>
+  );
+}
+
+function RecentSearchList({
+  recents,
+  onPick,
+}: {
+  recents: string[];
+  onPick: (_q: string) => void;
+}): JSX.Element {
+  if (recents.length === 0) {
+    return (
+      <div
+        data-testid="search-panel-recents-empty"
+        className="px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
+      >
+        검색어를 입력하세요.
+      </div>
+    );
+  }
+  return (
+    <div data-testid="search-panel-recents">
+      <div className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-[color:var(--text-muted)]">
+        최근 검색
+      </div>
+      <ul>
+        {recents.map((q) => (
+          // a11y A-3: 키보드 포커스/Enter 동작을 위해 li onClick → button.
+          <li key={q}>
+            <button
+              type="button"
+              className="qf-menu__item w-full text-left"
+              onClick={() => onPick(q)}
+            >
+              {q}
+            </button>
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+}
