@@ -45,6 +45,13 @@ type Props = {
    * values are the usernames to show in the message header.
    */
   extraNames?: Map<string, string>;
+  /**
+   * S22 (FR-RS-02): 읽음 커서 콜백. 목록의 최신 메시지 id 와 현재 뷰가
+   * scroll-to-bottom 인지(가상화: 마지막 virtualIndex 가 마지막 메시지인지 +
+   * 바닥 근접)를 MessageColumn 으로 올려보내, ACK 디바운스/즉시 발화를
+   * 결정하게 한다. tail(최신 메시지 id)이 바뀔 때마다 호출된다.
+   */
+  onReadCursor?: (cursor: { lastMessageId: string; atBottom: boolean }) => void;
 };
 
 /**
@@ -82,6 +89,7 @@ export function MessageList({
   channelId,
   onOpenThread,
   extraNames,
+  onReadCursor,
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -194,6 +202,10 @@ export function MessageList({
   historyRef.current = history;
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
+  // S22 (FR-RS-02): onReadCursor 를 ref 로 보관해 콜백 identity 변화가 cursor
+  // 효과를 재실행하지 않도록 한다(tail id 변경에만 반응).
+  const onReadCursorRef = useRef(onReadCursor);
+  onReadCursorRef.current = onReadCursor;
 
   // Scroll listener: track bottom-near for B-2 + trigger older-page
   // fetch when the user crosses the top threshold. Attached ONCE per
@@ -311,6 +323,35 @@ export function MessageList({
   }, [messages.length, messageIds, virtualizer]);
 
   const items = virtualizer.getVirtualItems();
+
+  // S22 (FR-RS-02): tail(최신 메시지 id)이 바뀔 때마다 읽음 커서를 올려보낸다.
+  // atBottom 판정:
+  //   1. 마지막 메시지가 가상 윈도우에 렌더돼 있어야 하고(마지막 virtualIndex
+  //      === messages.length-1), AND
+  //   2. 스크롤 컨테이너가 바닥 50px 이내(FR-RS-02 임계치).
+  // 둘 중 하나라도 거짓이면 사용자가 위를 보고 있는 것이므로 즉시 ACK 가 아니라
+  // 디바운스 경로로 보낸다(MessageColumn 이 분기).
+  const lastMessageId = messages.length > 0 ? messages[messages.length - 1].id : null;
+  useEffect(() => {
+    if (!lastMessageId) return;
+    const cb = onReadCursorRef.current;
+    if (!cb) return;
+    const el = scrollRef.current;
+    const lastVirtual = items.length > 0 ? items[items.length - 1] : null;
+    const lastRendered = lastVirtual ? lastVirtual.index === messages.length - 1 : false;
+    const nearBottom = el
+      ? isNearBottom({
+          scrollTop: el.scrollTop,
+          scrollHeight: el.scrollHeight,
+          clientHeight: el.clientHeight,
+          slack: 50,
+        })
+      : false;
+    cb({ lastMessageId, atBottom: lastRendered && nearBottom });
+    // tail id 변경에만 반응한다. items/messages.length/scroll element 는 같은
+    // 렌더에서 함께 갱신되므로 lastMessageId 만 deps 로 둬도 cursor 가 정합한다.
+    // (이 repo 는 react-hooks/exhaustive-deps 규칙 미설치 — disable 주석 불필요.)
+  }, [lastMessageId]);
 
   return (
     <CustomEmojiProvider workspaceId={workspaceId}>

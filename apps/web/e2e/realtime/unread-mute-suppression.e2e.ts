@@ -28,33 +28,36 @@ async function loginInPage(page: Page, email: string): Promise<void> {
 }
 
 /**
- * Task-010-B E2E:
- *  - owner posts a message in #general from context A;
- *  - member (in context B, viewing a different channel) sees the unread
- *    dot/pill bump in the sidebar;
- *  - member navigates into #general; the dot disappears (POST /read);
- *  - mention variant asserts the mention-coloured dot appears.
+ * S22 (review #1, FR-RS-05): 뮤트 억제 회귀 가드.
+ *
+ * 뮤트한 채널은 일반 미읽음(`data-unread`)을 억제하되, 본인을 향한 멘션은
+ * 그대로 뱃지로 노출해야 한다(뮤트는 미읽음 표시만 억제, 멘션은 유지).
+ *
+ *  - member 가 #general 을 무기한 뮤트한다(POST /me/mutes/channels/:id).
+ *  - member 는 #offtopic 을 보고 있어 #general 은 비활성.
+ *  - owner 가 #general 에 일반 메시지 → #general 행은 `data-unread=false` 유지.
+ *  - owner 가 member 를 @멘션 → 멘션 숫자 뱃지(unread-pill-mention)는 노출.
  */
-test('unread dot bumps on realtime message and clears on channel open', async ({ browser }) => {
+test('muted channel suppresses unread but still surfaces mention badge', async ({ browser }) => {
   const stamp = Date.now();
   const ownerCtx = await browser.newContext();
   const memberCtx = await browser.newContext();
 
   const ownerToken = await signupAndGetToken(
     ownerCtx,
-    `ur-own-${stamp}@qufox.dev`,
-    `urown${stamp}`,
+    `mu-own-${stamp}@qufox.dev`,
+    `muown${stamp}`,
   );
-  const memberUsername = `urmem${stamp}`;
+  const memberUsername = `mumem${stamp}`;
   const memberToken = await signupAndGetToken(
     memberCtx,
-    `ur-mem-${stamp}@qufox.dev`,
+    `mu-mem-${stamp}@qufox.dev`,
     memberUsername,
   );
 
   const wsRes = await ownerCtx.request.post(`${API}/workspaces`, {
     headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },
-    data: { name: 'Unread E2E', slug: `unread-${stamp.toString(36)}` },
+    data: { name: 'Mute E2E', slug: `mute-${stamp.toString(36)}` },
   });
   const workspace = (await wsRes.json()) as { id: string; slug: string };
 
@@ -79,61 +82,53 @@ test('unread dot bumps on realtime message and clears on channel open', async ({
   });
   const offtopic = (await offtopicRes.json()) as { id: string; name: string };
 
+  // Member mutes #general indefinitely (until = null).
+  const muteRes = await memberCtx.request.post(`${API}/me/mutes/channels/${general.id}`, {
+    headers: { authorization: `Bearer ${memberToken}`, origin: ORIGIN },
+    data: {},
+  });
+  if (!muteRes.ok()) throw new Error(`mute failed: ${muteRes.status()} ${await muteRes.text()}`);
+
   const memberPage = await memberCtx.newPage();
-  await loginInPage(memberPage, `ur-mem-${stamp}@qufox.dev`);
-  // Member opens #offtopic so #general is NOT active when the broadcast
-  // lands — the dispatcher's unread bump should fire.
+  await loginInPage(memberPage, `mu-mem-${stamp}@qufox.dev`);
   await memberPage.goto(`/w/${workspace.slug}/${offtopic.name}`);
   await memberPage.waitForSelector('[data-testid=channel-general]');
 
-  // Owner posts to #general.
-  await ownerCtx.request.post(`${API}/workspaces/${workspace.id}/channels/${general.id}/messages`, {
-    headers: {
-      authorization: `Bearer ${ownerToken}`,
-      origin: ORIGIN,
-      'idempotency-key': crypto.randomUUID(),
-    },
-    data: { content: 'hey everyone', mentions: { users: [], channels: [], everyone: false } },
-  });
-
-  // S22 (review #1): 일반 unread 신호가 `unread-pill` testid 에서 2계층으로
-  // 바뀌었다 — 일반 미읽음은 채널 행 컨테이너의 `data-unread="true"`
-  // (`qf-channel--unread` bold + 좌측 pill)로, 멘션은 별도 숫자 뱃지로 표시한다.
-  // 일반 unread 는 행 자체의 data-unread 속성으로 검증한다.
   const generalRow = memberPage.locator('[data-testid=channel-general]');
-  await expect(generalRow).toHaveAttribute('data-unread', 'true', { timeout: 10_000 });
+  // Sanity: starts non-unread.
+  await expect(generalRow).toHaveAttribute('data-unread', 'false');
 
-  // Opening #general clears the unread (낙관 패치 + read ack → data-unread=false).
-  await memberPage.goto(`/w/${workspace.slug}/${general.name}`);
-  await expect(generalRow).toHaveAttribute('data-unread', 'false', { timeout: 5_000 });
-
-  // Mention variant: owner @mentions the member while the member is
-  // looking at #offtopic.
-  await memberPage.goto(`/w/${workspace.slug}/${offtopic.name}`);
-  await memberPage.waitForSelector('[data-testid=channel-general]');
+  // Owner posts a plain (non-mention) message to the muted #general.
   await ownerCtx.request.post(`${API}/workspaces/${workspace.id}/channels/${general.id}/messages`, {
     headers: {
       authorization: `Bearer ${ownerToken}`,
       origin: ORIGIN,
       'idempotency-key': crypto.randomUUID(),
     },
-    // task-015-A (task-011-follow-8 closure): the server extracts
-    // mentions from the text content; the client-sent `mentions`
-    // payload is ignored. Posting `@<username>` resolves to a
-    // users=[memberId] mentions object on the server side. The test
-    // name ("Mention variant: owner @mentions the member") now
-    // accurately reflects what it covers — previously the payload's
-    // `everyone: true` suggested @everyone semantics that the server
-    // never saw.
-    data: { content: `@${memberUsername} ping` },
+    data: { content: 'muted noise' },
   });
-  // S22 (review #1): 멘션 = 행 우측 숫자 뱃지(`qf-badge--count`,
-  // testid=unread-pill-mention)에 멘션 수가 표기된다.
+
+  // FR-RS-05: muted channel must NOT flip into unread. Give WS time to
+  // arrive then assert the row stays non-unread.
+  await memberPage.waitForTimeout(3_000);
+  await expect(generalRow).toHaveAttribute('data-unread', 'false');
+
+  // But a direct mention still surfaces the mention badge.
+  await ownerCtx.request.post(`${API}/workspaces/${workspace.id}/channels/${general.id}/messages`, {
+    headers: {
+      authorization: `Bearer ${ownerToken}`,
+      origin: ORIGIN,
+      'idempotency-key': crypto.randomUUID(),
+    },
+    data: { content: `@${memberUsername} you are pinged` },
+  });
   const mentionBadge = memberPage.locator(
     '[data-testid=channel-general] [data-testid=unread-pill-mention].qf-badge--count',
   );
   await expect(mentionBadge).toBeVisible({ timeout: 10_000 });
   await expect(mentionBadge).toHaveText(/\d/);
+  // The row itself stays unread-suppressed even with a mention pending.
+  await expect(generalRow).toHaveAttribute('data-unread', 'false');
 
   await memberPage.close();
   await ownerCtx.close();
