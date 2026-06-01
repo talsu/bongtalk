@@ -5,6 +5,7 @@ import { searchSnippetHtml } from './sanitize';
 import {
   IN_THREAD_LABEL,
   INDEX_UPDATE_BANNER_TEXT,
+  SEARCH_CHEAT_SHEET,
   contextDisplayText,
   emptyStateHint,
 } from './searchResultView';
@@ -45,6 +46,10 @@ type Props = {
   onLoadMore: () => void;
   onReSearch: () => void;
   onPickRecent: (_q: string) => void;
+  /** FR-S11: 최근 검색 개별 삭제. */
+  onRemoveRecent: (_q: string) => void;
+  /** FR-S11: 최근 검색 전체 삭제. */
+  onClearRecent: () => void;
   onClose: () => void;
 };
 
@@ -61,6 +66,8 @@ export function SearchResultPanel({
   onLoadMore,
   onReSearch,
   onPickRecent,
+  onRemoveRecent,
+  onClearRecent,
   onClose,
 }: Props): JSX.Element {
   const trimmed = query.trim();
@@ -73,6 +80,17 @@ export function SearchResultPanel({
   useEffect(() => {
     panelRef.current?.focus();
   }, []);
+
+  // S31 (a11y S-2): 최근 검색 개별/전체 삭제 후 포커스가 사라진 버튼과 함께
+  // 소실되지 않도록 패널로 되돌린다.
+  const handleRemoveRecent = (q: string): void => {
+    onRemoveRecent(q);
+    panelRef.current?.focus();
+  };
+  const handleClearRecent = (): void => {
+    onClearRecent();
+    panelRef.current?.focus();
+  };
 
   // a11y A-6: 결과 상태를 aria-live 영역에 1줄로 통지(SR 전용).
   const statusText = isLoading
@@ -137,7 +155,12 @@ export function SearchResultPanel({
           {statusText}
         </span>
         {showRecents ? (
-          <RecentSearchList recents={recents} onPick={onPickRecent} />
+          <RecentSearchList
+            recents={recents}
+            onPick={onPickRecent}
+            onRemove={handleRemoveRecent}
+            onClear={handleClearRecent}
+          />
         ) : isLoading ? (
           <div
             data-testid="search-panel-loading"
@@ -237,9 +260,12 @@ function ResultCard({
           <time dateTime={result.createdAt}>{new Date(result.createdAt).toLocaleString()}</time>
           {/* FR-S10: In Thread 레이블 */}
           {result.inThread ? (
+            // S31 (a11y N-1): 카드 aria-label 에 이미 "스레드 답글" 이 포함돼 있어
+            // 이 배지를 SR 이 또 읽으면 이중 노출이 된다. 시각 배지로만 두고 SR 에서
+            // 숨긴다(aria-hidden).
             <span
               data-testid="search-card-in-thread"
-              aria-label="스레드 답글"
+              aria-hidden="true"
               className="ml-[var(--s-1)] rounded-[var(--r-xs)] bg-[var(--bg-input)] px-[var(--s-2)] text-[length:var(--fs-11)] text-[color:var(--text-secondary)]"
             >
               {IN_THREAD_LABEL}
@@ -308,35 +334,76 @@ function ContextLine({
 function RecentSearchList({
   recents,
   onPick,
+  onRemove,
+  onClear,
 }: {
   recents: string[];
   onPick: (_q: string) => void;
+  onRemove: (_q: string) => void;
+  onClear: () => void;
 }): JSX.Element {
+  // FR-S01: 최근 검색 0건이면 수식어 치트시트 카드를 노출한다.
   if (recents.length === 0) {
     return (
-      <div
-        data-testid="search-panel-recents-empty"
-        className="px-[var(--s-4)] py-[var(--s-5)] text-center text-[length:var(--fs-12)] text-[color:var(--text-muted)]"
-      >
-        검색어를 입력하세요.
+      <div data-testid="search-panel-cheatsheet" className="px-[var(--s-3)] py-[var(--s-4)]">
+        <div className="mb-[var(--s-2)] text-[length:var(--fs-12)] text-[color:var(--text-muted)]">
+          수식어로 검색을 좁혀보세요
+        </div>
+        <div className="qf-search-overlay__filters" role="presentation">
+          {SEARCH_CHEAT_SHEET.map((item) => (
+            <button
+              key={item.example}
+              type="button"
+              data-testid={`search-panel-cheat-${item.keyPart.replace(':', '')}`}
+              className="qf-search-overlay__chip"
+              // S31 (a11y M-1): 키+설명을 접근명으로 명시(title 만으로는 부족).
+              aria-label={`${item.keyPart} ${item.hint}`}
+              title={item.hint}
+              onClick={() => onPick(item.example.trim())}
+            >
+              <span className="qf-search-overlay__chip-key">{item.keyPart}</span>
+              <span>{item.rest}</span>
+            </button>
+          ))}
+        </div>
       </div>
     );
   }
   return (
     <div data-testid="search-panel-recents">
-      <div className="px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-[color:var(--text-muted)]">
-        최근 검색
+      <div className="flex items-center justify-between px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-11)] text-[color:var(--text-muted)]">
+        <span>최근 검색</span>
+        {/* FR-S11: 전체 삭제. */}
+        <button
+          type="button"
+          data-testid="search-panel-recents-clear"
+          aria-label="최근 검색 전체 삭제"
+          className="underline"
+          onClick={onClear}
+        >
+          지우기
+        </button>
       </div>
       <ul>
         {recents.map((q) => (
           // a11y A-3: 키보드 포커스/Enter 동작을 위해 li onClick → button.
-          <li key={q}>
+          <li key={q} className="flex items-center gap-[var(--s-1)] pr-[var(--s-2)]">
             <button
               type="button"
-              className="qf-menu__item w-full text-left"
+              className="qf-menu__item min-w-0 flex-1 truncate text-left"
               onClick={() => onPick(q)}
             >
               {q}
+            </button>
+            {/* FR-S11: 개별 삭제. */}
+            <button
+              type="button"
+              data-testid={`search-panel-recent-remove-${q}`}
+              aria-label={`최근 검색 삭제: ${q}`}
+              className="shrink-0 text-[color:var(--text-muted)] hover:text-[color:var(--text)]"
+              onClick={() => onRemove(q)}
+            >
+              <Icon name="x" size="sm" />
             </button>
           </li>
         ))}

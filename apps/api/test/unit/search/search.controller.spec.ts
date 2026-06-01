@@ -28,6 +28,9 @@ function makeCtrl() {
     // S30 (FR-S07): best-effort 최근 검색 기록 — 컨트롤러가 fire-and-forget.
     pushRecentSearch: vi.fn().mockResolvedValue(undefined),
     recentSearches: vi.fn().mockResolvedValue([]),
+    // S31 (FR-S11): 최근 검색 삭제.
+    removeRecentSearch: vi.fn().mockResolvedValue(undefined),
+    clearRecentSearches: vi.fn().mockResolvedValue(undefined),
   } as unknown as SearchService;
   const rate = { enforce: vi.fn().mockResolvedValue(undefined) } as unknown as RateLimitService;
   return { ctrl: new SearchController(search, rate), search, rate };
@@ -373,6 +376,53 @@ describe('SearchController.recent (S30 FR-S07)', () => {
   });
 });
 
+describe('SearchController.deleteRecent (S31 FR-S11)', () => {
+  it('q 가 있으면 removeRecentSearch(userId, entry) 호출(IDOR: userId 는 @CurrentUser 고정)', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, 'from:@bob roadmap');
+    expect(search.removeRecentSearch).toHaveBeenCalledWith(ME, 'from:@bob roadmap');
+    expect(search.clearRecentSearches).not.toHaveBeenCalled();
+  });
+
+  it('q 가 없으면 clearRecentSearches(userId) 전체 삭제', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, undefined);
+    expect(search.clearRecentSearches).toHaveBeenCalledWith(ME);
+    expect(search.removeRecentSearch).not.toHaveBeenCalled();
+  });
+
+  it('q 가 빈 문자열이면 전체 삭제로 처리', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, '');
+    expect(search.clearRecentSearches).toHaveBeenCalledWith(ME);
+    expect(search.removeRecentSearch).not.toHaveBeenCalled();
+  });
+
+  it('rate-limit(srecent 버킷) 을 강제한다', async () => {
+    const { ctrl, rate } = makeCtrl();
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, 'x');
+    expect(rate.enforce).toHaveBeenCalledWith([{ key: `srecent:u:${ME}`, windowSec: 60, max: 60 }]);
+  });
+
+  it('S31 security: q 가 200자 초과면 VALIDATION_FAILED (Redis LREM DoS 차단)', async () => {
+    const { ctrl, search } = makeCtrl();
+    const huge = 'a'.repeat(201);
+    await expect(
+      ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, huge),
+    ).rejects.toThrow(/q must be at most 200 characters/);
+    // 거부 시 어떤 삭제도 발화되지 않아야 한다.
+    expect(search.removeRecentSearch).not.toHaveBeenCalled();
+    expect(search.clearRecentSearches).not.toHaveBeenCalled();
+  });
+
+  it('S31 security: q 가 정확히 200자면 통과(경계)', async () => {
+    const { ctrl, search } = makeCtrl();
+    const atCap = 'a'.repeat(200);
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, atCap);
+    expect(search.removeRecentSearch).toHaveBeenCalledWith(ME, atCap);
+  });
+});
+
 describe('SearchController.suggest (task-046 J1)', () => {
   it('q + workspaceId 가 있으면 service.suggest 호출', async () => {
     const { ctrl, search } = makeCtrl();
@@ -399,12 +449,12 @@ describe('SearchController.suggest (task-046 J1)', () => {
     ).rejects.toThrow(/workspaceId is required/);
   });
 
-  it('limit 미지정 시 기본 5', async () => {
+  it('limit 미지정 시 기본 6 (web SUGGEST_LIMIT 와 통일)', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', WS, undefined);
     const args = (search.suggest as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as { limit?: number };
-    expect(args.limit).toBe(5);
+    expect(args.limit).toBe(6);
   });
 
   it('limit > 20 은 20 으로 clamp', async () => {

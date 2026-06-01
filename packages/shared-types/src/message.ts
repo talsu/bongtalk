@@ -359,6 +359,14 @@ export const RecentSearchesResponseSchema = z.object({
 });
 export type RecentSearchesResponse = z.infer<typeof RecentSearchesResponseSchema>;
 
+// S31 (FR-S02): GET /search/suggest 응답 — 수식어 자동완성 후보.
+// from:/in: 타이핑 중 워크스페이스 가시 채널명 + 멤버 username prefix-match.
+export const SearchSuggestResponseSchema = z.object({
+  channels: z.array(z.object({ id: z.string().uuid(), name: z.string() })),
+  users: z.array(z.object({ id: z.string().uuid(), username: z.string() })),
+});
+export type SearchSuggestResponse = z.infer<typeof SearchSuggestResponseSchema>;
+
 // S29 (FR-S05): 검색 수식어(클라이언트 문서용). 쿼리 문자열 안에 인라인으로
 // 작성한다 — `from:@user in:#channel has:link|image|file before:YYYY-MM-DD
 // after:YYYY-MM-DD during:today|yesterday|week|month|YYYY-MM is:pinned`.

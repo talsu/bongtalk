@@ -15,6 +15,12 @@ describe('searchResultView (S30 pure helpers)', () => {
     expect(hint).toContain('from:, in:, has:');
   });
 
+  it('FR-S14: emptyStateHint 는 구체 예시 1줄(from:@alice in:#general 배포)을 포함', () => {
+    const hint = emptyStateHint('roadmap');
+    expect(hint).toContain('예:');
+    expect(hint).toContain('from:@alice in:#general 배포');
+  });
+
   it('FR-S06: 마스킹이면 placeholder, 아니면 본문 그대로', () => {
     expect(contextDisplayText({ masked: true, text: null })).toBe(MASKED_CONTEXT_PLACEHOLDER);
     expect(contextDisplayText({ masked: false, text: null })).toBe(MASKED_CONTEXT_PLACEHOLDER);

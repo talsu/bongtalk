@@ -1,4 +1,4 @@
-import { Controller, Get, Query, UseGuards } from '@nestjs/common';
+import { Controller, Delete, Get, HttpCode, Query, UseGuards } from '@nestjs/common';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DomainError } from '../common/errors/domain-error';
@@ -60,6 +60,41 @@ export class SearchController {
     await this.rate.enforce([{ key: `srecent:u:${user.id}`, windowSec: 60, max: 60 }]);
     const recents = await this.search.recentSearches(user.id);
     return { recents };
+  }
+
+  /**
+   * S31 (FR-S11): DELETE /search/recent — 최근 검색어 삭제.
+   *   - `?q=<entry>` 가 있으면 해당 엔트리 1건만 제거(LREM).
+   *   - `q` 가 없으면 전체 삭제(DEL).
+   *
+   * 엔트리는 공백/슬래시 등 URL-unsafe 문자를 포함할 수 있으므로 path param
+   * 대신 query string `q` 로 받습니다(라우팅 충돌 회피). userId 는
+   * @CurrentUser 로 고정해 사용자 자신의 키에만 작용합니다(IDOR 차단).
+   * 동일 rate-limit 버킷(srecent)을 공유합니다.
+   */
+  @Delete('recent')
+  @HttpCode(204)
+  async deleteRecent(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('q') q: string | undefined,
+  ): Promise<void> {
+    await this.rate.enforce([{ key: `srecent:u:${user.id}`, windowSec: 60, max: 60 }]);
+    // S31 (security DoS): `q` 길이 상한. 거대 q 는 Redis LREM 이 리스트 전체를
+    // 항목별 비교(O(N·M))로 훑게 만들어 남용 가능하므로 경계에서 차단한다.
+    // 저장되는 최근 검색어는 RECENT_SEARCH_VALUE_MAX(200)를 넘지 못하므로,
+    // 그보다 긴 q 는 매칭될 항목이 애초에 없다 → 거부한다(400 대신 무의미한
+    // 요청이라 VALIDATION_FAILED 로 차단). q 가 비면 전체 삭제(DEL)로 분기.
+    if (typeof q === 'string' && q.length > 0) {
+      if (q.length > RECENT_SEARCH_VALUE_MAX) {
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          `q must be at most ${RECENT_SEARCH_VALUE_MAX} characters`,
+        );
+      }
+      await this.search.removeRecentSearch(user.id, q);
+    } else {
+      await this.search.clearRecentSearches(user.id);
+    }
   }
 
   @Get()
@@ -139,6 +174,11 @@ function assertUuid(value: string, name: string): void {
   }
 }
 
+// S31 (security DoS): DELETE /search/recent 의 `q` 길이 상한. 저장 측
+// (search.service.ts RECENT_SEARCH_VALUE_MAX)와 동일한 200 으로 맞춘다 —
+// 저장 한도를 넘는 q 는 매칭될 엔트리가 없으므로 거부한다.
+const RECENT_SEARCH_VALUE_MAX = 200;
+
 // S29 (security MEDIUM/DoS): q 길이 상한(modifier 토큰 포함 원문 기준).
 const Q_MAX_LENGTH = 500;
 
@@ -180,9 +220,11 @@ function clampLimit(raw: string | undefined): number {
   return Math.floor(n);
 }
 
+// S31 (contract): suggest 기본 limit 을 web 송신값(SUGGEST_LIMIT=6)과 통일한다.
+// 미지정/비정상 입력은 6 으로 degrade, 상한은 20 유지.
 function clampSuggestLimit(raw: string | undefined): number {
   const n = Number(raw);
-  if (!Number.isFinite(n) || n < 1) return 5;
+  if (!Number.isFinite(n) || n < 1) return 6;
   if (n > 20) return 20;
   return Math.floor(n);
 }

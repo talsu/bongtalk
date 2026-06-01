@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S30 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S31(검색 필터/연산자/정렬 UI + 잔여 검색 FR — D07-search 마무리).** D02·D03·D08(프레즌스)·D09 완료. D07(검색, S29~S31) 진행 중 — S29 코어·S30 결과패널/Jump 완료. **진행률: 125/354 FR done(+6 partial).**
+> **S05 검증·S06~S31 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S32(D17 실시간 동기화 — 재연결/누락복구/멀티디바이스, FR-RT-08/09/17).** D02·D03·D07(검색, S29~S31 완료)·D08(프레즌스)·D09 완료. **진행률: 131/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -274,11 +274,25 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 tasks GREEN(api 403·web 516) + 빌드 3종 + 신규 단위 9(masking 4·dispatcher 2·aroundReload jump 3). DS 무수정 확인.
 - carryover: SearchInput 선존 broken Tailwind(`bg-bg-hover`/`bg-bg-elevated`/`bg-bg-panel`/`text-text`)·combobox ARIA → a11y/DS-cleanup. DS contrast(mark/accent/text-muted, tokens.css 필요) → DS-owner. 모바일 검색 패널 → mobile parity. recent 워크스페이스 scope(F-05)·search() visibleIds 이중계산(F-03)·pushRecent 성공후이동(F-04)·redis multi 파이프라인(L2) → perf/minor. 동일채널 out-of-window 점프 재로드 누락 → carryover. M1(채널전환 패널유지)=by-design(Discord식, Esc/닫기로 종료).
 
-## 다음 슬라이스: S31 (검색 필터/연산자/정렬 UI + 잔여 검색 FR — D07-search 마무리)
+## ✅ S31 (검색 필터/수식어 자동완성/최근검색 서버삭제/치트시트/combobox/Ctrl+F) — 완료 (2026-06-02, 이 세션) — **D07-search 도메인 완료**
 
-- scope 주로 web(`apps/web/src/features/search/**`). FR-S01/S02/S11/S12/S13/S14.
-- FR 정본 PRD html 에서 재확인 필수. 예상: 검색 필터 칩 UI(in:#channel·from:@user·has:·before/after — S29 파서/`suggest` 백엔드 위), 정렬 토글 UI(관련도/최신 — FR-S08 백엔드 위), 검색 진입(단축키/토픽바), 결과 그룹핑/날짜 등. **task-046 iter3(검색 필터 UI) 번들이 여기서 소진**.
-- 주의: **UI 슬라이스 → ui-designer + visual-regression 필수**. S29 코어(파서·`suggest`·sort)·S30 패널 위. SearchInput 선존 a11y(combobox ARIA)·broken Tailwind 가 이 슬라이스 범위와 겹치면 함께 정리 후보. DS `qf-search-overlay__chip`/`__filters` 활용 검토.
+- FR-S01(치트시트 카드 — 0건 시 from:@alice/in:#general/has:image 칩 `qf-search-overlay__filters/__chip/__chip-key`), FR-S02(타이핑 수식어 감지 `suggestToken` → `GET /search/suggest` 인라인 자동완성 + has: 정적옵션, combobox ARIA 전면), FR-S11(서버+local recents 병합·상한 10 통일·개별/전체 삭제 `DELETE /search/recent?q=` 신규 Redis LREM/DEL + 낙관적 롤백), FR-S13(`searchQueryGate` — 수식어 유효성 기반 짧은쿼리 차단, 서버파서 정합), FR-S14(빈결과 힌트 예시 1줄), FR-S12(Ctrl/Cmd+F → 텍스트채널만 `in:#채널` 프리필, `!openModal` 가드, `searchPrefill`).
+- 신규 순수모듈: `searchQueryGate.ts`/`suggestToken.ts`/`comboboxNav.ts`/`searchPrefill.ts`. 공유 hook `useRecentSearches`. shared-types `SearchSuggestResponseSchema`. BE `DELETE /search/recent`(JwtAuthGuard·@CurrentUser IDOR차단·길이상한 200·srecent rate-limit).
+- **6팀 적대적 리뷰**(reviewer/security/contract/ui-designer/a11y/visual-regression) → fix-forward:
+  - **보안 DoS**: `DELETE ?q=` 길이상한 없음 → LREM O(N·M) 남용 → 컨트롤러+서비스 200자 가드.
+  - **a11y BLOCKER B-1**: `aria-controls` 가 실제 `role=listbox` 안 가리킴 → id 를 `<ul role=listbox>` 로 이동 + listbox 없는 분기 `aria-expanded=false`/controls 생략(dangling 제거).
+  - **a11y BLOCKER B-2**: "더 보기" `<li+button>` 이 listbox content model 위반 → `<ul>` 바깥 이동.
+  - **reviewer MAJOR1**: 게이트가 무효 수식어(`is:foo`/`has:video`/`before:nope`/`from:@`)를 modifier 오인 → FR-S13 무력화 → 서버파서 유효성과 일치(`isValidModifier`).
+  - **reviewer MAJOR3**: 낙관적 개별삭제 롤백 없음 → 캐시+localStorage 스냅샷 복원.
+  - a11y SHOULD: 드롭다운 aria-live status, 삭제후 refocus, 전체삭제 aria-label, 치트칩 aria-label, highlight 비색단서, In Thread 이중읽힘 제거, Esc 비-blur. DS: `z-dropdown`→`z-[var(--z-dropdown)]`, `text-xs`→토큰. contract: suggest limit 기본 6 통일.
+- 게이트: `pnpm verify` 19 GREEN(api 409·web 583·shared-types 175·webhook 50) + 빌드 3종 + 신규 테스트(게이트 무효수식어 8·삭제 롤백·DELETE 과길이·combobox aria-controls→listbox·load-more 위치·searchPrefill). DS 4파일 무수정. 마이그레이션 없음.
+- carryover: **MAJOR2 caret-aware 중간토큰 자동완성**(현재 마지막토큰 한정, 주석 정정) → 후속. a11y B-3(`qf-input:focus outline:none` = DS 전역의도)·M-4 contrast(text-muted on bg-hover 라이트 4.48:1) → **DS-owner**(불변). DS: qf-autocomplete\_\_item 재사용·qf-row-iconbtn·w-96/mt-0.5 → DS-cleanup. class-validator DTO 마이그레이션 → 후속. visual baseline(검색 드롭다운 스냅샷 부재) → task-048. NIT clamp-vs-wrap → 선택.
+
+## 다음 슬라이스: S32 (D17 실시간 동기화 — 재연결/누락복구/멀티디바이스)
+
+- scope api realtime + web. **FR-RT-08 / FR-RT-09 / FR-RT-17**(FR-RT-17 만 P2).
+- FR 정본 PRD html 에서 재확인 필수. 예상: WS 재연결 시 누락 메시지 catch-up(seq/cursor 기반 resync), 멀티디바이스/탭 간 상태 동기, 연결 끊김↔복구 표시. S09 around-reload seam·read_state:updated·dispatcher dedupe(FR-RT-24) 위에. presence grace(S25/26)·outbox 패턴과 정합.
+- 주의: 실시간 슬라이스라 **멀티노드 fanout(Redis adapter)·재연결 레이스** 정밀 검토. WS 이벤트 네임스페이스 dot→colon 수렴(S10 carryover 번들)이 이 도메인과 겹치면 함께 점검. UI 변경 있으면 ui-designer/visual-regression.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
