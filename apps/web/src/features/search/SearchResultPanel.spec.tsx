@@ -45,6 +45,8 @@ function render(props: Partial<Parameters<typeof SearchResultPanel>[0]> = {}): s
       onLoadMore={() => undefined}
       onReSearch={() => undefined}
       onPickRecent={() => undefined}
+      onRemoveRecent={() => undefined}
+      onClearRecent={() => undefined}
       onClose={() => undefined}
       {...props}
     />,
@@ -146,6 +148,30 @@ describe('SearchResultPanel (S30)', () => {
     expect(html).toContain('alpha');
     expect(html).toContain('beta');
     // 빈 상태에선 결과/empty 렌더 안 함.
+    expect(html).not.toContain('data-state="empty"');
+  });
+
+  it('FR-S11: 최근 검색 항목별 개별 삭제 버튼 + 전체 삭제 버튼', () => {
+    const html = render({ query: '', recents: ['alpha', 'beta'] });
+    expect(html).toContain('data-testid="search-panel-recents-clear"');
+    expect(html).toContain('data-testid="search-panel-recent-remove-alpha"');
+    expect(html).toContain('data-testid="search-panel-recent-remove-beta"');
+    expect(html).toContain('최근 검색 삭제: alpha');
+  });
+
+  it('FR-S01: 빈 쿼리 + 최근검색 0건이면 수식어 치트시트 카드(from:/in:/has:)', () => {
+    const html = render({ query: '', recents: [] });
+    expect(html).toContain('data-testid="search-panel-cheatsheet"');
+    expect(html).toContain('qf-search-overlay__filters');
+    expect(html).toContain('qf-search-overlay__chip-key');
+    expect(html).toContain('from:');
+    expect(html).toContain('in:');
+    expect(html).toContain('has:');
+    expect(html).toContain('@alice');
+    expect(html).toContain('#general');
+    expect(html).toContain('image');
+    // 치트시트일 땐 최근목록/결과 렌더 안 함.
+    expect(html).not.toContain('data-testid="search-panel-recents"');
     expect(html).not.toContain('data-state="empty"');
   });
 });

@@ -5,6 +5,7 @@ import { useMyWorkspaces } from '../workspaces/useWorkspaces';
 import { useChannelList } from '../channels/useChannels';
 import { useMarkAllRead } from '../channels/useUnread';
 import { classifyReadShortcut } from './readShortcut';
+import { searchPrefillQuery } from './searchPrefill';
 import { announce } from '../../lib/a11y-announce';
 
 type Combo = {
@@ -43,6 +44,8 @@ export function useGlobalShortcuts(): void {
   const { slug, channelName } = useParams<{ slug: string; channelName?: string }>();
   const setOpenModal = useUI((s) => s.setOpenModal);
   const openModal = useUI((s) => s.openModal);
+  // S31 (FR-S12): Ctrl/Cmd+F → 현재 채널 in: 프리필 검색 패널.
+  const openSearchPanel = useUI((s) => s.openSearchPanel);
   const { data: mine } = useMyWorkspaces();
   const currentWorkspaceId = mine?.workspaces.find((w) => w.slug === slug)?.id;
   const { data: channels } = useChannelList(currentWorkspaceId);
@@ -107,6 +110,23 @@ export function useGlobalShortcuts(): void {
         return;
       }
 
+      // S31 (FR-S12 + reviewer NIT5/DM): Ctrl/Cmd + F → 현재 채널 로컬 검색.
+      //  - 모달이 열려 있으면 가로채지 않는다(브라우저 기본 찾기 유지) — 모달
+      //    위에서 단축키가 패널을 띄우면 맥락이 어긋난다.
+      //  - in:#<채널> 프리필은 실제 텍스트성 채널일 때만 적합하다. DM/그룹 DM
+      //    은 #채널 이름이 없으므로(in:#<userId> 는 부적합) 빈 패널을 연다.
+      //  - 현재 채널이 없으면(워크스페이스 루트) 브라우저 기본 찾기를 둔다.
+      if (matches(e, { key: 'f', ctrlOrMeta: true }) && channelName && !openModal) {
+        const flat = channels
+          ? [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)]
+          : [];
+        const current = flat.find((c) => c.name === channelName);
+        e.preventDefault();
+        // 텍스트성 채널만 in:#name 프리필. DM/그룹 DM/미해결 채널은 빈 패널.
+        openSearchPanel(searchPrefillQuery(channelName, current?.type));
+        return;
+      }
+
       // `?` (Shift+/ on US layout) → shortcut help. No Ctrl. In-input
       // guard above already blocks this inside textareas/inputs.
       if (e.key === '?') {
@@ -151,6 +171,7 @@ export function useGlobalShortcuts(): void {
     mine,
     setOpenModal,
     openModal,
+    openSearchPanel,
     currentWorkspaceId,
     markAllRead,
   ]);

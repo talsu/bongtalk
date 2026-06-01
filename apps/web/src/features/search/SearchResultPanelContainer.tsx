@@ -1,11 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { useQuery } from '@tanstack/react-query';
 import type { SearchResult } from '@qufox/shared-types';
 import { useChannelList } from '../channels/useChannels';
 import { useUI } from '../../stores/ui-store';
-import { useSearch, loadRecentSearches, pushRecentSearch } from './useSearch';
-import { fetchRecentSearches } from './api';
+import { useSearch, pushRecentSearch, useRecentSearches } from './useSearch';
 import { SearchResultPanel } from './SearchResultPanel';
 
 /**
@@ -50,22 +48,11 @@ export function SearchResultPanelContainer({
     [search.data],
   );
 
-  // FR-S07: 서버측 최근 검색(빈 상태 노출) + 로컬 fallback 병합.
-  const recentQuery = useQuery({
-    queryKey: ['search', 'recent'],
-    queryFn: fetchRecentSearches,
+  // FR-S07/S11: 서버측 최근 검색(빈 상태 노출) + 로컬 병합 — SearchInput 과
+  // 동일한 공유 hook(react-query 키 재사용)으로 단일 소스. 개별/전체 삭제 포함.
+  const { recents, removeOne, clearAll } = useRecentSearches({
     enabled: q.trim().length === 0 && query !== null,
-    staleTime: 30_000,
   });
-  const recents = useMemo(() => {
-    const server = recentQuery.data?.recents ?? [];
-    const local = loadRecentSearches();
-    const merged: string[] = [];
-    for (const x of [...server, ...local]) {
-      if (!merged.includes(x)) merged.push(x);
-    }
-    return merged.slice(0, 8);
-  }, [recentQuery.data]);
 
   // FR-S07: index-update 배너 — 패널이 열려 있는 동안 메시지 활동 신호 수신 시 ON.
   const [indexUpdateAvailable, setIndexUpdateAvailable] = useState(false);
@@ -129,6 +116,8 @@ export function SearchResultPanelContainer({
         void search.refetch();
       }}
       onPickRecent={(picked) => openSearchPanel(picked)}
+      onRemoveRecent={removeOne}
+      onClearRecent={clearAll}
       onClose={closeSearchPanel}
     />
   );
