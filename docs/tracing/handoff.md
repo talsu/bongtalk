@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S24 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S25(프레즌스 코어: 상태 5종 + activity/IDLE 전환 + grace 재연결 + 다중디바이스 세션).** D02(채널)·D03(DM, S16~S20)·**D09(읽음상태, S21~S24 전체) 완료.**
+> **S05 검증·S06~S25 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S26(프레즌스 구독/벌크 + unsubscribe TTL 복원 + 타이핑 인디케이터 DM 통일).** D02(채널)·D03(DM, S16~S20)·D09(읽음상태, S21~S24)·**D08(프레즌스 코어, S25) 완료.**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -225,11 +225,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + channels int 18(read-all 12+mark-unread 6) GREEN. DS 4파일 무수정.
 - carryover(HIGH/MED): **message toolbar hover-only 키보드(DS focus-within 규칙=DS 태스크)**, snapshot GC cron·크기상한, markUnread/undo rate-limit, 다크 muted 대비(DS), 모바일 Unreads, around-reload 서버 emit.
 
-## 다음 슬라이스: S25 (프레즌스 코어 — 상태 5종 + activity/IDLE 전환 + grace 재연결 + 다중디바이스 세션)
+## ✅ S25 (프레즌스 코어 — 상태 5종 + IDLE 전환 + grace + 다중디바이스) — 완료
 
-- scope `apps/api/src/realtime/**`(presence) + 일부 web. FR-P01/02/03, FR-RT-10/11.
-- 프레즌스 상태 5종(online/idle/dnd/offline/invisible?), activity 기반 IDLE 자동전환, grace period 재연결(짧은 끊김 시 offline 미표기), 다중 디바이스 세션 집계(여러 소켓→단일 presence).
-- 주의: S07 realtime gateway(user room, CONNECTION_READY, sharded redis adapter) + presence store 기존 여부 먼저 조사(task-\* 에 presence 일부 존재 가능 — usePresence/PresenceThrottler 흔적 S22 에서 봄). Redis presence 키 + TTL + grace 타이머. FR 정본: PRD html FR-P 섹션. **D09 완료 — D-presence 진입.**
+- FR-P01(PresenceStatus 5종 + INVISIBLE→offline 마스킹 `maskPresenceForViewer` 단일지점), FR-P02/RT-10(35s grace 타이머 + auto-idle 600s + presence:activity), FR-RT-11(다중디바이스 Redis Set, 한 세션이라도 active→online). 마이그레이션 `20260601600000`(invisible enum, reversible). presence:subscribe/bulk + presence.updated(online/dnd/idle).
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀): 보안 BLOCKER(finalizeOffline preference 삭제→INVISIBLE 복원 누출 → preference 정적 보존; presence:subscribe authz 전무 → 워크스페이스/DM 교집합 필터 + userIds max500 + safeParse; dndIn lazy GC; graceEpoch cross-node). perf(effectiveStatus Promise.all 병렬, idleIn 1회). contract(presence.updated WORKSPACE_PRESENCE_UPDATED 타입화). me-presence Zod, env constants.
+- 게이트: verify 19 + build 3종 + presence int 12 GREEN. DS 4파일 무수정.
+- carryover: presence.updated dot→colon(S10), idle sweep 멀티노드, delta payload, **web presence:activity emitter(서버 준비됨, 클라 미전송)**, 멤버목록 REST 마스킹.
+
+## 다음 슬라이스: S26 (프레즌스 구독/벌크 + unsubscribe TTL 복원 + 타이핑 인디케이터 DM 통일)
+
+- scope `apps/api/src/realtime/**`(presence subscribe/typing) + 일부 web. FR-DM-14/P07/P14/P16/RT-12.
+- FR-RT-12(presence:subscribe→bulk 즉시 응답 — S25 에서 일부 구현, room 구독 관리 고도화), FR-P07/P14/P16(프레즌스 구독 lifecycle: unsubscribe + 구독 TTL/복원), FR-DM-14(DM 타이핑 인디케이터 — 일반 채널 typing:start/stop/update 와 통일, dm:typing\_\* prefix 운영 통일).
+- 주의: S25 presence:subscribe/bulk + authorizePresenceTargets 위. 기존 typing.service.ts(TypingService) + presence-throttler 재사용. **선제존재 typing-gateway int 3건(emit-before-ready race) — S26 에서 조사·수정 가능**. 타이핑은 ephemeral(저장X). FR 정본: PRD html FR-P/FR-DM-14.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

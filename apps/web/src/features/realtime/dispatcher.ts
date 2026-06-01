@@ -1,5 +1,10 @@
 import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
-import type { ListMessagesResponse, MessageDto } from '@qufox/shared-types';
+import {
+  WS_EVENTS,
+  type ListMessagesResponse,
+  type MessageDto,
+  type WorkspacePresenceUpdatedPayload,
+} from '@qufox/shared-types';
 import type { Socket } from 'socket.io-client';
 import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
@@ -674,20 +679,23 @@ export function installRealtimeDispatcher(
   });
 
   // ---------- Presence ----------
-  on<{ workspaceId: string; onlineUserIds: string[]; dndUserIds?: string[] }>(
-    'presence.updated',
-    (env) => {
-      if (!env.workspaceId) return;
-      // Write the full shape so the usePresence hook can reconstruct
-      // both the online + dnd sets from the cache; mounts that arrive
-      // after the socket's initial snapshot still read the latest state
-      // instead of sitting at empty until the next broadcast.
-      qc.setQueryData(qk.presence.workspace(env.workspaceId), {
-        online: env.onlineUserIds ?? [],
-        dnd: env.dndUserIds ?? [],
-      });
-    },
-  );
+  // S25 fix-forward(contract HIGH): typed via WorkspacePresenceUpdatedPayload +
+  // the WS_EVENTS constant (was a raw string literal + inline shape). The wire
+  // name stays the dot form `presence.updated` — colon rename is an S10
+  // carryover. online/dnd/idle are guaranteed arrays now (server always sends
+  // all three), but we keep the ?? [] defence for older-server compatibility.
+  on<WorkspacePresenceUpdatedPayload>(WS_EVENTS.WORKSPACE_PRESENCE_UPDATED, (env) => {
+    if (!env.workspaceId) return;
+    // Write the full shape so the usePresence hook can reconstruct the
+    // online + dnd + idle sets from the cache; mounts that arrive after the
+    // socket's initial snapshot still read the latest state instead of
+    // sitting at empty until the next broadcast.
+    qc.setQueryData(qk.presence.workspace(env.workspaceId), {
+      online: env.onlineUserIds ?? [],
+      dnd: env.dndUserIds ?? [],
+      idle: env.idleUserIds ?? [],
+    });
+  });
 
   // ---------- task-045 iter7: user profile (custom status) ----------
   // 본인 또는 다른 사용자의 customStatus 변경 broadcast. dispatcher 는
