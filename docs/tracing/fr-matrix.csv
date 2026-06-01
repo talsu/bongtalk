@@ -117,10 +117,10 @@ FR-P10,D08-presence-status,P1,S27,done
 FR-P11,D08-presence-status,P1,S27,done
 FR-P12,D08-presence-status,P0,S27,done
 FR-P15,D08-presence-status,P1,S27,done
-FR-P04,D08-presence-status,P0,S28,todo
-FR-P05,D08-presence-status,P0,S28,todo
-FR-P06,D08-presence-status,P1,S28,todo
-FR-P17,D08-presence-status,P1,S28,todo
+FR-P04,D08-presence-status,P0,S28,done
+FR-P05,D08-presence-status,P0,S28,done
+FR-P06,D08-presence-status,P1,S28,done
+FR-P17,D08-presence-status,P1,S28,done
 FR-S04,D07-search,P0,S29,todo
 FR-S05,D07-search,P0,S29,todo
 FR-S08,D07-search,P1,S29,todo

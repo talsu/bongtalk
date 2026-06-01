@@ -17,6 +17,7 @@ import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { OutboxService } from '../../common/outbox/outbox.service';
 import { PresenceService } from '../../realtime/presence/presence.service';
+import { maskExpiredStatus } from '../../me/custom-status.service';
 import { MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED } from '../events/workspace-events';
 
 /** S27 (FR-P08): status group display order. */
@@ -46,6 +47,9 @@ interface MemberRow {
     email: string;
     username: string;
     customStatus: string | null;
+    // S28 (HIGH-2 + FR-P17): emoji + expiresAt 도 SELECT — emoji 노출 + 만료 마스킹.
+    customStatusEmoji: string | null;
+    customStatusExpiresAt: Date | null;
     lastSeenAt: Date | null;
   };
 }
@@ -95,6 +99,8 @@ export class MembersService {
     includeOffline?: boolean;
   }): Promise<ListMembersResponse> {
     const { workspaceId, viewerUserId, cursor } = args;
+    // S28 (HIGH-2 + FR-P17): 만료 마스킹 기준 시각. 한 요청 안에서 일관되게 쓴다.
+    const now = new Date();
 
     // S27 fix-forward(perf): count once. The keyset slicing below operates on the
     // already-built sorted order, so we never re-count per page.
@@ -132,6 +138,9 @@ export class MembersService {
             email: true,
             username: true,
             customStatus: true,
+            // S28 (HIGH-2 + FR-P17): emoji + expiresAt — 만료 마스킹 + emoji 노출.
+            customStatusEmoji: true,
+            customStatusExpiresAt: true,
             lastSeenAt: true,
           },
         },
@@ -164,7 +173,7 @@ export class MembersService {
       // for an invisible-masked row (real === invisible, not self). Such a row
       // may carry a stale DND-era lastSeenAt that would leak when they went dark.
       const invisibleMasked = presence?.real === 'invisible' && !isSelf;
-      const dto = this.toDto(row, status, invisibleMasked);
+      const dto = this.toDto(row, status, invisibleMasked, now);
 
       if (HOISTED_ROLES.has(row.role)) {
         hoistMembers.push(dto);
@@ -251,8 +260,21 @@ export class MembersService {
     row: MemberRow,
     status: MemberStatusGroup,
     invisibleMasked: boolean,
+    now: Date,
   ): MemberWithPresence {
     const exposeLastSeen = status === 'offline' && !invisibleMasked;
+    // S28 (HIGH-2 + FR-P17): 만료된 customStatus(+emoji)는 타인에게 노출되지 않도록
+    // expiresAt<=now 면 text/emoji 를 null 로 가린다(getEffective 와 동일 판정 —
+    // 공유 helper maskExpiredStatus). 마스킹 후에도 expiresAt 자체는 노출하지 않는다
+    // (만료분이라 의미 없음). 비만료분만 expiresAt 을 함께 내려보내 클라가 카운트다운
+    // 표시에 쓸 수 있게 한다.
+    const masked = maskExpiredStatus({
+      text: row.user.customStatus ?? null,
+      emoji: row.user.customStatusEmoji ?? null,
+      expiresAt: row.user.customStatusExpiresAt ?? null,
+      now,
+    });
+    const stillSet = masked.text !== null || masked.emoji !== null;
     return {
       workspaceId: row.workspaceId,
       userId: row.userId,
@@ -262,7 +284,12 @@ export class MembersService {
         id: row.user.id,
         username: row.user.username,
         email: row.user.email,
-        customStatus: row.user.customStatus ?? null,
+        customStatus: masked.text,
+        customStatusEmoji: masked.emoji,
+        customStatusExpiresAt:
+          stillSet && row.user.customStatusExpiresAt
+            ? row.user.customStatusExpiresAt.toISOString()
+            : null,
       },
       status,
       lastSeenAt: exposeLastSeen ? desensitiseToDay(row.user.lastSeenAt) : null,

@@ -4,6 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { maskExpiredStatus } from '../../me/custom-status.service';
 import { Permission } from '../../auth/permissions';
 import { OutboxService } from '../../common/outbox/outbox.service';
 import type { OutboxTxClient } from '../../common/outbox/outbox.types';
@@ -641,6 +642,8 @@ export class DirectMessagesService {
       userId: string;
       username: string;
       customStatus: string | null;
+      // S28 (HIGH-2 + FR-P17): emoji 노출 + 만료 마스킹. 만료분은 text/emoji 모두 null.
+      customStatusEmoji: string | null;
     }>
   > {
     // 1) channel 존재 + type=DIRECT + gdm: prefix
@@ -663,14 +666,24 @@ export class DirectMessagesService {
     if (!myOverride || (myOverride.allowMask & Permission.READ) === 0) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
     }
-    // 3) 모든 USER override → User.username/customStatus join
+    // 3) 모든 USER override → User.username/customStatus(+emoji/expiresAt) join.
+    // S28 (HIGH-2 + FR-P17): expiresAt 도 join 해 노출 직전 만료 마스킹한다 — 만료된
+    // 커스텀 상태(+emoji)가 GDM 동료에게 수시간 노출되는 누출을 닫는다.
     const rows = await this.prisma.$queryRaw<
-      Array<{ userId: string; username: string; customStatus: string | null }>
+      Array<{
+        userId: string;
+        username: string;
+        customStatus: string | null;
+        customStatusEmoji: string | null;
+        customStatusExpiresAt: Date | null;
+      }>
     >`
       SELECT
-        ovr."principalId" AS "userId",
-        u.username        AS username,
-        u."customStatus"  AS "customStatus"
+        ovr."principalId"          AS "userId",
+        u.username                 AS username,
+        u."customStatus"           AS "customStatus",
+        u."customStatusEmoji"      AS "customStatusEmoji",
+        u."customStatusExpiresAt"  AS "customStatusExpiresAt"
         FROM "ChannelPermissionOverride" ovr
         JOIN "User" u ON u.id = ovr."principalId"::uuid
        WHERE ovr."channelId" = ${gdmId}::uuid
@@ -680,11 +693,21 @@ export class DirectMessagesService {
          AND ovr."leftAt" IS NULL
        ORDER BY u.username ASC
     `;
-    return rows.map((r) => ({
-      userId: r.userId,
-      username: r.username,
-      customStatus: r.customStatus,
-    }));
+    const now = new Date();
+    return rows.map((r) => {
+      const masked = maskExpiredStatus({
+        text: r.customStatus,
+        emoji: r.customStatusEmoji,
+        expiresAt: r.customStatusExpiresAt,
+        now,
+      });
+      return {
+        userId: r.userId,
+        username: r.username,
+        customStatus: masked.text,
+        customStatusEmoji: masked.emoji,
+      };
+    });
   }
 
   async list(

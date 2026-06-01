@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S27 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S28(커스텀 상태 만료 프리셋/스케줄러 + DND 수동/스케줄 + 알림 차단 연동).** D02·D03·D09 완료. D08(프레즌스, S25~S27) 진행 중.
+> **S05 검증·S06~S28 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S29(검색 코어: 권한필터 오라클방지 + 수식어 파서 has/is + deleted 제외 + 정렬).** D02·D03·**D08(프레즌스, S25~S28)**·D09 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -246,11 +246,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + members-grouped int 13 GREEN. DS 무수정. 마이그레이션 PG16 up→down→up.
 - carryover: email PII(선제존재), 커스텀 역할 hoist, MobileMembers parity, off-viewport stale dot, canStillObserve 캐시.
 
-## 다음 슬라이스: S28 (커스텀 상태 만료 프리셋/스케줄러 + DND 수동/스케줄 + 알림 차단 연동)
+## ✅ S28 (커스텀 상태 만료/프리셋 + DND 수동/스케줄 + 알림 차단) — 완료
 
-- scope `apps/api/src/me/**`(presence/status) + 알림 + 일부 web. FR-P04/05/06/17.
-- FR-P04(커스텀 상태 텍스트+이모지, 만료 프리셋[30분/1시간/오늘/이번주/안함] + 만료 스케줄러 자동 클리어), FR-P05(DND 수동 토글 + DND 스케줄[취침시간 등]), FR-P06(DND 시 알림 차단 — 푸시/소리 게이트), FR-P17(추정 DND/상태 알림 연동).
-- 주의: 기존 User.customStatus(있음, S22/멤버목록에서 봄) + presencePreference(auto/dnd/invisible, S25) 위. 만료 스케줄러(BullMQ 부재 — cron/Redis TTL+lazy 또는 setTimeout). DND 스케줄은 dnd-schedule 컨트롤러 흔적 있음(S25 조사). 알림 차단은 D14 notification 과 연계 주의. customStatus 만료 영속 마이그레이션 가능. FR 정본: PRD html FR-P04~06/17.
+- FR-P04(구조화 커스텀 상태 emoji/text/expiresAt + timezone 프리셋 UTC 계산, 마이그레이션 `20260601800000`), FR-P17(lazy 만료 + 노출 경로 마스킹), FR-P05(DND 수동 + **알림 차단** dnd-gate at mention.received + thread.replied), FR-P06(DND 스케줄 auto-toggle + snapshot/restore + 자정걸침 carry).
+- **리뷰 fix-forward**(reviewer+security+contract 3팀): BLOCKER(DND overnight 다음날 carry 누락 → (day+6)%7), security HIGH(preset 에러 입력반영 → 고정; 만료 customStatus 멤버목록/DM/broadcast 노출 → maskExpiredStatus + charset strip), MAJOR(수동 presence 변경 시 snapshot 클리어; thread.replied DND 게이트), contract(S28 타입 shared-types 이관 + MemberWithPresence emoji/expiresAt), GET dnd-schedule rate-limit, useDndSchedule refetchInterval.
+- 게이트: verify 19(api 358·web 500) + build 3종 + status-dnd int 16 GREEN. DS 무수정. 마이그레이션 PG16.
+- carryover: DST 프리셋 ±1h, DND timezone UI 변환(FR-P06 UTC분=정본, UI 변환 책임), D14 알림 전체, custom status/DND UI 배선(훅 dormant).
+
+## 다음 슬라이스: S29 (검색 코어 — 권한필터 오라클방지 + 수식어 파서 has/is + deleted 제외 + 정렬)
+
+- scope `apps/api/src/search/**` + 일부 web. FR-S04/05/08/15.
+- FR-S04(검색 결과 **권한 필터링** — 볼 수 없는 채널/메시지 결과 제외, **오라클 방지**[검색으로 비공개 존재 추론 차단]), FR-S05(수식어 파서 `has:link/image/file`, `is:pinned` 등), FR-S08(deleted 메시지 검색 제외), FR-S15(정렬 — 관련도/최신).
+- 주의: 기존 검색(S15 inline-search? task-015 FTS? — SearchInput/search 도메인 존재, 멘션 자동완성도 search 사용). **권한 필터는 S14 PermissionMatrix/channel-access + S17 DM visibleFrom/차단 + S27 멤버목록 패턴 재사용**. Postgres FTS(tsvector?) 또는 ILIKE. deleted=soft-delete(deletedAt) 제외. 오라클 방지 = 결과 0 vs 403 구분 안 함. FR 정본: PRD html FR-S.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

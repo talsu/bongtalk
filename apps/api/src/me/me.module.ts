@@ -13,6 +13,8 @@ import { AuthModule } from '../auth/auth.module';
 import { StatusBroadcastThrottler } from './status-broadcast-throttler';
 import { DndScheduleController } from './dnd-schedule.controller';
 import { DndScheduleService } from './dnd-schedule.service';
+import { CustomStatusController } from './custom-status.controller';
+import { CustomStatusService } from './custom-status.service';
 import { NotificationOnboardingController } from './notification-onboarding.controller';
 import { MeProfileController } from './me-profile.controller';
 // S11 (FR-RT-13): POST /workspaces/:id/channels/:chid/ack. RealtimeGateway +
@@ -34,6 +36,7 @@ import { WorkspaceReadAllController } from './workspace-read-all.controller';
     MeUnreadTotalsController,
     MePresenceController,
     MeStatusController,
+    CustomStatusController,
     OnboardingController,
     MeActivityController,
     DndScheduleController,
@@ -42,7 +45,13 @@ import { WorkspaceReadAllController } from './workspace-read-all.controller';
     ChannelAckController,
     WorkspaceReadAllController,
   ],
-  providers: [MeMentionsService, MeActivityService, StatusBroadcastThrottler, DndScheduleService],
-  exports: [MeMentionsService, MeActivityService, DndScheduleService],
+  providers: [
+    MeMentionsService,
+    MeActivityService,
+    StatusBroadcastThrottler,
+    DndScheduleService,
+    CustomStatusService,
+  ],
+  exports: [MeMentionsService, MeActivityService, DndScheduleService, CustomStatusService],
 })
 export class MeModule {}

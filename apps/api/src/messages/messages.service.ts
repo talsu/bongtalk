@@ -44,6 +44,8 @@ import {
   type MessageUpdatedPayload,
 } from './events/message-events';
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
+import { isDndSuppressed } from '../notifications/dnd-gate';
+import type { DndSchedule } from '../me/dnd-schedule.service';
 
 /**
  * First ~140 chars of a message, whitespace-collapsed, for the mention
@@ -815,9 +817,34 @@ export class MessagesService {
                 select: { userId: true },
               });
         const mutedSet = new Set(mutedRows.map((m) => m.userId));
+        // S28 (FR-P05/P06): DND 알림 차단 게이트. 수신자가 수동 DND(presencePreference
+        // = dnd) 이거나 DND 스케줄 구간이 send-time 에 활성이면 mention.received outbox
+        // 자체를 스킵한다(mute 와 동일하게 fanout 비용도 절약). 같은 tx 안에서 후보의
+        // presencePreference + dndSchedule 을 한 번에 조회해 atomic snapshot 을 보장한다.
+        const dndRows =
+          dedupedMentionUserIds.length === 0
+            ? []
+            : await tx.user.findMany({
+                where: { id: { in: dedupedMentionUserIds } },
+                select: { id: true, presencePreference: true, dndSchedule: true },
+              });
+        const dndSuppressedSet = new Set(
+          dndRows
+            .filter((r) =>
+              isDndSuppressed(
+                {
+                  presencePreference: r.presencePreference,
+                  dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                },
+                now,
+              ),
+            )
+            .map((r) => r.id),
+        );
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
           if (mutedSet.has(uid)) continue;
+          if (dndSuppressedSet.has(uid)) continue;
           mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
@@ -1021,20 +1048,49 @@ export class MessagesService {
     // Recipients: root author first so the dispatcher can check mail
     // priority cheaply, then up to 19 recent repliers, deduped, with
     // author self-filter + already-mentioned filter applied.
-    const recipients: string[] = [];
+    const candidate: string[] = [];
     const seen = new Set<string>();
     const push = (uid: string) => {
       if (!uid || uid === replierId) return;
       if (excludeRecipients.has(uid)) return;
       if (seen.has(uid)) return;
       seen.add(uid);
-      recipients.push(uid);
+      candidate.push(uid);
     };
     push(root.authorId);
     for (const { authorId } of recent) {
-      if (recipients.length >= THREAD_REPLY_RECIPIENT_CAP) break;
+      if (candidate.length >= THREAD_REPLY_RECIPIENT_CAP) break;
       push(authorId);
     }
+
+    // S28 (reviewer M3 fix-forward): thread.replied 수신자에도 DND 게이트를
+    // 적용한다(mention.received 와 동일 정책). 수신자가 수동 DND 이거나 send-time 에
+    // DND 스케줄 구간이 활성이면 thread.replied 후보에서 제외한다. 같은 tx 안에서
+    // presencePreference + dndSchedule 을 한 번에 조회해 atomic snapshot 을 보장한다
+    // (mention 게이트와 같은 read 패턴). 빈 후보면 조회 생략.
+    const recipients =
+      candidate.length === 0
+        ? candidate
+        : await (async () => {
+            const dndRows = await tx.user.findMany({
+              where: { id: { in: candidate } },
+              select: { id: true, presencePreference: true, dndSchedule: true },
+            });
+            const suppressed = new Set(
+              dndRows
+                .filter((r) =>
+                  isDndSuppressed(
+                    {
+                      presencePreference: r.presencePreference,
+                      dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                    },
+                    replyCreatedAt,
+                  ),
+                )
+                .map((r) => r.id),
+            );
+            return candidate.filter((uid) => !suppressed.has(uid));
+          })();
 
     return {
       workspaceId,
