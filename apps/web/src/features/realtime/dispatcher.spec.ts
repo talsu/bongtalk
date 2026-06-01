@@ -561,4 +561,22 @@ describe('realtime dispatcher', () => {
     expect(useReadState.getState().getLastRead('ch-rs')).toBe('m-1');
     detach();
   });
+
+  // S26 (FR-P16): per-user presence:update fan-out lands under the per-user
+  // cache key so a DM peer's dot can update with no workspace snapshot.
+  it('presence:update writes the per-user presence cache entry', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('presence:update', {
+      userId: 'u-peer',
+      status: 'offline',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    });
+    expect(qc.getQueryData(qk.presence.user('u-peer'))).toEqual({
+      status: 'offline',
+      updatedAt: '2025-01-01T00:00:00.000Z',
+    });
+    detach();
+  });
 });

@@ -8,6 +8,7 @@ import {
   ReadStateUpdatedPayloadSchema,
   PresenceUpdatePayloadSchema,
   PresenceSubscribePayloadSchema,
+  PresenceUnsubscribePayloadSchema,
   WorkspacePresenceUpdatedPayloadSchema,
   TypingBatchPayloadSchema,
   ChannelJoinedPayloadSchema,
@@ -208,6 +209,30 @@ describe('read_state / presence / typing payloads', () => {
     expect(() => PresenceSubscribePayloadSchema.parse({ userIds: ok })).not.toThrow();
     const tooMany = Array.from({ length: 501 }, (_, i) => `u${i}`);
     expect(() => PresenceSubscribePayloadSchema.parse({ userIds: tooMany })).toThrow();
+  });
+
+  // S26 (FR-P16): presence:unsubscribe is in the WS catalog with a 500-cap
+  // payload mirroring presence:subscribe.
+  it('presence:unsubscribe is typed in the WS catalog with a 500-cap payload', () => {
+    expect(WS_EVENTS.PRESENCE_UNSUBSCRIBE).toBe('presence:unsubscribe');
+    expect(WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.PRESENCE_UNSUBSCRIBE]).toBeDefined();
+    expect(() => PresenceUnsubscribePayloadSchema.parse({ userIds: ['u1', 'u2'] })).not.toThrow();
+    const tooMany = Array.from({ length: 501 }, (_, i) => `u${i}`);
+    expect(() => PresenceUnsubscribePayloadSchema.parse({ userIds: tooMany })).toThrow();
+  });
+
+  // S26 (FR-P16): presence:update (per-subscriber fan-out) carries a single
+  // PresenceEntry shape and is registered for the user:{userId} room push.
+  it('presence:update carries a single PresenceEntry for subscriber fan-out', () => {
+    expect(WS_EVENTS.PRESENCE_UPDATE).toBe('presence:update');
+    expect(WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.PRESENCE_UPDATE]).toBeDefined();
+    const parsed = PresenceUpdatePayloadSchema.parse({
+      userId: 'u1',
+      status: 'online',
+      updatedAt: ISO,
+    });
+    expect(parsed.userId).toBe('u1');
+    expect(parsed.status).toBe('online');
   });
 
   // S25 fix-forward(contract HIGH): workspace presence broadcast is typed +

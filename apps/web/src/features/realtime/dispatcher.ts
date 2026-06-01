@@ -3,6 +3,7 @@ import {
   WS_EVENTS,
   type ListMessagesResponse,
   type MessageDto,
+  type PresenceUpdatePayload,
   type WorkspacePresenceUpdatedPayload,
 } from '@qufox/shared-types';
 import type { Socket } from 'socket.io-client';
@@ -697,6 +698,22 @@ export function installRealtimeDispatcher(
     });
   });
 
+  // S26 (FR-P16): per-user precise presence push from subscription fan-out.
+  // The server emits presence:update to a socket ONLY for users it subscribed
+  // to (presence:subscribe). Distinct from the coarse workspace broadcast
+  // above: this carries a single user's masked status and lands under a
+  // per-user cache key, so a DM peer / viewport-watched member's dot updates
+  // even with no shared workspace snapshot. The set of events a tab receives
+  // is gated server-side by the subscription Set + authz, so no extra
+  // filtering is needed here.
+  on<PresenceUpdatePayload>(WS_EVENTS.PRESENCE_UPDATE, (env) => {
+    if (!env.userId) return;
+    qc.setQueryData(qk.presence.user(env.userId), {
+      status: env.status,
+      updatedAt: env.updatedAt,
+    });
+  });
+
   // ---------- task-045 iter7: user profile (custom status) ----------
   // 본인 또는 다른 사용자의 customStatus 변경 broadcast. dispatcher 는
   // workspace 멤버 list react-query cache 의 user 객체에 customStatus 만
@@ -809,6 +826,7 @@ export const DISPATCHED_EVENTS = [
   'workspace.member.removed',
   'workspace.role.changed',
   'presence.updated',
+  'presence:update',
   'mention.received',
   'message.reaction.added',
   'message.reaction.removed',

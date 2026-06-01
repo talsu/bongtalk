@@ -106,11 +106,11 @@ FR-P02,D08-presence-status,P0,S25,done
 FR-P03,D08-presence-status,P0,S25,done
 FR-RT-10,D17-realtime-sync,P1,S25,done
 FR-RT-11,D17-realtime-sync,P1,S25,done
-FR-DM-14,D03-dms,P1,S26,todo
-FR-P07,D08-presence-status,P0,S26,todo
-FR-P14,D08-presence-status,P0,S26,todo
-FR-P16,D08-presence-status,P0,S26,todo
-FR-RT-12,D17-realtime-sync,P1,S26,todo
+FR-DM-14,D03-dms,P1,S26,done
+FR-P07,D08-presence-status,P0,S26,done
+FR-P14,D08-presence-status,P0,S26,done
+FR-P16,D08-presence-status,P0,S26,done
+FR-RT-12,D17-realtime-sync,P1,S26,done
 FR-P08,D08-presence-status,P0,S27,todo
 FR-P09,D08-presence-status,P1,S27,todo
 FR-P10,D08-presence-status,P1,S27,todo

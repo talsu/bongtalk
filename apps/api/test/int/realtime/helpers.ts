@@ -228,6 +228,46 @@ export function connectClient(
   });
 }
 
+/**
+ * S26: connect AND wait for the server's `connection:ready` event before
+ * resolving. The gateway only sets `client.data.state` (and thus admits
+ * typing.ping / channel:read / presence:subscribe membership checks) during
+ * its async handleConnection; the raw `connect` event fires when the
+ * handshake completes, which can race AHEAD of that state assignment. A
+ * client that emits immediately after `connect` (the emit-before-ready race
+ * behind the pre-existing flaky typing-gateway specs) would have its frame
+ * silently dropped because state is still undefined. Waiting for
+ * `connection:ready` — emitted right after state is set — removes the race.
+ */
+export function connectReady(
+  wsUrl: string,
+  accessToken: string,
+  opts?: { lastEventId?: string; timeoutMs?: number },
+): Promise<Socket> {
+  const socket = ioClient(wsUrl, {
+    auth: { accessToken, ...(opts?.lastEventId ? { lastEventId: opts.lastEventId } : {}) },
+    transports: ['websocket'],
+    reconnection: false,
+    forceNew: true,
+  });
+  return new Promise((resolve, reject) => {
+    const t = setTimeout(() => {
+      socket.off('connection:ready', onReady);
+      reject(new Error('timeout waiting for connection:ready'));
+    }, opts?.timeoutMs ?? 5000);
+    const onReady = (): void => {
+      clearTimeout(t);
+      socket.off('connection:ready', onReady);
+      resolve(socket);
+    };
+    socket.once('connect_error', (err: unknown) => {
+      clearTimeout(t);
+      reject(err instanceof Error ? err : new Error(String(err)));
+    });
+    socket.on('connection:ready', onReady);
+  });
+}
+
 /** Wait for a named event or time out. */
 export function waitForEvent<T = unknown>(
   socket: Socket,
