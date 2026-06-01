@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S22 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S23(NEW MESSAGES 구분선 + Jump-to-Unread + 수동 미읽 표시).** D02(채널)·D03(DM, S16~S20) 완료. S21 D09 코어(+선제존재 unread 3건 수정)·S22 읽음 사이드바/배지 UI 완료.
+> **S05 검증·S06~S23 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S24(수동 미읽/컨텍스트 메뉴 읽음 + Unreads View + 단축키 + mark-all-read Undo).** D02(채널)·D03(DM, S16~S20) 완료. S21 D09 코어(+선제존재 unread 3건 수정)·S22 사이드바/배지·S23 NEW MESSAGES 구분선/Jump/Esc 단축키 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -211,11 +211,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + web 429 GREEN. DS 4파일 무수정.
 - carryover: DmShell qf-section/qf-channel--active 미등록(선제존재 HIGH), a11y A-4 keyboard reachability(선제존재 HIGH), DM mentionCount contract, visual baseline(Docker Playwright), 배지 대비(DS).
 
-## 다음 슬라이스: S23 (NEW MESSAGES 구분선 + Jump-to-Unread + 수동 미읽 표시)
+## ✅ S23 (NEW MESSAGES 구분선 + Jump-to-Unread + Esc/Shift+Esc 읽음) — 완료
 
-- scope 주로 web(`apps/web/src/features/messages/**`) + 일부 api. FR-RS-06/07/11.
-- FR-RS-06(채널 오픈 시 lastReadMessageId 직후 첫 미읽 메시지 위 "NEW MESSAGES" 구분선, 미읽 없으면 미표시), FR-RS-07(구분선 viewport 처리/Jump-to-Unread), FR-RS-11(수동 미읽 표시 — mark-as-unread).
-- 주의: S21 (createdAt,id) 튜플 lastRead + S22 AckScheduler 위. **around-reload seam(S09)의 lastReadMessageId 공급을 여기서 연결**(S09/S22 carryover). 수동 미읽은 ChannelReadState 후진(monotonic 예외 — 의도적 후진 허용 필요, S21 monotonic upsert 와 충돌 주의). MessageList 가상화에 구분선 삽입. UI 슬라이스 → ui-designer+visual 리뷰. FR 정본: PRD html.
+- FR-RS-06(채널진입 스냅샷 firstUnread 위 NEW MESSAGES 구분선, 가상화 별도 행, 미읽 없으면 미표시), FR-RS-07(구분선 viewport 밖이면 Jump pill, 첫 렌더 virtualIndex vs 구분선 인덱스 비교 + 20ms 보정), FR-RS-11(**정정**: Esc=현재 채널 읽음/Shift+Esc=워크스페이스 전체 읽음 단축키, mark-unread 아님). 신규 `POST /workspaces/:id/read-all`(set-based 단일 SQL, monotonic, ACL 가시채널만). 신규 DS 클래스 0(page-scoped DS 토큰).
+- **리뷰 fix-forward**(reviewer+ui-designer+visual+a11y 4팀): Esc 오버레이 충돌(EmojiPicker/ThreadPanel stopPropagation + defaultPrevented 가드), **cold-cache 구분선 소실**(스냅샷을 부모로 lift, zero-out 전 캡처), dispatcher null lastRead clear 금지(around-reload 보존), markAllRead O(N)→set-based 1 SQL + onError 롤백, jump pill overscan 보정·색(bg badge-unread a-600)·포커스 이동·포커스링, 구분선 텍스트 정합.
+- 게이트: verify 19 + build 3종 + web 단위 + read-all int 5 GREEN. DS 4파일 무수정.
+- carryover: role=log live-region(선제존재 HIGH), 라이트 구분선 대비(DS), 데스크톱 구분선 DS 클래스 갭, DM 구분선/전체읽음 contract, around-reload 서버 emit.
+
+## 다음 슬라이스: S24 (수동 미읽/컨텍스트 메뉴 읽음 + Unreads View + 단축키 + mark-all-read Undo)
+
+- scope web + api. FR-RS-08/09/10/18.
+- FR-RS-08(**수동 mark-as-unread** — 메시지 컨텍스트 메뉴 "여기부터 읽지 않음", ChannelReadState **후진** 필요), FR-RS-09(컨텍스트 메뉴 채널 읽음 표시), FR-RS-10(Unreads View — 전체 미읽 모아보기), FR-RS-18(mark-all-read Undo — S23 read-all 직후 되돌리기).
+- 주의: **⚠️ 수동 mark-unread 는 monotonic 후진** — S21 ackRead/markAllRead 의 monotonic 전진-only upsert 와 **충돌**. 의도적 후진(특정 메시지 직전으로 lastReadMessageId 되돌림) 전용 경로 필요(monotonic guard 우회 — 단 read_state:updated 로 멀티세션 동기화). **Undo(FR-RS-18)** 는 read-all 직전 스냅샷 보관(S23 useMarkAllRead onMutate 스냅샷 재활용 가능) 후 복원 엔드포인트. Unreads View 는 summarize 전체 미읽 목록. FR 정본: PRD html FR-RS.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

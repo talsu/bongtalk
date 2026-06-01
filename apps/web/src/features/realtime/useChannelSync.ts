@@ -13,6 +13,7 @@ import { useChannelSyncStore } from './channelSyncStore';
 import { shouldBufferIncoming } from './channelSyncFsm';
 import { setActiveSeqTracker, clearActiveSeqTracker } from './seqTrackerRegistry';
 import { DISPATCHED_EVENTS } from './dispatcher';
+import { useReadState } from './readStateStore';
 
 /**
  * S10 (FR-RT-06 / FR-RT-07 / FR-RT-23): 재연결 동기화 오케스트레이터.
@@ -228,9 +229,18 @@ export function installChannelSync(
   // FSM 전이 대상(seqTrackedChannels)에 포함되도록 합니다(no-op FSM 해소).
   const onChannelJoined = (payload: unknown): void => {
     if (!payload || typeof payload !== 'object') return;
-    const p = payload as { channelId?: unknown; seq?: unknown };
+    const p = payload as { channelId?: unknown; seq?: unknown; lastReadMessageId?: unknown };
     if (typeof p.channelId !== 'string' || typeof p.seq !== 'number') return;
     seq.setBaseline(p.channelId, p.seq);
+    // S23 (FR-RS-06): channel:joined 가 lastReadMessageId 를 실어 보내면
+    // readStateStore 에 기록한다. NEW MESSAGES 구분선이 진입 시점의 lastRead
+    // 직후 첫 미읽 메시지를 찾는 출처이자 around-reload seam(FR-RT-22)의 공급원.
+    // 페이로드가 누락(경량 baseline-only emit)하면 종전대로 store 미변경.
+    if (typeof p.lastReadMessageId === 'string') {
+      useReadState.getState().setLastRead(p.channelId, p.lastReadMessageId);
+    } else if (p.lastReadMessageId === null) {
+      useReadState.getState().setLastRead(p.channelId, null);
+    }
   };
   socket.on('channel:joined', onChannelJoined);
   detachers.push(() => socket.off('channel:joined', onChannelJoined));

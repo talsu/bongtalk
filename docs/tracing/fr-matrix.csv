@@ -94,9 +94,9 @@ FR-RS-02,D09-readstate,P0,S22,done
 FR-RS-04,D09-readstate,P0,S22,done
 FR-RS-05,D09-readstate,P0,S22,done
 FR-RS-15,D09-readstate,P1,S22,done
-FR-RS-06,D09-readstate,P0,S23,todo
-FR-RS-07,D09-readstate,P0,S23,todo
-FR-RS-11,D09-readstate,P1,S23,todo
+FR-RS-06,D09-readstate,P0,S23,done
+FR-RS-07,D09-readstate,P0,S23,done
+FR-RS-11,D09-readstate,P1,S23,done
 FR-RS-08,D09-readstate,P1,S24,todo
 FR-RS-09,D09-readstate,P1,S24,todo
 FR-RS-10,D09-readstate,P1,S24,todo

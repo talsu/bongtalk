@@ -115,7 +115,14 @@ export function EmojiPicker({
       if (!rootRef.current.contains(e.target as Node)) onDismiss();
     };
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onDismiss();
+      // S23 BLOCKER fix: Esc 가 피커를 닫는 데 소비되면 전파/기본동작을 멈춰
+      // useGlobalShortcuts 의 read 단축키(mark-current)가 같은 Esc 로 동시
+      // 발화하지 않게 한다(채널 강제 읽음 방지).
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onDismiss();
+      }
     };
     window.addEventListener('mousedown', onMouse);
     window.addEventListener('keydown', onKey);
