@@ -3,6 +3,7 @@ import { QueryClient } from '@tanstack/react-query';
 import type { Socket } from 'socket.io-client';
 import { DISPATCHED_EVENTS, installRealtimeDispatcher, upsertReactionBucket } from './dispatcher';
 import { qk } from '../../lib/query-keys';
+import { useReadState } from './readStateStore';
 
 function makeFakeSocket(): Socket & { emit: (event: string, payload: unknown) => void } {
   const handlers: Record<string, Array<(e: unknown) => void>> = {};
@@ -521,6 +522,43 @@ describe('realtime dispatcher', () => {
     expect(row).toBeDefined();
     expect(row?.deleted).toBe(true);
     expect(row?.content).toBeNull();
+    detach();
+  });
+
+  // S23 (FR-RS-06): read_state:updated 가 readStateStore 의 lastRead 를 전진시켜
+  // NEW MESSAGES 구분선의 lastRead 출처가 멀티세션에서 정합하게 한다.
+  it('read_state:updated advances readStateStore lastRead (multi-session sync)', () => {
+    useReadState.setState({ lastReadByChannel: {} });
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('read_state:updated', {
+      channelId: 'ch-rs',
+      workspaceId: 'ws-1',
+      lastReadMessageId: 'm-99',
+      unreadCount: 0,
+      mentionCount: 0,
+    });
+    expect(useReadState.getState().getLastRead('ch-rs')).toBe('m-99');
+    detach();
+  });
+
+  // S23 MAJOR fix: null lastReadMessageId 로는 store 를 삭제하지 않는다 —
+  // around-reload seam(readStateStore 의 around=lastRead 재로드)을 보존하기
+  // 위해 기존 커서 값을 유지한다(後進·소실 방지). 전진은 non-null 일 때만.
+  it('read_state:updated with null lastReadMessageId keeps the existing store entry', () => {
+    useReadState.setState({ lastReadByChannel: { 'ch-rs': 'm-1' } });
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('read_state:updated', {
+      channelId: 'ch-rs',
+      workspaceId: 'ws-1',
+      lastReadMessageId: null,
+      unreadCount: 5,
+      mentionCount: 0,
+    });
+    expect(useReadState.getState().getLastRead('ch-rs')).toBe('m-1');
     detach();
   });
 });

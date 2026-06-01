@@ -3,6 +3,9 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useUI } from '../../stores/ui-store';
 import { useMyWorkspaces } from '../workspaces/useWorkspaces';
 import { useChannelList } from '../channels/useChannels';
+import { useMarkAllRead } from '../channels/useUnread';
+import { classifyReadShortcut } from './readShortcut';
+import { announce } from '../../lib/a11y-announce';
 
 type Combo = {
   key: string;
@@ -41,7 +44,11 @@ export function useGlobalShortcuts(): void {
   const setOpenModal = useUI((s) => s.setOpenModal);
   const openModal = useUI((s) => s.openModal);
   const { data: mine } = useMyWorkspaces();
-  const { data: channels } = useChannelList(mine?.workspaces.find((w) => w.slug === slug)?.id);
+  const currentWorkspaceId = mine?.workspaces.find((w) => w.slug === slug)?.id;
+  const { data: channels } = useChannelList(currentWorkspaceId);
+  // S23 (FR-RS-11): Shift+Esc = 워크스페이스 전체 읽음. 현재 워크스페이스
+  // scope 로 bulk read-all 을 발화한다.
+  const markAllRead = useMarkAllRead(currentWorkspaceId);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -51,6 +58,33 @@ export function useGlobalShortcuts(): void {
       // out of a dialog).
       if (e.key === 'Escape' && openModal) {
         setOpenModal(null);
+        return;
+      }
+
+      // S23 (FR-RS-11): Esc=현재 채널 읽음 / Shift+Esc=전체 읽음. 모달이 위에서
+      // 이미 처리됐고, 입력 필드 포커스 중에는 classify 가 none 을 돌려 기존 Esc
+      // 동작(컴포저 자동완성 닫기/포커스 해제)을 무회귀로 둔다.
+      //
+      // S23 BLOCKER fix (이중 방어): EmojiPicker/ThreadPanel/SearchInput 같은
+      // 오버레이가 Esc 를 소비하면 e.preventDefault()(+ stopPropagation)를
+      // 호출한다. 그 오버레이의 window 리스너가 먼저 실행돼 defaultPrevented 가
+      // 켜졌다면 read 단축키를 skip 해 채널이 강제 읽음 처리되지 않게 한다.
+      if (e.defaultPrevented) return;
+      const readAction = classifyReadShortcut(e, { inputActive, modalOpen: openModal !== null });
+      if (readAction === 'mark-current') {
+        e.preventDefault();
+        // 현재 채널의 최신 메시지까지 읽음 — AckScheduler 를 보유한 MessageColumn 에
+        // CustomEvent 로 위임한다(검색/컴포저 포커스와 동일한 dispatch 패턴).
+        window.dispatchEvent(new CustomEvent('qufox.read.current'));
+        announce('현재 채널을 읽음으로 표시했습니다');
+        return;
+      }
+      if (readAction === 'mark-all') {
+        e.preventDefault();
+        if (currentWorkspaceId) {
+          markAllRead.mutate();
+          announce('워크스페이스의 모든 채널을 읽음으로 표시했습니다');
+        }
         return;
       }
 
@@ -109,5 +143,15 @@ export function useGlobalShortcuts(): void {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, slug, channelName, channels, mine, setOpenModal, openModal]);
+  }, [
+    navigate,
+    slug,
+    channelName,
+    channels,
+    mine,
+    setOpenModal,
+    openModal,
+    currentWorkspaceId,
+    markAllRead,
+  ]);
 }

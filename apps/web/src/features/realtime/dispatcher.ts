@@ -6,6 +6,7 @@ import type { UnreadChannelSummary } from '../channels/useUnread';
 import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentions';
 import { useNotifications } from '../../stores/notification-store';
 import { useTypingStore } from '../typing/useTypingStore';
+import { useReadState } from './readStateStore';
 
 export interface DispatcherContext {
   viewerId: () => string | null;
@@ -505,6 +506,15 @@ export function installRealtimeDispatcher(
   }>('read_state:updated', (env) => {
     if (!env.channelId) return;
     const mentionCount = env.mentionCount ?? 0;
+    // S23 MAJOR fix: 다른 기기/탭(또는 본인)의 ACK 가 커서를 전진시키면
+    // readStateStore 도 따라가게 한다 — NEW MESSAGES 구분선의 lastRead 출처가
+    // 멀티세션에서 정합하도록(서버 권위). 단, lastReadMessageId 가 non-null 일
+    // 때만 전진한다. null(아직 커서가 없거나 unread 가 남은 상태)일 때 store 를
+    // 삭제하면 S09 around-reload seam(readStateStore 의 around=lastRead 재로드)을
+    // 파괴하므로 clear 하지 않고 기존 값을 유지한다(後進·소실 방지).
+    if (env.lastReadMessageId !== null && env.lastReadMessageId !== undefined) {
+      useReadState.getState().setLastRead(env.channelId, env.lastReadMessageId);
+    }
     // 워크스페이스 레일 합계는 다시 계산하기보다 무효화(서버 권위).
     qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
 

@@ -100,3 +100,60 @@ export function useMarkChannelRead(workspaceId: string | undefined) {
     },
   });
 }
+
+/**
+ * S23 (FR-RS-11): 워크스페이스 전체 읽음(Shift+Esc). POST /workspaces/:id/read-all
+ * 가 가시 채널 중 미읽 남은 것을 각각 최신까지 monotonic 읽음 처리한다(後進 없음).
+ * 낙관적으로 unread-summary 캐시의 모든 채널을 zero-out 해 사이드바 배지가 즉시
+ * 사라지게 하고, 서버 권위 + read_state:updated WS 동기화로 정합한다.
+ */
+export function useMarkAllRead(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async () => {
+      if (!workspaceId) return;
+      await apiRequest(`/workspaces/${workspaceId}/read-all`, { method: 'POST' });
+    },
+    // S23 MAJOR fix (#4): 낙관 패치를 onMutate 로 옮기고 직전 스냅샷을 보관해
+    // onError 시 롤백한다(set-based 호출 부분 실패/네트워크 오류 시 사이드바
+    // 배지가 잘못 0 으로 남는 회귀 방지). 성공 시 totals 만 무효화(서버 권위).
+    onMutate: async () => {
+      if (!workspaceId) return { prev: undefined };
+      await qc.cancelQueries({ queryKey: qk.channels.unreadSummary(workspaceId) });
+      const prev = qc.getQueryData<UnreadSummaryResponse>(qk.channels.unreadSummary(workspaceId));
+      qc.setQueryData<UnreadSummaryResponse>(qk.channels.unreadSummary(workspaceId), (old) =>
+        zeroOutAllChannels(old),
+      );
+      return { prev };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!workspaceId) return;
+      // 낙관 zero-out 롤백 + 서버 권위로 재정렬.
+      qc.setQueryData<UnreadSummaryResponse>(qk.channels.unreadSummary(workspaceId), ctx?.prev);
+      qc.invalidateQueries({ queryKey: qk.channels.unreadSummary(workspaceId) });
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    },
+    onSuccess: () => {
+      if (!workspaceId) return;
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    },
+  });
+}
+
+/**
+ * S23 (FR-RS-11): 워크스페이스 전체 읽음 낙관 패치 — 요약 캐시의 모든 채널을
+ * "전부 0" 으로 누른다. zeroOutChannelUnread(단일)와 동일한 행 모양을 공유한다.
+ */
+export function zeroOutAllChannels(
+  old: UnreadSummaryResponse | undefined,
+): UnreadSummaryResponse | undefined {
+  if (!old) return old;
+  return {
+    channels: old.channels.map((c) => ({
+      ...c,
+      unreadCount: 0,
+      mentionCount: 0,
+      hasMention: false,
+    })),
+  };
+}

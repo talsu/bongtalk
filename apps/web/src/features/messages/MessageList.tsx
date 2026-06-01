@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import {
   isSystemMessageType,
@@ -32,6 +32,18 @@ import {
   type AnchorSnapshot,
 } from './messageAnchor';
 import { useChannelLru } from '../realtime/channelLru';
+import { useUnreadSummary } from '../channels/useUnread';
+import { useReadState } from '../realtime/readStateStore';
+import {
+  buildRowPlan,
+  computeFirstUnreadIndex,
+  firstVisibleIndex,
+  lastRowVirtualIndex,
+  messageIndexForVirtualIndex,
+  shouldShowJumpPill,
+  virtualIndexForDivider,
+  virtualIndexForMessageIndex,
+} from './newMessages';
 
 type Props = {
   /** null for Global DM channels (no host workspace). */
@@ -52,6 +64,14 @@ type Props = {
    * 결정하게 한다. tail(최신 메시지 id)이 바뀔 때마다 호출된다.
    */
   onReadCursor?: (cursor: { lastMessageId: string; atBottom: boolean }) => void;
+  /**
+   * S23 MAJOR fix (cold 캐시 구분선): 부모(MessageColumn)가 채널 open 시
+   * markRead/zeroOutChannelUnread 로 unread-summary 캐시를 0 으로 누르기 *전에*
+   * 캡처한 진입 시점의 읽음 상태. 제공되면 MessageList 는 자체적으로
+   * unread-summary 를 다시 읽지 않고 이 값으로 구분선 firstUnread 를 환산한다
+   * (zero-out 오염 차단 — FR-RS-06). 미제공(DM 등)이면 종전대로 폴백.
+   */
+  unreadSnapshot?: { unreadCount: number; lastReadMessageId: string | null };
 };
 
 /**
@@ -90,6 +110,7 @@ export function MessageList({
   onOpenThread,
   extraNames,
   onReadCursor,
+  unreadSnapshot,
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -168,8 +189,66 @@ export function MessageList({
     return all.find((c) => c.id === channelId);
   }, [channelList, channelId]);
 
+  // S23 (FR-RS-06): NEW MESSAGES 구분선 — 채널 진입 시점의 읽음 상태 스냅샷.
+  // unread-summary 의 채널별 unreadCount + readStateStore 의 lastReadMessageId
+  // 를 firstUnread index 로 환산해 구분선이 들어갈 ASC 메시지 인덱스를 정한다.
+  // 진입 시점에 한 번 고정(snapshot)해 스크롤/새 ACK 로 즉시 사라지지 않게 한다
+  // (FR-RS-06 — 채널 진입 스냅샷). 첫 페인트(메시지 로드 완료) 전까지는 null.
+  //
+  // S23 MAJOR fix (cold 캐시 구분선 소실): 종전엔 여기서 useUnreadSummary 를
+  // 직접 읽었으나, 부모(MessageColumn)가 채널 open 시 markRead/zeroOut 으로 같은
+  // 캐시 키를 0 으로 누르므로 cold summary(미캐시/staleTime 만료) 진입에서는
+  // 스냅샷이 unreadCount=0 을 봐 구분선이 사라졌다. 이제 부모가 zero-out *이전*
+  // 에 고정한 `unreadSnapshot` prop 을 단일 출처로 쓴다(prop 미제공 시에만
+  // useUnreadSummary 폴백 — DM 등). MessageList 는 channelId 마다 remount(key)
+  // 되므로 prop 은 채널 수명 동안 불변이다.
+  const { data: unreadSummary } = useUnreadSummary(workspaceId ?? undefined);
+  const dividerIndexRef = useRef<number | null>(null);
+  const dividerSnappedRef = useRef(false);
+  const [dividerIndex, setDividerIndex] = useState<number | null>(null);
+  useEffect(() => {
+    // 채널 전환 시 스냅샷 초기화(아래 layout effect 와 동일 채널 키).
+    dividerSnappedRef.current = false;
+    dividerIndexRef.current = null;
+    setDividerIndex(null);
+  }, [channelId]);
+  useLayoutEffect(() => {
+    if (dividerSnappedRef.current) return;
+    if (messages.length === 0) return;
+    // 부모 스냅샷이 있으면 그것을 단일 출처로 쓴다(zero-out 오염 차단).
+    // 없으면(DM 등) 종전 폴백: unread-summary 로드 대기 후 캐시 + store 사용.
+    let unreadCount: number;
+    let lastReadMessageId: string | null;
+    if (unreadSnapshot) {
+      unreadCount = unreadSnapshot.unreadCount;
+      lastReadMessageId = unreadSnapshot.lastReadMessageId;
+    } else {
+      // unread-summary 가 아직 로드 안 됐으면 다음 렌더를 기다린다(불변식: 진입
+      // 직후 한 번만 스냅샷). DM(workspaceId=null)은 unread-summary 가 없어
+      // unreadCount=0 으로 폴백 → 구분선 미표시(carryover).
+      if (workspaceId && !unreadSummary) return;
+      const summaryRow = workspaceId
+        ? unreadSummary?.channels.find((c) => c.channelId === channelId)
+        : undefined;
+      unreadCount = summaryRow?.unreadCount ?? 0;
+      lastReadMessageId = useReadState.getState().getLastRead(channelId);
+    }
+    const idx = computeFirstUnreadIndex({ messageIds, lastReadMessageId, unreadCount });
+    dividerIndexRef.current = idx;
+    dividerSnappedRef.current = true;
+    setDividerIndex(idx);
+  }, [channelId, workspaceId, unreadSummary, unreadSnapshot, messages.length, messageIds]);
+
+  // S23 (FR-RS-06): 구분선을 별도 가상행으로 끼우는 좌표 플랜. count/매핑이
+  // 단일 출처(newMessages)라 렌더·anchor·jump 판정이 동일 좌표계를 쓴다.
+  const rowPlan = useMemo(
+    () => buildRowPlan({ messageCount: messages.length, dividerIndex }),
+    [messages.length, dividerIndex],
+  );
+  const dividerVirtualIndex = virtualIndexForDivider(rowPlan);
+
   const virtualizer = useVirtualizer({
-    count: messages.length,
+    count: rowPlan.count,
     getScrollElement: () => scrollRef.current,
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: 8,
@@ -202,6 +281,10 @@ export function MessageList({
   historyRef.current = history;
   const virtualizerRef = useRef(virtualizer);
   virtualizerRef.current = virtualizer;
+  // S23: rowPlan(구분선 좌표)을 ref 로 노출해 스크롤 리스너/anchor effect 가
+  // 가상 인덱스↔메시지 인덱스 변환에 최신 plan 을 쓰게 한다(재바인딩 없이).
+  const rowPlanRef = useRef(rowPlan);
+  rowPlanRef.current = rowPlan;
   // S22 (FR-RS-02): onReadCursor 를 ref 로 보관해 콜백 identity 변화가 cursor
   // 효과를 재실행하지 않도록 한다(tail id 변경에만 반응).
   const onReadCursorRef = useRef(onReadCursor);
@@ -224,9 +307,16 @@ export function MessageList({
       if (el.scrollTop < 100 && h.hasNextPage && !h.isFetchingNextPage) {
         // Snapshot BEFORE kicking off the fetch so the post-prepend
         // layout effect knows where to restore.
+        // S23: 가상 인덱스(구분선 행 포함)를 메시지 인덱스로 변환해 넘긴다.
+        // 구분선 행(매핑 null)은 제외 — anchor 는 메시지 행에만 건다.
+        const plan = rowPlanRef.current;
+        const mappedItems = virtualizerRef.current
+          .getVirtualItems()
+          .map((vi) => ({ index: messageIndexForVirtualIndex(plan, vi.index), start: vi.start }))
+          .filter((vi): vi is { index: number; start: number } => vi.index !== null);
         anchorSnapshotRef.current = takeAnchorSnapshot({
           scrollTop: el.scrollTop,
-          virtualItems: virtualizerRef.current.getVirtualItems(),
+          virtualItems: mappedItems,
           messageIds: messageIdsRef.current,
         });
         void h.fetchNextPage();
@@ -265,8 +355,10 @@ export function MessageList({
     prevLastIdRef.current = newLastId;
 
     // First paint with non-empty history → pin to bottom.
+    // S23: 바닥 고정은 마지막 *가상행*(구분선 행 포함 count-1). 마지막 행은
+    // 항상 메시지라 lastRowVirtualIndex 가 곧 최신 메시지의 가상 좌표다.
     if (!hasAnchoredRef.current) {
-      virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+      virtualizer.scrollToIndex(lastRowVirtualIndex(rowPlanRef.current), { align: 'end' });
       hasAnchoredRef.current = true;
       wasAtBottomRef.current = true;
       return;
@@ -286,16 +378,19 @@ export function MessageList({
       const restored = restoreAnchorScrollTop({
         snapshot: anchorSnapshotRef.current,
         messageIds,
+        // S23: 메시지 인덱스 i 를 가상 인덱스로 변환해 해당 행의 start 를 찾는다
+        // (구분선 행 삽입으로 두 좌표계가 어긋나므로 변환 필수).
         startForIndex: (i) => {
-          const item = virtualizer.getVirtualItems().find((v) => v.index === i);
+          const vIdx = virtualIndexForMessageIndex(rowPlanRef.current, i);
+          const item = virtualizer.getVirtualItems().find((v) => v.index === vIdx);
           if (item) return item.start;
           // Fallback: read the virtualizer's measurementsCache which
           // holds heights for every measured row; ESTIMATED_ROW_HEIGHT
           // is the floor for never-seen rows.
           const cache = virtualizer.measurementsCache;
-          const cached = cache && cache[i];
+          const cached = cache && cache[vIdx];
           if (cached && typeof cached.start === 'number') return cached.start;
-          return i * ESTIMATED_ROW_HEIGHT;
+          return vIdx * ESTIMATED_ROW_HEIGHT;
         },
       });
       anchorSnapshotRef.current = null;
@@ -314,7 +409,7 @@ export function MessageList({
     if (isAppend) {
       anchorSnapshotRef.current = null;
       if (wasAtBottomRef.current) {
-        virtualizer.scrollToIndex(messages.length - 1, { align: 'end' });
+        virtualizer.scrollToIndex(lastRowVirtualIndex(rowPlanRef.current), { align: 'end' });
       }
     }
     // Otherwise hold position; the user has scrolled up and a new
@@ -323,6 +418,55 @@ export function MessageList({
   }, [messages.length, messageIds, virtualizer]);
 
   const items = virtualizer.getVirtualItems();
+
+  // S23 (FR-RS-07): Jump-to-First-Unread pill 표시 판정. IntersectionObserver
+  // 대신 현재 *보이는* 최상단 가상행 인덱스 vs 구분선 가상행 인덱스를 비교한다
+  // (가상화는 구분선이 마운트 안 된 채 윈도우 밖일 수 있어 IO 불가).
+  //
+  // S23 MAJOR fix (overscan 오판): items[0].index 는 뷰포트 위 overscan(8행)을
+  // 포함하므로 구분선이 화면 밖(위)인데도 마운트돼 있다는 이유로 pill 이 숨었다.
+  // scrollTop 기준으로 실제 보이는 최상단(첫 start+size > scrollTop)을 골라
+  // overscan 을 보정한다(firstVisibleIndex 단일 출처).
+  const scrollTopForPill = scrollRef.current?.scrollTop ?? 0;
+  const firstVisible = firstVisibleIndex(
+    items.map((vi) => ({ index: vi.index, start: vi.start, size: vi.size })),
+    scrollTopForPill,
+  );
+  const showJumpPill = shouldShowJumpPill({
+    firstRenderedIndex: firstVisible,
+    dividerIndex: dividerVirtualIndex,
+  });
+
+  // FR-RS-07: pill 클릭 → 구분선으로 스크롤(align:start) + 20ms 이내 미세 보정
+  // 스크롤(가상화 remeasure 후 위치가 어긋날 수 있어 한 번 더 정렬). 구분선이
+  // 없으면 no-op.
+  //
+  // S23 cheap fix (#9): 20ms 보정 타이머 핸들을 ref 에 저장해 언마운트/연속
+  // 클릭 시 정리한다(중복 타이머 누수 방지).
+  // S23 a11y BLOCKER fix (#7): jump 직후 pill 이 언마운트되면 포커스가 body 로
+  // 떨어져 키보드 사용자가 맥락을 잃는다. 스크롤 컨테이너(tabIndex=-1)로 포커스를
+  // 옮겨 SR/키보드 포커스를 유지한다.
+  const jumpTimerRef = useRef<number | null>(null);
+  const jumpToFirstUnread = (): void => {
+    if (dividerVirtualIndex === null) return;
+    virtualizer.scrollToIndex(dividerVirtualIndex, { align: 'start' });
+    if (jumpTimerRef.current !== null) window.clearTimeout(jumpTimerRef.current);
+    jumpTimerRef.current = window.setTimeout(() => {
+      virtualizer.scrollToIndex(dividerVirtualIndex, { align: 'start' });
+      jumpTimerRef.current = null;
+    }, 20);
+    // 포커스를 스크롤 컨테이너로 이동(pill 언마운트로 포커스 소실 방지).
+    scrollRef.current?.focus();
+  };
+  // 언마운트 시 대기 중인 보정 타이머 정리.
+  useEffect(() => {
+    return () => {
+      if (jumpTimerRef.current !== null) {
+        window.clearTimeout(jumpTimerRef.current);
+        jumpTimerRef.current = null;
+      }
+    };
+  }, []);
 
   // S22 (FR-RS-02): tail(최신 메시지 id)이 바뀔 때마다 읽음 커서를 올려보낸다.
   // atBottom 판정:
@@ -338,7 +482,10 @@ export function MessageList({
     if (!cb) return;
     const el = scrollRef.current;
     const lastVirtual = items.length > 0 ? items[items.length - 1] : null;
-    const lastRendered = lastVirtual ? lastVirtual.index === messages.length - 1 : false;
+    // S23: 마지막 가상행(구분선 행 포함)이 렌더됐는지로 바닥 도달 판정.
+    const lastRendered = lastVirtual
+      ? lastVirtual.index === lastRowVirtualIndex(rowPlanRef.current)
+      : false;
     const nearBottom = el
       ? isNearBottom({
           scrollTop: el.scrollTop,
@@ -355,57 +502,122 @@ export function MessageList({
 
   return (
     <CustomEmojiProvider workspaceId={workspaceId}>
-      <Scrollable
-        ref={scrollRef}
-        data-testid="msg-list"
-        role="log"
-        aria-live="polite"
-        aria-label="메시지"
-        // task-043 reviewer H2: the `py-[var(--s-3)]` padding used to
-        // sit on this Scrollable, but the inner `virtual-list-inner`
-        // wrapper carries `height: virtualizer.getTotalSize()` which
-        // is anchored at offsetTop=0 inside the scroll container.
-        // External padding offset the inner-wrapper top by 8px and
-        // every restoreAnchorScrollTop drifted by exactly that
-        // amount. Move the visual breathing room INTO the inner
-        // wrapper so the virtualizer's coordinate system stays
-        // congruent with `el.scrollTop`.
-        className="flex-1"
-      >
-        {history.hasNextPage ? (
-          <div className="py-[var(--s-3)] text-center text-[length:var(--fs-11)] text-text-muted">
-            {history.isFetchingNextPage ? '이전 메시지 불러오는 중…' : '스크롤해 더 보기'}
-          </div>
-        ) : null}
-        {messages.length === 0 ? (
-          <ChannelEmptyState channel={channelMeta} />
-        ) : (
-          <div
-            data-testid="virtual-list-inner"
-            style={{
-              height: virtualizer.getTotalSize(),
-              position: 'relative',
-              width: '100%',
-            }}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {showJumpPill ? (
+          <button
+            type="button"
+            data-testid="jump-to-unread"
+            // FR-RS-07: 채팅 영역 상단 고정 pill. DS 토큰만(raw hex/px 금지).
+            //
+            // S23 ui-designer HIGH + a11y S-3 fix (#6): 종전 bg-accent 는
+            // --bg-selected(navy n-5)로 해석돼 의도(violet accent)와 다르고 흰
+            // 텍스트 대비가 미달했다. --badge-unread-bg(a-600, 흰 텍스트 AA
+            // 통과 + accent 계열)로 교체한다.
+            // S23 a11y BLOCKER fix (#7): pill 의 focus-visible 링이 shadow-[]
+            // (elev-3)에 덮이지 않도록 focus-visible 에서 --ring-focus 를 명시한다.
+            className="absolute left-1/2 top-[var(--s-3)] z-[var(--z-sticky)] -translate-x-1/2 rounded-[var(--r-pill)] bg-[var(--badge-unread-bg)] px-[var(--s-4)] py-[var(--s-2)] text-[length:var(--fs-13)] font-medium text-[color:var(--text-onAccent)] shadow-[var(--elev-3)] focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none"
+            onClick={jumpToFirstUnread}
           >
-            {items.map((vi) => {
-              const m = messages[vi.index];
-              if (!m) return null;
-              const prev = vi.index > 0 ? messages[vi.index - 1] : null;
-              // S06 (FR-MSG-11): 이전 메시지와 로컬 달력 일이 바뀌는 지점마다
-              // 날짜 구분선을 행 안에 prepend 합니다. 첫 메시지(prev 없음)
-              // 위에도 그 날짜의 구분선을 둡니다. 가상화 행 안에 두어
-              // measureElement 가 divider 높이까지 함께 측정하게 합니다.
-              const showDayDivider = !prev || !isSameLocalDay(m.createdAt, prev.createdAt);
-              const dayDivider = showDayDivider ? <DayDivider iso={m.createdAt} /> : null;
-              // S04 (FR-MSG-19): SYSTEM_* 메시지는 항상 독립 행(grouped=false)
-              // 으로 렌더하고, 직전 메시지가 시스템 행이면 현재 메시지의
-              // 그루핑을 끊습니다(±1 인접 재계산). 그루핑은 클라이언트가
-              // 계산하며 서버는 grouped 를 내려주지 않습니다. 술어는
-              // grouping.ts 단일 출처를 공유합니다.
-              const isSystem = isSystemMessageType(m.type);
-              const isContinuation = computeIsContinuation(m, prev);
-              if (isSystem) {
+            새 메시지로 이동
+          </button>
+        ) : null}
+        <Scrollable
+          ref={scrollRef}
+          data-testid="msg-list"
+          role="log"
+          aria-live="polite"
+          aria-label="메시지"
+          // S23 a11y BLOCKER fix (#7): jump 후 pill 언마운트로 포커스가 body 로
+          // 떨어지지 않게, jumpToFirstUnread 가 이 컨테이너로 포커스를 옮긴다.
+          // tabIndex=-1 로 프로그램적 포커스만 허용(탭 순서엔 들어가지 않음).
+          tabIndex={-1}
+          // task-043 reviewer H2: the `py-[var(--s-3)]` padding used to
+          // sit on this Scrollable, but the inner `virtual-list-inner`
+          // wrapper carries `height: virtualizer.getTotalSize()` which
+          // is anchored at offsetTop=0 inside the scroll container.
+          // External padding offset the inner-wrapper top by 8px and
+          // every restoreAnchorScrollTop drifted by exactly that
+          // amount. Move the visual breathing room INTO the inner
+          // wrapper so the virtualizer's coordinate system stays
+          // congruent with `el.scrollTop`.
+          className="flex-1"
+        >
+          {history.hasNextPage ? (
+            <div className="py-[var(--s-3)] text-center text-[length:var(--fs-11)] text-text-muted">
+              {history.isFetchingNextPage ? '이전 메시지 불러오는 중…' : '스크롤해 더 보기'}
+            </div>
+          ) : null}
+          {messages.length === 0 ? (
+            <ChannelEmptyState channel={channelMeta} />
+          ) : (
+            <div
+              data-testid="virtual-list-inner"
+              style={{
+                height: virtualizer.getTotalSize(),
+                position: 'relative',
+                width: '100%',
+              }}
+            >
+              {items.map((vi) => {
+                // S23 (FR-RS-06): 구분선 행은 메시지가 아니므로 별도 렌더.
+                if (vi.index === dividerVirtualIndex) {
+                  return (
+                    <div
+                      key="new-messages-divider"
+                      data-testid="new-messages-divider-row"
+                      ref={virtualizer.measureElement}
+                      data-index={vi.index}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${vi.start}px)`,
+                      }}
+                    >
+                      <NewMessagesDivider />
+                    </div>
+                  );
+                }
+                // 가상 인덱스 → 메시지 ASC 인덱스(구분선 뒤는 한 칸 당김).
+                const msgIndex = messageIndexForVirtualIndex(rowPlan, vi.index);
+                if (msgIndex === null) return null;
+                const m = messages[msgIndex];
+                if (!m) return null;
+                const prev = msgIndex > 0 ? messages[msgIndex - 1] : null;
+                // S06 (FR-MSG-11): 이전 메시지와 로컬 달력 일이 바뀌는 지점마다
+                // 날짜 구분선을 행 안에 prepend 합니다. 첫 메시지(prev 없음)
+                // 위에도 그 날짜의 구분선을 둡니다. 가상화 행 안에 두어
+                // measureElement 가 divider 높이까지 함께 측정하게 합니다.
+                const showDayDivider = !prev || !isSameLocalDay(m.createdAt, prev.createdAt);
+                const dayDivider = showDayDivider ? <DayDivider iso={m.createdAt} /> : null;
+                // S04 (FR-MSG-19): SYSTEM_* 메시지는 항상 독립 행(grouped=false)
+                // 으로 렌더하고, 직전 메시지가 시스템 행이면 현재 메시지의
+                // 그루핑을 끊습니다(±1 인접 재계산). 그루핑은 클라이언트가
+                // 계산하며 서버는 grouped 를 내려주지 않습니다. 술어는
+                // grouping.ts 단일 출처를 공유합니다.
+                const isSystem = isSystemMessageType(m.type);
+                const isContinuation = computeIsContinuation(m, prev);
+                if (isSystem) {
+                  return (
+                    <div
+                      key={m.id}
+                      data-testid="message-row"
+                      data-index={vi.index}
+                      ref={virtualizer.measureElement}
+                      style={{
+                        position: 'absolute',
+                        top: 0,
+                        left: 0,
+                        width: '100%',
+                        transform: `translateY(${vi.start}px)`,
+                      }}
+                    >
+                      {dayDivider}
+                      <SystemMessage msg={m} />
+                    </div>
+                  );
+                }
                 return (
                   <div
                     key={m.id}
@@ -421,86 +633,68 @@ export function MessageList({
                     }}
                   >
                     {dayDivider}
-                    <SystemMessage msg={m} />
+                    <MessageItem
+                      msg={m}
+                      isMine={m.authorId === user?.id}
+                      isContinuation={isContinuation}
+                      authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
+                      authorRole={roleById.get(m.authorId) ?? null}
+                      mentions={mentionLookup}
+                      viewerRole={viewerRole}
+                      onEditSave={async (content) => {
+                        // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
+                        // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →
+                        // 훅 onError 가 캐시를 서버 최신 DTO 로 롤백 + 토스트.
+                        await updMut.mutateAsync({
+                          msgId: m.id,
+                          content,
+                          expectedVersion: m.version ?? 0,
+                        });
+                      }}
+                      onDelete={async () => {
+                        await delMut.mutateAsync(m.id);
+                      }}
+                      onToggleReaction={(emoji, byMe) => {
+                        if (m.id.startsWith('tmp-')) return;
+                        reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
+                      }}
+                      onOpenThread={
+                        onOpenThread && !m.id.startsWith('tmp-')
+                          ? (rootId) => onOpenThread(rootId)
+                          : undefined
+                      }
+                      onPin={
+                        // task-045 iter1: DM (wsId=null) + tmp 메시지는
+                        // pin 불가. OWNER/ADMIN gate 는 MessageItem 안.
+                        workspaceId && !m.id.startsWith('tmp-') && !m.pinnedAt
+                          ? async () => {
+                              await pinMut.mutateAsync(m.id);
+                            }
+                          : undefined
+                      }
+                      onUnpin={
+                        workspaceId && !m.id.startsWith('tmp-') && !!m.pinnedAt
+                          ? async () => {
+                              await unpinMut.mutateAsync(m.id);
+                            }
+                          : undefined
+                      }
+                      // S03 (FR-MSG-05): retry a failed optimistic send with the
+                      // SAME clientNonce (encoded in the row id).
+                      onRetry={
+                        (m as MessageDto & { sendState?: 'pending' | 'failed' }).sendState ===
+                        'failed'
+                          ? () => retry(m.id, m.content ?? '')
+                          : undefined
+                      }
+                    />
                   </div>
                 );
-              }
-              return (
-                <div
-                  key={m.id}
-                  data-testid="message-row"
-                  data-index={vi.index}
-                  ref={virtualizer.measureElement}
-                  style={{
-                    position: 'absolute',
-                    top: 0,
-                    left: 0,
-                    width: '100%',
-                    transform: `translateY(${vi.start}px)`,
-                  }}
-                >
-                  {dayDivider}
-                  <MessageItem
-                    msg={m}
-                    isMine={m.authorId === user?.id}
-                    isContinuation={isContinuation}
-                    authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
-                    authorRole={roleById.get(m.authorId) ?? null}
-                    mentions={mentionLookup}
-                    viewerRole={viewerRole}
-                    onEditSave={async (content) => {
-                      // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
-                      // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →
-                      // 훅 onError 가 캐시를 서버 최신 DTO 로 롤백 + 토스트.
-                      await updMut.mutateAsync({
-                        msgId: m.id,
-                        content,
-                        expectedVersion: m.version ?? 0,
-                      });
-                    }}
-                    onDelete={async () => {
-                      await delMut.mutateAsync(m.id);
-                    }}
-                    onToggleReaction={(emoji, byMe) => {
-                      if (m.id.startsWith('tmp-')) return;
-                      reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
-                    }}
-                    onOpenThread={
-                      onOpenThread && !m.id.startsWith('tmp-')
-                        ? (rootId) => onOpenThread(rootId)
-                        : undefined
-                    }
-                    onPin={
-                      // task-045 iter1: DM (wsId=null) + tmp 메시지는
-                      // pin 불가. OWNER/ADMIN gate 는 MessageItem 안.
-                      workspaceId && !m.id.startsWith('tmp-') && !m.pinnedAt
-                        ? async () => {
-                            await pinMut.mutateAsync(m.id);
-                          }
-                        : undefined
-                    }
-                    onUnpin={
-                      workspaceId && !m.id.startsWith('tmp-') && !!m.pinnedAt
-                        ? async () => {
-                            await unpinMut.mutateAsync(m.id);
-                          }
-                        : undefined
-                    }
-                    // S03 (FR-MSG-05): retry a failed optimistic send with the
-                    // SAME clientNonce (encoded in the row id).
-                    onRetry={
-                      (m as MessageDto & { sendState?: 'pending' | 'failed' }).sendState ===
-                      'failed'
-                        ? () => retry(m.id, m.content ?? '')
-                        : undefined
-                    }
-                  />
-                </div>
-              );
-            })}
-          </div>
-        )}
-      </Scrollable>
+              })}
+            </div>
+          )}
+        </Scrollable>
+      </div>
     </CustomEmojiProvider>
   );
 }
@@ -577,6 +771,34 @@ function ChannelEmptyState({ channel }: { channel: Channel | undefined }): JSX.E
       >
         첫 메시지 작성하기
       </button>
+    </div>
+  );
+}
+
+/**
+ * S23 (FR-RS-06) — NEW MESSAGES 구분선. DS 4 파일의 데스크톱 클래스에는
+ * unread-divider 전용 클래스가 없고(모바일 `.qf-m-unread-divider` 만 존재),
+ * 신규 DS 클래스 추가는 금지이므로 모바일과 동일한 DS 토큰
+ * (--unread-divider-accent / --badge-unread-bg / --text-onAccent / --fs-11)만
+ * Tailwind arbitrary 로 page-scoped 사용한다(raw hex/px 금지). 양옆 accent 1px
+ * 선 + 좌측 라벨 + 우측 작은 pill — 모바일 unread-divider 와 시각 정합.
+ */
+function NewMessagesDivider(): JSX.Element {
+  return (
+    <div
+      role="separator"
+      // S23 a11y M-1 fix: 가시 텍스트와 aria-label 불일치 제거. 종전 가시 텍스트
+      // "새 메시지" ≠ aria-label "여기부터 새 메시지입니다" 라 SR 이 짧은 DOM
+      // 텍스트만 읽었다. 가시 텍스트를 "여기부터 새 메시지" 로 풀어 라벨과 정합.
+      aria-label="여기부터 새 메시지"
+      data-testid="new-messages-divider"
+      className="flex items-center gap-[var(--s-3)] px-[var(--s-7)] py-[var(--s-2)] text-[color:var(--unread-divider-accent)]"
+    >
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--unread-divider-accent)]" />
+      <span className="text-[length:var(--fs-11)] font-semibold uppercase tracking-[var(--tracking-caps)]">
+        여기부터 새 메시지
+      </span>
+      <span aria-hidden="true" className="h-px flex-1 bg-[var(--unread-divider-accent)]" />
     </div>
   );
 }

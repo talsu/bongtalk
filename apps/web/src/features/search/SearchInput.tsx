@@ -144,6 +144,10 @@ export function SearchInput({
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
             if (native.isComposing || e.keyCode === 229) return;
             if (e.key === 'Escape') {
+              // S23 BLOCKER fix: Esc 가 검색 드롭다운/포커스를 닫는 데 소비되면
+              // 전파를 멈춰 read 단축키(mark-current)와 충돌하지 않게 한다.
+              // (입력 필드 포커스 가드와 이중 방어.)
+              e.stopPropagation();
               setFocused(false);
               inputRef.current?.blur();
               return;
