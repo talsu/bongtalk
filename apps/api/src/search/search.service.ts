@@ -627,6 +627,27 @@ export class SearchService {
   }
 
   /**
+   * S31 (FR-S11): 최근 검색어 개별 삭제 — Redis `LREM key 0 entry`(전체 매치
+   * 제거). 공백/빈 엔트리는 no-op. 사용자별 키에만 작용하므로 IDOR 불가능.
+   */
+  async removeRecentSearch(userId: string, entry: string): Promise<void> {
+    const trimmed = entry.trim();
+    // S31 (security DoS, 독립 방어): 컨트롤러 가드가 누락돼도 거대 entry 가
+    // Redis LREM(O(N·M)) 으로 흘러가지 않게 한다. 저장 한도(RECENT_SEARCH_VALUE_MAX)
+    // 를 넘는 entry 는 매칭될 항목이 없으므로 no-op.
+    if (trimmed.length === 0 || trimmed.length > RECENT_SEARCH_VALUE_MAX) return;
+    await this.redis.lrem(recentSearchKey(userId), 0, trimmed);
+  }
+
+  /**
+   * S31 (FR-S11): 최근 검색어 전체 삭제 — Redis `DEL key`. 사용자별 키만
+   * 지우므로 다른 사용자 데이터에 영향이 없습니다.
+   */
+  async clearRecentSearches(userId: string): Promise<void> {
+    await this.redis.del(recentSearchKey(userId));
+  }
+
+  /**
    * task-046 iter3 (J1): typing-time suggestions — autocomplete prefix.
    *
    * 사용자가 검색어 typing 중에 빠른 후보 제안을 위해 호출. 워크스페이스
@@ -686,8 +707,8 @@ export class SearchService {
 /** 컨텍스트 본문 truncate 길이(문자). 카드에서 최대 3줄 표시 전 1차 절단. */
 const CONTEXT_EXCERPT_MAX = 200;
 
-/** 최근 검색 상한 N(LTRIM 인덱스). */
-const RECENT_SEARCH_MAX = 8;
+/** 최근 검색 상한 N(LTRIM 인덱스). S31(FR-S11): PRD 정본대로 10 으로 통일. */
+const RECENT_SEARCH_MAX = 10;
 /** 단일 검색어 길이 상한(거대 입력 저장 방지). */
 const RECENT_SEARCH_VALUE_MAX = 200;
 /** 최근 검색 TTL — 30일(휘발성 UX 데이터). */

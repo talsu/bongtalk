@@ -1,5 +1,10 @@
 import { apiRequest } from '../../lib/api';
-import type { RecentSearchesResponse, SearchResponse, SearchSort } from '@qufox/shared-types';
+import type {
+  RecentSearchesResponse,
+  SearchResponse,
+  SearchSort,
+  SearchSuggestResponse,
+} from '@qufox/shared-types';
 
 /**
  * Task-015-C: message search client. Snippets arrive with
@@ -38,4 +43,34 @@ export function searchMessages(args: {
  */
 export function fetchRecentSearches(): Promise<RecentSearchesResponse> {
   return apiRequest<RecentSearchesResponse>('/search/recent');
+}
+
+/**
+ * S31 (FR-S11): 최근 검색어 개별 삭제. 엔트리는 공백/특수문자를 포함할 수
+ * 있어 query string 으로 전달합니다(서버는 LREM 으로 해당 엔트리만 제거).
+ */
+export function deleteRecentSearch(entry: string): Promise<void> {
+  return apiRequest<void>(`/search/recent?q=${encodeURIComponent(entry)}`, { method: 'DELETE' });
+}
+
+/** S31 (FR-S11): 최근 검색어 전체 삭제(서버 Redis DEL). */
+export function clearRecentSearches(): Promise<void> {
+  return apiRequest<void>('/search/recent', { method: 'DELETE' });
+}
+
+/**
+ * S31 (FR-S02): 수식어 자동완성 후보. from:/in: 타이핑 중 워크스페이스 가시
+ * 채널명 + 멤버 username prefix-match. has: 는 클라이언트 정적 옵션이라 호출
+ * 불필요.
+ */
+export function fetchSearchSuggest(args: {
+  workspaceId: string;
+  q: string;
+  limit?: number;
+}): Promise<SearchSuggestResponse> {
+  const qs = new URLSearchParams();
+  qs.set('workspaceId', args.workspaceId);
+  qs.set('q', args.q);
+  if (typeof args.limit === 'number') qs.set('limit', String(args.limit));
+  return apiRequest<SearchSuggestResponse>(`/search/suggest?${qs.toString()}`);
 }

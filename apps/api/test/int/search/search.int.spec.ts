@@ -618,6 +618,77 @@ describe('GET /search (task-015-B)', () => {
     expect(recent.body.recents.filter((x: string) => x === 'recenttoken')).toHaveLength(1);
   });
 
+  it('S31 FR-S11: DELETE /search/recent?q=<entry> 개별 삭제 + DELETE 전체 삭제', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'delrec alpha bravo body');
+    for (const q of ['delrec', 'alpha', 'bravo']) {
+      await request(env.baseUrl)
+        .get(`/search?workspaceId=${s.workspaceId}&q=${q}`)
+        .set('Authorization', `Bearer ${s.memberToken}`)
+        .expect(200);
+    }
+    // 전부 들어갔는지 확인.
+    const before = await request(env.baseUrl)
+      .get('/search/recent')
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+    expect(before.body.recents).toContain('alpha');
+
+    // 개별 삭제: alpha 만 제거.
+    await request(env.baseUrl)
+      .delete(`/search/recent?q=${encodeURIComponent('alpha')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(204);
+    const afterOne = await request(env.baseUrl)
+      .get('/search/recent')
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+    expect(afterOne.body.recents).not.toContain('alpha');
+    expect(afterOne.body.recents).toContain('bravo');
+
+    // 전체 삭제.
+    await request(env.baseUrl)
+      .delete('/search/recent')
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(204);
+    const afterAll = await request(env.baseUrl)
+      .get('/search/recent')
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(200);
+    expect(afterAll.body.recents).toHaveLength(0);
+  });
+
+  it('S31 security: DELETE /search/recent?q 가 200자 초과면 400 (Redis LREM DoS 차단)', async () => {
+    const s = await seed();
+    const huge = 'a'.repeat(201);
+    await request(env.baseUrl)
+      .delete(`/search/recent?q=${encodeURIComponent(huge)}`)
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(400);
+  });
+
+  it('S31 FR-S11: DELETE /search/recent 는 다른 사용자 데이터에 영향 없음(IDOR 차단)', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'idortoken body here');
+    // owner 와 member 둘 다 동일 토큰 검색 → 각자 recent 에 기록.
+    for (const tok of [s.ownerToken, s.memberToken]) {
+      await request(env.baseUrl)
+        .get(`/search?workspaceId=${s.workspaceId}&q=idortoken`)
+        .set('Authorization', `Bearer ${tok}`)
+        .expect(200);
+    }
+    // member 가 전체 삭제 → owner 의 recent 는 그대로.
+    await request(env.baseUrl)
+      .delete('/search/recent')
+      .set('Authorization', `Bearer ${s.memberToken}`)
+      .expect(204);
+    const ownerRecent = await request(env.baseUrl)
+      .get('/search/recent')
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .expect(200);
+    expect(ownerRecent.body.recents).toContain('idortoken');
+  });
+
   it('EXPLAIN: search plan uses a GIN index (no Seq Scan)', async () => {
     const s = await seed();
     // Seed enough rows so the planner has a real choice.
