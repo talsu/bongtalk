@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type AttachmentKind } from '@prisma/client';
 import type Redis from 'ioredis';
 import {
   MessageMentions,
@@ -23,6 +23,7 @@ import {
 } from './mentions/mention-extractor';
 import { normalizeMentions } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
+import { astHasLink, flagsFromAttachmentKinds } from '../search/message-flags';
 import {
   gateChannelMention,
   gateEveryoneMention,
@@ -577,6 +578,9 @@ export class MessagesService {
     }
     // Validate attachment ownership + channel scope BEFORE the insert
     // transaction so a bad id fails fast without an uncommitted row.
+    // S29 (FR-S05): 같은 쿼리에서 kind 를 가져와 hasImage/hasFile 비정규화
+    // 플래그를 계산한다(추가 round-trip 없음).
+    let attachmentKinds: AttachmentKind[] = [];
     if (args.attachmentIds && args.attachmentIds.length > 0) {
       const rows = await this.prisma.attachment.findMany({
         where: {
@@ -586,7 +590,7 @@ export class MessagesService {
           finalizedAt: { not: null },
           messageId: null,
         },
-        select: { id: true },
+        select: { id: true, kind: true },
       });
       if (rows.length !== args.attachmentIds.length) {
         throw new DomainError(
@@ -594,6 +598,7 @@ export class MessagesService {
           'one or more attachments are not finalized or already linked',
         );
       }
+      attachmentKinds = rows.map((r) => r.kind);
     }
     // task-014-B: validate reply target BEFORE the insert tx so we don't
     // need to unwind on a bad parent. Single-level depth is enforced
@@ -693,6 +698,10 @@ export class MessagesService {
       },
     });
     const contentPlain = processed.contentPlain;
+    // S29 (FR-S05): 비정규화 검색 플래그 계산 — hasLink 는 AST 의 link 노드,
+    // hasImage/hasFile 은 연결할 첨부 kind 집합에서 유도.
+    const { hasImage, hasFile } = flagsFromAttachmentKinds(attachmentKinds);
+    const hasLink = astHasLink(processed.contentAst);
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
@@ -702,6 +711,10 @@ export class MessagesService {
             authorId: args.authorId,
             content: args.content,
             contentPlain,
+            // S29 (FR-S05): 검색 has: 필터용 비정규화 플래그.
+            hasLink,
+            hasImage,
+            hasFile,
             // S02 additive 컬럼(S01 nullable 추가분). expand-contract:
             // 기존 `content`/`contentPlain` 병행 유지, 신규 경로가
             // contentRaw/contentAst/contentPlainV2 를 채웁니다(스키마 무변경).
@@ -1545,6 +1558,9 @@ export class MessagesService {
           contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
           contentPlainV2: contentPlain,
           mentions: mentions as unknown as Prisma.InputJsonValue,
+          // S29 (FR-S05): 편집으로 본문이 바뀌면 hasLink 재계산. 첨부는 편집
+          // 경로에서 변경되지 않으므로 hasImage/hasFile 은 그대로 둔다.
+          hasLink: astHasLink(processed.contentAst),
           editedAt,
           // 낙관적 잠금 bump. updatedAt 은 @updatedAt 으로 자동 갱신.
           version: { increment: 1 },

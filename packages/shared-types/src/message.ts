@@ -312,3 +312,15 @@ export const SearchResponseSchema = z.object({
   nextCursor: z.string().nullable(),
 });
 export type SearchResponse = z.infer<typeof SearchResponseSchema>;
+
+// S29 (FR-S08): 검색 정렬 모드. relevance(ts_rank_cd, 기본) | recent(createdAt DESC).
+export const SearchSortSchema = z.enum(['relevance', 'recent']);
+export type SearchSort = z.infer<typeof SearchSortSchema>;
+
+// S29 (FR-S05): 검색 수식어(클라이언트 문서용). 쿼리 문자열 안에 인라인으로
+// 작성한다 — `from:@user in:#channel has:link|image|file before:YYYY-MM-DD
+// after:YYYY-MM-DD during:today|yesterday|week|month|YYYY-MM is:pinned`.
+// 서버 파서(search-query.parser)가 권위적 해석을 수행하므로 이 상수는
+// UI 힌트/자동완성용 enum 일 뿐이다.
+export const SEARCH_HAS_TYPES = ['link', 'image', 'file'] as const;
+export type SearchHasType = (typeof SEARCH_HAS_TYPES)[number];

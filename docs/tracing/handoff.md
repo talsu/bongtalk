@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S28 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S29(검색 코어: 권한필터 오라클방지 + 수식어 파서 has/is + deleted 제외 + 정렬).** D02·D03·**D08(프레즌스, S25~S28)**·D09 완료.
+> **S05 검증·S06~S29 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S30(검색 결과 패널/카드/컨텍스트 + Jump + 페이지네이션 + 스레드답글 권한필터).** D02·D03·D08(프레즌스)·D09 완료. D07(검색, S29~) 진행 중. **진행률: 120/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -253,11 +253,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19(api 358·web 500) + build 3종 + status-dnd int 16 GREEN. DS 무수정. 마이그레이션 PG16.
 - carryover: DST 프리셋 ±1h, DND timezone UI 변환(FR-P06 UTC분=정본, UI 변환 책임), D14 알림 전체, custom status/DND UI 배선(훅 dormant).
 
-## 다음 슬라이스: S29 (검색 코어 — 권한필터 오라클방지 + 수식어 파서 has/is + deleted 제외 + 정렬)
+## ✅ S29 (검색 코어 — 권한필터 오라클방지 + 수식어 파서 + deleted 제외 + 정렬) — 완료
 
-- scope `apps/api/src/search/**` + 일부 web. FR-S04/05/08/15.
-- FR-S04(검색 결과 **권한 필터링** — 볼 수 없는 채널/메시지 결과 제외, **오라클 방지**[검색으로 비공개 존재 추론 차단]), FR-S05(수식어 파서 `has:link/image/file`, `is:pinned` 등), FR-S08(deleted 메시지 검색 제외), FR-S15(정렬 — 관련도/최신).
-- 주의: 기존 검색(S15 inline-search? task-015 FTS? — SearchInput/search 도메인 존재, 멘션 자동완성도 search 사용). **권한 필터는 S14 PermissionMatrix/channel-access + S17 DM visibleFrom/차단 + S27 멤버목록 패턴 재사용**. Postgres FTS(tsvector?) 또는 ILIKE. deleted=soft-delete(deletedAt) 제외. 오라클 방지 = 결과 0 vs 403 구분 안 함. FR 정본: PRD html FR-S.
+- FR-S04(권한필터 visibleChannelIds + 오라클방지 in:#private 비멤버→silent 0 + **per-result ACL 재검증** race-close), FR-S05(수식어 파서 from/in/has/before/after/during/is:pinned 복합 AND), FR-S08(ts_rank_cd 관련도/recent 토글), FR-S15(deletedAt IS NULL). 비정규화 hasLink/hasImage/hasFile 컬럼(마이그레이션 `20260601900000` + backfill). is:pinned=pinnedAt 재사용. DM 구조적 제외.
+- **리뷰 fix-forward**(reviewer approve + security+perf+contract): security BLOCKER(per-result ACL 재검증 미구현 → rows.filter(visibleSet) race-close), MEDIUM(workspaceId/channelId/senderId/cursor UUID 검증 → 500 누출 차단, q 길이 500/modifier 64 DoS), hasAttachment deletedAt→finalizedAt 교정+테스트.
+- 게이트: verify 19(api 395) + build 3종 + search int 21 GREEN. DS 무수정. 마이그레이션 PG16(비정규화 컬럼).
+- carryover: perf(FTS OR ILIKE GIN 폴백·visibleChannelIds 캐시·ANY plan-cache·username lower() 인덱스·backfill 배치), web 검색 필터 UI(task-046 iter3), pin advisory-lock 500(별도).
+
+## 다음 슬라이스: S30 (검색 결과 패널/카드/컨텍스트 + Jump 시퀀스 + 페이지네이션 + 스레드답글 권한필터)
+
+- scope 주로 web(`apps/web/src/features/search/**`) + 일부 api. FR-S03/06/07/09/10.
+- FR-S03(검색 결과 패널/카드 UI), FR-S06(결과 클릭→메시지 컨텍스트 점프 — S23 Jump-to-Unread/around 시퀀스 재사용), FR-S07(컨텍스트 표시), FR-S09(cursor 페이지네이션 20/100 — S29 기존), FR-S10(스레드 답글도 권한 필터 — S29 visibleChannelIds 가 thread reply 검색에도).
+- 주의: **UI 슬라이스 → ui-designer + visual-regression 필수**(DS qf-search\* 클래스). S29 검색 코어(GET /search, per-result ACL, sort) 위. Jump=S23 around 점프 시퀀스. 스레드 답글 권한필터(parentMessageId 채널 가시성). FR 정본: PRD html FR-S03/06/07/09/10.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

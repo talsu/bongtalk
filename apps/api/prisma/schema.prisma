@@ -499,8 +499,19 @@ model Message {
   // task-044-iter2: pinned messages. NULL = 미고정. Discord-parity cap
   // 50/channel enforced at service layer. Author 가 일반 MEMBER 라도
   // OWNER/ADMIN 이 pin 할 수 있어 pinnedBy 는 author 와 다를 수 있다.
+  // S29 (FR-S05): 검색 `is:pinned` 은 별도 컬럼 없이 `pinnedAt IS NOT NULL`
+  // 을 그대로 쓴다(pin/unpin 이 advisory-lock 아래 원자 유지 — 중복 컬럼 회피).
   pinnedAt   DateTime? @db.Timestamptz
   pinnedBy   String?   @db.Uuid
+
+  // ── S29 (FR-S05 / ADR-2): 검색 수식어 `has:` 용 비정규화 boolean ──────────
+  // send/edit 시점에 1회 계산해 박는 read-path 캐시. hasLink 는 mrkdwn AST 의
+  // `link` 노드(allowlist 스킴) 유무로, hasImage/hasFile 은 연결된 finalized
+  // Attachment.kind(IMAGE / FILE·VIDEO)로 판정한다. 전부 NOT NULL DEFAULT false
+  // 라 기존 row 안전(additive). 검색 SQL 이 partial index 와 합성해 sparse scan.
+  hasLink    Boolean @default(false)
+  hasImage   Boolean @default(false)
+  hasFile    Boolean @default(false)
 
   // ── S01 (ADR-2 카노니컬 additive 토대) ────────────────────────────────────
   // expand-contract: 이번 슬라이스는 ADDITIVE 만. 신규 컬럼은 전부 nullable
@@ -556,6 +567,9 @@ model Message {
   // Partial WHERE pinnedAt IS NOT NULL 은 raw-SQL migration 으로 보강합니다
   // (Prisma @@index 가 partial 미지원).
   @@index([channelId, pinnedAt])
+  // S29 (FR-S05): has: 필터용 partial index `(channelId) WHERE hasX = true`
+  // 3종은 raw-SQL migration 20260601900000_s29_search_denormalized_flags 가
+  // 생성합니다(Prisma @@index 가 partial WHERE 미지원이라 여기엔 선언 불가).
 }
 
 // Task-013-B: per-message reactions. `emoji` is the literal unicode
