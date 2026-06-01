@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { useDmList, useCreateOrGetDm } from '../../features/dms/useDms';
+import { useMutedChannelIds } from '../../features/channels/useMutes';
+import { deriveDmBadgeCount, dmBadgeText } from '../../features/dms/dmRowBadge';
 import { useFriendsList } from '../../features/friends/useFriends';
 import { useDmPresence } from '../../features/realtime/useDmPresence';
 import { MobileTabBar } from './MobileTabBar';
@@ -17,6 +19,9 @@ export function MobileDmList(): JSX.Element {
   // Global DM — workspace-agnostic. /me/dms ignores the wsId arg, the
   // friends list is the candidate source for "새 DM".
   const { data: dms, isLoading } = useDmList(undefined);
+  // S22 (FR-DM-15): 뮤트 DM 은 unread 배지/강조 억제(멘션만). 데스크톱 DmShell 과
+  // 동일 정책 — GET /me/mutes 의 channelId 집합 공유.
+  const mutedChannelIds = useMutedChannelIds();
   const { data: friends } = useFriendsList('accepted');
   const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
@@ -82,33 +87,43 @@ export function MobileDmList(): JSX.Element {
             <div className="qf-m-empty__body">우측 하단 버튼으로 멤버와 대화를 시작하세요.</div>
           </div>
         ) : (
-          rows.map((d) => (
-            <button
-              key={d.channelId}
-              type="button"
-              data-testid={`mobile-dm-row-${d.otherUsername}`}
-              onClick={() => navigate(`/dms/${d.otherUserId}?c=${d.channelId}`)}
-              className={cn('w-full text-left qf-m-row', d.unreadCount > 0 && 'qf-m-row--unread')}
-            >
-              <Avatar name={d.otherUsername} size="md" status={getStatus(d.otherUserId)} />
-              <div className="min-w-0 flex-1">
-                <div className="qf-m-row__primary">{d.otherUsername}</div>
-                <div className="qf-m-row__secondary">
-                  {d.lastMessagePreview ?? '대화를 시작하세요'}
+          rows.map((d) => {
+            const badge = deriveDmBadgeCount({
+              unreadCount: d.unreadCount,
+              muted: mutedChannelIds.has(d.channelId),
+            });
+            return (
+              <button
+                key={d.channelId}
+                type="button"
+                data-testid={`mobile-dm-row-${d.otherUsername}`}
+                onClick={() => navigate(`/dms/${d.otherUserId}?c=${d.channelId}`)}
+                className={cn('w-full text-left qf-m-row', badge > 0 && 'qf-m-row--unread')}
+              >
+                <Avatar name={d.otherUsername} size="md" status={getStatus(d.otherUserId)} />
+                <div className="min-w-0 flex-1">
+                  <div className="qf-m-row__primary">{d.otherUsername}</div>
+                  <div className="qf-m-row__secondary">
+                    {d.lastMessagePreview ?? '대화를 시작하세요'}
+                  </div>
                 </div>
-              </div>
-              <div className="qf-m-row__aside">
-                {d.lastMessageAt ? (
-                  <span className="qf-m-row__time">{relTime(d.lastMessageAt)}</span>
-                ) : null}
-                {d.unreadCount > 0 ? (
-                  <span className="qf-badge qf-badge--count">
-                    {d.unreadCount > 99 ? '99+' : d.unreadCount}
-                  </span>
-                ) : null}
-              </div>
-            </button>
-          ))
+                <div className="qf-m-row__aside">
+                  {d.lastMessageAt ? (
+                    <span className="qf-m-row__time">{relTime(d.lastMessageAt)}</span>
+                  ) : null}
+                  {badge > 0 ? (
+                    <span
+                      data-testid={`mobile-dm-badge-${d.otherUsername}`}
+                      aria-label={`읽지 않음 ${badge}개`}
+                      className="qf-badge qf-badge--count"
+                    >
+                      {dmBadgeText(badge)}
+                    </span>
+                  ) : null}
+                </div>
+              </button>
+            );
+          })
         )}
       </main>
 
@@ -134,6 +149,7 @@ export function MobileDmList(): JSX.Element {
           data-testid="mobile-dm-new-sheet"
           role="dialog"
           aria-modal="true"
+          aria-label="새 다이렉트 메시지"
           className="fixed inset-0 z-[var(--z-modal,60)]"
         >
           <div className="qf-m-sheet-backdrop absolute inset-0" onClick={() => setNewOpen(false)} />

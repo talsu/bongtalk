@@ -6,6 +6,8 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { useDmList, useCreateOrGetDm, useDmByUser } from '../features/dms/useDms';
+import { useMutedChannelIds } from '../features/channels/useMutes';
+import { deriveDmBadgeCount, dmBadgeText } from '../features/dms/dmRowBadge';
 import { useFriendsList } from '../features/friends/useFriends';
 import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
@@ -34,6 +36,9 @@ export function DmShell(): JSX.Element {
   // through `/me/dms/:channelId/messages` regardless of whether the
   // caller has any workspace membership.
   const { data: dms } = useDmList(undefined);
+  // S22 (FR-DM-15): 뮤트 DM 은 unread 배지를 억제(멘션만). DM 채널도 동일한
+  // UserChannelMute 테이블을 쓰므로 GET /me/mutes 의 channelId 집합을 공유한다.
+  const mutedChannelIds = useMutedChannelIds();
   const { data: friends } = useFriendsList('accepted');
   const createDm = useCreateOrGetDm(undefined);
   const [query, setQuery] = useState('');
@@ -127,19 +132,33 @@ export function DmShell(): JSX.Element {
                   type="button"
                   data-testid={`dm-shell-row-${d.otherUsername}`}
                   onClick={() => openDm(d.otherUserId)}
-                  aria-selected={d.otherUserId === routeUserId}
+                  // a11y(S22 review #4): button role 에 `aria-selected` 비허용
+                  // → `aria-current="page"`. 활성 시각표시(qf-channel--active +
+                  // 토큰 배경)는 선제존재 마크업이라 className 으로 유지한다.
+                  aria-current={d.otherUserId === routeUserId ? 'page' : undefined}
                   className={cn(
                     'qf-channel w-full text-left',
-                    d.otherUserId === routeUserId && 'qf-channel--active',
+                    d.otherUserId === routeUserId &&
+                      'qf-channel--active bg-[var(--bg-selected)] text-[var(--text-strong)]',
                   )}
                 >
                   <Avatar name={d.otherUsername} size="sm" status={getStatus(d.otherUserId)} />
                   <span className="flex-1 truncate">{d.otherUsername}</span>
-                  {d.unreadCount > 0 ? (
-                    <span className="qf-badge qf-badge--count">
-                      {d.unreadCount > 99 ? '99+' : d.unreadCount}
-                    </span>
-                  ) : null}
+                  {(() => {
+                    const badge = deriveDmBadgeCount({
+                      unreadCount: d.unreadCount,
+                      muted: mutedChannelIds.has(d.channelId),
+                    });
+                    return badge > 0 ? (
+                      <span
+                        data-testid={`dm-shell-badge-${d.otherUsername}`}
+                        aria-label={`읽지 않음 ${badge}개`}
+                        className="qf-badge qf-badge--count"
+                      >
+                        {dmBadgeText(badge)}
+                      </span>
+                    ) : null;
+                  })()}
                 </button>
               ))}
               {(friends?.items ?? []).length > 0 ? (
@@ -153,10 +172,12 @@ export function DmShell(): JSX.Element {
                   type="button"
                   data-testid={`dm-side-friend-${f.otherUsername}`}
                   onClick={() => openDm(f.otherUserId)}
-                  aria-selected={f.otherUserId === routeUserId}
+                  // a11y(S22 review #4): button role → `aria-current="page"`.
+                  aria-current={f.otherUserId === routeUserId ? 'page' : undefined}
                   className={cn(
                     'qf-channel w-full text-left',
-                    f.otherUserId === routeUserId && 'qf-channel--active',
+                    f.otherUserId === routeUserId &&
+                      'qf-channel--active bg-[var(--bg-selected)] text-[var(--text-strong)]',
                   )}
                 >
                   <Avatar name={f.otherUsername} size="sm" status={getStatus(f.otherUserId)} />

@@ -6,6 +6,9 @@ export interface WorkspaceUnreadTotal {
   workspaceId: string;
   unreadCount: number;
   hasMention: boolean;
+  // S22 (FR-RS-15): 워크스페이스 전체 멘션 합산. 서버 summarizeWorkspaceTotals
+  // (UnreadWorkspaceTotal.mentionCount)가 이미 공급 — 서버 버튼 멘션 뱃지의 숫자.
+  mentionCount: number;
 }
 
 /**

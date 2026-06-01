@@ -5,7 +5,12 @@ import { Icon, Tooltip } from '../design-system/primitives';
 import { BrandMark } from '../design-system/brand/BrandMark';
 import { useWorkspaceUnreadTotals } from '../features/workspaces/useUnreadTotals';
 import { CreateWorkspaceDialog } from '../features/workspaces/CreateWorkspaceDialog';
-import { badgeVariant, badgeAriaLabel, badgeText } from '../features/notifications/badge-variant';
+import {
+  deriveServerButtonBadge,
+  serverButtonBadgeText,
+  serverButtonBadgeAria,
+} from '../features/workspaces/serverButtonBadge';
+import { cn } from '../lib/cn';
 
 type Props = {
   workspaces: Array<Pick<Workspace, 'id' | 'name' | 'slug'>>;
@@ -15,9 +20,9 @@ type Props = {
 export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
   const { data: totals } = useWorkspaceUnreadTotals();
   const unreadByWs = useMemo(() => {
-    const m = new Map<string, { count: number; mention: boolean }>();
+    const m = new Map<string, { unreadCount: number; mentionCount: number }>();
     for (const t of totals ?? [])
-      m.set(t.workspaceId, { count: t.unreadCount, mention: t.hasMention });
+      m.set(t.workspaceId, { unreadCount: t.unreadCount, mentionCount: t.mentionCount });
     return m;
   }, [totals]);
 
@@ -40,28 +45,48 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
       <div aria-hidden className="h-px w-6 bg-border" />
       {workspaces.map((ws) => {
         const u = unreadByWs.get(ws.id);
-        const count = u?.count ?? 0;
+        // S22 (FR-RS-15): 멘션 합산>0 → mention 뱃지(숫자=멘션 수), 아니면 기존
+        // unread 뱃지. 서버 summarizeWorkspaceTotals 의 mentionCount 를 그대로 사용.
+        const badge = deriveServerButtonBadge({
+          unreadCount: u?.unreadCount ?? 0,
+          mentionCount: u?.mentionCount ?? 0,
+        });
+        const active = ws.slug === activeSlug;
+        const badgeAria = serverButtonBadgeAria(badge);
+        // a11y(S22 review #2): `<Link aria-label>` 가 자식 배지의 aria-label 을
+        // 가려 스크린리더가 미읽음/멘션 수를 읽지 못한다. Link 의 접근명에
+        // 배지 텍스트를 합성하고, 배지 span 은 aria-hidden 으로 둬 중복 통지를
+        // 막는다.
+        const linkAria = badgeAria ? `${ws.name}, ${badgeAria}` : ws.name;
         return (
           <Tooltip key={ws.id} label={ws.name} side="right">
             <Link
               to={`/w/${ws.slug}`}
               data-testid={`ws-nav-${ws.slug}`}
-              aria-label={ws.name}
-              aria-selected={ws.slug === activeSlug}
-              aria-current={ws.slug === activeSlug ? 'true' : undefined}
-              className="qf-server-btn"
-              data-unread={count > 0 ? 'true' : 'false'}
-              data-mention={u?.mention ? 'true' : 'false'}
+              aria-label={linkAria}
+              // a11y(S22 review #4): `aria-selected` 는 link role 에 비허용 →
+              // `aria-current="page"`. DS 활성 셀렉터
+              // (`.qf-server-btn[aria-selected="true"]`)가 DS 4파일이라 못
+              // 고치므로 활성 배경 + 좌측 pill 을 DS 토큰 arbitrary 로 보강.
+              aria-current={active ? 'page' : undefined}
+              data-active={active ? 'true' : undefined}
+              className={cn(
+                'qf-server-btn',
+                active &&
+                  'rounded-[var(--r-md)] bg-[var(--accent)] text-[var(--text-onAccent)] before:h-[var(--nav-pill-h-active)]',
+              )}
+              data-unread={badge.variant !== 'none' ? 'true' : 'false'}
+              data-mention={badge.variant === 'mention' ? 'true' : 'false'}
             >
               {ws.name.slice(0, 2).toUpperCase()}
-              {count > 0 ? (
+              {badge.variant !== 'none' ? (
                 <span
                   data-testid={`ws-unread-${ws.slug}`}
-                  data-variant={badgeVariant(count, !!u?.mention)}
+                  data-variant={badge.variant}
                   className="qf-server-btn__unread"
-                  aria-label={badgeAriaLabel(count, !!u?.mention) ?? undefined}
+                  aria-hidden="true"
                 >
-                  {badgeText(count)}
+                  {serverButtonBadgeText(badge.count)}
                 </span>
               ) : null}
             </Link>

@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useUI } from '../stores/ui-store';
-import { useMarkChannelRead } from '../features/channels/useUnread';
+import {
+  useMarkChannelRead,
+  useAckChannelRead,
+  zeroOutChannelUnread,
+} from '../features/channels/useUnread';
+import { AckScheduler, type AckFlush } from '../features/messages/ackScheduler';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
@@ -123,45 +128,71 @@ export function MessageColumn({
     };
   }, [channelId, setActiveChannelId]);
 
-  // Task-010-B: mark the channel read on open, debounced by 500ms so
-  // rapid channel-switching doesn't thrash the server. Also re-fire
-  // when a new message arrives while the user is actively looking at
-  // this channel — the dispatcher skips the unread bump for the active
-  // channel, but if the server-side lastReadAt falls behind we still
-  // want an occasional refresh. Implemented by zeroing the cached
-  // count directly (optimistic) and debouncing the POST.
+  // Task-010-B: mark the channel read on open. 낙관적으로 캐시 unread 를 0 으로
+  // 눌러 pill 이 즉시 사라지게 하고, 레거시 POST /read(채널 진입 마킹)는 그대로
+  // 유지한다. 커서 기반 ACK(FR-RS-02)는 아래 AckScheduler 가 별도로 담당한다.
   const markRead = useMarkChannelRead(workspaceId ?? undefined);
-  const pendingRead = useRef<number | null>(null);
   useEffect(() => {
     // DM channels have no workspace-scoped unread summary; skip the
-    // optimistic patch + POST. The `/me/channels/read` call itself is
-    // workspace-agnostic (takes channelId only), so we could still
-    // call it — but without the summary row to prettify, the RTT buys
-    // us nothing here.
+    // optimistic patch + POST.
     if (workspaceId === null) return;
-    // Optimistically zero the cached unread for this channel so the
-    // pill disappears immediately rather than waiting 500ms + rtt.
+    // S22 review #5: useMarkChannelRead.onSuccess 와 동일한 zero-out 헬퍼를
+    // 공유해 (`mentionCount` 포함) 채널 open 직후 멘션 배지 깜빡임을 막는다.
     qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
       qk.channels.unreadSummary(workspaceId),
-      (old) => {
-        if (!old) return old;
-        return {
-          channels: old.channels.map((c) =>
-            c.channelId === channelId ? { ...c, unreadCount: 0, hasMention: false } : c,
-          ),
-        };
-      },
+      (old) => zeroOutChannelUnread(old, channelId),
     );
-    if (pendingRead.current) window.clearTimeout(pendingRead.current);
-    pendingRead.current = window.setTimeout(() => {
-      markRead.mutate(channelId);
-    }, 500);
-    return () => {
-      if (pendingRead.current) window.clearTimeout(pendingRead.current);
-    };
+    markRead.mutate(channelId);
     // markRead is a stable callback reference from useMutation; only
     // re-fire on channel change.
   }, [channelId, workspaceId, qc]);
+
+  // S22 (FR-RS-02): 커서 기반 ACK 스케줄러. 5초 디바운스(일반 스크롤) +
+  // scroll-to-bottom 즉시 발화. ACK body 에 clientTimestamp(epoch millis) 동봉.
+  // DM 채널(workspaceId=null)은 워크스페이스 스코프 ack 엔드포인트가 없으므로
+  // 스케줄러를 가동하지 않는다(legacy DM 읽음 처리는 별도 carryover).
+  const ackMut = useAckChannelRead(workspaceId ?? undefined);
+  const ackMutRef = useRef(ackMut);
+  ackMutRef.current = ackMut;
+  const schedulerRef = useRef<AckScheduler | null>(null);
+  if (schedulerRef.current === null) {
+    schedulerRef.current = new AckScheduler({
+      debounceMs: 5000,
+      onFlush: (flush: AckFlush) => {
+        ackMutRef.current.mutate({
+          channelId: flush.channelId,
+          lastReadMessageId: flush.lastReadMessageId,
+          clientTimestamp: flush.clientTimestamp,
+        });
+      },
+    });
+  }
+  // 채널 전환/언마운트 시 대기 디바운스를 flush 해 마지막 읽음을 잃지 않는다.
+  useEffect(() => {
+    const s = schedulerRef.current;
+    return () => {
+      s?.flushNow();
+    };
+  }, [channelId]);
+
+  const onReadCursor = useCallback(
+    (cursor: { lastMessageId: string; atBottom: boolean }) => {
+      // DM 은 ack 엔드포인트 미존재 → 스킵.
+      if (workspaceId === null) return;
+      // UUID 가 아닌 낙관적 임시 id(tmp-…)는 ACK 대상이 아니다.
+      if (cursor.lastMessageId.startsWith('tmp-')) return;
+      const s = schedulerRef.current;
+      if (!s) return;
+      if (cursor.atBottom) {
+        // scroll-to-bottom + 새 메시지 → 디바운스 없이 즉시 ACK.
+        s.flushImmediate(channelId, cursor.lastMessageId);
+      } else {
+        // 스크롤로 지나친 경우 → 5초 디바운스.
+        s.scheduleDebounced(channelId, cursor.lastMessageId);
+      }
+    },
+    [workspaceId, channelId],
+  );
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -217,10 +248,15 @@ export function MessageColumn({
           </div>
         </header>
         <MessageList
+          // S22 review #7: channelId 변경 시 MessageList 를 remount 해 이전
+          // 채널의 scrollTop 으로 atBottom 을 오판하는 첫 틱 레이스를 제거한다.
+          // (스크롤/앵커 ref 전부 초기 상태로 재시작.)
+          key={channelId}
           workspaceId={workspaceId}
           channelId={channelId}
           onOpenThread={(rootId) => setActiveThread(rootId)}
           extraNames={extraNames}
+          onReadCursor={onReadCursor}
         />
         <TypingIndicator
           channelId={channelId}
@@ -287,8 +323,9 @@ function ActivityBellButton(): JSX.Element {
         {count > 0 ? (
           <span
             data-testid="topbar-activity-badge"
-            className="qf-badge qf-badge--count"
-            style={{ position: 'absolute', top: '-4px', right: '-4px' }}
+            // S22 review #6: raw px(-4px) 제거 → DS 간격 토큰(--s-2=4px) 기반
+            // arbitrary 로 동일 위치 유지(시각 회귀 없음).
+            className="qf-badge qf-badge--count absolute right-[calc(-1*var(--s-2))] top-[calc(-1*var(--s-2))]"
           >
             {count > 99 ? '99+' : count}
           </span>

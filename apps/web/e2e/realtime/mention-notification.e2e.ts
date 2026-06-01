@@ -111,11 +111,17 @@ test('mention broadcast lights toast + sidebar badge, jump navigates with ?msg',
   expect(bPage.url()).toContain('?msg=');
 
   // With #general active, the cross-feature integration from 010
-  // kicks in: the unread badge/pill for #general disappears.
-  const channelUnreadPill = bPage.locator(
-    '[data-testid=channel-general] [data-testid^=unread-pill]',
+  // kicks in: the unread/mention signals for #general clear. S22
+  // (review #1) split the signal — assert both the mention number
+  // badge (unread-pill-mention) is gone AND the row's data-* flags
+  // flip off.
+  const channelMentionBadge = bPage.locator(
+    '[data-testid=channel-general] [data-testid=unread-pill-mention]',
   );
-  await expect(channelUnreadPill).toBeHidden({ timeout: 5_000 });
+  await expect(channelMentionBadge).toBeHidden({ timeout: 5_000 });
+  const generalRow = bPage.locator('[data-testid=channel-general]');
+  await expect(generalRow).toHaveAttribute('data-unread', 'false', { timeout: 5_000 });
+  await expect(generalRow).toHaveAttribute('data-mention', 'false', { timeout: 5_000 });
 
   await bPage.close();
   await aCtx.close();
