@@ -61,6 +61,12 @@ type Props = {
    * encoded in `msg.id`.
    */
   onRetry?: () => void;
+  /**
+   * S24 (FR-RS-08): "미읽으로 표시". 부모가 채널 컨텍스트(useMarkUnread)를
+   * 알 때만 전달 — 이 메시지 직전으로 읽음 커서를 되돌린다(後進). optimistic/
+   * tmp 행(아직 서버 id 없음)에는 부모가 전달하지 않거나 hide 처리한다.
+   */
+  onMarkUnread?: () => void | Promise<void>;
 };
 
 export function MessageItem({
@@ -78,6 +84,7 @@ export function MessageItem({
   onPin,
   onUnpin,
   onRetry,
+  onMarkUnread,
 }: Props): JSX.Element {
   // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
   // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
@@ -453,6 +460,26 @@ export function MessageItem({
                 >
                   <span data-testid={`msg-copy-link-${msg.id}`}>메시지 링크 복사</span>
                 </DropdownItem>
+                {onMarkUnread && !msg.id.startsWith('tmp-') ? (
+                  // S24 (FR-RS-08): 이 메시지 직전으로 읽음 커서를 되돌린다(後進).
+                  // 실패 시 토스트로 안내(낙관 갱신은 훅 onSuccess 가 권위 처리).
+                  <DropdownItem
+                    onSelect={async () => {
+                      try {
+                        await onMarkUnread();
+                      } catch {
+                        notify({
+                          variant: 'danger',
+                          title: '미읽음 표시 실패',
+                          body: '잠시 후 다시 시도하세요.',
+                          ttlMs: 4000,
+                        });
+                      }
+                    }}
+                  >
+                    <span data-testid={`msg-mark-unread-${msg.id}`}>미읽음으로 표시</span>
+                  </DropdownItem>
+                ) : null}
                 {(viewerRole === 'OWNER' || viewerRole === 'ADMIN') &&
                 !msg.id.startsWith('tmp-') &&
                 (onPin || onUnpin) ? (

@@ -97,10 +97,10 @@ FR-RS-15,D09-readstate,P1,S22,done
 FR-RS-06,D09-readstate,P0,S23,done
 FR-RS-07,D09-readstate,P0,S23,done
 FR-RS-11,D09-readstate,P1,S23,done
-FR-RS-08,D09-readstate,P1,S24,todo
-FR-RS-09,D09-readstate,P1,S24,todo
-FR-RS-10,D09-readstate,P1,S24,todo
-FR-RS-18,D09-readstate,P1,S24,todo
+FR-RS-08,D09-readstate,P1,S24,done
+FR-RS-09,D09-readstate,P1,S24,done
+FR-RS-10,D09-readstate,P1,S24,done
+FR-RS-18,D09-readstate,P1,S24,done
 FR-P01,D08-presence-status,P0,S25,todo
 FR-P02,D08-presence-status,P0,S25,todo
 FR-P03,D08-presence-status,P0,S25,todo

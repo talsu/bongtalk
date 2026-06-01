@@ -82,12 +82,20 @@ export function useAckChannelRead(workspaceId: string | undefined) {
   });
 }
 
+/**
+ * S24 fix-forward (reviewer MAJOR #3 · FR-RS-09): 채널 컨텍스트 메뉴 "읽음으로
+ * 표시"(ChannelList) + Unreads "읽음 처리"(UnreadsView) 의 전송 단위. 종전
+ * `POST .../read`(markRead) 는 read_state:updated 를 emit 하지 않아 멀티세션이
+ * desync 됐다. **emit 하는** `POST .../read-ack` 로 전환해, 서버가 채널을 최신까지
+ * 읽음 처리한 뒤 read_state:updated 를 user 룸으로 fan-out 한다(dispatcher 가 다른
+ * 탭/기기의 사이드바 배지를 권위 갱신). 본 탭은 즉각적 UX 를 위해 낙관 zero-out 유지.
+ */
 export function useMarkChannelRead(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async (channelId: string) => {
       if (!workspaceId) return;
-      await apiRequest(`/workspaces/${workspaceId}/channels/${channelId}/read`, {
+      await apiRequest(`/workspaces/${workspaceId}/channels/${channelId}/read-ack`, {
         method: 'POST',
       });
       return channelId;
@@ -102,6 +110,69 @@ export function useMarkChannelRead(workspaceId: string | undefined) {
 }
 
 /**
+ * S24 (FR-RS-08): 수동 미읽 표시. POST /workspaces/:id/channels/:chid/unread
+ * {messageId} 가 지정 메시지 **직전**으로 lastReadMessageId 를 되돌린다(後進 —
+ * monotonic guard 우회). 서버가 read_state:updated 를 emit 하므로 dispatcher 가
+ * 사이드바 배지를 권위 갱신하고, 여기서는 즉각적 UX 를 위해 낙관적으로 unread-
+ * summary 캐시의 해당 채널을 응답값(unreadCount/mentionCount)으로 패치한다.
+ */
+export function useMarkUnread(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (input: { channelId: string; messageId: string }) => {
+      if (!workspaceId) return undefined;
+      return apiRequest<{ channelId: string; unreadCount: number; mentionCount: number }>(
+        `/workspaces/${workspaceId}/channels/${input.channelId}/unread`,
+        { method: 'POST', body: { messageId: input.messageId } },
+      );
+    },
+    onSuccess: (res) => {
+      if (!workspaceId || !res) return;
+      qc.setQueryData<UnreadSummaryResponse>(qk.channels.unreadSummary(workspaceId), (old) => {
+        if (!old) return old;
+        return {
+          channels: old.channels.map((c) =>
+            c.channelId === res.channelId
+              ? {
+                  ...c,
+                  unreadCount: res.unreadCount,
+                  mentionCount: res.mentionCount,
+                  hasMention: res.mentionCount > 0,
+                }
+              : c,
+          ),
+        };
+      });
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    },
+  });
+}
+
+/**
+ * S24 (FR-RS-18): mark-all-read Undo. POST /workspaces/:id/read-all/undo
+ * {snapshotId} 가 직전 ChannelReadState 를 복원한다(後進 허용). 복원 후 서버
+ * read_state:updated fan-out 이 권위지만, 즉각적 UX 를 위해 summary/totals 를
+ * 무효화해 재조회한다(낙관 패치는 채널별 카운트를 모르므로 invalidate 가 안전).
+ */
+export function useUndoMarkAllRead(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (snapshotId: string) => {
+      if (!workspaceId) return;
+      await apiRequest(`/workspaces/${workspaceId}/read-all/undo`, {
+        method: 'POST',
+        body: { snapshotId },
+      });
+    },
+    onSuccess: () => {
+      if (!workspaceId) return;
+      qc.invalidateQueries({ queryKey: qk.channels.unreadSummary(workspaceId) });
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    },
+  });
+}
+
+/**
  * S23 (FR-RS-11): 워크스페이스 전체 읽음(Shift+Esc). POST /workspaces/:id/read-all
  * 가 가시 채널 중 미읽 남은 것을 각각 최신까지 monotonic 읽음 처리한다(後進 없음).
  * 낙관적으로 unread-summary 캐시의 모든 채널을 zero-out 해 사이드바 배지가 즉시
@@ -111,8 +182,13 @@ export function useMarkAllRead(workspaceId: string | undefined) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: async () => {
-      if (!workspaceId) return;
-      await apiRequest(`/workspaces/${workspaceId}/read-all`, { method: 'POST' });
+      if (!workspaceId) return undefined;
+      // S24 (FR-RS-18): 응답의 snapshotId 를 caller(Unreads View)가 받아 5초
+      // Undo 토스트의 "실행 취소" 버튼에 싣는다.
+      return apiRequest<{ channelsRead: number; snapshotId: string }>(
+        `/workspaces/${workspaceId}/read-all`,
+        { method: 'POST' },
+      );
     },
     // S23 MAJOR fix (#4): 낙관 패치를 onMutate 로 옮기고 직전 스냅샷을 보관해
     // onError 시 롤백한다(set-based 호출 부분 실패/네트워크 오류 시 사이드바

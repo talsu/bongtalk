@@ -240,6 +240,27 @@ export const AckReadRequestSchema = z.object({
 export type AckReadRequest = z.infer<typeof AckReadRequestSchema>;
 
 /**
+ * S24 (FR-RS-08): POST /workspaces/:id/channels/:chid/unread 요청 바디.
+ * `messageId` 는 사용자가 "여기서부터 미읽" 으로 지정한 메시지 — 서버는 그
+ * **직전** 메시지로 lastReadMessageId 를 되돌린다(직전이 없으면 null = 전체 미읽).
+ * S21 monotonic guard 를 의도적으로 우회하는 후진 경로(markUnread)다.
+ */
+export const MarkUnreadRequestSchema = z.object({
+  messageId: z.string().uuid(),
+});
+export type MarkUnreadRequest = z.infer<typeof MarkUnreadRequestSchema>;
+
+/**
+ * S24 (FR-RS-18): POST /workspaces/:id/read-all/undo 요청 바디. read-all 응답이
+ * 발급한 `snapshotId` 로 직전 ChannelReadState 를 복원한다(후진 허용 — markUnread
+ * 와 동일한 비-monotonic 경로). Redis(TTL 5분) 히트 → Redis, miss → DB 복원.
+ */
+export const UndoMarkAllReadRequestSchema = z.object({
+  snapshotId: z.string().uuid(),
+});
+export type UndoMarkAllReadRequest = z.infer<typeof UndoMarkAllReadRequestSchema>;
+
+/**
  * read_state:updated — 호출자의 user:{userId} 룸으로만 emit (FR-RS-01 멀티세션
  * 동기화). ACK 한 채널의 새 unread/mention 카운트를 함께 실어 다른 기기/탭이
  * 사이드바 배지를 즉시 갱신할 수 있게 한다. `mentionCount` 는 S21 추가분 —
