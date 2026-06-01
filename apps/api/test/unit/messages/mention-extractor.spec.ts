@@ -64,7 +64,31 @@ describe('extractMentions', () => {
   it('mixes user, channel, and everyone in one message', async () => {
     const fake = makePrisma([{ id: 'u1' }], [{ id: 'c1' }]);
     const out = await extractMentions(fake as any, WS, '@alice ping #general @everyone');
-    expect(out).toEqual({ users: ['u1'], channels: ['c1'], everyone: true, here: false });
+    expect(out).toEqual({
+      users: ['u1'],
+      channels: ['c1'],
+      everyone: true,
+      here: false,
+      channel: false,
+    });
+  });
+
+  /**
+   * S21 (FR-RS-16): `@channel` 특수멘션(채널 스코프) 인식.
+   */
+  it('detects @channel as a separate scope flag (not a username)', async () => {
+    const fake = makePrisma([], []);
+    const out = await extractMentions(fake as any, WS, 'heads up @channel');
+    expect(out.channel).toBe(true);
+    expect(out.users).toEqual([]);
+    expect(out.everyone).toBe(false);
+    expect(out.here).toBe(false);
+  });
+
+  it('channelwide 같은 단어 안의 channel 은 무시', async () => {
+    const fake = makePrisma([], []);
+    const out = await extractMentions(fake as any, WS, 'a @channelwide token');
+    expect(out.channel).toBe(false);
   });
 
   /**

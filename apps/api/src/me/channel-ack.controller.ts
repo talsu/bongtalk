@@ -37,7 +37,7 @@ export class ChannelAckController {
   @Post('ack')
   @HttpCode(200)
   async ack(
-    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('id', new ParseUUIDPipe()) wsId: string,
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
@@ -46,10 +46,14 @@ export class ChannelAckController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    // NIT-G: route param 으로 보유한 workspaceId 를 전달 — ackRead 가
+    // channel→workspaceId SELECT 를 생략하고 페이로드에 실어 dispatcher 가
+    // keyed unread-summary 쿼리를 직접 patch 한다.
     const payload = await this.unread.ackRead({
       userId: user.id,
       channelId,
       lastReadMessageId: parsed.data.lastReadMessageId,
+      workspaceId: wsId,
     });
     this.gateway.emitReadStateUpdated(user.id, payload);
     return payload;

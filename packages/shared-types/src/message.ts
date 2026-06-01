@@ -27,6 +27,12 @@ export const MessageMentionsSchema = z.object({
   // 로 기존 row 의 forward-compat 보장 (DB JSONB 가 here 키 누락이어도
   // 응답 schema 에서 false 채움).
   here: z.boolean().default(false),
+  // S21 fix-forward (FR-RS-16 · MAJOR-D): `@channel` 범위 멘션 — 현재 채널
+  // 멤버 전원. mention-extractor 와 gate.ts 는 이미 `channel` 을 산출/게이트하나
+  // 와이어 스키마에 누락돼 toMessageRow 가 드롭 → live 수신 시 dispatcher 의
+  // isMention 이 @channel 을 무시해 배지가 reload 와 불일치했다. default(false)
+  // 로 기존 row(channel 키 누락) forward-compat.
+  channel: z.boolean().default(false),
 });
 export type MessageMentions = z.infer<typeof MessageMentionsSchema>;
 
@@ -182,6 +188,18 @@ export const SendMessageRequestSchema = z.object({
   // Cap 10 per message matches the DS attachment grid's max visible
   // count — large galleries belong in a separate upload batch.
   attachmentIds: z.array(z.string().uuid()).max(10).optional(),
+  // S21 (FR-RS-16): composer 가 멘션 피커로 선택한 특수멘션 의도(@everyone /
+  // @here / @channel). 서버는 user/channel 멘션을 본문 텍스트에서 권위적으로
+  // 재추출하지만, 특수멘션은 본문에 sigil 이 없을 수도 있어(피커 선택만) 클라
+  // 힌트를 OR 로 병합한 뒤 gate.ts 로 권한 게이트한다. 권한 없는 특수멘션은
+  // 저장 시 false 로 다운그레이드되므로 신뢰 경계는 유지된다.
+  mentions: z
+    .object({
+      everyone: z.boolean().optional(),
+      here: z.boolean().optional(),
+      channel: z.boolean().optional(),
+    })
+    .optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 

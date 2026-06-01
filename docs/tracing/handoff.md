@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S20 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S21(D09 읽음상태 코어: ACK/멀티세션 + unread/mention 카노니컬 + 신규가입 초기화 + 후진방지 경합 + Redis 캐시).** D02(채널)·D03(DM, S16~S20) 전체 완료.
+> **S05 검증·S06~S21 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S22(읽음 사이드바 2계층 + 디바운스/즉시 ACK + 뮤트 억제 + 서버버튼 멘션 뱃지 + DM 미읽 배지).** D02(채널)·D03(DM, S16~S20) 완료. S21 에서 D09 읽음상태 코어 + **선제존재 unread int 3건 root-cause 수정 완료**.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -196,11 +196,19 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + dm int 64 GREEN. DS 무수정.
 - carryover(MED): rate-limit 4엔드포인트, displayName XSS charset, **iconUrl presign-on-read(web 배선 시 필수)**, pg_trgm 인덱스, **클라 q 서버검색 배선**.
 
-## 다음 슬라이스: S21 (D09 읽음상태 코어 — ACK/멀티세션 + unread/mention 카노니컬 + 신규가입 초기화 + 후진방지 + Redis 캐시)
+## ✅ S21 (D09 읽음상태 코어) — 완료
 
-- scope `apps/api/src/channels/**`(read-state/unread) + realtime + 일부 web. FR-RS-01/03/14/16/17.
-- **⚠️ D09 진입 — 누적 carryover 묶음 일괄 처리**: (1) S09 around-reload seam 활성(lastReadMessageId 공급원 = 이 D09 read-state) + S11 (createdAt,id) 튜플 unread 위에. (2) **read_state:updated 웹 dispatcher 소비**(S07/S11 carryover — 서버 emit 됨, 클라 미소비). (3) /ack 엔드포인트 채택. (4) **선제존재 unread int 3건**(me-unread-totals "zero entry", unread-private-acl "DENY beats ALLOW", unread-summary "@everyone hasMention") — S11~ 미해결, D09 코어에서 **반드시 조사·수정**(unread SQL ACL 버그 + mention 집계).
-- 주의: S11 이 (createdAt,id) 튜플 + monotonic upsert 토대 마련함. ACK 멀티세션 브로드캐스트(read_state:updated), 신규가입 시 기존 메시지 unread 초기화 정책, 후진방지(monotonic) 경합, Redis unread 캐시. FR 정본: PRD html FR-RS 섹션.
+- FR-RS-01(POST /channels/:id/ack + read_state:updated 전 세션 emit + 웹 dispatcher 소비), FR-RS-03((createdAt,id) 튜플 unread, self-inclusive), FR-RS-14(Redis `unread:{ws}:{user}` Hash 캐시 TTL 2h + fenced stampead 락 — controller 연결됨), FR-RS-16(mentionCount + @userId/@here/@channel/@everyone, ACK 리셋), FR-RS-17(monotonic 후진방지).
+- **선제존재 unread int 3건 root-cause 수정·GREEN 전환**: unread ACL 2단계→**5단계 fold**(PermissionMatrix.effective 정합, readBitVisibleSql 단일출처); summarizeWorkspaceTotals INNER→LEFT JOIN(zero-channel/OWNER-DENY row 보존); @everyone/@here/@channel mention 집계. 부수: S18 @channel carryover 닫힘 + totals CTE 콤마 syntax error(선제존재) 수정.
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀, BLOCKER 0): FR-RS-14 캐시 dead-code 연결(A) + stampead 실제 방어(락-loser 대기+재조회, fenced del, TTL 클램프/기본 2000)(B) + totals CTE fold 통합(C) + @channel/@here live badge wire(D) + OWNER DENY 정합(E) + mention `@>` GIN(F) + read_state:updated workspaceId(G) + fold 경계 테스트(H).
+- 게이트: verify 19 + build 3종 + channels int 전부 GREEN. 마이그레이션 없음(mentionCount on-the-fly + Redis TTL).
+- carryover(MED): ACK rate-limit, unreadCount+mentionCount 단일쿼리 병합, 클라 mentions 힌트, 새 메시지/멤버변경 캐시 무효화 와이어링, around-reload seam 공급.
+
+## 다음 슬라이스: S22 (읽음 사이드바 2계층 + 디바운스/즉시 ACK + 뮤트 억제 + 서버버튼 멘션 뱃지 + DM 미읽 배지)
+
+- scope 주로 web(`apps/web/src/features/**` 사이드바/배지/ACK) + 일부 api. FR-DM-15/RS-02/04/05/15.
+- 사이드바 2계층 표시(.qf-channel--unread bold + mention 배지 — S21 데이터 공급 완료), 스크롤 디바운스 ACK + 채널전환 즉시 ACK(S21 ACK 엔드포인트/WS 위), 뮤트 채널 unread 억제(S20 UserChannelMute), 서버(워크스페이스) 버튼 멘션 집계 뱃지, DM 목록 미읽 배지.
+- 주의: **UI 슬라이스 → ui-designer + visual-regression-scanner 필수**(DS 4파일 무수정, qf-_/qf-m-_ 토큰). S21 read_state:updated 웹 소비 + useUnread mentionCount 위에. around-reload seam(S09)의 lastReadMessageId 공급을 여기서 연결 가능. FR 정본: PRD html.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

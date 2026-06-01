@@ -13,6 +13,8 @@ export interface UnreadChannelSummary {
   channelId: string;
   unreadCount: number;
   hasMention: boolean;
+  // S21 (FR-RS-16): 미읽음 멘션 수. 사이드바 2계층 표시의 mention 배지 데이터.
+  mentionCount: number;
   lastMessageAt: string | null;
 }
 
@@ -48,7 +50,9 @@ export function useMarkChannelRead(workspaceId: string | undefined) {
         if (!old) return old;
         return {
           channels: old.channels.map((c) =>
-            c.channelId === channelId ? { ...c, unreadCount: 0, hasMention: false } : c,
+            c.channelId === channelId
+              ? { ...c, unreadCount: 0, mentionCount: 0, hasMention: false }
+              : c,
           ),
         };
       });

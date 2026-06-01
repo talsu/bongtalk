@@ -18,7 +18,7 @@ function msg(
     contentRaw: 'hi',
     contentAst: null,
     type: 'DEFAULT',
-    mentions: { users: [], channels: [], everyone: false, here: false },
+    mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,
     deleted: false,
     editedAt: null,
