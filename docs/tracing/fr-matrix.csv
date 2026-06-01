@@ -89,11 +89,11 @@ FR-RS-03,D09-readstate,P0,S21,done
 FR-RS-14,D09-readstate,P1,S21,done
 FR-RS-16,D09-readstate,P0,S21,done
 FR-RS-17,D09-readstate,P0,S21,done
-FR-DM-15,D03-dms,P0,S22,todo
-FR-RS-02,D09-readstate,P0,S22,todo
-FR-RS-04,D09-readstate,P0,S22,todo
-FR-RS-05,D09-readstate,P0,S22,todo
-FR-RS-15,D09-readstate,P1,S22,todo
+FR-DM-15,D03-dms,P0,S22,partial
+FR-RS-02,D09-readstate,P0,S22,done
+FR-RS-04,D09-readstate,P0,S22,done
+FR-RS-05,D09-readstate,P0,S22,done
+FR-RS-15,D09-readstate,P1,S22,done
 FR-RS-06,D09-readstate,P0,S23,todo
 FR-RS-07,D09-readstate,P0,S23,todo
 FR-RS-11,D09-readstate,P1,S23,todo

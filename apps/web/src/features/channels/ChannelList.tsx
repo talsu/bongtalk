@@ -15,6 +15,8 @@ import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
 import { useUnreadSummary } from './useUnread';
+import { useMutedChannelIds } from './useMutes';
+import { deriveSidebarRowState } from './sidebarRowState';
 import { CreateChannelModal } from './CreateChannelModal';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -61,23 +63,15 @@ type Props = {
 
 const ROOT_CATEGORY_ID = '__root__';
 
-function UnreadIndicator({
-  count,
-  hasMention,
-}: {
-  count: number;
-  hasMention: boolean;
-}): JSX.Element | null {
+function MentionBadge({ count }: { count: number }): JSX.Element | null {
   if (count <= 0) return null;
-  // DS mockup (/design-system/index.html full-chat column) shows a
-  // single `qf-badge qf-badge--count` pill at the right of the row —
-  // no inline dot next to the name, no accent-colour override. The
-  // mention-vs-regular distinction stays encoded in the testid so
-  // existing test selectors keep working.
+  // S22 (FR-RS-04): 행 우측 멘션 숫자 뱃지. DS `qf-badge qf-badge--count`
+  // (신규 클래스 도입 없음). unread bold/pill 은 행 컨테이너(qf-channel--unread)
+  // 가 담당하고, 이 뱃지는 **멘션 건수**만 표기한다(2계층의 두 번째 계층).
   return (
     <span
-      data-testid={hasMention ? 'unread-pill-mention' : 'unread-pill'}
-      aria-label={hasMention ? `읽지 않은 멘션 ${count}개` : `읽지 않음 ${count}개`}
+      data-testid="unread-pill-mention"
+      aria-label={`읽지 않은 멘션 ${count}개`}
       className="qf-badge qf-badge--count"
     >
       {count > 99 ? '99+' : count}
@@ -93,16 +87,16 @@ function DraggableChannelRow({
   channel,
   workspaceSlug,
   active,
-  unreadCount,
-  hasMention,
+  showUnreadStyle,
+  mentionBadgeCount,
   canManage,
   isDropTarget,
 }: {
   channel: Channel;
   workspaceSlug: string;
   active: boolean;
-  unreadCount: number;
-  hasMention: boolean;
+  showUnreadStyle: boolean;
+  mentionBadgeCount: number;
   canManage: boolean;
   isDropTarget: boolean;
 }): JSX.Element {
@@ -124,7 +118,6 @@ function DraggableChannelRow({
   const style = {
     opacity: isDragging ? 0.4 : 1,
   };
-  const hasUnread = unreadCount > 0;
   return (
     <>
       {isDropTarget ? <DropLine /> : null}
@@ -132,15 +125,24 @@ function DraggableChannelRow({
         ref={setNodeRef}
         {...(canManage ? { ...attributes, ...listeners } : {})}
         style={style}
-        aria-selected={active || undefined}
+        // a11y(S22 review #4): `aria-selected` 는 listitem role 에 비허용 속성
+        // → `aria-current="page"` 로 교정. DS 의 활성 배경 셀렉터
+        // (`.qf-channel[aria-selected="true"]`)는 DS 4파일이라 못 고치므로,
+        // 활성 시각표시(배경/글자색)는 DS 토큰을 참조하는 arbitrary 클래스로
+        // 직접 보강해 회귀를 막는다(raw hex/px 금지, var() 토큰만 사용).
+        aria-current={active ? 'page' : undefined}
+        data-active={active ? 'true' : undefined}
         className={cn(
           'qf-channel group relative',
-          hasUnread && !active && 'qf-channel--unread',
+          active && 'bg-[var(--bg-selected)] text-[var(--text-strong)]',
+          // S22 (FR-RS-04/05): 비뮤트 + unread 일 때만 bold + 좌측 pill.
+          // 뮤트 채널은 showUnreadStyle=false 로 억제된다(FR-RS-05).
+          showUnreadStyle && !active && 'qf-channel--unread',
           isDragging ? 'cursor-grabbing' : canManage ? 'cursor-grab' : 'cursor-pointer',
         )}
         data-testid={`channel-${channel.name}`}
-        data-unread={hasUnread ? 'true' : 'false'}
-        data-mention={hasMention ? 'true' : 'false'}
+        data-unread={showUnreadStyle ? 'true' : 'false'}
+        data-mention={mentionBadgeCount > 0 ? 'true' : 'false'}
       >
         {/* Full-row navigation overlay. Renders as absolute(inset:0) so
             the entire hover-highlighted rectangle is the click target —
@@ -177,7 +179,7 @@ function DraggableChannelRow({
               <Icon name="settings" size="sm" />
             </Link>
           ) : null}
-          <UnreadIndicator count={unreadCount} hasMention={hasMention} />
+          <MentionBadge count={mentionBadgeCount} />
         </span>
       </li>
     </>
@@ -217,6 +219,7 @@ function SortableCategorySection({
   workspaceSlug,
   activeChannelName,
   unreadByChannel,
+  mutedChannelIds,
   canManage,
   onAddChannel,
   dragOverId,
@@ -227,7 +230,8 @@ function SortableCategorySection({
   channels: Channel[];
   workspaceSlug: string;
   activeChannelName: string | null;
-  unreadByChannel: Map<string, { count: number; mention: boolean }>;
+  unreadByChannel: Map<string, { count: number; mentionCount: number }>;
+  mutedChannelIds: Set<string>;
   canManage: boolean;
   onAddChannel: () => void;
   dragOverId: string | null;
@@ -310,14 +314,19 @@ function SortableCategorySection({
             {channels.map((ch) => {
               const u = unreadByChannel.get(ch.id);
               const isActive = activeChannelName === ch.name;
+              const rowState = deriveSidebarRowState({
+                unreadCount: isActive ? 0 : (u?.count ?? 0),
+                mentionCount: isActive ? 0 : (u?.mentionCount ?? 0),
+                muted: mutedChannelIds.has(ch.id),
+              });
               return (
                 <DraggableChannelRow
                   key={ch.id}
                   channel={ch}
                   workspaceSlug={workspaceSlug}
                   active={isActive}
-                  unreadCount={!isActive ? (u?.count ?? 0) : 0}
-                  hasMention={!isActive && (u?.mention ?? false)}
+                  showUnreadStyle={rowState.showUnreadStyle}
+                  mentionBadgeCount={rowState.mentionBadgeCount}
                   canManage={canManage}
                   isDropTarget={activeType === 'channel' && dragOverId === ch.id}
                 />
@@ -336,6 +345,7 @@ function DefaultSection({
   workspaceSlug,
   activeChannelName,
   unreadByChannel,
+  mutedChannelIds,
   canManage,
   onAddChannel,
   dragOverId,
@@ -344,7 +354,8 @@ function DefaultSection({
   channels: Channel[];
   workspaceSlug: string;
   activeChannelName: string | null;
-  unreadByChannel: Map<string, { count: number; mention: boolean }>;
+  unreadByChannel: Map<string, { count: number; mentionCount: number }>;
+  mutedChannelIds: Set<string>;
   canManage: boolean;
   onAddChannel: () => void;
   dragOverId: string | null;
@@ -369,14 +380,19 @@ function DefaultSection({
           {channels.map((ch) => {
             const u = unreadByChannel.get(ch.id);
             const isActive = activeChannelName === ch.name;
+            const rowState = deriveSidebarRowState({
+              unreadCount: isActive ? 0 : (u?.count ?? 0),
+              mentionCount: isActive ? 0 : (u?.mentionCount ?? 0),
+              muted: mutedChannelIds.has(ch.id),
+            });
             return (
               <DraggableChannelRow
                 key={ch.id}
                 channel={ch}
                 workspaceSlug={workspaceSlug}
                 active={isActive}
-                unreadCount={!isActive ? (u?.count ?? 0) : 0}
-                hasMention={!isActive && (u?.mention ?? false)}
+                showUnreadStyle={rowState.showUnreadStyle}
+                mentionBadgeCount={rowState.mentionBadgeCount}
                 canManage={canManage}
                 isDropTarget={activeType === 'channel' && dragOverId === ch.id}
               />
@@ -397,6 +413,8 @@ export function ChannelList({
 }: Props): JSX.Element {
   const { data } = useChannelList(workspaceId);
   const { data: unread } = useUnreadSummary(workspaceId);
+  // S22 (FR-RS-05): 뮤트 채널 id 집합. unread bold/pill 억제에 사용.
+  const mutedChannelIds = useMutedChannelIds();
   const moveChannelMut = useMoveChannel(workspaceId);
   const moveCategoryMut = useMoveCategory(workspaceId);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -428,9 +446,9 @@ export function ChannelList({
   }, [uncategorized, categories]);
 
   const unreadByChannel = useMemo(() => {
-    const m = new Map<string, { count: number; mention: boolean }>();
+    const m = new Map<string, { count: number; mentionCount: number }>();
     for (const u of unread?.channels ?? []) {
-      m.set(u.channelId, { count: u.unreadCount, mention: u.hasMention });
+      m.set(u.channelId, { count: u.unreadCount, mentionCount: u.mentionCount });
     }
     return m;
   }, [unread]);
@@ -554,6 +572,7 @@ export function ChannelList({
             workspaceSlug={workspaceSlug}
             activeChannelName={activeChannelName}
             unreadByChannel={unreadByChannel}
+            mutedChannelIds={mutedChannelIds}
             canManage={canManage}
             onAddChannel={() => openChannelCreate(null, '채널')}
             dragOverId={dragOverId}
@@ -568,6 +587,7 @@ export function ChannelList({
                 workspaceSlug={workspaceSlug}
                 activeChannelName={activeChannelName}
                 unreadByChannel={unreadByChannel}
+                mutedChannelIds={mutedChannelIds}
                 canManage={canManage}
                 onAddChannel={() => openChannelCreate(cat.id, cat.name)}
                 dragOverId={dragOverId}
