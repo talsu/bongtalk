@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
+import { UnreadsView } from '../features/channels/UnreadsView';
 import { ChannelBrowser } from '../features/channels/ChannelBrowser';
 import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
 import { CreateChannelModal } from '../features/channels/CreateChannelModal';
@@ -145,6 +146,8 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
       ) : null}
       <div className="qf-channellist__body">
         <OnboardingCard />
+        {/* S24 (FR-RS-10): 사이드바 최상단 상시 노출 Unreads View. */}
+        <UnreadsView workspaceId={workspace.id} workspaceSlug={workspace.slug} />
         <ChannelList
           workspaceId={workspace.id}
           workspaceSlug={workspace.slug}

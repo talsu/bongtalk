@@ -13,6 +13,13 @@ export type Notification = {
    * success / warning toasts stay non-interactive.
    */
   onActivate?: () => void;
+  /**
+   * S24 (FR-RS-10/18): an inline action button rendered inside the toast
+   * (e.g. mark-all-read 의 "실행 취소" Undo). Distinct from `onActivate`
+   * (whole-toast click) — the action sits beside the text and dismisses
+   * the toast on click. Kept optional so existing toasts are unaffected.
+   */
+  action?: { label: string; onClick: () => void };
 };
 
 type NotificationState = {

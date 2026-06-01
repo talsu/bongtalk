@@ -29,6 +29,22 @@ interface CachedChannelEntry {
 }
 
 /**
+ * S24 (FR-RS-18): mark-all-read 직전 채널별 커서. 복원 시 그대로 되돌린다(後進
+ * 허용). row 가 없던(전체 미읽) 채널은 둘 다 null 로 담는다.
+ */
+interface SnapshotCursor {
+  lastReadMessageId: string | null;
+  /** ISO 문자열(JSON 직렬화). 복원 시 timestamptz 로 캐스팅. */
+  lastReadMessageCreatedAt: string | null;
+}
+
+/** S24 (FR-RS-18): read-all 응답 — 스냅샷 id + fan-out payload 들. */
+export interface MarkAllReadResult {
+  snapshotId: string;
+  payloads: ReadStateUpdatedPayload[];
+}
+
+/**
  * S21 (D09 · FR-RS): 읽음상태 코어. summarize/totals/unreadCountFor 가
  * (createdAt, id) 튜플 커서 공식(S11)을 공유하고, 비공개 채널 가시성 판정을
  * `PermissionMatrix.effective` 의 5단계 fold 와 동일 우선순위로 정렬한다.
@@ -507,6 +523,109 @@ export class UnreadService {
   }
 
   /**
+   * S24 (FR-RS-08): 수동 미읽 표시(monotonic 후진). 사용자가 메시지 hover toolbar
+   * 에서 "미읽으로 표시" 한 메시지(messageId)의 **직전** 메시지로 lastReadMessageId
+   * 를 되돌린다(직전이 없으면 null = 전체 미읽).
+   *
+   * ★ 의도적 후진 — S21 monotonic guard 우회 지점.
+   * ackRead 의 upsert 는 `WHERE stored < EXCLUDED` 가드로 後進을 막지만, 본 메서드는
+   * **그 가드 없이** ChannelReadState 를 직접 UPDATE/upsert 한다(後進 허용). 이것이
+   * markUnread 의 비-monotonic 경로이며, undoMarkAllRead 의 복원도 동일 경로를 쓴다.
+   *
+   *  1. messageId 가 채널 소속인지 검증(아니면 404).
+   *  2. 그 메시지 직전(= (createdAt, id) 튜플이 strictly 작은 최신) 메시지를 찾는다.
+   *  3. 직전이 있으면 그 커서로, 없으면 NULL 커서(전체 미읽)로 **가드 없이** 설정.
+   *  4. unread/mention 재계산 + 캐시 무효화 + read_state:updated payload 반환.
+   */
+  async markUnread(args: {
+    userId: string;
+    channelId: string;
+    messageId: string;
+    workspaceId?: string;
+  }): Promise<ReadStateUpdatedPayload> {
+    const { userId, channelId, messageId } = args;
+
+    const target = await this.prisma.message.findFirst({
+      where: { id: messageId, channelId, deletedAt: null },
+      select: { id: true, createdAt: true },
+    });
+    if (!target) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_NOT_FOUND,
+        'messageId does not belong to this channel',
+      );
+    }
+
+    // 직전 메시지 = (createdAt, id) 튜플이 target 보다 strictly 작은 것 중 최신.
+    // 같은 커서 공식(messages.service / unread)과 정합한 역방향 비교.
+    const prev = await this.prisma.message.findFirst({
+      where: {
+        channelId,
+        deletedAt: null,
+        OR: [
+          { createdAt: { lt: target.createdAt } },
+          { AND: [{ createdAt: target.createdAt }, { id: { lt: target.id } }] },
+        ],
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true, createdAt: true },
+    });
+
+    await this.setCursorBackward(userId, channelId, {
+      lastReadMessageId: prev?.id ?? null,
+      lastReadMessageCreatedAt: prev?.createdAt ?? null,
+    });
+
+    const [unreadCount, mentionCount] = await Promise.all([
+      this.unreadCountFor(userId, channelId),
+      this.mentionCountFor(userId, channelId),
+    ]);
+
+    let workspaceId = args.workspaceId ?? null;
+    if (workspaceId) {
+      await this.invalidateWorkspaceUserCache(workspaceId, userId);
+    } else {
+      workspaceId = await this.invalidateUserCacheForChannel(userId, channelId);
+    }
+
+    return {
+      channelId,
+      workspaceId,
+      lastReadMessageId: prev?.id ?? null,
+      unreadCount,
+      mentionCount,
+    };
+  }
+
+  /**
+   * S24 (FR-RS-08/18): monotonic guard 없는 커서 setter(後進 허용). markUnread 와
+   * undoMarkAllRead 복원이 공유하는 단일 출처. ackRead 의 가드 있는 upsert 와 달리
+   * 무조건 EXCLUDED 로 덮어쓴다(stored 튜플과의 비교 WHERE 없음). null 커서는 row 가
+   * 없으면 lastReadAt 만 보장하는 INSERT, 있으면 커서 컬럼을 NULL 로 되돌린다.
+   */
+  private async setCursorBackward(
+    userId: string,
+    channelId: string,
+    cursor: { lastReadMessageId: string | null; lastReadMessageCreatedAt: Date | null },
+  ): Promise<void> {
+    const { lastReadMessageId, lastReadMessageCreatedAt } = cursor;
+    const at = lastReadMessageCreatedAt ?? new Date();
+    await this.prisma.$executeRaw`
+      INSERT INTO "UserChannelReadState"
+        ("userId", "channelId", "lastReadEventId", "lastReadAt",
+         "lastReadMessageId", "lastReadMessageCreatedAt", "updatedAt")
+      VALUES
+        (${userId}::uuid, ${channelId}::uuid, ${randomUUID()}::uuid, ${at},
+         ${lastReadMessageId}::uuid, ${lastReadMessageCreatedAt}, now())
+      ON CONFLICT ("userId", "channelId") DO UPDATE
+        SET "lastReadMessageId" = ${lastReadMessageId}::uuid,
+            "lastReadMessageCreatedAt" = ${lastReadMessageCreatedAt},
+            "lastReadAt" = ${at},
+            "updatedAt" = now()
+    `;
+  }
+
+  /**
    * @deprecated S11 (FR-RT-13): `POST .../read` 의 백엔드 처리. ack 엔드포인트로
    * 통합되었으나 엔드포인트 자체는 호환을 위해 유지된다. message id 없이
    * 호출되므로 "현재 채널 최신 메시지까지 읽음" 으로 해석해 monotonic 하게
@@ -542,6 +661,32 @@ export class UnreadService {
   }
 
   /**
+   * S24 fix-forward (reviewer MAJOR #3 · FR-RS-09): 채널을 최신까지 읽음 처리하고
+   * **read_state:updated payload 를 반환**한다(emit 경로). 종전 markRead 는 payload
+   * 를 버려 호출자가 emit 할 수 없었고, 그래서 채널 컨텍스트 메뉴 "읽음으로 표시"
+   * / Unreads "읽음 처리" 가 멀티세션에서 desync 됐다. 본 메서드는 ackRead(이미
+   * emit-ready payload 반환) 를 재사용해 컨트롤러가 user 룸으로 fan-out 하게 한다.
+   * 채널에 메시지가 없으면 커서 전진이 불필요하므로 read-state 만 보장하고 null
+   * 을 반환한다(emit 없음 — 미읽이 애초에 0).
+   */
+  async markChannelReadToLatest(
+    userId: string,
+    channelId: string,
+    workspaceId: string,
+  ): Promise<ReadStateUpdatedPayload | null> {
+    const latest = await this.prisma.message.findFirst({
+      where: { channelId, deletedAt: null },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    if (!latest) {
+      await this.markRead(userId, channelId);
+      return null;
+    }
+    return this.ackRead({ userId, channelId, lastReadMessageId: latest.id, workspaceId });
+  }
+
+  /**
    * S23 fix-forward (MAJOR): 워크스페이스 전체 읽음(Shift+Esc).
    *
    * 종전 구현은 채널마다 findFirst + ackRead(각 ~6 쿼리)를 순차 실행해 O(N)
@@ -562,8 +707,83 @@ export class UnreadService {
    *
    * 반환한 payload 배열을 컨트롤러가 호출자의 user 룸으로 fan-out 한다(멀티세션
    * 배지 동기화). useMarkAllRead.onError 는 클라에서 summary invalidate 로 롤백.
+   *
+   * ── S24 개정 (FR-RS-18): snapshot + Undo ──
+   * ── S24 fix-forward (reviewer MAJOR + perf): snapshot 원자성 ──
+   * 종전은 (1) 별도 SELECT 스냅샷 → (2) persist → (3) advance 순서라 SELECT 와
+   * advance 사이에 끼어든 동시 ACK 가 snapshot 보다 커서를 더 전진시켜 Undo 가
+   * **과도 후진**(동시 ACK 가 읽은 메시지까지 미읽으로 되돌림)할 수 있었다.
+   *
+   * 본 구현은 advance 의 set-based UPDATE 가 **덮어쓰기 직전 old (lastReadMessageId,
+   * lastReadMessageCreatedAt) 를 같은 statement(CTE)의 RETURNING 으로 캡처**해,
+   * 그 반환값으로 스냅샷을 구성한다. snapshot == 실제 덮어쓴 값이므로 snapshot↔
+   * advance 사이 race 가 구조적으로 사라진다(자연 정합). advance + persist 를
+   * `$transaction` 으로 묶어 persist 실패 시 ACK 까지 롤백한다(스냅샷 없는 ACK 가
+   * 남지 않음 = Undo 불가 상태 차단, 원자성 보장).
+   *
+   * 반환값에 snapshotId 를 실어 컨트롤러가 Undo 토스트에 전달한다.
    */
-  async markAllRead(userId: string, workspaceId: string): Promise<ReadStateUpdatedPayload[]> {
+  async markAllRead(userId: string, workspaceId: string): Promise<MarkAllReadResult> {
+    const snapshotId = randomUUID();
+
+    // advance(RETURNING old) + DB persist 를 단일 트랜잭션으로 묶는다. RETURNING
+    // 으로 받은 old 커서가 곧 스냅샷이라 snapshot↔advance race 가 없다. persist
+    // 실패 시 트랜잭션 전체 롤백 → ACK 되돌림(스냅샷 없는 ACK 미잔류).
+    const { payloads, snapshot } = await this.prisma.$transaction(async (tx) => {
+      const advanced = await this.advanceAllVisible(tx, userId, workspaceId);
+      const snap: Record<string, SnapshotCursor> = {};
+      for (const a of advanced) {
+        snap[a.channelId] = {
+          lastReadMessageId: a.previousLastReadMessageId,
+          lastReadMessageCreatedAt: a.previousLastReadMessageCreatedAt
+            ? a.previousLastReadMessageCreatedAt.toISOString()
+            : null,
+        };
+      }
+      // DB durable 저장(트랜잭션 내). 실패 시 throw → 트랜잭션 롤백(ACK 되돌림).
+      await this.persistSnapshotDb(tx, snapshotId, userId, workspaceId, snap);
+      return {
+        payloads: advanced.map((a) => a.payload),
+        snapshot: snap,
+      };
+    });
+
+    // Redis hot 저장(트랜잭션 밖 best-effort). DB durable 저장은 이미 커밋됐으므로
+    // Redis 실패가 Undo 가능성을 깨지 않는다(loadSnapshot 이 DB 폴백). 전진 채널이
+    // 0 개여도 빈 스냅샷을 저장해 Undo 호출이 404 가 아닌 no-op(0 복원)으로 수렴한다.
+    await this.cacheSnapshotRedis(snapshotId, userId, workspaceId, snapshot);
+
+    // FR-RS-14: 워크스페이스 단위 캐시 1회 무효화(채널별 무효화 불필요 — 같은
+    // Hash 키이므로). 다음 totals/summary 집계가 새 커서를 반영한다.
+    if (payloads.length > 0) {
+      await this.invalidateWorkspaceUserCache(workspaceId, userId);
+    }
+
+    return { snapshotId, payloads };
+  }
+
+  /**
+   * S24 fix-forward: 가시 채널을 각 최신 메시지까지 monotonic 전진하면서, 같은
+   * statement 에서 **덮어쓰기 직전 old 커서를 RETURNING** 으로 캡처한다(snapshot
+   * 원자성). 트랜잭션 클라이언트(tx)에서 실행해 persist 와 묶는다.
+   *
+   * old 캡처 방식: ON CONFLICT 의 RETURNING 은 새 값만 주므로, INSERT 대상
+   * latest 와 기존 row 를 미리 LEFT JOIN 해 두고(prior CTE), UPDATE 가 실제로
+   * 전진한 채널의 prior 커서를 결과에 함께 싣는다. 신규 INSERT(기존 row 없음)는
+   * prior 가 NULL → 스냅샷도 NULL 커서(전체 미읽)로 복원돼 정합한다.
+   */
+  private async advanceAllVisible(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    workspaceId: string,
+  ): Promise<
+    Array<{
+      channelId: string;
+      payload: ReadStateUpdatedPayload;
+      previousLastReadMessageId: string | null;
+      previousLastReadMessageCreatedAt: Date | null;
+    }>
+  > {
     const visible = this.readBitVisibleSql({
       isPrivate: Prisma.sql`c."isPrivate"`,
       roleAllow: Prisma.sql`o.role_allow`,
@@ -572,8 +792,13 @@ export class UnreadService {
       userDeny: Prisma.sql`o.user_deny`,
     });
 
-    const advanced = await this.prisma.$queryRaw<
-      Array<{ channel_id: string; last_read_message_id: string }>
+    const advanced = await tx.$queryRaw<
+      Array<{
+        channel_id: string;
+        last_read_message_id: string;
+        prev_last_read_message_id: string | null;
+        prev_last_read_message_created_at: Date | null;
+      }>
     >(Prisma.sql`
       WITH me AS (
         SELECT role
@@ -615,6 +840,17 @@ export class UnreadService {
          WHERE msg."deletedAt" IS NULL
          ORDER BY msg."channelId", msg."createdAt" DESC, msg.id DESC
       ),
+      -- reviewer MAJOR: 덮어쓰기 직전 old 커서를 latest 와 미리 결합해 캡처한다.
+      -- UPDATE 의 RETURNING 은 새 값만 주므로, prior 를 별도로 들고 와 전진한
+      -- 채널과 join 한다. 신규 INSERT(기존 row 없음)는 prior 커서가 NULL.
+      prior AS (
+        SELECT l.channel_id,
+               rs."lastReadMessageId"        AS prev_id,
+               rs."lastReadMessageCreatedAt" AS prev_at
+          FROM latest l
+          LEFT JOIN "UserChannelReadState" rs
+            ON rs."userId" = ${userId}::uuid AND rs."channelId" = l.channel_id
+      ),
       upserted AS (
         INSERT INTO "UserChannelReadState"
           ("userId", "channelId", "lastReadEventId", "lastReadAt",
@@ -636,24 +872,322 @@ export class UnreadService {
              ) < (EXCLUDED."lastReadMessageCreatedAt", EXCLUDED."lastReadMessageId")
         RETURNING "channelId" AS channel_id, "lastReadMessageId" AS last_read_message_id
       )
-      SELECT channel_id, last_read_message_id FROM upserted
+      SELECT
+        up.channel_id,
+        up.last_read_message_id,
+        p.prev_id AS prev_last_read_message_id,
+        p.prev_at AS prev_last_read_message_created_at
+      FROM upserted up
+      JOIN prior p ON p.channel_id = up.channel_id
     `);
-
-    // FR-RS-14: 워크스페이스 단위 캐시 1회 무효화(채널별 무효화 불필요 — 같은
-    // Hash 키이므로). 다음 totals/summary 집계가 새 커서를 반영한다.
-    if (advanced.length > 0) {
-      await this.invalidateWorkspaceUserCache(workspaceId, userId);
-    }
 
     // 전진한 채널은 최신까지 읽었으므로 unread/mention = 0. payload 를 만들어
     // 컨트롤러가 user 룸으로 fan-out 한다.
     return advanced.map((r) => ({
       channelId: r.channel_id,
+      previousLastReadMessageId: r.prev_last_read_message_id,
+      previousLastReadMessageCreatedAt: r.prev_last_read_message_created_at,
+      payload: {
+        channelId: r.channel_id,
+        workspaceId,
+        lastReadMessageId: r.last_read_message_id,
+        unreadCount: 0,
+        mentionCount: 0,
+      },
+    }));
+  }
+
+  // ───────────────────────────── S24 snapshot + Undo (FR-RS-18)
+
+  /** read-all Redis 스냅샷 키. TTL 5분 윈도의 hot 경로. */
+  private static readonly SNAPSHOT_TTL_MS = 5 * 60 * 1000;
+  /** owner-mismatch claim 신호(소비하지 않음). */
+  private static readonly SNAPSHOT_MISMATCH = '__mismatch__';
+  /**
+   * security HIGH #1: owner-gated 원자 스냅샷 claim Lua. 저장 JSON 의
+   * userId/workspaceId 가 호출자와 일치할 때만 DEL 하고 값을 반환한다. 불일치면
+   * 삭제하지 않고 '__mismatch__' 를 반환(타인 probe 가 정상 스냅샷을 소비 못 함).
+   * 부재면 nil. KEYS[1]=key, ARGV[1]=userId, ARGV[2]=workspaceId.
+   */
+  private static readonly SNAPSHOT_CLAIM_LUA = `
+    local raw = redis.call('get', KEYS[1])
+    if not raw then return nil end
+    local ok, parsed = pcall(cjson.decode, raw)
+    if not ok then
+      redis.call('del', KEYS[1])
+      return raw
+    end
+    if parsed.userId == ARGV[1] and parsed.workspaceId == ARGV[2] then
+      redis.call('del', KEYS[1])
+      return raw
+    end
+    return '__mismatch__'
+  `;
+  private snapshotKey(snapshotId: string): string {
+    return `read-all:snap:${snapshotId}`;
+  }
+
+  /**
+   * S24 fix-forward: 스냅샷의 DB durable 저장(트랜잭션 내). advance 와 같은
+   * 트랜잭션(tx)에서 실행돼, 실패 시 throw → 트랜잭션 롤백으로 ACK 까지 되돌린다
+   * (스냅샷 없는 ACK 미잔류 = Undo 불가 상태 차단). markAllRead 가 호출.
+   */
+  private async persistSnapshotDb(
+    tx: Prisma.TransactionClient,
+    snapshotId: string,
+    userId: string,
+    workspaceId: string,
+    snapshot: Record<string, SnapshotCursor>,
+  ): Promise<void> {
+    const expiresAt = new Date(Date.now() + UnreadService.SNAPSHOT_TTL_MS);
+    await tx.markAllReadSnapshot.create({
+      data: {
+        id: snapshotId,
+        userId,
+        workspaceId,
+        snapshot: snapshot as unknown as Prisma.InputJsonValue,
+        expiresAt,
+      },
+    });
+  }
+
+  /**
+   * S24 fix-forward: Redis hot 저장(트랜잭션 밖 best-effort). DB durable 저장이
+   * 이미 커밋된 뒤 호출되므로, Redis 실패가 Undo 가능성을 깨지 않는다(loadSnapshot
+   * 이 DB 로 폴백). Redis 부재(단위 테스트)는 그대로 통과(DB-only durable).
+   */
+  private async cacheSnapshotRedis(
+    snapshotId: string,
+    userId: string,
+    workspaceId: string,
+    snapshot: Record<string, SnapshotCursor>,
+  ): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const payload = JSON.stringify({ userId, workspaceId, snapshot });
+      await this.redis.set(
+        this.snapshotKey(snapshotId),
+        payload,
+        'PX',
+        UnreadService.SNAPSHOT_TTL_MS,
+      );
+    } catch (err) {
+      this.logger.warn(`[unread] snapshot redis cache failed: ${String(err).slice(0, 160)}`);
+    }
+  }
+
+  /**
+   * S24 (FR-RS-18) Undo: 스냅샷의 채널별 커서로 ChannelReadState 를 **되돌린다**
+   * (後進 허용 — markUnread 와 동일한 비-monotonic 경로).
+   *
+   * ── S24 fix-forward (security HIGH #1 · reviewer MAJOR #2) ──
+   *  - consume 원자화(double-Undo 차단): 복원 **전에** 스냅샷을 load-and-delete 로
+   *    소비한다(DB deleteMany RETURNING + Redis GETDEL). 동시 두 번째 Undo 는
+   *    이미 소비된 스냅샷을 찾지 못해 404 → 중복 복원 불가.
+   *  - owner-mismatch / 만료 / parse 오류는 loadAndConsumeSnapshot 에서 404.
+   *  - 복원은 채널별 직렬 setCursorBackward 가 아니라 **단일 set-based UPDATE FROM
+   *    (VALUES …)** 으로 스냅샷 채널들을 일괄 후진시키고, 미읽/멘션 집계도 한 번의
+   *    set-based 쿼리로 받는다(N×3 직렬 → 2 쿼리). 전체를 `$transaction` 으로 묶어
+   *    부분 실패 시 복원이 일부만 적용되지 않게 한다.
+   *
+   * 복원된 채널마다 read_state:updated payload 를 반환해 컨트롤러가 user 룸으로
+   * fan-out 한다(멀티세션 배지 복원).
+   */
+  async undoMarkAllRead(
+    userId: string,
+    workspaceId: string,
+    snapshotId: string,
+  ): Promise<ReadStateUpdatedPayload[]> {
+    // security HIGH #1: load-and-delete(원자 소비) — double-Undo 차단. 소비 실패/
+    // 부재/소유 불일치/만료는 404.
+    const snapshot = await this.loadAndConsumeSnapshot(userId, workspaceId, snapshotId);
+
+    const entries = Object.entries(snapshot);
+    if (entries.length === 0) {
+      // read-all 이 0 채널을 전진했던 경우 빈 스냅샷 → no-op(0 복원).
+      return [];
+    }
+
+    // reviewer MAJOR #2: set-based 복원 + 집계를 단일 트랜잭션으로.
+    const payloads = await this.prisma.$transaction(async (tx) => {
+      await this.restoreCursorsSetBased(tx, userId, entries);
+      return this.recountSetBased(tx, userId, workspaceId, entries);
+    });
+
+    await this.invalidateWorkspaceUserCache(workspaceId, userId);
+    return payloads;
+  }
+
+  /**
+   * S24 fix-forward (reviewer MAJOR #2): 스냅샷 채널들을 단일 set-based UPDATE FROM
+   * (VALUES …) 으로 일괄 후진시킨다(채널별 직렬 setCursorBackward 대체). 스냅샷에
+   * 들었으나 row 가 없던 채널은 INSERT, 있던 채널은 UPDATE 한다. 後進 허용(가드 없음
+   * — markUnread 와 동일 비-monotonic 시맨틱). UUID/timestamptz 캐스팅으로 null
+   * 커서(전체 미읽)도 정확히 복원한다.
+   */
+  private async restoreCursorsSetBased(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    entries: Array<[string, SnapshotCursor]>,
+  ): Promise<void> {
+    const now = new Date();
+    const values = entries.map(([channelId, cursor]) => {
+      const at = cursor.lastReadMessageCreatedAt ? new Date(cursor.lastReadMessageCreatedAt) : null;
+      // lastReadAt 은 커서가 있으면 그 시각, 없으면 now() 로 둔다(row 존재 보장).
+      return Prisma.sql`(
+        ${channelId}::uuid,
+        ${cursor.lastReadMessageId}::uuid,
+        ${at}::timestamptz,
+        ${at ?? now}::timestamptz
+      )`;
+    });
+    await tx.$executeRaw(Prisma.sql`
+      INSERT INTO "UserChannelReadState"
+        ("userId", "channelId", "lastReadEventId", "lastReadAt",
+         "lastReadMessageId", "lastReadMessageCreatedAt", "updatedAt")
+      SELECT
+        ${userId}::uuid, v.channel_id, gen_random_uuid(), v.read_at,
+        v.msg_id, v.msg_at, now()
+      FROM (VALUES ${Prisma.join(values)})
+        AS v(channel_id, msg_id, msg_at, read_at)
+      ON CONFLICT ("userId", "channelId") DO UPDATE
+        SET "lastReadMessageId" = EXCLUDED."lastReadMessageId",
+            "lastReadMessageCreatedAt" = EXCLUDED."lastReadMessageCreatedAt",
+            "lastReadAt" = EXCLUDED."lastReadAt",
+            "updatedAt" = now()
+    `);
+  }
+
+  /**
+   * S24 fix-forward (reviewer MAJOR #2 · perf): 복원된 채널들의 미읽/멘션을 단일
+   * set-based 쿼리로 재집계한다(채널별 unreadCountFor/mentionCountFor 2N 직렬
+   * 대체). (createdAt, id) 튜플 커서 + mentionMatchSql 단일 출처를 재사용한다.
+   */
+  private async recountSetBased(
+    tx: Prisma.TransactionClient,
+    userId: string,
+    workspaceId: string,
+    entries: Array<[string, SnapshotCursor]>,
+  ): Promise<ReadStateUpdatedPayload[]> {
+    const channelIds = entries.map(([channelId]) => Prisma.sql`${channelId}::uuid`);
+    const mentionMatch = this.mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
+    const rows = await tx.$queryRaw<
+      Array<{
+        channel_id: string;
+        last_read_message_id: string | null;
+        unread_count: bigint | number;
+        mention_count: bigint | number;
+      }>
+    >(Prisma.sql`
+      WITH targets AS (
+        SELECT unnest(ARRAY[${Prisma.join(channelIds)}]) AS channel_id
+      )
+      SELECT
+        t.channel_id,
+        rs."lastReadMessageId" AS last_read_message_id,
+        COALESCE(m.unread_count, 0)  AS unread_count,
+        COALESCE(m.mention_count, 0) AS mention_count
+      FROM targets t
+      LEFT JOIN "UserChannelReadState" rs
+        ON rs."userId" = ${userId}::uuid AND rs."channelId" = t.channel_id
+      LEFT JOIN LATERAL (
+        SELECT
+          count(*) AS unread_count,
+          count(*) FILTER (WHERE ${mentionMatch}) AS mention_count
+        FROM "Message" msg
+        WHERE msg."channelId" = t.channel_id
+          AND msg."deletedAt" IS NULL
+          AND (
+            rs."lastReadMessageCreatedAt" IS NULL
+            OR (msg."createdAt", msg.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
+          )
+      ) m ON true
+    `);
+    return rows.map((r) => ({
+      channelId: r.channel_id,
       workspaceId,
       lastReadMessageId: r.last_read_message_id,
-      unreadCount: 0,
-      mentionCount: 0,
+      unreadCount: Number(r.unread_count ?? 0),
+      mentionCount: Number(r.mention_count ?? 0),
     }));
+  }
+
+  /**
+   * S24 fix-forward (security HIGH #1): Undo 스냅샷을 **원자적으로 load-and-delete**
+   * 한다(double-Undo 차단 + IDOR 방어 + 만료 차단).
+   *
+   *  - Redis: **owner-gated 원자 claim Lua**(CLAIM_LUA). 저장된 JSON 의 owner 가
+   *    호출자(userId/workspaceId)와 일치할 때만 DEL 하고 값을 반환한다 — 불일치면
+   *    삭제하지 않고 mismatch 신호만 준다(타인 probe 가 정상 스냅샷을 소비하지
+   *    못하게; 단순 GETDEL 이면 owner 검사 전에 삭제돼 DoS/소비 취약). 동시 두 번째
+   *    Undo 는 이미 DEL 돼 nil → DB 폴백 → DB 도 소비/만료 → 404. mismatch/parse
+   *    오류는 **즉시 404**(조용한 DB fallthrough 금지). Redis 권위 경로에서도 DB
+   *    durable row 를 함께 소비해 폴백 부활을 막는다.
+   *  - DB: `DELETE … WHERE id+소유+(expiresAt > now()) RETURNING snapshot` 단일
+   *    원자 statement 로 load-and-delete(만료 차단 + double-Undo 차단 + IDOR 방어).
+   *    0 row → 이미 소비/부재/만료/소유 불일치 → 404.
+   */
+  private async loadAndConsumeSnapshot(
+    userId: string,
+    workspaceId: string,
+    snapshotId: string,
+  ): Promise<Record<string, SnapshotCursor>> {
+    if (this.redis) {
+      // owner-gated 원자 claim: owner 일치 시에만 DEL+반환, 불일치면 '__mismatch__',
+      // 부재면 nil. KEYS[1]=snapshotKey, ARGV[1]=userId, ARGV[2]=workspaceId.
+      let result: string | null = null;
+      try {
+        result = (await this.redis.eval(
+          UnreadService.SNAPSHOT_CLAIM_LUA,
+          1,
+          this.snapshotKey(snapshotId),
+          userId,
+          workspaceId,
+        )) as string | null;
+      } catch (err) {
+        this.logger.warn(`[unread] snapshot claim failed: ${String(err).slice(0, 160)}`);
+      }
+      if (result === UnreadService.SNAPSHOT_MISMATCH) {
+        // owner-mismatch → 즉시 404(DB fallthrough 금지). 스냅샷은 소비되지 않았다.
+        throw new DomainError(ErrorCode.NOT_FOUND, 'mark-all-read snapshot not found or expired');
+      }
+      if (result) {
+        // DB durable row 도 함께 소비(Redis 권위 경로에서도 double-Undo 가 DB 폴백
+        // 으로 부활하지 못하게). 소유 조건을 걸어 타인 row 는 건드리지 않는다.
+        await this.prisma.markAllReadSnapshot
+          .deleteMany({ where: { id: snapshotId, userId, workspaceId } })
+          .catch(() => undefined);
+        let parsed: {
+          userId: string;
+          workspaceId: string;
+          snapshot: Record<string, SnapshotCursor>;
+        };
+        try {
+          parsed = JSON.parse(result);
+        } catch {
+          // parse 오류 → 조용한 DB 우회 금지, 즉시 404.
+          throw new DomainError(ErrorCode.NOT_FOUND, 'mark-all-read snapshot not found or expired');
+        }
+        return parsed.snapshot;
+      }
+    }
+
+    // Redis miss(또는 Redis 부재) → DB durable 폴백. `DELETE … WHERE id+소유+
+    // (expiresAt > now()) RETURNING snapshot` 으로 load-and-delete 를 단일 원자
+    // statement 화한다(security HIGH #1: 만료 차단 + double-Undo 차단 + IDOR 방어).
+    // 0 row 반환 → 이미 소비/부재/만료/소유 불일치 → 404.
+    const rows = await this.prisma.$queryRaw<Array<{ snapshot: unknown }>>(Prisma.sql`
+      DELETE FROM "MarkAllReadSnapshot"
+       WHERE "id" = ${snapshotId}::uuid
+         AND "userId" = ${userId}::uuid
+         AND "workspaceId" = ${workspaceId}::uuid
+         AND "expiresAt" > now()
+      RETURNING "snapshot"
+    `);
+    if (rows.length === 0) {
+      throw new DomainError(ErrorCode.NOT_FOUND, 'mark-all-read snapshot not found or expired');
+    }
+    return rows[0].snapshot as Record<string, SnapshotCursor>;
   }
 
   // ───────────────────────────── Redis cache (FR-RS-14)
