@@ -111,6 +111,11 @@ export function buildSendFailureToastBody(err: unknown): { title: string; body: 
  * 없이 최신 로드로 폴백합니다(과설계 방지). older-page fetch(pageParam 존재)는
  * 항상 `before` 커서를 씁니다.
  *
+ * S30 fix-forward (BLOCKER 기능 M2): 검색 결과 점프(`?msg=<id>`)가 있으면 초기
+ * 로드에서 그 메시지를 `around` anchor 로 삼습니다. lastRead 기반 복원보다
+ * **우선**합니다(사용자가 명시적으로 그 메시지로 점프하길 원했으므로).
+ * jumpMessageId 가 있으면 LRU around 소비 분기는 건너뜁니다.
+ *
  * 부수효과(consumeAround 1회성 소비)를 포함하므로 queryFn 호출당 한 번만
  * 호출해야 합니다. 훅과 테스트가 공유합니다.
  */
@@ -118,8 +123,12 @@ export function resolveListFetchArgs(
   wsId: string | null,
   channelId: string,
   pageParam: string | undefined,
+  jumpMessageId?: string | null,
 ): Partial<ListMessagesQuery> {
   if (pageParam === undefined) {
+    // M2: 검색 점프 anchor 가 lastRead 복원보다 우선. (jump 가 있으면 LRU
+    // around 플래그는 소비하지 않고 그대로 둔다 — 점프가 곧 around 로드이므로.)
+    if (jumpMessageId) return { limit: 50, around: jumpMessageId };
     const wantsAround = useChannelLruStore.getState().consumeAround(lruKey(wsId, channelId));
     if (wantsAround) {
       const around = useReadState.getState().getLastRead(channelId);
@@ -129,14 +138,20 @@ export function resolveListFetchArgs(
   return { limit: 50, before: pageParam ?? undefined };
 }
 
-export function useMessageHistory(wsId: string | null, channelId: string) {
+export function useMessageHistory(
+  wsId: string | null,
+  channelId: string,
+  // S30 fix-forward (M2): 검색 결과 점프 anchor. 있으면 초기 로드의 around
+  // 로 사용(lastRead 복원보다 우선). 호출자가 소비 후 제거하므로 1회성.
+  jumpMessageId?: string | null,
+) {
   return useInfiniteQuery({
     queryKey: keys.list(wsId, channelId),
     queryFn: ({ pageParam }) =>
       listMessages(
         wsId,
         channelId,
-        resolveListFetchArgs(wsId, channelId, pageParam as string | undefined),
+        resolveListFetchArgs(wsId, channelId, pageParam as string | undefined, jumpMessageId),
       ),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: ListMessagesResponse) =>

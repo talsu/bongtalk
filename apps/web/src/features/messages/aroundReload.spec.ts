@@ -51,4 +51,28 @@ describe('resolveListFetchArgs (FR-RT-22 around-reload)', () => {
     const args = resolveListFetchArgs(null, 'dm-1', undefined);
     expect(args).toEqual({ limit: 50, around: 'm-7' });
   });
+
+  // S30 fix-forward (BLOCKER 기능 M2): 검색 점프(`?msg=`)가 around anchor 로
+  // lastRead 복원보다 우선한다.
+  describe('M2 ?msg= 점프 anchor 우선', () => {
+    it('jumpMessageId 가 있으면 초기 로드를 그 id 의 around 로 잡는다', () => {
+      const args = resolveListFetchArgs('ws-1', 'ch-1', undefined, 'jump-99');
+      expect(args).toEqual({ limit: 50, around: 'jump-99' });
+    });
+
+    it('jumpMessageId 는 lastRead 복원(evict around)보다 우선한다', () => {
+      const key = lruKey('ws-1', 'ch-1');
+      useChannelLruStore.setState({ order: [], pendingAround: new Set([key]) });
+      useReadState.getState().setLastRead('ch-1', 'm-42');
+      const args = resolveListFetchArgs('ws-1', 'ch-1', undefined, 'jump-99');
+      expect(args).toEqual({ limit: 50, around: 'jump-99' });
+      // 점프가 around 를 점유했으므로 LRU 플래그는 소비되지 않고 남아 있다.
+      expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
+    });
+
+    it('older-page fetch(pageParam 존재)는 jumpMessageId 가 있어도 before 커서', () => {
+      const args = resolveListFetchArgs('ws-1', 'ch-1', 'cursor-abc', 'jump-99');
+      expect(args).toEqual({ limit: 50, before: 'cursor-abc' });
+    });
+  });
 });

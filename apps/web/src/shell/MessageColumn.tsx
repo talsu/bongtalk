@@ -15,7 +15,7 @@ import { useReadState } from '../features/realtime/readStateStore';
 import { captureUnreadSnapshot } from '../features/messages/newMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Icon, Tooltip } from '../design-system/primitives';
 import { SearchInput } from '../features/search/SearchInput';
 import { useActivityUnread } from '../features/activity/useActivity';
@@ -87,6 +87,28 @@ export function MessageColumn({
     return m;
   }, [members, extraNames]);
   const qc = useQueryClient();
+
+  // S30 fix-forward (BLOCKER 기능 M2): 검색 결과 클릭 → `/w/{slug}/{ch}?msg={id}`.
+  // 여기서 `?msg=` 를 읽어 MessageList 에 점프 대상으로 넘기고(around 로드 +
+  // scrollIntoView + 하이라이트), MessageList 가 소비를 알리면 파라미터를
+  // replace 로 제거합니다(재진입/뒤로가기 루프 방지). UUID 형식만 허용 —
+  // `around` 서버 파라미터가 uuid 만 받기 때문입니다.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const rawMsg = searchParams.get('msg');
+  const jumpMessageId =
+    rawMsg && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawMsg)
+      ? rawMsg
+      : null;
+  const clearJumpParam = useCallback(() => {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev);
+        next.delete('msg');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [setSearchParams]);
 
   // task-014-C: thread panel opens via `?thread=<rootId>` query param.
   // Sharing the URL restores the thread on mount; channel switching
@@ -321,6 +343,9 @@ export function MessageColumn({
           onReadCursor={onReadCursor}
           // S23 MAJOR fix: 채널 open zero-out 이전에 고정한 구분선 스냅샷.
           unreadSnapshot={unreadSnapshot}
+          // S30 fix-forward (M2): 검색 결과 점프 대상 + 소비 후 URL 정리 콜백.
+          jumpMessageId={jumpMessageId}
+          onJumpConsumed={clearJumpParam}
         />
         <TypingIndicator
           channelId={channelId}

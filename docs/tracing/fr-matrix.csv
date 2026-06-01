@@ -125,11 +125,11 @@ FR-S04,D07-search,P0,S29,done
 FR-S05,D07-search,P0,S29,done
 FR-S08,D07-search,P1,S29,done
 FR-S15,D07-search,P0,S29,done
-FR-S03,D07-search,P0,S30,todo
-FR-S06,D07-search,P1,S30,todo
-FR-S07,D07-search,P0,S30,todo
-FR-S09,D07-search,P1,S30,todo
-FR-S10,D07-search,P1,S30,todo
+FR-S03,D07-search,P0,S30,done
+FR-S06,D07-search,P1,S30,done
+FR-S07,D07-search,P0,S30,done
+FR-S09,D07-search,P1,S30,done
+FR-S10,D07-search,P1,S30,done
 FR-S01,D07-search,P1,S31,todo
 FR-S02,D07-search,P1,S31,todo
 FR-S11,D07-search,P1,S31,todo

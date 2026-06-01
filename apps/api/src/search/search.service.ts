@@ -1,10 +1,26 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import type Redis from 'ioredis';
 import { PrismaService } from '../prisma/prisma.module';
+import { REDIS } from '../redis/redis.module';
 import { Permission, PermissionMatrix } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { parseSearchQuery } from './search-query.parser';
+
+/**
+ * S30 (FR-S06): 결과 카드의 전/후 컨텍스트 메시지 한 줄. 권한 재검증 결과에
+ * 따라 `masked` 가 true 면 본문(text)은 null 로 마스킹합니다.
+ */
+export type SearchContextMessageRow = {
+  // S30 fix-forward (BLOCKER 보안 A1): masked=true 면 식별정보(PK·시각)도
+  // null 로 내려보내 권한 없는 채널 메시지의 ID·정확한 시각 누출을 막습니다.
+  messageId: string | null;
+  senderName: string | null;
+  text: string | null;
+  createdAt: string | null;
+  masked: boolean;
+};
 
 /** S29 (FR-S08): 정렬 모드 — 관련도(기본) 또는 최신. */
 export type SearchSort = 'relevance' | 'recent';
@@ -18,6 +34,11 @@ export type SearchResultRow = {
   createdAt: string;
   snippet: string; // contains <mark>…</mark> from ts_headline
   rank: number;
+  // ── S30 (FR-S06 / FR-S10) — withContext=true 에서만 채워지는 optional ──────
+  contextBefore?: SearchContextMessageRow | null;
+  contextAfter?: SearchContextMessageRow | null;
+  inThread?: boolean;
+  threadRootExcerpt?: string | null;
 };
 
 /**
@@ -76,7 +97,10 @@ function pickTighter(
 
 @Injectable()
 export class SearchService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(REDIS) private readonly redis: Redis,
+  ) {}
 
   /**
    * Resolve the viewer's channel visibility set within a workspace.
@@ -435,6 +459,174 @@ export class SearchService {
   }
 
   /**
+   * S30 (FR-S06 / FR-S10): search() 결과에 전/후 컨텍스트 1메시지 + 스레드
+   * 루트 excerpt 를 붙입니다.
+   *
+   * 권한 재검증(★ FR-S06): 컨텍스트로 끌어올 직전/직후 메시지는 *결과 메시지와
+   * 같은 채널* 의 인접 메시지입니다. 그 채널이 요청자의 가시 집합 안인지 응답
+   * 직전에 다시 확인합니다(visibleChannelIds 스냅샷을 search() 와 동일하게
+   * 재사용). 채널 권한이 없으면 본문을 마스킹("[접근 불가 메시지]")하고
+   * masked=true 로 내려보냅니다. (단일-레벨 스레드라 답글의 channelId 는 루트
+   * 채널과 동일 — 채널 가시성 = 루트 채널 가시성.)
+   *
+   * 스레드(FR-S10): parentMessageId 가 있으면 inThread=true + 루트 메시지
+   * 본문 excerpt 를 붙입니다. threadLocked 여부는 검색 포함에 영향을 주지
+   * 않습니다(채널 권한이 있으면 잠긴 스레드 답글도 포함).
+   */
+  async searchWithContext(args: {
+    query: string;
+    workspaceId: string;
+    userId: string;
+    channelId?: string;
+    senderId?: string;
+    since?: Date;
+    until?: Date;
+    hasAttachment?: boolean;
+    sort?: SearchSort;
+    cursor?: string;
+    limit: number;
+    now?: Date;
+  }): Promise<{ results: SearchResultRow[]; nextCursor: string | null }> {
+    const base = await this.search(args);
+    if (base.results.length === 0) return base;
+
+    // 컨텍스트 권한 재검증의 단일 출처: search() 와 동일한 가시 집합 스냅샷.
+    const visibleIds = new Set(await this.visibleChannelIds(args.workspaceId, args.userId));
+
+    const enriched = await Promise.all(
+      base.results.map(async (r) => {
+        const [before, after, threadRootExcerpt] = await Promise.all([
+          this.neighborMessage(r.channelId, r.createdAt, r.messageId, 'before', visibleIds),
+          this.neighborMessage(r.channelId, r.createdAt, r.messageId, 'after', visibleIds),
+          this.threadRootExcerpt(r.messageId, visibleIds),
+        ]);
+        return {
+          ...r,
+          contextBefore: before,
+          contextAfter: after,
+          inThread: threadRootExcerpt.inThread,
+          threadRootExcerpt: threadRootExcerpt.excerpt,
+        };
+      }),
+    );
+    return { results: enriched, nextCursor: base.nextCursor };
+  }
+
+  /**
+   * S30 (FR-S06): 결과 메시지의 직전/직후 메시지 1건을 같은 채널에서 가져옵니다.
+   * 정렬 키는 (createdAt, id) — search() / 히스토리와 동일 tie-break.
+   *
+   * S30 fix-forward (BLOCKER 보안 A1): 채널 가시성 검사를 **쿼리 이전**에 수행해,
+   * visibleIds 밖이면(쿼리 직후 ACL flip 등) DB 를 조회하지 않고 식별정보가 0 인
+   * placeholder(messageId/createdAt/senderName/text 모두 null + masked:true)를
+   * 즉시 반환합니다. 종전엔 쿼리 후 본문만 가렸으나 인접 메시지의 PK·정확한
+   * 시각이 그대로 누출됐습니다. 정상 동작에선 컨텍스트 채널 == 결과 채널이라
+   * 항상 가시이므로 이 분기는 ACL flip edge 방어용입니다(이제 누출 0).
+   */
+  private async neighborMessage(
+    channelId: string,
+    pivotCreatedAt: string,
+    pivotId: string,
+    direction: 'before' | 'after',
+    visibleIds: ReadonlySet<string>,
+  ): Promise<SearchContextMessageRow | null> {
+    // ★ 권한 재검증을 쿼리 이전에 — 불가시 채널이면 조회 없이 식별정보 0 placeholder.
+    if (!visibleIds.has(channelId)) {
+      return { messageId: null, senderName: null, text: null, createdAt: null, masked: true };
+    }
+    const pivot = new Date(pivotCreatedAt);
+    const where: Prisma.MessageWhereInput =
+      direction === 'before'
+        ? {
+            channelId,
+            deletedAt: null,
+            OR: [{ createdAt: { lt: pivot } }, { createdAt: pivot, id: { lt: pivotId } }],
+          }
+        : {
+            channelId,
+            deletedAt: null,
+            OR: [{ createdAt: { gt: pivot } }, { createdAt: pivot, id: { gt: pivotId } }],
+          };
+    const neighbor = await this.prisma.message.findFirst({
+      where,
+      orderBy:
+        direction === 'before'
+          ? [{ createdAt: 'desc' }, { id: 'desc' }]
+          : [{ createdAt: 'asc' }, { id: 'asc' }],
+      select: {
+        id: true,
+        contentPlain: true,
+        createdAt: true,
+        author: { select: { username: true } },
+      },
+    });
+    if (!neighbor) return null;
+    // 채널 가시성은 위에서 이미 보장되므로 여기서는 항상 masked:false 로 모든
+    // 필드를 채워 내려보냅니다(A1: 가시 채널이면 누출 없이 전부 공개).
+    return {
+      messageId: neighbor.id,
+      senderName: neighbor.author.username,
+      text: escapeHtml(truncatePlain(neighbor.contentPlain)),
+      createdAt: neighbor.createdAt.toISOString(),
+      masked: false,
+    };
+  }
+
+  /**
+   * S30 (FR-S10): 결과가 스레드 답글이면 루트 메시지 본문 excerpt 를 돌려줍니다.
+   * 루트가 soft-delete 되었으면 본문을 비웁니다(inThread 는 유지).
+   *
+   * S30 fix-forward (HIGH 보안 A2): 종전엔 "답글 channelId == 루트 channelId"
+   * 가정에만 의존해 루트 채널 가시성을 명시적으로 검증하지 않았습니다. 데이터
+   * 이상이나 멀티레벨 스레드 확장 시 권한 없는 채널의 루트 본문이 누출될 수
+   * 있는 시한폭탄이라, 호출부가 계산한 visibleIds 를 받아 루트 채널이 가시
+   * 집합 밖이면 excerpt 를 비웁니다(inThread 는 유지).
+   */
+  private async threadRootExcerpt(
+    messageId: string,
+    visibleIds: ReadonlySet<string>,
+  ): Promise<{ inThread: boolean; excerpt: string | null }> {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: messageId },
+      select: { parentMessageId: true },
+    });
+    if (!msg?.parentMessageId) return { inThread: false, excerpt: null };
+    const root = await this.prisma.message.findUnique({
+      where: { id: msg.parentMessageId },
+      select: { contentPlain: true, deletedAt: true, channelId: true },
+    });
+    // 루트가 없거나 삭제됐거나 루트 채널이 가시 집합 밖이면 본문을 비웁니다.
+    if (!root || root.deletedAt || !visibleIds.has(root.channelId)) {
+      return { inThread: true, excerpt: null };
+    }
+    return { inThread: true, excerpt: escapeHtml(truncatePlain(root.contentPlain)) };
+  }
+
+  /**
+   * S30 (FR-S07): 최근 검색어 조회 — Redis `search:recent:{userId}` LIST.
+   * LPUSH 로 newest-first. 빈 쿼리/공백은 저장하지 않습니다.
+   */
+  async recentSearches(userId: string, limit = RECENT_SEARCH_MAX): Promise<string[]> {
+    const cap = Math.max(1, Math.min(RECENT_SEARCH_MAX, limit));
+    const raw = await this.redis.lrange(recentSearchKey(userId), 0, cap - 1);
+    return raw;
+  }
+
+  /**
+   * S30 (FR-S07): 최근 검색어 기록 — 중복 제거(LREM) 후 LPUSH, 상한 N 으로
+   * LTRIM. 30일 TTL(휘발성 UX 데이터). 공백/빈 쿼리는 no-op.
+   */
+  async pushRecentSearch(userId: string, query: string): Promise<void> {
+    const trimmed = query.trim();
+    if (trimmed.length === 0 || trimmed.length > RECENT_SEARCH_VALUE_MAX) return;
+    const key = recentSearchKey(userId);
+    await this.redis.lrem(key, 0, trimmed); // 중복 제거(전체 매치 0 = all)
+    await this.redis.lpush(key, trimmed);
+    await this.redis.ltrim(key, 0, RECENT_SEARCH_MAX - 1);
+    await this.redis.expire(key, RECENT_SEARCH_TTL_SEC);
+  }
+
+  /**
    * task-046 iter3 (J1): typing-time suggestions — autocomplete prefix.
    *
    * 사용자가 검색어 typing 중에 빠른 후보 제안을 위해 호출. 워크스페이스
@@ -487,4 +679,36 @@ export class SearchService {
       users: memberRows.map((m) => ({ id: m.user.id, username: m.user.username })),
     };
   }
+}
+
+// ── S30 (FR-S06 / FR-S07) — 모듈 헬퍼 ─────────────────────────────────────────
+
+/** 컨텍스트 본문 truncate 길이(문자). 카드에서 최대 3줄 표시 전 1차 절단. */
+const CONTEXT_EXCERPT_MAX = 200;
+
+/** 최근 검색 상한 N(LTRIM 인덱스). */
+const RECENT_SEARCH_MAX = 8;
+/** 단일 검색어 길이 상한(거대 입력 저장 방지). */
+const RECENT_SEARCH_VALUE_MAX = 200;
+/** 최근 검색 TTL — 30일(휘발성 UX 데이터). */
+const RECENT_SEARCH_TTL_SEC = 60 * 60 * 24 * 30;
+
+function recentSearchKey(userId: string): string {
+  return `search:recent:${userId}`;
+}
+
+/**
+ * 컨텍스트 본문은 plain text 이므로 HTML 특수문자만 escape 해서 내려보냅니다
+ * (snippet 과 달리 <mark> 하이라이트 없음). 프런트는 escape 된 텍스트 그대로
+ * 렌더(이중 escape 회피).
+ */
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 단일 줄 컨텍스트로 표시하기 위해 개행을 공백으로 접고 길이를 절단합니다. */
+function truncatePlain(s: string): string {
+  const oneLine = s.replace(/\s+/g, ' ').trim();
+  if (oneLine.length <= CONTEXT_EXCERPT_MAX) return oneLine;
+  return `${oneLine.slice(0, CONTEXT_EXCERPT_MAX)}…`;
 }

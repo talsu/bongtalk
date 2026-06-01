@@ -22,7 +22,12 @@ const SENDER = '33333333-3333-4333-8333-333333333333';
 function makeCtrl() {
   const search = {
     search: vi.fn().mockResolvedValue({ results: [], nextCursor: null }),
+    // S30 (FR-S06/S10): withContext=true 경로.
+    searchWithContext: vi.fn().mockResolvedValue({ results: [], nextCursor: null }),
     suggest: vi.fn().mockResolvedValue({ channels: [], users: [] }),
+    // S30 (FR-S07): best-effort 최근 검색 기록 — 컨트롤러가 fire-and-forget.
+    pushRecentSearch: vi.fn().mockResolvedValue(undefined),
+    recentSearches: vi.fn().mockResolvedValue([]),
   } as unknown as SearchService;
   const rate = { enforce: vi.fn().mockResolvedValue(undefined) } as unknown as RateLimitService;
   return { ctrl: new SearchController(search, rate), search, rate };
@@ -293,6 +298,78 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     expect((calls[0][0] as { sort?: string }).sort).toBe('recent');
     expect((calls[1][0] as { sort?: string }).sort).toBe('relevance');
     expect((calls[2][0] as { sort?: string }).sort).toBe('relevance');
+  });
+
+  it('S30 FR-S06: withContext=true 면 searchWithContext 로 라우팅', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.run(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      'hello',
+      WS,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      'true', // withContext
+    );
+    expect(
+      (search.searchWithContext as unknown as { mock: { calls: unknown[] } }).mock.calls.length,
+    ).toBe(1);
+    expect((search.search as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(0);
+  });
+
+  it('S30 FR-S06: withContext 미지정이면 기본 search 로 라우팅', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.run(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      'hello',
+      WS,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect((search.search as unknown as { mock: { calls: unknown[] } }).mock.calls.length).toBe(1);
+    expect(
+      (search.searchWithContext as unknown as { mock: { calls: unknown[] } }).mock.calls.length,
+    ).toBe(0);
+  });
+
+  it('S30 FR-S07: 결과 쿼리는 pushRecentSearch 로 기록(원문 q)', async () => {
+    const { ctrl, search } = makeCtrl();
+    await ctrl.run(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      'from:@bob roadmap',
+      WS,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(search.pushRecentSearch).toHaveBeenCalledWith(ME, 'from:@bob roadmap');
+  });
+});
+
+describe('SearchController.recent (S30 FR-S07)', () => {
+  it('recentSearches 결과를 recents 로 감싼다', async () => {
+    const { ctrl, search } = makeCtrl();
+    (
+      search.recentSearches as unknown as { mockResolvedValue: (v: string[]) => void }
+    ).mockResolvedValue(['alpha', 'beta']);
+    const out = await ctrl.recent({ id: ME, email: 'me@e.com', username: 'me' });
+    expect(out).toEqual({ recents: ['alpha', 'beta'] });
   });
 });
 

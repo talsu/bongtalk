@@ -23,6 +23,15 @@ type UIState = {
    */
   activeChannelId: string | null;
   setActiveChannelId: (chId: string | null) => void;
+
+  /**
+   * S30 (FR-S03): 검색 결과 패널의 활성 쿼리. null 이면 패널 닫힘. 비-null 이면
+   * 우측 패널(멤버 목록)을 대체해 슬라이드인 결과 패널을 띄운다. Enter 시
+   * SearchInput 이 설정하고, 닫기/채널 전환이 null 로 되돌린다.
+   */
+  searchPanelQuery: string | null;
+  openSearchPanel: (_q: string) => void;
+  closeSearchPanel: () => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -39,4 +48,8 @@ export const useUI = create<UIState>((set) => ({
 
   activeChannelId: null,
   setActiveChannelId: (chId) => set({ activeChannelId: chId }),
+
+  searchPanelQuery: null,
+  openSearchPanel: (q) => set({ searchPanelQuery: q }),
+  closeSearchPanel: () => set({ searchPanelQuery: null }),
 }));
