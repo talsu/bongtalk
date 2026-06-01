@@ -4,6 +4,7 @@ import {
   PRESENCE_IDLE_TIMEOUT,
   PRESENCE_OFFLINE_GRACE,
   PRESENCE_SESSION_TTL_SEC,
+  PRESENCE_SUB_TTL_SEC,
   maskPresenceForViewer,
   type PresenceStatus,
 } from '@qufox/shared-types';
@@ -460,5 +461,131 @@ export class PresenceService {
     pipe.del(`presence:user:${userId}:sessions`);
     await pipe.exec();
     return sids;
+  }
+
+  // ── S26 (FR-RT-12 / FR-P16): presence subscription lifecycle ───────────────
+  //
+  // Two complementary structures keep subscribe/fan-out cheap on BOTH sides:
+  //   presence:sub:{socketId}         SET of subscribed userId — the forward
+  //                                   index. Owned by the socket; TTL'd on
+  //                                   disconnect (5m reconnect window), restored
+  //                                   on reconnect if still present.
+  //   presence:subscribers:{userId}   SET of socketId watching this user — the
+  //                                   REVERSE index. Lets a presence change
+  //                                   resolve its watchers in one SMEMBERS
+  //                                   instead of scanning every sub:* key. Both
+  //                                   are mutated together so they stay in sync.
+  //
+  // socketId is the routing key because Socket.IO's adapter forwards
+  // `server.to(socketId)` to whichever node owns that socket — so a presence
+  // change detected on node A reaches a subscriber socket on node B.
+
+  private subKey(socketId: string): string {
+    return `presence:sub:${socketId}`;
+  }
+
+  private subscribersKey(userId: string): string {
+    return `presence:subscribers:${userId}`;
+  }
+
+  private get subTtlSec(): number {
+    const raw = Number(process.env.PRESENCE_SUB_TTL_SEC ?? PRESENCE_SUB_TTL_SEC);
+    return Number.isFinite(raw) && raw > 0 ? raw : PRESENCE_SUB_TTL_SEC;
+  }
+
+  /**
+   * S26 (FR-RT-12): record that `socketId` now subscribes to each of `userIds`.
+   * Adds to both the forward (sub:{socketId}) and reverse
+   * (subscribers:{userId}) indexes. Persists the forward key with the session
+   * TTL*2 so an idle socket's subscription survives a heartbeat lull but still
+   * has an upper bound. Returns nothing — the caller emits the bulk snapshot.
+   */
+  async addSubscriptions(socketId: string, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const pipe = this.redis.multi();
+    pipe.sadd(this.subKey(socketId), ...userIds);
+    // Keep the forward index alive at least as long as a live session.
+    pipe.expire(this.subKey(socketId), this.ttlSec * 2);
+    for (const uid of userIds) {
+      pipe.sadd(this.subscribersKey(uid), socketId);
+      pipe.expire(this.subscribersKey(uid), this.ttlSec * 2);
+    }
+    await pipe.exec();
+  }
+
+  /**
+   * S26 (FR-P16): presence:unsubscribe — drop `userIds` from this socket's
+   * forward index and remove the socket from each user's reverse index.
+   */
+  async removeSubscriptions(socketId: string, userIds: string[]): Promise<void> {
+    if (userIds.length === 0) return;
+    const pipe = this.redis.multi();
+    pipe.srem(this.subKey(socketId), ...userIds);
+    for (const uid of userIds) pipe.srem(this.subscribersKey(uid), socketId);
+    await pipe.exec();
+  }
+
+  /** S26: the userIds a socket currently subscribes to. */
+  async subscriptionsOf(socketId: string): Promise<string[]> {
+    return this.redis.smembers(this.subKey(socketId));
+  }
+
+  /**
+   * S26 (FR-P16): the socketIds currently subscribed to a user, with lazy GC —
+   * a socketId whose forward key has expired (its 5m disconnect TTL elapsed) is
+   * SREMmed from the reverse index so a presence change never fans out to a
+   * dead subscriber. Returns the live subscriber socketIds.
+   */
+  async subscribersOf(userId: string): Promise<string[]> {
+    const sockets = await this.redis.smembers(this.subscribersKey(userId));
+    if (sockets.length === 0) return [];
+    const pipe = this.redis.pipeline();
+    for (const sid of sockets) pipe.exists(this.subKey(sid));
+    const results = (await pipe.exec()) ?? [];
+    const alive: string[] = [];
+    const dead: string[] = [];
+    results.forEach(([, ex], i) => {
+      if (Number(ex ?? 0) > 0) alive.push(sockets[i]);
+      else dead.push(sockets[i]);
+    });
+    if (dead.length > 0) await this.redis.srem(this.subscribersKey(userId), ...dead);
+    return alive;
+  }
+
+  /**
+   * S26 (FR-P16): on disconnect we DO NOT delete the forward index — we set a
+   * 5-minute TTL so a reconnect inside the window can resume fan-out without
+   * re-sending the whole subscribe list. The reverse index entries are GC-ed
+   * lazily by subscribersOf once the forward key expires. Returns whether a
+   * non-empty subscription existed (purely diagnostic).
+   */
+  async expireSubscriptions(socketId: string): Promise<{ hadSubscriptions: boolean }> {
+    const exists = await this.redis.exists(this.subKey(socketId));
+    if (!exists) return { hadSubscriptions: false };
+    await this.redis.expire(this.subKey(socketId), this.subTtlSec);
+    return { hadSubscriptions: true };
+  }
+
+  /**
+   * S26 fix-forward(reviewer MAJOR-1): hard-clear a socket's forward index AND
+   * its reverse-index footprint. Called on connect (NOT reconnect-restore): an
+   * engine.io sid can be reused by a DIFFERENT user on a later connection, and a
+   * lingering 5m-TTL forward index from the previous owner would otherwise
+   * resurrect that owner's subscriptions for the new user. We read the stale
+   * forward set first so we can SREM this socketId out of every reverse index it
+   * still appears in, then DEL the forward key. A brand-new socketId is a no-op.
+   *
+   * Re-subscription after a reconnect is not lost: a reconnect is a NEW engine.io
+   * sid, and the client resends presence:subscribe, so addSubscriptions rebuilds
+   * the indexes cleanly. Retaining the old socketId-keyed set across reconnects
+   * was never observable (different sid) — clearing it removes the cross-user
+   * leak with no behavioural regression.
+   */
+  async clearSubscriptions(socketId: string): Promise<void> {
+    const stale = await this.redis.smembers(this.subKey(socketId));
+    const pipe = this.redis.multi();
+    for (const uid of stale) pipe.srem(this.subscribersKey(uid), socketId);
+    pipe.del(this.subKey(socketId));
+    await pipe.exec();
   }
 }

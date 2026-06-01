@@ -38,6 +38,10 @@ export const qk = {
   },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,
+    // S26 (FR-P16): per-user precise presence pushed by `presence:update`
+    // (subscription fan-out). Keyed by userId so a DM peer / viewport-watched
+    // member's status can be read independently of any workspace snapshot.
+    user: (userId: string) => ['presence', 'user', userId] as const,
     // task-041 A-3: prefix-only key for DM presence aggregation.
     // useDmPresence calls `qc.getQueriesData({ queryKey: qk.presence.all() })`
     // to walk every per-workspace presence snapshot in cache.

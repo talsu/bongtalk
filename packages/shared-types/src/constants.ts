@@ -14,8 +14,17 @@ export const BULK_MENTION_CONFIRM_THRESHOLD = 50;
 /** 마우스/키보드 입력 없음 → IDLE 자동 전환 (초). 10분 (ADR-8). */
 export const PRESENCE_IDLE_TIMEOUT = 600;
 
-/** 타이핑 Redis 키 TTL (초). 입력 중단 시 자연 소멸 (ADR-8). */
+/** 타이핑 Redis 키 TTL (초). 입력 중단 시 자연 소멸 (ADR-8 / FR-P07). */
 export const TYPING_TTL = 10;
+
+/**
+ * 타이핑 인디케이터 동시 표시 최대 인원 (FR-P07).
+ *
+ * 서버 typing SET 에 더 많은 사용자가 있어도 와이어로는 최대 이 인원만
+ * 싣고, 클라이언트는 "외 N명" 으로 표시한다. 페이로드 비대화 + 멤버
+ * 열거를 막는 단일 상한이다.
+ */
+export const TYPING_MAX_VISIBLE = 3;
 
 /** 시퀀스 홀 갭 복구 시 최대 페이지 수 (ADR-8 / D17). */
 export const GAP_FETCH_MAX_PAGES = 10;
@@ -56,6 +65,26 @@ export const PRESENCE_SESSION_TTL_SEC = 120;
 export const PRESENCE_IDLE_SWEEP_INTERVAL_MS = 30000;
 
 /**
+ * presence:subscribe 구독 Set (`presence:sub:{socketId}`) 의 disconnect
+ * 후 보존 TTL (초) (FR-P16).
+ *
+ * 소켓이 끊겨도 구독 Set 을 즉시 삭제하지 않고 이 시간 동안 보존해, grace
+ * 창 안에 재연결한 클라이언트가 구독 목록을 다시 보낼 필요 없이 fan-out 을
+ * 이어받을 수 있게 한다. 창이 지나면 Redis TTL 이 자연 정리한다. 5분.
+ */
+export const PRESENCE_SUB_TTL_SEC = 300;
+
+/**
+ * 동일 소켓의 presence:subscribe 버스트 상한 (FR-RT-12).
+ *
+ * 채널 전환 시 구독 목록 재전송이 몰릴 수 있어, 1초 창 안에 이 횟수를 넘는
+ * presence:subscribe 는 드롭한다(빈 응답 없이 무시). 게이트웨이 in-memory
+ * sliding-window rate-limit.
+ */
+export const PRESENCE_SUBSCRIBE_BURST_MAX = 10;
+export const PRESENCE_SUBSCRIBE_BURST_WINDOW_MS = 1000;
+
+/**
  * presence.updated 브로드캐스트 합치기(coalesce) 창 (ms) (ADR-8).
  *
  * S25 fix-forward(cheap): PresenceThrottler 의 `process.env.PRESENCE_UPDATE_THROTTLE_MS
@@ -93,6 +122,7 @@ export const SHARED_CONSTANTS = {
   BULK_MENTION_CONFIRM_THRESHOLD,
   PRESENCE_IDLE_TIMEOUT,
   TYPING_TTL,
+  TYPING_MAX_VISIBLE,
   GAP_FETCH_MAX_PAGES,
   UNREAD_LOCK_TTL,
   SEQ_HOLE_TIMEOUT_MS,
@@ -104,6 +134,10 @@ export const SHARED_CONSTANTS = {
   PRESENCE_SESSION_TTL_SEC,
   PRESENCE_IDLE_SWEEP_INTERVAL_MS,
   PRESENCE_UPDATE_THROTTLE_MS,
+  // S26 (FR-P16 / FR-RT-12): 구독 lifecycle TTL + subscribe 버스트 상한.
+  PRESENCE_SUB_TTL_SEC,
+  PRESENCE_SUBSCRIBE_BURST_MAX,
+  PRESENCE_SUBSCRIBE_BURST_WINDOW_MS,
   SEQ_SENTINEL,
   GAP_FETCH_CONCURRENCY,
   // S10 fix-forward (FIX #6): S07 에서 추가된 상수가 단일 객체 노출에서 누락돼
