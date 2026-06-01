@@ -7,8 +7,11 @@ import {
   MessageDeletedPayloadSchema,
   ReadStateUpdatedPayloadSchema,
   PresenceUpdatePayloadSchema,
+  PresenceSubscribePayloadSchema,
+  WorkspacePresenceUpdatedPayloadSchema,
   TypingBatchPayloadSchema,
   ChannelJoinedPayloadSchema,
+  maskPresenceForViewer,
 } from './events';
 import { extractMentionUserIds } from './mrkdwn';
 
@@ -188,13 +191,55 @@ describe('read_state / presence / typing payloads', () => {
     ).toThrow();
   });
 
-  it('presence:update enforces the 4 status values', () => {
-    expect(() =>
-      PresenceUpdatePayloadSchema.parse({ userId: 'u1', status: 'online', updatedAt: ISO }),
-    ).not.toThrow();
+  it('presence:update enforces the 5 status values (S25 + invisible)', () => {
+    for (const status of ['online', 'idle', 'dnd', 'offline', 'invisible'] as const) {
+      expect(() =>
+        PresenceUpdatePayloadSchema.parse({ userId: 'u1', status, updatedAt: ISO }),
+      ).not.toThrow();
+    }
     expect(() =>
       PresenceUpdatePayloadSchema.parse({ userId: 'u1', status: 'away', updatedAt: ISO }),
     ).toThrow();
+  });
+
+  // S25 fix-forward(security HIGH · DoS): presence:subscribe userIds is bounded.
+  it('presence:subscribe caps userIds at 500 (DoS guard)', () => {
+    const ok = Array.from({ length: 500 }, (_, i) => `u${i}`);
+    expect(() => PresenceSubscribePayloadSchema.parse({ userIds: ok })).not.toThrow();
+    const tooMany = Array.from({ length: 501 }, (_, i) => `u${i}`);
+    expect(() => PresenceSubscribePayloadSchema.parse({ userIds: tooMany })).toThrow();
+  });
+
+  // S25 fix-forward(contract HIGH): workspace presence broadcast is typed +
+  // registered in the WS catalog. Wire name stays the dot form.
+  it('presence.updated (WORKSPACE_PRESENCE_UPDATED) is typed in the WS catalog', () => {
+    expect(WS_EVENTS.WORKSPACE_PRESENCE_UPDATED).toBe('presence.updated');
+    const schema = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_PRESENCE_UPDATED];
+    expect(schema).toBeDefined();
+    const parsed = WorkspacePresenceUpdatedPayloadSchema.parse({
+      workspaceId: 'w1',
+      onlineUserIds: ['u1', 'u2'],
+      dndUserIds: ['u2'],
+      idleUserIds: ['u1'],
+    });
+    expect(parsed.onlineUserIds).toEqual(['u1', 'u2']);
+    expect(parsed.dndUserIds).toEqual(['u2']);
+    expect(parsed.idleUserIds).toEqual(['u1']);
+    // arrays are required (a server always sends all three sets).
+    expect(() =>
+      WorkspacePresenceUpdatedPayloadSchema.parse({ workspaceId: 'w1', onlineUserIds: ['u1'] }),
+    ).toThrow();
+  });
+
+  it('maskPresenceForViewer hides invisible from others, reveals to self (FR-P01)', () => {
+    // invisible → offline for others, real value for self.
+    expect(maskPresenceForViewer('invisible', false)).toBe('offline');
+    expect(maskPresenceForViewer('invisible', true)).toBe('invisible');
+    // every other status passes through unchanged regardless of viewer.
+    for (const status of ['online', 'idle', 'dnd', 'offline'] as const) {
+      expect(maskPresenceForViewer(status, false)).toBe(status);
+      expect(maskPresenceForViewer(status, true)).toBe(status);
+    }
   });
 
   it('typing:batch userIds is a full snapshot (empty allowed)', () => {

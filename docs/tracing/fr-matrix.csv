@@ -101,11 +101,11 @@ FR-RS-08,D09-readstate,P1,S24,done
 FR-RS-09,D09-readstate,P1,S24,done
 FR-RS-10,D09-readstate,P1,S24,done
 FR-RS-18,D09-readstate,P1,S24,done
-FR-P01,D08-presence-status,P0,S25,todo
-FR-P02,D08-presence-status,P0,S25,todo
-FR-P03,D08-presence-status,P0,S25,todo
-FR-RT-10,D17-realtime-sync,P1,S25,todo
-FR-RT-11,D17-realtime-sync,P1,S25,todo
+FR-P01,D08-presence-status,P0,S25,done
+FR-P02,D08-presence-status,P0,S25,done
+FR-P03,D08-presence-status,P0,S25,done
+FR-RT-10,D17-realtime-sync,P1,S25,done
+FR-RT-11,D17-realtime-sync,P1,S25,done
 FR-DM-14,D03-dms,P1,S26,todo
 FR-P07,D08-presence-status,P0,S26,todo
 FR-P14,D08-presence-status,P0,S26,todo

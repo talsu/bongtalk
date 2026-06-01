@@ -34,6 +34,15 @@ export const WS_EVENTS = {
   PRESENCE_ACTIVITY: 'presence:activity',
   PRESENCE_SET: 'presence:set',
   PRESENCE_UPDATE: 'presence:update',
+  // S25 (FR-RT-10): 워크스페이스 룸 브로드캐스트. online/dnd/idle userId 집합을
+  // 싣는다. 게이트웨이 schedulePresenceBroadcast + 웹 dispatcher 가 이 상수로
+  // emit/subscribe 한다.
+  //
+  // ⚠️ 이벤트명은 점 표기 `presence.updated` 를 유지한다 — 콜론 표기
+  // (`presence:updated`) 로의 rename 은 WS-naming 수렴(S10) 묶음으로 이관된
+  // carryover 다. 본 슬라이스는 타입화(스키마+상수)만 수행하고 와이어 이름은
+  // 바꾸지 않는다(라이브 클라 회귀 방지).
+  WORKSPACE_PRESENCE_UPDATED: 'presence.updated',
   // 읽음 / 미읽
   READ_STATE_UPDATED: 'read_state:updated',
   UNREAD_COUNT_INCREMENT: 'unread_count:increment',
@@ -64,8 +73,36 @@ const ChannelIdSchema = z.string().min(1);
 const UserIdSchema = z.string().min(1);
 const SeqSchema = z.number().int(); // -1 sentinel(SEQ_SENTINEL) 허용 → nonnegative 강제 안 함
 
-export const PresenceStatusSchema = z.enum(['online', 'idle', 'dnd', 'offline']);
+/**
+ * S25 (FR-P01): 프레즌스 상태 5종.
+ *
+ *   online    — 활성 연결 + 최근 활동(IDLE_TIMEOUT 이내)
+ *   idle      — 활성 연결 + IDLE_TIMEOUT 동안 활동 없음(auto-idle)
+ *   dnd       — 사용자 설정(presencePreference='dnd') 우선. activity/idle 무관 유지
+ *   offline   — 활성 세션 없음(마지막 세션 끊김 후 grace 만료)
+ *   invisible — 사용자가 스스로 숨김. 본인에게만 실제값, 타인에게는 offline 으로 마스킹
+ *
+ * 와이어 포맷은 소문자 enum 이다(서버 Prisma PresencePreference 와 별개 — preference 는
+ * auto/dnd/invisible 만, runtime status 는 idle/online 까지 포함).
+ */
+export const PresenceStatusSchema = z.enum(['online', 'idle', 'dnd', 'offline', 'invisible']);
 export type PresenceStatus = z.infer<typeof PresenceStatusSchema>;
+
+/**
+ * S25 (FR-P01): INVISIBLE 마스킹 단일 지점.
+ *
+ * 외부(타 사용자)에게 `invisible` 은 항상 `offline` 으로 보인다. 본인(isSelf=true)
+ * 에게만 실제 `invisible` 값이 노출된다. 그 외 상태(online/idle/dnd/offline)는
+ * 그대로 통과한다.
+ *
+ * presence:subscribe/bulk/update, GET /users/:id/profile, 멤버 목록 등 프레즌스를
+ * 외부로 내보내는 **모든** 경로가 이 함수 하나만 거치도록 한다. 라이브러리 함수라
+ * 서버(NestJS)·웹(React) 양쪽에서 동일하게 재사용된다.
+ */
+export function maskPresenceForViewer(status: PresenceStatus, isSelf: boolean): PresenceStatus {
+  if (status === 'invisible' && !isSelf) return 'offline';
+  return status;
+}
 
 // ── 연결 / 룸 ──────────────────────────────────────────────────────────────
 export const ConnectionReadyPayloadSchema = z.object({
@@ -197,8 +234,17 @@ export const TypingBatchPayloadSchema = z.object({
 export type TypingBatchPayload = z.infer<typeof TypingBatchPayloadSchema>;
 
 // ── 프레즌스 ────────────────────────────────────────────────────────────────
+/**
+ * presence:subscribe — C→S. 구독할 userId 목록.
+ *
+ * S25 fix-forward(security HIGH · DoS): userIds 크기 상한 500. 한 워크스페이스
+ * 멤버 목록을 한 번에 구독하는 정상 사용을 넉넉히 덮으면서, 임의 거대 배열로
+ * 게이트웨이가 사용자당 Redis read 를 폭주시키는 것을 막는다. 게이트웨이는
+ * safeParse 를 **실제로** 적용해 초과/비정상 페이로드를 거부한다(타입힌트만으로는
+ * 런타임 보증이 없었음).
+ */
 export const PresenceSubscribePayloadSchema = z.object({
-  userIds: z.array(UserIdSchema),
+  userIds: z.array(UserIdSchema).max(500),
 });
 export type PresenceSubscribePayload = z.infer<typeof PresenceSubscribePayloadSchema>;
 
@@ -225,6 +271,26 @@ export type PresenceSetPayload = z.infer<typeof PresenceSetPayloadSchema>;
 /** presence:update — user:{userId} 룸으로만 emit. */
 export const PresenceUpdatePayloadSchema = PresenceEntrySchema;
 export type PresenceUpdatePayload = z.infer<typeof PresenceUpdatePayloadSchema>;
+
+/**
+ * presence.updated — 워크스페이스 룸(rooms.workspace(wsId))으로 emit (S25 ·
+ * FR-RT-10). 한 워크스페이스의 현재 online/dnd/idle 사용자 집합을 싣는다.
+ *
+ *   onlineUserIds — 활성 세션을 가진(observable) 사용자 (idle 포함, INVISIBLE 제외)
+ *   dndUserIds    — Do Not Disturb 닷 대상 (online 의 부분집합)
+ *   idleUserIds   — auto-idle 닷 대상 (online 의 부분집합, dnd 와 배타)
+ *
+ * 종전 게이트웨이는 이 페이로드를 WS_EVENTS/Zod 미등록 raw 객체로 emit 했다.
+ * S25 fix-forward(contract HIGH): 스키마+상수로 타입화한다. 와이어 이름은 점 표기
+ * `presence.updated` 유지(콜론 rename 은 S10 carryover).
+ */
+export const WorkspacePresenceUpdatedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  onlineUserIds: z.array(UserIdSchema),
+  dndUserIds: z.array(UserIdSchema),
+  idleUserIds: z.array(UserIdSchema),
+});
+export type WorkspacePresenceUpdatedPayload = z.infer<typeof WorkspacePresenceUpdatedPayloadSchema>;
 
 // ── 읽음 / 미읽 ──────────────────────────────────────────────────────────────
 /**
@@ -392,6 +458,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.PRESENCE_ACTIVITY]: PresenceActivityPayloadSchema,
   [WS_EVENTS.PRESENCE_SET]: PresenceSetPayloadSchema,
   [WS_EVENTS.PRESENCE_UPDATE]: PresenceUpdatePayloadSchema,
+  [WS_EVENTS.WORKSPACE_PRESENCE_UPDATED]: WorkspacePresenceUpdatedPayloadSchema,
   [WS_EVENTS.READ_STATE_UPDATED]: ReadStateUpdatedPayloadSchema,
   [WS_EVENTS.UNREAD_COUNT_INCREMENT]: UnreadCountIncrementPayloadSchema,
   [WS_EVENTS.DM_CREATED]: DmCreatedPayloadSchema,

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PRESENCE_UPDATE_THROTTLE_MS } from '@qufox/shared-types';
 
 /**
  * Coalesce presence.updated broadcasts so an event storm (e.g. 100 users
@@ -14,7 +15,10 @@ export class PresenceThrottler {
   private readonly pending = new Map<string, NodeJS.Timeout>();
 
   private get windowMs(): number {
-    return Number(process.env.PRESENCE_UPDATE_THROTTLE_MS ?? 2000);
+    // S25 fix-forward(cheap + NaN 가드): 단일 상수 기본값 + finite/>0 가드. 잘못
+    // 설정된 env(NaN/음수)가 setTimeout 을 0 으로 만들어 폭주하지 않도록 한다.
+    const raw = Number(process.env.PRESENCE_UPDATE_THROTTLE_MS ?? PRESENCE_UPDATE_THROTTLE_MS);
+    return Number.isFinite(raw) && raw > 0 ? raw : PRESENCE_UPDATE_THROTTLE_MS;
   }
 
   schedule(workspaceId: string, flush: () => Promise<void>): void {

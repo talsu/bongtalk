@@ -20,7 +20,9 @@ export function usePresenceStatus(initial: PresenceStatus = 'online'): {
 
   const setStatus = useCallback(
     async (next: PresenceStatus) => {
-      if (next === 'offline') return; // not user-settable
+      // S25: offline / idle are not user-settable — only online / dnd /
+      // invisible flow through PATCH /me/presence. idle is auto only.
+      if (next === 'offline' || next === 'idle') return;
       const prev = status;
       setStatusState(next);
       setPending(true);
