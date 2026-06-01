@@ -23,7 +23,12 @@ import {
 } from './mentions/mention-extractor';
 import { normalizeMentions } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
-import { gateEveryoneMention, gateHereMention, type GateActorRole } from './mentions/gate';
+import {
+  gateChannelMention,
+  gateEveryoneMention,
+  gateHereMention,
+  type GateActorRole,
+} from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import {
   MESSAGE_CREATED,
@@ -194,12 +199,17 @@ export class MessagesService {
       channels: [],
       everyone: false,
       here: false,
-    }) as MessageMentions & { here?: boolean };
+      channel: false,
+    }) as MessageMentions & { here?: boolean; channel?: boolean };
     const mentions: MessageMentions = {
       users: rawMentions.users,
       channels: rawMentions.channels,
       everyone: rawMentions.everyone,
       here: rawMentions.here ?? false,
+      // S21 fix-forward (MAJOR-D): `@channel` 범위 멘션을 와이어로 전달해야
+      // live dispatcher 의 isMention 이 @channel 을 인식한다. 누락(legacy row)은
+      // false 폴백.
+      channel: rawMentions.channel ?? false,
     };
     return {
       id: row.id,
@@ -477,7 +487,7 @@ export class MessagesService {
         content: BLOCKED_MESSAGE_PLACEHOLDER,
         contentRaw: BLOCKED_MESSAGE_PLACEHOLDER,
         contentAst: null,
-        mentions: { users: [], channels: [], everyone: false, here: false },
+        mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
       };
     });
   }
@@ -524,6 +534,11 @@ export class MessagesService {
     // through here. When omitted we fall back to `workspaceId === null`
     // (a DM is workspaceless) to keep older callers correct.
     channelType?: string;
+    // S21 (FR-RS-16): composer 가 멘션 피커로 선택한 특수멘션 힌트. 본문에
+    // sigil 이 없어도(피커 선택만) 특수멘션 의도를 반영하기 위해 OR 로 병합한 뒤
+    // gate.ts 로 권한 게이트한다. user/channel(이름) 멘션은 본문에서 권위적으로
+    // 재추출되므로 힌트로 받지 않는다(신뢰 경계 유지).
+    mentionsHint?: { everyone?: boolean; here?: boolean; channel?: boolean };
   }): Promise<{ message: MessageRow; replayed: boolean }> {
     // S03 (FR-MSG-05 / FR-RT-04): Redis read-through 2차 캐시. 재전송 시
     // 동일 키가 캐시에 있으면 DB INSERT 시도 자체를 생략하고 캐시된
@@ -612,12 +627,26 @@ export class MessagesService {
     );
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
-    const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
-    // task-044-iter3: silently downgrade `@everyone` for non-OWNER/ADMIN.
-    // Default `MEMBER` 으로 보수적 처리 — DM 채널 등 actorRole 미정 호출
-    // 도 자동으로 거부됩니다.
-    const mentions = gateHereMention(
-      gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+    const extracted = await extractMentions(this.prisma, args.workspaceId, args.content);
+    // S21 (FR-RS-16): 특수멘션은 본문 sigil 추출값과 composer 힌트를 OR 병합한다.
+    // user/channel(이름) 멘션은 본문 권위 추출만 신뢰한다(힌트 미반영). DM
+    // 채널(workspaceId=null)은 extractMentions 가 전부 false 를 반환하므로 힌트도
+    // 무의미 — 병합 후에도 false 로 유지된다(멘션 네임스페이스 부재).
+    const hint = args.workspaceId === null ? undefined : args.mentionsHint;
+    const rawMentions: typeof extracted = {
+      ...extracted,
+      everyone: extracted.everyone || hint?.everyone === true,
+      here: extracted.here || hint?.here === true,
+      channel: extracted.channel || hint?.channel === true,
+    };
+    // task-044-iter3 + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은 송신
+    // 역할 게이트로 silently false 다운그레이드. Default `MEMBER` 으로 보수적
+    // 처리 — DM 채널 등 actorRole 미정 호출도 자동 거부됩니다.
+    const mentions = gateChannelMention(
+      gateHereMention(
+        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+        args.actorRole ?? 'MEMBER',
+      ),
       args.actorRole ?? 'MEMBER',
     );
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
@@ -1048,6 +1077,7 @@ export class MessagesService {
       channels: [],
       everyone: false,
       here: false,
+      channel: false,
     };
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.message.create({
@@ -1398,8 +1428,11 @@ export class MessagesService {
     actorRole?: GateActorRole;
   }): Promise<MessageRow> {
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
-    const mentions = gateHereMention(
-      gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+    const mentions = gateChannelMention(
+      gateHereMention(
+        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
+        args.actorRole ?? 'MEMBER',
+      ),
       args.actorRole ?? 'MEMBER',
     );
     // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — `@username` → `@{cuid2}`.

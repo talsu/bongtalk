@@ -334,6 +334,9 @@ export class MessagesController {
       // DM hidden-restore 게이트가 채널을 다시 SELECT 하지 않게 한다. channel 이
       // undefined 면 send 가 workspaceId 폴백으로 판정한다(여기는 워크스페이스 경로).
       channelType: channel?.type,
+      // S21 (FR-RS-16): composer 의 특수멘션 피커 힌트(@everyone/@here/@channel).
+      // 본문 sigil 추출값과 OR 병합 후 actorRole 로 게이트된다.
+      mentionsHint: parsed.data.mentions,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);

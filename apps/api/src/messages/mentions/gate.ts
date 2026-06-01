@@ -34,3 +34,15 @@ export function gateHereMention(mentions: Mentions, actorRole: GateActorRole): M
   if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
   return { ...mentions, here: false };
 }
+
+/**
+ * S21 (FR-RS-16): `@channel` 멘션 권한 게이트. 현재 채널 멤버 전원을 깨우는
+ * 범위 멘션이라 @everyone/@here 와 동일한 OWNER/ADMIN 게이트를 적용한다.
+ * MEMBER 가 channel=true 입력 시 silently false 로 다운그레이드 → unread
+ * mentionCount 집계에서도 자동 제외(S18 정합).
+ */
+export function gateChannelMention(mentions: Mentions, actorRole: GateActorRole): Mentions {
+  if (!mentions.channel) return mentions;
+  if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
+  return { ...mentions, channel: false };
+}

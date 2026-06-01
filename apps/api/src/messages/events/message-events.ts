@@ -43,7 +43,15 @@ export type MessageCreatedPayload = {
     // 렌더 + grouped=false 분기에 사용. Additive — 구 디스패처는 무시.
     type?: string;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
-    mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
+    // S21 fix-forward (MAJOR-D): @channel flag e2e propagation — 디스패처
+    // isMention 이 @channel 을 인식해 live 배지가 reload 와 일치하도록.
+    mentions: {
+      users: string[];
+      channels: string[];
+      everyone: boolean;
+      here: boolean;
+      channel: boolean;
+    };
     createdAt: string;
     // task-014-B: null for root, uuid for reply. Additive — existing
     // 005/011/013 dispatcher branches ignore unknown fields.
@@ -84,7 +92,14 @@ export type MessageUpdatedPayload = {
     contentRaw: string;
     contentAst: unknown;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
-    mentions: { users: string[]; channels: string[]; everyone: boolean; here: boolean };
+    // S21 fix-forward (MAJOR-D): @channel flag e2e propagation.
+    mentions: {
+      users: string[];
+      channels: string[];
+      everyone: boolean;
+      here: boolean;
+      channel: boolean;
+    };
     editedAt: string;
     // S05 verify (FR-MSG-07): (수정됨) 뱃지의 라이브 전파. 디스패처는 캐시 행
     // 위에 이 부분 DTO 를 verbatim merge 하므로, `edited` 를 싣지 않으면 편집
