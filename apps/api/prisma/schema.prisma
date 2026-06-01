@@ -150,6 +150,11 @@ model User {
   // Disturb until the user flips it back. Runtime presence state (in
   // Redis via PresenceService) still goes to `offline` on disconnect.
   presencePreference  PresencePreference @default(auto)
+  // S27 (FR-P10): 마지막 접속 시각. OFFLINE 확정(finalizeOffline) + DND 전환에서
+  // 갱신, INVISIBLE 전환에서는 미갱신(잠적 시각 누출 방지). nullable — 기존 row 는
+  // NULL(접속 기록 없음). 멤버 목록 offline 그룹의 "마지막 접속" 표기에만 쓰이는
+  // 파생 표시값이며 runtime presence 의 단일 출처는 Redis 다.
+  lastSeenAt          DateTime?          @db.Timestamptz
   // task-045 iter4: Discord-parity custom status text. null = unset.
   // 100 chars cap (Discord 의 128 보다 보수적). emoji prefix 는
   // follow-up — 현재는 plain text 만.
@@ -288,6 +293,11 @@ model WorkspaceMember {
   @@id([workspaceId, userId])
   @@index([userId])
   @@index([workspaceId, role])
+  // S27 fix-forward(perf): keyset sort index for the grouped member list. The
+  // list orders by (joinedAt, userId) within a workspace and (for < 1000
+  // members) loads the whole set; this ordered index keeps that load + sort
+  // O(N) instead of forcing a full sort of the workspace's member slice.
+  @@index([workspaceId, joinedAt, userId])
 }
 
 model Category {

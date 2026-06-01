@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S26 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S27(멤버 목록 API status/hoist 그룹 + N+1 제거 + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외).** D02·D03·D09 완료. D08(프레즌스, S25~S26) 진행 중.
+> **S05 검증·S06~S27 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S28(커스텀 상태 만료 프리셋/스케줄러 + DND 수동/스케줄 + 알림 차단 연동).** D02·D03·D09 완료. D08(프레즌스, S25~S27) 진행 중.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -239,11 +239,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + presence-sub int 11(authz-staleness 5 신규) + presence 12 + patch 3 GREEN. 마이그레이션 없음. DS 무수정.
 - carryover(MED): **presence:update web read-side 배선(현재 dead-write)**, cross-node fan-out(멀티노드), perf(이중 브로드캐스트·per-viewer authz 캐시·EXISTS-N), typing.updated WS-naming(S10), friend.blocked outbox 이벤트화.
 
-## 다음 슬라이스: S27 (멤버 목록 API — status/hoist 그룹 + N+1 제거 + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외)
+## ✅ S27 (멤버 목록 API status/hoist 그룹 + N+1 제거 + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외) — 완료
 
-- scope `apps/api/src/workspaces/**`(members) 또는 channels members + presence 연동 + 일부 web. FR-P08/09/10/11/12/15.
-- 멤버 목록을 presence status 별 그룹 + role hoist 정렬, **N+1 제거**(멤버별 presence 개별조회 금지 — presence bulkFor 일괄), **INVISIBLE→offline 마스킹**(S25 maskPresenceForViewer REST 연결 — S25/S26 carryover "멤버목록 REST 마스킹"), lastSeenAt(마지막 접속), **1000명 이상 워크스페이스는 OFFLINE 멤버 목록 제외**(페이로드 제한).
-- 주의: **S25 carryover "멤버목록/프로필 REST presence 마스킹 미연결" 을 여기서 연결**(bulkFor/maskPresenceForViewer REST 경유 강제). 기존 GET /workspaces/:id/members(현재 presence 미노출) 에 presence 추가. lastSeenAt 영속 필요시 마이그레이션. UI 슬라이스면 ui-designer. FR 정본: PRD html FR-P.
+- FR-P08(멤버목록 **authoritative 그룹핑**: <1000 전체 로드+bulkFor / ≥1000 online∪dnd 만, cursor 페이지), FR-P12(INVISIBLE→offline 마스킹 REST — S25/S26 carryover 해소), FR-P10(lastSeenAt OFFLINE/DND 갱신·INVISIBLE 미갱신·일단위 둔감화), FR-P11(1000명 OFFLINE 제외), FR-P15(viewport IntersectionObserver presence:subscribe + presence:update 소비 — S26 dead-write 해소), FR-P09(**partial** hoist=OWNER/ADMIN staff baseline). 마이그레이션 `20260601700000`(User.lastSeenAt + 복합 인덱스).
+- **리뷰 fix-forward**(reviewer+security+perf+ui 4팀): correctness BLOCKER(per-page 그룹핑 50명초과 incoherent → authoritative 전체 그룹핑). security BLOCKER(DND→INVISIBLE lastSeenAt 누출 → bulkFor real/masked 플래그 + invisible-masked→null + WS wire projection 누출 방지). regression(useMembers 50cap → listAllMembers 완전화). contract(query-key qk 정합 → dispatcher invalidate 작동). cursor UUID/길이 검증, lastSeenAt 둔감화, 복합 인덱스, autoPipelining.
+- 게이트: verify 19 + build 3종 + members-grouped int 13 GREEN. DS 무수정. 마이그레이션 PG16 up→down→up.
+- carryover: email PII(선제존재), 커스텀 역할 hoist, MobileMembers parity, off-viewport stale dot, canStillObserve 캐시.
+
+## 다음 슬라이스: S28 (커스텀 상태 만료 프리셋/스케줄러 + DND 수동/스케줄 + 알림 차단 연동)
+
+- scope `apps/api/src/me/**`(presence/status) + 알림 + 일부 web. FR-P04/05/06/17.
+- FR-P04(커스텀 상태 텍스트+이모지, 만료 프리셋[30분/1시간/오늘/이번주/안함] + 만료 스케줄러 자동 클리어), FR-P05(DND 수동 토글 + DND 스케줄[취침시간 등]), FR-P06(DND 시 알림 차단 — 푸시/소리 게이트), FR-P17(추정 DND/상태 알림 연동).
+- 주의: 기존 User.customStatus(있음, S22/멤버목록에서 봄) + presencePreference(auto/dnd/invisible, S25) 위. 만료 스케줄러(BullMQ 부재 — cron/Redis TTL+lazy 또는 setTimeout). DND 스케줄은 dnd-schedule 컨트롤러 흔적 있음(S25 조사). 알림 차단은 D14 notification 과 연계 주의. customStatus 만료 영속 마이그레이션 가능. FR 정본: PRD html FR-P04~06/17.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

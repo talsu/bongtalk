@@ -32,6 +32,12 @@ export class RedisLifecycle implements OnModuleDestroy {
           maxRetriesPerRequest: 3,
           lazyConnect: false,
           keyPrefix: 'qufox:',
+          // S27 fix-forward(perf): coalesce commands issued in the same event-loop
+          // tick into a single RESP pipeline. bulkFor resolves N users via
+          // Promise.all (3 reads each ~150 commands for a 50-row page); with
+          // auto-pipelining those flush as ONE round-trip instead of N. multi()/
+          // pipeline() paths are unaffected (already explicit).
+          enableAutoPipelining: true,
         });
         if (metrics) {
           instrumentRedis(client, metrics);

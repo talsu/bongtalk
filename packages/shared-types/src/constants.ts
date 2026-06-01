@@ -85,6 +85,20 @@ export const PRESENCE_SUBSCRIBE_BURST_MAX = 10;
 export const PRESENCE_SUBSCRIBE_BURST_WINDOW_MS = 1000;
 
 /**
+ * S27 (FR-P15): viewport presence 구독 1회 요청 최대 userId 수. 뷰포트에 들어온
+ * 멤버/메시지 작성자 id 를 모아 presence:subscribe 로 보내되, 이 값을 넘으면
+ * 100개씩 청크로 분할 전송한다(게이트웨이 500-cap 보다 보수적이라 burst-max
+ * 압박을 줄이고 한 프레임이 과도하게 커지지 않게 한다).
+ */
+export const PRESENCE_VIEWPORT_SUBSCRIBE_CHUNK = 100;
+
+/**
+ * S27 (FR-P15): 뷰포트 presence 수집 디바운스(ms). IntersectionObserver 콜백이
+ * 스크롤 중 연속 발화하므로 이 창 동안 모은 가시 userId 집합을 한 번에 구독한다.
+ */
+export const PRESENCE_VIEWPORT_DEBOUNCE_MS = 200;
+
+/**
  * presence.updated 브로드캐스트 합치기(coalesce) 창 (ms) (ADR-8).
  *
  * S25 fix-forward(cheap): PresenceThrottler 의 `process.env.PRESENCE_UPDATE_THROTTLE_MS
@@ -138,6 +152,9 @@ export const SHARED_CONSTANTS = {
   PRESENCE_SUB_TTL_SEC,
   PRESENCE_SUBSCRIBE_BURST_MAX,
   PRESENCE_SUBSCRIBE_BURST_WINDOW_MS,
+  // S27 (FR-P15): viewport 구독 청크/디바운스.
+  PRESENCE_VIEWPORT_SUBSCRIBE_CHUNK,
+  PRESENCE_VIEWPORT_DEBOUNCE_MS,
   SEQ_SENTINEL,
   GAP_FETCH_CONCURRENCY,
   // S10 fix-forward (FIX #6): S07 에서 추가된 상수가 단일 객체 노출에서 누락돼

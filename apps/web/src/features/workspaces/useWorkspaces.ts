@@ -5,6 +5,7 @@ import {
   createWorkspace,
   getWorkspace,
   leaveWorkspace,
+  listAllMembers,
   listInvites,
   listMembers,
   listMyWorkspaces,
@@ -12,12 +13,32 @@ import {
   updateMemberRole,
   updateWorkspace,
 } from './api';
+import { qk } from '../../lib/query-keys';
 
+/**
+ * S27 fix-forward(contract HIGH · query-key drift): member-list keys now derive
+ * from the single `qk` source so the realtime dispatcher's
+ * `qk.workspaces.members(wsId)` invalidate actually hits these queries. The
+ * previous local `keys.members` = `['workspace', id, 'members']` (singular,
+ * different first segment) never matched the dispatcher's
+ * `['workspaces', id, 'members']`, so member invalidations silently no-op'd.
+ *
+ * Both member hooks hang UNDER `qk.workspaces.members(id)`:
+ *   - grouped (presence UI)  → qk.workspaces.members(id)
+ *   - complete flat (mention) → [...qk.workspaces.members(id), 'all']
+ * so a single `invalidateQueries({ queryKey: qk.workspaces.members(id) })`
+ * (prefix match) refreshes both.
+ */
 const keys = {
+  // `mine` stays the distinct `['workspaces', 'mine']` tuple (NOT qk.workspaces
+  // .list() = ['workspaces']) so it isn't a prefix of qk.workspaces.members and
+  // a "my workspaces" invalidate can't accidentally blow the member caches. The
+  // dispatcher's qk.workspaces.list() prefix-invalidate still matches it.
   mine: ['workspaces', 'mine'] as const,
-  one: (id: string) => ['workspace', id] as const,
-  members: (id: string) => ['workspace', id, 'members'] as const,
-  invites: (id: string) => ['workspace', id, 'invites'] as const,
+  one: (id: string) => qk.workspaces.detail(id),
+  members: (id: string) => qk.workspaces.members(id),
+  membersAll: (id: string) => [...qk.workspaces.members(id), 'all'] as const,
+  invites: (id: string) => qk.workspaces.invites(id),
   invitePreview: (code: string) => ['invite', code, 'preview'] as const,
 };
 
@@ -33,7 +54,33 @@ export function useWorkspace(id: string | undefined) {
   });
 }
 
+/**
+ * S27 fix-forward(regression · @멘션): the COMPLETE flat member list for
+ * non-presence consumers (role resolution, @-mention autocomplete, member
+ * counts, DM author map). It walks EVERY cursor page with include_offline=true
+ * (listAllMembers) so the 51st+ member is mentionable and offline members on a
+ * large workspace are never dropped.
+ *
+ * The previous design flattened only the grouped FIRST page, capping the list
+ * at 50 and (on a large workspace) silently dropping every offline member —
+ * making them un-mentionable. This hook now has its OWN fetch + key
+ * ([...members, 'all']) separate from the presence-scoped grouped list.
+ */
 export function useMembers(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.membersAll(id ?? ''),
+    queryFn: () => listAllMembers(id!),
+    enabled: !!id,
+  });
+}
+
+/**
+ * S27 (FR-P08/P09/P11/P12): grouped, presence-aware member list for the member
+ * column UI. Returns the raw hoist + status groups + pagination cursor (the
+ * first page; the column consumes the authoritative groups the server builds
+ * over the whole member set).
+ */
+export function useMemberGroups(id: string | undefined) {
   return useQuery({
     queryKey: keys.members(id ?? ''),
     queryFn: () => listMembers(id!),
