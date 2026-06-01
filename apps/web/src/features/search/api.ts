@@ -1,5 +1,5 @@
 import { apiRequest } from '../../lib/api';
-import type { SearchResponse } from '@qufox/shared-types';
+import type { SearchResponse, SearchSort } from '@qufox/shared-types';
 
 /**
  * Task-015-C: message search client. Snippets arrive with
@@ -15,6 +15,8 @@ export function searchMessages(args: {
   channelId?: string;
   cursor?: string;
   limit?: number;
+  // S29 (FR-S08): 정렬 토글. 미지정 시 서버 기본(relevance).
+  sort?: SearchSort;
 }): Promise<SearchResponse> {
   const qs = new URLSearchParams();
   qs.set('workspaceId', args.workspaceId);
@@ -22,5 +24,6 @@ export function searchMessages(args: {
   if (args.channelId) qs.set('channelId', args.channelId);
   if (args.cursor) qs.set('cursor', args.cursor);
   if (typeof args.limit === 'number') qs.set('limit', String(args.limit));
+  if (args.sort) qs.set('sort', args.sort);
   return apiRequest<SearchResponse>(`/search?${qs.toString()}`);
 }

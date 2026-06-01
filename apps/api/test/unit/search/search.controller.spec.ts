@@ -42,6 +42,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
       '2025-01-01T00:00:00Z', // since
       '2025-02-01T00:00:00Z', // until
       'true', // hasAttachment
+      undefined, // sort
     );
     expect(search.search).toHaveBeenCalledTimes(1);
     const args = (search.search as unknown as { mock: { calls: unknown[][] } }).mock
@@ -76,6 +77,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
       undefined,
       undefined,
       'false',
+      undefined,
     );
     const args = (search.search as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as {
@@ -97,6 +99,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
       undefined,
       undefined,
       'maybe',
+      undefined,
     );
     const args = (search.search as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as {
@@ -119,6 +122,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
         'not-a-date',
         undefined,
         undefined,
+        undefined,
       ),
     ).rejects.toThrow(/invalid ISO date for since/);
   });
@@ -137,6 +141,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
         '2025-02-01T00:00:00Z',
         '2025-01-01T00:00:00Z',
         undefined,
+        undefined,
       ),
     ).rejects.toThrow(/since must be < until/);
   });
@@ -147,6 +152,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
       { id: ME, email: 'me@e.com', username: 'me' },
       'hello',
       WS,
+      undefined,
       undefined,
       undefined,
       undefined,
@@ -166,6 +172,127 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     expect(args.since).toBeUndefined();
     expect(args.until).toBeUndefined();
     expect(args.hasAttachment).toBeUndefined();
+  });
+
+  it('S29 security: workspaceId 가 비-UUID 면 VALIDATION_FAILED (Prisma 500 누출 방지)', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.run(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        'hello',
+        'not-a-uuid',
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    ).rejects.toThrow(/workspaceId must be a valid UUID/);
+  });
+
+  it('S29 security: channelId 가 비-UUID 면 VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.run(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        'hello',
+        WS,
+        'bogus-channel', // channelId
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    ).rejects.toThrow(/channelId must be a valid UUID/);
+  });
+
+  it('S29 security: senderId 가 비-UUID 면 VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.run(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        'hello',
+        WS,
+        undefined,
+        undefined,
+        undefined,
+        'bogus-sender', // senderId
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    ).rejects.toThrow(/senderId must be a valid UUID/);
+  });
+
+  it('S29 security: q 가 500자 초과면 VALIDATION_FAILED (DoS 풀스캔 방지)', async () => {
+    const { ctrl } = makeCtrl();
+    const huge = 'a'.repeat(501);
+    await expect(
+      ctrl.run(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        huge,
+        WS,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+      ),
+    ).rejects.toThrow(/q must be at most 500 characters/);
+  });
+
+  it('S29 security: q 가 정확히 500자면 통과(경계)', async () => {
+    const { ctrl, search } = makeCtrl();
+    const atCap = 'a'.repeat(500);
+    await ctrl.run(
+      { id: ME, email: 'me@e.com', username: 'me' },
+      atCap,
+      WS,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+    );
+    expect(search.search).toHaveBeenCalledTimes(1);
+  });
+
+  it('S29: sort=recent 매핑, 미지정/임의는 relevance 로 degrade', async () => {
+    const { ctrl, search } = makeCtrl();
+    const call = (sortRaw: string | undefined) =>
+      ctrl.run(
+        { id: ME, email: 'me@e.com', username: 'me' },
+        'hello',
+        WS,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        sortRaw,
+      );
+    await call('recent');
+    await call(undefined);
+    await call('garbage');
+    const calls = (search.search as unknown as { mock: { calls: unknown[][] } }).mock.calls;
+    expect((calls[0][0] as { sort?: string }).sort).toBe('recent');
+    expect((calls[1][0] as { sort?: string }).sort).toBe('relevance');
+    expect((calls[2][0] as { sort?: string }).sort).toBe('relevance');
   });
 });
 
@@ -209,5 +336,19 @@ describe('SearchController.suggest (task-046 J1)', () => {
     const args = (search.suggest as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as { limit?: number };
     expect(args.limit).toBe(20);
+  });
+
+  it('S29 security: workspaceId 가 비-UUID 면 VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', 'not-a-uuid', undefined),
+    ).rejects.toThrow(/workspaceId must be a valid UUID/);
+  });
+
+  it('S29 security: q 가 500자 초과면 VALIDATION_FAILED', async () => {
+    const { ctrl } = makeCtrl();
+    await expect(
+      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'a'.repeat(501), WS, undefined),
+    ).rejects.toThrow(/q must be at most 500 characters/);
   });
 });

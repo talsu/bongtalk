@@ -4,6 +4,10 @@ import { PrismaService } from '../prisma/prisma.module';
 import { Permission, PermissionMatrix } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { parseSearchQuery } from './search-query.parser';
+
+/** S29 (FR-S08): 정렬 모드 — 관련도(기본) 또는 최신. */
+export type SearchSort = 'relevance' | 'recent';
 
 export type SearchResultRow = {
   messageId: string;
@@ -28,13 +32,22 @@ function encodeCursor(c: SearchCursor): string {
   return Buffer.from(JSON.stringify(c), 'utf8').toString('base64url');
 }
 
+// S29 (security MEDIUM): cursor.id 도 SQL 에서 `${cursor.id}::uuid` 로 캐스팅
+// 되므로 forged cursor 의 비-UUID id 가 DB 500 으로 누출될 수 있다. createdAt
+// 도 `::timestamp` 캐스팅 대상이라 형식을 함께 검증한다(비정상 → 빈 cursor 와
+// 동일하게 MESSAGE_CURSOR_INVALID 400).
+const CURSOR_UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 function decodeCursor(raw: string): SearchCursor {
   try {
     const parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
     if (
       typeof parsed.rank === 'number' &&
+      Number.isFinite(parsed.rank) &&
       typeof parsed.createdAt === 'string' &&
-      typeof parsed.id === 'string'
+      !Number.isNaN(new Date(parsed.createdAt).getTime()) &&
+      typeof parsed.id === 'string' &&
+      CURSOR_UUID_RE.test(parsed.id)
     ) {
       return parsed as SearchCursor;
     }
@@ -42,6 +55,23 @@ function decodeCursor(raw: string): SearchCursor {
     /* fallthrough */
   }
   throw new DomainError(ErrorCode.MESSAGE_CURSOR_INVALID, 'invalid search cursor');
+}
+
+/**
+ * S29 (FR-S05): 컨트롤러 명시값과 파서 유도값 중 더 좁히는 쪽을 고른다.
+ *   lower(since) → 더 큰 값(늦은 하한)이 더 좁다.
+ *   upper(until) → 더 작은 값(이른 상한)이 더 좁다.
+ * 둘 중 하나만 있으면 그것을, 둘 다 없으면 undefined.
+ */
+function pickTighter(
+  a: Date | undefined,
+  b: Date | undefined,
+  side: 'lower' | 'upper',
+): Date | undefined {
+  if (!a) return b;
+  if (!b) return a;
+  if (side === 'lower') return a.getTime() >= b.getTime() ? a : b;
+  return a.getTime() <= b.getTime() ? a : b;
 }
 
 @Injectable()
@@ -119,6 +149,50 @@ export class SearchService {
     return ids;
   }
 
+  /**
+   * S29 (FR-S04 오라클 방지): in:#channel 의 채널명을 *이미 계산된 가시 집합
+   * 안에서만* id 로 해석한다. 가시 집합 밖(비공개 비멤버·미존재)이면 null 을
+   * 돌려주고, 호출측이 0건으로 처리한다. 가시 집합으로 `id: { in: visibleIds }`
+   * 를 걸므로 비멤버 채널은 애초에 후보에 없어 존재 추론이 불가능하다.
+   * (대소문자 무시 — 채널명은 unique-insensitive 관례.)
+   */
+  private async resolveVisibleChannelByName(
+    visibleIds: string[],
+    name: string,
+    workspaceId: string,
+  ): Promise<string | null> {
+    if (visibleIds.length === 0) return null;
+    const ch = await this.prisma.channel.findFirst({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        id: { in: visibleIds },
+        name: { equals: name, mode: 'insensitive' },
+      },
+      select: { id: true },
+    });
+    return ch?.id ?? null;
+  }
+
+  /**
+   * S29 (FR-S04): from:@user 핸들을 워크스페이스 멤버 안에서 userId 로 해석.
+   * 멤버가 아니거나 미존재 핸들이면 null → 호출측 0건. 워크스페이스 멤버십을
+   * 걸어 외부 사용자 존재가 새지 않게 한다(대소문자 무시).
+   */
+  private async resolveWorkspaceMemberByHandle(
+    workspaceId: string,
+    handle: string,
+  ): Promise<string | null> {
+    const member = await this.prisma.workspaceMember.findFirst({
+      where: {
+        workspaceId,
+        user: { username: { equals: handle, mode: 'insensitive' } },
+      },
+      select: { userId: true },
+    });
+    return member?.userId ?? null;
+  }
+
   async search(args: {
     query: string;
     workspaceId: string;
@@ -132,13 +206,28 @@ export class SearchService {
     until?: Date;
     /** task-046 iter3 (J3): when true, only messages with at least 1 attachment */
     hasAttachment?: boolean;
+    /** S29 (FR-S08): 정렬 모드. 기본 relevance(ts_rank_cd). */
+    sort?: SearchSort;
     cursor?: string;
     limit: number;
+    /** S29 (FR-S05 / during:): 상대 기간 기준 시각(테스트 주입). */
+    now?: Date;
   }): Promise<{ results: SearchResultRow[]; nextCursor: string | null }> {
-    const q = args.query.trim();
-    if (q.length === 0) {
+    // S29 (FR-S05): 수식어 파싱. from/in/has/is/before/after/during 토큰을
+    // 추출하고 잔여 텍스트만 tsquery 로 넘긴다. 컨트롤러가 넘긴 명시
+    // senderId/since/until/hasAttachment 와 AND 병합한다(둘 다 좁히는 방향).
+    const parsed = parseSearchQuery(args.query, args.now ?? new Date());
+    const sort: SearchSort = args.sort ?? 'relevance';
+
+    // since/until: 컨트롤러 명시값과 파서 유도값 중 더 좁은(엄격한) 쪽 채택.
+    const since = pickTighter(args.since, parsed.since, 'lower');
+    const until = pickTighter(args.until, parsed.until, 'upper');
+    // 범위가 공집합이면 0건.
+    if (since && until && since >= until) {
       return { results: [], nextCursor: null };
     }
+
+    const q = parsed.text.trim();
     const cursor = args.cursor ? decodeCursor(args.cursor) : null;
 
     let visibleIds = await this.visibleChannelIds(args.workspaceId, args.userId);
@@ -146,41 +235,107 @@ export class SearchService {
       // Optional narrowing — still has to be within the visibility set.
       visibleIds = visibleIds.filter((id) => id === args.channelId);
     }
+
+    // S29 (FR-S04 오라클 방지): in:#channel 지정 시 가시 채널 집합 안에서만
+    // 이름→id 를 해석한다. 비멤버/비공개/미존재 채널을 가리키면 visibleIds 를
+    // 빈 집합으로 만들어 *조용히 0건* 을 돌려준다(403/404 아님 — 채널 존재·
+    // 멤버십을 추론할 수 없게 한다). 같은 이유로 채널 존재 여부를 별도 쿼리로
+    // 확인하지 않는다(가시 집합 밖은 일괄 미해결 처리).
+    if (parsed.inChannel !== undefined) {
+      const resolved = await this.resolveVisibleChannelByName(
+        visibleIds,
+        parsed.inChannel,
+        args.workspaceId,
+      );
+      visibleIds = resolved ? [resolved] : [];
+    }
+
+    // S29 (FR-S04 오라클 방지): from:@user 도 워크스페이스 멤버 안에서만
+    // 해석한다. 미존재 핸들이면 0건(senderId 미세팅이 아니라 매칭 불가
+    // sentinel 로 처리). 명시 senderId 와 충돌하면(둘 다 지정+불일치) 0건.
+    let senderId = args.senderId;
+    if (parsed.fromHandle !== undefined) {
+      const fromId = await this.resolveWorkspaceMemberByHandle(args.workspaceId, parsed.fromHandle);
+      if (fromId === null) {
+        return { results: [], nextCursor: null };
+      }
+      if (senderId && senderId !== fromId) {
+        return { results: [], nextCursor: null };
+      }
+      senderId = fromId;
+    }
+
     if (visibleIds.length === 0) {
       return { results: [], nextCursor: null };
     }
+    // q 가 비고(modifier 만 있는 쿼리, 예: `in:#general has:link`) 정렬이
+    // relevance 면 rank 가 전부 0 이라 무의미하므로 recent 로 폴백한다.
+    const effectiveSort: SearchSort = q.length === 0 ? 'recent' : sort;
 
     // task-016-B (015-follow-3 closure): wrap the base match in a
     // subquery that computes `rank` once per row. The cursor
     // predicate and the ORDER BY both reference the aliased value
-    // instead of re-evaluating `ts_rank(...)` — verified by EXPLAIN,
-    // the Function Scan on ts_rank appears exactly once per row.
+    // instead of re-evaluating `ts_rank_cd(...)` — verified by EXPLAIN,
+    // the Function Scan appears exactly once per row.
+    //
+    // S29 (FR-S08): cursor 비교 키는 정렬 모드에 맞춘다.
+    //   relevance → (rank, createdAt, id) DESC
+    //   recent    → (createdAt, id) DESC  (rank 무시)
     const cursorWhere = cursor
-      ? Prisma.sql`
-          WHERE (base.rank, base."createdAt", base.id)
-                < (${cursor.rank}::float4, ${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
-        `
+      ? effectiveSort === 'recent'
+        ? Prisma.sql`
+            WHERE (base."createdAt", base.id)
+                  < (${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
+          `
+        : Prisma.sql`
+            WHERE (base.rank, base."createdAt", base.id)
+                  < (${cursor.rank}::float4, ${cursor.createdAt}::timestamp, ${cursor.id}::uuid)
+          `
       : Prisma.empty;
 
+    // S29 (FR-S05): tsquery 텍스트 매치는 q 가 있을 때만. q 가 비면 modifier
+    // 만으로 필터(전체 가시 메시지에서 추리기) — text 매치 절을 생략한다.
+    const textClause =
+      q.length > 0
+        ? Prisma.sql`
+           AND (
+                m."search_tsv" @@ plainto_tsquery('simple', ${q})
+             OR m."content" ILIKE '%' || ${q} || '%'
+           )`
+        : Prisma.empty;
+
     // task-046 iter3 (J3): optional filter clauses on the base CTE.
-    const senderClause = args.senderId
-      ? Prisma.sql`AND m."authorId" = ${args.senderId}::uuid`
-      : Prisma.empty;
-    const sinceClause = args.since
-      ? Prisma.sql`AND m."createdAt" >= ${args.since}::timestamp`
-      : Prisma.empty;
-    const untilClause = args.until
-      ? Prisma.sql`AND m."createdAt" < ${args.until}::timestamp`
-      : Prisma.empty;
+    const senderClause = senderId ? Prisma.sql`AND m."authorId" = ${senderId}::uuid` : Prisma.empty;
+    const sinceClause = since ? Prisma.sql`AND m."createdAt" >= ${since}::timestamp` : Prisma.empty;
+    const untilClause = until ? Prisma.sql`AND m."createdAt" < ${until}::timestamp` : Prisma.empty;
     const attachmentClause = args.hasAttachment
       ? Prisma.sql`
           AND EXISTS (
             SELECT 1 FROM "Attachment" att
              WHERE att."messageId" = m.id
-               AND att."deletedAt" IS NULL
+               AND att."finalizedAt" IS NOT NULL
           )
         `
       : Prisma.empty;
+    // S29 (FR-S05): has: 비정규화 boolean 컬럼 필터(복합 AND).
+    const hasLinkClause = parsed.has.includes('link')
+      ? Prisma.sql`AND m."hasLink" = true`
+      : Prisma.empty;
+    const hasImageClause = parsed.has.includes('image')
+      ? Prisma.sql`AND m."hasImage" = true`
+      : Prisma.empty;
+    const hasFileClause = parsed.has.includes('file')
+      ? Prisma.sql`AND m."hasFile" = true`
+      : Prisma.empty;
+    // S29 (FR-S05): is:pinned 은 pinnedAt IS NOT NULL(별도 컬럼 미사용).
+    const pinnedClause = parsed.isPinned ? Prisma.sql`AND m."pinnedAt" IS NOT NULL` : Prisma.empty;
+
+    // q 가 비면 plainto_tsquery 가 빈 tsquery → ts_rank_cd = 0, ts_headline 은
+    // 첫 단어들을 그대로 반환. 둘 다 안전하다.
+    const orderBy =
+      effectiveSort === 'recent'
+        ? Prisma.sql`ORDER BY base."createdAt" DESC, base.id DESC`
+        : Prisma.sql`ORDER BY base.rank DESC, base."createdAt" DESC, base.id DESC`;
 
     // Fetch limit+1 so we know when there's more.
     const fetched = await this.prisma.$queryRaw<
@@ -202,20 +357,21 @@ export class SearchService {
           m."authorId"    AS "authorId",
           m."createdAt"   AS "createdAt",
           m."content"     AS content,
-          ts_rank(m."search_tsv", plainto_tsquery('simple', ${q})) AS rank
+          ts_rank_cd(m."search_tsv", plainto_tsquery('simple', ${q})) AS rank
           FROM "Message" m
          WHERE m."deletedAt" IS NULL
            AND m."channelId" = ANY(
                  ARRAY[${Prisma.join(visibleIds.map((id) => Prisma.sql`${id}::uuid`))}]::uuid[]
                )
-           AND (
-                m."search_tsv" @@ plainto_tsquery('simple', ${q})
-             OR m."content" ILIKE '%' || ${q} || '%'
-           )
+           ${textClause}
            ${senderClause}
            ${sinceClause}
            ${untilClause}
            ${attachmentClause}
+           ${hasLinkClause}
+           ${hasImageClause}
+           ${hasFileClause}
+           ${pinnedClause}
       )
       SELECT
         base.id            AS "messageId",
@@ -240,12 +396,20 @@ export class SearchService {
         JOIN "Channel" c ON c.id = base."channelId"
         JOIN "User"    u ON u.id = base."authorId"
        ${cursorWhere}
-       ORDER BY base.rank DESC, base."createdAt" DESC, base.id DESC
+       ${orderBy}
        LIMIT ${args.limit + 1}
     `);
 
-    const hasMore = fetched.length > args.limit;
-    const rows = fetched.slice(0, args.limit);
+    // S29 (security HIGH): per-result ACL 재검증. visibleIds 는 쿼리 *실행 전*
+    // 스냅샷이라, 쿼리와 응답 조립 사이에 ACL 이 flip(강퇴·비공개 전환·DENY
+    // override 추가)되면 더 이상 가시하지 않는 채널의 행이 결과에 섞일 수 있다.
+    // 이미 계산된 가시 집합을 Set 으로 만들어 응답 직전 필터한다(O(결과≤limit)).
+    // 같은 이유로 nextCursor/hasMore 산정도 필터 *후* 행 기준으로 한다.
+    const visibleSet = new Set(visibleIds);
+    const filtered = fetched.filter((r) => visibleSet.has(r.channelId));
+
+    const hasMore = filtered.length > args.limit;
+    const rows = filtered.slice(0, args.limit);
     const last = rows[rows.length - 1];
 
     return {
