@@ -7,6 +7,8 @@ import { WorkspaceNav } from './WorkspaceNav';
 import { ChannelColumn } from './ChannelColumn';
 import { MessageColumn } from './MessageColumn';
 import { MemberColumn } from './MemberColumn';
+import { useUI } from '../stores/ui-store';
+import { SearchResultPanelContainer } from '../features/search/SearchResultPanelContainer';
 import { BottomBar } from './BottomBar';
 import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
@@ -53,6 +55,8 @@ function DesktopShell(): JSX.Element {
   // ChannelSettingsPage while keeping the left rail + channel list intact.
   const inChannelSettings = rest[1] === 'settings';
   const settingsSection: 'general' = 'general';
+  // S30 (FR-S03): 검색 결과 패널이 활성이면 우측 패널(멤버 목록)을 대체한다.
+  const searchPanelQuery = useUI((s) => s.searchPanelQuery);
   const { data: mine, isLoading } = useMyWorkspaces();
   // task-040 R3 + reviewer H1: realtime is now installed once at App
   // root via AppRealtimeHost so the ConnectionBanner survives every
@@ -137,7 +141,12 @@ function DesktopShell(): JSX.Element {
           </div>
         </main>
       )}
-      {active && activeChannel ? <MemberColumn workspaceId={active.id} /> : null}
+      {/* S30 (FR-S03): 검색 패널 활성 시 우측 슬롯을 결과 패널로 대체. */}
+      {active && activeChannel && searchPanelQuery !== null ? (
+        <SearchResultPanelContainer workspaceId={active.id} workspaceSlug={active.slug} />
+      ) : active && activeChannel ? (
+        <MemberColumn workspaceId={active.id} />
+      ) : null}
       {/* Settings screens are full-viewport overlays — they sit on top
           of the shell via a portal. Reusing SettingsOverlay for every
           future settings surface (workspace, account, …) keeps the

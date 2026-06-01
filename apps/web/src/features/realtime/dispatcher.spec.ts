@@ -1,3 +1,6 @@
+// @vitest-environment jsdom
+// S30 fix-forward (M3): 자기메시지 스킵 테스트가 window 이벤트를 검증하므로
+// 이 파일은 jsdom 환경에서 실행한다(기존 테스트는 환경 무관 — 영향 없음).
 import { describe, expect, it, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import type { Socket } from 'socket.io-client';
@@ -66,6 +69,54 @@ describe('realtime dispatcher', () => {
     };
     expect(state.pages[0].items[0].id).toBe('msg-a');
     detach();
+  });
+
+  // S30 fix-forward (MAJOR M3): index-update 배너는 본인 전송엔 켜지지 않는다.
+  describe('message.created → qufox.search.activity (M3 자기메시지 스킵)', () => {
+    function emitCreated(authorId: string): boolean {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+        pages: [{ items: [], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc, {
+        viewerId: () => 'viewer',
+        activeChannelId: () => null,
+      });
+      let fired = false;
+      const onActivity = (): void => {
+        fired = true;
+      };
+      window.addEventListener('qufox.search.activity', onActivity);
+      socket.emit('message.created', {
+        id: 'ev-1',
+        channelId: 'ch-1',
+        workspaceId: 'ws-1',
+        message: {
+          id: 'm-1',
+          channelId: 'ch-1',
+          authorId,
+          content: 'hi',
+          mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+          edited: false,
+          deleted: false,
+          createdAt: new Date().toISOString(),
+          editedAt: null,
+        },
+      });
+      window.removeEventListener('qufox.search.activity', onActivity);
+      detach();
+      return fired;
+    }
+
+    it('타인 메시지면 activity 를 발화한다', () => {
+      expect(emitCreated('someone-else')).toBe(true);
+    });
+
+    it('본인(viewer) 메시지면 activity 를 발화하지 않는다', () => {
+      expect(emitCreated('viewer')).toBe(false);
+    });
   });
 
   it('message.created with nonce swaps the matching optimistic row (FR-MSG-04)', () => {

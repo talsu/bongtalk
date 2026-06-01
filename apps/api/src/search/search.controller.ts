@@ -51,6 +51,17 @@ export class SearchController {
     return this.search.suggest({ workspaceId, userId: user.id, prefix: q, limit });
   }
 
+  /**
+   * S30 (FR-S07): GET /search/recent — 서버측 최근 검색어 목록.
+   * Redis `search:recent:{userId}` LIST 를 newest-first 로 돌려준다.
+   */
+  @Get('recent')
+  async recent(@CurrentUser() user: CurrentUserPayload): Promise<{ recents: string[] }> {
+    await this.rate.enforce([{ key: `srecent:u:${user.id}`, windowSec: 60, max: 60 }]);
+    const recents = await this.search.recentSearches(user.id);
+    return { recents };
+  }
+
   @Get()
   async run(
     @CurrentUser() user: CurrentUserPayload,
@@ -66,6 +77,10 @@ export class SearchController {
     @Query('hasAttachment') hasAttachmentRaw: string | undefined,
     // S29 (FR-S08): 정렬 토글. relevance(기본) | recent.
     @Query('sort') sortRaw: string | undefined,
+    // S30 (FR-S06/S10): withContext=true 면 결과에 전/후 컨텍스트 + 스레드
+    // 루트 excerpt 를 붙인다(권한 재검증 포함). 미지정/false 면 S29 응답 그대로.
+    // 마지막 위치 + default 라 기존 호출부(11-arg)와 호환된다.
+    @Query('withContext') withContextRaw: string | undefined = undefined,
   ) {
     await this.rate.enforce([{ key: `search:u:${user.id}`, windowSec: 60, max: 30 }]);
     if (typeof q !== 'string' || q.trim().length === 0) {
@@ -90,7 +105,7 @@ export class SearchController {
     if (sinceDate && untilDate && sinceDate >= untilDate) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'since must be < until');
     }
-    return this.search.search({
+    const params = {
       query: q,
       workspaceId,
       userId: user.id,
@@ -102,7 +117,15 @@ export class SearchController {
       sort: parseSortParam(sortRaw),
       cursor: cursor || undefined,
       limit,
-    });
+    };
+    // S30 (FR-S07): 결과를 돌려준 쿼리는 최근 검색으로 기록(원문 q — 수식어
+    // 포함). 빈/공백 q 는 위 가드에서 이미 거른다. 기록 실패는 검색을 막지
+    // 않는다(best-effort).
+    void this.search.pushRecentSearch(user.id, q).catch(() => undefined);
+    if (parseBoolParam(withContextRaw) === true) {
+      return this.search.searchWithContext(params);
+    }
+    return this.search.search(params);
   }
 }
 

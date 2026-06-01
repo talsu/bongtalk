@@ -9,16 +9,30 @@ import { searchMessages } from './api';
  * query so the page can render the "recent searches" empty state
  * without firing a no-op request.
  */
-export function useSearch(args: { workspaceId: string; q: string; channelId?: string }) {
+export function useSearch(args: {
+  workspaceId: string;
+  q: string;
+  channelId?: string;
+  /** S30 (FR-S06/S10): 결과 패널은 컨텍스트 + 스레드 루트 excerpt 가 필요. */
+  withContext?: boolean;
+}) {
   return useInfiniteQuery({
-    queryKey: ['search', args.workspaceId, args.q, args.channelId ?? null] as const,
+    queryKey: [
+      'search',
+      args.workspaceId,
+      args.q,
+      args.channelId ?? null,
+      args.withContext ? 'ctx' : 'plain',
+    ] as const,
     queryFn: ({ pageParam }) =>
       searchMessages({
         workspaceId: args.workspaceId,
         q: args.q,
         channelId: args.channelId,
         cursor: (pageParam as string | undefined) ?? undefined,
+        // S30 (FR-S09): 페이지당 20, 더 보기로 누적(서버 max 100/5페이지).
         limit: 20,
+        withContext: args.withContext,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: SearchResponse) => last.nextCursor ?? undefined,

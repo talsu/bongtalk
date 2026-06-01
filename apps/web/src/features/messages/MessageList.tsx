@@ -72,6 +72,15 @@ type Props = {
    * (zero-out 오염 차단 — FR-RS-06). 미제공(DM 등)이면 종전대로 폴백.
    */
   unreadSnapshot?: { unreadCount: number; lastReadMessageId: string | null };
+  /**
+   * S30 fix-forward (BLOCKER 기능 M2): 검색 결과 점프 대상 messageId(`?msg=`).
+   * 제공되면 초기 로드를 그 메시지 중심(around)으로 가져오고, 로드 후 해당
+   * 메시지 행으로 스크롤 + 짧은 하이라이트 펄스를 적용합니다. 처리 후
+   * `onJumpConsumed` 를 호출해 부모가 URL 의 `?msg=` 를 제거하게 합니다.
+   */
+  jumpMessageId?: string | null;
+  /** M2: 점프 스크롤이 완료돼 `?msg=` 를 URL 에서 제거해도 됨을 알립니다. */
+  onJumpConsumed?: () => void;
 };
 
 /**
@@ -111,6 +120,8 @@ export function MessageList({
   extraNames,
   onReadCursor,
   unreadSnapshot,
+  jumpMessageId,
+  onJumpConsumed,
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -121,7 +132,10 @@ export function MessageList({
   // 메시지 목록 캐시를 evict 합니다. useMessageHistory 보다 먼저 호출해
   // evict 신호(pendingAround)가 초기 로드 시점에 반영되도록 합니다.
   useChannelLru(workspaceId, channelId);
-  const history = useMessageHistory(workspaceId, channelId);
+  // S30 fix-forward (M2): `?msg=` 점프가 있으면 그 메시지를 around anchor 로
+  // 초기 로드(lastRead 복원보다 우선). jumpMessageId 는 부모가 1회 소비 후
+  // 제거하므로 재요청 시 재anchor 되지 않습니다.
+  const history = useMessageHistory(workspaceId, channelId, jumpMessageId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
   const reactMut = useToggleReaction(workspaceId, channelId);
@@ -256,6 +270,14 @@ export function MessageList({
     estimateSize: () => ESTIMATED_ROW_HEIGHT,
     overscan: 8,
   });
+
+  // S30 fix-forward (M2): 검색 점프 후 잠시 강조할 메시지 id. data-jump-highlight
+  // 속성으로 해당 행에 짧은 펄스(아래 className arbitrary, DS --mention-bg 토큰)를
+  // 입히고 ~2s 후 해제합니다.
+  const [highlightedId, setHighlightedId] = useState<string | null>(null);
+  // 같은 jumpMessageId 에 대해 스크롤/소비를 1회만 수행하기 위한 가드.
+  const consumedJumpRef = useRef<string | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
 
   // task-021-R1-scroll-jumps-on-new-message: track whether the user
   // was anchored to the bottom BEFORE the latest append.
@@ -471,6 +493,52 @@ export function MessageList({
     };
   }, []);
 
+  // S30 fix-forward (BLOCKER 기능 M2): `?msg=` 점프 소비 — 검색 결과 클릭으로
+  // 채널이 열리면 해당 메시지로 스크롤 + 하이라이트 펄스를 적용하고 부모에게
+  // 소비 완료를 알립니다(부모가 URL 의 `?msg=` 제거). jumpMessageId 가 around
+  // 로 초기 로드되므로 보통 첫 페이지에 포함됩니다. 같은 id 는 1회만 처리하고,
+  // 메시지가 아직 도착 전이면(빈 목록) 다음 렌더에서 재시도합니다.
+  useEffect(() => {
+    if (!jumpMessageId) return;
+    if (consumedJumpRef.current === jumpMessageId) return;
+    const msgIndex = messageIds.indexOf(jumpMessageId);
+    if (msgIndex < 0) {
+      // 아직 로드 전 — 메시지가 도착하면(messageIds 변경) 이 effect 가 재실행됨.
+      return;
+    }
+    consumedJumpRef.current = jumpMessageId;
+    // 가상 인덱스로 변환해 화면 중앙으로 스크롤(가상화 remeasure 보정 1회).
+    const vIdx = virtualIndexForMessageIndex(rowPlanRef.current, msgIndex);
+    virtualizer.scrollToIndex(vIdx, { align: 'center' });
+    window.setTimeout(() => {
+      virtualizer.scrollToIndex(vIdx, { align: 'center' });
+      // 스크롤 후 실제 DOM 요소가 있으면 보장 차원에서 scrollIntoView 한 번 더.
+      const el = scrollRef.current?.querySelector<HTMLElement>(
+        `[data-testid="msg-${jumpMessageId}"]`,
+      );
+      el?.scrollIntoView({ block: 'center' });
+    }, 20);
+    // 하이라이트 펄스(약 2s) 적용 후 해제.
+    setHighlightedId(jumpMessageId);
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+    highlightTimerRef.current = window.setTimeout(() => {
+      setHighlightedId(null);
+      highlightTimerRef.current = null;
+    }, 2000);
+    // 소비 완료를 부모에 통지 → `?msg=` 파라미터 제거(재진입/뒤로가기 루프 방지).
+    onJumpConsumed?.();
+  }, [jumpMessageId, messageIds, virtualizer, onJumpConsumed]);
+
+  // 언마운트 시 하이라이트 타이머 정리.
+  useEffect(() => {
+    return () => {
+      if (highlightTimerRef.current !== null) {
+        window.clearTimeout(highlightTimerRef.current);
+        highlightTimerRef.current = null;
+      }
+    };
+  }, []);
+
   // S22 (FR-RS-02): tail(최신 메시지 id)이 바뀔 때마다 읽음 커서를 올려보낸다.
   // atBottom 판정:
   //   1. 마지막 메시지가 가상 윈도우에 렌더돼 있어야 하고(마지막 virtualIndex
@@ -621,11 +689,16 @@ export function MessageList({
                     </div>
                   );
                 }
+                const isJumpHighlighted = m.id === highlightedId;
                 return (
                   <div
                     key={m.id}
                     data-testid="message-row"
                     data-index={vi.index}
+                    // S30 fix-forward (M2): 검색 점프 대상 행에 짧은 강조 펄스.
+                    // DS --mention-bg 토큰만 사용(raw hex/px 금지). 펄스가 끝나면
+                    // highlightedId 가 null 로 풀려 배경이 사라진다.
+                    data-jump-highlight={isJumpHighlighted ? 'true' : undefined}
                     ref={virtualizer.measureElement}
                     style={{
                       position: 'absolute',
@@ -633,6 +706,12 @@ export function MessageList({
                       left: 0,
                       width: '100%',
                       transform: `translateY(${vi.start}px)`,
+                      ...(isJumpHighlighted
+                        ? {
+                            backgroundColor: 'var(--mention-bg)',
+                            transition: 'background-color var(--dur-base) ease-out',
+                          }
+                        : { transition: 'background-color var(--dur-base) ease-out' }),
                     }}
                   >
                     {dayDivider}

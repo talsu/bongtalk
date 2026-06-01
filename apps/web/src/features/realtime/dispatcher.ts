@@ -181,6 +181,22 @@ export function installRealtimeDispatcher(
   }>('message.created', (env) => {
     if (!env.channelId || !env.workspaceId || !env.message) return;
 
+    // S30 (FR-S07): 검색 결과 패널이 열려 있는 동안 새 메시지가 들어오면
+    // "새 결과가 있을 수 있습니다" 배너의 신호로 쓴다. 정교한 매칭 판정 대신
+    // 단순 워크스페이스 활동 신호만 흘린다(과한 판정은 carryover). 검색 패널
+    // hook 이 이 window 이벤트를 구독해 banner 플래그를 켠다.
+    //
+    // S30 fix-forward (MAJOR M3): 본인이 보낸 메시지에는 배너를 켜지 않는다.
+    // 종전엔 author 무관 발화라 자기 전송에도 "새 결과" 배너가 떠 노이즈였다.
+    // (전 워크스페이스 활동에 발화하는 광범위 노이즈의 정밀 매칭은 carryover —
+    // 여기서는 자기메시지 스킵만 적용한다.)
+    const viewer = ctx.viewerId();
+    if (typeof window !== 'undefined' && env.message.authorId !== viewer) {
+      window.dispatchEvent(
+        new CustomEvent('qufox.search.activity', { detail: { workspaceId: env.workspaceId } }),
+      );
+    }
+
     // task-027-E: DM channels feed the DM list cache too. Invalidation
     // only — the server ranking (last-message desc + unread counts)
     // is the source of truth.
@@ -188,8 +204,8 @@ export function installRealtimeDispatcher(
 
     // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
     // already looking at this channel — an open channel drives its own
-    // POST /read after 500ms debounce, which zeroes the count.
-    const viewer = ctx.viewerId();
+    // POST /read after 500ms debounce, which zeroes the count. (viewer 는
+    // 위 search.activity 분기에서 이미 읽어둔 값을 재사용한다.)
     const active = ctx.activeChannelId();
     if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
       // task-018-E: workspace-level totals rendered on the server rail

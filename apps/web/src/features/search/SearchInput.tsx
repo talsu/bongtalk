@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { SearchResult } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { useChannelList } from '../channels/useChannels';
+import { useUI } from '../../stores/ui-store';
 import { useSearch, loadRecentSearches, pushRecentSearch } from './useSearch';
 import { searchSnippetHtml } from './sanitize';
 import { cn } from '../../lib/cn';
@@ -33,6 +34,7 @@ export function SearchInput({
   workspaceSlug: string;
 }): JSX.Element {
   const navigate = useNavigate();
+  const openSearchPanel = useUI((s) => s.openSearchPanel);
   const inputRef = useRef<HTMLInputElement>(null);
   const rootRef = useRef<HTMLDivElement>(null);
 
@@ -161,7 +163,17 @@ export function SearchInput({
               setHighlight((i) => Math.max(i - 1, 0));
             } else if (e.key === 'Enter') {
               e.preventDefault();
-              if (results[highlight]) openResult(results[highlight]);
+              // S30 (FR-S03): 하이라이트된 결과가 있으면 그 메시지로 점프(기존
+              // 동작 유지). 없으면(또는 쿼리만 입력) 오른쪽 슬라이드인 결과
+              // 패널을 연다 — 우측 패널을 대체한다.
+              if (results[highlight]) {
+                openResult(results[highlight]);
+              } else if (debounced.trim().length > 0) {
+                setRecents(pushRecentSearch(debounced));
+                setFocused(false);
+                inputRef.current?.blur();
+                openSearchPanel(debounced.trim());
+              }
             }
           }}
           placeholder="검색 (Ctrl+/)"
