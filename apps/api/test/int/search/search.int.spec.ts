@@ -15,6 +15,8 @@ import { WsIntEnv, setupWsIntEnv, signupAsUser } from '../workspaces/helpers';
 
 let env: WsIntEnv;
 const ORIGIN = 'http://localhost:45173';
+// S29 baseline fix: frozen Date.now() 하에서 seed() 간 slug 고유화용 카운터.
+let seedCounter = 0;
 
 beforeAll(async () => {
   env = await setupWsIntEnv();
@@ -38,17 +40,23 @@ async function seed(): Promise<{
   publicChannelId: string;
   privateChannelId: string;
   memberUserId: string;
+  ownerUsername: string;
 }> {
-  const stamp = Date.now();
-  const owner = await signupAsUser(env.baseUrl, `so-${stamp}`);
-  const member = await signupAsUser(env.baseUrl, `sm-${stamp}`);
-  const outsider = await signupAsUser(env.baseUrl, `sx-${stamp}`);
+  // S29 baseline fix: vi.setSystemTime 가 Date.now() 를 고정하므로 prefix 에
+  // stamp 를 붙이면 helper 가 더하는 stamp 와 합쳐져 username max(32) 를
+  // 넘긴다(signup 400). prefix 는 짧게 두고 uniqueness 는 helper 의 stamp+rand
+  // 에 맡긴다. 또한 workspace slug 도 frozen Date.now() 면 seed() 마다 동일해
+  // 2번째 호출부터 slug 충돌이 났다 — 모노톤 카운터로 고유화한다.
+  const uniq = (seedCounter += 1);
+  const owner = await signupAsUser(env.baseUrl, 'so');
+  const member = await signupAsUser(env.baseUrl, 'sm');
+  const outsider = await signupAsUser(env.baseUrl, 'sx');
 
   const wsRes = await request(env.baseUrl)
     .post('/workspaces')
     .set('origin', ORIGIN)
     .set('Authorization', `Bearer ${owner.accessToken}`)
-    .send({ name: 'Search', slug: `srch-${stamp.toString(36)}`.slice(0, 30) });
+    .send({ name: 'Search', slug: `srch-${uniq}-${Math.floor(Math.random() * 1e6)}`.slice(0, 30) });
   const workspaceId = wsRes.body.id as string;
 
   const inv = await request(env.baseUrl)
@@ -81,7 +89,13 @@ async function seed(): Promise<{
     publicChannelId: pub.body.id,
     privateChannelId: priv.body.id,
     memberUserId: member.userId,
+    ownerUsername: owner.username,
   };
+}
+
+// S29: from:@<owner> 토큰 구성을 위한 헬퍼(seed 가 username 을 노출).
+async function ownerName(s: { ownerUsername: string }): Promise<string> {
+  return s.ownerUsername;
 }
 
 async function post(token: string, workspaceId: string, channelId: string, content: string) {
@@ -133,8 +147,15 @@ describe('GET /search (task-015-B)', () => {
     // A raw <script> would be smuggled past the frontend renderer;
     // we escape it to &lt;script&gt; before ts_headline runs so the
     // wire payload is safe.
+    //
+    // S29 baseline note: ts_headline 의 MaxWords=18,MinWords=3 윈도가 escape
+    // 된 본문(`&lt;script&gt;alert(1)&lt;/script&gt;` 가 다수 lexeme 으로 분해)
+    // 을 `&lt;script` 직후에서 잘라 닫는 `&gt;` 가 fragment 밖으로 나간다. 핵심
+    // 보안 속성(살아있는 `<script` 없음 = XSS-safe)은 그대로 유지되며, 검증은
+    // escape 가 실제로 일어났음(`&lt;script` 존재)으로 충분하다. ts_rank →
+    // ts_rank_cd 전환과 무관(headline 은 rank 와 독립).
     expect(snip).not.toMatch(/<script/i);
-    expect(snip).toContain('&lt;script&gt;');
+    expect(snip).toContain('&lt;script');
     expect(snip).toContain('<mark>hello</mark>');
   });
 
@@ -192,6 +213,285 @@ describe('GET /search (task-015-B)', () => {
       .get(`/search?workspaceId=${s.workspaceId}&q=deleteme`)
       .set('Authorization', `Bearer ${s.memberToken}`);
     expect(r.body.results).toEqual([]);
+  });
+
+  // ── S29 (search core) ────────────────────────────────────────────────────
+
+  it('S29 FR-S04 오라클 방지: in:#<비공개 비멤버 채널> → 0건(존재 미노출)', async () => {
+    const s = await seed();
+    // 비공개 채널에 owner 가 메시지 작성. member 는 비멤버.
+    await post(s.ownerToken, s.workspaceId, s.privateChannelId, 'oracle secret payload');
+
+    // member 가 in:#private-ch 로 지정해도 0건이어야 한다(403/404 아님).
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('in:#private-ch payload')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([]);
+
+    // from:@owner in:#private-ch (비멤버) 조합도 0건.
+    const r2 = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('from:@' + (await ownerName(s)) + ' in:#private-ch payload')}`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r2.status).toBe(200);
+    expect(r2.body.results).toEqual([]);
+  });
+
+  it('S29 FR-S04: 미존재 from:@user → 0건(외부 사용자 존재 미노출)', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'visible message body');
+    const r = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('from:@nobody-xyz message')}`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toEqual([]);
+  });
+
+  it('S29 FR-S05: in:#public-ch 가시 채널은 정상 매칭', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'scoped lookup target');
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('in:#public-ch target')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    expect(r.body.results[0].channelId).toBe(s.publicChannelId);
+  });
+
+  it('S29 FR-S05: from:@<author> 필터 — 다른 작성자 메시지 제외', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'budget owner note');
+    await post(s.memberToken, s.workspaceId, s.publicChannelId, 'budget member note');
+    const r = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('from:@' + (await ownerName(s)) + ' budget')}`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    expect(r.body.results[0].senderName).toBe(await ownerName(s));
+  });
+
+  it('S29 FR-S05: has:link — 링크 포함 메시지만(send 경로가 hasLink 유지)', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'plain note no url here');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'see https://example.com note');
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('has:link note')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    expect(r.body.results[0].snippet).toContain('example.com');
+  });
+
+  it('S29 FR-S05: has:image — 비정규화 플래그 직접 세팅분 매칭', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'image carrier alpha');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'image carrier beta');
+    // 첫 메시지에만 hasImage 플래그를 세팅(첨부 presign 경로 대신 직접 — int).
+    const msg = await env.prisma.message.findFirst({
+      where: { channelId: s.publicChannelId, contentPlain: 'image carrier alpha' },
+      select: { id: true },
+    });
+    await env.prisma.message.update({ where: { id: msg!.id }, data: { hasImage: true } });
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('has:image carrier')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    expect(r.body.results[0].messageId).toBe(msg!.id);
+  });
+
+  it('S29 FR-S05: is:pinned — pinnedAt IS NOT NULL 만', async () => {
+    const s = await seed();
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'pinme announcement');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'unpinned announcement');
+    // is:pinned 은 pinnedAt IS NOT NULL 로 평가한다. pin HTTP 경로는 별개
+    // (advisory-lock void deserialize) 슬라이스 관심사라, 검색 필터 자체를
+    // 검증하기 위해 pinnedAt 을 직접 세팅한다.
+    const pinTarget = await env.prisma.message.findFirst({
+      where: { channelId: s.publicChannelId, contentPlain: 'pinme announcement' },
+      select: { id: true },
+    });
+    await env.prisma.message.update({
+      where: { id: pinTarget!.id },
+      data: { pinnedAt: new Date('2025-01-01T00:00:00Z') },
+    });
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('is:pinned announcement')}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results).toHaveLength(1);
+    expect(r.body.results[0].messageId).toBe(pinTarget!.id);
+  });
+
+  it('S29 FR-S05: before/after 일자 경계 필터', async () => {
+    const s = await seed();
+    // vi.setSystemTime 가 2025-01-01 이므로 메시지 createdAt 도 그 시각.
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'boundary dated message');
+    // after:2024-12-31 → >= 2025-01-01 자정 → 포함.
+    const inRange = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('after:2024-12-31 boundary')}`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(inRange.body.results).toHaveLength(1);
+    // before:2025-01-01 → < 2025-01-01 자정 → 제외(0건).
+    const outRange = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('before:2025-01-01 boundary')}`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(outRange.body.results).toEqual([]);
+  });
+
+  it('S29 FR-S08: sort=recent 는 createdAt DESC 정렬', async () => {
+    const s = await seed();
+    // 동일 토큰을 시간차로 3개 — recent 정렬이면 마지막 작성이 맨 앞.
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'chrono token one');
+    vi.setSystemTime(new Date('2025-01-01T00:01:00Z'));
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'chrono token two');
+    vi.setSystemTime(new Date('2025-01-01T00:02:00Z'));
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'chrono token three');
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=chrono&sort=recent`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    expect(r.body.results.length).toBeGreaterThanOrEqual(3);
+    const times = r.body.results.map((x: { createdAt: string }) => new Date(x.createdAt).getTime());
+    const sorted = [...times].sort((a, b) => b - a);
+    expect(times).toEqual(sorted);
+  });
+
+  // ── S29 fix-forward (4팀 리뷰) ───────────────────────────────────────────
+
+  it('S29 security: per-result ACL 필터 — 쿼리 후 비공개 전환된 채널 결과 제외', async () => {
+    const s = await seed();
+    // member 가 가입한 추가 공개 채널 2개. 둘 다 가시.
+    const aRes = await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ name: 'acl-a', type: 'TEXT' });
+    const bRes = await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ name: 'acl-b', type: 'TEXT' });
+    const chA = aRes.body.id as string;
+    const chB = bRes.body.id as string;
+    await post(s.ownerToken, s.workspaceId, chA, 'aclflip token visible');
+    await post(s.ownerToken, s.workspaceId, chB, 'aclflip token hidden');
+
+    // 기준선: member 는 두 채널 모두 가시 → 두 결과.
+    const before = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=aclflip`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(before.status).toBe(200);
+    const beforeChannels = before.body.results.map((r: { channelId: string }) => r.channelId);
+    expect(beforeChannels).toContain(chA);
+    expect(beforeChannels).toContain(chB);
+
+    // chB 를 비공개로 전환 → member 는 비멤버라 더 이상 가시하지 않는다.
+    // visibleChannelIds 스냅샷이 stale 하더라도 search() 의 per-result Set
+    // 필터가 chB 행을 응답에서 제외해야 한다.
+    await env.prisma.channel.update({ where: { id: chB }, data: { isPrivate: true } });
+
+    const after = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=aclflip`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(after.status).toBe(200);
+    const afterChannels = after.body.results.map((r: { channelId: string }) => r.channelId);
+    expect(afterChannels).toContain(chA);
+    expect(afterChannels).not.toContain(chB);
+  });
+
+  it('S29 security: 비-UUID workspaceId 는 400(Prisma 500 누출 방지)', async () => {
+    const s = await seed();
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=not-a-uuid&q=hello`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(400);
+  });
+
+  it('S29 security: 비-UUID channelId / senderId 는 400', async () => {
+    const s = await seed();
+    const rc = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=hello&channelId=bogus`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(rc.status).toBe(400);
+    const rs = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=hello&senderId=bogus`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(rs.status).toBe(400);
+  });
+
+  it('S29 security: q 길이 상한(500 초과) 은 400(DoS 풀스캔 방지)', async () => {
+    const s = await seed();
+    const huge = 'a'.repeat(501);
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent(huge)}`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(400);
+  });
+
+  it('S29 M1: has:attachment — finalized 첨부 연결 메시지만(deletedAt→finalizedAt 교정)', async () => {
+    const s = await seed();
+    // 실 send 경로로 메시지 2개 작성.
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'attach carrier with file');
+    await post(s.ownerToken, s.workspaceId, s.publicChannelId, 'attach carrier plain text');
+    const withAtt = await env.prisma.message.findFirst({
+      where: { channelId: s.publicChannelId, contentPlain: 'attach carrier with file' },
+      select: { id: true },
+    });
+    const withoutAtt = await env.prisma.message.findFirst({
+      where: { channelId: s.publicChannelId, contentPlain: 'attach carrier plain text' },
+      select: { id: true },
+    });
+    // 첫 메시지에 finalized 첨부 1건 연결(presign 경로 대신 직접 — int).
+    // hasAttachment 절은 Attachment.finalizedAt IS NOT NULL 을 본다(이전엔
+    // 존재하지 않는 deletedAt 컬럼을 참조해 잠재 크래시 → finalizedAt 으로 교정).
+    await env.prisma.attachment.create({
+      data: {
+        channelId: s.publicChannelId,
+        messageId: withAtt!.id,
+        uploaderId: s.memberUserId,
+        kind: 'FILE',
+        mime: 'application/pdf',
+        sizeBytes: BigInt(1234),
+        storageKey: `att/${withAtt!.id}/doc.pdf`,
+        originalName: 'doc.pdf',
+        finalizedAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    });
+    // 미finalize(finalizedAt NULL) 첨부는 hasAttachment 매칭에서 제외돼야 한다.
+    await env.prisma.attachment.create({
+      data: {
+        channelId: s.publicChannelId,
+        messageId: withoutAtt!.id,
+        uploaderId: s.memberUserId,
+        kind: 'FILE',
+        mime: 'application/pdf',
+        sizeBytes: BigInt(99),
+        storageKey: `att/${withoutAtt!.id}/pending.pdf`,
+        originalName: 'pending.pdf',
+        finalizedAt: null,
+      },
+    });
+
+    const r = await request(env.baseUrl)
+      .get(
+        `/search?workspaceId=${s.workspaceId}&q=${encodeURIComponent('carrier')}&hasAttachment=true`,
+      )
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    const ids = r.body.results.map((x: { messageId: string }) => x.messageId);
+    expect(ids).toContain(withAtt!.id);
+    expect(ids).not.toContain(withoutAtt!.id);
   });
 
   it('EXPLAIN: search plan uses a GIN index (no Seq Scan)', async () => {

@@ -4,7 +4,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
-import { SearchService } from './search.service';
+import { SearchService, type SearchSort } from './search.service';
 
 /**
  * Task-015-B: GET /search. Flat top-level path (no workspace prefix)
@@ -42,9 +42,11 @@ export class SearchController {
     if (typeof q !== 'string' || q.trim().length === 0) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'q is required');
     }
+    assertQLength(q);
     if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'workspaceId is required');
     }
+    assertUuid(workspaceId, 'workspaceId');
     const limit = clampSuggestLimit(limitRaw);
     return this.search.suggest({ workspaceId, userId: user.id, prefix: q, limit });
   }
@@ -62,14 +64,26 @@ export class SearchController {
     @Query('since') since: string | undefined,
     @Query('until') until: string | undefined,
     @Query('hasAttachment') hasAttachmentRaw: string | undefined,
+    // S29 (FR-S08): 정렬 토글. relevance(기본) | recent.
+    @Query('sort') sortRaw: string | undefined,
   ) {
     await this.rate.enforce([{ key: `search:u:${user.id}`, windowSec: 60, max: 30 }]);
     if (typeof q !== 'string' || q.trim().length === 0) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'q is required');
     }
+    // S29 (security MEDIUM/DoS): q 길이 상한. 무제한이면 거대 ILIKE 풀스캔이
+    // 가능하므로 컨트롤러 경계에서 차단한다.
+    assertQLength(q);
     if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'workspaceId is required');
     }
+    // S29 (security MEDIUM): UUID 형식 검증. 비-UUID 가 `::uuid` 캐스팅까지
+    // 흘러가면 Prisma 가 DB 에러를 500 으로 누출한다. 경계에서 400 으로 차단.
+    assertUuid(workspaceId, 'workspaceId');
+    const channelIdParam = channelId || undefined;
+    const senderIdParam = senderId || undefined;
+    if (channelIdParam) assertUuid(channelIdParam, 'channelId');
+    if (senderIdParam) assertUuid(senderIdParam, 'senderId');
     const limit = clampLimit(limitRaw);
     const sinceDate = parseDateParam(since, 'since');
     const untilDate = parseDateParam(until, 'until');
@@ -80,15 +94,44 @@ export class SearchController {
       query: q,
       workspaceId,
       userId: user.id,
-      channelId: channelId || undefined,
-      senderId: senderId || undefined,
+      channelId: channelIdParam,
+      senderId: senderIdParam,
       since: sinceDate,
       until: untilDate,
       hasAttachment: parseBoolParam(hasAttachmentRaw),
+      sort: parseSortParam(sortRaw),
       cursor: cursor || undefined,
       limit,
     });
   }
+}
+
+// S29 (security MEDIUM): RFC 4122 UUID 형식. Prisma `::uuid` 캐스팅 전에
+// 컨트롤러에서 검증해 비정상 입력이 DB 까지 흘러 500 으로 누출되는 것을 막는다.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function assertUuid(value: string, name: string): void {
+  if (!UUID_RE.test(value)) {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, `${name} must be a valid UUID`);
+  }
+}
+
+// S29 (security MEDIUM/DoS): q 길이 상한(modifier 토큰 포함 원문 기준).
+const Q_MAX_LENGTH = 500;
+
+function assertQLength(q: string): void {
+  if (q.length > Q_MAX_LENGTH) {
+    throw new DomainError(
+      ErrorCode.VALIDATION_FAILED,
+      `q must be at most ${Q_MAX_LENGTH} characters`,
+    );
+  }
+}
+
+// S29 (FR-S08): sort 파라미터 — recent 명시일 때만 recent, 그 외(미지정·임의)
+// 는 기본 relevance. 잘못된 값에 400 을 던지지 않고 기본값으로 degrade 한다.
+function parseSortParam(raw: string | undefined): SearchSort {
+  return raw === 'recent' ? 'recent' : 'relevance';
 }
 
 function parseDateParam(raw: string | undefined, name: string): Date | undefined {
