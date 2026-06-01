@@ -27,6 +27,10 @@ export const qk = {
     notificationPreferences: () => ['me', 'notification-preferences'] as const,
     // task-047 iter4 (M3): profile (bio + links + customStatus)
     profile: () => ['me', 'profile'] as const,
+    // S28 (FR-P04/P17): 구조화 커스텀 상태(text + emoji + expiresAt).
+    customStatus: () => ['me', 'custom-status'] as const,
+    // S28 (FR-P06): DND 주간 스케줄 + 평가된 preference.
+    dndSchedule: () => ['me', 'dnd-schedule'] as const,
   },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,

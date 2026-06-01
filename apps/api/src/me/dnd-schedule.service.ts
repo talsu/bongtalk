@@ -1,4 +1,6 @@
 import { Injectable } from '@nestjs/common';
+import { PresencePreference, Prisma } from '@prisma/client';
+import type { DndEntry, DndSchedule } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -21,14 +23,9 @@ import { ErrorCode } from '../common/errors/error-code.enum';
  * dispatcher 통합 (실제 알림 차단) 은 follow-up.
  */
 
-export interface DndEntry {
-  day: number;
-  startMin: number;
-  endMin: number;
-}
-export interface DndSchedule {
-  days: DndEntry[];
-}
+// contract HIGH fix-forward: shape 의 단일 출처는 @qufox/shared-types 다(api/web
+// drift 제거). 기존 내부 import 경로 호환을 위해 type 만 re-export 한다.
+export type { DndEntry, DndSchedule } from '@qufox/shared-types';
 
 const MAX_ENTRIES_PER_USER = 14;
 
@@ -102,14 +99,24 @@ export class DndScheduleService {
     if (!schedule || schedule.days.length === 0) return false;
     const day = at.getUTCDay(); // 0..6
     const minute = at.getUTCHours() * 60 + at.getUTCMinutes();
+    // S28 (reviewer B1 BLOCKER fix): overnight(startMin>endMin) 구간의 "다음날
+    // 새벽 carry" 누락을 닫는다. 이전 구현은 `e.day !== day` 로 skip 해서, Wed
+    // 23:00→07:00 entry 가 Thu 03:00(다음날 새벽)에 매칭되지 않았다(자정 이후
+    // 구간이 사라짐). 두 가지로 분리해 평가한다:
+    //   • 주간(startMin<endMin): 같은 요일의 [start, end).
+    //   • 자정걸침(startMin>endMin): 오늘 요일 entry 의 저녁 부분(min≥start) OR
+    //     **전날 요일** entry 의 새벽 carry(min<end). 전날 = (day+6)%7.
+    //   • startMin===endMin 은 validate 가 거른 0-length 라 여기 도달하지 않으나
+    //     도달 시 비활성으로 둔다(보수적).
+    const prevDay = (day + 6) % 7;
     for (const e of schedule.days) {
-      if (e.day !== day) continue;
       if (e.startMin < e.endMin) {
-        // same-day window
-        if (minute >= e.startMin && minute < e.endMin) return true;
-      } else {
-        // overnight: 23:00 → 07:00 → matches if >= startMin OR < endMin
-        if (minute >= e.startMin || minute < e.endMin) return true;
+        // same-day window — 오늘 요일 entry 만.
+        if (e.day === day && minute >= e.startMin && minute < e.endMin) return true;
+      } else if (e.startMin > e.endMin) {
+        // overnight: 저녁 부분(오늘 요일 entry) OR 새벽 carry(전날 요일 entry).
+        if (e.day === day && minute >= e.startMin) return true;
+        if (e.day === prevDay && minute < e.endMin) return true;
       }
     }
     return false;
@@ -131,5 +138,84 @@ export class DndScheduleService {
       data: { dndSchedule: validated as unknown as object },
     });
     return validated;
+  }
+
+  /**
+   * S28 (FR-P06): 스케줄 auto-toggle. 한 사용자에 대해 현재 시각이 DND 구간
+   * 안인지 평가하고, 진입/종료 전이를 presencePreference 에 반영한다.
+   *
+   * 정책:
+   *  - **진입**(밖→안): 직전 presencePreference 를 dndScheduleSnapshot.prev 에 보관하고
+   *    presencePreference 를 dnd 로 강제한다. 단 직전이 이미 dnd 면 사용자 수동 DND
+   *    이거나 이미 스케줄 DND 이므로 snapshot 을 만들지 않고 멱등 처리한다.
+   *  - **종료**(안→밖): snapshot 이 있으면 prev 로 복원하고 snapshot 을 비운다.
+   *    snapshot 이 없으면(수동 DND 등 스케줄이 만든 게 아님) 건드리지 않는다.
+   *  - 자정 걸침(start>end)은 isActive 가 (now≥start OR now<end)로 이미 처리한다.
+   *
+   * "스케줄이 만든 DND 인가"는 snapshot 존재 여부로 판별한다. 사용자가 구간 중
+   * 수동으로 invisible 등으로 바꾸면 snapshot 은 그대로 남고, 종료 시 그 invisible 을
+   * 그대로 복원하는 대신 snapshot.prev(진입 전 값)로 되돌린다 — 스케줄 종료의
+   * 직관(원래 상태로) 우선. 전이가 없으면 DB write 를 하지 않는다(no-op).
+   *
+   * @returns 변경 후 effective preference + 전이 종류.
+   */
+  async evaluateAndApply(
+    userId: string,
+    at: Date = new Date(),
+  ): Promise<{
+    preference: PresencePreference;
+    transition: 'entered' | 'exited' | 'none';
+  }> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { presencePreference: true, dndSchedule: true, dndScheduleSnapshot: true },
+    });
+    if (!row) return { preference: 'auto', transition: 'none' };
+
+    const schedule = (row.dndSchedule as DndSchedule | null) ?? null;
+    const active = DndScheduleService.isActive(at, schedule);
+    const snapshot = DndScheduleService.parseSnapshot(row.dndScheduleSnapshot);
+    const scheduleOwnsDnd = snapshot !== null;
+
+    if (active && !scheduleOwnsDnd) {
+      // 진입: 직전이 이미 dnd 면 멱등(스냅샷 없이 dnd 유지) — 단 수동 DND 와
+      // 구분 위해 스냅샷을 만들지 않는다(종료 시 수동 DND 를 끄지 않기 위함).
+      if (row.presencePreference === 'dnd') {
+        return { preference: 'dnd', transition: 'none' };
+      }
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          presencePreference: 'dnd',
+          dndScheduleSnapshot: { prev: row.presencePreference } as unknown as object,
+        },
+      });
+      return { preference: 'dnd', transition: 'entered' };
+    }
+
+    if (!active && scheduleOwnsDnd) {
+      // 종료: 스냅샷이 만든 DND 만 복원. prev 가 유효하지 않으면 auto 로.
+      const prev = snapshot.prev;
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          presencePreference: prev,
+          dndScheduleSnapshot: Prisma.JsonNull,
+        },
+      });
+      return { preference: prev, transition: 'exited' };
+    }
+
+    return { preference: row.presencePreference, transition: 'none' };
+  }
+
+  /** dndScheduleSnapshot JSON 을 안전 파싱. shape: { prev: PresencePreference }. */
+  static parseSnapshot(raw: unknown): { prev: PresencePreference } | null {
+    if (raw === null || raw === undefined || typeof raw !== 'object') return null;
+    const r = raw as { prev?: unknown };
+    if (r.prev === 'auto' || r.prev === 'dnd' || r.prev === 'invisible') {
+      return { prev: r.prev };
+    }
+    return null;
   }
 }
