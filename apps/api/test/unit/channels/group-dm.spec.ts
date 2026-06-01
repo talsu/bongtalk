@@ -3,12 +3,23 @@ import { DirectMessagesService } from '../../../src/channels/direct-messages/dir
 import { DomainError } from '../../../src/common/errors/domain-error';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 import type { OutboxService } from '../../../src/common/outbox/outbox.service';
+import type { S3Service } from '../../../src/storage/s3.service';
 
 // S16 (FR-DM-16): DirectMessagesService 가 outbox 에 dm.created 를 기록하므로
 // 단위 테스트는 record() 를 캡처하는 fake outbox 를 주입한다(외부 모킹 라이브러리
 // 금지 — vi.fn() 만).
 function fakeOutbox(): OutboxService {
   return { record: vi.fn().mockResolvedValue('outbox-id') } as unknown as OutboxService;
+}
+
+// S20 (FR-DM-06): DirectMessagesService 생성자에 S3Service 가 추가됐다(그룹 DM
+// 아이콘 업로드). createGroupDm 단위 검증은 스토리지를 건드리지 않으므로 호출되지
+// 않는 fake S3Service 를 주입한다(vi.fn() 만).
+function fakeS3(): S3Service {
+  return {
+    putObject: vi.fn().mockResolvedValue(undefined),
+    deleteObject: vi.fn().mockResolvedValue(undefined),
+  } as unknown as S3Service;
 }
 
 beforeEach(() => {
@@ -65,7 +76,7 @@ function makeService(stub: Stub) {
     user,
     $transaction: stub.transaction ?? vi.fn(async (cb: (tx: TxStub) => Promise<unknown>) => cb(tx)),
   } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
-  return new DirectMessagesService(prisma, fakeOutbox());
+  return new DirectMessagesService(prisma, fakeOutbox(), fakeS3());
 }
 
 describe('DirectMessagesService.createGroupDm', () => {
@@ -269,7 +280,7 @@ describe('DirectMessagesService.getGroupMembers', () => {
       $transaction: vi.fn(),
       $queryRaw: queryRaw,
     } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
-    return new DirectMessagesService(prisma, fakeOutbox());
+    return new DirectMessagesService(prisma, fakeOutbox(), fakeS3());
   }
 
   it('채널 부재 → CHANNEL_NOT_FOUND', async () => {

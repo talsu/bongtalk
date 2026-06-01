@@ -517,6 +517,13 @@ export class MessagesService {
     // callers (including DM channels where the workspace member concept
     // is N/A) — defaults to MEMBER which downgrades `everyone=true`.
     actorRole?: GateActorRole;
+    // S20 (MAJOR/perf fix-forward): caller-provided channel type so the DM
+    // hidden-restore gate skips the per-send `channel.findUnique`. Both send
+    // controllers already hold the channel meta on req.channel (the
+    // assertNotBlockedForDmSend S17 precedent), so they pass `channel.type`
+    // through here. When omitted we fall back to `workspaceId === null`
+    // (a DM is workspaceless) to keep older callers correct.
+    channelType?: string;
   }): Promise<{ message: MessageRow; replayed: boolean }> {
     // S03 (FR-MSG-05 / FR-RT-04): Redis read-through 2차 캐시. 재전송 시
     // 동일 키가 캐시에 있으면 DB INSERT 시도 자체를 생략하고 캐시된
@@ -827,6 +834,33 @@ export class MessagesService {
               payload: thread,
             });
           }
+        }
+
+        // S20 (FR-DM-10): DM hidden-restore. 상대방의 새 메시지가 도착하면 그 DM 을
+        // 숨겼던 수신자(보낸 본인 제외)의 hiddenAt 을 NULL 로 자동 복원한다. DIRECT
+        // 채널일 때만 동작하며, 같은 send 트랜잭션 안에서 처리해 메시지 INSERT 와
+        // 원자적이다. visibleFrom 은 건드리지 않으므로 과거 메시지는 그대로 보인다
+        // (숨김만 해제).
+        //
+        // S20 (MAJOR/perf fix-forward): hot-path 에서 매 전송마다 channel.findUnique
+        // 를 발행하던 것을 제거한다. 두 send 컨트롤러가 이미 보유한 channel.type 을
+        // 넘기면 그것으로, 없으면 workspaceId === null(= DM)로 게이트한다. updateMany
+        // 는 `hiddenAt:{not:null}` 가드라 비-DIRECT(항상 NULL)에 매칭이 없어 무회귀지만,
+        // 불필요한 UPDATE 자체를 피하려 타입 판정 후에만 실행한다.
+        const isDirect =
+          args.channelType === undefined
+            ? args.workspaceId === null
+            : args.channelType === 'DIRECT';
+        if (isDirect) {
+          await tx.channelPermissionOverride.updateMany({
+            where: {
+              channelId: args.channelId,
+              principalType: 'USER',
+              principalId: { not: args.authorId },
+              hiddenAt: { not: null },
+            },
+            data: { hiddenAt: null },
+          });
         }
         return created as MessageRow;
       });

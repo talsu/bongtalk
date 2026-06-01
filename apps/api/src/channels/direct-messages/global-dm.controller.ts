@@ -7,16 +7,30 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 import { DirectMessagesService, type DmListItem } from './direct-messages.service';
+import { MutesService } from '../../notifications/mutes/mutes.service';
+import { DomainError } from '../../common/errors/domain-error';
+import { ErrorCode } from '../../common/errors/error-code.enum';
 import { CreateDmDto } from './dto/create-dm.dto';
 import { CreateGroupDmDto } from './dto/create-group-dm.dto';
 import { AddParticipantsDto } from './dto/add-participants.dto';
+import { RenameGroupDmDto } from './dto/rename-group-dm.dto';
+import { SetDmVisibilityDto } from './dto/set-dm-visibility.dto';
+import { SetDmMuteDto } from './dto/set-dm-mute.dto';
+
+// S20 (FR-DM-06): 그룹 DM 아이콘 multipart 수신 한도. FileInterceptor 의 multer
+// limits 로 4MB 를 1차 거부하고, 서비스가 magic-byte/mime/크기를 2차 검증한다.
+const DM_ICON_UPLOAD_MAX_BYTES = 4 * 1024 * 1024;
 
 /**
  * task-033-B: global DM endpoints under /me/dms. Same service as the
@@ -24,18 +38,36 @@ import { AddParticipantsDto } from './dto/add-participants.dto';
  * (friend-gated, no workspace). task-037-A removed the old
  * workspace-scoped controller — this is the sole DM surface now.
  */
+/**
+ * S20 (FR-DM-06): multer 가 FileInterceptor 로 채워주는 업로드 파일 형태.
+ * `@types/multer` 를 추가하지 않고도 strict + no-any 를 만족하도록 필요한 필드만
+ * 좁게 선언한다(buffer/mimetype/originalname/size). multer memory storage 라
+ * `buffer` 는 항상 존재한다.
+ */
+interface UploadedMultipartFile {
+  buffer: Buffer;
+  mimetype: string;
+  originalname: string;
+  size: number;
+}
+
 @UseGuards(JwtAuthGuard)
 @Controller('me/dms')
 export class GlobalDmController {
-  constructor(private readonly svc: DirectMessagesService) {}
+  constructor(
+    private readonly svc: DirectMessagesService,
+    private readonly mutes: MutesService,
+  ) {}
 
   @Get()
   async list(
     @CurrentUser() user: CurrentUserPayload,
     @Query('limit', new DefaultValuePipe(50)) limitRaw: string | number,
+    // S20 (FR-DM-04): 검색어. group displayName/slug OR 참여자 username ILIKE 매칭.
+    @Query('q') q?: string,
   ): Promise<{ items: DmListItem[] }> {
     const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
-    const items = await this.svc.list(null, user.id, limit || 50);
+    const items = await this.svc.list(null, user.id, limit || 50, q);
     return { items };
   }
 
@@ -91,18 +123,23 @@ export class GlobalDmController {
   async listGroups(
     @CurrentUser() user: CurrentUserPayload,
     @Query('limit', new DefaultValuePipe(50)) limitRaw: string | number,
+    // S20 (FR-DM-04): 검색어. group displayName/slug OR 참여자 username ILIKE 매칭.
+    @Query('q') q?: string,
   ): Promise<{
     items: Array<{
       channelId: string;
       memberIds: string[];
       participants: Array<{ userId: string; username: string }>;
+      // S20 (FR-DM-05/06): 사용자 지정 표시명 + 아이콘 키/URL.
+      displayName: string | null;
+      iconUrl: string | null;
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
     }>;
   }> {
     const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
-    const items = await this.svc.listGroups(null, user.id, limit || 50);
+    const items = await this.svc.listGroups(null, user.id, limit || 50, q);
     return { items };
   }
 
@@ -172,5 +209,111 @@ export class GlobalDmController {
     @Param('userId', new ParseUUIDPipe()) userId: string,
   ): Promise<void> {
     await this.svc.kickParticipant({ meId: user.id, channelId, targetUserId: userId });
+  }
+
+  /**
+   * S20 (FR-DM-05): 그룹 DM 이름 변경. group(`gdm:%`) 만, 현역 멤버 허용. slug
+   * `Channel.name` 은 불변 — `Channel.displayName` 만 세팅한다. 변경 즉시 참여자
+   * 전원에게 dm:group_updated(displayName) emit.
+   *
+   *   PATCH /me/dms/:channelId { name }
+   */
+  @Patch(':channelId')
+  async renameGroup(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @Body() body: RenameGroupDmDto,
+  ): Promise<{ channelId: string; displayName: string }> {
+    return this.svc.renameGroup({ meId: user.id, channelId, name: body.name });
+  }
+
+  /**
+   * S20 (FR-DM-06): 그룹 DM 아이콘 업로드. multipart/form-data, field 명 `file`.
+   * 4MB / JPEG·PNG·GIF·WebP, validate-magic-bytes 로 위조 차단, MinIO 저장 후
+   * `Channel.iconUrl` 세팅 + dm:group_updated(iconUrl) emit. group-only, 현역 멤버.
+   *
+   *   POST /me/dms/:channelId/icon  (form field: file)
+   */
+  @Post(':channelId/icon')
+  @UseInterceptors(
+    FileInterceptor('file', { limits: { fileSize: DM_ICON_UPLOAD_MAX_BYTES, files: 1 } }),
+  )
+  async setGroupIcon(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @UploadedFile() file: UploadedMultipartFile | undefined,
+  ): Promise<{ channelId: string; iconUrl: string }> {
+    if (!file || !file.buffer || file.buffer.byteLength === 0) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'icon file is required (field: file)');
+    }
+    return this.svc.setGroupIcon({
+      meId: user.id,
+      channelId,
+      bytes: file.buffer,
+      mime: file.mimetype,
+      originalName: file.originalname,
+    });
+  }
+
+  /**
+   * S20 (FR-DM-06): 그룹 DM 아이콘 삭제. MinIO object 정리 + iconUrl=NULL +
+   * dm:group_updated(iconUrl=null) emit. group-only, 현역 멤버. 멱등(아이콘 없으면 204).
+   *
+   *   DELETE /me/dms/:channelId/icon
+   */
+  @Delete(':channelId/icon')
+  @HttpCode(204)
+  async removeGroupIcon(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+  ): Promise<void> {
+    await this.svc.removeGroupIcon({ meId: user.id, channelId });
+  }
+
+  /**
+   * S20 (FR-DM-10): DM 숨기기/표시 토글. 요청자 USER override 의 hiddenAt 을 세팅
+   * (HIDDEN=now, VISIBLE=NULL). GET /me/dms·/me/dms/groups 가 숨김 DM 을 제외한다.
+   * 상대방의 새 메시지가 도착하면 send 경로가 수신자 hiddenAt 을 자동 복원한다.
+   *
+   *   PATCH /me/dms/:channelId/visibility { visibility: 'HIDDEN'|'VISIBLE' }
+   */
+  @Patch(':channelId/visibility')
+  async setVisibility(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @Body() body: SetDmVisibilityDto,
+  ): Promise<{ channelId: string; visibility: 'HIDDEN' | 'VISIBLE' }> {
+    return this.svc.setVisibility({ meId: user.id, channelId, visibility: body.visibility });
+  }
+
+  /**
+   * S20 (FR-DM-11): DM 뮤트. 기존 UserChannelMute upsert(task-045) 를 DM 라우트로
+   * 배선한다. mutedUntil null = 무기한, 미래 시각 = 그때까지(만료는 query-time 필터).
+   * @직접멘션 배지는 기존 mute>pref 게이트에서 유지된다(send 경로의 mute 필터는
+   * mention.received outbox 만 스킵하므로 채널 unread 배지는 영향 없음).
+   *
+   * S20 (BLOCKER fix-forward, IDOR): 요청자가 이 DM 의 현역 멤버인지 먼저 검증한다.
+   * MutesService.setMute 자체는 채널 access 를 가드하지 않으므로(설계상 호출자 책임),
+   * 게이트가 없으면 임의 channelId 에 UserChannelMute 행이 upsert 되거나(FK 위반
+   * P2003 → 500) 채널 존재가 열거된다. 비멤버·부재·비-DIRECT 는 404 로 거부한다.
+   *
+   *   PATCH /me/dms/:channelId/mute { mutedUntil: ISO8601 | null }
+   */
+  @Patch(':channelId/mute')
+  async setMute(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @Body() body: SetDmMuteDto,
+  ): Promise<{ channelId: string; mutedUntil: string | null }> {
+    await this.svc.assertDmMember(user.id, channelId);
+    const row = await this.mutes.setMute({
+      userId: user.id,
+      channelId,
+      mutedUntil: body.mutedUntil ? new Date(body.mutedUntil) : null,
+    });
+    return {
+      channelId: row.channelId,
+      mutedUntil: row.mutedUntil ? row.mutedUntil.toISOString() : null,
+    };
   }
 }

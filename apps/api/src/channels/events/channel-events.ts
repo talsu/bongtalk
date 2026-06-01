@@ -38,3 +38,9 @@ export const DM_CREATED = 'dm.created';
 export const DM_PARTICIPANT_ADDED = 'dm.participant_added';
 export const DM_PARTICIPANT_REMOVED = 'dm.participant_removed';
 export const DM_OWNER_CHANGED = 'dm.owner_changed';
+// S20 (FR-DM-05/06): 그룹 DM 표시 메타(이름/아이콘) 변경. 단수 네임스페이스(dm.)
+// 사용 — outbox→WS 구독자의 `@OnEvent('dm.**')` 가 envelope.recipients(라우팅 전용)
+// 의 각 user:{userId} 룸으로 fanout 한다. dm:created 선례(H-03)대로 와이어
+// 페이로드에서 내부 recipients 는 제거하고 최소 필드(channelId + displayName?
+// + iconUrl?)만 노출한다(참여자 UUID 전체 비노출).
+export const DM_GROUP_UPDATED = 'dm.group_updated';

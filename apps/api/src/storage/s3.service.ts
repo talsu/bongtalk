@@ -124,6 +124,27 @@ export class S3Service {
   }
 
   /**
+   * S20 (FR-DM-06): server-side direct PUT for small in-band uploads (group
+   * DM icons). Unlike the presigned-PUT path (attachments / custom emoji),
+   * the API receives the multipart bytes itself and writes them straight to
+   * MinIO via the internal client — no extra round-trip, and the bytes pass
+   * through magic-byte validation BEFORE this call. Used only for ≤4MB blobs
+   * so buffering the whole body in memory is acceptable.
+   */
+  async putObject(key: string, body: Uint8Array, contentType: string): Promise<void> {
+    this.requireReady();
+    await this.internalClient.send(
+      new PutObjectCommand({
+        Bucket: this.bucket,
+        Key: key,
+        Body: body,
+        ContentType: contentType,
+        ContentLength: body.byteLength,
+      }),
+    );
+  }
+
+  /**
    * Verify an upload landed + size matches what the client declared at
    * presign time. Throws with a distinct reason per failure so the
    * controller can map to the right ErrorCode.
