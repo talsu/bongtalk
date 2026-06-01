@@ -320,6 +320,17 @@ export class RealtimeGateway
       const armedEpoch = await this.presence.currentGraceEpoch(userId);
       this.graceTimers.arm(userId, this.offlineGraceMs(), async () => {
         const { goneFrom } = await this.presence.finalizeOffline(userId, wsIds, armedEpoch);
+        // S27 (FR-P10): the user actually went OFFLINE (grace elapsed without a
+        // reconnect) → stamp lastSeenAt = now. goneFrom empty means a reconnect
+        // aborted the finalize, so we DON'T touch lastSeenAt. INVISIBLE never
+        // reaches here as a "went dark" stamp: an invisible user has no live
+        // session to lose differently, but the leak guard is in the member list
+        // (offline rows only) + the fact this stamp reflects a genuine OFFLINE.
+        if (goneFrom.length > 0) {
+          await this.prisma.user
+            .update({ where: { id: userId }, data: { lastSeenAt: new Date() } })
+            .catch(() => undefined);
+        }
         for (const wsId of goneFrom) this.schedulePresenceBroadcast(wsId);
         // S26 (FR-P16): the user actually went OFFLINE — push the precise
         // status to their direct subscribers (e.g. a DM peer with no shared
@@ -444,8 +455,15 @@ export class RealtimeGateway
     // authorized ids are stored — an unauthorized id can never become a
     // fan-out target.
     await this.presence.addSubscriptions(client.id, allowed);
-    const presences = await this.presence.bulkFor(state.user.userId, allowed);
-    const payload: PresenceBulkPayload = { presences };
+    const bulk = await this.presence.bulkFor(state.user.userId, allowed);
+    // S27 fix-forward(security): bulkFor now also returns the UNMASKED `real`
+    // status + `masked` flag for the member-list lastSeenAt leak guard. Those
+    // MUST NOT cross the WS wire — project down to the masked PresenceEntry
+    // shape (userId/status/updatedAt) so the unmasked status never leaks to a
+    // subscriber.
+    const payload: PresenceBulkPayload = {
+      presences: bulk.map(({ userId, status, updatedAt }) => ({ userId, status, updatedAt })),
+    };
     client.emit(WS_EVENTS.PRESENCE_BULK, payload);
   }
 

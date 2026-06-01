@@ -4,6 +4,7 @@ import type {
   CreateWorkspaceRequest,
   Invite,
   InvitePreview,
+  ListMembersResponse,
   Member,
   UpdateWorkspaceRequest,
   Workspace,
@@ -30,8 +31,40 @@ export function softDeleteWorkspace(id: string): Promise<{ deleteAt: string }> {
   return apiRequest(`/workspaces/${id}`, { method: 'DELETE' });
 }
 
-export function listMembers(id: string): Promise<{ members: Member[] }> {
-  return apiRequest(`/workspaces/${id}/members`);
+// S27 (FR-P08/P09/P11/P12): grouped, presence-aware, paginated member list.
+export function listMembers(
+  id: string,
+  opts: { cursor?: string; includeOffline?: boolean } = {},
+): Promise<ListMembersResponse> {
+  const params = new URLSearchParams();
+  if (opts.cursor) params.set('cursor', opts.cursor);
+  if (opts.includeOffline !== undefined) params.set('include_offline', String(opts.includeOffline));
+  const qs = params.toString();
+  return apiRequest(`/workspaces/${id}/members${qs ? `?${qs}` : ''}`);
+}
+
+/**
+ * S27 fix-forward(regression · @멘션): the COMPLETE flat member set for the
+ * workspace. Non-presence consumers (mention autocomplete, member counts, role
+ * resolution, DM author map) must see EVERY member — never the 50-row first
+ * page of the grouped list (which would cap mentions at 50 and silently drop
+ * offline members on a large workspace). We always opt into include_offline and
+ * walk every cursor page, flattening hoist + status groups into one array.
+ *
+ * A hard page-walk bound stops a pathological loop; in practice the list is the
+ * workspace member count and pages are 50 each.
+ */
+export async function listAllMembers(id: string): Promise<{ members: Member[] }> {
+  const members: Member[] = [];
+  let cursor: string | undefined;
+  for (let page = 0; page < 1000; page += 1) {
+    const res = await listMembers(id, { cursor, includeOffline: true });
+    for (const g of res.hoist) members.push(...g.members);
+    for (const g of res.groups) members.push(...g.members);
+    if (!res.nextCursor) break;
+    cursor = res.nextCursor;
+  }
+  return { members };
 }
 
 export function updateMemberRole(
@@ -49,7 +82,10 @@ export function leaveWorkspace(id: string): Promise<void> {
   return apiRequest(`/workspaces/${id}/members/me/leave`, { method: 'POST' });
 }
 
-export function createInvite(id: string, input: CreateInviteRequest): Promise<{ invite: Invite; url: string }> {
+export function createInvite(
+  id: string,
+  input: CreateInviteRequest,
+): Promise<{ invite: Invite; url: string }> {
   return apiRequest(`/workspaces/${id}/invites`, { method: 'POST', body: input });
 }
 

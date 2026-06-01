@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { RealtimeGateway } from './realtime.gateway';
 import { WsAuthMiddleware } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
-import { PresenceService } from './presence/presence.service';
+import { PresenceModule } from './presence/presence.module';
 import { PresenceThrottler } from './presence/presence-throttler';
 import { PresenceGraceTimers } from './presence/presence-grace-timers';
 import { TypingService } from './typing/typing.service';
@@ -19,12 +19,11 @@ import { AuthModule } from '../auth/auth.module';
 import { ChannelsModule } from '../channels/channels.module';
 
 @Module({
-  imports: [AuthModule, ChannelsModule],
+  imports: [AuthModule, ChannelsModule, PresenceModule],
   providers: [
     RealtimeGateway,
     WsAuthMiddleware,
     RoomManagerService,
-    PresenceService,
     PresenceThrottler,
     PresenceGraceTimers,
     TypingService,
@@ -33,6 +32,7 @@ import { ChannelsModule } from '../channels/channels.module';
     OutboxToWsSubscriber,
     MembershipRevocationListener,
   ],
-  exports: [RealtimeGateway, PresenceService, TypingService, ChannelSeqService],
+  // S27: PresenceService 는 PresenceModule 재노출(re-export)로 외부에 제공한다.
+  exports: [RealtimeGateway, PresenceModule, TypingService, ChannelSeqService],
 })
 export class RealtimeModule {}

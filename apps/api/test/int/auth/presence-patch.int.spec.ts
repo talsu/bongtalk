@@ -78,6 +78,36 @@ describe('PATCH /me/presence (task-019-C)', () => {
     expect(row2?.presencePreference).toBe('auto');
   });
 
+  // S27 (FR-P10): DND 전환은 lastSeenAt 을 찍고, INVISIBLE 전환은 찍지 않는다.
+  it('stamps lastSeenAt on DND but NOT on INVISIBLE (FR-P10)', async () => {
+    const user = await signup(env.baseUrl, 'p10dnd');
+    // baseline: never connected → lastSeenAt null.
+    const before = await env.prisma.user.findUnique({ where: { id: user.userId } });
+    expect(before?.lastSeenAt).toBeNull();
+
+    // DND → lastSeenAt set.
+    await request(env.baseUrl)
+      .patch('/me/presence')
+      .set('origin', ORIGIN)
+      .set(bearer(user.accessToken))
+      .send({ status: 'dnd' })
+      .expect(200);
+    const afterDnd = await env.prisma.user.findUnique({ where: { id: user.userId } });
+    expect(afterDnd?.lastSeenAt).not.toBeNull();
+
+    const dndStamp = afterDnd?.lastSeenAt ?? null;
+
+    // INVISIBLE → lastSeenAt unchanged (no leak of when they went dark).
+    await request(env.baseUrl)
+      .patch('/me/presence')
+      .set('origin', ORIGIN)
+      .set(bearer(user.accessToken))
+      .send({ status: 'invisible' })
+      .expect(200);
+    const afterInvisible = await env.prisma.user.findUnique({ where: { id: user.userId } });
+    expect(afterInvisible?.lastSeenAt?.toISOString() ?? null).toBe(dndStamp?.toISOString() ?? null);
+  });
+
   it('rate limits to 20/min/user', async () => {
     const user = await signup(env.baseUrl, 'pre3');
     for (let i = 0; i < 20; i += 1) {
