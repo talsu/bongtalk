@@ -109,13 +109,19 @@ describe('DndScheduleService.isActive (task-046 K1)', () => {
     expect(DndScheduleService.isActive(new Date('2025-01-01T13:00:00Z'), sched)).toBe(false); // exclusive end
   });
 
-  it('overnight window: 23:00 → 07:00 매일밤', () => {
+  it('overnight window: Wed 23:00 → 07:00 — 저녁 부분 + 다음날(Thu) 새벽 carry (B1 BLOCKER)', () => {
     const sched = { days: [{ day: 3, startMin: 23 * 60, endMin: 7 * 60 }] }; // Wed
+    // 저녁 부분(같은 요일 min≥start).
     expect(DndScheduleService.isActive(new Date('2025-01-01T22:59:00Z'), sched)).toBe(false);
     expect(DndScheduleService.isActive(new Date('2025-01-01T23:00:00Z'), sched)).toBe(true);
     expect(DndScheduleService.isActive(new Date('2025-01-01T23:59:00Z'), sched)).toBe(true);
-    expect(DndScheduleService.isActive(new Date('2025-01-01T03:00:00Z'), sched)).toBe(true);
-    expect(DndScheduleService.isActive(new Date('2025-01-01T07:00:00Z'), sched)).toBe(false);
+    // B1 BLOCKER fix: 같은 요일(Wed) 새벽은 carry 가 아니다 — 전날(Tue) overnight
+    // entry 가 있어야 carry 된다. Wed entry 단독이면 Wed 03:00 은 비활성.
+    expect(DndScheduleService.isActive(new Date('2025-01-01T03:00:00Z'), sched)).toBe(false);
+    // 다음날(Thu = 2025-01-02) 03:00 은 Wed entry 의 새벽 carry → 활성.
+    expect(DndScheduleService.isActive(new Date('2025-01-02T03:00:00Z'), sched)).toBe(true);
+    // Thu 07:00 은 carry 의 exclusive end → 비활성.
+    expect(DndScheduleService.isActive(new Date('2025-01-02T07:00:00Z'), sched)).toBe(false);
   });
 
   it('다른 요일이면 active 아님', () => {

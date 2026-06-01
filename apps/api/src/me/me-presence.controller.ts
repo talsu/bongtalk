@@ -1,5 +1,5 @@
 import { Body, Controller, Logger, Patch, UseGuards } from '@nestjs/common';
-import { PresencePreference } from '@prisma/client';
+import { PresencePreference, Prisma } from '@prisma/client';
 import { UpdatePresenceRequestSchema } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -71,10 +71,17 @@ export class MePresenceController {
     // S27 (FR-P10): DND 전환은 "마지막 접속"으로 본다 → lastSeenAt 갱신. INVISIBLE
     // 전환은 잠적 시각이 누출되지 않도록 미갱신(auto/online 도 미갱신 — 접속 유지
     // 중이라 OFFLINE 확정 때만 별도 경로에서 찍는다). dnd 일 때만 stamp.
+    //
+    // S28 (reviewer M2 fix-forward): 사용자가 수동으로 presence 를 바꾸면 더 이상
+    // "스케줄이 소유한 DND" 가 아니므로 dndScheduleSnapshot 을 클리어한다(JsonNull).
+    // 그래야 스케줄 구간 중 수동으로 invisible 등으로 바꾼 뒤 구간이 끝나도
+    // evaluateAndApply 의 종료 복원이 사용자 수동값을 덮어쓰지 않는다(scheduleOwnsDnd
+    // = snapshot!==null 판정이 false 가 됨). 수동 의사 우선.
     await this.prisma.user.update({
       where: { id: user.id },
       data: {
         presencePreference: preference,
+        dndScheduleSnapshot: Prisma.JsonNull,
         ...(preference === 'dnd' ? { lastSeenAt: new Date() } : {}),
       },
     });

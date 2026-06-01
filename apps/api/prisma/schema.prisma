@@ -156,13 +156,25 @@ model User {
   // 파생 표시값이며 runtime presence 의 단일 출처는 Redis 다.
   lastSeenAt          DateTime?          @db.Timestamptz
   // task-045 iter4: Discord-parity custom status text. null = unset.
-  // 100 chars cap (Discord 의 128 보다 보수적). emoji prefix 는
-  // follow-up — 현재는 plain text 만.
+  // 100 chars cap (Discord 의 128 보다 보수적).
   customStatus        String?            @db.VarChar(100)
+  // S28 (FR-P04): 구조화 커스텀 상태. text 는 위 customStatus 가 보유하고,
+  // emoji / expiresAt 를 분리 컬럼으로 더한다(기존 read 경로 무회귀).
+  //   customStatusEmoji     — 이모지 또는 :shortcode: (null = 없음)
+  //   customStatusExpiresAt — 만료 시각(UTC). null = 무기한. FR-P17 만료는
+  //                           read-time lazy clear 로 처리(expiresAt<now 면 빈 상태).
+  customStatusEmoji     String?          @db.VarChar(64)
+  customStatusExpiresAt DateTime?        @db.Timestamptz
+  // S28 (FR-P04): 프리셋 계산 기준 IANA timezone(예: "Asia/Seoul"). null =
+  // 미설정 → 클라 브라우저 tz fallback. 프리셋은 서버가 이 tz 로 계산해 UTC 저장.
+  timezone              String?          @db.VarChar(64)
   // task-046 iter4 (K1): per-day weekly DnD schedule.
   // shape: { days: [{ day: 0..6 (Sun..Sat), startMin: 0..1439, endMin: 0..1439 }] }
   // start>end 인 entry 는 overnight (23:00 → 07:00).
   dndSchedule         Json?
+  // S28 (FR-P06): DND 스케줄 auto-toggle 복원용 snapshot. 구간 진입 시 직전
+  // presencePreference 를 보관( { prev } )했다가 구간 종료 시 복원한다. 평시 null.
+  dndScheduleSnapshot Json?
   // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
   notificationOnboardingShown Boolean    @default(false)
   // task-046 iter5 (M1): Discord-parity profile bio. markdown 허용,

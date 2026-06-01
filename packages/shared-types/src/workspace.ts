@@ -152,6 +152,12 @@ export const MemberSchema = z.object({
     username: z.string(),
     email: z.string().email(),
     customStatus: z.string().nullable().optional(),
+    // S28 (HIGH-2 + FR-P17): 멤버목록 emoji 노출. customStatus(text) 와 함께
+    // 만료(customStatusExpiresAt<now) 마스킹 대상이다 — 만료분은 text/emoji 모두 null.
+    customStatusEmoji: z.string().nullable().optional(),
+    // S28 (FR-P17): 만료 시각(ISO UTC). 클라가 만료 카운트다운/안내 표시에 사용.
+    // 서버는 노출 시점에 만료분을 이미 마스킹하므로 여기 값은 항상 미래이거나 null.
+    customStatusExpiresAt: z.string().nullable().optional(),
   }),
 });
 export type Member = z.infer<typeof MemberSchema>;
