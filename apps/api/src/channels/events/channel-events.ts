@@ -31,3 +31,10 @@ export const CATEGORY_REORDERED = 'category.reordered';
 // 의 각 user:{userId} 룸으로 `dm:created` 와이어 이벤트를 fanout 한다. 단수
 // 네임스페이스(dm.) 사용 — EventEmitter2 delimiter wildcard(`dm.**`) 매치를 보장한다.
 export const DM_CREATED = 'dm.created';
+// S19 (FR-DM-07/08/09): 그룹 DM 멤버십 변경. 단수 네임스페이스(dm.) 사용 —
+// outbox→WS 구독자의 `@OnEvent('dm.**')` 가 envelope.recipients(라우팅 전용)의
+// 각 user:{userId} 룸으로 fanout 한다. dm:created 선례(H-03)대로 와이어 페이로드
+// 에서 내부 recipients 는 제거하고 최소 필드만 노출한다(참여자 UUID 전체 비노출).
+export const DM_PARTICIPANT_ADDED = 'dm.participant_added';
+export const DM_PARTICIPANT_REMOVED = 'dm.participant_removed';
+export const DM_OWNER_CHANGED = 'dm.owner_changed';
