@@ -59,9 +59,16 @@ export function ThreadPanel({
   }, [replies.length]);
 
   // ESC closes the panel — scoped to this panel's mount lifetime.
+  // S23 BLOCKER fix: Esc 가 스레드 패널을 닫는 데 소비되면 전파/기본동작을
+  // 멈춰 useGlobalShortcuts 의 read 단축키(mark-current)가 같은 Esc 로 동시
+  // 발화하지 않게 한다(채널 강제 읽음 방지).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+      }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);

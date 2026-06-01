@@ -11,6 +11,8 @@ import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
+import { useReadState } from '../features/realtime/readStateStore';
+import { captureUnreadSnapshot } from '../features/messages/newMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useNavigate } from 'react-router-dom';
@@ -128,6 +130,43 @@ export function MessageColumn({
     };
   }, [channelId, setActiveChannelId]);
 
+  // S23 MAJOR fix (cold 캐시 구분선 소실): 채널 open 시 markRead +
+  // zeroOutChannelUnread 가 unread-summary 캐시를 0 으로 누르기 *전에* 진입
+  // 시점의 (unreadCount, lastReadMessageId) 를 캡처해 MessageList 에 prop 으로
+  // 넘긴다. MessageList 가 cold summary(미캐시 / staleTime 만료)를 직접 읽으면
+  // zero-out 에 오염돼 구분선이 사라지므로, 부모가 zero-out 직전에 고정한
+  // 스냅샷을 단일 출처로 삼는다(FR-RS-06). channelId 단위로 1회 고정.
+  const unreadSnapshotRef = useRef<{
+    channelId: string;
+    unreadCount: number;
+    lastReadMessageId: string | null;
+  } | null>(null);
+  // 채널 전환 시(또는 첫 진입) 스냅샷을 zero-out 이전에 캡처.
+  if (
+    workspaceId !== null &&
+    (unreadSnapshotRef.current === null || unreadSnapshotRef.current.channelId !== channelId)
+  ) {
+    const summary = qc.getQueryData<{ channels: UnreadChannelSummary[] }>(
+      qk.channels.unreadSummary(workspaceId),
+    );
+    const row = summary?.channels.find((c) => c.channelId === channelId);
+    // cold summary(아직 미캐시)면 row 가 undefined → unreadCount 폴백 0, 하지만
+    // lastReadMessageId(readStateStore)는 남아 있어 구분선 판정 가능(순수 환산은
+    // captureUnreadSnapshot 단일 출처).
+    const snap = captureUnreadSnapshot({
+      cachedUnreadCount: row?.unreadCount,
+      lastReadMessageId: useReadState.getState().getLastRead(channelId),
+    });
+    unreadSnapshotRef.current = { channelId, ...snap };
+  }
+  const unreadSnapshot =
+    workspaceId !== null && unreadSnapshotRef.current?.channelId === channelId
+      ? {
+          unreadCount: unreadSnapshotRef.current.unreadCount,
+          lastReadMessageId: unreadSnapshotRef.current.lastReadMessageId,
+        }
+      : undefined;
+
   // Task-010-B: mark the channel read on open. 낙관적으로 캐시 unread 를 0 으로
   // 눌러 pill 이 즉시 사라지게 하고, 레거시 POST /read(채널 진입 마킹)는 그대로
   // 유지한다. 커서 기반 ACK(FR-RS-02)는 아래 AckScheduler 가 별도로 담당한다.
@@ -138,6 +177,7 @@ export function MessageColumn({
     if (workspaceId === null) return;
     // S22 review #5: useMarkChannelRead.onSuccess 와 동일한 zero-out 헬퍼를
     // 공유해 (`mentionCount` 포함) 채널 open 직후 멘션 배지 깜빡임을 막는다.
+    // (위 unreadSnapshotRef 가 이 zero-out 이전 값을 이미 고정했다.)
     qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
       qk.channels.unreadSummary(workspaceId),
       (old) => zeroOutChannelUnread(old, channelId),
@@ -175,12 +215,18 @@ export function MessageColumn({
     };
   }, [channelId]);
 
+  // S23 (FR-RS-11): Esc 단축키가 dispatch 하는 qufox.read.current 를 받았을 때
+  // 현재 채널을 "최신까지 읽음" 처리하려면 마지막으로 본 메시지 id 가 필요하다.
+  // onReadCursor 가 매번 올려주는 tail id 를 ref 에 보관해 핸들러가 참조한다.
+  const lastSeenMessageIdRef = useRef<string | null>(null);
+
   const onReadCursor = useCallback(
     (cursor: { lastMessageId: string; atBottom: boolean }) => {
       // DM 은 ack 엔드포인트 미존재 → 스킵.
       if (workspaceId === null) return;
       // UUID 가 아닌 낙관적 임시 id(tmp-…)는 ACK 대상이 아니다.
       if (cursor.lastMessageId.startsWith('tmp-')) return;
+      lastSeenMessageIdRef.current = cursor.lastMessageId;
       const s = schedulerRef.current;
       if (!s) return;
       if (cursor.atBottom) {
@@ -193,6 +239,22 @@ export function MessageColumn({
     },
     [workspaceId, channelId],
   );
+
+  // S23 (FR-RS-11): Esc = 현재 채널 읽음. useGlobalShortcuts 가 입력 필드/모달
+  // 충돌을 거른 뒤 qufox.read.current 를 dispatch 하면, 여기서 마지막으로 본
+  // 메시지까지 즉시 ACK 한다(monotonic 전진). DM(ack 엔드포인트 미존재) 또는
+  // 미관측(tail id 없음) 채널은 no-op.
+  useEffect(() => {
+    const onReadCurrent = (): void => {
+      if (workspaceId === null) return;
+      const last = lastSeenMessageIdRef.current;
+      const s = schedulerRef.current;
+      if (!last || !s) return;
+      s.flushImmediate(channelId, last);
+    };
+    window.addEventListener('qufox.read.current', onReadCurrent);
+    return () => window.removeEventListener('qufox.read.current', onReadCurrent);
+  }, [workspaceId, channelId]);
 
   return (
     <div className="flex min-w-0 flex-1">
@@ -257,6 +319,8 @@ export function MessageColumn({
           onOpenThread={(rootId) => setActiveThread(rootId)}
           extraNames={extraNames}
           onReadCursor={onReadCursor}
+          // S23 MAJOR fix: 채널 open zero-out 이전에 고정한 구분선 스냅샷.
+          unreadSnapshot={unreadSnapshot}
         />
         <TypingIndicator
           channelId={channelId}

@@ -541,6 +541,121 @@ export class UnreadService {
     return { readAt };
   }
 
+  /**
+   * S23 fix-forward (MAJOR): 워크스페이스 전체 읽음(Shift+Esc).
+   *
+   * 종전 구현은 채널마다 findFirst + ackRead(각 ~6 쿼리)를 순차 실행해 O(N)
+   * 라운드트립이었고 트랜잭션이 없어 Shift+Esc 가 행(hang)하거나 부분 실패할 수
+   * 있었다. 본 구현은 단일 set-based SQL 한 방으로 가시 채널들의
+   * UserChannelReadState 를 각 채널의 최신 (createdAt, id) 튜플로 monotonic 하게
+   * 전진시킨다(원자적 · 행 없음):
+   *
+   *  - 가시성(ACL)은 summarize 와 동일한 readBitVisibleSql 5단계 fold 를 재사용
+   *    (overrides CTE → 단일 출처). 비공개/비멤버/명시 DENY 채널은 애초에
+   *    visible_channels 에 들지 않는다.
+   *  - 각 채널의 최신 메시지(latest CTE: DISTINCT ON 으로 (createdAt, id) 최대)를
+   *    구해, INSERT … SELECT … ON CONFLICT DO UPDATE 의 monotonic guard(저장된
+   *    튜플보다 strictly 큰 경우에만 전진)로 한 번에 upsert 한다. ackRead 와 동일
+   *    한 guard 라 後進이 없고, 이미 읽은 채널은 UPDATE 가 0 행을 match 한다.
+   *  - RETURNING 으로 실제 전진한 채널 + 새 커서만 받아 payload 를 만든다(unread/
+   *    mention 은 최신까지 읽었으므로 0). 캐시는 워크스페이스 단위 1회 무효화.
+   *
+   * 반환한 payload 배열을 컨트롤러가 호출자의 user 룸으로 fan-out 한다(멀티세션
+   * 배지 동기화). useMarkAllRead.onError 는 클라에서 summary invalidate 로 롤백.
+   */
+  async markAllRead(userId: string, workspaceId: string): Promise<ReadStateUpdatedPayload[]> {
+    const visible = this.readBitVisibleSql({
+      isPrivate: Prisma.sql`c."isPrivate"`,
+      roleAllow: Prisma.sql`o.role_allow`,
+      roleDeny: Prisma.sql`o.role_deny`,
+      userAllow: Prisma.sql`o.user_allow`,
+      userDeny: Prisma.sql`o.user_deny`,
+    });
+
+    const advanced = await this.prisma.$queryRaw<
+      Array<{ channel_id: string; last_read_message_id: string }>
+    >(Prisma.sql`
+      WITH me AS (
+        SELECT role
+          FROM "WorkspaceMember"
+         WHERE "workspaceId" = ${workspaceId}::uuid
+           AND "userId" = ${userId}::uuid
+      ),
+      -- summarize 와 동일한 ACL overrides 집계(단일 출처: readBitVisibleSql).
+      overrides AS (
+        SELECT
+          cpo."channelId",
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_deny,
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_deny
+        FROM "ChannelPermissionOverride" cpo
+        WHERE (
+          (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role::text FROM me))
+        )
+        GROUP BY cpo."channelId"
+      ),
+      visible_channels AS (
+        SELECT c.id
+          FROM "Channel" c
+          LEFT JOIN overrides o ON o."channelId" = c.id
+         WHERE c."workspaceId" = ${workspaceId}::uuid
+           AND c."deletedAt" IS NULL
+           AND ${visible}
+      ),
+      -- 각 가시 채널의 최신 (createdAt, id) 튜플 = 전진 목표.
+      latest AS (
+        SELECT DISTINCT ON (msg."channelId")
+               msg."channelId" AS channel_id,
+               msg.id          AS message_id,
+               msg."createdAt" AS message_created_at
+          FROM "Message" msg
+          JOIN visible_channels vc ON vc.id = msg."channelId"
+         WHERE msg."deletedAt" IS NULL
+         ORDER BY msg."channelId", msg."createdAt" DESC, msg.id DESC
+      ),
+      upserted AS (
+        INSERT INTO "UserChannelReadState"
+          ("userId", "channelId", "lastReadEventId", "lastReadAt",
+           "lastReadMessageId", "lastReadMessageCreatedAt", "updatedAt")
+        SELECT
+          ${userId}::uuid, l.channel_id, gen_random_uuid(), l.message_created_at,
+          l.message_id, l.message_created_at, now()
+        FROM latest l
+        ON CONFLICT ("userId", "channelId") DO UPDATE
+          SET "lastReadMessageId" = EXCLUDED."lastReadMessageId",
+              "lastReadMessageCreatedAt" = EXCLUDED."lastReadMessageCreatedAt",
+              "lastReadAt" = EXCLUDED."lastReadAt",
+              "updatedAt" = now()
+          -- monotonic guard(ackRead 와 동일): 저장 튜플보다 strictly 클 때만 전진.
+          WHERE "UserChannelReadState"."lastReadMessageCreatedAt" IS NULL
+             OR (
+               "UserChannelReadState"."lastReadMessageCreatedAt",
+               "UserChannelReadState"."lastReadMessageId"
+             ) < (EXCLUDED."lastReadMessageCreatedAt", EXCLUDED."lastReadMessageId")
+        RETURNING "channelId" AS channel_id, "lastReadMessageId" AS last_read_message_id
+      )
+      SELECT channel_id, last_read_message_id FROM upserted
+    `);
+
+    // FR-RS-14: 워크스페이스 단위 캐시 1회 무효화(채널별 무효화 불필요 — 같은
+    // Hash 키이므로). 다음 totals/summary 집계가 새 커서를 반영한다.
+    if (advanced.length > 0) {
+      await this.invalidateWorkspaceUserCache(workspaceId, userId);
+    }
+
+    // 전진한 채널은 최신까지 읽었으므로 unread/mention = 0. payload 를 만들어
+    // 컨트롤러가 user 룸으로 fan-out 한다.
+    return advanced.map((r) => ({
+      channelId: r.channel_id,
+      workspaceId,
+      lastReadMessageId: r.last_read_message_id,
+      unreadCount: 0,
+      mentionCount: 0,
+    }));
+  }
+
   // ───────────────────────────── Redis cache (FR-RS-14)
 
   /**
