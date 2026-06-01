@@ -68,9 +68,15 @@ export class MePresenceController {
     const preference: PresencePreference =
       status === 'dnd' ? 'dnd' : status === 'invisible' ? 'invisible' : 'auto';
 
+    // S27 (FR-P10): DND 전환은 "마지막 접속"으로 본다 → lastSeenAt 갱신. INVISIBLE
+    // 전환은 잠적 시각이 누출되지 않도록 미갱신(auto/online 도 미갱신 — 접속 유지
+    // 중이라 OFFLINE 확정 때만 별도 경로에서 찍는다). dnd 일 때만 stamp.
     await this.prisma.user.update({
       where: { id: user.id },
-      data: { presencePreference: preference },
+      data: {
+        presencePreference: preference,
+        ...(preference === 'dnd' ? { lastSeenAt: new Date() } : {}),
+      },
     });
 
     const memberships = await this.prisma.workspaceMember.findMany({

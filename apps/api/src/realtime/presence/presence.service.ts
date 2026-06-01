@@ -212,11 +212,26 @@ export class PresenceService {
    * INVISIBLE → OFFLINE for everyone except the viewer themselves
    * (maskPresenceForViewer single point). Used by presence:subscribe/bulk and
    * any REST profile/member-list path that exposes presence.
+   *
+   * S27 fix-forward(security BLOCKER · lastSeenAt leak): each row also carries
+   * the UNMASKED `real` status. A caller that surfaces "last seen" (member list,
+   * FR-P10) MUST suppress lastSeenAt when `real === 'invisible'` and the row is
+   * not the viewer themselves — otherwise a DND→INVISIBLE user (who stamped
+   * lastSeenAt while DND) would leak when they went dark even though they are
+   * masked to offline. `masked` is a convenience flag = real !== status.
    */
   async bulkFor(
     viewerUserId: string,
     userIds: string[],
-  ): Promise<Array<{ userId: string; status: PresenceStatus; updatedAt: string }>> {
+  ): Promise<
+    Array<{
+      userId: string;
+      status: PresenceStatus;
+      real: PresenceStatus;
+      masked: boolean;
+      updatedAt: string;
+    }>
+  > {
     const unique = [...new Set(userIds)];
     // S25 fix-forward(perf MAJOR · N+1): resolve every user concurrently and
     // reuse the lastActivityMs returned by effectiveStatusWithActivity instead
@@ -225,12 +240,15 @@ export class PresenceService {
     // rather than 1000 sequential awaits.
     return Promise.all(
       unique.map(async (uid) => {
+        const isSelf = uid === viewerUserId;
         const { status: real, lastActivityMs: lastMs } =
           await this.effectiveStatusWithActivity(uid);
-        const status = maskPresenceForViewer(real, uid === viewerUserId);
+        const status = maskPresenceForViewer(real, isSelf);
         return {
           userId: uid,
           status,
+          real,
+          masked: status !== real,
           updatedAt: new Date(lastMs ?? Date.now()).toISOString(),
         };
       }),

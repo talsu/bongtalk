@@ -151,9 +151,105 @@ export const MemberSchema = z.object({
     id: z.string().uuid(),
     username: z.string(),
     email: z.string().email(),
+    customStatus: z.string().nullable().optional(),
   }),
 });
 export type Member = z.infer<typeof MemberSchema>;
+
+// ── S27 (FR-P08/P09/P11/P12): grouped member list ──────────────────────────
+
+/**
+ * S27 (FR-P08): runtime presence status group buckets. Mirrors the four
+ * observable PresenceStatus values (invisible is masked → offline for others
+ * before bucketing, so it never appears as its own group). `dnd` outranks
+ * `idle` which outranks `online` only for the dot; the GROUP itself follows
+ * online → idle → dnd → offline for display order.
+ */
+export const MemberStatusGroupSchema = z.enum(['online', 'idle', 'dnd', 'offline']);
+export type MemberStatusGroup = z.infer<typeof MemberStatusGroupSchema>;
+
+/**
+ * S27 (FR-P08): one member row inside a group. Extends the base Member with the
+ * viewer-masked presence status and (offline only) lastSeenAt. lastSeenAt is
+ * intentionally null for non-offline rows AND for invisible-masked-to-offline
+ * rows (FR-P10 leak guard — see members.service).
+ *
+ * S27 fix-forward(security · FR-P10): lastSeenAt 는 **일 단위(UTC 자정)** 로
+ * 둔감화된 ISO 문자열이다. 서버가 raw 밀리초 대신 day-granularity 로 내려보내
+ * 활동패턴(분/초 단위 접속시각) 추적을 막는다. UI 는 "오늘/어제/N일 전" 으로
+ * 표시한다.
+ */
+export const MemberWithPresenceSchema = MemberSchema.extend({
+  status: MemberStatusGroupSchema,
+  lastSeenAt: z.string().datetime().nullable(),
+});
+export type MemberWithPresence = z.infer<typeof MemberWithPresenceSchema>;
+
+/**
+ * S27 (FR-P09): hoisted role group. qufox has no custom-role system yet
+ * (WorkspaceRole enum only), so OWNER/ADMIN are the baseline hoist set —
+ * surfaced as a single "운영진" (staff) group above the status groups. Custom
+ * per-role hoist (hoistInMemberList column) is a carryover pending the role
+ * system.
+ */
+export const HoistGroupSchema = z.object({
+  /** stable group key — `staff` for the OWNER/ADMIN baseline. */
+  key: z.literal('staff'),
+  label: z.string(),
+  members: z.array(MemberWithPresenceSchema),
+});
+export type HoistGroup = z.infer<typeof HoistGroupSchema>;
+
+export const StatusGroupSchema = z.object({
+  key: MemberStatusGroupSchema,
+  label: z.string(),
+  members: z.array(MemberWithPresenceSchema),
+});
+export type StatusGroup = z.infer<typeof StatusGroupSchema>;
+
+export const ListMembersResponseSchema = z.object({
+  /** FR-P09: hoisted OWNER/ADMIN, online-first within the group. */
+  hoist: z.array(HoistGroupSchema),
+  /** FR-P08: status-bucketed remaining members (online/idle/dnd/offline). */
+  groups: z.array(StatusGroupSchema),
+  /** FR-P12: cursor for the next page (opaque joinedAt|userId), null at end. */
+  nextCursor: z.string().nullable(),
+  /**
+   * FR-P11: whether the OFFLINE group is present in this response. Large
+   * workspaces (>= LARGE_WORKSPACE_THRESHOLD members) drop OFFLINE by default;
+   * a client can re-request with include_offline=true to override.
+   */
+  includeOffline: z.boolean(),
+});
+export type ListMembersResponse = z.infer<typeof ListMembersResponseSchema>;
+
+/** S27 (FR-P12): member-list page size. */
+export const MEMBER_LIST_PAGE_SIZE = 50;
+
+/**
+ * S27 fix-forward(security): opaque member-list cursor 길이 상한. cursor 는
+ * base64url(`<joinedAtISO>|<userId>`) 라 정상값은 ~60자 미만이다. 컨트롤러가
+ * 이 값을 넘는 cursor 를 거부(VALIDATION_FAILED)해 비대한/악의적 입력이 디코드
+ * 경로로 흘러드는 것을 막는다.
+ */
+export const MEMBER_CURSOR_MAX_LENGTH = 256;
+
+/**
+ * S27 (FR-P11): workspaces with at least this many members omit the OFFLINE
+ * group by default (presence fan-out + member-list both stay online-scoped).
+ */
+export const LARGE_WORKSPACE_THRESHOLD = 1000;
+
+/**
+ * S27 (FR-P09): roles surfaced in the baseline hoist group. Until a custom
+ * role system exists, OWNER + ADMIN are the staff hoist set.
+ */
+export const HOISTED_ROLES: ReadonlySet<WorkspaceRole> = new Set<WorkspaceRole>(['OWNER', 'ADMIN']);
+
+/** S27 (FR-P09): true iff this role is hoisted into the staff group. */
+export function isHoistedRole(role: WorkspaceRole): boolean {
+  return HOISTED_ROLES.has(role);
+}
 
 export const UpdateRoleRequestSchema = z.object({
   role: z.enum(['ADMIN', 'MEMBER']), // OWNER is not directly assignable; use transfer-ownership
