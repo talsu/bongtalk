@@ -14,10 +14,15 @@ import {
   WS_EVENTS,
   PRESENCE_OFFLINE_GRACE,
   PRESENCE_IDLE_SWEEP_INTERVAL_MS,
+  PRESENCE_SUBSCRIBE_BURST_MAX,
+  PRESENCE_SUBSCRIBE_BURST_WINDOW_MS,
   PresenceSubscribePayloadSchema,
+  PresenceUnsubscribePayloadSchema,
   PresenceActivityPayloadSchema,
+  maskPresenceForViewer,
   type ChannelJoinedPayload,
   type PresenceBulkPayload,
+  type PresenceUpdatePayload,
   type ReadStateUpdatedPayload,
   type WorkspacePresenceUpdatedPayload,
 } from '@qufox/shared-types';
@@ -80,6 +85,14 @@ export class RealtimeGateway
   // when the idle membership actually changed (avoids a 30s broadcast storm).
   private readonly lastIdleSet = new Map<string, string>();
   private idleSweepTimer: NodeJS.Timeout | null = null;
+
+  // S26 (FR-RT-12): per-socket presence:subscribe burst limiter. Channel-switch
+  // bursts resend the subscribe list; we keep a sliding window of recent
+  // timestamps per socketId and drop a subscribe once it exceeds
+  // PRESENCE_SUBSCRIBE_BURST_MAX in the window. Cleared on disconnect so the map
+  // can't grow unbounded. In-memory (node-local) is fine: a burst is inherently
+  // a single-socket phenomenon and the socket lives on exactly one node.
+  private readonly subscribeBurst = new Map<string, number[]>();
 
   constructor(
     private readonly wsAuth: WsAuthMiddleware,
@@ -184,6 +197,17 @@ export class RealtimeGateway
     // status is restored immediately.
     this.graceTimers.cancel(user.userId);
 
+    // S26 fix-forward(reviewer MAJOR-1 · cross-user leak): DEL any forward
+    // subscription index left over for THIS socketId (engine.io sids are
+    // reused, so a stale 5m-TTL set could belong to a DIFFERENT user from a
+    // previous connection and would otherwise resurrect that user's
+    // subscriptions for the new owner). A reconnect is a fresh sid and the
+    // client resends presence:subscribe, so addSubscriptions rebuilds the index
+    // — retaining the old socketId-keyed set was never observable and only
+    // risked a leak. clearSubscriptions also SREMs the socket out of every
+    // reverse index it lingered in.
+    await this.presence.clearSubscriptions(client.id);
+
     await this.presence.register({
       sessionId: user.sessionId,
       userId: user.userId,
@@ -223,6 +247,12 @@ export class RealtimeGateway
       this.activeWorkspaces.add(wsId);
       this.schedulePresenceBroadcast(wsId);
     }
+
+    // S26 (FR-P16): this user just came ONLINE — push the precise status to any
+    // socket already subscribed to them (e.g. a DM peer who subscribed while
+    // this user was offline). Coarse workspace broadcasts above cover member
+    // lists; this covers direct subscribers with no shared workspace room.
+    await this.fanOutPresenceUpdate(user.userId);
 
     // If client passed an x-last-event-id header, replay anything newer than
     // that per-channel. We do not replay workspace-scoped events to the
@@ -291,6 +321,11 @@ export class RealtimeGateway
       this.graceTimers.arm(userId, this.offlineGraceMs(), async () => {
         const { goneFrom } = await this.presence.finalizeOffline(userId, wsIds, armedEpoch);
         for (const wsId of goneFrom) this.schedulePresenceBroadcast(wsId);
+        // S26 (FR-P16): the user actually went OFFLINE — push the precise
+        // status to their direct subscribers (e.g. a DM peer with no shared
+        // workspace room). goneFrom empty means a reconnect aborted the
+        // finalize, so no fan-out either.
+        if (goneFrom.length > 0) await this.fanOutPresenceUpdate(userId);
       });
     }
     // task-018-F: also clear the user from any typing sets so the
@@ -306,6 +341,12 @@ export class RealtimeGateway
         typingUserIds,
       });
     }
+    // S26 (FR-P16): don't DELETE this socket's subscription index on
+    // disconnect — set a 5m TTL so a reconnect inside the window can resume
+    // fan-out. Also drop the in-memory burst window for the dead socket so the
+    // map can't leak.
+    await this.presence.expireSubscriptions(client.id);
+    this.subscribeBurst.delete(client.id);
     this.logger.log(
       `[ws] -disconnect user=${state.user.userId} sid=${state.user.sessionId} lastSession=${lastSessionGone} clearedTyping=${clearedTypingChannels.length}`,
     );
@@ -339,10 +380,14 @@ export class RealtimeGateway
     if (!PresenceActivityPayloadSchema.safeParse(body ?? {}).success) return;
     const { wasIdle } = await this.presence.touchActivity(state.user.userId);
     if (!wasIdle) return; // online → online, nothing to broadcast
-    // IDLE → ONLINE: re-broadcast so observers drop the idle dot.
+    // IDLE → ONLINE: re-broadcast so workspace observers drop the idle dot.
     for (const wsId of state.workspaceIds) {
       this.schedulePresenceBroadcast(wsId);
     }
+    // S26 (FR-P16): also push the precise new status to this user's direct
+    // subscribers (DM peers / viewport watchers) who aren't necessarily in a
+    // shared workspace room.
+    await this.fanOutPresenceUpdate(state.user.userId);
   }
 
   /**
@@ -368,6 +413,16 @@ export class RealtimeGateway
   ): Promise<void> {
     const state = client.data.state as SocketState | undefined;
     if (!state) return;
+    // S26 (FR-RT-12): channel-switch burst guard. Once a socket exceeds
+    // PRESENCE_SUBSCRIBE_BURST_MAX subscribes inside the window we drop the
+    // frame entirely (no bulk reply) — a flood is almost always a rapid
+    // channel-switch resend storm, and the previous reply is still fresh.
+    if (this.isSubscribeBursting(client.id)) {
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', 'presence:subscribe:dropped'))
+        .inc();
+      return;
+    }
     const empty: PresenceBulkPayload = { presences: [] };
     const parsed = PresenceSubscribePayloadSchema.safeParse(body);
     if (!parsed.success) {
@@ -384,9 +439,205 @@ export class RealtimeGateway
       client.emit(WS_EVENTS.PRESENCE_BULK, empty);
       return;
     }
+    // S26 (FR-RT-12 / FR-P16): persist the subscription so later state changes
+    // for these users fan out to this socket (presence:update). Only the
+    // authorized ids are stored — an unauthorized id can never become a
+    // fan-out target.
+    await this.presence.addSubscriptions(client.id, allowed);
     const presences = await this.presence.bulkFor(state.user.userId, allowed);
     const payload: PresenceBulkPayload = { presences };
     client.emit(WS_EVENTS.PRESENCE_BULK, payload);
+  }
+
+  /**
+   * S26 (FR-P16): presence:unsubscribe — drop the given userIds from this
+   * socket's subscription set so they stop fanning out. Silent (no reply);
+   * a malformed / oversized payload is ignored.
+   */
+  @SubscribeMessage(WS_EVENTS.PRESENCE_UNSUBSCRIBE)
+  async onUnsubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const state = client.data.state as SocketState | undefined;
+    if (!state) return;
+    const parsed = PresenceUnsubscribePayloadSchema.safeParse(body);
+    if (!parsed.success) return;
+    const ids = [...new Set(parsed.data.userIds)];
+    if (ids.length === 0) return;
+    await this.presence.removeSubscriptions(client.id, ids);
+  }
+
+  /**
+   * S26 (FR-RT-12): sliding-window burst check for presence:subscribe. Records
+   * `now` and returns true if the socket has already issued
+   * PRESENCE_SUBSCRIBE_BURST_MAX subscribes within the trailing window.
+   */
+  private isSubscribeBursting(socketId: string): boolean {
+    const now = Date.now();
+    const windowMs = burstWindowMs();
+    const max = burstMax();
+    const recent = (this.subscribeBurst.get(socketId) ?? []).filter((t) => now - t < windowMs);
+    recent.push(now);
+    this.subscribeBurst.set(socketId, recent);
+    return recent.length > max;
+  }
+
+  /**
+   * S26 (FR-P16): fan out a single user's CURRENT effective status to every
+   * socket currently subscribed to them (the reverse index), masked per the
+   * subscriber. Routed by socketId via the Socket.IO adapter so it reaches
+   * subscribers on other nodes too. This is the precise, per-subscriber
+   * complement to the coarse workspace-room `presence.updated` broadcast:
+   *   - presence.updated  → bulk online/dnd/idle sets to a whole workspace room
+   *     (member-list dots; everyone in the workspace, no per-target opt-in)
+   *   - presence:update   → one user's status to the specific sockets that
+   *     asked for it (DM peers, viewport-limited member watchers), even with no
+   *     shared workspace room
+   */
+  private async fanOutPresenceUpdate(userId: string): Promise<void> {
+    if (!this.server) return;
+    const subscriberSockets = await this.presence.subscribersOf(userId);
+    if (subscriberSockets.length === 0) return;
+    const real = await this.presence.effectiveStatus(userId);
+    const updatedAt = new Date().toISOString();
+    // Mask per subscriber: only the subscriber viewing THEMSELVES sees a real
+    // invisible value. bulkFor centralizes the same masking, but here we have a
+    // single target user and per-socket viewers, so we resolve the viewer from
+    // each socket's own user id.
+    const sockets = await this.server.in(subscriberSockets).fetchSockets();
+    // S26 fix-forward(reviewer BLOCKER · authz-staleness teardown): a
+    // subscription captured the viewer↔target authz at subscribe time. If the
+    // viewer has since lost the right to observe `userId` — left/was kicked from
+    // the last shared workspace, left a group DM (S19), or got blocked — that
+    // subscription is now stale and must NOT fan out (online/offline transitions
+    // would leak even though INVISIBLE is masked). We re-verify authz at fan-out
+    // time against the live DB (the source of truth for every revocation vector
+    // at once) rather than wiring a teardown hook into each vector's outbox
+    // path (member_removed / dm.participant_removed and especially friend.blocked
+    // — which today emits no outbox event and is intentionally invisible to the
+    // blocked side, so there is no event to hang a hook on). Re-verification is
+    // cached per viewer for this single fan-out (one DB check per distinct
+    // viewer, not per socket), and a viewer who fails is self-healed out of the
+    // reverse index so it isn't re-checked next time.
+    const allowedByViewer = new Map<string, boolean>();
+    const revoke: Array<{ socketId: string; viewerId: string }> = [];
+    for (const s of sockets) {
+      const data = (s as unknown as { data: { state?: SocketState } }).data;
+      const viewerId = data.state?.user.userId;
+      if (!viewerId) continue;
+      let allowed = allowedByViewer.get(viewerId);
+      if (allowed === undefined) {
+        // Self always observes self; otherwise the viewer must still share a
+        // workspace / DM with the target and not be in a block relation.
+        allowed =
+          viewerId === userId ||
+          (await this.canStillObservePresence(data.state as SocketState, userId));
+        allowedByViewer.set(viewerId, allowed);
+      }
+      if (!allowed) {
+        revoke.push({ socketId: s.id, viewerId });
+        continue;
+      }
+      const masked = maskPresenceForViewer(real, viewerId === userId);
+      const payload: PresenceUpdatePayload = { userId, status: masked, updatedAt };
+      s.emit(WS_EVENTS.PRESENCE_UPDATE, payload);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.PRESENCE_UPDATE))
+        .inc();
+    }
+    // Self-heal: drop the now-unauthorized subscriptions so the stale viewer
+    // stops being a fan-out candidate (no leak on subsequent transitions).
+    for (const r of revoke) {
+      await this.presence.removeSubscriptions(r.socketId, [userId]);
+    }
+  }
+
+  /**
+   * S26 fix-forward(reviewer BLOCKER · authz-staleness): does `viewer` STILL have
+   * the right to observe `targetUserId`'s presence right now? Unlike the
+   * subscribe-time authz, this must NOT trust the socket's cached
+   * `state.workspaceIds` — a viewer who was kicked/left keeps the stale id in
+   * memory until reconnect (refreshUserChannelIds only adds, never removes), and
+   * authorizePresenceTargets only checks that the TARGET is in those workspaces,
+   * not the viewer. So we re-read the VIEWER's current workspace membership from
+   * the DB, intersect it against the target's, and additionally require a shared
+   * DM/private channel as the second admit path. A BLOCKED friendship in EITHER
+   * direction denies regardless. Any miss → false → the subscription is torn
+   * down, so a stale online/offline transition can never leak.
+   */
+  private async canStillObservePresence(
+    viewerState: SocketState,
+    targetUserId: string,
+  ): Promise<boolean> {
+    const viewerId = viewerState.user.userId;
+    // BLOCKED rows collapse to one row owned by the blocker (either direction),
+    // so a single OR query covers both "viewer blocked target" and "target
+    // blocked viewer". Presence must not leak across a block in either case.
+    const blocked = await this.prisma.friendship.findFirst({
+      where: {
+        status: 'BLOCKED',
+        OR: [
+          { requesterId: viewerId, addresseeId: targetUserId },
+          { requesterId: targetUserId, addresseeId: viewerId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (blocked !== null) return false;
+
+    // (1) Live shared-workspace check: both viewer AND target must currently be
+    // members of the same non-deleted workspace. Re-read the viewer's live
+    // memberships rather than trusting state.workspaceIds (which may be stale
+    // after a kick/leave). A single query asks: is the target a member of any
+    // workspace the viewer is still in?
+    const viewerWs = await this.prisma.workspaceMember.findMany({
+      where: { userId: viewerId, workspace: { deletedAt: null } },
+      select: { workspaceId: true },
+    });
+    const viewerWsIds = viewerWs.map((m) => m.workspaceId);
+    if (viewerWsIds.length > 0) {
+      const shared = await this.prisma.workspaceMember.findFirst({
+        where: { userId: targetUserId, workspaceId: { in: viewerWsIds } },
+        select: { userId: true },
+      });
+      if (shared !== null) return true;
+    }
+
+    // (2) Live shared DM / private-channel check: a USER-principal ALLOW on a
+    // non-deleted channel held by BOTH viewer and target (same mechanism that
+    // routes DM events). Leaving a group DM revokes the override, so a stale
+    // subscription falls through to false here.
+    const viewerChannels = await this.prisma.channelPermissionOverride.findMany({
+      where: {
+        principalType: 'USER',
+        principalId: viewerId,
+        allowMask: { gt: 0 },
+        channel: { deletedAt: null },
+      },
+      select: { channelId: true },
+    });
+    const channelIds = viewerChannels.map((c) => c.channelId);
+    if (channelIds.length === 0) return false;
+    const peer = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        principalType: 'USER',
+        principalId: targetUserId,
+        allowMask: { gt: 0 },
+        channelId: { in: channelIds },
+      },
+      select: { principalId: true },
+    });
+    return peer !== null;
+  }
+
+  /**
+   * S26: public wrapper so non-WS paths (PATCH /me/presence controller) can
+   * push a precise presence:update to a user's direct subscribers immediately,
+   * alongside the existing workspace broadcast.
+   */
+  async fanOutPresenceUpdatePublic(userId: string): Promise<void> {
+    await this.fanOutPresenceUpdate(userId);
   }
 
   /**
@@ -670,6 +921,20 @@ export class RealtimeGateway
       this.server.to(rooms.workspace(wsId)).emit('user.profile.updated', payload);
     }
   }
+}
+
+/** S26 (FR-RT-12): presence:subscribe burst window (ms), env-overridable. */
+function burstWindowMs(): number {
+  const raw = Number(
+    process.env.PRESENCE_SUBSCRIBE_BURST_WINDOW_MS ?? PRESENCE_SUBSCRIBE_BURST_WINDOW_MS,
+  );
+  return Number.isFinite(raw) && raw > 0 ? raw : PRESENCE_SUBSCRIBE_BURST_WINDOW_MS;
+}
+
+/** S26 (FR-RT-12): max presence:subscribe per burst window, env-overridable. */
+function burstMax(): number {
+  const raw = Number(process.env.PRESENCE_SUBSCRIBE_BURST_MAX ?? PRESENCE_SUBSCRIBE_BURST_MAX);
+  return Number.isFinite(raw) && raw > 0 ? Math.floor(raw) : PRESENCE_SUBSCRIBE_BURST_MAX;
 }
 
 function pickLastEventId(client: Socket): string | null {

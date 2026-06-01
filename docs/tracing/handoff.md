@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S25 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S26(프레즌스 구독/벌크 + unsubscribe TTL 복원 + 타이핑 인디케이터 DM 통일).** D02(채널)·D03(DM, S16~S20)·D09(읽음상태, S21~S24)·**D08(프레즌스 코어, S25) 완료.**
+> **S05 검증·S06~S26 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S27(멤버 목록 API status/hoist 그룹 + N+1 제거 + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외).** D02·D03·D09 완료. D08(프레즌스, S25~S26) 진행 중.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -232,11 +232,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + presence int 12 GREEN. DS 4파일 무수정.
 - carryover: presence.updated dot→colon(S10), idle sweep 멀티노드, delta payload, **web presence:activity emitter(서버 준비됨, 클라 미전송)**, 멤버목록 REST 마스킹.
 
-## 다음 슬라이스: S26 (프레즌스 구독/벌크 + unsubscribe TTL 복원 + 타이핑 인디케이터 DM 통일)
+## ✅ S26 (프레즌스 구독 lifecycle + presence:update fan-out + 타이핑 DM 통일) — 완료
 
-- scope `apps/api/src/realtime/**`(presence subscribe/typing) + 일부 web. FR-DM-14/P07/P14/P16/RT-12.
-- FR-RT-12(presence:subscribe→bulk 즉시 응답 — S25 에서 일부 구현, room 구독 관리 고도화), FR-P07/P14/P16(프레즌스 구독 lifecycle: unsubscribe + 구독 TTL/복원), FR-DM-14(DM 타이핑 인디케이터 — 일반 채널 typing:start/stop/update 와 통일, dm:typing\_\* prefix 운영 통일).
-- 주의: S25 presence:subscribe/bulk + authorizePresenceTargets 위. 기존 typing.service.ts(TypingService) + presence-throttler 재사용. **선제존재 typing-gateway int 3건(emit-before-ready race) — S26 에서 조사·수정 가능**. 타이핑은 ephemeral(저장X). FR 정본: PRD html FR-P/FR-DM-14.
+- FR-RT-12/P14/P16(presence:sub:{socketId} Set + presence:update fan-out + presence:unsubscribe SREM + disconnect TTL + burst rate-limit 10/s + 500 cap), FR-P07(typing TTL 10s + max-3 "외 N명" cap), FR-DM-14(DM typing 동일 경로, prefix 무).
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀): 보안 BLOCKER(presence:update fan-out authz-staleness → **fan-out 시점 live 재검증 canStillObservePresence**[라이브 workspaceMember+DM+양방향 BLOCKED] 으로 강퇴/이탈/차단 후 누출 0; DEL-on-connect clearSubscriptions 로 sid-reuse 부활 차단). me-presence fan-out 비동기화. body 타입.
+- 게이트: verify 19 + build 3종 + presence-sub int 11(authz-staleness 5 신규) + presence 12 + patch 3 GREEN. 마이그레이션 없음. DS 무수정.
+- carryover(MED): **presence:update web read-side 배선(현재 dead-write)**, cross-node fan-out(멀티노드), perf(이중 브로드캐스트·per-viewer authz 캐시·EXISTS-N), typing.updated WS-naming(S10), friend.blocked outbox 이벤트화.
+
+## 다음 슬라이스: S27 (멤버 목록 API — status/hoist 그룹 + N+1 제거 + INVISIBLE 마스킹 + lastSeenAt + 1000명 OFFLINE 제외)
+
+- scope `apps/api/src/workspaces/**`(members) 또는 channels members + presence 연동 + 일부 web. FR-P08/09/10/11/12/15.
+- 멤버 목록을 presence status 별 그룹 + role hoist 정렬, **N+1 제거**(멤버별 presence 개별조회 금지 — presence bulkFor 일괄), **INVISIBLE→offline 마스킹**(S25 maskPresenceForViewer REST 연결 — S25/S26 carryover "멤버목록 REST 마스킹"), lastSeenAt(마지막 접속), **1000명 이상 워크스페이스는 OFFLINE 멤버 목록 제외**(페이로드 제한).
+- 주의: **S25 carryover "멤버목록/프로필 REST presence 마스킹 미연결" 을 여기서 연결**(bulkFor/maskPresenceForViewer REST 경유 강제). 기존 GET /workspaces/:id/members(현재 presence 미노출) 에 presence 추가. lastSeenAt 영속 필요시 마이그레이션. UI 슬라이스면 ui-designer. FR 정본: PRD html FR-P.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

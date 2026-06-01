@@ -1,4 +1,4 @@
-import { Body, Controller, Patch, UseGuards } from '@nestjs/common';
+import { Body, Controller, Logger, Patch, UseGuards } from '@nestjs/common';
 import { PresencePreference } from '@prisma/client';
 import { UpdatePresenceRequestSchema } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
@@ -29,6 +29,8 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 @UseGuards(JwtAuthGuard)
 @Controller('me')
 export class MePresenceController {
+  private readonly logger = new Logger(MePresenceController.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly presence: PresenceService,
@@ -39,7 +41,10 @@ export class MePresenceController {
   @Patch('presence')
   async setPresence(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { status?: 'online' | 'dnd' | 'invisible' },
+    // S26 fix-forward(contract LOW): the body is REQUIRED (Zod schema is
+    // z.object({ status })), so the type hint mirrors that — `status` is not
+    // optional. safeParse below still guards a missing/garbage body.
+    @Body() body: { status: 'online' | 'dnd' | 'invisible' },
   ): Promise<{
     preference: 'auto' | 'dnd' | 'invisible';
     effective: 'online' | 'dnd' | 'offline' | 'invisible';
@@ -78,6 +83,20 @@ export class MePresenceController {
     for (const wsId of workspaceIds) {
       this.gateway.schedulePresenceBroadcastPublic(wsId);
     }
+
+    // S26 fix-forward(reviewer MAJOR-3 · HTTP P95): push the precise new status
+    // to this user's direct subscribers (DM peers / viewport watchers) who may
+    // not share a workspace room with them. fanOutPresenceUpdate does a
+    // cluster-wide fetchSockets + per-viewer authz re-check — too heavy to block
+    // the HTTP response on. Fire-and-forget: the response returns immediately and
+    // the fan-out runs in the background, errors logged not thrown. The coarse
+    // workspace broadcast above is already async (throttler-scheduled), so this
+    // matches that pattern.
+    void this.gateway.fanOutPresenceUpdatePublic(user.id).catch((err: unknown) => {
+      this.logger.warn(
+        `[me-presence] background presence fan-out failed user=${user.id} err=${String(err).slice(0, 200)}`,
+      );
+    });
 
     // S25: effective is the caller's OWN view (self), so invisible shows as
     // invisible to themselves (mask only applies to other viewers).

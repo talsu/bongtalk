@@ -30,6 +30,8 @@ export const WS_EVENTS = {
   TYPING_BATCH: 'typing:batch',
   // 프레즌스
   PRESENCE_SUBSCRIBE: 'presence:subscribe',
+  // S26 (FR-P16): 구독 해제. presence:sub:{socketId} Set 에서 userIds 를 SREM.
+  PRESENCE_UNSUBSCRIBE: 'presence:unsubscribe',
   PRESENCE_BULK: 'presence:bulk',
   PRESENCE_ACTIVITY: 'presence:activity',
   PRESENCE_SET: 'presence:set',
@@ -248,6 +250,15 @@ export const PresenceSubscribePayloadSchema = z.object({
 });
 export type PresenceSubscribePayload = z.infer<typeof PresenceSubscribePayloadSchema>;
 
+/**
+ * S26 (FR-P16): presence:unsubscribe — 구독 Set 에서 빼고 싶은 userId 집합.
+ * subscribe 와 동일한 500 상한을 둔다(거대 배열로 게이트웨이 SREM 폭주 방지).
+ */
+export const PresenceUnsubscribePayloadSchema = z.object({
+  userIds: z.array(UserIdSchema).max(500),
+});
+export type PresenceUnsubscribePayload = z.infer<typeof PresenceUnsubscribePayloadSchema>;
+
 export const PresenceEntrySchema = z.object({
   userId: UserIdSchema,
   status: PresenceStatusSchema,
@@ -454,6 +465,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.TYPING_UPDATE]: TypingUpdatePayloadSchema,
   [WS_EVENTS.TYPING_BATCH]: TypingBatchPayloadSchema,
   [WS_EVENTS.PRESENCE_SUBSCRIBE]: PresenceSubscribePayloadSchema,
+  [WS_EVENTS.PRESENCE_UNSUBSCRIBE]: PresenceUnsubscribePayloadSchema,
   [WS_EVENTS.PRESENCE_BULK]: PresenceBulkPayloadSchema,
   [WS_EVENTS.PRESENCE_ACTIVITY]: PresenceActivityPayloadSchema,
   [WS_EVENTS.PRESENCE_SET]: PresenceSetPayloadSchema,
