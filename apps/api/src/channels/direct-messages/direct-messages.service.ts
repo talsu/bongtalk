@@ -1,13 +1,17 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { Permission } from '../../auth/permissions';
 import { OutboxService } from '../../common/outbox/outbox.service';
 import type { OutboxTxClient } from '../../common/outbox/outbox.types';
+import { S3Service, sanitizeFilename } from '../../storage/s3.service';
+import { matchesMagic, type MagicSupportedMime } from '../../storage/validate-magic-bytes';
 import {
   DM_CREATED,
+  DM_GROUP_UPDATED,
   DM_OWNER_CHANGED,
   DM_PARTICIPANT_ADDED,
   DM_PARTICIPANT_REMOVED,
@@ -26,6 +30,17 @@ const GROUP_DM_MAX_TOTAL = 20;
 // 선례와 동일한 동시성 모델 — 멤버 추가/나가기의 TOCTOU(cap-race, 0-owner,
 // 승계 정렬)를 DB 직렬화로 닫는다.
 const SERIALIZABLE_MAX_RETRIES = 3;
+
+// S20 (FR-DM-06): group DM 아이콘 업로드 제약 — 4MB / JPEG·PNG·GIF·WebP.
+// custom-emoji 의 256KB/png·gif 대비 한도가 넓다(채널 아바타라 사진 허용).
+// magic-byte 검증으로 확장자/선언 mime 위조를 차단한다(validate-magic-bytes 재사용).
+const DM_ICON_MAX_BYTES = 4 * 1024 * 1024;
+const DM_ICON_ALLOWED_MIME = new Set<MagicSupportedMime>([
+  'image/jpeg',
+  'image/png',
+  'image/gif',
+  'image/webp',
+]);
 
 export interface DmParticipantProfile {
   userId: string;
@@ -58,6 +73,7 @@ export class DirectMessagesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    private readonly s3: S3Service,
   ) {}
 
   /**
@@ -196,6 +212,27 @@ export class DirectMessagesService {
   private channelName(a: string, b: string): string {
     const [x, y] = [a, b].sort();
     return `dm:${x}:${y}`;
+  }
+
+  // S20 (FR-DM-04, BLOCKER fix-forward): 검색어 길이 상한. q 가 DTO 없이
+  // `@Query('q')` 로 직접 들어와 ValidationPipe 가 길이를 강제하지 못하므로, 거대
+  // ILIKE 패턴(DoS)을 패턴 빌더에서 차단한다. RenameGroupDmDto.MaxLength(100) 와
+  // 동일한 상한이라 displayName 매칭에도 충분하다(초과 검색어는 무시 → null).
+  private static readonly SEARCH_TERM_MAX_LEN = 100;
+
+  /**
+   * S20 (FR-DM-04): 검색어 → ILIKE 패턴(`%term%`). LIKE 메타문자(% _ \)를 백슬래시
+   * escape 해 사용자가 와일드카드를 주입하지 못하게 한다(쿼리는 ESCAPE '\' 동반 —
+   * SQL 소스에 단일 백슬래시가 가도록 JS 리터럴은 `ESCAPE '\\'` 로 쓴다). 빈/공백
+   * 문자열은 null 을 반환해 호출측이 검색 fragment 를 생략(Prisma.empty)하게 한다 —
+   * null 파라미터 바인딩으로 인한 PG 타입 추론 실패(42P18)를 원천 차단. 100자 초과
+   * 검색어도 null 을 반환해 거대 패턴(DoS)을 무력화한다(BLOCKER fix-forward).
+   */
+  private buildSearchPattern(q?: string): string | null {
+    const term = q?.trim();
+    if (!term || term.length === 0) return null;
+    if (term.length > DirectMessagesService.SEARCH_TERM_MAX_LEN) return null;
+    return `%${term.replace(/[\\%_]/g, (m) => `\\${m}`)}%`;
   }
 
   /**
@@ -442,6 +479,9 @@ export class DirectMessagesService {
     workspaceId: string | null,
     meId: string,
     limit = 50,
+    // S20 (FR-DM-04): 검색어. 있으면 group displayName/slug(name) OR 활성 참여자
+    // username 에 ILIKE 매칭만 반환한다. 없으면 기존 동작.
+    q?: string,
   ): Promise<
     Array<{
       channelId: string;
@@ -450,22 +490,53 @@ export class DirectMessagesService {
       // 동일 shape 으로 헤더/아바타 스택이 멤버 set 을 일관 렌더한다. memberIds 는
       // 전체 id 집합(권한·라우팅용), participants 는 ≤5 표시용 슬라이스.
       participants: DmParticipantProfile[];
+      // S20 (FR-DM-05/06): 사용자 지정 표시명(없으면 null → 클라가 멤버 username
+      // 으로 폴백 렌더) + 아이콘 키/URL(없으면 null → 기본 아바타).
+      displayName: string | null;
+      iconUrl: string | null;
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
     }>
   > {
     const capped = Math.max(1, Math.min(100, limit));
+    // S20 (FR-DM-04): q 정규화 + 검색 fragment 조립. q 가 없으면 Prisma.empty 로
+    // 필터 절을 통째로 비워 null 파라미터 자체를 제거한다(Prisma 가 null 을
+    // unknown 으로 바인딩해 PG 가 타입 추론 실패 42P18 을 내는 것을 회피 —
+    // search.service 의 Prisma.sql/empty 조건부 조립 선례 동일). LIKE 메타문자
+    // (% _ \\)는 ESCAPE 절로 무력화해 와일드카드 주입을 막고, 파라미터 바인딩으로
+    // SQL injection 을 차단한다.
+    const pattern = this.buildSearchPattern(q);
+    const searchClause = pattern
+      ? Prisma.sql`
+       WHERE (
+              mg."displayName" ILIKE ${pattern} ESCAPE '\\'
+           OR mg."slug"        ILIKE ${pattern} ESCAPE '\\'
+           OR EXISTS (
+                SELECT 1
+                  FROM "ChannelPermissionOverride" mp
+                  JOIN "User" mu ON mu.id = mp."principalId"::uuid
+                 WHERE mp."channelId" = mg."channelId"
+                   AND mp."principalType" = 'USER'
+                   AND (mp."allowMask" & 1) > 0
+                   AND mp."leftAt" IS NULL
+                   AND mu.username ILIKE ${pattern} ESCAPE '\\'
+              )
+       )`
+      : Prisma.empty;
     type Row = {
       channelId: string;
       memberIds: string[];
+      displayName: string | null;
+      iconUrl: string | null;
       lastMessageAt: Date | null;
       lastMessagePreview: string | null;
       createdAt: Date;
     };
-    const rows = await this.prisma.$queryRaw<Row[]>`
+    const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       WITH my_groups AS (
-        SELECT c.id AS "channelId", c."createdAt"
+        SELECT c.id AS "channelId", c."createdAt", c.name AS "slug",
+               c."displayName", c."iconUrl"
           FROM "Channel" c
           JOIN "ChannelPermissionOverride" mine
             ON mine."channelId" = c.id
@@ -474,6 +545,8 @@ export class DirectMessagesService {
            AND (mine."allowMask" & 1) > 0
            -- S19 MED fix-forward: 부분 인덱스 CPO_dm_active_members_idx 매칭.
            AND mine."leftAt" IS NULL
+           -- S20 (FR-DM-10): 요청자가 숨긴 DM 은 목록에서 제외(hiddenAt IS NOT NULL).
+           AND mine."hiddenAt" IS NULL
          WHERE (${workspaceId}::uuid IS NULL OR c."workspaceId" = ${workspaceId}::uuid)
            AND c.type = 'DIRECT'
            AND c.name LIKE 'gdm:%'
@@ -508,15 +581,18 @@ export class DirectMessagesService {
       )
       SELECT mg."channelId",
              m."memberIds",
+             mg."displayName",
+             mg."iconUrl",
              lm."lastMessageAt",
              lm."lastMessagePreview",
              mg."createdAt"
         FROM my_groups mg
         JOIN members m ON m."channelId" = mg."channelId"
         LEFT JOIN last_msg lm ON lm."channelId" = mg."channelId"
+       ${searchClause}
        ORDER BY COALESCE(lm."lastMessageAt", mg."createdAt") DESC
        LIMIT ${capped}
-    `;
+    `);
     if (rows.length === 0) return [];
     // S16 (FR-DM-03): 표시용 멤버 username 을 ≤5 로 조회. 전체 멤버 id 를 모아
     // 한 번에 User 를 조회한 뒤 채널별로 (정렬·≤5) 슬라이스한다.
@@ -534,6 +610,8 @@ export class DirectMessagesService {
         .sort((a, b) => (nameById.get(a) ?? '').localeCompare(nameById.get(b) ?? ''))
         .slice(0, 5)
         .map((id) => ({ userId: id, username: nameById.get(id) ?? '' })),
+      displayName: r.displayName,
+      iconUrl: r.iconUrl,
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       createdAt: r.createdAt.toISOString(),
@@ -609,8 +687,25 @@ export class DirectMessagesService {
     }));
   }
 
-  async list(workspaceId: string | null, meId: string, limit = 50): Promise<DmListItem[]> {
+  async list(
+    workspaceId: string | null,
+    meId: string,
+    limit = 50,
+    // S20 (FR-DM-04): 검색어. 있으면 1:1 DM 상대 username(또는 slug) ILIKE
+    // 매칭만 반환. 없으면 기존 동작.
+    q?: string,
+  ): Promise<DmListItem[]> {
     const capped = Math.max(1, Math.min(100, limit));
+    // S20 (FR-DM-04): listGroups 와 동일한 ILIKE 패턴 + 조건부 fragment 조립.
+    // q 가 없으면 Prisma.empty 로 필터 절을 비워 null 파라미터를 제거한다(42P18 회피).
+    const pattern = this.buildSearchPattern(q);
+    const searchClause = pattern
+      ? Prisma.sql`
+      WHERE (
+             u.username ILIKE ${pattern} ESCAPE '\\'
+          OR p."slug"   ILIKE ${pattern} ESCAPE '\\'
+      )`
+      : Prisma.empty;
     // task-033-B: when workspaceId is null (Global DM), list every
     // DIRECT channel the caller has an ALLOW override on — regardless
     // of workspace scope. When a workspace is specified we keep the
@@ -624,9 +719,9 @@ export class DirectMessagesService {
         lastMessagePreview: string | null;
         unreadCount: bigint;
       }>
-    >`
+    >(Prisma.sql`
       WITH my_dms AS (
-        SELECT c.id AS "channelId"
+        SELECT c.id AS "channelId", c.name AS "slug"
           FROM "Channel" c
           JOIN "ChannelPermissionOverride" mine
             ON mine."channelId" = c.id
@@ -638,9 +733,12 @@ export class DirectMessagesService {
            AND c."deletedAt" IS NULL
            -- task-045 iter8: 1:1 DM 만 — group DM (gdm: prefix) 은 별도 listGroups() 처리.
            AND c.name NOT LIKE 'gdm:%'
+           -- S20 (FR-DM-10): 요청자가 숨긴 DM 은 목록에서 제외.
+           AND mine."hiddenAt" IS NULL
       ),
       peers AS (
         SELECT md."channelId",
+               md."slug",
                peer."principalId" AS "otherUserId"
           FROM my_dms md
           JOIN "ChannelPermissionOverride" peer
@@ -682,9 +780,12 @@ export class DirectMessagesService {
       FROM peers p
       JOIN "User" u ON u.id = p."otherUserId"::uuid
       LEFT JOIN last_msg lm ON lm."channelId" = p."channelId"
+      -- S20 (FR-DM-04): q 가 있으면 상대 username 또는 slug ILIKE 매칭(searchClause).
+      -- q 없으면 Prisma.empty — 필터 없음(기존 동작). 파라미터 바인딩으로 주입 방지.
+      ${searchClause}
       ORDER BY lm."createdAt" DESC NULLS LAST, u.username ASC
       LIMIT ${capped}
-    `;
+    `);
     return rows.map((r) => ({
       channelId: r.channelId,
       otherUserId: r.otherUserId,
@@ -1132,5 +1233,287 @@ export class DirectMessagesService {
       select: { principalId: true },
     });
     return Array.from(new Set([...rows.map((r) => r.principalId), alwaysInclude]));
+  }
+
+  // ── S20: DM 메타(이름/아이콘) + 숨김/뮤트 (FR-DM-04/05/06/10/11) ─────────────
+
+  /**
+   * S20: 그룹 DM 멤버십 게이트. caller(meId)가 group(`gdm:%`) DM 의 **현역 멤버**
+   * (allowMask&1>0 + leftAt IS NULL)인지 확인하고 채널 메타를 반환한다. 다음은
+   * 모두 404(존재 leak 방지): 채널 부재/soft-deleted, 비-DIRECT, 비-gdm slug,
+   * caller 가 현역 멤버 아님. 활성 recipient 집합(현역 멤버)도 함께 수집해
+   * dm.group_updated fanout 에 쓴다.
+   *
+   * PRD 가 rename/아이콘 권한을 owner 로 제한하지 않으므로(미제한이면 현역 멤버
+   * 허용) 현역 멤버 누구나 호출할 수 있다.
+   */
+  private async loadGroupForMember(
+    meId: string,
+    channelId: string,
+  ): Promise<{
+    channel: {
+      id: string;
+      name: string | null;
+      displayName: string | null;
+      iconUrl: string | null;
+    };
+    recipients: string[];
+  }> {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, type: 'DIRECT', deletedAt: null },
+      select: { id: true, name: true, displayName: true, iconUrl: true },
+    });
+    if (!channel || !channel.name?.startsWith('gdm:')) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
+    }
+    const mine = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        channelId,
+        principalType: 'USER',
+        principalId: meId,
+        allowMask: { gt: 0 },
+        leftAt: null,
+      },
+      select: { id: true },
+    });
+    if (!mine) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
+    }
+    const rows = await this.prisma.channelPermissionOverride.findMany({
+      where: { channelId, principalType: 'USER', allowMask: { gt: 0 }, leftAt: null },
+      select: { principalId: true },
+    });
+    const recipients = Array.from(new Set(rows.map((r) => r.principalId)));
+    return { channel, recipients };
+  }
+
+  /**
+   * S20 (MAJOR fix-forward): dm.group_updated outbox 기록. recipients(라우팅 전용)는
+   * 현역 멤버 전원. 와이어로는 구독자가 recipients 를 제거하고 channelId + 변경 필드만
+   * 노출한다. displayName / iconUrl 은 변경분만 전달한다(undefined = 미포함, null =
+   * 클리어). **호출 tx 를 주입받아** Channel.update 와 같은 commit 에 outbox row 가
+   * 보이도록 한다 — 별도 $transaction 이면 mutation 커밋 후 record 직전 크래시 시
+   * event 가 유실돼 stale name/icon 이 fanout 되지 않는다.
+   */
+  private async recordGroupUpdated(
+    tx: OutboxTxClient,
+    args: {
+      channelId: string;
+      recipients: string[];
+      displayName?: string | null;
+      iconUrl?: string | null;
+    },
+  ): Promise<void> {
+    const payload: Record<string, unknown> = {
+      channelId: args.channelId,
+      recipients: args.recipients,
+    };
+    if (args.displayName !== undefined) payload.displayName = args.displayName;
+    if (args.iconUrl !== undefined) payload.iconUrl = args.iconUrl;
+    await this.outbox.record(tx, {
+      aggregateType: 'channel',
+      aggregateId: args.channelId,
+      eventType: DM_GROUP_UPDATED,
+      payload,
+    });
+  }
+
+  /**
+   * FR-DM-05: 그룹 DM 이름 변경. group(`gdm:%`) 만, 현역 멤버 허용(PRD 미제한).
+   * slug `Channel.name` 은 불변이라 그대로 두고 `Channel.displayName` 만 세팅한다.
+   * 변경 즉시 참여자 전원에게 dm.group_updated(channelId + displayName) fanout.
+   */
+  async renameGroup(args: {
+    meId: string;
+    channelId: string;
+    name: string;
+  }): Promise<{ channelId: string; displayName: string }> {
+    const { meId, channelId, name } = args;
+    const { recipients } = await this.loadGroupForMember(meId, channelId);
+    const displayName = name.trim();
+    if (displayName.length === 0) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'name must not be blank');
+    }
+    // S20 (MAJOR fix-forward): Channel.update + outbox.record 를 단일 $transaction
+    // 으로 묶어 원자화한다(별도 tx 면 update 커밋 후 record 유실 → stale name fanout).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.channel.update({
+        where: { id: channelId },
+        data: { displayName },
+      });
+      await this.recordGroupUpdated(tx as unknown as OutboxTxClient, {
+        channelId,
+        recipients,
+        displayName,
+      });
+    });
+    return { channelId, displayName };
+  }
+
+  /**
+   * FR-DM-06: 그룹 DM 아이콘 업로드. group-only, 현역 멤버. 4MB / JPEG·PNG·GIF·
+   * WebP 만 허용하고 validate-magic-bytes 로 확장자/선언 mime 위조를 차단한다
+   * (custom-emoji finalize 선례 동일). MinIO 에 직접 PUT(server-side) 후
+   * `Channel.iconUrl` 을 storageKey 로 세팅하고 dm.group_updated(iconUrl) fanout.
+   * 이전 아이콘이 있으면 새 키 PUT 성공 후 best-effort 로 정리한다.
+   */
+  async setGroupIcon(args: {
+    meId: string;
+    channelId: string;
+    bytes: Uint8Array;
+    mime: string;
+    originalName: string;
+  }): Promise<{ channelId: string; iconUrl: string }> {
+    const { meId, channelId, bytes, mime, originalName } = args;
+    const { channel, recipients } = await this.loadGroupForMember(meId, channelId);
+
+    const lowerMime = mime.toLowerCase();
+    if (!DM_ICON_ALLOWED_MIME.has(lowerMime as MagicSupportedMime)) {
+      throw new DomainError(
+        ErrorCode.ATTACHMENT_MIME_REJECTED,
+        `mime not allowed: ${mime} (jpeg/png/gif/webp only)`,
+      );
+    }
+    if (bytes.byteLength <= 0 || bytes.byteLength > DM_ICON_MAX_BYTES) {
+      throw new DomainError(
+        ErrorCode.ATTACHMENT_TOO_LARGE,
+        `icon out of bounds (max ${DM_ICON_MAX_BYTES} bytes)`,
+      );
+    }
+    // 확장자 위조 차단: 선언 mime 의 magic-byte 와 실제 바이트 prefix 가 일치해야 한다.
+    if (!matchesMagic(bytes.subarray(0, 16), lowerMime as MagicSupportedMime)) {
+      throw new DomainError(
+        ErrorCode.INVALID_MAGIC_BYTES,
+        `declared ${mime} but file magic does not match`,
+      );
+    }
+
+    const iconId = randomUUID();
+    const storageKey = `__dm__/${channelId}/icons/${iconId}-${sanitizeFilename(originalName)}`;
+    // MinIO PUT 은 tx 밖(I/O) 유지하되, DB update + outbox.record 는 단일 tx 로 묶는다.
+    await this.s3.putObject(storageKey, bytes, lowerMime);
+
+    const prevIcon = channel.iconUrl;
+    try {
+      // S20 (MAJOR fix-forward): Channel.update + record 원자화(별도 tx 면 update
+      // 커밋 후 record 유실 → stale icon fanout).
+      await this.prisma.$transaction(async (tx) => {
+        await tx.channel.update({
+          where: { id: channelId },
+          data: { iconUrl: storageKey },
+        });
+        await this.recordGroupUpdated(tx as unknown as OutboxTxClient, {
+          channelId,
+          recipients,
+          iconUrl: storageKey,
+        });
+      });
+    } catch (err) {
+      // S20 (MAJOR fix-forward): DB update/record 실패 시 방금 PUT 한 새 object 가
+      // MinIO 에 orphan 으로 남는다 — best-effort 로 정리한 뒤 원본 에러를 그대로
+      // 전파한다(이전 아이콘 cleanup 과 동일 패턴).
+      await this.s3.deleteObject(storageKey).catch(() => undefined);
+      throw err;
+    }
+    // 이전 아이콘 정리(best-effort) — 새 키 PUT + DB 갱신 성공 후에만 지운다.
+    if (prevIcon && prevIcon !== storageKey) {
+      await this.s3.deleteObject(prevIcon).catch(() => undefined);
+    }
+    return { channelId, iconUrl: storageKey };
+  }
+
+  /**
+   * FR-DM-06: 그룹 DM 아이콘 삭제. group-only, 현역 멤버. MinIO object 정리 +
+   * `Channel.iconUrl=NULL`. 아이콘이 없으면 멱등(no-op + iconUrl=null fanout 생략).
+   */
+  async removeGroupIcon(args: { meId: string; channelId: string }): Promise<void> {
+    const { meId, channelId } = args;
+    const { channel, recipients } = await this.loadGroupForMember(meId, channelId);
+    if (!channel.iconUrl) return; // 멱등 — 이미 없음.
+    // S20 (MAJOR fix-forward): iconUrl=NULL update + record 를 단일 tx 로 원자화.
+    // MinIO deleteObject 는 DB commit 성공 후에만 best-effort 로 실행한다(삭제는
+    // 되돌릴 수 없으므로 DB 가 먼저 확정돼야 한다).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.channel.update({
+        where: { id: channelId },
+        data: { iconUrl: null },
+      });
+      await this.recordGroupUpdated(tx as unknown as OutboxTxClient, {
+        channelId,
+        recipients,
+        iconUrl: null,
+      });
+    });
+    await this.s3.deleteObject(channel.iconUrl).catch(() => undefined);
+  }
+
+  /**
+   * FR-DM-10: DM 숨기기/표시 토글. 요청자 USER override 의 hiddenAt 을 세팅한다
+   * (HIDDEN=now, VISIBLE=NULL). 1:1·그룹 DM 모두 대상이며, 요청자가 해당 DM 의
+   * 현역 멤버여야 한다(아니면 404). list/listGroups 가 hiddenAt IS NOT NULL 을
+   * 제외하므로 숨기면 사이드바에서 사라지고, 상대방의 새 메시지가 도착하면 send
+   * 경로가 수신자 hiddenAt 을 자동 복원한다(FR-DM-10).
+   */
+  async setVisibility(args: {
+    meId: string;
+    channelId: string;
+    visibility: 'HIDDEN' | 'VISIBLE';
+  }): Promise<{ channelId: string; visibility: 'HIDDEN' | 'VISIBLE' }> {
+    const { meId, channelId, visibility } = args;
+    // 요청자가 이 DM 의 현역 멤버인지 — DIRECT 채널 + USER override(allowMask&1>0
+    // + leftAt IS NULL). 그룹/1:1 모두 동일.
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, type: 'DIRECT', deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'DM not found');
+    }
+    const updated = await this.prisma.channelPermissionOverride.updateMany({
+      where: {
+        channelId,
+        principalType: 'USER',
+        principalId: meId,
+        allowMask: { gt: 0 },
+        leftAt: null,
+      },
+      data: { hiddenAt: visibility === 'HIDDEN' ? new Date() : null },
+    });
+    if (updated.count === 0) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'DM not found');
+    }
+    return { channelId, visibility };
+  }
+
+  /**
+   * S20 (BLOCKER fix-forward, IDOR): DM 멤버십 게이트. 요청자(meId)가 주어진
+   * channelId 가 가리키는 **DIRECT 채널의 현역 멤버**(USER override allowMask&1>0
+   * + leftAt IS NULL)인지 검증한다. setVisibility 의 채널 존재 + 멤버 override
+   * 패턴을 추출한 read-only 버전이다. PATCH /me/dms/:channelId/mute 가 JwtAuthGuard
+   * 만 두고 멤버십을 검증하지 않아 임의 channelId 에 UserChannelMute 행이 생성되거나
+   * (FK 위반 P2003 → 500) 채널 존재가 열거되는 IDOR 을 닫는다. 비멤버·비-DIRECT·
+   * 부재 채널은 모두 404(CHANNEL_NOT_FOUND)로 존재 leak 을 막는다.
+   */
+  async assertDmMember(meId: string, channelId: string): Promise<void> {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, type: 'DIRECT', deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'DM not found');
+    }
+    const mine = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        channelId,
+        principalType: 'USER',
+        principalId: meId,
+        allowMask: { gt: 0 },
+        leftAt: null,
+      },
+      select: { id: true },
+    });
+    if (!mine) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'DM not found');
+    }
   }
 }

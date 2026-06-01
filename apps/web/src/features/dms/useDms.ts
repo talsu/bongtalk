@@ -23,6 +23,12 @@ export interface GroupDmListItem {
   channelId: string;
   memberIds: string[];
   participants: DmParticipantProfile[];
+  // S20 (FR-DM-05/06, contract fix-forward): 서버 listGroups 가 반환하는 사용자
+  // 지정 표시명 + 아이콘 키. displayName 이 null 이면 클라가 멤버 username 으로
+  // 폴백 렌더, iconUrl 이 null 이면 기본 아바타. (iconUrl 은 현재 raw 키 — web
+  // 소비 훅 dormant 라 미렌더이며, presign-on-read 배선은 carryover.)
+  displayName: string | null;
+  iconUrl: string | null;
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   createdAt: string;

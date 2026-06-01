@@ -244,6 +244,23 @@ export class OutboxToWsSubscriber {
             ownerId: (env as { ownerId?: string }).ownerId ?? '',
           },
         };
+      case 'dm.group_updated': {
+        // S20 (FR-DM-05/06): 이름/아이콘 변경. displayName / iconUrl 은 변경분만
+        // 실린다(둘 다 nullable·optional). 아이콘 삭제는 iconUrl=null 로 전달된다.
+        const wire: Record<string, unknown> = {
+          ...base,
+          type: WS_EVENTS.DM_GROUP_UPDATED,
+        };
+        const rawDisplayName = (env as { displayName?: unknown }).displayName;
+        if (rawDisplayName !== undefined) {
+          wire.displayName = typeof rawDisplayName === 'string' ? rawDisplayName : null;
+        }
+        const rawIconUrl = (env as { iconUrl?: unknown }).iconUrl;
+        if (rawIconUrl !== undefined) {
+          wire.iconUrl = typeof rawIconUrl === 'string' ? rawIconUrl : null;
+        }
+        return { wireType: WS_EVENTS.DM_GROUP_UPDATED, wire };
+      }
       default:
         return null;
     }

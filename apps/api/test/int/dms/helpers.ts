@@ -17,12 +17,54 @@ import { AppModule } from '../../../src/app.module';
 import { PrismaService } from '../../../src/prisma/prisma.module';
 import { REDIS } from '../../../src/redis/redis.module';
 import { OutboxDispatcher } from '../../../src/common/outbox/outbox.dispatcher';
+import { S3Service } from '../../../src/storage/s3.service';
+
+/**
+ * S20 (FR-DM-06): in-memory S3Service stub for the DM int env. The group DM
+ * icon upload path does a server-side `putObject` + `deleteObject`; without a
+ * MinIO container we stub the storage SDK at the Nest DI layer (same surface
+ * as the magic-bytes attachment/emoji int specs) so the upload/delete flow is
+ * exercised end-to-end through HTTP while bytes land in memory. Magic-byte
+ * validation runs in the service BEFORE putObject, so type/forgery rejection
+ * is fully covered without real storage.
+ */
+export type FakeS3 = S3Service & {
+  store: Map<string, { bytes: Uint8Array; contentType: string }>;
+  putCalls: string[];
+  deleteCalls: string[];
+};
+
+function makeFakeS3(): FakeS3 {
+  const store = new Map<string, { bytes: Uint8Array; contentType: string }>();
+  const putCalls: string[] = [];
+  const deleteCalls: string[] = [];
+  return {
+    store,
+    putCalls,
+    deleteCalls,
+    putObject: async (key: string, bytes: Uint8Array, contentType: string) => {
+      store.set(key, { bytes, contentType });
+      putCalls.push(key);
+    },
+    deleteObject: async (key: string) => {
+      store.delete(key);
+      deleteCalls.push(key);
+    },
+    presignGet: async (key: string) => `http://stub/${key}`,
+    presignPut: async () => 'http://stub',
+    headObject: async () => null,
+    getObjectRange: async () => null,
+    presignPutTtl: 900,
+    presignGetTtl: 1800,
+  } as unknown as FakeS3;
+}
 
 export type DmIntEnv = {
   app: INestApplication;
   prisma: PrismaService;
   redis: Redis;
   dispatcher: OutboxDispatcher;
+  s3: FakeS3;
   baseUrl: string;
   stop: () => Promise<void>;
 };
@@ -74,7 +116,13 @@ export async function setupDmIntEnv(): Promise<DmIntEnv> {
     stdio: 'pipe',
   });
 
-  const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
+  const fakeS3 = makeFakeS3();
+  const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
+    // S20 (FR-DM-06): override S3Service with the in-memory stub so the icon
+    // upload/delete HTTP flow runs without a MinIO container.
+    .overrideProvider(S3Service)
+    .useValue(fakeS3)
+    .compile();
   const app = moduleRef.createNestApplication();
   app.use(cookieParser());
   app.useGlobalPipes(
@@ -94,6 +142,7 @@ export async function setupDmIntEnv(): Promise<DmIntEnv> {
     prisma,
     redis: redisClient,
     dispatcher,
+    s3: fakeS3,
     baseUrl,
     stop: async () => {
       await app.close();

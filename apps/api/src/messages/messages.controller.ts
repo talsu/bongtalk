@@ -330,6 +330,10 @@ export class MessagesController {
       attachmentIds: parsed.data.attachmentIds,
       // task-044-iter3: pass sender role so mentions.everyone is gated.
       actorRole: m.role,
+      // S20 (MAJOR/perf): ChannelAccessGuard 가 로드한 channel.type 을 넘겨 send 의
+      // DM hidden-restore 게이트가 채널을 다시 SELECT 하지 않게 한다. channel 이
+      // undefined 면 send 가 workspaceId 폴백으로 판정한다(여기는 워크스페이스 경로).
+      channelType: channel?.type,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
