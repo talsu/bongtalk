@@ -216,6 +216,267 @@ describe('S23 read-all (FR-RS-11)', () => {
     expect(second.body.channelsRead).toBe(0);
   });
 
+  // ── S24 (FR-RS-18): snapshot + Undo ───────────────────────────────────────
+
+  it('read-all returns a snapshotId and undo restores the prior unread state', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 's24-1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 's24-2', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 's24-3', { ws: seed.workspaceId, by: seed.owner });
+
+    // member 는 커서가 없어 3 미읽.
+    const before = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(before.body.channels, ch)).toBe(3);
+
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+    expect(readAll.body.snapshotId).toMatch(/^[0-9a-f-]{36}$/);
+
+    // 전부 읽음.
+    const afterRead = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(afterRead.body.channels, ch)).toBe(0);
+
+    // Undo → 직전 상태(3 미읽)로 후진 복원.
+    const undo = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId: readAll.body.snapshotId });
+    expect(undo.status).toBe(200);
+    expect(undo.body.channelsRestored).toBeGreaterThanOrEqual(1);
+
+    const afterUndo = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(afterUndo.body.channels, ch)).toBe(3);
+  });
+
+  it('undo restores a PARTIALLY-read channel to its exact prior cursor (후진)', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    const m1 = await postMessage(ch, 'p1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'p2', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'p3', { ws: seed.workspaceId, by: seed.owner });
+
+    // member ACK 까지 m1 → 남은 미읽 2(p2, p3).
+    await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/channels/${ch}/ack`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ lastReadMessageId: m1 });
+
+    const before = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(before.body.channels, ch)).toBe(2);
+
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+
+    // Undo → 정확히 직전 커서(m1)로 후진 → 미읽 2 복원.
+    const undo = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId: readAll.body.snapshotId });
+    expect(undo.status).toBe(200);
+
+    const afterUndo = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(afterUndo.body.channels, ch)).toBe(2);
+  });
+
+  it('undo with an unknown snapshotId returns 404', async () => {
+    const res = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(member.accessToken))
+      .send({ snapshotId: '00000000-0000-4000-8000-000000000000' });
+    expect(res.status).toBe(404);
+  });
+
+  // S24 fix-forward (security HIGH #1): consume 원자화 — 같은 snapshotId 로 두 번째
+  // Undo 는 이미 소비돼 404(중복 복원 차단). 첫 Undo 가 Redis+DB 양쪽을 소비한다.
+  it('double-undo with the same snapshotId returns 404 on the second call', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'd1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'd2', { ws: seed.workspaceId, by: seed.owner });
+
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+    const snapshotId = readAll.body.snapshotId as string;
+
+    const first = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId });
+    expect(first.status).toBe(200);
+
+    const second = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId });
+    expect(second.status).toBe(404);
+
+    // 첫 복원만 적용 — 미읽 2(2 번째 Undo 가 추가 후진하지 않음).
+    const after = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(after.body.channels, ch)).toBe(2);
+  });
+
+  // S24 fix-forward (security HIGH #1): owner-mismatch — 다른 사용자가 남의
+  // snapshotId 로 Undo 하면 404 이고, 정당한 소유자의 스냅샷은 소비되지 않는다.
+  it('rejects undo from a non-owner of the snapshot (404) without consuming it', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'o1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'o2', { ws: seed.workspaceId, by: seed.owner });
+
+    // member 가 read-all → member 소유 스냅샷.
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+    const snapshotId = readAll.body.snapshotId as string;
+
+    // owner(같은 워크스페이스 멤버라 가드는 통과)가 member 의 snapshotId 로 Undo →
+    // owner-mismatch 404(소비 안 됨).
+    const wrong = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.owner.accessToken))
+      .send({ snapshotId });
+    expect(wrong.status).toBe(404);
+
+    // 정당한 소유자(member)는 여전히 Undo 가능 — 스냅샷이 소비되지 않았다.
+    const right = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId });
+    expect(right.status).toBe(200);
+    const after = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(after.body.channels, ch)).toBe(2);
+  });
+
+  // S24 fix-forward (reviewer MAJOR #2): snapshot RETURNING old-value 정합 —
+  // read-all 이 덮어쓰기 직전 old 커서를 캡처하므로, read-all 직후 도착한 새
+  // 메시지가 Undo 에 영향을 주지 않고(스냅샷은 read-all 시점 커서) 정확히 복원된다.
+  it('undo restores to the read-all-time cursor even if new messages arrived after', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    const m1 = await postMessage(ch, 'c1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'c2', { ws: seed.workspaceId, by: seed.owner });
+
+    // member ACK 까지 m1 → 미읽 1(c2).
+    await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/channels/${ch}/ack`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ lastReadMessageId: m1 });
+    expect(
+      unreadFor(
+        (
+          await request(env.baseUrl)
+            .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+            .set('origin', ORIGIN)
+            .set(bearer(seed.member.accessToken))
+        ).body.channels,
+        ch,
+      ),
+    ).toBe(1);
+
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+
+    // read-all 직후 새 메시지 2개 도착(read-all 스냅샷에는 없음).
+    await postMessage(ch, 'c3', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'c4', { ws: seed.workspaceId, by: seed.owner });
+
+    // Undo → read-all 시점 커서(m1)로 후진 → c2,c3,c4 미읽(3). 스냅샷이 read-all
+    // 시점 old 커서라, 이후 도착 메시지도 자연히 미읽으로 집계된다.
+    const undo = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken))
+      .send({ snapshotId: readAll.body.snapshotId });
+    expect(undo.status).toBe(200);
+
+    const after = await request(env.baseUrl)
+      .get(`/workspaces/${seed.workspaceId}/unread-summary`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(unreadFor(after.body.channels, ch)).toBe(3);
+  });
+
+  it('undo fans read_state:updated for each restored channel', async () => {
+    const seed = await seedWorkspaceWithRoles(env.baseUrl);
+    const ch = await createChannel({ ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'u1', { ws: seed.workspaceId, by: seed.owner });
+    await postMessage(ch, 'u2', { ws: seed.workspaceId, by: seed.owner });
+
+    const readAll = await request(env.baseUrl)
+      .post(`/workspaces/${seed.workspaceId}/read-all`)
+      .set('origin', ORIGIN)
+      .set(bearer(seed.member.accessToken));
+    expect(readAll.status).toBe(200);
+
+    const socket = await connect(seed.member.accessToken);
+    try {
+      const events: Array<{ channelId: string; unreadCount: number }> = [];
+      socket.on('read_state:updated', (e: { channelId: string; unreadCount: number }) =>
+        events.push(e),
+      );
+
+      const undo = await request(env.baseUrl)
+        .post(`/workspaces/${seed.workspaceId}/read-all/undo`)
+        .set('origin', ORIGIN)
+        .set(bearer(seed.member.accessToken))
+        .send({ snapshotId: readAll.body.snapshotId });
+      expect(undo.status).toBe(200);
+
+      await new Promise((r) => setTimeout(r, 300));
+      const forCh = events.find((e) => e.channelId === ch);
+      expect(forCh).toBeDefined();
+      // 복원 후 미읽이 다시 2 로 올라간 read_state:updated 가 fan-out 된다.
+      expect(forCh?.unreadCount).toBe(2);
+    } finally {
+      socket.disconnect();
+    }
+  });
+
   // S23 fix-forward (MAJOR-4): ACL 가시성 — member 가 볼 수 없는 비공개 채널은
   // read-all 의 set-based SQL 에서 제외돼 fan-out/전진 대상이 아니다.
   it('excludes channels the caller cannot see (private channel not advanced)', async () => {

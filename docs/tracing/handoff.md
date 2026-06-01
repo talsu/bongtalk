@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S23 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S24(수동 미읽/컨텍스트 메뉴 읽음 + Unreads View + 단축키 + mark-all-read Undo).** D02(채널)·D03(DM, S16~S20) 완료. S21 D09 코어(+선제존재 unread 3건 수정)·S22 사이드바/배지·S23 NEW MESSAGES 구분선/Jump/Esc 단축키 완료.
+> **S05 검증·S06~S24 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S25(프레즌스 코어: 상태 5종 + activity/IDLE 전환 + grace 재연결 + 다중디바이스 세션).** D02(채널)·D03(DM, S16~S20)·**D09(읽음상태, S21~S24 전체) 완료.**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -218,11 +218,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + web 단위 + read-all int 5 GREEN. DS 4파일 무수정.
 - carryover: role=log live-region(선제존재 HIGH), 라이트 구분선 대비(DS), 데스크톱 구분선 DS 클래스 갭, DM 구분선/전체읽음 contract, around-reload 서버 emit.
 
-## 다음 슬라이스: S24 (수동 미읽/컨텍스트 메뉴 읽음 + Unreads View + 단축키 + mark-all-read Undo)
+## ✅ S24 (수동 미읽 + 컨텍스트 읽음 + Unreads View + mark-all-read Undo) — 완료
 
-- scope web + api. FR-RS-08/09/10/18.
-- FR-RS-08(**수동 mark-as-unread** — 메시지 컨텍스트 메뉴 "여기부터 읽지 않음", ChannelReadState **후진** 필요), FR-RS-09(컨텍스트 메뉴 채널 읽음 표시), FR-RS-10(Unreads View — 전체 미읽 모아보기), FR-RS-18(mark-all-read Undo — S23 read-all 직후 되돌리기).
-- 주의: **⚠️ 수동 mark-unread 는 monotonic 후진** — S21 ackRead/markAllRead 의 monotonic 전진-only upsert 와 **충돌**. 의도적 후진(특정 메시지 직전으로 lastReadMessageId 되돌림) 전용 경로 필요(monotonic guard 우회 — 단 read_state:updated 로 멀티세션 동기화). **Undo(FR-RS-18)** 는 read-all 직전 스냅샷 보관(S23 useMarkAllRead onMutate 스냅샷 재활용 가능) 후 복원 엔드포인트. Unreads View 는 summarize 전체 미읽 목록. FR 정본: PRD html FR-RS.
+- FR-RS-08(수동 mark-unread: `POST .../unread {messageId}` → 직전 튜플 후진, **비-monotonic setCursorBackward**), FR-RS-09(채널 컨텍스트 메뉴 읽음 → `/read-ack` emit), FR-RS-10(Unreads View 사이드바 최상단, mention 우선 정렬, per-channel/모두읽음, 5초 Undo 토스트, empty state), FR-RS-18(mark-all-read snapshot+Undo: snapshot=advance RETURNING old-value, Redis(TTL5분)+DB MarkAllReadSnapshot 이중, Undo set-based). 마이그레이션 `20260601500000_s24_markallread_snapshot`(reversible).
+- **리뷰 fix-forward**(reviewer+security+ui-designer+a11y 4팀, BLOCKER 0): security(loadAndConsumeSnapshot Lua owner-gated atomic claim + DELETE RETURNING expiresAt — owner-mismatch/만료/double-Undo 404 차단), snapshot RETURNING old-value(동시 ACK race 제거), undo set-based+transaction, FR-RS-09 read_state:updated emit(/read-ack), 컨텍스트 메뉴 포커스 "더보기" 버튼(키보드), Unreads aria-label, Toast 이중 live-region 제거+action+Undo 8s pause, qf-empty.
+- 게이트: verify 19 + build 3종 + channels int 18(read-all 12+mark-unread 6) GREEN. DS 4파일 무수정.
+- carryover(HIGH/MED): **message toolbar hover-only 키보드(DS focus-within 규칙=DS 태스크)**, snapshot GC cron·크기상한, markUnread/undo rate-limit, 다크 muted 대비(DS), 모바일 Unreads, around-reload 서버 emit.
+
+## 다음 슬라이스: S25 (프레즌스 코어 — 상태 5종 + activity/IDLE 전환 + grace 재연결 + 다중디바이스 세션)
+
+- scope `apps/api/src/realtime/**`(presence) + 일부 web. FR-P01/02/03, FR-RT-10/11.
+- 프레즌스 상태 5종(online/idle/dnd/offline/invisible?), activity 기반 IDLE 자동전환, grace period 재연결(짧은 끊김 시 offline 미표기), 다중 디바이스 세션 집계(여러 소켓→단일 presence).
+- 주의: S07 realtime gateway(user room, CONNECTION_READY, sharded redis adapter) + presence store 기존 여부 먼저 조사(task-\* 에 presence 일부 존재 가능 — usePresence/PresenceThrottler 흔적 S22 에서 봄). Redis presence 키 + TTL + grace 타이머. FR 정본: PRD html FR-P 섹션. **D09 완료 — D-presence 진입.**
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

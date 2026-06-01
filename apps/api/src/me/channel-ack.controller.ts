@@ -1,5 +1,9 @@
 import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
-import { AckReadRequestSchema, type ReadStateUpdatedPayload } from '@qufox/shared-types';
+import {
+  AckReadRequestSchema,
+  MarkUnreadRequestSchema,
+  type ReadStateUpdatedPayload,
+} from '@qufox/shared-types';
 import { ChannelAccessGuard } from '../channels/guards/channel-access.guard';
 import { WorkspaceMemberGuard } from '../workspaces/guards/workspace-member.guard';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
@@ -55,6 +59,60 @@ export class ChannelAckController {
       lastReadMessageId: parsed.data.lastReadMessageId,
       workspaceId: wsId,
     });
+    this.gateway.emitReadStateUpdated(user.id, payload);
+    return payload;
+  }
+
+  /**
+   * S24 (FR-RS-08): POST /workspaces/:id/channels/:chid/unread — 수동 미읽 표시.
+   *
+   * Body `{ messageId }`. 해당 메시지 **직전** 메시지로 lastReadMessageId 를
+   * 되돌린다(직전이 없으면 null = 전체 미읽). S21 monotonic guard 를 의도적으로
+   * 우회하는 후진 경로(UnreadService.markUnread → setCursorBackward)이며, 새
+   * unread/mention 카운트를 실은 read_state:updated 를 user 룸으로 fan-out 해
+   * 멀티세션 사이드바 배지를 동기화한다. ack 와 동일 가드/모듈 호스팅 이유.
+   */
+  @Post('unread')
+  @HttpCode(200)
+  async markUnread(
+    @Param('id', new ParseUUIDPipe()) wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ): Promise<ReadStateUpdatedPayload> {
+    const parsed = MarkUnreadRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    const payload = await this.unread.markUnread({
+      userId: user.id,
+      channelId,
+      messageId: parsed.data.messageId,
+      workspaceId: wsId,
+    });
+    this.gateway.emitReadStateUpdated(user.id, payload);
+    return payload;
+  }
+
+  /**
+   * S24 fix-forward (reviewer MAJOR #3 · FR-RS-09): POST /workspaces/:id/channels/
+   * :chid/read-ack — 채널을 최신까지 읽음 처리하고 read_state:updated 를 user 룸으로
+   * **emit** 한다. 채널 컨텍스트 메뉴 "읽음으로 표시"(ChannelList) + Unreads "읽음
+   * 처리"(UnreadsView) 가 종전 `POST .../read`(markRead, emit 안 함) 대신 이 경로를
+   * 써 멀티세션 사이드바 배지를 동기화한다. 메시지가 없는 채널은 payload 가 null
+   * 이라 emit 하지 않는다(미읽이 애초에 0). ack 와 동일 가드/모듈 호스팅 이유.
+   */
+  @Post('read-ack')
+  @HttpCode(200)
+  async readAck(
+    @Param('id', new ParseUUIDPipe()) wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<ReadStateUpdatedPayload | { channelId: string; unreadCount: number }> {
+    const payload = await this.unread.markChannelReadToLatest(user.id, channelId, wsId);
+    if (!payload) {
+      return { channelId, unreadCount: 0 };
+    }
     this.gateway.emitReadStateUpdated(user.id, payload);
     return payload;
   }

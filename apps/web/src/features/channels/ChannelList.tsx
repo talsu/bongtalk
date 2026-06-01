@@ -14,11 +14,18 @@ import { arrayMove, SortableContext, useSortable } from '@dnd-kit/sortable';
 import { useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
-import { useUnreadSummary } from './useUnread';
+import { useUnreadSummary, useMarkChannelRead } from './useUnread';
 import { useMutedChannelIds } from './useMutes';
 import { deriveSidebarRowState } from './sidebarRowState';
+import { isContextMenuKey } from './unreadsA11y';
 import { CreateChannelModal } from './CreateChannelModal';
-import { Icon } from '../../design-system/primitives';
+import {
+  Icon,
+  DropdownRoot,
+  DropdownTrigger,
+  DropdownContent,
+  DropdownItem,
+} from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -91,6 +98,8 @@ function DraggableChannelRow({
   mentionBadgeCount,
   canManage,
   isDropTarget,
+  hasUnread,
+  onMarkRead,
 }: {
   channel: Channel;
   workspaceSlug: string;
@@ -99,7 +108,14 @@ function DraggableChannelRow({
   mentionBadgeCount: number;
   canManage: boolean;
   isDropTarget: boolean;
+  // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" 노출 여부 + 핸들러.
+  hasUnread: boolean;
+  onMarkRead: (channelId: string) => void;
 }): JSX.Element {
+  // S24 (FR-RS-09): 채널 우클릭 컨텍스트 메뉴. 신규 라이브러리 도입 없이 기존
+  // Radix DropdownMenu(DS qf-menu 클래스)를 controlled 로 쓰고, 행의
+  // onContextMenu 가 메뉴를 연다(트리거는 행 안의 0-size 앵커).
+  const [menuOpen, setMenuOpen] = useState(false);
   // user request 2026-04-21:
   //  - `disabled: !canManage` stops the sortable from reacting to
   //    pointer events for non-managers (no drag starts at all).
@@ -132,6 +148,20 @@ function DraggableChannelRow({
         // 직접 보강해 회귀를 막는다(raw hex/px 금지, var() 토큰만 사용).
         aria-current={active ? 'page' : undefined}
         data-active={active ? 'true' : undefined}
+        onContextMenu={(e) => {
+          // S24 (FR-RS-09): 우클릭 → 컨텍스트 메뉴 오픈(브라우저 기본 메뉴 차단).
+          e.preventDefault();
+          setMenuOpen(true);
+        }}
+        onKeyDown={(e) => {
+          // a11y BLOCKER #4: 키보드 컨텍스트 메뉴. ContextMenu 키 또는 Shift+F10 으로
+          // 마우스 우클릭과 동일하게 메뉴를 연다(키보드 사용자 배제 해소). Radix 가
+          // 포커스/Esc/방향키를 담당하므로 여기서는 open 만 트리거한다.
+          if (isContextMenuKey(e)) {
+            e.preventDefault();
+            setMenuOpen(true);
+          }
+        }}
         className={cn(
           'qf-channel group relative',
           active && 'bg-[var(--bg-selected)] text-[var(--text-strong)]',
@@ -180,6 +210,40 @@ function DraggableChannelRow({
             </Link>
           ) : null}
           <MentionBadge count={mentionBadgeCount} />
+          {/* a11y BLOCKER #4: 키보드 접근 가능한 정식 "채널 옵션" 더보기 버튼을
+              DropdownTrigger 로 둔다(종전 0-size aria-hidden 앵커 = 키보드 배제
+              제거). Tab 으로 포커스 가능하고, 행 onContextMenu/Shift+F10 도 같은
+              controlled Dropdown 을 연다. Radix 가 role/포커스/Esc 를 담당한다. */}
+          <DropdownRoot open={menuOpen} onOpenChange={setMenuOpen}>
+            <DropdownTrigger asChild>
+              <button
+                type="button"
+                data-testid={`channel-ctx-trigger-${channel.name}`}
+                aria-label="채널 옵션"
+                onClick={(e) => e.stopPropagation()}
+                onPointerDown={(e) => e.stopPropagation()}
+                className={cn(
+                  'qf-row-iconbtn',
+                  'transition-opacity',
+                  active || menuOpen
+                    ? 'opacity-100'
+                    : 'opacity-0 group-hover:opacity-100 focus-visible:opacity-100',
+                )}
+              >
+                <Icon name="more" size="sm" />
+              </button>
+            </DropdownTrigger>
+            <DropdownContent align="start">
+              <DropdownItem
+                disabled={!hasUnread}
+                onSelect={() => {
+                  if (hasUnread) onMarkRead(channel.id);
+                }}
+              >
+                <span data-testid={`channel-mark-read-${channel.name}`}>읽음으로 표시</span>
+              </DropdownItem>
+            </DropdownContent>
+          </DropdownRoot>
         </span>
       </li>
     </>
@@ -225,6 +289,7 @@ function SortableCategorySection({
   dragOverId,
   activeType,
   isCategoryDropTarget,
+  onMarkRead,
 }: {
   category: { id: string; name: string };
   channels: Channel[];
@@ -237,6 +302,7 @@ function SortableCategorySection({
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
   isCategoryDropTarget: boolean;
+  onMarkRead: (channelId: string) => void;
 }): JSX.Element {
   // Sortable for category reordering.
   const {
@@ -329,6 +395,8 @@ function SortableCategorySection({
                   mentionBadgeCount={rowState.mentionBadgeCount}
                   canManage={canManage}
                   isDropTarget={activeType === 'channel' && dragOverId === ch.id}
+                  hasUnread={(u?.count ?? 0) > 0}
+                  onMarkRead={onMarkRead}
                 />
               );
             })}
@@ -350,6 +418,7 @@ function DefaultSection({
   onAddChannel,
   dragOverId,
   activeType,
+  onMarkRead,
 }: {
   channels: Channel[];
   workspaceSlug: string;
@@ -360,6 +429,7 @@ function DefaultSection({
   onAddChannel: () => void;
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
+  onMarkRead: (channelId: string) => void;
 }): JSX.Element {
   const { setNodeRef } = useDroppable({
     id: ROOT_CATEGORY_ID,
@@ -395,6 +465,8 @@ function DefaultSection({
                 mentionBadgeCount={rowState.mentionBadgeCount}
                 canManage={canManage}
                 isDropTarget={activeType === 'channel' && dragOverId === ch.id}
+                hasUnread={(u?.count ?? 0) > 0}
+                onMarkRead={onMarkRead}
               />
             );
           })}
@@ -415,6 +487,12 @@ export function ChannelList({
   const { data: unread } = useUnreadSummary(workspaceId);
   // S22 (FR-RS-05): 뮤트 채널 id 집합. unread bold/pill 억제에 사용.
   const mutedChannelIds = useMutedChannelIds();
+  // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" — 채널 최신까지 ACK 전진
+  // (기존 markRead 재사용, monotonic 전진).
+  const markReadMut = useMarkChannelRead(workspaceId);
+  const onMarkRead = (channelId: string): void => {
+    markReadMut.mutate(channelId);
+  };
   const moveChannelMut = useMoveChannel(workspaceId);
   const moveCategoryMut = useMoveCategory(workspaceId);
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 4 } }));
@@ -577,6 +655,7 @@ export function ChannelList({
             onAddChannel={() => openChannelCreate(null, '채널')}
             dragOverId={dragOverId}
             activeType={activeDragType}
+            onMarkRead={onMarkRead}
           />
           <SortableContext items={categories.map((c) => c.id)} strategy={() => null}>
             {categories.map((cat) => (
@@ -593,6 +672,7 @@ export function ChannelList({
                 dragOverId={dragOverId}
                 activeType={activeDragType}
                 isCategoryDropTarget={activeDragType === 'category' && dragOverId === cat.id}
+                onMarkRead={onMarkRead}
               />
             ))}
           </SortableContext>

@@ -650,6 +650,31 @@ model UserChannelReadState {
   @@index([channelId])
 }
 
+// S24 (FR-RS-18): mark-all-read 직전 ChannelReadState 의 내구 스냅샷. Undo 토스트의
+// "실행 취소" 가 이 스냅샷으로 채널별 lastReadMessageId 를 되돌린다(후진 허용 —
+// markUnread 와 동일한 비-monotonic 경로). read-all 실행 순서:
+//   (1) 현재 ChannelReadState SELECT → snapshot
+//   (2) Redis(TTL 5분) + DB(이 테이블) 이중 저장 — 2단계 실패 시 ACK 미진행 + 500
+//   (3) chunk(set-based) ACK UPDATE
+// Redis 는 빠른 hot 경로(5분 윈도), DB 는 Redis 미스/재시작 시 폴백(durable).
+// `snapshot` JSON = 채널별 { lastReadMessageId, lastReadMessageCreatedAt } 맵.
+// expiresAt 정리(cron/query-time)는 DEFER(carryover) — 인덱스만 선제 존재.
+model MarkAllReadSnapshot {
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
+  workspaceId String   @db.Uuid
+  // 채널별 직전 커서 맵. shape: { [channelId]: { lastReadMessageId: string|null,
+  // lastReadMessageCreatedAt: string|null } }. row 가 없던(커서 NULL) 채널도
+  // 명시적으로 담아 복원 시 "전체 미읽"(NULL) 로 되돌린다.
+  snapshot    Json
+  createdAt   DateTime @default(now())
+  // Redis TTL(5분)보다 길게 잡아 durable 폴백 윈도를 보장한다(서비스가 산정).
+  expiresAt   DateTime @db.Timestamptz
+
+  @@index([userId, workspaceId])
+  @@index([expiresAt])
+}
+
 // task-032: Friendship — single row per directed pair. ACCEPTED +
 // BLOCKED collapse to one row (vs two symmetric ones) to keep unique
 // semantics tight: there can never be two ACCEPTED rows for the same
