@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MessageMentionsSchema } from './message';
+import { TYPING_MAX_VISIBLE } from './constants';
 
 /**
  * ADR-12 · WS 이벤트 카탈로그 단일 정의.
@@ -220,18 +221,33 @@ export type TypingStartPayload = z.infer<typeof TypingStartPayloadSchema>;
 export const TypingStopPayloadSchema = z.object({ channelId: ChannelIdSchema });
 export type TypingStopPayload = z.infer<typeof TypingStopPayloadSchema>;
 
+/**
+ * typing:update — 단건 snapshot(full-replace, not merge). 채널의 현재 유효
+ * typer 집합을 `typingUserIds` 로 싣습니다. 0명이면 `typingUserIds:[]` 로
+ * 인디케이터를 clear 합니다.
+ *
+ * S32 fix-forward(contract CRITICAL · 4팀 합의): 종전 선언 스키마는
+ * `{channelId, userId, displayName, action}` 로 라이브 와이어(게이트웨이 emit /
+ * dispatcher consume)와 어긋난 *체크인된 거짓 계약*이었습니다. 실제 와이어가
+ * 쓰는 `{channelId, typingUserIds:[]}` 로 정렬하고, 필드명을 `typingUserIds` 로
+ * 통일합니다(현 prod 의 점 표기 `typing.updated` alias 도 이미 `typingUserIds` 를
+ * 쓰므로 alias consumer 와 충돌이 없습니다). 와이어 비대화/멤버 열거를 막는
+ * TYPING_MAX_VISIBLE 상한을 스키마에 명시합니다.
+ */
 export const TypingUpdatePayloadSchema = z.object({
   channelId: ChannelIdSchema,
-  userId: UserIdSchema,
-  displayName: z.string(),
-  action: z.enum(['start', 'stop']),
+  typingUserIds: z.array(UserIdSchema).max(TYPING_MAX_VISIBLE),
 });
 export type TypingUpdatePayload = z.infer<typeof TypingUpdatePayloadSchema>;
 
-/** full snapshot(replace, not merge); 0명이면 userIds:[] clear. */
+/**
+ * typing:batch — full snapshot(replace, not merge); 0명이면 `typingUserIds:[]`
+ * 로 clear. typing:update 와 동일하게 `typingUserIds` 필드명으로 통일하고
+ * (S32 fix-forward · 4팀 합의), TYPING_MAX_VISIBLE 상한을 명시합니다.
+ */
 export const TypingBatchPayloadSchema = z.object({
   channelId: ChannelIdSchema,
-  userIds: z.array(UserIdSchema),
+  typingUserIds: z.array(UserIdSchema).max(TYPING_MAX_VISIBLE),
 });
 export type TypingBatchPayload = z.infer<typeof TypingBatchPayloadSchema>;
 

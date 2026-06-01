@@ -10,10 +10,12 @@ import {
   PresenceSubscribePayloadSchema,
   PresenceUnsubscribePayloadSchema,
   WorkspacePresenceUpdatedPayloadSchema,
+  TypingUpdatePayloadSchema,
   TypingBatchPayloadSchema,
   ChannelJoinedPayloadSchema,
   maskPresenceForViewer,
 } from './events';
+import { TYPING_MAX_VISIBLE } from './constants';
 import { extractMentionUserIds } from './mrkdwn';
 
 beforeEach(() => {
@@ -267,8 +269,46 @@ describe('read_state / presence / typing payloads', () => {
     }
   });
 
-  it('typing:batch userIds is a full snapshot (empty allowed)', () => {
-    expect(TypingBatchPayloadSchema.parse({ channelId: 'c1', userIds: [] }).userIds).toEqual([]);
+  // S32 fix-forward(contract CRITICAL · 4팀 합의): typing:update / typing:batch
+  // 의 와이어 형태는 `{ channelId, typingUserIds:[...] }` 로 통일됐다(종전 선언
+  // 스키마의 {userId, displayName, action} / batch 의 {userIds} 는 라이브 와이어와
+  // 어긋난 거짓 계약이었다). 실제 와이어 페이로드가 각 스키마로 parse 성공하는지,
+  // 그리고 WS_EVENT_PAYLOAD_SCHEMAS 매핑이 동일 스키마를 가리키는지 가드한다.
+  it('typing:update parses the live wire shape { channelId, typingUserIds }', () => {
+    const wire = { channelId: 'c1', typingUserIds: ['u1', 'u2'] };
+    expect(TypingUpdatePayloadSchema.parse(wire).typingUserIds).toEqual(['u1', 'u2']);
+    // 0명 clear snapshot 도 유효.
+    expect(
+      TypingUpdatePayloadSchema.parse({ channelId: 'c1', typingUserIds: [] }).typingUserIds,
+    ).toEqual([]);
+    // 종전 거짓 계약 필드(userId/displayName/action)는 더는 강제되지 않으며,
+    // typingUserIds 가 누락되면 거부된다.
+    expect(() => TypingUpdatePayloadSchema.parse({ channelId: 'c1' })).toThrow();
+  });
+
+  it('typing:batch parses the live wire shape { channelId, typingUserIds } (empty allowed)', () => {
+    expect(
+      TypingBatchPayloadSchema.parse({ channelId: 'c1', typingUserIds: [] }).typingUserIds,
+    ).toEqual([]);
+    expect(
+      TypingBatchPayloadSchema.parse({ channelId: 'c1', typingUserIds: ['u1'] }).typingUserIds,
+    ).toEqual(['u1']);
+  });
+
+  it('typing:update / typing:batch cap typingUserIds at TYPING_MAX_VISIBLE', () => {
+    const overflow = Array.from({ length: TYPING_MAX_VISIBLE + 1 }, (_, i) => `u${i}`);
+    expect(() =>
+      TypingUpdatePayloadSchema.parse({ channelId: 'c1', typingUserIds: overflow }),
+    ).toThrow();
+    expect(() =>
+      TypingBatchPayloadSchema.parse({ channelId: 'c1', typingUserIds: overflow }),
+    ).toThrow();
+  });
+
+  it('WS_EVENT_PAYLOAD_SCHEMAS maps typing:update / typing:batch to the aligned schemas', () => {
+    expect(WS_EVENTS.TYPING_BATCH).toBe('typing:batch');
+    expect(WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.TYPING_UPDATE]).toBe(TypingUpdatePayloadSchema);
+    expect(WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.TYPING_BATCH]).toBe(TypingBatchPayloadSchema);
   });
 
   it('message:deleted carries deletedAt iso', () => {

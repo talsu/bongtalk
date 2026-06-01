@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S31 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S32(D17 실시간 동기화 — 재연결/누락복구/멀티디바이스, FR-RT-08/09/17).** D02·D03·D07(검색, S29~S31 완료)·D08(프레즌스)·D09 완료. **진행률: 131/354 FR done(+6 partial).**
+> **S05 검증·S06~S32 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S33(D04 스레드 코어 — FR-TH-01/02/15, 전부 P0).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime, S07~S10·S32 타이핑)·완료. **진행률: 134/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -288,11 +288,23 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 409·web 583·shared-types 175·webhook 50) + 빌드 3종 + 신규 테스트(게이트 무효수식어 8·삭제 롤백·DELETE 과길이·combobox aria-controls→listbox·load-more 위치·searchPrefill). DS 4파일 무수정. 마이그레이션 없음.
 - carryover: **MAJOR2 caret-aware 중간토큰 자동완성**(현재 마지막토큰 한정, 주석 정정) → 후속. a11y B-3(`qf-input:focus outline:none` = DS 전역의도)·M-4 contrast(text-muted on bg-hover 라이트 4.48:1) → **DS-owner**(불변). DS: qf-autocomplete\_\_item 재사용·qf-row-iconbtn·w-96/mt-0.5 → DS-cleanup. class-validator DTO 마이그레이션 → 후속. visual baseline(검색 드롭다운 스냅샷 부재) → task-048. NIT clamp-vs-wrap → 선택.
 
-## 다음 슬라이스: S32 (D17 실시간 동기화 — 재연결/누락복구/멀티디바이스)
+## ✅ S32 (D17 타이핑 인디케이터 — 송신/수신/Redis ZSET) — 완료 (2026-06-02, 이 세션)
 
-- scope api realtime + web. **FR-RT-08 / FR-RT-09 / FR-RT-17**(FR-RT-17 만 P2).
-- FR 정본 PRD html 에서 재확인 필수. 예상: WS 재연결 시 누락 메시지 catch-up(seq/cursor 기반 resync), 멀티디바이스/탭 간 상태 동기, 연결 끊김↔복구 표시. S09 around-reload seam·read_state:updated·dispatcher dedupe(FR-RT-24) 위에. presence grace(S25/26)·outbox 패턴과 정합.
-- 주의: 실시간 슬라이스라 **멀티노드 fanout(Redis adapter)·재연결 레이스** 정밀 검토. WS 이벤트 네임스페이스 dot→colon 수렴(S10 carryover 번들)이 이 도메인과 겹치면 함께 점검. UI 변경 있으면 ui-designer/visual-regression.
+- (핸드오프 추측은 "재연결/sync"였으나 PRD 정본상 **타이핑 인디케이터**였음 — UNDERSTAND 단계서 정정.) 기존 타이핑 인프라(S07~) 위 갭만 구현.
+- **FR-RT-08**(서버): typing 이벤트 dot→colon 수렴(`typing:start/stop/update/batch`, 구 클라용 `client.on` dot forward), `TypingFanout`(node-local 타이머, ≥3명 시 2s `typing:batch` full-snapshot·<3 즉시 `typing:update`·0명 clear), 채널 fanout ≤10/s, **TypingService SET→ZSET**(member=userId·score=만료 epoch ms·now=redis TIME) per-user 독립 만료(종전 SET 전체키 TTL 리셋 stale 버그 수정). **FR-RT-09**(클라): dispatcher `typing:update`/`typing:batch` 구독, useTypingStore per-userId 10s TTL 타이머, formatTypingLabel(1명 "{n} 님이 입력 중…"·2명·≥3 "여러 명이 입력 중…"), MessageComposer TypingEmitter(첫입력·3s throttle·10s idle stop). **FR-RT-17**(P2): ZSET per-user TTL(PRD 문자열 per-key 대신 ZSET score — 동등 의미·KEYS 스캔 회피).
+- **5팀 적대적 리뷰**(reviewer/security/contract/perf/a11y) → fix-forward:
+  - **contract CRITICAL(4팀 합의)**: `TypingUpdatePayloadSchema` 가 실제 emit(`{channelId,typingUserIds}`)과 완전 불일치(`{userId,displayName,action}`) → 스키마 정렬 + update/batch 필드명 **`typingUserIds` 통일**(.max(3)) + events.spec 가드.
+  - **perf R-1**: ping/stop hot-path 4→3 round-trip(validMembers 를 ping multi 에 병합, 중복 GC 제거).
+  - **a11y A-01/02**: TypingIndicator `role=status aria-live=polite aria-atomic`(기존 WCAG 4.1.3 갭).
+  - contract: TYPING_THROTTLE import(하드코딩 3 제거)·batch `.max(3)`·constants.spec 가드. reviewer: fanoutWindow 빈 항목 정리. security: typing 핸들러 safeParse(presence 패턴 일치). perf: MessageComposer 중복 emitter 제거.
+- 게이트: `pnpm verify` 19 GREEN(api 428·web 603·shared-types 178·webhook 50) + 빌드 3종 + realtime int 9(typingUserIds·batch cap·per-user 만료·dot alias·disconnect·DM). DS 무수정. 마이그레이션 없음(Redis ZSET/Zod만).
+- carryover: **security #1 stale `state.channelIds`**(refreshUserChannelIds add-only — kick/delete 후 미제거, workspaceIds 와 동일 선존 패턴) → **realtime state-sync 번들**(channel.member_removed/deleted 구독 정리). security #3 per-user 다채널 typing cap → hardening. perf R-2(redis TIME RTT→Lua/Date.now)·R-3(batch 경계 debounce)·R-6(부하측정 인프라). a11y A-03(말줄임표 SR)·A-04(typing bar 높이예약 CLS). reviewer C(batch 중 신규 typer 2s 지연=by-design). 멀티노드 batch 조정·presence.\* dot→colon rename(S10 WS-naming 번들).
+
+## 다음 슬라이스: S33 (D04 스레드 — 코어 시작)
+
+- scope api + web. **FR-TH-01 / FR-TH-02 / FR-TH-15**(전부 **P0**).
+- FR 정본 PRD html 에서 재확인 필수. 예상: 스레드 생성/답글(parentMessageId), 스레드 패널/답글 목록, 스레드 답글 카운트/표시. **S05 carryover**: `threads.int.spec.ts` 1건 RED(message.created 의 parentMessageId=null, task-014-B 선존 버그)·FR-MSG-09 REST placeholder 연기분이 D04 에서 소진. S17(스레드 검색 마스킹)·S30(스레드답글 권한필터·In Thread)·S10(seq/replay) 와 정합.
+- 주의: parentMessageId 토대는 이미 스키마/검색에 존재(S30 threadRootExcerpt). 스레드 전용 실시간(thread:reply 이벤트)·읽음/unread 스레드 분리 여부 PRD 확인. UI 슬라이스 → ui-designer/visual-regression. ThreadPanel(apps/web/src/features/threads) 기존 자산 점검.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
