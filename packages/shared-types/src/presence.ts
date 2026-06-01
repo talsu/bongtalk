@@ -30,3 +30,20 @@ export const UpdatePresenceResponseSchema = z.object({
   effective: z.enum(['online', 'dnd', 'offline']),
 });
 export type UpdatePresenceResponse = z.infer<typeof UpdatePresenceResponseSchema>;
+
+/**
+ * S19 (FR-DM-12): DM 수신권한(allowDmFrom). Prisma `DmPrivacy` enum 과 1:1 정합
+ * (EVERYONE | WORKSPACE_MEMBER). FRIENDS_ONLY 는 Phase2 carryover — enum 값으로도
+ * 선반영하지 않으므로 여기에도 없다(입력으로 받으면 400 거부).
+ *
+ *   EVERYONE         — 누구나 DM 개시 가능.
+ *   WORKSPACE_MEMBER — 공통 워크스페이스 멤버이거나 ACCEPTED 친구만 가능(default).
+ */
+export const DmPrivacySchema = z.enum(['EVERYONE', 'WORKSPACE_MEMBER']);
+export type DmPrivacy = z.infer<typeof DmPrivacySchema>;
+
+/** PATCH /users/me/dm-privacy body. allowDmFrom 만 받는다(추가 필드 거부). */
+export const SetDmPrivacyRequestSchema = z.object({
+  allowDmFrom: DmPrivacySchema,
+});
+export type SetDmPrivacyRequest = z.infer<typeof SetDmPrivacyRequestSchema>;

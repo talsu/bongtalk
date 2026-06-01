@@ -32,6 +32,11 @@ export enum ErrorCode {
   // S16 (FR-DM-02): 그룹 DM 구성원 수 상한(본인 포함 ≤20) 초과. 요청 자체는
   // 형식상 유효하지만 도메인 한도를 넘어 처리 불가 → 422 (Unprocessable Entity).
   DM_GROUP_CAP_EXCEEDED = 'DM_GROUP_CAP_EXCEEDED',
+  // S19 (FR-DM-12): 대상의 DM 수신권한(allowDmFrom=WORKSPACE_MEMBER)을 충족하지
+  // 못해 DM 개시/멤버 추가가 거부됨(공통 워크스페이스 멤버도 ACCEPTED 친구도 아님).
+  // 비노출 정책(H-03): friend-gate(FRIEND_NOT_FOUND) 와 동일한 중립 메시지를 쓰되
+  // 권한 거부는 403 으로 분리해 클라이언트가 "DM 수신 차단됨" UI 로 분기할 수 있게 한다.
+  DM_PRIVACY_RESTRICTED = 'DM_PRIVACY_RESTRICTED',
 
   INVITE_NOT_FOUND = 'INVITE_NOT_FOUND',
   INVITE_EXPIRED = 'INVITE_EXPIRED',
@@ -147,6 +152,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.FRIEND_CAP_REACHED]: 422,
   // S16 (FR-DM-02): 그룹 DM cap 초과 → 422.
   [ErrorCode.DM_GROUP_CAP_EXCEEDED]: 422,
+  // S19 (FR-DM-12): DM 수신권한 미충족 → 403.
+  [ErrorCode.DM_PRIVACY_RESTRICTED]: 403,
 
   [ErrorCode.INVITE_NOT_FOUND]: 404,
   [ErrorCode.INVITE_EXPIRED]: 410,

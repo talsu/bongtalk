@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   DefaultValuePipe,
+  Delete,
   Get,
+  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -14,6 +16,7 @@ import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-u
 import { DirectMessagesService, type DmListItem } from './direct-messages.service';
 import { CreateDmDto } from './dto/create-dm.dto';
 import { CreateGroupDmDto } from './dto/create-group-dm.dto';
+import { AddParticipantsDto } from './dto/add-participants.dto';
 
 /**
  * task-033-B: global DM endpoints under /me/dms. Same service as the
@@ -120,5 +123,54 @@ export class GlobalDmController {
   }> {
     const items = await this.svc.getGroupMembers(user.id, gdmId);
     return { items };
+  }
+
+  /**
+   * S19 (FR-DM-07): 그룹 DM 멤버 추가. owner 만 가능. cap(본인 포함 ≤20) 초과 시
+   * 422 DM_GROUP_CAP_EXCEEDED, 한 명이라도 게이트 실패 시 전체 롤백(부분 추가 금지).
+   *
+   *   POST /me/dms/:channelId/participants { userIds: string[] }
+   */
+  @Post(':channelId/participants')
+  async addParticipants(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @Body() body: AddParticipantsDto,
+  ): Promise<{ channelId: string; addedUserIds: string[] }> {
+    return this.svc.addParticipants({ meId: user.id, channelId, userIds: body.userIds });
+  }
+
+  /**
+   * S19 (FR-DM-09): 그룹 DM 나가기(본인). owner 가 나가면 잔여 멤버 중 joinedAt
+   * 최古로 자동 승계, 마지막 멤버면 채널 soft-delete. 204.
+   *
+   *   DELETE /me/dms/:channelId/participants/me
+   *
+   * ★ 라우트 등록 순서: `/participants/me` 를 `/participants/:userId` 보다 **먼저**
+   * 선언한다 — Nest 라우터가 'me' 를 :userId 파라미터로 매칭하는 충돌을 막는다.
+   */
+  @Delete(':channelId/participants/me')
+  @HttpCode(204)
+  async leaveGroup(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+  ): Promise<void> {
+    await this.svc.leaveGroup({ meId: user.id, channelId });
+  }
+
+  /**
+   * S19 (FR-DM-08): 그룹 DM 멤버 강퇴. owner 만(else 403), 1:1 DM 은 항상 403,
+   * owner 자기-강퇴는 403(leave 경로 유도). 204.
+   *
+   *   DELETE /me/dms/:channelId/participants/:userId
+   */
+  @Delete(':channelId/participants/:userId')
+  @HttpCode(204)
+  async kickParticipant(
+    @CurrentUser() user: CurrentUserPayload,
+    @Param('channelId', new ParseUUIDPipe()) channelId: string,
+    @Param('userId', new ParseUUIDPipe()) userId: string,
+  ): Promise<void> {
+    await this.svc.kickParticipant({ meId: user.id, channelId, targetUserId: userId });
   }
 }

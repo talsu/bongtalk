@@ -76,6 +76,9 @@ export const ErrorCodeSchema = z.enum([
   'FRIEND_CAP_REACHED',
   // S16 (FR-DM-02): 그룹 DM 구성원 cap 초과 → 422.
   'DM_GROUP_CAP_EXCEEDED',
+  // S19 (FR-DM-12): DM 수신권한(allowDmFrom) 미충족 → 403. 클라이언트는 이 코드를
+  // 받으면 "상대가 DM 수신을 제한함" 안내로 분기한다(friend-gate 404 와 구분).
+  'DM_PRIVACY_RESTRICTED',
   'INVITE_NOT_FOUND',
   'INVITE_EXPIRED',
   'INVITE_EXHAUSTED',
