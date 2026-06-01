@@ -44,6 +44,26 @@ export const PENDING_EVENTS_MAX = 200;
 /** 타이핑 3명 이상 시 typing:batch 일괄 emit 주기 (ms) 기본값 (D17). */
 export const TYPING_BATCH_INTERVAL = 2000;
 
+/**
+ * 클라이언트 typing:start 재전송 스로틀 (초) (ADR-8 / FR-RT-08 / FR-P07).
+ *
+ * 첫 키 입력 시 typing:start 를 보낸 뒤, 이 간격 안의 추가 키 입력은 재전송하지
+ * 않습니다(불필요한 이벤트 억제). 서버 측 per-(userId, channelId) 스로틀 키
+ * (typing:throttle:...) 와 동일 값을 공유해 클라/서버 정책이 일치합니다.
+ * 종전 클라이언트는 1.5s 리터럴로 파편화돼 있었으나 PRD 정본(3초)에 맞춰
+ * 단일 상수로 모읍니다.
+ */
+export const TYPING_THROTTLE = 3;
+
+/**
+ * 채널당 typing fanout 초당 상한 (FR-RT-08 / D17).
+ *
+ * 단건 typing:update 브로드캐스트가 한 채널에서 초당 이 횟수를 넘으면 초과분을
+ * drop 합니다(batch 타이머가 다음 주기에 full-snapshot 으로 보냅니다). 게이트웨이
+ * in-memory sliding-window 로 적용합니다.
+ */
+export const TYPING_FANOUT_RATE_LIMIT = 10;
+
 /** 마지막 disconnect 후 OFFLINE 전환 grace (초) (D17). */
 export const PRESENCE_OFFLINE_GRACE = 35;
 
@@ -143,6 +163,9 @@ export const SHARED_CONSTANTS = {
   MESSAGE_SEND_TIMEOUT_MS_DEFAULT,
   PENDING_EVENTS_MAX,
   TYPING_BATCH_INTERVAL,
+  // S32 (FR-RT-08): 클라 typing:start 스로틀 + 채널 fanout 초당 상한.
+  TYPING_THROTTLE,
+  TYPING_FANOUT_RATE_LIMIT,
   PRESENCE_OFFLINE_GRACE,
   // S25 fix-forward(cheap): presence env 기본값을 단일 상수로 모아 파편화 해소.
   PRESENCE_SESSION_TTL_SEC,

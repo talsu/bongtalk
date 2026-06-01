@@ -19,6 +19,8 @@ import {
   PresenceSubscribePayloadSchema,
   PresenceUnsubscribePayloadSchema,
   PresenceActivityPayloadSchema,
+  TypingStartPayloadSchema,
+  TypingStopPayloadSchema,
   maskPresenceForViewer,
   type ChannelJoinedPayload,
   type PresenceBulkPayload,
@@ -34,6 +36,7 @@ import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
 import { PresenceGraceTimers } from './presence/presence-grace-timers';
 import { TypingService } from './typing/typing.service';
+import { TypingFanout } from './typing/typing-fanout';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { ChannelSeqService } from './projection/channel-seq.service';
 import { rooms } from './rooms/room-names';
@@ -94,6 +97,11 @@ export class RealtimeGateway
   // a single-socket phenomenon and the socket lives on exactly one node.
   private readonly subscribeBurst = new Map<string, number[]>();
 
+  // S32 (FR-RT-08): node-local typing fanout 정책 엔진(batch 타이머 + 채널
+  // fanout rate-limit). afterInit 에서 server 가 준비된 뒤 1회 생성합니다.
+  // 멀티노드 batch 조정은 단일 NAS 환경에서 무해(carryover).
+  private typingFanout: TypingFanout | null = null;
+
   constructor(
     private readonly wsAuth: WsAuthMiddleware,
     private readonly roomMgr: RoomManagerService,
@@ -117,6 +125,33 @@ export class RealtimeGateway
     // bursts (10+ events in one tick) can approach the default 10-listener
     // warning on the Socket.IO server side — bump it.
     server.sockets.setMaxListeners(50);
+    // S32 (FR-RT-08): typing fanout 엔진을 server 준비 후 1회 생성. emit 콜백은
+    // 콜론 이벤트명(WS_EVENTS.TYPING_UPDATE/BATCH)으로 채널 룸에 브로드캐스트하고,
+    // batch tick 의 최신 snapshot 조회는 TypingService.currentlyTyping 을 재사용.
+    this.typingFanout = new TypingFanout({
+      emitBatch: (channelId, userIds) => {
+        // S32 fix-forward(contract CRITICAL): 와이어 필드명을 `typingUserIds` 로
+        // 통일(typing:update 와 동일 키). 종전 `userIds` 키는 dispatcher 가 더는
+        // 읽지 않습니다.
+        this.server.to(rooms.channel(channelId)).emit(WS_EVENTS.TYPING_BATCH, {
+          channelId,
+          typingUserIds: userIds,
+        });
+        this.metrics?.wsEventsEmittedTotal
+          .labels(this.metrics.bucket('wsEventType', WS_EVENTS.TYPING_BATCH))
+          .inc();
+      },
+      emitUpdate: (channelId, userIds) => {
+        this.server.to(rooms.channel(channelId)).emit(WS_EVENTS.TYPING_UPDATE, {
+          channelId,
+          typingUserIds: userIds,
+        });
+        this.metrics?.wsEventsEmittedTotal
+          .labels(this.metrics.bucket('wsEventType', WS_EVENTS.TYPING_UPDATE))
+          .inc();
+      },
+      currentTypers: (channelId) => this.typing.currentlyTyping(channelId),
+    });
     this.startIdleSweep();
   }
 
@@ -164,6 +199,8 @@ export class RealtimeGateway
       clearInterval(this.idleSweepTimer);
       this.idleSweepTimer = null;
     }
+    // S32 (FR-RT-08): node-local batch 타이머를 모두 해제(프로세스 종료/HMR leak 방지).
+    this.typingFanout?.dispose();
   }
 
   async handleConnection(client: Socket): Promise<void> {
@@ -182,6 +219,21 @@ export class RealtimeGateway
     } = await this.roomMgr.roomsForUser(user.userId);
     await client.join(joinable);
     client.data.state = { user, workspaceIds, channelIds } satisfies SocketState;
+
+    // S32 (FR-RT-08): dot-form typing alias for the rollout window. The colon
+    // events (typing:start / typing:stop) are the canonical @SubscribeMessage
+    // handlers; @SubscribeMessage uses Reflect.defineMetadata which a SECOND
+    // stacked decorator would overwrite (only one wins), so we register the
+    // legacy dot names as socket-level listeners that forward to the same
+    // handlers. Old deployed clients emitting `typing.ping` / `typing.stop`
+    // keep working until the rollout completes. Removed in the S10 WS-naming
+    // bundle once no dot-form clients remain.
+    client.on('typing.ping', (body: unknown) => {
+      void this.onTypingPing(client, body);
+    });
+    client.on('typing.stop', (body: unknown) => {
+      void this.onTypingStop(client, body);
+    });
 
     // task-019-C / S25: consult the user's static preference so the presence
     // SET correctly reflects DnD / invisible on connect, not just after a
@@ -339,18 +391,18 @@ export class RealtimeGateway
         if (goneFrom.length > 0) await this.fanOutPresenceUpdate(userId);
       });
     }
-    // task-018-F: also clear the user from any typing sets so the
-    // indicator drops before the TTL (up to 5 s faster).
+    // task-018-F / S32 (FR-RT-08): also clear the user from any typing ZSETs so
+    // the indicator drops before the TTL. The fanout engine reflects the new
+    // count into its batch-timer state (a disconnect can drop a channel below
+    // the batch threshold → timer clear + immediate typing:update), and emits
+    // the refreshed snapshot via the colon events (typing:update / typing:batch).
     const clearedTypingChannels = await this.typing.dropForUser(
       state.user.userId,
       state.channelIds,
     );
     for (const chId of clearedTypingChannels) {
       const typingUserIds = await this.typing.currentlyTyping(chId);
-      this.server.to(rooms.channel(chId)).emit('typing.updated', {
-        channelId: chId,
-        typingUserIds,
-      });
+      this.typingFanout?.onTypersChanged(chId, typingUserIds);
     }
     // S26 (FR-P16): don't DELETE this socket's subscription index on
     // disconnect — set a 5m TTL so a reconnect inside the window can resume
@@ -739,42 +791,56 @@ export class RealtimeGateway
     await this.presence.setCurrentChannel(state.user.sessionId, null);
   }
 
-  @SubscribeMessage('typing.ping')
+  /**
+   * S32 (FR-RT-08): typing start (= ping). Inbound 정본은 콜론(`typing:start`,
+   * WS_EVENTS.TYPING_START)입니다. 점 표기 `typing.ping` 은 handleConnection 의
+   * 소켓 레벨 리스너가 이 핸들러로 forward 합니다(롤아웃 호환). outbound 는 항상
+   * 콜론(typing:update / typing:batch) — TypingFanout 이 batch 임계·rate-limit·
+   * 이벤트명 수렴을 단일 지점에서 처리합니다.
+   */
+  @SubscribeMessage(WS_EVENTS.TYPING_START)
   async onTypingPing(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { channelId?: string },
+    @MessageBody() body: unknown,
   ): Promise<void> {
     const state = client.data.state as SocketState | undefined;
-    if (!state || !body?.channelId) return;
-    if (!state.channelIds.includes(body.channelId)) return; // not a channel member
-    const typingUserIds = await this.typing.ping(state.user.userId, body.channelId);
+    if (!state) return;
+    // S32 (security #5): presence:subscribe 패턴과 일치하게 형식 불량 페이로드를
+    // 조기 거부합니다(타입힌트만으로는 런타임 보증이 없었음). ChannelIdSchema
+    // 자체는 변경하지 않으며(광범위 영향), 멤버십 includes 가 권한을 계속 보호합니다.
+    const parsed = TypingStartPayloadSchema.safeParse(body);
+    if (!parsed.success) return;
+    const { channelId } = parsed.data;
+    if (!state.channelIds.includes(channelId)) return; // not a channel member
+    const typingUserIds = await this.typing.ping(state.user.userId, channelId);
     if (!typingUserIds) return; // throttled — a recent broadcast already named us
-    this.server.to(rooms.channel(body.channelId)).emit('typing.updated', {
-      channelId: body.channelId,
-      typingUserIds,
-    });
+    this.typingFanout?.onTypersChanged(channelId, typingUserIds);
   }
 
   /**
-   * task-021-R1-typing-stale-on-clear: fires when the client's composer
-   * draft becomes empty. Removes the user from the typing set + clears
-   * the per-(user, channel) throttle so the next keystroke isn't
-   * silently suppressed for up to 3 s. Broadcasts the refreshed set.
+   * task-021-R1-typing-stale-on-clear / S32 (FR-RT-08): typing stop. 클라가
+   * draft 를 비우거나 메시지 전송/채널 전환/10초 idle 시 전송합니다. 사용자를
+   * ZSET 에서 제거 + 스로틀 키를 비워 다음 입력이 침묵당하지 않게 합니다.
+   * inbound 정본은 콜론(`typing:stop`); 점 표기 `typing.stop` 은 handleConnection
+   * 의 소켓 레벨 리스너가 forward 합니다(롤아웃 호환). outbound 는 TypingFanout 이
+   * 콜론 이벤트로 fanout.
    */
-  @SubscribeMessage('typing.stop')
+  @SubscribeMessage(WS_EVENTS.TYPING_STOP)
   async onTypingStop(
     @ConnectedSocket() client: Socket,
-    @MessageBody() body: { channelId?: string },
+    @MessageBody() body: unknown,
   ): Promise<void> {
     const state = client.data.state as SocketState | undefined;
-    if (!state || !body?.channelId) return;
-    if (!state.channelIds.includes(body.channelId)) return;
-    const res = await this.typing.stop(state.user.userId, body.channelId);
+    if (!state) return;
+    // S32 (security #5): 형식 불량 페이로드 조기 거부(presence 패턴 일치).
+    const parsed = TypingStopPayloadSchema.safeParse(body);
+    if (!parsed.success) return;
+    const { channelId } = parsed.data;
+    if (!state.channelIds.includes(channelId)) return;
+    const res = await this.typing.stop(state.user.userId, channelId);
     if (!res.changed) return;
-    this.server.to(rooms.channel(body.channelId)).emit('typing.updated', {
-      channelId: body.channelId,
-      typingUserIds: res.members,
-    });
+    // 인원수 변화를 fanout 에 반영(batch 모드 이탈/단건 전환/clear 결정).
+    this.typingFanout?.onTypersChanged(channelId, res.members);
   }
 
   /**

@@ -1,5 +1,7 @@
 import { useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { WS_EVENTS } from '@qufox/shared-types';
 import { useSendMessage } from './useMessages';
+import { TypingEmitter } from '../typing/typingEmitter';
 import { useCompose } from '../../stores/compose-store';
 import { getSocket } from '../../lib/socket';
 import { useNotifications } from '../../stores/notification-store';
@@ -54,16 +56,28 @@ type Props = {
   postingRestricted?: boolean;
 };
 
-// Task-018-F: client-side safety margin for the typing ping cadence. The
-// server throttles per (userId, channelId) at TYPING_THROTTLE_SEC (3 s),
-// but re-emitting at 1.5 s keeps the indicator alive across brief pauses
-// without flooding the socket. The server still enforces the floor.
-const TYPING_EMIT_INTERVAL_MS = 1500;
 // Single-line initial height (matches the DS composer mockup's
 // `qf-input` one-row shape). Grows with content up to 200px, then
 // scrolls internally.
 const MIN_HEIGHT_PX = 22;
 const MAX_HEIGHT_PX = 200;
+
+/**
+ * S32 (FR-RT-08): 주어진 channelId 로 콜론 이벤트를 emit 하는 TypingEmitter 를
+ * 만듭니다. emit 시점에 socket 을 다시 조회하므로 재연결에도 안전합니다.
+ */
+function makeTypingEmitter(channelId: string): TypingEmitter {
+  return new TypingEmitter({
+    emitStart: () => {
+      const socket = getSocket();
+      if (socket?.connected) socket.emit(WS_EVENTS.TYPING_START, { channelId });
+    },
+    emitStop: () => {
+      const socket = getSocket();
+      if (socket?.connected) socket.emit(WS_EVENTS.TYPING_STOP, { channelId });
+    },
+  });
+}
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -113,7 +127,17 @@ export function MessageComposer({
   const clearDraft = useCompose((s) => s.clearDraft);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const lastPingRef = useRef<number>(0);
+  // S32 (FR-RT-08): typing:start 3초 스로틀 + 10초 idle 자동 stop 상태 머신.
+  // 채널별로 새 인스턴스를 만들어 이전 채널의 타이머/상태가 누수되지 않게 합니다.
+  // emit 콜백은 콜론 이벤트(typing:start/typing:stop)로 현재 채널에 보냅니다.
+  //
+  // S32 (perf R-5): ref 초기값은 null 로만 두고, 실제 emitter 생성은 아래
+  // channelId useEffect 한 곳에서만 합니다. 종전엔 render-phase 에서 한 번
+  // makeTypingEmitter 로 채워 둔 인스턴스가 직후 useEffect 에서 곧바로 새 것으로
+  // 교체돼 redundant 했습니다(첫 마운트마다 emitter 1개 낭비). onInput/stop 콜백은
+  // optional chaining 으로 호출하므로, 첫 렌더~첫 effect 사이의 짧은 null 구간은
+  // 무해합니다(그 사이 사용자 입력이 들어올 수 없음).
+  const typingEmitterRef = useRef<TypingEmitter | null>(null);
   const { send, mutation } = useSendMessage(workspaceId, channelId);
   const notify = useNotifications((s) => s.push);
   const { data: customEmojiData } = useCustomEmojis(workspaceId);
@@ -153,7 +177,6 @@ export function MessageComposer({
 
   useEffect(() => {
     textareaRef.current?.focus();
-    lastPingRef.current = 0;
     setPending([]);
     setJobs([]);
     setEmojiOpen(false);
@@ -169,17 +192,18 @@ export function MessageComposer({
     return () => window.removeEventListener('qufox.composer.focus', onFocus);
   }, []);
 
-  // task-021-R1 reviewer HIGH fix: when the user switches channels
-  // (or unmounts the composer entirely), send typing.stop for the
-  // channel that the composer was mounted on so observers don't see
-  // a stale indicator for up to 5s until Redis TTL.
+  // task-021-R1 reviewer HIGH fix / S32 (FR-RT-08): when the user switches
+  // channels (or unmounts the composer entirely), send typing:stop for the
+  // channel the composer was mounted on so observers don't see a stale
+  // indicator until the server ZSET TTL. The previous channel's emitter sends
+  // its final stop + tears down its idle timer; a fresh emitter is armed for
+  // the new channel so start/stop target the correct channelId.
   useEffect(() => {
-    const prev = channelId;
+    const emitter = makeTypingEmitter(channelId);
+    typingEmitterRef.current = emitter;
     return () => {
-      const socket = getSocket();
-      if (socket?.connected) {
-        socket.emit('typing.stop', { channelId: prev });
-      }
+      // 채널 전환/언마운트 시 즉시 stop(콜론 이벤트) + 타이머 정리.
+      emitter.stop();
     };
   }, [channelId]);
 
@@ -194,18 +218,15 @@ export function MessageComposer({
     el.style.height = `${next}px`;
   }, [draft]);
 
+  // S32 (FR-RT-08): 입력 발생. 첫 입력 시 typing:start(3초 스로틀) + 10초 idle
+  // 타이머 재arm. idle 만료 시 emitter 가 자동으로 typing:stop 을 emit 합니다.
   const maybePing = (): void => {
-    const now = Date.now();
-    if (now - lastPingRef.current < TYPING_EMIT_INTERVAL_MS) return;
-    lastPingRef.current = now;
-    const socket = getSocket();
-    if (socket?.connected) socket.emit('typing.ping', { channelId });
+    typingEmitterRef.current?.onInput();
   };
 
+  // S32 (FR-RT-08): 메시지 전송 / draft 비움 시 즉시 typing:stop + idle 타이머 정리.
   const sendTypingStop = (): void => {
-    const socket = getSocket();
-    if (socket?.connected) socket.emit('typing.stop', { channelId });
-    lastPingRef.current = 0;
+    typingEmitterRef.current?.stop();
   };
 
   // S02 (FR-MSG-03 / FR-RC17): 실시간 글자수 카운터 상태. 4,000자 초과 시

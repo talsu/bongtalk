@@ -136,9 +136,9 @@ FR-S11,D07-search,P1,S31,done
 FR-S12,D07-search,P2,S31,done
 FR-S13,D07-search,P1,S31,done
 FR-S14,D07-search,P1,S31,done
-FR-RT-08,D17-realtime-sync,P1,S32,todo
-FR-RT-09,D17-realtime-sync,P1,S32,todo
-FR-RT-17,D17-realtime-sync,P2,S32,todo
+FR-RT-08,D17-realtime-sync,P1,S32,done
+FR-RT-09,D17-realtime-sync,P1,S32,done
+FR-RT-17,D17-realtime-sync,P2,S32,done
 FR-TH-01,D04-threads,P0,S33,todo
 FR-TH-02,D04-threads,P0,S33,todo
 FR-TH-15,D04-threads,P0,S33,todo

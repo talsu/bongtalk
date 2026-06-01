@@ -666,10 +666,33 @@ export function installRealtimeDispatcher(
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.channels.list(env.workspaceId) });
   });
 
-  // ---------- Typing (task-018-F) ----------
-  on<{ channelId: string; typingUserIds: string[] }>('typing.updated', (env) => {
+  // ---------- Typing (task-018-F / S32 · FR-RT-09) ----------
+  // 정본은 콜론 이벤트입니다.
+  //   typing:update — 단건 snapshot { channelId, typingUserIds }
+  //   typing:batch  — full snapshot { channelId, typingUserIds } (3명 이상 시 주기 emit)
+  // S32 fix-forward(contract CRITICAL · 4팀 합의): 두 이벤트의 와이어 필드명을
+  // `typingUserIds` 로 통일했습니다(종전 typing:batch 의 `userIds` 키 제거).
+  // 둘 다 full-replace 로 store 에 반영합니다(merge 아님). store 가 userId 별
+  // 10초 타이머로 자동 소멸을 관리합니다. 배포 롤아웃 윈도우 동안 구 서버의 점
+  // 표기 `typing.updated` 도 alias 로 구독합니다(무회귀).
+  on<{ channelId: string; typingUserIds?: string[] }>(WS_EVENTS.TYPING_UPDATE, (env) => {
     if (!env.channelId) return;
     useTypingStore.getState().set(env.channelId, env.typingUserIds ?? []);
+  });
+  on<{ channelId: string; typingUserIds?: string[] }>(WS_EVENTS.TYPING_BATCH, (env) => {
+    if (!env.channelId) return;
+    useTypingStore.getState().set(env.channelId, env.typingUserIds ?? []);
+  });
+  // 롤아웃 호환 alias: 구 서버 점 표기 단건 이벤트.
+  on<{ channelId: string; typingUserIds?: string[] }>('typing.updated', (env) => {
+    if (!env.channelId) return;
+    useTypingStore.getState().set(env.channelId, env.typingUserIds ?? []);
+  });
+  // S32 (FR-RT-09): 소켓이 끊기면 모든 타이핑 인디케이터를 즉시 클리어 + 타이머
+  // 정리. 재연결 후 서버가 최신 snapshot 을 다시 내려보내므로 stale 인디케이터가
+  // 잔류하지 않게 합니다.
+  on<unknown>('disconnect', () => {
+    useTypingStore.getState().clearAll();
   });
 
   // ---------- Members / Workspace ----------
@@ -847,6 +870,10 @@ export const DISPATCHED_EVENTS = [
   'message.reaction.added',
   'message.reaction.removed',
   'message.thread.replied',
+  'typing:update',
+  'typing:batch',
   'typing.updated',
+  // S32 (FR-RT-09): 소켓 disconnect 시 타이핑 인디케이터 전체 클리어.
+  'disconnect',
   'read_state:updated',
 ] as const;
