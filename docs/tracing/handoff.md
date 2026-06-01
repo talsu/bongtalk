@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S18 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S19(그룹 DM 멤버 추가/강퇴/나가기 + owner 승계 + DM 수신권한).** D02(채널) 전체 완료. S16(DM 개설/목록)·S17(DM visibleFrom/차단)·S18(컴포저 @#: 자동완성 ARIA Combobox + 특수멘션 confirm) 완료.
+> **S05 검증·S06~S19 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S20(DM 검색/이름변경/아이콘/숨기기/뮤트).** D02(채널) 전체 완료. S16(DM 개설/목록)·S17(visibleFrom/차단)·S18(컴포저 자동완성)·S19(그룹 DM 멤버관리/owner 승계/DM 수신권한) 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -179,11 +179,30 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + web 385 단위 GREEN. **DS 4파일 무수정** 확인. api 무변경·마이그레이션 없음(web-only).
 - carryover(MED): 서버 @channel fanout(D04), @here FR↔서버 권한편차, confirm 정확 수신자수, A-08/09 DS 토큰 대비, DS-3 Tailwind 키 선제존재, visual baseline(Docker Playwright).
 
-## 다음 슬라이스: S19 (그룹 DM 멤버 추가/강퇴/나가기 + owner 승계 + DM 수신권한)
+## ✅ S19 (그룹 DM 멤버관리 + owner 승계 + DM 수신권한) — 완료
+
+- 하이브리드(C) 설계(설계 패널 만장일치): 멤버십=ChannelPermissionOverride USER row(allowMask 1차) + nullable joinedAt/leftAt + Channel.ownerId(group 전용) + User.allowDmFrom enum. **★불변계약: soft-leave 시 leftAt=now()+allowMask=0 원자 UPDATE** → 9개 read-path 무변경 + reversibility.
+- FR-DM-07(멤버추가 POST participants, Serializable+P2034, cap20→422, 멤버별 assertCanDm+assertDmPrivacyAllows, 부분추가금지, 재진입 visibleFrom 재세팅), FR-DM-08(강퇴 owner-only, 1:1 403, 자기-강퇴 403), FR-DM-09(나가기 + owner joinedAt 최古 승계 + 마지막멤버 Channel.deletedAt), FR-DM-12(PATCH dm-privacy EVERYONE/WORKSPACE_MEMBER, assertDmPrivacyAllows='공통 워크스페이스 OR friend').
+- 마이그레이션 `20260601300000` reversible(PG16 up→down→up). 신규 ErrorCode DM_PRIVACY_RESTRICTED(403). 이벤트 dm:participant_added/removed/owner_changed(recipients strip).
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀): BLOCKER(listGroups members CTE 가 allowMask 필터 누락 → 강퇴/탈퇴 멤버 UUID 잔여멤버에 노출 → CTE 에 allowMask&1>0 + leftAt IS NULL). MAJOR(게이트가 tx 밖 → tx 주입). HIGH(dm-privacy DTO class-validator). MED(ownerId=null 명시 FORBIDDEN, 부분인덱스 leftAt:null 매칭 + 중복 인덱스 drift 제거).
+- 게이트: verify 19 + build 3종 + dm int 45 GREEN(B1 회귀 포함). DS 무수정.
+- carryover(MED): rate-limit 3엔드포인트, idempotency, owner 하드삭제 승계 훅, DmParticipant 정규화(장기), FR-DM-07 추가권한 정책, dm:participant\_\* web 소비 훅, FRIENDS_ONLY(Phase2).
+
+## 다음 슬라이스: S20 (DM 검색/이름변경/아이콘/숨기기/뮤트)
+
+- scope `apps/api/src/channels/direct-messages/**` + 일부 web. FR-DM-04/05/06/10/11.
+- DM 검색(목록 필터), 그룹 DM 이름변경/아이콘(Channel.name 은 slug 라 별도 displayName/icon 필드 필요할 수 있음 — 조사), DM 숨기기(PATCH visibility HIDDEN — GET /dm 제외, 상대 새 메시지 시 복원), DM 뮤트.
+- 주의: 그룹 DM displayName/iconUrl 은 slug name 과 별개 — 마이그레이션 가능. 숨기기는 S16 visibility(VISIBLE) + S17 visibleFrom 위에. 뮤트는 알림 게이트(D14 notification 과 연관 주의). FR 정본: PRD html.
+- **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover). **S21 부터 D09 읽음상태 코어 진입** — handoff 의 D09 carryover 묶음 일괄 처리.
+
+### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
 - scope `apps/api/src/channels/direct-messages/**`, 일부 web.
 - FR-DM-07/08/09/12. 그룹 DM 멤버 추가/강퇴/나가기 + (owner 개념 있으면) 승계 + DM 수신권한 게이트.
-- 주의: S16 group DM(createGroupDm, ChannelPermissionOverride USER row 멤버십, slug dedup) 위에. **그룹 멤버 변경 시 friendship 게이트**(S16 assertCanDm 재사용) + 멤버변경 실시간(dm:created 패턴). cap 20 유지. slug dedup 이 멤버 변경 후 깨지는지 주의(gdm: slug 가 멤버셋 기반). FR 정본: PRD html.
+- 주의: S16 group DM(createGroupDm, ChannelPermissionOverride USER row 멤버십, slug dedup) 위에. **그룹 멤버 변경 시 friendship 게이트**(S16 assertCanDm 재사용) + 멤버변경 실시간(dm:participant_added/removed). cap 20 유지. FR 정본: PRD html.
+- **⚠️ S19 아키텍처 분기(UNDERSTAND 완료, 결정 필요)**: PRD 는 `DmParticipant`(joinedAt/leftAt/owner) + `User.allowDmFrom`(EVERYONE/WORKSPACE_MEMBER) 모델을 전제하나 **실제 스키마에 없음**. 현재 그룹 멤버십=ChannelPermissionOverride USER row(owner·joinedAt·leftAt 없음). 필요분: ① owner 개념(FR-DM-08 강퇴 owner-only, FR-DM-09 owner 탈퇴 시 joinedAt 최古 승계) ② joinedAt/leftAt(soft-leave + cap-race COUNT FOR UPDATE) ③ visibleFrom(S17 에서 ChannelPermissionOverride 에 이미 추가 — 재사용) ④ User.allowDmFrom(FR-DM-12, 신규 컬럼).
+  - **권고 방향(S16/S17 패턴 일관)**: 신 DmParticipant 모델 도입 대신 **ChannelPermissionOverride 확장**(joinedAt default now, leftAt nullable soft-leave, owner 마커=boolean 또는 별도 ownerId on Channel). 3중 멤버십 모델 회피. DmParticipant 수렴은 carryover(standalone UserBlock 과 동일 처리). 단 ChannelPermissionOverride 가 멤버십+권한+visibleFrom+join/leave/owner 까지 과적되면 리뷰에서 재평가. **마이그레이션 reversible 필수**(User.allowDmFrom + override 확장).
+  - FR-DM-08 1:1 강퇴 항상 403, FR-DM-09 마지막 멤버 탈퇴 시 Channel.deletedAt=now. FR-DM-12 위반 403 + FRIENDS_ONLY 는 Phase 2(미구현). FR-DM-10(DM 숨기기 HIDDEN)은 S20 이라면 분리.
 - **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover).
 
 ---

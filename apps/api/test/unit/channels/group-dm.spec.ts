@@ -29,6 +29,9 @@ type Stub = {
   // S16 (BLOCKER fix-forward): 전역 그룹 경로가 멤버별 친구 게이트(assertCanDm →
   // friendship.findFirst)를 호출하므로 기본 ACCEPTED 를 돌려주는 stub 을 둔다.
   friendshipFindFirst?: ReturnType<typeof vi.fn>;
+  // S19 (FR-DM-12): 전역 그룹 경로가 멤버별 DM 수신권한 게이트(assertDmPrivacyAllows
+  // → user.findUnique)도 호출하므로 기본 EVERYONE 을 돌려주는 stub 을 둔다.
+  userFindUnique?: ReturnType<typeof vi.fn>;
 };
 
 type TxStub = {
@@ -48,11 +51,18 @@ function makeService(stub: Stub) {
   const friendship = {
     findFirst: stub.friendshipFindFirst ?? vi.fn().mockResolvedValue({ status: 'ACCEPTED' }),
   };
+  // S19 (FR-DM-12): assertDmPrivacyAllows 가 user.findUnique 로 allowDmFrom 을
+  // 조회한다. 기본 EVERYONE 으로 게이트를 통과시켜 기존 친구 게이트 단위 검증을
+  // 보존한다(privacy 게이트는 int 에서 별도 검증).
+  const user = {
+    findUnique: stub.userFindUnique ?? vi.fn().mockResolvedValue({ allowDmFrom: 'EVERYONE' }),
+  };
   const tx: TxStub = { channel, channelPermissionOverride };
   const prisma = {
     channel,
     workspaceMember,
     friendship,
+    user,
     $transaction: stub.transaction ?? vi.fn(async (cb: (tx: TxStub) => Promise<unknown>) => cb(tx)),
   } as unknown as ConstructorParameters<typeof DirectMessagesService>[0];
   return new DirectMessagesService(prisma, fakeOutbox());

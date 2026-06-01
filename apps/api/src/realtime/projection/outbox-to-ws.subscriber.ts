@@ -163,22 +163,21 @@ export class OutboxToWsSubscriber {
   @OnEvent('dm.**')
   async onDmEvent(env: WsEnvelope): Promise<void> {
     if (!this.io) return;
-    // recipients 는 서버에서만 쓰는 라우팅 정보 — 와이어로 내보내지 않는다.
+    // recipients 는 서버에서만 쓰는 라우팅 정보 — 와이어로 내보내지 않는다(H-03).
     const recipients = (env as { recipients?: string[] }).recipients ?? [];
     if (recipients.length === 0) return;
-    const wire = {
-      id: env.id,
-      type: WS_EVENTS.DM_CREATED,
-      occurredAt: env.occurredAt,
-      channelId: env.channelId ?? (env as { channelId?: string }).channelId,
-      isGroup: (env as { isGroup?: boolean }).isGroup ?? false,
-      participantIds: (env as { participantIds?: string[] }).participantIds ?? [],
-    };
+
+    // S19: 내부 dot 이벤트명 → 콜론 와이어명 + recipients 제거한 최소 페이로드.
+    // 참여자 UUID 전체 노출 금지 — 각 이벤트가 변경 대상 최소 필드만 싣는다.
+    const built = this.buildDmWire(env);
+    if (!built) return;
+    const { wireType, wire } = built;
+
     for (const uid of recipients) {
       try {
         await this.replay.append('user', uid, {
           id: env.id,
-          type: WS_EVENTS.DM_CREATED,
+          type: wireType,
           occurredAt: env.occurredAt,
           payload: wire,
         });
@@ -189,14 +188,64 @@ export class OutboxToWsSubscriber {
       }
       await withSpan(
         'ws.emit',
-        { 'ws.event.type': WS_EVENTS.DM_CREATED, 'ws.room': rooms.user(uid) },
+        { 'ws.event.type': wireType, 'ws.room': rooms.user(uid) },
         async () => {
-          this.io!.to(rooms.user(uid)).emit(WS_EVENTS.DM_CREATED, wire);
+          this.io!.to(rooms.user(uid)).emit(wireType, wire);
         },
       );
-      this.metrics?.wsEventsEmittedTotal
-        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.DM_CREATED))
-        .inc();
+      this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
+    }
+  }
+
+  /**
+   * S19: dm.* outbox 이벤트 → 와이어 (이벤트명, 페이로드) 매핑. 내부 라우팅용
+   * recipients 는 제외하고 클라이언트 소비에 필요한 최소 필드만 담는다(dm:created
+   * H-03 선례). 알 수 없는 dm.* 이벤트는 null 을 반환해 무음 드롭한다.
+   */
+  private buildDmWire(env: WsEnvelope): { wireType: string; wire: Record<string, unknown> } | null {
+    const channelId = env.channelId ?? (env as { channelId?: string }).channelId;
+    const base = { id: env.id, occurredAt: env.occurredAt, channelId };
+    switch (env.type) {
+      case 'dm.created':
+        return {
+          wireType: WS_EVENTS.DM_CREATED,
+          wire: {
+            ...base,
+            type: WS_EVENTS.DM_CREATED,
+            isGroup: (env as { isGroup?: boolean }).isGroup ?? false,
+            participantIds: (env as { participantIds?: string[] }).participantIds ?? [],
+          },
+        };
+      case 'dm.participant_added':
+        return {
+          wireType: WS_EVENTS.DM_PARTICIPANT_ADDED,
+          wire: {
+            ...base,
+            type: WS_EVENTS.DM_PARTICIPANT_ADDED,
+            addedUserIds: (env as { addedUserIds?: string[] }).addedUserIds ?? [],
+          },
+        };
+      case 'dm.participant_removed':
+        return {
+          wireType: WS_EVENTS.DM_PARTICIPANT_REMOVED,
+          wire: {
+            ...base,
+            type: WS_EVENTS.DM_PARTICIPANT_REMOVED,
+            removedUserId: (env as { removedUserId?: string }).removedUserId ?? '',
+            reason: (env as { reason?: string }).reason ?? 'left',
+          },
+        };
+      case 'dm.owner_changed':
+        return {
+          wireType: WS_EVENTS.DM_OWNER_CHANGED,
+          wire: {
+            ...base,
+            type: WS_EVENTS.DM_OWNER_CHANGED,
+            ownerId: (env as { ownerId?: string }).ownerId ?? '',
+          },
+        };
+      default:
+        return null;
     }
   }
 

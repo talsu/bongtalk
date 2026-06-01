@@ -82,6 +82,15 @@ enum FriendshipStatus {
   BLOCKED
 }
 
+// S19 (FR-DM-12): DM 수신권한. EVERYONE = 누구나 DM 개시 가능,
+// WORKSPACE_MEMBER = 공통 워크스페이스 멤버이거나 ACCEPTED 친구만 가능(default).
+// FRIENDS_ONLY 는 Phase2 carryover — 이번 슬라이스에서는 enum 값으로도 선반영하지
+// 않는다(거부만 한다). 기존 row 는 마이그레이션 DEFAULT 로 WORKSPACE_MEMBER 백필.
+enum DmPrivacy {
+  EVERYONE
+  WORKSPACE_MEMBER
+}
+
 enum NotificationChannel {
   TOAST
   BROWSER
@@ -155,6 +164,11 @@ model User {
   // shape: Array<{ url: string, label?: string }>, cap 3 (app layer).
   // null = no links.
   links               Json?
+  // S19 (FR-DM-12): DM 수신권한. default WORKSPACE_MEMBER 라 기존 row 안전
+  // (additive + reversible). PATCH /users/me/dm-privacy 로 토글하며, DM 개시
+  // (createOrGetGlobal / createGroupDm) + 그룹 DM 멤버 추가(FR-DM-07)에서
+  // assertDmPrivacyAllows 게이트가 참조한다.
+  allowDmFrom         DmPrivacy          @default(WORKSPACE_MEMBER)
   createdAt           DateTime           @default(now())
   updatedAt           DateTime           @updatedAt
 
@@ -173,6 +187,8 @@ model User {
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
   threadSubscriptions     ThreadSubscription[]
+  // S19 (FR-DM-08/09): 본인이 owner 인 그룹 DM 채널. onDelete SET NULL.
+  ownedChannels           Channel[]                  @relation("ChannelOwner")
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.
@@ -323,6 +339,12 @@ model Channel {
   // 면제한다.
   slowmodeSeconds Int     @default(0)
   isPrivate   Boolean     @default(false)
+  // S19 (FR-DM-08/09): 그룹 DM owner. group(`gdm:%`) DM 에서만 의미가 있다 —
+  // 1:1 DM(`dm:%`)·일반 채널은 NULL. 멤버 추가/강퇴는 owner 만, 나가기 시 owner
+  // 가 떠나면 잔여 멤버 중 joinedAt 최古로 자동 승계한다. onDelete SET NULL 로
+  // owner User 하드삭제 시 승계 훅 없이 NULL 로 끊긴다(승계 훅은 carryover).
+  // 마이그레이션이 기존 gdm 채널의 owner 를 joinedAt/createdAt 최古 멤버로 backfill.
+  ownerId     String?     @db.Uuid
   archivedAt  DateTime?
   deletedAt   DateTime?
   createdAt   DateTime    @default(now())
@@ -330,6 +352,7 @@ model Channel {
 
   workspace   Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   category    Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  owner       User?                       @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   messages    Message[]
   attachments Attachment[]
   overrides   ChannelPermissionOverride[]
@@ -363,6 +386,16 @@ model ChannelPermissionOverride {
   // 그 시각으로 세팅되며, 메시지 list(before/after/around/initial) 전 경로가
   // `createdAt >= visibleFrom` 으로 요청자 본인 시점 이전 메시지를 제외한다.
   visibleFrom   DateTime? @db.Timestamptz
+  // S19 (FR-DM-07/08/09): DM 멤버십 가입/탈퇴 시각. joinedAt = 그룹 DM 가입(개설·
+  // 추가·재진입) 시각으로 owner 승계 정렬(joinedAt ASC 최古)의 1차 키다. leftAt =
+  // soft-leave(나가기/강퇴) 시각 — **1차 멤버십 판정에는 쓰지 않는** 보조 컬럼
+  // (감사·승계·재진입 정렬용)이다. soft-leave 는 leftAt=now() 와 allowMask=0
+  // (denyMask=0)을 같은 UPDATE 에서 원자적으로 세팅하므로, 기존 read-path(allowMask&1>0)
+  // 가 코드 변경 없이 leaver/kicked 를 즉시 비멤버 취급한다(★ 불변 계약). row 는
+  // DELETE 하지 않고 재진입 시 UPDATE 로 복원한다(unique 충돌 회피). 두 컬럼 모두
+  // nullable — legacy DM row·ROLE override·비-DIRECT 채널은 NULL.
+  joinedAt      DateTime? @db.Timestamptz
+  leftAt        DateTime? @db.Timestamptz
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 
@@ -370,6 +403,14 @@ model ChannelPermissionOverride {
 
   @@unique([channelId, principalType, principalId])
   @@index([channelId])
+  // S19 (MED fix-forward): 그룹 DM 활성 멤버 조회 + owner 승계 정렬(joinedAt ASC)
+  // 은 부분 인덱스 `CPO_dm_active_members_idx (channelId, joinedAt)
+  // WHERE principalType='USER' AND leftAt IS NULL` (raw-SQL 마이그레이션
+  // 20260601300000_s19_dm_membership_owner_privacy)가 커버한다. Prisma @@index 는
+  // partial WHERE 를 표현할 수 없다. 이전에 정합용으로 둔 전체-컬럼
+  // `@@index([channelId, joinedAt])` 는 부분 인덱스와 선두 컬럼이 같아 활성멤버
+  // 쿼리에 잉여였고(게다가 그 전체 인덱스를 만드는 CREATE INDEX 가 마이그레이션에
+  // 없어 schema↔migration drift 였다), 제거해 부분 인덱스 하나만 유지한다.
 }
 
 model Message {

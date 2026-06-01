@@ -40,6 +40,13 @@ export const WS_EVENTS = {
   // DM / 그룹 DM (S16 · FR-DM-16): 새 DM·그룹 DM 개설 또는 멤버 추가 시 대상
   // 참여자의 user:{userId} 룸으로 push. 클라이언트는 DM 목록 캐시를 무효화한다.
   DM_CREATED: 'dm:created',
+  // 그룹 DM 멤버십 변경 (S19 · FR-DM-07/08/09): 멤버 추가/강퇴/나가기·owner 승계 시
+  // 대상 참여자의 user:{userId} 룸으로 push. 클라이언트는 멤버 목록/owner 캐시를
+  // 무효화한다. dm:created 선례대로 내부 recipients 는 와이어에서 제거되고 최소
+  // 필드(channelId + 변경 대상 userId 등)만 노출한다(참여자 UUID 전체 비노출).
+  DM_PARTICIPANT_ADDED: 'dm:participant_added',
+  DM_PARTICIPANT_REMOVED: 'dm:participant_removed',
+  DM_OWNER_CHANGED: 'dm:owner_changed',
   // 차단 해제 (S17 · FR-DM-19): 차단 해제 시 차단 해제자(blocker)의 user:{userId}
   // 룸으로 push. 클라이언트는 해당 사용자가 작성한 메시지의 마스킹을 풀기 위해
   // 현재 채널 메시지 캐시를 무효화/재로드한다.
@@ -259,6 +266,43 @@ export const DmCreatedPayloadSchema = z.object({
 export type DmCreatedPayload = z.infer<typeof DmCreatedPayloadSchema>;
 
 /**
+ * dm:participant_added — 그룹 DM 멤버 추가 시 대상 채널의 기존+신규 참여자
+ * user:{userId} 룸으로 emit (S19 · FR-DM-07). `addedUserIds` 는 이번에 추가된
+ * 멤버 set. 내부 라우팅용 recipients 는 와이어에서 제거된다(H-03 선례). 클라이언트는
+ * 멤버 목록 캐시를 무효화한다.
+ */
+export const DmParticipantAddedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  addedUserIds: z.array(UserIdSchema),
+});
+export type DmParticipantAddedPayload = z.infer<typeof DmParticipantAddedPayloadSchema>;
+
+/**
+ * dm:participant_removed — 그룹 DM 강퇴/나가기 시 대상 채널의 참여자
+ * user:{userId} 룸으로 emit (S19 · FR-DM-08/09). `removedUserId` 는 제거된 멤버,
+ * `reason` 은 강퇴('kicked') / 본인 나가기('left'). 내부 recipients 는 와이어에서
+ * 제거된다(H-03). 클라이언트는 멤버 목록 캐시를 무효화하고, 본인이 removedUserId
+ * 이면 해당 DM 을 목록에서 제거한다.
+ */
+export const DmParticipantRemovedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  removedUserId: UserIdSchema,
+  reason: z.enum(['kicked', 'left']),
+});
+export type DmParticipantRemovedPayload = z.infer<typeof DmParticipantRemovedPayloadSchema>;
+
+/**
+ * dm:owner_changed — 그룹 DM owner 승계 시 참여자 user:{userId} 룸으로 emit
+ * (S19 · FR-DM-09). owner 가 나갈 때 잔여 멤버 중 joinedAt 최古로 자동 승계되며
+ * `ownerId` 는 새 owner userId. 내부 recipients 는 와이어에서 제거된다(H-03).
+ */
+export const DmOwnerChangedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  ownerId: UserIdSchema,
+});
+export type DmOwnerChangedPayload = z.infer<typeof DmOwnerChangedPayloadSchema>;
+
+/**
  * user:unblocked — 차단 해제자(blocker)의 user:{userId} 룸으로 emit
  * (S17 · FR-DM-19). `unblockedUserId` 는 차단이 풀린 상대 userId. 클라이언트는
  * 이 id 가 작성한 메시지의 마스킹(`[차단된 사용자의 메시지]`)을 풀기 위해 현재
@@ -298,5 +342,8 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.READ_STATE_UPDATED]: ReadStateUpdatedPayloadSchema,
   [WS_EVENTS.UNREAD_COUNT_INCREMENT]: UnreadCountIncrementPayloadSchema,
   [WS_EVENTS.DM_CREATED]: DmCreatedPayloadSchema,
+  [WS_EVENTS.DM_PARTICIPANT_ADDED]: DmParticipantAddedPayloadSchema,
+  [WS_EVENTS.DM_PARTICIPANT_REMOVED]: DmParticipantRemovedPayloadSchema,
+  [WS_EVENTS.DM_OWNER_CHANGED]: DmOwnerChangedPayloadSchema,
   [WS_EVENTS.USER_UNBLOCKED]: UserUnblockedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;
