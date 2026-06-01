@@ -239,11 +239,23 @@ export const AckReadRequestSchema = z.object({
 });
 export type AckReadRequest = z.infer<typeof AckReadRequestSchema>;
 
-/** read_state:updated — user:{userId} 룸으로만 emit. */
+/**
+ * read_state:updated — 호출자의 user:{userId} 룸으로만 emit (FR-RS-01 멀티세션
+ * 동기화). ACK 한 채널의 새 unread/mention 카운트를 함께 실어 다른 기기/탭이
+ * 사이드바 배지를 즉시 갱신할 수 있게 한다. `mentionCount` 는 S21 추가분 —
+ * forward-compat 위해 default(0) (구 클라/구 서버 페이로드 호환).
+ */
 export const ReadStateUpdatedPayloadSchema = z.object({
   channelId: ChannelIdSchema,
+  // S21 fix-forward (NIT-G): 채널이 속한 워크스페이스 id. dispatcher 가
+  // unread-summary 쿼리 전체를 스캔하지 않고 `qk.channels.unreadSummary(workspaceId)`
+  // 를 직접 patch 할 수 있게 한다. ackRead 가 채널 조회로 이미 보유한 값이라
+  // 추가 round-trip 없음. forward-compat 위해 optional — 구 서버 페이로드는
+  // workspaceId 누락이어도 dispatcher 가 전체 스캔으로 폴백한다.
+  workspaceId: z.string().nullable().optional(),
   lastReadMessageId: z.string().nullable(),
   unreadCount: z.number().int().nonnegative(),
+  mentionCount: z.number().int().nonnegative().default(0),
 });
 export type ReadStateUpdatedPayload = z.infer<typeof ReadStateUpdatedPayloadSchema>;
 

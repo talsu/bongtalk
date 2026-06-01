@@ -202,6 +202,16 @@ export function installRealtimeDispatcher(
               ? env.message.createdAt
               : new Date().toISOString();
           const found = old.channels.some((c) => c.channelId === env.channelId);
+          // S21 (FR-RS-16): 멘션이면 mentionCount 도 +1. 서버 권위 카운트는
+          // read_state:updated / refetch 가 덮어쓴다(낙관적 +1 은 근사치).
+          // S21 fix-forward (MAJOR-D): @here / @channel 범위 멘션도 라이브 배지에
+          // 반영해 reload(서버 집계)와 일치시킨다. 종전엔 here/channel 을 무시해
+          // 새 메시지 수신 시 배지가 깜빡였다 reload 로만 채워졌다.
+          const isMention =
+            !!mentioned ||
+            everyone ||
+            env.message.mentions?.here === true ||
+            env.message.mentions?.channel === true;
           return {
             channels: found
               ? old.channels.map((c) =>
@@ -209,7 +219,8 @@ export function installRealtimeDispatcher(
                     ? {
                         ...c,
                         unreadCount: c.unreadCount + 1,
-                        hasMention: c.hasMention || mentioned || everyone,
+                        mentionCount: c.mentionCount + (isMention ? 1 : 0),
+                        hasMention: c.hasMention || isMention,
                         lastMessageAt,
                       }
                     : c,
@@ -219,7 +230,8 @@ export function installRealtimeDispatcher(
                   {
                     channelId: env.channelId,
                     unreadCount: 1,
-                    hasMention: mentioned || everyone,
+                    mentionCount: isMention ? 1 : 0,
+                    hasMention: isMention,
                     lastMessageAt,
                   },
                 ],
@@ -477,6 +489,61 @@ export function installRealtimeDispatcher(
     );
   });
 
+  // ---------- Read state (S21 · FR-RS-01) ----------
+  // read_state:updated 는 호출자의 user:{userId} 룸으로만 emit 된다(ACK 한
+  // 기기 + 다른 기기/탭). 한 기기에서 채널을 읽으면 다른 기기의 사이드바
+  // 배지를 즉시 맞춘다. S21 fix-forward (NIT-G): 페이로드에 workspaceId 가
+  // 실리면 `qk.channels.unreadSummary(workspaceId)` 키를 직접 patch 해 전체
+  // 쿼리캐시 스캔을 피한다. 구 서버 페이로드(workspaceId 누락)는 종전대로
+  // 캐시된 모든 unread-summary 쿼리를 훑어 channelId 일치 행을 patch 한다.
+  on<{
+    channelId: string;
+    workspaceId?: string | null;
+    lastReadMessageId: string | null;
+    unreadCount: number;
+    mentionCount?: number;
+  }>('read_state:updated', (env) => {
+    if (!env.channelId) return;
+    const mentionCount = env.mentionCount ?? 0;
+    // 워크스페이스 레일 합계는 다시 계산하기보다 무효화(서버 권위).
+    qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+
+    const patchSummary = (old: { channels: UnreadChannelSummary[] } | undefined) => {
+      if (!old || !old.channels.some((c) => c.channelId === env.channelId)) return old;
+      return {
+        channels: old.channels.map((c) =>
+          c.channelId === env.channelId
+            ? {
+                ...c,
+                unreadCount: env.unreadCount,
+                mentionCount,
+                hasMention: mentionCount > 0,
+              }
+            : c,
+        ),
+      };
+    };
+
+    // NIT-G: workspaceId 가 있으면 keyed 쿼리 직접 patch(스캔 없음).
+    if (env.workspaceId) {
+      qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+        qk.channels.unreadSummary(env.workspaceId),
+        patchSummary,
+      );
+      return;
+    }
+
+    // 폴백: workspaceId 누락 시 캐시된 unread-summary 쿼리들 중 이 채널 행을
+    // 가진 것을 patch.
+    const queries = qc.getQueryCache().findAll({ queryKey: ['workspaces'] });
+    for (const q of queries) {
+      const key = q.queryKey;
+      // ['workspaces', wsId, 'unread-summary'] 형태만 대상.
+      if (!Array.isArray(key) || key[2] !== 'unread-summary') continue;
+      qc.setQueryData<{ channels: UnreadChannelSummary[] }>(key, patchSummary);
+    }
+  });
+
   // ---------- Reactions (task-013-B) ----------
   // One server event per (message, user, emoji) action. The payload's
   // `count` is the authoritative server total for that emoji, so we
@@ -729,4 +796,5 @@ export const DISPATCHED_EVENTS = [
   'message.reaction.removed',
   'message.thread.replied',
   'typing.updated',
+  'read_state:updated',
 ] as const;

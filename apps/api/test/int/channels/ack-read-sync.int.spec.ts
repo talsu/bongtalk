@@ -197,6 +197,7 @@ describe('S11 ack read-sync (FR-RT-13/14/19)', () => {
         channelId: string;
         lastReadMessageId: string | null;
         unreadCount: number;
+        mentionCount: number;
       }>(socket, 'read_state:updated', 5000);
 
       const ack = await request(env.baseUrl)
@@ -210,8 +211,50 @@ describe('S11 ack read-sync (FR-RT-13/14/19)', () => {
       expect(ev.channelId).toBe(channelId);
       expect(ev.lastReadMessageId).toBe(m1);
       expect(ev.unreadCount).toBe(1); // e2 still unread
+      // S21 (FR-RS-01): mentionCount rides the payload for the badge.
+      expect(ev.mentionCount).toBe(0);
     } finally {
       socket.disconnect();
+    }
+  });
+
+  // S21 (FR-RS-01): an ack on ONE device must fan read_state:updated to EVERY
+  // open session of the same user (multi-session badge sync). Two sockets, one
+  // ack → both receive the event with the post-ack unread count.
+  it('fans read_state:updated to ALL sessions of the acking user (multi-session)', async () => {
+    const channelId = await createChannel();
+    const m1 = await postMessage(channelId, owner.accessToken, 'ms1');
+    await postMessage(channelId, owner.accessToken, 'ms2');
+
+    const sockA = await connect(member.accessToken);
+    const sockB = await connect(member.accessToken);
+    try {
+      const recvA = waitFor<{ channelId: string; unreadCount: number; mentionCount: number }>(
+        sockA,
+        'read_state:updated',
+        5000,
+      );
+      const recvB = waitFor<{ channelId: string; unreadCount: number; mentionCount: number }>(
+        sockB,
+        'read_state:updated',
+        5000,
+      );
+
+      const ack = await request(env.baseUrl)
+        .post(`/workspaces/${workspaceId}/channels/${channelId}/ack`)
+        .set('origin', ORIGIN)
+        .set(bearer(member.accessToken))
+        .send({ lastReadMessageId: m1 });
+      expect(ack.status).toBe(200);
+
+      const [evA, evB] = await Promise.all([recvA, recvB]);
+      expect(evA.channelId).toBe(channelId);
+      expect(evB.channelId).toBe(channelId);
+      expect(evA.unreadCount).toBe(1);
+      expect(evB.unreadCount).toBe(1);
+    } finally {
+      sockA.disconnect();
+      sockB.disconnect();
     }
   });
 });

@@ -6,6 +6,12 @@ export type Mentions = {
   everyone: boolean;
   /** task-046 iter8 (A9): `@here` 만 — 채널 멤버 중 현재 online 인 사람만 알림. */
   here: boolean;
+  /**
+   * S21 (FR-RS-16): `@channel` 범위 멘션 — 현재 채널 멤버 전원. @everyone(워크스페이스
+   * 전체)·@here(온라인) 와 구분되는 채널-스코프 멘션. unread mentionCount 집계에
+   * 반영되며, gate.ts 로 권한 게이트한다.
+   */
+  channel: boolean;
 };
 
 // Username grammar mirrors SignupRequestSchema: 2-32, alnum/._-
@@ -13,6 +19,8 @@ const MENTION_USER_RE = /(?<![A-Za-z0-9_])@([A-Za-z0-9_.-]{2,32})/g;
 const MENTION_CHANNEL_RE = /(?<![A-Za-z0-9_])#([a-z0-9][a-z0-9_-]{0,31})/g;
 const MENTION_EVERYONE_RE = /(?<![A-Za-z0-9_])@everyone(?![A-Za-z0-9_])/;
 const MENTION_HERE_RE = /(?<![A-Za-z0-9_])@here(?![A-Za-z0-9_])/;
+// S21 (FR-RS-16): `@channel` 특수멘션 토큰.
+const MENTION_CHANNEL_SCOPE_RE = /(?<![A-Za-z0-9_])@channel(?![A-Za-z0-9_])/;
 
 /**
  * Extract `@username`, `#channel`, and `@everyone` tokens from free-form
@@ -32,16 +40,17 @@ export async function extractMentions(
   // namespace to resolve @handles against, so drop mentions entirely.
   // `@everyone` in a DM would also be meaningless.
   if (workspaceId === null) {
-    return { users: [], channels: [], everyone: false, here: false };
+    return { users: [], channels: [], everyone: false, here: false, channel: false };
   }
   const everyone = MENTION_EVERYONE_RE.test(text);
   const here = MENTION_HERE_RE.test(text);
+  const channelScope = MENTION_CHANNEL_SCOPE_RE.test(text);
 
   const usernames = new Set<string>();
   for (const m of text.matchAll(MENTION_USER_RE)) {
-    // `@everyone` / `@here` 는 별도 처리 — username bucket 에서 제외.
+    // `@everyone` / `@here` / `@channel` 는 별도 처리 — username bucket 에서 제외.
     const lower = m[1].toLowerCase();
-    if (lower === 'everyone' || lower === 'here') continue;
+    if (lower === 'everyone' || lower === 'here' || lower === 'channel') continue;
     usernames.add(m[1]);
   }
   const channelNames = new Set<string>();
@@ -75,7 +84,7 @@ export async function extractMentions(
           .then((rs) => rs.map((r) => r.id)),
   ]);
 
-  return { users, channels, everyone, here };
+  return { users, channels, everyone, here, channel: channelScope };
 }
 
 /**
