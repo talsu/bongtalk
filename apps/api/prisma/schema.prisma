@@ -66,6 +66,10 @@ model OutboxEvent {
 enum PresencePreference {
   auto
   dnd
+  // S25 (FR-P01): 사용자가 스스로 숨김. 본인에게만 실제값, 타인에게는 offline 으로
+  // 마스킹(maskPresenceForViewer). runtime presence(Redis)는 별개 — 이 enum 은
+  // connect 시 게이트웨이가 읽는 정적 선호값이다.
+  invisible
 }
 
 enum NotificationEventType {

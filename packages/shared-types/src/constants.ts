@@ -38,6 +38,31 @@ export const TYPING_BATCH_INTERVAL = 2000;
 /** 마지막 disconnect 후 OFFLINE 전환 grace (초) (D17). */
 export const PRESENCE_OFFLINE_GRACE = 35;
 
+/**
+ * WS 세션 Redis TTL (초). presence:ping 으로 갱신 (ADR-8).
+ *
+ * S25 fix-forward(cheap): 종전엔 presence.service 의 `process.env.PRESENCE_SESSION_TTL_SEC
+ * ?? 120` 리터럴로 파편화돼 있었습니다. .env.example(PRESENCE_SESSION_TTL_SEC=120)과
+ * 정합하도록 기본값을 단일 상수로 모읍니다.
+ */
+export const PRESENCE_SESSION_TTL_SEC = 120;
+
+/**
+ * ONLINE→IDLE 감지 폴링 주기 (ms) (ADR-8 / FR-RT-10).
+ *
+ * S25 fix-forward(cheap): 게이트웨이 idle sweep 의 `process.env.PRESENCE_IDLE_SWEEP_INTERVAL_MS
+ * ?? 30000` 리터럴을 단일 상수로 모읍니다(.env.example=30000 정합).
+ */
+export const PRESENCE_IDLE_SWEEP_INTERVAL_MS = 30000;
+
+/**
+ * presence.updated 브로드캐스트 합치기(coalesce) 창 (ms) (ADR-8).
+ *
+ * S25 fix-forward(cheap): PresenceThrottler 의 `process.env.PRESENCE_UPDATE_THROTTLE_MS
+ * ?? 2000` 리터럴을 단일 상수로 모읍니다(.env.example=2000 정합).
+ */
+export const PRESENCE_UPDATE_THROTTLE_MS = 2000;
+
 /** Redis 장애 시 발행되는 seq sentinel — hole 감지 skip (D17). */
 export const SEQ_SENTINEL = -1;
 
@@ -75,6 +100,10 @@ export const SHARED_CONSTANTS = {
   PENDING_EVENTS_MAX,
   TYPING_BATCH_INTERVAL,
   PRESENCE_OFFLINE_GRACE,
+  // S25 fix-forward(cheap): presence env 기본값을 단일 상수로 모아 파편화 해소.
+  PRESENCE_SESSION_TTL_SEC,
+  PRESENCE_IDLE_SWEEP_INTERVAL_MS,
+  PRESENCE_UPDATE_THROTTLE_MS,
   SEQ_SENTINEL,
   GAP_FETCH_CONCURRENCY,
   // S10 fix-forward (FIX #6): S07 에서 추가된 상수가 단일 객체 노출에서 누락돼

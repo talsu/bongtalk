@@ -13,6 +13,8 @@ const SIZE_TEXT: Record<AvatarSize, string> = {
 
 const STATUS_LABEL: Record<Exclude<PresenceStatus, 'offline'>, string> = {
   online: '온라인',
+  // S25 (FR-RT-10): auto-idle 상태. DS qf-avatar__status--idle 닷 활용.
+  idle: '자리비움',
   dnd: '방해 금지',
 };
 

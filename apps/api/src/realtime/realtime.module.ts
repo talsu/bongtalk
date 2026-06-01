@@ -4,6 +4,7 @@ import { WsAuthMiddleware } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
+import { PresenceGraceTimers } from './presence/presence-grace-timers';
 import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { ChannelSeqService } from './projection/channel-seq.service';
@@ -25,6 +26,7 @@ import { ChannelsModule } from '../channels/channels.module';
     RoomManagerService,
     PresenceService,
     PresenceThrottler,
+    PresenceGraceTimers,
     TypingService,
     ReplayBufferService,
     ChannelSeqService,

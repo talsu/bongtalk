@@ -1,4 +1,4 @@
-import { Logger, Optional } from '@nestjs/common';
+import { Logger, Optional, type OnModuleDestroy } from '@nestjs/common';
 import {
   ConnectedSocket,
   MessageBody,
@@ -12,8 +12,14 @@ import {
 import type { Server, Socket } from 'socket.io';
 import {
   WS_EVENTS,
+  PRESENCE_OFFLINE_GRACE,
+  PRESENCE_IDLE_SWEEP_INTERVAL_MS,
+  PresenceSubscribePayloadSchema,
+  PresenceActivityPayloadSchema,
   type ChannelJoinedPayload,
+  type PresenceBulkPayload,
   type ReadStateUpdatedPayload,
+  type WorkspacePresenceUpdatedPayload,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { UnreadService } from '../channels/unread.service';
@@ -21,6 +27,7 @@ import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware'
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
 import { PresenceThrottler } from './presence/presence-throttler';
+import { PresenceGraceTimers } from './presence/presence-grace-timers';
 import { TypingService } from './typing/typing.service';
 import { ReplayBufferService } from './projection/replay-buffer.service';
 import { ChannelSeqService } from './projection/channel-seq.service';
@@ -60,15 +67,26 @@ type SocketState = {
   pingTimeout: 20000,
   maxHttpBufferSize: 1024 * 1024,
 })
-export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
+export class RealtimeGateway
+  implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect, OnModuleDestroy
+{
   private readonly logger = new Logger(RealtimeGateway.name);
   @WebSocketServer() server!: Server;
+
+  // S25 (FR-RT-10): workspaces with at least one connection seen on this node.
+  // The idle sweep walks these to detect ONLINE→IDLE crossings and re-broadcast.
+  private readonly activeWorkspaces = new Set<string>();
+  // Last idle set we broadcast per workspace, so the sweep only re-broadcasts
+  // when the idle membership actually changed (avoids a 30s broadcast storm).
+  private readonly lastIdleSet = new Map<string, string>();
+  private idleSweepTimer: NodeJS.Timeout | null = null;
 
   constructor(
     private readonly wsAuth: WsAuthMiddleware,
     private readonly roomMgr: RoomManagerService,
     private readonly presence: PresenceService,
     private readonly throttler: PresenceThrottler,
+    private readonly graceTimers: PresenceGraceTimers,
     private readonly replay: ReplayBufferService,
     private readonly typing: TypingService,
     private readonly prisma: PrismaService,
@@ -86,6 +104,53 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     // bursts (10+ events in one tick) can approach the default 10-listener
     // warning on the Socket.IO server side — bump it.
     server.sockets.setMaxListeners(50);
+    this.startIdleSweep();
+  }
+
+  /**
+   * S25 (FR-RT-10): periodic ONLINE→IDLE detector. A user who stops sending
+   * `presence:activity` has no event to trigger a broadcast, so we poll every
+   * PRESENCE_IDLE_SWEEP_INTERVAL_MS (default 30s). Only re-broadcasts a
+   * workspace whose idle membership changed since the last sweep, so an idle
+   * population doesn't cause a 30s broadcast storm.
+   */
+  private startIdleSweep(): void {
+    if (this.idleSweepTimer) return;
+    // S25 fix-forward(cheap · NaN 가드): 단일 상수 기본값 + finite/>0 가드. 잘못
+    // 설정된 env(NaN/음수)가 setInterval(0) busy-loop 를 만들지 않도록 한다.
+    const raw = Number(
+      process.env.PRESENCE_IDLE_SWEEP_INTERVAL_MS ?? PRESENCE_IDLE_SWEEP_INTERVAL_MS,
+    );
+    const intervalMs = Number.isFinite(raw) && raw > 0 ? raw : PRESENCE_IDLE_SWEEP_INTERVAL_MS;
+    const t = setInterval(() => void this.idleSweepTick().catch(() => undefined), intervalMs);
+    if (typeof (t as unknown as { unref?: () => void }).unref === 'function') {
+      (t as unknown as { unref: () => void }).unref();
+    }
+    this.idleSweepTimer = t;
+  }
+
+  private async idleSweepTick(): Promise<void> {
+    for (const wsId of this.activeWorkspaces) {
+      const online = await this.presence.onlineIn(wsId);
+      if (online.length === 0) {
+        this.activeWorkspaces.delete(wsId);
+        this.lastIdleSet.delete(wsId);
+        continue;
+      }
+      const idle = await this.presence.idleIn(online);
+      const key = idle.slice().sort().join(',');
+      if (key !== (this.lastIdleSet.get(wsId) ?? '')) {
+        this.lastIdleSet.set(wsId, key);
+        this.schedulePresenceBroadcast(wsId);
+      }
+    }
+  }
+
+  onModuleDestroy(): void {
+    if (this.idleSweepTimer) {
+      clearInterval(this.idleSweepTimer);
+      this.idleSweepTimer = null;
+    }
   }
 
   async handleConnection(client: Socket): Promise<void> {
@@ -105,14 +170,19 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     await client.join(joinable);
     client.data.state = { user, workspaceIds, channelIds } satisfies SocketState;
 
-    // task-019-C: consult the user's static DnD preference so the
-    // presence SET correctly reflects DnD on connect, not just after
-    // a PATCH.
+    // task-019-C / S25: consult the user's static preference so the presence
+    // SET correctly reflects DnD / invisible on connect, not just after a
+    // PATCH. 'invisible' joins no observable SET (only self sees them).
     const userRow = await this.prisma.user.findUnique({
       where: { id: user.userId },
       select: { presencePreference: true },
     });
-    const preference = (userRow?.presencePreference ?? 'auto') as 'auto' | 'dnd';
+    const preference = (userRow?.presencePreference ?? 'auto') as 'auto' | 'dnd' | 'invisible';
+
+    // S25 (FR-P02): a reconnect inside the 35s grace window cancels the
+    // pending OFFLINE timer so no OFFLINE broadcast fires and the previous
+    // status is restored immediately.
+    this.graceTimers.cancel(user.userId);
 
     await this.presence.register({
       sessionId: user.sessionId,
@@ -149,6 +219,8 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
     // Schedule a throttled presence broadcast per workspace the user just
     // joined — the throttler guarantees one emit per 2s window per workspace.
     for (const wsId of workspaceIds) {
+      // S25 (FR-RT-10): remember this workspace so the idle sweep watches it.
+      this.activeWorkspaces.add(wsId);
       this.schedulePresenceBroadcast(wsId);
     }
 
@@ -197,13 +269,29 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       .inc();
     if (!state) return;
     this.metrics?.wsPresenceSessionsActive.dec();
-    const { goneFrom } = await this.presence.unregister({
+    const { lastSessionGone } = await this.presence.unregister({
       sessionId: state.user.sessionId,
       userId: state.user.userId,
       workspaceIds: state.workspaceIds,
     });
-    for (const wsId of goneFrom) {
-      this.schedulePresenceBroadcast(wsId);
+    // S25 (FR-P02): only the LAST session triggers the OFFLINE path, and even
+    // then we defer for PRESENCE_OFFLINE_GRACE seconds. A reconnect inside the
+    // window cancels this timer (see handleConnection). If it elapses, finalize
+    // OFFLINE + broadcast per workspace. Multi-device (FR-RT-11): other live
+    // sessions keep lastSessionGone false → user stays ONLINE, no timer.
+    if (lastSessionGone) {
+      const { userId } = state.user;
+      const wsIds = [...state.workspaceIds];
+      // S25 fix-forward(B2): capture the grace epoch at arm time. A reconnect —
+      // even on a different node — INCRements it via register(), so when the
+      // timer fires finalizeOffline aborts on an epoch mismatch. This is the
+      // cross-node complement to the process-local cancel() in handleConnection,
+      // which only fires on the node that armed the timer.
+      const armedEpoch = await this.presence.currentGraceEpoch(userId);
+      this.graceTimers.arm(userId, this.offlineGraceMs(), async () => {
+        const { goneFrom } = await this.presence.finalizeOffline(userId, wsIds, armedEpoch);
+        for (const wsId of goneFrom) this.schedulePresenceBroadcast(wsId);
+      });
     }
     // task-018-F: also clear the user from any typing sets so the
     // indicator drops before the TTL (up to 5 s faster).
@@ -219,7 +307,7 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       });
     }
     this.logger.log(
-      `[ws] -disconnect user=${state.user.userId} sid=${state.user.sessionId} goneFromWs=${goneFrom.length} clearedTyping=${clearedTypingChannels.length}`,
+      `[ws] -disconnect user=${state.user.userId} sid=${state.user.sessionId} lastSession=${lastSessionGone} clearedTyping=${clearedTypingChannels.length}`,
     );
   }
 
@@ -232,6 +320,136 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
       // Session TTL expired — force reconnect so register() runs again.
       client.disconnect(true);
     }
+  }
+
+  /**
+   * S25 (FR-RT-10): client `presence:activity`. The web client throttles this
+   * to at most 1/30s on mousemove/keydown while focused. The server refreshes
+   * last-activity; if the user was IDLE this transitions them back to ONLINE,
+   * which we surface via a throttled workspace broadcast. DnD/invisible users
+   * are unaffected (effectiveStatus keeps their status regardless of activity).
+   */
+  @SubscribeMessage(WS_EVENTS.PRESENCE_ACTIVITY)
+  async onActivity(@ConnectedSocket() client: Socket, @MessageBody() body: unknown): Promise<void> {
+    const state = client.data.state as SocketState | undefined;
+    if (!state) return;
+    // S25 fix-forward(security HIGH · WS Zod): actually run safeParse (was a
+    // bare type-hint). A non-conforming payload is rejected silently — activity
+    // is a high-frequency hint, so a malformed frame must never throw.
+    if (!PresenceActivityPayloadSchema.safeParse(body ?? {}).success) return;
+    const { wasIdle } = await this.presence.touchActivity(state.user.userId);
+    if (!wasIdle) return; // online → online, nothing to broadcast
+    // IDLE → ONLINE: re-broadcast so observers drop the idle dot.
+    for (const wsId of state.workspaceIds) {
+      this.schedulePresenceBroadcast(wsId);
+    }
+  }
+
+  /**
+   * S25 (FR-RT-12): client `presence:subscribe { userIds }`. Reply immediately
+   * with `presence:bulk` carrying each user's masked status. INVISIBLE → OFFLINE
+   * for everyone except the subscriber themselves (maskPresenceForViewer single
+   * point inside PresenceService.bulkFor).
+   *
+   * S25 fix-forward(security):
+   *  - CRITICAL authz: a subscriber may only learn the presence of users they
+   *    share a workspace OR a DM channel with. We intersect the requested ids
+   *    with the subscriber's relationship set BEFORE bulkFor — unrelated ids are
+   *    dropped entirely (no presence leak / user enumeration). The subscriber
+   *    themselves is always allowed (self view).
+   *  - HIGH DoS: userIds is safeParse'd against PresenceSubscribePayloadSchema
+   *    (max 500). A non-conforming / oversized payload yields an empty reply
+   *    instead of a per-user Redis fan-out.
+   */
+  @SubscribeMessage(WS_EVENTS.PRESENCE_SUBSCRIBE)
+  async onSubscribe(
+    @ConnectedSocket() client: Socket,
+    @MessageBody() body: unknown,
+  ): Promise<void> {
+    const state = client.data.state as SocketState | undefined;
+    if (!state) return;
+    const empty: PresenceBulkPayload = { presences: [] };
+    const parsed = PresenceSubscribePayloadSchema.safeParse(body);
+    if (!parsed.success) {
+      client.emit(WS_EVENTS.PRESENCE_BULK, empty);
+      return;
+    }
+    const requested = [...new Set(parsed.data.userIds)];
+    if (requested.length === 0) {
+      client.emit(WS_EVENTS.PRESENCE_BULK, empty);
+      return;
+    }
+    const allowed = await this.authorizePresenceTargets(state, requested);
+    if (allowed.length === 0) {
+      client.emit(WS_EVENTS.PRESENCE_BULK, empty);
+      return;
+    }
+    const presences = await this.presence.bulkFor(state.user.userId, allowed);
+    const payload: PresenceBulkPayload = { presences };
+    client.emit(WS_EVENTS.PRESENCE_BULK, payload);
+  }
+
+  /**
+   * S25 fix-forward(security CRITICAL · presence authz): given the subscriber's
+   * socket state and the requested user ids, return only the ids the subscriber
+   * is allowed to observe — those who share at least one workspace with the
+   * subscriber, those who share a DM/private channel with them, plus the
+   * subscriber themselves. Everyone else is dropped (not masked-offline — fully
+   * excluded) so presence can't be used to enumerate strangers.
+   */
+  private async authorizePresenceTargets(
+    state: SocketState,
+    requested: string[],
+  ): Promise<string[]> {
+    const viewerId = state.user.userId;
+    const allowed = new Set<string>();
+    // Self is always observable (own real status).
+    if (requested.includes(viewerId)) allowed.add(viewerId);
+    const others = requested.filter((id) => id !== viewerId);
+    if (others.length === 0) return [...allowed];
+
+    // (1) Common-workspace members: any requested user who is a member of a
+    // workspace the subscriber also belongs to. Single indexed query.
+    if (state.workspaceIds.length > 0) {
+      const shared = await this.prisma.workspaceMember.findMany({
+        where: { userId: { in: others }, workspaceId: { in: state.workspaceIds } },
+        select: { userId: true },
+        distinct: ['userId'],
+      });
+      for (const m of shared) allowed.add(m.userId);
+    }
+
+    // (2) DM/private-channel peers: a user the subscriber shares a non-public
+    // channel with (USER-principal ALLOW overrides — the same mechanism that
+    // routes DM events in RoomManager). Only resolve the ids not already
+    // admitted via a common workspace.
+    const stillUnknown = others.filter((id) => !allowed.has(id));
+    if (stillUnknown.length > 0) {
+      const viewerChannels = await this.prisma.channelPermissionOverride.findMany({
+        where: {
+          principalType: 'USER',
+          principalId: viewerId,
+          allowMask: { gt: 0 },
+          channel: { deletedAt: null },
+        },
+        select: { channelId: true },
+      });
+      const channelIds = viewerChannels.map((c) => c.channelId);
+      if (channelIds.length > 0) {
+        const peers = await this.prisma.channelPermissionOverride.findMany({
+          where: {
+            principalType: 'USER',
+            principalId: { in: stillUnknown },
+            allowMask: { gt: 0 },
+            channelId: { in: channelIds },
+          },
+          select: { principalId: true },
+          distinct: ['principalId'],
+        });
+        for (const p of peers) allowed.add(p.principalId);
+      }
+    }
+    return [...allowed];
   }
 
   @SubscribeMessage('channel:focus')
@@ -394,18 +612,35 @@ export class RealtimeGateway implements OnGatewayInit, OnGatewayConnection, OnGa
 
   // ----- private
 
+  private offlineGraceMs(): number {
+    const sec = Number(process.env.PRESENCE_OFFLINE_GRACE ?? PRESENCE_OFFLINE_GRACE);
+    return (Number.isFinite(sec) && sec > 0 ? sec : PRESENCE_OFFLINE_GRACE) * 1000;
+  }
+
   private schedulePresenceBroadcast(workspaceId: string): void {
     this.throttler.schedule(workspaceId, async () => {
       const [online, dnd] = await Promise.all([
         this.presence.onlineIn(workspaceId),
         this.presence.dndIn(workspaceId),
       ]);
-      this.server.to(rooms.workspace(workspaceId)).emit('presence.updated', {
+      // S25 (FR-RT-10): the idle subset of the online users. Computed ONCE per
+      // flush off the already-resolved online list so observers can render the
+      // idle dot (the throttler coalesces N schedule() calls into one flush).
+      const idle = await this.presence.idleIn(online);
+      // S25 fix-forward(contract HIGH): typed payload + WS_EVENTS constant. The
+      // wire event name stays the dot form `presence.updated` — colon rename is
+      // an S10 WS-naming carryover, this slice only types it.
+      const payload: WorkspacePresenceUpdatedPayload = {
         workspaceId,
         onlineUserIds: online,
         // task-019-C: DnD subset so the client can render the dnd dot.
         dndUserIds: dnd,
-      });
+        // S25 (FR-RT-10): IDLE subset (additive — old clients ignore it).
+        idleUserIds: idle,
+      };
+      this.server
+        .to(rooms.workspace(workspaceId))
+        .emit(WS_EVENTS.WORKSPACE_PRESENCE_UPDATED, payload);
     });
   }
 

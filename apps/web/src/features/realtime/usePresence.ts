@@ -2,7 +2,8 @@ import { useEffect, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../../lib/query-keys';
 
-type PresenceCache = { online: string[]; dnd: string[] };
+// S25 (FR-RT-10): idle is additive — older cache writes omit it.
+type PresenceCache = { online: string[]; dnd: string[]; idle?: string[] };
 
 /**
  * Reads the presence snapshot for a workspace from React Query cache.
@@ -22,6 +23,7 @@ type PresenceCache = { online: string[]; dnd: string[] };
 export function usePresence(workspaceId: string | undefined): {
   onlineUserIds: Set<string>;
   dndUserIds: Set<string>;
+  idleUserIds: Set<string>;
 } {
   const qc = useQueryClient();
   const [, forceRender] = useState(0);
@@ -44,5 +46,6 @@ export function usePresence(workspaceId: string | undefined): {
   return {
     onlineUserIds: new Set(data?.online ?? []),
     dndUserIds: new Set(data?.dnd ?? []),
+    idleUserIds: new Set(data?.idle ?? []),
   };
 }

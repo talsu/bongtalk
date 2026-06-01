@@ -18,6 +18,8 @@ import type { PresenceStatus } from '../features/presence/presenceStatus';
 
 const STATUS_LABEL: Record<PresenceStatus, string> = {
   online: '온라인',
+  // S25 (FR-RT-10): auto-idle 표기. 사용자가 직접 설정하진 않지만 자동전환 시 표시.
+  idle: '자리비움',
   dnd: '방해 금지',
   offline: '오프라인',
 };

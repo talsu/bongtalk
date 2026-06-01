@@ -1,18 +1,18 @@
 /**
- * Task-018-D: 3-state presence enum. Matches the Full Chat Mockup
- * (index.html lines 620-625) which renders three states on the member
- * list:
+ * Task-018-D / S25 (FR-P01/RT-10): presence enum for the member list dot.
  *
  *   - online:  qf-avatar__status--online (green dot on avatar corner)
+ *   - idle:    qf-avatar__status--idle   (yellow dot — auto-idle after 10min)
  *   - dnd:     qf-avatar__status--dnd    (red dot on avatar corner)
  *   - offline: no status dot; member row at 0.5 opacity
  *
- * Backend wiring (apps/api/src/realtime/presence/**) currently only
- * emits online / offline — users flip to offline when their WS
- * session expires. The `dnd` value is reserved for a future settings
- * UI where users can mute notifications while still showing as
- * connected; see `docs/tasks/018-ds-mockup-parity.md` §Design Decisions.
- * 018 ships the enum + render path so the dnd dot works the moment
- * backend starts emitting it.
+ * INVISIBLE is intentionally absent: the server masks invisible → offline for
+ * every other viewer (maskPresenceForViewer), so a remote user is only ever
+ * one of these four. The user's own invisible state is settable via the
+ * presence chip but never broadcast to peers.
+ *
+ * S25 backend (apps/api/src/realtime/presence/**) now emits online / idle /
+ * dnd via the workspace `presence.updated` broadcast (onlineUserIds /
+ * idleUserIds / dndUserIds); absence from all three sets renders offline.
  */
-export type PresenceStatus = 'online' | 'dnd' | 'offline';
+export type PresenceStatus = 'online' | 'idle' | 'dnd' | 'offline';
