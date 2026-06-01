@@ -15,12 +15,22 @@ import { GlobalDmController } from './direct-messages/global-dm.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 import { MessagesModule } from '../messages/messages.module';
+// S20 (FR-DM-06): DirectMessagesService 의 그룹 DM 아이콘 업로드용 S3Service.
+import { StorageModule } from '../storage/storage.module';
+// S20 (FR-DM-11): GlobalDmController 의 DM 뮤트 라우트가 기존 MutesService 재사용.
+import { MutesModule } from '../notifications/mutes/mutes.module';
 
 @Module({
   // S13 (FR-CH-09/04): ChannelsService → MessagesService.createSystemMessage
   // 역참조용 forwardRef. MessagesModule 도 ChannelsModule 을 forwardRef 로
   // 가져오므로 양방향 순환이 끊긴다.
-  imports: [WorkspacesModule, OutboxModule, forwardRef(() => MessagesModule)],
+  imports: [
+    WorkspacesModule,
+    OutboxModule,
+    forwardRef(() => MessagesModule),
+    StorageModule,
+    MutesModule,
+  ],
   controllers: [
     ChannelsController,
     CategoriesController,

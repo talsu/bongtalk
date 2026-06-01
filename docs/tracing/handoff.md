@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S19 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S20(DM 검색/이름변경/아이콘/숨기기/뮤트).** D02(채널) 전체 완료. S16(DM 개설/목록)·S17(visibleFrom/차단)·S18(컴포저 자동완성)·S19(그룹 DM 멤버관리/owner 승계/DM 수신권한) 완료.
+> **S05 검증·S06~S20 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S21(D09 읽음상태 코어: ACK/멀티세션 + unread/mention 카노니컬 + 신규가입 초기화 + 후진방지 경합 + Redis 캐시).** D02(채널)·D03(DM, S16~S20) 전체 완료.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -188,12 +188,19 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: verify 19 + build 3종 + dm int 45 GREEN(B1 회귀 포함). DS 무수정.
 - carryover(MED): rate-limit 3엔드포인트, idempotency, owner 하드삭제 승계 훅, DmParticipant 정규화(장기), FR-DM-07 추가권한 정책, dm:participant\_\* web 소비 훅, FRIENDS_ONLY(Phase2).
 
-## 다음 슬라이스: S20 (DM 검색/이름변경/아이콘/숨기기/뮤트)
+## ✅ S20 (DM 검색/이름변경/아이콘/숨기기/뮤트) — 완료
 
-- scope `apps/api/src/channels/direct-messages/**` + 일부 web. FR-DM-04/05/06/10/11.
-- DM 검색(목록 필터), 그룹 DM 이름변경/아이콘(Channel.name 은 slug 라 별도 displayName/icon 필드 필요할 수 있음 — 조사), DM 숨기기(PATCH visibility HIDDEN — GET /dm 제외, 상대 새 메시지 시 복원), DM 뮤트.
-- 주의: 그룹 DM displayName/iconUrl 은 slug name 과 별개 — 마이그레이션 가능. 숨기기는 S16 visibility(VISIBLE) + S17 visibleFrom 위에. 뮤트는 알림 게이트(D14 notification 과 연관 주의). FR 정본: PRD html.
-- **D09 read-state(S21~24) 진입 시**: S09 around-reload seam 활성 + read_state:updated 웹 dispatcher 소비 + /ack 채택(묶음 carryover). **S21 부터 D09 읽음상태 코어 진입** — handoff 의 D09 carryover 묶음 일괄 처리.
+- FR-DM-04(GET /me/dms?q= ILIKE displayName/slug/username, escape+maxlen100), FR-DM-05(PATCH name → Channel.displayName + dm:group_updated), FR-DM-06(POST/DELETE icon multipart 4MB JPEG/PNG/GIF/WebP + validate-magic-bytes + MinIO putObject), FR-DM-10(PATCH visibility HIDDEN/VISIBLE → ChannelPermissionOverride.hiddenAt, list 제외, send() 시 수신자 자동복원), FR-DM-11(PATCH mute → 기존 UserChannelMute upsert).
+- 마이그레이션 `20260601400000_s20_dm_meta_hidden` reversible: Channel.displayName/iconUrl + ChannelPermissionOverride.hiddenAt. 이벤트 dm:group_updated.
+- **리뷰 fix-forward**(reviewer+security+perf+contract 4팀): BLOCKER 3(검색 `ESCAPE '\'` JS 붕괴→`ESCAPE ''` 무력화→`'\\'` 수정; PATCH mute 멤버십 게이트 부재 IDOR→assertDmMember; 검색 q 무제한 DoS→maxlen 100). MAJOR(rename/icon outbox 비원자→단일 tx; send() 매전송 findUnique→channelType 인자화 hot-path; 아이콘 orphan→실패 시 deleteObject). contract(web GroupDmListItem displayName/iconUrl 타입).
+- 게이트: verify 19 + build 3종 + dm int 64 GREEN. DS 무수정.
+- carryover(MED): rate-limit 4엔드포인트, displayName XSS charset, **iconUrl presign-on-read(web 배선 시 필수)**, pg_trgm 인덱스, **클라 q 서버검색 배선**.
+
+## 다음 슬라이스: S21 (D09 읽음상태 코어 — ACK/멀티세션 + unread/mention 카노니컬 + 신규가입 초기화 + 후진방지 + Redis 캐시)
+
+- scope `apps/api/src/channels/**`(read-state/unread) + realtime + 일부 web. FR-RS-01/03/14/16/17.
+- **⚠️ D09 진입 — 누적 carryover 묶음 일괄 처리**: (1) S09 around-reload seam 활성(lastReadMessageId 공급원 = 이 D09 read-state) + S11 (createdAt,id) 튜플 unread 위에. (2) **read_state:updated 웹 dispatcher 소비**(S07/S11 carryover — 서버 emit 됨, 클라 미소비). (3) /ack 엔드포인트 채택. (4) **선제존재 unread int 3건**(me-unread-totals "zero entry", unread-private-acl "DENY beats ALLOW", unread-summary "@everyone hasMention") — S11~ 미해결, D09 코어에서 **반드시 조사·수정**(unread SQL ACL 버그 + mention 집계).
+- 주의: S11 이 (createdAt,id) 튜플 + monotonic upsert 토대 마련함. ACK 멀티세션 브로드캐스트(read_state:updated), 신규가입 시 기존 메시지 unread 초기화 정책, 후진방지(monotonic) 경합, Redis unread 캐시. FR 정본: PRD html FR-RS 섹션.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

@@ -47,6 +47,11 @@ export const WS_EVENTS = {
   DM_PARTICIPANT_ADDED: 'dm:participant_added',
   DM_PARTICIPANT_REMOVED: 'dm:participant_removed',
   DM_OWNER_CHANGED: 'dm:owner_changed',
+  // 그룹 DM 표시 메타 변경 (S20 · FR-DM-05/06): 이름(displayName) 또는 아이콘
+  // (iconUrl) 변경 시 참여자의 user:{userId} 룸으로 push. 클라이언트는 DM 헤더/
+  // 사이드바의 표시명·아이콘 캐시를 무효화한다. 내부 recipients 는 와이어에서
+  // 제거되고 channelId + 변경 필드(displayName?/iconUrl?)만 노출한다(H-03 선례).
+  DM_GROUP_UPDATED: 'dm:group_updated',
   // 차단 해제 (S17 · FR-DM-19): 차단 해제 시 차단 해제자(blocker)의 user:{userId}
   // 룸으로 push. 클라이언트는 해당 사용자가 작성한 메시지의 마스킹을 풀기 위해
   // 현재 채널 메시지 캐시를 무효화/재로드한다.
@@ -303,6 +308,21 @@ export const DmOwnerChangedPayloadSchema = z.object({
 export type DmOwnerChangedPayload = z.infer<typeof DmOwnerChangedPayloadSchema>;
 
 /**
+ * dm:group_updated — 그룹 DM 표시 메타(이름/아이콘) 변경 시 참여자 user:{userId}
+ * 룸으로 emit (S20 · FR-DM-05/06). `displayName` 은 새 표시명(빈 문자열로 초기화
+ * 불가 — 변경 시에만 실린다), `iconUrl` 은 새 아이콘 키/URL(삭제 시 null). 둘 다
+ * optional/nullable 이라 한 이벤트가 이름·아이콘 중 변경분만 싣는다. 내부 라우팅용
+ * recipients 는 와이어에서 제거된다(H-03 선례). 클라이언트는 DM 헤더/사이드바
+ * 표시명·아이콘 캐시를 무효화한다.
+ */
+export const DmGroupUpdatedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  displayName: z.string().nullable().optional(),
+  iconUrl: z.string().nullable().optional(),
+});
+export type DmGroupUpdatedPayload = z.infer<typeof DmGroupUpdatedPayloadSchema>;
+
+/**
  * user:unblocked — 차단 해제자(blocker)의 user:{userId} 룸으로 emit
  * (S17 · FR-DM-19). `unblockedUserId` 는 차단이 풀린 상대 userId. 클라이언트는
  * 이 id 가 작성한 메시지의 마스킹(`[차단된 사용자의 메시지]`)을 풀기 위해 현재
@@ -345,5 +365,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.DM_PARTICIPANT_ADDED]: DmParticipantAddedPayloadSchema,
   [WS_EVENTS.DM_PARTICIPANT_REMOVED]: DmParticipantRemovedPayloadSchema,
   [WS_EVENTS.DM_OWNER_CHANGED]: DmOwnerChangedPayloadSchema,
+  [WS_EVENTS.DM_GROUP_UPDATED]: DmGroupUpdatedPayloadSchema,
   [WS_EVENTS.USER_UNBLOCKED]: UserUnblockedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

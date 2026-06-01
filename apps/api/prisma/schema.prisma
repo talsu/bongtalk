@@ -325,6 +325,15 @@ model Channel {
   workspaceId String?     @db.Uuid
   categoryId  String?     @db.Uuid
   name        String
+  // S20 (FR-DM-05): group DM 사용자 지정 표시명. `name` 은 멤버 set 으로부터
+  // 파생된 dedup slug(`dm:`/`gdm:`)라 불변이므로, 사용자가 바꾸는 표시명은 이
+  // 컬럼에 둔다. 1:1 DM·미설정·일반 채널은 NULL → list/listGroups 가
+  // displayName ?? name 으로 렌더한다. additive nullable(기존 row 안전).
+  displayName String?
+  // S20 (FR-DM-06): group DM 아이콘 MinIO object 키/URL. 미설정 NULL = 기본 아바타.
+  // 업로드 시 storageKey 를 저장하고 list 응답에서 presignGet 으로 서명 URL 을
+  // 만들거나(키 형태) 또는 절대 URL 을 그대로 노출한다(현재는 storageKey 보관).
+  iconUrl     String?
   type        ChannelType @default(TEXT)
   topic       String?
   // S13 (FR-CH-10): 채널 설명. ≤500자는 zod(Create/UpdateChannelRequest)가
@@ -396,6 +405,15 @@ model ChannelPermissionOverride {
   // nullable — legacy DM row·ROLE override·비-DIRECT 채널은 NULL.
   joinedAt      DateTime? @db.Timestamptz
   leftAt        DateTime? @db.Timestamptz
+  // S20 (FR-DM-10): per-user DM 숨김 상태. NULL = 사이드바 DM 목록에 표시,
+  // NOT NULL = 숨김(숨긴 시각). S17 visibleFrom / S19 joinedAt·leftAt 과 같은
+  // USER 멤버십 row 에 동거하는 per-(user,channel) 상태이며, soft-leave
+  // (allowMask=0 + leftAt)와 **독립적**이다 — 멤버십은 유지하되 목록에서만
+  // 가린다. list/listGroups 가 hiddenAt IS NULL 인 DM 만 반환하고, 상대방 새
+  // 메시지 도착 시 수신자(보낸 본인 제외) hiddenAt 을 NULL 로 자동 복원한다.
+  // 자동 복원은 visibleFrom 을 재설정하지 않으므로 과거 메시지는 그대로 보인다.
+  // legacy DM row·ROLE override·비-DIRECT 채널은 NULL(필터 무영향).
+  hiddenAt      DateTime? @db.Timestamptz
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
 

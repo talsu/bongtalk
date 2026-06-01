@@ -177,6 +177,9 @@ export class GlobalDmMessagesController {
       nonce: parsed.data.nonce ?? null,
       parentMessageId: parsed.data.parentMessageId ?? null,
       attachmentIds: parsed.data.attachmentIds,
+      // S20 (MAJOR/perf): guard 가 로드한 channel.type 을 넘겨 send 의 DM
+      // hidden-restore 게이트가 채널을 다시 SELECT 하지 않게 한다.
+      channelType: channel.type,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
