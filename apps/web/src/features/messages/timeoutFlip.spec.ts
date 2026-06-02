@@ -29,6 +29,7 @@ function pendingRow(id: string): OptimisticMessage {
     content: 'hi',
     contentRaw: 'hi',
     contentAst: null,
+    contentPlain: 'hi',
     type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,
