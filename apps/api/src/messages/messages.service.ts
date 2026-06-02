@@ -1282,6 +1282,9 @@ export class MessagesService {
                 where: {
                   channelId: args.channelId,
                   userId: { in: dedupedMentionUserIds },
+                  // S46 fix-forward (BLOCKER 3): 활성 뮤트 = isMuted && (null|미래).
+                  // level-only 비뮤트 행(isMuted=false)은 멘션을 막지 않는다.
+                  isMuted: true,
                   OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
                 },
                 select: { userId: true },
@@ -2402,6 +2405,8 @@ export class MessagesService {
           where: {
             channelId: args.channelId,
             userId: { in: dedupedMentionUserIds },
+            // S46 fix-forward (BLOCKER 3): 활성 뮤트 = isMuted && (null|미래).
+            isMuted: true,
             OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
           },
           select: { userId: true },

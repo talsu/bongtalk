@@ -20,6 +20,20 @@
 --      (additive — S43 뮤트 UI·S22 사이드바·멘션 fanout 무회귀). 신규
 --      ChannelNotificationPref 테이블을 만들지 않는 교란-최소 deviation.
 --
+--   5. UserChannelMute."isMuted" BOOLEAN DEFAULT false — 채널 뮤트 여부를
+--      mutedUntil 과 분리한 명시 축(S46 fix-forward / BLOCKER 3). 기존에는
+--      mutedUntil=null 이 "영구 뮤트"와 "레벨전용 비뮤트(level 만 오버라이드)" 양쪽을
+--      뜻해 {level:ALL,isMuted:false} 설정이 채널 영구 차단으로 오작동했다. isMuted 를
+--      도입해 muted = isMuted && (mutedUntil null|미래) 로 명확화한다(서버
+--      ServerNotificationPref.isMuted 와 대칭). 기존 UserChannelMute 행은 전부
+--      S43 뮤트 UI(POST /me/mutes)로 생성된 "실제 뮤트" 이므로 isMuted=true 로
+--      backfill 한다(무회귀 — 기존 뮤트가 그대로 활성 유지). S46 미배포 슬라이스라
+--      같은 migration 파일에 ADD COLUMN + backfill 을 담는다.
+--
+--   6. cron 부분 인덱스(HIGH) — 만료 sweep 가 스캔하는 술어를 좁힌다:
+--      ServerNotificationPref (isMuted,muteUntil) WHERE isMuted AND muteUntil IS NOT NULL,
+--      UserChannelMute (isMuted,mutedUntil) WHERE isMuted AND mutedUntil IS NOT NULL.
+--
 -- 전 DDL 을 멱등으로 감싼다(s38/s43 패턴 일관): enum 은 pg_type 존재검사
 -- (DO $$ … CREATE TYPE …), 테이블은 CREATE TABLE IF NOT EXISTS, 컬럼은 ADD COLUMN
 -- IF NOT EXISTS, 인덱스는 CREATE [UNIQUE] INDEX IF NOT EXISTS, FK 는 pg_constraint
@@ -77,6 +91,25 @@ CREATE INDEX IF NOT EXISTS "ServerNotificationPref_workspaceId_idx"
 ALTER TABLE "UserChannelMute"
   ADD COLUMN IF NOT EXISTS "level" "NotifLevel";
 
+-- 5. UserChannelMute.isMuted (BLOCKER 3 — 뮤트 축을 mutedUntil 과 분리).
+--    DEFAULT false 로 추가한 뒤, "기존" 행(전부 S43 뮤트로 생성)을 isMuted=true 로
+--    backfill 한다. 멱등(IF NOT EXISTS)이라 재실행 시 ADD 는 건너뛰지만, backfill
+--    UPDATE 는 DEFAULT 인 신규 컬럼 값(false)을 true 로 올리는 1회성이라 재실행
+--    안전을 위해 컬럼 존재 직후의 행에만 적용한다. throwaway up→down→up 에서 down
+--    이 컬럼을 DROP 하므로 두 번째 up 도 깨끗한 backfill 이 된다.
+ALTER TABLE "UserChannelMute"
+  ADD COLUMN IF NOT EXISTS "isMuted" BOOLEAN NOT NULL DEFAULT false;
+
+-- 기존 UserChannelMute 행 backfill — S43 뮤트로 생성된 행이므로 isMuted=true.
+-- S46 이전 스키마에서는 "행 존재 = 채널 뮤트" 였고, level 컬럼은 바로 위에서 막
+-- additive 추가됐으므로 모든 기존 행은 level IS NULL(서버 상속) 상태다. 그 두 조건
+-- (isMuted=false ∧ level IS NULL)이 곧 "S46 이전부터 있던 뮤트 행" 을 식별한다.
+-- S46 신규 코드(level-only 비뮤트 = isMuted=false ∧ level NOT NULL)는 level 이 박혀
+-- 있어 이 backfill 에 걸리지 않는다 — 재실행해도 새 데이터를 덮지 않아 멱등하다.
+UPDATE "UserChannelMute"
+  SET "isMuted" = true
+  WHERE "isMuted" = false AND "level" IS NULL;
+
 -- FK 가드 (제약 존재검사 후 ADD).
 DO $$
 BEGIN
@@ -106,3 +139,13 @@ BEGIN
   END IF;
 END
 $$;
+
+-- 6. cron 만료 sweep 부분 인덱스(HIGH). sweep 은 "활성 뮤트 + 만료시각 존재" 인
+--    소수 행만 스캔하므로 partial index 로 좁힌다(전체 테이블 스캔 회피).
+CREATE INDEX IF NOT EXISTS "ServerNotificationPref_mute_expiry_idx"
+  ON "ServerNotificationPref" ("isMuted", "muteUntil")
+  WHERE "isMuted" AND "muteUntil" IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS "UserChannelMute_mute_expiry_idx"
+  ON "UserChannelMute" ("isMuted", "mutedUntil")
+  WHERE "isMuted" AND "mutedUntil" IS NOT NULL;

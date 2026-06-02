@@ -151,6 +151,12 @@ export type PutChannelNotificationPreferenceRequest = z.infer<
 /**
  * S46 (선택): WS 이벤트 `notification:prefs_updated` payload. 다기기 반영용.
  * scope 별로 level/isMuted/muteUntil 을 실어 보낸다.
+ *
+ * TODO(notif-prefs-realtime): 현재 미배선 contract — 서버 emit / 클라 구독 어느
+ * 쪽도 이 스키마를 쓰지 않는다. 다기기 실시간 반영(Redis TTL push)을 구현하는
+ * 후속 슬라이스에서 WS_EVENTS·게이트웨이 핸들러에 배선하거나, 그 전까지 영구
+ * 보류로 판단되면 이 export 를 제거한다. (S46 fix-forward carryover — dead
+ * contract 가시화: 스키마만 살아 있고 소비처가 없음을 명시.)
  */
 export const NotificationPrefsUpdatedPayloadSchema = z.object({
   scope: z.enum(['global', 'server', 'channel']),

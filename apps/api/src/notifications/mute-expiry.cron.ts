@@ -12,10 +12,12 @@ import { PrismaService } from '../prisma/prisma.module';
  * 한다(ADR-6: "뮤트 만료 시 스케줄러가 isMuted=false 로 업데이트").
  *
  *   - ServerNotificationPref: isMuted && muteUntil < now → isMuted=false, muteUntil=null.
- *   - UserChannelMute: 채널 뮤트는 행 존재 + mutedUntil 로 표현하므로, 만료
- *     (mutedUntil < now)된 행은 level 오버라이드 보존 여부로 분기한다 —
+ *   - UserChannelMute (S46 fix-forward / BLOCKER 3): 채널 뮤트는 isMuted=true 로
+ *     표현하므로, 만료(isMuted && mutedUntil < now)된 행을 level 오버라이드 보존
+ *     여부로 분기한다 —
  *       · level 이 NULL(상속만) → 행 삭제(뮤트 종료 = 흔적 없음).
- *       · level 이 NOT NULL(레벨 오버라이드 유지) → mutedUntil=NULL 로 비워 뮤트만 해제.
+ *       · level 이 NOT NULL(레벨 오버라이드 유지) → isMuted=false·mutedUntil=NULL 로
+ *         뮤트만 해제(level 보존).
  *
  * Redis TTL push 연동(만료 즉시 다기기 반영)은 VAPID 슬라이스로 defer.
  * 멀티-노드 시 여러 인스턴스가 동시에 같은 UPDATE 를 돌려도 멱등이라 무해하다.
@@ -40,14 +42,15 @@ export class MuteExpiryCron {
       data: { isMuted: false, muteUntil: null },
     });
 
-    // 만료 채널 뮤트 중 level 상속(NULL)인 행은 삭제(흔적 제거).
+    // S46 fix-forward (BLOCKER 3): 만료 채널 뮤트 = isMuted && mutedUntil < now.
+    // level 상속(NULL)인 만료 행은 삭제(흔적 제거).
     const channelCleared = await this.prisma.userChannelMute.deleteMany({
-      where: { mutedUntil: { not: null, lt: now }, level: null },
+      where: { isMuted: true, mutedUntil: { not: null, lt: now }, level: null },
     });
-    // level 오버라이드가 살아있는 만료 행은 뮤트만 해제(mutedUntil=NULL).
+    // level 오버라이드가 살아있는 만료 행은 뮤트만 해제(isMuted=false·mutedUntil=NULL).
     const channelUnmuted = await this.prisma.userChannelMute.updateMany({
-      where: { mutedUntil: { not: null, lt: now }, level: { not: null } },
-      data: { mutedUntil: null },
+      where: { isMuted: true, mutedUntil: { not: null, lt: now }, level: { not: null } },
+      data: { isMuted: false, mutedUntil: null },
     });
 
     return {

@@ -157,7 +157,7 @@ describe('S46 서버 알림 설정 API (/workspaces/:id/notification-preferences
 });
 
 describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
-  it('GET 기본(level null) → PUT level → DELETE 해제', async () => {
+  it('GET 기본(level null) → PUT level → DELETE 해제(level 보존 — HIGH fix)', async () => {
     const ws = stack.workspaceId;
     const ch = stack.channelId;
     const tok = bearer(stack.member.accessToken);
@@ -168,6 +168,7 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
     expect(g0.status).toBe(200);
     expect(g0.body).toEqual({ level: null, isMuted: false, muteUntil: null });
 
+    // level-only(ALL) — isMuted 미전달이므로 비뮤트 + level 오버라이드만.
     const put = await request(env.baseUrl)
       .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
       .set('origin', ORIGIN)
@@ -175,6 +176,39 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
       .send({ level: 'ALL' });
     expect(put.status).toBe(200);
     expect(put.body.level).toBe('ALL');
+    expect(put.body.isMuted).toBe(false);
+
+    // S46 fix-forward (HIGH): unmute 는 server unmute 처럼 level 을 보존한다.
+    const del = await request(env.baseUrl)
+      .delete(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok);
+    expect(del.status).toBe(200);
+    expect(del.body).toEqual({ level: 'ALL', isMuted: false, muteUntil: null });
+
+    // 정리: level 을 다시 상속(null)으로 PUT 하면 의미 없는 행이 삭제된다.
+    const reset = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ level: null, isMuted: false });
+    expect(reset.status).toBe(200);
+    expect(reset.body).toEqual({ level: null, isMuted: false, muteUntil: null });
+  });
+
+  it('level=null(상속) 행 unmute → 행 삭제(흔적 없음)', async () => {
+    const ws = stack.workspaceId;
+    const ch = stack.channelId;
+    const tok = bearer(stack.member.accessToken);
+    // 뮤트만 켰다가(level 상속) 해제하면 흔적 없이 삭제된다.
+    const put = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ isMuted: true, muteDuration: 'forever' });
+    expect(put.status).toBe(200);
+    expect(put.body.isMuted).toBe(true);
+    expect(put.body.level).toBeNull();
 
     const del = await request(env.baseUrl)
       .delete(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
@@ -190,19 +224,51 @@ describe('S46 NotifLevel 3계층 fanout 게이트 (FR-MN-05/06/07)', () => {
   // owner 가 보내므로 작성자(owner)는 제외, member/admin/memberB 가 후보.
   const directThenBroad = () => `direct @${stack.member.username} and @everyone`;
 
-  it('글로벌 NOTHING → 직접·broad 모두 스킵', async () => {
+  it('글로벌 NOTHING → 직접·broad 모두 스킵 (S46 fix-forward: 기본 MENTIONS 는 broad 알림)', async () => {
+    // member 만 NOTHING. admin/memberB 는 기본 MENTIONS → broad(@everyone) 도 알림됨.
     await env.prisma.userSettings.create({
       data: { userId: stack.member.userId, notifTrigger: 'NOTHING' },
     });
     await ownerSends(directThenBroad());
-    // member 는 NOTHING 이라 직접 @username 도 스킵. admin/memberB 는 글로벌 기본
-    // MENTIONS 라 broad(@everyone) 스킵 → 아무도 안 받음.
-    expect(await mentionRecipients()).toEqual([]);
+    // member: NOTHING → 직접도 스킵. admin/memberB: 기본 MENTIONS → @everyone 알림.
+    expect(await mentionRecipients()).toEqual([stack.admin.userId, memberB.userId].sort());
   });
 
-  it('글로벌 MENTIONS(기본) → 직접만 통과·broad 스킵', async () => {
+  it('글로벌 MENTIONS(기본) → 직접·broad(@everyone) 모두 통과 (S46 fix-forward)', async () => {
     await ownerSends(directThenBroad());
-    // member 는 직접 @username → 통과. admin/memberB 는 broad 뿐이라 스킵.
+    // 전원 기본 MENTIONS. member 는 직접+broad, admin/memberB 는 broad → 전원 알림.
+    expect(await mentionRecipients()).toEqual(
+      [stack.member.userId, stack.admin.userId, memberB.userId].sort(),
+    );
+  });
+
+  it('서버 suppressEveryone=true → MENTIONS broad(@everyone) opt-out 차단', async () => {
+    // member 는 기본 MENTIONS 이지만 서버에서 suppressEveryone 으로 @everyone 만 끈다.
+    await env.prisma.serverNotificationPref.create({
+      data: {
+        userId: stack.member.userId,
+        workspaceId: stack.workspaceId,
+        level: 'MENTIONS',
+        suppressEveryone: true,
+      },
+    });
+    // @everyone 만 보낸다(직접 멘션 없음).
+    await ownerSends('hello @everyone');
+    // member: suppressEveryone → broad 차단. admin/memberB: 기본 MENTIONS → 알림.
+    expect(await mentionRecipients()).toEqual([stack.admin.userId, memberB.userId].sort());
+  });
+
+  it('서버 suppressEveryone=true 라도 직접 @username 은 통과', async () => {
+    await env.prisma.serverNotificationPref.create({
+      data: {
+        userId: stack.member.userId,
+        workspaceId: stack.workspaceId,
+        level: 'MENTIONS',
+        suppressEveryone: true,
+      },
+    });
+    await ownerSends(`direct @${stack.member.username}`);
+    // suppressEveryone 은 broad 만 끈다 — 직접 멘션은 통과.
     expect(await mentionRecipients()).toEqual([stack.member.userId]);
   });
 
@@ -216,27 +282,51 @@ describe('S46 NotifLevel 3계층 fanout 게이트 (FR-MN-05/06/07)', () => {
     );
   });
 
-  it('서버 ALL 이 글로벌 MENTIONS 를 오버라이드 → broad 통과', async () => {
-    // member 는 글로벌 MENTIONS(기본) 이지만 서버에서 ALL 로 올림.
+  it('서버 NOTHING 이 글로벌 MENTIONS 를 오버라이드 → 직접·broad 모두 스킵', async () => {
+    // member 는 서버에서 NOTHING 으로 내림. admin/memberB 는 기본 MENTIONS.
     await env.prisma.serverNotificationPref.create({
-      data: { userId: stack.member.userId, workspaceId: stack.workspaceId, level: 'ALL' },
+      data: { userId: stack.member.userId, workspaceId: stack.workspaceId, level: 'NOTHING' },
     });
-    // admin/memberB 는 broad 만 받게 @everyone 으로만 보낸다(직접 멘션 없음).
     await ownerSends('hello @everyone');
-    // member 만 서버 ALL → broad 통과. admin/memberB 는 글로벌 MENTIONS → 스킵.
-    expect(await mentionRecipients()).toEqual([stack.member.userId]);
+    // member: 서버 NOTHING → broad 스킵. admin/memberB: MENTIONS → broad 알림.
+    expect(await mentionRecipients()).toEqual([stack.admin.userId, memberB.userId].sort());
   });
 
   it('채널 NOTHING 이 서버 ALL 을 오버라이드 → 직접도 스킵', async () => {
     await env.prisma.serverNotificationPref.create({
       data: { userId: stack.member.userId, workspaceId: stack.workspaceId, level: 'ALL' },
     });
-    // 채널에서 NOTHING 으로 내림(가장 좁은 범위 우선).
+    // 채널에서 NOTHING 으로 내림(가장 좁은 범위 우선 — level-only, isMuted=false).
     await env.prisma.userChannelMute.create({
-      data: { userId: stack.member.userId, channelId: stack.channelId, level: 'NOTHING' },
+      data: {
+        userId: stack.member.userId,
+        channelId: stack.channelId,
+        level: 'NOTHING',
+        isMuted: false,
+      },
     });
     await ownerSends(`direct @${stack.member.username}`);
     expect(await mentionRecipients()).toEqual([]);
+  });
+
+  it('채널 level-only(ALL, isMuted=false) → 비뮤트라 직접 멘션 정상 통과 (BLOCKER 3)', async () => {
+    // 글로벌은 NOTHING 이지만 채널에서 ALL 로 올린다. isMuted=false 이므로 뮤트가 아님 —
+    // {level:ALL, isMuted:false} 가 채널 영구 차단으로 오작동하던 버그가 고쳐졌는지 검증.
+    await env.prisma.userSettings.create({
+      data: { userId: stack.member.userId, notifTrigger: 'NOTHING' },
+    });
+    await env.prisma.userChannelMute.create({
+      data: {
+        userId: stack.member.userId,
+        channelId: stack.channelId,
+        level: 'ALL',
+        isMuted: false,
+        mutedUntil: null,
+      },
+    });
+    await ownerSends(`direct @${stack.member.username}`);
+    // 채널 ALL(비뮤트) → 통과. 이전 버그(mutedUntil null=영구뮤트 오인)면 [] 였다.
+    expect(await mentionRecipients()).toEqual([stack.member.userId]);
   });
 
   it('서버 isMuted → level=ALL 이라도 직접 멘션 스킵', async () => {
@@ -253,9 +343,14 @@ describe('S46 NotifLevel 3계층 fanout 게이트 (FR-MN-05/06/07)', () => {
     expect(await mentionRecipients()).toEqual([]);
   });
 
-  it('채널 뮤트(UserChannelMute mutedUntil null) → 직접 멘션 스킵', async () => {
+  it('채널 뮤트(isMuted=true, mutedUntil null) → 직접 멘션 스킵 (BLOCKER 3)', async () => {
     await env.prisma.userChannelMute.create({
-      data: { userId: stack.member.userId, channelId: stack.channelId, mutedUntil: null },
+      data: {
+        userId: stack.member.userId,
+        channelId: stack.channelId,
+        isMuted: true,
+        mutedUntil: null,
+      },
     });
     await ownerSends(`direct @${stack.member.username}`);
     expect(await mentionRecipients()).toEqual([]);
@@ -303,6 +398,57 @@ describe('S46 카테고리 일괄 적용 (FR-MN-07)', () => {
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.level === 'NOTHING')).toBe(true);
   });
+
+  it('BLOCKER 2: 타 워크스페이스 categoryId → workspaceId 스코프로 빈 결과(채널 무조작/ID 비열거)', async () => {
+    const ws = stack.workspaceId;
+    const tok = bearer(stack.member.accessToken);
+    // 다른 워크스페이스 + 카테고리 + 하위 채널을 별 사용자로 만든다.
+    const other = await signup(env.baseUrl, 'nlidor');
+    const otherWs = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set(bearer(other.accessToken))
+      .send({
+        name: `idor-ws-${Date.now().toString(36)}`,
+        slug: `idorws${Date.now().toString(36)}`,
+      });
+    expect(otherWs.status).toBe(201);
+    const otherWsId = otherWs.body.id as string;
+    const otherCat = await request(env.baseUrl)
+      .post(`/workspaces/${otherWsId}/categories`)
+      .set('origin', ORIGIN)
+      .set(bearer(other.accessToken))
+      .send({ name: `idor-cat-${Date.now().toString(36)}` });
+    expect(otherCat.status).toBe(201);
+    const foreignCategoryId = otherCat.body.id as string;
+    const otherCh = await request(env.baseUrl)
+      .post(`/workspaces/${otherWsId}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(other.accessToken))
+      .send({
+        name: `idor-ch-${Date.now().toString(36)}`,
+        type: 'TEXT',
+        categoryId: foreignCategoryId,
+      });
+    expect(otherCh.status).toBe(201);
+    const foreignChannelId = otherCh.body.id as string;
+
+    // member 가 자기 워크스페이스 URL(:id=ws)로, 타 워크스페이스 categoryId 를 넘긴다.
+    const put = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${stack.channelId}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ level: 'NOTHING', categoryId: foreignCategoryId });
+    // workspaceId 스코프로 카테고리 채널이 빈 결과 → 아무것도 조작되지 않는다.
+    expect(put.status).toBe(200);
+    expect(put.body.channelIds).toEqual([]);
+
+    // 타 워크스페이스 채널에 member 의 UserChannelMute 행이 생기지 않았는지 권위 검증.
+    const leaked = await env.prisma.userChannelMute.findMany({
+      where: { userId: stack.member.userId, channelId: foreignChannelId },
+    });
+    expect(leaked).toHaveLength(0);
+  });
 });
 
 describe('S46 뮤트 만료 cron sweep (FR-MN-08)', () => {
@@ -321,11 +467,16 @@ describe('S46 뮤트 만료 cron sweep (FR-MN-08)', () => {
         muteUntil: past,
       },
     });
-    // 2) channel level=null + 만료 뮤트 → 삭제.
+    // 2) channel level=null + 만료 뮤트(isMuted=true) → 삭제.
     await env.prisma.userChannelMute.create({
-      data: { userId: stack.member.userId, channelId: stack.channelId, mutedUntil: past },
+      data: {
+        userId: stack.member.userId,
+        channelId: stack.channelId,
+        isMuted: true,
+        mutedUntil: past,
+      },
     });
-    // 3) channel level=NOTHING + 만료 뮤트 → mutedUntil=null 로 unmute(level 보존).
+    // 3) channel level=NOTHING + 만료 뮤트(isMuted=true) → isMuted=false·mutedUntil=null(level 보존).
     const ch2 = await request(env.baseUrl)
       .post(`/workspaces/${stack.workspaceId}/channels`)
       .set('origin', ORIGIN)
@@ -333,11 +484,22 @@ describe('S46 뮤트 만료 cron sweep (FR-MN-08)', () => {
       .send({ name: `cron-${Date.now().toString(36)}`, type: 'TEXT' });
     const ch2Id = ch2.body.id as string;
     await env.prisma.userChannelMute.create({
-      data: { userId: stack.member.userId, channelId: ch2Id, level: 'NOTHING', mutedUntil: past },
+      data: {
+        userId: stack.member.userId,
+        channelId: ch2Id,
+        level: 'NOTHING',
+        isMuted: true,
+        mutedUntil: past,
+      },
     });
     // 4) 미래 뮤트는 sweep 대상 아님(유지 확인용).
     await env.prisma.userChannelMute.create({
-      data: { userId: memberB.userId, channelId: stack.channelId, mutedUntil: future },
+      data: {
+        userId: memberB.userId,
+        channelId: stack.channelId,
+        isMuted: true,
+        mutedUntil: future,
+      },
     });
 
     const res = await cron.sweep(new Date('2025-01-01T00:00:00Z'));

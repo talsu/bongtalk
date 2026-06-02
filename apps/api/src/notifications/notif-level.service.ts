@@ -69,32 +69,48 @@ export class NotifLevelService {
       workspaceId
         ? prismaClient.serverNotificationPref.findMany({
             where: { userId: { in: uniqueIds }, workspaceId },
-            select: { userId: true, level: true, isMuted: true, muteUntil: true },
+            // suppressEveryone/suppressRoleMentions 를 같은 쿼리 select 에 더한다
+            // (추가 쿼리 없음 — MENTIONS broad opt-out 게이트용).
+            select: {
+              userId: true,
+              level: true,
+              isMuted: true,
+              muteUntil: true,
+              suppressEveryone: true,
+              suppressRoleMentions: true,
+            },
           })
         : Promise.resolve([]),
       prismaClient.userChannelMute.findMany({
         where: { userId: { in: uniqueIds }, channelId },
-        select: { userId: true, level: true, mutedUntil: true },
+        // S46 fix-forward (BLOCKER 3): isMuted 를 함께 읽어 mutedUntil 과 분리
+        // 판정(level-only 비뮤트 행이 채널 차단으로 오작동하지 않게).
+        select: { userId: true, level: true, mutedUntil: true, isMuted: true },
       }),
     ]);
 
     const globalByUser = new Map<string, NotifLevel>();
     for (const r of globalRows) globalByUser.set(r.userId, r.notifTrigger);
 
-    const serverByUser = new Map<string, { level: NotifLevel; muted: boolean }>();
+    const serverByUser = new Map<
+      string,
+      { level: NotifLevel; muted: boolean; suppressEveryone: boolean }
+    >();
     for (const r of serverRows) {
       serverByUser.set(r.userId, {
         level: r.level,
         muted: isMuteActive(r.isMuted, r.muteUntil, now),
+        suppressEveryone: r.suppressEveryone,
       });
     }
 
     const channelByUser = new Map<string, { level: NotifLevel | null; muted: boolean }>();
     for (const r of channelRows) {
-      // UserChannelMute 행 존재 + mutedUntil(null=영구 / 미래=만료전) = 채널 뮤트.
+      // S46 fix-forward (BLOCKER 3): 활성 채널 뮤트 = isMuted && (mutedUntil null=영구
+      // | mutedUntil>now). level 오버라이드만 있고 isMuted=false 인 행은 뮤트 아님.
       channelByUser.set(r.userId, {
         level: r.level,
-        muted: r.mutedUntil === null || r.mutedUntil.getTime() > now.getTime(),
+        muted: isMuteActive(r.isMuted, r.mutedUntil, now),
       });
     }
 
@@ -107,6 +123,7 @@ export class NotifLevelService {
         globalLevel: globalByUser.get(userId) ?? null,
         serverMuted: sv?.muted ?? false,
         channelMuted: ch?.muted ?? false,
+        suppressEveryone: sv?.suppressEveryone ?? false,
       };
     };
 

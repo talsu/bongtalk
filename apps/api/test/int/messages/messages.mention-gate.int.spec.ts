@@ -59,10 +59,13 @@ beforeEach(async () => {
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
   await env.prisma.channelPermissionOverride.deleteMany({ where: { channelId: stack.channelId } });
-  // S46 (FR-MN-05/06): 본 스펙은 S44 *권한* 게이트(MENTION_EVERYONE) 만 검증하므로,
-  // S46 NotifLevel 게이트(글로벌 기본 MENTIONS → broad @everyone/@here 스킵)가
-  // 끼어들지 않게 모든 워크스페이스 멤버의 글로벌 알림 수준을 ALL 로 고정한다.
-  // (S46 NotifLevel 게이트 자체는 messages.notif-levels-s46.int.spec 가 검증.)
+  // S46 fix-forward (BLOCKER 1): 본 스펙은 S44 *권한* 게이트(MENTION_EVERYONE) 만
+  // 검증한다. shouldNotifyMention 정정으로 이제 기본 MENTIONS 레벨에서도 broad
+  // (@everyone/@here)가 알림되므로(suppressEveryone=false 기본), 더 이상 글로벌 ALL
+  // 로 고정할 필요가 없다 — 알림 설정 행을 전부 비워 모든 멤버를 기본값(글로벌
+  // MENTIONS·suppressEveryone=false·비뮤트)으로 되돌리면 S46 게이트가 broad 를
+  // 통과시켜 S44 권한 게이트만 분리 검증된다. (S46 게이트 자체는
+  // messages.notif-levels-s46.int.spec 가 검증.)
   await env.prisma.serverNotificationPref.deleteMany({});
   await env.prisma.userChannelMute.deleteMany({});
   const allMembers = [
@@ -73,9 +76,6 @@ beforeEach(async () => {
     memberC.userId,
   ];
   await env.prisma.userSettings.deleteMany({ where: { userId: { in: allMembers } } });
-  for (const userId of allMembers) {
-    await env.prisma.userSettings.create({ data: { userId, notifTrigger: 'ALL' } });
-  }
   // presence 초기화 — 각 테스트가 명시적으로 online 상태를 만든다. ioredis 의
   // keyPrefix(qufox:)는 KEYS 의 패턴 인자에는 자동 적용되지 않으므로 prefixed
   // 패턴으로 조회한 뒤, DEL 에는 prefix 를 자동 적용하므로 prefix 를 떼고 넘긴다.

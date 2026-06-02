@@ -29,6 +29,9 @@ export function MuteToggle({
 }: MuteToggleProps): JSX.Element {
   const title = scope === 'channel' ? '채널 뮤트' : '서버 뮤트';
   const subtitle = '배지와 미읽 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요.';
+  // B-03: 접근명에 부제를 병합하지 않도록 aria-label 은 title 만, 부제는 id 로
+  // aria-describedby 에 연결한다.
+  const subtitleId = `mute-toggle-${scope}-desc`;
   return (
     <div className="flex flex-col gap-[var(--s-2)]" data-testid={`mute-toggle-${scope}`}>
       <label className="flex items-start gap-[var(--s-3)]">
@@ -38,18 +41,25 @@ export function MuteToggle({
           disabled={disabled}
           onChange={(e) => onToggle(e.target.checked)}
           data-testid={`mute-toggle-${scope}-checkbox`}
+          aria-label={title}
+          aria-describedby={subtitleId}
           className="mt-[var(--s-1)]"
         />
         <span className="flex flex-col">
-          <span className="text-[length:var(--fs-14)] font-medium text-text">{title}</span>
-          <span className="text-[length:var(--fs-12)] text-text-muted">{subtitle}</span>
+          <span className="text-[length:var(--fs-14)] font-medium text-foreground">{title}</span>
+          <span id={subtitleId} className="text-[length:var(--fs-12)] text-text-muted">
+            {subtitle}
+          </span>
+          {/* 뮤트 만료/영구 표시 — aria-live=polite 로 만료 상태 변화를 안내. */}
           {isMuted && muteUntil && (
-            <span className="text-[length:var(--fs-12)] text-text-muted">
+            <span className="text-[length:var(--fs-12)] text-text-muted" aria-live="polite">
               {new Date(muteUntil).toLocaleString()} 까지
             </span>
           )}
           {isMuted && !muteUntil && (
-            <span className="text-[length:var(--fs-12)] text-text-muted">영구 뮤트</span>
+            <span className="text-[length:var(--fs-12)] text-text-muted" aria-live="polite">
+              영구 뮤트
+            </span>
           )}
         </span>
       </label>

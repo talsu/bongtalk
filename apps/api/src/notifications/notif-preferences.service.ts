@@ -198,20 +198,26 @@ export class NotifPreferencesService {
 
   // ── 채널 (UserChannelMute + level) ───────────────────────────────────────
 
-  /** 채널 알림 오버라이드 조회. 행이 없으면 level=null(상속)/비뮤트. */
-  async getChannel(userId: string, channelId: string): Promise<ChannelNotificationPreference> {
+  /**
+   * 채널 알림 오버라이드 조회. 행이 없으면 level=null(상속)/비뮤트. `now` 를
+   * 주입받아 만료 판정을 결정적으로 한다(gate 의 now 와 정합 — Date.now() 제거).
+   */
+  async getChannel(
+    userId: string,
+    channelId: string,
+    now: Date,
+  ): Promise<ChannelNotificationPreference> {
     const row = await this.prisma.userChannelMute.findUnique({
       where: { userId_channelId: { userId, channelId } },
-      select: { level: true, mutedUntil: true },
+      select: { level: true, mutedUntil: true, isMuted: true },
     });
     if (!row) {
       return { level: null, isMuted: false, muteUntil: null };
     }
-    // 행 존재 + mutedUntil(null=영구 / 미래)이 곧 채널 뮤트(isMuted). level 만 있고
-    // mutedUntil 이 과거면 비뮤트(level 오버라이드만 살아있음).
-    const muted = row.mutedUntil === null || row.mutedUntil.getTime() > Date.now();
-    // level 만 설정하고 뮤트는 안 한 행을 표현하려면 mutedUntil 이 과거여야 하는데,
-    // 그 경우 활성 뮤트 아님. row 존재 자체가 항상 뮤트는 아니다 → muted 플래그로 구분.
+    // S46 fix-forward (BLOCKER 3): 활성 채널 뮤트 = isMuted && (mutedUntil null=영구
+    // | mutedUntil>now). isMuted=false 이면 level 오버라이드만 살아있는 비뮤트 행.
+    const muted =
+      row.isMuted && (row.mutedUntil === null || row.mutedUntil.getTime() > now.getTime());
     return {
       level: row.level,
       isMuted: muted,
@@ -236,81 +242,167 @@ export class NotifPreferencesService {
   ): Promise<ChannelNotificationPreference> {
     const existing = await this.prisma.userChannelMute.findUnique({
       where: { userId_channelId: { userId, channelId } },
-      select: { level: true, mutedUntil: true },
+      select: { level: true, mutedUntil: true, isMuted: true },
     });
     const nextLevel = patch.level !== undefined ? patch.level : (existing?.level ?? null);
+    // S46 fix-forward (BLOCKER 3): isMuted 를 명시 축으로 set. 뮤트 경로(isMuted=true)는
+    // isMuted=true + mutedUntil 산정, level-only 경로(isMuted=false)는 isMuted=false +
+    // mutedUntil=null(레벨만 오버라이드). 미지정이면 기존 값 보존.
+    let nextIsMuted: boolean;
     let nextMutedUntil: Date | null;
     if (patch.isMuted === true) {
+      nextIsMuted = true;
       nextMutedUntil = muteUntilFrom(patch.muteDuration, now);
     } else if (patch.isMuted === false) {
+      nextIsMuted = false;
       nextMutedUntil = null;
     } else {
+      nextIsMuted = existing?.isMuted ?? false;
       nextMutedUntil = existing?.mutedUntil ?? null;
     }
 
-    // 비뮤트(mutedUntil=null) + level 상속(null) → 의미 없는 행 → 정리.
-    if (patch.isMuted === false && nextLevel === null) {
+    // 비뮤트 + level 상속(null) → 의미 없는 행 → 정리(서버 상속 + 비뮤트 = 행 없음).
+    if (!nextIsMuted && nextLevel === null) {
       await this.prisma.userChannelMute.deleteMany({ where: { userId, channelId } });
       return { level: null, isMuted: false, muteUntil: null };
     }
 
     await this.prisma.userChannelMute.upsert({
       where: { userId_channelId: { userId, channelId } },
-      update: { level: nextLevel, mutedUntil: nextMutedUntil },
-      create: { userId, channelId, level: nextLevel, mutedUntil: nextMutedUntil },
+      update: { level: nextLevel, mutedUntil: nextMutedUntil, isMuted: nextIsMuted },
+      create: {
+        userId,
+        channelId,
+        level: nextLevel,
+        mutedUntil: nextMutedUntil,
+        isMuted: nextIsMuted,
+      },
     });
-    return this.getChannel(userId, channelId);
+    return this.getChannel(userId, channelId, now);
   }
 
   /**
    * 카테고리 일괄 적용(FR-MN-07): 카테고리 하위 채널 전체에 동일 설정을 bulk
    * upsert 한다. 단일 트랜잭션으로 채널 id 조회 + upsert 를 묶는다. 반환은
    * 영향받은 channelId 목록.
+   *
+   * S46 fix-forward (BLOCKER 2): `workspaceId` 로 카테고리 채널을 스코프한다 —
+   * 타 워크스페이스 categoryId 로 채널을 조작하거나 채널 ID 를 열거(IDOR)하는
+   * 경로를 막는다. categoryId 가 해당 워크스페이스 소속이 아니면 빈 결과가 되어
+   * 아무것도 바뀌지 않는다. 추가로 기존 UserChannelMute 행을 findMany(channelId
+   * in [...])로 일괄 조회해 per-channel findUnique 루프(N+1)를 제거한다.
    */
   async putCategoryChannels(
     userId: string,
+    workspaceId: string,
     categoryId: string,
     patch: { level?: NotifLevel | null; isMuted?: boolean; muteDuration?: MuteDurationKey },
     now: Date,
   ): Promise<string[]> {
     return this.prisma.$transaction(async (tx) => {
+      // BLOCKER 2: workspaceId 필터로 IDOR/채널 ID 열거 차단.
       const channels = await tx.channel.findMany({
-        where: { categoryId, deletedAt: null },
+        where: { categoryId, workspaceId, deletedAt: null },
         select: { id: true },
       });
-      const nextMutedUntil =
-        patch.isMuted === true
-          ? muteUntilFrom(patch.muteDuration, now)
-          : patch.isMuted === false
-            ? null
-            : undefined;
-      for (const ch of channels) {
-        const existing = await tx.userChannelMute.findUnique({
-          where: { userId_channelId: { userId, channelId: ch.id } },
-          select: { level: true, mutedUntil: true },
-        });
+      if (channels.length === 0) return [];
+      const channelIds = channels.map((c) => c.id);
+
+      // N+1 제거: 기존 행을 일괄 조회 후 메모리 맵으로 fold.
+      const existingRows = await tx.userChannelMute.findMany({
+        where: { userId, channelId: { in: channelIds } },
+        select: { channelId: true, level: true, mutedUntil: true, isMuted: true },
+      });
+      const existingByChannel = new Map(existingRows.map((r) => [r.channelId, r]));
+
+      const idsToDelete: string[] = [];
+      const upserts: Array<{
+        channelId: string;
+        level: NotifLevel | null;
+        mutedUntil: Date | null;
+        isMuted: boolean;
+      }> = [];
+
+      for (const channelId of channelIds) {
+        const existing = existingByChannel.get(channelId);
         const nextLevel = patch.level !== undefined ? patch.level : (existing?.level ?? null);
-        const mutedUntil =
-          nextMutedUntil !== undefined ? nextMutedUntil : (existing?.mutedUntil ?? null);
-        if (patch.isMuted === false && nextLevel === null) {
-          await tx.userChannelMute.deleteMany({
-            where: { userId, channelId: ch.id },
-          });
+        let nextIsMuted: boolean;
+        let nextMutedUntil: Date | null;
+        if (patch.isMuted === true) {
+          nextIsMuted = true;
+          nextMutedUntil = muteUntilFrom(patch.muteDuration, now);
+        } else if (patch.isMuted === false) {
+          nextIsMuted = false;
+          nextMutedUntil = null;
+        } else {
+          nextIsMuted = existing?.isMuted ?? false;
+          nextMutedUntil = existing?.mutedUntil ?? null;
+        }
+        if (!nextIsMuted && nextLevel === null) {
+          idsToDelete.push(channelId);
           continue;
         }
-        await tx.userChannelMute.upsert({
-          where: { userId_channelId: { userId, channelId: ch.id } },
-          update: { level: nextLevel, mutedUntil },
-          create: { userId, channelId: ch.id, level: nextLevel, mutedUntil },
+        upserts.push({
+          channelId,
+          level: nextLevel,
+          mutedUntil: nextMutedUntil,
+          isMuted: nextIsMuted,
         });
       }
-      return channels.map((c) => c.id);
+
+      // 정리 대상 일괄 삭제(deleteMany 1쿼리).
+      if (idsToDelete.length > 0) {
+        await tx.userChannelMute.deleteMany({
+          where: { userId, channelId: { in: idsToDelete } },
+        });
+      }
+      // upsert 는 (userId,channelId) 충돌 의미가 있어 per-row 가 불가피하나, 위 N+1
+      // 조회는 이미 제거했다. (Prisma 는 partial-conflict upsert 의 batch 미지원.)
+      for (const u of upserts) {
+        await tx.userChannelMute.upsert({
+          where: { userId_channelId: { userId, channelId: u.channelId } },
+          update: { level: u.level, mutedUntil: u.mutedUntil, isMuted: u.isMuted },
+          create: {
+            userId,
+            channelId: u.channelId,
+            level: u.level,
+            mutedUntil: u.mutedUntil,
+            isMuted: u.isMuted,
+          },
+        });
+      }
+      return channelIds;
     });
   }
 
-  /** 채널 뮤트 해제 — 행 삭제(level 오버라이드도 함께 제거). 미존재면 idempotent. */
-  async unmuteChannel(userId: string, channelId: string): Promise<ChannelNotificationPreference> {
-    await this.prisma.userChannelMute.deleteMany({ where: { userId, channelId } });
-    return { level: null, isMuted: false, muteUntil: null };
+  /**
+   * 채널 뮤트 해제. S46 fix-forward (HIGH): server unmute 처럼 **level 오버라이드를
+   * 보존**한다(이전엔 행을 통째 삭제해 level 유실). isMuted=false·mutedUntil=null 로
+   * 뮤트만 해제하되 level 은 유지하고, level=null(상속)이면 의미 없는 행이라 삭제한다.
+   * 행 부재면 idempotent.
+   */
+  async unmuteChannel(
+    userId: string,
+    channelId: string,
+    now: Date,
+  ): Promise<ChannelNotificationPreference> {
+    const existing = await this.prisma.userChannelMute.findUnique({
+      where: { userId_channelId: { userId, channelId } },
+      select: { level: true },
+    });
+    if (!existing) {
+      return { level: null, isMuted: false, muteUntil: null };
+    }
+    if (existing.level === null) {
+      // 상속 level + 뮤트 해제 = 흔적 없음 → 행 삭제.
+      await this.prisma.userChannelMute.deleteMany({ where: { userId, channelId } });
+      return { level: null, isMuted: false, muteUntil: null };
+    }
+    // level 오버라이드 보존, 뮤트만 해제.
+    await this.prisma.userChannelMute.update({
+      where: { userId_channelId: { userId, channelId } },
+      data: { isMuted: false, mutedUntil: null },
+    });
+    return this.getChannel(userId, channelId, now);
   }
 }

@@ -171,6 +171,9 @@ model ServerNotificationPref {
 
   @@unique([userId, workspaceId])
   @@index([workspaceId])
+  // S46 fix-forward (HIGH): cron 만료 sweep 부분 인덱스 `(isMuted, muteUntil)
+  // WHERE isMuted AND muteUntil IS NOT NULL` 는 raw SQL(20260602700000_s46_notif_levels)에
+  // 둔다(Prisma @@index 는 partial WHERE 미지원 — UserChannelMute 와 동일).
 }
 
 model UserNotificationPreference {
@@ -202,8 +205,14 @@ model UserChannelMute {
   // (ServerNotificationPref) 상속(additive — 기존 row 는 NULL=상속이라 무회귀).
   // PRD ChannelNotificationPref 별도 테이블 대신 기존 UserChannelMute 에 level
   // 컬럼만 더해 S43 뮤트 UI·S22 사이드바·멘션 fanout 무교란을 노린 deviation 이다.
-  // 행 존재 + mutedUntil(null=영구 / 미래=만료전)이 곧 "채널 뮤트"(isMuted) 상태다.
   level      NotifLevel?
+  // S46 fix-forward (BLOCKER 3): 채널 뮤트 여부를 mutedUntil 과 분리한 명시 축.
+  // 활성 뮤트 = isMuted && (mutedUntil null=영구 | mutedUntil>now). 이전에는
+  // mutedUntil=null 이 "영구 뮤트"·"레벨전용 비뮤트(level 만 오버라이드)" 양쪽을
+  // 뜻해 {level:ALL,isMuted:false} 가 채널 영구 차단으로 오작동했다(서버
+  // ServerNotificationPref.isMuted 와 대칭). 마이그레이션이 기존 S43 뮤트 행을
+  // isMuted=true 로 backfill 한다(무회귀).
+  isMuted    Boolean     @default(false)
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 
@@ -212,6 +221,10 @@ model UserChannelMute {
 
   @@unique([userId, channelId])
   @@index([channelId])
+  // cron 만료 sweep 부분 인덱스 `(isMuted, mutedUntil) WHERE isMuted AND mutedUntil
+  // IS NOT NULL` 는 raw SQL(20260602700000_s46_notif_levels)로 둔다 — Prisma 의
+  // @@index 가 partial WHERE 를 표현하지 못하므로 schema 에는 미선언(스키마-DB
+  // 정합은 채널 partial-unique·S12 와 동일 패턴으로 raw SQL 측에서만 보장).
 }
 
 // S43 (FR-CH-15): 사용자별 채널 즐겨찾기. 사이드바 Favorites 섹션(최상단)에

@@ -30,8 +30,13 @@ export interface ResolvedNotifInputs {
   globalLevel: NotifLevel | null;
   /** 서버 뮤트 활성 여부(isMuted && (muteUntil null | muteUntil>now)). */
   serverMuted: boolean;
-  /** 채널 뮤트 활성 여부(UserChannelMute 행 존재 && (mutedUntil null | >now)). */
+  /** 채널 뮤트 활성 여부(isMuted && (mutedUntil null | >now)). */
   channelMuted: boolean;
+  /**
+   * 서버 @everyone/@here 억제(ServerNotificationPref.suppressEveryone). 행 부재면
+   * false. MENTIONS 레벨에서 broad(@everyone/@here)를 opt-out 으로 차단한다.
+   */
+  suppressEveryone: boolean;
 }
 
 /**
@@ -51,9 +56,15 @@ export function resolveEffectiveLevel(args: {
  *
  *   - 서버/채널 뮤트 활성 → 항상 스킵(level 무관 — ADR-6 isMuted 독립축).
  *   - effective level === 'NOTHING' → 스킵(직접 @username 의 Inbox 기록은 S47).
- *   - effective level === 'MENTIONS' → broad(@everyone/@here/@channel)는 스킵,
- *     직접 @username 은 통과.
+ *   - effective level === 'MENTIONS' → 직접 @username 은 통과, broad(@everyone/
+ *     @here)도 기본 통과하되 ServerNotificationPref.suppressEveryone=true 면 차단
+ *     (Discord "Only @mentions" 시맨틱 — ADR-6/D06 정본 + suppressEveryone/
+ *     suppressRoleMentions 필드 존재가 함의하는 정답).
  *   - effective level === 'ALL' → 통과(broad/direct 모두).
+ *
+ * suppressRoleMentions(=@role 억제)는 현재 @role 멘션 도입 전이라 게이트에서
+ * 미연동이다 — 컬럼만 보존하며, @role 멘션(S45 이후) 도입 시 broad 분기에
+ * 'role' kind 를 더해 suppressRoleMentions 와 연동한다.
  *
  * 기존 dnd · ThreadSubscription.OFF 게이트와는 독립이다 — 호출부가 이 판정과
  * 별도로 합성한다(둘 중 하나라도 스킵이면 스킵).
@@ -63,8 +74,9 @@ export function shouldNotifyMention(inputs: ResolvedNotifInputs, kind: MentionKi
   const level = resolveEffectiveLevel(inputs);
   if (level === 'NOTHING') return false;
   if (level === 'ALL') return true;
-  // MENTIONS: 직접 @username 만 통과, broad 는 스킵.
-  return kind === 'direct';
+  // MENTIONS: 직접 @username 은 항상 통과. broad(@everyone/@here)는 기본 통과하되
+  // suppressEveryone=true 일 때만 opt-out 차단.
+  return kind === 'direct' || (kind === 'broad' && !inputs.suppressEveryone);
 }
 
 /** 뮤트 활성 판정(muteUntil null=영구 / 미래=만료전 → 활성). 과거/미설정 비활성. */

@@ -20,6 +20,7 @@ const base: ResolvedNotifInputs = {
   globalLevel: null,
   serverMuted: false,
   channelMuted: false,
+  suppressEveryone: false,
 };
 
 describe('resolveEffectiveLevel — 3계층 우선순위(채널 > 서버 > 글로벌)', () => {
@@ -65,10 +66,23 @@ describe('shouldNotifyMention — level 별 direct/broad 게이트', () => {
     expect(shouldNotifyMention(inputs, 'broad')).toBe(true);
   });
 
-  it('MENTIONS: direct 통과·broad 스킵', () => {
+  it('MENTIONS: direct 통과·broad(@everyone/@here)도 기본 통과 (S46 fix-forward)', () => {
     const inputs = { ...base, globalLevel: 'MENTIONS' as const };
     expect(shouldNotifyMention(inputs, 'direct')).toBe(true);
+    // MENTIONS 레벨에서 @everyone/@here(broad)도 기본 알림(Discord "Only mentions").
+    expect(shouldNotifyMention(inputs, 'broad')).toBe(true);
+  });
+
+  it('MENTIONS + suppressEveryone=true: direct 통과·broad 차단 (opt-out)', () => {
+    const inputs = { ...base, globalLevel: 'MENTIONS' as const, suppressEveryone: true };
+    expect(shouldNotifyMention(inputs, 'direct')).toBe(true);
     expect(shouldNotifyMention(inputs, 'broad')).toBe(false);
+  });
+
+  it('ALL + suppressEveryone=true: suppress 는 MENTIONS 전용 — ALL 에선 broad 통과', () => {
+    // suppressEveryone 은 MENTIONS 레벨 broad opt-out 게이트일 뿐, ALL 은 무조건 통과.
+    const inputs = { ...base, globalLevel: 'ALL' as const, suppressEveryone: true };
+    expect(shouldNotifyMention(inputs, 'broad')).toBe(true);
   });
 
   it('NOTHING: direct·broad 모두 스킵', () => {
@@ -77,9 +91,9 @@ describe('shouldNotifyMention — level 별 direct/broad 게이트', () => {
     expect(shouldNotifyMention(inputs, 'broad')).toBe(false);
   });
 
-  it('기본값(모든 층 null) = MENTIONS: direct 통과·broad 스킵', () => {
+  it('기본값(모든 층 null) = MENTIONS: direct 통과·broad 도 통과 (S46 fix-forward)', () => {
     expect(shouldNotifyMention(base, 'direct')).toBe(true);
-    expect(shouldNotifyMention(base, 'broad')).toBe(false);
+    expect(shouldNotifyMention(base, 'broad')).toBe(true);
   });
 
   it('채널 오버라이드가 서버/글로벌을 이긴다(채널 NOTHING → direct 도 스킵)', () => {

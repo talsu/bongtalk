@@ -39,12 +39,12 @@ export class ChannelNotificationPreferencesController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.prefs.getChannel(user.id, channelId);
+    return this.prefs.getChannel(user.id, channelId, new Date());
   }
 
   @Put()
   async put(
-    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('id', new ParseUUIDPipe()) wsId: string,
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
@@ -56,8 +56,11 @@ export class ChannelNotificationPreferencesController {
     const { categoryId, ...patch } = parsed.data;
     if (categoryId) {
       // FR-MN-07: 카테고리 일괄 적용. 하위 채널 전체 bulk upsert.
+      // BLOCKER 2 (IDOR): URL 의 :id(워크스페이스)로 categoryId 를 스코프해
+      // 타 워크스페이스 채널 조작/ID 열거를 차단한다.
       const channelIds = await this.prefs.putCategoryChannels(
         user.id,
+        wsId,
         categoryId,
         patch,
         new Date(),
@@ -73,6 +76,6 @@ export class ChannelNotificationPreferencesController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.prefs.unmuteChannel(user.id, channelId);
+    return this.prefs.unmuteChannel(user.id, channelId, new Date());
   }
 }

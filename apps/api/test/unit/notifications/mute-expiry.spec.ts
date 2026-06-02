@@ -56,14 +56,15 @@ describe('MuteExpiryCron.sweep — 만료 뮤트 해제', () => {
       where: { isMuted: true, muteUntil: { not: null, lt: now } },
       data: { isMuted: false, muteUntil: null },
     });
+    // S46 fix-forward (BLOCKER 3): channel 만료 sweep 도 isMuted=true 술어로 좁힌다.
     // channel level=null(상속만) 만료 행 → 삭제.
     expect(channelDeleteMany).toHaveBeenCalledWith({
-      where: { mutedUntil: { not: null, lt: now }, level: null },
+      where: { isMuted: true, mutedUntil: { not: null, lt: now }, level: null },
     });
-    // channel level 보존 만료 행 → mutedUntil=null 로 뮤트만 해제.
+    // channel level 보존 만료 행 → isMuted=false·mutedUntil=null 로 뮤트만 해제.
     expect(channelUpdateMany).toHaveBeenCalledWith({
-      where: { mutedUntil: { not: null, lt: now }, level: { not: null } },
-      data: { mutedUntil: null },
+      where: { isMuted: true, mutedUntil: { not: null, lt: now }, level: { not: null } },
+      data: { isMuted: false, mutedUntil: null },
     });
   });
 });
