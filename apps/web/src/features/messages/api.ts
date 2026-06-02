@@ -4,6 +4,7 @@ import type {
   ListMessagesQuery,
   ListMessagesResponse,
   ListPinsResponse,
+  PinCountResponse,
   MessageDto,
   PinMessageResponse,
   SendMessageRequest,
@@ -111,6 +112,11 @@ export function unpinMessage(
 
 export function listPins(wsId: string, channelId: string): Promise<ListPinsResponse> {
   return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/pins`);
+}
+
+// S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지 경량 조회. 본문/AST 없이 핀 수만.
+export function getPinCount(wsId: string, channelId: string): Promise<PinCountResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/pins/count`);
 }
 
 /**

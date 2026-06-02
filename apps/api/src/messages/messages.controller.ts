@@ -487,9 +487,37 @@ export class MessagesController {
   // ----- task-044-iter2: pinned messages -------------------------------
 
   /**
-   * 메시지 pin. 워크스페이스 OWNER/ADMIN 만 가능 — MEMBER 는 403.
-   * 채널당 cap 50, 초과 시 422 MESSAGE_PIN_CAP_EXCEEDED.
-   * 이미 pinned 면 idempotent 응답.
+   * S50 (D10 · FR-PS-03): 채널 핀 카운트 경량 엔드포인트. 채널 헤더 핀 아이콘
+   * 배지가 본문/AST 페치 없이 핀 수만 읽도록 한다. 라우트 순서상 `:msgId` 보다
+   * 먼저 선언해야 'pins'/'count' 가 UUID 로 오인되지 않는다(listPins 와 동일 이유 —
+   * `Get('pins/count')` 는 `Get(':msgId')` 보다 위에 둔다).
+   *
+   * 권한: 모든 워크스페이스 멤버 + 채널 READ 가시성(가드 체인이 이미 강제). 핀
+   * 목록 조회(listPins)와 동일하게 별도 역할 게이트 없음.
+   */
+  @Get('pins/count')
+  async pinCount(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+  ) {
+    return this.messages.countPins(channelId);
+  }
+
+  /**
+   * S50 (D10 · FR-PS-01/05): 메시지 pin. 권한은 **채널 멤버 전체 허용**(PRD
+   * "기본값은 채널 멤버 전체 허용") — 가드 체인(WorkspaceMemberGuard +
+   * ChannelAccessGuard)이 워크스페이스 멤버십 + 채널 READ 가시성을 이미 강제하므로,
+   * READ ACL 을 통과한 멤버는 누구나 핀할 수 있다(읽기전용 게스트는 READ 부재로
+   * 가드에서 막힘). OWNER/ADMIN 은 항상 가능(역할 baseline 에 READ 포함).
+   *
+   * 핀 가능 조건은 service.pin 이 enforce 한다(FR-PS-01): 시스템 메시지 핀 불가
+   * (400 VALIDATION_FAILED), soft-deleted 핀 불가(404), hard cap(55) 초과 거부
+   * (423 MESSAGE_PIN_CAP_EXCEEDED). 이미 pinned 면 idempotent 200 + 현재 상태
+   * (FR-PS-14).
+   *
+   * NOTE (S50 deviation): MODERATOR 이상 제한 토글(FR-PS-05)은 S51 carryover 다.
+   * 본 슬라이스는 PRD 기본값(멤버 전체 허용)만 구현한다. PIN_MESSAGE(0x80) 집행
+   * 비트는 사용하지 않는다(MENTION_EVERYONE 카탈로그 비트와 충돌 — D12 분리 대기).
    */
   @Post(':msgId/pin')
   @HttpCode(200)
@@ -500,12 +528,6 @@ export class MessagesController {
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    if (!this.isAdminOrOwner(m.role)) {
-      throw new DomainError(
-        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
-        'OWNER 또는 ADMIN 만 메시지를 고정할 수 있습니다',
-      );
-    }
     const row = await this.messages.pin({
       workspaceId: m.workspaceId,
       channelId,
@@ -520,8 +542,8 @@ export class MessagesController {
   }
 
   /**
-   * 메시지 pin 해제. 권한은 pin 과 동일 (OWNER/ADMIN). 미고정에서
-   * unpin 호출은 idempotent.
+   * S50 (D10 · FR-PS-01): 메시지 pin 해제. 권한은 pin 과 동일(채널 멤버 전체 허용 —
+   * 가드 체인이 READ ACL 을 강제). 미고정 상태에서 unpin 호출은 idempotent 200.
    */
   @Delete(':msgId/pin')
   @HttpCode(200)
@@ -532,12 +554,6 @@ export class MessagesController {
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
-    if (!this.isAdminOrOwner(m.role)) {
-      throw new DomainError(
-        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
-        'OWNER 또는 ADMIN 만 메시지 고정을 해제할 수 있습니다',
-      );
-    }
     const row = await this.messages.unpin({
       workspaceId: m.workspaceId,
       channelId,

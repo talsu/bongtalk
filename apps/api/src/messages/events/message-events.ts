@@ -248,4 +248,11 @@ export type MessagePinToggledPayload = {
   // pinnedAt = null → unpinned. 둘 다 ISO string 또는 null.
   pinnedAt: string | null;
   pinnedBy: string | null;
+  // S50 (D10 · FR-PS-02): pin 추가 시 채널 스트림에 자동 삽입된 SYSTEM_PIN 시스템
+  // 메시지 id. outbox→WS subscriber 가 channel:pin_added wire payload 의
+  // systemMessageId 로 전달한다. unpin/cascade(pinnedAt=null) 경로는 null.
+  systemMessageId?: string | null;
+  // S50 (D10 · FR-PS-04): 갱신 후 채널 핀 수. channel:pin_added 의 used 로 전달돼
+  // 클라가 soft cap(50) 경고 toast 를 띄울지 판정한다. unpin/cascade 는 미사용.
+  used?: number;
 };

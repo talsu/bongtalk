@@ -199,7 +199,11 @@ export type MessageDto = z.infer<typeof MessageDtoSchema>;
 export const THREAD_BROADCAST_EXCERPT_CAP = 50;
 
 // task-044-iter2: pinned messages — Discord-parity cap 50/channel.
+// S50 (D10 · FR-PS-04): 50 은 **soft** cap(도달 시 클라 경고 toast). 실제 거부
+// 경계는 HARD_PIN_CAP=55 다 — 50~55 구간은 경고만 띄우고 핀을 허용하며, 55 초과
+// 시도만 API 가 423 으로 거부한다(MESSAGE_PIN_CAP_EXCEEDED 매핑 422→423).
 export const MESSAGE_PIN_CAP = 50;
+export const HARD_PIN_CAP = 55;
 
 export const PinMessageResponseSchema = z.object({
   id: z.string().uuid(),
@@ -214,6 +218,13 @@ export const ListPinsResponseSchema = z.object({
   used: z.number().int().nonnegative(),
 });
 export type ListPinsResponse = z.infer<typeof ListPinsResponseSchema>;
+
+// S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지용 경량 응답(본문 없이 수/한도만).
+export const PinCountResponseSchema = z.object({
+  used: z.number().int().nonnegative(),
+  cap: z.number().int().positive(),
+});
+export type PinCountResponse = z.infer<typeof PinCountResponseSchema>;
 
 // POST /messages/:id/reactions + DELETE counterpart — simple enough we
 // reuse the ReactionSummary shape on the response.

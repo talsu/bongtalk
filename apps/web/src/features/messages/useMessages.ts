@@ -11,12 +11,16 @@ import type {
   ListEditHistoryResponse,
   ListMessagesQuery,
   ListMessagesResponse,
+  ListPinsResponse,
+  PinCountResponse,
   MessageDto,
 } from '@qufox/shared-types';
 import {
   deleteMessage,
   getEditHistory,
+  getPinCount,
   listMessages,
+  listPins,
   pinMessage,
   sendMessage,
   unpinMessage,
@@ -477,6 +481,45 @@ export function useUnpinMessage(wsId: string | null, channelId: string) {
         ttlMs: 5000,
       });
     },
+  });
+}
+
+/**
+ * S50 (D10 · FR-PS-03): 채널 핀 목록 조회 훅. 핀 패널이 열렸을 때만(`enabled`)
+ * fetch 합니다. wsId 가 null(DM)이면 핀 미지원이므로 비활성입니다. 정렬은 서버가
+ * pinnedAt DESC 로 보장하며, channel:pin_added/removed 이벤트가 캐시를 invalidate
+ * 해 패널이 실시간 갱신됩니다.
+ */
+export function usePins(wsId: string | null, channelId: string, enabled: boolean) {
+  return useQuery<ListPinsResponse>({
+    queryKey: qk.messages.pins(wsId ?? 'global', channelId),
+    queryFn: () => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 메시지 고정을 지원하지 않습니다'));
+      }
+      return listPins(wsId, channelId);
+    },
+    enabled: enabled && !!wsId && !!channelId,
+    staleTime: 10_000,
+  });
+}
+
+/**
+ * S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지 훅. 경량(본문 없이 수만) 조회로,
+ * 헤더가 항상 마운트되므로 enabled 기본 true. channel:pin_added/removed 가
+ * invalidate 한다. wsId 가 null(DM)이면 비활성(핀 미지원).
+ */
+export function usePinCount(wsId: string | null, channelId: string) {
+  return useQuery<PinCountResponse>({
+    queryKey: qk.messages.pinCount(wsId ?? 'global', channelId),
+    queryFn: () => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 메시지 고정을 지원하지 않습니다'));
+      }
+      return getPinCount(wsId, channelId);
+    },
+    enabled: !!wsId && !!channelId,
+    staleTime: 10_000,
   });
 }
 
