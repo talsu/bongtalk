@@ -64,6 +64,11 @@ export const UpdateChannelRequestSchema = z.object({
   categoryId: z.string().uuid().nullable().optional(),
   // S15 (FR-CH-08): 슬로우모드 간격(초). 미지정이면 변경 없음, 0 이면 비활성화.
   slowmodeSeconds: SlowmodeSecondsSchema.optional(),
+  // S51 (FR-PS-05): 핀 권한 채널 오버라이드. true = 채널 멤버 전체 허용,
+  // false = MODERATOR/ADMIN 이상으로 제한(워크스페이스 ADMIN/OWNER 는 항상 가능).
+  // 미지정이면 변경 없음. 채널 설정 변경 권한(MANAGE_CHANNEL/ADMIN+) 게이트는 PATCH
+  // 라우트가 기존대로 강제한다.
+  memberCanPin: z.boolean().optional(),
   // OWNER/ADMIN flip of privacy; enforced in ChannelsService.update.
   isPrivate: z.boolean().optional(),
   // S14 (FR-CH-05): 비공개→공개 전환 confirm 토큰. 서버는 isPrivate:false 로의
@@ -138,6 +143,8 @@ export const ChannelSchema = z.object({
   position: z.string(),
   // S15 (FR-CH-08): 슬로우모드 간격(초). 0=비활성.
   slowmodeSeconds: z.number().int().nonnegative(),
+  // S51 (FR-PS-05): 핀 권한 채널 오버라이드. true(기본) = 멤버 전체 허용.
+  memberCanPin: z.boolean(),
   isPrivate: z.boolean(),
   archivedAt: z.string().datetime().nullable(),
   deletedAt: z.string().datetime().nullable(),

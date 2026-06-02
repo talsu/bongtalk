@@ -9,6 +9,9 @@ export type CurrentChannelPayload = {
   // S15 (FR-CH-08): 송신 경로 슬로우모드 게이트가 소비. ChannelAccessGuard 가
   // 채널을 로드할 때 함께 select 해 둔다(추가 쿼리 없음).
   slowmodeSeconds: number;
+  // S51 (FR-PS-05): pin/unpin 게이트가 소비. memberCanPin=false 일 때만 MODERATOR/
+  // ADMIN 제한을 건다.
+  memberCanPin: boolean;
   isPrivate: boolean;
   archivedAt: Date | null;
   deletedAt: Date | null;

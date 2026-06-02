@@ -98,6 +98,10 @@ type MessageRow = {
   // S04 (ADR-2 / FR-MSG-19): 메시지 타입. SELECT 미선택 시 undefined →
   // toDto 가 DEFAULT 로 폴백합니다(forward-compat).
   type?: MessageType | null;
+  // S51 (FR-PS-15): 작성자 분류. SYSTEM_PIN 시스템 메시지의 멤버 삭제 허용 게이트가
+  // (authorType==='SYSTEM' && type==='SYSTEM_PIN') 를 검사한다. SELECT 미선택 시
+  // undefined(forward-compat) — DELETE 경로의 getOne 은 full-row 라 항상 채워진다.
+  authorType?: 'USER' | 'BOT' | 'SYSTEM' | null;
   mentions: Prisma.JsonValue;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -2629,6 +2633,15 @@ export class MessagesService {
         data: { deletedAt, pinnedAt: null, pinnedBy: null },
       });
       if (count === 0) return;
+      // S51 (FR-PS-07): 원본 메시지가 soft-delete 되면 이 메시지를 개인 저장함에
+      // 담은 SavedMessage 행들의 messageDeletedAt 을 같은 tx 에서 비정규화로 채운다
+      // — read-path 가 조인 없이 '[삭제된 메시지]' 를 판단한다. FK Cascade 는
+      // hard-delete(운영 purge)만 처리하므로 soft-delete 는 여기서 수동 동기화한다.
+      // 이미 채워진 행(중복 삭제 방지)도 같은 시각으로 멱등 갱신(no-op 수준).
+      await tx.savedMessage.updateMany({
+        where: { messageId: args.msgId },
+        data: { messageDeletedAt: deletedAt },
+      });
       // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용
       // authorId + S33 카운터 감소 분기용 parentMessageId 를 함께 읽는다.
       const updated = await tx.message.findUniqueOrThrow({

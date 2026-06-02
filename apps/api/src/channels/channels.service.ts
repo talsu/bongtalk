@@ -319,6 +319,9 @@ export class ChannelsService {
             ...(input.slowmodeSeconds !== undefined
               ? { slowmodeSeconds: input.slowmodeSeconds }
               : {}),
+            // S51 (FR-PS-05): memberCanPin — 미지정은 변경 없음. true=멤버 전체 허용,
+            // false=MODERATOR/ADMIN 이상 제한(pin 게이트가 직접 검사).
+            ...(input.memberCanPin !== undefined ? { memberCanPin: input.memberCanPin } : {}),
             ...(input.categoryId !== undefined ? { categoryId: input.categoryId } : {}),
             // S14 (FR-CH-05): isPrivate 전환 반영(confirm 검증은 위에서 끝남).
             ...(privacyChanging ? { isPrivate: input.isPrivate } : {}),
@@ -890,6 +893,9 @@ export class ChannelsService {
       position: c.position.toString(),
       // S15 (FR-CH-08): 슬로우모드 간격을 DTO 에 노출.
       slowmodeSeconds: c.slowmodeSeconds,
+      // S51 (FR-PS-05): 핀 권한 채널 오버라이드를 DTO 에 노출(채널 설정 토글 + pin
+      // 버튼 비활성 판단). 기존 row 는 DB default true.
+      memberCanPin: c.memberCanPin,
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,
       deletedAt: c.deletedAt?.toISOString() ?? null,

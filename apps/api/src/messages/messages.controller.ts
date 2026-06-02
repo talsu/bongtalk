@@ -470,7 +470,15 @@ export class MessagesController {
     if (row.deletedAt) return; // idempotent
     const isSelf = row.authorId === user.id;
     const isMod = this.isAdminOrOwner(m.role);
-    if (!isSelf && !isMod) {
+    // S51 (FR-PS-15): 핀 추가 시스템 메시지(SYSTEM_PIN)는 채널 멤버 누구나 삭제할 수
+    // 있다(Discord 방식) — 작성자(=SYSTEM)도 모더레이터도 아닌 일반 MEMBER 도 허용한다.
+    // 가드 체인(WorkspaceMemberGuard + ChannelAccessGuard)이 이미 채널 READ ACL 통과를
+    // 강제했으므로 추가 게이트 없이 통과시킨다. 삭제는 이 SYSTEM_PIN 행만 soft-delete
+    // 되며, 원본 메시지의 Message.pinnedAt/pinnedBy 는 건드리지 않아 핀 자체는 유지된다
+    // (softDelete 는 대상 행의 핀 표식만 null 로 비우는데, SYSTEM_PIN 행은 애초에
+    // pinnedAt 이 null 이라 원본 핀에 영향이 없다).
+    const isDeletableSystemPin = row.authorType === 'SYSTEM' && row.type === 'SYSTEM_PIN';
+    if (!isSelf && !isMod && !isDeletableSystemPin) {
       throw new DomainError(
         ErrorCode.MESSAGE_NOT_AUTHOR,
         'only the author or an ADMIN can delete this message',
@@ -515,9 +523,12 @@ export class MessagesController {
    * (423 MESSAGE_PIN_CAP_EXCEEDED). 이미 pinned 면 idempotent 200 + 현재 상태
    * (FR-PS-14).
    *
-   * NOTE (S50 deviation): MODERATOR 이상 제한 토글(FR-PS-05)은 S51 carryover 다.
-   * 본 슬라이스는 PRD 기본값(멤버 전체 허용)만 구현한다. PIN_MESSAGE(0x80) 집행
-   * 비트는 사용하지 않는다(MENTION_EVERYONE 카탈로그 비트와 충돌 — D12 분리 대기).
+   * S51 (FR-PS-05): 핀 권한 채널 오버라이드. `channel.memberCanPin===false` 인
+   * 채널에서는 OWNER/ADMIN 만 핀할 수 있고(역할 baseline), 일반 MEMBER 는 403
+   * FORBIDDEN 으로 막힌다. memberCanPin===true(기본)면 종전대로 READ ACL 통과 멤버
+   * 전체 허용이다. ★PIN_MESSAGE(0x80) 집행 비트는 여전히 사용하지 않는다 —
+   * memberCanPin 컬럼(ChannelAccessGuard 가 req.channel 에 실어 둠)을 직접 검사한다
+   * (MENTION_EVERYONE 카탈로그 0x80 과 충돌 회피 — D12). 역할은 req.workspaceMember.role.
    */
   @Post(':msgId/pin')
   @HttpCode(200)
@@ -527,7 +538,9 @@ export class MessagesController {
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
   ) {
+    this.assertCanPin(channel, m.role);
     const row = await this.messages.pin({
       workspaceId: m.workspaceId,
       channelId,
@@ -542,8 +555,10 @@ export class MessagesController {
   }
 
   /**
-   * S50 (D10 · FR-PS-01): 메시지 pin 해제. 권한은 pin 과 동일(채널 멤버 전체 허용 —
-   * 가드 체인이 READ ACL 을 강제). 미고정 상태에서 unpin 호출은 idempotent 200.
+   * S50 (D10 · FR-PS-01) / S51 (FR-PS-05): 메시지 pin 해제. 권한 게이트는 pin 과
+   * 동일하다 — memberCanPin===false 채널에서는 OWNER/ADMIN 만 해제 가능(일반 MEMBER
+   * 403). memberCanPin===true(기본)면 READ ACL 통과 멤버 전체 허용. 미고정 상태에서
+   * unpin 호출은 게이트 통과 후 idempotent 200.
    */
   @Delete(':msgId/pin')
   @HttpCode(200)
@@ -553,7 +568,9 @@ export class MessagesController {
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
   ) {
+    this.assertCanPin(channel, m.role);
     const row = await this.messages.unpin({
       workspaceId: m.workspaceId,
       channelId,
@@ -571,6 +588,21 @@ export class MessagesController {
 
   private isAdminOrOwner(role: WorkspaceRoleStr): boolean {
     return role === 'ADMIN' || role === 'OWNER';
+  }
+
+  /**
+   * S51 (FR-PS-05): 핀 권한 게이트. `channel.memberCanPin===false` 인 채널에서는
+   * OWNER/ADMIN 만 핀/해제할 수 있고 일반 MEMBER 는 403 FORBIDDEN. memberCanPin===true
+   * (기본)이거나 channel 메타가 없으면(가드 체인이 이미 READ ACL 통과를 보장) 통과한다.
+   * ★PIN_MESSAGE(0x80) 집행 비트 미사용 — memberCanPin 컬럼만 직접 검사한다(D12).
+   */
+  private assertCanPin(channel: CurrentChannelPayload | undefined, role: WorkspaceRoleStr): void {
+    if (channel && channel.memberCanPin === false && !this.isAdminOrOwner(role)) {
+      throw new DomainError(
+        ErrorCode.FORBIDDEN,
+        '이 채널에서는 관리자만 메시지를 고정할 수 있습니다',
+      );
+    }
   }
 
   private rateUserMax(): number {

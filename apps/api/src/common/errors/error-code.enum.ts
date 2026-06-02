@@ -148,6 +148,11 @@ export enum ErrorCode {
   // 띄울 수 있도록 별도 코드로 둔다.
   KEYWORD_LIMIT_EXCEEDED = 'KEYWORD_LIMIT_EXCEEDED',
 
+  // S51 (D10 / FR-PS-07): 개인 저장함 항목 수 한도(SAVED_LIMIT=500) 초과. POST 시
+  // 현재 카운트가 500 이상이면 거부 → 422(요청 envelope 은 well-formed 이나 도메인
+  // 상한을 넘김). soft·advisory lock 불요라 ±1 drift 는 허용한다.
+  SAVED_LIMIT_EXCEEDED = 'SAVED_LIMIT_EXCEEDED',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -265,6 +270,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   // shape errors (parse failures / missing required fields).
   [ErrorCode.INVALID_MAGIC_BYTES]: 422,
 
+  // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
+  [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
   [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,
