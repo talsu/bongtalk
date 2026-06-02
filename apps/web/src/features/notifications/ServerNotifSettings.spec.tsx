@@ -76,3 +76,35 @@ describe('ServerNotifSettings suppress toggles (S48 FR-MN-09)', () => {
     expect(role.checked).toBe(false);
   });
 });
+
+describe('ServerNotifSettings suppress a11y (S48 fix-forward)', () => {
+  // C-01: aria-label 제거 → 접근명이 시각 label 텍스트와 일치(label-content-name-mismatch 해소).
+  it('C-01: checkbox 에 aria-label 없음(시각 텍스트가 접근명)', () => {
+    render(<ServerNotifSettings workspaceId={WS} />);
+    const everyone = screen.getByTestId('suppress-everyone-checkbox');
+    const role = screen.getByTestId('suppress-role-checkbox');
+    expect(everyone.getAttribute('aria-label')).toBeNull();
+    expect(role.getAttribute('aria-label')).toBeNull();
+    // 시각 텍스트(label 래핑)로 접근명이 잡힌다.
+    expect(screen.getByLabelText('@everyone · @here 억제')).toBe(everyone);
+    expect(screen.getByLabelText('역할 멘션 억제')).toBe(role);
+  });
+
+  // C-01: 부제는 aria-describedby 로 연결(접근명에서 분리).
+  it('C-01: 부제가 aria-describedby 로 연결', () => {
+    render(<ServerNotifSettings workspaceId={WS} />);
+    const everyone = screen.getByTestId('suppress-everyone-checkbox');
+    const descId = everyone.getAttribute('aria-describedby');
+    expect(descId).toBeTruthy();
+    const desc = document.getElementById(descId as string);
+    expect(desc?.textContent).toBe('전체·접속자 멘션의 알림과 배지를 끕니다.');
+  });
+
+  // C-04: 두 토글 래퍼 role=group + aria-labelledby(섹션 heading).
+  it('C-04: suppress 토글 래퍼 role=group + aria-labelledby 섹션 heading', () => {
+    render(<ServerNotifSettings workspaceId={WS} />);
+    const group = screen.getByRole('group', { name: '대량 멘션 알림 억제' });
+    expect(group).toBeTruthy();
+    expect(group.getAttribute('aria-labelledby')).toBe('server-notif-suppress-heading');
+  });
+});

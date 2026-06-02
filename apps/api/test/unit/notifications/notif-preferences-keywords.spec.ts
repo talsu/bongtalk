@@ -108,4 +108,22 @@ describe('NotifPreferencesService.updateGlobal dndUntil snooze (S48 FR-MN-11)', 
     const arg = upsert.mock.calls[0][0] as { create: { dndUntil: Date | null } };
     expect(arg.create.dndUntil).toBeNull();
   });
+
+  // S48 fix-forward(security): 7일 초과 미래 dndUntil 거부 — 영구 DND 악용 방지.
+  it('now+7일 초과 dndUntil → VALIDATION_FAILED, upsert 미호출', async () => {
+    const { svc, upsert } = makeService();
+    // now = 2025-01-01T00:00:00Z. 7일 + 1분 후.
+    const eightDays = new Date('2025-01-08T00:01:00.000Z').toISOString();
+    await expect(svc.updateGlobal(USER_A, { dndUntil: eightDays })).rejects.toMatchObject({
+      code: ErrorCode.VALIDATION_FAILED,
+    });
+    expect(upsert).not.toHaveBeenCalled();
+  });
+
+  it('now+7일 정확히(경계) → 저장 허용', async () => {
+    const { svc, upsert } = makeService();
+    const exactly7d = new Date('2025-01-08T00:00:00.000Z').toISOString();
+    await svc.updateGlobal(USER_A, { dndUntil: exactly7d });
+    expect(upsert).toHaveBeenCalledTimes(1);
+  });
 });

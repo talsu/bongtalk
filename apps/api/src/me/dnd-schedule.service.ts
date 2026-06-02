@@ -29,6 +29,29 @@ export type { DndEntry, DndSchedule } from '@qufox/shared-types';
 
 const MAX_ENTRIES_PER_USER = 14;
 
+/**
+ * S48 fix-forward(perf): timezone 별 Intl.DateTimeFormat 캐시. @everyone fanout 시
+ * 수신자마다 localDayMinute 가 호출되면 동일 timezone 에 대해 포매터를 N회 생성하게
+ * 된다(Intl 생성은 비교적 무겁다). module-level Map 으로 timezone → formatter 를
+ * 재사용해 인스턴스 생성을 1회/timezone 으로 줄인다. 키 공간이 IANA 이름(유한)이라
+ * 무한 증식하지 않는다.
+ */
+const DTF_CACHE = new Map<string, Intl.DateTimeFormat>();
+
+function dayMinuteFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = DTF_CACHE.get(timezone);
+  if (cached) return cached;
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  DTF_CACHE.set(timezone, fmt);
+  return fmt;
+}
+
 @Injectable()
 export class DndScheduleService {
   constructor(private readonly prisma: PrismaService) {}
@@ -106,13 +129,8 @@ export class DndScheduleService {
       return { day: at.getUTCDay(), minute: at.getUTCHours() * 60 + at.getUTCMinutes() };
     }
     try {
-      const parts = new Intl.DateTimeFormat('en-US', {
-        timeZone: timezone,
-        weekday: 'short',
-        hour: '2-digit',
-        minute: '2-digit',
-        hour12: false,
-      }).formatToParts(at);
+      // S48 fix-forward(perf): timezone 별 포매터 캐시 재사용(fanout 시 N회 생성 제거).
+      const parts = dayMinuteFormatter(timezone).formatToParts(at);
       const lookup = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
       const weekdayMap: Record<string, number> = {
         Sun: 0,

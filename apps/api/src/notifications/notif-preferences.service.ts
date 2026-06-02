@@ -22,6 +22,13 @@ export const KEYWORD_MAX_COUNT = 25;
 const KEYWORD_MAX_LENGTH = 100;
 
 /**
+ * S48 fix-forward(security): 임시 DND(dndUntil) 의 미래 상한. 7일 초과는 거부
+ * (VALIDATION_FAILED) — "임시" snooze 가 사실상 영구 DND 로 악용되어 멘션이 무한히
+ * 묵살되는 것을 막는다. 주간 DND 는 별도 스케줄(dndSchedule)이 담당한다.
+ */
+const DND_SNOOZE_MAX_MS = 7 * 24 * 60 * 60_000;
+
+/**
  * S48 (FR-MN-10): 키워드 배열 정규화 + 검증.
  *   - 각 키워드 trim. 빈/공백 → VALIDATION_FAILED. 길이 초과(>100) → VALIDATION_FAILED.
  *   - 대소문자 무관 중복 제거(첫 출현 보존). 매칭이 대소문자 무관이므로 저장도 dedupe.
@@ -144,6 +151,13 @@ export class NotifPreferencesService {
         throw new DomainError(
           ErrorCode.VALIDATION_FAILED,
           'dndUntil must be at least 1 minute in the future',
+        );
+      }
+      // S48 fix-forward(security): 미래 상한(now+7일) 초과 거부 — 영구 DND 악용 방지.
+      if (v !== null && v.getTime() > now.getTime() + DND_SNOOZE_MAX_MS) {
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          'dndUntil must be at most 7 days in the future',
         );
       }
       update.dndUntil = v;

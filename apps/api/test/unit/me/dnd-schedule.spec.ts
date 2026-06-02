@@ -189,3 +189,29 @@ describe('DndScheduleService.isActive timezone (S48 FR-MN-12)', () => {
     expect(DndScheduleService.isActive(at, sched, 'Not/AReal_Zone')).toBe(true);
   });
 });
+
+// S48 fix-forward(perf): timezone 별 Intl.DateTimeFormat 캐시.
+describe('DndScheduleService.localDayMinute formatter cache (S48 perf)', () => {
+  it('같은 timezone 반복 호출 → Intl.DateTimeFormat 생성자는 캐시 미스 1회만 호출', () => {
+    const ctorSpy = vi.spyOn(Intl, 'DateTimeFormat');
+    const at = new Date('2025-01-01T13:00:00Z');
+    // 동일 tz 로 fanout 시뮬레이션(여러 수신자가 같은 tz).
+    const tz = 'Asia/Tokyo';
+    const baseline = ctorSpy.mock.calls.length;
+    for (let i = 0; i < 5; i++) {
+      DndScheduleService.localDayMinute(at, tz);
+    }
+    // 캐시 덕에 5회 호출에 대해 생성자는 (캐시 워밍 포함) 최대 1회만 추가된다.
+    const added = ctorSpy.mock.calls.length - baseline;
+    expect(added).toBeLessThanOrEqual(1);
+    ctorSpy.mockRestore();
+  });
+
+  it('캐시 사용해도 결과는 정확(KST 22:00 = 13:00 UTC)', () => {
+    const at = new Date('2025-01-01T13:00:00Z');
+    const r1 = DndScheduleService.localDayMinute(at, 'Asia/Seoul');
+    const r2 = DndScheduleService.localDayMinute(at, 'Asia/Seoul');
+    expect(r1).toEqual({ day: 3, minute: 22 * 60 });
+    expect(r2).toEqual(r1);
+  });
+});

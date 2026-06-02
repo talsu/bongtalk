@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useId, useState } from 'react';
 import type { MuteDurationKey, NotifLevel } from '@qufox/shared-types';
 import { NotifLevelRadio } from './NotifLevelRadio';
 import { MuteToggle } from './MuteToggle';
@@ -33,6 +33,12 @@ export function ServerNotifSettings({ workspaceId }: ServerNotifSettingsProps): 
   const unmuteMut = useUnmuteServer(workspaceId);
   const notify = useNotifications((s) => s.push);
   const [duration, setDuration] = useState<MuteDurationKey>('forever');
+  // C-01: 시각 제목 텍스트 = 접근명(aria-labelledby), 부제는 aria-describedby.
+  // C-04: group aria-labelledby(섹션 heading).
+  const everyoneLabelId = useId();
+  const everyoneDescId = useId();
+  const roleLabelId = useId();
+  const roleDescId = useId();
 
   const level: NotifLevel = pref?.level ?? 'MENTIONS';
   const isMuted = pref?.isMuted ?? false;
@@ -117,24 +123,33 @@ export function ServerNotifSettings({ workspaceId }: ServerNotifSettingsProps): 
           이 서버에서 @everyone·@here 또는 역할 멘션의 알림과 배지를 끕니다. 직접 @멘션은 그대로
           알림을 받습니다.
         </p>
-        <div className="flex flex-col gap-[var(--s-3)]">
+        {/* C-04: 두 토글을 group 으로 묶고 섹션 heading 으로 라벨링. */}
+        <div
+          role="group"
+          aria-labelledby="server-notif-suppress-heading"
+          className="flex flex-col gap-[var(--s-3)]"
+        >
+          {/* C-01: aria-label 제거 — 제목 span(aria-labelledby)이 접근명, 부제는
+              aria-describedby 로 분리. 시각 제목 = 접근명이라 label-content-name-mismatch 해소.
+              label 래핑은 클릭 타깃 확대용으로 유지하되, 접근명은 제목 span 으로 명시한다. */}
           <label className="flex items-start gap-[var(--s-3)]">
             <input
               type="checkbox"
               checked={suppressEveryone}
               disabled={pending}
               data-testid="suppress-everyone-checkbox"
-              aria-label="@everyone·@here 알림 억제"
+              aria-labelledby={everyoneLabelId}
+              aria-describedby={everyoneDescId}
               onChange={(e) =>
                 void put({ suppressEveryone: e.target.checked }, '@everyone 억제 저장 실패')
               }
               className="mt-[var(--s-1)]"
             />
             <span className="flex flex-col">
-              <span className="text-[length:var(--fs-14)] text-foreground">
+              <span id={everyoneLabelId} className="text-[length:var(--fs-14)] text-foreground">
                 @everyone · @here 억제
               </span>
-              <span className="text-[length:var(--fs-12)] text-text-muted">
+              <span id={everyoneDescId} className="text-[length:var(--fs-12)] text-text-muted">
                 전체·접속자 멘션의 알림과 배지를 끕니다.
               </span>
             </span>
@@ -145,15 +160,18 @@ export function ServerNotifSettings({ workspaceId }: ServerNotifSettingsProps): 
               checked={suppressRoleMentions}
               disabled={pending}
               data-testid="suppress-role-checkbox"
-              aria-label="역할 멘션 알림 억제"
+              aria-labelledby={roleLabelId}
+              aria-describedby={roleDescId}
               onChange={(e) =>
                 void put({ suppressRoleMentions: e.target.checked }, '역할 멘션 억제 저장 실패')
               }
               className="mt-[var(--s-1)]"
             />
             <span className="flex flex-col">
-              <span className="text-[length:var(--fs-14)] text-foreground">역할 멘션 억제</span>
-              <span className="text-[length:var(--fs-12)] text-text-muted">
+              <span id={roleLabelId} className="text-[length:var(--fs-14)] text-foreground">
+                역할 멘션 억제
+              </span>
+              <span id={roleDescId} className="text-[length:var(--fs-12)] text-text-muted">
                 @역할 멘션의 알림과 배지를 끕니다.
               </span>
             </span>

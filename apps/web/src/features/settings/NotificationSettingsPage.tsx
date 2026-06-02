@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import type {
   NotificationChannel,
@@ -102,6 +102,13 @@ export function NotificationSettingsPage(): JSX.Element {
   );
   const [activeTab, setActiveTab] = useState<string>('global');
   const active = tabs.find((t) => t.id === activeTab) ?? tabs[0];
+  // E-01: 탭 전환 시 tabpanel 로 포커스를 옮겨 SR/키보드 사용자가 새 패널 컨텍스트로 진입.
+  const panelRef = useRef<HTMLDivElement>(null);
+  const selectTab = (id: string): void => {
+    setActiveTab(id);
+    // 패널 콘텐츠가 리렌더된 다음 프레임에 포커스를 이동.
+    requestAnimationFrame(() => panelRef.current?.focus());
+  };
 
   const currentChannel = (eventType: NotificationEventType): NotificationChannel =>
     resolveChannel(prefs as NotificationPreference[] | undefined, active.workspaceId, eventType);
@@ -220,7 +227,7 @@ export function NotificationSettingsPage(): JSX.Element {
               aria-controls={`panel-${t.id}`}
               aria-selected={t.id === activeTab}
               data-testid={`notif-tab-${t.id}`}
-              onClick={() => setActiveTab(t.id)}
+              onClick={() => selectTab(t.id)}
               className="qf-tabs__item"
             >
               {t.label}
@@ -229,6 +236,7 @@ export function NotificationSettingsPage(): JSX.Element {
         </div>
 
         <div
+          ref={panelRef}
           role="tabpanel"
           id={`panel-${active.id}`}
           aria-labelledby={`tab-${active.id}`}
@@ -244,9 +252,11 @@ export function NotificationSettingsPage(): JSX.Element {
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-bg-subtle text-[length:var(--fs-11)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
-                <th className="px-[var(--s-5)] py-[var(--s-3)]">이벤트</th>
+                <th scope="col" className="px-[var(--s-5)] py-[var(--s-3)]">
+                  이벤트
+                </th>
                 {CHANNELS.map((c) => (
-                  <th key={c} className="px-[var(--s-4)] py-[var(--s-3)] text-center">
+                  <th key={c} scope="col" className="px-[var(--s-4)] py-[var(--s-3)] text-center">
                     {CHANNEL_LABEL[c]}
                   </th>
                 ))}
@@ -261,9 +271,12 @@ export function NotificationSettingsPage(): JSX.Element {
                     data-testid={`notif-row-${ev}`}
                     className="border-t border-border-subtle text-[length:var(--fs-14)] text-foreground"
                   >
-                    <td className="px-[var(--s-5)] py-[var(--s-4)] font-medium">
+                    <th
+                      scope="row"
+                      className="px-[var(--s-5)] py-[var(--s-4)] text-left font-medium"
+                    >
                       {EVENT_LABEL[ev]}
-                    </td>
+                    </th>
                     {CHANNELS.map((c) => (
                       <td key={c} className="px-[var(--s-4)] py-[var(--s-4)] text-center">
                         <label className="inline-flex cursor-pointer items-center justify-center">
