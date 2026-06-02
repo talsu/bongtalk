@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S39 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S40(D05 반응 확장 — 반응자목록/권한/관리, FR-RE05/07/08/09).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응, S39 코어 완료·S40~ 확장) 진행 중. **진행률: 162/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S40 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S41(D05 커스텀 이모지 업로드, FR-EM01/02/03/04/06·RC20 — apps/api/src/emojis·storage + apps/web/src/features/emojis, MinIO 저장).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응 S39 코어·S40 확장 완료·S41~ 커스텀 이모지) 진행 중. **진행률: 166/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -380,11 +380,22 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 449·web 668·shared-types 198·webhook 50) + 빌드 3종 + int 11(toggle·20한도·archived 409·GET users[5]·삭제404). DS 무수정.
 - carryover: **EmojiPicker 구조적 a11y**(role=menu→dialog·tab roles·focus trap·포커스이동 — **선존 컴포넌트** → 전용 picker a11y 태스크). perf(enrichment 재조회 dedup·`(messageId,emoji,createdAt)` 인덱스·FOR NO KEY UPDATE 경합 → measure-first). DS-owner(qf-reaction--me 색단독+대비·터치타깃 22px). security LOW(차단유저 reactor username·stale WS room). visual baseline.
 
-## 다음 슬라이스: S40 (D05 반응 확장 — 반응자 목록/권한/관리)
+## ✅ S40 (D05 반응 확장 — 반응자 목록/REACT 권한/타인제거/일괄삭제) — 완료 (2026-06-02, 이 세션)
 
-- scope api + web. **FR-RE05 / FR-RE07 / FR-RE08**(P1) / **FR-RE09**(P2).
-- FR 정본 PRD html 재확인 필수(D05 섹션). 예상(S39 UNDERSTAND 메모): **FR-RE05**(전체 reactor 목록 커서 페이지 — users[5] 너머), **FR-RE07**(REACT 권한 비트 DENY → 403), **FR-RE08**(OWNER/모더레이터 **타인 반응 제거**), **FR-RE09**(메시지 전체 반응 일괄 삭제). 정확 정의·우선순위 PRD 확인.
-- 주의: S39 reactions 코어(toggle·reaction:updated·aggregateReactionDetails) 위. FR-RE08 권한(채널 MANAGE/OWNER) + DELETE 타인반응 경로. FR-RE07 REACT 비트(권한 fold). UI(reactor 목록 모달) → ui-designer/visual. 마이그레이션 필요 여부 PRD 확인(REACT 비트는 기존 PermissionMatrix?). **EmojiPicker a11y carryover 와 묶어 처리 가능**(같은 reactions UI).
+- **FR-RE05**(`GET /messages/:id/reactions/:emoji/users` cursor 페이지 — `(date_trunc('ms',createdAt), Reaction.id)` 튜플 키셋·limit 50/max 100·reactor 모달 무한스크롤), **FR-RE07**(반응 추가 시 override **ADD_REACTIONS(카탈로그 0x20) DENY → 403** — API enum 미수정, **ADR-4 fold** base→roleAllow→roleDeny→userAllow→userDeny 로 userAllow>roleDeny), **FR-RE08**(`DELETE …/:emoji/users/:userId` OWNER/ADMIN 타인제거·자기허용·MEMBER 타인 403), **FR-RE09**(`DELETE …/reactions` body-less OWNER/ADMIN 일괄삭제 + `reaction:cleared` fanout). **마이그레이션 없음**.
+- **6팀 적대적 리뷰(머지 전)** → fix-forward(cfd67e0). 2 BLOCKER + a11y/DS/perf:
+  - **★FR-RE07 ADR-4 fold 버그(security HIGH·메인루프 검증)**: 1차 구현이 `denyMask` 만 OR-fold(allowMask 무시) → (ROLE deny + USER allow) 오차단. `PermissionMatrix.fold` 권위 우선순위로 정정(allowMask 분리·userAllow>roleDeny) + int 4케이스(USER deny 403·ROLE deny 403·**ROLE deny+USER allow 허용**·override 무 허용).
+  - **★FR-RE05 cursor id-space 버그(범위확장 fix-forward)**: 1차 구현이 cursor 에 User.id 인코딩·정렬/비교는 Reaction.id → 동일 ms 충돌 시 중복(flaky 통과). tie-breaker 를 **Reaction.id** 로 통일(응답 users[].id 는 User.id 분리). opaque cursor 라 contract 무드리프트.
+  - **★DS BLOCKER**: `text-text-primary`(tailwind 색키 부재·런타임 색 소실) → `text-foreground`. a11y: 무한스크롤 `role=status`/`aria-live`·`aria-busy`→`<ul>`·`<ul> aria-label`·username null 폴백·공유 Dialog `aria-modal="true"`·⋯버튼 opacity→색토큰(대비)·aria-label 이모지중복 제거. dispatcher reactor-users 캐시 무효화(reaction:updated invalidate·cleared removeQueries). FR-RE05 GET rate-limit 120/min.
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 449·web 673·shared-types 203·webhook 50) + 빌드 3종 + reactions int **18**(FR-RE07 a/b/c/d·FR-RE08·FR-RE05·FR-RE09). DS 4파일·settings.json 무수정.
+- carryover: **FR-RE08/09 모더레이터 UI 배선**(reactor 모달 제거버튼·메시지 메뉴 일괄삭제 — 백엔드/contract 완료·client api fn 존재). listEmojiUsers **표현식 인덱스**`(messageId,emoji,date_trunc('ms',createdAt),id)`(perf 마이그레이션). canAddReaction↔resolveEffective **중복 override 조회**(D12 권한수렴 묶음). **API enum↔카탈로그 0x20**(MANAGE_CHANNEL vs ADD_REACTIONS) 정합(D12). Dialog 명시 닫기버튼(SRS-1). focus-ring 대비(MOD-1 DS토큰). qf-reaction 터치타깃 24px(MIN-2 DS). 모바일 qf-m-sheet 변형. EmojiPicker 구조적 a11y overhaul(S39 이월).
+
+## 다음 슬라이스: S41 (D05 커스텀 이모지 업로드)
+
+- scope api + web + storage. **FR-EM01/EM02/EM03/EM04/EM06 + FR-RC20**(P1). deps S39.
+- 파일: `apps/api/src/emojis/**`, `apps/api/src/storage/**`, `apps/web/src/features/emojis/**`.
+- FR 정본 PRD html 재확인 필수(D05 커스텀 이모지 섹션). 예상: 커스텀 이모지 **업로드**(이미지 → MinIO 저장·magic-bytes 검증·크기/포맷 제한)·워크스페이스 이모지 목록·이름(:shortcode:) 관리·삭제·권한(누가 업로드/삭제). **MinIO 저장**(S3 표현 금지 — 대화/설계는 MinIO). 첨부(attachments) storage 패턴·validate-magic-bytes 재사용. 마이그레이션 가능성(CustomEmoji 모델 신규) — PRD 확인 후 reversible.
+- EmojiPicker 에 커스텀 이모지 섹션 통합 시 **EmojiPicker a11y carryover**(role=menu→dialog 등) 와 묶어 처리 가능.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
