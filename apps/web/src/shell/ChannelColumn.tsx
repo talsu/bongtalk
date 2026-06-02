@@ -4,6 +4,7 @@ import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
 import { UnreadsView } from '../features/channels/UnreadsView';
 import { ThreadsView } from '../features/threads/ThreadsView';
+import { SavedEntry } from '../features/saved/SavedEntry';
 import { ChannelBrowser } from '../features/channels/ChannelBrowser';
 import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
 import { CreateChannelModal } from '../features/channels/CreateChannelModal';
@@ -151,6 +152,8 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <UnreadsView workspaceId={workspace.id} workspaceSlug={workspace.slug} />
         {/* S38 (FR-TH-09/10): 사이드바 고정 Threads 진입점 + 목록 + 모두 읽음. */}
         <ThreadsView workspaceId={workspace.id} workspaceSlug={workspace.slug} />
+        {/* S51 (FR-PS-07): 사이드바 고정 "저장됨" 진입점 + IN_PROGRESS 카운트 배지. */}
+        <SavedEntry />
         <ChannelList
           workspaceId={workspace.id}
           workspaceSlug={workspace.slug}

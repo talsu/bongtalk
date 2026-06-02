@@ -64,6 +64,9 @@ export class ChannelAccessGuard implements CanActivate {
         // S15 (FR-CH-08): 송신 경로 슬로우모드 게이트용. 가드가 이미 채널을
         // 로드하므로 함께 select 한다(추가 round-trip 없음).
         slowmodeSeconds: true,
+        // S51 (FR-PS-05): pin/unpin 게이트가 memberCanPin=false 일 때만 MODERATOR/ADMIN
+        // 제한을 거므로 req.channel 에 컬럼을 함께 실어 재조회 없이 검사한다.
+        memberCanPin: true,
         archivedAt: true,
         deletedAt: true,
         isPrivate: true,
