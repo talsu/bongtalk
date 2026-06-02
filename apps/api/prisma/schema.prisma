@@ -208,6 +208,9 @@ model User {
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
   threadSubscriptions     ThreadSubscription[]
+  // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12): 스레드별 읽음 커서. 채널 미읽과
+  // 독립적으로 추적한다.
+  threadReadStates        ThreadReadState[]
   // S19 (FR-DM-08/09): 본인이 owner 인 그룹 DM 채널. onDelete SET NULL.
   ownedChannels           Channel[]                  @relation("ChannelOwner")
 }
@@ -225,6 +228,44 @@ model ThreadSubscription {
 
   @@unique([userId, threadParentId])
   @@index([threadParentId])
+}
+
+// S36 (D04·D09 / FR-RS-12 / FR-TH-11/12/18): 스레드 단위 읽음 커서.
+//
+// 채널 미읽(UserChannelReadState)과 동일한 (createdAt, id) 튜플 커서 패턴을
+// 그대로 따른다(S11 정합). Message.id 가 랜덤 uuid(비정렬)라 `id >` 단독
+// 비교가 메시지 순서와 무관하므로, 미읽 판정은 (createdAt, id) 튜플로 한다.
+//
+// 설계 결정(S36 — 옵션 B "unread = 계산"):
+//   - **튜플 커서만** 저장한다(lastReadMessageId + lastReadMessageCreatedAt).
+//     denormalized `unreadCount` 컬럼은 두지 않는다 — 미읽 수는 조회 시 SQL
+//     COUNT 로 계산해 drift 를 원천 차단한다(S11 채널-unread 와 동일 철학).
+//     denormalized unreadCount 컬럼 + Threads 탭(FR-TH-09/10)은 S38 carryover.
+//   - PRD 데이터 모델 카드는 cuid2 PK + unreadCount 컬럼을 그렸으나, 본
+//     프로젝트의 Message/UserChannelReadState 가 모두 uuid PK + 튜플 커서라
+//     실제 코드 정합을 위해 uuid PK + 튜플-커서-only 로 둔다(S11 패턴 단일화).
+//
+// 키: (userId, parentMessageId) 유니크. parentMessageId 는 스레드 루트 메시지
+// id 다. 행이 없거나 커서가 NULL 이면 "전체 답글 미읽"(신규 스레드 UX 일치).
+// additive only — 신규 테이블이라 기존 row 영향 없음. backfill 불필요.
+model ThreadReadState {
+  id                       String    @id @default(uuid()) @db.Uuid
+  userId                   String    @db.Uuid
+  parentMessageId          String    @db.Uuid
+  // 마지막으로 읽은 답글의 (createdAt, id) 튜플 커서. 둘 다 nullable —
+  // 신규 스레드(ACK 전)는 NULL ⇒ 전체 답글 미읽.
+  lastReadMessageId        String?   @db.Uuid
+  lastReadMessageCreatedAt DateTime? @db.Timestamptz
+  updatedAt                DateTime  @updatedAt
+
+  user          User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // parentMessageId = 스레드 루트. 루트 hard delete(운영 purge) 시 Cascade.
+  parentMessage Message @relation("MessageThreadReadStates", fields: [parentMessageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, parentMessageId])
+  @@index([parentMessageId])
+  // Threads 탭(S38)의 "내 스레드 최근순" 조회용 — userId 스코프 updatedAt DESC.
+  @@index([userId, updatedAt(sort: Desc)])
 }
 
 model RefreshToken {
@@ -571,6 +612,10 @@ model Message {
   parent      Message?          @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
   replies     Message[]         @relation("MessageReplies")
   threadFollowers ThreadSubscription[] @relation("MessageThreadFollowers")
+  // S36 (D04·D09 / FR-RS-12): 이 메시지를 스레드 루트로 가지는 읽음 커서들.
+  // 루트 hard delete(운영 purge) 시 ON DELETE CASCADE 로 함께 삭제된다(고아
+  // ThreadReadState 방지 — PRD FR-TH 엣지케이스 정합).
+  threadReadStates ThreadReadState[] @relation("MessageThreadReadStates")
   // S05 (FR-MSG-06): 편집 이력 스냅샷(ring buffer cap 10). 메시지 hard
   // delete 시 Cascade 로 함께 정리됩니다.
   editHistory MessageEditHistory[] @relation("MessageEditHistory")

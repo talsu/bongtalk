@@ -11,6 +11,7 @@ import { render, screen, cleanup, fireEvent } from '@testing-library/react';
 
 // ── 모킹: 데이터 hook + 멤버 + compose-store ────────────────────────────────
 const replyMutate = vi.fn();
+const ackMutate = vi.fn();
 vi.mock('./useThread', () => ({
   useThreadReplies: () => ({
     data: {
@@ -24,6 +25,8 @@ vi.mock('./useThread', () => ({
             thread: { replyCount: 0, recentReplyUserIds: [], lastRepliedAt: null },
           },
           replies: [],
+          // S36 (FR-TH-18): 읽음 커서(테스트에선 전체 미읽 → 최하단 스크롤).
+          readState: { lastReadMessageId: null },
         },
       ],
     },
@@ -33,6 +36,8 @@ vi.mock('./useThread', () => ({
     fetchNextPage: vi.fn(),
   }),
   useSendReply: () => ({ mutate: replyMutate, isPending: false }),
+  // S36 (FR-TH-12): 읽음 ACK 뮤테이션 모킹.
+  useAckThread: () => ({ mutate: ackMutate, isPending: false }),
 }));
 
 vi.mock('../workspaces/useWorkspaces', () => ({

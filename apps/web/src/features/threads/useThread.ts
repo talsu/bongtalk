@@ -5,7 +5,7 @@ import {
   type InfiniteData,
 } from '@tanstack/react-query';
 import type { ListThreadRepliesResponse, MessageDto } from '@qufox/shared-types';
-import { listThreadReplies } from './api';
+import { listThreadReplies, ackThread } from './api';
 import { sendMessage } from '../messages/api';
 import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
@@ -29,6 +29,36 @@ export function useThreadReplies(rootId: string | null) {
     getNextPageParam: (last: ListThreadRepliesResponse) =>
       last.pageInfo.hasMore ? (last.pageInfo.nextCursor ?? undefined) : undefined,
     enabled: !!rootId,
+  });
+}
+
+/**
+ * S36 (FR-RS-12 / FR-TH-12): 스레드 읽음 ACK 뮤테이션. ThreadPanel 이 mount /
+ * 최하단 스크롤 시(디바운스) 호출한다. onSuccess 시 채널 메시지 목록 캐시의
+ * 해당 루트 threadMeta.hasUnread 를 낙관적으로 false 로 내려, reply bar 의
+ * unread dot 을 ACK 즉시 끈다(다음 목록 refetch 가 서버 기준으로 재수렴).
+ */
+export function useAckThread(workspaceId: string, channelId: string, rootId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (lastReadMessageId: string) => ackThread(rootId, lastReadMessageId),
+    onSuccess: () => {
+      qc.setQueryData(qk.messages.list(workspaceId, channelId), (old: unknown) => {
+        const data = old as
+          | { pages: { items: { id: string; thread: { hasUnread?: boolean } | null }[] }[] }
+          | undefined;
+        if (!data) return old;
+        return {
+          ...data,
+          pages: data.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) =>
+              m.id === rootId && m.thread ? { ...m, thread: { ...m.thread, hasUnread: false } } : m,
+            ),
+          })),
+        };
+      });
+    },
   });
 }
 

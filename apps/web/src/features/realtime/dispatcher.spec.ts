@@ -356,13 +356,16 @@ describe('realtime dispatcher', () => {
       pages: Array<{
         items: Array<{
           id: string;
-          thread: { replyCount: number; recentReplyUserIds: string[] } | null;
+          thread: { replyCount: number; recentReplyUserIds: string[]; hasUnread?: boolean } | null;
         }>;
       }>;
     };
     const root = state.pages[0].items[0];
     expect(root.thread?.replyCount).toBe(3);
     expect(root.thread?.recentReplyUserIds).toEqual(['u-1', 'u-2']);
+    // S36 (FR-TH-04): viewer('viewer') !== replier('author') → 새 답글이 미읽으로
+    // 표시돼 reply bar unread dot 이 켜진다.
+    expect(root.thread?.hasUnread).toBe(true);
     detach();
   });
 
