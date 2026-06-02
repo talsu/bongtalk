@@ -9,6 +9,11 @@ export interface MentionSummary {
   snippet: string;
   createdAt: string;
   everyone: boolean;
+  // S44 contract fix-forward: @here 멘션 표식. 웹 dispatcher 가 mention:new wire
+  // 페이로드(서버 MentionReceivedPayload)로 캐시에 here 를 채우므로, REST 인박스
+  // 응답도 동일 필드를 실어야 라이브 병합과 형태가 어긋나지 않는다(레거시 row 는
+  // mentions JSONB 에 here 키가 없어 null→false 폴백).
+  here: boolean;
 }
 
 /**
@@ -50,6 +55,7 @@ export class MeMentionsService {
         snippet: string;
         createdAt: Date;
         everyone: boolean;
+        here: boolean;
       }>
     >`
       SELECT
@@ -59,7 +65,9 @@ export class MeMentionsService {
         m."authorId"  AS "authorId",
         LEFT(m."contentPlain", 140) AS snippet,
         m."createdAt" AS "createdAt",
-        (m.mentions->>'everyone')::boolean AS "everyone"
+        (m.mentions->>'everyone')::boolean AS "everyone",
+        -- S44 contract: @here 표식. 레거시 row(here 키 없음)는 NULL → false 폴백.
+        COALESCE((m.mentions->>'here')::boolean, false) AS "here"
       FROM "Message" m
       JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
       -- task-011 reviewer MED-3 fix: kicked members should NOT see
@@ -102,6 +110,7 @@ export class MeMentionsService {
       snippet: r.snippet,
       createdAt: r.createdAt.toISOString(),
       everyone: r.everyone === true,
+      here: r.here === true,
     }));
   }
 

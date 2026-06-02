@@ -14,27 +14,29 @@ const BASE: Mentions = {
   channel: false,
 };
 
-describe('gateEveryoneMention (task-044-iter3)', () => {
-  it('OWNER 는 everyone=true 유지', () => {
-    expect(gateEveryoneMention(BASE, 'OWNER')).toEqual(BASE);
+/**
+ * S44 (FR-MN-02 / FR-MN-16): 게이트 시그니처가 role enum 에서 boolean
+ * `hasMentionEveryone` 으로 바뀌었다. 권한 산정(역할 기본값 + 채널 override
+ * 5단계 fold)은 ChannelAccessService.resolveMentionEveryone 이 수행하고, gate 는
+ * 그 boolean 결과만 적용하는 순수 후처리 함수다.
+ */
+describe('gateEveryoneMention (S44 boolean gate)', () => {
+  it('권한 있으면(true) everyone=true 유지', () => {
+    expect(gateEveryoneMention(BASE, true)).toEqual(BASE);
   });
 
-  it('ADMIN 도 everyone=true 유지', () => {
-    expect(gateEveryoneMention(BASE, 'ADMIN')).toEqual(BASE);
-  });
-
-  it('MEMBER 가 입력한 everyone=true 는 silently false 로 다운그레이드', () => {
-    const out = gateEveryoneMention(BASE, 'MEMBER');
+  it('권한 없으면(false) everyone=true 는 silently false 로 다운그레이드', () => {
+    const out = gateEveryoneMention(BASE, false);
     expect(out.everyone).toBe(false);
     // users / channels 는 그대로 유지 — everyone 만 영향
     expect(out.users).toEqual(BASE.users);
     expect(out.channels).toEqual(BASE.channels);
   });
 
-  it('이미 false 면 어떤 role 이든 그대로', () => {
+  it('이미 false 면 권한 유무와 무관하게 그대로', () => {
     const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
-    expect(gateEveryoneMention(m, 'MEMBER')).toEqual(m);
-    expect(gateEveryoneMention(m, 'OWNER')).toEqual(m);
+    expect(gateEveryoneMention(m, false)).toEqual(m);
+    expect(gateEveryoneMention(m, true)).toEqual(m);
   });
 
   it('input mutation 안 함 — 새 객체 반환', () => {
@@ -45,16 +47,13 @@ describe('gateEveryoneMention (task-044-iter3)', () => {
       here: false,
       channel: false,
     };
-    const out = gateEveryoneMention(input, 'MEMBER');
+    const out = gateEveryoneMention(input, false);
     expect(input.everyone).toBe(true); // 원본 변경되지 않음
     expect(out).not.toBe(input);
   });
 });
 
-/**
- * task-046 iter8 (A9): @here 게이트 — @everyone 과 동일한 정책.
- */
-describe('gateHereMention (task-046 iter8 A9)', () => {
+describe('gateHereMention (S44 boolean gate)', () => {
   const HERE_BASE: Mentions = {
     users: ['u1'],
     channels: [],
@@ -63,27 +62,23 @@ describe('gateHereMention (task-046 iter8 A9)', () => {
     channel: false,
   };
 
-  it('OWNER / ADMIN 는 here=true 유지', () => {
-    expect(gateHereMention(HERE_BASE, 'OWNER').here).toBe(true);
-    expect(gateHereMention(HERE_BASE, 'ADMIN').here).toBe(true);
+  it('권한 있으면 here=true 유지', () => {
+    expect(gateHereMention(HERE_BASE, true).here).toBe(true);
   });
 
-  it('MEMBER 가 입력한 here=true 는 silently false', () => {
-    const out = gateHereMention(HERE_BASE, 'MEMBER');
+  it('권한 없으면 here=true 는 silently false', () => {
+    const out = gateHereMention(HERE_BASE, false);
     expect(out.here).toBe(false);
     expect(out.users).toEqual(['u1']); // users 영향 없음
   });
 
   it('이미 here=false 면 그대로', () => {
     const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
-    expect(gateHereMention(m, 'MEMBER')).toEqual(m);
+    expect(gateHereMention(m, false)).toEqual(m);
   });
 });
 
-/**
- * S21 (FR-RS-16): @channel 게이트 — @everyone/@here 와 동일한 OWNER/ADMIN 정책.
- */
-describe('gateChannelMention (S21 FR-RS-16)', () => {
+describe('gateChannelMention (S44 boolean gate)', () => {
   const CH_BASE: Mentions = {
     users: ['u1'],
     channels: [],
@@ -92,19 +87,18 @@ describe('gateChannelMention (S21 FR-RS-16)', () => {
     channel: true,
   };
 
-  it('OWNER / ADMIN 는 channel=true 유지', () => {
-    expect(gateChannelMention(CH_BASE, 'OWNER').channel).toBe(true);
-    expect(gateChannelMention(CH_BASE, 'ADMIN').channel).toBe(true);
+  it('권한 있으면 channel=true 유지', () => {
+    expect(gateChannelMention(CH_BASE, true).channel).toBe(true);
   });
 
-  it('MEMBER 가 입력한 channel=true 는 silently false', () => {
-    const out = gateChannelMention(CH_BASE, 'MEMBER');
+  it('권한 없으면 channel=true 는 silently false', () => {
+    const out = gateChannelMention(CH_BASE, false);
     expect(out.channel).toBe(false);
     expect(out.users).toEqual(['u1']); // users 영향 없음
   });
 
   it('이미 channel=false 면 그대로', () => {
     const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
-    expect(gateChannelMention(m, 'MEMBER')).toEqual(m);
+    expect(gateChannelMention(m, false)).toEqual(m);
   });
 });

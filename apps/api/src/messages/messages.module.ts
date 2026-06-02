@@ -18,6 +18,9 @@ import { AttachmentsModule } from '../attachments/attachments.module';
 // S41 (FR-EM06 / FR-RC20): 반응 집계가 커스텀 이모지 storageKey 를 presigned url
 // 로 변환하려면 S3Service 가 필요하다(StorageModule 제공).
 import { StorageModule } from '../storage/storage.module';
+// S44 (FR-MN-02): `@here` fanout 을 presence ONLINE/IDLE 멤버로 한정하려면
+// PresenceService 가 필요하다. PresenceModule 은 REDIS 만 의존해 순환이 없다.
+import { PresenceModule } from '../realtime/presence/presence.module';
 
 @Module({
   // task-014-B: AttachmentsModule exports ChannelAccessByIdGuard which
@@ -33,6 +36,7 @@ import { StorageModule } from '../storage/storage.module';
     AuthModule,
     AttachmentsModule,
     StorageModule,
+    PresenceModule,
   ],
   controllers: [
     MessagesController,

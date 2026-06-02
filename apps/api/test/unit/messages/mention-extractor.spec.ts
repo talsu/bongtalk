@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   extractMentions,
   normalizeContent,
+  hasBroadMentionSignal,
 } from '../../../src/messages/mentions/mention-extractor';
 
 beforeEach(() => {
@@ -126,5 +127,24 @@ describe('normalizeContent', () => {
 
   it('leaves non-mention content alone', () => {
     expect(normalizeContent('plain text — no hashes')).toBe('plain text — no hashes');
+  });
+});
+
+// S44 fix-forward (MAJOR · perf): 컨트롤러가 범위 멘션 신호가 있을 때만
+// resolveMentionEveryone(override findMany)을 호출하도록 하는 저비용 사전스캔.
+describe('hasBroadMentionSignal', () => {
+  it('@everyone / @here / @channel 토큰을 감지한다', () => {
+    expect(hasBroadMentionSignal('ping @everyone')).toBe(true);
+    expect(hasBroadMentionSignal('standup @here')).toBe(true);
+    expect(hasBroadMentionSignal('heads up @channel')).toBe(true);
+  });
+
+  it('범위 멘션이 없는 일반 본문은 false — override fold 를 skip 한다', () => {
+    expect(hasBroadMentionSignal('plain message')).toBe(false);
+    // @username / #channel 은 broad 신호가 아니다(직접 멘션).
+    expect(hasBroadMentionSignal('hi @alice in #general')).toBe(false);
+    // 단어 경계 — @herewego 같은 부분일치는 신호가 아니다.
+    expect(hasBroadMentionSignal('go @herewego now')).toBe(false);
+    expect(hasBroadMentionSignal('@everyoneish hmm')).toBe(false);
   });
 });

@@ -182,6 +182,21 @@ export async function resolveMentionLabelMaps(
 }
 
 /**
+ * S44 fix-forward (MAJOR · perf): raw 본문에 범위 멘션(@everyone/@here/@channel)
+ * sigil 이 있는지 저비용으로 사전스캔한다. 컨트롤러가 이 신호가 있을 때만
+ * `ChannelAccessService.resolveMentionEveryone`(override findMany 1쿼리)을 호출하게
+ * 해, 범위 멘션이 없는 일반 메시지의 +1 RTT 를 제거한다. 정규식 .test 만 수행하므로
+ * DB 접근이 없다. 신뢰 경계와 무관(권한 fold 는 신호가 있을 때만 별도 수행).
+ */
+export function hasBroadMentionSignal(text: string): boolean {
+  return (
+    MENTION_EVERYONE_RE.test(text) ||
+    MENTION_HERE_RE.test(text) ||
+    MENTION_CHANNEL_SCOPE_RE.test(text)
+  );
+}
+
+/**
  * Best-effort normalization for full-text search / future moderation. We keep
  * the letter content but strip the mention sigils and collapse whitespace so
  * "Hey @alice, look at #general!" → "Hey alice, look at general!".
