@@ -1,8 +1,10 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
+import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   isSystemMessageType,
   type Channel,
+  type ListMessagesResponse,
   type MessageDto,
   type WorkspaceRole,
 } from '@qufox/shared-types';
@@ -10,12 +12,14 @@ import { useAuth } from '../auth/AuthProvider';
 import { useMembers } from '../workspaces/useWorkspaces';
 import {
   useDeleteMessage,
+  useJumpAround,
   useMessageHistory,
   usePinMessage,
   useSendMessage,
   useUnpinMessage,
   useUpdateMessage,
 } from './useMessages';
+import { qk } from '../../lib/query-keys';
 import { MessageItem } from './MessageItem';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
@@ -34,6 +38,8 @@ import {
 import { useChannelLru } from '../realtime/channelLru';
 import { useUnreadSummary, useMarkUnread } from '../channels/useUnread';
 import { useReadState } from '../realtime/readStateStore';
+import { useNotifications } from '../../stores/notification-store';
+import { shouldToastJumpNotFound } from './jumpNotFound';
 import {
   buildRowPlan,
   computeFirstUnreadIndex,
@@ -132,10 +138,16 @@ export function MessageList({
   // 메시지 목록 캐시를 evict 합니다. useMessageHistory 보다 먼저 호출해
   // evict 신호(pendingAround)가 초기 로드 시점에 반영되도록 합니다.
   useChannelLru(workspaceId, channelId);
+  const qc = useQueryClient();
   // S30 fix-forward (M2): `?msg=` 점프가 있으면 그 메시지를 around anchor 로
   // 초기 로드(lastRead 복원보다 우선). jumpMessageId 는 부모가 1회 소비 후
   // 제거하므로 재요청 시 재anchor 되지 않습니다.
   const history = useMessageHistory(workspaceId, channelId, jumpMessageId);
+  // S37 fix-forward (BLOCKER-1): 점프 대상 전용 one-shot around 로드. 메인 list
+  // 캐시가 이미 있어(채널 캐시 hit) queryFn 이 재실행되지 않는 경우에도, 이
+  // 별도 쿼리가 around-load 를 확실히 발화한다. settled 상태 + 결과(대상 포함
+  // 여부 / 404)가 not-found 토스트 판정과 메인 list seed(스크롤)의 단일 출처다.
+  const jumpAround = useJumpAround(workspaceId, channelId, jumpMessageId);
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
   const reactMut = useToggleReaction(workspaceId, channelId);
@@ -285,7 +297,12 @@ export function MessageList({
   const [highlightedId, setHighlightedId] = useState<string | null>(null);
   // 같은 jumpMessageId 에 대해 스크롤/소비를 1회만 수행하기 위한 가드.
   const consumedJumpRef = useRef<string | null>(null);
+  // S37 (FR-MSG-18): not-found 토스트를 같은 점프 대상에 대해 1회만 띄우기 위한 가드.
+  const notFoundToastedRef = useRef<string | null>(null);
+  // S37 fix-forward (BLOCKER-1): around 결과로 메인 list 를 1회만 seed 하기 위한 가드.
+  const jumpSeededRef = useRef<string | null>(null);
   const highlightTimerRef = useRef<number | null>(null);
+  const pushNotification = useNotifications((s) => s.push);
 
   // task-021-R1-scroll-jumps-on-new-message: track whether the user
   // was anchored to the bottom BEFORE the latest append.
@@ -501,19 +518,76 @@ export function MessageList({
     };
   }, []);
 
-  // S30 fix-forward (BLOCKER 기능 M2): `?msg=` 점프 소비 — 검색 결과 클릭으로
-  // 채널이 열리면 해당 메시지로 스크롤 + 하이라이트 펄스를 적용하고 부모에게
-  // 소비 완료를 알립니다(부모가 URL 의 `?msg=` 제거). jumpMessageId 가 around
-  // 로 초기 로드되므로 보통 첫 페이지에 포함됩니다. 같은 id 는 1회만 처리하고,
-  // 메시지가 아직 도착 전이면(빈 목록) 다음 렌더에서 재시도합니다.
+  // S30 fix-forward (BLOCKER 기능 M2) + S37 fix-forward (BLOCKER-1): `?msg=` 점프
+  // 소비. 검색 결과/permalink 클릭으로 채널이 열리면 해당 메시지로 스크롤 +
+  // 하이라이트 펄스를 적용하고 부모에게 소비 완료를 알립니다(부모가 URL 의 `?msg=`
+  // 제거). 같은 id 는 1회만 처리합니다.
+  //
+  // BLOCKER-1 의 핵심: 토스트/스크롤 판정의 단일 출처를 메인 list 가 아니라 전용
+  // around 쿼리(jumpAround)로 둔다. 메인 list 는 채널이 캐시돼 있으면 around-load
+  // 가 발화되지 않아(키 불변) window-밖 존재 메시지를 not-found 로 오판했다.
+  // 분기:
+  //   (1) 대상이 메인 list 에 이미 있음        → 스크롤 + 하이라이트 + 소비.
+  //   (2) 없음 + around 로딩 중(settled 전)    → 대기(다음 렌더 재시도, 토스트 X).
+  //   (3) 없음 + around 성공 + 결과에 대상 포함 → 메인 list 를 around 결과로 1회
+  //       seed → 다음 렌더에서 (1) 경로로 스크롤(window-밖이어도 동작).
+  //   (4) 없음 + around settled + 결과에 대상 없음(soft-deleted 필터) 또는 에러
+  //       (404/MESSAGE_NOT_FOUND) → not-found 토스트 1회 + 소비.
   useEffect(() => {
     if (!jumpMessageId) return;
     if (consumedJumpRef.current === jumpMessageId) return;
     const msgIndex = messageIds.indexOf(jumpMessageId);
     if (msgIndex < 0) {
-      // 아직 로드 전 — 메시지가 도착하면(messageIds 변경) 이 effect 가 재실행됨.
+      // around 쿼리 상태로 판정한다(메인 list 가 아님).
+      const jumpSettled = jumpAround.isError || (jumpAround.isSuccess && !jumpAround.isFetching);
+      // (2) 아직 로딩 중이면 대기.
+      if (!jumpSettled) return;
+
+      // around 결과에 대상이 비-삭제 상태로 존재하는지(=실제 점프 가능) 판정.
+      const aroundItems = jumpAround.data?.items ?? [];
+      const foundInAround = aroundItems.some((m) => m.id === jumpMessageId && !m.deleted);
+
+      // (3) 대상이 around 에 있으면 메인 list 캐시를 around 결과로 1회 seed 한다.
+      // permalink 점프는 의도적으로 그 메시지 주변으로 컨텍스트를 재앵커하는
+      // UX(Slack/Discord 동일)라, 단일 around 페이지로 교체해도 무방하다 —
+      // around 응답의 커서로 이후 페이지네이션도 정상 동작한다.
+      if (foundInAround) {
+        if (jumpSeededRef.current !== jumpMessageId) {
+          jumpSeededRef.current = jumpMessageId;
+          qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+            qk.messages.list(workspaceId ?? 'global', channelId),
+            () => ({ pages: [jumpAround.data as ListMessagesResponse], pageParams: [undefined] }),
+          );
+        }
+        // seed 후 메인 list 가 갱신되면 이 effect 가 재실행돼 (1) 경로로 스크롤한다.
+        return;
+      }
+
+      // (4) around 가 settled 인데 대상이 없음(삭제 필터) 또는 에러(404) → not-found.
+      const code = (jumpAround.error as { errorCode?: string } | undefined)?.errorCode;
+      const notFound = shouldToastJumpNotFound({
+        jumpMessageId,
+        settled: jumpSettled,
+        found: foundInAround,
+        isError: jumpAround.isError,
+      });
+      if (notFound && notFoundToastedRef.current !== jumpMessageId) {
+        notFoundToastedRef.current = jumpMessageId;
+        pushNotification({
+          variant: 'warning',
+          title: '메시지를 찾을 수 없습니다',
+          body:
+            code === 'MESSAGE_NOT_FOUND'
+              ? '삭제되었거나 접근할 수 없는 메시지입니다.'
+              : '이 메시지는 더 이상 존재하지 않습니다.',
+          ttlMs: 4000,
+        });
+        // 소비 처리: URL 의 `?msg=` 를 제거해 재진입/뒤로가기 루프를 막는다.
+        onJumpConsumed?.();
+      }
       return;
     }
+    // (1) 대상이 메인 list 에 존재 → 스크롤 + 하이라이트 + 소비.
     consumedJumpRef.current = jumpMessageId;
     // 가상 인덱스로 변환해 화면 중앙으로 스크롤(가상화 remeasure 보정 1회).
     const vIdx = virtualIndexForMessageIndex(rowPlanRef.current, msgIndex);
@@ -535,7 +609,22 @@ export function MessageList({
     }, 2000);
     // 소비 완료를 부모에 통지 → `?msg=` 파라미터 제거(재진입/뒤로가기 루프 방지).
     onJumpConsumed?.();
-  }, [jumpMessageId, messageIds, virtualizer, onJumpConsumed]);
+  }, [
+    jumpMessageId,
+    messageIds,
+    virtualizer,
+    onJumpConsumed,
+    qc,
+    workspaceId,
+    channelId,
+    // S37 fix-forward (BLOCKER-1): not-found/seed 판정에 쓰는 around 쿼리 상태.
+    jumpAround.isError,
+    jumpAround.isSuccess,
+    jumpAround.isFetching,
+    jumpAround.data,
+    jumpAround.error,
+    pushNotification,
+  ]);
 
   // 언마운트 시 하이라이트 타이머 정리.
   useEffect(() => {
@@ -743,6 +832,10 @@ export function MessageList({
                     <MessageItem
                       msg={m}
                       isMine={m.authorId === user?.id}
+                      // S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프
+                      // history 엔드포인트를 호출하기 위한 wsId. DM(null)이면
+                      // 팝오버가 fetch 를 비활성한다.
+                      workspaceId={workspaceId}
                       isContinuation={isContinuation}
                       authorName={nameById.get(m.authorId) ?? extraNames?.get(m.authorId)}
                       authorRole={roleById.get(m.authorId) ?? null}

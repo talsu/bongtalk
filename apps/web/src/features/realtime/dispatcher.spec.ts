@@ -525,6 +525,36 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('message.updated merges contentPlain + invalidates edit-history cache (S37 FR-MSG-17/08)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [seedMsg({ content: 'old', contentPlain: 'old' })],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.updated', {
+      id: 'ev-u2',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-x', content: '**bold**', contentPlain: 'bold', edited: true, version: 2 },
+    });
+    // S37: 편집된 평문 정본이 캐시에 merge 된다("메시지 복사" 정합).
+    const row = readItems(qc)[0] as ReturnType<typeof seedMsg> & { contentPlain?: string };
+    expect(row.contentPlain).toBe('bold');
+    // S37 보안: 재편집 시 해당 메시지의 editHistory 캐시를 스코프 키로 무효화한다.
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: qk.messages.editHistory('ws-1', 'ch-1', 'msg-x'),
+    });
+    detach();
+  });
+
   it('message.deleted on a single message removes it from the list (FR-MSG-09)', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

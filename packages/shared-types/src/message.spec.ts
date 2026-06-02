@@ -151,6 +151,41 @@ describe('MessageDtoSchema.version (FR-MSG-06)', () => {
   });
 });
 
+// ── S37 (FR-MSG-17) 평문 정본 계약 ─────────────────────────────────────────
+describe('MessageDtoSchema.contentPlain (FR-MSG-17)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111',
+    channelId: '22222222-2222-4222-8222-222222222222',
+    authorId: '33333333-3333-4333-8333-333333333333',
+    content: '**bold**',
+    mentions: { users: [], channels: [], everyone: false, here: false },
+    edited: false,
+    deleted: false,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    editedAt: null,
+  };
+
+  it('defaults contentPlain to null when omitted (forward-compat with older API builds)', () => {
+    const parsed = MessageDtoSchema.parse(base);
+    expect(parsed.contentPlain).toBeNull();
+  });
+
+  it('carries an explicit plain-text content through', () => {
+    const parsed = MessageDtoSchema.parse({ ...base, contentPlain: 'bold' });
+    expect(parsed.contentPlain).toBe('bold');
+  });
+
+  it('accepts contentPlain=null (deleted-message masking parity with content)', () => {
+    const parsed = MessageDtoSchema.parse({
+      ...base,
+      deleted: true,
+      content: null,
+      contentPlain: null,
+    });
+    expect(parsed.contentPlain).toBeNull();
+  });
+});
+
 // ── S35 (FR-TH-06) broadcast 계약 ──────────────────────────────────────────
 describe('SendMessageRequestSchema.isBroadcast (FR-TH-06)', () => {
   it('accepts isBroadcast=true on a reply send', () => {

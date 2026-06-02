@@ -107,6 +107,8 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         // MessageItem 이 contentRaw 폴백 렌더. 서버 에코로 채워짐.
         contentRaw: content,
         contentAst: null,
+        // S37 (FR-MSG-17): optimistic reply 평문 정본도 원문 그대로(서버 에코로 갱신).
+        contentPlain: content,
         // S04: optimistic reply 는 항상 일반 메시지(DEFAULT).
         type: 'DEFAULT',
         mentions: { users: [], channels: [], everyone: false, here: false, channel: false },

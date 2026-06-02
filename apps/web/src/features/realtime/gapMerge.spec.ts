@@ -11,6 +11,7 @@ function msg(id: string, createdAt: string, parentMessageId: string | null = nul
     content: id,
     contentRaw: id,
     contentAst: null,
+    contentPlain: id,
     type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,

@@ -126,6 +126,12 @@ export const MessageDtoSchema = z.object({
   // 는 둘 다 null 이라 forward-compat. deleted 메시지는 마스킹되어 null.
   contentRaw: z.string().nullable().default(null),
   contentAst: RichTextRootSchema.nullable().default(null),
+  // S37 (FR-MSG-17): 평문 정본. "메시지 복사" 가 마크다운(content) 대신 사람이
+  // 읽는 평문을 복사하도록 서버가 contentPlainV2(없으면 legacy contentPlain)를
+  // 직렬화해 내려보냅니다. 삭제 메시지는 content 와 동일 정책으로 null 마스킹.
+  // default(null) 라 구 API 빌드 응답(필드 누락)도 forward-compat — 클라이언트는
+  // 이 값이 없으면 content 로 폴백합니다(resolveCopyPlainText).
+  contentPlain: z.string().nullable().default(null),
   // S04 (ADR-2 / FR-MSG-19 / FR-RC10): 메시지 타입. 기존 row 와 구
   // 클라이언트는 DEFAULT 로 forward-compat. SYSTEM_* 타입은 렌더러가
   // 시스템 행(아이콘 + 이탤릭, 편집·삭제 미표시)으로 표시하고 그루핑에서
