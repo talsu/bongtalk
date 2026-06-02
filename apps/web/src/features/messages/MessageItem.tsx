@@ -86,6 +86,15 @@ type Props = {
    * 접근 가능한 범위에서만 표시명을 입힌다.
    */
   resolveName?: (userId: string) => string | undefined;
+  /**
+   * S42 (FR-PK01/PK03/PK04): 이모지 피커에 그대로 전달되는 퀵 반응 / 최근 이모지 /
+   * 기본 스킨톤. 부모(MessageList)가 emoji-picker-data 를 단일 쿼리로 읽어 사용자
+   * 우선·없으면 워크스페이스 기본을 합성해 넘긴다 — per-row useQuery 를 피해 정적
+   * 렌더(provider-less) 회귀를 막는다. 미전달 시 피커는 종전 동작 그대로.
+   */
+  pickerQuickReactions?: string[];
+  pickerRecentEmojis?: string[];
+  pickerDefaultSkinTone?: number;
 };
 
 export function MessageItem({
@@ -106,6 +115,9 @@ export function MessageItem({
   onRetry,
   onMarkUnread,
   resolveName,
+  pickerQuickReactions,
+  pickerRecentEmojis,
+  pickerDefaultSkinTone,
 }: Props): JSX.Element {
   // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
   // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
@@ -419,6 +431,9 @@ export function MessageItem({
                     name: ce.name,
                     url: ce.url,
                   }))}
+                  quickReactions={pickerQuickReactions}
+                  recentEmojis={pickerRecentEmojis}
+                  defaultSkinTone={pickerDefaultSkinTone}
                 />
               ) : null}
               {onToggleReaction ? (

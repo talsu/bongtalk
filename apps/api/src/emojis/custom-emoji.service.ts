@@ -10,8 +10,10 @@ import { OutboxService } from '../common/outbox/outbox.service';
 import {
   EMOJI_CREATED,
   EMOJI_DELETED,
+  EMOJI_ALIAS_UPDATED,
   type EmojiCreatedPayload,
   type EmojiDeletedPayload,
+  type EmojiAliasUpdatedPayload,
 } from './events/emoji-events';
 
 /**
@@ -31,6 +33,9 @@ import {
 export const CUSTOM_EMOJI_NAME_RE = /^[a-z0-9_]{2,32}$/;
 export const CUSTOM_EMOJI_MAX_BYTES = 256 * 1024;
 export const CUSTOM_EMOJI_CAP = 100;
+// S42 (FR-EM05): 별칭 slug 규칙(name 과 동일 charset) + 이모지당 별칭 한도.
+export const CUSTOM_EMOJI_ALIAS_RE = /^[a-z0-9_]{2,32}$/;
+export const CUSTOM_EMOJI_ALIAS_CAP = 10;
 // S41 (FR-EM01 / FR-RC20): MIME 화이트리스트에 image/webp 추가(투명도 지원).
 // JPEG 불허는 유지한다(투명도 미지원). 매직바이트(validate-magic-bytes)는 이미
 // image/webp 를 지원하므로 finalize 의 RIFF...WEBP 검증이 그대로 동작한다.
@@ -39,6 +44,10 @@ const ALLOWED_EMOJI_MIME = new Set(['image/png', 'image/gif', 'image/webp']);
 export interface PresignEmojiUploadInput {
   workspaceId: string;
   uploaderId: string;
+  // S42 (FR-PK04): 업로드 권한 게이트(OWNER/ADMIN OR canMemberUpload)에 쓰는 caller
+  // role. 컨트롤러가 @Roles 게이트를 떼고 멤버까지 통과시킨 뒤, 서비스가 이 role 과
+  // WorkspaceEmojiConfig.canMemberUpload 로 분기한다.
+  uploaderRole: 'OWNER' | 'ADMIN' | 'MEMBER';
   name: string;
   mime: string;
   sizeBytes: number;
@@ -104,7 +113,31 @@ export class CustomEmojiService {
    * 삽입 후 RETURNING 행 유무로 "내가 삽입했는지"를 판정한다 — 행이 없으면
    * 이름이 이미 존재하므로 CUSTOM_EMOJI_NAME_TAKEN(409).
    */
+  /**
+   * S42 (FR-PK04): 업로드 권한 게이트. OWNER/ADMIN 은 항상 허용. MEMBER 는
+   * WorkspaceEmojiConfig.canMemberUpload === true 일 때만 허용한다. 설정 행이
+   * 없으면(또는 false) MEMBER 는 거부 — S41 의 ADMIN-only 게이트를 보존한다
+   * (★메인루프 결정: canMemberUpload 기본값 false). 거부는 403(FORBIDDEN).
+   */
+  private async assertCanUpload(
+    workspaceId: string,
+    role: 'OWNER' | 'ADMIN' | 'MEMBER',
+  ): Promise<void> {
+    if (role === 'OWNER' || role === 'ADMIN') return;
+    const config = await this.prisma.workspaceEmojiConfig.findUnique({
+      where: { workspaceId },
+      select: { canMemberUpload: true },
+    });
+    if (!config?.canMemberUpload) {
+      throw new DomainError(
+        ErrorCode.FORBIDDEN,
+        'members may not upload emoji in this workspace (canMemberUpload is off)',
+      );
+    }
+  }
+
   async presignUpload(input: PresignEmojiUploadInput): Promise<PresignEmojiUploadResult> {
+    await this.assertCanUpload(input.workspaceId, input.uploaderRole);
     if (!CUSTOM_EMOJI_NAME_RE.test(input.name)) {
       throw new DomainError(ErrorCode.CUSTOM_EMOJI_NAME_INVALID, 'name must match [a-z0-9_]{2,32}');
     }
@@ -254,14 +287,18 @@ export class CustomEmojiService {
     const rows = await this.prisma.customEmoji.findMany({
       where: { workspaceId },
       orderBy: [{ name: 'asc' }],
+      // S42 (FR-EM03): 빈 배열 placeholder 를 실제 CustomEmojiAlias 로 교체한다.
+      // 별칭은 alias 알파벳 순으로 안정 정렬해 list / picker-data 가 결정적 순서를
+      // 반환하게 한다.
+      include: { aliases: { orderBy: { alias: 'asc' } } },
     });
     const expiresAt = new Date(Date.now() + this.s3.presignGetTtl * 1000).toISOString();
     return Promise.all(
       rows.map(async (r) => ({
         id: r.id,
         name: r.name,
-        // FR-EM03 (별칭 CRUD 는 S41 carryover): 빈 배열로 shape 충족.
-        aliases: [] as string[],
+        // S42 (FR-EM03): 실제 별칭 슬러그 목록.
+        aliases: r.aliases.map((a) => a.alias),
         createdBy: r.createdBy,
         createdAt: r.createdAt.toISOString(),
         url: await this.s3.presignGet(r.storageKey),
@@ -318,6 +355,157 @@ export class CustomEmojiService {
       aggregateId: emojiId,
       eventType: EMOJI_DELETED,
       payload: deletedPayload,
+    });
+  }
+
+  /**
+   * S42 (FR-EM05): 커스텀 이모지에 별칭을 추가한다. 권한은 컨트롤러 @Roles('ADMIN')
+   * 가 OWNER/ADMIN 으로 게이트한다(여기서 재검사하지 않음).
+   *
+   * 검증 순서:
+   *   1. alias 형식 [a-z0-9_]{2,32} (불일치 → CUSTOM_EMOJI_NAME_INVALID 422)
+   *   2. 대상 이모지 존재 + 워크스페이스 일치 (없으면 CUSTOM_EMOJI_NOT_FOUND 404)
+   *   3. 이모지당 별칭 ≤10 (초과 → ALIAS_LIMIT 409)
+   *   4. 워크스페이스 내 충돌 — 다른 CustomEmojiAlias.alias 또는 어떤 CustomEmoji.name
+   *      과도 겹치면 ALIAS_CONFLICT 409 (서비스가 양쪽 모두 검사)
+   *
+   * 동시성(S34 tx-poisoning 회피): (workspaceId, alias) unique 이므로 동시 동일
+   * 별칭 INSERT 가 23505(P2002)를 던지면 tx 가 abort 된다. raw `INSERT … ON CONFLICT
+   * DO NOTHING RETURNING` 으로 충돌을 흡수하고(예외 미발생), RETURNING 행 유무로
+   * 내가 삽입했는지를 판정한다 — 행이 없으면 그 사이 누가 같은 alias 를 선점한
+   * 것이므로 ALIAS_CONFLICT. 부모 CustomEmoji 행을 FOR NO KEY UPDATE 로 잠가
+   * 별칭 COUNT(≤10)를 직렬화한다(presignUpload 의 워크스페이스 잠금 선례).
+   *
+   * 성공 시 그 이모지의 전체 별칭 스냅샷을 outbox emoji.alias_updated 로 발행한다.
+   */
+  async addAlias(
+    workspaceId: string,
+    emojiId: string,
+    alias: string,
+    createdBy: string,
+  ): Promise<{ aliases: string[] }> {
+    if (!CUSTOM_EMOJI_ALIAS_RE.test(alias)) {
+      throw new DomainError(
+        ErrorCode.CUSTOM_EMOJI_NAME_INVALID,
+        'alias must match [a-z0-9_]{2,32}',
+      );
+    }
+    const aliasId = randomUUID();
+    const aliases = await this.prisma.$transaction(async (tx) => {
+      // 대상 이모지 존재 + 워크스페이스 일치 확인 + 동시 별칭 추가 직렬화 잠금.
+      const target = await tx.$queryRaw<{ id: string; name: string }[]>(Prisma.sql`
+        SELECT "id", "name" FROM "CustomEmoji"
+         WHERE "id" = ${emojiId}::uuid AND "workspaceId" = ${workspaceId}::uuid
+         FOR NO KEY UPDATE
+      `);
+      if (target.length === 0) {
+        throw new DomainError(ErrorCode.CUSTOM_EMOJI_NOT_FOUND, 'emoji not found');
+      }
+      // 이모지당 ≤10 한도.
+      const countRows = await tx.$queryRaw<{ cnt: bigint }[]>(Prisma.sql`
+        SELECT COUNT(*)::bigint AS cnt FROM "CustomEmojiAlias"
+         WHERE "customEmojiId" = ${emojiId}::uuid
+      `);
+      if (Number(countRows[0]?.cnt ?? 0n) >= CUSTOM_EMOJI_ALIAS_CAP) {
+        throw new DomainError(
+          ErrorCode.ALIAS_LIMIT,
+          `emoji already has ${CUSTOM_EMOJI_ALIAS_CAP} aliases`,
+        );
+      }
+      // 워크스페이스 내 CustomEmoji.name 과의 충돌 사전검사(alias unique 는 DB 가
+      // 막지만, name 충돌은 별도 테이블이라 unique 로 못 막아 사전검사한다).
+      const nameClash = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        SELECT "id" FROM "CustomEmoji"
+         WHERE "workspaceId" = ${workspaceId}::uuid AND "name" = ${alias}
+         LIMIT 1
+      `);
+      if (nameClash.length > 0) {
+        throw new DomainError(
+          ErrorCode.ALIAS_CONFLICT,
+          `:${alias}: collides with an existing emoji name in this workspace`,
+        );
+      }
+      // ON CONFLICT DO NOTHING — 동시 동일 alias 삽입을 흡수(23505 방지).
+      const inserted = await tx.$queryRaw<{ id: string }[]>(Prisma.sql`
+        INSERT INTO "CustomEmojiAlias"
+          ("id", "customEmojiId", "workspaceId", "alias", "createdBy", "createdAt")
+        VALUES (
+          ${aliasId}::uuid, ${emojiId}::uuid, ${workspaceId}::uuid, ${alias},
+          ${createdBy}::uuid, NOW()
+        )
+        ON CONFLICT ("workspaceId", "alias") DO NOTHING
+        RETURNING "id"
+      `);
+      if (inserted.length === 0) {
+        throw new DomainError(
+          ErrorCode.ALIAS_CONFLICT,
+          `:${alias}: is already used in this workspace`,
+        );
+      }
+      const rows = await tx.customEmojiAlias.findMany({
+        where: { customEmojiId: emojiId },
+        orderBy: { alias: 'asc' },
+        select: { alias: true },
+      });
+      return rows.map((r) => r.alias);
+    });
+
+    await this.emitAliasUpdated(workspaceId, emojiId, aliases);
+    return { aliases };
+  }
+
+  /**
+   * S42 (FR-EM05): 커스텀 이모지 별칭을 삭제한다. 권한은 **별칭 생성자(createdBy)
+   * 또는 워크스페이스 OWNER/ADMIN**(PRD). 컨트롤러가 멤버까지 통과시키고 여기서
+   * (callerId, role) 로 분기한다 — 둘 다 아니면 403. 존재하지 않는 별칭은
+   * CUSTOM_EMOJI_NOT_FOUND(404). 성공 시 그 이모지의 잔여 별칭 스냅샷을
+   * emoji.alias_updated 로 발행한다(204).
+   */
+  async removeAlias(
+    workspaceId: string,
+    emojiId: string,
+    alias: string,
+    callerId: string,
+    callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
+  ): Promise<void> {
+    const row = await this.prisma.customEmojiAlias.findUnique({
+      where: { workspaceId_alias: { workspaceId, alias } },
+    });
+    if (!row || row.customEmojiId !== emojiId) {
+      throw new DomainError(ErrorCode.CUSTOM_EMOJI_NOT_FOUND, 'alias not found');
+    }
+    const isCreator = row.createdBy === callerId;
+    const isAdmin = callerRole === 'OWNER' || callerRole === 'ADMIN';
+    if (!isCreator && !isAdmin) {
+      throw new DomainError(
+        ErrorCode.FORBIDDEN,
+        'only the alias creator or a workspace owner/admin may remove this alias',
+      );
+    }
+    await this.prisma.customEmojiAlias.delete({ where: { id: row.id } });
+    const rows = await this.prisma.customEmojiAlias.findMany({
+      where: { customEmojiId: emojiId },
+      orderBy: { alias: 'asc' },
+      select: { alias: true },
+    });
+    await this.emitAliasUpdated(
+      workspaceId,
+      emojiId,
+      rows.map((r) => r.alias),
+    );
+  }
+
+  private async emitAliasUpdated(
+    workspaceId: string,
+    emojiId: string,
+    aliases: string[],
+  ): Promise<void> {
+    const payload: EmojiAliasUpdatedPayload = { workspaceId, emojiId, aliases };
+    await this.outbox.record(null, {
+      aggregateType: 'CustomEmoji',
+      aggregateId: emojiId,
+      eventType: EMOJI_ALIAS_UPDATED,
+      payload,
     });
   }
 }

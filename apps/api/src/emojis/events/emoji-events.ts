@@ -9,6 +9,9 @@
  */
 export const EMOJI_CREATED = 'emoji.created';
 export const EMOJI_DELETED = 'emoji.deleted';
+// S42 (FR-EM05): 별칭 추가/삭제 성공 시 발행. subscriber 가 콜론 wire 이름
+// `emoji:alias_updated` 로 변환해 워크스페이스 룸으로 emit 한다.
+export const EMOJI_ALIAS_UPDATED = 'emoji.alias_updated';
 
 /**
  * emoji.created payload. 수신 클라는 `['custom-emojis', workspaceId]` 쿼리를
@@ -31,4 +34,15 @@ export type EmojiDeletedPayload = {
   workspaceId: string;
   emojiId: string;
   name: string;
+};
+
+/**
+ * emoji.alias_updated payload. 별칭 추가/삭제 후 그 이모지의 전체 별칭 스냅샷을
+ * 싣는다(full replace). 수신 클라는 `['custom-emojis', workspaceId]` 를 invalidate
+ * 해 파서/자동완성의 별칭 매핑을 갱신한다.
+ */
+export type EmojiAliasUpdatedPayload = {
+  workspaceId: string;
+  emojiId: string;
+  aliases: string[];
 };

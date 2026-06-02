@@ -126,6 +126,7 @@ describe('CustomEmoji.finalize magic-byte validation (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'gif_lie',
       mime: 'image/gif',
       sizeBytes: 8,
@@ -150,6 +151,7 @@ describe('CustomEmoji.finalize magic-byte validation (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'valid_png',
       mime: 'image/png',
       sizeBytes: 8,
