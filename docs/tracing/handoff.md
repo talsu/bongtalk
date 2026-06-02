@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S32 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S33(D04 스레드 코어 — FR-TH-01/02/15, 전부 P0).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime, S07~S10·S32 타이핑)·완료. **진행률: 134/354 FR done(+6 partial).**
+> **S05 검증·S06~S33 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S34(D04 스레드 — 답글 tx 원자성 + reply bar + 자동구독, FR-TH-03/07/17, 전부 P0).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime)·완료. D04(스레드, S33~) 진행 중. **진행률: 138/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -300,11 +300,25 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 428·web 603·shared-types 178·webhook 50) + 빌드 3종 + realtime int 9(typingUserIds·batch cap·per-user 만료·dot alias·disconnect·DM). DS 무수정. 마이그레이션 없음(Redis ZSET/Zod만).
 - carryover: **security #1 stale `state.channelIds`**(refreshUserChannelIds add-only — kick/delete 후 미제거, workspaceIds 와 동일 선존 패턴) → **realtime state-sync 번들**(channel.member_removed/deleted 구독 정리). security #3 per-user 다채널 typing cap → hardening. perf R-2(redis TIME RTT→Lua/Date.now)·R-3(batch 경계 debounce)·R-6(부하측정 인프라). a11y A-03(말줄임표 SR)·A-04(typing bar 높이예약 CLS). reviewer C(batch 중 신규 typer 2s 지연=by-design). 멀티노드 batch 조정·presence.\* dot→colon rename(S10 WS-naming 번들).
 
-## 다음 슬라이스: S33 (D04 스레드 — 코어 시작)
+## ✅ S33 (D04 스레드 코어 — 답글카운트 비정규화 + 삭제 placeholder) — 완료 (2026-06-02, 이 세션) — **마이그레이션**
 
-- scope api + web. **FR-TH-01 / FR-TH-02 / FR-TH-15**(전부 **P0**).
-- FR 정본 PRD html 에서 재확인 필수. 예상: 스레드 생성/답글(parentMessageId), 스레드 패널/답글 목록, 스레드 답글 카운트/표시. **S05 carryover**: `threads.int.spec.ts` 1건 RED(message.created 의 parentMessageId=null, task-014-B 선존 버그)·FR-MSG-09 REST placeholder 연기분이 D04 에서 소진. S17(스레드 검색 마스킹)·S30(스레드답글 권한필터·In Thread)·S10(seq/replay) 와 정합.
-- 주의: parentMessageId 토대는 이미 스키마/검색에 존재(S30 threadRootExcerpt). 스레드 전용 실시간(thread:reply 이벤트)·읽음/unread 스레드 분리 여부 PRD 확인. UI 슬라이스 → ui-designer/visual-regression. ThreadPanel(apps/web/src/features/threads) 기존 자산 점검.
+- **FR-TH-01**(루트만 'Reply in thread' — `canStartThread` 순수함수, 답글/tmp-/삭제 차단), **FR-TH-02**(1-level depth 400 — 기존; RED 원인은 테스트의 이벤트 오선택이라 테스트 수정으로 GREEN), **FR-TH-15**(답글 커서 페이지네이션 — 기존 + **삭제 답글 placeholder**(deletedAt 필터 제거·content null)), **FR-TH-16**(채널 목록 threadMeta `replyCount`/`latestReplyAt` **비정규화 컬럼 직접 반환**, GROUP BY 집계 제거 + replyParticipants ≤5 bounded LATERAL).
+- **마이그레이션** `20260602000000_s33_thread_reply_counters`: `Message.replyCount`(INT default 0)/`latestReplyAt`(timestamptz?) additive + backfill(비삭제 답글 COUNT/MAX `AT TIME ZONE 'UTC'`) + down.sql(DROP). **PG16 up→down→up 검증**(데이터 손실 0). write-path: 답글 send tx 루트 `replyCount+1`+`latestReplyAt=GREATEST(...)`, soft-delete `GREATEST(0,replyCount-1)`.
+- **S05/FR-MSG-09 carryover 소진**: 답글보유 deleted thread-root 가 REST 목록에 placeholder(`("deletedAt" IS NULL OR "replyCount">0)`)로 유지(chip 노출). threads.int RED→GREEN.
+- **5팀 적대적 리뷰**(reviewer/security/db-migrator/perf/contract) → fix-forward:
+  - **보안 BLOCKER**: `toDto` 삭제 메시지가 `mentions`(+`editedAt`/`edited`) 미마스킹 → @멘션 대상 userId 누출(삭제 노출로 표면화) → 빈 값 마스킹. **authorId 는 유지**(Discord 일관·web 미렌더·채널ACL — 결정 문서화).
+  - **MAJOR-1**: `latestReplyAt` last-writer-wins(동시 답글 과거값 덮어쓰기) → `GREATEST(COALESCE(...,-infinity), createdAt)` raw UPDATE.
+  - **MAJOR-2**: 삭제 thread-root chip 클릭 404(deleted 미게이트) → chip·canStartThread `!deleted`.
+  - **MAJOR-3+perf**: EXPLAIN 테스트가 실제 술어(`OR replyCount>0`)와 불일치(false-green) → 실제 쿼리로 갱신 + LATERAL 플랜 추가. **EXPLAIN ANALYZE 실측**(OR-filter·LATERAL 모두 Index Scan·sub-ms·Seq Scan 없음) → **인덱스 미추가(측정 기반)**.
+  - db-migrator LOW(backfill `AT TIME ZONE 'UTC'` TZ 독립 + 9h drift 재현 입증)·contract(latestReplyAt→lastRepliedAt 매핑 주석).
+- 게이트: `pnpm verify` 19 GREEN(api 428·web 613·shared-types 178·webhook 50) + 빌드 3종(6 tasks) + 마이그레이션 PG16 up→down→up + int(mentions 마스킹·GREATEST 동시성·chip 게이트·EXPLAIN 실제술어·placeholder). DS 무수정.
+- carryover: **replyCount drift 재집계 job**·**FR-TH-17 DELETE 원자성/broadcast**·**FR-TH-03 아바타 렌더** → S34. hot-row lock 경합(비정규화 본질·sharded counter 후속)·recentReplyUserIds 삭제루트 노출(ACL 보호·수용)·listThreadReplies hasMore 과집계·TOCTOU orphan(막 삭제된 루트 답글). **pre-existing**: `messages.events.int.spec.ts` "archive guard" 1건 RED(채널 archive 의 SYSTEM_CHANNEL_ARCHIVED message.created 를 테스트가 0으로 가정 — S33 무관·verify 미포함) → archive 시스템메시지 반영해 단언 갱신 follow-up.
+
+## 다음 슬라이스: S34 (D04 스레드 — 답글 tx 원자성 + reply bar + 자동구독)
+
+- scope api + web. **FR-TH-03 / FR-TH-07 / FR-TH-17**(전부 **P0**).
+- FR 정본 PRD html 재확인. 예상: **FR-TH-17**(POST reply 단일 `$transaction` 원자성 공식화 — reply INSERT + replyCount/latestReplyAt UPDATE + ThreadSubscription upsert; **DELETE 도 단일 tx**; S33 이 기초 유지, S34 가 원자성/엣지/orphan 강화 + **replyCount 재집계 drift job**), **FR-TH-03**(reply bar — 최초 답글자 ≤5 아바타 스택 + replyCount + latestReplyAt; 데이터 replyParticipants 는 S33 완료, 렌더만), **FR-TH-07**(자동 구독 — 스레드시작자·답글작성자·@멘션 → ThreadSubscription upsert; 일부 기존, @멘션 경로 확인).
+- 주의: S33 carryover(TOCTOU orphan·hot-row lock) 가 FR-TH-17 에서 처리. UI(reply bar 아바타) → ui-designer/visual-regression + DS `qf-thread-*`. FR-TH-06 isBroadcast 는 S35.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

@@ -490,6 +490,21 @@ model Message {
   // depth is enforced at the service — parent-of-parent must be NULL.
   parentMessageId String?  @db.Uuid
 
+  // ── S33 (D04 / FR-TH-16 / FR-TH-17) — 스레드 비정규화 카운터 ───────────────
+  // 루트 메시지에만 의미가 있다(답글 행은 항상 0/NULL). 채널 메시지 목록의
+  // threadMeta(FR-TH-16)를 GROUP BY 집계 없이 컬럼 직접 반환으로 해석하기 위한
+  // read-path 비정규화 캐시다. 답글 send/soft-delete 의 단일 $transaction 안에서
+  // 원자적으로 갱신한다(FR-TH-17 기초 — DELETE 원자성/broadcast 강화는 S34).
+  //   replyCount    — 비삭제(deletedAt IS NULL) 답글 수. send +1, soft-delete
+  //                   GREATEST(0, -1). DEFAULT 0 이라 기존 row 안전(additive).
+  //   latestReplyAt — 마지막 답글 createdAt. 답글 0개면 NULL. 답글 send 시
+  //                   그 createdAt 으로 갱신. soft-delete 시점에는 굳이 되감지
+  //                   않는다(1시간 재집계 job 이 drift 만 정정 — S34/운영).
+  // 마이그레이션 20260602000000_s33_thread_reply_counters 가 기존 루트 행을
+  // backfill 한다(서브쿼리 COUNT/MAX). additive + reversible(down.sql DROP).
+  replyCount      Int       @default(0)
+  latestReplyAt   DateTime? @db.Timestamptz
+
   // task-015-B: Postgres-generated tsvector column for FTS. Marked
   // `Unsupported` because Prisma 5.22 doesn't model tsvector natively;
   // the column is populated by the DB via GENERATED ALWAYS AS, so we
