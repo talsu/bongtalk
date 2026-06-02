@@ -10,10 +10,12 @@ const ROOT = '22222222-2222-4222-8222-222222222222';
 const REPLY = '33333333-3333-4333-8333-333333333333';
 
 // task-047 iter0: channel ACL guard 추가에 따른 helper 시그니처 확장.
+// S34 fix-forward (#1): create() 대신 `$executeRaw` ON CONFLICT INSERT +
+// findUnique read-back 으로 전환됨에 따라 helper 가 `$executeRaw` 를 mock 한다.
 function makeSvc({
   msgFindUnique,
   subFindUnique,
-  subCreate,
+  execRaw,
   subDelete,
   subFindMany,
   effective = 0xffff, // default: full READ + 다른 모든 권한
@@ -21,7 +23,8 @@ function makeSvc({
 }: {
   msgFindUnique?: ReturnType<typeof vi.fn>;
   subFindUnique?: ReturnType<typeof vi.fn>;
-  subCreate?: ReturnType<typeof vi.fn>;
+  /** `$executeRaw` (ON CONFLICT INSERT) mock */
+  execRaw?: ReturnType<typeof vi.fn>;
   subDelete?: ReturnType<typeof vi.fn>;
   subFindMany?: ReturnType<typeof vi.fn>;
   /** ChannelAccessService.resolveEffective() 의 반환 mask */
@@ -30,11 +33,12 @@ function makeSvc({
   effectiveThrows?: boolean;
 } = {}) {
   const prisma = {
+    $executeRaw: execRaw ?? vi.fn().mockResolvedValue(1),
     message: { findUnique: msgFindUnique ?? vi.fn() },
     threadSubscription: {
-      findUnique: subFindUnique ?? vi.fn().mockResolvedValue(null),
-      create:
-        subCreate ?? vi.fn().mockResolvedValue({ createdAt: new Date('2025-01-01T00:00:00Z') }),
+      // INSERT read-back: 기본은 방금 삽입된 행(createdAt 확정)을 돌려준다.
+      findUnique:
+        subFindUnique ?? vi.fn().mockResolvedValue({ createdAt: new Date('2025-01-01T00:00:00Z') }),
       delete: subDelete ?? vi.fn().mockResolvedValue({}),
       findMany: subFindMany ?? vi.fn().mockResolvedValue([]),
     },
@@ -116,28 +120,50 @@ describe('ThreadSubscriptionsService.subscribe (task-046 N1)', () => {
     );
   });
 
-  it('이미 follow 중이면 idempotent (subscribed: true 그대로)', async () => {
-    const subCreate = vi.fn();
+  // S34 fix-forward (#1): ON CONFLICT DO NOTHING 으로 멱등화 — "이미 follow"
+  // 와 "신규 follow" 가 동일 INSERT 경로를 타며, 차이는 DB 가 흡수한다(0행 vs
+  // 1행). 서비스 관점에선 항상 단일 INSERT + read-back 이다.
+  it('신규 follow 시 ON CONFLICT INSERT 1회 발행 (subscribed: true)', async () => {
+    const execRaw = vi.fn().mockResolvedValue(1);
     const svc = makeSvc({
       msgFindUnique: vi.fn().mockResolvedValue(rootMsg()),
-      subFindUnique: vi.fn().mockResolvedValue({ createdAt: new Date('2025-01-01T00:00:00Z') }),
-      subCreate,
+      execRaw,
     });
     const r = await svc.subscribe({ userId: ME, threadParentId: ROOT });
     expect(r.subscribed).toBe(true);
-    expect(subCreate).not.toHaveBeenCalled();
+    expect(execRaw).toHaveBeenCalledOnce();
   });
 
-  it('신규 follow 시 row 생성', async () => {
-    const subCreate = vi.fn().mockResolvedValue({ createdAt: new Date('2025-01-01T00:00:00Z') });
+  it('이미 follow 중이어도 멱등 (INSERT no-op, subscribed: true · read-back createdAt)', async () => {
+    // ON CONFLICT 가 0행 영향(no-op)이어도 read-back 이 기존 행을 돌려준다.
+    const execRaw = vi.fn().mockResolvedValue(0);
+    const existingAt = new Date('2024-12-25T00:00:00Z');
     const svc = makeSvc({
       msgFindUnique: vi.fn().mockResolvedValue(rootMsg()),
-      subFindUnique: vi.fn().mockResolvedValue(null),
-      subCreate,
+      execRaw,
+      subFindUnique: vi.fn().mockResolvedValue({ createdAt: existingAt }),
     });
     const r = await svc.subscribe({ userId: ME, threadParentId: ROOT });
     expect(r.subscribed).toBe(true);
-    expect(subCreate).toHaveBeenCalledOnce();
+    expect(r.createdAt).toEqual(existingAt);
+    expect(execRaw).toHaveBeenCalledOnce();
+  });
+
+  // S34 fix-forward (#1): 동시/순차 2회 구독 시 INSERT 가 23505 를 던지지 않고
+  // 멱등 no-op 으로 흡수되어 호출이 정상 resolve 되어야 한다(tx-poisoning 회피).
+  // 단위 레벨에선 execRaw 가 throw 하지 않음 + 2회 호출 모두 정상 반환을 확인하고,
+  // 실제 DB 동시 commit·1행 보장은 int spec 이 담당한다.
+  it('같은 (uid, root) 2회 subscribe 는 throw 없이 멱등 (tx-poisoning 회피)', async () => {
+    const execRaw = vi.fn().mockResolvedValue(1);
+    const svc = makeSvc({
+      msgFindUnique: vi.fn().mockResolvedValue(rootMsg()),
+      execRaw,
+    });
+    const first = await svc.subscribe({ userId: ME, threadParentId: ROOT });
+    const second = await svc.subscribe({ userId: ME, threadParentId: ROOT });
+    expect(first.subscribed).toBe(true);
+    expect(second.subscribed).toBe(true);
+    expect(execRaw).toHaveBeenCalledTimes(2);
   });
 
   /**
@@ -146,41 +172,42 @@ describe('ThreadSubscriptionsService.subscribe (task-046 N1)', () => {
    * 존재 leak 방지 위해 MESSAGE_NOT_FOUND 와 동일 응답.
    */
   it('caller 가 channel READ 권한 없으면 thread root not found (leak 방지)', async () => {
-    const subCreate = vi.fn();
+    const execRaw = vi.fn();
     const svc = makeSvc({
       msgFindUnique: vi.fn().mockResolvedValue(rootMsg({ isPrivate: true })),
       effective: 0, // READ 비트 없음
-      subCreate,
+      execRaw,
     });
     await expect(svc.subscribe({ userId: ME, threadParentId: ROOT })).rejects.toThrow(
       /thread root not found/,
     );
-    expect(subCreate).not.toHaveBeenCalled();
+    // ACL 차단 시 INSERT 자체가 발행되지 않아야 한다(비멤버 구독 차단 유지).
+    expect(execRaw).not.toHaveBeenCalled();
   });
 
   it('resolveEffective 가 throw (WORKSPACE_NOT_MEMBER) 해도 leak 안 함', async () => {
-    const subCreate = vi.fn();
+    const execRaw = vi.fn();
     const svc = makeSvc({
       msgFindUnique: vi.fn().mockResolvedValue(rootMsg()),
       effectiveThrows: true,
-      subCreate,
+      execRaw,
     });
     await expect(svc.subscribe({ userId: ME, threadParentId: ROOT })).rejects.toThrow(
       /thread root not found/,
     );
-    expect(subCreate).not.toHaveBeenCalled();
+    expect(execRaw).not.toHaveBeenCalled();
   });
 
   it('caller 가 READ 가지면 정상 subscribe (HIGH-046-A 정상 path)', async () => {
-    const subCreate = vi.fn().mockResolvedValue({ createdAt: new Date('2025-01-01T00:00:00Z') });
+    const execRaw = vi.fn().mockResolvedValue(1);
     const svc = makeSvc({
       msgFindUnique: vi.fn().mockResolvedValue(rootMsg({ isPrivate: true })),
       effective: 0x0001, // READ only
-      subCreate,
+      execRaw,
     });
     const r = await svc.subscribe({ userId: ME, threadParentId: ROOT });
     expect(r.subscribed).toBe(true);
-    expect(subCreate).toHaveBeenCalledOnce();
+    expect(execRaw).toHaveBeenCalledOnce();
   });
 });
 

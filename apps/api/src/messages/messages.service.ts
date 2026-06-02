@@ -736,6 +736,39 @@ export class MessagesService {
 
     try {
       const row = await this.prisma.$transaction(async (tx) => {
+        // S34 (FR-TH-17): TOCTOU orphan 방어. 위 pre-tx findFirst 가 parent 를
+        // 검증했지만, 검증과 tx 진입 사이에 루트가 soft-delete 될 수 있다(동시
+        // 삭제 레이스). 답글이 INSERT 되고 나면 부모를 잃은 orphan 이 된다.
+        //
+        // S34 fix-forward (#2 perf CRITICAL): 종전엔 parent 행을 `FOR UPDATE` 로
+        // 잠가 재검증했으나, 그 잠금은 commit 까지 루트 행에 유지되어 인기
+        // 스레드의 동시 답글을 직렬화하는 hot-row 병목이었다. orphan(막 삭제된
+        // 루트에 붙은 답글)은 사실상 무해하다: 삭제된 루트는 타임라인·스레드
+        // 패널에 비가시이고, 비정규화 카운터(replyCount/latestReplyAt)는 아래
+        // UPDATE 가 `WHERE deletedAt IS NULL` 가드라 삭제 루트에 매칭되지 않아
+        // 영향이 없다. 따라서 잠금을 제거하고 tx 내 **비잠금** findUnique 로
+        // 동일하게 재검증한다 — 흔한 경우(이미 삭제된 루트)는 그대로 거부해
+        // 방어를 유지하면서 직렬화 비용만 없앤다. 검증과 INSERT 사이의
+        // narrow-race 로 새는 잔여 orphan(극히 드묾)은 무해하며, 1시간 주기
+        // reconcile 이 카운트 정합을 맞춘다(FR-TH-17).
+        if (args.parentMessageId) {
+          const parentNow = await tx.message.findUnique({
+            where: { id: args.parentMessageId },
+            select: { deletedAt: true, channelId: true },
+          });
+          if (
+            !parentNow ||
+            parentNow.deletedAt !== null ||
+            parentNow.channelId !== args.channelId
+          ) {
+            // 삭제된(또는 사라진/타채널) 루트에 대한 답글은 거부한다. pre-tx
+            // 검증과 동일한 도메인 에러로 통일해 클라이언트 분기가 일관되게 한다.
+            throw new DomainError(
+              ErrorCode.MESSAGE_PARENT_NOT_FOUND,
+              'parent message not found in this channel',
+            );
+          }
+        }
         const created = await tx.message.create({
           data: {
             channelId: args.channelId,
@@ -936,6 +969,66 @@ export class MessagesService {
              WHERE id = ${created.parentMessageId}::uuid
                AND "deletedAt" IS NULL
           `;
+        }
+
+        // S34 (FR-TH-07): @멘션 자동 구독. 스레드 답글(parentMessageId 보유)에서
+        // @멘션된 사용자를 같은 $transaction 안에서 스레드 루트의 follower 로
+        // upsert 한다. PRD: "스레드 시작자·답글 작성자·@멘션된 사용자 자동 구독".
+        // 시작자/답글 작성자는 위 task-047 자동 follow 가 이미 처리하므로 여기선
+        // 멘션 대상만 처리한다. 루트 메시지의 @멘션은 구독할 thread 컨텍스트가
+        // 없으므로(루트는 자기 자신이 thread parent) 스킵한다 — 답글에만 적용.
+        //
+        // 비-치명 패턴: 기존 authorId 자동 follow 와 동일하게 `.catch(()=>undefined)`
+        // 로 감싼다. subscribe 는 (userId, threadParentId) upsert(중복 무시)라
+        // 일반적으로 throw 하지 않지만(자기 자신/이미 구독자 무해), 만에 하나
+        // 멘션 대상이 채널 READ 권한이 없어(예: 비공개 채널 비멤버) subscribe 가
+        // throw 해도 답글 INSERT 자체를 롤백시키지 않게 한다. 멘션 정규화가
+        // 워크스페이스 멤버만 resolve 하므로 실사용에선 대부분 통과한다.
+        //
+        // `mentionedUserIds` 는 위에서 self/mute/DND 필터를 거친 집합이지만,
+        // 자동 구독은 알림 게이트(mute/DND)와 독립이다(구독은 알림 ON/OFF 보다
+        // 상위 개념 — 뮤트해도 스레드 팔로우 자체는 유지). 따라서 게이트 이전의
+        // dedupedMentionUserIds(self 제외 + distinct)를 구독 대상으로 쓴다.
+        //
+        // S34 fix-forward (security #3): 단, 작성자가 차단했거나(blocker) 작성자를
+        // 차단한(blocked) 사용자는 자동 구독 대상에서 제외한다. 차단 관계의
+        // 상대를 멘션만으로 스레드 follower 로 끌어들이면 이후 N2 dispatcher 가
+        // 그 스레드의 새 답글 알림을 차단 상대에게 발송해 프라이버시를 깬다.
+        // loadBlockedUserIds 는 "내가(작성자) 차단한 상대"를 모으는 단방향
+        // 헬퍼지만, 여기서는 양방향(내가 차단/상대가 차단) 모두 제외해야 하므로
+        // 같은 tx 안에서 BLOCKED Friendship 을 양방향으로 조회한다(atomic
+        // snapshot). authorId follow 는 자기 자신이라 이 게이트와 무관하다.
+        if (
+          created.parentMessageId &&
+          this.threadSubscriptions &&
+          dedupedMentionUserIds.length > 0
+        ) {
+          const threadRootId = created.parentMessageId;
+          const blockedRows = await tx.friendship.findMany({
+            where: {
+              status: 'BLOCKED',
+              OR: [
+                { requesterId: args.authorId, addresseeId: { in: dedupedMentionUserIds } },
+                { requesterId: { in: dedupedMentionUserIds }, addresseeId: args.authorId },
+              ],
+            },
+            select: { requesterId: true, addresseeId: true },
+          });
+          const blockedSet = new Set<string>();
+          for (const r of blockedRows) {
+            // 작성자가 아닌 쪽이 곧 차단 관계의 상대(멘션 대상).
+            blockedSet.add(r.requesterId === args.authorId ? r.addresseeId : r.requesterId);
+          }
+          for (const uid of dedupedMentionUserIds) {
+            if (blockedSet.has(uid)) continue; // 차단/피차단 상대는 자동구독 제외.
+            await this.threadSubscriptions
+              .subscribe({
+                userId: uid,
+                threadParentId: threadRootId,
+                tx: tx as Parameters<ThreadSubscriptionsService['subscribe']>[0]['tx'],
+              })
+              .catch(() => undefined); // 멘션 자동 구독 실패는 비-치명(답글 INSERT 유지).
+          }
         }
 
         // task-014-B: emit the aggregate thread event when this is a
@@ -1794,11 +1887,21 @@ export class MessagesService {
       // "마지막 활동 시각" 표시는 보수적으로 유지하고, 정확한 재계산은 1시간
       // 재집계 job(S34/운영)이 drift 로 정정한다(과도한 추가 쿼리 회피).
       // raw UPDATE 로 GREATEST 를 표현한다(Prisma 빌더는 GREATEST 미지원).
+      //
+      // S34 (FR-TH-17): WHERE 에 `AND "deletedAt" IS NULL` 가드를 추가한다.
+      // 루트가 이미 soft-delete 됐다면 그 루트의 replyCount 는 더 이상 채널
+      // 목록·스레드 패널의 reply bar 에 노출되지 않으므로(toDto 마스킹) 되감을
+      // 필요가 없다. 가드 없이 무조건 GREATEST(0,…) UPDATE 를 돌리면 삭제된
+      // 루트 행을 불필요하게 건드려(매칭 1행) 핫-로우 갱신을 유발하고, 답글의
+      // 중복 soft-delete 가 이미 idempotent(상단 count===0 가드)인데도 루트
+      // 카운터만 두 번 깎일 수 있는 표면적을 남긴다. 가드를 박아 "살아있는
+      // 루트의 카운터만" 정정한다(이미 삭제된 루트는 매칭 0행 → no-op).
       if (updated.parentMessageId) {
         await tx.$executeRaw`
           UPDATE "Message"
              SET "replyCount" = GREATEST(0, "replyCount" - 1)
            WHERE id = ${updated.parentMessageId}::uuid
+             AND "deletedAt" IS NULL
         `;
       }
       const payload: MessageDeletedPayload = {

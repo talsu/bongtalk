@@ -1,6 +1,7 @@
 import { MiddlewareConsumer, Module, NestModule } from '@nestjs/common';
 import { APP_FILTER } from '@nestjs/core';
 import { EventEmitterModule } from '@nestjs/event-emitter';
+import { ScheduleModule } from '@nestjs/schedule';
 import { DomainExceptionFilter } from './common/filters/domain-exception.filter';
 import { RequestIdMiddleware } from './common/middleware/request-id.middleware';
 import { HealthController } from './health/health.controller';
@@ -34,6 +35,10 @@ import { MutesModule } from './notifications/mutes/mutes.module';
     // realtime projection. The existing channel/workspace emitters use
     // exact event names so flipping this on is additive.
     EventEmitterModule.forRoot({ wildcard: true, delimiter: '.' }),
+    // S34 (FR-TH-17): in-process cron 활성화. ThreadReplyCountReconciler 의
+    // 1시간 주기 replyCount drift 재집계 @Cron 을 구동한다. 단일 NAS 배포라
+    // 외부 스케줄러 없이 앱 프로세스 내 스케줄러를 쓴다.
+    ScheduleModule.forRoot(),
     CommonModule,
     ObservabilityModule,
     PrismaModule,

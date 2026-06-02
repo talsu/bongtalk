@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S33 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S34(D04 스레드 — 답글 tx 원자성 + reply bar + 자동구독, FR-TH-03/07/17, 전부 P0).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime)·완료. D04(스레드, S33~) 진행 중. **진행률: 138/354 FR done(+6 partial).**
+> **S05 검증·S06~S34 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S35(D04 스레드 — Thread Panel + isBroadcast + 스크롤/실시간 동기, FR-TH-05 P0 + 06/18/20 P1).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime)·완료. D04(스레드, S33~S38) 진행 중 — S33 코어·S34 tx원자성/reply bar 완료. **진행률: 141/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -314,11 +314,23 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 428·web 613·shared-types 178·webhook 50) + 빌드 3종(6 tasks) + 마이그레이션 PG16 up→down→up + int(mentions 마스킹·GREATEST 동시성·chip 게이트·EXPLAIN 실제술어·placeholder). DS 무수정.
 - carryover: **replyCount drift 재집계 job**·**FR-TH-17 DELETE 원자성/broadcast**·**FR-TH-03 아바타 렌더** → S34. hot-row lock 경합(비정규화 본질·sharded counter 후속)·recentReplyUserIds 삭제루트 노출(ACL 보호·수용)·listThreadReplies hasMore 과집계·TOCTOU orphan(막 삭제된 루트 답글). **pre-existing**: `messages.events.int.spec.ts` "archive guard" 1건 RED(채널 archive 의 SYSTEM_CHANNEL_ARCHIVED message.created 를 테스트가 0으로 가정 — S33 무관·verify 미포함) → archive 시스템메시지 반영해 단언 갱신 follow-up.
 
-## 다음 슬라이스: S34 (D04 스레드 — 답글 tx 원자성 + reply bar + 자동구독)
+## ✅ S34 (D04 스레드 — 답글 tx 원자성 + reply bar + 자동구독) — 완료 (2026-06-02, 이 세션)
 
-- scope api + web. **FR-TH-03 / FR-TH-07 / FR-TH-17**(전부 **P0**).
-- FR 정본 PRD html 재확인. 예상: **FR-TH-17**(POST reply 단일 `$transaction` 원자성 공식화 — reply INSERT + replyCount/latestReplyAt UPDATE + ThreadSubscription upsert; **DELETE 도 단일 tx**; S33 이 기초 유지, S34 가 원자성/엣지/orphan 강화 + **replyCount 재집계 drift job**), **FR-TH-03**(reply bar — 최초 답글자 ≤5 아바타 스택 + replyCount + latestReplyAt; 데이터 replyParticipants 는 S33 완료, 렌더만), **FR-TH-07**(자동 구독 — 스레드시작자·답글작성자·@멘션 → ThreadSubscription upsert; 일부 기존, @멘션 경로 확인).
-- 주의: S33 carryover(TOCTOU orphan·hot-row lock) 가 FR-TH-17 에서 처리. UI(reply bar 아바타) → ui-designer/visual-regression + DS `qf-thread-*`. FR-TH-06 isBroadcast 는 S35.
+- **FR-TH-17**(POST/DELETE 단일 `$transaction` 원자성 + **재집계 Cron** `ThreadReplyCountReconciler` `@Cron(EVERY_HOUR)` drift-only(`replyCount<>actual`) + `@nestjs/schedule` 추가·`ScheduleModule.forRoot`), **FR-TH-03**(reply bar — Avatar primitive ≤5 스택 + replyCount + 상대시각 `formatMessageTime`), **FR-TH-07**(자동구독 — 스레드시작자·답글작성자·**@멘션 대상** ThreadSubscription upsert).
+- **6팀 적대적 리뷰**(reviewer/security/perf/ui-designer/a11y/visual-regression) → fix-forward:
+  - **BLOCKER tx-poisoning**: `subscribe` 가 findUnique+create(ON CONFLICT 아님) → 동시 답글 시 23505 → Postgres tx 전체 abort → `.catch` 가 JS 만 삼켜 commit 25P02 self-DoS. → raw `INSERT ON CONFLICT (userId,threadParentId) DO NOTHING` throw-free화(@멘션·authorId follow 양쪽 해소).
+  - **perf CRITICAL**: orphan `SELECT FOR UPDATE` 가 루트 행 잠금 commit 까지 보유→인기 스레드 직렬화. orphan 무해(삭제루트 답글=비가시·카운트 `WHERE deletedAt IS NULL` 무영향) → **비잠금 findUnique 재검증**으로 교체(잠금 제거, narrow-race orphan 은 reconcile 정합).
+  - **a11y BLOCKER**: chip aria-label 에 마지막 답글 시각 포함 + `lastRepliedAt` `<span>`→`<time dateTime title>`.
+  - **DS HIGH**: MessageItem 중복 `colorFromSeed`+raw hsl 인라인 제거 → Avatar primitive 단일화.
+  - reviewer reconcile heartbeat(drift 0 debug 로그)·security 차단유저 @멘션 자동구독 제외(양방향 BLOCKED).
+- 게이트: `pnpm verify` 19 GREEN(api 435·web 620·shared-types 178·webhook 50) + 빌드 3종 + int 22(tx-poisoning 동시구독 정상·orphan findUnique 거부·차단유저 제외·DELETE가드·reconcile). **마이그레이션 없음**(S33 컬럼 재사용; @nestjs/schedule 는 dep 추가). DS 무수정.
+- carryover: perf(@멘션 N-subscribe 배치·reconcile 대량 GROUP BY windowing·extraNames 렌더). a11y(**Avatar seed-color 팔레트 대비** hue 240/258/200 — app-wide Avatar 별도 pass·`.qf-thread-chip__count` `--accent` 대비 3.79~3.97:1 → **DS-owner**). visual(**DS baseline MD5 drift** `.task-040-ds-baseline.txt` 선존 → task-040 갱신·thread-chip visual baseline → task-048). security(subscribe ACL tx-外 TOCTOU + **N2 dispatcher 발송 전 READ 재게이트**·reconcile 멀티노드 분산락).
+
+## 다음 슬라이스: S35 (D04 스레드 — Thread Panel + isBroadcast + 스크롤/실시간 동기)
+
+- scope api + web. **FR-TH-05**(P0) / **FR-TH-06·18·20**(P1).
+- FR 정본 PRD html 재확인. 예상: **FR-TH-05**(우측 Thread Panel 슬라이드인 — 데스크톱 기존 ThreadPanel 존재, **모바일 `.qf-m-panel-thread` 전체화면** 신규?), **FR-TH-06**(isBroadcast "Also send to #channel" — `Message.isBroadcast` 컬럼 마이그레이션 + `SYSTEM_THREAD_BROADCAST` enum 기존 + 채널 타임라인 동시 게시), **FR-TH-18**(ThreadPanel lastRead 기준 미읽 위치 초기 스크롤 + thread:reply:new 자동스크롤/jump), **FR-TH-20**(thread:reply:new 수신 시 채널 타임라인 루트 threadMeta 즉시 반영·message:deleted{hasReplies} 양쪽 동기).
+- 주의: FR-TH-06 = **마이그레이션**(isBroadcast 컬럼) reversible. UI(패널/스크롤) → ui-designer/visual-regression + DS `qf-thread-panel`/`qf-m-*`. S33 placeholder·S34 threadMeta·dispatcher message.thread.replied 위. ThreadReadState(FR-TH-11/12)는 S36.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

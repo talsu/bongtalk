@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import { Prisma, type PrismaClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -19,6 +19,16 @@ import { Permission } from '../auth/permissions';
  * 검증 추가. 임의의 사용자가 root UUID 만 알면 channel access 없이
  * 알림 받기 가능했던 bypass 차단. 실패 시 CHANNEL_NOT_FOUND (존재
  * leak 방지) — getGroupMembers 와 동일 패턴.
+ *
+ * S34 fix-forward (BLOCKER #1 tx-poisoning): subscribe() 의 create 경로를
+ * findUnique 선검사 + create 에서 `INSERT … ON CONFLICT DO NOTHING` 으로
+ * 전환했습니다. 종전 구현은 동시 호출 시 unique `(userId, threadParentId)`
+ * 위반(23505)을 발생시켰는데, Postgres 에서 제약 위반은 **트랜잭션 전체를
+ * abort** 시킵니다. send tx 의 자동 follow / @멘션 자동 구독 호출부가
+ * `.catch(() => undefined)` 로 감싸도, 그것은 JS 예외만 삼킬 뿐 이미 abort 된
+ * 트랜잭션은 되돌리지 못해 후속 쿼리/commit 이 25P02(current transaction is
+ * aborted) 로 줄줄이 실패합니다(self-DoS). ON CONFLICT DO NOTHING 은 제약
+ * 위반 자체를 멱등 no-op 으로 흡수하므로 23505 가 발생하지 않습니다.
  */
 @Injectable()
 export class ThreadSubscriptionsService {
@@ -39,8 +49,12 @@ export class ThreadSubscriptionsService {
   async subscribe(args: {
     userId: string;
     threadParentId: string;
-    /** transaction client 주입 — 자동 follow path 가 동일 tx 안에서 호출 */
-    tx?: Pick<PrismaClient, 'message' | 'threadSubscription'>;
+    /**
+     * transaction client 주입 — 자동 follow path 가 동일 tx 안에서 호출.
+     * S34 fix-forward (#1): ON CONFLICT raw INSERT 를 위해 `$executeRaw` 도
+     * 포함시킵니다(tx 클라이언트의 raw 메서드는 PrismaClient 와 동형).
+     */
+    tx?: Pick<PrismaClient, 'message' | 'threadSubscription' | '$executeRaw'>;
   }): Promise<{ subscribed: true; createdAt: Date }> {
     const client = args.tx ?? this.prisma;
     // root 인지 검증 + channel meta 확보
@@ -83,7 +97,20 @@ export class ThreadSubscriptionsService {
     if ((effective & Permission.READ) !== Permission.READ) {
       throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
     }
-    const existing = await client.threadSubscription.findUnique({
+    // S34 fix-forward (#1): findUnique 선검사 + create 대신 멱등 INSERT.
+    // ON CONFLICT DO NOTHING 은 이미 구독 중이면 no-op(0행 영향)이고, 신규면
+    // 1행을 삽입합니다 — 제약 위반(23505)이 발생하지 않으므로 동시 구독에도
+    // tx 가 abort 되지 않습니다. `id`/`createdAt` 은 스키마 default 를 그대로
+    // 사용합니다(gen_random_uuid() / now()).
+    await client.$executeRaw(Prisma.sql`
+      INSERT INTO "ThreadSubscription" ("id", "userId", "threadParentId", "createdAt")
+      VALUES (gen_random_uuid(), ${args.userId}::uuid, ${args.threadParentId}::uuid, now())
+      ON CONFLICT ("userId", "threadParentId") DO NOTHING
+    `);
+    // INSERT(또는 기존 행) 후 권위 createdAt 을 읽어 돌려줍니다. ON CONFLICT
+    // DO NOTHING 은 충돌 시 RETURNING 이 비므로, 멱등 보장(항상 1행 존재)을
+    // 활용해 select 로 확정 값을 가져옵니다.
+    const row = await client.threadSubscription.findUnique({
       where: {
         userId_threadParentId: {
           userId: args.userId,
@@ -92,14 +119,10 @@ export class ThreadSubscriptionsService {
       },
       select: { createdAt: true },
     });
-    if (existing) {
-      return { subscribed: true, createdAt: existing.createdAt };
-    }
-    const row = await client.threadSubscription.create({
-      data: { userId: args.userId, threadParentId: args.threadParentId },
-      select: { createdAt: true },
-    });
-    return { subscribed: true, createdAt: row.createdAt };
+    // 방금 INSERT 했거나 이미 존재하므로 row 는 정상 경로에서 항상 non-null.
+    // 극히 드문 동시 삭제 레이스(INSERT 직후 다른 tx 가 삭제)에 대비해
+    // 현재 시각으로 폴백한다 — subscribed 계약(true)은 유지.
+    return { subscribed: true, createdAt: row?.createdAt ?? new Date() };
   }
 
   async unsubscribe(args: {
