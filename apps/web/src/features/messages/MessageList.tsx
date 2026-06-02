@@ -21,7 +21,7 @@ import {
 } from './useMessages';
 import { qk } from '../../lib/query-keys';
 import { MessageItem } from './MessageItem';
-import { useToggleSave, savedKeys } from '../saved/useSavedMessages';
+import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedMessages';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
@@ -184,6 +184,15 @@ export function MessageList({
   }, [history.data]);
 
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
+
+  // S52 (FR-PS-13): 렌더 중인 메시지 id 배치로 서버 저장 상태를 1회 seed 해 툴바
+  // 북마크 채움을 초기화한다(N+1 단건 GET 금지). tmp(낙관적 send) 행은 서버 id 가
+  // 없어 제외한다.
+  const savedSeedIds = useMemo(
+    () => messageIds.filter((id) => !id.startsWith('tmp-')),
+    [messageIds],
+  );
+  useInitSavedStatus(savedSeedIds);
 
   const nameById = useMemo(() => {
     const map = new Map<string, string>();

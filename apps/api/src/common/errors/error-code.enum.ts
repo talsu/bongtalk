@@ -153,6 +153,11 @@ export enum ErrorCode {
   // 상한을 넘김). soft·advisory lock 불요라 ±1 drift 는 허용한다.
   SAVED_LIMIT_EXCEEDED = 'SAVED_LIMIT_EXCEEDED',
 
+  // S52 (D10 / FR-PS-08): PATCH /me/saved/:savedMessageId 대상 저장 항목이 호출자
+  // 본인 소유가 아니거나 존재하지 않음 → 404. 본인 스코프(id+userId) where 가
+  // 일치하지 않으면 존재 자체를 누출하지 않도록 중립적으로 404 로 거부한다.
+  SAVED_NOT_FOUND = 'SAVED_NOT_FOUND',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -272,6 +277,7 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
 
   // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
   [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,
+  [ErrorCode.SAVED_NOT_FOUND]: 404,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
   [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,
