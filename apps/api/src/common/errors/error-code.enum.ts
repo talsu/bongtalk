@@ -140,6 +140,13 @@ export enum ErrorCode {
   // just doesn't match what they actually uploaded).
   INVALID_MAGIC_BYTES = 'INVALID_MAGIC_BYTES',
 
+  // S48 (D06 / FR-MN-10): 글로벌 키워드 알림 등록 한도(25개) 초과. PRD 정본은
+  // 이 거부를 400 으로 명시한다(서비스 레이어 검증 — 26번째 등록 시도 시 400,
+  // 상수 KEYWORD_MAX_COUNT=25). 요청 envelope 은 well-formed 이나 도메인 상한을
+  // 넘김 — 다른 검증 실패(VALIDATION_FAILED)와 구별해 클라이언트가 전용 토스트를
+  // 띄울 수 있도록 별도 코드로 둔다.
+  KEYWORD_LIMIT_EXCEEDED = 'KEYWORD_LIMIT_EXCEEDED',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -257,6 +264,7 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
 
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
+  [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,
   [ErrorCode.NOT_FOUND]: 404,
   [ErrorCode.RATE_LIMITED]: 429,
   [ErrorCode.INTERNAL]: 500,

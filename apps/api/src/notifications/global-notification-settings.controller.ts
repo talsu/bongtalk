@@ -33,13 +33,19 @@ export class GlobalNotificationSettingsController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    return this.prefs.updateGlobal(user.id, {
-      notifTrigger: parsed.data.notifTrigger,
-      keywords: parsed.data.keywords,
-      dndUntil: parsed.data.dndUntil,
-      // 키 부재(undefined) = 미변경, 명시적 null = 스케줄 해제. 둘을 구별해 전달.
-      dndSchedule:
-        'dndSchedule' in parsed.data ? (parsed.data.dndSchedule as DndSchedule | null) : undefined,
-    });
+    return this.prefs.updateGlobal(
+      user.id,
+      {
+        notifTrigger: parsed.data.notifTrigger,
+        keywords: parsed.data.keywords,
+        dndUntil: parsed.data.dndUntil,
+        // 키 부재(undefined) = 미변경, 명시적 null = 스케줄 해제. 둘을 구별해 전달.
+        dndSchedule:
+          'dndSchedule' in parsed.data
+            ? (parsed.data.dndSchedule as DndSchedule | null)
+            : undefined,
+      },
+      new Date(),
+    );
   }
 }

@@ -165,6 +165,8 @@ export const ErrorCodeSchema = z.enum([
   'ALIAS_CONFLICT',
   // task-038-B magic-byte validation
   'INVALID_MAGIC_BYTES',
+  // S48 (FR-MN-10): 키워드 알림 등록 한도(25개) 초과 → 400.
+  'KEYWORD_LIMIT_EXCEEDED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
