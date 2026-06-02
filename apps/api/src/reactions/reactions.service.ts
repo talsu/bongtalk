@@ -1,13 +1,31 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { PERMISSIONS, REACTION_USERS_MAX_LIMIT } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+import { encodeCursor, decodeCursor } from '../messages/cursor/cursor';
 import {
   MESSAGE_REACTION_UPDATED,
+  MESSAGE_REACTION_CLEARED,
   type MessageReactionUpdatedPayload,
+  type MessageReactionClearedPayload,
 } from '../messages/events/message-events';
+
+/**
+ * S40 (FR-RE07): 카탈로그(shared-types PERMISSIONS) 의 ADD_REACTIONS 비트(0x20)를
+ * Number 로 상수화한다. 채널 권한 override 의 allow/deny mask 는 카탈로그 비트로
+ * 저장되므로(isValidPermissionMaskNumber 가 ALL_PERMISSIONS 범위로 검증), 반응
+ * 추가 경로에서 effective mask 의 이 비트를 직접 검사한다.
+ *
+ * ⚠️ API enum `Permission`(apps/api/src/auth/permissions.ts)은 비트 5(0x20)가
+ * MANAGE_CHANNEL 로 카탈로그(ADD_REACTIONS=0x20)와 어긋나 있다 — 이는 기존 "권한
+ * 2중화"(D12 권한 수렴 대상) carryover 다. S40 은 API enum 을 수정하지 않고,
+ * override 가 카탈로그 비트로 저장된다는 사실에 기대 카탈로그 ADD_REACTIONS 비트를
+ * 직접 검사한다(API enum↔카탈로그 정합은 D12 범위).
+ */
+export const ADD_REACTIONS_BIT = Number(PERMISSIONS.ADD_REACTIONS); // 0x20 = 32
 
 /**
  * S39 (FR-RE02 / D05): 메시지당 고유 이모지 반응 종류 상한(Discord parity).
@@ -76,6 +94,10 @@ export class ReactionsService {
     workspaceId: string | null,
     userId: string,
     rawEmoji: string,
+    // S40 (FR-RE07): 컨트롤러가 effective mask 의 카탈로그 ADD_REACTIONS 비트를
+    // 미리 계산해 넘긴다. 토글이 INSERT(새 반응 추가)로 분기할 때만 이 플래그를
+    // 검사한다 — 제거(toggle off)는 권한과 무관하므로 false 여도 통과한다.
+    canAddReaction: boolean,
   ): Promise<{ emoji: string; count: number; byMe: boolean }> {
     const emoji = validateEmoji(rawEmoji);
     return this.prisma.$transaction(async (tx) => {
@@ -102,6 +124,12 @@ export class ReactionsService {
         });
         byMe = false;
       } else {
+        // FR-RE07: 추가(INSERT) 경로에서만 ADD_REACTIONS 권한을 게이트한다. READ 는
+        // 컨트롤러가 이미 통과시켰고, 여기서 effective mask 에 카탈로그 ADD_REACTIONS
+        // 비트가 없으면(override DENY 등) 403 으로 거부한다.
+        if (!canAddReaction) {
+          throw new DomainError(ErrorCode.FORBIDDEN, 'reaction add is denied on this channel');
+        }
         // FR-RE02 (D12 FR-RM16 패턴): 새 *종류* 추가 경로. 동시 distinct-emoji
         // INSERT 가 한도(20)를 넘어 통과하는 phantom 을 막으려면 공유 직렬화 앵커가
         // 필요하다. MessageReaction 행 자체는 INSERT 시점에 존재하지 않아 서로
@@ -186,5 +214,168 @@ export class ReactionsService {
         payload,
       });
     });
+  }
+
+  /**
+   * S40 (FR-RE08): 특정 사용자(targetUserId)의 한 이모지 반응을 actorId 가 제거한다.
+   *
+   *   - actorId === targetUserId  : 자기 반응 제거. 항상 허용(toggle off 와 동치).
+   *   - actorId !== targetUserId  : 타인 반응 제거. 워크스페이스 role 이 OWNER/ADMIN
+   *                                 일 때만 허용하고, MEMBER 는 403(FORBIDDEN)이다.
+   *                                 DM 채널(workspaceId=null)은 워크스페이스 role 이
+   *                                 없으므로 타인 제거를 항상 거부한다.
+   *
+   * 채널 READ ACL 은 컨트롤러가 이 메서드 호출 전에 검사한다. 행을 실제로 지운
+   * 경우에만 reaction.updated outbox 1건을 발행한다(옵션 B 단일 이벤트 — 집계 fanout).
+   * 대상 행이 없으면 no-op(204) 로 둔다(낙관 UI 대비, remove 선례).
+   */
+  async removeByActor(
+    messageId: string,
+    channelId: string,
+    workspaceId: string | null,
+    actorId: string,
+    targetUserId: string,
+    rawEmoji: string,
+  ): Promise<void> {
+    const emoji = validateEmoji(rawEmoji);
+    if (actorId !== targetUserId) {
+      // 타인 반응 제거: OWNER/ADMIN 만. workspaceId 가 null(DM)이면 role 부재 → 거부.
+      if (workspaceId === null) {
+        throw new DomainError(
+          ErrorCode.FORBIDDEN,
+          'only workspace owners/admins may remove others’ reactions',
+        );
+      }
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: actorId } },
+        select: { role: true },
+      });
+      if (!member || (member.role !== 'OWNER' && member.role !== 'ADMIN')) {
+        throw new DomainError(
+          ErrorCode.FORBIDDEN,
+          'only workspace owners/admins may remove others’ reactions',
+        );
+      }
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.messageReaction.deleteMany({
+        where: { messageId, userId: targetUserId, emoji },
+      });
+      if (deleted.count === 0) return;
+      const payload: MessageReactionUpdatedPayload = {
+        workspaceId,
+        channelId,
+        messageId,
+        actorId,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: messageId,
+        eventType: MESSAGE_REACTION_UPDATED,
+        payload,
+      });
+    });
+  }
+
+  /**
+   * S40 (FR-RE09): 메시지의 *모든* 반응을 OWNER/ADMIN 이 일괄 삭제한다. 권한은
+   * 컨트롤러가 OWNER/ADMIN 게이트로 검사한 뒤 호출한다(서비스는 데이터 변경 +
+   * 이벤트만 책임진다). deleteMany(messageId) 로 전체 행을 비우고, 실제로 1행
+   * 이상 지운 경우에만 message.reaction.cleared outbox 1건을 발행한다(subscriber 가
+   * 콜론 wire reaction:cleared 로 변환해 채널 룸 fanout). 이미 반응이 없으면 no-op.
+   */
+  async clearAll(
+    messageId: string,
+    channelId: string,
+    workspaceId: string | null,
+    actorId: string,
+  ): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      const deleted = await tx.messageReaction.deleteMany({ where: { messageId } });
+      if (deleted.count === 0) return;
+      const payload: MessageReactionClearedPayload = {
+        workspaceId,
+        channelId,
+        messageId,
+        actorId,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: messageId,
+        eventType: MESSAGE_REACTION_CLEARED,
+        payload,
+      });
+    });
+  }
+
+  /**
+   * S40 (FR-RE05): 한 이모지에 반응한 *전체* reactor 목록을 cursor 페이지네이션으로
+   * 반환한다. 정렬은 (createdAt ASC, id ASC) — 최초 반응자부터 안정 정렬한다.
+   * 메시지 목록과 동일한 (createdAt, id) 튜플 row-value 비교 + opaque base64url
+   * 커서를 재사용한다(decodeCursor/encodeCursor). limit 은 컨트롤러(Zod)가 1..100
+   * 으로 강제하나, 방어적으로 여기서도 max 로 클램프한다. 채널 READ ACL 은
+   * 컨트롤러가 이 메서드 호출 전에 검사한다.
+   *
+   * `nextCursor` 는 limit+1 을 fetch 해 다음 페이지 존재 여부를 판별하는 흔한
+   * 패턴이다 — limit 개를 넘게 받으면 마지막(초과) 행을 잘라내고 그 직전 행으로
+   * 커서를 만든다(MessageReaction.id 는 @db.Uuid, createdAt 은 timestamptz).
+   *
+   * ⚠️ S40 fix-forward (BLOCKER): tie-breaker id 는 반드시 **MessageReaction.id**
+   * (r."id")여야 한다. 종전엔 SELECT 가 `u.id`(User.id)를 "id" 로 별칭해 cursor 에
+   * User.id 를 인코딩한 반면, ORDER BY·cursor 비교는 `r."id"`(Reaction.id)를 썼다 —
+   * 정렬 키와 커서 키가 서로 다른 id 공간이라, 같은 밀리초에 여러 reactor 가 몰리면
+   * 페이지 경계가 어긋나 다음 페이지에 직전 행이 중복으로 끼어들었다(FR-RE05
+   * 페이지네이션 테스트 RED). 이제 cursor 의 tie-breaker 를 Reaction.id 로 통일하고,
+   * 응답의 reactor 식별자(users[].id)는 별도 컬럼(userId)으로 분리해 그대로 User.id 를
+   * 싣는다.
+   */
+  async listEmojiUsers(
+    messageId: string,
+    rawEmoji: string,
+    limit: number,
+    cursor?: string,
+  ): Promise<{ users: { id: string; username: string | null }[]; nextCursor: string | null }> {
+    const emoji = validateEmoji(rawEmoji);
+    const take = Math.min(Math.max(1, Math.trunc(limit)), REACTION_USERS_MAX_LIMIT);
+    const decoded = cursor ? decodeCursor(cursor) : null;
+
+    // ⚠️ 정밀도 정합: cursor.createdAt 은 ISO 밀리초 정밀도(encodeCursor 가
+    // toISOString())지만, MessageReaction.createdAt 은 DB now() 의 마이크로초
+    // 정밀도다. 키셋 비교를 raw createdAt 으로 하면, 같은 밀리초·다른 마이크로초
+    // 행이 truncated cursor 보다 "크다"고 판정돼 다음 페이지에 중복으로 끼어든다.
+    // 그래서 정렬·비교·커서 인코딩을 모두 **밀리초로 truncate** 한 createdAt 으로
+    // 통일한다(date_trunc('milliseconds', …)). reactionId 가 2차 tie-breaker 라 동일
+    // 밀리초 내에서도 안정·중복 없는 페이지네이션이 보장된다(메시지 커서는 행을
+    // 밀리초 정렬로 시드해 이 문제가 없었음 — 반응은 DB now() 라 명시 truncate 필요).
+    const cursorClause = decoded
+      ? Prisma.sql`AND (date_trunc('milliseconds', r."createdAt"), r."id") > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
+      : Prisma.empty;
+    const rows = await this.prisma.$queryRaw<
+      { reactionId: string; userId: string; username: string | null; createdAtMs: Date }[]
+    >(Prisma.sql`
+      SELECT r.id                                        AS "reactionId",
+             u.id                                        AS "userId",
+             u.username                                  AS "username",
+             date_trunc('milliseconds', r."createdAt")   AS "createdAtMs"
+        FROM "MessageReaction" r
+        JOIN "User" u ON u.id = r."userId"
+       WHERE r."messageId" = ${messageId}::uuid
+         AND r.emoji = ${emoji}
+         ${cursorClause}
+       ORDER BY date_trunc('milliseconds', r."createdAt") ASC, r."id" ASC
+       LIMIT ${take + 1}
+    `);
+
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+    const last = page.length > 0 ? page[page.length - 1] : null;
+    const nextCursor =
+      hasMore && last
+        ? encodeCursor({ id: last.reactionId, createdAt: last.createdAtMs.toISOString() })
+        : null;
+    return {
+      users: page.map((r) => ({ id: r.userId, username: r.username ?? null })),
+      nextCursor,
+    };
   }
 }

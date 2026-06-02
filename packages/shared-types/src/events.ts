@@ -32,6 +32,14 @@ export const WS_EVENTS = {
   // 다름) 제외하며, 클라 dispatcher 가 users 에 자신의 userId 가 포함됐는지로
   // `byMe` 를 로컬 계산한다(카운트/리스트는 WS 가 진실값).
   REACTION_UPDATED: 'reaction:updated',
+  // 반응 일괄 삭제 (S40 · FR-RE09): OWNER/ADMIN 이 DELETE /messages/:id/reactions
+  // 로 한 메시지의 모든 반응을 일괄 삭제하면 채널 룸 전체에 fanout 한다. payload 는
+  // 라우팅·소비에 필요한 최소 식별자(messageId + channelId)만 싣는다 — 전체 제거라
+  // 집계(count/users)가 필요 없고, 수신 클라는 해당 messageId 의 reactions 를 통째로
+  // 비운다(full clear). 서버 내부 outbox eventType 은 dot 표기(message.reaction.cleared)
+  // 지만 outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해 emit 한다
+  // (reaction:updated / thread:lock:changed 선례).
+  REACTION_CLEARED: 'reaction:cleared',
   // 타이핑
   TYPING_START: 'typing:start',
   TYPING_STOP: 'typing:stop',
@@ -280,6 +288,20 @@ export const ReactionUpdatedPayloadSchema = z.object({
   reactions: z.array(ReactionUpdatedReactionSchema),
 });
 export type ReactionUpdatedPayload = z.infer<typeof ReactionUpdatedPayloadSchema>;
+
+/**
+ * S40 (FR-RE09): reaction:cleared — OWNER/ADMIN 의 메시지 전체 반응 일괄 삭제 시
+ * 채널 룸 전체에 fanout. payload 는 식별자(messageId + channelId)만 싣는다 —
+ * 전체 제거라 집계(count/users)가 없고, 수신 클라는 해당 messageId 의 reactions 를
+ * 통째로 비운다(full clear). reaction:updated 와 달리 seq 는 싣지 않는다(full clear
+ * 라 순서 정합 불필요). 서버 outbox→WS subscriber 가 message.reaction.cleared dot
+ * 이벤트를 이 wire payload 로 변환해 emit 한다.
+ */
+export const ReactionClearedPayloadSchema = z.object({
+  messageId: z.string().min(1),
+  channelId: ChannelIdSchema,
+});
+export type ReactionClearedPayload = z.infer<typeof ReactionClearedPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -575,6 +597,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.MESSAGE_UPDATED]: MessageUpdatedPayloadSchema,
   [WS_EVENTS.MESSAGE_DELETED]: MessageDeletedPayloadSchema,
   [WS_EVENTS.REACTION_UPDATED]: ReactionUpdatedPayloadSchema,
+  [WS_EVENTS.REACTION_CLEARED]: ReactionClearedPayloadSchema,
   [WS_EVENTS.TYPING_START]: TypingStartPayloadSchema,
   [WS_EVENTS.TYPING_STOP]: TypingStopPayloadSchema,
   [WS_EVENTS.TYPING_UPDATE]: TypingUpdatePayloadSchema,

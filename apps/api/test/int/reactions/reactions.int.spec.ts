@@ -31,8 +31,10 @@ beforeEach(async () => {
   await env.prisma.messageReaction.deleteMany({});
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
-  const rlKeys = await env.redis.keys('rl:*');
-  if (rlKeys.length > 0) await env.redis.del(...rlKeys);
+  // 반응/메시지 rate-limit 버킷을 모두 비운다. 반응 엔드포인트는 60/min 고정 한도라,
+  // 프로즌 클록(2025-01-01) 아래에서 같은 user 키가 테스트 간 누적되지 않도록
+  // 전체 rl:* 를 매 테스트 시작 시 제거한다(기존 패턴 + FLUSH 보강).
+  await env.redis.flushdb();
 });
 
 async function postMessage(token: string, content = 'reactable'): Promise<string> {
@@ -346,5 +348,295 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
       .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
       .set(bearer(stack.member.accessToken));
     expect(one.body.message.reactions).toEqual([{ emoji: '🚀', count: 3, byMe: true }]);
+  });
+
+  // ── S40 (FR-RE07): ADD_REACTIONS(카탈로그 0x20) override → ADR-4 fold ─────────
+  // API enum 은 수정하지 않는다(D12). override 는 카탈로그 비트로 저장되며, 컨트롤러
+  // canAddReaction 은 PermissionMatrix.fold 와 동일한 우선순위
+  // (base→roleAllow→roleDeny→userAllow→userDeny, 나중=우선)로 fold 한다. 반응 base 는
+  // 기본 허용이라, 명시 override 가 없으면 통과한다.
+  const ADD_REACTIONS_BIT = 0x20; // 카탈로그 PERMISSIONS.ADD_REACTIONS
+
+  // (a) USER denyMask ADD_REACTIONS → 403. 제거(toggle off)·조회는 무관.
+  it('FR-RE07(a): USER DENY override 유저는 반응 추가 시 403, override 없는 유저는 정상', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+
+    // member 본인에게 ADD_REACTIONS DENY override 를 건다.
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'USER',
+        principalId: stack.member.userId,
+        allowMask: 0,
+        denyMask: ADD_REACTIONS_BIT,
+      },
+    });
+    try {
+      // member: 추가(INSERT) → 403 FORBIDDEN.
+      const denied = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '👍' });
+      expect(denied.status).toBe(403);
+      expect(denied.body.errorCode).toBe('FORBIDDEN');
+
+      // (d) admin(override 없음): 기본 허용 → 정상 추가.
+      const ok = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.admin.accessToken))
+        .send({ emoji: '👍' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.byMe).toBe(true);
+
+      // 제거(DELETE) 경로는 ADD_REACTIONS 게이트를 타지 않는다 — member 가 자기
+      // (없는) 반응을 DELETE 해도 403 이 아니라 no-op 204 다. add(INSERT)만 막힌다.
+      const memberSelfDelete = await request(env.baseUrl)
+        .delete(`/messages/${msgId}/reactions/${encodeURIComponent('👍')}`)
+        .set(bearer(stack.member.accessToken));
+      expect(memberSelfDelete.status).toBe(204);
+    } finally {
+      await env.prisma.channelPermissionOverride.deleteMany({
+        where: { channelId: stack.channelId, principalId: stack.member.userId },
+      });
+    }
+  });
+
+  // (b) ROLE(멤버 role) denyMask → 그 role 의 모든 유저가 403.
+  it('FR-RE07(b): ROLE(MEMBER) DENY override 면 해당 role 유저는 반응 추가 시 403', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+
+    // MEMBER role 자체에 ADD_REACTIONS DENY 를 건다(member 는 MEMBER role).
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'ROLE',
+        principalId: 'MEMBER',
+        allowMask: 0,
+        denyMask: ADD_REACTIONS_BIT,
+      },
+    });
+    try {
+      const denied = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '👍' });
+      expect(denied.status).toBe(403);
+      expect(denied.body.errorCode).toBe('FORBIDDEN');
+
+      // ADMIN role 유저는 영향 없음(다른 ROLE) → 정상 추가.
+      const ok = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.admin.accessToken))
+        .send({ emoji: '👍' });
+      expect(ok.status).toBe(200);
+    } finally {
+      await env.prisma.channelPermissionOverride.deleteMany({
+        where: { channelId: stack.channelId, principalType: 'ROLE', principalId: 'MEMBER' },
+      });
+    }
+  });
+
+  // (c) ROLE deny + 같은 유저 USER allow → 허용(200). userAllow 가 roleDeny 를 이김(ADR-4).
+  // 종전 단순 OR 폴드는 이 케이스를 잘못 403 했다 — fold 정정의 핵심 회귀 가드.
+  it('FR-RE07(c): ROLE DENY + 같은 유저 USER ALLOW 면 userAllow 가 이겨 허용(200)', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'ROLE',
+        principalId: 'MEMBER',
+        allowMask: 0,
+        denyMask: ADD_REACTIONS_BIT,
+      },
+    });
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'USER',
+        principalId: stack.member.userId,
+        allowMask: ADD_REACTIONS_BIT,
+        denyMask: 0,
+      },
+    });
+    try {
+      const ok = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '👍' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.byMe).toBe(true);
+    } finally {
+      await env.prisma.channelPermissionOverride.deleteMany({
+        where: {
+          channelId: stack.channelId,
+          OR: [
+            { principalType: 'ROLE', principalId: 'MEMBER' },
+            { principalType: 'USER', principalId: stack.member.userId },
+          ],
+        },
+      });
+    }
+  });
+
+  // (d) override 전무 → 기본 허용(200). base=true 출발 확인.
+  it('FR-RE07(d): override 가 전혀 없으면 반응 추가는 기본 허용(200)', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+    const ok = await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: '👍' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.byMe).toBe(true);
+  });
+
+  // ── S40 (FR-RE08): OWNER/ADMIN 의 타인 반응 제거 ────────────────────────────
+  it('FR-RE08: MEMBER 는 타인 반응 제거 403, OWNER/ADMIN 은 성공, 자기 제거는 허용', async () => {
+    const msgId = await postMessage(stack.owner.accessToken);
+    // member 가 👍 반응을 단다.
+    await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: '👍' })
+      .expect(200);
+
+    // 다른 MEMBER(여기선 nonMember 는 채널 밖이므로, admin 을 강등하지 않고 member 가
+    // owner 의 반응을 지우려 시도). owner 가 👎 를 달아둔다.
+    await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.owner.accessToken))
+      .send({ emoji: '👎' })
+      .expect(200);
+
+    // MEMBER 가 owner(타인)의 👎 반응 제거 시도 → 403.
+    const memberDeniesOther = await request(env.baseUrl)
+      .delete(
+        `/messages/${msgId}/reactions/${encodeURIComponent('👎')}/users/${stack.owner.userId}`,
+      )
+      .set(bearer(stack.member.accessToken));
+    expect(memberDeniesOther.status).toBe(403);
+
+    // ADMIN 이 member(타인)의 👍 반응 제거 → 204 성공.
+    const adminRemovesOther = await request(env.baseUrl)
+      .delete(
+        `/messages/${msgId}/reactions/${encodeURIComponent('👍')}/users/${stack.member.userId}`,
+      )
+      .set(bearer(stack.admin.accessToken));
+    expect(adminRemovesOther.status).toBe(204);
+
+    // OWNER 가 member 의 (이미 없는) 👍 재제거 → no-op 204.
+    const ownerNoop = await request(env.baseUrl)
+      .delete(
+        `/messages/${msgId}/reactions/${encodeURIComponent('👍')}/users/${stack.member.userId}`,
+      )
+      .set(bearer(stack.owner.accessToken));
+    expect(ownerNoop.status).toBe(204);
+
+    // 자기 반응 제거(actor === target)는 MEMBER 도 허용 — owner 가 자기 👎 제거.
+    const ownerSelf = await request(env.baseUrl)
+      .delete(
+        `/messages/${msgId}/reactions/${encodeURIComponent('👎')}/users/${stack.owner.userId}`,
+      )
+      .set(bearer(stack.owner.accessToken));
+    expect(ownerSelf.status).toBe(204);
+
+    // 최종: 모든 반응이 제거됐다.
+    const rows = await env.prisma.messageReaction.findMany({ where: { messageId: msgId } });
+    expect(rows).toHaveLength(0);
+  });
+
+  // ── S40 (FR-RE05): reactor 전체 목록 cursor 페이지네이션 ───────────────────
+  it('FR-RE05: GET .../:emoji/users 가 (createdAt,id) cursor 로 reactor 전원을 페이지네이션', async () => {
+    const msgId = await postMessage(stack.owner.accessToken);
+    // 3명이 동일 이모지에 반응(member, admin, owner).
+    for (const a of [stack.member, stack.admin, stack.owner]) {
+      await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(a.accessToken))
+        .send({ emoji: '🔥' })
+        .expect(200);
+    }
+
+    // limit=2 → 첫 페이지 2명 + nextCursor.
+    const p1 = await request(env.baseUrl)
+      .get(`/messages/${msgId}/reactions/${encodeURIComponent('🔥')}/users?limit=2`)
+      .set(bearer(stack.member.accessToken));
+    expect(p1.status).toBe(200);
+    expect(p1.body.users).toHaveLength(2);
+    expect(p1.body.nextCursor).toBeTruthy();
+    expect(p1.body.users.every((u: { username: string | null }) => 'username' in u)).toBe(true);
+
+    // 둘째 페이지 → 나머지 1명 + nextCursor null.
+    const p2 = await request(env.baseUrl)
+      .get(
+        `/messages/${msgId}/reactions/${encodeURIComponent('🔥')}/users?limit=2&cursor=${encodeURIComponent(
+          p1.body.nextCursor,
+        )}`,
+      )
+      .set(bearer(stack.member.accessToken));
+    expect(p2.status).toBe(200);
+    expect(p2.body.users).toHaveLength(1);
+    expect(p2.body.nextCursor).toBeNull();
+
+    // 전체 합집합이 3명 전원이고 중복이 없다.
+    const allIds = [...p1.body.users, ...p2.body.users].map((u: { id: string }) => u.id);
+    expect(new Set(allIds).size).toBe(3);
+    expect(new Set(allIds)).toEqual(
+      new Set([stack.member.userId, stack.admin.userId, stack.owner.userId]),
+    );
+  });
+
+  // ── S40 (FR-RE09): 전체 반응 일괄 삭제 + reaction.cleared 이벤트 ────────────
+  it('FR-RE09: 비OWNER/ADMIN 은 일괄 삭제 403, OWNER 는 204 + message.reaction.cleared', async () => {
+    const msgId = await postMessage(stack.owner.accessToken);
+    for (const [a, e] of [
+      [stack.member, '👍'],
+      [stack.admin, '🎉'],
+      [stack.owner, '🔥'],
+    ] as const) {
+      await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(a.accessToken))
+        .send({ emoji: e })
+        .expect(200);
+    }
+
+    // MEMBER 일괄 삭제 → 403.
+    const memberClear = await request(env.baseUrl)
+      .delete(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken));
+    expect(memberClear.status).toBe(403);
+
+    // 아직 3종이 남아있다.
+    const before = await env.prisma.messageReaction.findMany({ where: { messageId: msgId } });
+    expect(before).toHaveLength(3);
+
+    // OWNER 일괄 삭제 → 204.
+    const ownerClear = await request(env.baseUrl)
+      .delete(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.owner.accessToken));
+    expect(ownerClear.status).toBe(204);
+
+    // 모든 반응이 사라졌다.
+    const after = await env.prisma.messageReaction.findMany({ where: { messageId: msgId } });
+    expect(after).toHaveLength(0);
+
+    // message.reaction.cleared outbox 이벤트 1건이 발행됐다.
+    const cleared = await env.prisma.outboxEvent.findMany({
+      where: { aggregateId: msgId, eventType: 'message.reaction.cleared' },
+    });
+    expect(cleared).toHaveLength(1);
+    expect((cleared[0].payload as { channelId: string }).channelId).toBe(stack.channelId);
+    expect((cleared[0].payload as { messageId: string }).messageId).toBe(msgId);
+
+    // 반응이 없는 메시지에 재호출 → no-op 204, 추가 이벤트 없음.
+    const ownerClearAgain = await request(env.baseUrl)
+      .delete(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.owner.accessToken));
+    expect(ownerClearAgain.status).toBe(204);
+    const clearedAfter = await env.prisma.outboxEvent.findMany({
+      where: { aggregateId: msgId, eventType: 'message.reaction.cleared' },
+    });
+    expect(clearedAfter).toHaveLength(1);
   });
 });

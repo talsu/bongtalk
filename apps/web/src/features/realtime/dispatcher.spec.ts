@@ -324,6 +324,45 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  // S40 fix-forward (HIGH): reaction:updated 가 들어오면 열린 reactor 목록 모달의
+  // 캐시(`['reactions','users', messageId]` prefix)를 무효화해 stale 목록을 막는다.
+  it('reaction:updated invalidates the reactor-users cache for the message', () => {
+    __resetReactionIntents();
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-1',
+      activeChannelId: () => 'ch-1',
+    });
+    socket.emit('reaction:updated', {
+      messageId: 'msg-a',
+      channelId: 'ch-1',
+      reactions: [{ emoji: '🎉', count: 1, users: [{ id: 'u-2', username: 'other' }] }],
+    });
+    expect(invalidateSpy).toHaveBeenCalledWith({
+      queryKey: ['reactions', 'users', 'msg-a'],
+    });
+    detach();
+  });
+
+  // S40 fix-forward (HIGH): reaction:cleared 는 reactor 목록 캐시를 통째로 제거한다
+  // (일괄 삭제 후 reactor 전무 → invalidate 재요청보다 removeQueries 로 즉시 파기).
+  it('reaction:cleared removes the reactor-users cache for the message', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const removeSpy = vi.spyOn(qc, 'removeQueries');
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-1',
+      activeChannelId: () => 'ch-1',
+    });
+    socket.emit('reaction:cleared', { messageId: 'msg-a', channelId: 'ch-1' });
+    expect(removeSpy).toHaveBeenCalledWith({
+      queryKey: ['reactions', 'users', 'msg-a'],
+    });
+    detach();
+  });
+
   function seedCapMessage(qc: QueryClient, key: readonly unknown[], byMe: boolean): void {
     qc.setQueryData(key, {
       pages: [

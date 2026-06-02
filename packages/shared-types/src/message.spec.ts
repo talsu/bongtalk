@@ -13,6 +13,10 @@ import {
   ListThreadRepliesResponseSchema,
   ReactionSummarySchema,
   ListReactionsResponseSchema,
+  ListReactionUsersResponseSchema,
+  ListReactionUsersQuerySchema,
+  REACTION_USERS_DEFAULT_LIMIT,
+  REACTION_USERS_MAX_LIMIT,
 } from './message';
 
 /**
@@ -392,5 +396,38 @@ describe('S39 (SHOULD 3) — reactions contract: per-viewer vs GET-detail 형태
       reactions: [{ emoji: '👍', count: 6, users: sixUsers }],
     });
     expect(res.success).toBe(false);
+  });
+});
+
+describe('S40 (FR-RE05) — reactor 전체 목록 cursor 페이지네이션 계약', () => {
+  it('ListReactionUsersResponse 는 users[{id,username|null}] + nextCursor(nullable) 형태다', () => {
+    const sample = {
+      users: [
+        { id: '11111111-1111-4111-8111-111111111111', username: 'alice' },
+        { id: '22222222-2222-4222-8222-222222222222', username: null },
+      ],
+      nextCursor: 'eyJpZCI6ImEifQ',
+    };
+    const res = ListReactionUsersResponseSchema.safeParse(sample);
+    expect(res.success).toBe(true);
+  });
+
+  it('마지막 페이지는 nextCursor=null 로 표현된다', () => {
+    const res = ListReactionUsersResponseSchema.safeParse({ users: [], nextCursor: null });
+    expect(res.success).toBe(true);
+  });
+
+  it('limit 미지정 시 기본 50, 100 초과는 거부된다', () => {
+    const parsed = ListReactionUsersQuerySchema.parse({});
+    expect(parsed.limit).toBe(REACTION_USERS_DEFAULT_LIMIT);
+    expect(REACTION_USERS_DEFAULT_LIMIT).toBe(50);
+    expect(REACTION_USERS_MAX_LIMIT).toBe(100);
+    const over = ListReactionUsersQuerySchema.safeParse({ limit: 101 });
+    expect(over.success).toBe(false);
+  });
+
+  it('limit 는 문자열 쿼리도 강제 정수 변환한다(z.coerce)', () => {
+    const parsed = ListReactionUsersQuerySchema.parse({ limit: '25' });
+    expect(parsed.limit).toBe(25);
   });
 });

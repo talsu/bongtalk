@@ -12,6 +12,7 @@ import {
 } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { ReactionBar } from '../reactions/ReactionBar';
+import { ReactionUsersModal } from '../reactions/ReactionUsersModal';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent, extractMessageUrls } from './parseContent';
@@ -133,6 +134,8 @@ export function MessageItem({
     if (isMountedRef.current) setter(value);
   };
   const [pickerOpen, setPickerOpen] = useState(false);
+  // S40 (FR-RE05): reactor 전체 목록 모달이 보여줄 이모지. null 이면 닫힘.
+  const [reactorEmoji, setReactorEmoji] = useState<string | null>(null);
   // The more-menu lives inside .qf-message__toolbar which the DS CSS
   // toggles to display:flex only on `.qf-message:hover`. Radix opens
   // its portal over the trigger's getBoundingClientRect(); if the
@@ -409,11 +412,23 @@ export function MessageItem({
                   pickerOpen={pickerOpen}
                   onPickerOpenChange={setPickerOpen}
                   onToggle={(emoji, byMe) => onToggleReaction(emoji, byMe)}
+                  // S40 (FR-RE05): 칩 옆 보조 버튼으로 reactor 전체 목록 모달을 연다.
+                  onShowReactors={(emoji) => setReactorEmoji(emoji)}
                   customEmojis={customEmojis.list.map((ce) => ({
                     id: ce.id,
                     name: ce.name,
                     url: ce.url,
                   }))}
+                />
+              ) : null}
+              {onToggleReaction ? (
+                <ReactionUsersModal
+                  messageId={msg.id}
+                  emoji={reactorEmoji}
+                  open={reactorEmoji !== null}
+                  onOpenChange={(o) => {
+                    if (!o) setReactorEmoji(null);
+                  }}
                 />
               ) : null}
             </div>
