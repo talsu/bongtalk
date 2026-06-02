@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S40 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S41(D05 커스텀 이모지 업로드, FR-EM01/02/03/04/06·RC20 — apps/api/src/emojis·storage + apps/web/src/features/emojis, MinIO 저장).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응 S39 코어·S40 확장 완료·S41~ 커스텀 이모지) 진행 중. **진행률: 166/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S41 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S42(D05 이모지 별칭/사용자 선호·퀵리액션, FR-EM05/EM07/PK01/PK02/PK03/PK04 — apps/api/src/emojis·me + apps/web/src/features/emojis. deps S41,S18).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응 S39 코어·S40 확장·S41 커스텀이모지 업로드 완료·S42~ 별칭/선호) 진행 중. **진행률: 172/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -390,12 +390,22 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 449·web 673·shared-types 203·webhook 50) + 빌드 3종 + reactions int **18**(FR-RE07 a/b/c/d·FR-RE08·FR-RE05·FR-RE09). DS 4파일·settings.json 무수정.
 - carryover: **FR-RE08/09 모더레이터 UI 배선**(reactor 모달 제거버튼·메시지 메뉴 일괄삭제 — 백엔드/contract 완료·client api fn 존재). listEmojiUsers **표현식 인덱스**`(messageId,emoji,date_trunc('ms',createdAt),id)`(perf 마이그레이션). canAddReaction↔resolveEffective **중복 override 조회**(D12 권한수렴 묶음). **API enum↔카탈로그 0x20**(MANAGE_CHANNEL vs ADD_REACTIONS) 정합(D12). Dialog 명시 닫기버튼(SRS-1). focus-ring 대비(MOD-1 DS토큰). qf-reaction 터치타깃 24px(MIN-2 DS). 모바일 qf-m-sheet 변형. EmojiPicker 구조적 a11y overhaul(S39 이월).
 
-## 다음 슬라이스: S41 (D05 커스텀 이모지 업로드)
+## ✅ S41 (D05 커스텀 이모지 업로드/관리 + 커스텀이모지 반응) — 완료 (2026-06-02, 이 세션)
 
-- scope api + web + storage. **FR-EM01/EM02/EM03/EM04/EM06 + FR-RC20**(P1). deps S39.
-- 파일: `apps/api/src/emojis/**`, `apps/api/src/storage/**`, `apps/web/src/features/emojis/**`.
-- FR 정본 PRD html 재확인 필수(D05 커스텀 이모지 섹션). 예상: 커스텀 이모지 **업로드**(이미지 → MinIO 저장·magic-bytes 검증·크기/포맷 제한)·워크스페이스 이모지 목록·이름(:shortcode:) 관리·삭제·권한(누가 업로드/삭제). **MinIO 저장**(S3 표현 금지 — 대화/설계는 MinIO). 첨부(attachments) storage 패턴·validate-magic-bytes 재사용. 마이그레이션 가능성(CustomEmoji 모델 신규) — PRD 확인 후 reversible.
-- EmojiPicker 에 커스텀 이모지 섹션 통합 시 **EmojiPicker a11y carryover**(role=menu→dialog 등) 와 묶어 처리 가능.
+- emojis 모듈이 이미 상당부분 존재(presign/finalize/list/delete + web manager/Context/Picker prop). S41 갭 해소: **FR-EM01/RC20**(presign+finalize 업로드·**webp 추가**·**서버 리사이즈 없음**·256KB HEAD+**매직바이트 재검증**), **FR-EM02**(cap 100·Workspace 행 `FOR NO KEY UPDATE`+`ON CONFLICT DO NOTHING`·**409 `EMOJI_WORKSPACE_LIMIT`**), **FR-EM03**(목록 `{...,aliases:[],url}`), **FR-EM04**(삭제 본인/OWNER/ADMIN·MinIO hard delete·`emoji:deleted`), **FR-EM06**(마이그레이션 `MessageReaction.customEmojiId` FK **SetNull** + 커스텀이모지 반응(validateEmoji 워크스페이스 스코프 분기)+ ReactionBar img/`[삭제된 이모지]` placeholder). `emoji:created/deleted` outbox→workspace room fanout. ErrorCode 정비(`INVALID_FILE` 422).
+- **사용자 결정**: 이미지 **서버 리사이즈 없음**(256KB HEAD가 가드·GIF 애니 보존·네이티브 의존 0·PRD sharp 128×128 이탈=carryover). 버킷 **공유 `qufox-attachments`/`emojis/`** 유지(전용 qufox-emoji=인프라 carryover).
+- **7팀 리뷰**(reviewer/db-migrator/contract 완료 + **security/perf/ui/a11y 는 Anthropic 529 과부하 지속으로 메인루프가 직접 검증**) → fix-forward(메인루프 직접). reviewer ★finalize 매직바이트 재검증(getObjectRange 16B+matchesMagic+불일치 삭제+PUT ContentType 고정) **방어**·cap-100 **건전**·aggregateReactions S39/S40 **바이트 shape 무회귀**·validateEmoji **워크스페이스 스코프** 확인. db-migrator throwaway up→down→up+SetNull 실데이터 **PASS**.
+  - **fix-forward(메인루프)**: ★**낙관 깜빡임 HIGH** — 자기 토글이 payload url 부재로 살아있는 커스텀이모지를 "[삭제된 이모지]"로 깜빡임 → ReactionBar 가 `customEmojis` 팩에서 `:name:`→url 직접 해석(`customUrlByToken`)·진짜 삭제만 placeholder + 테스트 2건. contract drift: web `CustomEmoji.aliases?` 추가.
+  - 직접검증: rate-limit(presign/delete enforce·finalize는 presign 키 의존)·시크릿(diff의 `POSTGRES_PASSWORD:'qufox'`는 Testcontainers throwaway·prod 아님)·DS(qf-emoji-custom dead class+inline px=선존 패턴·DS-owner carryover)·a11y(img alt·칩 aria-label·placeholder 텍스트대안 OK)·perf(presign 종류당≤20/메시지·요청간 동일이모지 재서명→캐시불가=carryover).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 455·web 675·shared-types 203·webhook 50) + 빌드 3종 + emoji int 9 + reaction int(S39/40 회귀 포함). **마이그레이션 customEmojiId(reversible·SetNull)**. DS 4파일·settings.json 무수정.
+- carryover: **reviewer MAJOR**(삭제→동명 재업로드→재토글 시 stale NULL 행이 re-point 안 됨·`ON CONFLICT DO UPDATE` 또는 테스트 — narrow edge). emoji.created/deleted **비-tx outbox**(at-most-once·self-heal)·S3 delete 실패 시 객체 orphan(orphan-gc). presign **캐시불가**(공개 url/전용 버킷 연계)·canMemberUpload 토글·**WorkspaceEmojiConfig**·**CustomEmojiAlias 별칭 CRUD(FR-EM05→S42)**·quickReactions·UserEmojiPreference·sharp 128×128·GIF 50프레임·qf-emoji-custom DS 정의·EmojiPicker 구조적 a11y. **S41 security/perf/ui/a11y subagent 재실행**(529 회복 후 보강 가능·핵심은 직접 커버됨).
+
+## 다음 슬라이스: S42 (D05 이모지 별칭 + 사용자 선호/퀵리액션)
+
+- scope api + web. **FR-EM05/EM07/PK01/PK02/PK03/PK04**(P1). deps S41,S18.
+- 파일: `apps/api/src/emojis/**`, `apps/api/src/me/**`, `apps/web/src/features/emojis/**`.
+- FR 정본 PRD html 재확인 필수. 예상: **FR-EM05** 커스텀이모지 **별칭(alias) CRUD**(S41 에서 list `aliases:[]` shape 만·CustomEmojiAlias 모델 신규 마이그레이션·`@@unique([workspaceId,alias])`·`emoji:alias_updated` 이벤트), **FR-EM07**(이모지 관련 — PRD 확인), **FR-PK01~04**(이모지 팩/퀵리액션/사용자 선호 — `WorkspaceEmojiConfig.quickReactions`·`UserEmojiPreference` 모델·`me/emoji-preferences` PATCH 가능성). S41 carryover(canMemberUpload·WorkspaceEmojiConfig)와 겹칠 수 있어 함께 설계. 마이그레이션 reversible.
+- S41 에서 EmojiPicker 구조적 a11y carryover 와 묶어 처리 가능.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

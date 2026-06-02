@@ -112,9 +112,17 @@ export enum ErrorCode {
   CUSTOM_EMOJI_NOT_FOUND = 'CUSTOM_EMOJI_NOT_FOUND',
   CUSTOM_EMOJI_NAME_TAKEN = 'CUSTOM_EMOJI_NAME_TAKEN',
   CUSTOM_EMOJI_NAME_INVALID = 'CUSTOM_EMOJI_NAME_INVALID',
-  CUSTOM_EMOJI_CAP_REACHED = 'CUSTOM_EMOJI_CAP_REACHED',
-  CUSTOM_EMOJI_MIME_REJECTED = 'CUSTOM_EMOJI_MIME_REJECTED',
-  CUSTOM_EMOJI_TOO_LARGE = 'CUSTOM_EMOJI_TOO_LARGE',
+  // S41 (FR-EM02): 워크스페이스당 커스텀 이모지 100개 한도 초과. PRD 정본은 이
+  // 거부를 409 + { errorCode: EMOJI_WORKSPACE_LIMIT } 로 명시한다(종전 task-037-D
+  // 의 CUSTOM_EMOJI_CAP_REACHED 422 를 정합 — INSERT ON CONFLICT DO NOTHING 후
+  // 단일 tx 내 COUNT … FOR UPDATE 로 100 초과 시 방금 삽입행 DELETE 후 이 코드로
+  // 거부). 상태 충돌 계열이므로 409 가 422 보다 정확하다.
+  EMOJI_WORKSPACE_LIMIT = 'EMOJI_WORKSPACE_LIMIT',
+  // S41 (FR-EM01 / FR-RC20): 업로드 파일이 MIME 화이트리스트(png/gif/webp) 밖이거나
+  // size 한도(256KB)를 벗어남. PRD 정본은 이 거부를 422 INVALID_FILE 로 명시한다
+  // (종전 CUSTOM_EMOJI_MIME_REJECTED 415 / CUSTOM_EMOJI_TOO_LARGE 413 를 정합 —
+  // 요청 envelope 은 well-formed JSON 이나 선언된 파일이 도메인 제약을 못 넘김).
+  INVALID_FILE = 'INVALID_FILE',
 
   // task-038-B magic-byte mismatch between declared mime and actual
   // file prefix. 400 so the client surfaces it as a validation error
@@ -221,9 +229,10 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CUSTOM_EMOJI_NOT_FOUND]: 404,
   [ErrorCode.CUSTOM_EMOJI_NAME_TAKEN]: 409,
   [ErrorCode.CUSTOM_EMOJI_NAME_INVALID]: 422,
-  [ErrorCode.CUSTOM_EMOJI_CAP_REACHED]: 422,
-  [ErrorCode.CUSTOM_EMOJI_MIME_REJECTED]: 415,
-  [ErrorCode.CUSTOM_EMOJI_TOO_LARGE]: 413,
+  // S41 (FR-EM02): cap 초과는 409(상태 충돌).
+  [ErrorCode.EMOJI_WORKSPACE_LIMIT]: 409,
+  // S41 (FR-EM01 / FR-RC20): MIME/size 거부는 422(처리 불가).
+  [ErrorCode.INVALID_FILE]: 422,
   // task-039-D: 422 (Unprocessable Entity) is more accurate than 400
   // — the request envelope is well-formed JSON with valid fields, but
   // the uploaded payload's magic bytes do not match the declared

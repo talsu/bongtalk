@@ -33,6 +33,7 @@ import {
 } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { UnreadService } from '../channels/unread.service';
+import { S3Service } from '../storage/s3.service';
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
@@ -144,6 +145,11 @@ export type ReactionSummary = {
   emoji: string;
   count: number;
   byMe: boolean;
+  // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 참조 CustomEmoji.id + presigned
+  // url. 유니코드 반응이면 둘 다 undefined. **삭제된** 커스텀 이모지 반응은
+  // customEmojiId=null(emoji 슬러그만 남음 → UI placeholder).
+  customEmojiId?: string | null;
+  url?: string | null;
 };
 
 export type AttachmentLite = {
@@ -240,6 +246,11 @@ export class MessagesService {
     @Optional()
     @Inject(forwardRef(() => UnreadService))
     private readonly unread?: UnreadService,
+    // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응 집계가 storageKey → presigned
+    // url 변환에 쓴다. @Optional 이라 S3 미주입 단위테스트는 url=null 로 폴백한다
+    // (반응 카운트/식별자는 그대로, 이미지 url 만 비는 graceful degrade).
+    @Optional()
+    private readonly s3?: S3Service,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -535,23 +546,63 @@ export class MessagesService {
   ): Promise<Map<string, ReactionSummary[]>> {
     const out = new Map<string, ReactionSummary[]>();
     if (messageIds.length === 0) return out;
+    // S41 (FR-EM06 / FR-RC20): emoji + customEmojiId 로 그룹화한다(같은 슬러그라도
+    // customEmojiId 가 다르면 별개 종류로 분리 — 삭제 후 재업로드 시 식별자가 달라짐).
+    // CustomEmoji 를 LEFT JOIN 해 storageKey 를 얻고, presigned url 은 서비스에서
+    // 채운다(N+1 회피 — 종류 수만큼만 presign, 메시지당 ≤20 종). 삭제된 커스텀 이모지
+    // 반응은 customEmojiId 가 NULL 이라 storageKey 도 NULL → url 도 null(placeholder).
     const rows = await this.prisma.$queryRaw<
-      { messageId: string; emoji: string; count: bigint; byMe: boolean }[]
+      {
+        messageId: string;
+        emoji: string;
+        count: bigint;
+        byMe: boolean;
+        customEmojiId: string | null;
+        storageKey: string | null;
+      }[]
     >(Prisma.sql`
-      SELECT "messageId", emoji,
-             COUNT(*)::bigint AS count,
-             BOOL_OR("userId" = ${viewerId}::uuid) AS "byMe"
-        FROM "MessageReaction"
-       WHERE "messageId" IN (${Prisma.join(messageIds.map((id) => Prisma.sql`${id}::uuid`))})
-       GROUP BY "messageId", emoji
-       ORDER BY "messageId", count DESC, emoji ASC
+      SELECT r."messageId"                            AS "messageId",
+             r.emoji                                  AS "emoji",
+             COUNT(*)::bigint                         AS "count",
+             BOOL_OR(r."userId" = ${viewerId}::uuid)  AS "byMe",
+             r."customEmojiId"                        AS "customEmojiId",
+             MAX(ce."storageKey")                     AS "storageKey"
+        FROM "MessageReaction" r
+        LEFT JOIN "CustomEmoji" ce ON ce.id = r."customEmojiId"
+       WHERE r."messageId" IN (${Prisma.join(messageIds.map((id) => Prisma.sql`${id}::uuid`))})
+       GROUP BY r."messageId", r.emoji, r."customEmojiId"
+       ORDER BY r."messageId", count DESC, r.emoji ASC
     `);
     for (const r of rows) {
       const list = out.get(r.messageId) ?? [];
-      list.push({ emoji: r.emoji, count: Number(r.count), byMe: r.byMe });
+      // S41: 유니코드 + **삭제된** 커스텀 이모지(customEmojiId=null)는 S39/S40 와
+      // 바이트 동일한 { emoji, count, byMe } shape 을 유지한다 — 회귀 방지. 살아있는
+      // 커스텀 이모지(customEmojiId !== null)에만 customEmojiId + presigned url 을
+      // 덧붙인다. (삭제된 커스텀은 emoji=`:name:` 슬러그 + url 부재로 클라가 판별.)
+      const base: ReactionSummary = { emoji: r.emoji, count: Number(r.count), byMe: r.byMe };
+      if (r.customEmojiId !== null) {
+        base.customEmojiId = r.customEmojiId;
+        base.url = await this.presignEmojiUrl(r.storageKey);
+      }
+      list.push(base);
       out.set(r.messageId, list);
     }
     return out;
+  }
+
+  /**
+   * S41 (FR-EM06 / FR-RC20): 커스텀 이모지 storageKey → presigned GET url. S3 가
+   * 미주입(단위테스트)이거나 storageKey 가 null(유니코드/삭제된 커스텀)이면 null
+   * 을 돌려준다 — 반응 카운트/식별자는 유지되고 이미지 url 만 graceful 하게 빈다.
+   */
+  private async presignEmojiUrl(storageKey: string | null): Promise<string | null> {
+    if (!storageKey || !this.s3) return null;
+    try {
+      return await this.s3.presignGet(storageKey);
+    } catch {
+      // presign 실패(S3 미설정 등)는 치명적이지 않다 — placeholder 로 폴백.
+      return null;
+    }
   }
 
   /**
@@ -564,27 +615,44 @@ export class MessagesService {
    * 이모지 종류가 최대 20개(FR-RE02 한도)라 fan-out 이 bounded 하다(20×5). username
    * 은 같은 LATERAL 안에서 User 조인으로 채워 N+1 을 피한다.
    */
-  async aggregateReactionDetails(
-    messageId: string,
-  ): Promise<{ emoji: string; count: number; users: { id: string; username: string | null }[] }[]> {
+  async aggregateReactionDetails(messageId: string): Promise<
+    {
+      emoji: string;
+      count: number;
+      users: { id: string; username: string | null }[];
+      // S41 (FR-EM06 / FR-RC20): 살아있는 커스텀 이모지 반응에만 식별자 + presigned
+      // url 을 덧붙인다(optional). 유니코드/삭제된 커스텀은 이 키들을 생략해 S39/S40
+      // 와 바이트 동일한 shape 을 유지한다(회귀 방지).
+      customEmojiId?: string | null;
+      url?: string | null;
+    }[]
+  > {
+    // S41: emoji + customEmojiId 로 그룹화하고 CustomEmoji 를 LEFT JOIN 해
+    // storageKey 를 얻는다(삭제된 커스텀은 customEmojiId NULL → storageKey NULL).
+    // users[≤5] LATERAL 은 같은 (emoji, customEmojiId) 그룹 키로 매칭한다.
     const rows = await this.prisma.$queryRaw<
       {
         emoji: string;
         count: bigint;
         users: { id: string; username: string | null }[] | null;
+        customEmojiId: string | null;
+        storageKey: string | null;
       }[]
     >(Prisma.sql`
       SELECT g.emoji                                       AS "emoji",
              g.cnt                                         AS "count",
-             COALESCE(top.users, '[]'::jsonb)              AS "users"
+             COALESCE(top.users, '[]'::jsonb)              AS "users",
+             g."customEmojiId"                             AS "customEmojiId",
+             ce."storageKey"                               AS "storageKey"
         FROM (
-          SELECT emoji, COUNT(*)::bigint AS cnt
+          SELECT emoji, "customEmojiId", COUNT(*)::bigint AS cnt
             FROM "MessageReaction"
            WHERE "messageId" = ${messageId}::uuid
-           GROUP BY emoji
+           GROUP BY emoji, "customEmojiId"
         ) g
+        LEFT JOIN "CustomEmoji" ce ON ce.id = g."customEmojiId"
         LEFT JOIN LATERAL (
-          -- 이모지당 최초 반응 5명(createdAt ASC). username 은 같은 조인으로 채움.
+          -- 이모지(+customEmojiId) 그룹당 최초 반응 5명(createdAt ASC).
           SELECT jsonb_agg(
                    jsonb_build_object('id', u.id, 'username', u.username)
                    ORDER BY r."createdAt" ASC
@@ -594,6 +662,7 @@ export class MessagesService {
                 FROM "MessageReaction" mr
                WHERE mr."messageId" = ${messageId}::uuid
                  AND mr.emoji = g.emoji
+                 AND mr."customEmojiId" IS NOT DISTINCT FROM g."customEmojiId"
                ORDER BY mr."createdAt" ASC
                LIMIT 5
             ) r
@@ -601,11 +670,26 @@ export class MessagesService {
         ) top ON TRUE
        ORDER BY g.cnt DESC, g.emoji ASC
     `);
-    return rows.map((r) => ({
-      emoji: r.emoji,
-      count: Number(r.count),
-      users: (r.users ?? []).map((u) => ({ id: u.id, username: u.username ?? null })),
-    }));
+    return Promise.all(
+      rows.map(async (r) => {
+        const users = (r.users ?? []).map((u) => ({ id: u.id, username: u.username ?? null }));
+        // S41: 유니코드 + 삭제된 커스텀(customEmojiId=null)은 S39/S40 와 바이트
+        // 동일한 { emoji, count, users } shape 을 유지한다(회귀 방지). 살아있는
+        // 커스텀 이모지에만 customEmojiId + presigned url 을 덧붙인다.
+        const base: {
+          emoji: string;
+          count: number;
+          users: { id: string; username: string | null }[];
+          customEmojiId?: string | null;
+          url?: string | null;
+        } = { emoji: r.emoji, count: Number(r.count), users };
+        if (r.customEmojiId !== null) {
+          base.customEmojiId = r.customEmojiId;
+          base.url = await this.presignEmojiUrl(r.storageKey);
+        }
+        return base;
+      }),
+    );
   }
 
   /**

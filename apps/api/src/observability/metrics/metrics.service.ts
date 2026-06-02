@@ -81,6 +81,9 @@ const L = {
     'mention.received',
     // S16 (FR-DM-16): DM·그룹 DM 개설 outbox 이벤트.
     'dm.created',
+    // S41 (FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클 outbox 이벤트.
+    'emoji.created',
+    'emoji.deleted',
     '_other',
   ]),
   wsEventType: new Set([
@@ -108,6 +111,9 @@ const L = {
     'presence.updated',
     // S16 (FR-DM-16): 와이어 이벤트명(콜론형).
     'dm:created',
+    // S41 (FR-RC20): 와이어 이벤트명(콜론형) — 워크스페이스 룸 emit.
+    'emoji:created',
+    'emoji:deleted',
     '_other',
   ]),
 } as const;

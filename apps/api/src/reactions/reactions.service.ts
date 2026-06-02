@@ -45,6 +45,24 @@ export const MAX_REACTION_KINDS = 20;
 const MAX_EMOJI_CODEPOINTS = 4;
 const MAX_EMOJI_BYTES = 64;
 
+/**
+ * S41 (FR-EM06 / FR-RC20): 커스텀 이모지 슬러그 패턴 `:name:` (name = 2-32자
+ * 소문자·숫자·언더스코어 — CustomEmoji 이름 규칙과 동일). 매칭되면 커스텀 이모지
+ * 반응으로 분기해 워크스페이스 소속 CustomEmoji 존재를 검증한다.
+ */
+const CUSTOM_EMOJI_TOKEN_RE = /^:([a-z0-9_]{2,32}):$/;
+
+/** 토큰에서 슬러그(name)를 뽑는다. 커스텀 토큰이 아니면 null. */
+function customEmojiName(token: string): string | null {
+  const m = CUSTOM_EMOJI_TOKEN_RE.exec(token);
+  return m ? m[1] : null;
+}
+
+/**
+ * 유니코드 반응의 형태 검증. 커스텀 이모지 토큰(`:name:`)은 이 검증을 거치지
+ * 않는다 — 토큰 자체가 codepoint 수를 초과할 수 있고, 길이는 64바이트(VarChar)
+ * 한도 안이며, 존재 검증은 별도 워크스페이스 조회로 한다.
+ */
 function validateEmoji(raw: string): string {
   if (typeof raw !== 'string') {
     throw new DomainError(ErrorCode.VALIDATION_FAILED, 'emoji must be a string');
@@ -55,6 +73,10 @@ function validateEmoji(raw: string): string {
   }
   if (Buffer.byteLength(trimmed, 'utf8') > MAX_EMOJI_BYTES) {
     throw new DomainError(ErrorCode.VALIDATION_FAILED, `emoji exceeds ${MAX_EMOJI_BYTES} bytes`);
+  }
+  // S41: 커스텀 이모지 토큰은 codepoint 한도 검증을 건너뛴다(슬러그라 길 수 있음).
+  if (customEmojiName(trimmed) !== null) {
+    return trimmed;
   }
   const codepoints = [...trimmed];
   if (codepoints.length > MAX_EMOJI_CODEPOINTS) {
@@ -130,6 +152,31 @@ export class ReactionsService {
         if (!canAddReaction) {
           throw new DomainError(ErrorCode.FORBIDDEN, 'reaction add is denied on this channel');
         }
+        // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 토큰(`:name:`)이면 채널의
+        // 워크스페이스에 그 이름의 CustomEmoji 가 존재하는지 검증하고 그 id 를
+        // 잡는다 — 없으면(혹은 DM 채널이라 workspaceId 가 null 이면) 거부한다.
+        // 유니코드 반응이면 customEmojiId 는 null 로 남는다.
+        const customName = customEmojiName(emoji);
+        let customEmojiId: string | null = null;
+        if (customName !== null) {
+          if (workspaceId === null) {
+            throw new DomainError(
+              ErrorCode.CUSTOM_EMOJI_NOT_FOUND,
+              'custom emoji reactions are not available in this channel',
+            );
+          }
+          const ce = await tx.customEmoji.findUnique({
+            where: { workspaceId_name: { workspaceId, name: customName } },
+            select: { id: true },
+          });
+          if (!ce) {
+            throw new DomainError(
+              ErrorCode.CUSTOM_EMOJI_NOT_FOUND,
+              `:${customName}: is not a custom emoji in this workspace`,
+            );
+          }
+          customEmojiId = ce.id;
+        }
         // FR-RE02 (D12 FR-RM16 패턴): 새 *종류* 추가 경로. 동시 distinct-emoji
         // INSERT 가 한도(20)를 넘어 통과하는 phantom 을 막으려면 공유 직렬화 앵커가
         // 필요하다. MessageReaction 행 자체는 INSERT 시점에 존재하지 않아 서로
@@ -139,13 +186,13 @@ export class ReactionsService {
         // 않는 NO KEY 잠금 — advisory lock 미사용). 잠금 획득 후 ON CONFLICT
         // DO NOTHING 으로 INSERT 하고(동일 (msg,user,emoji) 동시 재시도 흡수),
         // 단일 tx 내 COUNT(DISTINCT emoji) 로 종류 수를 센다. 초과 시 방금 삽입한
-        // 행을 DELETE 하고 409 로 거부한다.
+        // 행을 DELETE 하고 409 로 거부한다. S41: customEmojiId 컬럼도 함께 삽입한다.
         await tx.$executeRaw(Prisma.sql`
           SELECT id FROM "Message" WHERE id = ${messageId}::uuid FOR NO KEY UPDATE
         `);
         await tx.$executeRaw(Prisma.sql`
-          INSERT INTO "MessageReaction" ("id", "messageId", "userId", emoji, "createdAt")
-          VALUES (gen_random_uuid(), ${messageId}::uuid, ${userId}::uuid, ${emoji}, NOW())
+          INSERT INTO "MessageReaction" ("id", "messageId", "userId", emoji, "customEmojiId", "createdAt")
+          VALUES (gen_random_uuid(), ${messageId}::uuid, ${userId}::uuid, ${emoji}, ${customEmojiId}::uuid, NOW())
           ON CONFLICT ("messageId", "userId", emoji) DO NOTHING
         `);
         const kindRows = await tx.$queryRaw<{ kinds: bigint }[]>(Prisma.sql`

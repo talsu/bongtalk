@@ -3,6 +3,8 @@ import {
   WS_EVENTS,
   ReactionUpdatedPayloadSchema,
   ReactionClearedPayloadSchema,
+  EmojiCreatedPayloadSchema,
+  EmojiDeletedPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -882,6 +884,32 @@ export function installRealtimeDispatcher(
     qc.removeQueries({ queryKey: ['reactions', 'users', messageId] });
   });
 
+  // ---------- Custom emoji lifecycle (S41 · FR-EM01/FR-EM04/FR-RC20) ----------
+  // emoji:created 는 워크스페이스에 새 커스텀 이모지가 확정됐음을 알린다. 해당
+  // 워크스페이스의 `['custom-emojis', wsId]` 쿼리를 invalidate 해 피커/매니저가
+  // 새 이모지를 다음 read 로 반영하게 한다(presigned url 정합을 서버 list 에 위임).
+  on<{ workspaceId: string; emojiId: string; name: string }>(WS_EVENTS.EMOJI_CREATED, (env) => {
+    const parsed = EmojiCreatedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    qc.invalidateQueries({ queryKey: ['custom-emojis', parsed.data.workspaceId] });
+  });
+
+  // emoji:deleted 는 커스텀 이모지가 삭제됐음을 알린다. 캐시에서 해당 emojiId 를
+  // 즉시 제거해 피커/매니저에서 사라지게 하고, 진행 중 메시지 반응의 [삭제된
+  // 이모지] placeholder 전환은 다음 authoritative read(reaction:updated 또는
+  // 메시지 refetch)가 self-heal 한다(FR-EM06). 제거 후 stale 표시를 막기 위해
+  // 캐시를 직접 patch 한 뒤 invalidate 로 재수렴시킨다.
+  on<{ workspaceId: string; emojiId: string; name: string }>(WS_EVENTS.EMOJI_DELETED, (env) => {
+    const parsed = EmojiDeletedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { workspaceId, emojiId } = parsed.data;
+    qc.setQueryData<{ items: Array<{ id: string }> }>(['custom-emojis', workspaceId], (old) => {
+      if (!old) return old;
+      return { ...old, items: old.items.filter((e) => e.id !== emojiId) };
+    });
+    qc.invalidateQueries({ queryKey: ['custom-emojis', workspaceId] });
+  });
+
   // ---------- Channels ----------
   on<{ workspaceId: string }>('channel.created', (env) => {
     if (env.workspaceId) qc.invalidateQueries({ queryKey: qk.channels.list(env.workspaceId) });
@@ -1108,6 +1136,9 @@ export const DISPATCHED_EVENTS = [
   'reaction:updated',
   // S40 (FR-RE09): OWNER/ADMIN 의 메시지 전체 반응 일괄 삭제(full clear).
   'reaction:cleared',
+  // S41 (FR-EM01/FR-EM04/FR-RC20): 워크스페이스 커스텀 이모지 업로드/삭제.
+  'emoji:created',
+  'emoji:deleted',
   'message.thread.replied',
   // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
   'message.thread.broadcast',
