@@ -80,14 +80,22 @@ export class CustomEmojiController {
     });
   }
 
+  /**
+   * S42 fix-forward (BLOCKER): finalize 도 presign 과 동일하게 멤버까지 라우트를
+   * 통과시키되(@Roles 없음), 서비스가 (role∈{OWNER,ADMIN}) OR canMemberUpload 로
+   * 게이트한다. presign 만 막고 finalize 를 열어두면 canMemberUpload=false 워크스페이스
+   * 에서 권한 비대칭으로 업로드를 확정해버릴 우회 경로가 생기므로, caller role 을
+   * @CurrentMember() 로 받아 서비스 finalize 초입의 assertCanUpload 에 넘긴다.
+   */
   @Post(':id/finalize')
   @HttpCode(204)
   async finalize(
     @Param('wsId', new ParseUUIDPipe()) wsId: string,
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentMember() member: CurrentMemberPayload,
   ): Promise<void> {
-    await this.svc.finalize(wsId, id, user.id);
+    await this.svc.finalize(wsId, id, user.id, member.role);
   }
 
   /**

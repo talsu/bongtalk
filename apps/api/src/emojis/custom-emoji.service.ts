@@ -216,7 +216,17 @@ export class CustomEmojiService {
    * it with a second sweep over `<wsId>/emojis/` that removes any
    * object whose `<emojiId>` segment is not in CustomEmoji.id.
    */
-  async finalize(workspaceId: string, emojiId: string, callerId: string): Promise<void> {
+  async finalize(
+    workspaceId: string,
+    emojiId: string,
+    callerId: string,
+    callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
+  ): Promise<void> {
+    // S42 fix-forward (BLOCKER): presign/finalize 권한 대칭. presign 과 동일한
+    // 업로드 게이트(OWNER/ADMIN OR canMemberUpload)를 finalize 초입에서도 강제해
+    // canMemberUpload=false 워크스페이스의 MEMBER 가 finalize 로 우회 확정하는 것을
+    // 막는다(createdBy 일치 검사만으로는 토글 변경/권한 비대칭을 못 막음).
+    await this.assertCanUpload(workspaceId, callerRole);
     const row = await this.prisma.customEmoji.findUnique({ where: { id: emojiId } });
     if (!row || row.workspaceId !== workspaceId) {
       throw new DomainError(ErrorCode.CUSTOM_EMOJI_NOT_FOUND, 'emoji not found');
@@ -468,6 +478,16 @@ export class CustomEmojiService {
     callerId: string,
     callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
   ): Promise<void> {
+    // S42 fix-forward (MED): addAlias 는 DTO+서비스 이중검증을 받지만 removeAlias 의
+    // :alias 경로 파라미터는 형식 검증이 없어 비정상 문자열이 DB 조회까지 도달했다.
+    // 초입에서 동일 slug 규칙을 강제해 형식 불일치를 422(CUSTOM_EMOJI_NAME_INVALID)로
+    // 차단한다(이 charset 을 벗어난 alias 는 애초에 존재할 수 없으므로 조기 거부).
+    if (!CUSTOM_EMOJI_ALIAS_RE.test(alias)) {
+      throw new DomainError(
+        ErrorCode.CUSTOM_EMOJI_NAME_INVALID,
+        'alias must match [a-z0-9_]{2,32}',
+      );
+    }
     const row = await this.prisma.customEmojiAlias.findUnique({
       where: { workspaceId_alias: { workspaceId, alias } },
     });

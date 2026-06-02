@@ -174,6 +174,14 @@ export function EmojiPicker({
     };
   }, [onDismiss]);
 
+  // S42 fix-forward (HIGH): 앞쪽 특수 탭(recent/custom) 개수가 변동하면 활성 탭이
+  // 가리키던 카테고리가 밀려 stale 인덱스가 된다. 특수 탭 개수가 바뀔 때 선택 탭을
+  // 0(첫 탭)으로 리셋해 범위초과 인덱싱과 잘못된 탭 활성을 함께 방지한다.
+  const specialTabCount = (hasRecent ? 1 : 0) + (hasCustom ? 1 : 0);
+  useEffect(() => {
+    setTab(0);
+  }, [specialTabCount]);
+
   // S42 (FR-PK01): 동적 탭 순서 — [최근?] [워크스페이스?] [큐레이션…]. 앞쪽 특수
   // 탭의 존재 여부에 따라 큐레이션 탭의 베이스 인덱스가 밀린다.
   const specialTabs: ('recent' | 'custom')[] = [];
@@ -186,7 +194,13 @@ export function EmojiPicker({
   const activeSpecial = tab < specialTabs.length ? specialTabs[tab] : null;
   const recentTabActive = activeSpecial === 'recent';
   const customTabActive = activeSpecial === 'custom';
-  const curatedIndex = tab - specialTabs.length;
+  // S42 fix-forward (HIGH): 피커가 열린 채 specialTabs 개수가 변동(예: 마지막 커스텀
+  // 이모지 삭제로 custom 탭 소멸·또는 데이터 비동기 도착)하면 stale tab 으로 산출한
+  // curatedIndex 가 [0, EMOJI_CATEGORIES.length-1] 범위를 벗어나 undefined.emojis
+  // 접근으로 throw → 메시지 행 언마운트 크래시였다. (b) tabs 개수 변동 시 tab 을 0 으로
+  // 리셋하고, (a) 그래도 같은 렌더에서 stale 값을 쓰는 한 틱을 위해 인덱싱 전 clamp 한다.
+  const rawCuratedIndex = tab - specialTabs.length;
+  const curatedIndex = Math.min(Math.max(rawCuratedIndex, 0), EMOJI_CATEGORIES.length - 1);
 
   return (
     <div
@@ -201,6 +215,8 @@ export function EmojiPicker({
       {hasQuick ? (
         <div
           data-testid="emoji-picker-quick"
+          role="group"
+          aria-label="퀵 반응"
           className="flex items-center gap-[var(--s-1)] border-b border-border-subtle pb-[var(--s-2)]"
         >
           {quickReactions?.map((e) => (
@@ -208,6 +224,7 @@ export function EmojiPicker({
               key={`quick-${e}`}
               type="button"
               data-testid={`emoji-quick-${e}`}
+              aria-label={e}
               aria-pressed={isActive?.(e) ?? undefined}
               onClick={() => onSelect(e)}
               className={cn(
@@ -236,7 +253,12 @@ export function EmojiPicker({
         ))}
       </div>
       {recentTabActive ? (
-        <div className="grid grid-cols-8 gap-[var(--s-1)]" data-testid="emoji-picker-recent-grid">
+        <div
+          className="grid grid-cols-8 gap-[var(--s-1)]"
+          data-testid="emoji-picker-recent-grid"
+          role="group"
+          aria-label="최근 사용한 이모지"
+        >
           {recentEmojis?.map((e, i) => (
             <button
               key={`recent-${e}-${i}`}

@@ -148,7 +148,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     });
     expect(presign.emojiId).toBeTruthy();
     outboxEvents = [];
-    await expect(svc.finalize(wsId, presign.emojiId, userId)).resolves.toBeUndefined();
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'ADMIN')).resolves.toBeUndefined();
     expect(outboxEvents.map((e) => e.eventType)).toContain('emoji.created');
     const created = outboxEvents.find((e) => e.eventType === 'emoji.created');
     expect(created?.payload).toMatchObject({ workspaceId: wsId, emojiId: presign.emojiId });

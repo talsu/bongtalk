@@ -134,7 +134,7 @@ describe('CustomEmoji.finalize magic-byte validation (int)', () => {
     });
     expect(presign.emojiId).toBeTruthy();
 
-    await expect(svc.finalize(wsId, presign.emojiId, userId)).rejects.toMatchObject({
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'ADMIN')).rejects.toMatchObject({
       code: ErrorCode.INVALID_MAGIC_BYTES,
     });
 
@@ -157,7 +157,7 @@ describe('CustomEmoji.finalize magic-byte validation (int)', () => {
       sizeBytes: 8,
       filename: 'a.png',
     });
-    await expect(svc.finalize(wsId, presign.emojiId, userId)).resolves.toBeUndefined();
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'ADMIN')).resolves.toBeUndefined();
 
     const row = await prisma.customEmoji.findUnique({ where: { id: presign.emojiId } });
     expect(row).not.toBeNull();

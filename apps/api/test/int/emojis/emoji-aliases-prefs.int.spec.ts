@@ -268,6 +268,42 @@ describe('Emoji aliases + prefs (int)', () => {
     expect(presign.emojiId).toBeTruthy();
   }, 60_000);
 
+  it('S42 fix-forward (BLOCKER): finalize gate — MEMBER canMemberUpload=false → 403, true → 200', async () => {
+    const { wsId, userId } = await seed();
+    // canMemberUpload=true 로 MEMBER 가 presign 한 행을 만들고(게이트 통과),
+    // 다시 false 로 토글한 뒤 MEMBER finalize 가 게이트(403)에 막히는지 본다 —
+    // presign 만 막고 finalize 를 열어두던 권한 비대칭 회귀를 고정한다.
+    await prefs.updateWorkspaceConfig(wsId, { canMemberUpload: true });
+    const presign = await svc.presignUpload({
+      workspaceId: wsId,
+      uploaderId: userId,
+      uploaderRole: 'MEMBER',
+      name: 'mem_final',
+      mime: 'image/png',
+      sizeBytes: 8,
+      filename: 'a.png',
+    });
+
+    // 토글을 false 로 되돌리면 MEMBER finalize 는 403(FORBIDDEN).
+    await prefs.updateWorkspaceConfig(wsId, { canMemberUpload: false });
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'MEMBER')).rejects.toMatchObject({
+      code: ErrorCode.FORBIDDEN,
+    });
+
+    // 다시 true 로 켜면 MEMBER finalize 는 통과한다(S3 stub 의 PNG magic/size 정합).
+    await prefs.updateWorkspaceConfig(wsId, { canMemberUpload: true });
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'MEMBER')).resolves.toBeUndefined();
+  }, 60_000);
+
+  it('S42 fix-forward (MED): removeAlias rejects a malformed :alias param (422)', async () => {
+    const { wsId, userId } = await seed();
+    const emojiId = await seedEmoji(wsId, userId, 'malformed_host');
+    // slug 규칙([a-z0-9_]{2,32})을 벗어난 별칭은 DB 조회 전에 형식 에러로 거부된다.
+    await expect(
+      svc.removeAlias(wsId, emojiId, 'BAD ALIAS!', userId, 'ADMIN'),
+    ).rejects.toMatchObject({ code: ErrorCode.CUSTOM_EMOJI_NAME_INVALID });
+  }, 60_000);
+
   it('FR-PK04: ADMIN can always presign regardless of config', async () => {
     const { wsId, userId } = await seed();
     const presign = await svc.presignUpload({
