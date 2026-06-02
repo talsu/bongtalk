@@ -2,6 +2,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { EVERYONE_CONFIRM_THRESHOLD, BULK_MENTION_CONFIRM_THRESHOLD } from '@qufox/shared-types';
 import {
   canUseSpecialMention,
+  firstUnauthorizedSpecialMention,
   specialMentionItems,
   needsSpecialMentionConfirm,
   type SpecialMentionKey,
@@ -74,5 +75,32 @@ describe('needsSpecialMentionConfirm (FR-MSG-14) — 임계값 confirm', () => {
     // 6 members → @everyone confirms, but @here does not yet.
     expect(needsSpecialMentionConfirm('everyone', 6)).toBe(true);
     expect(needsSpecialMentionConfirm('here', 6)).toBe(false);
+  });
+});
+
+describe('firstUnauthorizedSpecialMention (S44 FR-MN-16) — 경고 토스트 트리거', () => {
+  it('MEMBER 가 @everyone 입력 시 everyone 반환(권한 없음)', () => {
+    expect(firstUnauthorizedSpecialMention('hey @everyone look', 'MEMBER')).toBe('everyone');
+  });
+
+  it('MEMBER 가 @here 입력 시 here 반환', () => {
+    expect(firstUnauthorizedSpecialMention('@here standup', 'MEMBER')).toBe('here');
+  });
+
+  it('OWNER / ADMIN 은 권한이 있어 null(경고 없음)', () => {
+    expect(firstUnauthorizedSpecialMention('@everyone @here', 'OWNER')).toBeNull();
+    expect(firstUnauthorizedSpecialMention('@everyone @here', 'ADMIN')).toBeNull();
+  });
+
+  it('특수멘션이 없으면 null', () => {
+    expect(firstUnauthorizedSpecialMention('plain text @alice', 'MEMBER')).toBeNull();
+  });
+
+  it('@everyone 과 @here 가 둘 다 있으면 everyone 을 먼저 반환(우선순위)', () => {
+    expect(firstUnauthorizedSpecialMention('@here and @everyone', 'MEMBER')).toBe('everyone');
+  });
+
+  it('이메일/단어 경계 오탐 방지 — foo@everyone 은 미매칭', () => {
+    expect(firstUnauthorizedSpecialMention('foo@everyone', 'MEMBER')).toBeNull();
   });
 });

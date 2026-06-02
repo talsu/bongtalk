@@ -78,3 +78,30 @@ export function needsSpecialMentionConfirm(key: SpecialMentionKey, memberCount: 
   if (key === 'everyone') return memberCount >= EVERYONE_CONFIRM_THRESHOLD;
   return memberCount >= BULK_MENTION_CONFIRM_THRESHOLD;
 }
+
+/**
+ * S44 (FR-MN-16): 본문에서 사용자가 입력한 특수멘션 중 **권한이 없는** 키를
+ * 찾습니다. 권한 판정은 `canUseSpecialMention`(역할 기본값)을 그대로 씁니다 —
+ * 클라이언트는 채널 override 까지는 알 수 없으므로 역할 기준으로만 경고하고,
+ * 서버가 override allow 로 실제로 허용하는 경우엔 단지 불필요한 경고가 빠지는
+ * 쪽이 아니라(클라가 모르므로 경고가 뜰 수 있음) 보수적으로 안내합니다. 권한이
+ * 없는데 입력하면 서버 게이트가 fanout 을 무효화하므로(FR-MN-02), 전송 전 경고
+ * 토스트로 "알림이 가지 않음"을 사전 고지하는 용도입니다.
+ *
+ * 반환: 권한 없는 첫 특수멘션 키(everyone/here) 또는 null. `@channel` 은
+ * 자동완성/confirm 세트에서 제외돼 있어(서버 fanout 미추출 아님 — S44 부터
+ * @channel 도 게이트 대상이나 본 토스트는 everyone/here 만 다룸) 여기서도 제외.
+ */
+export function firstUnauthorizedSpecialMention(
+  text: string,
+  role: WorkspaceRole,
+): SpecialMentionKey | null {
+  const lower = text.toLowerCase();
+  const keys: SpecialMentionKey[] = ['everyone', 'here'];
+  for (const key of keys) {
+    const re = new RegExp(`(?<![A-Za-z0-9_])@${key}(?![A-Za-z0-9_])`);
+    if (!re.test(lower)) continue;
+    if (!canUseSpecialMention(key, role)) return key;
+  }
+  return null;
+}

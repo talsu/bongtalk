@@ -108,6 +108,14 @@ export const WS_EVENTS = {
   // (emoji.alias_updated)지만 outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해
   // emit 한다(emoji:created / reaction:updated 선례).
   EMOJI_ALIAS_UPDATED: 'emoji:alias_updated',
+  // 멘션 알림 (S44 · FR-MN-01): 메시지에서 본인이 @멘션(@username/@everyone/@here/
+  // @channel)되면 수신자의 user:{userId} 룸으로 push 한다. PRD WS 이벤트 카탈로그가
+  // 와이어 이름 `mention:new` 를 명시한다. 서버 내부 outbox eventType 은 dot 표기
+  // (mention.received)지만 outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해
+  // emit 한다(reaction:updated / thread:lock:changed / emoji:* 선례). payload 는
+  // { targetUserId, workspaceId, channelId, messageId, actorId, snippet, createdAt,
+  // everyone, here }. 클라이언트는 멘션 인박스/토스트를 갱신한다.
+  MENTION_NEW: 'mention:new',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -367,6 +375,27 @@ export const EmojiAliasUpdatedPayloadSchema = z.object({
   aliases: z.array(z.string().min(1)),
 });
 export type EmojiAliasUpdatedPayload = z.infer<typeof EmojiAliasUpdatedPayloadSchema>;
+
+// ── 멘션 알림 (S44 · FR-MN-01) ──────────────────────────────────────────────
+/**
+ * mention:new — 수신자가 메시지에서 @멘션될 때 user:{userId} 룸으로 push.
+ * 서버 내부 outbox eventType 은 dot 표기(mention.received)지만 outbox→WS
+ * subscriber 가 이 콜론 wire 이름으로 변환해 emit 한다. payload 는 서버
+ * MentionReceivedPayload 와 1:1 정합한다(workspaceId 는 Global DM 케이스를 위해
+ * nullable — 현재는 항상 워크스페이스 멘션이라 string 이지만 타입 경계를 맞춘다).
+ */
+export const MentionNewPayloadSchema = z.object({
+  targetUserId: UserIdSchema,
+  workspaceId: z.string().min(1).nullable(),
+  channelId: ChannelIdSchema,
+  messageId: z.string().min(1),
+  actorId: z.string().min(1),
+  snippet: z.string(),
+  createdAt: z.string(),
+  everyone: z.boolean(),
+  here: z.boolean(),
+});
+export type MentionNewPayload = z.infer<typeof MentionNewPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -686,4 +715,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.EMOJI_CREATED]: EmojiCreatedPayloadSchema,
   [WS_EVENTS.EMOJI_DELETED]: EmojiDeletedPayloadSchema,
   [WS_EVENTS.EMOJI_ALIAS_UPDATED]: EmojiAliasUpdatedPayloadSchema,
+  [WS_EVENTS.MENTION_NEW]: MentionNewPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

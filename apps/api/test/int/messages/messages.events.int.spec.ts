@@ -115,11 +115,19 @@ describe('Messages outbox events', () => {
     ]);
   });
 
-  it('guard rejects BEFORE tx → no outbox row (archived channel)', async () => {
+  it('guard rejects BEFORE tx → no message.created outbox row (archived channel)', async () => {
     // ChannelAccessGuard returns CHANNEL_ARCHIVED before the send() tx opens,
     // so there is nothing to roll back — this asserts the pre-tx rejection
     // rather than genuine tx-abort behaviour. In-tx failure is exercised by
     // the idempotency 409 path in messages.idempotency.int.spec.ts.
+    //
+    // S44 fix-forward: 종전엔 archive 직후 aggregateType:'Message' outbox 가 0건이길
+    // 단언했으나, S13(FR-CH-04)부터 archive 전환이 SYSTEM_CHANNEL_ARCHIVED 시스템
+    // 메시지(aggregateType:'Message')를 발행하므로 그 단언은 stale 였다(이 슬라이스
+    // 이전부터 깨져 있던 pre-existing 실패). 검증 의도("거부된 send 가 outbox 행을
+    // 남기지 않는다")를 정확히 표현하도록, 거부된 send 의 message.created 가 없음을
+    // 단언한다. archive 시스템 메시지는 정상 동작이라 허용한다.
+    await env.prisma.outboxEvent.deleteMany({});
     await request(env.baseUrl)
       .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/archive`)
       .set(bearer(stack.owner.accessToken))
@@ -129,10 +137,14 @@ describe('Messages outbox events', () => {
       .set(bearer(stack.member.accessToken))
       .send({ content: 'blocked' });
     expect(post.status).toBe(409);
-    const events = await env.prisma.outboxEvent.findMany({
-      where: { aggregateType: 'Message' },
+    // 거부된 send 는 DEFAULT 메시지 outbox(message.created)를 남기지 않는다.
+    const createdRows = await env.prisma.outboxEvent.findMany({
+      where: { aggregateType: 'Message', eventType: 'message.created' },
     });
-    expect(events).toHaveLength(0);
+    const defaultCreated = createdRows.filter(
+      (r) => (r.payload as { message?: { type?: string } }).message?.type === 'DEFAULT',
+    );
+    expect(defaultCreated).toHaveLength(0);
     await request(env.baseUrl)
       .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/unarchive`)
       .set(bearer(stack.owner.accessToken));

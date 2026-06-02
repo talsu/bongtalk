@@ -6,6 +6,7 @@ import {
   EmojiCreatedPayloadSchema,
   EmojiDeletedPayloadSchema,
   EmojiAliasUpdatedPayloadSchema,
+  MentionNewPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -1046,7 +1047,7 @@ export function installRealtimeDispatcher(
     qc.invalidateQueries({ queryKey: ['workspaces', 'members'] });
   });
 
-  // ---------- Mentions (task-011-B) ----------
+  // ---------- Mentions (task-011-B · S44 FR-MN-01: wire `mention:new`) ----------
   on<{
     id?: string;
     targetUserId: string;
@@ -1057,7 +1058,15 @@ export function installRealtimeDispatcher(
     snippet: string;
     createdAt: string;
     everyone: boolean;
-  }>('mention.received', (env) => {
+    // S44 contract fix-forward: 서버 MentionReceivedPayload 와 정합하는 @here 표식.
+    here: boolean;
+  }>('mention:new', (rawEnv) => {
+    // S44 contract fix-forward: 신뢰경계 가드 — 형태가 어긋난 mention:new
+    // 페이로드는 캐시를 건드리지 않고 버린다(reaction:updated 패턴 동일·서버 회귀/
+    // 멀티 dispatcher 오발신 방어). 통과 시 검증된 형태(here 포함)를 그대로 쓴다.
+    const parsed = MentionNewPayloadSchema.safeParse(rawEnv);
+    if (!parsed.success) return;
+    const env = parsed.data;
     const viewer = ctx.viewerId();
     if (!viewer || env.targetUserId !== viewer) return;
     // task-026-E: mention also feeds Activity — invalidate before the
@@ -1073,11 +1082,16 @@ export function installRealtimeDispatcher(
       const entry: MentionSummary = {
         messageId: env.messageId,
         channelId: env.channelId,
-        workspaceId: env.workspaceId,
+        // S44 contract: schema 의 workspaceId 는 nullable(Global DM 경계). 현재
+        // 멘션은 항상 워크스페이스 채널이라 string 이지만, 타입상 null 일 수 있어
+        // 캐시 필드(string)에는 빈 문자열로 보정한다(렌더는 messageId 로 라우팅).
+        workspaceId: env.workspaceId ?? '',
         authorId: env.actorId,
         snippet: env.snippet,
         createdAt: env.createdAt,
         everyone: env.everyone,
+        // S44 contract fix-forward: @here 표식 캐시 반영.
+        here: env.here,
       };
       if (!old) return { unreadCount: 1, recent: [entry] };
       if (old.recent.some((m) => m.messageId === env.messageId)) return old;
@@ -1087,16 +1101,21 @@ export function installRealtimeDispatcher(
       };
     });
 
+    // S44 contract: schema 의 workspaceId 는 nullable(Global DM 경계). 멘션은 현재
+    // 항상 워크스페이스 채널이라 null 이 오지 않지만, 토스트 라우팅 헬퍼는 string 을
+    // 요구하므로 null 이면 토스트 단계를 건너뛴다(캐시는 위에서 이미 갱신됨).
+    const workspaceId = env.workspaceId;
+    if (workspaceId === null) return;
     // task-019-D: gate mention toast by user preference. OFF silences
     // both toast + browser Notification (browser Notification API is
     // not called from this dispatcher yet, but the channel lookup
     // tracks intent for when it lands).
-    const channel = ctx.resolveNotificationChannel?.(env.workspaceId, 'MENTION') ?? 'BOTH';
+    const channel = ctx.resolveNotificationChannel?.(workspaceId, 'MENTION') ?? 'BOTH';
     if (channel === 'OFF' || channel === 'BROWSER') return;
 
     const push = useNotifications.getState().push;
     const url = ctx.resolveMentionUrl?.({
-      workspaceId: env.workspaceId,
+      workspaceId,
       channelId: env.channelId,
       messageId: env.messageId,
     });
@@ -1147,7 +1166,9 @@ export const DISPATCHED_EVENTS = [
   'workspace.role.changed',
   'presence.updated',
   'presence:update',
-  'mention.received',
+  // S44 (FR-MN-01): 멘션 알림 wire 이름은 PRD 카탈로그 `mention:new` 로 정렬한다
+  // (서버 내부 outbox 는 mention.received, outbox→WS subscriber 가 콜론으로 변환).
+  'mention:new',
   // S39 (FR-RE03): 반응 추가/제거 통합 wire 이벤트(full-replace). 종전의
   // message.reaction.added / .removed 를 단일 reaction:updated 로 대체.
   'reaction:updated',

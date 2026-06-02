@@ -21,16 +21,12 @@ import {
   extractMentions,
   resolveMentionHandles,
   resolveMentionLabelMaps,
+  type Mentions,
 } from './mentions/mention-extractor';
 import { normalizeMentions } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
 import { astHasLink, flagsFromAttachmentKinds } from '../search/message-flags';
-import {
-  gateChannelMention,
-  gateEveryoneMention,
-  gateHereMention,
-  type GateActorRole,
-} from './mentions/gate';
+import { gateChannelMention, gateEveryoneMention, gateHereMention } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { UnreadService } from '../channels/unread.service';
 import { S3Service } from '../storage/s3.service';
@@ -54,6 +50,7 @@ import {
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
 import { isDndSuppressed } from '../notifications/dnd-gate';
 import type { DndSchedule } from '../me/dnd-schedule.service';
+import { PresenceService } from '../realtime/presence/presence.service';
 
 /**
  * First ~140 chars of a message, whitespace-collapsed, for the mention
@@ -251,6 +248,10 @@ export class MessagesService {
     // (반응 카운트/식별자는 그대로, 이미지 url 만 비는 graceful degrade).
     @Optional()
     private readonly s3?: S3Service,
+    // S44 (FR-MN-02): `@here` fanout 수신자를 presence ONLINE/IDLE 멤버로 한정.
+    // @Optional 이라 미주입 단위테스트는 필터를 건너뛴다(전체 후보 유지 — DB 경로만).
+    @Optional()
+    private readonly presence?: PresenceService,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -819,6 +820,68 @@ export class MessagesService {
     });
   }
 
+  /**
+   * S44 (FR-MN-02): 범위 멘션(@everyone/@here/@channel)의 수신자 userId 집합을
+   * 해석한다. 작성자 제외/중복 제거/mute·DND·OFF 필터는 호출자가 명시적
+   * @username 멘션과 합친 뒤 일괄 적용하므로 여기서는 순수 멤버 집합만 만든다.
+   *
+   *   - 범위 멘션이 하나도 없으면 빈 배열(추가 쿼리 없음).
+   *   - DM 채널(workspaceId=null)은 워크스페이스 멤버 네임스페이스가 없어 빈 배열.
+   *   - @everyone / @channel → 채널의 워크스페이스 멤버 전원.
+   *   - @here(다른 범위 없이 단독)  → 위 집합 중 presence ONLINE/IDLE 인 멤버만.
+   *     presence 미주입(단위테스트)이면 필터를 적용하지 않고 전체 멤버를 반환한다
+   *     (graceful degrade — 알림 누락보다 over-notify 가 안전).
+   *
+   * S44 fix-forward (MAJOR · @here graceful-degrade 역전 수정): 종전엔 @here 의
+   * presence 조회를 per-user `effectiveStatus(uid).catch(()=>'offline')` 로 감쌌다.
+   * 이 패턴은 Redis 전역 장애 시 *모든* 호출이 catch 되어 전원 'offline' → 필터
+   * 결과가 빈 배열 → @here 알림이 전무해진다(docstring 의 "over-notify 가 안전"
+   * 과 정반대 — fail-closed). presence 조회가 **전역 실패**(모든 멤버 조회 reject)
+   * 하면 full member set 을 반환해 over-notify 로 fail-open 한다. 일부 키만 누락
+   * (개별 reject)되는 경우는 종전대로 그 사용자만 offline 취급해 제외한다
+   * (정상 동작 중 단발 누락은 over-notify 대상이 아님).
+   *
+   * (전체 멤버 enumerate 비용/SLO 200명 cap·5초는 S45 carryover.)
+   */
+  private async resolveBroadMentionRecipients(
+    tx: Prisma.TransactionClient,
+    args: { workspaceId: string | null; mentions: Mentions },
+  ): Promise<string[]> {
+    const { workspaceId, mentions } = args;
+    const wantsBroad = mentions.everyone || mentions.here || mentions.channel;
+    if (!wantsBroad || workspaceId === null) return [];
+
+    const memberRows = await tx.workspaceMember.findMany({
+      where: { workspaceId },
+      select: { userId: true },
+    });
+    const memberIds = memberRows.map((r) => r.userId);
+    if (memberIds.length === 0) return [];
+
+    // @everyone / @channel 은 전원. @here 단독일 때만 online/idle 로 좁힌다.
+    const wantsAllMembers = mentions.everyone || mentions.channel;
+    if (wantsAllMembers || !this.presence) return memberIds;
+
+    // @here 전용: presence ONLINE/IDLE 만 통과. DND/INVISIBLE/OFFLINE 은 제외
+    // (DND 는 뒤의 DND 게이트로도 걸리지만, @here 의 정의 자체가 online/idle 한정).
+    //
+    // S44 fix-forward (MAJOR): Promise.allSettled 로 개별 reject 와 전역 실패를
+    // 구분한다. 모든 조회가 reject 되면(Redis 전역 장애) full member set 으로
+    // fail-open(over-notify) 한다 — fail-closed(전원 누락)보다 안전하다. 일부만
+    // reject 되면 그 사용자만 offline 취급(제외)해 정상 운영 중 단발 누락이
+    // over-notify 로 번지지 않게 한다.
+    const settled = await Promise.allSettled(
+      memberIds.map((uid) => this.presence!.effectiveStatus(uid)),
+    );
+    const allRejected = settled.every((s) => s.status === 'rejected');
+    if (allRejected) return memberIds;
+    return memberIds.filter((_, i) => {
+      const s = settled[i];
+      if (s.status !== 'fulfilled') return false; // 개별 누락 → offline 취급(제외).
+      return s.value === 'online' || s.value === 'idle';
+    });
+  }
+
   // ------------------------------------------------------------------ send
 
   /**
@@ -849,11 +912,12 @@ export class MessagesService {
     nonce?: string | null;
     parentMessageId?: string | null;
     attachmentIds?: string[];
-    // task-044-iter3: sender role (`OWNER` / `ADMIN` / `MEMBER`) used to
-    // gate `@everyone` fanout. Optional for back-compat with existing
-    // callers (including DM channels where the workspace member concept
-    // is N/A) — defaults to MEMBER which downgrades `everyone=true`.
-    actorRole?: GateActorRole;
+    // S44 (FR-MN-02/16): `MENTION_EVERYONE`(카탈로그 0x0080) override-aware 권한.
+    // 컨트롤러가 ChannelAccessService.resolveMentionEveryone 로 ADR-4 5단계 fold 한
+    // boolean 을 넘긴다(MEMBER 도 override allow 면 true, OWNER/ADMIN 도 deny 면 false).
+    // 미지정(DM 채널 등)은 false 로 보수 처리 — `@everyone`/`@here`/`@channel` 다운그레이드.
+    // (task-044~046 까지는 role enum 이었으나 override 집행을 위해 boolean 으로 교체.)
+    hasMentionEveryone?: boolean;
     // S20 (MAJOR/perf fix-forward): caller-provided channel type so the DM
     // hidden-restore gate skips the per-send `channel.findUnique`. Both send
     // controllers already hold the channel meta on req.channel (the
@@ -977,15 +1041,14 @@ export class MessagesService {
       here: extracted.here || hint?.here === true,
       channel: extracted.channel || hint?.channel === true,
     };
-    // task-044-iter3 + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은 송신
-    // 역할 게이트로 silently false 다운그레이드. Default `MEMBER` 으로 보수적
-    // 처리 — DM 채널 등 actorRole 미정 호출도 자동 거부됩니다.
+    // S44 (FR-MN-02/16) + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은
+    // MENTION_EVERYONE 권한 게이트로 silently false 다운그레이드. 권한은 컨트롤러가
+    // 채널 override 5단계 fold 로 산정한 boolean(args.hasMentionEveryone)이고, 미지정
+    // (DM 채널 등)은 false 로 보수 처리됩니다.
+    const hasMentionEveryone = args.hasMentionEveryone === true;
     const mentions = gateChannelMention(
-      gateHereMention(
-        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
-        args.actorRole ?? 'MEMBER',
-      ),
-      args.actorRole ?? 'MEMBER',
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
+      hasMentionEveryone,
     );
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
     // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
@@ -1185,10 +1248,21 @@ export class MessagesService {
         // same id twice if a user is named multiple times in one
         // message). Author is NEVER notified for self-mentions.
         const snippet = buildSnippet(args.content);
+        // S44 (FR-MN-02): 범위 멘션(@everyone/@here/@channel) 수신자 확장.
+        //   - @everyone / @channel → 채널 멤버 전원(워크스페이스 멤버 — DM 은 N/A)
+        //   - @here               → 위 집합 중 presence ONLINE/IDLE 인 멤버만
+        // 이렇게 확장한 broad 수신자를 명시적 @username(mentions.users)과 합쳐
+        // 동일한 mute/DND/OFF 필터를 거친 뒤 1인당 mention.received 1건을 emit 한다.
+        // 작성자 본인은 self-mention 으로 제외한다. (전체 멤버 enumerate 비용/SLO
+        // 200명 cap 는 S45 carryover — 여기선 online 필터 정확성만.)
+        const broadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+          workspaceId: args.workspaceId,
+          mentions,
+        });
         // task-045 iter6: mute dispatcher gate. 채널 muted user 는
         // mention.received outbox 자체를 스킵 — emit 안 하면 fanout 비용
         // 도 절약. mute 만료 OR 무기한 모두 처리. cleanup job 없음.
-        const candidateMentionUserIds = mentions.users.filter(
+        const candidateMentionUserIds = [...mentions.users, ...broadRecipientIds].filter(
           (uid) => uid && uid !== args.authorId,
         );
         const dedupedMentionUserIds = Array.from(new Set(candidateMentionUserIds));
@@ -2108,17 +2182,15 @@ export class MessagesService {
     // 시 스냅샷한 MessageDto.version. 현재 row.version 과 불일치하면 409
     // (MESSAGE_VERSION_CONFLICT) + 현재 MessageDto 를 details.current 로 반환.
     expectedVersion: number;
-    // task-044-iter3: edit 도중 사용자가 `@everyone` 추가하면 send 와
-    // 동일하게 권한 체크. 미지정 시 MEMBER 로 보수 처리.
-    actorRole?: GateActorRole;
+    // S44 (FR-MN-02/16): edit 도중 `@everyone` 추가 시 send 와 동일하게
+    // MENTION_EVERYONE override-aware 권한 체크. 미지정 시 false(차단)로 보수 처리.
+    hasMentionEveryone?: boolean;
   }): Promise<MessageRow> {
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    const hasMentionEveryone = args.hasMentionEveryone === true;
     const mentions = gateChannelMention(
-      gateHereMention(
-        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
-        args.actorRole ?? 'MEMBER',
-      ),
-      args.actorRole ?? 'MEMBER',
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
+      hasMentionEveryone,
     );
     // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — `@username` → `@{cuid2}`.
     const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
@@ -2152,6 +2224,13 @@ export class MessagesService {
           contentPlainV2: true,
           contentPlain: true,
           deletedAt: true,
+          // S44 fix-forward (BLOCKER): 편집 전 mentions 스냅샷. 편집으로 *새로*
+          // 추가된 멘션 대상에게만 알림을 보내고, 이미 이전 버전에서 멘션받은
+          // 수신자에게는 재알림하지 않기 위해 사용한다.
+          mentions: true,
+          // S38 정합: 답글 편집이면 루트 OFF 구독자를 멘션 알림에서 제외하기 위해
+          // parentMessageId 를 함께 읽는다(루트는 NULL).
+          parentMessageId: true,
         },
       });
 
@@ -2235,6 +2314,126 @@ export class MessagesService {
         await tx.messageEditHistory.deleteMany({
           where: { id: { in: oldest.map((h) => h.id) } },
         });
+      }
+
+      // S44 fix-forward (BLOCKER): 편집 경로 broad 멘션 fanout. 종전 update() 는
+      // 게이트(gateEveryone/here/channel)만 적용하고 resolveBroadMentionRecipients
+      // 호출이 없어, 편집으로 @everyone/@here/@channel 을 추가해도 fanout 이 0 이라
+      // send 와 동작이 어긋났다(편집으로 멘션을 더해도 아무도 알림을 못 받음).
+      // send(라인 ~1237)와 동일하게 broad 수신자를 해석하고 명시적 @username 과
+      // 합집합 dedupe → mute/DND/OFF 필터 → mention.received outbox 로 1인 1건 emit 한다.
+      //
+      // 중복 알림 방지 정책(REPORT 명시): 이미 *이전 버전*에서 멘션 대상이던
+      // 수신자에게는 재알림하지 않는다 — 편집으로 **새로 추가된** 멘션 대상만
+      // 알린다. 이전 멘션 집합(explicit @username ∪ broad)을 동일 resolver 로
+      // 재해석해 신규 집합에서 차집합한다. @here 는 presence 시점 의존이라
+      // 편집 시점 online/idle 기준으로 신규 집합을 산정하므로, 편집 직전엔
+      // offline 이라 못 받았던 사용자가 편집 시 online 이면 신규 수신자로 잡힌다
+      // (over-notify 측 — 알림 누락보다 안전, send 의 online-필터 정책과 일관).
+      const broadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+        workspaceId: args.workspaceId,
+        mentions,
+      });
+      // 신규(편집 후) 멘션 후보: 명시적 @username ∪ broad, 작성자(actor) 제외.
+      const candidateMentionUserIds = [...mentions.users, ...broadRecipientIds].filter(
+        (uid) => uid && uid !== args.actorId,
+      );
+      // 이전(편집 전) 멘션 대상: explicit ∪ broad — 동일 resolver 로 재해석한다.
+      // 차집합 대상이므로 actor 제외는 신규 집합에서 이미 처리됐고, 여기선 비교용
+      // 집합만 만든다(actor 가 양쪽에 있어도 신규에서 빠져 영향 없음).
+      const prevMentions = ((before!.mentions as unknown as Partial<Mentions> | null) ?? {
+        users: [],
+        channels: [],
+        everyone: false,
+        here: false,
+        channel: false,
+      }) as Partial<Mentions>;
+      const prevBroadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+        workspaceId: args.workspaceId,
+        mentions: {
+          users: prevMentions.users ?? [],
+          channels: prevMentions.channels ?? [],
+          everyone: prevMentions.everyone === true,
+          here: prevMentions.here === true,
+          channel: prevMentions.channel === true,
+        },
+      });
+      const previouslyNotified = new Set<string>([
+        ...(prevMentions.users ?? []),
+        ...prevBroadRecipientIds,
+      ]);
+      // 신규 추가분만: 이전 멘션 대상은 재알림하지 않는다(중복 알림 방지).
+      const dedupedMentionUserIds = Array.from(
+        new Set(candidateMentionUserIds.filter((uid) => !previouslyNotified.has(uid))),
+      );
+      if (dedupedMentionUserIds.length > 0) {
+        // send 와 동일한 mute/DND/OFF 게이트를 같은 tx 안에서 적용한다(atomic snapshot).
+        const now = editedAt;
+        const mutedRows = await tx.userChannelMute.findMany({
+          where: {
+            channelId: args.channelId,
+            userId: { in: dedupedMentionUserIds },
+            OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
+          },
+          select: { userId: true },
+        });
+        const mutedSet = new Set(mutedRows.map((r) => r.userId));
+        const dndRows = await tx.user.findMany({
+          where: { id: { in: dedupedMentionUserIds } },
+          select: { id: true, presencePreference: true, dndSchedule: true },
+        });
+        const dndSuppressedSet = new Set(
+          dndRows
+            .filter((r) =>
+              isDndSuppressed(
+                {
+                  presencePreference: r.presencePreference,
+                  dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                },
+                now,
+              ),
+            )
+            .map((r) => r.id),
+        );
+        // S38 정합: 답글 편집이면 루트의 OFF 구독자도 멘션 알림에서 제외(send 와 동일).
+        const offMentionSet = new Set<string>();
+        const parentMessageId = before!.parentMessageId;
+        if (parentMessageId) {
+          const offSubRows = await tx.threadSubscription.findMany({
+            where: {
+              threadParentId: parentMessageId,
+              userId: { in: dedupedMentionUserIds },
+              notificationLevel: 'OFF',
+            },
+            select: { userId: true },
+          });
+          for (const r of offSubRows) offMentionSet.add(r.userId);
+        }
+        const snippet = buildSnippet(args.content);
+        for (const uid of dedupedMentionUserIds) {
+          if (mutedSet.has(uid)) continue;
+          if (dndSuppressedSet.has(uid)) continue;
+          if (offMentionSet.has(uid)) continue;
+          const mentionPayload: MentionReceivedPayload = {
+            targetUserId: uid,
+            workspaceId: args.workspaceId,
+            channelId: args.channelId,
+            messageId: args.msgId,
+            actorId: args.actorId,
+            snippet,
+            // 편집 알림의 createdAt 은 편집 시각(editedAt)을 쓴다 — 인박스 정렬이
+            // 원본 작성 시각이 아니라 새로 멘션된 시점을 반영한다.
+            createdAt: editedAt.toISOString(),
+            everyone: mentions.everyone === true,
+            here: mentions.here === true,
+          };
+          await this.outbox.record(tx, {
+            aggregateType: 'UserMention',
+            aggregateId: uid,
+            eventType: MENTION_RECEIVED,
+            payload: mentionPayload,
+          });
+        }
       }
 
       const updated = (await tx.message.findUnique({ where: { id: args.msgId } }))!;
