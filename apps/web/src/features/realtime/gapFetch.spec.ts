@@ -28,6 +28,8 @@ function msg(id: string): MessageDto {
     pinnedAt: null,
     pinnedBy: null,
     version: 0,
+    isBroadcast: false,
+    parentExcerpt: null,
   };
 }
 

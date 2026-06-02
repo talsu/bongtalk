@@ -24,6 +24,8 @@ function msg(id: string, createdAt: string, parentMessageId: string | null = nul
     pinnedAt: null,
     pinnedBy: null,
     version: 0,
+    isBroadcast: false,
+    parentExcerpt: null,
   };
 }
 

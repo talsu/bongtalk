@@ -630,4 +630,159 @@ describe('realtime dispatcher', () => {
     });
     detach();
   });
+
+  // ── S35 (FR-TH-06): message.thread.broadcast → 채널 타임라인 삽입 ──────────
+  describe('message.thread.broadcast (FR-TH-06)', () => {
+    function broadcastEnv() {
+      return {
+        id: 'ev-bc',
+        channelId: 'ch-1',
+        workspaceId: 'ws-1',
+        parentMessageId: 'root-1',
+        parentExcerpt: '루트 본문 일부',
+        message: {
+          id: 'bc-1',
+          channelId: 'ch-1',
+          authorId: 'u-2',
+          content: 'reply body',
+          contentRaw: 'reply body',
+          contentAst: null,
+          type: 'SYSTEM_THREAD_BROADCAST',
+          mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+          edited: false,
+          deleted: false,
+          createdAt: '2025-01-01T00:00:00.000Z',
+          editedAt: null,
+          reactions: [],
+          parentMessageId: 'root-1',
+          thread: null,
+          attachments: [],
+          pinnedAt: null,
+          pinnedBy: null,
+          version: 0,
+          isBroadcast: true,
+          parentExcerpt: null,
+        },
+      };
+    }
+
+    it('inserts the broadcast row into the channel cache head with isBroadcast + parentExcerpt', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const key = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(key, {
+        pages: [{ items: [], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc, {
+        viewerId: () => 'viewer',
+        activeChannelId: () => 'ch-1',
+      });
+      socket.emit('message.thread.broadcast', broadcastEnv());
+      const state = qc.getQueryData(key) as {
+        pages: Array<{
+          items: Array<{ id: string; isBroadcast?: boolean; parentExcerpt?: string | null }>;
+        }>;
+      };
+      expect(state.pages[0].items[0].id).toBe('bc-1');
+      expect(state.pages[0].items[0].isBroadcast).toBe(true);
+      expect(state.pages[0].items[0].parentExcerpt).toBe('루트 본문 일부');
+      detach();
+    });
+
+    it('dedupes a repeated broadcast envelope by messageId (no double insert)', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const key = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(key, {
+        pages: [{ items: [], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc, {
+        viewerId: () => 'viewer',
+        activeChannelId: () => 'ch-1',
+      });
+      socket.emit('message.thread.broadcast', broadcastEnv());
+      socket.emit('message.thread.broadcast', broadcastEnv());
+      const state = qc.getQueryData(key) as { pages: Array<{ items: Array<{ id: string }> }> };
+      expect(state.pages[0].items.filter((m) => m.id === 'bc-1')).toHaveLength(1);
+      detach();
+    });
+  });
+
+  // ── S35 (FR-TH-20b): message.deleted 가 채널 + 열린 스레드 캐시를 함께 동기 ──
+  describe('message.deleted → thread cache sync (FR-TH-20b)', () => {
+    it('marks a deleted reply as deleted in the open thread cache', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const chanKey = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(chanKey, {
+        pages: [{ items: [], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],
+        pageParams: [undefined],
+      });
+      const threadKey = qk.messages.thread('root-1');
+      qc.setQueryData(threadKey, {
+        pages: [
+          {
+            root: { id: 'root-1', deleted: false, content: 'root' },
+            replies: [
+              { id: 'rep-1', deleted: false, content: 'a' },
+              { id: 'rep-2', deleted: false, content: 'b' },
+            ],
+            pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+          },
+        ],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('message.deleted', {
+        channelId: 'ch-1',
+        workspaceId: 'ws-1',
+        message: { id: 'rep-1' },
+      });
+      const state = qc.getQueryData(threadKey) as {
+        pages: Array<{ replies: Array<{ id: string; deleted: boolean; content: string | null }> }>;
+      };
+      const rep1 = state.pages[0].replies.find((r) => r.id === 'rep-1');
+      const rep2 = state.pages[0].replies.find((r) => r.id === 'rep-2');
+      expect(rep1?.deleted).toBe(true);
+      expect(rep1?.content).toBeNull();
+      // 다른 답글은 영향 없음(2회 렌더 방지 — 동일 참조 유지).
+      expect(rep2?.deleted).toBe(false);
+      detach();
+    });
+
+    it('marks a deleted root as deleted in its thread cache', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const chanKey = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(chanKey, {
+        pages: [{ items: [], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],
+        pageParams: [undefined],
+      });
+      const threadKey = qk.messages.thread('root-1');
+      qc.setQueryData(threadKey, {
+        pages: [
+          {
+            root: { id: 'root-1', deleted: false, content: 'root' },
+            replies: [],
+            pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+          },
+        ],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('message.deleted', {
+        channelId: 'ch-1',
+        workspaceId: 'ws-1',
+        message: { id: 'root-1' },
+      });
+      const state = qc.getQueryData(threadKey) as {
+        pages: Array<{ root: { id: string; deleted: boolean; content: string | null } }>;
+      };
+      expect(state.pages[0].root.deleted).toBe(true);
+      expect(state.pages[0].root.content).toBeNull();
+      detach();
+    });
+  });
 });

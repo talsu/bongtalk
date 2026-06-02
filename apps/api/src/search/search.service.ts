@@ -384,6 +384,12 @@ export class SearchService {
           ts_rank_cd(m."search_tsv", plainto_tsquery('simple', ${q})) AS rank
           FROM "Message" m
          WHERE m."deletedAt" IS NULL
+           -- S35 fix-forward (회귀 차단): broadcast 행(SYSTEM_THREAD_BROADCAST,
+           -- isBroadcast=true)은 답글 본문을 그대로 복제한 채널 타임라인 사본이다.
+           -- 가드가 없으면 같은 본문이 원본 답글과 broadcast 두 번 검색에 잡혀
+           -- 중복 히트가 발생한다. broadcast 는 검색 대상에서 제외한다(원본 답글이
+           -- 이미 검색됨).
+           AND m."isBroadcast" = false
            AND m."channelId" = ANY(
                  ARRAY[${Prisma.join(visibleIds.map((id) => Prisma.sql`${id}::uuid`))}]::uuid[]
                )

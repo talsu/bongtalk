@@ -511,3 +511,197 @@ describe('Threads API — @mention auto-subscribe excludes blocked users (S34 / 
     expect(sub).not.toBeNull();
   });
 });
+
+// S35 (FR-TH-06): 'Also send to #channel' broadcast. 답글을 isBroadcast=true 로
+// 전송하면 같은 tx 안에서 별도의 SYSTEM_THREAD_BROADCAST 채널 행이 생성되고,
+// 그 행이 채널 메시지 목록에 isBroadcast=true + parentExcerpt(루트 50자)로
+// 노출되며 parentMessageId 로 스레드 루트에 링크된다. 스레드 답글 목록에는
+// broadcast 행이 포함되지 않는다(채널 복제본이지 답글이 아님).
+describe('Threads API — broadcast (S35 / FR-TH-06)', () => {
+  async function postReplyBroadcast(
+    token: string,
+    parentMessageId: string,
+    content: string,
+  ): Promise<{ status: number; body: { message?: { id: string } } }> {
+    const r = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+      .set(bearer(token))
+      .send({ content, parentMessageId, isBroadcast: true });
+    return { status: r.status, body: r.body };
+  }
+
+  it('broadcast 답글은 채널 타임라인에 isBroadcast 메시지 + 루트 excerpt 를 노출한다', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'this is the original root message');
+    const reply = await postReplyBroadcast(stack.admin.accessToken, rootId, 'broadcasted reply');
+    expect(reply.status).toBe(201);
+
+    // 채널 메시지 목록: 루트 + broadcast 행이 보인다(일반 답글은 보이지 않음).
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    expect(list.status).toBe(200);
+    const items: Array<{
+      id: string;
+      isBroadcast: boolean;
+      parentMessageId: string | null;
+      parentExcerpt: string | null;
+      content: string | null;
+      type: string;
+    }> = list.body.items;
+    const broadcast = items.find((m) => m.isBroadcast === true);
+    expect(broadcast).toBeTruthy();
+    // broadcast 행은 SYSTEM_THREAD_BROADCAST 타입 + 스레드 루트로 링크.
+    expect(broadcast!.type).toBe('SYSTEM_THREAD_BROADCAST');
+    expect(broadcast!.parentMessageId).toBe(rootId);
+    // 루트 본문 50자 이내 excerpt 가 포함된다(FR-TH-06 AC).
+    expect(broadcast!.parentExcerpt).toBeTruthy();
+    expect('this is the original root message').toContain(
+      broadcast!.parentExcerpt!.replace('…', ''),
+    );
+    // 채널에서 답글 본문이 보인다.
+    expect(broadcast!.content).toBe('broadcasted reply');
+    // broadcast 행 != 답글 행(별도 행).
+    expect(broadcast!.id).not.toBe(reply.body.message!.id);
+  });
+
+  it('broadcast 행은 스레드 답글 목록에는 포함되지 않는다(채널 복제본)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root for broadcast exclusion');
+    await postReplyBroadcast(stack.admin.accessToken, rootId, 'broadcasted reply');
+
+    const thread = await request(env.baseUrl)
+      .get(`/messages/${rootId}/thread?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    expect(thread.status).toBe(200);
+    // 답글 1개(원본 답글)만 — broadcast 행은 제외.
+    expect(thread.body.replies).toHaveLength(1);
+    expect(thread.body.replies[0].isBroadcast).toBe(false);
+    expect(thread.body.replies[0].content).toBe('broadcasted reply');
+  });
+
+  it('broadcast 답글은 message.created + thread.replied + thread.broadcast 를 모두 emit 한다', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root for broadcast events');
+    const reply = await postReplyBroadcast(stack.admin.accessToken, rootId, 'bc');
+    expect(reply.status).toBe(201);
+
+    const broadcastEvents = await env.prisma.outboxEvent.findMany({
+      where: { eventType: 'message.thread.broadcast' },
+    });
+    expect(broadcastEvents).toHaveLength(1);
+    const payload = broadcastEvents[0].payload as {
+      parentMessageId: string;
+      parentExcerpt: string;
+      message: { isBroadcast: boolean; parentMessageId: string | null; type: string };
+    };
+    expect(payload.parentMessageId).toBe(rootId);
+    expect(payload.parentExcerpt).toBeTruthy();
+    expect(payload.message.isBroadcast).toBe(true);
+    expect(payload.message.type).toBe('SYSTEM_THREAD_BROADCAST');
+    expect(payload.message.parentMessageId).toBe(rootId);
+  });
+
+  it('isBroadcast 없이(default) 보내면 broadcast 행이 생성되지 않는다(무회귀)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root no broadcast');
+    await postReply(stack.admin.accessToken, rootId, 'plain reply');
+
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    const items: Array<{ isBroadcast: boolean }> = list.body.items;
+    expect(items.some((m) => m.isBroadcast === true)).toBe(false);
+
+    const bc = await env.prisma.outboxEvent.findMany({
+      where: { eventType: 'message.thread.broadcast' },
+    });
+    expect(bc).toHaveLength(0);
+  });
+
+  // S35 fix-forward (BLOCKER): broadcast 행은 parentMessageId(=루트)를 갖지만
+  // 답글이 아니다. reply-count/participants/deletion 경로 어디에서도 답글로
+  // 오집계되면 안 된다.
+  it('broadcast 행은 루트 replyCount 에 산입되지 않는다(send + reconcile 양쪽)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root for replyCount leak');
+    // 일반 답글 1 + broadcast 답글 1 → replyCount 는 2 가 아니라 2 여야 한다?
+    // 아니다: 일반 답글은 +1, broadcast 답글은 (답글 본인 +1) + (broadcast 행은
+    // 0). postReplyBroadcast 는 답글 1건 + broadcast 행 1건을 만들므로 실답글은 2.
+    await postReply(stack.admin.accessToken, rootId, 'plain reply');
+    await postReplyBroadcast(stack.owner.accessToken, rootId, 'broadcasted reply');
+
+    const afterSend = await env.prisma.message.findUnique({ where: { id: rootId } });
+    // 실답글 2건(plain + broadcast 의 원본 답글). broadcast 행 자체는 미산입.
+    expect(afterSend?.replyCount).toBe(2);
+
+    // reconcile 도 broadcast 행을 actual 에서 제외 → drift 시뮬레이션 후 2 로 수렴.
+    await env.prisma.message.update({ where: { id: rootId }, data: { replyCount: 99 } });
+    const reconciler = env.app.get(ThreadReplyCountReconciler);
+    const fixed = await reconciler.reconcile();
+    expect(fixed).toBe(1);
+    const afterReconcile = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(afterReconcile?.replyCount).toBe(2); // broadcast 행을 세지 않음
+  });
+
+  it('broadcast 행 soft-delete 는 루트 replyCount 를 깎지 않는다(올린 적 없음)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root for broadcast delete');
+    await postReplyBroadcast(stack.admin.accessToken, rootId, 'broadcasted reply');
+
+    const before = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(before?.replyCount).toBe(1); // 원본 답글 1건만 산입
+
+    // 채널 목록에서 broadcast 행 id 를 찾아 soft-delete.
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    const broadcast = (list.body.items as Array<{ id: string; isBroadcast: boolean }>).find(
+      (m) => m.isBroadcast === true,
+    );
+    expect(broadcast).toBeTruthy();
+    await request(env.baseUrl)
+      .delete(
+        `/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${broadcast!.id}`,
+      )
+      .set(bearer(stack.admin.accessToken))
+      .expect(204);
+
+    const after = await env.prisma.message.findUnique({ where: { id: rootId } });
+    // broadcast 는 카운터를 올린 적이 없으므로 삭제해도 감소하지 않는다.
+    expect(after?.replyCount).toBe(1);
+  });
+
+  it('broadcast 행은 replyParticipants(아바타 스택)에 phantom 참여자로 잡히지 않는다', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root for participants leak');
+    // owner 가 broadcast 답글만 보낸다(원본 답글 author = owner, broadcast 행
+    // author 도 owner). participants 는 distinct author 라 owner 1명만 나와야 하고
+    // broadcast 행이 중복 슬롯을 차지하면 안 된다.
+    await postReplyBroadcast(stack.owner.accessToken, rootId, 'broadcasted reply');
+
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    const root = (
+      list.body.items as Array<{
+        id: string;
+        thread: { replyCount: number; recentReplyUserIds: string[] } | null;
+      }>
+    ).find((m) => m.id === rootId);
+    expect(root?.thread).toBeTruthy();
+    expect(root!.thread!.replyCount).toBe(1);
+    // distinct author 1명(owner) — broadcast 행이 중복으로 더해지지 않는다.
+    expect(root!.thread!.recentReplyUserIds).toEqual([stack.owner.userId]);
+  });
+
+  it('broadcast 행은 루트 작성자 활동 피드에 phantom 답글로 잡히지 않는다(me-activity)', async () => {
+    // member 가 루트 작성 → 루트 작성자 = member. admin 이 broadcast 답글 1건.
+    // member 의 활동 피드 reply 항목은 원본 답글 1건뿐이어야 한다(broadcast 제외).
+    const rootId = await postRoot(stack.member.accessToken, 'root for activity leak');
+    await postReplyBroadcast(stack.admin.accessToken, rootId, 'broadcasted reply body');
+
+    const feed = await request(env.baseUrl)
+      .get(`/me/activity?filter=reply&limit=50`)
+      .set(bearer(stack.member.accessToken));
+    expect(feed.status).toBe(200);
+    const replyItems = (feed.body.items as Array<{ kind: string; messageId: string }>).filter(
+      (i) => i.kind === 'reply',
+    );
+    // 원본 답글 1건만 — broadcast 행은 활동으로 잡히지 않는다.
+    expect(replyItems).toHaveLength(1);
+  });
+});

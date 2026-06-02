@@ -215,6 +215,35 @@ describe('GET /search (task-015-B)', () => {
     expect(r.body.results).toEqual([]);
   });
 
+  // S35 fix-forward (회귀 차단): broadcast 행은 답글 본문을 그대로 복제한 채널
+  // 사본이라 검색에 잡히면 같은 본문이 원본 답글 + broadcast 로 중복 히트된다.
+  // candidate 쿼리의 `isBroadcast = false` 가드로 broadcast 를 제외해 히트는
+  // 원본 답글 1건뿐이어야 한다.
+  it('broadcast 행은 검색에서 중복 히트되지 않는다(원본 답글 1건만)', async () => {
+    const s = await seed();
+    // 루트 작성 후 broadcast 답글(isBroadcast=true) — 답글 1건 + broadcast 행 1건.
+    const rootRes = await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels/${s.publicChannelId}/messages`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ content: 'root anchor message' })
+      .expect(201);
+    const rootId = rootRes.body.message.id as string;
+    await request(env.baseUrl)
+      .post(`/workspaces/${s.workspaceId}/channels/${s.publicChannelId}/messages`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${s.ownerToken}`)
+      .send({ content: 'searchablebroadcastterm body', parentMessageId: rootId, isBroadcast: true })
+      .expect(201);
+
+    const r = await request(env.baseUrl)
+      .get(`/search?workspaceId=${s.workspaceId}&q=searchablebroadcastterm`)
+      .set('Authorization', `Bearer ${s.memberToken}`);
+    expect(r.status).toBe(200);
+    // 동일 본문이 답글 + broadcast 둘 다 있지만 broadcast 는 제외 → 1건.
+    expect(r.body.results).toHaveLength(1);
+  });
+
   // ── S29 (search core) ────────────────────────────────────────────────────
 
   it('S29 FR-S04 오라클 방지: in:#<비공개 비멤버 채널> → 0건(존재 미노출)', async () => {

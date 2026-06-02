@@ -40,6 +40,8 @@ function makeMsg(id: string, extra: Partial<MessageDto> = {}): MessageDto {
     pinnedAt: null,
     pinnedBy: null,
     version: 0,
+    isBroadcast: false,
+    parentExcerpt: null,
     ...extra,
   };
 }

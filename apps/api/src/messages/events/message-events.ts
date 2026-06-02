@@ -9,6 +9,17 @@ export const MESSAGE_DELETED = 'message.deleted';
 // double-bump the summary.
 export const MESSAGE_THREAD_REPLIED = 'message.thread.replied';
 
+// S35 (FR-TH-06): 스레드→채널 broadcast. 답글을 'Also send to #channel' 체크와
+// 함께 전송하면, send tx 안에서 별도의 SYSTEM_THREAD_BROADCAST 행을 채널
+// 타임라인에 동시 게시하고 이 이벤트를 emit 한다. dot 컨벤션(message.thread.*)을
+// 유지해 outbox-to-ws subscriber 의 `message.**` 와일드카드가 자동으로 채널
+// 룸 fanout 한다(별도 라우팅 코드 불필요). 클라이언트 dispatcher 는 broadcast
+// MessageDto 를 채널 타임라인 캐시에 삽입한다(thread.replied 와 달리 채널 행
+// 자체를 추가). PRD 의 `thread:broadcast { channelId, broadcastMessage,
+// parentMessageId, parentExcerpt }` 콜론 와이어명으로의 수렴은 S10 WS-naming
+// 번들 carryover — 본 슬라이스는 dot 일관 유지.
+export const MESSAGE_THREAD_BROADCAST = 'message.thread.broadcast';
+
 export type MessageCreatedPayload = {
   // null for Global DM channels (Channel.workspaceId IS NULL). The
   // outbox-to-ws subscriber routes message events by channel room
@@ -74,6 +85,40 @@ export type MessageThreadRepliedPayload = {
   // author + the 19 most recent repliers. Author is always recipients[0]
   // so the dispatcher can suppress self-toasts cheaply.
   recipients: string[];
+};
+
+// S35 (FR-TH-06): broadcast 채널 게시 payload. broadcast 행(SYSTEM_THREAD_
+// BROADCAST)의 채널 타임라인 삽입에 필요한 필드를 담는다. message.created 와
+// 동일한 message 서브셋 + parentExcerpt(루트 50자) + isBroadcast=true. 클라
+// dispatcher 는 이 message 를 채널 캐시에 삽입하고(parentMessageId 가 있어도
+// isBroadcast 면 채널 행으로 취급), parentExcerpt 를 레이블과 함께 렌더한다.
+export type MessageThreadBroadcastPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  actorId: string;
+  // broadcast 행이 가리키는 스레드 루트. 클릭 시 스레드 열기 + dedupe 키.
+  parentMessageId: string;
+  // 루트 메시지 본문 excerpt(50자, 초과 시 끝에 "…"). null 불가(항상 채운다).
+  parentExcerpt: string;
+  message: {
+    id: string;
+    authorId: string;
+    content: string;
+    contentRaw: string;
+    contentAst: unknown;
+    type: string;
+    mentions: {
+      users: string[];
+      channels: string[];
+      everyone: boolean;
+      here: boolean;
+      channel: boolean;
+    };
+    createdAt: string;
+    parentMessageId: string | null;
+    // S35: 채널 행이 broadcast 임을 클라이언트가 인식하는 키.
+    isBroadcast: boolean;
+  };
 };
 
 export type MessageUpdatedPayload = {

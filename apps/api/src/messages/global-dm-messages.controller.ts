@@ -110,10 +110,12 @@ export class GlobalDmMessagesController {
       visibleFrom,
     });
     const ids = result.items.map((r) => r.id);
-    const [reactionMap, threadMap, attachmentMap] = await Promise.all([
+    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
       this.messages.aggregateThreadSummaries(ids),
       this.messages.aggregateAttachments(ids),
+      // S35 (FR-TH-06): DM 스레드 broadcast 행의 루트 excerpt (페이지당 1쿼리).
+      this.messages.aggregateBroadcastExcerpts(result.items),
     ]);
     const dtos = result.items.map((r) =>
       this.messages.toDto(
@@ -121,6 +123,7 @@ export class GlobalDmMessagesController {
         reactionMap.get(r.id) ?? [],
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
+        broadcastExcerptMap.get(r.id) ?? null,
       ),
     );
     return {
@@ -180,6 +183,9 @@ export class GlobalDmMessagesController {
       // S20 (MAJOR/perf): guard 가 로드한 channel.type 을 넘겨 send 의 DM
       // hidden-restore 게이트가 채널을 다시 SELECT 하지 않게 한다.
       channelType: channel.type,
+      // S35 (FR-TH-06): DM 스레드 답글의 'Also send to #channel'. 서비스가
+      // parentMessageId 가드로 답글에만 broadcast 를 게시한다.
+      isBroadcast: parsed.data.isBroadcast === true,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);

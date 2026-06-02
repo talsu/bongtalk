@@ -10,6 +10,17 @@ import { Icon } from '../../design-system/primitives';
 
 const QUICK = ['👍', '❤️', '😂', '🎉', '🙏'] as const;
 
+// A-08: 이모지 버튼은 글리프만 보여 스크린리더가 코드포인트를 읽어버린다.
+// 각 프리셋에 한국어 의미 레이블을 부여해 "좋아요/하트/웃음/축하/감사 반응"으로
+// 읽히게 한다(반응 추가 동작임을 명시).
+const QUICK_LABEL: Record<(typeof QUICK)[number], string> = {
+  '👍': '좋아요',
+  '❤️': '하트',
+  '😂': '웃음',
+  '🎉': '축하',
+  '🙏': '감사',
+};
+
 export function MobileMessageSheet({
   msg,
   isMine,
@@ -18,6 +29,7 @@ export function MobileMessageSheet({
   onCopy,
   onReact,
   onReply,
+  onOpenThread,
 }: {
   msg: MessageDto;
   isMine: boolean;
@@ -26,6 +38,9 @@ export function MobileMessageSheet({
   onCopy: () => void;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  // S35 (FR-TH-05): '스레드에서 답글' — 전체화면 스레드 패널을 연다. 미지정이면
+  // (DM 등 스레드 비지원 컨텍스트) 액션을 숨긴다.
+  onOpenThread?: () => void;
 }): JSX.Element {
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -53,6 +68,7 @@ export function MobileMessageSheet({
               type="button"
               data-testid={`mobile-quick-react-${e}`}
               onClick={() => onReact(e)}
+              aria-label={`${QUICK_LABEL[e]} 반응`}
               className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-muted"
             >
               {e}
@@ -71,6 +87,22 @@ export function MobileMessageSheet({
           </span>
           <span>답장</span>
         </button>
+        {/* S35 (FR-TH-05): 스레드에서 답글 — 전체화면 스레드 패널 진입. 루트가
+            아닌 답글에서도 동일 루트로 진입하도록 호출측이 parentMessageId 를
+            해석한다(여기선 액션만 노출). */}
+        {onOpenThread ? (
+          <button
+            type="button"
+            data-testid="mobile-msg-open-thread"
+            onClick={onOpenThread}
+            className="qf-m-sheet__item"
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="thread" size="sm" />
+            </span>
+            <span>스레드에서 답글</span>
+          </button>
+        ) : null}
         <button
           type="button"
           data-testid="mobile-msg-copy"

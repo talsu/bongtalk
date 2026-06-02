@@ -273,6 +273,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // S05 (FR-MSG-06): optimistic 메시지는 아직 서버 row 가 없어 version 0.
         // 서버 에코(message:created)로 실제 version 으로 교체됩니다.
         version: 0,
+        // S35 (FR-TH-06): optimistic 메시지는 broadcast 행이 아니다.
+        isBroadcast: false,
+        parentExcerpt: null,
         sendState: 'pending',
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useMembers } from '../workspaces/useWorkspaces';
 import { Avatar, Icon } from '../../design-system/primitives';
@@ -14,6 +14,11 @@ type Props = {
   channelName?: string;
   rootId: string;
   onClose: () => void;
+  // S35 (FR-TH-05): 모바일(768px 미만) 전체화면 모드. DS 에 `qf-m-panel-thread`
+  // 정의가 없어(mobile.css 미등록) app-layer 전체화면 레이아웃을 합성한다(DS 무수정).
+  // 헤더의 닫기 버튼이 back 화살표로 바뀌고 패널이 fixed inset-0 으로 깔린다.
+  // 데스크톱(기본 false)은 기존 `qf-thread-panel` 320/420px 고정 폭 그대로.
+  mobile?: boolean;
 };
 
 /**
@@ -21,6 +26,9 @@ type Props = {
  * rebuilt on the DS `qf-thread-panel` primitives (see
  * /design-system/index.html § Thread). Header → pinned origin card →
  * day divider → compact `qf-thread-msg` rows → `qf-thread-composer`.
+ *
+ * S35 (FR-TH-05): `mobile` 플래그로 동일 로직(useThreadReplies/useSendReply/
+ * ESC/scroll/jump/broadcast)을 재사용하면서 모바일 전체화면 레이아웃을 입힌다.
  */
 export function ThreadPanel({
   workspaceId,
@@ -28,11 +36,25 @@ export function ThreadPanel({
   channelName,
   rootId,
   onClose,
+  mobile = false,
 }: Props): JSX.Element | null {
   const { data: members } = useMembers(workspaceId);
   const history = useThreadReplies(rootId);
   const reply = useSendReply(workspaceId, channelId, rootId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // S35 fix-forward (a11y BLOCKER): 모바일 전체화면 패널은 role="dialog"
+  // aria-modal 이므로 포커스 트랩 + mount 포커스 이동의 앵커가 필요하다.
+  // panelRef 는 트랩 범위(패널 내 focusable 순환), backRef 는 mount 시
+  // 최초 포커스 대상(back 버튼)이다. 데스크톱(mobile=false)에서는 트랩/
+  // 자동 포커스 모두 비활성(기존 데스크톱 UX 무회귀).
+  const panelRef = useRef<HTMLElement>(null);
+  const backRef = useRef<HTMLButtonElement>(null);
+  // S35 (FR-TH-18): mount 시 1회 최하단 스크롤이 끝났는지 추적. 첫 페이지가
+  // 도착하기 전(replies 0)에는 스크롤 대상이 없으므로 첫 렌더 이후로 미룬다.
+  const hasAnchoredRef = useRef(false);
+  // S35 (FR-TH-18): thread reply 수신 시 near-bottom 이 아니면 노출되는 jump
+  // 버튼 상태. 클릭 시 최하단으로 이동하고 숨긴다.
+  const [showJump, setShowJump] = useState(false);
 
   const pages = history.data?.pages ?? [];
   const root: MessageDto | undefined = pages[0]?.root;
@@ -50,13 +72,47 @@ export function ThreadPanel({
     return map;
   }, [members]);
 
-  // Scroll to bottom when new replies arrive (only if already near bottom).
+  // S35 (FR-TH-18): mount 시 최하단으로 초기 스크롤(1회). 첫 페이지(root +
+  // replies)가 그려진 직후 useLayoutEffect 로 페인트 전에 바닥으로 보낸다.
+  // (lastRead 기반 초기 스크롤 — ThreadReadState.lastReadMessageId 다음 첫
+  // 미읽 위치로의 스크롤 — 은 ThreadReadState 모델에 의존하므로 S36 carryover.)
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el || hasAnchoredRef.current) return;
+    if (replies.length === 0 && !root) return; // 그릴 게 아직 없음 — 다음 렌더로 미룸.
+    el.scrollTop = el.scrollHeight;
+    hasAnchoredRef.current = true;
+  }, [replies.length, root]);
+
+  // S35 (FR-TH-18): thread reply 수신 시 — 이미 near-bottom(<80px)이면 자동
+  // 스크롤하고, 아니면 jump 버튼을 노출한다(사용자가 위쪽 이력을 읽는 중이면
+  // 강제로 끌어내리지 않는다). 초기 mount 앵커가 끝난 뒤에만 동작한다.
   useEffect(() => {
+    const el = scrollRef.current;
+    if (!el || !hasAnchoredRef.current) return;
+    const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    if (near) {
+      el.scrollTop = el.scrollHeight;
+      setShowJump(false);
+    } else {
+      setShowJump(true);
+    }
+  }, [replies.length]);
+
+  // S35 (FR-TH-18): 사용자가 수동으로 최하단까지 스크롤하면 jump 버튼을 숨긴다.
+  const onBodyScroll = (): void => {
     const el = scrollRef.current;
     if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (near) el.scrollTop = el.scrollHeight;
-  }, [replies.length]);
+    if (near && showJump) setShowJump(false);
+  };
+
+  const jumpToBottom = (): void => {
+    const el = scrollRef.current;
+    if (!el) return;
+    el.scrollTop = el.scrollHeight;
+    setShowJump(false);
+  };
 
   // ESC closes the panel — scoped to this panel's mount lifetime.
   // S23 BLOCKER fix: Esc 가 스레드 패널을 닫는 데 소비되면 전파/기본동작을
@@ -74,34 +130,124 @@ export function ThreadPanel({
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
+  // S35 fix-forward (a11y BLOCKER): 모바일 dialog mount 시 back 버튼으로 포커스를
+  // 옮긴다(스크린리더가 패널 진입을 인지하고, 키보드 사용자가 패널 안에서 시작).
+  // 데스크톱은 인라인 패널이라 포커스 이동을 하지 않는다(기존 UX 유지).
+  useEffect(() => {
+    if (!mobile) return;
+    // back 버튼이 우선, 없으면 textarea 로 폴백(둘 다 mount 직후 존재).
+    const target =
+      backRef.current ??
+      panelRef.current?.querySelector<HTMLElement>('[data-testid="thread-input"]') ??
+      null;
+    target?.focus();
+  }, [mobile]);
+
+  // S35 fix-forward (a11y BLOCKER): 모바일 dialog 포커스 트랩. Tab/Shift+Tab 이
+  // 패널 내 focusable 요소를 순환하게 해 배경(채널 목록)으로 포커스가 새지 않게
+  // 한다. ESC 닫기는 위 별도 effect 가 처리한다. 데스크톱은 트랩 없음.
+  useEffect(() => {
+    if (!mobile) return;
+    const onTab = (e: KeyboardEvent): void => {
+      if (e.key !== 'Tab') return;
+      const panel = panelRef.current;
+      if (!panel) return;
+      const focusables = Array.from(
+        panel.querySelectorAll<HTMLElement>(
+          'button:not([disabled]):not([hidden]), [href], input:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+        ),
+      ).filter((el) => el.offsetParent !== null || el === document.activeElement);
+      if (focusables.length === 0) return;
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    const panel = panelRef.current;
+    panel?.addEventListener('keydown', onTab);
+    return () => panel?.removeEventListener('keydown', onTab);
+  }, [mobile]);
+
   if (!rootId) return null;
 
   const rootAuthorName = root ? (nameById.get(root.authorId) ?? 'unknown') : '';
   const rootBadge = root ? roleBadgeLabel(roleById.get(root.authorId) ?? null) : null;
 
   return (
-    <aside data-testid="thread-panel" aria-label="스레드" className="qf-thread-panel">
-      <header className="qf-thread-panel__header">
-        <Icon name="thread" size="sm" className="qf-thread-panel__icon" />
+    // S35 (FR-TH-05/18): 데스크톱은 DS `qf-thread-panel`(320/420px 고정 폭) +
+    // jump 버튼 앵커용 `relative`. 모바일은 DS 미등록(qf-m-panel-thread 부재)이라
+    // app-layer 전체화면(fixed inset-0 z-[var(--z-modal)] + DS 토큰 배경/세이프
+    // 에어리어)을 합성한다 — DS 파일 무수정. 두 경우 모두 내부 로직/마크업 동일.
+    <aside
+      ref={panelRef}
+      data-testid="thread-panel"
+      data-variant={mobile ? 'mobile' : 'desktop'}
+      aria-label="스레드"
+      // S35 fix-forward (a11y BLOCKER): 모바일 전체화면 패널은 배경을 가리는
+      // 모달이므로 role="dialog" aria-modal 로 스크린리더에 모달임을 알린다.
+      // 데스크톱은 사이드 패널(비모달)이라 role 을 부여하지 않는다(landmark
+      // aside 유지).
+      role={mobile ? 'dialog' : undefined}
+      aria-modal={mobile ? true : undefined}
+      className={cn(
+        'relative',
+        mobile
+          ? 'fixed inset-0 z-[var(--z-modal)] flex flex-col qf-m-safe-bottom'
+          : 'qf-thread-panel',
+      )}
+      style={mobile ? { background: 'var(--bg-chat)' } : undefined}
+    >
+      <header className={cn('qf-thread-panel__header', mobile ? 'qf-m-safe-top' : undefined)}>
+        {mobile ? (
+          // S35 (FR-TH-05): 모바일 back 버튼(ESC 대체). 데스크톱은 닫기(x).
+          <button
+            ref={backRef}
+            type="button"
+            data-testid="thread-back"
+            onClick={onClose}
+            // A-09: 모바일 back 버튼은 스레드 패널을 닫는 동작이므로 "스레드 닫기"로
+            // 명시한다(데스크톱 닫기 버튼 aria-label 과 의미 통일).
+            aria-label="스레드 닫기"
+            className="qf-thread-panel__close"
+            style={{ minWidth: 'var(--m-touch)', minHeight: 'var(--m-touch)' }}
+          >
+            <Icon name="chevron-left" size="sm" />
+          </button>
+        ) : (
+          <Icon name="thread" size="sm" className="qf-thread-panel__icon" />
+        )}
         <div className="min-w-0 flex-1">
           <div className="qf-thread-panel__title">스레드</div>
           <div className="qf-thread-panel__sub">
             {channelName ? `#${channelName}` : ''}
-            {root?.thread?.replyCount ? ` · ${root.thread.replyCount} replies` : ''}
+            {root?.thread?.replyCount ? ` · ${root.thread.replyCount}개의 답글` : ''}
           </div>
         </div>
-        <button
-          type="button"
-          data-testid="thread-close"
-          onClick={onClose}
-          aria-label="스레드 닫기"
-          className="qf-thread-panel__close"
-        >
-          <Icon name="x" size="sm" />
-        </button>
+        {mobile ? null : (
+          <button
+            type="button"
+            data-testid="thread-close"
+            onClick={onClose}
+            aria-label="스레드 닫기"
+            className="qf-thread-panel__close"
+          >
+            <Icon name="x" size="sm" />
+          </button>
+        )}
       </header>
 
-      <div ref={scrollRef} data-testid="thread-body" className="qf-thread-body">
+      <div
+        ref={scrollRef}
+        data-testid="thread-body"
+        className="qf-thread-body"
+        onScroll={onBodyScroll}
+      >
         {root ? (
           <div data-testid="thread-root" className="qf-thread-origin">
             <div className="qf-thread-origin__meta">
@@ -129,7 +275,7 @@ export function ThreadPanel({
         ) : null}
 
         {replies.length > 0 ? (
-          <div className="qf-thread-divider">{replies.length} replies</div>
+          <div className="qf-thread-divider">{replies.length}개의 답글</div>
         ) : !history.isLoading ? (
           // task-047 iter7 (O7): thread empty state — root 만 있고 답글 0
           <div data-testid="thread-empty" className="qf-empty" style={{ padding: 'var(--s-3)' }}>
@@ -159,14 +305,59 @@ export function ThreadPanel({
         })}
       </div>
 
+      {/* S35 (FR-TH-18): jump-to-bottom 버튼. DS 에 `qf-thread-jump-btn` 정의가
+          없어(데스크톱 패널용 jump 클래스 부재) app-layer DS 토큰으로 구성한다
+          (raw hex/px 없음 — var(--..) + 등록 Tailwind 유틸만). DS-owner 가 정식
+          `qf-thread-jump-btn` 을 추가하면 이 인라인을 교체한다 — follow-up. */}
+      {/* A-04: jump 노출 시 스크린리더에 새 답글 도착을 polite 으로 알린다(시각
+          jump 버튼과 별개로 비시각 사용자에게 컨텍스트 제공). sr-only 라
+          시각 레이아웃 무영향. */}
+      {showJump ? (
+        <div role="status" aria-live="polite" className="sr-only">
+          새 답글이 있습니다
+        </div>
+      ) : null}
+      {showJump ? (
+        <button
+          type="button"
+          data-testid="thread-jump-btn"
+          onClick={jumpToBottom}
+          aria-label="최신 답글로 이동"
+          className={cn(
+            'absolute left-1/2 -translate-x-1/2 z-[var(--z-sticky)]',
+            'flex items-center gap-[var(--s-2)]',
+            'rounded-[var(--r-pill)] px-[var(--s-4)] py-[var(--s-2)]',
+            'text-[length:var(--fs-12)]',
+            // A-05: 인라인 boxShadow:var(--elev-3) 가 기본 :focus-visible ring(box-
+            // shadow)을 덮어 키보드 포커스가 안 보였다. focus-visible 에서 ring-focus
+            // 그림자로 교체 + 기본 outline 제거(데스크톱 jump-to-unread 패턴 일치).
+            'focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none',
+          )}
+          // app-layer 인라인 스타일도 전부 DS 토큰(var(--..))만 사용 — raw hex/px
+          // 없음. border/배경/그림자/글자색을 토큰으로 직접 지정한다.
+          style={{
+            bottom: 'calc(var(--s-12) * 2)',
+            border: '1px solid var(--border)',
+            background: 'var(--bg-elevated)',
+            color: 'var(--text)',
+            boxShadow: 'var(--elev-3)',
+          }}
+        >
+          <Icon name="chevron-down" size="sm" />
+          <span>최신 답글</span>
+        </button>
+      ) : null}
+
       <ThreadComposer
         rootId={rootId}
+        channelName={channelName}
         disabled={reply.isPending}
-        onSubmit={(content) =>
+        onSubmit={(content, isBroadcast) =>
           reply.mutate({
             content,
             tempId: `tmp-${crypto.randomUUID()}`,
             idempotencyKey: crypto.randomUUID(),
+            isBroadcast,
           })
         }
       />
@@ -231,11 +422,14 @@ function ThreadReplyRow({
 
 function ThreadComposer({
   rootId,
+  channelName,
   onSubmit,
   disabled,
 }: {
   rootId: string;
-  onSubmit: (content: string) => void;
+  channelName?: string;
+  // S35 (FR-TH-06): 두 번째 인자로 'Also send to #channel' 체크 상태를 넘긴다.
+  onSubmit: (content: string, isBroadcast: boolean) => void;
   disabled: boolean;
 }): JSX.Element {
   // Persist the draft via compose-store keyed by thread:<rootId> so
@@ -247,6 +441,9 @@ function ThreadComposer({
   const clearDraftStore = useCompose((s) => s.clearDraft);
   const setDraft = (v: string): void => setDraftStore(key, v);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  // S35 (FR-TH-06): 'Also send to #channel' 체크 상태. 패널 로컬 상태 — 전송
+  // 성공 후 false 로 리셋한다(매 답글마다 명시적 opt-in 이 안전한 기본값).
+  const [broadcast, setBroadcast] = useState(false);
 
   // Same auto-grow rule as MessageComposer — single-line start, grows
   // up to 160px for the smaller panel, then scrolls internally.
@@ -261,8 +458,9 @@ function ThreadComposer({
   const submit = (): void => {
     const trimmed = draft.trim();
     if (!trimmed) return;
-    onSubmit(trimmed);
+    onSubmit(trimmed, broadcast);
     clearDraftStore(key);
+    setBroadcast(false);
   };
 
   return (
@@ -309,15 +507,25 @@ function ThreadComposer({
         />
       </div>
       <div className="qf-thread-composer__options">
-        <label className="qf-thread-composer__checkbox" title="추후 지원 예정">
-          <input type="checkbox" disabled />
-          <span>채널에도 공유</span>
+        {/* S35 (FR-TH-06): 'Also send to #channel' — 체크 후 전송 시 채널
+            타임라인에 broadcast 메시지(레이블 + 루트 excerpt)가 동시 게시된다.
+            DS 클래스 qf-thread-composer__options/__checkbox 는 components.css 에
+            이미 정의돼 있어 그대로 재사용한다(DS 무수정). */}
+        <label className="qf-thread-composer__checkbox">
+          <input
+            type="checkbox"
+            data-testid="thread-broadcast-checkbox"
+            checked={broadcast}
+            onChange={(e) => setBroadcast(e.target.checked)}
+          />
+          <span>{channelName ? `#${channelName} 에도 공유` : '채널에도 공유'}</span>
         </label>
       </div>
+      {/* A-13: `hidden` 이 이미 a11y 트리에서 제외하므로 중복 aria-hidden 을
+          제거한다(submit 트리거는 Enter 키 핸들러가 호출 — 시각/포커스 불필요). */}
       <button
         type="submit"
         hidden
-        aria-hidden="true"
         data-testid="thread-send"
         disabled={disabled || draft.trim().length === 0}
       />
