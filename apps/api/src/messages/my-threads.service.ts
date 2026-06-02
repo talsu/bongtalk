@@ -69,7 +69,10 @@ export class MyThreadsService {
           c."workspaceId"   AS workspace_id
         FROM subs s
         JOIN "Message" m ON m.id = s.parent_id AND m."deletedAt" IS NULL
-        JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
+        -- S38 fix-forward (보안 LOW): archived 채널 스레드는 목록에서 제외한다
+        -- (resolveThreadRootForAcl 의 CHANNEL_ARCHIVED 패턴과 일관 — 보관 채널의
+        -- 스레드는 GET/ack 가 막히므로 Threads 탭에도 노출하지 않는다).
+        JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL AND c."archivedAt" IS NULL
       ),
       -- 채널 워크스페이스별 요청자 role(없으면 비멤버 → NULL).
       with_role AS (
@@ -184,10 +187,83 @@ export class MyThreadsService {
    * 각 스레드의 최신(createdAt, id) 답글을 구해 ThreadReadState 를 monotonic
    * bulk upsert 한다(N+1 없음 · 퇴행 ack no-op). ackThread 와 동일 monotonic guard.
    *
+   * S38 fix-forward (security MEDIUM): listMine 과 동일한 채널 ACL `visible` CTE 를
+   * INSERT…SELECT 에 적용해, 요청자가 지금도 루트 채널을 READ 할 수 있는 구독
+   * 스레드만 ack 한다. 종전엔 채널 ACL 없이 ts."userId" = me 인 구독 전체를
+   * ack 해, 강퇴/비공개화 후 잔존한 구독 행(비멤버 스레드)의 ThreadReadState 까지
+   * 갱신했다 — 비록 read-state 자체엔 본문 누출이 없으나, 권한 없는 스레드의
+   * 메시지 id/시각(lastReadMessageId·CreatedAt)을 자기 행에 기록하므로 listMine 의
+   * 가시성 정책과 어긋났다(필터 일관성 위반). 이제 두 경로가 같은 fold 를 쓴다.
+   *
    * 반환: 전진(또는 신규 INSERT)한 스레드 수.
    */
   async markAllRead(userId: string): Promise<{ updated: number }> {
     const rows = await this.prisma.$queryRaw<Array<{ parent_message_id: string }>>(Prisma.sql`
+      WITH subs AS (
+        SELECT ts."threadParentId" AS parent_id
+          FROM "ThreadSubscription" ts
+         WHERE ts."userId" = ${userId}::uuid
+      ),
+      roots AS (
+        SELECT
+          m.id            AS parent_id,
+          m."channelId"   AS channel_id,
+          c."isPrivate"   AS is_private,
+          c."workspaceId" AS workspace_id
+        FROM subs s
+        JOIN "Message" m ON m.id = s.parent_id AND m."deletedAt" IS NULL
+        -- listMine 정합(보안 LOW): archived 채널 스레드도 read-all 대상에서 제외한다.
+        JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL AND c."archivedAt" IS NULL
+      ),
+      with_role AS (
+        SELECT r.*, wm.role AS my_role
+          FROM roots r
+          LEFT JOIN "WorkspaceMember" wm
+            ON wm."workspaceId" = r.workspace_id
+           AND wm."userId" = ${userId}::uuid
+      ),
+      with_ovr AS (
+        SELECT
+          wr.*,
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_deny,
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_deny
+        FROM with_role wr
+        LEFT JOIN "ChannelPermissionOverride" cpo
+          ON cpo."channelId" = wr.channel_id
+         AND (
+           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+           OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wr.my_role::text)
+         )
+        GROUP BY
+          wr.parent_id, wr.channel_id, wr.is_private, wr.workspace_id, wr.my_role
+      ),
+      visible AS (
+        SELECT parent_id
+          FROM with_ovr
+         WHERE
+           (workspace_id IS NULL OR my_role IS NOT NULL)
+           AND (
+             is_private = false
+             OR (
+               (
+                 (
+                   (
+                     (CASE
+                        WHEN ((COALESCE(user_allow, 0) | COALESCE(role_allow, 0)) & 1) > 0 THEN 1
+                        ELSE 0
+                      END)
+                     | (COALESCE(role_allow, 0) & 1)
+                   )
+                   & ~(COALESCE(role_deny, 0) & 1)
+                 )
+                 | (COALESCE(user_allow, 0) & 1)
+               )
+               & ~(COALESCE(user_deny, 0) & 1)
+             ) > 0
+           )
+      )
       INSERT INTO "ThreadReadState"
         ("id", "userId", "parentMessageId",
          "lastReadMessageId", "lastReadMessageCreatedAt", "updatedAt")
@@ -199,18 +275,18 @@ export class MyThreadsService {
         latest.last_at,
         now()
       FROM (
-        -- 내 구독 스레드별 최신 비삭제·비broadcast 답글의 (createdAt, id).
-        -- 답글이 하나도 없는 스레드(last_id NULL)는 ACK 대상에서 제외한다.
+        -- READ 권한이 있는(visible) 구독 스레드별 최신 비삭제·비broadcast 답글의
+        -- (createdAt, id). 답글이 하나도 없는 스레드(last_id NULL)는 ACK 대상에서
+        -- 제외한다. visible CTE 로 조인해 권한 없는 스레드를 처음부터 배제한다.
         SELECT DISTINCT ON (m."parentMessageId")
           m."parentMessageId" AS parent_id,
           m.id                AS last_id,
           m."createdAt"       AS last_at
-        FROM "ThreadSubscription" ts
+        FROM visible v
         JOIN "Message" m
-          ON m."parentMessageId" = ts."threadParentId"
+          ON m."parentMessageId" = v.parent_id
          AND m."isBroadcast" = false
          AND m."deletedAt" IS NULL
-        WHERE ts."userId" = ${userId}::uuid
         ORDER BY m."parentMessageId", m."createdAt" DESC, m.id DESC
       ) latest
       ON CONFLICT ("userId", "parentMessageId") DO UPDATE

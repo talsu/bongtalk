@@ -1091,10 +1091,34 @@ export class MessagesService {
             )
             .map((r) => r.id),
         );
+        // S38 fix-forward (reviewer MAJOR / FR-TH-08): notificationLevel=OFF 는
+        // "전면 제외"다 — OFF 구독자는 일반 thread.replied 뿐 아니라 @멘션 답글의
+        // mention.received 알림에서도 빠져야 한다(종전엔 mute/DND 만 게이트해 OFF
+        // 스레드도 멘션 알림을 받아 OFF==MENTIONS 로 동작하던 회귀). 답글
+        // (parentMessageId 보유)일 때만 의미가 있으므로 그 경우에만 루트의
+        // ThreadSubscription.notificationLevel=OFF 인 멘션 대상 집합을 같은 tx 에서
+        // 조회해(원자적 snapshot) 제외한다. MENTIONS 구독자는 멘션 시 수신해야
+        // 하므로 제외하지 않는다(OFF 만 차단 — thread.replied 의 MENTIONS 제외와
+        // 역할 분담). 루트 메시지(parentMessageId 없음)는 스레드 구독 컨텍스트가
+        // 없어 이 필터를 적용하지 않는다.
+        const offMentionSet = new Set<string>();
+        if (created.parentMessageId && dedupedMentionUserIds.length > 0) {
+          const offSubRows = await tx.threadSubscription.findMany({
+            where: {
+              threadParentId: created.parentMessageId,
+              userId: { in: dedupedMentionUserIds },
+              notificationLevel: 'OFF',
+            },
+            select: { userId: true },
+          });
+          for (const r of offSubRows) offMentionSet.add(r.userId);
+        }
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
           if (mutedSet.has(uid)) continue;
           if (dndSuppressedSet.has(uid)) continue;
+          // S38 fix-forward (FR-TH-08): OFF 구독자는 멘션 알림에서도 전면 제외.
+          if (offMentionSet.has(uid)) continue;
           mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,

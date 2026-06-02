@@ -94,13 +94,19 @@ export function ThreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
             data-testid="threads-mark-all-read"
             onClick={onMarkAll}
             aria-label="구독 중인 모든 스레드를 읽음 처리"
+            // S38 fix-forward (a11y B-04): 진행 중 상태를 SR 에 전달 + 중복 클릭
+            // 방지(연타로 read-all 이 여러 번 발화하지 않도록 disabled).
+            aria-busy={markAll.isPending}
+            disabled={markAll.isPending}
             className="qf-btn qf-btn--ghost qf-btn--sm mr-[var(--s-2)]"
           >
             모두 읽음
           </button>
         ) : null}
       </div>
-      <ul>
+      {/* S38 fix-forward (a11y #9): role="list" 명시(qf-channel 의 display 변경이
+          ul 의 암묵 list role 을 제거하는 브라우저 대비). */}
+      <ul role="list">
         {threads.map((t) => {
           const channelName = channelNameById.get(t.channelId) ?? t.channelId.slice(0, 6);
           const replier = t.lastReplierId ? nameByUserId.get(t.lastReplierId) : undefined;
@@ -114,15 +120,26 @@ export function ThreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
               <button
                 type="button"
                 onClick={() => openThread(t)}
-                aria-label={`#${channelName} 스레드 열기`}
+                // S38 fix-forward (a11y #9): aria-label 에 미읽 수를 포함해 SR
+                // 사용자가 목록을 훑을 때 각 스레드의 미읽 여부를 듣게 한다.
+                aria-label={
+                  t.unreadCount > 0
+                    ? `#${channelName} 스레드 열기, 읽지 않은 답글 ${t.unreadCount}개`
+                    : `#${channelName} 스레드 열기`
+                }
                 className="flex min-w-0 flex-1 flex-col items-start bg-transparent py-[var(--s-1)] text-left"
               >
                 <span className="flex w-full min-w-0 items-center gap-[var(--s-2)]">
                   <span className="qf-channel__prefix">#</span>
                   <span className="truncate text-text-strong">{channelName}</span>
-                  <span className="ml-auto text-[length:var(--fs-11)] text-text-muted">
+                  {/* S38 fix-forward (a11y #9): 상대 시각을 <time dateTime> 로 감싸
+                      기계 판독 가능한 ISO 를 노출한다(답글 0개면 dateTime 생략). */}
+                  <time
+                    dateTime={t.latestReplyAt ?? undefined}
+                    className="ml-auto text-[length:var(--fs-11)] text-text-muted"
+                  >
                     {formatRelativeTime(t.latestReplyAt)}
-                  </span>
+                  </time>
                 </span>
                 <span className="w-full truncate text-[length:var(--fs-12)] text-text-muted">
                   {t.excerpt || '(내용 없음)'}

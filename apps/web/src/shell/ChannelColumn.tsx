@@ -128,7 +128,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
       {inviteUrl ? (
         <div
           data-testid="ws-invite-url"
-          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[length:var(--fs-11)] break-all text-text"
+          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[length:var(--fs-11)] break-all text-foreground"
         >
           {inviteUrl}
         </div>
@@ -137,7 +137,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <div
           data-testid="mention-badge"
           aria-label={`읽지 않은 멘션 ${mentionCount}개`}
-          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-1.5 text-[length:var(--fs-13)] text-text"
+          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-[var(--s-2)] text-[length:var(--fs-13)] text-foreground"
         >
           <span>@ 멘션</span>
           <span className="qf-badge qf-badge--count">

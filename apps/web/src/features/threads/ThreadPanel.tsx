@@ -4,7 +4,8 @@ import { useMembers, useWorkspace } from '../workspaces/useWorkspaces';
 import {
   Avatar,
   DropdownContent,
-  DropdownItem,
+  DropdownRadioGroup,
+  DropdownRadioItem,
   DropdownRoot,
   DropdownTrigger,
   Icon,
@@ -33,6 +34,14 @@ type Props = {
   // 데스크톱(기본 false)은 기존 `qf-thread-panel` 320/420px 고정 폭 그대로.
   mobile?: boolean;
 };
+
+/**
+ * S38 fix-forward (a11y B-01/B-02): 알림 레벨의 사람이 읽는 한국어 라벨. 벨 트리거
+ * aria-label("스레드 알림 설정: …")과 드롭다운 항목 텍스트가 공유하는 단일 출처다.
+ */
+function notifLevelLabel(level: ThreadNotificationLevel): string {
+  return level === 'ALL' ? '모든 답글' : level === 'MENTIONS' ? '멘션만' : '알림 끔';
+}
 
 /**
  * Task-014-C + design-system v2 refresh: right-side thread panel
@@ -66,7 +75,13 @@ export function ThreadPanel({
   // S38 (FR-TH-13): 잠금/해제(OWNER/ADMIN). 실시간 반영은 dispatcher 수신.
   const setLock = useSetThreadLock(rootId);
   // 벨 드롭다운의 표시 레벨(낙관적). 서버 round-trip 완료를 기다리지 않고 즉시 갱신.
+  // 초기값은 'ALL' 이되, GET 응답의 viewerNotificationLevel 로 hydrate 한다(아래
+  // useEffect) — 저장된 OFF/MENTIONS 가 무시되던 회귀를 막는다(reviewer MAJOR).
   const [notifLevel, setNotifLevel] = useState<ThreadNotificationLevel>('ALL');
+  // 사용자가 벨로 직접 레벨을 바꿨는지 추적. true 면 GET refetch 가 와도 서버값으로
+  // 덮어쓰지 않는다(낙관적 갱신 보존 — 사용자 액션이 우선). 패널 재오픈/루트 변경
+  // 시 다시 false 로 리셋되어 새 스레드의 저장된 레벨로 hydrate 된다.
+  const userTouchedLevelRef = useRef(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   // S35 fix-forward (a11y BLOCKER): 모바일 전체화면 패널은 role="dialog"
   // aria-modal 이므로 포커스 트랩 + mount 포커스 이동의 앵커가 필요하다.
@@ -81,6 +96,11 @@ export function ThreadPanel({
   // S35 (FR-TH-18): thread reply 수신 시 near-bottom 이 아니면 노출되는 jump
   // 버튼 상태. 클릭 시 최하단으로 이동하고 숨긴다.
   const [showJump, setShowJump] = useState(false);
+  // S38 fix-forward (a11y B-03): 잠금 상태 변경(thread:lock:changed 실시간 수신
+  // 포함)을 스크린리더에 polite 으로 알리는 sr-only 메시지. 직전 locked 값을
+  // 추적해 실제 토글 시에만 갱신한다(초기 mount 는 알리지 않는다).
+  const [lockAnnounce, setLockAnnounce] = useState('');
+  const prevLockedRef = useRef<boolean | null>(null);
   // S36 (FR-TH-12): ACK 디바운스 타이머. mount/스크롤-최하단 시 마지막 답글
   // id 로 ACK 를 보내되, 짧은 시간 내 중복 발화를 합친다(채널 ack 와 동일 패턴).
   const ackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -95,6 +115,33 @@ export function ThreadPanel({
   // S36 (FR-TH-18): viewer 의 스레드 읽음 커서(첫 페이지에만 의미). 초기 스크롤
   // 앵커 + ACK 디바운스의 기준점. 구 API 응답(필드 없음)은 null 폴백.
   const lastReadMessageId = pages[0]?.readState?.lastReadMessageId ?? null;
+  // S38 fix-forward (reviewer MAJOR / FR-TH-08): GET 응답의 viewer 알림 레벨.
+  // 미구독(서버 null)이거나 구 API 응답이면 'ALL' 로 표시한다(벨 기본 표기).
+  const viewerLevel: ThreadNotificationLevel = pages[0]?.viewerNotificationLevel ?? 'ALL';
+
+  // S38 fix-forward (FR-TH-08): 벨 hydration. 루트가 바뀌면(패널 재오픈/다른
+  // 스레드) 사용자-수정 플래그를 리셋해 새 스레드의 저장된 레벨로 다시 seed 한다.
+  useEffect(() => {
+    userTouchedLevelRef.current = false;
+  }, [rootId]);
+
+  // GET 응답이 도착하면 서버의 저장된 레벨로 벨을 seed 한다. 단, 사용자가 이미
+  // 벨로 직접 바꿨다면(userTouchedLevelRef) 그 낙관적 값을 보존한다.
+  useEffect(() => {
+    if (userTouchedLevelRef.current) return;
+    setNotifLevel(viewerLevel);
+  }, [viewerLevel]);
+
+  // S38 fix-forward (a11y B-03): 잠금 토글 시 sr-only status 로 알린다.
+  // dispatcher 의 thread:lock:changed 수신으로 루트 DTO(locked)가 바뀌면 여기서
+  // 실시간으로 안내가 주입된다. 첫 mount(prev=null)는 알리지 않는다(상태 변화만).
+  useEffect(() => {
+    const prev = prevLockedRef.current;
+    if (prev !== null && prev !== locked) {
+      setLockAnnounce(locked ? '스레드가 잠겼습니다' : '스레드 잠금이 해제되었습니다');
+    }
+    prevLockedRef.current = locked;
+  }, [locked]);
 
   // S36 (FR-TH-12): 마지막(최신) 비삭제 답글 id 까지 ACK 한다(디바운스 600ms).
   // ThreadReadState 가 그 답글까지 monotonic 전진 → 스레드 unread dot 이 꺼진다.
@@ -321,15 +368,20 @@ export function ThreadPanel({
           <div className="qf-thread-panel__title">
             스레드
             {/* S38 (FR-TH-13): 잠금 표식. 잠긴 스레드에 잠금 아이콘(#qf-i-lock)을
-                제목 옆에 노출한다. DS 등록 아이콘만 사용(신규 DS 0). */}
+                제목 옆에 노출한다. DS 등록 아이콘만 사용(신규 DS 0).
+                a11y #9: 아이콘은 aria-hidden — 잠금 상태는 부모 heading 의 sr-only
+                "(잠김)" 텍스트가 전달한다(아이콘+sr-only 텍스트 이중 노출 방지). */}
             {locked ? (
-              <Icon
-                name="lock"
-                size="sm"
-                aria-label="잠긴 스레드"
-                data-testid="thread-lock-indicator"
-                className="qf-icon--muted ml-[var(--s-2)] inline-block align-middle"
-              />
+              <>
+                <Icon
+                  name="lock"
+                  size="sm"
+                  aria-hidden
+                  data-testid="thread-lock-indicator"
+                  className="qf-icon--muted ml-[var(--s-2)] inline-block align-middle"
+                />
+                <span className="sr-only">(잠김)</span>
+              </>
             ) : null}
           </div>
           <div className="qf-thread-panel__sub">
@@ -338,65 +390,84 @@ export function ThreadPanel({
           </div>
         </div>
 
-        {/* S38 (FR-TH-08): 알림 레벨 벨 드롭다운(ALL/MENTIONS/OFF). 기존 DS
-            DropdownRoot/Trigger/Content/Item primitive 재사용 — 신규 DS 0. 구독
-            없던 사용자도 여기서 ALL 로 수동 구독된다(서버 upsert). */}
-        <DropdownRoot>
-          <DropdownTrigger asChild>
-            <button
-              type="button"
-              data-testid="thread-notif-bell"
-              aria-label="스레드 알림 설정"
-              className="qf-thread-panel__close"
-            >
-              <Icon name={notifLevel === 'OFF' ? 'bell-off' : 'bell'} size="sm" />
-            </button>
-          </DropdownTrigger>
-          <DropdownContent align="end">
-            {(['ALL', 'MENTIONS', 'OFF'] as const).map((lvl) => (
-              <DropdownItem
-                key={lvl}
-                onSelect={() => {
+        {/* S38 (FR-TH-13/08): 헤더 우측 액션 그룹(벨/잠금/닫기). 각 버튼에 ml-auto 를
+            중복으로 거는 대신, 그룹 컨테이너 하나만 ml-auto 로 우측 정렬한다(S38
+            DS-fix #8 — `__close` margin-left:auto 3중 적용 레이아웃 위험 제거). */}
+        <div className="ml-auto flex items-center gap-[var(--s-1)]">
+          {/* S38 (FR-TH-08): 알림 레벨 벨 드롭다운(ALL/MENTIONS/OFF). 기존 DS
+              DropdownRoot/Trigger/Content primitive 재사용 — 신규 DS 0. 구독
+              없던 사용자도 여기서 ALL 로 수동 구독된다(서버 upsert).
+              a11y(B-01/B-02): RadioGroup/RadioItem(role=menuitemradio +
+              aria-checked)으로 현재 선택을 SR 에 노출 + 트리거 aria-label 에 현재
+              레벨 반영. */}
+          <DropdownRoot>
+            <DropdownTrigger asChild>
+              <button
+                type="button"
+                data-testid="thread-notif-bell"
+                aria-haspopup="menu"
+                aria-label={`스레드 알림 설정: ${notifLevelLabel(notifLevel)}`}
+                className="qf-thread-panel__close"
+              >
+                <Icon name={notifLevel === 'OFF' ? 'bell-off' : 'bell'} size="sm" />
+              </button>
+            </DropdownTrigger>
+            <DropdownContent align="end">
+              <DropdownRadioGroup
+                value={notifLevel}
+                onValueChange={(v) => {
+                  const lvl = v as ThreadNotificationLevel;
+                  // 사용자가 직접 바꾼 값은 GET refetch hydration 이 덮어쓰지 않는다.
+                  userTouchedLevelRef.current = true;
                   setNotifLevel(lvl);
                   setLevel.mutate(lvl);
                 }}
               >
-                <span data-testid={`thread-notif-${lvl}`}>
-                  {lvl === 'ALL' ? '모든 답글' : lvl === 'MENTIONS' ? '멘션만' : '알림 끔'}
-                  {notifLevel === lvl ? ' ✓' : ''}
-                </span>
-              </DropdownItem>
-            ))}
-          </DropdownContent>
-        </DropdownRoot>
+                {(['ALL', 'MENTIONS', 'OFF'] as const).map((lvl) => (
+                  <DropdownRadioItem key={lvl} value={lvl}>
+                    <span data-testid={`thread-notif-${lvl}`}>{notifLevelLabel(lvl)}</span>
+                  </DropdownRadioItem>
+                ))}
+              </DropdownRadioGroup>
+            </DropdownContent>
+          </DropdownRoot>
 
-        {/* S38 (FR-TH-13): OWNER/ADMIN 잠금/해제 토글. MEMBER 이하는 버튼 미노출
-            (잠금 아이콘 표식만 본다). 잠금 시 lock, 해제 가능 시도 동일 아이콘 +
-            aria-label 로 의도 구분. */}
-        {isModerator ? (
-          <button
-            type="button"
-            data-testid="thread-lock-toggle"
-            onClick={() => setLock.mutate(!locked)}
-            aria-label={locked ? '스레드 잠금 해제' : '스레드 잠그기'}
-            className="qf-thread-panel__close"
-          >
-            <Icon name="lock" size="sm" className={locked ? undefined : 'qf-icon--muted'} />
-          </button>
-        ) : null}
+          {/* S38 (FR-TH-13): OWNER/ADMIN 잠금/해제 토글. MEMBER 이하는 버튼 미노출
+              (잠금 아이콘 표식만 본다). 잠금 시 lock, 해제 가능 시도 동일 아이콘 +
+              aria-label 로 의도 구분. aria-busy 로 진행 중 상태를 SR 에 전달. */}
+          {isModerator ? (
+            <button
+              type="button"
+              data-testid="thread-lock-toggle"
+              onClick={() => setLock.mutate(!locked)}
+              aria-label={locked ? '스레드 잠금 해제' : '스레드 잠그기'}
+              aria-busy={setLock.isPending}
+              className="qf-thread-panel__close"
+            >
+              <Icon name="lock" size="sm" className={locked ? undefined : 'qf-icon--muted'} />
+            </button>
+          ) : null}
 
-        {mobile ? null : (
-          <button
-            type="button"
-            data-testid="thread-close"
-            onClick={onClose}
-            aria-label="스레드 닫기"
-            className="qf-thread-panel__close"
-          >
-            <Icon name="x" size="sm" />
-          </button>
-        )}
+          {mobile ? null : (
+            <button
+              type="button"
+              data-testid="thread-close"
+              onClick={onClose}
+              aria-label="스레드 닫기"
+              className="qf-thread-panel__close"
+            >
+              <Icon name="x" size="sm" />
+            </button>
+          )}
+        </div>
       </header>
+
+      {/* S38 fix-forward (a11y B-03): 잠금 상태 변경 sr-only live region. 시각
+          레이아웃 무영향 — 스크린리더에만 "스레드가 잠겼습니다 / 잠금이
+          해제되었습니다" 를 polite 으로 전달한다. */}
+      <div role="status" aria-live="polite" className="sr-only" data-testid="thread-lock-announce">
+        {lockAnnounce}
+      </div>
 
       <div
         ref={scrollRef}
@@ -652,9 +723,18 @@ function ThreadComposer({
           aria-label="스레드 답장"
           value={draft}
           rows={1}
-          // S38 (FR-TH-13): 잠긴 스레드는 입력 비활성 + 안내 placeholder.
-          disabled={locked}
-          onChange={(e) => setDraft(e.target.value)}
+          // S38 fix-forward (a11y B-05): 잠긴 스레드는 종전 `disabled` 가 textarea 를
+          // a11y 트리에서 제외해 스크린리더가 잠금 사유를 인지하지 못했다. 대신
+          // aria-disabled + readOnly 로 포커스는 허용하되 입력을 막고(submit 도 차단),
+          // aria-describedby 로 인접 sr-only 안내("스레드가 잠겨 있습니다")를 연결해
+          // SR 사용자가 왜 입력이 안 되는지 듣게 한다.
+          aria-disabled={locked || undefined}
+          readOnly={locked}
+          aria-describedby={locked ? `${rootId}-thread-locked-hint` : undefined}
+          onChange={(e) => {
+            if (locked) return; // readOnly 보조 — 잠금 시 입력 무시.
+            setDraft(e.target.value);
+          }}
           onKeyDown={(e) => {
             // task-021-R1-ime-enter-half-sends: guard against Enter
             // during Korean IME composition (composer + thread share
@@ -668,13 +748,20 @@ function ThreadComposer({
           }}
           maxLength={4000}
           placeholder={locked ? '스레드가 잠겨 있습니다' : '스레드에 답글…'}
-          className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text disabled:cursor-not-allowed"
+          className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-foreground disabled:cursor-not-allowed aria-disabled:cursor-not-allowed"
           // task-041 D: textarea sizing — minHeight matches the qf-input
           // 1-line baseline (22 ≈ --s-7), maxHeight = 8 × line-height
           // before internal scroll kicks in.
           style={{ minHeight: 'var(--s-7)', maxHeight: 'calc(var(--s-12) * 2)' }}
         />
       </div>
+      {/* S38 fix-forward (a11y B-05): 잠금 사유 sr-only 안내. textarea 의
+          aria-describedby 가 이 id 를 참조한다(잠겼을 때만 렌더). */}
+      {locked ? (
+        <span id={`${rootId}-thread-locked-hint`} className="sr-only">
+          스레드가 잠겨 있습니다. 답글을 작성할 수 없습니다.
+        </span>
+      ) : null}
       <div className="qf-thread-composer__options">
         {/* S35 (FR-TH-06): 'Also send to #channel' — 체크 후 전송 시 채널
             타임라인에 broadcast 메시지(레이블 + 루트 excerpt)가 동시 게시된다.

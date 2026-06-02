@@ -510,6 +510,11 @@ export function installRealtimeDispatcher(
   on<{
     channelId: string;
     workspaceId: string | null;
+    // S38 fix-forward (contract HIGH): 서버 payload + wire 스키마와 정합되게
+    // actorId(잠금/해제 수행자)를 타입에 포함한다. 현재 캐시 갱신 로직은 actorId 를
+    // 소비하지 않지만(누가 잠갔는지 무관하게 threadLocked 만 반영), 타입 누락을
+    // 메워 ThreadLockChangedPayloadSchema 와 1:1 로 맞춘다.
+    actorId: string;
     parentMessageId: string;
     locked: boolean;
   }>('thread:lock:changed', (env) => {

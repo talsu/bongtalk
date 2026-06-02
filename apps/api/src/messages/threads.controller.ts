@@ -239,16 +239,26 @@ export class ThreadsController {
     // 사용자 집합을 함께 로드해 루트·답변 DTO 모두에 마스킹을 건다. 비-DIRECT
     // 채널은 빈 집합이라 maskBlockedAuthors 가 무동작(early return, 회귀 없음).
     const isDirect = msg.channel.type === 'DIRECT';
-    const [reactions, rootSummaries, attachments, blockedIds, readCursor] = await Promise.all([
-      this.messages.aggregateReactions(ids, user.id),
-      // S36 (FR-TH-04): 루트 thread chip 의 hasUnread 도 viewer 기준으로 산정.
-      this.messages.aggregateThreadSummaries([page.root.id], user.id),
-      this.messages.aggregateAttachments(ids),
-      isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
-      // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
-      // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
-      this.threadReadState.cursorFor(user.id, id),
-    ]);
+    const [reactions, rootSummaries, attachments, blockedIds, readCursor, viewerSub] =
+      await Promise.all([
+        this.messages.aggregateReactions(ids, user.id),
+        // S36 (FR-TH-04): 루트 thread chip 의 hasUnread 도 viewer 기준으로 산정.
+        this.messages.aggregateThreadSummaries([page.root.id], user.id),
+        this.messages.aggregateAttachments(ids),
+        isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
+        // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
+        // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
+        this.threadReadState.cursorFor(user.id, id),
+        // S38 fix-forward (reviewer MAJOR / FR-TH-08): viewer 의 스레드 알림 레벨.
+        // ThreadPanel 의 벨이 저장된 OFF/MENTIONS 를 반영하려면 GET 응답에 현재
+        // 레벨이 실려야 한다(종전엔 항상 'ALL' seed). 같은 GET 1회에 구독 행을
+        // 조회해 함께 내려보낸다(별도 라운드트립 0 — Promise.all 병합). 구독 행이
+        // 없으면 null(프론트는 'ALL' 로 표시하되 서버 구독을 만들지 않는다).
+        this.prisma.threadSubscription.findUnique({
+          where: { userId_threadParentId: { userId: user.id, threadParentId: id } },
+          select: { notificationLevel: true },
+        }),
+      ]);
     const rootSummary = rootSummaries.get(page.root.id);
 
     const [rootDto] = this.messages.maskBlockedAuthors(
@@ -282,6 +292,8 @@ export class ThreadsController {
       // 스크롤한다(기존 S35 동작). 첫 페이지에만 의미가 있어 매 페이지 반환하되
       // 프론트는 첫 페이지 값만 쓴다.
       readState: { lastReadMessageId: readCursor?.lastReadMessageId ?? null },
+      // S38 fix-forward (FR-TH-08): viewer 의 스레드 알림 레벨(벨 seed). 미구독 null.
+      viewerNotificationLevel: viewerSub?.notificationLevel ?? null,
       pageInfo: {
         hasMore: page.hasMore,
         nextCursor: page.nextCursor

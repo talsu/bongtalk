@@ -171,7 +171,17 @@ export class ThreadSubscriptionsService {
         parentMessageId: true,
         deletedAt: true,
         channel: {
-          select: { id: true, workspaceId: true, isPrivate: true, deletedAt: true },
+          // S38 fix-forward (보안 LOW): archived 채널 스레드의 알림 레벨 변경(수동
+          // 구독)을 막기 위해 archivedAt 을 함께 로드한다(resolveThreadRootForAcl 의
+          // CHANNEL_ARCHIVED 패턴과 일관). 보관 채널은 GET/ack 가 막히므로 구독
+          // 레벨 변경도 차단한다.
+          select: {
+            id: true,
+            workspaceId: true,
+            isPrivate: true,
+            archivedAt: true,
+            deletedAt: true,
+          },
         },
       },
     });
@@ -199,6 +209,10 @@ export class ThreadSubscriptionsService {
     }
     if ((effective & Permission.READ) !== Permission.READ) {
       throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    // READ 통과 뒤 archived 검사(존재 leak 없이 409 로 수렴 — get/ack 와 동일).
+    if (msg.channel.archivedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
     }
   }
 

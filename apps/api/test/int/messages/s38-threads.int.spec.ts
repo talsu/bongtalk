@@ -153,6 +153,53 @@ describe('FR-TH-08 — notificationLevel PATCH + fanout filter', () => {
     const recipients = (ev!.payload as { recipients: string[] }).recipients;
     expect(recipients).toContain(stack.owner.userId);
   });
+
+  it('OFF subscriber is also excluded from mention.received (OFF = 전면 제외, not MENTIONS)', async () => {
+    // reviewer MAJOR: OFF == 전면 제외. owner 가 OFF 인 스레드에서 owner 를 @멘션해도
+    // mention.received outbox 가 발행되지 않아야 한다(종전엔 mute/DND 만 게이트해
+    // OFF 스레드도 멘션 알림 수신 → OFF==MENTIONS 회귀).
+    const rootId = await postRoot(stack.owner.accessToken); // owner auto-subscribes (ALL)
+    // owner 를 OFF 로 낮춘다.
+    await request(env.baseUrl)
+      .patch(`/users/me/threads/${rootId}/subscription`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ notificationLevel: 'OFF' });
+    await env.prisma.outboxEvent.deleteMany({});
+    // member 가 owner 를 @멘션하는 답글 → owner 의 mention.received 가 없어야 한다.
+    const reply = await postReply(
+      stack.member.accessToken,
+      rootId,
+      `@${stack.owner.username} 봐주세요`,
+    );
+    expect(reply.status).toBe(201);
+    const mentionEv = await env.prisma.outboxEvent.findFirst({
+      where: { eventType: 'mention.received', aggregateId: stack.owner.userId },
+    });
+    expect(mentionEv).toBeNull();
+  });
+
+  it('MENTIONS subscriber STILL receives mention.received on an @-mention reply', async () => {
+    // OFF 와 대비: MENTIONS 는 멘션 시 수신(유지). owner 가 MENTIONS 면 @멘션 답글에서
+    // mention.received 가 발행돼야 한다(다만 일반 thread.replied 에서는 빠진다).
+    const rootId = await postRoot(stack.owner.accessToken);
+    await request(env.baseUrl)
+      .patch(`/users/me/threads/${rootId}/subscription`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ notificationLevel: 'MENTIONS' });
+    await env.prisma.outboxEvent.deleteMany({});
+    const reply = await postReply(
+      stack.member.accessToken,
+      rootId,
+      `@${stack.owner.username} 확인 부탁`,
+    );
+    expect(reply.status).toBe(201);
+    const mentionEv = await env.prisma.outboxEvent.findFirst({
+      where: { eventType: 'mention.received', aggregateId: stack.owner.userId },
+    });
+    expect(mentionEv).toBeTruthy();
+  });
 });
 
 // ───────────────────────────── FR-TH-09 ─────────────────────────────
@@ -284,6 +331,143 @@ describe('FR-TH-10 — POST /users/me/threads/read-all', () => {
   });
 });
 
+// ──────────────── FR-TH-08 GET thread viewerNotificationLevel ───────────────
+
+describe('FR-TH-08 — GET /messages/:id/thread carries viewerNotificationLevel', () => {
+  it('returns the stored level (벨 hydration) for the viewer', async () => {
+    // reviewer MAJOR: 벨이 저장된 OFF/MENTIONS 를 반영하려면 GET 응답에 현재
+    // 레벨이 실려야 한다. owner 가 root 작성(자동 ALL) 후 OFF 로 낮추면, GET 응답의
+    // viewerNotificationLevel 이 'OFF' 여야 한다.
+    const rootId = await postRoot(stack.owner.accessToken);
+    await request(env.baseUrl)
+      .patch(`/users/me/threads/${rootId}/subscription`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ notificationLevel: 'OFF' });
+    const r = await request(env.baseUrl)
+      .get(`/messages/${rootId}/thread`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN);
+    expect(r.status).toBe(200);
+    expect(r.body.viewerNotificationLevel).toBe('OFF');
+  });
+
+  it('returns null for a viewer with no subscription row (미구독)', async () => {
+    // member 는 이 스레드에 구독이 없다(답글/멘션/수동구독 없음) → null.
+    const rootId = await postRoot(stack.owner.accessToken);
+    const r = await request(env.baseUrl)
+      .get(`/messages/${rootId}/thread`)
+      .set(bearer(stack.member.accessToken))
+      .set('origin', ORIGIN);
+    expect(r.status).toBe(200);
+    expect(r.body.viewerNotificationLevel).toBeNull();
+  });
+});
+
+// ──────────────── FR-TH-10 markAllRead ACL filter (security) ────────────────
+
+describe('FR-TH-10 — markAllRead applies the channel ACL filter', () => {
+  it('does NOT ack a subscription whose root channel the requester can no longer READ', async () => {
+    // security MEDIUM: 강퇴/비공개화 후 잔존한 구독 행은 read-all 대상에서 빠져야
+    // 한다(listMine 의 visible CTE 와 동일 필터). private 채널 + member 비멤버 구독
+    // 행을 심고, read-all 후 그 스레드의 ThreadReadState 가 생성되지 않음을 확인.
+    const priv = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ name: `racl-${Date.now().toString(36).slice(-6)}`, type: 'TEXT', isPrivate: true });
+    expect(priv.status).toBe(201);
+    const privChannelId = priv.body.id as string;
+    const privRoot = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${privChannelId}/messages`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ content: 'private root' });
+    expect(privRoot.status).toBe(201);
+    const privRootId = privRoot.body.message.id as string;
+    // owner 가 답글을 달아 (createdAt,id) 최신 답글이 존재하게 한다(ack 후보 보장).
+    await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${privChannelId}/messages`)
+      .set(bearer(stack.owner.accessToken))
+      .set('origin', ORIGIN)
+      .send({ content: 'private reply', parentMessageId: privRootId });
+    // member 의 잔존 구독 행을 직접 심는다(비멤버 — listMine 도 제외하는 상황).
+    await env.prisma.threadSubscription.create({
+      data: { userId: stack.member.userId, threadParentId: privRootId, notificationLevel: 'ALL' },
+    });
+    // member read-all → 권한 없는 스레드는 ack 되지 않아야 한다.
+    const readAll = await request(env.baseUrl)
+      .post('/users/me/threads/read-all')
+      .set(bearer(stack.member.accessToken))
+      .set('origin', ORIGIN);
+    expect(readAll.status).toBe(200);
+    const rs = await env.prisma.threadReadState.findUnique({
+      where: {
+        userId_parentMessageId: { userId: stack.member.userId, parentMessageId: privRootId },
+      },
+    });
+    expect(rs).toBeNull();
+    // 정리.
+    await env.prisma.message.deleteMany({ where: { channelId: privChannelId } });
+  });
+});
+
+// ──────────────── FR-TH-08/09/10 archived 채널 일관성(security LOW) ───────────
+
+describe('archived channel consistency', () => {
+  it('PATCH subscription on an archived-channel thread is rejected (CHANNEL_ARCHIVED)', async () => {
+    const rootId = await postRoot(stack.owner.accessToken);
+    await env.prisma.channel.update({
+      where: { id: stack.channelId },
+      data: { archivedAt: new Date() },
+    });
+    try {
+      const r = await request(env.baseUrl)
+        .patch(`/users/me/threads/${rootId}/subscription`)
+        .set(bearer(stack.member.accessToken))
+        .set('origin', ORIGIN)
+        .send({ notificationLevel: 'ALL' });
+      expect(r.status).toBe(409);
+      expect(r.body.errorCode).toBe('CHANNEL_ARCHIVED');
+    } finally {
+      // 정리: 다른 테스트가 stack.channelId 를 계속 쓰므로 보관 해제.
+      await env.prisma.channel.update({
+        where: { id: stack.channelId },
+        data: { archivedAt: null },
+      });
+    }
+  });
+
+  it('GET /users/me/threads excludes threads in archived channels', async () => {
+    const rootId = await postRoot(stack.owner.accessToken);
+    await request(env.baseUrl)
+      .patch(`/users/me/threads/${rootId}/subscription`)
+      .set(bearer(stack.member.accessToken))
+      .set('origin', ORIGIN)
+      .send({ notificationLevel: 'ALL' });
+    await env.prisma.channel.update({
+      where: { id: stack.channelId },
+      data: { archivedAt: new Date() },
+    });
+    try {
+      const r = await request(env.baseUrl)
+        .get('/users/me/threads')
+        .set(bearer(stack.member.accessToken))
+        .set('origin', ORIGIN);
+      expect(r.status).toBe(200);
+      const ids = (r.body.threads as Array<{ parentMessageId: string }>).map(
+        (t) => t.parentMessageId,
+      );
+      expect(ids).not.toContain(rootId);
+    } finally {
+      await env.prisma.channel.update({
+        where: { id: stack.channelId },
+        data: { archivedAt: null },
+      });
+    }
+  });
+});
+
 // ───────────────────────────── FR-TH-13 ─────────────────────────────
 
 describe('FR-TH-13 — thread lock', () => {
@@ -363,10 +547,18 @@ describe('FR-TH-13 — thread lock', () => {
       orderBy: { occurredAt: 'desc' },
     });
     expect(ev).toBeTruthy();
-    const payload = ev!.payload as { parentMessageId: string; locked: boolean; channelId: string };
+    const payload = ev!.payload as {
+      parentMessageId: string;
+      locked: boolean;
+      channelId: string;
+      actorId: string;
+    };
     expect(payload.parentMessageId).toBe(rootId);
     expect(payload.locked).toBe(true);
     expect(payload.channelId).toBe(stack.channelId);
+    // contract HIGH: payload 의 actorId 가 잠금 수행자(owner)여야 하고, wire 스키마에도
+    // 포함된다(ThreadLockChangedPayloadSchema actorId 추가).
+    expect(payload.actorId).toBe(stack.owner.userId);
   });
 
   it('idempotent: re-locking an already-locked thread emits no new event', async () => {

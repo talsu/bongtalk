@@ -491,6 +491,10 @@ export type UserUnblockedPayload = z.infer<typeof UserUnblockedPayloadSchema>;
 export const ThreadLockChangedPayloadSchema = z.object({
   workspaceId: z.string().min(1).nullable(),
   channelId: ChannelIdSchema,
+  // S38 fix-forward (contract HIGH): 서버 emit payload(MessageThreadLockChangedPayload)
+  // 에 actorId(잠금/해제를 수행한 OWNER/ADMIN userId)가 실려 나가지만 wire 스키마에
+  // 누락돼 있었다 — 정합을 위해 추가한다(런타임 검증 통과 + 클라 dispatcher 타입 정합).
+  actorId: z.string().min(1),
   parentMessageId: z.string().min(1),
   locked: z.boolean(),
 });

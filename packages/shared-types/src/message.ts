@@ -337,21 +337,29 @@ export const ThreadReadStateDtoSchema = z.object({
 });
 export type ThreadReadStateDto = z.infer<typeof ThreadReadStateDtoSchema>;
 
+// FR-TH-08: 스레드 구독 알림 레벨. Prisma ThreadNotificationLevel enum 과 1:1.
+// (ListThreadRepliesResponseSchema 가 viewerNotificationLevel 로 참조하므로
+// ListThreadRepliesResponseSchema 보다 먼저 선언한다.)
+export const ThreadNotificationLevelSchema = z.enum(['ALL', 'MENTIONS', 'OFF']);
+export type ThreadNotificationLevel = z.infer<typeof ThreadNotificationLevelSchema>;
+
 export const ListThreadRepliesResponseSchema = z.object({
   root: MessageDtoSchema,
   replies: z.array(MessageDtoSchema),
   // S36 (FR-TH-18): 초기 스크롤 앵커. default 로 forward-compat(구 API 빌드
   // 응답에 필드가 없으면 null = 최하단 스크롤, 기존 S35 동작).
   readState: ThreadReadStateDtoSchema.default({ lastReadMessageId: null }),
+  // S38 fix-forward (reviewer MAJOR / FR-TH-08): viewer 의 스레드 알림 레벨.
+  // ThreadPanel 의 벨이 이 값으로 seed 한다(종전엔 항상 'ALL' 로 시작해 저장된
+  // OFF/MENTIONS 를 무시하는 회귀). 구독 행이 없으면(아직 미구독) null —
+  // 프론트는 null 을 기본 'ALL' 로 표시하되 서버에 별도 구독을 만들지 않는다.
+  // 구 API 빌드 응답(필드 없음)도 default 로 null = 'ALL' 표시.
+  viewerNotificationLevel: ThreadNotificationLevelSchema.nullable().default(null),
   pageInfo: PageInfoSchema,
 });
 export type ListThreadRepliesResponse = z.infer<typeof ListThreadRepliesResponseSchema>;
 
 // ── S38 (D04 / FR-TH-08/09/10/13) — 스레드 알림 레벨 · Threads 탭 · 잠금 ──────
-
-// FR-TH-08: 스레드 구독 알림 레벨. Prisma ThreadNotificationLevel enum 과 1:1.
-export const ThreadNotificationLevelSchema = z.enum(['ALL', 'MENTIONS', 'OFF']);
-export type ThreadNotificationLevel = z.infer<typeof ThreadNotificationLevelSchema>;
 
 // FR-TH-08: PATCH /users/me/threads/:parentMessageId/subscription body.
 // 구독 없던 사용자도 ALL 로 수동 구독할 수 있다(서버 upsert).
