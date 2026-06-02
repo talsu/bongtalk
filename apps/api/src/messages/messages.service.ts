@@ -21,16 +21,12 @@ import {
   extractMentions,
   resolveMentionHandles,
   resolveMentionLabelMaps,
+  type Mentions,
 } from './mentions/mention-extractor';
 import { normalizeMentions } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
 import { astHasLink, flagsFromAttachmentKinds } from '../search/message-flags';
-import {
-  gateChannelMention,
-  gateEveryoneMention,
-  gateHereMention,
-  type GateActorRole,
-} from './mentions/gate';
+import { gateChannelMention, gateEveryoneMention, gateHereMention } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { UnreadService } from '../channels/unread.service';
 import { S3Service } from '../storage/s3.service';
@@ -54,6 +50,7 @@ import {
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
 import { isDndSuppressed } from '../notifications/dnd-gate';
 import type { DndSchedule } from '../me/dnd-schedule.service';
+import { PresenceService } from '../realtime/presence/presence.service';
 
 /**
  * First ~140 chars of a message, whitespace-collapsed, for the mention
@@ -251,6 +248,10 @@ export class MessagesService {
     // (반응 카운트/식별자는 그대로, 이미지 url 만 비는 graceful degrade).
     @Optional()
     private readonly s3?: S3Service,
+    // S44 (FR-MN-02): `@here` fanout 수신자를 presence ONLINE/IDLE 멤버로 한정.
+    // @Optional 이라 미주입 단위테스트는 필터를 건너뛴다(전체 후보 유지 — DB 경로만).
+    @Optional()
+    private readonly presence?: PresenceService,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -819,6 +820,47 @@ export class MessagesService {
     });
   }
 
+  /**
+   * S44 (FR-MN-02): 범위 멘션(@everyone/@here/@channel)의 수신자 userId 집합을
+   * 해석한다. 작성자 제외/중복 제거/mute·DND·OFF 필터는 호출자가 명시적
+   * @username 멘션과 합친 뒤 일괄 적용하므로 여기서는 순수 멤버 집합만 만든다.
+   *
+   *   - 범위 멘션이 하나도 없으면 빈 배열(추가 쿼리 없음).
+   *   - DM 채널(workspaceId=null)은 워크스페이스 멤버 네임스페이스가 없어 빈 배열.
+   *   - @everyone / @channel → 채널의 워크스페이스 멤버 전원.
+   *   - @here(다른 범위 없이 단독)  → 위 집합 중 presence ONLINE/IDLE 인 멤버만.
+   *     presence 미주입(단위테스트)이거나 Redis 미가용이면 필터를 적용하지 않고
+   *     전체 멤버를 반환한다(graceful degrade — 알림 누락보다 over-notify 가 안전).
+   *
+   * (전체 멤버 enumerate 비용/SLO 200명 cap·5초는 S45 carryover.)
+   */
+  private async resolveBroadMentionRecipients(
+    tx: Prisma.TransactionClient,
+    args: { workspaceId: string | null; mentions: Mentions },
+  ): Promise<string[]> {
+    const { workspaceId, mentions } = args;
+    const wantsBroad = mentions.everyone || mentions.here || mentions.channel;
+    if (!wantsBroad || workspaceId === null) return [];
+
+    const memberRows = await tx.workspaceMember.findMany({
+      where: { workspaceId },
+      select: { userId: true },
+    });
+    const memberIds = memberRows.map((r) => r.userId);
+    if (memberIds.length === 0) return [];
+
+    // @everyone / @channel 은 전원. @here 단독일 때만 online/idle 로 좁힌다.
+    const wantsAllMembers = mentions.everyone || mentions.channel;
+    if (wantsAllMembers || !this.presence) return memberIds;
+
+    // @here 전용: presence ONLINE/IDLE 만 통과. DND/INVISIBLE/OFFLINE 은 제외
+    // (DND 는 뒤의 DND 게이트로도 걸리지만, @here 의 정의 자체가 online/idle 한정).
+    const statuses = await Promise.all(
+      memberIds.map((uid) => this.presence!.effectiveStatus(uid).catch(() => 'offline' as const)),
+    );
+    return memberIds.filter((_, i) => statuses[i] === 'online' || statuses[i] === 'idle');
+  }
+
   // ------------------------------------------------------------------ send
 
   /**
@@ -849,11 +891,12 @@ export class MessagesService {
     nonce?: string | null;
     parentMessageId?: string | null;
     attachmentIds?: string[];
-    // task-044-iter3: sender role (`OWNER` / `ADMIN` / `MEMBER`) used to
-    // gate `@everyone` fanout. Optional for back-compat with existing
-    // callers (including DM channels where the workspace member concept
-    // is N/A) — defaults to MEMBER which downgrades `everyone=true`.
-    actorRole?: GateActorRole;
+    // S44 (FR-MN-02/16): `MENTION_EVERYONE`(카탈로그 0x0080) override-aware 권한.
+    // 컨트롤러가 ChannelAccessService.resolveMentionEveryone 로 ADR-4 5단계 fold 한
+    // boolean 을 넘긴다(MEMBER 도 override allow 면 true, OWNER/ADMIN 도 deny 면 false).
+    // 미지정(DM 채널 등)은 false 로 보수 처리 — `@everyone`/`@here`/`@channel` 다운그레이드.
+    // (task-044~046 까지는 role enum 이었으나 override 집행을 위해 boolean 으로 교체.)
+    hasMentionEveryone?: boolean;
     // S20 (MAJOR/perf fix-forward): caller-provided channel type so the DM
     // hidden-restore gate skips the per-send `channel.findUnique`. Both send
     // controllers already hold the channel meta on req.channel (the
@@ -977,15 +1020,14 @@ export class MessagesService {
       here: extracted.here || hint?.here === true,
       channel: extracted.channel || hint?.channel === true,
     };
-    // task-044-iter3 + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은 송신
-    // 역할 게이트로 silently false 다운그레이드. Default `MEMBER` 으로 보수적
-    // 처리 — DM 채널 등 actorRole 미정 호출도 자동 거부됩니다.
+    // S44 (FR-MN-02/16) + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은
+    // MENTION_EVERYONE 권한 게이트로 silently false 다운그레이드. 권한은 컨트롤러가
+    // 채널 override 5단계 fold 로 산정한 boolean(args.hasMentionEveryone)이고, 미지정
+    // (DM 채널 등)은 false 로 보수 처리됩니다.
+    const hasMentionEveryone = args.hasMentionEveryone === true;
     const mentions = gateChannelMention(
-      gateHereMention(
-        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
-        args.actorRole ?? 'MEMBER',
-      ),
-      args.actorRole ?? 'MEMBER',
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
+      hasMentionEveryone,
     );
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
     // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
@@ -1185,10 +1227,21 @@ export class MessagesService {
         // same id twice if a user is named multiple times in one
         // message). Author is NEVER notified for self-mentions.
         const snippet = buildSnippet(args.content);
+        // S44 (FR-MN-02): 범위 멘션(@everyone/@here/@channel) 수신자 확장.
+        //   - @everyone / @channel → 채널 멤버 전원(워크스페이스 멤버 — DM 은 N/A)
+        //   - @here               → 위 집합 중 presence ONLINE/IDLE 인 멤버만
+        // 이렇게 확장한 broad 수신자를 명시적 @username(mentions.users)과 합쳐
+        // 동일한 mute/DND/OFF 필터를 거친 뒤 1인당 mention.received 1건을 emit 한다.
+        // 작성자 본인은 self-mention 으로 제외한다. (전체 멤버 enumerate 비용/SLO
+        // 200명 cap 는 S45 carryover — 여기선 online 필터 정확성만.)
+        const broadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+          workspaceId: args.workspaceId,
+          mentions,
+        });
         // task-045 iter6: mute dispatcher gate. 채널 muted user 는
         // mention.received outbox 자체를 스킵 — emit 안 하면 fanout 비용
         // 도 절약. mute 만료 OR 무기한 모두 처리. cleanup job 없음.
-        const candidateMentionUserIds = mentions.users.filter(
+        const candidateMentionUserIds = [...mentions.users, ...broadRecipientIds].filter(
           (uid) => uid && uid !== args.authorId,
         );
         const dedupedMentionUserIds = Array.from(new Set(candidateMentionUserIds));
@@ -2108,17 +2161,15 @@ export class MessagesService {
     // 시 스냅샷한 MessageDto.version. 현재 row.version 과 불일치하면 409
     // (MESSAGE_VERSION_CONFLICT) + 현재 MessageDto 를 details.current 로 반환.
     expectedVersion: number;
-    // task-044-iter3: edit 도중 사용자가 `@everyone` 추가하면 send 와
-    // 동일하게 권한 체크. 미지정 시 MEMBER 로 보수 처리.
-    actorRole?: GateActorRole;
+    // S44 (FR-MN-02/16): edit 도중 `@everyone` 추가 시 send 와 동일하게
+    // MENTION_EVERYONE override-aware 권한 체크. 미지정 시 false(차단)로 보수 처리.
+    hasMentionEveryone?: boolean;
   }): Promise<MessageRow> {
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    const hasMentionEveryone = args.hasMentionEveryone === true;
     const mentions = gateChannelMention(
-      gateHereMention(
-        gateEveryoneMention(rawMentions, args.actorRole ?? 'MEMBER'),
-        args.actorRole ?? 'MEMBER',
-      ),
-      args.actorRole ?? 'MEMBER',
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
+      hasMentionEveryone,
     );
     // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — `@username` → `@{cuid2}`.
     const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);

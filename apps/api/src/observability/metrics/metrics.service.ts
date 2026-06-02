@@ -97,7 +97,9 @@ const L = {
     // S39 (FR-RE03): 콜론 wire 이름(reaction:updated)이 채널 룸으로 emit 된다.
     'reaction:updated',
     'message.thread.replied',
-    'mention.received',
+    // S44 (FR-MN-01): 멘션 알림 wire 이름은 콜론형 mention:new 다(내부 outbox 는
+    // mention.received, subscriber 가 변환). 라벨 카디널리티를 위해 wire 이름 등록.
+    'mention:new',
     'channel.created',
     'channel.updated',
     'channel.deleted',

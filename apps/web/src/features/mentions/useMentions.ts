@@ -18,8 +18,9 @@ export interface MentionInboxResponse {
 
 /**
  * Task-011-B: mention inbox + unread count. Dispatcher mutates the
- * cache when `mention.received` arrives over WS; this hook is the
- * plain read path.
+ * cache when the `mention:new` wire event arrives over WS (S44 FR-MN-01 —
+ * 서버 내부 outbox 는 mention.received, wire 만 콜론 mention:new); this hook is
+ * the plain read path.
  */
 export function useMentionInbox() {
   return useQuery({

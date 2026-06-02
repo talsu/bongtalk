@@ -144,27 +144,35 @@ export class OutboxToWsSubscriber {
   async onMentionEvent(env: WsEnvelope): Promise<void> {
     const targetUserId = pickTargetUserId(env);
     if (!targetUserId || !this.io) return;
+    // S44 (FR-MN-01): 서버 내부 outbox eventType 은 dot 표기(mention.received)지만
+    // PRD WS 카탈로그가 명시한 콜론 wire 이름 `mention:new` 로 변환해 emit/buffer
+    // 한다(reaction:updated / thread:lock:changed / emoji:* 선례). 페이로드는
+    // 그대로(MentionNewPayload 와 정합) 두되 type 만 wire 이름으로 바꾼다. replay
+    // 버퍼에도 wire 이름으로 적재해 재연결 catch-up 이 동일 이름으로 도착하게 한다.
+    const wireEnv = { ...env, type: WS_EVENTS.MENTION_NEW } as WsEnvelope;
     try {
       await this.replay.append('user', targetUserId, {
-        id: env.id,
-        type: env.type,
-        occurredAt: env.occurredAt,
-        payload: env,
+        id: wireEnv.id,
+        type: wireEnv.type,
+        occurredAt: wireEnv.occurredAt,
+        payload: wireEnv,
       });
     } catch (err) {
       this.logger.warn(
-        `[realtime] replay append failed scope=user id=${targetUserId} ev=${env.id} err=${String(err).slice(0, 200)}`,
+        `[realtime] replay append failed scope=user id=${targetUserId} ev=${wireEnv.id} err=${String(err).slice(0, 200)}`,
       );
     }
     await withSpan(
       'ws.emit',
-      { 'ws.event.type': env.type, 'ws.room': rooms.user(targetUserId) },
+      { 'ws.event.type': wireEnv.type, 'ws.room': rooms.user(targetUserId) },
       async () => {
-        this.io!.to(rooms.user(targetUserId)).emit(env.type, env);
+        this.io!.to(rooms.user(targetUserId)).emit(wireEnv.type, wireEnv);
       },
     );
     // task-016-B (009-nit-4): bucket env.type through the allowlist.
-    this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', env.type)).inc();
+    this.metrics?.wsEventsEmittedTotal
+      .labels(this.metrics.bucket('wsEventType', wireEnv.type))
+      .inc();
   }
 
   @OnEvent('channel.**')

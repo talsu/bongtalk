@@ -1,8 +1,31 @@
 import { Injectable } from '@nestjs/common';
+import type { WorkspaceRole } from '@prisma/client';
+import { PERMISSIONS } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { Permission, PermissionMatrix } from '../../auth/permissions';
+
+/**
+ * S44 (FR-MN-02 / FR-MN-16 / ADR-4): `MENTION_EVERYONE` 카탈로그 비트(0x0080).
+ *
+ * ⚠️ D12 carryover: 집행 enum(`auth/permissions.ts`)의 0x0080 은 PIN_MESSAGE 라
+ * 동일 비트 위치를 공유한다. 멘션 게이트는 PRD 지시대로 **카탈로그 비트**(여기
+ * 정의)를 직접 검사한다. `ChannelPermissionOverride.allow/denyMask`(Int)에 이
+ * 비트가 켜져 있으면 MENTION_EVERYONE 권한 부여/박탈로 해석한다. number 비트필드
+ * 로 다루므로 BigInt 카탈로그 값을 Number 로 좁혀 모듈 상수로 고정한다(0x0080).
+ */
+const MENTION_EVERYONE_BIT = Number(PERMISSIONS.MENTION_EVERYONE);
+
+/**
+ * S44: 역할별 `MENTION_EVERYONE` 기본값(base). OWNER/ADMIN 은 on, MEMBER 는 off.
+ * 채널 override 가 이 base 위에 5단계 fold 로 누적된다.
+ */
+const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
+  OWNER: MENTION_EVERYONE_BIT,
+  ADMIN: MENTION_EVERYONE_BIT,
+  MEMBER: 0,
+};
 
 /**
  * Task-014-A (task-012-follow-13 closure): single source of truth for
@@ -169,5 +192,58 @@ export class ChannelAccessService {
         'this announcement channel only allows admins / granted roles to post',
       );
     }
+  }
+
+  /**
+   * S44 (FR-MN-02 / FR-MN-16 / ADR-4): 채널에서 호출자가 `@everyone`/`@here`/
+   * `@channel` 멘션 fanout 권한(`MENTION_EVERYONE`, 카탈로그 비트 0x0080)을
+   * 가지는지 boolean 으로 판정한다.
+   *
+   * S40 FR-RE07 fix-forward 와 동일한 ADR-4 5단계 fold:
+   *   base → roleAllow → roleDeny → userAllow → userDeny
+   * base 는 역할 기본값(OWNER/ADMIN on, MEMBER off)이고, 채널 override 의
+   * allow/deny 마스크에서 MENTION_EVERYONE 비트만 추출해 누적한다. 따라서
+   * MEMBER 도 override allow 면 권한을 얻고, OWNER/ADMIN 도 override deny 면
+   * 권한을 잃는다(개인 DENY 가 역할 ALLOW 를 이긴다).
+   *
+   * DM 채널(workspaceId=null)은 워크스페이스 멤버/역할 개념이 없어 항상 false 다
+   * — `@everyone` 자체가 무의미하고 extractMentions 도 false 를 반환한다.
+   */
+  async resolveMentionEveryone(
+    channel: { id: string; workspaceId: string | null },
+    userId: string,
+    role: WorkspaceRole,
+  ): Promise<boolean> {
+    if (channel.workspaceId === null) return false;
+    const overrides = await this.prisma.channelPermissionOverride.findMany({
+      where: {
+        channelId: channel.id,
+        OR: [
+          { principalType: 'USER', principalId: userId },
+          { principalType: 'ROLE', principalId: role },
+        ],
+      },
+      select: { principalType: true, principalId: true, allowMask: true, denyMask: true },
+    });
+    let roleAllow = 0;
+    let roleDeny = 0;
+    let userAllow = 0;
+    let userDeny = 0;
+    for (const o of overrides) {
+      if (o.principalType === 'USER' && o.principalId === userId) {
+        userAllow |= o.allowMask;
+        userDeny |= o.denyMask;
+      } else if (o.principalType === 'ROLE' && o.principalId === role) {
+        roleAllow |= o.allowMask;
+        roleDeny |= o.denyMask;
+      }
+    }
+    // ADR-4 5단계 fold — MENTION_EVERYONE 비트만 누적(다른 비트는 무관).
+    let mask = MENTION_EVERYONE_ROLE_BASE[role] ?? 0;
+    mask |= roleAllow & MENTION_EVERYONE_BIT;
+    mask &= ~(roleDeny & MENTION_EVERYONE_BIT);
+    mask |= userAllow & MENTION_EVERYONE_BIT;
+    mask &= ~(userDeny & MENTION_EVERYONE_BIT);
+    return (mask & MENTION_EVERYONE_BIT) === MENTION_EVERYONE_BIT;
   }
 }

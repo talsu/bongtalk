@@ -1,48 +1,47 @@
 import type { Mentions } from './mention-extractor';
 
-export type GateActorRole = 'OWNER' | 'ADMIN' | 'MEMBER';
-
 /**
- * task-044-iter3: `@everyone` 멘션 권한 게이트.
+ * S44 (FR-MN-02 / FR-MN-16): `@everyone` / `@here` / `@channel` 멘션 권한 게이트.
  *
- * Discord 정책 준용: MEMBER 가 `@everyone` 입력 시 텍스트는 그대로
- * 보존하되 fanout 효과만 silently 무효화합니다 (mentions.everyone
- * = false). OWNER/ADMIN 는 효과 유지.
+ * task-044~046 까지는 게이트가 `WorkspaceMember.role` enum 만 보고 OWNER/ADMIN
+ * 외에는 silently false 였습니다. PRD FR-MN-02/16 은 ADR-4 `MENTION_EVERYONE`
+ * (카탈로그 비트 0x0080) 권한을 역할/멤버별 override allow/deny 로 집행하도록
+ * 정의합니다 — MEMBER 도 채널 override allow 면 `@everyone` 가능하고, OWNER/ADMIN
+ * 도 override deny 면 불가합니다.
  *
- * mention-extractor 의 순수성 (workspace 스코프, 권한 무지) 을 유지
- * 하기 위해 service 계층 후처리 함수로 분리했습니다. send/update 의
- * extractMentions 직후에 호출합니다.
+ * 그래서 게이트 시그니처를 `role` 대신 **불리언 `hasMentionEveryone`** 으로 바꿉니다.
+ * 권한 산정(역할 기본값 → 채널 override 5단계 fold)은 호출자(messages.service)가
+ * `ChannelAccessService.resolveMentionEveryone` 로 수행해 결과만 넘깁니다. 이로써
+ * gate 는 권한 정책을 모르는 순수 후처리 함수로 유지되고, 권한 fold 의 단일 출처는
+ * channel-access 서비스가 됩니다.
  *
- * 이 다운그레이드는 응답에 별도 신호 없음 — 사용자 경험은 Discord 와
- * 동일하게 "텍스트는 보이지만 알림은 안 감" 입니다. composer 측의
- * 사전 안내는 별도 follow-up.
+ * Discord 정책 준용: 권한 없는 사용자가 특수멘션을 입력해도 텍스트는 그대로
+ * 보존하되 fanout 효과만 silently 무효화합니다(everyone/here/channel = false).
+ * 응답에 별도 신호는 없습니다(클라이언트 FR-MN-16 경고 토스트가 사전 안내).
  */
-export function gateEveryoneMention(mentions: Mentions, actorRole: GateActorRole): Mentions {
+export function gateEveryoneMention(mentions: Mentions, hasMentionEveryone: boolean): Mentions {
   if (!mentions.everyone) return mentions;
-  if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
-  return { ...mentions, everyone: false };
+  return hasMentionEveryone ? mentions : { ...mentions, everyone: false };
 }
 
 /**
- * task-046 iter8 (A9): `@here` 멘션 권한 게이트.
- *
- * `@everyone` 보다 부드러운 성격 (online 멤버만) 이지만 fanout 폭은 클
- * 수 있어 같은 게이트 적용. MEMBER 가 here=true 입력 시 silently false.
+ * S44 (FR-MN-02): `@here` 게이트. `@everyone` 과 동일한 `MENTION_EVERYONE`
+ * 권한 비트를 적용합니다(online 멤버만 깨우지만 fanout 폭은 클 수 있음).
+ * online/idle 수신자 한정 필터는 messages.service 의 outbox emit 단계에서
+ * 적용합니다(여기서는 권한 게이트만).
  */
-export function gateHereMention(mentions: Mentions, actorRole: GateActorRole): Mentions {
+export function gateHereMention(mentions: Mentions, hasMentionEveryone: boolean): Mentions {
   if (!mentions.here) return mentions;
-  if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
-  return { ...mentions, here: false };
+  return hasMentionEveryone ? mentions : { ...mentions, here: false };
 }
 
 /**
- * S21 (FR-RS-16): `@channel` 멘션 권한 게이트. 현재 채널 멤버 전원을 깨우는
- * 범위 멘션이라 @everyone/@here 와 동일한 OWNER/ADMIN 게이트를 적용한다.
- * MEMBER 가 channel=true 입력 시 silently false 로 다운그레이드 → unread
- * mentionCount 집계에서도 자동 제외(S18 정합).
+ * S21 (FR-RS-16) / S44: `@channel` 게이트. 현재 채널 멤버 전원을 깨우는 범위
+ * 멘션이라 `@everyone`/`@here` 와 동일한 `MENTION_EVERYONE` 권한을 적용합니다.
+ * 권한 없으면 silently false 로 다운그레이드 → unread mentionCount 집계에서도
+ * 자동 제외(S18 정합).
  */
-export function gateChannelMention(mentions: Mentions, actorRole: GateActorRole): Mentions {
+export function gateChannelMention(mentions: Mentions, hasMentionEveryone: boolean): Mentions {
   if (!mentions.channel) return mentions;
-  if (actorRole === 'OWNER' || actorRole === 'ADMIN') return mentions;
-  return { ...mentions, channel: false };
+  return hasMentionEveryone ? mentions : { ...mentions, channel: false };
 }

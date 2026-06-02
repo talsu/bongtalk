@@ -1046,7 +1046,7 @@ export function installRealtimeDispatcher(
     qc.invalidateQueries({ queryKey: ['workspaces', 'members'] });
   });
 
-  // ---------- Mentions (task-011-B) ----------
+  // ---------- Mentions (task-011-B · S44 FR-MN-01: wire `mention:new`) ----------
   on<{
     id?: string;
     targetUserId: string;
@@ -1057,7 +1057,7 @@ export function installRealtimeDispatcher(
     snippet: string;
     createdAt: string;
     everyone: boolean;
-  }>('mention.received', (env) => {
+  }>('mention:new', (env) => {
     const viewer = ctx.viewerId();
     if (!viewer || env.targetUserId !== viewer) return;
     // task-026-E: mention also feeds Activity — invalidate before the
@@ -1147,7 +1147,9 @@ export const DISPATCHED_EVENTS = [
   'workspace.role.changed',
   'presence.updated',
   'presence:update',
-  'mention.received',
+  // S44 (FR-MN-01): 멘션 알림 wire 이름은 PRD 카탈로그 `mention:new` 로 정렬한다
+  // (서버 내부 outbox 는 mention.received, outbox→WS subscriber 가 콜론으로 변환).
+  'mention:new',
   // S39 (FR-RE03): 반응 추가/제거 통합 wire 이벤트(full-replace). 종전의
   // message.reaction.added / .removed 를 단일 reaction:updated 로 대체.
   'reaction:updated',

@@ -35,6 +35,7 @@ import { detectTrigger, type TriggerKind } from './autocomplete/detectTrigger';
 import { useAutocompleteMaxHeight } from './autocomplete/popupMaxHeight';
 import {
   canUseSpecialMention,
+  firstUnauthorizedSpecialMention,
   needsSpecialMentionConfirm,
   type SpecialMentionKey,
   type WorkspaceRole,
@@ -400,6 +401,20 @@ export function MessageComposer({
     if (counter.overLimit) return;
     const trimmed = draft.trim();
     if (!trimmed && pending.length === 0) return;
+    // S44 (FR-MN-16): 권한 없는 @everyone/@here 를 입력하면 전송 전 경고 토스트로
+    // "이 채널에서 알림이 가지 않음"을 고지한다. 메시지는 그대로 전송되며(서버
+    // 게이트가 fanout 만 silently 무효화 — FR-MN-02 / Discord parity), 사용자는
+    // 의도와 결과의 괴리를 알게 된다. 권한 기준은 역할 기본값(canUseSpecialMention)
+    // 으로, 클라이언트가 채널 override 까지는 알 수 없어 보수적으로 안내한다.
+    const unauthorized = firstUnauthorizedSpecialMention(draft, myRole);
+    if (unauthorized) {
+      notify({
+        variant: 'warning',
+        title: unauthorized === 'everyone' ? '@everyone 권한이 없습니다' : '@here 권한이 없습니다',
+        body: '이 채널에서 해당 멘션 알림 권한이 없어 알림이 전송되지 않습니다.',
+        ttlMs: 6000,
+      });
+    }
     // FR-MSG-14: 대규모 특수멘션이면 먼저 confirm dialog 를 띄운다.
     const special = findSpecialNeedingConfirm(draft);
     if (special) {
