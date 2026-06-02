@@ -40,6 +40,14 @@ type UIState = {
   activityInboxOpen: boolean;
   toggleActivityInbox: () => void;
   setActivityInboxOpen: (v: boolean) => void;
+
+  /**
+   * S50 (D10 · FR-PS-03): 채널 핀 슬라이드인 패널 토글. true 면 MessageColumn 우측에
+   * PinPanel 을 붙인다. 채널 헤더 핀 아이콘이 토글한다.
+   */
+  pinPanelOpen: boolean;
+  togglePinPanel: () => void;
+  setPinPanelOpen: (v: boolean) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -64,4 +72,8 @@ export const useUI = create<UIState>((set) => ({
   activityInboxOpen: false,
   toggleActivityInbox: () => set((s) => ({ activityInboxOpen: !s.activityInboxOpen })),
   setActivityInboxOpen: (v) => set({ activityInboxOpen: v }),
+
+  pinPanelOpen: false,
+  togglePinPanel: () => set((s) => ({ pinPanelOpen: !s.pinPanelOpen })),
+  setPinPanelOpen: (v) => set({ pinPanelOpen: v }),
 }));

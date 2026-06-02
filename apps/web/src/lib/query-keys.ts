@@ -69,6 +69,11 @@ export const qk = {
     // fetch. gcTime:0 으로 소비 후 파기(메인 캐시 오염 0).
     jumpAround: (wsId: string, chId: string, jumpMessageId: string) =>
       ['messages', wsId, chId, jumpMessageId, 'jump-around'] as const,
+    // S50 (D10 · FR-PS-03): 채널 핀 목록(슬라이드인 패널). wsId+chId 단위로
+    // 키잉하며 channel:pin_added/removed 이벤트가 invalidate 한다.
+    pins: (wsId: string, chId: string) => ['messages', wsId, chId, 'pins'] as const,
+    // S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지 경량 키.
+    pinCount: (wsId: string, chId: string) => ['messages', wsId, chId, 'pins', 'count'] as const,
   },
   reactions: {
     // S40 (FR-RE05): 한 이모지의 전체 reactor 목록(무한 스크롤 모달). msgId+emoji

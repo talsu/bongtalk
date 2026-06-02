@@ -89,7 +89,8 @@ export enum ErrorCode {
   MESSAGE_PARENT_NOT_FOUND = 'MESSAGE_PARENT_NOT_FOUND',
   // S38 (FR-TH-13): 잠긴 스레드에 MEMBER 이하가 답글 시도 → 403. OWNER/ADMIN 면제.
   THREAD_LOCKED = 'THREAD_LOCKED',
-  // task-044-iter2: pinned messages cap (50/channel, Discord parity).
+  // task-044-iter2 / S50 (D10 · FR-PS-04): pinned messages hard cap(55/channel)
+  // 초과. soft cap 은 50(클라 경고 toast), hard cap 55 초과 시도만 거부 → 423 Locked.
   MESSAGE_PIN_CAP_EXCEEDED = 'MESSAGE_PIN_CAP_EXCEEDED',
   // S05 (FR-MSG-06): 편집 낙관적 잠금 충돌. expectedVersion ≠ 현재 version
   // → 409. 필터가 details.current(현재 MessageDto)를 응답 body 에 실어
@@ -231,7 +232,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.MESSAGE_PARENT_NOT_FOUND]: 404,
   // S38 (FR-TH-13): 잠긴 스레드 답글 차단(MEMBER 이하).
   [ErrorCode.THREAD_LOCKED]: 403,
-  [ErrorCode.MESSAGE_PIN_CAP_EXCEEDED]: 422,
+  // S50 (D10 · FR-PS-04): hard cap(55) 초과 핀 거부는 423 Locked 로 매핑한다(PRD
+  // 정본 "55개(hard limit) 초과 시 API가 423 Locked로 거부"). 종전 422 에서 변경.
+  [ErrorCode.MESSAGE_PIN_CAP_EXCEEDED]: 423,
   // S05 (FR-MSG-06): 낙관적 잠금 충돌은 409 (IDEMPOTENCY_KEY_REUSE_CONFLICT 와 동일 매핑).
   [ErrorCode.MESSAGE_VERSION_CONFLICT]: 409,
   [ErrorCode.IDEMPOTENCY_KEY_REUSE_CONFLICT]: 409,

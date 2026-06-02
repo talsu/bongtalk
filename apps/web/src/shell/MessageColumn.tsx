@@ -9,6 +9,8 @@ import {
 import { AckScheduler, type AckFlush } from '../features/messages/ackScheduler';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
+import { PinPanel } from '../features/messages/PinPanel';
+import { usePinCount } from '../features/messages/useMessages';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { useReadState } from '../features/realtime/readStateStore';
@@ -63,6 +65,18 @@ export function MessageColumn({
   const memberListOpen = useUI((s) => s.memberListOpen);
   const toggleMemberList = useUI((s) => s.toggleMemberList);
   const setActiveChannelId = useUI((s) => s.setActiveChannelId);
+  // S50 (D10 · FR-PS-03): 핀 패널 토글 상태 + 채널 헤더 핀 카운트 배지.
+  const pinPanelOpen = useUI((s) => s.pinPanelOpen);
+  const togglePinPanel = useUI((s) => s.togglePinPanel);
+  const setPinPanelOpen = useUI((s) => s.setPinPanelOpen);
+  // S50 review (a11y A-PP-03): 패널 닫힘(닫기 버튼/Esc) 시 포커스를 트리거 핀
+  // 버튼으로 되돌린다. 비모달이라 mount 시 포커스 이동은 안 하지만(A-PP-01),
+  // 명시적 닫힘 후 포커스 미아 방지.
+  const pinTriggerRef = useRef<HTMLButtonElement>(null);
+  const closePinPanel = useCallback(() => {
+    setPinPanelOpen(false);
+    pinTriggerRef.current?.focus();
+  }, [setPinPanelOpen]);
   const { user } = useAuth();
   const isDm = workspaceId === null;
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -111,6 +125,29 @@ export function MessageColumn({
     );
   }, [setSearchParams]);
 
+  // S50 (D10 · FR-PS-03): 핀 패널 항목 클릭 → 현재 채널 URL 에 `?msg=` 를 실어
+  // MessageColumn 의 around 로드 + scrollIntoView + 하이라이트를 트리거한다(검색
+  // 결과 점프와 동일 메커니즘 — 같은 채널이라 navigate 없이 search param 만 갱신).
+  const jumpToMessage = useCallback(
+    (messageId: string) => {
+      setSearchParams(
+        (prev) => {
+          const next = new URLSearchParams(prev);
+          next.set('msg', messageId);
+          return next;
+        },
+        { replace: true },
+      );
+    },
+    [setSearchParams],
+  );
+
+  // S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지. DM(wsId=null)은 핀 미지원이라
+  // 비활성(usePinCount 가 enabled=false 로 폴백). channel:pin_added/removed 가
+  // 캐시를 invalidate 해 실시간 갱신된다.
+  const { data: pinCountData } = usePinCount(workspaceId, channelId);
+  const pinCount = pinCountData?.used ?? 0;
+
   // task-014-C: thread panel opens via `?thread=<rootId>` query param.
   // Sharing the URL restores the thread on mount; channel switching
   // unmounts this component and strips the param naturally.
@@ -132,8 +169,10 @@ export function MessageColumn({
     if (prevChannelRef.current !== channelId) {
       prevChannelRef.current = channelId;
       setActiveThread(null);
+      // S50 (D10): 채널 전환 시 핀 패널도 닫는다(이전 채널 핀이 잔류하지 않도록).
+      setPinPanelOpen(false);
     }
-  }, [channelId, setActiveThread]);
+  }, [channelId, setActiveThread, setPinPanelOpen]);
 
   useLiveMessages(workspaceId ?? '', channelId);
 
@@ -307,17 +346,39 @@ export function MessageColumn({
               <SearchInput workspaceId={workspaceId} workspaceSlug={workspaceSlug} />
             ) : null}
             <ActivityBellButton />
-            <Tooltip label="곧 제공 예정" side="bottom">
-              <button
-                type="button"
-                data-testid="topbar-pin"
-                disabled
-                aria-label="고정된 메시지"
-                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+            {/* S50 (D10 · FR-PS-03): 고정된 메시지 패널 토글 + 핀 카운트 배지.
+                DM 채널은 핀 미지원이라 버튼을 노출하지 않는다. */}
+            {!isDm && workspaceId ? (
+              <Tooltip
+                label={pinPanelOpen ? '고정된 메시지 숨기기' : '고정된 메시지'}
+                side="bottom"
               >
-                <Icon name="pin" size="sm" />
-              </button>
-            </Tooltip>
+                <button
+                  type="button"
+                  data-testid="topbar-pin"
+                  ref={pinTriggerRef}
+                  // S50 review (a11y A-MC-01/02/04): 디스클로저 트리거이므로
+                  // aria-expanded + aria-controls(=pin-panel id)로 패널 관계를 노출
+                  // 한다(ActivityBellButton 선례). 핀 0개면 "(0)" 없이 읽는다.
+                  aria-label={pinCount > 0 ? `고정된 메시지 (${pinCount})` : '고정된 메시지'}
+                  aria-expanded={pinPanelOpen}
+                  aria-controls="pin-panel"
+                  onClick={() => togglePinPanel()}
+                  className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm relative"
+                >
+                  <Icon name="pin" size="sm" />
+                  {pinCount > 0 ? (
+                    <span
+                      data-testid="topbar-pin-badge"
+                      aria-hidden="true"
+                      className="qf-badge qf-badge--count absolute right-[calc(-1*var(--s-2))] top-[calc(-1*var(--s-2))]"
+                    >
+                      {pinCount > 99 ? '99+' : pinCount}
+                    </span>
+                  ) : null}
+                </button>
+              </Tooltip>
+            ) : null}
             <Tooltip label={memberListOpen ? '멤버 목록 숨기기' : '멤버 목록 보기'} side="bottom">
               <button
                 type="button"
@@ -367,6 +428,20 @@ export function MessageColumn({
           channelName={channelName}
           rootId={activeThread}
           onClose={() => setActiveThread(null)}
+        />
+      ) : null}
+      {/* S50 (D10 · FR-PS-03): 고정된 메시지 슬라이드인 패널. 스레드 패널이 열려
+          있지 않을 때만 우측 슬롯을 점유한다(같은 캔버스 폭 공유 — PRD 디자인 모델). */}
+      {pinPanelOpen && !activeThread && !isDm && workspaceId ? (
+        <PinPanel
+          workspaceId={workspaceId}
+          channelId={channelId}
+          nameByUserId={nameByUserId}
+          onClose={closePinPanel}
+          onJump={(messageId) => {
+            jumpToMessage(messageId);
+            setPinPanelOpen(false);
+          }}
         />
       ) : null}
     </div>

@@ -107,6 +107,45 @@ export class OutboxToWsSubscriber {
       await this.emitAndBuffer('channel', chId, wireEnv);
       return;
     }
+    // S50 (D10 · FR-PS-02/06): message.pin.toggled → pinnedAt 의 null 여부로
+    // channel:pin_added / channel:pin_removed 콜론 wire 로 분기·변환한다(서버 내부
+    // outbox eventType 은 dot 표기라 `message.**` 와일드카드가 잡는다). pin_added 는
+    // 핀 메타 + 자동 삽입된 SYSTEM_PIN 시스템 메시지 id + 갱신 후 핀 수(used)를,
+    // pin_removed 는 해제된 messageId + 해제 주체·시각을 싣는다(reaction:updated /
+    // thread:lock:changed 선례). 핀 추가로 삽입된 SYSTEM_PIN 시스템 메시지 자체는
+    // 별도 message.created 이벤트로 채널 룸에 도착하므로 여기서 또 emit 하지 않는다.
+    if (env.type === 'message.pin.toggled') {
+      const messageId = (env as { messageId?: string }).messageId;
+      if (!messageId) return;
+      const pinnedAt = (env as { pinnedAt?: string | null }).pinnedAt ?? null;
+      const actorId = (env as { actorId?: string }).actorId ?? null;
+      if (pinnedAt) {
+        const wireEnv = {
+          id: env.id,
+          type: WS_EVENTS.CHANNEL_PIN_ADDED,
+          occurredAt: env.occurredAt,
+          channelId: chId,
+          messageId,
+          pinnedAt,
+          pinnedBy: (env as { pinnedBy?: string | null }).pinnedBy ?? actorId,
+          systemMessageId: (env as { systemMessageId?: string | null }).systemMessageId ?? null,
+          used: (env as { used?: number }).used,
+        } as unknown as WsEnvelope;
+        await this.emitAndBuffer('channel', chId, wireEnv);
+      } else {
+        const wireEnv = {
+          id: env.id,
+          type: WS_EVENTS.CHANNEL_PIN_REMOVED,
+          occurredAt: env.occurredAt,
+          channelId: chId,
+          messageId,
+          unpinnedById: actorId,
+          unpinnedAt: env.occurredAt,
+        } as unknown as WsEnvelope;
+        await this.emitAndBuffer('channel', chId, wireEnv);
+      }
+      return;
+    }
     await this.emitAndBuffer('channel', chId, env);
 
     // Task-014-B thread.replied: channel-room fanout above keeps

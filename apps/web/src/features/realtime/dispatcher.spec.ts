@@ -1013,4 +1013,91 @@ describe('realtime dispatcher', () => {
       detach();
     });
   });
+
+  // ── S50 (D10 · FR-PS-02/06): channel:pin_added / channel:pin_removed ──────
+  describe('channel:pin_* → 메시지 핀 마커 patch + 핀 뷰 invalidate', () => {
+    function seedPinChannel(qc: QueryClient) {
+      const key = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(key, {
+        pages: [
+          {
+            items: [seedMsg({ id: 'msg-p', pinnedAt: null, pinnedBy: null })],
+            pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+          },
+        ],
+        pageParams: [undefined],
+      });
+      return key;
+    }
+
+    it('channel:pin_added 가 메시지 행에 pinnedAt/pinnedBy 를 patch 한다', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedPinChannel(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('channel:pin_added', {
+        channelId: 'ch-1',
+        messageId: 'msg-p',
+        pinnedAt: '2025-01-01T00:00:00.000Z',
+        pinnedBy: 'u-2',
+        systemMessageId: 'sys-1',
+        used: 3,
+      });
+      const row = readItems(qc)[0];
+      expect(row.pinnedAt).toBe('2025-01-01T00:00:00.000Z');
+      expect(row.pinnedBy).toBe('u-2');
+      detach();
+    });
+
+    it('channel:pin_removed 가 메시지 행의 핀 마커를 null 로 되돌린다', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const key = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(key, {
+        pages: [
+          {
+            items: [
+              seedMsg({ id: 'msg-p', pinnedAt: '2025-01-01T00:00:00.000Z', pinnedBy: 'u-2' }),
+            ],
+            pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+          },
+        ],
+        pageParams: [undefined],
+      });
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('channel:pin_removed', {
+        channelId: 'ch-1',
+        messageId: 'msg-p',
+        unpinnedById: 'u-2',
+        unpinnedAt: '2025-01-01T00:00:01.000Z',
+      });
+      const row = readItems(qc)[0];
+      expect(row.pinnedAt).toBeNull();
+      expect(row.pinnedBy).toBeNull();
+      detach();
+    });
+
+    it('channel:pin_added(used>=soft cap) 는 경고 toast 를 푸시한다(FR-PS-04)', async () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedPinChannel(qc);
+      const { useNotifications } = await import('../../stores/notification-store');
+      const pushed: Array<{ variant: string }> = [];
+      const spy = vi
+        .spyOn(useNotifications.getState(), 'push')
+        .mockImplementation((n) => pushed.push(n as { variant: string }) as unknown as string);
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('channel:pin_added', {
+        channelId: 'ch-1',
+        messageId: 'msg-p',
+        pinnedAt: '2025-01-01T00:00:00.000Z',
+        pinnedBy: 'u-2',
+        systemMessageId: 'sys-1',
+        used: 50,
+      });
+      expect(pushed.some((n) => n.variant === 'warning')).toBe(true);
+      spy.mockRestore();
+      detach();
+    });
+  });
 });

@@ -123,6 +123,16 @@ export const WS_EVENTS = {
   // 게이트 — FR-MN-14). serverTimestamp 로 ACK 우선순위를 판정한다(message:ack 의
   // unreadCount 갱신 시각 이전 badge_update 는 stale 로 무시 — FR-MN-20).
   NOTIFICATION_BADGE_UPDATE: 'notification:badge_update',
+  // 채널 핀 추가/해제 (S50 · D10 · FR-PS-02/06): 메시지가 채널 핀에 추가/제거되면
+  // 채널 룸(channel:{channelId}) 전체로 push 한다. 서버 내부 outbox eventType 은 dot
+  // 표기(message.pin.toggled)지만 outbox→WS subscriber 가 pinnedAt 의 null 여부로
+  // channel:pin_added / channel:pin_removed 콜론 wire 이름으로 분기·변환해 emit 한다
+  // (reaction:updated / thread:lock:changed / mention:new 선례). pin_added 는 핀
+  // 메타 + 자동 삽입된 SYSTEM_PIN 시스템 메시지 id 를, pin_removed 는 해제된
+  // messageId 를 싣는다. 클라이언트(PinPanel·채널 헤더 핀 카운트 배지)는 이 이벤트로
+  // 목록/카운트를 낙관 갱신한다.
+  CHANNEL_PIN_ADDED: 'channel:pin_added',
+  CHANNEL_PIN_REMOVED: 'channel:pin_removed',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -427,6 +437,45 @@ export const NotificationBadgeUpdatePayloadSchema = z.object({
   serverTimestamp: z.string().datetime(),
 });
 export type NotificationBadgeUpdatePayload = z.infer<typeof NotificationBadgeUpdatePayloadSchema>;
+
+// ── 채널 핀 (S50 · D10 · FR-PS-02/06) ───────────────────────────────────────
+/**
+ * channel:pin_added — 메시지가 채널 핀에 추가되면 채널 룸(channel:{channelId})
+ * 전체로 fanout (S50 · FR-PS-02). 서버 내부 outbox eventType 은 dot 표기
+ * (message.pin.toggled, pinnedAt 비-null)지만 outbox→WS subscriber 가 이 콜론 wire
+ * 이름으로 변환해 emit 한다. payload 는 라우팅 식별자(channelId) + 핀 메타(messageId,
+ * pinnedAt, pinnedBy) + 핀 추가로 자동 삽입된 SYSTEM_PIN 시스템 메시지 id 를 싣는다.
+ * 클라이언트는 핀 패널 목록 + 채널 헤더 핀 카운트 배지를 낙관 갱신한다(used>=soft cap
+ * 도달 시 경고 toast — FR-PS-04). `used` 는 갱신 후 현재 채널 핀 수(soft cap 경고
+ * 판정에 사용).
+ */
+export const ChannelPinAddedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  messageId: z.string().min(1),
+  pinnedAt: z.string().datetime(),
+  pinnedBy: z.string().min(1),
+  // 핀 추가 시 채널 스트림에 자동 삽입된 SYSTEM_PIN 시스템 메시지 id. 시스템
+  // 메시지 삽입을 생략한 경로(없음 — 항상 삽입)는 null 폴백.
+  systemMessageId: z.string().min(1).nullable(),
+  // 갱신 후 채널 핀 수(soft cap 경고 toast 판정용). forward-compat 위해 optional.
+  used: z.number().int().nonnegative().optional(),
+});
+export type ChannelPinAddedPayload = z.infer<typeof ChannelPinAddedPayloadSchema>;
+
+/**
+ * channel:pin_removed — 메시지가 채널 핀에서 제거되면 채널 룸 전체로 fanout
+ * (S50 · FR-PS-06). unpin 또는 핀된 메시지 소프트 삭제 cascade 둘 다 이 이벤트를
+ * 발행한다(서버 outbox eventType 은 message.pin.toggled, pinnedAt=null). payload 는
+ * channelId + 해제된 messageId + 해제 주체(unpinnedById) + 해제 시각(unpinnedAt).
+ * 클라이언트는 핀 패널에서 해당 항목을 제거하고 핀 카운트 배지를 −1 한다.
+ */
+export const ChannelPinRemovedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  messageId: z.string().min(1),
+  unpinnedById: z.string().min(1).nullable(),
+  unpinnedAt: z.string().datetime(),
+});
+export type ChannelPinRemovedPayload = z.infer<typeof ChannelPinRemovedPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -754,4 +803,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.EMOJI_ALIAS_UPDATED]: EmojiAliasUpdatedPayloadSchema,
   [WS_EVENTS.MENTION_NEW]: MentionNewPayloadSchema,
   [WS_EVENTS.NOTIFICATION_BADGE_UPDATE]: NotificationBadgeUpdatePayloadSchema,
+  [WS_EVENTS.CHANNEL_PIN_ADDED]: ChannelPinAddedPayloadSchema,
+  [WS_EVENTS.CHANNEL_PIN_REMOVED]: ChannelPinRemovedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;
