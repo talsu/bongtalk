@@ -91,6 +91,15 @@ export const WS_EVENTS = {
   // (message.thread.lock_changed)지만 outbox→WS subscriber 가 이 콜론 wire 이름으로
   // 변환해 emit 한다(PRD FR-TH-13 이 이 이름을 직접 명시).
   THREAD_LOCK_CHANGED: 'thread:lock:changed',
+  // 커스텀 이모지 라이프사이클 (S41 · FR-EM01/FR-EM04/FR-RC20): 워크스페이스
+  // 커스텀 이모지가 업로드 확정(finalize)되거나 삭제되면 해당 워크스페이스 룸
+  // (workspace:{wsId}) 전체로 push 한다. 클라이언트는 emoji:created 수신 시
+  // `['custom-emojis', wsId]` 쿼리를 invalidate(새 이모지 반영), emoji:deleted
+  // 수신 시 해당 emojiId 를 캐시에서 제거한다(피커/매니저 즉시 갱신). 서버 내부
+  // outbox eventType 은 dot 표기(emoji.created / emoji.deleted)지만 outbox→WS
+  // subscriber 가 이 콜론 wire 이름으로 변환해 emit 한다(reaction:updated 선례).
+  EMOJI_CREATED: 'emoji:created',
+  EMOJI_DELETED: 'emoji:deleted',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -262,6 +271,13 @@ export const ReactionUpdatedReactionSchema = z.object({
   emoji: z.string().min(1).max(64),
   count: z.number().int().nonnegative(),
   users: z.array(ReactionUserSchema).max(5),
+  // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 broadcast 집계에도 참조
+  // CustomEmoji.id + presigned url 을 동봉해, 수신 클라가 reaction:updated full
+  // replace 후 곧바로 <img> 칩을 렌더할 수 있게 한다. 유니코드 반응은 둘 다
+  // 생략, **삭제된** 커스텀 이모지 반응은 customEmojiId=null(emoji 슬러그만) —
+  // 클라 placeholder 분기. optional/nullable → S39/S40 와이어와 forward-compat.
+  customEmojiId: z.string().uuid().nullable().optional(),
+  url: z.string().nullable().optional(),
 });
 export type ReactionUpdatedReaction = z.infer<typeof ReactionUpdatedReactionSchema>;
 
@@ -302,6 +318,34 @@ export const ReactionClearedPayloadSchema = z.object({
   channelId: ChannelIdSchema,
 });
 export type ReactionClearedPayload = z.infer<typeof ReactionClearedPayloadSchema>;
+
+// ── 커스텀 이모지 (S41 · FR-EM01/FR-EM04/FR-RC20) ───────────────────────────
+/**
+ * emoji:created — 워크스페이스 커스텀 이모지 업로드 확정 시 workspace 룸 전체로
+ * fanout. payload 는 워크스페이스 룸 라우팅 식별자(workspaceId) + 클라가 캐시
+ * 무효화/표시에 쓰는 최소 메타(emojiId, name). 클라이언트는 보수적으로
+ * `['custom-emojis', workspaceId]` 를 invalidate 후 재조회한다(presigned url 의
+ * 서명/만료 정합을 서버 list 응답에 위임 — url 은 와이어에 싣지 않는다).
+ */
+export const EmojiCreatedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  emojiId: z.string().min(1),
+  name: z.string().min(1),
+});
+export type EmojiCreatedPayload = z.infer<typeof EmojiCreatedPayloadSchema>;
+
+/**
+ * emoji:deleted — 워크스페이스 커스텀 이모지 삭제 시 workspace 룸 전체로 fanout.
+ * 수신 클라는 `['custom-emojis', workspaceId]` 캐시에서 emojiId 를 제거한다.
+ * 진행 중 메시지 반응의 [삭제된 이모지] placeholder 전환은 다음 authoritative
+ * read 가 self-heal 한다(FR-EM06).
+ */
+export const EmojiDeletedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  emojiId: z.string().min(1),
+  name: z.string().min(1),
+});
+export type EmojiDeletedPayload = z.infer<typeof EmojiDeletedPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -618,4 +662,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.DM_GROUP_UPDATED]: DmGroupUpdatedPayloadSchema,
   [WS_EVENTS.USER_UNBLOCKED]: UserUnblockedPayloadSchema,
   [WS_EVENTS.THREAD_LOCK_CHANGED]: ThreadLockChangedPayloadSchema,
+  [WS_EVENTS.EMOJI_CREATED]: EmojiCreatedPayloadSchema,
+  [WS_EVENTS.EMOJI_DELETED]: EmojiDeletedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

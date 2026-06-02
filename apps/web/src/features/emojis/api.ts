@@ -3,6 +3,10 @@ import { apiRequest } from '../../lib/api';
 export interface CustomEmoji {
   id: string;
   name: string;
+  // S41 contract fix: 서버 list 응답은 항상 aliases 를 포함한다(현재는 빈 배열 —
+  // 별칭 CRUD(FR-EM05)는 carryover). 타입에 누락돼 있어 정합을 맞춘다. optional 로
+  // 둬 기존 클라 구성부(컨텍스트 byName Map 등)를 비파괴로 확장한다.
+  aliases?: string[];
   createdBy: string;
   createdAt: string;
   url: string;

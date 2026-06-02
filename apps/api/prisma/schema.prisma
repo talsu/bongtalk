@@ -681,13 +681,21 @@ model MessageReaction {
   messageId String   @db.Uuid
   userId    String   @db.Uuid
   emoji     String   @db.VarChar(64)
+  // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 이 컬럼이 참조 CustomEmoji.id
+  // 를 담는다(유니코드 반응이면 NULL). `emoji` 컬럼에는 일관 식별자 `:name:` 를
+  // 함께 저장해, 커스텀 이모지가 삭제돼 customEmojiId 가 SetNull 로 풀려도 원래
+  // 슬러그가 보존된다(UI placeholder + 툴팁). onDelete: SetNull 이라 CustomEmoji
+  // 삭제 시 반응 행 자체는 보존되고 이 FK 만 NULL 로 풀린다(반응 카운트 유지).
+  customEmojiId String? @db.Uuid
   createdAt DateTime @default(now())
 
-  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message     Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  customEmoji CustomEmoji? @relation(fields: [customEmojiId], references: [id], onDelete: SetNull)
 
   @@unique([messageId, userId, emoji])
   @@index([messageId, emoji])
+  @@index([customEmojiId])
 }
 
 // S05 (FR-MSG-06 / FR-RC16): 메시지 편집 이력 스냅샷.
@@ -759,6 +767,10 @@ model CustomEmoji {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creator   User      @relation("CustomEmojiCreator", fields: [createdBy], references: [id])
+  // S41 (FR-EM06): 이 커스텀 이모지를 참조하는 반응 행들. 이모지 삭제 시 각 행의
+  // customEmojiId 는 SetNull 로 풀린다(반응 행 자체는 보존 — 카운트 유지 +
+  // [삭제된 이모지] placeholder).
+  reactions MessageReaction[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])

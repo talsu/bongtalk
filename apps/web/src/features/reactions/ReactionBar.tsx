@@ -45,53 +45,112 @@ export function ReactionBar({
   // affordance under the message body just adds noise.
   if (!hasAny && !open) return null;
 
+  // S41 (FR-EM06): 한 반응 칩의 시각 토큰을 결정한다.
+  //   - url 이 있으면(살아있는 커스텀 이모지) <img> 칩.
+  //   - emoji 가 `:name:` 슬러그인데 url 이 없으면(삭제된 커스텀 이모지 →
+  //     customEmojiId=null 로 풀림) [삭제된 이모지] placeholder.
+  //   - 그 외(유니코드) 글리프 텍스트.
+  const isCustomToken = (emoji: string): boolean => /^:[a-z0-9_]{2,32}:$/.test(emoji);
+
+  // S41 fix-forward (HIGH): 자기 토글의 낙관 업데이트는 reaction payload 에 아직
+  // url 이 없다(서버 reaction:updated 가 도착하기 전까지 useReactions 가
+  // {emoji,count,byMe} 만 채움). 워크스페이스 이모지 팩(customEmojis — 피커에 이미
+  // 주입됨)에서 `:name:` → url 을 직접 해석해, 방금 추가한 살아있는 커스텀 이모지가
+  // "[삭제된 이모지]" 로 깜빡이는 회귀를 막는다. 팩에도 없으면(진짜 삭제됨)
+  // placeholder 로 폴백한다.
+  const customUrlByToken = new Map<string, string>(
+    (customEmojis ?? []).map((ce) => [`:${ce.name}:`, ce.url]),
+  );
+  const resolveUrl = (r: ReactionSummary): string | null =>
+    r.url ?? customUrlByToken.get(r.emoji) ?? null;
+  const isDeletedCustom = (r: ReactionSummary): boolean => isCustomToken(r.emoji) && !resolveUrl(r);
+
   // S39 (SHOULD 4 a11y): 칩 카운트 변경을 스크린리더에 과통지 없이 알리는 요약 문장.
   // aria-live="polite" + aria-atomic 영역에 현재 집계를 한 줄로 싣는다(reaction:updated
-  // 로 reactions prop 이 바뀌면 SR 이 변경분만 읽음).
-  const liveSummary = hasAny ? reactions.map((r) => `${r.emoji} ${r.count}명`).join(', ') : '';
+  // 로 reactions prop 이 바뀌면 SR 이 변경분만 읽음). 삭제된 커스텀 이모지는 슬러그를
+  // 그대로 읽되 "삭제된 이모지" 를 덧붙인다.
+  const liveSummary = hasAny
+    ? reactions
+        .map((r) => {
+          const label = isDeletedCustom(r) ? `${r.emoji} (삭제된 이모지)` : r.emoji;
+          return `${label} ${r.count}명`;
+        })
+        .join(', ')
+    : '';
 
   return (
     <div data-testid="reaction-bar" className="qf-reactions relative">
-      {reactions.map((r) => (
-        <span key={r.emoji} className="inline-flex items-center">
-          <button
-            type="button"
-            data-testid={`reaction-${r.emoji}`}
-            data-bymine={r.byMe ? 'true' : 'false'}
-            onClick={() => onToggle(r.emoji, r.byMe)}
-            aria-pressed={r.byMe}
-            // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
-            // 내부 <span> emoji 는 aria-hidden 으로 가려 이모지 이중 읽기를 막는다.
-            aria-label={`${r.emoji} 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
-            className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
-          >
-            <span aria-hidden="true">{r.emoji}</span>
-            <span className="tabular-nums" aria-hidden="true">
-              {r.count}
-            </span>
-          </button>
-          {onShowReactors ? (
+      {reactions.map((r) => {
+        // S41 fix-forward: payload url 부재 시 워크스페이스 팩에서 해석(낙관 깜빡임 방지).
+        const url = resolveUrl(r);
+        const deleted = isCustomToken(r.emoji) && !url;
+        return (
+          <span key={r.emoji} className="inline-flex items-center">
             <button
               type="button"
-              data-testid={`reaction-reactors-${r.emoji}`}
-              onClick={() => onShowReactors(r.emoji)}
-              // S40 (FR-RE05): reactor 목록 dialog 를 여는 보조 버튼. 토글 칩과
-              // 분리해 클릭 의미 충돌을 막는다. SR 에는 "N명 본다"는 의도를 알린다.
-              // S40 fix-forward (MINOR): 인접 칩이 이미 이모지를 발화하므로 이 버튼의
-              // aria-label 에서 이모지를 빼 이중 발화를 막는다.
-              aria-haspopup="dialog"
-              aria-label={`${r.count}명의 반응자 목록 보기`}
-              // S40 fix-forward (SERIOUS a11y+DS): opacity-70 은 대비 4.06:1(<4.5)
-              // 미달 + DS .qf-reaction hover 가 bg/border 전환이라 opacity 미정의였다.
-              // 색 토큰(--text-muted → --text-secondary hover)으로 교체해 대비를
-              // 통과시키고 DS hover 언어와 정합시킨다. 칩과의 시각 분리는 유지된다.
-              className="qf-reaction text-[color:var(--text-muted)] hover:text-[color:var(--text-secondary)]"
+              data-testid={`reaction-${r.emoji}`}
+              data-bymine={r.byMe ? 'true' : 'false'}
+              data-custom={r.customEmojiId ? 'true' : undefined}
+              data-deleted={deleted ? 'true' : undefined}
+              onClick={() => onToggle(r.emoji, r.byMe)}
+              aria-pressed={r.byMe}
+              // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
+              // 내부 토큰은 aria-hidden 으로 가려 이중 읽기를 막는다. S41(FR-EM06):
+              // 삭제된 커스텀 이모지면 라벨에 슬러그 + "삭제된 이모지" 를 싣는다.
+              aria-label={`${
+                deleted ? `${r.emoji} 삭제된 이모지` : r.emoji
+              } 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
+              className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
             >
-              <span aria-hidden="true">⋯</span>
+              {url ? (
+                // S41 (FR-EM06): 살아있는 커스텀 이모지 — CSS 고정크기 <img> 칩.
+                <img
+                  src={url}
+                  alt={r.emoji}
+                  aria-hidden="true"
+                  className="qf-emoji-custom qf-emoji-custom--reaction"
+                  style={{ width: 18, height: 18, objectFit: 'contain' }}
+                />
+              ) : isCustomToken(r.emoji) ? (
+                // S41 (FR-EM06): 삭제된 커스텀 이모지 — [삭제된 이모지] placeholder
+                // (회색 박스 + 물음표). 원래 슬러그는 title 툴팁으로 보존한다.
+                <span
+                  aria-hidden="true"
+                  title={r.emoji}
+                  data-testid={`reaction-deleted-${r.emoji}`}
+                >
+                  ⬚?
+                </span>
+              ) : (
+                <span aria-hidden="true">{r.emoji}</span>
+              )}
+              <span className="tabular-nums" aria-hidden="true">
+                {r.count}
+              </span>
             </button>
-          ) : null}
-        </span>
-      ))}
+            {onShowReactors ? (
+              <button
+                type="button"
+                data-testid={`reaction-reactors-${r.emoji}`}
+                onClick={() => onShowReactors(r.emoji)}
+                // S40 (FR-RE05): reactor 목록 dialog 를 여는 보조 버튼. 토글 칩과
+                // 분리해 클릭 의미 충돌을 막는다. SR 에는 "N명 본다"는 의도를 알린다.
+                // S40 fix-forward (MINOR): 인접 칩이 이미 이모지를 발화하므로 이 버튼의
+                // aria-label 에서 이모지를 빼 이중 발화를 막는다.
+                aria-haspopup="dialog"
+                aria-label={`${r.count}명의 반응자 목록 보기`}
+                // S40 fix-forward (SERIOUS a11y+DS): opacity-70 은 대비 4.06:1(<4.5)
+                // 미달 + DS .qf-reaction hover 가 bg/border 전환이라 opacity 미정의였다.
+                // 색 토큰(--text-muted → --text-secondary hover)으로 교체해 대비를
+                // 통과시키고 DS hover 언어와 정합시킨다. 칩과의 시각 분리는 유지된다.
+                className="qf-reaction text-[color:var(--text-muted)] hover:text-[color:var(--text-secondary)]"
+              >
+                <span aria-hidden="true">⋯</span>
+              </button>
+            ) : null}
+          </span>
+        );
+      })}
       {hasAny ? (
         <button
           type="button"
