@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { badgeVariant, badgeAriaLabel, badgeText } from './badge-variant';
+import { badgeVariant, badgeAriaLabel, badgeText, notifDisplay } from './badge-variant';
 
 /**
  * task-047 iter2 (K3): unread vs mention badge variant 검증.
@@ -52,5 +52,44 @@ describe('badgeText', () => {
   it('count > 99 는 99+', () => {
     expect(badgeText(100)).toBe('99+');
     expect(badgeText(9999)).toBe('99+');
+  });
+});
+
+describe('notifDisplay (S46 / ADR-6 NotifLevel × isMuted 배지 규칙)', () => {
+  it('NOTHING → 배지·미읽·push 모두 숨김(isMuted 무관)', () => {
+    expect(notifDisplay('NOTHING', false)).toEqual({
+      showBadge: false,
+      showUnreadStyle: false,
+      push: false,
+    });
+    expect(notifDisplay('NOTHING', true)).toEqual({
+      showBadge: false,
+      showUnreadStyle: false,
+      push: false,
+    });
+  });
+
+  it('ALL isMuted=false → 배지·미읽·push 모두 O', () => {
+    expect(notifDisplay('ALL', false)).toEqual({
+      showBadge: true,
+      showUnreadStyle: true,
+      push: true,
+    });
+  });
+
+  it('ALL isMuted=true → 배지·미읽 O, push X (ADR-6 정본)', () => {
+    expect(notifDisplay('ALL', true)).toEqual({
+      showBadge: true,
+      showUnreadStyle: true,
+      push: false,
+    });
+  });
+
+  it('MENTIONS isMuted=true → 배지·미읽 O, push X', () => {
+    expect(notifDisplay('MENTIONS', true)).toEqual({
+      showBadge: true,
+      showUnreadStyle: true,
+      push: false,
+    });
   });
 });

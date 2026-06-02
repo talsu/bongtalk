@@ -13,6 +13,12 @@ import {
   useNotificationPreferences,
   useUpsertNotificationPreference,
 } from '../notifications/useNotificationPreferences';
+import type { NotifLevel } from '@qufox/shared-types';
+import {
+  useGlobalNotificationSettings,
+  useUpdateGlobalNotificationSettings,
+} from '../notifications/useNotifLevels';
+import { NotifLevelRadio } from '../notifications/NotifLevelRadio';
 
 const EVENT_TYPES: readonly NotificationEventType[] = [
   'MENTION',
@@ -43,6 +49,17 @@ export function NotificationSettingsPage(): JSX.Element {
   const { data: prefs } = useNotificationPreferences();
   const upsertMut = useUpsertNotificationPreference();
   const notify = useNotifications((s) => s.push);
+
+  // S46 (FR-MN-05): 글로벌 알림 수준(NotifLevel — ALL/MENTIONS/NOTHING).
+  const { data: globalSettings } = useGlobalNotificationSettings();
+  const updateGlobal = useUpdateGlobalNotificationSettings();
+  const setGlobalLevel = async (next: NotifLevel) => {
+    try {
+      await updateGlobal.mutateAsync({ notifTrigger: next });
+    } catch (err) {
+      notify({ variant: 'danger', title: '알림 수준 저장 실패', body: (err as Error).message });
+    }
+  };
 
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
   // Tabs: "Global" first, then one per workspace the user is in.
@@ -94,12 +111,38 @@ export function NotificationSettingsPage(): JSX.Element {
           </Link>
         </div>
 
+        {/* S46 (FR-MN-05): 글로벌 알림 수준 (NotifLevel). M-03: section aria-labelledby. */}
+        <section
+          className="mb-[var(--s-6)] rounded-[var(--r-xl)] border border-border bg-bg-surface p-[var(--s-5)]"
+          data-testid="global-notif-level"
+          aria-labelledby="global-notif-level-heading"
+        >
+          <h2
+            id="global-notif-level-heading"
+            className="mb-[var(--s-1)] text-[length:var(--fs-16)] font-semibold text-text-strong"
+          >
+            알림 수준
+          </h2>
+          <p className="mb-[var(--s-4)] text-[length:var(--fs-12)] text-text-muted">
+            모든 서버의 기본 알림 수준입니다. 서버·채널에서 개별 재정의할 수 있습니다.
+          </p>
+          <NotifLevelRadio
+            name="global"
+            value={globalSettings?.notifTrigger ?? 'MENTIONS'}
+            disabled={updateGlobal.isPending || !globalSettings}
+            onChange={(next) => void setGlobalLevel(next)}
+          />
+        </section>
+
+        {/* B-01: tablist — 각 탭 id + aria-controls, 패널 role=tabpanel + aria-labelledby. */}
         <div className="qf-tabs mb-[var(--s-5)]" role="tablist">
           {tabs.map((t) => (
             <button
               key={t.id}
               type="button"
               role="tab"
+              id={`tab-${t.id}`}
+              aria-controls={`panel-${t.id}`}
               aria-selected={t.id === activeTab}
               data-testid={`notif-tab-${t.id}`}
               onClick={() => setActiveTab(t.id)}
@@ -110,10 +153,16 @@ export function NotificationSettingsPage(): JSX.Element {
           ))}
         </div>
 
-        <div className="overflow-hidden rounded-[var(--r-xl)] border border-border bg-bg-elevated">
+        <div
+          role="tabpanel"
+          id={`panel-${active.id}`}
+          aria-labelledby={`tab-${active.id}`}
+          tabIndex={0}
+          className="overflow-hidden rounded-[var(--r-xl)] border border-border bg-bg-surface"
+        >
           <table className="w-full border-collapse text-left">
             <thead>
-              <tr className="bg-bg-panel text-[length:var(--fs-11)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
+              <tr className="bg-bg-subtle text-[length:var(--fs-11)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
                 <th className="px-[var(--s-5)] py-[var(--s-3)]">이벤트</th>
                 {CHANNELS.map((c) => (
                   <th key={c} className="px-[var(--s-4)] py-[var(--s-3)] text-center">
@@ -129,7 +178,7 @@ export function NotificationSettingsPage(): JSX.Element {
                   <tr
                     key={ev}
                     data-testid={`notif-row-${ev}`}
-                    className="border-t border-border-subtle text-[length:var(--fs-14)] text-text"
+                    className="border-t border-border-subtle text-[length:var(--fs-14)] text-foreground"
                   >
                     <td className="px-[var(--s-5)] py-[var(--s-4)] font-medium">
                       {EVENT_LABEL[ev]}

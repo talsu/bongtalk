@@ -109,7 +109,9 @@ export const DndEntrySchema = z.object({
 export type DndEntry = z.infer<typeof DndEntrySchema>;
 
 export const DndScheduleSchema = z.object({
-  days: z.array(DndEntrySchema),
+  // S46 fix-forward (HIGH/DoS): days 길이 상한. 한 주(7일)당 최대 4 구간을 넉넉히
+  // 잡아 28개로 제한해 무제한 배열 저장(메모리/저장소 DoS)을 막는다.
+  days: z.array(DndEntrySchema).max(28),
 });
 export type DndSchedule = z.infer<typeof DndScheduleSchema>;
 

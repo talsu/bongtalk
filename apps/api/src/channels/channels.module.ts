@@ -22,6 +22,11 @@ import { MessagesModule } from '../messages/messages.module';
 import { StorageModule } from '../storage/storage.module';
 // S20 (FR-DM-11): GlobalDmController 의 DM 뮤트 라우트가 기존 MutesService 재사용.
 import { MutesModule } from '../notifications/mutes/mutes.module';
+// S46 (D06 / FR-MN-07): 채널 단위 알림 오버라이드 — ChannelAccessGuard 가 필요해
+// 이 모듈에 컨트롤러를 두고, 설정 서비스는 NotificationsModule 에서 재사용한다.
+// NotificationsModule 은 도메인 모듈을 import 하지 않아 순환이 없다.
+import { NotificationsModule } from '../notifications/notifications.module';
+import { ChannelNotificationPreferencesController } from '../notifications/channel-notification-preferences.controller';
 
 @Module({
   // S13 (FR-CH-09/04): ChannelsService → MessagesService.createSystemMessage
@@ -33,6 +38,7 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
     forwardRef(() => MessagesModule),
     StorageModule,
     MutesModule,
+    NotificationsModule,
   ],
   controllers: [
     ChannelsController,
@@ -42,6 +48,8 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
     GlobalDmController,
     FavoritesController,
     MeFavoritesController,
+    // S46 (FR-MN-07): 채널 단위 알림 오버라이드.
+    ChannelNotificationPreferencesController,
   ],
   // Task-014-A: ChannelAccessService is the single source of truth for
   // channel ACL checks (private-channel visibility, permission-bit

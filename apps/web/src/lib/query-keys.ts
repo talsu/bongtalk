@@ -25,6 +25,14 @@ export const qk = {
   me: {
     unreadTotals: () => ['me', 'unread-totals'] as const,
     notificationPreferences: () => ['me', 'notification-preferences'] as const,
+    // S46 (FR-MN-05): 글로벌 알림 설정(NotifLevel + keywords + dnd).
+    globalNotificationSettings: () => ['me', 'settings', 'notifications'] as const,
+    // S46 (FR-MN-06): 서버별 알림 오버라이드.
+    serverNotificationPref: (wsId: string) =>
+      ['workspaces', wsId, 'notification-preferences'] as const,
+    // S46 (FR-MN-07): 채널별 알림 오버라이드.
+    channelNotificationPref: (wsId: string, chId: string) =>
+      ['workspaces', wsId, 'channels', chId, 'notification-preferences'] as const,
     // task-047 iter4 (M3): profile (bio + links + customStatus)
     profile: () => ['me', 'profile'] as const,
     // S28 (FR-P04/P17): 구조화 커스텀 상태(text + emoji + expiresAt).
