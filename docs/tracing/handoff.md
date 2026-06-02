@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S43 완료(아래 ✅·S43은 CH-14/15/17만·CH-16 defer). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S44(D06 멘션·알림, FR-MN-01/02/04/16 — apps/api/src/notifications·messages + apps/web/src/features/mentions. deps S18,S07. backend).** D01·D02·D03·D04·**D05(반응·이모지 S39~S42 완료)**·D07·D08·D09·D17·완료. **진행률: 181/354 FR done(+6 partial).** ⚠️ **FR-CH-16(개인 사이드바 섹션·P2) defer 됨**(별도 슬라이스). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S45(D06 멘션·알림 후속, FR-MN-03/19/21 — apps/api/src/notifications + evals. deps S44. backend).** D01·D02·D03·D04·**D05(반응·이모지 S39~S42 완료)**·D06(멘션 S44 게이트 진행중)·D07·D08·D09·D17·완료. **진행률: 185/354 FR done(+6 partial).** ⚠️ **defer 누적: FR-CH-16(개인 사이드바 섹션·P2)·@role 자동완성+ROLE fanout(S45)·MentionRecord/Activity Inbox(S46).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -422,12 +422,21 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 475·web 711·shared-types 203) + 빌드 6/6 + int favorites 5(병렬 멱등·anchor 404·CHANNEL_NOT_VISIBLE). DS 4파일·settings.json 무수정.
 - carryover: **★사이드바 키보드 a11y(pre-existing·HIGH)** — 채널행 Link tabIndex=-1 키보드네비 불가·dnd-kit role=button 중첩·KeyboardSensor 부재+aria-roledescription 허위(DnD 슬라이스부터·FavoritesSection 복제) → 전용 사이드바 키보드/DnD a11y 태스크(전역 dnd-kit/Link 재작업·회귀위험). DS-owner(muted hover 라이트 4.48:1<4.5·qf-row-iconbtn 18px<24 WCAG2.2). **FR-CH-16**(개인 사이드바 섹션·P2 별도). mutes shared Zod 스키마(pre-existing). favorites position normalize escape·다기기 실시간(옵션A).
 
-## 다음 슬라이스: S44 (D06 멘션·알림)
+## ✅ S44 (D06 멘션·알림 — MENTION_EVERYONE override 게이트/@here online/mention:new) — 완료 (2026-06-02, 이 세션) — 마이그레이션 0
 
-- scope **backend**(+ web/mentions). **FR-MN-01/02/04/16**(P1). deps S18,S07.
-- 파일: `apps/api/src/notifications/**`, `apps/api/src/messages/**`, `apps/web/src/features/mentions/**`.
-- FR 정본 PRD html 재확인 필수(D06 멘션·알림 섹션). 예상(정확 정의는 PRD): 멘션 알림 코어(@user/@channel/@here 파싱→알림 생성·우선순위·DND/뮤트 게이트 — S28 dnd-gate·mutes·notifications priority 기존 자산). S18(컴포저 @ 자동완성)·S07(알림?) 위. 기존 `apps/api/src/notifications/`(mutes·priority·dnd-gate·mention-gate)·`apps/api/src/messages/mentions/`(mention-normalizer) 재사용. 마이그레이션 필요 여부 PRD 확인 후 reversible.
-- **FR-CH-16(개인 사이드바 섹션·P2)도 미해소** — D02 잔여로 별도 슬롯 처리 가능.
+- **FR-MN-01**(@username→Message.mentions[].userId·WS **`mention:new`** 정렬·here 필드), **FR-MN-02 + FR-MN-16**(@everyone/@here **MENTION_EVERYONE override 집행** — `resolveMentionEveryone` ADR-4 5단계 fold·카탈로그 0x80·MEMBER override-allow→허용·OWNER override-deny→차단·S40 FR-RE07 패턴), **FR-MN-02 @here online/idle 필터**(presence·INVISIBLE 제외), **FR-MN-04**(자동완성 멤버+@everyone/@here — S18·@role은 S45 defer). 마이그레이션 0(MentionRecord 미도입 — Activity Inbox S46).
+- **4팀 적대적 리뷰(머지 전)** → fix-forward(5b5abb5). BLOCKER+MAJOR×2+contract+MINOR:
+  - **★BLOCKER edit broad fanout 누락**: update 가 게이트만·`resolveBroadMentionRecipients` 없어 편집 @everyone 추가 시 fanout 0 → update 도 broad fanout(**before.mentions 스냅샷 diff 로 신규 추가분만 알림**·중복방지). **★MAJOR @here graceful-degrade 역전**(Redis 전역 장애 시 전원 누락) → `Promise.allSettled` 전역실패 시 full-set over-notify. **★MAJOR/perf resolveMentionEveryone 무조건 실행** → `hasBroadMentionSignal` 로 broad 신호 있을 때만(멘션 없는 send +1 RTT 제거). **contract** mention:new `here` 필드(dispatcher 타입+캐시+safeParse+REST me-mentions). **MINOR** 토스트 copy 완화(override-allow 멤버 전송됨). **0x80 dead-bit 문서화**(PIN_MESSAGE 집행 미사용 grep 확인·MENTION_EVERYONE 재사용 안전·오라벨 테스트 0x02→실제 0x80 정정).
+  - 검증 SOUND: ADR-4 fold·gate boolean 리팩터·INVISIBLE presence 제외·mention:new room 격리.
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 490·web 717) + 빌드 3종 + int mention-gate 9(override fanout·edit broad·dedup·@here 장애 fallback) + fold 12. 마이그레이션 0. DS 4파일·settings.json 무수정.
+- carryover: **0x80 D12 수렴**(MENTION_EVERYONE 카탈로그 vs PIN_MESSAGE enum 분리 — 현재 PIN 집행 미사용이라 무해). **perf**: override findMany 3중 중복(D12)·@everyone workspaceMember **200명 cap 부재**(S45)·@here 3N Redis bulk pipeline(S45)·broad fanout 50명 cap 부재(S45). **unread @here offline 카운트**(JSONB 모델·전원 카운트 vs online-only push 불일치·MentionRecord S46 정합). **@role 자동완성+ROLE fanout·@channel fanout**(S45). MentionRecord/Activity Inbox(S46). snippet replay TTL(LOW). 사이드바 키보드 a11y(S43).
+
+## 다음 슬라이스: S45 (D06 멘션·알림 후속 — fanout SLO/ROLE/@channel)
+
+- scope **backend** + evals. **FR-MN-03/19/21**(P1). deps S44.
+- 파일: `apps/api/src/notifications/**`, `evals/**`.
+- FR 정본 PRD html 재확인 필수(D06 FR-MN-03/19/21). 예상(정확 정의는 PRD): **FR-MN-21**(@here/@everyone fanout **SLO** — 200명 cap·5초 이내·ONLINE 200명 — S44 carryover 해소), **FR-MN-03/19**(ROLE 멘션 fanout 비동기 워커(BullMQ?)·@channel fanout·또는 알림 우선순위/배치 — PRD 확인). S44 의 `resolveBroadMentionRecipients`(현재 cap 없음)·@here presence(현재 3N Redis) 최적화 묶음. evals 디렉터리 작업 포함(채점). 마이그레이션 필요 여부 PRD 확인.
+- S44 carryover 직접 연계: workspaceMember 200 cap·@here bulk pipeline·broad 50 cap·@role 자동완성.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
