@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S44·S46·S47 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S48(D06 키워드/푸시 등, FR-MN-09/10/11/12 — apps/api/src/notifications·me + apps/web/src/features/notifications. deps S46. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42 완료)**·D06(멘션 S44·알림레벨 S46·Inbox S47·S45 보류)·D07·D08·D09·D17·완료. **진행률: 192/354 FR done(+6 partial).** ⚠️ **defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 carryover(무제한 fanout cap). ★S48 의 FR-MN-10(키워드 스캔)은 BullMQ mention-scan 큐 의존(S45 보류) — UNDERSTAND 에서 컬럼만 vs 동기스캔 분기 점검. MentionRecord(S45 묶음·S47 은 /me/activity 경로로 우회 완료).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44·S46·S47·S48 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S49(D06 마무리, FR-MN-15/17/18 — apps/api/src/notifications + apps/web/src/features/{notifications,settings}. deps S46,S47. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42 완료)**·D06(멘션 S44·알림레벨 S46·Inbox S47·DND/키워드설정/suppress S48·S45 보류)·D07·D08·D09·D17·완료. **진행률: 195/354 FR done(+7 partial).** ⚠️ **defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 carryover(무제한 fanout cap)·FR-MN-10 키워드 스캔(MentionRecord/BullMQ·partial)·VAPID web-push(FR-MN-09/11 push AC). D06 거의 완료(S49 후 FR-MN-03/19/21+10스캔+push 만 잔여·전부 S45 인프라 의존).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -459,11 +459,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 761·api 517·shared-types 203) + 빌드 3종 + int 신규 7(OR TRUE/badges ACL/markRead IDOR/badgeFor)+badges 3+unread-acl 7. 마이그레이션 0(actorName=join·serverTimestamp=payload). DS 4파일·settings.json 무수정.
 - carryover: perf polish(badges correlated subquery·useFaviconBadge selector·resync debounce). a11y C-1/2(카운트배지 aria-hidden·모두읽음 describedby)·**C-3 qf-tabs\_\_item 터치타깃 44px(DS-owner)**. markAll>50(서버 선존). MentionRecord/@role(S45). ActivityPage(전체화면·선존) qf-btn--subtle/bg-bg-app(선존·S47 미변경).
 
-## 다음 슬라이스: S48 (D06 키워드/푸시 등)
+## ✅ S48 (D06 DND Snooze/timezone/키워드 설정/suppress UI — 사용자 결정 partial) — 완료 (2026-06-02, 이 세션) — 마이그레이션 0
 
-- scope **fullstack**. **FR-MN-09/10/11/12**(P1). deps S46.
-- 파일: `apps/api/src/notifications/**`, `apps/api/src/me/**`, `apps/web/src/features/notifications/**`.
-- FR 정본 PRD html 재확인 필수(D06 FR-MN-09/10/11/12). 예상(정확 정의는 PRD): **★FR-MN-10 키워드 알림**(UserSettings.keywords 는 S46 에서 컬럼 저장됨·실제 스캔은 BullMQ mention-scan 큐 의존=S45 보류) — UNDERSTAND 에서 **동기 스캔(BullMQ 없이·작은 채널 한정) vs 컬럼만 유지 defer** 분기 평가. FR-MN-09/11/12(푸시 구독/VAPID·알림 그룹핑·기타 — PRD 확인·VAPID web-push 는 인프라 분기 가능성). S46 NotifLevel/UserSettings·S47 badge 위. 마이그레이션(PushSubscription 등?) PRD 확인. **BullMQ/VAPID 인프라 분기 시 S45 처럼 사용자 결정 — UNDERSTAND 후 판단.**
+- 사용자 결정으로 **인프라 불필요 자체해소 범위만**(키워드 스캔=MentionRecord/S45·VAPID push 는 defer). **FR-MN-11**(DND Snooze — `isDndSuppressed` dndUntil WS 게이트+Snooze UI 30분/1h/2h/내일/Custom·query-time 만료·7일 max), **FR-MN-12**(dndSchedule timezone — built-in Intl·DST·UTC fallback), **FR-MN-09**(suppress 토글 UI·게이트 S46 완료), **FR-MN-10 partial**(keywords max25 검증+태그 UI·**스캔 보류**=MentionRecord/S45). 마이그레이션 0(컬럼 S46 존재).
+- **6팀 리뷰** → fix-forward(44385a3). reviewer/security/contract/ui **APPROVE/0 BLOCKER**(dndUntil 3사이트·timezone DST·keywords·DS 클래스 전부 SOUND). **accessibility 5 BLOCKER+6 SERIOUS**(신규 컨트롤) → 시정: DndSnoozeControl radiogroup/aria-live 고정/aria-expanded·KeywordsInput aria-live 에러+aria-invalid·ServerNotifSettings C-01 label-mismatch(aria-label 제거→labelledby)+group·NotificationSettingsPage tabpanel focus/th scope. + security(keywords Zod 형태상한 복원·dndUntil 7일 max)·perf(Intl.DateTimeFormat module 캐시)·Korean 에러.
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 541·web 796·shared-types 203) + 빌드 3종 + int(dndUntil 억제·keywords·7일max). 마이그레이션 0. DS 4파일·settings.json 무수정.
+- carryover: **DS-owner**(qf-btn/checkbox `:focus-visible`·text-muted on bg-surface 대비 4.2:1·키워드삭제 터치 28px). **tablist Arrow roving(E-02 — S46/S47/S48 반복·전용 tab-a11y 태스크)**. 네이티브 checkbox→qf-switch(C-02)·qf-banner/badge 재사용·radiogroup 이중라벨(D-01)·atLimit disabled. **FR-MN-10 키워드 스캔(MentionRecord/BullMQ·S45)·VAPID push(S45 인프라 묶음).**
+
+## 다음 슬라이스: S49 (D06 마무리)
+
+- scope **fullstack**. **FR-MN-15/17/18**(P1). deps S46,S47.
+- 파일: `apps/api/src/notifications/**`, `apps/web/src/features/{notifications,settings}/**`.
+- FR 정본 PRD html 재확인 필수(D06 FR-MN-15/17/18). 예상(정확 정의는 PRD·미확인): 알림 설정 마무리(요약/그룹핑·알림 미리보기·접근성/설정 페이지 보강 등). **인프라 의존(BullMQ/VAPID/MentionRecord) 항목이면 S45/S48 선례처럼 자체해소 범위만 + defer 분기 — UNDERSTAND 에서 점검.** D06 마지막 슬라이스(이후 FR-MN-03/19/21+10스캔+push 만 S45 인프라 의존 잔여). S46 NotifLevel·S47 Inbox/badge·S48 DND/keywords 위. 마이그레이션 PRD 확인.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
