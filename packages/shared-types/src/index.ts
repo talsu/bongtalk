@@ -167,6 +167,8 @@ export const ErrorCodeSchema = z.enum([
   'INVALID_MAGIC_BYTES',
   // S48 (FR-MN-10): 키워드 알림 등록 한도(25개) 초과 → 400.
   'KEYWORD_LIMIT_EXCEEDED',
+  // S51 (FR-PS-07): 개인 저장함 항목 수 한도(500) 초과 → 422.
+  'SAVED_LIMIT_EXCEEDED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -201,3 +203,5 @@ export * from './bigint';
 export * from './mrkdwn-parser';
 // S04 — MessageType enum 단일 정의 (ADR-2 / FR-MSG-19 / FR-RC10)
 export * from './message-type';
+// S51 — 개인 저장함 컨트랙트 (D10 / FR-PS-07)
+export * from './saved-message';

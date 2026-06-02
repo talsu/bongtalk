@@ -21,6 +21,7 @@ import {
 } from './useMessages';
 import { qk } from '../../lib/query-keys';
 import { MessageItem } from './MessageItem';
+import { useToggleSave, savedKeys } from '../saved/useSavedMessages';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
@@ -157,6 +158,8 @@ export function MessageList({
   // null 이면 onPin/onUnpin 콜백 자체를 undefined 로 전달해 메뉴 hide.
   const pinMut = usePinMessage(workspaceId, channelId);
   const unpinMut = useUnpinMessage(workspaceId, channelId);
+  // S51 (FR-PS-07/13): 개인 저장 토글. 낙관적으로 per-message saved 캐시를 뒤집는다.
+  const saveMut = useToggleSave();
 
   // S42 (FR-PK01): 피커 데이터(퀵반응·최근·skinTone)를 채널 단위 단일 쿼리로 읽어
   // 각 MessageItem 의 ReactionBar 피커에 prop 으로 내려준다(per-row useQuery 회피 —
@@ -805,6 +808,16 @@ export function MessageList({
                             ? onOpenThread
                             : undefined
                         }
+                        // S51 (FR-PS-15): SYSTEM_PIN 행은 채널 멤버 누구나 삭제 가능.
+                        // 일반 메시지 delMut 을 재사용한다(서버 게이트가 SYSTEM_PIN
+                        // 멤버 삭제를 허용 + 원본 핀 유지). tmp/이미 삭제 행은 비노출.
+                        onDelete={
+                          m.type === 'SYSTEM_PIN' && !m.id.startsWith('tmp-') && !m.deleted
+                            ? async () => {
+                                await delMut.mutateAsync(m.id);
+                              }
+                            : undefined
+                        }
                       />
                     </div>
                   );
@@ -850,6 +863,9 @@ export function MessageList({
                       authorRole={roleById.get(m.authorId) ?? null}
                       mentions={mentionLookup}
                       viewerRole={viewerRole}
+                      // S51 (FR-PS-05): 채널 핀 권한 토글. false 면 MEMBER 의
+                      // 핀 메뉴를 숨긴다(서버 게이트와 정합 — 기본 true).
+                      memberCanPin={channelMeta?.memberCanPin ?? true}
                       resolveName={resolveReplyName}
                       pickerQuickReactions={pickerQuickReactions}
                       pickerRecentEmojis={pickerData?.recentEmojis}
@@ -892,6 +908,14 @@ export function MessageList({
                             }
                           : undefined
                       }
+                      // S51 (FR-PS-07/13): 개인 저장 토글. tmp(낙관적 send) 행은
+                      // 서버 id 가 없어 비노출. saved 여부는 토글 캐시에서 읽는다.
+                      onToggleSave={
+                        !m.id.startsWith('tmp-')
+                          ? (currentlySaved) => saveMut.mutate({ messageId: m.id, currentlySaved })
+                          : undefined
+                      }
+                      isSaved={qc.getQueryData<boolean>(savedKeys.status(m.id)) === true}
                       // S03 (FR-MSG-05): retry a failed optimistic send with the
                       // SAME clientNonce (encoded in the row id).
                       onRetry={

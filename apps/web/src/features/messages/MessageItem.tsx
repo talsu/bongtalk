@@ -55,6 +55,11 @@ type Props = {
    * pin 미지원이므로 부모가 `null` 전달 시 Pin/Unpin 자동 hide.
    */
   viewerRole?: WorkspaceRole | null;
+  /**
+   * S51 (FR-PS-05): 채널 핀 권한 토글. false 면 MEMBER 의 핀/해제 메뉴를 숨긴다
+   * (서버 게이트와 정합). 기본 true(미전달 시 멤버 허용 — S50 동작).
+   */
+  memberCanPin?: boolean;
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
@@ -65,6 +70,14 @@ type Props = {
    */
   onPin?: () => void | Promise<void>;
   onUnpin?: () => void | Promise<void>;
+  /**
+   * S51 (FR-PS-07/13): 개인 저장 토글. 부모가 전달하면 툴바에 북마크 아이콘이
+   * 노출되고, 클릭 시 저장/해제를 낙관적으로 토글한다. `isSaved` 가 true 면 채워진
+   * (accent) 아이콘, false 면 외곽선 아이콘으로 렌더한다. tmp(낙관적 send) 행에는
+   * 부모가 전달하지 않는다(서버 id 부재).
+   */
+  onToggleSave?: (currentlySaved: boolean) => void | Promise<void>;
+  isSaved?: boolean;
   /**
    * S03 (FR-MSG-05): retry a failed optimistic send. Passed only for rows
    * whose `sendState === 'failed'`; re-fires with the SAME clientNonce
@@ -106,12 +119,15 @@ export function MessageItem({
   authorRole,
   mentions,
   viewerRole,
+  memberCanPin = true,
   onEditSave,
   onDelete,
   onToggleReaction,
   onOpenThread,
   onPin,
   onUnpin,
+  onToggleSave,
+  isSaved,
   onRetry,
   onMarkUnread,
   resolveName,
@@ -479,6 +495,22 @@ export function MessageItem({
                 <Icon name="thread" size="sm" />
               </button>
             ) : null}
+            {/* S51 (FR-PS-07/13): 개인 저장 북마크 토글. 저장됨이면 accent 색 +
+               aria-pressed=true 로 채워진 상태를 표현한다(DS 토큰 var(--accent) — raw
+               hex 미사용). 낙관적 토글: 부모(onToggleSave)가 즉시 캐시를 뒤집는다. */}
+            {onToggleSave ? (
+              <button
+                type="button"
+                data-testid={`msg-save-btn-${msg.id}`}
+                onClick={() => void onToggleSave(isSaved === true)}
+                aria-label={isSaved ? '저장 해제' : '저장'}
+                aria-pressed={isSaved === true}
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+                style={isSaved ? { color: 'var(--accent)' } : undefined}
+              >
+                <Icon name="bookmark" size="sm" />
+              </button>
+            ) : null}
             <DropdownRoot open={moreOpen} onOpenChange={setMoreOpen}>
               <DropdownTrigger asChild>
                 <button
@@ -557,7 +589,9 @@ export function MessageItem({
                     <span data-testid={`msg-mark-unread-${msg.id}`}>미읽음으로 표시</span>
                   </DropdownItem>
                 ) : null}
-                {(viewerRole === 'OWNER' || viewerRole === 'ADMIN') &&
+                {(viewerRole === 'OWNER' ||
+                  viewerRole === 'ADMIN' ||
+                  (viewerRole === 'MEMBER' && memberCanPin)) &&
                 !msg.id.startsWith('tmp-') &&
                 (onPin || onUnpin) ? (
                   <>

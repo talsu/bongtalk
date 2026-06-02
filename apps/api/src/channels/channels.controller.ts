@@ -328,6 +328,7 @@ export class ChannelsController {
     description: string | null;
     position: { toString: () => string };
     slowmodeSeconds: number;
+    memberCanPin: boolean;
     isPrivate: boolean;
     archivedAt: Date | null;
     deletedAt: Date | null;
@@ -345,6 +346,8 @@ export class ChannelsController {
       position: c.position.toString(),
       // S15 (FR-CH-08): 슬로우모드 간격을 단건 채널 응답에 노출.
       slowmodeSeconds: c.slowmodeSeconds,
+      // S51 (FR-PS-05): 핀 권한 채널 오버라이드를 단건 채널 응답에 노출.
+      memberCanPin: c.memberCanPin,
       isPrivate: c.isPrivate,
       archivedAt: c.archivedAt?.toISOString() ?? null,
       deletedAt: c.deletedAt?.toISOString() ?? null,

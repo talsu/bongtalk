@@ -89,6 +89,34 @@ describe('SystemMessage (FR-MSG-19 / FR-RC10)', () => {
     const out = html('SYSTEM_CHANNEL_RENAME', '<script>alert(1)</script>');
     expect(out).not.toContain('<script>alert(1)</script>');
   });
+
+  // S51 (FR-PS-15): SYSTEM_PIN 행은 onDelete 가 전달되면 인라인 삭제 버튼을 노출한다.
+  it('SYSTEM_PIN 행은 onDelete 전달 시 삭제 버튼을 노출한다(FR-PS-15)', () => {
+    const out = renderToStaticMarkup(
+      <SystemMessage
+        msg={makeMsg('SYSTEM_PIN', 'alice이(가) 메시지를 고정했습니다.')}
+        onDelete={() => {}}
+      />,
+    );
+    expect(out).toContain('msg-system-delete-sys-1');
+    // S51 리뷰(a11y B-04): 삭제 버튼 aria-label 에 핀 알림 본문 컨텍스트가 실린다.
+    expect(out).toContain('핀 알림 삭제: alice이(가) 메시지를 고정했습니다.');
+  });
+
+  it('onDelete 가 없으면 SYSTEM_PIN 행에도 삭제 버튼이 없다', () => {
+    const out = html('SYSTEM_PIN', 'alice이(가) 메시지를 고정했습니다.');
+    expect(out).not.toContain('msg-system-delete');
+  });
+
+  it('비-SYSTEM_PIN 시스템 행은 onDelete 가 와도 삭제 버튼을 노출하지 않는다', () => {
+    const out = renderToStaticMarkup(
+      <SystemMessage
+        msg={makeMsg('SYSTEM_MEMBER_JOINED', 'alice이(가) 참가했습니다.')}
+        onDelete={() => {}}
+      />,
+    );
+    expect(out).not.toContain('msg-system-delete');
+  });
 });
 
 // ── S35 (FR-TH-06): broadcast 행 렌더 ───────────────────────────────────────
