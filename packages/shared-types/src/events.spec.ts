@@ -55,6 +55,17 @@ describe('WS_EVENTS catalog (ADR-12 / FR-RC23)', () => {
     expect((p as { unblockedUserId: string }).unblockedUserId).toBe('u1');
   });
 
+  // S40 (FR-RE09): 반응 일괄 삭제 이벤트. 채널 룸 전체로 fanout 하며
+  // messageId + channelId 만 싣는다(전체 제거라 집계 불필요).
+  it('defines reaction:cleared with a messageId + channelId payload (S40 · FR-RE09)', () => {
+    expect(WS_EVENTS.REACTION_CLEARED).toBe('reaction:cleared');
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.REACTION_CLEARED].parse({
+      messageId: 'm1',
+      channelId: 'c1',
+    });
+    expect(p).toEqual({ messageId: 'm1', channelId: 'c1' });
+  });
+
   it('every event name has a payload schema and names are unique', () => {
     const names = Object.values(WS_EVENTS);
     expect(new Set(names).size).toBe(names.length);

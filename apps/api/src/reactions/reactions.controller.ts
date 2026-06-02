@@ -7,9 +7,15 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import type { ListReactionsResponse } from '@qufox/shared-types';
+import {
+  ListReactionUsersQuerySchema,
+  PERMISSIONS,
+  type ListReactionsResponse,
+  type ListReactionUsersResponse,
+} from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
@@ -36,6 +42,53 @@ export class ReactionsController {
     private readonly rateLimit: RateLimitService,
     private readonly channelAccess: ChannelAccessByIdGuard,
   ) {}
+
+  /**
+   * S40 (FR-RE07): 반응 추가 허용 여부를 카탈로그 ADD_REACTIONS(0x20) 비트로 판정한다.
+   *
+   * ⚠️ 왜 effective mask 가 아니라 override 행을 직접 보는가:
+   * `ChannelAccessService.resolveEffective` 가 돌려주는 effective mask 는 API enum
+   * `Permission`(apps/api/src/auth/permissions.ts) 비트 레이아웃으로 fold 된다 —
+   * 거기서 비트 0x20 은 MANAGE_CHANNEL 이다(카탈로그의 ADD_REACTIONS=0x20 과 의미가
+   * 어긋남 — D12 권한 수렴 대상 carryover). 그래서 effective 의 0x20 비트는
+   * "MEMBER 기본은 off, OWNER/ADMIN 기본은 on" 이라, 카탈로그 ADD_REACTIONS 의미와
+   * 1:1 로 읽을 수 없다(MEMBER 기본 반응 허용을 깨뜨림).
+   *
+   * FR-RE07 의 실제 요구는 좁다: "**채널 권한 override 의 REACT 비트가 DENY** 인
+   * 유저는 반응 추가 시 403." 즉 기본은 허용이고, ADD_REACTIONS 를 **명시적으로
+   * DENY** 한 override(USER 또는 본인 ROLE)가 있을 때만 막는다. override allow/deny
+   * mask 는 카탈로그 비트로 저장되므로(isValidPermissionMaskNumber 가 ALL_PERMISSIONS
+   * 범위로 검증), 여기서 override 행의 denyMask 에 카탈로그 ADD_REACTIONS 비트가
+   * 켜져 있는지를 직접 검사한다(requireAnnouncementPostingAllowed 의 override 직접
+   * 조회 선례와 동일 패턴). DENY 가 ALLOW 를 이기므로(ADR-4) allow override 와
+   * 무관하게 deny 가 있으면 거부한다.
+   */
+  private async canAddReaction(
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
+    userId: string,
+  ): Promise<boolean> {
+    // 워크스페이스 채널은 호출자 role 로 ROLE 프린시펄 override 를 함께 본다.
+    // DM(workspaceId=null)은 role 이 없어 USER 프린시펄만 본다.
+    let role: string | null = null;
+    if (channel.workspaceId !== null) {
+      const member = await this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
+        select: { role: true },
+      });
+      role = member?.role ?? null;
+    }
+    const principals: { principalType: 'USER' | 'ROLE'; principalId: string }[] = [
+      { principalType: 'USER', principalId: userId },
+    ];
+    if (role) principals.push({ principalType: 'ROLE', principalId: role });
+    const overrides = await this.prisma.channelPermissionOverride.findMany({
+      where: { channelId: channel.id, OR: principals },
+      select: { denyMask: true },
+    });
+    const addReactionsBit = Number(PERMISSIONS.ADD_REACTIONS); // 카탈로그 0x20
+    const deny = overrides.reduce((mask, o) => mask | o.denyMask, 0);
+    return (deny & addReactionsBit) === 0;
+  }
 
   private async resolveChannel(messageId: string) {
     const msg = await this.prisma.message.findFirst({
@@ -87,20 +140,54 @@ export class ReactionsController {
     const { messageId, channel } = await this.resolveChannel(id);
     // READ bit (not WRITE) — reacting is lighter than posting.
     await this.channelAccess.requireRead(channel, user.id);
+    // S40 (FR-RE07): READ 통과 뒤 ADD_REACTIONS override DENY 여부를 미리 판정해
+    // 서비스에 넘긴다 — 토글이 INSERT 로 분기할 때만 거부에 쓰인다(remove 는 무관).
+    const canAdd = await this.canAddReaction(channel, user.id);
     const result = await this.reactions.add(
       messageId,
       channel.id,
       channel.workspaceId,
       user.id,
       body?.emoji ?? '',
+      canAdd,
     );
     return result;
   }
 
   /**
+   * S40 (FR-RE05): GET /messages/:id/reactions/:emoji/users — 한 이모지에 반응한
+   * **전체** reactor 목록을 cursor 페이지네이션(기본 50/최대 100)으로 반환한다.
+   * FR-RE04 의 GET reactions 가 이모지당 ≤5명만 싣는 것과 달리, 칩을 눌렀을 때
+   * 전원을 무한 스크롤로 펼치기 위한 엔드포인트다. 채널 READ ACL 적용.
+   *
+   * ⚠️ 라우트 순서: 이 GET 은 `:emoji/users` 정적 세그먼트를 포함하므로
+   * `GET :id/reactions`(세그먼트 수가 다름)와 충돌하지 않는다 — 더 구체적인 경로를
+   * 위에 둔다.
+   */
+  @Get(':id/reactions/:emoji/users')
+  async listEmojiUsers(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('emoji') emoji: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Query() query: Record<string, unknown>,
+  ): Promise<ListReactionUsersResponse> {
+    const parsed = ListReactionUsersQuerySchema.safeParse(query);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid reactor list query');
+    }
+    const { messageId, channel } = await this.resolveChannel(id);
+    await this.channelAccess.requireRead(channel, user.id);
+    return this.reactions.listEmojiUsers(
+      messageId,
+      decodeURIComponent(emoji),
+      parsed.data.limit,
+      parsed.data.cursor,
+    );
+  }
+
+  /**
    * S39 (FR-RE04): GET /messages/:id/reactions — emoji별 { emoji, count,
-   * users:[…최대 5명] } 집계. 채널 READ ACL 적용. 전체 reactor cursor 페이지네이션은
-   * FR-RE05(S40 carryover).
+   * users:[…최대 5명] } 집계. 채널 READ ACL 적용.
    */
   @Get(':id/reactions')
   async list(
@@ -113,6 +200,37 @@ export class ReactionsController {
     return { reactions };
   }
 
+  /**
+   * S40 (FR-RE08): DELETE /messages/:id/reactions/:emoji/users/:userId — OWNER/ADMIN
+   * 이 특정 사용자의 한 이모지 반응을 제거한다. actor === target 이면 자기 반응
+   * 제거(항상 허용), 타인 제거는 OWNER/ADMIN 만(MEMBER 는 403). 채널 READ ACL 적용.
+   * 가장 구체적인 DELETE 경로라 위에 둔다(라우트 충돌 방지).
+   */
+  @Delete(':id/reactions/:emoji/users/:userId')
+  @HttpCode(204)
+  async removeByActor(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @Param('emoji') emoji: string,
+    @Param('userId', new ParseUUIDPipe()) targetUserId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<void> {
+    await this.rateLimit.enforce([{ key: `reactions:${user.id}`, windowSec: 60, max: 60 }]);
+    const { messageId, channel } = await this.resolveChannel(id);
+    await this.channelAccess.requireRead(channel, user.id);
+    await this.reactions.removeByActor(
+      messageId,
+      channel.id,
+      channel.workspaceId,
+      user.id,
+      targetUserId,
+      decodeURIComponent(emoji),
+    );
+  }
+
+  /**
+   * S39 (FR-RE08): DELETE /messages/:id/reactions/:emoji — 자기 반응 제거(toggle off
+   * 와 동치). no-op 도 204. 채널 READ ACL 적용.
+   */
   @Delete(':id/reactions/:emoji')
   @HttpCode(204)
   async remove(
@@ -130,5 +248,39 @@ export class ReactionsController {
       user.id,
       decodeURIComponent(emoji),
     );
+  }
+
+  /**
+   * S40 (FR-RE09): DELETE /messages/:id/reactions — 메시지의 **모든** 반응을 일괄
+   * 삭제한다. OWNER/ADMIN 전용(MEMBER/DM 비-OWNER 는 403). 204 + reaction:cleared
+   * 이벤트 fanout. 채널 READ ACL 적용.
+   *
+   * ⚠️ 라우트 순서/충돌: 이 DELETE 는 `:emoji` 가 없는 2-세그먼트 경로
+   * (`:id/reactions`)이고, FR-RE08 의 자기 제거는 3-세그먼트(`:id/reactions/:emoji`),
+   * 타인 제거는 5-세그먼트(`:id/reactions/:emoji/users/:userId`)다. 세그먼트 수가
+   * 모두 달라 Express 매칭상 충돌하지 않는다 — 가장 일반적인 본 경로를 맨 아래 둔다.
+   */
+  @Delete(':id/reactions')
+  @HttpCode(204)
+  async clearAll(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<void> {
+    await this.rateLimit.enforce([{ key: `reactions:${user.id}`, windowSec: 60, max: 60 }]);
+    const { messageId, channel } = await this.resolveChannel(id);
+    await this.channelAccess.requireRead(channel, user.id);
+    // FR-RE09: OWNER/ADMIN 게이트. DM(workspaceId=null)은 워크스페이스 role 이 없어
+    // 일괄 삭제 불가(403). 워크스페이스 채널은 role 조회로 판정한다.
+    if (channel.workspaceId === null) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'bulk reaction clear is owner/admin only');
+    }
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId: user.id } },
+      select: { role: true },
+    });
+    if (!member || (member.role !== 'OWNER' && member.role !== 'ADMIN')) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'bulk reaction clear is owner/admin only');
+    }
+    await this.reactions.clearAll(messageId, channel.id, channel.workspaceId, user.id);
   }
 }

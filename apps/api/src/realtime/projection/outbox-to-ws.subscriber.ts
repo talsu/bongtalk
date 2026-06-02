@@ -87,6 +87,23 @@ export class OutboxToWsSubscriber {
       await this.emitAndBuffer('channel', chId, wireEnv);
       return;
     }
+    // S40 (FR-RE09): message.reaction.cleared → 콜론 wire `reaction:cleared`.
+    // OWNER/ADMIN 의 메시지 전체 반응 일괄 삭제다. 전체 제거라 집계가 없어
+    // 식별자(messageId + channelId)만 실어 채널 룸으로 fanout 한다. 수신 클라
+    // dispatcher 는 해당 messageId 의 reactions 를 통째로 비운다(full clear).
+    if (env.type === 'message.reaction.cleared') {
+      const messageId = (env as { messageId?: string }).messageId;
+      if (!messageId) return;
+      const wireEnv = {
+        id: env.id,
+        type: WS_EVENTS.REACTION_CLEARED,
+        occurredAt: env.occurredAt,
+        channelId: chId,
+        messageId,
+      } as unknown as WsEnvelope;
+      await this.emitAndBuffer('channel', chId, wireEnv);
+      return;
+    }
     await this.emitAndBuffer('channel', chId, env);
 
     // Task-014-B thread.replied: channel-room fanout above keeps

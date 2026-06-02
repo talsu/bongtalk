@@ -11,6 +11,13 @@ type Props = {
   onPickerOpenChange?: (open: boolean) => void;
   /** task-037-D workspace emoji pack forwarded to the picker. */
   customEmojis?: CustomEmojiOption[];
+  /**
+   * S40 (FR-RE05): 한 이모지의 전체 reactor 목록 모달을 여는 콜백(선택). 제공되면
+   * 각 칩 옆에 "N명 보기" 보조 버튼이 추가로 렌더된다 — 칩 본체의 기본 클릭은
+   * 그대로 토글(FR-RE01)을 유지하고, reactor 목록 열기는 별도 affordance 로 분리해
+   * 토글 동작 회귀를 막는다(additive·미제공 시 기존 동작 그대로).
+   */
+  onShowReactors?: (emoji: string) => void;
 };
 
 export function ReactionBar({
@@ -19,6 +26,7 @@ export function ReactionBar({
   pickerOpen: controlledOpen,
   onPickerOpenChange,
   customEmojis,
+  onShowReactors,
 }: Props): JSX.Element | null {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const isControlled = controlledOpen !== undefined;
@@ -45,23 +53,38 @@ export function ReactionBar({
   return (
     <div data-testid="reaction-bar" className="qf-reactions relative">
       {reactions.map((r) => (
-        <button
-          key={r.emoji}
-          type="button"
-          data-testid={`reaction-${r.emoji}`}
-          data-bymine={r.byMe ? 'true' : 'false'}
-          onClick={() => onToggle(r.emoji, r.byMe)}
-          aria-pressed={r.byMe}
-          // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
-          // 내부 <span> emoji 는 aria-hidden 으로 가려 이모지 이중 읽기를 막는다.
-          aria-label={`${r.emoji} 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
-          className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
-        >
-          <span aria-hidden="true">{r.emoji}</span>
-          <span className="tabular-nums" aria-hidden="true">
-            {r.count}
-          </span>
-        </button>
+        <span key={r.emoji} className="inline-flex items-center">
+          <button
+            type="button"
+            data-testid={`reaction-${r.emoji}`}
+            data-bymine={r.byMe ? 'true' : 'false'}
+            onClick={() => onToggle(r.emoji, r.byMe)}
+            aria-pressed={r.byMe}
+            // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
+            // 내부 <span> emoji 는 aria-hidden 으로 가려 이모지 이중 읽기를 막는다.
+            aria-label={`${r.emoji} 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
+            className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
+          >
+            <span aria-hidden="true">{r.emoji}</span>
+            <span className="tabular-nums" aria-hidden="true">
+              {r.count}
+            </span>
+          </button>
+          {onShowReactors ? (
+            <button
+              type="button"
+              data-testid={`reaction-reactors-${r.emoji}`}
+              onClick={() => onShowReactors(r.emoji)}
+              // S40 (FR-RE05): reactor 목록 dialog 를 여는 보조 버튼. 토글 칩과
+              // 분리해 클릭 의미 충돌을 막는다. SR 에는 "N명 본다"는 의도를 알린다.
+              aria-haspopup="dialog"
+              aria-label={`${r.emoji} 반응한 ${r.count}명 보기`}
+              className="qf-reaction opacity-70 hover:opacity-100"
+            >
+              <span aria-hidden="true">⋯</span>
+            </button>
+          ) : null}
+        </span>
       ))}
       {hasAny ? (
         <button

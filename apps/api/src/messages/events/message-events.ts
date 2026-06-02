@@ -56,6 +56,22 @@ export type MessageReactionUpdatedPayload = {
   actorId: string;
 };
 
+// S40 (FR-RE09 / D05): 메시지 전체 반응 일괄 삭제. OWNER/ADMIN 이 DELETE
+// /messages/:id/reactions 로 한 메시지의 모든 반응을 비우면 emit 된다. dot
+// 컨벤션(message.reaction.*)을 유지해 outbox→WS subscriber 의 `message.**`
+// 와일드카드가 채널 룸 fanout 경로에 진입하며, subscriber 가 콜론 wire 이름
+// `reaction:cleared` 로 변환한다(reaction:updated 선례). 전체 제거라 집계가
+// 없고, payload 는 라우팅·소비에 필요한 최소 식별자만 담는다.
+export const MESSAGE_REACTION_CLEARED = 'message.reaction.cleared';
+
+export type MessageReactionClearedPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  messageId: string;
+  // 일괄 삭제를 수행한 OWNER/ADMIN userId. 감사/관측 일관성을 위해 싣는다.
+  actorId: string;
+};
+
 export type MessageCreatedPayload = {
   // null for Global DM channels (Channel.workspaceId IS NULL). The
   // outbox-to-ws subscriber routes message events by channel room

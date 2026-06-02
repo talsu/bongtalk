@@ -59,6 +59,12 @@ export const qk = {
     jumpAround: (wsId: string, chId: string, jumpMessageId: string) =>
       ['messages', wsId, chId, jumpMessageId, 'jump-around'] as const,
   },
+  reactions: {
+    // S40 (FR-RE05): 한 이모지의 전체 reactor 목록(무한 스크롤 모달). msgId+emoji
+    // 단위로 키잉한다. `messages` prefix 와 분리된 `reactions` prefix 라 dispatcher 의
+    // 메시지 목록 3-tuple 스캔(`['messages', wsId, chId]`)과 절대 겹치지 않는다.
+    users: (msgId: string, emoji: string) => ['reactions', 'users', msgId, emoji] as const,
+  },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,
     // S26 (FR-P16): per-user precise presence pushed by `presence:update`
