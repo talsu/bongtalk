@@ -45,10 +45,25 @@ export function ReactionBar({
   // affordance under the message body just adds noise.
   if (!hasAny && !open) return null;
 
+  // S41 (FR-EM06): 한 반응 칩의 시각 토큰을 결정한다.
+  //   - url 이 있으면(살아있는 커스텀 이모지) <img> 칩.
+  //   - emoji 가 `:name:` 슬러그인데 url 이 없으면(삭제된 커스텀 이모지 →
+  //     customEmojiId=null 로 풀림) [삭제된 이모지] placeholder.
+  //   - 그 외(유니코드) 글리프 텍스트.
+  const isCustomToken = (emoji: string): boolean => /^:[a-z0-9_]{2,32}:$/.test(emoji);
+
   // S39 (SHOULD 4 a11y): 칩 카운트 변경을 스크린리더에 과통지 없이 알리는 요약 문장.
   // aria-live="polite" + aria-atomic 영역에 현재 집계를 한 줄로 싣는다(reaction:updated
-  // 로 reactions prop 이 바뀌면 SR 이 변경분만 읽음).
-  const liveSummary = hasAny ? reactions.map((r) => `${r.emoji} ${r.count}명`).join(', ') : '';
+  // 로 reactions prop 이 바뀌면 SR 이 변경분만 읽음). 삭제된 커스텀 이모지는 슬러그를
+  // 그대로 읽되 "삭제된 이모지" 를 덧붙인다.
+  const liveSummary = hasAny
+    ? reactions
+        .map((r) => {
+          const label = !r.url && isCustomToken(r.emoji) ? `${r.emoji} (삭제된 이모지)` : r.emoji;
+          return `${label} ${r.count}명`;
+        })
+        .join(', ')
+    : '';
 
   return (
     <div data-testid="reaction-bar" className="qf-reactions relative">
@@ -58,14 +73,36 @@ export function ReactionBar({
             type="button"
             data-testid={`reaction-${r.emoji}`}
             data-bymine={r.byMe ? 'true' : 'false'}
+            data-custom={r.customEmojiId ? 'true' : undefined}
+            data-deleted={!r.url && isCustomToken(r.emoji) ? 'true' : undefined}
             onClick={() => onToggle(r.emoji, r.byMe)}
             aria-pressed={r.byMe}
             // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
-            // 내부 <span> emoji 는 aria-hidden 으로 가려 이모지 이중 읽기를 막는다.
-            aria-label={`${r.emoji} 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
+            // 내부 토큰은 aria-hidden 으로 가려 이중 읽기를 막는다. S41(FR-EM06):
+            // 삭제된 커스텀 이모지면 라벨에 슬러그 + "삭제된 이모지" 를 싣는다.
+            aria-label={`${
+              !r.url && isCustomToken(r.emoji) ? `${r.emoji} 삭제된 이모지` : r.emoji
+            } 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
             className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
           >
-            <span aria-hidden="true">{r.emoji}</span>
+            {r.url ? (
+              // S41 (FR-EM06): 살아있는 커스텀 이모지 — CSS 고정크기 <img> 칩.
+              <img
+                src={r.url}
+                alt={r.emoji}
+                aria-hidden="true"
+                className="qf-emoji-custom qf-emoji-custom--reaction"
+                style={{ width: 18, height: 18, objectFit: 'contain' }}
+              />
+            ) : isCustomToken(r.emoji) ? (
+              // S41 (FR-EM06): 삭제된 커스텀 이모지 — [삭제된 이모지] placeholder
+              // (회색 박스 + 물음표). 원래 슬러그는 title 툴팁으로 보존한다.
+              <span aria-hidden="true" title={r.emoji} data-testid={`reaction-deleted-${r.emoji}`}>
+                ⬚?
+              </span>
+            ) : (
+              <span aria-hidden="true">{r.emoji}</span>
+            )}
             <span className="tabular-nums" aria-hidden="true">
               {r.count}
             </span>

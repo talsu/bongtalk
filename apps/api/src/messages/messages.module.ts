@@ -15,6 +15,9 @@ import { ChannelsModule } from '../channels/channels.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 import { AuthModule } from '../auth/auth.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
+// S41 (FR-EM06 / FR-RC20): 반응 집계가 커스텀 이모지 storageKey 를 presigned url
+// 로 변환하려면 S3Service 가 필요하다(StorageModule 제공).
+import { StorageModule } from '../storage/storage.module';
 
 @Module({
   // task-014-B: AttachmentsModule exports ChannelAccessByIdGuard which
@@ -29,6 +32,7 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     OutboxModule,
     AuthModule,
     AttachmentsModule,
+    StorageModule,
   ],
   controllers: [
     MessagesController,

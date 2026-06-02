@@ -197,6 +197,41 @@ export class OutboxToWsSubscriber {
   }
 
   /**
+   * S41 (FR-EM01 / FR-EM04 / FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클.
+   * 서버 내부 outbox eventType 은 dot 표기(emoji.created / emoji.deleted)지만,
+   * 워크스페이스 룸 emit 시 PRD/WS_EVENTS 가 명시한 콜론 wire 이름
+   * (emoji:created / emoji:deleted)으로 변환한다(reaction:updated /
+   * thread:lock:changed 선례). payload 의 workspaceId 로 workspace:{wsId} 룸에
+   * fanout 한다 — 커스텀 이모지는 채널이 아니라 워크스페이스 스코프라 채널 룸이
+   * 아니라 워크스페이스 룸이 정확하다. replay 버퍼에도 wire 이름으로 적재해
+   * 재연결 catch-up 이 동일 이름으로 도착하게 한다(emitAndBuffer 의 workspace 스코프).
+   */
+  @OnEvent('emoji.**')
+  async onEmojiEvent(env: WsEnvelope): Promise<void> {
+    const wsId = (env as { workspaceId?: string }).workspaceId;
+    if (!wsId) return;
+    const emojiId = (env as { emojiId?: string }).emojiId;
+    const name = (env as { name?: string }).name;
+    if (!emojiId || !name) return;
+    const wireType =
+      env.type === 'emoji.created'
+        ? WS_EVENTS.EMOJI_CREATED
+        : env.type === 'emoji.deleted'
+          ? WS_EVENTS.EMOJI_DELETED
+          : null;
+    if (!wireType) return;
+    const wireEnv = {
+      id: env.id,
+      type: wireType,
+      occurredAt: env.occurredAt,
+      workspaceId: wsId,
+      emojiId,
+      name,
+    } as unknown as WsEnvelope;
+    await this.emitAndBuffer('workspace', wsId, wireEnv);
+  }
+
+  /**
    * S16 (FR-DM-16) dm.created. 새 DM·그룹 DM 개설 시 멤버 전원의 private
    * room(user:{userId})으로 와이어 이벤트 `dm:created` 를 fanout 한다.
    * 수신자는 아직 채널 룸에 없을 수 있으므로(목록을 막 받는 중) channel 룸이

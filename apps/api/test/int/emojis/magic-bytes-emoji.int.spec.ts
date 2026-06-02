@@ -7,6 +7,7 @@ import { randomUUID } from 'node:crypto';
 import { CustomEmojiService } from '../../../src/emojis/custom-emoji.service';
 import { PrismaService, PrismaModule } from '../../../src/prisma/prisma.module';
 import { S3Service } from '../../../src/storage/s3.service';
+import { OutboxService } from '../../../src/common/outbox/outbox.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 
 /**
@@ -72,9 +73,17 @@ describe('CustomEmoji.finalize magic-byte validation (int)', () => {
     };
     deleteCalls = [];
 
+    // S41: OutboxService 는 finalize/delete 가 emoji.created/deleted 를 기록할 때만
+    // 쓰인다. 이 int 테스트는 outbox 행 자체를 검증하지 않으므로 record 를 no-op
+    // 스텁으로 주입한다(전역 OutboxModule 의 EventEmitter2 의존을 끌어오지 않음).
+    const outboxStub = { record: async () => 'stub-id' };
     const mod = await Test.createTestingModule({
       imports: [PrismaModule],
-      providers: [CustomEmojiService, { provide: S3Service, useValue: s3Stub }],
+      providers: [
+        CustomEmojiService,
+        { provide: S3Service, useValue: s3Stub },
+        { provide: OutboxService, useValue: outboxStub },
+      ],
     }).compile();
     await mod.init();
     prisma = mod.get(PrismaService);

@@ -640,3 +640,114 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
     expect(clearedAfter).toHaveLength(1);
   });
 });
+
+/**
+ * S41 (D05 / FR-EM06 / FR-RC20): 커스텀 이모지 반응 경로.
+ *   - 워크스페이스 CustomEmoji 를 `:name:` 토큰으로 반응 토글 → customEmojiId 가
+ *     반응 행에 저장된다.
+ *   - 존재하지 않는 `:name:` 은 CUSTOM_EMOJI_NOT_FOUND(404)로 거부된다.
+ *   - GET reactions / 메시지 목록 집계가 살아있는 커스텀 이모지에 customEmojiId 를
+ *     싣고(url 은 S3 미설정 harness 라 null), 유니코드 반응은 그 키들을 생략한다
+ *     (S39/S40 shape 무회귀).
+ *   - 커스텀 이모지 삭제 시 onDelete: SetNull 로 반응 행은 보존되되 customEmojiId 가
+ *     NULL 로 풀리고 emoji=`:name:` 슬러그가 보존된다(placeholder 전제).
+ */
+describe('Custom emoji reactions (S41 · FR-EM06)', () => {
+  async function seedCustomEmoji(name: string): Promise<string> {
+    const id = crypto.randomUUID();
+    await env.prisma.customEmoji.create({
+      data: {
+        id,
+        workspaceId: stack.workspaceId,
+        name,
+        createdBy: stack.member.userId,
+        storageKey: `${stack.workspaceId}/emojis/${id}-${name}.png`,
+        mime: 'image/png',
+        sizeBytes: BigInt(100),
+      },
+    });
+    return id;
+  }
+
+  it('toggles a custom-emoji reaction and stores customEmojiId', async () => {
+    const emojiId = await seedCustomEmoji('parrot');
+    const msgId = await postMessage(stack.member.accessToken);
+
+    const add = await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: ':parrot:' });
+    expect(add.status).toBe(200);
+    expect(add.body).toMatchObject({ emoji: ':parrot:', count: 1, byMe: true });
+
+    // 반응 행에 customEmojiId 가 저장됐다.
+    const row = await env.prisma.messageReaction.findFirst({
+      where: { messageId: msgId, emoji: ':parrot:' },
+      select: { customEmojiId: true },
+    });
+    expect(row?.customEmojiId).toBe(emojiId);
+
+    // GET reactions 집계가 살아있는 커스텀 이모지에 customEmojiId 를 싣는다.
+    const list = await request(env.baseUrl)
+      .get(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken));
+    expect(list.status).toBe(200);
+    const group = list.body.reactions.find((r: { emoji: string }) => r.emoji === ':parrot:');
+    expect(group.customEmojiId).toBe(emojiId);
+  });
+
+  it('rejects a custom-emoji token that does not exist in the workspace (404)', async () => {
+    const msgId = await postMessage(stack.member.accessToken);
+    const res = await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: ':no_such_emoji:' });
+    expect(res.status).toBe(404);
+    expect(res.body.errorCode).toBe('CUSTOM_EMOJI_NOT_FOUND');
+  });
+
+  it('keeps unicode reaction aggregate shape free of customEmojiId/url (S39/S40 no-regress)', async () => {
+    const msgId = await postMessage(stack.member.accessToken);
+    await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: '👍' })
+      .expect(200);
+    const one = await request(env.baseUrl)
+      .get(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set(bearer(stack.member.accessToken));
+    expect(one.body.message.reactions).toEqual([{ emoji: '👍', count: 1, byMe: true }]);
+  });
+
+  it('FR-EM06: deleting the custom emoji SetNulls customEmojiId but keeps the reaction row + slug', async () => {
+    const emojiId = await seedCustomEmoji('doomed');
+    const msgId = await postMessage(stack.member.accessToken);
+    await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: ':doomed:' })
+      .expect(200);
+
+    // Delete the CustomEmoji row directly (the FK ON DELETE SET NULL fires).
+    await env.prisma.customEmoji.delete({ where: { id: emojiId } });
+
+    const row = await env.prisma.messageReaction.findFirst({
+      where: { messageId: msgId, emoji: ':doomed:' },
+      select: { customEmojiId: true, emoji: true },
+    });
+    // 반응 행은 보존, customEmojiId 만 NULL 로 풀림, 슬러그 보존(placeholder 전제).
+    expect(row).not.toBeNull();
+    expect(row?.customEmojiId).toBeNull();
+    expect(row?.emoji).toBe(':doomed:');
+
+    // GET reactions 집계는 삭제된 커스텀(customEmojiId=null)을 유니코드처럼 shape
+    // 에서 customEmojiId/url 을 생략한다 — 클라가 `:name:` + url 부재로 placeholder 판별.
+    const list = await request(env.baseUrl)
+      .get(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken));
+    const group = list.body.reactions.find((r: { emoji: string }) => r.emoji === ':doomed:');
+    expect(group).toBeDefined();
+    expect(group.count).toBe(1);
+    expect('customEmojiId' in group).toBe(false);
+  });
+});

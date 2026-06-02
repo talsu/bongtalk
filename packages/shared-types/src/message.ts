@@ -76,6 +76,13 @@ export const ReactionSummarySchema = z.object({
   emoji: z.string().min(1).max(64),
   count: z.number().int().nonnegative(),
   byMe: z.boolean(),
+  // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 참조 CustomEmoji.id 와
+  // presigned `url` 을 동봉한다. 유니코드 반응이면 둘 다 생략(undefined)이며,
+  // **커스텀 이모지가 삭제된** 반응 행은 customEmojiId 가 null 로 풀려 emoji
+  // (`:name:`) 텍스트만 남는다 — UI 가 [삭제된 이모지] placeholder 로 표시한다.
+  // 셋 다 optional/nullable 이라 구 클라이언트/구 API 응답과 forward-compat.
+  customEmojiId: z.string().uuid().nullable().optional(),
+  url: z.string().nullable().optional(),
 });
 export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
 
@@ -231,6 +238,11 @@ export const ReactionDetailSchema = z.object({
   emoji: z.string().min(1).max(64),
   count: z.number().int().nonnegative(),
   users: z.array(ReactionUserLiteSchema).max(5),
+  // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 CustomEmoji.id + presigned url.
+  // 삭제된 커스텀 이모지 반응은 customEmojiId=null(emoji 슬러그만 남음).
+  // optional/nullable → 구 응답과 forward-compat.
+  customEmojiId: z.string().uuid().nullable().optional(),
+  url: z.string().nullable().optional(),
 });
 export type ReactionDetail = z.infer<typeof ReactionDetailSchema>;
 
