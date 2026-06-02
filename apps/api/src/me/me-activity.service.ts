@@ -146,6 +146,11 @@ export class MeActivityService {
         JOIN acc ON acc."channelId" = m."channelId"
         WHERE ${includeReply}
           AND m."deletedAt" IS NULL
+          -- S35 fix-forward: broadcast 행(isBroadcast=true)도 parentMessageId =
+          -- 루트를 갖지만 답글이 아니라 채널 타임라인 사본이다. 가드가 없으면
+          -- 'Also send to #channel' 게시가 루트 작성자의 활동 피드에 phantom
+          -- 답글 활동으로 잡힌다. broadcast 는 제외한다(원본 답글이 이미 집계됨).
+          AND m."isBroadcast" = false
           AND m."authorId" <> ${userId}::uuid
           AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),
@@ -290,6 +295,9 @@ export class MeActivityService {
            AND root."deletedAt" IS NULL
           JOIN acc ON acc."channelId" = m."channelId"
          WHERE m."deletedAt" IS NULL
+           -- S35 fix-forward: broadcast 행은 답글이 아니므로 미읽 reply 카운트에서
+           -- 제외한다(활동 피드 replies CTE 와 동일 가드).
+           AND m."isBroadcast" = false
            AND m."authorId" <> ${userId}::uuid
            AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),

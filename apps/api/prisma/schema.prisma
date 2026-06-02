@@ -553,6 +553,16 @@ model Message {
   // S04 (ADR-2 / FR-MSG-19): 메시지 타입. default DEFAULT 라 기존 row 안전
   // (additive + reversible). SYSTEM_* 는 시스템 행 렌더 + grouped=false 강제.
   type        MessageType @default(DEFAULT)
+  // S35 (D04 / FR-TH-06 / FR-TH-14): 스레드→채널 broadcast 표식. 답글 send 시
+  // 'Also send to #channel' 체크가 켜지면, send tx 안에서 별도의
+  // SYSTEM_THREAD_BROADCAST 행을 채널 타임라인에 동시 게시하고 그 행에
+  // isBroadcast=true 를 박는다(parentMessageId = thread root). default false 라
+  // 기존 row 안전(additive + reversible — 마이그레이션 20260602100000_s35_thread_broadcast).
+  //   - 채널 가시성: rawList 의 roots-only(parentMessageId IS NULL) 필터에
+  //     `OR "isBroadcast"` 예외를 더해 broadcast 행을 채널에 노출한다.
+  //   - FR-TH-14 채널 미읽 포함/삭제 시 정확히 1 감소는 ThreadReadState 와
+  //     함께 S36 에서 마무리한다(이 슬라이스는 플래그·게시·가시성만).
+  isBroadcast Boolean     @default(false)
 
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author      User              @relation(fields: [authorId], references: [id])

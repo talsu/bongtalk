@@ -40,6 +40,8 @@ function pendingRow(id: string): OptimisticMessage {
     pinnedAt: null,
     pinnedBy: null,
     version: 0,
+    isBroadcast: false,
+    parentExcerpt: null,
     sendState: 'pending',
   };
 }

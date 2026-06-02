@@ -693,7 +693,21 @@ export function MessageList({
                       }}
                     >
                       {dayDivider}
-                      <SystemMessage msg={m} />
+                      {/* S35 (FR-TH-06): broadcast 행은 SYSTEM 타입이지만 클릭 시
+                          스레드를 연다 — onOpenThread 를 전달한다. 일반 SYSTEM_*
+                          행은 onOpenThread 가 있어도 SystemMessage 가 broadcast
+                          분기에서만 사용하므로 무영향. */}
+                      <SystemMessage
+                        msg={m}
+                        onOpenThread={
+                          // F-04: 삭제된 broadcast 는 클릭 비활성이므로 onOpenThread 를
+                          // 전달하지 않는다(SystemMessage 도 deleted 시 비클릭이지만,
+                          // 게이트에서 한 번 더 막아 클릭 핸들러 자체를 비운다).
+                          onOpenThread && !m.id.startsWith('tmp-') && !m.deleted
+                            ? onOpenThread
+                            : undefined
+                        }
+                      />
                     </div>
                   );
                 }
@@ -717,9 +731,12 @@ export function MessageList({
                       ...(isJumpHighlighted
                         ? {
                             backgroundColor: 'var(--mention-bg)',
-                            transition: 'background-color var(--dur-base) ease-out',
+                            // S35 fix-forward (DS 토큰화): raw `ease-out` → DS easing 토큰.
+                            transition: 'background-color var(--dur-base) var(--ease-standard)',
                           }
-                        : { transition: 'background-color var(--dur-base) ease-out' }),
+                        : {
+                            transition: 'background-color var(--dur-base) var(--ease-standard)',
+                          }),
                     }}
                   >
                     {dayDivider}

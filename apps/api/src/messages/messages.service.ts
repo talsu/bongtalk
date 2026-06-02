@@ -7,6 +7,7 @@ import {
   renderSystemMessageTemplate,
   EDIT_HISTORY_CAP,
   type EditHistoryDto,
+  THREAD_BROADCAST_EXCERPT_CAP,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
@@ -35,12 +36,14 @@ import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
   MESSAGE_PIN_TOGGLED,
+  MESSAGE_THREAD_BROADCAST,
   MESSAGE_THREAD_REPLIED,
   MESSAGE_UPDATED,
   THREAD_REPLY_RECIPIENT_CAP,
   type MessageCreatedPayload,
   type MessageDeletedPayload,
   type MessagePinToggledPayload,
+  type MessageThreadBroadcastPayload,
   type MessageThreadRepliedPayload,
   type MessageUpdatedPayload,
 } from './events/message-events';
@@ -57,6 +60,18 @@ import type { DndSchedule } from '../me/dnd-schedule.service';
 function buildSnippet(content: string): string {
   const collapsed = content.replace(/\s+/g, ' ').trim();
   return collapsed.length > 140 ? collapsed.slice(0, 140) + '…' : collapsed;
+}
+
+/**
+ * S35 (FR-TH-06): broadcast 메시지의 루트 excerpt. 루트 본문을 공백 collapse 한
+ * 뒤 THREAD_BROADCAST_EXCERPT_CAP(50)자로 자르고 초과 시 (cap-1)자 + "…" 로
+ * 만든다. PRD "루트 메시지 excerpt(50자, 초과 시 …)". null/빈 본문(삭제 루트
+ * 등)은 빈 문자열을 돌려준다.
+ */
+export function buildThreadBroadcastExcerpt(content: string | null | undefined): string {
+  const collapsed = (content ?? '').replace(/\s+/g, ' ').trim();
+  if (collapsed.length <= THREAD_BROADCAST_EXCERPT_CAP) return collapsed;
+  return collapsed.slice(0, THREAD_BROADCAST_EXCERPT_CAP - 1) + '…';
 }
 
 type MessageRow = {
@@ -86,6 +101,10 @@ type MessageRow = {
   // S05 (FR-MSG-06): 낙관적 잠금 버전. SELECT 미선택 시 undefined →
   // toDto 가 0 으로 폴백(forward-compat). 편집마다 +1.
   version?: number | null;
+  // S35 (FR-TH-06): 스레드→채널 broadcast 표식. SELECT 미선택 시 undefined →
+  // toDto 가 false 폴백(forward-compat). broadcast 행은 채널 타임라인에
+  // 노출되는 SYSTEM_THREAD_BROADCAST 답글 복제본이다.
+  isBroadcast?: boolean | null;
 };
 
 // task-044-iter2: Discord-parity cap. Cap 변경 시 shared-types
@@ -150,6 +169,11 @@ export type MessageDto = {
   // S05 (FR-MSG-06): 낙관적 잠금 버전. 클라이언트가 편집창 오픈 시 스냅샷해
   // PATCH expectedVersion 으로 보냅니다.
   version: number;
+  // S35 (FR-TH-06): 스레드→채널 broadcast 표식 + 루트 excerpt(50자). broadcast
+  // 행만 isBroadcast=true 이며 parentExcerpt 가 채워진다(채널 목록 read-path 가
+  // 루트를 batch 조회해 산정). 일반/삭제 메시지는 false/null.
+  isBroadcast: boolean;
+  parentExcerpt: string | null;
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -199,6 +223,10 @@ export class MessagesService {
     reactions: ReactionSummary[] = [],
     thread: ThreadSummary | null = null,
     attachments: AttachmentLite[] = [],
+    // S35 (FR-TH-06): broadcast 행에만 채워지는 루트 메시지 excerpt(50자). 채널
+    // 목록 read-path 가 broadcast 행의 parentMessageId 로 루트를 batch 조회해
+    // 넘긴다(N+1 없음). 일반 메시지·삭제 메시지는 null.
+    parentExcerpt: string | null = null,
   ): MessageDto {
     const isDeleted = row.deletedAt !== null;
     // task-047 iter0 (HIGH-046-B): here field default(false) 로 forward-compat.
@@ -267,6 +295,12 @@ export class MessagesService {
       pinnedBy: isDeleted ? null : (row.pinnedBy ?? null),
       // S05 (FR-MSG-06): version 노출. SELECT 미선택/legacy row 는 0 폴백.
       version: row.version ?? 0,
+      // S35 (FR-TH-06): broadcast 표식 + 루트 excerpt. broadcast 행이 삭제되면
+      // (deleted) 본문 마스킹과 일관되게 excerpt 도 가린다. isBroadcast 자체는
+      // 행의 정체(채널 타임라인 분기)라 deleted 와 무관하게 유지한다 — 삭제된
+      // broadcast 도 placeholder 로 채널에 남되 excerpt 만 비운다.
+      isBroadcast: row.isBroadcast ?? false,
+      parentExcerpt: isDeleted ? null : (parentExcerpt ?? null),
     };
   }
 
@@ -302,6 +336,52 @@ export class MessagesService {
       const list = out.get(a.messageId) ?? [];
       list.push(lite);
       out.set(a.messageId, list);
+    }
+    return out;
+  }
+
+  /**
+   * S35 (FR-TH-06): 채널 목록 페이지 내 broadcast 행들의 루트 excerpt 를 한 번에
+   * 모은다. broadcast 행은 parentMessageId 로 스레드 루트를 가리키므로, 그
+   * parentMessageId 집합의 루트 본문(content)을 단일 IN 쿼리로 읽어 excerpt 로
+   * 가공한다(루트당 1회 — N+1 아님). 반환 Map 은 broadcast 행의 id → excerpt.
+   * broadcast 행이 없으면 빈 Map(추가 쿼리 없음).
+   *
+   * 삭제된 루트는 본문이 비어 excerpt 가 빈 문자열이 된다(placeholder 루트의
+   * broadcast 는 레이블만 표시) — toDto 의 broadcast deleted 마스킹과 별개다.
+   */
+  async aggregateBroadcastExcerpts(rows: MessageRow[]): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    // broadcast 행만 추린다(parentMessageId 보유 + isBroadcast).
+    const broadcastRows = rows.filter((r) => r.isBroadcast === true && r.parentMessageId);
+    if (broadcastRows.length === 0) return out;
+    const rootIds = Array.from(
+      new Set(broadcastRows.map((r) => r.parentMessageId).filter((id): id is string => !!id)),
+    );
+    // S35 fix-forward (보안 F-01/F-03): 루트 조회를 broadcast 행들의 channelId
+    // 집합으로 스코프한다(cross-channel excerpt 누출 방어). broadcast 행은
+    // 같은 채널 send tx 안에서 parentMessageId = 루트로 생성되므로 정상적으로는
+    // 루트와 동일 채널이지만, DB-레벨 불변식(루트·broadcast 동일 channelId)이
+    // 부재하므로 read-path 에서 강제한다. WHERE 에 `channelId IN (broadcast 행
+    // channelId 들)` 을 더하면, 조작/버그로 다른 채널의 루트를 가리키는 broadcast
+    // 행이 있어도 그 루트 본문은 조회되지 않아 excerpt 가 빈 값이 된다. 추가로
+    // 아래 루프에서 broadcast 행과 루트의 channelId 일치를 1:1 로 재확인한다.
+    const broadcastChannelIds = Array.from(new Set(broadcastRows.map((r) => r.channelId)));
+    const roots = await this.prisma.message.findMany({
+      where: { id: { in: rootIds }, channelId: { in: broadcastChannelIds } },
+      select: { id: true, channelId: true, content: true, deletedAt: true },
+    });
+    const rootById = new Map(roots.map((root) => [root.id, root]));
+    for (const r of broadcastRows) {
+      if (!r.parentMessageId) continue;
+      const root = rootById.get(r.parentMessageId);
+      // 루트가 없거나(타채널로 필터됨) broadcast 행과 채널이 어긋나면 누출
+      // 방어로 빈 excerpt 를 돌린다(레이블만). 삭제된 루트도 빈 excerpt.
+      if (!root || root.channelId !== r.channelId || root.deletedAt) {
+        out.set(r.id, '');
+        continue;
+      }
+      out.set(r.id, buildThreadBroadcastExcerpt(root.content));
     }
     return out;
   }
@@ -349,6 +429,10 @@ export class MessagesService {
               FROM "Message" r
              WHERE r."parentMessageId" = root.id
                AND r."deletedAt" IS NULL
+               -- S35 fix-forward: broadcast 행은 답글이 아니므로 replyParticipants
+               -- (아바타 스택) 집계에서 제외한다. 포함되면 'Also send to #channel'
+               -- 작성자가 phantom 참여자로 중복 노출된다.
+               AND r."isBroadcast" = false
              GROUP BY r."authorId"
              ORDER BY MAX(r."createdAt") DESC
              LIMIT ${THREAD_REPLY_PARTICIPANT_CAP}
@@ -573,6 +657,13 @@ export class MessagesService {
     // gate.ts 로 권한 게이트한다. user/channel(이름) 멘션은 본문에서 권위적으로
     // 재추출되므로 힌트로 받지 않는다(신뢰 경계 유지).
     mentionsHint?: { everyone?: boolean; here?: boolean; channel?: boolean };
+    // S35 (FR-TH-06): 'Also send to #channel'. parentMessageId(=답글)와 함께
+    // true 면, send tx 안에서 별도의 SYSTEM_THREAD_BROADCAST 행을 채널 타임라인에
+    // 동시 게시한다. parentMessageId 없이 true 면 무시한다(루트/일반 send 에는
+    // broadcast 개념 없음 — 컨트롤러도 답글에만 전달하지만 서비스에서도 가드).
+    // broadcast 행의 content 는 답글 본문 복제이고 SYSTEM 템플릿을 쓰지 않으므로
+    // actor username 은 필요 없다(클라가 레이블/excerpt 만 별도 렌더).
+    isBroadcast?: boolean;
   }): Promise<{ message: MessageRow; replayed: boolean }> {
     // S03 (FR-MSG-05 / FR-RT-04): Redis read-through 2차 캐시. 재전송 시
     // 동일 키가 캐시에 있으면 DB INSERT 시도 자체를 생략하고 캐시된
@@ -751,10 +842,15 @@ export class MessagesService {
         // 방어를 유지하면서 직렬화 비용만 없앤다. 검증과 INSERT 사이의
         // narrow-race 로 새는 잔여 orphan(극히 드묾)은 무해하며, 1시간 주기
         // reconcile 이 카운트 정합을 맞춘다(FR-TH-17).
+        // S35 fix-forward (perf #7): 아래 broadcast 분기가 루트 excerpt 산정에
+        // 쓸 루트 본문을 여기서 한 번에 읽어 재사용한다(루트 findUnique 2회 →
+        // 1회). tx-top 재검증이 이미 channelId 일치를 강제하므로(F-03 보안), 이
+        // 본문은 "동일 채널의 비삭제 루트"임이 보장된다.
+        let parentContentForBroadcast: string | null = null;
         if (args.parentMessageId) {
           const parentNow = await tx.message.findUnique({
             where: { id: args.parentMessageId },
-            select: { deletedAt: true, channelId: true },
+            select: { deletedAt: true, channelId: true, content: true },
           });
           if (
             !parentNow ||
@@ -768,6 +864,9 @@ export class MessagesService {
               'parent message not found in this channel',
             );
           }
+          // 검증 통과 → 동일 채널의 비삭제 루트 본문을 broadcast excerpt 용으로
+          // 보관(아래 broadcast 분기가 추가 findUnique 없이 재사용).
+          parentContentForBroadcast = parentNow.content;
         }
         const created = await tx.message.create({
           data: {
@@ -1057,6 +1156,82 @@ export class MessagesService {
           }
         }
 
+        // S35 (FR-TH-06): 'Also send to #channel' broadcast. 답글(parentMessageId
+        // 보유) + isBroadcast 일 때만, 같은 $transaction 안에서 별도의
+        // SYSTEM_THREAD_BROADCAST 행을 채널 타임라인에 동시 게시한다. 이 행은:
+        //   - isBroadcast=true (채널 가시성·FR-TH-14 미읽 분기 키)
+        //   - parentMessageId = thread root (클릭 시 스레드 열림 + 루트 excerpt 출처)
+        //   - content/contentRaw/contentAst = 방금 보낸 답글 본문(채널에서 답글
+        //     본문이 그대로 보이도록 — PRD "스레드 메시지를 채널에 게시")
+        //   - authorType = SYSTEM, type = SYSTEM_THREAD_BROADCAST (시스템 행 렌더
+        //     규약과 정합 — 클라가 레이블 + excerpt 분기)
+        // 트랜잭션 실패 시 답글과 함께 롤백된다(FR-TH-17 원자성과 일관).
+        if (created.parentMessageId && args.isBroadcast === true) {
+          // S35 fix-forward (perf #7 + 보안 F-03): 루트 excerpt(50자)는 위
+          // tx-top 재검증이 읽어둔 본문(parentContentForBroadcast)을 재사용한다.
+          // 그 본문은 "동일 채널(channelId === args.channelId)의 비삭제 루트"임이
+          // 이미 보장되므로, 별도 findUnique(루트 2회 조회) 없이 channelId-스코프된
+          // excerpt 를 산정할 수 있다. parentContentForBroadcast 가 null 인 경우는
+          // 정상 흐름상 없지만(여기 도달 == 검증 통과), 방어적으로 빈 문자열을 쓴다.
+          const parentExcerpt = buildThreadBroadcastExcerpt(parentContentForBroadcast);
+          const broadcast = await tx.message.create({
+            data: {
+              channelId: args.channelId,
+              authorId: args.authorId,
+              authorType: 'SYSTEM',
+              type: 'SYSTEM_THREAD_BROADCAST',
+              isBroadcast: true,
+              // 답글 본문을 그대로 복제 — 채널 타임라인에서 답글 내용이 보인다.
+              content: args.content,
+              contentPlain,
+              contentRaw: normalizedContent,
+              contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+              contentPlainV2: contentPlain,
+              hasLink,
+              hasImage,
+              hasFile,
+              // 스레드 루트로 링크 — 클릭 시 스레드 열림. 단, broadcast 행은
+              // 답글이 아니므로 루트 replyCount 에는 산입하지 않는다(아래 카운터
+              // UPDATE 는 위 답글 INSERT 분기에서 이미 수행됨 — broadcast 는 별개).
+              parentMessageId: created.parentMessageId,
+              // broadcast 행은 채널 미읽 분기 대상이지 멘션 fanout 대상이 아니므로
+              // mentions 는 비운다(답글 본인이 이미 mention.received 를 받았다).
+              mentions: {
+                users: [],
+                channels: [],
+                everyone: false,
+                here: false,
+                channel: false,
+              } as unknown as Prisma.InputJsonValue,
+            },
+          });
+          const broadcastPayload: MessageThreadBroadcastPayload = {
+            workspaceId: args.workspaceId,
+            channelId: args.channelId,
+            actorId: args.authorId,
+            parentMessageId: created.parentMessageId,
+            parentExcerpt,
+            message: {
+              id: broadcast.id,
+              authorId: broadcast.authorId,
+              content: broadcast.content,
+              contentRaw: broadcast.contentRaw ?? broadcast.content,
+              contentAst: processed.contentAst,
+              type: broadcast.type,
+              mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+              createdAt: broadcast.createdAt.toISOString(),
+              parentMessageId: broadcast.parentMessageId,
+              isBroadcast: true,
+            },
+          };
+          await this.outbox.record(tx, {
+            aggregateType: 'Message',
+            aggregateId: broadcast.id,
+            eventType: MESSAGE_THREAD_BROADCAST,
+            payload: broadcastPayload,
+          });
+        }
+
         // S20 (FR-DM-10): DM hidden-restore. 상대방의 새 메시지가 도착하면 그 DM 을
         // 숨겼던 수신자(보낸 본인 제외)의 hiddenAt 을 NULL 로 자동 복원한다. DIRECT
         // 채널일 때만 동작하며, 같은 send 트랜잭션 안에서 처리해 메시지 INSERT 와
@@ -1199,6 +1374,9 @@ export class MessagesService {
             FROM "Message"
            WHERE "parentMessageId" = ${rootId}::uuid
              AND "deletedAt" IS NULL
+             -- S35 fix-forward: broadcast 행은 답글이 아니므로 thread.replied
+             -- recipient 산정에서 제외한다(phantom recipient 방지).
+             AND "isBroadcast" = false
            ORDER BY "createdAt" DESC
            LIMIT 200
         ) latest
@@ -1522,14 +1700,20 @@ export class MessagesService {
     // thread panel. Partial index `Message_channel_roots_idx` keeps
     // this on an index scan; without the predicate EXPLAIN showed a
     // seq scan once replies outnumbered roots.
+    //
+    // S35 (FR-TH-06): broadcast 예외. broadcast 행(SYSTEM_THREAD_BROADCAST)은
+    // parentMessageId(=스레드 루트)를 가지지만 채널 타임라인에 노출되어야 하므로
+    // roots-only 필터에 `OR "isBroadcast"` 를 더한다. broadcast 행은 채널 정렬
+    // 위치(createdAt)에 그대로 끼며, 일반 답글은 여전히 제외된다(답글은
+    // isBroadcast=false 라 두 조건 모두 불만족).
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy", "version"
+             "pinnedAt", "pinnedBy", "version", "isBroadcast"
         FROM "Message"
        WHERE "channelId" = $1::uuid
-             AND "parentMessageId" IS NULL
+             AND ("parentMessageId" IS NULL OR "isBroadcast" = true)
              ${deletedFilter}
              ${cursorSql}
              ${visibleFromSql}
@@ -1588,13 +1772,18 @@ export class MessagesService {
     // 분기로 "(삭제된 답글)" placeholder 를 렌더한다. 커서 페이지네이션/limit/
     // hasMore/ASC 정렬은 그대로 유지(삭제 행도 시간순 자리를 지킨다 — 스레드
     // 맥락 보존). replyCount(FR-TH-16)는 비삭제만 세므로 카운트와는 별개다.
+    // S35 (FR-TH-06): broadcast 행(SYSTEM_THREAD_BROADCAST)도 parentMessageId =
+    // 루트를 갖지만 채널 타임라인 복제본이지 스레드 답글이 아니다 —
+    // `AND "isBroadcast" = false` 로 스레드 패널 답글 목록에서 제외한다(broadcast
+    // 가 스레드 안에서 자기 답글의 중복으로 보이지 않도록).
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy", "version"
+             "pinnedAt", "pinnedBy", "version", "isBroadcast"
         FROM "Message"
        WHERE "parentMessageId" = $1::uuid
+             AND "isBroadcast" = false
              ${cursorSql}
        ORDER BY "createdAt" ASC, id ASC
        LIMIT $2
@@ -1878,7 +2067,7 @@ export class MessagesService {
       // authorId + S33 카운터 감소 분기용 parentMessageId 를 함께 읽는다.
       const updated = await tx.message.findUniqueOrThrow({
         where: { id: args.msgId },
-        select: { id: true, authorId: true, parentMessageId: true },
+        select: { id: true, authorId: true, parentMessageId: true, isBroadcast: true },
       });
       // S33 (FR-TH-16 / FR-TH-17): 삭제된 메시지가 답글이면 루트의 비정규화
       // replyCount 를 같은 $transaction 안에서 원자적으로 감소시킨다.
@@ -1896,7 +2085,15 @@ export class MessagesService {
       // 중복 soft-delete 가 이미 idempotent(상단 count===0 가드)인데도 루트
       // 카운터만 두 번 깎일 수 있는 표면적을 남긴다. 가드를 박아 "살아있는
       // 루트의 카운터만" 정정한다(이미 삭제된 루트는 매칭 0행 → no-op).
-      if (updated.parentMessageId) {
+      //
+      // S35 fix-forward (BLOCKER 정합): broadcast 행(isBroadcast=true)도
+      // parentMessageId(=스레드 루트)를 가지지만, send 시 루트 replyCount 를
+      // 올리지 *않았다*(broadcast 는 답글이 아니다). 따라서 broadcast 행을
+      // soft-delete 할 때 루트 카운터를 깎으면 올린 적 없는 값을 차감해 음수
+      // 방향 drift 를 만든다. `!updated.isBroadcast` 가드로 broadcast 삭제 시
+      // 카운터를 건드리지 않는다 — send 의 "broadcast 는 replyCount 산입 안 함"
+      // 과 대칭을 맞춘다.
+      if (updated.parentMessageId && !updated.isBroadcast) {
         await tx.$executeRaw`
           UPDATE "Message"
              SET "replyCount" = GREATEST(0, "replyCount" - 1)

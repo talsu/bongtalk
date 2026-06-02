@@ -149,8 +149,21 @@ export const MessageDtoSchema = z.object({
   // 상한은 Postgres INT4 최대값(2,147,483,647) — DB 컬럼이 Int 라 초과 시
   // 쿼리 단계에서 numeric overflow(500) 가 나므로 계약 레벨에서 막습니다.
   version: z.number().int().nonnegative().max(2_147_483_647).default(0),
+  // S35 (FR-TH-06 / FR-TH-14): 스레드→채널 broadcast 표식. true 면 이 메시지는
+  // 답글의 채널 타임라인 복제본(SYSTEM_THREAD_BROADCAST 행)이며, parentMessageId
+  // 는 스레드 루트를 가리킨다(클릭 시 스레드 열림). default(false) 라 구 API
+  // 빌드 응답(필드 누락)도 forward-compat.
+  isBroadcast: z.boolean().default(false),
+  // S35 (FR-TH-06): broadcast 행에만 채워지는 루트 메시지 excerpt(50자, 초과 시
+  // 끝에 "…"). 클라이언트가 "스레드에 답글" 레이블과 함께 표시한다. broadcast 가
+  // 아닌 일반 메시지는 null.
+  parentExcerpt: z.string().nullable().default(null),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
+
+// S35 (FR-TH-06): broadcast excerpt 길이 상한. 초과 시 (cap-1)자 + "…".
+// 변경 시 서버 buildThreadBroadcastExcerpt 와 동일 값으로 유지해야 합니다.
+export const THREAD_BROADCAST_EXCERPT_CAP = 50;
 
 // task-044-iter2: pinned messages — Discord-parity cap 50/channel.
 export const MESSAGE_PIN_CAP = 50;
@@ -207,6 +220,11 @@ export const SendMessageRequestSchema = z.object({
       channel: z.boolean().optional(),
     })
     .optional(),
+  // S35 (FR-TH-06): 'Also send to #channel' 체크. true 이고 parentMessageId 가
+  // 있으면(=답글 전송) send tx 안에서 SYSTEM_THREAD_BROADCAST 행을 채널
+  // 타임라인에 동시 게시한다. parentMessageId 없이 isBroadcast=true 만 보내면
+  // 무시한다(루트/일반 send 에는 broadcast 개념이 없음). default(false).
+  isBroadcast: z.boolean().optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 

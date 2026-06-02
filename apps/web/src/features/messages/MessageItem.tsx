@@ -353,7 +353,9 @@ export function MessageItem({
                   data-testid={`msg-send-failed-${msg.id}`}
                   className="qf-message__send-failed mt-1 flex items-center gap-2 text-xs"
                 >
-                  <span role="alert" className="qf-text-danger">
+                  {/* S35 fix-forward (DS 토큰화): DS 미정의 `qf-text-danger` →
+                      등록된 --danger-400 토큰(SystemMessage.tsx TONE_CLASS 와 동일). */}
+                  <span role="alert" className="text-[color:var(--danger-400)]">
                     전송 실패
                   </span>
                   {onRetry ? (

@@ -420,6 +420,80 @@ export function installRealtimeDispatcher(
     }
   });
 
+  // S35 (FR-TH-06): message.thread.broadcast — 'Also send to #channel' 로 게시된
+  // SYSTEM_THREAD_BROADCAST 채널 행을 채널 타임라인 캐시에 삽입한다. 답글의
+  // message.created 는 parentMessageId 가 있어 thread 캐시로만 라우팅되므로,
+  // broadcast 행은 별도 이벤트로 채널 행을 추가한다. 페이로드의 broadcastMessage
+  // (= message)를 MessageDto 로 캐시 head 에 삽입하되 messageId 중복은 dedupe.
+  on<{
+    id: string;
+    channelId: string;
+    workspaceId: string;
+    parentMessageId: string;
+    parentExcerpt: string;
+    message: MessageDto & { parentMessageId?: string | null; isBroadcast?: boolean };
+  }>('message.thread.broadcast', (env) => {
+    if (!env.channelId || !env.workspaceId || !env.message) return;
+    // broadcast 행은 채널 미읽에 포함된다(FR-TH-14). 본인이 보낸 게 아니고
+    // 현재 보고 있는 채널이 아니면 미읽 +1. (정확한 unread 집계·삭제 시 감소는
+    // ThreadReadState 와 함께 S36 — 여기서는 message.created 와 동일한 낙관적
+    // bump 만 적용해 라이브 배지가 즉시 반영되게 한다.)
+    const viewer = ctx.viewerId();
+    const active = ctx.activeChannelId();
+    if (viewer && env.message.authorId !== viewer && active !== env.channelId) {
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+      qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+        qk.channels.unreadSummary(env.workspaceId),
+        (old) => {
+          if (!old) return old;
+          const lastMessageAt =
+            typeof env.message.createdAt === 'string'
+              ? env.message.createdAt
+              : new Date().toISOString();
+          const found = old.channels.some((c) => c.channelId === env.channelId);
+          return {
+            channels: found
+              ? old.channels.map((c) =>
+                  c.channelId === env.channelId
+                    ? { ...c, unreadCount: c.unreadCount + 1, lastMessageAt }
+                    : c,
+                )
+              : [
+                  ...old.channels,
+                  {
+                    channelId: env.channelId,
+                    unreadCount: 1,
+                    mentionCount: 0,
+                    hasMention: false,
+                    lastMessageAt,
+                  },
+                ],
+          };
+        },
+      );
+    }
+    // broadcast MessageDto 를 채널 타임라인 캐시 head 에 삽입. parentExcerpt 를
+    // 함께 박아 채널 행이 레이블 + 루트 excerpt 를 렌더하게 한다.
+    const broadcastDto: MessageDto = {
+      ...env.message,
+      isBroadcast: true,
+      parentExcerpt: env.parentExcerpt ?? null,
+    };
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        const [first, ...rest] = old.pages;
+        // FR-RT-24: messageId 중복 dedupe(재연결 replay / 다중 탭).
+        if (first.items.some((m) => m.id === env.message.id)) return old;
+        return {
+          ...old,
+          pages: [{ ...first, items: [broadcastDto, ...first.items] }, ...rest],
+        };
+      },
+    );
+  });
+
   on<{
     channelId: string;
     workspaceId: string;
@@ -480,6 +554,45 @@ export function installRealtimeDispatcher(
           };
         },
       );
+
+      // S35 (FR-TH-20b): 채널 타임라인과 Thread Panel 의 공유 상태 동기화. 같은
+      // message.deleted 이벤트로 양쪽을 한 번에 처리한다(별도 2차 fetch 없음 →
+      // 2회 렌더 방지). 삭제된 메시지가 *답글*이면 그 답글이 들어있는 열린 스레드
+      // 캐시에서 해당 행을 deleted:true 로 마킹한다(ThreadReplyRow 가 "(삭제된
+      // 답글)" placeholder 렌더). 삭제된 메시지가 *루트*면 그 루트의 thread 캐시
+      // (rootId = messageId)에서 root 를 deleted 로 마킹해 패널이 placeholder 를
+      // 보이게 한다. parentMessageId 가 이벤트에 없으므로 모든 thread 캐시를
+      // 순회하되, 일치하는 캐시 1곳만 실제로 바뀐다(나머지는 동일 참조 반환 →
+      // 무-렌더). thread 캐시는 보통 0~1개라 순회 비용은 무시할 만하다.
+      const threadQueries = qc.getQueriesData<
+        InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>
+      >({ queryKey: qk.messages.threadRoot() });
+      for (const [key] of threadQueries) {
+        qc.setQueryData<
+          InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>
+        >(key, (old) => {
+          if (!old) return old;
+          let changed = false;
+          const pages = old.pages.map((p) => {
+            // 루트가 삭제된 경우: 첫 페이지의 root 를 마킹.
+            const rootHit = p.root && p.root.id === env.message.id && !p.root.deleted;
+            // 답글이 삭제된 경우: replies 중 해당 id 를 마킹.
+            const replyHit = p.replies.some((r) => r.id === env.message.id && !r.deleted);
+            if (!rootHit && !replyHit) return p;
+            changed = true;
+            return {
+              ...p,
+              root: rootHit ? { ...p.root, deleted: true, content: null } : p.root,
+              replies: replyHit
+                ? p.replies.map((r) =>
+                    r.id === env.message.id ? { ...r, deleted: true, content: null } : r,
+                  )
+                : p.replies,
+            };
+          });
+          return changed ? { ...old, pages } : old;
+        });
+      }
     },
   );
 
@@ -870,6 +983,8 @@ export const DISPATCHED_EVENTS = [
   'message.reaction.added',
   'message.reaction.removed',
   'message.thread.replied',
+  // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
+  'message.thread.broadcast',
   'typing:update',
   'typing:batch',
   'typing.updated',

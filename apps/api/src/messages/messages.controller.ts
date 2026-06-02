@@ -123,7 +123,7 @@ export class MessagesController {
     // task-013-B: reactions join is one extra round-trip per page, not per
     // message. Empty page → skip the query entirely.
     const ids = result.items.map((r) => r.id);
-    const [reactionMap, threadMap, attachmentMap] = await Promise.all([
+    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
       // task-014-B: thread summary join, same one-per-page round trip.
       this.messages.aggregateThreadSummaries(ids),
@@ -131,6 +131,9 @@ export class MessagesController {
       // of 50 messages costs one reactions / one thread / one attachment
       // query regardless of how many of them have media.
       this.messages.aggregateAttachments(ids),
+      // S35 (FR-TH-06): broadcast 행의 루트 excerpt 를 페이지당 1쿼리로 모은다
+      // (broadcast 행이 없으면 추가 쿼리 없음 — 내부 early return).
+      this.messages.aggregateBroadcastExcerpts(result.items),
     ]);
     const dtos = result.items.map((r) =>
       this.messages.toDto(
@@ -138,6 +141,7 @@ export class MessagesController {
         reactionMap.get(r.id) ?? [],
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
+        broadcastExcerptMap.get(r.id) ?? null,
       ),
     );
     return {
@@ -337,6 +341,10 @@ export class MessagesController {
       // S21 (FR-RS-16): composer 의 특수멘션 피커 힌트(@everyone/@here/@channel).
       // 본문 sigil 추출값과 OR 병합 후 actorRole 로 게이트된다.
       mentionsHint: parsed.data.mentions,
+      // S35 (FR-TH-06): 'Also send to #channel'. parentMessageId 와 함께 true 면
+      // 서비스가 SYSTEM_THREAD_BROADCAST 채널 행을 동시 게시한다. 답글이 아닌
+      // send 에 true 가 와도 서비스가 parentMessageId 가드로 무시한다.
+      isBroadcast: parsed.data.isBroadcast === true,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
