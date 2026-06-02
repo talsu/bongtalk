@@ -92,6 +92,11 @@ type MessageRow = {
 // MESSAGE_PIN_CAP 도 동일 값으로 갱신해야 합니다.
 export const MESSAGE_PIN_CAP = 50;
 
+// S33 (FR-TH-16 / FR-TH-03): threadMeta.replyParticipants(=recentReplyUserIds)
+// 의 상한. PRD FR-TH-16/03 은 "최초 답글자 최대 5명"을 명시한다. 이 값을
+// 바꾸면 shared-types ThreadSummarySchema 의 `.max(N)` 도 동일하게 갱신해야 한다.
+export const THREAD_REPLY_PARTICIPANT_CAP = 5;
+
 // S17 (FR-DM-18): 그룹 DM 에서 차단한 사용자의 메시지 본문 placeholder.
 // 삭제가 아니라 자리를 유지한 채 본문만 치환한다(UX). 한국어 존댓말 표기.
 export const BLOCKED_MESSAGE_PLACEHOLDER = '[차단된 사용자의 메시지]';
@@ -204,16 +209,25 @@ export class MessagesService {
       here: false,
       channel: false,
     }) as MessageMentions & { here?: boolean; channel?: boolean };
-    const mentions: MessageMentions = {
-      users: rawMentions.users,
-      channels: rawMentions.channels,
-      everyone: rawMentions.everyone,
-      here: rawMentions.here ?? false,
-      // S21 fix-forward (MAJOR-D): `@channel` 범위 멘션을 와이어로 전달해야
-      // live dispatcher 의 isMention 이 @channel 을 인식한다. 누락(legacy row)은
-      // false 폴백.
-      channel: rawMentions.channel ?? false,
-    };
+    // S33 fix-forward (보안 BLOCKER): 삭제된 메시지는 본문/첨부와 마찬가지로
+    // mentions 도 빈 값으로 마스킹합니다. S33 이 답글 보유 deleted thread-root
+    // 와 deleted 답글을 채널 목록·스레드 패널에 placeholder 로 새로 노출시키면서,
+    // 종전엔 toDto 가 content 만 가리고 mentions 원본을 그대로 실어 보내
+    // 삭제 메시지의 @멘션 대상 userId(mentions.users) 가 와이어로 누출됐습니다.
+    // content-masking 규칙과 동일하게 비노출 처리합니다 — maskBlockedAuthors 의
+    // 빈 mentions 형태와 일관(실제 MessageMentionsSchema 형태).
+    const mentions: MessageMentions = isDeleted
+      ? { users: [], channels: [], everyone: false, here: false, channel: false }
+      : {
+          users: rawMentions.users,
+          channels: rawMentions.channels,
+          everyone: rawMentions.everyone,
+          here: rawMentions.here ?? false,
+          // S21 fix-forward (MAJOR-D): `@channel` 범위 멘션을 와이어로 전달해야
+          // live dispatcher 의 isMention 이 @channel 을 인식한다. 누락(legacy row)은
+          // false 폴백.
+          channel: rawMentions.channel ?? false,
+        };
     return {
       id: row.id,
       channelId: row.channelId,
@@ -232,10 +246,15 @@ export class MessagesService {
       // 무관). 기존 row(type 미선택/NULL)는 DEFAULT 폴백.
       type: row.type ?? 'DEFAULT',
       mentions,
-      edited: row.editedAt !== null,
+      // S33 fix-forward (보안 BLOCKER): 삭제된 메시지는 편집 여부/시각도
+      // 마스킹합니다. 삭제 전 편집 이력(edited=true / editedAt 시각)이 placeholder
+      // 행에 그대로 실리면 삭제된 본문이 한 번 이상 편집됐다는 메타데이터가
+      // 누출되므로, content 마스킹과 동일하게 edited=false / editedAt=null 로
+      // 가립니다.
+      edited: isDeleted ? false : row.editedAt !== null,
       deleted: isDeleted,
       createdAt: row.createdAt.toISOString(),
-      editedAt: row.editedAt?.toISOString() ?? null,
+      editedAt: isDeleted ? null : (row.editedAt?.toISOString() ?? null),
       reactions,
       parentMessageId: row.parentMessageId,
       thread,
@@ -288,52 +307,64 @@ export class MessagesService {
   }
 
   /**
-   * Task-014-B: aggregate reply counts + last-reply metadata for a set
-   * of root messages in one shot. Emits a Map keyed by rootId. Uses the
-   * `(parentMessageId, createdAt)` index for the GROUP BY.
+   * S33 (FR-TH-16): 루트 메시지 집합의 threadMeta 를 한 번에 모은다. Map 은
+   * rootId 로 키잉되며, 답글이 있는(replyCount > 0) 루트만 항목을 담는다 —
+   * 답글 0개 루트는 호출측에서 `thread = null` 로 폴백한다(기존 task-014-B 의
+   * zero-reply→null 계약 유지).
    *
-   * `recentReplyUserIds` is sourced via a LATERAL subquery so the
-   * distinct-user list is trimmed at 3 per root without pulling the
-   * entire replies table into memory.
+   * 비정규화 전환(FR-TH-16): replyCount / latestReplyAt 는 더 이상 답글 테이블을
+   * GROUP BY 집계하지 않고 루트 행의 S33 비정규화 컬럼을 **직접** 읽는다. 이
+   * 값들은 send/soft-delete 의 단일 $transaction 이 원자적으로 유지한다.
+   *
+   * replyParticipants(≤5 최근 distinct author)는 단순 카운터가 아니므로 루트
+   * 행에 비정규화할 수 없다 — 루트 1쿼리 안의 bounded LATERAL 서브쿼리로
+   * 채운다(루트당 최대 5 fan-out, N+1 아님). `(parentMessageId, createdAt)`
+   * 인덱스로 각 LATERAL 이 인덱스 스캔을 탄다.
+   *
+   * 반환 ThreadSummary 의 `recentReplyUserIds` 가 곧 PRD 의 replyParticipants 다
+   * (와이어 필드명은 기존 클라이언트/디스패처/테스트 호환을 위해 유지).
    */
   async aggregateThreadSummaries(rootIds: string[]): Promise<Map<string, ThreadSummary>> {
     const out = new Map<string, ThreadSummary>();
     if (rootIds.length === 0) return out;
     const rows = await this.prisma.$queryRaw<
       {
-        parentMessageId: string;
-        replyCount: bigint;
-        lastRepliedAt: Date | null;
+        id: string;
+        replyCount: number;
+        latestReplyAt: Date | null;
         recentReplyUserIds: string[];
       }[]
     >(Prisma.sql`
       SELECT
-        m."parentMessageId"                              AS "parentMessageId",
-        COUNT(*)::bigint                                 AS "replyCount",
-        MAX(m."createdAt")                               AS "lastRepliedAt",
-        COALESCE(
-          (SELECT ARRAY_AGG(uid ORDER BY last_at DESC)
-             FROM (
-               SELECT r."authorId" AS uid, MAX(r."createdAt") AS last_at
-                 FROM "Message" r
-                WHERE r."parentMessageId" = m."parentMessageId"
-                  AND r."deletedAt" IS NULL
-                GROUP BY r."authorId"
-                ORDER BY MAX(r."createdAt") DESC
-                LIMIT 3
-             ) top
-          ),
-          ARRAY[]::uuid[]
-        ) AS "recentReplyUserIds"
-      FROM "Message" m
-      WHERE m."parentMessageId" IN (${Prisma.join(rootIds.map((id) => Prisma.sql`${id}::uuid`))})
-        AND m."deletedAt" IS NULL
-      GROUP BY m."parentMessageId"
+        root.id                                          AS "id",
+        root."replyCount"                                AS "replyCount",
+        root."latestReplyAt"                             AS "latestReplyAt",
+        COALESCE(parts.ids, ARRAY[]::uuid[])             AS "recentReplyUserIds"
+      FROM "Message" root
+      LEFT JOIN LATERAL (
+        -- 루트당 최대 ${THREAD_REPLY_PARTICIPANT_CAP}명: 최근 답글 순으로 distinct author.
+        SELECT ARRAY_AGG(uid ORDER BY last_at DESC) AS ids
+          FROM (
+            SELECT r."authorId" AS uid, MAX(r."createdAt") AS last_at
+              FROM "Message" r
+             WHERE r."parentMessageId" = root.id
+               AND r."deletedAt" IS NULL
+             GROUP BY r."authorId"
+             ORDER BY MAX(r."createdAt") DESC
+             LIMIT ${THREAD_REPLY_PARTICIPANT_CAP}
+          ) top
+      ) parts ON TRUE
+      WHERE root.id IN (${Prisma.join(rootIds.map((id) => Prisma.sql`${id}::uuid`))})
+        AND root."replyCount" > 0
     `);
     for (const r of rows) {
-      out.set(r.parentMessageId, {
+      out.set(r.id, {
         replyCount: Number(r.replyCount),
-        lastRepliedAt: r.lastRepliedAt?.toISOString() ?? null,
+        // 컬럼↔와이어 매핑(S33 fix-forward 문서 갭): DB 컬럼 `Message.latestReplyAt`
+        // (timestamptz) → ThreadSummary 와이어 필드 `lastRepliedAt`(ISO 문자열).
+        // shared-types ThreadSummarySchema 주석과 짝을 이룬다(명칭만 다르고
+        // 의미 동일 — 혼동 방지).
+        lastRepliedAt: r.latestReplyAt?.toISOString() ?? null,
         recentReplyUserIds: r.recentReplyUserIds ?? [],
       });
     }
@@ -879,6 +910,34 @@ export class MessagesService {
           });
         }
 
+        // S33 (FR-TH-16 / FR-TH-17): 답글이면 같은 $transaction 안에서 루트의
+        // 비정규화 카운터를 원자적으로 갱신한다. `replyCount = replyCount + 1`
+        // 은 PostgreSQL 원자 UPDATE 라 동일 루트 동시 답글에도 안전하다(PRD
+        // 동시성 엣지). `deletedAt IS NULL` 가드로 루트가 동시 soft-delete 된
+        // 경우(매칭 0행) no-op — 이미 삭제된 루트의 카운터를 되살리지 않는다.
+        //
+        // S33 fix-forward (MAJOR-1): latestReplyAt 동시성 stale-write 수정.
+        // 종전엔 `latestReplyAt = created.createdAt` 로 절대 set 했는데, 동시
+        // 답글 두 건이 서로 다른 tx 에서 시작하면(각 tx-start 의 now() 가 곧
+        // createdAt) 커밋 순서와 createdAt 순서가 어긋나 더 *과거* createdAt 의
+        // 답글이 더 *최신* 값을 덮어쓸 수 있었다(마지막 답글 시각이 뒤로 감김).
+        // softDelete 의 GREATEST(0, …) 패턴과 일관되게, latestReplyAt 도
+        // `GREATEST(COALESCE(기존, -infinity), 새 createdAt)` 로 단조 증가만
+        // 허용한다 — 과거값은 절대 최신값을 못 덮는다. raw UPDATE 로 표현한다
+        // (Prisma 빌더는 GREATEST 미지원). replyCount 증가는 그대로 원자적.
+        if (created.parentMessageId) {
+          await tx.$executeRaw`
+            UPDATE "Message"
+               SET "replyCount" = "replyCount" + 1,
+                   "latestReplyAt" = GREATEST(
+                     COALESCE("latestReplyAt", '-infinity'::timestamptz),
+                     ${created.createdAt}
+                   )
+             WHERE id = ${created.parentMessageId}::uuid
+               AND "deletedAt" IS NULL
+          `;
+        }
+
         // task-014-B: emit the aggregate thread event when this is a
         // reply. Fan-out = root author + up to 19 recent repliers, minus
         // anyone who was ALREADY toasted via mention.received for this
@@ -1023,24 +1082,22 @@ export class MessagesService {
     replyCreatedAt: Date,
     excludeRecipients: Set<string>,
   ): Promise<MessageThreadRepliedPayload | null> {
+    // S33 (FR-TH-16): 루트 메타를 비정규화 컬럼에서 직접 읽는다. 이 호출은 위
+    // send tx 의 `replyCount +1 / latestReplyAt = 답글 createdAt` UPDATE 뒤에
+    // 일어나므로 두 컬럼은 방금 INSERT 한 답글을 이미 반영한다 — 별도 COUNT/MAX
+    // 집계 쿼리를 돌리지 않는다(GROUP BY 제거).
     const root = await tx.message.findUnique({
       where: { id: rootId },
-      select: { authorId: true, deletedAt: true },
+      select: { authorId: true, deletedAt: true, replyCount: true, latestReplyAt: true },
     });
     if (!root || root.deletedAt) return null;
 
-    // Aggregate replies in the same tx so the count includes the row we
-    // just wrote. `ORDER BY createdAt DESC` for the last-N distinct
-    // repliers; DISTINCT via a subquery so a single chatter doesn't
-    // consume all 20 recipient slots.
-    const rows = await tx.$queryRaw<{ total: bigint; lastAt: Date | null }[]>(Prisma.sql`
-      SELECT COUNT(*)::bigint AS total, MAX("createdAt") AS "lastAt"
-        FROM "Message"
-       WHERE "parentMessageId" = ${rootId}::uuid
-         AND "deletedAt" IS NULL
-    `);
-    const replyCount = Number(rows[0]?.total ?? 0n);
-    const lastAt = rows[0]?.lastAt ?? replyCreatedAt;
+    const replyCount = root.replyCount;
+    const lastAt = root.latestReplyAt ?? replyCreatedAt;
+
+    // recipients 산정에는 여전히 최근 distinct repliers 목록이 필요하므로 이
+    // bounded 쿼리는 유지한다(루트 1쿼리, LIMIT 200 으로 bound). DISTINCT 로
+    // 한 명이 수신자 슬롯을 다 먹지 않게 한다.
 
     const recent = await tx.$queryRaw<{ authorId: string }[]>(Prisma.sql`
       SELECT DISTINCT ON ("authorId") "authorId"
@@ -1054,9 +1111,10 @@ export class MessagesService {
         ) latest
        ORDER BY "authorId", "createdAt" DESC
     `);
-    // Keep the first 3 for the avatar stack; the outbox payload is
-    // small + bounded.
-    const recentReplyUserIds = recent.slice(0, 3).map((r) => r.authorId);
+    // S33 (FR-TH-03/16): 아바타 스택용 최근 답글자 — cap 5(THREAD_REPLY_
+    // PARTICIPANT_CAP). outbox payload 는 bounded 유지. 라이브 thread:reply:new
+    // 수신측이 reply bar 의 replyParticipants(≤5)를 갱신한다.
+    const recentReplyUserIds = recent.slice(0, THREAD_REPLY_PARTICIPANT_CAP).map((r) => r.authorId);
 
     // Recipients: root author first so the dispatcher can check mail
     // priority cheaply, then up to 19 recent repliers, deduped, with
@@ -1332,7 +1390,15 @@ export class MessagesService {
     visibleFrom?: Date | null;
   }): Promise<MessageRow[]> {
     const params: unknown[] = [args.channelId, args.limit];
-    const deletedFilter = args.includeDeleted ? '' : 'AND "deletedAt" IS NULL';
+    // S33 (FR-MSG-09 carryover): 답글이 달린 thread-root 가 soft-delete 되면
+    // 채널 목록에서 제외하지 말고 placeholder 로 유지한다(답글이 부모를 잃지
+    // 않도록 — PRD "루트 소프트삭제 후 스레드" 엣지). `replyCount > 0` 인 삭제
+    // 루트만 살린다(단독 메시지는 기존대로 즉시 제거). toDto 가 deleted:true +
+    // content null 로 마스킹하되 thread 메타(replyCount/latestReplyAt)는 유지해
+    // reply bar 가 계속 노출된다. includeDeleted=true(모더레이터)는 무필터 그대로.
+    const deletedFilter = args.includeDeleted
+      ? ''
+      : 'AND ("deletedAt" IS NULL OR "replyCount" > 0)';
 
     // Build the "cursor comparison" fragment. 4 cases × (before/after) × (incl/excl).
     let cursorSql = '';
@@ -1423,6 +1489,12 @@ export class MessagesService {
       params.push(args.cursor.createdAt, args.cursor.id);
       cursorSql = `AND ("createdAt", id) > ($3::timestamp, $4::uuid)`;
     }
+    // S33 (FR-TH-15): 삭제된 답글도 placeholder 로 반환한다 — `deletedAt IS NULL`
+    // 필터를 제거해 행을 포함하되, toDto 가 deleted:true + content 마스킹(본문 null)
+    // 으로 처리하므로 본문은 새지 않는다. 클라이언트(ThreadReplyRow)는 deleted
+    // 분기로 "(삭제된 답글)" placeholder 를 렌더한다. 커서 페이지네이션/limit/
+    // hasMore/ASC 정렬은 그대로 유지(삭제 행도 시간순 자리를 지킨다 — 스레드
+    // 맥락 보존). replyCount(FR-TH-16)는 비삭제만 세므로 카운트와는 별개다.
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain",
              "contentRaw", "contentAst", "type", mentions,
@@ -1430,7 +1502,6 @@ export class MessagesService {
              "pinnedAt", "pinnedBy", "version"
         FROM "Message"
        WHERE "parentMessageId" = $1::uuid
-             AND "deletedAt" IS NULL
              ${cursorSql}
        ORDER BY "createdAt" ASC, id ASC
        LIMIT $2
@@ -1710,11 +1781,26 @@ export class MessagesService {
         data: { deletedAt },
       });
       if (count === 0) return;
-      // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용 authorId 만.
+      // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용
+      // authorId + S33 카운터 감소 분기용 parentMessageId 를 함께 읽는다.
       const updated = await tx.message.findUniqueOrThrow({
         where: { id: args.msgId },
-        select: { id: true, authorId: true },
+        select: { id: true, authorId: true, parentMessageId: true },
       });
+      // S33 (FR-TH-16 / FR-TH-17): 삭제된 메시지가 답글이면 루트의 비정규화
+      // replyCount 를 같은 $transaction 안에서 원자적으로 감소시킨다.
+      // `GREATEST(0, replyCount - 1)` 로 음수를 방지(중복 삭제/drift 방어).
+      // latestReplyAt 은 굳이 직전 답글로 되감지 않는다 — 마지막 답글이 삭제돼도
+      // "마지막 활동 시각" 표시는 보수적으로 유지하고, 정확한 재계산은 1시간
+      // 재집계 job(S34/운영)이 drift 로 정정한다(과도한 추가 쿼리 회피).
+      // raw UPDATE 로 GREATEST 를 표현한다(Prisma 빌더는 GREATEST 미지원).
+      if (updated.parentMessageId) {
+        await tx.$executeRaw`
+          UPDATE "Message"
+             SET "replyCount" = GREATEST(0, "replyCount" - 1)
+           WHERE id = ${updated.parentMessageId}::uuid
+        `;
+      }
       const payload: MessageDeletedPayload = {
         workspaceId: args.workspaceId,
         channelId: args.channelId,

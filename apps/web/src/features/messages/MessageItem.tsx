@@ -20,6 +20,7 @@ import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 import { LinkPreview } from './LinkPreview';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
+import { canStartThread, threadChipVisible as computeThreadChipVisible } from './threadActionGate';
 
 type Props = {
   msg: MessageDto;
@@ -154,7 +155,12 @@ export function MessageItem({
     typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
 
   const thread = msg.thread;
-  const threadChipVisible = !!onOpenThread && !!thread && thread.replyCount > 0;
+  // S33 fix-forward (MAJOR-2 + NIT-2): chip 가시성은 순수 게이트로 위임한다.
+  // 삭제된 thread-root placeholder 는 chip 을 숨겨야 한다 — GET /thread 가
+  // deletedAt:null 루트만 200 을 돌려주므로, 삭제 루트에서 chip 클릭 시 404.
+  // (현재는 deleted 메시지가 컴포넌트 상단에서 조기 반환되어 이 라인에 닿지
+  // 않지만, 게이트에 deleted 조건을 박아 회귀 방지선을 둔다.)
+  const threadChipVisible = computeThreadChipVisible(msg, thread, !!onOpenThread);
 
   // task-041 A-2: skeleton overlay during edit/delete. Reduces opacity
   // + adds a small inline label so the user sees the row is being
@@ -392,7 +398,9 @@ export function MessageItem({
                 <Icon name="reaction-add" size="sm" />
               </button>
             ) : null}
-            {onOpenThread && !msg.id.startsWith('tmp-') && !msg.parentMessageId ? (
+            {/* S33 (FR-TH-01): 루트 메시지에만 'Reply in thread' 노출.
+               답글(parentMessageId 보유)·낙관적(tmp-) 행은 게이트가 막는다. */}
+            {onOpenThread && canStartThread(msg, true) ? (
               <button
                 type="button"
                 data-testid={`msg-thread-btn-${msg.id}`}

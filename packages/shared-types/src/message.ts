@@ -72,15 +72,22 @@ export const ReactionSummarySchema = z.object({
 });
 export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
 
-// Task-014-B: root messages expose a thread summary. All three fields
-// come from the same GROUP BY aggregate over replies — replyCount is
-// the COUNT, lastRepliedAt the MAX(createdAt), recentReplyUserIds the
-// last 3 distinct authors (for the avatar stack). `null`/`[]` when
-// there are no replies yet so the UI can suppress the summary row.
+// Task-014-B / S33 (FR-TH-16): root messages expose a thread summary
+// (PRD threadMeta). replyCount / lastRepliedAt(=latestReplyAt) 는 S33 의
+// Message 비정규화 컬럼을 직접 반환하며 별도 집계 쿼리를 돌리지 않는다.
+// recentReplyUserIds(=replyParticipants)는 N+1 없는 bounded LATERAL 로
+// 모은 최근 distinct author 들로, 아바타 스택용이다. `null`/`[]` 는 답글이
+// 없을 때(UI 가 reply bar 를 감춘다)를 뜻한다.
+// S33: cap 을 3 → 5 로 상향(FR-TH-03/16 "최초 답글자 최대 5명"). 서버
+// THREAD_REPLY_PARTICIPANT_CAP 과 동일 값을 유지한다.
 export const ThreadSummarySchema = z.object({
   replyCount: z.number().int().nonnegative(),
+  // 컬럼↔와이어 매핑(S33 fix-forward 문서 갭): DB 컬럼명은 `Message.latestReplyAt`
+  // (timestamptz)이고, 와이어 필드명은 `lastRepliedAt`(ISO 문자열)다. 서버
+  // aggregateThreadSummaries 가 `latestReplyAt` → `lastRepliedAt` 으로 변환해
+  // 직렬화한다(런타임 정합은 OK, 명칭만 다름 — 혼동 방지용 주석).
   lastRepliedAt: z.string().datetime().nullable(),
-  recentReplyUserIds: z.array(z.string().uuid()).max(3),
+  recentReplyUserIds: z.array(z.string().uuid()).max(5),
 });
 export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 
