@@ -40,10 +40,15 @@ const TONE_CLASS: Record<SystemMeta['tone'], string> = {
 export function SystemMessage({
   msg,
   onOpenThread,
+  onDelete,
 }: {
   msg: MessageDto;
   // S35 (FR-TH-06): broadcast 행 클릭 시 스레드를 연다(parentMessageId = 루트).
   onOpenThread?: (rootId: string) => void;
+  // S51 (FR-PS-15): SYSTEM_PIN 행은 채널 멤버 누구나 삭제할 수 있다(Discord 방식).
+  // 부모가 onDelete 를 전달하면(SYSTEM_PIN 행에 한해) 인라인 X 삭제 버튼을 노출한다.
+  // 삭제해도 원본 핀은 유지된다(서버 게이트가 보장).
+  onDelete?: () => void | Promise<void>;
 }): JSX.Element {
   // S35 (FR-TH-06): broadcast 행은 일반 SYSTEM 템플릿 행과 달리, 채널에 게시된
   // 답글 본문 + "스레드에 답글" 레이블 + 루트 excerpt 를 보여주고 클릭 시
@@ -78,6 +83,19 @@ export function SystemMessage({
       <time className="qf-message__time not-italic" dateTime={msg.createdAt}>
         {new Date(msg.createdAt).toLocaleTimeString()}
       </time>
+      {/* S51 (FR-PS-15): SYSTEM_PIN 행 인라인 삭제(X). 부모가 onDelete 를 전달한
+         경우(SYSTEM_PIN 한정)만 노출 — 채널 멤버 누구나 삭제 가능하며 원본 핀은 유지. */}
+      {onDelete && msg.type === 'SYSTEM_PIN' ? (
+        <button
+          type="button"
+          data-testid={`msg-system-delete-${msg.id}`}
+          onClick={() => void onDelete()}
+          aria-label="시스템 메시지 삭제"
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm not-italic"
+        >
+          <Icon name="trash" size="sm" />
+        </button>
+      ) : null}
     </div>
   );
 }

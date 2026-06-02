@@ -202,6 +202,9 @@ function GeneralSection({
   const [description, setDescription] = useState(channel.description ?? '');
   // S15 (FR-CH-08): 슬로우모드 간격(초). 0=비활성.
   const [slowmodeSeconds, setSlowmodeSeconds] = useState<number>(channel.slowmodeSeconds ?? 0);
+  // S51 (FR-PS-05): 핀 권한 토글. true=멤버 전체 허용, false=관리자만. 즉시 PATCH 한다
+  // (공개범위 토글과 동일하게 별도 저장 버튼 없이 토글 즉시 반영).
+  const [pinSubmitting, setPinSubmitting] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   // S14 (FR-CH-05): 공개/비공개 전환. 비공개→공개는 2단계 confirm 모달을 거친다.
   const [privacyConfirmOpen, setPrivacyConfirmOpen] = useState(false);
@@ -226,6 +229,28 @@ function GeneralSection({
         notify({ variant: 'danger', title: '전환 실패', body: (err as Error).message });
       } finally {
         setPrivacySubmitting(false);
+      }
+    })();
+  };
+
+  // S51 (FR-PS-05): 핀 권한 토글. memberCanPin 을 반전해 즉시 PATCH 한다.
+  const togglePinPermission = (): void => {
+    void (async () => {
+      setPinSubmitting(true);
+      const next = !channel.memberCanPin;
+      try {
+        await updateMut.mutateAsync({ id: channel.id, patch: { memberCanPin: next } });
+        notify({
+          variant: 'success',
+          title: next ? '멤버 전체 허용' : '관리자만 고정',
+          body: next
+            ? '이제 채널 멤버 누구나 메시지를 고정할 수 있어요.'
+            : '이제 관리자만 메시지를 고정할 수 있어요.',
+        });
+      } catch (err) {
+        notify({ variant: 'danger', title: '변경 실패', body: (err as Error).message });
+      } finally {
+        setPinSubmitting(false);
       }
     })();
   };
@@ -386,6 +411,26 @@ function GeneralSection({
             onClick={togglePrivacy}
           >
             {channel.isPrivate ? '공개로 전환' : '비공개로 전환'}
+          </Button>
+        </div>
+      </div>
+      {/* S51 (FR-PS-05): 핀 권한 — 멤버 전체 허용 vs 관리자만. 즉시 토글. */}
+      <div className="qf-field">
+        <span className="qf-field__label">핀 권한</span>
+        <div className="flex items-center justify-between gap-[var(--s-4)]">
+          <p className="qf-field__hint m-0">
+            {channel.memberCanPin
+              ? '채널 멤버 누구나 메시지를 고정할 수 있어요.'
+              : '관리자만 메시지를 고정할 수 있어요.'}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid="channel-settings-pin-permission-toggle"
+            disabled={pinSubmitting}
+            onClick={togglePinPermission}
+          >
+            {channel.memberCanPin ? '관리자만 고정으로 변경' : '멤버 전체 허용으로 변경'}
           </Button>
         </div>
       </div>
