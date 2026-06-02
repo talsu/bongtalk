@@ -122,6 +122,37 @@ describe('Threads API — GET /messages/:id/thread (task-014-B)', () => {
     expect(r.status).toBe(404);
     expect(r.body.errorCode).toBe('MESSAGE_NOT_FOUND');
   });
+
+  // S33 (FR-TH-15): 삭제된 답글도 placeholder 로 목록에 남는다(시간순 자리 유지,
+  // 본문 마스킹, deleted:true). 커서 페이지네이션은 그대로 유지된다.
+  it('soft-deleted replies stay in the thread list as masked placeholders', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root message');
+    const r1 = await postReply(stack.admin.accessToken, rootId, 'keep me');
+    const doomed = await postReply(stack.owner.accessToken, rootId, 'secret to be deleted');
+    const r3 = await postReply(stack.member.accessToken, rootId, 'after deletion');
+
+    await request(env.baseUrl)
+      .delete(
+        `/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${doomed.body.message!.id}`,
+      )
+      .set(bearer(stack.owner.accessToken))
+      .expect(204);
+
+    const r = await request(env.baseUrl)
+      .get(`/messages/${rootId}/thread?limit=50`)
+      .set(bearer(stack.member.accessToken));
+    expect(r.status).toBe(200);
+    // 3개 답글 모두 반환(삭제 1개 포함) — 제외하지 않음.
+    expect(r.body.replies).toHaveLength(3);
+    const ids = r.body.replies.map((m: { id: string }) => m.id);
+    expect(ids).toEqual([r1.body.message!.id, doomed.body.message!.id, r3.body.message!.id]);
+    // 삭제 답글은 deleted:true + 본문 마스킹.
+    const deletedRow = r.body.replies.find((m: { id: string }) => m.id === doomed.body.message!.id);
+    expect(deletedRow.deleted).toBe(true);
+    expect(deletedRow.content).toBeNull();
+    // 본문 평문이 새지 않는지 확인.
+    expect(JSON.stringify(deletedRow)).not.toContain('secret to be deleted');
+  });
 });
 
 describe('Threads API — outbox fanout (task-014-B)', () => {
@@ -137,7 +168,14 @@ describe('Threads API — outbox fanout (task-014-B)', () => {
       },
       orderBy: { occurredAt: 'asc' },
     });
-    const created = events.find((e) => e.eventType === 'message.created')!;
+    // S33 (FR-TH-02): the query matches BOTH the root's and the reply's
+    // message.created (root + reply aggregateIds). The reply event is the
+    // one that must carry parentMessageId — select it by its aggregateId
+    // (the reply message id), not the first-by-occurredAt (which is the
+    // root's created with parentMessageId=null).
+    const created = events.find(
+      (e) => e.eventType === 'message.created' && e.aggregateId === reply.body.message!.id,
+    )!;
     const replied = events.find((e) => e.eventType === 'message.thread.replied')!;
     expect(created).toBeTruthy();
     expect(replied).toBeTruthy();
