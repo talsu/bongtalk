@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { ActiveChannelMute, ListChannelMutesResponse } from '@qufox/shared-types';
 import { apiRequest } from '../../lib/api';
 import { removeChannelMute, setChannelMute } from './api';
 
@@ -10,16 +11,14 @@ import { removeChannelMute, setChannelMute } from './api';
  * mutedUntil null=무기한 / 미래=만료전 을 query-time 에 필터링하므로 클라는
  * 만료 판정 불필요). 사이드바 채널 행(FR-RS-05)과 DM 행(FR-DM-15)이 동일
  * channelId 집합으로 뮤트 여부를 조회한다.
+ *
+ * S49 (FR-MN-17): 응답이 channelName·workspaceId·workspaceName 로 보강됐다(설정
+ * 화면 뮤트 목록용). 사이드바 경로는 channelId·mutedUntil 만 쓰므로 무영향이다.
+ * 단일 출처로 묶기 위해 ActiveMute = 카노니컬 ActiveChannelMute 로 둔다.
  */
-export interface ActiveMute {
-  channelId: string;
-  /** ISO 8601 또는 null(무기한). */
-  mutedUntil: string | null;
-}
+export type ActiveMute = ActiveChannelMute;
 
-interface MutesResponse {
-  items: ActiveMute[];
-}
+type MutesResponse = ListChannelMutesResponse;
 
 export function useMutes() {
   return useQuery({
@@ -39,7 +38,10 @@ export function useMutes() {
  * (mutedUntil=null) 또는 `mutedUntil > now` 인 항목만 활성으로 본다
  * (staleTime 30s 갭 보정). 순수 함수로 빼 결정적으로 단위 검증한다.
  */
-export function activeMutedChannelIds(items: ActiveMute[], now: number): Set<string> {
+export function activeMutedChannelIds(
+  items: ReadonlyArray<Pick<ActiveMute, 'channelId' | 'mutedUntil'>>,
+  now: number,
+): Set<string> {
   const active = items.filter(
     (m) => m.mutedUntil == null || new Date(m.mutedUntil).getTime() > now,
   );

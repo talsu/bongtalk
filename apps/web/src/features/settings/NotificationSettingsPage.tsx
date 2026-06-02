@@ -22,6 +22,7 @@ import { NotifLevelRadio } from '../notifications/NotifLevelRadio';
 import { DndSnoozeControl } from '../notifications/DndSnoozeControl';
 import { KeywordsInput } from '../notifications/KeywordsInput';
 import { ServerNotifSettings } from '../notifications/ServerNotifSettings';
+import { MuteListSection } from '../notifications/MuteListSection';
 
 const EVENT_TYPES: readonly NotificationEventType[] = [
   'MENTION',
@@ -215,6 +216,9 @@ export function NotificationSettingsPage(): JSX.Element {
             onLimitExceeded={onKeywordLimit}
           />
         </section>
+
+        {/* S49 (FR-MN-17): "현재 뮤트 중" 채널/서버 목록 + 남은 시간 + 개별 해제. */}
+        <MuteListSection />
 
         {/* B-01: tablist — 각 탭 id + aria-controls, 패널 role=tabpanel + aria-labelledby. */}
         <div className="qf-tabs mb-[var(--s-5)]" role="tablist">
