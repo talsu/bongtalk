@@ -2,6 +2,7 @@ import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   WS_EVENTS,
   ReactionUpdatedPayloadSchema,
+  ReactionClearedPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -832,6 +833,53 @@ export function installRealtimeDispatcher(
     // task-026-E: 내 메시지에 달린 반응은 Activity 인박스에 반영 — list + unread
     // 카운트를 무효화해 Bell / tabbar 배지가 ~1 RTT 안에 갱신되게 한다.
     qc.invalidateQueries({ queryKey: ['me', 'activity'] });
+    // S40 fix-forward (HIGH): reactor 목록 모달이 열려 있을 때 같은 메시지의 반응이
+    // 바뀌면 그 목록도 stale 해진다. `['reactions','users', messageId]` prefix
+    // (qk.reactions.users 가 만드는 `[...,msgId,emoji]` 키의 상위)로 무효화해 다음
+    // authoritative read 로 재수렴시킨다(emoji 별로 따로 걸지 않고 메시지 단위 일괄).
+    qc.invalidateQueries({ queryKey: ['reactions', 'users', payload.messageId] });
+  });
+
+  // ---------- Reactions cleared (S40 · FR-RE09) ----------
+  // reaction:cleared 는 OWNER/ADMIN 이 메시지의 *전체* 반응을 일괄 삭제했음을 알린다.
+  // 집계가 없으므로 해당 messageId 의 reactions 를 통째로 비운다(full clear). 채널 룸
+  // fanout 이라 메시지 목록 캐시(3-tuple `['messages', wsId, chId]`)에서 해당 행을 찾아
+  // reactions: [] 로 patch 한다(reaction:updated 의 캐시 선별 로직과 동일 형태 가드).
+  on<{ messageId: string; channelId: string }>(WS_EVENTS.REACTION_CLEARED, (env) => {
+    if (!env.channelId || !env.messageId) return;
+    const parsed = ReactionClearedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { messageId } = parsed.data;
+    const listKeys = qc
+      .getQueryCache()
+      .findAll({ queryKey: ['messages'] })
+      .map((q) => q.queryKey)
+      .filter(
+        (k): k is readonly [string, string, string] =>
+          Array.isArray(k) && k.length === 3 && k[0] === 'messages' && k[1] !== 'thread',
+      );
+    for (const key of listKeys) {
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(key, (old) => {
+        if (!old) return old;
+        let changed = false;
+        const pages = old.pages.map((p) => {
+          if (!p.items.some((m) => m.id === messageId && (m.reactions ?? []).length > 0)) return p;
+          changed = true;
+          return {
+            ...p,
+            items: p.items.map((m) => (m.id === messageId ? { ...m, reactions: [] } : m)),
+          };
+        });
+        return changed ? { ...old, pages } : old;
+      });
+    }
+    // S40 fix-forward (HIGH): 전체 반응이 비워졌으니 이 메시지의 열린 reactor 목록
+    // 캐시(`['reactions','users', messageId]` prefix)를 제거한다 — 일괄 삭제 후에는
+    // 모든 reactor 가 사라지므로 invalidate(재요청 후 빈 목록)보다 removeQueries 로
+    // 즉시 파기하는 편이 stale 목록 깜빡임을 막는다. (out-of-order 로 cleared 뒤
+    // 도착한 reaction:updated 가 반응을 부활시키는 극희귀 케이스는 다음 authoritative
+    // read 가 self-heal 한다 — 별도 처리 불요.)
+    qc.removeQueries({ queryKey: ['reactions', 'users', messageId] });
   });
 
   // ---------- Channels ----------
@@ -1058,6 +1106,8 @@ export const DISPATCHED_EVENTS = [
   // S39 (FR-RE03): 반응 추가/제거 통합 wire 이벤트(full-replace). 종전의
   // message.reaction.added / .removed 를 단일 reaction:updated 로 대체.
   'reaction:updated',
+  // S40 (FR-RE09): OWNER/ADMIN 의 메시지 전체 반응 일괄 삭제(full clear).
+  'reaction:cleared',
   'message.thread.replied',
   // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
   'message.thread.broadcast',

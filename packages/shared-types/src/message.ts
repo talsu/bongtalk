@@ -243,6 +243,35 @@ export const ListReactionsResponseSchema = z.object({
 });
 export type ListReactionsResponse = z.infer<typeof ListReactionsResponseSchema>;
 
+// ── S40 (FR-RE05): GET /messages/:id/reactions/:emoji/users ─────────────────
+// 한 이모지에 반응한 *전체* reactor 목록을 cursor 기반 페이지네이션으로 반환한다
+// (기본 limit 50, 최대 100). FR-RE04 의 GET reactions 가 이모지당 최대 5명만
+// 싣는 것과 달리, 이 엔드포인트는 "👍 32명" 칩을 눌렀을 때 32명 전원을 무한
+// 스크롤로 펼치기 위한 것이다. 정렬은 (createdAt ASC, id ASC) — 최초 반응자부터
+// 안정 정렬하며, `nextCursor` 는 메시지 목록과 동일한 opaque base64url({id,createdAt})
+// 토큰이다(더 페이지가 없으면 null). user 항목은 id + username(미해결 시 null)만
+// 노출한다(PII 최소화 — ReactionUserLite 재사용).
+export const ListReactionUsersResponseSchema = z.object({
+  users: z.array(ReactionUserLiteSchema),
+  nextCursor: z.string().nullable(),
+});
+export type ListReactionUsersResponse = z.infer<typeof ListReactionUsersResponseSchema>;
+
+// FR-RE05: reactor 목록 페이지네이션 한도. 기본 50 / 최대 100(메시지 목록과 동일).
+export const REACTION_USERS_DEFAULT_LIMIT = 50;
+export const REACTION_USERS_MAX_LIMIT = 100;
+
+export const ListReactionUsersQuerySchema = z.object({
+  cursor: CursorStringSchema.optional(),
+  limit: z.coerce
+    .number()
+    .int()
+    .min(1)
+    .max(REACTION_USERS_MAX_LIMIT)
+    .default(REACTION_USERS_DEFAULT_LIMIT),
+});
+export type ListReactionUsersQuery = z.infer<typeof ListReactionUsersQuerySchema>;
+
 export const SendMessageRequestSchema = z.object({
   content: MessageContentSchema,
   // S03 (FR-MSG-04): clientNonce — a UUID v4 the client generates ONCE per
