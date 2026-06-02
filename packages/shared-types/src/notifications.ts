@@ -70,8 +70,12 @@ export type NotifLevel = z.infer<typeof NotifLevelSchema>;
 /**
  * S46 (FR-MN-06/07/08): 서버/채널 뮤트 기간 키. 'forever' = 영구(muteUntil null).
  * 그 외는 now + 해당 밀리초의 muteUntil 시각으로 변환한다.
+ *
+ * S49 fix-forward (contract HIGH): '3h' 추가 — web(useMutes·ChannelList MUTE_DURATIONS)이
+ * PRD(FR-CH-17: 15분/1시간/3시간/8시간/24시간/무기한)대로 이미 '3h' 를 보내지만 이
+ * 카노니컬 enum 에는 빠져 있어 drift 였다. 서버 muteUntilFrom('3h') 매핑도 함께 보강.
  */
-export const MuteDurationKeySchema = z.enum(['15m', '1h', '8h', '24h', 'forever']);
+export const MuteDurationKeySchema = z.enum(['15m', '1h', '3h', '8h', '24h', 'forever']);
 export type MuteDurationKey = z.infer<typeof MuteDurationKeySchema>;
 
 // ── 글로벌 (UserSettings.notifTrigger) — GET/PATCH /me/settings/notifications ──
@@ -153,6 +157,55 @@ export const PutChannelNotificationPreferenceRequestSchema = z
 export type PutChannelNotificationPreferenceRequest = z.infer<
   typeof PutChannelNotificationPreferenceRequestSchema
 >;
+
+// ── 뮤트 목록 (FR-MN-17) — GET /me/mutes · GET /me/server-mutes ──────────────
+
+/**
+ * S49 (D06 / FR-MN-17): "현재 뮤트 중" 목록의 채널 항목.
+ *
+ * 기존 GET /me/mutes 응답({channelId, mutedUntil, createdAt})을 Channel/Workspace
+ * join 으로 보강한다 — 설정 화면의 뮤트 목록이 채널명·소속 서버명을 곧장 표시한다.
+ * 삭제 채널(Channel.deletedAt IS NOT NULL)은 서버가 제외한다(목록에 노출 안 함).
+ * isMuted=true 활성 뮤트만(만료 행은 query-time 제외 — listActiveMutes 정책 유지).
+ *
+ * workspaceId/workspaceName 은 nullable — DM 채널(workspaceId NULL)은 서버 소속이
+ * 없으므로 null 이다(목록은 "DM" 로 렌더할 수 있다).
+ */
+export const ActiveChannelMuteSchema = z.object({
+  channelId: UuidSchema,
+  channelName: z.string(),
+  workspaceId: UuidSchema.nullable(),
+  workspaceName: z.string().nullable(),
+  mutedUntil: z.string().datetime().nullable(),
+  createdAt: z.string().datetime(),
+});
+export type ActiveChannelMute = z.infer<typeof ActiveChannelMuteSchema>;
+
+export const ListChannelMutesResponseSchema = z.object({
+  items: z.array(ActiveChannelMuteSchema),
+});
+export type ListChannelMutesResponse = z.infer<typeof ListChannelMutesResponseSchema>;
+
+/**
+ * S49 (FR-MN-17): "현재 뮤트 중" 목록의 서버(워크스페이스) 항목.
+ *
+ * ServerNotificationPref 중 isMuted=true 이고 (muteUntil IS NULL=영구 | muteUntil>now)
+ * 인 활성 서버 뮤트만. level 은 동반 표시용(서버 알림 수준). workspaceIconUrl 은
+ * 미설정 시 null(기본 아바타).
+ */
+export const ActiveServerMuteSchema = z.object({
+  workspaceId: UuidSchema,
+  workspaceName: z.string(),
+  workspaceIconUrl: z.string().nullable(),
+  muteUntil: z.string().datetime().nullable(),
+  level: NotifLevelSchema,
+});
+export type ActiveServerMute = z.infer<typeof ActiveServerMuteSchema>;
+
+export const ListServerMutesResponseSchema = z.object({
+  items: z.array(ActiveServerMuteSchema),
+});
+export type ListServerMutesResponse = z.infer<typeof ListServerMutesResponseSchema>;
 
 /**
  * S46 (선택): WS 이벤트 `notification:prefs_updated` payload. 다기기 반영용.

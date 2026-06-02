@@ -75,6 +75,8 @@ function normalizeKeywords(raw: string[]): string[] {
 const MUTE_DURATION_MS: Record<Exclude<MuteDurationKey, 'forever'>, number> = {
   '15m': 15 * 60_000,
   '1h': 60 * 60_000,
+  // S49 fix-forward (contract HIGH): '3h' 카노니컬 enum 에 추가됨 — 서버 매핑 동반.
+  '3h': 3 * 60 * 60_000,
   '8h': 8 * 60 * 60_000,
   '24h': 24 * 60 * 60_000,
 };

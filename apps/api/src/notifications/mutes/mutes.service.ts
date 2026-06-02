@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { PrismaClient } from '@prisma/client';
+import type { NotifLevel, PrismaClient } from '@prisma/client';
 import { PrismaService } from '../../prisma/prisma.module';
 
 /**
@@ -24,6 +24,32 @@ export type MuteRow = {
   channelId: string;
   mutedUntil: Date | null;
   createdAt: Date;
+};
+
+/**
+ * S49 (D06 / FR-MN-17): "현재 뮤트 중" 채널 목록 항목 — Channel/Workspace join 으로
+ * 보강한 활성 채널 뮤트 1행. 삭제 채널(Channel.deletedAt)은 listActiveMutesDetailed
+ * 가 제외하므로 여기엔 등장하지 않는다. workspaceId/workspaceName 은 DM(workspace
+ * 없음)이면 null.
+ */
+export type DetailedMuteRow = {
+  channelId: string;
+  channelName: string;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  mutedUntil: Date | null;
+  createdAt: Date;
+};
+
+/**
+ * S49 (FR-MN-17): "현재 뮤트 중" 서버(워크스페이스) 목록 항목 — 활성 서버 뮤트 1행.
+ */
+export type ServerMuteRow = {
+  workspaceId: string;
+  workspaceName: string;
+  workspaceIconUrl: string | null;
+  muteUntil: Date | null;
+  level: NotifLevel;
 };
 
 @Injectable()
@@ -102,6 +128,128 @@ export class MutesService {
       channelId: r.channelId,
       mutedUntil: r.mutedUntil,
       createdAt: r.createdAt,
+    }));
+  }
+
+  /**
+   * S49 (D06 / FR-MN-17): "현재 뮤트 중" 채널 목록(보강판). listActiveMutes 와 같은
+   * 활성 판정(isMuted=true && (mutedUntil null=영구 | mutedUntil>now))을 쓰되,
+   * Channel/Workspace 를 join 해 channelName·workspaceId·workspaceName 을 함께
+   * 반환한다. **삭제 채널(Channel.deletedAt IS NOT NULL)은 제외**한다 — relation
+   * filter `channel: { deletedAt: null }` 로 query-time 에 거른다(목록에 유령
+   * 채널이 남지 않도록). 정렬: createdAt DESC(최근 뮤트가 위).
+   */
+  async listActiveMutesDetailed(userId: string): Promise<DetailedMuteRow[]> {
+    const now = new Date();
+    const rows = await this.prisma.userChannelMute.findMany({
+      where: {
+        userId,
+        isMuted: true,
+        OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
+        // FR-MN-17: 삭제 채널 제외 — soft-deleted 채널은 목록에 노출하지 않는다.
+        channel: { deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        channelId: true,
+        mutedUntil: true,
+        createdAt: true,
+        channel: {
+          select: {
+            name: true,
+            displayName: true,
+            // S49 fix-forward (MAJOR): DIRECT 여부로 1:1 DM slug 노출을 차단한다.
+            type: true,
+            workspaceId: true,
+            workspace: { select: { name: true } },
+            // S49 fix-forward (MAJOR): 1:1 DM(displayName null)일 때 상대방 username 으로
+            // 채널명을 해석하기 위한 멤버 override(본인 제외 USER principal). DM 목록
+            // resolver(direct-messages.service.list)의 peer 조인과 동일 원리다. 그룹 DM
+            // (gdm:%)은 displayName 이 있어 이 분기에 거의 오지 않지만, 안전하게 본인
+            // 제외 USER principal 의 username 을 모아 fallback("다이렉트 메시지")로 둔다.
+            overrides: {
+              where: { principalType: 'USER', principalId: { not: userId } },
+              select: { principalId: true },
+            },
+          },
+        },
+      },
+    });
+
+    // 1:1 DM(DIRECT·displayName null) 의 상대방 username 을 일괄 해석한다(N+1 회피).
+    const peerIds = new Set<string>();
+    for (const r of rows) {
+      const ch = r.channel;
+      if (ch.type === 'DIRECT' && ch.displayName == null) {
+        for (const o of ch.overrides) peerIds.add(o.principalId);
+      }
+    }
+    const peerNameById = new Map<string, string>();
+    if (peerIds.size > 0) {
+      const peers = await this.prisma.user.findMany({
+        where: { id: { in: [...peerIds] } },
+        select: { id: true, username: true },
+      });
+      for (const p of peers) peerNameById.set(p.id, p.username);
+    }
+
+    return rows.map((r) => {
+      const ch = r.channel;
+      let channelName: string;
+      if (ch.displayName != null) {
+        // group DM 표시명·향후 일반 채널 별칭 — 사용자 지정 표시명을 우선.
+        channelName = ch.displayName;
+      } else if (ch.type === 'DIRECT') {
+        // 1:1 DM: 상대방 username 으로 해석. 해석 실패(상대 삭제 등) 시에도
+        // raw slug(`dm:<uuid>:<uuid>`)가 UI/aria-label 에 새지 않도록 안전 fallback.
+        const resolved = ch.overrides
+          .map((o) => peerNameById.get(o.principalId))
+          .find((name): name is string => name != null);
+        channelName = resolved ?? '다이렉트 메시지';
+      } else {
+        channelName = ch.name;
+      }
+      return {
+        channelId: r.channelId,
+        channelName,
+        workspaceId: ch.workspaceId,
+        workspaceName: ch.workspace?.name ?? null,
+        mutedUntil: r.mutedUntil,
+        createdAt: r.createdAt,
+      };
+    });
+  }
+
+  /**
+   * S49 (FR-MN-17): "현재 뮤트 중" 서버(워크스페이스) 목록. ServerNotificationPref
+   * 중 isMuted=true 이고 (muteUntil null=영구 | muteUntil>now)인 활성 서버 뮤트만
+   * Workspace join 해 반환한다. 삭제 워크스페이스(Workspace.deletedAt)는 제외한다.
+   * 정렬: createdAt DESC. 만료 행은 cron sweep 전에도 query-time 에 제외된다.
+   */
+  async listActiveServerMutes(userId: string): Promise<ServerMuteRow[]> {
+    const now = new Date();
+    const rows = await this.prisma.serverNotificationPref.findMany({
+      where: {
+        userId,
+        isMuted: true,
+        OR: [{ muteUntil: null }, { muteUntil: { gt: now } }],
+        // 삭제 워크스페이스 제외 — 채널 뮤트와 대칭.
+        workspace: { deletedAt: null },
+      },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        workspaceId: true,
+        muteUntil: true,
+        level: true,
+        workspace: { select: { name: true, iconUrl: true } },
+      },
+    });
+    return rows.map((r) => ({
+      workspaceId: r.workspaceId,
+      workspaceName: r.workspace.name,
+      workspaceIconUrl: r.workspace.iconUrl,
+      muteUntil: r.muteUntil,
+      level: r.level,
     }));
   }
 

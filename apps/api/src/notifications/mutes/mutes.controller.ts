@@ -26,12 +26,21 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
 export class MutesController {
   constructor(private readonly mutes: MutesService) {}
 
+  /**
+   * S49 (D06 / FR-MN-17): "현재 뮤트 중" 채널 목록. 기존 사이드바 뮤트 조회와 같은
+   * 엔드포인트지만 응답을 Channel/Workspace join 으로 보강한다(channelName·
+   * workspaceId·workspaceName). 삭제 채널은 서버가 제외한다(listActiveMutesDetailed).
+   * 활성(isMuted=true, 미만료) 뮤트만 노출한다.
+   */
   @Get()
   async list(@CurrentUser() user: CurrentUserPayload) {
-    const items = await this.mutes.listActiveMutes(user.id);
+    const items = await this.mutes.listActiveMutesDetailed(user.id);
     return {
       items: items.map((r) => ({
         channelId: r.channelId,
+        channelName: r.channelName,
+        workspaceId: r.workspaceId,
+        workspaceName: r.workspaceName,
         mutedUntil: r.mutedUntil ? r.mutedUntil.toISOString() : null,
         createdAt: r.createdAt.toISOString(),
       })),
