@@ -14,19 +14,23 @@ function makeService(prismaStub: {
   upsert?: ReturnType<typeof vi.fn>;
   deleteMany?: ReturnType<typeof vi.fn>;
   findMany?: ReturnType<typeof vi.fn>;
+  findUnique?: ReturnType<typeof vi.fn>;
+  update?: ReturnType<typeof vi.fn>;
 }) {
   const prisma = {
     userChannelMute: {
       upsert: prismaStub.upsert ?? vi.fn(),
       deleteMany: prismaStub.deleteMany ?? vi.fn(),
       findMany: prismaStub.findMany ?? vi.fn().mockResolvedValue([]),
+      findUnique: prismaStub.findUnique ?? vi.fn().mockResolvedValue(null),
+      update: prismaStub.update ?? vi.fn(),
     },
   } as unknown as ConstructorParameters<typeof MutesService>[0];
   return new MutesService(prisma);
 }
 
 describe('MutesService.setMute', () => {
-  it('upsert 호출 — 신규 mute', async () => {
+  it('upsert 호출 — 신규 mute (S46: isMuted=true 명시 set)', async () => {
     const upsert = vi.fn().mockResolvedValue({
       channelId: CHAN_A,
       mutedUntil: null,
@@ -37,6 +41,10 @@ describe('MutesService.setMute', () => {
     expect(upsert).toHaveBeenCalledOnce();
     expect(result.channelId).toBe(CHAN_A);
     expect(result.mutedUntil).toBeNull();
+    // S46 fix-forward (BLOCKER 3): create/update 모두 isMuted=true 를 set.
+    const args = upsert.mock.calls[0][0];
+    expect(args.create.isMuted).toBe(true);
+    expect(args.update.isMuted).toBe(true);
   });
 
   it('mutedUntil 시각 갱신', async () => {
@@ -53,16 +61,42 @@ describe('MutesService.setMute', () => {
 });
 
 describe('MutesService.removeMute', () => {
-  it('deleteMany 호출 — 미존재 시도 idempotent', async () => {
+  it('미존재면 idempotent — 아무 쓰기도 안 함', async () => {
+    const findUnique = vi.fn().mockResolvedValue(null);
     const deleteMany = vi.fn().mockResolvedValue({ count: 0 });
-    const svc = makeService({ deleteMany });
+    const update = vi.fn();
+    const svc = makeService({ findUnique, deleteMany, update });
+    await svc.removeMute({ userId: USER_A, channelId: CHAN_A });
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('level 상속(null) 행 → 삭제', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ level: null });
+    const deleteMany = vi.fn().mockResolvedValue({ count: 1 });
+    const update = vi.fn();
+    const svc = makeService({ findUnique, deleteMany, update });
     await svc.removeMute({ userId: USER_A, channelId: CHAN_A });
     expect(deleteMany).toHaveBeenCalledOnce();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('S46 fix-forward (HIGH): level 오버라이드 보존 → isMuted=false·mutedUntil=null update', async () => {
+    const findUnique = vi.fn().mockResolvedValue({ level: 'NOTHING' });
+    const deleteMany = vi.fn();
+    const update = vi.fn().mockResolvedValue({});
+    const svc = makeService({ findUnique, deleteMany, update });
+    await svc.removeMute({ userId: USER_A, channelId: CHAN_A });
+    expect(deleteMany).not.toHaveBeenCalled();
+    expect(update).toHaveBeenCalledWith({
+      where: { userId_channelId: { userId: USER_A, channelId: CHAN_A } },
+      data: { isMuted: false, mutedUntil: null },
+    });
   });
 });
 
 describe('MutesService.listActiveMutes', () => {
-  it('만료된 mute 제외 query 호출', async () => {
+  it('만료/비뮤트 제외 query 호출 (S46: isMuted=true 필터)', async () => {
     const findMany = vi.fn().mockResolvedValue([
       { channelId: CHAN_A, mutedUntil: null, createdAt: new Date('2025-01-01T00:00:00Z') },
       {
@@ -77,6 +111,7 @@ describe('MutesService.listActiveMutes', () => {
     expect(findMany).toHaveBeenCalledOnce();
     const where = findMany.mock.calls[0][0].where;
     expect(where.userId).toBe(USER_A);
+    expect(where.isMuted).toBe(true);
     expect(where.OR).toBeDefined();
   });
 });
@@ -104,12 +139,13 @@ describe('MutesService.filterMutedRecipients', () => {
     expect(out).toEqual([USER_A, USER_B]);
   });
 
-  it('만료된 mute 는 결과에서 자동 제외 — query 의 OR 가 처리', async () => {
+  it('만료/비뮤트 제외 — query 의 isMuted=true + OR 가 처리 (S46)', async () => {
     // findMany 가 만료 안 된 행만 반환 — service 는 그대로 사용.
     const findMany = vi.fn().mockResolvedValue([{ userId: USER_A }]);
     const svc = makeService({ findMany });
     await svc.filterMutedRecipients(CHAN_A, [USER_A]);
     const where = findMany.mock.calls[0][0].where;
+    expect(where.isMuted).toBe(true);
     expect(where.OR).toBeDefined();
     expect(where.OR).toEqual([{ mutedUntil: null }, { mutedUntil: { gt: expect.any(Date) } }]);
   });

@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S44 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S45(D06 멘션·알림 후속, FR-MN-03/19/21 — apps/api/src/notifications + evals. deps S44. backend).** D01·D02·D03·D04·**D05(반응·이모지 S39~S42 완료)**·D06(멘션 S44 게이트 진행중)·D07·D08·D09·D17·완료. **진행률: 185/354 FR done(+6 partial).** ⚠️ **defer 누적: FR-CH-16(개인 사이드바 섹션·P2)·@role 자동완성+ROLE fanout(S45)·MentionRecord/Activity Inbox(S46).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44·S46 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S47(D06 Activity Inbox, FR-MN-13/14/20 — apps/api/src/notifications + apps/web/src/features/{notifications,activity}. deps S46. P0 fullstack).** D01·D02·D03·D04·**D05(반응·이모지 S39~S42 완료)**·D06(멘션 S44 게이트·S46 알림레벨·S45 보류)·D07·D08·D09·D17·완료. **진행률: 189/354 FR done(+6 partial).** ⚠️ **defer 누적: FR-CH-16(개인 사이드바 P2)·S45 전체(@role+BullMQ+Role 엔티티+@here SLO·FR-MN-03/19/21)·S44 carryover(무제한 fanout cap)·suppressRoleMentions 실연동(@role=S45). ★S47 Activity Inbox 는 MentionRecord 테이블 필요(S45 보류로 미생성·단 MentionRecord 자체는 BullMQ 무관·테이블+populate+읽기API 로 가능 — S47 진입 시 분기 점검).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -431,12 +431,30 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 490·web 717) + 빌드 3종 + int mention-gate 9(override fanout·edit broad·dedup·@here 장애 fallback) + fold 12. 마이그레이션 0. DS 4파일·settings.json 무수정.
 - carryover: **0x80 D12 수렴**(MENTION_EVERYONE 카탈로그 vs PIN_MESSAGE enum 분리 — 현재 PIN 집행 미사용이라 무해). **perf**: override findMany 3중 중복(D12)·@everyone workspaceMember **200명 cap 부재**(S45)·@here 3N Redis bulk pipeline(S45)·broad fanout 50명 cap 부재(S45). **unread @here offline 카운트**(JSONB 모델·전원 카운트 vs online-only push 불일치·MentionRecord S46 정합). **@role 자동완성+ROLE fanout·@channel fanout**(S45). MentionRecord/Activity Inbox(S46). snippet replay TTL(LOW). 사이드바 키보드 a11y(S43).
 
-## 다음 슬라이스: S45 (D06 멘션·알림 후속 — fanout SLO/ROLE/@channel)
+## ⏸ S45 (D06 fanout SLO/ROLE/@channel — FR-MN-03/19/21) — **사용자 결정으로 전체 보류** (2026-06-02)
 
-- scope **backend** + evals. **FR-MN-03/19/21**(P1). deps S44.
-- 파일: `apps/api/src/notifications/**`, `evals/**`.
-- FR 정본 PRD html 재확인 필수(D06 FR-MN-03/19/21). 예상(정확 정의는 PRD): **FR-MN-21**(@here/@everyone fanout **SLO** — 200명 cap·5초 이내·ONLINE 200명 — S44 carryover 해소), **FR-MN-03/19**(ROLE 멘션 fanout 비동기 워커(BullMQ?)·@channel fanout·또는 알림 우선순위/배치 — PRD 확인). S44 의 `resolveBroadMentionRecipients`(현재 cap 없음)·@here presence(현재 3N Redis) 최적화 묶음. evals 디렉터리 작업 포함(채점). 마이그레이션 필요 여부 PRD 확인.
-- S44 carryover 직접 연계: workspaceMember 200 cap·@here bulk pipeline·broad 50 cap·@role 자동완성.
+- UNDERSTAND 결과 S45 는 **BullMQ 비동기 워커 도입 + 커스텀 Role 엔티티 신설**(ChannelPermissionOverride.principalId 권한 스킴 파급·D12) + MentionRecord 테이블을 요구하는 대형 인프라/도메인 확장. `project_direction_pivot`(검증/안정성 선회·parity 추격 중단)과 상충해 **사용자에게 분기 제시 → "건너뛰기" 선택**. FR-MN-03/19/21 = todo 유지.
+- **재방문 시**: BullMQ in-process 워커(A-1·docker-compose 무변경·기존 Redis 공유) + Role 테이블(mentionable) + MentionRecord + @role 파싱/fanout + rate-limit(분당5·버스트10) + VIEW_CHANNEL 재검증 + @here 200 cap/bulk presence pipeline + `evals/tasks/mention-fanout-slo.yaml`. 3청크(인프라/파싱·fanout/SLO·eval) 분할 권장. 상세 스펙은 이 세션 S45 UNDERSTAND 산출물 참조.
+- **S44 carryover 미해소(열린 채)**: @everyone/@here 무제한 fanout(200 cap 부재)·@here per-send 3N Redis. 사용자가 "나중에 재방문" 수용.
+
+## ✅ S46 (D06 알림 설정/레벨 — NotifLevel 3계층/뮤트/cron) — 완료 (2026-06-02, 이 세션) — **마이그레이션(NotifLevel enum+UserSettings+ServerNotificationPref+UserChannelMute.level/isMuted+인덱스2)**
+
+- **FR-MN-05**(글로벌 NotifLevel ALL/MENTIONS/NOTHING — UserSettings·`GET/PATCH /me/settings/notifications`·기본 MENTIONS), **FR-MN-06**(서버 오버라이드 ServerNotificationPref·뮤트기간 15분~영구·suppressEveryone/RoleMentions), **FR-MN-07**(채널 오버라이드 UserChannelMute.level·카테고리 일괄·null=상속), **FR-MN-08**(뮤트 — isMuted 축·배지/미읽 숨김·muteUntil cron 만료). 3계층 fold(채널>서버>글로벌)·fanout 게이트 연동(send+edit·batch N+1 방지).
+- **7팀 적대적 리뷰(머지 전)** → fix-forward(aab37ba). **5 BLOCKER + HIGH/MED**:
+  - **★shouldNotifyMention 시맨틱**(메인루프 브리프 오지시 정정): MENTIONS 에서 broad(@everyone/@here) **기본 알림·suppressEveryone opt-out**(Discord 정합·종전 무조건 skip+suppress dead 였음) → suppress 게이트 연동.
+  - **★카테고리 일괄 IDOR**(security): putCategoryChannels workspaceId 미필터 → 타 ws categoryId 채널ID 열거 → workspaceId 스코프 + N+1 배치.
+  - **★level-only→영구뮤트**(security): mutedUntil=null 이 영구뮤트/레벨전용 양의 → `{level:ALL}` 채널 영구차단 → **UserChannelMute.isMuted 컬럼 신설**(backfill·S43 mute 소비처(filterMutedRecipients·useMutes·sidebarRowState) isMuted=true 동기화).
+  - **★DS 미등록 클래스**: bg-bg-elevated→bg-bg-surface·bg-bg-panel→bg-bg-subtle·text-text→text-foreground(런타임 색 소실).
+  - **a11y**: tablist aria-controls/tabpanel·MuteToggle 접근명/live·section/radio describedby·선택카드 시각화. + getChannel now 주입·dndSchedule.days .max(28)·cron 부분인덱스·unmute level 보존.
+  - db-migrator PASS(enum DROP 순서·throwaway up→down→up). contract: NotifLevel 3자 정합.
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 516·web 721·shared-types 203) + 빌드 3종 + int(notif-levels 18·mention-gate 9·dm/notif-pref 24). 마이그레이션 throwaway+backfill 검증. DS 4파일·settings.json 무수정.
+- carryover: **a11y B-02 라디오카드 border 대비**(border-subtle=divider·다크 3:1 토큰 부재 — **DS-owner 새 경계토큰**)·tab Arrow/select focus/time 마크업(a11y polish). **suppressRoleMentions 실연동**(@role=S45). `notification:prefs_updated` 미배선(TODO 가시화)·DS 네이티브 checkbox→qf-switch/설정 모바일 qf-m-\*(polish)·멀티노드 cron 락·JwtAuthGuard 일관성·keywords 스캔(S45). 기존 UserNotificationPreference(TOAST/BROWSER) 역할 정리(후속).
+
+## 다음 슬라이스: S47 (D06 Activity Inbox)
+
+- scope **fullstack**. **FR-MN-13/14/20**(P0). deps S46.
+- 파일: `apps/api/src/notifications/**`, `apps/web/src/features/{notifications,activity}/**`.
+- FR 정본 PRD html 재확인 필수(D06 Activity Inbox 섹션). 예상(정확 정의는 PRD): **MentionRecord 기반 Activity Inbox**(`GET /me/inbox?tab=mentions|threads|dms|all`·읽음표시·read-all — FR-MN-13/14/20). **★분기 점검**: MentionRecord 테이블 필요(S45/S46 보류로 미생성·단 **MentionRecord 자체는 BullMQ/Role 무관**·테이블+멘션 시 populate+읽기 API 로 생성 가능). 현재 `me-mentions.service`(Message 직접 쿼리) 가 fallback 중 — MentionRecord 도입 시 읽기경로 전환. 마이그레이션(MentionRecord·MentionType enum) reversible. S44 멘션 fanout(mention:new)·S46 NotifLevel 게이트 위. UNDERSTAND 에서 MentionRecord 도입 vs Message-쿼리 유지 분기 평가.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

@@ -21,6 +21,10 @@ import { StorageModule } from '../storage/storage.module';
 // S44 (FR-MN-02): `@here` fanout 을 presence ONLINE/IDLE 멤버로 한정하려면
 // PresenceService 가 필요하다. PresenceModule 은 REDIS 만 의존해 순환이 없다.
 import { PresenceModule } from '../realtime/presence/presence.module';
+// S46 (D06 / FR-MN-05/06/07/08): 멘션 fanout 의 NotifLevel 3계층 게이트.
+// NotificationsModule 이 NotifLevelService 를 export 하며, NotificationsModule 은
+// 어떤 도메인 모듈도 import 하지 않아 순환이 없다.
+import { NotificationsModule } from '../notifications/notifications.module';
 
 @Module({
   // task-014-B: AttachmentsModule exports ChannelAccessByIdGuard which
@@ -37,6 +41,7 @@ import { PresenceModule } from '../realtime/presence/presence.module';
     AttachmentsModule,
     StorageModule,
     PresenceModule,
+    NotificationsModule,
   ],
   controllers: [
     MessagesController,
