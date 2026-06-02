@@ -112,6 +112,8 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_SLOWMODE_ACTIVE',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
+  // S43 (FR-CH-15): 즐겨찾기 재정렬 anchor 미존재 → 404.
+  'FAVORITE_NOT_FOUND',
   'MESSAGE_NOT_FOUND',
   'MESSAGE_CONTENT_INVALID',
   'MESSAGE_CURSOR_INVALID',

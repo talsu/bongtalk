@@ -150,6 +150,26 @@ model UserChannelMute {
   @@index([channelId])
 }
 
+// S43 (FR-CH-15): 사용자별 채널 즐겨찾기. 사이드바 Favorites 섹션(최상단)에
+// 표시되며 즐겨찾기 안에서의 순서는 fractional position(Decimal 20,10)으로
+// 드래그 조정한다(채널/카테고리 position 과 동일 규약 — calcBetween 재사용).
+// 개인 상태라 onDelete Cascade(user/channel 삭제 시 함께 정리). additive only —
+// 신규 테이블이라 backfill 불요. 마이그레이션 20260602600000_s43_user_channel_favorite.
+model UserChannelFavorite {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  channelId String   @db.Uuid
+  position  Decimal  @db.Decimal(20, 10)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([userId, position])
+}
+
 model User {
   id                  String             @id @db.Uuid
   email               String             @unique
@@ -217,6 +237,8 @@ model User {
   notificationPreferences UserNotificationPreference[]
   activityReadStates      UserActivityReadState[]
   channelMutes            UserChannelMute[]
+  // S43 (FR-CH-15): 채널 즐겨찾기. onDelete Cascade.
+  channelFavorites        UserChannelFavorite[]
   friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
@@ -460,6 +482,8 @@ model Channel {
   attachments Attachment[]
   overrides   ChannelPermissionOverride[]
   mutes       UserChannelMute[]
+  // S43 (FR-CH-15): 이 채널을 즐겨찾기한 행. onDelete Cascade.
+  favorites   UserChannelFavorite[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`

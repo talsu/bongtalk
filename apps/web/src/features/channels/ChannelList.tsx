@@ -11,13 +11,21 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { arrayMove, SortableContext, useSortable } from '@dnd-kit/sortable';
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { Channel } from '@qufox/shared-types';
 import { useChannelList, useMoveCategory, useMoveChannel } from './useChannels';
 import { useUnreadSummary, useMarkChannelRead } from './useUnread';
-import { useMutedChannelIds } from './useMutes';
+import {
+  useMutedChannelIds,
+  useRemoveChannelMute,
+  useSetChannelMute,
+  type MuteDurationKey,
+} from './useMutes';
+import { useAddFavorite, useFavoriteChannelIds, useRemoveFavorite } from './useFavorites';
 import { deriveSidebarRowState } from './sidebarRowState';
+import { isCategoryCollapsed, setCategoryCollapsed } from './categoryCollapse';
 import { isContextMenuKey } from './unreadsA11y';
+import { FavoritesSection } from './FavoritesSection';
 import { CreateChannelModal } from './CreateChannelModal';
 import {
   Icon,
@@ -25,6 +33,7 @@ import {
   DropdownTrigger,
   DropdownContent,
   DropdownItem,
+  DropdownSeparator,
 } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
@@ -90,27 +99,71 @@ function DropLine(): JSX.Element {
   return <div data-testid="dnd-dropline" aria-hidden="true" className="qf-dropline" />;
 }
 
+// S43 (FR-CH-17): 뮤트 지속시간 선택지(PRD 정본 순서). 컨텍스트 메뉴에 평탄
+// 항목으로 펼친다(신규 DS 서브메뉴 primitive 도입 없이 기존 qf-menu 재사용).
+const MUTE_DURATIONS: ReadonlyArray<{ key: MuteDurationKey; label: string }> = [
+  { key: '15m', label: '15분' },
+  { key: '1h', label: '1시간' },
+  { key: '3h', label: '3시간' },
+  { key: '8h', label: '8시간' },
+  { key: '24h', label: '24시간' },
+  { key: 'forever', label: '무기한' },
+];
+
+// S43 (FR-CH-14): 접기/펼치기 화살표. chevron-down 아이콘을 collapsed 면 -90도
+// 회전시킨다. DS 모션 토큰(--dur-fast/--ease-standard)을 arbitrary class 로 참조해
+// raw 값 없이 전환한다. aria-hidden — 상태는 헤더 버튼의 aria-expanded 가 전한다.
+function CollapseArrow({ collapsed }: { collapsed: boolean }): JSX.Element {
+  return (
+    <Icon
+      name="chevron-down"
+      size="sm"
+      aria-hidden
+      className={cn(
+        'qf-icon--muted shrink-0 transition-transform [transition-duration:var(--dur-fast)] [transition-timing-function:var(--ease-standard)]',
+        collapsed && '-rotate-90',
+      )}
+    />
+  );
+}
+
 function DraggableChannelRow({
   channel,
   workspaceSlug,
   active,
   showUnreadStyle,
   mentionBadgeCount,
+  muted,
+  isFavorite,
   canManage,
   isDropTarget,
   hasUnread,
   onMarkRead,
+  onToggleFavorite,
+  onSetMute,
+  onRemoveMute,
+  draggable = true,
 }: {
   channel: Channel;
   workspaceSlug: string;
   active: boolean;
   showUnreadStyle: boolean;
   mentionBadgeCount: number;
+  // S43 (FR-CH-17): 뮤트 상태 — 회색 표시 + bell-off 아이콘 + 메뉴 해제 항목.
+  muted: boolean;
+  // S43 (FR-CH-15): 즐겨찾기 여부 — 컨텍스트 메뉴 토글 라벨 결정.
+  isFavorite: boolean;
   canManage: boolean;
   isDropTarget: boolean;
   // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" 노출 여부 + 핸들러.
   hasUnread: boolean;
   onMarkRead: (channelId: string) => void;
+  onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
+  onSetMute: (channelId: string, duration: MuteDurationKey) => void;
+  onRemoveMute: (channelId: string) => void;
+  // S43 (FR-CH-15): 즐겨찾기 섹션 행은 채널 reorder useSortable 을 쓰지 않으므로
+  // 채널 드래그 핸들/리스너를 끈다(즐겨찾기 재정렬은 섹션이 자체 DnD 로 담당).
+  draggable?: boolean;
 }): JSX.Element {
   // S24 (FR-RS-09): 채널 우클릭 컨텍스트 메뉴. 신규 라이브러리 도입 없이 기존
   // Radix DropdownMenu(DS qf-menu 클래스)를 controlled 로 쓰고, 행의
@@ -126,8 +179,11 @@ function DraggableChannelRow({
   const { attributes, listeners, setNodeRef, isDragging } = useSortable({
     id: channel.id,
     data: { type: 'channel', channelId: channel.id, categoryId: channel.categoryId },
-    disabled: !canManage,
+    // S43 (FR-CH-15): 즐겨찾기 섹션(draggable=false)에서는 채널 reorder 드래그를
+    // 끈다 — 즐겨찾기 순서는 섹션이 별도 DnD 로 관리한다.
+    disabled: !canManage || !draggable,
   });
+  const dragEnabled = canManage && draggable;
   // Sibling pre-shuffle is disabled via the parent SortableContext
   // strategy (() => null). Active row keeps its place but dims; the
   // dropline alone indicates the insertion point.
@@ -139,7 +195,7 @@ function DraggableChannelRow({
       {isDropTarget ? <DropLine /> : null}
       <li
         ref={setNodeRef}
-        {...(canManage ? { ...attributes, ...listeners } : {})}
+        {...(dragEnabled ? { ...attributes, ...listeners } : {})}
         style={style}
         // a11y(S22 review #4): `aria-selected` 는 listitem role 에 비허용 속성
         // → `aria-current="page"` 로 교정. DS 의 활성 배경 셀렉터
@@ -168,11 +224,15 @@ function DraggableChannelRow({
           // S22 (FR-RS-04/05): 비뮤트 + unread 일 때만 bold + 좌측 pill.
           // 뮤트 채널은 showUnreadStyle=false 로 억제된다(FR-RS-05).
           showUnreadStyle && !active && 'qf-channel--unread',
-          isDragging ? 'cursor-grabbing' : canManage ? 'cursor-grab' : 'cursor-pointer',
+          // S43 (FR-CH-17): 뮤트 채널은 회색 표시(텍스트를 --text-muted 토큰으로
+          // 눌러 비활성감을 준다). 활성 채널은 가독성을 위해 회색 처리 제외.
+          muted && !active && 'text-[color:var(--text-muted)]',
+          isDragging ? 'cursor-grabbing' : dragEnabled ? 'cursor-grab' : 'cursor-pointer',
         )}
         data-testid={`channel-${channel.name}`}
         data-unread={showUnreadStyle ? 'true' : 'false'}
         data-mention={mentionBadgeCount > 0 ? 'true' : 'false'}
+        data-muted={muted ? 'true' : 'false'}
       >
         {/* Full-row navigation overlay. Renders as absolute(inset:0) so
             the entire hover-highlighted rectangle is the click target —
@@ -209,6 +269,17 @@ function DraggableChannelRow({
               <Icon name="settings" size="sm" />
             </Link>
           ) : null}
+          {/* S43 (FR-CH-17): 뮤트 채널 표식 — bell-off 아이콘(icons.svg 보유).
+              aria-label 로 SR 에 뮤트 상태를 알린다. */}
+          {muted ? (
+            <Icon
+              name="bell-off"
+              size="sm"
+              aria-label="뮤트됨"
+              data-testid={`channel-muted-${channel.name}`}
+              className="qf-icon--muted relative shrink-0"
+            />
+          ) : null}
           <MentionBadge count={mentionBadgeCount} />
           {/* a11y BLOCKER #4: 키보드 접근 가능한 정식 "채널 옵션" 더보기 버튼을
               DropdownTrigger 로 둔다(종전 0-size aria-hidden 앵커 = 키보드 배제
@@ -242,6 +313,32 @@ function DraggableChannelRow({
               >
                 <span data-testid={`channel-mark-read-${channel.name}`}>읽음으로 표시</span>
               </DropdownItem>
+              <DropdownSeparator />
+              {/* S43 (FR-CH-15): 즐겨찾기 추가/해제 토글. */}
+              <DropdownItem onSelect={() => onToggleFavorite(channel.id, isFavorite)}>
+                <span data-testid={`channel-favorite-toggle-${channel.name}`}>
+                  {isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+                </span>
+              </DropdownItem>
+              <DropdownSeparator />
+              {/* S43 (FR-CH-17): 채널 뮤트 — duration 평탄 항목 + 해제(현재 뮤트 시).
+                  신규 서브메뉴 primitive 없이 기존 qf-menu 항목을 그대로 쓴다. */}
+              {muted ? (
+                <DropdownItem onSelect={() => onRemoveMute(channel.id)}>
+                  <span data-testid={`channel-unmute-${channel.name}`}>뮤트 해제</span>
+                </DropdownItem>
+              ) : (
+                <>
+                  <div className="qf-menu__item opacity-50" aria-hidden role="presentation">
+                    채널 뮤트
+                  </div>
+                  {MUTE_DURATIONS.map((d) => (
+                    <DropdownItem key={d.key} onSelect={() => onSetMute(channel.id, d.key)}>
+                      <span data-testid={`channel-mute-${d.key}-${channel.name}`}>{d.label}</span>
+                    </DropdownItem>
+                  ))}
+                </>
+              )}
             </DropdownContent>
           </DropdownRoot>
         </span>
@@ -284,12 +381,18 @@ function SortableCategorySection({
   activeChannelName,
   unreadByChannel,
   mutedChannelIds,
+  favoriteChannelIds,
   canManage,
   onAddChannel,
   dragOverId,
   activeType,
   isCategoryDropTarget,
   onMarkRead,
+  onToggleFavorite,
+  onSetMute,
+  onRemoveMute,
+  collapsed,
+  onToggleCollapse,
 }: {
   category: { id: string; name: string };
   channels: Channel[];
@@ -297,12 +400,19 @@ function SortableCategorySection({
   activeChannelName: string | null;
   unreadByChannel: Map<string, { count: number; mentionCount: number }>;
   mutedChannelIds: Set<string>;
+  favoriteChannelIds: Set<string>;
   canManage: boolean;
   onAddChannel: () => void;
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
   isCategoryDropTarget: boolean;
   onMarkRead: (channelId: string) => void;
+  onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
+  onSetMute: (channelId: string, duration: MuteDurationKey) => void;
+  onRemoveMute: (channelId: string) => void;
+  // S43 (FR-CH-14): 카테고리 접힘 상태 + 토글 핸들러(localStorage 영속).
+  collapsed: boolean;
+  onToggleCollapse: () => void;
 }): JSX.Element {
   // Sortable for category reordering.
   const {
@@ -346,23 +456,32 @@ function SortableCategorySection({
         className="rounded-[var(--r-md)]"
       >
         <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
+          {/* S43 (FR-CH-14): 카테고리 헤더를 접기/펼치기 토글 버튼으로. aria-expanded
+              로 상태를 SR 에 노출하고, 화살표(▾)를 collapsed 면 -90deg 회전시킨다
+              (DS 토큰 --dur-fast/--ease-standard transition, raw px/hex 금지). 드래그
+              핸들(canManage 시)은 별도 span 으로 분리해 토글 클릭과 충돌하지 않게 한다. */}
+          <CollapseArrow collapsed={collapsed} />
           {canManage ? (
             <span
               {...attributes}
               {...listeners}
               data-testid={`category-drag-${category.name}`}
               aria-label={`카테고리 ${category.name} 드래그`}
-              className="flex min-w-0 flex-1 cursor-grab items-center truncate"
+              className="cursor-grab pl-[var(--s-1)]"
             >
-              <span aria-hidden="true">▾&nbsp;</span>
-              {category.name}
+              <Icon name="grid" size="sm" className="qf-icon--muted" aria-hidden />
             </span>
-          ) : (
-            <span className="flex min-w-0 flex-1 items-center truncate">
-              <span aria-hidden="true">▾&nbsp;</span>
-              {category.name}
-            </span>
-          )}
+          ) : null}
+          <button
+            type="button"
+            onClick={onToggleCollapse}
+            aria-expanded={!collapsed}
+            data-testid={`category-collapse-${category.name}`}
+            aria-label={`카테고리 ${category.name} ${collapsed ? '펼치기' : '접기'}`}
+            className="flex min-w-0 flex-1 items-center truncate bg-transparent pl-[var(--s-1)] text-left"
+          >
+            {category.name}
+          </button>
           {canManage ? (
             <button
               type="button"
@@ -375,34 +494,42 @@ function SortableCategorySection({
             </button>
           ) : null}
         </div>
-        <SortableContext items={channels.map((c) => c.id)} strategy={() => null}>
-          <ul className="mt-1 min-h-[var(--s-5)]">
-            {channels.map((ch) => {
-              const u = unreadByChannel.get(ch.id);
-              const isActive = activeChannelName === ch.name;
-              const rowState = deriveSidebarRowState({
-                unreadCount: isActive ? 0 : (u?.count ?? 0),
-                mentionCount: isActive ? 0 : (u?.mentionCount ?? 0),
-                muted: mutedChannelIds.has(ch.id),
-              });
-              return (
-                <DraggableChannelRow
-                  key={ch.id}
-                  channel={ch}
-                  workspaceSlug={workspaceSlug}
-                  active={isActive}
-                  showUnreadStyle={rowState.showUnreadStyle}
-                  mentionBadgeCount={rowState.mentionBadgeCount}
-                  canManage={canManage}
-                  isDropTarget={activeType === 'channel' && dragOverId === ch.id}
-                  hasUnread={(u?.count ?? 0) > 0}
-                  onMarkRead={onMarkRead}
-                />
-              );
-            })}
-            {sectionDropLine ? <DropLine /> : null}
-          </ul>
-        </SortableContext>
+        {/* S43 (FR-CH-14): collapsed 면 채널 목록을 미렌더(드래그 컨텍스트는 유지). */}
+        {collapsed ? null : (
+          <SortableContext items={channels.map((c) => c.id)} strategy={() => null}>
+            <ul className="mt-1 min-h-[var(--s-5)]">
+              {channels.map((ch) => {
+                const u = unreadByChannel.get(ch.id);
+                const isActive = activeChannelName === ch.name;
+                const rowState = deriveSidebarRowState({
+                  unreadCount: isActive ? 0 : (u?.count ?? 0),
+                  mentionCount: isActive ? 0 : (u?.mentionCount ?? 0),
+                  muted: mutedChannelIds.has(ch.id),
+                });
+                return (
+                  <DraggableChannelRow
+                    key={ch.id}
+                    channel={ch}
+                    workspaceSlug={workspaceSlug}
+                    active={isActive}
+                    showUnreadStyle={rowState.showUnreadStyle}
+                    mentionBadgeCount={rowState.mentionBadgeCount}
+                    muted={mutedChannelIds.has(ch.id)}
+                    isFavorite={favoriteChannelIds.has(ch.id)}
+                    canManage={canManage}
+                    isDropTarget={activeType === 'channel' && dragOverId === ch.id}
+                    hasUnread={(u?.count ?? 0) > 0}
+                    onMarkRead={onMarkRead}
+                    onToggleFavorite={onToggleFavorite}
+                    onSetMute={onSetMute}
+                    onRemoveMute={onRemoveMute}
+                  />
+                );
+              })}
+              {sectionDropLine ? <DropLine /> : null}
+            </ul>
+          </SortableContext>
+        )}
       </section>
     </>
   );
@@ -414,22 +541,30 @@ function DefaultSection({
   activeChannelName,
   unreadByChannel,
   mutedChannelIds,
+  favoriteChannelIds,
   canManage,
   onAddChannel,
   dragOverId,
   activeType,
   onMarkRead,
+  onToggleFavorite,
+  onSetMute,
+  onRemoveMute,
 }: {
   channels: Channel[];
   workspaceSlug: string;
   activeChannelName: string | null;
   unreadByChannel: Map<string, { count: number; mentionCount: number }>;
   mutedChannelIds: Set<string>;
+  favoriteChannelIds: Set<string>;
   canManage: boolean;
   onAddChannel: () => void;
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
   onMarkRead: (channelId: string) => void;
+  onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
+  onSetMute: (channelId: string, duration: MuteDurationKey) => void;
+  onRemoveMute: (channelId: string) => void;
 }): JSX.Element {
   const { setNodeRef } = useDroppable({
     id: ROOT_CATEGORY_ID,
@@ -463,10 +598,15 @@ function DefaultSection({
                 active={isActive}
                 showUnreadStyle={rowState.showUnreadStyle}
                 mentionBadgeCount={rowState.mentionBadgeCount}
+                muted={mutedChannelIds.has(ch.id)}
+                isFavorite={favoriteChannelIds.has(ch.id)}
                 canManage={canManage}
                 isDropTarget={activeType === 'channel' && dragOverId === ch.id}
                 hasUnread={(u?.count ?? 0) > 0}
                 onMarkRead={onMarkRead}
+                onToggleFavorite={onToggleFavorite}
+                onSetMute={onSetMute}
+                onRemoveMute={onRemoveMute}
               />
             );
           })}
@@ -487,11 +627,29 @@ export function ChannelList({
   const { data: unread } = useUnreadSummary(workspaceId);
   // S22 (FR-RS-05): 뮤트 채널 id 집합. unread bold/pill 억제에 사용.
   const mutedChannelIds = useMutedChannelIds();
+  // S43 (FR-CH-15): 즐겨찾기 channelId 집합(컨텍스트 메뉴 토글 라벨 결정용).
+  const favoriteChannelIds = useFavoriteChannelIds();
   // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" — 채널 최신까지 ACK 전진
   // (기존 markRead 재사용, monotonic 전진).
   const markReadMut = useMarkChannelRead(workspaceId);
   const onMarkRead = (channelId: string): void => {
     markReadMut.mutate(channelId);
+  };
+  // S43 (FR-CH-17): 뮤트 설정/해제 mutation. 성공 시 me/mutes 무효화는 훅 내부.
+  const setMuteMut = useSetChannelMute();
+  const removeMuteMut = useRemoveChannelMute();
+  const onSetMute = (channelId: string, duration: MuteDurationKey): void => {
+    setMuteMut.mutate({ channelId, duration });
+  };
+  const onRemoveMute = (channelId: string): void => {
+    removeMuteMut.mutate(channelId);
+  };
+  // S43 (FR-CH-15): 즐겨찾기 추가/해제 토글.
+  const addFavoriteMut = useAddFavorite(workspaceId);
+  const removeFavoriteMut = useRemoveFavorite(workspaceId);
+  const onToggleFavorite = (channelId: string, isFavorite: boolean): void => {
+    if (isFavorite) removeFavoriteMut.mutate(channelId);
+    else addFavoriteMut.mutate(channelId);
   };
   const moveChannelMut = useMoveChannel(workspaceId);
   const moveCategoryMut = useMoveCategory(workspaceId);
@@ -503,6 +661,35 @@ export function ChannelList({
     categoryId: string | null;
     categoryLabel: string;
   }>(null);
+
+  // S43 (FR-CH-14): 카테고리 접힘 상태. localStorage 가 단일 출처지만 토글 시
+  // 즉시 리렌더가 필요하므로 collapsed id Set 을 state 로 둔다. 카테고리 목록이
+  // 바뀌면(추가/삭제) 저장소에서 다시 끌어와 동기화한다.
+  const [collapsedIds, setCollapsedIds] = useState<Set<string>>(() => new Set());
+  const categoryIdsKey = useMemo(() => (data?.categories ?? []).map((c) => c.id).join(','), [data]);
+  useEffect(() => {
+    const next = new Set<string>();
+    for (const cat of data?.categories ?? []) {
+      if (isCategoryCollapsed(workspaceId, cat.id)) next.add(cat.id);
+    }
+    setCollapsedIds(next);
+    // deps: categoryIdsKey 로 카테고리 집합 변경만 추적한다(매 렌더 재계산 방지).
+    // data.categories 는 categoryIdsKey 가 대표하므로 deps 에서 생략한다. 이 repo 는
+    // react-hooks/exhaustive-deps 룰을 설치하지 않아 경고가 없다(useDmPresence 동일).
+  }, [workspaceId, categoryIdsKey]);
+  const onToggleCollapse = useCallback(
+    (categoryId: string): void => {
+      setCollapsedIds((prev) => {
+        const next = new Set(prev);
+        const willCollapse = !next.has(categoryId);
+        if (willCollapse) next.add(categoryId);
+        else next.delete(categoryId);
+        setCategoryCollapsed(workspaceId, categoryId, willCollapse);
+        return next;
+      });
+    },
+    [workspaceId],
+  );
 
   const uncategorized = useMemo(() => data?.uncategorized ?? [], [data]);
   const categories = useMemo(() => data?.categories ?? [], [data]);
@@ -520,6 +707,16 @@ export function ChannelList({
     const m = new Map<string, Channel[]>();
     m.set(ROOT_CATEGORY_ID, uncategorized);
     for (const cat of categories) m.set(cat.id, cat.channels);
+    return m;
+  }, [uncategorized, categories]);
+
+  // S43 (FR-CH-15): 즐겨찾기 섹션이 channelId 로 채널 메타(name/categoryId)를
+  // 끌어오기 위한 평탄 맵. 현재 워크스페이스 채널만 담으므로, 다른 워크스페이스
+  // 즐겨찾기는 섹션에서 자연히 누락(렌더 제외)된다.
+  const channelsById = useMemo(() => {
+    const m = new Map<string, Channel>();
+    for (const c of uncategorized) m.set(c.id, c);
+    for (const cat of categories) for (const c of cat.channels) m.set(c.id, c);
     return m;
   }, [uncategorized, categories]);
 
@@ -636,6 +833,16 @@ export function ChannelList({
 
   return (
     <>
+      {/* S43 (FR-CH-15): 사이드바 최상단 즐겨찾기 섹션. 자체 DnD 컨텍스트를 가지므로
+          채널 DndContext 밖(위)에 둔다 — 두 드래그 컨텍스트가 섞이지 않게 한다. */}
+      <FavoritesSection
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+        channelsById={channelsById}
+        activeChannelName={activeChannelName}
+        unreadByChannel={unreadByChannel}
+        mutedChannelIds={mutedChannelIds}
+      />
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}
@@ -651,11 +858,15 @@ export function ChannelList({
             activeChannelName={activeChannelName}
             unreadByChannel={unreadByChannel}
             mutedChannelIds={mutedChannelIds}
+            favoriteChannelIds={favoriteChannelIds}
             canManage={canManage}
             onAddChannel={() => openChannelCreate(null, '채널')}
             dragOverId={dragOverId}
             activeType={activeDragType}
             onMarkRead={onMarkRead}
+            onToggleFavorite={onToggleFavorite}
+            onSetMute={onSetMute}
+            onRemoveMute={onRemoveMute}
           />
           <SortableContext items={categories.map((c) => c.id)} strategy={() => null}>
             {categories.map((cat) => (
@@ -667,12 +878,18 @@ export function ChannelList({
                 activeChannelName={activeChannelName}
                 unreadByChannel={unreadByChannel}
                 mutedChannelIds={mutedChannelIds}
+                favoriteChannelIds={favoriteChannelIds}
                 canManage={canManage}
                 onAddChannel={() => openChannelCreate(cat.id, cat.name)}
                 dragOverId={dragOverId}
                 activeType={activeDragType}
                 isCategoryDropTarget={activeDragType === 'category' && dragOverId === cat.id}
                 onMarkRead={onMarkRead}
+                onToggleFavorite={onToggleFavorite}
+                onSetMute={onSetMute}
+                onRemoveMute={onRemoveMute}
+                collapsed={collapsedIds.has(cat.id)}
+                onToggleCollapse={() => onToggleCollapse(cat.id)}
               />
             ))}
           </SortableContext>

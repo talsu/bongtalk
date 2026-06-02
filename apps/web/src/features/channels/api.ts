@@ -4,8 +4,11 @@ import type {
   ChannelListResponse,
   CreateCategoryRequest,
   CreateChannelRequest,
+  Favorite,
+  FavoritesResponse,
   MoveCategoryRequest,
   MoveChannelRequest,
+  MoveFavoriteRequest,
   ReorderCategoriesRequest,
   ReorderChannelsRequest,
   UpdateChannelRequest,
@@ -106,4 +109,41 @@ export function reorderCategories(
     method: 'PATCH',
     body: input,
   });
+}
+
+// S43 (FR-CH-15): 즐겨찾기 추가(멱등). 200 + 단일 Favorite.
+export function addFavorite(wsId: string, channelId: string): Promise<Favorite> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/favorite`, { method: 'POST' });
+}
+
+// S43 (FR-CH-15): 즐겨찾기 해제. 204.
+export function removeFavorite(wsId: string, channelId: string): Promise<void> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/favorite`, { method: 'DELETE' });
+}
+
+// S43 (FR-CH-15): 즐겨찾기 재정렬(드래그). fractional anchor(beforeId/afterId).
+export function moveFavorite(
+  wsId: string,
+  channelId: string,
+  input: MoveFavoriteRequest,
+): Promise<Favorite> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/favorite/position`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+// S43 (FR-CH-15): 전체 즐겨찾기 목록(개인 스코프).
+export function listFavorites(): Promise<FavoritesResponse> {
+  return apiRequest(`/me/favorites`);
+}
+
+// S43 (FR-CH-17): 채널 뮤트 설정. until=ISO(만료 시각) 또는 null(무기한).
+export function setChannelMute(channelId: string, until: string | null): Promise<unknown> {
+  return apiRequest(`/me/mutes/channels/${channelId}`, { method: 'POST', body: { until } });
+}
+
+// S43 (FR-CH-17): 채널 뮤트 해제. 204.
+export function removeChannelMute(channelId: string): Promise<void> {
+  return apiRequest(`/me/mutes/channels/${channelId}`, { method: 'DELETE' });
 }
