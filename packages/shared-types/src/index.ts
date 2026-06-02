@@ -169,6 +169,8 @@ export const ErrorCodeSchema = z.enum([
   'KEYWORD_LIMIT_EXCEEDED',
   // S51 (FR-PS-07): 개인 저장함 항목 수 한도(500) 초과 → 422.
   'SAVED_LIMIT_EXCEEDED',
+  // S52 (FR-PS-08): PATCH 대상 저장 항목이 본인 소유가 아니거나 없음 → 404.
+  'SAVED_NOT_FOUND',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
