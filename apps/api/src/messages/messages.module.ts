@@ -7,6 +7,7 @@ import { DmChannelAccessGuard } from './guards/dm-channel-access.guard';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { ThreadSubscriptionsController } from './thread-subscriptions.controller';
 import { ThreadReplyCountReconciler } from './thread-reply-count-reconciler.service';
+import { ThreadReadStateService } from './thread-read-state.service';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
@@ -39,7 +40,9 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     ThreadSubscriptionsService,
     // S34 (FR-TH-17): 1시간 주기 replyCount drift 재집계 cron provider.
     ThreadReplyCountReconciler,
+    // S36 (FR-RS-12 / FR-TH-04/11/12): 스레드 읽음 커서 코어.
+    ThreadReadStateService,
   ],
-  exports: [MessagesService, ThreadSubscriptionsService],
+  exports: [MessagesService, ThreadSubscriptionsService, ThreadReadStateService],
 })
 export class MessagesModule {}

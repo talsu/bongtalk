@@ -379,6 +379,14 @@ export function installRealtimeDispatcher(
                       replyCount: env.replyCount,
                       lastRepliedAt: env.lastRepliedAt,
                       recentReplyUserIds: env.recentReplyUserIds,
+                      // S36 (FR-TH-04): 새 답글 도착 → reply bar unread dot 을 켠다.
+                      // 단 viewer 본인이 보낸 답글이면 미읽이 아니다(채널 미읽이
+                      // 자기 메시지를 포함하는 것과 달리, 스레드 chip dot 은 "내가
+                      // 아직 안 본 새 답글" UX 이므로 self-reply 는 dot 을 켜지
+                      // 않는다). 기존 hasUnread(서버 산정값)는 새 답글이 그것을
+                      // 덮으므로 보존하지 않는다. 정확한 값은 다음 목록 refetch /
+                      // 패널 ACK 가 서버 기준으로 재수렴시킨다.
+                      hasUnread: viewerForActivity !== env.replierId,
                     },
                   }
                 : m,

@@ -620,14 +620,32 @@ export function MessageItem({
           // 종전엔 "N개 답글 보기" 단독이라 마지막 답글 시각이 SR 로 전달되지
           // 않았다. lastRepliedAt 이 없으면 시각 절을 생략한다.
           aria-label={
-            thread.lastRepliedAt
+            (thread.hasUnread ? '안 읽은 답글 · ' : '') +
+            (thread.lastRepliedAt
               ? `${thread.replyCount}개 답글 보기, 마지막 답글 ${formatMessageTime(
                   thread.lastRepliedAt,
                   new Date(),
                 )}`
-              : `${thread.replyCount}개 답글 보기`
+              : `${thread.replyCount}개 답글 보기`)
           }
         >
+          {/* S36 (FR-TH-04 / FR-TH-11): per-viewer 미읽 답글이 있으면 파란 dot.
+              DS 에 qf-thread-chip 전용 dot 클래스가 없어(grep 확인) app-layer 로
+              합성하되 전부 DS 토큰만 사용한다(raw hex/px 없음): 크기 var(--s-2),
+              색 var(--accent), 원형 var(--r-pill). DS 4파일 무수정. */}
+          {thread.hasUnread ? (
+            <span
+              data-testid={`thread-unread-dot-${msg.id}`}
+              aria-hidden="true"
+              className="inline-block rounded-[var(--r-pill)]"
+              style={{
+                width: 'var(--s-2)',
+                height: 'var(--s-2)',
+                background: 'var(--accent)',
+                flexShrink: 0,
+              }}
+            />
+          ) : null}
           {thread.recentReplyUserIds.length > 0 ? (
             // S34 (FR-TH-03): 최초 답글자 최대 5명 아바타(오버랩). DS
             // `.qf-thread-chip__avatars`(-4px 오버랩) 재사용 — 신규 DS 클래스 0.

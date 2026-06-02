@@ -45,6 +45,7 @@ describe('threadChipVisible (MAJOR-2 + NIT-2 thread chip gate)', () => {
     replyCount: 2,
     lastRepliedAt: '2025-01-01T00:00:00.000Z',
     recentReplyUserIds: [],
+    hasUnread: false,
     ...over,
   });
 

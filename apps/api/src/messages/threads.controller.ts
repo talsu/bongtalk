@@ -1,5 +1,15 @@
-import { Controller, Get, Param, ParseUUIDPipe, Query, UseGuards } from '@nestjs/common';
-import { ListThreadRepliesQuerySchema } from '@qufox/shared-types';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { ListThreadRepliesQuerySchema, ThreadAckRequestSchema } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
@@ -8,6 +18,7 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { ChannelAccessByIdGuard } from '../attachments/guards/channel-access-by-id.guard';
 import { MessagesService } from './messages.service';
+import { ThreadReadStateService } from './thread-read-state.service';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 
 /**
@@ -25,7 +36,73 @@ export class ThreadsController {
     private readonly prisma: PrismaService,
     private readonly rate: RateLimitService,
     private readonly channelAccess: ChannelAccessByIdGuard,
+    // S36 (FR-RS-12 / FR-TH-12/18): 스레드 읽음 커서 코어.
+    private readonly threadReadState: ThreadReadStateService,
   ) {}
+
+  /**
+   * S36 (FR-RS-12 / FR-TH-12): 루트 메시지 + 채널을 id 로 resolve 하고 READ ACL 을
+   * 강제한다. GET(list) / POST(ack) 가 공유하는 단일 출처 — soft-deleted 루트나
+   * 채널은 MESSAGE_NOT_FOUND 로 막아 존재 leak 을 차단한다.
+   */
+  private async resolveThreadRootForAcl(
+    id: string,
+    userId: string,
+  ): Promise<{ channelId: string; channelType: string }> {
+    const msg = await this.prisma.message.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        channelId: true,
+        channel: {
+          select: {
+            id: true,
+            workspaceId: true,
+            isPrivate: true,
+            archivedAt: true,
+            deletedAt: true,
+            type: true,
+          },
+        },
+      },
+    });
+    if (!msg || !msg.channel || msg.channel.deletedAt) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    await this.channelAccess.requireRead(msg.channel, userId);
+    return { channelId: msg.channelId, channelType: msg.channel.type };
+  }
+
+  /**
+   * S36 (FR-RS-12 / FR-TH-12): POST /messages/:id/thread/ack — 스레드 읽음 ACK.
+   *
+   * Body `{ lastReadMessageId }`. 루트 채널 READ ACL 통과 후, ThreadReadState 를
+   * monotonic (createdAt, id) 튜플 upsert 로 전진시킨다(퇴행 ack no-op). 채널
+   * 미읽과 **독립적** — 채널 커서는 건드리지 않는다. 멀티디바이스 동기는 채널
+   * 메시지 목록 refetch 시 threadMeta.hasUnread 가 재수렴시킨다(별도 read-state
+   * WS 이벤트는 본 슬라이스 범위 밖 — Threads 탭 S38 에서 도입 검토). 204.
+   */
+  @Post(':id/thread/ack')
+  @HttpCode(204)
+  async ack(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ): Promise<void> {
+    // 채널 미읽 ack 와 동일한 보수적 레이트 — 스크롤 디바운스가 새도 안전.
+    await this.rate.enforce([{ key: `thread:ack:u:${user.id}`, windowSec: 60, max: 600 }]);
+    const parsed = ThreadAckRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    // 루트 채널 READ ACL — 임의 root UUID 로 타 채널 스레드를 ack 하는 IDOR 차단.
+    await this.resolveThreadRootForAcl(id, user.id);
+    await this.threadReadState.ackThread({
+      userId: user.id,
+      parentMessageId: id,
+      lastReadMessageId: parsed.data.lastReadMessageId,
+    });
+  }
 
   @Get(':id/thread')
   async list(
@@ -86,11 +163,15 @@ export class ThreadsController {
     // 사용자 집합을 함께 로드해 루트·답변 DTO 모두에 마스킹을 건다. 비-DIRECT
     // 채널은 빈 집합이라 maskBlockedAuthors 가 무동작(early return, 회귀 없음).
     const isDirect = msg.channel.type === 'DIRECT';
-    const [reactions, rootSummaries, attachments, blockedIds] = await Promise.all([
+    const [reactions, rootSummaries, attachments, blockedIds, readCursor] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
-      this.messages.aggregateThreadSummaries([page.root.id]),
+      // S36 (FR-TH-04): 루트 thread chip 의 hasUnread 도 viewer 기준으로 산정.
+      this.messages.aggregateThreadSummaries([page.root.id], user.id),
       this.messages.aggregateAttachments(ids),
       isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
+      // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
+      // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
+      this.threadReadState.cursorFor(user.id, id),
     ]);
     const rootSummary = rootSummaries.get(page.root.id);
 
@@ -120,6 +201,11 @@ export class ThreadsController {
     return {
       root: rootDto,
       replies: replyDtos,
+      // S36 (FR-TH-18): viewer 의 스레드 읽음 커서. 프론트는 lastReadMessageId 가
+      // 있으면 그 다음 첫 미읽 답글 위치로 초기 스크롤하고, null 이면 최하단으로
+      // 스크롤한다(기존 S35 동작). 첫 페이지에만 의미가 있어 매 페이지 반환하되
+      // 프론트는 첫 페이지 값만 쓴다.
+      readState: { lastReadMessageId: readCursor?.lastReadMessageId ?? null },
       pageInfo: {
         hasMore: page.hasMore,
         nextCursor: page.nextCursor

@@ -14,6 +14,7 @@ import {
   TypingBatchPayloadSchema,
   ChannelJoinedPayloadSchema,
   maskPresenceForViewer,
+  ThreadAckRequestSchema,
 } from './events';
 import { TYPING_MAX_VISIBLE } from './constants';
 import { extractMentionUserIds } from './mrkdwn';
@@ -192,6 +193,16 @@ describe('read_state / presence / typing payloads', () => {
         unreadCount: -1,
       }),
     ).toThrow();
+  });
+
+  // S36 (FR-RS-12 / FR-TH-12): 스레드 읽음 ACK 요청 바디.
+  it('thread ack requires a uuid lastReadMessageId', () => {
+    expect(
+      ThreadAckRequestSchema.parse({ lastReadMessageId: '44444444-4444-4444-8444-444444444444' })
+        .lastReadMessageId,
+    ).toBe('44444444-4444-4444-8444-444444444444');
+    expect(() => ThreadAckRequestSchema.parse({ lastReadMessageId: 'not-a-uuid' })).toThrow();
+    expect(() => ThreadAckRequestSchema.parse({})).toThrow();
   });
 
   it('presence:update enforces the 5 status values (S25 + invisible)', () => {
