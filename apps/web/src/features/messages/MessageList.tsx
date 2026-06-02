@@ -194,6 +194,14 @@ export function MessageList({
     [nameById, extraNames],
   );
 
+  // S34 (FR-TH-03): reply bar 의 최근 답글자 아바타 표시명 resolver. mention
+  // 룩업과 같은 소스(워크스페이스 멤버 맵 + DM 참가자 fallback)를 공유한다.
+  // MessageItem 으로 넘겨 chip 이 seed-color 점 대신 이름 이니셜 아바타를 그린다.
+  const resolveReplyName = useMemo(
+    () => (userId: string) => nameById.get(userId) ?? extraNames?.get(userId),
+    [nameById, extraNames],
+  );
+
   // S06 (FR-MSG-22): 현재 채널 메타를 채널 목록에서 찾습니다. 카테고리화된
   // 채널 + uncategorized 를 모두 훑어 id 매칭. 못 찾거나 DM 이면 undefined →
   // 빈 상태가 generic 카피로 폴백합니다.
@@ -723,6 +731,7 @@ export function MessageList({
                       authorRole={roleById.get(m.authorId) ?? null}
                       mentions={mentionLookup}
                       viewerRole={viewerRole}
+                      resolveName={resolveReplyName}
                       onEditSave={async (content) => {
                         // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
                         // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →

@@ -15,6 +15,8 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
 import { MsgIntEnv, bearer, seedMessageStack, setupMsgIntEnv } from './helpers';
+import { ThreadReplyCountReconciler } from '../../../src/messages/thread-reply-count-reconciler.service';
+import { ThreadSubscriptionsService } from '../../../src/messages/thread-subscriptions.service';
 
 let env: MsgIntEnv;
 let stack: Awaited<ReturnType<typeof seedMessageStack>>;
@@ -30,8 +32,13 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  // S34: threadSubscription 은 message FK 를 참조하므로 message 삭제 전에 비운다.
+  await env.prisma.threadSubscription.deleteMany({});
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
+  // S34 fix-forward (security #3): BLOCKED 차단 관계 테스트가 행을 남기므로
+  // 매 테스트 시작 시 friendship 을 비워 테스트 간 격리를 보장한다.
+  await env.prisma.friendship.deleteMany({});
   const rl = await env.redis.keys('rl:*');
   if (rl.length > 0) await env.redis.del(...rl);
 });
@@ -228,5 +235,279 @@ describe('Threads API — outbox fanout (task-014-B)', () => {
     // was the root author (who was also mentioned), recipients comes
     // back empty, not [rootAuthor].
     expect(rp.recipients).not.toContain(stack.member.userId);
+  });
+});
+
+// S34 (FR-TH-17): DELETE 트랜잭션 가드. 답글 soft-delete 가 단일 $transaction
+// 안에서 루트의 replyCount 를 GREATEST(0, replyCount-1) 로 감소시키되, 이미
+// 삭제된 루트는 건드리지 않고(deletedAt IS NULL 가드), 중복 삭제는 idempotent.
+describe('Threads API — DELETE tx guard (S34 / FR-TH-17)', () => {
+  function delMsg(token: string, msgId: string) {
+    return request(env.baseUrl)
+      .delete(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set(bearer(token));
+  }
+
+  it('decrements root replyCount on reply soft-delete (single tx)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    const r1 = await postReply(stack.admin.accessToken, rootId, 'reply 1');
+    await postReply(stack.owner.accessToken, rootId, 'reply 2');
+
+    let root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(2);
+
+    await delMsg(stack.admin.accessToken, r1.body.message!.id).expect(204);
+
+    root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(1);
+  });
+
+  it('duplicate delete of the same reply is idempotent (replyCount decremented once)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    const r1 = await postReply(stack.admin.accessToken, rootId, 'only reply');
+
+    let root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(1);
+
+    // 첫 삭제 → 204, 둘째 삭제 → 이미 삭제됨이라 service count===0 no-op.
+    await delMsg(stack.admin.accessToken, r1.body.message!.id).expect(204);
+    await delMsg(stack.admin.accessToken, r1.body.message!.id);
+
+    root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    // 두 번 깎이지 않고 정확히 1회만 감소.
+    expect(root?.replyCount).toBe(0);
+  });
+
+  it('deleting a reply of an ALREADY-deleted root does not touch the deleted root row (deletedAt IS NULL guard)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root to delete');
+    const r1 = await postReply(stack.admin.accessToken, rootId, 'reply under doomed root');
+
+    let root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    const replyCountBefore = root!.replyCount; // 1
+
+    // 루트를 직접 soft-delete (답글은 존재 유지 — FR-MSG-09 placeholder).
+    await delMsg(stack.member.accessToken, rootId).expect(204);
+    root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.deletedAt).not.toBeNull();
+
+    // 이제 그 답글을 삭제한다. deletedAt IS NULL 가드로 삭제된 루트의
+    // replyCount 는 그대로(되감지 않음 — 매칭 0행 → UPDATE no-op).
+    await delMsg(stack.admin.accessToken, r1.body.message!.id).expect(204);
+
+    root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(replyCountBefore); // 변하지 않음
+  });
+});
+
+// S34 (FR-TH-17): TOCTOU orphan 방어. send tx 내부의 parent FOR UPDATE
+// 재검증으로 삭제된 루트에 대한 답글 INSERT 를 거부한다.
+describe('Threads API — orphan defense (S34 / FR-TH-17)', () => {
+  it('rejects a reply to a root that was soft-deleted (no orphan INSERT)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'soon-deleted root');
+
+    // 루트를 soft-delete.
+    await request(env.baseUrl)
+      .delete(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${rootId}`)
+      .set(bearer(stack.member.accessToken))
+      .expect(204);
+
+    // 삭제된 루트에 답글 시도 → 거부(404 MESSAGE_PARENT_NOT_FOUND).
+    const reply = await postReply(stack.admin.accessToken, rootId, 'orphan attempt');
+    expect(reply.status).toBe(404);
+    expect(reply.body.errorCode).toBe('MESSAGE_PARENT_NOT_FOUND');
+
+    // orphan 행이 INSERT 되지 않았는지 DB 로 확인.
+    const orphans = await env.prisma.message.count({ where: { parentMessageId: rootId } });
+    expect(orphans).toBe(0);
+  });
+});
+
+// S34 (FR-TH-07): @멘션 자동 구독. 스레드 답글의 @멘션 대상에 ThreadSubscription
+// 행이 같은 send $transaction 안에서 upsert 된다.
+describe('Threads API — @mention auto-subscribe (S34 / FR-TH-07)', () => {
+  it('creates a ThreadSubscription for a user @mentioned in a thread reply', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    // admin 이 owner 를 @멘션하는 답글 작성. owner 는 답글 작성자가 아니므로
+    // (자동 follow 경로 밖) 멘션 자동 구독이 유일한 구독 경로다.
+    const reply = await postReply(stack.admin.accessToken, rootId, `cc @${stack.owner.username}`);
+    expect(reply.status).toBe(201);
+
+    const sub = await env.prisma.threadSubscription.findUnique({
+      where: {
+        userId_threadParentId: { userId: stack.owner.userId, threadParentId: rootId },
+      },
+    });
+    expect(sub).not.toBeNull();
+  });
+
+  it('mention auto-subscribe upsert is idempotent (one row for repeat mentions)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    // 같은 대상(owner)을 두 답글에서 멘션 → 구독 행은 1개만 존재.
+    await postReply(stack.admin.accessToken, rootId, `hi @${stack.owner.username}`);
+    await postReply(stack.admin.accessToken, rootId, `again @${stack.owner.username}`);
+
+    const subs = await env.prisma.threadSubscription.findMany({
+      where: { userId: stack.owner.userId, threadParentId: rootId },
+    });
+    expect(subs).toHaveLength(1);
+  });
+});
+
+// S34 (FR-TH-17): replyCount drift 재집계 cron — 실 DB 대상.
+describe('Threads API — replyCount reconcile (S34 / FR-TH-17)', () => {
+  it('reconcile fixes a drifted root and leaves consistent roots untouched', async () => {
+    const driftedRoot = await postRoot(stack.member.accessToken, 'drifted root');
+    await postReply(stack.admin.accessToken, driftedRoot, 'real reply 1');
+    await postReply(stack.owner.accessToken, driftedRoot, 'real reply 2');
+
+    const consistentRoot = await postRoot(stack.member.accessToken, 'consistent root');
+    await postReply(stack.admin.accessToken, consistentRoot, 'real reply');
+
+    // 카운터를 인위적으로 어긋나게 만든다(직접 UPDATE — drift 시뮬레이션).
+    await env.prisma.message.update({
+      where: { id: driftedRoot },
+      data: { replyCount: 99 },
+    });
+
+    const reconciler = env.app.get(ThreadReplyCountReconciler);
+    const fixed = await reconciler.reconcile();
+
+    // drift 1개만 교정.
+    expect(fixed).toBe(1);
+    const drifted = await env.prisma.message.findUnique({ where: { id: driftedRoot } });
+    expect(drifted?.replyCount).toBe(2); // actual 비삭제 답글 수
+    const consistent = await env.prisma.message.findUnique({ where: { id: consistentRoot } });
+    expect(consistent?.replyCount).toBe(1); // 변하지 않음
+
+    // 재실행은 no-op(모두 정합).
+    const again = await reconciler.reconcile();
+    expect(again).toBe(0);
+  });
+
+  it('reconcile counts only non-deleted replies', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root with deleted reply');
+    await postReply(stack.admin.accessToken, rootId, 'kept');
+    const doomed = await postReply(stack.owner.accessToken, rootId, 'to delete');
+
+    // 답글 soft-delete → replyCount 는 이미 1 로 감소(DELETE tx).
+    await request(env.baseUrl)
+      .delete(
+        `/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${doomed.body.message!.id}`,
+      )
+      .set(bearer(stack.owner.accessToken))
+      .expect(204);
+
+    // 카운터를 드리프트시킨 뒤 재집계가 비삭제 답글(1개)만 센다.
+    await env.prisma.message.update({ where: { id: rootId }, data: { replyCount: 5 } });
+    const reconciler = env.app.get(ThreadReplyCountReconciler);
+    await reconciler.reconcile();
+
+    const root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(1);
+  });
+});
+
+// S34 fix-forward (#1 tx-poisoning): subscribe() 가 ON CONFLICT DO NOTHING 으로
+// 멱등화되어, 같은 (userId, threadParentId) 를 동시/순차 2회 구독해도 unique
+// 위반(23505)으로 tx 가 abort 되지 않고 정상 commit + 1행만 남아야 한다.
+describe('Threads API — subscribe idempotency / tx-poisoning (S34 / FR-TH-07)', () => {
+  it('동시 2회 subscribe 가 throw 없이 정상 commit, 1행만 남는다', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'concurrent subscribe root');
+    const svc = env.app.get(ThreadSubscriptionsService);
+
+    // 같은 (member, rootId) 를 동시에 2회 구독 — 종전 findUnique+create 였다면
+    // 한쪽이 23505 → tx abort 였다. ON CONFLICT 라 둘 다 정상 resolve.
+    const [a, b] = await Promise.all([
+      svc.subscribe({ userId: stack.member.userId, threadParentId: rootId }),
+      svc.subscribe({ userId: stack.member.userId, threadParentId: rootId }),
+    ]);
+    expect(a.subscribed).toBe(true);
+    expect(b.subscribed).toBe(true);
+
+    // 순차 3회째도 멱등.
+    const c = await svc.subscribe({ userId: stack.member.userId, threadParentId: rootId });
+    expect(c.subscribed).toBe(true);
+
+    const rows = await env.prisma.threadSubscription.findMany({
+      where: { userId: stack.member.userId, threadParentId: rootId },
+    });
+    expect(rows).toHaveLength(1);
+  });
+
+  it('자기 메시지 root 작성 + 동일 root 답글이 자동 follow tx 를 오염시키지 않는다', async () => {
+    // member 가 root 를 작성하면 자동 follow 로 (member, root) 구독 행이 생긴다.
+    const rootId = await postRoot(stack.member.accessToken, 'self-follow root');
+    // member 가 같은 스레드에 답글 → 자동 follow 가 다시 (member, root) 를
+    // 구독 시도하지만 ON CONFLICT 로 멱등. 답글 INSERT 와 카운터 갱신은 정상
+    // commit 되어야 한다(tx 오염 없음).
+    const reply = await postReply(stack.member.accessToken, rootId, 'my own reply');
+    expect(reply.status).toBe(201);
+
+    const subs = await env.prisma.threadSubscription.findMany({
+      where: { userId: stack.member.userId, threadParentId: rootId },
+    });
+    expect(subs).toHaveLength(1);
+    const root = await env.prisma.message.findUnique({ where: { id: rootId } });
+    expect(root?.replyCount).toBe(1); // 답글이 정상 반영됨
+  });
+});
+
+// S34 fix-forward (security #3): @멘션 자동 구독에서 차단/피차단 사용자를 제외한다.
+describe('Threads API — @mention auto-subscribe excludes blocked users (S34 / security #3)', () => {
+  it('작성자가 차단한 사용자는 멘션해도 자동 구독되지 않는다', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    // admin(작성자)이 owner 를 차단(requesterId=admin, addresseeId=owner, BLOCKED).
+    await env.prisma.friendship.create({
+      data: {
+        requesterId: stack.admin.userId,
+        addresseeId: stack.owner.userId,
+        status: 'BLOCKED',
+      },
+    });
+    // admin 이 owner 를 멘션하는 답글 작성.
+    const reply = await postReply(stack.admin.accessToken, rootId, `cc @${stack.owner.username}`);
+    expect(reply.status).toBe(201);
+
+    // 차단 상대(owner)는 자동 구독되지 않아야 한다.
+    const sub = await env.prisma.threadSubscription.findUnique({
+      where: {
+        userId_threadParentId: { userId: stack.owner.userId, threadParentId: rootId },
+      },
+    });
+    expect(sub).toBeNull();
+  });
+
+  it('작성자를 차단한 사용자도 멘션 자동 구독에서 제외된다(피차단 방향)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    // owner 가 admin(작성자)을 차단(requesterId=owner, addresseeId=admin).
+    await env.prisma.friendship.create({
+      data: {
+        requesterId: stack.owner.userId,
+        addresseeId: stack.admin.userId,
+        status: 'BLOCKED',
+      },
+    });
+    const reply = await postReply(stack.admin.accessToken, rootId, `cc @${stack.owner.username}`);
+    expect(reply.status).toBe(201);
+
+    const sub = await env.prisma.threadSubscription.findUnique({
+      where: {
+        userId_threadParentId: { userId: stack.owner.userId, threadParentId: rootId },
+      },
+    });
+    expect(sub).toBeNull();
+  });
+
+  it('차단 관계가 없으면 멘션 자동 구독이 그대로 동작한다(무회귀)', async () => {
+    const rootId = await postRoot(stack.member.accessToken, 'root');
+    const reply = await postReply(stack.admin.accessToken, rootId, `cc @${stack.owner.username}`);
+    expect(reply.status).toBe(201);
+
+    const sub = await env.prisma.threadSubscription.findUnique({
+      where: {
+        userId_threadParentId: { userId: stack.owner.userId, threadParentId: rootId },
+      },
+    });
+    expect(sub).not.toBeNull();
   });
 });

@@ -6,6 +6,7 @@ import { GlobalDmMessagesController } from './global-dm-messages.controller';
 import { DmChannelAccessGuard } from './guards/dm-channel-access.guard';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { ThreadSubscriptionsController } from './thread-subscriptions.controller';
+import { ThreadReplyCountReconciler } from './thread-reply-count-reconciler.service';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
@@ -32,7 +33,13 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     GlobalDmMessagesController,
     ThreadSubscriptionsController,
   ],
-  providers: [MessagesService, DmChannelAccessGuard, ThreadSubscriptionsService],
+  providers: [
+    MessagesService,
+    DmChannelAccessGuard,
+    ThreadSubscriptionsService,
+    // S34 (FR-TH-17): 1시간 주기 replyCount drift 재집계 cron provider.
+    ThreadReplyCountReconciler,
+  ],
   exports: [MessagesService, ThreadSubscriptionsService],
 })
 export class MessagesModule {}
