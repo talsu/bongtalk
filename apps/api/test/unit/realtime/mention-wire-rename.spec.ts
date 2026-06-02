@@ -30,11 +30,16 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
       typeof OutboxToWsSubscriber
     >[2];
     const messages = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[3];
+    // S47: badgeFor 스텁 — 본 테스트의 mention.received env 는 workspaceId 가
+    // 없어 badge emit 분기가 타지 않지만, 생성자 시그니처 정합을 위해 주입한다.
+    const badges = {
+      badgeFor: vi.fn().mockResolvedValue({ workspaceId: '', mentionCount: 0, unreadCount: 0 }),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
-    return new OutboxToWsSubscriber(gateway, replay, seq, messages, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, metrics);
   }
 
   beforeEach(() => {
@@ -93,5 +98,67 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
     } as unknown as WsEnvelope;
     await sub.onMentionEvent(env);
     expect(emit).not.toHaveBeenCalled();
+  });
+
+  // S47 (FR-MN-20): workspaceId 가 있으면 mention:new 직후 notification:badge_update
+  // 를 같은 user 룸으로 서버 진실값(isMuted 제외 집계)과 함께 emit 한다.
+  it('workspaceId 보유 시 mention:new 직후 notification:badge_update(서버 진실값)도 emit', async () => {
+    const gateway = { server: io } as unknown as ConstructorParameters<
+      typeof OutboxToWsSubscriber
+    >[0];
+    const replay = { append: replayAppend } as unknown as ConstructorParameters<
+      typeof OutboxToWsSubscriber
+    >[1];
+    const seq = { next: vi.fn() } as unknown as ConstructorParameters<
+      typeof OutboxToWsSubscriber
+    >[2];
+    const messages = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[3];
+    const badgeFor = vi
+      .fn()
+      .mockResolvedValue({ workspaceId: 'ws-7', mentionCount: 3, unreadCount: 9 });
+    const badges = { badgeFor } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
+    const metrics = {
+      wsEventsEmittedTotal,
+      bucket: (_k: string, v: string) => v,
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    const sub = new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, metrics);
+
+    const env = {
+      id: 'evt-3',
+      type: 'mention.received',
+      occurredAt: '2025-01-01T00:00:00.000Z',
+      targetUserId: 'user-42',
+      workspaceId: 'ws-7',
+      channelId: 'ch-1',
+      messageId: 'm-1',
+      actorId: 'actor-1',
+      snippet: 'hello',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      everyone: false,
+      here: false,
+    } as unknown as WsEnvelope;
+
+    await sub.onMentionEvent(env);
+
+    // 서버 진실값 배지로 그 user 의 workspaceId 만 재집계.
+    expect(badgeFor).toHaveBeenCalledWith('user-42', 'ws-7');
+    // mention:new + notification:badge_update 두 건 emit.
+    const names = emit.mock.calls.map((c) => c[0]);
+    expect(names).toContain('mention:new');
+    expect(names).toContain('notification:badge_update');
+    const badgeCall = emit.mock.calls.find((c) => c[0] === 'notification:badge_update');
+    expect(badgeCall).toBeDefined();
+    const badgePayload = badgeCall![1] as {
+      serverId: string;
+      channelId: string | null;
+      mentionCount: number;
+      unreadCount: number;
+      serverTimestamp: string;
+    };
+    expect(badgePayload.serverId).toBe('ws-7');
+    expect(badgePayload.channelId).toBe('ch-1');
+    expect(badgePayload.mentionCount).toBe(3);
+    expect(badgePayload.unreadCount).toBe(9);
+    expect(typeof badgePayload.serverTimestamp).toBe('string');
   });
 });

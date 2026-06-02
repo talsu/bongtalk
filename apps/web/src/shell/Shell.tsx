@@ -9,6 +9,7 @@ import { MessageColumn } from './MessageColumn';
 import { MemberColumn } from './MemberColumn';
 import { useUI } from '../stores/ui-store';
 import { SearchResultPanelContainer } from '../features/search/SearchResultPanelContainer';
+import { ActivityInboxPanel } from '../features/activity/ActivityInboxPanel';
 import { BottomBar } from './BottomBar';
 import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
@@ -57,6 +58,7 @@ function DesktopShell(): JSX.Element {
   const settingsSection: 'general' = 'general';
   // S30 (FR-S03): 검색 결과 패널이 활성이면 우측 패널(멤버 목록)을 대체한다.
   const searchPanelQuery = useUI((s) => s.searchPanelQuery);
+  const activityInboxOpen = useUI((s) => s.activityInboxOpen);
   const { data: mine, isLoading } = useMyWorkspaces();
   // task-040 R3 + reviewer H1: realtime is now installed once at App
   // root via AppRealtimeHost so the ConnectionBanner survives every
@@ -141,9 +143,13 @@ function DesktopShell(): JSX.Element {
           </div>
         </main>
       )}
-      {/* S30 (FR-S03): 검색 패널 활성 시 우측 슬롯을 결과 패널로 대체. */}
+      {/* S30 (FR-S03): 검색 패널 활성 시 우측 슬롯을 결과 패널로 대체.
+          S47 (FR-MN-13): 그 다음 우선순위로 Activity Inbox 패널, 둘 다 닫혀 있으면
+          멤버 목록. 우선순위 search > inbox > members. */}
       {active && activeChannel && searchPanelQuery !== null ? (
         <SearchResultPanelContainer workspaceId={active.id} workspaceSlug={active.slug} />
+      ) : active && activeChannel && activityInboxOpen ? (
+        <ActivityInboxPanel />
       ) : active && activeChannel ? (
         <MemberColumn workspaceId={active.id} />
       ) : null}

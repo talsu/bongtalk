@@ -7,6 +7,7 @@ import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { readBitVisibleSql, mentionMatchSql } from '../common/acl/read-visibility.sql';
 
 export interface UnreadChannelSummary {
   channelId: string;
@@ -125,70 +126,20 @@ export class UnreadService {
     @Optional() @Inject(REDIS) private readonly redis?: Redis,
   ) {}
 
-  /**
-   * S21 fix-forward (CRITICAL-C/MINOR-E): 5단계 fold READ 비트 가시성 표현식의
-   * 단일 출처. `allowRef`/`denyRef` 는 principalType 별 bit_or 결과 컬럼을
-   * 가리키는 SQL 식별자 fragment(예: `o.role_allow`, `ovr.user_deny`). isPrivate
-   * 컬럼 fragment 와 함께 받아 summarize/totals 가 동일 공식을 참조한다.
-   *
-   *   visible = (isPrivate = false) OR (read_bit <> 0)
-   *   read_bit = (((base | roleAllowREAD) & ~roleDenyREAD) | userAllowREAD)
-   *               & ~userDenyREAD
-   *   base    = hasExplicitRead ? READ : 0    (private 채널 한정)
-   */
-  private readBitVisibleSql(refs: {
-    isPrivate: Prisma.Sql;
-    roleAllow: Prisma.Sql;
-    roleDeny: Prisma.Sql;
-    userAllow: Prisma.Sql;
-    userDeny: Prisma.Sql;
-  }): Prisma.Sql {
-    const { isPrivate, roleAllow, roleDeny, userAllow, userDeny } = refs;
-    return Prisma.sql`(
-      ${isPrivate} = false
-      OR (
-        (
-          (
-            (
-              (CASE
-                 WHEN ((COALESCE(${userAllow}, 0) | COALESCE(${roleAllow}, 0)) & 1) > 0 THEN 1
-                 ELSE 0
-               END)
-              | (COALESCE(${roleAllow}, 0) & 1)
-            )
-            & ~(COALESCE(${roleDeny}, 0) & 1)
-          )
-          | (COALESCE(${userAllow}, 0) & 1)
-        )
-        & ~(COALESCE(${userDeny}, 0) & 1)
-      ) > 0
-    )`;
-  }
-
-  /**
-   * S21 fix-forward (SERIOUS-F): 미읽음 멘션 판정 단일 출처. everyone/here/
-   * channel 은 `@>` JSONB containment 로 GIN 인덱스를 활용하고, 직접 멘션은
-   * users 배열 containment 로 본다. `msgRef` 는 메시지 별칭(예: `msg`),
-   * `userParam` 은 userId 파라미터 fragment.
-   */
-  private mentionMatchSql(msgRef: Prisma.Sql, userParam: Prisma.Sql): Prisma.Sql {
-    return Prisma.sql`(
-      ${msgRef}.mentions @> jsonb_build_object('users', jsonb_build_array(${userParam}))
-      OR ${msgRef}.mentions @> '{"everyone":true}'::jsonb
-      OR ${msgRef}.mentions @> '{"here":true}'::jsonb
-      OR ${msgRef}.mentions @> '{"channel":true}'::jsonb
-    )`;
-  }
+  // S47 fix-forward (BLOCKER-4): 5단계 fold READ 비트 가시성 + 멘션 판정 술어는
+  // `../common/acl/read-visibility.sql` 로 추출돼 rail(본 서비스)·badges·ACK 가
+  // 동일 truth-source 를 공유한다(종전 private readBitVisibleSql/mentionMatchSql 은
+  // 그 단일 출처로 대체). summarize/totals/markAllRead 가 import 한 함수를 호출한다.
 
   async summarize(workspaceId: string, userId: string): Promise<UnreadChannelSummary[]> {
-    const visible = this.readBitVisibleSql({
+    const visible = readBitVisibleSql({
       isPrivate: Prisma.sql`c."isPrivate"`,
       roleAllow: Prisma.sql`o.role_allow`,
       roleDeny: Prisma.sql`o.role_deny`,
       userAllow: Prisma.sql`o.user_allow`,
       userDeny: Prisma.sql`o.user_deny`,
     });
-    const mentionMatch = this.mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
+    const mentionMatch = mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -285,14 +236,14 @@ export class UnreadService {
   async summarizeWorkspaceTotals(userId: string): Promise<UnreadWorkspaceTotal[]> {
     // totals 는 channel_overrides CTE 에서 채널+오버라이드를 별칭 `c` 로 노출하므로
     // fold 가 c.* 컬럼을 참조한다(summarize 의 c/o 분리와 별개 바인딩, 공식은 동일).
-    const visible = this.readBitVisibleSql({
+    const visible = readBitVisibleSql({
       isPrivate: Prisma.sql`c."isPrivate"`,
       roleAllow: Prisma.sql`c.role_allow`,
       roleDeny: Prisma.sql`c.role_deny`,
       userAllow: Prisma.sql`c.user_allow`,
       userDeny: Prisma.sql`c.user_deny`,
     });
-    const mentionMatch = this.mentionMatchSql(Prisma.sql`msg`, Prisma.sql`vc."userId"::text`);
+    const mentionMatch = mentionMatchSql(Prisma.sql`msg`, Prisma.sql`vc."userId"::text`);
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -420,7 +371,7 @@ export class UnreadService {
    * summarize 와 동일하게 mentionMatchSql 단일 출처(GIN containment).
    */
   async mentionCountFor(userId: string, channelId: string): Promise<number> {
-    const mentionMatch = this.mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
+    const mentionMatch = mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
     const rows = await this.prisma.$queryRaw<Array<{ mention_count: bigint | number }>>(Prisma.sql`
       SELECT COALESCE((
         SELECT count(*)
@@ -800,7 +751,7 @@ export class UnreadService {
       previousLastReadMessageCreatedAt: Date | null;
     }>
   > {
-    const visible = this.readBitVisibleSql({
+    const visible = readBitVisibleSql({
       isPrivate: Prisma.sql`c."isPrivate"`,
       roleAllow: Prisma.sql`o.role_allow`,
       roleDeny: Prisma.sql`o.role_deny`,
@@ -1091,7 +1042,7 @@ export class UnreadService {
     entries: Array<[string, SnapshotCursor]>,
   ): Promise<ReadStateUpdatedPayload[]> {
     const channelIds = entries.map(([channelId]) => Prisma.sql`${channelId}::uuid`);
-    const mentionMatch = this.mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
+    const mentionMatch = mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
     const rows = await tx.$queryRaw<
       Array<{
         channel_id: string;
