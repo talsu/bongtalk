@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S38 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S39(D05 반응/이모지 코어 — FR-RE01/02/03/04/06, 전부 P0).** D01(메시징)·D02·D03·D04(스레드, S33~S38 완료)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. **진행률: 157/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S39 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S40(D05 반응 확장 — 반응자목록/권한/관리, FR-RE05/07/08/09).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응, S39 코어 완료·S40~ 확장) 진행 중. **진행률: 162/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -371,11 +371,20 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 449·web 658·shared-types 195·webhook 50) + 빌드 3종 + 마이그레이션 PG16 up→down→up + int 22(OFF 멘션·벨 hydration·markAllRead ACL·archived·actorId). public DS 4파일 무수정.
 - carryover: **perf**(listMine LATERAL unread COUNT ×N·markAllRead DISTINCT ON Sort → **denormalized unreadCount 컬럼 또는 구독 cap 후속**·fanout Promise.all minor). **manual ALL 구독자 fanout source 아님**(recipients=author+repliers, listFollowers 미사용 — task-014-B fanout-source 확장 후속). DS-owner(`qf-menu__item[data-highlighted]` focus·`__close` focus-visible·excerpt text-muted 대비 3.8:1). visual baseline(task-040 drift + S38 신규 UI 스냅샷 → task-048).
 
-## 다음 슬라이스: S39 (D05 반응/이모지 — 코어 시작)
+## ✅ S39 (D05 반응 코어 — toggle/20한도/reaction:updated/GET) — 완료 (2026-06-02, 이 세션)
 
-- scope api + web. **FR-RE01 / FR-RE02 / FR-RE03 / FR-RE04 / FR-RE06**(전부 **P0**).
-- FR 정본 PRD html 재확인 필수(D05 reactions-emoji 섹션). 예상: 이모지 반응 추가/제거·반응 목록·집계·실시간. **기존 자산 확인**: 이미 reactions 인프라(MessageReaction·EmojiPicker·reactions 집계)가 S00~S06/S04 에 일부 존재할 수 있음(MessageItem 반응 렌더·aggregateReactions) — UNDERSTAND 에서 done vs 신규 명확히. 마이그레이션 필요 여부(커스텀 이모지 등) PRD 확인.
-- 주의: D04 완료. D05 는 신규 도메인. UI(반응 picker/렌더) → ui-designer/visual. 실시간(reaction:added/removed) dispatcher.
+- **FR-RE01**(POST **toggle**·낙관+롤백·**`reaction:updated` full-replace**·debounce 300ms), **FR-RE02**(20종 한도 — 부모 Message `FOR NO KEY UPDATE` 직렬화 + COUNT(DISTINCT) + 409 `REACTION_LIMIT_REACHED`), **FR-RE03**(added/removed → **단일 `message.reaction.updated`** + outbox-to-ws subscriber 가 `aggregateReactionDetails`+users[5] enrichment), **FR-RE04**(`GET /messages/:id/reactions` users[5]), **FR-RE06**(삭제 메시지 404). **마이그레이션 없음**(MessageReaction 기존).
+- **5팀 적대적 리뷰(머지 전)** → fix-forward(9fa75d3). ★20종 동시성(FOR NO KEY UPDATE) SOUND·이벤트 rename COMPLETE:
+  - **MAJOR per-viewer me sticky-ghost**: `byMe=inUsers||prevByMe` latch → 신규 `reaction-intent.ts`(뷰어 의도맵 TTL 10s) + dispatcher `intent!==null?intent:inUsers`(latch 제거). debounce **net-intent**(burst 净의도만 POST·짝수=no-op 미전송) + **burst-start 1회 롤백 스냅샷**.
+  - security MEDIUM: archived 채널 반응 → CHANNEL_ARCHIVED. contract: ReactionSummary(byMe)↔ReactionUpdatedReaction(users) 주석·GET 계약테스트·`reaction:updated` seq 옵셔널(라이브 와이어 미포함). a11y ReactionBar(aria-pressed 상태라벨·aria-haspopup·count aria-live).
+- 게이트: `pnpm verify` 19 GREEN(api 449·web 668·shared-types 198·webhook 50) + 빌드 3종 + int 11(toggle·20한도·archived 409·GET users[5]·삭제404). DS 무수정.
+- carryover: **EmojiPicker 구조적 a11y**(role=menu→dialog·tab roles·focus trap·포커스이동 — **선존 컴포넌트** → 전용 picker a11y 태스크). perf(enrichment 재조회 dedup·`(messageId,emoji,createdAt)` 인덱스·FOR NO KEY UPDATE 경합 → measure-first). DS-owner(qf-reaction--me 색단독+대비·터치타깃 22px). security LOW(차단유저 reactor username·stale WS room). visual baseline.
+
+## 다음 슬라이스: S40 (D05 반응 확장 — 반응자 목록/권한/관리)
+
+- scope api + web. **FR-RE05 / FR-RE07 / FR-RE08**(P1) / **FR-RE09**(P2).
+- FR 정본 PRD html 재확인 필수(D05 섹션). 예상(S39 UNDERSTAND 메모): **FR-RE05**(전체 reactor 목록 커서 페이지 — users[5] 너머), **FR-RE07**(REACT 권한 비트 DENY → 403), **FR-RE08**(OWNER/모더레이터 **타인 반응 제거**), **FR-RE09**(메시지 전체 반응 일괄 삭제). 정확 정의·우선순위 PRD 확인.
+- 주의: S39 reactions 코어(toggle·reaction:updated·aggregateReactionDetails) 위. FR-RE08 권한(채널 MANAGE/OWNER) + DELETE 타인반응 경로. FR-RE07 REACT 비트(권한 fold). UI(reactor 목록 모달) → ui-designer/visual. 마이그레이션 필요 여부 PRD 확인(REACT 비트는 기존 PermissionMatrix?). **EmojiPicker a11y carryover 와 묶어 처리 가능**(같은 reactions UI).
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

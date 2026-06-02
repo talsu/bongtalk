@@ -555,6 +555,60 @@ export class MessagesService {
   }
 
   /**
+   * S39 (FR-RE03 / FR-RE04): 단일 메시지의 이모지별 반응 집계를 reactor 목록(이모지당
+   * 최대 5명)과 함께 모은다. reaction:updated WS fanout enrichment 와 GET
+   * /messages/:id/reactions 응답이 공유한다. emoji 는 count DESC, emoji ASC 로
+   * 정렬해 aggregateReactions(목록 read-path)의 순서와 일치시킨다.
+   *
+   * users 는 이모지당 가장 먼저 반응한 5명(createdAt ASC)을 LATERAL 로 모은다 —
+   * 이모지 종류가 최대 20개(FR-RE02 한도)라 fan-out 이 bounded 하다(20×5). username
+   * 은 같은 LATERAL 안에서 User 조인으로 채워 N+1 을 피한다.
+   */
+  async aggregateReactionDetails(
+    messageId: string,
+  ): Promise<{ emoji: string; count: number; users: { id: string; username: string | null }[] }[]> {
+    const rows = await this.prisma.$queryRaw<
+      {
+        emoji: string;
+        count: bigint;
+        users: { id: string; username: string | null }[] | null;
+      }[]
+    >(Prisma.sql`
+      SELECT g.emoji                                       AS "emoji",
+             g.cnt                                         AS "count",
+             COALESCE(top.users, '[]'::jsonb)              AS "users"
+        FROM (
+          SELECT emoji, COUNT(*)::bigint AS cnt
+            FROM "MessageReaction"
+           WHERE "messageId" = ${messageId}::uuid
+           GROUP BY emoji
+        ) g
+        LEFT JOIN LATERAL (
+          -- 이모지당 최초 반응 5명(createdAt ASC). username 은 같은 조인으로 채움.
+          SELECT jsonb_agg(
+                   jsonb_build_object('id', u.id, 'username', u.username)
+                   ORDER BY r."createdAt" ASC
+                 ) AS users
+            FROM (
+              SELECT mr."userId", mr."createdAt"
+                FROM "MessageReaction" mr
+               WHERE mr."messageId" = ${messageId}::uuid
+                 AND mr.emoji = g.emoji
+               ORDER BY mr."createdAt" ASC
+               LIMIT 5
+            ) r
+            JOIN "User" u ON u.id = r."userId"
+        ) top ON TRUE
+       ORDER BY g.cnt DESC, g.emoji ASC
+    `);
+    return rows.map((r) => ({
+      emoji: r.emoji,
+      count: Number(r.count),
+      users: (r.users ?? []).map((u) => ({ id: u.id, username: u.username ?? null })),
+    }));
+  }
+
+  /**
    * S17 (FR-DM-13): 이미 열린 1:1 DM 에 send 시점 BLOCKED 재검증. S16
    * assertCanDm 은 DM *개설* 시 ACCEPTED 를 요구하지만, 그 이후 한쪽이
    * 차단하면 채널은 그대로 살아있다 — send 경로에서 매번 재검증해야 한다.

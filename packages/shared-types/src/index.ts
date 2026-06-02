@@ -135,6 +135,10 @@ export const ErrorCodeSchema = z.enum([
   // 에 현재 MessageDto 를 실어 클라이언트가 편집창을 최신값으로 롤백.
   'MESSAGE_VERSION_CONFLICT',
   'IDEMPOTENCY_KEY_REUSE_CONFLICT',
+  // S39 (FR-RE02 / D05): 메시지당 고유 이모지 반응 종류 한도(20) 초과 → 409.
+  // INSERT ON CONFLICT DO NOTHING 후 단일 tx 내 COUNT … FOR UPDATE 로 20 초과를
+  // 감지하면 방금 삽입한 행을 DELETE 한 뒤 이 코드로 거부한다(D12 FR-RM16 패턴).
+  'REACTION_LIMIT_REACHED',
   // task-015-A (014-follow-3 closure): attachments + channel
   // visibility + generic forbidden codes. All existed in the backend
   // enum from task-012; schema drift hid them from the client.

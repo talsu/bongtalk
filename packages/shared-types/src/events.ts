@@ -24,6 +24,14 @@ export const WS_EVENTS = {
   MESSAGE_CREATED: 'message:created',
   MESSAGE_UPDATED: 'message:updated',
   MESSAGE_DELETED: 'message:deleted',
+  // 반응 (S39 · FR-RE03): 반응 추가/제거 성공 시 채널 룸 전체에 fanout 한다.
+  // payload 는 messageId + 전체 반응 집계 배열(emoji, count, users[≤5]). 서버
+  // 내부 outbox eventType 은 dot 표기(message.reaction.updated)지만 outbox→WS
+  // subscriber 가 이 콜론 wire 이름으로 변환해 emit 한다(thread:lock:changed
+  // 선례). per-viewer `me` 는 브로드캐스트 payload 에 담을 수 없으므로(수신자마다
+  // 다름) 제외하며, 클라 dispatcher 가 users 에 자신의 userId 가 포함됐는지로
+  // `byMe` 를 로컬 계산한다(카운트/리스트는 WS 가 진실값).
+  REACTION_UPDATED: 'reaction:updated',
   // 타이핑
   TYPING_START: 'typing:start',
   TYPING_STOP: 'typing:stop',
@@ -220,6 +228,58 @@ export const MessageDeletedPayloadSchema = z.object({
   deletedAt: z.string().datetime(),
 });
 export type MessageDeletedPayload = z.infer<typeof MessageDeletedPayloadSchema>;
+
+// ── 반응 (S39 · FR-RE03/RE04) ────────────────────────────────────────────────
+/**
+ * 반응 집계의 reactor 한 명. `username` 은 아바타 스택 라벨용으로 옵셔널(서버가
+ * batch 로 채우되, 미해결 시 id 만). REACTION_UPDATED fanout 과 GET reactions
+ * 응답이 공유한다. PII 최소화를 위해 id + username 만 노출한다(email 등 제외).
+ */
+export const ReactionUserSchema = z.object({
+  id: UserIdSchema,
+  username: z.string().nullable().optional(),
+});
+export type ReactionUser = z.infer<typeof ReactionUserSchema>;
+
+/**
+ * S39 (FR-RE03): reaction:updated 의 이모지별 집계 항목(**broadcast** 형태).
+ * `users` 는 reactor 전부가 아니라 **최초 5명까지의 부분집합**이다(아바타 스택 +
+ * "+N" overflow 용 — count 가 진짜 총원이다). per-viewer `me`/`byMe` 는 수신자마다
+ * 달라 브로드캐스트 payload 에 담을 수 없으므로 제외하며, 클라가 users 에 자신의
+ * userId 가 포함됐는지로 byMe 를 **로컬 계산**한다(cap 밖이면 reaction-intent 의
+ * 뷰어 의도로 보정 — dispatcher 참조). per-viewer REST 형태는 message.ts 의
+ * ReactionSummary(byMe 직접 포함) 이며 본 스키마와 별개 계약이다(SHOULD 3 구분).
+ */
+export const ReactionUpdatedReactionSchema = z.object({
+  emoji: z.string().min(1).max(64),
+  count: z.number().int().nonnegative(),
+  users: z.array(ReactionUserSchema).max(5),
+});
+export type ReactionUpdatedReaction = z.infer<typeof ReactionUpdatedReactionSchema>;
+
+/**
+ * S39 (FR-RE03): reaction:updated — 반응 추가/제거 성공 시 채널 룸 전체에 fanout.
+ * payload 는 messageId + 전체 반응 집계(full snapshot). 수신 클라는 해당 messageId
+ * 의 반응을 이 payload 로 **full replace** 한다(증분 ±1 아님 — 재연결 replay /
+ * out-of-order 에도 수렴). 서버 outbox→WS subscriber 가 message.reaction.updated
+ * dot 이벤트를 수신해 aggregateReactions 재조회 + users[5] enrichment 후 이
+ * wire payload 로 변환해 emit 한다.
+ *
+ * S39 fix-forward (SHOULD 3 — dispatcher safeParse 가드 정합): `seq` 는 **옵셔널**이다.
+ * 실제 라이브 와이어(outbox-to-ws.subscriber 의 enriched payload: id/type/occurredAt/
+ * channelId/messageId/reactions)는 seq 를 싣지 않는다 — 반응은 full-replace 라
+ * 순서 정합에 seq 가 필요 없기 때문이다(message:* 의 seq 게이팅과 다름). seq 를
+ * required 로 두면 dispatcher 가 추가한 safeParse 가드가 모든 라이브 이벤트를 거부해
+ * 반응이 통째로 깨진다. 와이어 현실에 맞춰 옵셔널로 정렬하되, 후속 슬라이스가 seq
+ * 를 싣게 되면 그대로 통과한다(forward-compat).
+ */
+export const ReactionUpdatedPayloadSchema = z.object({
+  seq: SeqSchema.optional(),
+  messageId: z.string().min(1),
+  channelId: ChannelIdSchema,
+  reactions: z.array(ReactionUpdatedReactionSchema),
+});
+export type ReactionUpdatedPayload = z.infer<typeof ReactionUpdatedPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -514,6 +574,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.MESSAGE_CREATED]: MessageCreatedPayloadSchema,
   [WS_EVENTS.MESSAGE_UPDATED]: MessageUpdatedPayloadSchema,
   [WS_EVENTS.MESSAGE_DELETED]: MessageDeletedPayloadSchema,
+  [WS_EVENTS.REACTION_UPDATED]: ReactionUpdatedPayloadSchema,
   [WS_EVENTS.TYPING_START]: TypingStartPayloadSchema,
   [WS_EVENTS.TYPING_STOP]: TypingStopPayloadSchema,
   [WS_EVENTS.TYPING_UPDATE]: TypingUpdatePayloadSchema,
