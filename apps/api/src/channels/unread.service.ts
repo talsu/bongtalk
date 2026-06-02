@@ -249,6 +249,12 @@ export class UnreadService {
         FROM "Message" msg
         WHERE msg."channelId" = c.id
           AND msg."deletedAt" IS NULL
+          -- S36 fix-forward (BLOCKER-1 · FR-TH-11): 채널 unread/멘션은 roots-only.
+          -- messages.service rawList(채널 목록 read-path)와 동일 술어로, 스레드
+          -- 답글(parentMessageId 보유·비-broadcast)을 채널 배지 집계에서 제외한다.
+          -- broadcast 행(isBroadcast=true)은 채널 타임라인에 노출되므로 포함(+1).
+          -- Message_channel_roots_idx partial index 와 정합(perf 회귀 없음).
+          AND (msg."parentMessageId" IS NULL OR msg."isBroadcast" = true)
           AND (
             rs."lastReadMessageCreatedAt" IS NULL
             OR (msg."createdAt", msg.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
@@ -359,6 +365,9 @@ export class UnreadService {
         FROM "Message" msg
         WHERE msg."channelId" = vc.channel_id
           AND msg."deletedAt" IS NULL
+          -- S36 fix-forward (BLOCKER-1 · FR-TH-11): 워크스페이스 totals 도 roots-only
+          -- (summarize 와 동일 술어) — 답글이 워크스페이스 합산 배지에 누수되지 않는다.
+          AND (msg."parentMessageId" IS NULL OR msg."isBroadcast" = true)
           AND (
             rs."lastReadMessageCreatedAt" IS NULL
             OR (msg."createdAt", msg.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
@@ -391,6 +400,10 @@ export class UnreadService {
            AND rs."channelId" = ${channelId}::uuid
          WHERE msg."channelId" = ${channelId}::uuid
            AND msg."deletedAt" IS NULL
+           -- S36 fix-forward (BLOCKER-1 · FR-TH-11): single-channel recount 도
+           -- roots-only — ackRead 의 read_state:updated payload unreadCount 가
+           -- 답글을 산입하지 않게 한다(summarize 와 동일 술어).
+           AND (msg."parentMessageId" IS NULL OR msg."isBroadcast" = true)
            AND (
              rs."lastReadMessageCreatedAt" IS NULL
              OR (msg."createdAt", msg.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
@@ -417,6 +430,9 @@ export class UnreadService {
            AND rs."channelId" = ${channelId}::uuid
          WHERE msg."channelId" = ${channelId}::uuid
            AND msg."deletedAt" IS NULL
+           -- S36 fix-forward (BLOCKER-1 · FR-TH-11): 채널 멘션 카운트도 roots-only —
+           -- 스레드 답글 내 @멘션이 채널 멘션 배지에 산입되지 않게 막는다.
+           AND (msg."parentMessageId" IS NULL OR msg."isBroadcast" = true)
            AND ${mentionMatch}
            AND (
              rs."lastReadMessageCreatedAt" IS NULL
@@ -838,6 +854,11 @@ export class UnreadService {
           FROM "Message" msg
           JOIN visible_channels vc ON vc.id = msg."channelId"
          WHERE msg."deletedAt" IS NULL
+           -- S36 fix-forward (BLOCKER-1 · FR-TH-11): markAllRead 의 전진 목표(채널별
+           -- 최신 튜플)도 roots-only 행에서 고른다 — 채널 unread 의 정본 술어와
+           -- 정합. 답글만 더 최신이어도 채널 unread 는 그 답글을 세지 않으므로,
+           -- 전진 커서도 마지막 root/broadcast 행을 가리켜야 unread 가 0 으로 수렴한다.
+           AND (msg."parentMessageId" IS NULL OR msg."isBroadcast" = true)
          ORDER BY msg."channelId", msg."createdAt" DESC, msg.id DESC
       ),
       -- reviewer MAJOR: 덮어쓰기 직전 old 커서를 latest 와 미리 결합해 캡처한다.

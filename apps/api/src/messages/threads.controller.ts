@@ -70,6 +70,13 @@ export class ThreadsController {
       throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
     }
     await this.channelAccess.requireRead(msg.channel, userId);
+    // S36 fix-forward (보안 MEDIUM): archived 채널 스레드는 ack/get 을 막는다.
+    // ChannelAccessGuard 의 CHANNEL_ARCHIVED 패턴과 동일 — 보관된 채널의 스레드에
+    // 읽음 커서를 전진(ack)하거나 답글을 조회(get)할 수 없어야 한다. READ ACL 통과
+    // 뒤에 검사해 존재 leak 없이 409 로 수렴한다.
+    if (msg.channel.archivedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
+    }
     return { channelId: msg.channelId, channelType: msg.channel.type };
   }
 
@@ -148,6 +155,11 @@ export class ThreadsController {
       throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
     }
     await this.channelAccess.requireRead(msg.channel, user.id);
+    // S36 fix-forward (보안 MEDIUM): archived 채널 스레드 GET 차단(ack 경로와 동일
+    // CHANNEL_ARCHIVED). 보관 채널의 스레드 패널을 열 수 없게 한다.
+    if (msg.channel.archivedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
+    }
 
     const cursor = parsed.data.cursor ? decodeCursor(parsed.data.cursor) : null;
     const page = await this.messages.listThreadReplies({

@@ -150,11 +150,11 @@ FR-TH-05,D04-threads,P0,S35,done
 FR-TH-06,D04-threads,P1,S35,done
 FR-TH-18,D04-threads,P1,S35,done
 FR-TH-20,D04-threads,P1,S35,done
-FR-RS-12,D09-readstate,P1,S36,todo
-FR-TH-04,D04-threads,P1,S36,todo
-FR-TH-11,D04-threads,P1,S36,todo
-FR-TH-12,D04-threads,P1,S36,todo
-FR-TH-14,D04-threads,P1,S36,todo
+FR-RS-12,D09-readstate,P1,S36,done
+FR-TH-04,D04-threads,P1,S36,done
+FR-TH-11,D04-threads,P1,S36,done
+FR-TH-12,D04-threads,P1,S36,done
+FR-TH-14,D04-threads,P1,S36,done
 FR-MSG-08,D01-messaging,P1,S37,todo
 FR-MSG-17,D01-messaging,P1,S37,todo
 FR-MSG-18,D01-messaging,P2,S37,todo

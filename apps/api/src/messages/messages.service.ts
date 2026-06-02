@@ -1,4 +1,4 @@
-import { forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, type AttachmentKind } from '@prisma/client';
 import type Redis from 'ioredis';
 import {
@@ -199,6 +199,8 @@ export type ListMessagesArgs = {
 
 @Injectable()
 export class MessagesService {
+  private readonly logger = new Logger(MessagesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
@@ -2178,8 +2180,18 @@ export class MessagesService {
     // 캐시 TTL(2h) 자연 만료 + 다음 read-through DB 재집계가 정정한다(롤백 불요 —
     // unreadCount 는 DB COUNT 가 정본이라 캐시는 파생일 뿐). UnreadService 미주입
     // (단위 테스트)이면 생략한다.
+    //
+    // S36 fix-forward (perf SERIOUS): best-effort fire-and-forget. 전 멤버 fanout
+    // 무효화를 동기 await 하면 대형 워크스페이스에서 softDelete HTTP 레이턴시가
+    // 멤버 수에 비례해 늘어난다. 무효화는 파생 캐시 정리일 뿐(DB COUNT 가 정본)
+    // 이라 hot-path 에서 분리해도 안전하다. 실패는 warn 으로 남기고, TTL/read-through
+    // 가 정정한다.
     if (deletedBroadcast && this.unread) {
-      await this.unread.invalidateChannelWorkspaceAllMembers(args.channelId);
+      void this.unread.invalidateChannelWorkspaceAllMembers(args.channelId).catch((err) => {
+        this.logger.warn(
+          `[messages] broadcast unread cache invalidation failed (channel=${args.channelId}): ${String(err).slice(0, 160)}`,
+        );
+      });
     }
   }
 
