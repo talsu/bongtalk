@@ -99,7 +99,8 @@ describe('SystemMessage (FR-MSG-19 / FR-RC10)', () => {
       />,
     );
     expect(out).toContain('msg-system-delete-sys-1');
-    expect(out).toContain('시스템 메시지 삭제');
+    // S51 리뷰(a11y B-04): 삭제 버튼 aria-label 에 핀 알림 본문 컨텍스트가 실린다.
+    expect(out).toContain('핀 알림 삭제: alice이(가) 메시지를 고정했습니다.');
   });
 
   it('onDelete 가 없으면 SYSTEM_PIN 행에도 삭제 버튼이 없다', () => {

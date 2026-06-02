@@ -47,23 +47,31 @@ export class SavedService {
   /**
    * 메시지가 호출자에게 가시(채널 READ ACL 통과)한지 확인한다. 비가시면
    * MESSAGE_NOT_FOUND(404) 로 거부해 존재 자체를 누출하지 않는다(me-mentions 와 동일
-   * 중립 정책). 공개 채널은 통과, OWNER 는 전체 가시, 비공개 채널은 (allow & ~deny) &
-   * READ_BIT > 0 인 멤버만 통과한다. DIRECT(DM) 채널은 USER override 만으로 가시성을
-   * 표현하므로 같은 READ 비트 검사가 동작한다(워크스페이스 멤버십 join 은 LEFT 로).
-   * 삭제된(deletedAt) 원본은 저장 대상이 아니므로 함께 404.
+   * 중립 정책). 삭제된(deletedAt) 원본/채널은 저장 대상이 아니므로 함께 404.
+   *
+   * S51 리뷰(reviewer BLOCKER-1 · security HIGH) fix-forward — ChannelAccessGuard
+   * 와 정합하는 통합 ACL. 종전 코드는 (a) `c.isPrivate=false` 단락이 **워크스페이스
+   * 멤버십을 검사하지 않아** 비멤버가 타 워크스페이스 공개 채널 메시지를 저장/열람
+   * (크로스워크스페이스 IDOR), (b) `OR wm.role='OWNER'` 단락이 **DM(DIRECT) 에도
+   * 적용**돼 비참여 OWNER 가 DM 메시지를 저장(프라이버시 우회)했다. 수정:
+   *   - 워크스페이스 채널(workspaceId NOT NULL): WorkspaceMember 여야 하고
+   *     (공개 OR OWNER(비-DIRECT) OR READ override fold) 통과.
+   *   - DM 채널(workspaceId NULL): USER override READ 만(OWNER 단락 없음 —
+   *     ChannelAccessGuard 의 DIRECT 격리와 동일). ROLE override 는 멤버일 때만.
    */
   private async assertMessageVisible(userId: string, messageId: string): Promise<void> {
     const rows = await this.prisma.$queryRaw<Array<{ visible: boolean }>>`
       SELECT (
-        c."isPrivate" = false
-        OR wm.role = 'OWNER'
+        (c."isPrivate" = false AND wm."userId" IS NOT NULL)
+        OR (wm.role = 'OWNER' AND c.type <> 'DIRECT')
         OR COALESCE(
              (SELECT (bit_or(cpo."allowMask") & ~bit_or(cpo."denyMask")) & 1
                 FROM "ChannelPermissionOverride" cpo
                WHERE cpo."channelId" = c.id
                  AND (
                    (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                   OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                   OR (wm."userId" IS NOT NULL
+                       AND cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
                  )),
              0
            ) > 0
@@ -171,7 +179,10 @@ export class SavedService {
         COALESCE(c."displayName", c."name") AS "channelName"
       FROM "SavedMessage" sm
       JOIN "Message" m ON m.id = sm."messageId"
-      JOIN "Channel" c ON c.id = m."channelId"
+      -- S51 리뷰(security MED): soft-delete 된 채널의 메시지 본문/채널명이
+      -- 저장 목록에 잔존 노출되지 않도록 deletedAt 필터(권한 회수 후 재검사는
+      -- 크로스컷팅 carryover — S49 FINDING-1 계열).
+      JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
       WHERE sm."userId" = ${args.userId}::uuid
         AND sm.status = ${args.status}::"SaveStatus"
         ${

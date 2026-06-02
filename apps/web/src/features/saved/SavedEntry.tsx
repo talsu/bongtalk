@@ -20,6 +20,7 @@ export function SavedEntry(): JSX.Element {
         type="button"
         data-testid="saved-entry"
         onClick={() => setOpen(true)}
+        aria-label={count > 0 ? `저장됨, ${count}개` : '저장됨'}
         className="qf-channel group relative w-full text-left"
       >
         <span className="qf-channel__prefix pointer-events-none relative">
@@ -27,7 +28,11 @@ export function SavedEntry(): JSX.Element {
         </span>
         <span className="flex-1">저장됨</span>
         {count > 0 ? (
-          <span className="qf-badge qf-badge--count" data-testid="saved-entry-badge">
+          <span
+            className="qf-badge qf-badge--count"
+            data-testid="saved-entry-badge"
+            aria-hidden="true"
+          >
             {count}
           </span>
         ) : null}

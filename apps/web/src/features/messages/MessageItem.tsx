@@ -55,6 +55,11 @@ type Props = {
    * pin 미지원이므로 부모가 `null` 전달 시 Pin/Unpin 자동 hide.
    */
   viewerRole?: WorkspaceRole | null;
+  /**
+   * S51 (FR-PS-05): 채널 핀 권한 토글. false 면 MEMBER 의 핀/해제 메뉴를 숨긴다
+   * (서버 게이트와 정합). 기본 true(미전달 시 멤버 허용 — S50 동작).
+   */
+  memberCanPin?: boolean;
   onEditSave: (content: string) => void | Promise<void>;
   onDelete: () => void | Promise<void>;
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
@@ -114,6 +119,7 @@ export function MessageItem({
   authorRole,
   mentions,
   viewerRole,
+  memberCanPin = true,
   onEditSave,
   onDelete,
   onToggleReaction,
@@ -583,7 +589,9 @@ export function MessageItem({
                     <span data-testid={`msg-mark-unread-${msg.id}`}>미읽음으로 표시</span>
                   </DropdownItem>
                 ) : null}
-                {(viewerRole === 'OWNER' || viewerRole === 'ADMIN') &&
+                {(viewerRole === 'OWNER' ||
+                  viewerRole === 'ADMIN' ||
+                  (viewerRole === 'MEMBER' && memberCanPin)) &&
                 !msg.id.startsWith('tmp-') &&
                 (onPin || onUnpin) ? (
                   <>

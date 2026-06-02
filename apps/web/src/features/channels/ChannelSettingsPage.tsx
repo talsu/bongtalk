@@ -418,7 +418,10 @@ function GeneralSection({
       <div className="qf-field">
         <span className="qf-field__label">핀 권한</span>
         <div className="flex items-center justify-between gap-[var(--s-4)]">
-          <p className="qf-field__hint m-0">
+          {/* S51 리뷰(a11y B-03): 현재 핀 권한 상태를 안내하는 hint 를
+              토글 버튼에 aria-describedby 로 연결해 SR 이 동작 직전에 현재
+              상태를 함께 읽게 한다(상태가 기계 판독 불가했던 문제 해소). */}
+          <p id="channel-pin-perm-hint" className="qf-field__hint m-0">
             {channel.memberCanPin
               ? '채널 멤버 누구나 메시지를 고정할 수 있어요.'
               : '관리자만 메시지를 고정할 수 있어요.'}
@@ -427,6 +430,7 @@ function GeneralSection({
             type="button"
             variant="secondary"
             data-testid="channel-settings-pin-permission-toggle"
+            aria-describedby="channel-pin-perm-hint"
             disabled={pinSubmitting}
             onClick={togglePinPermission}
           >

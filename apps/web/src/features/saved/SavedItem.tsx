@@ -32,7 +32,7 @@ export function SavedItem({
           </time>
         </div>
         <p
-          className={deleted ? 'text-text-muted italic' : 'text-text'}
+          className={deleted ? 'text-text-muted italic' : 'text-foreground'}
           style={{
             font: '400 var(--fs-14)/var(--lh-normal) var(--font-sans)',
             margin: 'var(--s-1) 0 0',
@@ -45,7 +45,7 @@ export function SavedItem({
         type="button"
         data-testid={`saved-unsave-${item.messageId}`}
         onClick={() => onUnsave(item.messageId)}
-        aria-label="저장 해제"
+        aria-label={`저장 해제 — ${item.channelName} · ${(item.excerpt ?? '').slice(0, 30)}`}
         className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
         style={{ color: 'var(--accent)' }}
       >

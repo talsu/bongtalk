@@ -90,7 +90,7 @@ export function SystemMessage({
           type="button"
           data-testid={`msg-system-delete-${msg.id}`}
           onClick={() => void onDelete()}
-          aria-label="시스템 메시지 삭제"
+          aria-label={`핀 알림 삭제: ${text}`}
           className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm not-italic"
         >
           <Icon name="trash" size="sm" />
@@ -144,7 +144,7 @@ function BroadcastMessage({ msg, onOpen }: { msg: MessageDto; onOpen?: () => voi
           {new Date(msg.createdAt).toLocaleTimeString()}
         </time>
       </div>
-      <div data-testid={`msg-broadcast-body-${msg.id}`} className="text-text">
+      <div data-testid={`msg-broadcast-body-${msg.id}`} className="text-foreground">
         {msg.deleted ? (
           <span className="italic text-text-muted">(삭제된 메시지)</span>
         ) : (

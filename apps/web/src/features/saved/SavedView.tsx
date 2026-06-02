@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type KeyboardEvent } from 'react';
 import type { SaveStatus } from '@qufox/shared-types';
 import { SavedItem } from './SavedItem';
 import { useSavedCount, useSavedList, useToggleSave } from './useSavedMessages';
@@ -20,6 +20,19 @@ export function SavedView(): JSX.Element {
 
   const items = list.data?.items ?? [];
 
+  // S51 리뷰(a11y B-01): WAI-ARIA Tabs — ArrowLeft/Right 로 탭 이동(roving
+  // tabindex). 패널 콘텐츠가 가벼워 selection-follows-focus 채택.
+  function onTabKeyDown(e: KeyboardEvent<HTMLDivElement>): void {
+    if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return;
+    e.preventDefault();
+    const idx = TABS.findIndex((t) => t.id === active);
+    const next =
+      e.key === 'ArrowRight' ? (idx + 1) % TABS.length : (idx - 1 + TABS.length) % TABS.length;
+    const nextId = TABS[next].id;
+    setActive(nextId);
+    e.currentTarget.querySelector<HTMLButtonElement>(`#saved-tab-${nextId}`)?.focus();
+  }
+
   return (
     <section data-testid="saved-view" className="flex flex-col h-full">
       <header className="px-[var(--s-5)] pt-[var(--s-5)]">
@@ -29,7 +42,7 @@ export function SavedView(): JSX.Element {
         >
           저장됨
         </h1>
-        <div className="qf-tabs mt-[var(--s-4)]" role="tablist">
+        <div className="qf-tabs mt-[var(--s-4)]" role="tablist" onKeyDown={onTabKeyDown}>
           {TABS.map((t) => (
             <button
               key={t.id}
@@ -37,13 +50,15 @@ export function SavedView(): JSX.Element {
               role="tab"
               id={`saved-tab-${t.id}`}
               aria-selected={t.id === active}
+              aria-controls={`saved-panel-${t.id}`}
+              tabIndex={t.id === active ? 0 : -1}
               data-testid={`saved-tab-${t.id}`}
               onClick={() => setActive(t.id)}
               className="qf-tabs__item"
             >
               {t.label}
               {t.id === 'IN_PROGRESS' && count.data && count.data.count > 0 ? (
-                <span className="qf-badge qf-badge--accent ml-[var(--s-2)]">
+                <span className="qf-badge qf-badge--count ml-[var(--s-2)]" aria-hidden="true">
                   {count.data.count}
                 </span>
               ) : null}
@@ -54,6 +69,7 @@ export function SavedView(): JSX.Element {
 
       <div
         role="tabpanel"
+        id={`saved-panel-${active}`}
         aria-labelledby={`saved-tab-${active}`}
         data-testid={`saved-panel-${active}`}
         className="flex-1 overflow-y-auto px-[var(--s-5)] pb-[var(--s-5)]"
@@ -61,7 +77,7 @@ export function SavedView(): JSX.Element {
         {list.isLoading ? (
           <p className="text-text-muted py-[var(--s-5)]">불러오는 중…</p>
         ) : items.length === 0 ? (
-          <div className="qf-empty">
+          <div className="qf-empty" role="status" aria-live="polite">
             <div className="qf-empty__title">저장한 메시지가 없습니다</div>
             <p className="qf-empty__body">
               메시지에 마우스를 올린 뒤 북마크 아이콘을 눌러 나중에 읽을 메시지를 저장해 보세요.

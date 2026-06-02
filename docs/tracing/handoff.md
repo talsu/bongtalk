@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S44·S46~S50 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S51(D10 핀/저장 마무리, FR-PS-05/07/15 — pin moderator-restrict 토글 + 저장(saved) 메시지 시작. apps/api/src/channels·me + apps/web/src/features/channels. deps S50. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42)**·**D06(S44·S46~S49 — 핵심 완료·잔여는 인프라 의존)**·**D10(S50 핀 — 부분)**·D07·D08·D09·D17·완료. **진행률: 202/354 FR done(+7 partial).** ⚠️ **★S51 pin moderator-restrict 토글 = PIN_MESSAGE 권한(카탈로그 0x80) 집행 첫 사용처가 될 수 있음 — S50 핀은 role/READ 게이트로 PIN_MESSAGE 비트 미사용(무해)이나, S51 이 PIN_MESSAGE 비트로 집행하면 0x80↔MENTION_EVERYONE 커플링(보안 MEDIUM-3) → D12 비트 분리 선결 또는 카탈로그 직접검사(S40/S44 선례).** defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 fanout cap·FR-MN-10 키워드스캔(partial)·VAPID push(FR-MN-09/11/15/18). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44·S46~S51 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S52(D10 저장 메시지 마무리, FR-PS-08/12/13 — 저장 탭 이동/완료/영구삭제 + 12/13. apps/api/src/me + apps/web/src/features/messages·users. deps S51. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42)**·**D06(S44·S46~S49 — 핵심 완료·잔여는 인프라 의존)**·**D10(S50 핀·S51 핀권한토글+저장 — 부분, FR-PS-08/12/13 잔여)**·D07·D08·D09·D17·완료. **진행률: 205/354 FR done(+7 partial).** ⚠️ **★핀 권한 = PIN_MESSAGE 비트(0x80) 미사용 확정**: S51 FR-PS-05 는 `Channel.memberCanPin` Boolean 컬럼 직접검사로 구현(MENTION_EVERYONE 0x80 무충돌·S40/S44 카탈로그 직접검사 선례). D12 비트 분리는 여전히 잔여(S61~S64). defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 fanout cap·FR-MN-10 키워드스캔(partial)·VAPID push(FR-MN-09/11/15/18). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -480,11 +480,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 829) + **pins-s50 int 9/9 GREEN**(실DB·channelId-on-update 검증·38.8s — 단독 필터 실행. ⚠️ 전체 `test:int` 는 invites-rate-limit 의 ephemeral 포트 Redis ECONNREFUSED 로 hang=환경성·S50 무관). 마이그레이션 0. DS 4파일·settings.json 무수정.
 - carryover: **D12(0x80 분리)=S51 선결**(pin moderator-restrict 토글이 PIN_MESSAGE 비트 집행 시). **DS-owner**(light-mode text-muted 4.25:1·28px 터치·qf-message--system 정식화). **cross-cutting**(SYSTEM_PIN unread +1·검색 노출=전 시스템메시지 공통). **a11y polish**(시스템메시지 이력 role=status·SYSTEM_PIN 발췌). perf nit(username 조회·listPins select·lock_timeout). DM 핀 서버 미차단(프론트만 숨김).
 
-## 다음 슬라이스: S51 (D10 — 핀 권한 토글 + 저장(saved) 메시지)
+## ✅ S51 (D10 — 핀 권한 채널 토글 + 개인 저장함) — 완료 (2026-06-03, 이 세션) — 마이그레이션 1(reversible)
 
-- scope **fullstack**. **FR-PS-05/07/15**(P1·P0·P2). deps S50.
-- 파일: `apps/api/src/channels/**`, `apps/api/src/me/**`, `apps/web/src/features/channels/**`.
-- FR 정본 PRD html 재확인 필수. 예상(정확 정의는 PRD): **FR-PS-05** 핀 권한 moderator-restrict 토글(채널/서버 설정 — MEMBER 핀 허용 vs MODERATOR+ 제한)·**FR-PS-07** 저장(saved/북마크) 메시지 시작·**FR-PS-15**. **★권한 비트 분기**: S50 핀은 PIN_MESSAGE 비트 미사용(role/READ). S51 제한 토글이 PIN_MESSAGE(0x80) 비트로 집행하면 MENTION_EVERYONE(0x80)과 커플링(carryover S50·보안 MEDIUM-3) → UNDERSTAND 에서 **D12 비트 분리 선결 vs 카탈로그 직접검사**(S40 MANAGE_CHANNEL·S44 dead-bit 선례) 결정. 저장 메시지는 신규 모델(SavedMessage·user-scoped) 가능 → 마이그레이션 reversible.
+- **FR-PS-05**(핀 권한 채널 토글 — `Channel.memberCanPin` Boolean·**PIN_MESSAGE 0x80 비트 미사용**=컬럼 직접검사·MENTION_EVERYONE 무충돌·S40/S44 선례. MessagesController.assertCanPin: memberCanPin=false & !ADMIN/OWNER → 403. 토글은 ADMIN+ 채널 PATCH)·**FR-PS-07**(개인 저장함 SavedMessage — `/me/saved` POST 저장(idempotent·READ ACL·500 한도 422)·DELETE·GET 커서목록 요약조인·count·3탭 뷰·사이드바 진입점·툴바 북마크 토글)·**FR-PS-15**(SYSTEM_PIN 채널 멤버 삭제·원본 핀 유지). 마이그레이션 1: `Channel.memberCanPin`+`SaveStatus` enum+`SavedMessage` 테이블(reversible up/down, PG16 up→down→up 검증). reminder/PATCH 상태이동=S52/S53 defer.
+- **6팀 리뷰** → fix-forward(이 커밋 동봉). **★BLOCKER(reviewer+security 일치)**: `saved.service.assertMessageVisible` ACL 이 (a) `c.isPrivate=false` 단락의 워크스페이스 멤버십 미검사 → 비멤버가 타 워크스페이스 공개채널 메시지 저장/열람(크로스워크스페이스 IDOR), (b) `OR wm.role='OWNER'` 가 DM 에도 적용 → 비참여 OWNER 가 DM 저장. **통합 ACL 로 교체**(워크스페이스 채널=멤버십 필수, DM=USER override만, OWNER 단락 비-DIRECT만 — ChannelAccessGuard 정합) + **회귀 int 테스트 추가**(12/12). **검증 후 기각**: `qf-message--system`(main 기존). **시정**: security MED(list `c.deletedAt IS NULL` 삭제채널 누출 차단)·DS BLOCKER(`text-text`→`text-foreground` SavedItem·SystemMessage)·contract HIGH(MessageItem 핀 게이트 `OWNER||ADMIN||(MEMBER&&memberCanPin)` — S50 멤버 핀 UI 미노출 갭 해소)·a11y(SavedView 탭 roving tabindex+화살표+aria-controls+tabpanel id+빈탭 aria-live·SavedItem/SYSTEM_PIN 삭제 aria-label 컨텍스트·SavedEntry 배지 aria-hidden+버튼 label·핀 토글 aria-describedby).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 836) + **s51 int 12/12 GREEN**(실DB·ACL 통합·신규 크로스워크스페이스 IDOR 회귀 포함). 마이그레이션 PG16 up→down→up. DS 4파일·settings.json 무수정.
+- carryover: **DM 핀 서버 미차단**(프론트만 숨김·S50 1c)·**list 권한회수 후 재검사 부재**(S49 FINDING-1 계열·크로스컷팅)·a11y polish(ChannelSettingsPage privacy 토글 role=switch 미적용 선존·설정 nav aria-selected→aria-current·저장 토글 성공 SR announce M-05·N-01/02/03)·perf nit(assertMessageVisible correlated subquery·soft-delete updateMany 항상 실행·커서 id 인덱스 미포함)·GET 무율제한(LOW)·`qf-message--system` DS 정식화(DS-owner). **D12 0x80 분리(S61~S64) 여전히 잔여**(이번엔 컬럼으로 회피).
+
+## 다음 슬라이스: S52 (D10 — 저장 메시지 마무리)
+
+- scope **fullstack**. **FR-PS-08/12/13**(P1). deps S51.
+- 파일: `apps/api/src/me/**`, `apps/web/src/features/messages/**`, `apps/web/src/features/users/**`.
+- FR 정본 PRD html 재확인 필수. 예상(정확 정의는 PRD): **FR-PS-08** 저장 탭 간 이동(IN_PROGRESS↔ARCHIVED↔COMPLETED PATCH status)·완료 표시·영구 삭제. **FR-PS-12/13**(PRD 확인 — 메시지 툴바/저장 관련). S51 SavedMessage 테이블 위(status 컬럼 존재 — PATCH 엔드포인트 추가). reminder(reminderAt)/BullMQ 는 S53(FR-PS-09~11). 마이그레이션 가능성 낮음(status 컬럼 기존).
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

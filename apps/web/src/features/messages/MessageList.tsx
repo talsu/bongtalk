@@ -863,6 +863,9 @@ export function MessageList({
                       authorRole={roleById.get(m.authorId) ?? null}
                       mentions={mentionLookup}
                       viewerRole={viewerRole}
+                      // S51 (FR-PS-05): 채널 핀 권한 토글. false 면 MEMBER 의
+                      // 핀 메뉴를 숨긴다(서버 게이트와 정합 — 기본 true).
+                      memberCanPin={channelMeta?.memberCanPin ?? true}
                       resolveName={resolveReplyName}
                       pickerQuickReactions={pickerQuickReactions}
                       pickerRecentEmojis={pickerData?.recentEmojis}

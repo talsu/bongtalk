@@ -248,6 +248,16 @@ describe('S51 FR-PS-07 — 개인 저장함', () => {
     expect(res.body.errorCode).toBe('MESSAGE_NOT_FOUND');
   });
 
+  it('워크스페이스 비멤버는 공개 채널 메시지도 저장 불가 404(크로스워크스페이스 IDOR 차단)', async () => {
+    // S51 리뷰 BLOCKER-1 regression: 종전 ACL 은 c.isPrivate=false 단락이
+    // 워크스페이스 멤버십을 검사하지 않아 비멤버가 타 워크스페이스 공개 채널
+    // 메시지를 저장/열람할 수 있었다. 통합 ACL 로 비멤버는 공개 채널이라도 404.
+    const msgId = await sendMessage(stack.member.accessToken, 'public but cross-ws');
+    const res = await saveMsg(stack.nonMember.accessToken, msgId);
+    expect(res.status).toBe(404);
+    expect(res.body.errorCode).toBe('MESSAGE_NOT_FOUND');
+  });
+
   it('원본 soft-delete 시 messageDeletedAt 반영 + 목록 excerpt 마스킹', async () => {
     const msgId = await sendMessage(stack.member.accessToken, 'will be deleted');
     await saveMsg(stack.member.accessToken, msgId);
