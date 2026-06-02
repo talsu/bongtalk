@@ -90,7 +90,13 @@ export type GlobalNotificationSettings = z.infer<typeof GlobalNotificationSettin
 export const UpdateGlobalNotificationSettingsRequestSchema = z
   .object({
     notifTrigger: NotifLevelSchema.optional(),
-    keywords: z.array(z.string().min(1).max(100)).max(25).optional(),
+    // S48 (FR-MN-10): 비즈 한도(25개)는 **서비스 레이어**가 KEYWORD_LIMIT_EXCEEDED 로
+    // 단일 enforce 한다(전용 errorCode 로 클라 토스트 분기). Zod 는 형태(문자열)만
+    // 검증하고 비즈 .max(25) 는 두지 않는다 — 서비스가 trim/dedupe 후 개수를 권위 판정.
+    // S48 fix-forward(security): 다만 **형태 상한**(문자열당 200자·배열 100개)을 둬
+    // 대형 payload 를 게이트웨이 단에서 조기 거부한다(비즈 한도 25/100 과 분리 — 정상
+    // 클라는 절대 닿지 않는 안전 상한이라 비차단, 악성 대형 입력만 차단).
+    keywords: z.array(z.string().max(200)).max(100).optional(),
     dndUntil: z.string().datetime().nullable().optional(),
     dndSchedule: DndScheduleSchema.nullable().optional(),
   })

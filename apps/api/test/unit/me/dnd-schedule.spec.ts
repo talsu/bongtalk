@@ -142,3 +142,76 @@ describe('DndScheduleService.isActive (task-046 K1)', () => {
     expect(DndScheduleService.isActive(new Date('2025-01-01T12:30:00Z'), sched)).toBe(true);
   });
 });
+
+// ── S48 (FR-MN-12): timezone 변환 ──────────────────────────────────────────────
+describe('DndScheduleService.isActive timezone (S48 FR-MN-12)', () => {
+  it('timezone 미지정/null → UTC 로 평가(기존 동작 동일)', () => {
+    const sched = { days: [{ day: 3, startMin: 12 * 60, endMin: 13 * 60 }] }; // Wed 12:00~13:00 UTC
+    const at = new Date('2025-01-01T12:30:00Z'); // Wed 12:30 UTC
+    expect(DndScheduleService.isActive(at, sched)).toBe(true);
+    expect(DndScheduleService.isActive(at, sched, null)).toBe(true);
+  });
+
+  it('Asia/Seoul(UTC+9): 22:00 local = 13:00 UTC, schedule 은 local 22:00~23:00', () => {
+    // 2025-01-01T13:00:00Z = 2025-01-01 22:00 KST (여전히 Wed=3).
+    const sched = { days: [{ day: 3, startMin: 22 * 60, endMin: 23 * 60 }] };
+    const at = new Date('2025-01-01T13:00:00Z');
+    expect(DndScheduleService.isActive(at, sched, 'Asia/Seoul')).toBe(true);
+    // UTC 로 평가하면 13:00 UTC 라 22:00~23:00 구간 밖 → false (tz 미적용 시 회귀 검출).
+    expect(DndScheduleService.isActive(at, sched, null)).toBe(false);
+  });
+
+  it('Asia/Seoul: 요일 경계 넘김 — 2025-01-01T16:00Z = 2025-01-02 01:00 KST(Thu=4)', () => {
+    // UTC 로는 Wed 16:00 이지만 KST 로는 Thu 01:00. Thu 00:00~02:00 schedule 매칭.
+    const sched = { days: [{ day: 4, startMin: 0, endMin: 2 * 60 }] }; // Thu 00:00~02:00
+    const at = new Date('2025-01-01T16:00:00Z');
+    expect(DndScheduleService.isActive(at, sched, 'Asia/Seoul')).toBe(true);
+    // Wed schedule 로는 매칭 안 됨(요일 시프트 검증).
+    const wedSched = { days: [{ day: 3, startMin: 0, endMin: 2 * 60 }] };
+    expect(DndScheduleService.isActive(at, wedSched, 'Asia/Seoul')).toBe(false);
+  });
+
+  it('America/New_York DST 경계 — 2025-03-09 EST→EDT 전환(02:00 local skip)', () => {
+    // 2025-03-09 07:00 UTC = 02:00 EST 직전(spring-forward 시점). DST 적용 후
+    // 2025-03-09 07:00 UTC 는 EDT(UTC-4)로 03:00 local. schedule 03:00~04:00(Sun=0)
+    // 가 매칭되어야 한다(Intl 이 올바른 offset 을 적용하는지).
+    const sched = { days: [{ day: 0, startMin: 3 * 60, endMin: 4 * 60 }] }; // Sun 03:00~04:00
+    const at = new Date('2025-03-09T07:00:00Z'); // = 03:00 EDT
+    expect(DndScheduleService.isActive(at, sched, 'America/New_York')).toBe(true);
+    // 같은 UTC 시각을 EST(UTC-5, 02:00)로 잘못 보면 매칭 안 됨 — DST 미처리 회귀 검출.
+    const estSched = { days: [{ day: 0, startMin: 2 * 60, endMin: 3 * 60 }] }; // Sun 02:00~03:00
+    expect(DndScheduleService.isActive(at, estSched, 'America/New_York')).toBe(false);
+  });
+
+  it('잘못된 timezone 문자열 → UTC fallback(throw 하지 않음)', () => {
+    const sched = { days: [{ day: 3, startMin: 12 * 60, endMin: 13 * 60 }] };
+    const at = new Date('2025-01-01T12:30:00Z');
+    expect(DndScheduleService.isActive(at, sched, 'Not/AReal_Zone')).toBe(true);
+  });
+});
+
+// S48 fix-forward(perf): timezone 별 Intl.DateTimeFormat 캐시.
+describe('DndScheduleService.localDayMinute formatter cache (S48 perf)', () => {
+  it('같은 timezone 반복 호출 → Intl.DateTimeFormat 생성자는 캐시 미스 1회만 호출', () => {
+    const ctorSpy = vi.spyOn(Intl, 'DateTimeFormat');
+    const at = new Date('2025-01-01T13:00:00Z');
+    // 동일 tz 로 fanout 시뮬레이션(여러 수신자가 같은 tz).
+    const tz = 'Asia/Tokyo';
+    const baseline = ctorSpy.mock.calls.length;
+    for (let i = 0; i < 5; i++) {
+      DndScheduleService.localDayMinute(at, tz);
+    }
+    // 캐시 덕에 5회 호출에 대해 생성자는 (캐시 워밍 포함) 최대 1회만 추가된다.
+    const added = ctorSpy.mock.calls.length - baseline;
+    expect(added).toBeLessThanOrEqual(1);
+    ctorSpy.mockRestore();
+  });
+
+  it('캐시 사용해도 결과는 정확(KST 22:00 = 13:00 UTC)', () => {
+    const at = new Date('2025-01-01T13:00:00Z');
+    const r1 = DndScheduleService.localDayMinute(at, 'Asia/Seoul');
+    const r2 = DndScheduleService.localDayMinute(at, 'Asia/Seoul');
+    expect(r1).toEqual({ day: 3, minute: 22 * 60 });
+    expect(r2).toEqual(r1);
+  });
+});

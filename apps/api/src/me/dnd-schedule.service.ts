@@ -29,6 +29,29 @@ export type { DndEntry, DndSchedule } from '@qufox/shared-types';
 
 const MAX_ENTRIES_PER_USER = 14;
 
+/**
+ * S48 fix-forward(perf): timezone 별 Intl.DateTimeFormat 캐시. @everyone fanout 시
+ * 수신자마다 localDayMinute 가 호출되면 동일 timezone 에 대해 포매터를 N회 생성하게
+ * 된다(Intl 생성은 비교적 무겁다). module-level Map 으로 timezone → formatter 를
+ * 재사용해 인스턴스 생성을 1회/timezone 으로 줄인다. 키 공간이 IANA 이름(유한)이라
+ * 무한 증식하지 않는다.
+ */
+const DTF_CACHE = new Map<string, Intl.DateTimeFormat>();
+
+function dayMinuteFormatter(timezone: string): Intl.DateTimeFormat {
+  const cached = DTF_CACHE.get(timezone);
+  if (cached) return cached;
+  const fmt = new Intl.DateTimeFormat('en-US', {
+    timeZone: timezone,
+    weekday: 'short',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+  });
+  DTF_CACHE.set(timezone, fmt);
+  return fmt;
+}
+
 @Injectable()
 export class DndScheduleService {
   constructor(private readonly prisma: PrismaService) {}
@@ -90,15 +113,56 @@ export class DndScheduleService {
   }
 
   /**
-   * Pure: 주어진 시각이 DnD window 안에 있는지 반환. UTC 기준이 아닌
-   * 사용자 local timezone 가정 — caller 가 적절한 Date 를 전달.
-   * (현재는 timezone-naive — server UTC 그대로 사용. UI 가 사용자 tz
-   * 로 자체 변환하는 패턴을 따르고, follow-up 으로 tz 컬럼 추가 가능.)
+   * S48 (FR-MN-12): 주어진 UTC 시각을 사용자 IANA timezone 의 로컬 요일/분으로 변환한다.
+   * 신규 의존성 없이 built-in `Intl.DateTimeFormat`(timeZone 옵션)만 사용해 DST 를
+   * 포함한 정확한 offset 을 얻는다(date-fns-tz/Luxon 미도입 — 변환에 필요한 weekday +
+   * hour + minute 만 필요해 표준 API 로 충분). timezone 이 null/빈 문자열이거나
+   * 잘못된 IANA 이름이면 UTC 로 폴백한다(throw 회피 — 게이트는 보수적으로 동작).
+   *
+   * @returns { day: 0(Sun)~6(Sat), minute: 0~1439 } — 해당 timezone 로컬 기준.
    */
-  static isActive(at: Date, schedule: DndSchedule | null): boolean {
+  static localDayMinute(
+    at: Date,
+    timezone: string | null | undefined,
+  ): { day: number; minute: number } {
+    if (!timezone) {
+      return { day: at.getUTCDay(), minute: at.getUTCHours() * 60 + at.getUTCMinutes() };
+    }
+    try {
+      // S48 fix-forward(perf): timezone 별 포매터 캐시 재사용(fanout 시 N회 생성 제거).
+      const parts = dayMinuteFormatter(timezone).formatToParts(at);
+      const lookup = (type: string): string => parts.find((p) => p.type === type)?.value ?? '';
+      const weekdayMap: Record<string, number> = {
+        Sun: 0,
+        Mon: 1,
+        Tue: 2,
+        Wed: 3,
+        Thu: 4,
+        Fri: 5,
+        Sat: 6,
+      };
+      const day = weekdayMap[lookup('weekday')];
+      // hour12:false 일부 런타임은 자정을 '24' 로 내보낸다 — 0 으로 정규화.
+      const hour = Number(lookup('hour')) % 24;
+      const minute = Number(lookup('minute'));
+      if (day === undefined || Number.isNaN(hour) || Number.isNaN(minute)) {
+        return { day: at.getUTCDay(), minute: at.getUTCHours() * 60 + at.getUTCMinutes() };
+      }
+      return { day, minute: hour * 60 + minute };
+    } catch {
+      // 잘못된 IANA 이름 등 — UTC 폴백.
+      return { day: at.getUTCDay(), minute: at.getUTCHours() * 60 + at.getUTCMinutes() };
+    }
+  }
+
+  /**
+   * Pure: 주어진 시각이 DnD window 안에 있는지 반환. timezone 이 주어지면 at 을
+   * 사용자 IANA 로컬 요일/분으로 변환해 판정한다(FR-MN-12). 미지정이면 server UTC
+   * 그대로 사용(기존 동작 — UI 가 사용자 tz 로 자체 변환하던 패턴과 호환).
+   */
+  static isActive(at: Date, schedule: DndSchedule | null, timezone?: string | null): boolean {
     if (!schedule || schedule.days.length === 0) return false;
-    const day = at.getUTCDay(); // 0..6
-    const minute = at.getUTCHours() * 60 + at.getUTCMinutes();
+    const { day, minute } = DndScheduleService.localDayMinute(at, timezone);
     // S28 (reviewer B1 BLOCKER fix): overnight(startMin>endMin) 구간의 "다음날
     // 새벽 carry" 누락을 닫는다. 이전 구현은 `e.day !== day` 로 skip 해서, Wed
     // 23:00→07:00 entry 가 Thu 03:00(다음날 새벽)에 매칭되지 않았다(자정 이후
@@ -168,12 +232,18 @@ export class DndScheduleService {
   }> {
     const row = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { presencePreference: true, dndSchedule: true, dndScheduleSnapshot: true },
+      select: {
+        presencePreference: true,
+        dndSchedule: true,
+        dndScheduleSnapshot: true,
+        timezone: true,
+      },
     });
     if (!row) return { preference: 'auto', transition: 'none' };
 
     const schedule = (row.dndSchedule as DndSchedule | null) ?? null;
-    const active = DndScheduleService.isActive(at, schedule);
+    // S48 (FR-MN-12): 스케줄 평가도 사용자 timezone 기준(fanout 게이트와 정합).
+    const active = DndScheduleService.isActive(at, schedule, row.timezone);
     const snapshot = DndScheduleService.parseSnapshot(row.dndScheduleSnapshot);
     const scheduleOwnsDnd = snapshot !== null;
 
