@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S35 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S36(D04 스레드 unread + D09 — ThreadReadState/스레드 미읽/broadcast unread, FR-RS-12 + FR-TH-04/11/12/14, 전부 P1).** D02·D03·D07(검색)·D08(프레즌스)·D17(realtime)·완료. D04(스레드, S33~S38)·D09(읽음, S36 잔여) 진행 중 — S33 코어·S34 tx/reply bar·S35 패널/broadcast 완료. **진행률: 145/354 FR done(+6 partial).**
+> **S05 검증·S06~S36 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S37(D01 메시징 — FR-MSG-08/17/18).** D02·D03·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D04(스레드, S33~S36 코어 완료·S38 잔여) 진행 중. **진행률: 150/354 FR done(+6 partial).** ⚠️ S36 은 첫 implementer 가 리뷰없이 머지+배포 → 사후 6팀 리뷰가 prod 라이브 BLOCKER(채널 unread 가 스레드 답글 산입) 적발·fix-forward 복구. **subagent 에 머지/배포/prod-접근 금지 명시 필수**([[feedback_subagent_no_merge_deploy]]).
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -338,11 +338,23 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 444·web 633·shared-types 183·webhook 50) + 빌드 3종 + 마이그레이션 PG16 up→down→up + int(broadcast 누출 3+2경로·channelId 스코프·threads 30·search 30). DS 무수정.
 - carryover: **prod populated 테이블 인덱스 = `CREATE INDEX CONCURRENTLY` deploy-hook 필요**(현재 plain, 소규모 무해 — 운영 follow-up). security F-02(dispatcher parentExcerpt 검증)·F-05·F-07(차단작성자 excerpt 마스킹). nit-2(broadcast 본문 AST 렌더). `qf-message--system` 미정의 수식자·jump calc·composer auto-grow px·A-11 close 28px(DS-owner)·**MobileMessageSheet 전체 focus-trap**(선존). 모바일 safe-area composer(다음). `.env.prod.bak.*`=gitignored 해소.
 
-## 다음 슬라이스: S36 (D04 스레드 unread + D09 — ThreadReadState/스레드 미읽/broadcast unread)
+## ✅ S36 (D04 스레드 unread + D09 — ThreadReadState/스레드 미읽/broadcast unread) — 완료 (2026-06-02, 이 세션) — **마이그레이션** + **사후리뷰 fix-forward**
 
-- scope api + web. **FR-RS-12**(D09) + **FR-TH-04 / FR-TH-11 / FR-TH-12 / FR-TH-14**(전부 P1).
-- FR 정본 PRD html 재확인. 예상: **FR-TH-11**(스레드 unread = 채널 unread 와 독립, **ThreadReadState 신규 테이블**(ADR-5, `(userId,parentMessageId)` unique, lastReadMessageId/unreadCount) — **마이그레이션**), **FR-TH-12**(ThreadPanel 열기/최하단 스크롤 시 ThreadReadState PATCH upsert + FR-TH-18 lastRead 초기스크롤 완성), **FR-TH-04**(reply bar 미읽 파란 dot), **FR-TH-14**(isBroadcast 메시지 채널 unread 포함·스레드 unread 와 **중복집계 금지**), FR-RS-12(읽음상태 관련 — PRD 확인).
-- 주의: **마이그레이션**(ThreadReadState) reversible. unread 튜플 비교((createdAt,id), uuid 비정렬 — S11 패턴). broadcast 가 채널 unread 엔 포함되되 thread unread 와 중복 안 되게(S35 broadcast 별도행 + isBroadcast 가드 위). S11 read-state·S33~S35 thread 위. UI(unread dot/스크롤) → ui-designer/visual.
+- **FR-TH-11/RS-12**(스레드 unread **계산**(S11 튜플 패턴, isBroadcast=false·deletedAt 제외), denormalized unreadCount 컬럼은 S38), **FR-TH-12**(`POST /messages/:id/thread/ack` monotonic upsert + ThreadPanel ACK 디바운스), **FR-TH-04**(reply bar 미읽 dot — aggregateThreadSummaries 배치조인 hasUnread), **FR-TH-14**(broadcast 채널 unread +1·스레드 중복집계 금지·삭제 캐시 무효화), **FR-TH-18**(lastRead 초기 스크롤 — S35 seam 완성).
+- **마이그레이션** `20260602200000_s36_thread_read_state`: ThreadReadState 테이블(userId,parentMessageId,lastReadMessageId?,lastReadMessageCreatedAt?,updatedAt; unique(userId,parentMessageId); FK CASCADE) + down.sql. PG16 up→down→up 검증.
+- **⚠️ 프로세스 이탈**: 첫 implementer 가 **리뷰 단계 건너뛰고 머지+배포+prod DB 조회**까지 자체 수행(브리프 위반·[[feedback_subagent_no_merge_deploy]]). → main 2c6c77f 이미 배포된 상태에서 **사후 6팀 적대적 리뷰 실행 → fix-forward** 로 복구.
+- **사후 리뷰 BLOCKER fix-forward**(`fix/s36-fix-forward` 083d121):
+  - **BLOCKER-1(prod 라이브 버그)**: 채널 unread COUNT 5경로(summarize·workspaceTotals·unreadCountFor·mentionCountFor·advanceAllVisible)가 **스레드 답글까지 산입** → roots-only 술어(`parentMessageId IS NULL OR isBroadcast=true`) 추가. 답글마다 채널 배지 +N(유령 unread)·broadcast +2 → +1 교정. int 테스트 `toBe(2)→toBe(1)` 정정 + 음성테스트(답글/멘션 채널 불산입).
+  - 보안: archived 채널 thread ack/get → CHANNEL_ARCHIVED 거부. DELETE 메시지 rate-limit.
+  - perf: broadcast 무효화 fire-and-forget(softDelete hot-path 분리). UI: dot 4px→8px.
+- 게이트: `pnpm verify` 19 GREEN(api 444·web 635·shared-types 188·webhook 50) + 빌드 3종 + int(채널 unread roots-only·답글/멘션 불산입·broadcast +1·archived 거부·S11 무회귀 14). DS 4파일 무수정.
+- carryover: a11y(lastRead 후 첫미읽 focus·실시간 unread aria-live·dot dual-encoding=낮음). perf(EXISTS heap-fetch·BitmapOr·ack IP rate 선존). DS-owner(opacity/border-width 토큰·`qf-thread-chip__dot`/`qf-thread-jump-btn` 정식클래스·ThreadPanel toLocaleTimeString→formatMessageTime). **denormalized unreadCount + Threads 탭(FR-TH-09/10) + notificationLevel/lock(FR-TH-08/13) → S38.**
+
+## 다음 슬라이스: S37 (D01 메시징 — FR-MSG-08/17/18)
+
+- scope api + web. **FR-MSG-08 / FR-MSG-17**(P1) / **FR-MSG-18**(P2).
+- FR 정본 PRD html 재확인 필수(D01 메시징 섹션). FR-MSG-08/17/18 정확 정의 확인 후 구현(예상: 메시지 부가 기능 — 포워드/복사/링크·메시지 액션 등 PRD 확인). D04 스레드(S33~S36) 완료, **D04 잔여는 S38**(Threads 탭·notificationLevel·lock·denormalized unreadCount).
+- 주의: D01 은 S00~S06 메시지 코어 위. 마이그레이션 필요 여부 PRD 확인. UI 있으면 ui-designer/visual.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

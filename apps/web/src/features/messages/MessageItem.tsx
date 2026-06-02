@@ -631,16 +631,21 @@ export function MessageItem({
         >
           {/* S36 (FR-TH-04 / FR-TH-11): per-viewer 미읽 답글이 있으면 파란 dot.
               DS 에 qf-thread-chip 전용 dot 클래스가 없어(grep 확인) app-layer 로
-              합성하되 전부 DS 토큰만 사용한다(raw hex/px 없음): 크기 var(--s-2),
-              색 var(--accent), 원형 var(--r-pill). DS 4파일 무수정. */}
+              합성하되 전부 DS 토큰만 사용한다(raw hex/px 없음): 색 var(--accent),
+              원형 var(--r-pill). DS 4파일 무수정.
+              S36 fix-forward (UI MEDIUM): 종전 var(--s-2)(4px)는 과소해 가시성이
+              낮았다. var(--s-3)(8px)로 상향한다. dot 의 의미("안 읽은 답글")는 부모
+              chip 의 aria-label 절(상단 'thread.hasUnread ? "안 읽은 답글 · "')로
+              이미 SR 에 전달되므로, dot 자체는 aria-hidden 을 유지한다(SR 중복 발화
+              방지). DS 등록 토큰만 사용 — raw px 없음. */}
           {thread.hasUnread ? (
             <span
               data-testid={`thread-unread-dot-${msg.id}`}
               aria-hidden="true"
               className="inline-block rounded-[var(--r-pill)]"
               style={{
-                width: 'var(--s-2)',
-                height: 'var(--s-2)',
+                width: 'var(--s-3)',
+                height: 'var(--s-3)',
                 background: 'var(--accent)',
                 flexShrink: 0,
               }}

@@ -412,6 +412,10 @@ export class MessagesController {
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
+    // S36 fix-forward (보안 MEDIUM): DELETE 레이트리밋. broadcast 행 삭제는 모든
+    // 멤버 Redis 채널 unread 캐시를 무효화하므로(반복 삭제 = 무효화 폭주), 사용자
+    // 단위로 보수적 윈도를 건다. 평상시 삭제량(수동)엔 여유가 있고 봇 폭주만 막는다.
+    await this.rate.enforce([{ key: `msg:del:u:${user.id}`, windowSec: 60, max: 120 }]);
     // Include deleted rows here so "delete already-deleted" is idempotent
     // (returns 204) regardless of caller role.
     const row = await this.messages.requireOne({ channelId, msgId, includeDeleted: true });
