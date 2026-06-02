@@ -11,6 +11,8 @@ import {
   THREAD_BROADCAST_EXCERPT_CAP,
   ThreadSummarySchema,
   ListThreadRepliesResponseSchema,
+  ReactionSummarySchema,
+  ListReactionsResponseSchema,
 } from './message';
 
 /**
@@ -346,5 +348,49 @@ describe('S36 — ListThreadRepliesResponse.readState (FR-TH-18)', () => {
       pageInfo,
     });
     expect(parsed.viewerNotificationLevel).toBe('OFF');
+  });
+});
+
+describe('S39 (SHOULD 3) — reactions contract: per-viewer vs GET-detail 형태 회귀고정', () => {
+  // per-viewer REST 형태(ReactionSummary): byMe 불리언이 있고 users 는 없다.
+  it('ReactionSummary 는 per-viewer byMe 를 갖는다(users 없음)', () => {
+    const parsed = ReactionSummarySchema.parse({ emoji: '👍', count: 3, byMe: true });
+    expect(parsed).toEqual({ emoji: '👍', count: 3, byMe: true });
+  });
+
+  // GET /messages/:id/reactions 응답은 서버 aggregateReactionDetails 의 형태와
+  // 1:1 이어야 한다 — emoji/count/users[{id,username|null}]. 대표 샘플(>5명 cap 까지
+  // 채운 케이스)을 safeParse 로 고정해, 둘이 어긋나면 이 테스트가 곧바로 깨진다.
+  it('ListReactionsResponse 가 aggregateReactionDetails 형태(users≤5, username nullable)와 일치', () => {
+    const sample = {
+      reactions: [
+        {
+          emoji: '👍',
+          count: 6,
+          users: [
+            { id: '11111111-1111-4111-8111-111111111111', username: 'alice' },
+            { id: '22222222-2222-4222-8222-222222222222', username: null },
+            { id: '33333333-3333-4333-8333-333333333333', username: 'carol' },
+            { id: '44444444-4444-4444-8444-444444444444', username: 'dave' },
+            { id: '55555555-5555-4555-8555-555555555555', username: 'erin' },
+          ],
+        },
+        { emoji: '🎉', count: 0, users: [] },
+      ],
+    };
+    const res = ListReactionsResponseSchema.safeParse(sample);
+    expect(res.success).toBe(true);
+  });
+
+  it('users 가 5명을 초과하면 거부된다(서버 LATERAL LIMIT 5 와 정합)', () => {
+    // 전부 유효한 uuid 라 거부 사유는 오직 .max(5) 초과뿐이다.
+    const sixUsers = Array.from({ length: 6 }, (_, i) => ({
+      id: `${i + 1}1111111-1111-4111-8111-111111111111`,
+      username: null,
+    }));
+    const res = ListReactionsResponseSchema.safeParse({
+      reactions: [{ emoji: '👍', count: 6, users: sixUsers }],
+    });
+    expect(res.success).toBe(false);
   });
 });

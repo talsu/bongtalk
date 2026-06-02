@@ -57,6 +57,16 @@ export class ReactionsController {
     if (!msg || !msg.channel || msg.channel.deletedAt) {
       throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
     }
+    // S39 fix-forward (security MEDIUM): 보관(archived) 채널은 반응 추가/제거/조회를
+    // 모두 막는다. 종전엔 archivedAt 을 SELECT 만 하고 거부하지 않아 attachments
+    // 컨트롤러·threads 컨트롤러·ChannelAccessGuard 의 CHANNEL_ARCHIVED 패턴과
+    // 어긋나 있었다(보관 채널에 새 반응이 쌓이는 회귀). resolveChannel 한 곳에서
+    // 막아 POST / DELETE / GET 이 일관되게 409 로 수렴하게 한다. 존재 leak 을
+    // 피하려면 READ ACL 통과 뒤 검사하는 편이 깔끔하지만, archived 는 멤버에게도
+    // 동일하게 노출되는 채널 상태라(존재가 이미 가시) 여기서 막아도 leak 이 없다.
+    if (msg.channel.archivedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
+    }
     return { messageId: msg.id, channel: msg.channel };
   }
 

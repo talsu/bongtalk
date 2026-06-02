@@ -7,6 +7,7 @@ import type { Socket } from 'socket.io-client';
 import { DISPATCHED_EVENTS, installRealtimeDispatcher, upsertReactionBucket } from './dispatcher';
 import { qk } from '../../lib/query-keys';
 import { useReadState } from './readStateStore';
+import { recordReactionIntent, __resetReactionIntents } from '../reactions/reaction-intent';
 
 function makeFakeSocket(): Socket & { emit: (event: string, payload: unknown) => void } {
   const handlers: Record<string, Array<(e: unknown) => void>> = {};
@@ -260,6 +261,7 @@ describe('realtime dispatcher', () => {
   });
 
   it('reaction:updated full-replaces the bucket + computes me locally from users', () => {
+    __resetReactionIntents();
     const socket = makeFakeSocket();
     const qc = new QueryClient();
     const key = qk.messages.list('ws-1', 'ch-1');
@@ -322,10 +324,7 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
-  it('reaction:updated preserves byMe when viewer is beyond the users[5] cap', () => {
-    const socket = makeFakeSocket();
-    const qc = new QueryClient();
-    const key = qk.messages.list('ws-1', 'ch-1');
+  function seedCapMessage(qc: QueryClient, key: readonly unknown[], byMe: boolean): void {
     qc.setQueryData(key, {
       pages: [
         {
@@ -340,8 +339,7 @@ describe('realtime dispatcher', () => {
               deleted: false,
               createdAt: new Date().toISOString(),
               editedAt: null,
-              // 낙관적으로 내가 막 토글해 byMe=true 였던 상태.
-              reactions: [{ emoji: '👍', count: 6, byMe: true }],
+              reactions: [{ emoji: '👍', count: 6, byMe }],
             },
           ],
           pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
@@ -349,11 +347,23 @@ describe('realtime dispatcher', () => {
       ],
       pageParams: [undefined],
     });
+  }
+
+  // S39 fix-forward (★2): 6번째+ reactor 인 내가 users[5] cap 밖이라도, 살아있는
+  // 뷰어 의도(추가=true)가 있으면 byMe 를 그 값으로 유지한다(깜빡임 방지).
+  it('reaction:updated keeps byMe=true beyond the users[5] cap when local intent says added', () => {
+    __resetReactionIntents();
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    seedCapMessage(qc, key, true);
+    // 내가 막 추가했다는 권위 의도를 기록(useReactions 가 POST 응답/낙관 토글로 기록).
+    recordReactionIntent('msg-a', '👍', true);
     const detach = installRealtimeDispatcher(socket, qc, {
       viewerId: () => 'u-1',
       activeChannelId: () => 'ch-1',
     });
-    // users 는 최초 5명만 — 6번째인 나(u-1)는 목록에 없다. byMe 는 직전값 보존.
+    // users 는 최초 5명만 — 6번째인 나(u-1)는 목록에 없다.
     socket.emit('reaction:updated', {
       messageId: 'msg-a',
       channelId: 'ch-1',
@@ -372,6 +382,45 @@ describe('realtime dispatcher', () => {
     };
     expect(state.pages[0].items[0].reactions[0].byMe).toBe(true);
     detach();
+    __resetReactionIntents();
+  });
+
+  // S39 fix-forward (★2 핵심 회귀): >5-reactor 이모지에서 내가 *제거*한 직후 들어온
+  // reaction:updated(users[5] 에 내가 없음)에서, 종전 latch(`inUsers || prevByMe`)는
+  // 직전 byMe=true 를 영구 유지해 유령 me 가 굳었다. 이제 의도(제거=false)를 존중해
+  // byMe=false 로 정확 수렴한다.
+  it('reaction:updated drops byMe to false when local intent says removed (no sticky ghost)', () => {
+    __resetReactionIntents();
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    // 직전 캐시에는 아직 byMe=true(낙관 제거 전 잔상이 남았다 가정).
+    seedCapMessage(qc, key, true);
+    // 내가 방금 제거했다는 권위 의도.
+    recordReactionIntent('msg-a', '👍', false);
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-1',
+      activeChannelId: () => 'ch-1',
+    });
+    socket.emit('reaction:updated', {
+      messageId: 'msg-a',
+      channelId: 'ch-1',
+      reactions: [
+        {
+          emoji: '👍',
+          count: 5,
+          users: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' }],
+        },
+      ],
+    });
+    const state = qc.getQueryData(key) as {
+      pages: Array<{
+        items: Array<{ id: string; reactions: Array<{ emoji: string; byMe: boolean }> }>;
+      }>;
+    };
+    expect(state.pages[0].items[0].reactions[0].byMe).toBe(false);
+    detach();
+    __resetReactionIntents();
   });
 
   it('message.thread.replied patches the root summary in channel cache', () => {

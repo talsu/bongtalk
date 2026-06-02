@@ -1,12 +1,14 @@
 import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   WS_EVENTS,
+  ReactionUpdatedPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
   type PresenceUpdatePayload,
   type WorkspacePresenceUpdatedPayload,
 } from '@qufox/shared-types';
+import { peekReactionIntent } from '../reactions/reaction-intent';
 import type { Socket } from 'socket.io-client';
 import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
@@ -761,8 +763,16 @@ export function installRealtimeDispatcher(
   // out-of-order / 재연결 replay 에도 카운트가 수렴). per-viewer `me`(=byMe) 는
   // 브로드캐스트 payload 에 담을 수 없으므로(수신자마다 다름), 각 이모지의 users
   // 목록에 내 userId 가 들어있는지로 **로컬 계산**한다. users 는 최대 5명 cap 이라,
-  // reactor 6명 이상인 이모지에서 내가 6번째 이후면 users 에 안 보일 수 있다 —
-  // 그 경우 직전 캐시의 byMe 를 보존해(내 토글의 낙관적 값 유지) 깜빡임을 막는다.
+  // reactor 6명 이상인 이모지에서 내가 6번째 이후면 users 에 안 보일 수 있다.
+  //
+  // S39 fix-forward (reviewer MAJOR ★2): 종전엔 cap 밖일 때 `byMe = inUsers ||
+  // prevByMe` 로 직전 캐시값을 *영구 latch* 했다 — 내가 방금 제거했는데도 byMe 가
+  // true 로 굳는 sticky-ghost 회귀였다. 이제 reaction-intent 모듈의 **뷰어 권위 의도**
+  // (useReactions 가 낙관 토글/POST 응답으로 기록)를 우선 참조한다:
+  //   - 살아있는 의도가 있으면 그 byMe(내가 막 제거했으면 false → 정확 수렴, 막
+  //     추가했으면 true → 깜빡임 방지). cap 밖이어도 정확.
+  //   - 의도가 없으면(다른 사람만 반응했거나, 내 토글이 이미 WS 와 합의해 만료됨)
+  //     순수 `inUsers` 로 계산한다(latch 제거).
   on<{
     messageId: string;
     channelId: string;
@@ -773,6 +783,12 @@ export function installRealtimeDispatcher(
     }>;
   }>(WS_EVENTS.REACTION_UPDATED, (env) => {
     if (!env.channelId || !env.messageId) return;
+    // S39 (SHOULD 3): 신뢰경계 가드 — 형태가 어긋난 reaction:updated 페이로드는
+    // 캐시를 건드리지 않고 버린다(서버 회귀/멀티 dispatcher 오발신 방어). 통과 시
+    // 검증된 형태를 그대로 쓴다.
+    const parsed = ReactionUpdatedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const payload = parsed.data;
     const viewer = ctx.viewerId();
     // workspaceId 는 wire payload 에 없다 — 메시지 목록 캐시(`['messages', wsId,
     // chId]` 3-tuple)만 골라 해당 messageId 를 가진 행을 patch 한다(채널 룸 fanout
@@ -791,19 +807,20 @@ export function installRealtimeDispatcher(
         if (!old) return old;
         let changed = false;
         const pages = old.pages.map((p) => {
-          if (!p.items.some((m) => m.id === env.messageId)) return p;
+          if (!p.items.some((m) => m.id === payload.messageId)) return p;
           changed = true;
           return {
             ...p,
             items: p.items.map((m) => {
-              if (m.id !== env.messageId) return m;
-              const reactions = env.reactions.map((r) => {
+              if (m.id !== payload.messageId) return m;
+              const reactions = payload.reactions.map((r) => {
                 const inUsers = viewer !== null && r.users.some((u) => u.id === viewer);
-                // users[5] cap 에 내가 안 잡혔지만 직전 캐시에 byMe=true 였으면
-                // 보존(6번째+ reactor 인 나의 낙관적 값 유지 — 깜빡임 방지).
-                const prevByMe =
-                  (m.reactions ?? []).find((b) => b.emoji === r.emoji)?.byMe ?? false;
-                return { emoji: r.emoji, count: r.count, byMe: inUsers || prevByMe };
+                // ★ sticky-ghost 방지: 뷰어의 권위 의도가 살아있으면 그 값을 우선한다
+                // (내가 막 제거 → false 로 정확 수렴 / 막 추가 → true 로 깜빡임 방지).
+                // 의도가 없으면(타인만 반응, 또는 WS 와 합의해 만료) 순수 inUsers.
+                const intent = peekReactionIntent(payload.messageId, r.emoji);
+                const byMe = intent !== null ? intent : inUsers;
+                return { emoji: r.emoji, count: r.count, byMe };
               });
               return { ...m, reactions };
             }),

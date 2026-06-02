@@ -429,6 +429,8 @@ export function MessageItem({
                 data-testid={`msg-react-btn-${msg.id}`}
                 onClick={() => setPickerOpen((v) => !v)}
                 aria-label="리액션 추가"
+                // S39 (SHOULD 4): 이모지 선택 dialog 를 여는 버튼임을 SR 에 알린다.
+                aria-haspopup="dialog"
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
                 <Icon name="reaction-add" size="sm" />

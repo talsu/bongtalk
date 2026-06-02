@@ -65,6 +65,13 @@ export type CursorPayload = z.infer<typeof CursorPayloadSchema>;
 // Task-013-B: per-message reaction summary. `byMe` is viewer-scoped so
 // the same message row can serialize differently depending on which
 // authenticated user hits the endpoint.
+//
+// S39 계약 구분(SHOULD 3): ReactionSummary 는 **per-viewer** 형태다 — REST 응답
+// (메시지 목록 / 단건 GET) 이 인증된 뷰어 기준으로 `byMe`(불리언)를 직접 채워
+// 내려보낸다. 반면 events.ts 의 ReactionUpdatedReaction 은 **broadcast** 형태로,
+// per-viewer `me` 를 담지 못해(수신자마다 다름) `users:[…≤5]` 만 싣고 클라가
+// byMe 를 로컬 계산한다. 둘은 용도(per-viewer REST vs broadcast WS)가 다른 별개
+// 계약이며 서로 변환되지 않는다 — 혼동 주의.
 export const ReactionSummarySchema = z.object({
   emoji: z.string().min(1).max(64),
   count: z.number().int().nonnegative(),
@@ -227,6 +234,10 @@ export const ReactionDetailSchema = z.object({
 });
 export type ReactionDetail = z.infer<typeof ReactionDetailSchema>;
 
+// S39 (SHOULD 3): 이 응답 형태는 서버 messages.service `aggregateReactionDetails`
+// 의 반환 형태({ emoji, count, users:[{id, username|null}] }[])와 1:1 로 일치해야
+// 한다(컨트롤러 list 가 그대로 감싸 반환). message.spec.ts 의 계약 회귀 테스트가
+// 대표 샘플을 safeParse 로 고정해 둘이 어긋나면 곧바로 깨지게 한다.
 export const ListReactionsResponseSchema = z.object({
   reactions: z.array(ReactionDetailSchema),
 });

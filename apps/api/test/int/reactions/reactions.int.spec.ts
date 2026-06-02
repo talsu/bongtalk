@@ -250,6 +250,51 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
     expect(r.body.errorCode).toBe('MESSAGE_NOT_FOUND');
   });
 
+  it('security MEDIUM: 보관(archived) 채널의 반응은 POST/DELETE/GET 모두 409 CHANNEL_ARCHIVED', async () => {
+    // 아직 보관 전 채널에 메시지 + 반응 1개를 만든 뒤 채널을 archive 한다.
+    const msgId = await postMessage(stack.member.accessToken);
+    await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: '👍' })
+      .expect(200);
+
+    await env.prisma.channel.update({
+      where: { id: stack.channelId },
+      data: { archivedAt: new Date() },
+    });
+
+    try {
+      // POST(toggle) → 409.
+      const post = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '🎉' });
+      expect(post.status).toBe(409);
+      expect(post.body.errorCode).toBe('CHANNEL_ARCHIVED');
+
+      // DELETE → 409.
+      const del = await request(env.baseUrl)
+        .delete(`/messages/${msgId}/reactions/${encodeURIComponent('👍')}`)
+        .set(bearer(stack.member.accessToken));
+      expect(del.status).toBe(409);
+      expect(del.body.errorCode).toBe('CHANNEL_ARCHIVED');
+
+      // GET → 409 (조회도 일관되게 막는다).
+      const get = await request(env.baseUrl)
+        .get(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken));
+      expect(get.status).toBe(409);
+      expect(get.body.errorCode).toBe('CHANNEL_ARCHIVED');
+    } finally {
+      // 후속 테스트가 동일 채널을 쓰므로 보관 상태를 되돌린다.
+      await env.prisma.channel.update({
+        where: { id: stack.channelId },
+        data: { archivedAt: null },
+      });
+    }
+  });
+
   it('non-member is rejected by ChannelAccessByIdGuard (403/404 — 비노출 마스킹)', async () => {
     const msgId = await postMessage(stack.member.accessToken);
     const r = await request(env.baseUrl)

@@ -242,9 +242,13 @@ export const ReactionUserSchema = z.object({
 export type ReactionUser = z.infer<typeof ReactionUserSchema>;
 
 /**
- * S39 (FR-RE03): reaction:updated 의 이모지별 집계 항목. `users` 는 최대 5명까지
- * 만 싣는다(아바타 스택 + "+N" overflow). per-viewer `me` 는 브로드캐스트라
- * 제외하며, 클라가 users 에 자신의 userId 포함 여부로 로컬 계산한다.
+ * S39 (FR-RE03): reaction:updated 의 이모지별 집계 항목(**broadcast** 형태).
+ * `users` 는 reactor 전부가 아니라 **최초 5명까지의 부분집합**이다(아바타 스택 +
+ * "+N" overflow 용 — count 가 진짜 총원이다). per-viewer `me`/`byMe` 는 수신자마다
+ * 달라 브로드캐스트 payload 에 담을 수 없으므로 제외하며, 클라가 users 에 자신의
+ * userId 가 포함됐는지로 byMe 를 **로컬 계산**한다(cap 밖이면 reaction-intent 의
+ * 뷰어 의도로 보정 — dispatcher 참조). per-viewer REST 형태는 message.ts 의
+ * ReactionSummary(byMe 직접 포함) 이며 본 스키마와 별개 계약이다(SHOULD 3 구분).
  */
 export const ReactionUpdatedReactionSchema = z.object({
   emoji: z.string().min(1).max(64),
@@ -260,9 +264,17 @@ export type ReactionUpdatedReaction = z.infer<typeof ReactionUpdatedReactionSche
  * out-of-order 에도 수렴). 서버 outbox→WS subscriber 가 message.reaction.updated
  * dot 이벤트를 수신해 aggregateReactions 재조회 + users[5] enrichment 후 이
  * wire payload 로 변환해 emit 한다.
+ *
+ * S39 fix-forward (SHOULD 3 — dispatcher safeParse 가드 정합): `seq` 는 **옵셔널**이다.
+ * 실제 라이브 와이어(outbox-to-ws.subscriber 의 enriched payload: id/type/occurredAt/
+ * channelId/messageId/reactions)는 seq 를 싣지 않는다 — 반응은 full-replace 라
+ * 순서 정합에 seq 가 필요 없기 때문이다(message:* 의 seq 게이팅과 다름). seq 를
+ * required 로 두면 dispatcher 가 추가한 safeParse 가드가 모든 라이브 이벤트를 거부해
+ * 반응이 통째로 깨진다. 와이어 현실에 맞춰 옵셔널로 정렬하되, 후속 슬라이스가 seq
+ * 를 싣게 되면 그대로 통과한다(forward-compat).
  */
 export const ReactionUpdatedPayloadSchema = z.object({
-  seq: SeqSchema,
+  seq: SeqSchema.optional(),
   messageId: z.string().min(1),
   channelId: ChannelIdSchema,
   reactions: z.array(ReactionUpdatedReactionSchema),
