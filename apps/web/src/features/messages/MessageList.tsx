@@ -857,7 +857,7 @@ export function MessageList({
                       }}
                       onToggleReaction={(emoji, byMe) => {
                         if (m.id.startsWith('tmp-')) return;
-                        reactMut.mutate({ messageId: m.id, emoji, currentlyByMe: byMe });
+                        reactMut.toggle({ messageId: m.id, emoji, currentlyByMe: byMe });
                       }}
                       onOpenThread={
                         onOpenThread && !m.id.startsWith('tmp-')

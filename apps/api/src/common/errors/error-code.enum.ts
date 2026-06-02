@@ -94,6 +94,12 @@ export enum ErrorCode {
   MESSAGE_VERSION_CONFLICT = 'MESSAGE_VERSION_CONFLICT',
   IDEMPOTENCY_KEY_REUSE_CONFLICT = 'IDEMPOTENCY_KEY_REUSE_CONFLICT',
 
+  // S39 (FR-RE02 / D05): 메시지당 고유 이모지 반응 종류 한도(20) 초과. INSERT 후
+  // 단일 tx 내 COUNT … FOR UPDATE 로 20 초과를 감지하면 방금 삽입한 행을 DELETE 한
+  // 뒤 이 코드로 거부한다(D12 FR-RM16 동시성 패턴). 이미 존재하는 이모지를 토글
+  // 추가하는 것은 신규 종류가 아니라 한도와 무관하다. → 409 (상태 충돌 계열).
+  REACTION_LIMIT_REACHED = 'REACTION_LIMIT_REACHED',
+
   // task-012-B attachments + task-012-D channel ACL
   ATTACHMENT_NOT_FOUND = 'ATTACHMENT_NOT_FOUND',
   ATTACHMENT_TOO_LARGE = 'ATTACHMENT_TOO_LARGE',
@@ -202,6 +208,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   // S05 (FR-MSG-06): 낙관적 잠금 충돌은 409 (IDEMPOTENCY_KEY_REUSE_CONFLICT 와 동일 매핑).
   [ErrorCode.MESSAGE_VERSION_CONFLICT]: 409,
   [ErrorCode.IDEMPOTENCY_KEY_REUSE_CONFLICT]: 409,
+  // S39 (FR-RE02): 이모지 반응 종류 한도(20) 초과 → 409.
+  [ErrorCode.REACTION_LIMIT_REACHED]: 409,
 
   [ErrorCode.ATTACHMENT_NOT_FOUND]: 404,
   [ErrorCode.ATTACHMENT_TOO_LARGE]: 413,

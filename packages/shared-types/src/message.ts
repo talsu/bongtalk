@@ -208,6 +208,30 @@ export const AddReactionRequestSchema = z.object({
 });
 export type AddReactionRequest = z.infer<typeof AddReactionRequestSchema>;
 
+// ── S39 (FR-RE04): GET /messages/:id/reactions ────────────────────────────
+// 이모지별 { emoji, count, users:[…최대 5명] } 집계를 반환합니다. `users` 항목은
+// id + username(미해결 시 null) 만 노출합니다(PII 최소화). 전체 reactor 목록의
+// cursor 페이지네이션은 FR-RE05(S40 carryover)에서 별도 엔드포인트로 다룹니다.
+// reaction:updated WS payload 의 reactions 배열과 동일한 항목 형태입니다(콜론
+// wire 스키마는 events.ts 가 별도로 보유 — 모듈 순환을 피하려 여기에 독립 정의).
+export const ReactionUserLiteSchema = z.object({
+  id: z.string().uuid(),
+  username: z.string().nullable(),
+});
+export type ReactionUserLite = z.infer<typeof ReactionUserLiteSchema>;
+
+export const ReactionDetailSchema = z.object({
+  emoji: z.string().min(1).max(64),
+  count: z.number().int().nonnegative(),
+  users: z.array(ReactionUserLiteSchema).max(5),
+});
+export type ReactionDetail = z.infer<typeof ReactionDetailSchema>;
+
+export const ListReactionsResponseSchema = z.object({
+  reactions: z.array(ReactionDetailSchema),
+});
+export type ListReactionsResponse = z.infer<typeof ListReactionsResponseSchema>;
+
 export const SendMessageRequestSchema = z.object({
   content: MessageContentSchema,
   // S03 (FR-MSG-04): clientNonce — a UUID v4 the client generates ONCE per

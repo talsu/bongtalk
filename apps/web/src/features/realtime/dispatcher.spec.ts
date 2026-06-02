@@ -259,7 +259,7 @@ describe('realtime dispatcher', () => {
     ).toEqual([]);
   });
 
-  it('message.reaction.added updates the target message bucket', () => {
+  it('reaction:updated full-replaces the bucket + computes me locally from users', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();
     const key = qk.messages.list('ws-1', 'ch-1');
@@ -277,7 +277,8 @@ describe('realtime dispatcher', () => {
               deleted: false,
               createdAt: new Date().toISOString(),
               editedAt: null,
-              reactions: [],
+              // 직전 캐시: 다른 사람만 🚀 1개. me 는 false 상태에서 시작.
+              reactions: [{ emoji: '🚀', count: 1, byMe: false }],
             },
           ],
           pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
@@ -289,13 +290,21 @@ describe('realtime dispatcher', () => {
       viewerId: () => 'u-1',
       activeChannelId: () => 'ch-1',
     });
-    socket.emit('message.reaction.added', {
+    // 서버가 full snapshot 을 보낸다: 🎉(나 포함 2명) + 🚀(나 미포함 1명).
+    socket.emit('reaction:updated', {
       messageId: 'msg-a',
       channelId: 'ch-1',
-      workspaceId: 'ws-1',
-      userId: 'u-1',
-      emoji: '🎉',
-      count: 1,
+      reactions: [
+        {
+          emoji: '🎉',
+          count: 2,
+          users: [
+            { id: 'u-1', username: 'me' },
+            { id: 'u-2', username: 'other' },
+          ],
+        },
+        { emoji: '🚀', count: 1, users: [{ id: 'u-9', username: 'someone' }] },
+      ],
     });
     const state = qc.getQueryData(key) as {
       pages: Array<{
@@ -305,7 +314,63 @@ describe('realtime dispatcher', () => {
         }>;
       }>;
     };
-    expect(state.pages[0].items[0].reactions).toEqual([{ emoji: '🎉', count: 1, byMe: true }]);
+    // full replace: 🚀 가 1개 → 그대로, 🎉 신규. me 는 users 에 u-1 포함 여부로 계산.
+    expect(state.pages[0].items[0].reactions).toEqual([
+      { emoji: '🎉', count: 2, byMe: true },
+      { emoji: '🚀', count: 1, byMe: false },
+    ]);
+    detach();
+  });
+
+  it('reaction:updated preserves byMe when viewer is beyond the users[5] cap', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    qc.setQueryData(key, {
+      pages: [
+        {
+          items: [
+            {
+              id: 'msg-a',
+              channelId: 'ch-1',
+              authorId: 'u-1',
+              content: 'hi',
+              mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+              edited: false,
+              deleted: false,
+              createdAt: new Date().toISOString(),
+              editedAt: null,
+              // 낙관적으로 내가 막 토글해 byMe=true 였던 상태.
+              reactions: [{ emoji: '👍', count: 6, byMe: true }],
+            },
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-1',
+      activeChannelId: () => 'ch-1',
+    });
+    // users 는 최초 5명만 — 6번째인 나(u-1)는 목록에 없다. byMe 는 직전값 보존.
+    socket.emit('reaction:updated', {
+      messageId: 'msg-a',
+      channelId: 'ch-1',
+      reactions: [
+        {
+          emoji: '👍',
+          count: 6,
+          users: [{ id: 'a' }, { id: 'b' }, { id: 'c' }, { id: 'd' }, { id: 'e' }],
+        },
+      ],
+    });
+    const state = qc.getQueryData(key) as {
+      pages: Array<{
+        items: Array<{ id: string; reactions: Array<{ emoji: string; byMe: boolean }> }>;
+      }>;
+    };
+    expect(state.pages[0].items[0].reactions[0].byMe).toBe(true);
     detach();
   });
 

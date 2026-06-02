@@ -74,8 +74,9 @@ const L = {
     'message.created',
     'message.updated',
     'message.deleted',
-    'message.reaction.added',
-    'message.reaction.removed',
+    // S39 (FR-RE03): 반응 추가/제거 통합 outbox 이벤트(옵션 B). 종전의
+    // message.reaction.added / .removed 두 종류를 단일 .updated 로 통합.
+    'message.reaction.updated',
     'message.thread.replied',
     'mention.received',
     // S16 (FR-DM-16): DM·그룹 DM 개설 outbox 이벤트.
@@ -90,8 +91,8 @@ const L = {
     'message.created',
     'message.updated',
     'message.deleted',
-    'message.reaction.added',
-    'message.reaction.removed',
+    // S39 (FR-RE03): 콜론 wire 이름(reaction:updated)이 채널 룸으로 emit 된다.
+    'reaction:updated',
     'message.thread.replied',
     'mention.received',
     'channel.created',

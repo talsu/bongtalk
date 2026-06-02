@@ -17,9 +17,13 @@ import { AuthModule } from '../auth/auth.module';
 // 공식 단일 출처)를 inject 한다. ChannelsModule 은 RealtimeModule 을 import 하지
 // 않으므로 순환 없음(단방향).
 import { ChannelsModule } from '../channels/channels.module';
+// S39 (FR-RE03): OutboxToWsSubscriber 가 message.reaction.updated 수신 시
+// MessagesService.aggregateReactionDetails 로 집계+users[5] enrichment 한다.
+// MessagesModule 은 RealtimeModule 을 import 하지 않으므로 순환 없음(단방향).
+import { MessagesModule } from '../messages/messages.module';
 
 @Module({
-  imports: [AuthModule, ChannelsModule, PresenceModule],
+  imports: [AuthModule, ChannelsModule, PresenceModule, MessagesModule],
   providers: [
     RealtimeGateway,
     WsAuthMiddleware,

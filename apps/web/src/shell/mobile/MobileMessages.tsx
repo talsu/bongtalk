@@ -178,7 +178,7 @@ export function MobileMessages({
           }}
           onReact={(emoji) => {
             if (!sheetMsg.id.startsWith('tmp-')) {
-              reactMut.mutate({
+              reactMut.toggle({
                 messageId: sheetMsg.id,
                 emoji,
                 currentlyByMe: sheetMsg.reactions?.find((r) => r.emoji === emoji)?.byMe ?? false,
