@@ -9,6 +9,7 @@ import { ChannelSeqService } from './channel-seq.service';
 import type { WsEnvelope } from '../events/ws-event-envelope';
 import { MetricsService } from '../../observability/metrics/metrics.service';
 import { withSpan } from '../../observability/otel/propagation';
+import { MessagesService } from '../../messages/messages.service';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -41,6 +42,8 @@ export class OutboxToWsSubscriber {
     private readonly gateway: RealtimeGateway,
     private readonly replay: ReplayBufferService,
     private readonly seq: ChannelSeqService,
+    // S39 (FR-RE03): message.reaction.updated 수신 시 집계 재조회용.
+    private readonly messages: MessagesService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -60,6 +63,28 @@ export class OutboxToWsSubscriber {
     if (env.type === 'message.thread.lock_changed') {
       const wireEnv = { ...env, type: 'thread:lock:changed' as const };
       await this.emitAndBuffer('channel', chId, wireEnv as WsEnvelope);
+      return;
+    }
+    // S39 (FR-RE03): message.reaction.updated → 콜론 wire `reaction:updated`.
+    // 서버 내부 outbox eventType 은 dot 표기라 `message.**` 와일드카드가 잡지만,
+    // 채널 룸 emit 시 PRD 가 명시한 콜론 wire 이름으로 변환한다. 옵션 B 집계:
+    // payload 에는 식별자만 실려오므로, 여기서 aggregateReactionDetails 로 전체
+    // 집계(emoji/count/users[≤5])를 재조회해 enriched wire payload 를 만든다.
+    // per-viewer `me` 는 브로드캐스트라 담지 않으며, 클라 dispatcher 가 users 에
+    // 자신의 userId 포함 여부로 로컬 계산한다(카운트/리스트는 WS 가 진실값).
+    if (env.type === 'message.reaction.updated') {
+      const messageId = (env as { messageId?: string }).messageId;
+      if (!messageId) return;
+      const reactions = await this.messages.aggregateReactionDetails(messageId);
+      const wireEnv = {
+        id: env.id,
+        type: WS_EVENTS.REACTION_UPDATED,
+        occurredAt: env.occurredAt,
+        channelId: chId,
+        messageId,
+        reactions,
+      } as unknown as WsEnvelope;
+      await this.emitAndBuffer('channel', chId, wireEnv);
       return;
     }
     await this.emitAndBuffer('channel', chId, env);

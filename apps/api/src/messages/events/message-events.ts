@@ -37,6 +37,25 @@ export type MessageThreadLockChangedPayload = {
   locked: boolean;
 };
 
+// S39 (FR-RE03 / D05): 반응 추가/제거 통합 이벤트. 종전의 message.reaction.added /
+// message.reaction.removed 두 종류를 단일 message.reaction.updated 로 통합한다
+// (옵션 B). 서버는 토글(add/remove) 성공 시 이 이벤트 1건만 발행하고, 페이로드는
+// 라우팅에 필요한 최소 식별자(messageId, channelId, workspaceId)만 담는다 —
+// 실제 집계(emoji/count/users[5])는 outbox→WS subscriber 가 aggregateReactions
+// 재조회 + users enrichment 로 산정해 콜론 wire(reaction:updated)로 변환한다.
+// dot 컨벤션(message.reaction.*)을 유지해 subscriber 의 `message.**` 와일드카드가
+// 자동으로 채널 룸 fanout 경로에 진입한다.
+export const MESSAGE_REACTION_UPDATED = 'message.reaction.updated';
+
+export type MessageReactionUpdatedPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  messageId: string;
+  // 이 토글을 수행한 사용자. 현재 fanout 집계는 actorId 를 소비하지 않지만(브로드
+  // 캐스트는 per-viewer me 를 담지 않음), 감사/관측 일관성을 위해 싣는다.
+  actorId: string;
+};
+
 export type MessageCreatedPayload = {
   // null for Global DM channels (Channel.workspaceId IS NULL). The
   // outbox-to-ws subscriber routes message events by channel room

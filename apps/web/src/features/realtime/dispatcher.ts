@@ -1,12 +1,14 @@
 import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   WS_EVENTS,
+  ReactionUpdatedPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
   type PresenceUpdatePayload,
   type WorkspacePresenceUpdatedPayload,
 } from '@qufox/shared-types';
+import { peekReactionIntent } from '../reactions/reaction-intent';
 import type { Socket } from 'socket.io-client';
 import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
@@ -754,75 +756,83 @@ export function installRealtimeDispatcher(
     }
   });
 
-  // ---------- Reactions (task-013-B) ----------
-  // One server event per (message, user, emoji) action. The payload's
-  // `count` is the authoritative server total for that emoji, so we
-  // overwrite the bucket's count rather than ±1 — avoids drift when
-  // events arrive out of order or after a reconnect replay.
-  const applyReaction = (
-    env: {
-      messageId: string;
-      channelId: string;
-      workspaceId: string;
-      userId: string;
+  // ---------- Reactions (S39 · FR-RE01/RE03) ----------
+  // reaction:updated 는 한 메시지의 *전체* 반응 집계(full snapshot)를 싣는다.
+  // 서버 add/remove(toggle) 1건당 이 이벤트 1건이 채널 룸으로 fanout 되며, 클라는
+  // 해당 messageId 의 reactions 를 payload 로 **full replace** 한다(증분 ±1 아님 —
+  // out-of-order / 재연결 replay 에도 카운트가 수렴). per-viewer `me`(=byMe) 는
+  // 브로드캐스트 payload 에 담을 수 없으므로(수신자마다 다름), 각 이모지의 users
+  // 목록에 내 userId 가 들어있는지로 **로컬 계산**한다. users 는 최대 5명 cap 이라,
+  // reactor 6명 이상인 이모지에서 내가 6번째 이후면 users 에 안 보일 수 있다.
+  //
+  // S39 fix-forward (reviewer MAJOR ★2): 종전엔 cap 밖일 때 `byMe = inUsers ||
+  // prevByMe` 로 직전 캐시값을 *영구 latch* 했다 — 내가 방금 제거했는데도 byMe 가
+  // true 로 굳는 sticky-ghost 회귀였다. 이제 reaction-intent 모듈의 **뷰어 권위 의도**
+  // (useReactions 가 낙관 토글/POST 응답으로 기록)를 우선 참조한다:
+  //   - 살아있는 의도가 있으면 그 byMe(내가 막 제거했으면 false → 정확 수렴, 막
+  //     추가했으면 true → 깜빡임 방지). cap 밖이어도 정확.
+  //   - 의도가 없으면(다른 사람만 반응했거나, 내 토글이 이미 WS 와 합의해 만료됨)
+  //     순수 `inUsers` 로 계산한다(latch 제거).
+  on<{
+    messageId: string;
+    channelId: string;
+    reactions: Array<{
       emoji: string;
       count: number;
-    },
-    kind: 'added' | 'removed',
-  ) => {
-    if (!env.channelId || !env.workspaceId || !env.messageId) return;
+      users: Array<{ id: string; username?: string | null }>;
+    }>;
+  }>(WS_EVENTS.REACTION_UPDATED, (env) => {
+    if (!env.channelId || !env.messageId) return;
+    // S39 (SHOULD 3): 신뢰경계 가드 — 형태가 어긋난 reaction:updated 페이로드는
+    // 캐시를 건드리지 않고 버린다(서버 회귀/멀티 dispatcher 오발신 방어). 통과 시
+    // 검증된 형태를 그대로 쓴다.
+    const parsed = ReactionUpdatedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const payload = parsed.data;
     const viewer = ctx.viewerId();
-    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
-      qk.messages.list(env.workspaceId, env.channelId),
-      (old) => {
+    // workspaceId 는 wire payload 에 없다 — 메시지 목록 캐시(`['messages', wsId,
+    // chId]` 3-tuple)만 골라 해당 messageId 를 가진 행을 patch 한다(채널 룸 fanout
+    // 이라 보통 1개). thread(`['messages','thread',…]`) / detail(2-tuple) /
+    // history·jump-around(5-tuple) 캐시는 형태로 배제된다.
+    const listKeys = qc
+      .getQueryCache()
+      .findAll({ queryKey: ['messages'] })
+      .map((q) => q.queryKey)
+      .filter(
+        (k): k is readonly [string, string, string] =>
+          Array.isArray(k) && k.length === 3 && k[0] === 'messages' && k[1] !== 'thread',
+      );
+    for (const key of listKeys) {
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(key, (old) => {
         if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((p) => ({
+        let changed = false;
+        const pages = old.pages.map((p) => {
+          if (!p.items.some((m) => m.id === payload.messageId)) return p;
+          changed = true;
+          return {
             ...p,
             items: p.items.map((m) => {
-              if (m.id !== env.messageId) return m;
-              const existing = m.reactions ?? [];
-              // Recompute byMe: if the event was mine, apply directly;
-              // otherwise keep whatever byMe the row already had (other
-              // users' actions don't change whether *I* reacted).
-              const mineChanges = viewer !== null && env.userId === viewer;
-              const next = upsertReactionBucket(existing, {
-                emoji: env.emoji,
-                count: env.count,
-                kind,
-                mineChanges,
+              if (m.id !== payload.messageId) return m;
+              const reactions = payload.reactions.map((r) => {
+                const inUsers = viewer !== null && r.users.some((u) => u.id === viewer);
+                // ★ sticky-ghost 방지: 뷰어의 권위 의도가 살아있으면 그 값을 우선한다
+                // (내가 막 제거 → false 로 정확 수렴 / 막 추가 → true 로 깜빡임 방지).
+                // 의도가 없으면(타인만 반응, 또는 WS 와 합의해 만료) 순수 inUsers.
+                const intent = peekReactionIntent(payload.messageId, r.emoji);
+                const byMe = intent !== null ? intent : inUsers;
+                return { emoji: r.emoji, count: r.count, byMe };
               });
-              return { ...m, reactions: next };
+              return { ...m, reactions };
             }),
-          })),
-        };
-      },
-    );
-  };
-
-  on<{
-    messageId: string;
-    channelId: string;
-    workspaceId: string;
-    userId: string;
-    emoji: string;
-    count: number;
-  }>('message.reaction.added', (env) => {
-    applyReaction(env, 'added');
-    // task-026-E: reactions on the viewer's own messages feed the
-    // Activity inbox — invalidate both list + unread counts so the
-    // Bell / tabbar badge reflect the increment within ~1 RTT.
+          };
+        });
+        return changed ? { ...old, pages } : old;
+      });
+    }
+    // task-026-E: 내 메시지에 달린 반응은 Activity 인박스에 반영 — list + unread
+    // 카운트를 무효화해 Bell / tabbar 배지가 ~1 RTT 안에 갱신되게 한다.
     qc.invalidateQueries({ queryKey: ['me', 'activity'] });
   });
-  on<{
-    messageId: string;
-    channelId: string;
-    workspaceId: string;
-    userId: string;
-    emoji: string;
-    count: number;
-  }>('message.reaction.removed', (env) => applyReaction(env, 'removed'));
 
   // ---------- Channels ----------
   on<{ workspaceId: string }>('channel.created', (env) => {
@@ -1045,8 +1055,9 @@ export const DISPATCHED_EVENTS = [
   'presence.updated',
   'presence:update',
   'mention.received',
-  'message.reaction.added',
-  'message.reaction.removed',
+  // S39 (FR-RE03): 반응 추가/제거 통합 wire 이벤트(full-replace). 종전의
+  // message.reaction.added / .removed 를 단일 reaction:updated 로 대체.
+  'reaction:updated',
   'message.thread.replied',
   // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
   'message.thread.broadcast',
