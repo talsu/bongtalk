@@ -12,6 +12,9 @@ import { SlowmodeService } from './slowmode/slowmode.service';
 // endpoints). GlobalDmController at /me/dms is the sole DM surface.
 import { DirectMessagesService } from './direct-messages/direct-messages.service';
 import { GlobalDmController } from './direct-messages/global-dm.controller';
+// S43 (FR-CH-15): 채널 즐겨찾기 — 워크스페이스 스코프 + /me/favorites.
+import { FavoritesService } from './favorites/favorites.service';
+import { FavoritesController, MeFavoritesController } from './favorites/favorites.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 import { MessagesModule } from '../messages/messages.module';
@@ -37,6 +40,8 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
     UnreadSummaryController,
     ChannelReadController,
     GlobalDmController,
+    FavoritesController,
+    MeFavoritesController,
   ],
   // Task-014-A: ChannelAccessService is the single source of truth for
   // channel ACL checks (private-channel visibility, permission-bit
@@ -52,6 +57,8 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
     DirectMessagesService,
     // S15 (FR-CH-08): 슬로우모드 게이트. MessagesController 가 송신 경로에서 소비.
     SlowmodeService,
+    // S43 (FR-CH-15): 채널 즐겨찾기 CRUD + 재정렬.
+    FavoritesService,
   ],
   exports: [
     ChannelsService,

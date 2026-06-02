@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api';
+import { removeChannelMute, setChannelMute } from './api';
 
 /**
  * S22 (FR-RS-05 / FR-DM-15): 채널·DM 뮤트 상태 소스.
@@ -52,4 +53,53 @@ export function activeMutedChannelIds(items: ActiveMute[], now: number): Set<str
 export function useMutedChannelIds(): Set<string> {
   const { data } = useMutes();
   return useMemo(() => activeMutedChannelIds(data?.items ?? [], Date.now()), [data]);
+}
+
+/**
+ * S43 (FR-CH-17): 뮤트 지속시간 선택지. PRD: 15분/1시간/3시간/8시간/24시간/무기한.
+ * `'forever'` 는 mutedUntil=null(무기한)을 뜻한다.
+ */
+export type MuteDurationKey = '15m' | '1h' | '3h' | '8h' | '24h' | 'forever';
+
+const MUTE_DURATION_MS: Record<Exclude<MuteDurationKey, 'forever'>, number> = {
+  '15m': 15 * 60_000,
+  '1h': 60 * 60_000,
+  '3h': 3 * 60 * 60_000,
+  '8h': 8 * 60 * 60_000,
+  '24h': 24 * 60 * 60_000,
+};
+
+/**
+ * S43 (FR-CH-17): 지속시간 선택을 서버가 받는 `until`(ISO 또는 null)로 변환.
+ * 'forever' → null(무기한), 그 외 → now + 해당 밀리초의 ISO. 순수 함수로 빼
+ * vi.setSystemTime 기반 단위 검증을 결정적으로 한다.
+ */
+export function muteUntilIso(duration: MuteDurationKey, now: number): string | null {
+  if (duration === 'forever') return null;
+  return new Date(now + MUTE_DURATION_MS[duration]).toISOString();
+}
+
+/**
+ * S43 (FR-CH-17): 채널 뮤트 설정 mutation. duration → until 변환 후
+ * POST /me/mutes/channels/:channelId {until}. 성공 시 me/mutes 무효화.
+ */
+export function useSetChannelMute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ channelId, duration }: { channelId: string; duration: MuteDurationKey }) =>
+      setChannelMute(channelId, muteUntilIso(duration, Date.now())),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'mutes'] }),
+  });
+}
+
+/**
+ * S43 (FR-CH-17): 채널 뮤트 해제 mutation. DELETE /me/mutes/channels/:channelId.
+ * 성공 시 me/mutes 무효화.
+ */
+export function useRemoveChannelMute() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (channelId: string) => removeChannelMute(channelId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['me', 'mutes'] }),
+  });
 }

@@ -187,3 +187,30 @@ export const ChannelListResponseSchema = z.object({
   uncategorized: z.array(ChannelSchema),
 });
 export type ChannelListResponse = z.infer<typeof ChannelListResponseSchema>;
+
+// S43 (FR-CH-15): 즐겨찾기 재정렬 바디. 채널 move 와 동일한 fractional anchor
+// 규약을 따른다 — beforeId / afterId 는 상호 배타이며 둘 다 없으면 말단으로
+// 간주한다(서버 calcBetween 재사용). anchor 는 즐겨찾기 목록 안의 채널 id 다.
+export const MoveFavoriteRequestSchema = z
+  .object({
+    beforeId: z.string().uuid().optional(),
+    afterId: z.string().uuid().optional(),
+  })
+  .refine((x) => !(x.beforeId && x.afterId), {
+    message: 'beforeId and afterId are mutually exclusive',
+  });
+export type MoveFavoriteRequest = z.infer<typeof MoveFavoriteRequestSchema>;
+
+// S43 (FR-CH-15): 단일 즐겨찾기 항목. position 은 와이어상 문자열(Decimal 직렬화).
+export const FavoriteSchema = z.object({
+  channelId: z.string().uuid(),
+  position: z.string(),
+  createdAt: z.string().datetime(),
+});
+export type Favorite = z.infer<typeof FavoriteSchema>;
+
+// S43 (FR-CH-15): GET /me/favorites 응답. position 오름차순 정렬.
+export const FavoritesResponseSchema = z.object({
+  items: z.array(FavoriteSchema),
+});
+export type FavoritesResponse = z.infer<typeof FavoritesResponseSchema>;
