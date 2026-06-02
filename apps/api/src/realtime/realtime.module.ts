@@ -21,9 +21,13 @@ import { ChannelsModule } from '../channels/channels.module';
 // MessagesService.aggregateReactionDetails 로 집계+users[5] enrichment 한다.
 // MessagesModule 은 RealtimeModule 을 import 하지 않으므로 순환 없음(단방향).
 import { MessagesModule } from '../messages/messages.module';
+// S47 (D06 / FR-MN-20): OutboxToWsSubscriber 가 멘션 발생 시 서버 진실값 배지를
+// 재집계해 notification:badge_update 로 emit 한다. 경량 전용 모듈이라 MeModule ↔
+// RealtimeModule 순환 없이 배지 집계 단일 출처를 공유한다.
+import { MeNotificationBadgesModule } from '../me/me-notification-badges.module';
 
 @Module({
-  imports: [AuthModule, ChannelsModule, PresenceModule, MessagesModule],
+  imports: [AuthModule, ChannelsModule, PresenceModule, MessagesModule, MeNotificationBadgesModule],
   providers: [
     RealtimeGateway,
     WsAuthMiddleware,

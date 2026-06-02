@@ -7,6 +7,7 @@ import {
   EmojiDeletedPayloadSchema,
   EmojiAliasUpdatedPayloadSchema,
   MentionNewPayloadSchema,
+  NotificationBadgeUpdatePayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -21,6 +22,7 @@ import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentio
 import { useNotifications } from '../../stores/notification-store';
 import { useTypingStore } from '../typing/useTypingStore';
 import { useReadState } from './readStateStore';
+import { useBadgeStore } from '../notifications/badgeStore';
 
 export interface DispatcherContext {
   viewerId: () => string | null;
@@ -725,6 +727,14 @@ export function installRealtimeDispatcher(
     // 워크스페이스 레일 합계는 다시 계산하기보다 무효화(서버 권위).
     qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
 
+    // S47 (FR-MN-20 ACK 우선): ACK 시각을 워크스페이스 배지에 기록해, 이후 도착하는
+    // ACK-이전 시각의 notification:badge_update 를 stale 로 거른다. 단일 채널 ACK 로는
+    // 워크스페이스 합계를 정확히 알 수 없으므로 카운트는 건드리지 않고 시각만 전진한다
+    // (정확한 합계는 후속 badge_update 또는 GET /me/notification-badges 재동기화가 채움).
+    if (env.workspaceId) {
+      useBadgeStore.getState().markAcked(env.workspaceId);
+    }
+
     const patchSummary = (old: { channels: UnreadChannelSummary[] } | undefined) => {
       if (!old || !old.channels.some((c) => c.channelId === env.channelId)) return old;
       return {
@@ -1142,6 +1152,29 @@ export function installRealtimeDispatcher(
     }
   });
 
+  // ---------- Badge resync (S47 · FR-MN-20) ----------
+  // notification:badge_update 는 서버 진실값 배지(isMuted 제외 집계)를 싣는다.
+  // 클라는 낙관적 +1 을 이 값으로 교체한다(server last-write-wins). badgeStore 가
+  // serverTimestamp 와 lastAckedAt 을 비교해 ACK 이전 시각의 stale badge_update 를
+  // 무시한다(FR-MN-20 ACK 우선). 형태가 어긋난 페이로드는 신뢰경계 가드로 버린다.
+  on<{
+    serverId: string;
+    channelId: string | null;
+    mentionCount: number;
+    unreadCount: number;
+    serverTimestamp: string;
+  }>(WS_EVENTS.NOTIFICATION_BADGE_UPDATE, (rawEnv) => {
+    const parsed = NotificationBadgeUpdatePayloadSchema.safeParse(rawEnv);
+    if (!parsed.success) return;
+    const env = parsed.data;
+    useBadgeStore.getState().applyServerUpdate({
+      workspaceId: env.serverId,
+      mentionCount: env.mentionCount,
+      unreadCount: env.unreadCount,
+      serverTimestamp: env.serverTimestamp,
+    });
+  });
+
   return () => {
     for (const { event, handler } of handlers) socket.off(event, handler);
   };
@@ -1169,6 +1202,8 @@ export const DISPATCHED_EVENTS = [
   // S44 (FR-MN-01): 멘션 알림 wire 이름은 PRD 카탈로그 `mention:new` 로 정렬한다
   // (서버 내부 outbox 는 mention.received, outbox→WS subscriber 가 콜론으로 변환).
   'mention:new',
+  // S47 (FR-MN-20): 서버 진실값 배지 재동기화(server last-write-wins · ACK 우선).
+  'notification:badge_update',
   // S39 (FR-RE03): 반응 추가/제거 통합 wire 이벤트(full-replace). 종전의
   // message.reaction.added / .removed 를 단일 reaction:updated 로 대체.
   'reaction:updated',

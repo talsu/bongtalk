@@ -10,6 +10,7 @@ import {
   serverButtonBadgeText,
   serverButtonBadgeAria,
 } from '../features/workspaces/serverButtonBadge';
+import { useBadgeStore } from '../features/notifications/badgeStore';
 import { cn } from '../lib/cn';
 
 type Props = {
@@ -19,12 +20,18 @@ type Props = {
 
 export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
   const { data: totals } = useWorkspaceUnreadTotals();
+  // S47 (FR-MN-14): isMuted 제외 서버 진실값 배지(badgeStore)를 우선 사용한다.
+  // badgeStore 에 해당 워크스페이스 항목이 있으면(연결 후 1회 재동기화로 채워짐)
+  // 그 값(뮤트 채널/서버 제외)을, 없으면 기존 unreadTotals(S22 레일)로 폴백한다.
+  const badgeByWs = useBadgeStore((s) => s.byWorkspace);
   const unreadByWs = useMemo(() => {
     const m = new Map<string, { unreadCount: number; mentionCount: number }>();
     for (const t of totals ?? [])
       m.set(t.workspaceId, { unreadCount: t.unreadCount, mentionCount: t.mentionCount });
+    for (const [wsId, b] of Object.entries(badgeByWs))
+      m.set(wsId, { unreadCount: b.unreadCount, mentionCount: b.mentionCount });
     return m;
-  }, [totals]);
+  }, [totals, badgeByWs]);
 
   // Workspace creation moved from the /w/new page to a DS Dialog that
   // opens in place — no forced-create-on-signup flow means this is the

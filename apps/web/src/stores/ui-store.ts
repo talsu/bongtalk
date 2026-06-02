@@ -32,6 +32,14 @@ type UIState = {
   searchPanelQuery: string | null;
   openSearchPanel: (_q: string) => void;
   closeSearchPanel: () => void;
+
+  /**
+   * S47 (FR-MN-13): Activity Inbox 패널 토글. true 면 우측 슬롯을 Inbox 패널
+   * (role="complementary")로 대체한다. 헤더 알림 벨/단축키가 토글한다.
+   */
+  activityInboxOpen: boolean;
+  toggleActivityInbox: () => void;
+  setActivityInboxOpen: (v: boolean) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -52,4 +60,8 @@ export const useUI = create<UIState>((set) => ({
   searchPanelQuery: null,
   openSearchPanel: (q) => set({ searchPanelQuery: q }),
   closeSearchPanel: () => set({ searchPanelQuery: null }),
+
+  activityInboxOpen: false,
+  toggleActivityInbox: () => set((s) => ({ activityInboxOpen: !s.activityInboxOpen })),
+  setActivityInboxOpen: (v) => set({ activityInboxOpen: v }),
 }));

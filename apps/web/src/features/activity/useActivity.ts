@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { apiRequest } from '../../lib/api';
 
 export type ActivityKind = 'mention' | 'reply' | 'reaction' | 'direct' | 'friend_request';
@@ -41,6 +41,28 @@ export function useActivityList(filter: ActivityFilter) {
     queryKey: ['me', 'activity', filter],
     queryFn: () =>
       apiRequest<ActivityPage>(`/me/activity?filter=${encodeURIComponent(filter)}&limit=50`),
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * S47 (FR-MN-13): Activity Inbox 패널용 cursor 무한스크롤. 기존 /me/activity 의
+ * opaque `<iso>|<activityKey>` cursor 를 그대로 다음 pageParam 으로 넘긴다. 패널
+ * 키(`['me','activity','inbox', filter]`)는 전체화면 ActivityPage 의 `['me','activity', filter]`
+ * 와 분리해 캐시가 섞이지 않게 한다(둘 다 ['me','activity'] prefix 무효화는 공유).
+ */
+export function useActivityInbox(filter: ActivityFilter) {
+  return useInfiniteQuery<ActivityPage>({
+    queryKey: ['me', 'activity', 'inbox', filter],
+    queryFn: ({ pageParam }) => {
+      const cursor = (pageParam as string | null) ?? null;
+      const cursorParam = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+      return apiRequest<ActivityPage>(
+        `/me/activity?filter=${encodeURIComponent(filter)}&limit=50${cursorParam}`,
+      );
+    },
+    initialPageParam: null as string | null,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
     staleTime: 30_000,
   });
 }

@@ -10,6 +10,7 @@ import type { WsEnvelope } from '../events/ws-event-envelope';
 import { MetricsService } from '../../observability/metrics/metrics.service';
 import { withSpan } from '../../observability/otel/propagation';
 import { MessagesService } from '../../messages/messages.service';
+import { MeNotificationBadgesService } from '../../me/me-notification-badges.service';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -44,6 +45,8 @@ export class OutboxToWsSubscriber {
     private readonly seq: ChannelSeqService,
     // S39 (FR-RE03): message.reaction.updated 수신 시 집계 재조회용.
     private readonly messages: MessagesService,
+    // S47 (FR-MN-20): 멘션 발생 시 서버 진실값 배지(isMuted 제외) 재집계용.
+    private readonly badges: MeNotificationBadgesService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -173,6 +176,58 @@ export class OutboxToWsSubscriber {
     this.metrics?.wsEventsEmittedTotal
       .labels(this.metrics.bucket('wsEventType', wireEnv.type))
       .inc();
+
+    // S47 (FR-MN-20): 멘션이 도착한 워크스페이스의 서버 진실값 배지를 재집계해
+    // notification:badge_update 를 같은 user 룸으로 emit 한다. 서버값이라 클라가
+    // 낙관적 +1 을 이 값으로 교체한다(last-write-wins). isMuted 채널/서버는 배지
+    // 집계에서 제외된다(MeNotificationBadgesService 게이트 — 카운트 증가 자체 skip).
+    // 멘션 fanout 은 이미 mute/DND/NotifLevel 게이트를 통과한 수신자에게만 도달하지만,
+    // 배지는 *서버 단위 진실값* 이므로 여기서 다시 mute-제외 집계를 거친다(채널 뮤트가
+    // mention:new 를 막지 않는 @here/everyone 경계에서도 배지는 정확히 0 유지).
+    const workspaceId = (env as { workspaceId?: string | null }).workspaceId ?? null;
+    if (workspaceId) {
+      await this.emitBadgeUpdate(targetUserId, workspaceId, env.channelId ?? null);
+    }
+  }
+
+  /**
+   * S47 (FR-MN-20): user 룸으로 서버 진실값 배지(isMuted 제외)를 emit 한다.
+   * 집계 실패는 비-치명(클라가 reconnect/visibility resync 로 자가 치유) — 멘션
+   * 전달 자체는 이미 끝났으므로 throw 하지 않고 로깅만 한다.
+   */
+  private async emitBadgeUpdate(
+    userId: string,
+    workspaceId: string,
+    channelId: string | null,
+  ): Promise<void> {
+    if (!this.io) return;
+    try {
+      const badge = await this.badges.badgeFor(userId, workspaceId);
+      const payload = {
+        serverId: workspaceId,
+        channelId,
+        mentionCount: badge.mentionCount,
+        unreadCount: badge.unreadCount,
+        serverTimestamp: new Date().toISOString(),
+      };
+      await withSpan(
+        'ws.emit',
+        {
+          'ws.event.type': WS_EVENTS.NOTIFICATION_BADGE_UPDATE,
+          'ws.room': rooms.user(userId),
+        },
+        async () => {
+          this.io!.to(rooms.user(userId)).emit(WS_EVENTS.NOTIFICATION_BADGE_UPDATE, payload);
+        },
+      );
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.NOTIFICATION_BADGE_UPDATE))
+        .inc();
+    } catch (err) {
+      this.logger.warn(
+        `[realtime] badge_update emit failed uid=${userId} ws=${workspaceId} err=${String(err).slice(0, 200)}`,
+      );
+    }
   }
 
   @OnEvent('channel.**')
