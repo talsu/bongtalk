@@ -56,3 +56,37 @@ describe('ReactionBar a11y (S39 SHOULD 4)', () => {
     expect(live.textContent).toBe('👍 3명, 🎉 1명');
   });
 });
+
+describe('ReactionBar 커스텀 이모지 url 해석 (S41 fix-forward)', () => {
+  const customEmojis = [{ id: 'e1', name: 'partyblob', url: 'https://cdn/partyblob.gif' }];
+
+  it('낙관 업데이트(payload url 부재)라도 워크스페이스 팩에 살아있으면 img 로 렌더한다', () => {
+    // 자기 토글 직후: reaction 에 url 이 아직 없지만(:partyblob:) 팩에는 존재 →
+    // [삭제된 이모지] placeholder 가 아니라 <img> 칩이어야 한다(깜빡임 회귀 방지).
+    const { container } = render(
+      <ReactionBar
+        reactions={[{ emoji: ':partyblob:', count: 1, byMe: true }]}
+        onToggle={() => {}}
+        customEmojis={customEmojis}
+      />,
+    );
+    const chip = container.querySelector('[data-testid="reaction-:partyblob:"]');
+    expect(chip?.querySelector('img')?.getAttribute('src')).toBe('https://cdn/partyblob.gif');
+    expect(chip?.getAttribute('data-deleted')).toBeNull();
+    expect(container.querySelector('[data-testid="reaction-deleted-:partyblob:"]')).toBeNull();
+  });
+
+  it('payload url 도 없고 팩에도 없으면(진짜 삭제) placeholder + "삭제된 이모지" 라벨', () => {
+    const { container } = render(
+      <ReactionBar
+        reactions={[{ emoji: ':gone:', count: 2, byMe: false }]}
+        onToggle={() => {}}
+        customEmojis={customEmojis}
+      />,
+    );
+    const chip = container.querySelector('[data-testid="reaction-:gone:"]');
+    expect(chip?.getAttribute('data-deleted')).toBe('true');
+    expect(chip?.getAttribute('aria-label')).toContain('삭제된 이모지');
+    expect(container.querySelector('[data-testid="reaction-deleted-:gone:"]')).not.toBeNull();
+  });
+});
