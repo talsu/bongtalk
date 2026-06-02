@@ -49,6 +49,8 @@ import {
 } from './events/message-events';
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
 import { isDndSuppressed } from '../notifications/dnd-gate';
+import { NotifLevelService, type NotifGate } from '../notifications/notif-level.service';
+import type { MentionKind } from '../notifications/notif-level';
 import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
 
@@ -252,6 +254,12 @@ export class MessagesService {
     // @Optional 이라 미주입 단위테스트는 필터를 건너뛴다(전체 후보 유지 — DB 경로만).
     @Optional()
     private readonly presence?: PresenceService,
+    // S46 (D06 / FR-MN-05/06/07/08): NotifLevel 3계층 게이트. 후보 수신자 전원의
+    // 글로벌/서버/채널 prefs 를 batch 로 일괄 로드해(N+1 방지) per-recipient fold
+    // 한다. @Optional 이라 미주입 단위테스트는 게이트를 건너뛴다(기존 동작 유지 —
+    // mute/DND/OFF 만 적용). int(실DB)·런타임에서는 항상 주입된다.
+    @Optional()
+    private readonly notifLevel?: NotifLevelService,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -1325,12 +1333,33 @@ export class MessagesService {
           });
           for (const r of offSubRows) offMentionSet.add(r.userId);
         }
+        // S46 (D06 / FR-MN-05/06/07/08): NotifLevel 3계층 게이트. 후보 전원의
+        // 글로벌/서버/채널 prefs 를 같은 tx 로 batch 로드해(N+1 방지) per-recipient
+        // fold 한다. NOTHING→스킵, MENTIONS→broad 스킵·direct 통과, ALL→통과.
+        // 명시적 @username(mentions.users)은 'direct', broad 확장 수신자는 'broad'.
+        const directMentionSet = new Set(mentions.users);
+        const kindFor = (uid: string): MentionKind =>
+          directMentionSet.has(uid) ? 'direct' : 'broad';
+        const notifGate: NotifGate | null =
+          this.notifLevel && dedupedMentionUserIds.length > 0
+            ? await this.notifLevel.buildGate(
+                {
+                  channelId: args.channelId,
+                  workspaceId: args.workspaceId,
+                  candidateUserIds: dedupedMentionUserIds,
+                  now,
+                },
+                tx,
+              )
+            : null;
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
           if (mutedSet.has(uid)) continue;
           if (dndSuppressedSet.has(uid)) continue;
           // S38 fix-forward (FR-TH-08): OFF 구독자는 멘션 알림에서도 전면 제외.
           if (offMentionSet.has(uid)) continue;
+          // S46 (FR-MN-05/06/07/08): NotifLevel 게이트(NOTHING/MENTIONS-broad/isMuted).
+          if (notifGate && !notifGate.shouldNotify(uid, kindFor(uid))) continue;
           mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
@@ -2409,11 +2438,28 @@ export class MessagesService {
           });
           for (const r of offSubRows) offMentionSet.add(r.userId);
         }
+        // S46 (D06 / FR-MN-05/06/07/08): send 와 동일한 NotifLevel 3계층 게이트.
+        const directMentionSet = new Set(mentions.users);
+        const kindFor = (uid: string): MentionKind =>
+          directMentionSet.has(uid) ? 'direct' : 'broad';
+        const notifGate: NotifGate | null = this.notifLevel
+          ? await this.notifLevel.buildGate(
+              {
+                channelId: args.channelId,
+                workspaceId: args.workspaceId,
+                candidateUserIds: dedupedMentionUserIds,
+                now,
+              },
+              tx,
+            )
+          : null;
         const snippet = buildSnippet(args.content);
         for (const uid of dedupedMentionUserIds) {
           if (mutedSet.has(uid)) continue;
           if (dndSuppressedSet.has(uid)) continue;
           if (offMentionSet.has(uid)) continue;
+          // S46 (FR-MN-05/06/07/08): NotifLevel 게이트.
+          if (notifGate && !notifGate.shouldNotify(uid, kindFor(uid))) continue;
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
             workspaceId: args.workspaceId,

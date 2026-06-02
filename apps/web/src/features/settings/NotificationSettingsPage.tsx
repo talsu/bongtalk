@@ -13,6 +13,12 @@ import {
   useNotificationPreferences,
   useUpsertNotificationPreference,
 } from '../notifications/useNotificationPreferences';
+import type { NotifLevel } from '@qufox/shared-types';
+import {
+  useGlobalNotificationSettings,
+  useUpdateGlobalNotificationSettings,
+} from '../notifications/useNotifLevels';
+import { NotifLevelRadio } from '../notifications/NotifLevelRadio';
 
 const EVENT_TYPES: readonly NotificationEventType[] = [
   'MENTION',
@@ -43,6 +49,17 @@ export function NotificationSettingsPage(): JSX.Element {
   const { data: prefs } = useNotificationPreferences();
   const upsertMut = useUpsertNotificationPreference();
   const notify = useNotifications((s) => s.push);
+
+  // S46 (FR-MN-05): 글로벌 알림 수준(NotifLevel — ALL/MENTIONS/NOTHING).
+  const { data: globalSettings } = useGlobalNotificationSettings();
+  const updateGlobal = useUpdateGlobalNotificationSettings();
+  const setGlobalLevel = async (next: NotifLevel) => {
+    try {
+      await updateGlobal.mutateAsync({ notifTrigger: next });
+    } catch (err) {
+      notify({ variant: 'danger', title: '알림 수준 저장 실패', body: (err as Error).message });
+    }
+  };
 
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
   // Tabs: "Global" first, then one per workspace the user is in.
@@ -93,6 +110,25 @@ export function NotificationSettingsPage(): JSX.Element {
             ← 홈으로
           </Link>
         </div>
+
+        {/* S46 (FR-MN-05): 글로벌 알림 수준 (NotifLevel). */}
+        <section
+          className="mb-[var(--s-6)] rounded-[var(--r-xl)] border border-border bg-bg-elevated p-[var(--s-5)]"
+          data-testid="global-notif-level"
+        >
+          <h2 className="mb-[var(--s-1)] text-[length:var(--fs-16)] font-semibold text-text-strong">
+            알림 수준
+          </h2>
+          <p className="mb-[var(--s-4)] text-[length:var(--fs-12)] text-text-muted">
+            모든 서버의 기본 알림 수준입니다. 서버·채널에서 개별 재정의할 수 있습니다.
+          </p>
+          <NotifLevelRadio
+            name="global"
+            value={globalSettings?.notifTrigger ?? 'MENTIONS'}
+            disabled={updateGlobal.isPending || !globalSettings}
+            onChange={(next) => void setGlobalLevel(next)}
+          />
+        </section>
 
         <div className="qf-tabs mb-[var(--s-5)]" role="tablist">
           {tabs.map((t) => (

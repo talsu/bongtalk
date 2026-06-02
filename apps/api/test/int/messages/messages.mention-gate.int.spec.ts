@@ -59,6 +59,23 @@ beforeEach(async () => {
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
   await env.prisma.channelPermissionOverride.deleteMany({ where: { channelId: stack.channelId } });
+  // S46 (FR-MN-05/06): 본 스펙은 S44 *권한* 게이트(MENTION_EVERYONE) 만 검증하므로,
+  // S46 NotifLevel 게이트(글로벌 기본 MENTIONS → broad @everyone/@here 스킵)가
+  // 끼어들지 않게 모든 워크스페이스 멤버의 글로벌 알림 수준을 ALL 로 고정한다.
+  // (S46 NotifLevel 게이트 자체는 messages.notif-levels-s46.int.spec 가 검증.)
+  await env.prisma.serverNotificationPref.deleteMany({});
+  await env.prisma.userChannelMute.deleteMany({});
+  const allMembers = [
+    stack.owner.userId,
+    stack.admin.userId,
+    stack.member.userId,
+    memberB.userId,
+    memberC.userId,
+  ];
+  await env.prisma.userSettings.deleteMany({ where: { userId: { in: allMembers } } });
+  for (const userId of allMembers) {
+    await env.prisma.userSettings.create({ data: { userId, notifTrigger: 'ALL' } });
+  }
   // presence 초기화 — 각 테스트가 명시적으로 online 상태를 만든다. ioredis 의
   // keyPrefix(qufox:)는 KEYS 의 패턴 인자에는 자동 적용되지 않으므로 prefixed
   // 패턴으로 조회한 뒤, DEL 에는 prefix 를 자동 적용하므로 prefix 를 떼고 넘긴다.

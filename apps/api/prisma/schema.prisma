@@ -115,17 +115,75 @@ enum NotificationChannel {
   OFF
 }
 
+// S46 (D06 / ADR-6 / FR-MN-05/06/07/08): 알림 레벨 카노니컬 enum.
+//   ALL      — 모든 메시지 알림.
+//   MENTIONS — 멘션·키워드만(broad @everyone/@here 스킵, 직접 @username 통과). 기본값.
+//   NOTHING  — 알림 없음(멘션 outbox 스킵 — 직접 @username 통과는 Inbox 기록 S47).
+// 글로벌(UserSettings.notifTrigger) → 서버(ServerNotificationPref.level) → 채널
+// (UserChannelMute.level, null=상속) 3계층이 모두 이 enum 을 공유한다(ADR-6).
+// isMuted + muteUntil 은 level 과 독립한 3-필드 세트(뮤트는 NOTHING 과 별개).
+enum NotifLevel {
+  ALL
+  MENTIONS
+  NOTHING
+}
+
+// S46 (D06 / FR-MN-05): 사용자 글로벌 알림 설정. userId @unique — 사용자당 1행.
+// 행이 없으면 기본 MENTIONS(backfill 불요 — resolve 시 행 부재를 MENTIONS 로 폴백).
+// PRD NotificationPreference(글로벌) 카드에 대응하나, 본 프로젝트는 기존
+// UserNotificationPreference(TOAST/BROWSER)와 충돌을 피하려 별도 UserSettings
+// 테이블로 둔다. keywords 스캔은 S46 에서 컬럼 저장만(실 스캔은 BullMQ·S45 후속).
+model UserSettings {
+  id           String     @id @default(uuid()) @db.Uuid
+  userId       String     @unique @db.Uuid
+  // 글로벌 알림 트리거. 기본값 MENTIONS(ADR-6).
+  notifTrigger NotifLevel @default(MENTIONS)
+  // 키워드 알림 — 최대 25개(서비스 레이어 enforce). S46 은 저장만.
+  keywords     String[]   @default([])
+  // 1회성 DND 종료 시각. null = 미설정. 주간 스케줄(dndSchedule)과 독립.
+  dndUntil     DateTime?  @db.Timestamptz
+  // 주간 DND 스케줄. shape: { days: [{ day, startMin, endMin }] } (me/dnd-schedule 정합).
+  dndSchedule  Json?
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// S46 (D06 / FR-MN-06): 서버(워크스페이스) 단위 알림 오버라이드. (userId, workspaceId)
+// 유니크 — 사용자·워크스페이스당 1행. 행이 없으면 글로벌(UserSettings) 상속.
+// muteUntil null + isMuted=true = 영구 뮤트. suppressEveryone/suppressRoleMentions
+// 은 S46 에서 컬럼 저장만(@everyone 게이트 연동은 S44 게이트와 묶음 후속).
+model ServerNotificationPref {
+  id                   String     @id @default(uuid()) @db.Uuid
+  userId               String     @db.Uuid
+  workspaceId          String     @db.Uuid
+  level                NotifLevel @default(MENTIONS)
+  isMuted              Boolean    @default(false)
+  muteUntil            DateTime?  @db.Timestamptz
+  suppressEveryone     Boolean    @default(false)
+  suppressRoleMentions Boolean    @default(false)
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, workspaceId])
+  @@index([workspaceId])
+}
+
 model UserNotificationPreference {
-  id          String                 @id @default(uuid()) @db.Uuid
-  userId      String                 @db.Uuid
-  workspaceId String?                @db.Uuid
+  id          String                @id @default(uuid()) @db.Uuid
+  userId      String                @db.Uuid
+  workspaceId String?               @db.Uuid
   eventType   NotificationEventType
   channel     NotificationChannel
-  createdAt   DateTime               @default(now())
-  updatedAt   DateTime               @updatedAt
+  createdAt   DateTime              @default(now())
+  updatedAt   DateTime              @updatedAt
 
-  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@index([userId, eventType])
   @@index([userId, workspaceId])
@@ -136,15 +194,21 @@ model UserNotificationPreference {
 // 만료된 row 는 cleanup job 없이 query 시 (mutedUntil > now) 필터로 제외.
 // (userId, channelId) 가 unique — 한 채널은 1 행만.
 model UserChannelMute {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @db.Uuid
-  channelId   String    @db.Uuid
-  mutedUntil  DateTime? @db.Timestamptz
-  createdAt   DateTime  @default(now())
-  updatedAt   DateTime  @updatedAt
+  id         String      @id @default(uuid()) @db.Uuid
+  userId     String      @db.Uuid
+  channelId  String      @db.Uuid
+  mutedUntil DateTime?   @db.Timestamptz
+  // S46 (D06 / FR-MN-07): 채널 단위 알림 레벨 오버라이드. null = 서버
+  // (ServerNotificationPref) 상속(additive — 기존 row 는 NULL=상속이라 무회귀).
+  // PRD ChannelNotificationPref 별도 테이블 대신 기존 UserChannelMute 에 level
+  // 컬럼만 더해 S43 뮤트 UI·S22 사이드바·멘션 fanout 무교란을 노린 deviation 이다.
+  // 행 존재 + mutedUntil(null=영구 / 미래=만료전)이 곧 "채널 뮤트"(isMuted) 상태다.
+  level      NotifLevel?
+  createdAt  DateTime    @default(now())
+  updatedAt  DateTime    @updatedAt
 
-  user        User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  channel     Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
 
   @@unique([userId, channelId])
   @@index([channelId])
@@ -171,104 +235,108 @@ model UserChannelFavorite {
 }
 
 model User {
-  id                  String             @id @db.Uuid
-  email               String             @unique
-  username            String             @unique
-  passwordHash        String
-  lastLoginAt         DateTime?
-  failedLoginAttempts Int                @default(0)
-  lockedUntil         DateTime?
+  id                          String             @id @db.Uuid
+  email                       String             @unique
+  username                    String             @unique
+  passwordHash                String
+  lastLoginAt                 DateTime?
+  failedLoginAttempts         Int                @default(0)
+  lockedUntil                 DateTime?
   // task-019-C: static DnD preference consulted by the WS gateway at
   // connect time. "auto" keeps 005 semantics; "dnd" shows as Do Not
   // Disturb until the user flips it back. Runtime presence state (in
   // Redis via PresenceService) still goes to `offline` on disconnect.
-  presencePreference  PresencePreference @default(auto)
+  presencePreference          PresencePreference @default(auto)
   // S27 (FR-P10): 마지막 접속 시각. OFFLINE 확정(finalizeOffline) + DND 전환에서
   // 갱신, INVISIBLE 전환에서는 미갱신(잠적 시각 누출 방지). nullable — 기존 row 는
   // NULL(접속 기록 없음). 멤버 목록 offline 그룹의 "마지막 접속" 표기에만 쓰이는
   // 파생 표시값이며 runtime presence 의 단일 출처는 Redis 다.
-  lastSeenAt          DateTime?          @db.Timestamptz
+  lastSeenAt                  DateTime?          @db.Timestamptz
   // task-045 iter4: Discord-parity custom status text. null = unset.
   // 100 chars cap (Discord 의 128 보다 보수적).
-  customStatus        String?            @db.VarChar(100)
+  customStatus                String?            @db.VarChar(100)
   // S28 (FR-P04): 구조화 커스텀 상태. text 는 위 customStatus 가 보유하고,
   // emoji / expiresAt 를 분리 컬럼으로 더한다(기존 read 경로 무회귀).
   //   customStatusEmoji     — 이모지 또는 :shortcode: (null = 없음)
   //   customStatusExpiresAt — 만료 시각(UTC). null = 무기한. FR-P17 만료는
   //                           read-time lazy clear 로 처리(expiresAt<now 면 빈 상태).
-  customStatusEmoji     String?          @db.VarChar(64)
-  customStatusExpiresAt DateTime?        @db.Timestamptz
+  customStatusEmoji           String?            @db.VarChar(64)
+  customStatusExpiresAt       DateTime?          @db.Timestamptz
   // S28 (FR-P04): 프리셋 계산 기준 IANA timezone(예: "Asia/Seoul"). null =
   // 미설정 → 클라 브라우저 tz fallback. 프리셋은 서버가 이 tz 로 계산해 UTC 저장.
-  timezone              String?          @db.VarChar(64)
+  timezone                    String?            @db.VarChar(64)
   // task-046 iter4 (K1): per-day weekly DnD schedule.
   // shape: { days: [{ day: 0..6 (Sun..Sat), startMin: 0..1439, endMin: 0..1439 }] }
   // start>end 인 entry 는 overnight (23:00 → 07:00).
-  dndSchedule         Json?
+  dndSchedule                 Json?
   // S28 (FR-P06): DND 스케줄 auto-toggle 복원용 snapshot. 구간 진입 시 직전
   // presencePreference 를 보관( { prev } )했다가 구간 종료 시 복원한다. 평시 null.
-  dndScheduleSnapshot Json?
+  dndScheduleSnapshot         Json?
   // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
-  notificationOnboardingShown Boolean    @default(false)
+  notificationOnboardingShown Boolean            @default(false)
   // task-046 iter5 (M1): Discord-parity profile bio. markdown 허용,
   // 500 chars cap (app layer). links 는 markdown URL 로 표현 (별도
   // column 없음).
-  bio                 String?
+  bio                         String?
   // task-047 iter3 (M2): Discord-parity profile 외부 링크.
   // shape: Array<{ url: string, label?: string }>, cap 3 (app layer).
   // null = no links.
-  links               Json?
+  links                       Json?
   // S19 (FR-DM-12): DM 수신권한. default WORKSPACE_MEMBER 라 기존 row 안전
   // (additive + reversible). PATCH /users/me/dm-privacy 로 토글하며, DM 개시
   // (createOrGetGlobal / createGroupDm) + 그룹 DM 멤버 추가(FR-DM-07)에서
   // assertDmPrivacyAllows 게이트가 참조한다.
-  allowDmFrom         DmPrivacy          @default(WORKSPACE_MEMBER)
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  allowDmFrom                 DmPrivacy          @default(WORKSPACE_MEMBER)
+  createdAt                   DateTime           @default(now())
+  updatedAt                   DateTime           @updatedAt
 
-  ownedWorkspaces Workspace[]       @relation("WorkspaceOwner")
-  memberships     WorkspaceMember[]
-  messages        Message[]
-  invitesCreated  Invite[]          @relation("InviteCreator")
-  refreshTokens   RefreshToken[]
-  attachments     Attachment[]
-  reactions       MessageReaction[]
-  feedback        Feedback[]
+  ownedWorkspaces         Workspace[]                  @relation("WorkspaceOwner")
+  memberships             WorkspaceMember[]
+  messages                Message[]
+  invitesCreated          Invite[]                     @relation("InviteCreator")
+  refreshTokens           RefreshToken[]
+  attachments             Attachment[]
+  reactions               MessageReaction[]
+  feedback                Feedback[]
   notificationPreferences UserNotificationPreference[]
+  // S46 (D06 / FR-MN-05): 글로벌 알림 설정(1:1). onDelete Cascade.
+  settings                UserSettings?
+  // S46 (D06 / FR-MN-06): 서버별 알림 오버라이드. onDelete Cascade.
+  serverNotificationPrefs ServerNotificationPref[]
   activityReadStates      UserActivityReadState[]
   channelMutes            UserChannelMute[]
   // S43 (FR-CH-15): 채널 즐겨찾기. onDelete Cascade.
   channelFavorites        UserChannelFavorite[]
-  friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
-  friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
-  customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
+  friendshipsRequested    Friendship[]                 @relation("FriendshipRequester")
+  friendshipsReceived     Friendship[]                 @relation("FriendshipAddressee")
+  customEmojis            CustomEmoji[]                @relation("CustomEmojiCreator")
   // S42 (FR-EM05 / FR-PK03): 별칭 생성 이력 + 사용자 이모지 선호(1:1).
-  customEmojiAliases      CustomEmojiAlias[]         @relation("CustomEmojiAliasCreator")
+  customEmojiAliases      CustomEmojiAlias[]           @relation("CustomEmojiAliasCreator")
   emojiPreference         UserEmojiPreference?
   threadSubscriptions     ThreadSubscription[]
   // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12): 스레드별 읽음 커서. 채널 미읽과
   // 독립적으로 추적한다.
   threadReadStates        ThreadReadState[]
   // S19 (FR-DM-08/09): 본인이 owner 인 그룹 DM 채널. onDelete SET NULL.
-  ownedChannels           Channel[]                  @relation("ChannelOwner")
+  ownedChannels           Channel[]                    @relation("ChannelOwner")
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.
 // follow 상태는 mention dispatcher 가 thread reply 알림 분기에 사용.
 model ThreadSubscription {
-  id              String   @id @default(uuid()) @db.Uuid
-  userId          String   @db.Uuid
-  threadParentId  String   @db.Uuid
+  id                String                  @id @default(uuid()) @db.Uuid
+  userId            String                  @db.Uuid
+  threadParentId    String                  @db.Uuid
   // S38 (D04 / FR-TH-08): 알림 레벨. default ALL 이라 기존 row 안전(additive +
   // reversible — 마이그레이션 20260602300000_s38_thread_notif_level_lock). 자동
   // 구독(send tx)은 새 행을 ALL 로 만들고, 사용자가 벨 드롭다운에서 PATCH 로
   // MENTIONS/OFF 로 낮춘다. fanout(buildThreadReplyPayload)이 OFF/MENTIONS 를
   // thread.replied 수신자에서 제외한다.
   notificationLevel ThreadNotificationLevel @default(ALL)
-  createdAt       DateTime @default(now()) @db.Timestamptz(6)
+  createdAt         DateTime                @default(now()) @db.Timestamptz(6)
 
-  user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
-  threadParent   Message @relation("MessageThreadFollowers", fields: [threadParentId], references: [id], onDelete: Cascade)
+  user         User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  threadParent Message @relation("MessageThreadFollowers", fields: [threadParentId], references: [id], onDelete: Cascade)
 
   @@unique([userId, threadParentId])
   @@index([threadParentId])
@@ -367,16 +435,18 @@ model Workspace {
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
-  owner      User              @relation("WorkspaceOwner", fields: [ownerId], references: [id])
-  members    WorkspaceMember[]
-  channels   Channel[]
-  categories Category[]
-  invites    Invite[]
-  feedback   Feedback[]
+  owner                   User                         @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  members                 WorkspaceMember[]
+  channels                Channel[]
+  categories              Category[]
+  invites                 Invite[]
+  feedback                Feedback[]
   notificationPreferences UserNotificationPreference[]
-  customEmojis CustomEmoji[]
+  // S46 (D06 / FR-MN-06): 이 워크스페이스의 서버별 알림 오버라이드. onDelete Cascade.
+  serverNotificationPrefs ServerNotificationPref[]
+  customEmojis            CustomEmoji[]
   // S42 (FR-PK04): 워크스페이스 이모지 설정(1:1, 퀵반응 기본값 + canMemberUpload).
-  emojiConfig  WorkspaceEmojiConfig?
+  emojiConfig             WorkspaceEmojiConfig?
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -425,7 +495,7 @@ model Category {
 }
 
 model Channel {
-  id          String      @id @default(uuid()) @db.Uuid
+  id              String      @id @default(uuid()) @db.Uuid
   // task-034-A: workspaceId is nullable — DIRECT channels live in the
   // global DM scope (no parent workspace). The DB CHECK in the
   // migration enforces "(type='DIRECT') OR (workspaceId IS NOT NULL)"
@@ -438,42 +508,42 @@ model Channel {
   // @@unique([workspaceId, name]) below doesn't close the
   // createOrGet race on its own.
   // Pre-migration prod audit: 0 DIRECT rows, so no backfill needed.
-  workspaceId String?     @db.Uuid
-  categoryId  String?     @db.Uuid
-  name        String
+  workspaceId     String?     @db.Uuid
+  categoryId      String?     @db.Uuid
+  name            String
   // S20 (FR-DM-05): group DM 사용자 지정 표시명. `name` 은 멤버 set 으로부터
   // 파생된 dedup slug(`dm:`/`gdm:`)라 불변이므로, 사용자가 바꾸는 표시명은 이
   // 컬럼에 둔다. 1:1 DM·미설정·일반 채널은 NULL → list/listGroups 가
   // displayName ?? name 으로 렌더한다. additive nullable(기존 row 안전).
-  displayName String?
+  displayName     String?
   // S20 (FR-DM-06): group DM 아이콘 MinIO object 키/URL. 미설정 NULL = 기본 아바타.
   // 업로드 시 storageKey 를 저장하고 list 응답에서 presignGet 으로 서명 URL 을
   // 만들거나(키 형태) 또는 절대 URL 을 그대로 노출한다(현재는 storageKey 보관).
-  iconUrl     String?
-  type        ChannelType @default(TEXT)
-  topic       String?
+  iconUrl         String?
+  type            ChannelType @default(TEXT)
+  topic           String?
   // S13 (FR-CH-10): 채널 설명. ≤500자는 zod(Create/UpdateChannelRequest)가
   // 강제하고 DB 는 VarChar(500) 으로 상한을 둔다. 전문검색용 GIN 식 인덱스
   // (to_tsvector('simple', coalesce(description,''))) 는 Prisma 가 표현할 수
   // 없어 20260601000000_s13_channel_description 마이그레이션 raw SQL 로만 둔다.
-  description String?     @db.VarChar(500)
-  position    Decimal     @db.Decimal(20, 10)
+  description     String?     @db.VarChar(500)
+  position        Decimal     @db.Decimal(20, 10)
   // S15 (FR-CH-08): 채널별 슬로우모드 간격(초). 0 이면 게이트 무동작. 송신
   // 경로(MessagesController.send)가 Redis `slowmode:{channelId}:{userId}` TTL 로
   // 집행하며, BYPASS_SLOWMODE 비트 보유자(OWNER/ADMIN baseline + 채널 override)는
   // 면제한다.
-  slowmodeSeconds Int     @default(0)
-  isPrivate   Boolean     @default(false)
+  slowmodeSeconds Int         @default(0)
+  isPrivate       Boolean     @default(false)
   // S19 (FR-DM-08/09): 그룹 DM owner. group(`gdm:%`) DM 에서만 의미가 있다 —
   // 1:1 DM(`dm:%`)·일반 채널은 NULL. 멤버 추가/강퇴는 owner 만, 나가기 시 owner
   // 가 떠나면 잔여 멤버 중 joinedAt 최古로 자동 승계한다. onDelete SET NULL 로
   // owner User 하드삭제 시 승계 훅 없이 NULL 로 끊긴다(승계 훅은 carryover).
   // 마이그레이션이 기존 gdm 채널의 owner 를 joinedAt/createdAt 최古 멤버로 backfill.
-  ownerId     String?     @db.Uuid
-  archivedAt  DateTime?
-  deletedAt   DateTime?
-  createdAt   DateTime    @default(now())
-  updatedAt   DateTime    @updatedAt
+  ownerId         String?     @db.Uuid
+  archivedAt      DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
 
   workspace   Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   category    Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
@@ -500,12 +570,12 @@ model Channel {
 // literal: OWNER/ADMIN/MEMBER). Masks are bitfields per
 // apps/api/src/auth/permissions.ts; DENY > ALLOW.
 model ChannelPermissionOverride {
-  id            String   @id @default(uuid()) @db.Uuid
-  channelId     String   @db.Uuid
-  principalType String   @db.VarChar(8)
-  principalId   String   @db.VarChar(64)
-  allowMask     Int      @default(0)
-  denyMask      Int      @default(0)
+  id            String    @id @default(uuid()) @db.Uuid
+  channelId     String    @db.Uuid
+  principalType String    @db.VarChar(8)
+  principalId   String    @db.VarChar(64)
+  allowMask     Int       @default(0)
+  denyMask      Int       @default(0)
   // S17 (FR-DM-17 / FR-TH-19): DM 가시성 하한선. DM·그룹 DM 의 USER 멤버십
   // row(이 모델이 DM 멤버십의 canonical per-(user,channel) 레코드 — S16)에만
   // 의미가 있다. NULL = 전체 히스토리 가시(비-DIRECT 채널·ROLE override·legacy
@@ -532,13 +602,10 @@ model ChannelPermissionOverride {
   // 자동 복원은 visibleFrom 을 재설정하지 않으므로 과거 메시지는 그대로 보인다.
   // legacy DM row·ROLE override·비-DIRECT 채널은 NULL(필터 무영향).
   hiddenAt      DateTime? @db.Timestamptz
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
 
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
-
-  @@unique([channelId, principalType, principalId])
-  @@index([channelId])
   // S19 (MED fix-forward): 그룹 DM 활성 멤버 조회 + owner 승계 정렬(joinedAt ASC)
   // 은 부분 인덱스 `CPO_dm_active_members_idx (channelId, joinedAt)
   // WHERE principalType='USER' AND leftAt IS NULL` (raw-SQL 마이그레이션
@@ -547,19 +614,22 @@ model ChannelPermissionOverride {
   // `@@index([channelId, joinedAt])` 는 부분 인덱스와 선두 컬럼이 같아 활성멤버
   // 쿼리에 잉여였고(게다가 그 전체 인덱스를 만드는 CREATE INDEX 가 마이그레이션에
   // 없어 schema↔migration drift 였다), 제거해 부분 인덱스 하나만 유지한다.
+
+  @@unique([channelId, principalType, principalId])
+  @@index([channelId])
 }
 
 model Message {
-  id             String    @id @default(uuid()) @db.Uuid
-  channelId      String    @db.Uuid
-  authorId       String    @db.Uuid
-  content        String
-  contentPlain   String
-  mentions       Json      @default("{\"users\":[],\"channels\":[],\"everyone\":false}")
-  editedAt       DateTime?
-  deletedAt      DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  id              String    @id @default(uuid()) @db.Uuid
+  channelId       String    @db.Uuid
+  authorId        String    @db.Uuid
+  content         String
+  contentPlain    String
+  mentions        Json      @default("{\"users\":[],\"channels\":[],\"everyone\":false}")
+  editedAt        DateTime?
+  deletedAt       DateTime?
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   // client-generated uuid for POST retry dedupe — null when no header was sent.
   // S03 (ADR-2 / FR-MSG-05): uniqueness is USER-scoped via a PARTIAL unique
   // index `(authorId, idempotencyKey) WHERE idempotencyKey IS NOT NULL`
@@ -569,18 +639,18 @@ model Message {
   // through the expand window and dropped in the same migration's down.sql.
   // `nonce` (clientNonce) lives separately as an optimistic-UI echo only;
   // we store it on send so reconnect-resend dedupe is observable.
-  idempotencyKey String?   @db.Uuid
+  idempotencyKey  String?   @db.Uuid
   // S03 (FR-MSG-04): clientNonce echo. UUID v4 the client sends in the POST
   // body; mirrored on the message:created WS event for optimistic swap.
   // Additive nullable — system/legacy rows are NULL. NOT a dedupe key
   // (that is idempotencyKey); persisted for observability + reconnect flows.
-  nonce          String?   @db.Uuid
+  nonce           String?   @db.Uuid
   // task-014-B: single-level threads. Self-FK; ON DELETE SET NULL means
   // a hard-deleted root turns its replies into pseudo-roots (purge
   // worker is the only path that hard-deletes). Soft delete leaves the
   // row intact and hides the content at the DTO layer. Single-level
   // depth is enforced at the service — parent-of-parent must be NULL.
-  parentMessageId String?  @db.Uuid
+  parentMessageId String?   @db.Uuid
 
   // ── S33 (D04 / FR-TH-16 / FR-TH-17) — 스레드 비정규화 카운터 ───────────────
   // 루트 메시지에만 의미가 있다(답글 행은 항상 0/NULL). 채널 메시지 목록의
@@ -594,8 +664,8 @@ model Message {
   //                   않는다(1시간 재집계 job 이 drift 만 정정 — S34/운영).
   // 마이그레이션 20260602000000_s33_thread_reply_counters 가 기존 루트 행을
   // backfill 한다(서브쿼리 COUNT/MAX). additive + reversible(down.sql DROP).
-  replyCount      Int       @default(0)
-  latestReplyAt   DateTime? @db.Timestamptz
+  replyCount    Int       @default(0)
+  latestReplyAt DateTime? @db.Timestamptz
 
   // ── S38 (D04 / FR-TH-13) — 스레드 잠금 ────────────────────────────────────
   // 루트 메시지에만 의미가 있다(답글 행은 항상 false). OWNER/ADMIN 이 스레드를
@@ -603,30 +673,30 @@ model Message {
   // 게이트가 403 THREAD_LOCKED 로 막는다(OWNER/ADMIN 면제). default false 라 기존
   // row 안전(additive + reversible — 마이그레이션 20260602300000). PATCH
   // /messages/:id/thread/lock {locked} 가 토글하며 thread:lock:changed 를 emit 한다.
-  threadLocked    Boolean   @default(false)
+  threadLocked Boolean @default(false)
 
   // task-015-B: Postgres-generated tsvector column for FTS. Marked
   // `Unsupported` because Prisma 5.22 doesn't model tsvector natively;
   // the column is populated by the DB via GENERATED ALWAYS AS, so we
   // never write to it. SELECT paths that need FTS use $queryRaw.
-  search_tsv  Unsupported("tsvector")?
+  search_tsv Unsupported("tsvector")?
 
   // task-044-iter2: pinned messages. NULL = 미고정. Discord-parity cap
   // 50/channel enforced at service layer. Author 가 일반 MEMBER 라도
   // OWNER/ADMIN 이 pin 할 수 있어 pinnedBy 는 author 와 다를 수 있다.
   // S29 (FR-S05): 검색 `is:pinned` 은 별도 컬럼 없이 `pinnedAt IS NOT NULL`
   // 을 그대로 쓴다(pin/unpin 이 advisory-lock 아래 원자 유지 — 중복 컬럼 회피).
-  pinnedAt   DateTime? @db.Timestamptz
-  pinnedBy   String?   @db.Uuid
+  pinnedAt DateTime? @db.Timestamptz
+  pinnedBy String?   @db.Uuid
 
   // ── S29 (FR-S05 / ADR-2): 검색 수식어 `has:` 용 비정규화 boolean ──────────
   // send/edit 시점에 1회 계산해 박는 read-path 캐시. hasLink 는 mrkdwn AST 의
   // `link` 노드(allowlist 스킴) 유무로, hasImage/hasFile 은 연결된 finalized
   // Attachment.kind(IMAGE / FILE·VIDEO)로 판정한다. 전부 NOT NULL DEFAULT false
   // 라 기존 row 안전(additive). 검색 SQL 이 partial index 와 합성해 sparse scan.
-  hasLink    Boolean @default(false)
-  hasImage   Boolean @default(false)
-  hasFile    Boolean @default(false)
+  hasLink  Boolean @default(false)
+  hasImage Boolean @default(false)
+  hasFile  Boolean @default(false)
 
   // ── S01 (ADR-2 카노니컬 additive 토대) ────────────────────────────────────
   // expand-contract: 이번 슬라이스는 ADDITIVE 만. 신규 컬럼은 전부 nullable
@@ -635,24 +705,24 @@ model Message {
   //
   // contentRaw : 원본 mrkdwn (편집 diff용). 기존 row 는 NULL — 서비스
   //   레이어가 읽을 때 `content` 로 폴백한다. 신규 write 경로가 채운다.
-  contentRaw  String?   @db.Text
+  contentRaw     String?     @db.Text
   // contentAst : 파싱된 rich_text AST(JSONB). 구조 계약은
   //   packages/shared-types RichTextRootSchema. 기존 row 는 NULL.
-  contentAst  Json?
+  contentAst     Json?
   // contentPlainV2 : ADR-2 contentPlain 의 신규 nullable 슬롯. 기존 NOT NULL
   //   `contentPlain` 컬럼과 병행한다(기존 컬럼 타입/제약 변경 금지 규칙).
   //   백필 완료 후 contract 단계에서 단일화한다.
-  contentPlainV2 String? @db.Text
+  contentPlainV2 String?     @db.Text
   // version : 낙관적 잠금 버전. default 0 이라 기존 row 는 자동 0.
-  version     Int       @default(0)
+  version        Int         @default(0)
   // seq : 채널 단위 단조 증가(Redis INCR seq:{channelId}) 발급값 영속 사본.
   //   힌트 용도이며 렌더 정렬 기준은 아님(D17). 기존 row 는 NULL.
-  seq         BigInt?
+  seq            BigInt?
   // authorType : USER | BOT | SYSTEM. default USER 라 기존 row 안전(ADR-2).
-  authorType  AuthorType @default(USER)
+  authorType     AuthorType  @default(USER)
   // S04 (ADR-2 / FR-MSG-19): 메시지 타입. default DEFAULT 라 기존 row 안전
   // (additive + reversible). SYSTEM_* 는 시스템 행 렌더 + grouped=false 강제.
-  type        MessageType @default(DEFAULT)
+  type           MessageType @default(DEFAULT)
   // S35 (D04 / FR-TH-06 / FR-TH-14): 스레드→채널 broadcast 표식. 답글 send 시
   // 'Also send to #channel' 체크가 켜지면, send tx 안에서 별도의
   // SYSTEM_THREAD_BROADCAST 행을 채널 타임라인에 동시 게시하고 그 행에
@@ -662,22 +732,25 @@ model Message {
   //     `OR "isBroadcast"` 예외를 더해 broadcast 행을 채널에 노출한다.
   //   - FR-TH-14 채널 미읽 포함/삭제 시 정확히 1 감소는 ThreadReadState 와
   //     함께 S36 에서 마무리한다(이 슬라이스는 플래그·게시·가시성만).
-  isBroadcast Boolean     @default(false)
+  isBroadcast    Boolean     @default(false)
 
-  channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  author      User              @relation(fields: [authorId], references: [id])
-  attachments Attachment[]
-  reactions   MessageReaction[]
-  parent      Message?          @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
-  replies     Message[]         @relation("MessageReplies")
-  threadFollowers ThreadSubscription[] @relation("MessageThreadFollowers")
+  channel          Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  author           User                 @relation(fields: [authorId], references: [id])
+  attachments      Attachment[]
+  reactions        MessageReaction[]
+  parent           Message?             @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
+  replies          Message[]            @relation("MessageReplies")
+  threadFollowers  ThreadSubscription[] @relation("MessageThreadFollowers")
   // S36 (D04·D09 / FR-RS-12): 이 메시지를 스레드 루트로 가지는 읽음 커서들.
   // 루트 hard delete(운영 purge) 시 ON DELETE CASCADE 로 함께 삭제된다(고아
   // ThreadReadState 방지 — PRD FR-TH 엣지케이스 정합).
-  threadReadStates ThreadReadState[] @relation("MessageThreadReadStates")
+  threadReadStates ThreadReadState[]    @relation("MessageThreadReadStates")
   // S05 (FR-MSG-06): 편집 이력 스냅샷(ring buffer cap 10). 메시지 hard
   // delete 시 Cascade 로 함께 정리됩니다.
-  editHistory MessageEditHistory[] @relation("MessageEditHistory")
+  editHistory      MessageEditHistory[] @relation("MessageEditHistory")
+  // S29 (FR-S05): has: 필터용 partial index `(channelId) WHERE hasX = true`
+  // 3종은 raw-SQL migration 20260601900000_s29_search_denormalized_flags 가
+  // 생성합니다(Prisma @@index 가 partial WHERE 미지원이라 여기엔 선언 불가).
 
   // pagination primary path — matches ORDER BY createdAt DESC, id DESC with
   // row-value comparison WHERE (createdAt, id) < ($1, $2).
@@ -696,9 +769,6 @@ model Message {
   // Partial WHERE pinnedAt IS NOT NULL 은 raw-SQL migration 으로 보강합니다
   // (Prisma @@index 가 partial 미지원).
   @@index([channelId, pinnedAt])
-  // S29 (FR-S05): has: 필터용 partial index `(channelId) WHERE hasX = true`
-  // 3종은 raw-SQL migration 20260601900000_s29_search_denormalized_flags 가
-  // 생성합니다(Prisma @@index 가 partial WHERE 미지원이라 여기엔 선언 불가).
 }
 
 // Task-013-B: per-message reactions. `emoji` is the literal unicode
@@ -706,17 +776,17 @@ model Message {
 // enforces ≤4 codepoint cap on top. (messageId, userId, emoji) is
 // unique so POST is naturally idempotent — see ReactionsService.
 model MessageReaction {
-  id        String   @id @default(uuid()) @db.Uuid
-  messageId String   @db.Uuid
-  userId    String   @db.Uuid
-  emoji     String   @db.VarChar(64)
+  id            String   @id @default(uuid()) @db.Uuid
+  messageId     String   @db.Uuid
+  userId        String   @db.Uuid
+  emoji         String   @db.VarChar(64)
   // S41 (FR-EM06 / FR-RC20): 커스텀 이모지 반응이면 이 컬럼이 참조 CustomEmoji.id
   // 를 담는다(유니코드 반응이면 NULL). `emoji` 컬럼에는 일관 식별자 `:name:` 를
   // 함께 저장해, 커스텀 이모지가 삭제돼 customEmojiId 가 SetNull 로 풀려도 원래
   // 슬러그가 보존된다(UI placeholder + 툴팁). onDelete: SetNull 이라 CustomEmoji
   // 삭제 시 반응 행 자체는 보존되고 이 FK 만 NULL 로 풀린다(반응 카운트 유지).
-  customEmojiId String? @db.Uuid
-  createdAt DateTime @default(now())
+  customEmojiId String?  @db.Uuid
+  createdAt     DateTime @default(now())
 
   message     Message      @relation(fields: [messageId], references: [id], onDelete: Cascade)
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -734,17 +804,17 @@ model MessageReaction {
 // 편집 시 가장 오래된 version 1개를 DELETE 합니다(DB 제약 아님 — 운영 유연성).
 // additive only — 신규 테이블이라 기존 row 영향 없음. seed 결정성 무관.
 model MessageEditHistory {
-  id          String   @id @default(uuid()) @db.Uuid
-  messageId   String   @db.Uuid
+  id           String   @id @default(uuid()) @db.Uuid
+  messageId    String   @db.Uuid
   // 스냅샷 당시(편집 전) 메시지 version.
-  version     Int
+  version      Int
   // 편집 전 본문 스냅샷. contentRaw 는 legacy row 에서 NULL 가능.
-  contentRaw  String?  @db.Text
-  contentAst  Json?
-  contentPlain String  @db.Text
+  contentRaw   String?  @db.Text
+  contentAst   Json?
+  contentPlain String   @db.Text
   // 스냅샷 생성(=해당 편집 발생) 시각.
-  editedAt    DateTime @db.Timestamptz
-  createdAt   DateTime @default(now())
+  editedAt     DateTime @db.Timestamptz
+  createdAt    DateTime @default(now())
 
   message Message @relation("MessageEditHistory", fields: [messageId], references: [id], onDelete: Cascade)
 
@@ -794,8 +864,8 @@ model CustomEmoji {
   sizeBytes   BigInt
   createdAt   DateTime @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  creator   User      @relation("CustomEmojiCreator", fields: [createdBy], references: [id])
+  workspace Workspace          @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User               @relation("CustomEmojiCreator", fields: [createdBy], references: [id])
   // S41 (FR-EM06): 이 커스텀 이모지를 참조하는 반응 행들. 이모지 삭제 시 각 행의
   // customEmojiId 는 SetNull 로 풀린다(반응 행 자체는 보존 — 카운트 유지 +
   // [삭제된 이모지] placeholder).
@@ -861,16 +931,16 @@ model WorkspaceEmojiConfig {
 }
 
 model UserChannelReadState {
-  userId          String   @db.Uuid
-  channelId       String   @db.Uuid
+  userId                   String    @db.Uuid
+  channelId                String    @db.Uuid
   // Points at an OutboxEvent.id — the last event this user has fully
   // processed client-side. Drives reconnect replay ("replay everything after
   // X"). PRESERVED in S11 — reconnect replay still keys off this column.
-  lastReadEventId String   @db.Uuid
+  lastReadEventId          String    @db.Uuid
   // S11 (FR-RT-14/19): legacy createdAt-only read threshold. PRESERVED so
   // the mention-inbox proxy (me-mentions.service) keeps working. Channel
   // unread now drives off the (createdAt, id) tuple below.
-  lastReadAt      DateTime @default(now())
+  lastReadAt               DateTime  @default(now())
   // S11 (FR-RT-19): monotonic read cursor as a sortable (createdAt, id)
   // tuple. Message.id is a RANDOM uuid (no S00 sortable-id foundation), so
   // a bare `id >` comparison is order-meaningless — we instead compare the
@@ -880,7 +950,7 @@ model UserChannelReadState {
   // message is unread", which is the intended UX.
   lastReadMessageId        String?   @db.Uuid
   lastReadMessageCreatedAt DateTime? @db.Timestamptz
-  updatedAt       DateTime @updatedAt
+  updatedAt                DateTime  @updatedAt
 
   @@id([userId, channelId])
   @@index([channelId])
