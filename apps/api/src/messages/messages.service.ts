@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
 import { Prisma, type AttachmentKind } from '@prisma/client';
 import type Redis from 'ioredis';
 import {
@@ -32,6 +32,7 @@ import {
   type GateActorRole,
 } from './mentions/gate';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
+import { UnreadService } from '../channels/unread.service';
 import {
   MESSAGE_CREATED,
   MESSAGE_DELETED,
@@ -124,6 +125,9 @@ export type ThreadSummary = {
   replyCount: number;
   lastRepliedAt: string | null;
   recentReplyUserIds: string[];
+  // S36 (FR-TH-04): per-viewer 스레드 미읽 여부. aggregateThreadSummaries 가
+  // viewerId 와 함께 호출되면 산정하고, 그 외(WS dispatcher 합성)는 false.
+  hasUnread: boolean;
 };
 
 export type ReactionSummary = {
@@ -211,6 +215,14 @@ export class MessagesService {
     @Optional()
     @Inject(REDIS)
     private readonly redis?: Redis,
+    // S36 (FR-TH-14, 옵션 A 동기 직접): broadcast 행 soft-delete 시 채널 unread
+    // Redis 캐시를 동기 무효화한다. MessagesModule 이 이미 forwardRef(ChannelsModule)
+    // 로 UnreadService 를 import 하므로 순환은 모듈 레벨에서 끊겨 있고, 여기선
+    // forwardRef + @Optional 로 안전하게 주입한다(미주입 단위테스트는 캐시 무효화
+    // 생략 — DB 경로만).
+    @Optional()
+    @Inject(forwardRef(() => UnreadService))
+    private readonly unread?: UnreadService,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -403,23 +415,53 @@ export class MessagesService {
    *
    * 반환 ThreadSummary 의 `recentReplyUserIds` 가 곧 PRD 의 replyParticipants 다
    * (와이어 필드명은 기존 클라이언트/디스패처/테스트 호환을 위해 유지).
+   *
+   * S36 (FR-TH-04 / FR-RS-12): `viewerId` 를 받으면 같은 쿼리에 viewer 의
+   * ThreadReadState 를 **배치 조인**해 per-viewer 미읽 여부(`hasUnread`)를 함께
+   * 산정한다(루트 집합 단일 쿼리 — N+1 없음). reply bar(qf-thread-chip)의 unread
+   * dot 이 이 값을 본다. viewerId 가 없으면(WS dispatcher 합성 등) hasUnread=false
+   * 폴백. 미읽 판정은 ThreadReadStateService 와 동일 공식(isBroadcast=false·
+   * deletedAt IS NULL·(createdAt,id) 튜플 비교; ThreadReadState 없으면 전체 미읽).
    */
-  async aggregateThreadSummaries(rootIds: string[]): Promise<Map<string, ThreadSummary>> {
+  async aggregateThreadSummaries(
+    rootIds: string[],
+    viewerId?: string,
+  ): Promise<Map<string, ThreadSummary>> {
     const out = new Map<string, ThreadSummary>();
     if (rootIds.length === 0) return out;
+    // viewerId 가 있을 때만 ThreadReadState 조인 + 미읽 EXISTS 를 합성한다. 없으면
+    // false 리터럴을 산입해 기존 호출 동작(미읽 비계산)을 그대로 유지한다.
+    const hasUnreadSql = viewerId
+      ? Prisma.sql`EXISTS (
+          SELECT 1
+            FROM "Message" reply
+            LEFT JOIN "ThreadReadState" rs
+              ON rs."userId" = ${viewerId}::uuid
+             AND rs."parentMessageId" = root.id
+           WHERE reply."parentMessageId" = root.id
+             AND reply."isBroadcast" = false
+             AND reply."deletedAt" IS NULL
+             AND (
+               rs."lastReadMessageCreatedAt" IS NULL
+               OR (reply."createdAt", reply.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
+             )
+        )`
+      : Prisma.sql`false`;
     const rows = await this.prisma.$queryRaw<
       {
         id: string;
         replyCount: number;
         latestReplyAt: Date | null;
         recentReplyUserIds: string[];
+        hasUnread: boolean;
       }[]
     >(Prisma.sql`
       SELECT
         root.id                                          AS "id",
         root."replyCount"                                AS "replyCount",
         root."latestReplyAt"                             AS "latestReplyAt",
-        COALESCE(parts.ids, ARRAY[]::uuid[])             AS "recentReplyUserIds"
+        COALESCE(parts.ids, ARRAY[]::uuid[])             AS "recentReplyUserIds",
+        ${hasUnreadSql}                                  AS "hasUnread"
       FROM "Message" root
       LEFT JOIN LATERAL (
         -- 루트당 최대 ${THREAD_REPLY_PARTICIPANT_CAP}명: 최근 답글 순으로 distinct author.
@@ -450,6 +492,9 @@ export class MessagesService {
         // 의미 동일 — 혼동 방지).
         lastRepliedAt: r.latestReplyAt?.toISOString() ?? null,
         recentReplyUserIds: r.recentReplyUserIds ?? [],
+        // S36 (FR-TH-04): per-viewer 미읽 여부. viewerId 미전달 시 SQL 이 false
+        // 리터럴을 반환하므로 그대로 false.
+        hasUnread: r.hasUnread === true,
       });
     }
     return out;
@@ -2050,6 +2095,10 @@ export class MessagesService {
     actorId: string;
   }): Promise<void> {
     const deletedAt = new Date();
+    // S36 (FR-TH-14): tx 안에서 broadcast 여부를 캡처해, 커밋 후 동기 캐시 무효화
+    // 여부를 결정한다. broadcast 행은 채널 unread 에 산입되므로 삭제 시 모든 멤버
+    // 캐시를 즉시 비워야 한다(옵션 A). non-broadcast / no-op 삭제는 무효화 불필요.
+    let deletedBroadcast = false;
     await this.prisma.$transaction(async (tx) => {
       // S05 verify (HIGH): 편집 경로(update)와 동일하게 updateMany +
       // WHERE { id, channelId, deletedAt: null } 로 채널 격리 + 데이터 레이어
@@ -2101,6 +2150,9 @@ export class MessagesService {
              AND "deletedAt" IS NULL
         `;
       }
+      // S36 (FR-TH-14): 이번 삭제가 broadcast 행이었는지 캡처(count>0 가 보장한
+      // 실제 삭제 1건에 한함 — 중복/no-op 삭제는 위 count===0 가드로 이미 return).
+      deletedBroadcast = updated.isBroadcast === true;
       const payload: MessageDeletedPayload = {
         workspaceId: args.workspaceId,
         channelId: args.channelId,
@@ -2118,6 +2170,17 @@ export class MessagesService {
         payload,
       });
     });
+
+    // S36 (FR-TH-14, 옵션 A 동기 직접): broadcast 행 삭제는 채널 unread 에서
+    // 1건이 빠지므로($transaction 커밋 후, COUNT 재집계가 자동으로 −1), 영향
+    // 받는 모든 멤버의 Redis 채널 unread 캐시를 즉시 무효화한다. 커밋 *후* 호출해
+    // 무효화↔재집계 사이에 미커밋 상태가 노출되지 않게 한다. 무효화 실패 시
+    // 캐시 TTL(2h) 자연 만료 + 다음 read-through DB 재집계가 정정한다(롤백 불요 —
+    // unreadCount 는 DB COUNT 가 정본이라 캐시는 파생일 뿐). UnreadService 미주입
+    // (단위 테스트)이면 생략한다.
+    if (deletedBroadcast && this.unread) {
+      await this.unread.invalidateChannelWorkspaceAllMembers(args.channelId);
+    }
   }
 
   // ----------------------------------------------- task-044-iter2 pinning

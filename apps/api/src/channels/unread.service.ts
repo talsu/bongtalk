@@ -1279,6 +1279,39 @@ export class UnreadService {
     }
   }
 
+  /**
+   * S36 (FR-TH-14, 옵션 A): broadcast 행 soft-delete 시 채널 unread 캐시를 즉시
+   * 무효화한다. 채널 unread 캐시 키(`unread:{ws}:{user}`)는 per-user 라, broadcast
+   * 가 모든 워크스페이스 멤버의 채널 미읽에 영향을 주므로 해당 워크스페이스 멤버
+   * 전원의 캐시를 한 번에 지운다(멤버십이 정본 — 채널별 SCAN 회피). 멤버 수는
+   * Discord-parity 로 bounded 이고 단일 pipeline 1 round-trip 으로 처리한다.
+   *
+   * channelId 를 받아 내부에서 workspaceId 를 1회 SELECT 한다(호출측이 broadcast
+   * 행 삭제 후 채널 컨텍스트만 알면 되도록). 무효화 실패는 캐시 TTL(2h) 자연
+   * 만료에 맡긴다(FR-TH-14 "재갱신 보장" — 다음 read-through 가 DB 재집계로 정정).
+   */
+  async invalidateChannelWorkspaceAllMembers(channelId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const ch = await this.prisma.channel.findUnique({
+        where: { id: channelId },
+        select: { workspaceId: true },
+      });
+      const workspaceId = ch?.workspaceId;
+      if (!workspaceId) return;
+      const members = await this.prisma.workspaceMember.findMany({
+        where: { workspaceId },
+        select: { userId: true },
+      });
+      if (members.length === 0) return;
+      const pipe = this.redis.pipeline();
+      for (const m of members) pipe.del(this.cacheKey(workspaceId, m.userId));
+      await pipe.exec();
+    } catch (err) {
+      this.logger.warn(`[unread] broadcast cache invalidate failed: ${String(err).slice(0, 160)}`);
+    }
+  }
+
   // ───────────────────────────── private helpers
 
   private aggregateSingleWorkspace(

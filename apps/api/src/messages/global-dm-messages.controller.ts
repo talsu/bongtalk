@@ -112,7 +112,8 @@ export class GlobalDmMessagesController {
     const ids = result.items.map((r) => r.id);
     const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
-      this.messages.aggregateThreadSummaries(ids),
+      // S36 (FR-TH-04): viewer ThreadReadState 배치 조인으로 hasUnread 산정.
+      this.messages.aggregateThreadSummaries(ids, user.id),
       this.messages.aggregateAttachments(ids),
       // S35 (FR-TH-06): DM 스레드 broadcast 행의 루트 excerpt (페이지당 1쿼리).
       this.messages.aggregateBroadcastExcerpts(result.items),

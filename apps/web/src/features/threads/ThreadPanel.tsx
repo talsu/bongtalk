@@ -6,7 +6,7 @@ import { useCompose, threadDraftKey } from '../../stores/compose-store';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
 import { cn } from '../../lib/cn';
-import { useThreadReplies, useSendReply } from './useThread';
+import { useThreadReplies, useSendReply, useAckThread } from './useThread';
 
 type Props = {
   workspaceId: string;
@@ -41,6 +41,8 @@ export function ThreadPanel({
   const { data: members } = useMembers(workspaceId);
   const history = useThreadReplies(rootId);
   const reply = useSendReply(workspaceId, channelId, rootId);
+  // S36 (FR-RS-12 / FR-TH-12): 읽음 ACK. mount/최하단 스크롤 시 디바운스 호출.
+  const ackThread = useAckThread(workspaceId, channelId, rootId);
   const scrollRef = useRef<HTMLDivElement>(null);
   // S35 fix-forward (a11y BLOCKER): 모바일 전체화면 패널은 role="dialog"
   // aria-modal 이므로 포커스 트랩 + mount 포커스 이동의 앵커가 필요하다.
@@ -49,16 +51,38 @@ export function ThreadPanel({
   // 자동 포커스 모두 비활성(기존 데스크톱 UX 무회귀).
   const panelRef = useRef<HTMLElement>(null);
   const backRef = useRef<HTMLButtonElement>(null);
-  // S35 (FR-TH-18): mount 시 1회 최하단 스크롤이 끝났는지 추적. 첫 페이지가
+  // S35 (FR-TH-18): mount 시 1회 초기 스크롤이 끝났는지 추적. 첫 페이지가
   // 도착하기 전(replies 0)에는 스크롤 대상이 없으므로 첫 렌더 이후로 미룬다.
   const hasAnchoredRef = useRef(false);
   // S35 (FR-TH-18): thread reply 수신 시 near-bottom 이 아니면 노출되는 jump
   // 버튼 상태. 클릭 시 최하단으로 이동하고 숨긴다.
   const [showJump, setShowJump] = useState(false);
+  // S36 (FR-TH-12): ACK 디바운스 타이머. mount/스크롤-최하단 시 마지막 답글
+  // id 로 ACK 를 보내되, 짧은 시간 내 중복 발화를 합친다(채널 ack 와 동일 패턴).
+  const ackTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const pages = history.data?.pages ?? [];
   const root: MessageDto | undefined = pages[0]?.root;
   const replies = useMemo<MessageDto[]>(() => pages.flatMap((p) => p.replies), [pages]);
+  // S36 (FR-TH-18): viewer 의 스레드 읽음 커서(첫 페이지에만 의미). 초기 스크롤
+  // 앵커 + ACK 디바운스의 기준점. 구 API 응답(필드 없음)은 null 폴백.
+  const lastReadMessageId = pages[0]?.readState?.lastReadMessageId ?? null;
+
+  // S36 (FR-TH-12): 마지막(최신) 비삭제 답글 id 까지 ACK 한다(디바운스 600ms).
+  // ThreadReadState 가 그 답글까지 monotonic 전진 → 스레드 unread dot 이 꺼진다.
+  const ackUpToLatest = useMemo(() => {
+    return (): void => {
+      const last = replies[replies.length - 1];
+      // optimistic(tmp-) 행은 서버 row 가 아직 없으므로 ack 대상에서 제외한다.
+      if (!last || last.id.startsWith('tmp-')) return;
+      if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
+      ackTimerRef.current = setTimeout(() => {
+        ackThread.mutate(last.id);
+      }, 600);
+    };
+    // ackThread.mutate 는 안정적(react-query)이며 replies 길이/마지막 id 변화에만
+    // 의존한다(이 repo 는 react-hooks/exhaustive-deps 규칙 미설치 — disable 불필요).
+  }, [replies]);
 
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
@@ -72,17 +96,43 @@ export function ThreadPanel({
     return map;
   }, [members]);
 
-  // S35 (FR-TH-18): mount 시 최하단으로 초기 스크롤(1회). 첫 페이지(root +
-  // replies)가 그려진 직후 useLayoutEffect 로 페인트 전에 바닥으로 보낸다.
-  // (lastRead 기반 초기 스크롤 — ThreadReadState.lastReadMessageId 다음 첫
-  // 미읽 위치로의 스크롤 — 은 ThreadReadState 모델에 의존하므로 S36 carryover.)
+  // S36 (FR-TH-18): mount 시 초기 스크롤(1회). 첫 페이지(root + replies)가
+  // 그려진 직후 useLayoutEffect 로 페인트 전에 앵커한다.
+  //   - ThreadReadState.lastReadMessageId 가 존재하고 그 다음 첫 미읽 답글이
+  //     현재 로드된 페이지 안에 있으면, 그 미읽 답글로 스크롤한다(읽던 위치 복원).
+  //   - 커서가 없거나(전체 미읽) lastRead 가 최신(미읽 0)이거나 미읽 답글이 아직
+  //     로드 안 됐으면 최하단으로 스크롤한다(기존 S35 동작).
+  // hasAnchoredRef 충돌 방지: 이 초기 스크롤은 anchored=false 일 때 1회만 수행하고
+  // 즉시 true 로 잠근다(이후 새 답글 자동 스크롤 effect 와 경쟁하지 않음).
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || hasAnchoredRef.current) return;
     if (replies.length === 0 && !root) return; // 그릴 게 아직 없음 — 다음 렌더로 미룸.
-    el.scrollTop = el.scrollHeight;
+
+    let anchored = false;
+    if (lastReadMessageId) {
+      const lastReadIdx = replies.findIndex((r) => r.id === lastReadMessageId);
+      // 다음 첫 미읽 답글 = lastRead 직후. 존재하면 그 행으로 스크롤.
+      const firstUnread = lastReadIdx >= 0 ? replies[lastReadIdx + 1] : undefined;
+      if (firstUnread) {
+        const target = el.querySelector<HTMLElement>(
+          `[data-testid="thread-reply-${firstUnread.id}"]`,
+        );
+        if (target) {
+          // 미읽 답글이 뷰 상단에 오도록(읽기 시작 위치) 정렬.
+          target.scrollIntoView({ block: 'start' });
+          anchored = true;
+        }
+      }
+    }
+    if (!anchored) {
+      // 커서 없음 / 미읽 0 / 미읽 답글 미로드 → 최하단(기존 S35 동작).
+      el.scrollTop = el.scrollHeight;
+    }
     hasAnchoredRef.current = true;
-  }, [replies.length, root]);
+    // 초기 앵커 직후 한 번 ACK — 패널을 열어 본 시점까지 읽음 처리(디바운스).
+    ackUpToLatest();
+  }, [replies, root, lastReadMessageId, ackUpToLatest]);
 
   // S35 (FR-TH-18): thread reply 수신 시 — 이미 near-bottom(<80px)이면 자동
   // 스크롤하고, 아니면 jump 버튼을 노출한다(사용자가 위쪽 이력을 읽는 중이면
@@ -94,17 +144,25 @@ export function ThreadPanel({
     if (near) {
       el.scrollTop = el.scrollHeight;
       setShowJump(false);
+      // S36 (FR-TH-12): 최하단 상태에서 새 답글이 도착하면 자동으로 읽음 ACK.
+      ackUpToLatest();
     } else {
       setShowJump(true);
     }
+    // replies.length 만 의존(ackUpToLatest 는 replies 파생이라 동반 변화).
+    // 이 repo 는 react-hooks/exhaustive-deps 규칙 미설치 — disable 주석 불필요.
   }, [replies.length]);
 
   // S35 (FR-TH-18): 사용자가 수동으로 최하단까지 스크롤하면 jump 버튼을 숨긴다.
+  // S36 (FR-TH-12): 최하단 도달 시 읽음 ACK(디바운스 — 스크롤 연타 안전).
   const onBodyScroll = (): void => {
     const el = scrollRef.current;
     if (!el) return;
     const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-    if (near && showJump) setShowJump(false);
+    if (near) {
+      if (showJump) setShowJump(false);
+      ackUpToLatest();
+    }
   };
 
   const jumpToBottom = (): void => {
@@ -112,7 +170,16 @@ export function ThreadPanel({
     if (!el) return;
     el.scrollTop = el.scrollHeight;
     setShowJump(false);
+    // S36 (FR-TH-12): jump 로 최신까지 이동 → 읽음 ACK.
+    ackUpToLatest();
   };
+
+  // S36 (FR-TH-12): 언마운트 시 대기 중인 ACK 타이머 정리(메모리 누수/지연 발화 방지).
+  useEffect(() => {
+    return () => {
+      if (ackTimerRef.current) clearTimeout(ackTimerRef.current);
+    };
+  }, []);
 
   // ESC closes the panel — scoped to this panel's mount lifetime.
   // S23 BLOCKER fix: Esc 가 스레드 패널을 닫는 데 소비되면 전파/기본동작을

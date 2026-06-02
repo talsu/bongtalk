@@ -9,6 +9,8 @@ import {
   ListEditHistoryResponseSchema,
   EDIT_HISTORY_CAP,
   THREAD_BROADCAST_EXCERPT_CAP,
+  ThreadSummarySchema,
+  ListThreadRepliesResponseSchema,
 } from './message';
 
 /**
@@ -236,5 +238,58 @@ describe('EditHistoryDtoSchema / ListEditHistoryResponseSchema (FR-RC16)', () =>
       version: i,
     }));
     expect(ListEditHistoryResponseSchema.safeParse({ items }).success).toBe(false);
+  });
+});
+
+describe('S36 — ThreadSummary.hasUnread (FR-TH-04 / FR-TH-11)', () => {
+  const base = {
+    replyCount: 2,
+    lastRepliedAt: '2025-01-01T00:00:00.000Z',
+    recentReplyUserIds: [],
+  };
+
+  it('defaults hasUnread=false (forward-compat — 구 API 응답 필드 누락)', () => {
+    const parsed = ThreadSummarySchema.parse(base);
+    expect(parsed.hasUnread).toBe(false);
+  });
+
+  it('carries hasUnread=true when the viewer has unread replies', () => {
+    const parsed = ThreadSummarySchema.parse({ ...base, hasUnread: true });
+    expect(parsed.hasUnread).toBe(true);
+  });
+});
+
+describe('S36 — ListThreadRepliesResponse.readState (FR-TH-18)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111',
+    channelId: '22222222-2222-4222-8222-222222222222',
+    authorId: '33333333-3333-4333-8333-333333333333',
+    content: 'hi',
+    mentions: { users: [], channels: [], everyone: false, here: false },
+    edited: false,
+    deleted: false,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    editedAt: null,
+  };
+  const pageInfo = { hasMore: false, nextCursor: null, prevCursor: null };
+
+  it('defaults readState.lastReadMessageId=null (구 API 응답 → 최하단 스크롤)', () => {
+    const parsed = ListThreadRepliesResponseSchema.parse({
+      root: base,
+      replies: [],
+      pageInfo,
+    });
+    expect(parsed.readState.lastReadMessageId).toBeNull();
+  });
+
+  it('carries a lastReadMessageId cursor when present', () => {
+    const cursor = '44444444-4444-4444-8444-444444444444';
+    const parsed = ListThreadRepliesResponseSchema.parse({
+      root: base,
+      replies: [],
+      readState: { lastReadMessageId: cursor },
+      pageInfo,
+    });
+    expect(parsed.readState.lastReadMessageId).toBe(cursor);
   });
 });

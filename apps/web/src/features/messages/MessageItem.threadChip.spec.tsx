@@ -74,6 +74,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 7,
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: sevenUserIds,
+      hasUnread: false,
     };
     const html = render(thread);
     // qf-avatar--xs 가 chip 아바타 클래스 — 최대 5개만 등장해야 한다.
@@ -87,6 +88,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       // now=2025-01-01T12:00Z 기준 같은 달력 일 → 시각만 노출(상대 시각).
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
     };
     const html = render(thread);
     expect(html).toContain('마지막 답글');
@@ -95,6 +97,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 2,
       lastRepliedAt: '2024-12-30T11:30:00.000Z',
       recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
     };
     const olderHtml = render(olderThread);
     expect(olderHtml).toContain('2일 전');
@@ -106,6 +109,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 1,
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: [uid],
+      hasUnread: false,
     };
     const html = render(thread, (id) => (id === uid ? 'Alice' : undefined));
     // Avatar primitive 는 name.slice(0,2).toUpperCase() = 'AL' 을 렌더한다.
@@ -118,6 +122,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 1,
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: [uid],
+      hasUnread: false,
     };
     const html = render(thread, () => undefined);
     // S34 fix-forward (DS #4): 표시명을 못 풀면 raw hsl 빈 점이 아니라 uid 로
@@ -131,6 +136,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 3,
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
     };
     const html = render(thread);
     expect(html).toContain('aria-label="3개 답글 보기, 마지막 답글');
@@ -141,6 +147,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 2,
       lastRepliedAt: null,
       recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
     };
     const html = render(thread);
     expect(html).toContain('aria-label="2개 답글 보기"');
@@ -151,6 +158,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
       replyCount: 1,
       lastRepliedAt: '2025-01-01T11:30:00.000Z',
       recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
     };
     const html = render(thread);
     // qf-thread-chip__last 는 이제 <time> 이며 dateTime 속성을 가진다.
@@ -158,5 +166,33 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
     expect(html).toMatch(
       /<time[^>]*class="qf-thread-chip__last"[^>]*dateTime="2025-01-01T11:30:00.000Z"/,
     );
+  });
+
+  // S36 (FR-TH-04 / FR-TH-11): per-viewer 스레드 미읽 dot.
+  it('hasUnread=true 면 reply bar 에 파란 unread dot 을 렌더한다 (FR-TH-04)', () => {
+    const thread: ThreadSummary = {
+      replyCount: 3,
+      lastRepliedAt: '2025-01-01T11:30:00.000Z',
+      recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: true,
+    };
+    const html = render(thread);
+    // dot 은 data-testid=thread-unread-dot-* 로 식별 + DS accent 토큰 배경.
+    expect(html).toContain('data-testid="thread-unread-dot-');
+    expect(html).toContain('var(--accent)');
+    // a11y: aria-label 에 "안 읽은 답글" 접두가 붙는다.
+    expect(html).toContain('안 읽은 답글');
+  });
+
+  it('hasUnread=false 면 unread dot 을 렌더하지 않는다 (FR-TH-04)', () => {
+    const thread: ThreadSummary = {
+      replyCount: 3,
+      lastRepliedAt: '2025-01-01T11:30:00.000Z',
+      recentReplyUserIds: ['aaaaaaaa-aaaa-4aaa-8aaa-000000000001'],
+      hasUnread: false,
+    };
+    const html = render(thread);
+    expect(html).not.toContain('data-testid="thread-unread-dot-');
+    expect(html).not.toContain('안 읽은 답글');
   });
 });

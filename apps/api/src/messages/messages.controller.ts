@@ -126,7 +126,9 @@ export class MessagesController {
     const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
       this.messages.aggregateReactions(ids, user.id),
       // task-014-B: thread summary join, same one-per-page round trip.
-      this.messages.aggregateThreadSummaries(ids),
+      // S36 (FR-TH-04): viewer 의 ThreadReadState 를 배치 조인해 per-viewer 미읽
+      // 여부(threadMeta.hasUnread)를 같은 쿼리에서 산정한다(N+1 없음).
+      this.messages.aggregateThreadSummaries(ids, user.id),
       // Inline attachments projection — same batched pattern so a page
       // of 50 messages costs one reactions / one thread / one attachment
       // query regardless of how many of them have media.

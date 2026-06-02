@@ -344,6 +344,17 @@ export const MarkUnreadRequestSchema = z.object({
 export type MarkUnreadRequest = z.infer<typeof MarkUnreadRequestSchema>;
 
 /**
+ * S36 (FR-RS-12 / FR-TH-12): POST /messages/:id/thread/ack 요청 바디.
+ * `lastReadMessageId` 는 스레드 패널에서 마지막으로 본 답글 id. 서버는 채널
+ * 미읽과 동일한 monotonic (createdAt, id) 튜플 upsert 로 ThreadReadState 를
+ * 전진시킨다(퇴행 ack no-op). 채널 미읽과 독립적으로 스레드 미읽만 0 으로 수렴.
+ */
+export const ThreadAckRequestSchema = z.object({
+  lastReadMessageId: z.string().uuid(),
+});
+export type ThreadAckRequest = z.infer<typeof ThreadAckRequestSchema>;
+
+/**
  * S24 (FR-RS-18): POST /workspaces/:id/read-all/undo 요청 바디. read-all 응답이
  * 발급한 `snapshotId` 로 직전 ChannelReadState 를 복원한다(후진 허용 — markUnread
  * 와 동일한 비-monotonic 경로). Redis(TTL 5분) 히트 → Redis, miss → DB 복원.
