@@ -408,10 +408,16 @@ export function MessageComposer({
     // 으로, 클라이언트가 채널 override 까지는 알 수 없어 보수적으로 안내한다.
     const unauthorized = firstUnauthorizedSpecialMention(draft, myRole);
     if (unauthorized) {
+      // S44 fix-forward (MINOR · copy 완화): 클라이언트는 역할 기본값만 알고 채널
+      // override 는 모른다. override 로 허용된 MEMBER 는 실제로 알림이 *전송되므로*,
+      // 단정형("전송되지 않습니다") 대신 불확정형으로 안내해 거짓 약속을 피한다.
       notify({
         variant: 'warning',
-        title: unauthorized === 'everyone' ? '@everyone 권한이 없습니다' : '@here 권한이 없습니다',
-        body: '이 채널에서 해당 멘션 알림 권한이 없어 알림이 전송되지 않습니다.',
+        title:
+          unauthorized === 'everyone'
+            ? '@everyone 권한이 없을 수 있습니다'
+            : '@here 권한이 없을 수 있습니다',
+        body: '이 채널에서 해당 멘션 알림 권한이 없으면 알림이 가지 않을 수 있습니다.',
         ttlMs: 6000,
       });
     }

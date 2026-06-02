@@ -829,8 +829,17 @@ export class MessagesService {
    *   - DM 채널(workspaceId=null)은 워크스페이스 멤버 네임스페이스가 없어 빈 배열.
    *   - @everyone / @channel → 채널의 워크스페이스 멤버 전원.
    *   - @here(다른 범위 없이 단독)  → 위 집합 중 presence ONLINE/IDLE 인 멤버만.
-   *     presence 미주입(단위테스트)이거나 Redis 미가용이면 필터를 적용하지 않고
-   *     전체 멤버를 반환한다(graceful degrade — 알림 누락보다 over-notify 가 안전).
+   *     presence 미주입(단위테스트)이면 필터를 적용하지 않고 전체 멤버를 반환한다
+   *     (graceful degrade — 알림 누락보다 over-notify 가 안전).
+   *
+   * S44 fix-forward (MAJOR · @here graceful-degrade 역전 수정): 종전엔 @here 의
+   * presence 조회를 per-user `effectiveStatus(uid).catch(()=>'offline')` 로 감쌌다.
+   * 이 패턴은 Redis 전역 장애 시 *모든* 호출이 catch 되어 전원 'offline' → 필터
+   * 결과가 빈 배열 → @here 알림이 전무해진다(docstring 의 "over-notify 가 안전"
+   * 과 정반대 — fail-closed). presence 조회가 **전역 실패**(모든 멤버 조회 reject)
+   * 하면 full member set 을 반환해 over-notify 로 fail-open 한다. 일부 키만 누락
+   * (개별 reject)되는 경우는 종전대로 그 사용자만 offline 취급해 제외한다
+   * (정상 동작 중 단발 누락은 over-notify 대상이 아님).
    *
    * (전체 멤버 enumerate 비용/SLO 200명 cap·5초는 S45 carryover.)
    */
@@ -855,10 +864,22 @@ export class MessagesService {
 
     // @here 전용: presence ONLINE/IDLE 만 통과. DND/INVISIBLE/OFFLINE 은 제외
     // (DND 는 뒤의 DND 게이트로도 걸리지만, @here 의 정의 자체가 online/idle 한정).
-    const statuses = await Promise.all(
-      memberIds.map((uid) => this.presence!.effectiveStatus(uid).catch(() => 'offline' as const)),
+    //
+    // S44 fix-forward (MAJOR): Promise.allSettled 로 개별 reject 와 전역 실패를
+    // 구분한다. 모든 조회가 reject 되면(Redis 전역 장애) full member set 으로
+    // fail-open(over-notify) 한다 — fail-closed(전원 누락)보다 안전하다. 일부만
+    // reject 되면 그 사용자만 offline 취급(제외)해 정상 운영 중 단발 누락이
+    // over-notify 로 번지지 않게 한다.
+    const settled = await Promise.allSettled(
+      memberIds.map((uid) => this.presence!.effectiveStatus(uid)),
     );
-    return memberIds.filter((_, i) => statuses[i] === 'online' || statuses[i] === 'idle');
+    const allRejected = settled.every((s) => s.status === 'rejected');
+    if (allRejected) return memberIds;
+    return memberIds.filter((_, i) => {
+      const s = settled[i];
+      if (s.status !== 'fulfilled') return false; // 개별 누락 → offline 취급(제외).
+      return s.value === 'online' || s.value === 'idle';
+    });
   }
 
   // ------------------------------------------------------------------ send
@@ -2203,6 +2224,13 @@ export class MessagesService {
           contentPlainV2: true,
           contentPlain: true,
           deletedAt: true,
+          // S44 fix-forward (BLOCKER): 편집 전 mentions 스냅샷. 편집으로 *새로*
+          // 추가된 멘션 대상에게만 알림을 보내고, 이미 이전 버전에서 멘션받은
+          // 수신자에게는 재알림하지 않기 위해 사용한다.
+          mentions: true,
+          // S38 정합: 답글 편집이면 루트 OFF 구독자를 멘션 알림에서 제외하기 위해
+          // parentMessageId 를 함께 읽는다(루트는 NULL).
+          parentMessageId: true,
         },
       });
 
@@ -2286,6 +2314,126 @@ export class MessagesService {
         await tx.messageEditHistory.deleteMany({
           where: { id: { in: oldest.map((h) => h.id) } },
         });
+      }
+
+      // S44 fix-forward (BLOCKER): 편집 경로 broad 멘션 fanout. 종전 update() 는
+      // 게이트(gateEveryone/here/channel)만 적용하고 resolveBroadMentionRecipients
+      // 호출이 없어, 편집으로 @everyone/@here/@channel 을 추가해도 fanout 이 0 이라
+      // send 와 동작이 어긋났다(편집으로 멘션을 더해도 아무도 알림을 못 받음).
+      // send(라인 ~1237)와 동일하게 broad 수신자를 해석하고 명시적 @username 과
+      // 합집합 dedupe → mute/DND/OFF 필터 → mention.received outbox 로 1인 1건 emit 한다.
+      //
+      // 중복 알림 방지 정책(REPORT 명시): 이미 *이전 버전*에서 멘션 대상이던
+      // 수신자에게는 재알림하지 않는다 — 편집으로 **새로 추가된** 멘션 대상만
+      // 알린다. 이전 멘션 집합(explicit @username ∪ broad)을 동일 resolver 로
+      // 재해석해 신규 집합에서 차집합한다. @here 는 presence 시점 의존이라
+      // 편집 시점 online/idle 기준으로 신규 집합을 산정하므로, 편집 직전엔
+      // offline 이라 못 받았던 사용자가 편집 시 online 이면 신규 수신자로 잡힌다
+      // (over-notify 측 — 알림 누락보다 안전, send 의 online-필터 정책과 일관).
+      const broadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+        workspaceId: args.workspaceId,
+        mentions,
+      });
+      // 신규(편집 후) 멘션 후보: 명시적 @username ∪ broad, 작성자(actor) 제외.
+      const candidateMentionUserIds = [...mentions.users, ...broadRecipientIds].filter(
+        (uid) => uid && uid !== args.actorId,
+      );
+      // 이전(편집 전) 멘션 대상: explicit ∪ broad — 동일 resolver 로 재해석한다.
+      // 차집합 대상이므로 actor 제외는 신규 집합에서 이미 처리됐고, 여기선 비교용
+      // 집합만 만든다(actor 가 양쪽에 있어도 신규에서 빠져 영향 없음).
+      const prevMentions = ((before!.mentions as unknown as Partial<Mentions> | null) ?? {
+        users: [],
+        channels: [],
+        everyone: false,
+        here: false,
+        channel: false,
+      }) as Partial<Mentions>;
+      const prevBroadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
+        workspaceId: args.workspaceId,
+        mentions: {
+          users: prevMentions.users ?? [],
+          channels: prevMentions.channels ?? [],
+          everyone: prevMentions.everyone === true,
+          here: prevMentions.here === true,
+          channel: prevMentions.channel === true,
+        },
+      });
+      const previouslyNotified = new Set<string>([
+        ...(prevMentions.users ?? []),
+        ...prevBroadRecipientIds,
+      ]);
+      // 신규 추가분만: 이전 멘션 대상은 재알림하지 않는다(중복 알림 방지).
+      const dedupedMentionUserIds = Array.from(
+        new Set(candidateMentionUserIds.filter((uid) => !previouslyNotified.has(uid))),
+      );
+      if (dedupedMentionUserIds.length > 0) {
+        // send 와 동일한 mute/DND/OFF 게이트를 같은 tx 안에서 적용한다(atomic snapshot).
+        const now = editedAt;
+        const mutedRows = await tx.userChannelMute.findMany({
+          where: {
+            channelId: args.channelId,
+            userId: { in: dedupedMentionUserIds },
+            OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
+          },
+          select: { userId: true },
+        });
+        const mutedSet = new Set(mutedRows.map((r) => r.userId));
+        const dndRows = await tx.user.findMany({
+          where: { id: { in: dedupedMentionUserIds } },
+          select: { id: true, presencePreference: true, dndSchedule: true },
+        });
+        const dndSuppressedSet = new Set(
+          dndRows
+            .filter((r) =>
+              isDndSuppressed(
+                {
+                  presencePreference: r.presencePreference,
+                  dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                },
+                now,
+              ),
+            )
+            .map((r) => r.id),
+        );
+        // S38 정합: 답글 편집이면 루트의 OFF 구독자도 멘션 알림에서 제외(send 와 동일).
+        const offMentionSet = new Set<string>();
+        const parentMessageId = before!.parentMessageId;
+        if (parentMessageId) {
+          const offSubRows = await tx.threadSubscription.findMany({
+            where: {
+              threadParentId: parentMessageId,
+              userId: { in: dedupedMentionUserIds },
+              notificationLevel: 'OFF',
+            },
+            select: { userId: true },
+          });
+          for (const r of offSubRows) offMentionSet.add(r.userId);
+        }
+        const snippet = buildSnippet(args.content);
+        for (const uid of dedupedMentionUserIds) {
+          if (mutedSet.has(uid)) continue;
+          if (dndSuppressedSet.has(uid)) continue;
+          if (offMentionSet.has(uid)) continue;
+          const mentionPayload: MentionReceivedPayload = {
+            targetUserId: uid,
+            workspaceId: args.workspaceId,
+            channelId: args.channelId,
+            messageId: args.msgId,
+            actorId: args.actorId,
+            snippet,
+            // 편집 알림의 createdAt 은 편집 시각(editedAt)을 쓴다 — 인박스 정렬이
+            // 원본 작성 시각이 아니라 새로 멘션된 시점을 반영한다.
+            createdAt: editedAt.toISOString(),
+            everyone: mentions.everyone === true,
+            here: mentions.here === true,
+          };
+          await this.outbox.record(tx, {
+            aggregateType: 'UserMention',
+            aggregateId: uid,
+            eventType: MENTION_RECEIVED,
+            payload: mentionPayload,
+          });
+        }
       }
 
       const updated = (await tx.message.findUnique({ where: { id: args.msgId } }))!;

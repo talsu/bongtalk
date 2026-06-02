@@ -172,6 +172,102 @@ describe('S44 @here online/idle 필터 (FR-MN-02)', () => {
   });
 });
 
+describe('S44 fix-forward @here presence 전역 장애 fallback (MAJOR)', () => {
+  it('presence 조회가 전역 실패하면 @here 는 full member set 으로 over-notify', async () => {
+    // owner(작성자)는 OWNER 라 @here 게이트 통과. presence.effectiveStatus 가
+    // 모든 호출에서 throw 하도록(=Redis 전역 장애 시뮬레이션) 스파이한다.
+    // 종전 per-user `.catch(()=>offline)` 는 전원 offline→수신자 0(fail-closed)이었고,
+    // fix-forward 는 전역 실패 시 full member set 으로 fail-open(over-notify) 한다.
+    const spy = vi
+      .spyOn(presence, 'effectiveStatus')
+      .mockRejectedValue(new Error('redis down (simulated global outage)'));
+    try {
+      const post = await request(env.baseUrl)
+        .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+        .set('origin', ORIGIN)
+        .set(bearer(stack.owner.accessToken))
+        .send({ content: 'all hands @here' });
+      expect(post.status).toBe(201);
+      expect(post.body.message.mentions.here).toBe(true);
+      // 작성자(owner) 제외, 나머지 워크스페이스 멤버 전원 수신(over-notify fallback).
+      const recipients = await mentionRecipients();
+      const expected = [
+        stack.admin.userId,
+        stack.member.userId,
+        memberB.userId,
+        memberC.userId,
+      ].sort();
+      expect(recipients).toEqual(expected);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
+
+describe('S44 fix-forward 편집(update) broad 멘션 fanout (BLOCKER)', () => {
+  it('편집으로 @everyone 추가 시 fanout 발생 — 신규 멘션 대상 전원 수신', async () => {
+    // owner 가 @everyone 권한 보유. 먼저 범위 멘션 없는 일반 메시지를 보내고
+    // (수신자 0), 그 메시지를 편집해 @everyone 을 추가하면 broad fanout 이 발생해야 한다.
+    const send = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.owner.accessToken))
+      .send({ content: 'plain message' });
+    expect(send.status).toBe(201);
+    expect(await mentionRecipients()).toEqual([]);
+    const msgId = send.body.message.id as string;
+    const version = send.body.message.version as number;
+
+    const patch = await request(env.baseUrl)
+      .patch(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.owner.accessToken))
+      .send({ content: 'edited now @everyone', expectedVersion: version });
+    expect(patch.status).toBe(200);
+    expect(patch.body.message.mentions.everyone).toBe(true);
+
+    // 편집으로 새로 추가된 @everyone → 작성자(owner) 외 워크스페이스 멤버 전원 fanout.
+    const recipients = await mentionRecipients();
+    const expected = [
+      stack.admin.userId,
+      stack.member.userId,
+      memberB.userId,
+      memberC.userId,
+    ].sort();
+    expect(recipients).toEqual(expected);
+  });
+
+  it('이미 멘션받은 수신자에게는 재편집 시 중복 알림하지 않는다(신규 추가분만)', async () => {
+    // 1) @admin 직접 멘션으로 send → admin 1건 수신.
+    const send = await request(env.baseUrl)
+      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.owner.accessToken))
+      .send({ content: `hello @${stack.admin.username}` });
+    expect(send.status).toBe(201);
+    expect(await mentionRecipients()).toEqual([stack.admin.userId]);
+    const msgId = send.body.message.id as string;
+    const version = send.body.message.version as number;
+
+    // 편집으로 발생할 신규 fanout 만 보기 위해 send 단계의 outbox 를 비운다.
+    await env.prisma.outboxEvent.deleteMany({});
+
+    // 2) @admin 은 유지하고 @memberB 를 추가 편집 → admin 은 이전 멘션 대상이라
+    //    재알림하지 않고, 신규 추가분 memberB 만 수신해야 한다.
+    const patch = await request(env.baseUrl)
+      .patch(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages/${msgId}`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.owner.accessToken))
+      .send({
+        content: `hello @${stack.admin.username} @${memberB.username}`,
+        expectedVersion: version,
+      });
+    expect(patch.status).toBe(200);
+    // 신규 추가분(memberB)만 — admin 은 이전 버전에서 이미 멘션받아 제외.
+    expect(await mentionRecipients()).toEqual([memberB.userId]);
+  });
+});
+
 describe('S44 mention:new wire 이벤트 정렬 (FR-MN-01)', () => {
   it('멘션 outbox 가 dispatch 되면 WS 핸들러는 `mention:new` 로 수신한다', async () => {
     const received: string[] = [];

@@ -208,6 +208,13 @@ export class ChannelAccessService {
    *
    * DM 채널(workspaceId=null)은 워크스페이스 멤버/역할 개념이 없어 항상 false 다
    * — `@everyone` 자체가 무의미하고 extractMentions 도 false 를 반환한다.
+   *
+   * ⚠️ 비트 재사용 주석(S44 fix-forward · D12 carryover): 카탈로그 MENTION_EVERYONE
+   * 은 0x0080 이고, 집행 enum(auth/permissions.ts)의 0x0080 은 PIN_MESSAGE 다(동일
+   * 비트 위치 공유). 그러나 **PIN_MESSAGE 는 집행 경로 어디서도 hasPermission/require
+   * 로 검사되지 않는 dead bit** 이며(pin/unpin 은 OWNER/ADMIN 역할 검사로만 게이트),
+   * 따라서 MENTION_EVERYONE 의 0x0080 재사용은 안전하다(S40 MANAGE_CHANNEL 선례 동일).
+   * 카탈로그 MENTION_EVERYONE 비트의 PIN_MESSAGE enum 분리는 D12 수렴 시 처리한다.
    */
   async resolveMentionEveryone(
     channel: { id: string; workspaceId: string | null },

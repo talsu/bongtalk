@@ -41,6 +41,7 @@ import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { validateIdempotencyKey } from './idempotency';
+import { hasBroadMentionSignal } from './mentions/mention-extractor';
 
 type WorkspaceRoleStr = 'OWNER' | 'ADMIN' | 'MEMBER';
 
@@ -337,13 +338,24 @@ export class MessagesController {
     // 채널 override 5단계 fold 로 산정해 send 에 boolean 으로 넘긴다. MEMBER 도
     // override allow 면 true, OWNER/ADMIN 도 override deny 면 false 가 될 수 있다.
     // 워크스페이스 채널 경로에서만 의미가 있어 channel 이 있을 때만 산정한다.
-    const hasMentionEveryone = channel
-      ? await this.channelAccess.resolveMentionEveryone(
-          { id: channel.id, workspaceId: channel.workspaceId },
-          user.id,
-          m.role,
-        )
-      : false;
+    //
+    // S44 fix-forward (MAJOR · perf): 범위 멘션(@everyone/@here/@channel) 신호가
+    // 본문 sigil 또는 composer 힌트에 **있을 때만** override fold(findMany 1쿼리)를
+    // 수행한다. 신호가 없으면 게이트할 대상이 없어 false 로 skip 해 일반 메시지의
+    // +1 RTT 를 제거한다(권한 결과는 어차피 게이트에서 false 멘션에 무영향).
+    const wantsBroadMention =
+      hasBroadMentionSignal(parsed.data.content) ||
+      parsed.data.mentions?.everyone === true ||
+      parsed.data.mentions?.here === true ||
+      parsed.data.mentions?.channel === true;
+    const hasMentionEveryone =
+      channel && wantsBroadMention
+        ? await this.channelAccess.resolveMentionEveryone(
+            { id: channel.id, workspaceId: channel.workspaceId },
+            user.id,
+            m.role,
+          )
+        : false;
     const idempotencyKey = validateIdempotencyKey(idempotencyHeader);
     const { message, replayed } = await this.messages.send({
       workspaceId: m.workspaceId,
@@ -403,13 +415,18 @@ export class MessagesController {
     }
     // S44 (FR-MN-02/16): edit 시점도 send 와 동일하게 MENTION_EVERYONE override-aware
     // 권한을 산정해 넘긴다. channel 이 있을 때만(워크스페이스 채널) 의미가 있다.
-    const editHasMentionEveryone = channel
-      ? await this.channelAccess.resolveMentionEveryone(
-          { id: channel.id, workspaceId: channel.workspaceId },
-          user.id,
-          m.role,
-        )
-      : false;
+    //
+    // S44 fix-forward (MAJOR · perf): 편집 본문에 범위 멘션 sigil 이 있을 때만
+    // override fold(findMany 1쿼리)를 수행한다. 신호가 없으면 false 로 skip 해
+    // 일반 편집의 +1 RTT 를 제거한다(편집은 composer 힌트가 없어 본문만 스캔).
+    const editHasMentionEveryone =
+      channel && hasBroadMentionSignal(parsed.data.content)
+        ? await this.channelAccess.resolveMentionEveryone(
+            { id: channel.id, workspaceId: channel.workspaceId },
+            user.id,
+            m.role,
+          )
+        : false;
     const row = await this.messages.update({
       workspaceId: m.workspaceId,
       channelId,
