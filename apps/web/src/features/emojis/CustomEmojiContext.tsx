@@ -33,7 +33,17 @@ export function CustomEmojiProvider({
   const value = useMemo<CustomEmojiLookup>(() => {
     const list = data?.items ?? [];
     const byName = new Map<string, CustomEmoji>();
-    for (const ce of list) byName.set(ce.name, ce);
+    for (const ce of list) {
+      byName.set(ce.name, ce);
+      // S42 (FR-EM07): 별칭도 byName 의 키로 등록해 `:alias:` 토큰이 파서에서 동일
+      // 이모지 <img> 로 렌더되게 한다(parseContent 코드 무수정 목표 — 파서는 Map
+      // 조회만 한다). canonical name 이 우선하도록, 별칭이 다른 이모지의 name 과
+      // 충돌하면(서버가 이미 금지하므로 정상 데이터에서는 발생 안 함) name 매핑을
+      // 덮어쓰지 않는다.
+      for (const alias of ce.aliases ?? []) {
+        if (!byName.has(alias)) byName.set(alias, ce);
+      }
+    }
     return { byName, list };
   }, [data?.items]);
   return <CustomEmojiCtx.Provider value={value}>{children}</CustomEmojiCtx.Provider>;

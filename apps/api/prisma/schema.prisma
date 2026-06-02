@@ -220,6 +220,9 @@ model User {
   friendshipsRequested    Friendship[]               @relation("FriendshipRequester")
   friendshipsReceived     Friendship[]               @relation("FriendshipAddressee")
   customEmojis            CustomEmoji[]              @relation("CustomEmojiCreator")
+  // S42 (FR-EM05 / FR-PK03): 별칭 생성 이력 + 사용자 이모지 선호(1:1).
+  customEmojiAliases      CustomEmojiAlias[]         @relation("CustomEmojiAliasCreator")
+  emojiPreference         UserEmojiPreference?
   threadSubscriptions     ThreadSubscription[]
   // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12): 스레드별 읽음 커서. 채널 미읽과
   // 독립적으로 추적한다.
@@ -350,6 +353,8 @@ model Workspace {
   feedback   Feedback[]
   notificationPreferences UserNotificationPreference[]
   customEmojis CustomEmoji[]
+  // S42 (FR-PK04): 워크스페이스 이모지 설정(1:1, 퀵반응 기본값 + canMemberUpload).
+  emojiConfig  WorkspaceEmojiConfig?
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -771,9 +776,64 @@ model CustomEmoji {
   // customEmojiId 는 SetNull 로 풀린다(반응 행 자체는 보존 — 카운트 유지 +
   // [삭제된 이모지] placeholder).
   reactions MessageReaction[]
+  // S42 (FR-EM05): 이 커스텀 이모지의 별칭들. 이모지 hard delete 시 Cascade 로
+  // 함께 정리된다(별칭은 이모지 없이는 무의미).
+  aliases   CustomEmojiAlias[]
 
   @@unique([workspaceId, name])
   @@index([workspaceId])
+}
+
+// S42 (D05 / FR-EM05): 커스텀 이모지 별칭. 한 CustomEmoji 가 여러 :slug: 로
+// 참조될 수 있게 한다(이모지당 ≤10 — 서비스 레이어 enforce). alias 는 워크스페이스
+// 내 unique 이며, CustomEmoji.name 과도 충돌하면 안 된다(서비스가 name + alias
+// 양쪽을 검사). additive 신규 테이블 — 기존 row 영향 없음. CustomEmoji 삭제 시
+// Cascade.
+model CustomEmojiAlias {
+  id            String   @id @default(uuid()) @db.Uuid
+  customEmojiId String   @db.Uuid
+  workspaceId   String   @db.Uuid
+  alias         String   @db.VarChar(32)
+  createdBy     String   @db.Uuid
+  createdAt     DateTime @default(now())
+
+  customEmoji CustomEmoji @relation(fields: [customEmojiId], references: [id], onDelete: Cascade)
+  creator     User        @relation("CustomEmojiAliasCreator", fields: [createdBy], references: [id])
+
+  @@unique([workspaceId, alias])
+  @@index([customEmojiId])
+}
+
+// S42 (D05 / FR-PK03): 사용자별 이모지 개인화(스킨톤·퀵반응·최근). 서버 저장으로
+// 기기 간 동기화(localStorage fallback 없음). userId unique — 사용자당 1행.
+// additive 신규 테이블. defaultSkinTone 1=기본, 2-6=피츠패트릭 수정자.
+// quickReactions 는 3개 고정 emoji 배열, recentEmojis 는 최대 36개(prepend+dedup).
+model UserEmojiPreference {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @unique @db.Uuid
+  defaultSkinTone Int      @default(1)
+  quickReactions  Json     @default("[\"👍\",\"❤️\",\"😂\"]")
+  recentEmojis    Json     @default("[]")
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// S42 (D05 / FR-PK04): 워크스페이스별 이모지 설정. workspaceId unique — 워크스페이스당
+// 1행. quickReactions 는 워크스페이스 기본 퀵반응(UserEmojiPreference.quickReactions
+// 가 없을 때의 기본값 역할). canMemberUpload=false(기본) 시 일반 MEMBER 업로드 차단
+// — S41 ADMIN-only 게이트 보존(★메인루프 결정). true 면 MEMBER 도 presign/finalize
+// 허용. additive 신규 테이블.
+model WorkspaceEmojiConfig {
+  id              String   @id @default(uuid()) @db.Uuid
+  workspaceId     String   @unique @db.Uuid
+  quickReactions  Json     @default("[\"👍\",\"❤️\",\"😂\"]")
+  canMemberUpload Boolean  @default(false)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 model UserChannelReadState {

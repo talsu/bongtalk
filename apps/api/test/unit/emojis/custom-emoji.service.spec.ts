@@ -54,6 +54,9 @@ function makeDeps(
 const input = {
   workspaceId: '11111111-1111-1111-1111-111111111111',
   uploaderId: '22222222-2222-2222-2222-222222222222',
+  // S42 (FR-PK04): presign 게이트가 OWNER/ADMIN 은 항상 통과시키므로 unit 의 기본
+  // caller 는 ADMIN 으로 둔다(canMemberUpload 분기는 int 에서 별도 검증).
+  uploaderRole: 'ADMIN' as const,
   name: 'party_parrot',
   mime: 'image/png',
   sizeBytes: 1024,
@@ -186,6 +189,153 @@ describe('CustomEmojiService.delete authorization (S41 FR-EM04)', () => {
     const { prisma, s3, outbox } = makeDeleteDeps(null);
     const svc = new CustomEmojiService(prisma, s3, outbox);
     await expect(svc.delete(wsId, 'e1', uploaderId, 'OWNER')).rejects.toMatchObject({
+      code: ErrorCode.CUSTOM_EMOJI_NOT_FOUND,
+    });
+  });
+});
+
+describe('CustomEmojiService.addAlias (S42 FR-EM05)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  /**
+   * addAlias issues, in order: $executeRaw(없음 — 잠금은 SELECT FOR UPDATE via
+   * $queryRaw), then $queryRaw calls: (1) target SELECT FOR NO KEY UPDATE,
+   * (2) COUNT, (3) name-clash SELECT, (4) INSERT … ON CONFLICT RETURNING, then
+   * tx.customEmojiAlias.findMany. We drive each $queryRaw return by call order.
+   */
+  function makeAliasDeps(opts: {
+    target?: { id: string; name: string }[];
+    count?: number;
+    nameClash?: { id: string }[];
+    inserted?: { id: string }[];
+    finalAliases?: { alias: string }[];
+  }) {
+    const target = opts.target ?? [{ id: 'e1', name: 'parrot' }];
+    const count = opts.count ?? 0;
+    const nameClash = opts.nameClash ?? [];
+    const inserted = opts.inserted ?? [{ id: 'alias-1' }];
+    const finalAliases = opts.finalAliases ?? [{ alias: 'birb' }];
+    const tx = {
+      $queryRaw: vi
+        .fn()
+        .mockResolvedValueOnce(target)
+        .mockResolvedValueOnce([{ cnt: BigInt(count) }])
+        .mockResolvedValueOnce(nameClash)
+        .mockResolvedValueOnce(inserted),
+      customEmojiAlias: { findMany: vi.fn().mockResolvedValue(finalAliases) },
+    };
+    const prisma = {
+      $transaction: vi
+        .fn()
+        .mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => fn(tx)),
+    } as unknown as ConstructorParameters<typeof CustomEmojiService>[0];
+    const s3 = {} as unknown as ConstructorParameters<typeof CustomEmojiService>[1];
+    const outbox = {
+      record: vi.fn().mockResolvedValue('id'),
+    } as unknown as ConstructorParameters<typeof CustomEmojiService>[2];
+    return { prisma, s3, outbox, tx };
+  }
+
+  it('rejects an invalid alias slug', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({});
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.addAlias('w1', 'e1', 'Bad Alias!', 'u1')).rejects.toMatchObject({
+      code: ErrorCode.CUSTOM_EMOJI_NAME_INVALID,
+    });
+  });
+
+  it('rejects when the target emoji is missing (CUSTOM_EMOJI_NOT_FOUND)', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({ target: [] });
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.addAlias('w1', 'e1', 'birb', 'u1')).rejects.toMatchObject({
+      code: ErrorCode.CUSTOM_EMOJI_NOT_FOUND,
+    });
+  });
+
+  it('rejects past the 10-alias cap with ALIAS_LIMIT', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({ count: 10 });
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.addAlias('w1', 'e1', 'birb', 'u1')).rejects.toMatchObject({
+      code: ErrorCode.ALIAS_LIMIT,
+    });
+  });
+
+  it('rejects a name collision with ALIAS_CONFLICT', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({ nameClash: [{ id: 'other' }] });
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.addAlias('w1', 'e1', 'birb', 'u1')).rejects.toMatchObject({
+      code: ErrorCode.ALIAS_CONFLICT,
+    });
+  });
+
+  it('rejects an alias collision (empty INSERT RETURNING) with ALIAS_CONFLICT', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({ inserted: [] });
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.addAlias('w1', 'e1', 'birb', 'u1')).rejects.toMatchObject({
+      code: ErrorCode.ALIAS_CONFLICT,
+    });
+  });
+
+  it('adds the alias + emits emoji.alias_updated on success', async () => {
+    const { prisma, s3, outbox } = makeAliasDeps({ finalAliases: [{ alias: 'birb' }] });
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    const res = await svc.addAlias('w1', 'e1', 'birb', 'u1');
+    expect(res.aliases).toEqual(['birb']);
+    expect(outbox.record).toHaveBeenCalledTimes(1);
+    expect((outbox.record as ReturnType<typeof vi.fn>).mock.calls[0][1]).toMatchObject({
+      eventType: 'emoji.alias_updated',
+    });
+  });
+});
+
+describe('CustomEmojiService.removeAlias (S42 FR-EM05)', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  function makeRemoveDeps(
+    row: { id: string; customEmojiId: string; createdBy: string } | null,
+    remaining: { alias: string }[] = [],
+  ) {
+    const prisma = {
+      customEmojiAlias: {
+        findUnique: vi.fn().mockResolvedValue(row),
+        delete: vi.fn().mockResolvedValue({}),
+        findMany: vi.fn().mockResolvedValue(remaining),
+      },
+    } as unknown as ConstructorParameters<typeof CustomEmojiService>[0];
+    const s3 = {} as unknown as ConstructorParameters<typeof CustomEmojiService>[1];
+    const outbox = {
+      record: vi.fn().mockResolvedValue('id'),
+    } as unknown as ConstructorParameters<typeof CustomEmojiService>[2];
+    return { prisma, s3, outbox };
+  }
+
+  const aliasRow = { id: 'a1', customEmojiId: 'e1', createdBy: 'creator' };
+
+  it('lets the creator remove their own alias', async () => {
+    const { prisma, s3, outbox } = makeRemoveDeps(aliasRow);
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.removeAlias('w1', 'e1', 'birb', 'creator', 'MEMBER')).resolves.toBeUndefined();
+    expect(outbox.record).toHaveBeenCalledTimes(1);
+  });
+
+  it('lets OWNER/ADMIN remove a foreign alias', async () => {
+    const { prisma, s3, outbox } = makeRemoveDeps(aliasRow);
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.removeAlias('w1', 'e1', 'birb', 'someone', 'ADMIN')).resolves.toBeUndefined();
+  });
+
+  it('rejects a foreign MEMBER with FORBIDDEN', async () => {
+    const { prisma, s3, outbox } = makeRemoveDeps(aliasRow);
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.removeAlias('w1', 'e1', 'birb', 'someone', 'MEMBER')).rejects.toMatchObject({
+      code: ErrorCode.FORBIDDEN,
+    });
+  });
+
+  it('rejects a missing alias with CUSTOM_EMOJI_NOT_FOUND', async () => {
+    const { prisma, s3, outbox } = makeRemoveDeps(null);
+    const svc = new CustomEmojiService(prisma, s3, outbox);
+    await expect(svc.removeAlias('w1', 'e1', 'birb', 'creator', 'OWNER')).rejects.toMatchObject({
       code: ErrorCode.CUSTOM_EMOJI_NOT_FOUND,
     });
   });

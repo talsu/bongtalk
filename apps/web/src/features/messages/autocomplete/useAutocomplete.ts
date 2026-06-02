@@ -19,7 +19,9 @@ export const AUTOCOMPLETE_DEBOUNCE_MS = 150;
 
 const MENTION_LIMIT = 8;
 const CHANNEL_LIMIT = 8;
-const EMOJI_LIMIT = 12;
+// S42 (FR-PK02): 이모지 자동완성 후보 상한을 10 으로 낮춘다(종전 12). 유니코드 +
+// 커스텀 이름 + 커스텀 별칭이 혼합되어도 최대 10개만 노출한다.
+const EMOJI_LIMIT = 10;
 
 export type MentionRow =
   | { type: 'special'; item: SpecialMentionItem }

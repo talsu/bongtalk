@@ -140,6 +140,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'webp_one',
       mime: 'image/webp',
       sizeBytes: 12,
@@ -147,7 +148,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     });
     expect(presign.emojiId).toBeTruthy();
     outboxEvents = [];
-    await expect(svc.finalize(wsId, presign.emojiId, userId)).resolves.toBeUndefined();
+    await expect(svc.finalize(wsId, presign.emojiId, userId, 'ADMIN')).resolves.toBeUndefined();
     expect(outboxEvents.map((e) => e.eventType)).toContain('emoji.created');
     const created = outboxEvents.find((e) => e.eventType === 'emoji.created');
     expect(created?.payload).toMatchObject({ workspaceId: wsId, emojiId: presign.emojiId });
@@ -159,6 +160,7 @@ describe('CustomEmoji lifecycle (int)', () => {
       svc.presignUpload({
         workspaceId: wsId,
         uploaderId: userId,
+        uploaderRole: 'ADMIN' as const,
         name: 'too_big',
         mime: 'image/png',
         sizeBytes: CUSTOM_EMOJI_MAX_BYTES + 1,
@@ -188,6 +190,7 @@ describe('CustomEmoji lifecycle (int)', () => {
       svc.presignUpload({
         workspaceId: wsId,
         uploaderId: userId,
+        uploaderRole: 'ADMIN' as const,
         name: 'race_a',
         mime: 'image/png',
         sizeBytes: 10,
@@ -196,6 +199,7 @@ describe('CustomEmoji lifecycle (int)', () => {
       svc.presignUpload({
         workspaceId: wsId,
         uploaderId: userId,
+        uploaderRole: 'ADMIN' as const,
         name: 'race_b',
         mime: 'image/png',
         sizeBytes: 10,
@@ -217,6 +221,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'mine',
       mime: 'image/png',
       sizeBytes: 8,
@@ -242,6 +247,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'theirs',
       mime: 'image/png',
       sizeBytes: 8,
@@ -260,6 +266,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     const presign = await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'adminkill',
       mime: 'image/png',
       sizeBytes: 8,
@@ -276,6 +283,7 @@ describe('CustomEmoji lifecycle (int)', () => {
     await svc.presignUpload({
       workspaceId: wsId,
       uploaderId: userId,
+      uploaderRole: 'ADMIN' as const,
       name: 'listed',
       mime: 'image/png',
       sizeBytes: 8,

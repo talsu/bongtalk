@@ -73,6 +73,27 @@ export interface CustomEmojiOption {
   url: string;
 }
 
+/**
+ * S42 (FR-PK03): 피츠패트릭 스킨톤 수정자. 1=기본(수정자 없음), 2-6=피부톤. 단일
+ * codepoint 수정자를 base 글리프에 덧붙인다. base 글리프가 수정자를 지원하지 않으면
+ * (예: 🎉) 시각적으로 무시되므로, 적용 가능한 손/사람 이모지에만 자연히 반영된다
+ * (PRD: skinTone 을 유니코드 렌더 전반에 소급하는 건 범위 밖 — picker 기본 톤 적용까지).
+ */
+const SKIN_TONE_MODIFIERS = [
+  '',
+  '',
+  '\u{1F3FB}',
+  '\u{1F3FC}',
+  '\u{1F3FD}',
+  '\u{1F3FE}',
+  '\u{1F3FF}',
+];
+
+export function applySkinTone(glyph: string, tone: number): string {
+  if (tone <= 1 || tone > 6) return glyph;
+  return glyph + SKIN_TONE_MODIFIERS[tone];
+}
+
 type Props = {
   /**
    * Fired with the selected emoji token. Unicode glyph for the curated
@@ -95,6 +116,22 @@ type Props = {
    * uploaded rather than scrolling past the curated Unicode tabs.
    */
   customEmojis?: CustomEmojiOption[];
+  /**
+   * S42 (FR-PK01/PK04): 퀵 반응 행. 사용자 설정이 있으면 그것을, 없으면 워크스페이스
+   * 기본값을 호출부가 결정해 넘긴다(피커는 받은 대로 한 줄에 노출). 비거나 미제공 시
+   * 퀵 반응 행을 렌더하지 않는다.
+   */
+  quickReactions?: string[];
+  /**
+   * S42 (FR-PK01): 최근 사용 이모지(최대 36, 최근순). 비어있지 않으면 "최근" 탭이
+   * 첫 탭(워크스페이스 탭보다도 앞)으로 노출된다.
+   */
+  recentEmojis?: string[];
+  /**
+   * S42 (FR-PK03): 기본 스킨톤(1-6). 큐레이션 유니코드 탭의 글리프에 적용된다(picker
+   * 기본 톤). 미제공 시 1(기본).
+   */
+  defaultSkinTone?: number;
 };
 
 export function EmojiPicker({
@@ -103,10 +140,15 @@ export function EmojiPicker({
   isActive,
   className,
   customEmojis,
+  quickReactions,
+  recentEmojis,
+  defaultSkinTone,
 }: Props): JSX.Element {
   const hasCustom = (customEmojis?.length ?? 0) > 0;
-  // Workspace tab when present is index 0; curated tabs shift right.
-  const [tab, setTab] = useState(hasCustom ? 0 : 0);
+  const hasRecent = (recentEmojis?.length ?? 0) > 0;
+  const hasQuick = (quickReactions?.length ?? 0) > 0;
+  const tone = defaultSkinTone ?? 1;
+  const [tab, setTab] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -132,11 +174,33 @@ export function EmojiPicker({
     };
   }, [onDismiss]);
 
-  const tabs = hasCustom
-    ? [{ label: '워크스페이스' }, ...EMOJI_CATEGORIES.map((c) => ({ label: c.label }))]
-    : EMOJI_CATEGORIES.map((c) => ({ label: c.label }));
-  const customTabActive = hasCustom && tab === 0;
-  const curatedIndex = hasCustom ? tab - 1 : tab;
+  // S42 fix-forward (HIGH): 앞쪽 특수 탭(recent/custom) 개수가 변동하면 활성 탭이
+  // 가리키던 카테고리가 밀려 stale 인덱스가 된다. 특수 탭 개수가 바뀔 때 선택 탭을
+  // 0(첫 탭)으로 리셋해 범위초과 인덱싱과 잘못된 탭 활성을 함께 방지한다.
+  const specialTabCount = (hasRecent ? 1 : 0) + (hasCustom ? 1 : 0);
+  useEffect(() => {
+    setTab(0);
+  }, [specialTabCount]);
+
+  // S42 (FR-PK01): 동적 탭 순서 — [최근?] [워크스페이스?] [큐레이션…]. 앞쪽 특수
+  // 탭의 존재 여부에 따라 큐레이션 탭의 베이스 인덱스가 밀린다.
+  const specialTabs: ('recent' | 'custom')[] = [];
+  if (hasRecent) specialTabs.push('recent');
+  if (hasCustom) specialTabs.push('custom');
+  const tabs = [
+    ...specialTabs.map((t) => ({ label: t === 'recent' ? '최근' : '워크스페이스' })),
+    ...EMOJI_CATEGORIES.map((c) => ({ label: c.label })),
+  ];
+  const activeSpecial = tab < specialTabs.length ? specialTabs[tab] : null;
+  const recentTabActive = activeSpecial === 'recent';
+  const customTabActive = activeSpecial === 'custom';
+  // S42 fix-forward (HIGH): 피커가 열린 채 specialTabs 개수가 변동(예: 마지막 커스텀
+  // 이모지 삭제로 custom 탭 소멸·또는 데이터 비동기 도착)하면 stale tab 으로 산출한
+  // curatedIndex 가 [0, EMOJI_CATEGORIES.length-1] 범위를 벗어나 undefined.emojis
+  // 접근으로 throw → 메시지 행 언마운트 크래시였다. (b) tabs 개수 변동 시 tab 을 0 으로
+  // 리셋하고, (a) 그래도 같은 렌더에서 stale 값을 쓰는 한 틱을 위해 인덱싱 전 clamp 한다.
+  const rawCuratedIndex = tab - specialTabs.length;
+  const curatedIndex = Math.min(Math.max(rawCuratedIndex, 0), EMOJI_CATEGORIES.length - 1);
 
   return (
     <div
@@ -145,6 +209,34 @@ export function EmojiPicker({
       data-testid="emoji-picker"
       className={cn('qf-menu flex w-64 flex-col gap-[var(--s-2)] p-[var(--s-3)]', className)}
     >
+      {/* S42 (FR-PK01/PK04): 퀵 반응 행 — 사용자/워크스페이스 퀵 반응을 한 줄에
+          노출한다. 스킨톤은 큐레이션 탭에만 적용하고 퀵 반응에는 받은 글리프 그대로
+          노출한다(사용자가 저장한 값을 변형하지 않음). */}
+      {hasQuick ? (
+        <div
+          data-testid="emoji-picker-quick"
+          role="group"
+          aria-label="퀵 반응"
+          className="flex items-center gap-[var(--s-1)] border-b border-border-subtle pb-[var(--s-2)]"
+        >
+          {quickReactions?.map((e) => (
+            <button
+              key={`quick-${e}`}
+              type="button"
+              data-testid={`emoji-quick-${e}`}
+              aria-label={e}
+              aria-pressed={isActive?.(e) ?? undefined}
+              onClick={() => onSelect(e)}
+              className={cn(
+                'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
+                isActive?.(e) && 'bg-bg-selected',
+              )}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      ) : null}
       <div className="flex items-center gap-[var(--s-1)] border-b border-border-subtle pb-[var(--s-2)] text-[length:var(--fs-11)]">
         {tabs.map((t, i) => (
           <button
@@ -160,7 +252,30 @@ export function EmojiPicker({
           </button>
         ))}
       </div>
-      {customTabActive ? (
+      {recentTabActive ? (
+        <div
+          className="grid grid-cols-8 gap-[var(--s-1)]"
+          data-testid="emoji-picker-recent-grid"
+          role="group"
+          aria-label="최근 사용한 이모지"
+        >
+          {recentEmojis?.map((e, i) => (
+            <button
+              key={`recent-${e}-${i}`}
+              type="button"
+              data-testid={`emoji-recent-${e}`}
+              aria-pressed={isActive?.(e) ?? undefined}
+              onClick={() => onSelect(e)}
+              className={cn(
+                'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
+                isActive?.(e) && 'bg-bg-selected',
+              )}
+            >
+              {e}
+            </button>
+          ))}
+        </div>
+      ) : customTabActive ? (
         <div className="grid grid-cols-6 gap-[var(--s-1)]" data-testid="emoji-picker-custom-grid">
           {customEmojis?.map((ce) => {
             const token = `:${ce.name}:`;
@@ -189,21 +304,26 @@ export function EmojiPicker({
         </div>
       ) : (
         <div className="grid grid-cols-8 gap-[var(--s-1)]">
-          {EMOJI_CATEGORIES[curatedIndex].emojis.map((e) => (
-            <button
-              key={e}
-              type="button"
-              data-testid={`emoji-pick-${e}`}
-              aria-pressed={isActive?.(e) ?? undefined}
-              onClick={() => onSelect(e)}
-              className={cn(
-                'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
-                isActive?.(e) && 'bg-bg-selected',
-              )}
-            >
-              {e}
-            </button>
-          ))}
+          {EMOJI_CATEGORIES[curatedIndex].emojis.map((e) => {
+            // S42 (FR-PK03): 큐레이션 글리프에 기본 스킨톤을 적용한다(적용 불가 글리프는
+            // 수정자가 시각적으로 무시됨). 선택 시에도 톤이 적용된 글리프를 삽입한다.
+            const toned = applySkinTone(e, tone);
+            return (
+              <button
+                key={e}
+                type="button"
+                data-testid={`emoji-pick-${e}`}
+                aria-pressed={isActive?.(toned) ?? undefined}
+                onClick={() => onSelect(toned)}
+                className={cn(
+                  'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
+                  isActive?.(toned) && 'bg-bg-selected',
+                )}
+              >
+                {toned}
+              </button>
+            );
+          })}
         </div>
       )}
     </div>

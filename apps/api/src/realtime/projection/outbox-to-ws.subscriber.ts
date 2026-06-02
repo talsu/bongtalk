@@ -211,8 +211,26 @@ export class OutboxToWsSubscriber {
     const wsId = (env as { workspaceId?: string }).workspaceId;
     if (!wsId) return;
     const emojiId = (env as { emojiId?: string }).emojiId;
+    if (!emojiId) return;
+    // S42 (FR-EM05): emoji.alias_updated → 콜론 wire `emoji:alias_updated`. created/
+    // deleted 와 달리 name 이 아니라 aliases 스냅샷을 싣는다. created/deleted 는 name
+    // 필수, alias_updated 는 aliases 배열 필수.
+    if (env.type === 'emoji.alias_updated') {
+      const aliases = (env as { aliases?: unknown }).aliases;
+      if (!Array.isArray(aliases)) return;
+      const wireEnv = {
+        id: env.id,
+        type: WS_EVENTS.EMOJI_ALIAS_UPDATED,
+        occurredAt: env.occurredAt,
+        workspaceId: wsId,
+        emojiId,
+        aliases: aliases.filter((a): a is string => typeof a === 'string'),
+      } as unknown as WsEnvelope;
+      await this.emitAndBuffer('workspace', wsId, wireEnv);
+      return;
+    }
     const name = (env as { name?: string }).name;
-    if (!emojiId || !name) return;
+    if (!name) return;
     const wireType =
       env.type === 'emoji.created'
         ? WS_EVENTS.EMOJI_CREATED
