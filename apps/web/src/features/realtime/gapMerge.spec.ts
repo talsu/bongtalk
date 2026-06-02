@@ -27,6 +27,7 @@ function msg(id: string, createdAt: string, parentMessageId: string | null = nul
     version: 0,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
   };
 }
 

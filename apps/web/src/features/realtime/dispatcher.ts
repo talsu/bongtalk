@@ -2,6 +2,7 @@ import { type QueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   WS_EVENTS,
   type ListMessagesResponse,
+  type ListThreadRepliesResponse,
   type MessageDto,
   type PresenceUpdatePayload,
   type WorkspacePresenceUpdatedPayload,
@@ -497,6 +498,55 @@ export function installRealtimeDispatcher(
         return {
           ...old,
           pages: [{ ...first, items: [broadcastDto, ...first.items] }, ...rest],
+        };
+      },
+    );
+  });
+
+  // S38 (FR-TH-13): thread:lock:changed — 스레드 잠금/해제 실시간 반영. 채널
+  // 타임라인 루트 + 열린 스레드 패널 루트의 threadLocked 를 갱신해, MEMBER 이하
+  // 의 composer 가 즉시 잠기거나 풀린다. Threads 탭 목록은 잠금 상태를 표시하지
+  // 않으므로 무효화하지 않는다(불필요한 refetch 회피).
+  on<{
+    channelId: string;
+    workspaceId: string | null;
+    // S38 fix-forward (contract HIGH): 서버 payload + wire 스키마와 정합되게
+    // actorId(잠금/해제 수행자)를 타입에 포함한다. 현재 캐시 갱신 로직은 actorId 를
+    // 소비하지 않지만(누가 잠갔는지 무관하게 threadLocked 만 반영), 타입 누락을
+    // 메워 ThreadLockChangedPayloadSchema 와 1:1 로 맞춘다.
+    actorId: string;
+    parentMessageId: string;
+    locked: boolean;
+  }>('thread:lock:changed', (env) => {
+    if (!env.channelId || !env.parentMessageId) return;
+    // 채널 타임라인 캐시의 루트 행 threadLocked 갱신.
+    if (env.workspaceId) {
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+        qk.messages.list(env.workspaceId, env.channelId),
+        (old) => {
+          if (!old) return old;
+          return {
+            ...old,
+            pages: old.pages.map((p) => ({
+              ...p,
+              items: p.items.map((m) =>
+                m.id === env.parentMessageId ? { ...m, threadLocked: env.locked } : m,
+              ),
+            })),
+          };
+        },
+      );
+    }
+    // 열린 스레드 패널 캐시의 루트(root) threadLocked 갱신 — composer 잠금 실시간.
+    qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(
+      qk.messages.thread(env.parentMessageId),
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p, idx) =>
+            idx === 0 && p.root ? { ...p, root: { ...p.root, threadLocked: env.locked } } : p,
+          ),
         };
       },
     );
@@ -1000,6 +1050,8 @@ export const DISPATCHED_EVENTS = [
   'message.thread.replied',
   // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
   'message.thread.broadcast',
+  // S38 (FR-TH-13): 스레드 잠금/해제 실시간 반영.
+  'thread:lock:changed',
   'typing:update',
   'typing:batch',
   'typing.updated',

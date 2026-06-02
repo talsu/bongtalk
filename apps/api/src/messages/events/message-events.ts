@@ -20,6 +20,23 @@ export const MESSAGE_THREAD_REPLIED = 'message.thread.replied';
 // 번들 carryover — 본 슬라이스는 dot 일관 유지.
 export const MESSAGE_THREAD_BROADCAST = 'message.thread.broadcast';
 
+// S38 (FR-TH-13): 스레드 잠금/해제. OWNER/ADMIN 이 PATCH /messages/:id/thread/lock
+// 로 토글하면 emit 된다. dot 컨벤션(message.thread.*)을 유지해 outbox-to-ws
+// subscriber 의 `message.**` 와일드카드가 채널 룸으로 fanout 한다(별도 라우팅
+// 코드 불필요). 클라 dispatcher 는 wire 이름 `thread:lock:changed` 로 수신하나,
+// 서버 내부 outbox eventType 은 dot 표기를 유지하고 subscriber 가 wire 이름으로
+// 변환한다(다른 thread.* 이벤트와 달리 이건 명시적 콜론 wire 이름을 쓴다 — PRD
+// FR-TH-13 이 `thread:lock:changed` 를 직접 명시).
+export const MESSAGE_THREAD_LOCK_CHANGED = 'message.thread.lock_changed';
+
+export type MessageThreadLockChangedPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  actorId: string;
+  parentMessageId: string;
+  locked: boolean;
+};
+
 export type MessageCreatedPayload = {
   // null for Global DM channels (Channel.workspaceId IS NULL). The
   // outbox-to-ws subscriber routes message events by channel room

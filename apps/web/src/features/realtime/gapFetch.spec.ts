@@ -31,6 +31,7 @@ function msg(id: string): MessageDto {
     version: 0,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
   };
 }
 

@@ -68,6 +68,13 @@ export const WS_EVENTS = {
   // 룸으로 push. 클라이언트는 해당 사용자가 작성한 메시지의 마스킹을 풀기 위해
   // 현재 채널 메시지 캐시를 무효화/재로드한다.
   USER_UNBLOCKED: 'user:unblocked',
+  // 스레드 잠금/해제 (S38 · FR-TH-13): OWNER/ADMIN 이 스레드를 잠그거나 풀면
+  // 채널 룸으로 push. 클라이언트(ThreadPanel)는 헤더 잠금 아이콘 + MEMBER 이하
+  // composer disabled 상태를 실시간 갱신한다. payload: { channelId,
+  // parentMessageId, locked }. 서버 내부 outbox eventType 은 dot 표기
+  // (message.thread.lock_changed)지만 outbox→WS subscriber 가 이 콜론 wire 이름으로
+  // 변환해 emit 한다(PRD FR-TH-13 이 이 이름을 직접 명시).
+  THREAD_LOCK_CHANGED: 'thread:lock:changed',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -474,6 +481,26 @@ export const UserUnblockedPayloadSchema = z.object({
 export type UserUnblockedPayload = z.infer<typeof UserUnblockedPayloadSchema>;
 
 /**
+ * S38 (FR-TH-13): thread:lock:changed — 스레드 잠금/해제 시 채널 룸으로 emit.
+ * 클라(ThreadPanel)는 헤더 잠금 아이콘 + MEMBER 이하 composer disabled 상태를
+ * 실시간 갱신한다. 서버 내부 outbox eventType 은 dot 표기지만 outbox→WS
+ * subscriber 가 이 콜론 wire 이름으로 변환해 보낸다. workspaceId 는 DM 미지원이라
+ * 항상 채널 워크스페이스 id(non-null)지만, 다른 message 이벤트 envelope 형태와
+ * 정합을 위해 nullable 로 둔다.
+ */
+export const ThreadLockChangedPayloadSchema = z.object({
+  workspaceId: z.string().min(1).nullable(),
+  channelId: ChannelIdSchema,
+  // S38 fix-forward (contract HIGH): 서버 emit payload(MessageThreadLockChangedPayload)
+  // 에 actorId(잠금/해제를 수행한 OWNER/ADMIN userId)가 실려 나가지만 wire 스키마에
+  // 누락돼 있었다 — 정합을 위해 추가한다(런타임 검증 통과 + 클라 dispatcher 타입 정합).
+  actorId: z.string().min(1),
+  parentMessageId: z.string().min(1),
+  locked: z.boolean(),
+});
+export type ThreadLockChangedPayload = z.infer<typeof ThreadLockChangedPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -506,4 +533,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.DM_OWNER_CHANGED]: DmOwnerChangedPayloadSchema,
   [WS_EVENTS.DM_GROUP_UPDATED]: DmGroupUpdatedPayloadSchema,
   [WS_EVENTS.USER_UNBLOCKED]: UserUnblockedPayloadSchema,
+  [WS_EVENTS.THREAD_LOCK_CHANGED]: ThreadLockChangedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

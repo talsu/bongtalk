@@ -13,6 +13,8 @@ export {
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
+  DropdownRadioGroup,
+  DropdownRadioItem,
 } from './DropdownMenu';
 export { ToastViewport } from './Toast';
 export { Scrollable } from './Scrollable';

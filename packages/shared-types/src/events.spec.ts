@@ -15,6 +15,7 @@ import {
   ChannelJoinedPayloadSchema,
   maskPresenceForViewer,
   ThreadAckRequestSchema,
+  ThreadLockChangedPayloadSchema,
 } from './events';
 import { TYPING_MAX_VISIBLE } from './constants';
 import { extractMentionUserIds } from './mrkdwn';
@@ -343,5 +344,31 @@ describe('read_state / presence / typing payloads', () => {
     });
     expect(p.seq).toBe(42);
     expect(p.lastMessageId).toBe('m10');
+  });
+});
+
+// S38 fix-forward (contract HIGH): thread:lock:changed payload 의 actorId.
+describe('thread:lock:changed payload', () => {
+  it('requires actorId (서버 emit payload 와 정합)', () => {
+    const p = ThreadLockChangedPayloadSchema.parse({
+      workspaceId: 'w1',
+      channelId: 'c1',
+      actorId: 'u-actor',
+      parentMessageId: 'm-root',
+      locked: true,
+    });
+    expect(p.actorId).toBe('u-actor');
+    expect(p.locked).toBe(true);
+  });
+
+  it('rejects a payload missing actorId', () => {
+    expect(() =>
+      ThreadLockChangedPayloadSchema.parse({
+        workspaceId: 'w1',
+        channelId: 'c1',
+        parentMessageId: 'm-root',
+        locked: false,
+      }),
+    ).toThrow();
   });
 });

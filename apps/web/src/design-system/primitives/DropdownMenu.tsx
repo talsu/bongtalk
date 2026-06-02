@@ -85,3 +85,55 @@ export function DropdownItem({
 export function DropdownSeparator(): JSX.Element {
   return <RDropdown.Separator className="qf-menu__separator" />;
 }
+
+/**
+ * S38 fix-forward (a11y B-01/B-02): single-select 메뉴(예: 스레드 알림 레벨
+ * ALL/MENTIONS/OFF)용 radio 그룹. Radix RadioGroup/RadioItem 을 감싸 각 항목에
+ * `role="menuitemradio"` + `aria-checked` 를 자동 부여해 현재 선택을 스크린리더에
+ * 노출한다(종전 일반 DropdownItem 은 선택 상태를 SR 로 전하지 못했다). 시각 표기는
+ * 기존 qf-menu__item 클래스를 그대로 재사용해 DS 무수정.
+ */
+export function DropdownRadioGroup({
+  value,
+  onValueChange,
+  children,
+}: {
+  value: string;
+  onValueChange: (next: string) => void;
+  children: ReactNode;
+}): JSX.Element {
+  return (
+    <RDropdown.RadioGroup value={value} onValueChange={onValueChange}>
+      {children}
+    </RDropdown.RadioGroup>
+  );
+}
+
+export function DropdownRadioItem({
+  value,
+  children,
+  onSelect,
+  preventDefault = false,
+}: {
+  value: string;
+  children: ReactNode;
+  onSelect?: () => void;
+  /**
+   * RadioGroup 항목은 기본적으로 select 시 메뉴를 닫는다(레벨 선택 후 닫힘이
+   * 자연스럽다). preventDefault=true 면 메뉴를 열어둔다.
+   */
+  preventDefault?: boolean;
+}): JSX.Element {
+  return (
+    <RDropdown.RadioItem
+      value={value}
+      className={cn('qf-menu__item outline-none')}
+      onSelect={(e) => {
+        if (preventDefault) e.preventDefault();
+        onSelect?.();
+      }}
+    >
+      {children}
+    </RDropdown.RadioItem>
+  );
+}

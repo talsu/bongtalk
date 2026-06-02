@@ -286,6 +286,8 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // S35 (FR-TH-06): optimistic 메시지는 broadcast 행이 아니다.
         isBroadcast: false,
         parentExcerpt: null,
+        // S38 (FR-TH-13): optimistic 메시지는 루트라도 아직 미잠금.
+        threadLocked: false,
         sendState: 'pending',
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {

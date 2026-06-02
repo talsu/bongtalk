@@ -38,6 +38,7 @@ import {
   MESSAGE_DELETED,
   MESSAGE_PIN_TOGGLED,
   MESSAGE_THREAD_BROADCAST,
+  MESSAGE_THREAD_LOCK_CHANGED,
   MESSAGE_THREAD_REPLIED,
   MESSAGE_UPDATED,
   THREAD_REPLY_RECIPIENT_CAP,
@@ -45,6 +46,7 @@ import {
   type MessageDeletedPayload,
   type MessagePinToggledPayload,
   type MessageThreadBroadcastPayload,
+  type MessageThreadLockChangedPayload,
   type MessageThreadRepliedPayload,
   type MessageUpdatedPayload,
 } from './events/message-events';
@@ -111,6 +113,9 @@ type MessageRow = {
   // toDto 가 false 폴백(forward-compat). broadcast 행은 채널 타임라인에
   // 노출되는 SYSTEM_THREAD_BROADCAST 답글 복제본이다.
   isBroadcast?: boolean | null;
+  // S38 (FR-TH-13): 스레드 잠금 표식(루트 전용). SELECT 미선택 시 undefined →
+  // toDto 가 false 폴백(forward-compat). 스레드 패널 헤더/composer 가 소비한다.
+  threadLocked?: boolean | null;
 };
 
 // task-044-iter2: Discord-parity cap. Cap 변경 시 shared-types
@@ -186,6 +191,8 @@ export type MessageDto = {
   // 루트를 batch 조회해 산정). 일반/삭제 메시지는 false/null.
   isBroadcast: boolean;
   parentExcerpt: string | null;
+  // S38 (FR-TH-13): 스레드 잠금 표식(루트 전용). 답글은 항상 false.
+  threadLocked: boolean;
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -327,6 +334,8 @@ export class MessagesService {
       // broadcast 도 placeholder 로 채널에 남되 excerpt 만 비운다.
       isBroadcast: row.isBroadcast ?? false,
       parentExcerpt: isDeleted ? null : (parentExcerpt ?? null),
+      // S38 (FR-TH-13): 스레드 잠금 표식(루트 전용). SELECT 미선택/legacy 는 false.
+      threadLocked: row.threadLocked ?? false,
     };
   }
 
@@ -1082,10 +1091,34 @@ export class MessagesService {
             )
             .map((r) => r.id),
         );
+        // S38 fix-forward (reviewer MAJOR / FR-TH-08): notificationLevel=OFF 는
+        // "전면 제외"다 — OFF 구독자는 일반 thread.replied 뿐 아니라 @멘션 답글의
+        // mention.received 알림에서도 빠져야 한다(종전엔 mute/DND 만 게이트해 OFF
+        // 스레드도 멘션 알림을 받아 OFF==MENTIONS 로 동작하던 회귀). 답글
+        // (parentMessageId 보유)일 때만 의미가 있으므로 그 경우에만 루트의
+        // ThreadSubscription.notificationLevel=OFF 인 멘션 대상 집합을 같은 tx 에서
+        // 조회해(원자적 snapshot) 제외한다. MENTIONS 구독자는 멘션 시 수신해야
+        // 하므로 제외하지 않는다(OFF 만 차단 — thread.replied 의 MENTIONS 제외와
+        // 역할 분담). 루트 메시지(parentMessageId 없음)는 스레드 구독 컨텍스트가
+        // 없어 이 필터를 적용하지 않는다.
+        const offMentionSet = new Set<string>();
+        if (created.parentMessageId && dedupedMentionUserIds.length > 0) {
+          const offSubRows = await tx.threadSubscription.findMany({
+            where: {
+              threadParentId: created.parentMessageId,
+              userId: { in: dedupedMentionUserIds },
+              notificationLevel: 'OFF',
+            },
+            select: { userId: true },
+          });
+          for (const r of offSubRows) offMentionSet.add(r.userId);
+        }
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
           if (mutedSet.has(uid)) continue;
           if (dndSuppressedSet.has(uid)) continue;
+          // S38 fix-forward (FR-TH-08): OFF 구독자는 멘션 알림에서도 전면 제외.
+          if (offMentionSet.has(uid)) continue;
           mentionedUserIds.add(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
@@ -1475,14 +1508,32 @@ export class MessagesService {
     // DND 스케줄 구간이 활성이면 thread.replied 후보에서 제외한다. 같은 tx 안에서
     // presencePreference + dndSchedule 을 한 번에 조회해 atomic snapshot 을 보장한다
     // (mention 게이트와 같은 read 패턴). 빈 후보면 조회 생략.
+    //
+    // S38 (FR-TH-08): notificationLevel fanout 필터. 같은 tx 안에서 후보들의
+    // ThreadSubscription.notificationLevel 을 한 번에 조회해(원자적 snapshot)
+    //   - OFF      → thread.replied 수신에서 제외(알림 없음).
+    //   - MENTIONS → 제외. MENTIONS 구독자는 본인이 @멘션된 답글에서만 알림을
+    //                받는데, 멘션 알림은 mention.received 가 담당하며(그 대상은
+    //                excludeRecipients 로 이미 thread.replied 에서 빠진다), 멘션
+    //                아닌 일반 답글은 알림이 없어야 하므로 thread.replied 후보에서
+    //                전면 제외한다(OFF 와 동일하게 "새 답글 알림 없음", 멘션 시는
+    //                별도 mention.received 로 도달).
+    //   - ALL/구독행 없음 → 통과(자동 구독이 ALL 로 행을 만들지만, 레이스로 행이
+    //                아직 없어도 ALL 로 간주해 알림 누락을 막는다 — 보수적 기본값).
     const recipients =
       candidate.length === 0
         ? candidate
         : await (async () => {
-            const dndRows = await tx.user.findMany({
-              where: { id: { in: candidate } },
-              select: { id: true, presencePreference: true, dndSchedule: true },
-            });
+            const [dndRows, subRows] = await Promise.all([
+              tx.user.findMany({
+                where: { id: { in: candidate } },
+                select: { id: true, presencePreference: true, dndSchedule: true },
+              }),
+              tx.threadSubscription.findMany({
+                where: { threadParentId: rootId, userId: { in: candidate } },
+                select: { userId: true, notificationLevel: true },
+              }),
+            ]);
             const suppressed = new Set(
               dndRows
                 .filter((r) =>
@@ -1496,7 +1547,13 @@ export class MessagesService {
                 )
                 .map((r) => r.id),
             );
-            return candidate.filter((uid) => !suppressed.has(uid));
+            // OFF / MENTIONS 구독자는 thread.replied 수신 제외(FR-TH-08).
+            const mutedByLevel = new Set(
+              subRows
+                .filter((r) => r.notificationLevel === 'OFF' || r.notificationLevel === 'MENTIONS')
+                .map((r) => r.userId),
+            );
+            return candidate.filter((uid) => !suppressed.has(uid) && !mutedByLevel.has(uid));
           })();
 
     return {
@@ -1778,7 +1835,7 @@ export class MessagesService {
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy", "version", "isBroadcast"
+             "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"
        WHERE "channelId" = $1::uuid
              AND ("parentMessageId" IS NULL OR "isBroadcast" = true)
@@ -1848,7 +1905,7 @@ export class MessagesService {
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
-             "pinnedAt", "pinnedBy", "version", "isBroadcast"
+             "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"
        WHERE "parentMessageId" = $1::uuid
              AND "isBroadcast" = false
@@ -2325,6 +2382,76 @@ export class MessagesService {
         payload,
       });
       return updated as MessageRow;
+    });
+  }
+
+  /**
+   * S38 (FR-TH-13): 루트 메시지가 잠겨 있는지 조회한다. reply POST 게이트
+   * (MessagesController.send)가 MEMBER 이하 차단 여부를 결정할 때 쓴다. 루트가
+   * 없거나 답글 id 면 false(잠금은 루트에만 의미 — 답글-to-답글은 별도 깊이
+   * 가드가 막는다). 단건 SELECT 라 send hot-path 오버헤드가 작다.
+   */
+  async isThreadLocked(rootId: string): Promise<boolean> {
+    const row = await this.prisma.message.findUnique({
+      where: { id: rootId },
+      select: { threadLocked: true, parentMessageId: true },
+    });
+    return row?.parentMessageId === null && row?.threadLocked === true;
+  }
+
+  /**
+   * S38 (FR-TH-13): 스레드 잠금/해제. 루트 메시지의 threadLocked 를 토글하고
+   * thread:lock:changed(내부 dot 명 MESSAGE_THREAD_LOCK_CHANGED) 를 채널 룸으로
+   * emit 한다. 권한(OWNER/ADMIN)은 컨트롤러 역할 게이트가 이미 통과시킨다(pin
+   * 게이트 패턴과 일관 — service 오염 없음). 동일 상태로의 재호출은 idempotent
+   * (no-op + 이벤트 미발행).
+   *
+   * 잠금은 루트 메시지에만 의미가 있으므로 parentMessageId IS NULL 인 루트만
+   * 대상으로 한다(답글 id 로 호출 시 MESSAGE_NOT_FOUND).
+   */
+  async setThreadLock(args: {
+    workspaceId: string | null;
+    channelId: string;
+    rootId: string;
+    actorId: string;
+    locked: boolean;
+  }): Promise<{ parentMessageId: string; locked: boolean }> {
+    return this.prisma.$transaction(async (tx) => {
+      const target = await tx.message.findFirst({
+        where: {
+          id: args.rootId,
+          channelId: args.channelId,
+          parentMessageId: null,
+          deletedAt: null,
+        },
+        select: { id: true, threadLocked: true },
+      });
+      if (!target) {
+        throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+      }
+      // idempotent: 이미 같은 상태면 갱신/이벤트 없이 현재 상태 반환.
+      if (target.threadLocked === args.locked) {
+        return { parentMessageId: target.id, locked: target.threadLocked };
+      }
+      const updated = await tx.message.update({
+        where: { id: args.rootId },
+        data: { threadLocked: args.locked },
+        select: { id: true, threadLocked: true },
+      });
+      const payload: MessageThreadLockChangedPayload = {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.actorId,
+        parentMessageId: updated.id,
+        locked: updated.threadLocked,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: updated.id,
+        eventType: MESSAGE_THREAD_LOCK_CHANGED,
+        payload,
+      });
+      return { parentMessageId: updated.id, locked: updated.threadLocked };
     });
   }
 
