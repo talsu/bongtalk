@@ -26,6 +26,11 @@ describe('muteUntilFrom — 기간 키 → 절대 종료 시각', () => {
     expect(muteUntilFrom('1h', now)?.toISOString()).toBe('2025-01-01T01:00:00.000Z');
   });
 
+  // S49 fix-forward (contract HIGH): '3h' 카노니컬 enum 추가 — 서버 매핑 회귀.
+  it("'3h' → now + 3시간", () => {
+    expect(muteUntilFrom('3h', now)?.toISOString()).toBe('2025-01-01T03:00:00.000Z');
+  });
+
   it("'8h' → now + 8시간", () => {
     expect(muteUntilFrom('8h', now)?.toISOString()).toBe('2025-01-01T08:00:00.000Z');
   });

@@ -33,6 +33,9 @@ export const qk = {
     // S46 (FR-MN-07): 채널별 알림 오버라이드.
     channelNotificationPref: (wsId: string, chId: string) =>
       ['workspaces', wsId, 'channels', chId, 'notification-preferences'] as const,
+    // S49 (FR-MN-17): "현재 뮤트 중" 서버 목록(GET /me/server-mutes). 채널 목록은
+    // 기존 ['me','mutes'] 키(useMutes)를 그대로 쓴다.
+    serverMutes: () => ['me', 'server-mutes'] as const,
     // task-047 iter4 (M3): profile (bio + links + customStatus)
     profile: () => ['me', 'profile'] as const,
     // S28 (FR-P04/P17): 구조화 커스텀 상태(text + emoji + expiresAt).

@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S44·S46·S47·S48 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S49(D06 마무리, FR-MN-15/17/18 — apps/api/src/notifications + apps/web/src/features/{notifications,settings}. deps S46,S47. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42 완료)**·D06(멘션 S44·알림레벨 S46·Inbox S47·DND/키워드설정/suppress S48·S45 보류)·D07·D08·D09·D17·완료. **진행률: 195/354 FR done(+7 partial).** ⚠️ **defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 carryover(무제한 fanout cap)·FR-MN-10 키워드 스캔(MentionRecord/BullMQ·partial)·VAPID web-push(FR-MN-09/11 push AC). D06 거의 완료(S49 후 FR-MN-03/19/21+10스캔+push 만 잔여·전부 S45 인프라 의존).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44·S46~S49 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S50(신규 도메인 D10 핀/저장메시지, FR-PS-01/02/03/04/06/14 — apps/api/src/channels·messages + apps/web/src/features/channels. deps S08,S14. P1 fullstack).** D01·D02·D03·D04·**D05(S39~S42)**·**D06(S44·S46~S49 — 핵심 완료·잔여는 인프라 의존)**·D07·D08·D09·D17·완료. **진행률: 196/354 FR done(+7 partial).** ⚠️ **★S50 D10 핀 = PIN_MESSAGE 권한(카탈로그 0x80) 집행 첫 사용처 — S44 의 0x80↔MENTION_EVERYONE 충돌이 여기서 실재화 가능(UNDERSTAND 에서 권한 비트 분기 점검·D12 연계).** defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 fanout cap·FR-MN-10 키워드스캔(partial)·VAPID push(FR-MN-09/11/15/18). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -466,11 +466,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 541·web 796·shared-types 203) + 빌드 3종 + int(dndUntil 억제·keywords·7일max). 마이그레이션 0. DS 4파일·settings.json 무수정.
 - carryover: **DS-owner**(qf-btn/checkbox `:focus-visible`·text-muted on bg-surface 대비 4.2:1·키워드삭제 터치 28px). **tablist Arrow roving(E-02 — S46/S47/S48 반복·전용 tab-a11y 태스크)**. 네이티브 checkbox→qf-switch(C-02)·qf-banner/badge 재사용·radiogroup 이중라벨(D-01)·atLimit disabled. **FR-MN-10 키워드 스캔(MentionRecord/BullMQ·S45)·VAPID push(S45 인프라 묶음).**
 
-## 다음 슬라이스: S49 (D06 마무리)
+## ✅ S49 (D06 마무리 — 뮤트 목록 UI) — 완료 (2026-06-03, 이 세션) — 마이그레이션 0
 
-- scope **fullstack**. **FR-MN-15/17/18**(P1). deps S46,S47.
-- 파일: `apps/api/src/notifications/**`, `apps/web/src/features/{notifications,settings}/**`.
-- FR 정본 PRD html 재확인 필수(D06 FR-MN-15/17/18). 예상(정확 정의는 PRD·미확인): 알림 설정 마무리(요약/그룹핑·알림 미리보기·접근성/설정 페이지 보강 등). **인프라 의존(BullMQ/VAPID/MentionRecord) 항목이면 S45/S48 선례처럼 자체해소 범위만 + defer 분기 — UNDERSTAND 에서 점검.** D06 마지막 슬라이스(이후 FR-MN-03/19/21+10스캔+push 만 S45 인프라 의존 잔여). S46 NotifLevel·S47 Inbox/badge·S48 DND/keywords 위. 마이그레이션 PRD 확인.
+- **FR-MN-17**(뮤트 목록 UI — `GET /me/mutes` channelName/workspaceName join+삭제채널 제외·`GET /me/server-mutes` 신규·MuteListSection 채널/서버 카드·남은시간·개별 해제·기존 DELETE 재사용). **FR-MN-15(VAPID push)·FR-MN-18(desktop/mobile 레벨) defer**(VAPID 인프라·S48 사용자 결정 일관·desktop/mobile 은 push 에서만 의미). 마이그레이션 0(UserChannelMute·ServerNotificationPref 재사용).
+- **5팀 리뷰** → fix-forward(58879dc). reviewer/security/contract/a11y. **ui-designer "3 BLOCKER"(bg-bg-surface/bg-bg-subtle/border-border-subtle 미등록)=전부 FALSE POSITIVE**(config 에 `'bg-subtle'`/`'bg-surface'`/`'border-subtle'` 키 prefix 포함 등록·유효·메인루프 tailwind config 로 직접 판정·무수정). 시정: **reviewer MAJOR**(1:1 DM 뮤트가 raw `dm:` 슬러그 노출 → 상대 username/fallback)·**contract HIGH**('3h' MuteDurationKey drift → shared-types enum 추가)·**a11y BLK**(unmute aria 컨텍스트·announce 재공지 rAF+aria-atomic·빈상태 통지·`<time>` 무기한·`#` aria-hidden/DM 미표시).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 549·web 821·shared-types 203) + 빌드 3종 + int 8(1:1 DM displayName null). 마이그레이션 0. DS 4파일·settings.json 무수정.
+- carryover: **security low(선존)** — 권한 회수 후 private 채널명 잔존(resolveEffective 크로스체크)·setMute ChannelAccessGuard 부재·iconUrl presign(앱 전역)·뮤트목록 페이지네이션 부재. a11y(per-item isPending·badge aria·touch). reviewer NIT(server 카드 level/iconUrl 미표시·now 갱신 타이머). VAPID push(FR-MN-15/18). **D06 핵심 완료** — 잔여(FR-MN-03/19/21 S45·10스캔 S45·15/18 VAPID)는 전부 인프라 의존.
+
+## 다음 슬라이스: S50 (신규 도메인 D10 — 핀/저장 메시지)
+
+- scope **fullstack**. **FR-PS-01/02/03/04/06/14**(P1). deps S08,S14.
+- 파일: `apps/api/src/channels/**`, `apps/api/src/messages/**`, `apps/web/src/features/channels/**`.
+- FR 정본 PRD html 재확인 필수(D10 핀/저장 섹션). 예상(정확 정의는 PRD): 메시지 **핀**(채널 핀 목록·핀/해제 권한·핀 한도·핀 이벤트)·**저장(saved/북마크)** 등. **★PIN_MESSAGE 권한(카탈로그 0x80) 집행 첫 사용처** — S44 의 0x80↔MENTION_EVERYONE 충돌(현재 PIN_MESSAGE dead bit)이 핀 집행을 추가하면 **실재 권한 커플링이 됨** → UNDERSTAND 에서 권한 비트 분기 점검(카탈로그 직접검사 vs D12 분리 선결). 마이그레이션 가능성(PinnedMessage·SavedMessage 모델) reversible. S08(메시지 read-path)·S14(채널 권한) 위.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

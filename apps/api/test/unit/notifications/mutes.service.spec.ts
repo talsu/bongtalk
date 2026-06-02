@@ -116,6 +116,188 @@ describe('MutesService.listActiveMutes', () => {
   });
 });
 
+describe('MutesService.listActiveMutesDetailed (S49 FR-MN-17)', () => {
+  const PEER_ID = '33333333-3333-4333-8333-333333333333';
+
+  function makeDetailedService(
+    findMany: ReturnType<typeof vi.fn>,
+    userFindMany?: ReturnType<typeof vi.fn>,
+  ) {
+    const prisma = {
+      userChannelMute: { findMany },
+      // S49 fix-forward (MAJOR): 1:1 DM peer username 해석용. 기본은 빈 결과.
+      user: { findMany: userFindMany ?? vi.fn().mockResolvedValue([]) },
+    } as unknown as ConstructorParameters<typeof MutesService>[0];
+    return new MutesService(prisma);
+  }
+
+  it('Channel/Workspace join 을 평탄화 — channelName·workspaceName 매핑', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_A,
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        channel: {
+          name: 'general',
+          displayName: null,
+          type: 'TEXT',
+          workspaceId: 'ws-1',
+          workspace: { name: 'Acme' },
+          overrides: [],
+        },
+      },
+    ]);
+    const svc = makeDetailedService(findMany);
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    expect(rows).toEqual([
+      {
+        channelId: CHAN_A,
+        channelName: 'general',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    ]);
+  });
+
+  it('삭제 채널 제외 — where.channel.deletedAt=null + isMuted=true + OR 활성 필터', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const svc = makeDetailedService(findMany);
+    await svc.listActiveMutesDetailed(USER_A);
+    const where = findMany.mock.calls[0][0].where;
+    expect(where.userId).toBe(USER_A);
+    expect(where.isMuted).toBe(true);
+    expect(where.channel).toEqual({ deletedAt: null });
+    expect(where.OR).toEqual([{ mutedUntil: null }, { mutedUntil: { gt: expect.any(Date) } }]);
+  });
+
+  it('group DM(displayName 있음)은 displayName 우선·workspaceName=null', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_B,
+        mutedUntil: new Date('2025-01-02T00:00:00Z'),
+        createdAt: new Date('2024-12-30T00:00:00Z'),
+        channel: {
+          name: 'gdm:abc',
+          displayName: '친구 그룹',
+          type: 'DIRECT',
+          workspaceId: null,
+          workspace: null,
+          overrides: [{ principalId: PEER_ID }],
+        },
+      },
+    ]);
+    const svc = makeDetailedService(findMany);
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    expect(rows[0].channelName).toBe('친구 그룹');
+    expect(rows[0].workspaceId).toBeNull();
+    expect(rows[0].workspaceName).toBeNull();
+  });
+
+  it('S49 fix-forward (MAJOR): 1:1 DM(DIRECT·displayName null)은 raw slug 대신 상대방 username', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_B,
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        channel: {
+          name: `dm:${USER_A}:${PEER_ID}`,
+          displayName: null,
+          type: 'DIRECT',
+          workspaceId: null,
+          workspace: null,
+          overrides: [{ principalId: PEER_ID }],
+        },
+      },
+    ]);
+    const userFindMany = vi.fn().mockResolvedValue([{ id: PEER_ID, username: 'friend42' }]);
+    const svc = makeDetailedService(findMany, userFindMany);
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    // raw slug(dm:...)가 아니라 상대방 username 으로 해석된다.
+    expect(rows[0].channelName).toBe('friend42');
+    expect(rows[0].channelName.startsWith('dm:')).toBe(false);
+    // 본인 제외 USER principal 만 조회 — overrides where 가 본인을 배제.
+    const where = findMany.mock.calls[0][0].where;
+    expect(where).toBeDefined();
+    // peer 조회는 본인 제외 id 만.
+    expect(userFindMany.mock.calls[0][0].where.id.in).toEqual([PEER_ID]);
+  });
+
+  it('S49 fix-forward (MAJOR): 1:1 DM 상대 해석 실패(삭제 등) 시 "다이렉트 메시지" fallback', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_B,
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        channel: {
+          name: `dm:${USER_A}:${PEER_ID}`,
+          displayName: null,
+          type: 'DIRECT',
+          workspaceId: null,
+          workspace: null,
+          overrides: [{ principalId: PEER_ID }],
+        },
+      },
+    ]);
+    // user.findMany 가 빈 결과 — 상대 username 해석 불가.
+    const svc = makeDetailedService(findMany, vi.fn().mockResolvedValue([]));
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    expect(rows[0].channelName).toBe('다이렉트 메시지');
+    expect(rows[0].channelName.startsWith('dm:')).toBe(false);
+  });
+});
+
+describe('MutesService.listActiveServerMutes (S49 FR-MN-17)', () => {
+  function makeServerService(findMany: ReturnType<typeof vi.fn>) {
+    const prisma = {
+      serverNotificationPref: { findMany },
+    } as unknown as ConstructorParameters<typeof MutesService>[0];
+    return new MutesService(prisma);
+  }
+
+  it('Workspace join 평탄화 + 활성/삭제 워크스페이스 필터', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        workspaceId: 'ws-1',
+        muteUntil: null,
+        level: 'MENTIONS',
+        workspace: { name: 'Acme', iconUrl: 'icon-key' },
+      },
+    ]);
+    const svc = makeServerService(findMany);
+    const rows = await svc.listActiveServerMutes(USER_A);
+    expect(rows).toEqual([
+      {
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        workspaceIconUrl: 'icon-key',
+        muteUntil: null,
+        level: 'MENTIONS',
+      },
+    ]);
+    const where = findMany.mock.calls[0][0].where;
+    expect(where.userId).toBe(USER_A);
+    expect(where.isMuted).toBe(true);
+    expect(where.workspace).toEqual({ deletedAt: null });
+    expect(where.OR).toEqual([{ muteUntil: null }, { muteUntil: { gt: expect.any(Date) } }]);
+  });
+
+  it('iconUrl null 보존', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        workspaceId: 'ws-2',
+        muteUntil: new Date('2025-01-02T00:00:00Z'),
+        level: 'NOTHING',
+        workspace: { name: 'Beta', iconUrl: null },
+      },
+    ]);
+    const svc = makeServerService(findMany);
+    const rows = await svc.listActiveServerMutes(USER_A);
+    expect(rows[0].workspaceIconUrl).toBeNull();
+  });
+});
+
 describe('MutesService.filterMutedRecipients', () => {
   it('빈 candidates → 빈 리턴', async () => {
     const findMany = vi.fn();

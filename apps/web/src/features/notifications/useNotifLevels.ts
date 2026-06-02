@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import type {
   ChannelNotificationPreference,
   GlobalNotificationSettings,
+  ListServerMutesResponse,
   MuteDurationKey,
   NotifLevel,
   PutChannelNotificationPreferenceRequest,
@@ -82,6 +83,43 @@ export function useUnmuteServer(wsId: string) {
       }),
     onSuccess: (data) => {
       qc.setQueryData(qk.me.serverNotificationPref(wsId), data);
+      // S49 (FR-MN-17): 서버 뮤트 목록에서도 사라지도록 무효화.
+      qc.invalidateQueries({ queryKey: qk.me.serverMutes() });
+    },
+  });
+}
+
+// ── 뮤트 목록 (FR-MN-17) ──────────────────────────────────────────────────────
+
+/**
+ * S49 (FR-MN-17): "현재 뮤트 중" 서버 목록(GET /me/server-mutes). 활성 서버 뮤트만
+ * (서버가 isMuted=true·미만료를 query-time 에 거름). 포커스 복귀 시 다기기 토글을
+ * 반영한다(채널 뮤트 useMutes 와 동일 정책).
+ */
+export function useServerMutes() {
+  return useQuery({
+    queryKey: qk.me.serverMutes(),
+    queryFn: () => apiRequest<ListServerMutesResponse>('/me/server-mutes', { method: 'GET' }),
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+}
+
+/**
+ * S49 (FR-MN-17): 뮤트 목록에서 서버 뮤트를 개별 해제. wsId 가 행마다 다르므로
+ * mutationFn 인자로 받아 기존 DELETE /workspaces/:id/notification-preferences 를
+ * 호출한다(신규 해제 API 없음). 성공 시 해당 서버 pref + 서버 뮤트 목록 무효화.
+ */
+export function useUnmuteServerFromList() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (wsId: string) =>
+      apiRequest<ServerNotificationPreference>(`/workspaces/${wsId}/notification-preferences`, {
+        method: 'DELETE',
+      }),
+    onSuccess: (data, wsId) => {
+      qc.setQueryData(qk.me.serverNotificationPref(wsId), data);
+      qc.invalidateQueries({ queryKey: qk.me.serverMutes() });
     },
   });
 }
