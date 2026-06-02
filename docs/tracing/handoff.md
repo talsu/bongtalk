@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S37 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S38(D04 스레드 마무리 — Threads 탭/구독레벨/lock, FR-TH-08/09/10/13).** D01(메시징)·D02·D03·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D04(스레드, S33~S37 코어 완료·S38 마무리) 진행 중. **진행률: 153/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]) — S36 서 한 implementer 가 리뷰없이 머지+배포→prod BLOCKER, 사후 리뷰로 복구. implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S38 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S39(D05 반응/이모지 코어 — FR-RE01/02/03/04/06, 전부 P0).** D01(메시징)·D02·D03·D04(스레드, S33~S38 완료)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. **진행률: 157/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -360,11 +360,22 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 449·web 658·shared-types 191·webhook 50) + 빌드 3종 + 신규테스트(useJumpAround·toDto contentPlain 실DTO·편집이력 캐시·팝오버 a11y). DS 4파일 무수정.
 - **D01 메시징 도메인 완료.** carryover: opacity/gap-0.5/text-xs 매직넘버·모바일 touch target·qf-message\_\_body font override → DS-cleanup. visual baseline(task-040/048). permalink PRD 형식(옵션 A deviation). MANAGE_MESSAGES(D12). continuation 메시지 (edited) 뱃지 부재(선존). MessageThreadBroadcastPayload contentPlain 미추가(broadcast copy 비노출·content 폴백 무해).
 
-## 다음 슬라이스: S38 (D04 스레드 마무리 — Threads 탭/구독레벨/lock)
+## ✅ S38 (D04 스레드 마무리 — Threads 탭/구독레벨/lock) — 완료 (2026-06-02, 이 세션) — **마이그레이션** — **D04 도메인 완료**
 
-- scope api + web. **FR-TH-08 / FR-TH-09**(P1) / **FR-TH-10 / FR-TH-13**(P2).
-- FR 정본 PRD html 재확인. 예상: **FR-TH-08**(벨 드롭다운 ALL/MENTIONS/OFF — **ThreadSubscription.notificationLevel 컬럼 마이그레이션** + PATCH), **FR-TH-09**(사이드바 Threads 탭 — 구독 스레드 목록 latestReplyAt DESC·미읽 우선; **denormalized unreadCount 컬럼**(S36 carryover) 필요 가능성), **FR-TH-10**(Threads 뷰 mark all read), **FR-TH-13**(OWNER/ADMIN 스레드 잠금 — **Message.threadLocked 컬럼 마이그레이션** + thread:lock:changed 실시간).
-- 주의: **마이그레이션 2~3개**(notificationLevel·threadLocked·unreadCount?) reversible. S33~S36 thread(ThreadReadState·ThreadSubscription·replyCount) 위. **D04 도메인 마지막 슬라이스.** UI(Threads 탭/벨/잠금) → ui-designer/visual.
+- **FR-TH-08**(벨 드롭다운 ALL/MENTIONS/OFF — `ThreadSubscription.notificationLevel` enum 마이그레이션 + `PATCH /users/me/threads/:id/subscription` upsert + fanout OFF/MENTIONS 필터), **FR-TH-09**(사이드바 Threads 탭 `GET /users/me/threads` 단일쿼리·cross-workspace ACL fold·미읽우선·excerpt 80), **FR-TH-10**(`POST /users/me/threads/read-all` DISTINCT ON bulk monotonic), **FR-TH-13**(`PATCH /messages/:id/thread/lock` OWNER/ADMIN + reply 403 THREAD_LOCKED + `Message.threadLocked` 마이그레이션 + thread:lock:changed 실시간).
+- **마이그레이션** `20260602300000_s38_thread_notif_level_lock`: `enum ThreadNotificationLevel` + `ThreadSubscription.notificationLevel`(default ALL·인덱스) + `Message.threadLocked`(default false). IF NOT EXISTS 가드. PG16 up→down→up(enum DROP 순서 역증명).
+- **8팀 적대적 리뷰(머지 전)** → fix-forward(`feat/s38-d04-threads-final` 04f0c97). **★최고위험 cross-workspace Threads ACL = NO LEAK**(readBitVisibleSql 5단계 fold cross-workspace 정확 재현, 강퇴/비공개/DM 제외 — S29 오라클 수준 확인):
+  - reviewer MAJOR: OFF 가 @멘션 미억제(OFF==MENTIONS) → mention.received OFF 게이트. 벨 항상 ALL(미하이드레이션) → thread GET 에 viewerNotificationLevel + 벨 seed.
+  - security MEDIUM: markAllRead ACL 필터 누락 → visible CTE. contract HIGH: thread:lock actorId 스키마 누락 → 추가.
+  - a11y 5 BLOCKER: 벨 menuitemradio/aria-checked·트리거 aria-haspopup/현재레벨·lock:changed aria-live·mark-all aria-busy·잠긴 composer aria-disabled+readOnly. 보안 LOW(archived)·migration 가드·DS(py-1.5/text-text/헤더 버튼그룹)·a11y 사소.
+- 게이트: `pnpm verify` 19 GREEN(api 449·web 658·shared-types 195·webhook 50) + 빌드 3종 + 마이그레이션 PG16 up→down→up + int 22(OFF 멘션·벨 hydration·markAllRead ACL·archived·actorId). public DS 4파일 무수정.
+- carryover: **perf**(listMine LATERAL unread COUNT ×N·markAllRead DISTINCT ON Sort → **denormalized unreadCount 컬럼 또는 구독 cap 후속**·fanout Promise.all minor). **manual ALL 구독자 fanout source 아님**(recipients=author+repliers, listFollowers 미사용 — task-014-B fanout-source 확장 후속). DS-owner(`qf-menu__item[data-highlighted]` focus·`__close` focus-visible·excerpt text-muted 대비 3.8:1). visual baseline(task-040 drift + S38 신규 UI 스냅샷 → task-048).
+
+## 다음 슬라이스: S39 (D05 반응/이모지 — 코어 시작)
+
+- scope api + web. **FR-RE01 / FR-RE02 / FR-RE03 / FR-RE04 / FR-RE06**(전부 **P0**).
+- FR 정본 PRD html 재확인 필수(D05 reactions-emoji 섹션). 예상: 이모지 반응 추가/제거·반응 목록·집계·실시간. **기존 자산 확인**: 이미 reactions 인프라(MessageReaction·EmojiPicker·reactions 집계)가 S00~S06/S04 에 일부 존재할 수 있음(MessageItem 반응 렌더·aggregateReactions) — UNDERSTAND 에서 done vs 신규 명확히. 마이그레이션 필요 여부(커스텀 이모지 등) PRD 확인.
+- 주의: D04 완료. D05 는 신규 도메인. UI(반응 picker/렌더) → ui-designer/visual. 실시간(reaction:added/removed) dispatcher.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
