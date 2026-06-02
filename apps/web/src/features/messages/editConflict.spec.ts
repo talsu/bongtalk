@@ -47,6 +47,8 @@ function makeDto(overrides: Partial<MessageDto> = {}): MessageDto {
     pinnedAt: null,
     pinnedBy: null,
     version: 1,
+    isBroadcast: false,
+    parentExcerpt: null,
     ...overrides,
   };
 }

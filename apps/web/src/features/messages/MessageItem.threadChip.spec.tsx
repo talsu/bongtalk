@@ -46,6 +46,8 @@ function makeMsg(thread: ThreadSummary | null): MessageDto {
     pinnedAt: null,
     pinnedBy: null,
     version: 0,
+    isBroadcast: false,
+    parentExcerpt: null,
   };
 }
 

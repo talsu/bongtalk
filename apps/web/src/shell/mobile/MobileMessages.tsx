@@ -14,6 +14,7 @@ import { useCompose } from '../../stores/compose-store';
 import { renderMessageContent } from '../../features/messages/parseContent';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
+import { ThreadPanel } from '../../features/threads/ThreadPanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -51,6 +52,15 @@ export function MobileMessages({
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
+  // S35 (FR-TH-05): 모바일 전체화면 스레드 패널 상태. 시트의 '스레드에서 답글'
+  // 액션이 루트 messageId 를 세팅한다. 워크스페이스 채널에서만 연다(DM 스레드는
+  // 데스크톱과 동일하게 비범위 — workspaceId 가 null 인 DM 은 열지 않는다).
+  const [threadRootId, setThreadRootId] = useState<string | null>(null);
+  // S35 fix-forward (a11y BLOCKER): 모바일 스레드 dialog 를 닫을 때 포커스를
+  // 패널을 연 트리거로 되돌리기 위해, 패널 오픈 직전의 활성 요소를 보관한다.
+  // dialog 닫힘 시 이 요소로 focus 를 복귀시켜 키보드/스크린리더 컨텍스트가
+  // 배경으로 튀지 않게 한다(WAI-ARIA dialog 패턴).
+  const previousFocusRef = useRef<HTMLElement | null>(null);
   const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
   // suppress unused warnings until wired into sheet actions
@@ -176,6 +186,44 @@ export function MobileMessages({
             }
             setSheetMsg(null);
           }}
+          // S35 (FR-TH-05): 워크스페이스 채널에서만 스레드 진입(DM 비범위).
+          // 답글(parentMessageId 보유)을 탭하면 그 루트의 스레드를 연다.
+          // 낙관적(tmp-) 행은 서버 id 가 없어 스레드를 열 수 없으므로 숨긴다.
+          onOpenThread={
+            workspaceId && !sheetMsg.id.startsWith('tmp-')
+              ? () => {
+                  // dialog 오픈 직전 포커스를 보관(닫힐 때 복귀 대상). 시트는
+                  // 곧 닫히므로, 시트를 띄운 원본 메시지 행으로 폴백한다.
+                  previousFocusRef.current =
+                    (document.activeElement as HTMLElement | null) ??
+                    document.querySelector<HTMLElement>(
+                      `[data-testid="mobile-msg-${sheetMsg.id}"]`,
+                    );
+                  setThreadRootId(sheetMsg.parentMessageId ?? sheetMsg.id);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
+        />
+      ) : null}
+      {/* S35 (FR-TH-05): 모바일 전체화면 스레드 패널. ThreadPanel 의 모든 로직을
+          재사용하고 mobile 플래그로 app-layer 전체화면 레이아웃을 입힌다(DS 무수정).
+          워크스페이스 채널에서만 연다(workspaceId 보장). */}
+      {threadRootId && workspaceId ? (
+        <ThreadPanel
+          mobile
+          workspaceId={workspaceId}
+          channelId={channelId}
+          channelName={channelName}
+          rootId={threadRootId}
+          onClose={() => {
+            setThreadRootId(null);
+            // dialog 닫힘 → 트리거(또는 원본 메시지 행)로 포커스 복귀.
+            const prev = previousFocusRef.current;
+            previousFocusRef.current = null;
+            // 행이 여전히 포커스 가능하도록 다음 프레임에 복귀(언마운트 후).
+            requestAnimationFrame(() => prev?.focus?.());
+          }}
         />
       ) : null}
     </>
@@ -260,7 +308,8 @@ function MobileMessageRow({
       className={cn('qf-m-msg')}
       style={{
         transform: `translateX(${swipeOffset}px)`,
-        transition: swipeOffset === 0 ? 'transform 120ms' : undefined,
+        // S35 fix-forward (DS 토큰화): raw 120ms → DS duration 토큰(--dur-fast=140ms).
+        transition: swipeOffset === 0 ? 'transform var(--dur-fast)' : undefined,
       }}
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}

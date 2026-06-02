@@ -8,6 +8,7 @@ import {
   EditHistoryDtoSchema,
   ListEditHistoryResponseSchema,
   EDIT_HISTORY_CAP,
+  THREAD_BROADCAST_EXCERPT_CAP,
 } from './message';
 
 /**
@@ -145,6 +146,59 @@ describe('MessageDtoSchema.version (FR-MSG-06)', () => {
   it('carries an explicit version through', () => {
     const parsed = MessageDtoSchema.parse({ ...base, version: 7 });
     expect(parsed.version).toBe(7);
+  });
+});
+
+// ── S35 (FR-TH-06) broadcast 계약 ──────────────────────────────────────────
+describe('SendMessageRequestSchema.isBroadcast (FR-TH-06)', () => {
+  it('accepts isBroadcast=true on a reply send', () => {
+    const parsed = SendMessageRequestSchema.safeParse({
+      content: 'reply',
+      parentMessageId: '11111111-1111-4111-8111-111111111111',
+      isBroadcast: true,
+    });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.isBroadcast).toBe(true);
+  });
+
+  it('isBroadcast is optional — omitting it still parses', () => {
+    const parsed = SendMessageRequestSchema.safeParse({ content: 'hi' });
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(parsed.data.isBroadcast).toBeUndefined();
+  });
+});
+
+describe('MessageDtoSchema.isBroadcast / parentExcerpt (FR-TH-06)', () => {
+  const base = {
+    id: '11111111-1111-4111-8111-111111111111',
+    channelId: '22222222-2222-4222-8222-222222222222',
+    authorId: '33333333-3333-4333-8333-333333333333',
+    content: 'hi',
+    mentions: { users: [], channels: [], everyone: false, here: false },
+    edited: false,
+    deleted: false,
+    createdAt: '2025-01-01T00:00:00.000Z',
+    editedAt: null,
+  };
+
+  it('defaults isBroadcast=false / parentExcerpt=null (forward-compat)', () => {
+    const parsed = MessageDtoSchema.parse(base);
+    expect(parsed.isBroadcast).toBe(false);
+    expect(parsed.parentExcerpt).toBeNull();
+  });
+
+  it('carries a broadcast row with an excerpt', () => {
+    const parsed = MessageDtoSchema.parse({
+      ...base,
+      isBroadcast: true,
+      parentExcerpt: '루트 메시지 일부…',
+    });
+    expect(parsed.isBroadcast).toBe(true);
+    expect(parsed.parentExcerpt).toBe('루트 메시지 일부…');
+  });
+
+  it('exposes a 50-char excerpt cap constant', () => {
+    expect(THREAD_BROADCAST_EXCERPT_CAP).toBe(50);
   });
 });
 

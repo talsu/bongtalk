@@ -45,6 +45,15 @@ export class ThreadReplyCountReconciler {
    * hard-delete 등 극히 드문 경우)는 이 서브쿼리에 나타나지 않아 정정되지
    * 않는다 — 실사용에서 답글은 soft-delete 만 하므로(행이 남음) 이 경계는
    * 발생하지 않는다.
+   *
+   * S35 fix-forward (BLOCKER): broadcast 행(SYSTEM_THREAD_BROADCAST,
+   * isBroadcast=true)도 parentMessageId(=스레드 루트)를 가지지만 답글이 아니라
+   * 채널 타임라인 복제본이다. `AND "isBroadcast" = false` 가드를 더해 broadcast
+   * 행을 actual 카운트에서 제외한다. 이 가드가 없으면 'Also send to #channel'
+   * 로 게시된 broadcast 한 건마다 actual 이 1씩 부풀어, 매시간 cron 이 정상
+   * replyCount 를 (실답글수 + broadcast수)로 잘못 덮어써 영구 drift 를 만든다.
+   * send tx 의 replyCount UPDATE 는 broadcast 행에 대해 카운터를 올리지 않으므로,
+   * 재집계도 동일하게 broadcast 를 세지 않아야 두 경로가 정합한다.
    */
   async reconcile(): Promise<number> {
     const affected = await this.prisma.$executeRaw(Prisma.sql`
@@ -55,6 +64,7 @@ export class ThreadReplyCountReconciler {
                  COUNT(*) FILTER (WHERE "deletedAt" IS NULL)::int AS actual
             FROM "Message"
            WHERE "parentMessageId" IS NOT NULL
+             AND "isBroadcast" = false
            GROUP BY "parentMessageId"
         ) sub
        WHERE "Message".id = sub.id

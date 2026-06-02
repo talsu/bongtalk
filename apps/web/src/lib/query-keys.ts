@@ -39,6 +39,10 @@ export const qk = {
     // the thread endpoint derives channel + workspace from the id.
     // Keeps the dispatcher branch simple (one key per WS event).
     thread: (rootId: string) => ['messages', 'thread', rootId] as const,
+    // S35 (FR-TH-20b): 열린 모든 스레드 캐시를 prefix 로 매칭하는 키. 답글/루트
+    // 삭제 동기화에서 parentMessageId 를 모를 때(message.deleted 이벤트는 그
+    // 필드를 싣지 않음) getQueriesData 로 일치하는 스레드 캐시를 찾는 데 쓴다.
+    threadRoot: () => ['messages', 'thread'] as const,
   },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,

@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S34 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S35(D04 스레드 — Thread Panel + isBroadcast + 스크롤/실시간 동기, FR-TH-05 P0 + 06/18/20 P1).** D02·D03·D07(검색)·D08(프레즌스)·D09·D17(realtime)·완료. D04(스레드, S33~S38) 진행 중 — S33 코어·S34 tx원자성/reply bar 완료. **진행률: 141/354 FR done(+6 partial).**
+> **S05 검증·S06~S35 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S36(D04 스레드 unread + D09 — ThreadReadState/스레드 미읽/broadcast unread, FR-RS-12 + FR-TH-04/11/12/14, 전부 P1).** D02·D03·D07(검색)·D08(프레즌스)·D17(realtime)·완료. D04(스레드, S33~S38)·D09(읽음, S36 잔여) 진행 중 — S33 코어·S34 tx/reply bar·S35 패널/broadcast 완료. **진행률: 145/354 FR done(+6 partial).**
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -326,11 +326,23 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 435·web 620·shared-types 178·webhook 50) + 빌드 3종 + int 22(tx-poisoning 동시구독 정상·orphan findUnique 거부·차단유저 제외·DELETE가드·reconcile). **마이그레이션 없음**(S33 컬럼 재사용; @nestjs/schedule 는 dep 추가). DS 무수정.
 - carryover: perf(@멘션 N-subscribe 배치·reconcile 대량 GROUP BY windowing·extraNames 렌더). a11y(**Avatar seed-color 팔레트 대비** hue 240/258/200 — app-wide Avatar 별도 pass·`.qf-thread-chip__count` `--accent` 대비 3.79~3.97:1 → **DS-owner**). visual(**DS baseline MD5 drift** `.task-040-ds-baseline.txt` 선존 → task-040 갱신·thread-chip visual baseline → task-048). security(subscribe ACL tx-外 TOCTOU + **N2 dispatcher 발송 전 READ 재게이트**·reconcile 멀티노드 분산락).
 
-## 다음 슬라이스: S35 (D04 스레드 — Thread Panel + isBroadcast + 스크롤/실시간 동기)
+## ✅ S35 (D04 스레드 — Thread Panel 모바일 + isBroadcast + 스크롤/실시간 동기) — 완료 (2026-06-02, 이 세션) — **마이그레이션**
 
-- scope api + web. **FR-TH-05**(P0) / **FR-TH-06·18·20**(P1).
-- FR 정본 PRD html 재확인. 예상: **FR-TH-05**(우측 Thread Panel 슬라이드인 — 데스크톱 기존 ThreadPanel 존재, **모바일 `.qf-m-panel-thread` 전체화면** 신규?), **FR-TH-06**(isBroadcast "Also send to #channel" — `Message.isBroadcast` 컬럼 마이그레이션 + `SYSTEM_THREAD_BROADCAST` enum 기존 + 채널 타임라인 동시 게시), **FR-TH-18**(ThreadPanel lastRead 기준 미읽 위치 초기 스크롤 + thread:reply:new 자동스크롤/jump), **FR-TH-20**(thread:reply:new 수신 시 채널 타임라인 루트 threadMeta 즉시 반영·message:deleted{hasReplies} 양쪽 동기).
-- 주의: FR-TH-06 = **마이그레이션**(isBroadcast 컬럼) reversible. UI(패널/스크롤) → ui-designer/visual-regression + DS `qf-thread-panel`/`qf-m-*`. S33 placeholder·S34 threadMeta·dispatcher message.thread.replied 위. ThreadReadState(FR-TH-11/12)는 S36.
+- **FR-TH-05**(모바일 ThreadPanel 전체화면 — app-layer 재사용, DS 무수정), **FR-TH-06**(isBroadcast "채널에도 공유" — **C-1 별도 SYSTEM_THREAD_BROADCAST 행** PRD 정본, 채널 타임라인 동시게시+excerpt 50자+레이블, `message.thread.broadcast` dot 이벤트), **FR-TH-18**(mount→최하단 스크롤 + jump btn; lastRead 초기스크롤은 S36 ThreadReadState 의존), **FR-TH-20**(thread reply→채널 threadMeta 즉시반영·message.deleted 양쪽 동기 changed-ref 2회렌더 방지·태블릿 독립스크롤).
+- **마이그레이션** `20260602100000_s35_thread_broadcast`: `Message.isBroadcast Boolean @default(false)` additive + **partial index `Message_channel_broadcast_idx WHERE isBroadcast=true`**(rawList OR 가지 BitmapOr — EXPLAIN로 load-bearing 입증) + down.sql. PG16 up→down→up 검증.
+- **8팀 적대적 리뷰**(reviewer/security/db-migrator/perf/contract/ui-designer/a11y/visual) → fix-forward:
+  - **BLOCKER 체계적 누출**: C-1 broadcast 행(parentMessageId=root·비삭제)이 모든 "답글 의미" 쿼리에 누출 → **5경로**(reconciler 카운트·검색 중복히트·me-activity phantom·softDelete 카운터·aggregateThreadSummaries 참여자)에 `isBroadcast=false` 가드(audit가 reviewer 3 + 추가 2 발견).
+  - **perf CRITICAL**: rawList OR partial index 무력화 → broadcast partial index 추가.
+  - **보안**: aggregateBroadcastExcerpts/send 루트 excerpt를 channelId 스코프(cross-channel 누출 방어).
+  - **a11y BLOCKER**: 모바일 ThreadPanel role=dialog/aria-modal·mount 포커스·닫힘 복귀·트랩·jump aria-live·jump focus-ring. broadcast aria-label/role. DS 토큰화(ease-out/120ms/qf-text-danger). 사소 a11y(back 레이블·이모지 aria-label·"개의 답글").
+- 게이트: `pnpm verify` 19 GREEN(api 444·web 633·shared-types 183·webhook 50) + 빌드 3종 + 마이그레이션 PG16 up→down→up + int(broadcast 누출 3+2경로·channelId 스코프·threads 30·search 30). DS 무수정.
+- carryover: **prod populated 테이블 인덱스 = `CREATE INDEX CONCURRENTLY` deploy-hook 필요**(현재 plain, 소규모 무해 — 운영 follow-up). security F-02(dispatcher parentExcerpt 검증)·F-05·F-07(차단작성자 excerpt 마스킹). nit-2(broadcast 본문 AST 렌더). `qf-message--system` 미정의 수식자·jump calc·composer auto-grow px·A-11 close 28px(DS-owner)·**MobileMessageSheet 전체 focus-trap**(선존). 모바일 safe-area composer(다음). `.env.prod.bak.*`=gitignored 해소.
+
+## 다음 슬라이스: S36 (D04 스레드 unread + D09 — ThreadReadState/스레드 미읽/broadcast unread)
+
+- scope api + web. **FR-RS-12**(D09) + **FR-TH-04 / FR-TH-11 / FR-TH-12 / FR-TH-14**(전부 P1).
+- FR 정본 PRD html 재확인. 예상: **FR-TH-11**(스레드 unread = 채널 unread 와 독립, **ThreadReadState 신규 테이블**(ADR-5, `(userId,parentMessageId)` unique, lastReadMessageId/unreadCount) — **마이그레이션**), **FR-TH-12**(ThreadPanel 열기/최하단 스크롤 시 ThreadReadState PATCH upsert + FR-TH-18 lastRead 초기스크롤 완성), **FR-TH-04**(reply bar 미읽 파란 dot), **FR-TH-14**(isBroadcast 메시지 채널 unread 포함·스레드 unread 와 **중복집계 금지**), FR-RS-12(읽음상태 관련 — PRD 확인).
+- 주의: **마이그레이션**(ThreadReadState) reversible. unread 튜플 비교((createdAt,id), uuid 비정렬 — S11 패턴). broadcast 가 채널 unread 엔 포함되되 thread unread 와 중복 안 되게(S35 broadcast 별도행 + isBroadcast 가드 위). S11 read-state·S33~S35 thread 위. UI(unread dot/스크롤) → ui-designer/visual.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

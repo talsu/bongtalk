@@ -44,11 +44,23 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
   const threadKey = qk.messages.thread(rootId);
 
   return useMutation({
-    mutationFn: async (args: { content: string; tempId: string; idempotencyKey: string }) =>
+    mutationFn: async (args: {
+      content: string;
+      tempId: string;
+      idempotencyKey: string;
+      // S35 (FR-TH-06): 'Also send to #channel' 체크 상태. true 면 서버가
+      // SYSTEM_THREAD_BROADCAST 채널 행을 동시 게시한다(채널 타임라인 broadcast
+      // 는 별도 WS 이벤트로 도착하므로 여기 thread 캐시 낙관적 삽입과 무관).
+      isBroadcast?: boolean;
+    }) =>
       sendMessage(
         wsId,
         channelId,
-        { content: args.content, parentMessageId: rootId },
+        {
+          content: args.content,
+          parentMessageId: rootId,
+          isBroadcast: args.isBroadcast === true ? true : undefined,
+        },
         args.idempotencyKey,
       ),
     onMutate: async ({ content, tempId }) => {
@@ -80,6 +92,11 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         pinnedBy: null,
         // S05 (FR-MSG-06): optimistic reply 는 서버 row 전이라 version 0.
         version: 0,
+        // S35 (FR-TH-06): 답글 자체는 broadcast 행이 아니다(broadcast 는 채널
+        // 타임라인의 별도 SYSTEM 행으로 도착). thread 캐시에 들어가는 이 낙관적
+        // 행은 항상 일반 답글.
+        isBroadcast: false,
+        parentExcerpt: null,
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;
