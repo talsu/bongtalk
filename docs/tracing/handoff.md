@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S42 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S43(D02 채널 마무리, FR-CH-14/15/16/17 — apps/api/src/channels·me + apps/web/src/features/channels. deps S15,S22).** D01(메시징)·D02·D03·D04(스레드)·**D05(반응·이모지 S39~S42 완료)**·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. **진행률: 178/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S43 완료(아래 ✅·S43은 CH-14/15/17만·CH-16 defer). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S44(D06 멘션·알림, FR-MN-01/02/04/16 — apps/api/src/notifications·messages + apps/web/src/features/mentions. deps S18,S07. backend).** D01·D02·D03·D04·**D05(반응·이모지 S39~S42 완료)**·D07·D08·D09·D17·완료. **진행률: 181/354 FR done(+6 partial).** ⚠️ **FR-CH-16(개인 사이드바 섹션·P2) defer 됨**(별도 슬라이스). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -412,11 +412,22 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 692·emoji unit 33) + 빌드 3종 + int(finalize 게이트 403/200·별칭·prefs·config·Cascade). DS 4파일·settings.json 무수정.
 - carryover: **reviewer MAJOR** 별칭↔이모지 name TOCTOU(동시 생성 시 공존·클라 canonical-wins 완화·교차테이블 락 필요). **EmojiPicker 구조적 a11y overhaul**(role=menu→tablist·탭 role=tab/aria-selected·focus-visible — A-3/B-2·S39 이월). DS-owner(라이트 danger-400 대비·× 터치타깃·**qf-emoji-custom DS 정의**+inline px 48/40/160 제거). **perf**(picker-data↔custom-emojis 이중 fetch·picker 오픈마다 presign N≤100·**recentEmojis 컴포저 자동완성 미연결**=기능갭). cap-race 테스트·중복 React key.
 
-## 다음 슬라이스: S43 (D02 채널 마무리)
+## ✅ S43 (D02 채널 마무리 — 카테고리 접기/즐겨찾기/채널 뮤트 UI) — 완료 (2026-06-02, 이 세션) — **마이그레이션(UserChannelFavorite)** — **CH-16 defer**
 
-- scope api + web. **FR-CH-14/15/16/17**(P1). deps S15,S22.
-- 파일: `apps/api/src/channels/**`, `apps/api/src/me/**`, `apps/web/src/features/channels/**`.
-- FR 정본 PRD html 재확인 필수(D02 채널 섹션). 예상(정확 정의는 PRD): 채널 관련 마무리 기능(아카이브/핀/알림설정/멤버십·채널별 알림 muting 등 — S15 권한·S22 읽음/사이드바 위). 마이그레이션 필요 여부 PRD 확인 후 reversible. 채널 권한(PermissionMatrix·ChannelPermissionOverride)·읽음(unread.service)·사이드바(채널 목록) 기존 자산 재사용. D12 권한수렴 carryover 와 겹치면 함께 검토.
+- **FR-CH-14**(카테고리 접기/펼치기·localStorage `{wsId}:category:{catId}:collapsed`·기본 펼침·chevron 회전), **FR-CH-15**(즐겨찾기 — `UserChannelFavorite` 마이그레이션·`POST/DELETE/PATCH position /workspaces/:wsId/channels/:chId/favorite`·`GET /me/favorites`·ChannelAccessGuard·calcBetween fractional·FavoritesSection 사이드바 최상단·옵션B refetchOnWindowFocus), **FR-CH-17**(채널 뮤트 UI — **백엔드(MutesService/Controller·useMutes·sidebarRowState) 이미 완비**·컨텍스트 메뉴 duration 15m/1h/3h/8h/24h/무기한+해제·useSetChannelMute·뮤트 회색 text-muted+bell-off·멘션 배지 유지). **FR-CH-16(개인 사이드바 섹션·P2) defer**(별도 슬라이스·2모델·복잡 DnD).
+- **마이그레이션 UserChannelFavorite**(userId/channelId FK Cascade·@@unique·@@index[userId,position]·reversible·db-migrator throwaway up→down→up+Cascade PASS).
+- **6팀 적대적 리뷰(머지 전)** → fix-forward(9bb9353). MAJOR+MED+a11y:
+  - **★MAJOR addFavorite P2002 미캐치 → 500**(멱등 위반·sibling ChannelsService.create 는 캐치): catch P2002 → 기존 행 반환(멱등)+병렬 int. **MED moveFavorite anchor 미존재 silent append → FAVORITE_NOT_FOUND 404**. self-ref anchor 400. MeFavoritesController 명시 가드. a11y 신규UI: 뮤트 duration 그룹레이블(aria-label "뮤트 N"+opacity-50→토큰)·FavoritesSection/카테고리 section aria-label·카테고리 aria-controls·CollapseArrow 버튼내부·DefaultSection ▾→chevron 아이콘.
+  - 검증 SOUND: 즐겨찾기 IDOR(JWT userId·ChannelAccessGuard CHANNEL_NOT_VISIBLE 403·cross-ws·move 본인만)·마이그레이션·DS(아이콘 실재·토큰).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 475·web 711·shared-types 203) + 빌드 6/6 + int favorites 5(병렬 멱등·anchor 404·CHANNEL_NOT_VISIBLE). DS 4파일·settings.json 무수정.
+- carryover: **★사이드바 키보드 a11y(pre-existing·HIGH)** — 채널행 Link tabIndex=-1 키보드네비 불가·dnd-kit role=button 중첩·KeyboardSensor 부재+aria-roledescription 허위(DnD 슬라이스부터·FavoritesSection 복제) → 전용 사이드바 키보드/DnD a11y 태스크(전역 dnd-kit/Link 재작업·회귀위험). DS-owner(muted hover 라이트 4.48:1<4.5·qf-row-iconbtn 18px<24 WCAG2.2). **FR-CH-16**(개인 사이드바 섹션·P2 별도). mutes shared Zod 스키마(pre-existing). favorites position normalize escape·다기기 실시간(옵션A).
+
+## 다음 슬라이스: S44 (D06 멘션·알림)
+
+- scope **backend**(+ web/mentions). **FR-MN-01/02/04/16**(P1). deps S18,S07.
+- 파일: `apps/api/src/notifications/**`, `apps/api/src/messages/**`, `apps/web/src/features/mentions/**`.
+- FR 정본 PRD html 재확인 필수(D06 멘션·알림 섹션). 예상(정확 정의는 PRD): 멘션 알림 코어(@user/@channel/@here 파싱→알림 생성·우선순위·DND/뮤트 게이트 — S28 dnd-gate·mutes·notifications priority 기존 자산). S18(컴포저 @ 자동완성)·S07(알림?) 위. 기존 `apps/api/src/notifications/`(mutes·priority·dnd-gate·mention-gate)·`apps/api/src/messages/mentions/`(mention-normalizer) 재사용. 마이그레이션 필요 여부 PRD 확인 후 reversible.
+- **FR-CH-16(개인 사이드바 섹션·P2)도 미해소** — D02 잔여로 별도 슬롯 처리 가능.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 
