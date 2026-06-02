@@ -43,6 +43,7 @@ function makeMsg(id: string, extra: Partial<MessageDto> = {}): MessageDto {
     version: 0,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
     ...extra,
   };
 }

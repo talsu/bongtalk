@@ -50,6 +50,7 @@ function makeDto(overrides: Partial<MessageDto> = {}): MessageDto {
     version: 1,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
     ...overrides,
   };
 }

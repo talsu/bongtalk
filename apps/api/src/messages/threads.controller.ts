@@ -5,11 +5,17 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ListThreadRepliesQuerySchema, ThreadAckRequestSchema } from '@qufox/shared-types';
+import {
+  ListThreadRepliesQuerySchema,
+  SetThreadLockRequestSchema,
+  ThreadAckRequestSchema,
+  type SetThreadLockResponse,
+} from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
@@ -109,6 +115,64 @@ export class ThreadsController {
       parentMessageId: id,
       lastReadMessageId: parsed.data.lastReadMessageId,
     });
+  }
+
+  /**
+   * S38 (FR-TH-13): PATCH /messages/:id/thread/lock — 스레드 잠금/해제.
+   *
+   * Body `{ locked }`. **OWNER/ADMIN 만**(controller 역할 게이트 — pin 권한 패턴과
+   * 일관). 루트 메시지의 channel → workspace 를 resolve 한 뒤, 요청자가 그
+   * 워크스페이스 OWNER/ADMIN 이 아니면 403 WORKSPACE_INSUFFICIENT_ROLE. 통과 시
+   * Message.threadLocked 를 토글하고 thread:lock:changed 를 채널 룸으로 emit 한다.
+   * DM(DIRECT·workspaceId NULL) 채널은 워크스페이스 역할 개념이 없어 잠금을
+   * 지원하지 않는다(403 — 워크스페이스 채널 전용 기능).
+   */
+  @Patch(':id/thread/lock')
+  @HttpCode(200)
+  async lock(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ): Promise<SetThreadLockResponse> {
+    await this.rate.enforce([{ key: `thread:lock:u:${user.id}`, windowSec: 60, max: 120 }]);
+    const parsed = SetThreadLockRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    // 루트 채널 READ ACL + archived 차단(ack/get 과 동일 출처).
+    const { channelId } = await this.resolveThreadRootForAcl(id, user.id);
+    // 채널의 workspaceId 를 확보하고 요청자 역할(OWNER/ADMIN)을 검증한다.
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { id: true, workspaceId: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    if (!channel.workspaceId) {
+      // DM/그룹 DM: 워크스페이스 역할 게이트가 없어 잠금 미지원.
+      throw new DomainError(ErrorCode.WORKSPACE_INSUFFICIENT_ROLE, 'DM 스레드는 잠글 수 없습니다');
+    }
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: channel.workspaceId, userId: user.id },
+      },
+      select: { role: true },
+    });
+    if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'OWNER 또는 ADMIN 만 스레드를 잠그거나 해제할 수 있습니다',
+      );
+    }
+    const result = await this.messages.setThreadLock({
+      workspaceId: channel.workspaceId,
+      channelId,
+      rootId: id,
+      actorId: user.id,
+      locked: parsed.data.locked,
+    });
+    return result;
   }
 
   @Get(':id/thread')

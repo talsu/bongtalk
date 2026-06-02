@@ -8,6 +8,8 @@ import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { ThreadSubscriptionsController } from './thread-subscriptions.controller';
 import { ThreadReplyCountReconciler } from './thread-reply-count-reconciler.service';
 import { ThreadReadStateService } from './thread-read-state.service';
+import { MyThreadsService } from './my-threads.service';
+import { MeThreadsController } from './me-threads.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
@@ -33,6 +35,8 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     ThreadsController,
     GlobalDmMessagesController,
     ThreadSubscriptionsController,
+    // S38 (FR-TH-08/09/10): 사용자 스코프 Threads 탭 + 알림 레벨.
+    MeThreadsController,
   ],
   providers: [
     MessagesService,
@@ -42,6 +46,8 @@ import { AttachmentsModule } from '../attachments/attachments.module';
     ThreadReplyCountReconciler,
     // S36 (FR-RS-12 / FR-TH-04/11/12): 스레드 읽음 커서 코어.
     ThreadReadStateService,
+    // S38 (FR-TH-09/10): Threads 탭 목록 + 전체 읽음.
+    MyThreadsService,
   ],
   exports: [MessagesService, ThreadSubscriptionsService, ThreadReadStateService],
 })

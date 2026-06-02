@@ -84,6 +84,8 @@ export enum ErrorCode {
   MESSAGE_NOT_AUTHOR = 'MESSAGE_NOT_AUTHOR',
   MESSAGE_THREAD_DEPTH_EXCEEDED = 'MESSAGE_THREAD_DEPTH_EXCEEDED',
   MESSAGE_PARENT_NOT_FOUND = 'MESSAGE_PARENT_NOT_FOUND',
+  // S38 (FR-TH-13): 잠긴 스레드에 MEMBER 이하가 답글 시도 → 403. OWNER/ADMIN 면제.
+  THREAD_LOCKED = 'THREAD_LOCKED',
   // task-044-iter2: pinned messages cap (50/channel, Discord parity).
   MESSAGE_PIN_CAP_EXCEEDED = 'MESSAGE_PIN_CAP_EXCEEDED',
   // S05 (FR-MSG-06): 편집 낙관적 잠금 충돌. expectedVersion ≠ 현재 version
@@ -194,6 +196,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.MESSAGE_NOT_AUTHOR]: 403,
   [ErrorCode.MESSAGE_THREAD_DEPTH_EXCEEDED]: 400,
   [ErrorCode.MESSAGE_PARENT_NOT_FOUND]: 404,
+  // S38 (FR-TH-13): 잠긴 스레드 답글 차단(MEMBER 이하).
+  [ErrorCode.THREAD_LOCKED]: 403,
   [ErrorCode.MESSAGE_PIN_CAP_EXCEEDED]: 422,
   // S05 (FR-MSG-06): 낙관적 잠금 충돌은 409 (IDEMPOTENCY_KEY_REUSE_CONFLICT 와 동일 매핑).
   [ErrorCode.MESSAGE_VERSION_CONFLICT]: 409,

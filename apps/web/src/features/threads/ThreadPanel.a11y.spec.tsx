@@ -38,12 +38,17 @@ vi.mock('./useThread', () => ({
   useSendReply: () => ({ mutate: replyMutate, isPending: false }),
   // S36 (FR-TH-12): 읽음 ACK 뮤테이션 모킹.
   useAckThread: () => ({ mutate: ackMutate, isPending: false }),
+  // S38 (FR-TH-08/13): 알림 레벨 + 잠금 뮤테이션 모킹.
+  useSetThreadNotificationLevel: () => ({ mutate: vi.fn(), isPending: false }),
+  useSetThreadLock: () => ({ mutate: vi.fn(), isPending: false }),
 }));
 
 vi.mock('../workspaces/useWorkspaces', () => ({
   useMembers: () => ({
     data: { members: [{ userId: 'u-1', user: { username: 'alice' }, role: 'MEMBER' }] },
   }),
+  // S38 (FR-TH-13): 본인 역할(MEMBER 기본 — 잠금 버튼 미노출 경로 검증 유지).
+  useWorkspace: () => ({ data: { myRole: 'MEMBER' } }),
 }));
 
 const draftStore: Record<string, string> = {};

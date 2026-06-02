@@ -1,12 +1,25 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
-import { useMembers } from '../workspaces/useWorkspaces';
-import { Avatar, Icon } from '../../design-system/primitives';
+import type { MessageDto, ThreadNotificationLevel, WorkspaceRole } from '@qufox/shared-types';
+import { useMembers, useWorkspace } from '../workspaces/useWorkspaces';
+import {
+  Avatar,
+  DropdownContent,
+  DropdownItem,
+  DropdownRoot,
+  DropdownTrigger,
+  Icon,
+} from '../../design-system/primitives';
 import { useCompose, threadDraftKey } from '../../stores/compose-store';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
 import { cn } from '../../lib/cn';
-import { useThreadReplies, useSendReply, useAckThread } from './useThread';
+import {
+  useThreadReplies,
+  useSendReply,
+  useAckThread,
+  useSetThreadLock,
+  useSetThreadNotificationLevel,
+} from './useThread';
 
 type Props = {
   workspaceId: string;
@@ -39,10 +52,21 @@ export function ThreadPanel({
   mobile = false,
 }: Props): JSX.Element | null {
   const { data: members } = useMembers(workspaceId);
+  // S38 (FR-TH-13): 본인의 워크스페이스 역할(OWNER/ADMIN 만 잠금/해제 + 잠긴
+  // 스레드 답글 가능). useWorkspace 의 myRole 을 단일 출처로 쓴다.
+  const { data: wsData } = useWorkspace(workspaceId);
+  const myRole: WorkspaceRole = wsData?.myRole ?? 'MEMBER';
+  const isModerator = myRole === 'OWNER' || myRole === 'ADMIN';
   const history = useThreadReplies(rootId);
   const reply = useSendReply(workspaceId, channelId, rootId);
   // S36 (FR-RS-12 / FR-TH-12): 읽음 ACK. mount/최하단 스크롤 시 디바운스 호출.
   const ackThread = useAckThread(workspaceId, channelId, rootId);
+  // S38 (FR-TH-08): 알림 레벨 설정. 벨 드롭다운 로컬 상태 + 서버 upsert.
+  const setLevel = useSetThreadNotificationLevel(rootId);
+  // S38 (FR-TH-13): 잠금/해제(OWNER/ADMIN). 실시간 반영은 dispatcher 수신.
+  const setLock = useSetThreadLock(rootId);
+  // 벨 드롭다운의 표시 레벨(낙관적). 서버 round-trip 완료를 기다리지 않고 즉시 갱신.
+  const [notifLevel, setNotifLevel] = useState<ThreadNotificationLevel>('ALL');
   const scrollRef = useRef<HTMLDivElement>(null);
   // S35 fix-forward (a11y BLOCKER): 모바일 전체화면 패널은 role="dialog"
   // aria-modal 이므로 포커스 트랩 + mount 포커스 이동의 앵커가 필요하다.
@@ -63,6 +87,10 @@ export function ThreadPanel({
 
   const pages = history.data?.pages ?? [];
   const root: MessageDto | undefined = pages[0]?.root;
+  // S38 (FR-TH-13): 스레드 잠금 상태. 루트 DTO 의 threadLocked 를 단일 출처로
+  // 쓴다. dispatcher 가 thread:lock:changed 수신 시 이 캐시의 루트를 갱신하므로
+  // 실시간으로 반영된다(별도 로컬 상태 불필요).
+  const locked = root?.threadLocked === true;
   const replies = useMemo<MessageDto[]>(() => pages.flatMap((p) => p.replies), [pages]);
   // S36 (FR-TH-18): viewer 의 스레드 읽음 커서(첫 페이지에만 의미). 초기 스크롤
   // 앵커 + ACK 디바운스의 기준점. 구 API 응답(필드 없음)은 null 폴백.
@@ -290,12 +318,73 @@ export function ThreadPanel({
           <Icon name="thread" size="sm" className="qf-thread-panel__icon" />
         )}
         <div className="min-w-0 flex-1">
-          <div className="qf-thread-panel__title">스레드</div>
+          <div className="qf-thread-panel__title">
+            스레드
+            {/* S38 (FR-TH-13): 잠금 표식. 잠긴 스레드에 잠금 아이콘(#qf-i-lock)을
+                제목 옆에 노출한다. DS 등록 아이콘만 사용(신규 DS 0). */}
+            {locked ? (
+              <Icon
+                name="lock"
+                size="sm"
+                aria-label="잠긴 스레드"
+                data-testid="thread-lock-indicator"
+                className="qf-icon--muted ml-[var(--s-2)] inline-block align-middle"
+              />
+            ) : null}
+          </div>
           <div className="qf-thread-panel__sub">
             {channelName ? `#${channelName}` : ''}
             {root?.thread?.replyCount ? ` · ${root.thread.replyCount}개의 답글` : ''}
           </div>
         </div>
+
+        {/* S38 (FR-TH-08): 알림 레벨 벨 드롭다운(ALL/MENTIONS/OFF). 기존 DS
+            DropdownRoot/Trigger/Content/Item primitive 재사용 — 신규 DS 0. 구독
+            없던 사용자도 여기서 ALL 로 수동 구독된다(서버 upsert). */}
+        <DropdownRoot>
+          <DropdownTrigger asChild>
+            <button
+              type="button"
+              data-testid="thread-notif-bell"
+              aria-label="스레드 알림 설정"
+              className="qf-thread-panel__close"
+            >
+              <Icon name={notifLevel === 'OFF' ? 'bell-off' : 'bell'} size="sm" />
+            </button>
+          </DropdownTrigger>
+          <DropdownContent align="end">
+            {(['ALL', 'MENTIONS', 'OFF'] as const).map((lvl) => (
+              <DropdownItem
+                key={lvl}
+                onSelect={() => {
+                  setNotifLevel(lvl);
+                  setLevel.mutate(lvl);
+                }}
+              >
+                <span data-testid={`thread-notif-${lvl}`}>
+                  {lvl === 'ALL' ? '모든 답글' : lvl === 'MENTIONS' ? '멘션만' : '알림 끔'}
+                  {notifLevel === lvl ? ' ✓' : ''}
+                </span>
+              </DropdownItem>
+            ))}
+          </DropdownContent>
+        </DropdownRoot>
+
+        {/* S38 (FR-TH-13): OWNER/ADMIN 잠금/해제 토글. MEMBER 이하는 버튼 미노출
+            (잠금 아이콘 표식만 본다). 잠금 시 lock, 해제 가능 시도 동일 아이콘 +
+            aria-label 로 의도 구분. */}
+        {isModerator ? (
+          <button
+            type="button"
+            data-testid="thread-lock-toggle"
+            onClick={() => setLock.mutate(!locked)}
+            aria-label={locked ? '스레드 잠금 해제' : '스레드 잠그기'}
+            className="qf-thread-panel__close"
+          >
+            <Icon name="lock" size="sm" className={locked ? undefined : 'qf-icon--muted'} />
+          </button>
+        ) : null}
+
         {mobile ? null : (
           <button
             type="button"
@@ -419,6 +508,9 @@ export function ThreadPanel({
         rootId={rootId}
         channelName={channelName}
         disabled={reply.isPending}
+        // S38 (FR-TH-13): 잠긴 스레드에서 MEMBER 이하는 composer 가 잠긴다(읽기
+        // 전용). OWNER/ADMIN 은 잠겨 있어도 답글 가능(서버 게이트 면제와 일치).
+        locked={locked && !isModerator}
         onSubmit={(content, isBroadcast) =>
           reply.mutate({
             content,
@@ -492,12 +584,17 @@ function ThreadComposer({
   channelName,
   onSubmit,
   disabled,
+  locked = false,
 }: {
   rootId: string;
   channelName?: string;
   // S35 (FR-TH-06): 두 번째 인자로 'Also send to #channel' 체크 상태를 넘긴다.
   onSubmit: (content: string, isBroadcast: boolean) => void;
   disabled: boolean;
+  // S38 (FR-TH-13): 잠긴 스레드 + 비-OWNER/ADMIN 이면 true → composer 비활성 +
+  // placeholder '스레드가 잠겨 있습니다'. dispatcher 의 thread:lock:changed 수신으로
+  // 루트 DTO 가 갱신되면 이 값이 실시간으로 바뀐다.
+  locked?: boolean;
 }): JSX.Element {
   // Persist the draft via compose-store keyed by thread:<rootId> so
   // closing + reopening the panel (or `?thread=` URL reload) keeps
@@ -523,6 +620,9 @@ function ThreadComposer({
   }, [draft]);
 
   const submit = (): void => {
+    // S38 (FR-TH-13): 잠긴 스레드는 제출을 막는다(서버도 403 으로 거부하나,
+    // 클라에서 미리 차단해 헛된 낙관적 삽입/롤백을 피한다).
+    if (locked) return;
     const trimmed = draft.trim();
     if (!trimmed) return;
     onSubmit(trimmed, broadcast);
@@ -552,6 +652,8 @@ function ThreadComposer({
           aria-label="스레드 답장"
           value={draft}
           rows={1}
+          // S38 (FR-TH-13): 잠긴 스레드는 입력 비활성 + 안내 placeholder.
+          disabled={locked}
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => {
             // task-021-R1-ime-enter-half-sends: guard against Enter
@@ -565,8 +667,8 @@ function ThreadComposer({
             }
           }}
           maxLength={4000}
-          placeholder="스레드에 답글…"
-          className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
+          placeholder={locked ? '스레드가 잠겨 있습니다' : '스레드에 답글…'}
+          className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text disabled:cursor-not-allowed"
           // task-041 D: textarea sizing — minHeight matches the qf-input
           // 1-line baseline (22 ≈ --s-7), maxHeight = 8 × line-height
           // before internal scroll kicks in.
@@ -594,7 +696,7 @@ function ThreadComposer({
         type="submit"
         hidden
         data-testid="thread-send"
-        disabled={disabled || draft.trim().length === 0}
+        disabled={locked || disabled || draft.trim().length === 0}
       />
     </form>
   );

@@ -302,6 +302,17 @@ export class MessagesController {
         name: channel.name ?? null,
       });
     }
+    // S38 (FR-TH-13): 잠긴 스레드 답글 게이트(controller — pin 게이트 패턴 일관,
+    // service 오염 회피). 답글(parentMessageId 보유)이고 루트가 threadLocked 면,
+    // MEMBER 이하는 403 THREAD_LOCKED 로 막고 OWNER/ADMIN 은 면제한다. 잠금은
+    // 루트에만 의미가 있어 isThreadLocked 가 parentMessageId IS NULL 인 루트만
+    // true 로 본다(답글-to-답글은 기존 깊이 가드가 별도로 막는다).
+    if (parsed.data.parentMessageId && !this.isAdminOrOwner(m.role)) {
+      const locked = await this.messages.isThreadLocked(parsed.data.parentMessageId);
+      if (locked) {
+        throw new DomainError(ErrorCode.THREAD_LOCKED, '스레드가 잠겨 있습니다');
+      }
+    }
     await this.rate.enforce([
       { key: `msg:send:u:${user.id}`, windowSec: 10, max: this.rateUserMax() },
       { key: `msg:send:c:${channelId}`, windowSec: 10, max: this.rateChannelMax() },

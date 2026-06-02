@@ -173,6 +173,10 @@ export const MessageDtoSchema = z.object({
   // 끝에 "…"). 클라이언트가 "스레드에 답글" 레이블과 함께 표시한다. broadcast 가
   // 아닌 일반 메시지는 null.
   parentExcerpt: z.string().nullable().default(null),
+  // S38 (FR-TH-13): 스레드 잠금 표식. 루트 메시지에만 의미가 있다(답글은 항상
+  // false). 스레드 패널이 헤더 잠금 아이콘 + composer disabled 판정에 쓴다.
+  // default(false) 라 구 API 빌드 응답(필드 누락)도 forward-compat.
+  threadLocked: z.boolean().default(false),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 
@@ -342,6 +346,62 @@ export const ListThreadRepliesResponseSchema = z.object({
   pageInfo: PageInfoSchema,
 });
 export type ListThreadRepliesResponse = z.infer<typeof ListThreadRepliesResponseSchema>;
+
+// ── S38 (D04 / FR-TH-08/09/10/13) — 스레드 알림 레벨 · Threads 탭 · 잠금 ──────
+
+// FR-TH-08: 스레드 구독 알림 레벨. Prisma ThreadNotificationLevel enum 과 1:1.
+export const ThreadNotificationLevelSchema = z.enum(['ALL', 'MENTIONS', 'OFF']);
+export type ThreadNotificationLevel = z.infer<typeof ThreadNotificationLevelSchema>;
+
+// FR-TH-08: PATCH /users/me/threads/:parentMessageId/subscription body.
+// 구독 없던 사용자도 ALL 로 수동 구독할 수 있다(서버 upsert).
+export const SetThreadNotificationLevelRequestSchema = z.object({
+  notificationLevel: ThreadNotificationLevelSchema,
+});
+export type SetThreadNotificationLevelRequest = z.infer<
+  typeof SetThreadNotificationLevelRequestSchema
+>;
+
+export const SetThreadNotificationLevelResponseSchema = z.object({
+  notificationLevel: ThreadNotificationLevelSchema,
+});
+export type SetThreadNotificationLevelResponse = z.infer<
+  typeof SetThreadNotificationLevelResponseSchema
+>;
+
+// FR-TH-13: PATCH /messages/:id/thread/lock body. OWNER/ADMIN 만(서버 게이트).
+export const SetThreadLockRequestSchema = z.object({
+  locked: z.boolean(),
+});
+export type SetThreadLockRequest = z.infer<typeof SetThreadLockRequestSchema>;
+
+export const SetThreadLockResponseSchema = z.object({
+  parentMessageId: z.string().uuid(),
+  locked: z.boolean(),
+});
+export type SetThreadLockResponse = z.infer<typeof SetThreadLockResponseSchema>;
+
+// FR-TH-09: GET /users/me/threads — 내 구독 스레드 목록(Threads 탭) 항목.
+export const ThreadListItemSchema = z.object({
+  parentMessageId: z.string().uuid(),
+  channelId: z.string().uuid(),
+  channelName: z.string(),
+  // 루트 메시지 평문 excerpt(서버에서 80자 cap).
+  excerpt: z.string(),
+  // 마지막 답글 시각(ISO). 답글 0개면 null.
+  latestReplyAt: z.string().datetime().nullable(),
+  // 마지막 답글 작성자 userId. 답글 0개면 null.
+  lastReplierId: z.string().uuid().nullable(),
+  // 옵션 B 계산값(denormalized 컬럼 없음). 미읽 답글 수.
+  unreadCount: z.number().int().nonnegative(),
+  notificationLevel: ThreadNotificationLevelSchema,
+});
+export type ThreadListItem = z.infer<typeof ThreadListItemSchema>;
+
+export const ListMyThreadsResponseSchema = z.object({
+  threads: z.array(ThreadListItemSchema),
+});
+export type ListMyThreadsResponse = z.infer<typeof ListMyThreadsResponseSchema>;
 
 // S30 (FR-S06): 결과 카드의 전/후 컨텍스트 메시지 한 줄.
 // `senderName` / `text` 는 권한 재검증을 통과한 경우에만 채워집니다.
