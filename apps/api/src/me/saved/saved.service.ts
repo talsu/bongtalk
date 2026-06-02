@@ -152,6 +152,110 @@ export class SavedService {
   }
 
   /**
+   * S52 (FR-PS-08): PATCH /me/saved/:savedMessageId — 저장 항목의 탭(status) 이동.
+   *   - 본인 스코프(`where: { id, userId }`)에 일치하지 않으면 404 SAVED_NOT_FOUND
+   *     (존재 자체를 누출하지 않는 중립 정책).
+   *   - 임의 전이 허용(IN_PROGRESS ↔ ARCHIVED ↔ COMPLETED). 기존 레코드 조작이므로
+   *     SAVED_LIMIT(500) 한도는 재적용하지 않는다.
+   *   - 삭제된 원본(messageDeletedAt≠null) 항목도 전이를 허용한다(완료/보관 분류는
+   *     원본 생존과 무관 — FR-PS-12 잔존 항목 액션 보장).
+   *   - 응답은 갱신된 SavedMessageDto(목록 요약 shape — list 와 동일한 조인).
+   *
+   * 본인 소유 확인은 updateMany(where 에 userId 포함)의 count 로 한다. 0 이면 404 —
+   * 타인 항목/없는 id 를 단건 findUnique 후 분기하는 것보다 IDOR 누출 표면이 작다.
+   */
+  async updateStatus(
+    userId: string,
+    savedMessageId: string,
+    status: SaveStatus,
+  ): Promise<SavedMessageDto> {
+    const updated = await this.prisma.savedMessage.updateMany({
+      where: { id: savedMessageId, userId },
+      data: { status },
+    });
+    if (updated.count === 0) {
+      throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
+    }
+    // 갱신된 항목을 list 와 동일한 요약 조인으로 다시 읽어 DTO 를 만든다(소유 확인이
+    // 통과했으므로 id 만으로 단건 조회 — 원본/채널이 그사이 삭제됐어도 messageDeletedAt
+    // 마스킹으로 안전하게 표현된다).
+    const rows = await this.prisma.$queryRaw<SavedRow[]>`
+      SELECT
+        sm.id                AS "id",
+        sm."messageId"       AS "messageId",
+        sm.status            AS "status",
+        sm."savedAt"         AS "savedAt",
+        sm."messageDeletedAt" AS "messageDeletedAt",
+        LEFT(m."contentPlain", ${EXCERPT_LEN}::int) AS "excerpt",
+        m."authorId"         AS "authorId",
+        m."channelId"        AS "channelId",
+        COALESCE(c."displayName", c."name") AS "channelName"
+      FROM "SavedMessage" sm
+      JOIN "Message" m ON m.id = sm."messageId"
+      JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
+      WHERE sm.id = ${savedMessageId}::uuid
+        AND sm."userId" = ${userId}::uuid
+    `;
+    const row = rows[0];
+    if (!row) {
+      // updateMany 는 성공했으나 채널이 soft-delete 돼 조인(c.deletedAt IS NULL)이
+      // 비는 극단 케이스. 권위 행을 단건 select 로 최소 DTO 를 구성한다.
+      const fallback = await this.prisma.savedMessage.findFirst({
+        where: { id: savedMessageId, userId },
+        select: { id: true, messageId: true, status: true, savedAt: true, messageDeletedAt: true },
+      });
+      if (!fallback) {
+        throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
+      }
+      // Message → SavedMessage 는 onDelete Cascade 이므로(hard-delete 시 함께 삭제)
+      // SavedMessage 가 살아있으면 Message 도 존재한다. 없으면 정합성 깨짐 → 404.
+      const msg = await this.prisma.message.findUnique({
+        where: { id: fallback.messageId },
+        select: { authorId: true, channelId: true },
+      });
+      if (!msg) {
+        throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
+      }
+      // S52 리뷰(security FINDING-2/3 · reviewer nit): 채널 soft-delete 는 메시지
+      // 삭제가 아니므로 messageDeletedAt 에 now() 를 주입하지 않는다(계약 위반 방지) —
+      // 실제 값(없으면 null). channelId 는 실제 채널 id(messageId 로 위장하지 않음).
+      // 채널이 사라졌으므로 본문/채널명은 노출하지 않는다(빈 값).
+      return {
+        id: fallback.id,
+        messageId: fallback.messageId,
+        status: fallback.status,
+        savedAt: fallback.savedAt.toISOString(),
+        messageDeletedAt: fallback.messageDeletedAt
+          ? fallback.messageDeletedAt.toISOString()
+          : null,
+        excerpt: fallback.messageDeletedAt ? DELETED_PLACEHOLDER : '',
+        authorId: msg.authorId,
+        channelId: msg.channelId,
+        channelName: '',
+      };
+    }
+    return this.toDto(row);
+  }
+
+  /**
+   * S52 (FR-PS-13): POST /me/saved/status-bulk — 호출자가 저장한 messageId 집합 조회.
+   * 메시지 툴바 북마크 채움 상태를 채널 진입 시 1회 batch 로 seed 한다(N+1 단건 GET
+   * 금지). 어느 status 든(IN_PROGRESS/ARCHIVED/COMPLETED) 저장돼 있으면 채움(Slack
+   * parity). 본인 스코프 + 요청 id 와의 교집합만 반환하므로 타인 저장은 노출되지 않고,
+   * 비가시/존재하지 않는 메시지 id 는 단순히 결과에서 빠진다(누출 없음).
+   */
+  async statusBulk(userId: string, messageIds: string[]): Promise<string[]> {
+    if (messageIds.length === 0) return [];
+    // 중복 제거(클라이언트 배치가 중복 id 를 보낼 수 있음).
+    const unique = Array.from(new Set(messageIds));
+    const rows = await this.prisma.savedMessage.findMany({
+      where: { userId, messageId: { in: unique } },
+      select: { messageId: true },
+    });
+    return rows.map((r) => r.messageId);
+  }
+
+  /**
    * GET /me/saved — 커서 기반 목록(savedAt DESC + id tie-break). status 필터(기본
    * IN_PROGRESS). 원본 message 요약(excerpt ≤150자 + author + channel)만 조인한다.
    * before 커서는 `${savedAtISO}|${id}` 형식의 opaque 토큰이며, 그보다 오래된

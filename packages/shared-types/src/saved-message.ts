@@ -57,3 +57,32 @@ export const SaveToggleResponseSchema = z.object({
   status: SaveStatusSchema.nullable(),
 });
 export type SaveToggleResponse = z.infer<typeof SaveToggleResponseSchema>;
+
+// S52 (D10 / FR-PS-08): PATCH /me/saved/:savedMessageId — 저장 항목의 탭(status) 이동.
+// 임의 전이를 허용한다(IN_PROGRESS ↔ ARCHIVED ↔ COMPLETED). 한도(SAVED_LIMIT)는 기존
+// 레코드 조작이라 재적용하지 않으며, 삭제된 원본(messageDeletedAt≠null) 항목도 전이를
+// 허용한다(완료/보관 분류는 원본 생존과 무관). 응답은 갱신된 SavedMessageDto(요약 shape).
+// ★경로 파라미터는 SavedMessage.id 다(DELETE 의 :messageId 와 의도된 비대칭 — 목록 항목은
+// item.id 와 item.messageId 를 모두 보유한다).
+export const UpdateSavedStatusBodySchema = z.object({
+  status: SaveStatusSchema,
+});
+export type UpdateSavedStatusBody = z.infer<typeof UpdateSavedStatusBodySchema>;
+
+// S52 (D10 / FR-PS-13): 메시지 툴바 북마크 채움 상태 일괄 초기화 상한. 채널 진입 시
+// 렌더 중인 메시지 id 배치를 1회 조회해 북마크 채움을 seed 한다(N+1 단건 GET 금지).
+export const SAVED_STATUS_BULK_LIMIT = 200;
+
+// POST /me/saved/status-bulk 요청. 가시 메시지 id 배치(≤200). 본인 스코프로만 조회한다.
+export const SavedStatusBulkRequestSchema = z.object({
+  messageIds: z.array(z.string().uuid()).max(SAVED_STATUS_BULK_LIMIT),
+});
+export type SavedStatusBulkRequest = z.infer<typeof SavedStatusBulkRequestSchema>;
+
+// POST /me/saved/status-bulk 응답. 호출자가 저장한(=어느 status 든 — Slack parity:
+// 보관/완료 항목도 북마크 채움) messageId 집합. 요청에 없는 id 나 타인 저장은 포함되지
+// 않는다(본인 스코프 + 교집합).
+export const SavedStatusBulkResponseSchema = z.object({
+  saved: z.array(z.string().uuid()),
+});
+export type SavedStatusBulkResponse = z.infer<typeof SavedStatusBulkResponseSchema>;

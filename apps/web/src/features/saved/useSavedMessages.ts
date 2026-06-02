@@ -1,6 +1,15 @@
+import { useEffect } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
-import { getSavedCount, listSaved, saveMessage, unsaveMessage } from './api';
+import type { SaveStatus, SavedMessageDto, SavedMessageListResponse } from '@qufox/shared-types';
+import { useNotifications } from '../../stores/notification-store';
+import {
+  getSavedCount,
+  listSaved,
+  saveMessage,
+  savedStatusBulk,
+  unsaveMessage,
+  updateSavedStatus,
+} from './api';
 
 // S51 (D10 / FR-PS-07): 개인 저장함 React Query 훅.
 export const savedKeys = {
@@ -58,4 +67,116 @@ export function useToggleSave() {
 export function useIsSaved(messageId: string): boolean {
   const qc = useQueryClient();
   return qc.getQueryData<boolean>(savedKeys.status(messageId)) === true;
+}
+
+/**
+ * S52 (FR-PS-08): 저장 항목의 탭(status) 이동. ★낙관적 — 현재(from) 탭 목록에서
+ * 항목을 즉시 제거하고, 캐시된 대상(to) 탭 목록이 있으면 거기에 끼워 넣는다. 실패하면
+ * onError 가 두 탭 목록을 직전 스냅샷으로 롤백하고 토스트를 띄운다. onSettled 가
+ * from/to 목록 + count 를 무효화해 서버 권위로 재동기화한다.
+ *
+ * ★savedMessageId 는 SavedMessage.id(item.id), messageId 는 item.messageId 다 —
+ * 비대칭 식별자를 둘 다 받아 from 탭 캐시 제거(id 매칭)와 무효화에 사용한다.
+ */
+export function useUpdateSavedStatus() {
+  const qc = useQueryClient();
+  const pushToast = useNotifications((s) => s.push);
+  return useMutation({
+    mutationFn: ({
+      savedMessageId,
+      to,
+    }: {
+      savedMessageId: string;
+      from: SaveStatus;
+      to: SaveStatus;
+    }) => updateSavedStatus(savedMessageId, to),
+    onMutate: async ({ savedMessageId, from, to }) => {
+      await qc.cancelQueries({ queryKey: savedKeys.list(from) });
+      await qc.cancelQueries({ queryKey: savedKeys.list(to) });
+      const prevFrom = qc.getQueryData<SavedMessageListResponse>(savedKeys.list(from));
+      const prevTo = qc.getQueryData<SavedMessageListResponse>(savedKeys.list(to));
+      const moved = prevFrom?.items.find((it) => it.id === savedMessageId);
+      // from 탭에서 즉시 제거.
+      if (prevFrom) {
+        qc.setQueryData<SavedMessageListResponse>(savedKeys.list(from), {
+          ...prevFrom,
+          items: prevFrom.items.filter((it) => it.id !== savedMessageId),
+        });
+      }
+      // 대상 탭이 이미 캐시돼 있고 항목을 알면 맨 위에 끼워 넣는다(없으면 invalidate 가
+      // 채운다 — 미캐시 탭에 임의 삽입하지 않음).
+      if (prevTo && moved) {
+        const next: SavedMessageDto = { ...moved, status: to };
+        qc.setQueryData<SavedMessageListResponse>(savedKeys.list(to), {
+          ...prevTo,
+          items: [next, ...prevTo.items.filter((it) => it.id !== savedMessageId)],
+        });
+      }
+      return { prevFrom, prevTo, from, to };
+    },
+    onError: (_err, _vars, ctx) => {
+      if (!ctx) return;
+      if (ctx.prevFrom !== undefined) qc.setQueryData(savedKeys.list(ctx.from), ctx.prevFrom);
+      if (ctx.prevTo !== undefined) qc.setQueryData(savedKeys.list(ctx.to), ctx.prevTo);
+      pushToast({ variant: 'warning', title: '저장 항목을 이동하지 못했습니다', ttlMs: 4000 });
+    },
+    // S52 리뷰(a11y B-04): 낙관적 이동은 from 탭에서 항목을 즉시 제거해 시각 변화만
+    // 있고 SR 피드백이 없었다. 성공 토스트(role=status·aria-live=polite)로 이동 완료를
+    // 알린다(포커스 소실 시에도 결과 인지 가능).
+    onSuccess: (_data, vars) => {
+      const title =
+        vars.to === 'ARCHIVED'
+          ? '보관함으로 이동했습니다'
+          : vars.to === 'COMPLETED'
+            ? '완료로 이동했습니다'
+            : '진행 중으로 이동했습니다';
+      pushToast({ variant: 'success', title, ttlMs: 2000 });
+    },
+    onSettled: (_data, _err, vars) => {
+      void qc.invalidateQueries({ queryKey: savedKeys.list(vars.from) });
+      void qc.invalidateQueries({ queryKey: savedKeys.list(vars.to) });
+      void qc.invalidateQueries({ queryKey: savedKeys.count() });
+    },
+  });
+}
+
+/**
+ * S52 (FR-PS-13): 채널 진입 시 렌더 중인 메시지 id 배치에 대해 서버 저장(어느 status
+ * 든) 여부를 1회 batch 로 조회해 per-message `savedKeys.status(id)` 캐시를 seed 한다
+ * (N+1 단건 GET 금지). 저장된 id 는 true, 그 외(요청에 포함됐으나 미저장)는 false 로
+ * 명시 seed 해 빈 북마크/채운 북마크가 서버 상태와 일치하게 만든다. 토글 캐시가 이미
+ * 있으면(낙관적 갱신 직후) 덮어쓰지 않는다.
+ */
+export function useInitSavedStatus(messageIds: string[]): void {
+  const qc = useQueryClient();
+  // S52 리뷰(perf SERIOUS): 종전엔 key=전체 messageIds 정렬이라 WS 로 새 메시지가
+  // 도착할 때마다(messageIds 에 +1) key 가 바뀌어 **전체 배치를 재 POST** 했다. 활성
+  // 채널에서 메시지 수신마다 50~100개 id bulk 호출이 반복됐다. 이미 seed 된(캐시에
+  // status 가 있는) id 를 제외하고 **미seed id 만** 추려, 그것이 있을 때만 그 부분만
+  // 조회한다(증분). 신규 메시지 1개 도착 → pending=[새 id] → POST 1개. 신규 없음 → 무호출.
+  const pending = messageIds.filter((id) => qc.getQueryData(savedKeys.status(id)) === undefined);
+  const key = [...pending].sort().join(',');
+  useEffect(() => {
+    if (pending.length === 0) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const res = await savedStatusBulk(pending);
+        if (cancelled) return;
+        const savedSet = new Set(res.saved);
+        for (const id of pending) {
+          // 이미 토글 캐시가 있으면(사용자 액션 직후) 서버 seed 로 덮어쓰지 않는다.
+          if (qc.getQueryData(savedKeys.status(id)) !== undefined) continue;
+          qc.setQueryData<boolean>(savedKeys.status(id), savedSet.has(id));
+        }
+      } catch {
+        // seed 실패는 무해(북마크가 빈 상태로 남을 뿐) — 토스트/throw 하지 않는다.
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // key 는 미seed pending id 집합이므로, seed 완료 후 재렌더 시 pending 이 줄어
+    // 재호출되지 않는다. qc 는 안정 참조, pending 은 본문에서 클로저로 캡처돼 key 와 동기다.
+  }, [key, qc]);
 }
