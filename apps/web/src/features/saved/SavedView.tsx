@@ -1,11 +1,17 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { SaveStatus } from '@qufox/shared-types';
 import { SavedItem } from './SavedItem';
-import { useSavedCount, useSavedList, useToggleSave } from './useSavedMessages';
+import {
+  useSavedCount,
+  useSavedList,
+  useToggleSave,
+  useUpdateSavedStatus,
+} from './useSavedMessages';
 
-// S51 (D10 / FR-PS-07): 개인 저장함 3탭 뷰. Slack Later 3탭(진행 중 / 보관 / 완료)에
-// 1:1 대응한다. S51 은 IN_PROGRESS 만 채워지며(탭 간 이동/완료 표시는 S52/FR-PS-08
-// carryover), ARCHIVED/COMPLETED 탭은 현재 빈 상태로 표시된다.
+// S51 (D10 / FR-PS-07) + S52 (FR-PS-08): 개인 저장함 3탭 뷰. Slack Later 3탭(진행 중 /
+// 보관 / 완료)에 1:1 대응한다. S52 부터 항목을 탭 간 이동(PATCH status)할 수 있어
+// ARCHIVED/COMPLETED 탭도 채워진다. 항목별 액션은 SavedItem 의 완료 인라인 체크 +
+// "⋯" 드롭다운에서 제공한다(탭별 가용 액션).
 const TABS: { id: SaveStatus; label: string }[] = [
   { id: 'IN_PROGRESS', label: '진행 중' },
   { id: 'ARCHIVED', label: '보관' },
@@ -17,6 +23,7 @@ export function SavedView(): JSX.Element {
   const list = useSavedList(active);
   const count = useSavedCount();
   const toggle = useToggleSave();
+  const move = useUpdateSavedStatus();
 
   const items = list.data?.items ?? [];
 
@@ -90,6 +97,7 @@ export function SavedView(): JSX.Element {
                 key={item.id}
                 item={item}
                 onUnsave={(messageId) => toggle.mutate({ messageId, currentlySaved: true })}
+                onMove={(savedMessageId, from, to) => move.mutate({ savedMessageId, from, to })}
               />
             ))}
           </ul>

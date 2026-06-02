@@ -2,7 +2,9 @@ import { apiRequest } from '../../lib/api';
 import type {
   SaveStatus,
   SavedCountResponse,
+  SavedMessageDto,
   SavedMessageListResponse,
+  SavedStatusBulkResponse,
   SaveToggleResponse,
 } from '@qufox/shared-types';
 
@@ -28,4 +30,25 @@ export function saveMessage(messageId: string): Promise<SaveToggleResponse> {
 
 export function unsaveMessage(messageId: string): Promise<SaveToggleResponse> {
   return apiRequest(`/me/saved/${messageId}`, { method: 'DELETE' });
+}
+
+// S52 (FR-PS-08): 저장 항목의 탭(status) 이동. ★savedMessageId 는 SavedMessage.id
+// (item.id) 이며 messageId(item.messageId)와 다르다 — 의도된 비대칭.
+export function updateSavedStatus(
+  savedMessageId: string,
+  status: SaveStatus,
+): Promise<SavedMessageDto> {
+  return apiRequest(`/me/saved/${savedMessageId}`, {
+    method: 'PATCH',
+    body: { status },
+  });
+}
+
+// S52 (FR-PS-13): 메시지 id 배치(≤200)에 대한 저장(어느 status 든) 여부 일괄 조회.
+// 채널 진입 시 북마크 채움 상태를 1회 batch 로 seed 한다(N+1 단건 GET 금지).
+export function savedStatusBulk(messageIds: string[]): Promise<SavedStatusBulkResponse> {
+  return apiRequest('/me/saved/status-bulk', {
+    method: 'POST',
+    body: { messageIds },
+  });
 }
