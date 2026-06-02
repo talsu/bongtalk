@@ -158,7 +158,11 @@ export function FavoritesSection({
   }
 
   return (
-    <section data-testid="favorites-section" className="rounded-[var(--r-md)]">
+    <section
+      data-testid="favorites-section"
+      aria-label="즐겨찾기"
+      className="rounded-[var(--r-md)]"
+    >
       <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
         <span className="flex min-w-0 flex-1 items-center truncate">즐겨찾기</span>
       </div>

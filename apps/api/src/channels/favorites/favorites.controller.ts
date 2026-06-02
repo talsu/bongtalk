@@ -13,6 +13,7 @@ import {
 import { MoveFavoriteRequestSchema } from '@qufox/shared-types';
 import { FavoritesService } from './favorites.service';
 import { ChannelAccessGuard } from '../guards/channel-access.guard';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { WorkspaceMemberGuard } from '../../workspaces/guards/workspace-member.guard';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 import { DomainError } from '../../common/errors/domain-error';
@@ -77,7 +78,11 @@ export class FavoritesController {
  * S43 (FR-CH-15): 전체 즐겨찾기 목록 (개인 스코프, 워크스페이스 무관).
  * 사이드바 Favorites 섹션이 현재 워크스페이스 채널 id 와 교집합해 렌더한다 —
  * 다른 워크스페이스 채널 즐겨찾기는 클라가 무시한다(여기서는 전체 반환).
+ *
+ * 전역 JwtAuthGuard 가 이미 적용되지만, @Public 실수로 인증이 빠지는 일을
+ * 막고 자기문서화를 위해 명시적으로 가드를 선언한다(기능 무변경).
  */
+@UseGuards(JwtAuthGuard)
 @Controller('me/favorites')
 export class MeFavoritesController {
   constructor(private readonly favorites: FavoritesService) {}

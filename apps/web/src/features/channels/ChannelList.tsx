@@ -101,13 +101,20 @@ function DropLine(): JSX.Element {
 
 // S43 (FR-CH-17): 뮤트 지속시간 선택지(PRD 정본 순서). 컨텍스트 메뉴에 평탄
 // 항목으로 펼친다(신규 DS 서브메뉴 primitive 도입 없이 기존 qf-menu 재사용).
-const MUTE_DURATIONS: ReadonlyArray<{ key: MuteDurationKey; label: string }> = [
-  { key: '15m', label: '15분' },
-  { key: '1h', label: '1시간' },
-  { key: '3h', label: '3시간' },
-  { key: '8h', label: '8시간' },
-  { key: '24h', label: '24시간' },
-  { key: 'forever', label: '무기한' },
+// a11y BLOCKER-4: 시각상 그룹 헤더("채널 뮤트")가 항목과 분리돼 SR 이 맥락을
+// 잃으므로, 각 항목에 "뮤트 N" 형태의 ariaLabel 을 부여해 항목 단독으로도
+// 의미가 통하게 한다(무기한은 "무기한 뮤트").
+const MUTE_DURATIONS: ReadonlyArray<{
+  key: MuteDurationKey;
+  label: string;
+  ariaLabel: string;
+}> = [
+  { key: '15m', label: '15분', ariaLabel: '뮤트 15분' },
+  { key: '1h', label: '1시간', ariaLabel: '뮤트 1시간' },
+  { key: '3h', label: '3시간', ariaLabel: '뮤트 3시간' },
+  { key: '8h', label: '8시간', ariaLabel: '뮤트 8시간' },
+  { key: '24h', label: '24시간', ariaLabel: '뮤트 24시간' },
+  { key: 'forever', label: '무기한', ariaLabel: '무기한 뮤트' },
 ];
 
 // S43 (FR-CH-14): 접기/펼치기 화살표. chevron-down 아이콘을 collapsed 면 -90도
@@ -329,12 +336,25 @@ function DraggableChannelRow({
                 </DropdownItem>
               ) : (
                 <>
-                  <div className="qf-menu__item opacity-50" aria-hidden role="presentation">
+                  {/* a11y BLOCKER-4 + DS MED: 그룹 헤더는 시각적으로 약하게(매직넘버
+                      opacity-50 제거 → DS --text-muted 토큰) 표시하되, 각 duration
+                      항목 자체에 aria-label("뮤트 15분" 등)을 붙여 SR 이 "무엇의
+                      선택지"인지 항목 단독으로도 알 수 있게 한다(헤더는 aria-hidden). */}
+                  <div
+                    className="qf-menu__item text-[color:var(--text-muted)]"
+                    aria-hidden
+                    role="presentation"
+                  >
                     채널 뮤트
                   </div>
                   {MUTE_DURATIONS.map((d) => (
                     <DropdownItem key={d.key} onSelect={() => onSetMute(channel.id, d.key)}>
-                      <span data-testid={`channel-mute-${d.key}-${channel.name}`}>{d.label}</span>
+                      <span
+                        data-testid={`channel-mute-${d.key}-${channel.name}`}
+                        aria-label={d.ariaLabel}
+                      >
+                        {d.label}
+                      </span>
                     </DropdownItem>
                   ))}
                 </>
@@ -356,8 +376,12 @@ function DefaultSectionHeader({
 }): JSX.Element {
   return (
     <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
-      <span className="truncate">
-        <span aria-hidden="true">▾ </span>채널
+      {/* a11y MINOR-1 + DS LOW: 유니코드 글리프 `▾` 대신 DS chevron-down 아이콘을
+          쓴다(시각 일관성·폰트 의존 제거). 기본 섹션은 접기 불가이므로 정적
+          아이콘이며 aria-hidden 으로 SR 에서 숨긴다(섹션 의미는 aria-label 이 전함). */}
+      <span className="flex min-w-0 items-center truncate">
+        <Icon name="chevron-down" size="sm" aria-hidden className="qf-icon--muted shrink-0" />
+        <span className="truncate pl-[var(--s-1)]">채널</span>
       </span>
       {canManage ? (
         <button
@@ -453,14 +477,14 @@ function SortableCategorySection({
         style={sectionStyle}
         data-testid={`channel-cat-${category.name}-section`}
         data-section-id={category.id}
+        aria-label={category.name}
         className="rounded-[var(--r-md)]"
       >
         <div className="qf-category flex items-center justify-between pr-[var(--s-2)]">
           {/* S43 (FR-CH-14): 카테고리 헤더를 접기/펼치기 토글 버튼으로. aria-expanded
-              로 상태를 SR 에 노출하고, 화살표(▾)를 collapsed 면 -90deg 회전시킨다
+              로 상태를 SR 에 노출하고, 화살표를 collapsed 면 -90deg 회전시킨다
               (DS 토큰 --dur-fast/--ease-standard transition, raw px/hex 금지). 드래그
               핸들(canManage 시)은 별도 span 으로 분리해 토글 클릭과 충돌하지 않게 한다. */}
-          <CollapseArrow collapsed={collapsed} />
           {canManage ? (
             <span
               {...attributes}
@@ -476,11 +500,17 @@ function SortableCategorySection({
             type="button"
             onClick={onToggleCollapse}
             aria-expanded={!collapsed}
+            aria-controls={`channels-cat-${category.id}`}
             data-testid={`category-collapse-${category.name}`}
             aria-label={`카테고리 ${category.name} ${collapsed ? '펼치기' : '접기'}`}
             className="flex min-w-0 flex-1 items-center truncate bg-transparent pl-[var(--s-1)] text-left"
           >
-            {category.name}
+            {/* a11y MINOR-1: CollapseArrow 를 토글 버튼의 첫 자식으로 둬 시각-DOM
+                순서를 일치시킨다(pointer-events-none·aria-hidden 으로 시각 전용). */}
+            <span className="pointer-events-none flex shrink-0 items-center">
+              <CollapseArrow collapsed={collapsed} />
+            </span>
+            <span className="truncate pl-[var(--s-1)]">{category.name}</span>
           </button>
           {canManage ? (
             <button
@@ -497,7 +527,8 @@ function SortableCategorySection({
         {/* S43 (FR-CH-14): collapsed 면 채널 목록을 미렌더(드래그 컨텍스트는 유지). */}
         {collapsed ? null : (
           <SortableContext items={channels.map((c) => c.id)} strategy={() => null}>
-            <ul className="mt-1 min-h-[var(--s-5)]">
+            {/* a11y MODERATE-1: 토글 버튼의 aria-controls 가 가리키는 채널 목록 id. */}
+            <ul id={`channels-cat-${category.id}`} className="mt-1 min-h-[var(--s-5)]">
               {channels.map((ch) => {
                 const u = unreadByChannel.get(ch.id);
                 const isActive = activeChannelName === ch.name;
@@ -577,6 +608,7 @@ function DefaultSection({
       ref={setNodeRef}
       data-testid="channel-default-section"
       data-section-id={ROOT_CATEGORY_ID}
+      aria-label="채널"
       className="rounded-[var(--r-md)]"
     >
       <DefaultSectionHeader onAddChannel={onAddChannel} canManage={canManage} />

@@ -110,6 +110,91 @@ describe('FR-CH-15 채널 즐겨찾기 (실DB)', () => {
     expect(list3.body.items.map((x: { channelId: string }) => x.channelId)).toEqual([c, b]);
   }, 60_000);
 
+  it('동시 병렬 추가는 멱등 — 둘 다 200·행 1개·500 없음(P2002 캐치)', async () => {
+    // S43 review MAJOR: addFavorite 가 findUnique→create 라 동시 더블클릭 시
+    // @@unique 위반(P2002)이 캐치되지 않으면 500(멱등 위반). 같은 (user,channel)
+    // 에 두 요청을 병렬로 던져 둘 다 200·행 1개임을 확인한다.
+    const ws = seed.workspaceId;
+    const tok = seed.member.accessToken;
+    const ch = await createChannel(`fav-par-${Date.now().toString(36)}`);
+
+    const [r1, r2] = await Promise.all([
+      request(env.baseUrl)
+        .post(`/workspaces/${ws}/channels/${ch}/favorite`)
+        .set('origin', ORIGIN)
+        .set(bearer(tok)),
+      request(env.baseUrl)
+        .post(`/workspaces/${ws}/channels/${ch}/favorite`)
+        .set('origin', ORIGIN)
+        .set(bearer(tok)),
+    ]);
+    // 둘 다 멱등 성공(200). 어느 쪽도 500 이 아니어야 한다.
+    expect(r1.status).toBe(200);
+    expect(r2.status).toBe(200);
+    expect(r1.body.channelId).toBe(ch);
+    expect(r2.body.channelId).toBe(ch);
+
+    const cnt = await env.prisma.userChannelFavorite.count({
+      where: { userId: seed.member.userId, channelId: ch },
+    });
+    expect(cnt).toBe(1);
+  }, 60_000);
+
+  it('재정렬 anchor 가 즐겨찾기에 없으면 404(silent append 폴백 제거)', async () => {
+    // S43 review MED: afterId/beforeId 가 제공됐는데 해당 anchor 가 사용자
+    // 즐겨찾기에 없으면 무음 말단 append 대신 FAVORITE_NOT_FOUND(404).
+    const ws = seed.workspaceId;
+    const tok = seed.member.accessToken;
+    const target = await createChannel(`fav-mvtgt-${Date.now().toString(36)}`);
+    const orphan = await createChannel(`fav-mvorp-${Date.now().toString(36)}`);
+
+    // target 만 즐겨찾기에 추가(orphan 은 채널이지만 즐겨찾기 아님 = stale anchor).
+    const add = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/channels/${target}/favorite`)
+      .set('origin', ORIGIN)
+      .set(bearer(tok));
+    expect(add.status).toBe(200);
+
+    // beforeId 가 즐겨찾기 아닌 채널 → 404
+    const mvBefore = await request(env.baseUrl)
+      .patch(`/workspaces/${ws}/channels/${target}/favorite/position`)
+      .set('origin', ORIGIN)
+      .set(bearer(tok))
+      .send({ beforeId: orphan });
+    expect(mvBefore.status).toBe(404);
+    expect(mvBefore.body.errorCode).toBe('FAVORITE_NOT_FOUND');
+
+    // afterId 동일하게 404
+    const mvAfter = await request(env.baseUrl)
+      .patch(`/workspaces/${ws}/channels/${target}/favorite/position`)
+      .set('origin', ORIGIN)
+      .set(bearer(tok))
+      .send({ afterId: orphan });
+    expect(mvAfter.status).toBe(404);
+    expect(mvAfter.body.errorCode).toBe('FAVORITE_NOT_FOUND');
+  }, 60_000);
+
+  it('self-reference anchor(대상=anchor)는 VALIDATION_FAILED(400)', async () => {
+    // S43 review LOW: 이동 대상 channelId 와 anchor 가 동일하면 position 조기소진
+    // 방지를 위해 진입부에서 거부한다.
+    const ws = seed.workspaceId;
+    const tok = seed.member.accessToken;
+    const self = await createChannel(`fav-self-${Date.now().toString(36)}`);
+    const add = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/channels/${self}/favorite`)
+      .set('origin', ORIGIN)
+      .set(bearer(tok));
+    expect(add.status).toBe(200);
+
+    const mv = await request(env.baseUrl)
+      .patch(`/workspaces/${ws}/channels/${self}/favorite/position`)
+      .set('origin', ORIGIN)
+      .set(bearer(tok))
+      .send({ beforeId: self });
+    expect(mv.status).toBe(400);
+    expect(mv.body.errorCode).toBe('VALIDATION_FAILED');
+  }, 60_000);
+
   it('비가시 비공개 채널 즐겨찾기는 ChannelAccessGuard 로 차단', async () => {
     const ws = seed.workspaceId;
     // owner 가 비공개 채널 생성 → member 는 비가시

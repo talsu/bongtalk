@@ -49,11 +49,26 @@ export class FavoritesService {
         select: { position: true },
       });
       const position = calcBetween(last?.position ?? null, null);
-      const row = await tx.userChannelFavorite.create({
-        data: { userId, channelId, position },
-        select: { channelId: true, position: true, createdAt: true },
-      });
-      return row;
+      try {
+        const row = await tx.userChannelFavorite.create({
+          data: { userId, channelId, position },
+          select: { channelId: true, position: true, createdAt: true },
+        });
+        return row;
+      } catch (e) {
+        // 동시 더블클릭/재시도로 같은 (userId, channelId) 가 그 사이에 먼저
+        // 커밋되면 @@unique 가 P2002 로 막는다. 추가는 멱등이어야 하므로
+        // 500 을 던지지 않고 기존 행을 재조회해 반환한다(position 보존).
+        // sibling channels.service.create 의 P2002 처리와 동일 규약.
+        if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+          const winner = await tx.userChannelFavorite.findUnique({
+            where: { userId_channelId: { userId, channelId } },
+            select: { channelId: true, position: true, createdAt: true },
+          });
+          if (winner) return winner;
+        }
+        throw e;
+      }
     });
   }
 
@@ -85,6 +100,15 @@ export class FavoritesService {
     channelId: string,
     input: MoveFavoriteRequest,
   ): Promise<FavoriteRow> {
+    // self-reference anchor 방어: anchor 가 이동 대상 자신을 가리키면 자기
+    // position 을 기준으로 calcBetween 을 호출해 인접 차를 즉시 소진시키므로
+    // (조기 재정규화 유발) 진입부에서 거부한다. beforeId/afterId 둘 다 검사.
+    if (input.afterId === channelId || input.beforeId === channelId) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'anchor must reference a different channel',
+      );
+    }
     return this.prisma.$transaction(async (tx) => {
       const current = await tx.userChannelFavorite.findUnique({
         where: { userId_channelId: { userId, channelId } },
@@ -108,6 +132,16 @@ export class FavoritesService {
             })
           : Promise.resolve(null),
       ]);
+
+      // anchor 가 제공됐는데 사용자의 즐겨찾기 목록에 없으면(해제됐거나 타인
+      // 소유) 무음 말단 append 폴백 대신 404 로 거부한다 — 클라가 stale anchor
+      // 임을 알고 목록을 재조회하도록. 둘 다 미제공인 경우만 말단 append 유지.
+      if (input.afterId && !after) {
+        throw new DomainError(ErrorCode.FAVORITE_NOT_FOUND, 'afterId anchor not found');
+      }
+      if (input.beforeId && !before) {
+        throw new DomainError(ErrorCode.FAVORITE_NOT_FOUND, 'beforeId anchor not found');
+      }
 
       let prev = after?.position ?? null;
       let next = before?.position ?? null;
