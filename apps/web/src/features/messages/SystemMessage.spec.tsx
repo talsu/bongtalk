@@ -15,6 +15,7 @@ function makeMsg(type: MessageType, contentRaw: string): MessageDto {
     content: contentRaw,
     contentRaw,
     contentAst: null,
+    contentPlain: contentRaw,
     type,
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,

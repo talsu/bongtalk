@@ -1,5 +1,6 @@
 import { apiRequest } from '../../lib/api';
 import type {
+  ListEditHistoryResponse,
   ListMessagesQuery,
   ListMessagesResponse,
   ListPinsResponse,
@@ -110,6 +111,22 @@ export function unpinMessage(
 
 export function listPins(wsId: string, channelId: string): Promise<ListPinsResponse> {
   return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/pins`);
+}
+
+/**
+ * S37 (FR-MSG-08): 메시지 편집 이력 조회. 서버는 작성자 본인 또는
+ * 모더레이터(OWNER/ADMIN, S05 보수 게이트 — D12 권한수렴 전까지 유지)만
+ * 200 을 돌려주고, 그 외에는 403(MESSAGE_NOT_AUTHOR) 입니다. 응답은 version
+ * desc, 최대 EDIT_HISTORY_CAP(10)개입니다. DM(wsId=null) 채널은 편집 이력
+ * 엔드포인트가 워크스페이스 스코프에만 존재하므로 호출자가 wsId 보유 시에만
+ * 트리거합니다(팝오버 자체를 wsId 있는 경우로 게이트).
+ */
+export function getEditHistory(
+  wsId: string,
+  channelId: string,
+  msgId: string,
+): Promise<ListEditHistoryResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}/history`);
 }
 
 /**

@@ -2,13 +2,20 @@ import { useCallback, useEffect, useRef } from 'react';
 import {
   useInfiniteQuery,
   useMutation,
+  useQuery,
   useQueryClient,
   type InfiniteData,
   type QueryClient,
 } from '@tanstack/react-query';
-import type { ListMessagesQuery, ListMessagesResponse, MessageDto } from '@qufox/shared-types';
+import type {
+  ListEditHistoryResponse,
+  ListMessagesQuery,
+  ListMessagesResponse,
+  MessageDto,
+} from '@qufox/shared-types';
 import {
   deleteMessage,
+  getEditHistory,
   listMessages,
   pinMessage,
   sendMessage,
@@ -256,6 +263,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         // 때 contentAst 가 채워집니다.
         contentRaw: content,
         contentAst: null,
+        // S37 (FR-MSG-17): optimistic 메시지는 아직 서버 파싱 전이라 평문 정본도
+        // 원문(content)을 그대로 쓴다. 서버 에코로 교체될 때 파서 평문으로 갱신된다.
+        contentPlain: content,
         // S04: optimistic 메시지는 항상 일반 메시지(DEFAULT).
         type: 'DEFAULT',
         mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
@@ -465,6 +475,74 @@ export function useUnpinMessage(wsId: string | null, channelId: string) {
         ttlMs: 5000,
       });
     },
+  });
+}
+
+/**
+ * S37 (FR-MSG-08): 메시지 편집 이력 조회 훅. 팝오버가 열렸을 때만(`enabled`)
+ * fetch 합니다 — 매 메시지마다 선행 요청하지 않습니다. wsId 가 null(DM)이면
+ * 서버에 워크스페이스 스코프 history 엔드포인트가 없으므로 비활성입니다.
+ * 권한 없음(403 MESSAGE_NOT_AUTHOR)은 react-query 의 error 상태로 흐르며,
+ * 팝오버 컴포넌트가 친절 메시지로 처리합니다(재시도 불필요 — 권한은 안 바뀜).
+ */
+export function useEditHistory(
+  wsId: string | null,
+  channelId: string,
+  msgId: string,
+  enabled: boolean,
+) {
+  return useQuery<ListEditHistoryResponse>({
+    // S37 보안 fix-forward: 키에 wsId/channelId 를 포함해 스코프를 명시한다
+    // (DM 센티넬 'global'). 범위 격리 + 디스패처 무효화 키와 정합.
+    queryKey: qk.messages.editHistory(wsId ?? 'global', channelId, msgId),
+    queryFn: () => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 편집 이력을 지원하지 않습니다'));
+      }
+      return getEditHistory(wsId, channelId, msgId);
+    },
+    enabled: enabled && !!wsId && !!channelId && !!msgId,
+    // 권한 거부(403)는 재시도해도 동일하므로 자동 재시도를 끈다.
+    retry: false,
+    // S37 보안 fix-forward: 역할 강등(예: ADMIN→MEMBER) 후 stale 이력이 노출되는
+    // 창을 최소화한다 — staleTime 30s → 5s 이하 + gcTime:0(팝오버 닫힘 시 즉시
+    // 파기). 재편집 시 stale 스냅샷은 dispatcher 의 message.updated 무효화가
+    // 추가로 막는다.
+    staleTime: 5_000,
+    gcTime: 0,
+  });
+}
+
+/**
+ * S37 fix-forward (BLOCKER-1): permalink(`?msg=`) 점프 전용 one-shot around 로드.
+ *
+ * 문제: 메인 list 쿼리는 `messages.list(wsId, channelId)` 키만 쓰므로,
+ * jumpMessageId 가 around arg 로 바뀌어도 채널이 이미 캐시돼 있으면 queryFn 이
+ * 재실행되지 않는다(키 불변 → 캐시 hit). 그 결과 window-밖에 존재하는 메시지로
+ * 점프해도 around-load 가 발화되지 않아, "목록에 없음"을 곧 not-found 로 오판해
+ * 거짓 토스트가 떴다(BLOCKER-1).
+ *
+ * 해결: 점프 대상 단위로 키잉한 별도 around 쿼리를 둔다. 메인 list 캐시와
+ * 분리(`jumpAround` 키)되어 캐시 오염이 없고, gcTime:0 으로 소비 후 즉시 파기된다.
+ * 이 쿼리의 settled 상태 + 결과(대상 id 포함 여부 / 404)가 toast 판정과 cache
+ * seed(스크롤 가능하도록 메인 list 를 around 결과로 교체)의 단일 출처가 된다.
+ *
+ * DM(wsId=null)도 around 를 지원하므로 동작한다(키는 'global' 센티넬).
+ * jumpMessageId 가 null 이면 비활성(`enabled:false`).
+ */
+export function useJumpAround(
+  wsId: string | null,
+  channelId: string,
+  jumpMessageId?: string | null,
+) {
+  return useQuery<ListMessagesResponse>({
+    queryKey: qk.messages.jumpAround(wsId ?? 'global', channelId, jumpMessageId ?? ''),
+    queryFn: () => listMessages(wsId, channelId, { limit: 50, around: jumpMessageId ?? undefined }),
+    enabled: !!channelId && !!jumpMessageId,
+    // 404(MESSAGE_NOT_FOUND anchor)는 재시도해도 동일 — 자동 재시도 끈다.
+    retry: false,
+    gcTime: 0,
+    staleTime: 0,
   });
 }
 

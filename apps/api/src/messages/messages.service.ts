@@ -81,6 +81,11 @@ type MessageRow = {
   authorId: string;
   content: string;
   contentPlain: string;
+  // S37 (FR-MSG-17): 평문 정본의 신규 슬롯(expand-contract). send/update 가
+  // contentPlainV2 를 채우며, legacy `contentPlain` 은 backfill 전 row 의
+  // 폴백입니다. SELECT 경로에서 미선택일 수 있어 옵셔널로 둡니다 — toDto 가
+  // `contentPlainV2 ?? contentPlain` 순으로 와이어 평문을 정합니다.
+  contentPlainV2?: string | null;
   // S02 (ADR-2 / FR-RC02): rich content 컬럼. S01 additive 컬럼이므로
   // 기존 row 는 NULL — 신규 write 경로(send/update)가 채웁니다. SELECT
   // 경로에서 미선택(undefined)일 수 있어 옵셔널로 둡니다.
@@ -154,6 +159,9 @@ export type MessageDto = {
   // deleted 메시지는 마스킹되어 둘 다 null.
   contentRaw: string | null;
   contentAst: RichTextRoot | null;
+  // S37 (FR-MSG-17): 평문 정본. "메시지 복사" 가 마크다운 대신 사람이 읽는
+  // 평문을 복사하도록 노출합니다. deleted 메시지는 content 와 동일 정책으로 null.
+  contentPlain: string | null;
   // S04 (ADR-2 / FR-MSG-19): 메시지 타입. SYSTEM_* 는 시스템 행 렌더 +
   // grouped=false + 편집/삭제 UI 숨김의 클라이언트 분기 키.
   type: MessageType;
@@ -284,6 +292,10 @@ export class MessagesService {
       // contentRaw 정규식 폴백 렌더를 씁니다.
       contentRaw: isDeleted ? null : (row.contentRaw ?? row.content),
       contentAst: isDeleted ? null : ((row.contentAst as RichTextRoot | null) ?? null),
+      // S37 (FR-MSG-17): 평문 정본. 신규 슬롯(contentPlainV2) 우선, 없으면 legacy
+      // contentPlain 폴백, 그래도 없으면 null. deleted 메시지는 content/contentRaw
+      // 마스킹과 동일 정책으로 null 로 가린다(편집 전 평문 누출 방지).
+      contentPlain: isDeleted ? null : (row.contentPlainV2 ?? row.contentPlain ?? null),
       // S04: SYSTEM 메시지는 삭제돼도 type 을 유지(삭제 placeholder 분기와
       // 무관). 기존 row(type 미선택/NULL)는 DEFAULT 폴백.
       type: row.type ?? 'DEFAULT',
@@ -652,6 +664,9 @@ export class MessagesService {
         content: BLOCKED_MESSAGE_PLACEHOLDER,
         contentRaw: BLOCKED_MESSAGE_PLACEHOLDER,
         contentAst: null,
+        // S37 (FR-MSG-17): 평문 정본도 placeholder 로 치환 — content 와 동일하게
+        // 차단 author 의 본문이 "메시지 복사" 로 새지 않도록 한다.
+        contentPlain: BLOCKED_MESSAGE_PLACEHOLDER,
         mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
       };
     });
@@ -976,6 +991,9 @@ export class MessagesService {
             // for parity, contentAst is the just-parsed AST.
             contentRaw: created.contentRaw ?? created.content,
             contentAst: processed.contentAst,
+            // S37 (FR-MSG-17): 평문 정본 e2e 전파. send 시 파싱한 contentPlain 을
+            // 그대로 실어 라이브 수신측 캐시가 "메시지 복사" 평문 정본을 갖게 한다.
+            contentPlain,
             // S04 (review NIT): carry the canonical message type so the live
             // WS payload satisfies MessageDto at runtime. Without it the
             // dispatcher inserts `type: undefined` into the cache (safe today
@@ -1550,6 +1568,9 @@ export class MessagesService {
           content: created.content,
           contentRaw: created.contentRaw ?? created.content,
           contentAst: processed.contentAst,
+          // S37 (FR-MSG-17): 시스템 메시지의 평문 정본도 전파(타입 일관 — 복사
+          // 메뉴는 시스템 행에 노출되지 않지만 캐시 DTO 형태를 통일한다).
+          contentPlain: processed.contentPlain,
           // S04: SYSTEM 메시지 타입을 WS 페이로드에 실어 클라이언트 캐시가
           // 시스템 행으로 렌더하도록 합니다(additive — 구 디스패처는 무시).
           type: args.type,
@@ -1754,7 +1775,7 @@ export class MessagesService {
     // 위치(createdAt)에 그대로 끼며, 일반 답글은 여전히 제외된다(답글은
     // isBroadcast=false 라 두 조건 모두 불만족).
     const sql = `
-      SELECT id, "channelId", "authorId", content, "contentPlain",
+      SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast"
@@ -1824,7 +1845,7 @@ export class MessagesService {
     // `AND "isBroadcast" = false` 로 스레드 패널 답글 목록에서 제외한다(broadcast
     // 가 스레드 안에서 자기 답글의 중복으로 보이지 않도록).
     const sql = `
-      SELECT id, "channelId", "authorId", content, "contentPlain",
+      SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast"
@@ -2036,6 +2057,9 @@ export class MessagesService {
           // fallback; contentAst is the AST from this edit's parse.
           contentRaw: updated.contentRaw ?? updated.content,
           contentAst: processed.contentAst,
+          // S37 (FR-MSG-17): 편집으로 재계산된 평문 정본 e2e 전파. 라이브 수신측
+          // 캐시가 편집된 본문의 평문을 "메시지 복사" 정본으로 쓰게 한다.
+          contentPlain,
           mentions,
           editedAt: editedAt.toISOString(),
           // S05 verify (FR-MSG-07): 편집 성공 → edited=true 를 실어 라이브 수신측

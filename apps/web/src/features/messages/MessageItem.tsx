@@ -16,6 +16,8 @@ import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent, extractMessageUrls } from './parseContent';
 import { renderAst, type MentionLookup } from './renderAst';
+import { resolveCopyPlainText } from './copyText';
+import { EditHistoryPopover } from './EditHistoryPopover';
 import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
 import { LinkPreview } from './LinkPreview';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
@@ -25,6 +27,12 @@ import { canStartThread, threadChipVisible as computeThreadChipVisible } from '.
 type Props = {
   msg: MessageDto;
   isMine: boolean;
+  /**
+   * S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프 history 엔드포인트를
+   * 호출하기 위한 wsId. DM(null)이면 팝오버가 fetch 를 비활성하고 (수정됨) 라벨만
+   * 정적으로 표시합니다.
+   */
+  workspaceId?: string | null;
   /**
    * True when the previous message is from the same author within the
    * grouping window (see MessageList). Collapses avatar + meta to
@@ -82,6 +90,7 @@ type Props = {
 export function MessageItem({
   msg,
   isMine,
+  workspaceId,
   isContinuation,
   authorName,
   authorRole,
@@ -163,6 +172,9 @@ export function MessageItem({
   const attachments: AttachmentLite[] = (msg.attachments ?? []) as AttachmentLite[];
   const messageUrl =
     typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
+  // S37 (FR-MSG-17): "메시지 복사"의 정본 텍스트(평문 우선). 순수 헬퍼로 분리해
+  // 우선순위(contentPlain → content → '')를 단위 테스트로 고정한다.
+  const copyPlainText = resolveCopyPlainText(msg);
 
   const thread = msg.thread;
   // S33 fix-forward (MAJOR-2 + NIT-2): chip 가시성은 순수 게이트로 위임한다.
@@ -236,16 +248,28 @@ export function MessageItem({
                 {headTimeLabel}
               </time>
               {msg.edited ? (
-                // S05 (FR-MSG-07): (edited) 뱃지 + hover tooltip(편집 시각).
-                // editedAt 은 ISO; title 에 로컬 표기로 노출해 마우스 hover 시
-                // 최초/최신 편집 시각을 확인하게 한다. DS qf-message__time 토큰 재사용.
-                <span
-                  data-testid={`msg-edited-${msg.id}`}
-                  className="qf-message__time"
-                  title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
-                >
-                  (수정됨)
-                </span>
+                // S05 (FR-MSG-07) + S37 (FR-MSG-08): (수정됨) 뱃지. 워크스페이스
+                // 채널이면 클릭 시 편집 이력 팝오버를 여는 트리거로 동작하고
+                // (EditHistoryPopover 가 동일 data-testid 와 title 을 유지),
+                // DM(workspaceId null/undefined)은 history 엔드포인트가 없어
+                // 종전대로 정적 라벨만 표시한다. DS qf-message__time 토큰 재사용.
+                workspaceId ? (
+                  <EditHistoryPopover
+                    workspaceId={workspaceId}
+                    channelId={msg.channelId}
+                    msgId={msg.id}
+                    editedAt={msg.editedAt}
+                    mentions={mentions}
+                  />
+                ) : (
+                  <span
+                    data-testid={`msg-edited-${msg.id}`}
+                    className="qf-message__time"
+                    title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
+                  >
+                    (수정됨)
+                  </span>
+                )
               ) : null}
               {msg.pinnedAt ? (
                 // task-045 iter1: pin marker. semantic + screen-reader
@@ -443,7 +467,8 @@ export function MessageItem({
                 <DropdownItem
                   onSelect={async () => {
                     try {
-                      await navigator.clipboard.writeText(msg.content ?? '');
+                      // S37 (FR-MSG-17): 평문(contentPlain) 정본 우선 복사.
+                      await navigator.clipboard.writeText(copyPlainText);
                       notify({
                         variant: 'success',
                         title: '복사됨',
@@ -458,7 +483,7 @@ export function MessageItem({
                     }
                   }}
                 >
-                  <span data-testid={`msg-copy-text-${msg.id}`}>텍스트 복사</span>
+                  <span data-testid={`msg-copy-text-${msg.id}`}>메시지 복사</span>
                 </DropdownItem>
                 <DropdownItem
                   onSelect={async () => {

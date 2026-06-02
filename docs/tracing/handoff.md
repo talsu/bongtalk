@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S36 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S37(D01 메시징 — FR-MSG-08/17/18).** D02·D03·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D04(스레드, S33~S36 코어 완료·S38 잔여) 진행 중. **진행률: 150/354 FR done(+6 partial).** ⚠️ S36 은 첫 implementer 가 리뷰없이 머지+배포 → 사후 6팀 리뷰가 prod 라이브 BLOCKER(채널 unread 가 스레드 답글 산입) 적발·fix-forward 복구. **subagent 에 머지/배포/prod-접근 금지 명시 필수**([[feedback_subagent_no_merge_deploy]]).
+> **S05 검증·S06~S37 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S38(D04 스레드 마무리 — Threads 탭/구독레벨/lock, FR-TH-08/09/10/13).** D01(메시징)·D02·D03·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D04(스레드, S33~S37 코어 완료·S38 마무리) 진행 중. **진행률: 153/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]) — S36 서 한 implementer 가 리뷰없이 머지+배포→prod BLOCKER, 사후 리뷰로 복구. implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -350,11 +350,21 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트: `pnpm verify` 19 GREEN(api 444·web 635·shared-types 188·webhook 50) + 빌드 3종 + int(채널 unread roots-only·답글/멘션 불산입·broadcast +1·archived 거부·S11 무회귀 14). DS 4파일 무수정.
 - carryover: a11y(lastRead 후 첫미읽 focus·실시간 unread aria-live·dot dual-encoding=낮음). perf(EXISTS heap-fetch·BitmapOr·ack IP rate 선존). DS-owner(opacity/border-width 토큰·`qf-thread-chip__dot`/`qf-thread-jump-btn` 정식클래스·ThreadPanel toLocaleTimeString→formatMessageTime). **denormalized unreadCount + Threads 탭(FR-TH-09/10) + notificationLevel/lock(FR-TH-08/13) → S38.**
 
-## 다음 슬라이스: S37 (D01 메시징 — FR-MSG-08/17/18)
+## ✅ S37 (D01 메시징 — 편집이력 팝오버 + 복사/permalink) — 완료 (2026-06-02, 이 세션)
 
-- scope api + web. **FR-MSG-08 / FR-MSG-17**(P1) / **FR-MSG-18**(P2).
-- FR 정본 PRD html 재확인 필수(D01 메시징 섹션). FR-MSG-08/17/18 정확 정의 확인 후 구현(예상: 메시지 부가 기능 — 포워드/복사/링크·메시지 액션 등 PRD 확인). D04 스레드(S33~S36) 완료, **D04 잔여는 S38**(Threads 탭·notificationLevel·lock·denormalized unreadCount).
-- 주의: D01 은 S00~S06 메시지 코어 위. 마이그레이션 필요 여부 PRD 확인. UI 있으면 ui-designer/visual.
+- **FR-MSG-08**(편집이력 팝오버 — 서버 기존 + 프런트 `getEditHistory`/`useEditHistory`/`EditHistoryPopover`, (수정됨) 뱃지 트리거, qf-menu 재사용·신규 DS 0), **FR-MSG-17**(복사 "메시지 복사"·**contentPlain 평문**·permalink 링크), **FR-MSG-18**(permalink `?msg=` 점프 — S30 인프라 + 삭제/없음 toast). **마이그레이션 없음**.
+- **6팀 적대적 리뷰(머지 전)** → fix-forward(`fix/s37-fix-forward` 6422b36):
+  - **BLOCKER-1**: `?msg=` 점프가 존재하는 window-밖 메시지(같은채널/캐시채널)에 **거짓 not-found toast + 점프 무동작**(query key 가 jumpMessageId 미포함) → **one-shot `useJumpAround` 쿼리**(별도 캐시·gcTime0) 분리 + 4분기(존재→스크롤·로딩→대기·around성공→seed후스크롤·진짜404/삭제→toast 1회).
+  - **BLOCKER-2**: `copyText` 가 읽는 `contentPlain` 이 DTO/WS payload 부재 → 항상 content(markdown) 폴백(평문 미충족) → **MessageDtoSchema + toDto + MessageCreated/UpdatedPayload 에 contentPlain 추가**(contentPlainV2 ?? contentPlain·삭제 마스킹·마이그레이션 불요).
+  - a11y(팝오버 role=region·tabIndex=-1·focus-ring·role=status·time aria-label·aria-haspopup 중복제거·divider --border-strong), 보안(편집이력 staleTime 5s/gcTime0/key+wsId·message.updated 무효화), DS(sideOffset 상수).
+- 게이트: `pnpm verify` 19 GREEN(api 449·web 658·shared-types 191·webhook 50) + 빌드 3종 + 신규테스트(useJumpAround·toDto contentPlain 실DTO·편집이력 캐시·팝오버 a11y). DS 4파일 무수정.
+- **D01 메시징 도메인 완료.** carryover: opacity/gap-0.5/text-xs 매직넘버·모바일 touch target·qf-message\_\_body font override → DS-cleanup. visual baseline(task-040/048). permalink PRD 형식(옵션 A deviation). MANAGE_MESSAGES(D12). continuation 메시지 (edited) 뱃지 부재(선존). MessageThreadBroadcastPayload contentPlain 미추가(broadcast copy 비노출·content 폴백 무해).
+
+## 다음 슬라이스: S38 (D04 스레드 마무리 — Threads 탭/구독레벨/lock)
+
+- scope api + web. **FR-TH-08 / FR-TH-09**(P1) / **FR-TH-10 / FR-TH-13**(P2).
+- FR 정본 PRD html 재확인. 예상: **FR-TH-08**(벨 드롭다운 ALL/MENTIONS/OFF — **ThreadSubscription.notificationLevel 컬럼 마이그레이션** + PATCH), **FR-TH-09**(사이드바 Threads 탭 — 구독 스레드 목록 latestReplyAt DESC·미읽 우선; **denormalized unreadCount 컬럼**(S36 carryover) 필요 가능성), **FR-TH-10**(Threads 뷰 mark all read), **FR-TH-13**(OWNER/ADMIN 스레드 잠금 — **Message.threadLocked 컬럼 마이그레이션** + thread:lock:changed 실시간).
+- 주의: **마이그레이션 2~3개**(notificationLevel·threadLocked·unreadCount?) reversible. S33~S36 thread(ThreadReadState·ThreadSubscription·replyCount) 위. **D04 도메인 마지막 슬라이스.** UI(Threads 탭/벨/잠금) → ui-designer/visual.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

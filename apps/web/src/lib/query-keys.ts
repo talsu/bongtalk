@@ -43,6 +43,19 @@ export const qk = {
     // 삭제 동기화에서 parentMessageId 를 모를 때(message.deleted 이벤트는 그
     // 필드를 싣지 않음) getQueriesData 로 일치하는 스레드 캐시를 찾는 데 쓴다.
     threadRoot: () => ['messages', 'thread'] as const,
+    // S37 (FR-MSG-08): 메시지 편집 이력 팝오버 캐시. msgId 단위로 키잉하며
+    // 팝오버가 열릴 때만(enabled) fetch 합니다. 보안: wsId/channelId 를 키에
+    // 포함해 스코프를 명시하고(역할 강등 후 누출 창 축소 + 범위 격리), gcTime:0
+    // 으로 팝오버가 닫히면 즉시 파기합니다(useEditHistory 참조).
+    editHistory: (wsId: string, chId: string, msgId: string) =>
+      ['messages', wsId, chId, msgId, 'history'] as const,
+    // S37 fix-forward (BLOCKER-1): permalink(`?msg=`) 점프 전용 one-shot
+    // around 캐시. 메인 list 캐시(`messages.list`)와 분리해, 점프 대상이
+    // window 밖(캐시된 채널)에 있어도 실제 around-load 가 발화되도록 한다.
+    // jumpMessageId 단위로 키잉 — 동일 대상 재점프는 캐시 hit, 새 대상은 새
+    // fetch. gcTime:0 으로 소비 후 파기(메인 캐시 오염 0).
+    jumpAround: (wsId: string, chId: string, jumpMessageId: string) =>
+      ['messages', wsId, chId, jumpMessageId, 'jump-around'] as const,
   },
   presence: {
     workspace: (wsId: string) => ['presence', wsId] as const,

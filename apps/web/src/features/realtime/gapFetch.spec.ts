@@ -15,6 +15,7 @@ function msg(id: string): MessageDto {
     content: id,
     contentRaw: id,
     contentAst: null,
+    contentPlain: id,
     type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,

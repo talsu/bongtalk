@@ -519,12 +519,19 @@ export function installRealtimeDispatcher(
             // S05 (FR-MSG-06): WS 페이로드는 편집된 본문 + 새 version 만 담은
             // 부분 DTO. 기존 캐시 행 위에 merge 해 reactions/thread/attachments
             // 등 미동봉 필드를 보존하고 version 을 갱신한다(다음 편집의 낙관적
-            // 잠금 기준이 최신값이 되도록).
+            // 잠금 기준이 최신값이 되도록). S37: 페이로드가 contentPlain 도 실으므로
+            // merge 시 평문 정본도 최신값으로 갱신된다("메시지 복사" 정합).
             items: p.items.map((m) => (m.id === env.message.id ? { ...m, ...env.message } : m)),
           })),
         };
       },
     );
+    // S37 보안 fix-forward: 재편집되면 열려 있던 편집 이력 팝오버의 스냅샷이
+    // stale 해진다. 해당 메시지의 editHistory 캐시를 무효화해, 다음에 팝오버를
+    // 열면(또는 열린 채로) 최신 이력을 다시 가져오게 한다(stale 스냅샷 방지).
+    qc.invalidateQueries({
+      queryKey: qk.messages.editHistory(env.workspaceId, env.channelId, env.message.id),
+    });
   });
 
   on<{ channelId: string; workspaceId: string; message: { id: string } }>(

@@ -33,6 +33,7 @@ function makeMsg(thread: ThreadSummary | null): MessageDto {
     content: 'root message',
     contentRaw: 'root message',
     contentAst: null,
+    contentPlain: 'root message',
     type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: false,

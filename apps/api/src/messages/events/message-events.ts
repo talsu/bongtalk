@@ -49,6 +49,11 @@ export type MessageCreatedPayload = {
     // here to keep this events module free of the shared-types import.
     contentRaw: string;
     contentAst: unknown;
+    // S37 (FR-MSG-17): 평문 정본 e2e 전파. 디스패처가 이 message 를 캐시에
+    // MessageDto 로 삽입하므로, "메시지 복사" 가 마크다운(content)이 아니라
+    // 평문을 복사하려면 라이브 수신측 캐시에도 contentPlain 이 있어야 한다.
+    // Additive — 구 디스패처는 무시.
+    contentPlain: string;
     // S04 (FR-MSG-19): 메시지 타입. SYSTEM_* 만 명시(DEFAULT 는 생략 가능 →
     // 디스패처가 누락 시 'DEFAULT' 로 폴백). 클라이언트 캐시가 시스템 행
     // 렌더 + grouped=false 분기에 사용. Additive — 구 디스패처는 무시.
@@ -136,6 +141,10 @@ export type MessageUpdatedPayload = {
     // until the next REST refetch. contentAst is the parsed RichTextRoot.
     contentRaw: string;
     contentAst: unknown;
+    // S37 (FR-MSG-17): 편집 시 재계산된 평문 정본 e2e 전파. 라이브 수신측
+    // 캐시가 편집된 본문의 평문을 "메시지 복사" 정본으로 쓰도록 실어보낸다.
+    // Additive — 구 디스패처는 무시.
+    contentPlain: string;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     // S21 fix-forward (MAJOR-D): @channel flag e2e propagation.
     mentions: {

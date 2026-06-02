@@ -34,6 +34,7 @@ function makeDto(overrides: Partial<MessageDto> = {}): MessageDto {
     content: 'local edit',
     contentRaw: 'local edit',
     contentAst: null,
+    contentPlain: 'local edit',
     type: 'DEFAULT',
     mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
     edited: true,
