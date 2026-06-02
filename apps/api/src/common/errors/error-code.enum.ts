@@ -124,6 +124,13 @@ export enum ErrorCode {
   // 요청 envelope 은 well-formed JSON 이나 선언된 파일이 도메인 제약을 못 넘김).
   INVALID_FILE = 'INVALID_FILE',
 
+  // S42 (FR-EM05): 커스텀 이모지 별칭 한도(이모지당 10개) 초과. PRD 정본은 이
+  // 거부를 409 로 명시한다(상태 충돌 계열 — 한도가 찬 상태에서의 추가 거부).
+  ALIAS_LIMIT = 'ALIAS_LIMIT',
+  // S42 (FR-EM05): 별칭이 워크스페이스 내 다른 별칭 또는 CustomEmoji.name 과
+  // 충돌. PRD 정본은 이 거부를 409 로 명시한다(상태 충돌 — 이미 점유된 슬러그).
+  ALIAS_CONFLICT = 'ALIAS_CONFLICT',
+
   // task-038-B magic-byte mismatch between declared mime and actual
   // file prefix. 400 so the client surfaces it as a validation error
   // (not a content-type 415 — the client DID send a valid mime, it
@@ -233,6 +240,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.EMOJI_WORKSPACE_LIMIT]: 409,
   // S41 (FR-EM01 / FR-RC20): MIME/size 거부는 422(처리 불가).
   [ErrorCode.INVALID_FILE]: 422,
+  // S42 (FR-EM05): 별칭 한도 초과 / 충돌은 409(상태 충돌).
+  [ErrorCode.ALIAS_LIMIT]: 409,
+  [ErrorCode.ALIAS_CONFLICT]: 409,
   // task-039-D: 422 (Unprocessable Entity) is more accurate than 400
   // — the request envelope is well-formed JSON with valid fields, but
   // the uploaded payload's magic bytes do not match the declared

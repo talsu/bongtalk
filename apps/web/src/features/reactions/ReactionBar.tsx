@@ -12,6 +12,14 @@ type Props = {
   /** task-037-D workspace emoji pack forwarded to the picker. */
   customEmojis?: CustomEmojiOption[];
   /**
+   * S42 (FR-PK01/PK03/PK04): 피커에 그대로 전달되는 퀵 반응 / 최근 이모지 / 기본
+   * 스킨톤. 호출부가 emoji-picker-data 로부터 사용자 우선·없으면 워크스페이스 기본을
+   * 이미 합성해 넘긴다(피커는 받은 대로 노출). 미제공 시 피커는 종전 동작 그대로.
+   */
+  quickReactions?: string[];
+  recentEmojis?: string[];
+  defaultSkinTone?: number;
+  /**
    * S40 (FR-RE05): 한 이모지의 전체 reactor 목록 모달을 여는 콜백(선택). 제공되면
    * 각 칩 옆에 "N명 보기" 보조 버튼이 추가로 렌더된다 — 칩 본체의 기본 클릭은
    * 그대로 토글(FR-RE01)을 유지하고, reactor 목록 열기는 별도 affordance 로 분리해
@@ -26,6 +34,9 @@ export function ReactionBar({
   pickerOpen: controlledOpen,
   onPickerOpenChange,
   customEmojis,
+  quickReactions,
+  recentEmojis,
+  defaultSkinTone,
   onShowReactors,
 }: Props): JSX.Element | null {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -181,6 +192,9 @@ export function ReactionBar({
           onDismiss={() => setOpen(false)}
           isActive={(emoji) => reactions.find((r) => r.emoji === emoji)?.byMe ?? false}
           customEmojis={customEmojis}
+          quickReactions={quickReactions}
+          recentEmojis={recentEmojis}
+          defaultSkinTone={defaultSkinTone}
         />
       ) : null}
     </div>

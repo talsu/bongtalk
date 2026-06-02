@@ -5,6 +5,7 @@ import {
   ReactionClearedPayloadSchema,
   EmojiCreatedPayloadSchema,
   EmojiDeletedPayloadSchema,
+  EmojiAliasUpdatedPayloadSchema,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -908,7 +909,23 @@ export function installRealtimeDispatcher(
       return { ...old, items: old.items.filter((e) => e.id !== emojiId) };
     });
     qc.invalidateQueries({ queryKey: ['custom-emojis', workspaceId] });
+    // S42: 삭제된 이모지의 별칭도 피커 데이터에서 사라져야 하므로 함께 무효화.
+    qc.invalidateQueries({ queryKey: ['emoji-picker-data', workspaceId] });
   });
+
+  // emoji:alias_updated (S42 · FR-EM05/FR-EM07) — 별칭 추가/삭제 시 해당 워크스페이스
+  // 의 `['custom-emojis', wsId]` + 피커 데이터를 invalidate 해 파서(:alias:→img)/
+  // 자동완성/피커가 새 별칭 매핑을 다음 read 로 반영하게 한다. payload 에 aliases
+  // 스냅샷이 실리지만 보수적으로 invalidate 후 재조회한다(서버 list 가 정본).
+  on<{ workspaceId: string; emojiId: string; aliases: string[] }>(
+    WS_EVENTS.EMOJI_ALIAS_UPDATED,
+    (env) => {
+      const parsed = EmojiAliasUpdatedPayloadSchema.safeParse(env);
+      if (!parsed.success) return;
+      qc.invalidateQueries({ queryKey: ['custom-emojis', parsed.data.workspaceId] });
+      qc.invalidateQueries({ queryKey: ['emoji-picker-data', parsed.data.workspaceId] });
+    },
+  );
 
   // ---------- Channels ----------
   on<{ workspaceId: string }>('channel.created', (env) => {
@@ -1139,6 +1156,8 @@ export const DISPATCHED_EVENTS = [
   // S41 (FR-EM01/FR-EM04/FR-RC20): 워크스페이스 커스텀 이모지 업로드/삭제.
   'emoji:created',
   'emoji:deleted',
+  // S42 (FR-EM05/FR-EM07): 커스텀 이모지 별칭 추가/삭제.
+  'emoji:alias_updated',
   'message.thread.replied',
   // S35 (FR-TH-06): 스레드→채널 broadcast 행 삽입.
   'message.thread.broadcast',

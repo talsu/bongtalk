@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S41 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S42(D05 이모지 별칭/사용자 선호·퀵리액션, FR-EM05/EM07/PK01/PK02/PK03/PK04 — apps/api/src/emojis·me + apps/web/src/features/emojis. deps S41,S18).** D01(메시징)·D02·D03·D04(스레드)·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. D05(반응 S39 코어·S40 확장·S41 커스텀이모지 업로드 완료·S42~ 별칭/선호) 진행 중. **진행률: 172/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S42 완료(아래 ✅). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S43(D02 채널 마무리, FR-CH-14/15/16/17 — apps/api/src/channels·me + apps/web/src/features/channels. deps S15,S22).** D01(메시징)·D02·D03·D04(스레드)·**D05(반응·이모지 S39~S42 완료)**·D07(검색)·D08(프레즌스)·D09(읽음)·D17(realtime)·완료. **진행률: 178/354 FR done(+6 partial).** ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -400,12 +400,23 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(api 455·web 675·shared-types 203·webhook 50) + 빌드 3종 + emoji int 9 + reaction int(S39/40 회귀 포함). **마이그레이션 customEmojiId(reversible·SetNull)**. DS 4파일·settings.json 무수정.
 - carryover: **reviewer MAJOR**(삭제→동명 재업로드→재토글 시 stale NULL 행이 re-point 안 됨·`ON CONFLICT DO UPDATE` 또는 테스트 — narrow edge). emoji.created/deleted **비-tx outbox**(at-most-once·self-heal)·S3 delete 실패 시 객체 orphan(orphan-gc). presign **캐시불가**(공개 url/전용 버킷 연계)·canMemberUpload 토글·**WorkspaceEmojiConfig**·**CustomEmojiAlias 별칭 CRUD(FR-EM05→S42)**·quickReactions·UserEmojiPreference·sharp 128×128·GIF 50프레임·qf-emoji-custom DS 정의·EmojiPicker 구조적 a11y. **S41 security/perf/ui/a11y subagent 재실행**(529 회복 후 보강 가능·핵심은 직접 커버됨).
 
-## 다음 슬라이스: S42 (D05 이모지 별칭 + 사용자 선호/퀵리액션)
+## ✅ S42 (D05 이모지 별칭 + 사용자/워크스페이스 선호·퀵리액션) — 완료 (2026-06-02, 이 세션) — **마이그레이션(3모델)** — **D05 도메인 완료**
 
-- scope api + web. **FR-EM05/EM07/PK01/PK02/PK03/PK04**(P1). deps S41,S18.
-- 파일: `apps/api/src/emojis/**`, `apps/api/src/me/**`, `apps/web/src/features/emojis/**`.
-- FR 정본 PRD html 재확인 필수. 예상: **FR-EM05** 커스텀이모지 **별칭(alias) CRUD**(S41 에서 list `aliases:[]` shape 만·CustomEmojiAlias 모델 신규 마이그레이션·`@@unique([workspaceId,alias])`·`emoji:alias_updated` 이벤트), **FR-EM07**(이모지 관련 — PRD 확인), **FR-PK01~04**(이모지 팩/퀵리액션/사용자 선호 — `WorkspaceEmojiConfig.quickReactions`·`UserEmojiPreference` 모델·`me/emoji-preferences` PATCH 가능성). S41 carryover(canMemberUpload·WorkspaceEmojiConfig)와 겹칠 수 있어 함께 설계. 마이그레이션 reversible.
-- S41 에서 EmojiPicker 구조적 a11y carryover 와 묶어 처리 가능.
+- **FR-EM05**(별칭 CRUD — `POST/DELETE /workspaces/:wsId/emojis/:id/aliases`·OWNER/ADMIN 생성·생성자/관리자 삭제·이모지당 10개·name+alias 양쪽 충돌검사 409 `ALIAS_LIMIT`/`ALIAS_CONFLICT`·CustomEmoji 행 FOR NO KEY UPDATE+ON CONFLICT 직렬화·`emoji:alias_updated` fanout), **FR-EM07**(파서/자동완성 별칭 연동 — CustomEmojiContext byName 에 alias 등록·canonical 보호·parseContent 무수정), **FR-PK01**(`GET /emoji-picker-data` 통합·GET 멱등), **FR-PK02**(자동완성 `:` 3+ 유니코드+커스텀+별칭 혼합·최대 10), **FR-PK03**(`PUT /me/emoji-preferences` UserEmojiPreference upsert·skinTone1-6/quick≤3/recent≤36), **FR-PK04**(`PATCH /workspaces/:wsId/emoji-config` OWNER/ADMIN·**canMemberUpload 배선**(default false·S41 ADMIN-only 보존·true 시 MEMBER presign/finalize 허용)).
+- **마이그레이션 3모델**(reversible·db-migrator throwaway up→down→up+Cascade PASS): `CustomEmojiAlias`(@@unique[ws,alias]·FK Cascade)·`UserEmojiPreference`(userId unique)·`WorkspaceEmojiConfig`(workspaceId unique·canMemberUpload default false).
+- **7팀 적대적 리뷰(머지 전)** → fix-forward(6cdf209). 2 시정 BLOCKER/HIGH:
+  - **★BLOCKER finalize 게이트 비대칭**(reviewer+security): presign 만 assertCanUpload·**finalize 미게이트** → finalize 도 `assertCanUpload(role)` 호출(MEMBER·canMemberUpload=false→403 int).
+  - **★HIGH EmojiPicker curatedIndex 크래시**: 피커 열린 채 specialTabs 변동 시 `EMOJI_CATEGORIES[curatedIndex]` 범위초과 `undefined.emojis` throw → clamp+tab reset+회귀테스트.
+  - MED/LOW: DELETE alias 형식검증·DTO 빈문자 차단(`@MinLength(1,{each})`). a11y 신규UI: 별칭+버튼/삭제버튼 aria-label·alias 에러 aria-invalid+describedby+role=status·퀵반응 role=group/aria-label·최근그리드 aria-label.
+  - 검증된 SOUND: cap-100 concurrency·me prefs IDOR(userId from JWT)·picker-data ACL·마이그레이션·canMemberUpload presign 게이트. contract "list aliases 미조회"=**위양성**(line293 include 확인).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 692·emoji unit 33) + 빌드 3종 + int(finalize 게이트 403/200·별칭·prefs·config·Cascade). DS 4파일·settings.json 무수정.
+- carryover: **reviewer MAJOR** 별칭↔이모지 name TOCTOU(동시 생성 시 공존·클라 canonical-wins 완화·교차테이블 락 필요). **EmojiPicker 구조적 a11y overhaul**(role=menu→tablist·탭 role=tab/aria-selected·focus-visible — A-3/B-2·S39 이월). DS-owner(라이트 danger-400 대비·× 터치타깃·**qf-emoji-custom DS 정의**+inline px 48/40/160 제거). **perf**(picker-data↔custom-emojis 이중 fetch·picker 오픈마다 presign N≤100·**recentEmojis 컴포저 자동완성 미연결**=기능갭). cap-race 테스트·중복 React key.
+
+## 다음 슬라이스: S43 (D02 채널 마무리)
+
+- scope api + web. **FR-CH-14/15/16/17**(P1). deps S15,S22.
+- 파일: `apps/api/src/channels/**`, `apps/api/src/me/**`, `apps/web/src/features/channels/**`.
+- FR 정본 PRD html 재확인 필수(D02 채널 섹션). 예상(정확 정의는 PRD): 채널 관련 마무리 기능(아카이브/핀/알림설정/멤버십·채널별 알림 muting 등 — S15 권한·S22 읽음/사이드바 위). 마이그레이션 필요 여부 PRD 확인 후 reversible. 채널 권한(PermissionMatrix·ChannelPermissionOverride)·읽음(unread.service)·사이드바(채널 목록) 기존 자산 재사용. D12 권한수렴 carryover 와 겹치면 함께 검토.
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

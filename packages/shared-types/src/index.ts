@@ -158,6 +158,9 @@ export const ErrorCodeSchema = z.enum([
   // S41 (FR-EM01 / FR-RC20): 업로드 MIME/size 거부 → 422. PRD 정본 코드
   // (종전 CUSTOM_EMOJI_MIME_REJECTED 415 / CUSTOM_EMOJI_TOO_LARGE 413 정합).
   'INVALID_FILE',
+  // S42 (FR-EM05): 별칭 한도(이모지당 10개) 초과 / 충돌(다른 별칭 또는 name) → 409.
+  'ALIAS_LIMIT',
+  'ALIAS_CONFLICT',
   // task-038-B magic-byte validation
   'INVALID_MAGIC_BYTES',
   'FORBIDDEN',

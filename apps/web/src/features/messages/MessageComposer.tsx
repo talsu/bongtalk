@@ -102,7 +102,10 @@ function tokenForRow(row: AutocompleteRow): string {
   if (row.type === 'special') return row.item.token;
   if (row.type === 'member') return `@${row.member.username}`;
   if (row.type === 'channel') return `#${row.channel.name}`;
-  return row.emoji.kind === 'unicode' ? row.emoji.glyph : `:${row.emoji.name}:`;
+  if (row.emoji.kind === 'unicode') return row.emoji.glyph;
+  // S42 (FR-PK02): 별칭 후보면 카노니컬 이름(insertName)으로 삽입한다. 일반 커스텀
+  // 후보는 name 자체가 카노니컬이라 insertName 이 없다.
+  return `:${row.emoji.insertName ?? row.emoji.name}:`;
 }
 
 /** insertToken 래퍼 — caret 키 이름을 컴포저 로컬 표기에 맞춘다. */
@@ -266,13 +269,18 @@ export function MessageComposer({
     return flat.map((c) => ({ id: c.id, name: c.name, topic: c.topic ?? null }));
   }, [channelData]);
 
-  const acCustomEmojis = useMemo<EmojiCandidate[]>(
-    () =>
-      (customEmojiData?.items ?? []).map(
-        (ce): EmojiCandidate => ({ kind: 'custom', name: ce.name, url: ce.url }),
-      ),
-    [customEmojiData],
-  );
+  const acCustomEmojis = useMemo<EmojiCandidate[]>(() => {
+    const out: EmojiCandidate[] = [];
+    for (const ce of customEmojiData?.items ?? []) {
+      out.push({ kind: 'custom', name: ce.name, url: ce.url });
+      // S42 (FR-PK02): 별칭도 후보로 주입한다. name 은 매칭/표시용 별칭, insertName 은
+      // 선택 시 삽입할 카노니컬 `:name:`(원본 이모지 이름).
+      for (const alias of ce.aliases ?? []) {
+        out.push({ kind: 'custom', name: alias, url: ce.url, insertName: ce.name });
+      }
+    }
+    return out;
+  }, [customEmojiData]);
 
   const acOnline = useMemo(
     () => new Set<string>([...onlineUserIds, ...dndUserIds]),

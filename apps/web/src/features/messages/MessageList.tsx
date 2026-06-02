@@ -28,6 +28,7 @@ import { formatDayDivider, isSameLocalDay, localDayKey } from './formatMessageTi
 import { useChannelList } from '../channels/useChannels';
 import { useToggleReaction } from '../reactions/useReactions';
 import { CustomEmojiProvider } from '../emojis/CustomEmojiContext';
+import { useEmojiPickerData } from '../emojis/useCustomEmojis';
 import { Scrollable } from '../../design-system/primitives';
 import {
   takeAnchorSnapshot,
@@ -156,6 +157,14 @@ export function MessageList({
   // null 이면 onPin/onUnpin 콜백 자체를 undefined 로 전달해 메뉴 hide.
   const pinMut = usePinMessage(workspaceId, channelId);
   const unpinMut = useUnpinMessage(workspaceId, channelId);
+
+  // S42 (FR-PK01): 피커 데이터(퀵반응·최근·skinTone)를 채널 단위 단일 쿼리로 읽어
+  // 각 MessageItem 의 ReactionBar 피커에 prop 으로 내려준다(per-row useQuery 회피 —
+  // MessageItem 정적 렌더 invariant 보존). 사용자 퀵반응 우선, 없으면 워크스페이스
+  // 기본(FR-PK04 fallback). DM(workspaceId=null)이면 hook 비활성 → 전부 undefined.
+  const { data: pickerData } = useEmojiPickerData(workspaceId);
+  const pickerQuickReactions =
+    pickerData?.userQuickReactions ?? pickerData?.workspaceQuickReactions;
   // S24 (FR-RS-08): 메시지 "미읽음으로 표시" — 이 메시지 직전으로 읽음 커서 後進.
   // DM(workspaceId=null)은 unread-summary 가 없어 hook 이 no-op 이므로 콜백 hide.
   const markUnreadMut = useMarkUnread(workspaceId ?? undefined);
@@ -842,6 +851,9 @@ export function MessageList({
                       mentions={mentionLookup}
                       viewerRole={viewerRole}
                       resolveName={resolveReplyName}
+                      pickerQuickReactions={pickerQuickReactions}
+                      pickerRecentEmojis={pickerData?.recentEmojis}
+                      pickerDefaultSkinTone={pickerData?.defaultSkinTone}
                       onEditSave={async (content) => {
                         // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
                         // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →

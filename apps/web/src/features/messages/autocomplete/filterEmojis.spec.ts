@@ -67,4 +67,32 @@ describe('filterEmojis (FR-RC05) — : 이모지 자동완성 (유니코드 + �
     });
     expect(out[0].name).toBe('amused');
   });
+
+  // S42 (FR-PK02): alias 후보는 custom kind + insertName(원본 name)으로 주입된다.
+  it('matches an alias candidate by its alias name + carries insertName', () => {
+    const aliasCandidate: EmojiCandidate = {
+      kind: 'custom',
+      name: 'birb',
+      url: 'https://cdn/parrot.png',
+      insertName: 'parrot',
+    };
+    const out = filterEmojis({
+      unicode: [],
+      custom: [aliasCandidate],
+      recent: [],
+      query: 'birb',
+      limit: 10,
+    });
+    expect(out).toHaveLength(1);
+    const hit = out[0];
+    expect(hit.kind).toBe('custom');
+    expect(hit.name).toBe('birb');
+    expect(hit.kind === 'custom' ? hit.insertName : undefined).toBe('parrot');
+  });
+
+  it('caps at 10 when the limit is 10 (S42 FR-PK02)', () => {
+    const many = Array.from({ length: 30 }, (_, i) => unicode(`smile${i}`, '🙂'));
+    const out = filterEmojis({ unicode: many, custom: [], recent: [], query: 'smile', limit: 10 });
+    expect(out).toHaveLength(10);
+  });
 });

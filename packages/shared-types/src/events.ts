@@ -100,6 +100,14 @@ export const WS_EVENTS = {
   // subscriber 가 이 콜론 wire 이름으로 변환해 emit 한다(reaction:updated 선례).
   EMOJI_CREATED: 'emoji:created',
   EMOJI_DELETED: 'emoji:deleted',
+  // 커스텀 이모지 별칭 변경 (S42 · FR-EM05/FR-EM07): 별칭 추가/삭제 성공 시 해당
+  // 워크스페이스 룸(workspace:{wsId}) 전체로 push 한다. 클라이언트는 emoji:alias_updated
+  // 수신 시 `['custom-emojis', wsId]` 쿼리를 invalidate 해 파서/자동완성의 별칭
+  // 매핑을 다음 read 로 갱신한다. payload 는 { workspaceId, emojiId, aliases:string[] }
+  // (변경 후 별칭 전체 스냅샷). 서버 내부 outbox eventType 은 dot 표기
+  // (emoji.alias_updated)지만 outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해
+  // emit 한다(emoji:created / reaction:updated 선례).
+  EMOJI_ALIAS_UPDATED: 'emoji:alias_updated',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -346,6 +354,19 @@ export const EmojiDeletedPayloadSchema = z.object({
   name: z.string().min(1),
 });
 export type EmojiDeletedPayload = z.infer<typeof EmojiDeletedPayloadSchema>;
+
+/**
+ * emoji:alias_updated — 커스텀 이모지 별칭 추가/삭제 시 workspace 룸 전체로 fanout
+ * (S42 · FR-EM05/FR-EM07). `aliases` 는 변경 후 그 이모지의 전체 별칭 스냅샷이다
+ * (증분 아님 — full replace). 수신 클라는 `['custom-emojis', workspaceId]` 를
+ * invalidate 해 파서(:alias:→img)/자동완성의 별칭 매핑을 다음 read 로 갱신한다.
+ */
+export const EmojiAliasUpdatedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  emojiId: z.string().min(1),
+  aliases: z.array(z.string().min(1)),
+});
+export type EmojiAliasUpdatedPayload = z.infer<typeof EmojiAliasUpdatedPayloadSchema>;
 
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
@@ -664,4 +685,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.THREAD_LOCK_CHANGED]: ThreadLockChangedPayloadSchema,
   [WS_EVENTS.EMOJI_CREATED]: EmojiCreatedPayloadSchema,
   [WS_EVENTS.EMOJI_DELETED]: EmojiDeletedPayloadSchema,
+  [WS_EVENTS.EMOJI_ALIAS_UPDATED]: EmojiAliasUpdatedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;
