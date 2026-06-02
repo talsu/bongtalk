@@ -49,6 +49,7 @@ function makeMsg(thread: ThreadSummary | null): MessageDto {
     version: 0,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
   };
 }
 

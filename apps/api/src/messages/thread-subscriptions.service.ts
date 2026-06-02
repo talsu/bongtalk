@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, type PrismaClient } from '@prisma/client';
+import { Prisma, ThreadNotificationLevel, type PrismaClient } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -57,7 +57,9 @@ export class ThreadSubscriptionsService {
     tx?: Pick<PrismaClient, 'message' | 'threadSubscription' | '$executeRaw'>;
   }): Promise<{ subscribed: true; createdAt: Date }> {
     const client = args.tx ?? this.prisma;
-    // root 인지 검증 + channel meta 확보
+    // root 인지 검증 + channel meta 확보. tx 주입 시 같은 commit 의 방금 INSERT 한
+    // 루트도 보이도록 `client`(tx 일 수 있음)로 조회한다 — assertThreadRootReadable
+    // (this.prisma 고정)을 쓰지 않는 이유. ACL 판정 로직은 그 헬퍼와 동일하다.
     const msg = await client.message.findUnique({
       where: { id: args.threadParentId },
       select: {
@@ -123,6 +125,95 @@ export class ThreadSubscriptionsService {
     // 극히 드문 동시 삭제 레이스(INSERT 직후 다른 tx 가 삭제)에 대비해
     // 현재 시각으로 폴백한다 — subscribed 계약(true)은 유지.
     return { subscribed: true, createdAt: row?.createdAt ?? new Date() };
+  }
+
+  /**
+   * S38 (FR-TH-08): 스레드 알림 레벨 설정(+ 수동 구독). 벨 드롭다운에서 ALL /
+   * MENTIONS / OFF 를 고르면 호출된다. 구독 행이 없으면 새로 INSERT(수동 구독 —
+   * 구독 없던 사용자도 ALL 로 켤 수 있어야 한다는 FR-TH-08), 있으면 레벨만 UPDATE
+   * 한다(멱등 upsert).
+   *
+   * subscribe() 와 동일한 채널 READ ACL 을 강제한다 — 임의 root UUID 로 타 채널
+   * 스레드의 구독 레벨을 바꾸는 IDOR 을 차단한다(실패 시 MESSAGE_NOT_FOUND 로
+   * 존재 leak 방지). 자동 구독(send tx)과 달리 이 경로는 사용자 명시 액션이라
+   * 항상 ACL 을 통과시킨다.
+   */
+  async setNotificationLevel(args: {
+    userId: string;
+    threadParentId: string;
+    notificationLevel: ThreadNotificationLevel;
+  }): Promise<{ subscribed: true; notificationLevel: ThreadNotificationLevel }> {
+    await this.assertThreadRootReadable(args.userId, args.threadParentId);
+    // 멱등 upsert: 구독 행이 없으면 지정 레벨로 INSERT(수동 구독), 있으면 레벨만
+    // UPDATE. unique (userId, threadParentId) 충돌을 ON CONFLICT 로 흡수해 동시
+    // 호출에도 tx abort(23505)가 없다(subscribe 와 동일 멱등 패턴).
+    await this.prisma.$executeRaw(Prisma.sql`
+      INSERT INTO "ThreadSubscription" ("id", "userId", "threadParentId", "notificationLevel", "createdAt")
+      VALUES (gen_random_uuid(), ${args.userId}::uuid, ${args.threadParentId}::uuid,
+              ${args.notificationLevel}::"ThreadNotificationLevel", now())
+      ON CONFLICT ("userId", "threadParentId") DO UPDATE
+        SET "notificationLevel" = EXCLUDED."notificationLevel"
+    `);
+    return { subscribed: true, notificationLevel: args.notificationLevel };
+  }
+
+  /**
+   * subscribe() 의 채널 READ ACL 검증을 단일 출처로 추출. 루트 메시지가 존재하고
+   * (비삭제·채널 비삭제) 호출자가 그 채널 READ 권한이 있으며 root(=parentMessageId
+   * null)인지 확인한다. 실패는 전부 MESSAGE_NOT_FOUND(존재 leak 방지) 또는
+   * VALIDATION_FAILED(답글에 호출)로 수렴한다.
+   */
+  private async assertThreadRootReadable(userId: string, threadParentId: string): Promise<void> {
+    const msg = await this.prisma.message.findUnique({
+      where: { id: threadParentId },
+      select: {
+        id: true,
+        parentMessageId: true,
+        deletedAt: true,
+        channel: {
+          // S38 fix-forward (보안 LOW): archived 채널 스레드의 알림 레벨 변경(수동
+          // 구독)을 막기 위해 archivedAt 을 함께 로드한다(resolveThreadRootForAcl 의
+          // CHANNEL_ARCHIVED 패턴과 일관). 보관 채널은 GET/ack 가 막히므로 구독
+          // 레벨 변경도 차단한다.
+          select: {
+            id: true,
+            workspaceId: true,
+            isPrivate: true,
+            archivedAt: true,
+            deletedAt: true,
+          },
+        },
+      },
+    });
+    if (!msg || msg.deletedAt || !msg.channel || msg.channel.deletedAt) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    if (msg.parentMessageId !== null) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'cannot subscribe to a reply — use the thread root',
+      );
+    }
+    let effective: number;
+    try {
+      effective = await this.channelAccess.resolveEffective(
+        {
+          id: msg.channel.id,
+          workspaceId: msg.channel.workspaceId,
+          isPrivate: msg.channel.isPrivate,
+        },
+        userId,
+      );
+    } catch {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    if ((effective & Permission.READ) !== Permission.READ) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    // READ 통과 뒤 archived 검사(존재 leak 없이 409 로 수렴 — get/ack 와 동일).
+    if (msg.channel.archivedAt) {
+      throw new DomainError(ErrorCode.CHANNEL_ARCHIVED, 'channel is archived — unarchive first');
+    }
   }
 
   async unsubscribe(args: {

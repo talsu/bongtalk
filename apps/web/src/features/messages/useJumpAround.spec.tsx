@@ -69,6 +69,7 @@ function aroundResponse(): ListMessagesResponse {
         version: 0,
         isBroadcast: false,
         parentExcerpt: null,
+        threadLocked: false,
       },
     ],
     pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },

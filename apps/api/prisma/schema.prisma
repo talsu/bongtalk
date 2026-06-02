@@ -86,6 +86,19 @@ enum FriendshipStatus {
   BLOCKED
 }
 
+// S38 (D04 / FR-TH-08): 스레드 구독 알림 레벨.
+//   ALL      — 새 답글마다 thread:reply 알림 수신(기존 구독 동작 = 기본값).
+//   MENTIONS — 본인이 @멘션된 답글에서만 알림(멘션은 mention.received 가 담당하므로
+//              MENTIONS 구독자는 thread.replied fanout 에서 제외 — OFF 와 동일하게
+//              "새 답글 알림 없음"이되, 멘션 시 mention.received 로는 도달한다).
+//   OFF      — thread.replied fanout 전면 제외.
+// 알림 fanout 은 notificationLevel != OFF(그리고 MENTIONS 제외)인 구독자만 대상.
+enum ThreadNotificationLevel {
+  ALL
+  MENTIONS
+  OFF
+}
+
 // S19 (FR-DM-12): DM 수신권한. EVERYONE = 누구나 DM 개시 가능,
 // WORKSPACE_MEMBER = 공통 워크스페이스 멤버이거나 ACCEPTED 친구만 가능(default).
 // FRIENDS_ONLY 는 Phase2 carryover — 이번 슬라이스에서는 enum 값으로도 선반영하지
@@ -221,6 +234,12 @@ model ThreadSubscription {
   id              String   @id @default(uuid()) @db.Uuid
   userId          String   @db.Uuid
   threadParentId  String   @db.Uuid
+  // S38 (D04 / FR-TH-08): 알림 레벨. default ALL 이라 기존 row 안전(additive +
+  // reversible — 마이그레이션 20260602300000_s38_thread_notif_level_lock). 자동
+  // 구독(send tx)은 새 행을 ALL 로 만들고, 사용자가 벨 드롭다운에서 PATCH 로
+  // MENTIONS/OFF 로 낮춘다. fanout(buildThreadReplyPayload)이 OFF/MENTIONS 를
+  // thread.replied 수신자에서 제외한다.
+  notificationLevel ThreadNotificationLevel @default(ALL)
   createdAt       DateTime @default(now()) @db.Timestamptz(6)
 
   user           User    @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -228,6 +247,9 @@ model ThreadSubscription {
 
   @@unique([userId, threadParentId])
   @@index([threadParentId])
+  // S38 (FR-TH-08): fanout 필터(level != OFF) 가 userId 스코프로 구독을 스캔할 때
+  // 쓰는 보조 인덱스. Threads 탭 목록도 userId 선두로 조회한다.
+  @@index([userId, notificationLevel])
 }
 
 // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12/18): 스레드 단위 읽음 커서.
@@ -545,6 +567,14 @@ model Message {
   // backfill 한다(서브쿼리 COUNT/MAX). additive + reversible(down.sql DROP).
   replyCount      Int       @default(0)
   latestReplyAt   DateTime? @db.Timestamptz
+
+  // ── S38 (D04 / FR-TH-13) — 스레드 잠금 ────────────────────────────────────
+  // 루트 메시지에만 의미가 있다(답글 행은 항상 false). OWNER/ADMIN 이 스레드를
+  // 잠그면 true 가 되고, 잠긴 스레드에서 MEMBER 이하의 답글 POST 는 controller
+  // 게이트가 403 THREAD_LOCKED 로 막는다(OWNER/ADMIN 면제). default false 라 기존
+  // row 안전(additive + reversible — 마이그레이션 20260602300000). PATCH
+  // /messages/:id/thread/lock {locked} 가 토글하며 thread:lock:changed 를 emit 한다.
+  threadLocked    Boolean   @default(false)
 
   // task-015-B: Postgres-generated tsvector column for FTS. Marked
   // `Unsupported` because Prisma 5.22 doesn't model tsvector natively;

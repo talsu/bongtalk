@@ -31,6 +31,8 @@ export const qk = {
     customStatus: () => ['me', 'custom-status'] as const,
     // S28 (FR-P06): DND 주간 스케줄 + 평가된 preference.
     dndSchedule: () => ['me', 'dnd-schedule'] as const,
+    // S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭).
+    threads: () => ['me', 'threads'] as const,
   },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,

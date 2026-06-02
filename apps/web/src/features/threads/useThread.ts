@@ -1,11 +1,24 @@
 import {
   useMutation,
+  useQuery,
   useQueryClient,
   useInfiniteQuery,
   type InfiniteData,
 } from '@tanstack/react-query';
-import type { ListThreadRepliesResponse, MessageDto } from '@qufox/shared-types';
-import { listThreadReplies, ackThread } from './api';
+import type {
+  ListMyThreadsResponse,
+  ListThreadRepliesResponse,
+  MessageDto,
+  ThreadNotificationLevel,
+} from '@qufox/shared-types';
+import {
+  listThreadReplies,
+  ackThread,
+  listMyThreads,
+  markAllThreadsRead,
+  setThreadLock,
+  setThreadNotificationLevel,
+} from './api';
 import { sendMessage } from '../messages/api';
 import { qk } from '../../lib/query-keys';
 import { useAuth } from '../auth/AuthProvider';
@@ -59,6 +72,57 @@ export function useAckThread(workspaceId: string, channelId: string, rootId: str
         };
       });
     },
+  });
+}
+
+/**
+ * S38 (FR-TH-08): 스레드 알림 레벨 설정(+ 수동 구독) 뮤테이션. ThreadPanel 헤더
+ * 벨 드롭다운이 호출한다. 성공 시 Threads 탭 목록 캐시를 무효화해 거기 표시되는
+ * notificationLevel 도 재수렴시킨다.
+ */
+export function useSetThreadNotificationLevel(rootId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (level: ThreadNotificationLevel) => setThreadNotificationLevel(rootId, level),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.me.threads() });
+    },
+  });
+}
+
+/**
+ * S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭). 미읽 우선, latestReplyAt DESC.
+ */
+export function useMyThreads(enabled = true) {
+  return useQuery<ListMyThreadsResponse>({
+    queryKey: qk.me.threads(),
+    queryFn: () => listMyThreads(),
+    enabled,
+  });
+}
+
+/**
+ * S38 (FR-TH-10): 내 구독 스레드 전체 읽음 처리. 성공 시 목록 캐시를 무효화해
+ * 미읽 badge 를 0 으로 재수렴시킨다.
+ */
+export function useMarkAllThreadsRead() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => markAllThreadsRead(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: qk.me.threads() });
+    },
+  });
+}
+
+/**
+ * S38 (FR-TH-13): 스레드 잠금/해제 뮤테이션(OWNER/ADMIN). 성공 시 서버가
+ * thread:lock:changed 를 채널 룸으로 emit 하므로, 본인 탭의 즉시 반영은 dispatcher
+ * 수신에 의존한다(낙관적 갱신은 생략 — 단일 출처 유지).
+ */
+export function useSetThreadLock(rootId: string) {
+  return useMutation({
+    mutationFn: (locked: boolean) => setThreadLock(rootId, locked),
   });
 }
 
@@ -129,6 +193,8 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         // 행은 항상 일반 답글.
         isBroadcast: false,
         parentExcerpt: null,
+        // S38 (FR-TH-13): 답글은 잠금 표식 없음(루트 전용).
+        threadLocked: false,
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;

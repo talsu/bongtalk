@@ -5,11 +5,17 @@ import {
   HttpCode,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { ListThreadRepliesQuerySchema, ThreadAckRequestSchema } from '@qufox/shared-types';
+import {
+  ListThreadRepliesQuerySchema,
+  SetThreadLockRequestSchema,
+  ThreadAckRequestSchema,
+  type SetThreadLockResponse,
+} from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PrismaService } from '../prisma/prisma.module';
@@ -111,6 +117,64 @@ export class ThreadsController {
     });
   }
 
+  /**
+   * S38 (FR-TH-13): PATCH /messages/:id/thread/lock — 스레드 잠금/해제.
+   *
+   * Body `{ locked }`. **OWNER/ADMIN 만**(controller 역할 게이트 — pin 권한 패턴과
+   * 일관). 루트 메시지의 channel → workspace 를 resolve 한 뒤, 요청자가 그
+   * 워크스페이스 OWNER/ADMIN 이 아니면 403 WORKSPACE_INSUFFICIENT_ROLE. 통과 시
+   * Message.threadLocked 를 토글하고 thread:lock:changed 를 채널 룸으로 emit 한다.
+   * DM(DIRECT·workspaceId NULL) 채널은 워크스페이스 역할 개념이 없어 잠금을
+   * 지원하지 않는다(403 — 워크스페이스 채널 전용 기능).
+   */
+  @Patch(':id/thread/lock')
+  @HttpCode(200)
+  async lock(
+    @Param('id', new ParseUUIDPipe()) id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ): Promise<SetThreadLockResponse> {
+    await this.rate.enforce([{ key: `thread:lock:u:${user.id}`, windowSec: 60, max: 120 }]);
+    const parsed = SetThreadLockRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    // 루트 채널 READ ACL + archived 차단(ack/get 과 동일 출처).
+    const { channelId } = await this.resolveThreadRootForAcl(id, user.id);
+    // 채널의 workspaceId 를 확보하고 요청자 역할(OWNER/ADMIN)을 검증한다.
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: channelId },
+      select: { id: true, workspaceId: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'thread root not found');
+    }
+    if (!channel.workspaceId) {
+      // DM/그룹 DM: 워크스페이스 역할 게이트가 없어 잠금 미지원.
+      throw new DomainError(ErrorCode.WORKSPACE_INSUFFICIENT_ROLE, 'DM 스레드는 잠글 수 없습니다');
+    }
+    const membership = await this.prisma.workspaceMember.findUnique({
+      where: {
+        workspaceId_userId: { workspaceId: channel.workspaceId, userId: user.id },
+      },
+      select: { role: true },
+    });
+    if (!membership || (membership.role !== 'OWNER' && membership.role !== 'ADMIN')) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'OWNER 또는 ADMIN 만 스레드를 잠그거나 해제할 수 있습니다',
+      );
+    }
+    const result = await this.messages.setThreadLock({
+      workspaceId: channel.workspaceId,
+      channelId,
+      rootId: id,
+      actorId: user.id,
+      locked: parsed.data.locked,
+    });
+    return result;
+  }
+
   @Get(':id/thread')
   async list(
     @Param('id', new ParseUUIDPipe()) id: string,
@@ -175,16 +239,26 @@ export class ThreadsController {
     // 사용자 집합을 함께 로드해 루트·답변 DTO 모두에 마스킹을 건다. 비-DIRECT
     // 채널은 빈 집합이라 maskBlockedAuthors 가 무동작(early return, 회귀 없음).
     const isDirect = msg.channel.type === 'DIRECT';
-    const [reactions, rootSummaries, attachments, blockedIds, readCursor] = await Promise.all([
-      this.messages.aggregateReactions(ids, user.id),
-      // S36 (FR-TH-04): 루트 thread chip 의 hasUnread 도 viewer 기준으로 산정.
-      this.messages.aggregateThreadSummaries([page.root.id], user.id),
-      this.messages.aggregateAttachments(ids),
-      isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
-      // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
-      // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
-      this.threadReadState.cursorFor(user.id, id),
-    ]);
+    const [reactions, rootSummaries, attachments, blockedIds, readCursor, viewerSub] =
+      await Promise.all([
+        this.messages.aggregateReactions(ids, user.id),
+        // S36 (FR-TH-04): 루트 thread chip 의 hasUnread 도 viewer 기준으로 산정.
+        this.messages.aggregateThreadSummaries([page.root.id], user.id),
+        this.messages.aggregateAttachments(ids),
+        isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
+        // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
+        // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
+        this.threadReadState.cursorFor(user.id, id),
+        // S38 fix-forward (reviewer MAJOR / FR-TH-08): viewer 의 스레드 알림 레벨.
+        // ThreadPanel 의 벨이 저장된 OFF/MENTIONS 를 반영하려면 GET 응답에 현재
+        // 레벨이 실려야 한다(종전엔 항상 'ALL' seed). 같은 GET 1회에 구독 행을
+        // 조회해 함께 내려보낸다(별도 라운드트립 0 — Promise.all 병합). 구독 행이
+        // 없으면 null(프론트는 'ALL' 로 표시하되 서버 구독을 만들지 않는다).
+        this.prisma.threadSubscription.findUnique({
+          where: { userId_threadParentId: { userId: user.id, threadParentId: id } },
+          select: { notificationLevel: true },
+        }),
+      ]);
     const rootSummary = rootSummaries.get(page.root.id);
 
     const [rootDto] = this.messages.maskBlockedAuthors(
@@ -218,6 +292,8 @@ export class ThreadsController {
       // 스크롤한다(기존 S35 동작). 첫 페이지에만 의미가 있어 매 페이지 반환하되
       // 프론트는 첫 페이지 값만 쓴다.
       readState: { lastReadMessageId: readCursor?.lastReadMessageId ?? null },
+      // S38 fix-forward (FR-TH-08): viewer 의 스레드 알림 레벨(벨 seed). 미구독 null.
+      viewerNotificationLevel: viewerSub?.notificationLevel ?? null,
       pageInfo: {
         hasMore: page.hasMore,
         nextCursor: page.nextCursor

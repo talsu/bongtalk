@@ -31,6 +31,7 @@ function makeMsg(type: MessageType, contentRaw: string): MessageDto {
     version: 0,
     isBroadcast: false,
     parentExcerpt: null,
+    threadLocked: false,
   };
 }
 

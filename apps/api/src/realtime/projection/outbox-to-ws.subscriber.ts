@@ -52,6 +52,16 @@ export class OutboxToWsSubscriber {
   async onMessageEvent(env: WsEnvelope): Promise<void> {
     const chId = env.channelId ?? (env as { message?: { channelId?: string } }).message?.channelId;
     if (!chId) return;
+    // S38 (FR-TH-13): thread lock 변경은 PRD 가 wire 이름 `thread:lock:changed` 를
+    // 명시한다. 서버 내부 outbox eventType 은 dot 표기(message.thread.lock_changed)
+    // 라 `message.**` 와일드카드가 잡지만, 채널 룸 emit 시 콜론 wire 이름으로
+    // 바꿔 보낸다(클라 dispatcher 가 'thread:lock:changed' 로 수신). replay 버퍼에는
+    // wire 이름으로 적재해 재연결 catch-up 도 동일 이름으로 도착한다.
+    if (env.type === 'message.thread.lock_changed') {
+      const wireEnv = { ...env, type: 'thread:lock:changed' as const };
+      await this.emitAndBuffer('channel', chId, wireEnv as WsEnvelope);
+      return;
+    }
     await this.emitAndBuffer('channel', chId, env);
 
     // Task-014-B thread.replied: channel-room fanout above keeps

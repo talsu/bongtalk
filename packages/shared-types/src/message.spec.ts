@@ -327,4 +327,24 @@ describe('S36 — ListThreadRepliesResponse.readState (FR-TH-18)', () => {
     });
     expect(parsed.readState.lastReadMessageId).toBe(cursor);
   });
+
+  // S38 fix-forward (reviewer MAJOR / FR-TH-08): viewerNotificationLevel.
+  it('defaults viewerNotificationLevel=null (구 API 응답 / 미구독 → 벨 ALL 표시)', () => {
+    const parsed = ListThreadRepliesResponseSchema.parse({
+      root: base,
+      replies: [],
+      pageInfo,
+    });
+    expect(parsed.viewerNotificationLevel).toBeNull();
+  });
+
+  it('carries the stored viewerNotificationLevel when present (벨 hydration)', () => {
+    const parsed = ListThreadRepliesResponseSchema.parse({
+      root: base,
+      replies: [],
+      viewerNotificationLevel: 'OFF',
+      pageInfo,
+    });
+    expect(parsed.viewerNotificationLevel).toBe('OFF');
+  });
 });

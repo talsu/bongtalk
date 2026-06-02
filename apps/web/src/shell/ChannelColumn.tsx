@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { ChannelList } from '../features/channels/ChannelList';
 import { UnreadsView } from '../features/channels/UnreadsView';
+import { ThreadsView } from '../features/threads/ThreadsView';
 import { ChannelBrowser } from '../features/channels/ChannelBrowser';
 import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
 import { CreateChannelModal } from '../features/channels/CreateChannelModal';
@@ -127,7 +128,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
       {inviteUrl ? (
         <div
           data-testid="ws-invite-url"
-          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[length:var(--fs-11)] break-all text-text"
+          className="border-b border-border-subtle bg-accent-subtle px-3 py-2 text-[length:var(--fs-11)] break-all text-foreground"
         >
           {inviteUrl}
         </div>
@@ -136,7 +137,7 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <div
           data-testid="mention-badge"
           aria-label={`읽지 않은 멘션 ${mentionCount}개`}
-          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-1.5 text-[length:var(--fs-13)] text-text"
+          className="flex items-center justify-between border-b border-border-subtle bg-accent-subtle px-3 py-[var(--s-2)] text-[length:var(--fs-13)] text-foreground"
         >
           <span>@ 멘션</span>
           <span className="qf-badge qf-badge--count">
@@ -148,6 +149,8 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
         <OnboardingCard />
         {/* S24 (FR-RS-10): 사이드바 최상단 상시 노출 Unreads View. */}
         <UnreadsView workspaceId={workspace.id} workspaceSlug={workspace.slug} />
+        {/* S38 (FR-TH-09/10): 사이드바 고정 Threads 진입점 + 목록 + 모두 읽음. */}
+        <ThreadsView workspaceId={workspace.id} workspaceSlug={workspace.slug} />
         <ChannelList
           workspaceId={workspace.id}
           workspaceSlug={workspace.slug}

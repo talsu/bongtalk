@@ -126,6 +126,8 @@ export const ErrorCodeSchema = z.enum([
   'MESSAGE_NOT_AUTHOR',
   'MESSAGE_THREAD_DEPTH_EXCEEDED',
   'MESSAGE_PARENT_NOT_FOUND',
+  // S38 (FR-TH-13): 잠긴 스레드 답글 차단(MEMBER 이하).
+  'THREAD_LOCKED',
   // task-044-iter2: pinned messages cap (50/channel)
   'MESSAGE_PIN_CAP_EXCEEDED',
   // S05 (FR-MSG-06): 낙관적 잠금 충돌. PATCH expectedVersion 이 서버
