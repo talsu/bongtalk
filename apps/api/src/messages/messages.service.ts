@@ -5,6 +5,8 @@ import {
   MessageMentions,
   type MessageType,
   renderSystemMessageTemplate,
+  isSystemMessageType,
+  HARD_PIN_CAP,
   EDIT_HISTORY_CAP,
   type EditHistoryDto,
   THREAD_BROADCAST_EXCERPT_CAP,
@@ -118,8 +120,11 @@ type MessageRow = {
   threadLocked?: boolean | null;
 };
 
-// task-044-iter2: Discord-parity cap. Cap 변경 시 shared-types
-// MESSAGE_PIN_CAP 도 동일 값으로 갱신해야 합니다.
+// task-044-iter2 / S50 (D10 · FR-PS-04): Discord-parity cap.
+//   - MESSAGE_PIN_CAP(50) = soft cap — 도달 시 클라가 경고 toast 를 띄우되 핀은 허용.
+//   - HARD_PIN_CAP(55, shared-types) = 실제 거부 경계 — 55 초과 시도만 423 거부.
+// listPins 는 hard cap 까지 노출한다(50~55 핀이 모두 패널에 보여야 함). Cap 값 변경
+// 시 shared-types MESSAGE_PIN_CAP / HARD_PIN_CAP 도 동일 값으로 갱신해야 합니다.
 export const MESSAGE_PIN_CAP = 50;
 
 // S33 (FR-TH-16 / FR-TH-03): threadMeta.replyParticipants(=recentReplyUserIds)
@@ -2606,9 +2611,22 @@ export class MessagesService {
       // 직전 update() 가 deletedAt 을 더 늦은 시각으로 덮고 두 번째 MESSAGE_DELETED
       // 가 중복 fanout 됐다. count===0(부재/타채널/이미 삭제)이면 no-op 으로
       // 막는다. 또 updateMany 는 행 부재 시 P2025 를 던지지 않는다(update 와 차이).
+      // S50 (D10 · FR-PS-06): 핀 cascade 분기를 위해 삭제 *직전* 핀 상태를 읽는다.
+      // updateMany 가 pinnedAt 을 null 로 덮기 전에 읽어야 "삭제 시점에 핀이었는지"를
+      // 알 수 있다. 살아있는(deletedAt IS NULL) 행만 본다 — 중복 삭제는 아래 count===0
+      // 가드로 어차피 no-op 이라 pin_removed 가 중복 발행되지 않는다.
+      const preDelete = await tx.message.findFirst({
+        where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
+        select: { pinnedAt: true },
+      });
+      const wasPinned = preDelete?.pinnedAt != null;
+      // S50 (D10 · FR-PS-06): 핀된 메시지를 소프트 삭제하면 같은 트랜잭션 안에서
+      // 핀 표식(pinnedAt/pinnedBy)도 함께 null 로 초기화한다 — 삭제 행이 listPins
+      // (deletedAt IS NULL 필터)에서 빠지는 것과 별개로, 데이터 레이어에서 핀 상태를
+      // 명시적으로 해제해 cascade pin_removed 이벤트의 진실원으로 삼는다.
       const { count } = await tx.message.updateMany({
         where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
-        data: { deletedAt },
+        data: { deletedAt, pinnedAt: null, pinnedBy: null },
       });
       if (count === 0) return;
       // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용
@@ -2668,6 +2686,26 @@ export class MessagesService {
         eventType: MESSAGE_DELETED,
         payload,
       });
+      // S50 (D10 · FR-PS-06): 삭제된 메시지가 핀이었다면 같은 트랜잭션 안에서
+      // pin_removed(MESSAGE_PIN_TOGGLED, pinnedAt=null) 이벤트도 발행해, 핀 패널/
+      // 헤더 카운트가 채널 룸 전체에서 즉시 정정되게 한다. outbox 라 커밋 후 발행
+      // 보장 + at-least-once. unpin 경로와 동일한 wire(channel:pin_removed)로 변환된다.
+      if (wasPinned) {
+        const pinPayload: MessagePinToggledPayload = {
+          workspaceId: args.workspaceId,
+          channelId: args.channelId,
+          actorId: args.actorId,
+          messageId: updated.id,
+          pinnedAt: null,
+          pinnedBy: null,
+        };
+        await this.outbox.record(tx, {
+          aggregateType: 'Message',
+          aggregateId: updated.id,
+          eventType: MESSAGE_PIN_TOGGLED,
+          payload: pinPayload,
+        });
+      }
     });
 
     // S36 (FR-TH-14, 옵션 A 동기 직접): broadcast 행 삭제는 채널 unread 에서
@@ -2695,10 +2733,22 @@ export class MessagesService {
   // ----------------------------------------------- task-044-iter2 pinning
 
   /**
-   * task-044-iter2: 메시지 pin. 권한 체크는 controller 의 OWNER/ADMIN
-   * 가드에서 수행합니다 — service 는 cap (50) 만 enforce 합니다.
-   * 이미 pinned 된 메시지를 다시 pin 하면 idempotent (기존 pinnedAt 유지).
-   * Soft-deleted 메시지는 pin 불가 (toDto 에서도 마스킹).
+   * task-044-iter2 / S50 (D10 · FR-PS-01/02/04/14): 메시지 pin.
+   *
+   * 권한(멤버 READ ACL 통과 + OWNER/ADMIN 항상)은 컨트롤러가 게이트합니다 — service
+   * 는 핀 가능 조건(FR-PS-01) + hard cap(FR-PS-04) 만 enforce 합니다:
+   *   - soft-deleted 메시지 핀 불가(findFirst deletedAt: null → MESSAGE_NOT_FOUND).
+   *   - 시스템 메시지(type LIKE 'SYSTEM_%') 핀 불가 → VALIDATION_FAILED(400). 핀
+   *     추가 시 SYSTEM_PIN 시스템 메시지를 또 삽입하므로, 시스템 메시지를 핀하면
+   *     무한 메타-핀이 되어 의미가 없다(Discord 도 시스템 메시지 핀 불가).
+   *   - hard cap 55 초과 시도 → MESSAGE_PIN_CAP_EXCEEDED(423). soft cap 50 은 거부
+   *     경계가 아니다(클라가 used>=50 수신 시 경고 toast 만 띄움 — FR-PS-04).
+   *
+   * 이미 pinned 면 idempotent(FR-PS-14) — 기존 row 그대로 반환, SYSTEM_PIN 삽입 ·
+   * outbox emit 모두 생략. 핀 추가 성공 시 같은 트랜잭션 안에서 SYSTEM_PIN 시스템
+   * 메시지("{username}이(가) 메시지를 고정했습니다.")를 채널 스트림에 자동 삽입하고
+   * (FR-PS-02), MESSAGE_PIN_TOGGLED outbox 이벤트에 그 systemMessageId + 갱신 후 핀
+   * 수(used)를 실어 보낸다(subscriber 가 channel:pin_added wire 로 변환).
    */
   async pin(args: {
     workspaceId: string | null;
@@ -2709,37 +2759,65 @@ export class MessagesService {
     return this.prisma.$transaction(async (tx) => {
       // task-045 iter1 (H1 fix): advisory lock 으로 채널 단위 직렬화.
       // 044 reviewer 발견 — count + update race window 로 두 admin 이
-      // 동시에 49→둘 다 49 셈 → cap+1 (51) 가능했음. xact_lock 은 tx
+      // 동시에 49→둘 다 49 셈 → cap+1 가능했음. xact_lock 은 tx
       // commit/rollback 시 자동 해제, 별도 cleanup 불필요.
       // hashtextextended 는 PostgreSQL 12+ 에서 bigint key 안전 생성.
       // prefix `pin:` 으로 다른 advisory lock domain 과 충돌 회피.
-      await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pin:${args.channelId}`}, 0))`;
+      //
+      // S50 fix (int 발견): `$queryRaw` 는 결과 컬럼을 역직렬화하는데
+      // pg_advisory_xact_lock 의 반환 타입이 void 라 Prisma 5 가
+      // "Failed to deserialize column of type 'void'" 로 거부한다(500). lock
+      // 획득의 부수효과만 필요하고 결과 행은 쓰지 않으므로, 결과셋을
+      // 역직렬화하지 않는 `$executeRaw`(영향 행 수만 반환)로 호출한다 —
+      // 다른 advisory-lock 사용처(setThreadLock 등 raw UPDATE)와 동일 계열.
+      await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`pin:${args.channelId}`}, 0))`;
 
       const target = (await tx.message.findFirst({
         where: { id: args.msgId, channelId: args.channelId, deletedAt: null },
-      })) as (MessageRow & { pinnedAt: Date | null }) | null;
+      })) as (MessageRow & { pinnedAt: Date | null; type?: MessageType | null }) | null;
       if (!target) {
         throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found or deleted');
       }
+      // S50 (FR-PS-01): 시스템 메시지는 핀 불가. 핀 자체가 SYSTEM_PIN 시스템
+      // 메시지를 삽입하므로 시스템 행을 핀하는 것은 무의미·재귀적이다.
+      if (isSystemMessageType(target.type ?? null)) {
+        throw new DomainError(ErrorCode.VALIDATION_FAILED, '시스템 메시지는 고정할 수 없습니다');
+      }
       if (target.pinnedAt) {
-        // idempotent — 같은 row 그대로 반환, outbox 도 다시 emit 안 함.
+        // idempotent (FR-PS-14) — 같은 row 그대로 반환, outbox 도 다시 emit 안 함.
         return target as MessageRow;
       }
-      // cap check: 이 채널의 핀 수가 cap 미만이어야 함. advisory lock 보유
-      // 상태에서 count + update 가 직렬화되어 race 가 닫힘.
+      // S50 (FR-PS-04): hard cap(55) 검사. advisory lock 보유 상태에서 count +
+      // update 가 직렬화되어 race 가 닫힘. soft cap(50)이 아니라 hard cap 초과만
+      // 거부한다 — 50~55 구간은 허용하고 클라가 경고 toast 만 띄운다.
       const pinned = await tx.message.count({
         where: { channelId: args.channelId, pinnedAt: { not: null }, deletedAt: null },
       });
-      if (pinned >= MESSAGE_PIN_CAP) {
+      if (pinned >= HARD_PIN_CAP) {
         throw new DomainError(
           ErrorCode.MESSAGE_PIN_CAP_EXCEEDED,
-          `최대 ${MESSAGE_PIN_CAP}개까지 고정할 수 있습니다`,
+          `최대 ${HARD_PIN_CAP}개까지 고정할 수 있습니다`,
         );
       }
       const pinnedAt = new Date();
+      // S50 review (security HIGH-2, 심층방어): findFirst 가 이미 같은 tx 에서
+      // {id, channelId} 를 검증했지만, update WHERE 에도 channelId 를 동봉해
+      // DB 레이어에서 테넌시를 이중 보장한다(향후 리팩터 시 IDOR 유입 차단).
+      // Prisma 5 extended-where — 비매칭 시 P2025.
       const updated = await tx.message.update({
-        where: { id: args.msgId },
+        where: { id: args.msgId, channelId: args.channelId },
         data: { pinnedAt, pinnedBy: args.actorId },
+      });
+      // S50 (FR-PS-02): 핀 추가 시 SYSTEM_PIN 시스템 메시지를 같은 트랜잭션 안에서
+      // 채널 스트림에 자동 삽입한다("{username}이(가) 메시지를 고정했습니다."). 작성자
+      // 이름은 actorId 로 조회하되, 못 찾으면 빈 변수로 폴백(renderSystemMessageTemplate
+      // 이 미치환 토큰을 제거 — forward-compat). createSystemMessage 가 자체
+      // $transaction 을 열어 nested 충돌이 나므로, 여기서는 같은 tx 로 직접 INSERT
+      // 한다(원자성 — 핀과 시스템 메시지가 함께 commit/rollback).
+      const systemMessageId = await this.insertPinSystemMessage(tx, {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.actorId,
       });
       const payload: MessagePinToggledPayload = {
         workspaceId: args.workspaceId,
@@ -2748,6 +2826,9 @@ export class MessagesService {
         messageId: updated.id,
         pinnedAt: pinnedAt.toISOString(),
         pinnedBy: args.actorId,
+        systemMessageId,
+        // 갱신 후 핀 수 = lock 보유 중 읽은 count + 방금 추가한 1.
+        used: pinned + 1,
       };
       await this.outbox.record(tx, {
         aggregateType: 'Message',
@@ -2757,6 +2838,75 @@ export class MessagesService {
       });
       return updated as MessageRow;
     });
+  }
+
+  /**
+   * S50 (D10 · FR-PS-02): pin() 트랜잭션 내에서 SYSTEM_PIN 시스템 메시지를 채널
+   * 스트림에 삽입하고 그 id 를 반환한다. createSystemMessage 의 행 형태(authorType
+   * =SYSTEM, type=SYSTEM_PIN, 서버 생성 템플릿 contentRaw, 빈 mentions)와 동일하되,
+   * **호출자의 tx 를 공유**해 핀 업데이트와 원자적으로 commit/rollback 되게 한다
+   * (createSystemMessage 는 자체 $transaction 을 열어 nested 가 됨). 동시에 별도
+   * MESSAGE_CREATED outbox 이벤트를 발행해 시스템 행이 라이브 채널 타임라인에도
+   * 도착하게 한다(SYSTEM_THREAD_BROADCAST 선례).
+   */
+  private async insertPinSystemMessage(
+    tx: Prisma.TransactionClient,
+    args: { workspaceId: string | null; channelId: string; actorId: string },
+  ): Promise<string> {
+    const actor = await tx.user.findUnique({
+      where: { id: args.actorId },
+      select: { username: true },
+    });
+    const contentRaw = renderSystemMessageTemplate('SYSTEM_PIN', {
+      username: actor?.username ?? '',
+    });
+    const processed = processMrkdwn(contentRaw);
+    const emptyMentions: MessageMentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+    };
+    const created = await tx.message.create({
+      data: {
+        channelId: args.channelId,
+        authorId: args.actorId,
+        authorType: 'SYSTEM',
+        type: 'SYSTEM_PIN',
+        content: contentRaw,
+        contentPlain: processed.contentPlain,
+        contentRaw,
+        contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+        contentPlainV2: processed.contentPlain,
+        mentions: emptyMentions as unknown as Prisma.InputJsonValue,
+      },
+    });
+    const payload: MessageCreatedPayload = {
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      actorId: args.actorId,
+      nonce: null,
+      message: {
+        id: created.id,
+        authorId: created.authorId,
+        content: created.content,
+        contentRaw: created.contentRaw ?? created.content,
+        contentAst: processed.contentAst,
+        contentPlain: processed.contentPlain,
+        type: 'SYSTEM_PIN',
+        mentions: emptyMentions,
+        createdAt: created.createdAt.toISOString(),
+        parentMessageId: created.parentMessageId,
+      },
+    };
+    await this.outbox.record(tx, {
+      aggregateType: 'Message',
+      aggregateId: created.id,
+      eventType: MESSAGE_CREATED,
+      payload,
+    });
+    return created.id;
   }
 
   /**
@@ -2779,8 +2929,10 @@ export class MessagesService {
       if (!target.pinnedAt) {
         return target as MessageRow;
       }
+      // S50 review (security HIGH-2, 심층방어): pin() 과 동일하게 update WHERE 에
+      // channelId 를 동봉해 테넌시 이중 보장(Prisma 5 extended-where).
       const updated = await tx.message.update({
-        where: { id: args.msgId },
+        where: { id: args.msgId, channelId: args.channelId },
         data: { pinnedAt: null, pinnedBy: null },
       });
       const payload: MessagePinToggledPayload = {
@@ -2872,17 +3024,32 @@ export class MessagesService {
   }
 
   /**
-   * task-044-iter2: 채널의 pinned 메시지 목록. 정렬 pinnedAt DESC,
-   * cap 50 까지. soft-deleted 는 자동으로 제외 (deletedAt IS NULL).
-   * partial index `Message_channelId_pinnedAt_idx` 가 sparse scan
-   * 보장.
+   * task-044-iter2 / S50 (D10 · FR-PS-03): 채널의 pinned 메시지 목록. 정렬
+   * pinnedAt DESC(최신순), hard cap(55)까지. soft-deleted 는 자동 제외(deletedAt
+   * IS NULL — FR-PS-06 cascade 와 정합). partial index
+   * `Message_channelId_pinnedAt_idx` 가 sparse scan 을 보장한다. `cap` 은 soft cap
+   * (50)을 노출해 클라가 used/cap 비율로 경고 UI 를 그릴 수 있게 하되, take 는 hard
+   * cap 까지 가져온다(50~55 핀도 패널에 모두 보여야 함).
    */
   async listPins(channelId: string): Promise<{ items: MessageRow[]; cap: number; used: number }> {
     const items = (await this.prisma.message.findMany({
       where: { channelId, pinnedAt: { not: null }, deletedAt: null },
       orderBy: { pinnedAt: 'desc' },
-      take: MESSAGE_PIN_CAP,
+      take: HARD_PIN_CAP,
     })) as MessageRow[];
     return { items, cap: MESSAGE_PIN_CAP, used: items.length };
+  }
+
+  /**
+   * S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지용 경량 카운트. 메시지 본문/AST
+   * 를 끌어오지 않고 핀 수만 COUNT 한다(헤더가 채널마다 1회 호출 — 본문 페치 불필요).
+   * soft-deleted 는 제외(FR-PS-06). cap 은 soft cap(50)을 함께 돌려 used/cap 비율
+   * 표기에 쓰게 한다.
+   */
+  async countPins(channelId: string): Promise<{ used: number; cap: number }> {
+    const used = await this.prisma.message.count({
+      where: { channelId, pinnedAt: { not: null }, deletedAt: null },
+    });
+    return { used, cap: MESSAGE_PIN_CAP };
   }
 }

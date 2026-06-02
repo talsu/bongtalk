@@ -8,6 +8,9 @@ import {
   EmojiAliasUpdatedPayloadSchema,
   MentionNewPayloadSchema,
   NotificationBadgeUpdatePayloadSchema,
+  ChannelPinAddedPayloadSchema,
+  ChannelPinRemovedPayloadSchema,
+  MESSAGE_PIN_CAP,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
   type MessageDto,
@@ -23,6 +26,55 @@ import { useNotifications } from '../../stores/notification-store';
 import { useTypingStore } from '../typing/useTypingStore';
 import { useReadState } from './readStateStore';
 import { useBadgeStore } from '../notifications/badgeStore';
+
+/**
+ * S50 (D10 · FR-PS-02/06): channel:pin_* 이벤트는 wire 에 workspaceId 를 싣지 않고
+ * channelId 만 싣는다(채널 룸 fanout — channelId 가 유일 식별자). 메시지 목록 캐시
+ * 키는 `['messages', wsId, chId]` 라 wsId 를 모르므로, channelId 가 일치하는 모든
+ * messages.list 쿼리를 predicate 로 찾아 핀 마커(pinnedAt/pinnedBy)를 patch 한다.
+ */
+function patchPinMarker(
+  qc: QueryClient,
+  channelId: string,
+  messageId: string,
+  pinnedAt: string | null,
+  pinnedBy: string | null,
+): void {
+  qc.setQueriesData<InfiniteData<ListMessagesResponse>>(
+    {
+      predicate: (q) => {
+        const k = q.queryKey;
+        return Array.isArray(k) && k[0] === 'messages' && k[2] === channelId && k.length === 3;
+      },
+    },
+    (old) => {
+      if (!old) return old;
+      let touched = false;
+      const pages = old.pages.map((p) => ({
+        ...p,
+        items: p.items.map((m) => {
+          if (m.id !== messageId) return m;
+          touched = true;
+          return { ...m, pinnedAt, pinnedBy };
+        }),
+      }));
+      return touched ? { ...old, pages } : old;
+    },
+  );
+}
+
+/**
+ * S50 (D10 · FR-PS-03): 핀 패널 목록 + 헤더 카운트 쿼리를 channelId 일치 기준으로
+ * invalidate 한다(다음 read 가 서버 진실값으로 재조회). pin_added/removed 둘 다 호출.
+ */
+function invalidatePinViews(qc: QueryClient, channelId: string): void {
+  qc.invalidateQueries({
+    predicate: (q) => {
+      const k = q.queryKey;
+      return Array.isArray(k) && k[0] === 'messages' && k[2] === channelId && k[3] === 'pins';
+    },
+  });
+}
 
 export interface DispatcherContext {
   viewerId: () => string | null;
@@ -670,33 +722,39 @@ export function installRealtimeDispatcher(
     },
   );
 
-  // task-045 iter1: pinned message toggle. payload 의 pinnedAt 가 null
-  // 이면 unpin, ISO string 이면 pin. 채널 룸 fanout 이라 받는 즉시
-  // 모든 시청자의 cache 행에 patch 적용. workspaceId 가 null 인 DM
-  // 채널은 BE 가 emit 자체를 안 하므로 이 핸들러로 흘러들어오지 않음.
-  on<{
-    channelId: string;
-    workspaceId: string | null;
-    messageId: string;
-    pinnedAt: string | null;
-    pinnedBy: string | null;
-  }>('message.pin.toggled', (env) => {
-    if (!env.channelId || !env.workspaceId || !env.messageId) return;
-    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
-      qk.messages.list(env.workspaceId, env.channelId),
-      (old) => {
-        if (!old) return old;
-        return {
-          ...old,
-          pages: old.pages.map((p) => ({
-            ...p,
-            items: p.items.map((m) =>
-              m.id === env.messageId ? { ...m, pinnedAt: env.pinnedAt, pinnedBy: env.pinnedBy } : m,
-            ),
-          })),
-        };
-      },
-    );
+  // S50 (D10 · FR-PS-02): channel:pin_added — 메시지가 채널 핀에 추가됨. 채널 룸
+  // fanout 이라 받는 즉시 (1) 메시지 목록 캐시 행에 pinnedAt/pinnedBy patch(핀 마커
+  // 표시), (2) 핀 패널 목록 + 헤더 카운트 쿼리 invalidate, (3) used>=soft cap(50)
+  // 도달 시 경고 toast(FR-PS-04). workspaceId 는 wire 에 없으므로 활성 채널의
+  // wsId 를 알 수 없는 경우를 대비해 모든 messages.list 쿼리에서 channelId 가
+  // 일치하는 행을 patch 한다(채널 단위 fanout — channelId 가 유일 식별자).
+  on<unknown>(WS_EVENTS.CHANNEL_PIN_ADDED, (env) => {
+    const parsed = ChannelPinAddedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { channelId, messageId, pinnedAt, pinnedBy, used } = parsed.data;
+    patchPinMarker(qc, channelId, messageId, pinnedAt, pinnedBy);
+    invalidatePinViews(qc, channelId);
+    // FR-PS-04: soft cap(50) 도달 시 경고 toast. used 미동봉(구 서버)이면 생략.
+    if (typeof used === 'number' && used >= MESSAGE_PIN_CAP) {
+      useNotifications.getState().push({
+        variant: 'warning',
+        title: '채널 핀이 거의 가득 찼습니다',
+        body: `이 채널에 고정된 메시지가 ${used}개입니다. 권장 한도 ${MESSAGE_PIN_CAP}개에 도달했습니다.`,
+        ttlMs: 6000,
+      });
+    }
+  });
+
+  // S50 (D10 · FR-PS-06): channel:pin_removed — 핀 해제(unpin) 또는 핀된 메시지
+  // 소프트 삭제 cascade. 메시지 목록 행의 pinnedAt/pinnedBy 를 null 로 patch 하고
+  // 핀 패널/헤더 카운트를 invalidate 한다(메시지 자체 삭제는 별도 message.deleted
+  // 핸들러가 처리 — 여기서는 핀 표식만 정리).
+  on<unknown>(WS_EVENTS.CHANNEL_PIN_REMOVED, (env) => {
+    const parsed = ChannelPinRemovedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { channelId, messageId } = parsed.data;
+    patchPinMarker(qc, channelId, messageId, null, null);
+    invalidatePinViews(qc, channelId);
   });
 
   // ---------- Read state (S21 · FR-RS-01) ----------
@@ -1190,7 +1248,10 @@ export const DISPATCHED_EVENTS = [
   'message.created',
   'message.updated',
   'message.deleted',
-  'message.pin.toggled',
+  // S50 (D10 · FR-PS-02/06): 핀 추가/해제 wire 이벤트(서버가 message.pin.toggled →
+  // channel:pin_added / channel:pin_removed 로 변환해 emit).
+  WS_EVENTS.CHANNEL_PIN_ADDED,
+  WS_EVENTS.CHANNEL_PIN_REMOVED,
   'user.profile.updated',
   'channel.created',
   'channel.updated',
