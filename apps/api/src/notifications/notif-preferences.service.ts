@@ -9,6 +9,51 @@ import type {
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import type { DndSchedule } from '../me/dnd-schedule.service';
+import { DomainError } from '../common/errors/domain-error';
+import { ErrorCode } from '../common/errors/error-code.enum';
+
+/**
+ * S48 (FR-MN-10): 사용자당 키워드 알림 등록 상한. PRD 정본 — 26번째 등록 시도 시
+ * 400(KEYWORD_LIMIT_EXCEEDED). 서비스 레이어가 단일 출처로 enforce 한다(Zod 의
+ * 형태 검증과 분리 — 한도 초과는 전용 errorCode 로 구별해 클라이언트 토스트 분기).
+ */
+export const KEYWORD_MAX_COUNT = 25;
+/** 키워드 1개 길이 상한(글자 수). 공백 어절 일치라 과도하게 긴 입력 방지용. */
+const KEYWORD_MAX_LENGTH = 100;
+
+/**
+ * S48 (FR-MN-10): 키워드 배열 정규화 + 검증.
+ *   - 각 키워드 trim. 빈/공백 → VALIDATION_FAILED. 길이 초과(>100) → VALIDATION_FAILED.
+ *   - 대소문자 무관 중복 제거(첫 출현 보존). 매칭이 대소문자 무관이므로 저장도 dedupe.
+ *   - 최종 개수 > 25 → KEYWORD_LIMIT_EXCEEDED.
+ */
+function normalizeKeywords(raw: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const k of raw) {
+    const trimmed = k.trim();
+    if (trimmed.length === 0) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'keyword must not be blank');
+    }
+    if (trimmed.length > KEYWORD_MAX_LENGTH) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        `keyword too long (max ${KEYWORD_MAX_LENGTH})`,
+      );
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  if (out.length > KEYWORD_MAX_COUNT) {
+    throw new DomainError(
+      ErrorCode.KEYWORD_LIMIT_EXCEEDED,
+      `too many keywords (max ${KEYWORD_MAX_COUNT})`,
+    );
+  }
+  return out;
+}
 
 /**
  * S46 (D06 / FR-MN-05/06/07/08): 글로벌/서버/채널 알림 설정 서비스.
@@ -58,7 +103,15 @@ export class NotifPreferencesService {
 
   /**
    * 글로벌 알림 설정 부분 업데이트(upsert). 전달된 필드만 갱신한다.
-   * keywords 스캔은 S46 에서 저장만 — 실제 스캔은 BullMQ(S45) 후속.
+   *
+   * S48:
+   *   - keywords: 최대 25개(KEYWORD_LIMIT_EXCEEDED) + trim/비공백/길이(≤100) 검증 +
+   *     대소문자 무관 중복 제거. **실 스캔은 미구현** — 컬럼 저장만.
+   *     TODO(mention-scan: MentionRecord + 동기/BullMQ — S45 인프라 결정 후).
+   *   - dndUntil(FR-MN-11 임시 snooze): 과거 시각은 거부(VALIDATION_FAILED, 최소
+   *     now+1분). null = 해제.
+   *
+   * @param now dndUntil 과거 거부 판정 기준(주입 — 테스트 결정성).
    */
   async updateGlobal(
     userId: string,
@@ -68,6 +121,7 @@ export class NotifPreferencesService {
       dndUntil?: string | null;
       dndSchedule?: DndSchedule | null;
     },
+    now: Date = new Date(),
   ): Promise<GlobalNotificationSettings> {
     const update: Prisma.UserSettingsUpdateInput = {};
     const create: Prisma.UserSettingsUncheckedCreateInput = { userId };
@@ -76,12 +130,22 @@ export class NotifPreferencesService {
       create.notifTrigger = patch.notifTrigger;
     }
     if (patch.keywords !== undefined) {
-      // TODO(mention-scan: BullMQ·S45) — 키워드 컬럼 저장만, 실 스캔 미연동.
-      update.keywords = patch.keywords;
-      create.keywords = patch.keywords;
+      // FR-MN-10: 서비스 레이어 검증(25개 한도 + 정규화). 실 스캔은 미연동.
+      // TODO(mention-scan: MentionRecord + 동기/BullMQ — S45 인프라 결정 후) —
+      //   mention:keyword 이벤트·MentionRecord 미생성(키워드 컬럼 저장만).
+      const normalized = normalizeKeywords(patch.keywords);
+      update.keywords = normalized;
+      create.keywords = normalized;
     }
     if (patch.dndUntil !== undefined) {
       const v = patch.dndUntil ? new Date(patch.dndUntil) : null;
+      // FR-MN-11: 과거 snooze 종료 시각은 무의미 → 거부(최소 now+1분). null=해제는 허용.
+      if (v !== null && v.getTime() <= now.getTime() + 60_000) {
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          'dndUntil must be at least 1 minute in the future',
+        );
+      }
       update.dndUntil = v;
       create.dndUntil = v;
     }

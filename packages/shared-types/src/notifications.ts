@@ -90,7 +90,10 @@ export type GlobalNotificationSettings = z.infer<typeof GlobalNotificationSettin
 export const UpdateGlobalNotificationSettingsRequestSchema = z
   .object({
     notifTrigger: NotifLevelSchema.optional(),
-    keywords: z.array(z.string().min(1).max(100)).max(25).optional(),
+    // S48 (FR-MN-10): 최대 25개 한도는 **서비스 레이어**가 KEYWORD_LIMIT_EXCEEDED 로
+    // 단일 enforce 한다(전용 errorCode 로 클라 토스트 분기). Zod 는 형태(문자열)만
+    // 검증하고 .max(25) 는 두지 않는다 — 서비스가 trim/dedupe 후 개수를 권위 판정.
+    keywords: z.array(z.string()).optional(),
     dndUntil: z.string().datetime().nullable().optional(),
     dndSchedule: DndScheduleSchema.nullable().optional(),
   })

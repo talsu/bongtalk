@@ -19,6 +19,9 @@ import {
   useUpdateGlobalNotificationSettings,
 } from '../notifications/useNotifLevels';
 import { NotifLevelRadio } from '../notifications/NotifLevelRadio';
+import { DndSnoozeControl } from '../notifications/DndSnoozeControl';
+import { KeywordsInput } from '../notifications/KeywordsInput';
+import { ServerNotifSettings } from '../notifications/ServerNotifSettings';
 
 const EVENT_TYPES: readonly NotificationEventType[] = [
   'MENTION',
@@ -60,6 +63,32 @@ export function NotificationSettingsPage(): JSX.Element {
       notify({ variant: 'danger', title: '알림 수준 저장 실패', body: (err as Error).message });
     }
   };
+
+  // S48 (FR-MN-11): DND Snooze — dndUntil 저장/해제.
+  const setSnooze = async (iso: string | null) => {
+    try {
+      await updateGlobal.mutateAsync({ dndUntil: iso });
+    } catch (err) {
+      notify({ variant: 'danger', title: '방해 금지 저장 실패', body: (err as Error).message });
+    }
+  };
+
+  // S48 (FR-MN-10): 키워드 — 서버가 KEYWORD_LIMIT_EXCEEDED(400)로 권위 차단, 클라는
+  // 25개 초과 시 선제 토스트(서버 왕복 없이).
+  const keywords = globalSettings?.keywords ?? [];
+  const setKeywords = async (next: string[]) => {
+    try {
+      await updateGlobal.mutateAsync({ keywords: next });
+    } catch (err) {
+      notify({ variant: 'danger', title: '키워드 저장 실패', body: (err as Error).message });
+    }
+  };
+  const onKeywordLimit = () =>
+    notify({
+      variant: 'danger',
+      title: '키워드 한도 초과',
+      body: '키워드는 최대 25개까지 등록할 수 있습니다.',
+    });
 
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
   // Tabs: "Global" first, then one per workspace the user is in.
@@ -134,6 +163,52 @@ export function NotificationSettingsPage(): JSX.Element {
           />
         </section>
 
+        {/* S48 (FR-MN-11): 임시 방해 금지(DND Snooze). */}
+        <section
+          className="mb-[var(--s-6)] rounded-[var(--r-xl)] border border-border bg-bg-surface p-[var(--s-5)]"
+          data-testid="dnd-snooze-section"
+          aria-labelledby="dnd-snooze-heading"
+        >
+          <h2
+            id="dnd-snooze-heading"
+            className="mb-[var(--s-1)] text-[length:var(--fs-16)] font-semibold text-text-strong"
+          >
+            임시 방해 금지
+          </h2>
+          <p className="mb-[var(--s-4)] text-[length:var(--fs-12)] text-text-muted">
+            지정한 시각까지 멘션 알림을 잠시 끕니다. 만료되면 자동으로 해제됩니다.
+          </p>
+          <DndSnoozeControl
+            dndUntil={globalSettings?.dndUntil ?? null}
+            disabled={updateGlobal.isPending || !globalSettings}
+            onSnooze={(iso) => void setSnooze(iso)}
+            onClear={() => void setSnooze(null)}
+          />
+        </section>
+
+        {/* S48 (FR-MN-10): 키워드 알림(스캔은 carryover). */}
+        <section
+          className="mb-[var(--s-6)] rounded-[var(--r-xl)] border border-border bg-bg-surface p-[var(--s-5)]"
+          data-testid="keywords-section"
+          aria-labelledby="keywords-heading"
+        >
+          <h2
+            id="keywords-heading"
+            className="mb-[var(--s-1)] text-[length:var(--fs-16)] font-semibold text-text-strong"
+          >
+            키워드 알림
+          </h2>
+          <p className="mb-[var(--s-4)] text-[length:var(--fs-12)] text-text-muted">
+            등록한 키워드(최대 25개)가 메시지에 등장하면 알림을 받습니다.
+          </p>
+          <KeywordsInput
+            keywords={keywords}
+            disabled={updateGlobal.isPending || !globalSettings}
+            onChange={(next) => void setKeywords(next)}
+            onLimitExceeded={onKeywordLimit}
+          />
+        </section>
+
         {/* B-01: tablist — 각 탭 id + aria-controls, 패널 role=tabpanel + aria-labelledby. */}
         <div className="qf-tabs mb-[var(--s-5)]" role="tablist">
           {tabs.map((t) => (
@@ -160,6 +235,12 @@ export function NotificationSettingsPage(): JSX.Element {
           tabIndex={0}
           className="overflow-hidden rounded-[var(--r-xl)] border border-border bg-bg-surface"
         >
+          {/* S48 (FR-MN-09): 워크스페이스 탭에서 서버 알림 수준·뮤트·suppress 토글. */}
+          {active.workspaceId !== null && (
+            <div className="border-b border-border-subtle">
+              <ServerNotifSettings key={active.workspaceId} workspaceId={active.workspaceId} />
+            </div>
+          )}
           <table className="w-full border-collapse text-left">
             <thead>
               <tr className="bg-bg-subtle text-[length:var(--fs-11)] uppercase tracking-[var(--tracking-caps)] text-text-muted">

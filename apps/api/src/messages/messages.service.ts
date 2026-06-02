@@ -1299,7 +1299,15 @@ export class MessagesService {
             ? []
             : await tx.user.findMany({
                 where: { id: { in: dedupedMentionUserIds } },
-                select: { id: true, presencePreference: true, dndSchedule: true },
+                // S48 (FR-MN-11/12): dndUntil(임시 snooze, UserSettings) + timezone
+                // (스케줄 로컬 변환)을 같은 snapshot 으로 함께 읽는다.
+                select: {
+                  id: true,
+                  presencePreference: true,
+                  dndSchedule: true,
+                  timezone: true,
+                  settings: { select: { dndUntil: true } },
+                },
               });
         const dndSuppressedSet = new Set(
           dndRows
@@ -1308,6 +1316,8 @@ export class MessagesService {
                 {
                   presencePreference: r.presencePreference,
                   dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                  dndUntil: r.settings?.dndUntil ?? null,
+                  timezone: r.timezone,
                 },
                 now,
               ),
@@ -1771,7 +1781,14 @@ export class MessagesService {
             const [dndRows, subRows] = await Promise.all([
               tx.user.findMany({
                 where: { id: { in: candidate } },
-                select: { id: true, presencePreference: true, dndSchedule: true },
+                // S48 (FR-MN-11/12): dndUntil + timezone 동반 snapshot.
+                select: {
+                  id: true,
+                  presencePreference: true,
+                  dndSchedule: true,
+                  timezone: true,
+                  settings: { select: { dndUntil: true } },
+                },
               }),
               tx.threadSubscription.findMany({
                 where: { threadParentId: rootId, userId: { in: candidate } },
@@ -1785,6 +1802,8 @@ export class MessagesService {
                     {
                       presencePreference: r.presencePreference,
                       dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                      dndUntil: r.settings?.dndUntil ?? null,
+                      timezone: r.timezone,
                     },
                     replyCreatedAt,
                   ),
@@ -2414,7 +2433,14 @@ export class MessagesService {
         const mutedSet = new Set(mutedRows.map((r) => r.userId));
         const dndRows = await tx.user.findMany({
           where: { id: { in: dedupedMentionUserIds } },
-          select: { id: true, presencePreference: true, dndSchedule: true },
+          // S48 (FR-MN-11/12): dndUntil + timezone 동반 snapshot.
+          select: {
+            id: true,
+            presencePreference: true,
+            dndSchedule: true,
+            timezone: true,
+            settings: { select: { dndUntil: true } },
+          },
         });
         const dndSuppressedSet = new Set(
           dndRows
@@ -2423,6 +2449,8 @@ export class MessagesService {
                 {
                   presencePreference: r.presencePreference,
                   dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+                  dndUntil: r.settings?.dndUntil ?? null,
+                  timezone: r.timezone,
                 },
                 now,
               ),
