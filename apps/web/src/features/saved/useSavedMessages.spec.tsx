@@ -138,14 +138,30 @@ describe('useInitSavedStatus seed (FR-PS-13)', () => {
     expect(bulkMock).not.toHaveBeenCalled();
   });
 
-  it('이미 토글 캐시가 있으면 서버 seed 로 덮어쓰지 않는다', async () => {
+  it('이미 캐시된 id 만 있으면 bulk 를 호출하지 않고 기존 값을 보존한다(perf 증분)', async () => {
     const { qc, wrapper } = makeWrapper();
-    // 사용자가 직전에 저장(true)했다 — 서버가 아직 false 를 줘도 덮지 않는다.
+    // 사용자가 직전에 저장(true)했다 — 이미 seed 됐으므로 재조회하지 않는다.
     qc.setQueryData<boolean>(savedKeys.status('m-1'), true);
     bulkMock.mockResolvedValue({ saved: [] });
 
     renderHook(() => useInitSavedStatus(['m-1']), { wrapper });
-    await waitFor(() => expect(bulkMock).toHaveBeenCalled());
+    // S52 리뷰(perf): 미seed id 만 조회 — 전부 캐시면 bulk 무호출(WS 메시지마다 전체
+    // 재 POST 하던 회귀 방지). 기존 토글 값은 보존된다.
+    await Promise.resolve();
+    expect(bulkMock).not.toHaveBeenCalled();
     expect(qc.getQueryData(savedKeys.status('m-1'))).toBe(true);
+  });
+
+  it('일부만 캐시된 배치는 미seed id 만 bulk 로 조회한다(증분)', async () => {
+    const { qc, wrapper } = makeWrapper();
+    qc.setQueryData<boolean>(savedKeys.status('m-1'), true);
+    bulkMock.mockResolvedValue({ saved: [] });
+
+    renderHook(() => useInitSavedStatus(['m-1', 'm-2']), { wrapper });
+    await waitFor(() => expect(bulkMock).toHaveBeenCalled());
+    // 'm-1' 은 이미 캐시 → pending 제외, 'm-2' 만 조회.
+    expect(bulkMock).toHaveBeenCalledWith(['m-2']);
+    expect(qc.getQueryData(savedKeys.status('m-1'))).toBe(true);
+    await waitFor(() => expect(qc.getQueryData(savedKeys.status('m-2'))).toBe(false));
   });
 });

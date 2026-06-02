@@ -120,6 +120,18 @@ export function useUpdateSavedStatus() {
       if (ctx.prevTo !== undefined) qc.setQueryData(savedKeys.list(ctx.to), ctx.prevTo);
       pushToast({ variant: 'warning', title: '저장 항목을 이동하지 못했습니다', ttlMs: 4000 });
     },
+    // S52 리뷰(a11y B-04): 낙관적 이동은 from 탭에서 항목을 즉시 제거해 시각 변화만
+    // 있고 SR 피드백이 없었다. 성공 토스트(role=status·aria-live=polite)로 이동 완료를
+    // 알린다(포커스 소실 시에도 결과 인지 가능).
+    onSuccess: (_data, vars) => {
+      const title =
+        vars.to === 'ARCHIVED'
+          ? '보관함으로 이동했습니다'
+          : vars.to === 'COMPLETED'
+            ? '완료로 이동했습니다'
+            : '진행 중으로 이동했습니다';
+      pushToast({ variant: 'success', title, ttlMs: 2000 });
+    },
     onSettled: (_data, _err, vars) => {
       void qc.invalidateQueries({ queryKey: savedKeys.list(vars.from) });
       void qc.invalidateQueries({ queryKey: savedKeys.list(vars.to) });
@@ -137,17 +149,22 @@ export function useUpdateSavedStatus() {
  */
 export function useInitSavedStatus(messageIds: string[]): void {
   const qc = useQueryClient();
-  // 안정 키 — 동일 배치 반복 호출 방지(id 정렬 join).
-  const key = [...messageIds].sort().join(',');
+  // S52 리뷰(perf SERIOUS): 종전엔 key=전체 messageIds 정렬이라 WS 로 새 메시지가
+  // 도착할 때마다(messageIds 에 +1) key 가 바뀌어 **전체 배치를 재 POST** 했다. 활성
+  // 채널에서 메시지 수신마다 50~100개 id bulk 호출이 반복됐다. 이미 seed 된(캐시에
+  // status 가 있는) id 를 제외하고 **미seed id 만** 추려, 그것이 있을 때만 그 부분만
+  // 조회한다(증분). 신규 메시지 1개 도착 → pending=[새 id] → POST 1개. 신규 없음 → 무호출.
+  const pending = messageIds.filter((id) => qc.getQueryData(savedKeys.status(id)) === undefined);
+  const key = [...pending].sort().join(',');
   useEffect(() => {
-    if (messageIds.length === 0) return;
+    if (pending.length === 0) return;
     let cancelled = false;
     void (async () => {
       try {
-        const res = await savedStatusBulk(messageIds);
+        const res = await savedStatusBulk(pending);
         if (cancelled) return;
         const savedSet = new Set(res.saved);
-        for (const id of messageIds) {
+        for (const id of pending) {
           // 이미 토글 캐시가 있으면(사용자 액션 직후) 서버 seed 로 덮어쓰지 않는다.
           if (qc.getQueryData(savedKeys.status(id)) !== undefined) continue;
           qc.setQueryData<boolean>(savedKeys.status(id), savedSet.has(id));
@@ -159,8 +176,7 @@ export function useInitSavedStatus(messageIds: string[]): void {
     return () => {
       cancelled = true;
     };
-    // key 로 배치 동일성을 판단해 동일 배치의 반복 호출을 막는다(messageIds 참조가 매
-    // 렌더 새로 생성돼도 정렬·join 한 key 가 같으면 effect 를 재실행하지 않는다). qc 는
-    // 안정 참조이며, messageIds 는 effect 본문에서 클로저로 캡처되어 key 와 동기다.
+    // key 는 미seed pending id 집합이므로, seed 완료 후 재렌더 시 pending 이 줄어
+    // 재호출되지 않는다. qc 는 안정 참조, pending 은 본문에서 클로저로 캡처돼 key 와 동기다.
   }, [key, qc]);
 }

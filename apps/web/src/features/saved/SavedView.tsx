@@ -61,6 +61,13 @@ export function SavedView(): JSX.Element {
               tabIndex={t.id === active ? 0 : -1}
               data-testid={`saved-tab-${t.id}`}
               onClick={() => setActive(t.id)}
+              // S52 리뷰(a11y N-02): 카운트 배지는 aria-hidden 이므로 탭 접근명에
+              // 개수를 실어 SR 이 "진행 중 (N)" 으로 듣게 한다.
+              aria-label={
+                t.id === 'IN_PROGRESS' && count.data && count.data.count > 0
+                  ? `${t.label} (${count.data.count})`
+                  : undefined
+              }
               className="qf-tabs__item"
             >
               {t.label}

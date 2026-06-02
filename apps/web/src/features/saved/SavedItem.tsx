@@ -31,6 +31,9 @@ export function SavedItem({
   const canArchive = from === 'IN_PROGRESS';
   const canComplete = from === 'IN_PROGRESS' || from === 'ARCHIVED';
   const canRestore = from === 'ARCHIVED' || from === 'COMPLETED';
+  // S52 리뷰(a11y B-01/B-02): 목록에 항목이 여러 개라 동일 접근명("완료로 표시"/
+  // "저장 항목 작업")이 반복되면 SR 이 구분 못 한다. 채널명+발췌로 항목별 컨텍스트를 실는다.
+  const ctx = `#${item.channelName} ${(item.excerpt ?? '').slice(0, 30)}`.trim();
 
   return (
     <li
@@ -69,7 +72,7 @@ export function SavedItem({
             type="button"
             data-testid={`saved-complete-${item.messageId}`}
             onClick={() => onMove(item.id, from, 'COMPLETED')}
-            aria-label="완료로 표시"
+            aria-label={`완료로 표시 — ${ctx}`}
             title="완료로 표시"
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
           >
@@ -83,7 +86,7 @@ export function SavedItem({
             <button
               type="button"
               data-testid={`saved-more-${item.messageId}`}
-              aria-label="저장 항목 작업"
+              aria-label={`저장 항목 작업 — ${ctx}`}
               className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
             >
               <Icon name="more" size="sm" />

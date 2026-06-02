@@ -97,6 +97,10 @@ export class SavedController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid saved status-bulk request');
     }
+    // S52 리뷰(security FINDING-1 · perf): read-tier rate-limit. 채널 진입당 1회
+    // (신규 id 만) 호출되는 read-shaped 경로지만, 유일한 방어선이므로(글로벌 Throttler
+    // 부재) 윈도를 둔다. write(300/60s)보다 여유 있게 120/60s.
+    await this.rate.enforce([{ key: `saved:read:u:${user.id}`, windowSec: 60, max: 120 }]);
     const saved = await this.saved.statusBulk(user.id, parsed.data.messageIds);
     return { saved };
   }

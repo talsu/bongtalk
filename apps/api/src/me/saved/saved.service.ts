@@ -198,8 +198,8 @@ export class SavedService {
     `;
     const row = rows[0];
     if (!row) {
-      // updateMany 는 성공했으나 채널이 soft-delete 돼 조인이 비는 극단 케이스.
-      // 권위 행을 단건 select 로 최소 DTO 를 구성한다(excerpt 마스킹).
+      // updateMany 는 성공했으나 채널이 soft-delete 돼 조인(c.deletedAt IS NULL)이
+      // 비는 극단 케이스. 권위 행을 단건 select 로 최소 DTO 를 구성한다.
       const fallback = await this.prisma.savedMessage.findFirst({
         where: { id: savedMessageId, userId },
         select: { id: true, messageId: true, status: true, savedAt: true, messageDeletedAt: true },
@@ -207,10 +207,19 @@ export class SavedService {
       if (!fallback) {
         throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
       }
+      // Message → SavedMessage 는 onDelete Cascade 이므로(hard-delete 시 함께 삭제)
+      // SavedMessage 가 살아있으면 Message 도 존재한다. 없으면 정합성 깨짐 → 404.
       const msg = await this.prisma.message.findUnique({
         where: { id: fallback.messageId },
         select: { authorId: true, channelId: true },
       });
+      if (!msg) {
+        throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
+      }
+      // S52 리뷰(security FINDING-2/3 · reviewer nit): 채널 soft-delete 는 메시지
+      // 삭제가 아니므로 messageDeletedAt 에 now() 를 주입하지 않는다(계약 위반 방지) —
+      // 실제 값(없으면 null). channelId 는 실제 채널 id(messageId 로 위장하지 않음).
+      // 채널이 사라졌으므로 본문/채널명은 노출하지 않는다(빈 값).
       return {
         id: fallback.id,
         messageId: fallback.messageId,
@@ -218,10 +227,10 @@ export class SavedService {
         savedAt: fallback.savedAt.toISOString(),
         messageDeletedAt: fallback.messageDeletedAt
           ? fallback.messageDeletedAt.toISOString()
-          : new Date().toISOString(),
-        excerpt: DELETED_PLACEHOLDER,
-        authorId: msg?.authorId ?? userId,
-        channelId: msg?.channelId ?? fallback.messageId,
+          : null,
+        excerpt: fallback.messageDeletedAt ? DELETED_PLACEHOLDER : '',
+        authorId: msg.authorId,
+        channelId: msg.channelId,
         channelName: '',
       };
     }
