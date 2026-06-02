@@ -68,6 +68,15 @@ type Props = {
    * tmp 행(아직 서버 id 없음)에는 부모가 전달하지 않거나 hide 처리한다.
    */
   onMarkUnread?: () => void | Promise<void>;
+  /**
+   * S34 (FR-TH-03): reply bar 의 최근 답글자(recentReplyUserIds) 아바타를 실제
+   * 표시명으로 그리기 위한 userId→이름 resolver. 부모(MessageList)가 보유한
+   * 워크스페이스 멤버 맵(nameById) + DM 참가자 fallback(extraNames)을 합친
+   * 함수를 넘긴다. 미전달이거나 특정 uid 가 맵에 없으면 chip 은 seed-color
+   * fallback(이름 없는 결정적 색상 점)을 유지한다 — 과한 prop drilling 없이
+   * 접근 가능한 범위에서만 표시명을 입힌다.
+   */
+  resolveName?: (userId: string) => string | undefined;
 };
 
 export function MessageItem({
@@ -86,6 +95,7 @@ export function MessageItem({
   onUnpin,
   onRetry,
   onMarkUnread,
+  resolveName,
 }: Props): JSX.Element {
   // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
   // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
@@ -603,39 +613,49 @@ export function MessageItem({
           data-testid={`thread-open-${msg.id}`}
           onClick={() => onOpenThread?.(msg.id)}
           className="qf-thread-chip"
-          aria-label={`${thread.replyCount}개 답글 보기`}
+          // S34 fix-forward (a11y BLOCKER #3): chip 의 시각 정보(답글 수 + 마지막
+          // 답글 시각)를 aria-label 에 합쳐 SR 사용자도 내부 메타를 듣게 한다.
+          // 종전엔 "N개 답글 보기" 단독이라 마지막 답글 시각이 SR 로 전달되지
+          // 않았다. lastRepliedAt 이 없으면 시각 절을 생략한다.
+          aria-label={
+            thread.lastRepliedAt
+              ? `${thread.replyCount}개 답글 보기, 마지막 답글 ${formatMessageTime(
+                  thread.lastRepliedAt,
+                  new Date(),
+                )}`
+              : `${thread.replyCount}개 답글 보기`
+          }
         >
           {thread.recentReplyUserIds.length > 0 ? (
+            // S34 (FR-TH-03): 최초 답글자 최대 5명 아바타(오버랩). DS
+            // `.qf-thread-chip__avatars`(-4px 오버랩) 재사용 — 신규 DS 클래스 0.
+            // S34 fix-forward (DS HIGH #4): 표시명 유무와 무관하게 Avatar
+            // primitive 로 단일화한다. Avatar 가 이니셜 + seed-color 를 내부에서
+            // 처리하므로(중복 colorFromSeed / raw hsl 인라인 제거), 표시명을 풀면
+            // 그 이름으로, 못 풀면 uid 로 Avatar 를 렌더한다.
             <div className="qf-thread-chip__avatars" aria-hidden="true">
-              {thread.recentReplyUserIds.slice(0, 3).map((uid) => (
-                <span
-                  key={uid}
-                  className="qf-avatar qf-avatar--xs"
-                  style={{ background: colorFromSeed(uid) }}
-                />
+              {thread.recentReplyUserIds.slice(0, 5).map((uid) => (
+                <Avatar key={uid} name={resolveName?.(uid) ?? uid} size="xs" />
               ))}
             </div>
           ) : null}
           <span className="qf-thread-chip__count">{thread.replyCount}개 답글</span>
           {thread.lastRepliedAt ? (
-            <span className="qf-thread-chip__last">
-              · 마지막 답글 {new Date(thread.lastRepliedAt).toLocaleTimeString()}
-            </span>
+            // S34 (FR-TH-03): latestReplyAt 을 절대 시각(toLocaleTimeString)이
+            // 아니라 상대 시각(formatMessageTime — 오늘/어제/N일 전)으로 표시한다.
+            // S34 fix-forward (a11y #3): <span> → <time dateTime title> 으로 바꿔
+            // 기계 판독 가능 + hover ISO tooltip 을 제공한다(head/gutter <time> 패턴 일치).
+            <time
+              className="qf-thread-chip__last"
+              dateTime={thread.lastRepliedAt}
+              title={formatMessageTimeISO(thread.lastRepliedAt)}
+            >
+              · 마지막 답글 {formatMessageTime(thread.lastRepliedAt, new Date())}
+            </time>
           ) : null}
           <span className="qf-thread-chip__cta">▸ 스레드 보기</span>
         </button>
       ) : null}
     </>
   );
-}
-
-// Deterministic HSL from a seed string — matches Avatar's colorFromSeed
-// so the chip's recent-replier avatars share the colour scheme they'll
-// have in the thread panel. Keeps the DS palette (hue bounded to the
-// accent family).
-function colorFromSeed(seed: string): string {
-  let h = 0;
-  for (let i = 0; i < seed.length; i++) h = h * 31 + seed.charCodeAt(i);
-  const hues = [258, 272, 290, 240, 220, 200, 310, 270];
-  return `hsl(${hues[Math.abs(h) % hues.length]} 65% 55%)`;
 }
