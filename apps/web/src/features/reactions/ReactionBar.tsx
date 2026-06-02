@@ -77,9 +77,15 @@ export function ReactionBar({
               onClick={() => onShowReactors(r.emoji)}
               // S40 (FR-RE05): reactor 목록 dialog 를 여는 보조 버튼. 토글 칩과
               // 분리해 클릭 의미 충돌을 막는다. SR 에는 "N명 본다"는 의도를 알린다.
+              // S40 fix-forward (MINOR): 인접 칩이 이미 이모지를 발화하므로 이 버튼의
+              // aria-label 에서 이모지를 빼 이중 발화를 막는다.
               aria-haspopup="dialog"
-              aria-label={`${r.emoji} 반응한 ${r.count}명 보기`}
-              className="qf-reaction opacity-70 hover:opacity-100"
+              aria-label={`${r.count}명의 반응자 목록 보기`}
+              // S40 fix-forward (SERIOUS a11y+DS): opacity-70 은 대비 4.06:1(<4.5)
+              // 미달 + DS .qf-reaction hover 가 bg/border 전환이라 opacity 미정의였다.
+              // 색 토큰(--text-muted → --text-secondary hover)으로 교체해 대비를
+              // 통과시키고 DS hover 언어와 정합시킨다. 칩과의 시각 분리는 유지된다.
+              className="qf-reaction text-[color:var(--text-muted)] hover:text-[color:var(--text-secondary)]"
             >
               <span aria-hidden="true">⋯</span>
             </button>

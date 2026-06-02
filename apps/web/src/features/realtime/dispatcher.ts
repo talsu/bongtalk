@@ -833,6 +833,11 @@ export function installRealtimeDispatcher(
     // task-026-E: 내 메시지에 달린 반응은 Activity 인박스에 반영 — list + unread
     // 카운트를 무효화해 Bell / tabbar 배지가 ~1 RTT 안에 갱신되게 한다.
     qc.invalidateQueries({ queryKey: ['me', 'activity'] });
+    // S40 fix-forward (HIGH): reactor 목록 모달이 열려 있을 때 같은 메시지의 반응이
+    // 바뀌면 그 목록도 stale 해진다. `['reactions','users', messageId]` prefix
+    // (qk.reactions.users 가 만드는 `[...,msgId,emoji]` 키의 상위)로 무효화해 다음
+    // authoritative read 로 재수렴시킨다(emoji 별로 따로 걸지 않고 메시지 단위 일괄).
+    qc.invalidateQueries({ queryKey: ['reactions', 'users', payload.messageId] });
   });
 
   // ---------- Reactions cleared (S40 · FR-RE09) ----------
@@ -868,6 +873,13 @@ export function installRealtimeDispatcher(
         return changed ? { ...old, pages } : old;
       });
     }
+    // S40 fix-forward (HIGH): 전체 반응이 비워졌으니 이 메시지의 열린 reactor 목록
+    // 캐시(`['reactions','users', messageId]` prefix)를 제거한다 — 일괄 삭제 후에는
+    // 모든 reactor 가 사라지므로 invalidate(재요청 후 빈 목록)보다 removeQueries 로
+    // 즉시 파기하는 편이 stale 목록 깜빡임을 막는다. (out-of-order 로 cleared 뒤
+    // 도착한 reaction:updated 가 반응을 부활시키는 극희귀 케이스는 다음 authoritative
+    // read 가 self-heal 한다 — 별도 처리 불요.)
+    qc.removeQueries({ queryKey: ['reactions', 'users', messageId] });
   });
 
   // ---------- Channels ----------

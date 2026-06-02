@@ -55,13 +55,23 @@ export class ReactionsController {
    * 1:1 로 읽을 수 없다(MEMBER 기본 반응 허용을 깨뜨림).
    *
    * FR-RE07 의 실제 요구는 좁다: "**채널 권한 override 의 REACT 비트가 DENY** 인
-   * 유저는 반응 추가 시 403." 즉 기본은 허용이고, ADD_REACTIONS 를 **명시적으로
-   * DENY** 한 override(USER 또는 본인 ROLE)가 있을 때만 막는다. override allow/deny
-   * mask 는 카탈로그 비트로 저장되므로(isValidPermissionMaskNumber 가 ALL_PERMISSIONS
-   * 범위로 검증), 여기서 override 행의 denyMask 에 카탈로그 ADD_REACTIONS 비트가
+   * 유저는 반응 추가 시 403." 즉 기본은 허용이고, ADD_REACTIONS 를 override(USER 또는
+   * 본인 ROLE)로 명시 조정한 경우에만 그 결과를 따른다. override allow/deny mask 는
+   * 카탈로그 비트로 저장되므로(isValidPermissionMaskNumber 가 ALL_PERMISSIONS 범위로
+   * 검증), 여기서 override 행의 allow/deny mask 에 카탈로그 ADD_REACTIONS 비트가
    * 켜져 있는지를 직접 검사한다(requireAnnouncementPostingAllowed 의 override 직접
-   * 조회 선례와 동일 패턴). DENY 가 ALLOW 를 이기므로(ADR-4) allow override 와
-   * 무관하게 deny 가 있으면 거부한다.
+   * 조회 선례와 동일 패턴).
+   *
+   * ⚠️ ADR-4 우선순위 fold: 단순 OR 후 (deny&bit)===0 이 아니다. 권위 구현인
+   * `PermissionMatrix.fold`(apps/api/src/auth/permissions.ts)와 동일하게 프린시펄
+   * 그룹별로 분리해 누적한다 — `base → roleAllow → roleDeny → userAllow → userDeny`
+   * 순서(나중 = 우선)다. 이 순서가 보장하는 경계는:
+   *   - 역할 DENY 가 역할 ALLOW 를 이긴다(roleDeny 가 roleAllow 뒤에 적용).
+   *   - **개인 ALLOW 가 역할 DENY 를 이긴다**(userAllow 가 roleDeny 뒤에 OR — 종전
+   *     단순 OR 폴드는 이 경계를 표현하지 못해 (ROLE deny + USER allow) 유저를 잘못
+   *     403 했다).
+   *   - 개인 DENY 가 최우선(userDeny 가 가장 마지막 AND-NOT).
+   * 반응의 base 는 "기본 허용"이라 allowed=true 에서 출발한다(FR-RE07).
    */
   private async canAddReaction(
     channel: { id: string; workspaceId: string | null; isPrivate: boolean },
@@ -83,11 +93,31 @@ export class ReactionsController {
     if (role) principals.push({ principalType: 'ROLE', principalId: role });
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: { channelId: channel.id, OR: principals },
-      select: { denyMask: true },
+      select: { principalType: true, principalId: true, allowMask: true, denyMask: true },
     });
-    const addReactionsBit = Number(PERMISSIONS.ADD_REACTIONS); // 카탈로그 0x20
-    const deny = overrides.reduce((mask, o) => mask | o.denyMask, 0);
-    return (deny & addReactionsBit) === 0;
+    const bit = Number(PERMISSIONS.ADD_REACTIONS); // 카탈로그 0x20
+
+    // 프린시펄 그룹별 mask OR — USER/ROLE 분리(PermissionMatrix.effective 와 동일).
+    const roleAllow = overrides
+      .filter((o) => o.principalType === 'ROLE')
+      .reduce((m, o) => m | o.allowMask, 0);
+    const roleDeny = overrides
+      .filter((o) => o.principalType === 'ROLE')
+      .reduce((m, o) => m | o.denyMask, 0);
+    const userAllow = overrides
+      .filter((o) => o.principalType === 'USER')
+      .reduce((m, o) => m | o.allowMask, 0);
+    const userDeny = overrides
+      .filter((o) => o.principalType === 'USER')
+      .reduce((m, o) => m | o.denyMask, 0);
+
+    // ADR-4 우선순위 fold — PermissionMatrix.fold 와 동일 의미(나중 = 우선).
+    let allowed = true; // FR-RE07: 반응은 기본 허용
+    if (roleAllow & bit) allowed = true;
+    if (roleDeny & bit) allowed = false;
+    if (userAllow & bit) allowed = true; // userAllow > roleDeny (ADR-4)
+    if (userDeny & bit) allowed = false; // userDeny 최우선
+    return allowed;
   }
 
   private async resolveChannel(messageId: string) {
@@ -171,6 +201,10 @@ export class ReactionsController {
     @CurrentUser() user: CurrentUserPayload,
     @Query() query: Record<string, unknown>,
   ): Promise<ListReactionUsersResponse> {
+    // S40 fix-forward (HIGH): toggle/remove/clear 와 정합되게 reactor 목록 조회에도
+    // rate-limit 을 건다(종전 누락). 읽기 전용 GET 이라 토글(60/min)보다 넉넉한
+    // 보수적 한도(120/min)로 무한 스크롤 페이지 당김을 허용하면서 남용을 막는다.
+    await this.rateLimit.enforce([{ key: `reactions:users:${user.id}`, windowSec: 60, max: 120 }]);
     const parsed = ListReactionUsersQuerySchema.safeParse(query);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid reactor list query');

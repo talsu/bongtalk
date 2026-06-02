@@ -350,12 +350,15 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
     expect(one.body.message.reactions).toEqual([{ emoji: '🚀', count: 3, byMe: true }]);
   });
 
-  // ── S40 (FR-RE07): ADD_REACTIONS(카탈로그 0x20) DENY override → 추가 403 ──────
-  // API enum 은 수정하지 않는다(D12). override 는 카탈로그 비트로 저장되므로,
-  // 멤버 본인 USER 프린시펄에 denyMask=0x20 을 걸면 추가가 403 으로 막힌다.
-  // 제거(toggle off)·조회는 무관. allow 유저(override 없음)는 정상 추가된다.
-  it('FR-RE07: ADD_REACTIONS DENY override 유저는 반응 추가 시 403, 비대상은 정상', async () => {
-    const ADD_REACTIONS_BIT = 0x20; // 카탈로그 PERMISSIONS.ADD_REACTIONS
+  // ── S40 (FR-RE07): ADD_REACTIONS(카탈로그 0x20) override → ADR-4 fold ─────────
+  // API enum 은 수정하지 않는다(D12). override 는 카탈로그 비트로 저장되며, 컨트롤러
+  // canAddReaction 은 PermissionMatrix.fold 와 동일한 우선순위
+  // (base→roleAllow→roleDeny→userAllow→userDeny, 나중=우선)로 fold 한다. 반응 base 는
+  // 기본 허용이라, 명시 override 가 없으면 통과한다.
+  const ADD_REACTIONS_BIT = 0x20; // 카탈로그 PERMISSIONS.ADD_REACTIONS
+
+  // (a) USER denyMask ADD_REACTIONS → 403. 제거(toggle off)·조회는 무관.
+  it('FR-RE07(a): USER DENY override 유저는 반응 추가 시 403, override 없는 유저는 정상', async () => {
     const msgId = await postMessage(stack.admin.accessToken);
 
     // member 본인에게 ADD_REACTIONS DENY override 를 건다.
@@ -377,7 +380,7 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
       expect(denied.status).toBe(403);
       expect(denied.body.errorCode).toBe('FORBIDDEN');
 
-      // admin(override 없음): 정상 추가.
+      // (d) admin(override 없음): 기본 허용 → 정상 추가.
       const ok = await request(env.baseUrl)
         .post(`/messages/${msgId}/reactions`)
         .set(bearer(stack.admin.accessToken))
@@ -396,6 +399,95 @@ describe('Reactions API (task-013-B / S39 toggle)', () => {
         where: { channelId: stack.channelId, principalId: stack.member.userId },
       });
     }
+  });
+
+  // (b) ROLE(멤버 role) denyMask → 그 role 의 모든 유저가 403.
+  it('FR-RE07(b): ROLE(MEMBER) DENY override 면 해당 role 유저는 반응 추가 시 403', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+
+    // MEMBER role 자체에 ADD_REACTIONS DENY 를 건다(member 는 MEMBER role).
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'ROLE',
+        principalId: 'MEMBER',
+        allowMask: 0,
+        denyMask: ADD_REACTIONS_BIT,
+      },
+    });
+    try {
+      const denied = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '👍' });
+      expect(denied.status).toBe(403);
+      expect(denied.body.errorCode).toBe('FORBIDDEN');
+
+      // ADMIN role 유저는 영향 없음(다른 ROLE) → 정상 추가.
+      const ok = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.admin.accessToken))
+        .send({ emoji: '👍' });
+      expect(ok.status).toBe(200);
+    } finally {
+      await env.prisma.channelPermissionOverride.deleteMany({
+        where: { channelId: stack.channelId, principalType: 'ROLE', principalId: 'MEMBER' },
+      });
+    }
+  });
+
+  // (c) ROLE deny + 같은 유저 USER allow → 허용(200). userAllow 가 roleDeny 를 이김(ADR-4).
+  // 종전 단순 OR 폴드는 이 케이스를 잘못 403 했다 — fold 정정의 핵심 회귀 가드.
+  it('FR-RE07(c): ROLE DENY + 같은 유저 USER ALLOW 면 userAllow 가 이겨 허용(200)', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'ROLE',
+        principalId: 'MEMBER',
+        allowMask: 0,
+        denyMask: ADD_REACTIONS_BIT,
+      },
+    });
+    await env.prisma.channelPermissionOverride.create({
+      data: {
+        channelId: stack.channelId,
+        principalType: 'USER',
+        principalId: stack.member.userId,
+        allowMask: ADD_REACTIONS_BIT,
+        denyMask: 0,
+      },
+    });
+    try {
+      const ok = await request(env.baseUrl)
+        .post(`/messages/${msgId}/reactions`)
+        .set(bearer(stack.member.accessToken))
+        .send({ emoji: '👍' });
+      expect(ok.status).toBe(200);
+      expect(ok.body.byMe).toBe(true);
+    } finally {
+      await env.prisma.channelPermissionOverride.deleteMany({
+        where: {
+          channelId: stack.channelId,
+          OR: [
+            { principalType: 'ROLE', principalId: 'MEMBER' },
+            { principalType: 'USER', principalId: stack.member.userId },
+          ],
+        },
+      });
+    }
+  });
+
+  // (d) override 전무 → 기본 허용(200). base=true 출발 확인.
+  it('FR-RE07(d): override 가 전혀 없으면 반응 추가는 기본 허용(200)', async () => {
+    const msgId = await postMessage(stack.admin.accessToken);
+    const ok = await request(env.baseUrl)
+      .post(`/messages/${msgId}/reactions`)
+      .set(bearer(stack.member.accessToken))
+      .send({ emoji: '👍' });
+    expect(ok.status).toBe(200);
+    expect(ok.body.byMe).toBe(true);
   });
 
   // ── S40 (FR-RE08): OWNER/ADMIN 의 타인 반응 제거 ────────────────────────────

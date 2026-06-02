@@ -319,6 +319,15 @@ export class ReactionsService {
    * `nextCursor` 는 limit+1 을 fetch 해 다음 페이지 존재 여부를 판별하는 흔한
    * 패턴이다 — limit 개를 넘게 받으면 마지막(초과) 행을 잘라내고 그 직전 행으로
    * 커서를 만든다(MessageReaction.id 는 @db.Uuid, createdAt 은 timestamptz).
+   *
+   * ⚠️ S40 fix-forward (BLOCKER): tie-breaker id 는 반드시 **MessageReaction.id**
+   * (r."id")여야 한다. 종전엔 SELECT 가 `u.id`(User.id)를 "id" 로 별칭해 cursor 에
+   * User.id 를 인코딩한 반면, ORDER BY·cursor 비교는 `r."id"`(Reaction.id)를 썼다 —
+   * 정렬 키와 커서 키가 서로 다른 id 공간이라, 같은 밀리초에 여러 reactor 가 몰리면
+   * 페이지 경계가 어긋나 다음 페이지에 직전 행이 중복으로 끼어들었다(FR-RE05
+   * 페이지네이션 테스트 RED). 이제 cursor 의 tie-breaker 를 Reaction.id 로 통일하고,
+   * 응답의 reactor 식별자(users[].id)는 별도 컬럼(userId)으로 분리해 그대로 User.id 를
+   * 싣는다.
    */
   async listEmojiUsers(
     messageId: string,
@@ -335,16 +344,17 @@ export class ReactionsService {
     // 정밀도다. 키셋 비교를 raw createdAt 으로 하면, 같은 밀리초·다른 마이크로초
     // 행이 truncated cursor 보다 "크다"고 판정돼 다음 페이지에 중복으로 끼어든다.
     // 그래서 정렬·비교·커서 인코딩을 모두 **밀리초로 truncate** 한 createdAt 으로
-    // 통일한다(date_trunc('milliseconds', …)). id 가 2차 tie-breaker 라 동일
+    // 통일한다(date_trunc('milliseconds', …)). reactionId 가 2차 tie-breaker 라 동일
     // 밀리초 내에서도 안정·중복 없는 페이지네이션이 보장된다(메시지 커서는 행을
     // 밀리초 정렬로 시드해 이 문제가 없었음 — 반응은 DB now() 라 명시 truncate 필요).
     const cursorClause = decoded
       ? Prisma.sql`AND (date_trunc('milliseconds', r."createdAt"), r."id") > (${decoded.createdAt}::timestamptz, ${decoded.id}::uuid)`
       : Prisma.empty;
     const rows = await this.prisma.$queryRaw<
-      { id: string; username: string | null; createdAtMs: Date }[]
+      { reactionId: string; userId: string; username: string | null; createdAtMs: Date }[]
     >(Prisma.sql`
-      SELECT u.id                                        AS "id",
+      SELECT r.id                                        AS "reactionId",
+             u.id                                        AS "userId",
              u.username                                  AS "username",
              date_trunc('milliseconds', r."createdAt")   AS "createdAtMs"
         FROM "MessageReaction" r
@@ -361,10 +371,10 @@ export class ReactionsService {
     const last = page.length > 0 ? page[page.length - 1] : null;
     const nextCursor =
       hasMore && last
-        ? encodeCursor({ id: last.id, createdAt: last.createdAtMs.toISOString() })
+        ? encodeCursor({ id: last.reactionId, createdAt: last.createdAtMs.toISOString() })
         : null;
     return {
-      users: page.map((r) => ({ id: r.id, username: r.username ?? null })),
+      users: page.map((r) => ({ id: r.userId, username: r.username ?? null })),
       nextCursor,
     };
   }

@@ -3,11 +3,12 @@
  * S40 (FR-RE05) — ReactionUsersModal 접근성 + 페이지네이션 회귀고정.
  *
  * 검증 항목:
- *   - 열린 모달이 role="dialog" 와 aria-labelledby(제목 연결)를 가진다 — DS Dialog 는
- *     Radix Dialog 기반이라 focus trap·Esc·트리거 포커스 복귀를 함께 보장한다(이
- *     버전 Radix 는 aria-modal 속성 대신 focus scope 로 모달성을 강제한다).
+ *   - 열린 모달이 role="dialog" + aria-modal="true" + aria-labelledby(제목 연결)를
+ *     가진다 — DS Dialog 는 Radix Dialog 기반이라 focus trap·Esc·트리거 포커스 복귀를
+ *     함께 보장하며, S40 fix-forward 로 aria-modal 을 명시 출력한다(BLOCKER a11y).
  *   - 제목이 이모지를 포함한 완결 라벨로 노출되고 aria-labelledby 가 그것을 가리킨다.
- *   - 서버 응답의 reactor 가 목록 항목으로 렌더된다(username 우선, 없으면 id).
+ *   - 서버 응답의 reactor 가 목록 항목으로 렌더된다(username 우선, null 이면
+ *     '(알 수 없는 사용자)' 폴백 — MOD-3: cuid 노출 금지).
  *   - Esc 키로 닫히면 onOpenChange(false) 가 호출된다(포커스 복귀는 Radix 보장).
  *
  * fetchReactionUsers 는 vi.fn 으로만 모킹한다(외부 모킹 라이브러리 금지).
@@ -57,12 +58,16 @@ describe('ReactionUsersModal a11y (S40 · FR-RE05)', () => {
     });
 
     const dialog = await screen.findByRole('dialog');
+    // S40 fix-forward (BLOCKER a11y): Radix Content 에 aria-modal 을 명시 출력한다.
+    expect(dialog.getAttribute('aria-modal')).toBe('true');
     // 제목에 이모지가 포함되고 aria-labelledby 가 그 제목 노드를 가리킨다.
     const title = screen.getByText('👍 반응한 사람');
     expect(dialog.getAttribute('aria-labelledby')).toBe(title.getAttribute('id'));
-    // reactor 목록 — username 우선, 없으면 id.
+    // reactor 목록 — username 우선, null 이면 '(알 수 없는 사용자)' 폴백(MOD-3:
+    // cuid 가 화면에 노출되지 않아야 한다).
     await waitFor(() => expect(screen.getByText('alice')).toBeTruthy());
-    expect(screen.getByText('33333333-3333-4333-8333-333333333333')).toBeTruthy();
+    expect(screen.getByText('(알 수 없는 사용자)')).toBeTruthy();
+    expect(screen.queryByText('33333333-3333-4333-8333-333333333333')).toBeNull();
   });
 
   it('Esc 키로 닫으면 onOpenChange(false) 가 호출된다', async () => {
