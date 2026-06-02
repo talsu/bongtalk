@@ -2800,8 +2800,12 @@ export class MessagesService {
         );
       }
       const pinnedAt = new Date();
+      // S50 review (security HIGH-2, 심층방어): findFirst 가 이미 같은 tx 에서
+      // {id, channelId} 를 검증했지만, update WHERE 에도 channelId 를 동봉해
+      // DB 레이어에서 테넌시를 이중 보장한다(향후 리팩터 시 IDOR 유입 차단).
+      // Prisma 5 extended-where — 비매칭 시 P2025.
       const updated = await tx.message.update({
-        where: { id: args.msgId },
+        where: { id: args.msgId, channelId: args.channelId },
         data: { pinnedAt, pinnedBy: args.actorId },
       });
       // S50 (FR-PS-02): 핀 추가 시 SYSTEM_PIN 시스템 메시지를 같은 트랜잭션 안에서
@@ -2925,8 +2929,10 @@ export class MessagesService {
       if (!target.pinnedAt) {
         return target as MessageRow;
       }
+      // S50 review (security HIGH-2, 심층방어): pin() 과 동일하게 update WHERE 에
+      // channelId 를 동봉해 테넌시 이중 보장(Prisma 5 extended-where).
       const updated = await tx.message.update({
-        where: { id: args.msgId },
+        where: { id: args.msgId, channelId: args.channelId },
         data: { pinnedAt: null, pinnedBy: null },
       });
       const payload: MessagePinToggledPayload = {

@@ -69,6 +69,14 @@ export function MessageColumn({
   const pinPanelOpen = useUI((s) => s.pinPanelOpen);
   const togglePinPanel = useUI((s) => s.togglePinPanel);
   const setPinPanelOpen = useUI((s) => s.setPinPanelOpen);
+  // S50 review (a11y A-PP-03): 패널 닫힘(닫기 버튼/Esc) 시 포커스를 트리거 핀
+  // 버튼으로 되돌린다. 비모달이라 mount 시 포커스 이동은 안 하지만(A-PP-01),
+  // 명시적 닫힘 후 포커스 미아 방지.
+  const pinTriggerRef = useRef<HTMLButtonElement>(null);
+  const closePinPanel = useCallback(() => {
+    setPinPanelOpen(false);
+    pinTriggerRef.current?.focus();
+  }, [setPinPanelOpen]);
   const { user } = useAuth();
   const isDm = workspaceId === null;
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -348,8 +356,13 @@ export function MessageColumn({
                 <button
                   type="button"
                   data-testid="topbar-pin"
-                  aria-label={`고정된 메시지 (${pinCount})`}
-                  aria-pressed={pinPanelOpen}
+                  ref={pinTriggerRef}
+                  // S50 review (a11y A-MC-01/02/04): 디스클로저 트리거이므로
+                  // aria-expanded + aria-controls(=pin-panel id)로 패널 관계를 노출
+                  // 한다(ActivityBellButton 선례). 핀 0개면 "(0)" 없이 읽는다.
+                  aria-label={pinCount > 0 ? `고정된 메시지 (${pinCount})` : '고정된 메시지'}
+                  aria-expanded={pinPanelOpen}
+                  aria-controls="pin-panel"
                   onClick={() => togglePinPanel()}
                   className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm relative"
                 >
@@ -357,6 +370,7 @@ export function MessageColumn({
                   {pinCount > 0 ? (
                     <span
                       data-testid="topbar-pin-badge"
+                      aria-hidden="true"
                       className="qf-badge qf-badge--count absolute right-[calc(-1*var(--s-2))] top-[calc(-1*var(--s-2))]"
                     >
                       {pinCount > 99 ? '99+' : pinCount}
@@ -423,7 +437,7 @@ export function MessageColumn({
           workspaceId={workspaceId}
           channelId={channelId}
           nameByUserId={nameByUserId}
-          onClose={() => setPinPanelOpen(false)}
+          onClose={closePinPanel}
           onJump={(messageId) => {
             jumpToMessage(messageId);
             setPinPanelOpen(false);
