@@ -971,4 +971,46 @@ describe('realtime dispatcher', () => {
       detach();
     });
   });
+
+  // S47 (FR-MN-20): notification:badge_update → badgeStore 서버 진실값 교체.
+  describe('notification:badge_update (S47 · FR-MN-20)', () => {
+    it('서버 진실값으로 badgeStore 를 교체한다(last-write-wins)', async () => {
+      const { useBadgeStore } = await import('../notifications/badgeStore');
+      useBadgeStore.getState().reset();
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const detach = installRealtimeDispatcher(socket, qc);
+
+      socket.emit('notification:badge_update', {
+        serverId: 'ws-9',
+        channelId: 'ch-1',
+        mentionCount: 4,
+        unreadCount: 11,
+        serverTimestamp: '2025-01-01T00:00:01.000Z',
+      });
+
+      const entry = useBadgeStore.getState().byWorkspace['ws-9'];
+      expect(entry.mentionCount).toBe(4);
+      expect(entry.unreadCount).toBe(11);
+      detach();
+    });
+
+    it('형태가 어긋난 badge_update 는 무시한다(신뢰경계 가드)', async () => {
+      const { useBadgeStore } = await import('../notifications/badgeStore');
+      useBadgeStore.getState().reset();
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const detach = installRealtimeDispatcher(socket, qc);
+
+      // serverTimestamp 누락 → safeParse 실패 → 캐시 미변경.
+      socket.emit('notification:badge_update', {
+        serverId: 'ws-9',
+        channelId: null,
+        mentionCount: 4,
+        unreadCount: 11,
+      });
+      expect(useBadgeStore.getState().byWorkspace['ws-9']).toBeUndefined();
+      detach();
+    });
+  });
 });

@@ -116,6 +116,13 @@ export const WS_EVENTS = {
   // { targetUserId, workspaceId, channelId, messageId, actorId, snippet, createdAt,
   // everyone, here }. 클라이언트는 멘션 인박스/토스트를 갱신한다.
   MENTION_NEW: 'mention:new',
+  // 배지 재동기화 (S47 · FR-MN-20): 멘션 발생 등으로 서버 진실값 배지(서버단위
+  // mentionCount/unreadCount)가 바뀌면 수신자의 user:{userId} 룸으로 push 한다.
+  // payload 는 서버 진실값이라 클라이언트는 낙관적 카운트를 이 값으로 교체한다
+  // (server last-write-wins). isMuted 채널/서버는 카운트에 산입하지 않는다(서버
+  // 게이트 — FR-MN-14). serverTimestamp 로 ACK 우선순위를 판정한다(message:ack 의
+  // unreadCount 갱신 시각 이전 badge_update 는 stale 로 무시 — FR-MN-20).
+  NOTIFICATION_BADGE_UPDATE: 'notification:badge_update',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -397,6 +404,30 @@ export const MentionNewPayloadSchema = z.object({
 });
 export type MentionNewPayload = z.infer<typeof MentionNewPayloadSchema>;
 
+// ── 배지 재동기화 (S47 · FR-MN-20) ──────────────────────────────────────────
+/**
+ * notification:badge_update — 서버 진실값 배지를 수신자의 user:{userId} 룸으로
+ * push (S47 · FR-MN-20). 멘션 발생 시 outbox→WS subscriber 가 mention:new 와 함께
+ * 같은 룸으로 emit 한다. payload 는 서버 진실값(isMuted 게이트 후 집계)이라 클라는
+ * 낙관적 +1 을 이 값으로 **교체**한다(server last-write-wins).
+ *
+ *   serverId        — 워크스페이스 id(서버 단위 배지 키).
+ *   channelId       — 발생 채널 id. 서버 단위 교체라 채널별 patch 가 필수는 아니지만
+ *                     디버깅/세분화 여지를 위해 싣는다(nullable — 서버 단위 재집계).
+ *   mentionCount    — 서버 단위 미읽 멘션 수(isMuted 채널/서버 제외).
+ *   unreadCount     — 서버 단위 미읽 메시지 수(isMuted 채널/서버 제외).
+ *   serverTimestamp — 서버가 이 배지를 계산한 시각(ISO). ACK 우선순위 판정용 —
+ *                     클라가 보유한 lastAckedAt 보다 이르면 stale 로 무시한다.
+ */
+export const NotificationBadgeUpdatePayloadSchema = z.object({
+  serverId: z.string().min(1),
+  channelId: ChannelIdSchema.nullable(),
+  mentionCount: z.number().int().nonnegative(),
+  unreadCount: z.number().int().nonnegative(),
+  serverTimestamp: z.string().datetime(),
+});
+export type NotificationBadgeUpdatePayload = z.infer<typeof NotificationBadgeUpdatePayloadSchema>;
+
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
 export type TypingStartPayload = z.infer<typeof TypingStartPayloadSchema>;
@@ -564,6 +595,12 @@ export const ReadStateUpdatedPayloadSchema = z.object({
   lastReadMessageId: z.string().nullable(),
   unreadCount: z.number().int().nonnegative(),
   mentionCount: z.number().int().nonnegative().default(0),
+  // S47 fix-forward (BLOCKER-2 · FR-MN-20): 서버가 이 ACK 를 emit 한 시각(ISO).
+  // 클라 badgeStore 가 lastAckedAt 을 **서버 시계** 로 저장해, notification:badge_update
+  // 의 serverTimestamp 와 동일 시계로 stale 비교한다(교차시계 폐기 버그 제거). emit
+  // 시점에 gateway 가 부착하므로 UnreadService 의 payload 생성부는 건드리지 않는다.
+  // forward-compat 위해 optional — 누락이면 클라가 ACK-우선 시각 갱신을 건너뛴다.
+  serverTimestamp: z.string().datetime().optional(),
 });
 export type ReadStateUpdatedPayload = z.infer<typeof ReadStateUpdatedPayloadSchema>;
 
@@ -716,4 +753,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.EMOJI_DELETED]: EmojiDeletedPayloadSchema,
   [WS_EVENTS.EMOJI_ALIAS_UPDATED]: EmojiAliasUpdatedPayloadSchema,
   [WS_EVENTS.MENTION_NEW]: MentionNewPayloadSchema,
+  [WS_EVENTS.NOTIFICATION_BADGE_UPDATE]: NotificationBadgeUpdatePayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

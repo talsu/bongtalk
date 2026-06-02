@@ -100,6 +100,8 @@ const L = {
     // S44 (FR-MN-01): 멘션 알림 wire 이름은 콜론형 mention:new 다(내부 outbox 는
     // mention.received, subscriber 가 변환). 라벨 카디널리티를 위해 wire 이름 등록.
     'mention:new',
+    // S47 (FR-MN-20): 멘션 발생 시 서버 진실값 배지를 user 룸으로 emit(콜론형 wire).
+    'notification:badge_update',
     'channel.created',
     'channel.updated',
     'channel.deleted',

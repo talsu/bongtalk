@@ -900,10 +900,21 @@ export class RealtimeGateway
    * S11 (FR-RT-13): emit `read_state:updated` to the user's private room.
    * Shared by the WS channel:read handler and the HTTP POST /ack path so a
    * read on one device syncs the badge on the user's other devices/tabs.
+   *
+   * S47 fix-forward (BLOCKER-2 · FR-MN-20): emit 시점에 서버 시계 `serverTimestamp`
+   * 를 부착한다. 클라 badgeStore 가 이 시각을 lastAckedAt 으로 저장해, 같은 서버
+   * 시계로 찍힌 notification:badge_update.serverTimestamp 와 동일 시계 비교를 하도록
+   * 한다(종전 클라 Date.now() 기반 교차시계 비교가 서버 지연 시 정당한 신규
+   * badge_update 를 stale 로 폐기하던 버그 제거). UnreadService 의 payload 생성부는
+   * 그대로 두고 단일 emit 지점에서만 부착한다(모든 ACK 경로 일괄 적용).
    */
   emitReadStateUpdated(userId: string, payload: ReadStateUpdatedPayload): void {
     if (!this.server) return;
-    this.server.to(rooms.user(userId)).emit(WS_EVENTS.READ_STATE_UPDATED, payload);
+    const withTs: ReadStateUpdatedPayload = {
+      ...payload,
+      serverTimestamp: new Date().toISOString(),
+    };
+    this.server.to(rooms.user(userId)).emit(WS_EVENTS.READ_STATE_UPDATED, withTs);
     this.metrics?.wsEventsEmittedTotal
       .labels(this.metrics.bucket('wsEventType', WS_EVENTS.READ_STATE_UPDATED))
       .inc();

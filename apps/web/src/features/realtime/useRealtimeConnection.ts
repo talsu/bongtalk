@@ -9,6 +9,9 @@ import { installRealtimeDispatcher, DISPATCHED_EVENTS } from './dispatcher';
 import { installChannelSync } from './useChannelSync';
 import { qk } from '../../lib/query-keys';
 import { resolveChannel } from '../notifications/useNotificationPreferences';
+import { useFaviconBadge } from '../notifications/useFaviconBadge';
+import { useBadgeResync } from '../notifications/useBadgeResync';
+import type { Socket } from 'socket.io-client';
 
 export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
 
@@ -27,6 +30,11 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
   const { user } = useAuth();
   const [status, setStatus] = useState<RealtimeStatus>('idle');
   const [replaying, setReplaying] = useState(false);
+  // S47 (FR-MN-20): 배지 재동기화 hook 이 소켓 reconnect 를 구독하도록 현재 소켓을
+  // state 로 노출한다. favicon/title 배지(useFaviconBadge)는 소켓과 무관하게 마운트.
+  const [socket, setSocket] = useState<Socket | null>(null);
+  useFaviconBadge();
+  useBadgeResync(socket);
   // AuthProvider holds `user` in React state (never in the query cache).
   // The dispatcher is installed once per socket lifetime and needs a
   // stable getter — capture the current viewer via a ref that tracks
@@ -40,6 +48,7 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
 
     setStatus('connecting');
     const socket = connect(token, getLastEventId());
+    setSocket(socket);
 
     socket.on('connect', () => setStatus('connected'));
     socket.on('disconnect', () => setStatus('disconnected'));
@@ -140,6 +149,7 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
       detachSync();
       detach();
       disconnect();
+      setSocket(null);
     };
   }, [qc]);
 

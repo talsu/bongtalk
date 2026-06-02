@@ -15,10 +15,11 @@ import { useReadState } from '../features/realtime/readStateStore';
 import { captureUnreadSnapshot } from '../features/messages/newMessages';
 import { TypingIndicator } from '../features/typing/TypingIndicator';
 import { useAuth } from '../features/auth/AuthProvider';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Icon, Tooltip } from '../design-system/primitives';
 import { SearchInput } from '../features/search/SearchInput';
 import { useActivityUnread } from '../features/activity/useActivity';
+import { useBadgeStore } from '../features/notifications/badgeStore';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../lib/query-keys';
 import type { UnreadChannelSummary } from '../features/channels/useUnread';
@@ -395,17 +396,31 @@ function useThreadQueryState(
   return [rootId, set];
 }
 
-function ActivityBellButton(): JSX.Element {
+/**
+ * S47 fix-forward (BLOCKER-1 · FR-MN-13): 토픽바 알림 벨 → Activity Inbox 패널
+ * 토글. 종전엔 `/activity` 전체화면으로 navigate 해 우측 슬롯의 ActivityInboxPanel
+ * 이 영영 마운트되지 않는 死코드였다. 이제 `toggleActivityInbox` 로 우측 슬롯을
+ * Inbox 패널로 열고/닫는다(aria-expanded 로 상태 노출). 배지는 미읽 멘션 수
+ * (badgeStore.totalMention — 서버 진실값·뮤트 제외)를 우선하고, 없으면 활동
+ * unread-counts 합계로 폴백한다(채널 컨텍스트 외에서도 합리적 근사).
+ */
+export function ActivityBellButton(): JSX.Element {
   const { data } = useActivityUnread();
-  const navigate = useNavigate();
-  const count = data?.total ?? 0;
+  const activityInboxOpen = useUI((s) => s.activityInboxOpen);
+  const toggleActivityInbox = useUI((s) => s.toggleActivityInbox);
+  const mentionCount = useBadgeStore((s) =>
+    Object.values(s.byWorkspace).reduce((acc, e) => acc + e.mentionCount, 0),
+  );
+  const count = mentionCount > 0 ? mentionCount : (data?.total ?? 0);
   return (
-    <Tooltip label="Activity" side="bottom">
+    <Tooltip label="알림" side="bottom">
       <button
         type="button"
         data-testid="topbar-activity-bell"
-        aria-label={`Activity (${count})`}
-        onClick={() => navigate('/activity')}
+        aria-label={`알림 (${count})`}
+        aria-expanded={activityInboxOpen}
+        aria-controls="activity-inbox-panel"
+        onClick={() => toggleActivityInbox()}
         className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm relative"
       >
         <Icon name="bell" size="sm" />
