@@ -1,6 +1,10 @@
 import { useMemo } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { ActiveChannelMute, ListChannelMutesResponse } from '@qufox/shared-types';
+import type {
+  ActiveChannelMute,
+  ListChannelMutesResponse,
+  MuteDurationKey,
+} from '@qufox/shared-types';
 import { apiRequest } from '../../lib/api';
 import { removeChannelMute, setChannelMute } from './api';
 
@@ -60,8 +64,12 @@ export function useMutedChannelIds(): Set<string> {
 /**
  * S43 (FR-CH-17): 뮤트 지속시간 선택지. PRD: 15분/1시간/3시간/8시간/24시간/무기한.
  * `'forever'` 는 mutedUntil=null(무기한)을 뜻한다.
+ *
+ * S49 fix-forward (contract HIGH): 로컬 정의를 제거하고 카노니컬 @qufox/shared-types
+ * MuteDurationKey 를 재-export 해 단일 출처로 통일했다('3h' 포함). ChannelList 등
+ * 기존 소비처는 `./useMutes` 경유 import 를 유지한다(re-export 라 무변경).
  */
-export type MuteDurationKey = '15m' | '1h' | '3h' | '8h' | '24h' | 'forever';
+export type { MuteDurationKey };
 
 const MUTE_DURATION_MS: Record<Exclude<MuteDurationKey, 'forever'>, number> = {
   '15m': 15 * 60_000,

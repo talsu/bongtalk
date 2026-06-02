@@ -158,21 +158,66 @@ export class MutesService {
           select: {
             name: true,
             displayName: true,
+            // S49 fix-forward (MAJOR): DIRECT 여부로 1:1 DM slug 노출을 차단한다.
+            type: true,
             workspaceId: true,
             workspace: { select: { name: true } },
+            // S49 fix-forward (MAJOR): 1:1 DM(displayName null)일 때 상대방 username 으로
+            // 채널명을 해석하기 위한 멤버 override(본인 제외 USER principal). DM 목록
+            // resolver(direct-messages.service.list)의 peer 조인과 동일 원리다. 그룹 DM
+            // (gdm:%)은 displayName 이 있어 이 분기에 거의 오지 않지만, 안전하게 본인
+            // 제외 USER principal 의 username 을 모아 fallback("다이렉트 메시지")로 둔다.
+            overrides: {
+              where: { principalType: 'USER', principalId: { not: userId } },
+              select: { principalId: true },
+            },
           },
         },
       },
     });
-    return rows.map((r) => ({
-      channelId: r.channelId,
-      // DM(group/1:1)은 displayName 이 사용자 표시명이라 우선(없으면 dedup slug name).
-      channelName: r.channel.displayName ?? r.channel.name,
-      workspaceId: r.channel.workspaceId,
-      workspaceName: r.channel.workspace?.name ?? null,
-      mutedUntil: r.mutedUntil,
-      createdAt: r.createdAt,
-    }));
+
+    // 1:1 DM(DIRECT·displayName null) 의 상대방 username 을 일괄 해석한다(N+1 회피).
+    const peerIds = new Set<string>();
+    for (const r of rows) {
+      const ch = r.channel;
+      if (ch.type === 'DIRECT' && ch.displayName == null) {
+        for (const o of ch.overrides) peerIds.add(o.principalId);
+      }
+    }
+    const peerNameById = new Map<string, string>();
+    if (peerIds.size > 0) {
+      const peers = await this.prisma.user.findMany({
+        where: { id: { in: [...peerIds] } },
+        select: { id: true, username: true },
+      });
+      for (const p of peers) peerNameById.set(p.id, p.username);
+    }
+
+    return rows.map((r) => {
+      const ch = r.channel;
+      let channelName: string;
+      if (ch.displayName != null) {
+        // group DM 표시명·향후 일반 채널 별칭 — 사용자 지정 표시명을 우선.
+        channelName = ch.displayName;
+      } else if (ch.type === 'DIRECT') {
+        // 1:1 DM: 상대방 username 으로 해석. 해석 실패(상대 삭제 등) 시에도
+        // raw slug(`dm:<uuid>:<uuid>`)가 UI/aria-label 에 새지 않도록 안전 fallback.
+        const resolved = ch.overrides
+          .map((o) => peerNameById.get(o.principalId))
+          .find((name): name is string => name != null);
+        channelName = resolved ?? '다이렉트 메시지';
+      } else {
+        channelName = ch.name;
+      }
+      return {
+        channelId: r.channelId,
+        channelName,
+        workspaceId: ch.workspaceId,
+        workspaceName: ch.workspace?.name ?? null,
+        mutedUntil: r.mutedUntil,
+        createdAt: r.createdAt,
+      };
+    });
   }
 
   /**

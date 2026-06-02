@@ -39,14 +39,29 @@ export function MuteListSection(): JSX.Element {
   const now = Date.now();
   const total = channels.length + servers.length;
 
+  // S49 fix-forward (a11y BLK-02): 동일 문자열을 연속 해제하면 textContent 가 안 바뀌어
+  // SR 이 재공지하지 않는다. 한 번 비운 뒤 다음 프레임에 다시 채워(DndSnoozeControl/
+  // KeywordsInput 와 동일하게 aria-atomic=true) 항상 재공지되게 한다.
   const announce = (msg: string): void => {
     const el = document.getElementById(liveId);
-    if (el) el.textContent = msg;
+    if (!el) return;
+    el.textContent = '';
+    requestAnimationFrame(() => {
+      el.textContent = msg;
+    });
   };
 
   const onUnmuteChannel = (channelId: string, name: string): void => {
     removeChannelMute.mutate(channelId, {
-      onSuccess: () => announce(`${name} 채널 뮤트를 해제했습니다.`),
+      onSuccess: () => {
+        // S49 fix-forward (a11y BLK-03): 이번 해제로 잔여가 0 이 되면 빈 상태 통지를 덧붙인다.
+        const remaining = total - 1;
+        announce(
+          remaining <= 0
+            ? `${name} 채널 뮤트를 해제했습니다. 뮤트 목록이 비었습니다.`
+            : `${name} 채널 뮤트를 해제했습니다.`,
+        );
+      },
       onError: (err: unknown) =>
         notify({ variant: 'danger', title: '뮤트 해제 실패', body: (err as Error).message }),
     });
@@ -54,7 +69,14 @@ export function MuteListSection(): JSX.Element {
 
   const onUnmuteServer = (workspaceId: string, name: string): void => {
     unmuteServer.mutate(workspaceId, {
-      onSuccess: () => announce(`${name} 서버 뮤트를 해제했습니다.`),
+      onSuccess: () => {
+        const remaining = total - 1;
+        announce(
+          remaining <= 0
+            ? `${name} 서버 뮤트를 해제했습니다. 뮤트 목록이 비었습니다.`
+            : `${name} 서버 뮤트를 해제했습니다.`,
+        );
+      },
       onError: (err: unknown) =>
         notify({ variant: 'danger', title: '뮤트 해제 실패', body: (err as Error).message }),
     });
@@ -79,11 +101,12 @@ export function MuteListSection(): JSX.Element {
         뮤트한 채널과 서버 목록입니다. 남은 시간이 지나면 자동으로 해제됩니다.
       </p>
 
-      {/* SR 전용 라이브 리전 — 해제 결과를 polite 로 알림. */}
+      {/* SR 전용 라이브 리전 — 해제 결과를 polite 로 알림(aria-atomic 으로 전체 재낭독). */}
       <div
         id={liveId}
         role="status"
         aria-live="polite"
+        aria-atomic="true"
         className="sr-only"
         data-testid="mute-list-live"
       />
@@ -116,24 +139,38 @@ export function MuteListSection(): JSX.Element {
                   >
                     <div className="flex min-w-0 flex-col">
                       <span className="truncate text-[length:var(--fs-14)] text-foreground">
-                        <span className="text-text-muted">#</span>
+                        {/* S49 fix-forward (a11y MIN-01): '#' 는 순수 장식 → aria-hidden.
+                            DM(workspaceId null)에는 '#' 미표시(채널 슬러그가 아니므로). */}
+                        {m.workspaceId ? (
+                          <span className="text-text-muted" aria-hidden="true">
+                            #
+                          </span>
+                        ) : null}
                         {m.channelName}
                       </span>
                       <span className="text-[length:var(--fs-12)] text-text-muted">
                         {m.workspaceName ? `${m.workspaceName} · ` : 'DM · '}
-                        <time
-                          dateTime={m.mutedUntil ?? undefined}
-                          title={m.mutedUntil ? new Date(m.mutedUntil).toLocaleString() : '무기한'}
-                        >
-                          {formatMuteRemaining(m.mutedUntil, now)}
-                        </time>
+                        {/* S49 fix-forward (a11y MOD-02): 무기한이면 dateTime 없는 <time>
+                            대신 <span> 으로(빈 dateTime <time> 회피). */}
+                        {m.mutedUntil ? (
+                          <time
+                            dateTime={m.mutedUntil}
+                            title={new Date(m.mutedUntil).toLocaleString()}
+                          >
+                            {formatMuteRemaining(m.mutedUntil, now)}
+                          </time>
+                        ) : (
+                          <span>{formatMuteRemaining(m.mutedUntil, now)}</span>
+                        )}
                       </span>
                     </div>
                     <button
                       type="button"
                       className="qf-btn qf-btn--ghost qf-btn--sm shrink-0"
                       data-testid={`unmute-channel-${m.channelId}`}
-                      aria-label={`${m.channelName} 뮤트 해제`}
+                      // S49 fix-forward (a11y BLK-01): 워크스페이스/DM 컨텍스트를 포함해
+                      // 동일 채널명 충돌을 구분(예: 서로 다른 서버의 'general').
+                      aria-label={`${m.workspaceName ?? 'DM'} ${m.channelName} 뮤트 해제`}
                       disabled={removeChannelMute.isPending}
                       onClick={() => onUnmuteChannel(m.channelId, m.channelName)}
                     >
@@ -170,19 +207,25 @@ export function MuteListSection(): JSX.Element {
                         {m.workspaceName}
                       </span>
                       <span className="text-[length:var(--fs-12)] text-text-muted">
-                        <time
-                          dateTime={m.muteUntil ?? undefined}
-                          title={m.muteUntil ? new Date(m.muteUntil).toLocaleString() : '무기한'}
-                        >
-                          {formatMuteRemaining(m.muteUntil, now)}
-                        </time>
+                        {/* S49 fix-forward (a11y MOD-02): 무기한이면 <span>(빈 dateTime <time> 회피). */}
+                        {m.muteUntil ? (
+                          <time
+                            dateTime={m.muteUntil}
+                            title={new Date(m.muteUntil).toLocaleString()}
+                          >
+                            {formatMuteRemaining(m.muteUntil, now)}
+                          </time>
+                        ) : (
+                          <span>{formatMuteRemaining(m.muteUntil, now)}</span>
+                        )}
                       </span>
                     </div>
                     <button
                       type="button"
                       className="qf-btn qf-btn--ghost qf-btn--sm shrink-0"
                       data-testid={`unmute-server-${m.workspaceId}`}
-                      aria-label={`${m.workspaceName} 뮤트 해제`}
+                      // S49 fix-forward (a11y BLK-01): 서버 해제는 "서버 뮤트 해제" 컨텍스트.
+                      aria-label={`${m.workspaceName} 서버 뮤트 해제`}
                       disabled={unmuteServer.isPending}
                       onClick={() => onUnmuteServer(m.workspaceId, m.workspaceName)}
                     >

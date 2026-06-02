@@ -33,8 +33,17 @@ beforeEach(() => {
   removeChannelMutate.mockReset();
   unmuteServerMutate.mockReset();
   pushToast.mockReset();
+  // S49 fix-forward (a11y BLK-02): announce() 가 requestAnimationFrame 으로 재공지하므로
+  // 테스트에서는 동기 실행으로 스텁해 결정적으로 검증한다.
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback): number => {
+    cb(0);
+    return 0;
+  });
 });
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 describe('MuteListSection (S49 FR-MN-17)', () => {
   it('빈 상태 — "뮤트 중인 채널/서버가 없습니다" + count 0', () => {
@@ -122,7 +131,7 @@ describe('MuteListSection (S49 FR-MN-17)', () => {
     expect(unmuteServerMutate.mock.calls[0][0]).toBe('ws-9');
   });
 
-  it('해제 성공 시 aria-live 리전에 SR 통지', () => {
+  it('해제 성공 시 aria-live 리전에 SR 통지 (마지막 1개 해제 → 빈상태 통지 포함)', () => {
     channelItems = [
       {
         channelId: 'c1',
@@ -138,9 +147,77 @@ describe('MuteListSection (S49 FR-MN-17)', () => {
     );
     render(<MuteListSection />);
     fireEvent.click(screen.getByTestId('unmute-channel-c1'));
+    // S49 fix-forward (a11y BLK-03): 잔여 0 → 빈상태 통지 덧붙임.
+    expect(screen.getByTestId('mute-list-live').textContent).toBe(
+      'general 채널 뮤트를 해제했습니다. 뮤트 목록이 비었습니다.',
+    );
+  });
+
+  it('S49 fix-forward (a11y BLK-03): 잔여가 남으면 빈상태 문구 없이 단건 통지', () => {
+    channelItems = [
+      {
+        channelId: 'c1',
+        channelName: 'general',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      {
+        channelId: 'c2',
+        channelName: 'random',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    removeChannelMutate.mockImplementation((_id: string, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
+    );
+    render(<MuteListSection />);
+    fireEvent.click(screen.getByTestId('unmute-channel-c1'));
     expect(screen.getByTestId('mute-list-live').textContent).toBe(
       'general 채널 뮤트를 해제했습니다.',
     );
+  });
+
+  it('S49 fix-forward (a11y BLK-02): 동일 채널명 연속 해제 시 재공지(rAF 비움→재설정)', () => {
+    channelItems = [
+      {
+        channelId: 'c1',
+        channelName: 'general',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      {
+        channelId: 'c2',
+        channelName: 'random',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    removeChannelMutate.mockImplementation((_id: string, opts: { onSuccess: () => void }) =>
+      opts.onSuccess(),
+    );
+    render(<MuteListSection />);
+    const live = screen.getByTestId('mute-list-live');
+    fireEvent.click(screen.getByTestId('unmute-channel-c1'));
+    expect(live.textContent).toBe('general 채널 뮤트를 해제했습니다.');
+    // 두 번째 해제도 announce 가 한 번 비우고 다시 채워 재공지된다(rAF 스텁이 동기 실행).
+    // 단위 테스트의 데이터는 정적이라 잔여 카운트는 2 기준(remaining=1)이므로 빈상태
+    // 문구는 붙지 않는다 — 재공지 자체(textContent 가 두 번째 메시지로 갱신됨)를 검증.
+    fireEvent.click(screen.getByTestId('unmute-channel-c2'));
+    expect(live.textContent).toBe('random 채널 뮤트를 해제했습니다.');
+  });
+
+  it('S49 fix-forward (a11y): live 리전에 aria-atomic=true', () => {
+    render(<MuteListSection />);
+    expect(screen.getByTestId('mute-list-live').getAttribute('aria-atomic')).toBe('true');
   });
 
   it('해제 실패 시 danger 토스트', () => {
@@ -209,10 +286,28 @@ describe('MuteListSection a11y (S49 — S48 교훈 선반영)', () => {
     ).toBe('서버');
   });
 
-  it('해제 버튼 aria-label=`${name} 뮤트 해제`', () => {
+  it('S49 fix-forward (a11y BLK-01): 채널 해제 버튼 aria-label 에 워크스페이스 컨텍스트', () => {
     render(<MuteListSection />);
-    expect(screen.getByLabelText('general 뮤트 해제')).toBeTruthy();
-    expect(screen.getByLabelText('Beta 뮤트 해제')).toBeTruthy();
+    // 채널: `${workspaceName ?? 'DM'} ${channelName} 뮤트 해제`.
+    expect(screen.getByLabelText('Acme general 뮤트 해제')).toBeTruthy();
+    // 서버: `${workspaceName} 서버 뮤트 해제`.
+    expect(screen.getByLabelText('Beta 서버 뮤트 해제')).toBeTruthy();
+  });
+
+  it('S49 fix-forward (a11y BLK-01): DM 채널 해제 버튼 aria-label 은 "DM" 컨텍스트', () => {
+    channelItems = [
+      {
+        channelId: 'dm1',
+        channelName: 'friend42',
+        workspaceId: null,
+        workspaceName: null,
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    serverItems = [];
+    render(<MuteListSection />);
+    expect(screen.getByLabelText('DM friend42 뮤트 해제')).toBeTruthy();
   });
 
   it('남은 시간이 <time dateTime> 으로 표현', () => {
@@ -221,6 +316,67 @@ describe('MuteListSection a11y (S49 — S48 교훈 선반영)', () => {
     const time = within(card).getByText('약 3시간 남음');
     expect(time.tagName).toBe('TIME');
     expect(time.getAttribute('datetime')).toBe('2025-01-01T03:00:00Z');
+  });
+
+  it('S49 fix-forward (a11y MOD-02): 무기한이면 <time> 대신 <span>(빈 dateTime 회피)', () => {
+    channelItems = [
+      {
+        channelId: 'c9',
+        channelName: 'general',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    serverItems = [
+      {
+        workspaceId: 'ws-9',
+        workspaceName: 'Beta',
+        workspaceIconUrl: null,
+        muteUntil: null,
+        level: 'NOTHING',
+      },
+    ];
+    render(<MuteListSection />);
+    const chCard = screen.getByTestId('mute-channel-c9');
+    const chInfinite = within(chCard).getByText('무기한');
+    expect(chInfinite.tagName).toBe('SPAN');
+    expect(chInfinite.hasAttribute('datetime')).toBe(false);
+    const svCard = screen.getByTestId('mute-server-ws-9');
+    const svInfinite = within(svCard).getByText('무기한');
+    expect(svInfinite.tagName).toBe('SPAN');
+    expect(svInfinite.hasAttribute('datetime')).toBe(false);
+  });
+
+  it('S49 fix-forward (a11y MIN-01): 워크스페이스 채널은 장식 "#"(aria-hidden), DM 은 "#" 미표시', () => {
+    channelItems = [
+      {
+        channelId: 'c1',
+        channelName: 'general',
+        workspaceId: 'ws-1',
+        workspaceName: 'Acme',
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+      {
+        channelId: 'dm1',
+        channelName: 'friend42',
+        workspaceId: null,
+        workspaceName: null,
+        mutedUntil: null,
+        createdAt: '2025-01-01T00:00:00Z',
+      },
+    ];
+    serverItems = [];
+    render(<MuteListSection />);
+    // 워크스페이스 채널: '#' 표시 + aria-hidden.
+    const wsCard = screen.getByTestId('mute-channel-c1');
+    const hash = within(wsCard).getByText('#');
+    expect(hash.getAttribute('aria-hidden')).toBe('true');
+    // DM 채널: '#' 미표시.
+    const dmCard = screen.getByTestId('mute-channel-dm1');
+    expect(within(dmCard).queryByText('#')).toBeNull();
   });
 
   it('aria-live 리전 role=status + polite', () => {

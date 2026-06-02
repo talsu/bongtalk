@@ -70,8 +70,12 @@ export type NotifLevel = z.infer<typeof NotifLevelSchema>;
 /**
  * S46 (FR-MN-06/07/08): 서버/채널 뮤트 기간 키. 'forever' = 영구(muteUntil null).
  * 그 외는 now + 해당 밀리초의 muteUntil 시각으로 변환한다.
+ *
+ * S49 fix-forward (contract HIGH): '3h' 추가 — web(useMutes·ChannelList MUTE_DURATIONS)이
+ * PRD(FR-CH-17: 15분/1시간/3시간/8시간/24시간/무기한)대로 이미 '3h' 를 보내지만 이
+ * 카노니컬 enum 에는 빠져 있어 drift 였다. 서버 muteUntilFrom('3h') 매핑도 함께 보강.
  */
-export const MuteDurationKeySchema = z.enum(['15m', '1h', '8h', '24h', 'forever']);
+export const MuteDurationKeySchema = z.enum(['15m', '1h', '3h', '8h', '24h', 'forever']);
 export type MuteDurationKey = z.infer<typeof MuteDurationKeySchema>;
 
 // ── 글로벌 (UserSettings.notifTrigger) — GET/PATCH /me/settings/notifications ──

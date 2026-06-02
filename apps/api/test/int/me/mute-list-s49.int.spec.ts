@@ -6,6 +6,7 @@ import {
   ORIGIN,
   seedWorkspaceWithRoles,
   setupChIntEnv,
+  signup,
   STRONG_PW,
 } from '../channels/helpers';
 
@@ -101,6 +102,48 @@ describe('GET /me/mutes (S49 FR-MN-17 — 보강 + 삭제채널 제외)', () => 
     const ids = (res.body.items as Array<{ channelId: string }>).map((i) => i.channelId);
     expect(ids).toContain(liveCh);
     expect(ids).not.toContain(deadCh);
+  });
+
+  it('S49 fix-forward (MAJOR): 1:1 DM(displayName null)은 raw slug 가 아니라 상대방 username', async () => {
+    // 글로벌 1:1 DM 을 prisma 로 직접 시드 — DIRECT·displayName null·dm: slug + 양측
+    // USER override(친구 게이트 우회). 슬러그가 channelName/aria 에 새지 않아야 한다.
+    const me = await signup(env.baseUrl, 'dmme');
+    const peer = await signup(env.baseUrl, 'dmpeer');
+    const READ = 1; // Permission.READ — allowMask & 1 > 0 가 멤버십 판정.
+    const ch = await env.prisma.channel.create({
+      data: {
+        workspaceId: null,
+        name: `dm:${me.userId}:${peer.userId}`,
+        displayName: null,
+        type: 'DIRECT',
+        isPrivate: true,
+        position: 1000,
+        overrides: {
+          create: [
+            { principalType: 'USER', principalId: me.userId, allowMask: READ },
+            { principalType: 'USER', principalId: peer.userId, allowMask: READ },
+          ],
+        },
+      },
+      select: { id: true },
+    });
+    await muteChannel(ch.id, me.accessToken, null);
+
+    const res = await request(env.baseUrl)
+      .get('/me/mutes')
+      .set('origin', ORIGIN)
+      .set(bearer(me.accessToken));
+    expect(res.status).toBe(200);
+    const item = (res.body.items as Array<Record<string, unknown>>).find(
+      (i) => i.channelId === ch.id,
+    );
+    expect(item).toBeDefined();
+    // raw slug(dm:...) 가 아니라 상대방 username 으로 해석.
+    expect(item?.channelName).toBe(peer.username);
+    expect(String(item?.channelName).startsWith('dm:')).toBe(false);
+    // DM 이므로 workspace 컨텍스트 없음.
+    expect(item?.workspaceId).toBeNull();
+    expect(item?.workspaceName).toBeNull();
   });
 
   it('본인 뮤트만 — 다른 사용자 뮤트 비노출', async () => {

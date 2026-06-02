@@ -117,9 +117,16 @@ describe('MutesService.listActiveMutes', () => {
 });
 
 describe('MutesService.listActiveMutesDetailed (S49 FR-MN-17)', () => {
-  function makeDetailedService(findMany: ReturnType<typeof vi.fn>) {
+  const PEER_ID = '33333333-3333-4333-8333-333333333333';
+
+  function makeDetailedService(
+    findMany: ReturnType<typeof vi.fn>,
+    userFindMany?: ReturnType<typeof vi.fn>,
+  ) {
     const prisma = {
       userChannelMute: { findMany },
+      // S49 fix-forward (MAJOR): 1:1 DM peer username 해석용. 기본은 빈 결과.
+      user: { findMany: userFindMany ?? vi.fn().mockResolvedValue([]) },
     } as unknown as ConstructorParameters<typeof MutesService>[0];
     return new MutesService(prisma);
   }
@@ -133,8 +140,10 @@ describe('MutesService.listActiveMutesDetailed (S49 FR-MN-17)', () => {
         channel: {
           name: 'general',
           displayName: null,
+          type: 'TEXT',
           workspaceId: 'ws-1',
           workspace: { name: 'Acme' },
+          overrides: [],
         },
       },
     ]);
@@ -163,17 +172,19 @@ describe('MutesService.listActiveMutesDetailed (S49 FR-MN-17)', () => {
     expect(where.OR).toEqual([{ mutedUntil: null }, { mutedUntil: { gt: expect.any(Date) } }]);
   });
 
-  it('DM(workspace 없음)은 displayName 우선·workspaceName=null', async () => {
+  it('group DM(displayName 있음)은 displayName 우선·workspaceName=null', async () => {
     const findMany = vi.fn().mockResolvedValue([
       {
         channelId: CHAN_B,
         mutedUntil: new Date('2025-01-02T00:00:00Z'),
         createdAt: new Date('2024-12-30T00:00:00Z'),
         channel: {
-          name: 'dm:abc',
+          name: 'gdm:abc',
           displayName: '친구 그룹',
+          type: 'DIRECT',
           workspaceId: null,
           workspace: null,
+          overrides: [{ principalId: PEER_ID }],
         },
       },
     ]);
@@ -182,6 +193,58 @@ describe('MutesService.listActiveMutesDetailed (S49 FR-MN-17)', () => {
     expect(rows[0].channelName).toBe('친구 그룹');
     expect(rows[0].workspaceId).toBeNull();
     expect(rows[0].workspaceName).toBeNull();
+  });
+
+  it('S49 fix-forward (MAJOR): 1:1 DM(DIRECT·displayName null)은 raw slug 대신 상대방 username', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_B,
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        channel: {
+          name: `dm:${USER_A}:${PEER_ID}`,
+          displayName: null,
+          type: 'DIRECT',
+          workspaceId: null,
+          workspace: null,
+          overrides: [{ principalId: PEER_ID }],
+        },
+      },
+    ]);
+    const userFindMany = vi.fn().mockResolvedValue([{ id: PEER_ID, username: 'friend42' }]);
+    const svc = makeDetailedService(findMany, userFindMany);
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    // raw slug(dm:...)가 아니라 상대방 username 으로 해석된다.
+    expect(rows[0].channelName).toBe('friend42');
+    expect(rows[0].channelName.startsWith('dm:')).toBe(false);
+    // 본인 제외 USER principal 만 조회 — overrides where 가 본인을 배제.
+    const where = findMany.mock.calls[0][0].where;
+    expect(where).toBeDefined();
+    // peer 조회는 본인 제외 id 만.
+    expect(userFindMany.mock.calls[0][0].where.id.in).toEqual([PEER_ID]);
+  });
+
+  it('S49 fix-forward (MAJOR): 1:1 DM 상대 해석 실패(삭제 등) 시 "다이렉트 메시지" fallback', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      {
+        channelId: CHAN_B,
+        mutedUntil: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+        channel: {
+          name: `dm:${USER_A}:${PEER_ID}`,
+          displayName: null,
+          type: 'DIRECT',
+          workspaceId: null,
+          workspace: null,
+          overrides: [{ principalId: PEER_ID }],
+        },
+      },
+    ]);
+    // user.findMany 가 빈 결과 — 상대 username 해석 불가.
+    const svc = makeDetailedService(findMany, vi.fn().mockResolvedValue([]));
+    const rows = await svc.listActiveMutesDetailed(USER_A);
+    expect(rows[0].channelName).toBe('다이렉트 메시지');
+    expect(rows[0].channelName.startsWith('dm:')).toBe(false);
   });
 });
 
