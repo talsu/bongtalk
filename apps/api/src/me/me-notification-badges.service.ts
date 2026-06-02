@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
+import { readBitVisibleSql, mentionMatchSql } from '../common/acl/read-visibility.sql';
 
 /**
  * S47 (D06 / FR-MN-14 / FR-MN-20): 서버(워크스페이스) 단위 알림 배지 집계.
@@ -22,10 +23,15 @@ import { PrismaService } from '../prisma/prisma.module';
  *
  * ── 미읽/멘션 집계 ──
  * UnreadService 의 (createdAt, id) 튜플 커서 공식 + roots-only(parentMessageId IS
- * NULL OR isBroadcast) 술어를 그대로 따른다(채널 배지 정본과 정합). ACL 가시성은
- * 비공개 채널에 한해 `(allow & ~deny) & READ_BIT > 0` 단순 판정을 적용한다
- * (me-mentions/me-activity 와 동일 패턴 — 본 배지는 알림 도달 가능성 기준이라
- * UnreadService 의 5단계 fold 보다 보수적으로 충분하다). 멘션은 직접 @username +
+ * NULL OR isBroadcast) 술어를 그대로 따른다(채널 배지 정본과 정합).
+ *
+ * ── ACL 가시성 = canonical 5-step fold (S47 fix-forward · BLOCKER-4) ──
+ * 종전엔 비공개 가시성이 `(bit_or(allow) & ~bit_or(deny)) & 1`(USER/ROLE 혼합)인
+ * 2-step union 이라, UnreadService.readBitVisibleSql 의 5단계 fold(user DENY > role
+ * ALLOW 등 경계)와 어긋나 private 채널을 과대/과소 카운트했다. 이제 rail/ACK 와
+ * **동일한 공유 헬퍼(`common/acl/read-visibility.sql`)** 의 5단계 fold + mentionMatch
+ * 를 재사용해 단일 truth-source 를 보장한다. OWNER short-circuit 도 UnreadService 와
+ * 정합하게 fold 통과(OWNER baseline READ + 명시 DENY 존중). 멘션은 직접 @username +
  * everyone/here/channel containment(GIN 인덱스 활용)를 본다.
  */
 export interface NotificationBadge {
@@ -46,6 +52,53 @@ export class MeNotificationBadgesService {
    * @param now mute 활성 판정 기준 시각(테스트 결정성 — vi.setSystemTime 정합).
    */
   async badges(userId: string, now: Date = new Date()): Promise<NotificationBadge[]> {
+    return this.aggregate(userId, null, now);
+  }
+
+  /**
+   * 단일 워크스페이스 배지(WS `notification:badge_update` emit 용 — 멘션 발생 시
+   * 그 워크스페이스만 재집계). 뮤트 게이트는 badges 와 동일하게 적용된다.
+   *
+   * S47 fix-forward (BLOCKER-5 · perf): 종전엔 `badges()`(전 워크스페이스 집계)를
+   * 돌린 뒤 `.find()` 로 한 줄만 골라, 멘션마다·@everyone N 명마다 전체 워크스페이스
+   * 를 재집계했다(N×(6CTE+LATERAL) — P95 SLO 위협). 이제 `my_memberships`/
+   * `visible_channels` CTE 최상단에서 workspaceId 로 필터한 단일-ws 경로(aggregate
+   * 가 wsId 를 받아 CTE 에 박는다)로 emit 비용을 1ws 집계로 낮춘다.
+   */
+  async badgeFor(
+    userId: string,
+    workspaceId: string,
+    now: Date = new Date(),
+  ): Promise<NotificationBadge> {
+    const rows = await this.aggregate(userId, workspaceId, now);
+    return rows[0] ?? { workspaceId, mentionCount: 0, unreadCount: 0 };
+  }
+
+  /**
+   * S47 fix-forward (BLOCKER-4/5): 배지 집계 단일 출처. `workspaceId` 가 주어지면
+   * 그 워크스페이스만 집계하고(badgeFor — 단일-ws emit), null 이면 가입한 전 워크
+   * 스페이스를 집계한다(badges — 전체 재동기화). ACL 가시성은 rail/ACK 와 동일한
+   * 공유 헬퍼의 5단계 fold(readBitVisibleSql) + 멘션 판정(mentionMatchSql)을 쓴다.
+   */
+  private async aggregate(
+    userId: string,
+    workspaceId: string | null,
+    now: Date,
+  ): Promise<NotificationBadge[]> {
+    // workspaceId 필터를 CTE 최상단에 박는다(null 이면 무필터 — 전 워크스페이스).
+    const wsFilter = workspaceId
+      ? Prisma.sql`AND wm."workspaceId" = ${workspaceId}::uuid`
+      : Prisma.empty;
+    // 비공개 가시성 5단계 fold — overrides CTE 의 principalType 별 bit_or 컬럼을 참조.
+    const visible = readBitVisibleSql({
+      isPrivate: Prisma.sql`vc2."isPrivate"`,
+      roleAllow: Prisma.sql`vc2.role_allow`,
+      roleDeny: Prisma.sql`vc2.role_deny`,
+      userAllow: Prisma.sql`vc2.user_allow`,
+      userDeny: Prisma.sql`vc2.user_deny`,
+    });
+    const mentionMatch = mentionMatchSql(Prisma.sql`msg`, Prisma.sql`${userId}::text`);
+
     const rows = await this.prisma.$queryRaw<
       Array<{
         workspace_id: string;
@@ -57,6 +110,7 @@ export class MeNotificationBadgesService {
         SELECT wm."workspaceId", wm.role
           FROM "WorkspaceMember" wm
          WHERE wm."userId" = ${userId}::uuid
+           ${wsFilter}
       ),
       -- 서버(워크스페이스) 뮤트: 활성이면 그 워크스페이스 전체를 카운트 0 으로 만든다.
       muted_servers AS (
@@ -74,28 +128,38 @@ export class MeNotificationBadgesService {
            AND ucm."isMuted" = true
            AND (ucm."mutedUntil" IS NULL OR ucm."mutedUntil" > ${now}::timestamptz)
       ),
-      -- 본인이 가시한(비뮤트) 채널 집합. 비공개 채널은 OWNER 거나 READ 비트 ALLOW.
+      -- 본인 적용 오버라이드(USER 본인 | ROLE 본인역할)를 채널별로 bit_or.
+      -- readBitVisibleSql 5단계 fold 가 이 컬럼들을 참조한다(rail 과 동일 패턴).
+      overrides AS (
+        SELECT
+          cpo."channelId",
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'ROLE'), 0) AS role_deny,
+          COALESCE(bit_or(cpo."allowMask") FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_allow,
+          COALESCE(bit_or(cpo."denyMask")  FILTER (WHERE cpo."principalType" = 'USER'), 0) AS user_deny
+        FROM "ChannelPermissionOverride" cpo
+        JOIN "Channel" cc ON cc.id = cpo."channelId"
+        JOIN my_memberships mm ON mm."workspaceId" = cc."workspaceId"
+        WHERE (
+          (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = mm.role::text)
+        )
+        GROUP BY cpo."channelId"
+      ),
+      -- 본인이 가시한(비뮤트) 채널 집합. 비공개 채널 가시성은 5단계 fold(rail/ACK 정합).
       visible_channels AS (
-        SELECT c.id AS channel_id, c."workspaceId"
-          FROM "Channel" c
-          JOIN my_memberships mm ON mm."workspaceId" = c."workspaceId"
-         WHERE c."deletedAt" IS NULL
-           AND c."workspaceId" NOT IN (SELECT "workspaceId" FROM muted_servers)
-           AND c.id NOT IN (SELECT "channelId" FROM muted_channels)
-           AND (
-             c."isPrivate" = false
-             OR mm.role = 'OWNER'
-             OR COALESCE(
-                  (SELECT (bit_or(cpo."allowMask") & ~bit_or(cpo."denyMask")) & 1
-                     FROM "ChannelPermissionOverride" cpo
-                    WHERE cpo."channelId" = c.id
-                      AND (
-                        (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                        OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = mm.role::text)
-                      )),
-                  0
-                ) > 0
-           )
+        SELECT vc2.channel_id, vc2."workspaceId"
+          FROM (
+            SELECT c.id AS channel_id, c."workspaceId", c."isPrivate", mm.role,
+                   o.role_allow, o.role_deny, o.user_allow, o.user_deny
+              FROM "Channel" c
+              JOIN my_memberships mm ON mm."workspaceId" = c."workspaceId"
+              LEFT JOIN overrides o ON o."channelId" = c.id
+             WHERE c."deletedAt" IS NULL
+               AND c."workspaceId" NOT IN (SELECT "workspaceId" FROM muted_servers)
+               AND c.id NOT IN (SELECT "channelId" FROM muted_channels)
+          ) vc2
+         WHERE ${visible}
       ),
       per_channel AS (
         SELECT
@@ -109,14 +173,7 @@ export class MeNotificationBadgesService {
         LEFT JOIN LATERAL (
           SELECT
             count(*) AS unread_count,
-            count(*) FILTER (
-              WHERE (
-                msg.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
-                OR msg.mentions @> '{"everyone":true}'::jsonb
-                OR msg.mentions @> '{"here":true}'::jsonb
-                OR msg.mentions @> '{"channel":true}'::jsonb
-              )
-            ) AS mention_count
+            count(*) FILTER (WHERE ${mentionMatch}) AS mention_count
           FROM "Message" msg
           WHERE msg."channelId" = vc.channel_id
             AND msg."deletedAt" IS NULL
@@ -144,19 +201,5 @@ export class MeNotificationBadgesService {
       mentionCount: Number(r.mention_count ?? 0),
       unreadCount: Number(r.unread_count ?? 0),
     }));
-  }
-
-  /**
-   * 단일 워크스페이스 배지(WS `notification:badge_update` emit 용 — 멘션 발생 시
-   * 그 워크스페이스만 재집계). 뮤트 게이트는 badges 와 동일하게 적용된다.
-   */
-  async badgeFor(
-    userId: string,
-    workspaceId: string,
-    now: Date = new Date(),
-  ): Promise<NotificationBadge> {
-    const all = await this.badges(userId, now);
-    const found = all.find((b) => b.workspaceId === workspaceId);
-    return found ?? { workspaceId, mentionCount: 0, unreadCount: 0 };
   }
 }

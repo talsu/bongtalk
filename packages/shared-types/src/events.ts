@@ -595,6 +595,12 @@ export const ReadStateUpdatedPayloadSchema = z.object({
   lastReadMessageId: z.string().nullable(),
   unreadCount: z.number().int().nonnegative(),
   mentionCount: z.number().int().nonnegative().default(0),
+  // S47 fix-forward (BLOCKER-2 · FR-MN-20): 서버가 이 ACK 를 emit 한 시각(ISO).
+  // 클라 badgeStore 가 lastAckedAt 을 **서버 시계** 로 저장해, notification:badge_update
+  // 의 serverTimestamp 와 동일 시계로 stale 비교한다(교차시계 폐기 버그 제거). emit
+  // 시점에 gateway 가 부착하므로 UnreadService 의 payload 생성부는 건드리지 않는다.
+  // forward-compat 위해 optional — 누락이면 클라가 ACK-우선 시각 갱신을 건너뛴다.
+  serverTimestamp: z.string().datetime().optional(),
 });
 export type ReadStateUpdatedPayload = z.infer<typeof ReadStateUpdatedPayloadSchema>;
 

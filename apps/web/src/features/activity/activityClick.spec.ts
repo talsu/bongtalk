@@ -13,6 +13,7 @@ function row(partial: Partial<ActivityRow>): ActivityRow {
     channelId: 'ch-1',
     messageId: 'm-1',
     actorId: 'a-1',
+    actorName: 'alice',
     snippet: 's',
     createdAt: '2025-01-01T00:00:00.000Z',
     readAt: null,
@@ -38,13 +39,36 @@ describe('resolveActivityClick (S47 · FR-MN-13)', () => {
     });
   });
 
-  it('멘션/반응/DM → message-jump', () => {
+  it('멘션/반응 → message-jump', () => {
     expect(resolveActivityClick(row({ kind: 'mention' }), { accessible: true })).toEqual({
       type: 'message-jump',
       channelId: 'ch-1',
       messageId: 'm-1',
       workspaceId: 'ws-1',
     });
+    expect(resolveActivityClick(row({ kind: 'reaction' }), { accessible: true })).toEqual({
+      type: 'message-jump',
+      channelId: 'ch-1',
+      messageId: 'm-1',
+      workspaceId: 'ws-1',
+    });
+  });
+
+  it('MAJOR-4: DM(kind=direct) → dm-open(otherUserId=actorId), 워크스페이스 점프 안 함', () => {
+    // 채널 lookup 결과와 무관하게(undefined 여도) DM 라우트로.
+    expect(resolveActivityClick(row({ kind: 'direct', actorId: 'u-9' }), undefined)).toEqual({
+      type: 'dm-open',
+      otherUserId: 'u-9',
+    });
+  });
+
+  it('MAJOR-4: global DM(workspaceId null) 도 dm-open 으로 처리', () => {
+    expect(
+      resolveActivityClick(
+        row({ kind: 'direct', actorId: 'u-3', workspaceId: '', channelId: 'dm-ch' }),
+        undefined,
+      ),
+    ).toEqual({ type: 'dm-open', otherUserId: 'u-3' });
   });
 
   it('친구 요청(채널 컨텍스트 없음) → noop', () => {

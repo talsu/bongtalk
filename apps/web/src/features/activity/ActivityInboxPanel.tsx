@@ -19,13 +19,20 @@ import { resolveActivityClick, ACTIVITY_TOAST, type ActivityClickChannel } from 
 /**
  * S47 (FR-MN-13): Activity Inbox 패널.
  *
- * 전용 패널(role="complementary"). 탭(All/Mentions/Threads/DMs)은 tablist/tab/
- * tabpanel ARIA 패턴을 따른다. 탭별 empty 카피 + .qf-skeleton 3행(200ms 지연) +
- * 항목 클릭 fallback(채널 삭제/권한 회수 toast + 패널 유지, 스레드 답글 jump,
- * 멘션/DM jump) + 항목별/전체 읽음 + cursor 무한스크롤(IntersectionObserver).
+ * 전용 패널(role="complementary"). 탭(전체/멘션/스레드/DM)은 tablist/tab/tabpanel
+ * ARIA 패턴 + roving tabIndex(ArrowLeft/Right/Home/End)를 따른다. 탭별 empty 카피 +
+ * .qf-skel 3행(200ms 지연·aria-busy) + 항목 클릭 fallback(채널 삭제/권한 회수 toast +
+ * 패널 유지, DM open, 스레드 답글 jump, 멘션 jump) + 항목별/전체 읽음 + cursor
+ * 무한스크롤(IntersectionObserver).
  *
- * 기존 ActivityPage(전체화면)와 병존한다(MentionRecord 미도입 — 같은 /me/activity
- * 경로를 패널 폼팩터로 재사용). 신규 DS 클래스 0 — 기존 qf-* + 토큰만 쓴다.
+ * S47 fix-forward 반영:
+ *  - BLOCKER-8: qf-skeleton→qf-skel(DS 실재), raw width px→page-scoped 변수.
+ *  - a11y A-1 roving tablist / A-2 actorName 접근명 / A-3 skeleton aria-busy+status,
+ *    B-1 aside 한국어 라벨 / B-2 tabpanel tabIndex=0 / B-3 empty role=status.
+ *  - MAJOR-4 DM open 라우트.
+ *
+ * 기존 ActivityPage(전체화면)와 병존한다(같은 /me/activity 경로 재사용). 신규 DS
+ * 클래스 0 — 기존 qf-* + 토큰만 쓴다.
  */
 export function ActivityInboxPanel(): JSX.Element {
   const [tab, setTab] = useState<InboxTab>('all');
@@ -40,6 +47,14 @@ export function ActivityInboxPanel(): JSX.Element {
   const pushToast = useNotifications((s) => s.push);
 
   const showSkeleton = useDelayedLoading(query.isLoading);
+
+  // A-1 roving tabIndex: 탭 버튼 ref 로 키보드 이동 시 focus 를 옮긴다.
+  const tabRefs = useRef<Record<InboxTab, HTMLButtonElement | null>>({
+    all: null,
+    mentions: null,
+    threads: null,
+    dms: null,
+  });
 
   const slugById = useMemo(() => {
     const m = new Map<string, string>();
@@ -90,6 +105,10 @@ export function ActivityInboxPanel(): JSX.Element {
           return; // 패널 유지.
         case 'noop':
           return;
+        case 'dm-open':
+          // MAJOR-4: DM 은 워크스페이스 점프가 아니라 DM 라우트로(global DM 포함).
+          navigate(`/dm/${encodeURIComponent(action.otherUserId)}`);
+          return;
         case 'thread-jump':
         case 'message-jump': {
           const slug = slugById.get(action.workspaceId);
@@ -134,14 +153,35 @@ export function ActivityInboxPanel(): JSX.Element {
     }
   };
 
+  /**
+   * A-1: roving tablist 키보드 이동. ArrowLeft/Right 로 이전/다음 탭, Home/End 로
+   * 처음/끝 탭으로 선택 + focus 를 옮긴다(WAI-ARIA tabs 패턴).
+   */
+  const onTabKeyDown = (e: React.KeyboardEvent, current: InboxTab): void => {
+    const order = INBOX_TABS.map((t) => t.id);
+    const idx = order.indexOf(current);
+    let nextIdx: number | null = null;
+    if (e.key === 'ArrowRight') nextIdx = (idx + 1) % order.length;
+    else if (e.key === 'ArrowLeft') nextIdx = (idx - 1 + order.length) % order.length;
+    else if (e.key === 'Home') nextIdx = 0;
+    else if (e.key === 'End') nextIdx = order.length - 1;
+    if (nextIdx === null) return;
+    e.preventDefault();
+    const next = order[nextIdx];
+    setTab(next);
+    tabRefs.current[next]?.focus();
+  };
+
   return (
     <aside
+      id="activity-inbox-panel"
       role="complementary"
-      aria-label="Activity Inbox"
+      aria-label="알림 인박스"
       data-testid="activity-inbox-panel"
       className="h-full flex flex-col"
       style={{
-        width: '320px',
+        // BLOCKER-8: raw 320px 제거 → page-scoped CSS 변수(폴백 320px).
+        width: 'var(--w-activity-panel, 320px)',
         flexShrink: 0,
         background: 'var(--bg-panel)',
         borderLeft: '1px solid var(--divider)',
@@ -164,21 +204,28 @@ export function ActivityInboxPanel(): JSX.Element {
       <div role="tablist" aria-label="알림 필터" className="qf-tabs px-[var(--s-3)]">
         {INBOX_TABS.map((t) => {
           const count = tabCount(t.id);
+          const selected = tab === t.id;
           return (
             <button
               key={t.id}
+              ref={(el) => {
+                tabRefs.current[t.id] = el;
+              }}
               type="button"
               role="tab"
               id={`activity-inbox-tab-${t.id}`}
-              aria-selected={tab === t.id}
+              aria-selected={selected}
               aria-controls={`activity-inbox-panel-${t.id}`}
+              // A-1: 활성 탭만 tabIndex=0, 나머지 -1(roving).
+              tabIndex={selected ? 0 : -1}
               data-testid={`activity-inbox-tab-${t.id}`}
               className="qf-tabs__item"
               onClick={() => setTab(t.id)}
+              onKeyDown={(e) => onTabKeyDown(e, t.id)}
             >
               {t.label}
               {count && count > 0 ? (
-                <span className="ml-[var(--s-2)] qf-badge qf-badge--count">
+                <span aria-hidden="true" className="ml-[var(--s-2)] qf-badge qf-badge--count">
                   {count > 99 ? '99+' : count}
                 </span>
               ) : null}
@@ -191,59 +238,86 @@ export function ActivityInboxPanel(): JSX.Element {
         role="tabpanel"
         id={`activity-inbox-panel-${tab}`}
         aria-labelledby={`activity-inbox-tab-${tab}`}
+        // B-2: tabpanel 은 포커스 가능(키보드로 패널 내용에 진입).
+        tabIndex={0}
+        // A-3: 로딩 중 aria-busy 로 스크린리더에 진행 알림.
+        aria-busy={query.isLoading}
         data-testid="activity-inbox-list"
         className="flex-1 overflow-y-auto"
       >
         {showSkeleton ? (
-          <div data-testid="activity-inbox-skeleton" aria-hidden="true">
+          <div
+            data-testid="activity-inbox-skeleton"
+            role="status"
+            aria-live="polite"
+            aria-label="알림을 불러오는 중"
+          >
             {[0, 1, 2].map((i) => (
               <div
                 key={i}
-                className="qf-skeleton"
+                className="qf-skel"
+                aria-hidden="true"
                 style={{
                   height: 'var(--s-10)',
                   margin: 'var(--s-3) var(--s-4)',
                   borderRadius: 'var(--r-md)',
-                  background: 'var(--bg-hover)',
-                  opacity: 0.6,
                 }}
               />
             ))}
           </div>
         ) : items.length === 0 ? (
-          <div className="qf-empty p-[var(--s-6)]" data-testid="activity-inbox-empty">
+          <div
+            className="qf-empty p-[var(--s-6)]"
+            data-testid="activity-inbox-empty"
+            // B-3: empty 상태 통지(role=status aria-live).
+            role="status"
+            aria-live="polite"
+          >
             <div className="text-text-muted text-[length:var(--fs-14)]">{emptyCopyForTab(tab)}</div>
           </div>
         ) : (
           <>
-            {items.map((row) => (
-              <button
-                key={row.activityKey}
-                type="button"
-                data-testid={`activity-inbox-row-${row.activityKey}`}
-                data-kind={row.kind}
-                data-read={row.readAt ? 'true' : 'false'}
-                onClick={() => open(row)}
-                className={cn('qf-m-notif w-full text-left', !row.readAt && 'qf-m-notif--unread')}
-              >
-                <div className="qf-m-notif__avatar">
-                  <Avatar name={row.actorId.slice(0, 2)} size="md" />
-                </div>
-                <div>
-                  <div className="qf-m-notif__head">
-                    <span className="qf-m-notif__actor">{row.actorId.slice(0, 8)}</span>
-                    <span className="qf-m-notif__verb">{verbFor(row)}</span>
+            {items.map((row) => {
+              const name = displayName(row);
+              return (
+                <button
+                  key={row.activityKey}
+                  type="button"
+                  data-testid={`activity-inbox-row-${row.activityKey}`}
+                  data-kind={row.kind}
+                  data-read={row.readAt ? 'true' : 'false'}
+                  // A-2: 접근명 = "{actorName}{verb} — {상대시간}"(actorId.slice 제거).
+                  aria-label={`${name}${verbFor(row)} — ${relativeTime(row.createdAt)}`}
+                  onClick={() => open(row)}
+                  className={cn('qf-m-notif w-full text-left', !row.readAt && 'qf-m-notif--unread')}
+                >
+                  <div className="qf-m-notif__avatar">
+                    <Avatar name={name} size="md" />
                   </div>
-                  {row.snippet ? <div className="qf-m-notif__preview">{row.snippet}</div> : null}
-                </div>
-              </button>
-            ))}
+                  <div>
+                    <div className="qf-m-notif__head">
+                      <span className="qf-m-notif__actor">{name}</span>
+                      <span className="qf-m-notif__verb">{verbFor(row)}</span>
+                    </div>
+                    {row.snippet ? <div className="qf-m-notif__preview">{row.snippet}</div> : null}
+                  </div>
+                </button>
+              );
+            })}
             <div ref={sentinelRef} style={{ height: '1px' }} aria-hidden="true" />
           </>
         )}
       </div>
     </aside>
   );
+}
+
+/**
+ * A-2: 표시명/접근명 — API read-time join 한 actorName 을 쓰고, 누락(삭제 사용자
+ * 등)이면 중립 폴백("알 수 없는 사용자")으로 둔다. actorId.slice 노출 금지.
+ */
+function displayName(row: ActivityRow): string {
+  return row.actorName?.trim() || '알 수 없는 사용자';
 }
 
 function verbFor(row: ActivityRow): string {
@@ -259,4 +333,22 @@ function verbFor(row: ActivityRow): string {
     case 'friend_request':
       return '님이 친구 요청을 보냄';
   }
+}
+
+/**
+ * 접근명용 상대 시간(한국어). vi.setSystemTime 정합 — Date.now 기준. 분/시/일 단위로
+ * 절삭하고, 미래/방금은 "방금"으로 수렴한다.
+ */
+function relativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  if (!Number.isFinite(then)) return '';
+  const diffMs = Date.now() - then;
+  const sec = Math.floor(diffMs / 1000);
+  if (sec < 60) return '방금';
+  const min = Math.floor(sec / 60);
+  if (min < 60) return `${min}분 전`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}시간 전`;
+  const day = Math.floor(hr / 24);
+  return `${day}일 전`;
 }

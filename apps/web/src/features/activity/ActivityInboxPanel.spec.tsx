@@ -5,7 +5,8 @@ import { render, screen, cleanup, fireEvent, act } from '@testing-library/react'
 /**
  * S47 (FR-MN-13): Activity Inbox 패널 — role/탭 ARIA, 탭별 empty 카피, skeleton
  * 200ms 지연, 탭 리매핑을 jsdom 으로 검증한다. 데이터 hook 을 모킹해 네트워크 없이
- * 렌더한다.
+ * 렌더한다. S47 fix-forward: aside 한국어 라벨·roving tablist·qf-skel·tabpanel
+ * aria-busy/tabIndex 를 함께 검증한다.
  */
 
 // 모킹 가능한 가변 상태(테스트마다 교체).
@@ -76,15 +77,39 @@ afterEach(() => {
 });
 
 describe('ActivityInboxPanel (S47 · FR-MN-13)', () => {
-  it('패널 루트 role="complementary" + 탭 tablist/tab/tabpanel 패턴', () => {
+  it('패널 루트 role="complementary"(한국어 라벨) + 탭 tablist/tab/tabpanel 패턴', () => {
     render(<ActivityInboxPanel />);
-    expect(screen.getByRole('complementary', { name: 'Activity Inbox' })).toBeTruthy();
+    expect(screen.getByRole('complementary', { name: '알림 인박스' })).toBeTruthy();
     expect(screen.getByRole('tablist')).toBeTruthy();
     const tabs = screen.getAllByRole('tab');
     expect(tabs).toHaveLength(4);
     expect(screen.getByRole('tabpanel')).toBeTruthy();
     // 기본 선택 탭은 All.
     expect(screen.getByTestId('activity-inbox-tab-all').getAttribute('aria-selected')).toBe('true');
+  });
+
+  it('A-1 roving tabIndex: 활성 탭만 tabIndex=0, 나머지 -1', () => {
+    render(<ActivityInboxPanel />);
+    expect(screen.getByTestId('activity-inbox-tab-all').getAttribute('tabindex')).toBe('0');
+    expect(screen.getByTestId('activity-inbox-tab-mentions').getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('A-1 ArrowRight 로 다음 탭으로 이동 + 선택 전환', () => {
+    render(<ActivityInboxPanel />);
+    const allTab = screen.getByTestId('activity-inbox-tab-all');
+    act(() => {
+      fireEvent.keyDown(allTab, { key: 'ArrowRight' });
+    });
+    expect(screen.getByTestId('activity-inbox-tab-mentions').getAttribute('aria-selected')).toBe(
+      'true',
+    );
+  });
+
+  it('A-3/B-2 tabpanel: aria-busy 미로딩 시 false + tabIndex=0', () => {
+    render(<ActivityInboxPanel />);
+    const panel = screen.getByRole('tabpanel');
+    expect(panel.getAttribute('aria-busy')).toBe('false');
+    expect(panel.getAttribute('tabindex')).toBe('0');
   });
 
   it('비어있을 때 기본(All) 탭 empty 카피를 렌더한다', () => {
@@ -108,7 +133,7 @@ describe('ActivityInboxPanel (S47 · FR-MN-13)', () => {
     expect(screen.getByTestId('activity-inbox-empty').textContent).toContain('DM 알림이 없습니다');
   });
 
-  it('로딩 200ms 이상 지연 시 .qf-skeleton 3행을 렌더한다(그 전에는 미표시)', () => {
+  it('로딩 200ms 이상 지연 시 .qf-skel 3행 + aria-busy/status 를 렌더한다(그 전엔 미표시)', () => {
     inboxState = {
       data: undefined,
       isLoading: true,
@@ -117,6 +142,8 @@ describe('ActivityInboxPanel (S47 · FR-MN-13)', () => {
       fetchNextPage: vi.fn(),
     };
     render(<ActivityInboxPanel />);
+    // A-3: 로딩 중 tabpanel aria-busy=true.
+    expect(screen.getByRole('tabpanel').getAttribute('aria-busy')).toBe('true');
     // 200ms 전에는 skeleton 미표시.
     expect(screen.queryByTestId('activity-inbox-skeleton')).toBeNull();
     act(() => {
@@ -124,6 +151,11 @@ describe('ActivityInboxPanel (S47 · FR-MN-13)', () => {
     });
     const skeleton = screen.getByTestId('activity-inbox-skeleton');
     expect(skeleton).toBeTruthy();
-    expect(skeleton.querySelectorAll('.qf-skeleton')).toHaveLength(3);
+    // BLOCKER-8: DS 실재 클래스 qf-skel(오타 qf-skeleton 아님) 3행.
+    expect(skeleton.querySelectorAll('.qf-skel')).toHaveLength(3);
+    expect(skeleton.querySelectorAll('.qf-skeleton')).toHaveLength(0);
+    // A-3: role=status aria-live.
+    expect(skeleton.getAttribute('role')).toBe('status');
+    expect(skeleton.getAttribute('aria-live')).toBe('polite');
   });
 });

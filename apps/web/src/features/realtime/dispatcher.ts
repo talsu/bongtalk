@@ -712,6 +712,7 @@ export function installRealtimeDispatcher(
     lastReadMessageId: string | null;
     unreadCount: number;
     mentionCount?: number;
+    serverTimestamp?: string;
   }>('read_state:updated', (env) => {
     if (!env.channelId) return;
     const mentionCount = env.mentionCount ?? 0;
@@ -731,8 +732,12 @@ export function installRealtimeDispatcher(
     // ACK-이전 시각의 notification:badge_update 를 stale 로 거른다. 단일 채널 ACK 로는
     // 워크스페이스 합계를 정확히 알 수 없으므로 카운트는 건드리지 않고 시각만 전진한다
     // (정확한 합계는 후속 badge_update 또는 GET /me/notification-badges 재동기화가 채움).
-    if (env.workspaceId) {
-      useBadgeStore.getState().markAcked(env.workspaceId);
+    // S47 fix-forward (BLOCKER-2): lastAckedAt 을 클라 Date.now() 가 아니라 서버가
+    // 실어 보낸 serverTimestamp(서버 시계)로 저장한다. badge_update 의 serverTimestamp
+    // 와 동일 시계로 비교돼, 서버 시계 지연 상황에서 정당한 신규 badge_update 가 stale
+    // 로 폐기되지 않는다. 구 서버 페이로드(serverTimestamp 누락)는 ACK 시각 갱신을 건너뛴다.
+    if (env.workspaceId && env.serverTimestamp) {
+      useBadgeStore.getState().markAcked(env.workspaceId, env.serverTimestamp);
     }
 
     const patchSummary = (old: { channels: UnreadChannelSummary[] } | undefined) => {
