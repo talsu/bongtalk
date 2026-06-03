@@ -18,8 +18,12 @@ import {
   ListMessagesQuerySchema,
   SendMessageRequestSchema,
   UpdateMessageRequestSchema,
+  BulkDeleteRequestSchema,
+  ReportMessageRequestSchema,
+  type BulkDeleteResponse,
   type ListEditHistoryResponse,
 } from '@qufox/shared-types';
+import { ModerationReportService } from '../workspaces/moderation/moderation-report.service';
 import { MessagesService } from './messages.service';
 import { MessageAuthorGuard } from './guards/message-author.guard';
 import { CurrentMessage, CurrentMessagePayload } from './decorators/current-message.decorator';
@@ -70,6 +74,8 @@ export class MessagesController {
     private readonly channelAccess: ChannelAccessService,
     // S15 (FR-CH-08): 채널 슬로우모드 게이트.
     private readonly slowmode: SlowmodeService,
+    // S64 (FR-RM11): 메시지 신고 생성(채널 ACL 가드가 필요해 message-scope 에 둔다).
+    private readonly reports: ModerationReportService,
   ) {}
 
   @Get()
@@ -552,6 +558,57 @@ export class MessagesController {
     };
   }
 
+  /**
+   * S64 (D12 / FR-RM09): bulk purge. MANAGE_MESSAGES 권한자가 채널 메시지를 일괄
+   * soft-delete 한다(messageIds[] ≤200 또는 latest N ≤200). 단일 updateMany +
+   * 단일 BULK_MESSAGE_DELETE AuditLog + 단일 message:bulk_deleted WS 이벤트.
+   *
+   * 권한: 비작성자 메시지를 지우므로 채널 MANAGE_MESSAGES(=enforcement
+   * DELETE_ANY_MESSAGE 0x0008) 비트를 요구한다 — OWNER/ADMIN baseline + 채널 override
+   * fold 로 통과한다. 일반 멤버는 403 FORBIDDEN. 200 초과는 zod 가 400 으로 거부한다.
+   */
+  @Post('bulk-delete')
+  @HttpCode(200)
+  async bulkDelete(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
+    @Body() body: unknown,
+  ): Promise<BulkDeleteResponse> {
+    await this.rate.enforce([{ key: `msg:bulkdel:u:${user.id}`, windowSec: 60, max: 20 }]);
+    // MANAGE_MESSAGES(=DELETE_ANY_MESSAGE) 비트 게이트(역할 baseline + 채널 override fold).
+    const canManage = channel
+      ? await this.channelAccess.hasPermission(
+          { id: channel.id, workspaceId: channel.workspaceId, isPrivate: channel.isPrivate },
+          user.id,
+          Permission.DELETE_ANY_MESSAGE,
+        )
+      : false;
+    if (!canManage) {
+      throw new DomainError(
+        ErrorCode.FORBIDDEN,
+        'MANAGE_MESSAGES permission is required to bulk-delete messages',
+      );
+    }
+    const parsed = BulkDeleteRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    // bulk purge 는 워크스페이스 채널 전용이다(DM 채널은 모더레이션 대상이 아님).
+    if (!m.workspaceId) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'bulk-delete is not available in direct messages');
+    }
+    return this.messages.bulkDelete({
+      workspaceId: m.workspaceId,
+      channelId,
+      actorId: user.id,
+      messageIds: parsed.data.messageIds,
+      latest: parsed.data.latest,
+    });
+  }
+
   // DELETE permits author OR ADMIN+. MessageAuthorGuard is intentionally NOT
   // applied here — the service branches on `actorId === authorId || isAdmin`.
   @Delete(':msgId')
@@ -644,6 +701,43 @@ export class MessagesController {
       actorId: user.id,
     });
     return { messageId: msgId, embeds: result.embeds };
+  }
+
+  /**
+   * S64 (D12 / FR-RM11): 메시지 신고. 채널 READ ACL 을 통과한 모든 멤버가 메시지를
+   * 카테고리(SPAM/HARASSMENT/HATE_SPEECH/INAPPROPRIATE/OTHER)로 신고한다. 같은 신고자의
+   * 중복 신고는 409 REPORT_DUPLICATE. 신고 큐 열람/처리는 워크스페이스 스코프 컨트롤러.
+   *
+   * 권한: 가드 체인(WorkspaceMemberGuard + ChannelAccessGuard)이 채널 가시성을 강제하므로
+   * 추가 역할 게이트 없이 멤버 누구나 신고할 수 있다. DM 채널(workspaceId=null)은 신고 큐가
+   * 워크스페이스 스코프라 거부한다.
+   */
+  @Post(':msgId/report')
+  @HttpCode(204)
+  async report(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
+  ): Promise<void> {
+    await this.rate.enforce([{ key: `msg:report:u:${user.id}`, windowSec: 60, max: 30 }]);
+    if (!m.workspaceId) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'reporting is not available in direct messages');
+    }
+    const parsed = ReportMessageRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    await this.reports.reportMessage({
+      workspaceId: m.workspaceId,
+      channelId,
+      messageId: msgId,
+      reporterId: user.id,
+      category: parsed.data.category,
+      reason: parsed.data.reason,
+    });
   }
 
   // ----- task-044-iter2: pinned messages -------------------------------
