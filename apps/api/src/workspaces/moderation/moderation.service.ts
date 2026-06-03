@@ -65,29 +65,42 @@ export class ModerationService {
       PERMISSIONS.KICK_MEMBERS,
     );
 
-    await this.prisma.$transaction(async (tx) => {
-      await tx.workspaceMember.delete({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.delete({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        });
+        // FR-RM05: kicked 은 재가입 가능 — BannedMember 를 남기지 않는다.
+        await this.outbox.record(tx, {
+          aggregateType: 'member',
+          aggregateId: targetUserId,
+          eventType: MEMBER_KICKED,
+          payload: { workspaceId, userId: targetUserId, actorId },
+        });
+        // FR-RM17: 감사 로그(같은 tx — 원자성). reason 은 details 에만 싣는다.
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.MEMBER_KICK,
+            targetId: targetUserId,
+            details: reason ? { reason, previousRole: target.role } : { previousRole: target.role },
+          },
+          tx,
+        );
       });
-      // FR-RM05: kicked 은 재가입 가능 — BannedMember 를 남기지 않는다.
-      await this.outbox.record(tx, {
-        aggregateType: 'member',
-        aggregateId: targetUserId,
-        eventType: MEMBER_KICKED,
-        payload: { workspaceId, userId: targetUserId, actorId },
-      });
-      // FR-RM17: 감사 로그(같은 tx — 원자성). reason 은 details 에만 싣는다.
-      await this.audit.record(
-        {
-          workspaceId,
-          actorId,
-          action: AuditAction.MEMBER_KICK,
-          targetId: targetUserId,
-          details: reason ? { reason, previousRole: target.role } : { previousRole: target.role },
-        },
-        tx,
-      );
-    });
+    } catch (e) {
+      // B-1 (MAJOR-1): 대상이 그 사이 leave/remove 로 사라지면 delete 가 P2025 를 던진다
+      // (동시 소멸 레이스). catch 없이는 500 이 됐다 — 도메인 404 로 변환해 관찰성과
+      // ban 패턴(P2025/P2002 변환)을 일관되게 맞춘다.
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new DomainError(
+          ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
+          'target user is no longer a member',
+        );
+      }
+      throw e;
+    }
     // 강등/삭제로 stale 권한 캐시가 남지 않게 무효화(best-effort).
     await this.memberRoles.invalidateMemberPermsCache(workspaceId, targetUserId);
 
@@ -222,6 +235,30 @@ export class ModerationService {
         }
       }
       previousRole = member.role;
+    } else if (!actor.isAdministrator) {
+      // S63 fix-forward (security A-2 = MEDIUM · 비멤버 ban 타이밍 레이스): 대상이 ban
+      // 직전 탈퇴(member=null)해도 잔존 MemberRole 이력으로 최고 position 을 추정해
+      // 계층 비교를 적용한다. 멤버 삭제 시 MemberRole 은 cascade 로 함께 지워지는 게
+      // 일반적이라 보통 빈 집합(topPosition=0 → 통과)이지만, 멤버 행만 사라지고 MemberRole
+      // 이 남는 좁은 레이스에서는 MODERATOR 가 ADMIN 을 ban 하는 권한 상승을 막는다.
+      // 이력이 전부 사라진 경우의 정밀 추정(과거 역할 스냅샷)은 역할 이력 테이블이 없어
+      // carryover 다 — 현재는 잔존 MemberRole 기반 best-effort 비교로 창을 좁힌다.
+      const residualRoles = await this.prisma.memberRole.findMany({
+        where: { workspaceId, userId: targetUserId },
+        select: { role: { select: { position: true } } },
+      });
+      if (residualRoles.length > 0) {
+        const targetTop = residualRoles.reduce(
+          (top, r) => (r.role.position > top ? r.role.position : top),
+          0,
+        );
+        if (targetTop >= actor.topPosition) {
+          throw new DomainError(
+            ErrorCode.MODERATION_TARGET_HIGHER,
+            'target outranks you — cannot ban a user at or above your highest role',
+          );
+        }
+      }
     }
 
     try {
@@ -354,25 +391,27 @@ export class ModerationService {
       PERMISSIONS.TIMEOUT_MEMBERS,
     );
     const mutedUntil = new Date(Date.now() + durationSeconds * 1000);
-    await this.prisma.$transaction(async (tx) => {
-      await tx.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        data: { mutedUntil },
-      });
-      await this.audit.record(
-        {
-          workspaceId,
-          actorId,
-          action: AuditAction.MEMBER_TIMEOUT,
-          targetId: targetUserId,
-          details: {
-            durationSeconds,
-            mutedUntil: mutedUntil.toISOString(),
-            ...(reason ? { reason } : {}),
+    await this.runMemberWrite(async () => {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+          data: { mutedUntil },
+        });
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.MEMBER_TIMEOUT,
+            targetId: targetUserId,
+            details: {
+              durationSeconds,
+              mutedUntil: mutedUntil.toISOString(),
+              ...(reason ? { reason } : {}),
+            },
           },
-        },
-        tx,
-      );
+          tx,
+        );
+      });
     });
     return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
   }
@@ -390,21 +429,44 @@ export class ModerationService {
       targetUserId,
       PERMISSIONS.TIMEOUT_MEMBERS,
     );
-    await this.prisma.$transaction(async (tx) => {
-      await tx.workspaceMember.update({
-        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        data: { mutedUntil: null },
+    await this.runMemberWrite(async () => {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+          data: { mutedUntil: null },
+        });
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.MEMBER_UNTIMEOUT,
+            targetId: targetUserId,
+          },
+          tx,
+        );
       });
-      await this.audit.record(
-        {
-          workspaceId,
-          actorId,
-          action: AuditAction.MEMBER_UNTIMEOUT,
-          targetId: targetUserId,
-        },
-        tx,
-      );
     });
+  }
+
+  /**
+   * B-1 (MAJOR-1): WorkspaceMember 대상 write(update/delete)를 감싸 P2025(record not
+   * found · 동시 leave/remove 레이스)를 도메인 404 로 변환한다. assertTargetActionable
+   * 통과 후 트랜잭션 커밋 사이에 대상이 탈퇴/제거되면 Prisma 가 P2025 를 던지는데,
+   * catch 없이는 500 이 됐다 — kick 의 delete 및 ban 의 P2002 변환과 일관되게 404 로
+   * 수렴시켜 관찰성을 맞춘다.
+   */
+  private async runMemberWrite<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (e) {
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2025') {
+        throw new DomainError(
+          ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
+          'target user is no longer a member',
+        );
+      }
+      throw e;
+    }
   }
 
   /**

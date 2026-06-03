@@ -27,7 +27,11 @@ export function BanListPanel({ workspaceId, enabled }: Props): JSX.Element | nul
         차단 목록
       </h3>
       {isLoading ? (
-        <p className="text-[length:var(--fs-13)] text-text-muted">불러오는 중…</p>
+        // S63 fix-forward (a11y MAJOR-3): 로딩 상태를 role="status" + aria-busy 로 노출해
+        // 스크린리더가 비동기 진행을 인지하게 한다(시각 텍스트만으로는 안 읽힘).
+        <p role="status" aria-busy="true" className="text-[length:var(--fs-13)] text-text-muted">
+          불러오는 중…
+        </p>
       ) : bans.length === 0 ? (
         <p data-testid="ban-list-empty" className="text-[length:var(--fs-13)] text-text-muted">
           차단된 사용자가 없습니다.
@@ -52,6 +56,9 @@ export function BanListPanel({ workspaceId, enabled }: Props): JSX.Element | nul
                   variant="secondary"
                   size="sm"
                   data-testid={`ban-unban-${b.userId}`}
+                  // S63 fix-forward (a11y MAJOR-2): 대상 username 을 포함한 aria-label 로
+                  // 어느 사용자의 차단 해제인지 스크린리더가 구분하게 한다.
+                  aria-label={`${name} 님 차단 해제`}
                   disabled={unbanMut.isPending}
                   onClick={async () => {
                     try {

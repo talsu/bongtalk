@@ -277,6 +277,44 @@ describe('S63 FR-RM06: ban / unban / re-join block', () => {
       .expect(409);
     expect(dup.body.errorCode).toBe('MEMBER_ALREADY_BANNED');
   });
+
+  // S63 fix-forward (security A-1 = HIGH/BLOCKER): PUBLIC 워크스페이스 즉시 가입
+  // (joinPublic)에서도 ban 우회 재가입을 막아야 한다. 종전엔 invites.accept 에만 ban
+  // 검사가 있고 joinPublic 누락이라, PUBLIC 워크스페이스에서 ban 된 userId 가 POST
+  // /join 으로 즉시 재가입할 수 있었다.
+  it('A-1: banned user cannot rejoin a PUBLIC workspace via joinPublic (neutral 404)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s63pubban');
+    const member = await inviteAndJoin(workspaceId, owner.accessToken, 's63pubbanm');
+
+    // 워크스페이스를 PUBLIC 으로 전환(즉시 가입 허용). PUBLIC 전환은 category +
+    // description 이 함께 필요하다(shared-types 스키마 강제) — 한 PATCH 로 같이 보낸다.
+    await request(env.baseUrl)
+      .patch(`/workspaces/${workspaceId}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ visibility: 'PUBLIC', category: 'OTHER', description: '공개 워크스페이스' })
+      .expect(200);
+
+    // 멤버를 차단(멤버 삭제 + BannedMember INSERT).
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/moderation/bans`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ userId: member.userId, reason: 'ban-then-rejoin' })
+      .expect(204);
+
+    // 차단된 userId 의 즉시 가입 시도 → 중립 404(차단 사실 누출 방지 — WORKSPACE_NOT_FOUND).
+    const rejoin = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/join`)
+      .set('Authorization', `Bearer ${member.accessToken}`)
+      .expect(404);
+    expect(rejoin.body.errorCode).toBe('WORKSPACE_NOT_FOUND');
+
+    // 멤버십이 실제로 복구되지 않았는지 확인.
+    const stillGone = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: member.userId } },
+    });
+    expect(stillGone).toBeNull();
+  });
 });
 
 // ── FR-RM07 Timeout ──────────────────────────────────────────────────────────

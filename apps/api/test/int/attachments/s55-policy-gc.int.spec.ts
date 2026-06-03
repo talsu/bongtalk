@@ -18,6 +18,12 @@ import { ChannelAccessByIdGuard } from '../../../src/attachments/guards/channel-
 import { ChannelAccessService } from '../../../src/channels/permission/channel-access.service';
 import { WorkspacesService } from '../../../src/workspaces/workspaces.service';
 import { OutboxService } from '../../../src/common/outbox/outbox.service';
+// S63 fix-forward (G · S62 fallout): ChannelAccessService 는 non-Optional AuditService 에,
+// WorkspacesService 는 MemberRoleService(S62) + ModerationService(S63 A-1)에 의존하므로
+// standalone test module 에도 직접 등록한다(@Global AuditModule 은 AppModule 경유 시만 자동).
+import { AuditService } from '../../../src/common/audit/audit.service';
+import { MemberRoleService } from '../../../src/workspaces/roles/member-role.service';
+import { ModerationService } from '../../../src/workspaces/moderation/moderation.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 
 /**
@@ -109,6 +115,9 @@ describe('S55 attachment policy + GC + proxy (int)', () => {
         UploadRateLimitService,
         ChannelAccessByIdGuard,
         ChannelAccessService,
+        AuditService,
+        MemberRoleService,
+        ModerationService,
         WorkspacesService,
         { provide: S3Service, useValue: s3Stub },
         { provide: REDIS, useValue: redis },

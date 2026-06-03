@@ -71,7 +71,12 @@ export function ModerationActions({
               );
           },
         },
-        ttlMs: 5000,
+        // S63 fix-forward (a11y BLOCKER-1 부분): Undo 토스트 TTL 을 5초→9초로 늘려
+        // WCAG 2.2.1(Timing Adjustable)에 더 부합하게 한다. 서버 Undo 윈도는 여전히
+        // 5초(KICK_UNDO_TTL_SECONDS)지만, 토스트가 더 오래 떠 있어야 사용자가 인지·
+        // 조작할 시간이 확보된다(만료 후 클릭은 서버가 409 로 안내). plain-action 토스트의
+        // live region 부재는 DS Toast primitive 설계라 carryover.
+        ttlMs: 9000,
       });
     } catch (err) {
       notify({ variant: 'danger', title: '강제 퇴장 실패', body: (err as Error).message });
@@ -104,10 +109,13 @@ export function ModerationActions({
 
   return (
     <span className="flex items-center gap-[var(--s-1)]">
+      {/* S63 fix-forward (a11y MAJOR-2): 아이콘/짧은 라벨 버튼에 대상 username 을 포함한
+          aria-label 을 달아 스크린리더가 누구를 대상으로 하는 액션인지 구분하게 한다. */}
       <Button
         variant="ghost"
         size="sm"
         data-testid={`mod-timeout-${targetUsername}`}
+        aria-label={`${targetUsername} 님 음소거`}
         onClick={() => setDialog('timeout')}
       >
         음소거
@@ -116,6 +124,7 @@ export function ModerationActions({
         variant="ghost"
         size="sm"
         data-testid={`mod-kick-${targetUsername}`}
+        aria-label={`${targetUsername} 님 퇴장`}
         onClick={() => setDialog('kick')}
       >
         퇴장
@@ -124,6 +133,7 @@ export function ModerationActions({
         variant="danger"
         size="sm"
         data-testid={`mod-ban-${targetUsername}`}
+        aria-label={`${targetUsername} 님 차단`}
         onClick={() => setDialog('ban')}
       >
         차단
@@ -149,12 +159,14 @@ export function ModerationActions({
         />
       </Dialog>
 
-      {/* Ban 영구차단 경고 */}
+      {/* Ban 영구차단 경고 — S63 fix-forward (a11y HIGH-1): 되돌릴 수 없는 파괴적
+          확인이므로 role="alertdialog" 로 노출한다(alertDialog prop). */}
       <Dialog
         open={dialog === 'ban'}
         onOpenChange={(v) => {
           if (!v) close();
         }}
+        alertDialog
         title={`${targetUsername} 님 영구 차단`}
         description="차단된 멤버는 초대를 받아도 다시 가입할 수 없습니다. 이 작업은 되돌릴 수 없으며, 해제는 차단 목록에서만 가능합니다."
       >
@@ -263,14 +275,17 @@ function DialogFooter({
       <Button variant="secondary" size="sm" onClick={onCancel}>
         취소
       </Button>
+      {/* S63 fix-forward (a11y MAJOR-1): 처리 중에는 aria-busy + 레이블을 "처리 중…" 으로
+          바꿔 스크린리더에 진행 상태를 알린다(disabled 만으로는 상태 변화가 안 읽힌다). */}
       <Button
         variant={confirmVariant}
         size="sm"
         data-testid={confirmTestid}
         disabled={pending}
+        aria-busy={pending}
         onClick={onConfirm}
       >
-        {confirmLabel}
+        {pending ? '처리 중…' : confirmLabel}
       </Button>
     </div>
   );

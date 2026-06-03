@@ -35,7 +35,11 @@ type Props = {
 export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Element {
   const { data: wsData } = useWorkspace(workspace.id);
   const myRole = wsData?.myRole ?? 'MEMBER';
-  const canManage = myRole === 'ADMIN' || myRole === 'OWNER';
+  // S63 fix-forward (reviewer B-2 = MINOR): MODERATOR 도 서버에서 모더레이션 가능
+  // (KICK/BAN/TIMEOUT_MEMBERS 비트 보유)인데 종전 canManage 가 ADMIN/OWNER 만 보여
+  // MODERATOR 에게 멤버 관리 UI 가 숨겨졌다. MODERATOR 를 포함해 정렬한다(서버 권한
+  // 비트가 최종 권위 — UI 는 진입점만 제공하고 거부는 토스트로 노출).
+  const canManage = myRole === 'ADMIN' || myRole === 'OWNER' || myRole === 'MODERATOR';
   const createInvite = useCreateInvite(workspace.id);
   const leaveMut = useLeaveWorkspace(workspace.id);
   const navigate = useNavigate();

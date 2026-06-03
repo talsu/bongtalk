@@ -24,7 +24,6 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { ChannelAccessByIdGuard } from '../attachments/guards/channel-access-by-id.guard';
 import { MessagesService } from '../messages/messages.service';
-import { ModerationService } from '../workspaces/moderation/moderation.service';
 import { ReactionsService } from './reactions.service';
 
 /**
@@ -42,8 +41,6 @@ export class ReactionsController {
     private readonly prisma: PrismaService,
     private readonly rateLimit: RateLimitService,
     private readonly channelAccess: ChannelAccessByIdGuard,
-    // S63 (FR-RM07): 반응 추가 시 타임아웃 lazy 게이트.
-    private readonly moderation: ModerationService,
   ) {}
 
   /**
@@ -79,20 +76,25 @@ export class ReactionsController {
   private async canAddReaction(
     channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
-  ): Promise<boolean> {
+  ): Promise<{ allowed: boolean; mutedUntil: Date | null }> {
     // 워크스페이스 채널은 호출자 role 로 ROLE 프린시펄 override 를 함께 본다.
     // DM(workspaceId=null)은 role 이 없어 USER 프린시펄만 본다.
     // S62 (FR-RM03): 시스템 역할 리터럴 외에 커스텀 Role UUID override 도 ROLE
     // 프린시펄로 함께 조회한다.
+    // S63 fix-forward (perf C-1 = SERIOUS-1/2): 같은 멤버 findUnique 에 mutedUntil 을
+    // 편승시켜 별도 isTimedOut DB 왕복을 제거한다. 타임아웃 게이트는 add(INSERT)
+    // 분기에서만 적용된다(B-3 — toggle-off 제거는 허용).
     let role: string | null = null;
     let roleUuids: string[] = [];
+    let mutedUntil: Date | null = null;
     if (channel.workspaceId !== null) {
       const member = await this.prisma.workspaceMember.findUnique({
         where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
-        select: { role: true, memberRoles: { select: { roleId: true } } },
+        select: { role: true, mutedUntil: true, memberRoles: { select: { roleId: true } } },
       });
       role = member?.role ?? null;
       roleUuids = member?.memberRoles.map((m) => m.roleId) ?? [];
+      mutedUntil = member?.mutedUntil ?? null;
     }
     const principals: { principalType: 'USER' | 'ROLE'; principalId: string }[] = [
       { principalType: 'USER', principalId: userId },
@@ -129,7 +131,7 @@ export class ReactionsController {
     if (roleDeny & bit) allowed = false;
     if (userAllow & bit) allowed = true; // userAllow > roleDeny (ADR-4)
     if (userDeny & bit) allowed = false; // userDeny 최우선
-    return allowed;
+    return { allowed, mutedUntil };
   }
 
   private async resolveChannel(messageId: string) {
@@ -182,18 +184,18 @@ export class ReactionsController {
     const { messageId, channel } = await this.resolveChannel(id);
     // READ bit (not WRITE) — reacting is lighter than posting.
     await this.channelAccess.requireRead(channel, user.id);
-    // S63 (FR-RM07): 워크스페이스 채널에서 타임아웃 중(mutedUntil>now)이면 반응을
-    // 막는다(ADD_REACTIONS 차단). DM(workspaceId=null)은 워크스페이스 멤버가 없어
-    // 게이트 대상이 아니다. 만료/미설정이면 자동 통과(lazy).
-    if (channel.workspaceId && (await this.moderation.isTimedOut(channel.workspaceId, user.id))) {
-      throw new DomainError(
-        ErrorCode.MEMBER_TIMED_OUT,
-        '타임아웃 중에는 반응을 추가할 수 없습니다',
-      );
-    }
     // S40 (FR-RE07): READ 통과 뒤 ADD_REACTIONS override DENY 여부를 미리 판정해
     // 서비스에 넘긴다 — 토글이 INSERT 로 분기할 때만 거부에 쓰인다(remove 는 무관).
-    const canAdd = await this.canAddReaction(channel, user.id);
+    // S63 fix-forward (perf C-1): 위 canAddReaction 의 멤버 findUnique 에 mutedUntil 을
+    // 편승시켜 별도 isTimedOut 왕복을 제거한다(SERIOUS-1/2).
+    const { allowed: canAdd, mutedUntil } = await this.canAddReaction(channel, user.id);
+    // S63 (FR-RM07) + fix-forward (B-3 = MINOR): 워크스페이스 채널 타임아웃 게이트.
+    // mutedUntil>now 면 음소거 중이다. FR-RM07 은 "반응 *추가* 차단"이므로 이 플래그를
+    // 서비스의 add(INSERT) 분기에만 넘긴다 — toggle-off(자기 반응 제거)는 음소거 중에도
+    // 허용한다(종전엔 toggle 진입 자체를 막아 제거까지 과차단했다). DM(workspaceId=null)은
+    // 워크스페이스 멤버가 없어 게이트 대상이 아니다. 만료/미설정이면 자동 통과(lazy).
+    const isTimedOut =
+      channel.workspaceId !== null && mutedUntil != null && mutedUntil.getTime() > Date.now();
     const result = await this.reactions.add(
       messageId,
       channel.id,
@@ -201,6 +203,7 @@ export class ReactionsController {
       user.id,
       body?.emoji ?? '',
       canAdd,
+      isTimedOut,
     );
     return result;
   }

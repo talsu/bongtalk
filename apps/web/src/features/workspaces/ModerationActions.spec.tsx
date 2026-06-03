@@ -68,7 +68,7 @@ describe('ModerationActions', () => {
     expect(screen.getByTestId('mod-ban-bob')).toBeTruthy();
   });
 
-  it('kick → confirm calls kick mutation then surfaces a 5s undo toast', async () => {
+  it('kick → confirm calls kick mutation then surfaces an undo toast (9s ttl)', async () => {
     kickMut.mutateAsync.mockResolvedValue({
       undoToken: 'tok-1',
       undoExpiresAt: '2025-01-01T00:00:05.000Z',
@@ -81,10 +81,11 @@ describe('ModerationActions', () => {
     await waitFor(() =>
       expect(kickMut.mutateAsync).toHaveBeenCalledWith({ userId: 'u-2', reason: undefined }),
     );
-    // 5초 Undo 토스트(되돌리기 액션 포함).
+    // Undo 토스트(되돌리기 액션 포함). S63 fix-forward (a11y BLOCKER-1): TTL 5초→9초
+    // (WCAG 2.2.1 — 사용자 인지·조작 시간 확보). 서버 Undo 윈도는 여전히 5초다.
     await waitFor(() => expect(pushSpy).toHaveBeenCalled());
     const toast = pushSpy.mock.calls[0][0];
-    expect(toast.ttlMs).toBe(5000);
+    expect(toast.ttlMs).toBe(9000);
     expect(toast.action.label).toBe('되돌리기');
     // 토스트 액션이 kickUndo 를 토큰과 함께 호출한다.
     undoMut.mutateAsync.mockResolvedValue(undefined);

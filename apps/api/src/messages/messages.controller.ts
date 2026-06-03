@@ -27,7 +27,6 @@ import { ChannelAccessGuard } from '../channels/guards/channel-access.guard';
 import { ChannelAccessService } from '../channels/permission/channel-access.service';
 import { Permission } from '../auth/permissions';
 import { SlowmodeService } from '../channels/slowmode/slowmode.service';
-import { ModerationService } from '../workspaces/moderation/moderation.service';
 import {
   CurrentChannel,
   CurrentChannelPayload,
@@ -71,8 +70,6 @@ export class MessagesController {
     private readonly channelAccess: ChannelAccessService,
     // S15 (FR-CH-08): 채널 슬로우모드 게이트.
     private readonly slowmode: SlowmodeService,
-    // S63 (FR-RM07): 모더레이션 타임아웃 lazy 게이트(mutedUntil>now → 403).
-    private readonly moderation: ModerationService,
   ) {}
 
   @Get()
@@ -326,7 +323,12 @@ export class MessagesController {
     // (DM 은 m.workspaceId 가 null). mutedUntil>now 면 SEND_MESSAGES 차단 → 403
     // MEMBER_TIMED_OUT. 만료/미설정이면 자동 통과(별도 sweep 불요). USE_SLASH_COMMANDS
     // 도 메시지 전송 경로를 거치므로 슬래시 본문 송신도 함께 막힌다.
-    if (m.workspaceId && (await this.moderation.isTimedOut(m.workspaceId, user.id))) {
+    //
+    // S63 fix-forward (perf C-1 = SERIOUS-1/2): WorkspaceMemberGuard 가 멤버십 조회에
+    // mutedUntil 을 편승시켜 req.workspaceMember(=m)에 싣는다. 종전엔 isTimedOut 이 별도
+    // workspaceMember.findUnique 를 발행해 send 가 PK 조회를 3회 했는데, 이제 인라인
+    // 비교로 그 DB 왕복을 제거한다(정확성 불변 — lazy 만료를 now 와 직접 비교).
+    if (m.workspaceId && m.mutedUntil != null && m.mutedUntil.getTime() > Date.now()) {
       throw new DomainError(
         ErrorCode.MEMBER_TIMED_OUT,
         '타임아웃 중에는 메시지를 보낼 수 없습니다',

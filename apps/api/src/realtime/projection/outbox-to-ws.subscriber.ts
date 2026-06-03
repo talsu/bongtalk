@@ -545,6 +545,27 @@ export class OutboxToWsSubscriber {
   async onWorkspaceEvent(env: WsEnvelope): Promise<void> {
     if (!env.workspaceId) return;
     await this.emitAndBuffer('workspace', env.workspaceId, env);
+    // S63 fix-forward (contract D-1 = BLOCKER/MAJOR): kick/ban 은 PRD 가 명시한 콜론
+    // wire 이벤트 member:kicked / member:banned 를 워크스페이스 룸으로 추가 emit 한다.
+    // 서버 내부 outbox eventType 은 dot 표기(workspace.member.kicked / .banned)라
+    // 위 emitAndBuffer 가 dot 이름으로 워크스페이스 룸에 보내지만, FE dispatcher 의
+    // 콜론 핸들러(멤버 목록/차단 목록 캐시 무효화 + 본인 토스트)가 받을 콜론 이름은
+    // 별도로 emit 해야 한다(message:embed_updated / reaction:updated dot→colon 선례).
+    // 본인 disconnect 는 아래 kickUserEverywhere 가 처리하므로 여기선 룸 fanout 만 한다.
+    if (
+      this.io &&
+      (env.type === 'workspace.member.kicked' || env.type === 'workspace.member.banned')
+    ) {
+      const wireType =
+        env.type === 'workspace.member.kicked' ? WS_EVENTS.MEMBER_KICKED : WS_EVENTS.MEMBER_BANNED;
+      const wire = {
+        workspaceId: env.workspaceId,
+        userId: (env as { userId?: string }).userId ?? '',
+        actorId: (env as { actorId?: string }).actorId ?? '',
+      };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(wireType, wire);
+      this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
+    }
     // Member-level events ALSO go to the target user's private room so we can
     // immediately kick a removed member whose socket is on a different node.
     const targetUserId = pickTargetUserId(env);
