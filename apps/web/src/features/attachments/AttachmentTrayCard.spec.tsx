@@ -18,6 +18,7 @@ function item(over: Partial<TrayItem> = {}): TrayItem {
     progress: 0,
     previewUrl: 'blob:preview',
     sessionId: null,
+    expiresAt: null,
     altText: '',
     isSpoiler: false,
     ...over,
@@ -147,6 +148,142 @@ describe('AttachmentTrayCard (S56 D11 FR-AM-02/22)', () => {
       expect(screen.getByTestId('tray-live-i1').textContent).toContain('업로드 완료'),
     );
     expect(screen.getByTestId('tray-live-i1').textContent).toContain('photo.png');
+  });
+
+  it('S57: sending 상태는 "전송 중" 표시 + 제거/액션 disabled(A-05: DOM 유지)', () => {
+    renderCard(item({ status: 'sending', progress: 100 }));
+    expect(screen.getByTestId('tray-sending-i1').textContent).toContain('전송 중');
+    // A-05: 버튼은 DOM 에 남되 disabled — 포커스 소실/상태 미전달 방지.
+    const remove = screen.getByTestId('tray-remove-i1') as HTMLButtonElement;
+    const spoiler = screen.getByTestId('tray-spoiler-i1') as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
+    expect(remove.getAttribute('aria-disabled')).toBe('true');
+    expect(spoiler.disabled).toBe(true);
+    expect(spoiler.getAttribute('aria-disabled')).toBe('true');
+    // progressbar 는 sending 에서 미노출.
+    expect(screen.queryByTestId('tray-progress-i1')).toBeNull();
+  });
+
+  it('S57: confirmed 상태는 "전송 완료" 표시 + 액션 disabled(A-05: DOM 유지)', () => {
+    renderCard(item({ status: 'confirmed', previewUrl: null }));
+    expect(screen.getByTestId('tray-confirmed-i1').textContent).toContain('전송 완료');
+    const remove = screen.getByTestId('tray-remove-i1') as HTMLButtonElement;
+    const spoiler = screen.getByTestId('tray-spoiler-i1') as HTMLButtonElement;
+    expect(remove.disabled).toBe(true);
+    expect(spoiler.disabled).toBe(true);
+  });
+
+  it('A-02/A-03: sending/confirmed 시각 표시는 aria-hidden(liveMsg 중복 방지)', () => {
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={vi.fn()}
+        onRetry={vi.fn()}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('tray-sending-i1').getAttribute('aria-hidden')).toBe('true');
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'confirmed', previewUrl: null })}
+        onRemove={vi.fn()}
+        onRetry={vi.fn()}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    expect(screen.getByTestId('tray-confirmed-i1').getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('A-01: sr-only live 영역은 aria-atomic="true"', () => {
+    renderCard(item({ status: 'uploading', progress: 10 }));
+    expect(screen.getByTestId('tray-live-i1').getAttribute('aria-atomic')).toBe('true');
+  });
+
+  it('A-07: sending 카드 li 는 aria-busy', () => {
+    renderCard(item({ status: 'sending', progress: 100 }));
+    expect(screen.getByTestId('tray-card-i1').getAttribute('aria-busy')).toBe('true');
+  });
+
+  it('A-08: progressbar 는 aria-valuetext="N%"', () => {
+    renderCard(item({ status: 'uploading', progress: 37 }));
+    expect(screen.getByTestId('tray-progress-i1').getAttribute('aria-valuetext')).toBe('37%');
+  });
+
+  it('A-06: alt 입력 중 locked(sending) 전환 시 input 닫힘(포커스 소실 방지)', () => {
+    const noop = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'ready', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('tray-alt-toggle-i1'));
+    expect(screen.getByTestId('tray-alt-input-i1')).toBeTruthy();
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    expect(screen.queryByTestId('tray-alt-input-i1')).toBeNull();
+  });
+
+  it('S57: ready→sending 전환 시 sr-only live 가 "전송 중" 통지', async () => {
+    const noop = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'ready', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('전송 중'),
+    );
+  });
+
+  it('S57: sending→confirmed 전환 시 sr-only live 가 "전송 완료" 통지', async () => {
+    const noop = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'confirmed', previewUrl: '/api/attachments/x/download' })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('전송 완료'),
+    );
   });
 
   it('B-02: uploading→failed 전환 시 sr-only live 가 "업로드 실패" 통지', async () => {
