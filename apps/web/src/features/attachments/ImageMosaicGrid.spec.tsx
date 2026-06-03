@@ -111,19 +111,20 @@ describe('ImageMosaicGrid (S58 D11 FR-AM-09)', () => {
     expect(screen.getByTestId('mosaic-cell-r1')).toBeTruthy();
   });
 
-  it('onImageOpen 전달 시 셀 이미지 클릭 → 해당 index 로 호출', async () => {
+  it('onImageOpen 전달 시 셀 이미지 클릭 → 해당 index 로 호출(B-1: 트리거 element 동반)', async () => {
     const onImageOpen = vi.fn();
     render(<ImageMosaicGrid images={images(2)} onImageOpen={onImageOpen} />);
     await waitFor(() => expect(screen.getAllByRole('img').length).toBe(2));
     fireEvent.click(screen.getByAltText('alt-1'));
-    expect(onImageOpen).toHaveBeenCalledWith(1);
+    // B-1: index + 클릭된 트리거 button element 를 함께 넘깁니다.
+    expect(onImageOpen).toHaveBeenCalledWith(1, expect.any(HTMLButtonElement));
   });
 
-  it('onImageOpen 전달 시 +N 오버레이 클릭 → index 4 로 호출', () => {
+  it('onImageOpen 전달 시 +N 오버레이 클릭 → index 4 로 호출(B-1: 트리거 element 동반)', () => {
     const onImageOpen = vi.fn();
     render(<ImageMosaicGrid images={images(7)} onImageOpen={onImageOpen} />);
     fireEvent.click(screen.getByTestId('mosaic-overflow'));
-    expect(onImageOpen).toHaveBeenCalledWith(4);
+    expect(onImageOpen).toHaveBeenCalledWith(4, expect.any(HTMLButtonElement));
   });
 
   it('onImageOpen 미전달 시 셀 클릭/오버레이 클릭은 무동작(에러 없음)', async () => {
@@ -253,5 +254,34 @@ describe('ImageMosaicGrid (S58 D11 FR-AM-09)', () => {
     );
     const skel = within(screen.getByTestId('mosaic-skeleton-p1')).getByRole('img');
     expect(skel.getAttribute('aria-busy')).toBe('true');
+  });
+
+  // ── S59 통합(reviewer MAJOR-1 ↔ a11y BLOCKER-4): 스포일러 revealed-gated 트리거 ──
+  it('S59 통합: 스포일러 셀은 공개 전 트리거 button 없음', async () => {
+    render(
+      <ImageMosaicGrid
+        images={[img({ id: 's1', isSpoiler: true, sortOrder: 0 }), img({ id: 'n1', sortOrder: 1 })]}
+        onImageOpen={vi.fn()}
+      />,
+    );
+    // 비스포일러 n1 은 공개와 무관하게 트리거 활성.
+    await waitFor(() => expect(screen.getByTestId('mosaic-trigger-n1')).toBeTruthy());
+    // 스포일러 s1 은 공개 전 트리거 없음.
+    expect(screen.queryByTestId('mosaic-trigger-s1')).toBeNull();
+  });
+
+  it('S59 통합: 스포일러 셀 공개 후 트리거 활성 + 클릭 시 onImageOpen 호출', async () => {
+    const onImageOpen = vi.fn();
+    render(
+      <ImageMosaicGrid
+        images={[img({ id: 's1', isSpoiler: true, sortOrder: 0 }), img({ id: 'n1', sortOrder: 1 })]}
+        onImageOpen={onImageOpen}
+      />,
+    );
+    // s1 셀 스포일러 공개.
+    fireEvent.click(screen.getByTestId('spoiler-reveal'));
+    const trigger = await screen.findByTestId('mosaic-trigger-s1');
+    fireEvent.click(trigger);
+    expect(onImageOpen).toHaveBeenCalledWith(0, expect.any(HTMLButtonElement));
   });
 });
