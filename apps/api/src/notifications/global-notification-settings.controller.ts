@@ -39,6 +39,9 @@ export class GlobalNotificationSettingsController {
         notifTrigger: parsed.data.notifTrigger,
         keywords: parsed.data.keywords,
         dndUntil: parsed.data.dndUntil,
+        // S54 (D11 / FR-P13): 분 단위 snooze. 서비스가 now+minutes 로 환산해 dndUntil 로
+        // 저장한다(dndUntil 과 동시 전달 시 minutes 우선).
+        dndSnoozeMinutes: parsed.data.dndSnoozeMinutes,
         // 키 부재(undefined) = 미변경, 명시적 null = 스케줄 해제. 둘을 구별해 전달.
         dndSchedule:
           'dndSchedule' in parsed.data

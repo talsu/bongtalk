@@ -128,6 +128,9 @@ export class NotifPreferencesService {
       notifTrigger?: NotifLevel;
       keywords?: string[];
       dndUntil?: string | null;
+      // S54 (D11 / FR-P13): 분 단위 snooze 편의 입력. now+minutes → dndUntil 로 환산.
+      // dndUntil 과 동시 전달 시 이 값이 우선한다. S48 의 dndUntil 게이트/만료 재사용.
+      dndSnoozeMinutes?: number;
       dndSchedule?: DndSchedule | null;
     },
     now: Date = new Date(),
@@ -137,6 +140,17 @@ export class NotifPreferencesService {
     if (patch.notifTrigger !== undefined) {
       update.notifTrigger = patch.notifTrigger;
       create.notifTrigger = patch.notifTrigger;
+    }
+    // S54 (D11 / FR-P13): 분 단위 snooze 를 절대 dndUntil 로 환산해 기존 검증 경로(과거·
+    // 7일 상한)를 그대로 통과시킨다. dndUntil 보다 우선하도록 patch.dndUntil 을 덮어쓴다.
+    // 아래 dndUntil 검증의 하한은 `<= now+60_000`(strict) 이라 1분 snooze 의 정확한
+    // 경계값(now+60_000)이 거부된다 — 사용자 의도("1분 후")를 살리려 +1초 여유를 둔다.
+    if (patch.dndSnoozeMinutes !== undefined) {
+      const snoozeMs = patch.dndSnoozeMinutes * 60_000 + 1_000;
+      patch = {
+        ...patch,
+        dndUntil: new Date(now.getTime() + snoozeMs).toISOString(),
+      };
     }
     if (patch.keywords !== undefined) {
       // FR-MN-10: 서비스 레이어 검증(25개 한도 + 정규화). 실 스캔은 미연동.
