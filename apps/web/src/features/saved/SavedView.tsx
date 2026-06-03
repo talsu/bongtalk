@@ -1,6 +1,9 @@
 import { useState, type KeyboardEvent } from 'react';
-import type { SaveStatus } from '@qufox/shared-types';
+import type { SaveStatus, SavedMessageDto } from '@qufox/shared-types';
+import { Icon } from '../../design-system/primitives';
 import { SavedItem } from './SavedItem';
+import { ReminderModal } from './ReminderModal';
+import { useOverdueReminders, useSetReminder } from './useReminder';
 import {
   useSavedCount,
   useSavedList,
@@ -24,6 +27,12 @@ export function SavedView(): JSX.Element {
   const count = useSavedCount();
   const toggle = useToggleSave();
   const move = useUpdateSavedStatus();
+  const setReminderMut = useSetReminder();
+  // S53 (FR-PS-09): 리마인더 모달 대상 항목(null = 닫힘).
+  const [reminderTarget, setReminderTarget] = useState<SavedMessageDto | null>(null);
+  // S53 (FR-PS-11): 놓친 리마인더(재접속 동안 발화).
+  const overdue = useOverdueReminders();
+  const overdueCount = overdue.data?.items.length ?? 0;
 
   const items = list.data?.items ?? [];
 
@@ -88,6 +97,20 @@ export function SavedView(): JSX.Element {
         data-testid={`saved-panel-${active}`}
         className="flex-1 overflow-y-auto px-[var(--s-5)] pb-[var(--s-5)]"
       >
+        {overdueCount > 0 ? (
+          <div
+            data-testid="saved-overdue-banner"
+            role="status"
+            className="qf-banner qf-banner--info mb-[var(--s-3)]"
+          >
+            {/* S53 리뷰(ui MED): qf-banner__icon 슬롯으로 색상 의미 보강. a11y MINOR-03:
+                role=status 가 이미 aria-live=polite 를 내포하므로 중복 속성 제거. */}
+            <span className="qf-banner__icon" aria-hidden="true">
+              <Icon name="bell" size="sm" />
+            </span>
+            <span className="qf-banner__msg">놓친 리마인더가 {overdueCount}개 있습니다.</span>
+          </div>
+        ) : null}
         {list.isLoading ? (
           <p className="text-text-muted py-[var(--s-5)]">불러오는 중…</p>
         ) : items.length === 0 ? (
@@ -105,11 +128,24 @@ export function SavedView(): JSX.Element {
                 item={item}
                 onUnsave={(messageId) => toggle.mutate({ messageId, currentlySaved: true })}
                 onMove={(savedMessageId, from, to) => move.mutate({ savedMessageId, from, to })}
+                onOpenReminder={(it) => setReminderTarget(it)}
               />
             ))}
           </ul>
         )}
       </div>
+
+      {reminderTarget ? (
+        <ReminderModal
+          open={reminderTarget !== null}
+          channelName={reminderTarget.channelName}
+          hasReminder={(reminderTarget.reminderAt ?? null) !== null}
+          onClose={() => setReminderTarget(null)}
+          onSubmit={(reminderAt) =>
+            setReminderMut.mutate({ savedMessageId: reminderTarget.id, reminderAt })
+          }
+        />
+      ) : null}
     </section>
   );
 }

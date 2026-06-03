@@ -55,6 +55,7 @@ import { NotifLevelService, type NotifGate } from '../notifications/notif-level.
 import type { MentionKind } from '../notifications/notif-level';
 import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
+import { ReminderQueueService } from '../queue/reminder-queue.service';
 
 /**
  * First ~140 chars of a message, whitespace-collapsed, for the mention
@@ -269,6 +270,11 @@ export class MessagesService {
     // mute/DND/OFF 만 적용). int(실DB)·런타임에서는 항상 주입된다.
     @Optional()
     private readonly notifLevel?: NotifLevelService,
+    // S53 (D10 / FR-PS-10): 핀된/저장된 메시지 soft-delete cascade 시 예약된 저장
+    // 리마인더 잡도 취소한다. QueueModule 이 @Global 이라 import 없이 주입되며,
+    // @Optional 이라 미주입 단위테스트는 cancel 을 건너뛴다.
+    @Optional()
+    private readonly reminders?: ReminderQueueService,
   ) {}
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
@@ -2607,6 +2613,10 @@ export class MessagesService {
     // 여부를 결정한다. broadcast 행은 채널 unread 에 산입되므로 삭제 시 모든 멤버
     // 캐시를 즉시 비워야 한다(옵션 A). non-broadcast / no-op 삭제는 무효화 불필요.
     let deletedBroadcast = false;
+    // S53 (FR-PS-10): 이 메시지를 저장한 행 중 발화 대기(미발화) 리마인더를 가진
+    // SavedMessage id 들. tx 안에서 수집해 커밋 후 큐 잡을 취소한다(여러 사용자가
+    // 같은 메시지를 저장+리마인더 설정했을 수 있으므로 set).
+    let pendingReminderSavedIds: string[] = [];
     await this.prisma.$transaction(async (tx) => {
       // S05 verify (HIGH): 편집 경로(update)와 동일하게 updateMany +
       // WHERE { id, channelId, deletedAt: null } 로 채널 격리 + 데이터 레이어
@@ -2642,6 +2652,15 @@ export class MessagesService {
         where: { messageId: args.msgId },
         data: { messageDeletedAt: deletedAt },
       });
+      // S53 (FR-PS-10): 원본 삭제 시 발화 대기 중인 리마인더 잡을 취소하기 위해
+      // 미발화(reminderFiredAt IS NULL) + 예약됨(reminderAt IS NOT NULL) SavedMessage
+      // id 를 수집한다. 발화는 막되 DB reminderAt 자체는 비정규화 마스킹(messageDeletedAt)
+      // 으로 충분하므로 컬럼은 그대로 둔다(잡만 취소). 커밋 후 cancel.
+      const pendingReminders = await tx.savedMessage.findMany({
+        where: { messageId: args.msgId, reminderAt: { not: null }, reminderFiredAt: null },
+        select: { id: true },
+      });
+      pendingReminderSavedIds = pendingReminders.map((r) => r.id);
       // count>0 → 같은 tx 안에서 방금 확정된 행이라 항상 존재. payload 용
       // authorId + S33 카운터 감소 분기용 parentMessageId 를 함께 읽는다.
       const updated = await tx.message.findUniqueOrThrow({
@@ -2740,6 +2759,17 @@ export class MessagesService {
           `[messages] broadcast unread cache invalidation failed (channel=${args.channelId}): ${String(err).slice(0, 160)}`,
         );
       });
+    }
+
+    // S53 (FR-PS-10): 커밋 후 발화 대기 중이던 리마인더 잡을 취소(best-effort).
+    // 잡 cancel 은 Redis 왕복이라 hot-path 에서 분리해 fire-and-forget 한다. 잡이
+    // 남아도 Processor 가 messageDeletedAt 마스킹 컨텍스트로 발화하므로 치명적이지
+    // 않으나, 삭제된 메시지의 리마인더는 발화하지 않는 것이 자연스럽다. reminders
+    // 미주입(단위 테스트)이면 생략.
+    if (this.reminders && pendingReminderSavedIds.length > 0) {
+      for (const savedId of pendingReminderSavedIds) {
+        void this.reminders.cancel(savedId);
+      }
     }
   }
 
