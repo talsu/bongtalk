@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, type CSSProperties } from 'react';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -41,9 +41,18 @@ export function AttachmentsList({
   const nonImages = sorted.filter((a) => a.kind !== 'IMAGE');
 
   return (
-    <ul data-testid="message-attachments" className="mt-[var(--s-2)] space-y-[var(--s-1)]">
+    // I (a11y P-03): 첨부 목록에 aria-label 을 부여합니다.
+    <ul
+      data-testid="message-attachments"
+      aria-label="첨부 파일"
+      className="mt-[var(--s-2)] space-y-[var(--s-1)]"
+    >
       {images.length >= 2 ? (
-        <ImageMosaicGrid images={images} />
+        // M-01: ImageMosaicGrid 는 <div role="group"> 을 반환하므로 호출부가 <li> 로
+        // 감쌉니다(단독 <li> 비유효 HTML 방지). data-testid 는 그리드 내부 group div 가 유지.
+        <li data-testid="image-mosaic-grid-item">
+          <ImageMosaicGrid images={images} />
+        </li>
       ) : (
         images.map((a) => <ImageAttachment key={a.id} attachment={a} />)
       )}
@@ -70,9 +79,11 @@ function AttachmentRow({ attachment }: { attachment: AttachmentLite }): JSX.Elem
   if (pending) {
     return (
       <li data-testid={`attachment-skeleton-${attachment.id}`} data-attachment-id={attachment.id}>
+        {/* M-03: 로딩 중임을 보조기술에 알립니다(aria-busy). */}
         <div
           role="img"
           aria-label="처리 중"
+          aria-busy="true"
           className="qf-skel"
           style={{ width: '240px', height: '160px' }}
         />
@@ -95,10 +106,15 @@ function ImageAttachment({ attachment }: { attachment: AttachmentLite }): JSX.El
   // 의 pending 가드를 여기로 옮긴다). width/height 신고가 있으면 aspect-ratio 로 CLS 방지.
   const status = attachment.processingStatus ?? 'READY';
   const pending = status === 'PENDING' || status === 'PROCESSING';
+  // reviewer M1: 종착 차단/실패 상태는 객체를 fetch 하면 4xx 가 떨어져 "불러오지 못함"
+  // 으로 오인 표시됩니다. fetch 시도 없이 전용 표시로 분기합니다.
+  const unavailable = status === 'BLOCKED' || status === 'FAILED';
   // thumbnailKey 있으면 썸네일 변형, 없으면 원본 download.
   const variant: ProxyVariant = attachment.thumbnailKey ? 'thumbnail' : 'download';
-  const { url, error } = useProxyObjectUrl(attachment.id, variant);
-  const alt = attachment.altText ?? attachment.originalName;
+  // unavailable(BLOCKED/FAILED)이면 훅을 호출하지 않습니다 — 아래에서 early-return 하므로
+  // pending/unavailable 셀은 fetch 를 시도하지 않습니다.
+  // H-01 (a11y H-01): altText 빈 문자열("")이면 originalName 폴백(?? 는 null/undefined 만).
+  const alt = attachment.altText?.trim() || attachment.originalName;
   // S58 (FR-AM-07): 단일 이미지 인라인 max-width 550px(종전 400px → PRD 정본 정렬).
   const ratioStyle =
     attachment.width && attachment.height
@@ -108,9 +124,11 @@ function ImageAttachment({ attachment }: { attachment: AttachmentLite }): JSX.El
   if (pending) {
     return (
       <li data-testid={`attachment-skeleton-${attachment.id}`} data-attachment-id={attachment.id}>
+        {/* M-03: 로딩 중임을 보조기술에 알립니다(aria-busy). */}
         <div
           role="img"
           aria-label="처리 중"
+          aria-busy="true"
           className="qf-skel"
           style={{ ...ratioStyle, height: '160px' }}
         />
@@ -118,10 +136,61 @@ function ImageAttachment({ attachment }: { attachment: AttachmentLite }): JSX.El
     );
   }
 
+  // BLOCKED/FAILED → fetch 없이 전용 표시(reviewer M1). 비율은 유지해 레이아웃을 보존합니다.
+  if (unavailable) {
+    const label = status === 'BLOCKED' ? '차단된 파일' : '처리 실패';
+    return (
+      <li
+        data-testid={`attachment-unavailable-${attachment.id}`}
+        data-attachment-id={attachment.id}
+        data-status={status}
+      >
+        <div
+          role="img"
+          aria-label={label}
+          className="flex items-center justify-center rounded-[var(--r-md)] border border-border-subtle bg-bg-surface text-[length:var(--fs-13)] text-text-muted"
+          style={{ ...ratioStyle, height: '160px' }}
+        >
+          {label}
+        </div>
+      </li>
+    );
+  }
+
+  return (
+    <ReadyImageAttachment
+      attachment={attachment}
+      alt={alt}
+      variant={variant}
+      ratioStyle={ratioStyle}
+    />
+  );
+}
+
+/**
+ * READY 이미지 본체. BLOCKED/FAILED/PENDING 분기 뒤에서만 마운트되므로 useProxyObjectUrl
+ * (fetch) 가 차단/실패 객체에 대해 호출되지 않습니다(reviewer M1 — Hooks 규칙상 early-return
+ * 후 조건부 훅 호출이 불가하므로 별도 컴포넌트로 분리합니다).
+ */
+function ReadyImageAttachment({
+  attachment,
+  alt,
+  variant,
+  ratioStyle,
+}: {
+  attachment: AttachmentLite;
+  alt: string;
+  variant: ProxyVariant;
+  ratioStyle: CSSProperties;
+}): JSX.Element {
+  const { url, error } = useProxyObjectUrl(attachment.id, variant);
+
   if (error) {
     return (
       <li
         data-testid={`attachment-error-${attachment.id}`}
+        // B-05: 로드 실패는 4.1.3 Status Message — role="alert" 로 보조기술에 알립니다.
+        role="alert"
         className="text-[length:var(--fs-13)] text-[color:var(--danger-400)]"
       >
         첨부를 불러오지 못했습니다.
@@ -138,10 +207,12 @@ function ImageAttachment({ attachment }: { attachment: AttachmentLite }): JSX.El
       style={ratioStyle}
     />
   ) : (
+    // M-03: URL 로딩 스켈레톤도 aria-busy 로 진행 중임을 알립니다.
     <div
       className="qf-skel"
       role="img"
       aria-label="처리 중"
+      aria-busy="true"
       style={{ ...ratioStyle, height: '160px' }}
     />
   );
