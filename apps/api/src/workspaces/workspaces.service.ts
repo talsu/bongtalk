@@ -27,6 +27,9 @@ import {
 } from './roles/system-role-seed';
 // S62 fix-forward (security A-1): 소유권 이양 직후 from/to 두 멤버의 권한 캐시 무효화.
 import { MemberRoleService } from './roles/member-role.service';
+// S63 fix-forward (security A-1 = HIGH/BLOCKER): PUBLIC 워크스페이스 즉시 가입(joinPublic)
+// 에서도 차단(BannedMember) 여부를 검사해 ban 우회 재가입을 막는다(invites.accept 선례).
+import { ModerationService } from './moderation/moderation.service';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -41,6 +44,8 @@ export class WorkspacesService {
     // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 소유권 이양은 from/to 두
     // 멤버의 역할(OWNER↔ADMIN)을 바꾸므로 두 멤버의 채널별 권한 캐시를 모두 DEL 한다.
     private readonly memberRoles: MemberRoleService,
+    // S63 fix-forward (security A-1): joinPublic 의 ban 우회 차단을 위한 차단 조회.
+    private readonly moderation: ModerationService,
   ) {}
 
   private get graceMs(): number {
@@ -309,6 +314,13 @@ export class WorkspacesService {
       where: { workspaceId_userId: { workspaceId, userId } },
     });
     if (existing) return { workspaceId, alreadyMember: true };
+    // S63 fix-forward (security A-1 = HIGH/BLOCKER): 차단(BannedMember)된 userId 는 PUBLIC
+    // 워크스페이스라도 즉시 가입할 수 없다. invites.accept 엔 차단 검사가 있었으나
+    // joinPublic 누락으로 ban 우회 재가입이 가능했다. 차단 사실 누출을 막기 위해
+    // 워크스페이스 미존재와 동일한 중립 404(WORKSPACE_NOT_FOUND)로 거부한다.
+    if (await this.moderation.isBanned(workspaceId, userId)) {
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
+    }
     // S61 fix-forward (security A-2 · MemberRole desync): 멤버 생성과 동일 트랜잭션에서
     // MEMBER 시스템 MemberRole 을 시드한다. 이게 없으면 신규 멤버는 MemberRole 부재로
     // computeActorTopPosition=0·computeActorMaxPermissions=0n 이 되어 ADMIN 승격 후에도

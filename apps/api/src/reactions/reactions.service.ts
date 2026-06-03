@@ -126,6 +126,11 @@ export class ReactionsService {
     // 미리 계산해 넘긴다. 토글이 INSERT(새 반응 추가)로 분기할 때만 이 플래그를
     // 검사한다 — 제거(toggle off)는 권한과 무관하므로 false 여도 통과한다.
     canAddReaction: boolean,
+    // S63 (FR-RM07) + fix-forward (B-3): 호출자가 워크스페이스 채널 타임아웃 상태를
+    // 미리 판정해 넘긴다. INSERT(추가) 분기에서만 MEMBER_TIMED_OUT(403)으로 거부하고,
+    // 제거(toggle off)는 음소거 중에도 허용한다(FR-RM07 은 "추가 차단"). 기본 false 로
+    // DM/비-타임아웃 경로는 영향 없다.
+    isTimedOut = false,
   ): Promise<{ emoji: string; count: number; byMe: boolean }> {
     const emoji = validateEmoji(rawEmoji);
     return this.prisma.$transaction(async (tx) => {
@@ -152,6 +157,15 @@ export class ReactionsService {
         });
         byMe = false;
       } else {
+        // S63 (FR-RM07) + fix-forward (B-3): 추가(INSERT) 분기에서만 타임아웃을 게이트
+        // 한다. 음소거 중인 사용자가 *새* 반응을 다는 것은 막지만, 토글이 제거 분기였다면
+        // 위에서 이미 처리돼 여기 도달하지 않으므로 자기 반응 제거는 음소거 중에도 허용된다.
+        if (isTimedOut) {
+          throw new DomainError(
+            ErrorCode.MEMBER_TIMED_OUT,
+            '타임아웃 중에는 반응을 추가할 수 없습니다',
+          );
+        }
         // FR-RE07: 추가(INSERT) 경로에서만 ADD_REACTIONS 권한을 게이트한다. READ 는
         // 컨트롤러가 이미 통과시켰고, 여기서 effective mask 에 카탈로그 ADD_REACTIONS
         // 비트가 없으면(override DENY 등) 403 으로 거부한다.

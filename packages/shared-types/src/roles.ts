@@ -36,8 +36,10 @@ export const SYSTEM_ROLE_POSITION: Record<SystemRoleName, number> = {
  * enum `ROLE_BASELINE`(OWNER/ADMIN/MEMBER) 를 BigInt 카탈로그로 대체합니다.
  *
  * - OWNER: ADMINISTRATOR(모든 권한 + 채널 overwrite 면제).
- * - ADMIN: 관리 비트 전반(채널/웹훅/초대/메시지 관리 + 슬로우모드 면제 + 멘션).
- * - MODERATOR: 메시지 관리 + 멘션 + 슬로우모드 면제(채널/웹훅 관리는 제외).
+ * - ADMIN: 관리 비트 전반(채널/웹훅/초대/메시지 관리 + 슬로우모드 면제 + 멘션 +
+ *   S63 모더레이션 KICK/BAN/TIMEOUT).
+ * - MODERATOR: 메시지 관리 + 멘션 + 슬로우모드 면제 + S63 모더레이션
+ *   KICK/BAN/TIMEOUT(채널/웹훅 관리는 제외).
  * - MEMBER: 일반 참여(조회·전송·열람·첨부·반응·슬래시·외부이모지).
  * - GUEST: 최소 참여(조회·전송·열람·반응) — 첨부/외부이모지/초대 불가.
  */
@@ -57,6 +59,10 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, bigint> = {
     PERMISSIONS.CREATE_INVITES,
     PERMISSIONS.USE_EXTERNAL_EMOJI,
     PERMISSIONS.BYPASS_SLOWMODE,
+    // S63 (FR-RM05·06·07): MODERATOR+ 에 모더레이션 권한 기본 부여.
+    PERMISSIONS.KICK_MEMBERS,
+    PERMISSIONS.BAN_MEMBERS,
+    PERMISSIONS.TIMEOUT_MEMBERS,
   ),
   MODERATOR: combine(
     PERMISSIONS.VIEW_CHANNEL,
@@ -70,6 +76,10 @@ export const SYSTEM_ROLE_PERMISSIONS: Record<SystemRoleName, bigint> = {
     PERMISSIONS.CREATE_INVITES,
     PERMISSIONS.USE_EXTERNAL_EMOJI,
     PERMISSIONS.BYPASS_SLOWMODE,
+    // S63 (FR-RM05·06·07): MODERATOR 도 모더레이션 권한 기본 보유.
+    PERMISSIONS.KICK_MEMBERS,
+    PERMISSIONS.BAN_MEMBERS,
+    PERMISSIONS.TIMEOUT_MEMBERS,
   ),
   MEMBER: combine(
     PERMISSIONS.VIEW_CHANNEL,

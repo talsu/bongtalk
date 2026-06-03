@@ -28,6 +28,13 @@ export const PERMISSIONS = {
   CREATE_INVITES: 1n << 10n, // 0x0400 초대 링크 생성
   USE_EXTERNAL_EMOJI: 1n << 11n, // 0x0800 외부 커스텀 이모지
   BYPASS_SLOWMODE: 1n << 12n, // 0x1000 슬로우모드 면제
+  // S63 (D12 / FR-RM05·06·07): 워크스페이스 레벨 모더레이션 비트. 채널 overwrite
+  // 대상이 아니라 CHANNEL_OVERWRITE_FLAGS 에 포함하지 않는다(아래). 13~62 의 빈 비트
+  // 중 14~16 을 사용한다 — moderation 컨트롤러가 카탈로그 비트를 직접 검사한다(S62
+  // 채널 집행 enum 과 별개의 워크스페이스 권한이라 enforcement mask 와 무관).
+  KICK_MEMBERS: 1n << 14n, // 0x4000 멤버 강제 퇴장(재가입 가능)
+  BAN_MEMBERS: 1n << 15n, // 0x8000 멤버/비멤버 userId 영구 차단(재진입 불가)
+  TIMEOUT_MEMBERS: 1n << 16n, // 0x10000 멤버 임시 음소거(타임아웃)
   ADMINISTRATOR: 1n << 63n, // 0x8000000000000000 모든 권한 + overwrite 전체 면제
 } as const;
 

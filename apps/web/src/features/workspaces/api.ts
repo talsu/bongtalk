@@ -5,9 +5,13 @@ import type {
   CreateWorkspaceRequest,
   Invite,
   InvitePreview,
+  KickMemberResponse,
+  ListBansResponse,
   ListMembersResponse,
   Member,
+  MemberWithPresence,
   Role,
+  TimeoutMemberResponse,
   UpdateMemberRoleRequest,
   UpdateRoleRequest,
   UpdateWorkspaceRequest,
@@ -58,8 +62,10 @@ export function listMembers(
  * A hard page-walk bound stops a pathological loop; in practice the list is the
  * workspace member count and pages are 50 each.
  */
-export async function listAllMembers(id: string): Promise<{ members: Member[] }> {
-  const members: Member[] = [];
+// S63 (FR-RM07): 반환 타입을 MemberWithPresence[] 로 둔다 — grouped 응답 행은
+// status/lastSeenAt/mutedUntil(타임아웃 배지)을 함께 싣는다(base Member 의 상위집합).
+export async function listAllMembers(id: string): Promise<{ members: MemberWithPresence[] }> {
+  const members: MemberWithPresence[] = [];
   let cursor: string | undefined;
   for (let page = 0; page < 1000; page += 1) {
     const res = await listMembers(id, { cursor, includeOffline: true });
@@ -139,4 +145,62 @@ export function revokeRole(id: string, targetUserId: string, roleId: string): Pr
   return apiRequest(`/workspaces/${id}/roles/assign/${targetUserId}/${roleId}`, {
     method: 'DELETE',
   });
+}
+
+// ── S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) ─────────────────────
+
+/** FR-RM05: 멤버 강제 퇴장. actor 에게만 5초 Undo 토큰을 반환한다. */
+export function kickMember(
+  id: string,
+  userId: string,
+  reason?: string,
+): Promise<KickMemberResponse> {
+  return apiRequest(`/workspaces/${id}/moderation/members/${userId}/kick`, {
+    method: 'POST',
+    body: reason ? { reason } : {},
+  });
+}
+
+/** FR-RM05: kick 5초 Undo. */
+export function kickUndo(id: string, userId: string, undoToken: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/moderation/members/${userId}/kick-undo`, {
+    method: 'POST',
+    body: { undoToken },
+  });
+}
+
+/** FR-RM06: userId 영구 차단(멤버/비멤버). */
+export function banMember(id: string, userId: string, reason?: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/moderation/bans`, {
+    method: 'POST',
+    body: reason ? { userId, reason } : { userId },
+  });
+}
+
+/** FR-RM06: 차단 해제. */
+export function unbanMember(id: string, userId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/moderation/bans/${userId}`, { method: 'DELETE' });
+}
+
+/** FR-RM06: 차단 목록(권한자). */
+export function listBans(id: string): Promise<ListBansResponse> {
+  return apiRequest(`/workspaces/${id}/moderation/bans`);
+}
+
+/** FR-RM07: 멤버 임시 음소거(60~604800초). */
+export function timeoutMember(
+  id: string,
+  userId: string,
+  durationSeconds: number,
+  reason?: string,
+): Promise<TimeoutMemberResponse> {
+  return apiRequest(`/workspaces/${id}/moderation/members/${userId}/timeout`, {
+    method: 'POST',
+    body: reason ? { durationSeconds, reason } : { durationSeconds },
+  });
+}
+
+/** FR-RM07: 음소거 수동 해제. */
+export function untimeoutMember(id: string, userId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/moderation/members/${userId}/timeout`, { method: 'DELETE' });
 }

@@ -545,6 +545,8 @@ model Workspace {
   roles                   Role[]
   // S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그(append-only). onDelete Cascade.
   auditLogs               AuditLog[]
+  // S63 (D12 / FR-RM06): 워크스페이스 영구 차단 목록. onDelete Cascade.
+  bannedMembers           BannedMember[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -559,6 +561,11 @@ model WorkspaceMember {
   // backfill 로 동등한 MemberRole 행을 함께 갖는다(role enum ↔ 시스템 Role 동기).
   role        WorkspaceRole @default(MEMBER)
   joinedAt    DateTime      @default(now())
+  // S63 (D12 / FR-RM07): 모더레이션 타임아웃 만료 시각. null = 음소거 아님. 미래
+  // 시각이면 그 시각까지 SEND_MESSAGES/ADD_REACTIONS/USE_SLASH_COMMANDS 가 차단된다
+  // (VIEW_CHANNEL/READ_HISTORY 는 유지). 만료는 lazy 체크(mutedUntil>now) — cron/
+  // BullMQ 불요. UserChannelMute.mutedUntil(알림 뮤트)과는 별개 축이다.
+  mutedUntil  DateTime?     @db.Timestamptz(6)
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -574,6 +581,25 @@ model WorkspaceMember {
   // members) loads the whole set; this ordered index keeps that load + sort
   // O(N) instead of forcing a full sort of the workspace's member slice.
   @@index([workspaceId, joinedAt, userId])
+}
+
+// S63 (D12 / FR-RM06): 워크스페이스 영구 차단 목록. 멤버/비멤버 userId 를 모두 담을
+// 수 있다(가입 전 차단도 가능). 초대 수락(invites.service.accept)에서 (workspaceId,
+// userId) 존재 여부를 검사해 재진입을 막는다. 차단은 userId 기반(IP 차단은 범위 밖).
+// FK 는 Workspace 만 CASCADE(워크스페이스 삭제 시 차단 행 정리). 대상/액터 userId 는
+// 명시 FK 를 두지 않는다(비멤버 userId 도 담아야 하고, 사용자 삭제 경로는 별도 정책).
+// @@id 복합키로 (workspaceId, userId) 당 1행을 보장한다(멱등 ban).
+model BannedMember {
+  workspaceId String   @db.Uuid
+  userId      String   @db.Uuid
+  bannedBy    String   @db.Uuid
+  reason      String?  @db.VarChar(512)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId])
+  @@index([workspaceId, createdAt])
 }
 
 model Category {
