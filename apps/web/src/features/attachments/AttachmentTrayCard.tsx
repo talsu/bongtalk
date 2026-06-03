@@ -42,6 +42,13 @@ function AttachmentTrayCardImpl({
   const isImage = item.kind === 'IMAGE';
   const failed = item.status === 'failed';
   const uploading = item.status === 'uploading';
+  // S57 (FR-AM-24): 전송 상태 기계. sending = 낙관적 전송 진행 중(편집 잠금),
+  // confirmed = 서버 확정(미리보기를 프록시 URL 로 교체). 둘 다 진행률/실패 UI 미노출.
+  const sending = item.status === 'sending';
+  const confirmed = item.status === 'confirmed';
+  // sending/confirmed 동안에는 액션(스포일러/alt/제거/재시도)을 잠근다 —
+  // 전송 도중 메타 변경/제거가 complete 와 race 하지 않게 한다.
+  const locked = sending || confirmed;
 
   // B-02: uploading → ready/failed 전환을 스크린리더에 통지. 종전엔 진행률
   // progressbar 만 있고 완료/실패는 무음이었다. 상태가 실제로 바뀐 경우에만
@@ -53,6 +60,9 @@ function AttachmentTrayCardImpl({
     if (prev !== item.status) {
       if (item.status === 'ready') setLiveMsg(`${item.file.name} 업로드 완료`);
       else if (item.status === 'failed') setLiveMsg(`${item.file.name} 업로드 실패`);
+      // S57 (FR-AM-24 · a11y): 전송 진행/확정 전환을 스크린리더에 통지.
+      else if (item.status === 'sending') setLiveMsg(`${item.file.name} 전송 중`);
+      else if (item.status === 'confirmed') setLiveMsg(`${item.file.name} 전송 완료`);
       else setLiveMsg('');
       prevStatusRef.current = item.status;
     }
@@ -93,16 +103,19 @@ function AttachmentTrayCardImpl({
             className="text-text-muted"
           />
         )}
-        {/* 제거 버튼(우상단). B-01: 28px qf-btn--icon--sm(터치 ≥24px + focus-visible). */}
-        <button
-          type="button"
-          data-testid={`tray-remove-${item.id}`}
-          aria-label={`${item.file.name} 첨부 제거`}
-          onClick={() => onRemove(item.id)}
-          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
-        >
-          <Icon name="x" size="sm" />
-        </button>
+        {/* 제거 버튼(우상단). B-01: 28px qf-btn--icon--sm(터치 ≥24px + focus-visible).
+            S57: 전송 중/확정 후에는 제거를 잠근다(complete 와의 race 방지). */}
+        {!locked ? (
+          <button
+            type="button"
+            data-testid={`tray-remove-${item.id}`}
+            aria-label={`${item.file.name} 첨부 제거`}
+            onClick={() => onRemove(item.id)}
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
+          >
+            <Icon name="x" size="sm" />
+          </button>
+        ) : null}
       </div>
 
       {/* 파일명 + 크기 */}
@@ -152,8 +165,29 @@ function AttachmentTrayCardImpl({
         </div>
       ) : null}
 
-      {/* 액션: 스포일러 / alt(이미지·비디오만). B-01/B-04: 28px qf-btn--icon--sm. */}
-      {!failed ? (
+      {/* S57 (FR-AM-24): 전송 진행/확정 상태 표시(액션 대신). */}
+      {sending ? (
+        <div
+          data-testid={`tray-sending-${item.id}`}
+          className="flex items-center gap-[var(--s-1)] text-[length:var(--fs-11)] text-text-muted"
+        >
+          <Icon name="loading" size="sm" className="animate-spin" />
+          전송 중…
+        </div>
+      ) : null}
+      {confirmed ? (
+        <div
+          data-testid={`tray-confirmed-${item.id}`}
+          className="flex items-center gap-[var(--s-1)] text-[length:var(--fs-11)] text-[color:var(--accent)]"
+        >
+          <Icon name="check" size="sm" />
+          전송 완료
+        </div>
+      ) : null}
+
+      {/* 액션: 스포일러 / alt(이미지·비디오만). B-01/B-04: 28px qf-btn--icon--sm.
+          S57: 전송 중/확정 후에는 메타 편집을 잠근다. */}
+      {!failed && !locked ? (
         <div className="flex items-center gap-[var(--s-1)]">
           <button
             type="button"

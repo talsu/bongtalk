@@ -18,6 +18,7 @@ function item(over: Partial<TrayItem> = {}): TrayItem {
     progress: 0,
     previewUrl: 'blob:preview',
     sessionId: null,
+    expiresAt: null,
     altText: '',
     isSpoiler: false,
     ...over,
@@ -147,6 +148,72 @@ describe('AttachmentTrayCard (S56 D11 FR-AM-02/22)', () => {
       expect(screen.getByTestId('tray-live-i1').textContent).toContain('업로드 완료'),
     );
     expect(screen.getByTestId('tray-live-i1').textContent).toContain('photo.png');
+  });
+
+  it('S57: sending 상태는 "전송 중" 표시 + 제거/액션 잠금', () => {
+    renderCard(item({ status: 'sending', progress: 100 }));
+    expect(screen.getByTestId('tray-sending-i1').textContent).toContain('전송 중');
+    // 잠금: 제거/스포일러/alt 버튼 미노출, progressbar 미노출.
+    expect(screen.queryByTestId('tray-remove-i1')).toBeNull();
+    expect(screen.queryByTestId('tray-spoiler-i1')).toBeNull();
+    expect(screen.queryByTestId('tray-progress-i1')).toBeNull();
+  });
+
+  it('S57: confirmed 상태는 "전송 완료" 표시 + 액션 잠금', () => {
+    renderCard(item({ status: 'confirmed', previewUrl: '/api/attachments/x/download' }));
+    expect(screen.getByTestId('tray-confirmed-i1').textContent).toContain('전송 완료');
+    expect(screen.queryByTestId('tray-remove-i1')).toBeNull();
+    expect(screen.queryByTestId('tray-spoiler-i1')).toBeNull();
+  });
+
+  it('S57: ready→sending 전환 시 sr-only live 가 "전송 중" 통지', async () => {
+    const noop = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'ready', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('전송 중'),
+    );
+  });
+
+  it('S57: sending→confirmed 전환 시 sr-only live 가 "전송 완료" 통지', async () => {
+    const noop = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'sending', progress: 100 })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'confirmed', previewUrl: '/api/attachments/x/download' })}
+        onRemove={noop}
+        onRetry={noop}
+        onAltChange={noop}
+        onToggleSpoiler={noop}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('전송 완료'),
+    );
   });
 
   it('B-02: uploading→failed 전환 시 sr-only live 가 "업로드 실패" 통지', async () => {
