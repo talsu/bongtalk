@@ -559,7 +559,15 @@ export class OutboxToWsSubscriber {
     }
     // Kick is handled here (not in a sibling @OnEvent) to avoid handler-order
     // surprises with EventEmitter2 wildcard mode.
-    if (env.type === 'workspace.member.removed' || env.type === 'workspace.member.left') {
+    // S63 (FR-RM05·06): kick(workspace.member.kicked)·ban(workspace.member.banned)
+    // 도 즉시 소켓을 끊는다(세션 무효화). kicked 은 재가입 가능, banned 는 영구 차단
+    // 이지만 disconnect 동작은 동일하다(BannedMember 체크가 재진입을 막는다).
+    if (
+      env.type === 'workspace.member.removed' ||
+      env.type === 'workspace.member.left' ||
+      env.type === 'workspace.member.kicked' ||
+      env.type === 'workspace.member.banned'
+    ) {
       if (targetUserId) {
         // Defer briefly so the event we just emitted reaches the wire before
         // the socket is closed; otherwise the client loses the disconnect

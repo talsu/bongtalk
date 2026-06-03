@@ -4,6 +4,12 @@ export const WORKSPACE_RESTORED = 'workspace.restored';
 export const MEMBER_JOINED = 'workspace.member.joined';
 export const MEMBER_LEFT = 'workspace.member.left';
 export const MEMBER_REMOVED = 'workspace.member.removed';
+// S63 (D12 / FR-RM05·06): kick(재가입 가능) 과 ban(영구 차단)을 구분한 모더레이션
+// 이벤트. 둘 다 outbox-to-ws 가 대상 user 룸으로 fanout 하고 kickUserEverywhere 로
+// 즉시 소켓을 끊는다. kicked 은 actor 소켓에 별도 undoToken 을 전달한다(브로드캐스트
+// 제외 — moderation.service 가 actor 소켓에만 직접 emit).
+export const MEMBER_KICKED = 'workspace.member.kicked';
+export const MEMBER_BANNED = 'workspace.member.banned';
 export const ROLE_CHANGED = 'workspace.role.changed';
 export const OWNERSHIP_TRANSFERRED = 'workspace.ownership.transferred';
 export const INVITE_CREATED = 'workspace.invite.created';
