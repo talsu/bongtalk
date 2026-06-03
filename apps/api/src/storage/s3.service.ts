@@ -124,14 +124,19 @@ export class S3Service {
    * 인라인 stored-XSS/content-sniffing 차단). emoji/avatar 등 인라인이 필요한 경로는
    * opts 없이 호출해 종전대로 inline 유지(공유 메서드 무회귀).
    */
-  async presignGet(key: string, opts?: { attachment?: boolean }): Promise<string> {
+  async presignGet(
+    key: string,
+    opts?: { attachment?: boolean; expiresIn?: number },
+  ): Promise<string> {
     this.requireReady();
     const cmd = new GetObjectCommand({
       Bucket: this.bucket,
       Key: key,
       ...(opts?.attachment ? { ResponseContentDisposition: 'attachment' } : {}),
     });
-    return getSignedUrl(this.publicClient, cmd, { expiresIn: this.getTtl });
+    // S55 (FR-AM-17): 프록시 302 redirect 는 짧은 TTL(60s)을 넘긴다(token-leak 표면
+    // 축소). opts.expiresIn 미지정이면 종전 기본(getTtl) 유지(emoji/avatar 무회귀).
+    return getSignedUrl(this.publicClient, cmd, { expiresIn: opts?.expiresIn ?? this.getTtl });
   }
 
   /**
@@ -237,6 +242,41 @@ export class S3Service {
     } catch (err) {
       if (err instanceof NotFound || err instanceof NoSuchKey) return null;
       this.logger.warn(`getObjectRange failed key=${key} err=${String(err).slice(0, 200)}`);
+      throw err;
+    }
+  }
+
+  /**
+   * S55 (FR-AM-17 · private-channel 프록시): 객체 본문을 Readable 스트림으로 연다.
+   * isPrivate=true 채널의 첨부는 presigned GET 으로 노출하지 않고 매 요청 멤버십을
+   * 재검증한 뒤 API 가 바이트를 프록시한다(presigned URL 의 token-leak 표면 제거).
+   * 내부 클라이언트로 호출한다(egress 비용 없음). NotFound 면 null 을 반환해 컨트롤러가
+   * 404 로 매핑한다.
+   */
+  async getObjectStream(
+    key: string,
+  ): Promise<{
+    stream: NodeJS.ReadableStream;
+    contentType: string | undefined;
+    contentLength: number | undefined;
+  } | null> {
+    this.requireReady();
+    try {
+      const result = await this.internalClient.send(
+        new GetObjectCommand({ Bucket: this.bucket, Key: key }),
+      );
+      const body = result.Body;
+      if (!body) return null;
+      // AWS SDK v3 Node 런타임은 Body 를 Node Readable 로 반환한다.
+      return {
+        stream: body as NodeJS.ReadableStream,
+        contentType: result.ContentType,
+        contentLength:
+          result.ContentLength === undefined ? undefined : Number(result.ContentLength),
+      };
+    } catch (err) {
+      if (err instanceof NotFound || err instanceof NoSuchKey) return null;
+      this.logger.warn(`getObjectStream failed key=${key} err=${String(err).slice(0, 200)}`);
       throw err;
     }
   }

@@ -38,6 +38,14 @@ export const ChannelDescriptionSchema = z.string().max(500);
 // 비정수/음수/상한 초과는 거부한다.
 export const SlowmodeSecondsSchema = z.number().int().min(0).max(21600);
 
+// S55 (FR-AM-20): 채널별 최대 첨부 크기(바이트). 양의 정수, 상한 100MB(전역 한도와
+// 정합). null 이면 워크스페이스 설정 → 전역 기본 순으로 폴백.
+export const ChannelMaxFileSizeSchema = z
+  .number()
+  .int()
+  .positive()
+  .max(100 * 1024 * 1024);
+
 export const CreateChannelRequestSchema = z.object({
   name: ChannelNameSchema,
   type: ChannelTypeSchema.default('TEXT'),
@@ -69,6 +77,12 @@ export const UpdateChannelRequestSchema = z.object({
   // 미지정이면 변경 없음. 채널 설정 변경 권한(MANAGE_CHANNEL/ADMIN+) 게이트는 PATCH
   // 라우트가 기존대로 강제한다.
   memberCanPin: z.boolean().optional(),
+  // S55 (FR-CH-18): 채널별 첨부 업로드 토글. 미지정이면 변경 없음. false 면
+  // upload-url 게이트가 403. MANAGE_CHANNEL/ADMIN+ 게이트는 PATCH 라우트가 강제한다.
+  fileUploadEnabled: z.boolean().optional(),
+  // S55 (FR-AM-20): 채널별 최대 첨부 크기(바이트). null 로 채널 오버라이드 해제
+  // (워크스페이스 설정 폴백), 양의 정수로 설정, 미지정이면 변경 없음.
+  maxFileSizeBytes: ChannelMaxFileSizeSchema.nullable().optional(),
   // OWNER/ADMIN flip of privacy; enforced in ChannelsService.update.
   isPrivate: z.boolean().optional(),
   // S14 (FR-CH-05): 비공개→공개 전환 confirm 토큰. 서버는 isPrivate:false 로의
@@ -145,6 +159,11 @@ export const ChannelSchema = z.object({
   slowmodeSeconds: z.number().int().nonnegative(),
   // S51 (FR-PS-05): 핀 권한 채널 오버라이드. true(기본) = 멤버 전체 허용.
   memberCanPin: z.boolean(),
+  // S55 (FR-CH-18): 채널별 첨부 업로드 토글. true(기본) = 허용.
+  fileUploadEnabled: z.boolean(),
+  // S55 (FR-AM-20): 채널별 최대 첨부 크기(바이트, 와이어상 number). null = 폴백.
+  // 상한(전역 ATTACHMENT_MAX_BYTES)을 응답 스키마에도 반영(입력 ChannelMaxFileSizeSchema 와 정합).
+  maxFileSizeBytes: ChannelMaxFileSizeSchema.nullable(),
   isPrivate: z.boolean(),
   archivedAt: z.string().datetime().nullable(),
   deletedAt: z.string().datetime().nullable(),

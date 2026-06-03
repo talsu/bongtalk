@@ -19,6 +19,7 @@ import {
   TransferOwnershipRequestSchema,
   UpdateWorkspaceRequest,
   UpdateWorkspaceRequestSchema,
+  UpdateWorkspaceSettingRequestSchema,
 } from '@qufox/shared-types';
 import { WorkspacesService } from './workspaces.service';
 import { RateLimitService } from '../auth/services/rate-limit.service';
@@ -106,6 +107,31 @@ export class WorkspacesController {
     // task-030 reviewer B1: pass actor role so service can block ADMIN
     // attempts to flip visibility/category — OWNER-only.
     return this.workspaces.update(id, parsed.data as UpdateWorkspaceRequest, member.role);
+  }
+
+  /**
+   * S55 (FR-AM-20): 워크스페이스 첨부 정책 조회. 멤버 누구나 읽을 수 있다(첨부 UI 가
+   * 업로드 상한/차단 확장자를 표시).
+   */
+  @UseGuards(WorkspaceMemberGuard)
+  @Get(':id/settings')
+  async getSettings(@Param('id', new ParseUUIDPipe()) id: string) {
+    return this.workspaces.getSetting(id);
+  }
+
+  /**
+   * S55 (FR-AM-20): 워크스페이스 첨부 정책 변경. ADMIN(+OWNER) 전용. maxFileSizeBytes
+   * 와 blockedExtensions 를 upsert 한다.
+   */
+  @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
+  @Roles('ADMIN')
+  @Patch(':id/settings')
+  async updateSettings(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
+    const parsed = UpdateWorkspaceSettingRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    return this.workspaces.updateSetting(id, parsed.data);
   }
 
   @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
