@@ -145,6 +145,59 @@ export class WorkspacesService {
     });
   }
 
+  /**
+   * S55 (FR-AM-20): 워크스페이스 첨부 정책 조회. 설정 행이 없으면 기본값(상한 없음·
+   * 추가 차단 없음)을 반환한다. maxFileSizeBytes 는 와이어상 number|null.
+   */
+  async getSetting(
+    workspaceId: string,
+  ): Promise<{ maxFileSizeBytes: number | null; blockedExtensions: string[] }> {
+    const row = await this.prisma.workspaceSetting.findUnique({
+      where: { workspaceId },
+      select: { maxFileSizeBytes: true, blockedExtensions: true },
+    });
+    return {
+      maxFileSizeBytes: row?.maxFileSizeBytes != null ? Number(row.maxFileSizeBytes) : null,
+      blockedExtensions: row?.blockedExtensions ?? [],
+    };
+  }
+
+  /**
+   * S55 (FR-AM-20): 워크스페이스 첨부 정책 upsert(ADMIN 게이트는 컨트롤러). 미지정
+   * 필드는 변경 없음. maxFileSizeBytes=null 은 상한 해제(전역 폴백). blockedExtensions
+   * 는 통째 교체(빈 배열 = 추가 차단 없음). upsert 라 설정 행이 없으면 생성한다.
+   */
+  async updateSetting(
+    workspaceId: string,
+    input: { maxFileSizeBytes?: number | null; blockedExtensions?: string[] },
+  ): Promise<{ maxFileSizeBytes: number | null; blockedExtensions: string[] }> {
+    const maxBig =
+      input.maxFileSizeBytes === undefined
+        ? undefined
+        : input.maxFileSizeBytes === null
+          ? null
+          : BigInt(input.maxFileSizeBytes);
+    const blocked = input.blockedExtensions?.map((e) => e.toLowerCase());
+
+    const row = await this.prisma.workspaceSetting.upsert({
+      where: { workspaceId },
+      create: {
+        workspaceId,
+        maxFileSizeBytes: maxBig ?? null,
+        blockedExtensions: blocked ?? [],
+      },
+      update: {
+        ...(maxBig !== undefined ? { maxFileSizeBytes: maxBig } : {}),
+        ...(blocked !== undefined ? { blockedExtensions: blocked } : {}),
+      },
+      select: { maxFileSizeBytes: true, blockedExtensions: true },
+    });
+    return {
+      maxFileSizeBytes: row.maxFileSizeBytes != null ? Number(row.maxFileSizeBytes) : null,
+      blockedExtensions: row.blockedExtensions,
+    };
+  }
+
   async discover(opts: { category?: string; q?: string; cursor: string | null; limit: number }) {
     const capped = Math.max(1, Math.min(50, opts.limit));
     const q = (opts.q ?? '').trim();
