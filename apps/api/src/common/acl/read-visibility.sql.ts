@@ -56,6 +56,41 @@ export function readBitVisibleSql(refs: {
 }
 
 /**
+ * S62 (FR-RM03): ROLE-principal override 매칭 술어 단일 출처. 채널 override 의
+ * `principalType='ROLE'` 행은 시스템 역할 리터럴(레거시 `principalId`=OWNER/ADMIN/…)
+ * 또는 커스텀 Role.id(UUID)를 담는다. 가시성/배지/멘션 read-path 가 멤버의 시스템
+ * 역할 리터럴만 매칭하면 커스텀 Role 채널 override 가 무시돼, 커스텀 Role 로만
+ * READ 가 부여/박탈된 비공개 채널의 배지가 leak/누락된다.
+ *
+ * 이 헬퍼는 `cpo."principalId"` 가 (a) 멤버의 시스템 역할 리터럴(`roleLiteral`
+ * fragment, 예 `mm.role::text`) 또는 (b) 멤버가 보유한 커스텀 Role UUID 집합
+ * (MemberRole 서브쿼리) 중 하나와 일치하는지를 검사하는 술어를 만든다.
+ *
+ * `roleLiteral` 은 호출부가 바인딩하는 SQL fragment(멤버 시스템 역할 ::text).
+ * `userParam`/`workspaceParam` 은 MemberRole 서브쿼리 바인딩용 파라미터 fragment.
+ * `workspaceMatch` 는 cross-workspace 쿼리(me-activity 등)에서 채널의 workspaceId
+ * 와 MemberRole.workspaceId 를 묶는 추가 조건(없으면 Prisma.empty).
+ */
+export function roleOverridePrincipalMatchSql(refs: {
+  principalId: Prisma.Sql;
+  roleLiteral: Prisma.Sql;
+  userParam: Prisma.Sql;
+  workspaceMatch?: Prisma.Sql;
+}): Prisma.Sql {
+  const { principalId, roleLiteral, userParam } = refs;
+  const workspaceMatch = refs.workspaceMatch ?? Prisma.empty;
+  return Prisma.sql`(
+    ${principalId} = ${roleLiteral}
+    OR ${principalId} IN (
+      SELECT mr."roleId"::text
+        FROM "MemberRole" mr
+       WHERE mr."userId" = ${userParam}
+       ${workspaceMatch}
+    )
+  )`;
+}
+
+/**
  * S47 fix-forward (BLOCKER-4): 미읽음 멘션 판정 단일 출처. everyone/here/channel 은
  * `@>` JSONB containment 로 GIN 인덱스를 활용하고, 직접 멘션은 users 배열 containment
  * 로 본다. `msgRef` 는 메시지 별칭 fragment(예 `Prisma.sql\`msg\``), `userParam` 은

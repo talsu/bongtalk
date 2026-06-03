@@ -107,7 +107,8 @@ export class ChannelsService {
       callerId
         ? this.prisma.workspaceMember.findUnique({
             where: { workspaceId_userId: { workspaceId, userId: callerId } },
-            select: { role: true },
+            // S62 (FR-RM03): 커스텀 Role UUID override 도 사이드바 가시성에 반영.
+            select: { role: true, memberRoles: { select: { roleId: true } } },
           })
         : null,
     ]);
@@ -127,7 +128,16 @@ export class ChannelsService {
             allowMask: { gt: 0 },
             OR: [
               { principalType: 'USER', principalId: callerId },
-              ...(memberRow ? [{ principalType: 'ROLE', principalId: memberRow.role }] : []),
+              ...(memberRow
+                ? [
+                    { principalType: 'ROLE', principalId: memberRow.role },
+                    // S62 (FR-RM03): 커스텀 Role UUID override.
+                    ...memberRow.memberRoles.map((m) => ({
+                      principalType: 'ROLE',
+                      principalId: m.roleId,
+                    })),
+                  ]
+                : []),
             ],
           },
           select: { channelId: true },

@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.module';
-import { readBitVisibleSql, mentionMatchSql } from '../common/acl/read-visibility.sql';
+import {
+  readBitVisibleSql,
+  mentionMatchSql,
+  roleOverridePrincipalMatchSql,
+} from '../common/acl/read-visibility.sql';
 
 /**
  * S47 (D06 / FR-MN-14 / FR-MN-20): 서버(워크스페이스) 단위 알림 배지 집계.
@@ -142,7 +146,12 @@ export class MeNotificationBadgesService {
         JOIN my_memberships mm ON mm."workspaceId" = cc."workspaceId"
         WHERE (
           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = mm.role::text)
+          OR (cpo."principalType" = 'ROLE' AND ${roleOverridePrincipalMatchSql({
+            principalId: Prisma.sql`cpo."principalId"`,
+            roleLiteral: Prisma.sql`mm.role::text`,
+            userParam: Prisma.sql`${userId}::uuid`,
+            workspaceMatch: Prisma.sql`AND mr."workspaceId" = cc."workspaceId"`,
+          })})
         )
         GROUP BY cpo."channelId"
       ),

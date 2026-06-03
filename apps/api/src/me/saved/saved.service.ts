@@ -82,8 +82,16 @@ export class SavedService {
                WHERE cpo."channelId" = c.id
                  AND (
                    (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
+                   -- S62 (FR-RM03): 시스템 역할 리터럴 + 커스텀 Role UUID override.
                    OR (wm."userId" IS NOT NULL
-                       AND cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                       AND cpo."principalType" = 'ROLE' AND (
+                         cpo."principalId" = wm.role::text
+                         OR cpo."principalId" IN (
+                              SELECT mr."roleId"::text FROM "MemberRole" mr
+                               WHERE mr."userId" = ${userId}::uuid
+                                 AND mr."workspaceId" = c."workspaceId"
+                            )
+                       ))
                  )),
              0
            ) > 0

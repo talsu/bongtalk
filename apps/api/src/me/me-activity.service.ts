@@ -114,7 +114,14 @@ export class MeActivityService {
                    WHERE cpo."channelId" = c.id
                      AND (
                        (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                       OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                       OR (cpo."principalType" = 'ROLE' AND (
+                             cpo."principalId" = wm.role::text
+                             OR cpo."principalId" IN (
+                                  SELECT mr."roleId"::text FROM "MemberRole" mr
+                                   WHERE mr."userId" = ${userId}::uuid
+                                     AND mr."workspaceId" = c."workspaceId"
+                                )
+                          ))
                      )),
                  0
                ) AS overrideBit
@@ -134,7 +141,14 @@ export class MeActivityService {
                  WHERE cpo."channelId" = c.id
                    AND (
                      (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                     OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                     OR (cpo."principalType" = 'ROLE' AND (
+                           cpo."principalId" = wm.role::text
+                           OR cpo."principalId" IN (
+                                SELECT mr."roleId"::text FROM "MemberRole" mr
+                                 WHERE mr."userId" = ${userId}::uuid
+                                   AND mr."workspaceId" = c."workspaceId"
+                              )
+                        ))
                    )),
                0
              ) > 0
@@ -307,7 +321,14 @@ export class MeActivityService {
                    WHERE cpo."channelId" = c.id
                      AND (
                        (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                       OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                       OR (cpo."principalType" = 'ROLE' AND (
+                             cpo."principalId" = wm.role::text
+                             OR cpo."principalId" IN (
+                                  SELECT mr."roleId"::text FROM "MemberRole" mr
+                                   WHERE mr."userId" = ${userId}::uuid
+                                     AND mr."workspaceId" = c."workspaceId"
+                                )
+                          ))
                      )),
                  0
                ) AS overrideBit
@@ -507,7 +528,14 @@ export class MeActivityService {
                    WHERE cpo."channelId" = c.id
                      AND (
                        (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                       OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                       OR (cpo."principalType" = 'ROLE' AND (
+                             cpo."principalId" = wm.role::text
+                             OR cpo."principalId" IN (
+                                  SELECT mr."roleId"::text FROM "MemberRole" mr
+                                   WHERE mr."userId" = ${userId}::uuid
+                                     AND mr."workspaceId" = c."workspaceId"
+                                )
+                          ))
                      )),
                  0
                ) > 0
@@ -541,7 +569,14 @@ export class MeActivityService {
                  WHERE cpo."channelId" = c.id
                    AND (
                      (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-                     OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wm.role::text)
+                     OR (cpo."principalType" = 'ROLE' AND (
+                           cpo."principalId" = wm.role::text
+                           OR cpo."principalId" IN (
+                                SELECT mr."roleId"::text FROM "MemberRole" mr
+                                 WHERE mr."userId" = ${userId}::uuid
+                                   AND mr."workspaceId" = c."workspaceId"
+                              )
+                        ))
                    )),
                0
              ) > 0

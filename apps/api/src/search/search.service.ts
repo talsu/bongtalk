@@ -1,9 +1,11 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type Redis from 'ioredis';
+import { fromStoragePermissions } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
-import { Permission, PermissionMatrix } from '../auth/permissions';
+import { Permission, ROLE_BASELINE } from '../auth/permissions';
+import { bigintToEnforcementMask } from '../channels/permission/bigint-to-enforcement';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { parseSearchQuery } from './search-query.parser';
@@ -116,9 +118,30 @@ export class SearchService {
   private async visibleChannelIds(workspaceId: string, userId: string): Promise<string[]> {
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
-      select: { role: true },
+      select: {
+        role: true,
+        // S62 (FR-RM03): 커스텀 Role 반영 — 보유 Role(시스템+커스텀)의 base 권한과
+        // UUID override 를 가시성 fold 에 넣는다.
+        memberRoles: {
+          select: { role: { select: { id: true, permissions: true } } },
+        },
+      },
     });
     if (!member) return []; // non-member sees nothing
+    // S62: 커스텀 Role UUID + 시스템 역할 리터럴을 ROLE override principalId 로 함께 본다.
+    const roleUuids = member.memberRoles.map((m) => m.role.id);
+    const rolePrincipalIds = [member.role as string, ...roleUuids];
+    // base(카탈로그 → 집행): 보유 모든 Role permissions OR → bigintToEnforcementMask.
+    // MemberRole 이 없으면(레거시 backfill 누락) ROLE_BASELINE 폴백.
+    const enforcementBase =
+      member.memberRoles.length === 0
+        ? (ROLE_BASELINE[member.role] ?? 0)
+        : bigintToEnforcementMask(
+            member.memberRoles.reduce(
+              (acc, m) => acc | fromStoragePermissions(m.role.permissions),
+              0n,
+            ),
+          );
     const [channels, overrides] = await Promise.all([
       this.prisma.channel.findMany({
         where: { workspaceId, deletedAt: null, archivedAt: null },
@@ -129,7 +152,7 @@ export class SearchService {
           channel: { workspaceId, deletedAt: null, archivedAt: null },
           OR: [
             { principalType: 'USER', principalId: userId },
-            { principalType: 'ROLE', principalId: member.role },
+            { principalType: 'ROLE', principalId: { in: rolePrincipalIds } },
           ],
         },
         select: {
@@ -141,35 +164,45 @@ export class SearchService {
         },
       }),
     ]);
+    // 채널별 ROLE/USER tier 마스크 누적(PermissionMatrix.fold 와 동일 우선순위).
     const byChannel = new Map<
       string,
-      Array<{
-        principalType: 'USER' | 'ROLE';
-        principalId: string;
-        allowMask: number;
-        denyMask: number;
-      }>
+      { roleAllow: number; roleDeny: number; userAllow: number; userDeny: number }
     >();
     for (const o of overrides) {
-      const list = byChannel.get(o.channelId) ?? [];
-      list.push({
-        principalType: o.principalType as 'USER' | 'ROLE',
-        principalId: o.principalId,
-        // S61: BigInt → number(집행 0xFF 도메인). PermissionMatrix 는 number 계산.
-        allowMask: Number(o.allowMask),
-        denyMask: Number(o.denyMask),
-      });
-      byChannel.set(o.channelId, list);
+      const acc = byChannel.get(o.channelId) ?? {
+        roleAllow: 0,
+        roleDeny: 0,
+        userAllow: 0,
+        userDeny: 0,
+      };
+      // S61/S62: BigInt → number(집행 0xFF 도메인).
+      if (o.principalType === 'USER') {
+        acc.userAllow |= Number(o.allowMask);
+        acc.userDeny |= Number(o.denyMask);
+      } else {
+        acc.roleAllow |= Number(o.allowMask);
+        acc.roleDeny |= Number(o.denyMask);
+      }
+      byChannel.set(o.channelId, acc);
     }
+    const isOwner = member.role === 'OWNER';
     const ids: string[] = [];
     for (const ch of channels) {
-      const eff = PermissionMatrix.effective({
-        role: member.role,
-        isPrivate: ch.isPrivate,
-        userId,
-        overrides: byChannel.get(ch.id) ?? [],
-      });
-      if ((eff & Permission.READ) === Permission.READ) ids.push(ch.id);
+      const acc = byChannel.get(ch.id) ?? { roleAllow: 0, roleDeny: 0, userAllow: 0, userDeny: 0 };
+      // private 가시성 게이트(OWNER 면제 — channel-access.computeEffectiveForMember 정합).
+      let base = enforcementBase;
+      if (ch.isPrivate && !isOwner) {
+        const hasExplicitRead =
+          ((acc.userAllow | acc.roleAllow) & Permission.READ) === Permission.READ;
+        base = hasExplicitRead ? enforcementBase : 0;
+      }
+      let mask = base;
+      mask |= acc.roleAllow;
+      mask &= ~acc.roleDeny;
+      mask |= acc.userAllow;
+      mask &= ~acc.userDeny;
+      if ((mask & Permission.READ) === Permission.READ) ids.push(ch.id);
     }
     return ids;
   }

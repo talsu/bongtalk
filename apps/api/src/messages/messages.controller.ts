@@ -311,7 +311,7 @@ export class MessagesController {
     // ChannelAccessGuard 가 req.channel(type 포함)을 주입한 뒤 실행된다.
     if (channel) {
       await this.channelAccess.requireAnnouncementPostingAllowed(
-        { id: channel.id, type: channel.type },
+        { id: channel.id, type: channel.type, workspaceId: channel.workspaceId },
         user.id,
         m.role,
       );
