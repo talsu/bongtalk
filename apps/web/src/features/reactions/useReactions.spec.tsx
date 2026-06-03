@@ -72,6 +72,7 @@ function seed(qc: QueryClient, byMe: boolean, count: number): void {
     isBroadcast: false,
     parentExcerpt: null,
     threadLocked: false,
+    embeds: [],
   };
   const data: InfiniteData<ListMessagesResponse> = {
     pages: [{ items: [msg], pageInfo: { hasMore: false, nextCursor: null, prevCursor: null } }],

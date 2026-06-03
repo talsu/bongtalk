@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MessageMentionsSchema } from './message';
+import { MessageEmbedDtoSchema } from './links';
 import { TYPING_MAX_VISIBLE } from './constants';
 
 /**
@@ -154,6 +155,16 @@ export const WS_EVENTS = {
   // 수신 시 캐시에 해당 attachmentId 가 있으면 processingStatus/thumbnailKey 를 patch 하고
   // 없으면 무시한다(서버가 나중에 emit 을 켜도 무회귀).
   ATTACHMENT_PROCESSING_DONE: 'attachment:processing_done',
+  // 링크 unfurl 결과 갱신 (S60 · D11 · FR-RC07/08 · FR-AM-13~16): 메시지 본문 URL 의
+  // 비동기 OG/Twitter-Card 메타 fetch 가 끝나면(또는 사후 suppress 되면) 채널 룸
+  // (channel:{channelId})으로 push 한다. UnfurlProcessor(BullMQ)가 메시지 발화 트랜잭션과
+  // 분리해 fire-and-forget 으로 채우므로 메시지 created 직후에는 embeds 가 비어 있다가
+  // 잠시 뒤 이 이벤트로 채워진다. 서버 내부 outbox eventType 은 dot 표기
+  // (message.embed.updated)라 `message.**` 와일드카드가 잡고, outbox→WS subscriber 가 이
+  // 콜론 wire 이름으로 변환해 보낸다(reaction:updated / thread:lock:changed 선례). 페이로드는
+  // 해당 메시지의 비-suppress embed 전체 스냅샷(idempotent replace)이다 — 클라이언트는
+  // messages.list 캐시의 해당 messageId 행 embeds 를 통째로 교체한다.
+  MESSAGE_EMBED_UPDATED: 'message:embed_updated',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -840,6 +851,21 @@ export const AttachmentProcessingDonePayloadSchema = z.object({
 });
 export type AttachmentProcessingDonePayload = z.infer<typeof AttachmentProcessingDonePayloadSchema>;
 
+// ── 링크 unfurl 결과 갱신 (S60 · D11 · FR-RC07/08 · FR-AM-13~16) ──────────────
+/**
+ * message:embed_updated — 메시지 본문 URL 의 비동기 unfurl 이 끝나거나 사후 suppress 로
+ * embed 집합이 바뀌면 채널 룸(channel:{channelId})으로 fanout 한다(S60). 채널 룸 fanout 이라
+ * channelId + messageId 가 식별자이며, embeds 는 해당 메시지의 **비-suppress** embed 전체
+ * 스냅샷이다(idempotent replace — 클라이언트는 해당 messageId 행 embeds 를 통째로 교체).
+ * 모든 embed 가 suppress/삭제되면 embeds=[] 로 도착해 카드가 사라진다.
+ */
+export const MessageEmbedUpdatedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  messageId: z.string().min(1),
+  embeds: z.array(MessageEmbedDtoSchema),
+});
+export type MessageEmbedUpdatedPayload = z.infer<typeof MessageEmbedUpdatedPayloadSchema>;
+
 /**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
@@ -886,4 +912,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.REMINDER_FIRE]: ReminderFirePayloadSchema,
   [WS_EVENTS.SAVED_UPDATED]: SavedUpdatedPayloadSchema,
   [WS_EVENTS.ATTACHMENT_PROCESSING_DONE]: AttachmentProcessingDonePayloadSchema,
+  [WS_EVENTS.MESSAGE_EMBED_UPDATED]: MessageEmbedUpdatedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

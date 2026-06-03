@@ -70,6 +70,7 @@ function aroundResponse(): ListMessagesResponse {
         isBroadcast: false,
         parentExcerpt: null,
         threadLocked: false,
+        embeds: [],
       },
     ],
     pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },

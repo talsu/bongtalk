@@ -50,6 +50,7 @@ function makeMsg(thread: ThreadSummary | null): MessageDto {
     isBroadcast: false,
     parentExcerpt: null,
     threadLocked: false,
+    embeds: [],
   };
 }
 
