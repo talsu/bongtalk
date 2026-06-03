@@ -56,6 +56,9 @@ import type { MentionKind } from '../notifications/notif-level';
 import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
 import { ReminderQueueService } from '../queue/reminder-queue.service';
+import { UnfurlQueueService } from '../queue/unfurl-queue.service';
+import { extractUnfurlUrls, type MessageEmbedDto } from '@qufox/shared-types';
+import { toMessageEmbedDto, MESSAGE_EMBED_UPDATED_EVENT } from '../links/message-embed.mapper';
 
 /**
  * First ~140 chars of a message, whitespace-collapsed, for the mention
@@ -208,6 +211,8 @@ export type MessageDto = {
   parentExcerpt: string | null;
   // S38 (FR-TH-13): 스레드 잠금 표식(루트 전용). 답글은 항상 false.
   threadLocked: boolean;
+  // S60 (FR-RC07/08): 비동기 unfurl 결과(OG 카드). 삭제/차단 메시지는 [] 마스킹.
+  embeds: MessageEmbedDto[];
 };
 
 export type ListDirection = 'before' | 'after' | 'around' | 'initial';
@@ -275,7 +280,104 @@ export class MessagesService {
     // @Optional 이라 미주입 단위테스트는 cancel 을 건너뛴다.
     @Optional()
     private readonly reminders?: ReminderQueueService,
+    // S60 (D11 / FR-RC07 · FR-AM-13): send/edit 완료 후 본문 URL 의 unfurl 잡을
+    // fire-and-forget 으로 enqueue 한다. QueueModule 이 @Global 이라 import 없이 주입되며,
+    // @Optional 이라 미주입 단위테스트는 enqueue 를 건너뛴다(전송 경로 무영향).
+    @Optional()
+    private readonly unfurl?: UnfurlQueueService,
   ) {}
+
+  /**
+   * S60 (FR-RC07 · FR-AM-13): 메시지 본문에서 추출한 URL 의 unfurl 잡을 fire-and-forget
+   * 으로 enqueue 한다. URL 이 없으면(또는 큐 미주입) no-op. void 로 호출해 send/edit
+   * 트랜잭션과 분리한다(실패해도 메시지 전송 영향 0 · 카드가 안 뜰 뿐).
+   */
+  scheduleUnfurl(args: {
+    messageId: string;
+    channelId: string;
+    workspaceId: string | null;
+    content: string;
+  }): void {
+    if (!this.unfurl) return;
+    const urls = extractUnfurlUrls(args.content);
+    if (urls.length === 0) return;
+    void this.unfurl.enqueue({
+      messageId: args.messageId,
+      channelId: args.channelId,
+      workspaceId: args.workspaceId,
+      urls,
+    });
+  }
+
+  /**
+   * S60 (FR-RC07/21): 메시지 집합의 비-suppress embed 를 한 번에 모은다(read-path 조인 ·
+   * page 당 1쿼리 · aggregateAttachments 패턴). Map 은 messageId → MessageEmbedDto[].
+   * 빈 입력은 추가 쿼리 없이 빈 Map. suppressedAt IS NULL 만 노출한다(사후 억제 반영).
+   */
+  async aggregateEmbeds(messageIds: string[]): Promise<Map<string, MessageEmbedDto[]>> {
+    const out = new Map<string, MessageEmbedDto[]>();
+    if (messageIds.length === 0) return out;
+    const rows = await this.prisma.messageEmbed.findMany({
+      where: { messageId: { in: messageIds }, suppressedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    for (const r of rows) {
+      const list = out.get(r.messageId) ?? [];
+      list.push(toMessageEmbedDto(r));
+      out.set(r.messageId, list);
+    }
+    return out;
+  }
+
+  /**
+   * S60 (FR-AM-16 · FR-RC08): unfurl embed 사후 억제(suppress). 권한 게이트(작성자 OR
+   * MANAGE_MESSAGES)는 컨트롤러가 끝낸 상태로 호출된다. 이미 억제된 embed 는 idempotent
+   * no-op. suppress 후 해당 메시지의 비-suppress embed 전체 스냅샷을 message.embed.updated
+   * outbox 이벤트로 발행해 채널 룸에서 카드가 사라지게 한다(idempotent replace).
+   *
+   * 반환: { channelId, embeds } — 컨트롤러가 응답으로 돌려줄 수 있게. embed 가 없거나
+   * 메시지가 다른 채널이면 MESSAGE_NOT_FOUND(중립 404 — 존재 누출 방지).
+   */
+  async suppressEmbed(args: {
+    channelId: string;
+    msgId: string;
+    embedId: string;
+    actorId: string;
+  }): Promise<{ channelId: string; embeds: MessageEmbedDto[] }> {
+    const embed = await this.prisma.messageEmbed.findUnique({
+      where: { id: args.embedId },
+      select: {
+        id: true,
+        messageId: true,
+        suppressedAt: true,
+        message: { select: { channelId: true } },
+      },
+    });
+    // embed 부재 또는 경로의 채널/메시지와 불일치 → 중립 404(누출 방지).
+    if (!embed || embed.messageId !== args.msgId || embed.message.channelId !== args.channelId) {
+      throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'embed not found');
+    }
+    if (embed.suppressedAt === null) {
+      // updateMany — 행이 사라졌으면 count 0·no-op(동시 삭제 안전).
+      await this.prisma.messageEmbed.updateMany({
+        where: { id: args.embedId, suppressedAt: null },
+        data: { suppressedAt: new Date(), suppressedBy: args.actorId },
+      });
+    }
+    // 갱신 후 비-suppress embed 전체 스냅샷 emit(채널 룸 fanout · idempotent replace).
+    const remaining = await this.prisma.messageEmbed.findMany({
+      where: { messageId: args.msgId, suppressedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+    const embeds: MessageEmbedDto[] = remaining.map((r) => toMessageEmbedDto(r));
+    await this.outbox.record(null, {
+      aggregateType: 'Message',
+      aggregateId: args.msgId,
+      eventType: MESSAGE_EMBED_UPDATED_EVENT,
+      payload: { channelId: args.channelId, messageId: args.msgId, embeds },
+    });
+    return { channelId: args.channelId, embeds };
+  }
 
   /** Redis 2차 멱등 캐시 키 (ADR-8 / Redis 전용 상태 카탈로그). */
   private idemCacheKey(userId: string, idempotencyKey: string): string {
@@ -291,6 +393,9 @@ export class MessagesService {
     // 목록 read-path 가 broadcast 행의 parentMessageId 로 루트를 batch 조회해
     // 넘긴다(N+1 없음). 일반 메시지·삭제 메시지는 null.
     parentExcerpt: string | null = null,
+    // S60 (FR-RC07/08): 비동기 unfurl 결과(OG 카드). read-path 가 aggregateEmbeds 로
+    // batch 조회해 넘긴다(N+1 없음). 삭제 메시지는 attachments 와 동일 정책으로 [] 마스킹.
+    embeds: MessageEmbedDto[] = [],
   ): MessageDto {
     const isDeleted = row.deletedAt !== null;
     // task-047 iter0 (HIGH-046-B): here field default(false) 로 forward-compat.
@@ -371,6 +476,10 @@ export class MessagesService {
       parentExcerpt: isDeleted ? null : (parentExcerpt ?? null),
       // S38 (FR-TH-13): 스레드 잠금 표식(루트 전용). SELECT 미선택/legacy 는 false.
       threadLocked: row.threadLocked ?? false,
+      // S60 (FR-RC07/08): unfurl 결과. 삭제 메시지는 본문/첨부 마스킹과 일관되게 [] 로
+      // 가린다(삭제된 메시지의 OG 카드 잔존 방지). aggregateEmbeds 가 suppressedAt IS NULL
+      // 만 넘기므로 정상 메시지의 embeds 는 비-suppress 카드만 담긴다.
+      embeds: isDeleted ? [] : embeds,
     };
   }
 
@@ -839,6 +948,9 @@ export class MessagesService {
         // 차단 author 의 본문이 "메시지 복사" 로 새지 않도록 한다.
         contentPlain: BLOCKED_MESSAGE_PLACEHOLDER,
         mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+        // S60: 차단 author 의 메시지 unfurl 카드도 비운다(본문 마스킹과 일관 — 차단한
+        // 사용자의 링크 미리보기가 노출되지 않도록).
+        embeds: [],
       };
     });
   }

@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react';
-import { MRKDWN_PARSE_LIMITS } from '@qufox/shared-types';
+import {
+  MRKDWN_PARSE_LIMITS,
+  extractUnfurlUrls,
+  LINK_UNFURL_CAP_PER_MESSAGE,
+} from '@qufox/shared-types';
 import type { CustomEmoji } from '../emojis/api';
 
 /**
@@ -139,42 +143,17 @@ function stripQuotePrefix(line: string): string {
  * Discord 정책: 메시지당 최대 3 카드. 더 많은 URL 이 있어도 처음 3
  * 개만 미리보기 시도.
  */
-const URL_EXTRACT_RE = /(https?:\/\/[^\s<>]+[^\s<>.,;:!?'"()\]])/g;
-const FENCE_RE = /```[\s\S]*?```/g;
-const INLINE_CODE_RE = /`[^`\n]+`/g;
-const QUOTE_LINE_RE = /^>\s?/;
-export const LINK_PREVIEW_CAP_PER_MESSAGE = 3;
+// S60: 메시지당 미리보기 cap 은 shared-types LINK_UNFURL_CAP_PER_MESSAGE(=3) 와
+// 동일 값을 재노출한다(기존 import 호환 유지).
+export const LINK_PREVIEW_CAP_PER_MESSAGE = LINK_UNFURL_CAP_PER_MESSAGE;
 
+/**
+ * S60: URL 추출은 shared-types extractUnfurlUrls 로 단일화했습니다(BE 워커 enqueue 와
+ * FE 렌더가 동일 규칙·동일 URL 집합을 보도록 drift 방지). 꺾쇠(`<URL>`) 감싼 URL·코드블록
+ * 내부 URL 제외 + cap 3 + dedupe 규칙은 그대로입니다(기존 동작 무회귀).
+ */
 export function extractMessageUrls(content: string): string[] {
-  if (!content) return [];
-  // S02 보안(리뷰 HIGH): 이 함수는 contentAst 유무와 무관하게
-  // MessageItem 에서 항상 `msg.content` 로 호출됩니다. FENCE_RE/INLINE_CODE_RE
-  // 는 renderMessageContent 와 달리 입력 바운딩이 없었으므로, AST 경로와
-  // 동일하게 MAX_PLAIN_LENGTH(4,000자)로 먼저 잘라 lazy-quantifier
-  // 백트래킹 worst-case 를 차단합니다. 서버가 4,000자를 enforce 하므로
-  // 정상 데이터는 영향 없음.
-  const bounded =
-    content.length > MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH
-      ? content.slice(0, MRKDWN_PARSE_LIMITS.MAX_PLAIN_LENGTH)
-      : content;
-  // fenced 와 inline code 영역을 zero 로 마스킹 — 그 안의 URL 은
-  // 미리보기 카드 트리거 안 함. quote prefix 도 강조 무관.
-  const masked = bounded
-    .replace(FENCE_RE, (m) => ' '.repeat(m.length))
-    .replace(INLINE_CODE_RE, (m) => ' '.repeat(m.length))
-    .split('\n')
-    .map((line) => (QUOTE_LINE_RE.test(line) ? line.replace(QUOTE_LINE_RE, '') : line))
-    .join('\n');
-  const out: string[] = [];
-  const seen = new Set<string>();
-  for (const m of masked.matchAll(URL_EXTRACT_RE)) {
-    const url = m[1];
-    if (seen.has(url)) continue;
-    seen.add(url);
-    out.push(url);
-    if (out.length >= LINK_PREVIEW_CAP_PER_MESSAGE) break;
-  }
-  return out;
+  return extractUnfurlUrls(content);
 }
 
 /**

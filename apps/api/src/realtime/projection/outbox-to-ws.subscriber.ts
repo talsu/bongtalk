@@ -146,6 +146,25 @@ export class OutboxToWsSubscriber {
       }
       return;
     }
+    // S60 (FR-RC07/08): message.embed.updated → 콜론 wire `message:embed_updated`. 서버
+    // 내부 outbox eventType 은 dot 표기라 `message.**` 와일드카드가 잡는다. UnfurlProcessor
+    // 또는 suppress 경로가 발행하며, payload 에 해당 메시지의 비-suppress embed 전체
+    // 스냅샷(embeds[])이 실려온다(idempotent replace). 채널 룸으로 fanout 하면 모든 뷰어가
+    // messages.list 캐시의 해당 messageId 행 embeds 를 통째로 교체한다.
+    if (env.type === 'message.embed.updated') {
+      const messageId = (env as { messageId?: string }).messageId;
+      if (!messageId) return;
+      const wireEnv = {
+        id: env.id,
+        type: WS_EVENTS.MESSAGE_EMBED_UPDATED,
+        occurredAt: env.occurredAt,
+        channelId: chId,
+        messageId,
+        embeds: (env as { embeds?: unknown }).embeds ?? [],
+      } as unknown as WsEnvelope;
+      await this.emitAndBuffer('channel', chId, wireEnv);
+      return;
+    }
     await this.emitAndBuffer('channel', chId, env);
 
     // Task-014-B thread.replied: channel-room fanout above keeps

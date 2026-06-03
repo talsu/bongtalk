@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { Cuid2Schema } from './mrkdwn';
 import { RichTextRootSchema } from './mrkdwn-ast';
 import { MessageTypeSchema } from './message-type';
+import { MessageEmbedDtoSchema } from './links';
 
 export const MESSAGE_MAX_LENGTH = 4000;
 
@@ -218,6 +219,11 @@ export const MessageDtoSchema = z.object({
   // false). 스레드 패널이 헤더 잠금 아이콘 + composer disabled 판정에 쓴다.
   // default(false) 라 구 API 빌드 응답(필드 누락)도 forward-compat.
   threadLocked: z.boolean().default(false),
+  // S60 (FR-RC07/08 · FR-AM-13~16): 본문 URL 의 비동기 unfurl 결과(OG 카드).
+  // 메시지 발화 직후 응답에는 보통 비어 있고(워커가 아직 fetch 중), 잠시 뒤
+  // message:embed_updated WS 이벤트로 채워진다. suppress 되거나 삭제된 메시지는
+  // 서버가 [] 로 마스킹한다. default([]) 라 구 API 빌드 응답(필드 누락)도 forward-compat.
+  embeds: z.array(MessageEmbedDtoSchema).default([]),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 

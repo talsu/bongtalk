@@ -46,6 +46,7 @@ function pendingRow(id: string): OptimisticMessage {
     isBroadcast: false,
     parentExcerpt: null,
     threadLocked: false,
+    embeds: [],
     sendState: 'pending',
   };
 }

@@ -1,28 +1,38 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import type Redis from 'ioredis';
+import { normalizeUrl } from '@qufox/shared-types';
 import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { ssrfGuard, type SsrfRejectReason } from './ssrf-guard';
+import { followPinnedRedirects, readBoundedBuffer } from './pinned-http';
 import { parseOgMetadata } from './og-parser';
 
 /**
- * task-045 iter2: link unfurl service.
+ * task-045 iter2: link unfurl service. S60 (D11 · FR-RC07/09 · FR-AM-15) 갱신.
  *
  * Flow:
- *  1. SSRF guard 검증 (사설 IP / file:// scheme / userinfo 차단)
- *  2. Redis 캐시 조회 — hit 면 그대로 반환
- *  3. fetch (timeout 5s, max 256KB, max-redirect 3)
- *  4. HTML 파싱 → og:* + fallback
- *  5. Redis 캐시 저장 (성공 1h, 실패 60s)
+ *  1. normalizeUrl() 로 추적 파라미터/trailing slash/대소문자 정규화
+ *  2. SSRF guard 검증 (사설 IP / file:// scheme / userinfo 차단 · DNS rebinding 방어)
+ *  3. Redis 캐시 조회(정규화 URL sha256) — hit 면 그대로 반환
+ *  4. fetch (timeout 5s, max 256KB, max-redirect 5 · 각 hop SSRF 재검증)
+ *  5. HTML 파싱 → og:* + Twitter Card + HTML fallback
+ *  6. Redis 캐시 저장 (성공 1800s, 실패 60s)
+ *
+ * S60: REST lazy 경로(getPreview)와 BullMQ UnfurlProcessor 가 fetchAndParse·캐시 키
+ * 산정을 공유한다. 캐시 키는 normalizeUrl() 결과의 sha256 으로 통일해 동일 URL 의
+ * 추적 파라미터 변종이 같은 캐시를 공유하게 한다(FR-RC07/09).
  */
 
-const CACHE_TTL_OK_SEC = 60 * 60; // 1h
+// S60 (FR-RC09): 성공 unfurl 결과 Redis TTL 1800s(=30m). 기존 3600s 에서 축소.
+const CACHE_TTL_OK_SEC = 1800; // 30m
 const CACHE_TTL_FAIL_SEC = 60; // 1min
 const FETCH_TIMEOUT_MS = 5000;
 const MAX_BODY_BYTES = 256 * 1024; // 256KB
-const MAX_REDIRECTS = 3;
+// S60 (FR-AM-14): redirect 상한 5회(기존 3). 각 hop 마다 ssrfGuard 재검증.
+const MAX_REDIRECTS = 5;
 const USER_AGENT = 'qufox-link-preview/1.0 (+https://qufox.com)';
 
 export type LinkPreview = {
@@ -47,11 +57,13 @@ export class LinksService {
    * preview.statusCode 에 반영해 caller 가 hide 결정 가능).
    */
   async getPreview(rawUrl: string): Promise<LinkPreview> {
-    const guard = await ssrfGuard(rawUrl);
+    // S60 (FR-RC07): 추적 파라미터/trailing slash/대소문자 정규화 후 SSRF 검증한다.
+    const normalized = normalizeUrl(rawUrl);
+    const guard = await ssrfGuard(normalized);
     if (!guard.ok) {
       throw this.toGuardError(guard.reason);
     }
-    const normalized = guard.url.toString();
+    const target = guard.url.toString();
     const cacheKey = this.cacheKey(normalized);
     const cached = await this.redis.get(cacheKey);
     if (cached) {
@@ -61,11 +73,56 @@ export class LinksService {
         // corrupt cache — fall through to refetch.
       }
     }
-    const preview = await this.fetchAndParse(normalized);
+    const preview = await this.fetchAndParse(target);
+    await this.cachePreview(normalized, preview);
+    return preview;
+  }
+
+  /**
+   * S60 (FR-RC07/09): normalizeUrl() 결과의 sha256(64 hex)을 캐시 키 + DB cacheKey 로
+   * 쓴다. REST 경로(getPreview)는 32자 슬라이스 키(`linkpreview:`)를 그대로 유지하고,
+   * 워커/DB 는 전체 64 hex(`embedCacheKey`)를 쓴다 — 두 경로를 한 곳에서 산정한다.
+   */
+  embedCacheKey(rawUrl: string): string {
+    return this.embedCacheKeyFromNormalized(normalizeUrl(rawUrl));
+  }
+
+  /**
+   * S60 fix (security MEDIUM-1 / perf MINOR): 이미 정규화된 URL 에서 캐시 키(64 hex
+   * sha256)를 직접 산정한다. Processor 는 `normalized` 를 이미 갖고 있으므로 이중
+   * normalizeUrl() 호출과 그로 인한 정규화 드리프트(두 경로 키 불일치)를 제거한다.
+   */
+  embedCacheKeyFromNormalized(normalizedUrl: string): string {
+    return createHash('sha256').update(normalizedUrl).digest('hex');
+  }
+
+  /**
+   * S60: UnfurlProcessor 가 캐시 키(64 hex sha256)로 Redis 캐시를 조회한다. hit 면
+   * 파싱된 LinkPreview, miss 면 null. 손상된 캐시는 null(refetch 유도).
+   */
+  async getCachedByKey(cacheKey64: string): Promise<LinkPreview | null> {
+    const cached = await this.redis.get(`linkembed:${cacheKey64}`);
+    if (!cached) return null;
+    try {
+      return JSON.parse(cached) as LinkPreview;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * S60: 정규화 URL 의 fetch+parse 결과를 Redis 에 캐시한다(REST 키 + 워커 키 동시).
+   * 성공(2xx)은 1800s, 실패는 60s. 워커는 fetchAndParse 결과를 이 메서드로 적재한다.
+   */
+  async cachePreview(normalizedUrl: string, preview: LinkPreview): Promise<void> {
     const ttl =
       preview.statusCode >= 200 && preview.statusCode < 300 ? CACHE_TTL_OK_SEC : CACHE_TTL_FAIL_SEC;
-    await this.redis.set(cacheKey, JSON.stringify(preview), 'EX', ttl);
-    return preview;
+    const payload = JSON.stringify(preview);
+    const key64 = createHash('sha256').update(normalizedUrl).digest('hex');
+    await Promise.all([
+      this.redis.set(this.cacheKey(normalizedUrl), payload, 'EX', ttl),
+      this.redis.set(`linkembed:${key64}`, payload, 'EX', ttl),
+    ]);
   }
 
   private cacheKey(url: string): string {
@@ -84,37 +141,59 @@ export class LinksService {
     return new DomainError(ErrorCode.VALIDATION_FAILED, map[reason]);
   }
 
-  private async fetchAndParse(url: string): Promise<LinkPreview> {
+  /**
+   * S60: 정규화·SSRF 검증을 마친 URL 을 fetch + 파싱해 LinkPreview 를 돌려준다. REST
+   * 경로(getPreview)와 UnfurlProcessor 가 공유한다(public). 캐시 적재/조회는 호출자가
+   * 담당한다(이 메서드는 순수 fetch+parse).
+   */
+  async fetchAndParse(url: string): Promise<LinkPreview> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: Response;
+    let res: IncomingMessage;
+    let finalUrl = url;
     try {
-      // Node 20 native fetch — redirect 'follow' 이 max 20 까지라 명시적
-      // 제한 위해 manual 처리 X 하고 native 의 redirect:'follow' 허용.
-      // SSRF guard 는 첫 hostname 만 검증하므로 redirect 가 사설 IP 로
-      // 가는 위험은 남음 — 그래서 redirect 한 번에 최대 3, 그리고 매
-      // step 마다 SSRF 재검증을 위해 manual loop 가 더 안전합니다.
-      res = await this.followRedirects(url, controller.signal);
+      // S60 fix (security BLOCKER-1 / HIGH-3): native fetch 대신 IP 핀 HTTP(pinned-http)로
+      // 각 hop ssrfGuard 재검증 + 검증된 IP 로 직접 connect 한다. fetch() 는 검증 후
+      // connect 시점에 DNS 를 재조회해 rebinding(검증 IP ≠ 연결 IP) TOCTOU 가 생긴다.
+      // 상한 5회 · 5s 타임아웃 · og-image-fetcher 와 동일 모듈 공유.
+      const followed = await followPinnedRedirects({
+        startUrl: url,
+        maxRedirects: MAX_REDIRECTS,
+        timeoutMs: FETCH_TIMEOUT_MS,
+        headers: {
+          'user-agent': USER_AGENT,
+          accept: 'text/html,application/xhtml+xml',
+          'accept-language': 'en;q=0.9,ko;q=0.8',
+        },
+        signal: controller.signal,
+      });
+      res = followed.res;
+      finalUrl = followed.finalUrl;
     } catch (e: unknown) {
       clearTimeout(timer);
       const msg = e instanceof Error ? e.message : 'fetch failed';
       this.logger.warn({ url, err: msg }, 'link preview fetch error');
       return this.emptyPreview(url, 0);
     }
-    clearTimeout(timer);
-    const status = res.status;
-    if (!res.ok) {
+    const status = res.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      clearTimeout(timer);
+      res.resume(); // body 소진(소켓 해제).
       return this.emptyPreview(url, status);
     }
-    const ct = res.headers.get('content-type') ?? '';
-    if (!ct.toLowerCase().includes('html')) {
+    const ct = (res.headers['content-type'] ?? '').toLowerCase();
+    if (!ct.includes('html')) {
       // 비-HTML (이미지, JSON, application/octet-stream) 은 파싱 불가.
+      clearTimeout(timer);
+      res.resume();
       return this.emptyPreview(url, status);
     }
-    const html = await this.readBoundedText(res);
-    if (html === null) {
+    const buf = await readBoundedBuffer(res, MAX_BODY_BYTES);
+    clearTimeout(timer);
+    if (buf === null) {
       return this.emptyPreview(url, status);
     }
+    const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     const og = parseOgMetadata(html);
     let host: string;
     try {
@@ -122,78 +201,34 @@ export class LinksService {
     } catch {
       host = '';
     }
+    // S60: og:image 가 상대 URL 일 수 있으므로 최종 응답 URL(redirect 종료 URL, 없으면
+    // 요청 url) 기준으로 절대화한다. 절대화 실패하면 null(이미지 없음 — 카드 텍스트 유지).
+    const image = this.resolveImageUrl(og.image, finalUrl || url);
     return {
       url,
       title: og.title,
       description: og.description,
-      image: og.image,
+      image,
       siteName: og.siteName ?? host,
       statusCode: status,
       fetchedAt: new Date().toISOString(),
     };
   }
 
-  private async followRedirects(url: string, signal: AbortSignal): Promise<Response> {
-    let current = url;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const guard = await ssrfGuard(current);
-      if (!guard.ok) {
-        throw new Error(`ssrf-guard rejected redirect target: ${guard.reason}`);
-      }
-      const res = await fetch(current, {
-        method: 'GET',
-        redirect: 'manual',
-        signal,
-        headers: {
-          'user-agent': USER_AGENT,
-          accept: 'text/html,application/xhtml+xml',
-          'accept-language': 'en;q=0.9,ko;q=0.8',
-        },
-      });
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers.get('location');
-        if (!loc) return res;
-        try {
-          current = new URL(loc, current).toString();
-        } catch {
-          return res;
-        }
-        continue;
-      }
-      return res;
+  /**
+   * S60: og:image 후보를 페이지 base URL 기준 절대 URL 로 정규화한다. 비-http(s)
+   * (data:/javascript: 등)는 null 로 거부한다 — og-image-fetcher 가 다시 ssrfGuard +
+   * image/* 검증을 하지만, 명백한 비안전 스킴은 여기서도 1차 차단한다.
+   */
+  private resolveImageUrl(image: string | null, baseUrl: string): string | null {
+    if (!image) return null;
+    try {
+      const abs = new URL(image, baseUrl);
+      if (abs.protocol !== 'http:' && abs.protocol !== 'https:') return null;
+      return abs.toString();
+    } catch {
+      return null;
     }
-    throw new Error('too many redirects');
-  }
-
-  private async readBoundedText(res: Response): Promise<string | null> {
-    if (!res.body) return null;
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
-        try {
-          await reader.cancel();
-        } catch {
-          /* noop */
-        }
-        // 256KB 까지만 사용 — head section 은 거의 항상 그 안에 있음.
-        chunks.push(value.subarray(0, value.byteLength - (total - MAX_BODY_BYTES)));
-        break;
-      }
-      chunks.push(value);
-    }
-    const merged = new Uint8Array(total > MAX_BODY_BYTES ? MAX_BODY_BYTES : total);
-    let offset = 0;
-    for (const c of chunks) {
-      merged.set(c, offset);
-      offset += c.byteLength;
-    }
-    return new TextDecoder('utf-8', { fatal: false }).decode(merged);
   }
 
   private emptyPreview(url: string, statusCode: number): LinkPreview {
