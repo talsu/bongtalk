@@ -21,6 +21,7 @@ import {
 } from './useMessages';
 import { qk } from '../../lib/query-keys';
 import { MessageItem } from './MessageItem';
+import { ReportModal } from './ReportModal';
 import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedMessages';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
@@ -176,6 +177,9 @@ export function MessageList({
   // the original Idempotency-Key.
   const { retry } = useSendMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
+  // S64 (FR-RM11): 메시지 신고 모달 대상 messageId(없으면 닫힘). 워크스페이스 채널에서만
+  // 신고 메뉴를 노출하므로 DM(workspaceId=null)에서는 onReport 자체를 전달하지 않는다.
+  const [reportTargetId, setReportTargetId] = useState<string | null>(null);
 
   const messages = useMemo<MessageDto[]>(() => {
     const pages = history.data?.pages ?? [];
@@ -945,6 +949,16 @@ export function MessageList({
                             }
                           : undefined
                       }
+                      // S64 (FR-RM11): 워크스페이스 채널 + 타인 메시지 + 비-tmp 행에서만
+                      // 신고 메뉴를 노출한다(DM·본인 메시지는 undefined → hide).
+                      onReport={
+                        workspaceId &&
+                        m.authorId !== user?.id &&
+                        !m.id.startsWith('tmp-') &&
+                        !m.deleted
+                          ? () => setReportTargetId(m.id)
+                          : undefined
+                      }
                     />
                   </div>
                 );
@@ -953,6 +967,14 @@ export function MessageList({
           )}
         </Scrollable>
       </div>
+      {workspaceId && reportTargetId ? (
+        <ReportModal
+          workspaceId={workspaceId}
+          channelId={channelId}
+          messageId={reportTargetId}
+          onClose={() => setReportTargetId(null)}
+        />
+      ) : null}
     </CustomEmojiProvider>
   );
 }

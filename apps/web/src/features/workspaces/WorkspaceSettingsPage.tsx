@@ -10,6 +10,9 @@ import { useUpdateWorkspace } from './useWorkspaces';
 import { WorkspaceEmojiManager } from '../emojis/WorkspaceEmojiManager';
 // S61 (D12 / FR-RM01): 역할 관리 본문(설정 오버레이 탭으로 인라인 렌더).
 import { RolesManager } from './roles/RolesModal';
+// S64 (D12 / FR-RM11·12): 감사 로그 조회 + 신고 큐 패널.
+import { AuditLogPanel } from './moderation/AuditLogPanel';
+import { ReportQueuePanel } from './moderation/ReportQueuePanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -48,8 +51,12 @@ export function WorkspaceSettingsPage({
   // S61 (FR-RM01): 역할 관리는 ADMIN+ 만 편집(MEMBER 는 탭 미노출). 편집 가능 여부는
   // canManageRoles 로 RolesManager 에 전달하며, 서버 게이트(@Roles ADMIN)가 최종 권위.
   const canManageRoles = myRole === 'OWNER' || myRole === 'ADMIN';
+  // S64 (FR-RM12): 감사 로그 조회는 ADMIN+ enum 게이트(★결정 B). 서버 @Roles('ADMIN') 권위.
+  const canViewAuditLog = myRole === 'OWNER' || myRole === 'ADMIN';
+  // S64 (FR-RM11): 신고 큐는 MODERATOR 이상. 서버 ModerationReportService 가 최종 게이트.
+  const canModerateReports = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
 
-  type TabKey = 'general' | 'emoji' | 'roles';
+  type TabKey = 'general' | 'emoji' | 'roles' | 'reports' | 'audit-log';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -64,8 +71,14 @@ export function WorkspaceSettingsPage({
     if (canManageRoles) {
       list.push({ key: 'roles', label: '역할 관리', testId: 'ws-settings-tab-roles' });
     }
+    if (canModerateReports) {
+      list.push({ key: 'reports', label: '신고 큐', testId: 'ws-settings-tab-reports' });
+    }
+    if (canViewAuditLog) {
+      list.push({ key: 'audit-log', label: '감사 로그', testId: 'ws-settings-tab-audit-log' });
+    }
     return list;
-  }, [canManageEmoji, canManageRoles]);
+  }, [canManageEmoji, canManageRoles, canModerateReports, canViewAuditLog]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
@@ -173,6 +186,22 @@ export function WorkspaceSettingsPage({
         {tab === 'roles' && canManageRoles ? (
           <div role="tabpanel" id="ws-settings-panel-roles" aria-labelledby="ws-settings-tab-roles">
             <RolesManager workspaceId={workspace.id} canManage={canManageRoles} />
+          </div>
+        ) : tab === 'reports' && canModerateReports ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-reports"
+            aria-labelledby="ws-settings-tab-reports"
+          >
+            <ReportQueuePanel workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'audit-log' && canViewAuditLog ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-audit-log"
+            aria-labelledby="ws-settings-tab-audit-log"
+          >
+            <AuditLogPanel workspaceId={workspace.id} />
           </div>
         ) : tab === 'emoji' && canManageEmoji ? (
           <div role="tabpanel" id="ws-settings-panel-emoji" aria-labelledby="ws-settings-tab-emoji">
