@@ -133,6 +133,19 @@ export const WS_EVENTS = {
   // 목록/카운트를 낙관 갱신한다.
   CHANNEL_PIN_ADDED: 'channel:pin_added',
   CHANNEL_PIN_REMOVED: 'channel:pin_removed',
+  // 저장 리마인더 발화 (S53 · D10 · FR-PS-09/10): 저장 항목에 예약한 리마인더
+  // 시각이 도래하면 BullMQ in-process worker(ReminderProcessor)가 수신자의
+  // user:{userId} 룸으로 push 한다. 채널 룸/outbox 경유가 아니라 게이트웨이가
+  // 직접 emit 하는 개인 전용 이벤트다(read_state:updated 선례). 클라이언트는
+  // 토스트(다시 알림/완료/무시) + 권한 있으면 브라우저 Notification 을 띄운다.
+  // DND 게이트는 적용하지 않는다 — 사용자가 직접 설정한 예약이므로 Slack 처럼
+  // 항상 발화한다(서버 처리부에서 bypass).
+  REMINDER_FIRE: 'user:reminder_fire',
+  // 저장 항목 갱신 (S53 · D10 · FR-PS-09/10/11): 리마인더 설정/취소/스누즈/발화
+  // 등으로 저장 항목 메타가 바뀌면 수신자의 user:{userId} 룸으로 push 한다(다른
+  // 기기/탭 동기화). 클라이언트는 저장 목록 캐시를 무효화한다. payload 는 최소
+  // 식별자(savedMessageId) + 변경 후 status·reminderAt 스냅샷이다.
+  SAVED_UPDATED: 'user:saved_updated',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -477,6 +490,38 @@ export const ChannelPinRemovedPayloadSchema = z.object({
 });
 export type ChannelPinRemovedPayload = z.infer<typeof ChannelPinRemovedPayloadSchema>;
 
+// ── 저장 리마인더 (S53 · D10 · FR-PS-09/10/11) ──────────────────────────────
+/**
+ * user:reminder_fire — 저장 항목 리마인더 시각 도래 시 수신자의 user:{userId}
+ * 룸으로 emit (S53 · FR-PS-09/10). BullMQ in-process worker(ReminderProcessor)가
+ * 직접 emit 하는 개인 전용 이벤트다. payload 는 토스트/브라우저 Notification 렌더에
+ * 필요한 최소 컨텍스트 — 저장 항목 id, 원본 메시지/채널 id + 채널명 + 발췌(≤150자) +
+ * 최초 저장 시각. 발췌는 원본이 살아 있을 때만 채워지며, 삭제된 원본은 마스킹된
+ * placeholder 가 내려온다(서버 측 동일 정책).
+ */
+export const ReminderFirePayloadSchema = z.object({
+  savedMessageId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  channelId: z.string().uuid(),
+  channelName: z.string(),
+  messagePreview: z.string(),
+  originalSavedAt: z.string().datetime(),
+});
+export type ReminderFirePayload = z.infer<typeof ReminderFirePayloadSchema>;
+
+/**
+ * user:saved_updated — 저장 항목 메타(status / reminderAt) 변경 시 수신자의
+ * user:{userId} 룸으로 emit (S53 · FR-PS-09/10/11). 리마인더 설정/취소/스누즈/발화
+ * 및 PATCH status 이동에서 발행해 다른 기기/탭의 저장 목록 캐시를 무효화한다.
+ * payload 는 최소 식별자 + 변경 후 스냅샷(status·reminderAt nullable)이다.
+ */
+export const SavedUpdatedPayloadSchema = z.object({
+  savedMessageId: z.string().uuid(),
+  status: z.enum(['IN_PROGRESS', 'ARCHIVED', 'COMPLETED']),
+  reminderAt: z.string().datetime().nullable(),
+});
+export type SavedUpdatedPayload = z.infer<typeof SavedUpdatedPayloadSchema>;
+
 // ── 타이핑 ──────────────────────────────────────────────────────────────────
 export const TypingStartPayloadSchema = z.object({ channelId: ChannelIdSchema });
 export type TypingStartPayload = z.infer<typeof TypingStartPayloadSchema>;
@@ -805,4 +850,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.NOTIFICATION_BADGE_UPDATE]: NotificationBadgeUpdatePayloadSchema,
   [WS_EVENTS.CHANNEL_PIN_ADDED]: ChannelPinAddedPayloadSchema,
   [WS_EVENTS.CHANNEL_PIN_REMOVED]: ChannelPinRemovedPayloadSchema,
+  [WS_EVENTS.REMINDER_FIRE]: ReminderFirePayloadSchema,
+  [WS_EVENTS.SAVED_UPDATED]: SavedUpdatedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

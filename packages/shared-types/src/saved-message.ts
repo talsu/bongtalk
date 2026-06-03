@@ -32,6 +32,13 @@ export const SavedMessageDtoSchema = z.object({
   // 원본 채널 컨텍스트. DM/그룹 DM 은 channelName 이 dedup slug 일 수 있다.
   channelId: z.string().uuid(),
   channelName: z.string(),
+  // S53 (D10 / FR-PS-09/10/11): 저장 리마인더 메타. 전부 nullable(미설정/미발화/
+  // 미스누즈/메모 없음). reminderAt = 예약 발화 시각, reminderFiredAt = 실제 발화
+  // 시각(놓친 리마인더 판정), snoozedUntil = 스누즈 재예약 시각, note = 사용자 메모.
+  reminderAt: z.string().datetime().nullable().optional(),
+  reminderFiredAt: z.string().datetime().nullable().optional(),
+  snoozedUntil: z.string().datetime().nullable().optional(),
+  note: z.string().nullable().optional(),
 });
 export type SavedMessageDto = z.infer<typeof SavedMessageDtoSchema>;
 
@@ -68,6 +75,36 @@ export const UpdateSavedStatusBodySchema = z.object({
   status: SaveStatusSchema,
 });
 export type UpdateSavedStatusBody = z.infer<typeof UpdateSavedStatusBodySchema>;
+
+// S53 (D10 / FR-PS-09/10/11): PATCH /me/saved/:savedMessageId 의 확장 body.
+// S52 의 status-only 계약을 깨지 않도록(무회귀) 모든 필드를 optional 로 둔다 —
+// S52 클라이언트는 `{ status }` 만 보내고, S53 클라이언트는 reminderAt/note 를
+// 추가로 보낼 수 있다. 컨트롤러는 status 존재 시 탭 이동, reminderAt 존재 시
+// 리마인더 설정/취소(null 이면 cancel)를 함께 처리한다.
+//   - reminderAt: ISO datetime 문자열(설정) | null(취소). 미동봉 시 변경 없음.
+//   - note: 사용자 메모(≤500자) | null(삭제). 미동봉 시 변경 없음.
+// 적어도 한 필드는 있어야 한다(전부 미동봉이면 의미 없는 PATCH → 컨트롤러가 거부).
+export const UpdateSavedMessageBodySchema = z
+  .object({
+    status: SaveStatusSchema.optional(),
+    reminderAt: z.string().datetime().nullable().optional(),
+    note: z.string().max(500).nullable().optional(),
+  })
+  .refine((b) => b.status !== undefined || b.reminderAt !== undefined || b.note !== undefined, {
+    message: 'at least one of status/reminderAt/note is required',
+  });
+export type UpdateSavedMessageBody = z.infer<typeof UpdateSavedMessageBodySchema>;
+
+// S53 (D10 / FR-PS-10): POST /me/saved/:savedMessageId/snooze — "10분 후 다시
+// 알림". 현재는 단일 옵션(10분)만 지원하므로 z.literal(10) 으로 고정한다(잘못된
+// 값은 400). 향후 30/60분 등 확장 시 z.union 으로 늘린다. 서버는 snoozedUntil =
+// now + snoozeMinutes, reminderAt = snoozedUntil, reminderFiredAt = null 로
+// 재예약한다(BullMQ reschedule).
+export const SNOOZE_MINUTES = 10;
+export const SnoozeReminderBodySchema = z.object({
+  snoozeMinutes: z.literal(SNOOZE_MINUTES),
+});
+export type SnoozeReminderBody = z.infer<typeof SnoozeReminderBodySchema>;
 
 // S52 (D10 / FR-PS-13): 메시지 툴바 북마크 채움 상태 일괄 초기화 상한. 채널 진입 시
 // 렌더 중인 메시지 id 배치를 1회 조회해 북마크 채움을 seed 한다(N+1 단건 GET 금지).
