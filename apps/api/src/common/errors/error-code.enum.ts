@@ -161,6 +161,10 @@ export enum ErrorCode {
   // 세션 20개 중 하나) → 429. 일반 RATE_LIMITED 와 구분해 클라가 "업로드 한도" 토스트로
   // 분기할 수 있게 별도 코드로 둔다.
   UPLOAD_RATE_LIMIT = 'UPLOAD_RATE_LIMIT',
+  // S55 (D11 / FR-CH-18): 채널의 fileUploadEnabled=false 인데 upload-url 을 시도 →
+  // 403. 일반 FORBIDDEN(권한 부족)과 구분해 클라가 "이 채널은 첨부가 비활성화됨"
+  // 안내를 띄울 수 있게 별도 코드로 둔다.
+  FILE_UPLOAD_DISABLED = 'FILE_UPLOAD_DISABLED',
 
   // S48 (D06 / FR-MN-10): 글로벌 키워드 알림 등록 한도(25개) 초과. PRD 정본은
   // 이 거부를 400 으로 명시한다(서비스 레이어 검증 — 26번째 등록 시도 시 400,
@@ -303,6 +307,7 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.ATTACHMENT_COUNT_EXCEEDED]: 400,
   [ErrorCode.MIME_MISMATCH]: 400,
   [ErrorCode.UPLOAD_RATE_LIMIT]: 429,
+  [ErrorCode.FILE_UPLOAD_DISABLED]: 403,
 
   // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
   [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,

@@ -193,3 +193,35 @@ export const UserSettingsResponseSchema = z.object({
   markAsReadMode: MarkAsReadModeSchema,
 });
 export type UserSettingsResponse = z.infer<typeof UserSettingsResponseSchema>;
+
+// ── FR-AM-20 + FR-CH-18: 첨부 업로드 정책(워크스페이스 설정 + 채널 오버라이드) ──
+/**
+ * 단일 차단 확장자 토큰 검증(소문자 영숫자 1~20자, 점 제외). 클라가 "exe"/"sh" 같은
+ * 순수 확장자를 보내도록 강제한다(".exe" 의 점·경로·널바이트 차단).
+ */
+export const BlockedExtensionTokenSchema = z
+  .string()
+  .min(1)
+  .max(20)
+  .regex(/^[a-z0-9]{1,20}$/, 'extension must be lowercase alphanumeric, no dot');
+
+/**
+ * FR-AM-20: PATCH /workspaces/:id/settings 바디. ADMIN 권한. 두 필드 모두 선택 —
+ * 미지정이면 변경 없음. maxFileSizeBytes 는 null 로 워크스페이스 상한 해제(전역 기본
+ * 폴백), 양의 정수로 설정. blockedExtensions 는 워크스페이스 추가 차단 목록(전역
+ * BLOCKED_EXTENSIONS 와 합집합)으로 통째 교체된다(빈 배열 = 추가 차단 없음).
+ */
+export const UpdateWorkspaceSettingRequestSchema = z
+  .object({
+    maxFileSizeBytes: z.number().int().positive().max(ATTACHMENT_MAX_BYTES).nullable().optional(),
+    blockedExtensions: z.array(BlockedExtensionTokenSchema).max(100).optional(),
+  })
+  .strict();
+export type UpdateWorkspaceSettingRequest = z.infer<typeof UpdateWorkspaceSettingRequestSchema>;
+
+/** GET/PATCH 응답. maxFileSizeBytes 는 와이어상 number|null(BigInt → number 직렬화). */
+export const WorkspaceSettingResponseSchema = z.object({
+  maxFileSizeBytes: z.number().int().nonnegative().nullable(),
+  blockedExtensions: z.array(z.string()),
+});
+export type WorkspaceSettingResponse = z.infer<typeof WorkspaceSettingResponseSchema>;
