@@ -19,7 +19,8 @@ import { useMembers, useWorkspace } from '../workspaces/useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
 import { useChannelList } from '../channels/useChannels';
 import { usePresence } from '../realtime/usePresence';
-import { uploadAttachment, type UploadedAttachment } from './useAttachmentUpload';
+import { useAttachmentUpload } from '../attachments/useAttachmentUpload';
+import { AttachmentTray } from '../attachments/AttachmentTray';
 import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
 import { computeCounter } from './composerCounter';
 import { cn } from '../../lib/cn';
@@ -78,12 +79,6 @@ function makeTypingEmitter(channelId: string): TypingEmitter {
       if (socket?.connected) socket.emit(WS_EVENTS.TYPING_STOP, { channelId });
     },
   });
-}
-
-function formatSize(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
 }
 
 // A-03: 자동완성 종류별 sr-only 통지 명사. "멤버 3개" 처럼 결과 수와 결합한다.
@@ -146,44 +141,28 @@ export function MessageComposer({
   const notify = useNotifications((s) => s.push);
   const { data: customEmojiData } = useCustomEmojis(workspaceId);
   const [emojiOpen, setEmojiOpen] = useState(false);
-  // Uploaded-but-not-yet-sent attachments. Flushed after submit.
-  const [pending, setPending] = useState<UploadedAttachment[]>([]);
-  // In-flight / failed upload jobs. `pending` holds the finalized rows
-  // only (attachmentId the server knows about); `jobs` holds the
-  // lifecycle state so the chip UI can show "업로드 중…" and
-  // "업로드 실패 · 재시도" with a retry button. Cleared after send.
-  const [jobs, setJobs] = useState<
-    Array<{
-      id: string;
-      file: File;
-      status: 'uploading' | 'failed';
-      error?: string;
-    }>
-  >([]);
-  // task-042 R0 F3 (review M2 follow): refs mirror pending/jobs so
-  // `onFiles` reading mid-async never sees stale closure values. The
-  // race the reviewer flagged is "user picks files via dropdown then
-  // immediately drops more files before React re-renders" — both
-  // closures read the same `pending.length + jobs.length` snapshot,
-  // both pass the cap check, sum exceeds 10. Refs are updated on
-  // every state change (synchronous via useEffect → not perfect but
-  // covers the typical 100ms double-pick window) so the clamp reads
-  // the latest count.
-  const pendingRef = useRef(pending);
-  const jobsRef = useRef(jobs);
+
+  // S56 (D11 / FR-AM-02/22): 3단계 업로드 트레이. 항목별 진행률/상태/alt/spoiler 를
+  // 훅이 관리하고, 전송 시 completeAndCollect 가 READY 항목을 complete 해
+  // attachmentIds 를 모은다(sortOrder = 트레이 인덱스). 토스트는 notify 로 위임.
+  const tray = useAttachmentUpload(workspaceId, channelId, (t) =>
+    notify({ variant: t.variant, title: t.title, body: t.body, ttlMs: 6000 }),
+  );
+  const trayItems = tray.items;
+  const uploading = tray.uploadingCount;
+  // 클램프 race 가드: 현재 트레이 항목 수를 ref 로 읽어 연속 드롭/선택을 직렬화한다.
+  const trayCountRef = useRef(trayItems.length);
   useEffect(() => {
-    pendingRef.current = pending;
-  }, [pending]);
-  useEffect(() => {
-    jobsRef.current = jobs;
-  }, [jobs]);
-  const uploading = jobs.filter((j) => j.status === 'uploading').length;
+    trayCountRef.current = trayItems.length;
+  }, [trayItems.length]);
+  // complete 진행 중 중복 전송 방지.
+  const [sending, setSending] = useState(false);
 
   useEffect(() => {
     textareaRef.current?.focus();
-    setPending([]);
-    setJobs([]);
+    tray.reset();
     setEmojiOpen(false);
+    // channelId 전환 시에만 트레이를 비운다(tray.reset 은 안정 콜백).
   }, [channelId]);
 
   // task-047 iter5 (O1): channel empty state CTA → composer 포커스.
@@ -195,6 +174,20 @@ export function MessageComposer({
     window.addEventListener('qufox.composer.focus', onFocus);
     return () => window.removeEventListener('qufox.composer.focus', onFocus);
   }, []);
+
+  // S56 (D11 / FR-AM-01/21): MessageColumn 의 드롭/붙여넣기가 파일을 dispatch 하면
+  // 컴포저의 onFiles(클램프 포함)로 받는다(qufox.composer.focus 와 동일 DOM 이벤트
+  // 패턴). 채널이 다른 컴포저가 동시에 받지 않도록 detail.channelId 로 게이트한다.
+  useEffect(() => {
+    const onAddFiles = (e: Event): void => {
+      const detail = (e as CustomEvent<{ channelId: string; files: File[] }>).detail;
+      if (!detail || detail.channelId !== channelId) return;
+      void onFiles(detail.files);
+    };
+    window.addEventListener('qufox.composer.addFiles', onAddFiles);
+    return () => window.removeEventListener('qufox.composer.addFiles', onAddFiles);
+    // onFiles 는 매 렌더 새로 만들어지지만 channelId 동안 동작이 동일하다.
+  }, [channelId]);
 
   // task-021-R1 reviewer HIGH fix / S32 (FR-RT-08): when the user switches
   // channels (or unmounts the composer entirely), send typing:stop for the
@@ -388,19 +381,41 @@ export function MessageComposer({
 
   const doSend = (): void => {
     const trimmed = draft.trim();
-    if (!trimmed && pending.length === 0) return;
-    send(trimmed || ' ', pending.length > 0 ? pending.map((p) => p.id) : undefined);
-    clearDraft(channelId);
-    setPending([]);
-    setPendingSpecial(null);
-    sendTypingStop();
+    const hasAttachments = trayItems.length > 0;
+    if (!trimmed && !hasAttachments) return;
+    // 업로드 진행 중이거나 전송 중이면 막는다(전송 버튼도 비활성 — 이중 가드).
+    if (uploading > 0 || sending) return;
+
+    if (!hasAttachments) {
+      // 첨부 없는 일반 전송 — 동기.
+      send(trimmed || ' ');
+      clearDraft(channelId);
+      setPendingSpecial(null);
+      sendTypingStop();
+      return;
+    }
+
+    // S56 (D11): READY 항목을 complete → attachmentIds 모은 뒤 sendMessage.
+    setSending(true);
+    void tray
+      .completeAndCollect()
+      .then((attachmentIds) => {
+        // complete 가 실패하면(빈 배열) 토스트는 훅이 이미 띄웠고, 본문만으로
+        // 전송할지 사용자가 다시 시도할 수 있게 draft 는 유지한다.
+        if (attachmentIds.length === 0) return;
+        send(trimmed || ' ', attachmentIds);
+        clearDraft(channelId);
+        setPendingSpecial(null);
+        sendTypingStop();
+      })
+      .finally(() => setSending(false));
   };
 
   const submit = (): void => {
     // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
     if (counter.overLimit) return;
     const trimmed = draft.trim();
-    if (!trimmed && pending.length === 0) return;
+    if (!trimmed && trayItems.length === 0) return;
     // S44 (FR-MN-16): 권한 없는 @everyone/@here 를 입력하면 전송 전 경고 토스트로
     // "이 채널에서 알림이 가지 않음"을 고지한다. 메시지는 그대로 전송되며(서버
     // 게이트가 fanout 만 silently 무효화 — FR-MN-02 / Discord parity), 사용자는
@@ -454,35 +469,13 @@ export function MessageComposer({
     });
   };
 
-  const runUpload = async (jobId: string, file: File): Promise<void> => {
-    try {
-      const uploaded = await uploadAttachment(channelId, file);
-      setPending((p) => [...p, uploaded]);
-      setJobs((prev) => prev.filter((j) => j.id !== jobId));
-    } catch (err) {
-      const msg = (err as Error).message;
-      setJobs((prev) =>
-        prev.map((j) => (j.id === jobId ? { ...j, status: 'failed', error: msg } : j)),
-      );
-      notify({
-        variant: 'danger',
-        title: '업로드 실패',
-        body: `${file.name}: ${msg}`,
-      });
-    }
-  };
-
-  const onFiles = async (files: FileList | null): Promise<void> => {
-    if (!files || files.length === 0) return;
-    // task-040 R4 + task-042 R0 F3 (review M2): clamp via refs so two
-    // racing onFiles calls each see the latest pending+jobs state.
-    // Without refs both calls read the same render-snapshot count and
-    // could collectively exceed MAX_ATTACHMENTS. The refs are updated
-    // synchronously by the useEffect mirror above; even back-to-back
-    // calls in the same tick now serialize via reading pendingRef +
-    // jobsRef before deciding the slice.
+  // S56 (D11 / FR-AM-01): 파일 진입(드롭다운 input / 드롭 / 붙여넣기) 공통 경로.
+  // 클램프(최대 10개)는 트레이 항목 수 ref 기준으로 racing 호출을 직렬화한다.
+  const onFiles = async (files: FileList | File[] | null): Promise<void> => {
+    if (!files) return;
     const incoming = Array.from(files);
-    const currentCount = pendingRef.current.length + jobsRef.current.length;
+    if (incoming.length === 0) return;
+    const currentCount = trayCountRef.current;
     const { accepted, rejected, truncated } = clampAttachments({ currentCount, incoming });
     if (truncated) {
       notify({
@@ -493,33 +486,9 @@ export function MessageComposer({
       });
     }
     if (accepted.length === 0) return;
-    const newJobs = accepted.map((file) => ({
-      id: crypto.randomUUID(),
-      file,
-      status: 'uploading' as const,
-    }));
-    // Functional updater so the append is correct even if React
-    // batches the state update. Ref mirror above guarantees the next
-    // racing onFiles call sees these jobs in its currentCount.
-    setJobs((prev) => {
-      const next = [...prev, ...newJobs];
-      jobsRef.current = next;
-      return next;
-    });
-    await Promise.all(newJobs.map((job) => runUpload(job.id, job.file)));
-  };
-
-  const retryJob = (jobId: string): void => {
-    const job = jobs.find((j) => j.id === jobId);
-    if (!job) return;
-    setJobs((prev) =>
-      prev.map((j) => (j.id === jobId ? { ...j, status: 'uploading', error: undefined } : j)),
-    );
-    void runUpload(jobId, job.file);
-  };
-
-  const removeJob = (jobId: string): void => {
-    setJobs((prev) => prev.filter((j) => j.id !== jobId));
+    // racing 드롭/선택 가드: 다음 호출이 즉시 최신 수를 보도록 ref 를 선반영.
+    trayCountRef.current = currentCount + accepted.length;
+    tray.addFiles(accepted);
   };
 
   // S13 (FR-CH-19): 게시 권한이 없는 ANNOUNCEMENT 채널이면 입력 자체를
@@ -555,74 +524,15 @@ export function MessageComposer({
 
   return (
     <div className="px-[var(--s-5)] pb-[var(--s-5)] pt-0">
-      {/* Pending attachments: chips above the composer so the user sees
-          what'll go out with the next send. Removable before submit. */}
-      {pending.length > 0 || jobs.length > 0 ? (
-        <ul
-          data-testid="composer-pending-attachments"
-          className="mb-[var(--s-2)] flex flex-wrap gap-[var(--s-2)]"
-        >
-          {pending.map((a) => (
-            <li
-              key={a.id}
-              data-testid={`composer-attachment-${a.id}`}
-              className="flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border border-border-subtle bg-bg-elevated px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)]"
-            >
-              <span className="truncate">{a.originalName}</span>
-              <span className="text-text-muted">{formatSize(a.sizeBytes)}</span>
-              <button
-                type="button"
-                aria-label={`${a.originalName} 첨부 제거`}
-                onClick={() => setPending((p) => p.filter((x) => x.id !== a.id))}
-                className="text-text-muted hover:text-text-strong"
-              >
-                <Icon name="x" size="sm" />
-              </button>
-            </li>
-          ))}
-          {jobs.map((j) => (
-            <li
-              key={j.id}
-              data-testid={`composer-upload-job-${j.id}`}
-              data-status={j.status}
-              className={cn(
-                'flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] border px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-13)]',
-                j.status === 'failed'
-                  ? 'border-danger/60 bg-danger/10 text-danger'
-                  : 'border-border-subtle bg-bg-elevated text-text-muted',
-              )}
-            >
-              <span className="truncate">{j.file.name}</span>
-              <span className="text-text-muted">{formatSize(j.file.size)}</span>
-              {j.status === 'uploading' ? (
-                <span className="text-text-muted">업로드 중…</span>
-              ) : (
-                <>
-                  <span className="truncate">실패</span>
-                  <button
-                    type="button"
-                    data-testid={`composer-upload-retry-${j.id}`}
-                    aria-label={`${j.file.name} 업로드 재시도`}
-                    onClick={() => retryJob(j.id)}
-                    className="qf-btn qf-btn--ghost qf-btn--sm !h-auto !px-[var(--s-2)] !py-0 text-accent"
-                  >
-                    재시도
-                  </button>
-                </>
-              )}
-              <button
-                type="button"
-                data-testid={`composer-upload-remove-${j.id}`}
-                aria-label={`${j.file.name} 업로드 제거`}
-                onClick={() => removeJob(j.id)}
-                className="text-text-muted hover:text-text-strong"
-              >
-                <Icon name="x" size="sm" />
-              </button>
-            </li>
-          ))}
-        </ul>
-      ) : null}
+      {/* S56 (D11 / FR-AM-02/22): 전송 전 첨부 미리보기 트레이. 항목별 진행률/
+          상태/alt/spoiler/제거/재시도 — AttachmentTray 가 렌더한다. */}
+      <AttachmentTray
+        items={trayItems}
+        onRemove={tray.removeItem}
+        onRetry={tray.retryItem}
+        onAltChange={tray.setAltText}
+        onToggleSpoiler={tray.toggleSpoiler}
+      />
       <form
         data-testid="msg-composer"
         onSubmit={(e) => {
@@ -873,8 +783,9 @@ export function MessageComposer({
           disabled={
             mutation.isPending ||
             uploading > 0 ||
+            sending ||
             counter.overLimit ||
-            (draft.trim().length === 0 && pending.length === 0)
+            (draft.trim().length === 0 && trayItems.length === 0)
           }
         />
       </form>

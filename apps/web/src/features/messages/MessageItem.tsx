@@ -19,7 +19,8 @@ import { renderMessageContent, extractMessageUrls } from './parseContent';
 import { renderAst, type MentionLookup } from './renderAst';
 import { resolveCopyPlainText } from './copyText';
 import { EditHistoryPopover } from './EditHistoryPopover';
-import { AttachmentsList, type AttachmentLite } from './AttachmentsList';
+import { AttachmentsList } from '../attachments/AttachmentsList';
+import type { AttachmentLite } from '@qufox/shared-types';
 import { LinkPreview } from './LinkPreview';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
@@ -200,7 +201,7 @@ export function MessageItem({
   // S06 (FR-RC15, P2): 이모지 1~3개로만 구성된 본문은 32px 로 확대. AST 없는
   // legacy(content 평문) 행은 판정 불가 → 기본 크기(과확대 회피).
   const jumbo = isJumboEmoji(msg.contentAst);
-  const attachments: AttachmentLite[] = (msg.attachments ?? []) as AttachmentLite[];
+  const attachments: AttachmentLite[] = msg.attachments ?? [];
   const messageUrl =
     typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
   // S37 (FR-MSG-17): "메시지 복사"의 정본 텍스트(평문 우선). 순수 헬퍼로 분리해
