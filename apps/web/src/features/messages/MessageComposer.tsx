@@ -409,15 +409,18 @@ export function MessageComposer({
       return;
     }
 
-    // S56 (D11): READY 항목을 complete → attachmentIds 모은 뒤 sendMessage.
+    // S56/S57 (D11 / FR-AM-24): READY 항목을 sending 으로 낙관 전환 후
+    // complete(지수 백오프) → attachmentIds 모은 뒤 sendMessage. 성공 항목은
+    // confirmed 로 남아 있으므로 전송 직후 clearConfirmed 로 트레이에서 비운다.
     setSending(true);
     void tray
       .completeAndCollect()
       .then((attachmentIds) => {
         // complete 가 실패하면(빈 배열) 토스트는 훅이 이미 띄웠고, 본문만으로
-        // 전송할지 사용자가 다시 시도할 수 있게 draft 는 유지한다.
+        // 전송할지 사용자가 다시 시도할 수 있게 draft 는 유지한다(failed 항목 보존).
         if (attachmentIds.length === 0) return;
         send(trimmed || ' ', attachmentIds);
+        tray.clearConfirmed();
         clearDraft(channelId);
         setPendingSpecial(null);
         sendTypingStop();
