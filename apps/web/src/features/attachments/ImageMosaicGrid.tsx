@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { AttachmentSpoilerOverlay } from './AttachmentSpoilerOverlay';
 import { useProxyObjectUrl } from './useProxyObjectUrl';
@@ -31,9 +32,10 @@ export interface ImageMosaicGridProps {
   images: AttachmentLite[];
   /**
    * S59 연결점. 셀(또는 "+N" 오버레이) 클릭 시 해당 index 로 호출됩니다. 미전달 시
-   * 클릭은 무동작입니다(라이트박스는 S59 에서 연결).
+   * 클릭은 무동작입니다.
+   * B-1: 클릭된 트리거 element 를 함께 넘겨 라이트박스 닫힐 때 포커스를 복원합니다.
    */
-  onImageOpen?: (index: number) => void;
+  onImageOpen?: (index: number, triggerEl?: HTMLElement | null) => void;
 }
 
 /** 5장 초과분을 +N 으로 가리므로 그리드가 렌더하는 셀은 최대 5칸입니다. */
@@ -103,7 +105,7 @@ interface MosaicCellProps {
   /** >0 이면 이 셀 위에 반투명 "+N" 오버레이를 띄웁니다(6장 이상의 5번째 셀). */
   overflowCount: number;
   spanClassName: string;
-  onImageOpen?: (index: number) => void;
+  onImageOpen?: (index: number, triggerEl?: HTMLElement | null) => void;
 }
 
 function MosaicCell({
@@ -121,9 +123,13 @@ function MosaicCell({
   // H-01: altText 가 빈 문자열("")이면 originalName 으로 폴백합니다(?? 는 null/undefined
   // 만 폴백하므로 trim() 후 truthy 검사로 빈 alt 렌더를 막습니다).
   const alt = attachment.altText?.trim() || attachment.originalName;
-  // 클릭 가능 여부 — onImageOpen 미전달이면 무동작(S59 미연결).
+  // 클릭 가능 여부 — onImageOpen 미전달이면 무동작.
   const clickable = typeof onImageOpen === 'function';
-  const open = (): void => onImageOpen?.(index);
+  // B-1: 클릭된 트리거 element 를 onImageOpen 으로 넘겨 닫힐 때 포커스 복원에 씁니다.
+  const open = (triggerEl?: HTMLElement | null): void => onImageOpen?.(index, triggerEl);
+  // S59 통합 해법: 스포일러는 공개(revealed) 후에만 라이트박스 트리거를 활성화합니다
+  // (reviewer MAJOR-1 ↔ accessibility BLOCKER-4). 비스포일러는 종전대로 항상 활성.
+  const [revealed, setRevealed] = useState(false);
 
   const cellClass = `relative overflow-hidden rounded-[var(--r-md)] border border-border-subtle ${spanClassName}`;
 
@@ -177,12 +183,13 @@ function MosaicCell({
       {attachment.isSpoiler ? (
         // m1 (reviewer) + MINOR-1: 스포일러 래퍼(inline-block)가 셀 폭을 못 채우는 것을
         // 막기 위해 block w-full h-full 래퍼로 감싸 셀 전체를 채웁니다.
+        // S59 통합 해법: onRevealChange 로 공개 상태를 받아 revealed 일 때만 트리거 활성.
         <div className="block h-full w-full">
-          <AttachmentSpoilerOverlay label={alt}>
+          <AttachmentSpoilerOverlay label={alt} onRevealChange={setRevealed}>
             <MosaicImage
               attachment={attachment}
               alt={alt}
-              clickable={clickable}
+              clickable={clickable && revealed}
               onOpen={open}
               hiddenFromA11y={overflowCount > 0}
             />
@@ -205,7 +212,7 @@ function MosaicCell({
           aria-label={`이미지 ${overflowCount}장 더 보기`}
           // 미연결(S59 전)이면 클릭 비활성 — onImageOpen 없으면 무동작.
           disabled={!clickable}
-          onClick={clickable ? open : undefined}
+          onClick={clickable ? (e) => open(e.currentTarget) : undefined}
           // B-03: font-semibold(600)는 WCAG large-text 예외(bold 700+) 미충족 →
           // font-bold(700) 로 올려 fs-20 + bold = large text 예외(3:1)를 충족합니다.
           className="absolute inset-0 flex items-center justify-center bg-[color:var(--scrim)] text-[length:var(--fs-20)] font-bold text-[color:var(--text-onAccent)]"
@@ -227,7 +234,7 @@ function MosaicImage({
   attachment: AttachmentLite;
   alt: string;
   clickable: boolean;
-  onOpen: () => void;
+  onOpen: (triggerEl?: HTMLElement | null) => void;
   /** +N 오버레이로 가려진 셀이면 true — 접근성 트리에서 alt 중복 노출을 막습니다(H-02). */
   hiddenFromA11y: boolean;
 }): JSX.Element {
@@ -284,7 +291,8 @@ function MosaicImage({
       data-testid={`mosaic-trigger-${attachment.id}`}
       // 이미지 alt 가 버튼 라벨이 되도록 aria-label 을 부여합니다(이미지는 alt 그대로).
       aria-label={`${alt} 크게 보기`}
-      onClick={onOpen}
+      // B-1: currentTarget(트리거 button)을 넘겨 닫힐 때 포커스를 복원합니다.
+      onClick={(e) => onOpen(e.currentTarget)}
       className="block aspect-square w-full cursor-pointer p-0"
     >
       {imgEl}

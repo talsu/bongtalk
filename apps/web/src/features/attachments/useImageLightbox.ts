@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 
 /**
  * S59 (D11 / FR-AM-10/11) — 라이트박스 인덱스 + zoom/pan 상태 훅.
@@ -78,6 +78,16 @@ export function useImageLightbox(count: number, initialIndex: number): LightboxC
     },
     [clampIndex],
   );
+
+  // reviewer MINOR-2: count 가 축소되면(예: 슬라이드 일부 제거) 현재 index 가 범위를
+  // 벗어나 카운터가 "3/2" 처럼 잘못 표시될 수 있습니다. count 변경 시 index 를
+  // [0,count-1] 로 재클램프합니다(이미지 교체가 아니므로 zoom/translate 는 보존).
+  useEffect(() => {
+    setState((prev) => {
+      const clamped = clampIndex(prev.index);
+      return clamped === prev.index ? prev : { ...prev, index: clamped };
+    });
+  }, [clampIndex]);
 
   const next = useCallback(() => setIndex(state.index + 1), [setIndex, state.index]);
   const prev = useCallback(() => setIndex(state.index - 1), [setIndex, state.index]);

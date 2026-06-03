@@ -1,4 +1,4 @@
-import { useMemo, useState, type CSSProperties } from 'react';
+import { useMemo, useRef, useState, type CSSProperties } from 'react';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -42,6 +42,10 @@ export function AttachmentsList({
   // 보유하고 그리드(onImageOpen)·단일 이미지 트리거 양쪽에서 엽니다. 훅 순서 보존을 위해
   // early-return 보다 위에서 선언합니다.
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  // S59 B-1 (a11y SC 2.4.3): 라이트박스를 마지막으로 연 트리거 element 를 기억해 두었다가
+  // 닫힐 때 포커스를 그 트리거로 복원합니다(Radix 외부제어 + Trigger 미사용이라
+  // triggerRef.current=null → 기본 onCloseAutoFocus 가 포커스를 body 로 잃는 문제 해소).
+  const lastTriggerRef = useRef<HTMLElement | null>(null);
 
   const sorted = useMemo(
     () => [...(attachments ?? [])].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
@@ -57,11 +61,15 @@ export function AttachmentsList({
 
   // 그리드/단일 이미지가 넘기는 index 는 `images`(전체 이미지) 기준이므로 readyImages
   // 기준 index 로 변환합니다(READY 아닌 셀은 라이트박스를 열지 않음).
-  const openLightboxAt = (imageIndex: number): void => {
+  // B-1: 트리거 element 를 받아 닫힐 때 포커스 복원 대상으로 기억합니다.
+  const openLightboxAt = (imageIndex: number, triggerEl?: HTMLElement | null): void => {
     const target = images[imageIndex];
     if (!target || !isReadyImage(target)) return;
     const readyIndex = readyImages.findIndex((a) => a.id === target.id);
-    if (readyIndex >= 0) setLightboxIndex(readyIndex);
+    if (readyIndex >= 0) {
+      lastTriggerRef.current = triggerEl ?? null;
+      setLightboxIndex(readyIndex);
+    }
   };
 
   if (!attachments || attachments.length === 0) return null;
@@ -77,7 +85,11 @@ export function AttachmentsList({
         // M-01: ImageMosaicGrid 는 <div role="group"> 을 반환하므로 호출부가 <li> 로
         // 감쌉니다(단독 <li> 비유효 HTML 방지). data-testid 는 그리드 내부 group div 가 유지.
         <li data-testid="image-mosaic-grid-item">
-          <ImageMosaicGrid images={images} onImageOpen={openLightboxAt} />
+          <ImageMosaicGrid
+            images={images}
+            // B-1: 그리드 셀/오버레이가 클릭된 트리거 element 를 함께 넘깁니다.
+            onImageOpen={(i, el) => openLightboxAt(i, el)}
+          />
         </li>
       ) : (
         images.map((a, i) => (
@@ -85,7 +97,8 @@ export function AttachmentsList({
             key={a.id}
             attachment={a}
             // 단일/소수 이미지도 클릭 시 라이트박스를 엽니다(READY 일 때만 트리거 button 화).
-            onOpen={() => openLightboxAt(i)}
+            // B-1: 클릭된 트리거 element 를 넘겨 닫힐 때 포커스를 복원합니다.
+            onOpen={(el) => openLightboxAt(i, el)}
           />
         ))
       )}
@@ -100,6 +113,8 @@ export function AttachmentsList({
           open={lightboxIndex !== null}
           initialIndex={lightboxIndex ?? 0}
           onClose={() => setLightboxIndex(null)}
+          // B-1: 닫힐 때 포커스를 마지막으로 라이트박스를 연 트리거로 복원합니다.
+          triggerRef={lastTriggerRef}
         />
       ) : null}
     </ul>
@@ -148,8 +163,11 @@ function ImageAttachment({
   onOpen,
 }: {
   attachment: AttachmentLite;
-  /** S59: READY 이미지 클릭 시 라이트박스 열기(BLOCKED/FAILED/PENDING 은 미연결). */
-  onOpen?: () => void;
+  /**
+   * S59: READY 이미지 클릭 시 라이트박스 열기(BLOCKED/FAILED/PENDING 은 미연결).
+   * B-1: 클릭된 트리거 element 를 인자로 받아 닫힐 때 포커스를 복원합니다.
+   */
+  onOpen?: (triggerEl: HTMLElement) => void;
 }): JSX.Element {
   // S58 (FR-AM-25): 단일 이미지도 PENDING/PROCESSING 동안 비율 예약 스켈레톤을 보여준다
   // (이미지는 S58 부터 AttachmentRow 를 거치지 않고 직접 렌더되므로, 종전 AttachmentRow
@@ -234,9 +252,14 @@ function ReadyImageAttachment({
   alt: string;
   variant: ProxyVariant;
   ratioStyle: CSSProperties;
-  onOpen?: () => void;
+  onOpen?: (triggerEl: HTMLElement) => void;
 }): JSX.Element {
   const { url, error } = useProxyObjectUrl(attachment.id, variant);
+  // S59 통합 해법: 스포일러는 "공개(revealed) 상태에서만" 라이트박스 트리거를 활성화합니다.
+  // 공개 전에는 콘텐츠 래퍼가 aria-hidden 이라 포커스 가능 button 을 두면 ARIA 위반
+  // (reviewer MAJOR-1) → revealed=false 동안 비활성. 공개 후에만 button 으로 감쌉니다
+  // (accessibility BLOCKER-4). AttachmentSpoilerOverlay 가 onRevealChange 로 통지합니다.
+  const [revealed, setRevealed] = useState(false);
 
   if (error) {
     return (
@@ -272,32 +295,60 @@ function ReadyImageAttachment({
   );
 
   // S59 (S58 이월 H-03/M-04): 클릭/키보드로 라이트박스를 열 수 있도록, URL 로드 완료 +
-  // onOpen 연결 시 단일 이미지를 <button> 으로 감쌉니다(Radix 포커스 복원 트리거).
-  // 스포일러일 때는 스포일러 토글이 먼저 클릭을 받아야 하므로 button 화하지 않습니다.
-  const clickable = Boolean(onOpen) && Boolean(url) && !attachment.isSpoiler;
-  const img = clickable ? (
-    <button
-      type="button"
-      data-testid={`image-trigger-${attachment.id}`}
-      aria-label={`${alt} 크게 보기`}
-      onClick={onOpen}
-      className="block w-full cursor-pointer p-0"
-      style={{ maxWidth: '550px' }}
-    >
+  // onOpen 연결 시 단일 이미지를 <button> 으로 감쌉니다(Radix 외부제어 포커스 복원 트리거).
+  // 스포일러는 공개(revealed) 후에만 트리거를 활성화합니다(통합 해법) — 비스포일러는 항상.
+  const triggerActive = Boolean(onOpen) && Boolean(url) && (!attachment.isSpoiler || revealed);
+  const trigger = (
+    <ImageTrigger id={attachment.id} alt={alt} active={triggerActive} onOpen={onOpen}>
       {imgEl}
-    </button>
-  ) : (
-    imgEl
+    </ImageTrigger>
   );
 
   return (
     <li data-testid={`attachment-image-${attachment.id}`} data-attachment-id={attachment.id}>
       {attachment.isSpoiler ? (
-        <AttachmentSpoilerOverlay label={alt}>{imgEl}</AttachmentSpoilerOverlay>
+        <AttachmentSpoilerOverlay label={alt} onRevealChange={setRevealed}>
+          {trigger}
+        </AttachmentSpoilerOverlay>
       ) : (
-        img
+        trigger
       )}
     </li>
+  );
+}
+
+/**
+ * S59: 단일 이미지 라이트박스 트리거. active 면 <button> 으로 감싸 클릭/키보드(Enter/Space)
+ * 로 라이트박스를 열고, 비활성이면 비인터랙티브하게 자식(이미지)만 렌더합니다.
+ * 스포일러 공개 전에는 active=false 로 두어 aria-hidden 내부에 포커스 가능 요소가
+ * 생기지 않게 합니다(reviewer MAJOR-1). 클릭 시 currentTarget 을 onOpen 으로 넘겨
+ * 닫힐 때 포커스를 복원합니다(B-1).
+ */
+function ImageTrigger({
+  id,
+  alt,
+  active,
+  onOpen,
+  children,
+}: {
+  id: string;
+  alt: string;
+  active: boolean;
+  onOpen?: (triggerEl: HTMLElement) => void;
+  children: React.ReactNode;
+}): JSX.Element {
+  if (!active) return <>{children}</>;
+  return (
+    <button
+      type="button"
+      data-testid={`image-trigger-${id}`}
+      aria-label={`${alt} 크게 보기`}
+      onClick={(e) => onOpen?.(e.currentTarget)}
+      className="block w-full cursor-pointer p-0"
+      style={{ maxWidth: '550px' }}
+    >
+      {children}
+    </button>
   );
 }
 

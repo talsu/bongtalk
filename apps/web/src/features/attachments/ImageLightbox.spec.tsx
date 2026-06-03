@@ -1,7 +1,27 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, createEvent } from '@testing-library/react';
 import type { AttachmentLite } from '@qufox/shared-types';
+
+/**
+ * jsdom 의 PointerEvent 는 init 객체의 clientX/clientY 를 무시합니다(생성자가 MouseEvent
+ * 좌표를 안 읽음). createEvent 로 만든 뒤 좌표를 defineProperty 로 주입해 dispatch 합니다.
+ */
+function firePointer(
+  el: Element,
+  type: 'pointerDown' | 'pointerMove' | 'pointerUp',
+  init: { clientX?: number; clientY?: number; pointerId?: number },
+): void {
+  const ev =
+    type === 'pointerDown'
+      ? createEvent.pointerDown(el, init)
+      : type === 'pointerMove'
+        ? createEvent.pointerMove(el, init)
+        : createEvent.pointerUp(el, init);
+  if (init.clientX !== undefined) Object.defineProperty(ev, 'clientX', { get: () => init.clientX });
+  if (init.clientY !== undefined) Object.defineProperty(ev, 'clientY', { get: () => init.clientY });
+  fireEvent(el, ev);
+}
 
 // attachmentSrc 모킹 — useProxyObjectUrl 이 fetchAttachmentObjectUrl 을 호출하고,
 // 다운로드 버튼이 downloadAttachment 를 호출합니다.
@@ -53,12 +73,16 @@ describe('ImageLightbox (S59 D11 FR-AM-10/11/12)', () => {
     expect(container.querySelector('[data-testid="lightbox"]')).toBeNull();
   });
 
-  it('open 시 dialog 시맨틱(role=dialog, aria-modal, aria-label=이미지 뷰어)', async () => {
+  it('open 시 dialog 시맨틱(role=dialog, aria-modal, Title 자동 aria-labelledby)', async () => {
     render(<ImageLightbox images={images(2)} open initialIndex={0} onClose={vi.fn()} />);
     const dialog = await screen.findByTestId('lightbox');
     expect(dialog.getAttribute('role')).toBe('dialog');
     expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.getAttribute('aria-label')).toBe('이미지 뷰어');
+    // H-3: 수동 aria-label 제거 — Radix 자동 aria-labelledby(sr-only Title)만 사용.
+    expect(dialog.getAttribute('aria-label')).toBeNull();
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
+    // H-2: Description 자동 연결로 aria-describedby 댕글링 제거.
+    expect(dialog.getAttribute('aria-describedby')).toBeTruthy();
   });
 
   it('FR-AM-10: 오픈 직후 첫 포커스는 닫기 버튼', async () => {
@@ -235,5 +259,108 @@ describe('ImageLightbox (S59 D11 FR-AM-10/11/12)', () => {
     );
     await waitFor(() => expect(fetchAttachmentObjectUrl).toHaveBeenCalledWith('z1', 'download'));
     expect(fetchAttachmentObjectUrl).not.toHaveBeenCalledWith('z1', 'thumbnail');
+  });
+
+  // ── S59 리뷰 fix-forward ─────────────────────────────────────────────────────
+  it('B-3 (SC 2.1.1): 키보드 +/= 로 확대, - 로 축소, 0 으로 리셋', async () => {
+    render(<ImageLightbox images={[img()]} open initialIndex={0} onClose={vi.fn()} />);
+    const dialog = await screen.findByTestId('lightbox');
+    const image = await screen.findByTestId('lightbox-image');
+    expect(image.style.transform).toContain('scale(1)');
+    // '+' → 확대.
+    fireEvent.keyDown(dialog, { key: '+' });
+    expect(image.style.transform).toContain('scale(1.15)');
+    // '=' → 추가 확대(동일 방향). 부동소수 누적이라 prefix 로 검증(1.15+0.15≈1.2999…).
+    fireEvent.keyDown(dialog, { key: '=' });
+    expect(image.style.transform).toContain('scale(1.29');
+    // '-' → 축소.
+    fireEvent.keyDown(dialog, { key: '-' });
+    expect(image.style.transform).toContain('scale(1.15)');
+    // '0' → 리셋.
+    fireEvent.keyDown(dialog, { key: '0' });
+    expect(image.style.transform).toContain('scale(1)');
+  });
+
+  it('H-1 (SC 4.1.3): 캡션에 aria-live="polite" + aria-atomic', async () => {
+    render(<ImageLightbox images={images(2)} open initialIndex={0} onClose={vi.fn()} />);
+    const caption = await screen.findByTestId('lightbox-caption');
+    expect(caption.getAttribute('aria-live')).toBe('polite');
+    expect(caption.getAttribute('aria-atomic')).toBe('true');
+  });
+
+  it('M-2: 원본 열기 버튼 aria-label 에 파일명 포함(다운로드와 일관)', async () => {
+    render(
+      <ImageLightbox
+        images={[img({ originalName: 'sunset.png' })]}
+        open
+        initialIndex={0}
+        onClose={vi.fn()}
+      />,
+    );
+    const btn = await screen.findByTestId('lightbox-open-original');
+    expect(btn.getAttribute('aria-label')).toBe('sunset.png 원본 열기');
+  });
+
+  it('M-3 (SC 1.1.1): altText·originalName 모두 비면 alt 폴백 "이미지"', async () => {
+    render(
+      <ImageLightbox
+        images={[img({ altText: '   ', originalName: '' })]}
+        open
+        initialIndex={0}
+        onClose={vi.fn()}
+      />,
+    );
+    const image = await screen.findByTestId('lightbox-image');
+    expect(image.getAttribute('alt')).toBe('이미지');
+  });
+
+  it('ui MINOR-2: zoom>1 이면 cursor-grab, 아니면 cursor-default(style 아님 className)', async () => {
+    render(<ImageLightbox images={[img()]} open initialIndex={0} onClose={vi.fn()} />);
+    const stage = await screen.findByTestId('lightbox-stage');
+    const image = await screen.findByTestId('lightbox-image');
+    // 기본(zoom=1) → cursor-default, style.cursor 미설정.
+    expect(image.className).toContain('cursor-default');
+    expect(image.style.cursor).toBe('');
+    // 확대 → cursor-grab.
+    fireEvent.wheel(stage, { deltaY: -1 });
+    expect(screen.getByTestId('lightbox-image').className).toContain('cursor-grab');
+  });
+
+  it('reviewer: pointer 드래그 패닝 → transform translate 반영', async () => {
+    render(<ImageLightbox images={[img()]} open initialIndex={0} onClose={vi.fn()} />);
+    const stage = await screen.findByTestId('lightbox-stage');
+    const image = await screen.findByTestId('lightbox-image');
+    // jsdom 은 setPointerCapture/releasePointerCapture 미구현이라 no-op 스텁을 둡니다.
+    (stage as HTMLElement).setPointerCapture = vi.fn();
+    (stage as HTMLElement).releasePointerCapture = vi.fn();
+    firePointer(stage, 'pointerDown', { pointerId: 1, clientX: 100, clientY: 100 });
+    firePointer(stage, 'pointerMove', { pointerId: 1, clientX: 140, clientY: 130 });
+    // 델타(+40,+30) 가 translate 로 반영.
+    expect(image.style.transform).toContain('translate(40px, 30px)');
+    firePointer(stage, 'pointerUp', { pointerId: 1 });
+    // up(드래그 종료·capture 해제) 이후 move 는 무시 — translate 유지.
+    firePointer(stage, 'pointerMove', { pointerId: 1, clientX: 200, clientY: 200 });
+    expect(screen.getByTestId('lightbox-image').style.transform).toContain('translate(40px, 30px)');
+    // 드래그 종료 시 포인터 캡처를 해제합니다(pointerId 는 jsdom 이 init 에서 안 옮기므로
+    // 호출 여부만 검증).
+    expect((stage as HTMLElement).releasePointerCapture).toHaveBeenCalled();
+  });
+
+  it('reviewer: 이미지 교체 시 패닝 translate 리셋(scale·translate 0)', async () => {
+    render(<ImageLightbox images={images(2)} open initialIndex={0} onClose={vi.fn()} />);
+    const dialog = await screen.findByTestId('lightbox');
+    const stage = screen.getByTestId('lightbox-stage');
+    const image = await screen.findByTestId('lightbox-image');
+    (stage as HTMLElement).setPointerCapture = vi.fn();
+    (stage as HTMLElement).releasePointerCapture = vi.fn();
+    firePointer(stage, 'pointerDown', { pointerId: 1, clientX: 0, clientY: 0 });
+    firePointer(stage, 'pointerMove', { pointerId: 1, clientX: 50, clientY: 50 });
+    expect(image.style.transform).toContain('translate(50px, 50px)');
+    firePointer(stage, 'pointerUp', { pointerId: 1 });
+    // 다음 이미지로 교체 → translate 0 으로 리셋.
+    fireEvent.keyDown(dialog, { key: 'ArrowRight' });
+    await waitFor(() =>
+      expect(screen.getByTestId('lightbox-image').style.transform).toContain('translate(0px, 0px)'),
+    );
   });
 });

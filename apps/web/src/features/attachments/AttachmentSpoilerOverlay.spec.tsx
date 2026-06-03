@@ -92,4 +92,37 @@ describe('AttachmentSpoilerOverlay (S56 D11 FR-AM-22 + S59 FR-AM-19 toggle)', ()
     const wrapper = screen.getByTestId('spoiler-child').parentElement as HTMLElement;
     await waitFor(() => expect(document.activeElement).toBe(wrapper));
   });
+
+  it('S59 M-1 (SC 2.4.3): 다시 가림 시 포커스를 reveal 공개 버튼으로 이동', async () => {
+    render(
+      <AttachmentSpoilerOverlay label="고양이.png">
+        <img src="blob:x" alt="고양이" />
+      </AttachmentSpoilerOverlay>,
+    );
+    // 공개.
+    fireEvent.click(screen.getByTestId('spoiler-reveal'));
+    const hide = await screen.findByTestId('spoiler-hide');
+    hide.focus();
+    // 다시 가림 → 포커스가 reveal 공개 버튼으로 복원.
+    fireEvent.click(hide);
+    const reveal = await screen.findByTestId('spoiler-reveal');
+    await waitFor(() => expect(document.activeElement).toBe(reveal));
+  });
+
+  it('S59 통합: onRevealChange 콜백으로 공개/숨김 상태를 통지', async () => {
+    const onRevealChange = vi.fn();
+    render(
+      <AttachmentSpoilerOverlay label="x" onRevealChange={onRevealChange}>
+        <img src="blob:x" alt="x" />
+      </AttachmentSpoilerOverlay>,
+    );
+    // 마운트 시 초기 false 통지.
+    await waitFor(() => expect(onRevealChange).toHaveBeenLastCalledWith(false));
+    // 공개 → true.
+    fireEvent.click(screen.getByTestId('spoiler-reveal'));
+    await waitFor(() => expect(onRevealChange).toHaveBeenLastCalledWith(true));
+    // 다시 가림 → false.
+    fireEvent.click(screen.getByTestId('spoiler-hide'));
+    await waitFor(() => expect(onRevealChange).toHaveBeenLastCalledWith(false));
+  });
 });

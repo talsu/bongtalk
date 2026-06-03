@@ -91,4 +91,36 @@ describe('useImageLightbox (S59 D11 FR-AM-10/11)', () => {
     expect(result.current.translateX).toBe(0);
     expect(result.current.translateY).toBe(0);
   });
+
+  it('reviewer MINOR-2: count 축소 시 index 를 재클램프(카운터 "3/2" 방지)', () => {
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useImageLightbox(count, 0),
+      { initialProps: { count: 3 } },
+    );
+    // 마지막(index 2)으로 이동.
+    act(() => result.current.setIndex(2));
+    expect(result.current.index).toBe(2);
+    // count 가 2 로 축소되면 index 는 count-1=1 로 재클램프.
+    rerender({ count: 2 });
+    expect(result.current.index).toBe(1);
+    expect(result.current.isLast).toBe(true);
+  });
+
+  it('reviewer MINOR-2: count 재클램프는 zoom/translate 는 보존(이미지 교체 아님)', () => {
+    const { result, rerender } = renderHook(
+      ({ count }: { count: number }) => useImageLightbox(count, 0),
+      { initialProps: { count: 3 } },
+    );
+    act(() => {
+      result.current.setIndex(2);
+      result.current.zoomBy(-1);
+      result.current.setTranslate(20, 30);
+    });
+    rerender({ count: 2 });
+    // index 는 재클램프되지만 zoom/translate 는 유지.
+    expect(result.current.index).toBe(1);
+    expect(result.current.zoom).toBeGreaterThan(1);
+    expect(result.current.translateX).toBe(20);
+    expect(result.current.translateY).toBe(30);
+  });
 });
