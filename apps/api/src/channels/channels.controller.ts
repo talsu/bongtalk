@@ -149,6 +149,24 @@ export class ChannelsController {
   }
 
   /**
+   * S62 (FR-RM14): 채널의 모든 권한 오버라이드(USER + ROLE)를 조회한다. override UI 가
+   * 역할/멤버별 3-state 토글 현재 상태를 그리는 데 쓴다. OWNER/ADMIN 만(설정 화면).
+   * allow/denyMask 는 string(BigInt-as-string · ADR-11) — FE 가 BigInt 로 파싱한다.
+   */
+  @Roles('ADMIN')
+  @UseGuards(ChannelAccessGuard)
+  @AllowArchivedChannel()
+  @Get(':chid/overrides')
+  async listChannelOverrides(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+  ) {
+    const overrides = await this.channels.listChannelOverrides(m.workspaceId, channelId);
+    return { overrides };
+  }
+
+  /**
    * Task-012-D: add a user-level permission override to a channel.
    * OWNER/ADMIN only. Body `{ userId, allowMask?, denyMask? }`.
    * Creates / updates the override row (unique on channelId +

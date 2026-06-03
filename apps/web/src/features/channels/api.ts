@@ -2,6 +2,8 @@ import { apiRequest } from '../../lib/api';
 import type {
   Channel,
   ChannelListResponse,
+  ChannelPermissionOverride,
+  ChannelPermissionOverrideListResponse,
   CreateCategoryRequest,
   CreateChannelRequest,
   Favorite,
@@ -146,4 +148,42 @@ export function setChannelMute(channelId: string, until: string | null): Promise
 // S43 (FR-CH-17): 채널 뮤트 해제. 204.
 export function removeChannelMute(channelId: string): Promise<void> {
   return apiRequest(`/me/mutes/channels/${channelId}`, { method: 'DELETE' });
+}
+
+// S62 (FR-RM14): 채널 권한 오버라이드 목록 조회(OWNER/ADMIN). allow/denyMask 는
+// string(BigInt-as-string · ADR-11) — 컴포넌트가 BigInt 로 파싱한다.
+export function listChannelOverrides(
+  wsId: string,
+  channelId: string,
+): Promise<ChannelPermissionOverrideListResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/overrides`);
+}
+
+// S62 (FR-RM14): ROLE 프린시펄 오버라이드 upsert. allowMask/denyMask 는 집행
+// 비트필드(number, ≤0x1FF) 요청값. 시스템 역할 리터럴 principal 만 지원(현재 백엔드).
+export function upsertChannelRoleOverride(
+  wsId: string,
+  channelId: string,
+  input: {
+    role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
+    allowMask: number;
+    denyMask: number;
+  },
+): Promise<{ override: ChannelPermissionOverride }> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/roles`, {
+    method: 'POST',
+    body: input,
+  });
+}
+
+// S62 (FR-RM14): USER 프린시펄(멤버) 오버라이드 upsert.
+export function upsertChannelMemberOverride(
+  wsId: string,
+  channelId: string,
+  input: { userId: string; allowMask: number; denyMask: number },
+): Promise<{ override: ChannelPermissionOverride }> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/members`, {
+    method: 'POST',
+    body: input,
+  });
 }

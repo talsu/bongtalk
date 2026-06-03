@@ -6,6 +6,7 @@ import {
   CreateChannelRequest,
   MoveChannelRequest,
   UpdateChannelRequest,
+  type ChannelPermissionOverride,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
@@ -586,17 +587,9 @@ export class ChannelsService {
     void effective;
     // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).
     await this.invalidateChannelPermsCache(channelId);
-    return {
-      id: row.id,
-      channelId: row.channelId,
-      principalType: row.principalType,
-      principalId: row.principalId,
-      // S61: 응답 DTO 는 기존 number 계약을 유지한다(override 마스크는 ≤ enforcement
-      // 범위라 number 안전). ChannelPermissionOverride.allow/denyMask 의 number→string
-      // 전환은 S62 override UI 계약 합의 후 일괄 적용한다(미해결로 보고).
-      allowMask: Number(row.allowMask),
-      denyMask: Number(row.denyMask),
-    };
+    // S62 (Fork B / ADR-11): allow/denyMask 는 BigInt 컬럼이라 응답에서 string 으로
+    // 직렬화한다(BigIntSerializationInterceptor 정합 · S61 555줄 TODO 해소).
+    return toOverrideDto(row);
   }
 
   /**
@@ -664,15 +657,39 @@ export class ChannelsService {
     });
     // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).
     await this.invalidateChannelPermsCache(channelId);
-    return {
-      id: row.id,
-      channelId: row.channelId,
-      principalType: row.principalType,
-      principalId: row.principalId,
-      // S61: 기존 number 계약 유지(S62 에서 number→string 일괄 전환 예정).
-      allowMask: Number(row.allowMask),
-      denyMask: Number(row.denyMask),
-    };
+    // S62 (Fork B / ADR-11): string 직렬화.
+    return toOverrideDto(row);
+  }
+
+  /**
+   * S62 (FR-RM14): 채널의 모든 권한 오버라이드(USER + ROLE)를 반환한다. override UI 가
+   * 역할/멤버별 3-state(ALLOW/DENY/INHERIT) 토글 현재 상태를 그리는 데 쓴다. DM 가시성
+   * 보조 컬럼(visibleFrom 등)은 노출하지 않는다 — 권한 마스크만.
+   */
+  async listChannelOverrides(
+    workspaceId: string,
+    channelId: string,
+  ): Promise<ChannelPermissionOverride[]> {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    const rows = await this.prisma.channelPermissionOverride.findMany({
+      where: { channelId },
+      select: {
+        id: true,
+        channelId: true,
+        principalType: true,
+        principalId: true,
+        allowMask: true,
+        denyMask: true,
+      },
+      orderBy: [{ principalType: 'asc' }, { principalId: 'asc' }],
+    });
+    return rows.map((r) => toOverrideDto(r));
   }
 
   /**
@@ -973,4 +990,27 @@ export class ChannelsService {
       createdAt: c.createdAt.toISOString(),
     };
   }
+}
+
+/**
+ * S62 (Fork B / ADR-11): ChannelPermissionOverride row → DTO. allow/denyMask 는
+ * BigInt 컬럼이라 string 으로 직렬화한다(BigIntSerializationInterceptor 정합 ·
+ * FE 는 BigInt(value) 파싱). principalType 은 'USER' | 'ROLE' 로 좁힌다.
+ */
+function toOverrideDto(row: {
+  id: string;
+  channelId: string;
+  principalType: string;
+  principalId: string;
+  allowMask: bigint;
+  denyMask: bigint;
+}): ChannelPermissionOverride {
+  return {
+    id: row.id,
+    channelId: row.channelId,
+    principalType: row.principalType as 'USER' | 'ROLE',
+    principalId: row.principalId,
+    allowMask: row.allowMask.toString(),
+    denyMask: row.denyMask.toString(),
+  };
 }

@@ -6,6 +6,7 @@ import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/prim
 import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
 import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
+import { ChannelPermissionsTab } from './ChannelPermissionsTab';
 
 // S15 (FR-CH-08): 슬로우모드 간격 프리셋(초). Discord 와 동일한 구간.
 const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
@@ -20,7 +21,8 @@ const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
   { seconds: 21600, label: '6시간' },
 ];
 
-type SectionId = 'general';
+// S62 (FR-RM14): 'permissions' 섹션 추가(채널 권한 오버라이드).
+type SectionId = 'general' | 'permissions';
 
 type NavItem =
   | {
@@ -64,6 +66,8 @@ export function ChannelSettingsPage({
 
   const NAV_ITEMS: NavItem[] = [
     { type: 'section', id: 'general', label: '일반' },
+    // S62 (FR-RM14): 채널 권한 오버라이드 섹션.
+    { type: 'section', id: 'permissions', label: '권한' },
     { type: 'action', id: 'delete', label: '채널 삭제', danger: true },
   ];
 
@@ -121,7 +125,7 @@ export function ChannelSettingsPage({
         <section className="qf-settings__main">
           <header className="mb-[var(--s-5)]">
             <h2 className="m-0" style={{ font: '600 var(--fs-18) var(--font-sans)' }}>
-              {section === 'general' ? '일반' : ''}
+              {section === 'general' ? '일반' : section === 'permissions' ? '권한' : ''}
             </h2>
           </header>
 
@@ -131,6 +135,8 @@ export function ChannelSettingsPage({
               workspaceSlug={workspaceSlug}
               channel={channel}
             />
+          ) : section === 'permissions' ? (
+            <ChannelPermissionsTab workspaceId={workspaceId} channelId={channel.id} />
           ) : null}
         </section>
 
