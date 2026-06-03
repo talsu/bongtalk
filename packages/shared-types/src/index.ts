@@ -165,6 +165,13 @@ export const ErrorCodeSchema = z.enum([
   'ALIAS_CONFLICT',
   // task-038-B magic-byte validation
   'INVALID_MAGIC_BYTES',
+  // S54 (D11 / FR-AM-03/04/05/06/27): 첨부 업로드 세션 + 교차검증 + rate-limit.
+  'ATTACHMENT_SESSION_NOT_FOUND', // → 404
+  'ATTACHMENT_SESSION_EXPIRED', // → 410
+  'ATTACHMENT_EXTENSION_BLOCKED', // → 400
+  'ATTACHMENT_COUNT_EXCEEDED', // → 400
+  'MIME_MISMATCH', // → 400
+  'UPLOAD_RATE_LIMIT', // → 429
   // S48 (FR-MN-10): 키워드 알림 등록 한도(25개) 초과 → 400.
   'KEYWORD_LIMIT_EXCEEDED',
   // S51 (FR-PS-07): 개인 저장함 항목 수 한도(500) 초과 → 422.
@@ -207,3 +214,5 @@ export * from './mrkdwn-parser';
 export * from './message-type';
 // S51 — 개인 저장함 컨트랙트 (D10 / FR-PS-07)
 export * from './saved-message';
+// S54 — 첨부 업로드 세션 + 차단확장자 + MIME 화이트리스트 + 읽음 모드 (D11 / FR-AM-03~06/27 + FR-RS-13)
+export * from './attachment';

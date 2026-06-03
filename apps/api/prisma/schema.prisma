@@ -139,6 +139,17 @@ enum NotifLevel {
   NOTHING
 }
 
+// S54 (D11 / FR-RS-13): 메시지 읽음 처리 모드.
+//   AUTO_FROM_POSITION   — 현재 스크롤 위치까지 자동 읽음(기본). Discord 기본 동작.
+//   AUTO_FROM_LATEST     — 채널 진입 시 항상 최신까지 자동 읽음 처리.
+//   MANUAL_FROM_LATEST   — 사용자가 명시적으로 "읽음 표시" 누를 때만 최신까지 처리.
+// UserSettings.markAsReadMode 가 단일 출처. 행 없으면 AUTO_FROM_POSITION 폴백.
+enum MarkAsReadMode {
+  AUTO_FROM_POSITION
+  AUTO_FROM_LATEST
+  MANUAL_FROM_LATEST
+}
+
 // S46 (D06 / FR-MN-05): 사용자 글로벌 알림 설정. userId @unique — 사용자당 1행.
 // 행이 없으면 기본 MENTIONS(backfill 불요 — resolve 시 행 부재를 MENTIONS 로 폴백).
 // PRD NotificationPreference(글로벌) 카드에 대응하나, 본 프로젝트는 기존
@@ -155,6 +166,8 @@ model UserSettings {
   dndUntil     DateTime?  @db.Timestamptz
   // 주간 DND 스케줄. shape: { days: [{ day, startMin, endMin }] } (me/dnd-schedule 정합).
   dndSchedule  Json?
+  // S54 (D11 / FR-RS-13): 메시지 읽음 처리 모드. 기본 AUTO_FROM_POSITION.
+  markAsReadMode MarkAsReadMode @default(AUTO_FROM_POSITION)
   createdAt    DateTime   @default(now())
   updatedAt    DateTime   @updatedAt
 
@@ -364,6 +377,8 @@ model User {
   invitesCreated          Invite[]                     @relation("InviteCreator")
   refreshTokens           RefreshToken[]
   attachments             Attachment[]
+  // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
+  attachmentUploadSessions AttachmentUploadSession[]
   reactions               MessageReaction[]
   feedback                Feedback[]
   notificationPreferences UserNotificationPreference[]
@@ -626,6 +641,8 @@ model Channel {
   owner       User?                       @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   messages    Message[]
   attachments Attachment[]
+  // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
+  attachmentUploadSessions AttachmentUploadSession[]
   overrides   ChannelPermissionOverride[]
   mutes       UserChannelMute[]
   // S43 (FR-CH-15): 이 채널을 즐겨찾기한 행. onDelete Cascade.
@@ -908,6 +925,17 @@ enum AttachmentKind {
   FILE
 }
 
+// S54 (D11 / FR-AM-03): 첨부 후처리 상태. PENDING(생성·세션 링크 직후) → PROCESSING
+// (썸네일/메타 추출 진행 — Sharp/ffprobe 는 S55+ OUT) → READY(노출 가능) | FAILED(후처리
+// 실패) | BLOCKED(보안 거부). S54 는 PENDING 으로 생성만 하고 비동기 파이프라인은 후속.
+enum AttachmentStatus {
+  PENDING
+  PROCESSING
+  READY
+  FAILED
+  BLOCKED
+}
+
 model Attachment {
   id                 String         @id @default(uuid()) @db.Uuid
   channelId          String         @db.Uuid
@@ -922,6 +950,29 @@ model Attachment {
   finalizedAt        DateTime?
   createdAt          DateTime       @default(now())
 
+  // ── S54 (D11) 확장 — 전부 nullable/@default (additive, 무회귀) ──────────────
+  // 썸네일 객체 키(이미지/비디오 미리보기). 후처리 파이프라인(S55+)이 채움. null=없음.
+  thumbnailKey     String?
+  // 서버가 magic-byte 재검증으로 확정한 실제 MIME(declared 와 다를 수 있음).
+  storedMimeType   String?          @db.VarChar(127)
+  // filename 에서 추출한 소문자 확장자(점 제외, 예: "png"). 차단/교차검증용.
+  extension        String?          @db.VarChar(20)
+  // 이미지/비디오 픽셀 크기(클라가 complete 시 신고 — S54 는 신뢰 경계 밖, 표시용).
+  width            Int?
+  height           Int?
+  // 오디오/비디오 길이(초). 후처리 ffprobe 는 S55+.
+  duration         Float?
+  // 대체 텍스트(접근성). 최대 2000자.
+  altText          String?          @db.VarChar(2000)
+  // 스포일러 표식(클릭 전 블러).
+  isSpoiler        Boolean          @default(false)
+  // 메시지 내 다중 첨부 정렬 순서(complete 시 클라가 지정).
+  sortOrder        Int              @default(0)
+  // 메시지/채널에 링크된 시각(complete 성공 시점). finalizedAt 과 별개 — 세션 기반 완료.
+  linkedAt         DateTime?        @db.Timestamptz
+  // 후처리 상태(기본 PENDING).
+  processingStatus AttachmentStatus @default(PENDING)
+
   channel  Channel  @relation(fields: [channelId], references: [id], onDelete: Cascade)
   message  Message? @relation(fields: [messageId], references: [id], onDelete: Cascade)
   uploader User     @relation(fields: [uploaderId], references: [id])
@@ -929,6 +980,33 @@ model Attachment {
   // Indexes are created in the migration as partial indexes (Prisma
   // has no @@index-with-WHERE syntax). See
   // 20260421000000_add_attachment_table/migration.sql.
+}
+
+// S54 (D11 / FR-AM-03/27): presigned 업로드 세션. upload-url 단계에서 1행 생성하고
+// complete 단계에서 completed=true 로 닫는다. magic-byte 재검증 + ACL 재검증 후
+// Attachment 로 승격된다. 만료(expiresAt < now)되거나 미발견인 세션의 complete 는 거부.
+// (uploaderId, completed, expiresAt) 복합 인덱스는 FR-AM-27 의 "동시 미완료 세션 20개"
+// 카운트 쿼리(WHERE uploaderId=? AND completed=false AND expiresAt>now)를 위한 것.
+model AttachmentUploadSession {
+  id         String   @id @default(uuid()) @db.Uuid
+  uploaderId String   @db.Uuid
+  channelId  String   @db.Uuid
+  filename   String   @db.VarChar(255)
+  extension  String?  @db.VarChar(20)
+  sizeBytes  BigInt
+  mimeType   String   @db.VarChar(127)
+  storageKey String
+  expiresAt  DateTime @db.Timestamptz
+  completed  Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  uploader User    @relation(fields: [uploaderId], references: [id], onDelete: Cascade)
+  channel  Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
+
+  @@index([uploaderId])
+  @@index([expiresAt])
+  // FR-AM-27: 동시 미완료 세션 카운트 전용 복합 인덱스.
+  @@index([uploaderId, completed, expiresAt])
 }
 
 // task-037-D: workspace-scoped custom emoji pack. MinIO-backed (see
