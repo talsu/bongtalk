@@ -277,6 +277,15 @@ model SavedMessage {
   status           SaveStatus @default(IN_PROGRESS)
   // 원본 메시지 soft-delete 시각(비정규화). null = 원본 살아 있음.
   messageDeletedAt DateTime?  @db.Timestamptz
+  // S53 (D10 / FR-PS-09/10/11): 저장 리마인더 메타(전부 nullable).
+  //   reminderAt      — 예약 발화 시각(UTC). null = 미설정.
+  //   reminderFiredAt — 실제 발화 시각(중복 발화 방지 + overdue 판정). null = 미발화.
+  //   snoozedUntil    — 스누즈("10분 후 다시") 재예약 시각.
+  //   note            — 사용자 메모(≤500자).
+  reminderAt       DateTime?  @db.Timestamptz
+  reminderFiredAt  DateTime?  @db.Timestamptz
+  snoozedUntil     DateTime?  @db.Timestamptz
+  note             String?    @db.VarChar(500)
   savedAt          DateTime   @default(now()) @db.Timestamptz
   updatedAt        DateTime   @updatedAt
 
@@ -286,6 +295,11 @@ model SavedMessage {
   @@unique([userId, messageId])
   @@index([userId, status, savedAt(sort: Desc)])
   @@index([messageId])
+  // ⚠️ S53 partial index "SavedMessage_reminderAt_idx" ON ("reminderAt")
+  //   WHERE "reminderAt" IS NOT NULL AND "reminderFiredAt" IS NULL — Prisma 의
+  //   @@index 는 partial WHERE 를 표현하지 못하므로 raw SQL(20260603100000) 로만
+  //   정의한다. 여기에 full @@index([reminderAt]) 를 선언하면 introspection drift
+  //   (다른 인덱스)를 만들므로 선언하지 않는다.
 }
 
 model User {

@@ -17,15 +17,23 @@ export function SavedItem({
   item,
   onUnsave,
   onMove,
+  onOpenReminder,
 }: {
   item: SavedMessageDto;
   // 저장 해제(영구 — item.messageId 로 DELETE /me/saved/:messageId 재사용).
   onUnsave: (messageId: string) => void;
   // 탭(status) 이동(item.id 로 PATCH /me/saved/:savedMessageId). from 은 현재 탭.
   onMove: (savedMessageId: string, from: SaveStatus, to: SaveStatus) => void;
+  // S53 (FR-PS-09): 리마인더 설정 모달 열기(항목 컨텍스트 전달).
+  onOpenReminder?: (item: SavedMessageDto) => void;
 }): JSX.Element {
   const deleted = item.messageDeletedAt !== null;
   const from = item.status;
+  // S53: 예약된(미발화) 리마인더가 있으면 bell 배지로 시각을 표시한다. 리뷰(reviewer m1):
+  // 발화 후(reminderFiredAt 기록)에는 reminderAt 가 남아도 더 이상 대기 중이 아니므로
+  // 배지를 숨긴다(과거 시각 stale 배지 방지).
+  const reminderAt = item.reminderAt ?? null;
+  const hasReminder = reminderAt !== null && (item.reminderFiredAt ?? null) === null;
   // 탭별 가용 이동 액션(저장해제는 항상 가능). 자기 자신 탭으로의 이동은 제외한다.
   // IN_PROGRESS: 보관·완료 / ARCHIVED: 진행중 복원·완료 / COMPLETED: 진행중 복원.
   const canArchive = from === 'IN_PROGRESS';
@@ -53,6 +61,18 @@ export function SavedItem({
           <time dateTime={item.savedAt} style={{ font: '400 var(--fs-12) var(--font-sans)' }}>
             {formatMessageTime(item.savedAt, new Date())}
           </time>
+          {hasReminder ? (
+            <span
+              data-testid={`saved-reminder-badge-${item.messageId}`}
+              role="img"
+              aria-label={`리마인더: ${formatMessageTime(reminderAt, new Date())}`}
+              className="inline-flex items-center gap-[var(--s-1)] text-text-secondary"
+              style={{ font: '500 var(--fs-12) var(--font-sans)' }}
+            >
+              <Icon name="bell" size="sm" aria-hidden />
+              {formatMessageTime(reminderAt, new Date())}
+            </span>
+          ) : null}
         </div>
         <p
           className={deleted ? 'text-text-muted italic' : 'text-foreground'}
@@ -120,6 +140,16 @@ export function SavedItem({
                   data-testid={`saved-action-complete-${item.messageId}`}
                 >
                   <Icon name="check" size="sm" /> 완료
+                </span>
+              </DropdownItem>
+            ) : null}
+            {onOpenReminder ? (
+              <DropdownItem onSelect={() => onOpenReminder(item)}>
+                <span
+                  className="inline-flex items-center gap-[var(--s-2)]"
+                  data-testid={`saved-action-reminder-${item.messageId}`}
+                >
+                  <Icon name="bell" size="sm" /> {hasReminder ? '리마인더 변경' : '리마인더 설정'}
                 </span>
               </DropdownItem>
             ) : null}

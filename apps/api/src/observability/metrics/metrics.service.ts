@@ -118,6 +118,10 @@ const L = {
     // S41 (FR-RC20): 와이어 이벤트명(콜론형) — 워크스페이스 룸 emit.
     'emoji:created',
     'emoji:deleted',
+    // S53 (FR-PS-09/10/11): 저장 리마인더 발화 + 저장 항목 갱신(개인 user 룸 emit).
+    // BullMQ worker / PATCH 경로가 게이트웨이를 통해 직접 emit 한다.
+    'user:reminder_fire',
+    'user:saved_updated',
     '_other',
   ]),
 } as const;

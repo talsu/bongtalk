@@ -10,6 +10,8 @@ import {
   NotificationBadgeUpdatePayloadSchema,
   ChannelPinAddedPayloadSchema,
   ChannelPinRemovedPayloadSchema,
+  ReminderFirePayloadSchema,
+  SavedUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
@@ -23,6 +25,7 @@ import { qk } from '../../lib/query-keys';
 import type { UnreadChannelSummary } from '../channels/useUnread';
 import type { MentionInboxResponse, MentionSummary } from '../mentions/useMentions';
 import { useNotifications } from '../../stores/notification-store';
+import { snoozeReminder } from '../saved/api';
 import { useTypingStore } from '../typing/useTypingStore';
 import { useReadState } from './readStateStore';
 import { useBadgeStore } from '../notifications/badgeStore';
@@ -757,6 +760,60 @@ export function installRealtimeDispatcher(
     invalidatePinViews(qc, channelId);
   });
 
+  // ---------- Saved reminders (S53 · D10 · FR-PS-09/10/11) ----------
+  // user:reminder_fire — 저장 항목 리마인더 시각 도래. 개인 user 룸으로 push 된다.
+  // 토스트(액션: 10분 후 다시 / 완료로 표시 / 무시) + 권한 있으면 브라우저
+  // Notification 을 띄운다. 발화로 저장 목록 메타가 바뀌었으므로 캐시도 무효화한다.
+  on<unknown>(WS_EVENTS.REMINDER_FIRE, (env) => {
+    const parsed = ReminderFirePayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { savedMessageId, channelName, messagePreview } = parsed.data;
+    // 발화 = reminderAt 가 비워졌으므로 저장 목록/카운트 + 놓친-리마인더 배너 무효화.
+    void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] }); // S53 리뷰 M1
+    const body = `#${channelName} · ${messagePreview}`.slice(0, 180);
+    // 토스트(액션: "10분 후 다시"). "완료로 표시"/"무시" 는 토스트 단일 action 슬롯
+    // 제약상 1개만 노출 — 가장 흔한 스누즈를 1차 액션으로 둔다(완료는 저장함에서).
+    // S53 리뷰(ui): 행동 유도형 알림이라 variant=warning(qf-toast--warn) — info 는 중립.
+    useNotifications.getState().push({
+      variant: 'warning',
+      title: '저장한 메시지 리마인더',
+      body,
+      ttlMs: 12000,
+      action: {
+        label: '10분 후 다시',
+        onClick: () => {
+          void snoozeReminder(savedMessageId)
+            .then(() => {
+              void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
+              void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+              void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] });
+            })
+            .catch(() => undefined);
+        },
+      },
+    });
+    // 권한이 이미 허용돼 있으면 브라우저 Notification 도 띄운다(요청은 모달에서 1회).
+    try {
+      if (typeof Notification !== 'undefined' && Notification.permission === 'granted') {
+        new Notification('저장한 메시지 리마인더', { body });
+      }
+    } catch {
+      // Notification 생성 실패는 무해(토스트로 폴백).
+    }
+  });
+
+  // user:saved_updated — 저장 항목 메타(status/reminderAt) 변경. 다른 기기/탭에서
+  // 설정/취소/스누즈/발화/탭 이동이 일어났을 때 저장 목록/카운트 캐시를 무효화한다.
+  on<unknown>(WS_EVENTS.SAVED_UPDATED, (env) => {
+    const parsed = SavedUpdatedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] }); // S53 리뷰 M1
+  });
+
   // ---------- Read state (S21 · FR-RS-01) ----------
   // read_state:updated 는 호출자의 user:{userId} 룸으로만 emit 된다(ACK 한
   // 기기 + 다른 기기/탭). 한 기기에서 채널을 읽으면 다른 기기의 사이드바
@@ -1252,6 +1309,9 @@ export const DISPATCHED_EVENTS = [
   // channel:pin_added / channel:pin_removed 로 변환해 emit).
   WS_EVENTS.CHANNEL_PIN_ADDED,
   WS_EVENTS.CHANNEL_PIN_REMOVED,
+  // S53 (D10 · FR-PS-09/10/11): 저장 리마인더 발화 + 저장 항목 갱신(개인 user 룸).
+  WS_EVENTS.REMINDER_FIRE,
+  WS_EVENTS.SAVED_UPDATED,
   'user.profile.updated',
   'channel.created',
   'channel.updated',

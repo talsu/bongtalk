@@ -1,4 +1,5 @@
 import { apiRequest } from '../../lib/api';
+import { SNOOZE_MINUTES } from '@qufox/shared-types';
 import type {
   SaveStatus,
   SavedCountResponse,
@@ -51,4 +52,30 @@ export function savedStatusBulk(messageIds: string[]): Promise<SavedStatusBulkRe
     method: 'POST',
     body: { messageIds },
   });
+}
+
+// S53 (FR-PS-09/10): 저장 항목 리마인더 설정/취소. reminderAt 은 UTC ISO 문자열
+// (클라이언트가 User.timezone/브라우저 tz 로 프리셋을 계산한 절대 시각). null 이면
+// 취소(서버가 reminderFiredAt/snoozedUntil 도 클리어).
+export function setReminder(
+  savedMessageId: string,
+  reminderAt: string | null,
+): Promise<SavedMessageDto> {
+  return apiRequest(`/me/saved/${savedMessageId}`, {
+    method: 'PATCH',
+    body: { reminderAt },
+  });
+}
+
+// S53 (FR-PS-10): "10분 후 다시 알림". 현재는 단일 옵션(10분).
+export function snoozeReminder(savedMessageId: string): Promise<SavedMessageDto> {
+  return apiRequest(`/me/saved/${savedMessageId}/snooze`, {
+    method: 'PATCH',
+    body: { snoozeMinutes: SNOOZE_MINUTES },
+  });
+}
+
+// S53 (FR-PS-11): 놓친 리마인더 목록(재접속 표시). status 탭 무시, COMPLETED 제외.
+export function listOverdueReminders(): Promise<SavedMessageListResponse> {
+  return apiRequest('/me/saved?overdueReminder=true&limit=50');
 }
