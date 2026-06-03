@@ -2,9 +2,12 @@ import { Global, Module } from '@nestjs/common';
 import { BullModule } from '@nestjs/bullmq';
 import IORedis from 'ioredis';
 import { RealtimeModule } from '../realtime/realtime.module';
+import { AttachmentsModule } from '../attachments/attachments.module';
 import { REMINDER_QUEUE } from './reminder-queue.constants';
 import { ReminderQueueService } from './reminder-queue.service';
 import { ReminderProcessor } from './reminder.processor';
+import { ATTACHMENT_GC_QUEUE } from './attachment-gc.constants';
+import { AttachmentGcProcessor } from './attachment-gc.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -40,9 +43,15 @@ import { ReminderProcessor } from './reminder.processor';
       }),
     }),
     BullModule.registerQueue({ name: REMINDER_QUEUE }),
+    // S55 (FR-AM-29): orphan GC repeatable 큐. forRootAsync 연결을 재사용한다.
+    BullModule.registerQueue({ name: ATTACHMENT_GC_QUEUE }),
     RealtimeModule,
+    // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
+    // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
+    // RealtimeModule 경유로 그래프에 있어 신규 간선이 추가하는 사이클이 없다.
+    AttachmentsModule,
   ],
-  providers: [ReminderQueueService, ReminderProcessor],
+  providers: [ReminderQueueService, ReminderProcessor, AttachmentGcProcessor],
   exports: [ReminderQueueService],
 })
 export class QueueModule {}

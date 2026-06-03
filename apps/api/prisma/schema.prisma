@@ -532,6 +532,8 @@ model Workspace {
   customEmojis            CustomEmoji[]
   // S42 (FR-PK04): 워크스페이스 이모지 설정(1:1, 퀵반응 기본값 + canMemberUpload).
   emojiConfig             WorkspaceEmojiConfig?
+  // S55 (D11 / FR-AM-20): 워크스페이스 첨부 정책(1:1, 최대 크기 + 차단 확장자).
+  setting                 WorkspaceSetting?
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -624,6 +626,12 @@ model Channel {
   // 충돌 — D12 carryover) — 이 컬럼을 MessagesController.pin/unpin 게이트가 직접 검사한다.
   // default true 라 기존 row 안전(additive + reversible — 20260602800000_s51_pin_restrict_saved).
   memberCanPin    Boolean     @default(true)
+  // S55 (D11 / FR-CH-18): 채널별 첨부 업로드 토글. false 면 upload-url 게이트가 403.
+  // default true 라 기존 row 안전(additive + reversible — 20260603300000_s55_attachments_policy_gc).
+  fileUploadEnabled Boolean   @default(true)
+  // S55 (D11 / FR-AM-20): 채널별 최대 첨부 크기(바이트). null 이면 워크스페이스 설정 →
+  // S3Service.maxBytes 순으로 폴백. BigInt(100MB 초과 표현 + 정밀도 보존).
+  maxFileSizeBytes  BigInt?
   isPrivate       Boolean     @default(false)
   // S19 (FR-DM-08/09): 그룹 DM owner. group(`gdm:%`) DM 에서만 의미가 있다 —
   // 1:1 DM(`dm:%`)·일반 채널은 NULL. 멤버 추가/강퇴는 owner 만, 나가기 시 owner
@@ -1007,6 +1015,21 @@ model AttachmentUploadSession {
   @@index([expiresAt])
   // FR-AM-27: 동시 미완료 세션 카운트 전용 복합 인덱스.
   @@index([uploaderId, completed, expiresAt])
+}
+
+// S55 (D11 / FR-AM-20): 워크스페이스 첨부 정책(1:1 Workspace). maxFileSizeBytes 는
+// 채널 오버라이드가 없을 때의 워크스페이스 기본 상한(null = S3Service.maxBytes 폴백).
+// blockedExtensions 는 전역 BLOCKED_EXTENSIONS 와 합집합으로 적용되는 워크스페이스
+// 추가 차단 목록. additive 신규 테이블 — 기존 row 영향 없음. Workspace 삭제 시 Cascade.
+model WorkspaceSetting {
+  id                String   @id @default(uuid()) @db.Uuid
+  workspaceId       String   @unique @db.Uuid
+  maxFileSizeBytes  BigInt?
+  blockedExtensions String[] @default([])
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 }
 
 // task-037-D: workspace-scoped custom emoji pack. MinIO-backed (see

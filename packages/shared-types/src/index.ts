@@ -172,6 +172,8 @@ export const ErrorCodeSchema = z.enum([
   'ATTACHMENT_COUNT_EXCEEDED', // → 400
   'MIME_MISMATCH', // → 400
   'UPLOAD_RATE_LIMIT', // → 429
+  // S55 (D11 / FR-CH-18): 채널 첨부 업로드 비활성(fileUploadEnabled=false) → 403.
+  'FILE_UPLOAD_DISABLED', // → 403
   // S48 (FR-MN-10): 키워드 알림 등록 한도(25개) 초과 → 400.
   'KEYWORD_LIMIT_EXCEEDED',
   // S51 (FR-PS-07): 개인 저장함 항목 수 한도(500) 초과 → 422.

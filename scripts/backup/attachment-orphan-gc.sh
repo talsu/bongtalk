@@ -61,52 +61,21 @@ fi
 # the base URL; strip the query string before any psql invocation.
 PGURL="${DATABASE_URL%%\?*}"
 
-# Fetch orphan candidates. Psql in the alpine image is available via
-# postgresql16-client. DATABASE_URL carries the creds.
-CANDIDATES=$(psql "$PGURL" -At -F '|' -c \
-  'SELECT id, "storageKey" FROM "Attachment"
-   WHERE "finalizedAt" IS NULL
-     AND "createdAt" < NOW() - INTERVAL '"'"'24 hours'"'"'
-   LIMIT 500')
-
 export AWS_ACCESS_KEY_ID="$S3_ACCESS_KEY_ID"
 export AWS_SECRET_ACCESS_KEY="$S3_SECRET_ACCESS_KEY"
 export AWS_DEFAULT_REGION="${S3_REGION:-us-east-1}"
 
-# task-038-A: "no attachment orphans" no longer short-circuits the
-# script — the emoji sweep below must run regardless.
-COUNT=0
-if [[ -z "$CANDIDATES" ]]; then
-  log "no attachment orphans"
-fi
-
-while IFS='|' read -r ID KEY; do
-  [[ -z "$ID" ]] && continue
-  COUNT=$((COUNT + 1))
-  if [[ "$DRY_RUN" -eq 1 ]]; then
-    log "would delete: id=$ID key=$KEY"
-    continue
-  fi
-  # task-012 reviewer MED-5 fix: previously the `aws ... || log ...`
-  # pattern substituted `log` (exit 0) on S3 failure, so the next-line
-  # DELETE ran unconditionally and stranded the S3 object with no DB
-  # row pointing at it. Explicit if/else matches the stated atomicity
-  # guarantee: DB row stays until S3 delete actually succeeds (or the
-  # key is already absent, which s3api delete-object treats as 204).
-  if aws --endpoint-url "$S3_ENDPOINT" s3api delete-object \
-       --bucket "$S3_BUCKET" --key "$KEY" >/dev/null 2>&1; then
-    psql "$PGURL" -c "DELETE FROM \"Attachment\" WHERE id = '$ID';" >/dev/null
-    log "deleted id=$ID key=$KEY"
-  else
-    log "(warn) aws delete failed for $KEY — leaving DB row for next run"
-  fi
-done <<<"$CANDIDATES"
-
-if [[ "$DRY_RUN" -eq 1 ]]; then
-  log "dry-run: $COUNT orphan(s) would be deleted"
-else
-  log "ok: $COUNT orphan(s) deleted"
-fi
+# S55 (D11 / FR-AM-29): Attachment orphan GC moved into the API as a
+# BullMQ repeatable job (apps/api/src/queue/attachment-gc.processor.ts +
+# attachments/attachment-gc.service.ts). That path uses the linkedAt
+# condition (messageId IS NULL OR (linkedAt IS NULL AND createdAt <
+# now-24h)), re-validates magic bytes (marking BLOCKED on mismatch),
+# and deletes the MinIO object + DB row idempotently with per-row
+# failure isolation. The old finalizedAt-based shell sweep here is
+# therefore RETIRED to avoid double-GC / divergent selectors. The
+# emoji orphan sweep below has NO DB-row counterpart in the API path
+# (presigned-PUT-after-delete window) so it stays in this script.
+log "attachment orphan GC handled by API BullMQ job (FR-AM-29) — shell sweep retired"
 
 # =============================================================
 # task-038-A: Custom emoji orphan sweep under <wsId>/emojis/

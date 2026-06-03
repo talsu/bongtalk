@@ -230,4 +230,60 @@ export class AttachmentsService {
   async findById(id: string) {
     return this.prisma.attachment.findUnique({ where: { id } });
   }
+
+  /**
+   * S55 (FR-AM-17): download/thumbnail 프록시용 첨부 + 채널 메타 조회.
+   *
+   * (a) Attachment 를 finalizedAt 조건과 함께 조회(미완료면 404).
+   * (b) channel.isPrivate 를 DB 에서 **재조회**한다(캐시 불가 — ban 직후 정합).
+   *     컨트롤러가 이 isPrivate 로 멤버십+READ 재검증(매 요청) 후 분기한다.
+   *
+   * 반환은 raw 메타만 — ACL 검증·redirect/스트리밍 분기는 컨트롤러가 수행한다.
+   */
+  async resolveForProxy(attachmentId: string): Promise<{
+    id: string;
+    storageKey: string;
+    thumbnailKey: string | null;
+    mime: string;
+    storedMimeType: string | null;
+    originalName: string;
+    sizeBytes: number;
+    processingStatus: string;
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean };
+  }> {
+    const att = await this.prisma.attachment.findUnique({ where: { id: attachmentId } });
+    if (!att || !att.finalizedAt) {
+      throw new DomainError(ErrorCode.ATTACHMENT_NOT_FOUND, 'attachment not ready');
+    }
+    const channel = await this.prisma.channel.findUnique({
+      where: { id: att.channelId },
+      select: { id: true, workspaceId: true, isPrivate: true, deletedAt: true },
+    });
+    if (!channel || channel.deletedAt) {
+      throw new DomainError(ErrorCode.ATTACHMENT_NOT_FOUND, 'attachment channel gone');
+    }
+    return {
+      id: att.id,
+      storageKey: att.storageKey,
+      thumbnailKey: att.thumbnailKey,
+      mime: att.mime,
+      storedMimeType: att.storedMimeType,
+      originalName: att.originalName,
+      sizeBytes: Number(att.sizeBytes),
+      processingStatus: att.processingStatus,
+      channel: { id: channel.id, workspaceId: channel.workspaceId, isPrivate: channel.isPrivate },
+    };
+  }
+
+  /**
+   * S55 (FR-AM-17): public 채널 첨부의 단명(60s) presigned GET. private 는 호출하지
+   * 않는다(컨트롤러가 바이트 스트리밍으로 프록시). `attachment=true` 면 Content-
+   * Disposition: attachment 를 서명에 박는다(위험 MIME 인라인 차단).
+   */
+  async presignProxyGet(storageKey: string, attachment: boolean): Promise<string> {
+    return this.s3.presignGet(storageKey, { attachment, expiresIn: PROXY_REDIRECT_TTL_SEC });
+  }
 }
+
+/** FR-AM-17: public 채널 프록시 302 redirect 의 presigned GET TTL(초). */
+export const PROXY_REDIRECT_TTL_SEC = 60;

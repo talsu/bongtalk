@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { AttachmentKind, AttachmentStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type {
@@ -22,6 +22,7 @@ import {
   kindForMime,
   ttlForSize,
 } from './attachment-validation';
+import { effectiveMaxBytes, isBlockedByPolicy } from './attachment-policy';
 import {
   matchesMagic,
   isMagicChecked,
@@ -35,6 +36,9 @@ interface ChannelRow {
   isPrivate: boolean;
   archivedAt: Date | null;
   deletedAt: Date | null;
+  // S55 (FR-CH-18 / FR-AM-20): 채널별 첨부 정책.
+  fileUploadEnabled: boolean;
+  maxFileSizeBytes: bigint | null;
 }
 
 /**
@@ -52,6 +56,8 @@ interface ChannelRow {
  */
 @Injectable()
 export class AttachmentUploadService {
+  private readonly logger = new Logger(AttachmentUploadService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
@@ -68,6 +74,8 @@ export class AttachmentUploadService {
         isPrivate: true,
         archivedAt: true,
         deletedAt: true,
+        fileUploadEnabled: true,
+        maxFileSizeBytes: true,
       },
     });
     if (!channel || channel.deletedAt) {
@@ -92,18 +100,43 @@ export class AttachmentUploadService {
     const channel = await this.loadChannel(channelId);
     await this.channelAccess.requireUpload(channel, uploaderId);
 
-    // FR-AM-04: 단일 크기 상한(S3Service.maxBytes — 100MB 재사용).
-    if (body.size <= 0 || body.size > this.s3.maxBytes) {
+    // FR-CH-18: 채널별 첨부 토글. fileUploadEnabled=false 면 권한과 무관하게 거부.
+    if (channel.fileUploadEnabled === false) {
       throw new DomainError(
-        ErrorCode.ATTACHMENT_TOO_LARGE,
-        `size out of bounds (max ${this.s3.maxBytes})`,
+        ErrorCode.FILE_UPLOAD_DISABLED,
+        'file uploads are disabled for this channel',
       );
     }
 
-    // FR-AM-05: 확장자 블랙리스트 + zip↔jar/apk 교차검증.
+    // FR-AM-20: 유효 최대 크기 = 채널 → 워크스페이스 → 전역 폴백(전역 하드 상한 캡).
+    // 워크스페이스 추가 차단 확장자도 함께 로드한다(전역 블랙리스트와 합집합).
+    const wsSetting = channel.workspaceId
+      ? await this.prisma.workspaceSetting.findUnique({
+          where: { workspaceId: channel.workspaceId },
+          select: { maxFileSizeBytes: true, blockedExtensions: true },
+        })
+      : null;
+    const wsBlocked = wsSetting?.blockedExtensions ?? [];
+    const maxBytes = effectiveMaxBytes({
+      channelMaxBytes: channel.maxFileSizeBytes,
+      workspaceMaxBytes: wsSetting?.maxFileSizeBytes ?? null,
+      defaultMaxBytes: this.s3.maxBytes,
+      workspaceBlockedExtensions: wsBlocked,
+    });
+
+    // FR-AM-04 + FR-AM-20: 단일 크기 상한(유효 max).
+    if (body.size <= 0 || body.size > maxBytes) {
+      throw new DomainError(ErrorCode.ATTACHMENT_TOO_LARGE, `size out of bounds (max ${maxBytes})`);
+    }
+
+    // FR-AM-05: 확장자 블랙리스트(전역) + 워크스페이스 추가 차단 + zip↔jar/apk 교차검증.
     // S54 리뷰 H-01: 마지막 확장자뿐 아니라 모든 세그먼트를 검사(malware.exe.txt 차단).
     const ext = extractExtension(body.filename);
-    if (isBlockedExtension(ext) || hasBlockedExtensionSegment(body.filename)) {
+    if (
+      isBlockedExtension(ext) ||
+      hasBlockedExtensionSegment(body.filename) ||
+      isBlockedByPolicy(ext, wsBlocked)
+    ) {
       throw new DomainError(
         ErrorCode.ATTACHMENT_EXTENSION_BLOCKED,
         `extension blocked: ${body.filename}`,
@@ -171,7 +204,15 @@ export class AttachmentUploadService {
       try {
         const post = await this.s3.presignPost(storageKey, body.mimeType, body.size, ttlSec);
         upload = { method: 'POST', url: post.url, fields: post.fields };
-      } catch {
+      } catch (err) {
+        // S55 H-02 carryover: presigned POST 가 MinIO 와 비호환이면 presignPut 으로
+        // 폴백한다. PUT 은 Policy Conditions(키/타입/길이) 강제가 없어 complete 의
+        // magic-byte/size 재검증이 유일한 안전망이므로, 폴백 발생을 명시 경고 로그로
+        // 남겨 운영자가 MinIO presigned-POST 미지원을 인지하게 한다(인프라 bucket
+        // quota 는 스코프 외 — 로그만).
+        this.logger.warn(
+          `[upload-url] presignPost failed → PUT fallback key=${storageKey} err=${String(err).slice(0, 160)}`,
+        );
         const putUrl = await this.s3.presignPut(storageKey, body.mimeType, body.size);
         upload = { method: 'PUT', url: putUrl, fields: {} };
       }
@@ -343,7 +384,11 @@ export class AttachmentUploadService {
             isSpoiler: item.isSpoiler ?? false,
             sortOrder: item.sortOrder ?? 0,
             finalizedAt: now,
-            linkedAt: now,
+            // S55 linkedAt 정합 수정: messageId 동봉(기존 메시지 첨부) 시에만 즉시
+            // linkedAt=now. targetChannelId pre-link(messageId 없음)는 linkedAt=null —
+            // SendMessage 의 attachmentIds 가 메시지에 연결할 때 linkedAt 을 찍는다.
+            // 끝내 연결되지 않으면 GC(FR-AM-29)가 24h 후 미연결 orphan 으로 수거한다.
+            linkedAt: messageId ? now : null,
             processingStatus: AttachmentStatus.READY,
           },
         });
