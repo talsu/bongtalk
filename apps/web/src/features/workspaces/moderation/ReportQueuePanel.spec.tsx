@@ -53,7 +53,12 @@ function report(over: Partial<ModerationReport>): ModerationReport {
     resolvedAt: over.resolvedAt ?? null,
     resolvedBy: over.resolvedBy ?? null,
     resolvedAction: over.resolvedAction ?? null,
-    message: over.message ?? { authorId: 'u-author', content: 'bad message', deleted: false },
+    message: over.message ?? {
+      authorId: 'u-author',
+      content: 'bad message',
+      deleted: false,
+      contentMasked: false,
+    },
     reporter: over.reporter ?? { id: 'u-reporter', username: 'reporter1' },
   };
 }
@@ -92,5 +97,37 @@ describe('ReportQueuePanel', () => {
     reportsData = [];
     render(<ReportQueuePanel workspaceId="ws" />);
     expect(screen.getByTestId('report-queue-empty')).toBeTruthy();
+  });
+
+  it('masks private-channel content (A-2) instead of showing the body', () => {
+    reportsData = [
+      report({
+        id: 'rep-masked',
+        message: { authorId: 'u-author', content: null, deleted: false, contentMasked: true },
+      }),
+    ];
+    render(<ReportQueuePanel workspaceId="ws" />);
+    expect(screen.getByText(/\[비공개 채널 메시지\]/)).toBeTruthy();
+  });
+
+  it('labels the resolve button with category + reporter (H-02)', () => {
+    render(<ReportQueuePanel workspaceId="ws" />);
+    const btn = screen.getByTestId('report-resolve-open');
+    expect(btn.getAttribute('aria-label')).toContain('괴롭힘');
+    expect(btn.getAttribute('aria-label')).toContain('reporter1');
+  });
+
+  it('shows a resolved badge (not color-only) for resolved reports (M-04)', () => {
+    reportsData = [
+      report({
+        id: 'rep-done',
+        resolvedAt: '2025-01-01T00:00:00.000Z',
+        resolvedAction: 'DISMISS',
+      }),
+    ];
+    render(<ReportQueuePanel workspaceId="ws" />);
+    const badge = screen.getByTestId('report-resolved-badge');
+    expect(badge.className).toContain('qf-badge--success');
+    expect(badge.textContent).toContain('기각');
   });
 });

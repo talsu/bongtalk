@@ -498,6 +498,45 @@ export class ModerationService {
   // ── 공유 가드 ────────────────────────────────────────────────────────────────
 
   /**
+   * S64 fix-forward (security A-1 = BLOCKER-1 = reviewer M-1): position 계층 단독 검증.
+   *
+   * 신고 처리 DELETE_MESSAGE 가 대상 메시지 작성자에 대해 position 계층을 강제하는 데
+   * 쓴다(채널 DELETE_ANY_MESSAGE 비트 게이트는 호출부가 별도로 수행). assertTargetActionable
+   * 과 같은 계층 규칙이되, 모더레이션 권한 비트 검사는 빼고 "actor 가 author 보다 상위인가"
+   * 만 본다(MODERATOR 가 ADMIN/OWNER 메시지를 삭제하는 권한 상승을 막는다):
+   *   - actor == author 면 항상 허용(자기 메시지 삭제).
+   *   - author 가 워크스페이스 멤버가 아니면(이미 탈퇴/비멤버) position 비교 생략(통과).
+   *   - author 가 OWNER 면 거부(최상위).
+   *   - actor 가 ADMINISTRATOR 면 면제(통과).
+   *   - 그 외: author 의 최고 position 이 actor 이상이면 MODERATION_TARGET_HIGHER(403).
+   */
+  async assertActorOutranksAuthor(
+    workspaceId: string,
+    actorId: string,
+    authorId: string,
+  ): Promise<void> {
+    if (actorId === authorId) return;
+    const actor = await this.actorContext(workspaceId, actorId);
+    if (actor.isAdministrator) return;
+    const author = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: authorId } },
+      select: { role: true },
+    });
+    // 작성자가 더 이상 멤버가 아니면 계층 비교 대상이 없다 — 채널 권한 비트로 충분.
+    if (!author) return;
+    if (author.role === WorkspaceRole.OWNER) {
+      throw new DomainError(ErrorCode.MODERATION_TARGET_HIGHER, 'cannot delete the owner message');
+    }
+    const authorTop = await this.topPosition(workspaceId, authorId, author.role);
+    if (authorTop >= actor.topPosition) {
+      throw new DomainError(
+        ErrorCode.MODERATION_TARGET_HIGHER,
+        'target outranks you — cannot delete a message authored at or above your highest role',
+      );
+    }
+  }
+
+  /**
    * S63 권한 게이트 + 계층 방어 공통 진입점:
    *   1. 자기 자신 대상 금지(MODERATION_CANNOT_SELF).
    *   2. actor 가 해당 모더레이션 비트(또는 ADMINISTRATOR)를 보유하는지 검사(403).

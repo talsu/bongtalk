@@ -218,22 +218,32 @@ export const ModerationReportSchema = z.object({
   workspaceId: z.string().uuid(),
   messageId: z.string().uuid(),
   channelId: z.string().uuid(),
-  reporterId: z.string().uuid(),
+  // S64 fix-forward (security A-6 = MEDIUM-2): 신고자 계정 삭제 시 ON DELETE SET NULL
+  // 로 익명화되어 null 일 수 있다.
+  reporterId: z.string().uuid().nullable(),
   category: ReportCategorySchema,
   reason: z.string().nullable(),
   createdAt: z.string().datetime(),
   resolvedAt: z.string().datetime().nullable(),
   resolvedBy: z.string().uuid().nullable(),
   resolvedAction: ReportActionSchema.nullable(),
-  /** 신고된 메시지의 작성자 + 본문 스냅샷(삭제 메시지는 null content). */
+  /**
+   * 신고된 메시지의 작성자 + 본문 스냅샷(삭제 메시지는 null content).
+   *
+   * S64 fix-forward (security A-2 = BLOCKER-2): private 채널 비멤버 모더레이터에게는
+   * content 가 마스킹된다(content=null + contentMasked=true). FE 는 contentMasked 가
+   * true 면 '[비공개 채널 메시지]' 로 표시한다(삭제 메시지의 '[삭제된 메시지]' 와 구분).
+   */
   message: z
     .object({
       authorId: z.string().uuid(),
       content: z.string().nullable(),
       deleted: z.boolean(),
+      /** content 가 채널 ACL 로 마스킹됐는지(비공개 채널 비멤버). */
+      contentMasked: z.boolean(),
     })
     .nullable(),
-  /** 신고자 표시 정보. */
+  /** 신고자 표시 정보(계정 삭제·익명화 시 null). */
   reporter: z
     .object({
       id: z.string().uuid(),
@@ -243,12 +253,30 @@ export const ModerationReportSchema = z.object({
 });
 export type ModerationReport = z.infer<typeof ModerationReportSchema>;
 
-/** S64 (FR-RM11): 신고 큐 목록 응답(미처리 우선·최신순). */
-export const ListReportsResponseSchema = z.object({
-  reports: z.array(ModerationReportSchema),
-});
-export type ListReportsResponse = z.infer<typeof ListReportsResponseSchema>;
+/** S64 fix-forward (B-4 = MODERATE-4): 신고 큐 한 페이지 기본/최대 항목 수. */
+export const REPORT_QUEUE_PAGE_DEFAULT = 50;
+export const REPORT_QUEUE_PAGE_MAX = 100;
 
 /** S64 (FR-RM11): 신고 큐 필터 — 미처리만/전체. */
 export const ReportQueueFilterSchema = z.enum(['OPEN', 'ALL']);
 export type ReportQueueFilter = z.infer<typeof ReportQueueFilterSchema>;
+
+/**
+ * S64 fix-forward (B-4 = MODERATE-4 = security MEDIUM-4 = reviewer m-3): 신고 큐 조회
+ * 쿼리. take:200 하드리밋을 audit 와 동일한 cursor 페이지네이션으로 대체한다.
+ * cursor 는 opaque base64url(JSON{resolvedAt,createdAt,id}) 다음 페이지 토큰.
+ */
+export const ListReportsQuerySchema = z.object({
+  filter: ReportQueueFilterSchema.optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(REPORT_QUEUE_PAGE_MAX).optional(),
+});
+export type ListReportsQuery = z.infer<typeof ListReportsQuerySchema>;
+
+/** S64 (FR-RM11): 신고 큐 목록 응답(미처리 우선·최신순). nextCursor null = 마지막 페이지. */
+export const ListReportsResponseSchema = z.object({
+  reports: z.array(ModerationReportSchema),
+  /** S64 fix-forward (B-4): 다음 페이지 cursor. 없으면 null. */
+  nextCursor: z.string().nullable(),
+});
+export type ListReportsResponse = z.infer<typeof ListReportsResponseSchema>;

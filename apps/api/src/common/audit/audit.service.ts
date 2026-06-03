@@ -174,8 +174,10 @@ export const AuditAction = {
   ROLE_DELETE: 'ROLE_DELETE',
   /** FR-RM03/14: 채널 권한 오버라이드 설정(USER/ROLE upsert). */
   CHANNEL_PERMISSION_OVERRIDE_SET: 'CHANNEL_PERMISSION_OVERRIDE_SET',
-  /** FR-RM03/14: 채널 권한 오버라이드 해제(USER/ROLE delete). */
-  CHANNEL_PERMISSION_OVERRIDE_REMOVE: 'CHANNEL_PERMISSION_OVERRIDE_REMOVE',
+  // S64 fix-forward (reviewer M-2 = A-3): CHANNEL_PERMISSION_OVERRIDE_REMOVE 는 enum/label
+  // 만 정의됐고 record 호출 경로가 없었다(관리자 override 삭제 엔드포인트 부재 —
+  // leaveChannel 은 FR-CH-07 self-leave 라 의미가 다르다). dead key 를 제거한다. 향후
+  // 관리자 override 해제 엔드포인트가 생기면 그 슬라이스에서 재도입한다.
   /** FR-CH-08: 채널 슬로우모드 간격 변경. */
   SLOWMODE_UPDATE: 'SLOWMODE_UPDATE',
   /** FR-RM04: 권한 상승 시도 거부(assertGrant/position 게이트 거부). */

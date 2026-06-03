@@ -48,11 +48,16 @@ export function AuditLogPanel({ workspaceId }: { workspaceId: string }): JSX.Ele
       </div>
 
       {query.isLoading ? (
-        <p className="text-[length:var(--fs-13)] text-text-muted" data-testid="audit-log-loading">
+        <p
+          className="text-[length:var(--fs-13)] text-text-muted"
+          data-testid="audit-log-loading"
+          role="status"
+          aria-live="polite"
+        >
           불러오는 중…
         </p>
       ) : query.isError ? (
-        <p className="qf-field__error" data-testid="audit-log-error">
+        <p className="qf-field__error" data-testid="audit-log-error" role="alert">
           감사 로그를 불러오지 못했습니다.
         </p>
       ) : entries.length === 0 ? (
@@ -77,6 +82,8 @@ export function AuditLogPanel({ workspaceId }: { workspaceId: string }): JSX.Ele
           variant="ghost"
           data-testid="audit-log-load-more"
           disabled={query.isFetchingNextPage}
+          aria-label="감사 로그 더 보기"
+          aria-busy={query.isFetchingNextPage}
           onClick={() => void query.fetchNextPage()}
         >
           {query.isFetchingNextPage ? '불러오는 중…' : '더 보기'}
@@ -100,7 +107,11 @@ function AuditRow({ entry }: { entry: AuditLogEntry }): JSX.Element {
         <span className="text-[length:var(--fs-13)] text-text-strong">{label}</span>
         <span className="text-[length:var(--fs-12)] text-text-muted truncate">
           {actorName}
-          {entry.targetId ? ` → ${entry.targetId.slice(0, 8)}` : ''}
+          {/* S64 fix-forward (a11y M-02 · SC 1.3.1): DTO 에 target username 이 없어
+              축약 id(8자)는 시각만 의미한다. aria-label 로 "대상: <id>" 를 명시한다. */}
+          {entry.targetId ? (
+            <span aria-label={`대상: ${entry.targetId}`}> → {entry.targetId.slice(0, 8)}</span>
+          ) : null}
         </span>
       </div>
       <time

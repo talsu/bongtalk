@@ -55,9 +55,11 @@ export function ReportQueuePanel({ workspaceId }: { workspaceId: string }): JSX.
       </div>
 
       {query.isLoading ? (
-        <p className="text-[length:var(--fs-13)] text-text-muted">불러오는 중…</p>
+        <p className="text-[length:var(--fs-13)] text-text-muted" role="status" aria-live="polite">
+          불러오는 중…
+        </p>
       ) : query.isError ? (
-        <p className="qf-field__error" data-testid="report-queue-error">
+        <p className="qf-field__error" data-testid="report-queue-error" role="alert">
           신고 큐를 불러오지 못했습니다.
         </p>
       ) : reports.length === 0 ? (
@@ -96,6 +98,14 @@ function ReportRow({
   onResolve: () => void;
 }): JSX.Element {
   const resolved = report.resolvedAt !== null;
+  const reporterName = report.reporter?.username ?? '(알 수 없음)';
+  const categoryLabel = REPORT_CATEGORY_LABELS[report.category];
+  // S64 fix-forward (security A-2 · FE): 본문 표시 우선순위 — 삭제 > 비공개 마스킹 > 본문.
+  const messagePreview = report.message?.deleted
+    ? '[삭제된 메시지]'
+    : report.message?.contentMasked
+      ? '[비공개 채널 메시지]'
+      : (report.message?.content ?? '').slice(0, 80);
   return (
     <li
       role="listitem"
@@ -104,23 +114,27 @@ function ReportRow({
     >
       <div className="min-w-0 flex flex-col gap-[var(--s-1)]">
         <span className="text-[length:var(--fs-13)] text-text-strong">
-          {REPORT_CATEGORY_LABELS[report.category]}
+          {categoryLabel}
           {report.reason ? ` · ${report.reason}` : ''}
         </span>
         <span className="text-[length:var(--fs-12)] text-text-muted truncate">
-          신고자 {report.reporter?.username ?? '(알 수 없음)'} ·{' '}
-          {report.message?.deleted
-            ? '[삭제된 메시지]'
-            : (report.message?.content ?? '').slice(0, 80)}
+          신고자 {reporterName} · {messagePreview}
         </span>
+        {/* S64 fix-forward (a11y M-04 · SC 1.4.1): 처리 상태를 색만이 아니라 배지로 표시한다. */}
         {resolved ? (
-          <span className="text-[length:var(--fs-12)] text-text-muted">
+          <span className="qf-badge qf-badge--success" data-testid="report-resolved-badge">
             처리됨: {report.resolvedAction ? REPORT_ACTION_LABELS[report.resolvedAction] : ''}
           </span>
         ) : null}
       </div>
       {!resolved ? (
-        <Button data-testid="report-resolve-open" onClick={onResolve}>
+        // S64 fix-forward (a11y H-02 · SC 2.4.6): 버튼 라벨이 "처리" 만으로는 어느 신고인지
+        // 알 수 없다. 카테고리 + 신고자를 aria-label 로 명시한다.
+        <Button
+          data-testid="report-resolve-open"
+          aria-label={`${categoryLabel} 신고 처리 (신고자 ${reporterName})`}
+          onClick={onResolve}
+        >
           처리
         </Button>
       ) : null}
@@ -240,6 +254,7 @@ function ResolveReportModal({
           <Button
             data-testid="report-resolve-submit"
             disabled={resolve.isPending}
+            aria-busy={resolve.isPending}
             onClick={() => void submit()}
           >
             {resolve.isPending ? '처리 중…' : '처리'}

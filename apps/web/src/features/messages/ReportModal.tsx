@@ -72,6 +72,8 @@ export function ReportModal({
             id="report-category"
             data-testid="report-category-select"
             className="qf-input"
+            // S64 fix-forward (a11y M-01 · SC 1.3.1): select 의 의미를 보조 힌트로 연결한다.
+            aria-describedby="report-category-hint"
             value={category}
             onChange={(e) => setCategory(e.target.value as ReportCategory)}
           >
@@ -81,6 +83,9 @@ export function ReportModal({
               </option>
             ))}
           </select>
+          <p id="report-category-hint" className="text-[length:var(--fs-12)] text-text-muted">
+            신고 사유에 가장 가까운 카테고리를 선택하세요.
+          </p>
         </div>
 
         <div className="qf-field">

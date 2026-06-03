@@ -25,11 +25,21 @@ import { AuditLogController } from './audit/audit-log.controller';
 // 재사용하므로 MessagesModule 을 forwardRef 로 가져온다(MessagesModule 이 WorkspacesModule 을
 // import 하는 순환을 forwardRef 양방향으로 끊는다).
 import { MessagesModule } from '../messages/messages.module';
+// S64 fix-forward (security A-1/A-2): 신고 처리 DELETE_MESSAGE 의 채널 DELETE_ANY_MESSAGE
+// 권한 fold + private 채널 content 마스킹에 ChannelAccessService 가 필요하다.
+// ChannelsModule ↔ WorkspacesModule 양방향 순환을 forwardRef 로 끊는다.
+import { ChannelsModule } from '../channels/channels.module';
 import { ModerationReportController } from './moderation/moderation-report.controller';
 import { ModerationReportService } from './moderation/moderation-report.service';
 
 @Module({
-  imports: [AuthModule, OutboxModule, PresenceModule, forwardRef(() => MessagesModule)],
+  imports: [
+    AuthModule,
+    OutboxModule,
+    PresenceModule,
+    forwardRef(() => MessagesModule),
+    forwardRef(() => ChannelsModule),
+  ],
   controllers: [
     WorkspacesController,
     MembersController,

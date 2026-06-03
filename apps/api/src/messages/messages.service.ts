@@ -2731,8 +2731,23 @@ export class MessagesService {
     channelId: string;
     msgId: string;
     actorId: string;
+    /**
+     * S64 fix-forward (perf B-1 = SERIOUS-1 / B-2 = SERIOUS-2): MESSAGE_DELETE 감사
+     * 기록 모드.
+     *   - 'in-tx'(기본): softDelete tx 안에서 원자 기록(모더레이터/강제 삭제 — 감사 원자성).
+     *   - 'best-effort': 커밋 후 fire-and-forget(recordBestEffort) — 자기 메시지 삭제
+     *     hot-path. 감사 INSERT 가 삭제 레이턴시/원자성을 좌우하지 않는다.
+     *   - 'skip': 감사 생략(신고 처리 resolveReport 경로 — REPORT_RESOLVE 가 impliedAction
+     *     으로 대체 기록해 이중 행/이중 감사를 없앤다).
+     */
+    auditMode?: 'in-tx' | 'best-effort' | 'skip';
   }): Promise<void> {
+    const auditMode = args.auditMode ?? 'in-tx';
     const deletedAt = new Date();
+    // S64 fix-forward (perf B-1): best-effort 모드에서 커밋 후 기록할 감사 페이로드.
+    // tx 안에서 실제 삭제(count>0)된 행 정보를 채워 두고, 커밋 후 한 번 기록한다.
+    // (holder 객체로 감싸 TS 가 클로저 변이를 never 로 좁히지 않게 한다.)
+    const bestEffortAudit: { authorId: string | null } = { authorId: null };
     // S36 (FR-TH-14): tx 안에서 broadcast 여부를 캡처해, 커밋 후 동기 캐시 무효화
     // 여부를 결정한다. broadcast 행은 채널 unread 에 산입되므로 삭제 시 모든 멤버
     // 캐시를 즉시 비워야 한다(옵션 A). non-broadcast / no-op 삭제는 무효화 불필요.
@@ -2842,10 +2857,15 @@ export class MessagesService {
         eventType: MESSAGE_DELETED,
         payload,
       });
-      // S64 (FR-RM12): 워크스페이스 채널 메시지 단일 soft-delete 를 감사(같은 tx —
-      // 원자성). DM 채널(workspaceId=null)·AuditService 미주입(단위 테스트)은 생략한다.
-      // bulkDelete 는 BULK_MESSAGE_DELETE 단일 행을 별도로 기록하므로 여기를 거치지 않는다.
-      if (args.workspaceId && this.audit) {
+      // S64 (FR-RM12): 워크스페이스 채널 메시지 단일 soft-delete 를 감사. DM 채널
+      // (workspaceId=null)·AuditService 미주입(단위 테스트)은 생략한다. bulkDelete 는
+      // BULK_MESSAGE_DELETE 단일 행을 별도 기록하므로 여기를 거치지 않는다.
+      //
+      // S64 fix-forward (perf B-1 = SERIOUS-1 / B-2 = SERIOUS-2):
+      //   - 'in-tx'(모더레이터/강제 삭제): 같은 tx 에서 원자 기록(감사 무결성).
+      //   - 'best-effort'(자기 삭제 hot-path): 페이로드만 캡처하고 커밋 후 기록.
+      //   - 'skip'(신고 처리): REPORT_RESOLVE 가 impliedAction 으로 대체하므로 미기록.
+      if (args.workspaceId && this.audit && auditMode === 'in-tx') {
         await this.audit.record(
           {
             workspaceId: args.workspaceId,
@@ -2857,6 +2877,8 @@ export class MessagesService {
           },
           tx,
         );
+      } else if (args.workspaceId && this.audit && auditMode === 'best-effort') {
+        bestEffortAudit.authorId = updated.authorId;
       }
       // S50 (D10 · FR-PS-06): 삭제된 메시지가 핀이었다면 같은 트랜잭션 안에서
       // pin_removed(MESSAGE_PIN_TOGGLED, pinnedAt=null) 이벤트도 발행해, 핀 패널/
@@ -2879,6 +2901,21 @@ export class MessagesService {
         });
       }
     });
+
+    // S64 fix-forward (perf B-1 = SERIOUS-1): 자기 메시지 삭제 hot-path 의 MESSAGE_DELETE
+    // 감사는 커밋 후 fire-and-forget 으로 기록한다(빈번 — 삭제 레이턴시/원자성에서 분리).
+    // 모더레이터/강제 삭제('in-tx')는 위에서 이미 tx 안에서 원자 기록됐다. 실패는 warn 만.
+    const pendingAuthorId = bestEffortAudit.authorId;
+    if (args.workspaceId && this.audit && pendingAuthorId !== null) {
+      void this.audit.recordBestEffort({
+        workspaceId: args.workspaceId,
+        actorId: args.actorId,
+        action: AuditAction.MESSAGE_DELETE,
+        targetId: args.msgId,
+        channelId: args.channelId,
+        details: { authorId: pendingAuthorId },
+      });
+    }
 
     // S36 (FR-TH-14, 옵션 A 동기 직접): broadcast 행 삭제는 채널 unread 에서
     // 1건이 빠지므로($transaction 커밋 후, COUNT 재집계가 자동으로 −1), 영향

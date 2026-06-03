@@ -213,7 +213,11 @@ describe('S64 FR-RM11: report queue', () => {
     const reporter = await inviteAndJoin(workspaceId, owner.accessToken, 's64qr');
     const mod = await inviteAndJoin(workspaceId, owner.accessToken, 's64qmod');
     await setRole(workspaceId, owner.accessToken, mod.userId, 'MODERATOR');
-    const mid = await sendMessage(workspaceId, channelId, owner.accessToken, 'bad');
+    // S64 fix-forward (security A-1): 신고 대상 메시지는 MODERATOR 보다 하위 역할(MEMBER)이
+    // 작성해야 DELETE_MESSAGE 가 position 계층을 통과한다. OWNER 작성 메시지를 MODERATOR 가
+    // 삭제하려 하면(이전 픽스처) A-1 가드가 403 으로 막는 게 정상이다.
+    const author = await inviteAndJoin(workspaceId, owner.accessToken, 's64qauthor');
+    const mid = await sendMessage(workspaceId, channelId, author.accessToken, 'bad');
 
     await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/channels/${channelId}/messages/${mid}/report`)
@@ -258,6 +262,169 @@ describe('S64 FR-RM11: report queue', () => {
       .set('Authorization', `Bearer ${mod.accessToken}`)
       .send({ action: 'DISMISS' })
       .expect(409);
+  });
+});
+
+// ── S64 fix-forward: 보안(A-1 DELETE 계층 · A-2 마스킹 · A-4 크로스채널 IDOR) ─────
+
+async function reportMessageAs(
+  workspaceId: string,
+  channelId: string,
+  messageId: string,
+  accessToken: string,
+  category = 'SPAM',
+): Promise<void> {
+  await request(env.baseUrl)
+    .post(`/workspaces/${workspaceId}/channels/${channelId}/messages/${messageId}/report`)
+    .set('Authorization', `Bearer ${accessToken}`)
+    .send({ category })
+    .expect(204);
+}
+
+async function getReportId(
+  workspaceId: string,
+  modAccessToken: string,
+  messageId: string,
+): Promise<string> {
+  const list = await request(env.baseUrl)
+    .get(`/workspaces/${workspaceId}/moderation/reports?filter=ALL`)
+    .set('Authorization', `Bearer ${modAccessToken}`)
+    .expect(200);
+  const found = (list.body.reports as Array<{ id: string; messageId: string }>).find(
+    (r) => r.messageId === messageId,
+  );
+  if (!found) throw new Error('report not found in queue');
+  return found.id;
+}
+
+describe('S64 fix-forward security (A-1 / A-2 / A-4)', () => {
+  it('A-1: MODERATOR cannot DELETE_MESSAGE authored by a higher-ranked ADMIN (403)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s64a1');
+    const channelId = await createChannel(workspaceId, owner.accessToken, 's64a1');
+    // ADMIN(상위) 작성자 + MODERATOR(하위) 처리자 + 일반 신고자.
+    const admin = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1adm');
+    await setRole(workspaceId, owner.accessToken, admin.userId, 'ADMIN');
+    const mod = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1mod');
+    await setRole(workspaceId, owner.accessToken, mod.userId, 'MODERATOR');
+    const reporter = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1rep');
+
+    const adminMsg = await sendMessage(workspaceId, channelId, admin.accessToken, 'admin says hi');
+    await reportMessageAs(workspaceId, channelId, adminMsg, reporter.accessToken, 'HARASSMENT');
+    const reportId = await getReportId(workspaceId, mod.accessToken, adminMsg);
+
+    // MODERATOR 가 ADMIN 메시지를 DELETE_MESSAGE 처리 → position 계층 거부(403).
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/moderation/reports/${reportId}/resolve`)
+      .set('Authorization', `Bearer ${mod.accessToken}`)
+      .send({ action: 'DELETE_MESSAGE' })
+      .expect(403);
+    // 메시지는 살아있어야 한다(부수효과 미실행).
+    const msg = await env.prisma.message.findUnique({ where: { id: adminMsg } });
+    expect(msg?.deletedAt).toBeNull();
+    // claim 도 미획득 — 신고는 여전히 미처리.
+    const rep = await env.prisma.moderationReport.findUnique({ where: { id: reportId } });
+    expect(rep?.resolvedAt).toBeNull();
+  });
+
+  it('A-1: MODERATOR may DELETE_MESSAGE authored by a lower-ranked MEMBER (204)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s64a1ok');
+    const channelId = await createChannel(workspaceId, owner.accessToken, 's64a1ok');
+    const mod = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1okmod');
+    await setRole(workspaceId, owner.accessToken, mod.userId, 'MODERATOR');
+    const member = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1okmem');
+    const reporter = await inviteAndJoin(workspaceId, owner.accessToken, 's64a1okrep');
+
+    const memberMsg = await sendMessage(workspaceId, channelId, member.accessToken, 'member spam');
+    await reportMessageAs(workspaceId, channelId, memberMsg, reporter.accessToken, 'SPAM');
+    const reportId = await getReportId(workspaceId, mod.accessToken, memberMsg);
+
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/moderation/reports/${reportId}/resolve`)
+      .set('Authorization', `Bearer ${mod.accessToken}`)
+      .send({ action: 'DELETE_MESSAGE' })
+      .expect(204);
+    const msg = await env.prisma.message.findUnique({ where: { id: memberMsg } });
+    expect(msg?.deletedAt).not.toBeNull();
+    // perf B-2: 이중 MESSAGE_DELETE 감사가 없어야 한다(REPORT_RESOLVE 만, impliedAction).
+    expect(await auditCount(workspaceId, 'MESSAGE_DELETE')).toBe(0);
+    expect(await auditCount(workspaceId, 'REPORT_RESOLVE')).toBe(1);
+    const resolveRows = await env.prisma.auditLog.findMany({
+      where: { workspaceId, action: 'REPORT_RESOLVE' },
+    });
+    expect((resolveRows[0].details as { impliedAction?: string }).impliedAction).toBe(
+      'MESSAGE_DELETE',
+    );
+  });
+
+  it('A-2: a non-member MODERATOR sees masked content for a private-channel report', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s64a2');
+    // 비공개 채널 — OWNER 만 멤버. MODERATOR 는 채널 비멤버.
+    const ch = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: `s64a2-${Date.now().toString(36).slice(-6)}`, type: 'TEXT', isPrivate: true })
+      .expect(201);
+    const channelId = ch.body.id as string;
+    const reporter = await inviteAndJoin(workspaceId, owner.accessToken, 's64a2rep');
+    // 신고자에게 채널 READ override(allowMask=1=READ) 부여 → 비공개 채널 접근·신고 가능.
+    await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels/${channelId}/members`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ userId: reporter.userId, allowMask: 1, denyMask: 0 })
+      .expect(201);
+    const mod = await inviteAndJoin(workspaceId, owner.accessToken, 's64a2mod');
+    await setRole(workspaceId, owner.accessToken, mod.userId, 'MODERATOR');
+
+    const secretMsg = await sendMessage(workspaceId, channelId, owner.accessToken, 'top secret');
+    await reportMessageAs(workspaceId, channelId, secretMsg, reporter.accessToken, 'OTHER');
+
+    // 비멤버 MODERATOR 큐 열람 → content 마스킹(contentMasked=true · content=null).
+    const list = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/moderation/reports?filter=ALL`)
+      .set('Authorization', `Bearer ${mod.accessToken}`)
+      .expect(200);
+    const row = (
+      list.body.reports as Array<{
+        messageId: string;
+        message: { content: string | null; contentMasked: boolean } | null;
+      }>
+    ).find((r) => r.messageId === secretMsg);
+    expect(row?.message?.contentMasked).toBe(true);
+    expect(row?.message?.content).toBeNull();
+
+    // OWNER(채널 멤버) 큐 열람 → content 노출(마스킹 없음).
+    const ownerList = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/moderation/reports?filter=ALL`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    const ownerRow = (
+      ownerList.body.reports as Array<{
+        messageId: string;
+        message: { content: string | null; contentMasked: boolean } | null;
+      }>
+    ).find((r) => r.messageId === secretMsg);
+    expect(ownerRow?.message?.contentMasked).toBe(false);
+    expect(ownerRow?.message?.content).toBe('top secret');
+  });
+
+  it('A-4: bulk-delete with a cross-channel messageId leaks nothing (0 deleted in foreign channel)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s64a4');
+    const channelA = await createChannel(workspaceId, owner.accessToken, 's64a4a');
+    const channelB = await createChannel(workspaceId, owner.accessToken, 's64a4b');
+    const inA = await sendMessage(workspaceId, channelA, owner.accessToken, 'in A');
+    const inB = await sendMessage(workspaceId, channelB, owner.accessToken, 'in B');
+
+    // 채널 A 권한자가 채널 B 의 messageId 를 섞어 A 의 bulk-delete 로 전송.
+    const res = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels/${channelA}/messages/bulk-delete`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ messageIds: [inA, inB] })
+      .expect(200);
+    // 채널 A 의 inA 만 삭제, 채널 B 의 inB 는 영향 없음(channelId 격리).
+    expect(res.body.messageIds).toEqual([inA]);
+    expect(res.body.deletedCount).toBe(1);
+    const bStill = await env.prisma.message.findUnique({ where: { id: inB } });
+    expect(bStill?.deletedAt).toBeNull();
   });
 });
 

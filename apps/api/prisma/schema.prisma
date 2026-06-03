@@ -411,6 +411,9 @@ model User {
   ownedChannels            Channel[]                    @relation("ChannelOwner")
   // S51 (D10 / FR-PS-07): 본인이 개인 저장함에 담은 메시지들. onDelete Cascade.
   savedMessages            SavedMessage[]
+  // S64 fix-forward (security A-6 = MEDIUM-2): 본인이 제출한 메시지 신고들. 계정
+  // 하드삭제 시 ON DELETE SET NULL 로 reporterId 가 null 화되어 익명화된다(행 보존).
+  moderationReportsFiled   ModerationReport[]           @relation("ModerationReportReporter")
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.
@@ -617,7 +620,9 @@ model ModerationReport {
   workspaceId    String    @db.Uuid
   messageId      String    @db.Uuid
   channelId      String    @db.Uuid
-  reporterId     String    @db.Uuid
+  // S64 fix-forward (security A-6 = MEDIUM-2): 신고자 계정 하드삭제 시 ON DELETE SET NULL
+  // 로 익명화한다(행은 보존 — 모더레이션 이력 유지). 따라서 nullable.
+  reporterId     String?   @db.Uuid
   // 신고 카테고리(SPAM/HARASSMENT/HATE_SPEECH/INAPPROPRIATE/OTHER).
   category       String    @db.VarChar(32)
   reason         String?   @db.VarChar(512)
@@ -629,6 +634,11 @@ model ModerationReport {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  // S64 fix-forward (security A-6 = MEDIUM-2): channel 하드삭제 시 신고 행 함께 정리,
+  // 신고자 계정 삭제 시 익명화(SET NULL). 정렬 커버 인덱스는 raw SQL 마이그레이션의
+  // "ModerationReport_ws_queue_sort_idx" (NULLS FIRST · createdAt DESC) 가 담당한다.
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  reporter  User?     @relation("ModerationReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
 
   @@unique([messageId, reporterId])
   @@index([workspaceId, resolvedAt, createdAt])
@@ -731,6 +741,9 @@ model Channel {
   mutes                    UserChannelMute[]
   // S43 (FR-CH-15): 이 채널을 즐겨찾기한 행. onDelete Cascade.
   favorites                UserChannelFavorite[]
+  // S64 fix-forward (security A-6 = MEDIUM-2): 이 채널 메시지에 대한 신고 행들.
+  // 채널 하드삭제 시 ON DELETE CASCADE 로 함께 정리된다.
+  moderationReports        ModerationReport[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
@@ -873,6 +886,8 @@ model AuditLog {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action, createdAt])
+  // S64 fix-forward (perf B-3 = MODERATE-3): actorId 필터(WHERE actorId=…) 커버 인덱스.
+  @@index([workspaceId, actorId, createdAt])
   @@index([channelId, createdAt])
 }
 

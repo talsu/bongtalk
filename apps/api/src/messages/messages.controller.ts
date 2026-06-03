@@ -644,11 +644,16 @@ export class MessagesController {
         'only the author or an ADMIN can delete this message',
       );
     }
+    // S64 fix-forward (perf B-1 = SERIOUS-1): 자기 메시지 삭제(isSelf)는 빈번한 hot-path
+    // 라 MESSAGE_DELETE 감사를 커밋 후 best-effort 로 기록한다. 모더레이터/강제 삭제
+    // (isMod, isDeletableSystemPin 포함)는 감사 원자성을 위해 tx 안에서 동기 기록한다.
+    const auditMode = isSelf && !isMod ? 'best-effort' : 'in-tx';
     await this.messages.softDelete({
       workspaceId: m.workspaceId,
       channelId,
       msgId,
       actorId: user.id,
+      auditMode,
     });
   }
 

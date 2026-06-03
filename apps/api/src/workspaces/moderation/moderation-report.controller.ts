@@ -10,7 +10,7 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
-  ReportQueueFilterSchema,
+  ListReportsQuerySchema,
   ResolveReportRequestSchema,
   type ListReportsResponse,
 } from '@qufox/shared-types';
@@ -37,21 +37,32 @@ export class ModerationReportController {
     private readonly rateLimit: RateLimitService,
   ) {}
 
-  /** FR-RM11: 신고 큐 열람. filter=OPEN(미처리) / ALL. MODERATOR 이상. */
+  /**
+   * FR-RM11: 신고 큐 열람. filter=OPEN(미처리) / ALL. MODERATOR 이상. cursor 페이지네이션.
+   *
+   * security A-5 (HIGH-2): GET reports 에도 per-workspace rate-limit 을 건다(POST resolve
+   * 만 있던 것을 audit-log 패턴과 동일하게 60초/120회로 보강 — 큐 폴링 폭주 방어).
+   */
   @Get()
   async list(
     @Param('id', new ParseUUIDPipe()) _id: string,
     @CurrentMember() member: CurrentMemberPayload,
-    @Query('filter') filterRaw: string | undefined,
+    @Query() query: Record<string, string | undefined>,
   ): Promise<ListReportsResponse> {
-    const parsed = ReportQueueFilterSchema.safeParse(filterRaw ?? 'OPEN');
+    await this.rateLimit.enforce([
+      { key: `report:list:ws:${member.workspaceId}`, windowSec: 60, max: 120 },
+    ]);
+    const parsed = ListReportsQuerySchema.safeParse(query);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     return this.reports.listReports({
       workspaceId: member.workspaceId,
+      actorId: member.userId,
       actorRole: member.role,
-      filter: parsed.data,
+      filter: parsed.data.filter ?? 'OPEN',
+      cursor: parsed.data.cursor,
+      limit: parsed.data.limit,
     });
   }
 
