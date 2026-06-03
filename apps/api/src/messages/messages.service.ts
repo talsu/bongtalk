@@ -1197,6 +1197,9 @@ export class MessagesService {
           // Link the finalized attachments to the message. The pre-tx
           // validation above bounded the set to ids owned by this user
           // + unlinked + same channel, so a raw updateMany is safe.
+          // S55 linkedAt 정합: pre-link(complete with targetChannelId)된 첨부는
+          // linkedAt=null 로 남아 있으므로, 메시지에 연결하는 이 시점에 linkedAt 을
+          // 찍어 orphan GC(FR-AM-29)의 미연결 수거 대상에서 제외한다.
           await tx.attachment.updateMany({
             where: {
               id: { in: args.attachmentIds },
@@ -1204,7 +1207,7 @@ export class MessagesService {
               uploaderId: args.authorId,
               channelId: args.channelId,
             },
-            data: { messageId: created.id },
+            data: { messageId: created.id, linkedAt: new Date() },
           });
         }
         const payload: MessageCreatedPayload = {
