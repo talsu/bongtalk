@@ -79,18 +79,25 @@ export class ReactionsController {
   ): Promise<boolean> {
     // 워크스페이스 채널은 호출자 role 로 ROLE 프린시펄 override 를 함께 본다.
     // DM(workspaceId=null)은 role 이 없어 USER 프린시펄만 본다.
+    // S62 (FR-RM03): 시스템 역할 리터럴 외에 커스텀 Role UUID override 도 ROLE
+    // 프린시펄로 함께 조회한다.
     let role: string | null = null;
+    let roleUuids: string[] = [];
     if (channel.workspaceId !== null) {
       const member = await this.prisma.workspaceMember.findUnique({
         where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
-        select: { role: true },
+        select: { role: true, memberRoles: { select: { roleId: true } } },
       });
       role = member?.role ?? null;
+      roleUuids = member?.memberRoles.map((m) => m.roleId) ?? [];
     }
     const principals: { principalType: 'USER' | 'ROLE'; principalId: string }[] = [
       { principalType: 'USER', principalId: userId },
     ];
     if (role) principals.push({ principalType: 'ROLE', principalId: role });
+    for (const uuid of roleUuids) {
+      principals.push({ principalType: 'ROLE', principalId: uuid });
+    }
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: { channelId: channel.id, OR: principals },
       select: { principalType: true, principalId: true, allowMask: true, denyMask: true },

@@ -146,6 +146,35 @@ export const ChannelMemberOverrideRequestSchema = z.object({
 });
 export type ChannelMemberOverrideRequest = z.infer<typeof ChannelMemberOverrideRequestSchema>;
 
+/**
+ * S62 (FR-RM14 · Fork B / ADR-11): 채널 권한 오버라이드 응답 DTO. allow/deny 마스크는
+ * Prisma BigInt 컬럼이므로 BigIntSerializationInterceptor 정합을 위해 **string**
+ * (BigInt-as-string)으로 내린다. 종전 `Number(...)` 우회는 인터셉터와 어긋났다
+ * (S61 555줄 TODO). 프론트엔드는 `BigInt(value)` 로 파싱한다.
+ *
+ * 집행 도메인(0x1FF) 비트만 담기지만(controller 가 ALL_PERMISSIONS 로 검증), 컬럼이
+ * BigInt 라 직렬화 계약을 string 으로 통일한다.
+ */
+export const ChannelPermissionOverrideSchema = z.object({
+  id: z.string().uuid(),
+  channelId: z.string().uuid(),
+  principalType: z.enum(['USER', 'ROLE']),
+  // USER: User.id(UUID) · ROLE: 시스템 역할 리터럴(OWNER/…) 또는 커스텀 Role.id(UUID).
+  principalId: z.string(),
+  /** ADR-11: BigInt 비트필드를 string 으로 직렬화. FE 는 BigInt(value) 파싱. */
+  allowMask: z.string(),
+  denyMask: z.string(),
+});
+export type ChannelPermissionOverride = z.infer<typeof ChannelPermissionOverrideSchema>;
+
+/** S62 (FR-RM14): 채널 오버라이드 목록 응답. UI 가 역할/멤버 3-state 토글을 그린다. */
+export const ChannelPermissionOverrideListResponseSchema = z.object({
+  overrides: z.array(ChannelPermissionOverrideSchema),
+});
+export type ChannelPermissionOverrideListResponse = z.infer<
+  typeof ChannelPermissionOverrideListResponseSchema
+>;
+
 export const ChannelSchema = z.object({
   id: z.string().uuid(),
   workspaceId: z.string().uuid(),

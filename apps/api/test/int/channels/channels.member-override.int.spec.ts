@@ -102,7 +102,8 @@ describe('S12 channel member override — mask validation (privilege-escalation 
       .set(bearer(seed.admin.accessToken))
       .send({ userId: seed.member.userId, allowMask: goodMask });
     expect(res.status).toBe(201);
-    expect(res.body.override.allowMask).toBe(goodMask);
+    // S62 (Fork B / ADR-11): override 응답 allow/denyMask 는 string(BigInt-as-string).
+    expect(res.body.override.allowMask).toBe(String(goodMask));
     expect(res.body.override.principalId).toBe(seed.member.userId);
   });
 
@@ -133,6 +134,7 @@ describe('S12 channel member override — mask validation (privilege-escalation 
       .set(bearer(seed.admin.accessToken))
       .send({ userId: seed.member.userId, allowMask: 0xff });
     expect(res.status).toBe(201);
-    expect(res.body.override.allowMask).toBe(0xff);
+    // S62 (Fork B / ADR-11): string 직렬화(0xff = '255').
+    expect(res.body.override.allowMask).toBe(String(0xff));
   });
 });

@@ -210,6 +210,7 @@ export class MessagesController {
     @Param('msgId', new ParseUUIDPipe()) msgId: string,
     @CurrentMember() m: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
   ): Promise<ListEditHistoryResponse> {
     // 권한 게이트: 작성자 본인 OR OWNER/ADMIN. 삭제된 메시지도 모더레이터는
     // 이력 조회 가능하므로 includeDeleted=true 로 author 판정용 row 를 읽는다.
@@ -220,6 +221,17 @@ export class MessagesController {
       throw new DomainError(
         ErrorCode.MESSAGE_NOT_AUTHOR,
         'only the author or a moderator can view edit history',
+      );
+    }
+    // S62 fix-forward (security A-2 = HIGH-1 · FR-RM17): 히스토리 열람도 send 와 동일하게
+    // ADMINISTRATOR 채널 우회 감사 대상이다. ADMINISTRATOR 보유자가 채널 DENY overwrite 를
+    // 우회해 이력을 열람하면 AuditLog 에 기록한다(관찰성 · best-effort · enforcement 불변).
+    // DM(workspaceId 없음)은 내부에서 스킵.
+    if (channel) {
+      await this.channelAccess.auditAdministratorBypass(
+        { id: channel.id, workspaceId: channel.workspaceId },
+        user.id,
+        'HISTORY_VIEW',
       );
     }
     const items = await this.messages.listEditHistory({ channelId, msgId });
@@ -307,13 +319,35 @@ export class MessagesController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
     }
+    // S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): 워크스페이스 채널이면 멤버
+    // 권한 메타(role + 보유 Role UUID/permissions)를 한 번만 로드해 announcement 게이트·
+    // ADMINISTRATOR 우회 감사·MENTION_EVERYONE fold 에 재사용한다. 이게 없으면 세 경로가
+    // 각각 workspaceMember.findUnique / memberRole.findMany 를 중복 호출했다(hot-path RTT).
+    const bypassMember =
+      channel && channel.workspaceId !== null
+        ? await this.channelAccess.loadAdministratorBypassMember(channel.workspaceId, user.id)
+        : null;
+    const memberRoleUuids = bypassMember?.memberRoles.map((r) => r.roleId) ?? [];
     // S13 (FR-CH-19): ANNOUNCEMENT 채널은 OWNER/ADMIN/허용역할만 게시 가능.
     // ChannelAccessGuard 가 req.channel(type 포함)을 주입한 뒤 실행된다.
     if (channel) {
       await this.channelAccess.requireAnnouncementPostingAllowed(
-        { id: channel.id, type: channel.type },
+        { id: channel.id, type: channel.type, workspaceId: channel.workspaceId },
         user.id,
         m.role,
+        memberRoleUuids,
+      );
+    }
+    // S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사. 채널에 DENY overwrite 가 있는데도
+    // ADMINISTRATOR 보유자가 게시하면 AuditLog 에 기록한다(관찰성 · best-effort —
+    // enforcement 불변). DM(workspaceId 없음)은 내부에서 스킵. 위에서 로드한 멤버
+    // 메타를 재사용해 별도 findUnique 를 생략한다(perf B-1).
+    if (channel && bypassMember) {
+      await this.channelAccess.auditAdministratorBypass(
+        { id: channel.id, workspaceId: channel.workspaceId },
+        user.id,
+        'MESSAGE_SEND',
+        bypassMember,
       );
     }
     // S17 (FR-DM-13): 027-era 워크스페이스 스코프 1:1 DM(DIRECT)에도 send 시점
@@ -377,6 +411,8 @@ export class MessagesController {
             { id: channel.id, workspaceId: channel.workspaceId },
             user.id,
             m.role,
+            // perf B-1: 위에서 로드한 멤버 Role UUID 재사용(memberRole.findMany 생략).
+            memberRoleUuids,
           )
         : false;
     const idempotencyKey = validateIdempotencyKey(idempotencyHeader);

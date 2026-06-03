@@ -99,6 +99,10 @@ export class AttachmentUploadService {
   ): Promise<UploadUrlResponse> {
     const channel = await this.loadChannel(channelId);
     await this.channelAccess.requireUpload(channel, uploaderId);
+    // S62 fix-forward (security A-2 = HIGH-1 · FR-RM17): ADMINISTRATOR 보유자가 채널
+    // DENY overwrite 를 우회해 업로드를 개시하면 AuditLog 에 기록한다(관찰성 ·
+    // best-effort · enforcement 불변). DM(workspaceId 없음)은 내부에서 스킵.
+    await this.channelAccess.auditAdministratorBypass(channel, uploaderId, 'FILE_UPLOAD');
 
     // FR-CH-18: 채널별 첨부 토글. fileUploadEnabled=false 면 권한과 무관하게 거부.
     if (channel.fileUploadEnabled === false) {

@@ -78,7 +78,8 @@ describe('S14 FR-CH-11 — ROLE override endpoint', () => {
     expect(res.status).toBe(201);
     expect(res.body.override.principalType).toBe('ROLE');
     expect(res.body.override.principalId).toBe('MEMBER');
-    expect(res.body.override.allowMask).toBe(PIN);
+    // S62 (Fork B / ADR-11): override 응답 마스크는 string(BigInt-as-string).
+    expect(res.body.override.allowMask).toBe(String(PIN));
 
     const row = await env.prisma.channelPermissionOverride.findUnique({
       where: {
@@ -89,7 +90,8 @@ describe('S14 FR-CH-11 — ROLE override endpoint', () => {
         },
       },
     });
-    expect(row?.allowMask).toBe(PIN);
+    // S61: allow/denyMask 컬럼은 BigInt — Prisma 읽기값은 BigInt 다.
+    expect(row?.allowMask).toBe(BigInt(PIN));
   });
 
   // S15: 집행 비트필드가 0x1FF 로 확장(BYPASS_SLOWMODE=0x100 추가)되었으므로,
@@ -250,7 +252,8 @@ describe('S14 FR-CH-07 — channel join / leave', () => {
     // review S14 HIGH fix: the join override is a pure opt-in marker (allowMask 0),
     // NOT 0xFF — a 0xFF self-join would override an ADMIN-set role DENY under the
     // 5-stage fold (개인 ALLOW > 역할 DENY) and escalate privileges. Pin it to 0.
-    expect(ovr?.allowMask).toBe(0);
+    // S61: allowMask 컬럼은 BigInt — Prisma 읽기값은 0n.
+    expect(ovr?.allowMask).toBe(0n);
 
     const ev = await env.prisma.outboxEvent.findFirst({
       where: { eventType: 'channel.member_added', aggregateId: channelId },

@@ -156,6 +156,15 @@ export class UnreadService {
          WHERE "workspaceId" = ${workspaceId}::uuid
            AND "userId" = ${userId}::uuid
       ),
+      -- S62 (FR-RM03): 멤버가 보유한 커스텀 Role UUID 목록. ROLE override 매칭이
+      -- 시스템 역할 리터럴(me.role) 외에 이 UUID 들도 포함해야 커스텀 Role 채널
+      -- override 가 가시성에 반영된다.
+      my_role_ids AS (
+        SELECT "roleId"::text AS rid
+          FROM "MemberRole"
+         WHERE "workspaceId" = ${workspaceId}::uuid
+           AND "userId" = ${userId}::uuid
+      ),
       -- S21 ACL: principalType 별로 ALLOW/DENY 를 나눠 bit_or. readBitVisibleSql
       -- 의 5단계 fold 가 이 컬럼들을 참조한다(PermissionMatrix.effective 정합).
       overrides AS (
@@ -168,7 +177,10 @@ export class UnreadService {
         FROM "ChannelPermissionOverride" cpo
         WHERE (
           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role::text FROM me))
+          OR (cpo."principalType" = 'ROLE' AND (
+                cpo."principalId" = (SELECT role::text FROM me)
+                OR cpo."principalId" IN (SELECT rid FROM my_role_ids)
+             ))
         )
         GROUP BY cpo."channelId"
       ),
@@ -258,8 +270,15 @@ export class UnreadService {
           FROM "WorkspaceMember" wm
          WHERE wm."userId" = ${userId}::uuid
       ),
+      -- S62 (FR-RM03): 워크스페이스별 본인 보유 커스텀 Role UUID. ROLE override
+      -- 매칭에 시스템 역할 리터럴 외 이 UUID 들도 포함한다.
+      my_role_ids AS (
+        SELECT mr."workspaceId", mr."roleId"::text AS rid
+          FROM "MemberRole" mr
+         WHERE mr."userId" = ${userId}::uuid
+      ),
       -- CRITICAL-C: 본인이 멤버인 워크스페이스의 채널 오버라이드를 채널 × (USER
-      -- 본인 | ROLE 본인역할) 기준으로 한 번에 bit_or. 채널마다 재집계하던
+      -- 본인 | ROLE 본인역할/커스텀UUID) 기준으로 한 번에 bit_or. 채널마다 재집계하던
       -- 상관 서브쿼리를 단일 CTE join 으로 대체(summarize 와 동일 패턴).
       overrides AS (
         SELECT
@@ -273,7 +292,12 @@ export class UnreadService {
         JOIN my_memberships mm ON mm."workspaceId" = cc."workspaceId"
         WHERE (
           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = mm.role::text)
+          OR (cpo."principalType" = 'ROLE' AND (
+                cpo."principalId" = mm.role::text
+                OR cpo."principalId" IN (
+                     SELECT rid FROM my_role_ids mri WHERE mri."workspaceId" = cc."workspaceId"
+                   )
+             ))
         )
         GROUP BY cpo."channelId"
       ),
@@ -773,7 +797,14 @@ export class UnreadService {
          WHERE "workspaceId" = ${workspaceId}::uuid
            AND "userId" = ${userId}::uuid
       ),
+      my_role_ids AS (
+        SELECT "roleId"::text AS rid
+          FROM "MemberRole"
+         WHERE "workspaceId" = ${workspaceId}::uuid
+           AND "userId" = ${userId}::uuid
+      ),
       -- summarize 와 동일한 ACL overrides 집계(단일 출처: readBitVisibleSql).
+      -- S62 (FR-RM03): ROLE override 매칭에 커스텀 Role UUID 포함.
       overrides AS (
         SELECT
           cpo."channelId",
@@ -784,7 +815,10 @@ export class UnreadService {
         FROM "ChannelPermissionOverride" cpo
         WHERE (
           (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-          OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = (SELECT role::text FROM me))
+          OR (cpo."principalType" = 'ROLE' AND (
+                cpo."principalId" = (SELECT role::text FROM me)
+                OR cpo."principalId" IN (SELECT rid FROM my_role_ids)
+             ))
         )
         GROUP BY cpo."channelId"
       ),

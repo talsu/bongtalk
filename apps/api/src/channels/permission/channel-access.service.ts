@@ -1,10 +1,19 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { WorkspaceRole } from '@prisma/client';
-import { PERMISSIONS } from '@qufox/shared-types';
+import type Redis from 'ioredis';
+import { PERMISSIONS, fromStoragePermissions, has } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
-import { Permission, PermissionMatrix } from '../../auth/permissions';
+import { Permission, ROLE_BASELINE } from '../../auth/permissions';
+import { REDIS } from '../../redis/redis.module';
+import { roleCacheKey } from '../../queue/role-cache-queue.constants';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
+import {
+  resolveChannelPermissions,
+  type ResolverRole,
+} from '../../workspaces/roles/role-permission-resolver';
+import { bigintToEnforcementMask } from './bigint-to-enforcement';
 
 /**
  * S44 (FR-MN-02 / FR-MN-16 / ADR-4): `MENTION_EVERYONE` 카탈로그 비트(0x0080).
@@ -21,6 +30,16 @@ const MENTION_EVERYONE_BIT = Number(PERMISSIONS.MENTION_EVERYONE);
  * S44: 역할별 `MENTION_EVERYONE` 기본값(base). OWNER/ADMIN 은 on, MEMBER 는 off.
  * 채널 override 가 이 base 위에 5단계 fold 로 누적된다.
  */
+/**
+ * S62 fix-forward (perf B-1): hot-path 가 한 번 로드해 audit/mention/announcement
+ * 게이트에 재사용하는 멤버 권한 메타. role(시스템 역할 enum) + 보유 Role 의
+ * roleId(UUID) + 카탈로그 permissions(ADMINISTRATOR 판정용).
+ */
+export type AdministratorBypassMember = {
+  role: WorkspaceRole;
+  memberRoles: Array<{ roleId: string; role: { permissions: bigint } }>;
+};
+
 const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
   OWNER: MENTION_EVERYONE_BIT,
   ADMIN: MENTION_EVERYONE_BIT,
@@ -44,7 +63,22 @@ const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
  */
 @Injectable()
 export class ChannelAccessService {
-  constructor(private readonly prisma: PrismaService) {}
+  /**
+   * S62 (FR-RM14): 역할 권한 캐시 TTL(초). PRD "override 즉시반영" 요건상 ≤5초로
+   * 둔다 — miss 시 DB 재계산이라 stale window 는 최대 이 값이고, override 변경 경로는
+   * 명시 DEL 로 300ms 내에 무효화한다(channels.service). 캐시는 best-effort(Redis
+   * 미주입 환경/테스트에서는 항상 miss → DB 계산).
+   */
+  private static readonly PERMS_CACHE_TTL_SECONDS = 5;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    // S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사 기록. @Global AuditModule 제공.
+    private readonly audit: AuditService,
+    // S62 (FR-RM14): role-cache read-through. @Global RedisModule 이 제공하며,
+    // 테스트/Redis 부재 환경에서는 Optional 로 undefined → 캐시 우회.
+    @Optional() @Inject(REDIS) private readonly redis?: Redis,
+  ) {}
 
   /**
    * Compute the caller's effective permission mask on a channel.
@@ -78,33 +112,160 @@ export class ChannelAccessService {
     }
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
-      select: { role: true },
+      select: {
+        role: true,
+        // S62 (FR-RM03): 커스텀 Role 반영. 멤버가 보유한 모든 Role(시스템 backfill +
+        // 커스텀)을 함께 로드해 base 권한 OR + 역할 UUID override 조회에 쓴다.
+        memberRoles: {
+          select: { role: { select: { id: true, permissions: true, position: true } } },
+        },
+      },
     });
     if (!member) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'not a workspace member');
     }
+    return this.computeEffectiveForMember(channel, userId, member);
+  }
+
+  /**
+   * S62 (FR-RM03 · Fork A): 커스텀 Role 을 반영한 집행 마스크 계산.
+   *
+   * 두 도메인을 분리해 회귀를 최소화한다(★ 기존 워크스페이스 결과 == ROLE_BASELINE):
+   *   1. **base(카탈로그 → 집행)**: 멤버가 보유한 모든 Role 의 카탈로그 permissions 를
+   *      `resolveChannelPermissions`(②역할 OR · overwrite 없이) 로 합산한 뒤
+   *      `bigintToEnforcementMask` 로 집행 number 비트로 변환한다. 시스템 역할만 가진
+   *      레거시 멤버는 SYSTEM_ROLE_PERMISSIONS → ROLE_BASELINE 과 정확히 일치한다
+   *      (bigint-to-enforcement.spec 가 잠금). MemberRole 이 비어 있는 레거시 멤버는
+   *      enum role 의 ROLE_BASELINE 으로 폴백한다(backfill 누락 방어).
+   *   2. **override(집행 도메인 5단계 fold)**: 채널 overwrite 마스크는 집행 비트필드로
+   *      저장되므로(controller 가 enforcement ALL_PERMISSIONS 로 검증), 카탈로그로
+   *      재해석하지 않고 PermissionMatrix.fold 와 동일한 5단계 누적을 그대로 쓴다.
+   *      역할 tier 에는 enum 리터럴 ROLE override(레거시) + 커스텀 Role UUID override 를
+   *      함께 넣는다. 개인(USER) override 가 최우선.
+   *
+   * private 채널 가시성 게이트(base 억제 후 READ ALLOW 로만 개방)도 보존한다.
+   */
+  private async computeEffectiveForMember(
+    channel: { id: string; workspaceId: string | null; isPrivate: boolean },
+    userId: string,
+    member: {
+      role: WorkspaceRole;
+      memberRoles: Array<{ role: { id: string; permissions: bigint; position: number } }>;
+    },
+  ): Promise<number> {
+    const roleIds = member.memberRoles.map((m) => m.role.id);
+
+    // ── 캐시 read-through(FR-RM14): perms:{channelId}:{userId} ──────────────────
+    // 멤버의 유효 집행 마스크는 (보유 역할 base + 본인 USER override + 적용 ROLE
+    // override) 의 함수라 per-(channel, user) 로 캐시한다. 무효화는 channels.service
+    // 가 override upsert 직후 perms:{channelId}:* 를 DEL 해 300ms 내에 반영한다
+    // (FR-RM14). roleCacheKey 규약(perms:{channelId}:{principal})을 재사용한다.
+    const cacheKey = roleCacheKey(channel.id, userId);
+    const cached = await this.cacheGet(cacheKey);
+    if (cached !== null) return cached;
+
+    // 1. base 권한(카탈로그 → 집행).
+    const enforcementBase = this.computeEnforcementBase(member);
+
+    // 2. 채널 overwrite(집행 도메인). USER=본인 + ROLE=enum 리터럴(레거시) + ROLE=UUID.
+    const rolePrincipalIds = [member.role as string, ...roleIds];
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: {
         channelId: channel.id,
         OR: [
           { principalType: 'USER', principalId: userId },
-          { principalType: 'ROLE', principalId: member.role },
+          { principalType: 'ROLE', principalId: { in: rolePrincipalIds } },
         ],
       },
       select: { principalType: true, principalId: true, allowMask: true, denyMask: true },
     });
-    return PermissionMatrix.effective({
-      role: member.role,
-      isPrivate: channel.isPrivate,
-      userId,
-      overrides: overrides.map((o) => ({
-        principalType: o.principalType as 'USER' | 'ROLE',
-        principalId: o.principalId,
-        // S61: BigInt → number(집행 0xFF 도메인). 채널 overwrite 13비트만 담김.
-        allowMask: Number(o.allowMask),
-        denyMask: Number(o.denyMask),
-      })),
+
+    const roleAllow = overrides
+      .filter((o) => o.principalType === 'ROLE')
+      .reduce((m, o) => m | Number(o.allowMask), 0);
+    const roleDeny = overrides
+      .filter((o) => o.principalType === 'ROLE')
+      .reduce((m, o) => m | Number(o.denyMask), 0);
+    const userAllow = overrides
+      .filter((o) => o.principalType === 'USER')
+      .reduce((m, o) => m | Number(o.allowMask), 0);
+    const userDeny = overrides
+      .filter((o) => o.principalType === 'USER')
+      .reduce((m, o) => m | Number(o.denyMask), 0);
+
+    // OWNER 무조건 가시(PermissionMatrix.effective 의 MED-6 정합) — base 억제 면제.
+    // OWNER 는 ADMINISTRATOR 보유라 enforcementBase = ALL_PERMISSIONS.
+    const isOwner = member.role === 'OWNER';
+    let base = enforcementBase;
+    if (channel.isPrivate && !isOwner) {
+      // private 가시성 게이트: 명시 READ ALLOW(USER 또는 ROLE) 가 있어야 base 개방.
+      const hasExplicitRead = ((userAllow | roleAllow) & Permission.READ) === Permission.READ;
+      base = hasExplicitRead ? enforcementBase : 0;
+    }
+
+    // 5단계 fold(나중 = 우선): base → roleAllow → roleDeny → userAllow → userDeny.
+    let mask = base;
+    mask |= roleAllow;
+    mask &= ~roleDeny;
+    mask |= userAllow;
+    mask &= ~userDeny;
+    const effective = mask >>> 0;
+
+    await this.cacheSet(cacheKey, effective);
+    return effective;
+  }
+
+  /**
+   * S62 (FR-RM03): 멤버가 보유한 모든 Role 의 카탈로그 permissions 를 OR 합산해
+   * 집행 base 마스크로 변환한다. MemberRole 이 비어 있으면(backfill 누락 레거시)
+   * enum role 의 ROLE_BASELINE 으로 폴백한다(권한 공백 방어).
+   */
+  private computeEnforcementBase(member: {
+    role: WorkspaceRole;
+    memberRoles: Array<{ role: { id: string; permissions: bigint; position: number } }>;
+  }): number {
+    if (member.memberRoles.length === 0) {
+      return ROLE_BASELINE[member.role] ?? 0;
+    }
+    const roles: ResolverRole[] = member.memberRoles.map((m) => ({
+      id: m.role.id,
+      permissions: fromStoragePermissions(m.role.permissions),
+      position: m.role.position,
+      isEveryone: false,
+    }));
+    // resolveChannelPermissions 의 ②역할 OR(+ ADMINISTRATOR 단락)만 사용한다 — 채널
+    // overwrite 는 집행 도메인에서 별도 적용하므로 여기서는 넘기지 않는다. everyone 은
+    // 가장 낮은 역할을 대표로 넘기고 나머지를 memberRoles 로 OR 한다(순수 합산이라
+    // 어느 것을 everyone 으로 두든 결과 동일).
+    const [first, ...rest] = roles;
+    const catalogBase = resolveChannelPermissions({
+      everyone: { ...first, isEveryone: true },
+      memberRoles: rest,
     });
+    return bigintToEnforcementMask(catalogBase);
+  }
+
+  /** S62 (FR-RM14): 권한 캐시 GET. miss/Redis 부재/파싱 실패 시 null. best-effort. */
+  private async cacheGet(key: string): Promise<number | null> {
+    if (!this.redis) return null;
+    try {
+      const raw = await this.redis.get(key);
+      if (raw === null) return null;
+      const parsed = Number(raw);
+      return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** S62 (FR-RM14): 권한 캐시 SET(TTL ≤5초). best-effort(실패 무시). */
+  private async cacheSet(key: string, value: number): Promise<void> {
+    if (!this.redis) return;
+    try {
+      await this.redis.set(key, String(value), 'EX', ChannelAccessService.PERMS_CACHE_TTL_SECONDS);
+    } catch {
+      // best-effort — 캐시 실패는 권한 계산 정확성에 영향 없음(다음 호출 시 DB 재계산).
+    }
   }
 
   /**
@@ -125,6 +286,96 @@ export class ChannelAccessService {
         'insufficient permission',
       );
     }
+  }
+
+  /**
+   * S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사. 채널에 DENY overwrite 가 있는데도
+   * ADMINISTRATOR 비트 보유자가 행동(send/upload/history)할 때, 그 우회 사실을
+   * `AuditLog(action='ADMINISTRATOR_CHANNEL_BYPASS')` 로 기록한다.
+   *
+   * 호출 위치: send/upload/history 게이트(권한 통과 직후). 본 메서드는 enforcement
+   * 를 바꾸지 않는다(통과 여부는 호출부 게이트가 이미 결정) — 관찰성 기록만 한다.
+   * best-effort: 감사 INSERT 실패가 도메인 액션을 막지 않는다.
+   *
+   * 판정: (1) 워크스페이스 채널이고 (2) 액터가 보유한 어떤 Role 이든 카탈로그
+   * ADMINISTRATOR 비트를 가지며 (3) 그 채널에 액터의 principals(USER/시스템역할/
+   * 커스텀Role UUID)를 향한 DENY overwrite 가 하나라도 있으면 우회로 본다.
+   *
+   * S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): hot-path 의 별도
+   * `workspaceMember.findUnique` 를 제거하기 위해, 호출부가 이미 로드한 멤버 메타
+   * (role + memberRoles 의 roleId/permissions)를 `preloadedMember` 로 넘길 수 있다.
+   * 넘기지 않으면 종전대로 자체 조회한다(레거시 호출부 보존). action 별 기록 외에
+   * 정확성/enforcement 는 불변이다.
+   */
+  async auditAdministratorBypass(
+    channel: { id: string; workspaceId: string | null },
+    userId: string,
+    action: string,
+    preloadedMember?: AdministratorBypassMember,
+  ): Promise<void> {
+    if (channel.workspaceId === null) return;
+    const member =
+      preloadedMember ??
+      (await this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
+        select: {
+          role: true,
+          memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
+        },
+      }));
+    if (!member) return;
+    // (2) 카탈로그 ADMINISTRATOR 보유 여부(보유 Role permissions 의 OR 에 비트 검사).
+    const catalogMask = member.memberRoles.reduce(
+      (acc, m) => acc | fromStoragePermissions(m.role.permissions),
+      0n,
+    );
+    const isAdministrator = has(catalogMask, PERMISSIONS.ADMINISTRATOR);
+    if (!isAdministrator) return;
+    // (3) 액터 principals 를 향한 DENY overwrite 존재 여부.
+    const rolePrincipalIds = [member.role as string, ...member.memberRoles.map((m) => m.roleId)];
+    const denyOverride = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        channelId: channel.id,
+        denyMask: { gt: 0 },
+        OR: [
+          { principalType: 'USER', principalId: userId },
+          { principalType: 'ROLE', principalId: { in: rolePrincipalIds } },
+        ],
+      },
+      select: { id: true },
+    });
+    if (!denyOverride) return;
+    await this.audit.recordBestEffort({
+      workspaceId: channel.workspaceId,
+      actorId: userId,
+      channelId: channel.id,
+      action: AuditAction.ADMINISTRATOR_CHANNEL_BYPASS,
+      // S62 fix-forward (security A-4 = MEDIUM-5): raw denyMask 비트맵을 details 에
+      // 싣지 않는다 — 향후 audit 조회 API 에서 채널 권한 비트맵이 역산되는 노출을
+      // 막는다. 우회 사실(denyExisted)과 수행 action 만 기록한다.
+      details: { performedAction: action, denyExisted: true },
+    });
+  }
+
+  /**
+   * S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): hot-path 가 멤버 권한 메타를
+   * 한 번만 로드하기 위한 헬퍼. send 컨트롤러가 호출해 결과를 auditAdministratorBypass /
+   * resolveMentionEveryone / requireAnnouncementPostingAllowed 에 재사용하면, 세 경로의
+   * 중복 `workspaceMember.findUnique` / `memberRole.findMany` 왕복이 제거된다. 멤버가
+   * 아니면 null(가드 체인이 이미 멤버십을 보장하므로 정상 경로에서는 non-null).
+   * DM 채널(workspaceId=null)은 호출부가 스킵한다.
+   */
+  async loadAdministratorBypassMember(
+    workspaceId: string,
+    userId: string,
+  ): Promise<AdministratorBypassMember | null> {
+    return this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: {
+        role: true,
+        memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
+      },
+    });
   }
 
   /**
@@ -168,23 +419,35 @@ export class ChannelAccessService {
    * 과 구분해 클라이언트가 "공지 채널 게시 제한" UI 로 분기할 수 있게 한다.
    */
   async requireAnnouncementPostingAllowed(
-    channel: { id: string; type: string },
+    // S62 (FR-RM03): 커스텀 Role UUID override 조회를 위해 workspaceId 를 받는다.
+    channel: { id: string; type: string; workspaceId: string | null },
     userId: string,
     // S61: 5단계 확장. OWNER/ADMIN 만 무조건 게시 허용이고 MODERATOR/MEMBER/GUEST
     // 는 채널 명시 ALLOW override 가 있어야 게시할 수 있다(기존 MEMBER 동작 유지).
     role: WorkspaceRole,
+    // S62 fix-forward (perf B-1): 호출부가 이미 로드한 멤버 Role UUID 목록을 넘기면
+    // 내부 `memberRole.findMany` 왕복을 생략한다(정확성 불변). 미지정 시 자체 조회.
+    preloadedRoleUuids?: string[],
   ): Promise<void> {
     if (channel.type !== 'ANNOUNCEMENT') return;
     // OWNER/ADMIN 은 항상 게시 가능.
+    // S62 (MED-2): MODERATOR 는 게시 자동 허용하지 않는다 — PRD 정합상 ANNOUNCEMENT
+    // 게시는 OWNER/ADMIN 무조건 + (그 외 역할은 명시 ALLOW override). MODERATOR 는
+    // 채널 ALLOW override 가 있어야 게시할 수 있다(아래 override 검사로 처리).
     if (role === 'OWNER' || role === 'ADMIN') return;
-    // MEMBER: 채널에 명시적 ALLOW(WRITE_MESSAGE) 오버라이드(USER 또는 본인
-    // ROLE)가 있어야 게시 허용. 없으면 공지 채널 게시 제한.
+    // 그 외(MODERATOR/MEMBER/GUEST): 채널에 명시적 ALLOW(WRITE_MESSAGE) 오버라이드
+    // (USER, 시스템 역할 리터럴 ROLE, 또는 커스텀 Role UUID)가 있어야 게시 허용.
+    // ANNOUNCEMENT 채널은 워크스페이스 채널이라 workspaceId 는 non-null 이지만, 타입상
+    // null 가능성을 닫는다(DM 은 ANNOUNCEMENT 가 될 수 없어 위에서 이미 return).
+    const roleUuids =
+      preloadedRoleUuids ??
+      (channel.workspaceId === null ? [] : await this.memberRoleUuids(channel.workspaceId, userId));
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: {
         channelId: channel.id,
         OR: [
           { principalType: 'USER', principalId: userId },
-          { principalType: 'ROLE', principalId: role },
+          { principalType: 'ROLE', principalId: { in: [role as string, ...roleUuids] } },
         ],
       },
       select: { allowMask: true, denyMask: true },
@@ -231,14 +494,21 @@ export class ChannelAccessService {
     channel: { id: string; workspaceId: string | null },
     userId: string,
     role: WorkspaceRole,
+    // S62 fix-forward (perf B-1): 호출부가 이미 로드한 멤버 Role UUID 목록을 넘기면
+    // 내부 `memberRole.findMany` 왕복을 생략한다(정확성 불변). 미지정 시 자체 조회.
+    preloadedRoleUuids?: string[],
   ): Promise<boolean> {
     if (channel.workspaceId === null) return false;
+    // S62 (MED-3 / FR-RM03): 커스텀 Role UUID override 도 ROLE tier 로 반영한다.
+    const roleUuids =
+      preloadedRoleUuids ?? (await this.memberRoleUuids(channel.workspaceId, userId));
+    const rolePrincipalIds = new Set<string>([role as string, ...roleUuids]);
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: {
         channelId: channel.id,
         OR: [
           { principalType: 'USER', principalId: userId },
-          { principalType: 'ROLE', principalId: role },
+          { principalType: 'ROLE', principalId: { in: [role as string, ...roleUuids] } },
         ],
       },
       select: { principalType: true, principalId: true, allowMask: true, denyMask: true },
@@ -252,7 +522,8 @@ export class ChannelAccessService {
       if (o.principalType === 'USER' && o.principalId === userId) {
         userAllow |= Number(o.allowMask);
         userDeny |= Number(o.denyMask);
-      } else if (o.principalType === 'ROLE' && o.principalId === role) {
+      } else if (o.principalType === 'ROLE' && rolePrincipalIds.has(o.principalId)) {
+        // 시스템 역할 리터럴 + 커스텀 Role UUID override 를 같은 ROLE tier 로 OR.
         roleAllow |= Number(o.allowMask);
         roleDeny |= Number(o.denyMask);
       }
@@ -264,5 +535,18 @@ export class ChannelAccessService {
     mask |= userAllow & MENTION_EVERYONE_BIT;
     mask &= ~(userDeny & MENTION_EVERYONE_BIT);
     return (mask & MENTION_EVERYONE_BIT) === MENTION_EVERYONE_BIT;
+  }
+
+  /**
+   * S62 (FR-RM03): 멤버가 보유한 Role.id(UUID) 목록을 반환한다. ROLE override
+   * 조회에서 시스템 역할 리터럴(레거시 principalId) 외에 커스텀 Role UUID
+   * principalId 도 함께 매칭하기 위함이다. 멤버가 아니거나 역할이 없으면 빈 배열.
+   */
+  private async memberRoleUuids(workspaceId: string, userId: string): Promise<string[]> {
+    const rows = await this.prisma.memberRole.findMany({
+      where: { workspaceId, userId },
+      select: { roleId: true },
+    });
+    return rows.map((r) => r.roleId);
   }
 }

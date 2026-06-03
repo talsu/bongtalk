@@ -55,10 +55,11 @@ export class RoleCacheQueueService {
       return;
     }
 
-    // ≤1000명: 즉시 DEL. 역할 캐시 키는 채널 단위(`perms:{channelId}:{roleId}`)라
-    // 멤버 수와 무관하게 채널 수만큼이다 — 채널별로 DEL 한다.
+    // ≤1000명: 즉시 DEL. S62: 권한 캐시 키는 per-(channel, user)(`perms:{channelId}:
+    // {userId}`)라 영향받은 멤버 × 채널 조합을 DEL 한다(역할 삭제로 그 멤버들의 유효
+    // 권한이 바뀌므로). 멤버 ≤1000 · 채널 수 한정이라 inline pipeline 으로 충분하다.
     try {
-      await delRoleKeys(this.redis, args.channelIds, args.roleId);
+      await delMemberPermsKeys(this.redis, args.channelIds, args.userIds);
     } catch (err) {
       this.logger.warn(`[role-cache] inline del failed role=${args.roleId}: ${trunc(err)}`);
     }
@@ -66,18 +67,22 @@ export class RoleCacheQueueService {
 }
 
 /**
- * S61: `perms:{channelId}:{roleId}` 키들을 pipeline DEL 한다. keyPrefix('qufox:')는
- * ioredis 가 자동 부착하므로 여기서는 붙이지 않는다.
+ * S62: `perms:{channelId}:{userId}` 키들을 pipeline DEL 한다(channel × user 조합).
+ * keyPrefix('qufox:')는 ioredis 가 자동 부착하므로 여기서는 붙이지 않는다. 권한 캐시는
+ * per-(channel, user) 라(channel-access.service read-through), 역할 삭제로 권한이 바뀐
+ * 멤버들의 채널별 캐시를 모두 DEL 해야 stale window 가 닫힌다.
  */
-export async function delRoleKeys(
+export async function delMemberPermsKeys(
   redis: Redis,
   channelIds: string[],
-  roleId: string,
+  userIds: string[],
 ): Promise<void> {
-  if (channelIds.length === 0) return;
+  if (channelIds.length === 0 || userIds.length === 0) return;
   const pipeline = redis.pipeline();
   for (const channelId of channelIds) {
-    pipeline.del(roleCacheKey(channelId, roleId));
+    for (const userId of userIds) {
+      pipeline.del(roleCacheKey(channelId, userId));
+    }
   }
   await pipeline.exec();
 }

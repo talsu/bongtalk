@@ -18,6 +18,9 @@ import { FavoritesController, MeFavoritesController } from './favorites/favorite
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 import { MessagesModule } from '../messages/messages.module';
+// S62 fix-forward (security A-3): override CRUD rate-limit 용 RateLimitService.
+// AuthModule 은 도메인 모듈을 import 하지 않는 leaf 라 순환이 없다.
+import { AuthModule } from '../auth/auth.module';
 // S20 (FR-DM-06): DirectMessagesService 의 그룹 DM 아이콘 업로드용 S3Service.
 import { StorageModule } from '../storage/storage.module';
 // S20 (FR-DM-11): GlobalDmController 의 DM 뮤트 라우트가 기존 MutesService 재사용.
@@ -39,6 +42,7 @@ import { ChannelNotificationPreferencesController } from '../notifications/chann
     StorageModule,
     MutesModule,
     NotificationsModule,
+    AuthModule,
   ],
   controllers: [
     ChannelsController,

@@ -95,7 +95,15 @@ export class MyThreadsService {
           ON cpo."channelId" = wr.channel_id
          AND (
            (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-           OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wr.my_role::text)
+           -- S62 (FR-RM03): 시스템 역할 리터럴 + 커스텀 Role UUID override.
+           OR (cpo."principalType" = 'ROLE' AND (
+                 cpo."principalId" = wr.my_role::text
+                 OR cpo."principalId" IN (
+                      SELECT mr."roleId"::text FROM "MemberRole" mr
+                       WHERE mr."userId" = ${userId}::uuid
+                         AND mr."workspaceId" = wr.workspace_id
+                    )
+              ))
          )
         GROUP BY
           wr.parent_id, wr.channel_id, wr.content_plain, wr.latest_reply_at,
@@ -234,7 +242,15 @@ export class MyThreadsService {
           ON cpo."channelId" = wr.channel_id
          AND (
            (cpo."principalType" = 'USER' AND cpo."principalId" = ${userId}::text)
-           OR (cpo."principalType" = 'ROLE' AND cpo."principalId" = wr.my_role::text)
+           -- S62 (FR-RM03): 시스템 역할 리터럴 + 커스텀 Role UUID override.
+           OR (cpo."principalType" = 'ROLE' AND (
+                 cpo."principalId" = wr.my_role::text
+                 OR cpo."principalId" IN (
+                      SELECT mr."roleId"::text FROM "MemberRole" mr
+                       WHERE mr."userId" = ${userId}::uuid
+                         AND mr."workspaceId" = wr.workspace_id
+                    )
+              ))
          )
         GROUP BY
           wr.parent_id, wr.channel_id, wr.is_private, wr.workspace_id, wr.my_role
