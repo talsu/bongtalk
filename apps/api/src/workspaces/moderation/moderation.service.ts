@@ -19,7 +19,7 @@ import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { MemberRoleService } from '../roles/member-role.service';
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 import { MEMBER_BANNED, MEMBER_KICKED } from '../events/workspace-events';
-import type { BannedMember, ListBansResponse } from '@qufox/shared-types';
+import type { BannedMember, ListBansResponse, TimeoutMemberResponse } from '@qufox/shared-types';
 
 /**
  * S63 (D12 / FR-RM05·06·07): 모더레이션(Kick / Ban / Timeout) 도메인 서비스.
@@ -330,6 +330,95 @@ export class ModerationService {
       user: userMap.get(r.userId) ?? null,
     }));
     return { bans };
+  }
+
+  /**
+   * FR-RM07: 멤버 임시 음소거(타임아웃). durationSeconds(60~604800) 만큼 mutedUntil 을
+   * now+duration 으로 설정한다. 기간 중 SEND_MESSAGES/ADD_REACTIONS/USE_SLASH_COMMANDS 가
+   * 차단되고(메시지/반응 게이트에서 lazy 검사), VIEW_CHANNEL/READ_HISTORY 는 유지된다.
+   * 만료는 lazy(별도 sweep 불요). AuditLog 필수.
+   */
+  async timeout(args: {
+    workspaceId: string;
+    actorId: string;
+    targetUserId: string;
+    durationSeconds: number;
+    reason?: string;
+  }): Promise<TimeoutMemberResponse> {
+    const { workspaceId, actorId, targetUserId, durationSeconds } = args;
+    const reason = normalizeReason(args.reason);
+    await this.assertTargetActionable(
+      workspaceId,
+      actorId,
+      targetUserId,
+      PERMISSIONS.TIMEOUT_MEMBERS,
+    );
+    const mutedUntil = new Date(Date.now() + durationSeconds * 1000);
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        data: { mutedUntil },
+      });
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.MEMBER_TIMEOUT,
+          targetId: targetUserId,
+          details: {
+            durationSeconds,
+            mutedUntil: mutedUntil.toISOString(),
+            ...(reason ? { reason } : {}),
+          },
+        },
+        tx,
+      );
+    });
+    return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
+  }
+
+  /** FR-RM07: 음소거 수동 해제. mutedUntil 을 null 로 되돌린다. AuditLog 필수. */
+  async untimeout(args: {
+    workspaceId: string;
+    actorId: string;
+    targetUserId: string;
+  }): Promise<void> {
+    const { workspaceId, actorId, targetUserId } = args;
+    await this.assertTargetActionable(
+      workspaceId,
+      actorId,
+      targetUserId,
+      PERMISSIONS.TIMEOUT_MEMBERS,
+    );
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.update({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        data: { mutedUntil: null },
+      });
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.MEMBER_UNTIMEOUT,
+          targetId: targetUserId,
+        },
+        tx,
+      );
+    });
+  }
+
+  /**
+   * FR-RM07: 타임아웃 lazy 게이트. 대상 멤버의 mutedUntil 이 미래면 true(음소거 중).
+   * 만료(<=now)·null 이면 false(자동 통과 — 별도 sweep 불요). 메시지 send / 반응 /
+   * 슬래시 경로가 호출해 MEMBER_TIMED_OUT(403) 으로 거부한다. DM(워크스페이스 없음)은
+   * workspaceId=null 이라 호출되지 않는다.
+   */
+  async isTimedOut(workspaceId: string, userId: string, now: Date = new Date()): Promise<boolean> {
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { mutedUntil: true },
+    });
+    return member?.mutedUntil != null && member.mutedUntil.getTime() > now.getTime();
   }
 
   /**

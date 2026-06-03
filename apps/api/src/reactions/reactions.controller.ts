@@ -24,6 +24,7 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
 import { ChannelAccessByIdGuard } from '../attachments/guards/channel-access-by-id.guard';
 import { MessagesService } from '../messages/messages.service';
+import { ModerationService } from '../workspaces/moderation/moderation.service';
 import { ReactionsService } from './reactions.service';
 
 /**
@@ -41,6 +42,8 @@ export class ReactionsController {
     private readonly prisma: PrismaService,
     private readonly rateLimit: RateLimitService,
     private readonly channelAccess: ChannelAccessByIdGuard,
+    // S63 (FR-RM07): 반응 추가 시 타임아웃 lazy 게이트.
+    private readonly moderation: ModerationService,
   ) {}
 
   /**
@@ -179,6 +182,15 @@ export class ReactionsController {
     const { messageId, channel } = await this.resolveChannel(id);
     // READ bit (not WRITE) — reacting is lighter than posting.
     await this.channelAccess.requireRead(channel, user.id);
+    // S63 (FR-RM07): 워크스페이스 채널에서 타임아웃 중(mutedUntil>now)이면 반응을
+    // 막는다(ADD_REACTIONS 차단). DM(workspaceId=null)은 워크스페이스 멤버가 없어
+    // 게이트 대상이 아니다. 만료/미설정이면 자동 통과(lazy).
+    if (channel.workspaceId && (await this.moderation.isTimedOut(channel.workspaceId, user.id))) {
+      throw new DomainError(
+        ErrorCode.MEMBER_TIMED_OUT,
+        '타임아웃 중에는 반응을 추가할 수 없습니다',
+      );
+    }
     // S40 (FR-RE07): READ 통과 뒤 ADD_REACTIONS override DENY 여부를 미리 판정해
     // 서비스에 넘긴다 — 토글이 INSERT 로 분기할 때만 거부에 쓰인다(remove 는 무관).
     const canAdd = await this.canAddReaction(channel, user.id);

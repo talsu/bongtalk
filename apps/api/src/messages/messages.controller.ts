@@ -27,6 +27,7 @@ import { ChannelAccessGuard } from '../channels/guards/channel-access.guard';
 import { ChannelAccessService } from '../channels/permission/channel-access.service';
 import { Permission } from '../auth/permissions';
 import { SlowmodeService } from '../channels/slowmode/slowmode.service';
+import { ModerationService } from '../workspaces/moderation/moderation.service';
 import {
   CurrentChannel,
   CurrentChannelPayload,
@@ -70,6 +71,8 @@ export class MessagesController {
     private readonly channelAccess: ChannelAccessService,
     // S15 (FR-CH-08): 채널 슬로우모드 게이트.
     private readonly slowmode: SlowmodeService,
+    // S63 (FR-RM07): 모더레이션 타임아웃 lazy 게이트(mutedUntil>now → 403).
+    private readonly moderation: ModerationService,
   ) {}
 
   @Get()
@@ -318,6 +321,16 @@ export class MessagesController {
     const parsed = SendMessageRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
+    }
+    // S63 (FR-RM07): 모더레이션 타임아웃 lazy 게이트. 워크스페이스 채널에서만 적용
+    // (DM 은 m.workspaceId 가 null). mutedUntil>now 면 SEND_MESSAGES 차단 → 403
+    // MEMBER_TIMED_OUT. 만료/미설정이면 자동 통과(별도 sweep 불요). USE_SLASH_COMMANDS
+    // 도 메시지 전송 경로를 거치므로 슬래시 본문 송신도 함께 막힌다.
+    if (m.workspaceId && (await this.moderation.isTimedOut(m.workspaceId, user.id))) {
+      throw new DomainError(
+        ErrorCode.MEMBER_TIMED_OUT,
+        '타임아웃 중에는 메시지를 보낼 수 없습니다',
+      );
     }
     // S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): 워크스페이스 채널이면 멤버
     // 권한 메타(role + 보유 Role UUID/permissions)를 한 번만 로드해 announcement 게이트·

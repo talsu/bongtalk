@@ -13,8 +13,10 @@ import {
   BanMemberRequestSchema,
   KickMemberRequestSchema,
   KickUndoRequestSchema,
+  TimeoutMemberRequestSchema,
   type KickMemberResponse,
   type ListBansResponse,
+  type TimeoutMemberResponse,
 } from '@qufox/shared-types';
 import { ModerationService } from './moderation.service';
 import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
@@ -134,6 +136,45 @@ export class ModerationController {
     return this.moderation.listBans({
       workspaceId: member.workspaceId,
       actorId: member.userId,
+    });
+  }
+
+  /** FR-RM07: 멤버 임시 음소거(60초~7일). 기간 중 전송/반응/슬래시 차단. */
+  @Post('members/:uid/timeout')
+  @HttpCode(200)
+  async timeout(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Param('uid', new ParseUUIDPipe()) targetUserId: string,
+    @CurrentMember() member: CurrentMemberPayload,
+    @Body() body: unknown,
+  ): Promise<TimeoutMemberResponse> {
+    await this.enforceMutateLimit(member.workspaceId);
+    const parsed = TimeoutMemberRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    return this.moderation.timeout({
+      workspaceId: member.workspaceId,
+      actorId: member.userId,
+      targetUserId,
+      durationSeconds: parsed.data.durationSeconds,
+      reason: parsed.data.reason,
+    });
+  }
+
+  /** FR-RM07: 음소거 수동 해제. */
+  @Delete('members/:uid/timeout')
+  @HttpCode(204)
+  async untimeout(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Param('uid', new ParseUUIDPipe()) targetUserId: string,
+    @CurrentMember() member: CurrentMemberPayload,
+  ): Promise<void> {
+    await this.enforceMutateLimit(member.workspaceId);
+    await this.moderation.untimeout({
+      workspaceId: member.workspaceId,
+      actorId: member.userId,
+      targetUserId,
     });
   }
 }
