@@ -12,6 +12,8 @@ import {
   INVITE_REVOKED,
   MEMBER_JOINED,
 } from '../events/workspace-events';
+// S61 fix-forward (security A-2): 초대 수락 가입 시 시스템 MemberRole 동기.
+import { syncMemberSystemRole } from '../roles/system-role-seed';
 
 function codeBytes(): number {
   const n = Number(process.env.INVITE_CODE_BYTES ?? 16);
@@ -193,6 +195,10 @@ export class InvitesService {
         await tx.workspaceMember.create({
           data: { workspaceId: existing.workspaceId, userId, role: WorkspaceRole.MEMBER },
         });
+        // S61 fix-forward (security A-2 · MemberRole desync): 가입 트랜잭션에서 MEMBER
+        // 시스템 MemberRole 을 시드한다(enum ↔ 시스템 Role 동기 불변식). 누락 시
+        // ADMIN 승격 후에도 역할 생성/부여가 전부 거부된다.
+        await syncMemberSystemRole(tx, existing.workspaceId, userId, 'MEMBER');
         await this.outbox.record(tx, {
           aggregateType: 'member',
           aggregateId: userId,

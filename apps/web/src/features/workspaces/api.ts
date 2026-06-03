@@ -1,11 +1,15 @@
 import { apiRequest } from '../../lib/api';
 import type {
   CreateInviteRequest,
+  CreateRoleRequest,
   CreateWorkspaceRequest,
   Invite,
   InvitePreview,
   ListMembersResponse,
   Member,
+  Role,
+  UpdateMemberRoleRequest,
+  UpdateRoleRequest,
   UpdateWorkspaceRequest,
   Workspace,
   WorkspaceWithMyRole,
@@ -67,10 +71,13 @@ export async function listAllMembers(id: string): Promise<{ members: Member[] }>
   return { members };
 }
 
+// S61 fix-forward (contract BLOCKER/HIGH): 시스템 역할 5단계로 확장돼 MODERATOR/GUEST
+// 도 직접 배정 가능하다(OWNER 는 transfer-ownership 전용). 역할 타입을 shared-types
+// UpdateMemberRoleRequest['role'] 로 묶어 FE/BE 가 단일 출처를 공유한다.
 export function updateMemberRole(
   id: string,
   userId: string,
-  role: 'ADMIN' | 'MEMBER',
+  role: UpdateMemberRoleRequest['role'],
 ): Promise<Member> {
   return apiRequest(`/workspaces/${id}/members/${userId}/role`, {
     method: 'PATCH',
@@ -101,4 +108,35 @@ export function previewInvite(code: string): Promise<InvitePreview> {
 
 export function acceptInvite(code: string): Promise<{ workspace: Workspace }> {
   return apiRequest(`/invites/${code}/accept`, { method: 'POST' });
+}
+
+// ── S61 (D12 / FR-RM01·04·15): 역할 관리 ──────────────────────────────────────
+
+export function listRoles(id: string): Promise<Role[]> {
+  return apiRequest(`/workspaces/${id}/roles`);
+}
+
+export function createRole(id: string, input: CreateRoleRequest): Promise<Role> {
+  return apiRequest(`/workspaces/${id}/roles`, { method: 'POST', body: input });
+}
+
+export function updateRole(id: string, roleId: string, input: UpdateRoleRequest): Promise<Role> {
+  return apiRequest(`/workspaces/${id}/roles/${roleId}`, { method: 'PATCH', body: input });
+}
+
+export function deleteRole(id: string, roleId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/${roleId}`, { method: 'DELETE' });
+}
+
+export function assignRole(id: string, roleId: string, userId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/assign`, {
+    method: 'POST',
+    body: { roleId, userId },
+  });
+}
+
+export function revokeRole(id: string, targetUserId: string, roleId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/assign/${targetUserId}/${roleId}`, {
+    method: 'DELETE',
+  });
 }

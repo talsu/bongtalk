@@ -97,7 +97,8 @@ export type UpdateChannelRequest = z.infer<typeof UpdateChannelRequestSchema>;
 // 집행 비트필드(0xFF) 범위로 검증한다(controller 의 ALL_PERMISSIONS 범위 체크
 // 재사용). role 은 WorkspaceRole 리터럴. allowMask/denyMask 0 은 no-op(해제).
 export const ChannelRoleOverrideRequestSchema = z.object({
-  role: z.enum(['OWNER', 'ADMIN', 'MEMBER']),
+  // S61: 시스템 역할 5단계 확장.
+  role: z.enum(['OWNER', 'ADMIN', 'MODERATOR', 'MEMBER', 'GUEST']),
   allowMask: PermissionMaskSchema.optional().default(0),
   denyMask: PermissionMaskSchema.optional().default(0),
 });

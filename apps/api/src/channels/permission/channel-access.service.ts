@@ -24,7 +24,11 @@ const MENTION_EVERYONE_BIT = Number(PERMISSIONS.MENTION_EVERYONE);
 const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
   OWNER: MENTION_EVERYONE_BIT,
   ADMIN: MENTION_EVERYONE_BIT,
+  // S61: MODERATOR 는 staff 등급으로 @everyone/@here 기본 허용. MEMBER/GUEST 는 off
+  // (채널 override allow 로만 부여 가능).
+  MODERATOR: MENTION_EVERYONE_BIT,
   MEMBER: 0,
+  GUEST: 0,
 };
 
 /**
@@ -64,8 +68,11 @@ export class ChannelAccessService {
       let allow = 0;
       let deny = 0;
       for (const o of overrides) {
-        allow |= o.allowMask;
-        deny |= o.denyMask;
+        // S61: allow/denyMask 는 Prisma BigInt 로 전환됐다. 채널 overwrite 마스크는
+        // 13비트(≤0x1FFF)만 담아 number 안전범위 내이므로 집행 계산(0xFF 도메인)에서
+        // Number 로 좁힌다. ADMINISTRATOR 는 override 에 저장되지 않는다(Role 전용).
+        allow |= Number(o.allowMask);
+        deny |= Number(o.denyMask);
       }
       return allow & ~deny;
     }
@@ -93,8 +100,9 @@ export class ChannelAccessService {
       overrides: overrides.map((o) => ({
         principalType: o.principalType as 'USER' | 'ROLE',
         principalId: o.principalId,
-        allowMask: o.allowMask,
-        denyMask: o.denyMask,
+        // S61: BigInt → number(집행 0xFF 도메인). 채널 overwrite 13비트만 담김.
+        allowMask: Number(o.allowMask),
+        denyMask: Number(o.denyMask),
       })),
     });
   }
@@ -162,7 +170,9 @@ export class ChannelAccessService {
   async requireAnnouncementPostingAllowed(
     channel: { id: string; type: string },
     userId: string,
-    role: 'OWNER' | 'ADMIN' | 'MEMBER',
+    // S61: 5단계 확장. OWNER/ADMIN 만 무조건 게시 허용이고 MODERATOR/MEMBER/GUEST
+    // 는 채널 명시 ALLOW override 가 있어야 게시할 수 있다(기존 MEMBER 동작 유지).
+    role: WorkspaceRole,
   ): Promise<void> {
     if (channel.type !== 'ANNOUNCEMENT') return;
     // OWNER/ADMIN 은 항상 게시 가능.
@@ -182,8 +192,9 @@ export class ChannelAccessService {
     let allow = 0;
     let deny = 0;
     for (const o of overrides) {
-      allow |= o.allowMask;
-      deny |= o.denyMask;
+      // S61: BigInt → number(집행 0xFF 도메인).
+      allow |= Number(o.allowMask);
+      deny |= Number(o.denyMask);
     }
     const effective = (allow & ~deny) >>> 0;
     if ((effective & Permission.WRITE_MESSAGE) !== Permission.WRITE_MESSAGE) {
@@ -237,12 +248,13 @@ export class ChannelAccessService {
     let userAllow = 0;
     let userDeny = 0;
     for (const o of overrides) {
+      // S61: BigInt → number(집행 0xFF 도메인 · MENTION_EVERYONE 비트 0x80 포함).
       if (o.principalType === 'USER' && o.principalId === userId) {
-        userAllow |= o.allowMask;
-        userDeny |= o.denyMask;
+        userAllow |= Number(o.allowMask);
+        userDeny |= Number(o.denyMask);
       } else if (o.principalType === 'ROLE' && o.principalId === role) {
-        roleAllow |= o.allowMask;
-        roleDeny |= o.denyMask;
+        roleAllow |= Number(o.allowMask);
+        roleDeny |= Number(o.denyMask);
       }
     }
     // ADR-4 5단계 fold — MENTION_EVERYONE 비트만 누적(다른 비트는 무관).

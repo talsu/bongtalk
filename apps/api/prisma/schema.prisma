@@ -10,10 +10,17 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
+// S61 (D12 / FR-RM01): 시스템 역할 계층을 3단계 → 5단계로 확장합니다
+// (OWNER > ADMIN > MODERATOR > MEMBER > GUEST). MODERATOR/GUEST 는 신규
+// 추가 값으로, 기존 row(OWNER/ADMIN/MEMBER)는 그대로 유지됩니다. PostgreSQL
+// enum 은 값 DROP 이 불가하므로 down 마이그레이션 전략은 마이그레이션 파일
+// 주석에 문서화합니다(신규값을 미사용 상태로 두고 down 에서 제거하지 않음).
 enum WorkspaceRole {
   OWNER
   ADMIN
+  MODERATOR
   MEMBER
+  GUEST
 }
 
 enum ChannelType {
@@ -534,6 +541,8 @@ model Workspace {
   emojiConfig             WorkspaceEmojiConfig?
   // S55 (D11 / FR-AM-20): 워크스페이스 첨부 정책(1:1, 최대 크기 + 차단 확장자).
   setting                 WorkspaceSetting?
+  // S61 (D12 / FR-RM01): 워크스페이스의 역할 집합(시스템 5역할 + 커스텀). onDelete Cascade.
+  roles                   Role[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -543,11 +552,17 @@ model Workspace {
 model WorkspaceMember {
   workspaceId String        @db.Uuid
   userId      String        @db.Uuid
+  // S61: `role` enum 은 시스템 역할 등급(@Roles guard) 의 1차 출처로 유지한다.
+  // 커스텀 역할은 아래 `memberRoles`(MemberRole 조인)로 표현하며, 시스템 역할은
+  // backfill 로 동등한 MemberRole 행을 함께 갖는다(role enum ↔ 시스템 Role 동기).
   role        WorkspaceRole @default(MEMBER)
   joinedAt    DateTime      @default(now())
 
-  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // S61 (FR-RM01/15): 이 멤버가 보유한 역할 조인. Role 삭제 시 onDelete Cascade
+  // 로 자동 정리된다(FR-RM15).
+  memberRoles MemberRole[]
 
   @@id([workspaceId, userId])
   @@index([userId])
@@ -675,8 +690,12 @@ model ChannelPermissionOverride {
   channelId     String    @db.Uuid
   principalType String    @db.VarChar(8)
   principalId   String    @db.VarChar(64)
-  allowMask     Int       @default(0)
-  denyMask      Int       @default(0)
+  // S61 (FR-RM03): allow/deny 마스크를 Int → BigInt 로 전환한다. ADR-4 카탈로그의
+  // ADMINISTRATOR(1n<<63n) 비트까지 무손실로 표현하기 위함이다. 기존 0~0xFF 값은
+  // BigInt 로 무손실 승격된다(마이그레이션 ALTER TYPE ... USING). principalType=ROLE
+  // 의 principalId 는 시스템 역할 리터럴(레거시) 또는 Role.id(UUID·신규)를 담는다.
+  allowMask     BigInt    @default(0)
+  denyMask      BigInt    @default(0)
   // S17 (FR-DM-17 / FR-TH-19): DM 가시성 하한선. DM·그룹 DM 의 USER 멤버십
   // row(이 모델이 DM 멤버십의 canonical per-(user,channel) 레코드 — S16)에만
   // 의미가 있다. NULL = 전체 히스토리 가시(비-DIRECT 채널·ROLE override·legacy
@@ -718,6 +737,54 @@ model ChannelPermissionOverride {
 
   @@unique([channelId, principalType, principalId])
   @@index([channelId])
+}
+
+// S61 (D12 / FR-RM01·02·15): 커스텀 Role 엔티티. 워크스페이스당 시스템 5역할
+// (OWNER·ADMIN·MODERATOR·MEMBER·GUEST)을 시드하고, ADMIN+ 가 커스텀 역할을
+// 추가한다. permissions 는 ADR-4 카탈로그 BigInt 비트필드(packages/shared-types/
+// src/permissions.ts 단일 출처)다. position 은 높을수록 상위(서열·계층 판정).
+// 삭제 시 MemberRole(onDelete Cascade) 자동 삭제 + 해당 roleId 의
+// ChannelPermissionOverride(principalType=ROLE) 삭제(서비스에서 처리) +
+// 보유 멤버 perms 캐시 DEL(>1000명 BullMQ 배치).
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  name        String   @db.VarChar(64)
+  // "#RRGGBB" 또는 null(색상 없음). Char(7) 고정.
+  colorHex    String?  @db.Char(7)
+  // 높을수록 상위. 시스템 역할 기본: OWNER 500 / ADMIN 400 / MODERATOR 300 /
+  // MEMBER 200 / GUEST 100(10/100 단위 간격으로 커스텀 삽입 여지).
+  position    Int
+  // ADR-4 카탈로그 BigInt 비트필드. OWNER 시스템 역할은 ADMINISTRATOR 고정.
+  permissions BigInt   @default(0)
+  // true = 시스템 고정 역할(name/position/삭제 불가). false = 커스텀.
+  isSystem    Boolean  @default(false)
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(6)
+
+  workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  memberRoles MemberRole[]
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId, position])
+}
+
+// S61 (D12 / FR-RM01·15): 멤버 ↔ 역할 다대다 조인. Role 삭제 시 onDelete Cascade
+// 로 자동 삭제(FR-RM15). WorkspaceMember 삭제(멤버 탈퇴) 시에도 Cascade.
+model MemberRole {
+  workspaceId String   @db.Uuid
+  userId      String   @db.Uuid
+  roleId      String   @db.Uuid
+  assignedAt  DateTime @default(now()) @db.Timestamptz(6)
+  // 부여한 액터 userId(감사용). 시스템 backfill 행은 null.
+  assignedBy  String?  @db.Uuid
+
+  member WorkspaceMember @relation(fields: [workspaceId, userId], references: [workspaceId, userId], onDelete: Cascade)
+  role   Role            @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@id([workspaceId, userId, roleId])
+  @@index([roleId])
+  @@index([workspaceId, userId])
 }
 
 model Message {

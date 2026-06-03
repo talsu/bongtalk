@@ -12,6 +12,9 @@ import { AttachmentGcProcessor } from './attachment-gc.processor';
 import { UNFURL_QUEUE } from './unfurl-queue.constants';
 import { UnfurlQueueService } from './unfurl-queue.service';
 import { UnfurlProcessor } from './unfurl.processor';
+import { ROLE_CACHE_QUEUE } from './role-cache-queue.constants';
+import { RoleCacheQueueService } from './role-cache-queue.service';
+import { RoleCacheProcessor } from './role-cache.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -51,6 +54,8 @@ import { UnfurlProcessor } from './unfurl.processor';
     BullModule.registerQueue({ name: ATTACHMENT_GC_QUEUE }),
     // S60 (FR-AM-13 · FR-RC07): 링크 unfurl 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: UNFURL_QUEUE }),
+    // S61 (FR-RM15): 역할 삭제 cascade 권한 캐시 무효화 배치 큐(>1000명).
+    BullModule.registerQueue({ name: ROLE_CACHE_QUEUE }),
     RealtimeModule,
     // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
     // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
@@ -67,7 +72,9 @@ import { UnfurlProcessor } from './unfurl.processor';
     AttachmentGcProcessor,
     UnfurlQueueService,
     UnfurlProcessor,
+    RoleCacheQueueService,
+    RoleCacheProcessor,
   ],
-  exports: [ReminderQueueService, UnfurlQueueService],
+  exports: [ReminderQueueService, UnfurlQueueService, RoleCacheQueueService],
 })
 export class QueueModule {}

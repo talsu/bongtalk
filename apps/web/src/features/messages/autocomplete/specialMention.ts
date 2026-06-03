@@ -1,4 +1,8 @@
-import { EVERYONE_CONFIRM_THRESHOLD, BULK_MENTION_CONFIRM_THRESHOLD } from '@qufox/shared-types';
+import {
+  EVERYONE_CONFIRM_THRESHOLD,
+  BULK_MENTION_CONFIRM_THRESHOLD,
+  type WorkspaceRole as SharedWorkspaceRole,
+} from '@qufox/shared-types';
 
 /**
  * S18 (FR-MSG-14 / FR-MSG-15) — 특수 멘션 권한 게이트 + confirm 임계값.
@@ -21,7 +25,11 @@ import { EVERYONE_CONFIRM_THRESHOLD, BULK_MENTION_CONFIRM_THRESHOLD } from '@quf
  *
  * 임계값은 shared-types 상수를 재사용합니다(재정의 금지).
  */
-export type WorkspaceRole = 'OWNER' | 'ADMIN' | 'MEMBER';
+// S61: 시스템 역할 5단계 확장 — 로컬 3값 재정의를 폐기하고 shared-types 단일
+// 출처를 재노출한다. 특수 멘션(@everyone/@here) 게이트는 클라이언트 측 보수적
+// 표시 규칙으로 OWNER/ADMIN 만 허용하며(서버가 최종 권위), MODERATOR/MEMBER/GUEST
+// 는 자동완성에서 숨긴다.
+export type WorkspaceRole = SharedWorkspaceRole;
 export type SpecialMentionKey = 'everyone' | 'here';
 
 export type SpecialMentionItem = {

@@ -1,0 +1,55 @@
+/**
+ * S61 (D12 / FR-RM15): 역할 삭제 cascade 시 보유 멤버의 권한 캐시 무효화 배치 큐.
+ *
+ * Role 삭제 cascade(MemberRole·ChannelPermissionOverride 삭제)는 트랜잭션에서
+ * 즉시 처리한다. 보유 멤버 수가 ROLE_CACHE_BATCH_THRESHOLD(1000)명 초과면 멤버별
+ * Redis `perms:{channelId}:{roleId}` 캐시 DEL 을 BullMQ Job 으로 비동기 처리해
+ * 요청 응답을 막지 않는다([[project_bullmq_greenlight]] · 기존 queue.module 패턴 재사용).
+ *
+ * ★ 정합성 보장(FR-RM14/15): 배치 처리 중에도 삭제된 역할 보유 멤버의 권한은
+ *   DB(MemberRole 행 cascade 삭제 완료)로 이미 재계산되므로, 캐시 stale 여부와
+ *   무관하게 SEND_MESSAGES 등은 즉시 정확해야 한다 — 권한 계산이 캐시 miss 시 DB
+ *   를 읽고, 삭제 후 즉시 캐시 DEL 이 (배치라도) 뒤따르므로 stale window 가 닫힌다.
+ *
+ * ★ S61 시점 범위(사용자 결정 B): 현재 이 큐는 **무효화(write/DEL) 경로만** 배선돼
+ *   있다(roles.service.remove). 권한 **읽기/쓰기(perms:{channelId}:{roleId} GET/SET)**
+ *   경로는 집행 배선(resolveChannelPermissions ↔ channel-access)과 함께 S62 에서
+ *   붙인다. 그래서 perf SERIOUS-2/3/5(캐시 read/write·update 무효화·DEL 범위)도
+ *   집행 종속이라 본 PR 에서 미시정이다. 이 큐/키 규약은 그대로 유지할 것 —
+ *   TODO(S62): 권한 계산 캐시 read-through + update 시 무효화 배선.
+ */
+export const ROLE_CACHE_QUEUE = 'role-cache';
+
+/** 역할 캐시 무효화 잡 이름. */
+export const ROLE_CACHE_INVALIDATE_JOB = 'role-cache-invalidate';
+
+/** 멤버 수가 이 값을 초과하면 캐시 DEL 을 BullMQ 배치로 넘긴다(FR-RM15). */
+export const ROLE_CACHE_BATCH_THRESHOLD = 1000;
+
+/** 배치 잡당 처리할 멤버 캐시 키 청크 크기(Redis DEL pipeline 단위). */
+export const ROLE_CACHE_BATCH_CHUNK = 500;
+
+export const ROLE_CACHE_JOB_OPTS = {
+  attempts: 3,
+  backoff: { type: 'exponential' as const, delay: 5000 },
+  removeOnComplete: 1000,
+  removeOnFail: 1000,
+} as const;
+
+/**
+ * 배치 잡 페이로드. 삭제된 역할이 영향을 준 (channelId, userId) 캐시 키들을
+ * 만들기 위한 최소 정보. roleId 는 삭제됐으므로 페이로드로 직접 전달한다.
+ */
+export interface RoleCacheJobData {
+  workspaceId: string;
+  roleId: string;
+  /** 영향받는 멤버 userId 목록(이 역할을 보유했던 멤버). */
+  userIds: string[];
+  /** 워크스페이스 채널 id 목록(perms:{channelId}:{roleId} 키 조합용). */
+  channelIds: string[];
+}
+
+/** S61: 역할별 권한 캐시 키. FR-RM14/15 의 `perms:{channelId}:{roleId}` 규약. */
+export function roleCacheKey(channelId: string, roleId: string): string {
+  return `perms:${channelId}:${roleId}`;
+}

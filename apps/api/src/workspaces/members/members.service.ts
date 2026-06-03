@@ -19,6 +19,8 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import { PresenceService } from '../../realtime/presence/presence.service';
 import { maskExpiredStatus } from '../../me/custom-status.service';
 import { MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED } from '../events/workspace-events';
+// S61 fix-forward (security A-2): 역할 변경 시 시스템 MemberRole 동기.
+import { syncMemberSystemRole } from '../roles/system-role-seed';
 
 /** S27 (FR-P08): status group display order. */
 const STATUS_GROUP_ORDER: MemberStatusGroup[] = ['online', 'idle', 'dnd', 'offline'];
@@ -301,7 +303,9 @@ export class MembersService {
     actorId: string,
     actorRole: SharedRole,
     targetUserId: string,
-    nextRole: 'ADMIN' | 'MEMBER',
+    // S61: 시스템 역할 5단계 확장 — OWNER 는 transfer-ownership 전용이므로
+    // 직접 배정 가능한 역할은 ADMIN/MODERATOR/MEMBER/GUEST 4종이다.
+    nextRole: 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
   ) {
     if (actorId === targetUserId) {
       throw new DomainError(
@@ -330,8 +334,13 @@ export class MembersService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.workspaceMember.update({
         where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        data: { role: nextRole === 'ADMIN' ? WorkspaceRole.ADMIN : WorkspaceRole.MEMBER },
+        // S61: nextRole 은 WorkspaceRole enum 의 부분집합(OWNER 제외)이라 그대로 매핑.
+        data: { role: WorkspaceRole[nextRole] },
       });
+      // S61 fix-forward (security A-2 · MemberRole desync): role enum 변경과 동일
+      // 트랜잭션에서 시스템 MemberRole 을 교체한다. 이게 없으면 ADMIN 승격된 멤버가
+      // MemberRole 부재로 역할 관리를 전혀 못 한다(actorTop=0·actorMax=0n).
+      await syncMemberSystemRole(tx, workspaceId, targetUserId, nextRole);
       await this.outbox.record(tx, {
         aggregateType: 'member',
         aggregateId: targetUserId,
