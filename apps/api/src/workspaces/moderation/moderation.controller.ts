@@ -1,8 +1,20 @@
-import { Body, Controller, HttpCode, Param, ParseUUIDPipe, Post, UseGuards } from '@nestjs/common';
 import {
+  Body,
+  Controller,
+  Delete,
+  Get,
+  HttpCode,
+  Param,
+  ParseUUIDPipe,
+  Post,
+  UseGuards,
+} from '@nestjs/common';
+import {
+  BanMemberRequestSchema,
   KickMemberRequestSchema,
   KickUndoRequestSchema,
   type KickMemberResponse,
+  type ListBansResponse,
 } from '@qufox/shared-types';
 import { ModerationService } from './moderation.service';
 import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
@@ -73,6 +85,55 @@ export class ModerationController {
       actorId: member.userId,
       targetUserId,
       undoToken: parsed.data.undoToken,
+    });
+  }
+
+  /** FR-RM06: userId 영구 차단(멤버/비멤버). 사유 + AuditLog 필수. Undo 없음. */
+  @Post('bans')
+  @HttpCode(204)
+  async ban(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @CurrentMember() member: CurrentMemberPayload,
+    @Body() body: unknown,
+  ): Promise<void> {
+    await this.enforceMutateLimit(member.workspaceId);
+    const parsed = BanMemberRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    await this.moderation.ban({
+      workspaceId: member.workspaceId,
+      actorId: member.userId,
+      targetUserId: parsed.data.userId,
+      reason: parsed.data.reason,
+    });
+  }
+
+  /** FR-RM06: 차단 해제. 미차단이면 404 MEMBER_NOT_BANNED. */
+  @Delete('bans/:uid')
+  @HttpCode(204)
+  async unban(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @Param('uid', new ParseUUIDPipe()) targetUserId: string,
+    @CurrentMember() member: CurrentMemberPayload,
+  ): Promise<void> {
+    await this.enforceMutateLimit(member.workspaceId);
+    await this.moderation.unban({
+      workspaceId: member.workspaceId,
+      actorId: member.userId,
+      targetUserId,
+    });
+  }
+
+  /** FR-RM06: 차단 목록(권한자). 최신 차단 순. */
+  @Get('bans')
+  async listBans(
+    @Param('id', new ParseUUIDPipe()) _id: string,
+    @CurrentMember() member: CurrentMemberPayload,
+  ): Promise<ListBansResponse> {
+    return this.moderation.listBans({
+      workspaceId: member.workspaceId,
+      actorId: member.userId,
     });
   }
 }

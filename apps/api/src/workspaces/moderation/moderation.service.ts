@@ -18,7 +18,8 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { MemberRoleService } from '../roles/member-role.service';
 import { syncMemberSystemRole } from '../roles/system-role-seed';
-import { MEMBER_KICKED } from '../events/workspace-events';
+import { MEMBER_BANNED, MEMBER_KICKED } from '../events/workspace-events';
+import type { BannedMember, ListBansResponse } from '@qufox/shared-types';
 
 /**
  * S63 (D12 / FR-RM05·06·07): 모더레이션(Kick / Ban / Timeout) 도메인 서비스.
@@ -164,6 +165,183 @@ export class ModerationService {
       }
       throw e;
     }
+  }
+
+  /**
+   * FR-RM06: 멤버/비멤버 userId 영구 차단. BannedMember INSERT + (멤버이면)
+   * WorkspaceMember 삭제 + 즉시 WS disconnect(force) + 재진입 불가(invites.accept
+   * 체크). Undo 없음. 사유 + AuditLog 필수.
+   *
+   * 비멤버 userId 도 차단할 수 있어(가입 전 차단), 멤버일 때만 계층 방어/멤버 삭제를
+   * 적용하고 비멤버는 권한 비트 검사 + 자기 자신 금지만 거친다.
+   */
+  async ban(args: {
+    workspaceId: string;
+    actorId: string;
+    targetUserId: string;
+    reason?: string;
+  }): Promise<void> {
+    const { workspaceId, actorId, targetUserId } = args;
+    const reason = normalizeReason(args.reason);
+    if (actorId === targetUserId) {
+      throw new DomainError(ErrorCode.MODERATION_CANNOT_SELF, 'cannot ban yourself');
+    }
+    // 권한 비트 검사(BAN_MEMBERS). 비멤버 대상도 동일하게 actor 권한을 먼저 본다.
+    const actor = await this.actorContext(workspaceId, actorId);
+    if (!actor.isAdministrator && !hasRaw(actor.permissions, PERMISSIONS.BAN_MEMBERS)) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'you lack the BAN_MEMBERS permission',
+      );
+    }
+    // 이미 차단됐으면 409(멱등이 아니라 명시 거부 — 중복 ban 은 상태 충돌).
+    const already = await this.prisma.bannedMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      select: { userId: true },
+    });
+    if (already) {
+      throw new DomainError(ErrorCode.MEMBER_ALREADY_BANNED, 'user is already banned');
+    }
+    // 대상이 현재 멤버이면 계층 방어를 적용하고 삭제한다(비멤버면 INSERT 만).
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      select: { role: true },
+    });
+    let previousRole: WorkspaceRole | null = null;
+    if (member) {
+      if (member.role === WorkspaceRole.OWNER) {
+        throw new DomainError(ErrorCode.MODERATION_TARGET_HIGHER, 'cannot ban the owner');
+      }
+      if (!actor.isAdministrator) {
+        const targetTop = await this.topPosition(workspaceId, targetUserId, member.role);
+        if (targetTop >= actor.topPosition) {
+          throw new DomainError(
+            ErrorCode.MODERATION_TARGET_HIGHER,
+            'target outranks you — cannot ban a member at or above your highest role',
+          );
+        }
+      }
+      previousRole = member.role;
+    }
+
+    try {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.bannedMember.create({
+          data: { workspaceId, userId: targetUserId, bannedBy: actorId, reason },
+        });
+        if (member) {
+          await tx.workspaceMember.delete({
+            where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+          });
+          // 멤버였던 대상만 disconnect 이벤트가 의미 있다(비멤버는 소켓 룸 없음 — no-op).
+          await this.outbox.record(tx, {
+            aggregateType: 'member',
+            aggregateId: targetUserId,
+            eventType: MEMBER_BANNED,
+            payload: { workspaceId, userId: targetUserId, actorId },
+          });
+        }
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.MEMBER_BAN,
+            targetId: targetUserId,
+            details: {
+              ...(reason ? { reason } : {}),
+              ...(previousRole ? { previousRole } : {}),
+              wasMember: member !== null,
+            },
+          },
+          tx,
+        );
+      });
+    } catch (e) {
+      // 동시 ban 레이스: BannedMember PK 충돌 → 이미 차단(409).
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new DomainError(ErrorCode.MEMBER_ALREADY_BANNED, 'user is already banned');
+      }
+      throw e;
+    }
+    if (member) {
+      await this.memberRoles.invalidateMemberPermsCache(workspaceId, targetUserId);
+    }
+  }
+
+  /** FR-RM06: 차단 해제. 관리자가 BannedMember 행을 제거한다. 미차단이면 404. */
+  async unban(args: { workspaceId: string; actorId: string; targetUserId: string }): Promise<void> {
+    const { workspaceId, actorId, targetUserId } = args;
+    const actor = await this.actorContext(workspaceId, actorId);
+    if (!actor.isAdministrator && !hasRaw(actor.permissions, PERMISSIONS.BAN_MEMBERS)) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'you lack the BAN_MEMBERS permission',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      const result = await tx.bannedMember.deleteMany({
+        where: { workspaceId, userId: targetUserId },
+      });
+      if (result.count === 0) {
+        throw new DomainError(ErrorCode.MEMBER_NOT_BANNED, 'user is not banned');
+      }
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.MEMBER_UNBAN,
+          targetId: targetUserId,
+        },
+        tx,
+      );
+    });
+  }
+
+  /** FR-RM06: 워크스페이스 차단 목록(권한자). 최신 차단 순. */
+  async listBans(args: { workspaceId: string; actorId: string }): Promise<ListBansResponse> {
+    const { workspaceId, actorId } = args;
+    const actor = await this.actorContext(workspaceId, actorId);
+    if (!actor.isAdministrator && !hasRaw(actor.permissions, PERMISSIONS.BAN_MEMBERS)) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+        'you lack the BAN_MEMBERS permission',
+      );
+    }
+    const rows = await this.prisma.bannedMember.findMany({
+      where: { workspaceId },
+      orderBy: { createdAt: 'desc' },
+    });
+    // 대상 사용자 표시 정보(비멤버 차단도 User 행은 존재할 수 있음 — best-effort 조회).
+    const userIds = rows.map((r) => r.userId);
+    const users =
+      userIds.length === 0
+        ? []
+        : await this.prisma.user.findMany({
+            where: { id: { in: userIds } },
+            select: { id: true, username: true, email: true },
+          });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    const bans: BannedMember[] = rows.map((r) => ({
+      workspaceId: r.workspaceId,
+      userId: r.userId,
+      bannedBy: r.bannedBy,
+      reason: r.reason ?? null,
+      createdAt: r.createdAt.toISOString(),
+      user: userMap.get(r.userId) ?? null,
+    }));
+    return { bans };
+  }
+
+  /**
+   * FR-RM06: 초대 수락 시 재진입 차단 검사. invites.service.accept 가 호출한다.
+   * (workspaceId, userId) BannedMember 가 존재하면 true.
+   */
+  async isBanned(workspaceId: string, userId: string): Promise<boolean> {
+    const row = await this.prisma.bannedMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: { userId: true },
+    });
+    return row !== null;
   }
 
   // ── 공유 가드 ────────────────────────────────────────────────────────────────
