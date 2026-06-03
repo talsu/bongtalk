@@ -228,13 +228,13 @@ describe('PermissionMatrix.effective — S14 FR-CH-11 5단계 순서 고정', ()
         {
           principalType: 'USER',
           principalId: me,
-          allowMask: Permission.PIN_MESSAGE,
-          denyMask: Permission.PIN_MESSAGE,
+          allowMask: Permission.MANAGE_CHANNEL,
+          denyMask: Permission.MANAGE_CHANNEL,
         },
       ],
     });
     // 동일 프린시펄·동일 비트에서 DENY 가 ALLOW 보다 나중(우선) 적용.
-    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(false);
+    expect(PermissionMatrix.has(eff, Permission.MANAGE_CHANNEL)).toBe(false);
   });
 
   it('역할 DENY 가 역할 ALLOW 보다 우선한다 (동일 비트, role DENY > role ALLOW)', () => {
@@ -246,12 +246,12 @@ describe('PermissionMatrix.effective — S14 FR-CH-11 5단계 순서 고정', ()
         {
           principalType: 'ROLE',
           principalId: 'MEMBER',
-          allowMask: Permission.PIN_MESSAGE,
-          denyMask: Permission.PIN_MESSAGE,
+          allowMask: Permission.MANAGE_CHANNEL,
+          denyMask: Permission.MANAGE_CHANNEL,
         },
       ],
     });
-    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(false);
+    expect(PermissionMatrix.has(eff, Permission.MANAGE_CHANNEL)).toBe(false);
   });
 
   it('역할 ALLOW 가 서버 기본에 비트를 더한다 (role ALLOW > base)', () => {
@@ -263,13 +263,13 @@ describe('PermissionMatrix.effective — S14 FR-CH-11 5단계 순서 고정', ()
         {
           principalType: 'ROLE',
           principalId: 'MEMBER',
-          // MEMBER 기본에는 없는 PIN_MESSAGE 를 역할 ALLOW 로 부여.
-          allowMask: Permission.PIN_MESSAGE,
+          // S61: MEMBER 기본에는 없는 MANAGE_CHANNEL 을 역할 ALLOW 로 부여(PIN_MESSAGE 폐기).
+          allowMask: Permission.MANAGE_CHANNEL,
           denyMask: 0,
         },
       ],
     });
-    expect(PermissionMatrix.has(eff, Permission.PIN_MESSAGE)).toBe(true);
+    expect(PermissionMatrix.has(eff, Permission.MANAGE_CHANNEL)).toBe(true);
     // 기존 baseline 비트는 유지.
     expect(PermissionMatrix.has(eff, Permission.READ)).toBe(true);
   });

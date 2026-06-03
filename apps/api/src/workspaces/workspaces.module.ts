@@ -10,6 +10,11 @@ import { OutboxModule } from '../common/outbox/outbox.module';
 // S27 (FR-P08/P12): 멤버 목록 REST 가 프레즌스를 bulkFor 단일 조회로 읽기 위해
 // PresenceModule 만 import 한다(게이트웨이 그래프 미포함 → 순환 없음).
 import { PresenceModule } from '../realtime/presence/presence.module';
+// S61 (D12 / FR-RM01·04·15): 역할 관리 REST + 권한 상승 방어 + 삭제 cascade.
+// RoleCacheQueueService 는 @Global QueueModule 이 제공하므로 import 불필요(주입만).
+import { RolesController } from './roles/roles.controller';
+import { RolesService } from './roles/roles.service';
+import { MemberRoleService } from './roles/member-role.service';
 
 @Module({
   imports: [AuthModule, OutboxModule, PresenceModule],
@@ -18,8 +23,9 @@ import { PresenceModule } from '../realtime/presence/presence.module';
     MembersController,
     WorkspaceInvitesController,
     PublicInvitesController,
+    RolesController,
   ],
-  providers: [WorkspacesService, MembersService, InvitesService],
-  exports: [WorkspacesService, MembersService, InvitesService],
+  providers: [WorkspacesService, MembersService, InvitesService, RolesService, MemberRoleService],
+  exports: [WorkspacesService, MembersService, InvitesService, RolesService, MemberRoleService],
 })
 export class WorkspacesModule {}

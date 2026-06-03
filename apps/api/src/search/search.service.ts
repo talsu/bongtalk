@@ -155,8 +155,9 @@ export class SearchService {
       list.push({
         principalType: o.principalType as 'USER' | 'ROLE',
         principalId: o.principalId,
-        allowMask: o.allowMask,
-        denyMask: o.denyMask,
+        // S61: BigInt → number(집행 0xFF 도메인). PermissionMatrix 는 number 계산.
+        allowMask: Number(o.allowMask),
+        denyMask: Number(o.denyMask),
       });
       byChannel.set(o.channelId, list);
     }

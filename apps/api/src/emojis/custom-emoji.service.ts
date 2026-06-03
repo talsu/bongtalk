@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, type WorkspaceRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.module';
 import { S3Service, sanitizeFilename } from '../storage/s3.service';
@@ -47,7 +47,7 @@ export interface PresignEmojiUploadInput {
   // S42 (FR-PK04): 업로드 권한 게이트(OWNER/ADMIN OR canMemberUpload)에 쓰는 caller
   // role. 컨트롤러가 @Roles 게이트를 떼고 멤버까지 통과시킨 뒤, 서비스가 이 role 과
   // WorkspaceEmojiConfig.canMemberUpload 로 분기한다.
-  uploaderRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+  uploaderRole: WorkspaceRole;
   name: string;
   mime: string;
   sizeBytes: number;
@@ -119,10 +119,7 @@ export class CustomEmojiService {
    * 없으면(또는 false) MEMBER 는 거부 — S41 의 ADMIN-only 게이트를 보존한다
    * (★메인루프 결정: canMemberUpload 기본값 false). 거부는 403(FORBIDDEN).
    */
-  private async assertCanUpload(
-    workspaceId: string,
-    role: 'OWNER' | 'ADMIN' | 'MEMBER',
-  ): Promise<void> {
+  private async assertCanUpload(workspaceId: string, role: WorkspaceRole): Promise<void> {
     if (role === 'OWNER' || role === 'ADMIN') return;
     const config = await this.prisma.workspaceEmojiConfig.findUnique({
       where: { workspaceId },
@@ -220,7 +217,7 @@ export class CustomEmojiService {
     workspaceId: string,
     emojiId: string,
     callerId: string,
-    callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
+    callerRole: WorkspaceRole,
   ): Promise<void> {
     // S42 fix-forward (BLOCKER): presign/finalize 권한 대칭. presign 과 동일한
     // 업로드 게이트(OWNER/ADMIN OR canMemberUpload)를 finalize 초입에서도 강제해
@@ -338,7 +335,7 @@ export class CustomEmojiService {
     workspaceId: string,
     emojiId: string,
     callerId: string,
-    callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
+    callerRole: WorkspaceRole,
   ): Promise<void> {
     const row = await this.prisma.customEmoji.findUnique({ where: { id: emojiId } });
     if (!row || row.workspaceId !== workspaceId) {
@@ -476,7 +473,7 @@ export class CustomEmojiService {
     emojiId: string,
     alias: string,
     callerId: string,
-    callerRole: 'OWNER' | 'ADMIN' | 'MEMBER',
+    callerRole: WorkspaceRole,
   ): Promise<void> {
     // S42 fix-forward (MED): addAlias 는 DTO+서비스 이중검증을 받지만 removeAlias 의
     // :alias 경로 파라미터는 형식 검증이 없어 비정상 문자열이 DB 조회까지 도달했다.

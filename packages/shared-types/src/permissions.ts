@@ -134,6 +134,28 @@ export function isValidPermissionMaskNumber(value: number): boolean {
   return Number.isInteger(value) && value >= 0 && (BigInt(value) & ~ALL_PERMISSIONS) === 0n;
 }
 
+/**
+ * S61 (FR-RM02): PostgreSQL signed bigint 저장 ↔ 부호 없는 논리값 변환.
+ *
+ * ADMINISTRATOR(1n<<63n = 9223372036854775808)는 PG signed bigint 최대값
+ * (9223372036854775807)을 1 초과하므로, 64비트 패턴이 동일한 음수(-(2^63))로
+ * 저장한다(two's-complement). 다른 13비트(0x1FFF 이하)는 양수라 변환이 항등이다.
+ *
+ * - toStoragePermissions: 도메인 논리값(부호 없음) → DB 저장값(signed).
+ * - fromStoragePermissions: DB 에서 읽은 값(signed 가능) → 도메인 논리값(부호 없음).
+ *
+ * Role.permissions(BigInt) 읽기/쓰기 전 지점에서 이 한 쌍만 거치면 ADMINISTRATOR
+ * 비트가 손실 없이 왕복한다. ChannelPermissionOverride 의 allow/deny 는 채널
+ * overwrite 13비트만 담아 항상 양수이므로 이 변환을 거쳐도 무해하다.
+ */
+export function toStoragePermissions(mask: bigint): bigint {
+  return BigInt.asIntN(64, mask);
+}
+
+export function fromStoragePermissions(stored: bigint): bigint {
+  return BigInt.asUintN(64, stored);
+}
+
 export function deserializePermissions(value: string): bigint {
   // 권한 마스크는 부호 없는 비트필드. 음수("-1")를 허용하면 2의 보수로
   // 모든 비트가 켜진 것처럼 동작해 ADMINISTRATOR 비트가 포함되는 권한

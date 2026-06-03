@@ -228,11 +228,12 @@ export class ChannelsService {
               channelId: channel.id,
               principalType: 'USER',
               principalId: actorId,
-              // ALL_PERMISSIONS = 0xFF across the 8 slots (see
-              // permissions.ts). Hard-coded so we don't cross-import
-              // and pull in a web surface from the core service layer.
-              allowMask: 0xff,
-              denyMask: 0,
+              // S61: allow/denyMask 가 BigInt 컬럼이 됐다(Int→BigInt 전환).
+              // 비공개 채널 생성자에게 광범위 ALLOW 를 부여하는 표식으로 0xFF 를
+              // BigInt 리터럴(0xffn)로 저장한다. 집행 계산은 READ(0x01) 비트만
+              // 가시성 게이트에 쓰므로 광범위 allow 가 곧 "생성자=멤버" 표식이다.
+              allowMask: 0xffn,
+              denyMask: 0n,
             },
             update: {},
           });
@@ -518,10 +519,12 @@ export class ChannelsService {
           channelId,
           principalType: 'USER',
           principalId: targetUserId,
-          allowMask,
-          denyMask,
+          // S61: allow/denyMask 가 BigInt 컬럼이 됐다. 컨트롤러가 검증한 number
+          // 마스크(≤ enforcement 범위)를 Prisma 경계에서 BigInt 로 승격한다.
+          allowMask: BigInt(allowMask),
+          denyMask: BigInt(denyMask),
         },
-        update: { allowMask, denyMask },
+        update: { allowMask: BigInt(allowMask), denyMask: BigInt(denyMask) },
       });
       const effectiveMask = (allowMask & ~denyMask) >>> 0;
       await this.outbox.record(tx, {
@@ -546,8 +549,11 @@ export class ChannelsService {
       channelId: row.channelId,
       principalType: row.principalType,
       principalId: row.principalId,
-      allowMask: row.allowMask,
-      denyMask: row.denyMask,
+      // S61: 응답 DTO 는 기존 number 계약을 유지한다(override 마스크는 ≤ enforcement
+      // 범위라 number 안전). ChannelPermissionOverride.allow/denyMask 의 number→string
+      // 전환은 S62 override UI 계약 합의 후 일괄 적용한다(미해결로 보고).
+      allowMask: Number(row.allowMask),
+      denyMask: Number(row.denyMask),
     };
   }
 
@@ -563,7 +569,9 @@ export class ChannelsService {
   async addChannelRoleOverride(
     workspaceId: string,
     channelId: string,
-    role: 'OWNER' | 'ADMIN' | 'MEMBER',
+    // S61: 시스템 역할 5단계 확장 — ROLE override 의 principalId(시스템 역할 리터럴)
+    // 도 5값을 받는다. (커스텀 Role.id UUID override 는 S62 UI 계약 합의 후 도입.)
+    role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
     allowMask: number,
     denyMask: number,
   ) {
@@ -589,10 +597,11 @@ export class ChannelsService {
           channelId,
           principalType: 'ROLE',
           principalId: role,
-          allowMask,
-          denyMask,
+          // S61: BigInt 컬럼 승격(USER override 와 동일).
+          allowMask: BigInt(allowMask),
+          denyMask: BigInt(denyMask),
         },
-        update: { allowMask, denyMask },
+        update: { allowMask: BigInt(allowMask), denyMask: BigInt(denyMask) },
       });
       const effectiveMask = (allowMask & ~denyMask) >>> 0;
       await this.outbox.record(tx, {
@@ -616,8 +625,9 @@ export class ChannelsService {
       channelId: row.channelId,
       principalType: row.principalType,
       principalId: row.principalId,
-      allowMask: row.allowMask,
-      denyMask: row.denyMask,
+      // S61: 기존 number 계약 유지(S62 에서 number→string 일괄 전환 예정).
+      allowMask: Number(row.allowMask),
+      denyMask: Number(row.denyMask),
     };
   }
 
@@ -667,8 +677,9 @@ export class ChannelsService {
           channelId,
           principalType: 'USER',
           principalId: userId,
-          allowMask: 0,
-          denyMask: 0,
+          // S61: BigInt 컬럼 — opt-in 표식이라 0n.
+          allowMask: 0n,
+          denyMask: 0n,
         },
         update: {},
       });

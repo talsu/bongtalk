@@ -43,7 +43,8 @@ import { RateLimitService } from '../auth/services/rate-limit.service';
 import { validateIdempotencyKey } from './idempotency';
 import { hasBroadMentionSignal } from './mentions/mention-extractor';
 
-type WorkspaceRoleStr = 'OWNER' | 'ADMIN' | 'MEMBER';
+// S61: 시스템 역할 5단계 확장 — 3값 union 을 5값 전체로 넓힌다.
+type WorkspaceRoleStr = 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
 
 /**
  * Messages live under `/workspaces/:id/channels/:chid/messages`. The full

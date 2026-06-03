@@ -1,18 +1,29 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   acceptInvite,
+  assignRole,
   createInvite,
+  createRole,
   createWorkspace,
+  deleteRole,
   getWorkspace,
   leaveWorkspace,
   listAllMembers,
   listInvites,
   listMembers,
   listMyWorkspaces,
+  listRoles,
   previewInvite,
+  revokeRole,
   updateMemberRole,
+  updateRole,
   updateWorkspace,
 } from './api';
+import type {
+  CreateRoleRequest,
+  UpdateMemberRoleRequest,
+  UpdateRoleRequest,
+} from '@qufox/shared-types';
 import { qk } from '../../lib/query-keys';
 
 /**
@@ -40,6 +51,8 @@ const keys = {
   membersAll: (id: string) => [...qk.workspaces.members(id), 'all'] as const,
   invites: (id: string) => qk.workspaces.invites(id),
   invitePreview: (code: string) => ['invite', code, 'preview'] as const,
+  // S61 (D12 / FR-RM01): 역할 목록 캐시 키.
+  roles: (id: string) => ['workspaces', id, 'roles'] as const,
 };
 
 export function useMyWorkspaces() {
@@ -129,7 +142,9 @@ export function useUpdateWorkspace(id: string) {
 export function useUpdateRole(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: 'ADMIN' | 'MEMBER' }) =>
+    // S61 fix-forward (contract): 5단계 시스템 역할(OWNER 제외) 배정 — shared-types
+    // UpdateMemberRoleRequest['role'] 로 묶어 MODERATOR/GUEST 도 배정 가능.
+    mutationFn: ({ userId, role }: { userId: string; role: UpdateMemberRoleRequest['role'] }) =>
       updateMemberRole(id, userId, role),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.members(id) });
@@ -153,6 +168,70 @@ export function useAcceptInvite() {
     mutationFn: acceptInvite,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// ── S61 (D12 / FR-RM01·04·15): 역할 관리 hooks ────────────────────────────────
+
+export function useRoles(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.roles(id ?? ''),
+    queryFn: () => listRoles(id!),
+    enabled: !!id,
+  });
+}
+
+export function useCreateRole(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateRoleRequest) => createRole(id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.roles(id) });
+    },
+  });
+}
+
+export function useUpdateRole2(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleId, input }: { roleId: string; input: UpdateRoleRequest }) =>
+      updateRole(id, roleId, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.roles(id) });
+    },
+  });
+}
+
+export function useDeleteRole(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (roleId: string) => deleteRole(id, roleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.roles(id) });
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+export function useAssignRole(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ roleId, userId }: { roleId: string; userId: string }) =>
+      assignRole(id, roleId, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+export function useRevokeRole(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ targetUserId, roleId }: { targetUserId: string; roleId: string }) =>
+      revokeRole(id, targetUserId, roleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
     },
   });
 }

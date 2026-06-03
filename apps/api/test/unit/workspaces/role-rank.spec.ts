@@ -10,6 +10,14 @@ describe('workspace role rank', () => {
     expect(ROLE_RANK.OWNER).toBeGreaterThan(ROLE_RANK.ADMIN);
     expect(ROLE_RANK.ADMIN).toBeGreaterThan(ROLE_RANK.MEMBER);
   });
+
+  // S61: 5단계 확장 — OWNER > ADMIN > MODERATOR > MEMBER > GUEST.
+  it('ranks the full 5-tier system hierarchy strictly descending', () => {
+    expect(ROLE_RANK.OWNER).toBeGreaterThan(ROLE_RANK.ADMIN);
+    expect(ROLE_RANK.ADMIN).toBeGreaterThan(ROLE_RANK.MODERATOR);
+    expect(ROLE_RANK.MODERATOR).toBeGreaterThan(ROLE_RANK.MEMBER);
+    expect(ROLE_RANK.MEMBER).toBeGreaterThan(ROLE_RANK.GUEST);
+  });
 });
 
 describe('slug validation', () => {

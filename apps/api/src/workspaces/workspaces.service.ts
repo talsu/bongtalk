@@ -18,6 +18,13 @@ import {
   WORKSPACE_DELETED,
   WORKSPACE_RESTORED,
 } from './events/workspace-events';
+// S61 (D12 / FR-RM01): 워크스페이스 생성 시 시스템 5역할 + OWNER MemberRole 시드.
+// syncMemberSystemRole 은 소유권 이전/가입 시 시스템 MemberRole 동기(A-1/A-2)에 쓴다.
+import {
+  seedSystemRoles,
+  seedMemberSystemRole,
+  syncMemberSystemRole,
+} from './roles/system-role-seed';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -59,6 +66,9 @@ export class WorkspacesService {
             },
           },
         });
+        // S61 (FR-RM01): 시스템 5역할 시드 + 생성자(OWNER) MemberRole 연결.
+        await seedSystemRoles(tx, workspace.id);
+        await seedMemberSystemRole(tx, workspace.id, userId, 'OWNER');
         await this.outbox.record(tx, {
           aggregateType: 'workspace',
           aggregateId: workspace.id,
@@ -294,8 +304,15 @@ export class WorkspacesService {
       where: { workspaceId_userId: { workspaceId, userId } },
     });
     if (existing) return { workspaceId, alreadyMember: true };
-    await this.prisma.workspaceMember.create({
-      data: { workspaceId, userId, role: WorkspaceRole.MEMBER },
+    // S61 fix-forward (security A-2 · MemberRole desync): 멤버 생성과 동일 트랜잭션에서
+    // MEMBER 시스템 MemberRole 을 시드한다. 이게 없으면 신규 멤버는 MemberRole 부재로
+    // computeActorTopPosition=0·computeActorMaxPermissions=0n 이 되어 ADMIN 승격 후에도
+    // 역할 관리가 전부 거부된다(기능 불능).
+    await this.prisma.$transaction(async (tx) => {
+      await tx.workspaceMember.create({
+        data: { workspaceId, userId, role: WorkspaceRole.MEMBER },
+      });
+      await syncMemberSystemRole(tx, workspaceId, userId, 'MEMBER');
     });
     return { workspaceId, alreadyMember: false };
   }
@@ -389,6 +406,13 @@ export class WorkspacesService {
           where: { workspaceId_userId: { workspaceId, userId: toUserId } },
           data: { role: WorkspaceRole.OWNER },
         });
+        // S61 fix-forward (security A-1 · privilege escalation): WorkspaceMember.role
+        // enum 변경만으로는 시스템 MemberRole 이 desync 된다. ex-OWNER 가 OWNER
+        // MemberRole(ADMINISTRATOR 비트)을 그대로 들고 있으면 자신에게 god role 을
+        // 재부여해 OWNER 권한을 되찾을 수 있으므로, MemberRole 도 같은 트랜잭션에서
+        // 교체한다 — fromUserId 는 OWNER→ADMIN, toUserId 는 (기존 등급)→OWNER.
+        await syncMemberSystemRole(tx, workspaceId, fromUserId, 'ADMIN');
+        await syncMemberSystemRole(tx, workspaceId, toUserId, 'OWNER');
         const workspace = await tx.workspace.update({
           where: { id: workspaceId },
           data: { ownerId: toUserId },
