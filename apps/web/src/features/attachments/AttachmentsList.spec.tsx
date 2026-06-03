@@ -83,8 +83,8 @@ describe('AttachmentsList (S56 D11 FR-AM-21/22)', () => {
     );
     await waitFor(() => expect(screen.getByTestId('spoiler-reveal')).toBeTruthy());
     const reveal = screen.getByTestId('spoiler-reveal');
-    // B-05: reveal 은 단방향 액션 — aria-pressed 없이 공개 라벨만 노출.
-    expect(reveal.getAttribute('aria-pressed')).toBeNull();
+    // S59 (FR-AM-19): 스포일러는 toggle — aria-pressed 로 공개/숨김 상태를 통지(미공개 false).
+    expect(reveal.getAttribute('aria-pressed')).toBe('false');
     expect(reveal.getAttribute('aria-label')).toContain('스포일러 공개');
   });
 
@@ -290,5 +290,71 @@ describe('AttachmentsList (S56 D11 FR-AM-21/22)', () => {
     );
     const img = screen.getByTestId('attachment-skeleton-p1').querySelector('[role="img"]');
     expect(img?.getAttribute('aria-busy')).toBe('true');
+  });
+
+  // ── S59 (D11 · FR-AM-10): 라이트박스 트리거 ──────────────────────────────────
+  it('S59: 단일 READY 이미지는 <button> 트리거(image-trigger)로 감싸짐', async () => {
+    render(<AttachmentsList attachments={[att({ id: 'i1', kind: 'IMAGE', mime: 'image/png' })]} />);
+    const trigger = await screen.findByTestId('image-trigger-i1');
+    expect(trigger.tagName.toLowerCase()).toBe('button');
+    // 트리거 안에 img 가 들어 있다.
+    expect(trigger.querySelector('img')).toBeTruthy();
+  });
+
+  it('S59: 단일 이미지 트리거 클릭 → 라이트박스 오픈(role=dialog)', async () => {
+    render(<AttachmentsList attachments={[att({ id: 'i1', kind: 'IMAGE', mime: 'image/png' })]} />);
+    fireEvent.click(await screen.findByTestId('image-trigger-i1'));
+    expect(await screen.findByTestId('lightbox')).toBeTruthy();
+    expect(screen.getByTestId('lightbox-counter').textContent?.replace(/\s/g, '')).toBe('1/1');
+  });
+
+  it('S59: 그리드 셀 클릭 → 라이트박스 오픈 + 클릭한 index 로 시작', async () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({ id: 'i2', kind: 'IMAGE', mime: 'image/png', sortOrder: 1 }),
+          att({ id: 'i3', kind: 'IMAGE', mime: 'image/png', sortOrder: 2 }),
+        ]}
+      />,
+    );
+    fireEvent.click(await screen.findByTestId('mosaic-trigger-i2'));
+    expect(await screen.findByTestId('lightbox')).toBeTruthy();
+    // 두 번째 이미지(index 1)에서 시작 → "2 / 3".
+    expect(screen.getByTestId('lightbox-counter').textContent?.replace(/\s/g, '')).toBe('2/3');
+  });
+
+  it('S59: READY 아닌 이미지(PENDING/BLOCKED)는 라이트박스 슬라이드에서 제외', async () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'r1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({
+            id: 'p1',
+            kind: 'IMAGE',
+            mime: 'image/png',
+            processingStatus: 'PENDING',
+            sortOrder: 1,
+          }),
+          att({ id: 'r2', kind: 'IMAGE', mime: 'image/png', sortOrder: 2 }),
+        ]}
+      />,
+    );
+    // 그리드에서 READY 인 r2(전체 index 2) 클릭 → 라이트박스 READY-only 배열(r1,r2)에서 2/2.
+    fireEvent.click(await screen.findByTestId('mosaic-trigger-r2'));
+    expect(await screen.findByTestId('lightbox')).toBeTruthy();
+    // PENDING 제외 → READY 2장 중 두 번째.
+    expect(screen.getByTestId('lightbox-counter').textContent?.replace(/\s/g, '')).toBe('2/2');
+  });
+
+  it('S59: 스포일러 단일 이미지는 트리거 button 으로 감싸지 않음(스포일러 토글 우선)', async () => {
+    render(
+      <AttachmentsList
+        attachments={[att({ id: 's1', kind: 'IMAGE', mime: 'image/png', isSpoiler: true })]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('spoiler-reveal')).toBeTruthy());
+    // 스포일러는 image-trigger 로 감싸지 않는다(공개 전 클릭은 스포일러 reveal 이 받음).
+    expect(screen.queryByTestId('image-trigger-s1')).toBeNull();
   });
 });

@@ -260,16 +260,34 @@ function MosaicImage({
     );
   }
 
-  return (
+  const imgEl = (
     <img
       src={url}
       // H-02: 가려진 셀은 alt="" + aria-hidden 으로 접근성 트리에서 제거합니다.
       alt={hiddenFromA11y ? '' : alt}
       aria-hidden={hiddenFromA11y || undefined}
       loading="lazy"
-      // 미연결(onImageOpen 없음)이면 클릭 불가 — 커서/버튼 시맨틱 부여하지 않습니다.
-      onClick={clickable ? onOpen : undefined}
-      className={`aspect-square w-full object-cover${clickable ? ' cursor-pointer' : ''}`}
+      className="aspect-square w-full object-cover"
+      draggable={false}
     />
+  );
+
+  // S59 (S58 이월 H-03/M-04): clickable 이면 비인터랙티브 <img> 대신 <button> 으로
+  // 감싸 클릭·키보드(Enter/Space, button 기본 동작)·포커스를 제공하고 Radix Dialog 가
+  // 닫힐 때 이 트리거로 포커스를 복원할 수 있게 합니다. 가려진 셀(+N)은 별도 오버레이
+  // 버튼이 클릭을 받으므로 여기선 button 화하지 않고 비인터랙티브 이미지로 둡니다.
+  if (!clickable || hiddenFromA11y) return imgEl;
+
+  return (
+    <button
+      type="button"
+      data-testid={`mosaic-trigger-${attachment.id}`}
+      // 이미지 alt 가 버튼 라벨이 되도록 aria-label 을 부여합니다(이미지는 alt 그대로).
+      aria-label={`${alt} 크게 보기`}
+      onClick={onOpen}
+      className="block aspect-square w-full cursor-pointer p-0"
+    >
+      {imgEl}
+    </button>
   );
 }
