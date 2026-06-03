@@ -110,14 +110,17 @@ export class GlobalDmMessagesController {
       visibleFrom,
     });
     const ids = result.items.map((r) => r.id);
-    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
-      this.messages.aggregateReactions(ids, user.id),
-      // S36 (FR-TH-04): viewer ThreadReadState 배치 조인으로 hasUnread 산정.
-      this.messages.aggregateThreadSummaries(ids, user.id),
-      this.messages.aggregateAttachments(ids),
-      // S35 (FR-TH-06): DM 스레드 broadcast 행의 루트 excerpt (페이지당 1쿼리).
-      this.messages.aggregateBroadcastExcerpts(result.items),
-    ]);
+    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap, embedMap] =
+      await Promise.all([
+        this.messages.aggregateReactions(ids, user.id),
+        // S36 (FR-TH-04): viewer ThreadReadState 배치 조인으로 hasUnread 산정.
+        this.messages.aggregateThreadSummaries(ids, user.id),
+        this.messages.aggregateAttachments(ids),
+        // S35 (FR-TH-06): DM 스레드 broadcast 행의 루트 excerpt (페이지당 1쿼리).
+        this.messages.aggregateBroadcastExcerpts(result.items),
+        // S60 (FR-RC07/08): DM 메시지 unfurl embed (페이지당 1쿼리 · suppressedAt IS NULL).
+        this.messages.aggregateEmbeds(ids),
+      ]);
     const dtos = result.items.map((r) =>
       this.messages.toDto(
         r,
@@ -125,6 +128,7 @@ export class GlobalDmMessagesController {
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
         broadcastExcerptMap.get(r.id) ?? null,
+        embedMap.get(r.id) ?? [],
       ),
     );
     return {
@@ -190,6 +194,15 @@ export class GlobalDmMessagesController {
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
+    // S60 (FR-RC07 · FR-AM-13): 신규 DM 메시지면 본문 URL unfurl 잡을 enqueue(replay 제외).
+    if (!replayed) {
+      this.messages.scheduleUnfurl({
+        messageId: message.id,
+        channelId: channel.id,
+        workspaceId: channel.workspaceId,
+        content: message.contentPlainV2 ?? message.contentPlain ?? message.content,
+      });
+    }
     return { message: this.messages.toDto(message) };
   }
 
@@ -223,6 +236,13 @@ export class GlobalDmMessagesController {
       // S05 (FR-MSG-06): DM 편집도 동일하게 낙관적 잠금. 불일치 시 409 +
       // 현재 DTO(details.current)를 service 가 throw.
       expectedVersion: parsed.data.expectedVersion,
+    });
+    // S60 (FR-RC07): DM 편집도 본문 URL unfurl 을 재enqueue(멱등).
+    this.messages.scheduleUnfurl({
+      messageId: updated.id,
+      channelId: channel.id,
+      workspaceId: channel.workspaceId,
+      content: updated.contentPlainV2 ?? updated.contentPlain ?? updated.content,
     });
     return { message: this.messages.toDto(updated) };
   }

@@ -195,6 +195,8 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         parentExcerpt: null,
         // S38 (FR-TH-13): 답글은 잠금 표식 없음(루트 전용).
         threadLocked: false,
+        // S60 (FR-RC07): optimistic reply 는 아직 unfurl 전이라 embed 없음.
+        embeds: [],
       };
       qc.setQueryData<InfiniteData<ListThreadRepliesResponse>>(threadKey, (old) => {
         if (!old) return old;

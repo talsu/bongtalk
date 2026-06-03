@@ -124,20 +124,23 @@ export class MessagesController {
     // task-013-B: reactions join is one extra round-trip per page, not per
     // message. Empty page → skip the query entirely.
     const ids = result.items.map((r) => r.id);
-    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap] = await Promise.all([
-      this.messages.aggregateReactions(ids, user.id),
-      // task-014-B: thread summary join, same one-per-page round trip.
-      // S36 (FR-TH-04): viewer 의 ThreadReadState 를 배치 조인해 per-viewer 미읽
-      // 여부(threadMeta.hasUnread)를 같은 쿼리에서 산정한다(N+1 없음).
-      this.messages.aggregateThreadSummaries(ids, user.id),
-      // Inline attachments projection — same batched pattern so a page
-      // of 50 messages costs one reactions / one thread / one attachment
-      // query regardless of how many of them have media.
-      this.messages.aggregateAttachments(ids),
-      // S35 (FR-TH-06): broadcast 행의 루트 excerpt 를 페이지당 1쿼리로 모은다
-      // (broadcast 행이 없으면 추가 쿼리 없음 — 내부 early return).
-      this.messages.aggregateBroadcastExcerpts(result.items),
-    ]);
+    const [reactionMap, threadMap, attachmentMap, broadcastExcerptMap, embedMap] =
+      await Promise.all([
+        this.messages.aggregateReactions(ids, user.id),
+        // task-014-B: thread summary join, same one-per-page round trip.
+        // S36 (FR-TH-04): viewer 의 ThreadReadState 를 배치 조인해 per-viewer 미읽
+        // 여부(threadMeta.hasUnread)를 같은 쿼리에서 산정한다(N+1 없음).
+        this.messages.aggregateThreadSummaries(ids, user.id),
+        // Inline attachments projection — same batched pattern so a page
+        // of 50 messages costs one reactions / one thread / one attachment
+        // query regardless of how many of them have media.
+        this.messages.aggregateAttachments(ids),
+        // S35 (FR-TH-06): broadcast 행의 루트 excerpt 를 페이지당 1쿼리로 모은다
+        // (broadcast 행이 없으면 추가 쿼리 없음 — 내부 early return).
+        this.messages.aggregateBroadcastExcerpts(result.items),
+        // S60 (FR-RC07/08): unfurl embed 를 페이지당 1쿼리로 모은다(suppressedAt IS NULL).
+        this.messages.aggregateEmbeds(ids),
+      ]);
     const dtos = result.items.map((r) =>
       this.messages.toDto(
         r,
@@ -145,6 +148,7 @@ export class MessagesController {
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
         broadcastExcerptMap.get(r.id) ?? null,
+        embedMap.get(r.id) ?? [],
       ),
     );
     return {
@@ -249,23 +253,41 @@ export class MessagesController {
       if (visibleFrom && row.createdAt < visibleFrom) {
         throw new DomainError(ErrorCode.MESSAGE_NOT_FOUND, 'message not found');
       }
-      const [rmap, amap, blockedIds] = await Promise.all([
+      const [rmap, amap, emap, blockedIds] = await Promise.all([
         this.messages.aggregateReactions([row.id], user.id),
         this.messages.aggregateAttachments([row.id]),
+        this.messages.aggregateEmbeds([row.id]),
         this.messages.loadBlockedUserIds(user.id),
       ]);
       const [dto] = this.messages.maskBlockedAuthors(
-        [this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? [])],
+        [
+          this.messages.toDto(
+            row,
+            rmap.get(row.id) ?? [],
+            null,
+            amap.get(row.id) ?? [],
+            null,
+            emap.get(row.id) ?? [],
+          ),
+        ],
         blockedIds,
       );
       return { message: dto };
     }
-    const [rmap, amap] = await Promise.all([
+    const [rmap, amap, emap] = await Promise.all([
       this.messages.aggregateReactions([row.id], user.id),
       this.messages.aggregateAttachments([row.id]),
+      this.messages.aggregateEmbeds([row.id]),
     ]);
     return {
-      message: this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? []),
+      message: this.messages.toDto(
+        row,
+        rmap.get(row.id) ?? [],
+        null,
+        amap.get(row.id) ?? [],
+        null,
+        emap.get(row.id) ?? [],
+      ),
     };
   }
 
@@ -384,6 +406,17 @@ export class MessagesController {
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
+    // S60 (FR-RC07 · FR-AM-13): 신규 메시지면 본문 URL 의 unfurl 잡을 fire-and-forget 으로
+    // enqueue 한다(replay 는 이미 처리됨 — 중복 방지). content/AST 정규화 후 평문 정본으로
+    // 추출하면 markdown sigil 이 URL 에 섞이지 않는다 — contentPlain 우선, 없으면 content.
+    if (!replayed) {
+      this.messages.scheduleUnfurl({
+        messageId: message.id,
+        channelId,
+        workspaceId: m.workspaceId,
+        content: message.contentPlainV2 ?? message.contentPlain ?? message.content,
+      });
+    }
     return { message: this.messages.toDto(message) };
   }
 
@@ -440,12 +473,30 @@ export class MessagesController {
       // S44 (FR-MN-02/16): override-aware MENTION_EVERYONE 권한 게이트.
       hasMentionEveryone: editHasMentionEveryone,
     });
-    const [rmap, amap] = await Promise.all([
+    // S60 (FR-RC07): 편집으로 본문 URL 이 바뀌었을 수 있으므로 unfurl 을 재enqueue 한다
+    // (jobId=messageId 멱등 · MessageEmbed upsert). URL 이 사라졌으면 기존 embed 는 그대로
+    // 남지만 read-path 가 본문에 없는 URL 카드를 표시하는 정합은 후속 정리(현 슬라이스는
+    // 추가 카드 생성만 — 편집으로 제거된 URL 의 카드 회수는 follow-up).
+    this.messages.scheduleUnfurl({
+      messageId: row.id,
+      channelId,
+      workspaceId: m.workspaceId,
+      content: row.contentPlainV2 ?? row.contentPlain ?? row.content,
+    });
+    const [rmap, amap, emap] = await Promise.all([
       this.messages.aggregateReactions([row.id], user.id),
       this.messages.aggregateAttachments([row.id]),
+      this.messages.aggregateEmbeds([row.id]),
     ]);
     return {
-      message: this.messages.toDto(row, rmap.get(row.id) ?? [], null, amap.get(row.id) ?? []),
+      message: this.messages.toDto(
+        row,
+        rmap.get(row.id) ?? [],
+        null,
+        amap.get(row.id) ?? [],
+        null,
+        emap.get(row.id) ?? [],
+      ),
     };
   }
 
@@ -490,6 +541,57 @@ export class MessagesController {
       msgId,
       actorId: user.id,
     });
+  }
+
+  /**
+   * S60 (FR-AM-16 · FR-RC08): unfurl embed 사후 억제(suppress). 메시지 작성자 또는
+   * MANAGE_MESSAGES 권한자(채널 override 포함)가 개별 embed 카드를 끈다. 행 삭제가 아니라
+   * suppressedAt 표식이라 동일 URL 재추출 시 깜빡임을 막는다. 성공 시 message:embed_updated
+   * 가 채널 룸으로 fanout 되어(서비스가 outbox 발행) 모든 뷰어의 카드가 사라진다.
+   *
+   * 권한: 작성자(row.authorId===user)는 항상 허용. 비작성자는 채널 MANAGE_MESSAGES 비트
+   * (역할 baseline + override fold)를 검사한다 — OWNER/ADMIN 은 baseline 으로 통과하고,
+   * override 로 MEMBER 에게 부여됐으면 그도 허용된다. 둘 다 아니면 403 MESSAGE_NOT_AUTHOR.
+   */
+  @Patch(':msgId/embeds/:embedId/suppress')
+  @HttpCode(200)
+  async suppressEmbed(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('msgId', new ParseUUIDPipe()) msgId: string,
+    @Param('embedId', new ParseUUIDPipe()) embedId: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @CurrentChannel() channel: CurrentChannelPayload | undefined,
+  ) {
+    await this.rate.enforce([{ key: `msg:embedsup:u:${user.id}`, windowSec: 60, max: 120 }]);
+    // includeDeleted=true 로 author 판정용 row 를 읽는다(삭제 메시지도 모더레이터는 억제 가능).
+    const row = await this.messages.requireOne({ channelId, msgId, includeDeleted: true });
+    const isAuthor = row.authorId === user.id;
+    if (!isAuthor) {
+      // 비작성자: MANAGE_MESSAGES(타인 메시지 삭제/핀) 권한 필요. 집행 비트필드(api
+      // Permission)에서는 DELETE_ANY_MESSAGE(0x0008)가 shared-types 카탈로그의
+      // MANAGE_MESSAGES(0x0008)에 대응한다(역할 baseline + 채널 override fold).
+      const canManage = channel
+        ? await this.channelAccess.hasPermission(
+            { id: channel.id, workspaceId: channel.workspaceId, isPrivate: channel.isPrivate },
+            user.id,
+            Permission.DELETE_ANY_MESSAGE,
+          )
+        : false;
+      if (!canManage) {
+        throw new DomainError(
+          ErrorCode.MESSAGE_NOT_AUTHOR,
+          'only the author or a message manager can suppress this embed',
+        );
+      }
+    }
+    const result = await this.messages.suppressEmbed({
+      channelId,
+      msgId,
+      embedId,
+      actorId: user.id,
+    });
+    return { messageId: msgId, embeds: result.embeds };
   }
 
   // ----- task-044-iter2: pinned messages -------------------------------

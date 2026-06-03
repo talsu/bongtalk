@@ -292,6 +292,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         parentExcerpt: null,
         // S38 (FR-TH-13): optimistic 메시지는 루트라도 아직 미잠금.
         threadLocked: false,
+        // S60 (FR-RC07): optimistic 메시지는 아직 unfurl 전이라 embed 없음. 서버가
+        // 비동기 unfurl 후 message:embed_updated 로 채운다.
+        embeds: [],
         sendState: 'pending',
       };
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {

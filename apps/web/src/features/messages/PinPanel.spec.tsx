@@ -53,6 +53,7 @@ function makePin(overrides: Partial<MessageDto> = {}): MessageDto {
     isBroadcast: false,
     parentExcerpt: null,
     threadLocked: false,
+    embeds: [],
     ...overrides,
   };
 }

@@ -218,3 +218,5 @@ export * from './message-type';
 export * from './saved-message';
 // S54 — 첨부 업로드 세션 + 차단확장자 + MIME 화이트리스트 + 읽음 모드 (D11 / FR-AM-03~06/27 + FR-RS-13)
 export * from './attachment';
+// S60 — 링크 unfurl 계약 + URL 정규화 (D11 / FR-RC07/08/09/21 + FR-AM-13~16)
+export * from './links';

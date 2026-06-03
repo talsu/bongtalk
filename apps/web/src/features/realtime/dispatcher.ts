@@ -11,6 +11,7 @@ import {
   ChannelPinAddedPayloadSchema,
   ChannelPinRemovedPayloadSchema,
   AttachmentProcessingDonePayloadSchema,
+  MessageEmbedUpdatedPayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
@@ -805,6 +806,39 @@ export function installRealtimeDispatcher(
     );
   });
 
+  // ---------- Link unfurl (S60 · D11 · FR-RC07/08) ----------
+  // message:embed_updated — 메시지 본문 URL 의 비동기 unfurl 이 끝나거나 사후 suppress 로
+  // embed 집합이 바뀜. 채널 룸 fanout 이라 channelId 가 식별자다. embeds 는 해당 메시지의
+  // 비-suppress embed 전체 스냅샷(idempotent replace)이므로, channelId 가 일치하는 모든
+  // messages.list 캐시(`['messages', wsId, chId]` 3-tuple)에서 해당 messageId 행의 embeds 를
+  // 통째로 교체한다. 캐시에 해당 메시지가 없으면 무시한다(no-op · 다음 list 재조회로 자가 치유).
+  on<unknown>(WS_EVENTS.MESSAGE_EMBED_UPDATED, (env) => {
+    const parsed = MessageEmbedUpdatedPayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { channelId, messageId, embeds } = parsed.data;
+    qc.setQueriesData<InfiniteData<ListMessagesResponse>>(
+      {
+        predicate: (q) => {
+          const k = q.queryKey;
+          return Array.isArray(k) && k[0] === 'messages' && k[2] === channelId && k.length === 3;
+        },
+      },
+      (old) => {
+        if (!old) return old;
+        let touched = false;
+        const pages = old.pages.map((p) => ({
+          ...p,
+          items: p.items.map((m) => {
+            if (m.id !== messageId) return m;
+            touched = true;
+            return { ...m, embeds };
+          }),
+        }));
+        return touched ? { ...old, pages } : old;
+      },
+    );
+  });
+
   // ---------- Saved reminders (S53 · D10 · FR-PS-09/10/11) ----------
   // user:reminder_fire — 저장 항목 리마인더 시각 도래. 개인 user 룸으로 push 된다.
   // 토스트(액션: 10분 후 다시 / 완료로 표시 / 무시) + 권한 있으면 브라우저
@@ -1359,6 +1393,8 @@ export const DISPATCHED_EVENTS = [
   WS_EVENTS.SAVED_UPDATED,
   // S58 (D11 · FR-AM-25): 첨부 후처리 완료(채널 룸 fanout · forward-compat no-op-ready).
   WS_EVENTS.ATTACHMENT_PROCESSING_DONE,
+  // S60 (D11 · FR-RC07/08): 링크 unfurl 결과 갱신(채널 룸 fanout).
+  WS_EVENTS.MESSAGE_EMBED_UPDATED,
   'user.profile.updated',
   'channel.created',
   'channel.updated',

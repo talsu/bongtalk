@@ -427,9 +427,15 @@ export function MessageItem({
                 </div>
               ) : null}
               {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
-              {/* task-045 iter6: link unfurl `.qf-embed` 카드. URL 1-3개 추출,
-                 lazy-fetch via /links/preview, 메타 도착 시에만 카드 표시. */}
+              {/* S60 (D11 · FR-RC07/08): link unfurl `.qf-embed` 카드.
+                 서버가 비동기 unfurl 해 push 한 msg.embeds 가 있으면 그것을 렌더한다
+                 (이미지는 백엔드 프록시 경로 · suppressedAt 카드는 hide). 없으면 종전
+                 task-045 lazy-fetch(/links/preview)로 폴백한다(서버가 아직 push 안 한 호환). */}
               {(() => {
+                const serverEmbeds = msg.embeds ?? [];
+                if (serverEmbeds.length > 0) {
+                  return serverEmbeds.map((e) => <LinkPreview key={`embed-${e.id}`} embed={e} />);
+                }
                 const urls = extractMessageUrls(msg.content ?? '');
                 return urls.length > 0
                   ? urls.map((u) => <LinkPreview key={`embed-${u}`} url={u} />)

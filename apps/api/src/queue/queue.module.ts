@@ -3,11 +3,15 @@ import { BullModule } from '@nestjs/bullmq';
 import IORedis from 'ioredis';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { AttachmentsModule } from '../attachments/attachments.module';
+import { LinksModule } from '../links/links.module';
 import { REMINDER_QUEUE } from './reminder-queue.constants';
 import { ReminderQueueService } from './reminder-queue.service';
 import { ReminderProcessor } from './reminder.processor';
 import { ATTACHMENT_GC_QUEUE } from './attachment-gc.constants';
 import { AttachmentGcProcessor } from './attachment-gc.processor';
+import { UNFURL_QUEUE } from './unfurl-queue.constants';
+import { UnfurlQueueService } from './unfurl-queue.service';
+import { UnfurlProcessor } from './unfurl.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -45,13 +49,25 @@ import { AttachmentGcProcessor } from './attachment-gc.processor';
     BullModule.registerQueue({ name: REMINDER_QUEUE }),
     // S55 (FR-AM-29): orphan GC repeatable 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: ATTACHMENT_GC_QUEUE }),
+    // S60 (FR-AM-13 · FR-RC07): 링크 unfurl 큐. forRootAsync 연결을 재사용한다.
+    BullModule.registerQueue({ name: UNFURL_QUEUE }),
     RealtimeModule,
     // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
     // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
     // RealtimeModule 경유로 그래프에 있어 신규 간선이 추가하는 사이클이 없다.
     AttachmentsModule,
+    // S60: UnfurlProcessor 가 LinksService(fetch+캐시) + OgImageFetcher(MinIO)를 주입한다.
+    // LinksModule 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. OutboxService 는
+    // @Global 이라 import 없이 주입되며, PrismaService 도 @Global 이다.
+    LinksModule,
   ],
-  providers: [ReminderQueueService, ReminderProcessor, AttachmentGcProcessor],
-  exports: [ReminderQueueService],
+  providers: [
+    ReminderQueueService,
+    ReminderProcessor,
+    AttachmentGcProcessor,
+    UnfurlQueueService,
+    UnfurlProcessor,
+  ],
+  exports: [ReminderQueueService, UnfurlQueueService],
 })
 export class QueueModule {}

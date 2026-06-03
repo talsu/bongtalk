@@ -32,6 +32,7 @@ function msg(id: string): MessageDto {
     isBroadcast: false,
     parentExcerpt: null,
     threadLocked: false,
+    embeds: [],
   };
 }
 

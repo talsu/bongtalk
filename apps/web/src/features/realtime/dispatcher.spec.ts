@@ -762,6 +762,76 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  // S60 (FR-RC07/08): message:embed_updated 가 해당 messageId 행의 embeds 를 통째로
+  // 교체한다(idempotent replace · 채널 룸 fanout).
+  it('message:embed_updated replaces the message embeds in the channel cache', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [seedMsg({ id: 'msg-e', embeds: [] })],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message:embed_updated', {
+      channelId: 'ch-1',
+      messageId: 'msg-e',
+      embeds: [
+        {
+          id: '55555555-5555-5555-5555-555555555555',
+          url: 'https://a.com',
+          title: 'A',
+          description: null,
+          siteName: 'A',
+          imageProxyUrl: '/links/embed-image/55555555-5555-5555-5555-555555555555',
+          suppressedAt: null,
+        },
+      ],
+    });
+    const row = readItems(qc).find((m) => m.id === 'msg-e') as { embeds?: Array<{ id: string }> };
+    expect(row.embeds).toHaveLength(1);
+    expect(row.embeds?.[0].id).toBe('55555555-5555-5555-5555-555555555555');
+    detach();
+  });
+
+  it('message:embed_updated with empty embeds clears the cards (suppress all)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [
+            seedMsg({
+              id: 'msg-e2',
+              embeds: [
+                {
+                  id: 'old',
+                  url: 'https://a.com',
+                  title: 'A',
+                  description: null,
+                  siteName: null,
+                  imageProxyUrl: null,
+                  suppressedAt: null,
+                },
+              ],
+            }),
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message:embed_updated', { channelId: 'ch-1', messageId: 'msg-e2', embeds: [] });
+    const row = readItems(qc).find((m) => m.id === 'msg-e2') as { embeds?: unknown[] };
+    expect(row.embeds).toHaveLength(0);
+    detach();
+  });
+
   // S23 (FR-RS-06): read_state:updated 가 readStateStore 의 lastRead 를 전진시켜
   // NEW MESSAGES 구분선의 lastRead 출처가 멀티세션에서 정합하게 한다.
   it('read_state:updated advances readStateStore lastRead (multi-session sync)', () => {
