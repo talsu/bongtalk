@@ -162,7 +162,8 @@ export const ChannelSchema = z.object({
   // S55 (FR-CH-18): 채널별 첨부 업로드 토글. true(기본) = 허용.
   fileUploadEnabled: z.boolean(),
   // S55 (FR-AM-20): 채널별 최대 첨부 크기(바이트, 와이어상 number). null = 폴백.
-  maxFileSizeBytes: z.number().int().positive().nullable(),
+  // 상한(전역 ATTACHMENT_MAX_BYTES)을 응답 스키마에도 반영(입력 ChannelMaxFileSizeSchema 와 정합).
+  maxFileSizeBytes: ChannelMaxFileSizeSchema.nullable(),
   isPrivate: z.boolean(),
   archivedAt: z.string().datetime().nullable(),
   deletedAt: z.string().datetime().nullable(),

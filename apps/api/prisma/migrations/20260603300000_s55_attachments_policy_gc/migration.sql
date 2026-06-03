@@ -20,8 +20,10 @@ CREATE TABLE IF NOT EXISTS "WorkspaceSetting" (
   "workspaceId"       UUID        NOT NULL,
   "maxFileSizeBytes"  BIGINT,
   "blockedExtensions" TEXT[]      NOT NULL DEFAULT ARRAY[]::TEXT[],
-  "createdAt"         TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
-  "updatedAt"         TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  -- S55 리뷰 MAJOR: Prisma @default(now())/@updatedAt 매핑(TIMESTAMP(3)·updatedAt 무default·
+  -- 앱 레이어 관리)과 일치시켜 `prisma migrate diff` 드리프트를 없앤다.
+  "createdAt"         TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  "updatedAt"         TIMESTAMP(3) NOT NULL,
   CONSTRAINT "WorkspaceSetting_pkey" PRIMARY KEY ("id")
 );
 

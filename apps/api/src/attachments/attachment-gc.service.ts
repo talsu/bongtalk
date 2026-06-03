@@ -73,10 +73,13 @@ export class AttachmentGcService {
     for (;;) {
       const orphans = await this.prisma.attachment.findMany({
         where: {
-          OR: [
-            { messageId: null },
-            { AND: [{ linkedAt: null }, { createdAt: { lt: graceCutoff } }] },
-          ],
+          // S55 리뷰 BLOCKER(GC-1): 종전 `{ messageId: null }` 단독 절은 grace 가 없어
+          // 방금 complete(targetChannelId) 한 pre-link 첨부(messageId=null·linkedAt=null·
+          // createdAt=now)를 메시지 전송 전에 즉시 삭제(데이터 파괴)했다. complete(messageId)
+          // 와 messages.send 는 messageId·linkedAt 을 함께 stamp 하므로 `linkedAt IS NULL`
+          // 이 곧 "아직 전송 메시지에 연결 안 됨" 신호다 — 24h grace 를 둔 단일 조건으로 통합.
+          linkedAt: null,
+          createdAt: { lt: graceCutoff },
         },
         select: { id: true, storageKey: true, mime: true, storedMimeType: true },
         orderBy: { createdAt: 'asc' },

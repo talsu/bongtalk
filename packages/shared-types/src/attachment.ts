@@ -221,7 +221,8 @@ export type UpdateWorkspaceSettingRequest = z.infer<typeof UpdateWorkspaceSettin
 
 /** GET/PATCH 응답. maxFileSizeBytes 는 와이어상 number|null(BigInt → number 직렬화). */
 export const WorkspaceSettingResponseSchema = z.object({
-  maxFileSizeBytes: z.number().int().nonnegative().nullable(),
+  // S55 리뷰(contract): 서버는 null(전역 폴백) 또는 양수만 반환한다(0 불가) — positive.
+  maxFileSizeBytes: z.number().int().positive().nullable(),
   blockedExtensions: z.array(z.string()),
 });
 export type WorkspaceSettingResponse = z.infer<typeof WorkspaceSettingResponseSchema>;

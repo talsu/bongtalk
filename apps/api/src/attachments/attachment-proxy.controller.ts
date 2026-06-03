@@ -1,5 +1,6 @@
 import { Controller, Get, Param, ParseUUIDPipe, Res, UseGuards } from '@nestjs/common';
 import type { Response } from 'express';
+import { pipeline } from 'node:stream/promises';
 import { AttachmentsService } from './attachments.service';
 import { ChannelAccessByIdGuard } from './guards/channel-access-by-id.guard';
 import { requiresAttachmentDisposition } from './attachment-policy';
@@ -123,14 +124,17 @@ export class AttachmentProxyController {
       'Content-Disposition',
       `${dispType}; filename="${sanitizeHeaderFilename(originalName)}"`,
     );
-    obj.stream.on('error', () => {
-      if (!res.headersSent) {
-        res.status(502).end();
-      } else {
-        res.end();
-      }
-    });
-    obj.stream.pipe(res);
+    // S55 리뷰(perf CRITICAL): 종전 수동 `obj.stream.pipe(res)` 는 클라이언트가 다운로드
+    // 중 연결을 끊어도 MinIO SDK 스트림을 destroy 하지 않아 소켓/대역폭이 누수됐다.
+    // node:stream/promises 의 pipeline 은 source/dest 어느 쪽이 닫혀도 양쪽을 정리하고,
+    // backpressure 를 처리한다.
+    try {
+      await pipeline(obj.stream, res);
+    } catch {
+      // 클라이언트 abort(ERR_STREAM_PREMATURE_CLOSE) 또는 MinIO 스트림 에러 — pipeline 이
+      // 이미 obj.stream·res 를 모두 destroy 한다. 헤더 전송 전이면 502(이후면 소켓 정리됨).
+      if (!res.headersSent) res.status(502).end();
+    }
   }
 }
 

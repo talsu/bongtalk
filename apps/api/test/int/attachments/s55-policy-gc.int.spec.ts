@@ -328,9 +328,11 @@ describe('S55 attachment policy + GC + proxy (int)', () => {
     expect(att?.messageId).toBe(msg.id);
   }, 30_000);
 
-  // ── GC: messageId NULL orphan 수거 ────────────────────────────────────────
-  it('FR-AM-29: GC deletes an orphan with messageId NULL (object + row)', async () => {
+  // ── GC: 미연결(linkedAt NULL) 24h+ orphan 수거 ────────────────────────────
+  it('FR-AM-29: GC deletes an unlinked orphan older than 24h (object + row)', async () => {
     const { userId, channelId } = await seed();
+    // S55 리뷰 GC-1: orphan 은 grace(24h) 경과해야 수거된다. messageId NULL·linkedAt NULL
+    // 이라도 createdAt 이 24h 이내면 보존(pre-link 전송 대기 가능성). 25h 전으로 둔다.
     const orphan = await prisma.attachment.create({
       data: {
         id: randomUUID(),
@@ -343,6 +345,7 @@ describe('S55 attachment policy + GC + proxy (int)', () => {
         originalName: 'o.png',
         finalizedAt: now(),
         linkedAt: null,
+        createdAt: new Date(now().getTime() - 25 * 60 * 60 * 1000),
       },
     });
     const res = await gc.sweep(now());
@@ -351,18 +354,16 @@ describe('S55 attachment policy + GC + proxy (int)', () => {
     expect(await prisma.attachment.findUnique({ where: { id: orphan.id } })).toBeNull();
   }, 30_000);
 
-  // ── GC: linkedAt NULL 24h 미만은 보존(pre-link 유예) ──────────────────────
-  it('FR-AM-29: GC preserves a recent pre-link (linkedAt null, messageId set, < 24h)', async () => {
+  // ── GC: 방금 complete 한 pre-link(messageId NULL·linkedAt NULL·<24h)는 보존 ──
+  // S55 리뷰 BLOCKER(GC-1) 회귀: 실제 pre-link shape(messageId=NULL)로 검증한다.
+  // 종전 selector 의 `{ messageId: null }` 단독 절은 이 행을 즉시 삭제(데이터 파괴)했다.
+  it('FR-AM-29: GC preserves a fresh pre-link (messageId NULL, linkedAt NULL, < 24h)', async () => {
     const { userId, channelId } = await seed();
-    const msg = await prisma.message.create({
-      data: { id: randomUUID(), channelId, authorId: userId, content: 'm', contentPlain: 'm' },
-    });
-    // messageId set but linkedAt null, createdAt = now (within 24h grace) → preserved.
     const recent = await prisma.attachment.create({
       data: {
         id: randomUUID(),
         channelId,
-        messageId: msg.id,
+        messageId: null, // ← 실제 complete(targetChannelId) pre-link shape
         uploaderId: userId,
         kind: 'IMAGE',
         mime: 'image/png',
@@ -448,6 +449,8 @@ describe('S55 attachment policy + GC + proxy (int)', () => {
         originalName: 'liar.png',
         finalizedAt: now(),
         linkedAt: null,
+        // S55 리뷰 GC-1: orphan 은 24h grace 경과 후 수거 — 25h 전.
+        createdAt: new Date(now().getTime() - 25 * 60 * 60 * 1000),
       },
     });
     const res = await gc.sweep(now());
