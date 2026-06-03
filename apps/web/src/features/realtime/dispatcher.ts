@@ -1202,6 +1202,33 @@ export function installRealtimeDispatcher(
       qc.invalidateQueries({ queryKey: qk.workspaces.list() });
     }
   });
+  // S63 (FR-RM05·06): kick(재가입 가능) / ban(영구 차단). 둘 다 멤버 목록 + 내
+  // 워크스페이스 목록을 갱신한다. 대상이 viewer 본인이면 안내 토스트를 띄운다 — 서버가
+  // 곧 소켓을 끊고(kickUserEverywhere) 클라가 재연결을 시도하지만, 비멤버라 워크스페이스
+  // 접근이 막힌다(REST 404). 워크스페이스 목록 갱신으로 떠난 워크스페이스가 사이드바에서
+  // 사라진다(리다이렉트는 라우터가 멤버십 상실을 감지해 처리).
+  const onKickOrBan = (env: { workspaceId?: string; userId?: string }, banned: boolean): void => {
+    if (!env.workspaceId) return;
+    qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
+    qc.invalidateQueries({ queryKey: qk.workspaces.list() });
+    if (banned) qc.invalidateQueries({ queryKey: ['workspaces', env.workspaceId, 'bans'] });
+    const viewer = ctx.viewerId();
+    if (viewer && env.userId === viewer) {
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: banned ? '워크스페이스에서 차단되었습니다' : '워크스페이스에서 퇴장되었습니다',
+        body: banned
+          ? '이 워크스페이스에 다시 참여할 수 없습니다.'
+          : '다시 초대받으면 재참여할 수 있습니다.',
+      });
+    }
+  };
+  on<{ workspaceId: string; userId: string }>('workspace.member.kicked', (env) =>
+    onKickOrBan(env, false),
+  );
+  on<{ workspaceId: string; userId: string }>('workspace.member.banned', (env) =>
+    onKickOrBan(env, true),
+  );
   on<{ workspaceId: string }>('workspace.role.changed', (env) => {
     if (env.workspaceId) {
       qc.invalidateQueries({ queryKey: qk.workspaces.detail(env.workspaceId) });
@@ -1405,6 +1432,9 @@ export const DISPATCHED_EVENTS = [
   'workspace.member.joined',
   'workspace.member.left',
   'workspace.member.removed',
+  // S63 (FR-RM05·06): kick(재가입 가능) / ban(영구 차단) 멤버 이벤트.
+  'workspace.member.kicked',
+  'workspace.member.banned',
   'workspace.role.changed',
   'presence.updated',
   'presence:update',
