@@ -71,6 +71,7 @@ describe('RolesModal', () => {
         id: 'helpers',
         name: 'Helpers',
         position: 50,
+        // eslint-disable-next-line no-restricted-syntax -- 역할 colorHex 는 본질적으로 hex 색상 데이터(사용자 입력 모사 fixture)이므로 DS 토큰 대상 아님(task-018 예외).
         colorHex: '#00ff00',
         permissions: serializePermissions(PERMISSIONS.SEND_MESSAGES),
       }),
