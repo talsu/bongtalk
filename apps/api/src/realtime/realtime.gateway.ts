@@ -921,6 +921,21 @@ export class RealtimeGateway
   }
 
   /**
+   * S53 (D10 · FR-PS-09/10/11): emit an arbitrary user-scoped event to a
+   * user's private room (user:{userId}). Used by the BullMQ ReminderProcessor
+   * to push user:reminder_fire / user:saved_updated, and by the saved PATCH/
+   * snooze paths to push user:saved_updated. Routed via the Socket.IO adapter
+   * so it reaches the user's sockets on any node. If the gateway server isn't
+   * ready yet or the user has no live socket, this is a harmless no-op (the
+   * authoritative state lives in the DB; reconnect surfaces missed reminders
+   * via the overdueReminder query).
+   */
+  emitToUserRoom(userId: string, event: string, payload: unknown): void {
+    if (!this.server) return;
+    this.server.to(rooms.user(userId)).emit(event, payload);
+  }
+
+  /**
    * task-019-B (018-follow-3): refresh SocketState.channelIds for every
    * currently-connected socket belonging to `userId`. Invoked after
    * channel.created / workspace.member.joined fan-out so the user's

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   SAVED_LIMIT,
+  SNOOZE_MINUTES,
   type SaveStatus,
   type SavedMessageDto,
   type SavedMessageListResponse,
@@ -10,6 +11,7 @@ import {
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { ReminderQueueService } from '../../queue/reminder-queue.service';
 
 // 목록 요약 excerpt 길이 상한(≤150자). 전체 MessageDto 대신 평문 요약만 노출한다.
 const EXCERPT_LEN = 150;
@@ -27,6 +29,11 @@ interface SavedRow {
   authorId: string;
   channelId: string;
   channelName: string | null;
+  // S53 (FR-PS-09/10/11): 리마인더 메타(전부 nullable).
+  reminderAt: Date | null;
+  reminderFiredAt: Date | null;
+  snoozedUntil: Date | null;
+  note: string | null;
 }
 
 /**
@@ -42,7 +49,12 @@ interface SavedRow {
  */
 @Injectable()
 export class SavedService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // S53 (FR-PS-09/10/11): 리마인더 예약/취소/재예약. QueueModule 이 @Global 이라
+    // import 없이 주입된다(순환 회피).
+    private readonly reminders: ReminderQueueService,
+  ) {}
 
   /**
    * 메시지가 호출자에게 가시(채널 READ ACL 통과)한지 확인한다. 비가시면
@@ -138,6 +150,16 @@ export class SavedService {
    * 행이 없어도 200(이미 해제됨)으로 멱등 처리한다.
    */
   async unsave(userId: string, messageId: string): Promise<SaveToggleResponse> {
+    // S53 (FR-PS-10): 해제 전에 예약된 리마인더가 있으면 큐 잡도 취소한다. unsave 는
+    // messageId 기준이라 먼저 savedMessageId 를 찾아 jobId(=savedMessageId)로 cancel
+    // 한 뒤 행을 지운다(없으면 cancel no-op). 동시 unsave race 는 둘 다 멱등.
+    const existing = await this.prisma.savedMessage.findUnique({
+      where: { userId_messageId: { userId, messageId } },
+      select: { id: true },
+    });
+    if (existing) {
+      await this.reminders.cancel(existing.id);
+    }
     await this.prisma.savedMessage.deleteMany({ where: { userId, messageId } });
     return { saved: false, savedMessageId: null, status: null };
   }
@@ -164,17 +186,64 @@ export class SavedService {
    * 본인 소유 확인은 updateMany(where 에 userId 포함)의 count 로 한다. 0 이면 404 —
    * 타인 항목/없는 id 를 단건 findUnique 후 분기하는 것보다 IDOR 누출 표면이 작다.
    */
-  async updateStatus(
+  async update(
     userId: string,
     savedMessageId: string,
-    status: SaveStatus,
+    patch: {
+      status?: SaveStatus;
+      // undefined = 변경 없음. null = 리마인더 취소. Date = 설정/재설정.
+      reminderAt?: Date | null;
+      note?: string | null;
+    },
+    now: Date = new Date(),
   ): Promise<SavedMessageDto> {
-    const updated = await this.prisma.savedMessage.updateMany({
+    // S53 (FR-PS-09/10): 본인 소유 확인을 위해 먼저 권위 행을 읽는다(updateMany count
+    // 만으로는 reminder 큐 배선 분기에 필요한 현재 상태를 알 수 없다). 없으면 404.
+    const owned = await this.prisma.savedMessage.findFirst({
       where: { id: savedMessageId, userId },
-      data: { status },
+      select: { id: true },
     });
-    if (updated.count === 0) {
+    if (!owned) {
       throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
+    }
+
+    // 갱신 데이터 조립. status, reminderAt(+파생 reminderFiredAt/snoozedUntil), note.
+    const data: Prisma.SavedMessageUpdateInput = {};
+    if (patch.status !== undefined) data.status = patch.status;
+    if (patch.note !== undefined) data.note = patch.note;
+    if (patch.reminderAt !== undefined) {
+      if (patch.reminderAt === null) {
+        // 취소: reminderAt/reminderFiredAt/snoozedUntil 모두 클리어.
+        data.reminderAt = null;
+        data.reminderFiredAt = null;
+        data.snoozedUntil = null;
+      } else {
+        // 신규/재설정: reminderAt 설정 + 과거 발화/스누즈 흔적 클리어(재예약).
+        data.reminderAt = patch.reminderAt;
+        data.reminderFiredAt = null;
+        data.snoozedUntil = null;
+      }
+    }
+    // status→COMPLETED 로 이동하면 미발화 리마인더 의미가 없으므로 예약을 비운다
+    // (FR-PS-10 cancel 배선). 명시적 reminderAt 패치가 같이 오면 그 값이 우선.
+    const completing = patch.status === 'COMPLETED';
+    if (completing && patch.reminderAt === undefined) {
+      data.reminderAt = null;
+      data.reminderFiredAt = null;
+      data.snoozedUntil = null;
+    }
+
+    await this.prisma.savedMessage.update({
+      where: { id: savedMessageId },
+      data,
+    });
+
+    // 큐 배선(트랜잭션 밖 best-effort). reminderAt 이 설정되면 schedule, null 이거나
+    // COMPLETED 로 가면 cancel.
+    if (patch.reminderAt instanceof Date) {
+      await this.reminders.schedule({ savedMessageId, userId, reminderAt: patch.reminderAt, now });
+    } else if (patch.reminderAt === null || (completing && patch.reminderAt === undefined)) {
+      await this.reminders.cancel(savedMessageId);
     }
     // 갱신된 항목을 list 와 동일한 요약 조인으로 다시 읽어 DTO 를 만든다(소유 확인이
     // 통과했으므로 id 만으로 단건 조회 — 원본/채널이 그사이 삭제됐어도 messageDeletedAt
@@ -186,6 +255,10 @@ export class SavedService {
         sm.status            AS "status",
         sm."savedAt"         AS "savedAt",
         sm."messageDeletedAt" AS "messageDeletedAt",
+        sm."reminderAt"      AS "reminderAt",
+        sm."reminderFiredAt" AS "reminderFiredAt",
+        sm."snoozedUntil"    AS "snoozedUntil",
+        sm."note"            AS "note",
         LEFT(m."contentPlain", ${EXCERPT_LEN}::int) AS "excerpt",
         m."authorId"         AS "authorId",
         m."channelId"        AS "channelId",
@@ -198,11 +271,21 @@ export class SavedService {
     `;
     const row = rows[0];
     if (!row) {
-      // updateMany 는 성공했으나 채널이 soft-delete 돼 조인(c.deletedAt IS NULL)이
+      // update 는 성공했으나 채널이 soft-delete 돼 조인(c.deletedAt IS NULL)이
       // 비는 극단 케이스. 권위 행을 단건 select 로 최소 DTO 를 구성한다.
       const fallback = await this.prisma.savedMessage.findFirst({
         where: { id: savedMessageId, userId },
-        select: { id: true, messageId: true, status: true, savedAt: true, messageDeletedAt: true },
+        select: {
+          id: true,
+          messageId: true,
+          status: true,
+          savedAt: true,
+          messageDeletedAt: true,
+          reminderAt: true,
+          reminderFiredAt: true,
+          snoozedUntil: true,
+          note: true,
+        },
       });
       if (!fallback) {
         throw new DomainError(ErrorCode.SAVED_NOT_FOUND, 'saved message not found');
@@ -232,9 +315,37 @@ export class SavedService {
         authorId: msg.authorId,
         channelId: msg.channelId,
         channelName: '',
+        reminderAt: fallback.reminderAt ? fallback.reminderAt.toISOString() : null,
+        reminderFiredAt: fallback.reminderFiredAt ? fallback.reminderFiredAt.toISOString() : null,
+        snoozedUntil: fallback.snoozedUntil ? fallback.snoozedUntil.toISOString() : null,
+        note: fallback.note,
       };
     }
     return this.toDto(row);
+  }
+
+  /**
+   * S53 (FR-PS-10): POST /me/saved/:savedMessageId/snooze — "10분 후 다시 알림".
+   * snoozedUntil = now + snoozeMinutes, reminderAt = snoozedUntil,
+   * reminderFiredAt = null 로 재예약하고 BullMQ reschedule 한다. 본인 항목이 아니면
+   * 404. 응답은 갱신된 SavedMessageDto.
+   */
+  async snooze(
+    userId: string,
+    savedMessageId: string,
+    snoozeMinutes: number = SNOOZE_MINUTES,
+    now: Date = new Date(),
+  ): Promise<SavedMessageDto> {
+    const target = new Date(now.getTime() + snoozeMinutes * 60_000);
+    // update 의 reminderAt 설정 경로를 재사용한다(reminderFiredAt/snoozedUntil 파생
+    // 처리 + schedule 배선 일원화). 단 snoozedUntil 은 update 가 null 로 클리어하므로,
+    // 직접 갱신해 snooze 의미(스누즈 재예약 시각)를 보존한다.
+    const dto = await this.update(userId, savedMessageId, { reminderAt: target }, now);
+    await this.prisma.savedMessage.update({
+      where: { id: savedMessageId },
+      data: { snoozedUntil: target },
+    });
+    return { ...dto, snoozedUntil: target.toISOString() };
   }
 
   /**
@@ -266,9 +377,17 @@ export class SavedService {
     status: SaveStatus;
     limit: number;
     before?: string;
+    // S53 (FR-PS-11): 놓친 리마인더 필터. true 면 reminderAt < now AND
+    // reminderFiredAt IS NOT NULL AND status != COMPLETED 인 항목만(재접속 표시).
+    overdueReminder?: boolean;
+    now?: Date;
   }): Promise<SavedMessageListResponse> {
     const limit = Math.max(1, Math.min(100, args.limit));
     const cursor = args.before ? this.decodeCursor(args.before) : null;
+    const now = args.now ?? new Date();
+    // overdueReminder 모드는 status 탭 필터를 무시하고(놓친 리마인더는 진행/보관 무관)
+    // COMPLETED 만 제외한다. 일반 모드는 종전대로 단일 status 필터.
+    const overdue = args.overdueReminder === true;
     // limit+1 로 한 건 더 읽어 다음 페이지 존재 여부를 판단한다.
     const rows = await this.prisma.$queryRaw<SavedRow[]>`
       SELECT
@@ -277,6 +396,10 @@ export class SavedService {
         sm.status            AS "status",
         sm."savedAt"         AS "savedAt",
         sm."messageDeletedAt" AS "messageDeletedAt",
+        sm."reminderAt"      AS "reminderAt",
+        sm."reminderFiredAt" AS "reminderFiredAt",
+        sm."snoozedUntil"    AS "snoozedUntil",
+        sm."note"            AS "note",
         LEFT(m."contentPlain", ${EXCERPT_LEN}::int) AS "excerpt",
         m."authorId"         AS "authorId",
         m."channelId"        AS "channelId",
@@ -288,7 +411,13 @@ export class SavedService {
       -- 크로스컷팅 carryover — S49 FINDING-1 계열).
       JOIN "Channel" c ON c.id = m."channelId" AND c."deletedAt" IS NULL
       WHERE sm."userId" = ${args.userId}::uuid
-        AND sm.status = ${args.status}::"SaveStatus"
+        ${
+          overdue
+            ? Prisma.sql`AND sm.status <> 'COMPLETED'::"SaveStatus"
+                         AND sm."reminderFiredAt" IS NOT NULL
+                         AND sm."reminderAt" < ${now}::timestamptz`
+            : Prisma.sql`AND sm.status = ${args.status}::"SaveStatus"`
+        }
         ${
           cursor
             ? Prisma.sql`AND (sm."savedAt", sm.id) < (${cursor.savedAt}::timestamptz, ${cursor.id}::uuid)`
@@ -318,6 +447,11 @@ export class SavedService {
       authorId: r.authorId,
       channelId: r.channelId,
       channelName: r.channelName ?? '',
+      // S53 (FR-PS-09/10/11): 리마인더 메타.
+      reminderAt: r.reminderAt ? r.reminderAt.toISOString() : null,
+      reminderFiredAt: r.reminderFiredAt ? r.reminderFiredAt.toISOString() : null,
+      snoozedUntil: r.snoozedUntil ? r.snoozedUntil.toISOString() : null,
+      note: r.note,
     };
   }
 

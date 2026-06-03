@@ -28,6 +28,7 @@ import { CommonModule } from './common/common.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { LinksModule } from './links/links.module';
 import { MutesModule } from './notifications/mutes/mutes.module';
+import { QueueModule } from './queue/queue.module';
 
 @Module({
   imports: [
@@ -61,6 +62,10 @@ import { MutesModule } from './notifications/mutes/mutes.module';
     RealtimeModule,
     LinksModule,
     MutesModule,
+    // S53 (D10 / FR-PS-09/10/11): 저장 리마인더 BullMQ in-process 큐 + worker.
+    // @Global 이라 ReminderQueueService 가 앱 전역 주입(MessagesService/SavedService)
+    // 된다. RealtimeModule 뒤에 둬 모듈 초기화 순서가 단방향(QueueModule→Realtime)이게.
+    QueueModule,
   ],
   controllers: [HealthController],
   providers: [OutboxHealthIndicator, { provide: APP_FILTER, useClass: DomainExceptionFilter }],
