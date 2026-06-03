@@ -1100,4 +1100,143 @@ describe('realtime dispatcher', () => {
       detach();
     });
   });
+
+  // ── S58 (D11 · FR-AM-25): attachment:processing_done → 첨부 상태 patch ──────
+  describe('attachment:processing_done → 메시지 첨부 processingStatus/thumbnailKey patch', () => {
+    function seedWithAttachment(qc: QueryClient) {
+      const key = qk.messages.list('ws-1', 'ch-1');
+      qc.setQueryData(key, {
+        pages: [
+          {
+            items: [
+              seedMsg({
+                id: 'msg-a',
+                attachments: [
+                  {
+                    id: 'att-1',
+                    kind: 'IMAGE',
+                    mime: 'image/png',
+                    sizeBytes: 1,
+                    originalName: 'p.png',
+                    isSpoiler: false,
+                    sortOrder: 0,
+                    processingStatus: 'PENDING',
+                    thumbnailKey: null,
+                  },
+                ],
+              }),
+            ],
+            pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+          },
+        ],
+        pageParams: [undefined],
+      });
+      return key;
+    }
+
+    function attachmentsOf(qc: QueryClient, msgId: string) {
+      const row = readItems(qc).find((m) => m.id === msgId) as
+        | {
+            attachments?: Array<{
+              id: string;
+              processingStatus: string;
+              thumbnailKey: string | null;
+            }>;
+          }
+        | undefined;
+      return row?.attachments ?? [];
+    }
+
+    it('캐시에 있으면 processingStatus→READY + thumbnailKey 를 patch 한다', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedWithAttachment(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('attachment:processing_done', {
+        channelId: 'ch-1',
+        messageId: 'msg-a',
+        attachmentId: 'att-1',
+        status: 'READY',
+        thumbnailKey: 'thumb/att-1',
+      });
+      const atts = attachmentsOf(qc, 'msg-a');
+      expect(atts[0].processingStatus).toBe('READY');
+      expect(atts[0].thumbnailKey).toBe('thumb/att-1');
+      detach();
+    });
+
+    it('status=BLOCKED + thumbnailKey=null 도 그대로 patch 한다', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedWithAttachment(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('attachment:processing_done', {
+        channelId: 'ch-1',
+        messageId: 'msg-a',
+        attachmentId: 'att-1',
+        status: 'BLOCKED',
+        thumbnailKey: null,
+      });
+      const atts = attachmentsOf(qc, 'msg-a');
+      expect(atts[0].processingStatus).toBe('BLOCKED');
+      expect(atts[0].thumbnailKey).toBeNull();
+      detach();
+    });
+
+    it('캐시에 해당 attachmentId 가 없으면 무시한다(no-op)', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedWithAttachment(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      socket.emit('attachment:processing_done', {
+        channelId: 'ch-1',
+        messageId: 'msg-a',
+        attachmentId: 'no-such-att',
+        status: 'READY',
+        thumbnailKey: 'thumb/x',
+      });
+      const atts = attachmentsOf(qc, 'msg-a');
+      // 원본 PENDING/null 유지(변경 없음).
+      expect(atts[0].processingStatus).toBe('PENDING');
+      expect(atts[0].thumbnailKey).toBeNull();
+      detach();
+    });
+
+    it('캐시에 해당 messageId 가 없으면 무시한다(no-op)', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedWithAttachment(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      expect(() =>
+        socket.emit('attachment:processing_done', {
+          channelId: 'ch-1',
+          messageId: 'no-such-msg',
+          attachmentId: 'att-1',
+          status: 'READY',
+          thumbnailKey: 'thumb/x',
+        }),
+      ).not.toThrow();
+      const atts = attachmentsOf(qc, 'msg-a');
+      expect(atts[0].processingStatus).toBe('PENDING');
+      detach();
+    });
+
+    it('형태가 어긋난 페이로드는 신뢰경계 가드로 버린다(캐시 무변경)', () => {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      seedWithAttachment(qc);
+      const detach = installRealtimeDispatcher(socket, qc);
+      // status 가 PENDING(전환 대상이라 거부) → 스키마 parse 실패 → no-op.
+      socket.emit('attachment:processing_done', {
+        channelId: 'ch-1',
+        messageId: 'msg-a',
+        attachmentId: 'att-1',
+        status: 'PENDING',
+        thumbnailKey: null,
+      });
+      const atts = attachmentsOf(qc, 'msg-a');
+      expect(atts[0].processingStatus).toBe('PENDING');
+      detach();
+    });
+  });
 });

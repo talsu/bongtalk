@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor, within } from '@testing-library/react';
 import type { AttachmentLite } from '@qufox/shared-types';
 
 // attachmentSrc 모킹(프록시 인증 fetch → objectURL).
@@ -131,5 +131,164 @@ describe('AttachmentsList (S56 D11 FR-AM-21/22)', () => {
     const cards = screen.getAllByTestId(/attachment-file-/);
     expect(cards[0].getAttribute('data-attachment-id')).toBe('a');
     expect(cards[1].getAttribute('data-attachment-id')).toBe('b');
+  });
+
+  // ── S58 (D11 · FR-AM-07/09): 단일 이미지 550px · 2장+ 모자이크 라우팅 ─────────
+  it('이미지 1장 → 단일 ImageAttachment(max-width 550px), 그리드 미사용', async () => {
+    render(<AttachmentsList attachments={[att({ id: 'i1', kind: 'IMAGE', mime: 'image/png' })]} />);
+    await waitFor(() => expect(screen.getByTestId('attachment-image-i1')).toBeTruthy());
+    expect(screen.queryByTestId('image-mosaic-grid')).toBeNull();
+    const image = screen.getByRole('img') as HTMLImageElement;
+    // FR-AM-07: 인라인 단일 이미지 max-width 550px.
+    expect(image.style.maxWidth).toBe('550px');
+  });
+
+  it('이미지 2장 이상 → ImageMosaicGrid 로 라우팅(단일 ImageAttachment 미사용)', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({ id: 'i2', kind: 'IMAGE', mime: 'image/png', sortOrder: 1 }),
+        ]}
+      />,
+    );
+    expect(screen.getByTestId('image-mosaic-grid').getAttribute('data-image-count')).toBe('2');
+    expect(screen.queryByTestId('attachment-image-i1')).toBeNull();
+  });
+
+  it('이미지 + 파일 혼합 → 이미지는 그리드, 파일은 기존 카드로 분리 렌더', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({ id: 'i2', kind: 'IMAGE', mime: 'image/png', sortOrder: 1 }),
+          att({
+            id: 'f1',
+            kind: 'FILE',
+            mime: 'application/pdf',
+            originalName: 'doc.pdf',
+            sortOrder: 2,
+          }),
+        ]}
+      />,
+    );
+    // 이미지 2장 → 그리드.
+    expect(screen.getByTestId('image-mosaic-grid')).toBeTruthy();
+    // 파일 카드는 기존대로 유지(회귀).
+    expect(screen.getByTestId('attachment-file-f1')).toBeTruthy();
+  });
+
+  it('이미지 1장 + 파일 1장 → 단일 이미지 + 파일 카드(그리드 없음)', async () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({
+            id: 'f1',
+            kind: 'FILE',
+            mime: 'application/pdf',
+            originalName: 'doc.pdf',
+            sortOrder: 1,
+          }),
+        ]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByTestId('attachment-image-i1')).toBeTruthy());
+    expect(screen.queryByTestId('image-mosaic-grid')).toBeNull();
+    expect(screen.getByTestId('attachment-file-f1')).toBeTruthy();
+  });
+
+  it('PENDING 단일 이미지 → 스켈레톤 유지(그리드 미사용)', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'p1', kind: 'IMAGE', mime: 'image/png', processingStatus: 'PENDING' }),
+        ]}
+      />,
+    );
+    const skel = screen.getByTestId('attachment-skeleton-p1');
+    const img = skel.querySelector('[role="img"]');
+    expect(img?.getAttribute('aria-label')).toBe('처리 중');
+    expect(screen.queryByTestId('image-mosaic-grid')).toBeNull();
+  });
+
+  // ── S58 fix-forward ─────────────────────────────────────────────────────────
+  it('I(P-03): <ul> 에 aria-label="첨부 파일"', () => {
+    render(<AttachmentsList attachments={[att({ id: 'f1' })]} />);
+    const ul = screen.getByTestId('message-attachments');
+    expect(ul.getAttribute('aria-label')).toBe('첨부 파일');
+  });
+
+  it('M-01: 2장+ 그리드는 <li> 로 감싸 렌더(image-mosaic-grid-item)', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', sortOrder: 0 }),
+          att({ id: 'i2', kind: 'IMAGE', mime: 'image/png', sortOrder: 1 }),
+        ]}
+      />,
+    );
+    const li = screen.getByTestId('image-mosaic-grid-item');
+    expect(li.tagName.toLowerCase()).toBe('li');
+    // 그리드 group div 는 li 내부에 위치.
+    expect(li.querySelector('[data-testid="image-mosaic-grid"]')).toBeTruthy();
+  });
+
+  it('reviewer M1: 단일 BLOCKED 이미지 → fetch 없이 "차단된 파일" 표시', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'b1', kind: 'IMAGE', mime: 'image/png', processingStatus: 'BLOCKED' }),
+        ]}
+      />,
+    );
+    const cell = screen.getByTestId('attachment-unavailable-b1');
+    expect(cell.getAttribute('data-status')).toBe('BLOCKED');
+    expect(within(cell).getByRole('img').getAttribute('aria-label')).toBe('차단된 파일');
+    expect(fetchAttachmentObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('reviewer M1: 단일 FAILED 이미지 → fetch 없이 "처리 실패" 표시', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'fl1', kind: 'IMAGE', mime: 'image/png', processingStatus: 'FAILED' }),
+        ]}
+      />,
+    );
+    const cell = screen.getByTestId('attachment-unavailable-fl1');
+    expect(within(cell).getByRole('img').getAttribute('aria-label')).toBe('처리 실패');
+    expect(fetchAttachmentObjectUrl).not.toHaveBeenCalled();
+  });
+
+  it('B-05: 단일 이미지 로드 실패 시 role="alert"', async () => {
+    fetchAttachmentObjectUrl.mockReset().mockRejectedValue(new Error('4xx'));
+    render(<AttachmentsList attachments={[att({ id: 'i1', kind: 'IMAGE', mime: 'image/png' })]} />);
+    await waitFor(() => expect(screen.getByTestId('attachment-error-i1')).toBeTruthy());
+    const err = screen.getByRole('alert');
+    expect(err.textContent).toContain('첨부를 불러오지 못했습니다.');
+  });
+
+  it('H-01: 단일 이미지 altText 가 빈 문자열이면 originalName 폴백', async () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'i1', kind: 'IMAGE', mime: 'image/png', altText: '', originalName: 'p.png' }),
+        ]}
+      />,
+    );
+    await waitFor(() => expect(screen.getByAltText('p.png')).toBeTruthy());
+  });
+
+  it('M-03: 단일 이미지 PENDING 스켈레톤에 aria-busy="true"', () => {
+    render(
+      <AttachmentsList
+        attachments={[
+          att({ id: 'p1', kind: 'IMAGE', mime: 'image/png', processingStatus: 'PENDING' }),
+        ]}
+      />,
+    );
+    const img = screen.getByTestId('attachment-skeleton-p1').querySelector('[role="img"]');
+    expect(img?.getAttribute('aria-busy')).toBe('true');
   });
 });

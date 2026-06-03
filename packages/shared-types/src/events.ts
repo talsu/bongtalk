@@ -146,6 +146,14 @@ export const WS_EVENTS = {
   // 기기/탭 동기화). 클라이언트는 저장 목록 캐시를 무효화한다. payload 는 최소
   // 식별자(savedMessageId) + 변경 후 status·reminderAt 스냅샷이다.
   SAVED_UPDATED: 'user:saved_updated',
+  // 첨부 후처리 완료 (S58 · D11 · FR-AM-25): 첨부의 후처리(썸네일 생성/검역 등)가
+  // 끝나 표시 상태가 확정되면 채널 룸(channel:{channelId})으로 push 한다. 현재 백엔드는
+  // Sharp/ffmpeg 서버 리사이즈를 영구 보류했고 complete 시 즉시 READY 로 승격하므로 이
+  // 이벤트를 *emit 하지 않는다*. 그러나 PRD FR-AM-25 가 PENDING/PROCESSING → 확정 전환
+  // 계약을 명시하므로, 프런트엔드는 forward-compat(no-op-ready)로 핸들러만 미리 둔다.
+  // 수신 시 캐시에 해당 attachmentId 가 있으면 processingStatus/thumbnailKey 를 patch 하고
+  // 없으면 무시한다(서버가 나중에 emit 을 켜도 무회귀).
+  ATTACHMENT_PROCESSING_DONE: 'attachment:processing_done',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -809,6 +817,29 @@ export const ThreadLockChangedPayloadSchema = z.object({
 });
 export type ThreadLockChangedPayload = z.infer<typeof ThreadLockChangedPayloadSchema>;
 
+// ── 첨부 후처리 완료 (S58 · D11 · FR-AM-25) ──────────────────────────────────
+/**
+ * attachment:processing_done — 첨부 후처리가 끝나 표시 상태가 확정되면 채널 룸
+ * (channel:{channelId})으로 fanout (S58 · FR-AM-25). 채널 룸 fanout 이라 channelId 가
+ * 유일 식별자이며, 클라이언트는 해당 messageId 의 attachment 배열에서 attachmentId 가
+ * 일치하는 항목의 processingStatus 와 thumbnailKey 를 patch 한다. status 는 표시 가능
+ * 확정(READY) 또는 검역 차단(BLOCKED) 둘 중 하나다(PENDING/PROCESSING 은 전환 *대상*이라
+ * 이 이벤트의 status 가 될 수 없다). thumbnailKey 는 생성됐으면 키, 아니면 null.
+ *
+ * 백엔드 emit 은 현재 비활성(Sharp/ffmpeg 서버 리사이즈 영구 보류 · complete 시 즉시 READY
+ * 승격)이며, 본 스키마는 프런트엔드 핸들러의 forward-compat 계약만 고정한다.
+ */
+export const AttachmentProcessingDonePayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  messageId: z.string().min(1),
+  attachmentId: z.string().min(1),
+  // PENDING/PROCESSING 에서 전환되는 종착 상태 — READY(표시 가능) | BLOCKED(검역 차단).
+  status: z.enum(['READY', 'BLOCKED']),
+  // 후처리로 생성된 썸네일 키(생성 안 됐거나 차단이면 null).
+  thumbnailKey: z.string().min(1).nullable(),
+});
+export type AttachmentProcessingDonePayload = z.infer<typeof AttachmentProcessingDonePayloadSchema>;
+
 /**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
@@ -854,4 +885,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.CHANNEL_PIN_REMOVED]: ChannelPinRemovedPayloadSchema,
   [WS_EVENTS.REMINDER_FIRE]: ReminderFirePayloadSchema,
   [WS_EVENTS.SAVED_UPDATED]: SavedUpdatedPayloadSchema,
+  [WS_EVENTS.ATTACHMENT_PROCESSING_DONE]: AttachmentProcessingDonePayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;
