@@ -260,11 +260,11 @@ FR-RC07,D16-richcontent,P1,S60,done
 FR-RC08,D16-richcontent,P1,S60,done
 FR-RC09,D16-richcontent,P1,S60,done
 FR-RC21,D16-richcontent,P1,S60,done
-FR-RM01,D12-roles-moderation,P0,S61,todo
-FR-RM02,D12-roles-moderation,P0,S61,todo
+FR-RM01,D12-roles-moderation,P0,S61,done
+FR-RM02,D12-roles-moderation,P0,S61,done
 FR-RM03,D12-roles-moderation,P0,S61,todo
-FR-RM04,D12-roles-moderation,P0,S61,todo
-FR-RM15,D12-roles-moderation,P0,S61,todo
+FR-RM04,D12-roles-moderation,P0,S61,done
+FR-RM15,D12-roles-moderation,P0,S61,done
 FR-RM13,D12-roles-moderation,P2,S62,todo
 FR-RM14,D12-roles-moderation,P1,S62,todo
 FR-RM16,D12-roles-moderation,P1,S62,todo
