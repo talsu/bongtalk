@@ -10,6 +10,7 @@ import {
   NotificationBadgeUpdatePayloadSchema,
   ChannelPinAddedPayloadSchema,
   ChannelPinRemovedPayloadSchema,
+  AttachmentProcessingDonePayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
@@ -760,6 +761,50 @@ export function installRealtimeDispatcher(
     invalidatePinViews(qc, channelId);
   });
 
+  // ---------- Attachment processing (S58 · D11 · FR-AM-25) ----------
+  // attachment:processing_done — 첨부 후처리가 끝나 표시 상태가 확정됨(READY|BLOCKED).
+  // 채널 룸 fanout 이라 channelId 가 유일 식별자다. channelId 가 일치하는 모든 messages.list
+  // 캐시(`['messages', wsId, chId]` 3-tuple)에서 해당 messageId 행의 attachment 배열 중
+  // attachmentId 가 일치하는 항목의 processingStatus → payload.status, thumbnailKey →
+  // payload.thumbnailKey 로 patch 한다. 캐시에 해당 메시지/첨부가 없으면 무시한다(no-op).
+  //
+  // forward-compat: 현재 백엔드는 이 이벤트를 emit 하지 않는다(Sharp/ffmpeg 서버 리사이즈
+  // 영구 보류 · complete 시 즉시 READY). 핸들러만 미리 등록해 두어 서버가 나중에 emit 을
+  // 켜더라도 무회귀로 동작하게 한다(patchPinMarker 의 channelId predicate 선례를 모사).
+  on<unknown>(WS_EVENTS.ATTACHMENT_PROCESSING_DONE, (env) => {
+    const parsed = AttachmentProcessingDonePayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { channelId, messageId, attachmentId, status, thumbnailKey } = parsed.data;
+    qc.setQueriesData<InfiniteData<ListMessagesResponse>>(
+      {
+        predicate: (q) => {
+          const k = q.queryKey;
+          return Array.isArray(k) && k[0] === 'messages' && k[2] === channelId && k.length === 3;
+        },
+      },
+      (old) => {
+        if (!old) return old;
+        let touched = false;
+        const pages = old.pages.map((p) => ({
+          ...p,
+          items: p.items.map((m) => {
+            if (m.id !== messageId || !m.attachments?.length) return m;
+            // attachmentId 일치 항목만 patch — 일치가 없으면 행을 건드리지 않는다.
+            if (!m.attachments.some((a) => a.id === attachmentId)) return m;
+            touched = true;
+            return {
+              ...m,
+              attachments: m.attachments.map((a) =>
+                a.id === attachmentId ? { ...a, processingStatus: status, thumbnailKey } : a,
+              ),
+            };
+          }),
+        }));
+        return touched ? { ...old, pages } : old;
+      },
+    );
+  });
+
   // ---------- Saved reminders (S53 · D10 · FR-PS-09/10/11) ----------
   // user:reminder_fire — 저장 항목 리마인더 시각 도래. 개인 user 룸으로 push 된다.
   // 토스트(액션: 10분 후 다시 / 완료로 표시 / 무시) + 권한 있으면 브라우저
@@ -1312,6 +1357,8 @@ export const DISPATCHED_EVENTS = [
   // S53 (D10 · FR-PS-09/10/11): 저장 리마인더 발화 + 저장 항목 갱신(개인 user 룸).
   WS_EVENTS.REMINDER_FIRE,
   WS_EVENTS.SAVED_UPDATED,
+  // S58 (D11 · FR-AM-25): 첨부 후처리 완료(채널 룸 fanout · forward-compat no-op-ready).
+  WS_EVENTS.ATTACHMENT_PROCESSING_DONE,
   'user.profile.updated',
   'channel.created',
   'channel.updated',

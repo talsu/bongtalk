@@ -66,6 +66,46 @@ describe('WS_EVENTS catalog (ADR-12 / FR-RC23)', () => {
     expect(p).toEqual({ messageId: 'm1', channelId: 'c1' });
   });
 
+  // S58 (FR-AM-25): 첨부 후처리 완료 이벤트. 채널 룸 fanout 이라 channelId 가 식별자이며
+  // 종착 status 는 READY|BLOCKED 만 허용한다(PENDING/PROCESSING 은 전환 대상이라 불가).
+  it('defines attachment:processing_done with a channel-scoped payload (S58 · FR-AM-25)', () => {
+    expect(WS_EVENTS.ATTACHMENT_PROCESSING_DONE).toBe('attachment:processing_done');
+    const schema = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.ATTACHMENT_PROCESSING_DONE];
+    const p = schema.parse({
+      channelId: 'c1',
+      messageId: 'm1',
+      attachmentId: 'a1',
+      status: 'READY',
+      thumbnailKey: 'thumb/a1',
+    });
+    expect(p).toEqual({
+      channelId: 'c1',
+      messageId: 'm1',
+      attachmentId: 'a1',
+      status: 'READY',
+      thumbnailKey: 'thumb/a1',
+    });
+    // thumbnailKey 는 null 허용(차단/미생성), status 는 PENDING/PROCESSING 거부.
+    expect(() =>
+      schema.parse({
+        channelId: 'c1',
+        messageId: 'm1',
+        attachmentId: 'a1',
+        status: 'BLOCKED',
+        thumbnailKey: null,
+      }),
+    ).not.toThrow();
+    expect(() =>
+      schema.parse({
+        channelId: 'c1',
+        messageId: 'm1',
+        attachmentId: 'a1',
+        status: 'PROCESSING',
+        thumbnailKey: null,
+      }),
+    ).toThrow();
+  });
+
   it('every event name has a payload schema and names are unique', () => {
     const names = Object.values(WS_EVENTS);
     expect(new Set(names).size).toBe(names.length);
