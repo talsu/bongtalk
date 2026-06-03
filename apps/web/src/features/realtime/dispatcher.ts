@@ -768,14 +768,16 @@ export function installRealtimeDispatcher(
     const parsed = ReminderFirePayloadSchema.safeParse(env);
     if (!parsed.success) return;
     const { savedMessageId, channelName, messagePreview } = parsed.data;
-    // 발화 = reminderAt 가 비워졌으므로 저장 목록/카운트 무효화(bell 배지 제거 반영).
+    // 발화 = reminderAt 가 비워졌으므로 저장 목록/카운트 + 놓친-리마인더 배너 무효화.
     void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
     void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] }); // S53 리뷰 M1
     const body = `#${channelName} · ${messagePreview}`.slice(0, 180);
     // 토스트(액션: "10분 후 다시"). "완료로 표시"/"무시" 는 토스트 단일 action 슬롯
     // 제약상 1개만 노출 — 가장 흔한 스누즈를 1차 액션으로 둔다(완료는 저장함에서).
+    // S53 리뷰(ui): 행동 유도형 알림이라 variant=warning(qf-toast--warn) — info 는 중립.
     useNotifications.getState().push({
-      variant: 'info',
+      variant: 'warning',
       title: '저장한 메시지 리마인더',
       body,
       ttlMs: 12000,
@@ -786,6 +788,7 @@ export function installRealtimeDispatcher(
             .then(() => {
               void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
               void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+              void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] });
             })
             .catch(() => undefined);
         },
@@ -808,6 +811,7 @@ export function installRealtimeDispatcher(
     if (!parsed.success) return;
     void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
     void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+    void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] }); // S53 리뷰 M1
   });
 
   // ---------- Read state (S21 · FR-RS-01) ----------

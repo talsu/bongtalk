@@ -341,8 +341,10 @@ export class SavedService {
     // 처리 + schedule 배선 일원화). 단 snoozedUntil 은 update 가 null 로 클리어하므로,
     // 직접 갱신해 snooze 의미(스누즈 재예약 시각)를 보존한다.
     const dto = await this.update(userId, savedMessageId, { reminderAt: target }, now);
-    await this.prisma.savedMessage.update({
-      where: { id: savedMessageId },
+    // S53 리뷰(security FINDING-2 심층방어): WHERE 에 userId 동봉(update 가 이미 소유
+    // 확인 후이나 DB 레이어 이중 보장).
+    await this.prisma.savedMessage.updateMany({
+      where: { id: savedMessageId, userId },
       data: { snoozedUntil: target },
     });
     return { ...dto, snoozedUntil: target.toISOString() };

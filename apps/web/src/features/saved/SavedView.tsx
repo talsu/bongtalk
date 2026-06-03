@@ -1,5 +1,6 @@
 import { useState, type KeyboardEvent } from 'react';
 import type { SaveStatus, SavedMessageDto } from '@qufox/shared-types';
+import { Icon } from '../../design-system/primitives';
 import { SavedItem } from './SavedItem';
 import { ReminderModal } from './ReminderModal';
 import { useOverdueReminders, useSetReminder } from './useReminder';
@@ -100,9 +101,13 @@ export function SavedView(): JSX.Element {
           <div
             data-testid="saved-overdue-banner"
             role="status"
-            aria-live="polite"
             className="qf-banner qf-banner--info mb-[var(--s-3)]"
           >
+            {/* S53 리뷰(ui MED): qf-banner__icon 슬롯으로 색상 의미 보강. a11y MINOR-03:
+                role=status 가 이미 aria-live=polite 를 내포하므로 중복 속성 제거. */}
+            <span className="qf-banner__icon" aria-hidden="true">
+              <Icon name="bell" size="sm" />
+            </span>
             <span className="qf-banner__msg">놓친 리마인더가 {overdueCount}개 있습니다.</span>
           </div>
         ) : null}

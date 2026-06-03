@@ -29,9 +29,11 @@ export function SavedItem({
 }): JSX.Element {
   const deleted = item.messageDeletedAt !== null;
   const from = item.status;
-  // S53: 예약된(미발화) 리마인더가 있으면 bell 배지로 시각을 표시한다.
+  // S53: 예약된(미발화) 리마인더가 있으면 bell 배지로 시각을 표시한다. 리뷰(reviewer m1):
+  // 발화 후(reminderFiredAt 기록)에는 reminderAt 가 남아도 더 이상 대기 중이 아니므로
+  // 배지를 숨긴다(과거 시각 stale 배지 방지).
   const reminderAt = item.reminderAt ?? null;
-  const hasReminder = reminderAt !== null;
+  const hasReminder = reminderAt !== null && (item.reminderFiredAt ?? null) === null;
   // 탭별 가용 이동 액션(저장해제는 항상 가능). 자기 자신 탭으로의 이동은 제외한다.
   // IN_PROGRESS: 보관·완료 / ARCHIVED: 진행중 복원·완료 / COMPLETED: 진행중 복원.
   const canArchive = from === 'IN_PROGRESS';
@@ -62,11 +64,12 @@ export function SavedItem({
           {hasReminder ? (
             <span
               data-testid={`saved-reminder-badge-${item.messageId}`}
+              role="img"
+              aria-label={`리마인더: ${formatMessageTime(reminderAt, new Date())}`}
               className="inline-flex items-center gap-[var(--s-1)] text-text-secondary"
               style={{ font: '500 var(--fs-12) var(--font-sans)' }}
-              title={`리마인더: ${formatMessageTime(reminderAt, new Date())}`}
             >
-              <Icon name="bell" size="sm" aria-label="리마인더 설정됨" />
+              <Icon name="bell" size="sm" aria-hidden />
               {formatMessageTime(reminderAt, new Date())}
             </span>
           ) : null}

@@ -1,7 +1,7 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
 > 이 파일은 새 세션에서 작업을 이어가기 위한 단일 진입점입니다.
-> **S05 검증·S06~S44·S46~S52 완료(아래 ✅). S45 사용자 결정으로 전체 보류(BullMQ+커스텀 Role 인프라). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S53(D10 저장 리마인더, FR-PS-09/10/11 — apps/api/src/me·notifications + apps/web/src/features/users. deps S52. P1 fullstack).** ⚠️ **★S53 = 저장 리마인더(reminderAt/snoozedUntil + 스케줄 발화) → BullMQ 스케줄 잡 의존 = S45 에서 사용자가 보류한 인프라. S53 진입 시 AskUserQuestion(BullMQ 도입 vs 스킵) 필수 — S45 선례(스킵) 가능.** D01·D02·D03·D04·**D05(S39~S42)**·**D06(S44·S46~S49 — 핵심 완료·잔여는 인프라 의존)**·**D10(S50 핀·S51 핀권한+저장·S52 탭이동/북마크초기화 — 거의 완료·잔여 FR-PS-09~11 리마인더=S53 BullMQ)**·D07·D08·D09·D17·완료. **진행률: 208/354 FR done(+7 partial).** ⚠️ **★핀 권한 = PIN_MESSAGE 비트(0x80) 미사용 확정**(S51 `Channel.memberCanPin` 컬럼·S40/S44 선례·D12 분리는 S61~S64 잔여). defer 누적: FR-CH-16(P2)·S45 전체(@role+BullMQ+Role+@here SLO·FR-MN-03/19/21)·S44 fanout cap·FR-MN-10 키워드스캔(partial)·VAPID push(FR-MN-09/11/15/18). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
+> **S05 검증·S06~S44·S46~S53 완료(아래 ✅). S45 사용자 결정으로 전체 보류(커스텀 Role+MentionRecord — 단 BullMQ 는 S53 에서 greenlit). 자율 슬라이스 루프 진행 중 — 다음 활성 슬라이스는 S54(신규 도메인 D11-attachments, FR-AM-03/04/05/06/27 + FR-P13 + FR-RS-13 — apps/api/src/attachments·storage·users. deps S08. P1 backend·MinIO).** D01·D02·D03·D04·**D05(S39~S42)**·**D06(S44·S46~S49 — 핵심 완료·잔여는 인프라 의존)**·**D10(S50~S53 핀/저장/리마인더 — 전체 완료)**·D07·D08·D09·D17·완료. **진행률: 211/354 FR done(+7 partial).** ⚠️ **★BullMQ in-process 도입됨**(S53 — `apps/api/src/queue`·전용 IORedis maxRetriesPerRequest:null·Redis 공유·[[project_bullmq_greenlight]]). 향후 BullMQ 의존 작업(FR-MN-10 키워드스캔·mention SLO) 재사용 가능하나 각 데이터모델은 별도. **★핀 권한 = PIN_MESSAGE 비트(0x80) 미사용**(S51 `Channel.memberCanPin` 컬럼·D12 분리 S61~S64 잔여). defer 누적: FR-CH-16(P2)·S45(커스텀 Role+MentionRecord+@role+@here SLO·FR-MN-03/19/21)·S44 fanout cap·FR-MN-10 키워드스캔(partial)·VAPID push(FR-MN-09/11/15/18 — VAPID 보류 일관). ⚠️ subagent 에 머지/배포/prod-접근 금지 명시 필수([[feedback_subagent_no_merge_deploy]]). implementer 보고가 "머지·배포 완료"면 즉시 사후 리뷰 실행.
 > 상태 원본: `docs/tracing/{slice-backlog.md, slices.json, fr-matrix.csv, carryover.md}`.
 
 ---
@@ -494,11 +494,18 @@ D02 브라우저/카테고리/정렬/slowmode.
 - 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 849) + **s52 int 13/13 GREEN**(실DB·전이/IDOR404/bulk 본인스코프/한도미적용/비UUID400). 마이그레이션 0. DS 4파일·settings.json 무수정.
 - carryover: **DS-owner**(a11y M-01 `.qf-menu__item:focus-visible` 배경·M-02 `.qf-tabs__item:focus-visible` 인디케이터 — components.css 필요). **a11y polish**(M-03 저장해제 SR 피드백·N-01 완료/⋯ 버튼 간격·B-03 aria-pressed 는 액션버튼이라 미적용). **reviewer nit**(MessageList `'tmp-'` 리터럴→OPTIMISTIC_PREFIX 상수·enforce-after-validate 순서). DM 핀 정책·list 권한회수 재검사(S49 계열)·S53 리마인더=BullMQ.
 
-## 다음 슬라이스: S53 (D10 — 저장 리마인더) ⚠️ BullMQ fork
+## ✅ S53 (D10 — 저장 리마인더 + BullMQ in-process) — 완료 (2026-06-03, 이 세션) — 마이그레이션 1(reversible)
 
-- scope **fullstack**. **FR-PS-09/10/11**(P1). deps S52. 파일: `apps/api/src/me/**`, `apps/api/src/notifications/**`, `apps/web/src/features/users/**`.
-- 예상(PRD 정본 확인): 저장 메시지 **리마인더**(reminderAt 설정·snoozedUntil·발화 시 알림). **★스케줄 발화 = BullMQ delayed job 의존 = S45 에서 사용자가 보류한 인프라.** SavedMessage 에 reminderAt/snoozedUntil/note 컬럼 신규(reversible 마이그레이션) + 스케줄러.
-- **★진입 시 AskUserQuestion 필수**: (a) BullMQ in-process 도입해 리마인더 구현 vs (b) S45 선례대로 스킵(다음 슬라이스로) vs (c) 부분(컬럼+설정 UI 만, 발화는 cron 폴링 등 BullMQ 없이). project_direction_pivot(검증/안정성 선회)·S45 "스킵" 선례 고려. 사용자 결정 전 구현 착수 금지.
+- 사용자 **BullMQ 전체 구현 greenlight**([[project_bullmq_greenlight]]). **FR-PS-09**(리마인더 설정/발화 — PATCH reminderAt → BullMQ delayed job·Processor 발화 시 `user:reminder_fire`+`user:saved_updated` emit·토스트+Notification)·**FR-PS-10**(스누즈 10분 PATCH /snooze·취소 배선 4곳 unsave/COMPLETE/null/softDelete cascade)·**FR-PS-11**(놓친 리마인더 `GET ?overdueReminder=true` 배너). 마이그레이션 1: SavedMessage += reminderAt/reminderFiredAt/snoozedUntil/note + partial index(CONCURRENTLY 미사용·PG16 up→down→up). `@nestjs/bullmq@10.2.3`+`bullmq@5.34.10`.
+- **BullMQ 구조**: `apps/api/src/queue`(@Global QueueModule·전용 IORedis maxRetriesPerRequest:null·Redis 공유·jobId=savedMessageId 멱등·reminderFiredAt dedup·WorkerHost graceful shutdown·DND bypass). 순환 회피(@Global 주입·QueueModule→RealtimeModule 단방향).
+- **6팀 리뷰** → fix-forward(이 커밋 동봉). **reviewer/security/contract/perf/ui/a11y — 머지 차단 BLOCKER 없음.** ★BullMQ connection 분리·jobId 멱등·발화 userId DB-출처·cancel 배선 4곳 전부 정확 확인. 시정: **reviewer M1**(overdue 캐시 `['saved','overdue']` 미무효화 → 발화/스누즈/saved_updated 3곳 invalidate — FR-PS-11 회귀)·**security FINDING-3**(reminderAt 미래+1년상한 검증 — 즉시발화 폭주 차단)·**FINDING-1/2**(발화·snooze update WHERE userId)·**channelId null**(messageId 위장 제거·payload nullable)·**ui**(토스트 info→warning·overdue 배너 qf-banner\_\_icon)·**a11y**(bell 배지 role=img+발화후 stale 제거·radiogroup aria-labelledby·radio accent-color·datetime aria-invalid·배너 aria-live 중복 제거).
+- 게이트(메인루프 독립 재실행): `pnpm verify` **19/19 GREEN**(web 864) + **saved-reminder int 9/9 GREEN**(실DB+실Redis·enqueue/발화+WS/dedup/snooze/cancel/skip/오프라인). 마이그레이션 PG16 up→down→up. DS 4파일·settings.json 무수정.
+- carryover: **DS/primitive a11y**(Dialog X버튼·포커스복귀·plain-action toast live-region[Toast S24]·light-mode info-400/warn-400 대비[tokens.css·DS-owner]·터치타깃·SettingsOverlay 닫기 aria-label). **perf**(overdue 쿼리 partial-index 불일치 — per-user≤500 bounded·SAVED_LIMIT 상향 시 인덱스 추가). **SavedUpdatedPayload snoozedUntil/note 미동봉**(dispatcher refetch 라 무해). User.timezone /me/profile 미노출(브라우저 tz 폴백·S28 후속). 토스트 단일 action 슬롯(완료/무시는 저장함). VAPID push 보류 일관.
+
+## 다음 슬라이스: S54 (신규 도메인 D11-attachments)
+
+- scope **backend**. **FR-AM-03/04/05/06/27 + FR-P13 + FR-RS-13**(P1). deps S08. 파일: `apps/api/src/attachments/**`, `apps/api/src/storage/**`, `apps/api/src/users/**`.
+- FR 정본 PRD html 재확인 필수(D11 첨부 섹션). **★MinIO 기반**(D05 S39~S42 에서 첨부/이미지 일부·MinIO presign 선례 존재 — `apps/api/src/storage`·attachments 기구현분 확인 후 위에 쌓기). 예상(정확 정의는 PRD): 첨부 업로드/다운로드/presign·용량/타입 제한·FR-RS-13(read-state 연계?)·FR-P13. S41 sharp/resize 보류(256KB 상한만) 결정 일관. 마이그레이션 가능성(Attachment 모델 확장) reversible. "MinIO" 표기(코드만 S3).
 
 ### (구) S19 진입 메모 — 완료됨, 참고용 보존
 

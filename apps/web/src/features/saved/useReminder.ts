@@ -12,6 +12,10 @@ import { listOverdueReminders, setReminder, snoozeReminder } from './api';
 function invalidateSaved(qc: ReturnType<typeof useQueryClient>): void {
   void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
   void qc.invalidateQueries({ queryKey: ['saved', 'count'] });
+  // S53 리뷰(reviewer M1): ['saved','overdue'] 는 ['saved','list'] 의 sibling 이라
+  // prefix 무효화에 안 걸린다. 명시적으로 무효화해야 발화/설정 후 놓친-리마인더
+  // 배너가 갱신된다(FR-PS-11 online-at-fire 회귀 방지).
+  void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] });
 }
 
 /**

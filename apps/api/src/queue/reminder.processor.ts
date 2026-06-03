@@ -98,9 +98,10 @@ export class ReminderProcessor extends WorkerHost {
     // contentPlain/channelId 는 null 일 수 있음).
     const deleted = row.messageDeletedAt !== null || row.channelId === null;
 
-    // (5) 발화 표식을 원자적으로 기록(reminderFiredAt + snooze 해제).
-    await this.prisma.savedMessage.update({
-      where: { id: savedMessageId },
+    // (5) 발화 표식을 기록(reminderFiredAt + snooze 해제). S53 리뷰(security FINDING-1
+    // 심층방어): WHERE 에 userId 동봉(updateMany — 행이 사라졌으면 count 0·no-op).
+    await this.prisma.savedMessage.updateMany({
+      where: { id: savedMessageId, userId },
       data: { reminderFiredAt: now, snoozedUntil: null },
     });
 
@@ -109,7 +110,9 @@ export class ReminderProcessor extends WorkerHost {
     const firePayload: ReminderFirePayload = {
       savedMessageId,
       messageId: row.messageId,
-      channelId: row.channelId ?? row.messageId,
+      // S53 리뷰(n1/FINDING-4): 채널 부재 시 null(messageId 위장 금지 — 클라가 null 이면
+      // 채널 내비게이션 숨김).
+      channelId: row.channelId,
       channelName: deleted ? '' : (row.channelName ?? ''),
       messagePreview: deleted
         ? DELETED_PLACEHOLDER

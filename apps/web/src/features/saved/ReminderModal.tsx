@@ -58,8 +58,10 @@ export function ReminderModal({
     }
   };
 
-  const canSubmit =
-    selected !== 'custom' || (customLocal.length > 0 && !Number.isNaN(Date.parse(customLocal)));
+  // 직접 입력은 파싱 가능 + 미래 시각이어야 한다(S53 리뷰 m2/FINDING-3: 과거 시각
+  // 거부 — 서버 검증과 일치해 실패 요청을 사전 차단).
+  const customTime = customLocal ? Date.parse(customLocal) : NaN;
+  const canSubmit = selected !== 'custom' || (!Number.isNaN(customTime) && customTime > Date.now());
 
   const submit = (): void => {
     if (!canSubmit) return;
@@ -87,11 +89,15 @@ export function ReminderModal({
       description={`#${channelName} 의 저장 항목을 나중에 다시 알려드립니다.`}
     >
       <div data-testid="reminder-modal" className="qf-field">
-        <span className="qf-field__label">언제 알릴까요?</span>
+        {/* S53 리뷰(a11y MODERATE-04): 시각 레이블과 radiogroup 접근명을 일치시킨다
+            (aria-labelledby — label-in-name). */}
+        <span id="reminder-preset-legend" className="qf-field__label">
+          언제 알릴까요?
+        </span>
         <div
           className="flex flex-col gap-[var(--s-2)]"
           role="radiogroup"
-          aria-label="리마인더 시각"
+          aria-labelledby="reminder-preset-legend"
         >
           {REMINDER_PRESETS.map((p) => (
             <label
@@ -105,6 +111,7 @@ export function ReminderModal({
                 data-testid={`reminder-preset-${p.key}`}
                 checked={selected === p.key}
                 onChange={() => setSelected(p.key)}
+                style={{ accentColor: 'var(--accent)' }}
               />
               {p.label}
             </label>
@@ -119,6 +126,7 @@ export function ReminderModal({
               data-testid="reminder-preset-custom"
               checked={selected === 'custom'}
               onChange={() => setSelected('custom')}
+              style={{ accentColor: 'var(--accent)' }}
             />
             직접 입력
           </label>
@@ -126,7 +134,8 @@ export function ReminderModal({
             <Input
               type="datetime-local"
               data-testid="reminder-custom-input"
-              aria-label="직접 입력 시각"
+              aria-label="직접 입력 — 리마인더 날짜와 시간(미래 시각)"
+              aria-invalid={selected === 'custom' && !canSubmit}
               value={customLocal}
               onChange={(e) => setCustomLocal(e.target.value)}
             />

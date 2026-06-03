@@ -87,7 +87,23 @@ export type UpdateSavedStatusBody = z.infer<typeof UpdateSavedStatusBodySchema>;
 export const UpdateSavedMessageBodySchema = z
   .object({
     status: SaveStatusSchema.optional(),
-    reminderAt: z.string().datetime().nullable().optional(),
+    // S53 리뷰(security FINDING-3): reminderAt 은 미래(시계 오차 1분 유예) ~ 최대 1년
+    // 이내여야 한다. 과거 시각 대량 PATCH 로 즉시-발화 job 을 Redis 큐에 쏟는 것을 차단
+    // (서버 delay clamp 만으론 enqueue 폭주 가능). null 은 취소라 허용.
+    reminderAt: z
+      .string()
+      .datetime()
+      .nullable()
+      .optional()
+      .refine(
+        (v) => {
+          if (v == null) return true;
+          const t = new Date(v).getTime();
+          const now = Date.now();
+          return t > now - 60_000 && t < now + 366 * 24 * 60 * 60_000;
+        },
+        { message: 'reminderAt must be a future time within ~1 year' },
+      ),
     note: z.string().max(500).nullable().optional(),
   })
   .refine((b) => b.status !== undefined || b.reminderAt !== undefined || b.note !== undefined, {
@@ -95,7 +111,7 @@ export const UpdateSavedMessageBodySchema = z
   });
 export type UpdateSavedMessageBody = z.infer<typeof UpdateSavedMessageBodySchema>;
 
-// S53 (D10 / FR-PS-10): POST /me/saved/:savedMessageId/snooze — "10분 후 다시
+// S53 (D10 / FR-PS-10): PATCH /me/saved/:savedMessageId/snooze — "10분 후 다시
 // 알림". 현재는 단일 옵션(10분)만 지원하므로 z.literal(10) 으로 고정한다(잘못된
 // 값은 400). 향후 30/60분 등 확장 시 z.union 으로 늘린다. 서버는 snoozedUntil =
 // now + snoozeMinutes, reminderAt = snoozedUntil, reminderFiredAt = null 로

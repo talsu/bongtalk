@@ -502,7 +502,9 @@ export type ChannelPinRemovedPayload = z.infer<typeof ChannelPinRemovedPayloadSc
 export const ReminderFirePayloadSchema = z.object({
   savedMessageId: z.string().uuid(),
   messageId: z.string().uuid(),
-  channelId: z.string().uuid(),
+  // S53 리뷰(reviewer n1 · security FINDING-4): 원본 채널이 soft-delete 되면 null.
+  // 종전엔 messageId 로 위장(uuid 통과)해 클라가 잘못된 채널로 내비게이션할 수 있었다.
+  channelId: z.string().uuid().nullable(),
   channelName: z.string(),
   messagePreview: z.string(),
   originalSavedAt: z.string().datetime(),
