@@ -120,12 +120,39 @@ export type ThreadSummary = z.infer<typeof ThreadSummarySchema>;
 // can render images / videos / file cards without an extra fan-out.
 // Mirrors `apps/web/src/features/messages/AttachmentsList.tsx`'s
 // AttachmentLite interface.
+// S54 (D11 / FR-AM-03): 첨부 후처리 상태. Prisma AttachmentStatus enum 과 1:1.
+export const AttachmentStatusSchema = z.enum([
+  'PENDING',
+  'PROCESSING',
+  'READY',
+  'FAILED',
+  'BLOCKED',
+]);
+export type AttachmentStatus = z.infer<typeof AttachmentStatusSchema>;
+
 export const AttachmentLiteSchema = z.object({
   id: z.string().uuid(),
   kind: z.enum(['IMAGE', 'VIDEO', 'FILE']),
   mime: z.string().min(1).max(255),
   sizeBytes: z.number().int().nonnegative(),
   originalName: z.string().min(1).max(512),
+  // ── S54 (D11) 확장 — 전부 optional/default 라 구 API 빌드 응답과 forward-compat ──
+  // 서버가 magic-byte 재검증으로 확정한 실제 MIME(없으면 declared mime 사용).
+  storedMimeType: z.string().min(1).max(127).nullable().optional(),
+  // 썸네일 presigned URL 또는 키(후처리 파이프라인은 S55+ — 현재 항상 null).
+  thumbnailKey: z.string().nullable().optional(),
+  // 이미지/비디오 픽셀 크기(클라 신고 — 표시용).
+  width: z.number().int().positive().nullable().optional(),
+  height: z.number().int().positive().nullable().optional(),
+  // 대체 텍스트(접근성).
+  altText: z.string().max(2000).nullable().optional(),
+  // 스포일러 표식(클릭 전 블러). default(false) 로 구 응답 forward-compat.
+  isSpoiler: z.boolean().default(false),
+  // 다중 첨부 정렬 순서.
+  sortOrder: z.number().int().nonnegative().default(0),
+  // 후처리 상태. default('READY') — S54 는 후처리 파이프라인이 없어 링크 즉시 표시
+  // 가능하므로(PENDING 이어도 UI 는 노출), 구 응답(필드 누락)을 READY 로 폴백한다.
+  processingStatus: AttachmentStatusSchema.default('READY'),
 });
 export type AttachmentLite = z.infer<typeof AttachmentLiteSchema>;
 
