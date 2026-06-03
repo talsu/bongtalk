@@ -23,6 +23,8 @@ import { MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED } from '../events/workspace-e
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S62 fix-forward (security A-1): 시스템 역할 enum 변경 직후 권한 캐시 무효화.
 import { MemberRoleService } from '../roles/member-role.service';
+// S64 (FR-RM12): 멤버 역할 변경 감사 기록.
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 
 /** S27 (FR-P08): status group display order. */
 const STATUS_GROUP_ORDER: MemberStatusGroup[] = ['online', 'idle', 'dnd', 'offline'];
@@ -70,6 +72,8 @@ export class MembersService {
     // (MEMBER↔ADMIN 등)은 멤버 유효 권한을 바꾸므로 트랜잭션 직후 채널별 권한 캐시
     // (perms:{channelId}:{userId})를 DEL 해 강등/승격 후 stale 권한 행사를 막는다.
     private readonly memberRoles: MemberRoleService,
+    // S64 (FR-RM12): 시스템 역할 enum 변경(MEMBER_ROLE_UPDATE) 감사 기록.
+    private readonly audit: AuditService,
   ) {}
 
   /**
@@ -367,6 +371,17 @@ export class MembersService {
           to: row.role,
         },
       });
+      // S64 (FR-RM12): 멤버 시스템 역할 변경 감사(같은 tx — 원자성).
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.MEMBER_ROLE_UPDATE,
+          targetId: targetUserId,
+          details: { from: target.role, to: row.role },
+        },
+        tx,
+      );
       return row;
     });
     // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 강등/승격으로 멤버의 유효

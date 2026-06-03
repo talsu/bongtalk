@@ -9,6 +9,7 @@ import { RolesService } from '../../../src/workspaces/roles/roles.service';
 import { MemberRoleService } from '../../../src/workspaces/roles/member-role.service';
 import type { PrismaService } from '../../../src/prisma/prisma.module';
 import type { RoleCacheQueueService } from '../../../src/queue/role-cache-queue.service';
+import type { AuditService } from '../../../src/common/audit/audit.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 
 beforeEach(() => {
@@ -58,7 +59,12 @@ describe('S61 RolesService — privilege escalation + system protection', () => 
     const roleCache = {
       invalidateForDeletedRole: vi.fn().mockResolvedValue(undefined),
     } as unknown as RoleCacheQueueService;
-    return { svc: new RolesService(prisma, roleCache), prisma, roleCache };
+    // S64 (FR-RM12): RolesService 가 AuditService 를 신규 주입한다. 격리 단위 테스트에
+    // 기록 mock 을 제공해 DI/호출 실패를 막는다(S62 fallout 교훈).
+    const audit = {
+      record: vi.fn().mockResolvedValue(undefined),
+    } as unknown as AuditService;
+    return { svc: new RolesService(prisma, roleCache, audit), prisma, roleCache, audit };
   }
 
   it('FR-RM04: ADMIN actor cannot grant ADMINISTRATOR (escalation denied)', async () => {

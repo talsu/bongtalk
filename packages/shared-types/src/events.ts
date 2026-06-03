@@ -176,6 +176,13 @@ export const WS_EVENTS = {
   // 권한자 차단 목록 캐시도 함께 무효화한다.
   MEMBER_KICKED: 'member:kicked',
   MEMBER_BANNED: 'member:banned',
+  // S64 (D12 · FR-RM09): bulk purge. MANAGE_MESSAGES 권한자가 채널 메시지를 일괄
+  // soft-delete 하면 개별 message:deleted 가 아니라 이 단일 이벤트로 messageIds[] 를
+  // 채널 룸(channel:{channelId})에 push 한다. 서버 내부 outbox eventType 은 dot 표기
+  // (message.bulk_deleted)라 `message.**` 와일드카드가 잡고, outbox→WS subscriber 가 이
+  // 콜론 wire 이름으로 변환한다. 클라 dispatcher 는 messageIds 전체를 타임라인 캐시에서
+  // 한 번에 제거한다(개별 deleted 루프 대비 fanout 1건).
+  MESSAGE_BULK_DELETED: 'message:bulk_deleted',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -908,6 +915,19 @@ export const MemberBannedPayloadSchema = z.object({
 export type MemberBannedPayload = z.infer<typeof MemberBannedPayloadSchema>;
 
 /**
+ * message:bulk_deleted — bulk purge 결과(S64 · FR-RM09). MANAGE_MESSAGES 권한자가
+ * 채널 메시지를 일괄 soft-delete 하면 개별 message:deleted 가 아니라 이 단일 이벤트로
+ * 실제 삭제된 messageIds[] 를 채널 룸으로 fanout 한다. 수신 클라 dispatcher 는 해당
+ * messageIds 를 타임라인 캐시에서 한 번에 제거한다.
+ */
+export const MessageBulkDeletedPayloadSchema = z.object({
+  channelId: ChannelIdSchema,
+  actorId: z.string().min(1),
+  messageIds: z.array(z.string().min(1)),
+});
+export type MessageBulkDeletedPayload = z.infer<typeof MessageBulkDeletedPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -956,4 +976,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.MESSAGE_EMBED_UPDATED]: MessageEmbedUpdatedPayloadSchema,
   [WS_EVENTS.MEMBER_KICKED]: MemberKickedPayloadSchema,
   [WS_EVENTS.MEMBER_BANNED]: MemberBannedPayloadSchema,
+  [WS_EVENTS.MESSAGE_BULK_DELETED]: MessageBulkDeletedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

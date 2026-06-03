@@ -165,6 +165,23 @@ export class OutboxToWsSubscriber {
       await this.emitAndBuffer('channel', chId, wireEnv);
       return;
     }
+    // S64 (FR-RM09): message.bulk_deleted → 콜론 wire `message:bulk_deleted`. 서버
+    // 내부 outbox eventType 은 dot 표기라 `message.**` 와일드카드가 잡는다. bulk purge 가
+    // 발행하며, payload 에 실제 soft-delete 된 messageIds[] 가 실려온다. 채널 룸으로
+    // fanout 하면 수신 클라가 해당 messageIds 를 타임라인 캐시에서 한 번에 제거한다.
+    if (env.type === 'message.bulk_deleted') {
+      const messageIds = (env as { messageIds?: string[] }).messageIds ?? [];
+      const wireEnv = {
+        id: env.id,
+        type: WS_EVENTS.MESSAGE_BULK_DELETED,
+        occurredAt: env.occurredAt,
+        channelId: chId,
+        actorId: (env as { actorId?: string }).actorId ?? null,
+        messageIds,
+      } as unknown as WsEnvelope;
+      await this.emitAndBuffer('channel', chId, wireEnv);
+      return;
+    }
     await this.emitAndBuffer('channel', chId, env);
 
     // Task-014-B thread.replied: channel-room fanout above keeps
