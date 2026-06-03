@@ -56,14 +56,21 @@ export class ChannelsService {
    */
   private async invalidateChannelPermsCache(channelId: string): Promise<void> {
     if (!this.redis) return;
-    const pattern = `perms:${channelId}:*`;
+    // ⚠️ ioredis keyPrefix('qufox:')는 GET/SET/DEL 등 key 명령에는 자동 부착되지만
+    // SCAN 의 MATCH 패턴 인자에는 부착되지 않는다. 따라서 MATCH 패턴에는 prefix 를
+    // 직접 붙여 실제 저장 키(`qufox:perms:...`)를 매칭하고, 반환된 키에서 prefix 를
+    // 떼어 DEL 한다(DEL 이 prefix 를 다시 부착하므로). prefix 미설정이면 빈 문자열.
+    const prefix = (this.redis.options?.keyPrefix as string | undefined) ?? '';
+    const matchPattern = `${prefix}perms:${channelId}:*`;
     try {
       let cursor = '0';
       do {
-        const [next, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+        const [next, keys] = await this.redis.scan(cursor, 'MATCH', matchPattern, 'COUNT', 200);
         cursor = next;
         if (keys.length > 0) {
-          await this.redis.del(...keys);
+          // prefix 제거 후 DEL(ioredis 가 DEL 시 prefix 재부착).
+          const unprefixed = prefix ? keys.map((k) => k.slice(prefix.length)) : keys;
+          await this.redis.del(...unprefixed);
         }
       } while (cursor !== '0');
     } catch {
