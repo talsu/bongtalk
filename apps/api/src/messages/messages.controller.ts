@@ -316,6 +316,16 @@ export class MessagesController {
         m.role,
       );
     }
+    // S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사. 채널에 DENY overwrite 가 있는데도
+    // ADMINISTRATOR 보유자가 게시하면 AuditLog 에 기록한다(관찰성 · best-effort —
+    // enforcement 불변). DM(workspaceId 없음)은 내부에서 스킵.
+    if (channel) {
+      await this.channelAccess.auditAdministratorBypass(
+        { id: channel.id, workspaceId: channel.workspaceId },
+        user.id,
+        'MESSAGE_SEND',
+      );
+    }
     // S17 (FR-DM-13): 027-era 워크스페이스 스코프 1:1 DM(DIRECT)에도 send 시점
     // BLOCKED 재검증을 적용한다. ChannelAccessGuard 가 이미 로드한 채널 메타
     // (type/name)를 넘겨 send hot-path 의 중복 채널 SELECT 를 없앤다. 비-DIRECT·

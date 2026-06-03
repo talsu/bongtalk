@@ -22,6 +22,14 @@ type Override = {
   denyMask: bigint;
 };
 
+/** AuditService 스텁(bypass 감사 — 본 스펙은 호출하지 않으나 생성자 인자 충족). */
+function makeAuditStub(): ConstructorParameters<typeof ChannelAccessService>[1] {
+  return {
+    recordBestEffort: vi.fn().mockResolvedValue(undefined),
+    record: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ConstructorParameters<typeof ChannelAccessService>[1];
+}
+
 /** 시스템 역할만 가진 멤버(backfill 된 MemberRole 1행)를 흉내내는 prisma 스텁. */
 function makeServiceSystemRole(role: WorkspaceRole, overrides: Override[]): ChannelAccessService {
   const systemRoleId = `sysrole-${role}`;
@@ -44,7 +52,7 @@ function makeServiceSystemRole(role: WorkspaceRole, overrides: Override[]): Chan
     memberRole: { findMany: vi.fn().mockResolvedValue([{ roleId: systemRoleId }]) },
   } as unknown as ConstructorParameters<typeof ChannelAccessService>[0];
   // Redis 미주입(Optional) → 캐시 우회.
-  return new ChannelAccessService(prisma);
+  return new ChannelAccessService(prisma, makeAuditStub());
 }
 
 /** 커스텀 Role 을 가진 멤버 스텁. */
@@ -81,7 +89,7 @@ function makeServiceCustomRole(
       findMany: vi.fn().mockResolvedValue([{ roleId: systemRoleId }, { roleId: customRole.id }]),
     },
   } as unknown as ConstructorParameters<typeof ChannelAccessService>[0];
-  return new ChannelAccessService(prisma);
+  return new ChannelAccessService(prisma, makeAuditStub());
 }
 
 beforeEach(() => {

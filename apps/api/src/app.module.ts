@@ -25,6 +25,7 @@ import { FeedbackModule } from './feedback/feedback.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { OutboxModule } from './common/outbox/outbox.module';
 import { CommonModule } from './common/common.module';
+import { AuditModule } from './common/audit/audit.module';
 import { ObservabilityModule } from './observability/observability.module';
 import { LinksModule } from './links/links.module';
 import { MutesModule } from './notifications/mutes/mutes.module';
@@ -41,6 +42,9 @@ import { QueueModule } from './queue/queue.module';
     // 외부 스케줄러 없이 앱 프로세스 내 스케줄러를 쓴다.
     ScheduleModule.forRoot(),
     CommonModule,
+    // S62 (D12 / FR-RM17): 감사 로그 서비스(@Global · append-only). PrismaModule
+    // 뒤 어디서든 주입되며, channel-access 의 ADMINISTRATOR 우회 기록이 소비한다.
+    AuditModule,
     ObservabilityModule,
     PrismaModule,
     RedisModule,

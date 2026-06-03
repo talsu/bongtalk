@@ -1,13 +1,14 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
 import type { WorkspaceRole } from '@prisma/client';
 import type Redis from 'ioredis';
-import { PERMISSIONS, fromStoragePermissions } from '@qufox/shared-types';
+import { PERMISSIONS, fromStoragePermissions, has } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { Permission, ROLE_BASELINE } from '../../auth/permissions';
 import { REDIS } from '../../redis/redis.module';
 import { roleCacheKey } from '../../queue/role-cache-queue.constants';
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import {
   resolveChannelPermissions,
   type ResolverRole,
@@ -62,6 +63,8 @@ export class ChannelAccessService {
 
   constructor(
     private readonly prisma: PrismaService,
+    // S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사 기록. @Global AuditModule 제공.
+    private readonly audit: AuditService,
     // S62 (FR-RM14): role-cache read-through. @Global RedisModule 이 제공하며,
     // 테스트/Redis 부재 환경에서는 Optional 로 undefined → 캐시 우회.
     @Optional() @Inject(REDIS) private readonly redis?: Redis,
@@ -273,6 +276,63 @@ export class ChannelAccessService {
         'insufficient permission',
       );
     }
+  }
+
+  /**
+   * S62 (FR-RM17): ADMINISTRATOR 채널 우회 감사. 채널에 DENY overwrite 가 있는데도
+   * ADMINISTRATOR 비트 보유자가 행동(send/upload/history)할 때, 그 우회 사실을
+   * `AuditLog(action='ADMINISTRATOR_CHANNEL_BYPASS')` 로 기록한다.
+   *
+   * 호출 위치: send/upload/history 게이트(권한 통과 직후). 본 메서드는 enforcement
+   * 를 바꾸지 않는다(통과 여부는 호출부 게이트가 이미 결정) — 관찰성 기록만 한다.
+   * best-effort: 감사 INSERT 실패가 도메인 액션을 막지 않는다.
+   *
+   * 판정: (1) 워크스페이스 채널이고 (2) 액터가 보유한 어떤 Role 이든 카탈로그
+   * ADMINISTRATOR 비트를 가지며 (3) 그 채널에 액터의 principals(USER/시스템역할/
+   * 커스텀Role UUID)를 향한 DENY overwrite 가 하나라도 있으면 우회로 본다.
+   */
+  async auditAdministratorBypass(
+    channel: { id: string; workspaceId: string | null },
+    userId: string,
+    action: string,
+  ): Promise<void> {
+    if (channel.workspaceId === null) return;
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
+      select: {
+        role: true,
+        memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
+      },
+    });
+    if (!member) return;
+    // (2) 카탈로그 ADMINISTRATOR 보유 여부(보유 Role permissions 의 OR 에 비트 검사).
+    const catalogMask = member.memberRoles.reduce(
+      (acc, m) => acc | fromStoragePermissions(m.role.permissions),
+      0n,
+    );
+    const isAdministrator = has(catalogMask, PERMISSIONS.ADMINISTRATOR);
+    if (!isAdministrator) return;
+    // (3) 액터 principals 를 향한 DENY overwrite 존재 여부.
+    const rolePrincipalIds = [member.role as string, ...member.memberRoles.map((m) => m.roleId)];
+    const denyOverride = await this.prisma.channelPermissionOverride.findFirst({
+      where: {
+        channelId: channel.id,
+        denyMask: { gt: 0 },
+        OR: [
+          { principalType: 'USER', principalId: userId },
+          { principalType: 'ROLE', principalId: { in: rolePrincipalIds } },
+        ],
+      },
+      select: { id: true, denyMask: true },
+    });
+    if (!denyOverride) return;
+    await this.audit.recordBestEffort({
+      workspaceId: channel.workspaceId,
+      actorId: userId,
+      channelId: channel.id,
+      action: AuditAction.ADMINISTRATOR_CHANNEL_BYPASS,
+      details: { performedAction: action, deniedMask: denyOverride.denyMask.toString() },
+    });
   }
 
   /**

@@ -27,7 +27,10 @@ function makeService(overrides: Override[]): ChannelAccessService {
     channelPermissionOverride: { findMany },
     memberRole: { findMany: vi.fn().mockResolvedValue([]) },
   } as unknown as ConstructorParameters<typeof ChannelAccessService>[0];
-  return new ChannelAccessService(prisma);
+  const audit = {
+    recordBestEffort: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ConstructorParameters<typeof ChannelAccessService>[1];
+  return new ChannelAccessService(prisma, audit);
 }
 
 const CH = { id: 'ch1', workspaceId: 'ws1' };
