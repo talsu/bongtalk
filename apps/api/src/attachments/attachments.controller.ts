@@ -22,6 +22,12 @@ import { ErrorCode } from '../common/errors/error-code.enum';
  * inline here rather than in a guard because each endpoint needs a
  * different permission bit (UPLOAD_ATTACHMENT on presign/finalize,
  * READ on download).
+ *
+ * @deprecated S54 (D11) — `presign-upload` / `:id/finalize` 는 S54 의 채널 nested
+ * presigned 3단계(`/workspaces/:id/channels/:chid/attachments/upload-url` +
+ * `/complete`, ChannelAttachmentsController)로 대체된다. 다만 기존 클라이언트 +
+ * integration 무회귀를 위해 라우트는 유지한다(S55+ 정리). `:id/download-url` 은 신규
+ * 흐름에도 그대로 쓰이므로 deprecated 아님.
  */
 @UseGuards(JwtAuthGuard)
 @Controller('attachments')

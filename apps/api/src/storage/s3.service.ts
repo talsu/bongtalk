@@ -9,6 +9,7 @@ import {
   NotFound,
 } from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
+import { createPresignedPost } from '@aws-sdk/s3-presigned-post';
 
 /**
  * S3/MinIO client wrapper. The API uses this ONE class for every
@@ -121,6 +122,40 @@ export class S3Service {
     this.requireReady();
     const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
     return getSignedUrl(this.publicClient, cmd, { expiresIn: this.getTtl });
+  }
+
+  /**
+   * S54 (FR-AM-03 · 옵션 A): presigned POST. Unlike `presignPut` (which only
+   * signs the URL — the client can PUT arbitrary bytes / content-type), a
+   * presigned POST embeds MinIO Policy Conditions that MinIO enforces
+   * server-side at upload time:
+   *   - `key` 정확히 일치(prefix 가 아니라 exact key — 키 변조 차단).
+   *   - `Content-Type` 정확히 일치(declared mime 강제).
+   *   - `content-length-range`(0 ≤ size ≤ maxSize) — 선언 크기 초과 업로드 거부.
+   *
+   * `presignPut` 은 emoji / group-DM-icon 직접 PUT 경로용으로 보존한다(회귀 금지).
+   *
+   * @param ttlSec 서명 만료(초) — 크기 분기 TTL.
+   */
+  async presignPost(
+    key: string,
+    contentType: string,
+    maxBytes: number,
+    ttlSec: number,
+  ): Promise<{ url: string; fields: Record<string, string> }> {
+    this.requireReady();
+    const { url, fields } = await createPresignedPost(this.publicClient, {
+      Bucket: this.bucket,
+      Key: key,
+      Conditions: [
+        ['eq', '$key', key],
+        ['eq', '$Content-Type', contentType],
+        ['content-length-range', 0, maxBytes],
+      ],
+      Fields: { 'Content-Type': contentType },
+      Expires: ttlSec,
+    });
+    return { url, fields };
   }
 
   /**
