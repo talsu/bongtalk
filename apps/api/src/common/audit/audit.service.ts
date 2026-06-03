@@ -76,6 +76,18 @@ export class AuditService {
 export const AuditAction = {
   /** ADMINISTRATOR 비트 보유자가 채널 DENY overwrite 를 우회해 행동(send/upload/history). */
   ADMINISTRATOR_CHANNEL_BYPASS: 'ADMINISTRATOR_CHANNEL_BYPASS',
+  // S63 (D12 / FR-RM05·06·07): 모더레이션 액션. targetId 는 대상 userId,
+  // details 에 reason(있으면)·duration(timeout) 등 컨텍스트를 싣는다.
+  /** FR-RM05: 멤버 강제 퇴장(WorkspaceMember 삭제 + WS disconnect). */
+  MEMBER_KICK: 'MEMBER_KICK',
+  /** FR-RM06: 멤버/비멤버 userId 영구 차단(BannedMember INSERT). */
+  MEMBER_BAN: 'MEMBER_BAN',
+  /** FR-RM06: 차단 해제(BannedMember DELETE). */
+  MEMBER_UNBAN: 'MEMBER_UNBAN',
+  /** FR-RM07: 멤버 임시 음소거(mutedUntil 설정). */
+  MEMBER_TIMEOUT: 'MEMBER_TIMEOUT',
+  /** FR-RM07: 음소거 수동 해제(mutedUntil null). */
+  MEMBER_UNTIMEOUT: 'MEMBER_UNTIMEOUT',
 } as const;
 
 export type AuditActionKey = (typeof AuditAction)[keyof typeof AuditAction];

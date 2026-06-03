@@ -28,6 +28,20 @@ export enum ErrorCode {
   ROLE_POSITION_TOO_HIGH = 'ROLE_POSITION_TOO_HIGH',
   ROLE_INVALID_PERMISSIONS = 'ROLE_INVALID_PERMISSIONS',
 
+  // S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout).
+  // 대상이 actor 보다 상위 역할 position → 403(계층 방어, S61 precedent 재사용).
+  MODERATION_TARGET_HIGHER = 'MODERATION_TARGET_HIGHER',
+  // 자기 자신을 kick/ban/timeout 대상으로 지정 → 400.
+  MODERATION_CANNOT_SELF = 'MODERATION_CANNOT_SELF',
+  // 이미 차단된 userId 를 재차 ban → 409(상태 충돌).
+  MEMBER_ALREADY_BANNED = 'MEMBER_ALREADY_BANNED',
+  // unban 대상이 차단 목록에 없음 → 404.
+  MEMBER_NOT_BANNED = 'MEMBER_NOT_BANNED',
+  // 타임아웃 중(mutedUntil>now) 메시지/반응/슬래시 시도 → 403.
+  MEMBER_TIMED_OUT = 'MEMBER_TIMED_OUT',
+  // kick undo 토큰 만료/무효/이미 사용/재가입됨 → 409.
+  KICK_UNDO_INVALID = 'KICK_UNDO_INVALID',
+
   FRIEND_TARGET_NOT_FOUND = 'FRIEND_TARGET_NOT_FOUND',
   FRIEND_CANNOT_SELF = 'FRIEND_CANNOT_SELF',
   FRIEND_ALREADY = 'FRIEND_ALREADY',
@@ -228,6 +242,13 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.ROLE_PRIVILEGE_ESCALATION]: 403,
   [ErrorCode.ROLE_POSITION_TOO_HIGH]: 403,
   [ErrorCode.ROLE_INVALID_PERMISSIONS]: 422,
+  // S63 (D12 / FR-RM05·06·07): 모더레이션 거부 매핑.
+  [ErrorCode.MODERATION_TARGET_HIGHER]: 403,
+  [ErrorCode.MODERATION_CANNOT_SELF]: 400,
+  [ErrorCode.MEMBER_ALREADY_BANNED]: 409,
+  [ErrorCode.MEMBER_NOT_BANNED]: 404,
+  [ErrorCode.MEMBER_TIMED_OUT]: 403,
+  [ErrorCode.KICK_UNDO_INVALID]: 409,
   [ErrorCode.FRIEND_TARGET_NOT_FOUND]: 404,
   [ErrorCode.FRIEND_CANNOT_SELF]: 400,
   [ErrorCode.FRIEND_ALREADY]: 409,
