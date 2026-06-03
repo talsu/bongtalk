@@ -118,9 +118,19 @@ export class S3Service {
     return getSignedUrl(this.publicClient, cmd, { expiresIn: this.putTtl });
   }
 
-  async presignGet(key: string): Promise<string> {
+  /**
+   * presigned GET URL. `opts.attachment=true` 면 `Content-Disposition: attachment` 를
+   * 강제해 브라우저 인라인 렌더를 막는다(S54 리뷰 H1/M-01/M-02 — 사용자 업로드 첨부의
+   * 인라인 stored-XSS/content-sniffing 차단). emoji/avatar 등 인라인이 필요한 경로는
+   * opts 없이 호출해 종전대로 inline 유지(공유 메서드 무회귀).
+   */
+  async presignGet(key: string, opts?: { attachment?: boolean }): Promise<string> {
     this.requireReady();
-    const cmd = new GetObjectCommand({ Bucket: this.bucket, Key: key });
+    const cmd = new GetObjectCommand({
+      Bucket: this.bucket,
+      Key: key,
+      ...(opts?.attachment ? { ResponseContentDisposition: 'attachment' } : {}),
+    });
     return getSignedUrl(this.publicClient, cmd, { expiresIn: this.getTtl });
   }
 

@@ -17,6 +17,7 @@ import { UploadRateLimitService } from './upload-rate-limit.service';
 import {
   extractExtension,
   isBlockedExtension,
+  hasBlockedExtensionSegment,
   isZipExtensionMismatch,
   kindForMime,
   ttlForSize,
@@ -100,9 +101,13 @@ export class AttachmentUploadService {
     }
 
     // FR-AM-05: 확장자 블랙리스트 + zip↔jar/apk 교차검증.
+    // S54 리뷰 H-01: 마지막 확장자뿐 아니라 모든 세그먼트를 검사(malware.exe.txt 차단).
     const ext = extractExtension(body.filename);
-    if (isBlockedExtension(ext)) {
-      throw new DomainError(ErrorCode.ATTACHMENT_EXTENSION_BLOCKED, `extension blocked: .${ext}`);
+    if (isBlockedExtension(ext) || hasBlockedExtensionSegment(body.filename)) {
+      throw new DomainError(
+        ErrorCode.ATTACHMENT_EXTENSION_BLOCKED,
+        `extension blocked: ${body.filename}`,
+      );
     }
     if (isZipExtensionMismatch(body.mimeType, ext)) {
       throw new DomainError(
@@ -302,9 +307,23 @@ export class AttachmentUploadService {
 
       const kind = (kindForMime(mimeLower) ?? 'FILE') as AttachmentKind;
       const attachmentId = randomUUID();
-      // Attachment 생성 + 세션 close 를 한 tx 로 묶는다(부분 완료 방지).
-      await this.prisma.$transaction([
-        this.prisma.attachment.create({
+      // S54 리뷰 C-01(CRITICAL TOCTOU): 위 `if (session.completed)` 검사와 세션 close
+      // 사이의 race 로 동일 세션이 동시 complete 되면 Attachment 가 이중 생성됐다.
+      // 인터랙티브 tx 에서 `updateMany(WHERE completed=false)` 가 세션을 원자적으로
+      // 잠그고(count===1 인 단일 승자만 통과), Attachment 생성을 그 안에서 수행한다.
+      // 패자는 count===0 → throw → tx 롤백(Attachment 미생성).
+      await this.prisma.$transaction(async (tx) => {
+        const closed = await tx.attachmentUploadSession.updateMany({
+          where: { id: session.id, completed: false },
+          data: { completed: true },
+        });
+        if (closed.count === 0) {
+          throw new DomainError(
+            ErrorCode.ATTACHMENT_SESSION_NOT_FOUND,
+            'upload session already completed (race)',
+          );
+        }
+        await tx.attachment.create({
           data: {
             id: attachmentId,
             channelId: targetChannelId,
@@ -327,12 +346,8 @@ export class AttachmentUploadService {
             linkedAt: now,
             processingStatus: AttachmentStatus.READY,
           },
-        }),
-        this.prisma.attachmentUploadSession.update({
-          where: { id: session.id },
-          data: { completed: true },
-        }),
-      ]);
+        });
+      });
       attachmentIds.push(attachmentId);
     }
 

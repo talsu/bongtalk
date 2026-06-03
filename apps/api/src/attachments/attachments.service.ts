@@ -215,7 +215,8 @@ export class AttachmentsService {
     if (!att || !att.finalizedAt) {
       throw new DomainError(ErrorCode.ATTACHMENT_NOT_FOUND, 'attachment not ready');
     }
-    const downloadUrl = await this.s3.presignGet(att.storageKey);
+    // S54 리뷰 H1/M-02: 사용자 업로드 첨부는 attachment disposition 강제(인라인 XSS 차단).
+    const downloadUrl = await this.s3.presignGet(att.storageKey, { attachment: true });
     const expiresAt = new Date(Date.now() + this.s3.presignGetTtl * 1000).toISOString();
     return {
       downloadUrl,

@@ -32,6 +32,19 @@ export function isBlockedExtension(ext: string | null): boolean {
 }
 
 /**
+ * FR-AM-05 (S54 리뷰 H-01 — 이중 확장자 우회 차단): 파일명의 **모든** 점-구분
+ * 세그먼트(basename 제외) 중 하나라도 차단 확장자면 true. `malware.exe.txt` 처럼
+ * 마지막 확장자(.txt)로 블랙리스트를 우회하려는 시도를 막는다.
+ */
+export function hasBlockedExtensionSegment(filename: string): boolean {
+  return filename
+    .toLowerCase()
+    .split('.')
+    .slice(1)
+    .some((seg) => BLOCKED_EXTENSIONS.includes(seg.trim()));
+}
+
+/**
  * FR-AM-05 교차검증: declared mime=application/zip 인데 extension 이 실행 가능 아카이브
  * (jar/apk/ipa)면 true(거부). zip 으로 위장한 실행 아카이브를 막는다. mime 이 zip 이
  * 아니면 무관하게 false.
