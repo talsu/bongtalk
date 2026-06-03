@@ -1,10 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { formatSize } from './formatSize';
-import { downloadAttachment, fetchAttachmentObjectUrl, type ProxyVariant } from './attachmentSrc';
+import { downloadAttachment, type ProxyVariant } from './attachmentSrc';
 import { AttachmentSpoilerOverlay } from './AttachmentSpoilerOverlay';
+import { useProxyObjectUrl } from './useProxyObjectUrl';
+import { ImageMosaicGrid } from './ImageMosaicGrid';
 
 /**
  * S56 (D11 / FR-AM-21/22) — 메시지 첨부 렌더러.
@@ -18,6 +20,10 @@ import { AttachmentSpoilerOverlay } from './AttachmentSpoilerOverlay';
  *   FILE + audio/* → <audio controls>
  *   FILE           → 아이콘 카드 + 다운로드 버튼
  *
+ * S58 (D11 / FR-AM-07/09): 단일 이미지는 인라인 max-width 550px(ImageAttachment),
+ * 같은 메시지의 이미지가 2장 이상이면 ImageMosaicGrid(수량별 1/2/3/4/5+ 레이아웃)로
+ * 묶어 렌더합니다. 비이미지(VIDEO/FILE/audio)는 종전 분기를 그대로 유지합니다.
+ *
  * 다운로드/미리보기는 모두 S55 프록시(/attachments/:id/download|thumbnail)를 인증
  * fetch → objectURL 로 소비합니다(별도 download-url presign API 호출 제거).
  */
@@ -27,13 +33,23 @@ export function AttachmentsList({
   attachments: AttachmentLite[];
 }): JSX.Element | null {
   if (!attachments || attachments.length === 0) return null;
+  const sorted = [...attachments].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0));
+  // S58 (FR-AM-09): 이미지/비이미지 분리. 이미지 2장 이상이면 모자이크 그리드 한 행으로
+  // 묶고, 1장이면 단일 ImageAttachment(550px), 0장이면 이미지 행 없음. 비이미지는 종전
+  // 카드 분기(파일/오디오/비디오)를 정렬 순서대로 그대로 렌더합니다.
+  const images = sorted.filter((a) => a.kind === 'IMAGE');
+  const nonImages = sorted.filter((a) => a.kind !== 'IMAGE');
+
   return (
     <ul data-testid="message-attachments" className="mt-[var(--s-2)] space-y-[var(--s-1)]">
-      {[...attachments]
-        .sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0))
-        .map((a) => (
-          <AttachmentRow key={a.id} attachment={a} />
-        ))}
+      {images.length >= 2 ? (
+        <ImageMosaicGrid images={images} />
+      ) : (
+        images.map((a) => <ImageAttachment key={a.id} attachment={a} />)
+      )}
+      {nonImages.map((a) => (
+        <AttachmentRow key={a.id} attachment={a} />
+      ))}
     </ul>
   );
 }
@@ -42,11 +58,15 @@ function isAudio(att: AttachmentLite): boolean {
   return (att.storedMimeType ?? att.mime).startsWith('audio/');
 }
 
+/**
+ * S58 부터 AttachmentRow 는 비이미지(VIDEO/FILE/audio)만 받습니다 — 이미지는
+ * AttachmentsList 에서 ImageMosaicGrid(2장+) 또는 ImageAttachment(1장)로 직접 라우팅됩니다.
+ */
 function AttachmentRow({ attachment }: { attachment: AttachmentLite }): JSX.Element {
   const status = attachment.processingStatus ?? 'READY';
   const pending = status === 'PENDING' || status === 'PROCESSING';
 
-  // PENDING/PROCESSING → 비율 예약 스켈레톤.
+  // PENDING/PROCESSING → 비율 예약 스켈레톤(비디오/파일도 후처리 대기 표시).
   if (pending) {
     return (
       <li data-testid={`attachment-skeleton-${attachment.id}`} data-attachment-id={attachment.id}>
@@ -60,10 +80,6 @@ function AttachmentRow({ attachment }: { attachment: AttachmentLite }): JSX.Elem
     );
   }
 
-  if (attachment.kind === 'IMAGE') {
-    return <ImageAttachment attachment={attachment} />;
-  }
-
   // FILE + audio/* → 인라인 오디오 플레이어.
   if (attachment.kind === 'FILE' && isAudio(attachment)) {
     return <AudioAttachment attachment={attachment} />;
@@ -73,51 +89,34 @@ function AttachmentRow({ attachment }: { attachment: AttachmentLite }): JSX.Elem
   return <FileCard attachment={attachment} />;
 }
 
-/**
- * 인증 fetch → objectURL 로 미리보기 src 를 얻는다.
- *
- * S56 fix-forward (perf CRITICAL): objectURL 의 수명은 attachmentSrc 의 모듈
- * LRU 캐시가 소유한다. 따라서 언마운트/재마운트(채널 전환) 시 revoke 하지 않고
- * (revoke 하면 캐시에 남은 동일 url 이 깨진다), 캐시 hit 시 fetch 가 생략돼
- * 채널 재진입마다 50장 재다운로드하던 회귀를 막는다. revoke 는 LRU eviction
- * 시에만 캐시 내부에서 일어난다.
- */
-function useProxyObjectUrl(
-  id: string,
-  variant: ProxyVariant,
-): { url: string | null; error: boolean } {
-  const [url, setUrl] = useState<string | null>(null);
-  const [error, setError] = useState(false);
-  useEffect(() => {
-    let aborted = false;
-    setError(false);
-    setUrl(null);
-    fetchAttachmentObjectUrl(id, variant)
-      .then((u) => {
-        if (aborted) return;
-        setUrl(u);
-      })
-      .catch(() => {
-        if (!aborted) setError(true);
-      });
-    return () => {
-      // url revoke 안 함 — 캐시가 수명을 소유(채널 재진입 재fetch 회피).
-      aborted = true;
-    };
-  }, [id, variant]);
-  return { url, error };
-}
-
 function ImageAttachment({ attachment }: { attachment: AttachmentLite }): JSX.Element {
+  // S58 (FR-AM-25): 단일 이미지도 PENDING/PROCESSING 동안 비율 예약 스켈레톤을 보여준다
+  // (이미지는 S58 부터 AttachmentRow 를 거치지 않고 직접 렌더되므로, 종전 AttachmentRow
+  // 의 pending 가드를 여기로 옮긴다). width/height 신고가 있으면 aspect-ratio 로 CLS 방지.
+  const status = attachment.processingStatus ?? 'READY';
+  const pending = status === 'PENDING' || status === 'PROCESSING';
   // thumbnailKey 있으면 썸네일 변형, 없으면 원본 download.
   const variant: ProxyVariant = attachment.thumbnailKey ? 'thumbnail' : 'download';
   const { url, error } = useProxyObjectUrl(attachment.id, variant);
   const alt = attachment.altText ?? attachment.originalName;
-  // 비율 예약: width/height 신고가 있으면 aspect-ratio 로 CLS 방지.
+  // S58 (FR-AM-07): 단일 이미지 인라인 max-width 550px(종전 400px → PRD 정본 정렬).
   const ratioStyle =
     attachment.width && attachment.height
-      ? { aspectRatio: `${attachment.width} / ${attachment.height}`, maxWidth: '400px' }
-      : { maxWidth: '400px' };
+      ? { aspectRatio: `${attachment.width} / ${attachment.height}`, maxWidth: '550px' }
+      : { maxWidth: '550px' };
+
+  if (pending) {
+    return (
+      <li data-testid={`attachment-skeleton-${attachment.id}`} data-attachment-id={attachment.id}>
+        <div
+          role="img"
+          aria-label="처리 중"
+          className="qf-skel"
+          style={{ ...ratioStyle, height: '160px' }}
+        />
+      </li>
+    );
+  }
 
   if (error) {
     return (
