@@ -9,6 +9,8 @@ import {
 import { AckScheduler, type AckFlush } from '../features/messages/ackScheduler';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
+import { useDropZone } from '../features/attachments/useDropZone';
+import { DropZoneOverlay } from '../features/attachments/DropZoneOverlay';
 import { PinPanel } from '../features/messages/PinPanel';
 import { usePinCount } from '../features/messages/useMessages';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
@@ -92,6 +94,23 @@ export function MessageColumn({
   const isAnnouncement = channelType === 'ANNOUNCEMENT';
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const postingRestricted = !isDm && isAnnouncement && !canManage;
+
+  // S56 (D11 / FR-AM-01/21): 채팅 컬럼 드래그앤드롭 + 붙여넣기 진입점. 드롭/붙여넣기로
+  // 받은 파일은 qufox.composer.addFiles 이벤트로 MessageComposer 에 전달한다(composer 가
+  // 클램프 + 3단계 업로드 트레이를 소유). DM(wsId=null)은 채널 nested 첨부 미지원,
+  // 게시 제한 채널은 비활성. window 이벤트는 composer 의 focus 패턴과 동일.
+  const attachmentsEnabled = !isDm && !postingRestricted;
+  const { isDragging, dragHandlers } = useDropZone({
+    disabled: !attachmentsEnabled,
+    onFiles: useCallback(
+      (files: File[]) => {
+        window.dispatchEvent(
+          new CustomEvent('qufox.composer.addFiles', { detail: { channelId, files } }),
+        );
+      },
+      [channelId],
+    ),
+  });
   const nameByUserId = useMemo(() => {
     const m = new Map<string, string>();
     // Workspace members win when present — their role/role-badge data
@@ -322,8 +341,20 @@ export function MessageColumn({
     <div className="flex min-w-0 flex-1">
       <main
         data-testid={`msg-column-${channelName}`}
-        className="flex min-w-0 flex-1 flex-col bg-chat"
+        // S56 (D11 / FR-AM-01): relative — DropZoneOverlay 가 absolute inset 으로
+        // 이 컬럼 위에 뜬다. 드래그 핸들러는 attachmentsEnabled 일 때만 동작(disabled
+        // 가드는 useDropZone 내부에서 no-op 처리).
+        className="relative flex min-w-0 flex-1 flex-col bg-chat"
+        {...dragHandlers}
       >
+        {isDragging ? <DropZoneOverlay channelName={channelName} /> : null}
+        {/* S56 fix-forward (a11y B-03): DropZoneOverlay 는 aria-hidden 이라 드래그
+            진입을 스크린리더가 인지하지 못했다. 항상 마운트된 sr-only live region
+            으로 드래그 시작/종료를 통지한다(false 시 빈 문자열로 되돌려 다음
+            진입에서 다시 읽히게 한다). 오버레이의 aria-hidden 은 유지. */}
+        <span className="sr-only" aria-live="polite" data-testid="dropzone-live">
+          {isDragging ? `${channelName}에 파일을 끌어다 놓을 수 있습니다` : ''}
+        </span>
         <header className="qf-topbar">
           <h2 className="qf-topbar__title">
             <span className="text-text-muted">#</span>
