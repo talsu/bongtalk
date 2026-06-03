@@ -141,6 +141,27 @@ export enum ErrorCode {
   // just doesn't match what they actually uploaded).
   INVALID_MAGIC_BYTES = 'INVALID_MAGIC_BYTES',
 
+  // S54 (D11 / FR-AM-03): complete 단계에서 참조한 업로드 세션이 없음(타인 소유·삭제·
+  // 잘못된 sessionId) → 404. 존재 자체를 누출하지 않도록 중립 404.
+  ATTACHMENT_SESSION_NOT_FOUND = 'ATTACHMENT_SESSION_NOT_FOUND',
+  // S54 (D11 / FR-AM-03): 업로드 세션 만료(expiresAt < now). presigned PUT/POST 의
+  // TTL 이 지나 재발급이 필요함 → 410 Gone(자원이 한때 유효했으나 소멸).
+  ATTACHMENT_SESSION_EXPIRED = 'ATTACHMENT_SESSION_EXPIRED',
+  // S54 (D11 / FR-AM-05): 차단 확장자(.exe/.dll/.bat …) 업로드 시도 → 400. zip/jar/apk
+  // PK 헤더 공유 교차검증 실패도 이 코드 계열로 거부.
+  ATTACHMENT_EXTENSION_BLOCKED = 'ATTACHMENT_EXTENSION_BLOCKED',
+  // S54 (D11 / FR-AM-04): 메시지당 첨부 개수(10) 초과 → 400. complete 시 신규 세션
+  // 길이 + 기존 message.attachments 카운트 합이 10 을 넘으면 거부.
+  ATTACHMENT_COUNT_EXCEEDED = 'ATTACHMENT_COUNT_EXCEEDED',
+  // S54 (D11 / FR-AM-05/06): 선언 MIME 와 확장자/실제 magic-byte 불일치(zip↔jar 교차,
+  // declared image/png 인데 실 바이트가 다른 시그니처 등) → 400. INVALID_MAGIC_BYTES
+  // (422, 기존 finalize 경로)와 구분해 complete 경로의 교차검증 실패를 별도 코드로 둔다.
+  MIME_MISMATCH = 'MIME_MISMATCH',
+  // S54 (D11 / FR-AM-27): upload-url rate limit 초과(15분 60회·1분 10회·동시 미완료
+  // 세션 20개 중 하나) → 429. 일반 RATE_LIMITED 와 구분해 클라가 "업로드 한도" 토스트로
+  // 분기할 수 있게 별도 코드로 둔다.
+  UPLOAD_RATE_LIMIT = 'UPLOAD_RATE_LIMIT',
+
   // S48 (D06 / FR-MN-10): 글로벌 키워드 알림 등록 한도(25개) 초과. PRD 정본은
   // 이 거부를 400 으로 명시한다(서비스 레이어 검증 — 26번째 등록 시도 시 400,
   // 상수 KEYWORD_MAX_COUNT=25). 요청 envelope 은 well-formed 이나 도메인 상한을
@@ -274,6 +295,14 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   // mime, so the server cannot process it. 400 was reserved for
   // shape errors (parse failures / missing required fields).
   [ErrorCode.INVALID_MAGIC_BYTES]: 422,
+
+  // S54 (D11): 업로드 세션/교차검증/rate-limit 매핑.
+  [ErrorCode.ATTACHMENT_SESSION_NOT_FOUND]: 404,
+  [ErrorCode.ATTACHMENT_SESSION_EXPIRED]: 410,
+  [ErrorCode.ATTACHMENT_EXTENSION_BLOCKED]: 400,
+  [ErrorCode.ATTACHMENT_COUNT_EXCEEDED]: 400,
+  [ErrorCode.MIME_MISMATCH]: 400,
+  [ErrorCode.UPLOAD_RATE_LIMIT]: 429,
 
   // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
   [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,

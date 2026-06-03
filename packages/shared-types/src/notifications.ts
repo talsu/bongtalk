@@ -102,6 +102,16 @@ export const UpdateGlobalNotificationSettingsRequestSchema = z
     // 클라는 절대 닿지 않는 안전 상한이라 비차단, 악성 대형 입력만 차단).
     keywords: z.array(z.string().max(200)).max(100).optional(),
     dndUntil: z.string().datetime().nullable().optional(),
+    // S54 (D11 / FR-P13): 분 단위 DND snooze 편의 입력. 절대 시각(dndUntil)을 클라가
+    // 계산할 필요 없이 duration(분)만 보내면 서버가 dndUntil = now + minutes 로 환산한다
+    // (S48 의 dndUntil 게이트·만료 로직 재사용 — 중복 없음). 1~10080분(7일, S48 상한과
+    // 정합). dndUntil 과 동시 전달 시 dndSnoozeMinutes 가 우선한다. 0/음수/미설정 무시.
+    dndSnoozeMinutes: z
+      .number()
+      .int()
+      .min(1)
+      .max(7 * 24 * 60)
+      .optional(),
     dndSchedule: DndScheduleSchema.nullable().optional(),
   })
   .strict();
