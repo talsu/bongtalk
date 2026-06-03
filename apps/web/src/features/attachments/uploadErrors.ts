@@ -48,6 +48,11 @@ export function uploadErrorToast(err: unknown, fileName?: string): UploadToast {
         title: '파일 형식 불일치',
         body: `파일 내용과 형식이 일치하지 않아 업로드할 수 없습니다.${suffix}`,
       };
+    case 'ATTACHMENT_MIME_REJECTED':
+      return {
+        title: '지원하지 않는 파일 형식',
+        body: `지원하지 않는 파일 형식입니다.${suffix}`,
+      };
     case 'ATTACHMENT_COUNT_EXCEEDED':
       return {
         title: '첨부 개수 초과',

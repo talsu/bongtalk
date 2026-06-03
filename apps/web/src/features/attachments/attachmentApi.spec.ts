@@ -118,4 +118,24 @@ describe('uploadToStorage (S56 D11 — MinIO 직접 업로드 XHR)', () => {
     xhr.fail();
     await expect(p).rejects.toBeInstanceOf(UploadHttpError);
   });
+
+  it('perf: 정수 % 가 바뀔 때만 onProgress 호출(중복 진행 이벤트 throttle)', async () => {
+    const upload: UploadSession['upload'] = { method: 'PUT', url: 'u', fields: {} };
+    const progress = vi.fn();
+    const p = uploadToStorage(
+      upload,
+      fileOf('a.bin', 'application/octet-stream'),
+      progress,
+      FakeXhr as never,
+    );
+    const xhr = FakeXhr.last as unknown as FakeXhr;
+    // 같은 정수 %(33%)로 떨어지는 연속 이벤트는 1번만 통지.
+    xhr.emitProgress(33, 100);
+    xhr.emitProgress(33, 100);
+    xhr.emitProgress(331, 1000); // 33%
+    xhr.emitProgress(66, 100); // 66% — 새 값.
+    xhr.finish(200); // 100% — 새 값.
+    await p;
+    expect(progress.mock.calls.map((c) => c[0])).toEqual([33, 66, 100]);
+  });
 });

@@ -23,23 +23,88 @@ export function proxyPath(id: string, variant: ProxyVariant): string {
 }
 
 /**
- * 첨부 프록시를 인증 fetch 해 objectURL 을 만든다. 호출자는 반환 url 을 더 이상
- * 쓰지 않을 때 revokeObjectURL 해야 한다(컴포넌트가 cleanup 에서 처리). thumbnail
- * 202(미완료)면 download 원본으로 1회 폴백한다.
+ * S56 fix-forward (perf CRITICAL — objectURL 채널 재진입 재fetch):
+ *
+ * MessageColumn 은 채널 전환마다 언마운트→재마운트되므로, 종전엔 컴포넌트
+ * useEffect cleanup 이 매번 objectURL 을 revoke 하고 재마운트 시 모든 이미지를
+ * 다시 인증 fetch 했습니다(50장이면 50회 재다운로드 — HTTP 캐시 우회). 동일
+ * `id:variant` 의 objectURL 을 모듈 레벨 LRU 캐시에 보관해 재fetch 를 회피합니다.
+ *
+ *   - 캐시 hit → 즉시 기존 objectURL 반환(fetch 생략).
+ *   - 캐시 miss → 1회만 fetch(동시요청 dedup: 진행 중 Promise 공유).
+ *   - revoke 는 LRU eviction(상한 초과) 시에만 수행 — 컴포넌트 언마운트가 아니라
+ *     캐시가 url 의 수명을 소유하므로, 소비자는 절대 revoke 하면 안 됩니다.
+ */
+const URL_CACHE_LIMIT = 100;
+// 삽입 순서를 유지하는 Map = LRU(가장 오래된 = 첫 키). hit 시 재삽입으로 최신화.
+const urlCache = new Map<string, string>();
+// 동시 요청 dedup: 같은 key 의 in-flight fetch Promise 를 공유한다.
+const inflight = new Map<string, Promise<string>>();
+
+function cacheKey(id: string, variant: ProxyVariant): string {
+  return `${id}:${variant}`;
+}
+
+/** LRU 갱신: 기존 키를 지우고 끝에 다시 넣어 "최근 사용"으로 만든다. */
+function touch(key: string, url: string): void {
+  urlCache.delete(key);
+  urlCache.set(key, url);
+  // 상한 초과 시 가장 오래된 항목(첫 키)을 evict + revoke.
+  while (urlCache.size > URL_CACHE_LIMIT) {
+    const oldestKey = urlCache.keys().next().value as string | undefined;
+    if (oldestKey === undefined) break;
+    const oldestUrl = urlCache.get(oldestKey);
+    urlCache.delete(oldestKey);
+    if (oldestUrl) URL.revokeObjectURL(oldestUrl);
+  }
+}
+
+/** 테스트 격리용 — 캐시/inflight 비우기(objectURL revoke 포함). */
+export function __resetAttachmentUrlCache(): void {
+  for (const url of urlCache.values()) URL.revokeObjectURL(url);
+  urlCache.clear();
+  inflight.clear();
+}
+
+/**
+ * 첨부 프록시를 인증 fetch 해 objectURL 을 만든다. 모듈 LRU 캐시로 동일
+ * `id:variant` 재fetch 를 회피하며, 반환 objectURL 의 수명은 캐시가 소유한다
+ * (소비자는 revoke 하지 말 것 — LRU eviction 시에만 revoke). thumbnail 202
+ * (미완료)면 download 원본으로 1회 폴백한다.
  */
 export async function fetchAttachmentObjectUrl(
   id: string,
   variant: ProxyVariant = 'download',
 ): Promise<string> {
-  const res = await authedFetch(proxyPath(id, variant));
-  // 썸네일 후처리 미완료(202): 원본으로 폴백.
-  if (variant === 'thumbnail' && res.status === 202) {
-    const orig = await authedFetch(proxyPath(id, 'download'));
-    if (!orig.ok) throw new Error(`attachment ${orig.status}`);
-    return URL.createObjectURL(await orig.blob());
+  const key = cacheKey(id, variant);
+  const cached = urlCache.get(key);
+  if (cached) {
+    touch(key, cached); // LRU 최신화.
+    return cached;
   }
-  if (!res.ok) throw new Error(`attachment ${res.status}`);
-  return URL.createObjectURL(await res.blob());
+  const pending = inflight.get(key);
+  if (pending) return pending;
+
+  const task = (async (): Promise<string> => {
+    const res = await authedFetch(proxyPath(id, variant));
+    // 썸네일 후처리 미완료(202): 원본으로 폴백.
+    if (variant === 'thumbnail' && res.status === 202) {
+      const orig = await authedFetch(proxyPath(id, 'download'));
+      if (!orig.ok) throw new Error(`attachment ${orig.status}`);
+      return URL.createObjectURL(await orig.blob());
+    }
+    if (!res.ok) throw new Error(`attachment ${res.status}`);
+    return URL.createObjectURL(await res.blob());
+  })();
+
+  inflight.set(key, task);
+  try {
+    const url = await task;
+    touch(key, url);
+    return url;
+  } finally {
+    inflight.delete(key);
+  }
 }
 
 async function authedFetch(path: string): Promise<Response> {
@@ -61,7 +126,9 @@ export async function downloadAttachment(id: string, originalName: string): Prom
   try {
     const a = document.createElement('a');
     a.href = url;
-    a.download = originalName;
+    // S56 fix-forward (security LOW): 경로 구분자(`/`, `\`)를 `_` 로 치환해
+    // download 속성이 디렉터리 트래버설로 해석될 여지를 차단한다(방어적).
+    a.download = originalName.replace(/[/\\]/g, '_');
     a.rel = 'noopener';
     document.body.appendChild(a);
     a.click();

@@ -193,4 +193,62 @@ describe('useAttachmentUpload (S56 D11 — 3단계 업로드 트레이)', () => 
     await waitFor(() => expect(result.current.items[0]?.status).toBe('failed'));
     expect(requestUploadUrl).not.toHaveBeenCalled();
   });
+
+  it('MAJOR-1(데이터 손실): 1 ready + 1 failed → ready 만 전송하고 failed 는 트레이에 보존', async () => {
+    // 첫 파일은 성공, 둘째 파일은 2단계(uploadToStorage)에서 실패.
+    requestUploadUrl
+      .mockResolvedValueOnce({ sessions: [session('s1')] })
+      .mockResolvedValueOnce({ sessions: [session('s2')] });
+    uploadToStorage
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(Object.assign(new Error('net'), { errorCode: undefined }));
+    completeUpload.mockResolvedValue({ attachmentIds: ['att-1'] });
+    const notify = vi.fn();
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', notify));
+
+    act(() =>
+      result.current.addFiles([fileOf('ok.png', 'image/png'), fileOf('bad.png', 'image/png')]),
+    );
+    // 한 항목 ready, 다른 항목 failed 가 될 때까지 대기.
+    await waitFor(() => {
+      const statuses = result.current.items.map((i) => i.status).sort();
+      expect(statuses).toEqual(['failed', 'ready']);
+    });
+    expect(result.current.failedCount).toBe(1);
+
+    let ids: string[] = [];
+    await act(async () => {
+      ids = await result.current.completeAndCollect();
+    });
+
+    // ready 항목만 complete 됨(1개).
+    expect(ids).toEqual(['att-1']);
+    expect(completeUpload).toHaveBeenCalledTimes(1);
+    const body = completeUpload.mock.calls[0][2];
+    expect(body.sessions).toHaveLength(1);
+    expect(body.sessions[0].sessionId).toBe('s1');
+
+    // 핵심: failed 항목은 트레이에 보존되어야 한다(유실 금지).
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].status).toBe('failed');
+    expect(result.current.items[0].file.name).toBe('bad.png');
+  });
+
+  it('MAJOR-1: 전송할 READY 가 없으면(failed 만) complete 호출 없이 트레이 보존', async () => {
+    requestUploadUrl.mockResolvedValue({ sessions: [session('s1')] });
+    uploadToStorage.mockRejectedValue(new Error('net'));
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', vi.fn()));
+    act(() => result.current.addFiles([fileOf('bad.png', 'image/png')]));
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('failed'));
+
+    let ids: string[] = ['stale'];
+    await act(async () => {
+      ids = await result.current.completeAndCollect();
+    });
+    expect(ids).toEqual([]);
+    expect(completeUpload).not.toHaveBeenCalled();
+    // failed 항목 유지(이전 reset() 회귀 방지).
+    expect(result.current.items).toHaveLength(1);
+    expect(result.current.items[0].status).toBe('failed');
+  });
 });

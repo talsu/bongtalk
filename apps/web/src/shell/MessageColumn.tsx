@@ -348,6 +348,13 @@ export function MessageColumn({
         {...dragHandlers}
       >
         {isDragging ? <DropZoneOverlay channelName={channelName} /> : null}
+        {/* S56 fix-forward (a11y B-03): DropZoneOverlay 는 aria-hidden 이라 드래그
+            진입을 스크린리더가 인지하지 못했다. 항상 마운트된 sr-only live region
+            으로 드래그 시작/종료를 통지한다(false 시 빈 문자열로 되돌려 다음
+            진입에서 다시 읽히게 한다). 오버레이의 aria-hidden 은 유지. */}
+        <span className="sr-only" aria-live="polite" data-testid="dropzone-live">
+          {isDragging ? `${channelName}에 파일을 끌어다 놓을 수 있습니다` : ''}
+        </span>
         <header className="qf-topbar">
           <h2 className="qf-topbar__title">
             <span className="text-text-muted">#</span>

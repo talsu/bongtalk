@@ -1,22 +1,31 @@
-import { useState } from 'react';
+import { memo, useEffect, useRef, useState } from 'react';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { formatSize } from './formatSize';
-import type { TrayItem } from './useAttachmentUpload';
+import type { TrayItem, TrayItemStatus } from './useAttachmentUpload';
 
 /**
  * S56 (D11 / FR-AM-02/22) — 전송 전 첨부 미리보기 트레이의 카드 1개.
  *
  * 썸네일(이미지 objectURL) 또는 파일 아이콘 + 파일명/크기. 액션:
  *   - alt 텍스트 입력(연필 토글 → 인라인 input)
- *   - 스포일러 토글(눈 · aria-pressed)
+ *   - 스포일러 토글(눈 · aria-pressed — 트레이 토글은 양방향이라 pressed 가 적합)
  *   - 개별 제거(X)
  *   - 실패 시 재시도
  * 상태별: uploading(진행률 바) / ready / failed(danger 테두리).
  *
+ * S56 fix-forward:
+ *   - (perf serious) React.memo 로 감싸 진행률 patch 가 다른 카드 리렌더를
+ *     유발하지 않게 한다.
+ *   - (a11y B-01/B-04) 액션 버튼을 18px qf-row-iconbtn 대신 28px
+ *     qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm 로 교체(터치 타깃 + focus-visible
+ *     클리핑 회피). 썸네일 컨테이너의 overflow-hidden 도 제거해 focus ring 이
+ *     잘리지 않게 한다.
+ *   - (a11y B-02) uploading→ready/failed 전환을 sr-only aria-live 로 통지.
+ *
  * raw hex/px/shadow 금지 — DS 토큰(var(--*)) + 기존 qf-* 만 사용합니다.
  */
-export function AttachmentTrayCard({
+function AttachmentTrayCardImpl({
   item,
   onRemove,
   onRetry,
@@ -34,6 +43,21 @@ export function AttachmentTrayCard({
   const failed = item.status === 'failed';
   const uploading = item.status === 'uploading';
 
+  // B-02: uploading → ready/failed 전환을 스크린리더에 통지. 종전엔 진행률
+  // progressbar 만 있고 완료/실패는 무음이었다. 상태가 실제로 바뀐 경우에만
+  // 메시지를 갱신해 SR 이 변경을 감지하게 한다.
+  const [liveMsg, setLiveMsg] = useState('');
+  const prevStatusRef = useRef<TrayItemStatus>(item.status);
+  useEffect(() => {
+    const prev = prevStatusRef.current;
+    if (prev !== item.status) {
+      if (item.status === 'ready') setLiveMsg(`${item.file.name} 업로드 완료`);
+      else if (item.status === 'failed') setLiveMsg(`${item.file.name} 업로드 실패`);
+      else setLiveMsg('');
+      prevStatusRef.current = item.status;
+    }
+  }, [item.status, item.file.name]);
+
   return (
     <li
       data-testid={`tray-card-${item.id}`}
@@ -45,13 +69,22 @@ export function AttachmentTrayCard({
           : 'border-border-subtle bg-bg-surface',
       )}
     >
-      {/* 썸네일 / 아이콘 영역 */}
-      <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-[var(--r-sm)] bg-[color:var(--bg-elevated)]">
+      {/* B-02: 업로드 완료/실패 sr-only 통지(항상 마운트 — 무음 시 빈 문자열). */}
+      <span className="sr-only" aria-live="polite" data-testid={`tray-live-${item.id}`}>
+        {liveMsg}
+      </span>
+
+      {/* 썸네일 / 아이콘 영역. B-04: overflow-hidden 제거 — 제거 버튼 focus ring 이
+          썸네일 모서리에 잘리지 않게 한다. 썸네일 자체 라운딩은 img 에 둔다. */}
+      <div className="relative flex h-24 items-center justify-center rounded-[var(--r-sm)] bg-[color:var(--bg-elevated)]">
         {isImage && item.previewUrl ? (
           <img
             src={item.previewUrl}
             alt={item.altText || item.file.name}
-            className={cn('h-full w-full object-cover', item.isSpoiler ? 'blur-md' : null)}
+            className={cn(
+              'h-full w-full rounded-[var(--r-sm)] object-cover',
+              item.isSpoiler ? 'blur-md' : null,
+            )}
           />
         ) : (
           <Icon
@@ -60,13 +93,13 @@ export function AttachmentTrayCard({
             className="text-text-muted"
           />
         )}
-        {/* 제거 버튼(우상단) */}
+        {/* 제거 버튼(우상단). B-01: 28px qf-btn--icon--sm(터치 ≥24px + focus-visible). */}
         <button
           type="button"
           data-testid={`tray-remove-${item.id}`}
           aria-label={`${item.file.name} 첨부 제거`}
           onClick={() => onRemove(item.id)}
-          className="qf-row-iconbtn absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
         >
           <Icon name="x" size="sm" />
         </button>
@@ -119,7 +152,7 @@ export function AttachmentTrayCard({
         </div>
       ) : null}
 
-      {/* 액션: 스포일러 / alt(이미지·비디오만) */}
+      {/* 액션: 스포일러 / alt(이미지·비디오만). B-01/B-04: 28px qf-btn--icon--sm. */}
       {!failed ? (
         <div className="flex items-center gap-[var(--s-1)]">
           <button
@@ -128,7 +161,10 @@ export function AttachmentTrayCard({
             aria-pressed={item.isSpoiler}
             aria-label={`${item.file.name} 스포일러 ${item.isSpoiler ? '해제' : '설정'}`}
             onClick={() => onToggleSpoiler(item.id)}
-            className={cn('qf-row-iconbtn', item.isSpoiler ? 'text-accent' : null)}
+            className={cn(
+              'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
+              item.isSpoiler ? 'text-accent' : null,
+            )}
           >
             <Icon name={item.isSpoiler ? 'eye-off' : 'eye'} size="sm" />
           </button>
@@ -139,7 +175,10 @@ export function AttachmentTrayCard({
               aria-pressed={altOpen}
               aria-label={`${item.file.name} 대체 텍스트 ${altOpen ? '닫기' : '추가'}`}
               onClick={() => setAltOpen((v) => !v)}
-              className={cn('qf-row-iconbtn', item.altText ? 'text-accent' : null)}
+              className={cn(
+                'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
+                item.altText ? 'text-accent' : null,
+              )}
             >
               <Icon name="edit" size="sm" />
             </button>
@@ -163,3 +202,9 @@ export function AttachmentTrayCard({
     </li>
   );
 }
+
+/**
+ * perf serious(진행률 setState 폭주): 트레이 1장의 진행률 patch 가 형제 카드까지
+ * 리렌더하지 않도록 React.memo 로 감싼다. props(item 참조)가 바뀐 카드만 리렌더된다.
+ */
+export const AttachmentTrayCard = memo(AttachmentTrayCardImpl);

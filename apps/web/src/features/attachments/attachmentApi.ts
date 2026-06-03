@@ -71,16 +71,27 @@ export function uploadToStorage(
     const xhr = new XhrCtor();
     const contentType = file.type || 'application/octet-stream';
 
+    // S56 fix-forward (perf serious — 진행률 setState 폭주): XHR onprogress 는
+    // 업로드 중 수십~수백 회 발화한다. 정수 % 가 실제로 바뀐 경우에만 콜백을
+    // 호출해 호출자의 setState(전체 배열 map) 빈도를 100회 이하로 제한한다.
+    let lastPercent = -1;
+    const emit = (percent: number): void => {
+      if (!onProgress) return;
+      if (percent === lastPercent) return;
+      lastPercent = percent;
+      onProgress(percent);
+    };
+
     xhr.upload.onprogress = (e: ProgressEvent): void => {
       if (!onProgress) return;
       if (e.lengthComputable && e.total > 0) {
-        onProgress(Math.min(100, Math.round((e.loaded / e.total) * 100)));
+        emit(Math.min(100, Math.round((e.loaded / e.total) * 100)));
       }
     };
     xhr.onload = (): void => {
       // MinIO presigned POST 는 성공 시 204(또는 201), PUT 은 200. 2xx 외는 거부.
       if (xhr.status >= 200 && xhr.status < 300) {
-        onProgress?.(100);
+        emit(100);
         resolve();
       } else {
         reject(new UploadHttpError(xhr.status, `storage upload failed: ${xhr.status}`));

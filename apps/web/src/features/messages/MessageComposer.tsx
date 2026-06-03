@@ -150,6 +150,7 @@ export function MessageComposer({
   );
   const trayItems = tray.items;
   const uploading = tray.uploadingCount;
+  const failedAttachments = tray.failedCount;
   // 클램프 race 가드: 현재 트레이 항목 수를 ref 로 읽어 연속 드롭/선택을 직렬화한다.
   const trayCountRef = useRef(trayItems.length);
   useEffect(() => {
@@ -385,6 +386,19 @@ export function MessageComposer({
     if (!trimmed && !hasAttachments) return;
     // 업로드 진행 중이거나 전송 중이면 막는다(전송 버튼도 비활성 — 이중 가드).
     if (uploading > 0 || sending) return;
+    // S56 fix-forward (MAJOR-1 — 데이터 손실): 실패한 첨부가 남아 있으면 전송을
+    // 차단한다. 종전엔 READY 만 전송하고 트레이를 전부 비워(reset) 사용자가 모르게
+    // 실패 첨부가 유실됐다. 사용자가 실패 항목을 제거하거나 재시도하도록 안내한다
+    // (completeAndCollect 도 failed 를 보존하지만, 전송 게이트가 1차 방어선).
+    if (failedAttachments > 0) {
+      notify({
+        variant: 'warning',
+        title: '업로드 실패한 첨부가 있습니다',
+        body: '실패한 첨부를 제거하거나 다시 시도해 주세요.',
+        ttlMs: 6000,
+      });
+      return;
+    }
 
     if (!hasAttachments) {
       // 첨부 없는 일반 전송 — 동기.
@@ -590,11 +604,16 @@ export function MessageComposer({
               </DropdownItem>
             </DropdownContent>
           </DropdownRoot>
+          {/* S56 fix-forward (a11y M-04): `hidden` 은 input 을 접근성 트리에서도
+              제거해 aria-label 이 무효였다. sr-only 로 바꿔 시각적으로는 숨기되
+              접근성 트리에는 남기고(파일 다이얼로그는 + 버튼이 click 으로 트리거),
+              tabIndex={-1} 로 탭 순서에서는 제외한다. */}
           <input
             ref={fileInputRef}
             type="file"
             multiple
-            hidden
+            className="sr-only"
+            tabIndex={-1}
             aria-label="파일 첨부"
             data-testid="composer-file-input"
             onChange={(e) => {
@@ -783,6 +802,8 @@ export function MessageComposer({
           disabled={
             mutation.isPending ||
             uploading > 0 ||
+            // MAJOR-1: 실패한 첨부가 있으면 전송 비활성(사용자가 제거/재시도해야 함).
+            failedAttachments > 0 ||
             sending ||
             counter.overLimit ||
             (draft.trim().length === 0 && trayItems.length === 0)

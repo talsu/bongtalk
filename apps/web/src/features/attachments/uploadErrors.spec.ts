@@ -23,6 +23,12 @@ describe('uploadErrorToast (S56 D11 FR-AM-22)', () => {
     expect(uploadErrorToast(err('MIME_MISMATCH')).title).toContain('형식 불일치');
   });
 
+  it('maps ATTACHMENT_MIME_REJECTED → 지원하지 않는 파일 형식', () => {
+    const t = uploadErrorToast(err('ATTACHMENT_MIME_REJECTED'), 'note.heic');
+    expect(t.body).toContain('지원하지 않는 파일 형식');
+    expect(t.body).toContain('note.heic');
+  });
+
   it('maps ATTACHMENT_COUNT_EXCEEDED', () => {
     expect(uploadErrorToast(err('ATTACHMENT_COUNT_EXCEEDED')).title).toContain('개수');
   });

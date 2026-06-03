@@ -20,7 +20,11 @@ export function AttachmentTray({
 }): JSX.Element | null {
   if (items.length === 0) return null;
   return (
-    <ul data-testid="attachment-tray" className="mb-[var(--s-2)] flex flex-wrap gap-[var(--s-2)]">
+    <ul
+      data-testid="attachment-tray"
+      aria-label="첨부 파일 미리보기"
+      className="mb-[var(--s-2)] flex flex-wrap gap-[var(--s-2)]"
+    >
       {items.map((item) => (
         <AttachmentTrayCard
           key={item.id}

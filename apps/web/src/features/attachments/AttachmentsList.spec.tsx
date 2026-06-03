@@ -83,7 +83,9 @@ describe('AttachmentsList (S56 D11 FR-AM-21/22)', () => {
     );
     await waitFor(() => expect(screen.getByTestId('spoiler-reveal')).toBeTruthy());
     const reveal = screen.getByTestId('spoiler-reveal');
-    expect(reveal.getAttribute('aria-pressed')).toBe('false');
+    // B-05: reveal 은 단방향 액션 — aria-pressed 없이 공개 라벨만 노출.
+    expect(reveal.getAttribute('aria-pressed')).toBeNull();
+    expect(reveal.getAttribute('aria-label')).toContain('스포일러 공개');
   });
 
   it('FILE + audio/* → <audio controls>', async () => {

@@ -73,7 +73,15 @@ function AttachmentRow({ attachment }: { attachment: AttachmentLite }): JSX.Elem
   return <FileCard attachment={attachment} />;
 }
 
-/** 인증 fetch → objectURL 로 미리보기 src 를 얻고, 언마운트 시 revoke. */
+/**
+ * 인증 fetch → objectURL 로 미리보기 src 를 얻는다.
+ *
+ * S56 fix-forward (perf CRITICAL): objectURL 의 수명은 attachmentSrc 의 모듈
+ * LRU 캐시가 소유한다. 따라서 언마운트/재마운트(채널 전환) 시 revoke 하지 않고
+ * (revoke 하면 캐시에 남은 동일 url 이 깨진다), 캐시 hit 시 fetch 가 생략돼
+ * 채널 재진입마다 50장 재다운로드하던 회귀를 막는다. revoke 는 LRU eviction
+ * 시에만 캐시 내부에서 일어난다.
+ */
 function useProxyObjectUrl(
   id: string,
   variant: ProxyVariant,
@@ -82,24 +90,19 @@ function useProxyObjectUrl(
   const [error, setError] = useState(false);
   useEffect(() => {
     let aborted = false;
-    let created: string | null = null;
     setError(false);
     setUrl(null);
     fetchAttachmentObjectUrl(id, variant)
       .then((u) => {
-        if (aborted) {
-          URL.revokeObjectURL(u);
-          return;
-        }
-        created = u;
+        if (aborted) return;
         setUrl(u);
       })
       .catch(() => {
         if (!aborted) setError(true);
       });
     return () => {
+      // url revoke 안 함 — 캐시가 수명을 소유(채널 재진입 재fetch 회피).
       aborted = true;
-      if (created) URL.revokeObjectURL(created);
     };
   }, [id, variant]);
   return { url, error };

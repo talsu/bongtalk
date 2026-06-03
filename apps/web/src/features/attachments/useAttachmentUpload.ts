@@ -122,6 +122,29 @@ export function useAttachmentUpload(
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, ...next } : it)));
   }, []);
 
+  /**
+   * S56 fix-forward (MAJOR-2 — CLS): IMAGE previewUrl 을 디코드해 자연 크기를
+   * patch 한다. complete 의 width/height 신고 + 메시지 렌더 aspect-ratio 예약을
+   * 살린다. 로드 실패(깨진 파일 등)는 무해 — 미신고 폴백으로 흐른다.
+   */
+  const decodeImageSize = useCallback(
+    (id: string, previewUrl: string): void => {
+      // jsdom/SSR 등 Image 가 없는 환경에서는 스킵(테스트 안전).
+      if (typeof Image === 'undefined') return;
+      const img = new Image();
+      img.onload = (): void => {
+        if (img.naturalWidth > 0 && img.naturalHeight > 0) {
+          patch(id, { width: img.naturalWidth, height: img.naturalHeight });
+        }
+      };
+      img.onerror = (): void => {
+        /* 폴백: 신고 없이 진행 */
+      };
+      img.src = previewUrl;
+    },
+    [patch],
+  );
+
   /** 단계 1+2 를 한 항목에 대해 실행. 실패 시 status=failed + 토스트. */
   const runUpload = useCallback(
     async (item: TrayItem): Promise<void> => {
@@ -176,9 +199,17 @@ export function useAttachmentUpload(
         };
       });
       setItems((prev) => [...prev, ...newItems]);
-      for (const it of newItems) void runUpload(it);
+      for (const it of newItems) {
+        void runUpload(it);
+        // S56 fix-forward (MAJOR-2 — CLS): IMAGE 는 previewUrl 을 디코드해
+        // naturalWidth/Height 를 patch 한다. 종전엔 width/height 가 항상
+        // undefined 라 렌더 측 aspect-ratio 예약이 무력했다(complete 의
+        // width/height 신고 + 메시지 렌더 비율 예약 둘 다 살린다). 실패해도
+        // 무해 — 폴백(미신고)로 흐른다.
+        if (it.kind === 'IMAGE' && it.previewUrl) decodeImageSize(it.id, it.previewUrl);
+      }
     },
-    [runUpload],
+    [runUpload, decodeImageSize],
   );
 
   const removeItem = useCallback(
@@ -218,10 +249,27 @@ export function useAttachmentUpload(
     setItems((prev) => prev.map((it) => (it.id === id ? { ...it, isSpoiler: !it.isSpoiler } : it)));
   }, []);
 
+  /**
+   * READY 항목만 트레이에서 제거하고(=전송됨) failed/uploading 항목은 보존한다.
+   * S56 fix-forward (MAJOR-1 — 데이터 손실): 종전엔 전송 후 reset() 이 failed
+   * 카드까지 전부 삭제해, 부분 실패 상태에서 전송하면 사용자가 모르게 실패한
+   * 첨부가 유실됐다. 보존된 url(uploading/failed previewUrl)은 그대로 두고,
+   * 전송된 READY 항목의 objectURL 만 revoke 한다.
+   */
+  const removeReady = useCallback(
+    (removedIds: Set<string>): void => {
+      for (const it of itemsRef.current) {
+        if (removedIds.has(it.id)) revoke(it.previewUrl);
+      }
+      setItems((prev) => prev.filter((it) => !removedIds.has(it.id)));
+    },
+    [revoke],
+  );
+
   const completeAndCollect = useCallback(async (): Promise<string[]> => {
     const ready = itemsRef.current.filter(isReady);
+    // 전송할 READY 항목이 없으면 트레이는 그대로 둔다(failed/uploading 보존).
     if (ready.length === 0 || wsId === null) {
-      reset();
       return [];
     }
     try {
@@ -236,14 +284,15 @@ export function useAttachmentUpload(
           ...(it.height ? { height: it.height } : {}),
         })),
       });
-      reset();
+      // 전송된 READY 항목만 제거 — failed/uploading 은 트레이에 남긴다.
+      removeReady(new Set(ready.map((it) => it.id)));
       return attachmentIds;
     } catch (err) {
       const toast = uploadErrorToast(err);
       notify({ variant: 'danger', ...toast });
       return [];
     }
-  }, [wsId, channelId, reset, notify]);
+  }, [wsId, channelId, removeReady, notify]);
 
   const uploadingCount = items.filter((it) => it.status === 'uploading').length;
   const failedCount = items.filter((it) => it.status === 'failed').length;

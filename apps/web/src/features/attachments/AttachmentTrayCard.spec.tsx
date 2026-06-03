@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
-import { render, screen, fireEvent, cleanup } from '@testing-library/react';
+import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
 import { AttachmentTrayCard } from './AttachmentTrayCard';
 import type { TrayItem } from './useAttachmentUpload';
 
@@ -108,5 +108,69 @@ describe('AttachmentTrayCard (S56 D11 FR-AM-02/22)', () => {
       }),
     );
     expect(screen.queryByTestId('tray-alt-toggle-i1')).toBeNull();
+  });
+
+  it('B-01/B-04: 액션 버튼은 qf-btn--icon--sm(28px·focus-visible) 사용', () => {
+    renderCard(item({ status: 'ready' }));
+    const remove = screen.getByTestId('tray-remove-i1');
+    const spoiler = screen.getByTestId('tray-spoiler-i1');
+    expect(remove.className).toContain('qf-btn--icon');
+    expect(remove.className).toContain('qf-btn--sm');
+    expect(remove.className).not.toContain('qf-row-iconbtn');
+    expect(spoiler.className).toContain('qf-btn--icon');
+    expect(spoiler.className).not.toContain('qf-row-iconbtn');
+  });
+
+  it('B-02: uploading→ready 전환 시 sr-only live 가 "업로드 완료" 통지', async () => {
+    const onRemove = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'uploading', progress: 50 })}
+        onRemove={onRemove}
+        onRetry={vi.fn()}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    // 초기엔 무음.
+    expect(screen.getByTestId('tray-live-i1').textContent).toBe('');
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'ready', progress: 100 })}
+        onRemove={onRemove}
+        onRetry={vi.fn()}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('업로드 완료'),
+    );
+    expect(screen.getByTestId('tray-live-i1').textContent).toContain('photo.png');
+  });
+
+  it('B-02: uploading→failed 전환 시 sr-only live 가 "업로드 실패" 통지', async () => {
+    const onRetry = vi.fn();
+    const { rerender } = render(
+      <AttachmentTrayCard
+        item={item({ status: 'uploading', progress: 30 })}
+        onRemove={vi.fn()}
+        onRetry={onRetry}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    rerender(
+      <AttachmentTrayCard
+        item={item({ status: 'failed' })}
+        onRemove={vi.fn()}
+        onRetry={onRetry}
+        onAltChange={vi.fn()}
+        onToggleSpoiler={vi.fn()}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('tray-live-i1').textContent).toContain('업로드 실패'),
+    );
   });
 });
