@@ -318,8 +318,8 @@ describe('useAttachmentUpload (S57 D11 — FR-AM-24 전송 상태 기계)', () =
       await done;
     });
     expect(result.current.items[0].status).toBe('confirmed');
-    // previewUrl 이 백엔드 프록시 URL 로 교체됨.
-    expect(result.current.items[0].previewUrl).toContain('/attachments/att-9/download');
+    // HIGH-1: previewUrl 은 null(토큰 없는 프록시 URL 직접 <img> 401 회피).
+    expect(result.current.items[0].previewUrl).toBeNull();
     // 로컬 objectURL 은 revoke 됨(CONFIRMED 경로).
     expect(revokeSpy).toHaveBeenCalledWith(localUrl);
   });
@@ -520,5 +520,139 @@ describe('useAttachmentUpload (S57 D11 — FR-AM-28 세션 복구)', () => {
       await Promise.resolve();
     });
     expect(notify).not.toHaveBeenCalled();
+  });
+});
+
+// ── S57 리뷰 fix-forward (MAJOR/HIGH) ───────────────────────────────────────
+describe('useAttachmentUpload (S57 fix-forward — re-entrancy/stale/세션누수)', () => {
+  it('MAJOR-2: 같은 tick 에 completeAndCollect 2회 → completeUpload 정확히 1회', async () => {
+    requestUploadUrl.mockResolvedValue({ sessions: [session('s1')] });
+    uploadToStorage.mockResolvedValue(undefined);
+    // complete 를 deferred 로 잡아 두 호출이 같은 tick 에 진입하게 한다.
+    let resolveComplete: (v: { attachmentIds: string[] }) => void = () => {};
+    completeUpload.mockReturnValue(
+      new Promise((res) => {
+        resolveComplete = res;
+      }),
+    );
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', vi.fn()));
+    act(() => result.current.addFiles([fileOf('p.png', 'image/png')]));
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('ready'));
+
+    let first: Promise<string[]> = Promise.resolve([]);
+    let secondIds: string[] = ['stale'];
+    await act(async () => {
+      // 두 번째 호출은 in-flight 래치로 즉시 [] 반환되어야 한다(동기).
+      first = result.current.completeAndCollect();
+      secondIds = await result.current.completeAndCollect();
+    });
+    expect(secondIds).toEqual([]);
+
+    await act(async () => {
+      resolveComplete({ attachmentIds: ['att-1'] });
+      await first;
+    });
+    // 더블 진입에도 complete 는 1회만.
+    expect(completeUpload).toHaveBeenCalledTimes(1);
+    expect(result.current.items[0].status).toBe('confirmed');
+  });
+
+  it('MAJOR-1: 백오프 sleep 중 reset() → stale complete bail(승격 없음·트레이 클리어)', async () => {
+    requestUploadUrl.mockResolvedValue({ sessions: [session('s1')] });
+    uploadToStorage.mockResolvedValue(undefined);
+    // 1차 complete 는 실패(백오프 sleep 진입), 이후 호출되면 안 됨.
+    completeUpload.mockRejectedValue(Object.assign(new Error('e1'), { errorCode: undefined }));
+    const notify = vi.fn();
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', notify));
+    act(() => result.current.addFiles([fileOf('p.pdf', 'application/pdf')]));
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('ready'));
+
+    let ids: string[] = ['stale'];
+    await act(async () => {
+      vi.useRealTimers();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+      const p = result.current.completeAndCollect();
+      // 1차 complete(즉시) 실패까지 진행 → 2차 sleep(+10s) 진입 대기.
+      await vi.advanceTimersByTimeAsync(0);
+      // 백오프 sleep 도중 채널 전환(reset) — gen 증가 + 타이머 취소.
+      result.current.reset();
+      await vi.runAllTimersAsync();
+      ids = await p;
+      vi.useRealTimers();
+    });
+
+    // stale bail → 빈 배열, complete 는 1차 1회만(2차 이후 gen 불일치로 throw).
+    expect(ids).toEqual([]);
+    expect(completeUpload).toHaveBeenCalledTimes(1);
+    // reset 으로 트레이는 비워졌고, failed 승격/토스트도 없다(옛 채널 미조작).
+    expect(result.current.items).toHaveLength(0);
+    expect(notify).not.toHaveBeenCalled();
+  });
+
+  it('MAJOR-3: reset() 은 sessionStorage 의 pending 세션도 비운다(허위 복구 토스트 방지)', async () => {
+    requestUploadUrl.mockResolvedValue({ sessions: [session('s1')] });
+    uploadToStorage.mockResolvedValue(undefined);
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', vi.fn()));
+    act(() => result.current.addFiles([fileOf('p.pdf', 'application/pdf')]));
+    await waitFor(() => expect(result.current.items[0]?.status).toBe('ready'));
+    // presign 확정 → pending 등록 확인.
+    expect(JSON.parse(sessionStorage.getItem('qufox:pending_sessions') ?? '[]')).toHaveLength(1);
+
+    act(() => result.current.reset());
+    // 트레이 + sessionStorage 모두 비워져야 다음 mount 에서 허위 토스트가 안 뜬다.
+    expect(result.current.items).toHaveLength(0);
+    expect(sessionStorage.getItem('qufox:pending_sessions')).toBeNull();
+  });
+
+  it('HIGH-3: 부분 refresh 실패(item1 refresh 성공·item2 실패) → 새 세션도 정리', async () => {
+    // item1: 만료 임박(잔여<10s) → refresh 로 새 세션 s1b 발급(성공).
+    // item2: 만료 임박 → refresh 의 재업로드(uploadToStorage)에서 실패.
+    // 만료 임박(잔여<10s) 초기 세션 2개 → 둘 다 refresh. item1 refresh 는 새 세션
+    // s1b 로 성공, item2 refresh 는 새 세션 s2b 를 presign 한 뒤 재업로드에서 실패.
+    const soon = '2025-01-01T00:00:05.000Z';
+    const later = '2025-01-01T01:00:00.000Z';
+    requestUploadUrl
+      .mockResolvedValueOnce({ sessions: [session('s1', soon)] })
+      .mockResolvedValueOnce({ sessions: [session('s2', soon)] })
+      .mockResolvedValueOnce({ sessions: [session('s1b', later)] })
+      .mockResolvedValueOnce({ sessions: [session('s2b', later)] });
+    // 초기 업로드 2회 성공, item1 refresh 재업로드 성공, item2 refresh 재업로드 실패.
+    const reuploadErr = Object.assign(new Error('reupload'), { errorCode: undefined });
+    uploadToStorage
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockResolvedValueOnce(undefined)
+      .mockRejectedValueOnce(reuploadErr);
+    completeUpload.mockResolvedValue({ attachmentIds: [] });
+    const notify = vi.fn();
+    const { result } = renderHook(() => useAttachmentUpload('ws1', 'ch1', notify));
+    act(() =>
+      result.current.addFiles([
+        fileOf('a.pdf', 'application/pdf'),
+        fileOf('b.pdf', 'application/pdf'),
+      ]),
+    );
+    await waitFor(() => expect(result.current.items.every((i) => i.status === 'ready')).toBe(true));
+    // 초기 두 세션(s1·s2)이 pending 에 등록.
+    expect(JSON.parse(sessionStorage.getItem('qufox:pending_sessions') ?? '[]')).toHaveLength(2);
+
+    let ids: string[] = ['stale'];
+    await act(async () => {
+      vi.useRealTimers();
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+      const p = result.current.completeAndCollect();
+      await vi.runAllTimersAsync();
+      ids = await p;
+      vi.useRealTimers();
+    });
+
+    // 부분 실패 → 전체 실패 경로(빈 배열). complete 는 호출되지 않는다(refresh 단계 throw).
+    expect(ids).toEqual([]);
+    expect(completeUpload).not.toHaveBeenCalled();
+    // 핵심: item1 의 옛 세션(s1)·item2 의 옛 세션(s2)·item1 의 새 세션(s1b) 모두
+    // sessionStorage 에서 제거되어 누수가 없어야 한다.
+    expect(sessionStorage.getItem('qufox:pending_sessions')).toBeNull();
   });
 });

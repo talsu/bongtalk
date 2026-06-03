@@ -23,6 +23,15 @@ import type { TrayItem, TrayItemStatus } from './useAttachmentUpload';
  *     잘리지 않게 한다.
  *   - (a11y B-02) uploading→ready/failed 전환을 sr-only aria-live 로 통지.
  *
+ * S57 fix-forward (a11y):
+ *   - (A-01) sr-only live 영역에 aria-atomic="true"(메시지 전체 통지).
+ *   - (A-02/A-03) sending/confirmed 시각 표시에 aria-hidden(liveMsg 중복 방지).
+ *   - (A-05) locked 시 제거/스포일러/alt 버튼을 DOM 제거 대신 disabled 로 렌더
+ *     (포커스 소실 + 상태 미전달 방지).
+ *   - (A-06) alt 입력 중 locked 전환 시 input 을 닫는다(포커스 소실 방지).
+ *   - (A-07) 카드 li 에 aria-busy={sending}.
+ *   - (A-08) progressbar 에 aria-valuetext="N%".
+ *
  * raw hex/px/shadow 금지 — DS 토큰(var(--*)) + 기존 qf-* 만 사용합니다.
  */
 function AttachmentTrayCardImpl({
@@ -50,6 +59,13 @@ function AttachmentTrayCardImpl({
   // 전송 도중 메타 변경/제거가 complete 와 race 하지 않게 한다.
   const locked = sending || confirmed;
 
+  // A-06: alt 입력 중 locked(전송 시작)로 전환되면 input 을 닫는다. 종전엔 input 이
+  // 잠금 분기 밖에 있어 잔류했고, locked 시 disabled 처리한 alt 토글과 상태가 어긋났다.
+  // input 을 닫을 때 포커스는 같은 카드의 비활성 토글이 아니라 카드 li 로 흡수된다.
+  useEffect(() => {
+    if (locked) setAltOpen(false);
+  }, [locked]);
+
   // B-02: uploading → ready/failed 전환을 스크린리더에 통지. 종전엔 진행률
   // progressbar 만 있고 완료/실패는 무음이었다. 상태가 실제로 바뀐 경우에만
   // 메시지를 갱신해 SR 이 변경을 감지하게 한다.
@@ -72,6 +88,8 @@ function AttachmentTrayCardImpl({
     <li
       data-testid={`tray-card-${item.id}`}
       data-status={item.status}
+      // A-07: 전송 진행 중(sending)에는 aria-busy 로 SR 에 작업 진행을 알린다.
+      aria-busy={sending || undefined}
       className={cn(
         'flex w-52 flex-col gap-[var(--s-2)] rounded-[var(--r-md)] border p-[var(--s-2)]',
         failed
@@ -79,8 +97,14 @@ function AttachmentTrayCardImpl({
           : 'border-border-subtle bg-bg-surface',
       )}
     >
-      {/* B-02: 업로드 완료/실패 sr-only 통지(항상 마운트 — 무음 시 빈 문자열). */}
-      <span className="sr-only" aria-live="polite" data-testid={`tray-live-${item.id}`}>
+      {/* B-02: 업로드 완료/실패 sr-only 통지(항상 마운트 — 무음 시 빈 문자열).
+          A-01: aria-atomic 으로 메시지 전체를 한 번에 읽게 한다(부분 갱신 누락 방지). */}
+      <span
+        className="sr-only"
+        aria-live="polite"
+        aria-atomic="true"
+        data-testid={`tray-live-${item.id}`}
+      >
         {liveMsg}
       </span>
 
@@ -104,18 +128,21 @@ function AttachmentTrayCardImpl({
           />
         )}
         {/* 제거 버튼(우상단). B-01: 28px qf-btn--icon--sm(터치 ≥24px + focus-visible).
-            S57: 전송 중/확정 후에는 제거를 잠근다(complete 와의 race 방지). */}
-        {!locked ? (
-          <button
-            type="button"
-            data-testid={`tray-remove-${item.id}`}
-            aria-label={`${item.file.name} 첨부 제거`}
-            onClick={() => onRemove(item.id)}
-            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
-          >
-            <Icon name="x" size="sm" />
-          </button>
-        ) : null}
+            S57: 전송 중/확정 후에는 제거를 잠근다(complete 와의 race 방지).
+            A-05: locked 시 DOM 제거 대신 disabled 로 렌더 — 버튼에 포커스가 있던
+            중 잠기면 포커스 소실 + 상태 미전달이 발생하므로, 비활성 상태로 남겨
+            포커스를 유지하고 SR 에 "사용 안 함"을 전달한다. */}
+        <button
+          type="button"
+          data-testid={`tray-remove-${item.id}`}
+          aria-label={`${item.file.name} 첨부 제거`}
+          disabled={locked}
+          aria-disabled={locked || undefined}
+          onClick={() => onRemove(item.id)}
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm absolute right-[var(--s-1)] top-[var(--s-1)] bg-bg-surface"
+        >
+          <Icon name="x" size="sm" />
+        </button>
       </div>
 
       {/* 파일명 + 크기 */}
@@ -138,6 +165,8 @@ function AttachmentTrayCardImpl({
           aria-valuenow={item.progress}
           aria-valuemin={0}
           aria-valuemax={100}
+          // A-08: 일부 SR 은 valuenow 만으로 단위를 읽지 못한다 — valuetext 로 "%" 명시.
+          aria-valuetext={`${item.progress}%`}
           aria-label={`${item.file.name} 업로드 진행률`}
           data-testid={`tray-progress-${item.id}`}
           className="h-[var(--s-1)] overflow-hidden rounded-[var(--r-sm)] bg-[color:var(--bg-elevated)]"
@@ -165,10 +194,13 @@ function AttachmentTrayCardImpl({
         </div>
       ) : null}
 
-      {/* S57 (FR-AM-24): 전송 진행/확정 상태 표시(액션 대신). */}
+      {/* S57 (FR-AM-24): 전송 진행/확정 상태 표시(액션 대신).
+          A-02/A-03: sr-only liveMsg 가 이미 "전송 중/전송 완료"를 통지하므로 이
+          시각 표시는 aria-hidden 으로 접근성 트리에서 제외(중복 탐색 방지). */}
       {sending ? (
         <div
           data-testid={`tray-sending-${item.id}`}
+          aria-hidden="true"
           className="flex items-center gap-[var(--s-1)] text-[length:var(--fs-11)] text-text-muted"
         >
           <Icon name="loading" size="sm" className="animate-spin" />
@@ -178,6 +210,7 @@ function AttachmentTrayCardImpl({
       {confirmed ? (
         <div
           data-testid={`tray-confirmed-${item.id}`}
+          aria-hidden="true"
           className="flex items-center gap-[var(--s-1)] text-[length:var(--fs-11)] text-[color:var(--accent)]"
         >
           <Icon name="check" size="sm" />
@@ -186,14 +219,18 @@ function AttachmentTrayCardImpl({
       ) : null}
 
       {/* 액션: 스포일러 / alt(이미지·비디오만). B-01/B-04: 28px qf-btn--icon--sm.
-          S57: 전송 중/확정 후에는 메타 편집을 잠근다. */}
-      {!failed && !locked ? (
+          S57: 전송 중/확정 후에는 메타 편집을 잠근다.
+          A-05: locked 시 DOM 제거 대신 disabled 로 렌더(포커스 소실/상태 미전달
+          방지). failed 는 종전대로 액션 대신 재시도만 노출한다. */}
+      {!failed ? (
         <div className="flex items-center gap-[var(--s-1)]">
           <button
             type="button"
             data-testid={`tray-spoiler-${item.id}`}
             aria-pressed={item.isSpoiler}
             aria-label={`${item.file.name} 스포일러 ${item.isSpoiler ? '해제' : '설정'}`}
+            disabled={locked}
+            aria-disabled={locked || undefined}
             onClick={() => onToggleSpoiler(item.id)}
             className={cn(
               'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
@@ -208,6 +245,8 @@ function AttachmentTrayCardImpl({
               data-testid={`tray-alt-toggle-${item.id}`}
               aria-pressed={altOpen}
               aria-label={`${item.file.name} 대체 텍스트 ${altOpen ? '닫기' : '추가'}`}
+              disabled={locked}
+              aria-disabled={locked || undefined}
               onClick={() => setAltOpen((v) => !v)}
               className={cn(
                 'qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm',
@@ -221,7 +260,7 @@ function AttachmentTrayCardImpl({
         </div>
       ) : null}
 
-      {altOpen ? (
+      {altOpen && !locked ? (
         <input
           type="text"
           data-testid={`tray-alt-input-${item.id}`}

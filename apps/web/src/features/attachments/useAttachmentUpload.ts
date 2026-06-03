@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { AttachmentLite, UploadSession } from '@qufox/shared-types';
 import { completeUpload, requestUploadUrl, uploadToStorage } from './attachmentApi';
-import { proxyPath } from './attachmentSrc';
 import { uploadErrorToast } from './uploadErrors';
 
 /**
@@ -30,8 +29,11 @@ export interface TrayItem {
   /**
    * 미리보기 URL.
    *   uploading/ready/sending: 로컬 objectURL(IMAGE 만 · revoke 대상).
-   *   confirmed: 백엔드 프록시 URL(`/attachments/:id/download`) — objectURL 아님.
-   * 언마운트/제거/CONFIRMED/FAILED 시 로컬 objectURL 은 revoke 합니다.
+   *   confirmed/failed: null(로컬 objectURL 은 revoke 후 null 로 비움).
+   * S57 fix-forward (HIGH-1): CONFIRMED 시 토큰 없는 프록시 URL 로 바꾸면
+   * `<img src>` 가 직접 401 로 깨졌다. confirmed 는 곧 clearConfirmed 로 제거되는
+   * transient 상태이므로 previewUrl 을 null(파일 아이콘 폴백)로 둔다. 언마운트/
+   * 제거/CONFIRMED/FAILED 시 로컬 objectURL 은 revoke 합니다.
    */
   previewUrl: string | null;
   /** 단계 1 완료 후 채워지는 MinIO 업로드 세션 id(complete 에 사용). */
@@ -52,6 +54,18 @@ function detectKind(mime: string): TrayKind {
   if (mime.startsWith('image/')) return 'IMAGE';
   if (mime.startsWith('video/')) return 'VIDEO';
   return 'FILE';
+}
+
+/**
+ * S57 fix-forward (MAJOR-1): 진행 중 complete 백오프가 채널 전환/언마운트로
+ * 무효화됐음을 알리는 내부 신호. completeAndCollect 의 catch 가 이 에러를 보면
+ * 토스트/상태전환 없이 조용히 bail 한다(옛 채널에 대한 작업이므로).
+ */
+class StaleGenerationError extends Error {
+  constructor() {
+    super('attachment upload generation changed');
+    this.name = 'StaleGenerationError';
+  }
 }
 
 /** READY 상태이면서 complete 가능한 항목만 추린다. */
@@ -119,13 +133,6 @@ function removePendingSessions(sessionIds: Iterable<string>): void {
   writePendingSessions(next);
 }
 
-const API_BASE = (import.meta.env?.VITE_API_URL as string | undefined) ?? '/api';
-
-/** CONFIRMED 항목의 미리보기로 쓸 백엔드 프록시 URL(절대 경로). */
-function confirmedPreviewUrl(attachmentId: string): string {
-  return `${API_BASE}${proxyPath(attachmentId, 'download')}`;
-}
-
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => {
     if (ms <= 0) {
@@ -151,15 +158,17 @@ export interface UseAttachmentUploadResult {
   toggleSpoiler: (id: string) => void;
   /**
    * 전송 시점: READY 항목들을 sending 으로 낙관 전환 후 complete(지수 백오프)해
-   * attachmentIds 를 반환한다. 성공 항목은 confirmed(프록시 URL + 로컬 objectURL
-   * revoke), 실패 항목은 failed(objectURL revoke) 로 남긴다. 빈 트레이/READY 없음
-   * 이면 [] 반환(첨부 없는 일반 전송). complete 전체 실패 시 토스트 + 빈 배열.
+   * attachmentIds 를 반환한다. 성공 항목은 confirmed(previewUrl=null · 로컬
+   * objectURL revoke), 실패 항목은 failed(objectURL revoke) 로 남긴다. 빈 트레이/
+   * READY 없음이면 [] 반환(첨부 없는 일반 전송). complete 전체 실패 시 토스트 +
+   * 빈 배열. 동시(같은 tick) 재진입은 in-flight 래치로 즉시 [] 차단(MAJOR-2).
+   * 진행 중 채널 전환/언마운트(gen 변경) 시 옛 채널 작업은 조용히 bail(MAJOR-1).
    */
   completeAndCollect: () => Promise<string[]>;
   /**
    * 전송이 끝난(confirmed) 항목을 트레이에서 제거한다(메시지 전송 직후 호출).
-   * confirmed previewUrl 은 프록시 URL(objectURL 아님)이라 revoke 불필요하나,
-   * 방어적으로 잔존 로컬 objectURL 이 있으면 정리한다.
+   * confirmed previewUrl 은 null 이라 revoke 불필요하나, 방어적으로 잔존 로컬
+   * objectURL 이 있으면 정리한다.
    */
   clearConfirmed: () => void;
   /** 트레이 전체 비우기(채널 전환 등). objectURL revoke 포함. */
@@ -202,6 +211,30 @@ export function useAttachmentUpload(
     notifyRef.current = notify;
   }, [notify]);
 
+  // S57 fix-forward (MAJOR-2 — 더블 전송 re-entrancy): React state(sending)는
+  // 비동기라 같은 tick 에 2회 submit(더블 Enter · 다이얼로그 onConfirm 중복) 시
+  // 둘 다 통과해 completeUpload 가 2회 불려 첨부/메시지가 중복됐다. 동기 in-flight
+  // 래치로 첫 await 전에 set, finally 에 clear 해 두 번째 진입을 즉시 차단한다.
+  const inFlightRef = useRef(false);
+  // S57 fix-forward (MAJOR-1 — 백오프 중 채널전환 stale complete): generation
+  // 카운터. completeAndCollect 시작 시 gen 을 캡처하고, await(refresh/백오프 sleep)
+  // 직후 gen 이 어긋나면(reset/언마운트로 증가) 옛 채널에 대한 complete 승격을
+  // bail 한다. detached setTimeout 누수도 함께 막는다.
+  const genRef = useRef(0);
+  // 진행 중 백오프 sleep — 언마운트/reset 시 타이머를 clear 하고 promise 를 즉시
+  // resolve 해(timer id + resolve 를 함께 추적) 대기 루프가 hang 하지 않고 gen 체크로
+  // 흘러가 StaleGenerationError 로 bail 하게 한다(MAJOR-1: 타이머 누수 + stale 승격 방지).
+  const backoffTimersRef = useRef<Set<{ id: ReturnType<typeof setTimeout>; resolve: () => void }>>(
+    new Set(),
+  );
+  const cancelBackoffTimers = useCallback((): void => {
+    for (const t of backoffTimersRef.current) {
+      clearTimeout(t.id);
+      t.resolve();
+    }
+    backoffTimersRef.current.clear();
+  }, []);
+
   const revoke = useCallback((url: string | null): void => {
     if (url && objectUrlsRef.current.has(url)) {
       URL.revokeObjectURL(url);
@@ -210,18 +243,32 @@ export function useAttachmentUpload(
   }, []);
 
   const reset = useCallback((): void => {
+    // S57 fix-forward (MAJOR-3 — reset 가 sessionStorage 미정리 → 허위 복구 토스트):
+    // 채널 전환 reset() 이 트레이만 비우고 qufox:pending_sessions 를 남기면 다음
+    // mount 에서 leftover 로 오인해 "이전 업로드 미완료" 토스트가 뜬다. clear 전에
+    // 현재 항목들의 pending 세션을 명시적으로 해제한다(removeItem 패턴).
+    const sessionIds = itemsRef.current
+      .map((it) => it.sessionId)
+      .filter((sid): sid is string => sid !== null);
+    if (sessionIds.length > 0) removePendingSessions(sessionIds);
+    // S57 fix-forward (MAJOR-1): 진행 중 complete 백오프를 무효화(gen 증가)하고
+    // 잔존 sleep 타이머를 정리해 stale complete 승격/타이머 누수를 막는다.
+    genRef.current += 1;
+    cancelBackoffTimers();
     for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
     objectUrlsRef.current.clear();
     setItems([]);
-  }, []);
+  }, [cancelBackoffTimers]);
 
-  // 언마운트 시 잔존 objectURL 정리.
+  // 언마운트 시 잔존 objectURL/타이머 정리 + gen 증가(in-flight complete 무효화).
   useEffect(() => {
     return () => {
+      genRef.current += 1;
+      cancelBackoffTimers();
       for (const url of objectUrlsRef.current) URL.revokeObjectURL(url);
       objectUrlsRef.current.clear();
     };
-  }, []);
+  }, [cancelBackoffTimers]);
 
   // FR-AM-28: mount 시 이전 세션(미완료 complete)이 남아 있으면 사용자에게
   // 안내하고 sessionStorage 를 비운다. 해당 TrayItem 은 새 마운트에 더 이상
@@ -399,13 +446,38 @@ export function useAttachmentUpload(
   }, []);
 
   /**
+   * 백오프 sleep — setTimeout id 를 backoffTimersRef 에 등록해 언마운트/reset 시
+   * 정리할 수 있게 한다(MAJOR-1: detached 타이머 누수 방지). resolve 시 자동 해제.
+   */
+  const trackedSleep = useCallback((ms: number): Promise<void> => {
+    if (ms <= 0) return sleep(0);
+    return new Promise<void>((resolve) => {
+      const entry = { id: undefined as unknown as ReturnType<typeof setTimeout>, resolve };
+      entry.id = setTimeout(() => {
+        backoffTimersRef.current.delete(entry);
+        resolve();
+      }, ms);
+      backoffTimersRef.current.add(entry);
+    });
+  }, []);
+
+  /**
    * FR-AM-24: presign 잔여 만료가 임계치 미만이면 upload-url 을 재발급한다.
    * 재발급 후에는 객체가 새 storageKey 로 다시 업로드돼야 하므로 단계 2(uploadToStorage)
    * 를 다시 수행한다. 재발급/재업로드 실패는 throw 해 호출자(백오프 루프)가 처리한다.
-   * complete 에 쓸 effective sessionId 를 반환한다(refresh 안 했으면 기존 id).
+   *
+   * S57 fix-forward (HIGH-2/3): refresh 한 경우 새 sessionId 를 item state(patch)
+   * 에 반영해 itemsRef 정합을 맞추고, complete 에 쓸 effective sessionId 를 반환한다
+   * (refresh 안 했으면 기존 id). 새로 presign 된 sessionId 는 `onNewSession` 으로
+   * 즉시(재업로드 throw 전에) 호출자에 통지해, 재업로드가 부분 실패해도 새 세션이
+   * sessionStorage 에 누수되지 않게 한다. now 는 호출자가 항목마다 fresh 로 넘긴다.
    */
   const refreshIfExpiring = useCallback(
-    async (item: TrayItem, now: number): Promise<string> => {
+    async (
+      item: TrayItem,
+      now: number,
+      onNewSession: (sessionId: string) => void,
+    ): Promise<string> => {
       const currentSessionId = item.sessionId as string;
       if (!item.expiresAt) return currentSessionId;
       const remaining = new Date(item.expiresAt).getTime() - now;
@@ -414,9 +486,15 @@ export function useAttachmentUpload(
       if (item.sessionId) removePendingSessions([item.sessionId]);
       const session = await presign(item);
       if (!session) throw new Error('presign refresh failed');
+      // presign 직후(재업로드 throw 가능 지점 이전)에 새 세션을 통지 — 부분 실패 시
+      // 호출자가 이 세션도 정리하게 한다.
+      onNewSession(session.sessionId);
       await uploadToStorage(session.upload, item.file, (percent) => {
         patch(item.id, { progress: percent });
       });
+      // 새 sessionId 를 item state 에 반영(itemsRef 정합 — 이후 FAILED 경로의
+      // sessionStorage 해제가 옛 세션이 아닌 현재 세션을 가리키게 한다).
+      patch(item.id, { sessionId: session.sessionId });
       return session.sessionId;
     },
     [presign, patch],
@@ -425,12 +503,20 @@ export function useAttachmentUpload(
   /**
    * FR-AM-24: complete 를 지수 백오프(최대 3회 · 총 30초 예산)로 수행한다.
    * 1차 즉시 · 2차 +10s · 3차 +20s. 모든 시도 실패 시 마지막 에러를 throw 한다.
+   * S57 fix-forward (MAJOR-1): 시작 시점의 gen 을 받아 각 sleep 전후로 gen 정합을
+   * 확인한다 — 채널 전환/언마운트로 gen 이 어긋나면 즉시 stale 신호로 throw 해
+   * 옛 채널에 대한 complete 호출 자체를 중단한다.
    */
   const completeWithBackoff = useCallback(
-    async (body: Parameters<typeof completeUpload>[2]): Promise<{ attachmentIds: string[] }> => {
+    async (
+      body: Parameters<typeof completeUpload>[2],
+      startGen: number,
+    ): Promise<{ attachmentIds: string[] }> => {
       let lastErr: unknown;
       for (let attempt = 0; attempt < COMPLETE_MAX_ATTEMPTS; attempt++) {
-        if (attempt > 0) await sleep(COMPLETE_BACKOFF_MS[attempt]);
+        if (genRef.current !== startGen) throw new StaleGenerationError();
+        if (attempt > 0) await trackedSleep(COMPLETE_BACKOFF_MS[attempt]);
+        if (genRef.current !== startGen) throw new StaleGenerationError();
         try {
           return await completeUpload(wsId as string, channelId, body);
         } catch (err) {
@@ -439,54 +525,79 @@ export function useAttachmentUpload(
       }
       throw lastErr;
     },
-    [wsId, channelId],
+    [wsId, channelId, trackedSleep],
   );
 
   const completeAndCollect = useCallback(async (): Promise<string[]> => {
+    // S57 fix-forward (MAJOR-2): 동기 in-flight 래치. 첫 await 전에 set 하므로
+    // 같은 tick 에 들어온 두 번째 호출은 즉시 [] 로 차단된다(더블 Enter · 다이얼로그
+    // onConfirm 중복). finally 에서 clear.
+    if (inFlightRef.current) return [];
     const ready = itemsRef.current.filter(isReady);
     // 전송할 READY 항목이 없으면 트레이는 그대로 둔다(failed/uploading 보존).
     if (ready.length === 0 || wsId === null) {
       return [];
     }
+    inFlightRef.current = true;
+    // S57 fix-forward (MAJOR-1): 시작 시점의 gen 캡처. await 후 gen 이 어긋나면
+    // (채널 전환/언마운트) 옛 채널에 대한 작업이므로 상태전환/sessionStorage 변경
+    // 없이 조용히 bail 한다.
+    const startGen = genRef.current;
     // 1) 낙관적 전환: ready → sending(로컬 objectURL 유지).
     for (const it of ready) patch(it.id, { status: 'sending' });
 
+    // refresh 로 새로 presign 된 sessionId 모음 — 부분 실패 시 sessionStorage 정리에
+    // 함께 쓴다(HIGH-3: 한 item refresh 성공 후 다른 item 의 재업로드 실패 시 새
+    // 세션 누수 방지). refreshIfExpiring 이 presign 직후(재업로드 throw 전) 통지한다.
+    const refreshedSessionIds: string[] = [];
+    const collectNewSession = (sid: string): void => {
+      refreshedSessionIds.push(sid);
+    };
     try {
       // 2) presign on-demand refresh(잔여<10s) — 만료 임박 세션을 재발급/재업로드.
       //    refresh 시 새 sessionId 를 받아 complete 에 그대로 쓴다(state 비동기라
-      //    itemsRef 재읽기는 stale 일 수 있음 — 반환값을 신뢰).
-      const now = Date.now();
+      //    itemsRef 재읽기는 stale 일 수 있음 — 반환값을 신뢰). HIGH-2: now 는
+      //    항목마다 fresh 로 재계산해 앞선 await(재업로드) 동안 흐른 시간이 후순위
+      //    item 의 만료 판정을 오염시키지 않게 한다.
       const effectiveSessionIds: string[] = [];
       for (const it of ready) {
-        effectiveSessionIds.push(await refreshIfExpiring(it, now));
+        if (genRef.current !== startGen) throw new StaleGenerationError();
+        effectiveSessionIds.push(await refreshIfExpiring(it, Date.now(), collectNewSession));
       }
+      if (genRef.current !== startGen) throw new StaleGenerationError();
 
       // 3) complete(지수 백오프).
-      const { attachmentIds } = await completeWithBackoff({
-        targetChannelId: channelId,
-        sessions: ready.map((it, index) => ({
-          sessionId: effectiveSessionIds[index],
-          sortOrder: index,
-          ...(it.altText.trim() ? { altText: it.altText.trim() } : {}),
-          ...(it.isSpoiler ? { isSpoiler: true } : {}),
-          ...(it.width ? { width: it.width } : {}),
-          ...(it.height ? { height: it.height } : {}),
-        })),
-      });
+      const { attachmentIds } = await completeWithBackoff(
+        {
+          targetChannelId: channelId,
+          sessions: ready.map((it, index) => ({
+            sessionId: effectiveSessionIds[index],
+            sortOrder: index,
+            ...(it.altText.trim() ? { altText: it.altText.trim() } : {}),
+            ...(it.isSpoiler ? { isSpoiler: true } : {}),
+            ...(it.width ? { width: it.width } : {}),
+            ...(it.height ? { height: it.height } : {}),
+          })),
+        },
+        startGen,
+      );
+      // complete 직후에도 gen 정합 확인 — resolve 가 채널 전환 후 도착했다면 bail.
+      if (genRef.current !== startGen) throw new StaleGenerationError();
 
-      // 4) CONFIRMED: previewUrl 을 백엔드 프록시 URL 로 교체 + 로컬 objectURL revoke.
-      ready.forEach((it, index) => {
-        const attachmentId = attachmentIds[index];
+      // 4) CONFIRMED: 로컬 objectURL revoke 후 previewUrl 을 null 로 비운다.
+      //    HIGH-1: 토큰 없는 프록시 URL 로 바꾸면 <img src> 가 직접 401 로 깨진다.
+      //    confirmed 는 곧 clearConfirmed 로 제거되는 transient 상태이므로 파일
+      //    아이콘 폴백(null)으로 충분하다.
+      for (const it of ready) {
         revoke(it.previewUrl);
-        patch(it.id, {
-          status: 'confirmed',
-          previewUrl: attachmentId ? confirmedPreviewUrl(attachmentId) : null,
-        });
-      });
+        patch(it.id, { status: 'confirmed', previewUrl: null });
+      }
       // FR-AM-28: complete 성공 → 복구 후보 해제(원 세션 + refresh 후 세션 모두).
       removePendingSessions([...ready.map((it) => it.sessionId as string), ...effectiveSessionIds]);
       return attachmentIds;
     } catch (err) {
+      // MAJOR-1: 채널 전환/언마운트로 무효화된 작업이면 옛 채널에 손대지 않고 bail.
+      if (err instanceof StaleGenerationError) return [];
       // 5) FAILED: 백오프 소진 — sending → failed + 로컬 objectURL revoke.
       const toast = uploadErrorToast(err);
       for (const it of ready) {
@@ -495,8 +606,12 @@ export function useAttachmentUpload(
         patch(it.id, { status: 'failed', previewUrl: null, error: toast.body });
         if (it.sessionId) removePendingSessions([it.sessionId]);
       }
+      // HIGH-3: refresh 로 새로 발급한 세션도 함께 해제(부분 실패 시 누수 방지).
+      if (refreshedSessionIds.length > 0) removePendingSessions(refreshedSessionIds);
       notifyRef.current({ variant: 'danger', ...toast });
       return [];
+    } finally {
+      inFlightRef.current = false;
     }
   }, [wsId, channelId, patch, revoke, refreshIfExpiring, completeWithBackoff]);
 
