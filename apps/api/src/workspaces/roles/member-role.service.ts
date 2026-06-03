@@ -1,8 +1,11 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import type Redis from 'ioredis';
 import { fromStoragePermissions, PERMISSIONS, hasRaw } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { REDIS } from '../../redis/redis.module';
+import { roleCacheKey } from '../../queue/role-cache-queue.constants';
 
 /**
  * S61 (D12 / FR-RM01·04): 멤버 ↔ 역할 부여/회수 + privilege escalation 방어.
@@ -14,7 +17,35 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
  */
 @Injectable()
 export class MemberRoleService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // S62 (FR-RM14): 역할 부여/회수 시 해당 멤버의 권한 캐시(perms:{channelId}:{userId})를
+    // 채널별로 즉시 DEL 한다. @Global RedisModule 제공. 테스트/Redis 부재 시 no-op.
+    @Optional() @Inject(REDIS) private readonly redis?: Redis,
+  ) {}
+
+  /**
+   * S62 (FR-RM14): 한 멤버의 워크스페이스 내 모든 채널 권한 캐시를 DEL 한다. 역할
+   * 부여/회수로 그 멤버의 유효 권한이 바뀌므로 즉시 무효화해 ≤300ms 반영을 보장한다.
+   * best-effort(Redis 부재/실패 시 TTL≤5초 후 자기치유).
+   */
+  private async invalidateMemberPermsCache(workspaceId: string, userId: string): Promise<void> {
+    if (!this.redis) return;
+    try {
+      const channels = await this.prisma.channel.findMany({
+        where: { workspaceId, deletedAt: null },
+        select: { id: true },
+      });
+      if (channels.length === 0) return;
+      const pipeline = this.redis.pipeline();
+      for (const c of channels) {
+        pipeline.del(roleCacheKey(c.id, userId));
+      }
+      await pipeline.exec();
+    } catch {
+      // best-effort.
+    }
+  }
 
   /** 멤버가 보유한 역할 목록(roleId). */
   async listForMember(workspaceId: string, userId: string): Promise<string[]> {
@@ -81,6 +112,8 @@ export class MemberRoleService {
       create: { workspaceId, userId: targetUserId, roleId, assignedBy: actorUserId },
       update: {},
     });
+    // S62 (FR-RM14): 부여 직후 대상 멤버 권한 캐시 무효화.
+    await this.invalidateMemberPermsCache(workspaceId, targetUserId);
   }
 
   /**
@@ -107,6 +140,8 @@ export class MemberRoleService {
     await this.prisma.memberRole.deleteMany({
       where: { workspaceId, userId: targetUserId, roleId },
     });
+    // S62 (FR-RM14): 회수 직후 대상 멤버 권한 캐시 무효화.
+    await this.invalidateMemberPermsCache(workspaceId, targetUserId);
   }
 
   /** 액터의 권한 상승 방어 컨텍스트(최고 position · 최대 권한 OR · ADMINISTRATOR 여부). */

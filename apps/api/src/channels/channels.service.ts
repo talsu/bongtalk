@@ -1,5 +1,6 @@
-import { forwardRef, Inject, Injectable } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Optional } from '@nestjs/common';
 import { ChannelType, Prisma } from '@prisma/client';
+import type Redis from 'ioredis';
 import {
   CHANNEL_RESERVED_NAMES,
   CreateChannelRequest,
@@ -7,6 +8,7 @@ import {
   UpdateChannelRequest,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
+import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
@@ -38,7 +40,35 @@ export class ChannelsService {
     // 단방향 의존이라 역방향 주입은 forwardRef 로 순환을 끊는다.
     @Inject(forwardRef(() => MessagesService))
     private readonly messages: MessagesService,
+    // S62 (FR-RM14): 채널 override 변경 후 권한 캐시(perms:{channelId}:*)를 즉시
+    // 무효화한다. @Global RedisModule 제공. 테스트/Redis 부재 시 Optional → no-op.
+    @Optional() @Inject(REDIS) private readonly redis?: Redis,
   ) {}
+
+  /**
+   * S62 (FR-RM14): 채널 권한 캐시 무효화. override(USER/ROLE) 변경 직후 해당 채널의
+   * 모든 멤버 캐시 키(`perms:{channelId}:*`)를 DEL 해 ≤300ms 내 반영을 보장한다.
+   *
+   * SCAN(non-blocking) 으로 매칭 키를 모아 DEL 한다 — KEYS(blocking) 미사용. 채널당
+   * 멤버 수는 워크스페이스 규모로 한정되고 override 변경은 저빈도 admin 액션이라
+   * 비용이 허용된다. best-effort(Redis 부재/실패 시 다음 호출이 TTL≤5초 후 재계산).
+   */
+  private async invalidateChannelPermsCache(channelId: string): Promise<void> {
+    if (!this.redis) return;
+    const pattern = `perms:${channelId}:*`;
+    try {
+      let cursor = '0';
+      do {
+        const [next, keys] = await this.redis.scan(cursor, 'MATCH', pattern, 'COUNT', 200);
+        cursor = next;
+        if (keys.length > 0) {
+          await this.redis.del(...keys);
+        }
+      } while (cursor !== '0');
+    } catch {
+      // best-effort — 캐시 무효화 실패는 TTL(≤5초)로 자기치유된다.
+    }
+  }
 
   /**
    * S13 (FR-CH-09 / FR-CH-04): 시스템 메시지를 채널에 발행한다. 발행 자체는
@@ -554,6 +584,8 @@ export class ChannelsService {
       return { row: upserted, effective: effectiveMask };
     });
     void effective;
+    // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).
+    await this.invalidateChannelPermsCache(channelId);
     return {
       id: row.id,
       channelId: row.channelId,
@@ -630,6 +662,8 @@ export class ChannelsService {
       });
       return upserted;
     });
+    // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).
+    await this.invalidateChannelPermsCache(channelId);
     return {
       id: row.id,
       channelId: row.channelId,
