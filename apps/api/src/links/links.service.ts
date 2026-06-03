@@ -1,11 +1,13 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
+import type { IncomingMessage } from 'node:http';
 import type Redis from 'ioredis';
 import { normalizeUrl } from '@qufox/shared-types';
 import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { ssrfGuard, type SsrfRejectReason } from './ssrf-guard';
+import { followPinnedRedirects, readBoundedBuffer } from './pinned-http';
 import { parseOgMetadata } from './og-parser';
 
 /**
@@ -82,7 +84,16 @@ export class LinksService {
    * 워커/DB 는 전체 64 hex(`embedCacheKey`)를 쓴다 — 두 경로를 한 곳에서 산정한다.
    */
   embedCacheKey(rawUrl: string): string {
-    return createHash('sha256').update(normalizeUrl(rawUrl)).digest('hex');
+    return this.embedCacheKeyFromNormalized(normalizeUrl(rawUrl));
+  }
+
+  /**
+   * S60 fix (security MEDIUM-1 / perf MINOR): 이미 정규화된 URL 에서 캐시 키(64 hex
+   * sha256)를 직접 산정한다. Processor 는 `normalized` 를 이미 갖고 있으므로 이중
+   * normalizeUrl() 호출과 그로 인한 정규화 드리프트(두 경로 키 불일치)를 제거한다.
+   */
+  embedCacheKeyFromNormalized(normalizedUrl: string): string {
+    return createHash('sha256').update(normalizedUrl).digest('hex');
   }
 
   /**
@@ -138,32 +149,51 @@ export class LinksService {
   async fetchAndParse(url: string): Promise<LinkPreview> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-    let res: Response;
+    let res: IncomingMessage;
+    let finalUrl = url;
     try {
-      // S60 (FR-AM-14): native fetch 의 redirect:'follow'(max 20)를 쓰지 않고 manual
-      // loop 로 각 hop 마다 ssrfGuard 를 재검증한다(redirect 가 사설 IP 로 점프하는
-      // DNS-rebinding/redirect-SSRF 차단). 상한 5회·5s 타임아웃.
-      res = await this.followRedirects(url, controller.signal);
+      // S60 fix (security BLOCKER-1 / HIGH-3): native fetch 대신 IP 핀 HTTP(pinned-http)로
+      // 각 hop ssrfGuard 재검증 + 검증된 IP 로 직접 connect 한다. fetch() 는 검증 후
+      // connect 시점에 DNS 를 재조회해 rebinding(검증 IP ≠ 연결 IP) TOCTOU 가 생긴다.
+      // 상한 5회 · 5s 타임아웃 · og-image-fetcher 와 동일 모듈 공유.
+      const followed = await followPinnedRedirects({
+        startUrl: url,
+        maxRedirects: MAX_REDIRECTS,
+        timeoutMs: FETCH_TIMEOUT_MS,
+        headers: {
+          'user-agent': USER_AGENT,
+          accept: 'text/html,application/xhtml+xml',
+          'accept-language': 'en;q=0.9,ko;q=0.8',
+        },
+        signal: controller.signal,
+      });
+      res = followed.res;
+      finalUrl = followed.finalUrl;
     } catch (e: unknown) {
       clearTimeout(timer);
       const msg = e instanceof Error ? e.message : 'fetch failed';
       this.logger.warn({ url, err: msg }, 'link preview fetch error');
       return this.emptyPreview(url, 0);
     }
-    clearTimeout(timer);
-    const status = res.status;
-    if (!res.ok) {
+    const status = res.statusCode ?? 0;
+    if (status < 200 || status >= 300) {
+      clearTimeout(timer);
+      res.resume(); // body 소진(소켓 해제).
       return this.emptyPreview(url, status);
     }
-    const ct = res.headers.get('content-type') ?? '';
-    if (!ct.toLowerCase().includes('html')) {
+    const ct = (res.headers['content-type'] ?? '').toLowerCase();
+    if (!ct.includes('html')) {
       // 비-HTML (이미지, JSON, application/octet-stream) 은 파싱 불가.
+      clearTimeout(timer);
+      res.resume();
       return this.emptyPreview(url, status);
     }
-    const html = await this.readBoundedText(res);
-    if (html === null) {
+    const buf = await readBoundedBuffer(res, MAX_BODY_BYTES);
+    clearTimeout(timer);
+    if (buf === null) {
       return this.emptyPreview(url, status);
     }
+    const html = new TextDecoder('utf-8', { fatal: false }).decode(buf);
     const og = parseOgMetadata(html);
     let host: string;
     try {
@@ -171,9 +201,9 @@ export class LinksService {
     } catch {
       host = '';
     }
-    // S60: og:image 가 상대 URL 일 수 있으므로 최종 응답 URL(res.url, 없으면 요청 url)
-    // 기준으로 절대화한다. 절대화 실패하면 null(이미지 없음 — 카드 텍스트는 유지).
-    const image = this.resolveImageUrl(og.image, res.url || url);
+    // S60: og:image 가 상대 URL 일 수 있으므로 최종 응답 URL(redirect 종료 URL, 없으면
+    // 요청 url) 기준으로 절대화한다. 절대화 실패하면 null(이미지 없음 — 카드 텍스트 유지).
+    const image = this.resolveImageUrl(og.image, finalUrl || url);
     return {
       url,
       title: og.title,
@@ -199,69 +229,6 @@ export class LinksService {
     } catch {
       return null;
     }
-  }
-
-  private async followRedirects(url: string, signal: AbortSignal): Promise<Response> {
-    let current = url;
-    for (let hop = 0; hop <= MAX_REDIRECTS; hop += 1) {
-      const guard = await ssrfGuard(current);
-      if (!guard.ok) {
-        throw new Error(`ssrf-guard rejected redirect target: ${guard.reason}`);
-      }
-      const res = await fetch(current, {
-        method: 'GET',
-        redirect: 'manual',
-        signal,
-        headers: {
-          'user-agent': USER_AGENT,
-          accept: 'text/html,application/xhtml+xml',
-          'accept-language': 'en;q=0.9,ko;q=0.8',
-        },
-      });
-      if (res.status >= 300 && res.status < 400) {
-        const loc = res.headers.get('location');
-        if (!loc) return res;
-        try {
-          current = new URL(loc, current).toString();
-        } catch {
-          return res;
-        }
-        continue;
-      }
-      return res;
-    }
-    throw new Error('too many redirects');
-  }
-
-  private async readBoundedText(res: Response): Promise<string | null> {
-    if (!res.body) return null;
-    const reader = res.body.getReader();
-    const chunks: Uint8Array[] = [];
-    let total = 0;
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (!value) continue;
-      total += value.byteLength;
-      if (total > MAX_BODY_BYTES) {
-        try {
-          await reader.cancel();
-        } catch {
-          /* noop */
-        }
-        // 256KB 까지만 사용 — head section 은 거의 항상 그 안에 있음.
-        chunks.push(value.subarray(0, value.byteLength - (total - MAX_BODY_BYTES)));
-        break;
-      }
-      chunks.push(value);
-    }
-    const merged = new Uint8Array(total > MAX_BODY_BYTES ? MAX_BODY_BYTES : total);
-    let offset = 0;
-    for (const c of chunks) {
-      merged.set(c, offset);
-      offset += c.byteLength;
-    }
-    return new TextDecoder('utf-8', { fatal: false }).decode(merged);
   }
 
   private emptyPreview(url: string, statusCode: number): LinkPreview {

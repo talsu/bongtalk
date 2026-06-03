@@ -39,8 +39,13 @@ function ServerEmbedCard({ embed }: { embed: MessageEmbedDto }): JSX.Element | n
   if (!embed.title && !embed.description && !embed.imageProxyUrl) return null;
   // S02 보안 선례: link 노드와 동일한 스킴 검증을 카드 제목 href 에도 적용한다.
   const titleHref = isSafeLinkUrl(embed.url) ? embed.url : null;
+  // S60 fix (reviewer MAJOR-1): 이미지가 있으면 DS 의 `qf-embed--image` 수식자를 붙인다.
+  // 수식자 없는 `.qf-embed` 안의 `.qf-embed__thumb` 는 components.css 의 width:100%·max-width
+  // 규칙이 미적용이라 OG 이미지(예 1200x630)가 카드 폭을 넘어 overflow 한다. DS 4파일은
+  // 수정하지 않고, 앱 className 으로만 기존 DS 규칙(`.qf-embed--image .qf-embed__thumb`)을 켠다.
+  const rootClass = embed.imageProxyUrl ? 'qf-embed qf-embed--image' : 'qf-embed';
   return (
-    <div className="qf-embed" data-testid={`link-embed-${embed.id}`}>
+    <div className={rootClass} data-testid={`link-embed-${embed.id}`}>
       {embed.siteName ? <div className="qf-embed__site">{embed.siteName}</div> : null}
       {embed.title ? (
         titleHref ? (

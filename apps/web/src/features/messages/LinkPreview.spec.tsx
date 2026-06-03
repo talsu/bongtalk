@@ -40,6 +40,22 @@ describe('S60 LinkPreview — server embed mode (FR-RC07/21)', () => {
     expect(html).not.toContain('X-Amz');
   });
 
+  it('applies the qf-embed--image modifier when an image is present (reviewer MAJOR-1 overflow fix)', () => {
+    const html = renderToStaticMarkup(
+      <LinkPreview
+        embed={embed({ imageProxyUrl: '/links/embed-image/55555555-5555-5555-5555-555555555555' })}
+      />,
+    );
+    // DS 의 `.qf-embed--image .qf-embed__thumb { width:100% }` 규칙이 켜지도록 루트에 수식자.
+    expect(html).toContain('qf-embed qf-embed--image');
+  });
+
+  it('omits the qf-embed--image modifier when there is no image (text-only card)', () => {
+    const html = renderToStaticMarkup(<LinkPreview embed={embed({ imageProxyUrl: null })} />);
+    expect(html).toContain('class="qf-embed"');
+    expect(html).not.toContain('qf-embed--image');
+  });
+
   it('hides a suppressed embed (suppressedAt set → null render)', () => {
     const html = renderToStaticMarkup(
       <LinkPreview embed={embed({ suppressedAt: '2025-01-01T00:00:00.000Z' })} />,

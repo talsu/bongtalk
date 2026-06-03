@@ -87,11 +87,14 @@ function makeMocks(
   const getCachedByKey = vi.fn(async () => opts.cached ?? null);
   const cachePreview = vi.fn(async () => undefined);
   const embedCacheKey = vi.fn((u: string) => `key-${u}`);
+  // S60 fix (security MEDIUM-1): Processor 가 이미 정규화된 URL 로 캐시 키를 산정한다.
+  const embedCacheKeyFromNormalized = vi.fn((u: string) => `key-${u}`);
   const links = {
     fetchAndParse,
     getCachedByKey,
     cachePreview,
     embedCacheKey,
+    embedCacheKeyFromNormalized,
   } as unknown as LinksService;
 
   const fetchAndStore = vi.fn(async () => ({

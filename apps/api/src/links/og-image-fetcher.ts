@@ -1,9 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { request as httpRequest, type IncomingMessage } from 'node:http';
-import { request as httpsRequest } from 'node:https';
-import { isIP } from 'node:net';
 import { createHash } from 'node:crypto';
 import { ssrfGuard } from './ssrf-guard';
+import { pinnedRequest, readBoundedBuffer } from './pinned-http';
 import { S3Service } from '../storage/s3.service';
 
 /**
@@ -29,7 +27,9 @@ const MAX_IMAGE_BYTES = 5 * 1024 * 1024; // 5MB
 const USER_AGENT = 'qufox-link-preview/1.0 (+https://qufox.com)';
 
 // 저장 허용 이미지 MIME → 확장자. image/svg+xml 은 인라인 스크립트 실행 위험이라 제외한다.
-const ALLOWED_IMAGE_MIME: Record<string, string> = {
+// S60 fix (security MEDIUM-2): embed-image 프록시가 스트리밍 전 저장된 contentType 을
+// 이 허용목록과 재대조하므로 export 한다(과거 잘못 저장된 MIME 방어).
+export const ALLOWED_IMAGE_MIME: Record<string, string> = {
   'image/png': 'png',
   'image/jpeg': 'jpg',
   'image/jpg': 'jpg',
@@ -106,7 +106,14 @@ export class OgImageFetcher {
       if (!guard.ok) {
         throw new Error(`ssrf-guard rejected image target: ${guard.reason}`);
       }
-      const res = await this.pinnedRequest(guard.url, guard.resolvedIp, guard.family);
+      // 검증된 IP 로 직접 connect(IP 핀 — DNS rebinding TOCTOU 차단 · pinned-http 공유).
+      const res = await pinnedRequest({
+        url: guard.url,
+        ip: guard.resolvedIp,
+        family: guard.family,
+        timeoutMs: FETCH_TIMEOUT_MS,
+        headers: { 'user-agent': USER_AGENT, accept: 'image/*' },
+      });
       const status = res.statusCode ?? 0;
       // redirect 처리(3xx + location). 각 hop 다시 ssrfGuard 재검증된다.
       if (status >= 300 && status < 400) {
@@ -135,75 +142,10 @@ export class OgImageFetcher {
         res.destroy();
         return null;
       }
-      const bytes = await this.readBounded(res);
+      const bytes = await readBoundedBuffer(res, MAX_IMAGE_BYTES);
       if (bytes === null) return null;
       return { bytes, mime };
     }
     throw new Error('too many redirects');
-  }
-
-  /**
-   * 검증된 IP 로 직접 connect 하되 Host 헤더 + SNI 는 원래 hostname 으로 보낸다(IP 핀 —
-   * DNS rebinding 차단). 타임아웃 5s.
-   */
-  private pinnedRequest(url: URL, ip: string, family: 4 | 6): Promise<IncomingMessage> {
-    return new Promise<IncomingMessage>((resolve, reject) => {
-      const isHttps = url.protocol === 'https:';
-      const host = url.hostname;
-      const port = url.port ? Number(url.port) : isHttps ? 443 : 80;
-      const path = `${url.pathname}${url.search}`;
-      // IPv6 리터럴은 대괄호로 감싼다.
-      const connectHost = family === 6 && isIP(ip) === 6 ? `[${ip}]` : ip;
-      const options = {
-        host: connectHost,
-        port,
-        path,
-        method: 'GET',
-        // Host 헤더는 원래 hostname(가상호스트 라우팅 + 검증 일관성).
-        headers: {
-          host: url.port ? `${host}:${url.port}` : host,
-          'user-agent': USER_AGENT,
-          accept: 'image/*',
-        },
-        // https: SNI 를 원래 hostname 으로(인증서 검증 일관). 검증된 IP 로 connect.
-        ...(isHttps ? { servername: host } : {}),
-        timeout: FETCH_TIMEOUT_MS,
-      };
-      const reqFn = isHttps ? httpsRequest : httpRequest;
-      const req = reqFn(options, (res) => resolve(res));
-      req.on('timeout', () => {
-        req.destroy(new Error('image fetch timeout'));
-      });
-      req.on('error', (err) => reject(err));
-      req.end();
-    });
-  }
-
-  /** 응답 바이트를 MAX_IMAGE_BYTES 까지만 읽는다. 초과하면 소켓을 끊고 null. */
-  private readBounded(res: IncomingMessage): Promise<Uint8Array | null> {
-    return new Promise<Uint8Array | null>((resolve) => {
-      const chunks: Buffer[] = [];
-      let total = 0;
-      let done = false;
-      const finish = (val: Uint8Array | null): void => {
-        if (done) return;
-        done = true;
-        resolve(val);
-      };
-      res.on('data', (chunk: Buffer) => {
-        total += chunk.byteLength;
-        if (total > MAX_IMAGE_BYTES) {
-          res.destroy();
-          finish(null);
-          return;
-        }
-        chunks.push(chunk);
-      });
-      res.on('end', () => finish(new Uint8Array(Buffer.concat(chunks))));
-      res.on('error', () => finish(null));
-      res.on('close', () =>
-        finish(chunks.length > 0 ? new Uint8Array(Buffer.concat(chunks)) : null),
-      );
-    });
   }
 }

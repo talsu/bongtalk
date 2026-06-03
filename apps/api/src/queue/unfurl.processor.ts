@@ -61,7 +61,9 @@ export class UnfurlProcessor extends WorkerHost {
     const seenCacheKeys = new Set<string>();
     for (const rawUrl of urls) {
       const normalized = normalizeUrl(rawUrl);
-      const cacheKey = this.links.embedCacheKey(rawUrl);
+      // S60 fix (security MEDIUM-1): 이미 정규화한 normalized 로 캐시 키를 산정한다
+      // (embedCacheKey(rawUrl) 의 이중 normalizeUrl 호출·정규화 드리프트 제거).
+      const cacheKey = this.links.embedCacheKeyFromNormalized(normalized);
       // 잡 내 동일 정규화 URL 중복 제거(extractMessageUrls 가 이미 dedupe 하지만 방어).
       if (seenCacheKeys.has(cacheKey)) continue;
       seenCacheKeys.add(cacheKey);
