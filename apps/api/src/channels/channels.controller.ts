@@ -33,11 +33,32 @@ import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user
 import { ALL_PERMISSIONS } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
+import { RateLimitService } from '../auth/services/rate-limit.service';
+
+// S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
+// 워크스페이스 단위 60초/30회 — msg:send 패턴과 동일하게 ADMIN 의 override 변경/조회
+// 폭주(캐시 무효화 폭주·DB 부하)를 막는다. 키는 워크스페이스 스코프(`override:ws:<id>`).
+const OVERRIDE_RL_WINDOW_SEC = 60;
+const OVERRIDE_RL_MAX = 30;
 
 @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
 @Controller('workspaces/:id/channels')
 export class ChannelsController {
-  constructor(private readonly channels: ChannelsService) {}
+  constructor(
+    private readonly channels: ChannelsService,
+    private readonly rate: RateLimitService,
+  ) {}
+
+  /** S62 fix-forward (security A-3): override CRUD per-workspace rate-limit 게이트. */
+  private async enforceOverrideRateLimit(workspaceId: string): Promise<void> {
+    await this.rate.enforce([
+      {
+        key: `override:ws:${workspaceId}`,
+        windowSec: OVERRIDE_RL_WINDOW_SEC,
+        max: OVERRIDE_RL_MAX,
+      },
+    ]);
+  }
 
   @Get()
   async list(
@@ -162,6 +183,8 @@ export class ChannelsController {
     @Param('chid', new ParseUUIDPipe()) channelId: string,
     @CurrentMember() m: CurrentMemberPayload,
   ) {
+    // S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
+    await this.enforceOverrideRateLimit(m.workspaceId);
     const overrides = await this.channels.listChannelOverrides(m.workspaceId, channelId);
     return { overrides };
   }
@@ -192,6 +215,8 @@ export class ChannelsController {
     // bits the override layer ignores). Bits outside 0x1FF are meaningless to
     // enforcement and would persist as garbage, so reject them. review S12
     // BLOCKER-1 fix.
+    // S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
+    await this.enforceOverrideRateLimit(m.workspaceId);
     const parsed = ChannelMemberOverrideRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -234,6 +259,8 @@ export class ChannelsController {
     @CurrentMember() m: CurrentMemberPayload,
     @Body() body: unknown,
   ) {
+    // S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
+    await this.enforceOverrideRateLimit(m.workspaceId);
     const parsed = ChannelRoleOverrideRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);

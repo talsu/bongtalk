@@ -97,7 +97,10 @@ export function ChannelSettingsPage({
                   key={item.id}
                   type="button"
                   data-testid={`channel-settings-nav-${item.id}`}
-                  aria-selected={active}
+                  // S62 fix-forward (a11y B4 · SC 4.1.2): role="tablist" 없이 aria-selected
+                  // 를 쓰던 오용을 nav 패턴에 맞는 aria-current="page" 로 대체한다(삭제
+                  // 등 action 버튼이 섞인 nav 이므로 tablist 패턴을 쓰지 않는다 — Option B).
+                  aria-current={active ? 'page' : undefined}
                   onClick={() =>
                     navigate(`/w/${workspaceSlug}/${channel.name}/settings/${item.id}`)
                   }
@@ -113,8 +116,9 @@ export function ChannelSettingsPage({
                 type="button"
                 data-testid={`channel-settings-nav-${item.id}`}
                 onClick={() => setDeleteOpen(true)}
-                className="qf-settings__nav-item w-full text-left"
-                style={{ color: 'var(--danger-400)' }}
+                // S62 fix-forward (ui-designer M-03): inline color 제거 → text-danger.
+                // 색 대비 자체는 DS-owner(라이트 테마 danger 토큰) — 구조만 className 화.
+                className="qf-settings__nav-item w-full text-left text-danger"
               >
                 {item.label}
               </button>
@@ -124,7 +128,9 @@ export function ChannelSettingsPage({
 
         <section className="qf-settings__main">
           <header className="mb-[var(--s-5)]">
-            <h2 className="m-0" style={{ font: '600 var(--fs-18) var(--font-sans)' }}>
+            {/* S62 fix-forward (ui-designer M-02): inline font shorthand 제거 →
+                Tailwind text size + font-weight 유틸리티. */}
+            <h2 className="m-0 text-[length:var(--fs-18)] font-semibold">
               {section === 'general' ? '일반' : section === 'permissions' ? '권한' : ''}
             </h2>
           </header>

@@ -25,6 +25,8 @@ import {
   seedMemberSystemRole,
   syncMemberSystemRole,
 } from './roles/system-role-seed';
+// S62 fix-forward (security A-1): 소유권 이양 직후 from/to 두 멤버의 권한 캐시 무효화.
+import { MemberRoleService } from './roles/member-role.service';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -36,6 +38,9 @@ export class WorkspacesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 소유권 이양은 from/to 두
+    // 멤버의 역할(OWNER↔ADMIN)을 바꾸므로 두 멤버의 채널별 권한 캐시를 모두 DEL 한다.
+    private readonly memberRoles: MemberRoleService,
   ) {}
 
   private get graceMs(): number {
@@ -387,7 +392,7 @@ export class WorkspacesService {
     // serialise them (losing tx retries with serialization_failure,
     // which Prisma surfaces as P2034); the TOCTOU gap between
     // findUnique and the three updates closes.
-    return this.prisma.$transaction(
+    const workspace = await this.prisma.$transaction(
       async (tx) => {
         const target = await tx.workspaceMember.findUnique({
           where: { workspaceId_userId: { workspaceId, userId: toUserId } },
@@ -413,7 +418,7 @@ export class WorkspacesService {
         // 교체한다 — fromUserId 는 OWNER→ADMIN, toUserId 는 (기존 등급)→OWNER.
         await syncMemberSystemRole(tx, workspaceId, fromUserId, 'ADMIN');
         await syncMemberSystemRole(tx, workspaceId, toUserId, 'OWNER');
-        const workspace = await tx.workspace.update({
+        const ws = await tx.workspace.update({
           where: { id: workspaceId },
           data: { ownerId: toUserId },
         });
@@ -423,10 +428,16 @@ export class WorkspacesService {
           eventType: OWNERSHIP_TRANSFERRED,
           payload: { workspaceId, fromUserId, toUserId },
         });
-        return workspace;
+        return ws;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
     );
+    // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): from/to 두 멤버 모두 역할이
+    // 바뀌었으므로 두 멤버의 채널별 권한 캐시를 모두 DEL 해 이양 후 stale 권한
+    // (ex-OWNER 가 ADMINISTRATOR 캐시로 ≤5초간 우회)을 즉시 닫는다. best-effort.
+    await this.memberRoles.invalidateMemberPermsCache(workspaceId, fromUserId);
+    await this.memberRoles.invalidateMemberPermsCache(workspaceId, toUserId);
+    return workspace;
   }
 
   /** Used by guards/services that want to confirm caller is OWNER. */

@@ -175,7 +175,12 @@ function bodyFor(method: string, path: string): object | undefined {
     return { content: `matrix send ${Math.random().toString(36).slice(2, 8)}` };
   }
   if (method === 'PATCH' && /\/messages\//.test(path)) {
-    return { content: `matrix edit ${Math.random().toString(36).slice(2, 8)}` };
+    // S05 (FR-MSG-06) carryover fix: UpdateMessageRequestSchema 가 expectedVersion 을
+    // 필수로 요구하게 됐는데(낙관적 잠금) 이 matrix body 가 미반영이라 모든 PATCH
+    // messages 케이스가 422(MESSAGE_CONTENT_INVALID)로 떨어졌다. beforeEach 가 매
+    // 케이스 editedAt=null 로 메시지를 되돌리므로 version 은 항상 0(신규 시드값)이라
+    // expectedVersion: 0 이 정확하다. (S62 와 무관한 선존 테스트 드리프트 시정.)
+    return { content: `matrix edit ${Math.random().toString(36).slice(2, 8)}`, expectedVersion: 0 };
   }
   if (method === 'PATCH' && path.match(/\/workspaces\/[^/]+$/)) return { name: 'renamed' };
   return undefined;
@@ -225,7 +230,9 @@ beforeEach(async () => {
       if (role === 'NON_MEMBER' || role === 'ANON') continue; // placeholders
       await env.prisma.message.update({
         where: { id: msgId },
-        data: { deletedAt: null, content: MSG_BASELINE_CONTENT[role], editedAt: null },
+        // S05 carryover: version 도 0 으로 되돌려 다음 PATCH 케이스의 expectedVersion:0
+        // 낙관적 잠금이 매 케이스 결정적으로 통과하게 한다(편집 누적으로 인한 409 방지).
+        data: { deletedAt: null, content: MSG_BASELINE_CONTENT[role], editedAt: null, version: 0 },
       });
     }
   }
@@ -242,9 +249,8 @@ describe('Permission matrix — every endpoint × every role', () => {
       it(label, async () => {
         const token = tokenFor(role);
         const path = resolvePath(entry.path, role, !!entry.selfTarget, entry.msgTarget);
-        const req = request(env.baseUrl)
-          [entry.method.toLowerCase() as 'get' | 'post' | 'patch' | 'delete'](path)
-          .set('origin', ORIGIN);
+        const verb = entry.method.toLowerCase() as 'get' | 'post' | 'patch' | 'delete';
+        const req = request(env.baseUrl)[verb](path).set('origin', ORIGIN);
         if (token) req.set('Authorization', `Bearer ${token}`);
         const body = bodyFor(entry.method, entry.path);
         if (body) req.send(body);

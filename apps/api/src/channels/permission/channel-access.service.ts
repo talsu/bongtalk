@@ -30,6 +30,16 @@ const MENTION_EVERYONE_BIT = Number(PERMISSIONS.MENTION_EVERYONE);
  * S44: 역할별 `MENTION_EVERYONE` 기본값(base). OWNER/ADMIN 은 on, MEMBER 는 off.
  * 채널 override 가 이 base 위에 5단계 fold 로 누적된다.
  */
+/**
+ * S62 fix-forward (perf B-1): hot-path 가 한 번 로드해 audit/mention/announcement
+ * 게이트에 재사용하는 멤버 권한 메타. role(시스템 역할 enum) + 보유 Role 의
+ * roleId(UUID) + 카탈로그 permissions(ADMINISTRATOR 판정용).
+ */
+export type AdministratorBypassMember = {
+  role: WorkspaceRole;
+  memberRoles: Array<{ roleId: string; role: { permissions: bigint } }>;
+};
+
 const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
   OWNER: MENTION_EVERYONE_BIT,
   ADMIN: MENTION_EVERYONE_BIT,
@@ -290,20 +300,29 @@ export class ChannelAccessService {
    * 판정: (1) 워크스페이스 채널이고 (2) 액터가 보유한 어떤 Role 이든 카탈로그
    * ADMINISTRATOR 비트를 가지며 (3) 그 채널에 액터의 principals(USER/시스템역할/
    * 커스텀Role UUID)를 향한 DENY overwrite 가 하나라도 있으면 우회로 본다.
+   *
+   * S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): hot-path 의 별도
+   * `workspaceMember.findUnique` 를 제거하기 위해, 호출부가 이미 로드한 멤버 메타
+   * (role + memberRoles 의 roleId/permissions)를 `preloadedMember` 로 넘길 수 있다.
+   * 넘기지 않으면 종전대로 자체 조회한다(레거시 호출부 보존). action 별 기록 외에
+   * 정확성/enforcement 는 불변이다.
    */
   async auditAdministratorBypass(
     channel: { id: string; workspaceId: string | null },
     userId: string,
     action: string,
+    preloadedMember?: AdministratorBypassMember,
   ): Promise<void> {
     if (channel.workspaceId === null) return;
-    const member = await this.prisma.workspaceMember.findUnique({
-      where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
-      select: {
-        role: true,
-        memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
-      },
-    });
+    const member =
+      preloadedMember ??
+      (await this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
+        select: {
+          role: true,
+          memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
+        },
+      }));
     if (!member) return;
     // (2) 카탈로그 ADMINISTRATOR 보유 여부(보유 Role permissions 의 OR 에 비트 검사).
     const catalogMask = member.memberRoles.reduce(
@@ -323,7 +342,7 @@ export class ChannelAccessService {
           { principalType: 'ROLE', principalId: { in: rolePrincipalIds } },
         ],
       },
-      select: { id: true, denyMask: true },
+      select: { id: true },
     });
     if (!denyOverride) return;
     await this.audit.recordBestEffort({
@@ -331,7 +350,31 @@ export class ChannelAccessService {
       actorId: userId,
       channelId: channel.id,
       action: AuditAction.ADMINISTRATOR_CHANNEL_BYPASS,
-      details: { performedAction: action, deniedMask: denyOverride.denyMask.toString() },
+      // S62 fix-forward (security A-4 = MEDIUM-5): raw denyMask 비트맵을 details 에
+      // 싣지 않는다 — 향후 audit 조회 API 에서 채널 권한 비트맵이 역산되는 노출을
+      // 막는다. 우회 사실(denyExisted)과 수행 action 만 기록한다.
+      details: { performedAction: action, denyExisted: true },
+    });
+  }
+
+  /**
+   * S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): hot-path 가 멤버 권한 메타를
+   * 한 번만 로드하기 위한 헬퍼. send 컨트롤러가 호출해 결과를 auditAdministratorBypass /
+   * resolveMentionEveryone / requireAnnouncementPostingAllowed 에 재사용하면, 세 경로의
+   * 중복 `workspaceMember.findUnique` / `memberRole.findMany` 왕복이 제거된다. 멤버가
+   * 아니면 null(가드 체인이 이미 멤버십을 보장하므로 정상 경로에서는 non-null).
+   * DM 채널(workspaceId=null)은 호출부가 스킵한다.
+   */
+  async loadAdministratorBypassMember(
+    workspaceId: string,
+    userId: string,
+  ): Promise<AdministratorBypassMember | null> {
+    return this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId } },
+      select: {
+        role: true,
+        memberRoles: { select: { roleId: true, role: { select: { permissions: true } } } },
+      },
     });
   }
 
@@ -382,6 +425,9 @@ export class ChannelAccessService {
     // S61: 5단계 확장. OWNER/ADMIN 만 무조건 게시 허용이고 MODERATOR/MEMBER/GUEST
     // 는 채널 명시 ALLOW override 가 있어야 게시할 수 있다(기존 MEMBER 동작 유지).
     role: WorkspaceRole,
+    // S62 fix-forward (perf B-1): 호출부가 이미 로드한 멤버 Role UUID 목록을 넘기면
+    // 내부 `memberRole.findMany` 왕복을 생략한다(정확성 불변). 미지정 시 자체 조회.
+    preloadedRoleUuids?: string[],
   ): Promise<void> {
     if (channel.type !== 'ANNOUNCEMENT') return;
     // OWNER/ADMIN 은 항상 게시 가능.
@@ -394,7 +440,8 @@ export class ChannelAccessService {
     // ANNOUNCEMENT 채널은 워크스페이스 채널이라 workspaceId 는 non-null 이지만, 타입상
     // null 가능성을 닫는다(DM 은 ANNOUNCEMENT 가 될 수 없어 위에서 이미 return).
     const roleUuids =
-      channel.workspaceId === null ? [] : await this.memberRoleUuids(channel.workspaceId, userId);
+      preloadedRoleUuids ??
+      (channel.workspaceId === null ? [] : await this.memberRoleUuids(channel.workspaceId, userId));
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: {
         channelId: channel.id,
@@ -447,10 +494,14 @@ export class ChannelAccessService {
     channel: { id: string; workspaceId: string | null },
     userId: string,
     role: WorkspaceRole,
+    // S62 fix-forward (perf B-1): 호출부가 이미 로드한 멤버 Role UUID 목록을 넘기면
+    // 내부 `memberRole.findMany` 왕복을 생략한다(정확성 불변). 미지정 시 자체 조회.
+    preloadedRoleUuids?: string[],
   ): Promise<boolean> {
     if (channel.workspaceId === null) return false;
     // S62 (MED-3 / FR-RM03): 커스텀 Role UUID override 도 ROLE tier 로 반영한다.
-    const roleUuids = await this.memberRoleUuids(channel.workspaceId, userId);
+    const roleUuids =
+      preloadedRoleUuids ?? (await this.memberRoleUuids(channel.workspaceId, userId));
     const rolePrincipalIds = new Set<string>([role as string, ...roleUuids]);
     const overrides = await this.prisma.channelPermissionOverride.findMany({
       where: {

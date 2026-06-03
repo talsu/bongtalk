@@ -28,8 +28,13 @@ export class MemberRoleService {
    * S62 (FR-RM14): 한 멤버의 워크스페이스 내 모든 채널 권한 캐시를 DEL 한다. 역할
    * 부여/회수로 그 멤버의 유효 권한이 바뀌므로 즉시 무효화해 ≤300ms 반영을 보장한다.
    * best-effort(Redis 부재/실패 시 TTL≤5초 후 자기치유).
+   *
+   * S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): public 으로 노출한다 —
+   * 시스템 역할 enum 변경(MembersService.updateRole)과 소유권 이양
+   * (WorkspacesService.transferOwnership)도 멤버 유효 권한을 바꾸므로 같은
+   * 채널별 DEL 경로로 즉시 무효화해 강등/승격 후 stale 권한 행사를 막는다.
    */
-  private async invalidateMemberPermsCache(workspaceId: string, userId: string): Promise<void> {
+  async invalidateMemberPermsCache(workspaceId: string, userId: string): Promise<void> {
     if (!this.redis) return;
     try {
       const channels = await this.prisma.channel.findMany({
