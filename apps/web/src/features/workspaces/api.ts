@@ -1,11 +1,14 @@
 import { apiRequest } from '../../lib/api';
 import type {
   CreateInviteRequest,
+  CreateRoleRequest,
   CreateWorkspaceRequest,
   Invite,
   InvitePreview,
   ListMembersResponse,
   Member,
+  Role,
+  UpdateRoleRequest,
   UpdateWorkspaceRequest,
   Workspace,
   WorkspaceWithMyRole,
@@ -101,4 +104,35 @@ export function previewInvite(code: string): Promise<InvitePreview> {
 
 export function acceptInvite(code: string): Promise<{ workspace: Workspace }> {
   return apiRequest(`/invites/${code}/accept`, { method: 'POST' });
+}
+
+// ── S61 (D12 / FR-RM01·04·15): 역할 관리 ──────────────────────────────────────
+
+export function listRoles(id: string): Promise<Role[]> {
+  return apiRequest(`/workspaces/${id}/roles`);
+}
+
+export function createRole(id: string, input: CreateRoleRequest): Promise<Role> {
+  return apiRequest(`/workspaces/${id}/roles`, { method: 'POST', body: input });
+}
+
+export function updateRole(id: string, roleId: string, input: UpdateRoleRequest): Promise<Role> {
+  return apiRequest(`/workspaces/${id}/roles/${roleId}`, { method: 'PATCH', body: input });
+}
+
+export function deleteRole(id: string, roleId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/${roleId}`, { method: 'DELETE' });
+}
+
+export function assignRole(id: string, roleId: string, userId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/assign`, {
+    method: 'POST',
+    body: { roleId, userId },
+  });
+}
+
+export function revokeRole(id: string, targetUserId: string, roleId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/roles/assign/${targetUserId}/${roleId}`, {
+    method: 'DELETE',
+  });
 }

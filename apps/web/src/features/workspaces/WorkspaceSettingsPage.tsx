@@ -8,6 +8,8 @@ import {
 import { Button, SettingsOverlay } from '../../design-system/primitives';
 import { useUpdateWorkspace } from './useWorkspaces';
 import { WorkspaceEmojiManager } from '../emojis/WorkspaceEmojiManager';
+// S61 (D12 / FR-RM01): 역할 관리 본문(설정 오버레이 탭으로 인라인 렌더).
+import { RolesManager } from './roles/RolesModal';
 import { cn } from '../../lib/cn';
 
 /**
@@ -33,7 +35,8 @@ export function WorkspaceSettingsPage({
     visibility: WorkspaceVisibility;
     category: WorkspaceCategory | null;
   };
-  myRole: 'OWNER' | 'ADMIN' | 'MEMBER';
+  // S61: 시스템 역할 5단계 확장.
+  myRole: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
   workspaceSlug: string;
 }): JSX.Element {
   const navigate = useNavigate();
@@ -42,8 +45,11 @@ export function WorkspaceSettingsPage({
   // task-037-D: 이모지 관리 is OWNER/ADMIN (matches the API role gate).
   // MEMBER sees the General tab only.
   const canManageEmoji = myRole === 'OWNER' || myRole === 'ADMIN';
+  // S61 (FR-RM01): 역할 관리는 ADMIN+ 만 편집(MEMBER 는 탭 미노출). 편집 가능 여부는
+  // canManageRoles 로 RolesManager 에 전달하며, 서버 게이트(@Roles ADMIN)가 최종 권위.
+  const canManageRoles = myRole === 'OWNER' || myRole === 'ADMIN';
 
-  const [tab, setTab] = useState<'general' | 'emoji'>('general');
+  const [tab, setTab] = useState<'general' | 'emoji' | 'roles'>('general');
   const [visibility, setVisibility] = useState<WorkspaceVisibility>(workspace.visibility);
   const [category, setCategory] = useState<WorkspaceCategory | ''>(workspace.category ?? '');
   const [description, setDescription] = useState<string>(workspace.description ?? '');
@@ -125,9 +131,26 @@ export function WorkspaceSettingsPage({
               이모지 관리
             </button>
           ) : null}
+          {canManageRoles ? (
+            <button
+              type="button"
+              data-testid="ws-settings-tab-roles"
+              className={cn(
+                'px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-sm)] text-[length:var(--fs-13)]',
+                tab === 'roles'
+                  ? 'bg-bg-selected text-text-strong'
+                  : 'text-text-muted hover:text-text',
+              )}
+              onClick={() => setTab('roles')}
+            >
+              역할 관리
+            </button>
+          ) : null}
         </div>
 
-        {tab === 'emoji' && canManageEmoji ? (
+        {tab === 'roles' && canManageRoles ? (
+          <RolesManager workspaceId={workspace.id} canManage={canManageRoles} />
+        ) : tab === 'emoji' && canManageEmoji ? (
           <WorkspaceEmojiManager workspaceId={workspace.id} />
         ) : (
           <>
