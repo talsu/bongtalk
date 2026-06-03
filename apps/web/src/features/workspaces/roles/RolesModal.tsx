@@ -23,8 +23,10 @@ type Props = {
  * 재사용하고 string(ADR-11)으로 송수신한다. DS qf-* + Tailwind 토큰만 사용(raw hex 금지).
  * a11y: Dialog(role=dialog) · 키보드 포커스 가능한 토글/버튼 · aria-label.
  */
-export function RolesModal({ workspaceId, canManage, open, onClose }: Props): JSX.Element | null {
-  if (!open) return null;
+export function RolesModal({ workspaceId, canManage, open, onClose }: Props): JSX.Element {
+  // E S2 (SC 2.4.3): `if (!open) return null` 조기반환을 제거한다. Radix Dialog 가
+  // `open` prop 으로 마운트/언마운트 + 포커스 트랩 + 포커스 복원(닫힐 때 트리거로
+  // 되돌림)을 위임받게 해, 조기반환으로 인한 포커스 복원 누락을 막는다.
   return (
     <Dialog
       open={open}
@@ -237,7 +239,10 @@ function RoleEditor({
           id="role-name"
           data-testid="role-edit-name"
           value={name}
-          disabled={role.isSystem}
+          // E M3 (SC 2.4.6): 읽기 전용(권한 없음 OR 시스템 역할) 전체를 disabled 로
+          // 통일한다. 종전에는 시스템 역할만 막아, canManage=false(권한 없는) 사용자가
+          // 이름을 입력할 수 있는 것처럼 보였다.
+          disabled={readOnly}
           onChange={(e) => setName(e.target.value)}
           maxLength={64}
           className="qf-input !h-8 text-[length:var(--fs-13)]"
@@ -254,6 +259,10 @@ function RoleEditor({
             type="color"
             data-testid="role-edit-color"
             aria-label="역할 색상"
+            // 네이티브 <input type="color"> 의 value 는 리터럴 #RRGGBB 만 허용한다(CSS
+            // var 불가). "색상 없음"일 때 보여줄 중립 회색 기본값으로, DS 토큰으로
+            // 대체할 수 없는 플랫폼 제약이다.
+            // eslint-disable-next-line no-restricted-syntax -- native color input requires a literal hex fallback
             value={colorHex ?? '#99aab5'}
             disabled={readOnly}
             onChange={(e) => setColorHex(e.target.value)}
@@ -285,7 +294,8 @@ function RoleEditor({
         </div>
       </div>
 
-      <fieldset className="flex flex-col gap-[var(--s-1)]" aria-label="권한">
+      {/* E M1 (SC 1.3.1): legend 가 그룹 이름을 제공하므로 fieldset aria-label 제거(중복). */}
+      <fieldset className="flex flex-col gap-[var(--s-1)]">
         <legend className="text-[length:var(--fs-12)] text-text-muted">권한</legend>
         <div className="grid max-h-48 grid-cols-1 gap-[var(--s-1)] overflow-y-auto sm:grid-cols-2">
           {PERMISSION_CATALOG.map((p) => (
@@ -296,10 +306,13 @@ function RoleEditor({
             >
               <input
                 type="checkbox"
-                aria-label={p.label}
+                // E M2 (SC 1.3.1): wrapping label 의 텍스트가 접근 가능한 이름을
+                // 제공하므로 aria-label 제거(중복). title 은 설명 보조로 유지.
                 checked={isBitOn(permissions, p.bit)}
                 disabled={readOnly}
                 onChange={() => setPermissions((m) => toggleBit(m, p.bit))}
+                // ui-designer MINOR: 체크 표시 색을 DS accent 토큰에 맞춘다.
+                style={{ accentColor: 'var(--accent)' }}
               />
               <span title={p.description}>{p.label}</span>
             </label>
@@ -324,6 +337,7 @@ function RoleEditor({
                 </Button>
                 <button
                   type="button"
+                  aria-label="역할 삭제 취소"
                   className="text-[length:var(--fs-12)] text-text-muted"
                   onClick={() => setConfirmDelete(false)}
                 >

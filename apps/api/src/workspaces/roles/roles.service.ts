@@ -54,38 +54,45 @@ export class RolesService {
   /**
    * S61 (FR-RM01/04): 커스텀 역할 생성. ADMIN+ 게이트는 컨트롤러가 강제하고,
    * 여기서는 권한 상승 방어를 한다 — 부여 권한은 액터 최대 권한 이하로 제한.
+   *
+   * S61 fix-forward (security MED-1 · TOCTOU): 권한검사→DB 쓰기를 단일 트랜잭션 +
+   * 액터 MemberRole SELECT FOR UPDATE 로 감싸 update 경로와 일관되게 한다. 검사
+   * 시점과 쓰기 시점 사이에 액터의 역할이 강등되는 race 를 닫는다.
    */
   async create(
     workspaceId: string,
     actorUserId: string,
     body: CreateRoleRequest,
   ): Promise<RoleDto> {
-    const actorMax = await this.computeActorMaxPermissions(workspaceId, actorUserId);
     const requested = body.permissions ? deserializePermissions(body.permissions) : 0n;
-    this.assertGrantWithinActor(requested, actorMax);
-
-    // position 미지정 시 최상위 커스텀 역할 + 1(시스템 OWNER 500 미만 권장이나
-    // 사용자가 명시하지 않으면 기존 최댓값 위로 두지 않고 ADMIN(400) 아래 안전값).
-    const position = body.position ?? (await this.nextCustomPosition(workspaceId));
-    // 액터가 만들 수 있는 역할 position 은 액터 최고 position 이하여야 한다(FR-RM04).
-    const actorTop = await this.computeActorTopPosition(workspaceId, actorUserId);
-    if (position >= actorTop) {
-      throw new DomainError(
-        ErrorCode.ROLE_POSITION_TOO_HIGH,
-        'cannot create a role at or above your own highest role position',
-      );
-    }
 
     try {
-      const created = await this.prisma.role.create({
-        data: {
-          workspaceId,
-          name: body.name,
-          colorHex: body.colorHex ?? null,
-          position,
-          permissions: toStoragePermissions(requested),
-          isSystem: false,
-        },
+      const created = await this.prisma.$transaction(async (tx) => {
+        // 액터 MemberRole 행을 잠가 검사~쓰기 사이의 강등 race 를 직렬화(MED-1).
+        await tx.$queryRaw`SELECT "roleId" FROM "MemberRole" WHERE "workspaceId" = ${workspaceId}::uuid AND "userId" = ${actorUserId}::uuid FOR UPDATE`;
+        // SERIOUS-4: 액터 최대 권한 + 최고 position 을 단일 조회로 합산한다.
+        const actor = await this.computeActorContext(tx, workspaceId, actorUserId);
+        this.assertGrantWithinActor(requested, actor.maxPermissions);
+
+        // position 미지정 시 최상위 커스텀 역할 + 1(ADMIN 400 미만으로 캡).
+        const position = body.position ?? (await this.nextCustomPosition(tx, workspaceId));
+        // 액터가 만들 수 있는 역할 position 은 액터 최고 position 미만이어야 한다(FR-RM04).
+        if (position >= actor.topPosition) {
+          throw new DomainError(
+            ErrorCode.ROLE_POSITION_TOO_HIGH,
+            'cannot create a role at or above your own highest role position',
+          );
+        }
+        return tx.role.create({
+          data: {
+            workspaceId,
+            name: body.name,
+            colorHex: body.colorHex ?? null,
+            position,
+            permissions: toStoragePermissions(requested),
+            isSystem: false,
+          },
+        });
       });
       return toRoleDto(created);
     } catch (err) {
@@ -104,7 +111,9 @@ export class RolesService {
     body: UpdateRoleRequest,
   ): Promise<RoleDto> {
     const role = await this.findRoleOrThrow(workspaceId, roleId);
-    const actorTop = await this.computeActorTopPosition(workspaceId, actorUserId);
+    // SERIOUS-4: 액터 최고 position + 최대 권한을 단일 조회로 합산(중복 findMany 제거).
+    const actor = await this.computeActorContext(this.prisma, workspaceId, actorUserId);
+    const actorTop = actor.topPosition;
 
     // FR-RM04: 자신 이상 position 역할은 수정 불가(OWNER 면제는 actorTop 가 최상위라 통과).
     if (role.position >= actorTop) {
@@ -128,8 +137,7 @@ export class RolesService {
     if (body.colorHex !== undefined) data.colorHex = body.colorHex;
     if (body.permissions !== undefined) {
       const requested = deserializePermissions(body.permissions);
-      const actorMax = await this.computeActorMaxPermissions(workspaceId, actorUserId);
-      this.assertGrantWithinActor(requested, actorMax);
+      this.assertGrantWithinActor(requested, actor.maxPermissions);
       // 시스템 역할 permissions 변경 금지(OWNER=ADMINISTRATOR 고정 등 무결성).
       if (role.isSystem) {
         throw new DomainError(
@@ -175,7 +183,11 @@ export class RolesService {
     if (role.isSystem) {
       throw new DomainError(ErrorCode.ROLE_SYSTEM_IMMUTABLE, 'system role cannot be deleted');
     }
-    const actorTop = await this.computeActorTopPosition(workspaceId, actorUserId);
+    const { topPosition: actorTop } = await this.computeActorContext(
+      this.prisma,
+      workspaceId,
+      actorUserId,
+    );
     if (role.position >= actorTop) {
       throw new DomainError(
         ErrorCode.ROLE_POSITION_TOO_HIGH,
@@ -224,40 +236,41 @@ export class RolesService {
   }
 
   /**
-   * 액터가 보유한 모든 역할 permissions 의 OR(부호 없는 논리값). 권한 상승 방어의
-   * "부여 가능 최대 권한" 기준이다. ADMINISTRATOR 보유 시 모든 비트 부여 가능.
+   * S61 fix-forward (perf SERIOUS-4): 액터의 최대 권한(OR)과 최고 position 을 단일
+   * MemberRole 조회로 함께 계산한다. 종전에는 computeActorMaxPermissions 와
+   * computeActorTopPosition 이 동일 where 절로 두 번 findMany 했다.
+   *
+   * - maxPermissions: 보유 역할 permissions 의 OR(부호 없는 논리값). 권한 상승 방어의
+   *   "부여 가능 최대 권한" 기준. ADMINISTRATOR 보유 시 모든 비트 부여 가능.
+   * - topPosition: 보유 역할 중 최고 position(없으면 0).
+   *
+   * client 인자로 PrismaService 또는 트랜잭션 클라이언트를 받아, create 의 FOR UPDATE
+   * 트랜잭션 안에서도 같은 잠금 컨텍스트로 읽도록 한다(MED-1).
    */
-  private async computeActorMaxPermissions(
+  private async computeActorContext(
+    client: Prisma.TransactionClient | PrismaService,
     workspaceId: string,
     actorUserId: string,
-  ): Promise<bigint> {
-    const roles = await this.prisma.memberRole.findMany({
+  ): Promise<{ maxPermissions: bigint; topPosition: number }> {
+    const roles = await client.memberRole.findMany({
       where: { workspaceId, userId: actorUserId },
-      select: { role: { select: { permissions: true } } },
+      select: { role: { select: { permissions: true, position: true } } },
     });
-    let mask = 0n;
+    let maxPermissions = 0n;
+    let topPosition = 0;
     for (const r of roles) {
-      mask |= fromStoragePermissions(r.role.permissions);
+      maxPermissions |= fromStoragePermissions(r.role.permissions);
+      if (r.role.position > topPosition) topPosition = r.role.position;
     }
-    return mask;
-  }
-
-  /** 액터가 보유한 역할 중 최고 position(없으면 -Infinity 방지로 0). */
-  private async computeActorTopPosition(workspaceId: string, actorUserId: string): Promise<number> {
-    const roles = await this.prisma.memberRole.findMany({
-      where: { workspaceId, userId: actorUserId },
-      select: { role: { select: { position: true } } },
-    });
-    let top = 0;
-    for (const r of roles) {
-      if (r.role.position > top) top = r.role.position;
-    }
-    return top;
+    return { maxPermissions, topPosition };
   }
 
   /** 커스텀 역할 기본 position(현재 최댓값 + 1, 단 ADMIN(400) 미만으로 캡). */
-  private async nextCustomPosition(workspaceId: string): Promise<number> {
-    const top = await this.prisma.role.findFirst({
+  private async nextCustomPosition(
+    client: Prisma.TransactionClient | PrismaService,
+    workspaceId: string,
+  ): Promise<number> {
+    const top = await client.role.findFirst({
       where: { workspaceId, isSystem: false },
       orderBy: { position: 'desc' },
       select: { position: true },

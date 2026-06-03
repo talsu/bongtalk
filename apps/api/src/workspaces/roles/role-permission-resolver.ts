@@ -54,6 +54,13 @@ export interface ResolveChannelPermissionsInput {
 /**
  * S61 (FR-RM03): 채널 유효 권한 마스크(BigInt)를 5단계로 계산한다.
  * ADMINISTRATOR 보유 시 즉시 전체 허용(overwrite 무시).
+ *
+ * @deprecated S61 시점 dead-but-intentional. 이 순수 함수는 의도적으로 어떤 집행
+ * 경로(channel-access)에도 아직 연결되지 않았다(사용자 결정 B — 집행 배선은 S62).
+ * 본 PR 에서는 PRD 정합(④단계 역할 tier 누적-후-일괄)만 맞춰 두고, 실제 권한 검사
+ * 배선은 S62 에서 한다. reviewer/security 가 dead code 로 지적할 수 있으나 제거하지
+ * 말 것 — S62 가 이 함수를 그대로 쓴다.
+ * TODO(S62): wire into channel-access enforcement (resolveChannelPermissions 연결).
  */
 export function resolveChannelPermissions(input: ResolveChannelPermissionsInput): bigint {
   // ① @everyone 기본 + ② 역할 OR 합산.
@@ -75,21 +82,26 @@ export function resolveChannelPermissions(input: ResolveChannelPermissionsInput)
     mask = applyOverwrite(mask, input.everyoneOverwrite);
   }
 
-  // ④ 역할 overwrite — 보유 역할 중 override 가 있는 것을, position 오름차순(낮은
-  //    역할 먼저 → 높은 역할이 나중에 적용돼 우선)으로 적용. PRD "position 오름차순".
-  const sorted = [...input.memberRoles].sort((a, b) => a.position - b.position);
+  // ④ 역할 overwrite — PRD 정본(S61 fix-forward MAJOR-1): 보유 역할들의 ROLE
+  //    override 를 **역할 tier 하나**로 본다. 모든 deny 를 OR 로 누적하고 모든 allow
+  //    를 OR 로 누적한 뒤, deny 를 먼저 빼고 allow 를 한 번에 더한다(tier 내 allow
+  //    우선). 종전 구현은 각 역할 (deny→allow)를 position 순서대로 순차 적용해 "상위
+  //    역할 deny 가 하위 역할 allow 를 덮지 못한다"는 PRD 불변식을 깰 수 있었다(예:
+  //    상위 역할이 deny 한 비트를 하위 역할 allow 가 마지막에 살림). 누적-후-일괄
+  //    적용으로 교정해, 역할 tier 안에서는 어느 역할이 allow 하면 그 비트가 유지된다.
+  //    (집행 미연결이라 런타임 영향 0 — S62 배선 대비 정합만 맞춘다.)
   const roleOverwrites = input.roleOverwrites;
   if (roleOverwrites && roleOverwrites.size > 0) {
-    // Discord 모델: 역할 overwrite 는 모든 deny 를 먼저 누적해 빼고 모든 allow 를
-    // 누적해 더한다(역할 tier 내부에서 deny 가 allow 를 이기지 않도록 position
-    // 순서대로 단계 적용). 여기서는 position 오름차순으로 각 역할 (deny→allow)를
-    // 순차 적용해 상위 역할 allow 가 하위 역할 deny 를 덮을 수 있게 한다.
-    for (const r of sorted) {
+    let tierAllow = 0n;
+    let tierDeny = 0n;
+    for (const r of input.memberRoles) {
       const ow = roleOverwrites.get(r.id);
       if (ow) {
-        mask = applyOverwrite(mask, ow);
+        tierDeny |= ow.deny;
+        tierAllow |= ow.allow;
       }
     }
+    mask = applyOverwrite(mask, { allow: tierAllow, deny: tierDeny });
   }
 
   // ⑤ 멤버 개별 overwrite — 최우선(가장 마지막 적용).
@@ -110,6 +122,10 @@ function applyOverwrite(mask: bigint, ow: ResolverOverwrite): bigint {
 /**
  * S61: 보유 역할들의 "유효 워크스페이스 권한"(채널 overwrite 이전, base) 을 계산한다.
  * 워크스페이스 레벨 권한 검사(MANAGE_ROLES, KICK 등 채널 무관 권한)에 쓴다.
+ *
+ * @deprecated S61 시점 dead-but-intentional(집행 미연결). 사용자 결정 B 로 집행
+ * 배선은 S62. 제거하지 말 것.
+ * TODO(S62): wire into workspace-level permission enforcement.
  */
 export function resolveWorkspacePermissions(
   everyone: ResolverRole,

@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { PERMISSIONS, combine } from './permissions';
+import { ALL_PERMISSIONS, PERMISSIONS, combine } from './permissions';
 
 /**
  * S61 (D12 / FR-RM01·02): 커스텀 Role 시스템 단일 출처(shared-types).
@@ -101,12 +101,21 @@ export const RoleNameSchema = z
 
 /**
  * S61 (ADR-11): permissions BigInt 는 응답에서 string 으로 직렬화됩니다. 요청에서도
- * string 으로 받아 서비스 레이어가 deserializePermissions 로 BigInt 변환·범위
- * 검증합니다. 음수/leading-zero/garbage 비트는 거기서 거부됩니다.
+ * string 으로 받아 서비스 레이어가 deserializePermissions 로 BigInt 변환합니다.
+ *
+ * S61 fix-forward (reviewer BLOCKER-3): 범위 밖 비트(ALL_PERMISSIONS 마스크 초과)는
+ * 이 Zod 스키마에서 미리 거부합니다. 종전에는 deserializePermissions 의 RangeError 가
+ * 서비스 레이어에서 처리되지 않아 500 으로 새어 나갔습니다. 이제 양의 정수 형식 +
+ * ALL_PERMISSIONS 범위를 함께 검증해, 위반 시 컨트롤러 safeParse 가 422(VALIDATION_FAILED)
+ * 로 매핑합니다. 음수/leading-zero/garbage 비트는 regex 에서, 미정의 비트는 refine 에서
+ * 차단됩니다.
  */
 export const PermissionsBitfieldSchema = z
   .string()
-  .regex(/^(0|[1-9]\d*)$/, 'permissions must be a non-negative integer string');
+  .regex(/^(0|[1-9]\d*)$/, 'permissions must be a non-negative integer string')
+  .refine((v) => (BigInt(v) & ~ALL_PERMISSIONS) === 0n, {
+    message: 'permissions contains bits outside the defined permission catalog',
+  });
 
 /** S61 (FR-RM01): Role 응답 DTO. permissions 는 string(BigInt as string · ADR-11). */
 export const RoleSchema = z.object({
@@ -123,12 +132,21 @@ export const RoleSchema = z.object({
 });
 export type Role = z.infer<typeof RoleSchema>;
 
-/** S61 (FR-RM01): 커스텀 역할 생성 바디(ADMIN+). position 미지정 시 서버가 결정. */
+/**
+ * S61 (FR-RM01): 커스텀 역할 생성 바디(ADMIN+). position 미지정 시 서버가 결정.
+ *
+ * S61 fix-forward (security HIGH-2): position 은 [0, 499] 정수만 허용합니다. 종전에는
+ * 음수/거대값이 Zod 를 통과해 서비스 레이어의 position 비교(actorTop 등)에 흘러
+ * 들어갔습니다. 시스템 OWNER position 은 500 으로 고정이므로 커스텀 역할은 항상 그
+ * 미만(≤499)이어야 합니다.
+ */
+export const ROLE_POSITION_MIN = 0;
+export const ROLE_POSITION_MAX = 499;
 export const CreateRoleRequestSchema = z.object({
   name: RoleNameSchema,
   colorHex: ColorHexSchema.nullable().optional(),
   permissions: PermissionsBitfieldSchema.optional(),
-  position: z.number().int().optional(),
+  position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
 });
 export type CreateRoleRequest = z.infer<typeof CreateRoleRequestSchema>;
 
@@ -141,7 +159,8 @@ export const UpdateRoleRequestSchema = z
     name: RoleNameSchema.optional(),
     colorHex: ColorHexSchema.nullable().optional(),
     permissions: PermissionsBitfieldSchema.optional(),
-    position: z.number().int().optional(),
+    // S61 fix-forward (security HIGH-2): [0, 499] 정수만(시스템 OWNER 500 미만).
+    position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
   })
   .refine(
     (d) =>

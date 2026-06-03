@@ -19,7 +19,11 @@ import {
   updateRole,
   updateWorkspace,
 } from './api';
-import type { CreateRoleRequest, UpdateRoleRequest } from '@qufox/shared-types';
+import type {
+  CreateRoleRequest,
+  UpdateMemberRoleRequest,
+  UpdateRoleRequest,
+} from '@qufox/shared-types';
 import { qk } from '../../lib/query-keys';
 
 /**
@@ -138,7 +142,9 @@ export function useUpdateWorkspace(id: string) {
 export function useUpdateRole(id: string) {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, role }: { userId: string; role: 'ADMIN' | 'MEMBER' }) =>
+    // S61 fix-forward (contract): 5단계 시스템 역할(OWNER 제외) 배정 — shared-types
+    // UpdateMemberRoleRequest['role'] 로 묶어 MODERATOR/GUEST 도 배정 가능.
+    mutationFn: ({ userId, role }: { userId: string; role: UpdateMemberRoleRequest['role'] }) =>
       updateMemberRole(id, userId, role),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.members(id) });

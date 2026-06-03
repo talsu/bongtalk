@@ -104,6 +104,36 @@ describe('S61 RolesService — privilege escalation + system protection', () => 
     );
   });
 
+  // S61 fix-forward (security MED-1 · TOCTOU): create 는 트랜잭션 + 액터 MemberRole
+  // SELECT FOR UPDATE 안에서 권한검사~쓰기를 직렬화한다(update 패턴과 일관).
+  it('MED-1: create runs inside a transaction and locks the actor MemberRole (FOR UPDATE)', async () => {
+    const { svc, prisma } = makeService();
+    (prisma.role.create as ReturnType<typeof vi.fn>).mockResolvedValue({
+      id: 'new-role',
+      workspaceId: WS,
+      name: 'helper',
+      colorHex: null,
+      position: 1,
+      permissions: toStoragePermissions(PERMISSIONS.SEND_MESSAGES),
+      isSystem: false,
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-01T00:00:00Z'),
+    });
+    await svc.create(WS, ACTOR, {
+      name: 'helper',
+      permissions: serializePermissions(PERMISSIONS.SEND_MESSAGES),
+      position: 1,
+    });
+    // 트랜잭션이 한 번 열렸고, 그 안에서 MemberRole 행 FOR UPDATE 잠금 쿼리가 나갔다.
+    expect((prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls.length).toBeGreaterThan(0);
+    const queryRawCalls = (prisma.$queryRaw as ReturnType<typeof vi.fn>).mock.calls;
+    const lockedMemberRole = queryRawCalls.some((c) => {
+      const sql = Array.isArray(c[0]) ? c[0].join(' ') : String(c[0]);
+      return /MemberRole/i.test(sql) && /FOR UPDATE/i.test(sql);
+    });
+    expect(lockedMemberRole).toBe(true);
+  });
+
   it('FR-RM01: system role name/position is immutable', async () => {
     const { svc, prisma } = makeService();
     (prisma.role.findFirst as ReturnType<typeof vi.fn>).mockResolvedValue({

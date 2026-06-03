@@ -22,6 +22,7 @@ import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
 import { WorkspaceRoleGuard } from '../guards/workspace-role.guard';
 import { CurrentMember, CurrentMemberPayload } from '../decorators/current-member.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
+import { RateLimitService } from '../../auth/services/rate-limit.service';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 
@@ -37,7 +38,17 @@ export class RolesController {
   constructor(
     private readonly roles: RolesService,
     private readonly memberRoles: MemberRoleService,
+    private readonly rateLimit: RateLimitService,
   ) {}
+
+  // S61 fix-forward (security HIGH-3): 역할 변경(생성/수정/삭제/배정/회수)에 per-
+  // workspace rate-limit 을 건다(invites.controller 패턴 참고). 워크스페이스 단위로
+  // 묶어 한 워크스페이스의 역할 폭주를 60초당 20회로 제한한다(읽기 GET 은 제외).
+  private async enforceMutateLimit(workspaceId: string): Promise<void> {
+    await this.rateLimit.enforce([
+      { key: `role:mutate:ws:${workspaceId}`, windowSec: 60, max: 20 },
+    ]);
+  }
 
   @Get()
   async list(
@@ -55,6 +66,7 @@ export class RolesController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
   ) {
+    await this.enforceMutateLimit(member.workspaceId);
     const parsed = CreateRoleRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -71,6 +83,7 @@ export class RolesController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
   ) {
+    await this.enforceMutateLimit(member.workspaceId);
     const parsed = UpdateRoleRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -87,6 +100,7 @@ export class RolesController {
     @CurrentMember() member: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
+    await this.enforceMutateLimit(member.workspaceId);
     await this.roles.remove(member.workspaceId, user.id, roleId);
   }
 
@@ -101,6 +115,7 @@ export class RolesController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
   ) {
+    await this.enforceMutateLimit(member.workspaceId);
     const parsed = AssignRoleRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -123,6 +138,7 @@ export class RolesController {
     @CurrentMember() member: CurrentMemberPayload,
     @CurrentUser() user: CurrentUserPayload,
   ) {
+    await this.enforceMutateLimit(member.workspaceId);
     await this.memberRoles.revoke(member.workspaceId, user.id, targetUserId, roleId);
   }
 }

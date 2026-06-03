@@ -45,7 +45,7 @@ describe('S61 channel permission 5-stage resolver', () => {
     expect(has(mask, PERMISSIONS.VIEW_CHANNEL)).toBe(true);
   });
 
-  it('④ higher-position role overwrite allow beats lower-position deny', () => {
+  it('④ role tier: any allow beats any deny (allow=OR · deny=OR · allow wins)', () => {
     const low = role('low', 0n, 100);
     const high = role('high', 0n, 200);
     const mask = resolveChannelPermissions({
@@ -56,7 +56,26 @@ describe('S61 channel permission 5-stage resolver', () => {
         ['high', { allow: PERMISSIONS.SEND_MESSAGES, deny: 0n }],
       ]),
     });
-    // position 오름차순 적용: low(deny) 먼저 → high(allow) 나중 → allow 우선.
+    // S61 fix-forward MAJOR-1: 역할 tier 는 모든 deny 를 OR, 모든 allow 를 OR 누적한 뒤
+    // (deny → allow) 일괄 적용한다. 따라서 어느 역할이든 allow 한 비트는 유지된다.
+    expect(has(mask, PERMISSIONS.SEND_MESSAGES)).toBe(true);
+  });
+
+  it('④ role tier: a HIGHER-position deny does NOT override a LOWER-position allow', () => {
+    // PRD 정본(MAJOR-1): 역할 tier 안에서는 position 과 무관하게 allow=OR 가 deny=OR 를
+    // 이긴다. 종전 순차 적용은 "상위 deny 가 나중에 적용돼 하위 allow 를 덮는" 경로가
+    // 있었으나(예: 상위 역할이 deny 한 비트), 누적-후-일괄 적용으로 그 경로를 닫는다.
+    const low = role('low', 0n, 100);
+    const high = role('high', 0n, 300);
+    const mask = resolveChannelPermissions({
+      everyone,
+      memberRoles: [low, high],
+      roleOverwrites: new Map([
+        ['low', { allow: PERMISSIONS.SEND_MESSAGES, deny: 0n }],
+        ['high', { allow: 0n, deny: PERMISSIONS.SEND_MESSAGES }],
+      ]),
+    });
+    // 상위(high) 역할이 deny 했지만 하위(low) 역할이 allow → tier allow=OR 가 살린다.
     expect(has(mask, PERMISSIONS.SEND_MESSAGES)).toBe(true);
   });
 

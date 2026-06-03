@@ -10,6 +10,13 @@
  *   DB(MemberRole 행 cascade 삭제 완료)로 이미 재계산되므로, 캐시 stale 여부와
  *   무관하게 SEND_MESSAGES 등은 즉시 정확해야 한다 — 권한 계산이 캐시 miss 시 DB
  *   를 읽고, 삭제 후 즉시 캐시 DEL 이 (배치라도) 뒤따르므로 stale window 가 닫힌다.
+ *
+ * ★ S61 시점 범위(사용자 결정 B): 현재 이 큐는 **무효화(write/DEL) 경로만** 배선돼
+ *   있다(roles.service.remove). 권한 **읽기/쓰기(perms:{channelId}:{roleId} GET/SET)**
+ *   경로는 집행 배선(resolveChannelPermissions ↔ channel-access)과 함께 S62 에서
+ *   붙인다. 그래서 perf SERIOUS-2/3/5(캐시 read/write·update 무효화·DEL 범위)도
+ *   집행 종속이라 본 PR 에서 미시정이다. 이 큐/키 규약은 그대로 유지할 것 —
+ *   TODO(S62): 권한 계산 캐시 read-through + update 시 무효화 배선.
  */
 export const ROLE_CACHE_QUEUE = 'role-cache';
 
