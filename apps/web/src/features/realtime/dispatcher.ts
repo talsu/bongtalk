@@ -12,6 +12,8 @@ import {
   ChannelPinRemovedPayloadSchema,
   AttachmentProcessingDonePayloadSchema,
   MessageEmbedUpdatedPayloadSchema,
+  MemberKickedPayloadSchema,
+  MemberBannedPayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
@@ -1202,6 +1204,49 @@ export function installRealtimeDispatcher(
       qc.invalidateQueries({ queryKey: qk.workspaces.list() });
     }
   });
+  // S63 (FR-RM05·06): kick(재가입 가능) / ban(영구 차단). 둘 다 멤버 목록 + 내
+  // 워크스페이스 목록을 갱신한다. 대상이 viewer 본인이면 안내 토스트를 띄운다 — 서버가
+  // 곧 소켓을 끊고(kickUserEverywhere) 클라가 재연결을 시도하지만, 비멤버라 워크스페이스
+  // 접근이 막힌다(REST 404). 워크스페이스 목록 갱신으로 떠난 워크스페이스가 사이드바에서
+  // 사라진다(리다이렉트는 라우터가 멤버십 상실을 감지해 처리).
+  const onKickOrBan = (env: { workspaceId?: string; userId?: string }, banned: boolean): void => {
+    if (!env.workspaceId) return;
+    qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
+    qc.invalidateQueries({ queryKey: qk.workspaces.list() });
+    if (banned) qc.invalidateQueries({ queryKey: ['workspaces', env.workspaceId, 'bans'] });
+    const viewer = ctx.viewerId();
+    if (viewer && env.userId === viewer) {
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: banned ? '워크스페이스에서 차단되었습니다' : '워크스페이스에서 퇴장되었습니다',
+        body: banned
+          ? '이 워크스페이스에 다시 참여할 수 없습니다.'
+          : '다시 초대받으면 재참여할 수 있습니다.',
+      });
+    }
+  };
+  on<{ workspaceId: string; userId: string }>('workspace.member.kicked', (env) =>
+    onKickOrBan(env, false),
+  );
+  on<{ workspaceId: string; userId: string }>('workspace.member.banned', (env) =>
+    onKickOrBan(env, true),
+  );
+  // S63 fix-forward (contract D-1 = BLOCKER/MAJOR): PRD 가 명시한 콜론 wire 이벤트
+  // member:kicked / member:banned. 서버 outbox→WS subscriber 가 dot(workspace.member.*)
+  // 을 콜론으로 변환해 워크스페이스 룸으로 추가 emit 한다(다른 멤버의 실시간 멤버 목록
+  // 갱신 + 차단 목록 갱신 · FR-RM05/06). 형태가 어긋난 페이로드는 신뢰경계 가드로 버린다
+  // (reaction:updated / mention:new 패턴). dot 핸들러와 같은 onKickOrBan 으로 수렴하며,
+  // 같은 캐시 무효화/토스트라 중복 수신해도 무해하다(멱등).
+  on<unknown>(WS_EVENTS.MEMBER_KICKED, (raw) => {
+    const parsed = MemberKickedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    onKickOrBan(parsed.data, false);
+  });
+  on<unknown>(WS_EVENTS.MEMBER_BANNED, (raw) => {
+    const parsed = MemberBannedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    onKickOrBan(parsed.data, true);
+  });
   on<{ workspaceId: string }>('workspace.role.changed', (env) => {
     if (env.workspaceId) {
       qc.invalidateQueries({ queryKey: qk.workspaces.detail(env.workspaceId) });
@@ -1405,6 +1450,14 @@ export const DISPATCHED_EVENTS = [
   'workspace.member.joined',
   'workspace.member.left',
   'workspace.member.removed',
+  // S63 (FR-RM05·06): kick(재가입 가능) / ban(영구 차단) 멤버 이벤트(dot — 본인 user 룸
+  // + 워크스페이스 룸 fanout).
+  'workspace.member.kicked',
+  'workspace.member.banned',
+  // S63 fix-forward (contract D-1): PRD 콜론 wire 이벤트(워크스페이스 룸 fanout — 다른
+  // 멤버의 멤버 목록/차단 목록 실시간 갱신).
+  WS_EVENTS.MEMBER_KICKED,
+  WS_EVENTS.MEMBER_BANNED,
   'workspace.role.changed',
   'presence.updated',
   'presence:update',

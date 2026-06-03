@@ -208,8 +208,10 @@ describe('S19 DM membership/owner/privacy (int)', () => {
       where: { channelId, principalType: 'USER', principalId: b.userId },
       select: { allowMask: true, denyMask: true, leftAt: true },
     });
-    expect(row?.allowMask).toBe(0);
-    expect(row?.denyMask).toBe(0);
+    // S63 fix-forward (G · BigInt 단언 드리프트): allowMask/denyMask 는 S61 이후 BigInt
+    // 컬럼이라 Prisma 가 0n 을 돌려준다. 종전 toBe(0) 는 `0n !== 0` 으로 실패했다 — 0n 으로 정렬.
+    expect(row?.allowMask).toBe(0n);
+    expect(row?.denyMask).toBe(0n);
     expect(row?.leftAt).not.toBeNull();
 
     // read-path 1: getGroupMembers — kicked b 제외.

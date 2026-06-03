@@ -40,10 +40,16 @@ describe('S61 system role definitions', () => {
     expect(has(SYSTEM_ROLE_PERMISSIONS.OWNER, PERMISSIONS.SEND_MESSAGES)).toBe(true);
   });
 
-  // 마이그레이션 backfill 의 하드코딩 값과 1:1 정합(보고서 표 참조).
-  it('matches the migration-seeded bitfield values', () => {
-    expect(SYSTEM_ROLE_PERMISSIONS.ADMIN).toBe(8191n); // 0x1FFF
-    expect(SYSTEM_ROLE_PERMISSIONS.MODERATOR).toBe(7423n); // 0x1CFF
+  // S63 fix-forward: KICK_MEMBERS(0x4000)·BAN_MEMBERS(0x8000)·TIMEOUT_MEMBERS(0x10000)
+  // 3개 모더레이션 비트가 ADMIN/MODERATOR 에 합류했다. S61 backfill 마이그레이션은
+  // 일회성 과거값(0x1FFF/0x1CFF)을 시드했고, 신규 워크스페이스는 갱신된
+  // SYSTEM_ROLE_PERMISSIONS 로 시드된다(기존 워크스페이스 권한 backfill 은 TODO).
+  it('matches the system-role bitfield values (S63 moderation bits added)', () => {
+    // 0x1FFF(8191) + KICK(16384) + BAN(32768) + TIMEOUT(65536) = 122879.
+    expect(SYSTEM_ROLE_PERMISSIONS.ADMIN).toBe(122879n);
+    // 0x1CFF(7423) + 16384 + 32768 + 65536 = 122111.
+    expect(SYSTEM_ROLE_PERMISSIONS.MODERATOR).toBe(122111n);
+    // MEMBER/GUEST 는 모더레이션 비트 없음(불변).
     expect(SYSTEM_ROLE_PERMISSIONS.MEMBER).toBe(3191n); // 0x0C77
     expect(SYSTEM_ROLE_PERMISSIONS.GUEST).toBe(39n); // 0x0027
   });
@@ -56,6 +62,22 @@ describe('S61 system role definitions', () => {
     // MODERATOR keeps message-management + slowmode bypass.
     expect(has(SYSTEM_ROLE_PERMISSIONS.MODERATOR, PERMISSIONS.MANAGE_MESSAGES)).toBe(true);
     expect(has(SYSTEM_ROLE_PERMISSIONS.MODERATOR, PERMISSIONS.BYPASS_SLOWMODE)).toBe(true);
+  });
+
+  // S63 (FR-RM05·06·07): MODERATOR/ADMIN 은 모더레이션 비트를 기본 보유; MEMBER/GUEST 는 없음.
+  it('ADMIN/MODERATOR have the S63 moderation bits; MEMBER/GUEST do not', () => {
+    for (const role of ['ADMIN', 'MODERATOR'] as const) {
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.KICK_MEMBERS)).toBe(true);
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.BAN_MEMBERS)).toBe(true);
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.TIMEOUT_MEMBERS)).toBe(true);
+    }
+    for (const role of ['MEMBER', 'GUEST'] as const) {
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.KICK_MEMBERS)).toBe(false);
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.BAN_MEMBERS)).toBe(false);
+      expect(has(SYSTEM_ROLE_PERMISSIONS[role], PERMISSIONS.TIMEOUT_MEMBERS)).toBe(false);
+    }
+    // OWNER(ADMINISTRATOR)는 모든 비트 통과.
+    expect(has(SYSTEM_ROLE_PERMISSIONS.OWNER, PERMISSIONS.KICK_MEMBERS)).toBe(true);
   });
 
   it('GUEST is read/post/react only — no attach', () => {

@@ -2,19 +2,26 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   acceptInvite,
   assignRole,
+  banMember,
   createInvite,
   createRole,
   createWorkspace,
   deleteRole,
   getWorkspace,
+  kickMember,
+  kickUndo,
   leaveWorkspace,
   listAllMembers,
+  listBans,
   listInvites,
   listMembers,
   listMyWorkspaces,
   listRoles,
   previewInvite,
   revokeRole,
+  timeoutMember,
+  unbanMember,
+  untimeoutMember,
   updateMemberRole,
   updateRole,
   updateWorkspace,
@@ -53,6 +60,8 @@ const keys = {
   invitePreview: (code: string) => ['invite', code, 'preview'] as const,
   // S61 (D12 / FR-RM01): 역할 목록 캐시 키.
   roles: (id: string) => ['workspaces', id, 'roles'] as const,
+  // S63 (D12 / FR-RM06): 차단 목록 캐시 키.
+  bans: (id: string) => ['workspaces', id, 'bans'] as const,
 };
 
 export function useMyWorkspaces() {
@@ -242,6 +251,95 @@ export function useLeaveWorkspace(id: string) {
     mutationFn: () => leaveWorkspace(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// ── S63 (D12 / FR-RM05·06·07): 모더레이션 hooks ───────────────────────────────
+
+/** FR-RM05: 멤버 강제 퇴장. 5초 Undo 토큰을 반환한다(호출부가 토스트로 노출). */
+export function useKickMember(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, reason }: { userId: string; reason?: string }) =>
+      kickMember(id, userId, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+/** FR-RM05: kick 5초 Undo(재가입). */
+export function useKickUndo(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, undoToken }: { userId: string; undoToken: string }) =>
+      kickUndo(id, userId, undoToken),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+/** FR-RM06: userId 영구 차단. */
+export function useBanMember(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ userId, reason }: { userId: string; reason?: string }) =>
+      banMember(id, userId, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+      qc.invalidateQueries({ queryKey: keys.bans(id) });
+    },
+  });
+}
+
+/** FR-RM06: 차단 해제. */
+export function useUnbanMember(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => unbanMember(id, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.bans(id) });
+    },
+  });
+}
+
+/** FR-RM06: 차단 목록(권한자). */
+export function useBans(id: string | undefined, enabled = true) {
+  return useQuery({
+    queryKey: keys.bans(id ?? ''),
+    queryFn: () => listBans(id!),
+    enabled: !!id && enabled,
+  });
+}
+
+/** FR-RM07: 멤버 임시 음소거. */
+export function useTimeoutMember(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      userId,
+      durationSeconds,
+      reason,
+    }: {
+      userId: string;
+      durationSeconds: number;
+      reason?: string;
+    }) => timeoutMember(id, userId, durationSeconds, reason),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+/** FR-RM07: 음소거 수동 해제. */
+export function useUntimeoutMember(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (userId: string) => untimeoutMember(id, userId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.members(id) });
     },
   });
 }

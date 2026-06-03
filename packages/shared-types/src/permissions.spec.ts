@@ -37,10 +37,24 @@ describe('permissions bit table (ADR-4)', () => {
     expect(PERMISSIONS.ADMINISTRATOR).toBe(1n << 63n);
   });
 
-  it('defines exactly 14 flags (13 overwrite + ADMINISTRATOR)', () => {
-    expect(Object.keys(PERMISSIONS)).toHaveLength(14);
+  // S63 (FR-RM05·06·07): KICK_MEMBERS(0x4000)·BAN_MEMBERS(0x8000)·
+  // TIMEOUT_MEMBERS(0x10000) 3개 워크스페이스 레벨 모더레이션 비트가 합류했다.
+  // 채널 overwrite 대상이 아니므로 CHANNEL_OVERWRITE_FLAGS 는 여전히 13개다.
+  it('defines exactly 17 flags (13 overwrite + 3 moderation + ADMINISTRATOR)', () => {
+    expect(Object.keys(PERMISSIONS)).toHaveLength(17);
     expect(CHANNEL_OVERWRITE_FLAGS).toHaveLength(13);
     expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('ADMINISTRATOR');
+    // S63: 모더레이션 비트는 채널 overwrite 대상이 아니다(워크스페이스 레벨 권한).
+    expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('KICK_MEMBERS');
+    expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('BAN_MEMBERS');
+    expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('TIMEOUT_MEMBERS');
+  });
+
+  // S63: 모더레이션 비트 값/배치 확정(13~62 빈 비트 중 14~16).
+  it('defines S63 moderation bits at 14/15/16', () => {
+    expect(PERMISSIONS.KICK_MEMBERS).toBe(1n << 14n);
+    expect(PERMISSIONS.BAN_MEMBERS).toBe(1n << 15n);
+    expect(PERMISSIONS.TIMEOUT_MEMBERS).toBe(1n << 16n);
   });
 
   it('all 13 overwrite bits are distinct and below bit 63', () => {

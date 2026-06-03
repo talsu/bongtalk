@@ -17,6 +17,10 @@ import { AttachmentUploadService } from '../../../src/attachments/attachment-upl
 import { UploadRateLimitService } from '../../../src/attachments/upload-rate-limit.service';
 import { ChannelAccessByIdGuard } from '../../../src/attachments/guards/channel-access-by-id.guard';
 import { ChannelAccessService } from '../../../src/channels/permission/channel-access.service';
+// S63 fix-forward (G · S62 fallout): ChannelAccessService 가 non-Optional AuditService 에
+// 의존(S62 추가)하므로 standalone test module 에도 AuditService provider 를 제공한다
+// (@Global AuditModule 은 AppModule 경유 시에만 자동 주입 — 커스텀 모듈은 직접 등록).
+import { AuditService } from '../../../src/common/audit/audit.service';
 import { NotifPreferencesService } from '../../../src/notifications/notif-preferences.service';
 import { UsersService } from '../../../src/users/users.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
@@ -91,6 +95,7 @@ describe('S54 attachment upload session (int)', () => {
         UploadRateLimitService,
         ChannelAccessByIdGuard,
         ChannelAccessService,
+        AuditService,
         NotifPreferencesService,
         UsersService,
         { provide: S3Service, useValue: s3Stub },
@@ -290,7 +295,13 @@ describe('S54 attachment upload session (int)', () => {
     );
     expect(res.attachmentIds).toHaveLength(1);
     const att = await prisma.attachment.findUnique({ where: { id: res.attachmentIds[0] } });
-    expect(att?.linkedAt).not.toBeNull();
+    // S63 fix-forward (G · S62 fallout): 이 단언은 S54 작성 당시 의미(targetChannelId
+    // complete → 즉시 linkedAt=now)를 따랐으나, S55 의 linkedAt 정합 수정으로 pre-link
+    // (messageId 없이 targetChannelId 만)은 linkedAt=null 이 됐다(SendMessage 가 메시지에
+    // 연결할 때 linkedAt 을 찍음). 종전엔 S62 의 ChannelAccessService AuditService DI 실패가
+    // 이 spec 전체를 module init 단계에서 죽여 단언이 평가되지 않아 드리프트가 가려졌다.
+    // DI 복원으로 단언이 살아나며 현 pre-link 의미(linkedAt=null)로 정렬한다.
+    expect(att?.linkedAt).toBeNull();
     expect(att?.altText).toBe('a cat');
     expect(att?.isSpoiler).toBe(true);
     expect(att?.processingStatus).toBe('READY');

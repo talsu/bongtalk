@@ -73,6 +73,17 @@ export const ErrorCodeSchema = z.enum([
   'ROLE_PRIVILEGE_ESCALATION',
   'ROLE_POSITION_TOO_HIGH',
   'ROLE_INVALID_PERMISSIONS',
+  // S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) 에러 코드.
+  // MODERATION_TARGET_HIGHER: 대상이 actor 보다 상위 position(403, 계층 방어).
+  // MODERATION_CANNOT_SELF: 자기 자신 대상(400). MEMBER_ALREADY_BANNED: 이미 차단(409).
+  // MEMBER_NOT_BANNED: unban 대상이 차단돼 있지 않음(404). MEMBER_TIMED_OUT: 음소거
+  // 중 메시지/반응/슬래시 시도(403). KICK_UNDO_INVALID: undo 토큰 만료/무효(409).
+  'MODERATION_TARGET_HIGHER',
+  'MODERATION_CANNOT_SELF',
+  'MEMBER_ALREADY_BANNED',
+  'MEMBER_NOT_BANNED',
+  'MEMBER_TIMED_OUT',
+  'KICK_UNDO_INVALID',
   'FRIEND_TARGET_NOT_FOUND',
   'FRIEND_CANNOT_SELF',
   'FRIEND_ALREADY',
@@ -207,6 +218,8 @@ export * from './auth';
 export * from './workspace';
 // S61 (D12 / FR-RM01·02): 커스텀 Role 시스템 스키마/DTO/시스템역할 정의.
 export * from './roles';
+// S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) 스키마·DTO·상수.
+export * from './moderation';
 export * from './channel';
 export * from './message';
 export * from './presence';

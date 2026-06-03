@@ -46,6 +46,8 @@ interface MemberRow {
   userId: string;
   role: WorkspaceRole;
   joinedAt: Date;
+  // S63 (FR-RM07): 모더레이션 타임아웃 만료 시각(또는 null). FE 배지용.
+  mutedUntil: Date | null;
   user: {
     id: string;
     email: string;
@@ -301,6 +303,12 @@ export class MembersService {
       },
       status,
       lastSeenAt: exposeLastSeen ? desensitiseToDay(row.user.lastSeenAt) : null,
+      // S63 (FR-RM07): 활성 타임아웃(mutedUntil>now)만 노출한다. 만료분은 lazy 하게
+      // null 로 마스킹해 FE 가 만료 배지를 잘못 그리지 않게 한다.
+      mutedUntil:
+        row.mutedUntil && row.mutedUntil.getTime() > now.getTime()
+          ? row.mutedUntil.toISOString()
+          : null,
     };
   }
 

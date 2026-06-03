@@ -15,6 +15,10 @@ import { PresenceModule } from '../realtime/presence/presence.module';
 import { RolesController } from './roles/roles.controller';
 import { RolesService } from './roles/roles.service';
 import { MemberRoleService } from './roles/member-role.service';
+// S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) REST + 도메인 서비스.
+// AuditService 는 @Global AuditModule 제공, Redis 는 @Global RedisModule 제공.
+import { ModerationController } from './moderation/moderation.controller';
+import { ModerationService } from './moderation/moderation.service';
 
 @Module({
   imports: [AuthModule, OutboxModule, PresenceModule],
@@ -24,8 +28,23 @@ import { MemberRoleService } from './roles/member-role.service';
     WorkspaceInvitesController,
     PublicInvitesController,
     RolesController,
+    ModerationController,
   ],
-  providers: [WorkspacesService, MembersService, InvitesService, RolesService, MemberRoleService],
-  exports: [WorkspacesService, MembersService, InvitesService, RolesService, MemberRoleService],
+  providers: [
+    WorkspacesService,
+    MembersService,
+    InvitesService,
+    RolesService,
+    MemberRoleService,
+    ModerationService,
+  ],
+  exports: [
+    WorkspacesService,
+    MembersService,
+    InvitesService,
+    RolesService,
+    MemberRoleService,
+    ModerationService,
+  ],
 })
 export class WorkspacesModule {}

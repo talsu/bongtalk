@@ -199,6 +199,12 @@ export type MemberStatusGroup = z.infer<typeof MemberStatusGroupSchema>;
 export const MemberWithPresenceSchema = MemberSchema.extend({
   status: MemberStatusGroupSchema,
   lastSeenAt: z.string().datetime().nullable(),
+  /**
+   * S63 (FR-RM07): 모더레이션 타임아웃 만료 시각(ISO UTC) 또는 null. 서버가 lazy
+   * 체크로 만료분(mutedUntil<=now)을 null 로 마스킹해 내려보내므로, 비-null 이면
+   * 항상 미래의 활성 음소거다. FE 는 이 값으로 멤버 목록에 음소거 배지를 그린다.
+   */
+  mutedUntil: z.string().datetime().nullable().optional(),
 });
 export type MemberWithPresence = z.infer<typeof MemberWithPresenceSchema>;
 

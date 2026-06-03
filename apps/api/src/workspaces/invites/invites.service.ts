@@ -14,6 +14,8 @@ import {
 } from '../events/workspace-events';
 // S61 fix-forward (security A-2): 초대 수락 가입 시 시스템 MemberRole 동기.
 import { syncMemberSystemRole } from '../roles/system-role-seed';
+// S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
+import { ModerationService } from '../moderation/moderation.service';
 
 function codeBytes(): number {
   const n = Number(process.env.INVITE_CODE_BYTES ?? 16);
@@ -29,6 +31,8 @@ export class InvitesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
+    // S63 (FR-RM06): 차단된 userId 의 초대 수락 재가입을 거부하기 위한 차단 조회.
+    private readonly moderation: ModerationService,
   ) {}
 
   async create(workspaceId: string, createdById: string, input: CreateInviteRequest) {
@@ -150,6 +154,13 @@ export class InvitesService {
         ErrorCode.WORKSPACE_ALREADY_MEMBER,
         'you are already a member of this workspace',
       );
+    }
+
+    // S63 (FR-RM06): 차단된 userId 는 초대를 받아도 재진입할 수 없다. CAS(usedCount
+    // 증가) 전에 검사해 차단 사용자가 초대 좌석을 소모하지 않게 한다(404 — 차단 사실을
+    // 누출하지 않도록 초대 미존재와 동일한 중립 코드로 거부).
+    if (await this.moderation.isBanned(existing.workspaceId, userId)) {
+      throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
     }
 
     const now = new Date();

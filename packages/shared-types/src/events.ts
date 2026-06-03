@@ -165,6 +165,17 @@ export const WS_EVENTS = {
   // 해당 메시지의 비-suppress embed 전체 스냅샷(idempotent replace)이다 — 클라이언트는
   // messages.list 캐시의 해당 messageId 행 embeds 를 통째로 교체한다.
   MESSAGE_EMBED_UPDATED: 'message:embed_updated',
+  // 멤버 강제 퇴장 / 영구 차단 (S63 · D12 · FR-RM05/06): OWNER/ADMIN/MODERATOR 가
+  // 멤버를 kick(재가입 가능) 또는 ban(영구 차단)하면 해당 워크스페이스 룸
+  // (workspace:{wsId}) 전체로 push 한다. 서버 내부 outbox eventType 은 dot 표기
+  // (workspace.member.kicked / workspace.member.banned)지만 outbox→WS subscriber 가 이
+  // 콜론 wire 이름으로 변환해 워크스페이스 룸에 emit 한다(message:embed_updated 선례).
+  // 다른 멤버는 이 이벤트로 멤버 목록 캐시를 무효화해 떠난 멤버를 즉시 제거하고,
+  // 대상 본인이면(payload.userId === viewer) 안내 토스트 + 멤버십 상실로 인한 리다이렉트가
+  // 라우터에서 처리된다(본인 소켓 disconnect 는 별도로 kickUserEverywhere 가 수행). ban 은
+  // 권한자 차단 목록 캐시도 함께 무효화한다.
+  MEMBER_KICKED: 'member:kicked',
+  MEMBER_BANNED: 'member:banned',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -866,6 +877,36 @@ export const MessageEmbedUpdatedPayloadSchema = z.object({
 });
 export type MessageEmbedUpdatedPayload = z.infer<typeof MessageEmbedUpdatedPayloadSchema>;
 
+// ── 멤버 모더레이션 (S63 · D12 · FR-RM05/06) ─────────────────────────────────
+/**
+ * member:kicked — 멤버 강제 퇴장 시 워크스페이스 룸(workspace:{wsId})으로 fanout
+ * (S63 · FR-RM05). 서버 내부 outbox eventType 은 dot 표기(workspace.member.kicked)
+ * 지만 outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해 워크스페이스 룸에 emit
+ * 한다. payload 는 라우팅·소비에 필요한 최소 식별자 — 워크스페이스 id + 퇴장된
+ * userId + 수행 주체 actorId 다. 다른 멤버는 멤버 목록 캐시를 무효화하고, 대상 본인은
+ * (userId === viewer) 안내 토스트 + 멤버십 상실 리다이렉트를 받는다(소켓 disconnect
+ * 자체는 kickUserEverywhere 가 별도로 수행). kicked 은 재가입 가능하다(BannedMember 미기록).
+ */
+export const MemberKickedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  userId: UserIdSchema,
+  actorId: z.string().min(1),
+});
+export type MemberKickedPayload = z.infer<typeof MemberKickedPayloadSchema>;
+
+/**
+ * member:banned — 멤버 영구 차단 시 워크스페이스 룸(workspace:{wsId})으로 fanout
+ * (S63 · FR-RM06). member:kicked 와 동일한 변환·라우팅 패턴이며 payload 형태도 동일
+ * (workspaceId + userId + actorId)하다. ban 은 재가입 불가(BannedMember INSERT)이며,
+ * 수신 클라는 멤버 목록에 더해 권한자 차단 목록 캐시도 무효화한다(BanListPanel 즉시 반영).
+ */
+export const MemberBannedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  userId: UserIdSchema,
+  actorId: z.string().min(1),
+});
+export type MemberBannedPayload = z.infer<typeof MemberBannedPayloadSchema>;
+
 /**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
@@ -913,4 +954,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.SAVED_UPDATED]: SavedUpdatedPayloadSchema,
   [WS_EVENTS.ATTACHMENT_PROCESSING_DONE]: AttachmentProcessingDonePayloadSchema,
   [WS_EVENTS.MESSAGE_EMBED_UPDATED]: MessageEmbedUpdatedPayloadSchema,
+  [WS_EVENTS.MEMBER_KICKED]: MemberKickedPayloadSchema,
+  [WS_EVENTS.MEMBER_BANNED]: MemberBannedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;
