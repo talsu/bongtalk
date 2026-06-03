@@ -55,7 +55,10 @@ function DesktopShell(): JSX.Element {
   // named "settings" switches the middle column from MessageColumn to
   // ChannelSettingsPage while keeping the left rail + channel list intact.
   const inChannelSettings = rest[1] === 'settings';
-  const settingsSection: 'general' = 'general';
+  // S62 (FR-RM14): /w/:slug/:channel/settings/permissions 는 권한 오버라이드 섹션.
+  // 알 수 없는 section 은 'general' 로 폴백한다.
+  const settingsSection: 'general' | 'permissions' =
+    rest[2] === 'permissions' ? 'permissions' : 'general';
   // S30 (FR-S03): 검색 결과 패널이 활성이면 우측 패널(멤버 목록)을 대체한다.
   const searchPanelQuery = useUI((s) => s.searchPanelQuery);
   const activityInboxOpen = useUI((s) => s.activityInboxOpen);

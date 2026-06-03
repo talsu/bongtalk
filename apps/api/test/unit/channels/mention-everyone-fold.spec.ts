@@ -21,10 +21,16 @@ type Override = {
 
 function makeService(overrides: Override[]): ChannelAccessService {
   const findMany = vi.fn().mockResolvedValue(overrides);
-  const prisma = { channelPermissionOverride: { findMany } } as unknown as ConstructorParameters<
-    typeof ChannelAccessService
-  >[0];
-  return new ChannelAccessService(prisma);
+  // S62: resolveMentionEveryone 가 memberRole.findMany(커스텀 Role UUID 조회)도
+  // 호출한다. 커스텀 Role 없는 멤버는 빈 배열을 반환한다(기존 동작 보존).
+  const prisma = {
+    channelPermissionOverride: { findMany },
+    memberRole: { findMany: vi.fn().mockResolvedValue([]) },
+  } as unknown as ConstructorParameters<typeof ChannelAccessService>[0];
+  const audit = {
+    recordBestEffort: vi.fn().mockResolvedValue(undefined),
+  } as unknown as ConstructorParameters<typeof ChannelAccessService>[1];
+  return new ChannelAccessService(prisma, audit);
 }
 
 const CH = { id: 'ch1', workspaceId: 'ws1' };

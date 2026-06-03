@@ -21,6 +21,8 @@ import { maskExpiredStatus } from '../../me/custom-status.service';
 import { MEMBER_LEFT, MEMBER_REMOVED, ROLE_CHANGED } from '../events/workspace-events';
 // S61 fix-forward (security A-2): 역할 변경 시 시스템 MemberRole 동기.
 import { syncMemberSystemRole } from '../roles/system-role-seed';
+// S62 fix-forward (security A-1): 시스템 역할 enum 변경 직후 권한 캐시 무효화.
+import { MemberRoleService } from '../roles/member-role.service';
 
 /** S27 (FR-P08): status group display order. */
 const STATUS_GROUP_ORDER: MemberStatusGroup[] = ['online', 'idle', 'dnd', 'offline'];
@@ -62,6 +64,10 @@ export class MembersService {
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
     private readonly presence: PresenceService,
+    // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 시스템 역할 enum 변경
+    // (MEMBER↔ADMIN 등)은 멤버 유효 권한을 바꾸므로 트랜잭션 직후 채널별 권한 캐시
+    // (perms:{channelId}:{userId})를 DEL 해 강등/승격 후 stale 권한 행사를 막는다.
+    private readonly memberRoles: MemberRoleService,
   ) {}
 
   /**
@@ -331,8 +337,8 @@ export class MembersService {
         'cannot modify a member of equal or higher rank',
       );
     }
-    return this.prisma.$transaction(async (tx) => {
-      const updated = await tx.workspaceMember.update({
+    const updated = await this.prisma.$transaction(async (tx) => {
+      const row = await tx.workspaceMember.update({
         where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
         // S61: nextRole 은 WorkspaceRole enum 의 부분집합(OWNER 제외)이라 그대로 매핑.
         data: { role: WorkspaceRole[nextRole] },
@@ -350,11 +356,17 @@ export class MembersService {
           userId: targetUserId,
           actorId,
           from: target.role,
-          to: updated.role,
+          to: row.role,
         },
       });
-      return updated;
+      return row;
     });
+    // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 강등/승격으로 멤버의 유효
+    // 채널 권한이 바뀌었으므로, 트랜잭션 커밋 직후 그 멤버의 채널별 권한 캐시를 DEL
+    // 한다. 이게 없으면 최대 TTL(5초)동안 stale 권한이 남아 강등 후 행동을 막지
+    // 못한다(보안 노출 창). best-effort.
+    await this.memberRoles.invalidateMemberPermsCache(workspaceId, targetUserId);
+    return updated;
   }
 
   async remove(workspaceId: string, actorId: string, actorRole: SharedRole, targetUserId: string) {

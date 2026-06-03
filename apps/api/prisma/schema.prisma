@@ -543,6 +543,8 @@ model Workspace {
   setting                 WorkspaceSetting?
   // S61 (D12 / FR-RM01): 워크스페이스의 역할 집합(시스템 5역할 + 커스텀). onDelete Cascade.
   roles                   Role[]
+  // S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그(append-only). onDelete Cascade.
+  auditLogs               AuditLog[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -785,6 +787,34 @@ model MemberRole {
   @@id([workspaceId, userId, roleId])
   @@index([roleId])
   @@index([workspaceId, userId])
+}
+
+// S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그. append-only(INSERT 전용 ·
+// common/audit/audit.service). S63 kick/ban/timeout 이 같은 테이블을 공유한다 —
+// `action` 은 enum 대신 넓은 String 으로 두어(예 ADMINISTRATOR_CHANNEL_BYPASS ·
+// MEMBER_KICK · MEMBER_BAN · MEMBER_TIMEOUT) 후속 슬라이스가 마이그레이션 없이
+// 새 action 을 추가할 수 있게 한다. details 는 임의 컨텍스트(Json·nullable).
+// onDelete Cascade: 워크스페이스 삭제 시 감사 로그도 함께 정리(데이터 잔존 방지).
+model AuditLog {
+  id          String   @id @default(uuid()) @db.Uuid
+  workspaceId String   @db.Uuid
+  // 행위 주체(액터) userId. 시스템 자동 기록도 항상 액터를 가진다(필수).
+  actorId     String   @db.Uuid
+  // 대상 엔티티(사용자/역할/메시지 등) id. action 에 따라 의미가 달라 nullable.
+  targetId    String?  @db.Uuid
+  // 관련 채널. 채널 무관 action(역할 변경 등)은 null.
+  channelId   String?  @db.Uuid
+  // 모더레이션/관리 액션 키(넓은 String enum — 마이그레이션 없이 확장).
+  action      String   @db.VarChar(64)
+  // 부가 컨텍스트(요구 권한·이전/이후 값 등). 없으면 null.
+  details     Json?
+  createdAt   DateTime @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@index([workspaceId, createdAt])
+  @@index([workspaceId, action, createdAt])
+  @@index([channelId, createdAt])
 }
 
 model Message {

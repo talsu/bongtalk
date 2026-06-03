@@ -107,6 +107,12 @@ export class ReactionsService {
    * 로 고유 이모지 종류가 MAX_REACTION_KINDS(20)를 초과하면 방금 삽입한 행을
    * DELETE 한 뒤 REACTION_LIMIT_REACHED(409)로 거부한다. advisory lock 미사용.
    *
+   * S62 (FR-RM16 확인): 위 카노니컬 패턴(단일 $transaction · 부모 Message FOR NO KEY
+   * UPDATE 직렬화 앵커 · ON CONFLICT DO NOTHING · COUNT(DISTINCT) 초과 시 DELETE+409 ·
+   * advisory lock 금지)이 D05(FR-RE02)에서 이미 구현돼 있어 S62 추가 변경이 불필요함을
+   * 확인했다. 에러코드는 REACTION_LIMIT_REACHED(스펙 표기 MAX_REACTIONS_REACHED 와 동일
+   * 의미 · 기존 ErrorCode 유지).
+   *
    * 어느 경로든 성공 시 message.reaction.updated outbox 1건을 발행한다(옵션 B —
    * subscriber 가 재집계 + users[5] enrichment 후 reaction:updated 로 fanout).
    */

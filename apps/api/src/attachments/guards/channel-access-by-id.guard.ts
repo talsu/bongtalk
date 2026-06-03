@@ -32,4 +32,17 @@ export class ChannelAccessByIdGuard {
   ): Promise<void> {
     await this.access.requirePermission(channel, userId, Permission.UPLOAD_ATTACHMENT);
   }
+
+  /**
+   * S62 fix-forward (security A-2 = HIGH-1 · FR-RM17): 첨부 업로드도 send/history 와
+   * 동일하게 ADMINISTRATOR 채널 우회 감사 대상이다. ChannelAccessService 로 위임만
+   * 한다(enforcement 불변 · best-effort 기록). requireUpload 직후 호출한다.
+   */
+  async auditAdministratorBypass(
+    channel: { id: string; workspaceId: string | null },
+    userId: string,
+    action: string,
+  ): Promise<void> {
+    await this.access.auditAdministratorBypass(channel, userId, action);
+  }
 }
