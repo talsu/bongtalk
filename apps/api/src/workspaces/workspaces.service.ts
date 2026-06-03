@@ -18,6 +18,8 @@ import {
   WORKSPACE_DELETED,
   WORKSPACE_RESTORED,
 } from './events/workspace-events';
+// S61 (D12 / FR-RM01): 워크스페이스 생성 시 시스템 5역할 + OWNER MemberRole 시드.
+import { seedSystemRoles, seedMemberSystemRole } from './roles/system-role-seed';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -59,6 +61,9 @@ export class WorkspacesService {
             },
           },
         });
+        // S61 (FR-RM01): 시스템 5역할 시드 + 생성자(OWNER) MemberRole 연결.
+        await seedSystemRoles(tx, workspace.id);
+        await seedMemberSystemRole(tx, workspace.id, userId, 'OWNER');
         await this.outbox.record(tx, {
           aggregateType: 'workspace',
           aggregateId: workspace.id,
