@@ -21,7 +21,13 @@ export enum Permission {
   MANAGE_MEMBERS = 0x0010,
   MANAGE_CHANNEL = 0x0020,
   UPLOAD_ATTACHMENT = 0x0040,
-  PIN_MESSAGE = 0x0080,
+  // S61 (D12 / 0x80 분리 — S44/S51 carryover 해소): 종전 PIN_MESSAGE=0x80 은
+  // 집행 경로 어디서도 검사되지 않는 dead bit 였고(핀 게이트는 Channel.memberCanPin
+  // 컬럼이 직접 담당), 카탈로그 MENTION_EVERYONE(0x80)과 비트 위치가 충돌했다.
+  // PIN_MESSAGE 를 폐기해 override mask 컬럼의 0x80 비트가 오직 카탈로그
+  // MENTION_EVERYONE(channel-access.service.resolveMentionEveryone)만을 의미하도록
+  // 분리한다. 채널 핀 권한은 Channel.memberCanPin(S51) 게이트가 유지한다.
+  // 0x0080 은 카탈로그 MENTION_EVERYONE 전용으로 예약(집행 enum 에서는 비워둠).
   // S15 (FR-CH-08): 슬로우모드 면제 비트. 보유자는 송신 경로의 slowmode
   // TTL 게이트를 우회한다(BYPASS_SLOWMODE). OWNER/ADMIN baseline 에 기본
   // 포함되며, 채널 override(USER/ROLE)로도 부여할 수 있다. shared-types 카탈로그의
@@ -31,7 +37,7 @@ export enum Permission {
   // 0x0200+ reserved for future voice / video channel types.
 }
 
-/** Convenience: every bit set. */
+/** Convenience: every bit set. S61: PIN_MESSAGE(0x80) 폐기 — 더 이상 포함하지 않는다. */
 export const ALL_PERMISSIONS =
   Permission.READ |
   Permission.WRITE_MESSAGE |
@@ -40,17 +46,21 @@ export const ALL_PERMISSIONS =
   Permission.MANAGE_MEMBERS |
   Permission.MANAGE_CHANNEL |
   Permission.UPLOAD_ATTACHMENT |
-  Permission.PIN_MESSAGE |
   Permission.BYPASS_SLOWMODE;
 
 /**
  * Workspace-role baseline. This is the mask every channel starts
- * with before its overrides apply. 002's role hierarchy is
- * OWNER > ADMIN > MEMBER; OWNER gets everything, ADMIN gets
- * almost everything except the management bits that only OWNER
- * should touch (OWNER is the only one who can promote ADMIN → OWNER
- * via transferOwnership — the MANAGE_MEMBERS bit here covers
- * role-change below OWNER).
+ * with before its overrides apply.
+ *
+ * S61 (D12 / FR-RM01): 시스템 역할이 3단계 → 5단계로 확장됨에 따라 MODERATOR /
+ * GUEST 의 집행 baseline 을 추가한다. 이 baseline 은 shared-types
+ * SYSTEM_ROLE_PERMISSIONS(ADR-4 카탈로그 BigInt) 와 의미적으로 정합하나, 집행
+ * 비트필드(이 enum)의 비트 위치로 표현한다(채널 ACL 게이트가 검사하는 비트만 의미).
+ *   - OWNER     : 모든 집행 비트(ALL_PERMISSIONS) + 매트릭스 레벨 OWNER 우회.
+ *   - ADMIN     : 관리 비트 전반 + 슬로우모드 면제(PIN_MESSAGE 폐기).
+ *   - MODERATOR : 메시지 삭제 권한 + 슬로우모드 면제(멤버/채널 관리는 제외).
+ *   - MEMBER    : 일반 참여(조회·전송·자기메시지삭제·첨부).
+ *   - GUEST     : 최소 참여(조회·전송) — 첨부/삭제 불가.
  */
 export const ROLE_BASELINE: Record<WorkspaceRole, number> = {
   OWNER: ALL_PERMISSIONS,
@@ -62,14 +72,21 @@ export const ROLE_BASELINE: Record<WorkspaceRole, number> = {
     Permission.MANAGE_MEMBERS |
     Permission.MANAGE_CHANNEL |
     Permission.UPLOAD_ATTACHMENT |
-    Permission.PIN_MESSAGE |
     // S15 (FR-CH-08): ADMIN 은 슬로우모드 면제. OWNER 는 ALL_PERMISSIONS 로 자동 포함.
+    Permission.BYPASS_SLOWMODE,
+  MODERATOR:
+    Permission.READ |
+    Permission.WRITE_MESSAGE |
+    Permission.DELETE_OWN_MESSAGE |
+    Permission.DELETE_ANY_MESSAGE |
+    Permission.UPLOAD_ATTACHMENT |
     Permission.BYPASS_SLOWMODE,
   MEMBER:
     Permission.READ |
     Permission.WRITE_MESSAGE |
     Permission.DELETE_OWN_MESSAGE |
     Permission.UPLOAD_ATTACHMENT,
+  GUEST: Permission.READ | Permission.WRITE_MESSAGE,
 };
 
 export interface ChannelOverride {

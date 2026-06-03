@@ -198,6 +198,8 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 export * from './auth';
 export * from './workspace';
+// S61 (D12 / FR-RM01·02): 커스텀 Role 시스템 스키마/DTO/시스템역할 정의.
+export * from './roles';
 export * from './channel';
 export * from './message';
 export * from './presence';

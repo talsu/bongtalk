@@ -301,7 +301,9 @@ export class MembersService {
     actorId: string,
     actorRole: SharedRole,
     targetUserId: string,
-    nextRole: 'ADMIN' | 'MEMBER',
+    // S61: 시스템 역할 5단계 확장 — OWNER 는 transfer-ownership 전용이므로
+    // 직접 배정 가능한 역할은 ADMIN/MODERATOR/MEMBER/GUEST 4종이다.
+    nextRole: 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
   ) {
     if (actorId === targetUserId) {
       throw new DomainError(
@@ -330,7 +332,8 @@ export class MembersService {
     return this.prisma.$transaction(async (tx) => {
       const updated = await tx.workspaceMember.update({
         where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-        data: { role: nextRole === 'ADMIN' ? WorkspaceRole.ADMIN : WorkspaceRole.MEMBER },
+        // S61: nextRole 은 WorkspaceRole enum 의 부분집합(OWNER 제외)이라 그대로 매핑.
+        data: { role: WorkspaceRole[nextRole] },
       });
       await this.outbox.record(tx, {
         aggregateType: 'member',

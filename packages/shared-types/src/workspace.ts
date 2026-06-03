@@ -1,13 +1,24 @@
 import { z } from 'zod';
 
-export const WorkspaceRoleSchema = z.enum(['OWNER', 'ADMIN', 'MEMBER']);
+// S61 (D12 / FR-RM01): 시스템 역할 계층을 3단계 → 5단계로 확장합니다
+// (OWNER > ADMIN > MODERATOR > MEMBER > GUEST). MODERATOR/GUEST 는 Prisma
+// WorkspaceRole enum 에도 신규 추가되며, 기존 row 는 backfill 영향 없습니다
+// (OWNER/ADMIN/MEMBER 값은 그대로 유지).
+export const WorkspaceRoleSchema = z.enum(['OWNER', 'ADMIN', 'MODERATOR', 'MEMBER', 'GUEST']);
 export type WorkspaceRole = z.infer<typeof WorkspaceRoleSchema>;
 
-/** Ranked so that guard logic can compare role seniority numerically. */
+/**
+ * Ranked so that guard logic can compare role seniority numerically.
+ * S61: 5단계로 확장. 값 자체는 비교에만 쓰이며 position(역할 서열)과는 별개다
+ * — position 은 Role 테이블의 정수 컬럼이고, 이 RANK 는 시스템 role guard 의
+ * 최소 등급 비교(@Roles(MIN))용 상수다.
+ */
 export const ROLE_RANK: Record<WorkspaceRole, number> = {
-  OWNER: 3,
-  ADMIN: 2,
-  MEMBER: 1,
+  OWNER: 5,
+  ADMIN: 4,
+  MODERATOR: 3,
+  MEMBER: 2,
+  GUEST: 1,
 };
 
 /** Slugs that route conflicts or admin surfaces would reserve. Keep in sync with server. */
@@ -257,10 +268,13 @@ export function isHoistedRole(role: WorkspaceRole): boolean {
   return HOISTED_ROLES.has(role);
 }
 
-export const UpdateRoleRequestSchema = z.object({
-  role: z.enum(['ADMIN', 'MEMBER']), // OWNER is not directly assignable; use transfer-ownership
+// S61: 커스텀 Role 의 UpdateRoleRequestSchema(roles.ts) 와 이름 충돌을 피하려
+// 멤버 시스템 역할 변경 바디는 UpdateMemberRoleRequestSchema 로 명명한다.
+// MODERATOR/GUEST 도 직접 배정 가능(OWNER 는 transfer-ownership 전용).
+export const UpdateMemberRoleRequestSchema = z.object({
+  role: z.enum(['ADMIN', 'MODERATOR', 'MEMBER', 'GUEST']),
 });
-export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequestSchema>;
+export type UpdateMemberRoleRequest = z.infer<typeof UpdateMemberRoleRequestSchema>;
 
 export const TransferOwnershipRequestSchema = z.object({
   toUserId: z.string().uuid(),

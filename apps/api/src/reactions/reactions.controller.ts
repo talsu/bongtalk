@@ -98,18 +98,20 @@ export class ReactionsController {
     const bit = Number(PERMISSIONS.ADD_REACTIONS); // 카탈로그 0x20
 
     // 프린시펄 그룹별 mask OR — USER/ROLE 분리(PermissionMatrix.effective 와 동일).
+    // S61: allow/denyMask 는 BigInt. ADD_REACTIONS(0x20) 검사는 number 도메인이므로
+    // Number 로 좁힌다(override 마스크는 ≤ enforcement 범위라 안전).
     const roleAllow = overrides
       .filter((o) => o.principalType === 'ROLE')
-      .reduce((m, o) => m | o.allowMask, 0);
+      .reduce((m, o) => m | Number(o.allowMask), 0);
     const roleDeny = overrides
       .filter((o) => o.principalType === 'ROLE')
-      .reduce((m, o) => m | o.denyMask, 0);
+      .reduce((m, o) => m | Number(o.denyMask), 0);
     const userAllow = overrides
       .filter((o) => o.principalType === 'USER')
-      .reduce((m, o) => m | o.allowMask, 0);
+      .reduce((m, o) => m | Number(o.allowMask), 0);
     const userDeny = overrides
       .filter((o) => o.principalType === 'USER')
-      .reduce((m, o) => m | o.denyMask, 0);
+      .reduce((m, o) => m | Number(o.denyMask), 0);
 
     // ADR-4 우선순위 fold — PermissionMatrix.fold 와 동일 의미(나중 = 우선).
     let allowed = true; // FR-RE07: 반응은 기본 허용

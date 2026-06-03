@@ -11,7 +11,7 @@ import {
   Query,
   UseGuards,
 } from '@nestjs/common';
-import { MEMBER_CURSOR_MAX_LENGTH, UpdateRoleRequestSchema } from '@qufox/shared-types';
+import { MEMBER_CURSOR_MAX_LENGTH, UpdateMemberRoleRequestSchema } from '@qufox/shared-types';
 import { MembersService } from './members.service';
 import { Roles } from '../decorators/roles.decorator';
 import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
@@ -62,7 +62,7 @@ export class MembersController {
     @CurrentMember() member: CurrentMemberPayload,
     @Body() body: unknown,
   ) {
-    const parsed = UpdateRoleRequestSchema.safeParse(body);
+    const parsed = UpdateMemberRoleRequestSchema.safeParse(body);
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }

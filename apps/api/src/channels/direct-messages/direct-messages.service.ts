@@ -24,6 +24,11 @@ const DM_ALLOW_MASK =
   Permission.DELETE_OWN_MESSAGE |
   Permission.UPLOAD_ATTACHMENT;
 
+// S61: ChannelPermissionOverride.allow/denyMask 가 Int → BigInt 로 전환됐다. DM
+// 멤버십 override 쓰기 시 Prisma 가 BigInt 입력을 요구하므로 BigInt 버전 상수를 둔다.
+// 값은 DM_ALLOW_MASK 와 동일(READ|WRITE|DELETE_OWN|UPLOAD), denyMask 는 0n.
+const DM_ALLOW_MASK_BIGINT = BigInt(DM_ALLOW_MASK);
+
 // S16 (FR-DM-02): 그룹 DM 구성원 상한 — 본인 포함 ≤20 (= 본인 외 2~19명).
 const GROUP_DM_MAX_TOTAL = 20;
 
@@ -351,8 +356,8 @@ export class DirectMessagesService {
               channelId: ch.id,
               principalType: 'USER',
               principalId: uid,
-              allowMask: DM_ALLOW_MASK,
-              denyMask: 0,
+              allowMask: DM_ALLOW_MASK_BIGINT,
+              denyMask: 0n,
               // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
               // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
               // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
@@ -437,8 +442,8 @@ export class DirectMessagesService {
               channelId: ch.id,
               principalType: 'USER',
               principalId: uid,
-              allowMask: DM_ALLOW_MASK,
-              denyMask: 0,
+              allowMask: DM_ALLOW_MASK_BIGINT,
+              denyMask: 0n,
               // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
               // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
               // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
@@ -663,7 +668,8 @@ export class DirectMessagesService {
       },
       select: { allowMask: true },
     });
-    if (!myOverride || (myOverride.allowMask & Permission.READ) === 0) {
+    // S61: allowMask 는 BigInt. READ(0x01) 비트 검사를 위해 number 로 좁힌다(안전범위).
+    if (!myOverride || (Number(myOverride.allowMask) & Permission.READ) === 0) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'group DM not found');
     }
     // 3) 모든 USER override → User.username/customStatus(+emoji/expiresAt) join.
@@ -894,8 +900,8 @@ export class DirectMessagesService {
               channelId: ch.id,
               principalType: 'USER',
               principalId: uid,
-              allowMask: DM_ALLOW_MASK,
-              denyMask: 0,
+              allowMask: DM_ALLOW_MASK_BIGINT,
+              denyMask: 0n,
               // S17 (FR-DM-17): DM 개설 시점을 가시성 하한선으로 박는다. 개설
               // 이전(=채널이 없던 시점)의 메시지는 존재할 수 없으므로 현재 동작에
               // 영향은 없으나, 숨겨진 DM 복원 시 visibleFrom 을 재세팅하는 경로의
@@ -966,7 +972,7 @@ export class DirectMessagesService {
   ): Promise<void> {
     await tx.channelPermissionOverride.updateMany({
       where: { channelId, principalType: 'USER', principalId: userId },
-      data: { allowMask: 0, denyMask: 0, leftAt: now },
+      data: { allowMask: 0n, denyMask: 0n, leftAt: now },
     });
   }
 
@@ -1053,16 +1059,16 @@ export class DirectMessagesService {
             channelId,
             principalType: 'USER',
             principalId: uid,
-            allowMask: DM_ALLOW_MASK,
-            denyMask: 0,
+            allowMask: DM_ALLOW_MASK_BIGINT,
+            denyMask: 0n,
             // 추가 시점을 가시성 하한선으로 — 추가 이전 히스토리 비가시(S17).
             visibleFrom: now,
             joinedAt: now,
             leftAt: null,
           },
           update: {
-            allowMask: DM_ALLOW_MASK,
-            denyMask: 0,
+            allowMask: DM_ALLOW_MASK_BIGINT,
+            denyMask: 0n,
             // 재진입: visibleFrom·joinedAt 재세팅, leftAt 해제.
             visibleFrom: now,
             joinedAt: now,
