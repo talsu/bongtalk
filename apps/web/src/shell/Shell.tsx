@@ -190,15 +190,32 @@ function WorkspaceSettingsOverlayHost({
     description: string | null;
     visibility: 'PUBLIC' | 'PRIVATE';
     category: string | null;
+    // S65 (FR-W19): 현재 기본 채널(셀렉트 초기값).
+    defaultChannelId?: string | null;
   };
   workspaceSlug: string;
 }): JSX.Element | null {
   const { user } = useAuth();
   const { data: members } = useMembers(workspace.id);
+  // S65 (FR-W13/W19): 소유권 양도 대상 + 기본 채널 후보를 설정 페이지로 넘긴다.
+  const { data: channels } = useChannelList(workspace.id);
   const myRole = (members?.members.find((m) => m.userId === user?.id)?.role ?? 'MEMBER') as
     | 'OWNER'
     | 'ADMIN'
     | 'MEMBER';
+  const memberOptions = useMemo(
+    () =>
+      (members?.members ?? [])
+        // 본인은 양도 대상에서 제외(서버도 자기 자신 양도를 거부).
+        .filter((m) => m.userId !== user?.id)
+        .map((m) => ({ userId: m.userId, username: m.user.username })),
+    [members, user?.id],
+  );
+  const channelOptions = useMemo(() => {
+    if (!channels) return [];
+    const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
+    return flat.map((c) => ({ id: c.id, name: c.name, isPrivate: c.isPrivate }));
+  }, [channels]);
   return (
     <WorkspaceSettingsPage
       workspace={{
@@ -207,9 +224,12 @@ function WorkspaceSettingsOverlayHost({
         description: workspace.description,
         visibility: workspace.visibility,
         category: workspace.category as never,
+        defaultChannelId: workspace.defaultChannelId ?? null,
       }}
       myRole={myRole}
       workspaceSlug={workspaceSlug}
+      members={memberOptions}
+      channels={channelOptions}
     />
   );
 }

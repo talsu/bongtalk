@@ -20,8 +20,10 @@ import {
   previewInvite,
   revokeRole,
   timeoutMember,
+  transferOwnership,
   unbanMember,
   untimeoutMember,
+  updateDefaultChannel,
   updateMemberRole,
   updateRole,
   updateWorkspace,
@@ -251,6 +253,34 @@ export function useLeaveWorkspace(id: string) {
     mutationFn: () => leaveWorkspace(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// S65 (D13 / FR-W13): 소유권 양도(비밀번호 재확인). 양도 후 내 역할(ADMIN)·소유자가
+// 바뀌므로 워크스페이스 상세 + 멤버 목록 캐시를 무효화한다.
+export function useTransferOwnership(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ toUserId, password }: { toUserId: string; password: string }) =>
+      transferOwnership(id, toUserId, password),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.one(id) });
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+      qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// S65 (D13 / FR-W19): 기본 채널 변경. 상세(defaultChannelId) + 채널 목록(isDefault
+// 토글)을 무효화한다.
+export function useUpdateDefaultChannel(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (defaultChannelId: string) => updateDefaultChannel(id, defaultChannelId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.one(id) });
+      qc.invalidateQueries({ queryKey: qk.channels.list(id) });
     },
   });
 }

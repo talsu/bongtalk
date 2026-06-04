@@ -7,6 +7,7 @@ import {
   CreateWorkspaceRequestSchema,
   WORKSPACE_CATEGORY_META,
   type WorkspaceCategory,
+  type WorkspaceJoinMode,
 } from '@qufox/shared-types';
 import { Button, Dialog, Input } from '../../design-system/primitives';
 import { useCreateWorkspace } from './useWorkspaces';
@@ -39,6 +40,11 @@ export function CreateWorkspaceDialog({
   const { mutateAsync, isPending } = useCreateWorkspace();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState(false);
+  // S65 (FR-W01): 가입 방식(visibility 와 직교) + 이메일 도메인 화이트리스트.
+  // joinMode 는 폼 상태로 직접 관리하고, emailDomains 는 콤마/공백 구분 텍스트를
+  // 제출 시 배열로 정규화한다(빈 입력 = 제한 없음).
+  const [joinMode, setJoinMode] = useState<WorkspaceJoinMode>('PRIVATE');
+  const [emailDomainsText, setEmailDomainsText] = useState('');
   const {
     register,
     handleSubmit,
@@ -50,10 +56,21 @@ export function CreateWorkspaceDialog({
 
   const onSubmit = handleSubmit(async (values) => {
     setServerError(null);
+    // S65 (FR-W01): 텍스트 → 도메인 배열. 콤마/공백/줄바꿈 구분, 소문자, 빈 토큰 제거.
+    const emailDomains = emailDomainsText
+      .split(/[\s,]+/)
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
     try {
-      const ws = await mutateAsync(values);
+      const ws = await mutateAsync({
+        ...values,
+        joinMode,
+        ...(emailDomains.length > 0 ? { emailDomains } : {}),
+      });
       reset();
       setIsPublic(false);
+      setJoinMode('PRIVATE');
+      setEmailDomainsText('');
       onOpenChange(false);
       navigate(`/w/${ws.slug}`);
     } catch (e) {
@@ -78,6 +95,8 @@ export function CreateWorkspaceDialog({
         if (!next) {
           reset();
           setIsPublic(false);
+          setJoinMode('PRIVATE');
+          setEmailDomainsText('');
           setServerError(null);
         }
         onOpenChange(next);
@@ -149,6 +168,43 @@ export function CreateWorkspaceDialog({
             onClick={() => togglePublic(!isPublic)}
             className="qf-switch"
           />
+        </div>
+
+        <div className="qf-field" data-testid="ws-join-mode-field">
+          <label className="qf-field__label" htmlFor="ws-join-mode">
+            가입 방식
+          </label>
+          <select
+            id="ws-join-mode"
+            data-testid="ws-join-mode"
+            className="qf-input"
+            value={joinMode}
+            onChange={(e) => setJoinMode(e.target.value as WorkspaceJoinMode)}
+          >
+            <option value="PRIVATE">초대 전용 (PRIVATE)</option>
+            <option value="PUBLIC">즉시 가입 (PUBLIC)</option>
+            <option value="APPLY">신청 후 승인 (APPLY)</option>
+          </select>
+          <p className="text-[length:var(--fs-12)] text-text-muted">
+            가입 방식은 공개 여부와 별개입니다.
+          </p>
+        </div>
+
+        <div className="qf-field" data-testid="ws-email-domains-field">
+          <label className="qf-field__label" htmlFor="ws-email-domains">
+            이메일 도메인 화이트리스트 <span className="text-text-muted">(선택)</span>
+          </label>
+          <Input
+            id="ws-email-domains"
+            data-testid="ws-email-domains"
+            type="text"
+            placeholder="example.com, corp.io"
+            value={emailDomainsText}
+            onChange={(e) => setEmailDomainsText(e.target.value)}
+          />
+          <p className="text-[length:var(--fs-12)] text-text-muted">
+            콤마 또는 공백으로 구분합니다. 비우면 제한이 없습니다.
+          </p>
         </div>
 
         {isPublic ? (
