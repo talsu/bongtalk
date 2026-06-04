@@ -73,17 +73,57 @@ export const WorkspaceJoinModeSchema = z.enum(['PRIVATE', 'PUBLIC', 'APPLY']);
 export type WorkspaceJoinMode = z.infer<typeof WorkspaceJoinModeSchema>;
 
 // S65 (D13 / FR-W01): 이메일 도메인 화이트리스트 1건의 형태(예: "example.com").
-// 소문자·도메인 형태만 허용한다. 빈 배열 = 제한 없음. 전체 상한 32건.
+// 도메인 형태만 허용한다. 빈 배열 = 제한 없음. 전체 상한 32건.
+//
+// S68 fix-forward (security LOW-3): 입력 대문자 도메인(`Acme.COM`)을 400 으로 튕기지 않고
+// 먼저 소문자로 정규화한 뒤 호스트 형태를 검증한다. 도메인은 대소문자 비구분이므로 사용자가
+// 대문자로 입력해도 마찰 없이 받아들이고, 서버 저장값은 항상 소문자 단일 형태가 된다.
 export const EmailDomainSchema = z
   .string()
   .min(3)
   .max(255)
-  .regex(
-    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
-    'email domain must be a lowercase host like example.com',
+  .transform((s) => s.trim().toLowerCase())
+  .pipe(
+    z
+      .string()
+      .regex(
+        /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+        'email domain must be a host like example.com',
+      ),
   );
 
 export const EMAIL_DOMAINS_MAX = 32;
+
+// S68 fix-forward (reviewer MN2 / security MEDIUM-2): 다중 레이블(TLD 수준) 도메인 경고
+// 판별을 FE(EmailDomainsPanel)·BE(pending-invite-tokens) 양쪽에서 중복 정의하던 것을
+// shared-types 단일 출처로 끌어올린다(contract 원칙 — 한쪽만 고쳐 드리프트하는 일 방지).
+//
+// `co.uk`/`com` 같은 너무 넓은 입력은 워크스페이스를 사실상 개방하므로 UI 가 경고 배너를
+// 띄울 수 있게 판별만 한다(정규식 제한은 하지 않음 — 안내용). 휴리스틱: 레이블 2개 이하
+// 또는 알려진 2단계 public-suffix.
+export const TWO_LEVEL_PUBLIC_SUFFIXES: ReadonlySet<string> = new Set([
+  'co.uk',
+  'co.kr',
+  'co.jp',
+  'com.au',
+  'com.br',
+  'co.nz',
+  'or.kr',
+  'ne.jp',
+  'co.in',
+  'com.cn',
+]);
+
+export function isOverlyBroadDomain(domain: string): boolean {
+  const d = domain.trim().toLowerCase();
+  if (d.length === 0) return false;
+  const labels = d.split('.');
+  if (labels.length <= 2) return true;
+  // 마지막 두 레이블이 알려진 2단계 public-suffix 면(예: example.co.uk 의 co.uk) 자체는
+  // 정상이지만, 입력값이 그 public-suffix 자체(`co.uk`)면 너무 넓다.
+  if (TWO_LEVEL_PUBLIC_SUFFIXES.has(d)) return true;
+  return false;
+}
 
 export const WorkspaceCategorySchema = z.enum([
   'PROGRAMMING',
@@ -148,6 +188,11 @@ export const UpdateWorkspaceRequestSchema = z.object({
   iconUrl: z.string().url().max(512).nullable().optional(),
   visibility: WorkspaceVisibilitySchema.optional(),
   category: WorkspaceCategorySchema.nullable().optional(),
+  // S68 (D13 / FR-W05 · Fork C): 이메일 도메인 화이트리스트 관리. 전용 엔드포인트 없이
+  // 기존 PATCH /workspaces/:id 로 확장한다. OWNER 전용 게이트는 서비스 레이어가 강제하며
+  // (visibility/category OWNER 게이트 선례 일관), 서버가 소문자 정규화 + 중복 제거해
+  // 저장한다. 빈 배열 = 제한 없음. 미지정(undefined)이면 변경 없음.
+  emailDomains: z.array(EmailDomainSchema).max(EMAIL_DOMAINS_MAX).optional(),
 });
 export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
 

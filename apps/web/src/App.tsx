@@ -29,6 +29,12 @@ const InviteAcceptPage = lazy(() =>
     default: m.InviteAcceptPage,
   })),
 );
+// S68 (D13 / FR-W04a): 이메일 직접 초대 수락 4분기 페이지.
+const EmailInviteAcceptPage = lazy(() =>
+  import('./features/workspaces/EmailInviteAcceptPage').then((m) => ({
+    default: m.EmailInviteAcceptPage,
+  })),
+);
 // S66 (D13 / FR-W05b): 이메일 인증 대기 화면 + 인증 링크 랜딩 페이지.
 const EmailVerificationGate = lazy(() =>
   import('./features/auth/EmailVerificationGate').then((m) => ({
@@ -119,8 +125,14 @@ const VERIFY_GATE_EXEMPT = new Set(['/login', '/signup', '/verify-email']);
 // 분기가 보호하므로 안전). prefix 매칭이 필요한 경로는 여기에 둔다.
 const VERIFY_GATE_EXEMPT_PREFIXES = ['/invite'];
 
+// S68 (FR-W04a): 이메일 직접 초대 수락 경로(/w/:slug/email-invite[/:token])도 게이트
+// 면제한다 — 미인증/신규 사용자가 초대 수락 흐름(가입 리다이렉트 포함)을 탈 수 있어야 하며,
+// 백엔드 진입 게이트 + 수락 403/410 분기가 보호하므로 안전하다.
+const EMAIL_INVITE_PATH_RE = /^\/w\/[^/]+\/email-invite(\/|$|\?)/;
+
 function isVerifyGateExempt(pathname: string): boolean {
   if (VERIFY_GATE_EXEMPT.has(pathname)) return true;
+  if (EMAIL_INVITE_PATH_RE.test(pathname)) return true;
   return VERIFY_GATE_EXEMPT_PREFIXES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
@@ -329,6 +341,12 @@ export default function App(): JSX.Element {
                         <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
                         <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
                         <Route path="/" element={<ProtectedShellRoute />} />
+                        {/* S68 (FR-W04a): 이메일 직접 초대 수락. rawToken 은 URL fragment
+                            (#token=…)로, opaque 자동수락은 쿼리(?opaque=…)로 들어온다. fragment
+                            는 서버/nginx 로 전송되지 않아 access 로그에 평문이 남지 않는다
+                            (security MEDIUM-1). path token segment 는 제거했다. /w/:slug/* 보다
+                            구체적이라 먼저 매칭된다(VerificationGate 면제 — 신규 사용자 랜딩). */}
+                        <Route path="/w/:slug/email-invite" element={<EmailInviteAcceptPage />} />
                         {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the

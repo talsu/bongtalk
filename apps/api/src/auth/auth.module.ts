@@ -49,6 +49,9 @@ import { UsersModule } from '../users/users.module';
     PasswordService,
     RateLimitService,
     EmailVerificationService,
+    // S68 (D13 / FR-W04 · Fork B): WorkspacesModule 의 PendingInvitesService 가 초대
+    // 메일 발송에 MailSender 를 주입하므로 토큰을 export 한다(ConsoleMailSender 단일 출처).
+    MAIL_SENDER,
     JwtModule,
   ],
 })

@@ -20,6 +20,10 @@ import { AuditLogPanel } from './moderation/AuditLogPanel';
 import { ReportQueuePanel } from './moderation/ReportQueuePanel';
 // S67 (D13 / FR-W02·W17): 초대 링크 관리 패널.
 import { InviteManagerPanel } from './InviteManagerPanel';
+// S68 (D13 / FR-W04·W05·W18): 이메일 직접 초대 + 도메인 화이트리스트 + 보류 초대 관리.
+import { EmailInvitePanel } from './EmailInvitePanel';
+import { PendingInvitePanel } from './PendingInvitePanel';
+import { EmailDomainsPanel } from './EmailDomainsPanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -50,6 +54,8 @@ export function WorkspaceSettingsPage({
     category: WorkspaceCategory | null;
     // S65 (FR-W19): 현재 기본 채널(셀렉트 초기값). 없으면 null.
     defaultChannelId?: string | null;
+    // S68 (FR-W05): 현재 이메일 도메인 화이트리스트(도메인 패널 초기값). 없으면 빈 배열.
+    emailDomains?: string[];
   };
   // S61: 시스템 역할 5단계 확장.
   myRole: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
@@ -73,8 +79,18 @@ export function WorkspaceSettingsPage({
   // S67 (FR-W02·W17): 초대 링크 관리는 MODERATOR 이상(서버 @Roles('MODERATOR') 권위).
   // MODERATOR 는 서버가 본인 생성분만 내려준다.
   const canManageInvites = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
+  // S68 (FR-W04·W18): 이메일 직접 초대 + 보류 초대 관리는 ADMIN 이상(서버 @Roles('ADMIN')
+  // 권위). 도메인 화이트리스트 편집은 OWNER 전용(EmailDomainsPanel.canEdit 가 게이트).
+  const canManageEmailInvites = myRole === 'OWNER' || myRole === 'ADMIN';
 
-  type TabKey = 'general' | 'invites' | 'emoji' | 'roles' | 'reports' | 'audit-log';
+  type TabKey =
+    | 'general'
+    | 'invites'
+    | 'email-invites'
+    | 'emoji'
+    | 'roles'
+    | 'reports'
+    | 'audit-log';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -85,6 +101,13 @@ export function WorkspaceSettingsPage({
     ];
     if (canManageInvites) {
       list.push({ key: 'invites', label: '초대 링크', testId: 'ws-settings-tab-invites' });
+    }
+    if (canManageEmailInvites) {
+      list.push({
+        key: 'email-invites',
+        label: '이메일 초대',
+        testId: 'ws-settings-tab-email-invites',
+      });
     }
     if (canManageEmoji) {
       list.push({ key: 'emoji', label: '이모지 관리', testId: 'ws-settings-tab-emoji' });
@@ -99,7 +122,14 @@ export function WorkspaceSettingsPage({
       list.push({ key: 'audit-log', label: '감사 로그', testId: 'ws-settings-tab-audit-log' });
     }
     return list;
-  }, [canManageInvites, canManageEmoji, canManageRoles, canModerateReports, canViewAuditLog]);
+  }, [
+    canManageInvites,
+    canManageEmailInvites,
+    canManageEmoji,
+    canManageRoles,
+    canModerateReports,
+    canViewAuditLog,
+  ]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
@@ -260,6 +290,26 @@ export function WorkspaceSettingsPage({
             tabIndex={0}
           >
             <InviteManagerPanel workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'email-invites' && canManageEmailInvites ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-email-invites"
+            aria-labelledby="ws-settings-tab-email-invites"
+            tabIndex={0}
+            className="flex flex-col gap-[var(--s-6)]"
+          >
+            <EmailInvitePanel workspaceId={workspace.id} />
+            <div className="border-t border-border-subtle pt-[var(--s-5)]">
+              <PendingInvitePanel workspaceId={workspace.id} />
+            </div>
+            <div className="border-t border-border-subtle pt-[var(--s-5)]">
+              <EmailDomainsPanel
+                workspaceId={workspace.id}
+                initialDomains={workspace.emailDomains ?? []}
+                canEdit={myRole === 'OWNER'}
+              />
+            </div>
           </div>
         ) : tab === 'roles' && canManageRoles ? (
           <div
