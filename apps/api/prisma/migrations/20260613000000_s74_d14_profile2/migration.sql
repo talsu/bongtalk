@@ -9,7 +9,8 @@
 --      동시 활성화 옵션. 기존 row 는 default false 로 backfill(무회귀 — 옵션 미설정 = 종전 동작).
 --   2. WorkspaceMemberProfile 신규 테이블(FR-PS-06 · Fork2 Option B): 멤버별 워크스페이스
 --      프로필 오버라이드(nickname≤32 · avatarKey · workspaceBio≤190). workspace/user 모두
---      onDelete Cascade FK + @@unique([workspaceId,userId]) + @@index([workspaceId,userId]).
+--      onDelete Cascade FK + @@unique([workspaceId,userId])(이 UNIQUE btree 가 멤버목록
+--      LEFT JOIN lookup 도 가속 — 동일 컬럼 보조 인덱스는 중복이라 두지 않는다).
 --      신규 테이블이라 기존 데이터 무영향.
 --
 -- ★ NO CONCURRENTLY: `prisma migrate deploy` 가 단일 트랜잭션으로 실행하므로 트랜잭션
@@ -37,12 +38,10 @@ CREATE TABLE IF NOT EXISTS "WorkspaceMemberProfile" (
   CONSTRAINT "WorkspaceMemberProfile_pkey" PRIMARY KEY ("id")
 );
 
--- 멤버당 워크스페이스별 단일 프로필(upsert 대상).
+-- 멤버당 워크스페이스별 단일 프로필(upsert 대상). 이 UNIQUE 인덱스가 (workspaceId,userId)
+-- btree 를 제공하므로 멤버목록 LEFT JOIN lookup 도 이 인덱스로 가속된다. 동일 컬럼 조합의
+-- 별도 보조 인덱스(_workspaceId_userId_idx)는 중복이라 만들지 않는다(perf minor fix-forward).
 CREATE UNIQUE INDEX IF NOT EXISTS "WorkspaceMemberProfile_workspaceId_userId_key"
-  ON "WorkspaceMemberProfile" ("workspaceId", "userId");
-
--- 멤버목록 LEFT JOIN(workspaceId 스코프 + userId 매칭) lookup 가속.
-CREATE INDEX IF NOT EXISTS "WorkspaceMemberProfile_workspaceId_userId_idx"
   ON "WorkspaceMemberProfile" ("workspaceId", "userId");
 
 -- workspaceId → Workspace(id) FK (ON DELETE CASCADE).

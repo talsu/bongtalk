@@ -22,6 +22,7 @@ import {
   ApplicationReviewedPayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
+  WorkspaceProfileUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
@@ -1424,13 +1425,12 @@ export function installRealtimeDispatcher(
   // ---------- S74 (FR-PS-06): workspace profile (ws 닉네임/아바타) ----------
   // 한 워크스페이스 스코프의 ws프로필 변경. 멤버목록의 ws nickname/avatar 오버라이드를
   // 반영하기 위해 해당 워크스페이스(또는 전체)의 members/directory 캐시를 무효화한다.
-  on<{
-    workspaceId: string;
-    userId: string;
-    wsNickname: string | null;
-    wsAvatarUrl: string | null;
-  }>('workspace_profile.updated', (env) => {
-    if (!env.workspaceId || !env.userId) return;
+  // contract MEDIUM fix-forward: 인라인 타입 대신 공유 스키마로 safeParse 한다(신뢰경계 가드 ·
+  // api/web 단일 출처). 형태가 어긋난 페이로드는 캐시를 건드리지 않고 버린다.
+  on<unknown>(WS_EVENTS.WORKSPACE_PROFILE_UPDATED, (raw) => {
+    const parsed = WorkspaceProfileUpdatedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const env = parsed.data;
     qc.invalidateQueries({
       predicate: (q) => {
         const k = q.queryKey;
@@ -1627,7 +1627,7 @@ export const DISPATCHED_EVENTS = [
   WS_EVENTS.MESSAGE_BULK_DELETED,
   'user.profile.updated',
   // S74 (FR-PS-06): 워크스페이스별 프로필(ws 닉네임/아바타) 변경 — 워크스페이스 룸 fanout.
-  'workspace_profile.updated',
+  WS_EVENTS.WORKSPACE_PROFILE_UPDATED,
   'channel.created',
   'channel.updated',
   'channel.deleted',

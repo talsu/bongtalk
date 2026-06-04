@@ -202,6 +202,27 @@ describe('S70 application + member_left payloads', () => {
       WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_RESTORED].parse({ workspaceId: 'w1' }),
     ).toThrow();
   });
+
+  // S74 (D14 · FR-PS-06 · contract MEDIUM): workspace_profile.updated wire 스키마.
+  it('workspace_profile.updated carries workspaceId/userId + nullable ws nickname/avatar', () => {
+    expect(WS_EVENTS.WORKSPACE_PROFILE_UPDATED).toBe('workspace_profile.updated');
+    const schema = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_PROFILE_UPDATED];
+    const p = schema.parse({
+      workspaceId: 'w1',
+      userId: 'u1',
+      wsNickname: 'Captain',
+      wsAvatarUrl: null,
+    });
+    expect(p).toMatchObject({ workspaceId: 'w1', userId: 'u1', wsNickname: 'Captain' });
+    // null 닉네임/아바타(전역 폴백)도 허용.
+    expect(
+      schema.parse({ workspaceId: 'w1', userId: 'u1', wsNickname: null, wsAvatarUrl: null }),
+    ).toBeTruthy();
+    // userId 누락 → reject.
+    expect(() =>
+      schema.parse({ workspaceId: 'w1', wsNickname: null, wsAvatarUrl: null }),
+    ).toThrow();
+  });
 });
 
 describe('message:created payload', () => {

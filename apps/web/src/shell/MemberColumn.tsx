@@ -63,7 +63,8 @@ function MemberGroup({
   if (members.length === 0) return null;
   return (
     <>
-      <div className="qf-memberlist__group">
+      {/* a11y L-2: 그룹 헤더를 heading 으로 노출(SR 네비게이션 · MobileMembers HIGH-5 와 동일). */}
+      <div className="qf-memberlist__group" role="heading" aria-level={3}>
         {label} — {members.length}
       </div>
       {members.map((m) => (

@@ -12,7 +12,7 @@ import { RateLimitService } from '../auth/services/rate-limit.service';
 import { PrismaService } from '../prisma/prisma.module';
 import { S3Service } from '../storage/s3.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
-import { ProfileService } from './profile.service';
+import { ProfileService, PROFILE_IMAGE_GET_TTL_SEC } from './profile.service';
 
 /**
  * S73 (D14 / FR-PS-01): 전역 아바타 업로드/리셋.
@@ -93,7 +93,9 @@ export class MeAvatarController {
       workspaceIds: memberships.map((m) => m.workspaceId),
       customStatus: row?.customStatus ?? null,
       displayName: row?.displayName ?? null,
-      avatarUrl: row?.avatarKey ? await this.s3.presignGet(row.avatarKey) : null,
+      avatarUrl: row?.avatarKey
+        ? await this.s3.presignGet(row.avatarKey, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC })
+        : null,
     });
   }
 }

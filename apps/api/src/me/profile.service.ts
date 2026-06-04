@@ -48,6 +48,14 @@ const AVATAR_PRESIGN_TTL_SEC = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900)
 // S74 (FR-PS-04): 배너 MinIO 키 prefix(사용자별 banners/ 네임스페이스 — orphan-gc 식별).
 const BANNER_KEY_PREFIX = 'banners';
 
+/**
+ * S74 (security MEDIUM fix-forward): 프로필 이미지(아바타/배너) presigned GET URL TTL(초).
+ * 종전 기본(getTtl=1800s) 대신 짧은 600s 로 서명해 token-leak 표면을 줄인다. 프로필 이미지는
+ * 프로필 카드/멤버목록을 여는 짧은 세션 동안만 필요하므로 600s 면 충분하고, 만료되면 다음
+ * read 가 새 URL 을 파생한다(S55 첨부 302 redirect 의 짧은 TTL 선례).
+ */
+export const PROFILE_IMAGE_GET_TTL_SEC = 600;
+
 export interface ProfileLink {
   url: string;
   label?: string;
@@ -408,7 +416,7 @@ export class ProfileService {
     if (prev?.avatarKey && prev.avatarKey !== key) {
       void this.bestEffortDelete(prev.avatarKey);
     }
-    const avatarUrl = await this.s3.presignGet(key);
+    const avatarUrl = await this.s3.presignGet(key, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC });
     return { avatarUrl };
   }
 
@@ -466,9 +474,13 @@ export class ProfileService {
       timezone: row.timezone,
       bio: row.bio,
       handleChangedAt: row.handleChangedAt ? row.handleChangedAt.toISOString() : null,
-      avatarUrl: row.avatarKey ? await this.s3.presignGet(row.avatarKey) : null,
+      avatarUrl: row.avatarKey
+        ? await this.s3.presignGet(row.avatarKey, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC })
+        : null,
       // S74 (FR-PS-04): bannerKey → presigned GET URL(stale 방지 — URL 직접저장 안 함).
-      bannerUrl: row.bannerKey ? await this.s3.presignGet(row.bannerKey) : null,
+      bannerUrl: row.bannerKey
+        ? await this.s3.presignGet(row.bannerKey, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC })
+        : null,
       // S74 (FR-PS-05): DND 옵션.
       dndDuringStatus: row.dndDuringStatus,
       customStatus: row.customStatus,
@@ -561,7 +573,7 @@ export class ProfileService {
     if (prev?.bannerKey && prev.bannerKey !== key) {
       void this.bestEffortDelete(prev.bannerKey);
     }
-    const bannerUrl = await this.s3.presignGet(key);
+    const bannerUrl = await this.s3.presignGet(key, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC });
     return { bannerUrl };
   }
 

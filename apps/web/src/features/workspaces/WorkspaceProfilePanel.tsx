@@ -119,9 +119,14 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
 
   const saving = update.isPending;
 
+  // a11y HIGH-2: ws아바타 img alt 에 사용자명(닉네임)을 포함해 식별 가능하게 한다.
+  const avatarAlt = `${nickname || profile.nickname || ''}의 워크스페이스 프로필 사진`.trim();
+
   return (
     <form
       data-testid="ws-profile-panel"
+      // a11y HIGH-3: 폼 접근명.
+      aria-label="워크스페이스 프로필 편집"
       className="flex flex-col gap-[var(--s-5)]"
       onSubmit={(e) => {
         e.preventDefault();
@@ -134,7 +139,7 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
           {profile.avatarUrl ? (
             <img
               src={profile.avatarUrl}
-              alt="워크스페이스 프로필 사진"
+              alt={avatarAlt}
               data-testid="ws-avatar-preview"
               className="h-full w-full object-cover"
             />
@@ -158,6 +163,8 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
               <button
                 type="button"
                 data-testid="ws-avatar-remove"
+                // a11y M-1: 접근명 중복 해소.
+                aria-label="워크스페이스 아바타 제거"
                 className="qf-btn qf-btn--ghost qf-btn--sm"
                 onClick={() => void onRemoveAvatar()}
                 disabled={removeAvatar.isPending}
@@ -185,7 +192,7 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
         <div className="flex items-center justify-between">
           <label
             htmlFor="ws-nickname"
-            className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted"
+            className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted"
           >
             닉네임
           </label>
@@ -211,7 +218,7 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
         <div className="flex items-center justify-between">
           <label
             htmlFor="ws-bio"
-            className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted"
+            className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted"
           >
             자기소개
           </label>
@@ -222,7 +229,8 @@ export function WorkspaceProfilePanel({ workspaceId }: { workspaceId: string }):
         <textarea
           id="ws-bio"
           data-testid="ws-bio"
-          className="qf-textarea"
+          // ui-designer HIGH-1: qf-textarea 단독은 박스 스타일이 없으므로 qf-input 과 병기.
+          className="qf-input qf-textarea"
           value={workspaceBio}
           maxLength={WS_BIO_MAX}
           onChange={(e) => setWorkspaceBio(e.target.value)}

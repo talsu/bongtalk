@@ -90,6 +90,8 @@ export function ProfileSettingsPage(): JSX.Element {
   const [timezone, setTimezone] = useState('');
   const [bio, setBio] = useState('');
   const [handleError, setHandleError] = useState<string | null>(null);
+  // a11y M-2: DND 토글 실패 메시지(sr-only role=alert 로 통지).
+  const [dndError, setDndError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bannerRef = useRef<HTMLInputElement | null>(null);
 
@@ -226,7 +228,9 @@ export function ProfileSettingsPage(): JSX.Element {
   };
 
   // S74 (FR-PS-05): DND 동시 활성화 옵션 토글(커스텀 상태 set 의 dndDuringStatus).
+  // reviewer HIGH-1: text 를 보내지 않아도 서버가 활성 커스텀 상태를 보존한다(조건부 갱신).
   const onToggleDnd = async (next: boolean): Promise<void> => {
+    setDndError(null);
     try {
       await setStatus.mutateAsync({ dndDuringStatus: next });
       notify({
@@ -234,7 +238,9 @@ export function ProfileSettingsPage(): JSX.Element {
         title: next ? '상태 만료 시 DND 활성화를 켰습니다.' : '상태 만료 시 DND 활성화를 껐습니다.',
       });
     } catch (err) {
-      notify({ variant: 'danger', title: '설정 저장 실패', body: (err as Error).message });
+      const msg = (err as Error).message;
+      setDndError(`설정 저장 실패: ${msg}`);
+      notify({ variant: 'danger', title: '설정 저장 실패', body: msg });
     }
   };
 
@@ -362,6 +368,8 @@ export function ProfileSettingsPage(): JSX.Element {
               <button
                 type="button"
                 data-testid="avatar-remove"
+                // a11y M-1: "제거" 텍스트만으로는 접근명이 배너 제거와 중복 → aria-label 로 구분.
+                aria-label="아바타 제거"
                 className="qf-btn qf-btn--ghost qf-btn--sm"
                 onClick={() => void onRemoveAvatar()}
                 disabled={removeAvatar.isPending}
@@ -386,13 +394,17 @@ export function ProfileSettingsPage(): JSX.Element {
 
       {/* 배너 (FR-PS-04) */}
       <section aria-label="프로필 배너" className="flex flex-col gap-[var(--s-2)]">
-        <span className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted">
+        <span className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
           배너
         </span>
+        {/* a11y BLOCKER-1: 미리보기 div(role 없음)에 aria-busy 만 두면 SR 이 업로드중을
+            읽지 못한다 → sr-only role=status live region 으로 업로드 상태를 전달한다. */}
+        <p className="sr-only" role="status" aria-live="polite">
+          {bannerPresign.isPending || bannerFinalize.isPending ? '배너 업로드 중' : ''}
+        </p>
         <div
           data-testid="banner-preview"
-          aria-busy={bannerPresign.isPending || bannerFinalize.isPending}
-          className="flex aspect-[17/6] w-full items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-bg-subtle text-text-muted"
+          className="flex aspect-[17/6] w-full items-center justify-center overflow-hidden rounded-[var(--r-md)] bg-bg-subtle text-text-muted"
         >
           {profile.bannerUrl ? (
             <img
@@ -420,6 +432,8 @@ export function ProfileSettingsPage(): JSX.Element {
             <button
               type="button"
               data-testid="banner-remove"
+              // a11y M-1: "제거" 텍스트만으로는 접근명이 아바타 제거와 중복 → aria-label 로 구분.
+              aria-label="배너 제거"
               className="qf-btn qf-btn--ghost qf-btn--sm"
               onClick={() => void onRemoveBanner()}
               disabled={removeBanner.isPending}
@@ -561,12 +575,13 @@ export function ProfileSettingsPage(): JSX.Element {
         />
       </Field>
 
-      {/* About Me (FR-PS-02) — a11y MODERATE 17: qf-textarea(resize 포함) */}
+      {/* About Me (FR-PS-02) — ui-designer HIGH-1: qf-textarea 단독은 border/bg/radius 가
+          없으므로(qf-input 별개) qf-input 과 병기해 박스 스타일을 받는다. */}
       <Field label="자기소개" htmlFor="pf-bio" counter={`${bio.length}/${BIO_MAX}`}>
         <textarea
           id="pf-bio"
           data-testid="profile-bio"
-          className="qf-textarea"
+          className="qf-input qf-textarea"
           value={bio}
           maxLength={BIO_MAX}
           onChange={(e) => setBio(e.target.value)}
@@ -577,25 +592,39 @@ export function ProfileSettingsPage(): JSX.Element {
 
       {/* 커스텀 상태 — DND 동시 활성화 옵션 (FR-PS-05) */}
       <section aria-label="커스텀 상태" className="flex flex-col gap-[var(--s-2)]">
-        <span className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted">
+        <span className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
           커스텀 상태
         </span>
-        <label className="flex items-center gap-[var(--s-2)]" htmlFor="pf-dnd-during-status">
-          <input
-            id="pf-dnd-during-status"
-            type="checkbox"
+        {/* a11y HIGH-1 + ui-designer MEDIUM-2: checkbox → role=switch 버튼 + DS .qf-toggle-row/
+            .qf-switch 패턴. onToggleDnd 는 서버측 상태 보존(HIGH-1 fix)에 의존하므로 text 를
+            보내지 않아도 활성 커스텀 상태가 삭제되지 않는다. */}
+        <div className="qf-toggle-row" style={{ borderBottom: 'none', padding: 0 }}>
+          <div className="qf-toggle-row__text">
+            <div className="qf-toggle-row__title" id="pf-dnd-label">
+              상태 만료 시 방해 금지(DND) 활성화
+            </div>
+            <div className="qf-toggle-row__desc">
+              상태 메시지가 만료되면 자동으로 방해 금지(DND)로 전환합니다.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
             data-testid="dnd-during-status"
-            // 체크 색은 토큰(page-scoped·DS 미수정) — 기존 체크박스 패턴과 일관.
-            style={{ accentColor: 'var(--accent)' }}
-            checked={dndDuringStatus}
-            disabled={setStatus.isPending}
+            className="qf-switch"
+            aria-checked={dndDuringStatus}
+            aria-labelledby="pf-dnd-label"
             aria-busy={setStatus.isPending}
-            onChange={(e) => void onToggleDnd(e.target.checked)}
+            disabled={setStatus.isPending}
+            onClick={() => void onToggleDnd(!dndDuringStatus)}
           />
-          <span className="text-[length:var(--fs-14)]">
-            상태 메시지 만료 시 자동으로 방해 금지(DND) 활성화
-          </span>
-        </label>
+        </div>
+        {/* a11y M-2: DND 토글 실패는 sr-only role=alert live region 으로 즉시 통지. */}
+        {dndError ? (
+          <p data-testid="dnd-error" role="alert" className="sr-only">
+            {dndError}
+          </p>
+        ) : null}
       </section>
 
       <div className="flex justify-end">

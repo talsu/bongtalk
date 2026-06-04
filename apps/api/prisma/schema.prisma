@@ -715,10 +715,9 @@ model WorkspaceMemberProfile {
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  // 멤버당 워크스페이스별 단일 프로필(upsert 대상).
+  // 멤버당 워크스페이스별 단일 프로필(upsert 대상). @@unique 가 (workspaceId,userId)
+  // btree 를 이미 만들므로 동일 컬럼 조합의 @@index 는 중복이라 제거한다(perf minor).
   @@unique([workspaceId, userId])
-  // 멤버목록 LEFT JOIN(workspaceId 스코프 + userId 매칭) lookup 가속.
-  @@index([workspaceId, userId])
 }
 
 model WorkspaceMember {

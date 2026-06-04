@@ -27,6 +27,7 @@ import {
   type PresenceUpdatePayload,
   type ReadStateUpdatedPayload,
   type WorkspacePresenceUpdatedPayload,
+  type WorkspaceProfileUpdatedPayload,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { UnreadService } from '../channels/unread.service';
@@ -1118,18 +1119,17 @@ export class RealtimeGateway
    * 워크스페이스 룸에만 fanout 한다. 전역 user.profile.updated 와 달리 한 워크스페이스
    * 스코프이며, payload 로 변경된 ws 표시값(wsNickname/wsAvatarUrl)을 함께 싣는다.
    */
-  broadcastWorkspaceProfileUpdate(args: {
-    workspaceId: string;
-    userId: string;
-    wsNickname: string | null;
-    wsAvatarUrl: string | null;
-  }): void {
-    this.server.to(rooms.workspace(args.workspaceId)).emit('workspace_profile.updated', {
+  broadcastWorkspaceProfileUpdate(args: WorkspaceProfileUpdatedPayload): void {
+    // contract MEDIUM fix-forward: 인라인 타입/문자열 대신 공유 스키마+상수를 쓴다(api/web 단일 출처).
+    const payload: WorkspaceProfileUpdatedPayload = {
       workspaceId: args.workspaceId,
       userId: args.userId,
       wsNickname: args.wsNickname,
       wsAvatarUrl: args.wsAvatarUrl,
-    });
+    };
+    this.server
+      .to(rooms.workspace(args.workspaceId))
+      .emit(WS_EVENTS.WORKSPACE_PROFILE_UPDATED, payload);
   }
 }
 

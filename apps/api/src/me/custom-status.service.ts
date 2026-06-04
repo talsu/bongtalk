@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import type { CustomStatusView, StatusPreset } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { PresenceService } from '../realtime/presence/presence.service';
+import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -71,6 +72,9 @@ export class CustomStatusService {
     // S74 (FR-PS-05 · Fork1 Option C): 만료 시 DND 활성화에 presencePreference 전환 +
     // Redis dnd SET 동기를 위해 PresenceService 를 쓴다.
     private readonly presence: PresenceService,
+    // S74 (FR-PS-05 · reviewer HIGH-2 fix-forward): 만료 시 DND 전환을 관전자에게 전파하기 위해
+    // 워크스페이스별 presence.updated broadcast 스케줄러를 호출한다(정상 DND 경로와 동일).
+    private readonly gateway: RealtimeGateway,
   ) {}
 
   /**
@@ -334,10 +338,20 @@ export class CustomStatusService {
   }
 
   /**
-   * S74 (FR-PS-05): 만료 lazy-clear + (옵션 시) DND 활성화. clear 로 상태 컬럼을 비우고,
-   * dndDuringStatus 가 true 면 사용자의 모든 워크스페이스에 presencePreference=dnd 를 적용한다
-   * (PresenceService.setDndForUser — Redis dnd SET + preference 키 동기). 옵션 자체(컬럼)는
-   * 보존한다(다음 상태 만료에서도 동일 동작 — 사용자 환경 설정).
+   * S74 (FR-PS-05 · reviewer HIGH-2 fix-forward): 만료 lazy-clear + (옵션 시) DND 활성화·영속·전파.
+   *
+   * clear 로 상태 컬럼을 비우고, dndDuringStatus 가 true 면:
+   *   (a) DB `User.presencePreference='dnd'` 로 **영속** — 재접속/관전자 read 가 정상 DND 경로와
+   *       동일하게 dnd 로 해석한다(종전엔 Redis dnd SET 만 갱신해 재접속 시 'auto' 로 소실됐다).
+   *   (b) PresenceService.setDndForUser 로 사용자의 모든 워크스페이스 Redis dnd SET + preference 키
+   *       동기 후 워크스페이스별 schedulePresenceBroadcastPublic 으로 관전자에게 **전파**.
+   *       (종전엔 broadcast 가 없어 멤버목록의 DND 닷이 다음 refetch 까지 갱신되지 않았다.)
+   *
+   * 옵션 자체(dndDuringStatus 컬럼)는 보존한다(다음 상태 만료에서도 동일 동작 — 사용자 환경 설정).
+   *
+   * ★트리거 약함(carryover): lazy-clear 는 본인 GET /users/me/status read 시점에만 발화하므로,
+   * 본인이 접속하지 않은 채 상태가 만료되면 DND 전환이 지연될 수 있다(기존 lazy-clear 제약과 동일).
+   * 만료 시점 능동 전환을 위한 스케줄러는 별도 후속(S28 FR-P17 DEFER 와 동일 carryover).
    */
   async clearAndMaybeDnd(userId: string, dndDuringStatus: boolean): Promise<void> {
     await this.prisma.user.update({
@@ -345,20 +359,34 @@ export class CustomStatusService {
       data: { customStatus: null, customStatusEmoji: null, customStatusExpiresAt: null },
     });
     if (!dndDuringStatus) return;
+    // (a) DB 영속 — 재접속/관전자 read 가 dnd 로 해석되도록 presencePreference 를 dnd 로 전환.
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { presencePreference: 'dnd' },
+    });
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId, workspace: { deletedAt: null } },
       select: { workspaceId: true },
     });
-    await this.presence.setDndForUser(
-      userId,
-      memberships.map((m) => m.workspaceId),
-      true,
-    );
+    const workspaceIds = memberships.map((m) => m.workspaceId);
+    // (b) Redis dnd SET + preference 키 동기.
+    await this.presence.setDndForUser(userId, workspaceIds, true);
+    // (b) 워크스페이스별 presence.updated broadcast — 관전자 멤버목록 DND 닷 즉시 반영.
+    for (const wsId of workspaceIds) {
+      this.gateway.schedulePresenceBroadcastPublic(wsId);
+    }
   }
 
   /**
    * PUT — 구조화 set/update. timezone 은 제공된 경우에만 갱신(없으면 유지).
-   * S74 (FR-PS-05): dndDuringStatus 가 입력에 있으면 옵션 컬럼을 갱신한다(없으면 유지).
+   *
+   * S74 (FR-PS-05 · reviewer HIGH-1 fix-forward): 상태 컬럼(customStatus/emoji/expiresAt)은
+   * 입력에 text 류(text/emoji/expiresAt/preset)가 하나라도 있을 때만 조건부로 갱신한다. 종전엔
+   * normalizeInput 결과를 **항상** 덮어써, dndDuringStatus 만 토글하려고 보낸 요청이 활성 커스텀
+   * 상태(텍스트/이모지/만료)를 전부 삭제했다(DND 토글 = 상태 삭제 회귀). 이제 dndOpt 처럼 conditional.
+   *
+   * S74 (FR-PS-05 · reviewer MEDIUM-1 fix-forward): 응답의 dndDuringStatus 는 옵션이 입력에 동봉되면
+   * 그 값을, 미동봉이면 갱신 결과 row 의 현재 DB 값을 읽어 반환한다(FE 캐시 불일치 제거).
    */
   async set(
     userId: string,
@@ -375,21 +403,46 @@ export class CustomStatusService {
     const n = CustomStatusService.normalizeInput(body, now);
     // S74 (FR-PS-05): boolean 만 옵션으로 받는다(Zod 가 1차 검증 — 방어적 재확인).
     const dndOpt = typeof body.dndDuringStatus === 'boolean' ? body.dndDuringStatus : undefined;
-    await this.prisma.user.update({
+    // S74 (FR-PS-05 · HIGH-1): text 류 입력 존재 여부 — 하나라도 있으면 상태 컬럼을 갱신한다.
+    // (text/emoji/expiresAt 은 '' / null 도 '비우기' 의도이므로 undefined 가 아니면 존재로 본다.)
+    const hasStatusInput =
+      body.text !== undefined ||
+      body.emoji !== undefined ||
+      body.expiresAt !== undefined ||
+      body.preset !== undefined;
+    const updated = await this.prisma.user.update({
       where: { id: userId },
       data: {
-        customStatus: n.text,
-        customStatusEmoji: n.emoji,
-        customStatusExpiresAt: n.expiresAt,
+        ...(hasStatusInput
+          ? {
+              customStatus: n.text,
+              customStatusEmoji: n.emoji,
+              customStatusExpiresAt: n.expiresAt,
+            }
+          : {}),
         ...(n.timezone !== null ? { timezone: n.timezone } : {}),
         ...(dndOpt !== undefined ? { dndDuringStatus: dndOpt } : {}),
       },
+      select: {
+        customStatus: true,
+        customStatusEmoji: true,
+        customStatusExpiresAt: true,
+        dndDuringStatus: true,
+      },
     });
+    // 상태 컬럼 미갱신 시(dndDuringStatus 만 토글) 기존 상태를 보존해 반환한다.
     return {
-      text: n.text,
-      emoji: n.emoji,
-      expiresAt: n.expiresAt ? n.expiresAt.toISOString() : null,
-      dndDuringStatus: dndOpt,
+      text: hasStatusInput ? n.text : (updated.customStatus ?? null),
+      emoji: hasStatusInput ? n.emoji : (updated.customStatusEmoji ?? null),
+      expiresAt: hasStatusInput
+        ? n.expiresAt
+          ? n.expiresAt.toISOString()
+          : null
+        : updated.customStatusExpiresAt
+          ? updated.customStatusExpiresAt.toISOString()
+          : null,
+      // MEDIUM-1: 옵션 미동봉이면 DB 현재값(updated.dndDuringStatus)을 반환.
+      dndDuringStatus: dndOpt ?? updated.dndDuringStatus,
     };
   }
 

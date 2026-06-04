@@ -346,23 +346,24 @@ describe('ProfileSettingsPage', () => {
     expect(screen.queryByTestId('banner-remove')).toBeNull();
   });
 
-  // ── S74 (FR-PS-05): DND 토글 ──────────────────────────────────────────────
-  it('reflects the current dndDuringStatus from the status view', () => {
+  // ── S74 (FR-PS-05): DND 토글 (a11y HIGH-1: role=switch) ───────────────────
+  it('reflects the current dndDuringStatus from the status view (aria-checked)', () => {
     statusData = { dndDuringStatus: true };
     renderPage();
-    const toggle = screen.getByTestId('dnd-during-status') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByTestId('dnd-during-status');
+    expect(toggle.getAttribute('role')).toBe('switch');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
   });
 
   it('falls back to profile.dndDuringStatus when the status view is undefined', () => {
     statusData = undefined;
     profileData = baseProfile({ dndDuringStatus: true });
     renderPage();
-    const toggle = screen.getByTestId('dnd-during-status') as HTMLInputElement;
-    expect(toggle.checked).toBe(true);
+    const toggle = screen.getByTestId('dnd-during-status');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
   });
 
-  it('calls setCustomStatus with dndDuringStatus on toggle', async () => {
+  it('calls setCustomStatus with dndDuringStatus on toggle (no text — server preserves status)', async () => {
     statusData = { dndDuringStatus: false };
     renderPage();
     fireEvent.click(screen.getByTestId('dnd-during-status'));

@@ -29,6 +29,9 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
 const WS_AVATAR_KEY_PREFIX = 'ws-avatars';
 const WS_AVATAR_MAGIC_HEAD = 15;
 const WS_AVATAR_PRESIGN_TTL_SEC = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
+// S74 (security MEDIUM fix-forward): ws아바타 presigned GET URL TTL(초). 종전 기본(1800s)
+// 대신 짧은 600s 로 서명해 token-leak 표면을 줄인다(프로필 이미지 — 전역 avatar/banner 와 동일).
+const WS_AVATAR_GET_TTL_SEC = 600;
 
 export interface UpdateWorkspaceMemberProfileInput {
   nickname?: string | null;
@@ -67,7 +70,9 @@ export class WorkspaceMemberProfileService {
       workspaceId,
       userId,
       nickname: row?.nickname ?? null,
-      avatarUrl: row?.avatarKey ? await this.s3.presignGet(row.avatarKey) : null,
+      avatarUrl: row?.avatarKey
+        ? await this.s3.presignGet(row.avatarKey, { expiresIn: WS_AVATAR_GET_TTL_SEC })
+        : null,
       workspaceBio: row?.workspaceBio ?? null,
     };
   }
@@ -183,7 +188,7 @@ export class WorkspaceMemberProfileService {
     if (prev?.avatarKey && prev.avatarKey !== key) {
       void this.bestEffortDelete(prev.avatarKey);
     }
-    const avatarUrl = await this.s3.presignGet(key);
+    const avatarUrl = await this.s3.presignGet(key, { expiresIn: WS_AVATAR_GET_TTL_SEC });
     return { avatarUrl };
   }
 
