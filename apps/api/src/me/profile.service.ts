@@ -14,6 +14,9 @@ import {
   AVATAR_MAX_BYTES,
   AVATAR_ALLOWED_MIME,
   type AvatarMime,
+  BANNER_MAX_BYTES,
+  BANNER_ALLOWED_MIME,
+  type BannerMime,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { S3Service, sanitizeFilename } from '../storage/s3.service';
@@ -42,6 +45,9 @@ const AVATAR_MAGIC_HEAD = 15;
 // presigned POST 서명 만료(초). 종전 presignPut 와 동일 기본(900s) — env 미설정 시 폴백.
 const AVATAR_PRESIGN_TTL_SEC = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
 
+// S74 (FR-PS-04): 배너 MinIO 키 prefix(사용자별 banners/ 네임스페이스 — orphan-gc 식별).
+const BANNER_KEY_PREFIX = 'banners';
+
 export interface ProfileLink {
   url: string;
   label?: string;
@@ -60,6 +66,10 @@ export interface ProfileView {
   bio: string | null;
   handleChangedAt: string | null;
   avatarUrl: string | null;
+  // S74 (FR-PS-04): 배너 presigned GET URL(null = 미설정).
+  bannerUrl: string | null;
+  // S74 (FR-PS-05): 커스텀상태 만료 시 DND 동시 활성화 옵션.
+  dndDuringStatus: boolean;
   customStatus: string | null;
   // task-047 M2 carryover(무회귀): 기존 프로필 링크.
   links: ProfileLink[] | null;
@@ -124,6 +134,8 @@ export class ProfileService {
         bio: true,
         handleChangedAt: true,
         avatarKey: true,
+        bannerKey: true,
+        dndDuringStatus: true,
         customStatus: true,
         links: true,
       },
@@ -412,7 +424,7 @@ export class ProfileService {
     await this.bestEffortDelete(row.avatarKey);
   }
 
-  private extForMime(mime: AvatarMime): string {
+  private extForMime(mime: AvatarMime | BannerMime): string {
     switch (mime) {
       case 'image/png':
         return '.png';
@@ -436,6 +448,8 @@ export class ProfileService {
     bio: string | null;
     handleChangedAt: Date | null;
     avatarKey: string | null;
+    bannerKey: string | null;
+    dndDuringStatus: boolean;
     customStatus: string | null;
     links: Prisma.JsonValue;
   }): Promise<ProfileView> {
@@ -453,8 +467,112 @@ export class ProfileService {
       bio: row.bio,
       handleChangedAt: row.handleChangedAt ? row.handleChangedAt.toISOString() : null,
       avatarUrl: row.avatarKey ? await this.s3.presignGet(row.avatarKey) : null,
+      // S74 (FR-PS-04): bannerKey → presigned GET URL(stale 방지 — URL 직접저장 안 함).
+      bannerUrl: row.bannerKey ? await this.s3.presignGet(row.bannerKey) : null,
+      // S74 (FR-PS-05): DND 옵션.
+      dndDuringStatus: row.dndDuringStatus,
       customStatus: row.customStatus,
       links: (row.links as ProfileLink[] | null) ?? null,
     };
+  }
+
+  // ── FR-PS-04 (S74): 배너 ────────────────────────────────────────────────────
+
+  /**
+   * POST /me/banner/presign. 아바타 presignAvatar 와 동일한 presigned POST 패턴
+   * (MinIO 가 업로드 시점에 크기/MIME 강제). 픽셀 치수(680×240↑)는 클라가 미리보기에서
+   * 검증하고, 서버는 MIME/크기/magic 만 강제한다([[feedback_no_server_media_resize]] —
+   * 서버 이미지 디코드 없음). 키 prefix 는 banners/<userId>/.
+   */
+  async presignBanner(
+    userId: string,
+    contentType: string,
+    sizeBytes: number,
+  ): Promise<{ key: string; url: string; fields: Record<string, string>; expiresAt: string }> {
+    if (!(BANNER_ALLOWED_MIME as readonly string[]).includes(contentType)) {
+      throw new DomainError(
+        ErrorCode.INVALID_MIME,
+        `mime not allowed: ${contentType} (png/jpeg/webp only)`,
+      );
+    }
+    if (sizeBytes <= 0) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'sizeBytes must be positive');
+    }
+    if (sizeBytes > BANNER_MAX_BYTES) {
+      throw new DomainError(
+        ErrorCode.FILE_TOO_LARGE,
+        `banner too large (${sizeBytes} > ${BANNER_MAX_BYTES})`,
+      );
+    }
+    const ext = this.extForMime(contentType as BannerMime);
+    const key = `${BANNER_KEY_PREFIX}/${userId}/${randomUUID()}${sanitizeFilename(ext)}`;
+    const { url, fields } = await this.s3.presignPost(
+      key,
+      contentType,
+      BANNER_MAX_BYTES,
+      AVATAR_PRESIGN_TTL_SEC,
+    );
+    const expiresAt = new Date(Date.now() + AVATAR_PRESIGN_TTL_SEC * 1000).toISOString();
+    return { key, url, fields, expiresAt };
+  }
+
+  /**
+   * PUT /me/banner. presign 키 prefix(본인) + 업로드 landed/크기/선언MIME/magic 검증 후 확정.
+   * 검증 실패 경로는 best-effort orphan 정리, 확정 성공 시 이전 bannerKey best-effort 삭제.
+   */
+  async finalizeBanner(userId: string, key: string): Promise<{ bannerUrl: string }> {
+    const expectedPrefix = `${BANNER_KEY_PREFIX}/${userId}/`;
+    if (key.includes('..')) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'key contains a path traversal segment');
+    }
+    if (!key.startsWith(expectedPrefix)) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'key does not belong to this user');
+    }
+    const head = await this.s3.headObject(key);
+    if (!head) {
+      throw new DomainError(ErrorCode.INVALID_FILE, 'banner upload never landed');
+    }
+    if (head.contentLength > BANNER_MAX_BYTES) {
+      await this.bestEffortDelete(key);
+      throw new DomainError(
+        ErrorCode.FILE_TOO_LARGE,
+        `banner too large (${head.contentLength} > ${BANNER_MAX_BYTES})`,
+      );
+    }
+    const declaredMime = head.contentType;
+    if (!declaredMime || !(BANNER_ALLOWED_MIME as readonly string[]).includes(declaredMime)) {
+      await this.bestEffortDelete(key);
+      throw new DomainError(ErrorCode.INVALID_MIME, `banner mime not allowed: ${declaredMime}`);
+    }
+    const headBytes = await this.s3.getObjectRange(key, AVATAR_MAGIC_HEAD);
+    if (!headBytes || !matchesMagic(headBytes, declaredMime as MagicSupportedMime)) {
+      await this.bestEffortDelete(key);
+      throw new DomainError(
+        ErrorCode.INVALID_MAGIC_BYTES,
+        `declared ${declaredMime} but file magic does not match`,
+      );
+    }
+
+    const prev = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { bannerKey: true },
+    });
+    await this.prisma.user.update({ where: { id: userId }, data: { bannerKey: key } });
+    if (prev?.bannerKey && prev.bannerKey !== key) {
+      void this.bestEffortDelete(prev.bannerKey);
+    }
+    const bannerUrl = await this.s3.presignGet(key);
+    return { bannerUrl };
+  }
+
+  /** DELETE /me/banner. bannerKey 를 null 로 리셋하고 객체를 best-effort 삭제(멱등). */
+  async deleteBanner(userId: string): Promise<void> {
+    const row = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { bannerKey: true },
+    });
+    if (!row?.bannerKey) return;
+    await this.prisma.user.update({ where: { id: userId }, data: { bannerKey: null } });
+    await this.bestEffortDelete(row.bannerKey);
   }
 }

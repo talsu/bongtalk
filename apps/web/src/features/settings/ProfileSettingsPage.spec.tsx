@@ -41,12 +41,37 @@ const finalizeMut = {
   isPending: false,
 };
 const deleteMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };
+// S74 (FR-PS-04): 배너 mutation mocks.
+const bannerPresignMut = {
+  mutateAsync: vi.fn().mockResolvedValue({
+    key: 'banners/u1/x.png',
+    url: 'http://post',
+    fields: { key: 'banners/u1/x.png', 'Content-Type': 'image/png' },
+  }),
+  isPending: false,
+};
+const bannerFinalizeMut = {
+  mutateAsync: vi.fn().mockResolvedValue({ bannerUrl: 'http://b' }),
+  isPending: false,
+};
+const bannerDeleteMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };
 vi.mock('../users/useMyProfile', () => ({
   useMyProfile: () => ({ data: profileData, isLoading: false, isError: false }),
   useUpdateProfile: () => updateMut,
   useAvatarPresign: () => presignMut,
   useAvatarFinalize: () => finalizeMut,
   useAvatarDelete: () => deleteMut,
+  useBannerPresign: () => bannerPresignMut,
+  useBannerFinalize: () => bannerFinalizeMut,
+  useBannerDelete: () => bannerDeleteMut,
+}));
+
+// S74 (FR-PS-05): 커스텀 상태 DND 옵션 mocks.
+let statusData: { dndDuringStatus?: boolean } | undefined;
+const setStatusMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };
+vi.mock('../presence/useCustomStatus', () => ({
+  useCustomStatus: () => ({ data: statusData }),
+  useSetCustomStatus: () => setStatusMut,
 }));
 
 import { ProfileSettingsPage } from './ProfileSettingsPage';
@@ -65,6 +90,8 @@ function baseProfile(over: Partial<ProfileView> = {}): ProfileView {
     bio: null,
     handleChangedAt: null,
     avatarUrl: null,
+    bannerUrl: null,
+    dndDuringStatus: false,
     customStatus: null,
     links: null,
     ...over,
@@ -91,6 +118,15 @@ beforeEach(() => {
   });
   finalizeMut.mutateAsync.mockReset().mockResolvedValue({ avatarUrl: 'http://a' });
   uploadMock.mockReset().mockResolvedValue(undefined);
+  statusData = { dndDuringStatus: false };
+  bannerPresignMut.mutateAsync.mockReset().mockResolvedValue({
+    key: 'banners/u1/x.png',
+    url: 'http://post',
+    fields: { key: 'banners/u1/x.png', 'Content-Type': 'image/png' },
+  });
+  bannerFinalizeMut.mutateAsync.mockReset().mockResolvedValue({ bannerUrl: 'http://b' });
+  bannerDeleteMut.mutateAsync.mockReset().mockResolvedValue(undefined);
+  setStatusMut.mutateAsync.mockReset().mockResolvedValue(undefined);
 });
 afterEach(() => cleanup());
 
@@ -261,5 +297,77 @@ describe('ProfileSettingsPage', () => {
     fireEvent.change(screen.getByTestId('avatar-file'), { target: { files: [big] } });
     await waitFor(() => expect(pushMock).toHaveBeenCalled());
     expect(presignMut.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  // ── S74 (FR-PS-04): 배너 ──────────────────────────────────────────────────
+  it('renders the banner preview image when bannerUrl is set', () => {
+    profileData = baseProfile({ bannerUrl: 'http://cdn/banner.png' });
+    renderPage();
+    const img = screen.getByTestId('banner-image') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('http://cdn/banner.png');
+  });
+
+  it('runs banner presign → upload → finalize on a valid file', async () => {
+    renderPage();
+    const file = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], 'b.png', {
+      type: 'image/png',
+    });
+    fireEvent.change(screen.getByTestId('banner-file'), { target: { files: [file] } });
+    await waitFor(() =>
+      expect(bannerFinalizeMut.mutateAsync).toHaveBeenCalledWith('banners/u1/x.png'),
+    );
+    expect(bannerPresignMut.mutateAsync).toHaveBeenCalledWith({
+      contentType: 'image/png',
+      sizeBytes: file.size,
+    });
+    expect(uploadMock).toHaveBeenCalledWith(
+      'http://post',
+      { key: 'banners/u1/x.png', 'Content-Type': 'image/png' },
+      file,
+    );
+  });
+
+  it('rejects an oversize banner client-side without calling presign', async () => {
+    renderPage();
+    const big = new File([new Uint8Array(1)], 'big.png', { type: 'image/png' });
+    Object.defineProperty(big, 'size', { value: 9 * 1024 * 1024 });
+    fireEvent.change(screen.getByTestId('banner-file'), { target: { files: [big] } });
+    await waitFor(() => expect(pushMock).toHaveBeenCalled());
+    expect(bannerPresignMut.mutateAsync).not.toHaveBeenCalled();
+  });
+
+  it('shows the banner remove button only when a banner exists', () => {
+    profileData = baseProfile({ bannerUrl: 'http://cdn/banner.png' });
+    renderPage();
+    expect(screen.getByTestId('banner-remove')).toBeTruthy();
+    cleanup();
+    profileData = baseProfile({ bannerUrl: null });
+    renderPage();
+    expect(screen.queryByTestId('banner-remove')).toBeNull();
+  });
+
+  // ── S74 (FR-PS-05): DND 토글 ──────────────────────────────────────────────
+  it('reflects the current dndDuringStatus from the status view', () => {
+    statusData = { dndDuringStatus: true };
+    renderPage();
+    const toggle = screen.getByTestId('dnd-during-status') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('falls back to profile.dndDuringStatus when the status view is undefined', () => {
+    statusData = undefined;
+    profileData = baseProfile({ dndDuringStatus: true });
+    renderPage();
+    const toggle = screen.getByTestId('dnd-during-status') as HTMLInputElement;
+    expect(toggle.checked).toBe(true);
+  });
+
+  it('calls setCustomStatus with dndDuringStatus on toggle', async () => {
+    statusData = { dndDuringStatus: false };
+    renderPage();
+    fireEvent.click(screen.getByTestId('dnd-during-status'));
+    await waitFor(() =>
+      expect(setStatusMut.mutateAsync).toHaveBeenCalledWith({ dndDuringStatus: true }),
+    );
   });
 });

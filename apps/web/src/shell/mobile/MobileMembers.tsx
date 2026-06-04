@@ -1,3 +1,4 @@
+import { resolveMemberDisplayName } from '@qufox/shared-types';
 import { useMembers } from '../../features/workspaces/useWorkspaces';
 import { usePresence } from '../../features/realtime/usePresence';
 import { Avatar, Icon } from '../../design-system/primitives';
@@ -39,9 +40,10 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
               data-presence={status(m.userId)}
               className="qf-m-row"
             >
-              <Avatar name={m.user.username} size="sm" status={status(m.userId)} />
+              <Avatar name={resolveMemberDisplayName(m.user)} size="sm" status={status(m.userId)} />
               <div className="min-w-0 flex-1">
-                <div className="qf-m-row__primary">{m.user.username}</div>
+                {/* S74 (FR-PS-06): ws nickname > displayName > username 우선순위 표시. */}
+                <div className="qf-m-row__primary">{resolveMemberDisplayName(m.user)}</div>
                 <div className="qf-m-row__secondary">{m.role}</div>
               </div>
               {m.role === 'OWNER' ? (
@@ -65,9 +67,10 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
               data-presence="offline"
               className={cn('qf-m-row', 'opacity-60')}
             >
-              <Avatar name={m.user.username} size="sm" />
+              <Avatar name={resolveMemberDisplayName(m.user)} size="sm" />
               <div className="min-w-0 flex-1">
-                <div className="qf-m-row__primary">{m.user.username}</div>
+                {/* S74 (FR-PS-06): ws nickname > displayName > username 우선순위 표시. */}
+                <div className="qf-m-row__primary">{resolveMemberDisplayName(m.user)}</div>
                 <div className="qf-m-row__secondary">{m.role}</div>
               </div>
               {m.role === 'OWNER' ? (

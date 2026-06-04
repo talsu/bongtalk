@@ -23,6 +23,8 @@ import { MeProfileController } from './me-profile.controller';
 // S73 (D14 / FR-PS-01·02·03): 전역 프로필 + 아바타. ProfileService 가 도메인 규칙을
 // 보유하고, 아바타는 StorageModule 의 S3Service(presignPut/headObject/magic-byte)를 쓴다.
 import { MeAvatarController } from './me-avatar.controller';
+// S74 (D14 / FR-PS-04): 전역 프로필 배너. ProfileService(아바타와 동일 패턴) + StorageModule.
+import { MeBannerController } from './me-banner.controller';
 import { ProfileService } from './profile.service';
 import { StorageModule } from '../storage/storage.module';
 // S11 (FR-RT-13): POST /workspaces/:id/channels/:chid/ack. RealtimeGateway +
@@ -56,6 +58,7 @@ import { SavedService } from './saved/saved.service';
     NotificationOnboardingController,
     MeProfileController,
     MeAvatarController,
+    MeBannerController,
     ChannelAckController,
     WorkspaceReadAllController,
     SavedController,

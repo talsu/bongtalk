@@ -31,6 +31,8 @@ export const qk = {
       ['workspaces', slug, 'applications', status ?? 'all'] as const,
     // S70 (D13 / FR-W06a): 본인 신청 상태(polling fallback). slug 로 키한다.
     myApplication: (slug: string) => ['workspaces', slug, 'applications', 'me'] as const,
+    // S74 (D14 / FR-PS-06): 본인 워크스페이스별 프로필 오버라이드.
+    myProfile: (wsId: string) => ['workspaces', wsId, 'my-profile'] as const,
   },
   channels: {
     list: (wsId: string) => ['workspaces', wsId, 'channels'] as const,

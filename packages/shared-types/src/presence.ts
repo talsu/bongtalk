@@ -78,6 +78,11 @@ export const CustomStatusViewSchema = z.object({
   emoji: z.string().nullable(),
   /** ISO UTC 또는 null(무기한). */
   expiresAt: z.string().nullable(),
+  /**
+   * S74 (FR-PS-05 · Fork1 Option C): 커스텀상태 만료 시 DND 동시 활성화 옵션.
+   * 현재 설정값(만료된다 해도 옵션 자체는 보존 — 사용자 환경 설정). 본인 read 전용.
+   */
+  dndDuringStatus: z.boolean().optional(),
 });
 export type CustomStatusView = z.infer<typeof CustomStatusViewSchema>;
 
@@ -92,6 +97,11 @@ export const SetCustomStatusInputSchema = z
     preset: StatusPresetSchema.optional(),
     /** IANA tz(프리셋 기준). */
     timezone: z.string().optional(),
+    /**
+     * S74 (FR-PS-05 · Fork1 Option C): 커스텀상태 만료(customStatusExpiresAt 도달) 시
+     * DND 를 동시 활성화할지. 미지정이면 기존 값 유지(set 이 컬럼을 건드리지 않음).
+     */
+    dndDuringStatus: z.boolean().optional(),
   })
   .strict();
 export type SetCustomStatusInput = z.infer<typeof SetCustomStatusInputSchema>;

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { CustomStatusView, StatusPreset } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
+import { PresenceService } from '../realtime/presence/presence.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -65,7 +66,12 @@ export function maskExpiredStatus(input: {
 
 @Injectable()
 export class CustomStatusService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    // S74 (FR-PS-05 · Fork1 Option C): 만료 시 DND 활성화에 presencePreference 전환 +
+    // Redis dnd SET 동기를 위해 PresenceService 를 쓴다.
+    private readonly presence: PresenceService,
+  ) {}
 
   /**
    * IANA timezone 유효성 검증 — Intl 의 timeZone 옵션이 던지는지로 판정.
@@ -298,22 +304,62 @@ export class CustomStatusService {
   async getEffective(userId: string, now: Date = new Date()): Promise<CustomStatusView> {
     const row = await this.prisma.user.findUnique({
       where: { id: userId },
-      select: { customStatus: true, customStatusEmoji: true, customStatusExpiresAt: true },
+      select: {
+        customStatus: true,
+        customStatusEmoji: true,
+        customStatusExpiresAt: true,
+        // S74 (FR-PS-05): 본인 read 에 옵션값 노출 + 만료 시 DND 활성화 판정.
+        dndDuringStatus: true,
+      },
     });
     if (!row) return { text: null, emoji: null, expiresAt: null };
     if (row.customStatusExpiresAt && row.customStatusExpiresAt.getTime() <= now.getTime()) {
       // FR-P17 lazy clear: 만료분은 빈 상태로 보이고, DB 도 best-effort 로 정리한다.
-      void this.clear(userId).catch(() => undefined);
-      return { text: null, emoji: null, expiresAt: null };
+      // S74 (FR-PS-05 · Fork1 Option C): dndDuringStatus 옵션이 켜져 있으면 만료 시점에
+      // DND 도 함께 활성화한다(best-effort — presence 전환 실패가 read 를 막지 않게 삼킨다).
+      void this.clearAndMaybeDnd(userId, row.dndDuringStatus).catch(() => undefined);
+      return {
+        text: null,
+        emoji: null,
+        expiresAt: null,
+        dndDuringStatus: row.dndDuringStatus,
+      };
     }
     return {
       text: row.customStatus ?? null,
       emoji: row.customStatusEmoji ?? null,
       expiresAt: row.customStatusExpiresAt ? row.customStatusExpiresAt.toISOString() : null,
+      dndDuringStatus: row.dndDuringStatus,
     };
   }
 
-  /** PUT — 구조화 set/update. timezone 은 제공된 경우에만 갱신(없으면 유지). */
+  /**
+   * S74 (FR-PS-05): 만료 lazy-clear + (옵션 시) DND 활성화. clear 로 상태 컬럼을 비우고,
+   * dndDuringStatus 가 true 면 사용자의 모든 워크스페이스에 presencePreference=dnd 를 적용한다
+   * (PresenceService.setDndForUser — Redis dnd SET + preference 키 동기). 옵션 자체(컬럼)는
+   * 보존한다(다음 상태 만료에서도 동일 동작 — 사용자 환경 설정).
+   */
+  async clearAndMaybeDnd(userId: string, dndDuringStatus: boolean): Promise<void> {
+    await this.prisma.user.update({
+      where: { id: userId },
+      data: { customStatus: null, customStatusEmoji: null, customStatusExpiresAt: null },
+    });
+    if (!dndDuringStatus) return;
+    const memberships = await this.prisma.workspaceMember.findMany({
+      where: { userId, workspace: { deletedAt: null } },
+      select: { workspaceId: true },
+    });
+    await this.presence.setDndForUser(
+      userId,
+      memberships.map((m) => m.workspaceId),
+      true,
+    );
+  }
+
+  /**
+   * PUT — 구조화 set/update. timezone 은 제공된 경우에만 갱신(없으면 유지).
+   * S74 (FR-PS-05): dndDuringStatus 가 입력에 있으면 옵션 컬럼을 갱신한다(없으면 유지).
+   */
   async set(
     userId: string,
     body: {
@@ -322,10 +368,13 @@ export class CustomStatusService {
       expiresAt?: unknown;
       preset?: unknown;
       timezone?: unknown;
+      dndDuringStatus?: unknown;
     },
     now: Date = new Date(),
   ): Promise<CustomStatusView> {
     const n = CustomStatusService.normalizeInput(body, now);
+    // S74 (FR-PS-05): boolean 만 옵션으로 받는다(Zod 가 1차 검증 — 방어적 재확인).
+    const dndOpt = typeof body.dndDuringStatus === 'boolean' ? body.dndDuringStatus : undefined;
     await this.prisma.user.update({
       where: { id: userId },
       data: {
@@ -333,16 +382,18 @@ export class CustomStatusService {
         customStatusEmoji: n.emoji,
         customStatusExpiresAt: n.expiresAt,
         ...(n.timezone !== null ? { timezone: n.timezone } : {}),
+        ...(dndOpt !== undefined ? { dndDuringStatus: dndOpt } : {}),
       },
     });
     return {
       text: n.text,
       emoji: n.emoji,
       expiresAt: n.expiresAt ? n.expiresAt.toISOString() : null,
+      dndDuringStatus: dndOpt,
     };
   }
 
-  /** DELETE — 커스텀 상태 전체 클리어(timezone 은 유지 — 사용자 환경 설정값). */
+  /** DELETE — 커스텀 상태 전체 클리어(timezone·dndDuringStatus 는 유지 — 사용자 환경 설정값). */
   async clear(userId: string): Promise<void> {
     await this.prisma.user.update({
       where: { id: userId },

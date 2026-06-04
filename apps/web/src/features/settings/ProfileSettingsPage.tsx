@@ -19,6 +19,10 @@ import {
   HANDLE_COOLDOWN_DAYS,
   AVATAR_MAX_BYTES,
   AVATAR_ALLOWED_MIME,
+  BANNER_MAX_BYTES,
+  BANNER_ALLOWED_MIME,
+  BANNER_MIN_WIDTH,
+  BANNER_MIN_HEIGHT,
   type UpdateProfileInput,
 } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
@@ -29,7 +33,11 @@ import {
   useAvatarPresign,
   useAvatarFinalize,
   useAvatarDelete,
+  useBannerPresign,
+  useBannerFinalize,
+  useBannerDelete,
 } from '../users/useMyProfile';
+import { useCustomStatus, useSetCustomStatus } from '../presence/useCustomStatus';
 import { uploadAvatarBlob } from '../users/avatarUpload';
 
 /**
@@ -41,6 +49,7 @@ import { uploadAvatarBlob } from '../users/avatarUpload';
  * 후 presign→PUT→finalize. 저장은 명시적 버튼(FR-PS-18 명시적 저장 탭).
  */
 const MIME_ACCEPT = AVATAR_ALLOWED_MIME.join(',');
+const BANNER_MIME_ACCEPT = BANNER_ALLOWED_MIME.join(',');
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 /** handleChangedAt 기준 다음 변경 가능 시각 + 남은 일수(D-N). 쿨다운 외면 null. */
@@ -65,6 +74,13 @@ export function ProfileSettingsPage(): JSX.Element {
   const presign = useAvatarPresign();
   const finalize = useAvatarFinalize();
   const removeAvatar = useAvatarDelete();
+  // S74 (FR-PS-04): 배너.
+  const bannerPresign = useBannerPresign();
+  const bannerFinalize = useBannerFinalize();
+  const removeBanner = useBannerDelete();
+  // S74 (FR-PS-05): 커스텀 상태 DND 옵션.
+  const { data: statusView } = useCustomStatus();
+  const setStatus = useSetCustomStatus();
 
   const [handle, setHandle] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -75,6 +91,7 @@ export function ProfileSettingsPage(): JSX.Element {
   const [bio, setBio] = useState('');
   const [handleError, setHandleError] = useState<string | null>(null);
   const fileRef = useRef<HTMLInputElement | null>(null);
+  const bannerRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (!profile) return;
@@ -163,6 +180,64 @@ export function ProfileSettingsPage(): JSX.Element {
     }
   };
 
+  // S74 (FR-PS-04): 배너 선택 → MIME/크기 클라 검증 → presign → POST → finalize.
+  const onPickBanner = (): void => bannerRef.current?.click();
+
+  const onBannerSelected = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file) return;
+    if (!(BANNER_ALLOWED_MIME as readonly string[]).includes(file.type)) {
+      notify({
+        variant: 'danger',
+        title: '지원하지 않는 형식',
+        body: 'PNG·JPG·WEBP 만 가능합니다.',
+      });
+      return;
+    }
+    if (file.size > BANNER_MAX_BYTES) {
+      notify({
+        variant: 'danger',
+        title: '파일이 너무 큽니다',
+        body: '최대 8MB 까지 업로드할 수 있습니다.',
+      });
+      return;
+    }
+    try {
+      const { key, url, fields } = await bannerPresign.mutateAsync({
+        contentType: file.type,
+        sizeBytes: file.size,
+      });
+      await uploadAvatarBlob(url, fields, file);
+      await bannerFinalize.mutateAsync(key);
+      notify({ variant: 'success', title: '배너를 변경했습니다.' });
+    } catch (err) {
+      notify({ variant: 'danger', title: '배너 업로드 실패', body: (err as Error).message });
+    }
+  };
+
+  const onRemoveBanner = async (): Promise<void> => {
+    try {
+      await removeBanner.mutateAsync();
+      notify({ variant: 'success', title: '배너를 제거했습니다.' });
+    } catch (err) {
+      notify({ variant: 'danger', title: '배너 제거 실패', body: (err as Error).message });
+    }
+  };
+
+  // S74 (FR-PS-05): DND 동시 활성화 옵션 토글(커스텀 상태 set 의 dndDuringStatus).
+  const onToggleDnd = async (next: boolean): Promise<void> => {
+    try {
+      await setStatus.mutateAsync({ dndDuringStatus: next });
+      notify({
+        variant: 'success',
+        title: next ? '상태 만료 시 DND 활성화를 켰습니다.' : '상태 만료 시 DND 활성화를 껐습니다.',
+      });
+    } catch (err) {
+      notify({ variant: 'danger', title: '설정 저장 실패', body: (err as Error).message });
+    }
+  };
+
   const onSave = async (): Promise<void> => {
     setHandleError(null);
     if (handleInvalid) {
@@ -221,6 +296,8 @@ export function ProfileSettingsPage(): JSX.Element {
   };
 
   const saving = update.isPending;
+  // S74 (FR-PS-05): 토글 현재값 — 상태 뷰가 로드됐으면 그 값을, 아니면 프로필 폴백.
+  const dndDuringStatus = statusView?.dndDuringStatus ?? profile.dndDuringStatus;
 
   // a11y SERIOUS-1/2 + MODERATE-2: handle input 의 aria-describedby 는 활성화된
   // 보조 텍스트(정규식 에러 → 서버 에러 → 쿨다운 힌트) id 들을 묶는다.
@@ -305,6 +382,65 @@ export function ProfileSettingsPage(): JSX.Element {
             onChange={(e) => void onAvatarSelected(e)}
           />
         </div>
+      </section>
+
+      {/* 배너 (FR-PS-04) */}
+      <section aria-label="프로필 배너" className="flex flex-col gap-[var(--s-2)]">
+        <span className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted">
+          배너
+        </span>
+        <div
+          data-testid="banner-preview"
+          aria-busy={bannerPresign.isPending || bannerFinalize.isPending}
+          className="flex aspect-[17/6] w-full items-center justify-center overflow-hidden rounded-[var(--radius-md)] bg-bg-subtle text-text-muted"
+        >
+          {profile.bannerUrl ? (
+            <img
+              src={profile.bannerUrl}
+              alt="프로필 배너"
+              data-testid="banner-image"
+              className="h-full w-full object-cover"
+            />
+          ) : (
+            <Icon name="image" size="lg" />
+          )}
+        </div>
+        <div className="flex items-center gap-[var(--s-2)]">
+          <button
+            type="button"
+            data-testid="banner-change"
+            className="qf-btn qf-btn--secondary qf-btn--sm"
+            onClick={onPickBanner}
+            disabled={bannerPresign.isPending || bannerFinalize.isPending}
+            aria-busy={bannerPresign.isPending || bannerFinalize.isPending}
+          >
+            {bannerPresign.isPending || bannerFinalize.isPending ? '업로드 중…' : '배너 변경'}
+          </button>
+          {profile.bannerUrl ? (
+            <button
+              type="button"
+              data-testid="banner-remove"
+              className="qf-btn qf-btn--ghost qf-btn--sm"
+              onClick={() => void onRemoveBanner()}
+              disabled={removeBanner.isPending}
+              aria-busy={removeBanner.isPending}
+            >
+              제거
+            </button>
+          ) : null}
+        </div>
+        <p className="text-[length:var(--fs-12)] text-text-muted">
+          PNG·JPG·WEBP, 최대 8MB, 권장 {BANNER_MIN_WIDTH}×{BANNER_MIN_HEIGHT}px 이상
+        </p>
+        <input
+          ref={bannerRef}
+          type="file"
+          accept={BANNER_MIME_ACCEPT}
+          aria-label="배너 이미지 파일 선택"
+          className="hidden"
+          data-testid="banner-file"
+          onChange={(e) => void onBannerSelected(e)}
+        />
       </section>
 
       {/* 핸들 (FR-PS-02/03) */}
@@ -438,6 +574,29 @@ export function ProfileSettingsPage(): JSX.Element {
           autoComplete="off"
         />
       </Field>
+
+      {/* 커스텀 상태 — DND 동시 활성화 옵션 (FR-PS-05) */}
+      <section aria-label="커스텀 상태" className="flex flex-col gap-[var(--s-2)]">
+        <span className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted">
+          커스텀 상태
+        </span>
+        <label className="flex items-center gap-[var(--s-2)]" htmlFor="pf-dnd-during-status">
+          <input
+            id="pf-dnd-during-status"
+            type="checkbox"
+            data-testid="dnd-during-status"
+            // 체크 색은 토큰(page-scoped·DS 미수정) — 기존 체크박스 패턴과 일관.
+            style={{ accentColor: 'var(--accent)' }}
+            checked={dndDuringStatus}
+            disabled={setStatus.isPending}
+            aria-busy={setStatus.isPending}
+            onChange={(e) => void onToggleDnd(e.target.checked)}
+          />
+          <span className="text-[length:var(--fs-14)]">
+            상태 메시지 만료 시 자동으로 방해 금지(DND) 활성화
+          </span>
+        </label>
+      </section>
 
       <div className="flex justify-end">
         <button

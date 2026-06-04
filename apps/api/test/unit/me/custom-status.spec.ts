@@ -183,3 +183,130 @@ describe('CustomStatusService.normalizeInput (S28 FR-P04)', () => {
     );
   });
 });
+
+// ── S74 (FR-PS-05 · Fork1 Option C): dndDuringStatus 만료 시 DND ───────────────
+import type { PrismaService } from '../../../src/prisma/prisma.module';
+import type { PresenceService } from '../../../src/realtime/presence/presence.service';
+
+function makeStatusDeps(opts: {
+  row: {
+    customStatus: string | null;
+    customStatusEmoji: string | null;
+    customStatusExpiresAt: Date | null;
+    dndDuringStatus: boolean;
+  } | null;
+  memberships?: { workspaceId: string }[];
+}): {
+  service: CustomStatusService;
+  userUpdate: ReturnType<typeof vi.fn>;
+  setDndForUser: ReturnType<typeof vi.fn>;
+} {
+  const userUpdate = vi.fn(async () => opts.row);
+  const setDndForUser = vi.fn(async () => (opts.memberships ?? []).map((m) => m.workspaceId));
+  const prisma = {
+    user: {
+      findUnique: vi.fn(async () => opts.row),
+      update: userUpdate,
+    },
+    workspaceMember: {
+      findMany: vi.fn(async () => opts.memberships ?? []),
+    },
+  } as unknown as PrismaService;
+  const presence = { setDndForUser } as unknown as PresenceService;
+  return { service: new CustomStatusService(prisma, presence), userUpdate, setDndForUser };
+}
+
+describe('CustomStatusService.getEffective — dndDuringStatus 만료 시 DND (FR-PS-05)', () => {
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  });
+
+  it('만료 + dndDuringStatus=true → clear + setDndForUser(true)', async () => {
+    const { service, setDndForUser } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: null,
+        customStatusExpiresAt: new Date('2024-12-31T23:59:00Z'), // 과거(만료)
+        dndDuringStatus: true,
+      },
+      memberships: [{ workspaceId: 'w1' }, { workspaceId: 'w2' }],
+    });
+    const view = await service.getEffective('u1');
+    // 만료분은 빈 상태로 보이고 옵션값은 노출한다.
+    expect(view.text).toBeNull();
+    expect(view.dndDuringStatus).toBe(true);
+    // 비동기 lazy clear+DND 가 마이크로태스크에서 실행되도록 한 틱 양보.
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(setDndForUser).toHaveBeenCalledWith('u1', ['w1', 'w2'], true);
+  });
+
+  it('만료 + dndDuringStatus=false → clear 만, DND 미호출', async () => {
+    const { service, setDndForUser } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: null,
+        customStatusExpiresAt: new Date('2024-12-31T23:59:00Z'),
+        dndDuringStatus: false,
+      },
+      memberships: [{ workspaceId: 'w1' }],
+    });
+    const view = await service.getEffective('u1');
+    expect(view.text).toBeNull();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(setDndForUser).not.toHaveBeenCalled();
+  });
+
+  it('미만료(미래 expiresAt) → DND 미호출, 상태 그대로', async () => {
+    const { service, setDndForUser } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: '🔧',
+        customStatusExpiresAt: new Date('2025-01-02T00:00:00Z'), // 미래
+        dndDuringStatus: true,
+      },
+    });
+    const view = await service.getEffective('u1');
+    expect(view.text).toBe('busy');
+    expect(view.emoji).toBe('🔧');
+    expect(view.dndDuringStatus).toBe(true);
+    await Promise.resolve();
+    expect(setDndForUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('CustomStatusService.set — dndDuringStatus 옵션 저장 (FR-PS-05)', () => {
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  });
+
+  it('dndDuringStatus 가 입력에 있으면 컬럼을 갱신', async () => {
+    const { service, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: null,
+        customStatusEmoji: null,
+        customStatusExpiresAt: null,
+        dndDuringStatus: false,
+      },
+    });
+    const view = await service.set('u1', { text: 'lunch', dndDuringStatus: true });
+    expect(view.dndDuringStatus).toBe(true);
+    const updateArg = userUpdate.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(updateArg.data.dndDuringStatus).toBe(true);
+  });
+
+  it('dndDuringStatus 미지정이면 컬럼을 건드리지 않음', async () => {
+    const { service, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: null,
+        customStatusEmoji: null,
+        customStatusExpiresAt: null,
+        dndDuringStatus: false,
+      },
+    });
+    await service.set('u1', { text: 'lunch' });
+    const updateArg = userUpdate.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect('dndDuringStatus' in updateArg.data).toBe(false);
+  });
+});

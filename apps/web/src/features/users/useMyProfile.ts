@@ -5,6 +5,8 @@ import type {
   UpdateProfileInput,
   AvatarPresignResult,
   AvatarFinalizeResult,
+  BannerPresignResult,
+  BannerFinalizeResult,
 } from '@qufox/shared-types';
 import { apiRequest } from '../../lib/api';
 import { qk } from '../../lib/query-keys';
@@ -78,6 +80,50 @@ export function useAvatarDelete() {
     onSuccess: () => {
       qc.setQueryData<ProfileView | undefined>(qk.me.profile(), (prev) =>
         prev ? { ...prev, avatarUrl: null } : prev,
+      );
+    },
+  });
+}
+
+/** S74 (FR-PS-04): 배너 presign → 직접 POST → finalize. 아바타와 동일 패턴. */
+export function useBannerPresign() {
+  return useMutation({
+    mutationFn: async (input: {
+      contentType: string;
+      sizeBytes: number;
+    }): Promise<BannerPresignResult> =>
+      apiRequest<BannerPresignResult>('/me/banner/presign', {
+        method: 'POST',
+        body: input,
+      }),
+  });
+}
+
+export function useBannerFinalize() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (key: string): Promise<BannerFinalizeResult> =>
+      apiRequest<BannerFinalizeResult>('/me/banner', {
+        method: 'PUT',
+        body: { key },
+      }),
+    onSuccess: (res) => {
+      qc.setQueryData<ProfileView | undefined>(qk.me.profile(), (prev) =>
+        prev ? { ...prev, bannerUrl: res.bannerUrl } : prev,
+      );
+    },
+  });
+}
+
+export function useBannerDelete() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (): Promise<void> => {
+      await apiRequest<void>('/me/banner', { method: 'DELETE' });
+    },
+    onSuccess: () => {
+      qc.setQueryData<ProfileView | undefined>(qk.me.profile(), (prev) =>
+        prev ? { ...prev, bannerUrl: null } : prev,
       );
     },
   });

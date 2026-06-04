@@ -50,12 +50,21 @@ import { OnboardingController } from './onboarding/onboarding.controller';
 import { OnboardingService } from './onboarding/onboarding.service';
 // S72 (D13 / FR-W16): 디스커버리 검색 Redis 5분 캐시. Redis 는 @Global RedisModule 제공.
 import { DiscoverCacheService } from './discover-cache.service';
+// S74 (D14 / FR-PS-06): 워크스페이스별 프로필 오버라이드 + ws아바타. S3Service(StorageModule)
+// + RealtimeGateway(workspace_profile.updated fanout)가 필요하다. RealtimeModule 은
+// (Channels/Messages 경유) WorkspacesModule 을 역참조하므로 forwardRef 로 순환을 끊는다.
+import { StorageModule } from '../storage/storage.module';
+import { RealtimeModule } from '../realtime/realtime.module';
+import { WorkspaceMemberProfileController } from './member-profile/workspace-member-profile.controller';
+import { WorkspaceMemberProfileService } from './member-profile/workspace-member-profile.service';
 
 @Module({
   imports: [
     AuthModule,
     OutboxModule,
     PresenceModule,
+    StorageModule,
+    forwardRef(() => RealtimeModule),
     forwardRef(() => MessagesModule),
     forwardRef(() => ChannelsModule),
   ],
@@ -72,6 +81,7 @@ import { DiscoverCacheService } from './discover-cache.service';
     ModerationReportController,
     ApplicationsController,
     OnboardingController,
+    WorkspaceMemberProfileController,
   ],
   providers: [
     WorkspacesService,
@@ -86,6 +96,7 @@ import { DiscoverCacheService } from './discover-cache.service';
     OnboardingService,
     DiscoverCacheService,
     IpSoftBlockService,
+    WorkspaceMemberProfileService,
   ],
   exports: [
     WorkspacesService,

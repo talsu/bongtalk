@@ -286,9 +286,45 @@ export const MemberSchema = z.object({
     // S28 (FR-P17): 만료 시각(ISO UTC). 클라가 만료 카운트다운/안내 표시에 사용.
     // 서버는 노출 시점에 만료분을 이미 마스킹하므로 여기 값은 항상 미래이거나 null.
     customStatusExpiresAt: z.string().nullable().optional(),
+    // S74 (FR-PS-06 + S73 carryover): 표시 우선순위 전파. 멤버목록/채팅 작성자 표시는
+    // resolveMemberDisplayName/resolveMemberAvatarUrl(아래 헬퍼)로 ws 오버라이드 >
+    // 전역 displayName/avatarUrl > handle/username 순으로 해석한다. 서버가 LEFT JOIN 으로
+    // 함께 내려보낸다(미설정 시 null — 폴백).
+    displayName: z.string().nullable().optional(),
+    // 전역 아바타 presigned GET URL(null = 미설정).
+    avatarUrl: z.string().nullable().optional(),
+    // 이 워크스페이스 오버라이드 닉네임(null = 미설정 → displayName 폴백).
+    wsNickname: z.string().nullable().optional(),
+    // 이 워크스페이스 오버라이드 아바타 presigned GET URL(null = 미설정 → avatarUrl 폴백).
+    wsAvatarUrl: z.string().nullable().optional(),
   }),
 });
 export type Member = z.infer<typeof MemberSchema>;
+
+/**
+ * S74 (FR-PS-06 + S73 carryover): 멤버 표시명 우선순위 해석.
+ *   ws nickname > 전역 displayName > handle/username
+ * (handle 은 멤버목록 user 객체에 없으므로 username 으로 폴백 — handle 은 username 의
+ *  소문자 정규화 버전이라 표시명 폴백으로는 username 이 적절하다.)
+ */
+export function resolveMemberDisplayName(user: {
+  username: string;
+  displayName?: string | null;
+  wsNickname?: string | null;
+}): string {
+  return user.wsNickname ?? user.displayName ?? user.username;
+}
+
+/**
+ * S74 (FR-PS-06 + S73 carryover): 멤버 아바타 URL 우선순위 해석.
+ *   ws avatarUrl > 전역 avatarUrl > null(기본 이니셜 아바타로 폴백)
+ */
+export function resolveMemberAvatarUrl(user: {
+  avatarUrl?: string | null;
+  wsAvatarUrl?: string | null;
+}): string | null {
+  return user.wsAvatarUrl ?? user.avatarUrl ?? null;
+}
 
 // ── S27 (FR-P08/P09/P11/P12): grouped member list ──────────────────────────
 

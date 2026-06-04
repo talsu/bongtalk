@@ -52,6 +52,16 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
   process.env.WEB_URL = 'http://localhost:45173';
   process.env.INVITE_CODE_BYTES = '16';
   process.env.WORKSPACE_SOFT_DELETE_GRACE_DAYS = '30';
+  // S74 (FR-PS-04/06): presignGet/presignPost 는 순수 서명(네트워크 없음)이라 실제 MinIO
+  // 없이도 동작한다. ws프로필/배너 presign + 멤버목록 아바타 URL 파생 int 검증을 위해
+  // S3_ENDPOINT/credentials 를 주입한다(headObject/deleteObject 같은 네트워크 호출은 이
+  // 폴더 int 가 사용하지 않는다 — 업로드 finalize 경로는 unit 이 mock S3 로 cover).
+  process.env.S3_ENDPOINT = process.env.S3_ENDPOINT ?? 'http://minio.int.test:9000';
+  process.env.S3_PUBLIC_ENDPOINT = process.env.S3_PUBLIC_ENDPOINT ?? 'http://minio.int.test:9000';
+  process.env.S3_ACCESS_KEY_ID = process.env.S3_ACCESS_KEY_ID ?? 'inttestkey';
+  process.env.S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY ?? 'inttestsecret';
+  process.env.S3_BUCKET = process.env.S3_BUCKET ?? 'qufox-attachments';
+  process.env.S3_REGION = process.env.S3_REGION ?? 'us-east-1';
 
   const apiRoot = path.resolve(__dirname, '../../..');
   execSync('pnpm exec prisma migrate deploy', {
