@@ -5,6 +5,12 @@ import { MembersController } from './members/members.controller';
 import { MembersService } from './members/members.service';
 import { InvitesService } from './invites/invites.service';
 import { PublicInvitesController, WorkspaceInvitesController } from './invites/invites.controller';
+// S68 (D13 / FR-W04·W04a·W18): 이메일 직접 초대 + 보류 초대 관리.
+import { PendingInvitesService } from './pending-invites/pending-invites.service';
+import {
+  EmailInviteAcceptController,
+  WorkspacePendingInvitesController,
+} from './pending-invites/pending-invites.controller';
 import { AuthModule } from '../auth/auth.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 // S27 (FR-P08/P12): 멤버 목록 REST 가 프레즌스를 bulkFor 단일 조회로 읽기 위해
@@ -45,6 +51,8 @@ import { ModerationReportService } from './moderation/moderation-report.service'
     MembersController,
     WorkspaceInvitesController,
     PublicInvitesController,
+    WorkspacePendingInvitesController,
+    EmailInviteAcceptController,
     RolesController,
     ModerationController,
     AuditLogController,
@@ -54,6 +62,7 @@ import { ModerationReportService } from './moderation/moderation-report.service'
     WorkspacesService,
     MembersService,
     InvitesService,
+    PendingInvitesService,
     RolesService,
     MemberRoleService,
     ModerationService,

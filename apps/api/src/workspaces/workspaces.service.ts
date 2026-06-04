@@ -207,6 +207,16 @@ export class WorkspacesService {
         'only OWNER can change visibility or category',
       );
     }
+    // S68 (D13 / FR-W05 · Fork C): emailDomains 화이트리스트 변경은 OWNER 전용이다
+    // (전용 엔드포인트 대신 이 공유 PATCH 로 확장 — 서비스 레이어 게이트, visibility/
+    // category OWNER 게이트 선례 일관). 도메인 게이트는 워크스페이스 진입을 좌우하므로
+    // ADMIN 이 임의로 넓히거나 좁힐 수 없게 OWNER 로 제한한다.
+    if (input.emailDomains !== undefined && actorRole !== 'OWNER') {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_EMAIL_DOMAINS_FORBIDDEN,
+        'only OWNER can change email domain whitelist',
+      );
+    }
     // task-030: PUBLIC transition requires category + description to be
     // present on the merged state (either pre-existing or in this patch).
     if (input.visibility === 'PUBLIC') {
@@ -234,6 +244,12 @@ export class WorkspacesService {
         );
       }
     }
+    // S68 (D13 / FR-W05 · Fork C): emailDomains 는 생성 시 로직(create)과 동일하게 소문자
+    // 정규화 + 중복 제거해 저장한다(빈 배열 = 제한 없음). undefined 면 변경 없음.
+    const normalizedEmailDomains =
+      input.emailDomains !== undefined
+        ? [...new Set(input.emailDomains.map((d) => d.trim().toLowerCase()))]
+        : undefined;
     return this.prisma.workspace.update({
       where: { id: workspaceId },
       data: {
@@ -242,6 +258,7 @@ export class WorkspacesService {
         ...(input.iconUrl !== undefined ? { iconUrl: input.iconUrl } : {}),
         ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
         ...(input.category !== undefined ? { category: input.category } : {}),
+        ...(normalizedEmailDomains !== undefined ? { emailDomains: normalizedEmailDomains } : {}),
       },
     });
   }

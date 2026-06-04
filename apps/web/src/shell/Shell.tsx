@@ -193,6 +193,8 @@ function WorkspaceSettingsOverlayHost({
     category: string | null;
     // S65 (FR-W19): 현재 기본 채널(셀렉트 초기값).
     defaultChannelId?: string | null;
+    // S68 (FR-W05): 이메일 도메인 화이트리스트(도메인 패널 초기값).
+    emailDomains?: string[];
   };
   workspaceSlug: string;
 }): JSX.Element | null {
@@ -228,6 +230,8 @@ function WorkspaceSettingsOverlayHost({
         visibility: workspace.visibility,
         category: workspace.category as never,
         defaultChannelId: workspace.defaultChannelId ?? null,
+        // S68 (FR-W05): 이메일 도메인 패널 초기값. 응답에 없으면 빈 배열.
+        emailDomains: workspace.emailDomains ?? [],
       }}
       myRole={myRole}
       workspaceSlug={workspaceSlug}
