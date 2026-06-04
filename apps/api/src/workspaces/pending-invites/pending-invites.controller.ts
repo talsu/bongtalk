@@ -176,10 +176,13 @@ export class EmailInviteAcceptController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — IP soft-block
+    // 대조 + 가입 ipHash 기록에 그대로 넘긴다(rate-limit 키와 동일 소스).
     const result = await this.pending.acceptByToken(parsed.data.token, {
       userId: user.id,
       userEmail: user.email,
       emailVerified: user.emailVerified,
+      clientIp: req.ip,
     });
     res.status(result.alreadyMember ? HttpStatus.OK : HttpStatus.CREATED);
     return result;
@@ -202,10 +205,12 @@ export class EmailInviteAcceptController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — IP soft-block.
     const result = await this.pending.acceptByOpaque(parsed.data.token, {
       userId: user.id,
       userEmail: user.email,
       emailVerified: user.emailVerified,
+      clientIp: req.ip,
     });
     res.status(result.alreadyMember ? HttpStatus.OK : HttpStatus.CREATED);
     return result;

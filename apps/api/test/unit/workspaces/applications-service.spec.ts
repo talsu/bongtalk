@@ -4,6 +4,7 @@ import { ApplicationsService } from '../../../src/workspaces/applications/applic
 import type { PrismaService } from '../../../src/prisma/prisma.module';
 import type { OutboxService } from '../../../src/common/outbox/outbox.service';
 import type { ModerationService } from '../../../src/workspaces/moderation/moderation.service';
+import type { IpSoftBlockService } from '../../../src/workspaces/moderation/ip-soft-block.service';
 import type { DirectMessagesService } from '../../../src/channels/direct-messages/direct-messages.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 import {
@@ -42,6 +43,22 @@ function makeModeration(banned = false): ModerationService {
   return { isBanned: vi.fn().mockResolvedValue(banned) } as unknown as ModerationService;
 }
 
+// S72 (D13 / FR-W22): IP soft-block 스텁. clientIp 미지정 정상 신청은 무차단 통과시킨다
+// (assertNotIpBlocked → resolve). 차단 IP 분기는 ip-soft-block.service.spec 이 별도 검증한다.
+// reviewer BLOCKER-1: ipHash 를 지정하면 submit 이 신청 행에 기록하고 approve 가 멤버로 복사하는
+// 라이프사이클을 단위로 검증할 수 있다(미지정 시 null).
+function makeIpSoftBlock(blocked = false, ipHash: string | null = null): IpSoftBlockService {
+  return {
+    assertNotIpBlocked: blocked
+      ? vi
+          .fn()
+          .mockRejectedValue(
+            Object.assign(new Error('blocked'), { code: ErrorCode.APPLICATION_NOT_APPLICABLE }),
+          )
+      : vi.fn().mockResolvedValue({ ipHash }),
+  } as unknown as IpSoftBlockService;
+}
+
 function makeDms(channelId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee'): {
   svc: DirectMessagesService;
   createInterviewDm: ReturnType<typeof vi.fn>;
@@ -63,7 +80,13 @@ describe('S70 ApplicationsService.submit', () => {
       workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
       workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.submit({
         slug: SLUG,
@@ -83,6 +106,7 @@ describe('S70 ApplicationsService.submit', () => {
       prisma,
       makeOutbox().svc,
       makeModeration(true),
+      makeIpSoftBlock(),
       makeDms().svc,
     );
     await expectDomainError(
@@ -95,7 +119,13 @@ describe('S70 ApplicationsService.submit', () => {
     const prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue({ ...WS_APPLY, joinMode: 'PUBLIC' }) },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.submit({ slug: SLUG, applicant: VERIFIED, answers: [] }),
       ErrorCode.APPLICATION_NOT_APPLICABLE,
@@ -115,7 +145,13 @@ describe('S70 ApplicationsService.submit', () => {
           ]),
       },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.submit({ slug: SLUG, applicant: VERIFIED, answers: [] }),
       ErrorCode.APPLICATION_PENDING_EXISTS,
@@ -136,7 +172,13 @@ describe('S70 ApplicationsService.submit', () => {
           ]),
       },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expect(
       svc.submit({ slug: SLUG, applicant: VERIFIED, answers: [] }),
     ).rejects.toMatchObject({
@@ -175,7 +217,13 @@ describe('S70 ApplicationsService.submit', () => {
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     const outbox = makeOutbox();
-    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      outbox.svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
 
     const result = await svc.submit({
       slug: SLUG,
@@ -212,11 +260,64 @@ describe('S70 ApplicationsService.submit', () => {
       workspaceMemberApplication: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.submit({ slug: SLUG, applicant: VERIFIED, answers: [] }),
       ErrorCode.APPLICATION_PENDING_EXISTS,
     );
+  });
+
+  it('submit 은 신청자 IP 해시(applicantIpHash)를 신청 행에 기록합니다(reviewer BLOCKER-1)', async () => {
+    const SUBMIT_IP_HASH = 'a'.repeat(64);
+    const createMock = vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
+      id: APP_ID,
+      workspaceId: WS,
+      applicantId: APPLICANT,
+      status: ApplicationStatus.PENDING,
+      answers: data.answers,
+      reviewedById: null,
+      reviewNote: null,
+      interviewChannelId: null,
+      applicantIpHash: data.applicantIpHash,
+      createdAt: new Date('2025-01-01T00:00:00Z'),
+      updatedAt: new Date('2025-01-01T00:00:00Z'),
+    }));
+    const tx = {
+      workspaceMemberApplication: {
+        findFirst: vi.fn().mockResolvedValue(null), // 되살릴 행 없음 → create 경로
+        update: vi.fn(),
+        create: createMock,
+      },
+      user: { findUnique: vi.fn().mockResolvedValue({ username: 'alice' }) },
+    };
+    const prisma = {
+      workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
+      workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
+      workspaceMemberApplication: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
+    } as unknown as PrismaService;
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(false, SUBMIT_IP_HASH),
+      makeDms().svc,
+    );
+
+    await svc.submit({
+      slug: SLUG,
+      applicant: { ...VERIFIED, clientIp: '203.0.113.9' },
+      answers: [],
+    });
+
+    expect(createMock).toHaveBeenCalledOnce();
+    expect(createMock.mock.calls[0][0].data).toMatchObject({ applicantIpHash: SUBMIT_IP_HASH });
   });
 });
 
@@ -238,7 +339,13 @@ describe('S70 ApplicationsService.process', () => {
 
   it('MODERATOR 의 approve 는 APPLICATION_FORBIDDEN(403)으로 거부합니다', async () => {
     const prisma = {} as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.process({
         workspaceId: WS,
@@ -251,7 +358,8 @@ describe('S70 ApplicationsService.process', () => {
     );
   });
 
-  it('approve(ADMIN)는 WorkspaceMember 생성 + MEMBER_JOINED + reviewed(approved) outbox 를 남깁니다', async () => {
+  it('approve(ADMIN)는 WorkspaceMember 생성(+신청자 ipHash 복사) + MEMBER_JOINED + reviewed(approved) outbox 를 남깁니다', async () => {
+    const SUBMIT_IP_HASH = 'b'.repeat(64);
     const memberCreate = vi.fn().mockResolvedValue(undefined);
     const tx = {
       // M-1: 트랜잭션 내 ban 재확인 — 미차단(null).
@@ -273,11 +381,20 @@ describe('S70 ApplicationsService.process', () => {
       },
     };
     const prisma = {
-      workspaceMemberApplication: { findFirst: vi.fn().mockResolvedValue(pendingApp()) },
+      // reviewer BLOCKER-1: 신청 행에 submit 시점 ipHash 가 보관돼 있다(approve 가 멤버로 복사).
+      workspaceMemberApplication: {
+        findFirst: vi.fn().mockResolvedValue({ ...pendingApp(), applicantIpHash: SUBMIT_IP_HASH }),
+      },
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     const outbox = makeOutbox();
-    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      outbox.svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
 
     const result = await svc.process({
       workspaceId: WS,
@@ -288,6 +405,8 @@ describe('S70 ApplicationsService.process', () => {
     });
 
     expect(memberCreate).toHaveBeenCalledOnce();
+    // reviewer BLOCKER-1: 멤버 ipHash 가 신청자 ipHash(submit)로 채워진다(approve req.ip=admin 아님).
+    expect(memberCreate.mock.calls[0][0].data).toMatchObject({ ipHash: SUBMIT_IP_HASH });
     expect(result.status).toBe('APPROVED');
     const types = outbox.records.map((r) => r.eventType);
     expect(types).toContain(MEMBER_JOINED);
@@ -309,7 +428,13 @@ describe('S70 ApplicationsService.process', () => {
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     const outbox = makeOutbox();
-    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      outbox.svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
 
     await expectDomainError(
       svc.process({
@@ -340,7 +465,13 @@ describe('S70 ApplicationsService.process', () => {
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     const outbox = makeOutbox();
-    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      outbox.svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
 
     const result = await svc.process({
       workspaceId: WS,
@@ -377,7 +508,13 @@ describe('S70 ApplicationsService.process', () => {
     } as unknown as PrismaService;
     const dms = makeDms(DM_CH);
     const outbox = makeOutbox();
-    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), dms.svc);
+    const svc = new ApplicationsService(
+      prisma,
+      outbox.svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      dms.svc,
+    );
 
     const result = await svc.process({
       workspaceId: WS,
@@ -402,7 +539,13 @@ describe('S70 ApplicationsService.process', () => {
           .mockResolvedValue({ ...pendingApp(), status: ApplicationStatus.APPROVED }),
       },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.process({
         workspaceId: WS,
@@ -447,7 +590,13 @@ describe('S70 ApplicationsService.withdraw', () => {
         })),
       },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     const result = await svc.withdraw({
       workspaceId: WS,
       applicationId: APP_ID,
@@ -473,7 +622,13 @@ describe('S70 ApplicationsService.withdraw', () => {
         }),
       },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.withdraw({ workspaceId: WS, applicationId: APP_ID, userId: APPLICANT }),
       ErrorCode.APPLICATION_INVALID_STATE,
@@ -484,7 +639,13 @@ describe('S70 ApplicationsService.withdraw', () => {
     const prisma = {
       workspaceMemberApplication: { findFirst: vi.fn().mockResolvedValue(null) },
     } as unknown as PrismaService;
-    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    const svc = new ApplicationsService(
+      prisma,
+      makeOutbox().svc,
+      makeModeration(),
+      makeIpSoftBlock(),
+      makeDms().svc,
+    );
     await expectDomainError(
       svc.withdraw({ workspaceId: WS, applicationId: APP_ID, userId: APPLICANT }),
       ErrorCode.APPLICATION_NOT_FOUND,

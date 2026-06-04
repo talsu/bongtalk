@@ -145,9 +145,12 @@ export class PublicInvitesController {
     // S66 (D13 / FR-W05a): 초대 수락 시점에 emailVerified + emailDomains 게이트를 적용한다.
     // user(JwtStrategy 가 DB 에서 매 요청 로드)에 emailVerified/email 이 실려 있으므로
     // 서비스에 그대로 넘긴다(재조회 불요).
+    // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — IP soft-block
+    // 대조 + 가입 ipHash 기록에 그대로 넘긴다(rate-limit 키와 동일 소스).
     const result = await this.invites.accept(code, user.id, {
       emailVerified: user.emailVerified,
       userEmail: user.email,
+      clientIp: req.ip,
     });
     // S67 (D13 / FR-W03): 신규 가입은 201(생성), 이미 멤버였던 멱등 수락은 200(OK)으로
     // 구분한다. 응답 바디는 두 경우 모두 { workspace, alreadyMember } — FE 가 안내 문구만

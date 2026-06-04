@@ -35,6 +35,10 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   SLOWMODE_UPDATE: '슬로우모드 변경',
   PRIVILEGE_ESCALATION_DENIED: '권한 상승 거부',
   REPORT_RESOLVE: '신고 처리',
+  INVITE_DELETED: '초대 영구 삭제',
+  // S72 (D13 / FR-W22): IP soft-block 감사 액션 라벨(감사 로그 UI raw enum 노출 방지).
+  SUSPICIOUS_JOIN: '의심 가입',
+  SUSPICIOUS_JOIN_THRESHOLD: '의심 가입 임계값 도달',
 };
 
 /** S64 (FR-RM12): 감사 로그 항목 DTO. details 는 임의 컨텍스트(Json). */
