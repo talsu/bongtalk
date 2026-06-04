@@ -108,17 +108,19 @@ export class MessagesController {
       );
     }
     await this.rate.enforce([{ key: `msg:get:u:${user.id}`, windowSec: 60, max: 600 }]);
-    // S17 (FR-DM-17/18 / FR-TH-19): DM(DIRECT) 채널일 때만 가시성 하한선 필터
-    // + 차단 사용자 마스킹을 적용한다. 일반 텍스트 채널(TEXT/ANNOUNCEMENT 등)은
-    // visibleFrom=null + blockedIds=∅ 로 무영향이다(회귀 없음). 027-era 워크스페이스
-    // 스코프 DIRECT 채널도 여기로 들어오므로 동일 게이트를 건다.
+    // S17 (FR-DM-17/18 / FR-TH-19): DM(DIRECT) 채널일 때만 가시성 하한선 필터를 적용한다
+    // (visibleFrom 은 DM 멤버십 override 에만 존재 — 일반 채널은 null 로 무영향).
+    //
+    // S75 (D14 / FR-PS-14 · C1): 차단 사용자 마스킹은 DM 뿐 아니라 **워크스페이스 채널
+    // 메시지 리스트에도** 동일 적용한다. loadBlockedUserIds(내가 차단한 상대) 를 모든 채널
+    // 타입에서 로드해 maskBlockedAuthors 로 본문/멘션/임베드를 placeholder 로 가린다(단방향
+    // 마스킹 — 내가 차단한 사람의 메시지만 *나에게* 가려진다, Discord 의미와 일관). 차단이
+    // 없으면(0건) maskBlockedAuthors 가 즉시 no-op 이라 일반 멤버 hot-path 비용은 SELECT 1회뿐.
     const isDirect = channel?.type === 'DIRECT';
-    const [visibleFrom, blockedIds] = isDirect
-      ? await Promise.all([
-          this.messages.resolveDmVisibleFrom(channelId, user.id),
-          this.messages.loadBlockedUserIds(user.id),
-        ])
-      : [null, new Set<string>()];
+    const [visibleFrom, blockedIds] = await Promise.all([
+      isDirect ? this.messages.resolveDmVisibleFrom(channelId, user.id) : Promise.resolve(null),
+      this.messages.loadBlockedUserIds(user.id),
+    ]);
     const result = await this.messages.list({
       channelId,
       before: parsed.data.before,
