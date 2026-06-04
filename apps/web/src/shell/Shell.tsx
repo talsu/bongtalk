@@ -14,6 +14,8 @@ import { useUI } from '../stores/ui-store';
 import { SearchResultPanelContainer } from '../features/search/SearchResultPanelContainer';
 import { ActivityInboxPanel } from '../features/activity/ActivityInboxPanel';
 import { MemberDirectoryPanel } from '../features/workspaces/MemberDirectoryPanel';
+// S75 (FR-PS-08): 전체 프로필 패널(우측 슬라이드인).
+import { MemberProfilePanel } from '../features/profile/MemberProfilePanel';
 import { BottomBar } from './BottomBar';
 import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
@@ -70,6 +72,8 @@ function DesktopShell(): JSX.Element {
   const activityInboxOpen = useUI((s) => s.activityInboxOpen);
   // S69 (FR-W10 · Fork C): 멤버 디렉터리 오버레이(모든 멤버 진입점).
   const memberDirectoryOpen = useUI((s) => s.memberDirectoryOpen);
+  // S75 (FR-PS-08): 전체 프로필 패널이 열려 있는 멤버 userId(우측 슬롯 최우선).
+  const profilePanelUserId = useUI((s) => s.profilePanelUserId);
   const { user } = useAuth();
   const { data: mine, isLoading } = useMyWorkspaces();
   // task-040 R3 + reviewer H1: realtime is now installed once at App
@@ -172,8 +176,12 @@ function DesktopShell(): JSX.Element {
       )}
       {/* S30 (FR-S03): 검색 패널 활성 시 우측 슬롯을 결과 패널로 대체.
           S47 (FR-MN-13): 그 다음 우선순위로 Activity Inbox 패널, 둘 다 닫혀 있으면
-          멤버 목록. 우선순위 search > inbox > members. */}
-      {active && activeChannel && memberDirectoryOpen ? (
+          멤버 목록. S75 (FR-PS-08): 전체 프로필 패널이 최우선(팝오버에서 열림 → 다른
+          우측 패널은 setProfilePanelUser 가 닫음). 우선순위 profile > directory > search >
+          inbox > members. */}
+      {active && activeChannel && profilePanelUserId ? (
+        <MemberProfilePanel workspaceId={active.id} />
+      ) : active && activeChannel && memberDirectoryOpen ? (
         <MemberDirectoryHost workspaceId={active.id} currentUserId={user?.id ?? null} />
       ) : active && activeChannel && searchPanelQuery !== null ? (
         <SearchResultPanelContainer workspaceId={active.id} workspaceSlug={active.slug} />

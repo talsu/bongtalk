@@ -57,6 +57,14 @@ type UIState = {
   memberDirectoryOpen: boolean;
   toggleMemberDirectory: () => void;
   setMemberDirectoryOpen: (v: boolean) => void;
+
+  /**
+   * S75 (D14 / FR-PS-08): 전체 프로필 패널이 표시 중인 멤버 userId. null 이면 패널 닫힘.
+   * 프로필 팝오버의 "전체 프로필" 링크가 setProfilePanelUser 로 연다. 패널 자체의 X/Esc
+   * 또는 다른 멤버 패널 열기로 교체된다(MemberProfilePanel 이 우측 슬롯을 슬라이드인으로 채움).
+   */
+  profilePanelUserId: string | null;
+  setProfilePanelUser: (userId: string | null) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -74,13 +82,26 @@ export const useUI = create<UIState>((set) => ({
   activeChannelId: null,
   setActiveChannelId: (chId) => set({ activeChannelId: chId }),
 
+  // S75 fix-forward (F14): 우측 슬롯 상호배타를 대칭으로 맞춘다. setProfilePanelUser 는
+  // 이미 검색/inbox/디렉터리를 닫지만, 반대편(검색/inbox/디렉터리 "여는" 분기)이
+  // profilePanelUserId 를 닫지 않아, 프로필 패널이 열린 채로 검색/inbox/디렉터리 버튼을
+  // 누르면 단일-슬롯에서 프로필 패널이 우선 렌더되어 버튼이 죽은 듯 보였다. 모든
+  // "여는" 분기에 profilePanelUserId: null 을 더해 항상 마지막에 연 패널만 활성이게 한다.
   searchPanelQuery: null,
-  openSearchPanel: (q) => set({ searchPanelQuery: q }),
+  openSearchPanel: (q) => set({ searchPanelQuery: q, profilePanelUserId: null }),
   closeSearchPanel: () => set({ searchPanelQuery: null }),
 
   activityInboxOpen: false,
-  toggleActivityInbox: () => set((s) => ({ activityInboxOpen: !s.activityInboxOpen })),
-  setActivityInboxOpen: (v) => set({ activityInboxOpen: v }),
+  toggleActivityInbox: () =>
+    set((s) =>
+      s.activityInboxOpen
+        ? { activityInboxOpen: false }
+        : { activityInboxOpen: true, profilePanelUserId: null },
+    ),
+  setActivityInboxOpen: (v) =>
+    set(() =>
+      v ? { activityInboxOpen: true, profilePanelUserId: null } : { activityInboxOpen: false },
+    ),
 
   pinPanelOpen: false,
   togglePinPanel: () => set((s) => ({ pinPanelOpen: !s.pinPanelOpen })),
@@ -89,17 +110,42 @@ export const useUI = create<UIState>((set) => ({
   memberDirectoryOpen: false,
   // S69 fix-forward (a11y H-01): 디렉터리를 열 때 검색/inbox 패널을 **명시적으로 닫아**
   // 우측 슬롯의 우선순위 가림(stacking) 대신 단일 패널만 활성이게 한다(상호배타). 닫을
-  // 때는 다른 패널 상태를 건드리지 않는다.
+  // 때는 다른 패널 상태를 건드리지 않는다. F14: 프로필 패널도 함께 닫는다.
   toggleMemberDirectory: () =>
     set((s) =>
       s.memberDirectoryOpen
         ? { memberDirectoryOpen: false }
-        : { memberDirectoryOpen: true, searchPanelQuery: null, activityInboxOpen: false },
+        : {
+            memberDirectoryOpen: true,
+            searchPanelQuery: null,
+            activityInboxOpen: false,
+            profilePanelUserId: null,
+          },
     ),
   setMemberDirectoryOpen: (v) =>
     set(() =>
       v
-        ? { memberDirectoryOpen: true, searchPanelQuery: null, activityInboxOpen: false }
+        ? {
+            memberDirectoryOpen: true,
+            searchPanelQuery: null,
+            activityInboxOpen: false,
+            profilePanelUserId: null,
+          }
         : { memberDirectoryOpen: false },
+    ),
+
+  profilePanelUserId: null,
+  // S75 (FR-PS-08): 전체 프로필 패널을 열 때 다른 우측 패널(검색/inbox/디렉터리)을 명시적으로
+  // 닫아 단일 패널만 활성이게 한다(memberDirectory 상호배타 선례). null 이면 패널만 닫는다.
+  setProfilePanelUser: (userId) =>
+    set(() =>
+      userId
+        ? {
+            profilePanelUserId: userId,
+            searchPanelQuery: null,
+            activityInboxOpen: false,
+            memberDirectoryOpen: false,
+          }
+        : { profilePanelUserId: null },
     ),
 }));

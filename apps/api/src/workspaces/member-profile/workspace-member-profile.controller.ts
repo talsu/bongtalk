@@ -18,6 +18,7 @@ import {
   type WorkspaceMemberProfileView,
   type WsAvatarPresignResult,
   type WsAvatarFinalizeResult,
+  type MemberFullProfileView,
 } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 import { DomainError } from '../../common/errors/domain-error';
@@ -141,6 +142,35 @@ export class WorkspaceMemberProfileController {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'member not found in this workspace');
     }
     return this.svc.getProfile(wsId, targetUserId);
+  }
+
+  /**
+   * S75 (D14 / FR-PS-07·08 · Fork A-1): 타 멤버 전체 프로필(팝오버 미니카드 + 전체 패널).
+   *   GET /workspaces/:wsId/members/:userId/full-profile → MemberFullProfileView
+   *
+   * WorkspaceMemberGuard 가 요청자(viewer)의 :wsId 멤버십을 강제하고, 여기서 대상 userId 가
+   * 동일 wsId 멤버인지 검증한다(비멤버 → 404 enumeration 차단 — getMember 권한 패턴 재사용).
+   * 합성(전역+ws오버라이드+프레즌스+역할+커스텀상태)은 서비스가 단일 출처로 수행한다.
+   *
+   * Rate limit: 읽기전용이라 완화한다(member-profile:u:{viewerId} 20/min — 팝오버 여러 번
+   * 열기 허용). 본인-조회도 동일 경로로 허용한다(자기 프로필 미리보기).
+   */
+  @Get('members/:userId/full-profile')
+  async getMemberFullProfile(
+    @Param('wsId', new ParseUUIDPipe()) wsId: string,
+    @Param('userId', new ParseUUIDPipe()) targetUserId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<MemberFullProfileView> {
+    await this.rate.enforce([{ key: `member-profile:u:${user.id}`, windowSec: 60, max: 20 }]);
+    // 대상이 같은 워크스페이스 멤버인지 검증(비멤버 enumeration 차단 → 404). getMember 일관.
+    const target = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: wsId, userId: targetUserId } },
+      select: { userId: true },
+    });
+    if (!target) {
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'member not found in this workspace');
+    }
+    return this.svc.getFullProfile(wsId, user.id, targetUserId);
   }
 
   /**
