@@ -40,6 +40,25 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('user.profile.updated invalidates the keyed members cache (perf serious — prefix fix)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    // 실제 키 형태: ['workspaces', wsId, 'members'] — 종전 ['workspaces','members'] prefix 와 불일치.
+    qc.setQueryData(qk.workspaces.members('ws-1'), [{ userId: 'u-1' }]);
+    qc.setQueryData(qk.workspaces.members('ws-2'), [{ userId: 'u-1' }]);
+    const detach = installRealtimeDispatcher(socket, qc);
+    const spy = vi.spyOn(qc, 'invalidateQueries');
+    socket.emit('user.profile.updated', { userId: 'u-1', customStatus: 'brb' });
+    // predicate 가 keyed members 쿼리(둘 다)를 실제로 무효화하는지 검증한다.
+    expect(spy).toHaveBeenCalledTimes(1);
+    const membersState = qc.getQueryState(qk.workspaces.members('ws-1'));
+    expect(membersState?.isInvalidated).toBe(true);
+    const members2State = qc.getQueryState(qk.workspaces.members('ws-2'));
+    expect(members2State?.isInvalidated).toBe(true);
+    spy.mockRestore();
+    detach();
+  });
+
   it('ws:application_reviewed (S70 FR-W06a) emits a window event for the pending screen', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

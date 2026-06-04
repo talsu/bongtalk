@@ -369,9 +369,9 @@ model User {
   dndScheduleSnapshot         Json?
   // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
   notificationOnboardingShown Boolean            @default(false)
-  // task-046 iter5 (M1): Discord-parity profile bio. markdown 허용,
-  // 500 chars cap (app layer). links 는 markdown URL 로 표현 (별도
-  // column 없음).
+  // task-046 iter5 (M1) → S73 (D14 / FR-PS-02): Discord-parity profile bio(About Me).
+  // 평문 자유 텍스트(렌더 측 마크다운 미적용). DB 컬럼은 TEXT(무제한)이며 길이 한도는
+  // 앱 레이어에서만 190자(BIO_MAX)로 강제한다. links 는 별도 Json 컬럼(아래)로 분리.
   bio                         String?
   // task-047 iter3 (M2): Discord-parity profile 외부 링크.
   // shape: Array<{ url: string, label?: string }>, cap 3 (app layer).
@@ -382,6 +382,25 @@ model User {
   // (createOrGetGlobal / createGroupDm) + 그룹 DM 멤버 추가(FR-DM-07)에서
   // assertDmPrivacyAllows 게이트가 참조한다.
   allowDmFrom                 DmPrivacy          @default(WORKSPACE_MEMBER)
+  // S73 (D14 / FR-PS-01·02·03): 전역 신원 레이어. 전부 nullable additive 라 기존 row
+  // 안전(마이그레이션 20260612000000_s73_d14_profile). handle 은 username 을 백필
+  // (Option B — username 컬럼은 하위호환 유지·API 는 handle ?? username 폴백).
+  //   handle:          소문자/숫자/`_`/`.` 3–32자 전역 유일(@멘션 타겟). 30일 쿨다운.
+  //   displayName:     1–80자 비유니크 자유 문자열(@username 대신 표시).
+  //   fullName:        ≤50자 본명.
+  //   pronouns:        ≤40자 대명사.
+  //   title:           ≤80자 직함.
+  //   avatarKey:       MinIO 객체 키(qufox-attachments 버킷의 avatars/ prefix).
+  //   handleChangedAt: 마지막 handle 변경 시각(FR-PS-03 쿨다운 기준). null = 미설정.
+  // bio / timezone / customStatus 는 기존 컬럼을 재사용한다(중복 추가 금지).
+  // 배너(FR-PS-04)·워크스페이스별 프로필(FR-PS-06)은 S74+ 범위(이 슬라이스 OUT).
+  handle                      String?            @unique
+  displayName                 String?
+  fullName                    String?            @db.VarChar(50)
+  pronouns                    String?            @db.VarChar(40)
+  title                       String?            @db.VarChar(80)
+  avatarKey                   String?
+  handleChangedAt             DateTime?          @db.Timestamptz
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 
@@ -431,6 +450,10 @@ model User {
   workspaceApplications         WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationApplicant")
   // S70 (D13 / FR-W06): 본인이 검토(승인/거절/인터뷰)한 가입 신청들. 계정 삭제 시 SetNull.
   workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
+
+  // S73 (D14 / FR-PS-02): handle 조회(@멘션 해석 등)는 @unique 가 만드는 btree 로 충분하다.
+  // perf minor 리뷰: 별도 @@index([handle]) 는 동일 컬럼 단일 btree 중복이라 제거했다
+  // (쓰기 시 인덱스 2개 유지 비용 + 디스크 낭비). UNIQUE 인덱스만 유지한다.
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.

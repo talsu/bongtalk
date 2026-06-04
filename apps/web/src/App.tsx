@@ -62,6 +62,12 @@ const NotificationSettingsPage = lazy(() =>
     default: m.NotificationSettingsPage,
   })),
 );
+// S73 (D14 / FR-PS-01·02·03): 설정 > 프로필 탭(전역 신원 + 아바타).
+const ProfileSettingsPage = lazy(() =>
+  import('./features/settings/ProfileSettingsPage').then((m) => ({
+    default: m.ProfileSettingsPage,
+  })),
+);
 const ActivityPage = lazy(() =>
   import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage })),
 );
@@ -300,13 +306,14 @@ function LegacyDmChatRedirect(): JSX.Element {
   return <Navigate to={userId ? `/dm/${userId}` : '/dm'} replace />;
 }
 
-function ProtectedSettingsRoute({ page }: { page: 'notifications' }): JSX.Element {
+function ProtectedSettingsRoute({ page }: { page: 'notifications' | 'profile' }): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
   return (
     <Suspense fallback={<LoadingFallback />}>
-      {page === 'notifications' ? <NotificationSettingsPage /> : <LoadingFallback />}
+      {page === 'notifications' ? <NotificationSettingsPage /> : null}
+      {page === 'profile' ? <ProfileSettingsPage /> : null}
     </Suspense>
   );
 }
@@ -372,6 +379,11 @@ export default function App(): JSX.Element {
                         <Route
                           path="/settings/notifications"
                           element={<ProtectedSettingsRoute page="notifications" />}
+                        />
+                        {/* S73 (D14 / FR-PS-01·02·03): 프로필 설정 탭. */}
+                        <Route
+                          path="/settings/profile"
+                          element={<ProtectedSettingsRoute page="profile" />}
                         />
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
                         {/* task-047 iter4 (M3): profile page */}
