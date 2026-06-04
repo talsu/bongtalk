@@ -22,6 +22,17 @@ export enum ErrorCode {
   // S65 (D13 / FR-W19): 기본 채널 변경 대상이 비공개 채널이면 거부한다(가입자
   // 랜딩 채널은 모두가 접근 가능한 공개 채널이어야 한다).
   WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC = 'WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC',
+  // S65 fix-forward (security A-2): joinMode=APPLY(신청 후 승인) 워크스페이스에
+  // 즉시 가입(POST /join)을 시도 → 409. 신청 플로우(FR-W06)는 S66 carryover 라
+  // 아직 미지원이며, 그 전까지 즉시 가입으로 우회되면 승인 게이트가 무력화되므로
+  // 명시적으로 거부한다(visibility=PUBLIC 이라도 joinMode=APPLY 면 막힌다).
+  WORKSPACE_APPLY_NOT_SUPPORTED = 'WORKSPACE_APPLY_NOT_SUPPORTED',
+  // S65 fix-forward (D-2): PUBLIC 전환 시 category/description 누락 → 422. 요청
+  // envelope 자체는 well-formed(UpdateWorkspaceRequestSchema 통과)이나, "공개 워크
+  // 스페이스는 카테고리+설명 필수"라는 도메인 불변식을 못 넘긴 처리 불가 상태다.
+  // 종전 VALIDATION_FAILED(400, shape 오류 전용)에서 분리 — discover 정합성 게이트라
+  // WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC(422)와 같은 계열로 둔다.
+  WORKSPACE_PUBLIC_REQUIRES_METADATA = 'WORKSPACE_PUBLIC_REQUIRES_METADATA',
 
   // S61 (D12 / FR-RM01·04·15): 커스텀 Role 시스템.
   ROLE_NOT_FOUND = 'ROLE_NOT_FOUND',
@@ -246,6 +257,11 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.WORKSPACE_PURGED]: 410,
   [ErrorCode.WORKSPACE_NOT_PUBLIC]: 403,
   [ErrorCode.WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC]: 422,
+  // S65 fix-forward (security A-2): APPLY 모드 즉시 가입 차단 → 409(상태 충돌 — 신청
+  // 후 승인 모드라 즉시 가입이 처리 불가).
+  [ErrorCode.WORKSPACE_APPLY_NOT_SUPPORTED]: 409,
+  // S65 fix-forward (D-2): PUBLIC 전환 메타데이터 누락 → 422(처리 불가 — 도메인 불변식).
+  [ErrorCode.WORKSPACE_PUBLIC_REQUIRES_METADATA]: 422,
 
   // S61 (D12 / FR-RM01·04·15): 역할 시스템.
   [ErrorCode.ROLE_NOT_FOUND]: 404,

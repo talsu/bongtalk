@@ -782,6 +782,11 @@ model Channel {
   // @@unique can't express the partial WHERE). A soft-deleted row no longer
   // occupies its name, so the name is immediately reusable. The full-table
   // @@unique([workspaceId, name]) was dropped in that migration.
+  // S65 fix-forward (perf MODERATE-1): updateDefaultChannel 의 `WHERE workspaceId
+  // AND isDefault=true` updateMany 를 가속하는 PARTIAL 인덱스 `(workspaceId,
+  // isDefault) WHERE "isDefault" = true` 가 raw SQL(20260604100000_s65_channel_
+  // default_partial_index)로 존재한다 — Prisma @@index 는 부분 WHERE 를 표현할 수
+  // 없어 여기 선언하지 않는다. 워크스페이스당 true 행은 보통 ≤1개라 매우 작다.
   @@index([workspaceId, categoryId, position])
   @@index([workspaceId, deletedAt])
 }

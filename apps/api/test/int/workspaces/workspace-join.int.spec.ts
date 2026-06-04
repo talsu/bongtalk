@@ -99,4 +99,32 @@ describe('POST /workspaces/:id/join', () => {
     const limited = results.find((s) => s === 429);
     expect(limited).toBe(429);
   });
+
+  // S65 fix-forward (security A-2): joinMode=APPLY 워크스페이스는 PUBLIC 으로
+  // discover 에 노출돼도 즉시 가입을 차단한다(신청 후 승인 플로우는 S66 carryover).
+  it('blocks direct join on a PUBLIC + joinMode=APPLY workspace (409)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'apo');
+    const visitor = await signupAsUser(env.baseUrl, 'apv');
+    const stamp = Date.now().toString(36);
+
+    const applyWs = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        name: 'ApplyGate',
+        slug: `ag-${stamp}`,
+        visibility: 'PUBLIC',
+        category: 'OTHER',
+        description: 'apply mode',
+        joinMode: 'APPLY',
+      });
+    expect(applyWs.status).toBe(201);
+
+    const join = await request(env.baseUrl)
+      .post(`/workspaces/${applyWs.body.id}/join`)
+      .set('Authorization', `Bearer ${visitor.accessToken}`);
+    expect(join.status).toBe(409);
+    expect(join.body.errorCode).toBe('WORKSPACE_APPLY_NOT_SUPPORTED');
+  });
 });

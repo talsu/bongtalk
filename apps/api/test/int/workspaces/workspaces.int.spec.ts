@@ -223,6 +223,55 @@ describe('Transfer ownership — atomicity', () => {
       .set('Authorization', `Bearer ${owner.accessToken}`);
     expect(me.body.myRole).toBe('OWNER');
   });
+
+  // S65 fix-forward (security A-1 = HIGH/BLOCKER): 양도 엔드포인트는 비밀번호
+  // brute-force 표면이므로 5회/5분/OWNER 로 rate-limit 한다. 6회째는 429.
+  it('rate-limits transfer at 5 per 5 minutes per owner (6th → 429)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'trl');
+    const other = await signupAsUser(env.baseUrl, 'trlo');
+    const createRes = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'RlGate', slug: uniqueSlug('trl') });
+    const wsId = createRes.body.id;
+
+    const inv = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/invites`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ maxUses: 1 });
+    await request(env.baseUrl)
+      .post(`/invites/${inv.body.invite.code}/accept`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .expect(201);
+
+    // 5 wrong-password attempts each consume a rate-limit hit but never
+    // transfer (401). The rate-limit gate runs before the password check.
+    for (let i = 0; i < 5; i += 1) {
+      const r = await request(env.baseUrl)
+        .post(`/workspaces/${wsId}/transfer-ownership`)
+        .set('origin', ORIGIN)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ toUserId: other.userId, password: `wrong-${i}` });
+      expect(r.status).toBe(401);
+    }
+    // 6th attempt is over cap (max=5) → 429 with Retry-After.
+    const limited = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/transfer-ownership`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ toUserId: other.userId, password: STRONG_PW });
+    expect(limited.status).toBe(429);
+    expect(limited.headers['retry-after']).toBeDefined();
+
+    // Ownership must be unchanged — the 429 blocked the valid attempt too.
+    const me = await request(env.baseUrl)
+      .get(`/workspaces/${wsId}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(me.body.myRole).toBe('OWNER');
+  });
 });
 
 // S65 (FR-W01): 워크스페이스 생성 시 #general 자동 생성 + joinMode + 단일 트랜잭션.

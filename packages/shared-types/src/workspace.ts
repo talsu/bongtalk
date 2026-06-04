@@ -42,6 +42,17 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'users',
   'me',
   'new',
+  // S65 fix-forward (security A-3): 헬스/관측/스토리지 surface 와의 라우트 충돌을
+  // 막기 위해 운영용 경로 토큰을 예약 목록에 추가한다(slug 가 이 값을 점유하면
+  // /healthz 같은 인프라 라우트나 download/upload/media 게이트와 충돌할 수 있다).
+  'health',
+  'healthz',
+  'readyz',
+  'metrics',
+  'internal',
+  'download',
+  'upload',
+  'media',
 ]);
 
 export const SlugSchema = z
@@ -321,7 +332,8 @@ export type UpdateMemberRoleRequest = z.infer<typeof UpdateMemberRoleRequestSche
 
 // S65 (D13 / FR-W13): 소유권 양도는 OWNER 비밀번호 재확인을 강제한다(★결정 C).
 // password 는 required — 하위호환을 위해 optional 로 두지 않는다(보안). 서버가
-// bcrypt.compare 로 검증하며, 불일치 시 403(AUTH_INVALID_CREDENTIALS).
+// argon2 PasswordService.verify 로 검증하며(저장된 passwordHash 는 argon2 —
+// bcrypt.compare 는 불일치), 불일치 시 401(AUTH_INVALID_CREDENTIALS).
 export const TransferOwnershipRequestSchema = z.object({
   toUserId: z.string().uuid(),
   password: z.string().min(1),

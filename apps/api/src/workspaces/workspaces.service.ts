@@ -201,15 +201,18 @@ export class WorkspacesService {
         category: input.category !== undefined ? input.category : current?.category,
         description: input.description !== undefined ? input.description : current?.description,
       };
+      // S65 fix-forward (D-2): 도메인 불변식 위반은 422(WORKSPACE_PUBLIC_REQUIRES_METADATA)로
+      // 거부한다 — 요청 envelope 은 well-formed 이나 "공개 워크스페이스는 카테고리+설명
+      // 필수"를 못 넘긴 처리 불가 상태다(종전 VALIDATION_FAILED 400 에서 정정).
       if (!merged.category) {
         throw new DomainError(
-          ErrorCode.VALIDATION_FAILED,
+          ErrorCode.WORKSPACE_PUBLIC_REQUIRES_METADATA,
           'category is required when switching to PUBLIC',
         );
       }
       if (!merged.description || merged.description.trim().length === 0) {
         throw new DomainError(
-          ErrorCode.VALIDATION_FAILED,
+          ErrorCode.WORKSPACE_PUBLIC_REQUIRES_METADATA,
           'description is required when switching to PUBLIC',
         );
       }
@@ -360,7 +363,7 @@ export class WorkspacesService {
   ): Promise<{ workspaceId: string; alreadyMember: boolean }> {
     const ws = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, visibility: true, deletedAt: true },
+      select: { id: true, visibility: true, joinMode: true, deletedAt: true },
     });
     if (!ws || ws.deletedAt) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
@@ -369,6 +372,16 @@ export class WorkspacesService {
       throw new DomainError(
         ErrorCode.WORKSPACE_NOT_PUBLIC,
         'workspace is not joinable without invite',
+      );
+    }
+    // S65 fix-forward (security A-2): joinMode=APPLY 면 즉시 가입을 차단한다. visibility
+    // 와 joinMode 는 직교하므로 PUBLIC discover 노출 워크스페이스라도 가입 방식이 APPLY
+    // 면 승인 게이트(FR-W06, S66 carryover)를 거쳐야 한다. 그 플로우가 구현되기 전까지
+    // 즉시 가입으로 우회되면 승인 절차가 무력화되므로 명시적으로 거부한다.
+    if (ws.joinMode === 'APPLY') {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_APPLY_NOT_SUPPORTED,
+        'workspace requires application approval — direct join is not supported yet',
       );
     }
     const existing = await this.prisma.workspaceMember.findUnique({

@@ -5,7 +5,7 @@ import {
   type WorkspaceCategory,
   type WorkspaceVisibility,
 } from '@qufox/shared-types';
-import { Button, Input, SettingsOverlay } from '../../design-system/primitives';
+import { Button, Dialog, Input, SettingsOverlay } from '../../design-system/primitives';
 import {
   useLeaveWorkspace,
   useTransferOwnership,
@@ -364,16 +364,19 @@ export function WorkspaceSettingsPage({
             </div>
 
             {err ? (
-              <p className="qf-field__error" data-testid="workspace-settings-error">
+              // S65 fix-forward (a11y BLOCKER-3): 저장 에러는 role="alert" 로 즉시 안내.
+              <p className="qf-field__error" data-testid="workspace-settings-error" role="alert">
                 {err}
               </p>
             ) : null}
 
             <div className="flex gap-[var(--s-2)]">
+              {/* S65 fix-forward (a11y MAJOR-1): 저장 진행 중 aria-busy 노출. */}
               <Button
                 data-testid="workspace-settings-save"
                 onClick={onSave}
                 disabled={!canSave || saving}
+                aria-busy={saving || undefined}
               >
                 {saving ? '저장 중…' : '저장'}
               </Button>
@@ -386,9 +389,17 @@ export function WorkspaceSettingsPage({
             {ownerEditable ? (
               <section
                 data-testid="ws-default-channel-section"
+                aria-labelledby="ws-default-channel-heading"
                 className="flex flex-col gap-[var(--s-2)] border-t border-border-subtle pt-[var(--s-4)]"
               >
-                <div className="font-semibold">기본 채널</div>
+                {/* S65 fix-forward (a11y MAJOR-5): 섹션 타이틀을 <h3> 로 격상해 문서
+                    구조에 헤딩으로 노출한다(div.font-semibold → semantic heading). */}
+                <h3
+                  id="ws-default-channel-heading"
+                  className="font-semibold text-[length:var(--fs-15)]"
+                >
+                  기본 채널
+                </h3>
                 <p className="text-[length:var(--fs-13)] text-text-muted">
                   새 멤버가 처음 도착하는 채널입니다. 공개 채널만 선택할 수 있습니다.
                 </p>
@@ -405,7 +416,9 @@ export function WorkspaceSettingsPage({
                     </option>
                     {publicChannels.map((c) => (
                       <option key={c.id} value={c.id}>
-                        #{c.name}
+                        {/* S65 fix-forward (a11y POLISH-1): 현재 기본 채널을 라벨에 표시. */}#
+                        {c.name}
+                        {c.id === (workspace.defaultChannelId ?? '') ? ' (현재 기본)' : ''}
                       </option>
                     ))}
                   </select>
@@ -417,6 +430,7 @@ export function WorkspaceSettingsPage({
                       defaultChannelId === (workspace.defaultChannelId ?? '') ||
                       setDefaultChannel.isPending
                     }
+                    aria-busy={setDefaultChannel.isPending || undefined}
                   >
                     적용
                   </Button>
@@ -428,10 +442,14 @@ export function WorkspaceSettingsPage({
             {ownerEditable ? (
               <section
                 data-testid="ws-transfer-section"
+                aria-labelledby="ws-transfer-heading"
                 className="flex flex-col gap-[var(--s-2)] border-t border-border-subtle pt-[var(--s-4)]"
               >
-                <div className="font-semibold">소유권 양도</div>
-                <p className="text-[length:var(--fs-13)] text-text-muted">
+                {/* S65 fix-forward (a11y MAJOR-5): 섹션 타이틀 <h3> 격상. */}
+                <h3 id="ws-transfer-heading" className="font-semibold text-[length:var(--fs-15)]">
+                  소유권 양도
+                </h3>
+                <p id="ws-transfer-warning" className="text-[length:var(--fs-13)] text-text-muted">
                   소유권을 다른 멤버에게 넘깁니다. 본인은 관리자(ADMIN)로 강등됩니다. 되돌릴 수
                   없으므로 비밀번호로 재확인합니다.
                 </p>
@@ -451,22 +469,27 @@ export function WorkspaceSettingsPage({
                     </option>
                   ))}
                 </select>
+                {/* S65 fix-forward (a11y MAJOR-3): 비밀번호 입력에 양도 경고를 연결. */}
                 <Input
                   type="password"
                   aria-label="비밀번호 확인"
+                  aria-describedby="ws-transfer-warning"
                   data-testid="ws-transfer-password"
                   placeholder="비밀번호 확인"
                   value={transferPassword}
                   onChange={(e) => setTransferPassword(e.target.value)}
                 />
                 <div>
+                  {/* S65 fix-forward (a11y HIGH-3 = ui HIGH-1): 파괴적 액션은 danger
+                      variant + MAJOR-1 aria-busy. */}
                   <Button
-                    variant="ghost"
+                    variant="danger"
                     data-testid="ws-transfer-submit"
                     onClick={onTransfer}
                     disabled={
                       transferTo === '' || transferPassword.length === 0 || transfer.isPending
                     }
+                    aria-busy={transfer.isPending || undefined}
                   >
                     {transfer.isPending ? '양도 중…' : '소유권 양도'}
                   </Button>
@@ -477,11 +500,16 @@ export function WorkspaceSettingsPage({
             {/* S65 (FR-W14 · ★결정 D): 워크스페이스 나가기 — OWNER 는 비활성 + 양도 안내. */}
             <section
               data-testid="ws-leave-section"
+              aria-labelledby="ws-leave-heading"
               className="flex flex-col gap-[var(--s-2)] border-t border-border-subtle pt-[var(--s-4)]"
             >
-              <div className="font-semibold">워크스페이스 나가기</div>
+              {/* S65 fix-forward (a11y MAJOR-5): 섹션 타이틀 <h3> 격상. */}
+              <h3 id="ws-leave-heading" className="font-semibold text-[length:var(--fs-15)]">
+                워크스페이스 나가기
+              </h3>
               {myRole === 'OWNER' ? (
                 <p
+                  id="ws-leave-owner-note"
                   data-testid="ws-leave-owner-note"
                   className="text-[length:var(--fs-13)] text-text-muted"
                 >
@@ -493,11 +521,17 @@ export function WorkspaceSettingsPage({
                 </p>
               )}
               <div>
+                {/* S65 fix-forward (a11y HIGH-3 = ui HIGH-1 + HIGH-4 + MAJOR-1): 파괴적
+                    액션 danger variant. OWNER 비활성 시 disabled 와 aria-disabled 를
+                    병행하고 안내 텍스트를 aria-describedby 로 연결한다. */}
                 <Button
-                  variant="ghost"
+                  variant="danger"
                   data-testid="ws-leave-submit"
                   onClick={onLeave}
                   disabled={myRole === 'OWNER' || leave.isPending}
+                  aria-disabled={myRole === 'OWNER' || undefined}
+                  aria-describedby={myRole === 'OWNER' ? 'ws-leave-owner-note' : undefined}
+                  aria-busy={leave.isPending || undefined}
                 >
                   {leave.isPending ? '나가는 중…' : '나가기'}
                 </Button>
@@ -505,48 +539,44 @@ export function WorkspaceSettingsPage({
             </section>
 
             {dangerErr ? (
-              <p className="qf-field__error" data-testid="ws-danger-error">
+              // S65 fix-forward (a11y BLOCKER-3): 위험 구역 에러는 role="alert" 로 즉시 안내.
+              <p className="qf-field__error" data-testid="ws-danger-error" role="alert">
                 {dangerErr}
               </p>
-            ) : null}
-
-            {confirmOpen ? (
-              <div
-                role="dialog"
-                aria-modal="true"
-                aria-labelledby="ws-visibility-confirm-title"
-                data-testid="workspace-visibility-confirm"
-                className="fixed inset-0 z-[var(--z-modal,60)] grid place-items-center"
-                style={{ background: 'color-mix(in oklab, var(--bg-app) 60%, transparent)' }}
-              >
-                <div
-                  // S64 fix-forward (ui-designer H-02): inline boxShadow → shadow-elev-3
-                  // (tailwind.config boxShadow 키 var(--elev-3) 매핑). inline color-mix
-                  // 오버레이 배경은 선존(page-scoped) 유지.
-                  className="bg-bg-subtle rounded-[var(--r-lg)] p-[var(--s-5)] w-[min(420px,92vw)] shadow-elev-3"
-                >
-                  <div id="ws-visibility-confirm-title" className="font-semibold mb-[var(--s-2)]">
-                    공개 설정 변경
-                  </div>
-                  <p className="text-[length:var(--fs-13)] text-text-secondary mb-[var(--s-4)]">
-                    {visibility === 'PUBLIC'
-                      ? '누구나 /찾기에서 이 워크스페이스를 보고 참가할 수 있게 됩니다.'
-                      : '찾기에서 제외되고 초대 전용으로 전환됩니다. 기존 멤버는 유지됩니다.'}
-                  </p>
-                  <div className="flex gap-[var(--s-2)] justify-end">
-                    <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
-                      취소
-                    </Button>
-                    <Button data-testid="workspace-visibility-confirm-ok" onClick={doSave}>
-                      변경
-                    </Button>
-                  </div>
-                </div>
-              </div>
             ) : null}
           </div>
         )}
       </div>
+
+      {/* S65 fix-forward (a11y BLOCKER-1 + HIGH-2 = ui MINOR-1): 공개 설정 확인을 수동
+          div[role=dialog](포커스 트랩·Esc·포커스 이동 없음)에서 DS Dialog primitive 의
+          alertDialog 로 교체한다. Radix 가 focus trap·Esc 닫기·복귀 포커스를 처리하고,
+          alertDialog=true 가 role="alertdialog" 로 노출해 파괴적 확인임을 AT 에 알린다.
+          비파괴 액션이 아닌 가시성 전환이라 alertDialog 가 적절하다. */}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        alertDialog
+        title="공개 설정 변경"
+        description={
+          visibility === 'PUBLIC'
+            ? '누구나 /찾기에서 이 워크스페이스를 보고 참가할 수 있게 됩니다.'
+            : '찾기에서 제외되고 초대 전용으로 전환됩니다. 기존 멤버는 유지됩니다.'
+        }
+        className="w-[min(420px,92vw)]"
+      >
+        <div
+          data-testid="workspace-visibility-confirm"
+          className="flex gap-[var(--s-2)] justify-end"
+        >
+          <Button variant="ghost" onClick={() => setConfirmOpen(false)}>
+            취소
+          </Button>
+          <Button data-testid="workspace-visibility-confirm-ok" onClick={doSave}>
+            변경
+          </Button>
+        </div>
+      </Dialog>
     </SettingsOverlay>
   );
 }

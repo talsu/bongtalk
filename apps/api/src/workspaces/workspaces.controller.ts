@@ -172,6 +172,11 @@ export class WorkspacesController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     const input = parsed.data as TransferOwnershipRequest;
+    // S65 fix-forward (security A-1 = HIGH/BLOCKER): 양도는 OWNER 비밀번호 재확인을
+    // 강제하므로(FR-W13) 이 엔드포인트는 비밀번호 brute-force 표면이다 — 게다가 양도는
+    // 비가역적 권한 이전이라 단 한 번의 추측 성공도 치명적이다. ws:join(5/min/user)
+    // 패턴을 재사용하되 더 좁은 5회/5분/OWNER 윈도우로 무차별 대입 시도를 제한한다.
+    await this.rateLimit.enforce([{ key: `ws:transfer:${member.userId}`, windowSec: 300, max: 5 }]);
     // S65 (D13 / FR-W13): password 재확인을 서비스로 전달한다(argon2 verify).
     return this.workspaces.transferOwnership(id, member.userId, input.toUserId, input.password);
   }

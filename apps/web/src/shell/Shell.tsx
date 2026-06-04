@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Navigate, useParams } from 'react-router-dom';
+import type { WorkspaceRole } from '@qufox/shared-types';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
@@ -199,10 +200,12 @@ function WorkspaceSettingsOverlayHost({
   const { data: members } = useMembers(workspace.id);
   // S65 (FR-W13/W19): 소유권 양도 대상 + 기본 채널 후보를 설정 페이지로 넘긴다.
   const { data: channels } = useChannelList(workspace.id);
-  const myRole = (members?.members.find((m) => m.userId === user?.id)?.role ?? 'MEMBER') as
-    | 'OWNER'
-    | 'ADMIN'
-    | 'MEMBER';
+  // S65 fix-forward (ui MAJOR-3 = perf MINOR — 실제 버그): 시스템 역할 5단계 전체로
+  // cast 한다. 종전 'OWNER'|'ADMIN'|'MEMBER' 3단계 truncation 은 MODERATOR/GUEST 를
+  // 폴백 'MEMBER' 로 떨어뜨려, 실제 MODERATOR 가 설정 오버레이에서 신고 큐 탭을
+  // 못 보는 버그를 만들었다(canModerateReports = myRole === 'MODERATOR' 가 항상 false).
+  const myRole = (members?.members.find((m) => m.userId === user?.id)?.role ??
+    'MEMBER') as WorkspaceRole;
   const memberOptions = useMemo(
     () =>
       (members?.members ?? [])

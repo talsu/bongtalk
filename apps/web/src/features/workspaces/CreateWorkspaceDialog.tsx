@@ -153,7 +153,12 @@ export function CreateWorkspaceDialog({
 
         <div className="qf-toggle-row">
           <div className="qf-toggle-row__text">
-            <div className="qf-toggle-row__title">공개 여부</div>
+            {/* S65 fix-forward (a11y BLOCKER-2): switch 의 접근 가능한 이름을 제목
+                텍스트에 연결한다(aria-labelledby). 종전 role="switch" 버튼은 텍스트
+                자식이 없어 AT 가 "switch" 로만 읽었다. */}
+            <div id="ws-visibility-title" className="qf-toggle-row__title">
+              공개 여부
+            </div>
             <div className="qf-toggle-row__desc">
               {isPublic
                 ? 'ON — /찾기에 노출되며 누구나 참가할 수 있습니다.'
@@ -164,6 +169,7 @@ export function CreateWorkspaceDialog({
             type="button"
             role="switch"
             aria-checked={isPublic}
+            aria-labelledby="ws-visibility-title"
             data-testid="ws-visibility-public"
             onClick={() => togglePublic(!isPublic)}
             className="qf-switch"
@@ -199,11 +205,16 @@ export function CreateWorkspaceDialog({
             data-testid="ws-email-domains"
             type="text"
             placeholder="example.com, corp.io"
+            // S65 fix-forward (a11y MAJOR-4): 힌트 텍스트를 aria-describedby 로 연결한다.
+            aria-describedby="ws-email-domains-hint"
             value={emailDomainsText}
             onChange={(e) => setEmailDomainsText(e.target.value)}
           />
-          <p className="text-[length:var(--fs-12)] text-text-muted">
-            콤마 또는 공백으로 구분합니다. 비우면 제한이 없습니다.
+          <p id="ws-email-domains-hint" className="text-[length:var(--fs-12)] text-text-muted">
+            콤마 또는 공백으로 구분합니다. 비우면 제한이 없습니다.{' '}
+            {/* S65 fix-forward (security MEDIUM = D-3): 화이트리스트 게이트(가입 시 도메인
+                검증)는 S66 carryover 라 지금은 저장만 된다. 오해 방지 안내. */}
+            <span className="text-text-secondary">도메인 제한은 다음 업데이트에서 적용됩니다.</span>
           </p>
         </div>
 
@@ -233,7 +244,8 @@ export function CreateWorkspaceDialog({
         ) : null}
 
         {serverError && (
-          <p data-testid="ws-create-error" className="qf-field__error">
+          // S65 fix-forward (a11y BLOCKER-3): 서버 에러는 role="alert" 로 즉시 안내한다.
+          <p data-testid="ws-create-error" className="qf-field__error" role="alert">
             {serverError}
           </p>
         )}
@@ -246,7 +258,13 @@ export function CreateWorkspaceDialog({
           >
             취소
           </Button>
-          <Button data-testid="ws-create-submit" type="submit" disabled={isPending}>
+          {/* S65 fix-forward (a11y MAJOR-1): 제출 진행 중 aria-busy 로 상태를 노출한다. */}
+          <Button
+            data-testid="ws-create-submit"
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending || undefined}
+          >
             {isPending ? '만드는 중…' : '워크스페이스 만들기'}
           </Button>
         </div>
