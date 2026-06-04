@@ -30,6 +30,9 @@ import {
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { UnreadService } from '../channels/unread.service';
+// S69 fix-forward (reviewer MAJOR-1): connection:ready 멘션 카운트는 뮤트-적용 배지
+// 서비스(isMuted 채널/서버 제외)를 단일 출처로 쓴다.
+import { MeNotificationBadgesService } from '../me/me-notification-badges.service';
 import { WsAuthMiddleware, WsUserPayload } from './handshake/ws-auth.middleware';
 import { RoomManagerService } from './rooms/room-manager.service';
 import { PresenceService } from './presence/presence.service';
@@ -116,6 +119,9 @@ export class RealtimeGateway
     // S11 (FR-RT-13/14/19): channel:read 핸들러가 monotonic upsert + unread
     // 재계산에 사용. read-sync 공식 단일 출처(unread.service)를 재사용한다.
     private readonly unread: UnreadService,
+    // S69 fix-forward (reviewer MAJOR-1): connection:ready 가 싣는 전-워크스페이스 멘션
+    // 카운트의 뮤트-적용 진실값 출처(isMuted 채널/서버 제외 — MeNotificationBadgesModule).
+    private readonly badges: MeNotificationBadgesService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -270,17 +276,23 @@ export class RealtimeGateway
 
     // S69 (FR-W20): connection:ready 에 가입한 **모든** 워크스페이스의 멘션 카운트를
     // 싣는다(활성/비활성 무관). 비활성 워크스페이스의 서버아이콘 멘션 배지를 첫 페인트부터
-    // 그릴 수 있게 한다. 기존 unread-totals read-through 캐시(cachedWorkspaceTotal)를
-    // 재사용하므로 캐시 히트 시 DB 를 치지 않는다. 집계 실패는 비-치명(클라가 GET
-    // /me/unread-totals 폴백으로 채움) — best-effort.
+    // 그릴 수 있게 한다.
+    //
+    // S69 fix-forward (reviewer MAJOR-1 · 뮤트 누수): 종전엔 unread-totals 캐시
+    // (cachedWorkspaceTotal)를 소스로 썼는데 그 값은 **뮤트 미제외**라, 뮤트한 채널의
+    // 멘션이 재연결 시 빨간 배지로 잘못 떴다. 이제 뮤트-적용 배지 서비스
+    // (MeNotificationBadgesService.badges — isMuted 채널/서버 제외 + 전-워크스페이스
+    // 일괄 쿼리 1회)를 단일 출처로 쓴다. 가입한 워크스페이스 행만 골라(badge service 의
+    // 행이 없으면 0) 싣는다. 집계 실패는 비-치명(클라가 GET /me/notification-badges 폴백
+    // 으로 채움) — best-effort try/catch 유지.
     let allWorkspaceMentionCounts: Array<{ workspaceId: string; mentionCount: number }> | undefined;
     try {
-      allWorkspaceMentionCounts = await Promise.all(
-        workspaceIds.map(async (wsId) => {
-          const total = await this.unread.cachedWorkspaceTotal(wsId, user.userId);
-          return { workspaceId: wsId, mentionCount: total.mentionCount };
-        }),
-      );
+      const badgeRows = await this.badges.badges(user.userId);
+      const mentionByWs = new Map(badgeRows.map((b) => [b.workspaceId, b.mentionCount]));
+      allWorkspaceMentionCounts = workspaceIds.map((wsId) => ({
+        workspaceId: wsId,
+        mentionCount: mentionByWs.get(wsId) ?? 0,
+      }));
     } catch (err) {
       this.logger.warn(
         `[ws] connection:ready mention counts failed user=${user.userId}: ${String(err).slice(0, 160)}`,

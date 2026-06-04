@@ -387,11 +387,27 @@ export type ListMemberDirectoryQuery = z.infer<typeof ListMemberDirectoryQuerySc
  * S69 (FR-W10): 디렉터리 한 멤버 행. MemberWithPresence(역할/상태/가입일/음소거)에
  * 더해 **초대자(invitedById)** 와 그 표시 정보를 싣는다(프로필 클릭 시 노출). 기존 row 는
  * backfill 로 null 이며, joinPublic 가입도 null(초대자 없음).
+ *
+ * S69 fix-forward (security HIGH/BLOCKER · 이메일 노출 + enumeration): 디렉터리는 모든
+ * 워크스페이스 멤버가 열람한다(Fork C). PII(email)·초대자(invitedBy/invitedById)는
+ * **ADMIN+ 뷰어에게만** 노출하고, 비관리자(MEMBER/GUEST) 에게는 서버가 email=null +
+ * invitedBy/invitedById=null 로 내려보낸다(FR-W10 프로필은 역할/상태/가입일/초대자라
+ * 비관리자엔 email 불요). 따라서 디렉터리 행의 user.email 은 base Member(비-null email)
+ * 와 달리 **nullable** 로 재정의한다(base MemberSchema/listGrouped 의 bulk email 노출은
+ * broad-contract carryover — 여기서 건드리지 않는다). 비관리자에겐 q 가 username 만
+ * 매칭하므로 email prefix enumeration 도 차단된다.
  */
 export const MemberDirectoryRowSchema = MemberWithPresenceSchema.extend({
-  /** 이 멤버를 초대한 사용자 id(없으면 null — 공개 가입/레거시). */
+  /**
+   * S69 fix-forward (security): user.email 을 nullable 로 재정의한다(ADMIN+ 만 노출,
+   * 비관리자는 null). 다른 user 필드는 base MemberWithPresence 와 동일하다.
+   */
+  user: MemberWithPresenceSchema.shape.user.extend({
+    email: z.string().email().nullable(),
+  }),
+  /** 이 멤버를 초대한 사용자 id(없으면 null — 공개 가입/레거시/비관리자 뷰어). */
   invitedById: z.string().uuid().nullable(),
-  /** 초대자 표시 정보(계정 삭제·공개 가입 시 null). */
+  /** 초대자 표시 정보(계정 삭제·공개 가입 시, 또는 비관리자 뷰어에겐 null). */
   invitedBy: z
     .object({
       id: z.string().uuid(),

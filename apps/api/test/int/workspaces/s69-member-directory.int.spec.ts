@@ -46,7 +46,7 @@ async function inviteAndJoin(
   workspaceId: string,
   ownerAccessToken: string,
   prefix: string,
-): Promise<{ userId: string; accessToken: string }> {
+): Promise<{ userId: string; accessToken: string; email: string; username: string }> {
   const joiner = await signupAsUser(env.baseUrl, prefix);
   const invite = await request(env.baseUrl)
     .post(`/workspaces/${workspaceId}/invites`)
@@ -58,7 +58,12 @@ async function inviteAndJoin(
     .post(`/invites/${code}/accept`)
     .set('Authorization', `Bearer ${joiner.accessToken}`)
     .expect(201);
-  return { userId: joiner.userId, accessToken: joiner.accessToken };
+  return {
+    userId: joiner.userId,
+    accessToken: joiner.accessToken,
+    email: joiner.email,
+    username: joiner.username,
+  };
 }
 
 async function setRole(
@@ -139,6 +144,74 @@ describe('S69 FR-W10: 멤버 디렉터리', () => {
     // OWNER 본인은 초대자 없음(null).
     const ownerRow = res.body.members.find((m: { userId: string }) => m.userId === owner.userId);
     expect(ownerRow.invitedById).toBeNull();
+  });
+});
+
+// ── S69 fix-forward (security HIGH/BLOCKER): 이메일 노출 + enumeration 게이트 ──────────
+//
+// helper 의 username 은 `${prefix}${stamp}`, email 은 `${prefix}-${stamp}@qufox.dev` 라
+// **`${prefix}-`(대시 포함)** 는 email prefix 와는 일치하지만 username prefix 와는 일치하지
+// 않는다(username 엔 대시가 없음). 이 차이를 enumeration 프로브로 쓴다.
+describe('S69 FR-W10 보안: 이메일 노출 + prefix enumeration 게이트', () => {
+  it('비관리자는 email prefix(q)로 다른 멤버를 enumerate 할 수 없다(username 만 매칭)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s69enum');
+    // target 의 email 은 's69enumt-<stamp>@…', username 은 's69enumt<stamp>'(대시 없음).
+    const target = await inviteAndJoin(workspaceId, owner.accessToken, 's69enumt');
+    const viewer = await inviteAndJoin(workspaceId, owner.accessToken, 's69enumv');
+
+    // **대시를 포함한** email prefix — email startsWith 와는 일치하지만 username startsWith
+    // 과는 일치하지 않는다(username 엔 'enumt' 뒤에 대시가 없음). enumeration 프로브.
+    const emailPrefix = 's69enumt-';
+    expect(target.email.startsWith(emailPrefix)).toBe(true);
+    expect(target.username.startsWith(emailPrefix)).toBe(false);
+
+    // 비관리자(viewer=MEMBER)가 email prefix 로 검색 → username 매칭만 하므로 target 미노출.
+    const asMember = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/members/directory?q=${encodeURIComponent(emailPrefix)}`)
+      .set('Authorization', `Bearer ${viewer.accessToken}`)
+      .expect(200);
+    expect(asMember.body.members.some((m: { userId: string }) => m.userId === target.userId)).toBe(
+      false,
+    );
+
+    // 같은 email prefix 로 ADMIN(=owner)이 검색하면 target 이 매칭된다(email 검색 허용).
+    const asAdmin = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/members/directory?q=${encodeURIComponent(emailPrefix)}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    expect(asAdmin.body.members.some((m: { userId: string }) => m.userId === target.userId)).toBe(
+      true,
+    );
+  });
+
+  it('비관리자에겐 username prefix(q)는 매칭되지만 email/invitedBy 는 null 로 가려진다', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s69mask');
+    const target = await inviteAndJoin(workspaceId, owner.accessToken, 's69maskt');
+    const viewer = await inviteAndJoin(workspaceId, owner.accessToken, 's69maskv');
+
+    const usernamePrefix = 's69maskt';
+    const res = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/members/directory?q=${usernamePrefix}`)
+      .set('Authorization', `Bearer ${viewer.accessToken}`)
+      .expect(200);
+    const row = res.body.members.find((m: { userId: string }) => m.userId === target.userId);
+    expect(row).toBeDefined();
+    // 비관리자 뷰어: PII(email)·초대자(invitedBy/invitedById)는 null.
+    expect(row.user.email).toBeNull();
+    expect(row.invitedBy).toBeNull();
+    expect(row.invitedById).toBeNull();
+  });
+
+  it('ADMIN 뷰어에겐 email + invitedBy 가 노출된다', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s69adminview');
+    const target = await inviteAndJoin(workspaceId, owner.accessToken, 's69avt');
+    const res = await request(env.baseUrl)
+      .get(`/workspaces/${workspaceId}/members/directory`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(200);
+    const row = res.body.members.find((m: { userId: string }) => m.userId === target.userId);
+    expect(row.user.email).toBe(target.email);
+    expect(row.invitedBy.id).toBe(owner.userId);
   });
 });
 

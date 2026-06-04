@@ -87,6 +87,19 @@ export const useUI = create<UIState>((set) => ({
   setPinPanelOpen: (v) => set({ pinPanelOpen: v }),
 
   memberDirectoryOpen: false,
-  toggleMemberDirectory: () => set((s) => ({ memberDirectoryOpen: !s.memberDirectoryOpen })),
-  setMemberDirectoryOpen: (v) => set({ memberDirectoryOpen: v }),
+  // S69 fix-forward (a11y H-01): 디렉터리를 열 때 검색/inbox 패널을 **명시적으로 닫아**
+  // 우측 슬롯의 우선순위 가림(stacking) 대신 단일 패널만 활성이게 한다(상호배타). 닫을
+  // 때는 다른 패널 상태를 건드리지 않는다.
+  toggleMemberDirectory: () =>
+    set((s) =>
+      s.memberDirectoryOpen
+        ? { memberDirectoryOpen: false }
+        : { memberDirectoryOpen: true, searchPanelQuery: null, activityInboxOpen: false },
+    ),
+  setMemberDirectoryOpen: (v) =>
+    set(() =>
+      v
+        ? { memberDirectoryOpen: true, searchPanelQuery: null, activityInboxOpen: false }
+        : { memberDirectoryOpen: false },
+    ),
 }));

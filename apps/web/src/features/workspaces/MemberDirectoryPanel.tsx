@@ -11,6 +11,7 @@ import { Avatar, Button, Dialog, Icon } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useBulkMemberAction, useMembersDirectory } from './useWorkspaces';
 import { MemberProfilePanel } from './MemberProfilePanel';
+import { ROLE_LABEL, STATUS_LABEL } from './memberLabels';
 
 type Props = {
   workspaceId: string;
@@ -59,6 +60,9 @@ export function MemberDirectoryPanel({
   const [bulkDuration, setBulkDuration] = useState<number>(
     TIMEOUT_DURATION_PRESETS[3]?.seconds ?? 3600,
   );
+  // S69 fix-forward (a11y B-02): 일괄 액션 결과를 Dialog 내 assertive 라이브 영역으로도
+  // announce 한다(토스트만으로는 스크린리더에 즉시 전달되지 않을 수 있음).
+  const [bulkResult, setBulkResult] = useState<string>('');
 
   const notify = useNotifications((s) => s.push);
   const bulkMut = useBulkMemberAction(workspaceId);
@@ -101,7 +105,10 @@ export function MemberDirectoryPanel({
     [members, currentUserId],
   );
 
-  const closeBulk = (): void => setBulk(null);
+  const closeBulk = (): void => {
+    setBulk(null);
+    setBulkResult('');
+  };
 
   const runBulk = async (): Promise<void> => {
     if (!bulk) return;
@@ -113,20 +120,26 @@ export function MemberDirectoryPanel({
         durationSeconds: bulk === 'timeout' ? bulkDuration : undefined,
         role: bulk === 'role' ? bulkRole : undefined,
       });
+      const summary = `${res.affected.length}명 적용, ${res.skipped.length}명 건너뜀`;
       notify({
         variant: res.skipped.length > 0 ? 'info' : 'success',
         title: '일괄 작업 완료',
-        body: `${res.affected.length}명 적용, ${res.skipped.length}명 건너뜀`,
+        body: summary,
       });
+      setBulkResult(`일괄 작업 완료: ${summary}`);
       setSelected(new Set());
       closeBulk();
     } catch (err) {
-      notify({ variant: 'danger', title: '일괄 작업 실패', body: (err as Error).message });
+      const message = (err as Error).message;
+      notify({ variant: 'danger', title: '일괄 작업 실패', body: message });
+      setBulkResult(`일괄 작업 실패: ${message}`);
     }
   };
 
   return (
     <section data-testid="member-directory-panel" className="flex h-full flex-col gap-[var(--s-3)]">
+      {/* S69 fix-forward (a11y M-01): 패널 제목(시각적으로는 숨김 — 스크린리더 컨텍스트). */}
+      <h2 className="sr-only">멤버 디렉터리</h2>
       {/* 검색 + 필터 + 정렬 */}
       <div className="flex flex-wrap items-center gap-[var(--s-2)]">
         <label className="sr-only" htmlFor="member-directory-search">
@@ -184,7 +197,12 @@ export function MemberDirectoryPanel({
       {/* 일괄 액션 바(관리자 + 선택 있을 때) */}
       {canManage ? (
         <div className="flex flex-wrap items-center gap-[var(--s-2)]" data-testid="bulk-action-bar">
-          <span aria-live="polite" className="text-[length:var(--fs-12)] text-text-muted">
+          <span
+            aria-live="polite"
+            // S69 fix-forward (a11y M-06): 카운트 전체를 한 번에 읽도록 atomic.
+            aria-atomic="true"
+            className="text-[length:var(--fs-12)] text-text-muted"
+          >
             {selected.size > 0 ? `${selected.size}명 선택됨` : '선택된 멤버 없음'}
           </span>
           <Button
@@ -233,17 +251,24 @@ export function MemberDirectoryPanel({
       ) : null}
 
       {/* 결과 라이브 영역 + 목록 */}
+      {/* S69 fix-forward (a11y N-03): 디바운스 대기(rawQuery!==debouncedQuery)·로딩 중에는
+          "검색 중…" 으로, 그 외에는 결과 수를 announce 한다. */}
       <p aria-live="polite" className="sr-only">
-        {query.isLoading ? '멤버를 불러오는 중' : `멤버 ${members.length}명`}
+        {rawQuery.trim() !== debouncedQuery || query.isLoading
+          ? '멤버를 검색 중…'
+          : `멤버 ${members.length}명`}
       </p>
       <ul
         data-testid="member-directory-list"
         aria-label="멤버 디렉터리"
+        // S69 fix-forward (a11y M-02): 로딩 중 목록 busy 표시.
+        aria-busy={query.isLoading}
         className="flex-1 overflow-y-auto"
       >
         {members.map((m) => {
           const checkboxId = `member-select-${m.userId}`;
           const isSelectable = m.role !== 'OWNER' && m.userId !== currentUserId;
+          const statusLabel = STATUS_LABEL[m.status] ?? m.status;
           return (
             <li
               key={m.userId}
@@ -264,20 +289,34 @@ export function MemberDirectoryPanel({
               <button
                 type="button"
                 onClick={() => setProfile(m)}
+                // S69 fix-forward (a11y H-02): Avatar 가 aria-hidden 이라 상태 도트가
+                // 스크린리더에 누락된다 — 버튼 접근가능 이름에 username + 상태를 함께 싣는다.
+                aria-label={`${m.user.username}, ${statusLabel}`}
                 className="flex min-w-0 flex-1 items-center gap-[var(--s-2)] text-left"
               >
                 <Avatar name={m.user.username} size="sm" status={m.status} />
                 <span className="min-w-0 truncate text-foreground">{m.user.username}</span>
                 {m.mutedUntil ? (
                   <span className="flex shrink-0 items-center gap-[var(--s-1)] text-text-strong">
-                    <Icon name="bell-off" size="sm" />
+                    {/* S69 fix-forward (a11y H-03): 아이콘 의미를 sr-only 텍스트로 보강. */}
+                    <Icon name="bell-off" size="sm" aria-hidden="true" />
+                    <span className="sr-only">타임아웃 중</span>
                   </span>
                 ) : null}
               </button>
-              <span className="shrink-0 text-[length:var(--fs-12)] text-text-muted">{m.role}</span>
+              {/* S69 fix-forward (a11y N-01): 영문 enum → 한글 역할 라벨. */}
+              <span className="shrink-0 text-[length:var(--fs-12)] text-text-muted">
+                {ROLE_LABEL[m.role] ?? m.role}
+              </span>
             </li>
           );
         })}
+        {/* S69 fix-forward (a11y M-03/ui LOW): 빈 상태(로딩 아님) 안내 행. */}
+        {members.length === 0 && !query.isLoading ? (
+          <li className="py-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
+            일치하는 멤버가 없습니다.
+          </li>
+        ) : null}
       </ul>
 
       {query.hasNextPage ? (
@@ -286,6 +325,8 @@ export function MemberDirectoryPanel({
           variant="ghost"
           size="sm"
           disabled={query.isFetchingNextPage}
+          // S69 fix-forward (a11y M-05): 다음 페이지 로딩 중 busy 표시.
+          aria-busy={query.isFetchingNextPage}
           onClick={() => query.fetchNextPage()}
         >
           {query.isFetchingNextPage ? '불러오는 중…' : '더 보기'}
@@ -320,8 +361,17 @@ export function MemberDirectoryPanel({
                 ? '멤버 일괄 타임아웃'
                 : '역할 일괄 변경'
           }
-          description={`선택한 ${selected.size}명에게 적용합니다.`}
+          // S69 fix-forward (a11y H-04): kick 은 되돌릴 수 없는 위험 액션임을 명시한다.
+          description={
+            bulk === 'kick'
+              ? `선택한 ${selected.size}명을 강제 퇴장합니다. 이 작업은 되돌릴 수 없습니다.`
+              : `선택한 ${selected.size}명에게 적용합니다.`
+          }
         >
+          {/* S69 fix-forward (a11y B-02): 결과를 Dialog 내 assertive 라이브 영역으로 announce. */}
+          <p aria-live="assertive" className="sr-only">
+            {bulkResult}
+          </p>
           {bulk === 'role' ? (
             <div className="mb-[var(--s-3)]">
               <label className="sr-only" htmlFor="bulk-role-select">
@@ -369,6 +419,8 @@ export function MemberDirectoryPanel({
               type="button"
               variant={bulk === 'kick' ? 'danger' : 'primary'}
               disabled={bulkMut.isPending}
+              // S69 fix-forward (a11y B-02): 실행 중 busy 표시.
+              aria-busy={bulkMut.isPending}
               onClick={runBulk}
             >
               확인

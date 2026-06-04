@@ -432,11 +432,15 @@ export function MessageColumn({
                 type="button"
                 data-testid="topbar-directory-toggle"
                 aria-label="멤버 디렉터리 열기"
-                aria-pressed={memberDirectoryOpen}
+                // S69 fix-forward (a11y H-01 / ui): 디렉터리는 토글 패널(슬롯)이므로
+                // aria-expanded + aria-controls 로 펼침/대상 관계를 노출한다(aria-pressed
+                // 대신). 아이콘도 '검색(search)' → '멤버(users)' 계열로 교체해 의미를 맞춘다.
+                aria-expanded={memberDirectoryOpen}
+                aria-controls="member-directory-panel"
                 onClick={toggleMemberDirectory}
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
-                <Icon name="search" size="sm" />
+                <Icon name="users" size="sm" />
               </button>
             </Tooltip>
           </div>

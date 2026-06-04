@@ -146,4 +146,24 @@ describe('S69 MemberDirectoryRowSchema', () => {
       ListMemberDirectoryResponseSchema.parse({ members: [], nextCursor: null }),
     ).not.toThrow();
   });
+
+  // S69 fix-forward (security HIGH/BLOCKER): 비관리자 뷰어 행은 email/invitedBy 가 null.
+  it('비관리자 뷰어 행(email=null · invitedBy=null)도 round-trip 한다', () => {
+    const row = {
+      userId: UID,
+      workspaceId: '00000000-0000-4000-8000-0000000000aa',
+      role: 'MEMBER' as const,
+      joinedAt: '2025-01-01T00:00:00.000Z',
+      // 비관리자에겐 서버가 email 을 null 로 가린다(PII 게이트).
+      user: { id: UID, username: 'dave', email: null },
+      status: 'online' as const,
+      lastSeenAt: null,
+      invitedById: null,
+      invitedBy: null,
+    };
+    expect(MemberDirectoryRowSchema.parse(row)).toMatchObject({
+      user: { email: null },
+      invitedBy: null,
+    });
+  });
 });

@@ -21,7 +21,7 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
 import { OutboxService } from '../../common/outbox/outbox.service';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { MemberRoleService } from '../roles/member-role.service';
-import { syncMemberSystemRole } from '../roles/system-role-seed';
+import { syncMemberSystemRole, syncMembersSystemRole } from '../roles/system-role-seed';
 import { MEMBER_BANNED, MEMBER_KICKED, ROLE_CHANGED } from '../events/workspace-events';
 import type { BannedMember, ListBansResponse, TimeoutMemberResponse } from '@qufox/shared-types';
 
@@ -374,7 +374,7 @@ export class ModerationService {
   }
 
   /**
-   * FR-RM07: 멤버 임시 음소거(타임아웃). durationSeconds(60~604800) 만큼 mutedUntil 을
+   * FR-RM07: 멤버 임시 음소거(타임아웃). durationSeconds(60~2419200=28일) 만큼 mutedUntil 을
    * now+duration 으로 설정한다. 기간 중 SEND_MESSAGES/ADD_REACTIONS/USE_SLASH_COMMANDS 가
    * 차단되고(메시지/반응 게이트에서 lazy 검사), VIEW_CHANNEL/READ_HISTORY 는 유지된다.
    * 만료는 lazy(별도 sweep 불요). AuditLog 필수.
@@ -514,6 +514,27 @@ export class ModerationService {
     const affected: string[] = [];
     const skipped: Array<{ userId: string; reason: BulkMemberSkipReason }> = [];
 
+    // S69 fix-forward (perf SERIOUS-1): 비-administrator actor 의 계층 판정에 쓰는 대상별
+    // top-position 을 **단일 조회 + Map 룩업**으로 미리 구한다. 종전엔 대상마다 topPosition
+    // (findMany)을 tx 밖에서 순차 await 해 100명 기준 ~100 라운드트립이 났다. OWNER/self/
+    // 비멤버는 어차피 계층 비교 전에 skip 되므로 not-owner 멤버만 조회 대상이다.
+    const topByUser = new Map<string, number>();
+    if (!actor.isAdministrator) {
+      const notOwnerIds = targets
+        .filter((t) => t.role !== WorkspaceRole.OWNER)
+        .map((t) => t.userId);
+      if (notOwnerIds.length > 0) {
+        const memberRoles = await this.prisma.memberRole.findMany({
+          where: { workspaceId, userId: { in: notOwnerIds } },
+          select: { userId: true, role: { select: { position: true } } },
+        });
+        for (const mr of memberRoles) {
+          const prev = topByUser.get(mr.userId) ?? 0;
+          if (mr.role.position > prev) topByUser.set(mr.userId, mr.role.position);
+        }
+      }
+    }
+
     for (const userId of userIds) {
       if (userId === actorId) {
         skipped.push({ userId, reason: 'self' });
@@ -528,10 +549,12 @@ export class ModerationService {
         skipped.push({ userId, reason: 'owner' });
         continue;
       }
-      // role 액션: 동일 역할로의 변경은 no-op 이지만 invalid_role 은 아니다(affected 포함은
-      // 하되 updateMany 가 자연히 멱등). OWNER 로의 변경은 스키마에서 이미 차단(타입).
+      // role 액션: 동일 역할로의 변경은 no-op 이지만(affected 포함 후 updateMany 가 자연히
+      // 멱등) OWNER 로의 변경은 스키마에서 이미 차단(타입).
       if (!actor.isAdministrator) {
-        const targetTop = await this.topPosition(workspaceId, userId, target.role);
+        // MemberRole 행이 없으면(레거시 멤버) 시스템 역할 enum 기본 position 으로 폴백한다
+        // (topPosition() 와 동일 규칙 — 단건과 정합).
+        const targetTop = topByUser.get(userId) ?? SYSTEM_ROLE_POSITION[target.role] ?? 0;
         if (targetTop >= actor.topPosition) {
           skipped.push({ userId, reason: 'outranked' });
           continue;
@@ -569,18 +592,17 @@ export class ModerationService {
           data: { mutedUntil },
         });
       } else {
-        // role 변경: updateMany 로 enum 일괄 변경 + 대상별 시스템 MemberRole 동기 + ROLE_CHANGED.
+        // role 변경: updateMany 로 enum 일괄 변경 + 시스템 MemberRole **일괄 동기**(SERIOUS-2)
+        // + 대상별 ROLE_CHANGED. 종전엔 대상마다 syncMemberSystemRole(3쿼리)을 돌려 tx 안에
+        // 100×3 쿼리 + 긴 락이 쌓였다. 이제 syncMembersSystemRole 이 시스템 역할 1회 조회 +
+        // 단일 deleteMany + 단일 createMany 로 동기한다.
+        const nextRole = role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
         await tx.workspaceMember.updateMany({
           where: { workspaceId, userId: { in: affected } },
-          data: { role: WorkspaceRole[role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST'] },
+          data: { role: WorkspaceRole[nextRole] },
         });
+        await syncMembersSystemRole(tx, workspaceId, affected, nextRole);
         for (const userId of affected) {
-          await syncMemberSystemRole(
-            tx,
-            workspaceId,
-            userId,
-            role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
-          );
           await this.outbox.record(tx, {
             aggregateType: 'member',
             aggregateId: userId,
@@ -590,7 +612,7 @@ export class ModerationService {
               userId,
               actorId,
               from: targetMap.get(userId)?.role ?? null,
-              to: WorkspaceRole[role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST'],
+              to: WorkspaceRole[nextRole],
             },
           });
         }
@@ -617,10 +639,9 @@ export class ModerationService {
       );
     });
 
-    // 4) 강등/삭제/타임아웃으로 stale 권한 캐시가 남지 않게 무효화(best-effort).
-    for (const userId of affected) {
-      await this.memberRoles.invalidateMemberPermsCache(workspaceId, userId);
-    }
+    // 4) 강등/삭제/타임아웃으로 stale 권한 캐시가 남지 않게 일괄 무효화(perf MODERATE-2 ·
+    //    채널 목록 1회 조회 + affected 전체 단일 DEL pipeline). best-effort.
+    await this.memberRoles.invalidateMembersPermsCache(workspaceId, affected);
 
     return { action, attemptedCount, affected, skipped };
   }

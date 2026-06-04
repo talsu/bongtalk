@@ -159,11 +159,21 @@ describe('badgeStore S69 (FR-W23 optimistic increment)', () => {
     expect(useBadgeStore.getState().byWorkspace['ws-2']).toBeUndefined();
   });
 
-  it('unreadCount 는 0 미만으로 내려가지 않는다(음수 delta clamp)', () => {
+  // S69 fix-forward (reviewer MAJOR-2): unread_count:increment 는 멘션 전용 이벤트라
+  // mentionCount 도 함께 +delta 해야 한다(멘션 빨간 배지 즉시 반영).
+  it('applyOptimisticIncrement 는 mentionCount 도 +delta 한다(멘션 전용 이벤트)', () => {
+    const s = useBadgeStore.getState();
+    s.applyOptimisticIncrement('ws-1', 1);
+    s.applyOptimisticIncrement('ws-1', 2);
+    expect(useBadgeStore.getState().byWorkspace['ws-1'].mentionCount).toBe(3);
+  });
+
+  it('unreadCount/mentionCount 는 0 미만으로 내려가지 않는다(음수 delta clamp)', () => {
     const s = useBadgeStore.getState();
     s.applyOptimisticIncrement('ws-1', 1);
     s.applyOptimisticIncrement('ws-1', -5);
     expect(useBadgeStore.getState().byWorkspace['ws-1'].unreadCount).toBe(0);
+    expect(useBadgeStore.getState().byWorkspace['ws-1'].mentionCount).toBe(0);
   });
 
   it('직후 도착한 서버 진실값(applyServerUpdate)이 낙관값을 교정한다', () => {

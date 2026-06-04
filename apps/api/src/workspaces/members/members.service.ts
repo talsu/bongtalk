@@ -276,15 +276,21 @@ export class MembersService {
   async listDirectory(args: {
     workspaceId: string;
     viewerUserId: string;
+    // S69 fix-forward (security HIGH/BLOCKER): 뷰어의 시스템 역할. ADMIN+ 만 email
+    // 검색/노출 + 초대자(invitedBy)를 받는다. 비관리자(MEMBER/GUEST)는 q 가 username 만
+    // 매칭(email 매칭 제외 → prefix enumeration 차단)하고 응답에서 email/invitedBy 가 null.
+    actorRole: SharedRole;
     q?: string;
     role?: SharedRole;
     sortBy?: MemberDirectorySort;
     cursor?: string;
   }): Promise<ListMemberDirectoryResponse> {
-    const { workspaceId, viewerUserId } = args;
+    const { workspaceId, viewerUserId, actorRole } = args;
     const now = new Date();
     const sortBy: MemberDirectorySort = args.sortBy ?? 'joined_desc';
     const ascending = sortBy === 'joined_asc';
+    // S69 fix-forward (security): ADMIN+ 뷰어만 email/invitedBy PII 를 본다.
+    const isAdminViewer = ROLE_RANK[actorRole] >= ROLE_RANK.ADMIN;
 
     const where: Prisma.WorkspaceMemberWhereInput = { workspaceId };
     if (args.role) {
@@ -292,13 +298,16 @@ export class MembersService {
     }
     const q = args.q?.trim();
     if (q) {
-      // prefix 검색(startsWith·대소문자 무시) — username 또는 email 둘 중 하나라도 일치.
-      where.user = {
-        OR: [
-          { username: { startsWith: q, mode: 'insensitive' } },
-          { email: { startsWith: q, mode: 'insensitive' } },
-        ],
-      };
+      // prefix 검색(startsWith·대소문자 무시). ADMIN+ 는 username 또는 email 매칭,
+      // 비관리자는 **username 만** 매칭한다(email prefix enumeration 차단 — security HIGH).
+      where.user = isAdminViewer
+        ? {
+            OR: [
+              { username: { startsWith: q, mode: 'insensitive' } },
+              { email: { startsWith: q, mode: 'insensitive' } },
+            ],
+          }
+        : { username: { startsWith: q, mode: 'insensitive' } };
     }
     // keyset cursor: 정렬 방향에 맞춰 (joinedAt, userId) 튜플 부등호로 다음 페이지를 연다.
     const decoded = decodeDirectoryCursor(args.cursor);
@@ -358,12 +367,16 @@ export class MembersService {
         invisibleMasked,
         now,
       );
+      // S69 fix-forward (security HIGH/BLOCKER): 비관리자 뷰어에겐 PII(email)·초대자
+      // (invitedBy/invitedById)를 노출하지 않는다(null). ADMIN+ 만 기존대로 받는다.
       return {
         ...base,
-        invitedById: row.invitedById ?? null,
-        invitedBy: row.invitedBy
-          ? { id: row.invitedBy.id, username: row.invitedBy.username }
-          : null,
+        user: { ...base.user, email: isAdminViewer ? base.user.email : null },
+        invitedById: isAdminViewer ? (row.invitedById ?? null) : null,
+        invitedBy:
+          isAdminViewer && row.invitedBy
+            ? { id: row.invitedBy.id, username: row.invitedBy.username }
+            : null,
       };
     });
 

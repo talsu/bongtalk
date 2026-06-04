@@ -1,20 +1,6 @@
 import type { MemberDirectoryRow } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
-
-const STATUS_LABEL: Record<string, string> = {
-  online: '온라인',
-  idle: '자리 비움',
-  dnd: '다른 용무 중',
-  offline: '오프라인',
-};
-
-const ROLE_LABEL: Record<string, string> = {
-  OWNER: '소유자',
-  ADMIN: '관리자',
-  MODERATOR: '모더레이터',
-  MEMBER: '멤버',
-  GUEST: '게스트',
-};
+import { ROLE_LABEL, STATUS_LABEL } from './memberLabels';
 
 /**
  * S69 (D13 / FR-W10): 멤버 프로필 패널. 디렉터리에서 멤버를 클릭하면 역할·상태·가입일·
@@ -34,30 +20,36 @@ export function MemberProfilePanel({
     : `${joinedAt.getUTCFullYear()}년 ${joinedAt.getUTCMonth() + 1}월 ${joinedAt.getUTCDate()}일`;
 
   return (
-    <section
+    // S69 fix-forward (a11y H-05/N-02): Dialog 가 이미 landmark/제목을 제공하므로 내부에
+    // <section aria-label> / <header> 를 또 두면 landmark 가 과잉이 된다 — 둘 다 <div> 로 낮춘다.
+    <div
       data-testid="member-profile-panel"
-      aria-label={`${member.user.username} 프로필`}
       className="flex flex-col gap-[var(--s-4)] rounded-md bg-bg-surface p-[var(--s-4)]"
     >
-      <header className="flex items-center justify-between gap-[var(--s-2)]">
+      <div className="flex items-center justify-between gap-[var(--s-2)]">
         <div className="flex min-w-0 items-center gap-[var(--s-3)]">
           <Avatar name={member.user.username} size="md" status={member.status} />
           <div className="min-w-0">
-            <p className="truncate text-text-strong">{member.user.username}</p>
-            <p className="truncate text-[length:var(--fs-12)] text-text-muted">
-              {member.user.email}
-            </p>
+            {/* S69 fix-forward (a11y M-04): Dialog title(h2) 하위 제목 계층으로 h3. */}
+            <h3 className="truncate text-text-strong">{member.user.username}</h3>
+            {/* S69 fix-forward (security): email 은 ADMIN+ 뷰어에게만 내려온다(비관리자 null). */}
+            {member.user.email ? (
+              <p className="truncate text-[length:var(--fs-12)] text-text-muted">
+                {member.user.email}
+              </p>
+            ) : null}
           </div>
         </div>
         <button
           type="button"
           aria-label="프로필 닫기"
           onClick={onClose}
-          className="qf-icon-btn shrink-0"
+          // S69 fix-forward (ui MEDIUM/a11y B-03): qf-icon-btn → 표준 버튼 토큰 조합.
+          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm shrink-0"
         >
           <Icon name="x" size="sm" />
         </button>
-      </header>
+      </div>
 
       <dl className="grid grid-cols-[auto_1fr] gap-x-[var(--s-4)] gap-y-[var(--s-2)] text-[length:var(--fs-13)]">
         <dt className="text-text-muted">역할</dt>
@@ -85,6 +77,6 @@ export function MemberProfilePanel({
           </>
         ) : null}
       </dl>
-    </section>
+    </div>
   );
 }

@@ -54,10 +54,11 @@ interface BadgeStoreState {
    */
   markAcked: (workspaceId: string, serverTimestamp: string) => void;
   /**
-   * S69 (FR-W23): unread_count:increment(workspaceId 포함) 낙관 갱신. 서버가 활성
-   * 워크스페이스 무관 모든 가입 워크스페이스의 user 룸으로 보낸 +delta 를 즉시 반영해
-   * 서버아이콘 배지를 낙관 갱신한다(unreadCount += delta). 직후 도착하는 서버 진실값
-   * (applyServerUpdate / replaceAll)이 last-write-wins 로 교정한다. unreadCount 는
+   * S69 (FR-W23): unread_count:increment(workspaceId 포함) 낙관 갱신. 서버는 이 이벤트를
+   * **멘션이 도착한** 워크스페이스의 user 룸으로만 emit 한다(mention 전용 이벤트 —
+   * outbox-to-ws.subscriber). 따라서 unreadCount 뿐 아니라 **mentionCount 도 += delta**
+   * 로 낙관 갱신해 멘션 빨간 배지가 즉시 반영되게 한다. 직후 도착하는 서버 진실값
+   * (applyServerUpdate / replaceAll)이 last-write-wins 로 교정한다. 두 카운트 모두
    * 0 미만으로 내려가지 않는다(음수 delta clamp).
    */
   applyOptimisticIncrement: (workspaceId: string, delta: number) => void;
@@ -133,10 +134,13 @@ export const useBadgeStore = create<BadgeStoreState>((set, get) => ({
       if (delta === 0) return s;
       const prev = s.byWorkspace[workspaceId] ?? EMPTY;
       const nextUnread = Math.max(0, prev.unreadCount + delta);
+      // unread_count:increment 는 멘션 전용 이벤트라 mentionCount 도 함께 +delta 한다
+      // (멘션 빨간 배지 즉시 반영). 둘 다 0 미만으로 내려가지 않는다.
+      const nextMention = Math.max(0, prev.mentionCount + delta);
       return {
         byWorkspace: {
           ...s.byWorkspace,
-          [workspaceId]: { ...prev, unreadCount: nextUnread },
+          [workspaceId]: { ...prev, unreadCount: nextUnread, mentionCount: nextMention },
         },
       };
     }),

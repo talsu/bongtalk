@@ -92,6 +92,9 @@ export class MembersController {
     return this.members.listDirectory({
       workspaceId: member.workspaceId,
       viewerUserId: user.id,
+      // S69 fix-forward (security HIGH/BLOCKER): 뷰어 역할을 넘겨 email 검색/노출 +
+      // 초대자 노출을 ADMIN+ 뷰어 전용으로 게이트한다(비관리자는 username-only + null).
+      actorRole: member.role,
       q: parsed.data.q,
       role: parsed.data.role,
       sortBy: parsed.data.sortBy,
@@ -152,9 +155,15 @@ export class MembersController {
     @CurrentMember() member: CurrentMemberPayload,
     @Body() body: unknown,
   ): Promise<BulkMemberActionResponse> {
-    // 폭주 방어 — moderation mutate 와 동일한 per-workspace rate-limit.
+    // 폭주 방어 — moderation mutate rate-limit. S69 fix-forward (security MEDIUM):
+    // 키를 **per-user 결합**해 한 멤버가 공유 버킷을 소진시켜 ADMIN 의 일괄 관리를
+    // 방해하는 DoS 를 차단한다(workspace 단위 공유 버킷 → workspace+actor 결합 버킷).
     await this.rateLimit.enforce([
-      { key: `moderation:mutate:ws:${member.workspaceId}`, windowSec: 60, max: 30 },
+      {
+        key: `moderation:mutate:ws:${member.workspaceId}:user:${member.userId}`,
+        windowSec: 60,
+        max: 30,
+      },
     ]);
     const parsed = BulkMemberActionRequestSchema.safeParse(body);
     if (!parsed.success) {

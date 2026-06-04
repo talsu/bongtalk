@@ -221,8 +221,12 @@ function MemberDirectoryHost({
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
   return (
     <aside
+      // S69 fix-forward (a11y H-01): MessageColumn 디렉터리 버튼의 aria-controls 대상.
+      id="member-directory-panel"
       aria-label="멤버 디렉터리"
-      className="qf-memberlist flex min-w-0 flex-col p-[var(--s-3)]"
+      // S69 fix-forward (ui LOW): qf-memberlist 가 이미 패딩을 제공하므로 Tailwind p-*
+      // 재정의를 제거한다(DS 기본 패딩과의 충돌 해소).
+      className="qf-memberlist flex min-w-0 flex-col"
     >
       <MemberDirectoryPanel
         workspaceId={workspaceId}

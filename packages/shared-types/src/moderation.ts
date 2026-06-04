@@ -166,13 +166,10 @@ export type BulkMemberActionRequest = z.infer<typeof BulkMemberActionRequestSche
  * 권한/계층/자기자신/비멤버 등으로 건너뛴 대상은 skipped 에 사유와 함께 남기고,
  * 실제 적용된 대상만 affected 에 담는다. attemptedCount = userIds 길이.
  */
-export const BulkMemberSkipReasonSchema = z.enum([
-  'self',
-  'not_member',
-  'owner',
-  'outranked',
-  'invalid_role',
-]);
+// S69 fix-forward (NIT-2): dead 'invalid_role' skip reason 제거. bulkAction 은 OWNER 직접
+// 배정을 스키마(요청)에서 이미 차단하고, role enum 무효는 타입으로 표현 불가한 경로가
+// 없어 이 사유를 한 번도 push 하지 않았다(dead). 실제로 쓰이는 사유만 남긴다.
+export const BulkMemberSkipReasonSchema = z.enum(['self', 'not_member', 'owner', 'outranked']);
 export type BulkMemberSkipReason = z.infer<typeof BulkMemberSkipReasonSchema>;
 
 export const BulkMemberActionResponseSchema = z.object({
