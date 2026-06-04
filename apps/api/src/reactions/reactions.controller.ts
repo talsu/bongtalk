@@ -76,7 +76,12 @@ export class ReactionsController {
   private async canAddReaction(
     channel: { id: string; workspaceId: string | null; isPrivate: boolean },
     userId: string,
-  ): Promise<{ allowed: boolean; mutedUntil: Date | null }> {
+  ): Promise<{
+    allowed: boolean;
+    mutedUntil: Date | null;
+    rulesAcceptedAt: Date | null;
+    role: string | null;
+  }> {
     // 워크스페이스 채널은 호출자 role 로 ROLE 프린시펄 override 를 함께 본다.
     // DM(workspaceId=null)은 role 이 없어 USER 프린시펄만 본다.
     // S62 (FR-RM03): 시스템 역할 리터럴 외에 커스텀 Role UUID override 도 ROLE
@@ -87,14 +92,23 @@ export class ReactionsController {
     let role: string | null = null;
     let roleUuids: string[] = [];
     let mutedUntil: Date | null = null;
+    // S71 (FR-W07 / Fork-C): 규칙 동의 게이트용 rulesAcceptedAt 도 같은 멤버 조회에 편승시킨다
+    // (별도 DB 왕복 없음). add(INSERT) 분기에서만, 미동의(NULL) + 규칙 존재 시 403.
+    let rulesAcceptedAt: Date | null = null;
     if (channel.workspaceId !== null) {
       const member = await this.prisma.workspaceMember.findUnique({
         where: { workspaceId_userId: { workspaceId: channel.workspaceId, userId } },
-        select: { role: true, mutedUntil: true, memberRoles: { select: { roleId: true } } },
+        select: {
+          role: true,
+          mutedUntil: true,
+          rulesAcceptedAt: true,
+          memberRoles: { select: { roleId: true } },
+        },
       });
       role = member?.role ?? null;
       roleUuids = member?.memberRoles.map((m) => m.roleId) ?? [];
       mutedUntil = member?.mutedUntil ?? null;
+      rulesAcceptedAt = member?.rulesAcceptedAt ?? null;
     }
     const principals: { principalType: 'USER' | 'ROLE'; principalId: string }[] = [
       { principalType: 'USER', principalId: userId },
@@ -131,7 +145,7 @@ export class ReactionsController {
     if (roleDeny & bit) allowed = false;
     if (userAllow & bit) allowed = true; // userAllow > roleDeny (ADR-4)
     if (userDeny & bit) allowed = false; // userDeny 최우선
-    return { allowed, mutedUntil };
+    return { allowed, mutedUntil, rulesAcceptedAt, role };
   }
 
   private async resolveChannel(messageId: string) {
@@ -188,7 +202,12 @@ export class ReactionsController {
     // 서비스에 넘긴다 — 토글이 INSERT 로 분기할 때만 거부에 쓰인다(remove 는 무관).
     // S63 fix-forward (perf C-1): 위 canAddReaction 의 멤버 findUnique 에 mutedUntil 을
     // 편승시켜 별도 isTimedOut 왕복을 제거한다(SERIOUS-1/2).
-    const { allowed: canAdd, mutedUntil } = await this.canAddReaction(channel, user.id);
+    const {
+      allowed: canAdd,
+      mutedUntil,
+      rulesAcceptedAt,
+      role,
+    } = await this.canAddReaction(channel, user.id);
     // S63 (FR-RM07) + fix-forward (B-3 = MINOR): 워크스페이스 채널 타임아웃 게이트.
     // mutedUntil>now 면 음소거 중이다. FR-RM07 은 "반응 *추가* 차단"이므로 이 플래그를
     // 서비스의 add(INSERT) 분기에만 넘긴다 — toggle-off(자기 반응 제거)는 음소거 중에도
@@ -196,6 +215,14 @@ export class ReactionsController {
     // 워크스페이스 멤버가 없어 게이트 대상이 아니다. 만료/미설정이면 자동 통과(lazy).
     const isTimedOut =
       channel.workspaceId !== null && mutedUntil != null && mutedUntil.getTime() > Date.now();
+    // S71 (FR-W07 / Fork-C): 규칙 동의 게이트. 워크스페이스 채널이고 미동의(NULL)인데 규칙이
+    // 존재하면 *추가*(INSERT) 분기에서만 403 RULES_NOT_ACCEPTED 로 막는다(toggle-off 는 허용 —
+    // 타임아웃 게이트 패턴 일관). 미동의일 때만 "규칙 존재" 경량 조회를 한다(hot-path 비용 0).
+    // OWNER 는 규칙 작성 주체이자 온보딩 비대상이라 면제한다(메시지 게이트 일관).
+    let isRulesBlocked = false;
+    if (channel.workspaceId !== null && role !== 'OWNER' && rulesAcceptedAt == null) {
+      isRulesBlocked = await this.messages.workspaceHasRules(channel.workspaceId);
+    }
     const result = await this.reactions.add(
       messageId,
       channel.id,
@@ -204,6 +231,7 @@ export class ReactionsController {
       body?.emoji ?? '',
       canAdd,
       isTimedOut,
+      isRulesBlocked,
     );
     return result;
   }

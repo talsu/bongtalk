@@ -24,6 +24,8 @@ import { InviteManagerPanel } from './InviteManagerPanel';
 import { EmailInvitePanel } from './EmailInvitePanel';
 import { PendingInvitePanel } from './PendingInvitePanel';
 import { EmailDomainsPanel } from './EmailDomainsPanel';
+// S71 (D13 / FR-W07·W08·W09 · 결정 5): 온보딩(규칙/질문/웰컴) 관리자 CRUD 패널.
+import { OnboardingSettingsPanel } from '../onboarding/OnboardingSettingsPanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -90,7 +92,10 @@ export function WorkspaceSettingsPage({
     | 'emoji'
     | 'roles'
     | 'reports'
-    | 'audit-log';
+    | 'audit-log'
+    | 'onboarding';
+  // S71 (결정 5): 온보딩 카탈로그 CRUD 는 ADMIN+ 만.
+  const canManageOnboarding = myRole === 'OWNER' || myRole === 'ADMIN';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -121,6 +126,9 @@ export function WorkspaceSettingsPage({
     if (canViewAuditLog) {
       list.push({ key: 'audit-log', label: '감사 로그', testId: 'ws-settings-tab-audit-log' });
     }
+    if (canManageOnboarding) {
+      list.push({ key: 'onboarding', label: '온보딩', testId: 'ws-settings-tab-onboarding' });
+    }
     return list;
   }, [
     canManageInvites,
@@ -129,6 +137,7 @@ export function WorkspaceSettingsPage({
     canManageRoles,
     canModerateReports,
     canViewAuditLog,
+    canManageOnboarding,
   ]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
@@ -346,6 +355,15 @@ export function WorkspaceSettingsPage({
             tabIndex={0}
           >
             <WorkspaceEmojiManager workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'onboarding' && canManageOnboarding ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-onboarding"
+            aria-labelledby="ws-settings-tab-onboarding"
+            tabIndex={0}
+          >
+            <OnboardingSettingsPanel slug={workspaceSlug} />
           </div>
         ) : (
           <div

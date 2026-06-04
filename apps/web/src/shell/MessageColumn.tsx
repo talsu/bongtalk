@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useMembers } from '../features/workspaces/useWorkspaces';
+import { useMembers, useWorkspace } from '../features/workspaces/useWorkspaces';
+import { CreatorEmptyStateCta } from '../features/onboarding/CreatorEmptyStateCta';
 import { useUI } from '../stores/ui-store';
 import {
   useMarkChannelRead,
@@ -97,6 +98,15 @@ export function MessageColumn({
   const isAnnouncement = channelType === 'ANNOUNCEMENT';
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const postingRestricted = !isDm && isAnnouncement && !canManage;
+  // S71 (FR-W09a · Fork-B): 생성자(OWNER) 빈 채널 CTA. 기본 채널 + OWNER 일 때만 구성한다.
+  // 초대 0개 조건은 CreatorEmptyStateCta 가 useInvites 로 자체 판정한다(empty state 진입 =
+  // 채널 비어 있음 보장). 채널이 기본 채널인지 비교에 워크스페이스 상세를 읽는다(캐시 hit).
+  const { data: wsDetail } = useWorkspace(workspaceId ?? undefined);
+  const isDefaultChannel = !isDm && wsDetail?.defaultChannelId === channelId;
+  const creatorCta =
+    !isDm && workspaceId !== null && myRole === 'OWNER' && isDefaultChannel ? (
+      <CreatorEmptyStateCta workspaceId={workspaceId} isOwner />
+    ) : undefined;
 
   // S56 (D11 / FR-AM-01/21): 채팅 컬럼 드래그앤드롭 + 붙여넣기 진입점. 드롭/붙여넣기로
   // 받은 파일은 qufox.composer.addFiles 이벤트로 MessageComposer 에 전달한다(composer 가
@@ -460,6 +470,8 @@ export function MessageColumn({
           // S30 fix-forward (M2): 검색 결과 점프 대상 + 소비 후 URL 정리 콜백.
           jumpMessageId={jumpMessageId}
           onJumpConsumed={clearJumpParam}
+          // S71 (FR-W09a): 생성자(OWNER) 빈 채널 CTA(기본 채널 한정).
+          creatorCta={creatorCta}
         />
         <TypingIndicator
           channelId={channelId}

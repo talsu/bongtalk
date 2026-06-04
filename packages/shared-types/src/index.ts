@@ -166,6 +166,19 @@ export const ErrorCodeSchema = z.enum([
   'APPLICATION_COOLDOWN',
   'APPLICATION_FORBIDDEN',
   'APPLICATION_NOT_APPLICABLE',
+  // S71 (D13 / FR-W07·W08·W09): 워크스페이스 온보딩(규칙 동의·관심사·웰컴).
+  //   RULES_NOT_ACCEPTED:           규칙 존재 + 미동의 채 메시지 전송·리액션 시도 → 403(서버 게이트).
+  //   ONBOARDING_RULES_LIMIT:       규칙 10개 초과 생성 → 409.
+  //   ONBOARDING_QUESTIONS_LIMIT:   관심사 질문 5개 초과 생성 → 409.
+  //   ONBOARDING_RULE_NOT_FOUND:    수정/삭제/재정렬 대상 규칙 미존재 → 404.
+  //   ONBOARDING_QUESTION_NOT_FOUND:수정/삭제 대상 질문 미존재 → 404.
+  //   ONBOARDING_INVALID_OPTION:    complete 의 선택지 id 가 질문 카탈로그에 없음 → 400.
+  'RULES_NOT_ACCEPTED',
+  'ONBOARDING_RULES_LIMIT',
+  'ONBOARDING_QUESTIONS_LIMIT',
+  'ONBOARDING_RULE_NOT_FOUND',
+  'ONBOARDING_QUESTION_NOT_FOUND',
+  'ONBOARDING_INVALID_OPTION',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',
@@ -306,3 +319,5 @@ export * from './attachment';
 export * from './links';
 // S70 — 가입 신청(APPLY 모드) 컨트랙트 (D13 / FR-W06·W06a·W12)
 export * from './member-application';
+// S71 — 워크스페이스 온보딩 컨트랙트 (D13 / FR-W07·W08·W09·W09a)
+export * from './onboarding';

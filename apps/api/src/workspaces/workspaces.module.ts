@@ -41,6 +41,10 @@ import { ModerationReportService } from './moderation/moderation-report.service'
 // DirectMessagesService(ChannelsModule)를 forwardRef 로 주입한다.
 import { ApplicationsController } from './applications/applications.controller';
 import { ApplicationsService } from './applications/applications.service';
+// S71 (D13 / FR-W07·W08·W09·W09a): 워크스페이스 온보딩(규칙 동의·관심사·웰컴 + 관리자 CRUD).
+// OnboardingWelcomeQueueService 는 @Global QueueModule 이 제공하므로 import 불필요(주입만).
+import { OnboardingController } from './onboarding/onboarding.controller';
+import { OnboardingService } from './onboarding/onboarding.service';
 
 @Module({
   imports: [
@@ -62,6 +66,7 @@ import { ApplicationsService } from './applications/applications.service';
     AuditLogController,
     ModerationReportController,
     ApplicationsController,
+    OnboardingController,
   ],
   providers: [
     WorkspacesService,
@@ -73,6 +78,7 @@ import { ApplicationsService } from './applications/applications.service';
     ModerationService,
     ModerationReportService,
     ApplicationsService,
+    OnboardingService,
   ],
   exports: [
     WorkspacesService,
