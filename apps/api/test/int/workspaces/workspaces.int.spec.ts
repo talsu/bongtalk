@@ -1,6 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { WsIntEnv, setupWsIntEnv, signupAsUser } from './helpers';
+import { WsIntEnv, setupWsIntEnv, signupAsUser, STRONG_PW } from './helpers';
 import { randomUUID } from 'node:crypto';
 
 let env: WsIntEnv;
@@ -166,7 +166,8 @@ describe('Transfer ownership — atomicity', () => {
       .post(`/workspaces/${wsId}/transfer-ownership`)
       .set('origin', ORIGIN)
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ toUserId: other.userId });
+      // S65 (FR-W13): 양도는 OWNER 비밀번호 재확인을 강제하므로 password 를 함께 보낸다.
+      .send({ toUserId: other.userId, password: STRONG_PW });
     expect(transfer.status).toBe(200);
 
     // Confirm roles from the server's perspective.
@@ -184,5 +185,164 @@ describe('Transfer ownership — atomicity', () => {
       where: { workspaceId: wsId, role: 'OWNER' },
     });
     expect(owners).toBe(1);
+  });
+
+  // S65 (FR-W13 · ★결정 C): 비밀번호 재확인 게이트.
+  it('rejects transfer with a wrong password (403 AUTH_INVALID_CREDENTIALS)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'tpw');
+    const other = await signupAsUser(env.baseUrl, 'tpwo');
+    const createRes = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'PwGate', slug: uniqueSlug('pwg') });
+    const wsId = createRes.body.id;
+
+    const inv = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/invites`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ maxUses: 1 });
+    await request(env.baseUrl)
+      .post(`/invites/${inv.body.invite.code}/accept`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .expect(201);
+
+    const transfer = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/transfer-ownership`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ toUserId: other.userId, password: 'definitely-not-the-password' });
+    expect(transfer.status).toBe(401);
+    expect(transfer.body.errorCode).toBe('AUTH_INVALID_CREDENTIALS');
+
+    // Ownership must be unchanged.
+    const me = await request(env.baseUrl)
+      .get(`/workspaces/${wsId}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(me.body.myRole).toBe('OWNER');
+  });
+});
+
+// S65 (FR-W01): 워크스페이스 생성 시 #general 자동 생성 + joinMode + 단일 트랜잭션.
+describe('POST /workspaces — #general + joinMode (FR-W01)', () => {
+  it('auto-creates #general (isDefault) and sets workspace.defaultChannelId', async () => {
+    const user = await signupAsUser(env.baseUrl, 'gen');
+    const res = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'WithGeneral', slug: uniqueSlug('gen') });
+    expect(res.status).toBe(201);
+    const wsId = res.body.id;
+    expect(res.body.defaultChannelId).toBeTruthy();
+    expect(res.body.joinMode).toBe('PRIVATE');
+
+    const channels = await env.prisma.channel.findMany({ where: { workspaceId: wsId } });
+    expect(channels).toHaveLength(1);
+    expect(channels[0].name).toBe('general');
+    expect(channels[0].isDefault).toBe(true);
+    expect(res.body.defaultChannelId).toBe(channels[0].id);
+  });
+
+  it('persists joinMode=APPLY and a normalized email-domain whitelist', async () => {
+    const user = await signupAsUser(env.baseUrl, 'jm');
+    const res = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({
+        name: 'ApplyWs',
+        slug: uniqueSlug('apply'),
+        joinMode: 'APPLY',
+        emailDomains: ['example.com', 'example.com', 'corp.io'],
+      });
+    expect(res.status).toBe(201);
+    expect(res.body.joinMode).toBe('APPLY');
+    const ws = await env.prisma.workspace.findUnique({ where: { id: res.body.id } });
+    expect(ws?.joinMode).toBe('APPLY');
+    expect([...(ws?.emailDomains ?? [])].sort()).toEqual(['corp.io', 'example.com']);
+  });
+
+  it('rolls back the whole create on a duplicate slug — no orphan #general channel', async () => {
+    const user = await signupAsUser(env.baseUrl, 'rb');
+    const slug = uniqueSlug('rb');
+    await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'First', slug })
+      .expect(201);
+    const dup = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'Second', slug });
+    expect(dup.status).toBe(409);
+    // Exactly ONE #general should exist for this slug (the first workspace).
+    const ws = await env.prisma.workspace.findUnique({ where: { slug } });
+    const channels = await env.prisma.channel.findMany({ where: { workspaceId: ws!.id } });
+    expect(channels).toHaveLength(1);
+  });
+});
+
+// S65 (FR-W19): 기본 채널 변경 — 공개 채널만·isDefault 토글·단일 트랜잭션.
+describe('PATCH /workspaces/:id/default-channel (FR-W19)', () => {
+  it('moves the default to another public channel and flips isDefault', async () => {
+    const user = await signupAsUser(env.baseUrl, 'dc');
+    const createRes = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'DefChan', slug: uniqueSlug('dc') });
+    const wsId = createRes.body.id;
+    const generalId = createRes.body.defaultChannelId;
+
+    const second = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/channels`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'lounge', type: 'TEXT' });
+    expect(second.status).toBe(201);
+    const secondId = second.body.id;
+
+    const patch = await request(env.baseUrl)
+      .patch(`/workspaces/${wsId}/default-channel`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ defaultChannelId: secondId });
+    expect(patch.status).toBe(200);
+    expect(patch.body.defaultChannelId).toBe(secondId);
+
+    const channels = await env.prisma.channel.findMany({ where: { workspaceId: wsId } });
+    const byId = new Map(channels.map((c) => [c.id, c]));
+    expect(byId.get(generalId)?.isDefault).toBe(false);
+    expect(byId.get(secondId)?.isDefault).toBe(true);
+  });
+
+  it('rejects a private channel as default (422 WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC)', async () => {
+    const user = await signupAsUser(env.baseUrl, 'dcp');
+    const createRes = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'DefChanPriv', slug: uniqueSlug('dcp') });
+    const wsId = createRes.body.id;
+
+    const priv = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/channels`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'secret', type: 'TEXT', isPrivate: true });
+    expect(priv.status).toBe(201);
+
+    const patch = await request(env.baseUrl)
+      .patch(`/workspaces/${wsId}/default-channel`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ defaultChannelId: priv.body.id });
+    expect(patch.status).toBe(422);
+    expect(patch.body.errorCode).toBe('WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC');
   });
 });

@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, WorkspaceRole } from '@prisma/client';
+import { ChannelType, Prisma, WorkspaceJoinMode, WorkspaceRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import {
   CreateWorkspaceRequest,
@@ -30,6 +30,15 @@ import { MemberRoleService } from './roles/member-role.service';
 // S63 fix-forward (security A-1 = HIGH/BLOCKER): PUBLIC 워크스페이스 즉시 가입(joinPublic)
 // 에서도 차단(BannedMember) 여부를 검사해 ban 우회 재가입을 막는다(invites.accept 선례).
 import { ModerationService } from './moderation/moderation.service';
+// S65 (D13 / FR-W13): 소유권 양도 시 OWNER 비밀번호 재확인. auth 와 동일한 argon2
+// PasswordService 로 검증한다(저장된 passwordHash 가 argon2 — bcrypt.compare 는 불일치).
+import { PasswordService } from '../auth/services/password.service';
+// S65 (D13 / FR-W01): 생성 트랜잭션에서 #general 채널을 Prisma tx 로 직접 만들 때
+// 첫 채널 position 으로 쓴다(ChannelsService 미import — 순환 회피, ★결정 B).
+import { POSITION_STRIDE } from '../channels/positioning/fractional-position';
+// S65 (D13 / FR-W01): #general 자동 생성 시에도 채널 생성 outbox 이벤트를 같은
+// 트랜잭션에서 기록해 실시간 채널 목록이 갱신되도록 한다(문자열 상수 — 순환 없음).
+import { CHANNEL_CREATED } from '../channels/events/channel-events';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -46,6 +55,8 @@ export class WorkspacesService {
     private readonly memberRoles: MemberRoleService,
     // S63 fix-forward (security A-1): joinPublic 의 ban 우회 차단을 위한 차단 조회.
     private readonly moderation: ModerationService,
+    // S65 (D13 / FR-W13): 소유권 양도 비밀번호 재확인용 argon2 검증기.
+    private readonly passwords: PasswordService,
   ) {}
 
   private get graceMs(): number {
@@ -56,8 +67,17 @@ export class WorkspacesService {
     if (RESERVED_SLUGS.has(input.slug)) {
       throw new DomainError(ErrorCode.WORKSPACE_SLUG_RESERVED, `slug "${input.slug}" is reserved`);
     }
+    // S65 (D13 / FR-W01): 이메일 도메인 화이트리스트는 소문자로 정규화해 저장한다
+    // (zod 가 형태를 강제하지만 입력 케이스를 안정화). 중복은 제거한다.
+    const emailDomains = input.emailDomains
+      ? [...new Set(input.emailDomains.map((d) => d.trim().toLowerCase()))]
+      : [];
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // S65 (D13 / FR-W01): #general 채널 id 를 미리 만들어 Workspace.defaultChannelId
+        // 와 동기한다(단일 트랜잭션). FK(Workspace.defaultChannelId → Channel)가 deferrable
+        // 가 아니므로 채널을 먼저 만든 뒤 워크스페이스를 업데이트한다.
+        const generalChannelId = randomUUID();
         const workspace = await tx.workspace.create({
           data: {
             id: randomUUID(),
@@ -70,11 +90,33 @@ export class WorkspacesService {
             // description at the zod layer.
             visibility: input.visibility ?? 'PRIVATE',
             category: input.category ?? null,
+            // S65 (D13 / FR-W01): joinMode 미지정 시 PRIVATE(초대 전용). visibility 와
+            // 직교하므로 PUBLIC discover 노출과 가입 방식을 따로 둘 수 있다.
+            joinMode: (input.joinMode ?? 'PRIVATE') as WorkspaceJoinMode,
+            emailDomains,
             ownerId: userId,
             members: {
               create: { userId, role: WorkspaceRole.OWNER },
             },
           },
+        });
+        // S65 (D13 / FR-W01): #general 기본 채널을 같은 트랜잭션에서 생성한다(★결정 B —
+        // ChannelsModule 미import·순환 회피, Prisma tx 직접). 워크스페이스 첫 채널이므로
+        // position 은 POSITION_STRIDE. isDefault=true 로 시드하고 아래에서
+        // Workspace.defaultChannelId 로 가리킨다.
+        const general = await tx.channel.create({
+          data: {
+            id: generalChannelId,
+            workspaceId: workspace.id,
+            name: 'general',
+            type: ChannelType.TEXT,
+            position: POSITION_STRIDE,
+            isDefault: true,
+          },
+        });
+        const updatedWorkspace = await tx.workspace.update({
+          where: { id: workspace.id },
+          data: { defaultChannelId: general.id },
         });
         // S61 (FR-RM01): 시스템 5역할 시드 + 생성자(OWNER) MemberRole 연결.
         await seedSystemRoles(tx, workspace.id);
@@ -85,7 +127,26 @@ export class WorkspacesService {
           eventType: WORKSPACE_CREATED,
           payload: { workspaceId: workspace.id, ownerId: userId, slug: workspace.slug },
         });
-        return workspace;
+        // S65 (D13 / FR-W01): #general 생성도 channel.created 로 기록해 실시간 채널
+        // 목록(WorkspaceNav/ChannelColumn)이 즉시 반영되게 한다(채널 생성 경로 선례).
+        await this.outbox.record(tx, {
+          aggregateType: 'channel',
+          aggregateId: general.id,
+          eventType: CHANNEL_CREATED,
+          payload: {
+            workspaceId: workspace.id,
+            actorId: userId,
+            channel: {
+              id: general.id,
+              workspaceId: workspace.id,
+              name: general.name,
+              type: general.type,
+              isPrivate: general.isPrivate,
+              isDefault: general.isDefault,
+            },
+          },
+        });
+        return updatedWorkspace;
       });
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
@@ -391,12 +452,28 @@ export class WorkspacesService {
    * record the event all inside a single `$transaction`. An observer reading
    * `OutboxEvent` never sees the committed update without the matching event.
    */
-  async transferOwnership(workspaceId: string, fromUserId: string, toUserId: string) {
+  async transferOwnership(
+    workspaceId: string,
+    fromUserId: string,
+    toUserId: string,
+    password: string,
+  ) {
     if (fromUserId === toUserId) {
       throw new DomainError(
         ErrorCode.WORKSPACE_TARGET_NOT_MEMBER,
         'cannot transfer ownership to yourself',
       );
+    }
+    // S65 (D13 / FR-W13 · ★결정 C): 소유권 양도는 OWNER 비밀번호 재확인을 강제한다.
+    // 저장된 passwordHash 는 argon2 이므로 auth 와 동일한 PasswordService.verify 로
+    // 검사한다. 불일치는 401(AUTH_INVALID_CREDENTIALS)로 거부한다 — 양도는 비가역적
+    // 권한 이전이므로 세션 탈취만으로 실행되지 않도록 막는 보안 게이트다.
+    const actor = await this.prisma.user.findUnique({
+      where: { id: fromUserId },
+      select: { passwordHash: true },
+    });
+    if (!actor || !(await this.passwords.verify(actor.passwordHash, password))) {
+      throw new DomainError(ErrorCode.AUTH_INVALID_CREDENTIALS, 'password confirmation failed');
     }
     // task-013-A2 (task-033 closure): two concurrent transferOwnership
     // calls against the same workspace would interleave under the
@@ -450,6 +527,46 @@ export class WorkspacesService {
     await this.memberRoles.invalidateMemberPermsCache(workspaceId, fromUserId);
     await this.memberRoles.invalidateMemberPermsCache(workspaceId, toUserId);
     return workspace;
+  }
+
+  /**
+   * S65 (D13 / FR-W19): 워크스페이스 기본 채널을 변경한다(OWNER 게이트는 컨트롤러).
+   * 대상은 같은 워크스페이스의 살아있는 공개 채널(isPrivate=false·deletedAt=null)이어야
+   * 한다 — 가입자 랜딩 채널은 모두가 접근 가능해야 하기 때문이다. 이전 기본 채널의
+   * isDefault 를 false 로 해제하고 신규 채널을 true 로 올린 뒤 Workspace.defaultChannelId
+   * 를 갱신하는 세 작업을 단일 트랜잭션으로 묶는다(원자성). 멱등 — 이미 기본인 채널을
+   * 다시 지정해도 안전하다.
+   */
+  async updateDefaultChannel(workspaceId: string, channelId: string) {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true, isPrivate: true, isDefault: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in this workspace');
+    }
+    if (channel.isPrivate) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC,
+        'default channel must be a public channel',
+      );
+    }
+    return this.prisma.$transaction(async (tx) => {
+      // 이전 기본 채널들(보통 0~1개)의 isDefault 를 해제한다 — 대상 채널은 제외해
+      // 멱등 재지정에서도 깜빡임 없이 true 를 유지한다.
+      await tx.channel.updateMany({
+        where: { workspaceId, isDefault: true, id: { not: channelId } },
+        data: { isDefault: false },
+      });
+      await tx.channel.update({
+        where: { id: channelId },
+        data: { isDefault: true },
+      });
+      return tx.workspace.update({
+        where: { id: workspaceId },
+        data: { defaultChannelId: channelId },
+      });
+    });
   }
 
   /** Used by guards/services that want to confirm caller is OWNER. */

@@ -17,6 +17,7 @@ import {
   CreateWorkspaceRequestSchema,
   TransferOwnershipRequest,
   TransferOwnershipRequestSchema,
+  UpdateDefaultChannelRequestSchema,
   UpdateWorkspaceRequest,
   UpdateWorkspaceRequestSchema,
   UpdateWorkspaceSettingRequestSchema,
@@ -171,6 +172,24 @@ export class WorkspacesController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     const input = parsed.data as TransferOwnershipRequest;
-    return this.workspaces.transferOwnership(id, member.userId, input.toUserId);
+    // S65 (D13 / FR-W13): password 재확인을 서비스로 전달한다(argon2 verify).
+    return this.workspaces.transferOwnership(id, member.userId, input.toUserId, input.password);
+  }
+
+  /**
+   * S65 (D13 / FR-W19): 워크스페이스 기본 채널 변경. OWNER 전용. 대상은 같은
+   * 워크스페이스의 살아있는 공개 채널이어야 하며(서비스 검증), 이전 기본 채널의
+   * isDefault 해제 + 신규 채널 isDefault 설정 + Workspace.defaultChannelId 갱신을
+   * 단일 트랜잭션으로 처리한다.
+   */
+  @UseGuards(WorkspaceMemberGuard, WorkspaceRoleGuard)
+  @Roles('OWNER')
+  @Patch(':id/default-channel')
+  async updateDefaultChannel(@Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
+    const parsed = UpdateDefaultChannelRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    return this.workspaces.updateDefaultChannel(id, parsed.data.defaultChannelId);
   }
 }

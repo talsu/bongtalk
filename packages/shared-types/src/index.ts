@@ -66,6 +66,8 @@ export const ErrorCodeSchema = z.enum([
   'WORKSPACE_ALREADY_MEMBER',
   'WORKSPACE_PURGED',
   'WORKSPACE_NOT_PUBLIC',
+  // S65 (D13 / FR-W19): 기본 채널 변경 대상이 비공개 채널일 때.
+  'WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC',
   // S61 (D12 / FR-RM01·04·15): 커스텀 Role 시스템 에러 코드.
   'ROLE_NOT_FOUND',
   'ROLE_NAME_TAKEN',
