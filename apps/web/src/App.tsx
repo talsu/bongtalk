@@ -1,5 +1,5 @@
-import { lazy, Suspense } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useParams } from 'react-router-dom';
+import { lazy, Suspense, type ReactNode } from 'react';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
@@ -27,6 +27,17 @@ const CreateWorkspacePage = lazy(() =>
 const InviteAcceptPage = lazy(() =>
   import('./features/workspaces/InviteAcceptPage').then((m) => ({
     default: m.InviteAcceptPage,
+  })),
+);
+// S66 (D13 / FR-W05b): 이메일 인증 대기 화면 + 인증 링크 랜딩 페이지.
+const EmailVerificationGate = lazy(() =>
+  import('./features/auth/EmailVerificationGate').then((m) => ({
+    default: m.EmailVerificationGate,
+  })),
+);
+const VerifyEmailLanding = lazy(() =>
+  import('./features/auth/VerifyEmailLanding').then((m) => ({
+    default: m.VerifyEmailLanding,
   })),
 );
 const NotificationSettingsPage = lazy(() =>
@@ -94,6 +105,32 @@ function ProtectedShellRoute(): JSX.Element {
       <Shell />
     </Suspense>
   );
+}
+
+/**
+ * S66 (D13 / FR-W05a/W05b): 전역 이메일 인증 게이트. 인증된 사용자가 emailVerified=false
+ * 이면 워크스페이스 진입 대신 인증 대기 화면(EmailVerificationGate)을 렌더한다. 인증/로그아웃
+ * 경로(/login·/signup·/verify-email)는 게이트를 건너뛰어 사용자가 로그아웃하거나 링크로
+ * 인증을 완료할 수 있게 한다. anonymous·loading 은 통과시켜 기존 라우팅이 처리한다.
+ */
+const VERIFY_GATE_EXEMPT = new Set(['/login', '/signup', '/verify-email']);
+
+function VerificationGate({ children }: { children: ReactNode }): JSX.Element {
+  const { status, user } = useAuth();
+  const location = useLocation();
+  if (
+    status === 'authenticated' &&
+    user &&
+    !user.emailVerified &&
+    !VERIFY_GATE_EXEMPT.has(location.pathname)
+  ) {
+    return (
+      <Suspense fallback={<LoadingFallback />}>
+        <EmailVerificationGate />
+      </Suspense>
+    );
+  }
+  return <>{children}</>;
 }
 
 /**
@@ -251,41 +288,45 @@ export default function App(): JSX.Element {
               <AppLayout>
                 <ErrorBoundary>
                   <Suspense fallback={<LoadingFallback />}>
-                    <Routes>
-                      <Route path="/login" element={<LoginPage />} />
-                      <Route path="/signup" element={<SignupPage />} />
-                      <Route path="/invite/:code" element={<InviteAcceptPage />} />
-                      <Route path="/w/new" element={<CreateWorkspacePage />} />
-                      <Route
-                        path="/settings"
-                        element={<Navigate to="/settings/notifications" replace />}
-                      />
-                      <Route
-                        path="/settings/notifications"
-                        element={<ProtectedSettingsRoute page="notifications" />}
-                      />
-                      <Route path="/activity" element={<ProtectedActivityRoute />} />
-                      {/* task-047 iter4 (M3): profile page */}
-                      <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
-                      <Route path="/dm" element={<ProtectedDmShellRoute />} />
-                      <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
-                      <Route path="/discover" element={<ProtectedDiscoverRoute />} />
-                      <Route path="/friends" element={<ProtectedFriendsRoute />} />
-                      <Route path="/dms" element={<ProtectedDmListRoute />} />
-                      <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
-                      {/* Legacy workspace-scoped DM routes — fold into /dm so
+                    <VerificationGate>
+                      <Routes>
+                        <Route path="/login" element={<LoginPage />} />
+                        <Route path="/signup" element={<SignupPage />} />
+                        {/* S66 (FR-W05b): 메일 인증 링크 랜딩(공개 — 미인증 토큰 처리). */}
+                        <Route path="/verify-email" element={<VerifyEmailLanding />} />
+                        <Route path="/invite/:code" element={<InviteAcceptPage />} />
+                        <Route path="/w/new" element={<CreateWorkspacePage />} />
+                        <Route
+                          path="/settings"
+                          element={<Navigate to="/settings/notifications" replace />}
+                        />
+                        <Route
+                          path="/settings/notifications"
+                          element={<ProtectedSettingsRoute page="notifications" />}
+                        />
+                        <Route path="/activity" element={<ProtectedActivityRoute />} />
+                        {/* task-047 iter4 (M3): profile page */}
+                        <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
+                        <Route path="/dm" element={<ProtectedDmShellRoute />} />
+                        <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
+                        <Route path="/discover" element={<ProtectedDiscoverRoute />} />
+                        <Route path="/friends" element={<ProtectedFriendsRoute />} />
+                        <Route path="/dms" element={<ProtectedDmListRoute />} />
+                        <Route path="/dms/:userId" element={<ProtectedDmChatRoute />} />
+                        {/* Legacy workspace-scoped DM routes — fold into /dm so
                       bookmarks + existing deep-links keep working. */}
-                      <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
-                      <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
-                      <Route path="/" element={<ProtectedShellRoute />} />
-                      {/* Single splat route so React Router does NOT remount
+                        <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
+                        <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
+                        <Route path="/" element={<ProtectedShellRoute />} />
+                        {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the
                       path from useParams()['*']. Reviewer flagged the
                       earlier 3-route version as likely to remount. */}
-                      <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
-                      <Route path="*" element={<Navigate to="/" replace />} />
-                    </Routes>
+                        <Route path="/w/:slug/*" element={<ProtectedShellRoute />} />
+                        <Route path="*" element={<Navigate to="/" replace />} />
+                      </Routes>
+                    </VerificationGate>
                   </Suspense>
                 </ErrorBoundary>
               </AppLayout>

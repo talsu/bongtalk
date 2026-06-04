@@ -16,6 +16,8 @@ import {
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
 import { ModerationService } from '../moderation/moderation.service';
+// S66 (D13 / FR-W05a): 초대 수락 시점 emailVerified + emailDomains 진입 게이트.
+import { assertWorkspaceEntryAllowed } from '../workspace-entry-gate';
 
 function codeBytes(): number {
   const n = Number(process.env.INVITE_CODE_BYTES ?? 16);
@@ -134,10 +136,26 @@ export class InvitesService {
    * A concurrent-accept loser (two tabs from the same user) refunds the seat
    * it just consumed and surfaces ALREADY_MEMBER instead of a raw 500.
    */
-  async accept(code: string, userId: string) {
+  async accept(
+    code: string,
+    userId: string,
+    // S66 (D13 / FR-W05a): 초대 수락 시점 진입 게이트(emailVerified + emailDomains).
+    // 컨트롤러가 JWT 에서 로드한 본인 emailVerified/email 을 넘긴다. 게이트는 워크스페이스
+    // emailDomains 와 함께 invite 조회 직후·CAS 전에 적용한다(미인증/도메인 불일치 사용자가
+    // 초대 좌석을 소모하지 않게 함).
+    actor: { emailVerified: boolean; userEmail: string },
+  ) {
     const existing = await this.prisma.invite.findUnique({
       where: { code },
-      select: { id: true, workspaceId: true, revokedAt: true, expiresAt: true, maxUses: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        revokedAt: true,
+        expiresAt: true,
+        maxUses: true,
+        // S66 (D13 / FR-W05a): 도메인 게이트용 화이트리스트.
+        workspace: { select: { emailDomains: true } },
+      },
     });
     if (!existing || existing.revokedAt) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
@@ -145,6 +163,14 @@ export class InvitesService {
     if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
     }
+
+    // S66 (D13 / FR-W05a): emailVerified 재확인 직후 emailDomains exact-match 검증.
+    // emailDomains 빈 배열이면 도메인 게이트 통과(제한 없음).
+    assertWorkspaceEntryAllowed({
+      emailVerified: actor.emailVerified,
+      userEmail: actor.userEmail,
+      emailDomains: existing.workspace.emailDomains,
+    });
 
     const already = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId } },

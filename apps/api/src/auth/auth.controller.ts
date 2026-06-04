@@ -1,5 +1,6 @@
-import { Body, Controller, Get, HttpCode, Post, Req, Res, UseGuards } from '@nestjs/common';
+import { Body, Controller, Get, HttpCode, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
+import type { VerificationResendResponse, VerifyEmailResponse } from '@qufox/shared-types';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
@@ -7,6 +8,8 @@ import { Public } from './decorators/public.decorator';
 import { CurrentUser, CurrentUserPayload } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
+// S66 (D13 / FR-W05b): 이메일 인증 토큰 검증/재발송.
+import { EmailVerificationService } from './services/email-verification.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -22,7 +25,11 @@ const COOKIE_PATH = '/';
 
 @Controller('auth')
 export class AuthController {
-  constructor(private readonly auth: AuthService) {}
+  constructor(
+    private readonly auth: AuthService,
+    // S66 (D13 / FR-W05b): verify-email / resend-verification 처리.
+    private readonly emailVerification: EmailVerificationService,
+  ) {}
 
   private allowedOrigins(): string[] {
     const raw = process.env.CORS_ORIGINS ?? '';
@@ -86,6 +93,9 @@ export class AuthController {
         email: result.user.email,
         username: result.user.username,
         createdAt: result.user.createdAt.toISOString(),
+        // S66 (D13 / FR-W05b): 가입 직후 emailVerified=false — 클라이언트가 인증 대기
+        // 화면으로 분기한다.
+        emailVerified: result.user.emailVerified,
       },
     };
   }
@@ -107,6 +117,8 @@ export class AuthController {
         email: result.user.email,
         username: result.user.username,
         createdAt: result.user.createdAt.toISOString(),
+        // S66 (D13 / FR-W05b): emailVerified=false 면 클라이언트가 인증 대기 화면 렌더.
+        emailVerified: result.user.emailVerified,
       },
     };
   }
@@ -139,7 +151,42 @@ export class AuthController {
   @UseGuards(JwtAuthGuard)
   @Get('me')
   me(@CurrentUser() user: CurrentUserPayload) {
-    return user;
+    // S66 (D13 / FR-W05b): emailVerified 를 포함해 반환한다(JwtStrategy 가 DB 에서 매
+    // 요청 로드 — verify-email 직후 "이미 인증했어요" 재조회가 즉시 true 를 본다).
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      emailVerified: user.emailVerified,
+    };
+  }
+
+  // S66 (D13 / FR-W05b): 이메일 인증. token 쿼리 검증 → usedAt 기록(재사용 차단) +
+  // User.emailVerified=true. 만료 410 / 무효·재사용 400 은 도메인 에러가 필터에서 매핑.
+  // GET 으로 두어 메일 클라이언트 링크 클릭(브라우저 GET)으로 바로 도달 가능하게 한다.
+  @Public()
+  @Get('verify-email')
+  async verifyEmail(@Query('token') token: string | undefined): Promise<VerifyEmailResponse> {
+    if (typeof token !== 'string' || token.length === 0) {
+      throw new DomainError(
+        ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID,
+        'verification token is required',
+      );
+    }
+    await this.emailVerification.verify(token);
+    return { emailVerified: true };
+  }
+
+  // S66 (D13 / FR-W05b): 인증 메일 재발송. JWT 필요(본인 이메일로만 재발송). 60초 쿨다운
+  // + 1일 5회 한도 초과 시 429 EMAIL_VERIFICATION_RATE_LIMITED. 응답에 쿨다운 초 + 그날
+  // 남은 횟수를 실어 클라이언트가 카운트다운/소진 안내를 그린다.
+  @UseGuards(JwtAuthGuard)
+  @Post('resend-verification')
+  @HttpCode(200)
+  async resendVerification(
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<VerificationResendResponse> {
+    return this.emailVerification.resend(user.id, user.email);
   }
 
   private refreshTtlMs(): number {

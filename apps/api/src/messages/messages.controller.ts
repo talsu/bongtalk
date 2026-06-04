@@ -325,6 +325,16 @@ export class MessagesController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.MESSAGE_CONTENT_INVALID, parsed.error.message);
     }
+    // S66 (D13 / FR-W05a): emailVerified=false 사용자는 채널 메시지 전송을 차단한다 →
+    // 403 EMAIL_NOT_VERIFIED. JwtStrategy 가 매 요청 DB 에서 emailVerified 를 로드하므로
+    // verify-email 직후 다음 전송부터 즉시 통과한다(추가 DB 왕복 없음). DM 을 포함한 모든
+    // 전송 경로를 일괄 차단해 미인증 계정이 메시지를 만들지 못하게 한다.
+    if (!user.emailVerified) {
+      throw new DomainError(
+        ErrorCode.EMAIL_NOT_VERIFIED,
+        '이메일 인증 후 메시지를 보낼 수 있습니다',
+      );
+    }
     // S63 (FR-RM07): 모더레이션 타임아웃 lazy 게이트. 워크스페이스 채널에서만 적용
     // (DM 은 m.workspaceId 가 null). mutedUntil>now 면 SEND_MESSAGES 차단 → 403
     // MEMBER_TIMED_OUT. 만료/미설정이면 자동 통과(별도 sweep 불요). USE_SLASH_COMMANDS

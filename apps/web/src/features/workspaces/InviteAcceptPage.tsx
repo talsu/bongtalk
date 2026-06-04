@@ -2,6 +2,10 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Button } from '../../design-system/primitives';
 import { useAcceptInvite, useInvitePreview } from './useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
+import { InviteExpired } from './InviteExpired';
+
+// S66 (D13 / FR-W21): 만료·비활성·횟수초과 초대 → 전용 화면으로 분기할 errorCode 집합.
+const EXPIRED_INVITE_CODES = new Set(['INVITE_EXPIRED', 'INVITE_EXHAUSTED', 'INVITE_REVOKED']);
 
 const CARD_STYLE = {
   background: 'var(--bg-elevated)',
@@ -28,6 +32,11 @@ export function InviteAcceptPage(): JSX.Element {
     );
   }
   if (error || !preview) {
+    // S66 (D13 / FR-W21): 만료/비활성/횟수초과(410) → 전용 만료 화면으로 분기한다.
+    const code = (error as (Error & { errorCode?: string }) | undefined)?.errorCode;
+    if (code && EXPIRED_INVITE_CODES.has(code)) {
+      return <InviteExpired />;
+    }
     return (
       <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
         <section

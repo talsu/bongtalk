@@ -72,6 +72,9 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
   const baseUrl = `http://127.0.0.1:${addr.port}`;
   const prisma = app.get(PrismaService);
   const redisClient = app.get<Redis>(REDIS);
+  // S66 (D13 / FR-W05a): signupAsUser 의 기본 emailVerified=true 마킹에 쓸 prisma 핸들을
+  // 모듈 스코프에 보관한다(헬퍼가 18개 호출부 시그니처를 바꾸지 않고 DB 를 만지게 함).
+  helperPrisma = prisma;
 
   return {
     app,
@@ -89,9 +92,19 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
 export const STRONG_PW = 'Quanta-Beetle-Nebula-42!';
 const ORIGIN = 'http://localhost:45173';
 
+// S66 (D13 / FR-W05a): signup 은 emailVerified=false 사용자를 만들고, 워크스페이스
+// 진입(JOIN·ACCEPT)·메시지 전송 게이트가 그들을 403 EMAIL_NOT_VERIFIED 로 막는다.
+// 기존 워크스페이스/메시지 int 스펙은 "가입한 사용자가 곧바로 진입/전송"을 전제하므로,
+// signupAsUser 가 가입 직후 DB 에서 emailVerified=true 로 마킹해 기존 스펙을 무회귀로
+// 유지한다(S62 cross-cutting DI 누락 교훈 — 게이트 추가가 의존 스펙을 깨지 않게). 미인증
+// 게이트 자체를 검증하는 신규 스펙은 markVerified=false 로 호출한다.
+let helperPrisma: PrismaService | undefined;
+
 export async function signupAsUser(
   baseUrl: string,
   prefix: string,
+  // 기본 true — 기존 스펙 무회귀. 미인증 게이트 검증 스펙은 false 로 호출한다.
+  markVerified = true,
 ): Promise<{
   userId: string;
   email: string;
@@ -113,6 +126,13 @@ export async function signupAsUser(
   const raw = list
     .map((c: string) => c.split(';')[0])
     .find((c: string) => c.startsWith('refresh_token='));
+  // S66 (D13 / FR-W05a): 기본적으로 가입 직후 emailVerified=true 로 마킹(기존 스펙 무회귀).
+  if (markVerified && helperPrisma) {
+    await helperPrisma.user.update({
+      where: { id: res.body.user.id },
+      data: { emailVerified: true },
+    });
+  }
   return {
     userId: res.body.user.id,
     email,

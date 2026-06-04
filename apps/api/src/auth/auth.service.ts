@@ -4,6 +4,8 @@ import { UsersService } from '../users/users.service';
 import { PasswordService } from './services/password.service';
 import { TokenService } from './services/token.service';
 import { RateLimitService } from './services/rate-limit.service';
+// S66 (D13 / FR-W05b): signup 시 이메일 인증 토큰 발급 + Console stub 발송.
+import { EmailVerificationService } from './services/email-verification.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { MetricsService } from '../observability/metrics/metrics.service';
@@ -15,7 +17,9 @@ export type RequestMeta = { userAgent?: string; ip?: string };
 export type AuthSuccess = {
   accessToken: string;
   refreshRaw: string;
-  user: { id: string; email: string; username: string; createdAt: Date };
+  // S66 (D13 / FR-W05a/W05b): 컨트롤러가 응답·세션에 실어 클라이언트가 인증 게이트로
+  // 분기하도록 emailVerified 를 함께 돌려준다(signup 직후는 항상 false).
+  user: { id: string; email: string; username: string; createdAt: Date; emailVerified: boolean };
 };
 
 const LOCK_AFTER_FAILS = 5;
@@ -28,6 +32,8 @@ export class AuthService {
     private readonly passwords: PasswordService,
     private readonly tokens: TokenService,
     private readonly rateLimit: RateLimitService,
+    // S66 (D13 / FR-W05b): signup 시 인증 토큰 발급 + Console stub 발송.
+    private readonly emailVerification: EmailVerificationService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -49,6 +55,13 @@ export class AuthService {
       passwordHash,
     });
 
+    // S66 (D13 / FR-W05b): 가입 직후 이메일 인증 토큰 발급 + Console stub 으로 verifyUrl
+    // 발송. JWT 발급은 유지(emailVerified=false 상태로 로그인은 되지만 워크스페이스 진입·
+    // 메시지 전송 게이트에서 차단됨). 메일 발송 실패가 가입 자체를 막지 않도록, 토큰 발급은
+    // 베스트-에포트가 아닌 필수(트랜잭션 밖)지만 throw 시 가입 전체가 500 으로 실패한다 —
+    // Console stub 은 실패하지 않으므로 MVP 에서 안전하다(SMTP 어댑터 교체 시 재검토).
+    await this.emailVerification.issueAndSend(user.id, user.email);
+
     const accessToken = this.tokens.signAccess(user.id);
     const { raw: refreshRaw } = await this.tokens.issueRefreshForNewSession(user.id, meta);
 
@@ -60,6 +73,7 @@ export class AuthService {
         email: user.email,
         username: user.username,
         createdAt: user.createdAt,
+        emailVerified: user.emailVerified,
       },
     };
   }
@@ -117,6 +131,7 @@ export class AuthService {
         email: user.email,
         username: user.username,
         createdAt: user.createdAt,
+        emailVerified: user.emailVerified,
       },
     };
   }
