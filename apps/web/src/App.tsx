@@ -35,6 +35,17 @@ const EmailInviteAcceptPage = lazy(() =>
     default: m.EmailInviteAcceptPage,
   })),
 );
+// S70 (D13 / FR-W06·W06a): APPLY 모드 가입 신청 폼 + 신청 대기 화면.
+const ApplicationForm = lazy(() =>
+  import('./features/workspaces/ApplicationForm').then((m) => ({
+    default: m.ApplicationForm,
+  })),
+);
+const ApplicationPendingPage = lazy(() =>
+  import('./features/workspaces/ApplicationPendingPage').then((m) => ({
+    default: m.ApplicationPendingPage,
+  })),
+);
 // S66 (D13 / FR-W05b): 이메일 인증 대기 화면 + 인증 링크 랜딩 페이지.
 const EmailVerificationGate = lazy(() =>
   import('./features/auth/EmailVerificationGate').then((m) => ({
@@ -245,6 +256,41 @@ function ProtectedDiscoverRoute(): JSX.Element {
 }
 
 /**
+ * S70 (D13 / FR-W06): APPLY 모드 가입 신청 폼 라우트(`/w/:slug/apply`). slug 는 URL 에서
+ * 읽어 폼에 넘긴다. 신청자는 아직 멤버가 아니므로 ProtectedShellRoute(멤버 셸)가 아니라
+ * 인증만 가드한 전용 라우트로 둔다(InviteAcceptPage 선례). 미인증은 /login 으로.
+ */
+function ProtectedApplicationFormRoute(): JSX.Element {
+  const { status } = useAuth();
+  const { slug } = useParams<{ slug: string }>();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ApplicationForm slug={slug ?? ''} />
+    </Suspense>
+  );
+}
+
+/**
+ * S70 (D13 / FR-W06a): 가입 신청 대기 화면 라우트(`/w/:slug/pending`). WS 연결 상태
+ * (wsConnected)를 상위 useRealtimeConnection 에서 읽어 주입한다 — 끊김이면 대기 화면이
+ * 30초 polling fallback 으로 전환한다(WS 이벤트가 진실값일 때는 폴링 비활성).
+ */
+function ProtectedApplicationPendingRoute(): JSX.Element {
+  const { status } = useAuth();
+  const { slug } = useParams<{ slug: string }>();
+  const { status: realtimeStatus } = useRealtimeConnection();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      <ApplicationPendingPage slug={slug ?? ''} wsConnected={realtimeStatus === 'connected'} />
+    </Suspense>
+  );
+}
+
+/**
  * Fold the legacy workspace-scoped `/w/:slug/dm/:userId` URL into the
  * workspace-free `/dm/:userId`. Kept as a Route element (not a plain
  * Navigate) so the dynamic :userId segment carries through.
@@ -347,6 +393,14 @@ export default function App(): JSX.Element {
                             (security MEDIUM-1). path token segment 는 제거했다. /w/:slug/* 보다
                             구체적이라 먼저 매칭된다(VerificationGate 면제 — 신규 사용자 랜딩). */}
                         <Route path="/w/:slug/email-invite" element={<EmailInviteAcceptPage />} />
+                        {/* S70 (FR-W06·W06a): APPLY 모드 가입 신청 폼 + 대기 화면. 신청자는
+                            아직 멤버가 아니라 셸(/w/:slug/*)이 아닌 전용 라우트로 두며,
+                            /w/:slug/* 보다 구체적이라 먼저 매칭된다. */}
+                        <Route path="/w/:slug/apply" element={<ProtectedApplicationFormRoute />} />
+                        <Route
+                          path="/w/:slug/pending"
+                          element={<ProtectedApplicationPendingRoute />}
+                        />
                         {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the

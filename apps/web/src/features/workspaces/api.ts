@@ -33,6 +33,12 @@ import type {
   Workspace,
   WorkspaceRole,
   WorkspaceWithMyRole,
+  ApplicationAnswer,
+  ApplicationStatus,
+  ListApplicationsResponse,
+  MyApplicationResponse,
+  ProcessApplicationAction,
+  WorkspaceMemberApplication,
 } from '@qufox/shared-types';
 
 // S65 (D13 / FR-W13): 소유권 양도는 비밀번호 재확인을 강제한다(서버 argon2 verify).
@@ -390,4 +396,50 @@ export function resolveReport(
     method: 'POST',
     body: input,
   });
+}
+
+// ── S70 (D13 / FR-W06·W06a): 가입 신청(APPLY 모드) ─────────────────────────────
+// 경로는 PRD 정본대로 :slug 를 쓴다(다른 워크스페이스 API 의 :id 와 별개).
+
+/** FR-W06: 가입 신청 제출(커스텀 질문 응답 최대 5개). 이미 신청 중이면 409. */
+export function submitApplication(
+  slug: string,
+  answers: ApplicationAnswer[],
+): Promise<WorkspaceMemberApplication> {
+  return apiRequest(`/workspaces/${slug}/applications`, { method: 'POST', body: { answers } });
+}
+
+/** FR-W06: 신청 목록(ADMIN+). status 필터 선택. */
+export function listApplications(
+  slug: string,
+  status?: ApplicationStatus,
+): Promise<ListApplicationsResponse> {
+  const qs = status ? `?status=${status}` : '';
+  return apiRequest(`/workspaces/${slug}/applications${qs}`);
+}
+
+/** FR-W06a: 본인 신청 상태 조회(WS 끊김 시 30초 polling fallback). */
+export function getMyApplication(slug: string): Promise<MyApplicationResponse> {
+  return apiRequest(`/workspaces/${slug}/applications/me`);
+}
+
+/** FR-W06: 신청 처리. approve/interview 는 ADMIN+, reject 는 MODERATOR+. */
+export function processApplication(
+  slug: string,
+  applicationId: string,
+  action: ProcessApplicationAction,
+  reviewNote?: string,
+): Promise<WorkspaceMemberApplication> {
+  return apiRequest(`/workspaces/${slug}/applications/${applicationId}`, {
+    method: 'PATCH',
+    body: { action, ...(reviewNote !== undefined ? { reviewNote } : {}) },
+  });
+}
+
+/** FR-W06: 신청 취소(본인, PENDING → WITHDRAWN). */
+export function withdrawApplication(
+  slug: string,
+  applicationId: string,
+): Promise<WorkspaceMemberApplication> {
+  return apiRequest(`/workspaces/${slug}/applications/${applicationId}`, { method: 'DELETE' });
 }

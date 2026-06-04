@@ -40,6 +40,51 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('ws:application_reviewed (S70 FR-W06a) emits a window event for the pending screen', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const detach = installRealtimeDispatcher(socket, qc);
+    const received: unknown[] = [];
+    const onEv = (e: Event): void => {
+      received.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('qufox.application.reviewed', onEv);
+    socket.emit('ws:application_reviewed', {
+      workspaceId: 'ws-1',
+      applicationId: 'app-1',
+      status: 'rejected',
+      reviewNote: 'no',
+    });
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ status: 'rejected', reviewNote: 'no' });
+    // 형태 불량 payload 는 신뢰경계 가드로 버린다(이벤트 미발생).
+    socket.emit('ws:application_reviewed', { workspaceId: 'ws-1' });
+    expect(received).toHaveLength(1);
+    window.removeEventListener('qufox.application.reviewed', onEv);
+    detach();
+  });
+
+  it('ws:application_received (S70 FR-W06) emits a window event for the admin panel', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const detach = installRealtimeDispatcher(socket, qc);
+    const received: unknown[] = [];
+    const onEv = (e: Event): void => {
+      received.push((e as CustomEvent).detail);
+    };
+    window.addEventListener('qufox.application.received', onEv);
+    socket.emit('ws:application_received', {
+      workspaceId: 'ws-1',
+      applicationId: 'app-1',
+      applicantId: 'u-1',
+      applicantName: 'alice',
+    });
+    expect(received).toHaveLength(1);
+    expect(received[0]).toMatchObject({ applicationId: 'app-1', applicantName: 'alice' });
+    window.removeEventListener('qufox.application.received', onEv);
+    detach();
+  });
+
   it('message:bulk_deleted (S64 FR-RM09) removes the listed ids from the channel cache', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

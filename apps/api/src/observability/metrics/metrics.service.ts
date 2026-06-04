@@ -84,6 +84,9 @@ const L = {
     // S41 (FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클 outbox 이벤트.
     'emoji.created',
     'emoji.deleted',
+    // S70 (FR-W06): 가입 신청 라이프사이클 outbox 이벤트.
+    'application.received',
+    'application.reviewed',
     '_other',
   ]),
   wsEventType: new Set([
@@ -122,6 +125,10 @@ const L = {
     // BullMQ worker / PATCH 경로가 게이트웨이를 통해 직접 emit 한다.
     'user:reminder_fire',
     'user:saved_updated',
+    // S70 (FR-W06·W06a·W12): 가입 신청 결과 + 멤버 이탈(임시멤버 강퇴) 콜론 wire.
+    'ws:application_received',
+    'ws:application_reviewed',
+    'ws:member_left',
     '_other',
   ]),
 } as const;

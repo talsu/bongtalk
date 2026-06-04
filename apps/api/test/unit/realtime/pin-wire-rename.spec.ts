@@ -31,12 +31,15 @@ describe('OutboxToWsSubscriber.onMessageEvent — wire `channel:pin_*` (S50 FR-P
     >[2];
     const messages = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[3];
     const badges = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
+    // S70 fix-forward (M-3): subscriber 가 application.received 를 ADMIN+ user 룸으로만
+    // 보내기 위해 PrismaService 를 주입받는다. 핀 경로는 prisma 를 쓰지 않으므로 빈 mock.
+    const prisma = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
     const metrics = {
       wsEventsEmittedTotal,
       wsMessageFanoutLatencySeconds,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
-    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
   }
 
   beforeEach(() => {

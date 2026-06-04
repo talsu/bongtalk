@@ -15,6 +15,10 @@ import { UnfurlProcessor } from './unfurl.processor';
 import { ROLE_CACHE_QUEUE } from './role-cache-queue.constants';
 import { RoleCacheQueueService } from './role-cache-queue.service';
 import { RoleCacheProcessor } from './role-cache.processor';
+// S70 (D13 / FR-W12): 임시 멤버 disconnect debounce 강퇴 큐.
+import { TEMP_EVICT_QUEUE } from './temp-evict-queue.constants';
+import { TempEvictQueueService } from './temp-evict-queue.service';
+import { TempEvictProcessor } from './temp-evict.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -56,6 +60,8 @@ import { RoleCacheProcessor } from './role-cache.processor';
     BullModule.registerQueue({ name: UNFURL_QUEUE }),
     // S61 (FR-RM15): 역할 삭제 cascade 권한 캐시 무효화 배치 큐(>1000명).
     BullModule.registerQueue({ name: ROLE_CACHE_QUEUE }),
+    // S70 (FR-W12): 임시 멤버 disconnect debounce 강퇴 큐. forRootAsync 연결을 재사용한다.
+    BullModule.registerQueue({ name: TEMP_EVICT_QUEUE }),
     RealtimeModule,
     // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
     // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
@@ -74,7 +80,12 @@ import { RoleCacheProcessor } from './role-cache.processor';
     UnfurlProcessor,
     RoleCacheQueueService,
     RoleCacheProcessor,
+    // S70 (FR-W12): 임시 멤버 강퇴 큐 서비스 + worker. 서비스는 게이트웨이가 주입한다
+    // (@Global 이라 import 없이 주입 가능 — ReminderQueueService 패턴). Processor 가
+    // OutboxService(@Global) + PrismaService(@Global) + TempEvictQueueService 를 주입한다.
+    TempEvictQueueService,
+    TempEvictProcessor,
   ],
-  exports: [ReminderQueueService, UnfurlQueueService, RoleCacheQueueService],
+  exports: [ReminderQueueService, UnfurlQueueService, RoleCacheQueueService, TempEvictQueueService],
 })
 export class QueueModule {}

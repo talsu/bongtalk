@@ -37,6 +37,10 @@ import { MessagesModule } from '../messages/messages.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { ModerationReportController } from './moderation/moderation-report.controller';
 import { ModerationReportService } from './moderation/moderation-report.service';
+// S70 (D13 / FR-W06·W06a): 가입 신청(APPLY 모드) REST + 도메인 서비스. 인터뷰 1:1 DM 생성에
+// DirectMessagesService(ChannelsModule)를 forwardRef 로 주입한다.
+import { ApplicationsController } from './applications/applications.controller';
+import { ApplicationsService } from './applications/applications.service';
 
 @Module({
   imports: [
@@ -57,6 +61,7 @@ import { ModerationReportService } from './moderation/moderation-report.service'
     ModerationController,
     AuditLogController,
     ModerationReportController,
+    ApplicationsController,
   ],
   providers: [
     WorkspacesService,
@@ -67,6 +72,7 @@ import { ModerationReportService } from './moderation/moderation-report.service'
     MemberRoleService,
     ModerationService,
     ModerationReportService,
+    ApplicationsService,
   ],
   exports: [
     WorkspacesService,

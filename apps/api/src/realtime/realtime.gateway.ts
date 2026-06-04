@@ -44,11 +44,18 @@ import { ReplayBufferService } from './projection/replay-buffer.service';
 import { ChannelSeqService } from './projection/channel-seq.service';
 import { rooms } from './rooms/room-names';
 import { MetricsService } from '../observability/metrics/metrics.service';
+// S70 (D13 / FR-W12): 임시 멤버 disconnect debounce 강퇴(Redis Set + BullMQ). QueueModule
+// 이 @Global 이라 import 없이 주입된다(ReminderQueueService 선례 — 모듈 그래프 간선 없음 →
+// QueueModule → RealtimeModule 단방향 무순환 유지).
+import { TempEvictQueueService } from '../queue/temp-evict-queue.service';
 
 type SocketState = {
   user: WsUserPayload;
   workspaceIds: string[];
   channelIds: string[];
+  // S70 (FR-W12): 이 소켓이 연결한 워크스페이스 중 본인이 임시 멤버(isTemporary)인 것들.
+  // disconnect 시 이 집합만 SREM + 강퇴 arm 대상이다(전 워크스페이스 SREM 금지 — 결정 1).
+  temporaryWorkspaceIds: string[];
 };
 
 /**
@@ -122,6 +129,8 @@ export class RealtimeGateway
     // S69 fix-forward (reviewer MAJOR-1): connection:ready 가 싣는 전-워크스페이스 멘션
     // 카운트의 뮤트-적용 진실값 출처(isMuted 채널/서버 제외 — MeNotificationBadgesModule).
     private readonly badges: MeNotificationBadgesService,
+    // S70 (FR-W12): 임시 멤버 강퇴 큐 + 활성 소켓 Redis Set 관리. @Global QueueModule 제공.
+    private readonly tempEvict: TempEvictQueueService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -222,9 +231,29 @@ export class RealtimeGateway
       rooms: joinable,
       workspaceIds,
       channelIds,
+      // S70 fix-forward (perf MODERATE): roomsForUser 가 멤버십 단일 쿼리에서 임시 멤버
+      // 워크스페이스를 함께 도출하므로 connect 마다 별도 DB 쿼리(loadTemporaryWorkspaceIds)
+      // 를 더 돌리지 않는다. 임시 멤버가 없으면 빈 배열 → Redis/BullMQ 왕복 없음.
+      temporaryWorkspaceIds,
     } = await this.roomMgr.roomsForUser(user.userId);
     await client.join(joinable);
-    client.data.state = { user, workspaceIds, channelIds } satisfies SocketState;
+
+    // S70 (FR-W12): 이 사용자가 임시 멤버(isTemporary)인 워크스페이스만 강퇴 추적 대상으로
+    // 둔다(전 소켓 SADD 금지 — 결정 1). connect 시 해당 ws Redis Set 에 socketId SADD + 기존
+    // 강퇴 잡 취소(2초 내 재연결이면 disconnect 가 arm 한 잡을 여기서 취소).
+    client.data.state = {
+      user,
+      workspaceIds,
+      channelIds,
+      temporaryWorkspaceIds,
+    } satisfies SocketState;
+    for (const wsId of temporaryWorkspaceIds) {
+      await this.tempEvict.onSocketConnect({
+        userId: user.userId,
+        workspaceId: wsId,
+        socketId: client.id,
+      });
+    }
 
     // S32 (FR-RT-08): dot-form typing alias for the rollout window. The colon
     // events (typing:start / typing:stop) are the canonical @SubscribeMessage
@@ -436,6 +465,17 @@ export class RealtimeGateway
     for (const chId of clearedTypingChannels) {
       const typingUserIds = await this.typing.currentlyTyping(chId);
       this.typingFanout?.onTypersChanged(chId, typingUserIds);
+    }
+    // S70 (FR-W12): 임시 멤버 disconnect debounce. 이 소켓이 임시 멤버였던 워크스페이스마다
+    // Redis Set 에서 socketId SREM 후 SCARD 0(이 워크스페이스의 마지막 소켓)이면 2초 debounce
+    // 강퇴 잡을 arm 한다. SCARD>0(다른 기기/노드 소켓 잔존)이면 미실행(다중기기 안전). presence
+    // grace 타이머와 별개 경로다(presence 는 전 워크스페이스, 강퇴는 임시 멤버 워크스페이스만).
+    for (const wsId of state.temporaryWorkspaceIds) {
+      await this.tempEvict.onSocketDisconnect({
+        userId: state.user.userId,
+        workspaceId: wsId,
+        socketId: client.id,
+      });
     }
     // S26 (FR-P16): don't DELETE this socket's subscription index on
     // disconnect — set a 5m TTL so a reconnect inside the window can resume
