@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import { ProfileService } from './profile.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
-import { HANDLE_COOLDOWN_DAYS, AVATAR_MAX_BYTES } from '@qufox/shared-types';
+import { HANDLE_COOLDOWN_DAYS, AVATAR_MAX_BYTES, BANNER_MAX_BYTES } from '@qufox/shared-types';
 import type { PrismaService } from '../prisma/prisma.module';
 import type { S3Service } from '../storage/s3.service';
 
@@ -54,6 +54,9 @@ function makeDeps(opts: {
     bio: null,
     handleChangedAt: null,
     avatarKey: null,
+    // S74 (FR-PS-04/05): 배너/DND 옵션 기본값.
+    bannerKey: null,
+    dndDuringStatus: false,
     customStatus: null,
     links: null,
   };
@@ -504,5 +507,114 @@ describe('ProfileService.deleteAvatar', () => {
     const updateArg = user.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
     expect(updateArg.data.avatarKey).toBeNull();
     expect(s3Calls.deleteObject).toHaveBeenCalledWith('avatars/u1/x.png');
+  });
+});
+
+// ── S74 (FR-PS-04): 배너 presign/finalize/delete ─────────────────────────────
+describe('ProfileService.presignBanner', () => {
+  it('rejects a disallowed mime with INVALID_MIME', async () => {
+    const { service } = makeDeps({});
+    await expect(service.presignBanner('u1', 'image/gif', 1024)).rejects.toMatchObject({
+      code: ErrorCode.INVALID_MIME,
+    });
+  });
+
+  it('rejects oversize with FILE_TOO_LARGE', async () => {
+    const { service } = makeDeps({});
+    await expect(
+      service.presignBanner('u1', 'image/png', BANNER_MAX_BYTES + 1),
+    ).rejects.toMatchObject({ code: ErrorCode.FILE_TOO_LARGE });
+  });
+
+  it('returns a key under banners/<userId>/ + presigned POST url+fields', async () => {
+    const { service, s3 } = makeDeps({});
+    const r = await service.presignBanner('u1', 'image/webp', 1024);
+    expect(r.key.startsWith('banners/u1/')).toBe(true);
+    expect(r.key.endsWith('.webp')).toBe(true);
+    expect(r.url).toBe('http://post.stub');
+    const presignPost = s3.presignPost as unknown as ReturnType<typeof vi.fn>;
+    expect(presignPost).toHaveBeenCalledWith(
+      r.key,
+      'image/webp',
+      BANNER_MAX_BYTES,
+      expect.any(Number),
+    );
+  });
+});
+
+describe('ProfileService.finalizeBanner', () => {
+  it('rejects a key not under the caller prefix with FORBIDDEN', async () => {
+    const { service } = makeDeps({});
+    await expect(service.finalizeBanner('u1', 'banners/u2/evil.png')).rejects.toMatchObject({
+      code: ErrorCode.FORBIDDEN,
+    });
+  });
+
+  it('rejects a path-traversal key (..) before touching storage', async () => {
+    const { service, s3 } = makeDeps({});
+    await expect(service.finalizeBanner('u1', 'banners/u1/../u2/x.png')).rejects.toMatchObject({
+      code: ErrorCode.FORBIDDEN,
+    });
+    const headObject = s3.headObject as unknown as ReturnType<typeof vi.fn>;
+    expect(headObject).not.toHaveBeenCalled();
+  });
+
+  it('rejects when the object never landed (HEAD null)', async () => {
+    const { service } = makeDeps({ headObject: null });
+    await expect(service.finalizeBanner('u1', 'banners/u1/x.png')).rejects.toMatchObject({
+      code: ErrorCode.INVALID_FILE,
+    });
+  });
+
+  it('rejects + deletes when HEAD size exceeds the cap', async () => {
+    const { service, s3Calls } = makeDeps({
+      headObject: { contentLength: BANNER_MAX_BYTES + 1, contentType: 'image/png' },
+    });
+    await expect(service.finalizeBanner('u1', 'banners/u1/x.png')).rejects.toMatchObject({
+      code: ErrorCode.FILE_TOO_LARGE,
+    });
+    expect(s3Calls.deleteObject).toHaveBeenCalledWith('banners/u1/x.png');
+  });
+
+  it('rejects + deletes on magic-byte mismatch', async () => {
+    const { service, s3Calls } = makeDeps({
+      headObject: { contentLength: 1024, contentType: 'image/png' },
+      headBytes: new Uint8Array([0x00, 0x01, 0x02, 0x03]),
+    });
+    await expect(service.finalizeBanner('u1', 'banners/u1/x.png')).rejects.toMatchObject({
+      code: ErrorCode.INVALID_MAGIC_BYTES,
+    });
+    expect(s3Calls.deleteObject).toHaveBeenCalledWith('banners/u1/x.png');
+  });
+
+  it('confirms a valid banner + returns bannerUrl + deletes the previous key', async () => {
+    const { service, user, s3Calls } = makeDeps({
+      current: { bannerKey: 'banners/u1/old.png' },
+      headObject: { contentLength: 1024, contentType: 'image/png' },
+    });
+    const r = await service.finalizeBanner('u1', 'banners/u1/new.png');
+    expect(r.bannerUrl).toBe('http://get.stub/avatar');
+    const updateArg = user.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(updateArg.data.bannerKey).toBe('banners/u1/new.png');
+    expect(s3Calls.deleteObject).toHaveBeenCalledWith('banners/u1/old.png');
+  });
+});
+
+describe('ProfileService.deleteBanner', () => {
+  it('is a no-op when no banner is set', async () => {
+    const { service, user, s3Calls } = makeDeps({});
+    await service.deleteBanner('u1');
+    expect(user.update).not.toHaveBeenCalled();
+    expect(s3Calls.deleteObject).not.toHaveBeenCalled();
+  });
+
+  it('resets bannerKey to null + deletes the object', async () => {
+    const { service, user, s3Calls } = makeDeps({
+      current: { bannerKey: 'banners/u1/x.png' },
+    });
+    await service.deleteBanner('u1');
+    const updateArg = user.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(updateArg.data.bannerKey).toBeNull();
+    expect(s3Calls.deleteObject).toHaveBeenCalledWith('banners/u1/x.png');
   });
 });

@@ -112,10 +112,12 @@ describe('S28 (FR-P04/P17) — 커스텀 상태 set/update/delete + expiresAt �
       .set(bearer(member.accessToken))
       .send({ text: '점심중', emoji: '🍜', expiresAt: '2025-01-01T02:00:00Z' });
     expect(set.status).toBe(200);
+    // S74 (FR-PS-05 · reviewer MEDIUM-1): set 응답은 항상 현재 dndDuringStatus(DB 값)를 싣는다.
     expect(set.body).toEqual({
       text: '점심중',
       emoji: '🍜',
       expiresAt: '2025-01-01T02:00:00.000Z',
+      dndDuringStatus: false,
     });
 
     // get
@@ -134,7 +136,12 @@ describe('S28 (FR-P04/P17) — 커스텀 상태 set/update/delete + expiresAt �
       .set(bearer(member.accessToken))
       .send({ text: '회의중', emoji: null });
     expect(upd.status).toBe(200);
-    expect(upd.body).toEqual({ text: '회의중', emoji: null, expiresAt: null });
+    expect(upd.body).toEqual({
+      text: '회의중',
+      emoji: null,
+      expiresAt: null,
+      dndDuringStatus: false,
+    });
 
     // delete
     const del = await request(env.baseUrl)
@@ -148,7 +155,13 @@ describe('S28 (FR-P04/P17) — 커스텀 상태 set/update/delete + expiresAt �
       .get('/users/me/status')
       .set('origin', ORIGIN)
       .set(bearer(member.accessToken));
-    expect(after.body).toEqual({ text: null, emoji: null, expiresAt: null });
+    // S74 (FR-PS-05): GET(getEffective)은 본인 read 라 dndDuringStatus 옵션값을 함께 싣는다.
+    expect(after.body).toEqual({
+      text: null,
+      emoji: null,
+      expiresAt: null,
+      dndDuringStatus: false,
+    });
   });
 
   it('preset(one_hour) 은 timezone(Asia/Seoul) 기준으로 UTC expiresAt 계산', async () => {
@@ -197,7 +210,13 @@ describe('S28 (FR-P04/P17) — 커스텀 상태 set/update/delete + expiresAt �
       .get('/users/me/status')
       .set('origin', ORIGIN)
       .set(bearer(member.accessToken));
-    expect(after.body).toEqual({ text: null, emoji: null, expiresAt: null });
+    // S74 (FR-PS-05): GET(getEffective)은 본인 read 라 dndDuringStatus 옵션값을 함께 싣는다.
+    expect(after.body).toEqual({
+      text: null,
+      emoji: null,
+      expiresAt: null,
+      dndDuringStatus: false,
+    });
   });
 
   it('과거 expiresAt 은 400 VALIDATION_FAILED', async () => {

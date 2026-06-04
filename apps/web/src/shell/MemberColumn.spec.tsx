@@ -1,0 +1,97 @@
+// @vitest-environment jsdom
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { render, screen, cleanup } from '@testing-library/react';
+import type { ListMembersResponse, MemberWithPresence } from '@qufox/shared-types';
+
+/**
+ * S74 (D14 / FR-PS-06 + S73 carryover): 멤버 컬럼 표시 우선순위 테스트.
+ *   - 표시명: ws nickname > 전역 displayName > username.
+ *   - 아바타: ws avatarUrl > 전역 avatarUrl > 이니셜(Avatar 프리미티브).
+ */
+vi.mock('../design-system/primitives', () => ({
+  Avatar: ({ name }: { name: string }) => <span data-testid="initials-avatar">{name}</span>,
+  Icon: () => <svg aria-hidden="true" />,
+}));
+
+let groupsData: ListMembersResponse | undefined;
+vi.mock('../features/workspaces/useWorkspaces', () => ({
+  useMemberGroups: () => ({ data: groupsData }),
+}));
+vi.mock('../features/realtime/useViewportPresence', () => ({
+  useViewportPresence: () => ({ register: () => () => undefined }),
+}));
+vi.mock('../features/realtime/useUserPresence', () => ({
+  useUserPresence: () => undefined,
+}));
+let memberListOpen = true;
+vi.mock('../stores/ui-store', () => ({
+  useUI: (sel: (s: { memberListOpen: boolean; activeChannelId: string | null }) => unknown) =>
+    sel({ memberListOpen, activeChannelId: null }),
+}));
+
+import { MemberColumn } from './MemberColumn';
+
+function member(over: Partial<MemberWithPresence['user']>): MemberWithPresence {
+  return {
+    userId: '00000000-0000-0000-0000-000000000001',
+    workspaceId: '00000000-0000-0000-0000-000000000010',
+    role: 'MEMBER',
+    joinedAt: '2025-01-01T00:00:00.000Z',
+    user: {
+      id: '00000000-0000-0000-0000-000000000001',
+      username: 'alice',
+      email: 'a@b.com',
+      ...over,
+    },
+    status: 'online',
+    lastSeenAt: null,
+  };
+}
+
+function setMembers(m: MemberWithPresence): void {
+  groupsData = {
+    hoist: [],
+    groups: [{ key: 'online', label: '온라인', members: [m] }],
+    nextCursor: null,
+    includeOffline: true,
+  };
+}
+
+beforeEach(() => {
+  memberListOpen = true;
+});
+afterEach(() => cleanup());
+
+describe('MemberColumn display priority (FR-PS-06)', () => {
+  it('shows ws nickname over displayName over username', () => {
+    setMembers(member({ displayName: 'Alice Disp', wsNickname: 'Ace' }));
+    render(<MemberColumn workspaceId="w1" />);
+    expect(screen.getByTestId('member-name-alice').textContent).toBe('Ace');
+  });
+
+  it('falls back to global displayName when no ws nickname', () => {
+    setMembers(member({ displayName: 'Alice Disp', wsNickname: null }));
+    render(<MemberColumn workspaceId="w1" />);
+    expect(screen.getByTestId('member-name-alice').textContent).toBe('Alice Disp');
+  });
+
+  it('falls back to username when nothing else set', () => {
+    setMembers(member({}));
+    render(<MemberColumn workspaceId="w1" />);
+    expect(screen.getByTestId('member-name-alice').textContent).toBe('alice');
+  });
+
+  it('renders the ws avatar image over the global avatar', () => {
+    setMembers(member({ avatarUrl: 'http://g.png', wsAvatarUrl: 'http://ws.png' }));
+    render(<MemberColumn workspaceId="w1" />);
+    const img = screen.getByTestId('member-avatar-alice') as HTMLImageElement;
+    expect(img.getAttribute('src')).toBe('http://ws.png');
+  });
+
+  it('falls back to initials Avatar when no avatar url', () => {
+    setMembers(member({ displayName: 'Alice Disp' }));
+    render(<MemberColumn workspaceId="w1" />);
+    expect(screen.queryByTestId('member-avatar-alice')).toBeNull();
+    expect(screen.getByTestId('initials-avatar').textContent).toBe('Alice Disp');
+  });
+});

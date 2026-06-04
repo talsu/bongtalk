@@ -143,10 +143,32 @@ describe('S73 profile contract', () => {
         bio: null,
         handleChangedAt: null,
         avatarUrl: null,
+        // S74 (FR-PS-04/05): 배너 URL + DND 옵션 필드 추가.
+        bannerUrl: null,
+        dndDuringStatus: false,
         customStatus: null,
         links: null,
       });
       expect(r.success).toBe(true);
+    });
+    it('rejects a view missing the S74 bannerUrl/dndDuringStatus fields', () => {
+      const r = ProfileViewSchema.safeParse({
+        id: '00000000-0000-0000-0000-000000000001',
+        email: 'a@b.com',
+        username: 'alice',
+        handle: 'alice',
+        displayName: null,
+        fullName: null,
+        pronouns: null,
+        title: null,
+        timezone: null,
+        bio: null,
+        handleChangedAt: null,
+        avatarUrl: null,
+        customStatus: null,
+        links: null,
+      });
+      expect(r.success).toBe(false);
     });
   });
 });

@@ -14,7 +14,8 @@ import { z } from 'zod';
  *   - bio:         ≤190자(About Me · PRD). DB 컬럼은 TEXT(무제한) 이므로 길이 제약은
  *                  앱 레이어에서만 190 으로 강제한다(기존 ≥191자 데이터 truncate 회피).
  *
- * 워크스페이스별 프로필(FR-PS-06)·배너(FR-PS-04)는 S74+ 범위(OUT).
+ * S74 (D14 / FR-PS-04·06): 프로필 배너(FR-PS-04) + 워크스페이스별 프로필(FR-PS-06)
+ * 컨트랙트를 같은 파일에 더한다(전역 프로필과 한 도메인 — Zod 단일 출처).
  */
 
 // FR-PS-02: 핸들 형식 — 소문자/숫자/언더스코어/점, 3–32자.
@@ -67,6 +68,10 @@ export const ProfileViewSchema = z.object({
   handleChangedAt: z.string().datetime().nullable(),
   // FR-PS-01: presigned GET URL(null = 미설정).
   avatarUrl: z.string().nullable(),
+  // FR-PS-04 (S74): 배너 presigned GET URL(null = 미설정).
+  bannerUrl: z.string().nullable(),
+  // FR-PS-05 (S74 · Fork1 Option C): 커스텀상태 만료 시 DND 동시 활성화 옵션.
+  dndDuringStatus: z.boolean(),
   customStatus: z.string().nullable(),
   // task-047 M2 carryover(무회귀): 기존 프로필 링크. S73 은 신규 편집 UI 미포함.
   links: z.array(ProfileLinkSchema).nullable(),
@@ -154,3 +159,129 @@ export const AvatarFinalizeResultSchema = z.object({
   avatarUrl: z.string(),
 });
 export type AvatarFinalizeResult = z.infer<typeof AvatarFinalizeResultSchema>;
+
+// ─────────────────────── S74 (D14 / FR-PS-04) 프로필 배너 ───────────────────
+
+/**
+ * FR-PS-04: 배너 업로드 제약. 680×240px 이상·≤8MB. 픽셀 치수 검증은 클라(렌더 미리보기)
+ * 책임이고 서버는 MIME/크기/magic-byte 만 강제한다(서버 이미지 디코드 없음 —
+ * [[feedback_no_server_media_resize]]). MIME 은 아바타와 동일(png/jpeg/webp).
+ */
+export const BANNER_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+export const BANNER_ALLOWED_MIME = AVATAR_ALLOWED_MIME;
+export type BannerMime = (typeof BANNER_ALLOWED_MIME)[number];
+// FR-PS-04 (security): 클라 미리보기 권장 최소 치수(서버 미검증·UI 안내용).
+export const BANNER_MIN_WIDTH = 680;
+export const BANNER_MIN_HEIGHT = 240;
+
+// FR-PS-04 (security HIGH#1): 배너 키는 `banners/<userId>/<file>` 3-세그먼트 형태만
+// 허용한다(아바타 AVATAR_KEY_RE 와 동일 traversal 차단 — `..`·`/` 불허).
+export const BANNER_KEY_RE = /^banners\/[^/]+\/[A-Za-z0-9_.-]+$/;
+
+/** POST /me/banner/presign 요청. */
+export const BannerPresignInputSchema = z
+  .object({
+    contentType: z.enum(BANNER_ALLOWED_MIME),
+    sizeBytes: z.number().int().positive().max(BANNER_MAX_BYTES),
+  })
+  .strict();
+export type BannerPresignInput = z.infer<typeof BannerPresignInputSchema>;
+
+/** POST /me/banner/presign 응답(presigned POST — 아바타와 동일 패턴). */
+export const BannerPresignResultSchema = z.object({
+  key: z.string(),
+  url: z.string(),
+  fields: z.record(z.string()).default({}),
+  expiresAt: z.string().datetime(),
+});
+export type BannerPresignResult = z.infer<typeof BannerPresignResultSchema>;
+
+/** PUT /me/banner 요청(presign 으로 받은 key 확정). */
+export const BannerFinalizeInputSchema = z
+  .object({
+    key: z.string().min(1).max(512).regex(BANNER_KEY_RE),
+  })
+  .strict();
+export type BannerFinalizeInput = z.infer<typeof BannerFinalizeInputSchema>;
+
+/** PUT /me/banner 응답. */
+export const BannerFinalizeResultSchema = z.object({
+  bannerUrl: z.string(),
+});
+export type BannerFinalizeResult = z.infer<typeof BannerFinalizeResultSchema>;
+
+// ──────────────── S74 (D14 / FR-PS-06) 워크스페이스별 프로필 ─────────────────
+
+/** FR-PS-06: 워크스페이스 닉네임/About Me 길이 한도. */
+export const WS_NICKNAME_MAX = 32;
+export const WS_BIO_MAX = 190;
+
+export const WS_AVATAR_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+export const WS_AVATAR_ALLOWED_MIME = AVATAR_ALLOWED_MIME;
+export type WsAvatarMime = (typeof WS_AVATAR_ALLOWED_MIME)[number];
+
+// FR-PS-06 (security HIGH#1): ws아바타 키는 `ws-avatars/<wsId>/<userId>/<file>`
+// 4-세그먼트 형태만 허용한다(traversal 차단 — `..`·`/` 불허).
+export const WS_AVATAR_KEY_RE = /^ws-avatars\/[^/]+\/[^/]+\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * GET /workspaces/:wsId/me/profile 및 /workspaces/:wsId/members/:userId/profile 응답.
+ * 행 부재(오버라이드 없음) 시에도 nickname/avatarUrl/workspaceBio 가 모두 null 인 shape 로
+ * 응답한다(클라가 폼을 빈 값으로 안전 초기화).
+ */
+export const WorkspaceMemberProfileViewSchema = z.object({
+  workspaceId: z.string().uuid(),
+  userId: z.string().uuid(),
+  nickname: z.string().nullable(),
+  // presigned GET URL(null = ws아바타 미설정 → 전역/기본 폴백).
+  avatarUrl: z.string().nullable(),
+  workspaceBio: z.string().nullable(),
+});
+export type WorkspaceMemberProfileView = z.infer<typeof WorkspaceMemberProfileViewSchema>;
+
+/**
+ * PATCH /workspaces/:wsId/me/profile 요청. 부분 갱신(명시 필드만). null = 명시적 비우기
+ * (해당 필드를 전역값 폴백으로 되돌림). avatarKey 는 별도 presign/finalize 경로라 여기엔 없다.
+ */
+export const UpdateWorkspaceMemberProfileInputSchema = z
+  .object({
+    nickname: z.string().min(1).max(WS_NICKNAME_MAX).nullable(),
+    workspaceBio: z.string().max(WS_BIO_MAX).nullable(),
+  })
+  .partial()
+  .strict();
+export type UpdateWorkspaceMemberProfileInput = z.infer<
+  typeof UpdateWorkspaceMemberProfileInputSchema
+>;
+
+/** POST /workspaces/:wsId/me/profile/avatar/presign 요청. */
+export const WsAvatarPresignInputSchema = z
+  .object({
+    contentType: z.enum(WS_AVATAR_ALLOWED_MIME),
+    sizeBytes: z.number().int().positive().max(WS_AVATAR_MAX_BYTES),
+  })
+  .strict();
+export type WsAvatarPresignInput = z.infer<typeof WsAvatarPresignInputSchema>;
+
+/** POST /workspaces/:wsId/me/profile/avatar/presign 응답(presigned POST). */
+export const WsAvatarPresignResultSchema = z.object({
+  key: z.string(),
+  url: z.string(),
+  fields: z.record(z.string()).default({}),
+  expiresAt: z.string().datetime(),
+});
+export type WsAvatarPresignResult = z.infer<typeof WsAvatarPresignResultSchema>;
+
+/** PUT /workspaces/:wsId/me/profile/avatar 요청. */
+export const WsAvatarFinalizeInputSchema = z
+  .object({
+    key: z.string().min(1).max(512).regex(WS_AVATAR_KEY_RE),
+  })
+  .strict();
+export type WsAvatarFinalizeInput = z.infer<typeof WsAvatarFinalizeInputSchema>;
+
+/** PUT /workspaces/:wsId/me/profile/avatar 응답. */
+export const WsAvatarFinalizeResultSchema = z.object({
+  avatarUrl: z.string(),
+});
+export type WsAvatarFinalizeResult = z.infer<typeof WsAvatarFinalizeResultSchema>;

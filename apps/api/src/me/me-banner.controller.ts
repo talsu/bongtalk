@@ -1,9 +1,9 @@
 import { Body, Controller, Delete, HttpCode, Post, Put } from '@nestjs/common';
 import {
-  AvatarPresignInputSchema,
-  AvatarFinalizeInputSchema,
-  type AvatarPresignResult,
-  type AvatarFinalizeResult,
+  BannerPresignInputSchema,
+  BannerFinalizeInputSchema,
+  type BannerPresignResult,
+  type BannerFinalizeResult,
 } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { DomainError } from '../common/errors/domain-error';
@@ -15,19 +15,18 @@ import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { ProfileService, PROFILE_IMAGE_GET_TTL_SEC } from './profile.service';
 
 /**
- * S73 (D14 / FR-PS-01): 전역 아바타 업로드/리셋.
+ * S74 (D14 / FR-PS-04): 전역 프로필 배너 업로드/제거.
  *
- *   POST   /me/avatar/presign  body: { contentType, sizeBytes } → { key, putUrl, expiresAt }
- *   PUT    /me/avatar          body: { key }                    → { avatarUrl }
- *   DELETE /me/avatar          → 204
+ *   POST   /me/banner/presign  body: { contentType, sizeBytes } → { key, url, fields, expiresAt }
+ *   PUT    /me/banner          body: { key }                    → { bannerUrl }
+ *   DELETE /me/banner          → 204
  *
- * Fork1(Option C): 서버 리사이즈 없음([[feedback_no_server_media_resize]]). 단일 키
- * 1개를 확정하고 렌더 크기는 CSS object-fit 다운스케일로 처리한다. presign 은 별도
- * rate-limit(5/min)을 둔다(파일 업로드 토큰 남용 방지). finalize/delete 는 프로필
- * 갱신과 동일하게 me-profile rate-limit(10/min)을 공유한다.
+ * 아바타(MeAvatarController)와 동일 패턴: presigned POST(MinIO 가 크기/MIME 강제) +
+ * finalize 의 magic-byte 사후검증 + key traversal 거부 + best-effort orphan 정리.
+ * presign 은 별도 rate-limit(5/min), finalize/delete 는 me-profile rate-limit(10/min) 공유.
  */
-@Controller('me/avatar')
-export class MeAvatarController {
+@Controller('me/banner')
+export class MeBannerController {
   constructor(
     private readonly prisma: PrismaService,
     private readonly rate: RateLimitService,
@@ -40,29 +39,29 @@ export class MeAvatarController {
   async presign(
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
-  ): Promise<AvatarPresignResult> {
-    await this.rate.enforce([{ key: `me-avatar-presign:u:${user.id}`, windowSec: 60, max: 5 }]);
-    const parsed = AvatarPresignInputSchema.safeParse(body ?? {});
+  ): Promise<BannerPresignResult> {
+    await this.rate.enforce([{ key: `me-banner-presign:u:${user.id}`, windowSec: 60, max: 5 }]);
+    const parsed = BannerPresignInputSchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new DomainError(
         ErrorCode.VALIDATION_FAILED,
-        'invalid avatar presign body (contentType/sizeBytes)',
+        'invalid banner presign body (contentType/sizeBytes)',
       );
     }
-    return this.profile.presignAvatar(user.id, parsed.data.contentType, parsed.data.sizeBytes);
+    return this.profile.presignBanner(user.id, parsed.data.contentType, parsed.data.sizeBytes);
   }
 
   @Put()
   async finalize(
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
-  ): Promise<AvatarFinalizeResult> {
+  ): Promise<BannerFinalizeResult> {
     await this.rate.enforce([{ key: `me-profile:u:${user.id}`, windowSec: 60, max: 10 }]);
-    const parsed = AvatarFinalizeInputSchema.safeParse(body ?? {});
+    const parsed = BannerFinalizeInputSchema.safeParse(body ?? {});
     if (!parsed.success) {
-      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid avatar finalize body (key)');
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid banner finalize body (key)');
     }
-    const result = await this.profile.finalizeAvatar(user.id, parsed.data.key);
+    const result = await this.profile.finalizeBanner(user.id, parsed.data.key);
     await this.broadcast(user.id);
     return result;
   }
@@ -71,10 +70,15 @@ export class MeAvatarController {
   @HttpCode(204)
   async remove(@CurrentUser() user: CurrentUserPayload): Promise<void> {
     await this.rate.enforce([{ key: `me-profile:u:${user.id}`, windowSec: 60, max: 10 }]);
-    await this.profile.deleteAvatar(user.id);
+    await this.profile.deleteBanner(user.id);
     await this.broadcast(user.id);
   }
 
+  /**
+   * 배너 변경은 멤버목록 표시(아바타/이름)와 무관하지만, 전역 프로필 변경 fanout 의
+   * 일관성을 위해 customStatus + displayName + avatarUrl 을 함께 방송한다(profile.updated).
+   * 배너 자체는 프로필 패널(S75)에서 다시 fetch 하므로 별도 payload 불요.
+   */
   private async broadcast(userId: string): Promise<void> {
     const [memberships, row] = await Promise.all([
       this.prisma.workspaceMember.findMany({
@@ -83,8 +87,6 @@ export class MeAvatarController {
       }),
       this.prisma.user.findUnique({
         where: { id: userId },
-        // S74 (S73 carryover): displayName/avatarKey 도 함께 읽어 멤버목록 표시(아바타/
-        // 이름)를 즉시 전파한다(아바타 변경 → 멤버목록 아바타 갱신).
         select: { customStatus: true, displayName: true, avatarKey: true },
       }),
     ]);

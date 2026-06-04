@@ -22,6 +22,7 @@ import {
   ApplicationReviewedPayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
+  WorkspaceProfileUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
   type ListMessagesResponse,
   type ListThreadRepliesResponse,
@@ -1394,21 +1395,51 @@ export function installRealtimeDispatcher(
     });
   });
 
-  // ---------- task-045 iter7: user profile (custom status) ----------
-  // 본인 또는 다른 사용자의 customStatus 변경 broadcast. dispatcher 는
-  // workspace 멤버 list react-query cache 의 user 객체에 customStatus 만
-  // 패치 — 큰 invalidate 보다 효율적. 멤버 list 가 없으면 무영향.
-  on<{ userId: string; customStatus: string | null }>('user.profile.updated', (env) => {
+  // ---------- task-045 iter7 → S74: user profile (custom status + 표시명/아바타) ----------
+  // 본인 또는 다른 사용자의 전역 프로필 변경 broadcast. dispatcher 는 멤버 list
+  // react-query cache 를 무효화해 customStatus/displayName/avatar 변경을 반영한다.
+  // S74 (S73 carryover): payload 에 displayName/avatarUrl 이 오면(전역 표시명/아바타 변경)
+  // 마찬가지로 멤버목록을 무효화해 표시 우선순위(전역 displayName/avatarUrl 폴백)를 갱신한다.
+  on<{
+    userId: string;
+    customStatus: string | null;
+    displayName?: string | null;
+    avatarUrl?: string | null;
+  }>('user.profile.updated', (env) => {
     if (!env.userId) return;
     // perf serious(S73 리뷰): 멤버 목록 캐시 키는 `['workspaces', wsId, 'members']` 라
     // queryKey prefix `['workspaces','members']` 와 불일치해 종전 invalidate 가 무효였다.
-    // predicate 로 세 번째 세그먼트가 'members' 인 키(워크스페이스 무관)를 골라 무효화한다.
-    // env 에 workspaceId 가 없어 사용자가 속한 모든 워크스페이스 멤버 목록을 대상으로 한다
-    // (members 목록은 낮은 빈도 fetch — 비용 작음).
+    // predicate 로 세 번째 세그먼트가 'members'/'directory' 인 키(워크스페이스 무관)를 골라
+    // 무효화한다. env 에 workspaceId 가 없어 사용자가 속한 모든 워크스페이스 멤버 목록을
+    // 대상으로 한다(members 목록은 낮은 빈도 fetch — 비용 작음).
     qc.invalidateQueries({
       predicate: (q) => {
         const k = q.queryKey;
-        return Array.isArray(k) && k[0] === 'workspaces' && k[2] === 'members';
+        return (
+          Array.isArray(k) && k[0] === 'workspaces' && (k[2] === 'members' || k[2] === 'directory')
+        );
+      },
+    });
+  });
+
+  // ---------- S74 (FR-PS-06): workspace profile (ws 닉네임/아바타) ----------
+  // 한 워크스페이스 스코프의 ws프로필 변경. 멤버목록의 ws nickname/avatar 오버라이드를
+  // 반영하기 위해 해당 워크스페이스(또는 전체)의 members/directory 캐시를 무효화한다.
+  // contract MEDIUM fix-forward: 인라인 타입 대신 공유 스키마로 safeParse 한다(신뢰경계 가드 ·
+  // api/web 단일 출처). 형태가 어긋난 페이로드는 캐시를 건드리지 않고 버린다.
+  on<unknown>(WS_EVENTS.WORKSPACE_PROFILE_UPDATED, (raw) => {
+    const parsed = WorkspaceProfileUpdatedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const env = parsed.data;
+    qc.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey;
+        return (
+          Array.isArray(k) &&
+          k[0] === 'workspaces' &&
+          k[1] === env.workspaceId &&
+          (k[2] === 'members' || k[2] === 'directory' || k[2] === 'my-profile')
+        );
       },
     });
   });
@@ -1595,6 +1626,8 @@ export const DISPATCHED_EVENTS = [
   // S64 (D12 · FR-RM09): bulk purge — 일괄 soft-delete된 messageIds[] 제거(채널 룸 fanout).
   WS_EVENTS.MESSAGE_BULK_DELETED,
   'user.profile.updated',
+  // S74 (FR-PS-06): 워크스페이스별 프로필(ws 닉네임/아바타) 변경 — 워크스페이스 룸 fanout.
+  WS_EVENTS.WORKSPACE_PROFILE_UPDATED,
   'channel.created',
   'channel.updated',
   'channel.deleted',

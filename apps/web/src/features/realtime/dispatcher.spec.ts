@@ -59,6 +59,39 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('workspace_profile.updated (S74 FR-PS-06) invalidates the scoped members cache', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.workspaces.members('ws-1'), [{ userId: 'u-1' }]);
+    // 다른 워크스페이스는 영향받지 않아야 한다(스코프 무효화).
+    qc.setQueryData(qk.workspaces.members('ws-2'), [{ userId: 'u-1' }]);
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('workspace_profile.updated', {
+      workspaceId: 'ws-1',
+      userId: 'u-1',
+      wsNickname: 'Ace',
+      wsAvatarUrl: null,
+    });
+    expect(qc.getQueryState(qk.workspaces.members('ws-1'))?.isInvalidated).toBe(true);
+    expect(qc.getQueryState(qk.workspaces.members('ws-2'))?.isInvalidated).toBe(false);
+    detach();
+  });
+
+  it('user.profile.updated (S74) also invalidates when displayName/avatar present', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.workspaces.members('ws-1'), [{ userId: 'u-1' }]);
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('user.profile.updated', {
+      userId: 'u-1',
+      customStatus: null,
+      displayName: 'New Name',
+      avatarUrl: 'http://a.png',
+    });
+    expect(qc.getQueryState(qk.workspaces.members('ws-1'))?.isInvalidated).toBe(true);
+    detach();
+  });
+
   it('ws:application_reviewed (S70 FR-W06a) emits a window event for the pending screen', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

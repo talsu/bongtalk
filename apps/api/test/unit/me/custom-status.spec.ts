@@ -183,3 +183,189 @@ describe('CustomStatusService.normalizeInput (S28 FR-P04)', () => {
     );
   });
 });
+
+// ── S74 (FR-PS-05 · Fork1 Option C): dndDuringStatus 만료 시 DND ───────────────
+import type { PrismaService } from '../../../src/prisma/prisma.module';
+import type { PresenceService } from '../../../src/realtime/presence/presence.service';
+
+import type { RealtimeGateway } from '../../../src/realtime/realtime.gateway';
+
+function makeStatusDeps(opts: {
+  row: {
+    customStatus: string | null;
+    customStatusEmoji: string | null;
+    customStatusExpiresAt: Date | null;
+    dndDuringStatus: boolean;
+  } | null;
+  memberships?: { workspaceId: string }[];
+}): {
+  service: CustomStatusService;
+  userUpdate: ReturnType<typeof vi.fn>;
+  setDndForUser: ReturnType<typeof vi.fn>;
+  schedulePresenceBroadcastPublic: ReturnType<typeof vi.fn>;
+} {
+  // S74 fix-forward: update 가 select 한 row 를 반환(set 응답이 DB 값을 읽으므로).
+  const userUpdate = vi.fn(async () => opts.row);
+  const setDndForUser = vi.fn(async () => (opts.memberships ?? []).map((m) => m.workspaceId));
+  const schedulePresenceBroadcastPublic = vi.fn();
+  const prisma = {
+    user: {
+      findUnique: vi.fn(async () => opts.row),
+      update: userUpdate,
+    },
+    workspaceMember: {
+      findMany: vi.fn(async () => opts.memberships ?? []),
+    },
+  } as unknown as PrismaService;
+  const presence = { setDndForUser } as unknown as PresenceService;
+  const gateway = { schedulePresenceBroadcastPublic } as unknown as RealtimeGateway;
+  return {
+    service: new CustomStatusService(prisma, presence, gateway),
+    userUpdate,
+    setDndForUser,
+    schedulePresenceBroadcastPublic,
+  };
+}
+
+describe('CustomStatusService.getEffective — dndDuringStatus 만료 시 DND (FR-PS-05)', () => {
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  });
+
+  it('만료 + dndDuringStatus=true → clear + presencePreference=dnd 영속 + setDndForUser(true) + 워크스페이스별 broadcast', async () => {
+    const { service, setDndForUser, schedulePresenceBroadcastPublic, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: null,
+        customStatusExpiresAt: new Date('2024-12-31T23:59:00Z'), // 과거(만료)
+        dndDuringStatus: true,
+      },
+      memberships: [{ workspaceId: 'w1' }, { workspaceId: 'w2' }],
+    });
+    const view = await service.getEffective('u1');
+    // 만료분은 빈 상태로 보이고 옵션값은 노출한다.
+    expect(view.text).toBeNull();
+    expect(view.dndDuringStatus).toBe(true);
+    // 비동기 lazy clear+DND 가 마이크로태스크에서 실행되도록 한 틱 양보.
+    await Promise.resolve();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(setDndForUser).toHaveBeenCalledWith('u1', ['w1', 'w2'], true);
+    // HIGH-2 (a): DB presencePreference=dnd 영속 — 두 번째 user.update 가 dnd 로 전환.
+    const presencePrefUpdate = userUpdate.mock.calls
+      .map((c) => (c[0] as { data: Record<string, unknown> }).data)
+      .find((d) => d.presencePreference === 'dnd');
+    expect(presencePrefUpdate).toBeTruthy();
+    // HIGH-2 (b): 워크스페이스별 presence.updated broadcast 전파.
+    expect(schedulePresenceBroadcastPublic).toHaveBeenCalledWith('w1');
+    expect(schedulePresenceBroadcastPublic).toHaveBeenCalledWith('w2');
+  });
+
+  it('만료 + dndDuringStatus=false → clear 만, DND 미호출', async () => {
+    const { service, setDndForUser } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: null,
+        customStatusExpiresAt: new Date('2024-12-31T23:59:00Z'),
+        dndDuringStatus: false,
+      },
+      memberships: [{ workspaceId: 'w1' }],
+    });
+    const view = await service.getEffective('u1');
+    expect(view.text).toBeNull();
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(setDndForUser).not.toHaveBeenCalled();
+  });
+
+  it('미만료(미래 expiresAt) → DND 미호출, 상태 그대로', async () => {
+    const { service, setDndForUser } = makeStatusDeps({
+      row: {
+        customStatus: 'busy',
+        customStatusEmoji: '🔧',
+        customStatusExpiresAt: new Date('2025-01-02T00:00:00Z'), // 미래
+        dndDuringStatus: true,
+      },
+    });
+    const view = await service.getEffective('u1');
+    expect(view.text).toBe('busy');
+    expect(view.emoji).toBe('🔧');
+    expect(view.dndDuringStatus).toBe(true);
+    await Promise.resolve();
+    expect(setDndForUser).not.toHaveBeenCalled();
+  });
+});
+
+describe('CustomStatusService.set — dndDuringStatus 옵션 저장 (FR-PS-05)', () => {
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  });
+
+  it('dndDuringStatus 가 입력에 있으면 컬럼을 갱신', async () => {
+    const { service, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: null,
+        customStatusEmoji: null,
+        customStatusExpiresAt: null,
+        dndDuringStatus: false,
+      },
+    });
+    const view = await service.set('u1', { text: 'lunch', dndDuringStatus: true });
+    expect(view.dndDuringStatus).toBe(true);
+    const updateArg = userUpdate.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(updateArg.data.dndDuringStatus).toBe(true);
+  });
+
+  it('dndDuringStatus 미지정이면 컬럼을 건드리지 않음', async () => {
+    const { service, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: null,
+        customStatusEmoji: null,
+        customStatusExpiresAt: null,
+        dndDuringStatus: false,
+      },
+    });
+    await service.set('u1', { text: 'lunch' });
+    const updateArg = userUpdate.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect('dndDuringStatus' in updateArg.data).toBe(false);
+  });
+
+  // reviewer HIGH-1: dndDuringStatus 만 토글하면 활성 커스텀 상태(text/emoji/expiresAt)를 보존한다.
+  it('HIGH-1: text 류 입력 없이 dndDuringStatus 만 보내면 상태 컬럼을 갱신하지 않는다', async () => {
+    const { service, userUpdate } = makeStatusDeps({
+      row: {
+        customStatus: 'heads down',
+        customStatusEmoji: '🔧',
+        customStatusExpiresAt: new Date('2025-01-01T02:00:00Z'),
+        dndDuringStatus: true,
+      },
+    });
+    const view = await service.set('u1', { dndDuringStatus: true });
+    const updateArg = userUpdate.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    // 상태 컬럼은 update.data 에 포함되지 않는다(보존).
+    expect('customStatus' in updateArg.data).toBe(false);
+    expect('customStatusEmoji' in updateArg.data).toBe(false);
+    expect('customStatusExpiresAt' in updateArg.data).toBe(false);
+    // dndDuringStatus 옵션은 갱신된다.
+    expect(updateArg.data.dndDuringStatus).toBe(true);
+    // 응답은 (select 한) 기존 DB 상태를 그대로 반환한다.
+    expect(view.text).toBe('heads down');
+    expect(view.emoji).toBe('🔧');
+    expect(view.expiresAt).toBe('2025-01-01T02:00:00.000Z');
+    expect(view.dndDuringStatus).toBe(true);
+  });
+
+  // reviewer MEDIUM-1: 옵션 미동봉 시 응답 dndDuringStatus 는 DB 현재값을 반환한다(undefined 금지).
+  it('MEDIUM-1: dndDuringStatus 미동봉 set 응답은 DB 현재값을 반환', async () => {
+    const { service } = makeStatusDeps({
+      row: {
+        customStatus: 'lunch',
+        customStatusEmoji: null,
+        customStatusExpiresAt: null,
+        dndDuringStatus: true, // DB 현재값
+      },
+    });
+    const view = await service.set('u1', { text: 'lunch' });
+    expect(view.dndDuringStatus).toBe(true);
+  });
+});

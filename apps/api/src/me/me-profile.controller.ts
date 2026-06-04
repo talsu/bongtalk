@@ -53,16 +53,23 @@ export class MeProfileController {
       );
     }
     const { view } = await this.profile.updateProfile(user.id, parsed.data);
-    await this.broadcast(user.id, view.customStatus);
+    // S74 (S73 carryover): displayName/avatarUrl 도 함께 방송해 멤버목록·작성자 표시명이
+    // 새로고침 없이 갱신되게 한다(view 가 이미 두 값을 보유 — 재조회 불요).
+    await this.broadcast(user.id, view.customStatus, view.displayName, view.avatarUrl);
     return view;
   }
 
   /**
    * 프로필/아바타 변경 시 사용자의 모든 워크스페이스 룸으로 user.profile.updated 를
-   * 방송한다(기존 broadcastUserProfileUpdate 재사용 — FE dispatcher 가 멤버목록 캐시를
-   * 무효화해 displayName/avatar/상태 변경을 반영). 빈도가 낮아 throttle 없이 raw emit.
+   * 방송한다(기존 broadcastUserProfileUpdate 재사용 — FE dispatcher 가 멤버목록 캐시의
+   * displayName/avatar/상태를 패치). 빈도가 낮아 throttle 없이 raw emit.
    */
-  private async broadcast(userId: string, customStatus: string | null): Promise<void> {
+  private async broadcast(
+    userId: string,
+    customStatus: string | null,
+    displayName: string | null,
+    avatarUrl: string | null,
+  ): Promise<void> {
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId, workspace: { deletedAt: null } },
       select: { workspaceId: true },
@@ -71,6 +78,8 @@ export class MeProfileController {
       userId,
       workspaceIds: memberships.map((m) => m.workspaceId),
       customStatus,
+      displayName,
+      avatarUrl,
     });
   }
 }

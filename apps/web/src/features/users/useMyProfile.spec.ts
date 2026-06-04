@@ -21,6 +21,9 @@ const FULL: MyProfile = {
   bio: null,
   handleChangedAt: null,
   avatarUrl: null,
+  // S74 (FR-PS-04/05): 배너 URL + DND 옵션.
+  bannerUrl: null,
+  dndDuringStatus: false,
   customStatus: null,
   links: null,
 };

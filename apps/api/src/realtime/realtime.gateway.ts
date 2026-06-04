@@ -27,6 +27,7 @@ import {
   type PresenceUpdatePayload,
   type ReadStateUpdatedPayload,
   type WorkspacePresenceUpdatedPayload,
+  type WorkspaceProfileUpdatedPayload,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { UnreadService } from '../channels/unread.service';
@@ -1095,14 +1096,40 @@ export class RealtimeGateway
     userId: string;
     workspaceIds: string[];
     customStatus: string | null;
+    // S74 (FR-PS-06 + S73 carryover): 전역 표시명/아바타 변경도 멤버목록·작성자 표시에
+    // 전파한다. dispatcher 가 payload 의 displayName/avatarUrl 로 멤버목록 캐시를
+    // 즉시 패치(없으면 invalidate 폴백)해 displayName/avatar 변경이 새로고침 없이 반영된다.
+    // 미지정(undefined) 이면 종전 동작(customStatus 만) 유지 — 무회귀.
+    displayName?: string | null;
+    avatarUrl?: string | null;
   }): void {
     const payload = {
       userId: args.userId,
       customStatus: args.customStatus,
+      ...(args.displayName !== undefined ? { displayName: args.displayName } : {}),
+      ...(args.avatarUrl !== undefined ? { avatarUrl: args.avatarUrl } : {}),
     };
     for (const wsId of args.workspaceIds) {
       this.server.to(rooms.workspace(wsId)).emit('user.profile.updated', payload);
     }
+  }
+
+  /**
+   * S74 (FR-PS-06): 워크스페이스별 프로필(닉네임/아바타/About Me) 변경을 해당
+   * 워크스페이스 룸에만 fanout 한다. 전역 user.profile.updated 와 달리 한 워크스페이스
+   * 스코프이며, payload 로 변경된 ws 표시값(wsNickname/wsAvatarUrl)을 함께 싣는다.
+   */
+  broadcastWorkspaceProfileUpdate(args: WorkspaceProfileUpdatedPayload): void {
+    // contract MEDIUM fix-forward: 인라인 타입/문자열 대신 공유 스키마+상수를 쓴다(api/web 단일 출처).
+    const payload: WorkspaceProfileUpdatedPayload = {
+      workspaceId: args.workspaceId,
+      userId: args.userId,
+      wsNickname: args.wsNickname,
+      wsAvatarUrl: args.wsAvatarUrl,
+    };
+    this.server
+      .to(rooms.workspace(args.workspaceId))
+      .emit(WS_EVENTS.WORKSPACE_PROFILE_UPDATED, payload);
   }
 }
 
