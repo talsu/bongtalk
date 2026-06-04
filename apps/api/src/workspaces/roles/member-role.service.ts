@@ -35,7 +35,18 @@ export class MemberRoleService {
    * 채널별 DEL 경로로 즉시 무효화해 강등/승격 후 stale 권한 행사를 막는다.
    */
   async invalidateMemberPermsCache(workspaceId: string, userId: string): Promise<void> {
-    if (!this.redis) return;
+    await this.invalidateMembersPermsCache(workspaceId, [userId]);
+  }
+
+  /**
+   * S69 fix-forward (perf MODERATE-2): 여러 멤버의 채널 권한 캐시를 **단일 채널 조회 +
+   * 단일 pipeline** 으로 일괄 무효화한다(일괄 멤버 관리). 멤버별 invalidateMemberPermsCache
+   * 를 N 번 부르면 채널 목록을 N 번(100명 → 100× channel.findMany) 중복 조회한다. 이
+   * 헬퍼는 채널 목록을 1회만 읽고 (채널 × affected) 전부를 한 DEL pipeline 으로 묶는다.
+   * best-effort(Redis 부재/실패 시 TTL≤5초 자기치유).
+   */
+  async invalidateMembersPermsCache(workspaceId: string, userIds: string[]): Promise<void> {
+    if (!this.redis || userIds.length === 0) return;
     try {
       const channels = await this.prisma.channel.findMany({
         where: { workspaceId, deletedAt: null },
@@ -44,7 +55,9 @@ export class MemberRoleService {
       if (channels.length === 0) return;
       const pipeline = this.redis.pipeline();
       for (const c of channels) {
-        pipeline.del(roleCacheKey(c.id, userId));
+        for (const userId of userIds) {
+          pipeline.del(roleCacheKey(c.id, userId));
+        }
       }
       await pipeline.exec();
     } catch {

@@ -387,6 +387,8 @@ model User {
 
   ownedWorkspaces          Workspace[]                  @relation("WorkspaceOwner")
   memberships              WorkspaceMember[]
+  // S69 (D13 / FR-W10): 이 사용자가 초대한 멤버들(초대자 표시 조인의 역방향).
+  invitedMembers           WorkspaceMember[]            @relation("WorkspaceMemberInviter")
   messages                 Message[]
   invitesCreated           Invite[]                     @relation("InviteCreator")
   // S68 (D13 / FR-W04·W18): 이 사용자가 보낸 이메일 보류 초대들(생성자 표시·목록 조인).
@@ -631,9 +633,15 @@ model WorkspaceMember {
   // (VIEW_CHANNEL/READ_HISTORY 는 유지). 만료는 lazy 체크(mutedUntil>now) — cron/
   // BullMQ 불요. UserChannelMute.mutedUntil(알림 뮤트)과는 별개 축이다.
   mutedUntil  DateTime?     @db.Timestamptz(6)
+  // S69 (D13 / FR-W10): 이 멤버를 초대한 사용자(없으면 null — 공개 가입/레거시 row).
+  // 링크 초대=invite.createdById · 이메일 초대=pending.invitedById · joinPublic=null 로
+  // accept 경로에서 기록한다. 초대자 계정 삭제 시 SetNull(초대 이력은 남기되 FK 정리).
+  invitedById String?       @db.Uuid
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // S69 (FR-W10): 초대자 표시 조인(프로필 패널). 초대자 계정 삭제 시 SetNull.
+  invitedBy   User?        @relation("WorkspaceMemberInviter", fields: [invitedById], references: [id], onDelete: SetNull)
   // S61 (FR-RM01/15): 이 멤버가 보유한 역할 조인. Role 삭제 시 onDelete Cascade
   // 로 자동 정리된다(FR-RM15).
   memberRoles MemberRole[]

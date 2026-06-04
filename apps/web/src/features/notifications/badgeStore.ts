@@ -53,6 +53,23 @@ interface BadgeStoreState {
    * **서버 시계** 로 lastAckedAt 을 저장한다(교차시계 비교 제거).
    */
   markAcked: (workspaceId: string, serverTimestamp: string) => void;
+  /**
+   * S69 (FR-W23): unread_count:increment(workspaceId 포함) 낙관 갱신. 서버는 이 이벤트를
+   * **멘션이 도착한** 워크스페이스의 user 룸으로만 emit 한다(mention 전용 이벤트 —
+   * outbox-to-ws.subscriber). 따라서 unreadCount 뿐 아니라 **mentionCount 도 += delta**
+   * 로 낙관 갱신해 멘션 빨간 배지가 즉시 반영되게 한다. 직후 도착하는 서버 진실값
+   * (applyServerUpdate / replaceAll)이 last-write-wins 로 교정한다. 두 카운트 모두
+   * 0 미만으로 내려가지 않는다(음수 delta clamp).
+   */
+  applyOptimisticIncrement: (workspaceId: string, delta: number) => void;
+  /**
+   * S69 (FR-W20): connection:ready 의 allWorkspaceMentionCounts 소비. 가입한 모든
+   * 워크스페이스의 멘션 카운트를 첫 페인트부터 채운다(비활성 워크스페이스 배지 복원).
+   * unreadCount/lastAckedAt 는 보존하고 mentionCount 만 세팅한다(멘션 카운트만 신뢰).
+   */
+  applyConnectionMentionCounts: (
+    counts: Array<{ workspaceId: string; mentionCount: number }>,
+  ) => void;
   /** FR-MN-20: GET /me/notification-badges 결과로 전체 교체(재동기화). */
   replaceAll: (
     workspaces: Array<{ workspaceId: string; mentionCount: number; unreadCount: number }>,
@@ -110,6 +127,32 @@ export const useBadgeStore = create<BadgeStoreState>((set, get) => ({
           [workspaceId]: { ...prev, lastAckedAt: ts },
         },
       };
+    }),
+
+  applyOptimisticIncrement: (workspaceId, delta) =>
+    set((s) => {
+      if (delta === 0) return s;
+      const prev = s.byWorkspace[workspaceId] ?? EMPTY;
+      const nextUnread = Math.max(0, prev.unreadCount + delta);
+      // unread_count:increment 는 멘션 전용 이벤트라 mentionCount 도 함께 +delta 한다
+      // (멘션 빨간 배지 즉시 반영). 둘 다 0 미만으로 내려가지 않는다.
+      const nextMention = Math.max(0, prev.mentionCount + delta);
+      return {
+        byWorkspace: {
+          ...s.byWorkspace,
+          [workspaceId]: { ...prev, unreadCount: nextUnread, mentionCount: nextMention },
+        },
+      };
+    }),
+
+  applyConnectionMentionCounts: (counts) =>
+    set((s) => {
+      const next = { ...s.byWorkspace };
+      for (const c of counts) {
+        const prev = next[c.workspaceId] ?? EMPTY;
+        next[c.workspaceId] = { ...prev, mentionCount: c.mentionCount };
+      }
+      return { byWorkspace: next };
     }),
 
   replaceAll: (workspaces) =>

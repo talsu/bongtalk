@@ -2,6 +2,8 @@ import { apiRequest } from '../../lib/api';
 import type {
   AcceptEmailInviteResponse,
   AcceptInviteResponse,
+  BulkMemberAction,
+  BulkMemberActionResponse,
   CreateInviteRequest,
   CreateRoleRequest,
   CreateWorkspaceRequest,
@@ -10,7 +12,9 @@ import type {
   Invite,
   InviteByEmailResponse,
   InvitePreview,
+  ListMemberDirectoryResponse,
   ListPendingInvitesResponse,
+  MemberDirectorySort,
   PendingInviteAction,
   KickMemberResponse,
   ListAuditLogsResponse,
@@ -27,6 +31,7 @@ import type {
   UpdateRoleRequest,
   UpdateWorkspaceRequest,
   Workspace,
+  WorkspaceRole,
   WorkspaceWithMyRole,
 } from '@qufox/shared-types';
 
@@ -106,6 +111,43 @@ export async function listAllMembers(id: string): Promise<{ members: MemberWithP
     cursor = res.nextCursor;
   }
   return { members };
+}
+
+// S69 (D13 / FR-W10): 멤버 디렉터리 — 검색/역할필터/가입일정렬/커서. 전체로드(listAllMembers)
+// 대신 서버 검색/필터 API 를 직접 페이지네이션한다(Fork D). 열람은 모든 멤버 가능.
+export function listMembersDirectory(
+  id: string,
+  opts: {
+    q?: string;
+    role?: WorkspaceRole;
+    sortBy?: MemberDirectorySort;
+    cursor?: string;
+  } = {},
+): Promise<ListMemberDirectoryResponse> {
+  const params = new URLSearchParams();
+  if (opts.q) params.set('q', opts.q);
+  if (opts.role) params.set('role', opts.role);
+  if (opts.sortBy) params.set('sortBy', opts.sortBy);
+  if (opts.cursor) params.set('cursor', opts.cursor);
+  const qs = params.toString();
+  return apiRequest(`/workspaces/${id}/members/directory${qs ? `?${qs}` : ''}`);
+}
+
+// S69 (D13 / FR-W11): 일괄 멤버 관리(kick/timeout/role · 최대 100명). 단일 tx 응답에
+// affected/skipped 가 함께 담겨 부분실패를 FE 가 표시한다.
+export function bulkMemberAction(
+  id: string,
+  input: {
+    action: BulkMemberAction;
+    userIds: string[];
+    durationSeconds?: number;
+    role?: 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
+  },
+): Promise<BulkMemberActionResponse> {
+  return apiRequest(`/workspaces/${id}/members/bulk-action`, {
+    method: 'POST',
+    body: input,
+  });
 }
 
 // S61 fix-forward (contract BLOCKER/HIGH): 시스템 역할 5단계로 확장돼 MODERATOR/GUEST

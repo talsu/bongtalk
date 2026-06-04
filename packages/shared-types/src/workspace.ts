@@ -356,6 +356,74 @@ export const MEMBER_CURSOR_MAX_LENGTH = 256;
  */
 export const LARGE_WORKSPACE_THRESHOLD = 1000;
 
+// ─────────────────────── S69 (D13 / FR-W10) 멤버 디렉터리 ────────────────────
+
+/** S69 (FR-W10): 디렉터리 한 페이지 항목 수(커서 페이지네이션). */
+export const MEMBER_DIRECTORY_PAGE_SIZE = 50;
+
+/** S69 (FR-W10): 디렉터리 검색어 최대 길이(prefix 검색 — username/email). */
+export const MEMBER_DIRECTORY_QUERY_MAX = 64;
+
+/** S69 (FR-W10): 가입일 정렬 방향. asc=오래된 멤버 먼저, desc=최근 가입 먼저(기본). */
+export const MemberDirectorySortSchema = z.enum(['joined_asc', 'joined_desc']);
+export type MemberDirectorySort = z.infer<typeof MemberDirectorySortSchema>;
+
+/**
+ * S69 (FR-W10): 디렉터리 조회 쿼리. 모든 워크스페이스 멤버가 열람 가능(Fork C).
+ *   - q:      username/email prefix(빈/미지정 → 전체).
+ *   - role:   역할 정확 일치 필터(미지정 → 전체).
+ *   - sortBy: 가입일 정렬(기본 joined_desc).
+ *   - cursor: opaque base64url 다음 페이지 토큰.
+ */
+export const ListMemberDirectoryQuerySchema = z.object({
+  q: z.string().trim().max(MEMBER_DIRECTORY_QUERY_MAX).optional(),
+  role: WorkspaceRoleSchema.optional(),
+  sortBy: MemberDirectorySortSchema.optional(),
+  cursor: z.string().max(MEMBER_CURSOR_MAX_LENGTH).optional(),
+});
+export type ListMemberDirectoryQuery = z.infer<typeof ListMemberDirectoryQuerySchema>;
+
+/**
+ * S69 (FR-W10): 디렉터리 한 멤버 행. MemberWithPresence(역할/상태/가입일/음소거)에
+ * 더해 **초대자(invitedById)** 와 그 표시 정보를 싣는다(프로필 클릭 시 노출). 기존 row 는
+ * backfill 로 null 이며, joinPublic 가입도 null(초대자 없음).
+ *
+ * S69 fix-forward (security HIGH/BLOCKER · 이메일 노출 + enumeration): 디렉터리는 모든
+ * 워크스페이스 멤버가 열람한다(Fork C). PII(email)·초대자(invitedBy/invitedById)는
+ * **ADMIN+ 뷰어에게만** 노출하고, 비관리자(MEMBER/GUEST) 에게는 서버가 email=null +
+ * invitedBy/invitedById=null 로 내려보낸다(FR-W10 프로필은 역할/상태/가입일/초대자라
+ * 비관리자엔 email 불요). 따라서 디렉터리 행의 user.email 은 base Member(비-null email)
+ * 와 달리 **nullable** 로 재정의한다(base MemberSchema/listGrouped 의 bulk email 노출은
+ * broad-contract carryover — 여기서 건드리지 않는다). 비관리자에겐 q 가 username 만
+ * 매칭하므로 email prefix enumeration 도 차단된다.
+ */
+export const MemberDirectoryRowSchema = MemberWithPresenceSchema.extend({
+  /**
+   * S69 fix-forward (security): user.email 을 nullable 로 재정의한다(ADMIN+ 만 노출,
+   * 비관리자는 null). 다른 user 필드는 base MemberWithPresence 와 동일하다.
+   */
+  user: MemberWithPresenceSchema.shape.user.extend({
+    email: z.string().email().nullable(),
+  }),
+  /** 이 멤버를 초대한 사용자 id(없으면 null — 공개 가입/레거시/비관리자 뷰어). */
+  invitedById: z.string().uuid().nullable(),
+  /** 초대자 표시 정보(계정 삭제·공개 가입 시, 또는 비관리자 뷰어에겐 null). */
+  invitedBy: z
+    .object({
+      id: z.string().uuid(),
+      username: z.string(),
+    })
+    .nullable(),
+});
+export type MemberDirectoryRow = z.infer<typeof MemberDirectoryRowSchema>;
+
+/** S69 (FR-W10): 디렉터리 목록 응답. nextCursor null = 마지막 페이지. */
+export const ListMemberDirectoryResponseSchema = z.object({
+  members: z.array(MemberDirectoryRowSchema),
+  nextCursor: z.string().nullable(),
+});
+export type ListMemberDirectoryResponse = z.infer<typeof ListMemberDirectoryResponseSchema>;
+
 /**
  * S27 (FR-P09): roles surfaced in the baseline hoist group. Until a custom
  * role system exists, OWNER + ADMIN are the staff hoist set.
