@@ -101,14 +101,41 @@ HOOKS=()
 for f in "$HOOK_DIR"/*.sql; do
   [[ -e "$f" ]] && HOOKS+=("$f")
 done
+# ops fix-forward (closes the S73 / a22a9c9 deploy-wedge incident): copy
+# each hook into the postgres container and run it via `psql -f` wrapped
+# in `timeout`, instead of piping the file through
+# `docker compose exec -T … < "$f"`. The stdin-redirect form
+# intermittently hangs AFTER psql has already finished — the compose-exec
+# hijacked stream does not always close on EOF — leaving auto-deploy.sh
+# blocked on the child forever while it STILL holds the deploy flock,
+# which silently wedges every subsequent deploy (both indexes were
+# already valid no-ops, so this was never a CREATE INDEX CONCURRENTLY /
+# idle-in-transaction stall as first suspected — it was the exec stream).
+# `docker cp` + `psql -f` removes the stdin pipe (the hang's root cause);
+# `timeout` bounds any residual hang so a stuck hook aborts the deploy
+# (flock released on EXIT trap) instead of hanging indefinitely. `psql -f`
+# keeps statement-at-a-time autocommit, so CREATE INDEX CONCURRENTLY still
+# runs outside a transaction exactly as the stdin form did.
+HOOK_TIMEOUT="${DEPLOY_HOOK_TIMEOUT:-600}"
 if [[ "${#HOOKS[@]}" -gt 0 ]]; then
   for f in "${HOOKS[@]}"; do
-    log "deploy-hook SQL: $(basename "$f")"
-    if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml exec -T \
-          qufox-postgres-prod \
-          sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox' \
-          < "$f"; then
-      log "deploy-hook SQL failed: $(basename "$f") — aborting" >&2
+    base="$(basename "$f")"
+    log "deploy-hook SQL: $base"
+    if ! docker cp "$f" qufox-postgres-prod:/tmp/qufox-deploy-hook.sql; then
+      log "deploy-hook SQL copy failed: $base — aborting" >&2
+      exit 1
+    fi
+    rc=0
+    timeout "$HOOK_TIMEOUT" docker exec qufox-postgres-prod \
+      sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U qufox -d qufox -f /tmp/qufox-deploy-hook.sql' \
+      || rc=$?
+    docker exec qufox-postgres-prod rm -f /tmp/qufox-deploy-hook.sql 2>/dev/null || true
+    if [[ "$rc" -ne 0 ]]; then
+      if [[ "$rc" -eq 124 ]]; then
+        log "deploy-hook SQL timed out after ${HOOK_TIMEOUT}s: $base — aborting" >&2
+      else
+        log "deploy-hook SQL failed (rc=$rc): $base — aborting" >&2
+      fi
       exit 1
     fi
   done
