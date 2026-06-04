@@ -85,6 +85,80 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  // S72 (FR-W15): ws:workspace_deleted → 내 워크스페이스 목록 무효화 + 활성 워크스페이스면
+  // 홈 리다이렉트.
+  it('ws:workspace_deleted invalidates the mine list and redirects when active', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    // 캐시된 내 워크스페이스 목록으로 workspaceId → slug 를 해석한다.
+    qc.setQueryData(['workspaces', 'mine'], {
+      workspaces: [{ id: 'ws-1', slug: 'acme-team' }],
+    });
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const navigated: string[] = [];
+    window.history.pushState({}, '', '/w/acme-team/general');
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-owner',
+      activeChannelId: () => null,
+      navigate: (url) => navigated.push(url),
+    });
+    socket.emit('ws:workspace_deleted', {
+      workspaceId: 'ws-1',
+      actorId: 'u-owner',
+      deleteAt: '2025-01-31T00:00:00.000Z',
+    });
+    expect(navigated).toEqual(['/dm']);
+    expect(
+      invalidateSpy.mock.calls.some(
+        (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(['workspaces', 'mine']),
+      ),
+    ).toBe(true);
+    // 형태 불량 payload 는 신뢰경계 가드로 버린다(리다이렉트 없음).
+    navigated.length = 0;
+    socket.emit('ws:workspace_deleted', { workspaceId: 'ws-1' });
+    expect(navigated).toEqual([]);
+    detach();
+  });
+
+  it('ws:workspace_deleted does NOT redirect when viewing another workspace', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(['workspaces', 'mine'], {
+      workspaces: [
+        { id: 'ws-1', slug: 'acme-team' },
+        { id: 'ws-2', slug: 'other-team' },
+      ],
+    });
+    const navigated: string[] = [];
+    window.history.pushState({}, '', '/w/other-team/general');
+    const detach = installRealtimeDispatcher(socket, qc, {
+      viewerId: () => 'u-1',
+      activeChannelId: () => null,
+      navigate: (url) => navigated.push(url),
+    });
+    socket.emit('ws:workspace_deleted', {
+      workspaceId: 'ws-1',
+      actorId: 'u-owner',
+      deleteAt: '2025-01-31T00:00:00.000Z',
+    });
+    expect(navigated).toEqual([]);
+    detach();
+  });
+
+  it('ws:workspace_restored invalidates the mine list (no redirect)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const invalidateSpy = vi.spyOn(qc, 'invalidateQueries');
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('ws:workspace_restored', { workspaceId: 'ws-1', actorId: 'u-owner' });
+    expect(
+      invalidateSpy.mock.calls.some(
+        (c) => JSON.stringify(c[0]?.queryKey) === JSON.stringify(['workspaces', 'mine']),
+      ),
+    ).toBe(true);
+    detach();
+  });
+
   it('message:bulk_deleted (S64 FR-RM09) removes the listed ids from the channel cache', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

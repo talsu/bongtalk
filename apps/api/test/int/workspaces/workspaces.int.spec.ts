@@ -96,17 +96,21 @@ describe('GET /workspaces/:id and membership hiding', () => {
 });
 
 describe('Soft delete + restore + purge', () => {
+  // S72 (D13 / FR-W15): 삭제는 body.confirmation === slug 를 강제한다.
   it('DELETE returns 202 with deleteAt 30d out and workspace disappears from list', async () => {
     const user = await signupAsUser(env.baseUrl, 'sd');
+    const slug = uniqueSlug('del');
     const create = await request(env.baseUrl)
       .post('/workspaces')
       .set('origin', ORIGIN)
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ name: 'DelMe', slug: uniqueSlug('del') });
+      .send({ name: 'DelMe', slug });
     const id = create.body.id;
     const del = await request(env.baseUrl)
       .delete(`/workspaces/${id}`)
-      .set('Authorization', `Bearer ${user.accessToken}`);
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ confirmation: slug });
     expect(del.status).toBe(202);
     expect(del.body.deleteAt).toBeTruthy();
     const list = await request(env.baseUrl)
@@ -115,17 +119,44 @@ describe('Soft delete + restore + purge', () => {
     expect(list.body.workspaces.some((w: { id: string }) => w.id === id)).toBe(false);
   });
 
-  it('POST /workspaces/:id/restore un-deletes within grace window', async () => {
-    const user = await signupAsUser(env.baseUrl, 'rs');
+  // S72 (D13 / FR-W15): confirmation 불일치 → 422 WORKSPACE_CONFIRMATION_MISMATCH, 미삭제.
+  it('rejects DELETE with a mismatched confirmation (422) and keeps the workspace', async () => {
+    const user = await signupAsUser(env.baseUrl, 'sdm');
+    const slug = uniqueSlug('delm');
     const create = await request(env.baseUrl)
       .post('/workspaces')
       .set('origin', ORIGIN)
       .set('Authorization', `Bearer ${user.accessToken}`)
-      .send({ name: 'Restore', slug: uniqueSlug('rst') });
+      .send({ name: 'KeepMe', slug });
+    const id = create.body.id;
+    const del = await request(env.baseUrl)
+      .delete(`/workspaces/${id}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ confirmation: 'not-the-slug' });
+    expect(del.status).toBe(422);
+    expect(del.body.errorCode).toBe('WORKSPACE_CONFIRMATION_MISMATCH');
+    // The workspace is untouched — still in the owner's list.
+    const list = await request(env.baseUrl)
+      .get('/workspaces')
+      .set('Authorization', `Bearer ${user.accessToken}`);
+    expect(list.body.workspaces.some((w: { id: string }) => w.id === id)).toBe(true);
+  });
+
+  it('POST /workspaces/:id/restore un-deletes within grace window', async () => {
+    const user = await signupAsUser(env.baseUrl, 'rs');
+    const slug = uniqueSlug('rst');
+    const create = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ name: 'Restore', slug });
     const id = create.body.id;
     await request(env.baseUrl)
       .delete(`/workspaces/${id}`)
+      .set('origin', ORIGIN)
       .set('Authorization', `Bearer ${user.accessToken}`)
+      .send({ confirmation: slug })
       .expect(202);
     const restore = await request(env.baseUrl)
       .post(`/workspaces/${id}/restore`)

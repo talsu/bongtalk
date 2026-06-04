@@ -461,12 +461,31 @@ export class WorkspacesService {
     return { workspaceId, alreadyMember: false };
   }
 
-  async softDelete(workspaceId: string, actorId: string) {
+  async softDelete(workspaceId: string, actorId: string, confirmation: string) {
     // task-013-A2 (task-034 closure): the purge worker that hard-
     // deletes post-grace rows lives at scripts/workers/
     // workspace-purge.sh (cron inside qufox-backup container,
     // daily at 05:00 UTC). This service is the soft-delete side
     // of that contract.
+    //
+    // S72 (D13 / FR-W15): 파괴적 액션 게이트 — 삭제하려면 워크스페이스 slug 를 정확히
+    // 타이핑해야 한다. confirmation 을 실제 workspace.slug 와 대조해 불일치면 422
+    // (WORKSPACE_CONFIRMATION_MISMATCH)로 거부한다(클라가 confirmation 을 위조해도
+    // 서버가 실제 slug 로 대조하므로 우회 불가). 일치하면 기존 soft-delete 흐름
+    // (deletedAt/deleteAt + 30일 grace + outbox WORKSPACE_DELETED)으로 진입한다.
+    const target = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { slug: true },
+    });
+    if (!target) {
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
+    }
+    if (confirmation !== target.slug) {
+      throw new DomainError(
+        ErrorCode.WORKSPACE_CONFIRMATION_MISMATCH,
+        'confirmation must exactly match the workspace slug',
+      );
+    }
     const now = new Date();
     const deleteAt = new Date(now.getTime() + this.graceMs);
     return this.prisma.$transaction(async (tx) => {

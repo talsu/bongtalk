@@ -9,6 +9,8 @@ import {
   createWorkspace,
   deleteRole,
   getWorkspace,
+  restoreWorkspace,
+  softDeleteWorkspace,
   hardDeleteInvite,
   kickMember,
   kickUndo,
@@ -325,6 +327,32 @@ export function useLeaveWorkspace(id: string) {
     mutationFn: () => leaveWorkspace(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// S72 (D13 / FR-W15): 워크스페이스 소프트 삭제(OWNER). confirmation(= slug) 일치 시 202.
+// 성공하면 내 워크스페이스 목록을 무효화해 사이드바에서 제거한다(라우터/호출부가 리다이렉트).
+export function useDeleteWorkspace(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (confirmation: string) => softDeleteWorkspace(id, confirmation),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.mine });
+      qc.invalidateQueries({ queryKey: keys.one(id) });
+    },
+  });
+}
+
+// S72 (D13 / FR-W15): grace 기간 내 워크스페이스 복원(OWNER). 성공하면 목록/상세를
+// 무효화해 사이드바에 복귀시킨다.
+export function useRestoreWorkspace(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => restoreWorkspace(id),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.mine });
+      qc.invalidateQueries({ queryKey: keys.one(id) });
     },
   });
 }

@@ -16,6 +16,8 @@ import {
   MessageEmbedUpdatedPayloadSchema,
   MemberKickedPayloadSchema,
   MemberBannedPayloadSchema,
+  WorkspaceDeletedPayloadSchema,
+  WorkspaceRestoredPayloadSchema,
   ApplicationReceivedPayloadSchema,
   ApplicationReviewedPayloadSchema,
   ReminderFirePayloadSchema,
@@ -1297,6 +1299,41 @@ export function installRealtimeDispatcher(
     }
   });
 
+  // S72 (FR-W15): 워크스페이스 소프트 삭제/복원의 콜론 wire 이벤트. 서버 outbox→WS
+  // subscriber 가 dot(workspace.deleted / .restored)을 콜론으로 변환해 워크스페이스 룸으로
+  // 추가 emit 한다. deleted 수신 시 내 워크스페이스 목록 + 상세를 무효화해 사이드바에서
+  // 제거하고, 삭제된 워크스페이스가 지금 보고 있는 곳이면 홈(/dm)으로 리다이렉트한다(슬러그는
+  // 캐시된 워크스페이스 목록에서 해석). OWNER 본인의 다른 세션/탭도 동기화된다. restored 는
+  // 목록/상세를 다시 무효화해 사이드바에 복귀시킨다. 형태 불량은 신뢰경계 가드로 버린다.
+  const redirectIfActiveWorkspace = (workspaceId: string): void => {
+    const navigate = ctx.navigate;
+    if (!navigate) return;
+    const data = qc.getQueryData<{ workspaces: Array<{ id: string; slug: string }> }>([
+      'workspaces',
+      'mine',
+    ]);
+    const slug = data?.workspaces.find((w) => w.id === workspaceId)?.slug;
+    if (!slug) return;
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith(`/w/${slug}`)) {
+      navigate('/dm');
+    }
+  };
+  on<unknown>(WS_EVENTS.WORKSPACE_DELETED, (raw) => {
+    const parsed = WorkspaceDeletedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    const wsId = parsed.data.workspaceId;
+    // 리다이렉트 판정은 목록이 무효화돼 사라지기 전에 슬러그를 읽어야 하므로 먼저 수행한다.
+    redirectIfActiveWorkspace(wsId);
+    qc.invalidateQueries({ queryKey: ['workspaces', 'mine'] });
+    qc.invalidateQueries({ queryKey: qk.workspaces.detail(wsId) });
+  });
+  on<unknown>(WS_EVENTS.WORKSPACE_RESTORED, (raw) => {
+    const parsed = WorkspaceRestoredPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    qc.invalidateQueries({ queryKey: ['workspaces', 'mine'] });
+    qc.invalidateQueries({ queryKey: qk.workspaces.detail(parsed.data.workspaceId) });
+  });
+
   // ---------- S70 (D13 · FR-W06/W06a): 가입 신청 ----------
   // ws:application_received — ADMIN 리뷰 패널이 목록을 갱신하도록 신청 쿼리를 무효화하고,
   // 패널이 구독할 window 이벤트로 흘린다(workspaceId 기준). 형태 불량은 신뢰경계 가드로 버린다.
@@ -1573,6 +1610,9 @@ export const DISPATCHED_EVENTS = [
   WS_EVENTS.APPLICATION_REVIEWED,
   // S70 (D13 · FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함) — 워크스페이스 룸 fanout.
   WS_EVENTS.MEMBER_LEFT,
+  // S72 (D13 · FR-W15): 워크스페이스 소프트 삭제/복원 — 워크스페이스 룸 fanout(콜론 wire).
+  WS_EVENTS.WORKSPACE_DELETED,
+  WS_EVENTS.WORKSPACE_RESTORED,
   'workspace.role.changed',
   'presence.updated',
   'presence:update',
