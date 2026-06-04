@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WORKSPACE_CATEGORY_META, type WorkspaceCategory } from '@qufox/shared-types';
+import {
+  WORKSPACE_CATEGORY_META,
+  type DiscoveryWorkspace,
+  type WorkspaceCategory,
+} from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { useDiscoverWorkspaces, useJoinWorkspace } from '../../features/discovery/useDiscovery';
 import { MobileTabBar } from './MobileTabBar';
@@ -30,6 +34,25 @@ export function MobileDiscover(): JSX.Element {
       }
       throw err;
     }
+  };
+
+  // S72 W16 fix-forward (contract/ui-designer): 데스크톱 JoinCta 와 동일한 joinMode 3분기.
+  // APPLY 는 join 을 호출하지 않고 곧장 신청 폼으로 보낸다(서버 거부에 의존하지 않음).
+  const onApply = (slug: string): void => {
+    navigate(`/w/${slug}/apply`);
+  };
+
+  // S72 W16 fix-forward (contract/ui-designer): 카드 탭의 동작을 joinMode 로 분기한다.
+  // 이전에는 모든 행이 onJoin 을 호출해 APPLY/PRIVATE 가 오동작했다(APPLY 는 서버 409,
+  // PRIVATE 는 WORKSPACE_NOT_PUBLIC). PRIVATE 는 비활성(초대 전용)이라 탭해도 동작하지
+  // 않는다.
+  const onRow = (w: DiscoveryWorkspace): void => {
+    if (w.joinMode === 'PRIVATE') return;
+    if (w.joinMode === 'APPLY') {
+      onApply(w.slug);
+      return;
+    }
+    void onJoin(w.id, w.slug);
   };
 
   const items = data?.items ?? [];
@@ -107,26 +130,47 @@ export function MobileDiscover(): JSX.Element {
             <div className="qf-m-empty__body">다른 카테고리/검색어를 시도하세요.</div>
           </div>
         ) : (
-          items.map((w) => (
-            <button
-              key={w.id}
-              type="button"
-              data-testid={`mobile-discover-row-${w.slug}`}
-              onClick={() => onJoin(w.id, w.slug)}
-              className={cn('w-full text-left qf-m-row')}
-            >
-              <Avatar name={w.name} size="md" />
-              <div className="min-w-0 flex-1">
-                <div className="qf-m-row__primary">{w.name}</div>
-                <div className="qf-m-row__secondary">
-                  {WORKSPACE_CATEGORY_META[w.category]?.label ?? w.category} · {w.memberCount}명
+          items.map((w) => {
+            const isPrivate = w.joinMode === 'PRIVATE';
+            const isApply = w.joinMode === 'APPLY';
+            // S72 W16 fix-forward: joinMode 별 접근명/탭 동작/아사이드 표시.
+            const ariaLabel = isPrivate
+              ? `${w.name} — 초대를 받아야 참가할 수 있습니다`
+              : isApply
+                ? `${w.name}에 가입 신청`
+                : `${w.name} 참가`;
+            return (
+              <button
+                key={w.id}
+                type="button"
+                data-testid={`mobile-discover-row-${w.slug}`}
+                aria-label={ariaLabel}
+                aria-disabled={isPrivate ? 'true' : undefined}
+                onClick={() => onRow(w)}
+                className={cn(
+                  'w-full text-left qf-m-row',
+                  isPrivate && 'text-text-muted cursor-not-allowed',
+                )}
+              >
+                <Avatar name={w.name} size="md" />
+                <div className="min-w-0 flex-1">
+                  <div className="qf-m-row__primary">{w.name}</div>
+                  <div className="qf-m-row__secondary">
+                    {WORKSPACE_CATEGORY_META[w.category]?.label ?? w.category} · {w.memberCount}명
+                  </div>
                 </div>
-              </div>
-              <div className="qf-m-row__aside">
-                <Icon name="plus" size="sm" />
-              </div>
-            </button>
-          ))
+                <div className="qf-m-row__aside" data-testid={`mobile-discover-cta-${w.slug}`}>
+                  {isPrivate ? (
+                    <span className="text-[length:var(--fs-12)] text-text-muted">초대 필요</span>
+                  ) : isApply ? (
+                    <span className="text-[length:var(--fs-12)] text-text-secondary">신청</span>
+                  ) : (
+                    <Icon name="plus" size="sm" />
+                  )}
+                </div>
+              </button>
+            );
+          })
         )}
       </main>
 

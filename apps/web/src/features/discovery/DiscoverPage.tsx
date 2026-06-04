@@ -108,6 +108,7 @@ export function DiscoverPage(): JSX.Element {
             {items.map((w) => (
               <article
                 key={w.id}
+                aria-label={w.name}
                 data-testid={`discover-card-${w.slug}`}
                 className="rounded-[var(--r-lg)] border border-border-subtle p-[var(--s-4)] flex flex-col gap-[var(--s-3)]"
                 style={{ background: 'var(--bg-elevated)' }}
@@ -173,6 +174,14 @@ function CategoryChip({
  *   PUBLIC  → "참가"      → onJoin(즉시 가입 후 워크스페이스 진입).
  *   APPLY   → "신청"      → onApply(가입 신청 폼 /w/:slug/apply).
  *   PRIVATE → "초대 필요"  → 비활성(초대로만 진입 가능).
+ *
+ * S72 W16 fix-forward (a11y B-1/B-2/B-4/M-1):
+ *  - 각 버튼에 워크스페이스명을 포함한 aria-label 을 붙여 접근명을 명확히 한다(스크린
+ *    리더가 카드마다 "참가" 만 읽지 않도록).
+ *  - PRIVATE 비활성은 네이티브 disabled 대신 aria-disabled="true" + onClick 가드로
+ *    구현한다 — 포커스 가능 상태를 유지해 SR 사용자가 "초대 필요"를 인지할 수 있게 하고,
+ *    DS `.qf-btn[disabled]` 의 opacity 의존(대비 미달)을 끊는다. 비활성 스타일은 opacity
+ *    가 아닌 대비를 충족하는 색 토큰(text-text-muted)으로 컴포넌트 className 에서 준다.
  */
 function JoinCta({
   workspace: w,
@@ -190,6 +199,7 @@ function JoinCta({
         variant="secondary"
         onClick={() => onApply(w.slug)}
         size="sm"
+        aria-label={`${w.name}에 가입 신청`}
       >
         신청
       </Button>
@@ -201,17 +211,29 @@ function JoinCta({
         data-testid={`discover-cta-${w.slug}`}
         variant="ghost"
         size="sm"
-        disabled
+        // S72 W16 fix-forward (a11y B-1/B-4/M-1): 네이티브 disabled 제거 → aria-disabled
+        // + onClick 가드. 비활성 색은 opacity 대신 대비 충족 토큰으로(cursor-not-allowed
+        // 로 포인터 피드백). 클릭은 조기 리턴.
         aria-disabled="true"
-        aria-label="초대를 받아야 참가할 수 있습니다"
+        onClick={(e) => {
+          e.preventDefault();
+        }}
+        className="text-text-muted cursor-not-allowed"
+        aria-label={`${w.name} — 초대를 받아야 참가할 수 있습니다`}
       >
         초대 필요
       </Button>
     );
   }
-  // PUBLIC(기본)
+  // PUBLIC(기본) — variant="primary" 명시(3분기 의도 가독성, ui-designer LOW).
   return (
-    <Button data-testid={`discover-cta-${w.slug}`} onClick={() => onJoin(w.id, w.slug)} size="sm">
+    <Button
+      data-testid={`discover-cta-${w.slug}`}
+      variant="primary"
+      onClick={() => onJoin(w.id, w.slug)}
+      size="sm"
+      aria-label={`${w.name} 참가`}
+    >
       참가
     </Button>
   );

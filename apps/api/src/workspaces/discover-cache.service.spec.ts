@@ -6,8 +6,8 @@ import { DiscoverCacheService, type DiscoverCacheKeyInput } from './discover-cac
  *
  * - 캐시 키는 (category|q|cursor|limit) + 버전으로 결정되며, 같은 입력은 같은 키를,
  *   다른 입력은 다른 키를 낸다(안정 해시).
- * - read() 는 MISS(null)/HIT(payload) 분기를 그대로 돌려주고, write() 는 TTL 300s 로
- *   SET EX 한다.
+ * - read() 는 MISS(null)/HIT(payload) 분기를 그대로 돌려주고, write() 는 TTL 60s 로
+ *   SET EX 한다(W16 fix-forward HIGH-1: 300→60 축소).
  * - invalidate() 는 버전 키(discover:ver)를 INCR 해 이후 모든 키 네임스페이스를 바꾼다
  *   (NAS 단일 노드 권장 전략 — SCAN/DEL 대신 버전 bump, 구키는 TTL 로 자연 소멸).
  *
@@ -68,6 +68,25 @@ describe('DiscoverCacheService — key derivation', () => {
     expect(a).toBe(b);
   });
 
+  // S72 W16 fix-forward (MEDIUM-2): q 를 toLowerCase() 정규화해 ILIKE 와 대칭 — 대소문자만
+  // 다른 검색어는 같은 키로 적중한다(적중률↑).
+  it('normalises q to lower-case so case-only variants collapse', async () => {
+    const svc = new DiscoverCacheService(makeRedis({ 'discover:ver': '1' }) as never);
+    const lower = await svc.keyFor({ ...BASE, q: 'rust' });
+    const upper = await svc.keyFor({ ...BASE, q: 'RUST' });
+    const mixed = await svc.keyFor({ ...BASE, q: 'RuSt' });
+    expect(lower).toBe(upper);
+    expect(lower).toBe(mixed);
+  });
+
+  // S72 W16 fix-forward (MEDIUM-3): 해시 자릿수를 16→32 로 늘려 충돌→오답 서빙 위험을
+  // 낮춘다(키 형태가 32 hex 임을 고정).
+  it('uses a 32-hex-char hash segment in the key', async () => {
+    const svc = new DiscoverCacheService(makeRedis({ 'discover:ver': '7' }) as never);
+    const key = await svc.keyFor(BASE);
+    expect(key).toMatch(/^discover:v7:[0-9a-f]{32}$/);
+  });
+
   it('defaults the version to 0 when no version key exists yet', async () => {
     const svc = new DiscoverCacheService(makeRedis() as never);
     const key = await svc.keyFor(BASE);
@@ -92,12 +111,12 @@ describe('DiscoverCacheService — read / write', () => {
     expect(hit).toEqual(payload);
   });
 
-  it('write() stores the payload with a 300s TTL via SET EX', async () => {
+  it('write() stores the payload with a 60s TTL via SET EX', async () => {
     const redis = makeRedis({ 'discover:ver': '0' });
     const svc = new DiscoverCacheService(redis as never);
     const payload = { items: [], nextCursor: null };
     await svc.write('discover:v0:abc', payload);
-    expect(redis.set).toHaveBeenCalledWith('discover:v0:abc', JSON.stringify(payload), 'EX', 300);
+    expect(redis.set).toHaveBeenCalledWith('discover:v0:abc', JSON.stringify(payload), 'EX', 60);
   });
 });
 

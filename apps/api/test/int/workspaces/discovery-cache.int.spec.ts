@@ -85,6 +85,87 @@ describe('/workspaces/discover — Redis cache + joinMode (FR-W16)', () => {
     expect(third.headers['x-cache']).toBe('MISS');
   });
 
+  it('invalidates the cache when a new PUBLIC workspace is created (HIGH-2)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'dccreate');
+    const stamp = Date.now().toString(36);
+    // A category-scoped query that this run owns. We prime the cache, then
+    // create a PUBLIC workspace in the same category and re-run the identical
+    // query — it must MISS again (version bumped) and now include the new WS.
+    // Before the HIGH-2 fix, create() did not invalidate, so the second call
+    // would HIT and the new workspace would be invisible until TTL expiry.
+    const queryUrl = `/workspaces/discover?category=GAMING&q=createbump-${stamp}&limit=20`;
+
+    const first = await request(env.baseUrl)
+      .get(queryUrl)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(first.status).toBe(200);
+    expect(first.headers['x-cache']).toBe('MISS');
+    expect((first.body.items as Array<{ slug: string }>).length).toBe(0);
+
+    // Prime: a second identical call is a HIT (cache populated).
+    const primed = await request(env.baseUrl)
+      .get(queryUrl)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(primed.headers['x-cache']).toBe('HIT');
+
+    const slug = `createbump-${stamp}`;
+    const created = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        // The name must contain the exact `q` substring for the ILIKE match —
+        // q is `createbump-${stamp}` (with the hyphen), so the name carries it
+        // verbatim rather than a space-separated variant.
+        name: `createbump-${stamp}`,
+        slug,
+        visibility: 'PUBLIC',
+        category: 'GAMING',
+        description: 'create-invalidate test workspace',
+        joinMode: 'PUBLIC',
+      });
+    expect(created.status).toBe(201);
+
+    // The identical query must now MISS (create() bumped the version) and the
+    // freshly created PUBLIC workspace must appear.
+    const after = await request(env.baseUrl)
+      .get(queryUrl)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(after.status).toBe(200);
+    expect(after.headers['x-cache']).toBe('MISS');
+    const found = (after.body.items as Array<{ slug: string }>).find((i) => i.slug === slug);
+    expect(found).toBeDefined();
+  });
+
+  it('does not invalidate the cache when a PRIVATE workspace is created', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'dcpriv');
+    const stamp = Date.now().toString(36);
+    // PRIVATE workspaces never appear in discover, so creating one must NOT
+    // bump the version — an already-primed query stays a HIT.
+    const queryUrl = `/workspaces/discover?category=GAMING&q=privnobump-${stamp}&limit=20`;
+
+    const first = await request(env.baseUrl)
+      .get(queryUrl)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(first.headers['x-cache']).toBe('MISS');
+
+    const created = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({
+        name: `privnobump ${stamp}`,
+        slug: `privnobump-${stamp}`,
+        visibility: 'PRIVATE',
+      });
+    expect(created.status).toBe(201);
+
+    const second = await request(env.baseUrl)
+      .get(queryUrl)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+    expect(second.headers['x-cache']).toBe('HIT');
+  });
+
   it('does not invalidate on a non-discovery field change (settings PATCH)', async () => {
     const owner = await signupAsUser(env.baseUrl, 'dc2');
     const stamp = Date.now().toString(36);

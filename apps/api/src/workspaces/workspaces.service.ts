@@ -96,7 +96,7 @@ export class WorkspacesService {
       ? [...new Set(input.emailDomains.map((d) => d.trim().toLowerCase()))]
       : [];
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const created = await this.prisma.$transaction(async (tx) => {
         // S65 (D13 / FR-W01): #general 채널 id 를 미리 만들어 Workspace.defaultChannelId
         // 와 동기한다(단일 트랜잭션). FK(Workspace.defaultChannelId → Channel)가 deferrable
         // 가 아니므로 채널을 먼저 만든 뒤 워크스페이스를 업데이트한다.
@@ -171,6 +171,14 @@ export class WorkspacesService {
         });
         return updatedWorkspace;
       });
+      // S72 W16 fix-forward (reviewer HIGH-2): PUBLIC 워크스페이스를 새로 만들면 discover
+      // 결과에 즉시 나타나야 하므로 검색 캐시를 무효화한다(버전 bump → 다음 호출 MISS).
+      // PRIVATE 은 discover 에 노출되지 않으므로 무효화하지 않는다(update/softDelete/
+      // restore 의 invalidate 와 일관 — 노출 가능성이 있는 변경만 bump).
+      if (created.visibility === 'PUBLIC') {
+        await this.discoverCache.invalidate();
+      }
+      return created;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new DomainError(ErrorCode.WORKSPACE_SLUG_TAKEN, `slug "${input.slug}" is taken`);
@@ -337,11 +345,24 @@ export class WorkspacesService {
   }
 
   /**
-   * S72 (D13 / FR-W16): 디스커버리 검색. Redis 5분 캐시를 앞에 둔다 — 같은
+   * S72 (D13 / FR-W16): 디스커버리 검색. Redis 캐시를 앞에 둔다 — 같은
    * (category|q|cursor|limit) 조합은 버전 키 기반 캐시 키로 HIT 시 DB 를 건너뛴다.
-   * 반환에 cacheStatus 를 실어 컨트롤러가 X-Cache 헤더로 echo 한다. PATCH 로 디스커버리
-   * 노출 필드(name/description/visibility/category/joinMode)가 바뀌면 버전 bump 로 전체
-   * 캐시를 무효화한다(stampede 는 5분 TTL 로 수용).
+   * 반환에 cacheStatus 를 실어 컨트롤러가 X-Cache 헤더로 echo 한다. 디스커버리 노출
+   * 필드 변경(create PUBLIC / PATCH name·description·visibility·category / softDelete /
+   * restore)은 버전 bump 로 전체 캐시를 무효화한다(stampede 는 TTL 로 수용).
+   *
+   * S72 W16 fix-forward (reviewer HIGH-1, memberCount/커서 stale): memberCount 변동(가입/
+   * 승인/초대 수락 등 멤버 수만 바뀌는 이벤트)은 의도적으로 invalidate() 하지 않는다 —
+   * 캐시된 memberCount 는 최대 TTL(DISCOVER_CACHE_TTL_SEC) 동안 stale 일 수 있다. 또한
+   * 커서가 memberCount 기반(`{memberCount}|{id}`)이라, 동일 캐시 윈도우 안에서 멤버 수가
+   * 바뀌면 페이지 경계 정합(누락/중복)도 같은 TTL 동안 stale 일 수 있다. TTL 을 60s 로
+   * 짧게 둬 stale 창을 좁힌다(discover-cache.service.ts 참조). 멤버 수의 분 단위 지연은
+   * discover UX 상 수용 가능하다.
+   *
+   * S72 W16 fix-forward (security MEDIUM): q/cursor 길이를 진입에서 클램프한다 — q 최대
+   * 200자(Redis 키 폭발 + ILIKE DoS 방지), cursor 최대 128자(`{memberCount}|{uuid}` 는
+   * ~50자라 넉넉한 상한). 초과 입력은 잘라 정상 경로로 처리한다(거부 대신 절단 —
+   * cursor 가 잘리면 파싱이 자연스럽게 실패해 첫 페이지로 폴백).
    */
   async discover(opts: {
     category?: string;
@@ -349,10 +370,13 @@ export class WorkspacesService {
     cursor: string | null;
     limit: number;
   }): Promise<{ payload: DiscoverPage; cacheStatus: 'HIT' | 'MISS' }> {
+    // S72 W16 fix-forward (security MEDIUM): 캐시 키/ILIKE DoS 차단용 길이 클램프.
+    const clampedQ = opts.q === undefined ? undefined : opts.q.slice(0, 200);
+    const clampedCursor = opts.cursor === null ? null : opts.cursor.slice(0, 128);
     const cacheKey = await this.discoverCache.keyFor({
       category: opts.category,
-      q: opts.q,
-      cursor: opts.cursor,
+      q: clampedQ,
+      cursor: clampedCursor,
       limit: opts.limit,
     });
     const cached = await this.discoverCache.read<DiscoverPage>(cacheKey);
@@ -361,11 +385,11 @@ export class WorkspacesService {
     }
 
     const capped = Math.max(1, Math.min(50, opts.limit));
-    const q = (opts.q ?? '').trim();
+    const q = (clampedQ ?? '').trim();
     const cat = (opts.category ?? '').trim();
     let cursorParts: { memberCount: number; id: string } | null = null;
-    if (opts.cursor) {
-      const [mc, id] = opts.cursor.split('|');
+    if (clampedCursor) {
+      const [mc, id] = clampedCursor.split('|');
       if (mc && id) cursorParts = { memberCount: parseInt(mc, 10), id };
     }
     const rows = await this.prisma.$queryRaw<
