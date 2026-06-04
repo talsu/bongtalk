@@ -401,6 +401,15 @@ model User {
   title                       String?            @db.VarChar(80)
   avatarKey                   String?
   handleChangedAt             DateTime?          @db.Timestamptz
+  // S74 (D14 / FR-PS-04): 프로필 배너 MinIO 객체 키(qufox-attachments 버킷의 banners/
+  // prefix). avatarKey 와 동일 패턴(presignGet 으로 URL 파생, bannerUrl 직접저장 금지 —
+  // stale 방지). null = 배너 없음. additive nullable 라 기존 row 안전.
+  bannerKey                   String?
+  // S74 (D14 / FR-PS-05 · Fork1 Option C): 커스텀 상태 만료 시 DND 동시 활성화 옵션.
+  // true 면 customStatusExpiresAt 도달(lazy-clear) 시 presencePreference 를 dnd 로 전환한다.
+  // default false 라 기존 row 안전(무회귀 — 옵션 미설정 = 종전 동작). UserPresence 전체
+  // 이관은 별도 슬라이스(OUT) — 본 컬럼은 만료→DND 옵션만 완결한다.
+  dndDuringStatus             Boolean            @default(false)
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 
@@ -450,6 +459,8 @@ model User {
   workspaceApplications         WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationApplicant")
   // S70 (D13 / FR-W06): 본인이 검토(승인/거절/인터뷰)한 가입 신청들. 계정 삭제 시 SetNull.
   workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
+  // S74 (D14 / FR-PS-06): 워크스페이스별 프로필 오버라이드들. 계정 삭제 시 Cascade.
+  workspaceMemberProfiles       WorkspaceMemberProfile[]
 
   // S73 (D14 / FR-PS-02): handle 조회(@멘션 해석 등)는 @unique 가 만드는 btree 로 충분하다.
   // perf minor 리뷰: 별도 @@index([handle]) 는 동일 컬럼 단일 btree 중복이라 제거했다
@@ -670,41 +681,74 @@ model Workspace {
   rules                   WorkspaceRule[]
   onboardingQuestions     OnboardingQuestion[]
   welcome                 WorkspaceWelcome?
+  // S74 (D14 / FR-PS-06): 이 워크스페이스의 멤버별 프로필 오버라이드들. onDelete Cascade.
+  memberProfiles          WorkspaceMemberProfile[]
 
   @@index([ownerId])
   @@index([deletedAt])
   @@index([visibility, category])
 }
 
+// S74 (D14 / FR-PS-06 · Fork2 Option B): 워크스페이스별 프로필 오버라이드.
+//
+// 멤버가 특정 워크스페이스에서만 쓰는 닉네임(≤32)·아바타·About Me(≤190)를 별도로
+// 보관한다. 전역 프로필(User.displayName/avatarKey/bio)을 덮어쓰지 않고 오버라이드만
+// 둔다(채팅/멤버목록 표시 우선순위: ws nickname > 전역 displayName > handle/username,
+// 아바타: ws avatarKey > 전역 avatarKey > 기본). 행 부재 = 오버라이드 없음(전역값 사용).
+//
+// 길이 한도는 nickname/workspaceBio 모두 DB(VarChar) + 앱 레이어 이중 방어한다.
+// avatarKey 는 MinIO `ws-avatars/<wsId>/<userId>/` prefix. workspace/user 모두
+// onDelete Cascade 라 워크스페이스/계정 삭제 시 자동 정리된다.
+model WorkspaceMemberProfile {
+  id           String   @id @default(uuid()) @db.Uuid
+  workspaceId  String   @db.Uuid
+  userId       String   @db.Uuid
+  // FR-PS-06: 워크스페이스 닉네임(≤32). null = 전역 displayName 으로 폴백.
+  nickname     String?  @db.VarChar(32)
+  // FR-PS-06: 워크스페이스 아바타 MinIO 키. null = 전역 avatarKey 로 폴백.
+  avatarKey    String?
+  // FR-PS-06: 워크스페이스 About Me(≤190). null = 전역 bio 로 폴백(표시 패널은 S75).
+  workspaceBio String?  @db.VarChar(190)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  // 멤버당 워크스페이스별 단일 프로필(upsert 대상). @@unique 가 (workspaceId,userId)
+  // btree 를 이미 만들므로 동일 컬럼 조합의 @@index 는 중복이라 제거한다(perf minor).
+  @@unique([workspaceId, userId])
+}
+
 model WorkspaceMember {
-  workspaceId String        @db.Uuid
-  userId      String        @db.Uuid
+  workspaceId           String        @db.Uuid
+  userId                String        @db.Uuid
   // S61: `role` enum 은 시스템 역할 등급(@Roles guard) 의 1차 출처로 유지한다.
   // 커스텀 역할은 아래 `memberRoles`(MemberRole 조인)로 표현하며, 시스템 역할은
   // backfill 로 동등한 MemberRole 행을 함께 갖는다(role enum ↔ 시스템 Role 동기).
-  role        WorkspaceRole @default(MEMBER)
-  joinedAt    DateTime      @default(now())
+  role                  WorkspaceRole @default(MEMBER)
+  joinedAt              DateTime      @default(now())
   // S67 (D13 / FR-W03·W12): 임시 멤버십 표식. temporary=true 초대로 수락한 멤버는
   // true 로 기록된다. S70 의 연결 종료 강퇴 배치(debounce)가 이 컬럼으로 대상을
   // 추린다(@@index([workspaceId, isTemporary])). S67 은 컬럼 + accept 기록까지만.
-  isTemporary Boolean       @default(false)
+  isTemporary           Boolean       @default(false)
   // S63 (D12 / FR-RM07): 모더레이션 타임아웃 만료 시각. null = 음소거 아님. 미래
   // 시각이면 그 시각까지 SEND_MESSAGES/ADD_REACTIONS/USE_SLASH_COMMANDS 가 차단된다
   // (VIEW_CHANNEL/READ_HISTORY 는 유지). 만료는 lazy 체크(mutedUntil>now) — cron/
   // BullMQ 불요. UserChannelMute.mutedUntil(알림 뮤트)과는 별개 축이다.
-  mutedUntil  DateTime?     @db.Timestamptz(6)
+  mutedUntil            DateTime?     @db.Timestamptz(6)
   // S69 (D13 / FR-W10): 이 멤버를 초대한 사용자(없으면 null — 공개 가입/레거시 row).
   // 링크 초대=invite.createdById · 이메일 초대=pending.invitedById · joinPublic=null 로
   // accept 경로에서 기록한다. 초대자 계정 삭제 시 SetNull(초대 이력은 남기되 FK 정리).
-  invitedById String?       @db.Uuid
+  invitedById           String?       @db.Uuid
   // S71 (D13 / FR-W07): 규칙 동의 시각. null = 미동의. 워크스페이스에 WorkspaceRule 이
   // 존재하는데 이 값이 null 이면 send/react 서버 게이트가 403 RULES_NOT_ACCEPTED 로
   // 차단한다(Fork-C). 규칙 0개면 게이트 무동작. additive nullable · backfill 없음(Fork A-1)
   // — 기존 멤버는 규칙 생성 전까지 null 이어도 게이트 무영향(규칙 부재).
-  rulesAcceptedAt      DateTime? @db.Timestamptz(6)
+  rulesAcceptedAt       DateTime?     @db.Timestamptz(6)
   // S71 (D13 / FR-W08): 관심사(Step2) 완료 시각. null = 미완료. 모든 단계 완료 판정의 1차
   // 출처(FE 오버레이 마운트 게이트). '건너뛰기'도 이 값을 세팅한다(채널/역할 미실행).
-  onboardingCompletedAt DateTime? @db.Timestamptz(6)
+  onboardingCompletedAt DateTime?     @db.Timestamptz(6)
   // S71 (D13 / FR-W08 · 결정 4): SHORT_TEXT 질문 답변 저장소. [{ questionId, text }] 형태.
   // 별도 Answer 테이블을 두지 않는다(자유형 응답은 멤버 행에 동거). null = 응답 없음.
   onboardingAnswers     Json?
@@ -712,7 +756,7 @@ model WorkspaceMember {
   // 초대 수락 / 신청 승인 진입점에서 기록한다. 멤버 ban 시 ModerationService 가 이 값을
   // BannedMember.ipHash 로 복사해, 같은 IP 의 후속 가입/수락을 soft-block(audit) 한다.
   // null = 미상 IP(NAT/프록시 미상) 또는 레거시 가입. 원시 IP 는 저장하지 않는다(해시만).
-  ipHash      String?      @db.Char(64)
+  ipHash                String?       @db.Char(64)
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)

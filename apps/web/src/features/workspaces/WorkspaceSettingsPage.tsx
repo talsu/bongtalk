@@ -27,6 +27,8 @@ import { PendingInvitePanel } from './PendingInvitePanel';
 import { EmailDomainsPanel } from './EmailDomainsPanel';
 // S71 (D13 / FR-W07·W08·W09 · 결정 5): 온보딩(규칙/질문/웰컴) 관리자 CRUD 패널.
 import { OnboardingSettingsPanel } from '../onboarding/OnboardingSettingsPanel';
+// S74 (D14 / FR-PS-06): 워크스페이스별 프로필 편집 패널(전원 노출 탭).
+import { WorkspaceProfilePanel } from './WorkspaceProfilePanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -88,6 +90,8 @@ export function WorkspaceSettingsPage({
 
   type TabKey =
     | 'general'
+    // S74 (D14 / FR-PS-06): 내 워크스페이스 프로필(닉네임/아바타/About Me) — 전원 노출.
+    | 'my-profile'
     | 'invites'
     | 'email-invites'
     | 'emoji'
@@ -104,6 +108,8 @@ export function WorkspaceSettingsPage({
   const tabs = useMemo<Array<{ key: TabKey; label: string; testId: string }>>(() => {
     const list: Array<{ key: TabKey; label: string; testId: string }> = [
       { key: 'general', label: '일반', testId: 'ws-settings-tab-general' },
+      // S74 (FR-PS-06): 내 프로필 탭은 모든 멤버에게 노출(권한 무관).
+      { key: 'my-profile', label: '내 프로필', testId: 'ws-settings-tab-my-profile' },
     ];
     if (canManageInvites) {
       list.push({ key: 'invites', label: '초대 링크', testId: 'ws-settings-tab-invites' });
@@ -323,7 +329,16 @@ export function WorkspaceSettingsPage({
 
         {/* S64 fix-forward (a11y H-01 · SC 2.1.1): 각 tabpanel 에 tabIndex={0} 로 키보드
             포커스를 부여한다(탭 전환 후 패널 콘텐츠로 포커스 이동 가능). */}
-        {tab === 'invites' && canManageInvites ? (
+        {tab === 'my-profile' ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-my-profile"
+            aria-labelledby="ws-settings-tab-my-profile"
+            tabIndex={0}
+          >
+            <WorkspaceProfilePanel workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'invites' && canManageInvites ? (
           <div
             role="tabpanel"
             id="ws-settings-panel-invites"

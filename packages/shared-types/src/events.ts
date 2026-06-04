@@ -208,6 +208,14 @@ export const WS_EVENTS = {
   // 다시 무효화해 사이드바에 복귀시킨다.
   WORKSPACE_DELETED: 'ws:workspace_deleted',
   WORKSPACE_RESTORED: 'ws:workspace_restored',
+  // S74 (D14 · FR-PS-06): 워크스페이스별 프로필(닉네임/아바타) 변경. 해당 워크스페이스 룸
+  // (workspace:{wsId})으로 push 한다. 전역 user.profile.updated 와 달리 한 워크스페이스
+  // 스코프이며 payload 로 변경된 ws 표시값(wsNickname/wsAvatarUrl)을 함께 싣는다. 클라
+  // dispatcher 는 해당 워크스페이스의 멤버목록/디렉터리/내-프로필 캐시를 무효화해 ws
+  // 닉네임/아바타 오버라이드를 갱신한다. 와이어 이름은 점/언더스코어 표기
+  // `workspace_profile.updated` 를 유지한다(WS-naming 수렴은 S10 carryover — 본 슬라이스는
+  // 인라인 타입을 스키마+상수로 타입화만 한다).
+  WORKSPACE_PROFILE_UPDATED: 'workspace_profile.updated',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -1044,6 +1052,18 @@ export const WorkspaceRestoredPayloadSchema = z.object({
 export type WorkspaceRestoredPayload = z.infer<typeof WorkspaceRestoredPayloadSchema>;
 
 /**
+ * S74 (D14 · FR-PS-06): workspace_profile.updated 페이로드. 한 워크스페이스 스코프의 ws
+ * 프로필(닉네임/아바타) 변경을 싣는다. wsNickname/wsAvatarUrl 은 비우기(전역 폴백)면 null 이다.
+ */
+export const WorkspaceProfileUpdatedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  userId: z.string().min(1),
+  wsNickname: z.string().nullable(),
+  wsAvatarUrl: z.string().nullable(),
+});
+export type WorkspaceProfileUpdatedPayload = z.infer<typeof WorkspaceProfileUpdatedPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -1098,4 +1118,5 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.MEMBER_LEFT]: MemberLeftPayloadSchema,
   [WS_EVENTS.WORKSPACE_DELETED]: WorkspaceDeletedPayloadSchema,
   [WS_EVENTS.WORKSPACE_RESTORED]: WorkspaceRestoredPayloadSchema,
+  [WS_EVENTS.WORKSPACE_PROFILE_UPDATED]: WorkspaceProfileUpdatedPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

@@ -17,6 +17,7 @@ import {
   WorkspaceRole as SharedRole,
 } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
+import { S3Service } from '../../storage/s3.service';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { OutboxService } from '../../common/outbox/outbox.service';
@@ -63,13 +64,42 @@ interface MemberRow {
     customStatusEmoji: string | null;
     customStatusExpiresAt: Date | null;
     lastSeenAt: Date | null;
+    // S74 (FR-PS-06 + S73 carryover): 전역 표시명/아바타 키(표시 우선순위 폴백 기준).
+    displayName: string | null;
+    avatarKey: string | null;
+    // S74 (FR-PS-06): 이 워크스페이스 프로필 오버라이드(LEFT JOIN — 미설정 시 빈 배열).
+    workspaceMemberProfiles: { nickname: string | null; avatarKey: string | null }[];
   };
+}
+
+/** S74: WorkspaceMemberProfile LEFT JOIN — 이 워크스페이스 행만 1개(또는 0개) 포함시킨다. */
+function memberUserSelect(workspaceId: string) {
+  return {
+    id: true,
+    email: true,
+    username: true,
+    customStatus: true,
+    customStatusEmoji: true,
+    customStatusExpiresAt: true,
+    lastSeenAt: true,
+    // S74 (S73 carryover): 전역 표시명/아바타.
+    displayName: true,
+    avatarKey: true,
+    // S74 (FR-PS-06): 현재 워크스페이스의 오버라이드 한 행(@@unique 라 최대 1개).
+    workspaceMemberProfiles: {
+      where: { workspaceId },
+      select: { nickname: true, avatarKey: true },
+      take: 1,
+    },
+  } as const;
 }
 
 @Injectable()
 export class MembersService {
   constructor(
     private readonly prisma: PrismaService,
+    // S74 (FR-PS-06): ws아바타/전역아바타 키 → presigned GET URL 파생.
+    private readonly s3: S3Service,
     private readonly outbox: OutboxService,
     private readonly presence: PresenceService,
     // S62 fix-forward (security A-1 = MAJOR-1 / MEDIUM-2): 시스템 역할 enum 변경
@@ -150,18 +180,8 @@ export class MembersService {
       include: {
         // task-046 iter0 (MED-5 carry-over): customStatus 를 첫 페인트부터 노출.
         // S27 (FR-P10): lastSeenAt 도 함께 SELECT — offline 그룹 표기용.
-        user: {
-          select: {
-            id: true,
-            email: true,
-            username: true,
-            customStatus: true,
-            // S28 (HIGH-2 + FR-P17): emoji + expiresAt — 만료 마스킹 + emoji 노출.
-            customStatusEmoji: true,
-            customStatusExpiresAt: true,
-            lastSeenAt: true,
-          },
-        },
+        // S74 (FR-PS-06 + S73 carryover): displayName/avatarKey + ws프로필 오버라이드 LEFT JOIN.
+        user: { select: memberUserSelect(workspaceId) },
       },
       orderBy: [{ joinedAt: 'asc' }, { userId: 'asc' }],
     })) as MemberRow[];
@@ -183,16 +203,21 @@ export class MembersService {
       offline: [],
     };
 
-    for (const row of rows) {
-      const presence = byUser.get(row.userId);
-      const status = toStatusGroup(presence?.status);
-      const isSelf = row.userId === viewerUserId;
-      // S27 fix-forward(security BLOCKER · lastSeenAt leak): suppress lastSeenAt
-      // for an invisible-masked row (real === invisible, not self). Such a row
-      // may carry a stale DND-era lastSeenAt that would leak when they went dark.
-      const invisibleMasked = presence?.real === 'invisible' && !isSelf;
-      const dto = this.toDto(row, status, invisibleMasked, now);
-
+    // S74: presignGet 은 서명만(네트워크 없음)이라 멤버 전체 DTO 를 Promise.all 로 병렬
+    // 변환해도 N+1 네트워크 비용이 없다(단일 SELECT 는 위에서 이미 끝났다).
+    const dtos = await Promise.all(
+      rows.map(async (row) => {
+        const presence = byUser.get(row.userId);
+        const status = toStatusGroup(presence?.status);
+        const isSelf = row.userId === viewerUserId;
+        // S27 fix-forward(security BLOCKER · lastSeenAt leak): suppress lastSeenAt
+        // for an invisible-masked row (real === invisible, not self). Such a row
+        // may carry a stale DND-era lastSeenAt that would leak when they went dark.
+        const invisibleMasked = presence?.real === 'invisible' && !isSelf;
+        return { row, status, dto: await this.toDto(row, status, invisibleMasked, now) };
+      }),
+    );
+    for (const { row, status, dto } of dtos) {
       if (HOISTED_ROLES.has(row.role)) {
         hoistMembers.push(dto);
         continue;
@@ -322,17 +347,8 @@ export class MembersService {
     const rows = await this.prisma.workspaceMember.findMany({
       where,
       include: {
-        user: {
-          select: {
-            id: true,
-            email: true,
-            username: true,
-            customStatus: true,
-            customStatusEmoji: true,
-            customStatusExpiresAt: true,
-            lastSeenAt: true,
-          },
-        },
+        // S74 (FR-PS-06 + S73 carryover): displayName/avatarKey + ws프로필 오버라이드 LEFT JOIN.
+        user: { select: memberUserSelect(workspaceId) },
         // S69 (FR-W10): 초대자 표시 정보(프로필 패널). 초대자 미설정/계정삭제(SetNull) 시 null.
         invitedBy: { select: { id: true, username: true } },
       },
@@ -349,36 +365,38 @@ export class MembersService {
     );
     const byUser = new Map(presences.map((p) => [p.userId, p]));
 
-    const members: MemberDirectoryRow[] = page.map((row) => {
-      const presence = byUser.get(row.userId);
-      const status = toStatusGroup(presence?.status);
-      const isSelf = row.userId === viewerUserId;
-      const invisibleMasked = presence?.real === 'invisible' && !isSelf;
-      const base = this.toDto(
-        {
-          workspaceId: row.workspaceId,
-          userId: row.userId,
-          role: row.role,
-          joinedAt: row.joinedAt,
-          mutedUntil: row.mutedUntil,
-          user: row.user,
-        },
-        status,
-        invisibleMasked,
-        now,
-      );
-      // S69 fix-forward (security HIGH/BLOCKER): 비관리자 뷰어에겐 PII(email)·초대자
-      // (invitedBy/invitedById)를 노출하지 않는다(null). ADMIN+ 만 기존대로 받는다.
-      return {
-        ...base,
-        user: { ...base.user, email: isAdminViewer ? base.user.email : null },
-        invitedById: isAdminViewer ? (row.invitedById ?? null) : null,
-        invitedBy:
-          isAdminViewer && row.invitedBy
-            ? { id: row.invitedBy.id, username: row.invitedBy.username }
-            : null,
-      };
-    });
+    const members: MemberDirectoryRow[] = await Promise.all(
+      page.map(async (row) => {
+        const presence = byUser.get(row.userId);
+        const status = toStatusGroup(presence?.status);
+        const isSelf = row.userId === viewerUserId;
+        const invisibleMasked = presence?.real === 'invisible' && !isSelf;
+        const base = await this.toDto(
+          {
+            workspaceId: row.workspaceId,
+            userId: row.userId,
+            role: row.role,
+            joinedAt: row.joinedAt,
+            mutedUntil: row.mutedUntil,
+            user: row.user,
+          },
+          status,
+          invisibleMasked,
+          now,
+        );
+        // S69 fix-forward (security HIGH/BLOCKER): 비관리자 뷰어에겐 PII(email)·초대자
+        // (invitedBy/invitedById)를 노출하지 않는다(null). ADMIN+ 만 기존대로 받는다.
+        return {
+          ...base,
+          user: { ...base.user, email: isAdminViewer ? base.user.email : null },
+          invitedById: isAdminViewer ? (row.invitedById ?? null) : null,
+          invitedBy:
+            isAdminViewer && row.invitedBy
+              ? { id: row.invitedBy.id, username: row.invitedBy.username }
+              : null,
+        };
+      }),
+    );
 
     const last = page[page.length - 1];
     const nextCursor =
@@ -405,12 +423,12 @@ export class MembersService {
    * to **day granularity** (UTC midnight) so the raw millisecond activity time
    * can't be used to fingerprint an activity pattern. UI renders 오늘/어제/N일 전.
    */
-  private toDto(
+  private async toDto(
     row: MemberRow,
     status: MemberStatusGroup,
     invisibleMasked: boolean,
     now: Date,
-  ): MemberWithPresence {
+  ): Promise<MemberWithPresence> {
     const exposeLastSeen = status === 'offline' && !invisibleMasked;
     // S28 (HIGH-2 + FR-P17): 만료된 customStatus(+emoji)는 타인에게 노출되지 않도록
     // expiresAt<=now 면 text/emoji 를 null 로 가린다(getEffective 와 동일 판정 —
@@ -424,6 +442,15 @@ export class MembersService {
       now,
     });
     const stillSet = masked.text !== null || masked.emoji !== null;
+    // S74 (FR-PS-06 + S73 carryover): ws 오버라이드 + 전역 키 → 표시 필드.
+    // presignGet 은 서명만(네트워크 없음). 우선순위 해석은 FE/shared-types 헬퍼가 한다
+    // (서버는 양쪽 값을 모두 내려보내고 키→URL 만 파생). 미설정 키는 URL 도 null.
+    const wsProfile = row.user.workspaceMemberProfiles[0];
+    const wsAvatarKey = wsProfile?.avatarKey ?? null;
+    const [avatarUrl, wsAvatarUrl] = await Promise.all([
+      row.user.avatarKey ? this.s3.presignGet(row.user.avatarKey) : Promise.resolve(null),
+      wsAvatarKey ? this.s3.presignGet(wsAvatarKey) : Promise.resolve(null),
+    ]);
     return {
       workspaceId: row.workspaceId,
       userId: row.userId,
@@ -439,6 +466,11 @@ export class MembersService {
           stillSet && row.user.customStatusExpiresAt
             ? row.user.customStatusExpiresAt.toISOString()
             : null,
+        // S74 (FR-PS-06 + S73 carryover): 표시 우선순위 전파 필드.
+        displayName: row.user.displayName,
+        avatarUrl,
+        wsNickname: wsProfile?.nickname ?? null,
+        wsAvatarUrl,
       },
       status,
       lastSeenAt: exposeLastSeen ? desensitiseToDay(row.user.lastSeenAt) : null,
