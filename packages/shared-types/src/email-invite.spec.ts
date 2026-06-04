@@ -9,7 +9,11 @@ import {
   PendingInviteSchema,
   UpdatePendingInviteRequestSchema,
 } from './email-invite';
-import { UpdateWorkspaceRequestSchema } from './workspace';
+import {
+  isOverlyBroadDomain,
+  TWO_LEVEL_PUBLIC_SUFFIXES,
+  UpdateWorkspaceRequestSchema,
+} from './workspace';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -133,8 +137,35 @@ describe('S68 UpdateWorkspaceRequestSchema — emailDomains (FR-W05 Fork C)', ()
     expect(parsed.emailDomains).toBeUndefined();
   });
 
-  it('rejects a non-lowercase host shape', () => {
-    expect(() => UpdateWorkspaceRequestSchema.parse({ emailDomains: ['Acme.COM'] })).toThrow();
+  it('normalizes an uppercase host to lowercase (S68 LOW-3 — no 400 friction)', () => {
+    const parsed = UpdateWorkspaceRequestSchema.parse({ emailDomains: ['Acme.COM', ' beta.IO '] });
+    expect(parsed.emailDomains).toEqual(['acme.com', 'beta.io']);
+  });
+
+  it('still rejects a malformed host after normalization', () => {
+    expect(() => UpdateWorkspaceRequestSchema.parse({ emailDomains: ['not a host'] })).toThrow();
+  });
+});
+
+describe('S68 isOverlyBroadDomain — shared 단일 출처 (reviewer MN2)', () => {
+  it('flags a bare TLD-level / 2-label host', () => {
+    expect(isOverlyBroadDomain('com')).toBe(true);
+    expect(isOverlyBroadDomain('acme.com')).toBe(true);
+  });
+
+  it('flags known 2-level public suffixes (e.g. co.uk)', () => {
+    expect(isOverlyBroadDomain('co.uk')).toBe(true);
+    expect(isOverlyBroadDomain('co.kr')).toBe(true);
+    expect(TWO_LEVEL_PUBLIC_SUFFIXES.has('co.uk')).toBe(true);
+  });
+
+  it('does not flag a normal company host', () => {
+    expect(isOverlyBroadDomain('acme.co.uk')).toBe(false);
+    expect(isOverlyBroadDomain('mail.acme.com')).toBe(false);
+  });
+
+  it('normalizes case + whitespace before judging', () => {
+    expect(isOverlyBroadDomain(' CO.UK ')).toBe(true);
   });
 });
 

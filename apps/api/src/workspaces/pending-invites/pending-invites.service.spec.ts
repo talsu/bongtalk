@@ -60,6 +60,12 @@ function makeService(opts: {
         }
         return { username: 'admin' };
       }),
+      // S68 fix-forward (perf SERIOUS): inviteByEmail 이 사전 일괄 조회한다.
+      findMany: vi.fn(async (args: { where: { email: { in: string[] } } }) =>
+        args.where.email.in
+          .filter((e) => registered.has(e))
+          .map((e) => ({ id: emailToUserId(e), email: e })),
+      ),
     },
     workspaceMember: {
       findUnique: vi.fn(async (args: { where: { workspaceId_userId: { userId: string } } }) => {
@@ -87,6 +93,12 @@ function makeService(opts: {
         }
         return null;
       }),
+      // S68 fix-forward (perf SERIOUS): inviteByEmail 이 사전 일괄 조회한다.
+      findMany: vi.fn(async (args: { where: { email: { in: string[] } } }) =>
+        args.where.email.in
+          .filter((e) => pendingEmails.has(e))
+          .map((e) => ({ email: e, acceptedAt: null, canceledAt: null })),
+      ),
       upsert: vi.fn(async (args: { create: StoredPending }) => {
         createdPending.push(args.create);
         return args.create;
@@ -180,9 +192,11 @@ describe('S68 ★핵심 AC — sha256(rawToken) stored, no plaintext token in DB
     expect(stored.tokenHash).toMatch(/^[0-9a-f]{64}$/);
     expect('token' in stored).toBe(false);
     expect('rawToken' in stored).toBe(false);
-    // 메일 URL 에서 rawToken(path 끝)을 추출해 sha256 이 저장값과 일치하는지 확인.
+    // S68 fix-forward (security MEDIUM-1): rawToken 은 URL fragment(#token=…)로 옮겼다.
+    // fragment 에서 추출해 sha256 이 저장값과 일치하는지 확인한다.
     const url = mailSent[0].inviteUrl;
-    const rawToken = url.split('/').pop()!;
+    expect(url).toMatch(/#token=/);
+    const rawToken = url.split('#token=')[1];
     expect(hashToken(rawToken)).toBe(stored.tokenHash);
     // 저장값은 rawToken 평문과 절대 같지 않다.
     expect(stored.tokenHash).not.toBe(rawToken);
@@ -213,5 +227,32 @@ describe('S68 acceptByToken — role forgery rejected (EMAIL_INVITE_ROLE_MISMATC
         emailVerified: true,
       }),
     ).rejects.toMatchObject({ code: ErrorCode.EMAIL_INVITE_ROLE_MISMATCH });
+  });
+});
+
+describe('S68 acceptByToken — 이메일 소유권 강제 (reviewer B1 보안 BLOCKER)', () => {
+  it('actor 이메일이 초대 대상 이메일과 다르면 403 EMAIL_INVITE_EMAIL_MISMATCH (분기③ 서버 강제)', async () => {
+    const { svc, prisma } = makeService({});
+    const rawToken = 'mismatch-token';
+    // 보류 초대는 invitee@acme.com 대상이지만, 다른 계정(other@acme.com)이 수락을 시도한다.
+    prisma.workspacePendingInvite.findUnique = vi.fn(async () => ({
+      id: 'p1',
+      workspaceId: 'ws',
+      email: 'invitee@acme.com',
+      role: WorkspaceRole.MEMBER,
+      tokenHash: hashToken(rawToken),
+      invitedById: 'inviter',
+      expiresAt: new Date('2025-02-01T00:00:00Z'),
+      acceptedAt: null,
+      canceledAt: null,
+      lastSentAt: new Date('2025-01-01T00:00:00Z'),
+    })) as never;
+    await expect(
+      svc.acceptByToken(rawToken, {
+        userId: 'u-other',
+        userEmail: 'OTHER@acme.com', // 대문자 — normalizeEmail 후에도 invitee 와 불일치.
+        emailVerified: true,
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.EMAIL_INVITE_EMAIL_MISMATCH });
   });
 });

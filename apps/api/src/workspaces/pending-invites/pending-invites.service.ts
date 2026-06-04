@@ -8,7 +8,6 @@ import {
   type EmailInviteResultRow,
   type EmailInviteRole,
   type InviteByEmailResponse,
-  ROLE_RANK,
   type WorkspaceRole as SharedWorkspaceRole,
 } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
@@ -57,8 +56,11 @@ export class PendingInvitesService {
 
   private acceptUrl(rawToken: string, slug: string): string {
     const base = (process.env.WEB_URL ?? 'http://localhost:45173').replace(/\/$/, '');
-    // rawToken 은 path 끝 segment 로 전달한다(FE EmailInviteAcceptPage 가 교환/수락에 사용).
-    return `${base}/w/${slug}/email-invite/${rawToken}`;
+    // S68 fix-forward (security MEDIUM-1): rawToken 을 URL **fragment**(#token=…)로 둔다.
+    // fragment 는 브라우저가 서버/nginx 로 전송하지 않으므로 access 로그에 평문이 남지 않는다
+    // (종전 path segment 는 nginx access 로그에 그대로 기록됨). FE EmailInviteAcceptPage 가
+    // location.hash 에서 토큰을 읽어 교환/수락 POST 바디로만 보낸다.
+    return `${base}/w/${slug}/email-invite#token=${rawToken}`;
   }
 
   /**
@@ -90,6 +92,21 @@ export class PendingInvitesService {
     const inviterName = inviter?.username ?? 'qufox';
     const expiresAt = new Date(now.getTime() + EMAIL_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
 
+    // S68 fix-forward (perf SERIOUS): 50건 직렬 처리(이메일당 user.findUnique +
+    // pending.findUnique)로 인한 N+1 을 사전 일괄 조회 두 번으로 줄인다. 멤버/ban/생성은
+    // 분기별로(가입자 직접 추가는 멤버 체크 + ban 체크가 필요해 여전히 분기 내 조회가 있으나,
+    // user/pending 조회의 N+1 은 제거된다). 메일은 stub(부수효과만)이라 직렬 발송을 유지한다.
+    const existingUsers = await this.prisma.user.findMany({
+      where: { email: { in: emails } },
+      select: { id: true, email: true },
+    });
+    const userByEmail = new Map(existingUsers.map((u) => [u.email, u.id]));
+    const existingPendings = await this.prisma.workspacePendingInvite.findMany({
+      where: { workspaceId: workspace.id, email: { in: emails } },
+      select: { email: true, canceledAt: true, acceptedAt: true },
+    });
+    const pendingByEmail = new Map(existingPendings.map((p) => [p.email, p]));
+
     const results: EmailInviteResultRow[] = [];
     for (const email of emails) {
       try {
@@ -100,6 +117,8 @@ export class PendingInvitesService {
           email,
           role,
           expiresAt,
+          userByEmail.get(email) ?? null,
+          pendingByEmail.get(email) ?? null,
         );
         results.push({ email, outcome });
       } catch (e) {
@@ -115,7 +134,11 @@ export class PendingInvitesService {
     return { results, sentCount, addedCount, failedCount };
   }
 
-  /** 단일 이메일 1건 처리(가입자 직접 추가 / 보류 초대 생성+발송 분기). */
+  /**
+   * 단일 이메일 1건 처리(가입자 직접 추가 / 보류 초대 생성+발송 분기).
+   * existingUserId / existingPending 은 inviteByEmail 이 사전 일괄 조회한 결과를 넘긴다
+   * (perf SERIOUS — N+1 제거). null 이면 각각 미가입 / 보류 행 없음을 뜻한다.
+   */
   private async processOne(
     workspace: { id: string; name: string; slug: string },
     invitedById: string,
@@ -123,20 +146,17 @@ export class PendingInvitesService {
     email: string,
     role: EmailInviteRole,
     expiresAt: Date,
+    existingUserId: string | null,
+    existingPending: { canceledAt: Date | null; acceptedAt: Date | null } | null,
   ): Promise<EmailInviteResultRow['outcome']> {
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-      select: { id: true },
-    });
-
     // ── 이미 가입된 이메일 → 직접 WorkspaceMember 생성(보류 행 없음) ──────────────
-    if (existingUser) {
+    if (existingUserId) {
       const already = await this.prisma.workspaceMember.findUnique({
-        where: { workspaceId_userId: { workspaceId: workspace.id, userId: existingUser.id } },
+        where: { workspaceId_userId: { workspaceId: workspace.id, userId: existingUserId } },
       });
       if (already) return 'ALREADY_MEMBER';
       // 차단된 사용자는 직접 추가하지 않는다(ban 우회 방어 — invites.accept 선례).
-      if (await this.moderation.isBanned(workspace.id, existingUser.id)) {
+      if (await this.moderation.isBanned(workspace.id, existingUserId)) {
         return 'ALREADY_MEMBER'; // 중립 — 차단 사실을 결과로 누출하지 않음.
       }
       const systemRole = role === 'GUEST' ? 'GUEST' : 'MEMBER';
@@ -144,16 +164,16 @@ export class PendingInvitesService {
         await tx.workspaceMember.create({
           data: {
             workspaceId: workspace.id,
-            userId: existingUser.id,
+            userId: existingUserId,
             role: role as WorkspaceRole,
           },
         });
-        await syncMemberSystemRole(tx, workspace.id, existingUser.id, systemRole);
+        await syncMemberSystemRole(tx, workspace.id, existingUserId, systemRole);
         await this.outbox.record(tx, {
           aggregateType: 'member',
-          aggregateId: existingUser.id,
+          aggregateId: existingUserId,
           eventType: MEMBER_JOINED,
-          payload: { workspaceId: workspace.id, userId: existingUser.id, actorId: invitedById },
+          payload: { workspaceId: workspace.id, userId: existingUserId, actorId: invitedById },
         });
       });
       return 'ADDED_MEMBER';
@@ -161,9 +181,6 @@ export class PendingInvitesService {
 
     // ── 미가입 이메일 → 보류 초대 행 + 안내 메일 ──────────────────────────────────
     // 이미 활성 보류 초대가 있으면 중복 발송하지 않는다(ALREADY_PENDING).
-    const existingPending = await this.prisma.workspacePendingInvite.findUnique({
-      where: { workspaceId_email: { workspaceId: workspace.id, email } },
-    });
     if (existingPending && !existingPending.canceledAt && !existingPending.acceptedAt) {
       return 'ALREADY_PENDING';
     }
@@ -240,16 +257,29 @@ export class PendingInvitesService {
       // opaque 만료(10분 경과)/무효 → 410(한때 유효했으나 소멸 — FR-W04a ④와 동일 계열).
       throw new DomainError(ErrorCode.EMAIL_INVITE_EXPIRED, 'invite exchange code expired');
     }
-    const pending = await this.prisma.workspacePendingInvite.findUnique({
-      where: { id: pendingId },
-    });
-    if (!pending) {
-      throw new DomainError(ErrorCode.EMAIL_INVITE_TOKEN_INVALID, 'invite not found');
+    try {
+      const pending = await this.prisma.workspacePendingInvite.findUnique({
+        where: { id: pendingId },
+      });
+      if (!pending || pending.canceledAt) {
+        throw new DomainError(ErrorCode.EMAIL_INVITE_TOKEN_INVALID, 'invite not found');
+      }
+      if (pending.acceptedAt) {
+        throw new DomainError(ErrorCode.EMAIL_INVITE_ALREADY_ACCEPTED, 'invite already accepted');
+      }
+      // S68 fix-forward (reviewer MN1): 만료 검사를 rawToken 경로(loadActiveByToken)와 통일한다.
+      // acceptPending 의 CAS 는 canceledAt 만 보므로, 보류 초대 자체의 30일 만료는 여기서
+      // EMAIL_INVITE_EXPIRED(410)로 명시 거부한다(opaque 10분 만료와 별개 차원).
+      if (pending.expiresAt.getTime() <= now.getTime()) {
+        throw new DomainError(ErrorCode.EMAIL_INVITE_EXPIRED, 'invite expired');
+      }
+      return await this.acceptPending(pending, actor, now);
+    } finally {
+      // S68 fix-forward (reviewer MN3 / security MEDIUM-2): 성공뿐 아니라 실패(이메일 불일치/
+      // 게이트/ban)에도 opaque 코드를 즉시 폐기한다(일회용 — 재사용·brute 시도 차단). 성공 시
+      // 보류 초대 자체는 acceptedAt CAS 로 소비되므로 opaque del 과 이중으로 막힌다.
+      await this.redis.del(OPAQUE_KEY(opaqueCode));
     }
-    const result = await this.acceptPending(pending, actor, now);
-    // 일회용 — 수락 성공 후 opaque 코드를 즉시 폐기한다(재사용 차단).
-    await this.redis.del(OPAQUE_KEY(opaqueCode));
-    return result;
   }
 
   /**
@@ -288,22 +318,33 @@ export class PendingInvitesService {
   }
 
   /**
-   * 공통 수락 본체: role 대조 → 진입 게이트(emailVerified + emailDomains) → ban 검사 →
-   * 멤버 생성 + acceptedAt CAS. role 대조(token role ↔ DB role)는 loadActiveByToken 이
-   * 이미 단일 행을 읽었으므로 행의 role 이 곧 DB role 이다. 여기서는 actor 가 들고 온
-   * (URL/메일에서 추론된) 역할이 없으므로, pending.role 을 그대로 진실로 쓰되 ROLE_RANK
-   * 가 직접 초대 가능 범위(MEMBER/GUEST)를 벗어나면 위조로 간주해 400 으로 거부한다.
+   * 공통 수락 본체: 이메일 소유권 강제 → role 대조 → 진입 게이트(emailVerified +
+   * emailDomains) → ban 검사 → 멤버 생성 + acceptedAt CAS. role 대조(token role ↔ DB role)는
+   * loadActiveByToken 이 이미 단일 행을 읽었으므로 행의 role 이 곧 DB role 이다. 여기서는
+   * actor 가 들고 온 (URL/메일에서 추론된) 역할이 없으므로, pending.role 을 그대로 진실로
+   * 쓰되 ROLE_RANK 가 직접 초대 가능 범위(MEMBER/GUEST)를 벗어나면 위조로 간주해 400 으로
+   * 거부한다.
    */
   private async acceptPending(
     pending: {
       id: string;
       workspaceId: string;
+      email: string;
       role: WorkspaceRole;
       acceptedAt: Date | null;
     },
     actor: { userId: string; userEmail: string; emailVerified: boolean },
     now: Date,
   ) {
+    // S68 fix-forward (reviewer B1 = 보안 BLOCKER): 수락 actor 의 이메일이 초대 대상 이메일과
+    // 정확히 일치해야 한다. rawToken 경로(분기②③)·opaque 경로(분기①·가입 후) 양쪽 공통 본체라
+    // 한 곳에서 강제하면 ▸ 다른 계정 로그인(분기③) ▸ 가입 시 이메일 변경 우회 ▸ rawToken 유출
+    // 후 임의 계정 수락 을 모두 차단한다(FR-W04a 분기③ 의도의 서버 강제). 불일치 시 403
+    // EMAIL_INVITE_EMAIL_MISMATCH → FE 가 "초대받은 이메일로 로그인" 안내(분기③)로 분기한다.
+    if (normalizeEmail(actor.userEmail) !== pending.email) {
+      throw new DomainError(ErrorCode.EMAIL_INVITE_EMAIL_MISMATCH, 'invite email mismatch');
+    }
+
     // role 대조: 직접 초대 역할은 MEMBER/GUEST 만 유효하다. 그 외(ADMIN+)면 위조/변조로
     // 간주해 400 으로 거부한다(EMAIL_INVITE_ROLE_MISMATCH).
     if (pending.role !== WorkspaceRole.MEMBER && pending.role !== WorkspaceRole.GUEST) {
@@ -433,14 +474,17 @@ export class PendingInvitesService {
     if (!pending) {
       throw new DomainError(ErrorCode.EMAIL_INVITE_NOT_FOUND, 'pending invite not found');
     }
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: workspaceId },
-      select: { name: true, slug: true },
-    });
-    const inviter = await this.prisma.user.findUnique({
-      where: { id: pending.invitedById },
-      select: { username: true },
-    });
+    // S68 fix-forward (perf MODERATE): workspace + inviter 를 병렬 조회한다(직렬 왕복 제거).
+    const [workspace, inviter] = await Promise.all([
+      this.prisma.workspace.findUnique({
+        where: { id: workspaceId },
+        select: { name: true, slug: true },
+      }),
+      this.prisma.user.findUnique({
+        where: { id: pending.invitedById },
+        select: { username: true },
+      }),
+    ]);
     const rawToken = makeRawToken();
     const tokenHash = hashToken(rawToken);
     const expiresAt = new Date(now.getTime() + EMAIL_INVITE_TTL_DAYS * 24 * 60 * 60 * 1000);
@@ -466,10 +510,5 @@ export class PendingInvitesService {
     if (result.count === 0) {
       throw new DomainError(ErrorCode.EMAIL_INVITE_NOT_FOUND, 'pending invite not found');
     }
-  }
-
-  /** ADMIN 이상 게이트 헬퍼(컨트롤러가 @Roles('ADMIN') 로도 강제하지만 일관성 위해 보조). */
-  static requiresAdmin(role: SharedWorkspaceRole): boolean {
-    return ROLE_RANK[role] >= ROLE_RANK.ADMIN;
   }
 }

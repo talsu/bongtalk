@@ -19,14 +19,18 @@ vi.mock('../../design-system/primitives', () => ({
       {children}
     </button>
   ),
-  Input: ({ onChange, onKeyDown, value, ...rest }: Record<string, unknown>) => (
+  Input: ({ onChange, onKeyDown, value, invalid, ...rest }: Record<string, unknown>) => (
     <input
+      aria-label="도메인 추가"
+      aria-invalid={invalid ? true : undefined}
       value={value as string}
       onChange={onChange as () => void}
       onKeyDown={onKeyDown as () => void}
       {...rest}
     />
   ),
+  // S68 fix-forward: 광범위 도메인 배너가 ⚠ Icon(aria-hidden)을 쓰므로 mock 에 추가한다.
+  Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} aria-hidden="true" />,
 }));
 
 const updateMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };

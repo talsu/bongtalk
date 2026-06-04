@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { Button } from '../../design-system/primitives';
+import { Button, Icon } from '../../design-system/primitives';
 import { useAuth } from '../auth/AuthProvider';
 import { acceptEmailInvite, acceptEmailInviteByOpaque, exchangeEmailInviteToken } from './api';
 import { InviteExpired } from './InviteExpired';
@@ -10,11 +10,13 @@ import { InviteExpired } from './InviteExpired';
  *   ① 미가입 → exchange 로 rawToken 을 opaque 코드로 교환 → 회원가입 리다이렉트(URL 엔
  *      opaque 코드만) → 가입 후 opaque 검증으로 자동 수락.
  *   ② 가입 + 이메일 일치 로그인 → 즉시 수락.
- *   ③ 가입 + 다른 계정 로그인 → 계정 확인 안내(다른 계정/로그아웃 권고).
+ *   ③ 가입 + 다른 계정 로그인(또는 이메일 불일치) → 계정 확인 안내(다른 계정/로그아웃 권고).
  *   ④ 토큰 만료/무효 → 410 → 만료 화면.
  *
- * 보안(★핵심 AC): rawToken 은 바디로만 전송하고, 미가입 분기는 opaque 코드로 교환한 뒤
- * 회원가입 URL 엔 opaque 코드만 둔다(rawToken URL/로그 평문 미노출).
+ * 보안(★핵심 AC): rawToken 은 URL **fragment**(#token=…)로만 들어온다(security MEDIUM-1 —
+ * fragment 는 서버/nginx 로 전송되지 않아 access 로그에 평문이 남지 않는다). 토큰은 location.hash
+ * 에서 읽어 교환/수락 POST 바디로만 보내고, 미가입 분기는 opaque 코드로 교환한 뒤 회원가입 URL
+ * 엔 opaque 코드만 둔다.
  */
 
 // 토큰 만료/소진(410) → 전용 만료 화면으로 분기.
@@ -30,20 +32,36 @@ const CARD_STYLE = {
 type ViewState =
   | { kind: 'loading' }
   | { kind: 'self-confirm' } // ② 이메일 일치 로그인 사용자에게 수락 버튼 제시
-  | { kind: 'other-account'; inviteEmail: string } // ③ 다른 계정 안내
+  | { kind: 'other-account' } // ③ 다른 계정 / 이메일 불일치 안내
   | { kind: 'expired' } // ④
   | { kind: 'error'; message: string };
 
+/**
+ * S68 fix-forward (security MEDIUM-1): rawToken 을 URL fragment(#token=…)에서 읽는다.
+ * 하위호환으로 path param(useParams().token)도 폴백 처리한다(있더라도 신규 라우트엔 없음).
+ */
+function readTokenFromHash(): string | null {
+  if (typeof window === 'undefined') return null;
+  const hash = window.location.hash.replace(/^#/, '');
+  if (!hash) return null;
+  const params = new URLSearchParams(hash);
+  return params.get('token');
+}
+
 export function EmailInviteAcceptPage(): JSX.Element {
-  const { slug, token } = useParams();
+  const { slug, token: pathToken } = useParams();
   const [searchParams] = useSearchParams();
   // 가입 직후 자동 수락 흐름: /w/:slug/email-invite?opaque=<code>
   const opaque = searchParams.get('opaque');
+  // rawToken 은 fragment(#token=…)에서 읽는다(security MEDIUM-1). path param 은 폴백.
+  const token = useMemo(() => readTokenFromHash() ?? pathToken ?? null, [pathToken]);
   const navigate = useNavigate();
   const { status, user } = useAuth();
   const [view, setView] = useState<ViewState>({ kind: 'loading' });
   const [acceptError, setAcceptError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // S68 a11y (HIGH-3): 각 분기 진입 시 h1 로 포커스를 옮긴다(InviteExpired 패턴).
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
 
   const errorCodeOf = (e: unknown): string | undefined =>
     (e as Error & { errorCode?: string }).errorCode;
@@ -59,7 +77,9 @@ export function EmailInviteAcceptPage(): JSX.Element {
         if (!cancelled) navigate(`/w/${res.workspace.slug}`, { replace: true });
       } catch (e) {
         if (cancelled) return;
-        if (EXPIRED_CODES.has(errorCodeOf(e) ?? '')) setView({ kind: 'expired' });
+        const ec = errorCodeOf(e);
+        if (EXPIRED_CODES.has(ec ?? '')) setView({ kind: 'expired' });
+        else if (ec === 'EMAIL_INVITE_EMAIL_MISMATCH') setView({ kind: 'other-account' });
         else setView({ kind: 'error', message: (e as Error).message });
       }
     })();
@@ -101,6 +121,21 @@ export function EmailInviteAcceptPage(): JSX.Element {
     };
   }, [opaque, slug, token, status, navigate]);
 
+  // S68 a11y (HIGH-3): 분기 진입 시 document.title + h1 포커스.
+  useEffect(() => {
+    const titleByView: Record<ViewState['kind'], string> = {
+      loading: '초대 확인 중 · qufox',
+      'self-confirm': '워크스페이스 초대 수락 · qufox',
+      'other-account': '다른 계정으로 초대됨 · qufox',
+      expired: '초대 만료 · qufox',
+      error: '초대 링크 오류 · qufox',
+    };
+    document.title = titleByView[view.kind];
+    if (view.kind !== 'loading' && view.kind !== 'expired') {
+      headingRef.current?.focus();
+    }
+  }, [view.kind]);
+
   const onAccept = async (): Promise<void> => {
     if (!slug || !token) return;
     setAcceptError(null);
@@ -116,9 +151,14 @@ export function EmailInviteAcceptPage(): JSX.Element {
         setAcceptError('허용된 이메일 도메인의 계정만 참여할 수 있습니다.');
       } else if (ec === 'EMAIL_NOT_VERIFIED') {
         setAcceptError('이메일 인증 후 초대를 수락할 수 있습니다.');
-      } else if (ec === 'EMAIL_INVITE_TOKEN_INVALID' || ec === 'EMAIL_INVITE_ROLE_MISMATCH') {
+      } else if (
+        ec === 'EMAIL_INVITE_EMAIL_MISMATCH' ||
+        ec === 'EMAIL_INVITE_TOKEN_INVALID' ||
+        ec === 'EMAIL_INVITE_ROLE_MISMATCH'
+      ) {
         // 이 계정으로는 수락 불가(이메일 불일치/위조) → 다른 계정 안내(분기 ③).
-        setView({ kind: 'other-account', inviteEmail: '' });
+        // ★서버 강제(reviewer B1): 초대 대상이 아닌 계정의 수락은 403 으로 거부된다.
+        setView({ kind: 'other-account' });
       } else {
         setAcceptError('초대를 수락할 수 없습니다. 잠시 후 다시 시도해 주세요.');
       }
@@ -135,6 +175,7 @@ export function EmailInviteAcceptPage(): JSX.Element {
     return (
       <div
         data-testid="email-invite-loading"
+        role="status"
         className="qf-empty flex min-h-full items-center justify-center"
       >
         <div className="qf-empty__body">초대를 확인하는 중…</div>
@@ -147,10 +188,16 @@ export function EmailInviteAcceptPage(): JSX.Element {
       <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
         <section
           data-testid="email-invite-invalid"
+          aria-labelledby="email-invite-error-heading"
           className="max-w-md p-[var(--s-9)] text-center"
           style={CARD_STYLE}
         >
-          <h1 className="text-[length:var(--fs-20)] font-semibold text-warning">
+          <h1
+            id="email-invite-error-heading"
+            ref={headingRef}
+            tabIndex={-1}
+            className="text-[length:var(--fs-20)] font-semibold text-text-strong outline-none"
+          >
             초대 링크를 사용할 수 없어요
           </h1>
           <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
@@ -166,10 +213,16 @@ export function EmailInviteAcceptPage(): JSX.Element {
       <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
         <section
           data-testid="email-invite-other-account"
+          aria-labelledby="email-invite-other-heading"
           className="w-full max-w-md p-[var(--s-9)] text-center"
           style={CARD_STYLE}
         >
-          <h1 className="text-[length:var(--fs-20)] font-semibold text-text-strong">
+          <h1
+            id="email-invite-other-heading"
+            ref={headingRef}
+            tabIndex={-1}
+            className="text-[length:var(--fs-20)] font-semibold text-text-strong outline-none"
+          >
             다른 계정으로 초대되었습니다
           </h1>
           <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
@@ -178,7 +231,7 @@ export function EmailInviteAcceptPage(): JSX.Element {
           </p>
           <div className="mt-[var(--s-7)] flex flex-col gap-[var(--s-3)] text-[length:var(--fs-13)]">
             <Link
-              to={`/login?from=${encodeURIComponent(`/w/${slug}/email-invite/${token}`)}`}
+              to={`/login?from=${encodeURIComponent(`/w/${slug}/email-invite`)}`}
               className="qf-btn qf-btn--primary qf-btn--lg"
             >
               다른 계정으로 로그인
@@ -192,9 +245,20 @@ export function EmailInviteAcceptPage(): JSX.Element {
   // ② self-confirm: 이메일 일치 로그인 사용자에게 수락 버튼.
   return (
     <main className="flex min-h-full items-center justify-center bg-background p-[var(--s-6)]">
-      <section className="w-full max-w-md p-[var(--s-9)] text-center" style={CARD_STYLE}>
-        <div className="qf-eyebrow mb-[var(--s-3)]">workspace invite</div>
-        <h1 className="text-[length:var(--fs-24)] font-semibold text-text-strong">
+      <section
+        aria-labelledby="email-invite-confirm-heading"
+        className="w-full max-w-md p-[var(--s-9)] text-center"
+        style={CARD_STYLE}
+      >
+        <div className="qf-eyebrow mb-[var(--s-3)]" aria-hidden="true">
+          workspace invite
+        </div>
+        <h1
+          id="email-invite-confirm-heading"
+          ref={headingRef}
+          tabIndex={-1}
+          className="text-[length:var(--fs-24)] font-semibold text-text-strong outline-none"
+        >
           워크스페이스 초대를 수락하시겠어요?
         </h1>
         <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
@@ -216,9 +280,12 @@ export function EmailInviteAcceptPage(): JSX.Element {
             data-testid="email-invite-accept-error"
             role="alert"
             aria-live="assertive"
-            className="mt-[var(--s-4)] text-[length:var(--fs-13)] text-text-strong"
+            className="mt-[var(--s-4)] flex items-center justify-center gap-[var(--s-2)] text-[length:var(--fs-13)] text-text-strong"
           >
-            {acceptError}
+            {/* S68 a11y (MAJOR-6 / HIGH-1): text-danger 는 라이트 대비 미달이라 미사용.
+                색 의존을 해소하는 시각 단서로 ⚠ 아이콘(aria-hidden)을 곁들인다. */}
+            <Icon name="alert" size="sm" className="shrink-0" />
+            <span>{acceptError}</span>
           </p>
         ) : null}
       </section>

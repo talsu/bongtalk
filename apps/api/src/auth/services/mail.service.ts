@@ -76,9 +76,13 @@ export class ConsoleMailSender implements MailSender {
   }
 
   /**
-   * S68 (D13 / FR-W04 · Fork B): 워크스페이스 초대 메일 Console stub. sendVerificationEmail
-   * 과 동일하게 prod 에서는 inviteUrl 의 토큰을 마스킹해 평문 노출(★핵심 AC: rawToken
-   * 로그 평문 미노출)을 막고, dev/test 에서는 링크를 그대로 출력해 수동 수락을 돕는다.
+   * S68 (D13 / FR-W04 · Fork B): 워크스페이스 초대 메일 Console stub.
+   *
+   * S68 fix-forward (security MEDIUM-3): inviteUrl(rawToken 포함) 평문 로그는 **development
+   * 에서만** 출력한다. 종전 `NODE_ENV !== 'production'` 게이트는 test(NODE_ENV=test) 와 미설정
+   * 환경에서도 rawToken 을 평문 로그로 남겨 누출 표면이 됐다(테스트 로그 수집/CI 아티팩트 등).
+   * dev 가 아닌 모든 환경(test 포함·미설정)은 토큰 끝 6자만 마스킹 노출한다(★핵심 AC: rawToken
+   * 로그 평문 미노출).
    */
   async sendWorkspaceInviteEmail(
     to: string,
@@ -87,28 +91,29 @@ export class ConsoleMailSender implements MailSender {
     role: string,
     inviterName: string,
   ): Promise<void> {
-    if (process.env.NODE_ENV === 'production') {
-      this.logger.warn(
+    if (process.env.NODE_ENV === 'development') {
+      // dev 편의 — 수동 수락을 위해 링크를 그대로 출력한다.
+      this.logger.log(
         JSON.stringify({
           event: 'workspace_invite_sent',
           to,
           workspaceName,
           role,
           inviterName,
-          tokenTail: maskInviteUrl(inviteUrl),
-          note: 'email sender not configured (console stub)',
+          inviteUrl,
         }),
       );
       return;
     }
-    this.logger.log(
+    this.logger.warn(
       JSON.stringify({
         event: 'workspace_invite_sent',
         to,
         workspaceName,
         role,
         inviterName,
-        inviteUrl,
+        tokenTail: maskInviteUrl(inviteUrl),
+        note: 'email sender not configured (console stub)',
       }),
     );
   }
@@ -126,15 +131,18 @@ function maskToken(verifyUrl: string): string {
 }
 
 /**
- * S68 (D13 / FR-W04): 워크스페이스 초대 inviteUrl 의 마지막 path/query 토큰 끝 6자만
- * 노출하는 마스킹. rawToken/opaque 코드 전체 노출을 막되 발송 흔적 추적은 가능하게 한다.
- * inviteUrl 은 path 끝(.../accept-email-invite/<token>)이나 쿼리(?token=…/?code=…) 형태가
- * 모두 가능하므로, URL 마지막 segment 와 쿼리값 중 더 긴 토큰성 문자열의 꼬리를 노출한다.
+ * S68 (D13 / FR-W04): 워크스페이스 초대 inviteUrl 의 토큰 끝 6자만 노출하는 마스킹.
+ * rawToken/opaque 코드 전체 노출을 막되 발송 흔적 추적은 가능하게 한다.
+ *
+ * S68 fix-forward (security MEDIUM-1): acceptUrl 이 rawToken 을 URL **fragment**(#token=…)로
+ * 옮겼으므로 fragment 의 token 도 우선 추출한다. 쿼리(?token=…/?code=…)·path 끝 segment
+ * 형태도 하위호환으로 함께 처리한다(어느 형태든 토큰성 문자열의 꼬리만 노출).
  */
 function maskInviteUrl(inviteUrl: string): string {
-  const queryMatch = /[?&](?:token|code)=([^&]+)/.exec(inviteUrl);
+  const fragMatch = /#(?:.*&)?(?:token|code)=([^&]+)/.exec(inviteUrl);
+  const queryMatch = /[?&](?:token|code)=([^&#]+)/.exec(inviteUrl);
   const pathTail = inviteUrl.split(/[?#]/)[0].split('/').filter(Boolean).pop() ?? '';
-  const candidate = queryMatch?.[1] ?? pathTail;
+  const candidate = fragMatch?.[1] ?? queryMatch?.[1] ?? pathTail;
   if (candidate.length <= 6) return `***${candidate}`;
   return `***${candidate.slice(-6)}`;
 }

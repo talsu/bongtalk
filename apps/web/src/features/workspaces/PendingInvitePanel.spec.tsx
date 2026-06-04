@@ -36,6 +36,8 @@ vi.mock('../../design-system/primitives', () => ({
       {children}
     </button>
   ),
+  // S68 fix-forward: 만료 라벨이 ⚠ Icon(aria-hidden)을 쓰므로 mock 에 추가한다.
+  Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} aria-hidden="true" />,
 }));
 
 const updateMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };

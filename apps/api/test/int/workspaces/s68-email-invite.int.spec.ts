@@ -172,6 +172,27 @@ describe('S68 accept-email-invite — sha256 대조 / 만료 410 / role 위조 4
     expect(res.status).toBe(400);
     expect(res.body.errorCode).toBe('EMAIL_INVITE_TOKEN_INVALID');
   });
+
+  // S68 fix-forward (reviewer B1 = 보안 BLOCKER + M1): 초대 대상이 아닌 계정의 수락은
+  // 서버가 403 EMAIL_INVITE_EMAIL_MISMATCH 로 거부한다(FR-W04a 분기③ 서버 강제).
+  it('초대 이메일과 다른 계정의 rawToken 수락은 403 EMAIL_INVITE_EMAIL_MISMATCH (분기③)', async () => {
+    const { owner, workspaceId, slug } = await makeOwnerWs('s68k');
+    // 보류 초대는 다른(미가입) 이메일 대상이지만, 가입한 다른 계정이 토큰으로 수락을 시도.
+    const rawToken = await seedPending(workspaceId, owner.userId, 'invitee-s68k@acme.dev');
+    const other = await signupAsUser(env.baseUrl, 's68kother');
+    const res = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/accept-email-invite`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .send({ token: rawToken });
+    expect(res.status).toBe(403);
+    expect(res.body.errorCode).toBe('EMAIL_INVITE_EMAIL_MISMATCH');
+    // 멤버로 끼워넣어지지 않았다(거부가 우선).
+    const member = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: other.userId } },
+    });
+    expect(member).toBeNull();
+  });
 });
 
 describe('S68 exchange-invite-token — opaque(rawToken 미포함) + TTL 10분 소멸 410', () => {
@@ -211,6 +232,137 @@ describe('S68 exchange-invite-token — opaque(rawToken 미포함) + TTL 10분 �
       .set('origin', ORIGIN)
       .set('Authorization', `Bearer ${joiner.accessToken}`)
       .send({ token: exch.body.opaqueCode });
+    expect(accept.status).toBe(410);
+    expect(accept.body.errorCode).toBe('EMAIL_INVITE_EXPIRED');
+  });
+
+  // S68 fix-forward (security HIGH-1 + M1): exchange 는 @Public 이라 익명(미인증/미가입)
+  // 호출이 동작해야 한다(전역 JwtAuthGuard 우회). 종전엔 401 로 분기①이 100% 불동작했다.
+  it('@Public — Authorization 헤더 없이(익명) exchange 가 동작한다 (HIGH-1)', async () => {
+    const { owner, workspaceId, slug } = await makeOwnerWs('s68pub');
+    const rawToken = `raw-pub-${Date.now()}`;
+    await env.prisma.workspacePendingInvite.create({
+      data: {
+        workspaceId,
+        email: 'anon-s68pub@acme.dev',
+        role: 'MEMBER',
+        tokenHash: sha256(rawToken),
+        invitedById: owner.userId,
+        expiresAt: new Date('2025-02-01T00:00:00Z'),
+      },
+    });
+    // Authorization 헤더 없음 — 익명 호출.
+    const exch = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/exchange-invite-token`)
+      .set('origin', ORIGIN)
+      .send({ token: rawToken });
+    expect(exch.status).toBe(200);
+    expect(exch.body.opaqueCode).toBeTruthy();
+    expect(exch.body.email).toBe('anon-s68pub@acme.dev');
+  });
+});
+
+describe('S68 accept-email-invite-opaque — 이메일 일치/불일치(가입 시 이메일 변경 우회 차단)', () => {
+  async function seedAndExchange(prefix: string, inviteEmail: string) {
+    const owner = await signupAsUser(env.baseUrl, prefix);
+    const create = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: prefix, slug: `${prefix}-${Date.now().toString(36)}`.slice(0, 30) });
+    const workspaceId = create.body.id as string;
+    const slug = create.body.slug as string;
+    const rawToken = `raw-opq-${prefix}-${Date.now()}`;
+    await env.prisma.workspacePendingInvite.create({
+      data: {
+        workspaceId,
+        email: inviteEmail,
+        role: 'MEMBER',
+        tokenHash: sha256(rawToken),
+        invitedById: owner.userId,
+        expiresAt: new Date('2025-02-01T00:00:00Z'),
+      },
+    });
+    const exch = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/exchange-invite-token`)
+      .set('origin', ORIGIN)
+      .send({ token: rawToken });
+    return { slug, workspaceId, opaqueCode: exch.body.opaqueCode as string };
+  }
+
+  it('opaque 수락은 가입 계정 이메일이 초대 이메일과 일치하면 성공(201)', async () => {
+    // 초대 이메일과 동일한 이메일로 가입한 계정이 opaque 로 수락한다.
+    const joiner = await signupAsUser(env.baseUrl, 's68opqok');
+    const { slug, workspaceId, opaqueCode } = await seedAndExchange('s68opqow', joiner.email);
+    const accept = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/accept-email-invite-opaque`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${joiner.accessToken}`)
+      .send({ token: opaqueCode });
+    expect(accept.status).toBe(201);
+    expect(accept.body.alreadyMember).toBe(false);
+    const member = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: joiner.userId } },
+    });
+    expect(member).not.toBeNull();
+  });
+
+  it('가입 시 이메일을 바꿔(초대와 다른 이메일) opaque 수락하면 403 + opaque 폐기 (B1 + MN3)', async () => {
+    // 초대는 invitee-s68opqx@acme.dev 대상이지만, 가입 계정은 다른 이메일을 쓴다(우회 시도).
+    const other = await signupAsUser(env.baseUrl, 's68opqx');
+    const { slug, opaqueCode } = await seedAndExchange('s68opqxw', 'invitee-s68opqx@acme.dev');
+    const accept = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/accept-email-invite-opaque`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .send({ token: opaqueCode });
+    expect(accept.status).toBe(403);
+    expect(accept.body.errorCode).toBe('EMAIL_INVITE_EMAIL_MISMATCH');
+    // MN3: 실패 시에도 opaque 코드는 폐기된다(재사용 차단) — 같은 코드 재수락은 410.
+    const retry = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/accept-email-invite-opaque`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .send({ token: opaqueCode });
+    expect(retry.status).toBe(410);
+    expect(retry.body.errorCode).toBe('EMAIL_INVITE_EXPIRED');
+  });
+
+  it('보류 초대 30일 만료 후 opaque 수락은 410 (reviewer MN1 — rawToken 경로와 통일)', async () => {
+    // 초대 행 자체를 만료시키고(과거 expiresAt) opaque 수락 → 410(opaque TTL 과 별개 차원).
+    const joiner = await signupAsUser(env.baseUrl, 's68opqexp');
+    const owner = await signupAsUser(env.baseUrl, 's68opqexpw');
+    const create = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 's68opqexpw', slug: `s68expw-${Date.now().toString(36)}`.slice(0, 30) });
+    const workspaceId = create.body.id as string;
+    const slug = create.body.slug as string;
+    const rawToken = `raw-opq-exp-${Date.now()}`;
+    const row = await env.prisma.workspacePendingInvite.create({
+      data: {
+        workspaceId,
+        email: joiner.email,
+        role: 'MEMBER',
+        tokenHash: sha256(rawToken),
+        invitedById: owner.userId,
+        expiresAt: new Date('2025-02-01T00:00:00Z'),
+      },
+    });
+    // opaque 키를 직접 심어(교환 흉내) pendingId 를 가리킨다.
+    const opaqueCode = `manual-opq-${Date.now()}`;
+    await env.redis.set(`email-invite-opaque:${opaqueCode}`, row.id, 'EX', 600);
+    // 보류 초대를 과거로 만료시킨다.
+    await env.prisma.workspacePendingInvite.update({
+      where: { id: row.id },
+      data: { expiresAt: new Date('2024-12-01T00:00:00Z') },
+    });
+    const accept = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/accept-email-invite-opaque`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${joiner.accessToken}`)
+      .send({ token: opaqueCode });
     expect(accept.status).toBe(410);
     expect(accept.body.errorCode).toBe('EMAIL_INVITE_EXPIRED');
   });

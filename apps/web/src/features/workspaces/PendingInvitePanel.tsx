@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import type { PendingInvite } from '@qufox/shared-types';
-import { Button, Dialog } from '../../design-system/primitives';
+import { Button, Dialog, Icon } from '../../design-system/primitives';
 import {
   useCancelPendingInvite,
   usePendingInvites,
@@ -61,7 +61,10 @@ export function PendingInvitePanel({ workspaceId }: { workspaceId: string }): JS
       </div>
 
       {isLoading ? (
-        <p className="text-[length:var(--fs-13)] text-text-muted">불러오는 중…</p>
+        // S68 a11y (MAJOR-3): 로딩 안내를 status 라이브 영역으로 노출.
+        <p role="status" className="text-[length:var(--fs-13)] text-text-muted">
+          불러오는 중…
+        </p>
       ) : pending.length === 0 ? (
         <p
           data-testid="pending-invite-empty"
@@ -80,14 +83,17 @@ export function PendingInvitePanel({ workspaceId }: { workspaceId: string }): JS
             >
               <div className="flex items-center justify-between gap-[var(--s-3)]">
                 <span className="text-text-strong text-[length:var(--fs-13)]">{p.email}</span>
+                {/* S68 a11y/ui (HIGH-5): 만료 라벨 text-danger(라이트 대비 미달) →
+                    테마안전 text-text-strong + ⚠ 아이콘(색 의존 해소). */}
                 <span
                   data-testid="pending-invite-status"
                   className={
                     p.expired
-                      ? 'text-danger text-[length:var(--fs-12)]'
+                      ? 'inline-flex items-center gap-[var(--s-1)] text-text-strong text-[length:var(--fs-12)]'
                       : 'text-text-muted text-[length:var(--fs-12)]'
                   }
                 >
+                  {p.expired ? <Icon name="alert" size="sm" className="shrink-0" /> : null}
                   {p.expired ? '만료됨' : '대기 중'}
                 </span>
               </div>
@@ -109,6 +115,7 @@ export function PendingInvitePanel({ workspaceId }: { workspaceId: string }): JS
                   aria-label={`${p.email} 초대 연장`}
                   onClick={() => void onExtend(p)}
                   disabled={update.isPending}
+                  aria-busy={update.isPending || undefined}
                 >
                   연장 (+30일)
                 </Button>
@@ -119,6 +126,7 @@ export function PendingInvitePanel({ workspaceId }: { workspaceId: string }): JS
                   aria-label={`${p.email} 에게 초대 재발송`}
                   onClick={() => void onResend(p)}
                   disabled={update.isPending}
+                  aria-busy={update.isPending || undefined}
                 >
                   재발송
                 </Button>

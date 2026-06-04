@@ -20,6 +20,8 @@ vi.mock('../../design-system/primitives', () => ({
       {children}
     </button>
   ),
+  // S68 fix-forward: 패널이 ⚠ Icon(aria-hidden)을 쓰므로 mock 에 추가한다.
+  Icon: ({ name }: { name: string }) => <svg data-testid={`icon-${name}`} aria-hidden="true" />,
 }));
 
 const inviteMut = {
@@ -81,10 +83,16 @@ describe('S68 EmailInvitePanel', () => {
       emails: ['member@x.com', 'new@x.com', 'bad@x.com'],
       role: 'GUEST',
     });
-    const rows = within(screen.getByTestId('email-invite-results')).getAllByTestId(
-      'email-invite-result-row',
-    );
+    const resultsRegion = screen.getByTestId('email-invite-results');
+    const rows = within(resultsRegion).getAllByTestId('email-invite-result-row');
     expect(rows).toHaveLength(3);
-    expect(rows.find((r) => r.getAttribute('data-outcome') === 'FAILED')).toBeTruthy();
+    const failedRow = rows.find((r) => r.getAttribute('data-outcome') === 'FAILED');
+    expect(failedRow).toBeTruthy();
+    // S68 a11y (HIGH-2): 결과 컨테이너는 status 라이브 영역 + 요약(완료/실패)을 노출한다.
+    expect(resultsRegion.getAttribute('role')).toBe('status');
+    expect(resultsRegion.getAttribute('aria-atomic')).toBe('true');
+    expect(within(resultsRegion).getByText(/3건 처리: 2건 완료, 1건 실패\./)).toBeTruthy();
+    // S68 a11y (HIGH-1): 실패 상세(error)가 sr-only 로도 노출된다.
+    expect(within(failedRow!).getByText(/: bounced/)).toBeTruthy();
   });
 });

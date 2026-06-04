@@ -1,4 +1,8 @@
 import { createHash, randomBytes } from 'node:crypto';
+// S68 fix-forward (reviewer MN2 / security MEDIUM-2): 다중레이블 도메인 경고 판별을
+// @qufox/shared-types 단일 출처로 끌어올렸다(FE EmailDomainsPanel 과 공유). 여기서는
+// 동일 헬퍼를 재노출만 해 기존 import 경로(./pending-invite-tokens)를 무회귀로 유지한다.
+export { isOverlyBroadDomain, TWO_LEVEL_PUBLIC_SUFFIXES } from '@qufox/shared-types';
 
 /**
  * S68 (D13 / FR-W04·W04a): 이메일 초대 토큰 순수 헬퍼(부수효과 없음 — 단위 테스트 용이).
@@ -53,34 +57,4 @@ export function decideAcceptBranch(input: {
   }
   // 비로그인: 초대 이메일에 계정이 있으면 로그인 유도(OTHER_ACCOUNT 와 동일 안내), 없으면 가입.
   return input.inviteEmailHasAccount ? 'OTHER_ACCOUNT' : 'UNREGISTERED';
-}
-
-/**
- * S66 MEDIUM-2 이월(FR-W05 / EmailDomainsPanel): 다중 레이블(TLD 수준) 도메인 경고 감지.
- * exact-match 라 동작 자체는 정상이나, `co.uk`/`com` 같은 너무 넓은 입력은 워크스페이스를
- * 사실상 개방하므로 UI 가 경고 배너를 띄울 수 있게 서버/공유 로직으로 판별한다(정규식 제한은
- * 하지 않음 — 안내만). 휴리스틱: 레이블 2개 이하 또는 알려진 2단계 public-suffix.
- */
-const TWO_LEVEL_PUBLIC_SUFFIXES = new Set([
-  'co.uk',
-  'co.kr',
-  'co.jp',
-  'com.au',
-  'com.br',
-  'co.nz',
-  'or.kr',
-  'ne.jp',
-  'co.in',
-  'com.cn',
-]);
-
-export function isOverlyBroadDomain(domain: string): boolean {
-  const d = normalizeEmail(domain);
-  if (d.length === 0) return false;
-  const labels = d.split('.');
-  if (labels.length <= 2) return true;
-  // 마지막 두 레이블이 알려진 2단계 public-suffix 면(예: example.co.uk 의 co.uk) 자체는
-  // 정상이지만, 입력값이 그 public-suffix 자체(`co.uk`)면 너무 넓다.
-  if (TWO_LEVEL_PUBLIC_SUFFIXES.has(d)) return true;
-  return false;
 }

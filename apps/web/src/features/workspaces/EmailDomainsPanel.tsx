@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
-import { EMAIL_DOMAINS_MAX } from '@qufox/shared-types';
-import { Button, Input } from '../../design-system/primitives';
+import { EMAIL_DOMAINS_MAX, isOverlyBroadDomain } from '@qufox/shared-types';
+import { Button, Icon, Input } from '../../design-system/primitives';
 import { useUpdateWorkspace } from './useWorkspaces';
 
 /**
@@ -10,30 +10,9 @@ import { useUpdateWorkspace } from './useWorkspaces';
  *
  * S66 MEDIUM-2 이월: `.co.uk`/`com` 같은 TLD 수준 입력은 워크스페이스를 사실상 개방하므로
  * 경고 배너를 띄운다(exact match 라 동작 자체는 정상 — 정규식 제한은 하지 않고 안내만).
+ * S68 fix-forward (reviewer MN2): 다중레이블 판별(isOverlyBroadDomain)은 @qufox/shared-types
+ * 단일 출처에서 import 한다(BE 와 동일 로직 — contract 원칙).
  */
-
-// 알려진 2단계 public-suffix(이 값 자체를 도메인으로 쓰면 너무 넓다).
-const TWO_LEVEL_PUBLIC_SUFFIXES = new Set([
-  'co.uk',
-  'co.kr',
-  'co.jp',
-  'com.au',
-  'com.br',
-  'co.nz',
-  'or.kr',
-  'ne.jp',
-  'co.in',
-  'com.cn',
-]);
-
-function isOverlyBroadDomain(domain: string): boolean {
-  const d = domain.trim().toLowerCase();
-  if (d.length === 0) return false;
-  const labels = d.split('.');
-  if (labels.length <= 2) return true;
-  if (TWO_LEVEL_PUBLIC_SUFFIXES.has(d)) return true;
-  return false;
-}
 
 const DOMAIN_RE = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/;
 
@@ -111,6 +90,7 @@ export function EmailDomainsPanel({
       {!canEdit ? (
         <div
           data-testid="email-domains-owner-note"
+          role="note"
           className="text-[length:var(--fs-13)] text-text-muted"
         >
           OWNER만 도메인을 변경할 수 있습니다.
@@ -121,10 +101,15 @@ export function EmailDomainsPanel({
         <div
           data-testid="email-domains-broad-warning"
           role="alert"
-          className="rounded-sm border border-border-subtle bg-bg-accent px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-12)] text-danger"
+          className="flex items-start gap-[var(--s-2)] rounded-sm border border-border-subtle bg-bg-subtle px-[var(--s-3)] py-[var(--s-2)] text-[length:var(--fs-12)] text-text-strong"
         >
-          {broadDomains.join(', ')} 도메인은 범위가 너무 넓습니다. 해당 도메인의 모든 이메일
-          사용자가 가입할 수 있으니 의도한 것인지 확인하세요.
+          {/* S68 a11y (HIGH-5): 색 의존을 해소하는 시각 단서(아이콘은 aria-hidden — role=alert
+              텍스트가 SR 에 충분). text-danger 는 라이트 대비 미달이라 text-text-strong 사용. */}
+          <Icon name="alert" size="sm" className="mt-[var(--s-1)] shrink-0" />
+          <span>
+            {broadDomains.join(', ')} 도메인은 범위가 너무 넓습니다. 해당 도메인의 모든 이메일
+            사용자가 가입할 수 있으니 의도한 것인지 확인하세요.
+          </span>
         </div>
       ) : null}
 
@@ -171,6 +156,8 @@ export function EmailDomainsPanel({
                 id="email-domain-input"
                 data-testid="email-domain-input"
                 placeholder="example.com"
+                invalid={!!err}
+                aria-describedby={err ? 'email-domains-error' : undefined}
                 value={draft}
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -187,7 +174,12 @@ export function EmailDomainsPanel({
           </div>
 
           {err ? (
-            <p className="qf-field__error" role="alert" data-testid="email-domains-error">
+            <p
+              id="email-domains-error"
+              className="qf-field__error"
+              role="alert"
+              data-testid="email-domains-error"
+            >
               {err}
             </p>
           ) : null}

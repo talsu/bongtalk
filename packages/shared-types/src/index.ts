@@ -140,12 +140,16 @@ export const ErrorCodeSchema = z.enum([
   //   EMAIL_INVITE_TOKEN_INVALID: 토큰/opaque 코드 미존재·취소·sha256 불일치 → 400.
   //   EMAIL_INVITE_EXPIRED: 보류 초대 30일/opaque 10분 만료 → 410.
   //   EMAIL_INVITE_ROLE_MISMATCH: token role ↔ DB role 불일치(위조) → 400.
+  //   EMAIL_INVITE_EMAIL_MISMATCH: 수락 actor 이메일 ↔ 초대 대상 이메일 불일치 → 403.
+  //     FR-W04a 분기③(다른 계정) 의도를 서버가 강제(가입 시 이메일 변경 우회 차단). FE 는
+  //     이 코드를 받으면 "초대받은 이메일로 로그인" 안내로 분기한다.
   //   EMAIL_INVITE_ALREADY_ACCEPTED: 이미 수락된 보류 초대 재수락 → 409.
   //   EMAIL_INVITE_NOT_FOUND: 연장/재발송/취소 대상 보류 초대 미존재 → 404.
   //   WORKSPACE_EMAIL_DOMAINS_FORBIDDEN: emailDomains PATCH 는 OWNER 전용 → 403.
   'EMAIL_INVITE_TOKEN_INVALID',
   'EMAIL_INVITE_EXPIRED',
   'EMAIL_INVITE_ROLE_MISMATCH',
+  'EMAIL_INVITE_EMAIL_MISMATCH',
   'EMAIL_INVITE_ALREADY_ACCEPTED',
   'EMAIL_INVITE_NOT_FOUND',
   'WORKSPACE_EMAIL_DOMAINS_FORBIDDEN',

@@ -341,14 +341,12 @@ export default function App(): JSX.Element {
                         <Route path="/w/:slug/dm" element={<Navigate to="/dm" replace />} />
                         <Route path="/w/:slug/dm/:userId" element={<LegacyDmChatRedirect />} />
                         <Route path="/" element={<ProtectedShellRoute />} />
-                        {/* S68 (FR-W04a): 이메일 직접 초대 수락 — opaque 자동수락(쿼리)과
-                            rawToken 직접수락(path) 두 형태. /w/:slug/* 보다 구체적이라
-                            먼저 매칭된다(VerificationGate 면제 — 미가입/신규 사용자 랜딩). */}
+                        {/* S68 (FR-W04a): 이메일 직접 초대 수락. rawToken 은 URL fragment
+                            (#token=…)로, opaque 자동수락은 쿼리(?opaque=…)로 들어온다. fragment
+                            는 서버/nginx 로 전송되지 않아 access 로그에 평문이 남지 않는다
+                            (security MEDIUM-1). path token segment 는 제거했다. /w/:slug/* 보다
+                            구체적이라 먼저 매칭된다(VerificationGate 면제 — 신규 사용자 랜딩). */}
                         <Route path="/w/:slug/email-invite" element={<EmailInviteAcceptPage />} />
-                        <Route
-                          path="/w/:slug/email-invite/:token"
-                          element={<EmailInviteAcceptPage />}
-                        />
                         {/* Single splat route so React Router does NOT remount
                       the Shell when the URL changes between /w/:slug and
                       /w/:slug/:channelName. Shell reads the rest of the

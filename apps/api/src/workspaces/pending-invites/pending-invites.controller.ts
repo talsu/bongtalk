@@ -25,6 +25,7 @@ import { WorkspaceMemberGuard } from '../guards/workspace-member.guard';
 import { WorkspaceRoleGuard } from '../guards/workspace-role.guard';
 import { CurrentMember, CurrentMemberPayload } from '../decorators/current-member.decorator';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
+import { Public } from '../../auth/decorators/public.decorator';
 import { RateLimitService } from '../../auth/services/rate-limit.service';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
@@ -53,8 +54,13 @@ export class WorkspacePendingInvitesController {
     @Body() body: unknown,
   ) {
     // 대량 발송 abuse 완화 — 워크스페이스당 분당 5배치(배치 1건 = 최대 50 이메일).
+    // S68 fix-forward (security MEDIUM-4): 워크스페이스 한도에 더해 초대자(user)별 시간당
+    // 한도(10배치/시간)도 건다. 한 사용자가 여러 워크스페이스를 만들어 ws 한도를 우회하며
+    // 메일을 다발 발송하는 abuse 를 막는다. per-target(`email-invite:target:{email}`) 한도는
+    // SMTP 실발송 도입 슬라이스로 carryover(Console stub 단계에선 실 메일이 안 나가므로 보류).
     await this.rateLimit.enforce([
       { key: `email-invite:ws:${member.workspaceId}`, windowSec: 60, max: 5 },
+      { key: `email-invite:user:${member.userId}`, windowSec: 3600, max: 10 },
     ]);
     const parsed = InviteByEmailRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
@@ -120,8 +126,13 @@ export class WorkspacePendingInvitesController {
 /**
  * S68 (D13 / FR-W04a): 수락/교환 경로. 수락자는 아직 멤버가 아니므로 WorkspaceMemberGuard
  * 를 걸 수 없다 — 워크스페이스는 토큰(sha256 단건 조회)이 결정한다. 경로의 :slug 는
- * 안내/표시용이며 권위는 토큰이다(JWT 인증만 요구). exchange 는 미가입자도 호출하므로
- * @Public 이 아닌 인증 필요(가입 직후 자동 수락 흐름에서 호출).
+ * 안내/표시용이며 권위는 토큰이다.
+ *
+ * S68 fix-forward (security HIGH-1): exchange 는 익명(미가입) 사용자가 호출하는 경로다
+ * (분기① — rawToken 을 opaque 로 교환한 뒤 회원가입으로 보낸다). 전역 JwtAuthGuard 가
+ * 걸려 있어 종전엔 익명 호출이 401 로 튕겨 분기①이 100% 동작하지 않았다. rawToken 은
+ * 256bit credential 이라 그 자체가 인증 토큰처럼 작동하므로 익명 교환은 안전하다 → @Public.
+ * accept/accept-opaque 는 로그인 사용자(가입 후/로그인 후)가 호출하므로 인증을 유지한다.
  */
 @Controller('workspaces/:slug')
 export class EmailInviteAcceptController {
@@ -130,25 +141,21 @@ export class EmailInviteAcceptController {
     private readonly rateLimit: RateLimitService,
   ) {}
 
-  // FR-W04a 분기 ①: rawToken → 단기 opaque 코드 교환(회원가입 리다이렉트용).
+  // FR-W04a 분기 ①: rawToken → 단기 opaque 코드 교환(회원가입 리다이렉트용). 익명 호출 경로.
+  @Public()
   @Post('exchange-invite-token')
   @HttpCode(200)
-  async exchange(
-    @Param('slug') _slug: string,
-    @CurrentUser() user: CurrentUserPayload,
-    @Req() req: Request,
-    @Body() body: unknown,
-  ) {
+  async exchange(@Param('slug') _slug: string, @Req() req: Request, @Body() body: unknown) {
+    // S68 fix-forward (security HIGH-1): 익명 경로라 user 키가 없다 → IP 전용 rate-limit.
     await this.rateLimit.enforce([
-      { key: `email-invite:exchange:user:${user.id}`, windowSec: 60, max: 30 },
       { key: `email-invite:exchange:ip:${req.ip ?? 'unknown'}`, windowSec: 60, max: 60 },
     ]);
     const parsed = ExchangeEmailInviteRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    // rawToken 이 바디(쿼리 아님)로 들어오므로 URL/리퍼러 누출이 없다. 방어적으로
-    // Referrer-Policy: no-referrer 를 응답에 단다(★핵심 AC: rawToken URL 미노출).
+    // rawToken 은 바디(쿼리/path 아님)로 들어오므로 URL/리퍼러 누출이 없다. Referrer-Policy
+    // 는 helmet 전역 미들웨어가 적용한다(여기서 res.setHeader 로 별도 설정하지 않음 — N2 정정).
     return this.pending.exchangeToken(parsed.data.token);
   }
 
