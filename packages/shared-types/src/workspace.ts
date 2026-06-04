@@ -148,6 +148,11 @@ export const UpdateWorkspaceRequestSchema = z.object({
   iconUrl: z.string().url().max(512).nullable().optional(),
   visibility: WorkspaceVisibilitySchema.optional(),
   category: WorkspaceCategorySchema.nullable().optional(),
+  // S68 (D13 / FR-W05 · Fork C): 이메일 도메인 화이트리스트 관리. 전용 엔드포인트 없이
+  // 기존 PATCH /workspaces/:id 로 확장한다. OWNER 전용 게이트는 서비스 레이어가 강제하며
+  // (visibility/category OWNER 게이트 선례 일관), 서버가 소문자 정규화 + 중복 제거해
+  // 저장한다. 빈 배열 = 제한 없음. 미지정(undefined)이면 변경 없음.
+  emailDomains: z.array(EmailDomainSchema).max(EMAIL_DOMAINS_MAX).optional(),
 });
 export type UpdateWorkspaceRequest = z.infer<typeof UpdateWorkspaceRequestSchema>;
 

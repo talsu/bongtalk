@@ -136,6 +136,19 @@ export const ErrorCodeSchema = z.enum([
   // BETA_INVITE_REQUIRED=true. Client maps this to a support-email
   // link instead of a retry-able error.
   'BETA_INVITE_REQUIRED',
+  // S68 (D13 / FR-W04·W04a·W05): 이메일 직접 초대 + 도메인 관리.
+  //   EMAIL_INVITE_TOKEN_INVALID: 토큰/opaque 코드 미존재·취소·sha256 불일치 → 400.
+  //   EMAIL_INVITE_EXPIRED: 보류 초대 30일/opaque 10분 만료 → 410.
+  //   EMAIL_INVITE_ROLE_MISMATCH: token role ↔ DB role 불일치(위조) → 400.
+  //   EMAIL_INVITE_ALREADY_ACCEPTED: 이미 수락된 보류 초대 재수락 → 409.
+  //   EMAIL_INVITE_NOT_FOUND: 연장/재발송/취소 대상 보류 초대 미존재 → 404.
+  //   WORKSPACE_EMAIL_DOMAINS_FORBIDDEN: emailDomains PATCH 는 OWNER 전용 → 403.
+  'EMAIL_INVITE_TOKEN_INVALID',
+  'EMAIL_INVITE_EXPIRED',
+  'EMAIL_INVITE_ROLE_MISMATCH',
+  'EMAIL_INVITE_ALREADY_ACCEPTED',
+  'EMAIL_INVITE_NOT_FOUND',
+  'WORKSPACE_EMAIL_DOMAINS_FORBIDDEN',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',
@@ -243,6 +256,8 @@ export type ErrorResponse = z.infer<typeof ErrorResponseSchema>;
 
 export * from './auth';
 export * from './workspace';
+// S68 (D13 / FR-W04·W04a·W18): 이메일 직접 초대 + 보류 초대 관리 컨트랙트.
+export * from './email-invite';
 // S61 (D12 / FR-RM01·02): 커스텀 Role 시스템 스키마/DTO/시스템역할 정의.
 export * from './roles';
 // S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) 스키마·DTO·상수.

@@ -103,6 +103,22 @@ export enum ErrorCode {
   INVITE_REVOKED = 'INVITE_REVOKED',
   BETA_INVITE_REQUIRED = 'BETA_INVITE_REQUIRED',
 
+  // S68 (D13 / FR-W04·W04a): 이메일 직접 초대.
+  // 토큰(또는 opaque 코드) 미존재/형식오류/이미 취소됨 → 400. ★핵심 AC: sha256 대조
+  // 실패도 미존재와 동일하게 INVALID 로 거부(열거 누출 방지).
+  EMAIL_INVITE_TOKEN_INVALID = 'EMAIL_INVITE_TOKEN_INVALID',
+  // 초대(또는 opaque 교환 코드) 만료(발급 30일/opaque 10분 경과) → 410(한때 유효했으나 소멸).
+  EMAIL_INVITE_EXPIRED = 'EMAIL_INVITE_EXPIRED',
+  // 수락 시 token role ↔ DB role 대조 불일치 → 400(위조/변조 방어).
+  EMAIL_INVITE_ROLE_MISMATCH = 'EMAIL_INVITE_ROLE_MISMATCH',
+  // 이미 수락된 보류 초대를 재차 수락 → 409(상태 충돌).
+  EMAIL_INVITE_ALREADY_ACCEPTED = 'EMAIL_INVITE_ALREADY_ACCEPTED',
+  // 보류 초대(관리 대상)가 없음(연장/재발송/취소 대상 미존재) → 404.
+  EMAIL_INVITE_NOT_FOUND = 'EMAIL_INVITE_NOT_FOUND',
+  // S68 (D13 / FR-W05): emailDomains 화이트리스트 변경(PATCH)은 OWNER 전용 → 403.
+  // 서비스 레이어 게이트(visibility/category OWNER 게이트 선례 일관).
+  WORKSPACE_EMAIL_DOMAINS_FORBIDDEN = 'WORKSPACE_EMAIL_DOMAINS_FORBIDDEN',
+
   CHANNEL_NOT_FOUND = 'CHANNEL_NOT_FOUND',
   CHANNEL_NAME_TAKEN = 'CHANNEL_NAME_TAKEN',
   CHANNEL_NAME_INVALID = 'CHANNEL_NAME_INVALID',
@@ -322,6 +338,14 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.INVITE_EXHAUSTED]: 410,
   [ErrorCode.INVITE_REVOKED]: 410,
   [ErrorCode.BETA_INVITE_REQUIRED]: 403,
+
+  // S68 (D13 / FR-W04·W04a·W05): 이메일 직접 초대 + 도메인 관리 매핑.
+  [ErrorCode.EMAIL_INVITE_TOKEN_INVALID]: 400,
+  [ErrorCode.EMAIL_INVITE_EXPIRED]: 410,
+  [ErrorCode.EMAIL_INVITE_ROLE_MISMATCH]: 400,
+  [ErrorCode.EMAIL_INVITE_ALREADY_ACCEPTED]: 409,
+  [ErrorCode.EMAIL_INVITE_NOT_FOUND]: 404,
+  [ErrorCode.WORKSPACE_EMAIL_DOMAINS_FORBIDDEN]: 403,
 
   [ErrorCode.CHANNEL_NOT_FOUND]: 404,
   [ErrorCode.CHANNEL_NAME_TAKEN]: 409,

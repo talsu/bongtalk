@@ -1,11 +1,17 @@
 import { apiRequest } from '../../lib/api';
 import type {
+  AcceptEmailInviteResponse,
   AcceptInviteResponse,
   CreateInviteRequest,
   CreateRoleRequest,
   CreateWorkspaceRequest,
+  EmailInviteRole,
+  ExchangeEmailInviteResponse,
   Invite,
+  InviteByEmailResponse,
   InvitePreview,
+  ListPendingInvitesResponse,
+  PendingInviteAction,
   KickMemberResponse,
   ListAuditLogsResponse,
   ListBansResponse,
@@ -151,6 +157,72 @@ export function revokeInvite(id: string, inviteId: string): Promise<void> {
 // S67 (D13 / FR-W17 · Fork C-2): 영구 삭제(hard delete) — 행을 제거한다(204).
 export function hardDeleteInvite(id: string, inviteId: string): Promise<void> {
   return apiRequest(`/workspaces/${id}/invites/${inviteId}/permanent`, { method: 'DELETE' });
+}
+
+// ── S68 (D13 / FR-W04·W04a·W18): 이메일 직접 초대 + 보류 초대 관리 ────────────────
+
+// FR-W04: 이메일 일괄 직접 초대(최대 50). 부분성공 응답({ results, sentCount, … }).
+export function inviteByEmail(
+  id: string,
+  emails: string[],
+  role: EmailInviteRole,
+): Promise<InviteByEmailResponse> {
+  return apiRequest(`/workspaces/${id}/invite-by-email`, {
+    method: 'POST',
+    body: { emails, role },
+  });
+}
+
+// FR-W18: 보류 초대 목록(ADMIN+).
+export function listPendingInvites(id: string): Promise<ListPendingInvitesResponse> {
+  return apiRequest(`/workspaces/${id}/pending-invites`);
+}
+
+// FR-W18: 개별 보류 초대 연장(+30일)/재발송(204).
+export function updatePendingInvite(
+  id: string,
+  pendingId: string,
+  action: PendingInviteAction,
+): Promise<void> {
+  return apiRequest(`/workspaces/${id}/pending-invites/${pendingId}`, {
+    method: 'PATCH',
+    body: { action },
+  });
+}
+
+// FR-W18: 보류 초대 취소(soft, 204).
+export function cancelPendingInvite(id: string, pendingId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/pending-invites/${pendingId}`, { method: 'DELETE' });
+}
+
+// FR-W04a 분기 ②③: rawToken 직접 수락(로그인 사용자). slug 는 표시용·권위는 토큰.
+export function acceptEmailInvite(slug: string, token: string): Promise<AcceptEmailInviteResponse> {
+  return apiRequest(`/workspaces/${slug}/accept-email-invite`, {
+    method: 'POST',
+    body: { token },
+  });
+}
+
+// FR-W04a 분기 ①: rawToken → 단기 opaque 코드 교환(회원가입 리다이렉트용).
+export function exchangeEmailInviteToken(
+  slug: string,
+  token: string,
+): Promise<ExchangeEmailInviteResponse> {
+  return apiRequest(`/workspaces/${slug}/exchange-invite-token`, {
+    method: 'POST',
+    body: { token },
+  });
+}
+
+// FR-W04a 분기 ①(가입 후): opaque 코드로 자동 수락.
+export function acceptEmailInviteByOpaque(
+  slug: string,
+  opaqueCode: string,
+): Promise<AcceptEmailInviteResponse> {
+  return apiRequest(`/workspaces/${slug}/accept-email-invite-opaque`, {
+    method: 'POST',
+    body: { token: opaqueCode },
+  });
 }
 
 // ── S61 (D12 / FR-RM01·04·15): 역할 관리 ──────────────────────────────────────
