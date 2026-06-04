@@ -8,6 +8,8 @@ import {
   EmojiAliasUpdatedPayloadSchema,
   MentionNewPayloadSchema,
   NotificationBadgeUpdatePayloadSchema,
+  ConnectionReadyPayloadSchema,
+  UnreadCountIncrementPayloadSchema,
   ChannelPinAddedPayloadSchema,
   ChannelPinRemovedPayloadSchema,
   AttachmentProcessingDonePayloadSchema,
@@ -1450,6 +1452,35 @@ export function installRealtimeDispatcher(
     });
   });
 
+  // ---------- S69 (FR-W23) 다중 워크스페이스 unread 낙관 갱신 ----------
+  // unread_count:increment 는 활성 워크스페이스 무관 가입한 모든 워크스페이스의 user 룸
+  // 으로 도착한다. payload.workspaceId 가 있으면 그 워크스페이스 서버아이콘 배지를 낙관
+  // +delta 한다(직후 notification:badge_update 서버 진실값이 교정). workspaceId 누락(구
+  // 서버)이면 채널→워크스페이스 매핑을 모르므로 unread-totals 무효화로 폴백한다.
+  on<unknown>(WS_EVENTS.UNREAD_COUNT_INCREMENT, (rawEnv) => {
+    const parsed = UnreadCountIncrementPayloadSchema.safeParse(rawEnv);
+    if (!parsed.success) return;
+    const env = parsed.data;
+    if (env.workspaceId) {
+      useBadgeStore.getState().applyOptimisticIncrement(env.workspaceId, env.delta);
+    } else {
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    }
+  });
+
+  // ---------- S69 (FR-W20) connection:ready 멘션 카운트 복원 ----------
+  // 재연결 직후 가입한 모든 워크스페이스의 멘션 카운트를 첫 페인트부터 채운다(비활성
+  // 워크스페이스 서버아이콘 멘션 배지 복원). 구 서버는 allWorkspaceMentionCounts 누락 →
+  // no-op(기존 badge resync 폴백).
+  on<unknown>(WS_EVENTS.CONNECTION_READY, (rawEnv) => {
+    const parsed = ConnectionReadyPayloadSchema.safeParse(rawEnv);
+    if (!parsed.success) return;
+    const counts = parsed.data.allWorkspaceMentionCounts;
+    if (counts && counts.length > 0) {
+      useBadgeStore.getState().applyConnectionMentionCounts(counts);
+    }
+  });
+
   return () => {
     for (const { event, handler } of handlers) socket.off(event, handler);
   };
@@ -1520,4 +1551,8 @@ export const DISPATCHED_EVENTS = [
   // S32 (FR-RT-09): 소켓 disconnect 시 타이핑 인디케이터 전체 클리어.
   'disconnect',
   'read_state:updated',
+  // S69 (FR-W23): 다중 워크스페이스 unread 낙관 갱신(user 룸 · workspaceId 포함).
+  WS_EVENTS.UNREAD_COUNT_INCREMENT,
+  // S69 (FR-W20): connection:ready 가입 워크스페이스별 멘션 카운트 복원.
+  WS_EVENTS.CONNECTION_READY,
 ] as const;

@@ -53,6 +53,22 @@ interface BadgeStoreState {
    * **서버 시계** 로 lastAckedAt 을 저장한다(교차시계 비교 제거).
    */
   markAcked: (workspaceId: string, serverTimestamp: string) => void;
+  /**
+   * S69 (FR-W23): unread_count:increment(workspaceId 포함) 낙관 갱신. 서버가 활성
+   * 워크스페이스 무관 모든 가입 워크스페이스의 user 룸으로 보낸 +delta 를 즉시 반영해
+   * 서버아이콘 배지를 낙관 갱신한다(unreadCount += delta). 직후 도착하는 서버 진실값
+   * (applyServerUpdate / replaceAll)이 last-write-wins 로 교정한다. unreadCount 는
+   * 0 미만으로 내려가지 않는다(음수 delta clamp).
+   */
+  applyOptimisticIncrement: (workspaceId: string, delta: number) => void;
+  /**
+   * S69 (FR-W20): connection:ready 의 allWorkspaceMentionCounts 소비. 가입한 모든
+   * 워크스페이스의 멘션 카운트를 첫 페인트부터 채운다(비활성 워크스페이스 배지 복원).
+   * unreadCount/lastAckedAt 는 보존하고 mentionCount 만 세팅한다(멘션 카운트만 신뢰).
+   */
+  applyConnectionMentionCounts: (
+    counts: Array<{ workspaceId: string; mentionCount: number }>,
+  ) => void;
   /** FR-MN-20: GET /me/notification-badges 결과로 전체 교체(재동기화). */
   replaceAll: (
     workspaces: Array<{ workspaceId: string; mentionCount: number; unreadCount: number }>,
@@ -110,6 +126,29 @@ export const useBadgeStore = create<BadgeStoreState>((set, get) => ({
           [workspaceId]: { ...prev, lastAckedAt: ts },
         },
       };
+    }),
+
+  applyOptimisticIncrement: (workspaceId, delta) =>
+    set((s) => {
+      if (delta === 0) return s;
+      const prev = s.byWorkspace[workspaceId] ?? EMPTY;
+      const nextUnread = Math.max(0, prev.unreadCount + delta);
+      return {
+        byWorkspace: {
+          ...s.byWorkspace,
+          [workspaceId]: { ...prev, unreadCount: nextUnread },
+        },
+      };
+    }),
+
+  applyConnectionMentionCounts: (counts) =>
+    set((s) => {
+      const next = { ...s.byWorkspace };
+      for (const c of counts) {
+        const prev = next[c.workspaceId] ?? EMPTY;
+        next[c.workspaceId] = { ...prev, mentionCount: c.mentionCount };
+      }
+      return { byWorkspace: next };
     }),
 
   replaceAll: (workspaces) =>

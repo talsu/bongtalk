@@ -261,6 +261,20 @@ export class OutboxToWsSubscriber {
     // mention:new 를 막지 않는 @here/everyone 경계에서도 배지는 정확히 0 유지).
     const workspaceId = (env as { workspaceId?: string | null }).workspaceId ?? null;
     if (workspaceId) {
+      // S69 (FR-W23): 활성 워크스페이스 무관, 멘션이 도착한 워크스페이스의 user 룸으로
+      // unread_count:increment(+1)를 **workspaceId 포함** emit 한다. 클라는 이 페이로드의
+      // workspaceId 로 비활성 워크스페이스라도 서버아이콘 멘션 배지를 즉시(낙관) +1 한다.
+      // 직후 emitBadgeUpdate 의 서버 진실값(notification:badge_update)이 last-write-wins
+      // 으로 이 낙관값을 교정한다. user 룸은 이미 보유(추가 DB 쿼리 없음).
+      const incPayload = {
+        channelId: env.channelId ?? null,
+        delta: 1,
+        workspaceId,
+      };
+      this.io.to(rooms.user(targetUserId)).emit(WS_EVENTS.UNREAD_COUNT_INCREMENT, incPayload);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.UNREAD_COUNT_INCREMENT))
+        .inc();
       await this.emitBadgeUpdate(targetUserId, workspaceId, env.channelId ?? null);
     }
   }

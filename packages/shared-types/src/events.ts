@@ -223,9 +223,27 @@ export function maskPresenceForViewer(status: PresenceStatus, isSelf: boolean): 
 }
 
 // ── 연결 / 룸 ──────────────────────────────────────────────────────────────
+
+/**
+ * S69 (FR-W20): connection:ready 가 싣는 워크스페이스별 멘션 카운트 한 항목.
+ * 가입한 **모든** 워크스페이스(활성/비활성 무관)의 멘션 합산을 담아, 비활성
+ * 워크스페이스 서버아이콘 배지를 첫 페인트부터 그릴 수 있게 한다.
+ */
+export const WorkspaceMentionCountSchema = z.object({
+  workspaceId: z.string().min(1),
+  mentionCount: z.number().int().nonnegative(),
+});
+export type WorkspaceMentionCount = z.infer<typeof WorkspaceMentionCountSchema>;
+
 export const ConnectionReadyPayloadSchema = z.object({
   userId: UserIdSchema,
   sessionId: z.string().min(1),
+  /**
+   * S69 (FR-W20): 가입한 모든 워크스페이스의 멘션 카운트. 비활성 워크스페이스도
+   * 포함해 서버아이콘 멘션 배지를 즉시 복원한다. forward-compat 위해 optional —
+   * 구 서버 페이로드는 누락이며 클라가 GET /me/unread-totals 폴백으로 채운다.
+   */
+  allWorkspaceMentionCounts: z.array(WorkspaceMentionCountSchema).optional(),
 });
 export type ConnectionReadyPayload = z.infer<typeof ConnectionReadyPayloadSchema>;
 
@@ -737,10 +755,18 @@ export const ReadStateUpdatedPayloadSchema = z.object({
 });
 export type ReadStateUpdatedPayload = z.infer<typeof ReadStateUpdatedPayloadSchema>;
 
-/** unread_count:increment — user:{userId} 룸으로만 emit. */
+/**
+ * unread_count:increment — user:{userId} 룸으로만 emit.
+ *
+ * S69 (FR-W23): **활성 워크스페이스 무관** 가입한 모든 워크스페이스에 대해 user 룸으로
+ * emit 한다. 페이로드에 `workspaceId` 를 실어, 클라가 어느 워크스페이스의 서버아이콘
+ * 배지를 낙관 갱신할지 결정할 수 있게 한다. forward-compat 위해 optional·nullable —
+ * 구 서버 페이로드(workspaceId 누락)는 클라가 채널→워크스페이스 매핑 폴백으로 처리한다.
+ */
 export const UnreadCountIncrementPayloadSchema = z.object({
   channelId: ChannelIdSchema,
   delta: z.number().int(),
+  workspaceId: z.string().min(1).nullable().optional(),
 });
 export type UnreadCountIncrementPayload = z.infer<typeof UnreadCountIncrementPayloadSchema>;
 

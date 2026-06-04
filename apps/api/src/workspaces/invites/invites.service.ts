@@ -299,6 +299,8 @@ export class InvitesService {
         revokedAt: true,
         expiresAt: true,
         maxUses: true,
+        // S69 (D13 / FR-W10): 링크 초대 수락 시 WorkspaceMember.invitedById = 초대 생성자.
+        createdById: true,
         // S67 (D13 / FR-W03): temporary=true 링크 수락 시 WorkspaceMember.isTemporary 기록.
         temporary: true,
         // S66 (D13 / FR-W05a): 도메인 게이트용 화이트리스트.
@@ -416,6 +418,8 @@ export class InvitesService {
             // S67 (D13 / FR-W03): temporary=true 초대로 가입한 멤버는 임시로 기록한다
             // (S70 의 연결 종료 강퇴 배치 대상). 영구 초대(false)면 영구 멤버.
             isTemporary: existing.temporary,
+            // S69 (D13 / FR-W10): 링크 초대 수락 → 초대자는 링크 생성자.
+            invitedById: existing.createdById,
           },
         });
         // S61 fix-forward (security A-2 · MemberRole desync): 가입 트랜잭션에서 MEMBER

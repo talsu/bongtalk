@@ -48,6 +48,15 @@ type UIState = {
   pinPanelOpen: boolean;
   togglePinPanel: () => void;
   setPinPanelOpen: (v: boolean) => void;
+
+  /**
+   * S69 (D13 / FR-W10 · Fork C): 멤버 디렉터리 오버레이 토글. 설정(ADMIN 게이트) 밖의
+   * 멤버-접근 진입점이라 **모든 멤버**가 채널 헤더 '멤버' 버튼으로 연다(열람은 전원,
+   * 관리 액션만 권한 게이트). true 면 우측 슬롯을 디렉터리 패널로 대체한다.
+   */
+  memberDirectoryOpen: boolean;
+  toggleMemberDirectory: () => void;
+  setMemberDirectoryOpen: (v: boolean) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -76,4 +85,8 @@ export const useUI = create<UIState>((set) => ({
   pinPanelOpen: false,
   togglePinPanel: () => set((s) => ({ pinPanelOpen: !s.pinPanelOpen })),
   setPinPanelOpen: (v) => set({ pinPanelOpen: v }),
+
+  memberDirectoryOpen: false,
+  toggleMemberDirectory: () => set((s) => ({ memberDirectoryOpen: !s.memberDirectoryOpen })),
+  setMemberDirectoryOpen: (v) => set({ memberDirectoryOpen: v }),
 }));

@@ -11,9 +11,14 @@ import { z } from 'zod';
 /** S63 (FR-RM05/06): 사유 최대 길이(≤512자, 선택). 공백 trim 후 길이 검증. */
 export const MODERATION_REASON_MAX = 512;
 
-/** S63 (FR-RM07): 타임아웃 기간 하한 60초 · 상한 7일(604800초). */
+/**
+ * S63 (FR-RM07): 타임아웃 기간 하한 60초.
+ * S69 (FR-W11): 상한을 7일(604800초)에서 **28일(2419200초)** 로 확장한다(Discord
+ * parity · 단일 출처). moderation.service · bulk-action · resolve-report · FE picker
+ * 가 모두 이 상수를 참조하므로 한 곳만 바꾸면 전 경로의 상한이 28일로 통일된다.
+ */
 export const TIMEOUT_MIN_SECONDS = 60;
-export const TIMEOUT_MAX_SECONDS = 604800;
+export const TIMEOUT_MAX_SECONDS = 2419200;
 
 /** S63 (FR-RM05): kick undo 토큰 TTL(초). actor 소켓에만 전달되는 5초 윈도. */
 export const KICK_UNDO_TTL_SECONDS = 5;
@@ -109,7 +114,81 @@ export const TIMEOUT_DURATION_PRESETS: ReadonlyArray<{ label: string; seconds: n
   { label: '1시간', seconds: 3600 },
   { label: '1일', seconds: 86400 },
   { label: '7일', seconds: 604800 },
+  // S69 (FR-W11): 상한 28일까지 확장.
+  { label: '28일', seconds: 2419200 },
 ];
+
+// ─────────────────────────── S69 (D13 / FR-W11) 일괄 멤버 관리 액션 ──────────
+
+/** S69 (FR-W11): 한 번의 bulk-action 으로 처리할 수 있는 최대 멤버 수. */
+export const BULK_MEMBER_ACTION_MAX = 100;
+
+/** S69 (FR-W11): 일괄 멤버 관리 액션 종류. kick/timeout/role(역할변경). ban 은 단건 전용. */
+export const BULK_MEMBER_ACTIONS = ['kick', 'timeout', 'role'] as const;
+export const BulkMemberActionSchema = z.enum(BULK_MEMBER_ACTIONS);
+export type BulkMemberAction = z.infer<typeof BulkMemberActionSchema>;
+
+/**
+ * S69 (FR-W11): 일괄 멤버 관리 요청. userIds(≤100·중복 제거 권장)에 동일 액션을 적용한다.
+ *   - kick:    durationSeconds/role 무시.
+ *   - timeout: durationSeconds 필수(60~2419200·28일 상한).
+ *   - role:    role 필수(ADMIN/MODERATOR/MEMBER/GUEST — OWNER 직접 배정 불가).
+ * 서버는 단일 트랜잭션으로 처리하고 단일 AuditLog 를 남긴다(Fork A — 동기 단일 tx).
+ */
+export const BulkMemberActionRequestSchema = z
+  .object({
+    action: BulkMemberActionSchema,
+    userIds: z.array(z.string().uuid()).min(1).max(BULK_MEMBER_ACTION_MAX),
+    durationSeconds: z.number().int().min(TIMEOUT_MIN_SECONDS).max(TIMEOUT_MAX_SECONDS).optional(),
+    // role 액션의 대상 역할(OWNER 제외 — 직접 배정 불가).
+    role: z.enum(['ADMIN', 'MODERATOR', 'MEMBER', 'GUEST']).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.action === 'timeout' && val.durationSeconds === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'durationSeconds is required for timeout action',
+        path: ['durationSeconds'],
+      });
+    }
+    if (val.action === 'role' && val.role === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'role is required for role action',
+        path: ['role'],
+      });
+    }
+  });
+export type BulkMemberActionRequest = z.infer<typeof BulkMemberActionRequestSchema>;
+
+/**
+ * S69 (FR-W11): 일괄 멤버 관리 응답. 단일 tx 의 부분실패 정책을 명확히 드러낸다 —
+ * 권한/계층/자기자신/비멤버 등으로 건너뛴 대상은 skipped 에 사유와 함께 남기고,
+ * 실제 적용된 대상만 affected 에 담는다. attemptedCount = userIds 길이.
+ */
+export const BulkMemberSkipReasonSchema = z.enum([
+  'self',
+  'not_member',
+  'owner',
+  'outranked',
+  'invalid_role',
+]);
+export type BulkMemberSkipReason = z.infer<typeof BulkMemberSkipReasonSchema>;
+
+export const BulkMemberActionResponseSchema = z.object({
+  action: BulkMemberActionSchema,
+  attemptedCount: z.number().int().nonnegative(),
+  /** 실제 액션이 적용된 대상 userId 들. */
+  affected: z.array(z.string().uuid()),
+  /** 권한/계층 등으로 건너뛴 대상 + 사유. */
+  skipped: z.array(
+    z.object({
+      userId: z.string().uuid(),
+      reason: BulkMemberSkipReasonSchema,
+    }),
+  ),
+});
+export type BulkMemberActionResponse = z.infer<typeof BulkMemberActionResponseSchema>;
 
 // ───────────────────────────────── S64 (D12 / FR-RM09) Bulk Purge ───────────
 

@@ -7,7 +7,11 @@ import {
   hasRaw,
   KICK_UNDO_TTL_SECONDS,
   PERMISSIONS,
+  ROLE_RANK,
   SYSTEM_ROLE_POSITION,
+  type BulkMemberAction,
+  type BulkMemberActionResponse,
+  type BulkMemberSkipReason,
   type KickMemberResponse,
 } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
@@ -18,7 +22,7 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { MemberRoleService } from '../roles/member-role.service';
 import { syncMemberSystemRole } from '../roles/system-role-seed';
-import { MEMBER_BANNED, MEMBER_KICKED } from '../events/workspace-events';
+import { MEMBER_BANNED, MEMBER_KICKED, ROLE_CHANGED } from '../events/workspace-events';
 import type { BannedMember, ListBansResponse, TimeoutMemberResponse } from '@qufox/shared-types';
 
 /**
@@ -446,6 +450,179 @@ export class ModerationService {
         );
       });
     });
+  }
+
+  /**
+   * S69 (D13 / FR-W11 · Fork A): 일괄 멤버 관리(kick/timeout/role). 최대 100명을
+   * **단일 트랜잭션**으로 처리하고 **단일 AuditLog** + 대상별 outbox(소켓 disconnect /
+   * 역할 캐시 무효화 트리거)를 남긴다. BullMQ 미사용(동기 단일 tx).
+   *
+   * 부분실패 정책: 권한 비트 검사는 actor 단위로 한 번(부족하면 전체 403). 그 통과 뒤
+   * 대상별로 self/비멤버/OWNER/계층(outranked)/역할무효 를 검사해 **건너뛴 대상은
+   * skipped 에 사유와 함께** 남기고, 적용 가능한 대상만 affected 로 모아 deleteMany
+   * (kick)/updateMany(timeout·role) 한다. 한 명이라도 부적격이어도 나머지는 적용된다
+   * (all-or-nothing 이 아니라 적격분만 — 대규모 일괄 관리의 실용성). 트랜잭션은 affected
+   * 집합 전체의 write + audit + outbox 를 한 commit 으로 묶어 원자성을 보장한다.
+   */
+  async bulkAction(args: {
+    workspaceId: string;
+    actorId: string;
+    // role 액션 권한 게이트(ADMIN+) 판정에 쓰는 actor 의 시스템 역할 enum.
+    actorRole: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
+    action: BulkMemberAction;
+    userIds: string[];
+    durationSeconds?: number;
+    role?: 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
+  }): Promise<BulkMemberActionResponse> {
+    const { workspaceId, actorId, actorRole, action, durationSeconds, role } = args;
+    // 중복 userId 제거(동일 대상 중복 카운트 방지).
+    const userIds = [...new Set(args.userIds)];
+    const attemptedCount = userIds.length;
+
+    const actor = await this.actorContext(workspaceId, actorId);
+    // 1) actor 권한 게이트(액션별). 부족하면 전체 403(부분 적용 없음).
+    //    - kick:    KICK_MEMBERS 비트(또는 ADMINISTRATOR) — MODERATOR 도 비트 보유 시 가능.
+    //    - timeout: TIMEOUT_MEMBERS 비트(또는 ADMINISTRATOR).
+    //    - role:    역할 변경은 비트가 아니라 ADMIN+ enum 계층(또는 ADMINISTRATOR)로 게이트한다
+    //               (단건 updateRole 의 @Roles('ADMIN') 와 동일 기준 — MODERATOR 는 역할변경 불가).
+    if (action === 'role') {
+      const isAdminPlus = actor.isAdministrator || ROLE_RANK[actorRole] >= ROLE_RANK.ADMIN;
+      if (!isAdminPlus) {
+        throw new DomainError(
+          ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+          'role changes require ADMIN or higher',
+        );
+      }
+    } else {
+      const requiredBit =
+        action === 'kick' ? PERMISSIONS.KICK_MEMBERS : PERMISSIONS.TIMEOUT_MEMBERS;
+      if (!actor.isAdministrator && !hasRaw(actor.permissions, requiredBit)) {
+        throw new DomainError(
+          ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+          'you lack the required permission for this bulk action',
+        );
+      }
+    }
+
+    // 2) 대상별 적격성 판정(권한 통과 후 계층/소유권/자기자신/비멤버/역할무효).
+    const targets = await this.prisma.workspaceMember.findMany({
+      where: { workspaceId, userId: { in: userIds } },
+      select: { userId: true, role: true },
+    });
+    const targetMap = new Map(targets.map((t) => [t.userId, t]));
+
+    const affected: string[] = [];
+    const skipped: Array<{ userId: string; reason: BulkMemberSkipReason }> = [];
+
+    for (const userId of userIds) {
+      if (userId === actorId) {
+        skipped.push({ userId, reason: 'self' });
+        continue;
+      }
+      const target = targetMap.get(userId);
+      if (!target) {
+        skipped.push({ userId, reason: 'not_member' });
+        continue;
+      }
+      if (target.role === WorkspaceRole.OWNER) {
+        skipped.push({ userId, reason: 'owner' });
+        continue;
+      }
+      // role 액션: 동일 역할로의 변경은 no-op 이지만 invalid_role 은 아니다(affected 포함은
+      // 하되 updateMany 가 자연히 멱등). OWNER 로의 변경은 스키마에서 이미 차단(타입).
+      if (!actor.isAdministrator) {
+        const targetTop = await this.topPosition(workspaceId, userId, target.role);
+        if (targetTop >= actor.topPosition) {
+          skipped.push({ userId, reason: 'outranked' });
+          continue;
+        }
+      }
+      affected.push(userId);
+    }
+
+    if (affected.length === 0) {
+      return { action, attemptedCount, affected: [], skipped };
+    }
+
+    // 3) 단일 트랜잭션: 적격 대상 일괄 write + 단일 AuditLog + 대상별 outbox.
+    const mutedUntil =
+      action === 'timeout' && durationSeconds !== undefined
+        ? new Date(Date.now() + durationSeconds * 1000)
+        : null;
+
+    await this.prisma.$transaction(async (tx) => {
+      if (action === 'kick') {
+        await tx.workspaceMember.deleteMany({
+          where: { workspaceId, userId: { in: affected } },
+        });
+        for (const userId of affected) {
+          await this.outbox.record(tx, {
+            aggregateType: 'member',
+            aggregateId: userId,
+            eventType: MEMBER_KICKED,
+            payload: { workspaceId, userId, actorId },
+          });
+        }
+      } else if (action === 'timeout') {
+        await tx.workspaceMember.updateMany({
+          where: { workspaceId, userId: { in: affected } },
+          data: { mutedUntil },
+        });
+      } else {
+        // role 변경: updateMany 로 enum 일괄 변경 + 대상별 시스템 MemberRole 동기 + ROLE_CHANGED.
+        await tx.workspaceMember.updateMany({
+          where: { workspaceId, userId: { in: affected } },
+          data: { role: WorkspaceRole[role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST'] },
+        });
+        for (const userId of affected) {
+          await syncMemberSystemRole(
+            tx,
+            workspaceId,
+            userId,
+            role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
+          );
+          await this.outbox.record(tx, {
+            aggregateType: 'member',
+            aggregateId: userId,
+            eventType: ROLE_CHANGED,
+            payload: {
+              workspaceId,
+              userId,
+              actorId,
+              from: targetMap.get(userId)?.role ?? null,
+              to: WorkspaceRole[role as 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST'],
+            },
+          });
+        }
+      }
+
+      // 단일 AuditLog(Fork A) — affected/skipped 전부를 details 에 싣는다.
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.MEMBER_BULK_ACTION,
+          targetId: null,
+          details: {
+            bulkAction: action,
+            affected,
+            skipped,
+            ...(action === 'timeout' && durationSeconds !== undefined
+              ? { durationSeconds, mutedUntil: mutedUntil?.toISOString() ?? null }
+              : {}),
+            ...(action === 'role' && role ? { role } : {}),
+          },
+        },
+        tx,
+      );
+    });
+
+    // 4) 강등/삭제/타임아웃으로 stale 권한 캐시가 남지 않게 무효화(best-effort).
+    for (const userId of affected) {
+      await this.memberRoles.invalidateMemberPermsCache(workspaceId, userId);
+    }
+
+    return { action, attemptedCount, affected, skipped };
   }
 
   /**

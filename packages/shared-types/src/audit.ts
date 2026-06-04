@@ -25,6 +25,7 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   MEMBER_TIMEOUT: '멤버 타임아웃',
   MEMBER_UNTIMEOUT: '타임아웃 해제',
   MEMBER_ROLE_UPDATE: '멤버 역할 변경',
+  MEMBER_BULK_ACTION: '멤버 일괄 관리',
   ROLE_CREATE: '역할 생성',
   ROLE_UPDATE: '역할 수정',
   ROLE_DELETE: '역할 삭제',

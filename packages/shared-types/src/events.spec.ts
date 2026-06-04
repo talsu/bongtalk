@@ -16,6 +16,8 @@ import {
   maskPresenceForViewer,
   ThreadAckRequestSchema,
   ThreadLockChangedPayloadSchema,
+  ConnectionReadyPayloadSchema,
+  UnreadCountIncrementPayloadSchema,
 } from './events';
 import { TYPING_MAX_VISIBLE } from './constants';
 import { extractMentionUserIds } from './mrkdwn';
@@ -421,5 +423,42 @@ describe('thread:lock:changed payload', () => {
         locked: false,
       }),
     ).toThrow();
+  });
+});
+
+// S69 (FR-W20/W23): connection:ready 멘션 카운트 + unread_count:increment workspaceId.
+describe('S69 connection:ready allWorkspaceMentionCounts', () => {
+  it('가입한 모든 워크스페이스 멘션 카운트를 싣는다', () => {
+    const p = ConnectionReadyPayloadSchema.parse({
+      userId: 'u1',
+      sessionId: 's1',
+      allWorkspaceMentionCounts: [
+        { workspaceId: 'w1', mentionCount: 3 },
+        { workspaceId: 'w2', mentionCount: 0 },
+      ],
+    });
+    expect(p.allWorkspaceMentionCounts).toHaveLength(2);
+    expect(p.allWorkspaceMentionCounts?.[0]).toEqual({ workspaceId: 'w1', mentionCount: 3 });
+  });
+
+  it('forward-compat — allWorkspaceMentionCounts 누락도 허용한다(구 서버)', () => {
+    const p = ConnectionReadyPayloadSchema.parse({ userId: 'u1', sessionId: 's1' });
+    expect(p.allWorkspaceMentionCounts).toBeUndefined();
+  });
+});
+
+describe('S69 unread_count:increment workspaceId', () => {
+  it('workspaceId 를 함께 싣는다(활성 무관 모든 워크스페이스)', () => {
+    const p = UnreadCountIncrementPayloadSchema.parse({
+      channelId: 'c1',
+      delta: 1,
+      workspaceId: 'w1',
+    });
+    expect(p.workspaceId).toBe('w1');
+  });
+
+  it('forward-compat — workspaceId 누락도 허용한다(구 서버)', () => {
+    const p = UnreadCountIncrementPayloadSchema.parse({ channelId: 'c1', delta: 1 });
+    expect(p.workspaceId).toBeUndefined();
   });
 });

@@ -268,12 +268,33 @@ export class RealtimeGateway
     });
     this.metrics?.wsPresenceSessionsActive.inc();
 
+    // S69 (FR-W20): connection:ready 에 가입한 **모든** 워크스페이스의 멘션 카운트를
+    // 싣는다(활성/비활성 무관). 비활성 워크스페이스의 서버아이콘 멘션 배지를 첫 페인트부터
+    // 그릴 수 있게 한다. 기존 unread-totals read-through 캐시(cachedWorkspaceTotal)를
+    // 재사용하므로 캐시 히트 시 DB 를 치지 않는다. 집계 실패는 비-치명(클라가 GET
+    // /me/unread-totals 폴백으로 채움) — best-effort.
+    let allWorkspaceMentionCounts: Array<{ workspaceId: string; mentionCount: number }> | undefined;
+    try {
+      allWorkspaceMentionCounts = await Promise.all(
+        workspaceIds.map(async (wsId) => {
+          const total = await this.unread.cachedWorkspaceTotal(wsId, user.userId);
+          return { workspaceId: wsId, mentionCount: total.mentionCount };
+        }),
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[ws] connection:ready mention counts failed user=${user.userId}: ${String(err).slice(0, 160)}`,
+      );
+      allWorkspaceMentionCounts = undefined;
+    }
+
     // FR-RT-01: signal the client that rooms are joined + presence is
     // registered. Emitted before any replay so the client can flip its
     // connection state to "ready" prior to catch-up events landing.
     client.emit(WS_EVENTS.CONNECTION_READY, {
       userId: user.userId,
       sessionId: user.sessionId,
+      allWorkspaceMentionCounts,
     });
 
     // S10 fix-forward (MAJOR #2): connect 직후 eager-join 한 채널마다 현재 seq

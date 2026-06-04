@@ -71,6 +71,9 @@ export function MessageColumn({
   const pinPanelOpen = useUI((s) => s.pinPanelOpen);
   const togglePinPanel = useUI((s) => s.togglePinPanel);
   const setPinPanelOpen = useUI((s) => s.setPinPanelOpen);
+  // S69 (FR-W10 · Fork C): 멤버 디렉터리 토글(모든 멤버 진입점).
+  const memberDirectoryOpen = useUI((s) => s.memberDirectoryOpen);
+  const toggleMemberDirectory = useUI((s) => s.toggleMemberDirectory);
   // S50 review (a11y A-PP-03): 패널 닫힘(닫기 버튼/Esc) 시 포커스를 트리거 핀
   // 버튼으로 되돌린다. 비모달이라 mount 시 포커스 이동은 안 하지만(A-PP-01),
   // 명시적 닫힘 후 포커스 미아 방지.
@@ -420,6 +423,20 @@ export function MessageColumn({
                 className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
               >
                 <Icon name="users" size="sm" />
+              </button>
+            </Tooltip>
+            {/* S69 (FR-W10 · Fork C): 멤버 디렉터리 진입점(모든 멤버 열람). 설정 오버레이
+                밖의 멤버-접근 진입점이라 채널 헤더에 둔다. */}
+            <Tooltip label="멤버 디렉터리" side="bottom">
+              <button
+                type="button"
+                data-testid="topbar-directory-toggle"
+                aria-label="멤버 디렉터리 열기"
+                aria-pressed={memberDirectoryOpen}
+                onClick={toggleMemberDirectory}
+                className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+              >
+                <Icon name="search" size="sm" />
               </button>
             </Tooltip>
           </div>

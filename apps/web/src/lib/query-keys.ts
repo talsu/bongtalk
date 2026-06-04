@@ -16,6 +16,16 @@ export const qk = {
     detail: (wsId: string) => ['workspaces', wsId] as const,
     members: (wsId: string) => ['workspaces', wsId, 'members'] as const,
     invites: (wsId: string) => ['workspaces', wsId, 'invites'] as const,
+    // S69 (D13 / FR-W10): 멤버 디렉터리(검색/필터/정렬 파라미터별 무한 쿼리).
+    directory: (wsId: string, params: { q?: string; role?: string; sortBy?: string }) =>
+      [
+        'workspaces',
+        wsId,
+        'directory',
+        params.q ?? '',
+        params.role ?? '',
+        params.sortBy ?? '',
+      ] as const,
   },
   channels: {
     list: (wsId: string) => ['workspaces', wsId, 'channels'] as const,
