@@ -249,6 +249,11 @@ export const DiscoveryWorkspaceSchema = z.object({
   description: z.string().nullable(),
   iconUrl: z.string().nullable(),
   category: WorkspaceCategorySchema,
+  // S72 (D13 / FR-W16): 가입 방식 노출 — FE 카드 CTA 가 PUBLIC=참가 / APPLY=신청 /
+  // PRIVATE=초대 필요로 분기한다. forward-compat 를 위해 default('PUBLIC') 로 둔다(구
+  // 캐시 payload 에 필드가 없어도 안전 — discover 는 visibility=PUBLIC 만 노출하므로
+  // 가장 흔한 가입 방식인 PUBLIC 을 기본값으로 둔다).
+  joinMode: WorkspaceJoinModeSchema.default('PUBLIC'),
   memberCount: z.number().int().nonnegative(),
   lastActivityAt: z.string().datetime().nullable(),
 });
