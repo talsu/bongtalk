@@ -20,6 +20,11 @@ import { CustomStatusController } from './custom-status.controller';
 import { CustomStatusService } from './custom-status.service';
 import { NotificationOnboardingController } from './notification-onboarding.controller';
 import { MeProfileController } from './me-profile.controller';
+// S73 (D14 / FR-PS-01·02·03): 전역 프로필 + 아바타. ProfileService 가 도메인 규칙을
+// 보유하고, 아바타는 StorageModule 의 S3Service(presignPut/headObject/magic-byte)를 쓴다.
+import { MeAvatarController } from './me-avatar.controller';
+import { ProfileService } from './profile.service';
+import { StorageModule } from '../storage/storage.module';
 // S11 (FR-RT-13): POST /workspaces/:id/channels/:chid/ack. RealtimeGateway +
 // UnreadService 둘 다 필요하므로 두 모듈을 모두 import 하는 MeModule 에 둔다.
 import { ChannelAckController } from './channel-ack.controller';
@@ -37,7 +42,7 @@ import { SavedService } from './saved/saved.service';
 // task-046 iter0: StatusBroadcastThrottler (MED-1 carry-over).
 // task-046 iter4: DndSchedule (K1) + NotificationOnboarding (K4).
 @Module({
-  imports: [ChannelsModule, RealtimeModule, AuthModule, MeNotificationBadgesModule],
+  imports: [ChannelsModule, RealtimeModule, AuthModule, MeNotificationBadgesModule, StorageModule],
   controllers: [
     MeMentionsController,
     MeUnreadTotalsController,
@@ -50,6 +55,7 @@ import { SavedService } from './saved/saved.service';
     DndScheduleController,
     NotificationOnboardingController,
     MeProfileController,
+    MeAvatarController,
     ChannelAckController,
     WorkspaceReadAllController,
     SavedController,
@@ -61,6 +67,7 @@ import { SavedService } from './saved/saved.service';
     DndScheduleService,
     CustomStatusService,
     SavedService,
+    ProfileService,
   ],
   exports: [MeMentionsService, MeActivityService, DndScheduleService, CustomStatusService],
 })

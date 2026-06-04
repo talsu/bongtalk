@@ -11,6 +11,7 @@ import { qk } from '../../lib/query-keys';
 import { resolveChannel } from '../notifications/useNotificationPreferences';
 import { useFaviconBadge } from '../notifications/useFaviconBadge';
 import { useBadgeResync } from '../notifications/useBadgeResync';
+import { usePresenceActivity } from '../presence/usePresenceActivity';
 import type { Socket } from 'socket.io-client';
 
 export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
@@ -35,6 +36,9 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
   const [socket, setSocket] = useState<Socket | null>(null);
   useFaviconBadge();
   useBadgeResync(socket);
+  // S73 (D14 / FR-PS-17): mousemove/keydown → presence:activity(30s 스로틀). 서버가
+  // IDLE→ONLINE 복귀 + 600s 무활동 IDLE 자동 전이를 처리한다.
+  usePresenceActivity(socket);
   // AuthProvider holds `user` in React state (never in the query cache).
   // The dispatcher is installed once per socket lifetime and needs a
   // stable getter — capture the current viewer via a ref that tracks

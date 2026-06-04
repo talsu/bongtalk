@@ -300,6 +300,20 @@ export enum ErrorCode {
   // 일치하지 않으면 존재 자체를 누출하지 않도록 중립적으로 404 로 거부한다.
   SAVED_NOT_FOUND = 'SAVED_NOT_FOUND',
 
+  // S73 (D14 / FR-PS-02): 전역 핸들(handle)은 @unique 라 다른 사용자가 이미 점유한
+  // 핸들로 변경 시도 → 409(상태 충돌). DB unique 제약(P2002)을 흡수해 이 코드로 변환한다.
+  HANDLE_TAKEN = 'HANDLE_TAKEN',
+  // S73 (D14 / FR-PS-03): 핸들 변경 쿨다운(마지막 변경 + 30일) 미경과 상태에서 다시
+  // 변경 시도 → 400. 응답 details.nextAllowedAt(ISO)에 다음 변경 가능 시각을 실어
+  // 클라이언트가 "다음 변경 가능일 D-N" 을 표시할 수 있게 한다.
+  HANDLE_COOLDOWN_ACTIVE = 'HANDLE_COOLDOWN_ACTIVE',
+  // S73 (D14 / FR-PS-01): 아바타 업로드 선언 크기가 8MB 한도를 초과 → 413. presign
+  // 단계에서 sizeBytes 로, finalize 단계에서 HEAD 실측치로 이중 검증한다.
+  FILE_TOO_LARGE = 'FILE_TOO_LARGE',
+  // S73 (D14 / FR-PS-01): 아바타 MIME 가 화이트리스트(png/jpeg/webp) 밖 → 415. 선언
+  // MIME 거부 전용 코드로, finalize 의 실 바이트 불일치(INVALID_MAGIC_BYTES 422)와 구분한다.
+  INVALID_MIME = 'INVALID_MIME',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -491,6 +505,11 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
   [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,
   [ErrorCode.SAVED_NOT_FOUND]: 404,
+  // S73 (D14 / FR-PS-01/02/03): 프로필/아바타.
+  [ErrorCode.HANDLE_TAKEN]: 409,
+  [ErrorCode.HANDLE_COOLDOWN_ACTIVE]: 400,
+  [ErrorCode.FILE_TOO_LARGE]: 413,
+  [ErrorCode.INVALID_MIME]: 415,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
   [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,

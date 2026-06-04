@@ -1,216 +1,163 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MeProfileController } from '../../../src/me/me-profile.controller';
+import { ProfileService } from '../../../src/me/profile.service';
+import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 import type { PrismaService } from '../../../src/prisma/prisma.module';
 import type { RateLimitService } from '../../../src/auth/services/rate-limit.service';
+import type { RealtimeGateway } from '../../../src/realtime/realtime.gateway';
+import type { S3Service } from '../../../src/storage/s3.service';
 
+/**
+ * S73 (D14): MeProfileController 단위 — Zod strict parse + ProfileService 위임 +
+ * 실시간 방송. bio/links 검증은 ProfileService 가 보유하므로 컨트롤러는 그 결과를
+ * 그대로 반환한다(task-046 M1 / 047 M2 carryover 무회귀를 controller 경유로 재검증).
+ */
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
 });
 
 const ME = '11111111-1111-4111-8111-111111111111';
 
+function baseRow(over: Record<string, unknown> = {}) {
+  return {
+    id: ME,
+    email: 'me@e.com',
+    username: 'me',
+    handle: 'me',
+    displayName: null,
+    fullName: null,
+    pronouns: null,
+    title: null,
+    timezone: null,
+    bio: null,
+    handleChangedAt: null,
+    avatarKey: null,
+    customStatus: null,
+    links: null,
+    ...over,
+  };
+}
+
 function makeCtrl({
   findUnique,
   update,
 }: { findUnique?: ReturnType<typeof vi.fn>; update?: ReturnType<typeof vi.fn> } = {}) {
-  // task-047 iter3 (M2): default mock 가 controller 의 select 결과 shape
-  // ({ bio, links }) 를 반환하도록 보강. 개별 spec 은 mock override.
   const prisma = {
     user: {
-      findUnique: findUnique ?? vi.fn(),
-      update: update ?? vi.fn().mockResolvedValue({ bio: null, links: null }),
+      findUnique: findUnique ?? vi.fn().mockResolvedValue(baseRow()),
+      update: update ?? vi.fn().mockResolvedValue(baseRow()),
     },
+    workspaceMember: { findMany: vi.fn().mockResolvedValue([]) },
   } as unknown as PrismaService;
   const rate = { enforce: vi.fn().mockResolvedValue(undefined) } as unknown as RateLimitService;
-  return { ctrl: new MeProfileController(prisma, rate), prisma, rate };
+  const s3 = {
+    presignGet: vi.fn().mockResolvedValue('http://get.stub'),
+    presignPutTtl: 900,
+    presignGetTtl: 1800,
+  } as unknown as S3Service;
+  const gateway = { broadcastUserProfileUpdate: vi.fn() } as unknown as RealtimeGateway;
+  const service = new ProfileService(prisma, s3);
+  return { ctrl: new MeProfileController(prisma, rate, service, gateway), prisma, rate, gateway };
 }
 
-describe('MeProfileController.get (task-046 M1)', () => {
-  it('User row 반환 + bio 포함', async () => {
-    const findUnique = vi.fn().mockResolvedValue({
-      id: ME,
-      username: 'me',
-      email: 'me@e.com',
-      customStatus: null,
-      bio: 'hello world',
-    });
+const CALLER = { id: ME, email: 'me@e.com', username: 'me', emailVerified: true };
+
+describe('MeProfileController.get', () => {
+  it('returns the profile view (handle ?? username) + bio', async () => {
+    const findUnique = vi.fn().mockResolvedValue(baseRow({ bio: 'hello world', handle: null }));
     const { ctrl } = makeCtrl({ findUnique });
-    const res = await ctrl.get({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true });
+    const res = await ctrl.get(CALLER);
     expect(res.bio).toBe('hello world');
+    expect(res.handle).toBe('me');
   });
 
-  it('user 없으면 profile not found', async () => {
+  it('throws when the user row is missing', async () => {
     const { ctrl } = makeCtrl({ findUnique: vi.fn().mockResolvedValue(null) });
-    await expect(
-      ctrl.get({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }),
-    ).rejects.toThrow(/profile not found/);
+    await expect(ctrl.get(CALLER)).rejects.toThrow(/profile not found/);
   });
 });
 
-describe('MeProfileController.patch (task-046 M1)', () => {
-  it('bio null → 저장도 null', async () => {
-    const update = vi.fn().mockResolvedValue({});
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { bio: null },
-    );
-    expect(res.bio).toBeNull();
-    expect(update).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: { id: ME },
-        data: { bio: null },
-      }),
-    );
-  });
-
-  it('bio 빈 trim 결과 → null', async () => {
-    const update = vi.fn().mockResolvedValue({});
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { bio: '   ' },
-    );
+describe('MeProfileController.patch — bio (task-046 M1 carryover)', () => {
+  it('bio null → stored null', async () => {
+    const update = vi.fn().mockResolvedValue(baseRow());
+    const findUnique = vi.fn().mockResolvedValue(baseRow());
+    const { ctrl } = makeCtrl({ update, findUnique });
+    const res = await ctrl.patch(CALLER, { bio: null });
     expect(res.bio).toBeNull();
   });
 
-  it('bio 정상 string → trim 저장', async () => {
-    const update = vi.fn().mockResolvedValue({});
+  it('bio whitespace → null', async () => {
+    const update = vi.fn().mockResolvedValue(baseRow());
     const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { bio: '  안녕  ' },
-    );
-    expect(res.bio).toBe('안녕');
+    await ctrl.patch(CALLER, { bio: '   ' });
+    const arg = update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    expect(arg.data.bio).toBeNull();
   });
 
-  it('bio 가 string 이 아니면 VALIDATION_FAILED', async () => {
+  it('bio over 190 (app layer) → rejected', async () => {
     const { ctrl } = makeCtrl();
-    await expect(
-      ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-        {
-          bio: 42 as unknown as string,
-        },
-      ),
-    ).rejects.toThrow(/string or null/);
+    await expect(ctrl.patch(CALLER, { bio: 'x'.repeat(191) })).rejects.toMatchObject({
+      code: ErrorCode.VALIDATION_FAILED,
+    });
   });
 
-  it('bio 길이 > 500 → VALIDATION_FAILED', async () => {
-    const { ctrl } = makeCtrl();
-    await expect(
-      ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-        { bio: 'x'.repeat(501) },
-      ),
-    ).rejects.toThrow(/too long/);
-  });
-
-  it('bio 500 chars exactly → 정상', async () => {
-    const update = vi.fn().mockResolvedValue({});
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      {
-        bio: 'x'.repeat(500),
-      },
-    );
-    expect(res.bio).toBe('x'.repeat(500));
-  });
-
-  it('rate limit 호출 (10/min/user)', async () => {
+  it('enforces rate limit 10/min/user', async () => {
     const { ctrl, rate } = makeCtrl();
-    await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { bio: 'hi' },
-    );
+    await ctrl.patch(CALLER, { bio: 'hi' });
     expect(rate.enforce).toHaveBeenCalledWith([
       { key: `me-profile:u:${ME}`, windowSec: 60, max: 10 },
     ]);
   });
 
-  /**
-   * task-047 iter3 (M2): links 검증.
-   */
-  it('links null → 저장 시 Prisma.JsonNull (links: null 반환)', async () => {
-    const update = vi.fn().mockResolvedValue({ bio: null, links: null });
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { links: null },
+  it('broadcasts user.profile.updated after a successful patch', async () => {
+    const { ctrl, gateway } = makeCtrl();
+    await ctrl.patch(CALLER, { displayName: 'Me' });
+    expect(gateway.broadcastUserProfileUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ userId: ME }),
     );
-    expect(res.links).toBeNull();
+  });
+});
+
+describe('MeProfileController.patch — links (task-047 M2 carryover)', () => {
+  it('links empty array → JsonNull stored', async () => {
+    const update = vi.fn().mockResolvedValue(baseRow());
+    const { ctrl } = makeCtrl({ update });
+    await ctrl.patch(CALLER, { links: [] });
+    const arg = update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
+    // Prisma.JsonNull is a sentinel object — assert it is not a real array.
+    expect(Array.isArray(arg.data.links)).toBe(false);
   });
 
-  it('links 빈 배열 → null', async () => {
-    const update = vi.fn().mockResolvedValue({ bio: null, links: null });
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { links: [] },
-    );
-    expect(res.links).toBeNull();
-  });
-
-  it('links 정상 1개 (url + label)', async () => {
-    const expected = [{ url: 'https://example.com', label: 'home' }];
-    const update = vi.fn().mockResolvedValue({ bio: null, links: expected });
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { links: expected },
-    );
-    expect(res.links).toEqual(expected);
-  });
-
-  it('links url 이 https?:// 시작 안 하면 VALIDATION_FAILED', async () => {
+  it('links with a non-http url → VALIDATION_FAILED (Zod strict)', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-        { links: [{ url: 'javascript:alert(1)' }] },
-      ),
-    ).rejects.toThrow(/http:\/\/ or https:\/\//);
+      ctrl.patch(CALLER, { links: [{ url: 'javascript:alert(1)' }] }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
   });
 
-  it('links 4개 → too many links', async () => {
+  it('links over cap 3 → VALIDATION_FAILED', async () => {
     const links = Array.from({ length: 4 }, (_, i) => ({ url: `https://e${i}.com` }));
     const { ctrl } = makeCtrl();
-    await expect(
-      ctrl.patch({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }, { links }),
-    ).rejects.toThrow(/too many links/);
+    await expect(ctrl.patch(CALLER, { links })).rejects.toMatchObject({
+      code: ErrorCode.VALIDATION_FAILED,
+    });
   });
 
-  it('links url 누락 → VALIDATION_FAILED', async () => {
+  it('valid links round-trip through the view', async () => {
+    const expected = [{ url: 'https://example.com', label: 'home' }];
+    const update = vi.fn().mockResolvedValue(baseRow());
+    const findUnique = vi.fn().mockResolvedValue(baseRow({ links: expected }));
+    const { ctrl } = makeCtrl({ update, findUnique });
+    const res = await ctrl.patch(CALLER, { links: expected });
+    expect(res.links).toEqual(expected);
+  });
+});
+
+describe('MeProfileController.patch — unknown keys rejected (Zod strict)', () => {
+  it('rejects a non-whitelisted field', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-        { links: [{ label: 'no url' } as { url?: string; label?: string }] },
-      ),
-    ).rejects.toThrow(/non-empty string/);
-  });
-
-  it('links label 33 chars → too long', async () => {
-    const { ctrl } = makeCtrl();
-    await expect(
-      ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-        { links: [{ url: 'https://example.com', label: 'x'.repeat(33) }] },
-      ),
-    ).rejects.toThrow(/label too long/);
-  });
-
-  it('bio + links 동시 update', async () => {
-    const update = vi
-      .fn()
-      .mockResolvedValue({ bio: 'hi', links: [{ url: 'https://example.com' }] });
-    const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
-      { bio: 'hi', links: [{ url: 'https://example.com' }] },
-    );
-    expect(res.bio).toBe('hi');
-    expect(res.links).toEqual([{ url: 'https://example.com' }]);
+      ctrl.patch(CALLER, { avatarUrl: 'http://evil' } as unknown as Record<string, unknown>),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
   });
 });
