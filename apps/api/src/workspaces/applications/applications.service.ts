@@ -110,52 +110,38 @@ export class ApplicationsService {
     // emailVerified 재확인 + emailDomains exact-match(빈 배열이면 제한 없음).
     assertWorkspaceEntryAllowed({ emailVerified, userEmail, emailDomains: ws.emailDomains });
 
-    // 기존 PENDING 신청이 있으면 409(중복 신청 금지 — DB 유니크 충돌 전 명확한 에러).
-    const pending = await this.prisma.workspaceMemberApplication.findUnique({
+    // perf(MINOR): PENDING/INTERVIEW/REJECTED 개별 findUnique 3회 대신 (workspaceId,
+    // applicantId) 의 비-WITHDRAWN 활성 상태를 한 번에 조회한 뒤 분기한다((workspaceId,
+    // status, createdAt) 인덱스가 커버). 같은 조합당 status 별 최대 1행이라 결과는 최대 3행.
+    const blocking = await this.prisma.workspaceMemberApplication.findMany({
       where: {
-        workspaceId_applicantId_status: {
-          workspaceId: ws.id,
-          applicantId: userId,
-          status: ApplicationStatus.PENDING,
+        workspaceId: ws.id,
+        applicantId: userId,
+        status: {
+          in: [ApplicationStatus.PENDING, ApplicationStatus.INTERVIEW, ApplicationStatus.REJECTED],
         },
       },
-      select: { id: true },
+      select: { id: true, status: true, updatedAt: true },
     });
-    if (pending) {
+    const byStatus = new Map(blocking.map((r) => [r.status, r]));
+
+    // 기존 PENDING 신청이 있으면 409(중복 신청 금지 — DB 유니크 충돌 전 명확한 에러).
+    if (byStatus.has(ApplicationStatus.PENDING)) {
       throw new DomainError(
         ErrorCode.APPLICATION_PENDING_EXISTS,
         'you already have a pending application',
       );
     }
     // INTERVIEW 진행 중인 신청이 있으면 중복 신청 금지(인터뷰 후 동일 신청서가 재처리됨).
-    const interview = await this.prisma.workspaceMemberApplication.findUnique({
-      where: {
-        workspaceId_applicantId_status: {
-          workspaceId: ws.id,
-          applicantId: userId,
-          status: ApplicationStatus.INTERVIEW,
-        },
-      },
-      select: { id: true },
-    });
-    if (interview) {
+    if (byStatus.has(ApplicationStatus.INTERVIEW)) {
       throw new DomainError(
         ErrorCode.APPLICATION_PENDING_EXISTS,
         'your application is under interview review',
       );
     }
 
-    // REJECTED 후 24h cooldown — 가장 최근 REJECTED 신청의 updatedAt 기준.
-    const rejected = await this.prisma.workspaceMemberApplication.findUnique({
-      where: {
-        workspaceId_applicantId_status: {
-          workspaceId: ws.id,
-          applicantId: userId,
-          status: ApplicationStatus.REJECTED,
-        },
-      },
-      select: { id: true, updatedAt: true },
-    });
+    // REJECTED 후 24h cooldown — 가장 최근 REJECTED 신청의 updatedAt 기준(코드 정본).
+    const rejected = byStatus.get(ApplicationStatus.REJECTED);
     if (rejected) {
       const elapsed = Date.now() - rejected.updatedAt.getTime();
       if (elapsed < APPLICATION_REAPPLY_COOLDOWN_MS) {
@@ -170,53 +156,67 @@ export class ApplicationsService {
     // 재신청은 WITHDRAWN/REJECTED 행을 PENDING 으로 되살려 @@unique(ws,applicant,PENDING)
     // 충돌을 피한다. 없으면 신규 생성. 어느 쪽이든 PENDING 행 1개를 반환한다.
     const answersJson = args.answers as unknown as Prisma.InputJsonValue;
-    const created = await this.prisma.$transaction(async (tx) => {
-      const reusable = await tx.workspaceMemberApplication.findFirst({
-        where: {
-          workspaceId: ws.id,
-          applicantId: userId,
-          status: { in: [ApplicationStatus.WITHDRAWN, ApplicationStatus.REJECTED] },
-        },
-        orderBy: { updatedAt: 'desc' },
-        select: { id: true },
+    let created: ApplicationRow;
+    try {
+      created = await this.prisma.$transaction(async (tx) => {
+        const reusable = await tx.workspaceMemberApplication.findFirst({
+          where: {
+            workspaceId: ws.id,
+            applicantId: userId,
+            status: { in: [ApplicationStatus.WITHDRAWN, ApplicationStatus.REJECTED] },
+          },
+          orderBy: { updatedAt: 'desc' },
+          select: { id: true },
+        });
+        const row = reusable
+          ? await tx.workspaceMemberApplication.update({
+              where: { id: reusable.id },
+              data: {
+                status: ApplicationStatus.PENDING,
+                answers: answersJson,
+                reviewedById: null,
+                reviewNote: null,
+                interviewChannelId: null,
+              },
+            })
+          : await tx.workspaceMemberApplication.create({
+              data: {
+                workspaceId: ws.id,
+                applicantId: userId,
+                status: ApplicationStatus.PENDING,
+                answers: answersJson,
+              },
+            });
+        // 신청자 표시명(ADMIN 패널 토스트/목록). best-effort.
+        const applicant = await tx.user.findUnique({
+          where: { id: userId },
+          select: { username: true },
+        });
+        await this.outbox.record(tx, {
+          aggregateType: 'application',
+          aggregateId: row.id,
+          eventType: MEMBER_APPLICATION_RECEIVED,
+          payload: {
+            workspaceId: ws.id,
+            applicationId: row.id,
+            applicantId: userId,
+            applicantName: applicant?.username ?? '',
+          },
+        });
+        return row;
       });
-      const row = reusable
-        ? await tx.workspaceMemberApplication.update({
-            where: { id: reusable.id },
-            data: {
-              status: ApplicationStatus.PENDING,
-              answers: answersJson,
-              reviewedById: null,
-              reviewNote: null,
-              interviewChannelId: null,
-            },
-          })
-        : await tx.workspaceMemberApplication.create({
-            data: {
-              workspaceId: ws.id,
-              applicantId: userId,
-              status: ApplicationStatus.PENDING,
-              answers: answersJson,
-            },
-          });
-      // 신청자 표시명(ADMIN 패널 토스트/목록). best-effort.
-      const applicant = await tx.user.findUnique({
-        where: { id: userId },
-        select: { username: true },
-      });
-      await this.outbox.record(tx, {
-        aggregateType: 'application',
-        aggregateId: row.id,
-        eventType: MEMBER_APPLICATION_RECEIVED,
-        payload: {
-          workspaceId: ws.id,
-          applicationId: row.id,
-          applicantId: userId,
-          applicantName: applicant?.username ?? '',
-        },
-      });
-      return row;
-    });
+    } catch (e) {
+      // M-2: 두 요청이 동시에 위 선조회를 통과하면 create 가 @@unique(workspaceId,
+      // applicantId,PENDING) 에서 P2002 로 충돌한다(동시 신청). 500 대신 명확한
+      // APPLICATION_PENDING_EXISTS(409)로 변환한다(선조회 409 와 동일 의미).
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new DomainError(
+          ErrorCode.APPLICATION_PENDING_EXISTS,
+          'you already have a pending application',
+        );
+      }
+      throw e;
+    }
 
     return this.toDto(created);
   }
@@ -294,12 +294,26 @@ export class ApplicationsService {
     return this.interview(app, actorId);
   }
 
-  /** approve: WorkspaceMember 생성 + MEMBER 시스템 역할 동기 + MEMBER_JOINED + reviewed(approved). */
+  /**
+   * approve: ban 재확인(M-1) + WorkspaceMember 생성 + MEMBER 시스템 역할 동기 +
+   * MEMBER_JOINED + reviewed(approved). 모두 한 트랜잭션.
+   */
   private async approve(
     app: ApplicationRow,
     actorId: string,
   ): Promise<WorkspaceMemberApplicationDto> {
     const updated = await this.prisma.$transaction(async (tx) => {
+      // M-1: submit↔approve 사이에 신청자가 차단(ban)됐는지 트랜잭션 내부에서 재확인한다.
+      // submit 시점엔 미차단이어도 검토 대기 중 ADMIN 이 ban 할 수 있으므로, 차단 사용자를
+      // approve 로 멤버화하는 우회를 막는다(joinPublic/accept 의 ban 게이트 정합 — 중립
+      // 404 로 차단 사실 누출 방지). emailVerified 는 JWT 가 매요청 DB 로드라 재확인 불요.
+      const banned = await tx.bannedMember.findUnique({
+        where: { workspaceId_userId: { workspaceId: app.workspaceId, userId: app.applicantId } },
+        select: { userId: true },
+      });
+      if (banned) {
+        throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
+      }
       const row = await tx.workspaceMemberApplication.update({
         where: { id: app.id },
         data: { status: ApplicationStatus.APPROVED, reviewedById: actorId },

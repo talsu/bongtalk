@@ -8,7 +8,7 @@
 --      applicantId FK CASCADE · status enum DEFAULT PENDING · answers JSONB ·
 --      reviewedById FK SET NULL · reviewNote VARCHAR(500)? · interviewChannelId UUID? ·
 --      createdAt · updatedAt). 유니크: (workspaceId, applicantId, status). 인덱스:
---      (workspaceId, status), (applicantId).
+--      (workspaceId, status, createdAt) — ADMIN 목록 정렬 커버, (applicantId).
 --
 -- 기존 테이블은 변경하지 않는다(isTemporary/joinMode/Invite.temporary 는 S67/S65 에서
 -- 이미 추가됨 — FR-W12 임시멤버 강퇴는 그 컬럼을 읽기만 한다). 따라서 신규 enum +
@@ -55,9 +55,11 @@ CREATE TABLE IF NOT EXISTS "WorkspaceMemberApplication" (
 CREATE UNIQUE INDEX IF NOT EXISTS "WorkspaceMemberApplication_workspaceId_applicantId_status_key"
   ON "WorkspaceMemberApplication" ("workspaceId", "applicantId", "status");
 
--- ADMIN 목록(status 필터) 조회 가속.
-CREATE INDEX IF NOT EXISTS "WorkspaceMemberApplication_workspaceId_status_idx"
-  ON "WorkspaceMemberApplication" ("workspaceId", "status");
+-- ADMIN 목록(status 필터 + createdAt DESC 정렬) 조회 가속. createdAt 까지 인덱스에 포함해
+-- 정렬도 커버한다(perf MINOR — filesort 제거). 미배포 마이그레이션이라 직접 (workspaceId,
+-- status, createdAt) 로 정의한다.
+CREATE INDEX IF NOT EXISTS "WorkspaceMemberApplication_workspaceId_status_createdAt_idx"
+  ON "WorkspaceMemberApplication" ("workspaceId", "status", "createdAt");
 
 -- 본인 상태(me · polling) 조회 가속.
 CREATE INDEX IF NOT EXISTS "WorkspaceMemberApplication_applicantId_idx"

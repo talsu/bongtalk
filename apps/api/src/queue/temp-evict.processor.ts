@@ -26,12 +26,14 @@ import { TempEvictQueueService } from './temp-evict-queue.service';
  *       subscriber 가 ws:member_left{reason:'temp_expired'} 를 워크스페이스 룸으로 fanout
  *       하고, 대상 본인 소켓을 kickUserEverywhere 로 끊는다(기존 member.left 경로 재사용).
  *
- * pollInterval 을 250ms 로 낮춰 2초 debounce 정밀도를 확보한다(기본 ~1s 면 최대 ~3s 지연).
+ * drainDelay 를 낮춰 2초 debounce 정밀도를 확보한다(아래 매핑 주석 참조).
  */
-// FR-W12 2초 debounce 정밀도: BullMQ 5 는 명시적 pollInterval 이 없고, delayed job 은
-// delayed-marker 로 즉시 승격되지만 worker 가 blocking 대기에서 깨어나는 최악 지연은
-// drainDelay(기본 5s)에 좌우된다. 1초로 낮춰 ~2.x초 강퇴 정밀도를 확보한다(잡 수가 적어
-// 추가 폴링 부하는 무시 가능 — 결정 1 의 "pollInterval 낮게"를 BullMQ 5 의 drainDelay 로 매핑).
+// FR-W12 강퇴 지연 ≈ 3초(2초 delay + 최대 1초 drain): BullMQ 5 는 명시적 pollInterval 이
+// 없고, delayed job 은 delayed-marker 로 즉시 승격되지만 worker 가 blocking 대기에서 깨어나는
+// 최악 지연은 drainDelay 에 좌우된다(기본 5s). TEMP_EVICT_POLL_INTERVAL_MS(250ms)를 초로
+// 환산·반올림하면 0 이라 Math.max(1, …) 가 최소 1초 drainDelay 를 보장한다. 따라서 2초
+// debounce delay + 최대 1초 drain 으로 강퇴까지 최악 ~3초다(잡 수가 적어 추가 폴링 부하는
+// 무시 가능 — 결정 1 의 "pollInterval 낮게"를 BullMQ 5 의 drainDelay 로 매핑).
 @Processor(TEMP_EVICT_QUEUE, {
   concurrency: 4,
   drainDelay: Math.max(1, Math.round(TEMP_EVICT_POLL_INTERVAL_MS / 1000)),

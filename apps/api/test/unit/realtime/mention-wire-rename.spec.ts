@@ -35,11 +35,14 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
     const badges = {
       badgeFor: vi.fn().mockResolvedValue({ workspaceId: '', mentionCount: 0, unreadCount: 0 }),
     } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
+    // S70 fix-forward (M-3): application.received ADMIN+ emit 용 PrismaService. mention
+    // 경로는 prisma 를 쓰지 않으므로 빈 mock.
+    const prisma = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
-    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
   }
 
   beforeEach(() => {
@@ -117,11 +120,12 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
       .fn()
       .mockResolvedValue({ workspaceId: 'ws-7', mentionCount: 3, unreadCount: 9 });
     const badges = { badgeFor } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
+    const prisma = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
-    const sub = new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    const sub = new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
 
     const env = {
       id: 'evt-3',

@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import request from 'supertest';
 import {
   bearer,
+  collectEvents,
   connectReady,
   ORIGIN,
   setupRtIntEnv,
@@ -159,6 +160,93 @@ describe('S70 application submit/process flow', () => {
     expect(reviewed.reviewNote).toBe('추가 정보가 필요합니다');
     sock.disconnect();
   });
+
+  it('submit 후 ban 된 신청자의 approve 는 중립 404 로 거부되고 멤버가 생성되지 않는다(M-1)', async () => {
+    const applicant = await signup(env.baseUrl, 's70ban');
+    const submit = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/applications`)
+      .set('origin', ORIGIN)
+      .set(bearer(applicant.accessToken))
+      .send({ answers: [] });
+    const appId = submit.body.id as string;
+
+    // submit↔approve 사이에 owner 가 신청자를 ban 한다(비멤버 ban 허용).
+    const ban = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/moderation/bans`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ userId: applicant.userId });
+    expect(ban.status).toBeLessThan(400);
+
+    // approve 시도 → 중립 404(WORKSPACE_NOT_FOUND).
+    const approve = await request(env.baseUrl)
+      .patch(`/workspaces/${slug}/applications/${appId}`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ action: 'approve' });
+    expect(approve.status).toBe(404);
+    expect(approve.body.errorCode).toBe('WORKSPACE_NOT_FOUND');
+
+    // 멤버가 생성되지 않았는지 확인.
+    const member = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: applicant.userId } },
+    });
+    expect(member).toBeNull();
+  });
+
+  it('application_received 는 ADMIN+ 에게만 도달하고 일반 멤버에게는 도달하지 않는다(M-3)', async () => {
+    // 일반 멤버(MEMBER) 1명을 만들어 둔다. APPLY 워크스페이스라 owner 가 신청을 승인해 가입시킨다.
+    const member = await signup(env.baseUrl, 's70mem');
+    const memberSubmit = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/applications`)
+      .set('origin', ORIGIN)
+      .set(bearer(member.accessToken))
+      .send({ answers: [] });
+    await request(env.baseUrl)
+      .patch(`/workspaces/${slug}/applications/${memberSubmit.body.id}`)
+      .set('origin', ORIGIN)
+      .set(bearer(owner.accessToken))
+      .send({ action: 'approve' })
+      .expect(200);
+
+    // 이전 테스트들의 누적 outbox(이 describe 는 dispatcher polling 을 paused 로 두고
+    // drain 으로 흘린다)를 먼저 비워, owner 룸에 남은 stale application_received 를 소진한다.
+    await env.dispatcher.drain();
+
+    // owner(ADMIN+) 와 member(MEMBER) 소켓 연결.
+    const ownerSock = await connectReady(env.wsUrl, owner.accessToken);
+    const memberSock = await connectReady(env.wsUrl, member.accessToken);
+    // 윈도우 동안 양쪽이 받은 application_received 를 모두 수집한다(첫 이벤트만 보면 stale 위험).
+    const ownerEvents = collectEvents<{ applicantId: string }>(
+      ownerSock,
+      'ws:application_received',
+      4000,
+    );
+    const memberEvents = collectEvents<{ applicantId: string }>(
+      memberSock,
+      'ws:application_received',
+      4000,
+    );
+
+    // 새 신청자가 신청 → application_received 가 발행된다.
+    const applicant = await signup(env.baseUrl, 's70newapp');
+    await request(env.baseUrl)
+      .post(`/workspaces/${slug}/applications`)
+      .set('origin', ORIGIN)
+      .set(bearer(applicant.accessToken))
+      .send({ answers: [{ questionId: 'q1', answer: 'hi' }] })
+      .expect(201);
+
+    await env.dispatcher.drain();
+    const ownerGot = await ownerEvents;
+    const memberGot = await memberEvents;
+    // owner(ADMIN+)는 새 신청자의 application_received 를 받고, member(MEMBER)는 전혀 못 받는다.
+    expect(ownerGot.some((e) => e.applicantId === applicant.userId)).toBe(true);
+    expect(memberGot).toHaveLength(0);
+
+    ownerSock.disconnect();
+    memberSock.disconnect();
+  }, 20_000);
 
   it('interview 전환 시 interviewChannelId(1:1 DM)가 생성된다', async () => {
     const applicant = await signup(env.baseUrl, 's70i');

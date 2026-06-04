@@ -774,7 +774,9 @@ model WorkspaceMemberApplication {
   reviewedBy User?     @relation("WorkspaceMemberApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
 
   @@unique([workspaceId, applicantId, status])
-  @@index([workspaceId, status])
+  // S70 fix-forward (perf MINOR): ADMIN 목록은 (workspaceId, status) 필터 + createdAt DESC
+  // 정렬이므로 createdAt 까지 인덱스에 포함해 정렬도 커버한다(filesort 제거).
+  @@index([workspaceId, status, createdAt])
   @@index([applicantId])
 }
 

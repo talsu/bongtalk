@@ -52,11 +52,12 @@ export class ApplicationsController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
   ): Promise<WorkspaceMemberApplication> {
-    await this.rateLimit.enforce([{ key: `ws:apply:${user.id}`, windowSec: 60, max: 5 }]);
+    // N4: 형식 검증을 rate-limit 보다 먼저 한다 — 불량 페이로드가 abuse 한도를 소진하지 않게.
     const parsed = SubmitApplicationRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    await this.rateLimit.enforce([{ key: `ws:apply:${user.id}`, windowSec: 60, max: 5 }]);
     return this.applications.submit({
       slug,
       applicant: { userId: user.id, emailVerified: user.emailVerified, userEmail: user.email },
@@ -110,8 +111,11 @@ export class ApplicationsController {
     // reject 는 MODERATOR+, approve/interview 는 서비스가 ADMIN+ 를 재검증한다. 컨트롤러는
     // 최소 MODERATOR 멤버임을 보장하고 actorRole 을 서비스로 넘긴다.
     const { workspaceId, role } = await this.assertModerator(slug, user.id);
+    // security L-3/N3: per-actor 한도 — 종전 `ws:apply:process:${workspaceId}` 는 여러 ADMIN
+    // 이 한 워크스페이스 한도를 공유해, 한 명이 한도를 소진하면 다른 ADMIN 도 막혔다. actorId 를
+    // 키에 더해 행위자별 한도로 분리한다.
     await this.rateLimit.enforce([
-      { key: `ws:apply:process:${workspaceId}`, windowSec: 60, max: 60 },
+      { key: `ws:apply:process:${workspaceId}:${user.id}`, windowSec: 60, max: 60 },
     ]);
     return this.applications.process({
       workspaceId,

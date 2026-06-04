@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { ApplicationStatus } from '@prisma/client';
+import { ApplicationStatus, Prisma } from '@prisma/client';
 import { ApplicationsService } from '../../../src/workspaces/applications/applications.service';
 import type { PrismaService } from '../../../src/prisma/prisma.module';
 import type { OutboxService } from '../../../src/common/outbox/outbox.service';
@@ -103,20 +103,16 @@ describe('S70 ApplicationsService.submit', () => {
   });
 
   it('PENDING 신청이 이미 있으면 APPLICATION_PENDING_EXISTS(409)로 거부합니다', async () => {
+    // perf(MINOR): 차단 상태 선조회를 findMany 1회로 통합한다.
     const prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
       workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
       workspaceMemberApplication: {
-        findUnique: vi.fn(
-          async ({
-            where,
-          }: {
-            where: { workspaceId_applicantId_status: { status: ApplicationStatus } };
-          }) =>
-            where.workspaceId_applicantId_status.status === ApplicationStatus.PENDING
-              ? { id: APP_ID }
-              : null,
-        ),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { id: APP_ID, status: ApplicationStatus.PENDING, updatedAt: new Date() },
+          ]),
       },
     } as unknown as PrismaService;
     const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
@@ -133,17 +129,11 @@ describe('S70 ApplicationsService.submit', () => {
       workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
       workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
       workspaceMemberApplication: {
-        findUnique: vi.fn(
-          async ({
-            where,
-          }: {
-            where: { workspaceId_applicantId_status: { status: ApplicationStatus } };
-          }) => {
-            const s = where.workspaceId_applicantId_status.status;
-            if (s === ApplicationStatus.REJECTED) return { id: APP_ID, updatedAt: rejectedAt };
-            return null;
-          },
-        ),
+        findMany: vi
+          .fn()
+          .mockResolvedValue([
+            { id: APP_ID, status: ApplicationStatus.REJECTED, updatedAt: rejectedAt },
+          ]),
       },
     } as unknown as PrismaService;
     const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
@@ -180,7 +170,8 @@ describe('S70 ApplicationsService.submit', () => {
     const prisma = {
       workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
       workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
-      workspaceMemberApplication: { findUnique: vi.fn().mockResolvedValue(null) },
+      // 차단 상태(PENDING/INTERVIEW/REJECTED) 없음 — findMany 빈 배열.
+      workspaceMemberApplication: { findMany: vi.fn().mockResolvedValue([]) },
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     const outbox = makeOutbox();
@@ -200,6 +191,32 @@ describe('S70 ApplicationsService.submit', () => {
       applicantName: 'alice',
       applicationId: APP_ID,
     });
+  });
+
+  it('동시 신청으로 create 가 P2002 면 APPLICATION_PENDING_EXISTS(409)로 변환합니다(M-2)', async () => {
+    const p2002 = new Prisma.PrismaClientKnownRequestError('unique', {
+      code: 'P2002',
+      clientVersion: 'test',
+    });
+    const tx = {
+      workspaceMemberApplication: {
+        findFirst: vi.fn().mockResolvedValue(null), // 되살릴 행 없음 → create 경로
+        update: vi.fn(),
+        create: vi.fn().mockRejectedValue(p2002),
+      },
+      user: { findUnique: vi.fn().mockResolvedValue({ username: 'bob' }) },
+    };
+    const prisma = {
+      workspace: { findUnique: vi.fn().mockResolvedValue(WS_APPLY) },
+      workspaceMember: { findUnique: vi.fn().mockResolvedValue(null) },
+      workspaceMemberApplication: { findMany: vi.fn().mockResolvedValue([]) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
+    } as unknown as PrismaService;
+    const svc = new ApplicationsService(prisma, makeOutbox().svc, makeModeration(), makeDms().svc);
+    await expectDomainError(
+      svc.submit({ slug: SLUG, applicant: VERIFIED, answers: [] }),
+      ErrorCode.APPLICATION_PENDING_EXISTS,
+    );
   });
 });
 
@@ -237,6 +254,8 @@ describe('S70 ApplicationsService.process', () => {
   it('approve(ADMIN)는 WorkspaceMember 생성 + MEMBER_JOINED + reviewed(approved) outbox 를 남깁니다', async () => {
     const memberCreate = vi.fn().mockResolvedValue(undefined);
     const tx = {
+      // M-1: 트랜잭션 내 ban 재확인 — 미차단(null).
+      bannedMember: { findUnique: vi.fn().mockResolvedValue(null) },
       workspaceMemberApplication: {
         update: vi.fn(async ({ data }: { data: Record<string, unknown> }) => ({
           ...pendingApp(),
@@ -275,6 +294,35 @@ describe('S70 ApplicationsService.process', () => {
     expect(types).toContain(MEMBER_APPLICATION_REVIEWED);
     const reviewed = outbox.records.find((r) => r.eventType === MEMBER_APPLICATION_REVIEWED);
     expect(reviewed?.payload).toMatchObject({ status: 'approved', applicantId: APPLICANT });
+  });
+
+  it('submit↔approve 사이에 ban 되면 approve 는 중립 404 로 거부하고 멤버를 만들지 않습니다(M-1)', async () => {
+    const memberCreate = vi.fn();
+    const tx = {
+      // M-1: 트랜잭션 내 ban 재확인 — 차단됨(행 존재).
+      bannedMember: { findUnique: vi.fn().mockResolvedValue({ userId: APPLICANT }) },
+      workspaceMemberApplication: { update: vi.fn() },
+      workspaceMember: { create: memberCreate },
+    };
+    const prisma = {
+      workspaceMemberApplication: { findFirst: vi.fn().mockResolvedValue(pendingApp()) },
+      $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
+    } as unknown as PrismaService;
+    const outbox = makeOutbox();
+    const svc = new ApplicationsService(prisma, outbox.svc, makeModeration(), makeDms().svc);
+
+    await expectDomainError(
+      svc.process({
+        workspaceId: WS,
+        applicationId: APP_ID,
+        actorId: ADMIN,
+        actorRole: 'ADMIN',
+        action: 'approve',
+      }),
+      ErrorCode.WORKSPACE_NOT_FOUND,
+    );
+    expect(memberCreate).not.toHaveBeenCalled();
+    expect(outbox.records).toHaveLength(0);
   });
 
   it('reject(MODERATOR)는 reviewNote 를 기록하고 reviewed(rejected) outbox 를 남깁니다', async () => {

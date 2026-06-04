@@ -31,11 +31,17 @@ export class RoomManagerService {
     rooms: string[];
     workspaceIds: string[];
     channelIds: string[];
+    // S70 fix-forward (perf MODERATE): 이 사용자가 임시 멤버(isTemporary)인 워크스페이스 id.
+    // 멤버십 단일 쿼리에서 함께 추려 connect hot-path 의 별도 쿼리(loadTemporaryWorkspaceIds)
+    // 를 제거한다. 임시 멤버가 없으면 빈 배열 → connect/disconnect 강퇴 추적이 no-op.
+    temporaryWorkspaceIds: string[];
   }> {
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId, workspace: { deletedAt: null } },
       select: {
         workspaceId: true,
+        // S70 (FR-W12): 임시 멤버십 플래그 — connect 시 강퇴 추적 대상 워크스페이스 도출용.
+        isTemporary: true,
         workspace: {
           select: {
             channels: {
@@ -62,6 +68,7 @@ export class RoomManagerService {
     });
 
     const workspaceIds: string[] = [];
+    const temporaryWorkspaceIds: string[] = [];
     const joined: string[] = [rooms.user(userId)];
 
     // Gather the full viewable channel set (workspace + override) deduped,
@@ -74,6 +81,7 @@ export class RoomManagerService {
     const candidateChannels: Array<{ id: string; createdAt: Date; priority: boolean }> = [];
     for (const m of memberships) {
       workspaceIds.push(m.workspaceId);
+      if (m.isTemporary) temporaryWorkspaceIds.push(m.workspaceId);
       joined.push(rooms.workspace(m.workspaceId));
       for (const c of m.workspace.channels) {
         if (seenChannels.has(c.id)) continue;
@@ -114,7 +122,7 @@ export class RoomManagerService {
       );
     }
 
-    return { rooms: joined, workspaceIds, channelIds };
+    return { rooms: joined, workspaceIds, channelIds, temporaryWorkspaceIds };
   }
 
   /**

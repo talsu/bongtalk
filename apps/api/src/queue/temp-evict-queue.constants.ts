@@ -26,9 +26,11 @@ export const TEMP_EVICT_JOB = 'temp-evict-fire';
 export const TEMP_EVICT_DEBOUNCE_MS = 2000;
 
 /**
- * temp-evict Worker pollInterval(ms). BullMQ 기본 delayed-poll 주기는 ~1s 라 2초 debounce
- * 가 최대 ~3s 까지 늘어질 수 있다(결정 1). 250ms 로 낮춰 2초 정밀도를 확보한다(잡 수가
- * 적어 추가 부하는 무시 가능).
+ * temp-evict Worker drainDelay 도출 기준값(ms). BullMQ 5 는 명시적 pollInterval 이 없고,
+ * worker 가 blocking 대기에서 깨어나는 최악 지연은 drainDelay 에 좌우된다(기본 5s). 이 값을
+ * 초로 환산·반올림(250ms→0) 한 뒤 Math.max(1, …) 로 최소 1초 drainDelay 를 보장한다(Processor
+ * 참조). 결과적으로 강퇴 지연은 2초 debounce delay + 최대 1초 drain ≈ 3초다(잡 수가 적어 추가
+ * 폴링 부하는 무시 가능).
  */
 export const TEMP_EVICT_POLL_INTERVAL_MS = 250;
 

@@ -11,6 +11,7 @@ import { MetricsService } from '../../observability/metrics/metrics.service';
 import { withSpan } from '../../observability/otel/propagation';
 import { MessagesService } from '../../messages/messages.service';
 import { MeNotificationBadgesService } from '../../me/me-notification-badges.service';
+import { PrismaService } from '../../prisma/prisma.module';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -47,6 +48,9 @@ export class OutboxToWsSubscriber {
     private readonly messages: MessagesService,
     // S47 (FR-MN-20): 멘션 발생 시 서버 진실값 배지(isMuted 제외) 재집계용.
     private readonly badges: MeNotificationBadgesService,
+    // S70 fix-forward (security M-3): application.received 를 ADMIN+ user 룸으로만
+    // 보내기 위한 ADMIN+ userId 저빈도 조회용.
+    private readonly prisma: PrismaService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -350,8 +354,11 @@ export class OutboxToWsSubscriber {
 
   /**
    * S70 (D13 / FR-W06·W06a): 가입 신청 라이프사이클.
-   *   - application.received → 워크스페이스 룸(workspace:{wsId})으로 ws:application_received
-   *     fanout. ADMIN 리뷰 패널이 목록을 즉시 갱신한다. payload 의 applicantName 은 표시용.
+   *   - application.received → 워크스페이스 ADMIN+(OWNER/ADMIN — 신청 목록 권한과 동일) 의
+   *     user 룸(user:{adminId})으로만 ws:application_received 를 emit 한다. 종전엔
+   *     workspace:{wsId} 전체 룸으로 fanout 해 일반 멤버에게도 applicantId/applicantName 이
+   *     노출됐다(security M-3). ADMIN+ userId 를 저빈도 조회(신청 제출은 드묾)해 각 user 룸으로만
+   *     보낸다. ADMIN 리뷰 패널이 목록을 즉시 갱신한다.
    *   - application.reviewed → 신청자 본인 user 룸(user:{applicantId})으로 ws:application_reviewed
    *     fanout. 신청자는 대기 화면에서 approved(토스트+2초 이동)/rejected(거절 카피+reviewNote)/
    *     interview(인터뷰 안내)로 분기한다. 본인 user 룸이라 워크스페이스 멤버가 아닌 신청자
@@ -367,8 +374,13 @@ export class OutboxToWsSubscriber {
     if (!applicationId) return;
 
     if (env.type === 'application.received') {
-      // 워크스페이스 룸으로 fanout(+ replay 버퍼). ADMIN/멤버 캐시 무효화는 FE dispatcher.
-      await this.emitAndBuffer('workspace', workspaceId, {
+      // M-3: ADMIN+(OWNER/ADMIN) user 룸으로만 emit — 일반 멤버에게 신청자 식별정보 노출 차단.
+      const admins = await this.prisma.workspaceMember.findMany({
+        where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } },
+        select: { userId: true },
+      });
+      if (admins.length === 0) return;
+      const wire = {
         id: env.id,
         type: WS_EVENTS.APPLICATION_RECEIVED,
         occurredAt: env.occurredAt,
@@ -376,7 +388,13 @@ export class OutboxToWsSubscriber {
         applicationId,
         applicantId: (env as { applicantId?: string }).applicantId ?? '',
         applicantName: (env as { applicantName?: string }).applicantName ?? '',
-      } as unknown as WsEnvelope);
+      };
+      for (const a of admins) {
+        this.io.to(rooms.user(a.userId)).emit(WS_EVENTS.APPLICATION_RECEIVED, wire);
+      }
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.APPLICATION_RECEIVED))
+        .inc();
       return;
     }
 

@@ -132,4 +132,44 @@ describe('S70 ApplicationPendingPage (FR-W06a)', () => {
     expect(screen.getByTestId('application-rejected')).toBeTruthy();
     expect(screen.getByTestId('application-review-note').textContent).toContain('다음 기회에');
   });
+
+  it('M1: 다른 워크스페이스의 reviewed 이벤트는 무시한다(오인 전환 방지)', () => {
+    render(<ApplicationPendingPage slug="acme" />);
+    expect(screen.getByTestId('application-pending')).toBeTruthy();
+    act(() => {
+      window.dispatchEvent(
+        new CustomEvent('qufox.application.reviewed', {
+          detail: {
+            // 본인 신청 workspaceId('ws-1')와 다른 워크스페이스.
+            workspaceId: 'ws-other',
+            applicationId: 'app-other',
+            status: 'approved',
+            reviewNote: null,
+          },
+        }),
+      );
+    });
+    // 여전히 PENDING — 타 워크스페이스 승인이 화면을 바꾸지 않는다.
+    expect(screen.getByTestId('application-pending')).toBeTruthy();
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('a11y H-3: APPROVED 자동 이동 중 Esc 를 누르면 navTimer 가 취소된다', () => {
+    myApplication = { data: { application: app({ status: 'APPROVED' }) }, isLoading: false };
+    render(<ApplicationPendingPage slug="acme" workspacePath="/w/acme" />);
+    act(() => {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' }));
+    });
+    act(() => {
+      vi.advanceTimersByTime(2000);
+    });
+    // Esc 로 취소했으므로 자동 이동하지 않는다.
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
+  it('a11y M-1: 상태별 document.title 을 갱신한다', () => {
+    myApplication = { data: { application: app({ status: 'REJECTED' }) }, isLoading: false };
+    render(<ApplicationPendingPage slug="acme" />);
+    expect(document.title).toBe('가입 신청 결과 — qufox');
+  });
 });

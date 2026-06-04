@@ -231,14 +231,16 @@ export class RealtimeGateway
       rooms: joinable,
       workspaceIds,
       channelIds,
+      // S70 fix-forward (perf MODERATE): roomsForUser 가 멤버십 단일 쿼리에서 임시 멤버
+      // 워크스페이스를 함께 도출하므로 connect 마다 별도 DB 쿼리(loadTemporaryWorkspaceIds)
+      // 를 더 돌리지 않는다. 임시 멤버가 없으면 빈 배열 → Redis/BullMQ 왕복 없음.
+      temporaryWorkspaceIds,
     } = await this.roomMgr.roomsForUser(user.userId);
     await client.join(joinable);
 
-    // S70 (FR-W12): 이 사용자가 임시 멤버(isTemporary)인 워크스페이스만 추려 강퇴 추적 대상
-    // 으로 둔다(전 소켓 SADD 금지 — 결정 1). connect 시 해당 ws Redis Set 에 socketId SADD +
-    // 기존 강퇴 잡 취소(2초 내 재연결이면 disconnect 가 arm 한 잡을 여기서 취소). 임시 멤버가
-    // 없으면(일반 사용자) 추가 Redis/큐 왕복은 발생하지 않는다.
-    const temporaryWorkspaceIds = await this.loadTemporaryWorkspaceIds(user.userId, workspaceIds);
+    // S70 (FR-W12): 이 사용자가 임시 멤버(isTemporary)인 워크스페이스만 강퇴 추적 대상으로
+    // 둔다(전 소켓 SADD 금지 — 결정 1). connect 시 해당 ws Redis Set 에 socketId SADD + 기존
+    // 강퇴 잡 취소(2초 내 재연결이면 disconnect 가 arm 한 잡을 여기서 취소).
     client.data.state = {
       user,
       workspaceIds,
@@ -1043,23 +1045,6 @@ export class RealtimeGateway
   }
 
   // ----- private
-
-  /**
-   * S70 (FR-W12): 주어진 워크스페이스 집합 중 이 사용자가 임시 멤버(isTemporary=true)인
-   * 워크스페이스 id 만 단일 쿼리로 추린다. (workspaceId, isTemporary) 보조 인덱스(S67)가
-   * 커버한다. 임시 멤버가 없으면 빈 배열 → connect/disconnect 에서 강퇴 추적이 no-op 이다.
-   */
-  private async loadTemporaryWorkspaceIds(
-    userId: string,
-    workspaceIds: string[],
-  ): Promise<string[]> {
-    if (workspaceIds.length === 0) return [];
-    const rows = await this.prisma.workspaceMember.findMany({
-      where: { userId, workspaceId: { in: workspaceIds }, isTemporary: true },
-      select: { workspaceId: true },
-    });
-    return rows.map((r) => r.workspaceId);
-  }
 
   private offlineGraceMs(): number {
     const sec = Number(process.env.PRESENCE_OFFLINE_GRACE ?? PRESENCE_OFFLINE_GRACE);
