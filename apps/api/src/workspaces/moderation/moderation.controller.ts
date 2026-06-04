@@ -139,7 +139,7 @@ export class ModerationController {
     });
   }
 
-  /** FR-RM07: 멤버 임시 음소거(60초~7일). 기간 중 전송/반응/슬래시 차단. */
+  /** FR-RM07/W11: 멤버 임시 음소거(60초~28일·S69 상한 확장). 기간 중 전송/반응/슬래시 차단. */
   @Post('members/:uid/timeout')
   @HttpCode(200)
   async timeout(

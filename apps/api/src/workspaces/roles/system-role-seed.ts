@@ -118,3 +118,51 @@ export async function syncMemberSystemRole(
     skipDuplicates: true,
   });
 }
+
+/**
+ * S69 fix-forward (perf SERIOUS-2): 여러 멤버의 시스템 역할 MemberRole 을 **단일 동일
+ * roleName 으로 일괄 동기화**한다(일괄 역할 변경 — bulkAction role). syncMemberSystemRole
+ * 을 N 번 호출하면 tx 안에서 N×(findMany + deleteMany + createMany) 쿼리가 직렬로 쌓여
+ * 100명 기준 ~300 쿼리 + 긴 락을 만든다. 이 헬퍼는:
+ *   1. 시스템 역할을 1회만 조회(없으면 1회 시드 후 재조회).
+ *   2. affected 전체의 기존 시스템 MemberRole 을 **단일 deleteMany** 로 제거.
+ *   3. 목표 역할의 MemberRole 을 affected 전체에 대해 **단일 createMany** 로 생성(멱등).
+ * 결과는 멤버별 호출과 동일(enum ↔ 시스템 Role 1:1 불변식 유지). 커스텀 역할은 불변.
+ */
+export async function syncMembersSystemRole(
+  tx: Prisma.TransactionClient,
+  workspaceId: string,
+  userIds: string[],
+  roleName: SystemRoleName,
+): Promise<void> {
+  if (userIds.length === 0) return;
+  let systemRoleList = await tx.role.findMany({
+    where: { workspaceId, isSystem: true },
+    select: { id: true, name: true },
+  });
+  let targetRole = systemRoleList.find((r) => r.name === roleName);
+  if (!targetRole) {
+    await seedSystemRoles(tx, workspaceId);
+    systemRoleList = await tx.role.findMany({
+      where: { workspaceId, isSystem: true },
+      select: { id: true, name: true },
+    });
+    targetRole = systemRoleList.find((r) => r.name === roleName);
+    if (!targetRole) return; // 방어 — 시드 직후라면 항상 존재.
+  }
+  const systemRoleIds = systemRoleList.map((r) => r.id);
+  // 1. affected 전체의 기존 시스템 MemberRole 단일 삭제.
+  await tx.memberRole.deleteMany({
+    where: { workspaceId, userId: { in: userIds }, roleId: { in: systemRoleIds } },
+  });
+  // 2. 목표 시스템 역할 MemberRole 을 affected 전체에 단일 일괄 생성(멱등).
+  await tx.memberRole.createMany({
+    data: userIds.map((userId) => ({
+      workspaceId,
+      userId,
+      roleId: targetRole.id,
+      assignedBy: null,
+    })),
+    skipDuplicates: true,
+  });
+}

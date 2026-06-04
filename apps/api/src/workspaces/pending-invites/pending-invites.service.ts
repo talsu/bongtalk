@@ -166,6 +166,8 @@ export class PendingInvitesService {
             workspaceId: workspace.id,
             userId: existingUserId,
             role: role as WorkspaceRole,
+            // S69 (D13 / FR-W10): 이메일 직접 추가(기가입 사용자) → 초대자는 추가를 수행한 actor.
+            invitedById,
           },
         });
         await syncMemberSystemRole(tx, workspace.id, existingUserId, systemRole);
@@ -332,6 +334,8 @@ export class PendingInvitesService {
       email: string;
       role: WorkspaceRole;
       acceptedAt: Date | null;
+      // S69 (D13 / FR-W10): 이메일 초대를 보낸 사용자(WorkspaceMember.invitedById 기록용).
+      invitedById: string;
     },
     actor: { userId: string; userEmail: string; emailVerified: boolean },
     now: Date,
@@ -396,6 +400,8 @@ export class PendingInvitesService {
             workspaceId: pending.workspaceId,
             userId: actor.userId,
             role: pending.role,
+            // S69 (D13 / FR-W10): 이메일 보류 초대 수락 → 초대자는 초대를 보낸 사용자.
+            invitedById: pending.invitedById,
           },
         });
         await syncMemberSystemRole(tx, pending.workspaceId, actor.userId, systemRole);

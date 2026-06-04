@@ -86,6 +86,9 @@ export async function setupRtIntEnv(): Promise<RtIntEnv> {
   const app = await buildApp();
   const baseUrl = await listen(app);
   const prisma = app.get(PrismaService);
+  // S69 fix-forward: signup 직후 emailVerified=true 로 마킹할 수 있게 prisma 핸들을
+  // 모듈 레벨에 보관한다(S66 이메일 인증 게이트 이후 워크스페이스 생성에 필요).
+  rtHelperPrisma = prisma;
   const redisClient = app.get<Redis>(REDIS);
   const dispatcher = app.get(OutboxDispatcher);
   dispatcher.pausePolling();
@@ -148,6 +151,9 @@ export type Actor = {
   accessToken: string;
 };
 
+// S69 fix-forward: setupRtIntEnv 가 채우는 prisma 핸들(emailVerified 마킹용).
+let rtHelperPrisma: PrismaService | undefined;
+
 export async function signup(baseUrl: string, prefix: string): Promise<Actor> {
   const stamp = `${Date.now()}${Math.floor(Math.random() * 99999)}`;
   const email = `${prefix}-${stamp}@qufox.dev`;
@@ -157,6 +163,14 @@ export async function signup(baseUrl: string, prefix: string): Promise<Actor> {
     .set('origin', ORIGIN)
     .send({ email, username, password: STRONG_PW });
   if (res.status !== 201) throw new Error(`signup failed: ${res.status} ${res.text}`);
+  // S69 fix-forward (S66 이메일 인증 게이트): 가입 직후 emailVerified=true 로 마킹해
+  // 워크스페이스 생성(seedRtStack)이 EMAIL_NOT_VERIFIED 로 막히지 않게 한다.
+  if (rtHelperPrisma) {
+    await rtHelperPrisma.user.update({
+      where: { id: res.body.user.id },
+      data: { emailVerified: true },
+    });
+  }
   return { userId: res.body.user.id, email, username, accessToken: res.body.accessToken };
 }
 

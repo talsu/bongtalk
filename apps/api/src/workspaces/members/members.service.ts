@@ -1,12 +1,16 @@
 import { Injectable } from '@nestjs/common';
-import { WorkspaceRole } from '@prisma/client';
+import { Prisma, WorkspaceRole } from '@prisma/client';
 import {
   HOISTED_ROLES,
   LARGE_WORKSPACE_THRESHOLD,
+  MEMBER_DIRECTORY_PAGE_SIZE,
   MEMBER_LIST_PAGE_SIZE,
   ROLE_RANK,
   type HoistGroup,
   type ListMembersResponse,
+  type ListMemberDirectoryResponse,
+  type MemberDirectoryRow,
+  type MemberDirectorySort,
   type MemberStatusGroup,
   type MemberWithPresence,
   type StatusGroup,
@@ -252,6 +256,137 @@ export class MembersService {
     }
 
     return { hoist, groups, nextCursor, includeOffline };
+  }
+
+  /**
+   * S69 (D13 / FR-W10): 멤버 디렉터리. listGrouped(프레즌스 그룹핑·@멘션 전체로드)와
+   * 분리된 **검색/필터/정렬 전용** 경로다(Fork D — FE 가 전체로드 대신 이 API 를 직접
+   * 페이지네이션한다). 열람은 모든 워크스페이스 멤버에게 허용한다(Fork C — 컨트롤러가
+   * WorkspaceMemberGuard 만 적용·역할 무관).
+   *
+   *   - q:      username/email **prefix**(대소문자 무시) DB 쿼리 레벨 필터.
+   *   - role:   역할 정확 일치(@@index([workspaceId, role]) 활용).
+   *   - sortBy: 가입일 정렬(joined_desc 기본 · @@index([workspaceId, joinedAt, userId])).
+   *   - cursor: (joinedAt, userId) keyset — 정렬 방향과 일관된 부등호로 다음 페이지.
+   *
+   * 프레즌스는 결과 50건에만 bulkFor(단일 fan-out · INVISIBLE→offline 마스킹)한다 —
+   * 전체 멤버를 로드하지 않으므로 대규모 워크스페이스에서도 bounded 다. 초대자(invitedBy)는
+   * 같은 쿼리에서 include 로 함께 읽어 N+1 을 만들지 않는다.
+   */
+  async listDirectory(args: {
+    workspaceId: string;
+    viewerUserId: string;
+    // S69 fix-forward (security HIGH/BLOCKER): 뷰어의 시스템 역할. ADMIN+ 만 email
+    // 검색/노출 + 초대자(invitedBy)를 받는다. 비관리자(MEMBER/GUEST)는 q 가 username 만
+    // 매칭(email 매칭 제외 → prefix enumeration 차단)하고 응답에서 email/invitedBy 가 null.
+    actorRole: SharedRole;
+    q?: string;
+    role?: SharedRole;
+    sortBy?: MemberDirectorySort;
+    cursor?: string;
+  }): Promise<ListMemberDirectoryResponse> {
+    const { workspaceId, viewerUserId, actorRole } = args;
+    const now = new Date();
+    const sortBy: MemberDirectorySort = args.sortBy ?? 'joined_desc';
+    const ascending = sortBy === 'joined_asc';
+    // S69 fix-forward (security): ADMIN+ 뷰어만 email/invitedBy PII 를 본다.
+    const isAdminViewer = ROLE_RANK[actorRole] >= ROLE_RANK.ADMIN;
+
+    const where: Prisma.WorkspaceMemberWhereInput = { workspaceId };
+    if (args.role) {
+      where.role = WorkspaceRole[args.role];
+    }
+    const q = args.q?.trim();
+    if (q) {
+      // prefix 검색(startsWith·대소문자 무시). ADMIN+ 는 username 또는 email 매칭,
+      // 비관리자는 **username 만** 매칭한다(email prefix enumeration 차단 — security HIGH).
+      where.user = isAdminViewer
+        ? {
+            OR: [
+              { username: { startsWith: q, mode: 'insensitive' } },
+              { email: { startsWith: q, mode: 'insensitive' } },
+            ],
+          }
+        : { username: { startsWith: q, mode: 'insensitive' } };
+    }
+    // keyset cursor: 정렬 방향에 맞춰 (joinedAt, userId) 튜플 부등호로 다음 페이지를 연다.
+    const decoded = decodeDirectoryCursor(args.cursor);
+    if (decoded) {
+      const cmp = ascending ? 'gt' : 'lt';
+      where.OR = [
+        { joinedAt: { [cmp]: decoded.joinedAt } },
+        { joinedAt: decoded.joinedAt, userId: { [cmp]: decoded.userId } },
+      ];
+    }
+
+    const rows = await this.prisma.workspaceMember.findMany({
+      where,
+      include: {
+        user: {
+          select: {
+            id: true,
+            email: true,
+            username: true,
+            customStatus: true,
+            customStatusEmoji: true,
+            customStatusExpiresAt: true,
+            lastSeenAt: true,
+          },
+        },
+        // S69 (FR-W10): 초대자 표시 정보(프로필 패널). 초대자 미설정/계정삭제(SetNull) 시 null.
+        invitedBy: { select: { id: true, username: true } },
+      },
+      orderBy: [{ joinedAt: ascending ? 'asc' : 'desc' }, { userId: ascending ? 'asc' : 'desc' }],
+      take: MEMBER_DIRECTORY_PAGE_SIZE + 1,
+    });
+
+    const hasMore = rows.length > MEMBER_DIRECTORY_PAGE_SIZE;
+    const page = hasMore ? rows.slice(0, MEMBER_DIRECTORY_PAGE_SIZE) : rows;
+
+    const presences = await this.presence.bulkFor(
+      viewerUserId,
+      page.map((r) => r.userId),
+    );
+    const byUser = new Map(presences.map((p) => [p.userId, p]));
+
+    const members: MemberDirectoryRow[] = page.map((row) => {
+      const presence = byUser.get(row.userId);
+      const status = toStatusGroup(presence?.status);
+      const isSelf = row.userId === viewerUserId;
+      const invisibleMasked = presence?.real === 'invisible' && !isSelf;
+      const base = this.toDto(
+        {
+          workspaceId: row.workspaceId,
+          userId: row.userId,
+          role: row.role,
+          joinedAt: row.joinedAt,
+          mutedUntil: row.mutedUntil,
+          user: row.user,
+        },
+        status,
+        invisibleMasked,
+        now,
+      );
+      // S69 fix-forward (security HIGH/BLOCKER): 비관리자 뷰어에겐 PII(email)·초대자
+      // (invitedBy/invitedById)를 노출하지 않는다(null). ADMIN+ 만 기존대로 받는다.
+      return {
+        ...base,
+        user: { ...base.user, email: isAdminViewer ? base.user.email : null },
+        invitedById: isAdminViewer ? (row.invitedById ?? null) : null,
+        invitedBy:
+          isAdminViewer && row.invitedBy
+            ? { id: row.invitedBy.id, username: row.invitedBy.username }
+            : null,
+      };
+    });
+
+    const last = page[page.length - 1];
+    const nextCursor =
+      hasMore && last
+        ? encodeDirectoryCursor({ joinedAt: last.joinedAt, userId: last.userId })
+        : null;
+
+    return { members, nextCursor };
   }
 
   /**
@@ -514,6 +649,39 @@ function decodeCursor(cursor: string | undefined): { userId: string } | null {
     const userId = raw.slice(sep + 1);
     if (!UUID_RE.test(userId)) return null;
     return { userId };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * S69 (FR-W10): 디렉터리 keyset cursor = base64url(JSON{joinedAt ISO, userId}).
+ * (joinedAt, userId) 튜플은 정렬(joinedAt then userId)의 유일 keyset anchor 다.
+ * 잘못된 cursor 는 decode 가 null 을 돌려줘 첫 페이지로 폴백한다(500 방지). userId 는
+ * UUID 검증 후에만 사용한다(member-list cursor 와 동일한 방어).
+ */
+function encodeDirectoryCursor(c: { joinedAt: Date; userId: string }): string {
+  return Buffer.from(
+    JSON.stringify({ joinedAt: c.joinedAt.toISOString(), userId: c.userId }),
+    'utf8',
+  ).toString('base64url');
+}
+
+function decodeDirectoryCursor(
+  cursor: string | undefined,
+): { joinedAt: Date; userId: string } | null {
+  if (!cursor) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object') return null;
+    const obj = parsed as Record<string, unknown>;
+    const joinedAtRaw = obj.joinedAt;
+    const userId = obj.userId;
+    if (typeof joinedAtRaw !== 'string' || typeof userId !== 'string') return null;
+    if (!UUID_RE.test(userId)) return null;
+    const joinedAt = new Date(joinedAtRaw);
+    if (Number.isNaN(joinedAt.getTime())) return null;
+    return { joinedAt, userId };
   } catch {
     return null;
   }

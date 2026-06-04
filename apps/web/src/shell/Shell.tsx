@@ -1,7 +1,9 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams } from 'react-router-dom';
 import type { WorkspaceRole } from '@qufox/shared-types';
-import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
+import { qk } from '../lib/query-keys';
+import { useMyWorkspaces, useWorkspace } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { WorkspaceNav } from './WorkspaceNav';
@@ -11,6 +13,7 @@ import { MemberColumn } from './MemberColumn';
 import { useUI } from '../stores/ui-store';
 import { SearchResultPanelContainer } from '../features/search/SearchResultPanelContainer';
 import { ActivityInboxPanel } from '../features/activity/ActivityInboxPanel';
+import { MemberDirectoryPanel } from '../features/workspaces/MemberDirectoryPanel';
 import { BottomBar } from './BottomBar';
 import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
@@ -64,6 +67,9 @@ function DesktopShell(): JSX.Element {
   // S30 (FR-S03): 검색 결과 패널이 활성이면 우측 패널(멤버 목록)을 대체한다.
   const searchPanelQuery = useUI((s) => s.searchPanelQuery);
   const activityInboxOpen = useUI((s) => s.activityInboxOpen);
+  // S69 (FR-W10 · Fork C): 멤버 디렉터리 오버레이(모든 멤버 진입점).
+  const memberDirectoryOpen = useUI((s) => s.memberDirectoryOpen);
+  const { user } = useAuth();
   const { data: mine, isLoading } = useMyWorkspaces();
   // task-040 R3 + reviewer H1: realtime is now installed once at App
   // root via AppRealtimeHost so the ConnectionBanner survives every
@@ -78,6 +84,21 @@ function DesktopShell(): JSX.Element {
 
   const active = useMemo(() => mine?.workspaces.find((w) => w.slug === slug), [mine, slug]);
   const { data: channels } = useChannelList(active?.id);
+
+  // S69 (FR-W20): 워크스페이스 전환 시 새 워크스페이스의 unread-summary 를 재로드한다
+  // (이전 워크스페이스 → 새 워크스페이스). 채널 룸 leave/join 은 게이트웨이가 connect 시
+  // 모든 가입 워크스페이스를 auto-join 하므로 별도 emit 없이, FE 는 활성 전환 시 unread
+  // 캐시를 무효화해 새 워크스페이스 사이드바 배지를 즉시 갱신한다. 비활성 워크스페이스의
+  // 멘션 배지는 connection:ready/unread_count:increment(badgeStore)가 유지한다.
+  const qc = useQueryClient();
+  const prevWsRef = useRef<string | undefined>(undefined);
+  useEffect(() => {
+    const wsId = active?.id;
+    if (wsId && prevWsRef.current !== wsId) {
+      prevWsRef.current = wsId;
+      qc.invalidateQueries({ queryKey: qk.channels.unreadSummary(wsId) });
+    }
+  }, [active?.id, qc]);
 
   const activeChannel = useMemo(() => {
     if (!channels || !channelName) return null;
@@ -151,7 +172,9 @@ function DesktopShell(): JSX.Element {
       {/* S30 (FR-S03): 검색 패널 활성 시 우측 슬롯을 결과 패널로 대체.
           S47 (FR-MN-13): 그 다음 우선순위로 Activity Inbox 패널, 둘 다 닫혀 있으면
           멤버 목록. 우선순위 search > inbox > members. */}
-      {active && activeChannel && searchPanelQuery !== null ? (
+      {active && activeChannel && memberDirectoryOpen ? (
+        <MemberDirectoryHost workspaceId={active.id} currentUserId={user?.id ?? null} />
+      ) : active && activeChannel && searchPanelQuery !== null ? (
         <SearchResultPanelContainer workspaceId={active.id} workspaceSlug={active.slug} />
       ) : active && activeChannel && activityInboxOpen ? (
         <ActivityInboxPanel />
@@ -178,6 +201,39 @@ function DesktopShell(): JSX.Element {
       <FeedbackDialog />
       <ToastViewport />
     </div>
+  );
+}
+
+/**
+ * S69 (D13 / FR-W10 · Fork C): 멤버 디렉터리 호스트. 열람은 모든 멤버지만, 관리 액션
+ * (역할변경/kick/timeout)은 myRole(ADMIN+/MODERATOR)로 게이트한다. myRole 은
+ * getWorkspace(WorkspaceWithMyRole) 캐시에서 읽어 추가 멤버 전체로드를 피한다.
+ */
+function MemberDirectoryHost({
+  workspaceId,
+  currentUserId,
+}: {
+  workspaceId: string;
+  currentUserId: string | null;
+}): JSX.Element {
+  const { data } = useWorkspace(workspaceId);
+  const myRole = data?.myRole ?? 'MEMBER';
+  const canManage = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
+  return (
+    <aside
+      // S69 fix-forward (a11y H-01): MessageColumn 디렉터리 버튼의 aria-controls 대상.
+      id="member-directory-panel"
+      aria-label="멤버 디렉터리"
+      // S69 fix-forward (ui LOW): qf-memberlist 가 이미 패딩을 제공하므로 Tailwind p-*
+      // 재정의를 제거한다(DS 기본 패딩과의 충돌 해소).
+      className="qf-memberlist flex min-w-0 flex-col"
+    >
+      <MemberDirectoryPanel
+        workspaceId={workspaceId}
+        currentUserId={currentUserId}
+        canManage={canManage}
+      />
+    </aside>
   );
 }
 

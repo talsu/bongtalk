@@ -166,6 +166,10 @@ export const AuditAction = {
   MESSAGE_DELETE: 'MESSAGE_DELETE',
   /** 멤버 시스템 역할 enum 변경(MembersService.updateRole). */
   MEMBER_ROLE_UPDATE: 'MEMBER_ROLE_UPDATE',
+  // S69 (D13 / FR-W11): 일괄 멤버 관리(kick/timeout/role) 단일 AuditLog(Fork A).
+  // details 에 action·affected[]·skipped[]·duration(timeout)·role(role) 을 싣는다.
+  /** FR-W11: 일괄 멤버 관리 액션(최대 100명·단일 tx). */
+  MEMBER_BULK_ACTION: 'MEMBER_BULK_ACTION',
   /** FR-RM01/15: 커스텀 역할 생성. */
   ROLE_CREATE: 'ROLE_CREATE',
   /** FR-RM01: 커스텀 역할 수정. */

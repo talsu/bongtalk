@@ -1,8 +1,9 @@
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   acceptInvite,
   assignRole,
   banMember,
+  bulkMemberAction,
   createInvite,
   createRole,
   createWorkspace,
@@ -16,6 +17,7 @@ import {
   listBans,
   listInvites,
   listMembers,
+  listMembersDirectory,
   listMyWorkspaces,
   listRoles,
   previewInvite,
@@ -31,9 +33,12 @@ import {
   updateWorkspace,
 } from './api';
 import type {
+  BulkMemberAction,
   CreateRoleRequest,
+  MemberDirectorySort,
   UpdateMemberRoleRequest,
   UpdateRoleRequest,
+  WorkspaceRole,
 } from '@qufox/shared-types';
 import { qk } from '../../lib/query-keys';
 
@@ -111,6 +116,49 @@ export function useMemberGroups(id: string | undefined) {
     queryKey: keys.members(id ?? ''),
     queryFn: () => listMembers(id!),
     enabled: !!id,
+  });
+}
+
+/**
+ * S69 (D13 / FR-W10 · Fork D): 멤버 디렉터리 무한 쿼리. 전체로드(useMembers) 대신
+ * 서버 검색/필터/정렬 API 를 커서로 페이지네이션한다. 열람은 모든 멤버 가능.
+ */
+export function useMembersDirectory(
+  id: string | undefined,
+  params: { q?: string; role?: WorkspaceRole; sortBy?: MemberDirectorySort } = {},
+) {
+  return useInfiniteQuery({
+    queryKey: qk.workspaces.directory(id ?? '', {
+      q: params.q,
+      role: params.role,
+      sortBy: params.sortBy,
+    }),
+    queryFn: ({ pageParam }: { pageParam: string | undefined }) =>
+      listMembersDirectory(id!, { ...params, cursor: pageParam }),
+    initialPageParam: undefined as string | undefined,
+    getNextPageParam: (last) => last.nextCursor ?? undefined,
+    enabled: !!id,
+  });
+}
+
+/**
+ * S69 (D13 / FR-W11): 일괄 멤버 관리. 성공 시 디렉터리·멤버 그룹·unread 총합 캐시를
+ * 무효화해 강퇴/역할변경/타임아웃 후 목록을 갱신한다.
+ */
+export function useBulkMemberAction(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: {
+      action: BulkMemberAction;
+      userIds: string[];
+      durationSeconds?: number;
+      role?: 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
+    }) => bulkMemberAction(id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['workspaces', id, 'directory'] });
+      qc.invalidateQueries({ queryKey: keys.members(id) });
+      qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+    },
   });
 }
 
