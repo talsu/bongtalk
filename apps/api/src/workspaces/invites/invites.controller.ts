@@ -107,7 +107,13 @@ export class PublicInvitesController {
       { key: `invite:accept:user:${user.id}`, windowSec: 60, max: 30 },
       { key: `invite:accept:code:${code}`, windowSec: 60, max: 10 },
     ]);
-    const workspace = await this.invites.accept(code, user.id);
+    // S66 (D13 / FR-W05a): 초대 수락 시점에 emailVerified + emailDomains 게이트를 적용한다.
+    // user(JwtStrategy 가 DB 에서 매 요청 로드)에 emailVerified/email 이 실려 있으므로
+    // 서비스에 그대로 넘긴다(재조회 불요).
+    const workspace = await this.invites.accept(code, user.id, {
+      emailVerified: user.emailVerified,
+      userEmail: user.email,
+    });
     return { workspace };
   }
 }

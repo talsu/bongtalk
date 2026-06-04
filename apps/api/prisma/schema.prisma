@@ -327,6 +327,13 @@ model User {
   email                       String             @unique
   username                    String             @unique
   passwordHash                String
+  // S66 (D13 / FR-W05a/W05b): 이메일 인증 여부. 신규 가입자는 false 로 생성되며
+  // GET /auth/verify-email 토큰 수락 시 true 로 전환된다. emailVerified=false 사용자는
+  // 워크스페이스 진입(JOIN·ACCEPT·DOMAIN_JOIN) + 채널 메시지 전송이 서버 가드에서
+  // 차단된다(403 EMAIL_NOT_VERIFIED). 기존 row 는 default false 로 backfill 되며(무회귀
+  // — 인증 게이트만 추가), seed 사용자만 true 로 시드해 dev 차단을 피한다(additive +
+  // reversible — 20260605000000_s66_email_verify).
+  emailVerified               Boolean            @default(false)
   lastLoginAt                 DateTime?
   failedLoginAttempts         Int                @default(0)
   lockedUntil                 DateTime?
@@ -383,6 +390,8 @@ model User {
   messages                 Message[]
   invitesCreated           Invite[]                     @relation("InviteCreator")
   refreshTokens            RefreshToken[]
+  // S66 (D13 / FR-W05b): 이메일 인증 토큰들. onDelete Cascade(계정 삭제 시 정리).
+  emailVerificationTokens  EmailVerificationToken[]
   attachments              Attachment[]
   // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
   attachmentUploadSessions AttachmentUploadSession[]
@@ -495,6 +504,26 @@ model RefreshToken {
   @@index([userId])
   @@index([familyId])
   @@index([expiresAt])
+}
+
+// S66 (D13 / FR-W05b): 이메일 인증 토큰. signup 시 1행 생성 + ConsoleMailSender 로
+// verifyUrl 출력하고, GET /auth/verify-email?token= 수락 시 usedAt 을 찍어 재사용을
+// 막는다. token 은 추측 불가한 uuid v4 이며 token @unique 인덱스로 O(1) 조회한다.
+// expiresAt(발급+24h) 경과 시 410, usedAt 존재 시 400 으로 거부한다. additive 신규
+// 테이블이라 기존 row 영향 없음(backfill 불요). onDelete Cascade — 계정 하드삭제 시
+// 토큰 행도 함께 정리된다. 재발송 rate-limit(60s 쿨다운·1일 5회)은 토큰 행이 아닌
+// Redis 키(email_verify_resend:{userId} · email_verify_daily:{userId})로 집행한다.
+model EmailVerificationToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  token     String    @unique @db.Uuid
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 enum WorkspaceVisibility {

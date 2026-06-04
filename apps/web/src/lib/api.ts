@@ -142,9 +142,32 @@ export async function logout(): Promise<void> {
   }
 }
 
-export type MeResponse = { id: string; email: string; username: string };
+// S66 (D13 / FR-W05b): emailVerified 를 추가해 인증 대기 화면 분기에 쓴다.
+export type MeResponse = {
+  id: string;
+  email: string;
+  username: string;
+  emailVerified: boolean;
+};
 export async function fetchMe(): Promise<MeResponse> {
   return apiRequest<MeResponse>('/auth/me');
+}
+
+// S66 (D13 / FR-W05b): 인증 메일 재발송. 429 시 errorCode/ retryAfterSec 가 에러에 실린다.
+export async function resendVerificationEmail(): Promise<{
+  cooldownSec: number;
+  remainingToday: number;
+}> {
+  return apiRequest('/auth/resend-verification', { method: 'POST', retryOn401: false });
+}
+
+// S66 (D13 / FR-W05b): 이메일 인증 링크 처리(GET /auth/verify-email?token=). 만료 410
+// (EMAIL_VERIFICATION_TOKEN_EXPIRED) / 무효 400 (EMAIL_VERIFICATION_TOKEN_INVALID)는
+// 에러로 throw 되며 errorCode 로 분기한다. 공개 엔드포인트라 retryOn401 불요.
+export async function verifyEmailToken(token: string): Promise<{ emailVerified: true }> {
+  return apiRequest(`/auth/verify-email?token=${encodeURIComponent(token)}`, {
+    retryOn401: false,
+  });
 }
 
 export async function tryRestoreSession(): Promise<MeResponse | null> {

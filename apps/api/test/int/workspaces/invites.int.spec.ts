@@ -62,6 +62,28 @@ describe('Invite preview / expiry / exhaustion', () => {
     expect(preview.body.errorCode).toBe('INVITE_EXPIRED');
   });
 
+  // S66 fix-forward (FR-W21 / task-032): 취소된 초대의 preview 는 generic 404 가 아니라
+  // 410 INVITE_REVOKED 를 반환해야 InviteAcceptPage 가 만료/취소 전용 화면으로 분기한다.
+  it('returns 410 INVITE_REVOKED on a revoked invite', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('irv');
+    const inv = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/invites`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ maxUses: 5 });
+    const code = inv.body.invite.code;
+    const inviteId = inv.body.invite.id;
+
+    await request(env.baseUrl)
+      .delete(`/workspaces/${workspaceId}/invites/${inviteId}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .expect(204);
+
+    const preview = await request(env.baseUrl).get(`/invites/${code}`);
+    expect(preview.status).toBe(410);
+    expect(preview.body.errorCode).toBe('INVITE_REVOKED');
+  });
+
   it('returns 409 WORKSPACE_ALREADY_MEMBER when accepting a second time', async () => {
     const { owner, workspaceId } = await setupOwnerAndWs('iam');
     const joiner = await signupAsUser(env.baseUrl, 'iam2');

@@ -31,24 +31,29 @@ async function main() {
   const generalChannelId = id('channel', 'acme:general');
   const randomChannelId = id('channel', 'acme:random');
 
+  // S66 (D13 / FR-W05a/W05b): 시드 사용자는 emailVerified=true 로 생성한다 — dev 에서
+  // 워크스페이스 진입·메시지 전송 게이트(EMAIL_NOT_VERIFIED)에 막히지 않도록. 신규 가입
+  // 경로(signup)는 default false 로 시작하고 verify-email 로 전환된다.
   await prisma.user.upsert({
     where: { id: aliceId },
-    update: {},
+    update: { emailVerified: true },
     create: {
       id: aliceId,
       email: 'alice@qufox.dev',
       username: 'alice',
       passwordHash: seedPasswordHash,
+      emailVerified: true,
     },
   });
   await prisma.user.upsert({
     where: { id: bobId },
-    update: {},
+    update: { emailVerified: true },
     create: {
       id: bobId,
       email: 'bob@qufox.dev',
       username: 'bob',
       passwordHash: seedPasswordHash,
+      emailVerified: true,
     },
   });
 

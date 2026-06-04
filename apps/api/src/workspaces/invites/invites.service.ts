@@ -16,6 +16,8 @@ import {
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
 import { ModerationService } from '../moderation/moderation.service';
+// S66 (D13 / FR-W05a): 초대 수락 시점 emailVerified + emailDomains 진입 게이트.
+import { assertWorkspaceEntryAllowed } from '../workspace-entry-gate';
 
 function codeBytes(): number {
   const n = Number(process.env.INVITE_CODE_BYTES ?? 16);
@@ -108,8 +110,13 @@ export class InvitesService {
     if (!invite || invite.workspace.deletedAt) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
     }
+    // S66 fix-forward (FR-W21 / task-032): 취소된 초대는 generic INVITE_NOT_FOUND(404)
+    // 가 아니라 INVITE_REVOKED(410) 로 구분한다 — preview 가 FR-W21 만료/취소 전용 화면
+    // (EXPIRED_INVITE_CODES = {EXPIRED, EXHAUSTED, REVOKED})으로 분기하려면 취소 사유가
+    // 노출돼야 한다. expired/exhausted 가 이미 410 이므로 열거 중립성 손실은 없다(선존
+    // 비대칭 시정).
     if (invite.revokedAt) {
-      throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite revoked');
+      throw new DomainError(ErrorCode.INVITE_REVOKED, 'invite revoked');
     }
     if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
@@ -134,13 +141,35 @@ export class InvitesService {
    * A concurrent-accept loser (two tabs from the same user) refunds the seat
    * it just consumed and surfaces ALREADY_MEMBER instead of a raw 500.
    */
-  async accept(code: string, userId: string) {
+  async accept(
+    code: string,
+    userId: string,
+    // S66 (D13 / FR-W05a): 초대 수락 시점 진입 게이트(emailVerified + emailDomains).
+    // 컨트롤러가 JWT 에서 로드한 본인 emailVerified/email 을 넘긴다. 게이트는 워크스페이스
+    // emailDomains 와 함께 invite 조회 직후·CAS 전에 적용한다(미인증/도메인 불일치 사용자가
+    // 초대 좌석을 소모하지 않게 함).
+    actor: { emailVerified: boolean; userEmail: string },
+  ) {
     const existing = await this.prisma.invite.findUnique({
       where: { code },
-      select: { id: true, workspaceId: true, revokedAt: true, expiresAt: true, maxUses: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        revokedAt: true,
+        expiresAt: true,
+        maxUses: true,
+        // S66 (D13 / FR-W05a): 도메인 게이트용 화이트리스트.
+        workspace: { select: { emailDomains: true } },
+      },
     });
-    if (!existing || existing.revokedAt) {
+    if (!existing) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
+    }
+    // S66 fix-forward (FR-W21 / task-032): 취소 초대는 INVITE_REVOKED(410) 로 구분한다
+    // (expired 처리와 일관·preview 와 대칭). pre-CAS 단계에서 즉시 취소가 보이는 경우이며,
+    // findUnique↔CAS 사이 취소 레이스는 아래 post-CAS 재조회가 동일 코드로 처리한다.
+    if (existing.revokedAt) {
+      throw new DomainError(ErrorCode.INVITE_REVOKED, 'invite revoked');
     }
     if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
@@ -162,6 +191,17 @@ export class InvitesService {
     if (await this.moderation.isBanned(existing.workspaceId, userId)) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
     }
+
+    // S66 (D13 / FR-W05a): emailVerified 재확인 직후 emailDomains exact-match 검증.
+    // emailDomains 빈 배열이면 도메인 게이트 통과(제한 없음).
+    // S66 fix-forward (review m4): 진입 게이트를 already-member·ban 검사 *뒤*로 옮겨
+    // joinPublic 과 순서를 통일한다 — 이미 멤버이거나 차단된 사용자는 게이트 평가 전에
+    // 각자의 정확한 에러(ALREADY_MEMBER / 중립 404)를 받는다(멤버는 게이트 면제 의미 명확화).
+    assertWorkspaceEntryAllowed({
+      emailVerified: actor.emailVerified,
+      userEmail: actor.userEmail,
+      emailDomains: existing.workspace.emailDomains,
+    });
 
     const now = new Date();
     // Compare-and-swap is intentionally OUTSIDE the transaction so that the

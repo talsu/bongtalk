@@ -40,7 +40,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('senderId / since / until / hasAttachment=true 모두 service args 에 매핑', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined, // channelId
@@ -75,7 +75,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('hasAttachment=false 도 정상 boolean false 로 매핑', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined,
@@ -97,7 +97,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('hasAttachment 값이 임의의 문자열이면 undefined (filter 비활성)', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined,
@@ -120,7 +120,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         WS,
         undefined,
@@ -139,7 +139,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         WS,
         undefined,
@@ -157,7 +157,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('아무 filter 도 안 줘도 정상 호출', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined,
@@ -186,7 +186,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         'not-a-uuid',
         undefined,
@@ -205,7 +205,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         WS,
         'bogus-channel', // channelId
@@ -224,7 +224,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         WS,
         undefined,
@@ -244,7 +244,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const huge = 'a'.repeat(501);
     await expect(
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         huge,
         WS,
         undefined,
@@ -263,7 +263,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl, search } = makeCtrl();
     const atCap = 'a'.repeat(500);
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       atCap,
       WS,
       undefined,
@@ -282,7 +282,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
     const { ctrl, search } = makeCtrl();
     const call = (sortRaw: string | undefined) =>
       ctrl.run(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         'hello',
         WS,
         undefined,
@@ -306,7 +306,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('S30 FR-S06: withContext=true 면 searchWithContext 로 라우팅', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined,
@@ -328,7 +328,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('S30 FR-S06: withContext 미지정이면 기본 search 로 라우팅', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'hello',
       WS,
       undefined,
@@ -349,7 +349,7 @@ describe('SearchController.run filter params (task-046 J3)', () => {
   it('S30 FR-S07: 결과 쿼리는 pushRecentSearch 로 기록(원문 q)', async () => {
     const { ctrl, search } = makeCtrl();
     await ctrl.run(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       'from:@bob roadmap',
       WS,
       undefined,
@@ -371,7 +371,12 @@ describe('SearchController.recent (S30 FR-S07)', () => {
     (
       search.recentSearches as unknown as { mockResolvedValue: (v: string[]) => void }
     ).mockResolvedValue(['alpha', 'beta']);
-    const out = await ctrl.recent({ id: ME, email: 'me@e.com', username: 'me' });
+    const out = await ctrl.recent({
+      id: ME,
+      email: 'me@e.com',
+      username: 'me',
+      emailVerified: true,
+    });
     expect(out).toEqual({ recents: ['alpha', 'beta'] });
   });
 });
@@ -379,28 +384,37 @@ describe('SearchController.recent (S30 FR-S07)', () => {
 describe('SearchController.deleteRecent (S31 FR-S11)', () => {
   it('q 가 있으면 removeRecentSearch(userId, entry) 호출(IDOR: userId 는 @CurrentUser 고정)', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, 'from:@bob roadmap');
+    await ctrl.deleteRecent(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      'from:@bob roadmap',
+    );
     expect(search.removeRecentSearch).toHaveBeenCalledWith(ME, 'from:@bob roadmap');
     expect(search.clearRecentSearches).not.toHaveBeenCalled();
   });
 
   it('q 가 없으면 clearRecentSearches(userId) 전체 삭제', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, undefined);
+    await ctrl.deleteRecent(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      undefined,
+    );
     expect(search.clearRecentSearches).toHaveBeenCalledWith(ME);
     expect(search.removeRecentSearch).not.toHaveBeenCalled();
   });
 
   it('q 가 빈 문자열이면 전체 삭제로 처리', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, '');
+    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }, '');
     expect(search.clearRecentSearches).toHaveBeenCalledWith(ME);
     expect(search.removeRecentSearch).not.toHaveBeenCalled();
   });
 
   it('rate-limit(srecent 버킷) 을 강제한다', async () => {
     const { ctrl, rate } = makeCtrl();
-    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, 'x');
+    await ctrl.deleteRecent(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      'x',
+    );
     expect(rate.enforce).toHaveBeenCalledWith([{ key: `srecent:u:${ME}`, windowSec: 60, max: 60 }]);
   });
 
@@ -408,7 +422,7 @@ describe('SearchController.deleteRecent (S31 FR-S11)', () => {
     const { ctrl, search } = makeCtrl();
     const huge = 'a'.repeat(201);
     await expect(
-      ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, huge),
+      ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }, huge),
     ).rejects.toThrow(/q must be at most 200 characters/);
     // 거부 시 어떤 삭제도 발화되지 않아야 한다.
     expect(search.removeRecentSearch).not.toHaveBeenCalled();
@@ -418,7 +432,10 @@ describe('SearchController.deleteRecent (S31 FR-S11)', () => {
   it('S31 security: q 가 정확히 200자면 통과(경계)', async () => {
     const { ctrl, search } = makeCtrl();
     const atCap = 'a'.repeat(200);
-    await ctrl.deleteRecent({ id: ME, email: 'me@e.com', username: 'me' }, atCap);
+    await ctrl.deleteRecent(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      atCap,
+    );
     expect(search.removeRecentSearch).toHaveBeenCalledWith(ME, atCap);
   });
 });
@@ -426,7 +443,12 @@ describe('SearchController.deleteRecent (S31 FR-S11)', () => {
 describe('SearchController.suggest (task-046 J1)', () => {
   it('q + workspaceId 가 있으면 service.suggest 호출', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', WS, '5');
+    await ctrl.suggest(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      'gen',
+      WS,
+      '5',
+    );
     expect(search.suggest).toHaveBeenCalledWith({
       workspaceId: WS,
       userId: ME,
@@ -438,20 +460,35 @@ describe('SearchController.suggest (task-046 J1)', () => {
   it('q 누락 → VALIDATION_FAILED', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, undefined, WS, undefined),
+      ctrl.suggest(
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+        undefined,
+        WS,
+        undefined,
+      ),
     ).rejects.toThrow(/q is required/);
   });
 
   it('workspaceId 누락 → VALIDATION_FAILED', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', undefined, undefined),
+      ctrl.suggest(
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+        'gen',
+        undefined,
+        undefined,
+      ),
     ).rejects.toThrow(/workspaceId is required/);
   });
 
   it('limit 미지정 시 기본 6 (web SUGGEST_LIMIT 와 통일)', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', WS, undefined);
+    await ctrl.suggest(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      'gen',
+      WS,
+      undefined,
+    );
     const args = (search.suggest as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as { limit?: number };
     expect(args.limit).toBe(6);
@@ -459,7 +496,12 @@ describe('SearchController.suggest (task-046 J1)', () => {
 
   it('limit > 20 은 20 으로 clamp', async () => {
     const { ctrl, search } = makeCtrl();
-    await ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', WS, '999');
+    await ctrl.suggest(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      'gen',
+      WS,
+      '999',
+    );
     const args = (search.suggest as unknown as { mock: { calls: unknown[][] } }).mock
       .calls[0][0] as { limit?: number };
     expect(args.limit).toBe(20);
@@ -468,14 +510,24 @@ describe('SearchController.suggest (task-046 J1)', () => {
   it('S29 security: workspaceId 가 비-UUID 면 VALIDATION_FAILED', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'gen', 'not-a-uuid', undefined),
+      ctrl.suggest(
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+        'gen',
+        'not-a-uuid',
+        undefined,
+      ),
     ).rejects.toThrow(/workspaceId must be a valid UUID/);
   });
 
   it('S29 security: q 가 500자 초과면 VALIDATION_FAILED', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.suggest({ id: ME, email: 'me@e.com', username: 'me' }, 'a'.repeat(501), WS, undefined),
+      ctrl.suggest(
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+        'a'.repeat(501),
+        WS,
+        undefined,
+      ),
     ).rejects.toThrow(/q must be at most 500 characters/);
   });
 });
