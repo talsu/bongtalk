@@ -114,6 +114,17 @@ function ProtectedShellRoute(): JSX.Element {
  * 인증을 완료할 수 있게 한다. anonymous·loading 은 통과시켜 기존 라우팅이 처리한다.
  */
 const VERIFY_GATE_EXEMPT = new Set(['/login', '/signup', '/verify-email']);
+// S66 fix-forward (review LOW-2): 미인증 사용자가 초대 링크(/invite/:code)를 클릭하면
+// 게이트로 튕기지 않고 InviteAcceptPage 를 보게 한다(백엔드 진입 게이트 + 수락 403 사유
+// 분기가 보호하므로 안전). prefix 매칭이 필요한 경로는 여기에 둔다.
+const VERIFY_GATE_EXEMPT_PREFIXES = ['/invite'];
+
+function isVerifyGateExempt(pathname: string): boolean {
+  if (VERIFY_GATE_EXEMPT.has(pathname)) return true;
+  return VERIFY_GATE_EXEMPT_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+}
 
 function VerificationGate({ children }: { children: ReactNode }): JSX.Element {
   const { status, user } = useAuth();
@@ -122,7 +133,7 @@ function VerificationGate({ children }: { children: ReactNode }): JSX.Element {
     status === 'authenticated' &&
     user &&
     !user.emailVerified &&
-    !VERIFY_GATE_EXEMPT.has(location.pathname)
+    !isVerifyGateExempt(location.pathname)
   ) {
     return (
       <Suspense fallback={<LoadingFallback />}>

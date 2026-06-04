@@ -104,7 +104,14 @@ export class EmailVerificationService {
 
   /**
    * POST /auth/resend-verification. 60초 쿨다운 + 1일 5회 한도(Redis). 한도 통과 시 새
-   * 토큰 발급 + 메일 발송. 이미 인증된 사용자는 멱등하게 통과시키되 토큰을 만들지 않는다.
+   * 토큰 발급 + 메일 발송. 이미 인증된 사용자는 멱등하게 통과시키되 토큰/메일/쿼터 없이
+   * 조기 반환한다.
+   *
+   * S66 fix-forward (review HIGH-1): 종전 check-then-set(ttl 확인 후 끝에서 set) 패턴은
+   * 동시 요청이 둘 다 ttl<=0 을 보고 둘 다 발송하는 race(메일 폭탄)였다. 메일 발송 *전에*
+   * `SET cooldownKey '1' EX <sec> NX` 로 쿨다운 슬롯을 원자적으로 점유하고, 점유 실패
+   * (이미 존재)면 남은 ttl 로 429 를 던진다(RateLimitService 의 INCR/NX 패턴과 일관).
+   *
    * @returns 다음 재발송까지 쿨다운 초 + 그날 남은 재발송 횟수.
    */
   async resend(
@@ -112,22 +119,45 @@ export class EmailVerificationService {
     email: string,
     now: Date = new Date(),
   ): Promise<{ cooldownSec: number; remainingToday: number }> {
+    // S66 fix-forward (review MEDIUM-1): 이미 인증된 사용자는 토큰/메일/쿼터를 쓰지 않고
+    // 멱등하게 조기 반환한다(docstring 과 코드 일치). 쿨다운 점유 전에 둬 인증 완료
+    // 사용자가 쿼터를 갉아먹지 않게 한다.
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { emailVerified: true },
+    });
+    if (user?.emailVerified) {
+      return { cooldownSec: 0, remainingToday: EMAIL_VERIFY_RESEND_DAILY_MAX };
+    }
+
     const cooldownKey = `email_verify_resend:${userId}`;
     const dailyKey = `email_verify_daily:${userId}`;
 
-    // 쿨다운: 키가 존재하면 아직 60초 안 지남 → 429.
-    const cooldownTtl = await this.redis.ttl(cooldownKey);
-    if (cooldownTtl > 0) {
+    // S66 fix-forward (review HIGH-1): 쿨다운 슬롯을 메일 발송 *전에* NX 로 원자 점유한다.
+    // 'OK' 면 점유 성공(이번 호출이 발송 권리를 얻음), null 이면 이미 점유됨(쿨다운 중) →
+    // 남은 ttl 로 429. 동시 요청 중 정확히 하나만 'OK' 를 받아 메일 폭탄을 막는다.
+    const claimed = await this.redis.set(
+      cooldownKey,
+      '1',
+      'EX',
+      EMAIL_VERIFY_RESEND_COOLDOWN_SEC,
+      'NX',
+    );
+    if (claimed === null) {
+      const cooldownTtl = await this.redis.ttl(cooldownKey);
       throw new DomainError(
         ErrorCode.EMAIL_VERIFICATION_RATE_LIMITED,
         'verification email was sent recently — please wait before requesting again',
-        { retryAfterSec: cooldownTtl },
+        { retryAfterSec: Math.max(cooldownTtl, 1) },
       );
     }
 
     // 일일 한도: 고정-윈도우 카운터(첫 발송 기준 24h). 한도 도달 시 429.
     const dailyCount = await this.redis.incr(dailyKey);
-    if (dailyCount === 1) {
+    // S66 fix-forward (review HIGH-1): EXPIRE 누락 방어 — 첫 카운트(==1)가 아니어도
+    // ttl<0(만료 없음/키 소멸 직후 INCR 로 부활)이면 24h TTL 을 다시 건다. 그렇지 않으면
+    // 카운터가 영구화돼 사용자가 영영 재발송 불가 상태로 갇힐 수 있다.
+    if (dailyCount === 1 || (await this.redis.ttl(dailyKey)) < 0) {
       await this.redis.expire(dailyKey, 24 * 60 * 60);
     }
     if (dailyCount > EMAIL_VERIFY_RESEND_DAILY_MAX) {
@@ -139,8 +169,7 @@ export class EmailVerificationService {
       );
     }
 
-    // 쿨다운 키 set(60s TTL) 후 발송.
-    await this.redis.set(cooldownKey, '1', 'EX', EMAIL_VERIFY_RESEND_COOLDOWN_SEC);
+    // 쿨다운 슬롯을 위에서 이미 점유했으므로 곧장 발송한다.
     await this.issueAndSend(userId, email, now);
 
     return {

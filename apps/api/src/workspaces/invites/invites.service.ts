@@ -164,14 +164,6 @@ export class InvitesService {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
     }
 
-    // S66 (D13 / FR-W05a): emailVerified 재확인 직후 emailDomains exact-match 검증.
-    // emailDomains 빈 배열이면 도메인 게이트 통과(제한 없음).
-    assertWorkspaceEntryAllowed({
-      emailVerified: actor.emailVerified,
-      userEmail: actor.userEmail,
-      emailDomains: existing.workspace.emailDomains,
-    });
-
     const already = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId } },
     });
@@ -188,6 +180,17 @@ export class InvitesService {
     if (await this.moderation.isBanned(existing.workspaceId, userId)) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
     }
+
+    // S66 (D13 / FR-W05a): emailVerified 재확인 직후 emailDomains exact-match 검증.
+    // emailDomains 빈 배열이면 도메인 게이트 통과(제한 없음).
+    // S66 fix-forward (review m4): 진입 게이트를 already-member·ban 검사 *뒤*로 옮겨
+    // joinPublic 과 순서를 통일한다 — 이미 멤버이거나 차단된 사용자는 게이트 평가 전에
+    // 각자의 정확한 에러(ALREADY_MEMBER / 중립 404)를 받는다(멤버는 게이트 면제 의미 명확화).
+    assertWorkspaceEntryAllowed({
+      emailVerified: actor.emailVerified,
+      userEmail: actor.userEmail,
+      emailDomains: existing.workspace.emailDomains,
+    });
 
     const now = new Date();
     // Compare-and-swap is intentionally OUTSIDE the transaction so that the

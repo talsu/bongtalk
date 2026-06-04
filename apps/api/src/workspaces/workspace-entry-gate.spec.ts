@@ -76,4 +76,25 @@ describe('S66 assertWorkspaceEntryAllowed (FR-W05a)', () => {
       }),
     ).toThrowError(expect.objectContaining({ code: ErrorCode.EMAIL_NOT_VERIFIED }));
   });
+
+  it('@ 없는 이메일은 도메인부가 비어 화이트리스트 미일치로 거부한다', () => {
+    expect(() =>
+      assertWorkspaceEntryAllowed({
+        emailVerified: true,
+        userEmail: 'no-at-sign',
+        emailDomains: ['acme.com'],
+      }),
+    ).toThrowError(expect.objectContaining({ code: ErrorCode.WORKSPACE_DOMAIN_NOT_ALLOWED }));
+  });
+
+  it('다중 @ 이메일은 두 번째 토큰을 도메인으로 보고 화이트리스트와 비교한다', () => {
+    // 'a@evil@acme.com'.split('@')[1] === 'evil' ≠ 'acme.com' → 거부.
+    expect(() =>
+      assertWorkspaceEntryAllowed({
+        emailVerified: true,
+        userEmail: 'a@evil@acme.com',
+        emailDomains: ['acme.com'],
+      }),
+    ).toThrowError(expect.objectContaining({ code: ErrorCode.WORKSPACE_DOMAIN_NOT_ALLOWED }));
+  });
 });

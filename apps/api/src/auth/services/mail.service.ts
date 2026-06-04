@@ -29,8 +29,22 @@ export class ConsoleMailSender implements MailSender {
   private readonly logger = new Logger(ConsoleMailSender.name);
 
   async sendVerificationEmail(to: string, verifyUrl: string): Promise<void> {
-    // 토큰/링크를 평문 출력하나, Console stub 은 dev/테스트 전용이며 운영에서는 SMTP
-    // 어댑터로 교체된다(MinIO 네이밍 규칙처럼 구현 세부는 추후 어댑터 책임).
+    // S66 fix-forward (review HIGH-4): 운영(NODE_ENV=production)에서는 verifyUrl/토큰
+    // 전체를 로그에 남기지 않는다. Console stub 은 본래 dev 편의용이라 운영에서 토큰이
+    // 평문으로 로그(Loki/stdout)에 노출되면 그 자체로 계정 탈취 표면이 된다. 운영에서는
+    // 토큰 끝 6자만 마스킹 노출하고, SMTP 어댑터 미설정 상태임을 warn 으로 알린다.
+    if (process.env.NODE_ENV === 'production') {
+      this.logger.warn(
+        JSON.stringify({
+          event: 'email_verification_sent',
+          to,
+          tokenTail: maskToken(verifyUrl),
+          note: 'email sender not configured (console stub)',
+        }),
+      );
+      return;
+    }
+    // 비-운영(dev/test)에서는 인증 링크를 그대로 출력해 수동 검증을 돕는다.
     this.logger.log(
       JSON.stringify({
         event: 'email_verification_sent',
@@ -39,4 +53,15 @@ export class ConsoleMailSender implements MailSender {
       }),
     );
   }
+}
+
+/**
+ * S66 fix-forward (review HIGH-4): verifyUrl 의 token 쿼리 끝 6자만 노출하는 마스킹.
+ * 운영 로그에서 토큰 전체 노출을 막되, 발송 흔적 추적은 가능하게 한다(끝 6자).
+ */
+function maskToken(verifyUrl: string): string {
+  const match = /token=([^&]+)/.exec(verifyUrl);
+  const token = match?.[1] ?? '';
+  if (token.length <= 6) return `***${token}`;
+  return `***${token.slice(-6)}`;
 }

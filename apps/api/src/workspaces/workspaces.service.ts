@@ -65,7 +65,22 @@ export class WorkspacesService {
     return Number(process.env.WORKSPACE_SOFT_DELETE_GRACE_DAYS ?? 30) * 24 * 60 * 60 * 1000;
   }
 
-  async create(userId: string, input: CreateWorkspaceRequest) {
+  async create(
+    userId: string,
+    input: CreateWorkspaceRequest,
+    // S66 fix-forward (review HIGH-3): 워크스페이스 생성도 emailVerified 게이트를
+    // 적용한다. FE VerificationGate 가 /w/new 진입을 막지만 서버 대칭이 없으면 미인증
+    // 사용자가 curl 로 워크스페이스를 만들고 OWNER 가 될 수 있다. 도메인 게이트
+    // (emailDomains)는 생성에는 불필요하므로 emailVerified 만 확인한다(컨트롤러가
+    // JWT 에서 로드한 본인 값을 넘긴다).
+    actor: { emailVerified: boolean },
+  ) {
+    if (!actor.emailVerified) {
+      throw new DomainError(
+        ErrorCode.EMAIL_NOT_VERIFIED,
+        '이메일 인증 후 워크스페이스를 만들 수 있습니다',
+      );
+    }
     if (RESERVED_SLUGS.has(input.slug)) {
       throw new DomainError(ErrorCode.WORKSPACE_SLUG_RESERVED, `slug "${input.slug}" is reserved`);
     }

@@ -65,7 +65,13 @@ function makePrismaStub() {
 
   const prisma = {
     emailVerificationToken: tx.emailVerificationToken,
-    user: tx.user,
+    user: {
+      update: tx.user.update,
+      // S66 fix-forward (review MEDIUM-1): resend() 초입에서 emailVerified 를 조회한다.
+      findUnique: vi.fn(async ({ where }: { where: { id: string } }) => {
+        return users.get(where.id) ?? null;
+      }),
+    },
     $transaction: vi.fn(async (fn: (t: typeof tx) => Promise<unknown>) => fn(tx)),
     __tokens: tokens,
     __users: users,
@@ -73,7 +79,7 @@ function makePrismaStub() {
   return prisma;
 }
 
-/** 최소 in-memory Redis 스텁(incr/expire/ttl/set with EX). */
+/** 최소 in-memory Redis 스텁(incr/expire/ttl/set with EX + NX). */
 function makeRedisStub() {
   const values = new Map<string, string>();
   const ttls = new Map<string, number>();
@@ -88,11 +94,26 @@ function makeRedisStub() {
       return 1;
     }),
     ttl: vi.fn(async (key: string) => ttls.get(key) ?? -2),
-    set: vi.fn(async (key: string, val: string, _ex: 'EX', sec: number) => {
-      values.set(key, val);
-      ttls.set(key, sec);
-      return 'OK';
-    }),
+    // S66 fix-forward (review HIGH-1): SET key val EX sec [NX]. NX 는 키가 이미 존재하면
+    // 점유 실패(null), 부재면 set 후 'OK'. ttl<=0(만료/미존재)인 슬롯은 부재로 본다.
+    set: vi.fn(
+      async (
+        key: string,
+        val: string,
+        _ex: 'EX',
+        sec: number,
+        mode?: 'NX',
+      ): Promise<'OK' | null> => {
+        if (mode === 'NX') {
+          const ttl = ttls.get(key) ?? -2;
+          const exists = values.has(key) && ttl !== -2 && (ttl > 0 || ttl === -1);
+          if (exists) return null;
+        }
+        values.set(key, val);
+        ttls.set(key, sec);
+        return 'OK';
+      },
+    ),
     __values: values,
     __ttls: ttls,
   };
@@ -209,5 +230,46 @@ describe('S66 EmailVerificationService — resend rate-limit (FR-W05b)', () => {
     await expect(svc.resend('u1', 'a@acme.com')).rejects.toMatchObject({
       code: ErrorCode.EMAIL_VERIFICATION_RATE_LIMITED,
     });
+  });
+
+  it('이미 인증된 사용자는 토큰/메일/쿼터 없이 멱등 조기반환한다(MEDIUM-1)', async () => {
+    const { svc, mail, prisma, redis } = makeService();
+    prisma.__users.set('uv', { emailVerified: true });
+    const res = await svc.resend('uv', 'v@acme.com', new Date('2025-01-01T00:00:00Z'));
+    expect(res.cooldownSec).toBe(0);
+    expect(res.remainingToday).toBe(EMAIL_VERIFY_RESEND_DAILY_MAX);
+    // 토큰/메일/쿨다운 쿼터를 일절 쓰지 않는다.
+    expect(prisma.__tokens).toHaveLength(0);
+    expect(mail.sent).toHaveLength(0);
+    expect(redis.__values.get('email_verify_resend:uv')).toBeUndefined();
+    expect(redis.__values.get('email_verify_daily:uv')).toBeUndefined();
+  });
+
+  it('동시 재발송은 NX 쿨다운으로 1건만 통과·나머지는 429(HIGH-1)', async () => {
+    const { svc, mail } = makeService();
+    // 같은 사용자에 대해 동시 두 호출 — NX 쿨다운 슬롯은 하나만 점유 가능하다.
+    const results = await Promise.allSettled([
+      svc.resend('race', 'r@acme.com', new Date('2025-01-01T00:00:00Z')),
+      svc.resend('race', 'r@acme.com', new Date('2025-01-01T00:00:00Z')),
+    ]);
+    const fulfilled = results.filter((r) => r.status === 'fulfilled');
+    const rejected = results.filter((r) => r.status === 'rejected');
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    // 정확히 1건만 메일을 보낸다(메일 폭탄 방지).
+    expect(mail.sent).toHaveLength(1);
+    expect((rejected[0] as PromiseRejectedResult).reason).toMatchObject({
+      code: ErrorCode.EMAIL_VERIFICATION_RATE_LIMITED,
+    });
+  });
+
+  it('일일 카운터 TTL 누락(ttl<0)이면 재설정한다(HIGH-1 방어)', async () => {
+    const { svc, redis } = makeService();
+    // 카운터가 살아있으나 TTL 이 -1(영구)인 상태를 만든다.
+    redis.__values.set('email_verify_daily:ttldef', '2');
+    redis.__ttls.set('email_verify_daily:ttldef', -1);
+    await svc.resend('ttldef', 't@acme.com', new Date('2025-01-01T00:00:00Z'));
+    // INCR → 3, ttl<0 감지 → 24h EXPIRE 재설정.
+    expect(redis.__ttls.get('email_verify_daily:ttldef')).toBe(24 * 60 * 60);
   });
 });

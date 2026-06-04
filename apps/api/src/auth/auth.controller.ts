@@ -10,6 +10,8 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
 // S66 (D13 / FR-W05b): 이메일 인증 토큰 검증/재발송.
 import { EmailVerificationService } from './services/email-verification.service';
+// S66 fix-forward (review HIGH-2): @Public GET /auth/verify-email 에 IP rate-limit 적용.
+import { RateLimitService } from './services/rate-limit.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 
@@ -29,6 +31,8 @@ export class AuthController {
     private readonly auth: AuthService,
     // S66 (D13 / FR-W05b): verify-email / resend-verification 처리.
     private readonly emailVerification: EmailVerificationService,
+    // S66 fix-forward (review HIGH-2): verify-email IP rate-limit.
+    private readonly rateLimit: RateLimitService,
   ) {}
 
   private allowedOrigins(): string[] {
@@ -74,6 +78,22 @@ export class AuthController {
         typeof req.headers['user-agent'] === 'string' ? req.headers['user-agent'] : undefined,
       ip: req.ip,
     };
+  }
+
+  // S66 fix-forward (review HIGH-2): rate-limit 키에 쓸 클라이언트 IP. nginx 프록시 뒤라
+  // X-Forwarded-For 의 첫 홉(원 클라이언트)을 우선하고, 없으면 Express req.ip(login/signup
+  // 의 readMeta 와 동일 소스)로 폴백한다. 미상이면 'unknown' 단일 버킷으로 묶는다.
+  private clientIp(req: Request): string {
+    const fwd = req.headers['x-forwarded-for'];
+    if (typeof fwd === 'string' && fwd.length > 0) {
+      const first = fwd.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    if (Array.isArray(fwd) && fwd.length > 0) {
+      const first = fwd[0]?.split(',')[0]?.trim();
+      if (first) return first;
+    }
+    return req.ip ?? 'unknown';
   }
 
   @Public()
@@ -166,7 +186,16 @@ export class AuthController {
   // GET 으로 두어 메일 클라이언트 링크 클릭(브라우저 GET)으로 바로 도달 가능하게 한다.
   @Public()
   @Get('verify-email')
-  async verifyEmail(@Query('token') token: string | undefined): Promise<VerifyEmailResponse> {
+  async verifyEmail(
+    @Query('token') token: string | undefined,
+    @Req() req: Request,
+  ): Promise<VerifyEmailResponse> {
+    // S66 fix-forward (review HIGH-2): @Public GET 라 인증 없이 토큰 추측 brute-force /
+    // 토큰 enumeration 표면이다. IP 당 20회/60초로 제한해 무차별 시도를 막는다(login/
+    // signup 의 IP 추출 관례를 따르는 clientIp 사용). 초과 시 429 RATE_LIMITED.
+    await this.rateLimit.enforce([
+      { key: `verify-email:ip:${this.clientIp(req)}`, windowSec: 60, max: 20 },
+    ]);
     if (typeof token !== 'string' || token.length === 0) {
       throw new DomainError(
         ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID,

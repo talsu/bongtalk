@@ -46,7 +46,11 @@ export class WorkspacesController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    return this.workspaces.create(user.id, parsed.data as CreateWorkspaceRequest);
+    // S66 fix-forward (review HIGH-3): 미인증 사용자의 워크스페이스 생성을 서버에서도
+    // 차단한다(FE VerificationGate 와 대칭). emailVerified 는 JWT 검증 시 로드돼 있다.
+    return this.workspaces.create(user.id, parsed.data as CreateWorkspaceRequest, {
+      emailVerified: user.emailVerified,
+    });
   }
 
   @Get()
