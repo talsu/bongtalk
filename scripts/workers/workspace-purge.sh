@@ -19,17 +19,26 @@
 #      so attachment-orphan-gc reclaims any object the direct delete missed)
 #   ② anonymize Message.authorId → SYSTEM_ANON (content preserved, author
 #      masked) in LIMIT batches so a huge channel doesn't lock the table
-#   ③ mark SavedMessage.messageDeletedAt = NOW() (before the Message CASCADE
-#      removes the rows it references)
-#   ④ DELETE FROM "Workspace" — CASCADE removes Channel / Category / Role /
+#   ③ DELETE FROM "Workspace" — CASCADE removes Channel / Category / Role /
 #      Member / Message / SavedMessage(via Message) automatically
-# Steps ②–④ run inside a single BEGIN/COMMIT per workspace so an interrupted
+# Steps ②–③ run inside a single BEGIN/COMMIT per workspace so an interrupted
 # purge never leaves a half-anonymized aggregate. Step ① is non-transactional
 # (MinIO is not in the DB tx) and idempotent.
 #
-# restore↔purge race: the final DELETE re-checks `deleteAt < NOW()`, so a
-# workspace `restore`d (deleteAt=NULL) between SELECT and DELETE is skipped
-# automatically — no row is removed and the candidate is simply dropped.
+# S72 fix-forward (reviewer H2 = purge BLOCKER): restore↔purge race. The
+# transaction now opens with `SELECT ... FOR UPDATE` on the target row and
+# re-checks `deletedAt IS NOT NULL AND deleteAt < NOW()` BEFORE anonymizing.
+# If a concurrent `restore` (deletedAt=NULL) wins the narrow window, the row
+# fails the eligibility re-check and the whole transaction is ROLLBACK'd — so
+# the anonymization (formerly committed regardless of the DELETE row count)
+# never persists on a workspace that was restored. Anonymize + DELETE share
+# the exact same eligibility predicate, gated under the row lock.
+#
+# S72 fix-forward (reviewer M3 = purge MEDIUM): the SavedMessage
+# `messageDeletedAt = NOW()` marking step was removed — SavedMessage.message
+# is `onDelete: Cascade`, so the same transaction's DELETE FROM "Workspace"
+# (→ Channel → Message CASCADE) deletes those SavedMessage rows immediately.
+# Marking them first was a dead write against rows about to vanish.
 
 set -euo pipefail
 
@@ -66,9 +75,25 @@ PGURL="${DATABASE_URL%%\?*}"
 # this user.
 ANON_UUID="${ANON_AUTHOR_UUID:-871aa8f6-f28a-5e26-ba8f-37ca7126e9e3}"
 
+# S72 fix-forward (security MEDIUM): ANON_UUID is interpolated into SQL string
+# literals below, so validate it is a canonical UUID before any use — this shuts
+# the env→SQL injection surface (a crafted ANON_AUTHOR_UUID could otherwise carry
+# a quote + payload). Reject (log + exit 1) anything that isn't 8-4-4-4-12 hex.
+if ! printf '%s' "$ANON_UUID" | grep -Eiq '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'; then
+  log "FATAL: ANON_AUTHOR_UUID is not a valid UUID: '$ANON_UUID'"
+  exit 1
+fi
+
 # S72: anonymize Message rows in batches of this size so a workspace with
 # millions of messages doesn't take one giant row lock. Tunable via env.
 ANON_BATCH_SIZE="${WORKSPACE_PURGE_ANON_BATCH:-5000}"
+
+# S72 fix-forward (security MEDIUM): ANON_BATCH_SIZE is interpolated into the
+# anonymization LIMIT, so it must be a bare positive integer (no SQL payload).
+if ! printf '%s' "$ANON_BATCH_SIZE" | grep -Eq '^[1-9][0-9]*$'; then
+  log "FATAL: WORKSPACE_PURGE_ANON_BATCH must be a positive integer: '$ANON_BATCH_SIZE'"
+  exit 1
+fi
 
 CANDIDATES=$(psql "$PGURL" -At -F '|' -c \
   'SELECT id, slug FROM "Workspace"
@@ -82,20 +107,26 @@ if [[ -z "$CANDIDATES" ]]; then
 fi
 
 # S72: ensure the SYSTEM_ANON user exists before any anonymization. Idempotent
-# (ON CONFLICT DO NOTHING) so it is safe to run every purge tick. Only attempted
-# on a real (non-dry-run) pass since dry-run performs no writes. The password
-# hash is a non-loginable placeholder (no plaintext maps to it).
+# so it is safe to run every purge tick. Only attempted on a real (non-dry-run)
+# pass since dry-run performs no writes. The passwordHash is a non-argon2 sentinel
+# ('x-no-login-<uuid>') — verify() fails structurally against it, so no plaintext
+# can ever log in (matches seed.ts, #5).
+#
+# S72 fix-forward (security MEDIUM): the username 'deleted-user' is UNIQUE, so a
+# plain `ON CONFLICT (id) DO NOTHING` would NOT catch a row that already holds
+# that username under a *different* id — the INSERT would then raise a unique
+# violation and fail the purge. We guard both unique columns: skip the INSERT
+# entirely if EITHER the id OR the reserved username already exists. If the id
+# exists we are done; if only the username is taken (a pre-existing row reserved
+# it) we likewise do nothing — anonymization targets $ANON_UUID by id regardless,
+# and a missing id surfaces as an FK error we'd rather see loudly than mask.
 if [[ "$DRY_RUN" -eq 0 ]]; then
   psql "$PGURL" >/dev/null <<SQL
 INSERT INTO "User" (id, email, username, "passwordHash", "emailVerified")
-VALUES (
-  '$ANON_UUID',
-  'anon@system.qufox',
-  'deleted-user',
-  'x-no-login-$ANON_UUID',
-  true
-)
-ON CONFLICT (id) DO NOTHING;
+SELECT '$ANON_UUID', 'anon@system.qufox', 'deleted-user', 'x-no-login-$ANON_UUID', true
+WHERE NOT EXISTS (
+  SELECT 1 FROM "User" WHERE id = '$ANON_UUID' OR username = 'deleted-user'
+);
 SQL
 fi
 
@@ -173,34 +204,46 @@ while IFS='|' read -r ID SLUG; do
   # ① MinIO objects (non-transactional, best-effort, idempotent).
   purge_minio_objects "$ID"
 
-  # ②–④ in a single transaction. The final DELETE re-checks deleteAt < NOW()
-  # so a workspace restored between SELECT and now is skipped (restore↔purge
-  # race contract). CASCADE on Channel / Message / SavedMessage(via Message) /
-  # WorkspaceMember / Category / Role / Invite handles the rest.
-  psql "$PGURL" >/dev/null <<SQL
+  # ②–③ in a single transaction, gated by a row-lock eligibility re-check.
+  #
+  # S72 fix-forward (reviewer H2 = purge BLOCKER): the transaction opens with
+  # SELECT ... FOR UPDATE on the target row and re-checks the SAME eligibility
+  # predicate (deletedAt IS NOT NULL AND deleteAt < NOW()) that gates the DELETE.
+  # If a concurrent restore (deletedAt=NULL / deleteAt=NULL) won the narrow window
+  # between the candidate SELECT and now, the lock returns 0 eligible rows and we
+  # \if-skip BOTH the anonymization and the DELETE, then ROLLBACK — so the
+  # anonymization never persists on a restored workspace (it used to COMMIT
+  # regardless of the DELETE row count). Anonymize + DELETE share one predicate.
+  #
+  # ON_ERROR_STOP aborts (and the open tx rolls back) on any SQL error.
+  psql "$PGURL" -v ON_ERROR_STOP=1 -q >/dev/null <<SQL
 BEGIN;
+-- Lock the candidate row and re-confirm eligibility under the lock. eligible=t
+-- only when the workspace is still soft-deleted AND past its grace window.
+SELECT EXISTS (
+  SELECT 1 FROM "Workspace"
+   WHERE id = '$ID'
+     AND "deletedAt" IS NOT NULL
+     AND "deleteAt" < NOW()
+   FOR UPDATE
+) AS eligible \gset
+\if :eligible
 -- ② anonymize message authors (content preserved) in bounded batches.
 $(anonymize_messages_sql "$ID")
--- ③ mark SavedMessage rows referencing this workspace's messages as
---    source-deleted BEFORE the Message CASCADE removes the FK target.
-UPDATE "SavedMessage" SET "messageDeletedAt" = NOW()
-  WHERE "messageDeletedAt" IS NULL
-    AND "messageId" IN (
-      SELECT m.id FROM "Message" m
-      JOIN "Channel" c ON c.id = m."channelId"
-      WHERE c."workspaceId" = '$ID'
-    );
 -- (orphan-flag attachments so attachment-orphan-gc reclaims any MinIO object
 --  the best-effort step ① missed — finalizedAt=NULL is its selector.)
 UPDATE "Attachment" SET "finalizedAt" = NULL
   WHERE "channelId" IN (SELECT id FROM "Channel" WHERE "workspaceId" = '$ID');
--- ④ hard-delete the workspace (CASCADE). Re-check the grace boundary so a
---    concurrent restore wins the race (deleteAt set back to NULL → no match).
-DELETE FROM "Workspace"
-  WHERE id = '$ID'
-    AND "deleteAt" IS NOT NULL
-    AND "deleteAt" < NOW();
+-- ③ hard-delete the workspace (CASCADE removes Channel / Message /
+--    SavedMessage(via Message) / WorkspaceMember / Category / Role / Invite).
+--    The eligibility predicate above already gated this under the row lock.
+DELETE FROM "Workspace" WHERE id = '$ID';
 COMMIT;
+\else
+-- Restored (or otherwise ineligible) under the lock — undo everything, touch nothing.
+\echo '[workspace-purge] skipped (restored or no longer eligible under lock)'
+ROLLBACK;
+\endif
 SQL
   log "purged id=$ID slug=$SLUG"
 done <<<"$CANDIDATES"

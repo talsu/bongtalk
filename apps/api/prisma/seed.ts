@@ -32,17 +32,26 @@ async function main() {
   // purge 시 Message.authorId 를 이 사용자로 익명화한다(내용 보존, 작성자만 마스킹). FK
   // (Message.authorId → User)가 유효하려면 이 행이 반드시 존재해야 하므로 seed 와
   // purge.sh 가 선행 idempotent insert 로 보장한다. ID 는 env ANON_AUTHOR_UUID 우선,
-  // 미설정 시 결정론 uuid v5(user:system-anon). 로그인 불가(랜덤 argon2 해시), emailVerified
-  // 는 게이트 우회용으로 true. 멤버십이 없어 어떤 워크스페이스에도 보이지 않는 placeholder 다.
+  // 미설정 시 결정론 uuid v5(user:system-anon). emailVerified 는 게이트 우회용으로 true.
+  // 멤버십이 없어 어떤 워크스페이스에도 보이지 않는 placeholder 다.
+  //
+  // S72 fix-forward (security HIGH = #5): passwordHash 를 argon2 해시가 아니라
+  // 비-argon2 sentinel('x-no-login-<anonId>')로 저장한다. 종전엔
+  // hashSeedPassword('anon-${anonId}-no-login') 의 실제 argon2 해시를 썼는데, 그 평문은
+  // .env.example 의 공개 SEED_NAMESPACE + ANON_AUTHOR_UUID 에서 결정론적으로 유도 가능해
+  // dev/staging 에서 SYSTEM_ANON 으로 로그인이 가능했다. argon2 verify() 는 sentinel
+  // 문자열을 구조적으로 파싱 실패하므로(어떤 평문도 매칭 불가), 로그인 불가가 *구조로*
+  // 보장된다. purge.sh 의 SYSTEM_ANON insert 와 동일한 sentinel 형식으로 통일한다.
   const anonId = process.env.ANON_AUTHOR_UUID ?? id('user', 'system-anon');
+  const anonSentinelHash = `x-no-login-${anonId}`;
   await prisma.user.upsert({
     where: { id: anonId },
-    update: {},
+    update: { passwordHash: anonSentinelHash },
     create: {
       id: anonId,
       email: 'anon@system.qufox',
       username: 'deleted-user',
-      passwordHash: await hashSeedPassword(`anon-${anonId}-no-login`),
+      passwordHash: anonSentinelHash,
       emailVerified: true,
     },
   });

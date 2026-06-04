@@ -663,6 +663,16 @@ export class OutboxToWsSubscriber {
   @OnEvent('workspace.**')
   async onWorkspaceEvent(env: WsEnvelope): Promise<void> {
     if (!env.workspaceId) return;
+    // S72 fix-forward (reviewer H1 = realtime BLOCKER): ws:workspace_deleted /
+    // ws:workspace_restored 를 핸들러 최상단(emitAndBuffer 의 느린 Redis append await
+    // 이전, 첫 await 전 동기 시점)에서 먼저 룸으로 emit 한다. 같은 EventEmitter2
+    // 이벤트(workspace.deleted)를 MembershipRevocationListener 가 받아 룸 소켓을
+    // disconnectSockets 하므로(워크스페이스 스코프 이벤트는 reconnect replay 안 됨 —
+    // realtime.gateway 명시), emit 이 emitAndBuffer 뒤에 있으면 disconnect 가 먼저
+    // 이겨 멤버가 알림을 유실한다. 동기 emit 으로 disconnect 보다 먼저 도달을 보장한다.
+    // (FE 의 connection.error{code:'workspace_deleted'} 핸들러가 disconnect 가 이겨도
+    //  redirect+무효화하는 이중 안전망을 useRealtimeConnection 에 별도 추가했다.)
+    this.emitWorkspaceLifecycleWire(env);
     await this.emitAndBuffer('workspace', env.workspaceId, env);
     // S63 fix-forward (contract D-1 = BLOCKER/MAJOR): kick/ban 은 PRD 가 명시한 콜론
     // wire 이벤트 member:kicked / member:banned 를 워크스페이스 룸으로 추가 emit 한다.
@@ -684,35 +694,6 @@ export class OutboxToWsSubscriber {
       };
       this.io.to(rooms.workspace(env.workspaceId)).emit(wireType, wire);
       this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
-    }
-    // S72 (FR-W15): 워크스페이스 소프트 삭제/복원은 PRD 가 명시한 콜론 wire 이벤트
-    // ws:workspace_deleted / ws:workspace_restored 를 워크스페이스 룸으로 추가 emit 한다.
-    // 서버 내부 outbox eventType 은 dot 표기(workspace.deleted / workspace.restored)라 위
-    // emitAndBuffer 가 dot 이름으로 워크스페이스 룸에 보내지만, FE dispatcher 의 콜론 핸들러
-    // (내 워크스페이스 목록 무효화 + 현재 워크스페이스면 리다이렉트)가 받을 콜론 이름은 별도로
-    // emit 한다(member:kicked / ws:member_left dot→colon 선례). deleted 는 actorId + deleteAt
-    // (grace 종료 시각)을, restored 는 actorId 를 싣는다. payload 의 deleteAt 은 outbox
-    // payload(softDelete 가 ISO 문자열로 기록)에서 그대로 넘어온다.
-    if (this.io && env.type === 'workspace.deleted') {
-      const wire = {
-        workspaceId: env.workspaceId,
-        actorId: (env as { actorId?: string }).actorId ?? '',
-        deleteAt: (env as { deleteAt?: string }).deleteAt ?? new Date().toISOString(),
-      };
-      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_DELETED, wire);
-      this.metrics?.wsEventsEmittedTotal
-        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_DELETED))
-        .inc();
-    }
-    if (this.io && env.type === 'workspace.restored') {
-      const wire = {
-        workspaceId: env.workspaceId,
-        actorId: (env as { actorId?: string }).actorId ?? '',
-      };
-      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_RESTORED, wire);
-      this.metrics?.wsEventsEmittedTotal
-        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_RESTORED))
-        .inc();
     }
     // S70 (FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함)은 PRD 가 명시한 콜론 wire 이벤트
     // ws:member_left { workspaceId, userId, reason } 를 워크스페이스 룸으로 추가 emit 한다.
@@ -768,6 +749,59 @@ export class OutboxToWsSubscriber {
           void this.gateway.kickUserEverywhere(targetUserId, env.type).catch(() => undefined);
         }, 50);
       }
+    }
+  }
+
+  /**
+   * S72 (FR-W15): 워크스페이스 소프트 삭제/복원의 콜론 wire 이벤트를 워크스페이스 룸으로
+   * emit 한다. 서버 내부 outbox eventType 은 dot 표기(workspace.deleted / workspace.restored)
+   * 라, FE dispatcher 의 콜론 핸들러(내 워크스페이스 목록 무효화 + 현재 워크스페이스면
+   * 리다이렉트)가 받을 콜론 이름은 별도로 emit 한다(member:kicked / ws:member_left dot→colon
+   * 선례). deleted 는 actorId + deleteAt(grace 종료 시각)을, restored 는 actorId 를 싣는다.
+   *
+   * S72 fix-forward (reviewer H1 = realtime BLOCKER): 이 emit 은 onWorkspaceEvent 의 첫
+   * await(emitAndBuffer 의 Redis append) 이전 동기 시점에서 호출돼, 같은 EventEmitter2
+   * 이벤트로 disconnectSockets 하는 MembershipRevocationListener 보다 먼저 룸에 도달한다.
+   * 워크스페이스 스코프 이벤트는 reconnect replay 대상이 아니라(gateway 명시) disconnect 가
+   * 먼저 이기면 영구 유실이므로 순서 보장이 필요하다.
+   *
+   * S72 fix-forward (reviewer L3 = cheap correctness): 종전 `actorId ?? ''` /
+   * `deleteAt ?? new Date().toISOString()` fallback 을 제거했다 — 빈 문자열은 events.ts 의
+   * min(1) 스키마를, 가짜 현재시각 deleteAt 은 의미를 깨 FE safeParse 가 무음 드롭한다.
+   * softDelete/restore 서비스가 actorId·deleteAt 을 항상 채우므로 envelope 값을 직접 쓰되,
+   * 만에 하나 결손(타입 불량)이면 빈 wire 를 보내 무음 드롭시키느니 명시적으로 스킵+경고한다.
+   */
+  private emitWorkspaceLifecycleWire(env: WsEnvelope): void {
+    if (!this.io || !env.workspaceId) return;
+    if (env.type === 'workspace.deleted') {
+      const actorId = (env as { actorId?: unknown }).actorId;
+      const deleteAt = (env as { deleteAt?: unknown }).deleteAt;
+      if (typeof actorId !== 'string' || !actorId || typeof deleteAt !== 'string' || !deleteAt) {
+        this.logger.warn(
+          `[realtime] workspace.deleted envelope missing actorId/deleteAt ev=${env.id} — skipping ws wire emit`,
+        );
+        return;
+      }
+      const wire = { workspaceId: env.workspaceId, actorId, deleteAt };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_DELETED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_DELETED))
+        .inc();
+      return;
+    }
+    if (env.type === 'workspace.restored') {
+      const actorId = (env as { actorId?: unknown }).actorId;
+      if (typeof actorId !== 'string' || !actorId) {
+        this.logger.warn(
+          `[realtime] workspace.restored envelope missing actorId ev=${env.id} — skipping ws wire emit`,
+        );
+        return;
+      }
+      const wire = { workspaceId: env.workspaceId, actorId };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_RESTORED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_RESTORED))
+        .inc();
     }
   }
 

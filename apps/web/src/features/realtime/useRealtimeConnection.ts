@@ -54,6 +54,32 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
     socket.on('disconnect', () => setStatus('disconnected'));
     socket.on('connect_error', () => setStatus('disconnected'));
 
+    // S72 fix-forward (reviewer H1 = realtime BLOCKER): 워크스페이스 삭제 시 서버는
+    // ws:workspace_deleted 를 룸에 emit 한 직후 같은 이벤트로 룸 소켓을 강제 disconnect
+    // 한다(MembershipRevocationListener). 서버 emit 순서를 disconnect 보다 앞으로 고정했지만,
+    // 네트워크/노드 경합으로 disconnect 가 먼저 도착하면 ws:workspace_deleted dispatcher
+    // 핸들러가 영영 실행되지 못해(워크스페이스 스코프 이벤트는 reconnect replay 안 됨)
+    // 사이드바·라우팅이 stale 해진다. disconnect 직전 서버가 보내는
+    // connection.error{code:'workspace_deleted'} 를 이중 안전망으로 받아, 현재 보고 있던
+    // 워크스페이스면 홈(/dm)으로 리다이렉트하고 내 워크스페이스 목록을 무효화한다(슬러그는
+    // 현재 경로에서, id 는 캐시된 목록에서 역해석).
+    socket.on('connection.error', (e: { code?: string } | undefined) => {
+      if (e?.code !== 'workspace_deleted') return;
+      qc.invalidateQueries({ queryKey: ['workspaces', 'mine'] });
+      if (typeof window === 'undefined') return;
+      const match = /^\/w\/([^/]+)/.exec(window.location.pathname);
+      const activeSlug = match?.[1];
+      if (!activeSlug) return;
+      const mine = qc.getQueryData<{ workspaces: Array<{ id: string; slug: string }> }>([
+        'workspaces',
+        'mine',
+      ]);
+      const active = mine?.workspaces.find((w) => w.slug === activeSlug);
+      if (active) qc.invalidateQueries({ queryKey: qk.workspaces.detail(active.id) });
+      window.history.pushState({}, '', '/dm');
+      window.dispatchEvent(new PopStateEvent('popstate'));
+    });
+
     // Cache-mutation side of realtime (single dispatcher).
     // DispatcherContext gives the unread-bump path awareness of both
     // the viewer and the currently-open channel so the dispatcher skips

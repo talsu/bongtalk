@@ -164,6 +164,59 @@ describe('WorkspaceSettingsPage — 워크스페이스 삭제 (FR-W15)', () => {
     );
     expect(screen.queryByTestId('ws-delete-open')).toBeNull();
   });
+
+  // S72 fix-forward (a11y L-1): 삭제 트리거 버튼은 다이얼로그를 여는 트리거임을 알린다.
+  it('삭제 진입 버튼에 aria-haspopup="dialog" 가 있다', () => {
+    renderOwner();
+    expect(screen.getByTestId('ws-delete-open').getAttribute('aria-haspopup')).toBe('dialog');
+  });
+
+  // S72 fix-forward (a11y H-2): slug 불일치가 입력의 aria-invalid + role=status 메시지로 AT 에 전달된다.
+  it('불일치 입력은 aria-invalid + role=status 메시지를 노출하고, 일치하면 사라진다', () => {
+    renderOwner();
+    fireEvent.click(screen.getByTestId('ws-delete-open'));
+    const input = screen.getByTestId('ws-delete-confirm-input') as HTMLInputElement;
+    // 빈 입력 — 아직 오류 아님(invalid off, 메시지 없음).
+    expect(input.getAttribute('aria-invalid')).not.toBe('true');
+    expect(screen.queryByTestId('ws-delete-confirm-mismatch')).toBeNull();
+    // 불일치 입력 — invalid on + status 메시지 + describedby 연결.
+    fireEvent.change(input, { target: { value: 'wrong' } });
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+    const msg = screen.getByTestId('ws-delete-confirm-mismatch');
+    expect(msg.getAttribute('role')).toBe('status');
+    expect(input.getAttribute('aria-describedby')).toBe('ws-delete-confirm-mismatch');
+    // 정확 일치 — invalid off + 메시지 제거.
+    fireEvent.change(input, { target: { value: 'acme' } });
+    expect(input.getAttribute('aria-invalid')).not.toBe('true');
+    expect(screen.queryByTestId('ws-delete-confirm-mismatch')).toBeNull();
+  });
+
+  // S72 fix-forward (a11y H-2): 식별자 입력은 브라우저 자동완성/맞춤법 검사를 끈다.
+  it('식별자 입력에 autoComplete=off + spellCheck=false 가 설정된다', () => {
+    renderOwner();
+    fireEvent.click(screen.getByTestId('ws-delete-open'));
+    const input = screen.getByTestId('ws-delete-confirm-input') as HTMLInputElement;
+    expect(input.getAttribute('autocomplete')).toBe('off');
+    expect(input.getAttribute('spellcheck')).toBe('false');
+  });
+
+  // S72 fix-forward (a11y B-1): 삭제 실패 에러는 모달 내부에서 role=alert 로 알린다.
+  it('삭제 실패 시 모달 내부에 role=alert 에러가 뜬다(모달 밖 dangerErr 와 분리)', async () => {
+    deleteMutate.mockRejectedValueOnce(new Error('삭제에 실패했습니다.'));
+    renderOwner();
+    fireEvent.click(screen.getByTestId('ws-delete-open'));
+    fireEvent.change(screen.getByTestId('ws-delete-confirm-input'), { target: { value: 'acme' } });
+    fireEvent.click(screen.getByTestId('ws-delete-confirm-ok'));
+    await Promise.resolve();
+    await Promise.resolve();
+    const alert = await screen.findByTestId('ws-delete-error');
+    expect(alert.getAttribute('role')).toBe('alert');
+    expect(alert.textContent).toContain('삭제에 실패했습니다.');
+    // 모달 밖 위험구역 에러(dangerErr)는 영향받지 않는다.
+    expect(screen.queryByTestId('ws-danger-error')).toBeNull();
+    // 리다이렉트하지 않는다(실패).
+    expect(navigateSpy).not.toHaveBeenCalledWith('/dm');
+  });
 });
 
 describe('WorkspaceSettingsPage — 나가기 (FR-W14)', () => {
