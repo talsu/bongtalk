@@ -26,6 +26,11 @@ export const qk = {
         params.role ?? '',
         params.sortBy ?? '',
       ] as const,
+    // S70 (D13 / FR-W06): ADMIN 신청 목록(slug + status 필터별). slug 로 키한다(신청 API 는 slug 라우팅).
+    applications: (slug: string, status?: string) =>
+      ['workspaces', slug, 'applications', status ?? 'all'] as const,
+    // S70 (D13 / FR-W06a): 본인 신청 상태(polling fallback). slug 로 키한다.
+    myApplication: (slug: string) => ['workspaces', slug, 'applications', 'me'] as const,
   },
   channels: {
     list: (wsId: string) => ['workspaces', wsId, 'channels'] as const,

@@ -385,48 +385,52 @@ model User {
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 
-  ownedWorkspaces          Workspace[]                  @relation("WorkspaceOwner")
-  memberships              WorkspaceMember[]
+  ownedWorkspaces               Workspace[]                  @relation("WorkspaceOwner")
+  memberships                   WorkspaceMember[]
   // S69 (D13 / FR-W10): 이 사용자가 초대한 멤버들(초대자 표시 조인의 역방향).
-  invitedMembers           WorkspaceMember[]            @relation("WorkspaceMemberInviter")
-  messages                 Message[]
-  invitesCreated           Invite[]                     @relation("InviteCreator")
+  invitedMembers                WorkspaceMember[]            @relation("WorkspaceMemberInviter")
+  messages                      Message[]
+  invitesCreated                Invite[]                     @relation("InviteCreator")
   // S68 (D13 / FR-W04·W18): 이 사용자가 보낸 이메일 보류 초대들(생성자 표시·목록 조인).
-  pendingInvitesCreated    WorkspacePendingInvite[]     @relation("WorkspacePendingInviteInviter")
-  refreshTokens            RefreshToken[]
+  pendingInvitesCreated         WorkspacePendingInvite[]     @relation("WorkspacePendingInviteInviter")
+  refreshTokens                 RefreshToken[]
   // S66 (D13 / FR-W05b): 이메일 인증 토큰들. onDelete Cascade(계정 삭제 시 정리).
-  emailVerificationTokens  EmailVerificationToken[]
-  attachments              Attachment[]
+  emailVerificationTokens       EmailVerificationToken[]
+  attachments                   Attachment[]
   // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
-  attachmentUploadSessions AttachmentUploadSession[]
-  reactions                MessageReaction[]
-  feedback                 Feedback[]
-  notificationPreferences  UserNotificationPreference[]
+  attachmentUploadSessions      AttachmentUploadSession[]
+  reactions                     MessageReaction[]
+  feedback                      Feedback[]
+  notificationPreferences       UserNotificationPreference[]
   // S46 (D06 / FR-MN-05): 글로벌 알림 설정(1:1). onDelete Cascade.
-  settings                 UserSettings?
+  settings                      UserSettings?
   // S46 (D06 / FR-MN-06): 서버별 알림 오버라이드. onDelete Cascade.
-  serverNotificationPrefs  ServerNotificationPref[]
-  activityReadStates       UserActivityReadState[]
-  channelMutes             UserChannelMute[]
+  serverNotificationPrefs       ServerNotificationPref[]
+  activityReadStates            UserActivityReadState[]
+  channelMutes                  UserChannelMute[]
   // S43 (FR-CH-15): 채널 즐겨찾기. onDelete Cascade.
-  channelFavorites         UserChannelFavorite[]
-  friendshipsRequested     Friendship[]                 @relation("FriendshipRequester")
-  friendshipsReceived      Friendship[]                 @relation("FriendshipAddressee")
-  customEmojis             CustomEmoji[]                @relation("CustomEmojiCreator")
+  channelFavorites              UserChannelFavorite[]
+  friendshipsRequested          Friendship[]                 @relation("FriendshipRequester")
+  friendshipsReceived           Friendship[]                 @relation("FriendshipAddressee")
+  customEmojis                  CustomEmoji[]                @relation("CustomEmojiCreator")
   // S42 (FR-EM05 / FR-PK03): 별칭 생성 이력 + 사용자 이모지 선호(1:1).
-  customEmojiAliases       CustomEmojiAlias[]           @relation("CustomEmojiAliasCreator")
-  emojiPreference          UserEmojiPreference?
-  threadSubscriptions      ThreadSubscription[]
+  customEmojiAliases            CustomEmojiAlias[]           @relation("CustomEmojiAliasCreator")
+  emojiPreference               UserEmojiPreference?
+  threadSubscriptions           ThreadSubscription[]
   // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12): 스레드별 읽음 커서. 채널 미읽과
   // 독립적으로 추적한다.
-  threadReadStates         ThreadReadState[]
+  threadReadStates              ThreadReadState[]
   // S19 (FR-DM-08/09): 본인이 owner 인 그룹 DM 채널. onDelete SET NULL.
-  ownedChannels            Channel[]                    @relation("ChannelOwner")
+  ownedChannels                 Channel[]                    @relation("ChannelOwner")
   // S51 (D10 / FR-PS-07): 본인이 개인 저장함에 담은 메시지들. onDelete Cascade.
-  savedMessages            SavedMessage[]
+  savedMessages                 SavedMessage[]
   // S64 fix-forward (security A-6 = MEDIUM-2): 본인이 제출한 메시지 신고들. 계정
   // 하드삭제 시 ON DELETE SET NULL 로 reporterId 가 null 화되어 익명화된다(행 보존).
-  moderationReportsFiled   ModerationReport[]           @relation("ModerationReportReporter")
+  moderationReportsFiled        ModerationReport[]           @relation("ModerationReportReporter")
+  // S70 (D13 / FR-W06): 본인이 제출한 가입 신청들. 계정 삭제 시 Cascade.
+  workspaceApplications         WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationApplicant")
+  // S70 (D13 / FR-W06): 본인이 검토(승인/거절/인터뷰)한 가입 신청들. 계정 삭제 시 SetNull.
+  workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.
@@ -545,6 +549,22 @@ enum WorkspaceJoinMode {
   APPLY
 }
 
+// S70 (D13 / FR-W06): 가입 신청(APPLY 모드) 상태 머신.
+//   PENDING   — 제출 후 검토 대기(기본값). 이 상태에서만 신청자가 취소(WITHDRAWN)할 수 있다.
+//   APPROVED  — ADMIN+ 승인. 같은 트랜잭션에서 WorkspaceMember 가 생성된다.
+//   REJECTED  — MODERATOR+ 거절(reviewNote 선택). 24h cooldown 후 재신청 가능.
+//   INTERVIEW — ADMIN+ 인터뷰 전환. 신청자와 1:1 DM(interviewChannelId)이 자동 생성되고,
+//               인터뷰 후 동일 신청서를 다시 approve/reject 한다(상태 행 UPDATE).
+//   WITHDRAWN — 신청자 본인 취소(PENDING 에서만). 재신청 허용.
+// 신규 enum 이라 기존 row 영향 없음(reversible — down 에서 테이블·타입 DROP).
+enum ApplicationStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  INTERVIEW
+  WITHDRAWN
+}
+
 enum WorkspaceCategory {
   PROGRAMMING
   GAMING
@@ -610,6 +630,8 @@ model Workspace {
   bannedMembers           BannedMember[]
   // S64 (D12 / FR-RM11): 메시지 신고 큐. onDelete Cascade.
   moderationReports       ModerationReport[]
+  // S70 (D13 / FR-W06): 가입 신청(APPLY 모드) 큐. onDelete Cascade.
+  applications            WorkspaceMemberApplication[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -714,6 +736,46 @@ model ModerationReport {
   @@unique([messageId, reporterId])
   @@index([workspaceId, resolvedAt, createdAt])
   @@index([messageId])
+}
+
+// S70 (D13 / FR-W06): 가입 신청(APPLY 모드). 신청자가 커스텀 질문(최대 5개) 응답과 함께
+// 제출하고, ADMIN+ 가 승인/인터뷰·MODERATOR+ 가 거절을 처리한다. APPROVED 시 같은
+// 트랜잭션에서 WorkspaceMember 가 생성된다. INTERVIEW 전환 시 신청자와 1:1 DM 이 자동
+// 생성되고 그 채널 id 가 interviewChannelId 에 기록된다.
+//
+// @@unique([workspaceId, applicantId, status]) — 같은 (워크스페이스, 신청자, 상태) 조합당
+// 1행. 같은 사용자가 PENDING 으로 두 번 신청하면 DB 유니크가 막지만, 서비스 레이어가 PENDING
+// 중복을 선조회해 409(APPLICATION_PENDING_EXISTS)로 거부한다(DB 충돌 노출보다 명확한 에러).
+// WITHDRAWN/REJECTED 후 재신청은 그 상태 행을 PENDING 으로 되살려(UPDATE) 유니크 충돌을
+// 피한다(REJECTED 는 24h cooldown 을 서비스가 검사). status 전이(PENDING→APPROVED 등)는 행
+// UPDATE 다. PK 는 cuid 대신 본 프로젝트 표준 uuid(@db.Uuid) 를 쓴다(전 모델 정합).
+//
+// FK: workspace·applicant 는 onDelete Cascade(워크스페이스/신청자 삭제 시 신청 정리),
+// reviewedBy 는 SetNull(검토자 계정 삭제 시 이력은 남기고 FK 만 끊음). interviewChannelId 는
+// 자동 생성 DM 채널 id 이나 명시 FK 는 두지 않는다(DM 채널 hard-delete 경로는 별도 정책 —
+// ModerationReport.reporterId 와 동일한 best-effort 비-FK 식별자 패턴). additive 신규 테이블
+// 이라 기존 row 영향 없음(backfill 불요 — 20260609000000_s70_member_application).
+model WorkspaceMemberApplication {
+  id                 String            @id @default(uuid()) @db.Uuid
+  workspaceId        String            @db.Uuid
+  applicantId        String            @db.Uuid
+  status             ApplicationStatus @default(PENDING)
+  // [{ questionId, answer }] — 커스텀 질문 응답(최대 5). 질문 카탈로그(OnboardingQuestion)는
+  // 별도 carryover 라 S70 은 자유형 answers Json 으로 저장만 한다(shared-types Zod 가 형식 검증).
+  answers            Json
+  reviewedById       String?           @db.Uuid
+  reviewNote         String?           @db.VarChar(500)
+  interviewChannelId String?           @db.Uuid
+  createdAt          DateTime          @default(now()) @db.Timestamptz(6)
+  updatedAt          DateTime          @updatedAt
+
+  workspace  Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  applicant  User      @relation("WorkspaceMemberApplicationApplicant", fields: [applicantId], references: [id], onDelete: Cascade)
+  reviewedBy User?     @relation("WorkspaceMemberApplicationReviewer", fields: [reviewedById], references: [id], onDelete: SetNull)
+
+  @@unique([workspaceId, applicantId, status])
+  @@index([workspaceId, status])
+  @@index([applicantId])
 }
 
 model Category {

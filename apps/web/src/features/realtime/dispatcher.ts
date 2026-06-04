@@ -16,6 +16,8 @@ import {
   MessageEmbedUpdatedPayloadSchema,
   MemberKickedPayloadSchema,
   MemberBannedPayloadSchema,
+  ApplicationReceivedPayloadSchema,
+  ApplicationReviewedPayloadSchema,
   ReminderFirePayloadSchema,
   SavedUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
@@ -1231,6 +1233,14 @@ export function installRealtimeDispatcher(
       qc.invalidateQueries({ queryKey: qk.workspaces.list() });
     }
   });
+  // S70 (FR-W12): PRD 콜론 wire ws:member_left{reason}. dot 핸들러와 같은 멤버 목록 무효화로
+  // 수렴한다(reason='temp_expired' 강퇴 포함). 중복 수신해도 무해(멱등 invalidate).
+  on<unknown>(WS_EVENTS.MEMBER_LEFT, (raw) => {
+    const wsId = (raw as { workspaceId?: string } | null)?.workspaceId;
+    if (typeof wsId !== 'string' || wsId.length === 0) return;
+    qc.invalidateQueries({ queryKey: qk.workspaces.members(wsId) });
+    qc.invalidateQueries({ queryKey: qk.workspaces.list() });
+  });
   on<{ workspaceId: string }>('workspace.member.removed', (env) => {
     if (env.workspaceId) {
       qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
@@ -1284,6 +1294,31 @@ export function installRealtimeDispatcher(
     if (env.workspaceId) {
       qc.invalidateQueries({ queryKey: qk.workspaces.detail(env.workspaceId) });
       qc.invalidateQueries({ queryKey: qk.workspaces.members(env.workspaceId) });
+    }
+  });
+
+  // ---------- S70 (D13 · FR-W06/W06a): 가입 신청 ----------
+  // ws:application_received — ADMIN 리뷰 패널이 목록을 갱신하도록 신청 쿼리를 무효화하고,
+  // 패널이 구독할 window 이벤트로 흘린다(workspaceId 기준). 형태 불량은 신뢰경계 가드로 버린다.
+  on<unknown>(WS_EVENTS.APPLICATION_RECEIVED, (raw) => {
+    const parsed = ApplicationReceivedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    // 신청 목록은 slug 로 키하나 wire 에는 workspaceId 만 있으므로 ['workspaces', *, 'applications']
+    // 접두 전체를 무효화한다(패널이 마운트돼 있으면 즉시 refetch). 추가로 window 이벤트로도 흘린다.
+    qc.invalidateQueries({ queryKey: ['workspaces'], predicate: applicationQueryPredicate });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('qufox.application.received', { detail: parsed.data }));
+    }
+  });
+  // ws:application_reviewed — 신청자 본인 대기 화면이 구독한다(approved=토스트+2초 이동,
+  // rejected=거절 카피+reviewNote, interview=인터뷰 안내). 본인 신청 상태 쿼리도 무효화해
+  // polling 과 WS 가 동일 진실값으로 수렴하게 한다.
+  on<unknown>(WS_EVENTS.APPLICATION_REVIEWED, (raw) => {
+    const parsed = ApplicationReviewedPayloadSchema.safeParse(raw);
+    if (!parsed.success) return;
+    qc.invalidateQueries({ queryKey: ['workspaces'], predicate: applicationQueryPredicate });
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('qufox.application.reviewed', { detail: parsed.data }));
     }
   });
 
@@ -1486,6 +1521,17 @@ export function installRealtimeDispatcher(
   };
 }
 
+/**
+ * S70: 가입 신청 쿼리 무효화 predicate. wire payload 에는 slug 가 아니라 workspaceId 만
+ * 있으므로(신청 쿼리는 slug 로 키함), ['workspaces', *, 'applications', ...] 형태의 키만
+ * 골라 무효화한다(과도한 전 워크스페이스 무효화를 피한다). qk.workspaces.applications /
+ * myApplication 둘 다 세 번째 세그먼트가 'applications' 다.
+ */
+function applicationQueryPredicate(query: { queryKey: readonly unknown[] }): boolean {
+  const k = query.queryKey;
+  return k[0] === 'workspaces' && k[2] === 'applications';
+}
+
 /** Event types the dispatcher handles — exposed so tests can iterate them. */
 export const DISPATCHED_EVENTS = [
   'message.created',
@@ -1522,6 +1568,11 @@ export const DISPATCHED_EVENTS = [
   // 멤버의 멤버 목록/차단 목록 실시간 갱신).
   WS_EVENTS.MEMBER_KICKED,
   WS_EVENTS.MEMBER_BANNED,
+  // S70 (D13 · FR-W06/W06a): 가입 신청 접수(ADMIN 패널) / 처리 결과(신청자 대기 화면).
+  WS_EVENTS.APPLICATION_RECEIVED,
+  WS_EVENTS.APPLICATION_REVIEWED,
+  // S70 (D13 · FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함) — 워크스페이스 룸 fanout.
+  WS_EVENTS.MEMBER_LEFT,
   'workspace.role.changed',
   'presence.updated',
   'presence:update',

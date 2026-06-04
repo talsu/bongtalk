@@ -349,6 +349,76 @@ export class OutboxToWsSubscriber {
   }
 
   /**
+   * S70 (D13 / FR-W06·W06a): 가입 신청 라이프사이클.
+   *   - application.received → 워크스페이스 룸(workspace:{wsId})으로 ws:application_received
+   *     fanout. ADMIN 리뷰 패널이 목록을 즉시 갱신한다. payload 의 applicantName 은 표시용.
+   *   - application.reviewed → 신청자 본인 user 룸(user:{applicantId})으로 ws:application_reviewed
+   *     fanout. 신청자는 대기 화면에서 approved(토스트+2초 이동)/rejected(거절 카피+reviewNote)/
+   *     interview(인터뷰 안내)로 분기한다. 본인 user 룸이라 워크스페이스 멤버가 아닌 신청자
+   *     에게도 도달한다(승인 전 서버 룸 미가입 — mention.** / dm.** 의 user-room fanout 선례).
+   * 서버 내부 outbox eventType 은 dot 표기지만 여기서 PRD 가 명시한 콜론 wire 이름으로 변환한다.
+   */
+  @OnEvent('application.**')
+  async onApplicationEvent(env: WsEnvelope): Promise<void> {
+    if (!this.io) return;
+    const workspaceId = (env as { workspaceId?: string }).workspaceId;
+    if (!workspaceId) return;
+    const applicationId = (env as { applicationId?: string }).applicationId;
+    if (!applicationId) return;
+
+    if (env.type === 'application.received') {
+      // 워크스페이스 룸으로 fanout(+ replay 버퍼). ADMIN/멤버 캐시 무효화는 FE dispatcher.
+      await this.emitAndBuffer('workspace', workspaceId, {
+        id: env.id,
+        type: WS_EVENTS.APPLICATION_RECEIVED,
+        occurredAt: env.occurredAt,
+        workspaceId,
+        applicationId,
+        applicantId: (env as { applicantId?: string }).applicantId ?? '',
+        applicantName: (env as { applicantName?: string }).applicantName ?? '',
+      } as unknown as WsEnvelope);
+      return;
+    }
+
+    if (env.type === 'application.reviewed') {
+      const applicantId = (env as { applicantId?: string }).applicantId;
+      const status = (env as { status?: string }).status;
+      if (
+        !applicantId ||
+        (status !== 'approved' && status !== 'rejected' && status !== 'interview')
+      )
+        return;
+      const wire = {
+        id: env.id,
+        type: WS_EVENTS.APPLICATION_REVIEWED,
+        occurredAt: env.occurredAt,
+        workspaceId,
+        applicationId,
+        status,
+        reviewNote: (env as { reviewNote?: string | null }).reviewNote ?? null,
+        interviewChannelId:
+          (env as { interviewChannelId?: string | null }).interviewChannelId ?? null,
+      };
+      try {
+        await this.replay.append('user', applicantId, {
+          id: env.id,
+          type: wire.type,
+          occurredAt: env.occurredAt,
+          payload: wire,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[realtime] application reviewed replay append failed uid=${applicantId} ev=${env.id} err=${String(err).slice(0, 200)}`,
+        );
+      }
+      this.io.to(rooms.user(applicantId)).emit(WS_EVENTS.APPLICATION_REVIEWED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.APPLICATION_REVIEWED))
+        .inc();
+    }
+  }
+
+  /**
    * S41 (FR-EM01 / FR-EM04 / FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클.
    * 서버 내부 outbox eventType 은 dot 표기(emoji.created / emoji.deleted)지만,
    * 워크스페이스 룸 emit 시 PRD/WS_EVENTS 가 명시한 콜론 wire 이름
@@ -596,6 +666,29 @@ export class OutboxToWsSubscriber {
       };
       this.io.to(rooms.workspace(env.workspaceId)).emit(wireType, wire);
       this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
+    }
+    // S70 (FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함)은 PRD 가 명시한 콜론 wire 이벤트
+    // ws:member_left { workspaceId, userId, reason } 를 워크스페이스 룸으로 추가 emit 한다.
+    // 서버 내부 outbox eventType 은 dot 표기(workspace.member.left)라 위 emitAndBuffer 가
+    // dot 이름으로 워크스페이스 룸에 보내지만, FE dispatcher 의 콜론 핸들러(멤버 목록 캐시
+    // 무효화)가 받을 콜론 이름은 별도로 emit 한다(member:kicked dot→colon 선례). reason 은
+    // payload 에 실려온 값을 쓰되, 미지정(일반 leave)이면 'leave' 로 폴백한다. temp_expired
+    // 강퇴는 TempEvictProcessor 가 reason='temp_expired' 로 기록한다.
+    if (this.io && env.type === 'workspace.member.left') {
+      const rawReason = (env as { reason?: unknown }).reason;
+      const reason =
+        rawReason === 'temp_expired' || rawReason === 'kick' || rawReason === 'leave'
+          ? rawReason
+          : 'leave';
+      const wire = {
+        workspaceId: env.workspaceId,
+        userId: (env as { userId?: string }).userId ?? '',
+        reason,
+      };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.MEMBER_LEFT, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.MEMBER_LEFT))
+        .inc();
     }
     // Member-level events ALSO go to the target user's private room so we can
     // immediately kick a removed member whose socket is on a different node.

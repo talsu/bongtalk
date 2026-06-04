@@ -117,6 +117,64 @@ describe('WS_EVENTS catalog (ADR-12 / FR-RC23)', () => {
   });
 });
 
+describe('S70 application + member_left payloads', () => {
+  it('ws:application_received requires applicant identity', () => {
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.APPLICATION_RECEIVED].parse({
+      workspaceId: 'w1',
+      applicationId: 'a1',
+      applicantId: 'u1',
+      applicantName: 'alice',
+    });
+    expect(p).toMatchObject({ applicationId: 'a1', applicantId: 'u1' });
+    expect(() =>
+      WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.APPLICATION_RECEIVED].parse({
+        workspaceId: 'w1',
+        applicationId: 'a1',
+      }),
+    ).toThrow();
+  });
+
+  it('ws:application_reviewed accepts lowercase wire status + optional reviewNote', () => {
+    const approved = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.APPLICATION_REVIEWED].parse({
+      workspaceId: 'w1',
+      applicationId: 'a1',
+      status: 'approved',
+    });
+    expect(approved).toMatchObject({ status: 'approved' });
+    const rejected = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.APPLICATION_REVIEWED].parse({
+      workspaceId: 'w1',
+      applicationId: 'a1',
+      status: 'rejected',
+      reviewNote: 'not a fit',
+    });
+    expect(rejected).toMatchObject({ status: 'rejected', reviewNote: 'not a fit' });
+    // PENDING/WITHDRAWN 같은 비-wire 상태는 거부(외부 노출은 3종만).
+    expect(() =>
+      WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.APPLICATION_REVIEWED].parse({
+        workspaceId: 'w1',
+        applicationId: 'a1',
+        status: 'PENDING',
+      }),
+    ).toThrow();
+  });
+
+  it('ws:member_left enumerates temp_expired reason', () => {
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.MEMBER_LEFT].parse({
+      workspaceId: 'w1',
+      userId: 'u1',
+      reason: 'temp_expired',
+    });
+    expect(p).toMatchObject({ reason: 'temp_expired' });
+    expect(() =>
+      WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.MEMBER_LEFT].parse({
+        workspaceId: 'w1',
+        userId: 'u1',
+        reason: 'banned',
+      }),
+    ).toThrow();
+  });
+});
+
 describe('message:created payload', () => {
   it('requires authorId and forbids senderId field', () => {
     const parsed = MessageCreatedPayloadSchema.parse({

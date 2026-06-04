@@ -153,6 +153,19 @@ export const ErrorCodeSchema = z.enum([
   'EMAIL_INVITE_ALREADY_ACCEPTED',
   'EMAIL_INVITE_NOT_FOUND',
   'WORKSPACE_EMAIL_DOMAINS_FORBIDDEN',
+  // S70 (D13 / FR-W06·W06a): 가입 신청(APPLY 모드) 플로우.
+  //   APPLICATION_PENDING_EXISTS: 이미 PENDING/INTERVIEW 신청 존재 → 409.
+  //   APPLICATION_NOT_FOUND:      처리/취소 대상 신청 미존재(또는 타인) → 404(중립).
+  //   APPLICATION_INVALID_STATE:  처리/취소 불가 상태(종결됨/비-PENDING) → 409.
+  //   APPLICATION_COOLDOWN:       REJECTED 후 24h 내 재신청 → 429 + retryAfterMs.
+  //   APPLICATION_FORBIDDEN:      approve/interview 를 ADMIN 미만이 시도 → 403.
+  //   APPLICATION_NOT_APPLICABLE: joinMode 가 APPLY 아닌 워크스페이스 신청 → 409.
+  'APPLICATION_PENDING_EXISTS',
+  'APPLICATION_NOT_FOUND',
+  'APPLICATION_INVALID_STATE',
+  'APPLICATION_COOLDOWN',
+  'APPLICATION_FORBIDDEN',
+  'APPLICATION_NOT_APPLICABLE',
   'CHANNEL_NOT_FOUND',
   'CHANNEL_NAME_TAKEN',
   'CHANNEL_NAME_INVALID',
@@ -291,3 +304,5 @@ export * from './saved-message';
 export * from './attachment';
 // S60 — 링크 unfurl 계약 + URL 정규화 (D11 / FR-RC07/08/09/21 + FR-AM-13~16)
 export * from './links';
+// S70 — 가입 신청(APPLY 모드) 컨트랙트 (D13 / FR-W06·W06a·W12)
+export * from './member-application';
