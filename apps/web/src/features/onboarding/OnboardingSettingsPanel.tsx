@@ -6,8 +6,10 @@ import {
   WELCOME_MESSAGE_MAX,
   WORKSPACE_RULES_MAX,
   type QuestionType,
+  type OnboardingQuestion,
+  type WorkspaceRule,
 } from '@qufox/shared-types';
-import { Button, Input } from '../../design-system/primitives';
+import { Button, Dialog, Input } from '../../design-system/primitives';
 import {
   createQuestion,
   createRule,
@@ -46,6 +48,8 @@ function RulesSection({ slug }: { slug: string }): JSX.Element {
   });
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
+  // a11y MAJOR-3: 삭제 확인 대상(되돌릴 수 없는 파괴적 액션 — alertDialog).
+  const [confirmDelete, setConfirmDelete] = useState<WorkspaceRule | null>(null);
   const invalidate = () =>
     void qc.invalidateQueries({ queryKey: ['onboarding', 'admin', 'rules', slug] });
   const create = useMutation({
@@ -84,9 +88,9 @@ function RulesSection({ slug }: { slug: string }): JSX.Element {
               ) : null}
             </div>
             <Button
-              variant="ghost"
+              variant="danger"
               size="sm"
-              onClick={() => remove.mutate(rule.id)}
+              onClick={() => setConfirmDelete(rule)}
               data-testid={`rule-delete-${rule.id}`}
             >
               삭제
@@ -125,6 +129,41 @@ function RulesSection({ slug }: { slug: string }): JSX.Element {
           </div>
         </div>
       ) : null}
+
+      {/* a11y MAJOR-3: 규칙 삭제 확인(되돌릴 수 없음 · alertDialog). */}
+      <Dialog
+        open={confirmDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(null);
+        }}
+        alertDialog
+        title="규칙을 삭제할까요?"
+        description="삭제한 규칙은 복구할 수 없습니다. 이 작업은 되돌릴 수 없습니다."
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="rule-delete-cancel"
+            onClick={() => setConfirmDelete(null)}
+          >
+            취소
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid="rule-delete-confirm"
+            disabled={remove.isPending}
+            onClick={() => {
+              const target = confirmDelete;
+              setConfirmDelete(null);
+              if (target) remove.mutate(target.id);
+            }}
+          >
+            삭제
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }
@@ -137,6 +176,8 @@ function QuestionsSection({ slug }: { slug: string }): JSX.Element {
   });
   const [label, setLabel] = useState('');
   const [type, setType] = useState<QuestionType>('SHORT_TEXT');
+  // a11y MAJOR-3: 질문 삭제 확인 대상(alertDialog).
+  const [confirmDelete, setConfirmDelete] = useState<OnboardingQuestion | null>(null);
   const invalidate = () =>
     void qc.invalidateQueries({ queryKey: ['onboarding', 'admin', 'questions', slug] });
   const create = useMutation({
@@ -171,9 +212,9 @@ function QuestionsSection({ slug }: { slug: string }): JSX.Element {
               <span className="text-text-muted text-[length:var(--fs-12)]">({q.type})</span>
             </span>
             <Button
-              variant="ghost"
+              variant="danger"
               size="sm"
-              onClick={() => remove.mutate(q.id)}
+              onClick={() => setConfirmDelete(q)}
               data-testid={`question-delete-${q.id}`}
             >
               삭제
@@ -210,6 +251,41 @@ function QuestionsSection({ slug }: { slug: string }): JSX.Element {
           추가
         </Button>
       </div>
+
+      {/* a11y MAJOR-3: 질문 삭제 확인(되돌릴 수 없음 · alertDialog). */}
+      <Dialog
+        open={confirmDelete !== null}
+        onOpenChange={(o) => {
+          if (!o) setConfirmDelete(null);
+        }}
+        alertDialog
+        title="질문을 삭제할까요?"
+        description="삭제한 질문과 선택지 매핑은 복구할 수 없습니다. 이 작업은 되돌릴 수 없습니다."
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="question-delete-cancel"
+            onClick={() => setConfirmDelete(null)}
+          >
+            취소
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid="question-delete-confirm"
+            disabled={remove.isPending}
+            onClick={() => {
+              const target = confirmDelete;
+              setConfirmDelete(null);
+              if (target) remove.mutate(target.id);
+            }}
+          >
+            삭제
+          </Button>
+        </div>
+      </Dialog>
     </section>
   );
 }
@@ -236,7 +312,7 @@ function WelcomeSection({ slug }: { slug: string }): JSX.Element {
         온보딩 완료 시 신규 멤버에게 보낼 환영 메시지입니다(시스템 DM 으로 발송).
       </p>
       <textarea
-        className="qf-input"
+        className="qf-input qf-textarea"
         rows={3}
         aria-label="웰컴 메시지"
         maxLength={WELCOME_MESSAGE_MAX}

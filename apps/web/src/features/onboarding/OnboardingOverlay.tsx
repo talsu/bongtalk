@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { OnboardingAnswer, OnboardingStateResponse } from '@qufox/shared-types';
 import { Dialog } from '../../design-system/primitives';
 import { useAcceptRules, useCompleteOnboarding } from './useOnboardingState';
@@ -15,6 +15,14 @@ type Phase = 'rules' | 'interests' | 'welcome' | 'closed';
  *
  * Dialog(Radix)가 focus trap + aria-modal + 포커스 진입을 제공한다. 규칙/관심사 단계는 닫기를
  * 막는다(block — onOpenChange 의 false 무시). 웰컴 단계만 닫기를 허용한다.
+ *
+ * a11y (S71 fix-forward):
+ *  - BLK-2: 단계 전환 시 각 Step 루트(tabIndex=-1)에 포커스를 이동한다(useEffect[phase]).
+ *  - HIGH-1: aria-live 진행 알림을 단계 내부가 아닌 Dialog 내 영속 위치에 단일 선언하고
+ *    phase 변경 시 텍스트만 갱신한다(교체되는 Step 안에 두면 mount/unmount 로 알림이 끊긴다).
+ *  - HIGH-2: block(규칙/관심사) 단계는 "닫을 수 없음" 사유를 Dialog description 으로 노출한다.
+ *  - MAJOR-2: 진행 표시를 role=progressbar(aria-valuenow/min/max/valuetext)로 노출한다.
+ *  - MINOR-1: 오버레이가 열린 동안 document.title 을 갱신하고 닫힐 때 복원한다.
  */
 export function OnboardingOverlay({
   slug,
@@ -39,6 +47,26 @@ export function OnboardingOverlay({
 
   const [phase, setPhase] = useState<Phase>(initialPhase);
 
+  // a11y BLK-2: 단계 전환 시 현재 Step 루트로 포커스를 옮긴다. 각 Step 은 tabIndex=-1 루트에
+  // 이 ref 를 붙인다(Step 교체로 mount 된 직후 focus — Radix 의 초기 진입 포커스 위에 덮어쓴다).
+  const stepRootRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (phase === 'closed') return;
+    // 마운트 직후 한 틱 뒤 포커스(Radix 포커스 진입 이후에 이동).
+    const id = window.requestAnimationFrame(() => stepRootRef.current?.focus());
+    return () => window.cancelAnimationFrame(id);
+  }, [phase]);
+
+  // a11y MINOR-1: 오버레이가 열린 동안 document.title 을 갱신하고 닫힐 때 복원한다.
+  useEffect(() => {
+    if (phase === 'closed') return;
+    const prev = document.title;
+    document.title = '워크스페이스 온보딩 | qufox';
+    return () => {
+      document.title = prev;
+    };
+  }, [phase]);
+
   if (phase === 'closed') return null;
 
   const totalSteps =
@@ -47,7 +75,11 @@ export function OnboardingOverlay({
     (state.welcome != null ? 1 : 0);
   const stepIndex =
     phase === 'rules' ? 1 : phase === 'interests' ? (state.rules.length > 0 ? 2 : 1) : totalSteps;
-  const stepLabel = `${stepIndex} / ${Math.max(totalSteps, 1)} 단계`;
+  const maxSteps = Math.max(totalSteps, 1);
+  const stepLabel = `${stepIndex} / ${maxSteps} 단계`;
+  // a11y HIGH-2: 규칙/관심사 단계는 동의 전까지 닫을 수 없다 — 그 사유를 Dialog description 으로.
+  const blockReason =
+    phase === 'rules' || phase === 'interests' ? '규칙 동의 전에는 닫을 수 없습니다.' : undefined;
 
   async function handleAcceptRules(): Promise<void> {
     await acceptRules.mutateAsync();
@@ -73,29 +105,40 @@ export function OnboardingOverlay({
         if (!open && phase === 'welcome') setPhase('closed');
       }}
       title="워크스페이스 온보딩"
-      className="w-[min(560px,94vw)]"
+      description={blockReason}
     >
+      {/* a11y HIGH-1 + MAJOR-2: 진행 알림을 Dialog 내 영속 위치에 단일 선언한다(Step 교체와
+          무관하게 유지 — phase 변경 시 텍스트만 갱신). progressbar 가 시각/AT 양쪽에 단계를 노출. */}
+      <div
+        className="flex flex-col gap-[var(--s-1)]"
+        role="progressbar"
+        aria-valuenow={stepIndex}
+        aria-valuemin={1}
+        aria-valuemax={maxSteps}
+        aria-valuetext={stepLabel}
+        data-testid="onboarding-progress"
+      >
+        <p className="text-[length:var(--fs-12)] text-text-muted" aria-live="polite">
+          {stepLabel}
+        </p>
+      </div>
       {phase === 'rules' ? (
         <StepRules
+          ref={stepRootRef}
           rules={state.rules}
-          stepLabel={stepLabel}
           pending={acceptRules.isPending}
           onAccept={() => void handleAcceptRules()}
         />
       ) : phase === 'interests' ? (
         <StepInterests
+          ref={stepRootRef}
           questions={state.questions}
-          stepLabel={stepLabel}
           pending={complete.isPending}
           onComplete={(answers) => void finishInterests(answers)}
           onSkip={() => void finishInterests([])}
         />
       ) : phase === 'welcome' && state.welcome ? (
-        <StepWelcome
-          welcome={state.welcome}
-          stepLabel={stepLabel}
-          onDone={() => setPhase('closed')}
-        />
+        <StepWelcome ref={stepRootRef} welcome={state.welcome} onDone={() => setPhase('closed')} />
       ) : null}
     </Dialog>
   );

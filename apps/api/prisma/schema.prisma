@@ -820,8 +820,9 @@ model WorkspaceRule {
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  // perf MINOR (S71 리뷰): @@unique([workspaceId, position]) 가 (workspaceId, position)
+  // 조회·정렬을 이미 커버하므로 동일 컬럼의 @@index 는 중복(redundant)이라 제거했다.
   @@unique([workspaceId, position])
-  @@index([workspaceId, position])
 }
 
 // S71 (D13 / FR-W08): 관심사 질문(최대 5). 선택지(options Json)는 [{ id, label, channelIds[],

@@ -20,11 +20,7 @@ import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsP
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useAuth } from '../features/auth/AuthProvider';
 import { ToastViewport } from '../design-system/primitives';
-import { OnboardingOverlayGate } from '../features/onboarding/OnboardingOverlay';
-import {
-  useOnboardingState,
-  shouldShowOnboarding,
-} from '../features/onboarding/useOnboardingState';
+import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
@@ -210,23 +206,6 @@ function DesktopShell(): JSX.Element {
       <ToastViewport />
     </div>
   );
-}
-
-/**
- * S71: 온보딩 마운트 게이트. 워크스페이스별 상태 + 본인 역할(myRole)을 읽어 표시 조건을
- * 만족할 때만 OnboardingOverlay 를 렌더한다(OWNER 면제·빈 카탈로그 미표시 — Fork A-1).
- */
-function OnboardingHost({
-  workspaceId,
-  slug,
-}: {
-  workspaceId: string;
-  slug: string;
-}): JSX.Element | null {
-  const { data: detail } = useWorkspace(workspaceId);
-  const { data: state } = useOnboardingState(slug);
-  const show = shouldShowOnboarding(state, detail?.myRole ?? null);
-  return <OnboardingOverlayGate slug={slug} state={state} show={show} />;
 }
 
 /**

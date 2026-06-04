@@ -169,7 +169,7 @@ export class OnboardingController {
     const parsed = UpsertQuestionRequestSchema.safeParse(body ?? {});
     if (!parsed.success) throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     const { workspaceId } = await this.assertAdmin(slug, user.id);
-    return this.onboarding.createQuestion(workspaceId, parsed.data);
+    return this.onboarding.createQuestion(workspaceId, user.id, parsed.data);
   }
 
   @Patch('admin/questions/:id')
@@ -182,7 +182,7 @@ export class OnboardingController {
     const parsed = UpsertQuestionRequestSchema.safeParse(body ?? {});
     if (!parsed.success) throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     const { workspaceId } = await this.assertAdmin(slug, user.id);
-    return this.onboarding.updateQuestion(workspaceId, questionId, parsed.data);
+    return this.onboarding.updateQuestion(workspaceId, user.id, questionId, parsed.data);
   }
 
   @Delete('admin/questions/:id')

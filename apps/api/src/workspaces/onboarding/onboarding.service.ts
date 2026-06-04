@@ -4,6 +4,9 @@ import {
   ONBOARDING_QUESTIONS_MAX,
   WORKSPACE_RULES_MAX,
   QuestionOptionSchema,
+  PERMISSIONS,
+  fromStoragePermissions,
+  hasRaw,
   type CompleteOnboardingRequest,
   type CompleteOnboardingResponse,
   type OnboardingQuestion,
@@ -50,7 +53,9 @@ export class OnboardingService {
       select: { rulesAcceptedAt: true, onboardingCompletedAt: true },
     });
     if (!member) {
-      throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'workspace not found');
+      // security LOW: 비멤버는 중립 404(WORKSPACE_NOT_FOUND)로 응답해 워크스페이스 존재
+      // 여부 추론을 차단한다(미존재 워크스페이스와 동일 코드 — 컨트롤러 주석 일관).
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
     }
     const [rules, questions, welcome] = await Promise.all([
       this.listRules(workspaceId),
@@ -105,10 +110,34 @@ export class OnboardingService {
   ): Promise<CompleteOnboardingResponse> {
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId } },
-      select: { userId: true },
+      select: { role: true, rulesAcceptedAt: true, onboardingCompletedAt: true },
     });
     if (!member) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'workspace not found');
+    }
+
+    // reviewer #2 (멱등): 이미 완료했으면 부수효과 없이 early-return 한다(1회성). 재호출 시
+    // 채널 재구독/역할 재부여/answers 덮어쓰기를 모두 막는다(complete 는 멱등이어야 한다).
+    if (member.onboardingCompletedAt != null) {
+      return {
+        onboardingCompletedAt: member.onboardingCompletedAt.toISOString(),
+        joinedChannelCount: 0,
+        assignedRoleCount: 0,
+      };
+    }
+
+    // reviewer #3 / security MEDIUM (rules 게이트): 워크스페이스에 규칙이 존재하는데 멤버가
+    // 아직 동의하지 않았으면(rulesAcceptedAt NULL) 403 RULES_NOT_ACCEPTED 로 차단한다 —
+    // Step1 우회로 complete 직접 호출해 채널/역할을 획득하는 경로를 막는다. OWNER 는 면제
+    // 한다(생성자 특례 · send/react 메시지 게이트와 동일 로직).
+    if (member.role !== 'OWNER' && member.rulesAcceptedAt == null) {
+      const hasRules = (await this.prisma.workspaceRule.count({ where: { workspaceId } })) > 0;
+      if (hasRules) {
+        throw new DomainError(
+          ErrorCode.RULES_NOT_ACCEPTED,
+          '규칙에 동의한 후 온보딩을 완료할 수 있습니다',
+        );
+      }
     }
 
     // 질문 카탈로그를 로드해 선택지 id → (channelIds, roleId) 를 해석한다(신뢰 경계: 클라가 보낸
@@ -156,6 +185,8 @@ export class OnboardingService {
                 id: { in: [...channelIdSet] },
                 workspaceId,
                 deletedAt: null,
+                // reviewer #4: 보관(archived) 채널은 자유 구독 대상이 아니다(reactions 경로와 일관).
+                archivedAt: null,
                 // private 채널은 자유 구독 대상이 아니다(관리자 override 필요 — joinChannel 선례).
                 isPrivate: false,
               },
@@ -163,14 +194,24 @@ export class OnboardingService {
             })
           ).map((c) => c.id)
         : [];
+    // ★ 권한상승 CRITICAL (이중 방어 a): 온보딩 자동 역할 부여는 **비시스템·비ADMINISTRATOR
+    // 커스텀 역할만** 허용한다. ADMIN 이 질문 옵션 roleId 에 OWNER/ADMIN 시스템역할(또는
+    // ADMINISTRATOR 비트 보유 커스텀역할)을 박아두면, 신규 멤버가 그 옵션을 선택하는 것만으로
+    // MemberRoleService.assign 의 FR-RM04 가드(position + ADMINISTRATOR 비트)를 우회해
+    // ADMINISTRATOR 를 자기부여하게 된다. 여기서 isSystem 역할을 DB where 로 배제하고,
+    // ADMINISTRATOR 비트 보유 역할은 코드 필터로 제외한다(안전하지 않은 roleId 는 조용히 skip).
     const validRoleIds =
       roleIdSet.size > 0
         ? (
             await this.prisma.role.findMany({
-              where: { id: { in: [...roleIdSet] }, workspaceId },
-              select: { id: true },
+              where: { id: { in: [...roleIdSet] }, workspaceId, isSystem: false },
+              select: { id: true, permissions: true },
             })
-          ).map((r) => r.id)
+          )
+            .filter(
+              (r) => !hasRaw(fromStoragePermissions(r.permissions), PERMISSIONS.ADMINISTRATOR),
+            )
+            .map((r) => r.id)
         : [];
 
     const now = new Date();
@@ -282,7 +323,12 @@ export class OnboardingService {
 
   /**
    * 규칙 순서를 ruleIds 순서대로 0..n-1 로 재배치한다. (workspaceId, position) 유니크 충돌을
-   * 피하려고 2단계로 처리한다: 먼저 임시 큰 오프셋으로 옮긴 뒤 최종 position 으로 세팅한다.
+   * 피하려고 2단계로 처리한다: 먼저 임시 오프셋으로 옮긴 뒤 최종 position 으로 세팅한다.
+   *
+   * security MEDIUM (race): 임시 오프셋을 **음수**(-(i+1))로 둔다. 종전 +1000 오프셋은 규칙이
+   * 10개를 넘을 수 없는(WORKSPACE_RULES_MAX=10) 현재는 안전하나, 0..n-1 의 양수 공간과 인접해
+   * 동시 reorder/create 가 겹치면 UNIQUE 충돌 여지가 있다. 음수 공간은 정상 position(≥0)과
+   * 절대 겹치지 않으므로 임시 단계의 충돌을 원천 차단한다.
    */
   async reorderRules(workspaceId: string, ruleIds: string[]): Promise<WorkspaceRule[]> {
     const existing = await this.prisma.workspaceRule.findMany({
@@ -297,11 +343,11 @@ export class OnboardingService {
       );
     }
     await this.prisma.$transaction(async (tx) => {
-      // 1단계: 유니크 충돌 회피용 임시 오프셋(+1000).
+      // 1단계: 유니크 충돌 회피용 임시 음수 오프셋(-(i+1)) — 정상 position(≥0)과 비겹침.
       for (let i = 0; i < ruleIds.length; i++) {
         await tx.workspaceRule.update({
           where: { id: ruleIds[i] },
-          data: { position: 1000 + i },
+          data: { position: -(i + 1) },
         });
       }
       // 2단계: 최종 position.
@@ -349,6 +395,7 @@ export class OnboardingService {
 
   async createQuestion(
     workspaceId: string,
+    actorUserId: string,
     req: UpsertQuestionRequest,
   ): Promise<OnboardingQuestion> {
     const count = await this.prisma.onboardingQuestion.count({ where: { workspaceId } });
@@ -358,6 +405,7 @@ export class OnboardingService {
         `최대 ${ONBOARDING_QUESTIONS_MAX}개의 질문만 등록할 수 있습니다`,
       );
     }
+    await this.assertOptionRolesGrantable(workspaceId, actorUserId, req.options);
     const created = await this.prisma.onboardingQuestion.create({
       data: {
         workspaceId,
@@ -388,6 +436,7 @@ export class OnboardingService {
 
   async updateQuestion(
     workspaceId: string,
+    actorUserId: string,
     questionId: string,
     req: UpsertQuestionRequest,
   ): Promise<OnboardingQuestion> {
@@ -398,6 +447,7 @@ export class OnboardingService {
     if (!existing) {
       throw new DomainError(ErrorCode.ONBOARDING_QUESTION_NOT_FOUND, 'question not found');
     }
+    await this.assertOptionRolesGrantable(workspaceId, actorUserId, req.options);
     const updated = await this.prisma.onboardingQuestion.update({
       where: { id: questionId },
       data: {
@@ -447,6 +497,88 @@ export class OnboardingService {
     return out;
   }
 
+  /**
+   * ★ 권한상승 CRITICAL (이중 방어 b): create/updateQuestion 시 옵션의 roleId 가 온보딩 자동
+   * 부여로 안전한지 DB 에서 검증한다. 안전 조건(모두 충족해야 통과):
+   *   1) 해당 워크스페이스 소속 역할일 것(없으면 ONBOARDING_INVALID_OPTION 400).
+   *   2) isSystem = false (시스템 OWNER/ADMIN/… 자동 부여 금지).
+   *   3) ADMINISTRATOR 비트 미보유.
+   *   4) 작성 ADMIN 의 grant 범위 내(position < 액터 최고 position · 권한 ⊆ 액터 maxPermissions).
+   * 위반 시 ROLE_PRIVILEGE_ESCALATION 400. MemberRoleService.assign(FR-RM04)의 가드를
+   * 작성 시점(질문 옵션 등록)으로 앞당겨, complete 자동 부여 경로의 위계 우회를 원천 차단한다.
+   */
+  private async assertOptionRolesGrantable(
+    workspaceId: string,
+    actorUserId: string,
+    options: QuestionOption[],
+  ): Promise<void> {
+    const roleIds = [
+      ...new Set(
+        options
+          .map((o) => o.roleId)
+          .filter((id): id is string => typeof id === 'string' && id.length > 0),
+      ),
+    ];
+    if (roleIds.length === 0) return;
+
+    const roles = await this.prisma.role.findMany({
+      where: { id: { in: roleIds }, workspaceId },
+      select: { id: true, position: true, permissions: true, isSystem: true },
+    });
+    const roleMap = new Map(roles.map((r) => [r.id, r]));
+
+    // 액터(작성 ADMIN)의 grant 컨텍스트: 보유 역할의 최고 position · 권한 OR · ADMINISTRATOR 여부.
+    const actorRoles = await this.prisma.memberRole.findMany({
+      where: { workspaceId, userId: actorUserId },
+      select: { role: { select: { position: true, permissions: true } } },
+    });
+    let topPosition = 0;
+    let maxPermissions = 0n;
+    for (const r of actorRoles) {
+      if (r.role.position > topPosition) topPosition = r.role.position;
+      maxPermissions |= fromStoragePermissions(r.role.permissions);
+    }
+    const isAdministrator = hasRaw(maxPermissions, PERMISSIONS.ADMINISTRATOR);
+
+    for (const roleId of roleIds) {
+      const role = roleMap.get(roleId);
+      if (!role) {
+        throw new DomainError(
+          ErrorCode.ONBOARDING_INVALID_OPTION,
+          `unknown role ${roleId} in question option`,
+        );
+      }
+      if (role.isSystem) {
+        throw new DomainError(
+          ErrorCode.ROLE_PRIVILEGE_ESCALATION,
+          'cannot map a system role to an onboarding option',
+        );
+      }
+      const rolePerms = fromStoragePermissions(role.permissions);
+      if (hasRaw(rolePerms, PERMISSIONS.ADMINISTRATOR)) {
+        throw new DomainError(
+          ErrorCode.ROLE_PRIVILEGE_ESCALATION,
+          'cannot map an ADMINISTRATOR role to an onboarding option',
+        );
+      }
+      // ADMINISTRATOR 액터는 grant 범위 제약 면제(자기 이하 전부 부여 가능 — FR-RM04 선례).
+      if (!isAdministrator) {
+        if (role.position >= topPosition) {
+          throw new DomainError(
+            ErrorCode.ROLE_PRIVILEGE_ESCALATION,
+            'cannot map a role at or above your own highest role position',
+          );
+        }
+        if ((rolePerms & ~maxPermissions) !== 0n) {
+          throw new DomainError(
+            ErrorCode.ROLE_PRIVILEGE_ESCALATION,
+            'cannot map a role granting permissions you do not hold',
+          );
+        }
+      }
+    }
+  }
+
   // ── 웰컴 CRUD(ADMIN+) ─────────────────────────────────────────────────────
 
   async getWelcome(workspaceId: string): Promise<WorkspaceWelcome | null> {
@@ -464,9 +596,17 @@ export class OnboardingService {
 
   async upsertWelcome(workspaceId: string, req: UpsertWelcomeRequest): Promise<WorkspaceWelcome> {
     // welcomeChannelId 가 주어지면 워크스페이스 소속 채널인지 검증한다(타 워크스페이스 차단).
+    // security MEDIUM: 비공개(isPrivate)/보관(archivedAt) 채널을 웰컴 입장 메시지 대상으로
+    // 지정하지 못하게 한다 — 입장 메시지가 비공개 채널을 노출하거나 보관 채널에 게시되는 것 차단.
     if (req.welcomeChannelId) {
       const channel = await this.prisma.channel.findFirst({
-        where: { id: req.welcomeChannelId, workspaceId, deletedAt: null },
+        where: {
+          id: req.welcomeChannelId,
+          workspaceId,
+          deletedAt: null,
+          archivedAt: null,
+          isPrivate: false,
+        },
         select: { id: true },
       });
       if (!channel) {

@@ -247,6 +247,89 @@ describe('S71 Step2 complete — 원자성 · 멱등 (FR-W08)', () => {
   });
 });
 
+describe('S71 권한상승 방어 + complete 게이트 (fix-forward)', () => {
+  it('★createQuestion: 옵션 roleId 에 시스템 역할(OWNER/ADMIN) 매핑은 거부된다', async () => {
+    const { workspaceId, slug, owner } = await makeWs();
+    // 시스템 역할(예: ADMIN) 한 개를 조회한다 — 시드된 시스템 5단계 중 하나.
+    const adminRole = await env.prisma.role.findFirst({
+      where: { workspaceId, isSystem: true, name: 'ADMIN' },
+      select: { id: true },
+    });
+    expect(adminRole).not.toBeNull();
+    const r = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/admin/questions`)
+      .set('origin', ORIGIN)
+      .set(auth(owner.accessToken))
+      .send({
+        type: 'SINGLE',
+        isRequired: false,
+        label: 'pick',
+        options: [{ id: 'o1', label: 'a', channelIds: [], roleId: adminRole!.id }],
+      });
+    // 시스템 역할 매핑 → ROLE_PRIVILEGE_ESCALATION(403).
+    expect(r.status).toBe(403);
+    expect(r.body.errorCode).toBe('ROLE_PRIVILEGE_ESCALATION');
+  });
+
+  it('★complete rules 게이트: 규칙 존재 + 미동의 멤버의 complete 직접 호출은 403', async () => {
+    const { slug, owner, member } = await makeWs();
+    await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/admin/rules`)
+      .set('origin', ORIGIN)
+      .set(auth(owner.accessToken))
+      .send({ title: '규칙 게이트' })
+      .expect(201);
+    // 동의(accept-rules) 없이 complete 직접 호출 → 403 RULES_NOT_ACCEPTED.
+    const r = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/complete`)
+      .set('origin', ORIGIN)
+      .set(auth(member.accessToken))
+      .send({ answers: [] });
+    expect(r.status).toBe(403);
+    expect(r.body.errorCode).toBe('RULES_NOT_ACCEPTED');
+  });
+
+  it('★complete 멱등: 2회 호출 시 두 번째는 부수효과 없이 첫 completedAt 을 반환한다', async () => {
+    const { workspaceId, slug, owner, member } = await makeWs();
+    const targetCh = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/channels`)
+      .set('origin', ORIGIN)
+      .set(auth(owner.accessToken))
+      .send({ name: `idem-${Date.now().toString(36).slice(-5)}`, type: 'TEXT' })
+      .expect(201);
+    const q = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/admin/questions`)
+      .set('origin', ORIGIN)
+      .set(auth(owner.accessToken))
+      .send({
+        type: 'SINGLE',
+        isRequired: false,
+        label: '관심사',
+        options: [{ id: 'fe', label: 'FE', channelIds: [targetCh.body.id], roleId: null }],
+      })
+      .expect(201);
+    const body = { answers: [{ questionId: q.body.id, optionIds: ['fe'] }] };
+    const r1 = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/complete`)
+      .set('origin', ORIGIN)
+      .set(auth(member.accessToken))
+      .send(body);
+    expect(r1.status).toBe(200);
+    expect(r1.body.joinedChannelCount).toBe(1);
+
+    // 두 번째 호출: 멱등 early-return — joinedChannelCount=0, 첫 completedAt 그대로.
+    const r2 = await request(env.baseUrl)
+      .post(`/workspaces/${slug}/onboarding/complete`)
+      .set('origin', ORIGIN)
+      .set(auth(member.accessToken))
+      .send(body);
+    expect(r2.status).toBe(200);
+    expect(r2.body.joinedChannelCount).toBe(0);
+    expect(r2.body.assignedRoleCount).toBe(0);
+    expect(r2.body.onboardingCompletedAt).toBe(r1.body.onboardingCompletedAt);
+  });
+});
+
 describe('S71 관리자 CRUD — ADMIN+ 게이트', () => {
   it('비-ADMIN 멤버의 규칙 생성은 403', async () => {
     const { slug, member } = await makeWs();

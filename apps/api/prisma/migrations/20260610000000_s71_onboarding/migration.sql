@@ -6,7 +6,8 @@
 --   1. QuestionType enum 신규(SINGLE/MULTI/SHORT_TEXT).
 --   2. WorkspaceRule 테이블 신규(uuid PK · workspaceId FK CASCADE · position ·
 --      title VARCHAR(100) · description VARCHAR(500)? · createdAt). 유니크:
---      (workspaceId, position). 인덱스: (workspaceId, position).
+--      (workspaceId, position) — 이 UNIQUE 인덱스가 조회/정렬을 커버하므로 별도
+--      일반 인덱스는 두지 않는다(perf MINOR 리뷰 — redundant index 제거).
 --   3. OnboardingQuestion 테이블 신규(uuid PK · workspaceId FK CASCADE · position ·
 --      type enum · isRequired · label VARCHAR(200) · options JSONB · createdAt).
 --      인덱스: (workspaceId, position).
@@ -47,9 +48,9 @@ CREATE TABLE IF NOT EXISTS "WorkspaceRule" (
   CONSTRAINT "WorkspaceRule_pkey" PRIMARY KEY ("id")
 );
 
+-- perf MINOR (S71 리뷰): UNIQUE 인덱스가 (workspaceId, position) 조회·정렬을 커버하므로
+-- 동일 컬럼의 일반 인덱스는 중복(redundant)이라 생성하지 않는다(WorkspaceRule_workspaceId_position_idx 제거).
 CREATE UNIQUE INDEX IF NOT EXISTS "WorkspaceRule_workspaceId_position_key"
-  ON "WorkspaceRule" ("workspaceId", "position");
-CREATE INDEX IF NOT EXISTS "WorkspaceRule_workspaceId_position_idx"
   ON "WorkspaceRule" ("workspaceId", "position");
 
 DO $$

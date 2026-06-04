@@ -11,6 +11,7 @@ import { MobileMessages } from './mobile/MobileMessages';
 import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
 import { MobileDrawer } from './mobile/MobileDrawer';
+import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
 import './mobile/mobile-touch-target.css';
@@ -177,6 +178,9 @@ export function MobileShell(): JSX.Element {
         <MobileMembers workspaceId={active.id} />
       </MobileDrawer>
 
+      {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
+          게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
+      <OnboardingHost workspaceId={active.id} slug={active.slug} />
       <FeedbackDialog />
       <ToastViewport />
     </div>
