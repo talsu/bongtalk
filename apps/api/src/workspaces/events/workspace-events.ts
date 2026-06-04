@@ -19,6 +19,12 @@ export const INVITE_ACCEPTED = 'workspace.invite.accepted';
 // soft revoke(INVITE_REVOKED)와 달리 행을 제거하는 파괴적 액션이라 별도 이벤트로 추적한다.
 // hardDelete 트랜잭션이 행 삭제와 같은 commit 으로 outbox 에 기록한다(감사 무결성).
 export const INVITE_DELETED = 'workspace.invite.deleted';
+// S70 (D13 / FR-W06·W06a): 가입 신청 라이프사이클. 서버 내부 outbox eventType 은 dot 표기
+// 이며 outbox→WS subscriber 가 PRD 콜론 wire 이름(ws:application_received / ws:application_
+// reviewed)으로 변환한다. received 는 워크스페이스 룸으로(ADMIN 패널), reviewed 는 신청자
+// user 룸으로(승인 전 서버 룸 미가입 신청자에게도 도달) fanout 된다.
+export const MEMBER_APPLICATION_RECEIVED = 'application.received';
+export const MEMBER_APPLICATION_REVIEWED = 'application.reviewed';
 
 export type WorkspaceCreatedEvent = {
   workspaceId: string;

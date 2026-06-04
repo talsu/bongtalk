@@ -13,7 +13,9 @@ export type OutboxAggregate =
   | 'UserMention'
   | 'friendship'
   // S41 (FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클(emoji.created/deleted).
-  | 'CustomEmoji';
+  | 'CustomEmoji'
+  // S70 (D13 / FR-W06): 가입 신청 라이프사이클(application.received/reviewed).
+  | 'application';
 
 export type OutboxRecordInput = {
   aggregateType: OutboxAggregate;

@@ -475,6 +475,76 @@ export class DirectMessagesService {
   }
 
   /**
+   * S70 (D13 / FR-W06): 인터뷰 1:1 DM 자동 생성. ADMIN 이 가입 신청을 INTERVIEW 로 전환할
+   * 때 신청자(아직 워크스페이스 멤버 아님)와의 1:1 DM 을 만든다. createOrGet 과 동일한
+   * 채널 shape(workspace-scoped DIRECT + 두 USER override + dm.created outbox)이되, 신청자가
+   * 멤버가 아니므로 member 게이트를 적용하지 않는다(ADMIN 주도 채널 — 권한 게이트는 호출부
+   * ApplicationsService 의 ADMIN+ 검사가 담당). 멱등: 같은 (admin, applicant) 쌍은 동일
+   * `dm:` slug 라 기존 채널을 반환한다(P2002 레이스도 winner 재조회로 흡수). 호출부는 같은
+   * 신청 처리 흐름에서 이 channelId 를 application.interviewChannelId 에 기록한다.
+   */
+  async createInterviewDm(
+    workspaceId: string,
+    adminId: string,
+    applicantId: string,
+  ): Promise<{ channelId: string; created: boolean }> {
+    if (adminId === applicantId) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'cannot interview yourself');
+    }
+    const name = this.channelName(adminId, applicantId);
+    const existing = await this.prisma.channel.findFirst({
+      where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return { channelId: existing.id, created: false };
+
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        const ch = await tx.channel.create({
+          data: {
+            workspaceId,
+            name,
+            type: 'DIRECT',
+            isPrivate: true,
+            topic: null,
+            position: 0,
+            categoryId: null,
+          },
+        });
+        for (const uid of [adminId, applicantId]) {
+          await tx.channelPermissionOverride.create({
+            data: {
+              channelId: ch.id,
+              principalType: 'USER',
+              principalId: uid,
+              allowMask: DM_ALLOW_MASK_BIGINT,
+              denyMask: 0n,
+              visibleFrom: new Date(),
+            },
+          });
+        }
+        await this.recordDmCreated(tx as unknown as OutboxTxClient, {
+          channelId: ch.id,
+          participantIds: [adminId, applicantId],
+          isGroup: false,
+        });
+        return ch;
+      });
+      return { channelId: created.id, created: true };
+    } catch (err) {
+      const code = (err as { code?: string }).code;
+      if (code === 'P2002') {
+        const winner = await this.prisma.channel.findFirst({
+          where: { workspaceId, name, type: 'DIRECT', deletedAt: null },
+          select: { id: true },
+        });
+        if (winner) return { channelId: winner.id, created: false };
+      }
+      throw err;
+    }
+  }
+
+  /**
    * task-045 iter8: 사용자가 멤버인 group DM 목록 (3+ members).
    * naming convention `gdm:` prefix 로 group 만 필터. 1:1 DM 은
    * 기존 list() 가 처리.

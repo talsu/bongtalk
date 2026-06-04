@@ -18,8 +18,18 @@ export function MobileDiscover(): JSX.Element {
   const join = useJoinWorkspace();
 
   const onJoin = async (id: string, slug: string): Promise<void> => {
-    await join.mutateAsync({ workspaceId: id });
-    navigate(`/w/${slug}`);
+    try {
+      await join.mutateAsync({ workspaceId: id });
+      navigate(`/w/${slug}`);
+    } catch (err) {
+      // S70 (FR-W06): APPLY 모드 워크스페이스는 즉시 가입이 거부된다. 가입 신청 폼으로 유도한다.
+      const code = (err as (Error & { errorCode?: string }) | undefined)?.errorCode;
+      if (code === 'WORKSPACE_APPLY_NOT_SUPPORTED' || code === 'APPLICATION_NOT_APPLICABLE') {
+        navigate(`/w/${slug}/apply`);
+        return;
+      }
+      throw err;
+    }
   };
 
   const items = data?.items ?? [];

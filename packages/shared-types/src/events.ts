@@ -183,6 +183,21 @@ export const WS_EVENTS = {
   // 콜론 wire 이름으로 변환한다. 클라 dispatcher 는 messageIds 전체를 타임라인 캐시에서
   // 한 번에 제거한다(개별 deleted 루프 대비 fanout 1건).
   MESSAGE_BULK_DELETED: 'message:bulk_deleted',
+  // S70 (D13 · FR-W06): 가입 신청 접수. APPLY 워크스페이스에 신청이 제출되면 그
+  // 워크스페이스 룸(workspace:{wsId})으로 push 한다. ADMIN 리뷰 패널이 목록을 즉시
+  // 갱신한다. 서버 내부 outbox eventType 은 dot 표기(application.received)지만 outbox→WS
+  // subscriber 가 이 콜론 wire 이름으로 변환한다(member:kicked / message:embed_updated 선례).
+  APPLICATION_RECEIVED: 'ws:application_received',
+  // S70 (D13 · FR-W06a): 가입 신청 처리 결과. 신청자 본인 user 룸(user:{applicantId})으로
+  // push 한다. approved → 토스트 + 2초 후 워크스페이스 자동 이동, rejected → 거절 카피 +
+  // reviewNote + '다시 신청하기'(24h cooldown) + '다른 커뮤니티 찾기', interview → 인터뷰
+  // 안내. 서버 내부 outbox eventType 은 dot 표기(application.reviewed)다.
+  APPLICATION_REVIEWED: 'ws:application_reviewed',
+  // S70 (D13 · FR-W12): 멤버 이탈(임시 멤버 자동 강퇴 포함). reason='temp_expired' 는
+  // 임시 링크 가입 멤버가 마지막 소켓 disconnect 2초 debounce 후 강퇴된 경우다(leave/kick
+  // 은 다른 경로). 워크스페이스 룸(workspace:{wsId})으로 push 해 다른 멤버의 멤버 목록
+  // 캐시를 무효화한다.
+  MEMBER_LEFT: 'ws:member_left',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -953,6 +968,44 @@ export const MessageBulkDeletedPayloadSchema = z.object({
 });
 export type MessageBulkDeletedPayload = z.infer<typeof MessageBulkDeletedPayloadSchema>;
 
+// ── 가입 신청 + 임시멤버 강퇴 (S70 · D13 · FR-W06/W06a/W12) ──────────────────
+/**
+ * ws:application_received — APPLY 워크스페이스에 신청 제출 시 워크스페이스 룸으로 fanout
+ * (FR-W06). ADMIN 리뷰 패널이 목록을 즉시 갱신한다. applicantName 은 표시용(best-effort).
+ */
+export const ApplicationReceivedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  applicationId: z.string().min(1),
+  applicantId: UserIdSchema,
+  applicantName: z.string(),
+});
+export type ApplicationReceivedPayload = z.infer<typeof ApplicationReceivedPayloadSchema>;
+
+/**
+ * ws:application_reviewed — 신청 처리 결과를 신청자 본인 user 룸으로 fanout(FR-W06a).
+ * status 는 소문자 wire 표현(approved/rejected/interview). rejected 시 reviewNote 가
+ * 거절 안내에 노출되고, interview 시 interviewChannelId(자동 생성 1:1 DM)가 실린다.
+ */
+export const ApplicationReviewedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  applicationId: z.string().min(1),
+  status: z.enum(['approved', 'rejected', 'interview']),
+  reviewNote: z.string().nullable().optional(),
+  interviewChannelId: z.string().nullable().optional(),
+});
+export type ApplicationReviewedPayload = z.infer<typeof ApplicationReviewedPayloadSchema>;
+
+/**
+ * ws:member_left — 멤버 이탈(임시멤버 자동 강퇴 포함). reason='temp_expired' 는 임시
+ * 링크 가입 멤버의 마지막 소켓 disconnect 2초 debounce 후 강퇴를 뜻한다(FR-W12).
+ */
+export const MemberLeftPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  userId: UserIdSchema,
+  reason: z.enum(['leave', 'kick', 'temp_expired']),
+});
+export type MemberLeftPayload = z.infer<typeof MemberLeftPayloadSchema>;
+
 /**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
@@ -1003,4 +1056,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.MEMBER_KICKED]: MemberKickedPayloadSchema,
   [WS_EVENTS.MEMBER_BANNED]: MemberBannedPayloadSchema,
   [WS_EVENTS.MESSAGE_BULK_DELETED]: MessageBulkDeletedPayloadSchema,
+  [WS_EVENTS.APPLICATION_RECEIVED]: ApplicationReceivedPayloadSchema,
+  [WS_EVENTS.APPLICATION_REVIEWED]: ApplicationReviewedPayloadSchema,
+  [WS_EVENTS.MEMBER_LEFT]: MemberLeftPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

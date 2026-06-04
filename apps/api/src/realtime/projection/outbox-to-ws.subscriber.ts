@@ -11,6 +11,7 @@ import { MetricsService } from '../../observability/metrics/metrics.service';
 import { withSpan } from '../../observability/otel/propagation';
 import { MessagesService } from '../../messages/messages.service';
 import { MeNotificationBadgesService } from '../../me/me-notification-badges.service';
+import { PrismaService } from '../../prisma/prisma.module';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -47,6 +48,9 @@ export class OutboxToWsSubscriber {
     private readonly messages: MessagesService,
     // S47 (FR-MN-20): 멘션 발생 시 서버 진실값 배지(isMuted 제외) 재집계용.
     private readonly badges: MeNotificationBadgesService,
+    // S70 fix-forward (security M-3): application.received 를 ADMIN+ user 룸으로만
+    // 보내기 위한 ADMIN+ userId 저빈도 조회용.
+    private readonly prisma: PrismaService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
 
@@ -349,6 +353,90 @@ export class OutboxToWsSubscriber {
   }
 
   /**
+   * S70 (D13 / FR-W06·W06a): 가입 신청 라이프사이클.
+   *   - application.received → 워크스페이스 ADMIN+(OWNER/ADMIN — 신청 목록 권한과 동일) 의
+   *     user 룸(user:{adminId})으로만 ws:application_received 를 emit 한다. 종전엔
+   *     workspace:{wsId} 전체 룸으로 fanout 해 일반 멤버에게도 applicantId/applicantName 이
+   *     노출됐다(security M-3). ADMIN+ userId 를 저빈도 조회(신청 제출은 드묾)해 각 user 룸으로만
+   *     보낸다. ADMIN 리뷰 패널이 목록을 즉시 갱신한다.
+   *   - application.reviewed → 신청자 본인 user 룸(user:{applicantId})으로 ws:application_reviewed
+   *     fanout. 신청자는 대기 화면에서 approved(토스트+2초 이동)/rejected(거절 카피+reviewNote)/
+   *     interview(인터뷰 안내)로 분기한다. 본인 user 룸이라 워크스페이스 멤버가 아닌 신청자
+   *     에게도 도달한다(승인 전 서버 룸 미가입 — mention.** / dm.** 의 user-room fanout 선례).
+   * 서버 내부 outbox eventType 은 dot 표기지만 여기서 PRD 가 명시한 콜론 wire 이름으로 변환한다.
+   */
+  @OnEvent('application.**')
+  async onApplicationEvent(env: WsEnvelope): Promise<void> {
+    if (!this.io) return;
+    const workspaceId = (env as { workspaceId?: string }).workspaceId;
+    if (!workspaceId) return;
+    const applicationId = (env as { applicationId?: string }).applicationId;
+    if (!applicationId) return;
+
+    if (env.type === 'application.received') {
+      // M-3: ADMIN+(OWNER/ADMIN) user 룸으로만 emit — 일반 멤버에게 신청자 식별정보 노출 차단.
+      const admins = await this.prisma.workspaceMember.findMany({
+        where: { workspaceId, role: { in: ['OWNER', 'ADMIN'] } },
+        select: { userId: true },
+      });
+      if (admins.length === 0) return;
+      const wire = {
+        id: env.id,
+        type: WS_EVENTS.APPLICATION_RECEIVED,
+        occurredAt: env.occurredAt,
+        workspaceId,
+        applicationId,
+        applicantId: (env as { applicantId?: string }).applicantId ?? '',
+        applicantName: (env as { applicantName?: string }).applicantName ?? '',
+      };
+      for (const a of admins) {
+        this.io.to(rooms.user(a.userId)).emit(WS_EVENTS.APPLICATION_RECEIVED, wire);
+      }
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.APPLICATION_RECEIVED))
+        .inc();
+      return;
+    }
+
+    if (env.type === 'application.reviewed') {
+      const applicantId = (env as { applicantId?: string }).applicantId;
+      const status = (env as { status?: string }).status;
+      if (
+        !applicantId ||
+        (status !== 'approved' && status !== 'rejected' && status !== 'interview')
+      )
+        return;
+      const wire = {
+        id: env.id,
+        type: WS_EVENTS.APPLICATION_REVIEWED,
+        occurredAt: env.occurredAt,
+        workspaceId,
+        applicationId,
+        status,
+        reviewNote: (env as { reviewNote?: string | null }).reviewNote ?? null,
+        interviewChannelId:
+          (env as { interviewChannelId?: string | null }).interviewChannelId ?? null,
+      };
+      try {
+        await this.replay.append('user', applicantId, {
+          id: env.id,
+          type: wire.type,
+          occurredAt: env.occurredAt,
+          payload: wire,
+        });
+      } catch (err) {
+        this.logger.warn(
+          `[realtime] application reviewed replay append failed uid=${applicantId} ev=${env.id} err=${String(err).slice(0, 200)}`,
+        );
+      }
+      this.io.to(rooms.user(applicantId)).emit(WS_EVENTS.APPLICATION_REVIEWED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.APPLICATION_REVIEWED))
+        .inc();
+    }
+  }
+
+  /**
    * S41 (FR-EM01 / FR-EM04 / FR-RC20): 워크스페이스 커스텀 이모지 라이프사이클.
    * 서버 내부 outbox eventType 은 dot 표기(emoji.created / emoji.deleted)지만,
    * 워크스페이스 룸 emit 시 PRD/WS_EVENTS 가 명시한 콜론 wire 이름
@@ -596,6 +684,29 @@ export class OutboxToWsSubscriber {
       };
       this.io.to(rooms.workspace(env.workspaceId)).emit(wireType, wire);
       this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
+    }
+    // S70 (FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함)은 PRD 가 명시한 콜론 wire 이벤트
+    // ws:member_left { workspaceId, userId, reason } 를 워크스페이스 룸으로 추가 emit 한다.
+    // 서버 내부 outbox eventType 은 dot 표기(workspace.member.left)라 위 emitAndBuffer 가
+    // dot 이름으로 워크스페이스 룸에 보내지만, FE dispatcher 의 콜론 핸들러(멤버 목록 캐시
+    // 무효화)가 받을 콜론 이름은 별도로 emit 한다(member:kicked dot→colon 선례). reason 은
+    // payload 에 실려온 값을 쓰되, 미지정(일반 leave)이면 'leave' 로 폴백한다. temp_expired
+    // 강퇴는 TempEvictProcessor 가 reason='temp_expired' 로 기록한다.
+    if (this.io && env.type === 'workspace.member.left') {
+      const rawReason = (env as { reason?: unknown }).reason;
+      const reason =
+        rawReason === 'temp_expired' || rawReason === 'kick' || rawReason === 'leave'
+          ? rawReason
+          : 'leave';
+      const wire = {
+        workspaceId: env.workspaceId,
+        userId: (env as { userId?: string }).userId ?? '',
+        reason,
+      };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.MEMBER_LEFT, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.MEMBER_LEFT))
+        .inc();
     }
     // Member-level events ALSO go to the target user's private room so we can
     // immediately kick a removed member whose socket is on a different node.
