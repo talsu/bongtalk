@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { forwardRef, Module } from '@nestjs/common';
 import { WorkspacesController } from './workspaces.controller';
 import { WorkspacesService } from './workspaces.service';
 import { MembersController } from './members/members.controller';
@@ -19,9 +19,27 @@ import { MemberRoleService } from './roles/member-role.service';
 // AuditService 는 @Global AuditModule 제공, Redis 는 @Global RedisModule 제공.
 import { ModerationController } from './moderation/moderation.controller';
 import { ModerationService } from './moderation/moderation.service';
+// S64 (D12 / FR-RM12): 감사 로그 조회 REST. AuditService 는 @Global AuditModule 제공.
+import { AuditLogController } from './audit/audit-log.controller';
+// S64 (D12 / FR-RM11): 신고 큐 서비스/컨트롤러. DELETE_MESSAGE 처리에 MessagesService 를
+// 재사용하므로 MessagesModule 을 forwardRef 로 가져온다(MessagesModule 이 WorkspacesModule 을
+// import 하는 순환을 forwardRef 양방향으로 끊는다).
+import { MessagesModule } from '../messages/messages.module';
+// S64 fix-forward (security A-1/A-2): 신고 처리 DELETE_MESSAGE 의 채널 DELETE_ANY_MESSAGE
+// 권한 fold + private 채널 content 마스킹에 ChannelAccessService 가 필요하다.
+// ChannelsModule ↔ WorkspacesModule 양방향 순환을 forwardRef 로 끊는다.
+import { ChannelsModule } from '../channels/channels.module';
+import { ModerationReportController } from './moderation/moderation-report.controller';
+import { ModerationReportService } from './moderation/moderation-report.service';
 
 @Module({
-  imports: [AuthModule, OutboxModule, PresenceModule],
+  imports: [
+    AuthModule,
+    OutboxModule,
+    PresenceModule,
+    forwardRef(() => MessagesModule),
+    forwardRef(() => ChannelsModule),
+  ],
   controllers: [
     WorkspacesController,
     MembersController,
@@ -29,6 +47,8 @@ import { ModerationService } from './moderation/moderation.service';
     PublicInvitesController,
     RolesController,
     ModerationController,
+    AuditLogController,
+    ModerationReportController,
   ],
   providers: [
     WorkspacesService,
@@ -37,6 +57,7 @@ import { ModerationService } from './moderation/moderation.service';
     RolesService,
     MemberRoleService,
     ModerationService,
+    ModerationReportService,
   ],
   exports: [
     WorkspacesService,
@@ -45,6 +66,7 @@ import { ModerationService } from './moderation/moderation.service';
     RolesService,
     MemberRoleService,
     ModerationService,
+    ModerationReportService,
   ],
 })
 export class WorkspacesModule {}

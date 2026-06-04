@@ -6,10 +6,14 @@ import type {
   Invite,
   InvitePreview,
   KickMemberResponse,
+  ListAuditLogsResponse,
   ListBansResponse,
   ListMembersResponse,
+  ListReportsResponse,
   Member,
   MemberWithPresence,
+  ReportAction,
+  ReportQueueFilter,
   Role,
   TimeoutMemberResponse,
   UpdateMemberRoleRequest,
@@ -203,4 +207,40 @@ export function timeoutMember(
 /** FR-RM07: 음소거 수동 해제. */
 export function untimeoutMember(id: string, userId: string): Promise<void> {
   return apiRequest(`/workspaces/${id}/moderation/members/${userId}/timeout`, { method: 'DELETE' });
+}
+
+// ── S64 (D12 / FR-RM11·12): 신고 큐 + 감사 로그 조회 ──────────────────────────
+
+/** FR-RM12: 감사 로그 cursor 페이지 조회(ADMIN+). action/actor 필터 선택. */
+export function listAuditLogs(
+  id: string,
+  opts: { cursor?: string; limit?: number; action?: string; actorId?: string } = {},
+): Promise<ListAuditLogsResponse> {
+  const params = new URLSearchParams();
+  if (opts.cursor) params.set('cursor', opts.cursor);
+  if (opts.limit !== undefined) params.set('limit', String(opts.limit));
+  if (opts.action) params.set('action', opts.action);
+  if (opts.actorId) params.set('actorId', opts.actorId);
+  const qs = params.toString();
+  return apiRequest(`/workspaces/${id}/audit-logs${qs ? `?${qs}` : ''}`);
+}
+
+/** FR-RM11: 신고 큐 열람(MODERATOR+). filter=OPEN(미처리) / ALL. */
+export function listReports(
+  id: string,
+  filter: ReportQueueFilter = 'OPEN',
+): Promise<ListReportsResponse> {
+  return apiRequest(`/workspaces/${id}/moderation/reports?filter=${filter}`);
+}
+
+/** FR-RM11: 신고 처리(DISMISS/WARN/DELETE_MESSAGE/TIMEOUT/BAN). MODERATOR+. */
+export function resolveReport(
+  id: string,
+  reportId: string,
+  input: { action: ReportAction; reason?: string; durationSeconds?: number },
+): Promise<void> {
+  return apiRequest(`/workspaces/${id}/moderation/reports/${reportId}/resolve`, {
+    method: 'POST',
+    body: input,
+  });
 }

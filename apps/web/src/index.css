@@ -31,3 +31,13 @@ body,
     scroll-behavior: auto !important;
   }
 }
+
+/* S64 fix-forward (ui-designer M-04): ChannelSettingsPage 의 nav 는 action 버튼이 섞여
+ * tablist 가 아니라 nav 패턴이라 활성 항목을 aria-current="page" 로 표시한다(S62 a11y B4).
+ * 그러나 DS components.css 의 활성 스타일은 .qf-settings__nav-item[aria-selected="true"]
+ * 에만 걸려 있어 aria-current 항목이 시각적으로 활성화되지 않았다. DS 4파일을 건드리지
+ * 않고, 앱 CSS 에서 같은 시맨틱 토큰으로 aria-current 활성 스타일을 page-scoped 로 보강한다. */
+.qf-settings__nav-item[aria-current='page'] {
+  background: var(--bg-selected);
+  color: var(--text-strong);
+}

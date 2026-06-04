@@ -40,6 +40,42 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  it('message:bulk_deleted (S64 FR-RM09) removes the listed ids from the channel cache', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    const key = qk.messages.list('ws-1', 'ch-1');
+    const row = (id: string) => ({
+      id,
+      channelId: 'ch-1',
+      authorId: 'u-1',
+      content: 'x',
+      mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+      edited: false,
+      deleted: false,
+      createdAt: new Date().toISOString(),
+      editedAt: null,
+    });
+    qc.setQueryData(key, {
+      pages: [
+        {
+          items: [row('m1'), row('m2'), row('m3')],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message:bulk_deleted', {
+      id: 'ev-bulk',
+      channelId: 'ch-1',
+      actorId: 'admin-1',
+      messageIds: ['m1', 'm3'],
+    });
+    const state = qc.getQueryData(key) as { pages: Array<{ items: Array<{ id: string }> }> };
+    expect(state.pages[0].items.map((m) => m.id)).toEqual(['m2']);
+    detach();
+  });
+
   it('message.created prepends to the channel cache without refetch', () => {
     const socket = makeFakeSocket();
     const qc = new QueryClient();

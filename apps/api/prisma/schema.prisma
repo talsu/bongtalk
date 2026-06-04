@@ -411,6 +411,9 @@ model User {
   ownedChannels            Channel[]                    @relation("ChannelOwner")
   // S51 (D10 / FR-PS-07): 본인이 개인 저장함에 담은 메시지들. onDelete Cascade.
   savedMessages            SavedMessage[]
+  // S64 fix-forward (security A-6 = MEDIUM-2): 본인이 제출한 메시지 신고들. 계정
+  // 하드삭제 시 ON DELETE SET NULL 로 reporterId 가 null 화되어 익명화된다(행 보존).
+  moderationReportsFiled   ModerationReport[]           @relation("ModerationReportReporter")
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.
@@ -547,6 +550,8 @@ model Workspace {
   auditLogs               AuditLog[]
   // S63 (D12 / FR-RM06): 워크스페이스 영구 차단 목록. onDelete Cascade.
   bannedMembers           BannedMember[]
+  // S64 (D12 / FR-RM11): 메시지 신고 큐. onDelete Cascade.
+  moderationReports       ModerationReport[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -600,6 +605,44 @@ model BannedMember {
 
   @@id([workspaceId, userId])
   @@index([workspaceId, createdAt])
+}
+
+// S64 (D12 / FR-RM11): 메시지 신고 큐. 모든 멤버가 메시지를 카테고리별로 신고하고
+// ADMIN/MODERATOR 가 큐를 열람해 처리(DISMISS/WARN/DELETE_MESSAGE/TIMEOUT/BAN)한다.
+// (messageId, reporterId) 복합 유니크로 같은 신고자의 중복 신고를 막는다. resolved* 는
+// 미처리 시 null. category/resolvedAction 은 enum 대신 넓은 String(shared-types Zod 가
+// 검증)으로 두어 후속 카테고리/액션 추가 시 마이그레이션을 피한다(AuditLog.action 선례).
+// FK: Workspace·Message 는 onDelete Cascade(워크스페이스/메시지 hard-delete 시 정리).
+// reporterId/resolvedBy 는 명시 FK 를 두지 않는다(User 하드삭제 경로는 별도 정책 ·
+// BannedMember 선례) — 표시 정보는 read-path 에서 best-effort 조인한다.
+model ModerationReport {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  messageId      String    @db.Uuid
+  channelId      String    @db.Uuid
+  // S64 fix-forward (security A-6 = MEDIUM-2): 신고자 계정 하드삭제 시 ON DELETE SET NULL
+  // 로 익명화한다(행은 보존 — 모더레이션 이력 유지). 따라서 nullable.
+  reporterId     String?   @db.Uuid
+  // 신고 카테고리(SPAM/HARASSMENT/HATE_SPEECH/INAPPROPRIATE/OTHER).
+  category       String    @db.VarChar(32)
+  reason         String?   @db.VarChar(512)
+  // 처리 결과(DISMISS/WARN/DELETE_MESSAGE/TIMEOUT/BAN). 미처리 시 null.
+  resolvedAction String?   @db.VarChar(32)
+  resolvedBy     String?   @db.Uuid
+  resolvedAt     DateTime? @db.Timestamptz(6)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  // S64 fix-forward (security A-6 = MEDIUM-2): channel 하드삭제 시 신고 행 함께 정리,
+  // 신고자 계정 삭제 시 익명화(SET NULL). 정렬 커버 인덱스는 raw SQL 마이그레이션의
+  // "ModerationReport_ws_queue_sort_idx" (NULLS FIRST · createdAt DESC) 가 담당한다.
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  reporter  User?     @relation("ModerationReportReporter", fields: [reporterId], references: [id], onDelete: SetNull)
+
+  @@unique([messageId, reporterId])
+  @@index([workspaceId, resolvedAt, createdAt])
+  @@index([messageId])
 }
 
 model Category {
@@ -698,6 +741,9 @@ model Channel {
   mutes                    UserChannelMute[]
   // S43 (FR-CH-15): 이 채널을 즐겨찾기한 행. onDelete Cascade.
   favorites                UserChannelFavorite[]
+  // S64 fix-forward (security A-6 = MEDIUM-2): 이 채널 메시지에 대한 신고 행들.
+  // 채널 하드삭제 시 ON DELETE CASCADE 로 함께 정리된다.
+  moderationReports        ModerationReport[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
@@ -840,6 +886,8 @@ model AuditLog {
 
   @@index([workspaceId, createdAt])
   @@index([workspaceId, action, createdAt])
+  // S64 fix-forward (perf B-3 = MODERATE-3): actorId 필터(WHERE actorId=…) 커버 인덱스.
+  @@index([workspaceId, actorId, createdAt])
   @@index([channelId, createdAt])
 }
 
@@ -982,6 +1030,9 @@ model Message {
   // 시 ON DELETE CASCADE 로 함께 정리된다. 사후 suppress 는 행 삭제가 아니라
   // suppressedAt 표식으로 처리한다(read-path 가 suppressedAt IS NULL 만 노출).
   embeds           MessageEmbed[]
+  // S64 (D12 / FR-RM11): 이 메시지에 대한 신고 행들. 메시지 hard delete(운영 purge)
+  // 시 ON DELETE CASCADE 로 함께 정리된다(soft-delete 는 행을 유지하므로 신고도 보존).
+  reports          ModerationReport[]
   // S29 (FR-S05): has: 필터용 partial index `(channelId) WHERE hasX = true`
   // 3종은 raw-SQL migration 20260601900000_s29_search_denormalized_flags 가
   // 생성합니다(Prisma @@index 가 partial WHERE 미지원이라 여기엔 선언 불가).

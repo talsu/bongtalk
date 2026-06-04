@@ -729,6 +729,37 @@ export function installRealtimeDispatcher(
     },
   );
 
+  // S64 (FR-RM09): message:bulk_deleted — bulk purge 결과. channelId + messageIds[] 가
+  // 실려오므로 해당 채널의 messages.list 캐시에서 그 id 들을 한 번에 제거한다(개별
+  // message.deleted 루프 대신 단일 이벤트). workspaceId 는 wire 에 없으므로 channelId
+  // 가 일치하는 모든 messages.list 쿼리를 순회해 patch 한다(채널 단위 fanout).
+  on<{ channelId: string; messageIds: string[] }>(WS_EVENTS.MESSAGE_BULK_DELETED, (env) => {
+    if (!env.channelId || !Array.isArray(env.messageIds) || env.messageIds.length === 0) return;
+    const removeIds = new Set(env.messageIds);
+    // channelId 가 일치하는 모든 messages.list(['messages', wsId, chId]) 쿼리에서
+    // bulk-deleted id 들을 한 번에 제거한다(patchPinMarker 와 동일 predicate · k[2]=chId).
+    qc.setQueriesData<InfiniteData<ListMessagesResponse>>(
+      {
+        predicate: (q) => {
+          const k = q.queryKey;
+          return (
+            Array.isArray(k) && k[0] === 'messages' && k[2] === env.channelId && k.length === 3
+          );
+        },
+      },
+      (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.filter((m) => !removeIds.has(m.id)),
+          })),
+        };
+      },
+    );
+  });
+
   // S50 (D10 · FR-PS-02): channel:pin_added — 메시지가 채널 핀에 추가됨. 채널 룸
   // fanout 이라 받는 즉시 (1) 메시지 목록 캐시 행에 pinnedAt/pinnedBy patch(핀 마커
   // 표시), (2) 핀 패널 목록 + 헤더 카운트 쿼리 invalidate, (3) used>=soft cap(50)
@@ -1440,6 +1471,8 @@ export const DISPATCHED_EVENTS = [
   WS_EVENTS.ATTACHMENT_PROCESSING_DONE,
   // S60 (D11 · FR-RC07/08): 링크 unfurl 결과 갱신(채널 룸 fanout).
   WS_EVENTS.MESSAGE_EMBED_UPDATED,
+  // S64 (D12 · FR-RM09): bulk purge — 일괄 soft-delete된 messageIds[] 제거(채널 룸 fanout).
+  WS_EVENTS.MESSAGE_BULK_DELETED,
   'user.profile.updated',
   'channel.created',
   'channel.updated',

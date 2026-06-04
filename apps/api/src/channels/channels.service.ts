@@ -13,6 +13,7 @@ import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+import { AuditService, AuditAction } from '../common/audit/audit.service';
 import { MessagesService } from '../messages/messages.service';
 import { calcBetween } from './positioning/fractional-position';
 import {
@@ -41,6 +42,9 @@ export class ChannelsService {
     // 단방향 의존이라 역방향 주입은 forwardRef 로 순환을 끊는다.
     @Inject(forwardRef(() => MessagesService))
     private readonly messages: MessagesService,
+    // S64 (FR-RM12): 채널 권한 오버라이드 설정/해제 + 슬로우모드 변경 감사 기록.
+    // @Global AuditModule 제공.
+    private readonly audit: AuditService,
     // S62 (FR-RM14): 채널 override 변경 후 권한 캐시(perms:{channelId}:*)를 즉시
     // 무효화한다. @Global RedisModule 제공. 테스트/Redis 부재 시 Optional → no-op.
     @Optional() @Inject(REDIS) private readonly redis?: Redis,
@@ -331,7 +335,8 @@ export class ChannelsService {
     // S14 (FR-CH-05): 공개/비공개 전환 판단을 위해 현재 isPrivate / name 도 읽는다.
     const before = await this.prisma.channel.findUnique({
       where: { id: channelId },
-      select: { topic: true, isPrivate: true, name: true },
+      // S64 (FR-RM12): slowmodeSeconds 도 읽어 변경 시 SLOWMODE_UPDATE 감사를 남긴다.
+      select: { topic: true, isPrivate: true, name: true, slowmodeSeconds: true },
     });
     if (!before) {
       throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
@@ -395,6 +400,22 @@ export class ChannelsService {
           eventType: CHANNEL_UPDATED,
           payload: { workspaceId, actorId, channel: this.toDto(updated) },
         });
+        // S64 (FR-RM12): 슬로우모드 간격이 실제로 바뀐 경우에만 감사(같은 tx).
+        if (
+          input.slowmodeSeconds !== undefined &&
+          input.slowmodeSeconds !== before.slowmodeSeconds
+        ) {
+          await this.audit.record(
+            {
+              workspaceId,
+              actorId,
+              action: AuditAction.SLOWMODE_UPDATE,
+              channelId,
+              details: { from: before.slowmodeSeconds, to: input.slowmodeSeconds },
+            },
+            tx,
+          );
+        }
         return updated;
       });
     } catch (e) {
@@ -526,6 +547,8 @@ export class ChannelsService {
     targetUserId: string,
     allowMask: number,
     denyMask: number,
+    // S64 (FR-RM12): override 설정 액터(감사 기록용). 기존 호출과의 호환을 위해 선택.
+    actorId?: string,
   ) {
     // Both-in-workspace gate: the target has to be a member of this
     // workspace for a per-user channel override to be meaningful.
@@ -589,6 +612,20 @@ export class ChannelsService {
           effectiveMask,
         },
       });
+      // S64 (FR-RM12): 채널 권한 오버라이드 설정 감사(같은 tx). actorId 미전달 호출은 생략.
+      if (actorId) {
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.CHANNEL_PERMISSION_OVERRIDE_SET,
+            targetId: targetUserId,
+            channelId,
+            details: { principalType: 'USER', allowMask, denyMask },
+          },
+          tx,
+        );
+      }
       return { row: upserted, effective: effectiveMask };
     });
     void effective;
@@ -616,6 +653,8 @@ export class ChannelsService {
     role: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST',
     allowMask: number,
     denyMask: number,
+    // S64 (FR-RM12): override 설정 액터(감사 기록용). 기존 호출과의 호환을 위해 선택.
+    actorId?: string,
   ) {
     // Channel must live in this workspace (prevents cross-workspace
     // override insertion) and not be soft-deleted.
@@ -660,6 +699,19 @@ export class ChannelsService {
           effectiveMask,
         },
       });
+      // S64 (FR-RM12): 채널 권한 오버라이드 설정 감사(같은 tx). actorId 미전달 호출은 생략.
+      if (actorId) {
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.CHANNEL_PERMISSION_OVERRIDE_SET,
+            channelId,
+            details: { principalType: 'ROLE', role, allowMask, denyMask },
+          },
+          tx,
+        );
+      }
       return upserted;
     });
     // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).

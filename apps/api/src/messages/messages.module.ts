@@ -34,7 +34,9 @@ import { NotificationsModule } from '../notifications/notifications.module';
   // S13 (FR-CH-09/04): ChannelsService 가 MessagesService.createSystemMessage 를
   // 역참조하므로 ChannelsModule ↔ MessagesModule 순환을 forwardRef 로 끊는다.
   imports: [
-    WorkspacesModule,
+    // S64 (FR-RM11): WorkspacesModule(ModerationReportService)이 MessagesService 를
+    // forwardRef 로 가져오므로 양방향 순환을 forwardRef 로 끊는다.
+    forwardRef(() => WorkspacesModule),
     forwardRef(() => ChannelsModule),
     OutboxModule,
     AuthModule,

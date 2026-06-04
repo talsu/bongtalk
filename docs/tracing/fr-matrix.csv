@@ -273,10 +273,10 @@ FR-RM05,D12-roles-moderation,P0,S63,done
 FR-RM06,D12-roles-moderation,P0,S63,done
 FR-RM07,D12-roles-moderation,P0,S63,done
 FR-RM08,D12-roles-moderation,P1,S63,done
-FR-RM09,D12-roles-moderation,P1,S64,todo
+FR-RM09,D12-roles-moderation,P1,S64,done
 FR-RM10,D12-roles-moderation,P1,S64,todo
-FR-RM11,D12-roles-moderation,P1,S64,todo
-FR-RM12,D12-roles-moderation,P1,S64,todo
+FR-RM11,D12-roles-moderation,P1,S64,done
+FR-RM12,D12-roles-moderation,P1,S64,done
 FR-W01,D13-workspace-invite,P0,S65,todo
 FR-W13,D13-workspace-invite,P1,S65,todo
 FR-W14,D13-workspace-invite,P0,S65,todo

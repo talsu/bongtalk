@@ -110,3 +110,173 @@ export const TIMEOUT_DURATION_PRESETS: ReadonlyArray<{ label: string; seconds: n
   { label: '1일', seconds: 86400 },
   { label: '7일', seconds: 604800 },
 ];
+
+// ───────────────────────────────── S64 (D12 / FR-RM09) Bulk Purge ───────────
+
+/** S64 (FR-RM09): 단일 bulk purge 요청의 최대 메시지 수. 초과 시 400 BULK_DELETE_LIMIT. */
+export const BULK_DELETE_MAX = 200;
+
+/**
+ * S64 (FR-RM09): 채널 메시지 일괄 soft-delete 요청. 두 가지 모드 중 하나:
+ *   - messageIds: 명시한 메시지 id 배열(≤200). 채널/미삭제 교집합만 삭제.
+ *   - latest: 채널 최신 N개(≤200) soft-delete.
+ * 둘 중 정확히 하나만 제공해야 한다(superRefine).
+ */
+export const BulkDeleteRequestSchema = z
+  .object({
+    messageIds: z.array(z.string().uuid()).min(1).max(BULK_DELETE_MAX).optional(),
+    latest: z.number().int().min(1).max(BULK_DELETE_MAX).optional(),
+  })
+  .superRefine((val, ctx) => {
+    const hasIds = val.messageIds !== undefined;
+    const hasLatest = val.latest !== undefined;
+    if (hasIds === hasLatest) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'provide exactly one of messageIds or latest',
+      });
+    }
+  });
+export type BulkDeleteRequest = z.infer<typeof BulkDeleteRequestSchema>;
+
+/** S64 (FR-RM09): bulk purge 응답 — 실제 soft-delete 된 메시지 id 들과 개수. */
+export const BulkDeleteResponseSchema = z.object({
+  deletedCount: z.number().int().nonnegative(),
+  messageIds: z.array(z.string().uuid()),
+});
+export type BulkDeleteResponse = z.infer<typeof BulkDeleteResponseSchema>;
+
+// ─────────────────────────────── S64 (D12 / FR-RM11) 신고 큐 ─────────────────
+
+/** S64 (FR-RM11): 신고 카테고리. */
+export const REPORT_CATEGORIES = [
+  'SPAM',
+  'HARASSMENT',
+  'HATE_SPEECH',
+  'INAPPROPRIATE',
+  'OTHER',
+] as const;
+export const ReportCategorySchema = z.enum(REPORT_CATEGORIES);
+export type ReportCategory = z.infer<typeof ReportCategorySchema>;
+
+/** S64 (FR-RM11): 신고 카테고리 한국어 라벨(FE 표시용). */
+export const REPORT_CATEGORY_LABELS: Record<ReportCategory, string> = {
+  SPAM: '스팸',
+  HARASSMENT: '괴롭힘',
+  HATE_SPEECH: '혐오 발언',
+  INAPPROPRIATE: '부적절한 콘텐츠',
+  OTHER: '기타',
+};
+
+/** S64 (FR-RM11): 모더레이터가 신고를 처리할 때 선택하는 액션. */
+export const REPORT_ACTIONS = ['DISMISS', 'WARN', 'DELETE_MESSAGE', 'TIMEOUT', 'BAN'] as const;
+export const ReportActionSchema = z.enum(REPORT_ACTIONS);
+export type ReportAction = z.infer<typeof ReportActionSchema>;
+
+/** S64 (FR-RM11): 신고 처리 액션 한국어 라벨(FE 표시용). */
+export const REPORT_ACTION_LABELS: Record<ReportAction, string> = {
+  DISMISS: '기각',
+  WARN: '경고',
+  DELETE_MESSAGE: '메시지 삭제',
+  TIMEOUT: '타임아웃',
+  BAN: '차단',
+};
+
+/** S64 (FR-RM11): 메시지 신고 생성 요청. reason 은 선택(≤512자, trim). */
+export const ReportMessageRequestSchema = z.object({
+  category: ReportCategorySchema,
+  reason: ReasonSchema,
+});
+export type ReportMessageRequest = z.infer<typeof ReportMessageRequestSchema>;
+
+/**
+ * S64 (FR-RM11): 신고 처리 요청. action 별 부가 입력:
+ *   - TIMEOUT: durationSeconds 필수(60~604800).
+ *   - 그 외: durationSeconds 무시.
+ *   - reason: 모든 액션에 선택(처리 사유 — AuditLog details 에 기록).
+ */
+export const ResolveReportRequestSchema = z
+  .object({
+    action: ReportActionSchema,
+    reason: ReasonSchema,
+    durationSeconds: z.number().int().min(TIMEOUT_MIN_SECONDS).max(TIMEOUT_MAX_SECONDS).optional(),
+  })
+  .superRefine((val, ctx) => {
+    if (val.action === 'TIMEOUT' && val.durationSeconds === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'durationSeconds is required for TIMEOUT action',
+        path: ['durationSeconds'],
+      });
+    }
+  });
+export type ResolveReportRequest = z.infer<typeof ResolveReportRequestSchema>;
+
+/** S64 (FR-RM11): 신고 큐 항목 DTO. resolved* 는 미처리 시 null. */
+export const ModerationReportSchema = z.object({
+  id: z.string().uuid(),
+  workspaceId: z.string().uuid(),
+  messageId: z.string().uuid(),
+  channelId: z.string().uuid(),
+  // S64 fix-forward (security A-6 = MEDIUM-2): 신고자 계정 삭제 시 ON DELETE SET NULL
+  // 로 익명화되어 null 일 수 있다.
+  reporterId: z.string().uuid().nullable(),
+  category: ReportCategorySchema,
+  reason: z.string().nullable(),
+  createdAt: z.string().datetime(),
+  resolvedAt: z.string().datetime().nullable(),
+  resolvedBy: z.string().uuid().nullable(),
+  resolvedAction: ReportActionSchema.nullable(),
+  /**
+   * 신고된 메시지의 작성자 + 본문 스냅샷(삭제 메시지는 null content).
+   *
+   * S64 fix-forward (security A-2 = BLOCKER-2): private 채널 비멤버 모더레이터에게는
+   * content 가 마스킹된다(content=null + contentMasked=true). FE 는 contentMasked 가
+   * true 면 '[비공개 채널 메시지]' 로 표시한다(삭제 메시지의 '[삭제된 메시지]' 와 구분).
+   */
+  message: z
+    .object({
+      authorId: z.string().uuid(),
+      content: z.string().nullable(),
+      deleted: z.boolean(),
+      /** content 가 채널 ACL 로 마스킹됐는지(비공개 채널 비멤버). */
+      contentMasked: z.boolean(),
+    })
+    .nullable(),
+  /** 신고자 표시 정보(계정 삭제·익명화 시 null). */
+  reporter: z
+    .object({
+      id: z.string().uuid(),
+      username: z.string(),
+    })
+    .nullable(),
+});
+export type ModerationReport = z.infer<typeof ModerationReportSchema>;
+
+/** S64 fix-forward (B-4 = MODERATE-4): 신고 큐 한 페이지 기본/최대 항목 수. */
+export const REPORT_QUEUE_PAGE_DEFAULT = 50;
+export const REPORT_QUEUE_PAGE_MAX = 100;
+
+/** S64 (FR-RM11): 신고 큐 필터 — 미처리만/전체. */
+export const ReportQueueFilterSchema = z.enum(['OPEN', 'ALL']);
+export type ReportQueueFilter = z.infer<typeof ReportQueueFilterSchema>;
+
+/**
+ * S64 fix-forward (B-4 = MODERATE-4 = security MEDIUM-4 = reviewer m-3): 신고 큐 조회
+ * 쿼리. take:200 하드리밋을 audit 와 동일한 cursor 페이지네이션으로 대체한다.
+ * cursor 는 opaque base64url(JSON{resolvedAt,createdAt,id}) 다음 페이지 토큰.
+ */
+export const ListReportsQuerySchema = z.object({
+  filter: ReportQueueFilterSchema.optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(REPORT_QUEUE_PAGE_MAX).optional(),
+});
+export type ListReportsQuery = z.infer<typeof ListReportsQuerySchema>;
+
+/** S64 (FR-RM11): 신고 큐 목록 응답(미처리 우선·최신순). nextCursor null = 마지막 페이지. */
+export const ListReportsResponseSchema = z.object({
+  reports: z.array(ModerationReportSchema),
+  /** S64 fix-forward (B-4): 다음 페이지 cursor. 없으면 null. */
+  nextCursor: z.string().nullable(),
+});
+export type ListReportsResponse = z.infer<typeof ListReportsResponseSchema>;

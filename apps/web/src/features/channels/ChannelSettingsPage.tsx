@@ -1,12 +1,13 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Channel } from '@qufox/shared-types';
+import { BULK_DELETE_MAX, type Channel } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
 import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
 import { ChannelPermissionsTab } from './ChannelPermissionsTab';
+import { bulkDeleteMessages } from '../messages/api';
 
 // S15 (FR-CH-08): 슬로우모드 간격 프리셋(초). Discord 와 동일한 구간.
 const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
@@ -22,7 +23,8 @@ const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
 ];
 
 // S62 (FR-RM14): 'permissions' 섹션 추가(채널 권한 오버라이드).
-type SectionId = 'general' | 'permissions';
+// S64 (FR-RM09): 'moderation' 섹션 추가(bulk purge — 최신 N개 일괄 삭제).
+type SectionId = 'general' | 'permissions' | 'moderation';
 
 type NavItem =
   | {
@@ -68,6 +70,8 @@ export function ChannelSettingsPage({
     { type: 'section', id: 'general', label: '일반' },
     // S62 (FR-RM14): 채널 권한 오버라이드 섹션.
     { type: 'section', id: 'permissions', label: '권한' },
+    // S64 (FR-RM09): 메시지 일괄 삭제(bulk purge) 섹션.
+    { type: 'section', id: 'moderation', label: '메시지 관리' },
     { type: 'action', id: 'delete', label: '채널 삭제', danger: true },
   ];
 
@@ -131,7 +135,13 @@ export function ChannelSettingsPage({
             {/* S62 fix-forward (ui-designer M-02): inline font shorthand 제거 →
                 Tailwind text size + font-weight 유틸리티. */}
             <h2 className="m-0 text-[length:var(--fs-18)] font-semibold">
-              {section === 'general' ? '일반' : section === 'permissions' ? '권한' : ''}
+              {section === 'general'
+                ? '일반'
+                : section === 'permissions'
+                  ? '권한'
+                  : section === 'moderation'
+                    ? '메시지 관리'
+                    : ''}
             </h2>
           </header>
 
@@ -143,6 +153,12 @@ export function ChannelSettingsPage({
             />
           ) : section === 'permissions' ? (
             <ChannelPermissionsTab workspaceId={workspaceId} channelId={channel.id} />
+          ) : section === 'moderation' ? (
+            <BulkPurgeSection
+              workspaceId={workspaceId}
+              channelId={channel.id}
+              channelName={channel.name}
+            />
           ) : null}
         </section>
 
@@ -468,5 +484,110 @@ function GeneralSection({
         onCancel={() => setPrivacyConfirmOpen(false)}
       />
     </form>
+  );
+}
+
+/**
+ * S64 (D12 / FR-RM09): bulk purge 섹션. 채널 최신 N개 메시지를 일괄 soft-delete 한다
+ * (단일 updateMany + 단일 message:bulk_deleted 이벤트). 서버가 MANAGE_MESSAGES 비트를
+ * 강제하므로 권한 없는 사용자는 403 을 받는다(UI 는 안내만). 파괴적 작업이라 confirm
+ * 모달(alertDialog)을 거친다. DS qf-* + 토큰만 사용(raw hex/px 금지).
+ */
+function BulkPurgeSection({
+  workspaceId,
+  channelId,
+  channelName,
+}: {
+  workspaceId: string;
+  channelId: string;
+  channelName: string;
+}): JSX.Element {
+  const notify = useNotifications((s) => s.push);
+  const [count, setCount] = useState<number>(10);
+  const [confirmOpen, setConfirmOpen] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+
+  const clamped = Math.max(1, Math.min(BULK_DELETE_MAX, Math.floor(count) || 1));
+
+  const doPurge = async (): Promise<void> => {
+    setSubmitting(true);
+    try {
+      const res = await bulkDeleteMessages(workspaceId, channelId, { latest: clamped });
+      notify({
+        variant: 'success',
+        title: '메시지 일괄 삭제 완료',
+        body: `${res.deletedCount}개의 메시지를 삭제했습니다.`,
+      });
+    } catch (e) {
+      const code = (e as { errorCode?: string } | undefined)?.errorCode;
+      notify({
+        variant: 'danger',
+        title: '일괄 삭제 실패',
+        body: code === 'FORBIDDEN' ? '메시지 관리 권한이 필요합니다.' : (e as Error).message,
+      });
+    } finally {
+      setSubmitting(false);
+      setConfirmOpen(false);
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-[var(--s-4)]" data-testid="bulk-purge-section">
+      <p className="text-[length:var(--fs-13)] text-text-secondary">
+        채널의 최신 메시지를 한 번에 삭제합니다(최대 {BULK_DELETE_MAX}개). 삭제된 메시지는 되돌릴 수
+        없습니다.
+      </p>
+      <div className="qf-field max-w-xs">
+        <label className="qf-field__label" htmlFor="bulk-purge-count">
+          삭제할 최신 메시지 수
+        </label>
+        <Input
+          id="bulk-purge-count"
+          data-testid="bulk-purge-count"
+          type="number"
+          min={1}
+          max={BULK_DELETE_MAX}
+          value={count}
+          onChange={(e) => setCount(Number(e.target.value))}
+        />
+      </div>
+      <div>
+        <Button
+          variant="danger"
+          data-testid="bulk-purge-open"
+          disabled={submitting}
+          onClick={() => setConfirmOpen(true)}
+        >
+          최신 {clamped}개 삭제
+        </Button>
+      </div>
+
+      {confirmOpen ? (
+        <Dialog
+          open={confirmOpen}
+          onOpenChange={(v) => {
+            if (!v) setConfirmOpen(false);
+          }}
+          title="메시지를 일괄 삭제할까요?"
+          description={`#${channelName} 채널의 최신 ${clamped}개 메시지가 삭제되며, 되돌릴 수 없습니다.`}
+          alertDialog
+        >
+          <div className="qf-modal__footer">
+            <Button type="button" variant="ghost" onClick={() => setConfirmOpen(false)}>
+              취소
+            </Button>
+            <Button
+              type="button"
+              variant="danger"
+              data-testid="bulk-purge-confirm"
+              disabled={submitting}
+              onClick={() => void doPurge()}
+            >
+              {submitting ? '삭제 중…' : '삭제하기'}
+            </Button>
+          </div>
+        </Dialog>
+      ) : null}
+    </div>
   );
 }

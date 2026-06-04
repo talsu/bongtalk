@@ -10,12 +10,14 @@ import {
   EDIT_HISTORY_CAP,
   type EditHistoryDto,
   THREAD_BROADCAST_EXCERPT_CAP,
+  BULK_DELETE_MAX,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+import { AuditService, AuditAction } from '../common/audit/audit.service';
 import { MetricsService } from '../observability/metrics/metrics.service';
 import type { RichTextRoot } from '@qufox/shared-types';
 import { cursorFor, decodeCursor } from './cursor/cursor';
@@ -33,6 +35,7 @@ import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { UnreadService } from '../channels/unread.service';
 import { S3Service } from '../storage/s3.service';
 import {
+  MESSAGE_BULK_DELETED,
   MESSAGE_CREATED,
   MESSAGE_DELETED,
   MESSAGE_PIN_TOGGLED,
@@ -41,6 +44,7 @@ import {
   MESSAGE_THREAD_REPLIED,
   MESSAGE_UPDATED,
   THREAD_REPLY_RECIPIENT_CAP,
+  type MessageBulkDeletedPayload,
   type MessageCreatedPayload,
   type MessageDeletedPayload,
   type MessagePinToggledPayload,
@@ -285,6 +289,11 @@ export class MessagesService {
     // @Optional 이라 미주입 단위테스트는 enqueue 를 건너뛴다(전송 경로 무영향).
     @Optional()
     private readonly unfurl?: UnfurlQueueService,
+    // S64 (FR-RM12): 워크스페이스 채널 메시지 soft-delete 를 감사 로그에 기록한다
+    // (workspaceId 가 있을 때만 — DM 채널은 workspaceId=null 이라 생략). @Global
+    // AuditModule 제공이지만, 미주입 단위 테스트는 @Optional 로 기록을 건너뛴다.
+    @Optional()
+    private readonly audit?: AuditService,
   ) {}
 
   /**
@@ -2722,8 +2731,23 @@ export class MessagesService {
     channelId: string;
     msgId: string;
     actorId: string;
+    /**
+     * S64 fix-forward (perf B-1 = SERIOUS-1 / B-2 = SERIOUS-2): MESSAGE_DELETE 감사
+     * 기록 모드.
+     *   - 'in-tx'(기본): softDelete tx 안에서 원자 기록(모더레이터/강제 삭제 — 감사 원자성).
+     *   - 'best-effort': 커밋 후 fire-and-forget(recordBestEffort) — 자기 메시지 삭제
+     *     hot-path. 감사 INSERT 가 삭제 레이턴시/원자성을 좌우하지 않는다.
+     *   - 'skip': 감사 생략(신고 처리 resolveReport 경로 — REPORT_RESOLVE 가 impliedAction
+     *     으로 대체 기록해 이중 행/이중 감사를 없앤다).
+     */
+    auditMode?: 'in-tx' | 'best-effort' | 'skip';
   }): Promise<void> {
+    const auditMode = args.auditMode ?? 'in-tx';
     const deletedAt = new Date();
+    // S64 fix-forward (perf B-1): best-effort 모드에서 커밋 후 기록할 감사 페이로드.
+    // tx 안에서 실제 삭제(count>0)된 행 정보를 채워 두고, 커밋 후 한 번 기록한다.
+    // (holder 객체로 감싸 TS 가 클로저 변이를 never 로 좁히지 않게 한다.)
+    const bestEffortAudit: { authorId: string | null } = { authorId: null };
     // S36 (FR-TH-14): tx 안에서 broadcast 여부를 캡처해, 커밋 후 동기 캐시 무효화
     // 여부를 결정한다. broadcast 행은 채널 unread 에 산입되므로 삭제 시 모든 멤버
     // 캐시를 즉시 비워야 한다(옵션 A). non-broadcast / no-op 삭제는 무효화 불필요.
@@ -2833,6 +2857,29 @@ export class MessagesService {
         eventType: MESSAGE_DELETED,
         payload,
       });
+      // S64 (FR-RM12): 워크스페이스 채널 메시지 단일 soft-delete 를 감사. DM 채널
+      // (workspaceId=null)·AuditService 미주입(단위 테스트)은 생략한다. bulkDelete 는
+      // BULK_MESSAGE_DELETE 단일 행을 별도 기록하므로 여기를 거치지 않는다.
+      //
+      // S64 fix-forward (perf B-1 = SERIOUS-1 / B-2 = SERIOUS-2):
+      //   - 'in-tx'(모더레이터/강제 삭제): 같은 tx 에서 원자 기록(감사 무결성).
+      //   - 'best-effort'(자기 삭제 hot-path): 페이로드만 캡처하고 커밋 후 기록.
+      //   - 'skip'(신고 처리): REPORT_RESOLVE 가 impliedAction 으로 대체하므로 미기록.
+      if (args.workspaceId && this.audit && auditMode === 'in-tx') {
+        await this.audit.record(
+          {
+            workspaceId: args.workspaceId,
+            actorId: args.actorId,
+            action: AuditAction.MESSAGE_DELETE,
+            targetId: updated.id,
+            channelId: args.channelId,
+            details: { authorId: updated.authorId },
+          },
+          tx,
+        );
+      } else if (args.workspaceId && this.audit && auditMode === 'best-effort') {
+        bestEffortAudit.authorId = updated.authorId;
+      }
       // S50 (D10 · FR-PS-06): 삭제된 메시지가 핀이었다면 같은 트랜잭션 안에서
       // pin_removed(MESSAGE_PIN_TOGGLED, pinnedAt=null) 이벤트도 발행해, 핀 패널/
       // 헤더 카운트가 채널 룸 전체에서 즉시 정정되게 한다. outbox 라 커밋 후 발행
@@ -2854,6 +2901,21 @@ export class MessagesService {
         });
       }
     });
+
+    // S64 fix-forward (perf B-1 = SERIOUS-1): 자기 메시지 삭제 hot-path 의 MESSAGE_DELETE
+    // 감사는 커밋 후 fire-and-forget 으로 기록한다(빈번 — 삭제 레이턴시/원자성에서 분리).
+    // 모더레이터/강제 삭제('in-tx')는 위에서 이미 tx 안에서 원자 기록됐다. 실패는 warn 만.
+    const pendingAuthorId = bestEffortAudit.authorId;
+    if (args.workspaceId && this.audit && pendingAuthorId !== null) {
+      void this.audit.recordBestEffort({
+        workspaceId: args.workspaceId,
+        actorId: args.actorId,
+        action: AuditAction.MESSAGE_DELETE,
+        targetId: args.msgId,
+        channelId: args.channelId,
+        details: { authorId: pendingAuthorId },
+      });
+    }
 
     // S36 (FR-TH-14, 옵션 A 동기 직접): broadcast 행 삭제는 채널 unread 에서
     // 1건이 빠지므로($transaction 커밋 후, COUNT 재집계가 자동으로 −1), 영향
@@ -2886,6 +2948,119 @@ export class MessagesService {
         void this.reminders.cancel(savedId);
       }
     }
+  }
+
+  /**
+   * S64 (D12 / FR-RM09): bulk purge. MANAGE_MESSAGES 권한자(컨트롤러가 게이트)가 채널
+   * 메시지를 일괄 soft-delete 한다. 두 모드:
+   *   - messageIds: 명시 id 들(채널/미삭제 교집합만).
+   *   - latest: 채널 최신 N개(미삭제).
+   * 둘 다 ≤200(컨트롤러가 zod 로 검증하고, 서비스도 방어적으로 BULK_DELETE_LIMIT 거부).
+   *
+   * 개별 루프가 아니라 단일 updateMany 로 deletedAt 을 찍고(핀 표식도 함께 해제),
+   * 단일 BULK_MESSAGE_DELETE AuditLog 1행(details.messageIds[])을 같은 tx 에 기록한다.
+   * 개별 MESSAGE_DELETED 가 아니라 단일 MESSAGE_BULK_DELETED 이벤트를 발행한다.
+   *
+   * NOTE: 핀 cascade pin_removed / 스레드 카운터 되감기 / 저장 리마인더 취소 같은 단일
+   * softDelete 의 부가 cascade 는 bulk 경로에서 적용하지 않는다(대량 모더레이션 정리는
+   * 본문 마스킹 + 핀 해제로 충분하고, 파생 캐시는 TTL/재집계가 정정). 이는 의도된
+   * 단순화이며 단일 softDelete 의 정밀 cascade 와 구분된다.
+   */
+  async bulkDelete(args: {
+    workspaceId: string;
+    channelId: string;
+    actorId: string;
+    messageIds?: string[];
+    latest?: number;
+  }): Promise<{ deletedCount: number; messageIds: string[] }> {
+    const { workspaceId, channelId, actorId } = args;
+    // 방어적 상한(컨트롤러 zod 와 이중). 둘 중 하나만 와야 한다.
+    if (args.messageIds && args.messageIds.length > BULK_DELETE_MAX) {
+      throw new DomainError(
+        ErrorCode.BULK_DELETE_LIMIT,
+        `cannot bulk-delete more than ${BULK_DELETE_MAX} messages`,
+      );
+    }
+    if (args.latest !== undefined && args.latest > BULK_DELETE_MAX) {
+      throw new DomainError(
+        ErrorCode.BULK_DELETE_LIMIT,
+        `cannot bulk-delete more than ${BULK_DELETE_MAX} messages`,
+      );
+    }
+
+    const deletedAt = new Date();
+    const result = await this.prisma.$transaction(async (tx) => {
+      // 대상 id 집합을 확정한다(채널 격리 + 미삭제만). messageIds 모드는 교집합,
+      // latest 모드는 최신 N개를 createdAt DESC 로 선별한다.
+      let targetIds: string[];
+      if (args.messageIds) {
+        const rows = await tx.message.findMany({
+          where: { id: { in: args.messageIds }, channelId, deletedAt: null },
+          select: { id: true },
+        });
+        targetIds = rows.map((r) => r.id);
+      } else {
+        const take = args.latest ?? 0;
+        const rows = await tx.message.findMany({
+          where: { channelId, deletedAt: null },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take,
+          select: { id: true },
+        });
+        targetIds = rows.map((r) => r.id);
+      }
+      if (targetIds.length === 0) {
+        return { deletedCount: 0, messageIds: [] as string[] };
+      }
+      // 단일 updateMany — 핀 표식도 함께 해제(softDelete 와 일관).
+      const { count } = await tx.message.updateMany({
+        where: { id: { in: targetIds }, channelId, deletedAt: null },
+        data: { deletedAt, pinnedAt: null, pinnedBy: null },
+      });
+      // 원본 삭제 시 SavedMessage 비정규화 마스킹(softDelete 와 일관, S51).
+      await tx.savedMessage.updateMany({
+        where: { messageId: { in: targetIds } },
+        data: { messageDeletedAt: deletedAt },
+      });
+      // 단일 BULK_MESSAGE_DELETE AuditLog 1행(details.messageIds[]).
+      if (this.audit) {
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.BULK_MESSAGE_DELETE,
+            channelId,
+            details: { messageIds: targetIds, deletedCount: count },
+          },
+          tx,
+        );
+      }
+      // 단일 MESSAGE_BULK_DELETED outbox 이벤트(개별 MESSAGE_DELETED 아님).
+      const payload: MessageBulkDeletedPayload = {
+        workspaceId,
+        channelId,
+        actorId,
+        messageIds: targetIds,
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: channelId,
+        eventType: MESSAGE_BULK_DELETED,
+        payload,
+      });
+      return { deletedCount: count, messageIds: targetIds };
+    });
+
+    // 채널 unread 캐시 무효화(best-effort · 삭제로 미읽 카운트가 줄 수 있음). DB COUNT 가
+    // 정본이라 실패해도 TTL/read-through 가 정정한다. UnreadService 미주입 시 생략.
+    if (result.deletedCount > 0 && this.unread) {
+      void this.unread.invalidateChannelWorkspaceAllMembers(channelId).catch((err) => {
+        this.logger.warn(
+          `[messages] bulk purge unread cache invalidation failed (channel=${channelId}): ${String(err).slice(0, 160)}`,
+        );
+      });
+    }
+    return result;
   }
 
   // ----------------------------------------------- task-044-iter2 pinning

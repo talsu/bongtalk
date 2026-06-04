@@ -1,5 +1,6 @@
 import { apiRequest } from '../../lib/api';
 import type {
+  BulkDeleteResponse,
   ListEditHistoryResponse,
   ListMessagesQuery,
   ListMessagesResponse,
@@ -7,6 +8,7 @@ import type {
   PinCountResponse,
   MessageDto,
   PinMessageResponse,
+  ReportCategory,
   SendMessageRequest,
   UpdateMessageRequest,
 } from '@qufox/shared-types';
@@ -83,6 +85,33 @@ export function deleteMessage(
 ): Promise<void> {
   return apiRequest(`${basePath(wsId, channelId)}/${msgId}`, {
     method: 'DELETE',
+  });
+}
+
+// S64 (D12 / FR-RM09): bulk purge. MANAGE_MESSAGES 권한자가 채널 메시지를 일괄 삭제한다
+// (messageIds[] 또는 latest N, 각 ≤200). 워크스페이스 채널 전용(DM 미지원).
+export function bulkDeleteMessages(
+  wsId: string,
+  channelId: string,
+  input: { messageIds?: string[]; latest?: number },
+): Promise<BulkDeleteResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/bulk-delete`, {
+    method: 'POST',
+    body: input,
+  });
+}
+
+// S64 (D12 / FR-RM11): 메시지 신고. 채널 READ ACL 통과 멤버 누구나 카테고리별 신고.
+// 워크스페이스 채널 전용(DM 미지원). 같은 신고자 중복 신고는 409 REPORT_DUPLICATE.
+export function reportMessage(
+  wsId: string,
+  channelId: string,
+  msgId: string,
+  input: { category: ReportCategory; reason?: string },
+): Promise<void> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/${msgId}/report`, {
+    method: 'POST',
+    body: input,
   });
 }
 
