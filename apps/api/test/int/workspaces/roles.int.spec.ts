@@ -7,7 +7,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { WsIntEnv, setupWsIntEnv, signupAsUser } from './helpers';
+import { WsIntEnv, setupWsIntEnv, signupAsUser, STRONG_PW } from './helpers';
 
 let env: WsIntEnv;
 const ORIGIN = 'http://localhost:45173';
@@ -97,11 +97,12 @@ describe('S61 system role seeding', () => {
 describe('S61 custom role CRUD + cascade (FR-RM15)', () => {
   it('creates a custom role then cascade-deletes MemberRole + ROLE override', async () => {
     const { owner, workspaceId } = await setupOwnerAndWs('s61casc');
-    // 채널 1개 생성(ROLE override 부착 대상).
+    // 채널 1개 생성(ROLE override 부착 대상). S65: 워크스페이스 생성이 #general 을
+    // 자동 시드하므로 이름 충돌(409)을 피하려 별도 이름을 쓴다.
     const chan = await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/channels`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ name: 'general', type: 'TEXT' })
+      .send({ name: 'override-target', type: 'TEXT' })
       .expect(201);
     const channelId = chan.body.id as string;
 
@@ -250,7 +251,8 @@ describe('S61 fix-forward A-1: transferOwnership cleans up ex-OWNER MemberRole',
     await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/transfer-ownership`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ toUserId: heir.userId })
+      // S65 (FR-W13): 양도는 OWNER 비밀번호 재확인을 강제한다.
+      .send({ toUserId: heir.userId, password: STRONG_PW })
       .expect(200);
 
     // A-1 핵심: ex-OWNER 는 더 이상 OWNER 시스템 MemberRole(ADMINISTRATOR)을 갖지 않고

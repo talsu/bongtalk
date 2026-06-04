@@ -7,6 +7,7 @@ import {
   CreateWorkspaceRequestSchema,
   WORKSPACE_CATEGORY_META,
   type WorkspaceCategory,
+  type WorkspaceJoinMode,
 } from '@qufox/shared-types';
 import { Button, Dialog, Input } from '../../design-system/primitives';
 import { useCreateWorkspace } from './useWorkspaces';
@@ -39,6 +40,11 @@ export function CreateWorkspaceDialog({
   const { mutateAsync, isPending } = useCreateWorkspace();
   const [serverError, setServerError] = useState<string | null>(null);
   const [isPublic, setIsPublic] = useState(false);
+  // S65 (FR-W01): 가입 방식(visibility 와 직교) + 이메일 도메인 화이트리스트.
+  // joinMode 는 폼 상태로 직접 관리하고, emailDomains 는 콤마/공백 구분 텍스트를
+  // 제출 시 배열로 정규화한다(빈 입력 = 제한 없음).
+  const [joinMode, setJoinMode] = useState<WorkspaceJoinMode>('PRIVATE');
+  const [emailDomainsText, setEmailDomainsText] = useState('');
   const {
     register,
     handleSubmit,
@@ -50,10 +56,21 @@ export function CreateWorkspaceDialog({
 
   const onSubmit = handleSubmit(async (values) => {
     setServerError(null);
+    // S65 (FR-W01): 텍스트 → 도메인 배열. 콤마/공백/줄바꿈 구분, 소문자, 빈 토큰 제거.
+    const emailDomains = emailDomainsText
+      .split(/[\s,]+/)
+      .map((d) => d.trim().toLowerCase())
+      .filter((d) => d.length > 0);
     try {
-      const ws = await mutateAsync(values);
+      const ws = await mutateAsync({
+        ...values,
+        joinMode,
+        ...(emailDomains.length > 0 ? { emailDomains } : {}),
+      });
       reset();
       setIsPublic(false);
+      setJoinMode('PRIVATE');
+      setEmailDomainsText('');
       onOpenChange(false);
       navigate(`/w/${ws.slug}`);
     } catch (e) {
@@ -78,6 +95,8 @@ export function CreateWorkspaceDialog({
         if (!next) {
           reset();
           setIsPublic(false);
+          setJoinMode('PRIVATE');
+          setEmailDomainsText('');
           setServerError(null);
         }
         onOpenChange(next);
@@ -134,7 +153,12 @@ export function CreateWorkspaceDialog({
 
         <div className="qf-toggle-row">
           <div className="qf-toggle-row__text">
-            <div className="qf-toggle-row__title">공개 여부</div>
+            {/* S65 fix-forward (a11y BLOCKER-2): switch 의 접근 가능한 이름을 제목
+                텍스트에 연결한다(aria-labelledby). 종전 role="switch" 버튼은 텍스트
+                자식이 없어 AT 가 "switch" 로만 읽었다. */}
+            <div id="ws-visibility-title" className="qf-toggle-row__title">
+              공개 여부
+            </div>
             <div className="qf-toggle-row__desc">
               {isPublic
                 ? 'ON — /찾기에 노출되며 누구나 참가할 수 있습니다.'
@@ -145,10 +169,53 @@ export function CreateWorkspaceDialog({
             type="button"
             role="switch"
             aria-checked={isPublic}
+            aria-labelledby="ws-visibility-title"
             data-testid="ws-visibility-public"
             onClick={() => togglePublic(!isPublic)}
             className="qf-switch"
           />
+        </div>
+
+        <div className="qf-field" data-testid="ws-join-mode-field">
+          <label className="qf-field__label" htmlFor="ws-join-mode">
+            가입 방식
+          </label>
+          <select
+            id="ws-join-mode"
+            data-testid="ws-join-mode"
+            className="qf-input"
+            value={joinMode}
+            onChange={(e) => setJoinMode(e.target.value as WorkspaceJoinMode)}
+          >
+            <option value="PRIVATE">초대 전용 (PRIVATE)</option>
+            <option value="PUBLIC">즉시 가입 (PUBLIC)</option>
+            <option value="APPLY">신청 후 승인 (APPLY)</option>
+          </select>
+          <p className="text-[length:var(--fs-12)] text-text-muted">
+            가입 방식은 공개 여부와 별개입니다.
+          </p>
+        </div>
+
+        <div className="qf-field" data-testid="ws-email-domains-field">
+          <label className="qf-field__label" htmlFor="ws-email-domains">
+            이메일 도메인 화이트리스트 <span className="text-text-muted">(선택)</span>
+          </label>
+          <Input
+            id="ws-email-domains"
+            data-testid="ws-email-domains"
+            type="text"
+            placeholder="example.com, corp.io"
+            // S65 fix-forward (a11y MAJOR-4): 힌트 텍스트를 aria-describedby 로 연결한다.
+            aria-describedby="ws-email-domains-hint"
+            value={emailDomainsText}
+            onChange={(e) => setEmailDomainsText(e.target.value)}
+          />
+          <p id="ws-email-domains-hint" className="text-[length:var(--fs-12)] text-text-muted">
+            콤마 또는 공백으로 구분합니다. 비우면 제한이 없습니다.{' '}
+            {/* S65 fix-forward (security MEDIUM = D-3): 화이트리스트 게이트(가입 시 도메인
+                검증)는 S66 carryover 라 지금은 저장만 된다. 오해 방지 안내. */}
+            <span className="text-text-secondary">도메인 제한은 다음 업데이트에서 적용됩니다.</span>
+          </p>
         </div>
 
         {isPublic ? (
@@ -177,7 +244,8 @@ export function CreateWorkspaceDialog({
         ) : null}
 
         {serverError && (
-          <p data-testid="ws-create-error" className="qf-field__error">
+          // S65 fix-forward (a11y BLOCKER-3): 서버 에러는 role="alert" 로 즉시 안내한다.
+          <p data-testid="ws-create-error" className="qf-field__error" role="alert">
             {serverError}
           </p>
         )}
@@ -190,7 +258,13 @@ export function CreateWorkspaceDialog({
           >
             취소
           </Button>
-          <Button data-testid="ws-create-submit" type="submit" disabled={isPending}>
+          {/* S65 fix-forward (a11y MAJOR-1): 제출 진행 중 aria-busy 로 상태를 노출한다. */}
+          <Button
+            data-testid="ws-create-submit"
+            type="submit"
+            disabled={isPending}
+            aria-busy={isPending || undefined}
+          >
             {isPending ? '만드는 중…' : '워크스페이스 만들기'}
           </Button>
         </div>

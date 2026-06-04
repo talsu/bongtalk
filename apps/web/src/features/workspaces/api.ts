@@ -23,6 +23,26 @@ import type {
   WorkspaceWithMyRole,
 } from '@qufox/shared-types';
 
+// S65 (D13 / FR-W13): 소유권 양도는 비밀번호 재확인을 강제한다(서버 argon2 verify).
+export function transferOwnership(
+  id: string,
+  toUserId: string,
+  password: string,
+): Promise<unknown> {
+  return apiRequest(`/workspaces/${id}/transfer-ownership`, {
+    method: 'POST',
+    body: { toUserId, password },
+  });
+}
+
+// S65 (D13 / FR-W19): 워크스페이스 기본 채널 변경(OWNER). 대상은 공개 채널이어야 한다.
+export function updateDefaultChannel(id: string, defaultChannelId: string): Promise<Workspace> {
+  return apiRequest(`/workspaces/${id}/default-channel`, {
+    method: 'PATCH',
+    body: { defaultChannelId },
+  });
+}
+
 export function listMyWorkspaces(): Promise<{ workspaces: Workspace[] }> {
   return apiRequest('/workspaces');
 }

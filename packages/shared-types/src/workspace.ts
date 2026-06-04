@@ -42,6 +42,17 @@ export const RESERVED_SLUGS: ReadonlySet<string> = new Set([
   'users',
   'me',
   'new',
+  // S65 fix-forward (security A-3): 헬스/관측/스토리지 surface 와의 라우트 충돌을
+  // 막기 위해 운영용 경로 토큰을 예약 목록에 추가한다(slug 가 이 값을 점유하면
+  // /healthz 같은 인프라 라우트나 download/upload/media 게이트와 충돌할 수 있다).
+  'health',
+  'healthz',
+  'readyz',
+  'metrics',
+  'internal',
+  'download',
+  'upload',
+  'media',
 ]);
 
 export const SlugSchema = z
@@ -53,6 +64,26 @@ export const SlugSchema = z
 // task-030: Workspace discovery
 export const WorkspaceVisibilitySchema = z.enum(['PUBLIC', 'PRIVATE']);
 export type WorkspaceVisibility = z.infer<typeof WorkspaceVisibilitySchema>;
+
+// S65 (D13 / FR-W01): 워크스페이스 가입 방식. visibility(discover 노출 여부)와
+// 직교한다 — joinMode 는 "어떻게 들어오는가"(초대/즉시/신청), visibility 는 "찾기에
+// 보이는가". APPLY 신청 플로우(FR-W06)는 S66+ carryover 로, S65 는 생성 시 모드
+// 설정만 다룬다.
+export const WorkspaceJoinModeSchema = z.enum(['PRIVATE', 'PUBLIC', 'APPLY']);
+export type WorkspaceJoinMode = z.infer<typeof WorkspaceJoinModeSchema>;
+
+// S65 (D13 / FR-W01): 이메일 도메인 화이트리스트 1건의 형태(예: "example.com").
+// 소문자·도메인 형태만 허용한다. 빈 배열 = 제한 없음. 전체 상한 32건.
+export const EmailDomainSchema = z
+  .string()
+  .min(3)
+  .max(255)
+  .regex(
+    /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/,
+    'email domain must be a lowercase host like example.com',
+  );
+
+export const EMAIL_DOMAINS_MAX = 32;
 
 export const WorkspaceCategorySchema = z.enum([
   'PROGRAMMING',
@@ -85,6 +116,11 @@ export const CreateWorkspaceRequestSchema = z
     iconUrl: z.string().url().max(512).optional(),
     visibility: WorkspaceVisibilitySchema.optional(),
     category: WorkspaceCategorySchema.optional(),
+    // S65 (D13 / FR-W01): 가입 방식(미지정 시 서버 기본 PRIVATE). emailDomains 는
+    // 화이트리스트(빈 배열/미지정 = 제한 없음). visibility 와 직교하므로 PUBLIC
+    // 검증(category/description)에는 영향을 주지 않는다.
+    joinMode: WorkspaceJoinModeSchema.optional(),
+    emailDomains: z.array(EmailDomainSchema).max(EMAIL_DOMAINS_MAX).optional(),
   })
   .superRefine((data, ctx) => {
     if (data.visibility === 'PUBLIC') {
@@ -124,11 +160,23 @@ export const WorkspaceSchema = z.object({
   ownerId: z.string().uuid(),
   visibility: WorkspaceVisibilitySchema.default('PRIVATE'),
   category: WorkspaceCategorySchema.nullable(),
+  // S65 (D13 / FR-W01·W19): 가입 방식·이메일 도메인 화이트리스트·기본 채널. forward-
+  // compat 를 위해 optional/default 로 두어 기존 응답 소비자(없는 필드)도 안전하다.
+  joinMode: WorkspaceJoinModeSchema.default('PRIVATE'),
+  emailDomains: z.array(z.string()).default([]),
+  defaultChannelId: z.string().uuid().nullable().optional(),
   createdAt: z.string().datetime(),
   deletedAt: z.string().datetime().nullable(),
   deleteAt: z.string().datetime().nullable(),
 });
 export type Workspace = z.infer<typeof WorkspaceSchema>;
+
+// S65 (D13 / FR-W19): 기본 채널 변경 요청. OWNER 전용·대상은 공개 채널이어야 한다
+// (서버 검증). 별도 엔드포인트 PATCH /workspaces/:id/default-channel 의 바디.
+export const UpdateDefaultChannelRequestSchema = z.object({
+  defaultChannelId: z.string().uuid(),
+});
+export type UpdateDefaultChannelRequest = z.infer<typeof UpdateDefaultChannelRequestSchema>;
 
 export const DiscoveryWorkspaceSchema = z.object({
   id: z.string().uuid(),
@@ -282,8 +330,13 @@ export const UpdateMemberRoleRequestSchema = z.object({
 });
 export type UpdateMemberRoleRequest = z.infer<typeof UpdateMemberRoleRequestSchema>;
 
+// S65 (D13 / FR-W13): 소유권 양도는 OWNER 비밀번호 재확인을 강제한다(★결정 C).
+// password 는 required — 하위호환을 위해 optional 로 두지 않는다(보안). 서버가
+// argon2 PasswordService.verify 로 검증하며(저장된 passwordHash 는 argon2 —
+// bcrypt.compare 는 불일치), 불일치 시 401(AUTH_INVALID_CREDENTIALS).
 export const TransferOwnershipRequestSchema = z.object({
   toUserId: z.string().uuid(),
+  password: z.string().min(1),
 });
 export type TransferOwnershipRequest = z.infer<typeof TransferOwnershipRequestSchema>;
 
