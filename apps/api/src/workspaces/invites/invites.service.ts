@@ -21,6 +21,8 @@ import {
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
 import { ModerationService } from '../moderation/moderation.service';
+// S72 (D13 / FR-W22): 초대 수락 IP soft-block(차단 IP INVITE 수락 허용+audit) + 가입 ipHash 기록.
+import { IpSoftBlockService } from '../moderation/ip-soft-block.service';
 // S67 fix-forward (security MEDIUM + reviewer #5): hard delete 파괴적 액션 감사 기록.
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
 // S66 (D13 / FR-W05a): 초대 수락 시점 emailVerified + emailDomains 진입 게이트.
@@ -93,6 +95,8 @@ export class InvitesService {
     private readonly moderation: ModerationService,
     // S67 fix-forward (security MEDIUM + reviewer #5): hard delete 감사 기록(파괴적 액션).
     private readonly audit: AuditService,
+    // S72 (D13 / FR-W22): 초대 수락 IP soft-block + 가입 ipHash 기록.
+    private readonly ipSoftBlock: IpSoftBlockService,
   ) {}
 
   async create(workspaceId: string, createdById: string, input: CreateInviteRequest) {
@@ -289,7 +293,8 @@ export class InvitesService {
     // 컨트롤러가 JWT 에서 로드한 본인 emailVerified/email 을 넘긴다. 게이트는 워크스페이스
     // emailDomains 와 함께 invite 조회 직후·CAS 전에 적용한다(미인증/도메인 불일치 사용자가
     // 초대 좌석을 소모하지 않게 함).
-    actor: { emailVerified: boolean; userEmail: string },
+    // S72 (D13 / FR-W22): clientIp(req.ip 계열)로 IP soft-block 대조 + 가입 ipHash 기록.
+    actor: { emailVerified: boolean; userEmail: string; clientIp?: string | null },
   ) {
     const existing = await this.prisma.invite.findUnique({
       where: { code },
@@ -370,6 +375,16 @@ export class InvitesService {
       emailDomains: existing.workspace.emailDomains,
     });
 
+    // S72 (D13 / FR-W22): IP soft-block. 초대 수락은 INVITE 메커니즘이라 차단 IP 매칭이어도
+    // hard-block 하지 않고(NAT 오탐 방지) 허용하되 SUSPICIOUS_JOIN 감사를 남긴다. CAS(좌석
+    // 소모) 전에 두어 ipHash 를 확보하고, 멤버 행에 기록해 추후 ban 시 IP 가 복사되게 한다.
+    const { ipHash } = await this.ipSoftBlock.assertNotIpBlocked({
+      workspaceId: existing.workspaceId,
+      userId,
+      clientIp: actor.clientIp,
+      mechanism: 'INVITE',
+    });
+
     const now = new Date();
     // Compare-and-swap is intentionally OUTSIDE the transaction so that the
     // atomic UPDATE commits as a single statement and visible races between
@@ -420,6 +435,8 @@ export class InvitesService {
             isTemporary: existing.temporary,
             // S69 (D13 / FR-W10): 링크 초대 수락 → 초대자는 링크 생성자.
             invitedById: existing.createdById,
+            // S72 (D13 / FR-W22): 가입 시점 요청 IP 해시(추후 ban 시 BannedMember 로 복사).
+            ipHash,
           },
         });
         // S61 fix-forward (security A-2 · MemberRole desync): 가입 트랜잭션에서 MEMBER

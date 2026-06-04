@@ -14,6 +14,8 @@ import { ErrorCode } from '../../common/errors/error-code.enum';
 import { OutboxService } from '../../common/outbox/outbox.service';
 import { assertWorkspaceEntryAllowed } from '../workspace-entry-gate';
 import { ModerationService } from '../moderation/moderation.service';
+// S72 (D13 / FR-W22): 가입 신청(APPLY) IP soft-block — 차단 IP 신청은 즉시 403 차단.
+import { IpSoftBlockService } from '../moderation/ip-soft-block.service';
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 import {
   MEMBER_APPLICATION_RECEIVED,
@@ -64,6 +66,8 @@ export class ApplicationsService {
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
     private readonly moderation: ModerationService,
+    // S72 (D13 / FR-W22): 신청 제출 시 차단 IP soft-block(APPLY → 즉시 403 차단).
+    private readonly ipSoftBlock: IpSoftBlockService,
     // 인터뷰 1:1 DM 자동 생성(createInterviewDm). ChannelsModule ↔ WorkspacesModule 양방향
     // 순환은 WorkspacesModule 이 이미 forwardRef(ChannelsModule) 로 끊어 둔다.
     @Inject(forwardRef(() => DirectMessagesService))
@@ -76,7 +80,13 @@ export class ApplicationsService {
    */
   async submit(args: {
     slug: string;
-    applicant: { userId: string; emailVerified: boolean; userEmail: string };
+    // S72 (D13 / FR-W22): clientIp(req.ip 계열)로 APPLY IP soft-block 대조(차단 IP → 403).
+    applicant: {
+      userId: string;
+      emailVerified: boolean;
+      userEmail: string;
+      clientIp?: string | null;
+    };
     answers: ApplicationAnswer[];
   }): Promise<WorkspaceMemberApplicationDto> {
     const { slug } = args;
@@ -109,6 +119,17 @@ export class ApplicationsService {
     }
     // emailVerified 재확인 + emailDomains exact-match(빈 배열이면 제한 없음).
     assertWorkspaceEntryAllowed({ emailVerified, userEmail, emailDomains: ws.emailDomains });
+
+    // S72 (D13 / FR-W22): IP soft-block. 신청은 APPLY 메커니즘이라 차단 IP(BannedMember.
+    // ipHash) 매칭 시 즉시 403(중립 APPLICATION_NOT_APPLICABLE)으로 거부한다 — 승인 게이트가
+    // 있어 NAT 오탐의 피해가 작고, 차단 사용자의 우회 신청 경로를 IP 단계에서 닫는다. 미상
+    // IP 는 무동작(통과). userId-ban 검사 뒤에 둬 차단 사용자는 그 경로의 중립 404 를 먼저 받는다.
+    await this.ipSoftBlock.assertNotIpBlocked({
+      workspaceId: ws.id,
+      userId,
+      clientIp: args.applicant.clientIp,
+      mechanism: 'APPLY',
+    });
 
     // perf(MINOR): PENDING/INTERVIEW/REJECTED 개별 findUnique 3회 대신 (workspaceId,
     // applicantId) 의 비-WITHDRAWN 활성 상태를 한 번에 조회한 뒤 분기한다((workspaceId,

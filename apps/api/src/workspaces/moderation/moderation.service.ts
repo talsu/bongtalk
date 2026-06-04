@@ -220,9 +220,11 @@ export class ModerationService {
       throw new DomainError(ErrorCode.MEMBER_ALREADY_BANNED, 'user is already banned');
     }
     // 대상이 현재 멤버이면 계층 방어를 적용하고 삭제한다(비멤버면 INSERT 만).
+    // S72 (D13 / FR-W22): 멤버라면 마지막 가입 ipHash 도 읽어 BannedMember.ipHash 로
+    // 복사한다(같은 IP 의 후속 가입 soft-block 대조용). 비멤버 ban 은 ipHash 가 null.
     const member = await this.prisma.workspaceMember.findUnique({
       where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
-      select: { role: true },
+      select: { role: true, ipHash: true },
     });
     let previousRole: WorkspaceRole | null = null;
     if (member) {
@@ -268,7 +270,15 @@ export class ModerationService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.bannedMember.create({
-          data: { workspaceId, userId: targetUserId, bannedBy: actorId, reason },
+          // S72 (D13 / FR-W22): 멤버였던 대상의 마지막 가입 ipHash 를 함께 저장한다(같은
+          // IP 의 후속 가입 soft-block 대조용). 비멤버 ban 이면 member=null → ipHash 미저장.
+          data: {
+            workspaceId,
+            userId: targetUserId,
+            bannedBy: actorId,
+            reason,
+            ipHash: member?.ipHash ?? null,
+          },
         });
         if (member) {
           await tx.workspaceMember.delete({

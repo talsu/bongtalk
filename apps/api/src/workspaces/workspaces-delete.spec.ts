@@ -51,6 +51,8 @@ function makeService(opts: { findUnique: ReturnType<typeof vi.fn> }) {
     {} as never,
     {} as never,
     discoverCache as never,
+    // S72 (D13 / FR-W22): IpSoftBlockService — softDelete/restore 경로 미사용 스텁.
+    {} as never,
   );
   return { svc, txUpdate, outboxRecord, invalidate, findUnique: opts.findUnique };
 }

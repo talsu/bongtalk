@@ -5,6 +5,7 @@ import type { PrismaService } from '../../../src/prisma/prisma.module';
 import type { OutboxService } from '../../../src/common/outbox/outbox.service';
 import type { ModerationService } from '../../../src/workspaces/moderation/moderation.service';
 import type { AuditService } from '../../../src/common/audit/audit.service';
+import type { IpSoftBlockService } from '../../../src/workspaces/moderation/ip-soft-block.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 
 beforeEach(() => {
@@ -39,6 +40,14 @@ function makeAudit(): AuditService {
   return { record: vi.fn().mockResolvedValue(undefined) } as unknown as AuditService;
 }
 
+// S72 (D13 / FR-W22): IP soft-block 스텁 — 이 스펙들은 차단 IP 가 없는 정상 수락을 다루므로
+// assertNotIpBlocked 는 항상 무차단(ipHash=null) 으로 통과시킨다.
+function makeIpSoftBlock(): IpSoftBlockService {
+  return {
+    assertNotIpBlocked: vi.fn().mockResolvedValue({ ipHash: null }),
+  } as unknown as IpSoftBlockService;
+}
+
 async function expectDomainError(p: Promise<unknown>, code: ErrorCode) {
   await expect(p).rejects.toMatchObject({ code });
 }
@@ -55,7 +64,13 @@ describe('S67 InvitesService — makeCode (Fork B: 8-char alphanumeric)', () => 
       },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
 
     for (let i = 0; i < 50; i++) {
       // outbox.record 가 tx 에서 호출되므로 prisma 에 invite.create 만 있으면 충분.
@@ -85,7 +100,13 @@ describe('S67 InvitesService — makeCode (Fork B: 8-char alphanumeric)', () => 
       },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
 
     const inv = await svc.create(WS, ACTOR, { temporary: false });
     expect(attempt).toBe(2);
@@ -103,7 +124,13 @@ describe('S67 InvitesService — create stores temporary', () => {
       invite: { create },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
 
     await svc.create(WS, ACTOR, { temporary: true });
     expect(create).toHaveBeenCalledWith(
@@ -133,7 +160,13 @@ describe('S67 InvitesService — list role filter (FR-W17)', () => {
     const findMany = vi.fn().mockResolvedValue(rows);
     const prisma = { invite: { findMany } } as unknown as PrismaService;
     return {
-      svc: new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit()),
+      svc: new InvitesService(
+        prisma,
+        makeOutbox(),
+        makeModeration(),
+        makeAudit(),
+        makeIpSoftBlock(),
+      ),
       findMany,
     };
   }
@@ -167,7 +200,13 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
       invite: { updateMany },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
     await svc.revoke(WS, 'i1', ACTOR, 'MODERATOR');
     expect(updateMany).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -182,7 +221,13 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
       invite: { updateMany },
       $transaction: vi.fn(async (fn: (tx: unknown) => unknown) => fn(prisma)),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
     await expectDomainError(svc.revoke(WS, 'i1', OTHER, 'MODERATOR'), ErrorCode.INVITE_NOT_FOUND);
   });
 
@@ -199,7 +244,7 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
     const outbox = makeOutbox();
     const audit = makeAudit();
     return {
-      svc: new InvitesService(prisma, outbox, makeModeration(), audit),
+      svc: new InvitesService(prisma, outbox, makeModeration(), audit, makeIpSoftBlock()),
       findFirst,
       del,
       outbox,
@@ -286,7 +331,13 @@ describe('S67 InvitesService — accept already-member (FR-W03 멱등 200)', () 
       workspace: { findUnique: wsFindUnique },
       $executeRawUnsafe: vi.fn(),
     } as unknown as PrismaService;
-    const svc = new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit());
+    const svc = new InvitesService(
+      prisma,
+      makeOutbox(),
+      makeModeration(),
+      makeAudit(),
+      makeIpSoftBlock(),
+    );
 
     const res = await svc.accept('CODE1234', ACTOR, {
       emailVerified: true,
@@ -336,7 +387,10 @@ describe('S67 InvitesService — accept records isTemporary (FR-W03)', () => {
       $executeRawUnsafe: vi.fn().mockResolvedValue(1),
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
-    return { svc: new InvitesService(prisma, outbox, makeModeration(), makeAudit()), memberCreate };
+    return {
+      svc: new InvitesService(prisma, outbox, makeModeration(), makeAudit(), makeIpSoftBlock()),
+      memberCreate,
+    };
   }
 
   it('temporary=true 초대 수락 → WorkspaceMember.isTemporary=true', async () => {
@@ -395,7 +449,16 @@ describe('S67 InvitesService — accept P2002 target guard (reviewer #3)', () =>
       $executeRawUnsafe: exec,
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
-    return { svc: new InvitesService(prisma, makeOutbox(), makeModeration(), makeAudit()), refund };
+    return {
+      svc: new InvitesService(
+        prisma,
+        makeOutbox(),
+        makeModeration(),
+        makeAudit(),
+        makeIpSoftBlock(),
+      ),
+      refund,
+    };
   }
 
   it('WorkspaceMember PK 충돌(제약명 문자열) → 좌석 환불 + alreadyMember:true', async () => {

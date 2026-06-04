@@ -127,6 +127,8 @@ function makeService(opts: {
   };
   const outbox = { record: vi.fn(async () => undefined) };
   const moderation = { isBanned: vi.fn(async () => false) };
+  // S72 (D13 / FR-W22): IP soft-block 스텁 — 차단 IP 없는 정상 수락이라 무차단(ipHash=null) 통과.
+  const ipSoftBlock = { assertNotIpBlocked: vi.fn(async () => ({ ipHash: null })) };
   const mail = {
     sendVerificationEmail: vi.fn(async () => undefined),
     sendWorkspaceInviteEmail: vi.fn(async (to: string, inviteUrl: string) => {
@@ -139,6 +141,7 @@ function makeService(opts: {
     redis as never,
     outbox as never,
     moderation as never,
+    ipSoftBlock as never,
     mail as never,
   );
   return { svc, prisma, createdPending, createdMembers, mailSent };

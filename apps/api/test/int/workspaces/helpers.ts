@@ -62,6 +62,10 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] }).compile();
   const app = moduleRef.createNestApplication();
+  // S72 (D13 / FR-W22): main.ts 와 동일하게 trust proxy=1 을 켜 X-Forwarded-For 의 첫 홉을
+  // req.ip 로 복원한다 — IP soft-block int 테스트가 supertest 의 XFF 헤더로 클라이언트 IP 를
+  // 제어해 차단 IP/비차단 IP 분기를 검증할 수 있게 한다(prod 토폴로지 = 단일 nginx 홉 = 1).
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(cookieParser());
   app.useGlobalPipes(
     new ValidationPipe({ whitelist: true, transform: true, forbidNonWhitelisted: true }),

@@ -685,6 +685,11 @@ model WorkspaceMember {
   // S71 (D13 / FR-W08 · 결정 4): SHORT_TEXT 질문 답변 저장소. [{ questionId, text }] 형태.
   // 별도 Answer 테이블을 두지 않는다(자유형 응답은 멤버 행에 동거). null = 응답 없음.
   onboardingAnswers     Json?
+  // S72 (D13 / FR-W22): 이 멤버가 가입한 시점의 요청 IP 해시(sha256, hex 64자). joinPublic /
+  // 초대 수락 / 신청 승인 진입점에서 기록한다. 멤버 ban 시 ModerationService 가 이 값을
+  // BannedMember.ipHash 로 복사해, 같은 IP 의 후속 가입/수락을 soft-block(audit) 한다.
+  // null = 미상 IP(NAT/프록시 미상) 또는 레거시 가입. 원시 IP 는 저장하지 않는다(해시만).
+  ipHash      String?      @db.Char(64)
 
   workspace   Workspace    @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   user        User         @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -718,12 +723,19 @@ model BannedMember {
   userId      String   @db.Uuid
   bannedBy    String   @db.Uuid
   reason      String?  @db.VarChar(512)
+  // S72 (D13 / FR-W22): ban 집행 시 대상 멤버의 마지막 가입 ipHash 를 복사해 둔 값.
+  // 가입/초대 수락 진입점이 (workspaceId, ipHash) 로 이 행을 대조해 같은 IP 의 후속
+  // 가입을 soft-block(PUBLIC/INVITE=audit · APPLY=차단) 한다. null = ban 대상 멤버의
+  // ipHash 미기록(비멤버 ban·레거시) → IP 신호 없음(userId ban 만으로 차단).
+  ipHash      String?  @db.Char(64)
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   @@id([workspaceId, userId])
   @@index([workspaceId, createdAt])
+  // S72 (D13 / FR-W22): 가입/수락 IP 대조(WHERE workspaceId AND ipHash) 커버 인덱스.
+  @@index([workspaceId, ipHash])
 }
 
 // S64 (D12 / FR-RM11): 메시지 신고 큐. 모든 멤버가 메시지를 카테고리별로 신고하고
@@ -1111,6 +1123,10 @@ model AuditLog {
   action      String   @db.VarChar(64)
   // 부가 컨텍스트(요구 권한·이전/이후 값 등). 없으면 null.
   details     Json?
+  // S72 (D13 / FR-W22): 요청 IP 해시(sha256 hex 64자). SUSPICIOUS_JOIN / SUSPICIOUS_JOIN_
+  // THRESHOLD 액션에만 채워지며(그 외 액션은 null), 24h 내 동일 ipHash 의 SUSPICIOUS_JOIN
+  // 건수 카운트(threshold 평가)에 쓴다. 원시 IP 는 저장하지 않는다(해시만).
+  ipHash      String?  @db.Char(64)
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
@@ -1120,6 +1136,9 @@ model AuditLog {
   // S64 fix-forward (perf B-3 = MODERATE-3): actorId 필터(WHERE actorId=…) 커버 인덱스.
   @@index([workspaceId, actorId, createdAt])
   @@index([channelId, createdAt])
+  // S72 (D13 / FR-W22): 24h SUSPICIOUS_JOIN 카운트(WHERE workspaceId AND ipHash AND
+  // createdAt>=since) 커버 인덱스.
+  @@index([workspaceId, ipHash, createdAt])
 }
 
 model Message {

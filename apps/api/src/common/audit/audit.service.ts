@@ -39,6 +39,9 @@ export class AuditService {
       targetId?: string | null;
       channelId?: string | null;
       details?: Prisma.InputJsonValue | null;
+      // S72 (D13 / FR-W22): SUSPICIOUS_JOIN 계열 액션의 요청 IP 해시(sha256 hex). 24h
+      // threshold 카운트에 쓴다. 다른 액션은 생략(null).
+      ipHash?: string | null;
     },
     client: Prisma.TransactionClient | PrismaService = this.prisma,
   ): Promise<void> {
@@ -50,6 +53,7 @@ export class AuditService {
         targetId: entry.targetId ?? null,
         channelId: entry.channelId ?? null,
         details: entry.details ?? undefined,
+        ipHash: entry.ipHash ?? null,
       },
     });
   }
@@ -128,6 +132,7 @@ export class AuditService {
     targetId?: string | null;
     channelId?: string | null;
     details?: Prisma.InputJsonValue | null;
+    ipHash?: string | null;
   }): Promise<void> {
     try {
       await this.record(entry);
@@ -193,6 +198,12 @@ export const AuditAction = {
   // rogue admin 탐지가 가능하게 한다. details 에 code 를 싣는다.
   /** FR-W17 (Fork C-2): 초대 링크 영구 삭제. */
   INVITE_DELETED: 'INVITE_DELETED',
+  // S72 (D13 / FR-W22): IP soft-block. 차단 IP(BannedMember.ipHash)에서 온 PUBLIC/INVITE
+  // 가입을 허용하되(soft — NAT 오탐 방지) 감사 신호로 남긴다. ipHash 컬럼 + details.ipMatch.
+  /** FR-W22: 차단 IP 에서의 의심 가입(PUBLIC/INVITE 허용 + 신호 기록). */
+  SUSPICIOUS_JOIN: 'SUSPICIOUS_JOIN',
+  /** FR-W22: 동일 차단 IP 의 24h SUSPICIOUS_JOIN 누적이 threshold 도달(모더레이션 알림). */
+  SUSPICIOUS_JOIN_THRESHOLD: 'SUSPICIOUS_JOIN_THRESHOLD',
 } as const;
 
 export type AuditActionKey = (typeof AuditAction)[keyof typeof AuditAction];
