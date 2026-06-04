@@ -18,6 +18,8 @@ import { RolesManager } from './roles/RolesModal';
 // S64 (D12 / FR-RM11·12): 감사 로그 조회 + 신고 큐 패널.
 import { AuditLogPanel } from './moderation/AuditLogPanel';
 import { ReportQueuePanel } from './moderation/ReportQueuePanel';
+// S67 (D13 / FR-W02·W17): 초대 링크 관리 패널.
+import { InviteManagerPanel } from './InviteManagerPanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -68,8 +70,11 @@ export function WorkspaceSettingsPage({
   const canViewAuditLog = myRole === 'OWNER' || myRole === 'ADMIN';
   // S64 (FR-RM11): 신고 큐는 MODERATOR 이상. 서버 ModerationReportService 가 최종 게이트.
   const canModerateReports = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
+  // S67 (FR-W02·W17): 초대 링크 관리는 MODERATOR 이상(서버 @Roles('MODERATOR') 권위).
+  // MODERATOR 는 서버가 본인 생성분만 내려준다.
+  const canManageInvites = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
 
-  type TabKey = 'general' | 'emoji' | 'roles' | 'reports' | 'audit-log';
+  type TabKey = 'general' | 'invites' | 'emoji' | 'roles' | 'reports' | 'audit-log';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -78,6 +83,9 @@ export function WorkspaceSettingsPage({
     const list: Array<{ key: TabKey; label: string; testId: string }> = [
       { key: 'general', label: '일반', testId: 'ws-settings-tab-general' },
     ];
+    if (canManageInvites) {
+      list.push({ key: 'invites', label: '초대 링크', testId: 'ws-settings-tab-invites' });
+    }
     if (canManageEmoji) {
       list.push({ key: 'emoji', label: '이모지 관리', testId: 'ws-settings-tab-emoji' });
     }
@@ -91,7 +99,7 @@ export function WorkspaceSettingsPage({
       list.push({ key: 'audit-log', label: '감사 로그', testId: 'ws-settings-tab-audit-log' });
     }
     return list;
-  }, [canManageEmoji, canManageRoles, canModerateReports, canViewAuditLog]);
+  }, [canManageInvites, canManageEmoji, canManageRoles, canModerateReports, canViewAuditLog]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
@@ -244,7 +252,16 @@ export function WorkspaceSettingsPage({
 
         {/* S64 fix-forward (a11y H-01 · SC 2.1.1): 각 tabpanel 에 tabIndex={0} 로 키보드
             포커스를 부여한다(탭 전환 후 패널 콘텐츠로 포커스 이동 가능). */}
-        {tab === 'roles' && canManageRoles ? (
+        {tab === 'invites' && canManageInvites ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-invites"
+            aria-labelledby="ws-settings-tab-invites"
+            tabIndex={0}
+          >
+            <InviteManagerPanel workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'roles' && canManageRoles ? (
           <div
             role="tabpanel"
             id="ws-settings-panel-roles"

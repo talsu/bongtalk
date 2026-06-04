@@ -618,6 +618,10 @@ model WorkspaceMember {
   // backfill 로 동등한 MemberRole 행을 함께 갖는다(role enum ↔ 시스템 Role 동기).
   role        WorkspaceRole @default(MEMBER)
   joinedAt    DateTime      @default(now())
+  // S67 (D13 / FR-W03·W12): 임시 멤버십 표식. temporary=true 초대로 수락한 멤버는
+  // true 로 기록된다. S70 의 연결 종료 강퇴 배치(debounce)가 이 컬럼으로 대상을
+  // 추린다(@@index([workspaceId, isTemporary])). S67 은 컬럼 + accept 기록까지만.
+  isTemporary Boolean       @default(false)
   // S63 (D12 / FR-RM07): 모더레이션 타임아웃 만료 시각. null = 음소거 아님. 미래
   // 시각이면 그 시각까지 SEND_MESSAGES/ADD_REACTIONS/USE_SLASH_COMMANDS 가 차단된다
   // (VIEW_CHANNEL/READ_HISTORY 는 유지). 만료는 lazy 체크(mutedUntil>now) — cron/
@@ -633,6 +637,9 @@ model WorkspaceMember {
   @@id([workspaceId, userId])
   @@index([userId])
   @@index([workspaceId, role])
+  // S67 (D13 / FR-W12): S70 임시 멤버 강퇴 배치가 (workspaceId, isTemporary) 로
+  // 임시 멤버만 빠르게 스캔하기 위한 보조 인덱스.
+  @@index([workspaceId, isTemporary])
   // S27 fix-forward(perf): keyset sort index for the grouped member list. The
   // list orders by (joinedAt, userId) within a workspace and (for < 1000
   // members) loads the whole set; this ordered index keeps that load + sort
@@ -1492,6 +1499,9 @@ model Invite {
   maxUses     Int?
   usedCount   Int       @default(0)
   revokedAt   DateTime?
+  // S67 (D13 / FR-W02·W03): 임시 멤버십 초대. true 면 이 링크로 수락한 멤버는
+  // WorkspaceMember.isTemporary=true 로 기록된다(연결 종료 시 강퇴 — FR-W12 는 S70 범위).
+  temporary   Boolean   @default(false)
   createdAt   DateTime  @default(now())
 
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)

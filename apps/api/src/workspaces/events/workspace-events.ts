@@ -15,6 +15,10 @@ export const OWNERSHIP_TRANSFERRED = 'workspace.ownership.transferred';
 export const INVITE_CREATED = 'workspace.invite.created';
 export const INVITE_REVOKED = 'workspace.invite.revoked';
 export const INVITE_ACCEPTED = 'workspace.invite.accepted';
+// S67 fix-forward (security MEDIUM + reviewer #5): 영구 삭제(hard delete)는 가역적
+// soft revoke(INVITE_REVOKED)와 달리 행을 제거하는 파괴적 액션이라 별도 이벤트로 추적한다.
+// hardDelete 트랜잭션이 행 삭제와 같은 commit 으로 outbox 에 기록한다(감사 무결성).
+export const INVITE_DELETED = 'workspace.invite.deleted';
 
 export type WorkspaceCreatedEvent = {
   workspaceId: string;

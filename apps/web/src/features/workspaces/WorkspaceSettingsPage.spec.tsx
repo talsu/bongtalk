@@ -31,6 +31,8 @@ vi.mock('../emojis/WorkspaceEmojiManager', () => ({ WorkspaceEmojiManager: () =>
 vi.mock('./roles/RolesModal', () => ({ RolesManager: () => null }));
 vi.mock('./moderation/AuditLogPanel', () => ({ AuditLogPanel: () => null }));
 vi.mock('./moderation/ReportQueuePanel', () => ({ ReportQueuePanel: () => null }));
+// S67 (FR-W17): 초대 관리 패널은 위험 구역 테스트와 무관하므로 스텁한다.
+vi.mock('./InviteManagerPanel', () => ({ InviteManagerPanel: () => null }));
 
 import { WorkspaceSettingsPage } from './WorkspaceSettingsPage';
 
