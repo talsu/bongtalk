@@ -266,6 +266,23 @@ describe('S67 invite management (FR-W02/W03/W17)', () => {
     const gone = await env.prisma.invite.findUnique({ where: { id: inv.body.invite.id } });
     expect(gone).toBeNull();
 
+    // S67 fix-forward (security MEDIUM + reviewer #5): 파괴적 hard delete 는 INVITE_DELETED
+    // outbox + AuditAction.INVITE_DELETED 를 같은 commit 으로 남긴다(rogue admin 추적).
+    const outboxRow = await env.prisma.outboxEvent.findFirst({
+      where: {
+        aggregateType: 'invite',
+        aggregateId: inv.body.invite.id,
+        eventType: 'workspace.invite.deleted',
+      },
+    });
+    expect(outboxRow).not.toBeNull();
+    const auditRow = await env.prisma.auditLog.findFirst({
+      where: { workspaceId, action: 'INVITE_DELETED', targetId: inv.body.invite.id },
+    });
+    expect(auditRow).not.toBeNull();
+    expect(auditRow?.actorId).toBe(owner.userId);
+    expect((auditRow?.details as { code?: string } | null)?.code).toBe(code);
+
     const joiner = await signupAsUser(env.baseUrl, 'hdl-j');
     const res = await request(env.baseUrl)
       .post(`/invites/${code}/accept`)

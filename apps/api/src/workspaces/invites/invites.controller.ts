@@ -113,8 +113,12 @@ export class PublicInvitesController {
   @Public()
   @Get(':code')
   async preview(@Param('code') code: string, @Req() req: Request) {
+    // S67 fix-forward (security MEDIUM): per-IP(60/min) 에 더해 per-code(100/min) 버킷을
+    // 추가한다 — 단일 코드를 신선한 IP 풀(봇넷)로 분산 enumeration 하는 공격을 코드 단위로
+    // 막는다. main.ts trust proxy=1 덕분에 req.ip 는 실제 클라이언트 IP 다.
     await this.rateLimit.enforce([
       { key: `invite:preview:ip:${req.ip ?? 'unknown'}`, windowSec: 60, max: 60 },
+      { key: `invite:preview:code:${code}`, windowSec: 60, max: 100 },
     ]);
     return this.invites.preview(code);
   }
@@ -123,16 +127,20 @@ export class PublicInvitesController {
   async accept(
     @Param('code') code: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
     // Task-013-A (task-031 closure): per-user bucket protects a
     // single logged-in account from mass-probing codes; per-code
     // bucket protects a single code from being probed by a botnet of
-    // fresh accounts. Bumped caps in NODE_ENV=test via
-    // ratelimit.service so 002 invites.int.spec doesn't false-429.
+    // fresh accounts.
+    // S67 fix-forward (security MEDIUM): per-IP(60/min) 버킷을 추가한다 — 한 IP 에서 여러
+    // 계정으로 코드를 난사하는 경우 per-user/per-code 가 비껴가도 IP 단위로 막는다. main.ts
+    // trust proxy=1 덕분에 req.ip 는 실제 클라이언트 IP 다(없으면 'unknown' 폴백).
     await this.rateLimit.enforce([
       { key: `invite:accept:user:${user.id}`, windowSec: 60, max: 30 },
       { key: `invite:accept:code:${code}`, windowSec: 60, max: 10 },
+      { key: `invite:accept:ip:${req.ip ?? 'unknown'}`, windowSec: 60, max: 60 },
     ]);
     // S66 (D13 / FR-W05a): 초대 수락 시점에 emailVerified + emailDomains 게이트를 적용한다.
     // user(JwtStrategy 가 DB 에서 매 요청 로드)에 emailVerified/email 이 실려 있으므로

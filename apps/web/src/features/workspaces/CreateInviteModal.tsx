@@ -118,19 +118,30 @@ export function CreateInviteModal({
           </select>
         </div>
 
-        <label className="flex items-center gap-[var(--s-3)] text-[length:var(--fs-13)]">
-          <input
-            type="checkbox"
-            aria-label="임시 멤버십"
-            data-testid="invite-temporary"
-            checked={temporary}
-            onChange={(e) => setTemporary(e.target.checked)}
-          />
-          <span>
-            임시 멤버십{' '}
-            <span className="text-text-muted">— 연결이 끊기면 자동으로 내보냅니다.</span>
+        {/* S67 fix-forward (a11y M-3): 래퍼 <label> 의 텍스트("임시 멤버십")가 체크박스의
+            접근명이 되게 한다(aria-label 제거 — 정적 a11y 가드는 wrapping <label> 로 통과).
+            부연 설명은 라벨 밖 별도 span(id) 으로 분리해 aria-describedby 로 연결한다 —
+            접근명은 간결하게, 설명은 보조로 읽히게 한다. */}
+        <div className="flex flex-col gap-[var(--s-1)]">
+          <label className="flex items-center gap-[var(--s-3)] text-[length:var(--fs-13)]">
+            <input
+              type="checkbox"
+              data-testid="invite-temporary"
+              aria-describedby="invite-temporary-desc"
+              // S67 fix-forward (ui INFO / N-1): 체크 색을 토큰으로 맞춘다(page-scoped·DS 미수정).
+              style={{ accentColor: 'var(--accent)' }}
+              checked={temporary}
+              onChange={(e) => setTemporary(e.target.checked)}
+            />
+            <span>임시 멤버십</span>
+          </label>
+          <span
+            id="invite-temporary-desc"
+            className="text-[length:var(--fs-12)] text-text-muted pl-[var(--s-6)]"
+          >
+            연결이 끊기면 자동으로 내보냅니다.
           </span>
-        </label>
+        </div>
 
         {err ? (
           <p className="qf-field__error" data-testid="create-invite-error" role="alert">

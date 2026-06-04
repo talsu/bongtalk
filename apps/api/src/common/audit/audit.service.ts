@@ -184,6 +184,11 @@ export const AuditAction = {
   PRIVILEGE_ESCALATION_DENIED: 'PRIVILEGE_ESCALATION_DENIED',
   /** FR-RM11: 신고 처리(DISMISS/WARN/DELETE_MESSAGE/TIMEOUT/BAN). */
   REPORT_RESOLVE: 'REPORT_RESOLVE',
+  // S67 fix-forward (security MEDIUM + reviewer #5): 초대 영구 삭제(hard delete).
+  // 가역 soft revoke 와 달리 행을 제거하는 파괴적 액션이라 actor/inviteId/code 를 남겨
+  // rogue admin 탐지가 가능하게 한다. details 에 code 를 싣는다.
+  /** FR-W17 (Fork C-2): 초대 링크 영구 삭제. */
+  INVITE_DELETED: 'INVITE_DELETED',
 } as const;
 
 export type AuditActionKey = (typeof AuditAction)[keyof typeof AuditAction];

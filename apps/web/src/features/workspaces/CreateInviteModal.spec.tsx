@@ -54,4 +54,18 @@ describe('S67 CreateInviteModal (FR-W02)', () => {
     expect(body.expiresAt).toBe('2025-01-01T00:30:00.000Z');
     cleanup();
   });
+
+  it('(a11y M-3) 임시 멤버십 체크박스는 aria-label 없이 래퍼 라벨 텍스트로 명명되고 설명은 aria-describedby 로 분리됩니다', () => {
+    renderModal();
+    const checkbox = screen.getByTestId('invite-temporary');
+    // aria-label 제거(가드 FP 회피 + 간결한 접근명) — 래퍼 <label>("임시 멤버십")가 명명한다.
+    expect(checkbox.getAttribute('aria-label')).toBeNull();
+    expect(checkbox.getAttribute('aria-describedby')).toBe('invite-temporary-desc');
+    // getByLabelText 로 접근명이 "임시 멤버십" 임을 확인(label 연결 검증).
+    expect(screen.getByLabelText('임시 멤버십')).toBe(checkbox);
+    // 설명 span 이 연결 id 로 존재.
+    const desc = document.getElementById('invite-temporary-desc');
+    expect(desc?.textContent).toContain('연결이 끊기면');
+    cleanup();
+  });
 });

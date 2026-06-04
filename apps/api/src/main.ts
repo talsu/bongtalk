@@ -42,6 +42,18 @@ async function bootstrap(): Promise<void> {
     logger: ['error', 'warn', 'log'],
   });
 
+  // S67 fix-forward (security HIGH): Express trust proxy.
+  // prod 토폴로지는 qufox.com → nginx-proxy-1 → api 의 *단일* nginx 홉이므로 값은 `1`.
+  // 이게 없으면 Express 가 socket peer(=nginx 내부 IP, 고정) 를 req.ip 로 쓰고, 그러면
+  // 모든 per-IP rate-limit(login/signup/verify-email[S66]/invite preview·accept)이 단일
+  // 전역 버킷을 공유해 실효를 잃는다. trust proxy=1 이면 X-Forwarded-For 의 *오른쪽에서
+  // 1홉* 을 신뢰해 실제 클라이언트 IP 를 복원한다.
+  // 주의: 홉 수가 정확해야 한다 — 홉 수보다 큰 값을 주면 클라이언트가 XFF 를 스푸핑해
+  // rate-limit 을 우회할 수 있고, 작으면 다시 내부 IP 로 폴백한다. nginx 체인이 바뀌면
+  // (예: CDN/추가 프록시 도입) 이 값을 새 홉 수에 맞춰 조정해야 한다.
+  // dev/test 는 프록시가 없어 XFF 가 없으므로 socket IP 가 그대로 쓰여 무해하다.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   app.use(helmet());
   app.use(cookieParser());
 
