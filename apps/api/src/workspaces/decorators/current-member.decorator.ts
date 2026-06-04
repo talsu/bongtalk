@@ -10,6 +10,9 @@ export type CurrentMemberPayload = {
   // 음소거 만료 시각(없으면 null). send hot-path 가 별도 isTimedOut 왕복 없이 인라인으로
   // 타임아웃을 판정한다(mutedUntil > now). 만료/미설정이면 통과(lazy).
   mutedUntil: Date | null;
+  // S71 (FR-W07): 규칙 동의 시각(없으면 null). send/react 게이트가 NULL 일 때만 "규칙 존재"
+  // 경량 조회를 해 403 RULES_NOT_ACCEPTED 로 차단한다(Fork-C — 규칙 없으면 통과).
+  rulesAcceptedAt: Date | null;
 };
 
 export const CurrentMember = createParamDecorator(

@@ -1970,6 +1970,23 @@ export class MessagesService {
     };
   }
 
+  // -------------------------------------------------- S71 rules gate
+
+  /**
+   * S71 (FR-W07 / Fork-C): 워크스페이스에 WorkspaceRule 이 1건 이상 존재하는지 경량 조회.
+   * send/react 컨트롤러가 멤버의 rulesAcceptedAt 이 NULL 일 때만 호출해(드문 경로) 규칙
+   * 동의 게이트(403 RULES_NOT_ACCEPTED)를 결정한다. findFirst+select id 로 존재 여부만
+   * 본다(인덱스 (workspaceId, position) 선두 컬럼 적중 — count 보다 가볍다). 규칙 0개면
+   * false → 게이트 무동작(기존 워크스페이스 무회귀 · Fork A-1).
+   */
+  async workspaceHasRules(workspaceId: string): Promise<boolean> {
+    const rule = await this.prisma.workspaceRule.findFirst({
+      where: { workspaceId },
+      select: { id: true },
+    });
+    return rule !== null;
+  }
+
   // -------------------------------------------------- S04 system messages
 
   /**

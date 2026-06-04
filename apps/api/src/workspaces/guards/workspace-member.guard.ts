@@ -70,7 +70,16 @@ export class WorkspaceMemberGuard implements CanActivate {
       // S63 fix-forward (perf C-1 = SERIOUS-1/2): mutedUntil 을 멤버십 조회에 편승시켜,
       // send hot-path 가 별도 isTimedOut DB 왕복 없이 req.workspaceMember 에서 인라인으로
       // 타임아웃을 판정하게 한다(정확성 불변 — lazy 만료는 컨트롤러가 now 와 비교).
-      select: { role: true, userId: true, workspaceId: true, mutedUntil: true },
+      // S71 (FR-W07): rulesAcceptedAt 도 편승시킨다. send/react 경로가 규칙 미동의(NULL)일
+      // 때만 추가로 "규칙 존재" 경량 조회를 해 403 RULES_NOT_ACCEPTED 게이트한다(Fork-C).
+      // 이미 동의(NOT NULL)했거나 규칙이 없으면 추가 조회 없이 통과(hot-path 비용 0).
+      select: {
+        role: true,
+        userId: true,
+        workspaceId: true,
+        mutedUntil: true,
+        rulesAcceptedAt: true,
+      },
     });
     if (!member) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'workspace not found');

@@ -1,8 +1,12 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
+import { useQuery } from '@tanstack/react-query';
 import type { ProcessApplicationAction, WorkspaceMemberApplication } from '@qufox/shared-types';
 import { Button, Dialog, Icon } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useApplications, useProcessApplication } from './useApplications';
+// S71 (S70 연계): OnboardingQuestion 카탈로그로 신청 응답의 dt 라벨을 질문 본문으로 개선한다
+// (questionId → label best-effort 조인 · 데이터 구조 변경 없음).
+import { listQuestions } from '../onboarding/api';
 
 type Props = {
   /** 신청 API 라우팅 키(slug). */
@@ -41,6 +45,19 @@ export function ApplicationReviewPanel({
   const [liveMessage, setLiveMessage] = useState('');
   // a11y H-6: 거절 확인 alertdialog 대상.
   const [confirmRejectApp, setConfirmRejectApp] = useState<WorkspaceMemberApplication | null>(null);
+
+  // S71 (S70 연계): 질문 카탈로그를 읽어 questionId → label 맵을 만든다(best-effort — 질문이
+  // 삭제됐거나 자유형 questionId 면 매칭 실패 → 기존 "질문 N" 폴백). ADMIN 패널 활성 시에만 조회.
+  const questionsQuery = useQuery({
+    queryKey: ['onboarding', 'admin', 'questions', slug],
+    queryFn: () => listQuestions(slug),
+    enabled,
+  });
+  const questionLabels = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const q of questionsQuery.data?.questions ?? []) map.set(q.id, q.label);
+    return map;
+  }, [questionsQuery.data]);
 
   if (!enabled) return null;
 
@@ -133,16 +150,22 @@ export function ApplicationReviewPanel({
                 </div>
                 {app.answers.length > 0 ? (
                   <dl className="text-text-secondary">
-                    {app.answers.map((a, i) => (
-                      <div key={`${app.id}-${i}`} className="flex gap-[var(--s-2)]">
-                        {/* a11y H-5: questionId 원문 노출 대신 "질문 N" aria-label(질문
-                            카탈로그 OnboardingQuestion 은 S71/S72 carryover). */}
-                        <dt className="shrink-0 text-text-muted" aria-label={`질문 ${i + 1}`}>
-                          {a.questionId}
-                        </dt>
-                        <dd className="min-w-0 break-words">{a.answer}</dd>
-                      </div>
-                    ))}
+                    {app.answers.map((a, i) => {
+                      // S71 (S70 연계): 질문 카탈로그에서 본문을 찾으면 그것을 dt 로 노출하고,
+                      // 없으면(질문 삭제·자유형 id) 기존 "질문 N" 폴백 + questionId 원문을 유지한다.
+                      const label = questionLabels.get(a.questionId);
+                      return (
+                        <div key={`${app.id}-${i}`} className="flex gap-[var(--s-2)]">
+                          <dt
+                            className="shrink-0 text-text-muted"
+                            aria-label={label ?? `질문 ${i + 1}`}
+                          >
+                            {label ?? a.questionId}
+                          </dt>
+                          <dd className="min-w-0 break-words">{a.answer}</dd>
+                        </div>
+                      );
+                    })}
                   </dl>
                 ) : null}
                 {canApprove ? (

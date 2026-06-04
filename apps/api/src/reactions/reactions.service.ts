@@ -131,6 +131,10 @@ export class ReactionsService {
     // 제거(toggle off)는 음소거 중에도 허용한다(FR-RM07 은 "추가 차단"). 기본 false 로
     // DM/비-타임아웃 경로는 영향 없다.
     isTimedOut = false,
+    // S71 (FR-W07 / Fork-C): 호출자가 규칙 미동의 + 규칙 존재를 미리 판정해 넘긴다. INSERT
+    // (추가) 분기에서만 RULES_NOT_ACCEPTED(403)으로 거부하고, 제거(toggle off)는 허용한다
+    // (타임아웃 게이트 일관). 기본 false 로 DM/규칙 없는 워크스페이스는 영향 없다.
+    isRulesBlocked = false,
   ): Promise<{ emoji: string; count: number; byMe: boolean }> {
     const emoji = validateEmoji(rawEmoji);
     return this.prisma.$transaction(async (tx) => {
@@ -164,6 +168,13 @@ export class ReactionsService {
           throw new DomainError(
             ErrorCode.MEMBER_TIMED_OUT,
             '타임아웃 중에는 반응을 추가할 수 없습니다',
+          );
+        }
+        // S71 (FR-W07 / Fork-C): 규칙 미동의 게이트(추가 분기 한정).
+        if (isRulesBlocked) {
+          throw new DomainError(
+            ErrorCode.RULES_NOT_ACCEPTED,
+            '규칙에 동의한 후 반응을 추가할 수 있습니다',
           );
         }
         // FR-RE07: 추가(INSERT) 경로에서만 ADD_REACTIONS 권한을 게이트한다. READ 는

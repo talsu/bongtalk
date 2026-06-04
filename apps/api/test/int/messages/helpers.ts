@@ -29,6 +29,13 @@ export type MsgIntEnv = {
 export const STRONG_PW = 'Quanta-Beetle-Nebula-42!';
 export const ORIGIN = 'http://localhost:45173';
 
+// S66 (D13 / FR-W05a): signup 은 emailVerified=false 사용자를 만들고, 워크스페이스
+// 생성·진입·메시지 전송 게이트가 그들을 403 EMAIL_NOT_VERIFIED 로 막는다. 기존 메시지
+// int 스펙은 "가입한 사용자가 곧바로 워크스페이스 생성/전송"을 전제하므로, signup 이
+// 가입 직후 DB 에서 emailVerified=true 로 마킹해 기존 스펙을 무회귀로 유지한다(S66 가
+// workspaces/realtime 헬퍼는 갱신했으나 messages 헬퍼를 누락한 회귀 수정).
+let helperPrisma: PrismaService | undefined;
+
 export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
   process.env.TESTCONTAINERS_RYUK_DISABLED = 'true';
   const redis = await new GenericContainer('redis:7-alpine').withExposedPorts(6379).start();
@@ -87,6 +94,9 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
   const redisClient = app.get<Redis>(REDIS);
   const dispatcher = app.get(OutboxDispatcher);
   dispatcher.pausePolling();
+  // S66 (D13 / FR-W05a): signup 의 기본 emailVerified=true 마킹에 쓸 prisma 핸들을
+  // 모듈 스코프에 보관한다(헬퍼가 호출부 시그니처를 바꾸지 않고 DB 를 만지게 함).
+  helperPrisma = prisma;
 
   return {
     app,
@@ -109,7 +119,12 @@ export type Actor = {
   accessToken: string;
 };
 
-export async function signup(baseUrl: string, prefix: string): Promise<Actor> {
+export async function signup(
+  baseUrl: string,
+  prefix: string,
+  // 기본 true — 기존 스펙 무회귀. 미인증 게이트 검증 스펙은 false 로 호출한다.
+  markVerified = true,
+): Promise<Actor> {
   const stamp = `${Date.now()}${Math.floor(Math.random() * 99999)}`;
   const email = `${prefix}-${stamp}@qufox.dev`;
   const username = `${prefix}${stamp}`;
@@ -118,6 +133,13 @@ export async function signup(baseUrl: string, prefix: string): Promise<Actor> {
     .set('origin', ORIGIN)
     .send({ email, username, password: STRONG_PW });
   if (res.status !== 201) throw new Error(`signup failed: ${res.status} ${res.text}`);
+  // S66 (D13 / FR-W05a): 가입 직후 emailVerified=true 로 마킹(기존 스펙 무회귀).
+  if (markVerified && helperPrisma) {
+    await helperPrisma.user.update({
+      where: { id: res.body.user.id },
+      data: { emailVerified: true },
+    });
+  }
   return { userId: res.body.user.id, email, username, accessToken: res.body.accessToken };
 }
 
