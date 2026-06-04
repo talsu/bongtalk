@@ -11,6 +11,7 @@ import {
   login as apiLogin,
   logout as apiLogout,
   signup as apiSignup,
+  fetchMe,
   onForcedLogout,
   setAccessToken,
   tryRestoreSession,
@@ -26,6 +27,9 @@ export type AuthContextValue = {
   signup: (input: SignupRequest) => Promise<void>;
   login: (input: LoginRequest) => Promise<void>;
   logout: () => Promise<void>;
+  // S66 (D13 / FR-W05b): "이미 인증했어요" → /auth/me 재조회로 emailVerified 갱신.
+  // 갱신된 emailVerified 를 반환해 호출부가 즉시 진입 재시도 여부를 판단한다.
+  refreshMe: () => Promise<boolean>;
 };
 
 const AuthContext = createContext<AuthContextValue | null>(null);
@@ -70,18 +74,40 @@ export function AuthProvider({ children }: { children: ReactNode }): JSX.Element
       user,
       signup: async (input) => {
         const res = await apiSignup(input);
-        setUser({ id: res.user.id, email: res.user.email, username: res.user.username });
+        // S66 (D13 / FR-W05b): 가입 직후 emailVerified=false → 게이트로 분기됨.
+        setUser({
+          id: res.user.id,
+          email: res.user.email,
+          username: res.user.username,
+          emailVerified: res.user.emailVerified,
+        });
         setStatus('authenticated');
       },
       login: async (input) => {
         const res = await apiLogin(input);
-        setUser({ id: res.user.id, email: res.user.email, username: res.user.username });
+        setUser({
+          id: res.user.id,
+          email: res.user.email,
+          username: res.user.username,
+          emailVerified: res.user.emailVerified,
+        });
         setStatus('authenticated');
       },
       logout: async () => {
         await apiLogout();
         setUser(null);
         setStatus('anonymous');
+      },
+      refreshMe: async () => {
+        // S66 (D13 / FR-W05b): /auth/me 재조회 → emailVerified 갱신. 실패(401 등)는
+        // 현재 상태 유지하고 false 반환(진입 재시도 안 함).
+        try {
+          const me = await fetchMe();
+          setUser(me);
+          return me.emailVerified;
+        } catch {
+          return false;
+        }
       },
     }),
     [status, user],

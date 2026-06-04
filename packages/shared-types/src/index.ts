@@ -54,6 +54,19 @@ export const ErrorCodeSchema = z.enum([
   'AUTH_INVALID_CREDENTIALS',
   'AUTH_ACCOUNT_LOCKED',
   'AUTH_SESSION_COMPROMISED',
+  // S66 (D13 / FR-W05a/W05b/W21): 이메일 인증 + 도메인 게이트.
+  // EMAIL_NOT_VERIFIED: emailVerified=false 사용자의 워크스페이스 진입(JOIN·ACCEPT·
+  //   DOMAIN_JOIN) / 채널 메시지 전송 차단 → 403. 클라이언트는 인증 대기 화면으로 분기.
+  // WORKSPACE_DOMAIN_NOT_ALLOWED: 워크스페이스 emailDomains 화이트리스트(exact match)
+  //   불일치 → 403. emailDomains 빈 배열이면 제한 없음(이 코드 미발생).
+  // EMAIL_VERIFICATION_RATE_LIMITED: 재발송 쿨다운(60s)/일일한도(5회) 초과 → 429.
+  // EMAIL_VERIFICATION_TOKEN_EXPIRED: 인증 토큰 만료(24h 경과) → 410.
+  // EMAIL_VERIFICATION_TOKEN_INVALID: 토큰 미존재/형식오류/이미 사용됨 → 400.
+  'EMAIL_NOT_VERIFIED',
+  'WORKSPACE_DOMAIN_NOT_ALLOWED',
+  'EMAIL_VERIFICATION_RATE_LIMITED',
+  'EMAIL_VERIFICATION_TOKEN_EXPIRED',
+  'EMAIL_VERIFICATION_TOKEN_INVALID',
   'WORKSPACE_NOT_FOUND',
   'WORKSPACE_NOT_MEMBER',
   'WORKSPACE_SLUG_TAKEN',

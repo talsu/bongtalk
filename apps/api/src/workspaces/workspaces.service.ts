@@ -39,6 +39,8 @@ import { POSITION_STRIDE } from '../channels/positioning/fractional-position';
 // S65 (D13 / FR-W01): #general 자동 생성 시에도 채널 생성 outbox 이벤트를 같은
 // 트랜잭션에서 기록해 실시간 채널 목록이 갱신되도록 한다(문자열 상수 — 순환 없음).
 import { CHANNEL_CREATED } from '../channels/events/channel-events';
+// S66 (D13 / FR-W05a): PUBLIC 즉시 가입 시점 emailVerified + emailDomains 진입 게이트.
+import { assertWorkspaceEntryAllowed } from './workspace-entry-gate';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -63,7 +65,22 @@ export class WorkspacesService {
     return Number(process.env.WORKSPACE_SOFT_DELETE_GRACE_DAYS ?? 30) * 24 * 60 * 60 * 1000;
   }
 
-  async create(userId: string, input: CreateWorkspaceRequest) {
+  async create(
+    userId: string,
+    input: CreateWorkspaceRequest,
+    // S66 fix-forward (review HIGH-3): 워크스페이스 생성도 emailVerified 게이트를
+    // 적용한다. FE VerificationGate 가 /w/new 진입을 막지만 서버 대칭이 없으면 미인증
+    // 사용자가 curl 로 워크스페이스를 만들고 OWNER 가 될 수 있다. 도메인 게이트
+    // (emailDomains)는 생성에는 불필요하므로 emailVerified 만 확인한다(컨트롤러가
+    // JWT 에서 로드한 본인 값을 넘긴다).
+    actor: { emailVerified: boolean },
+  ) {
+    if (!actor.emailVerified) {
+      throw new DomainError(
+        ErrorCode.EMAIL_NOT_VERIFIED,
+        '이메일 인증 후 워크스페이스를 만들 수 있습니다',
+      );
+    }
     if (RESERVED_SLUGS.has(input.slug)) {
       throw new DomainError(ErrorCode.WORKSPACE_SLUG_RESERVED, `slug "${input.slug}" is reserved`);
     }
@@ -360,10 +377,20 @@ export class WorkspacesService {
   async joinPublic(
     workspaceId: string,
     userId: string,
+    // S66 (D13 / FR-W05a): 도메인 가입(PUBLIC 즉시 가입) 시점 진입 게이트
+    // (emailVerified + emailDomains). 컨트롤러가 JWT 에서 로드한 본인 값을 넘긴다.
+    actor: { emailVerified: boolean; userEmail: string },
   ): Promise<{ workspaceId: string; alreadyMember: boolean }> {
     const ws = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },
-      select: { id: true, visibility: true, joinMode: true, deletedAt: true },
+      select: {
+        id: true,
+        visibility: true,
+        joinMode: true,
+        deletedAt: true,
+        // S66 (D13 / FR-W05a): 도메인 게이트용 화이트리스트.
+        emailDomains: true,
+      },
     });
     if (!ws || ws.deletedAt) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
@@ -388,6 +415,15 @@ export class WorkspacesService {
       where: { workspaceId_userId: { workspaceId, userId } },
     });
     if (existing) return { workspaceId, alreadyMember: true };
+    // S66 (D13 / FR-W05a): emailVerified 재확인 직후 emailDomains exact-match 검증.
+    // 미인증 → 403 EMAIL_NOT_VERIFIED, 도메인 불일치 → 403 WORKSPACE_DOMAIN_NOT_ALLOWED.
+    // emailDomains 빈 배열이면 도메인 게이트 통과. ban 검사 전에 두어 미인증/도메인 불일치
+    // 사용자가 가입 트랜잭션에 진입하지 않게 한다.
+    assertWorkspaceEntryAllowed({
+      emailVerified: actor.emailVerified,
+      userEmail: actor.userEmail,
+      emailDomains: ws.emailDomains,
+    });
     // S63 fix-forward (security A-1 = HIGH/BLOCKER): 차단(BannedMember)된 userId 는 PUBLIC
     // 워크스페이스라도 즉시 가입할 수 없다. invites.accept 엔 차단 검사가 있었으나
     // joinPublic 누락으로 ban 우회 재가입이 가능했다. 차단 사실 누출을 막기 위해

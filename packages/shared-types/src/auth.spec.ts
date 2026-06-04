@@ -1,9 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import {
-  AuthTokensResponseSchema,
-  LoginRequestSchema,
-  SignupRequestSchema,
-} from './auth';
+import { AuthTokensResponseSchema, LoginRequestSchema, SignupRequestSchema } from './auth';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -45,6 +41,8 @@ describe('auth schemas', () => {
         email: 'alice@qufox.dev',
         username: 'alice',
         createdAt: new Date().toISOString(),
+        // S66 (D13 / FR-W05b): AuthUser 에 emailVerified 가 required 로 추가됨.
+        emailVerified: false,
       },
     });
     expect(r.user.username).toBe('alice');

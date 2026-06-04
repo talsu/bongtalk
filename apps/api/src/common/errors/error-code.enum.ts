@@ -7,6 +7,20 @@ export enum ErrorCode {
   AUTH_ACCOUNT_LOCKED = 'AUTH_ACCOUNT_LOCKED',
   AUTH_SESSION_COMPROMISED = 'AUTH_SESSION_COMPROMISED',
 
+  // S66 (D13 / FR-W05a): emailVerified=false 사용자의 워크스페이스 진입(JOIN·ACCEPT·
+  // DOMAIN_JOIN) 및 채널 메시지 전송을 차단 → 403. "가입/초대 수락/채널 진입 시점에
+  // emailVerified 재확인"이라는 PRD 불변식의 단일 거부 코드다.
+  EMAIL_NOT_VERIFIED = 'EMAIL_NOT_VERIFIED',
+  // S66 (D13 / FR-W05a): 워크스페이스 emailDomains 화이트리스트(exact match) 불일치 →
+  // 403. user.email.split('@')[1] === domain(소문자 정규화). 빈 배열이면 제한 없음.
+  WORKSPACE_DOMAIN_NOT_ALLOWED = 'WORKSPACE_DOMAIN_NOT_ALLOWED',
+  // S66 (D13 / FR-W05b): 인증 메일 재발송 쿨다운(60s)/일일한도(5회) 초과 → 429.
+  EMAIL_VERIFICATION_RATE_LIMITED = 'EMAIL_VERIFICATION_RATE_LIMITED',
+  // S66 (D13 / FR-W05b): 인증 토큰 만료(발급 24h 경과) → 410(자원이 한때 유효했으나 소멸).
+  EMAIL_VERIFICATION_TOKEN_EXPIRED = 'EMAIL_VERIFICATION_TOKEN_EXPIRED',
+  // S66 (D13 / FR-W05b): 인증 토큰 미존재/형식오류/이미 사용됨(usedAt) → 400.
+  EMAIL_VERIFICATION_TOKEN_INVALID = 'EMAIL_VERIFICATION_TOKEN_INVALID',
+
   WORKSPACE_NOT_FOUND = 'WORKSPACE_NOT_FOUND',
   WORKSPACE_NOT_MEMBER = 'WORKSPACE_NOT_MEMBER',
   WORKSPACE_SLUG_TAKEN = 'WORKSPACE_SLUG_TAKEN',
@@ -243,6 +257,13 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.AUTH_INVALID_CREDENTIALS]: 401,
   [ErrorCode.AUTH_ACCOUNT_LOCKED]: 423,
   [ErrorCode.AUTH_SESSION_COMPROMISED]: 401,
+
+  // S66 (D13 / FR-W05a/W05b/W21): 이메일 인증 + 도메인 게이트 상태코드.
+  [ErrorCode.EMAIL_NOT_VERIFIED]: 403,
+  [ErrorCode.WORKSPACE_DOMAIN_NOT_ALLOWED]: 403,
+  [ErrorCode.EMAIL_VERIFICATION_RATE_LIMITED]: 429,
+  [ErrorCode.EMAIL_VERIFICATION_TOKEN_EXPIRED]: 410,
+  [ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID]: 400,
 
   [ErrorCode.WORKSPACE_NOT_FOUND]: 404,
   [ErrorCode.WORKSPACE_NOT_MEMBER]: 404,

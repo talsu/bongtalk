@@ -35,15 +35,15 @@ describe('MeProfileController.get (task-046 M1)', () => {
       bio: 'hello world',
     });
     const { ctrl } = makeCtrl({ findUnique });
-    const res = await ctrl.get({ id: ME, email: 'me@e.com', username: 'me' });
+    const res = await ctrl.get({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true });
     expect(res.bio).toBe('hello world');
   });
 
   it('user 없으면 profile not found', async () => {
     const { ctrl } = makeCtrl({ findUnique: vi.fn().mockResolvedValue(null) });
-    await expect(ctrl.get({ id: ME, email: 'me@e.com', username: 'me' })).rejects.toThrow(
-      /profile not found/,
-    );
+    await expect(
+      ctrl.get({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }),
+    ).rejects.toThrow(/profile not found/);
   });
 });
 
@@ -51,7 +51,10 @@ describe('MeProfileController.patch (task-046 M1)', () => {
   it('bio null → 저장도 null', async () => {
     const update = vi.fn().mockResolvedValue({});
     const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { bio: null });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      { bio: null },
+    );
     expect(res.bio).toBeNull();
     expect(update).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -64,7 +67,10 @@ describe('MeProfileController.patch (task-046 M1)', () => {
   it('bio 빈 trim 결과 → null', async () => {
     const update = vi.fn().mockResolvedValue({});
     const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { bio: '   ' });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      { bio: '   ' },
+    );
     expect(res.bio).toBeNull();
   });
 
@@ -72,7 +78,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const update = vi.fn().mockResolvedValue({});
     const { ctrl } = makeCtrl({ update });
     const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       { bio: '  안녕  ' },
     );
     expect(res.bio).toBe('안녕');
@@ -82,7 +88,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         {
           bio: 42 as unknown as string,
         },
@@ -93,7 +99,10 @@ describe('MeProfileController.patch (task-046 M1)', () => {
   it('bio 길이 > 500 → VALIDATION_FAILED', async () => {
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { bio: 'x'.repeat(501) }),
+      ctrl.patch(
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+        { bio: 'x'.repeat(501) },
+      ),
     ).rejects.toThrow(/too long/);
   });
 
@@ -101,7 +110,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const update = vi.fn().mockResolvedValue({});
     const { ctrl } = makeCtrl({ update });
     const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       {
         bio: 'x'.repeat(500),
       },
@@ -111,7 +120,10 @@ describe('MeProfileController.patch (task-046 M1)', () => {
 
   it('rate limit 호출 (10/min/user)', async () => {
     const { ctrl, rate } = makeCtrl();
-    await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { bio: 'hi' });
+    await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      { bio: 'hi' },
+    );
     expect(rate.enforce).toHaveBeenCalledWith([
       { key: `me-profile:u:${ME}`, windowSec: 60, max: 10 },
     ]);
@@ -123,14 +135,20 @@ describe('MeProfileController.patch (task-046 M1)', () => {
   it('links null → 저장 시 Prisma.JsonNull (links: null 반환)', async () => {
     const update = vi.fn().mockResolvedValue({ bio: null, links: null });
     const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links: null });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      { links: null },
+    );
     expect(res.links).toBeNull();
   });
 
   it('links 빈 배열 → null', async () => {
     const update = vi.fn().mockResolvedValue({ bio: null, links: null });
     const { ctrl } = makeCtrl({ update });
-    const res = await ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links: [] });
+    const res = await ctrl.patch(
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
+      { links: [] },
+    );
     expect(res.links).toBeNull();
   });
 
@@ -139,7 +157,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const update = vi.fn().mockResolvedValue({ bio: null, links: expected });
     const { ctrl } = makeCtrl({ update });
     const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       { links: expected },
     );
     expect(res.links).toEqual(expected);
@@ -149,7 +167,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         { links: [{ url: 'javascript:alert(1)' }] },
       ),
     ).rejects.toThrow(/http:\/\/ or https:\/\//);
@@ -159,7 +177,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const links = Array.from({ length: 4 }, (_, i) => ({ url: `https://e${i}.com` }));
     const { ctrl } = makeCtrl();
     await expect(
-      ctrl.patch({ id: ME, email: 'me@e.com', username: 'me' }, { links }),
+      ctrl.patch({ id: ME, email: 'me@e.com', username: 'me', emailVerified: true }, { links }),
     ).rejects.toThrow(/too many links/);
   });
 
@@ -167,7 +185,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         { links: [{ label: 'no url' } as { url?: string; label?: string }] },
       ),
     ).rejects.toThrow(/non-empty string/);
@@ -177,7 +195,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
     const { ctrl } = makeCtrl();
     await expect(
       ctrl.patch(
-        { id: ME, email: 'me@e.com', username: 'me' },
+        { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
         { links: [{ url: 'https://example.com', label: 'x'.repeat(33) }] },
       ),
     ).rejects.toThrow(/label too long/);
@@ -189,7 +207,7 @@ describe('MeProfileController.patch (task-046 M1)', () => {
       .mockResolvedValue({ bio: 'hi', links: [{ url: 'https://example.com' }] });
     const { ctrl } = makeCtrl({ update });
     const res = await ctrl.patch(
-      { id: ME, email: 'me@e.com', username: 'me' },
+      { id: ME, email: 'me@e.com', username: 'me', emailVerified: true },
       { bio: 'hi', links: [{ url: 'https://example.com' }] },
     );
     expect(res.bio).toBe('hi');
