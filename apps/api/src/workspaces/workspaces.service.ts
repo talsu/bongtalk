@@ -32,6 +32,9 @@ import { MemberRoleService } from './roles/member-role.service';
 // S63 fix-forward (security A-1 = HIGH/BLOCKER): PUBLIC 워크스페이스 즉시 가입(joinPublic)
 // 에서도 차단(BannedMember) 여부를 검사해 ban 우회 재가입을 막는다(invites.accept 선례).
 import { ModerationService } from './moderation/moderation.service';
+// S72 (D13 / FR-W22): joinPublic 에 IP soft-block(차단 IP PUBLIC 가입 허용+audit) + 가입
+// ipHash 기록을 적용한다.
+import { IpSoftBlockService } from './moderation/ip-soft-block.service';
 // S65 (D13 / FR-W13): 소유권 양도 시 OWNER 비밀번호 재확인. auth 와 동일한 argon2
 // PasswordService 로 검증한다(저장된 passwordHash 가 argon2 — bcrypt.compare 는 불일치).
 import { PasswordService } from '../auth/services/password.service';
@@ -65,6 +68,9 @@ export class WorkspacesService {
     private readonly passwords: PasswordService,
     // S72 (D13 / FR-W16): 디스커버리 검색 결과 캐시(read/write/invalidate).
     private readonly discoverCache: DiscoverCacheService,
+    // S72 (D13 / FR-W22): joinPublic 의 IP soft-block + 가입 ipHash 기록. 생성자 끝에 두어
+    // 기존 호출부(6-arg)의 인자 위치를 보존한다.
+    private readonly ipSoftBlock: IpSoftBlockService,
   ) {}
 
   private get graceMs(): number {
@@ -471,7 +477,8 @@ export class WorkspacesService {
     userId: string,
     // S66 (D13 / FR-W05a): 도메인 가입(PUBLIC 즉시 가입) 시점 진입 게이트
     // (emailVerified + emailDomains). 컨트롤러가 JWT 에서 로드한 본인 값을 넘긴다.
-    actor: { emailVerified: boolean; userEmail: string },
+    // S72 (D13 / FR-W22): clientIp(req.ip 계열)로 IP soft-block 대조 + 가입 ipHash 기록.
+    actor: { emailVerified: boolean; userEmail: string; clientIp?: string | null },
   ): Promise<{ workspaceId: string; alreadyMember: boolean }> {
     const ws = await this.prisma.workspace.findUnique({
       where: { id: workspaceId },
@@ -523,13 +530,22 @@ export class WorkspacesService {
     if (await this.moderation.isBanned(workspaceId, userId)) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
     }
+    // S72 (D13 / FR-W22): IP soft-block. PUBLIC 즉시 가입은 차단 IP 매칭이어도 hard-block
+    // 하지 않고(NAT 공유 오탐 방지) 허용하되 SUSPICIOUS_JOIN 감사를 남긴다. 반환된 ipHash 를
+    // 멤버 행에 기록해 이 사용자가 추후 ban 되면 같은 IP 가 BannedMember.ipHash 로 복사된다.
+    const { ipHash } = await this.ipSoftBlock.assertNotIpBlocked({
+      workspaceId,
+      userId,
+      clientIp: actor.clientIp,
+      mechanism: 'PUBLIC',
+    });
     // S61 fix-forward (security A-2 · MemberRole desync): 멤버 생성과 동일 트랜잭션에서
     // MEMBER 시스템 MemberRole 을 시드한다. 이게 없으면 신규 멤버는 MemberRole 부재로
     // computeActorTopPosition=0·computeActorMaxPermissions=0n 이 되어 ADMIN 승격 후에도
     // 역할 관리가 전부 거부된다(기능 불능).
     await this.prisma.$transaction(async (tx) => {
       await tx.workspaceMember.create({
-        data: { workspaceId, userId, role: WorkspaceRole.MEMBER },
+        data: { workspaceId, userId, role: WorkspaceRole.MEMBER, ipHash },
       });
       await syncMemberSystemRole(tx, workspaceId, userId, 'MEMBER');
     });

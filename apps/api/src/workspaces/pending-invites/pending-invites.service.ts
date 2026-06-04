@@ -18,6 +18,8 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import { MEMBER_JOINED } from '../events/workspace-events';
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 import { ModerationService } from '../moderation/moderation.service';
+// S72 (D13 / FR-W22): 이메일 초대 수락 IP soft-block(차단 IP INVITE 수락 허용+audit) + ipHash 기록.
+import { IpSoftBlockService } from '../moderation/ip-soft-block.service';
 import { assertWorkspaceEntryAllowed } from '../workspace-entry-gate';
 import { MAIL_SENDER, type MailSender } from '../../auth/services/mail.service';
 import { hashToken, makeOpaqueCode, makeRawToken, normalizeEmail } from './pending-invite-tokens';
@@ -51,6 +53,8 @@ export class PendingInvitesService {
     @Inject(REDIS) private readonly redis: Redis,
     private readonly outbox: OutboxService,
     private readonly moderation: ModerationService,
+    // S72 (D13 / FR-W22): 이메일 초대 수락 IP soft-block + 가입 ipHash 기록.
+    private readonly ipSoftBlock: IpSoftBlockService,
     @Inject(MAIL_SENDER) private readonly mail: MailSender,
   ) {}
 
@@ -159,6 +163,12 @@ export class PendingInvitesService {
       if (await this.moderation.isBanned(workspace.id, existingUserId)) {
         return 'ALREADY_MEMBER'; // 중립 — 차단 사실을 결과로 누출하지 않음.
       }
+      // S72 (D13 / FR-W22 · reviewer MAJOR-1): 이 분기는 *관리자 일괄 초대*가 기가입자를
+      // 직접 멤버로 추가하는 경로다. 여기서 보이는 req.ip 는 invitee 가 아니라 초대를 수행한
+      // **관리자 IP** 라, IP soft-block 대조(assertNotIpBlocked)도 invitee ipHash 기록도
+      // 의도적으로 하지 않는다 — 관리자 IP 를 멤버 IP 로 잘못 심으면 오탐을 만든다. 차단된
+      // userId 는 바로 위 isBanned 로 이미 거른다(userId ban 은 hard). invitee 의 실 가입 IP
+      // 는 이 직접 추가 경로엔 존재하지 않으므로 IP soft-block 비적용이 정확한 동작이다.
       const systemRole = role === 'GUEST' ? 'GUEST' : 'MEMBER';
       await this.prisma.$transaction(async (tx) => {
         await tx.workspaceMember.create({
@@ -251,7 +261,7 @@ export class PendingInvitesService {
    */
   async acceptByOpaque(
     opaqueCode: string,
-    actor: { userId: string; userEmail: string; emailVerified: boolean },
+    actor: { userId: string; userEmail: string; emailVerified: boolean; clientIp?: string | null },
     now: Date = new Date(),
   ) {
     const pendingId = await this.redis.get(OPAQUE_KEY(opaqueCode));
@@ -290,7 +300,7 @@ export class PendingInvitesService {
    */
   async acceptByToken(
     rawToken: string,
-    actor: { userId: string; userEmail: string; emailVerified: boolean },
+    actor: { userId: string; userEmail: string; emailVerified: boolean; clientIp?: string | null },
     now: Date = new Date(),
   ) {
     const pending = await this.loadActiveByToken(rawToken, now);
@@ -337,7 +347,7 @@ export class PendingInvitesService {
       // S69 (D13 / FR-W10): 이메일 초대를 보낸 사용자(WorkspaceMember.invitedById 기록용).
       invitedById: string;
     },
-    actor: { userId: string; userEmail: string; emailVerified: boolean },
+    actor: { userId: string; userEmail: string; emailVerified: boolean; clientIp?: string | null },
     now: Date,
   ) {
     // S68 fix-forward (reviewer B1 = 보안 BLOCKER): 수락 actor 의 이메일이 초대 대상 이메일과
@@ -384,6 +394,16 @@ export class PendingInvitesService {
       emailDomains: workspace.emailDomains,
     });
 
+    // S72 (D13 / FR-W22): IP soft-block. 이메일 초대 수락은 INVITE 메커니즘이라 차단 IP
+    // 매칭이어도 hard-block 하지 않고(NAT 오탐 방지) 허용하되 SUSPICIOUS_JOIN 감사를 남긴다.
+    // 멤버 행에 ipHash 를 기록해 추후 ban 시 IP 가 BannedMember 로 복사되게 한다.
+    const { ipHash } = await this.ipSoftBlock.assertNotIpBlocked({
+      workspaceId: pending.workspaceId,
+      userId: actor.userId,
+      clientIp: actor.clientIp,
+      mechanism: 'INVITE',
+    });
+
     const systemRole = pending.role === WorkspaceRole.GUEST ? 'GUEST' : 'MEMBER';
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -402,6 +422,8 @@ export class PendingInvitesService {
             role: pending.role,
             // S69 (D13 / FR-W10): 이메일 보류 초대 수락 → 초대자는 초대를 보낸 사용자.
             invitedById: pending.invitedById,
+            // S72 (D13 / FR-W22): 가입 시점 요청 IP 해시(추후 ban 시 BannedMember 로 복사).
+            ipHash,
           },
         });
         await syncMemberSystemRole(tx, pending.workspaceId, actor.userId, systemRole);

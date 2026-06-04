@@ -9,7 +9,9 @@ import {
   Patch,
   Post,
   Query,
+  Req,
 } from '@nestjs/common';
+import type { Request } from 'express';
 import {
   ProcessApplicationRequestSchema,
   SubmitApplicationRequestSchema,
@@ -50,6 +52,7 @@ export class ApplicationsController {
   async submit(
     @Param('slug') slug: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Req() req: Request,
     @Body() body: unknown,
   ): Promise<WorkspaceMemberApplication> {
     // N4: 형식 검증을 rate-limit 보다 먼저 한다 — 불량 페이로드가 abuse 한도를 소진하지 않게.
@@ -58,9 +61,16 @@ export class ApplicationsController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     await this.rateLimit.enforce([{ key: `ws:apply:${user.id}`, windowSec: 60, max: 5 }]);
+    // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — APPLY IP
+    // soft-block 대조(차단 IP → 409 중립 APPLICATION_NOT_APPLICABLE)에 그대로 넘긴다.
     return this.applications.submit({
       slug,
-      applicant: { userId: user.id, emailVerified: user.emailVerified, userEmail: user.email },
+      applicant: {
+        userId: user.id,
+        emailVerified: user.emailVerified,
+        userEmail: user.email,
+        clientIp: req.ip,
+      },
       answers: parsed.data.answers,
     });
   }

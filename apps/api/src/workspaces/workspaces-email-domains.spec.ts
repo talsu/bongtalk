@@ -30,6 +30,8 @@ function makeService() {
     {} as never,
     {} as never,
     discoverCache as never,
+    // S72 (D13 / FR-W22): IpSoftBlockService — 이 스펙은 update() 게이트만 검증해 미사용.
+    {} as never,
   );
   return { svc, update, invalidate };
 }

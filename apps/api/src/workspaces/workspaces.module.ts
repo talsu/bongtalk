@@ -25,6 +25,9 @@ import { MemberRoleService } from './roles/member-role.service';
 // AuditService 는 @Global AuditModule 제공, Redis 는 @Global RedisModule 제공.
 import { ModerationController } from './moderation/moderation.controller';
 import { ModerationService } from './moderation/moderation.service';
+// S72 (D13 / FR-W22): IP soft-block(가입/수락 IP 대조 + SUSPICIOUS_JOIN audit + 24h threshold).
+// AuditService 는 @Global AuditModule 제공, PrismaService 도 @Global.
+import { IpSoftBlockService } from './moderation/ip-soft-block.service';
 // S64 (D12 / FR-RM12): 감사 로그 조회 REST. AuditService 는 @Global AuditModule 제공.
 import { AuditLogController } from './audit/audit-log.controller';
 // S64 (D12 / FR-RM11): 신고 큐 서비스/컨트롤러. DELETE_MESSAGE 처리에 MessagesService 를
@@ -82,6 +85,7 @@ import { DiscoverCacheService } from './discover-cache.service';
     ApplicationsService,
     OnboardingService,
     DiscoverCacheService,
+    IpSoftBlockService,
   ],
   exports: [
     WorkspacesService,
@@ -91,6 +95,7 @@ import { DiscoverCacheService } from './discover-cache.service';
     MemberRoleService,
     ModerationService,
     ModerationReportService,
+    IpSoftBlockService,
   ],
 })
 export class WorkspacesModule {}

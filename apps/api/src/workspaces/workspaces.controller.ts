@@ -10,10 +10,11 @@ import {
   Patch,
   Post,
   Query,
+  Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import {
   CreateWorkspaceRequest,
   CreateWorkspaceRequestSchema,
@@ -91,15 +92,19 @@ export class WorkspacesController {
   async joinPublic(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Req() req: Request,
   ) {
     // task-031-B: 5/min/user on PUBLIC join (abuse mitigation — a single
     // account sweeping hundreds of public workspaces).
     await this.rateLimit.enforce([{ key: `ws:join:${user.id}`, windowSec: 60, max: 5 }]);
     // S66 (D13 / FR-W05a): PUBLIC 즉시 가입(도메인 가입)에도 emailVerified + emailDomains
     // 게이트를 적용한다(user 는 JWT 에서 로드된 emailVerified/email 보유 — 재조회 불요).
+    // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — IP soft-block
+    // 대조 + 가입 ipHash 기록에 그대로 넘긴다(invites/pending-invites 의 req.ip 패턴 재사용).
     return this.workspaces.joinPublic(id, user.id, {
       emailVerified: user.emailVerified,
       userEmail: user.email,
+      clientIp: req.ip,
     });
   }
 

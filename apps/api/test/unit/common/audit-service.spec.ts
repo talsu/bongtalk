@@ -24,6 +24,8 @@ describe('S62 AuditService.record', () => {
         targetId: null,
         channelId: null,
         details: undefined,
+        // S72 (D13 / FR-W22): ipHash 미지정 액션은 null 로 INSERT 된다.
+        ipHash: null,
       },
     });
   });
@@ -53,6 +55,8 @@ describe('S62 AuditService.record', () => {
         targetId: null,
         channelId: 'ch',
         details: { performedAction: 'MESSAGE_SEND' },
+        // S72 (D13 / FR-W22): ipHash 미지정 액션은 null 로 INSERT 된다.
+        ipHash: null,
       },
     });
   });
