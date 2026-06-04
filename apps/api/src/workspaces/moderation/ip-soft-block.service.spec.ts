@@ -26,7 +26,15 @@ type PrismaStub = {
   workspaceMember: { findUnique: ReturnType<typeof vi.fn> };
 };
 
-function makeDeps(opts: { banMatch: boolean; count?: number }): {
+function makeDeps(opts: {
+  banMatch: boolean;
+  // SUSPICIOUS_JOIN 24h count(threshold 평가 입력).
+  count?: number;
+  // 직전 24h 내 이미 존재하는 SUSPICIOUS_JOIN_THRESHOLD flag 수(de-dup 입력). 기본 0.
+  priorThresholdFlags?: number;
+  // audit.record 가 던지게 해 best-effort 비차단성을 검증.
+  auditThrows?: boolean;
+}): {
   prisma: PrismaStub;
   audit: { record: ReturnType<typeof vi.fn> };
   service: IpSoftBlockService;
@@ -35,10 +43,23 @@ function makeDeps(opts: { banMatch: boolean; count?: number }): {
     bannedMember: {
       findFirst: vi.fn(async () => (opts.banMatch ? { userId: 'banned-user' } : null)),
     },
-    auditLog: { count: vi.fn(async () => opts.count ?? 1) },
+    // 두 카운트 쿼리를 action 으로 구분한다: SUSPICIOUS_JOIN(threshold 평가) vs
+    // SUSPICIOUS_JOIN_THRESHOLD(직전 flag de-dup 조회).
+    auditLog: {
+      count: vi.fn(async (q: { where?: { action?: string } }) => {
+        if (q?.where?.action === AuditAction.SUSPICIOUS_JOIN_THRESHOLD) {
+          return opts.priorThresholdFlags ?? 0;
+        }
+        return opts.count ?? 1;
+      }),
+    },
     workspaceMember: { findUnique: vi.fn(async () => ({ ipHash: 'stored-hash' })) },
   };
-  const audit = { record: vi.fn(async () => undefined) };
+  const audit = {
+    record: vi.fn(async () => {
+      if (opts.auditThrows) throw new Error('audit db down');
+    }),
+  };
   // 서비스는 PrismaService / AuditService 타입을 받지만 런타임은 메서드 형태만 본다.
   const service = new IpSoftBlockService(
     prisma as unknown as ConstructorParameters<typeof IpSoftBlockService>[0],
@@ -147,5 +168,32 @@ describe('IpSoftBlockService.assertNotIpBlocked', () => {
     });
     expect(audit.record).toHaveBeenCalledOnce();
     expect(audit.record.mock.calls[0][0].action).toBe(AuditAction.SUSPICIOUS_JOIN);
+  });
+
+  it('de-dups the threshold flag when one already exists within the prior 24h', async () => {
+    // count=3 ≥ threshold 3 이지만 직전 24h 내 THRESHOLD flag 가 이미 1건 → 재기록 skip.
+    const { audit, service } = makeDeps({ banMatch: true, count: 3, priorThresholdFlags: 1 });
+    await service.assertNotIpBlocked({
+      workspaceId: WS,
+      userId: USER,
+      clientIp: IP,
+      mechanism: 'PUBLIC',
+    });
+    // SUSPICIOUS_JOIN 1건만 기록되고 THRESHOLD flag 는 추가되지 않는다(중복 큐 방지).
+    expect(audit.record).toHaveBeenCalledOnce();
+    expect(audit.record.mock.calls[0][0].action).toBe(AuditAction.SUSPICIOUS_JOIN);
+  });
+
+  it('does NOT throw (soft-allow) when the suspicious-join audit write fails (best-effort)', async () => {
+    // security LOW #3 / perf P2: audit DB 실패가 정상 PUBLIC/INVITE 가입을 막아선 안 된다.
+    const { service } = makeDeps({ banMatch: true, count: 1, auditThrows: true });
+    const result = await service.assertNotIpBlocked({
+      workspaceId: WS,
+      userId: USER,
+      clientIp: IP,
+      mechanism: 'PUBLIC',
+    });
+    // 예외 없이 통과하고 ipHash 를 정상 반환한다(가입 흐름 비차단).
+    expect(result.ipHash).toBe(hashIp(IP));
   });
 });

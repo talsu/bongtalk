@@ -804,6 +804,12 @@ model WorkspaceMemberApplication {
   reviewedById       String?           @db.Uuid
   reviewNote         String?           @db.VarChar(500)
   interviewChannelId String?           @db.Uuid
+  // S72 (D13 / FR-W22 · reviewer BLOCKER-1): 신청 제출(submit) 시점의 요청 IP 해시
+  // (sha256, hex 64자). APPLY 는 신청자 IP(submit)와 승인자 IP(approve=admin)가 분리되므로,
+  // approve 의 req.ip(=admin IP) 대신 submit 때 기록한 이 값을 승인 시 WorkspaceMember.ipHash
+  // 로 복사한다 — 그래야 APPLY 가입자도 ban 시 BannedMember.ipHash 가 채워져 APPLY soft-block
+  // 대조가 동작한다. null = 미상 IP(NAT/프록시 미상) 또는 레거시 신청. 원시 IP 는 저장 안 함.
+  applicantIpHash    String?           @db.Char(64)
   createdAt          DateTime          @default(now()) @db.Timestamptz(6)
   updatedAt          DateTime          @updatedAt
 

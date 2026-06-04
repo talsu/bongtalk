@@ -68,6 +68,14 @@ export class ModerationService {
       targetUserId,
       PERMISSIONS.KICK_MEMBERS,
     );
+    // S72 (D13 / FR-W22 · reviewer MAJOR-2): kick 으로 삭제되는 멤버의 가입 ipHash 를
+    // 스냅샷해 둔다. undo 재가입 시 이 값을 복원하지 않으면 kick→undo 후 ban 했을 때
+    // IP 신호가 소실된다(BannedMember.ipHash 가 null). undo 토큰과 함께 Redis 에 저장한다.
+    const kickedMember = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      select: { ipHash: true },
+    });
+    const snapshotIpHash = kickedMember?.ipHash ?? null;
 
     try {
       await this.prisma.$transaction(async (tx) => {
@@ -110,13 +118,16 @@ export class ModerationService {
 
     // FR-RM05: 5초 Undo 토큰. actor 가 자신의 HTTP 응답으로만 받는다(브로드캐스트
     // 제외). undoToken → 대상 userId 매핑을 Redis 에 TTL 5초로 저장한다.
+    // S72 (D13 / FR-W22 · reviewer MAJOR-2): undo 재가입 시 ipHash 를 복원하기 위해 토큰과
+    // 함께 kick 시점의 멤버 ipHash 를 JSON 으로 직렬화해 저장한다(레거시 평문 토큰 값과도
+    // 호환되게 kickUndo 가 파싱을 폴백한다).
     const undoToken = randomUUID();
     const undoExpiresAt = new Date(Date.now() + KICK_UNDO_TTL_SECONDS * 1000);
     if (this.redis) {
       try {
         await this.redis.set(
           kickUndoKey(workspaceId, actorId, targetUserId),
-          undoToken,
+          JSON.stringify({ token: undoToken, ipHash: snapshotIpHash }),
           'EX',
           KICK_UNDO_TTL_SECONDS,
         );
@@ -145,7 +156,14 @@ export class ModerationService {
     }
     const key = kickUndoKey(workspaceId, actorId, targetUserId);
     const stored = await this.redis.get(key);
-    if (!stored || stored !== undoToken) {
+    if (!stored) {
+      throw new DomainError(ErrorCode.KICK_UNDO_INVALID, 'undo token expired or invalid');
+    }
+    // S72 (D13 / FR-W22 · reviewer MAJOR-2): 저장값은 {token, ipHash} JSON 이다(레거시
+    // 평문 토큰 값과도 호환되게 파싱 실패 시 stored 자체를 토큰으로 폴백). 토큰 검증 후
+    // ipHash 를 복원해 kick→undo 후 ban 시 IP 신호가 소실되지 않게 한다.
+    const { token: storedToken, ipHash: restoredIpHash } = parseUndoPayload(stored);
+    if (storedToken !== undoToken) {
       throw new DomainError(ErrorCode.KICK_UNDO_INVALID, 'undo token expired or invalid');
     }
     // 토큰 1회용 — 즉시 삭제해 재사용을 막는다.
@@ -163,7 +181,13 @@ export class ModerationService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.workspaceMember.create({
-          data: { workspaceId, userId: targetUserId, role: WorkspaceRole.MEMBER },
+          // S72 (D13 / FR-W22 · reviewer MAJOR-2): kick 시점의 ipHash 를 복원한다(IP 신호 보존).
+          data: {
+            workspaceId,
+            userId: targetUserId,
+            role: WorkspaceRole.MEMBER,
+            ipHash: restoredIpHash,
+          },
         });
         // 재가입은 가입(invites.accept) 경로와 동일하게 MEMBER 시스템 MemberRole 을
         // 동기한다(enum ↔ 시스템 Role 불변식 — 누락 시 역할 관리 전부 거부됨).
@@ -839,6 +863,28 @@ export class ModerationService {
 /** FR-RM05: kick undo Redis 키. actor·target 쌍으로 스코프해 충돌을 막는다. */
 function kickUndoKey(workspaceId: string, actorId: string, targetUserId: string): string {
   return `kick_undo:${workspaceId}:${actorId}:${targetUserId}`;
+}
+
+/**
+ * S72 (D13 / FR-W22 · reviewer MAJOR-2): kick undo Redis 저장값을 {token, ipHash} 로 파싱한다.
+ * 신규 값은 JSON 직렬화돼 있고, TTL 5초 내 잔존할 수 있는 레거시 평문 토큰 값(또는 파싱
+ * 불가)은 stored 자체를 토큰으로 보고 ipHash 는 null 로 폴백한다(하위호환 — undo 동작 보존).
+ */
+function parseUndoPayload(stored: string): { token: string; ipHash: string | null } {
+  try {
+    const parsed: unknown = JSON.parse(stored);
+    if (
+      parsed &&
+      typeof parsed === 'object' &&
+      typeof (parsed as { token?: unknown }).token === 'string'
+    ) {
+      const obj = parsed as { token: string; ipHash?: unknown };
+      return { token: obj.token, ipHash: typeof obj.ipHash === 'string' ? obj.ipHash : null };
+    }
+  } catch {
+    // 레거시 평문 토큰 값 — JSON 이 아니면 stored 자체가 토큰.
+  }
+  return { token: stored, ipHash: null };
 }
 
 /** 사유 정규화 — trim 후 빈 문자열이면 null(미제공 취급). Zod 가 길이는 이미 검증. */

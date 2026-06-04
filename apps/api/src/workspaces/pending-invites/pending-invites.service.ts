@@ -163,6 +163,12 @@ export class PendingInvitesService {
       if (await this.moderation.isBanned(workspace.id, existingUserId)) {
         return 'ALREADY_MEMBER'; // 중립 — 차단 사실을 결과로 누출하지 않음.
       }
+      // S72 (D13 / FR-W22 · reviewer MAJOR-1): 이 분기는 *관리자 일괄 초대*가 기가입자를
+      // 직접 멤버로 추가하는 경로다. 여기서 보이는 req.ip 는 invitee 가 아니라 초대를 수행한
+      // **관리자 IP** 라, IP soft-block 대조(assertNotIpBlocked)도 invitee ipHash 기록도
+      // 의도적으로 하지 않는다 — 관리자 IP 를 멤버 IP 로 잘못 심으면 오탐을 만든다. 차단된
+      // userId 는 바로 위 isBanned 로 이미 거른다(userId ban 은 hard). invitee 의 실 가입 IP
+      // 는 이 직접 추가 경로엔 존재하지 않으므로 IP soft-block 비적용이 정확한 동작이다.
       const systemRole = role === 'GUEST' ? 'GUEST' : 'MEMBER';
       await this.prisma.$transaction(async (tx) => {
         await tx.workspaceMember.create({

@@ -29,6 +29,21 @@ describe('normalizeIp', () => {
   it('leaves a plain IPv4 untouched', () => {
     expect(normalizeIp('203.0.113.5')).toBe('203.0.113.5');
   });
+
+  it('canonicalizes uncompressed IPv6 to the RFC 5952 compressed form', () => {
+    // security MEDIUM #1 / reviewer MINOR-2: 비압축/압축 표기가 같은 canonical 로 수렴.
+    expect(normalizeIp('2001:db8:0:0:0:0:0:1')).toBe('2001:db8::1');
+    expect(normalizeIp('2001:0db8::0001')).toBe('2001:db8::1');
+  });
+
+  it('strips an IPv6 zone-id (scope) before canonicalizing', () => {
+    expect(normalizeIp('fe80::1%eth0')).toBe('fe80::1');
+    expect(normalizeIp('FE80::0:1%25')).toBe('fe80::1');
+  });
+
+  it('falls back to trim+lowercase for unparseable input', () => {
+    expect(normalizeIp('  NOT-an-ip ')).toBe('not-an-ip');
+  });
 });
 
 describe('hashIp', () => {
@@ -44,6 +59,14 @@ describe('hashIp', () => {
 
   it('is case/whitespace insensitive', () => {
     expect(hashIp('  2001:DB8::1 ')).toBe(hashIp('2001:db8::1'));
+  });
+
+  it('hashes compressed and uncompressed IPv6 forms to the same value', () => {
+    expect(hashIp('2001:db8:0:0:0:0:0:1')).toBe(hashIp('2001:db8::1'));
+  });
+
+  it('hashes an IPv6 address with a zone-id the same as without it', () => {
+    expect(hashIp('fe80::1%eth0')).toBe(hashIp('fe80::1'));
   });
 
   it('returns null for empty, whitespace, unknown, or non-string input', () => {

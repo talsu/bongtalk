@@ -5,6 +5,8 @@
 -- IF EXISTS 가드로 멱등. prisma 가 자동 적용하지는 않으나(현 프로젝트는 forward-only
 -- migrate deploy) up→down→up 가역 검증의 정본이며 운영 롤백 절차의 근거다.
 
+ALTER TABLE "WorkspaceMemberApplication" DROP COLUMN IF EXISTS "applicantIpHash";
+
 DROP INDEX IF EXISTS "AuditLog_workspaceId_ipHash_createdAt_idx";
 ALTER TABLE "AuditLog" DROP COLUMN IF EXISTS "ipHash";
 

@@ -214,6 +214,125 @@ describe('S72 FR-W22: APPLY submission from a banned IP → 403', () => {
   });
 });
 
+describe('S72 FR-W22: APPLY lifecycle records applicant IP → ban copies it → re-apply blocked', () => {
+  it('APPLY submit(IP 기록) → approve(멤버 ipHash) → ban(BannedMember.ipHash) → 동일 IP 재신청 409', async () => {
+    // reviewer BLOCKER-1: APPLY 는 신청자 IP(submit)와 승인자 IP(approve=admin)가 분리되므로,
+    // submit 시점 신청자 ipHash 를 applicantIpHash 에 기록했다가 approve 가 멤버 ipHash 로
+    // 복사해야 ban 시 BannedMember.ipHash 가 채워지고 APPLY soft-block 대조가 동작한다.
+    const owner = await signupAsUser(env.baseUrl, 's72alo');
+    const applicant = await signupAsUser(env.baseUrl, 's72ala');
+    const applySlug = await createApplyWorkspace(owner.accessToken, 's72al');
+    const applyWs = await env.prisma.workspace.findUnique({
+      where: { slug: applySlug },
+      select: { id: true },
+    });
+    const applyWsId = applyWs!.id;
+
+    // 1) applicant 가 BANNED_IP 에서 신청 → applicantIpHash 기록.
+    const submit = await request(env.baseUrl)
+      .post(`/workspaces/${applySlug}/applications`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${applicant.accessToken}`)
+      .set('X-Forwarded-For', BANNED_IP)
+      .send({ answers: [] });
+    expect(submit.status).toBe(201);
+    const application = await env.prisma.workspaceMemberApplication.findFirst({
+      where: { workspaceId: applyWsId, applicantId: applicant.userId },
+      select: { id: true, applicantIpHash: true },
+    });
+    expect(application?.applicantIpHash).toBe(ipHashOf(BANNED_IP));
+
+    // 2) owner 가 승인(admin IP — clean) → 멤버 ipHash 가 *신청자* IP 로 채워진다(admin 아님).
+    const approve = await request(env.baseUrl)
+      .patch(`/workspaces/${applySlug}/applications/${application!.id}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .set('X-Forwarded-For', CLEAN_IP)
+      .send({ action: 'approve' });
+    expect(approve.status).toBe(200);
+    const member = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: applyWsId, userId: applicant.userId } },
+      select: { ipHash: true },
+    });
+    expect(member?.ipHash).toBe(ipHashOf(BANNED_IP));
+
+    // 3) owner 가 applicant 를 ban → BannedMember.ipHash 가 채워진다(멤버 ipHash 복사).
+    await request(env.baseUrl)
+      .post(`/workspaces/${applyWsId}/moderation/bans`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ userId: applicant.userId })
+      .expect((r) => expect(r.status).toBeLessThan(400));
+    const banned = await env.prisma.bannedMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: applyWsId, userId: applicant.userId } },
+      select: { ipHash: true },
+    });
+    expect(banned?.ipHash).toBe(ipHashOf(BANNED_IP));
+
+    // 4) 전혀 다른 사용자가 같은 BANNED_IP 에서 APPLY 재신청 → 409(중립) 차단(APPLY soft-block).
+    const other = await signupAsUser(env.baseUrl, 's72alx');
+    const reapply = await request(env.baseUrl)
+      .post(`/workspaces/${applySlug}/applications`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${other.accessToken}`)
+      .set('X-Forwarded-For', BANNED_IP)
+      .send({ answers: [] });
+    expect(reapply.status).toBe(409);
+    expect(reapply.body.errorCode).toBe('APPLICATION_NOT_APPLICABLE');
+  });
+});
+
+describe('S72 FR-W22: kick → undo preserves the member ipHash (reviewer MAJOR-2)', () => {
+  it('kick→undo 후 ban 하면 IP 신호가 보존된다(BannedMember.ipHash 채워짐)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 's72kuo');
+    const member = await signupAsUser(env.baseUrl, 's72kum');
+    const wsId = await createPublicWorkspace(owner.accessToken, 's72ku');
+
+    // member 가 BANNED_IP 에서 PUBLIC 가입 → ipHash 기록.
+    await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/join`)
+      .set('Authorization', `Bearer ${member.accessToken}`)
+      .set('X-Forwarded-For', BANNED_IP)
+      .expect(201);
+
+    // owner 가 kick → undoToken 수령.
+    const kick = await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/moderation/members/${member.userId}/kick`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({});
+    expect(kick.status).toBeLessThan(400);
+    const undoToken = kick.body.undoToken as string;
+    expect(typeof undoToken).toBe('string');
+
+    // undo 재가입 → ipHash 가 복원돼야 한다(kick 스냅샷).
+    await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/moderation/members/${member.userId}/kick-undo`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ undoToken })
+      .expect((r) => expect(r.status).toBeLessThan(400));
+    const rejoined = await env.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: wsId, userId: member.userId } },
+      select: { ipHash: true },
+    });
+    expect(rejoined?.ipHash).toBe(ipHashOf(BANNED_IP));
+
+    // 이제 ban → BannedMember.ipHash 가 보존된 ipHash 로 채워진다(kick→undo 후에도 IP 신호 유지).
+    await request(env.baseUrl)
+      .post(`/workspaces/${wsId}/moderation/bans`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ userId: member.userId })
+      .expect((r) => expect(r.status).toBeLessThan(400));
+    const banned = await env.prisma.bannedMember.findUnique({
+      where: { workspaceId_userId: { workspaceId: wsId, userId: member.userId } },
+      select: { ipHash: true },
+    });
+    expect(banned?.ipHash).toBe(ipHashOf(BANNED_IP));
+  });
+});
+
 describe('S72 FR-W22: 24h SUSPICIOUS_JOIN threshold → moderation flag', () => {
   it('동일 차단 IP 의 SUSPICIOUS_JOIN 이 threshold(기본 3) 도달 시 SUSPICIOUS_JOIN_THRESHOLD flag 를 남긴다', async () => {
     const owner = await signupAsUser(env.baseUrl, 's72tho');

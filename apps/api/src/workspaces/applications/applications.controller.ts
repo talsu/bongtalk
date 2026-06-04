@@ -62,7 +62,7 @@ export class ApplicationsController {
     }
     await this.rateLimit.enforce([{ key: `ws:apply:${user.id}`, windowSec: 60, max: 5 }]);
     // S72 (D13 / FR-W22): trust proxy=1 덕분에 req.ip 는 실 클라이언트 IP — APPLY IP
-    // soft-block 대조(차단 IP → 403)에 그대로 넘긴다.
+    // soft-block 대조(차단 IP → 409 중립 APPLICATION_NOT_APPLICABLE)에 그대로 넘긴다.
     return this.applications.submit({
       slug,
       applicant: {
