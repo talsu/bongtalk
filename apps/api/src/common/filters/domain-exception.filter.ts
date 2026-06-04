@@ -32,7 +32,14 @@ export class DomainExceptionFilter implements ExceptionFilter {
       status = ERROR_CODE_HTTP_STATUS[code];
       message = exception.message;
       const d = exception.details as
-        | { retryAfterSec?: number; retryAfterMs?: number; current?: unknown }
+        | {
+            retryAfterSec?: number;
+            retryAfterMs?: number;
+            current?: unknown;
+            // S73 (D14 / FR-PS-03): 핸들 쿨다운 거부 시 다음 변경 가능 시각(ISO)을
+            // 클라이언트에 전달해 "다음 변경 가능일 D-N" 안내를 즉시 갱신하게 한다.
+            nextAllowedAt?: string;
+          }
         | undefined;
       if (d && typeof d.retryAfterSec === 'number') {
         retryAfterSec = d.retryAfterSec;
@@ -46,6 +53,10 @@ export class DomainExceptionFilter implements ExceptionFilter {
       }
       if (d && d.current !== undefined) {
         details = { current: d.current };
+      }
+      // S73 (D14 / FR-PS-03): HANDLE_COOLDOWN_ACTIVE 의 nextAllowedAt 전달.
+      if (d && typeof d.nextAllowedAt === 'string') {
+        details = { ...(details as object | undefined), nextAllowedAt: d.nextAllowedAt };
       }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();

@@ -1400,10 +1400,17 @@ export function installRealtimeDispatcher(
   // 패치 — 큰 invalidate 보다 효율적. 멤버 list 가 없으면 무영향.
   on<{ userId: string; customStatus: string | null }>('user.profile.updated', (env) => {
     if (!env.userId) return;
-    // 모든 workspace members 캐시 키를 순회 — env 에 workspaceId 가 없어
-    // 사용자가 속한 모든 워크스페이스를 invalidate. 비용 작음 (members
-    // list 자체는 낮은 빈도 fetch).
-    qc.invalidateQueries({ queryKey: ['workspaces', 'members'] });
+    // perf serious(S73 리뷰): 멤버 목록 캐시 키는 `['workspaces', wsId, 'members']` 라
+    // queryKey prefix `['workspaces','members']` 와 불일치해 종전 invalidate 가 무효였다.
+    // predicate 로 세 번째 세그먼트가 'members' 인 키(워크스페이스 무관)를 골라 무효화한다.
+    // env 에 workspaceId 가 없어 사용자가 속한 모든 워크스페이스 멤버 목록을 대상으로 한다
+    // (members 목록은 낮은 빈도 fetch — 비용 작음).
+    qc.invalidateQueries({
+      predicate: (q) => {
+        const k = q.queryKey;
+        return Array.isArray(k) && k[0] === 'workspaces' && k[2] === 'members';
+      },
+    });
   });
 
   // ---------- Mentions (task-011-B · S44 FR-MN-01: wire `mention:new`) ----------

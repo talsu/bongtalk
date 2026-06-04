@@ -270,6 +270,15 @@ export const ErrorCodeSchema = z.enum([
   'SAVED_LIMIT_EXCEEDED',
   // S52 (FR-PS-08): PATCH 대상 저장 항목이 본인 소유가 아니거나 없음 → 404.
   'SAVED_NOT_FOUND',
+  // S73 (D14 / FR-PS-01/02/03): 전역 프로필 + 아바타.
+  //   HANDLE_TAKEN:           핸들이 이미 점유됨(다른 사용자 @unique) → 409.
+  //   HANDLE_COOLDOWN_ACTIVE: 핸들 변경 쿨다운(30일) 미경과 → 400 + details.nextAllowedAt(ISO).
+  //   FILE_TOO_LARGE:         아바타 선언/실측 크기 8MB 초과 → 413.
+  //   INVALID_MIME:           아바타 MIME 화이트리스트(png/jpeg/webp) 밖 → 415.
+  'HANDLE_TAKEN',
+  'HANDLE_COOLDOWN_ACTIVE',
+  'FILE_TOO_LARGE',
+  'INVALID_MIME',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -315,6 +324,8 @@ export * from './mrkdwn-parser';
 export * from './message-type';
 // S51 — 개인 저장함 컨트랙트 (D10 / FR-PS-07)
 export * from './saved-message';
+// S73 — 전역 프로필 + 아바타 컨트랙트 (D14 / FR-PS-01·02·03)
+export * from './profile';
 // S54 — 첨부 업로드 세션 + 차단확장자 + MIME 화이트리스트 + 읽음 모드 (D11 / FR-AM-03~06/27 + FR-RS-13)
 export * from './attachment';
 // S60 — 링크 unfurl 계약 + URL 정규화 (D11 / FR-RC07/08/09/21 + FR-AM-13~16)
