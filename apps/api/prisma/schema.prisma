@@ -502,6 +502,16 @@ enum WorkspaceVisibility {
   PRIVATE
 }
 
+// S65 (D13 / FR-W01): 워크스페이스 가입 방식. visibility(discover 노출 여부)와는
+// 직교한다 — visibility 는 "찾기 페이지에 보이는가", joinMode 는 "어떻게 들어오는가".
+//   PRIVATE — 초대 전용(기본). PUBLIC — 즉시 가입(joinPublic). APPLY — 신청 후 승인
+// (신청 플로우 FR-W06 은 S66+ carryover; S65 는 생성 시 모드 설정만 한다).
+enum WorkspaceJoinMode {
+  PRIVATE
+  PUBLIC
+  APPLY
+}
+
 enum WorkspaceCategory {
   PROGRAMMING
   GAMING
@@ -525,12 +535,25 @@ model Workspace {
   // pre-existing workspaces until owners opt in via Settings.
   visibility  WorkspaceVisibility @default(PRIVATE)
   category    WorkspaceCategory?
+  // S65 (D13 / FR-W01): 가입 방식. visibility 와 직교(가입 vs 노출). 기존 row 는
+  // PRIVATE 로 backfill 되어 discover/joinPublic 무회귀.
+  joinMode    WorkspaceJoinMode   @default(PRIVATE)
+  // S65 (D13 / FR-W01): 이메일 도메인 화이트리스트. 빈 배열 = 제한 없음. 신청/초대
+  // 게이트(FR-W06 등 후속)가 참조할 예정이며, S65 는 생성 시 저장만 한다.
+  emailDomains String[]           @default([])
+  // S65 (D13 / FR-W19): 기본 채널(가입자 랜딩). 생성 시 #general 로 세팅된다. 대상
+  // 채널 hard-delete 시 ON DELETE SET NULL(아래 FK)로 끊긴다.
+  defaultChannelId String?        @db.Uuid
   deletedAt   DateTime?
   deleteAt    DateTime?
   createdAt   DateTime            @default(now())
   updatedAt   DateTime            @updatedAt
 
   owner                   User                         @relation("WorkspaceOwner", fields: [ownerId], references: [id])
+  // S65 (D13 / FR-W19): 기본 채널 FK. SetNull — 채널 삭제 시 workspace 행은 유지하고
+  // defaultChannelId 만 NULL 로 끊는다. NoAction 로 Channel.workspace 관계와의
+  // 다중 캐스케이드 경로 충돌을 피한다(아래 references 명시 relation 이름으로 분리).
+  defaultChannel          Channel?                     @relation("WorkspaceDefaultChannel", fields: [defaultChannelId], references: [id], onDelete: SetNull, onUpdate: NoAction)
   members                 WorkspaceMember[]
   channels                Channel[]
   categories              Category[]
@@ -719,6 +742,11 @@ model Channel {
   // S3Service.maxBytes 순으로 폴백. BigInt(100MB 초과 표현 + 정밀도 보존).
   maxFileSizeBytes  BigInt?
   isPrivate         Boolean     @default(false)
+  // S65 (D13 / FR-W01·W19): 워크스페이스 기본 채널 여부. 생성 시 #general 이 true 로
+  // 시드되며, 기본 채널 변경(FR-W19) 시 이전 채널 false·신규 채널 true 로 토글된다
+  // (단일 트랜잭션). Workspace.defaultChannelId 와 한 쌍으로 동기된다. default false
+  // 라 기존 row 안전(additive + reversible).
+  isDefault         Boolean     @default(false)
   // S19 (FR-DM-08/09): 그룹 DM owner. group(`gdm:%`) DM 에서만 의미가 있다 —
   // 1:1 DM(`dm:%`)·일반 채널은 NULL. 멤버 추가/강퇴는 owner 만, 나가기 시 owner
   // 가 떠나면 잔여 멤버 중 joinedAt 최古로 자동 승계한다. onDelete SET NULL 로
@@ -731,6 +759,9 @@ model Channel {
   updatedAt         DateTime    @updatedAt
 
   workspace                Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // S65 (D13 / FR-W19): 이 채널을 기본 채널로 가리키는 워크스페이스(역참조). 채널
+  // hard-delete 시 그 쪽 FK 가 SetNull 로 끊긴다(Workspace.defaultChannel).
+  defaultForWorkspaces     Workspace[]                 @relation("WorkspaceDefaultChannel")
   category                 Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   owner                    User?                       @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   messages                 Message[]
