@@ -19,6 +19,10 @@ import { RoleCacheProcessor } from './role-cache.processor';
 import { TEMP_EVICT_QUEUE } from './temp-evict-queue.constants';
 import { TempEvictQueueService } from './temp-evict-queue.service';
 import { TempEvictProcessor } from './temp-evict.processor';
+// S71 (D13 / FR-W09): 워크스페이스 웰컴(시스템 DM + 입장 메시지) 비동기 발송 큐.
+import { ONBOARDING_WELCOME_QUEUE } from './onboarding-welcome.constants';
+import { OnboardingWelcomeQueueService } from './onboarding-welcome-queue.service';
+import { OnboardingWelcomeProcessor } from './onboarding-welcome.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -62,6 +66,8 @@ import { TempEvictProcessor } from './temp-evict.processor';
     BullModule.registerQueue({ name: ROLE_CACHE_QUEUE }),
     // S70 (FR-W12): 임시 멤버 disconnect debounce 강퇴 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: TEMP_EVICT_QUEUE }),
+    // S71 (FR-W09): 워크스페이스 웰컴 발송 큐. forRootAsync 연결을 재사용한다.
+    BullModule.registerQueue({ name: ONBOARDING_WELCOME_QUEUE }),
     RealtimeModule,
     // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
     // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
@@ -85,7 +91,17 @@ import { TempEvictProcessor } from './temp-evict.processor';
     // OutboxService(@Global) + PrismaService(@Global) + TempEvictQueueService 를 주입한다.
     TempEvictQueueService,
     TempEvictProcessor,
+    // S71 (FR-W09): 웰컴 발송 큐 서비스(OnboardingService 가 @Global 주입) + worker. Processor 가
+    // OutboxService(@Global) + PrismaService(@Global) 만 주입해 무거운 도메인 모듈을 끌어들이지 않는다.
+    OnboardingWelcomeQueueService,
+    OnboardingWelcomeProcessor,
   ],
-  exports: [ReminderQueueService, UnfurlQueueService, RoleCacheQueueService, TempEvictQueueService],
+  exports: [
+    ReminderQueueService,
+    UnfurlQueueService,
+    RoleCacheQueueService,
+    TempEvictQueueService,
+    OnboardingWelcomeQueueService,
+  ],
 })
 export class QueueModule {}

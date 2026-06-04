@@ -350,6 +350,21 @@ export class MessagesController {
         '타임아웃 중에는 메시지를 보낼 수 없습니다',
       );
     }
+    // S71 (FR-W07 / Fork-C): 규칙 동의 서버 게이트. 워크스페이스에 규칙이 존재하는데 멤버가
+    // 아직 동의하지 않았으면(rulesAcceptedAt NULL) 403 RULES_NOT_ACCEPTED 로 차단한다.
+    // rulesAcceptedAt 은 WorkspaceMemberGuard 가 편승 로드하므로, 미동의(NULL)일 때만 "규칙
+    // 존재" 경량 조회를 한다(이미 동의했거나 규칙 0개면 추가 DB 왕복 없음 — hot-path 비용 0).
+    // OWNER 는 규칙 작성 주체(생성자)이자 온보딩 비대상이므로 면제한다(Fork A-1 — 기존 멤버
+    // 무회귀 · FR-W09a 생성자 특례 일관). 신규 가입 MEMBER/ADMIN 은 동의 전까지 차단된다.
+    if (m.workspaceId && m.role !== 'OWNER' && m.rulesAcceptedAt == null) {
+      const hasRules = await this.messages.workspaceHasRules(m.workspaceId);
+      if (hasRules) {
+        throw new DomainError(
+          ErrorCode.RULES_NOT_ACCEPTED,
+          '규칙에 동의한 후 메시지를 보낼 수 있습니다',
+        );
+      }
+    }
     // S62 fix-forward (perf B-1 = SERIOUS-1/3 / MINOR-1): 워크스페이스 채널이면 멤버
     // 권한 메타(role + 보유 Role UUID/permissions)를 한 번만 로드해 announcement 게이트·
     // ADMINISTRATOR 우회 감사·MENTION_EVERYONE fold 에 재사용한다. 이게 없으면 세 경로가

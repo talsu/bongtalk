@@ -54,6 +54,17 @@ vi.mock('./useApplications', () => ({
   useProcessApplication: () => processMut,
 }));
 
+// S71 (S70 연계): 패널이 질문 카탈로그(listQuestions)를 useQuery 로 읽어 dt 라벨을 개선한다.
+// 테스트는 react-query useQuery 를 가벼운 stub 으로 대체해 QueryClientProvider 없이 렌더한다
+// (questionsData 를 케이스별로 주입). 기본은 빈 목록(폴백 경로 — 기존 동작 유지).
+let questionsData: { questions: { id: string; label: string }[] } = { questions: [] };
+vi.mock('@tanstack/react-query', () => ({
+  useQuery: () => ({ data: questionsData, isLoading: false }),
+}));
+vi.mock('../onboarding/api', () => ({
+  listQuestions: vi.fn().mockResolvedValue({ questions: [] }),
+}));
+
 import { ApplicationReviewPanel } from './ApplicationReviewPanel';
 
 function app(over: Partial<WorkspaceMemberApplication> = {}): WorkspaceMemberApplication {
@@ -79,6 +90,7 @@ beforeEach(() => {
   processMut.mutateAsync.mockReset().mockResolvedValue(undefined);
   pending = { data: { applications: [app()] }, isLoading: false };
   interview = { data: { applications: [] }, isLoading: false };
+  questionsData = { questions: [] };
 });
 afterEach(() => cleanup());
 
@@ -94,10 +106,17 @@ describe('S70 ApplicationReviewPanel (FR-W06)', () => {
     expect(reject.getAttribute('variant')).toBe('danger');
   });
 
-  it('a11y H-5: dt 는 questionId 원문 대신 "질문 N" aria-label 을 단다', () => {
+  it('a11y H-5: 질문 카탈로그 미매칭이면 questionId 원문 + "질문 N" aria-label 폴백', () => {
     render(<ApplicationReviewPanel slug="acme" enabled canApprove />);
     const dt = screen.getByText('q-uuid-1');
     expect(dt.getAttribute('aria-label')).toBe('질문 1');
+  });
+
+  it('S71 연계: 질문 카탈로그에 매칭되면 dt 에 질문 본문(label)을 노출한다', () => {
+    questionsData = { questions: [{ id: 'q-uuid-1', label: '어떤 일을 하시나요?' }] };
+    render(<ApplicationReviewPanel slug="acme" enabled canApprove />);
+    const dt = screen.getByText('어떤 일을 하시나요?');
+    expect(dt.getAttribute('aria-label')).toBe('어떤 일을 하시나요?');
   });
 
   it('a11y M-3: section 은 제목으로 aria-labelledby 연결된다', () => {

@@ -20,6 +20,11 @@ import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsP
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useAuth } from '../features/auth/AuthProvider';
 import { ToastViewport } from '../design-system/primitives';
+import { OnboardingOverlayGate } from '../features/onboarding/OnboardingOverlay';
+import {
+  useOnboardingState,
+  shouldShowOnboarding,
+} from '../features/onboarding/useOnboardingState';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
@@ -196,12 +201,32 @@ function DesktopShell(): JSX.Element {
       {active && inWorkspaceSettings ? (
         <WorkspaceSettingsOverlayHost workspace={active} workspaceSlug={active.slug} />
       ) : null}
+      {/* S71 (D13 / FR-W07·W08·W09): 신규 멤버 온보딩 오버레이. 규칙/질문/웰컴이 있고
+          미완료일 때만 전체화면 모달로 마운트된다(OWNER·빈 카탈로그는 미표시 — Fork A-1). */}
+      {active ? <OnboardingHost workspaceId={active.id} slug={active.slug} /> : null}
       <CommandPalette />
       <ShortcutHelp />
       <FeedbackDialog />
       <ToastViewport />
     </div>
   );
+}
+
+/**
+ * S71: 온보딩 마운트 게이트. 워크스페이스별 상태 + 본인 역할(myRole)을 읽어 표시 조건을
+ * 만족할 때만 OnboardingOverlay 를 렌더한다(OWNER 면제·빈 카탈로그 미표시 — Fork A-1).
+ */
+function OnboardingHost({
+  workspaceId,
+  slug,
+}: {
+  workspaceId: string;
+  slug: string;
+}): JSX.Element | null {
+  const { data: detail } = useWorkspace(workspaceId);
+  const { data: state } = useOnboardingState(slug);
+  const show = shouldShowOnboarding(state, detail?.myRole ?? null);
+  return <OnboardingOverlayGate slug={slug} state={state} show={show} />;
 }
 
 /**

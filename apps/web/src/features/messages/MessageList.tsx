@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
@@ -90,6 +90,11 @@ type Props = {
   jumpMessageId?: string | null;
   /** M2: 점프 스크롤이 완료돼 `?msg=` 를 URL 에서 제거해도 됨을 알립니다. */
   onJumpConsumed?: () => void;
+  /**
+   * S71 (FR-W09a): 빈 채널 empty state 하단에 끼워 넣을 생성자(OWNER) CTA. 부모(MessageColumn)가
+   * OWNER + 기본 채널 조건일 때만 CreatorEmptyStateCta 를 전달한다(미전달 시 기존 empty state 유지).
+   */
+  creatorCta?: ReactNode;
 };
 
 /**
@@ -131,6 +136,7 @@ export function MessageList({
   unreadSnapshot,
   jumpMessageId,
   onJumpConsumed,
+  creatorCta,
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
@@ -741,7 +747,7 @@ export function MessageList({
             </div>
           ) : null}
           {messages.length === 0 ? (
-            <ChannelEmptyState channel={channelMeta} />
+            <ChannelEmptyState channel={channelMeta} creatorCta={creatorCta} />
           ) : (
             <div
               data-testid="virtual-list-inner"
@@ -990,7 +996,14 @@ export function MessageList({
  * description 필드가 없어, 생성자 표기는 생략하고 설명은 topic 으로 대체합니다.
  * 채널 메타를 못 찾거나(DM·로딩 중) channel 이 undefined 면 generic 으로 폴백.
  */
-function ChannelEmptyState({ channel }: { channel: Channel | undefined }): JSX.Element {
+function ChannelEmptyState({
+  channel,
+  creatorCta,
+}: {
+  channel: Channel | undefined;
+  // S71 (FR-W09a): 생성자(OWNER) CTA. 제공되면 empty state 하단에 렌더한다.
+  creatorCta?: ReactNode;
+}): JSX.Element {
   const focusComposer = (): void => {
     // task-047 iter5 (O1): CTA — composer 에 포커스. composer 가 channel 헤더
     // 아래 mounted 라 composer-focus event 로 dispatch(search 와 동일 패턴).
@@ -1051,6 +1064,7 @@ function ChannelEmptyState({ channel }: { channel: Channel | undefined }): JSX.E
       >
         첫 메시지 작성하기
       </button>
+      {creatorCta}
     </div>
   );
 }
