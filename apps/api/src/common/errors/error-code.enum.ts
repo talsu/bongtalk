@@ -47,6 +47,13 @@ export enum ErrorCode {
   // 종전 VALIDATION_FAILED(400, shape 오류 전용)에서 분리 — discover 정합성 게이트라
   // WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC(422)와 같은 계열로 둔다.
   WORKSPACE_PUBLIC_REQUIRES_METADATA = 'WORKSPACE_PUBLIC_REQUIRES_METADATA',
+  // S72 (D13 / FR-W15): 워크스페이스 삭제 confirmation 불일치(body.confirmation !==
+  // workspace.slug) → 422. 요청 envelope 은 well-formed(DeleteWorkspaceRequestSchema
+  // 통과 — confirmation 은 string)이나, "삭제하려면 slug 를 정확히 타이핑"이라는 파괴적
+  // 액션 게이트를 못 넘긴 처리 불가 상태다. 채널 비공개→공개 confirmName(CHANNEL_CONFIRM_
+  // REQUIRED) 선례와 같은 계열이지만, 워크스페이스 삭제는 30일 후 영구 삭제로 비가역적이라
+  // 422(처리 불가 — 도메인 불변식)로 둔다(WORKSPACE_PUBLIC_REQUIRES_METADATA 와 동일 매핑).
+  WORKSPACE_CONFIRMATION_MISMATCH = 'WORKSPACE_CONFIRMATION_MISMATCH',
 
   // S61 (D12 / FR-RM01·04·15): 커스텀 Role 시스템.
   ROLE_NOT_FOUND = 'ROLE_NOT_FOUND',
@@ -334,6 +341,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.WORKSPACE_APPLY_NOT_SUPPORTED]: 409,
   // S65 fix-forward (D-2): PUBLIC 전환 메타데이터 누락 → 422(처리 불가 — 도메인 불변식).
   [ErrorCode.WORKSPACE_PUBLIC_REQUIRES_METADATA]: 422,
+  // S72 (D13 / FR-W15): 삭제 confirmation 불일치 → 422(처리 불가 — 파괴적 액션 게이트).
+  [ErrorCode.WORKSPACE_CONFIRMATION_MISMATCH]: 422,
 
   // S61 (D12 / FR-RM01·04·15): 역할 시스템.
   [ErrorCode.ROLE_NOT_FOUND]: 404,

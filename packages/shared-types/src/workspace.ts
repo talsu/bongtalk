@@ -223,6 +223,25 @@ export const UpdateDefaultChannelRequestSchema = z.object({
 });
 export type UpdateDefaultChannelRequest = z.infer<typeof UpdateDefaultChannelRequestSchema>;
 
+// S72 (D13 / FR-W15): 워크스페이스 삭제 요청. OWNER 전용이며, 오삭제를 막기 위해
+// body.confirmation 에 워크스페이스 slug 를 그대로 타이핑하도록 강제한다(GitHub repo
+// 삭제 / 채널 비공개→공개 전환 confirmName 선례). 서버가 confirmation !== workspace.slug
+// 면 422(WORKSPACE_CONFIRMATION_MISMATCH)로 거부하고, 일치하면 기존 softDelete 흐름
+// (deletedAt/deleteAt 기록 + 30일 grace + outbox WORKSPACE_DELETED)으로 진입한다.
+// confirmation 은 비어 있을 수 있으나(빈 slug 는 SlugSchema 상 불가) 형태 검증은 string
+// 만 한다 — slug 대조는 서버가 실제 워크스페이스 slug 로 한다(클라가 위조해도 무의미).
+export const DeleteWorkspaceRequestSchema = z.object({
+  confirmation: z.string(),
+});
+export type DeleteWorkspaceRequest = z.infer<typeof DeleteWorkspaceRequestSchema>;
+
+// S72 (D13 / FR-W15): 삭제 성공(202) 응답. 클라가 "N일 후 영구 삭제" 안내 + 복원 진입점
+// 노출에 쓰는 grace 종료 시각(ISO UTC)을 싣는다(softDelete 가 계산한 deleteAt).
+export const DeleteWorkspaceResponseSchema = z.object({
+  deleteAt: z.string().datetime(),
+});
+export type DeleteWorkspaceResponse = z.infer<typeof DeleteWorkspaceResponseSchema>;
+
 export const DiscoveryWorkspaceSchema = z.object({
   id: z.string().uuid(),
   name: z.string(),

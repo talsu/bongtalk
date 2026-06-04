@@ -7,6 +7,7 @@ import type {
   CreateInviteRequest,
   CreateRoleRequest,
   CreateWorkspaceRequest,
+  DeleteWorkspaceResponse,
   EmailInviteRole,
   ExchangeEmailInviteResponse,
   Invite,
@@ -77,8 +78,19 @@ export function updateWorkspace(id: string, input: UpdateWorkspaceRequest): Prom
   return apiRequest(`/workspaces/${id}`, { method: 'PATCH', body: input });
 }
 
-export function softDeleteWorkspace(id: string): Promise<{ deleteAt: string }> {
-  return apiRequest(`/workspaces/${id}`, { method: 'DELETE' });
+// S72 (D13 / FR-W15): 워크스페이스 소프트 삭제(OWNER). 파괴적 액션이라 confirmation
+// (= 워크스페이스 slug)을 body 로 보낸다. 서버가 confirmation !== slug 면 422
+// (WORKSPACE_CONFIRMATION_MISMATCH)로 거부한다. 성공 시 202 + grace 종료 시각 deleteAt.
+export function softDeleteWorkspace(
+  id: string,
+  confirmation: string,
+): Promise<DeleteWorkspaceResponse> {
+  return apiRequest(`/workspaces/${id}`, { method: 'DELETE', body: { confirmation } });
+}
+
+// S72 (D13 / FR-W15): grace 기간 내 워크스페이스 복원(OWNER). 성공 시 복원된 Workspace.
+export function restoreWorkspace(id: string): Promise<Workspace> {
+  return apiRequest(`/workspaces/${id}/restore`, { method: 'POST' });
 }
 
 // S27 (FR-P08/P09/P11/P12): grouped, presence-aware, paginated member list.
