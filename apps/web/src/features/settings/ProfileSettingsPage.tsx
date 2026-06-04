@@ -1,4 +1,12 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  cloneElement,
+  isValidElement,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactElement,
+} from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   HANDLE_RE,
@@ -11,6 +19,7 @@ import {
   HANDLE_COOLDOWN_DAYS,
   AVATAR_MAX_BYTES,
   AVATAR_ALLOWED_MIME,
+  type UpdateProfileInput,
 } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
@@ -85,7 +94,9 @@ export function ProfileSettingsPage(): JSX.Element {
 
   if (isLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">불러오는 중…</div>
+      <div role="status" className="flex h-full items-center justify-center text-text-muted">
+        불러오는 중…
+      </div>
     );
   }
   if (isError || !profile) {
@@ -130,11 +141,12 @@ export function ProfileSettingsPage(): JSX.Element {
       return;
     }
     try {
-      const { key, putUrl } = await presign.mutateAsync({
+      const { key, url, fields } = await presign.mutateAsync({
         contentType: file.type,
         sizeBytes: file.size,
       });
-      await uploadAvatarBlob(putUrl, file);
+      // security HIGH#2: presigned POST multipart 업로드(MinIO 가 크기/MIME 정책 강제).
+      await uploadAvatarBlob(url, fields, file);
       await finalize.mutateAsync(key);
       notify({ variant: 'success', title: '아바타를 변경했습니다.' });
     } catch (err) {
@@ -157,17 +169,37 @@ export function ProfileSettingsPage(): JSX.Element {
       setHandleError(`핸들은 소문자·숫자·_·. 조합 3–${HANDLE_MAX}자여야 합니다.`);
       return;
     }
+    // contract LOW: 서버 normString(trim 후 빈 문자열→null)과 WYSIWYG 가 일치하도록 클라에서
+    // 먼저 trim 한 뒤 전송한다. reviewer LOW(bio 회귀): 변경된 필드만 PATCH 에 싣는다 —
+    // 기존 ≥191자 bio 유저가 bio 를 만지지 않고 다른 필드만 저장할 때 길이 검증에 걸리지
+    // 않게 한다(서버는 patch 에 없는 필드를 검증·갱신하지 않음).
+    const norm = (raw: string): string | null => {
+      const t = raw.trim();
+      return t.length === 0 ? null : t;
+    };
+    const patch: UpdateProfileInput = {};
+    // handle 은 변경된 경우에만 전송(쿨다운 검증 스킵 + 불필요한 변경 방지).
+    if (handleChanged) patch.handle = handle.trim();
+    const fieldOf = (
+      cur: string,
+      original: string | null,
+    ): { changed: boolean; value: string | null } => {
+      const value = norm(cur);
+      return { changed: value !== (original ?? null), value };
+    };
+    for (const [key, cur, original] of [
+      ['displayName', displayName, profile.displayName],
+      ['fullName', fullName, profile.fullName],
+      ['pronouns', pronouns, profile.pronouns],
+      ['title', title, profile.title],
+      ['timezone', timezone, profile.timezone],
+      ['bio', bio, profile.bio],
+    ] as const) {
+      const { changed, value } = fieldOf(cur, original);
+      if (changed) patch[key] = value;
+    }
     try {
-      await update.mutateAsync({
-        // handle 은 변경된 경우에만 전송(쿨다운 검증 스킵 + 불필요한 변경 방지).
-        ...(handleChanged ? { handle } : {}),
-        displayName: displayName.trim().length === 0 ? null : displayName,
-        fullName: fullName.trim().length === 0 ? null : fullName,
-        pronouns: pronouns.trim().length === 0 ? null : pronouns,
-        title: title.trim().length === 0 ? null : title,
-        timezone: timezone.trim().length === 0 ? null : timezone,
-        bio: bio.trim().length === 0 ? null : bio,
-      });
+      await update.mutateAsync(patch);
       notify({ variant: 'success', title: '프로필을 저장했습니다.' });
     } catch (err) {
       const e = err as Error & { errorCode?: string; details?: { nextAllowedAt?: string } };
@@ -190,10 +222,27 @@ export function ProfileSettingsPage(): JSX.Element {
 
   const saving = update.isPending;
 
+  // a11y SERIOUS-1/2 + MODERATE-2: handle input 의 aria-describedby 는 활성화된
+  // 보조 텍스트(정규식 에러 → 서버 에러 → 쿨다운 힌트) id 들을 묶는다.
+  const handleDescribedBy =
+    [
+      handleInvalid ? 'pf-handle-regex' : null,
+      handleError ? 'pf-handle-server' : null,
+      cooldown ? 'pf-handle-cooldown' : null,
+      'pf-handle-counter',
+    ]
+      .filter(Boolean)
+      .join(' ') || undefined;
+
   return (
-    <div
+    <form
       data-testid="profile-settings-page"
       className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-[var(--s-5)] p-[var(--s-5)]"
+      onSubmit={(e) => {
+        // a11y MODERATE-4: Enter 제출 — 저장 버튼은 type=submit.
+        e.preventDefault();
+        void onSave();
+      }}
     >
       <header className="flex items-center gap-[var(--s-3)]">
         <button
@@ -207,11 +256,15 @@ export function ProfileSettingsPage(): JSX.Element {
         <h1 className="text-[length:var(--fs-18)] font-semibold">프로필</h1>
       </header>
 
-      {/* 아바타 (FR-PS-01) */}
-      <section className="flex items-center gap-[var(--s-4)]">
+      {/* 아바타 (FR-PS-01) — a11y MODERATE-3: section aria-label */}
+      <section aria-label="프로필 사진" className="flex items-center gap-[var(--s-4)]">
         <span className="qf-avatar qf-avatar--xl inline-flex items-center justify-center bg-bg-subtle text-text-muted">
           {profile.avatarUrl ? (
-            <img src={profile.avatarUrl} alt="아바타 미리보기" data-testid="avatar-preview" />
+            <img
+              src={profile.avatarUrl}
+              alt={`${profile.displayName ?? profile.handle ?? profile.username}의 프로필 사진`}
+              data-testid="avatar-preview"
+            />
           ) : (
             <Icon name="user" size="lg" />
           )}
@@ -224,6 +277,7 @@ export function ProfileSettingsPage(): JSX.Element {
               className="qf-btn qf-btn--secondary qf-btn--sm"
               onClick={onPickAvatar}
               disabled={presign.isPending || finalize.isPending}
+              aria-busy={presign.isPending || finalize.isPending}
             >
               {presign.isPending || finalize.isPending ? '업로드 중…' : '아바타 변경'}
             </button>
@@ -234,6 +288,7 @@ export function ProfileSettingsPage(): JSX.Element {
                 className="qf-btn qf-btn--ghost qf-btn--sm"
                 onClick={() => void onRemoveAvatar()}
                 disabled={removeAvatar.isPending}
+                aria-busy={removeAvatar.isPending}
               >
                 제거
               </button>
@@ -262,20 +317,42 @@ export function ProfileSettingsPage(): JSX.Element {
           maxLength={HANDLE_MAX}
           onChange={(e) => setHandle(e.target.value)}
           placeholder="lowercase_handle.1"
-          aria-invalid={handleInvalid || handleError !== null}
+          autoComplete="off"
+          // a11y MODERATE-2: 쿨다운으로 막힌 상태도 invalid 로 표시.
+          aria-invalid={handleInvalid || handleError !== null || blockedByCooldown}
+          aria-describedby={handleDescribedBy}
         />
         {handleInvalid ? (
-          <p data-testid="handle-regex-error" className="text-[length:var(--fs-12)] text-danger">
+          // a11y BLOCKER-1: --danger-600 (라이트 4.64:1 통과). SERIOUS-1: aria-live=polite.
+          <p
+            id="pf-handle-regex"
+            data-testid="handle-regex-error"
+            aria-live="polite"
+            className="text-[length:var(--fs-12)] text-[color:var(--danger-600)]"
+          >
             소문자·숫자·_·. 조합 3–{HANDLE_MAX}자만 사용할 수 있습니다.
           </p>
         ) : null}
         {handleError ? (
-          <p data-testid="handle-server-error" className="text-[length:var(--fs-12)] text-danger">
+          // SERIOUS-1: 서버 에러는 role=alert(즉시 통지).
+          <p
+            id="pf-handle-server"
+            data-testid="handle-server-error"
+            role="alert"
+            className="text-[length:var(--fs-12)] text-[color:var(--danger-600)]"
+          >
             {handleError}
           </p>
         ) : null}
         {cooldown ? (
-          <p data-testid="handle-cooldown" className="text-[length:var(--fs-12)] text-text-muted">
+          // a11y SERIOUS-2: 쿨다운 힌트 role=status + aria-atomic.
+          <p
+            id="pf-handle-cooldown"
+            data-testid="handle-cooldown"
+            role="status"
+            aria-atomic="true"
+            className="text-[length:var(--fs-12)] text-text-muted"
+          >
             다음 변경 가능일 D-{cooldown.daysLeft} ({cooldown.nextAt.toLocaleDateString()})
           </p>
         ) : null}
@@ -295,6 +372,7 @@ export function ProfileSettingsPage(): JSX.Element {
           maxLength={DISPLAY_NAME_MAX}
           onChange={(e) => setDisplayName(e.target.value)}
           placeholder="다른 사람에게 보이는 이름"
+          autoComplete="nickname"
         />
       </Field>
 
@@ -307,6 +385,7 @@ export function ProfileSettingsPage(): JSX.Element {
           value={fullName}
           maxLength={FULL_NAME_MAX}
           onChange={(e) => setFullName(e.target.value)}
+          autoComplete="name"
         />
       </Field>
       <Field label="대명사" htmlFor="pf-pronouns" counter={`${pronouns.length}/${PRONOUNS_MAX}`}>
@@ -318,6 +397,7 @@ export function ProfileSettingsPage(): JSX.Element {
           maxLength={PRONOUNS_MAX}
           onChange={(e) => setPronouns(e.target.value)}
           placeholder="예: they/them"
+          autoComplete="off"
         />
       </Field>
       <Field label="제목" htmlFor="pf-title" counter={`${title.length}/${TITLE_MAX}`}>
@@ -328,6 +408,7 @@ export function ProfileSettingsPage(): JSX.Element {
           value={title}
           maxLength={TITLE_MAX}
           onChange={(e) => setTitle(e.target.value)}
+          autoComplete="off"
         />
       </Field>
 
@@ -340,35 +421,36 @@ export function ProfileSettingsPage(): JSX.Element {
           value={timezone}
           onChange={(e) => setTimezone(e.target.value)}
           placeholder="예: Asia/Seoul"
+          autoComplete="off"
         />
       </Field>
 
-      {/* About Me (FR-PS-02) */}
+      {/* About Me (FR-PS-02) — a11y MODERATE 17: qf-textarea(resize 포함) */}
       <Field label="자기소개" htmlFor="pf-bio" counter={`${bio.length}/${BIO_MAX}`}>
         <textarea
           id="pf-bio"
           data-testid="profile-bio"
-          className="qf-input resize-y"
-          style={{ minHeight: 'calc(var(--s-5) * 5)' }}
+          className="qf-textarea"
           value={bio}
           maxLength={BIO_MAX}
           onChange={(e) => setBio(e.target.value)}
           placeholder="자기소개를 입력하세요 (최대 190자)"
+          autoComplete="off"
         />
       </Field>
 
       <div className="flex justify-end">
         <button
-          type="button"
+          type="submit"
           data-testid="profile-save"
           className="qf-btn qf-btn--primary"
-          onClick={() => void onSave()}
           disabled={saving || handleInvalid || blockedByCooldown}
+          aria-busy={saving}
         >
           {saving ? '저장 중…' : '저장'}
         </button>
       </div>
-    </div>
+    </form>
   );
 }
 
@@ -383,6 +465,19 @@ function Field({
   counter?: string;
   children: React.ReactNode;
 }): JSX.Element {
+  // a11y MODERATE-1: counter span 에 id 를 부여하고, 단일 자식 input/textarea 의
+  // aria-describedby 에 자동 연결한다(이미 describedby 가 있으면 보존·병합).
+  const counterId = counter ? `${htmlFor}-counter` : undefined;
+  const described = (() => {
+    if (!counterId || !isValidElement(children)) return children;
+    const childProps = children.props as { 'aria-describedby'?: string };
+    const existing = childProps['aria-describedby'];
+    // handle 처럼 자식이 직접 describedby 를 지정한 경우 counter id 가 이미 포함돼 있으면
+    // 중복 추가하지 않는다.
+    if (existing && existing.split(' ').includes(counterId)) return children;
+    const merged = existing ? `${existing} ${counterId}` : counterId;
+    return cloneElement(children as ReactElement, { 'aria-describedby': merged });
+  })();
   return (
     <div className="flex flex-col gap-[var(--s-1)]">
       <div className="flex items-center justify-between">
@@ -393,10 +488,12 @@ function Field({
           {label}
         </label>
         {counter ? (
-          <span className="text-[length:var(--fs-11)] text-text-muted">{counter}</span>
+          <span id={counterId} className="text-[length:var(--fs-11)] text-text-muted">
+            {counter}
+          </span>
         ) : null}
       </div>
-      {children}
+      {described}
     </div>
   );
 }

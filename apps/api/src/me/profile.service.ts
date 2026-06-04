@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import {
@@ -9,6 +9,7 @@ import {
   PRONOUNS_MAX,
   TITLE_MAX,
   TIMEZONE_MAX,
+  TIMEZONE_RE,
   BIO_MAX,
   AVATAR_MAX_BYTES,
   AVATAR_ALLOWED_MIME,
@@ -38,6 +39,8 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 const AVATAR_KEY_PREFIX = 'avatars';
 // finalize 시 magic-byte 교차검증을 위해 읽는 선두 바이트 수(WEBP RIFF...WEBP 가 12B).
 const AVATAR_MAGIC_HEAD = 15;
+// presigned POST 서명 만료(초). 종전 presignPut 와 동일 기본(900s) — env 미설정 시 폴백.
+const AVATAR_PRESIGN_TTL_SEC = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
 
 export interface ProfileLink {
   url: string;
@@ -82,10 +85,27 @@ export interface UpdateProfileResult {
 
 @Injectable()
 export class ProfileService {
+  private readonly logger = new Logger(ProfileService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
   ) {}
+
+  /**
+   * reviewer LOW + perf serious: best-effort orphan 정리. deleteObject 실패가
+   * 정상 경로(도메인 에러 매핑·아바타 확정)를 500 으로 가리지 않도록 삼킨다(warn 로그).
+   * "best-effort deleteObject" 주석과 실제 동작을 일치시킨다.
+   */
+  private async bestEffortDelete(key: string): Promise<void> {
+    try {
+      await this.s3.deleteObject(key);
+    } catch (err) {
+      this.logger.warn(
+        `[avatar] best-effort deleteObject failed key=${key} err=${String(err).slice(0, 160)}`,
+      );
+    }
+  }
 
   /** GET /me/profile — handle ?? username 폴백 + avatarKey → presigned GET URL. */
   async getProfile(userId: string): Promise<ProfileView> {
@@ -136,6 +156,9 @@ export class ProfileService {
 
     const data: Prisma.UserUpdateInput = {};
     let handleChanged = false;
+    // reviewer MEDIUM: handle 변경 시 쿨다운 컷오프. update 의 where 에 atomic 결합해
+    // 동시 PATCH 가 쿨다운을 우회하지 못하게 한다(TOCTOU 제거).
+    let cooldownCutoff: Date | null = null;
 
     if (input.handle !== undefined) {
       const next = input.handle;
@@ -149,10 +172,13 @@ export class ProfileService {
       // 입력은 변경으로 보지 않는다(백필 실패 row 가 같은 값을 보내도 쿨다운을 안 켜게).
       const effective = current.handle ?? current.username;
       if (next !== effective) {
+        // 1차(빠른 거부): findUnique 스냅샷 기준 쿨다운 — 명확한 에러 + nextAllowedAt 제공.
         this.assertCooldown(current.handleChangedAt);
         data.handle = next;
         data.handleChangedAt = new Date();
         handleChanged = true;
+        // 2차(atomic): update 가 적용되는 순간에도 cutoff 이전이어야 한다(동시 변경 차단).
+        cooldownCutoff = new Date(Date.now() - HANDLE_COOLDOWN_DAYS * 24 * 60 * 60 * 1000);
       }
     }
 
@@ -169,10 +195,10 @@ export class ProfileService {
       data.title = this.normString(input.title, TITLE_MAX, 'title');
     }
     if (input.timezone !== undefined) {
-      data.timezone = this.normString(input.timezone, TIMEZONE_MAX, 'timezone');
+      data.timezone = this.normTimezone(input.timezone);
     }
     if (input.bio !== undefined) {
-      // FR-PS-02: bio 는 앱 레이어 190자 검증만(DB VarChar 제약은 변경하지 않음).
+      // FR-PS-02: bio 는 앱 레이어 190자 검증만(DB 컬럼은 TEXT 라 무제한).
       data.bio = this.normString(input.bio, BIO_MAX, 'bio');
     }
     if (input.links !== undefined) {
@@ -185,7 +211,30 @@ export class ProfileService {
     }
 
     try {
-      await this.prisma.user.update({ where: { id: userId }, data });
+      if (cooldownCutoff) {
+        // reviewer MEDIUM (TOCTOU): updateMany + 쿨다운 where 가드. handleChangedAt 이
+        // null(최초 설정) 또는 cutoff 이전일 때만 매칭한다. 동시 PATCH 가 직전에
+        // handleChangedAt 을 now 로 찍었다면 count=0 → 쿨다운 활성으로 거부한다.
+        const res = await this.prisma.user.updateMany({
+          where: {
+            id: userId,
+            OR: [{ handleChangedAt: null }, { handleChangedAt: { lte: cooldownCutoff } }],
+          },
+          data,
+        });
+        if (res.count === 0) {
+          // 동시 변경이 쿨다운을 켰다 — 갱신된 기준으로 nextAllowedAt 을 다시 산출한다.
+          const fresh = await this.prisma.user.findUnique({
+            where: { id: userId },
+            select: { handleChangedAt: true },
+          });
+          this.assertCooldown(fresh?.handleChangedAt ?? new Date());
+          // assertCooldown 이 던지지 못하는 경계(이미 쿨다운 종료)면 일관 메시지로 거부.
+          throw new DomainError(ErrorCode.HANDLE_COOLDOWN_ACTIVE, 'handle change is on cooldown');
+        }
+      } else {
+        await this.prisma.user.update({ where: { id: userId }, data });
+      }
     } catch (err) {
       // 동시 PATCH race: 다른 사용자가 같은 handle 을 선점 → unique 위반(P2002).
       if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -233,10 +282,34 @@ export class ProfileService {
     return trimmed;
   }
 
+  /**
+   * FR-PS-02 (reviewer/security LOW): timezone 정규화 + IANA 형태 검증. 빈 문자열/null →
+   * null. 값이 있으면 `Area/Location` 형태(TIMEZONE_RE) + ≤64자만 통과시킨다(주입/임의
+   * 문자열 차단). Zod 컨트랙트와 중복 방어선(서비스 단위 테스트가 직접 검증).
+   */
+  private normTimezone(raw: string | null): string | null {
+    const trimmed = this.normString(raw, TIMEZONE_MAX, 'timezone');
+    if (trimmed === null) return null;
+    if (!TIMEZONE_RE.test(trimmed)) {
+      throw new DomainError(
+        ErrorCode.VALIDATION_FAILED,
+        'timezone must be an IANA zone (Area/Location)',
+      );
+    }
+    return trimmed;
+  }
+
   // ── FR-PS-01: 아바타 ──────────────────────────────────────────────────────
 
   /**
-   * POST /me/avatar/presign. MIME/크기 검증 후 단일 키 presigned PUT 반환.
+   * POST /me/avatar/presign. MIME/크기 검증 후 단일 키 presigned POST 반환.
+   *
+   * security HIGH#2: presigned **POST**(content-length-range + eq Content-Type 정책 조건 —
+   * S54 첨부 패턴 재사용)를 발급해 MinIO 가 업로드 시점에 크기/MIME 를 강제한다. 종전
+   * presignPut 은 클라가 임의 바이트/Content-Type 을 올릴 수 있어 강제 불가였다(finalize
+   * 사후검증만 안전망). content-length-range 의 상한은 *선언 크기*가 아니라 AVATAR_MAX_BYTES
+   * 로 둬, 사용자가 선언보다 작은/큰(≤8MB) 파일을 올려도 정책이 일관되게 거부하게 한다.
+   *
    * 키는 매 업로드마다 새 uuid 세그먼트를 써서 finalize 전까지 기존 아바타에 영향을 주지
    * 않는다(이전 키는 finalize 성공 후 best-effort deleteObject).
    */
@@ -244,7 +317,7 @@ export class ProfileService {
     userId: string,
     contentType: string,
     sizeBytes: number,
-  ): Promise<{ key: string; putUrl: string; expiresAt: string }> {
+  ): Promise<{ key: string; url: string; fields: Record<string, string>; expiresAt: string }> {
     if (!(AVATAR_ALLOWED_MIME as readonly string[]).includes(contentType)) {
       throw new DomainError(
         ErrorCode.INVALID_MIME,
@@ -262,9 +335,14 @@ export class ProfileService {
     }
     const ext = this.extForMime(contentType as AvatarMime);
     const key = `${AVATAR_KEY_PREFIX}/${userId}/${randomUUID()}${sanitizeFilename(ext)}`;
-    const putUrl = await this.s3.presignPut(key, contentType, sizeBytes);
-    const expiresAt = new Date(Date.now() + this.s3.presignPutTtl * 1000).toISOString();
-    return { key, putUrl, expiresAt };
+    const { url, fields } = await this.s3.presignPost(
+      key,
+      contentType,
+      AVATAR_MAX_BYTES,
+      AVATAR_PRESIGN_TTL_SEC,
+    );
+    const expiresAt = new Date(Date.now() + AVATAR_PRESIGN_TTL_SEC * 1000).toISOString();
+    return { key, url, fields, expiresAt };
   }
 
   /**
@@ -274,6 +352,11 @@ export class ProfileService {
    */
   async finalizeAvatar(userId: string, key: string): Promise<{ avatarUrl: string }> {
     const expectedPrefix = `${AVATAR_KEY_PREFIX}/${userId}/`;
+    // security HIGH#1: prefix 검사 외에 `..` 포함 키를 즉시 거부한다(컨트롤러 Zod 가
+    // AVATAR_KEY_RE 로 1차 차단하지만, 서비스 단에서도 traversal 을 명시적으로 막는다).
+    if (key.includes('..')) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'key contains a path traversal segment');
+    }
     if (!key.startsWith(expectedPrefix)) {
       throw new DomainError(ErrorCode.FORBIDDEN, 'key does not belong to this user');
     }
@@ -281,8 +364,10 @@ export class ProfileService {
     if (!head) {
       throw new DomainError(ErrorCode.INVALID_FILE, 'avatar upload never landed');
     }
+    // reviewer LOW + perf serious: 검증 실패 경로의 best-effort 정리. deleteObject 실패가
+    // 도메인 에러(FILE_TOO_LARGE/INVALID_MIME/INVALID_MAGIC_BYTES)를 500 으로 가리지 않게 한다.
     if (head.contentLength > AVATAR_MAX_BYTES) {
-      await this.s3.deleteObject(key);
+      await this.bestEffortDelete(key);
       throw new DomainError(
         ErrorCode.FILE_TOO_LARGE,
         `avatar too large (${head.contentLength} > ${AVATAR_MAX_BYTES})`,
@@ -290,12 +375,12 @@ export class ProfileService {
     }
     const declaredMime = head.contentType;
     if (!declaredMime || !(AVATAR_ALLOWED_MIME as readonly string[]).includes(declaredMime)) {
-      await this.s3.deleteObject(key);
+      await this.bestEffortDelete(key);
       throw new DomainError(ErrorCode.INVALID_MIME, `avatar mime not allowed: ${declaredMime}`);
     }
     const headBytes = await this.s3.getObjectRange(key, AVATAR_MAGIC_HEAD);
     if (!headBytes || !matchesMagic(headBytes, declaredMime as MagicSupportedMime)) {
-      await this.s3.deleteObject(key);
+      await this.bestEffortDelete(key);
       throw new DomainError(
         ErrorCode.INVALID_MAGIC_BYTES,
         `declared ${declaredMime} but file magic does not match`,
@@ -307,9 +392,9 @@ export class ProfileService {
       select: { avatarKey: true },
     });
     await this.prisma.user.update({ where: { id: userId }, data: { avatarKey: key } });
-    // 이전 키 best-effort 정리(idempotent S3 delete — 동일 키면 스킵).
+    // 이전 키 best-effort 정리(fire-and-forget — 정리 실패가 확정 응답을 막지 않는다).
     if (prev?.avatarKey && prev.avatarKey !== key) {
-      await this.s3.deleteObject(prev.avatarKey);
+      void this.bestEffortDelete(prev.avatarKey);
     }
     const avatarUrl = await this.s3.presignGet(key);
     return { avatarUrl };
@@ -323,7 +408,8 @@ export class ProfileService {
     });
     if (!row?.avatarKey) return; // 이미 없음 — 멱등.
     await this.prisma.user.update({ where: { id: userId }, data: { avatarKey: null } });
-    await this.s3.deleteObject(row.avatarKey);
+    // best-effort: 객체 삭제 실패가 DB 리셋(이미 성공)을 무효화하지 않게 삼킨다(warn 로그).
+    await this.bestEffortDelete(row.avatarKey);
   }
 
   private extForMime(mime: AvatarMime): string {

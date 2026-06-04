@@ -29,7 +29,11 @@ vi.mock('../users/avatarUpload', () => ({
 let profileData: ProfileView | null;
 const updateMut = { mutateAsync: vi.fn().mockResolvedValue(undefined), isPending: false };
 const presignMut = {
-  mutateAsync: vi.fn().mockResolvedValue({ key: 'avatars/u1/x.png', putUrl: 'http://put' }),
+  mutateAsync: vi.fn().mockResolvedValue({
+    key: 'avatars/u1/x.png',
+    url: 'http://post',
+    fields: { key: 'avatars/u1/x.png', 'Content-Type': 'image/png' },
+  }),
   isPending: false,
 };
 const finalizeMut = {
@@ -80,9 +84,11 @@ beforeEach(() => {
   profileData = baseProfile();
   pushMock.mockReset();
   updateMut.mutateAsync.mockReset().mockResolvedValue(undefined);
-  presignMut.mutateAsync
-    .mockReset()
-    .mockResolvedValue({ key: 'avatars/u1/x.png', putUrl: 'http://put' });
+  presignMut.mutateAsync.mockReset().mockResolvedValue({
+    key: 'avatars/u1/x.png',
+    url: 'http://post',
+    fields: { key: 'avatars/u1/x.png', 'Content-Type': 'image/png' },
+  });
   finalizeMut.mutateAsync.mockReset().mockResolvedValue({ avatarUrl: 'http://a' });
   uploadMock.mockReset().mockResolvedValue(undefined);
 });
@@ -180,7 +186,72 @@ describe('ProfileSettingsPage', () => {
       contentType: 'image/png',
       sizeBytes: file.size,
     });
-    expect(uploadMock).toHaveBeenCalled();
+    // security HIGH#2: presigned POST(url + fields + file) 로 업로드한다.
+    expect(uploadMock).toHaveBeenCalledWith(
+      'http://post',
+      { key: 'avatars/u1/x.png', 'Content-Type': 'image/png' },
+      file,
+    );
+  });
+
+  it('only sends changed fields on save (no bio regression for unchanged ≥191-char bio)', async () => {
+    // 기존 bio 가 앱 한도(190)를 넘는 300자라도, bio 를 만지지 않고 저장하면 patch 에서 제외.
+    profileData = baseProfile({ bio: 'x'.repeat(300) });
+    renderPage();
+    fireEvent.change(screen.getByTestId('profile-displayName'), { target: { value: 'New Name' } });
+    fireEvent.click(screen.getByTestId('profile-save'));
+    await waitFor(() => expect(updateMut.mutateAsync).toHaveBeenCalled());
+    const arg = updateMut.mutateAsync.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(arg.displayName).toBe('New Name');
+    expect('bio' in arg).toBe(false); // 미변경 → 전송 안 함.
+  });
+
+  it('trims fields before sending (contract LOW)', async () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId('profile-fullName'), { target: { value: '  Alice X  ' } });
+    fireEvent.click(screen.getByTestId('profile-save'));
+    await waitFor(() => expect(updateMut.mutateAsync).toHaveBeenCalled());
+    const arg = updateMut.mutateAsync.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(arg.fullName).toBe('Alice X');
+  });
+
+  it('submits via Enter on the form (a11y MODERATE-4)', async () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId('profile-displayName'), { target: { value: 'Via Enter' } });
+    // 폼 submit(Enter)로 저장이 트리거되는지 확인.
+    fireEvent.submit(screen.getByTestId('profile-settings-page'));
+    await waitFor(() => expect(updateMut.mutateAsync).toHaveBeenCalled());
+  });
+
+  it('wires accessible handle error + counter (a11y SERIOUS-1 / MODERATE-1/2)', () => {
+    renderPage();
+    const input = screen.getByTestId('profile-handle') as HTMLInputElement;
+    fireEvent.change(input, { target: { value: 'Bad Handle' } });
+    const err = screen.getByTestId('handle-regex-error');
+    expect(err.getAttribute('id')).toBe('pf-handle-regex');
+    expect(err.getAttribute('aria-live')).toBe('polite');
+    // input 의 aria-describedby 가 에러 + counter id 를 묶는다.
+    const describedBy = input.getAttribute('aria-describedby') ?? '';
+    expect(describedBy.split(' ')).toContain('pf-handle-regex');
+    expect(describedBy.split(' ')).toContain('pf-handle-counter');
+    expect(input.getAttribute('aria-invalid')).toBe('true');
+  });
+
+  it('marks the cooldown hint as a status region (a11y SERIOUS-2)', () => {
+    profileData = baseProfile({ handleChangedAt: '2024-12-31T00:00:00.000Z' });
+    renderPage();
+    const hint = screen.getByTestId('handle-cooldown');
+    expect(hint.getAttribute('role')).toBe('status');
+    expect(hint.getAttribute('aria-atomic')).toBe('true');
+  });
+
+  it('marks the save button aria-busy while saving', () => {
+    profileData = baseProfile();
+    renderPage();
+    const save = screen.getByTestId('profile-save');
+    // 기본은 false(저장 중 아님).
+    expect(save.getAttribute('aria-busy')).toBe('false');
+    expect((save as HTMLButtonElement).type).toBe('submit');
   });
 
   it('rejects an oversize avatar client-side without calling presign', async () => {

@@ -41,6 +41,12 @@ describe('S73 profile (int)', () => {
     presignPutTtl: 900,
     presignGetTtl: 1800,
     presignPut: async () => 'http://minio.local/put',
+    // security HIGH#2: 아바타 presign 은 presignPost(content-length-range + eq Content-Type)로
+    // 전환됐다. MinIO 미부팅 스텁이라 url/fields 만 모사한다(실 정책 강제는 MinIO e2e 범위).
+    presignPost: async (key: string, contentType: string) => ({
+      url: 'http://minio.local/post',
+      fields: { key, 'Content-Type': contentType, policy: 'stub', 'x-amz-signature': 'stub' },
+    }),
     presignGet: async (key: string) => `http://minio.local/get/${key}`,
     headObject: async () =>
       s3State.headSize < 0
@@ -167,6 +173,33 @@ describe('S73 profile (int)', () => {
       .expect(400);
   });
 
+  it('lets a user with a ≥191-char bio save other fields without re-sending bio (no regression)', async () => {
+    const { token, userId } = await signup('biokeep');
+    // 기존 데이터: 300자 bio(앱 190 한도 초과 — 백필/이전 버전 잔재). DB 는 TEXT 라 저장됨.
+    await prisma.user.update({ where: { id: userId }, data: { bio: 'x'.repeat(300) } });
+    // bio 를 보내지 않고 displayName 만 저장 → 400 이 아니어야 한다(미변경 필드 스킵).
+    await request(baseUrl)
+      .patch('/me/profile')
+      .set('authorization', `Bearer ${token}`)
+      .send({ displayName: 'Keeps Bio' })
+      .expect(200);
+    const res = await request(baseUrl)
+      .get('/me/profile')
+      .set('authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(res.body.displayName).toBe('Keeps Bio');
+    expect(res.body.bio).toBe('x'.repeat(300)); // 미변경 — 보존.
+  });
+
+  it('rejects a non-IANA timezone with 400', async () => {
+    const { token } = await signup('tzbad');
+    await request(baseUrl)
+      .patch('/me/profile')
+      .set('authorization', `Bearer ${token}`)
+      .send({ timezone: 'not a zone' })
+      .expect(400);
+  });
+
   it('blocks a handle change within the 30-day cooldown (400 + nextAllowedAt)', async () => {
     const { token, userId } = await signup('cool');
     // 첫 변경 — 쿨다운 기록.
@@ -210,7 +243,9 @@ describe('S73 profile (int)', () => {
       .send({ contentType: 'image/png', sizeBytes: 1024 })
       .expect(201);
     expect(presign.body.key).toMatch(/^avatars\//);
-    expect(presign.body.putUrl).toBe('http://minio.local/put');
+    // security HIGH#2: presigned POST(url + fields) — MinIO 가 업로드 시점에 정책 강제.
+    expect(presign.body.url).toBe('http://minio.local/post');
+    expect(presign.body.fields['Content-Type']).toBe('image/png');
 
     const fin = await request(baseUrl)
       .put('/me/avatar')
@@ -253,6 +288,16 @@ describe('S73 profile (int)', () => {
       .send({ key: 'avatars/00000000-0000-0000-0000-000000000000/evil.png' })
       .expect(403);
     expect(res.body.errorCode).toBe('FORBIDDEN');
+  });
+
+  it('rejects a finalize key with a path traversal segment (400 — Zod regex) (HIGH#1)', async () => {
+    const { token } = await signup('avtrav');
+    const res = await request(baseUrl)
+      .put('/me/avatar')
+      .set('authorization', `Bearer ${token}`)
+      .send({ key: 'avatars/u1/../u2/evil.png' })
+      .expect(400);
+    expect(res.body.errorCode).toBe('VALIDATION_FAILED');
   });
 
   it('rejects a finalize on magic-byte mismatch (422) + deletes the object', async () => {

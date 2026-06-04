@@ -3,6 +3,8 @@ import {
   HANDLE_RE,
   BIO_MAX,
   AVATAR_MAX_BYTES,
+  AVATAR_KEY_RE,
+  TIMEZONE_RE,
   ProfileViewSchema,
   UpdateProfileInputSchema,
   AvatarPresignInputSchema,
@@ -59,6 +61,39 @@ describe('S73 profile contract', () => {
     it('rejects unknown keys (strict)', () => {
       expect(UpdateProfileInputSchema.safeParse({ avatarUrl: 'x' }).success).toBe(false);
     });
+    it('accepts a valid IANA timezone + empty string + null, rejects garbage', () => {
+      expect(UpdateProfileInputSchema.safeParse({ timezone: 'Asia/Seoul' }).success).toBe(true);
+      expect(
+        UpdateProfileInputSchema.safeParse({ timezone: 'America/Argentina/Buenos_Aires' }).success,
+      ).toBe(true);
+      expect(UpdateProfileInputSchema.safeParse({ timezone: '' }).success).toBe(true);
+      expect(UpdateProfileInputSchema.safeParse({ timezone: null }).success).toBe(true);
+      expect(UpdateProfileInputSchema.safeParse({ timezone: 'not a tz' }).success).toBe(false);
+      expect(UpdateProfileInputSchema.safeParse({ timezone: 'Seoul' }).success).toBe(false);
+    });
+  });
+
+  describe('TIMEZONE_RE', () => {
+    it('accepts Area/Location forms, rejects bare or injected strings', () => {
+      expect(TIMEZONE_RE.test('Asia/Seoul')).toBe(true);
+      expect(TIMEZONE_RE.test('Etc/GMT+9')).toBe(true);
+      expect(TIMEZONE_RE.test('America/Argentina/Buenos_Aires')).toBe(true);
+      expect(TIMEZONE_RE.test('UTC')).toBe(false);
+      expect(TIMEZONE_RE.test('Asia/Seoul; DROP TABLE')).toBe(false);
+    });
+  });
+
+  describe('AVATAR_KEY_RE (security HIGH#1 — traversal)', () => {
+    it('accepts a well-formed 3-segment avatar key', () => {
+      expect(AVATAR_KEY_RE.test('avatars/u1/abc.png')).toBe(true);
+      expect(AVATAR_KEY_RE.test('avatars/u1/a-b_c.1.webp')).toBe(true);
+    });
+    it('rejects traversal / wrong-prefix / extra-segment keys', () => {
+      expect(AVATAR_KEY_RE.test('avatars/u1/../u2/evil.png')).toBe(false);
+      expect(AVATAR_KEY_RE.test('avatars/../etc/passwd')).toBe(false);
+      expect(AVATAR_KEY_RE.test('other/u1/x.png')).toBe(false);
+      expect(AVATAR_KEY_RE.test('avatars/u1/sub/x.png')).toBe(false);
+    });
   });
 
   describe('AvatarPresignInputSchema', () => {
@@ -83,9 +118,13 @@ describe('S73 profile contract', () => {
   });
 
   describe('AvatarFinalizeInputSchema', () => {
-    it('requires a non-empty key', () => {
-      expect(AvatarFinalizeInputSchema.safeParse({ key: 'a/b/c' }).success).toBe(true);
+    it('accepts a well-formed avatar key, rejects empty / traversal keys', () => {
+      expect(AvatarFinalizeInputSchema.safeParse({ key: 'avatars/u1/x.png' }).success).toBe(true);
       expect(AvatarFinalizeInputSchema.safeParse({ key: '' }).success).toBe(false);
+      expect(AvatarFinalizeInputSchema.safeParse({ key: 'a/b/c' }).success).toBe(false);
+      expect(
+        AvatarFinalizeInputSchema.safeParse({ key: 'avatars/u1/../u2/evil.png' }).success,
+      ).toBe(false);
     });
   });
 

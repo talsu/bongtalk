@@ -369,9 +369,9 @@ model User {
   dndScheduleSnapshot         Json?
   // task-046 iter4 (K4): 첫 알림 onboarding 노출 여부.
   notificationOnboardingShown Boolean            @default(false)
-  // task-046 iter5 (M1): Discord-parity profile bio. markdown 허용,
-  // 500 chars cap (app layer). links 는 markdown URL 로 표현 (별도
-  // column 없음).
+  // task-046 iter5 (M1) → S73 (D14 / FR-PS-02): Discord-parity profile bio(About Me).
+  // 평문 자유 텍스트(렌더 측 마크다운 미적용). DB 컬럼은 TEXT(무제한)이며 길이 한도는
+  // 앱 레이어에서만 190자(BIO_MAX)로 강제한다. links 는 별도 Json 컬럼(아래)로 분리.
   bio                         String?
   // task-047 iter3 (M2): Discord-parity profile 외부 링크.
   // shape: Array<{ url: string, label?: string }>, cap 3 (app layer).
@@ -451,9 +451,9 @@ model User {
   // S70 (D13 / FR-W06): 본인이 검토(승인/거절/인터뷰)한 가입 신청들. 계정 삭제 시 SetNull.
   workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
 
-  // S73 (D14 / FR-PS-02): handle 조회(@멘션 해석 등) 인덱스. @unique 가 이미 btree
-  // 를 만들지만 PLAN 명세대로 명시 인덱스를 둔다(마이그레이션은 IF NOT EXISTS 가드).
-  @@index([handle])
+  // S73 (D14 / FR-PS-02): handle 조회(@멘션 해석 등)는 @unique 가 만드는 btree 로 충분하다.
+  // perf minor 리뷰: 별도 @@index([handle]) 는 동일 컬럼 단일 btree 중복이라 제거했다
+  // (쓰기 시 인덱스 2개 유지 비용 + 디스크 낭비). UNIQUE 인덱스만 유지한다.
 }
 
 // task-046 iter6 (N1, N2, N3): thread follow / 구독.

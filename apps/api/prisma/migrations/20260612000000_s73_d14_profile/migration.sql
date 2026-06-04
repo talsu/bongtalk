@@ -11,8 +11,8 @@
 --      그 결과가 (a) 3–32자 형식을 만족하고 (b) 다른 사용자가 점유하지 않은
 --      경우에만 복사한다(Option B — username 컬럼은 하위호환 유지). 형식 위반/충돌은
 --      NULL 로 남겨 API 가 `handle ?? username` 으로 폴백한다(무손실·무회귀).
---   3. handle 명시 인덱스(@@index) — @unique 가 이미 btree 를 만들지만 PLAN 명세대로
---      IF NOT EXISTS 가드로 추가한다(중복 시 no-op).
+--   3. handle UNIQUE 제약(btree) 추가. handle 조회는 이 UNIQUE 인덱스로 충분하다 —
+--      별도 비-유니크 @@index 는 동일 컬럼 단일 btree 중복이라 두지 않는다(perf 리뷰).
 --
 -- ★ NO CONCURRENTLY: `prisma migrate deploy` 가 단일 트랜잭션으로 실행하므로
 --   CREATE INDEX CONCURRENTLY(트랜잭션 블록 금지)는 쓰지 않는다.
@@ -50,7 +50,6 @@ WHERE u."id" = c."id"
     WHERE c2.h = c.h AND c2."id" <> c."id"
   );
 
--- ── 3. handle UNIQUE 제약 + 명시 인덱스 ─────────────────────────────────────
+-- ── 3. handle UNIQUE 제약(btree) ────────────────────────────────────────────
+-- handle 조회는 이 UNIQUE 인덱스로 충분하다(별도 비-유니크 인덱스 중복 제거 — perf 리뷰).
 CREATE UNIQUE INDEX IF NOT EXISTS "User_handle_key" ON "User" ("handle");
--- PLAN 명세 @@index([handle]) — @unique 인덱스와 별개로 명시(중복 시 no-op).
-CREATE INDEX IF NOT EXISTS "User_handle_idx" ON "User" ("handle");

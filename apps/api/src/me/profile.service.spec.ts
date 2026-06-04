@@ -24,11 +24,14 @@ beforeEach(() => {
 type UserStub = {
   findUnique: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
+  updateMany: ReturnType<typeof vi.fn>;
 };
 
 function makeDeps(opts: {
   current?: Record<string, unknown> | null;
   updateThrows?: unknown;
+  // reviewer MEDIUM (TOCTOU): updateMany 가 매칭 0건을 반환하는 동시-변경 경로 시뮬레이션.
+  updateManyCount?: number;
   headObject?: { contentLength: number; contentType: string | undefined } | null;
   headBytes?: Uint8Array | null;
 }): {
@@ -62,11 +65,19 @@ function makeDeps(opts: {
       if (opts.updateThrows) throw opts.updateThrows;
       return row;
     }),
+    updateMany: vi.fn(async () => {
+      if (opts.updateThrows) throw opts.updateThrows;
+      return { count: opts.updateManyCount ?? 1 };
+    }),
   };
   const deleteObject = vi.fn(async () => undefined);
   const prisma = { user } as unknown as PrismaService;
   const s3 = {
     presignPut: vi.fn(async () => 'http://put.stub'),
+    presignPost: vi.fn(async () => ({
+      url: 'http://post.stub',
+      fields: { key: 'k', 'Content-Type': 'image/png', policy: 'p' },
+    })),
     presignGet: vi.fn(async () => 'http://get.stub/avatar'),
     headObject: vi.fn(async () =>
       opts.headObject === undefined
@@ -217,9 +228,68 @@ describe('ProfileService.updateProfile — handle', () => {
     });
     const r = await service.updateProfile('u1', { handle: 'alice2' });
     expect(r.handleChanged).toBe(true);
-    const updateArg = user.update.mock.calls[0]?.[0] as { data: Record<string, unknown> };
-    expect(updateArg.data.handle).toBe('alice2');
-    expect(updateArg.data.handleChangedAt).toBeInstanceOf(Date);
+    // reviewer MEDIUM (TOCTOU): handle 변경은 쿨다운 where 가드가 결합된 updateMany 로 적용된다.
+    const arg = user.updateMany.mock.calls[0]?.[0] as {
+      where: { id: string; OR: unknown[] };
+      data: Record<string, unknown>;
+    };
+    expect(arg.data.handle).toBe('alice2');
+    expect(arg.data.handleChangedAt).toBeInstanceOf(Date);
+    expect(arg.where.id).toBe('u1');
+    expect(Array.isArray(arg.where.OR)).toBe(true);
+  });
+
+  it('rejects a concurrent handle change that loses the atomic cooldown guard (count=0)', async () => {
+    // updateMany 가 0건 매칭 = 동시 PATCH 가 직전에 handleChangedAt 을 now 로 찍음.
+    // findUnique 재조회가 now 직전 변경(쿨다운 활성)을 돌려주도록 둔다.
+    const { service, user } = makeDeps({
+      current: {
+        id: 'u1',
+        email: 'a@b.com',
+        username: 'alice',
+        handle: 'alice',
+        // 1차 assertCooldown 은 통과(과거) — 2차 atomic 가드만 막는다.
+        handleChangedAt: null,
+        displayName: null,
+        fullName: null,
+        pronouns: null,
+        title: null,
+        timezone: null,
+        bio: null,
+        avatarKey: null,
+        customStatus: null,
+      },
+      updateManyCount: 0,
+    });
+    // 재조회는 동시 변경이 막 찍은 now(쿨다운 활성)를 반환.
+    user.findUnique
+      .mockResolvedValueOnce({ handle: 'alice', username: 'alice', handleChangedAt: null })
+      .mockResolvedValueOnce({ handleChangedAt: new Date('2024-12-31T23:59:00Z') });
+    await expect(service.updateProfile('u1', { handle: 'alice2' })).rejects.toMatchObject({
+      code: ErrorCode.HANDLE_COOLDOWN_ACTIVE,
+    });
+  });
+
+  it('skips bio length validation when bio is not in the patch (no regression for ≥191-char rows)', async () => {
+    // 기존 191자 bio 유저가 bio 를 보내지 않고 다른 필드만 저장 → 통과해야 한다.
+    const { service } = makeDeps({
+      current: {
+        id: 'u1',
+        email: 'a@b.com',
+        username: 'alice',
+        handle: 'alice',
+        handleChangedAt: null,
+        displayName: null,
+        fullName: null,
+        pronouns: null,
+        title: null,
+        timezone: null,
+        bio: 'x'.repeat(300),
+        avatarKey: null,
+        customStatus: null,
+      },
+    });
+    await expect(service.updateProfile('u1', { displayName: 'Alice' })).resolves.toBeDefined();
   });
 
   it('allows the first-ever handle set when handleChangedAt is null', async () => {
@@ -312,12 +382,22 @@ describe('ProfileService.presignAvatar', () => {
     ).rejects.toMatchObject({ code: ErrorCode.FILE_TOO_LARGE });
   });
 
-  it('returns a key under the user prefix + a putUrl', async () => {
-    const { service } = makeDeps({});
+  it('returns a key under the user prefix + a presigned POST url+fields (HIGH#2)', async () => {
+    const { service, s3 } = makeDeps({});
     const r = await service.presignAvatar('u1', 'image/png', 1024);
     expect(r.key.startsWith('avatars/u1/')).toBe(true);
     expect(r.key.endsWith('.png')).toBe(true);
-    expect(r.putUrl).toBe('http://put.stub');
+    expect(r.url).toBe('http://post.stub');
+    expect(r.fields).toMatchObject({ 'Content-Type': 'image/png' });
+    // MinIO 가 업로드 시점에 크기/MIME 를 강제하도록 presignPost(content-length-range 상한
+    // = AVATAR_MAX_BYTES)를 호출한다(presignPut 아님).
+    const presignPost = s3.presignPost as unknown as ReturnType<typeof vi.fn>;
+    expect(presignPost).toHaveBeenCalledWith(
+      r.key,
+      'image/png',
+      AVATAR_MAX_BYTES,
+      expect.any(Number),
+    );
   });
 });
 
@@ -327,6 +407,16 @@ describe('ProfileService.finalizeAvatar', () => {
     await expect(service.finalizeAvatar('u1', 'avatars/u2/evil.png')).rejects.toMatchObject({
       code: ErrorCode.FORBIDDEN,
     });
+  });
+
+  it('rejects a path-traversal key (..) with FORBIDDEN before touching storage (HIGH#1)', async () => {
+    const { service, s3 } = makeDeps({});
+    await expect(service.finalizeAvatar('u1', 'avatars/u1/../u2/evil.png')).rejects.toMatchObject({
+      code: ErrorCode.FORBIDDEN,
+    });
+    // traversal 은 HEAD 전에 즉시 거부 — 스토리지를 건드리지 않는다.
+    const headObject = s3.headObject as unknown as ReturnType<typeof vi.fn>;
+    expect(headObject).not.toHaveBeenCalled();
   });
 
   it('rejects when the object never landed (HEAD null)', async () => {

@@ -10,9 +10,9 @@ import { z } from 'zod';
  *   - fullName:    ≤50자.
  *   - pronouns:    ≤40자.
  *   - title:       ≤80자.
- *   - timezone:    IANA tz 문자열(≤64자).
- *   - bio:         ≤190자(About Me · PRD). DB VarChar 제약은 변경하지 않고
- *                  앱 레이어에서만 190 으로 강제한다(기존 500자 데이터 truncate 회피).
+ *   - timezone:    IANA tz 문자열(≤64자 · `Area/Location` 형태).
+ *   - bio:         ≤190자(About Me · PRD). DB 컬럼은 TEXT(무제한) 이므로 길이 제약은
+ *                  앱 레이어에서만 190 으로 강제한다(기존 ≥191자 데이터 truncate 회피).
  *
  * 워크스페이스별 프로필(FR-PS-06)·배너(FR-PS-04)는 S74+ 범위(OUT).
  */
@@ -26,7 +26,10 @@ export const FULL_NAME_MAX = 50;
 export const PRONOUNS_MAX = 40;
 export const TITLE_MAX = 80;
 export const TIMEZONE_MAX = 64;
-// FR-PS-02: About Me 190자(PRD D14). DB 컬럼(VarChar 500)은 변경하지 않는다.
+// FR-PS-02: IANA timezone 형태(`Area/Location` — 예 Asia/Seoul, America/Argentina/Buenos_Aires).
+// 전체 tz 데이터셋 검증은 아니지만 임의 문자열/주입을 차단한다(빈 문자열·null 은 정규화 단에서 허용).
+export const TIMEZONE_RE = /^[A-Za-z]+\/[A-Za-z0-9_+-]+(?:\/[A-Za-z0-9_+-]+)*$/;
+// FR-PS-02: About Me 190자(PRD D14). DB 컬럼은 TEXT 라 무제한이지만 앱 레이어에서 190 으로 강제한다.
 export const BIO_MAX = 190;
 
 // FR-PS-03: 핸들 변경 쿨다운(일).
@@ -95,7 +98,8 @@ export const UpdateProfileInputSchema = z
     fullName: z.string().max(FULL_NAME_MAX).nullable(),
     pronouns: z.string().max(PRONOUNS_MAX).nullable(),
     title: z.string().max(TITLE_MAX).nullable(),
-    timezone: z.string().max(TIMEZONE_MAX).nullable(),
+    // FR-PS-02: 빈 문자열/null 은 "비우기"로 허용하고, 값이 있으면 IANA tz 형태만 통과시킨다.
+    timezone: z.union([z.literal(''), z.string().max(TIMEZONE_MAX).regex(TIMEZONE_RE)]).nullable(),
     bio: z.string().max(BIO_MAX).nullable(),
     // task-047 M2 carryover(무회귀): 기존 프로필 링크 편집. cap 3.
     links: z.array(UpdateProfileLinkSchema).max(PROFILE_LINKS_MAX).nullable(),
@@ -113,10 +117,25 @@ export const AvatarPresignInputSchema = z
   .strict();
 export type AvatarPresignInput = z.infer<typeof AvatarPresignInputSchema>;
 
-/** POST /me/avatar/presign 응답. */
+// FR-PS-01 (security HIGH#1): 아바타 키는 `avatars/<userId>/<file>` 3-세그먼트 형태만
+// 허용한다. 파일 세그먼트는 `..`·`/` 를 포함할 수 없어 디렉터리 traversal·키 변조를 차단한다
+// (서비스는 추가로 prefix + `..` 포함 여부를 재검증한다).
+export const AVATAR_KEY_RE = /^avatars\/[^/]+\/[A-Za-z0-9_.-]+$/;
+
+/**
+ * POST /me/avatar/presign 응답.
+ *
+ * security HIGH#2: presigned PUT 은 클라가 임의 바이트/Content-Type 을 올릴 수 있어
+ * MinIO 가 업로드 시점에 크기/MIME 를 강제하지 못한다. presigned POST(content-length-range
+ * + eq Content-Type 정책 조건 — S54 첨부 패턴)로 전환해 MinIO 가 업로드 시점에 거부하게 한다.
+ * 클라는 fields 를 multipart form 으로 보낸 뒤 file 을 마지막에 append 한다.
+ */
 export const AvatarPresignResultSchema = z.object({
   key: z.string(),
-  putUrl: z.string(),
+  // multipart form action URL(MinIO presigned POST).
+  url: z.string(),
+  // presigned POST 폼 hidden 필드(key/policy/signature/Content-Type 등).
+  fields: z.record(z.string()).default({}),
   expiresAt: z.string().datetime(),
 });
 export type AvatarPresignResult = z.infer<typeof AvatarPresignResultSchema>;
@@ -124,7 +143,8 @@ export type AvatarPresignResult = z.infer<typeof AvatarPresignResultSchema>;
 /** PUT /me/avatar 요청(presign 으로 받은 key 확정). */
 export const AvatarFinalizeInputSchema = z
   .object({
-    key: z.string().min(1),
+    // security HIGH#1: traversal 차단 — `avatars/<seg>/<file>` 형태만.
+    key: z.string().min(1).max(512).regex(AVATAR_KEY_RE),
   })
   .strict();
 export type AvatarFinalizeInput = z.infer<typeof AvatarFinalizeInputSchema>;
