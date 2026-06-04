@@ -75,8 +75,20 @@ export function MemberProfilePanel({ workspaceId }: { workspaceId: string }): JS
       id="member-profile-panel"
       aria-label="멤버 프로필"
       data-testid="member-profile-panel"
+      // F16 (ui-designer MED · FR-PS-08): `.qf-thread-panel` 은 420px 골격이지만
+      // 프로필 패널 명세 폭은 280px. DS 4파일은 수정 금지이므로 앱 레이어에서
+      // page-scoped width 로만 좁힌다(DS 토큰/클래스 무수정). flexBasis 까지 좁혀야
+      // flex 슬롯에서 실제 280px 로 렌더된다.
+      style={{ width: 280, flexBasis: 280 }}
       className="qf-thread-panel"
     >
+      {/*
+        F8 (a11y H-3): 패널 마운트 시 스크린리더에 1줄 알림. sr-only aria-live
+        영역이라 시각 레이아웃에 영향을 주지 않고 콘텐츠 폭주도 없다(고정 문구 1회).
+      */}
+      <div className="sr-only" role="status" aria-live="polite" data-testid="member-profile-live">
+        멤버 프로필 패널이 열렸습니다
+      </div>
       <header className="qf-topbar">
         <h2 className="qf-topbar__title flex items-center gap-[var(--s-2)]">멤버 프로필</h2>
         <div className="ml-auto">
@@ -182,24 +194,45 @@ function ProfileBody({ profile }: { profile: MemberFullProfileView }): JSX.Eleme
           ) : null}
         </div>
 
-        {/* 시간대 + 현지시각(1분 갱신). */}
+        {/*
+          시간대 + 현지시각(1분 갱신).
+          F9 (a11y H-4): 종전엔 현지시각 span 만 aria-label 을 달아 timezone 텍스트와
+          현지시각이 분리 낭독되고 "현지 시각" 문구가 중복됐다. 이제 timezone+localTime
+          을 단일 wrapper aria-label 로 묶고 내부 span 은 aria-hidden 으로 숨긴다.
+        */}
         {profile.timezone ? (
           <div
             className="mt-[var(--s-3)] flex items-center gap-[var(--s-2)] text-[length:var(--fs-13)] text-text-secondary"
             data-testid="member-profile-localtime"
+            aria-label={
+              localTime
+                ? `${profile.timezone} 현지 시각 ${localTime}`
+                : `시간대 ${profile.timezone}`
+            }
           >
             <Icon name="clock" size="sm" />
-            <span>{profile.timezone}</span>
-            {localTime ? <span aria-label={`현지 시각 ${localTime}`}>· {localTime}</span> : null}
+            <span aria-hidden="true">{profile.timezone}</span>
+            {localTime ? <span aria-hidden="true">· {localTime}</span> : null}
           </div>
         ) : null}
 
-        {/* 역할 목록(시스템 + 커스텀 전부). systemRole 은 1개 + customRoles 전부 노출. */}
-        <div className="qf-hovercard__roles" data-testid="member-profile-roles">
-          <span className="qf-badge qf-badge--accent">{profile.systemRole}</span>
+        {/*
+          역할 목록(시스템 + 커스텀 전부). systemRole 은 1개 + customRoles 전부 노출.
+          F7 (a11y H-2): role="list"/aria-label + 각 뱃지 role="listitem"(DS 클래스 유지).
+        */}
+        <div
+          className="qf-hovercard__roles"
+          data-testid="member-profile-roles"
+          role="list"
+          aria-label="역할"
+        >
+          <span role="listitem" className="qf-badge qf-badge--accent">
+            {profile.systemRole}
+          </span>
           {profile.customRoles.map((r) => (
             <span
               key={r.id}
+              role="listitem"
               className="qf-badge"
               style={r.color ? { color: r.color, borderColor: r.color } : undefined}
             >

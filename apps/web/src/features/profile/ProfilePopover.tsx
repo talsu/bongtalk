@@ -1,5 +1,5 @@
 import * as RPopover from '@radix-ui/react-popover';
-import { useState, type ReactNode } from 'react';
+import { forwardRef, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -20,7 +20,50 @@ import type { FullProfilePresenceStatus } from '@qufox/shared-types';
  * (Radix Trigger 가 click 으로 토글 — 별도 hover 진입점 없음 · FR-PS-07 터치 요구사항).
  *
  * 신규 DS 클래스 0 — `.qf-hovercard` 골격 + DS 토큰만 사용한다(DS 4파일 무수정).
+ *
+ * S75 fix-forward (a11y F3 B-2/B-3/M-4): 종전엔 호출측 children 을 별도
+ * `<span role="button" tabIndex=0 …>` 으로 감싸 Radix `asChild` 가 동일 ARIA 를
+ * 또 주입(중복)했고, `<span>`(inline) 안에 block `<div class="qf-member">` 를 넣어
+ * block-in-inline HTML 위반이 났으며, `outline-none` 이 DS `:focus-visible` 링을
+ * 제거했다. 이제 단일 host 요소를 forwardRef 로 만들어 Radix Trigger 가 그 요소에
+ * **직접** role/aria/focus 핸들러를 주입하도록 위임한다(중복 제거). host 태그는
+ * `as`('span'|'div')로 호출측이 고른다 — 인라인(아바타·작성자명)은 span, 블록(멤버
+ * 행)은 div 로 렌더해 block-in-inline 을 피한다. 포커스 표시는 outline-none 을 빼고
+ * DS `:focus-visible` 에 위임한다.
  */
+
+/**
+ * 팝오버 트리거의 단일 host 요소(forwardRef). Radix `<Trigger asChild>` 가 이
+ * 요소에 role/aria-haspopup/aria-expanded/onClick/onKeyDown/ref 를 직접 주입한다.
+ * 비-button host(span/div)는 Radix 가 role/tabIndex 를 자동 부여하지 않으므로
+ * 여기서 role="button" + tabIndex=0 을 명시한다(키보드 진입점). outline-none 은
+ * 두지 않아 DS `:focus-visible` 포커스 링이 살아 있다.
+ */
+type TriggerHostProps = {
+  as?: 'span' | 'div';
+  testId: string;
+  className?: string;
+  children: ReactNode;
+} & React.HTMLAttributes<HTMLElement>;
+
+const TriggerHost = forwardRef<HTMLElement, TriggerHostProps>(function TriggerHost(
+  { as = 'span', testId, className, children, ...rest },
+  ref,
+) {
+  const Tag = as as 'span';
+  return (
+    <Tag
+      ref={ref as React.Ref<HTMLSpanElement>}
+      role="button"
+      tabIndex={0}
+      data-testid={testId}
+      className={cn('cursor-pointer', className)}
+      {...rest}
+    >
+      {children}
+    </Tag>
+  );
+});
 
 const STATUS_LABEL: Record<FullProfilePresenceStatus, string> = {
   online: '온라인',
@@ -42,11 +85,27 @@ const MAX_ROLE_BADGES = 3;
 export function ProfilePopover({
   userId,
   workspaceId,
+  as = 'span',
+  triggerClassName,
+  triggerProps,
   children,
 }: {
   userId: string;
   workspaceId: string;
-  /** 트리거 — 아바타/작성자명/멤버 행. Radix Trigger 가 asChild 로 button 의미를 입힌다. */
+  /**
+   * 트리거 host 태그. 인라인 트리거(아바타·작성자명)는 'span', 블록 트리거(멤버
+   * 행 div)는 'div' 로 호출측이 지정해 block-in-inline 위반을 피한다(F3 B-3).
+   */
+  as?: 'span' | 'div';
+  /** 트리거 host 에 얹을 추가 className(레이아웃 유지용 — 예: flex/min-w-0). */
+  triggerClassName?: string;
+  /**
+   * 트리거 host 에 덮어쓸 추가 속성. F5(a11y M-1): 메시지 행의 아바타 트리거를
+   * `tabIndex=-1`+`aria-hidden` 으로 키보드 진입에서 제외해(마우스 전용), 작성자명을
+   * 단일 키보드 진입점으로 만들 때 쓴다(중복 포커스 스톱 제거).
+   */
+  triggerProps?: React.HTMLAttributes<HTMLElement>;
+  /** 트리거 내용 — 아바타/작성자명/멤버 행. TriggerHost 가 role/aria/focus 를 부여한다. */
   children: ReactNode;
 }): JSX.Element {
   const [open, setOpen] = useState(false);
@@ -68,18 +127,18 @@ export function ProfilePopover({
     >
       <RPopover.Trigger asChild>
         {/*
-          트리거는 호출측이 넘긴 단일 엘리먼트(아바타/이름/행). Radix 가 asChild 로
-          role=button + aria-haspopup=dialog + aria-expanded 를 주입한다.
+          F3: Radix 가 이 단일 host 요소에 직접 role/aria-haspopup/aria-expanded/
+          onClick/onKeyDown/ref 를 주입한다(별도 wrapper span 제거 — ARIA 중복 없음).
+          host 태그는 as 로 결정해 block-in-inline 을 피한다.
         */}
-        <span
-          role="button"
-          tabIndex={0}
-          aria-haspopup="dialog"
-          data-testid={`profile-trigger-${userId}`}
-          className="cursor-pointer outline-none"
+        <TriggerHost
+          as={as}
+          testId={`profile-trigger-${userId}`}
+          className={triggerClassName}
+          {...triggerProps}
         >
           {children}
-        </span>
+        </TriggerHost>
       </RPopover.Trigger>
       <RPopover.Portal>
         <RPopover.Content
@@ -89,6 +148,10 @@ export function ProfilePopover({
           collisionPadding={8}
           aria-label="프로필 미리보기"
           data-testid={`profile-popover-${userId}`}
+          // F4 (a11y M-2): non-modal Content 라 Tab 이 배경으로 새지 않도록 포커스
+          // outside 를 막아 열린 dialog 안에 포커스를 가둔다. Esc/외부클릭 닫힘은
+          // onPointerDownOutside/onEscapeKeyDown 기본 동작이라 보존된다.
+          onFocusOutside={(e) => e.preventDefault()}
           // DS 미니카드 골격 + overlay z-index. role=dialog 는 Radix Content 가 부여.
           className="qf-hovercard z-overlay"
         >
@@ -156,12 +219,23 @@ export function ProfilePopover({
                   ) : null}
                 </div>
 
-                {/* 역할 뱃지 ≤3 + 초과분 "+N" 더보기. */}
+                {/*
+                  역할 뱃지 ≤3 + 초과분 "+N" 더보기.
+                  F7 (a11y H-2): 역할 컨테이너에 role="list"/aria-label, 각 뱃지에
+                  role="listitem" 을 부여해 스크린리더에 역할 목록으로 노출한다(DS
+                  클래스명은 유지 — role 속성만 추가).
+                */}
                 {data.customRoles.length > 0 ? (
-                  <div className="qf-hovercard__roles" data-testid={`profile-roles-${userId}`}>
+                  <div
+                    className="qf-hovercard__roles"
+                    data-testid={`profile-roles-${userId}`}
+                    role="list"
+                    aria-label="역할"
+                  >
                     {data.customRoles.slice(0, MAX_ROLE_BADGES).map((r) => (
                       <span
                         key={r.id}
+                        role="listitem"
                         className="qf-badge"
                         style={r.color ? { color: r.color, borderColor: r.color } : undefined}
                       >
@@ -169,7 +243,13 @@ export function ProfilePopover({
                       </span>
                     ))}
                     {data.customRoles.length > MAX_ROLE_BADGES ? (
-                      <span className="qf-badge" data-testid={`profile-roles-more-${userId}`}>
+                      // F12 (a11y N-2): "+N" 뱃지에 접근명 부여.
+                      <span
+                        role="listitem"
+                        className="qf-badge"
+                        data-testid={`profile-roles-more-${userId}`}
+                        aria-label={`역할 ${data.customRoles.length - MAX_ROLE_BADGES}개 더 있음`}
+                      >
                         +{data.customRoles.length - MAX_ROLE_BADGES}
                       </span>
                     ) : null}

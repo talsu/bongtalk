@@ -72,6 +72,13 @@ export function useUnblockUser() {
   const qc = useQueryClient();
   return useMutation<unknown, Error, { userId: string }>({
     mutationFn: ({ userId }) => apiRequest(`/me/friends/block/${userId}`, { method: 'DELETE' }),
-    onSuccess: () => invalidate(qc),
+    onSuccess: () => {
+      invalidate(qc);
+      // S75 fix-forward (F13): 차단 해제 후엔 채널/DM 메시지 캐시도 무효화해야
+      // 서버가 더 이상 마스킹하지 않는 원문이 다시 표시된다. 종전엔 ['friends']
+      // 만 무효화해 열린 채널 메시지가 `[차단된 사용자의 메시지]` placeholder 로
+      // 남아 있었다(서버는 이미 원문을 돌려주지만 stale 캐시가 가렸다).
+      void qc.invalidateQueries({ queryKey: ['messages'] });
+    },
   });
 }

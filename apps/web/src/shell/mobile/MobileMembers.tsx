@@ -82,7 +82,8 @@ function MobileMemberRow({
   const avatarUrl = resolveMemberAvatarUrl(member.user);
   return (
     // S75 (FR-PS-07): 모바일 멤버 행 탭 → 프로필 팝오버(터치 단일 진입점).
-    <ProfilePopover userId={member.userId} workspaceId={workspaceId}>
+    // F3 (a11y B-3): 모바일 멤버 행은 블록 `.qf-m-row` div 라 트리거 host 도 div.
+    <ProfilePopover userId={member.userId} workspaceId={workspaceId} as="div">
       <div
         data-testid={`mobile-member-${member.user.username}`}
         data-presence={status}

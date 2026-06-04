@@ -84,11 +84,46 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('ProfilePopover (FR-PS-07)', () => {
-  it('trigger exposes role=button + aria-haspopup=dialog', () => {
+  it('trigger exposes role=button + aria-haspopup=dialog (no duplicate ARIA wrapper)', () => {
     renderPopover();
     const trigger = screen.getByTestId('profile-trigger-u1');
     expect(trigger.getAttribute('aria-haspopup')).toBe('dialog');
     expect(trigger.getAttribute('role')).toBe('button');
+    // F3 (a11y B-2): aria-haspopup=dialog 를 가진 요소가 정확히 1개여야 한다
+    // (별도 wrapper span 제거 — 중복 ARIA 없음).
+    expect(document.querySelectorAll('[aria-haspopup="dialog"]').length).toBe(1);
+    // F3 (a11y M-4): outline-none 을 두지 않아 DS :focus-visible 링이 살아 있다.
+    expect(trigger.className).not.toContain('outline-none');
+    // F3: 트리거는 키보드 진입 가능(tabIndex=0).
+    expect(trigger.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('F5: triggerProps can make the trigger mouse-only (tabIndex=-1 + aria-hidden)', () => {
+    render(
+      <MemoryRouter>
+        <ProfilePopover
+          userId="u1"
+          workspaceId="w1"
+          triggerProps={{ tabIndex: -1, 'aria-hidden': true }}
+        >
+          <span>avatar</span>
+        </ProfilePopover>
+      </MemoryRouter>,
+    );
+    const trigger = screen.getByTestId('profile-trigger-u1');
+    expect(trigger.getAttribute('tabindex')).toBe('-1');
+    expect(trigger.getAttribute('aria-hidden')).toBe('true');
+  });
+
+  it('F3: renders the trigger host as a div when as="div" (block-in-inline 회피)', () => {
+    render(
+      <MemoryRouter>
+        <ProfilePopover userId="u1" workspaceId="w1" as="div">
+          <div>member row</div>
+        </ProfilePopover>
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId('profile-trigger-u1').tagName).toBe('DIV');
   });
 
   it('opens on click and renders effective name, handle, custom status', () => {
@@ -100,7 +135,7 @@ describe('ProfilePopover (FR-PS-07)', () => {
     expect(screen.getByTestId('profile-about-u1').textContent).toBe('ws bio');
   });
 
-  it('caps role badges at 3 and shows a +N more badge', () => {
+  it('caps role badges at 3 and shows a +N more badge with an accessible label (F12)', () => {
     profile = baseProfile({
       customRoles: [
         { id: 'r1', name: 'A', color: null },
@@ -112,7 +147,14 @@ describe('ProfilePopover (FR-PS-07)', () => {
     });
     renderPopover();
     fireEvent.click(screen.getByTestId('profile-trigger-u1'));
-    expect(screen.getByTestId('profile-roles-more-u1').textContent).toBe('+2');
+    const more = screen.getByTestId('profile-roles-more-u1');
+    expect(more.textContent).toBe('+2');
+    // F12 (a11y N-2): "+N" 뱃지 접근명.
+    expect(more.getAttribute('aria-label')).toBe('역할 2개 더 있음');
+    // F7 (a11y H-2): roles 컨테이너는 list, 각 뱃지는 listitem.
+    const rolesBox = screen.getByTestId('profile-roles-u1');
+    expect(rolesBox.getAttribute('role')).toBe('list');
+    expect(rolesBox.querySelectorAll('[role="listitem"]').length).toBe(4); // 3 + more
   });
 
   it('navigates to /dm/:userId on "DM 보내기"', () => {

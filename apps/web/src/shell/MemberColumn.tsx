@@ -112,7 +112,9 @@ function MemberRow({
     // 미니카드). register(IntersectionObserver) 는 외부 div 에 유지하고, 팝오버 트리거는 행
     // 컨텐츠를 감싼다(트리거가 role=button aria-haspopup=dialog 를 부여).
     <div ref={register(member.userId)} data-presence={status}>
-      <ProfilePopover userId={member.userId} workspaceId={workspaceId}>
+      {/* F3 (a11y B-3): 멤버 행은 블록 `.qf-member` div 라 트리거 host 도 div 로
+          렌더해 block-in-inline 을 피한다. */}
+      <ProfilePopover userId={member.userId} workspaceId={workspaceId} as="div">
         <div
           data-testid={`member-${username}`}
           className={cn('qf-member', status === 'offline' && 'opacity-50')}

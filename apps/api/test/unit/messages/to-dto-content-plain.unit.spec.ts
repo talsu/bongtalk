@@ -86,4 +86,71 @@ describe('MessagesService.toDto contentPlain (FR-MSG-17)', () => {
     expect(masked.content).toBe('[차단된 사용자의 메시지]');
     expect(masked.contentPlain).toBe('[차단된 사용자의 메시지]');
   });
+
+  // S75 fix-forward (F2): broadcast 행의 parentExcerpt(루트 본문) 누출 차단.
+  describe('maskBlockedAuthors broadcast parentExcerpt (F2)', () => {
+    const rowAuthor = '33333333-3333-4333-8333-333333333333';
+    const rootAuthor = '44444444-4444-4444-8444-444444444444';
+
+    it('행 author 차단 시 본문과 함께 parentExcerpt 도 비운다', () => {
+      const svc = makeService();
+      const dto = svc.toDto(
+        makeRow({ isBroadcast: true, parentMessageId: 'root-1' } as Partial<Row>),
+        [],
+        null,
+        [],
+        '차단 작성자의 루트 본문',
+      );
+      const [masked] = svc.maskBlockedAuthors([dto], new Set([rowAuthor]));
+      expect(masked.content).toBe('[차단된 사용자의 메시지]');
+      expect(masked.parentExcerpt).toBe('');
+    });
+
+    it('행 author 는 비차단이지만 루트 작성자가 차단되면 parentExcerpt 만 비우고 본문은 유지한다', () => {
+      const svc = makeService();
+      const dto = svc.toDto(
+        makeRow({
+          authorId: '55555555-5555-4555-8555-555555555555',
+          content: 'reply body',
+          contentPlain: 'reply body',
+          isBroadcast: true,
+          parentMessageId: 'root-1',
+        } as Partial<Row>),
+        [],
+        null,
+        [],
+        '차단 루트 작성자의 본문',
+      );
+      // broadcast 행 id → 루트 작성자(차단됨) 맵을 전달.
+      const rootMap = new Map<string, string | null>([[dto.id, rootAuthor]]);
+      const [masked] = svc.maskBlockedAuthors([dto], new Set([rootAuthor]), rootMap);
+      // 행 author(답글 작성자)는 비차단 → 본문 유지.
+      expect(masked.content).toBe('reply body');
+      // 루트 작성자가 차단 → parentExcerpt 누출 차단.
+      expect(masked.parentExcerpt).toBe('');
+    });
+
+    it('행 author·루트 작성자 모두 비차단이면 parentExcerpt 를 그대로 둔다', () => {
+      const svc = makeService();
+      const dto = svc.toDto(
+        makeRow({
+          authorId: '55555555-5555-4555-8555-555555555555',
+          isBroadcast: true,
+          parentMessageId: 'root-1',
+        } as Partial<Row>),
+        [],
+        null,
+        [],
+        '루트 본문',
+      );
+      const rootMap = new Map<string, string | null>([[dto.id, rootAuthor]]);
+      // blocked-set 에 무관한 author 만 → 마스킹 비대상.
+      const [masked] = svc.maskBlockedAuthors(
+        [dto],
+        new Set(['99999999-9999-4999-8999-999999999999']),
+        rootMap,
+      );
+      expect(masked.parentExcerpt).toBe('루트 본문');
+    });
+  });
 });

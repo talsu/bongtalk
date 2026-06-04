@@ -1,5 +1,7 @@
+import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Avatar } from '../../design-system/primitives';
+import { Dialog } from '../../design-system/primitives/Dialog';
 import { useNotifications } from '../../stores/notification-store';
 import { useFriendsList, useUnblockUser } from '../friends/useFriends';
 
@@ -7,9 +9,14 @@ import { useFriendsList, useUnblockUser } from '../friends/useFriends';
  * S75 (D14 / FR-PS-14): 개인정보/안전 설정 — 차단 목록 + 해제.
  *
  * 차단 목록은 기존 FriendsController(GET /me/friends?status=blocked)를 100% 재사용한다
- * (신규 차단 API 없음). 해제는 DELETE /me/friends/block/:userId(useUnblockUser). 해제 시
- * useUnblockUser 가 friends 캐시를 invalidate 하고, 서버는 user:unblocked WS 이벤트를 보내
- * 클라가 차단 마스킹을 푼다(useUserUnblocked — 채널/DM 메시지 캐시 무효화).
+ * (신규 차단 API 없음). 해제는 DELETE /me/friends/block/:userId(useUnblockUser).
+ *
+ * S75 fix-forward (F13): 해제 성공 시 useUnblockUser 가 `['friends']` + `['messages']`
+ * 캐시를 함께 무효화한다 — 이 탭에서 열린 채널/DM 메시지의 `[차단된 사용자의
+ * 메시지]` 마스킹이 풀린 원문으로 즉시 재로드된다. 다른 탭/기기로의 실시간 전파
+ * (`user:unblocked` WS → useUserUnblocked)는 현재 어떤 Shell 에도 배선돼 있지 않다
+ * (dormant — useUserUnblocked.ts 의 carryover 참고). 따라서 본 페이지는 mutation
+ * onSuccess 의 직접 무효화에만 의존한다.
  *
  * NotificationSettingsPage 와 동일한 설정 페이지 셸(qf-* + DS 토큰)을 쓴다.
  */
@@ -19,7 +26,13 @@ export function PrivacySafetySettingsPage(): JSX.Element {
   const notify = useNotifications((s) => s.push);
   const blocked = data?.items ?? [];
 
-  const onUnblock = (userId: string, username: string): void => {
+  // F11 (a11y M-5): 차단 해제 즉시실행은 오클릭 위험 → 확인 단계(alertDialog)를 둔다.
+  const [confirmTarget, setConfirmTarget] = useState<{
+    userId: string;
+    username: string;
+  } | null>(null);
+
+  const runUnblock = (userId: string, username: string): void => {
     unblock.mutate(
       { userId },
       {
@@ -98,7 +111,14 @@ export function PrivacySafetySettingsPage(): JSX.Element {
                   <button
                     type="button"
                     data-testid={`blocked-unblock-${row.otherUserId}`}
-                    onClick={() => onUnblock(row.otherUserId, row.otherUsername)}
+                    // F6 (a11y H-1): 모든 해제 버튼이 같은 텍스트 "차단 해제"라
+                    // 접근명이 중복된다 — 대상 @username 을 aria-label 에 포함한다.
+                    aria-label={`@${row.otherUsername} 차단 해제`}
+                    onClick={() =>
+                      setConfirmTarget({ userId: row.otherUserId, username: row.otherUsername })
+                    }
+                    // F10 (a11y M-3): 해제 진행 중 표시. 해당 대상이 처리 중일 때만 busy.
+                    aria-busy={unblock.isPending && confirmTarget?.userId === row.otherUserId}
                     disabled={unblock.isPending}
                     className="qf-btn qf-btn--secondary qf-btn--sm"
                   >
@@ -110,6 +130,43 @@ export function PrivacySafetySettingsPage(): JSX.Element {
           )}
         </section>
       </div>
+
+      {/* F11 (a11y M-5): 차단 해제 확인 다이얼로그(alertDialog — 의사 결정 환기). */}
+      <Dialog
+        open={confirmTarget !== null}
+        onOpenChange={(next) => {
+          if (!next) setConfirmTarget(null);
+        }}
+        alertDialog
+        title="차단을 해제할까요?"
+        description={
+          confirmTarget
+            ? `@${confirmTarget.username} 의 메시지와 DM/멘션이 다시 표시됩니다.`
+            : undefined
+        }
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <button
+            type="button"
+            data-testid="unblock-confirm-cancel"
+            onClick={() => setConfirmTarget(null)}
+            className="qf-btn qf-btn--ghost qf-btn--sm"
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            data-testid="unblock-confirm-ok"
+            onClick={() => {
+              if (confirmTarget) runUnblock(confirmTarget.userId, confirmTarget.username);
+              setConfirmTarget(null);
+            }}
+            className="qf-btn qf-btn--secondary qf-btn--sm"
+          >
+            차단 해제
+          </button>
+        </div>
+      </Dialog>
     </main>
   );
 }

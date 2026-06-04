@@ -92,6 +92,51 @@ async function sendMessage(
   return res.body.message.id as string;
 }
 
+// 답글 + 'Also send to #channel' broadcast 를 동시 게시한다. 응답은 답글 id 만
+// 돌려주므로(broadcast SYSTEM 행 id 는 서버 내부 생성·미노출), 호출측은 채널
+// 리스트에서 type=SYSTEM_THREAD_BROADCAST + parentMessageId 로 broadcast 행을 찾는다.
+async function sendBroadcastReply(
+  workspaceId: string,
+  channelId: string,
+  actor: Actor,
+  content: string,
+  parentMessageId: string,
+): Promise<string> {
+  const res = await request(env.baseUrl)
+    .post(`/workspaces/${workspaceId}/channels/${channelId}/messages`)
+    .set('origin', ORIGIN)
+    .set('Authorization', `Bearer ${actor.accessToken}`)
+    .send({ content, parentMessageId, isBroadcast: true })
+    .expect(201);
+  return res.body.message.id as string;
+}
+
+type ListedMessage = {
+  id: string;
+  type?: string;
+  content: string | null;
+  parentExcerpt: string | null;
+  parentMessageId: string | null;
+  isBroadcast?: boolean;
+};
+
+async function listMessages(
+  workspaceId: string,
+  channelId: string,
+  viewer: Actor,
+): Promise<ListedMessage[]> {
+  const res = await request(env.baseUrl)
+    .get(`/workspaces/${workspaceId}/channels/${channelId}/messages`)
+    .set('origin', ORIGIN)
+    .set('Authorization', `Bearer ${viewer.accessToken}`)
+    .expect(200);
+  return res.body.items as ListedMessage[];
+}
+
+function findBroadcastForRoot(items: ListedMessage[], rootId: string): ListedMessage | undefined {
+  return items.find((m) => m.isBroadcast === true && m.parentMessageId === rootId);
+}
+
 async function getFullProfile(
   workspaceId: string,
   viewer: Actor,
@@ -240,5 +285,117 @@ describe('S75 FR-PS-14 (C1): workspace channel message list block masking', () =
       (m) => m.id === msgId,
     );
     expect(own?.content).toBe('secret message');
+  });
+});
+
+// S75 fix-forward (security F1 / FR-PS-14 "차단 시 @멘션 불가").
+describe('S75 FR-PS-14 (F1): blocked-author @mention emits no notification', () => {
+  // 멘션 후 대상 user 에게 mention.received OutboxEvent 가 기록됐는지 직접 조회.
+  async function mentionEventCount(targetUserId: string): Promise<number> {
+    return env.prisma.outboxEvent.count({
+      where: { eventType: 'mention.received', aggregateId: targetUserId },
+    });
+  }
+
+  it('does NOT notify a user mentioned by an author they have blocked (viewer→author)', async () => {
+    const viewer = await signupAsUser(env.baseUrl, 'fblockv');
+    const author = await signupAsUser(env.baseUrl, 'fblocka');
+    const ws = await createWorkspace(viewer);
+    await inviteAndJoin(ws, viewer, author);
+    const channelId = await createChannel(ws, viewer);
+
+    // viewer 가 author 를 차단.
+    await request(env.baseUrl)
+      .post(`/me/friends/block/${author.userId}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${viewer.accessToken}`)
+      .expect(201);
+
+    // author 가 viewer 를 @멘션. 차단 관계이므로 알림이 도달하면 안 된다.
+    await sendMessage(ws, channelId, author, `hey @${viewer.username} 보세요`);
+    expect(await mentionEventCount(viewer.userId)).toBe(0);
+  });
+
+  it('does NOT notify when the author blocked the recipient (author→recipient, reverse direction)', async () => {
+    const recipient = await signupAsUser(env.baseUrl, 'fblockr');
+    const author = await signupAsUser(env.baseUrl, 'fblockw');
+    const ws = await createWorkspace(author);
+    await inviteAndJoin(ws, author, recipient);
+    const channelId = await createChannel(ws, author);
+
+    // author 가 recipient 를 차단(역방향).
+    await request(env.baseUrl)
+      .post(`/me/friends/block/${recipient.userId}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${author.accessToken}`)
+      .expect(201);
+
+    await sendMessage(ws, channelId, author, `hey @${recipient.username} 보세요`);
+    expect(await mentionEventCount(recipient.userId)).toBe(0);
+  });
+
+  it('still notifies a non-blocked mentioned user (control)', async () => {
+    const author = await signupAsUser(env.baseUrl, 'fokauth');
+    const recipient = await signupAsUser(env.baseUrl, 'fokrcp');
+    const ws = await createWorkspace(author);
+    await inviteAndJoin(ws, author, recipient);
+    const channelId = await createChannel(ws, author);
+
+    await sendMessage(ws, channelId, author, `hey @${recipient.username} 보세요`);
+    expect(await mentionEventCount(recipient.userId)).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// S75 fix-forward (reviewer MAJOR F2): broadcast 행의 parentExcerpt 로 차단
+// 루트 작성자의 본문이 채널 타임라인에 누출되면 안 된다.
+describe('S75 F2: thread broadcast parentExcerpt masks a blocked root author', () => {
+  it('clears parentExcerpt when the broadcast root author is blocked (reply author non-blocked)', async () => {
+    const viewer = await signupAsUser(env.baseUrl, 'f2view');
+    const rootAuthor = await signupAsUser(env.baseUrl, 'f2root');
+    const replier = await signupAsUser(env.baseUrl, 'f2reply');
+    const ws = await createWorkspace(viewer);
+    await inviteAndJoin(ws, viewer, rootAuthor);
+    await inviteAndJoin(ws, viewer, replier);
+    const channelId = await createChannel(ws, viewer);
+
+    // rootAuthor 가 스레드 루트(민감 본문)를 작성.
+    const rootId = await sendMessage(ws, channelId, rootAuthor, 'sensitive root body leak');
+    // replier(비차단)가 broadcast 답글 → SYSTEM_THREAD_BROADCAST 행 생성.
+    await sendBroadcastReply(ws, channelId, replier, 'a reply', rootId);
+
+    // viewer 가 rootAuthor 를 차단(replier 는 차단하지 않음).
+    await request(env.baseUrl)
+      .post(`/me/friends/block/${rootAuthor.userId}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${viewer.accessToken}`)
+      .expect(201);
+
+    const items = await listMessages(ws, channelId, viewer);
+    const broadcast = findBroadcastForRoot(items, rootId);
+    expect(broadcast?.isBroadcast).toBe(true);
+    // 답글 작성자(replier)는 비차단 → broadcast 본문은 유지.
+    expect(broadcast?.content).toBe('a reply');
+    // 루트 작성자(rootAuthor)가 차단 → parentExcerpt 누출 차단(빈 문자열).
+    expect(broadcast?.parentExcerpt).toBe('');
+    // 루트 메시지 자체는 작성자 차단으로 본문 마스킹.
+    const root = items.find((m) => m.id === rootId);
+    expect(root?.content).toBe(BLOCKED_PLACEHOLDER);
+  });
+
+  it('keeps parentExcerpt when neither reply nor root author is blocked', async () => {
+    const viewer = await signupAsUser(env.baseUrl, 'f2okv');
+    const rootAuthor = await signupAsUser(env.baseUrl, 'f2okr');
+    const replier = await signupAsUser(env.baseUrl, 'f2okp');
+    const ws = await createWorkspace(viewer);
+    await inviteAndJoin(ws, viewer, rootAuthor);
+    await inviteAndJoin(ws, viewer, replier);
+    const channelId = await createChannel(ws, viewer);
+
+    const rootId = await sendMessage(ws, channelId, rootAuthor, 'visible root body');
+    await sendBroadcastReply(ws, channelId, replier, 'a reply', rootId);
+
+    const items = await listMessages(ws, channelId, viewer);
+    const broadcast = findBroadcastForRoot(items, rootId);
+    expect(broadcast?.parentExcerpt).toBe('visible root body');
   });
 });

@@ -112,6 +112,41 @@ describe('MemberProfilePanel (FR-PS-08)', () => {
     expect(setProfilePanelUser).toHaveBeenCalledWith(null);
   });
 
+  it('F8: announces the panel via an sr-only aria-live region', () => {
+    renderPanel();
+    const live = screen.getByTestId('member-profile-live');
+    expect(live.getAttribute('aria-live')).toBe('polite');
+    expect(live.textContent).toBe('멤버 프로필 패널이 열렸습니다');
+  });
+
+  it('F9: localtime wrapper carries a single combined aria-label, inner spans are hidden', () => {
+    renderPanel();
+    const localtime = screen.getByTestId('member-profile-localtime');
+    // timezone + 현지시각을 단일 wrapper aria-label 로 묶는다.
+    expect(localtime.getAttribute('aria-label')).toContain('Asia/Seoul');
+    expect(localtime.getAttribute('aria-label')).toContain('현지 시각');
+    // 내부 span(타임존/시각)은 중복 낭독을 막으려 aria-hidden.
+    for (const span of Array.from(localtime.querySelectorAll('span'))) {
+      expect(span.getAttribute('aria-hidden')).toBe('true');
+    }
+  });
+
+  it('F7: roles container is a list with listitem badges', () => {
+    renderPanel();
+    const roles = screen.getByTestId('member-profile-roles');
+    expect(roles.getAttribute('role')).toBe('list');
+    expect(roles.getAttribute('aria-label')).toBe('역할');
+    const items = roles.querySelectorAll('[role="listitem"]');
+    // 시스템 ADMIN + 커스텀 Builder = 2 listitem.
+    expect(items.length).toBe(2);
+  });
+
+  it('F16: panel is width-constrained to 280px at the app layer', () => {
+    renderPanel();
+    const panel = screen.getByTestId('member-profile-panel');
+    expect(panel.style.width).toBe('280px');
+  });
+
   it('navigates to /dm/:userId on DM button', () => {
     renderPanel();
     fireEvent.click(screen.getByTestId('member-profile-dm'));

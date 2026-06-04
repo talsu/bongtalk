@@ -251,7 +251,14 @@ export function MessageItem({
           // 트리거로 감싼다. DM-context(전역) 팝오버는 S75 OUT 이라 DM 에서는 종전대로 정적 아바타.
           // tmp(낙관적 send) 행은 서버 authorId 가 유효하므로 동일하게 동작한다.
           workspaceId ? (
-            <ProfilePopover userId={msg.authorId} workspaceId={workspaceId}>
+            // F5 (a11y M-1): 아바타 트리거는 마우스 전용(tabIndex=-1 + aria-hidden)으로
+            // 두어, 같은 유저의 작성자명 트리거를 단일 키보드 진입점으로 만든다(중복
+            // 포커스 스톱 제거). 클릭/탭 동작은 그대로 유지된다.
+            <ProfilePopover
+              userId={msg.authorId}
+              workspaceId={workspaceId}
+              triggerProps={{ tabIndex: -1, 'aria-hidden': true }}
+            >
               <Avatar
                 name={authorName ?? msg.authorId.slice(0, 2)}
                 size="md"

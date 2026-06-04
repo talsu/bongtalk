@@ -532,14 +532,23 @@ export class MessagesService {
    * S35 (FR-TH-06): 채널 목록 페이지 내 broadcast 행들의 루트 excerpt 를 한 번에
    * 모은다. broadcast 행은 parentMessageId 로 스레드 루트를 가리키므로, 그
    * parentMessageId 집합의 루트 본문(content)을 단일 IN 쿼리로 읽어 excerpt 로
-   * 가공한다(루트당 1회 — N+1 아님). 반환 Map 은 broadcast 행의 id → excerpt.
-   * broadcast 행이 없으면 빈 Map(추가 쿼리 없음).
+   * 가공한다(루트당 1회 — N+1 아님). 반환 Map 은 broadcast 행의 id →
+   * { excerpt, rootAuthorId }. broadcast 행이 없으면 빈 Map(추가 쿼리 없음).
    *
    * 삭제된 루트는 본문이 비어 excerpt 가 빈 문자열이 된다(placeholder 루트의
    * broadcast 는 레이블만 표시) — toDto 의 broadcast deleted 마스킹과 별개다.
+   *
+   * S75 fix-forward (F2): excerpt 와 함께 **루트 작성자 id**(rootAuthorId)도
+   * 돌려준다. SYSTEM_THREAD_BROADCAST 행의 authorId 는 답글 작성자(비차단일 수
+   * 있음)지만 parentExcerpt 는 스레드 루트 본문(차단 작성자일 수 있음)을 담으므로,
+   * read-path 의 maskBlockedAuthors 가 rootAuthorId 를 blocked-set 과 대조해
+   * 차단 작성자의 루트 본문이 채널 타임라인에 누출되지 않도록 excerpt 를
+   * 마스킹한다. 루트를 못 찾으면(타채널 필터/삭제) rootAuthorId=null.
    */
-  async aggregateBroadcastExcerpts(rows: MessageRow[]): Promise<Map<string, string>> {
-    const out = new Map<string, string>();
+  async aggregateBroadcastExcerpts(
+    rows: MessageRow[],
+  ): Promise<Map<string, { excerpt: string; rootAuthorId: string | null }>> {
+    const out = new Map<string, { excerpt: string; rootAuthorId: string | null }>();
     // broadcast 행만 추린다(parentMessageId 보유 + isBroadcast).
     const broadcastRows = rows.filter((r) => r.isBroadcast === true && r.parentMessageId);
     if (broadcastRows.length === 0) return out;
@@ -557,7 +566,9 @@ export class MessagesService {
     const broadcastChannelIds = Array.from(new Set(broadcastRows.map((r) => r.channelId)));
     const roots = await this.prisma.message.findMany({
       where: { id: { in: rootIds }, channelId: { in: broadcastChannelIds } },
-      select: { id: true, channelId: true, content: true, deletedAt: true },
+      // S75 fix-forward (F2): authorId 도 select 해 broadcast 행의 루트 작성자를
+      // read-path 차단 마스킹에 넘긴다.
+      select: { id: true, channelId: true, authorId: true, content: true, deletedAt: true },
     });
     const rootById = new Map(roots.map((root) => [root.id, root]));
     for (const r of broadcastRows) {
@@ -566,10 +577,13 @@ export class MessagesService {
       // 루트가 없거나(타채널로 필터됨) broadcast 행과 채널이 어긋나면 누출
       // 방어로 빈 excerpt 를 돌린다(레이블만). 삭제된 루트도 빈 excerpt.
       if (!root || root.channelId !== r.channelId || root.deletedAt) {
-        out.set(r.id, '');
+        out.set(r.id, { excerpt: '', rootAuthorId: null });
         continue;
       }
-      out.set(r.id, buildThreadBroadcastExcerpt(root.content));
+      out.set(r.id, {
+        excerpt: buildThreadBroadcastExcerpt(root.content),
+        rootAuthorId: root.authorId,
+      });
     }
     return out;
   }
@@ -943,11 +957,33 @@ export class MessagesService {
    * 가 "내가(blocker=requesterId) 차단한 상대"만 모은다. 즉 내가 차단한 사람의
    * 메시지만 *나에게* 마스킹되고, 나를 차단한 상대에게는 내 메시지가 그대로
    * 보인다 — Discord 의 차단 의미(상호 숨김 아님)와 동일하다.
+   *
+   * S75 fix-forward (F2): SYSTEM_THREAD_BROADCAST 행의 parentExcerpt 누출 차단.
+   * broadcast 행의 authorId 는 답글 작성자(비차단일 수 있음)지만 parentExcerpt 는
+   * 스레드 **루트** 본문(차단 작성자일 수 있음)을 담으므로, 행 author 차단 외에도
+   * 루트 작성자가 차단된 경우 parentExcerpt 를 비운다. 호출자가 broadcast 행
+   * id → rootAuthorId 맵(aggregateBroadcastExcerpts 결과)을 넘기면 루트 작성자를
+   * blocked-set 과 대조한다. 맵 미전달(스레드 패널 등 broadcast 없는 경로)이면
+   * 기존 동작(행 author 만 검사)을 유지한다.
    */
-  maskBlockedAuthors(dtos: MessageDto[], blockedIds: Set<string>): MessageDto[] {
+  maskBlockedAuthors(
+    dtos: MessageDto[],
+    blockedIds: Set<string>,
+    rootAuthorByMessageId?: ReadonlyMap<string, string | null>,
+  ): MessageDto[] {
     if (blockedIds.size === 0) return dtos;
     return dtos.map((dto) => {
-      if (!blockedIds.has(dto.authorId) || dto.deleted) return dto;
+      const rowAuthorBlocked = blockedIds.has(dto.authorId) && !dto.deleted;
+      // F2: broadcast 행의 루트 작성자가 차단됐는지(행 author 와 무관) 확인.
+      const rootAuthorId = rootAuthorByMessageId?.get(dto.id) ?? null;
+      const rootAuthorBlocked =
+        rootAuthorId !== null && blockedIds.has(rootAuthorId) && !dto.deleted;
+      if (!rowAuthorBlocked && !rootAuthorBlocked) return dto;
+      // 루트 작성자만 차단(행 author 는 비차단)인 broadcast 행은 본문은
+      // 답글 작성자 것이라 유지하되, 누출 경로인 parentExcerpt 만 비운다.
+      if (!rowAuthorBlocked && rootAuthorBlocked) {
+        return { ...dto, parentExcerpt: dto.parentExcerpt === null ? null : '' };
+      }
       return {
         ...dto,
         content: BLOCKED_MESSAGE_PLACEHOLDER,
@@ -960,6 +996,8 @@ export class MessagesService {
         // S60: 차단 author 의 메시지 unfurl 카드도 비운다(본문 마스킹과 일관 — 차단한
         // 사용자의 링크 미리보기가 노출되지 않도록).
         embeds: [],
+        // S75 fix-forward (F2): 행 author 차단 시 parentExcerpt(루트 본문)도 비운다.
+        parentExcerpt: dto.parentExcerpt === null ? null : '',
       };
     });
   }
@@ -1414,6 +1452,32 @@ export class MessagesService {
         );
         const dedupedMentionUserIds = Array.from(new Set(candidateMentionUserIds));
         const now = new Date();
+        // S75 fix-forward (security F1 / FR-PS-14 "차단 시 @멘션 불가"): 차단
+        // 관계인 상대에게는 @멘션 알림을 발송하지 않습니다. 양방향(작성자가
+        // 수신자를 차단 OR 수신자가 작성자를 차단)으로 BLOCKED Friendship 을
+        // 같은 tx 안에서 조회해(atomic snapshot) 멘션 수신자 후보에서 제외합니다.
+        // 아래 thread 자동구독의 양방향 block 필터(F1 이전부터 존재)와 동일한
+        // 패턴이며, 둘 다 1회 조회로 합쳐 N+1 을 피합니다. 차단 상대를 멘션만으로
+        // 알림 도달시키면 PRD 의 "차단 시 @멘션 불가" 계약을 깨므로 mute/DND/
+        // notificationLevel 게이트와 별개로 우선 적용합니다.
+        const blockedMentionRows =
+          dedupedMentionUserIds.length === 0
+            ? []
+            : await tx.friendship.findMany({
+                where: {
+                  status: 'BLOCKED',
+                  OR: [
+                    { requesterId: args.authorId, addresseeId: { in: dedupedMentionUserIds } },
+                    { requesterId: { in: dedupedMentionUserIds }, addresseeId: args.authorId },
+                  ],
+                },
+                select: { requesterId: true, addresseeId: true },
+              });
+        const blockedMentionSet = new Set<string>();
+        for (const r of blockedMentionRows) {
+          // 작성자가 아닌 쪽이 곧 차단 관계의 상대(멘션 수신자 후보).
+          blockedMentionSet.add(r.requesterId === args.authorId ? r.addresseeId : r.requesterId);
+        }
         const mutedRows =
           dedupedMentionUserIds.length === 0
             ? []
@@ -1506,6 +1570,9 @@ export class MessagesService {
             : null;
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
+          // S75 fix-forward (security F1 / FR-PS-14): 차단 관계(양방향)인 상대는
+          // mute/DND/level 게이트보다 먼저 제외합니다. "차단 시 @멘션 불가".
+          if (blockedMentionSet.has(uid)) continue;
           if (mutedSet.has(uid)) continue;
           if (dndSuppressedSet.has(uid)) continue;
           // S38 fix-forward (FR-TH-08): OFF 구독자는 멘션 알림에서도 전면 제외.
@@ -1585,32 +1652,20 @@ export class MessagesService {
         // 상대를 멘션만으로 스레드 follower 로 끌어들이면 이후 N2 dispatcher 가
         // 그 스레드의 새 답글 알림을 차단 상대에게 발송해 프라이버시를 깬다.
         // loadBlockedUserIds 는 "내가(작성자) 차단한 상대"를 모으는 단방향
-        // 헬퍼지만, 여기서는 양방향(내가 차단/상대가 차단) 모두 제외해야 하므로
-        // 같은 tx 안에서 BLOCKED Friendship 을 양방향으로 조회한다(atomic
-        // snapshot). authorId follow 는 자기 자신이라 이 게이트와 무관하다.
+        // 헬퍼지만, 여기서는 양방향(내가 차단/상대가 차단) 모두 제외해야 한다.
+        //
+        // S75 fix-forward (F1): 위 멘션 fanout 에서 같은 양방향 BLOCKED 조회를
+        // `blockedMentionSet` 으로 이미 수행했으므로 재사용한다(동일 tx·동일
+        // 후보 집합 — 중복 쿼리 제거). authorId follow 는 자기 자신이라 이
+        // 게이트와 무관하다.
         if (
           created.parentMessageId &&
           this.threadSubscriptions &&
           dedupedMentionUserIds.length > 0
         ) {
           const threadRootId = created.parentMessageId;
-          const blockedRows = await tx.friendship.findMany({
-            where: {
-              status: 'BLOCKED',
-              OR: [
-                { requesterId: args.authorId, addresseeId: { in: dedupedMentionUserIds } },
-                { requesterId: { in: dedupedMentionUserIds }, addresseeId: args.authorId },
-              ],
-            },
-            select: { requesterId: true, addresseeId: true },
-          });
-          const blockedSet = new Set<string>();
-          for (const r of blockedRows) {
-            // 작성자가 아닌 쪽이 곧 차단 관계의 상대(멘션 대상).
-            blockedSet.add(r.requesterId === args.authorId ? r.addresseeId : r.requesterId);
-          }
           for (const uid of dedupedMentionUserIds) {
-            if (blockedSet.has(uid)) continue; // 차단/피차단 상대는 자동구독 제외.
+            if (blockedMentionSet.has(uid)) continue; // 차단/피차단 상대는 자동구독 제외.
             await this.threadSubscriptions
               .subscribe({
                 userId: uid,

@@ -156,12 +156,18 @@ export class MessagesController {
         reactionMap.get(r.id) ?? [],
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
-        broadcastExcerptMap.get(r.id) ?? null,
+        broadcastExcerptMap.get(r.id)?.excerpt ?? null,
         embedMap.get(r.id) ?? [],
       ),
     );
+    // S75 fix-forward (F2): broadcast 행의 루트 작성자 맵을 maskBlockedAuthors 에
+    // 넘겨, 차단 작성자의 루트 본문이 parentExcerpt 로 채널 타임라인에 누출되지
+    // 않도록 한다(행 author 가 비차단인 broadcast 의 excerpt 마스킹).
+    const rootAuthorByMessageId = new Map(
+      [...broadcastExcerptMap].map(([id, v]) => [id, v.rootAuthorId] as const),
+    );
     return {
-      items: this.messages.maskBlockedAuthors(dtos, blockedIds),
+      items: this.messages.maskBlockedAuthors(dtos, blockedIds, rootAuthorByMessageId),
       pageInfo: {
         hasMore: result.hasMore,
         nextCursor: result.nextCursor,

@@ -127,16 +127,20 @@ export class GlobalDmMessagesController {
         reactionMap.get(r.id) ?? [],
         threadMap.get(r.id) ?? null,
         attachmentMap.get(r.id) ?? [],
-        broadcastExcerptMap.get(r.id) ?? null,
+        broadcastExcerptMap.get(r.id)?.excerpt ?? null,
         embedMap.get(r.id) ?? [],
       ),
+    );
+    // S75 fix-forward (F2): broadcast 행 루트 작성자 맵 → parentExcerpt 누출 차단.
+    const rootAuthorByMessageId = new Map(
+      [...broadcastExcerptMap].map(([id, v]) => [id, v.rootAuthorId] as const),
     );
     return {
       // S17 (FR-DM-18): 그룹 DM 에서 차단한 사용자의 메시지를 placeholder 로
       // 마스킹한다(삭제 아님 — 자리 유지). 1:1 DM 은 보통 차단 시 send 자체가
       // 막히지만(FR-DM-13), 차단 이전 히스토리에 상대 메시지가 남아있을 수
       // 있어 동일 마스킹을 적용한다.
-      items: this.messages.maskBlockedAuthors(dtos, blockedIds),
+      items: this.messages.maskBlockedAuthors(dtos, blockedIds, rootAuthorByMessageId),
       pageInfo: {
         hasMore: result.hasMore,
         prevCursor: result.prevCursor,
