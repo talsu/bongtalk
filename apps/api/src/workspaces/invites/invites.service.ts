@@ -110,8 +110,13 @@ export class InvitesService {
     if (!invite || invite.workspace.deletedAt) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
     }
+    // S66 fix-forward (FR-W21 / task-032): 취소된 초대는 generic INVITE_NOT_FOUND(404)
+    // 가 아니라 INVITE_REVOKED(410) 로 구분한다 — preview 가 FR-W21 만료/취소 전용 화면
+    // (EXPIRED_INVITE_CODES = {EXPIRED, EXHAUSTED, REVOKED})으로 분기하려면 취소 사유가
+    // 노출돼야 한다. expired/exhausted 가 이미 410 이므로 열거 중립성 손실은 없다(선존
+    // 비대칭 시정).
     if (invite.revokedAt) {
-      throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite revoked');
+      throw new DomainError(ErrorCode.INVITE_REVOKED, 'invite revoked');
     }
     if (invite.expiresAt && invite.expiresAt.getTime() <= Date.now()) {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
@@ -157,8 +162,14 @@ export class InvitesService {
         workspace: { select: { emailDomains: true } },
       },
     });
-    if (!existing || existing.revokedAt) {
+    if (!existing) {
       throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
+    }
+    // S66 fix-forward (FR-W21 / task-032): 취소 초대는 INVITE_REVOKED(410) 로 구분한다
+    // (expired 처리와 일관·preview 와 대칭). pre-CAS 단계에서 즉시 취소가 보이는 경우이며,
+    // findUnique↔CAS 사이 취소 레이스는 아래 post-CAS 재조회가 동일 코드로 처리한다.
+    if (existing.revokedAt) {
+      throw new DomainError(ErrorCode.INVITE_REVOKED, 'invite revoked');
     }
     if (existing.expiresAt && existing.expiresAt.getTime() <= Date.now()) {
       throw new DomainError(ErrorCode.INVITE_EXPIRED, 'invite expired');
