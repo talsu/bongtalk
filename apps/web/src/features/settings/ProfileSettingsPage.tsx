@@ -7,7 +7,7 @@ import {
   useState,
   type ReactElement,
 } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   HANDLE_RE,
   HANDLE_MAX,
@@ -337,6 +337,18 @@ export function ProfileSettingsPage(): JSX.Element {
           <Icon name="chevron-left" size="md" />
         </button>
         <h1 className="text-[length:var(--fs-18)] font-semibold">프로필</h1>
+        {/*
+          S75 fix-forward (F15 / FR-PS-14 도달성): 차단 목록(/settings/privacy)이
+          종전엔 URL 직접입력으로만 도달했다. 가장 인접한 설정 페이지(프로필)에서
+          "프라이버시 & 안전" 링크로 진입점을 제공한다.
+        */}
+        <Link
+          to="/settings/privacy"
+          data-testid="profile-to-privacy-link"
+          className="qf-btn qf-btn--ghost qf-btn--sm ml-auto"
+        >
+          프라이버시 & 안전
+        </Link>
       </header>
 
       {/* 아바타 (FR-PS-01) — a11y MODERATE-3: section aria-label */}

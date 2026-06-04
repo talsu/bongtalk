@@ -3,6 +3,7 @@ import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
   isSystemMessageType,
+  resolveMemberDisplayName,
   type Channel,
   type ListMessagesResponse,
   type MessageDto,
@@ -204,9 +205,13 @@ export function MessageList({
   );
   useInitSavedStatus(savedSeedIds);
 
+  // S75 (D14 / FR-PS-06 · B1 carryover): 채팅 작성자 표시명도 멤버목록과 동일하게
+  // ws 오버라이드 우선순위(wsNickname > displayName > username)로 해석한다. 이미 로드된
+  // 채널 멤버 데이터(useMembers — wsNickname/displayName 포함)를 재사용하므로 추가 라운드
+  // 트립/N+1 이 없다(S74 가 멤버목록만 반영하고 채팅 작성자명은 username 폴백이던 carryover 해소).
   const nameById = useMemo(() => {
     const map = new Map<string, string>();
-    for (const m of members?.members ?? []) map.set(m.userId, m.user.username);
+    for (const m of members?.members ?? []) map.set(m.userId, resolveMemberDisplayName(m.user));
     return map;
   }, [members]);
 

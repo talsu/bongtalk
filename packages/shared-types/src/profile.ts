@@ -1,4 +1,7 @@
 import { z } from 'zod';
+// S75 (D14 / FR-PS-07): full-profile 의 systemRole 은 워크스페이스 시스템 역할 enum 을
+// 그대로 쓴다(단일 출처 — workspace.ts).
+import { WorkspaceRoleSchema } from './workspace';
 
 /**
  * S73 (D14 / FR-PS-01·02·03): 전역 프로필 + 아바타 컨트랙트.
@@ -285,3 +288,97 @@ export const WsAvatarFinalizeResultSchema = z.object({
   avatarUrl: z.string(),
 });
 export type WsAvatarFinalizeResult = z.infer<typeof WsAvatarFinalizeResultSchema>;
+
+// ───────────── S75 (D14 / FR-PS-07·08) 타 멤버 전체 프로필 조회(full-profile) ─────────────
+
+/**
+ * S75 (D14 / FR-PS-07·08 · Fork A-1): 타 사용자 전체 프로필 조회 단일 엔드포인트
+ *   GET /workspaces/:wsId/members/:userId/full-profile → MemberFullProfileView
+ *
+ * 전역 프로필(User) + 워크스페이스 오버라이드(WorkspaceMemberProfile) + 프레즌스 +
+ * 시스템/커스텀 역할 + (만료 마스킹된) 커스텀 상태를 합성해 프로필 팝오버(FR-PS-07,
+ * 200px 미니카드)와 전체 프로필 패널(FR-PS-08, 280px 슬라이드인)이 한 번에 소비한다.
+ * 신규 컬럼/마이그레이션 없음 — 전부 기존 컬럼 SELECT 합성이다(S73/S74/S17/S61).
+ *
+ * 권한: WorkspaceMemberGuard(요청자 멤버) + 대상 userId 가 동일 wsId 멤버인지 검증해
+ * 비멤버는 404(enumeration 차단). DM-context(전역) 팝오버는 S75 OUT(carryover).
+ */
+
+/** S75 (FR-PS-07): 팝오버 역할 뱃지에 쓰는 커스텀 역할 요약(id/이름/색). */
+export const MemberFullProfileRoleSchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+  /** "#RRGGBB" 또는 null(색 없음 — 기본 뱃지 색). */
+  color: z.string().nullable(),
+});
+export type MemberFullProfileRole = z.infer<typeof MemberFullProfileRoleSchema>;
+
+/** S75 (FR-PS-07/08): 관전 가능한 프레즌스 상태(invisible 은 타인에게 offline 으로 마스킹됨). */
+export const FullProfilePresenceStatusSchema = z.enum(['online', 'idle', 'dnd', 'offline']);
+export type FullProfilePresenceStatus = z.infer<typeof FullProfilePresenceStatusSchema>;
+
+export const MemberFullProfileViewSchema = z.object({
+  // ── 전역 신원(User) ──
+  userId: z.string().uuid(),
+  username: z.string(),
+  /** @핸들(handle ?? username 폴백). */
+  handle: z.string(),
+  displayName: z.string().nullable(),
+  fullName: z.string().nullable(),
+  pronouns: z.string().nullable(),
+  title: z.string().nullable(),
+  /** IANA tz(현지시각 클록 기준) 또는 null. */
+  timezone: z.string().nullable(),
+  /** About Me(전역). */
+  bio: z.string().nullable(),
+  /** 전역 아바타 presigned GET URL(600s) 또는 null. */
+  avatarUrl: z.string().nullable(),
+  /** 배너 presigned GET URL(600s) 또는 null. */
+  bannerUrl: z.string().nullable(),
+  // ── 워크스페이스 오버라이드(WorkspaceMemberProfile) ──
+  wsNickname: z.string().nullable(),
+  wsAvatarUrl: z.string().nullable(),
+  workspaceBio: z.string().nullable(),
+  // ── 프레즌스 ──
+  presenceStatus: FullProfilePresenceStatusSchema,
+  /** 만료 마스킹(maskExpiredStatus) 적용된 커스텀 상태 텍스트. */
+  customStatus: z.string().nullable(),
+  customStatusEmoji: z.string().nullable(),
+  // ── 역할 ──
+  systemRole: WorkspaceRoleSchema,
+  customRoles: z.array(MemberFullProfileRoleSchema),
+  // ── 서버가 계산해 내려보내는 표시 우선순위(FE 가 재계산하지 않게 단일 출처) ──
+  /** wsNickname > displayName > username. */
+  effectiveDisplayName: z.string(),
+  /** wsAvatarUrl > avatarUrl > null. */
+  effectiveAvatarUrl: z.string().nullable(),
+  /** workspaceBio > bio > null. */
+  effectiveBio: z.string().nullable(),
+});
+export type MemberFullProfileView = z.infer<typeof MemberFullProfileViewSchema>;
+
+/**
+ * S75 (FR-PS-07): full-profile 의 effective* 표시값을 계산하는 순수 헬퍼.
+ * resolveMemberDisplayName/resolveMemberAvatarUrl(workspace.ts)과 동일한 우선순위
+ * 규칙을 full-profile 의 더 넓은 입력(handle 폴백·bio 합성)으로 확장한다. 서버와 (필요 시)
+ * 클라가 동일 규칙을 쓰도록 단일 출처로 둔다.
+ */
+export function computeEffectiveProfile(input: {
+  username: string;
+  displayName: string | null;
+  wsNickname: string | null;
+  avatarUrl: string | null;
+  wsAvatarUrl: string | null;
+  bio: string | null;
+  workspaceBio: string | null;
+}): {
+  effectiveDisplayName: string;
+  effectiveAvatarUrl: string | null;
+  effectiveBio: string | null;
+} {
+  return {
+    effectiveDisplayName: input.wsNickname ?? input.displayName ?? input.username,
+    effectiveAvatarUrl: input.wsAvatarUrl ?? input.avatarUrl ?? null,
+    effectiveBio: input.workspaceBio ?? input.bio ?? null,
+  };
+}

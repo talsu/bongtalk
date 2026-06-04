@@ -25,6 +25,8 @@ import { LinkPreview } from './LinkPreview';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
 import { canStartThread, threadChipVisible as computeThreadChipVisible } from './threadActionGate';
+// S75 (FR-PS-07): 작성자 아바타/이름 → 프로필 팝오버 트리거(워크스페이스 채널 한정).
+import { ProfilePopover } from '../profile/ProfilePopover';
 
 type Props = {
   msg: MessageDto;
@@ -245,11 +247,31 @@ export function MessageItem({
         className={cn('qf-message group', isHead ? 'qf-message--head' : 'qf-message--cont')}
       >
         {isHead ? (
-          <Avatar
-            name={authorName ?? msg.authorId.slice(0, 2)}
-            size="md"
-            className="qf-message__avatar"
-          />
+          // S75 (FR-PS-07): 워크스페이스 채널(workspaceId 존재)에서만 아바타를 프로필 팝오버
+          // 트리거로 감싼다. DM-context(전역) 팝오버는 S75 OUT 이라 DM 에서는 종전대로 정적 아바타.
+          // tmp(낙관적 send) 행은 서버 authorId 가 유효하므로 동일하게 동작한다.
+          workspaceId ? (
+            // F5 (a11y M-1): 아바타 트리거는 마우스 전용(tabIndex=-1 + aria-hidden)으로
+            // 두어, 같은 유저의 작성자명 트리거를 단일 키보드 진입점으로 만든다(중복
+            // 포커스 스톱 제거). 클릭/탭 동작은 그대로 유지된다.
+            <ProfilePopover
+              userId={msg.authorId}
+              workspaceId={workspaceId}
+              triggerProps={{ tabIndex: -1, 'aria-hidden': true }}
+            >
+              <Avatar
+                name={authorName ?? msg.authorId.slice(0, 2)}
+                size="md"
+                className="qf-message__avatar"
+              />
+            </ProfilePopover>
+          ) : (
+            <Avatar
+              name={authorName ?? msg.authorId.slice(0, 2)}
+              size="md"
+              className="qf-message__avatar"
+            />
+          )
         ) : (
           // DS contract for cont rows (§ Message · Reaction · Embed mockup):
           // render an avatar-shaped ghost in the first grid column.
@@ -277,7 +299,14 @@ export function MessageItem({
         <div className="min-w-0">
           {isHead ? (
             <div className="qf-message__meta">
-              <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+              {/* S75 (FR-PS-07): 작성자명도 워크스페이스 채널에서 프로필 팝오버 트리거. */}
+              {workspaceId ? (
+                <ProfilePopover userId={msg.authorId} workspaceId={workspaceId}>
+                  <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+                </ProfilePopover>
+              ) : (
+                <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+              )}
               {badge ? (
                 <span data-testid={`msg-role-${msg.id}`} className="qf-badge qf-badge--accent">
                   {badge}

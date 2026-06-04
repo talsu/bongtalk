@@ -5,14 +5,22 @@ import {
   WS_BIO_MAX,
   WS_AVATAR_MAX_BYTES,
   WS_AVATAR_ALLOWED_MIME,
+  computeEffectiveProfile,
   type WsAvatarMime,
   type WorkspaceMemberProfileView,
+  type MemberFullProfileView,
+  type FullProfilePresenceStatus,
+  type WorkspaceRole as SharedRole,
 } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { S3Service, sanitizeFilename } from '../../storage/s3.service';
 import { matchesMagic, type MagicSupportedMime } from '../../storage/validate-magic-bytes';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
+import { PresenceService } from '../../realtime/presence/presence.service';
+import { maskExpiredStatus } from '../../me/custom-status.service';
+// S75 (FR-PS-07/08): 전역 아바타/배너 presigned GET URL TTL(600s) 단일 출처.
+import { PROFILE_IMAGE_GET_TTL_SEC } from '../../me/profile.service';
 
 /**
  * S74 (D14 / FR-PS-06 · Fork2 Option B): 워크스페이스별 프로필 오버라이드 서비스.
@@ -45,6 +53,9 @@ export class WorkspaceMemberProfileService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly s3: S3Service,
+    // S75 (FR-PS-07/08): full-profile 의 프레즌스(INVISIBLE→타인 offline 마스킹)를 위해
+    // PresenceService.bulkFor 를 단일 지점으로 재사용한다(멤버목록 listGrouped 와 동일 규칙).
+    private readonly presence: PresenceService,
   ) {}
 
   private async bestEffortDelete(key: string): Promise<void> {
@@ -74,6 +85,134 @@ export class WorkspaceMemberProfileService {
         ? await this.s3.presignGet(row.avatarKey, { expiresIn: WS_AVATAR_GET_TTL_SEC })
         : null,
       workspaceBio: row?.workspaceBio ?? null,
+    };
+  }
+
+  /**
+   * S75 (D14 / FR-PS-07·08 · Fork A-1): 타 멤버 전체 프로필 합성 조회.
+   *
+   * 전역 신원(User) + 워크스페이스 오버라이드(WorkspaceMemberProfile) + 프레즌스 +
+   * 시스템 역할(WorkspaceMember.role) + 커스텀 역할(MemberRole→Role) + (만료 마스킹된)
+   * 커스텀 상태를 한 합성 뷰로 내려보낸다. 신규 컬럼/마이그레이션 없음 — 전부 기존 컬럼.
+   *
+   * 권한/존재 검증은 컨트롤러가 (1) 요청자 멤버십(WorkspaceMemberGuard) + (2) 대상 userId 의
+   * 동일 wsId 멤버십(비멤버 → 404)을 강제한 뒤 호출한다. 여기서는 합성만 한다.
+   *
+   * 프레즌스는 PresenceService.bulkFor(viewer, [target]) 단일 지점으로 viewer 기준 마스킹
+   * (INVISIBLE→offline)을 적용한다(멤버목록 listGrouped 와 동일 규칙). 커스텀 상태는
+   * maskExpiredStatus 로 만료분을 가린다(멤버목록/DM 노출 규칙과 일관).
+   *
+   * presignGet 은 순수 서명(네트워크 없음)이라 아바타/배너/ws아바타 3개를 Promise.all 로
+   * 병렬 파생해도 N+1 네트워크 비용이 없다(SELECT 는 위에서 끝났다 — performance-profiler 검사).
+   */
+  async getFullProfile(
+    workspaceId: string,
+    viewerUserId: string,
+    targetUserId: string,
+  ): Promise<MemberFullProfileView> {
+    const now = new Date();
+    const [member, wsProfile, presences] = await Promise.all([
+      this.prisma.workspaceMember.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        select: {
+          role: true,
+          user: {
+            select: {
+              id: true,
+              username: true,
+              handle: true,
+              displayName: true,
+              fullName: true,
+              pronouns: true,
+              title: true,
+              timezone: true,
+              bio: true,
+              avatarKey: true,
+              bannerKey: true,
+              customStatus: true,
+              customStatusEmoji: true,
+              customStatusExpiresAt: true,
+            },
+          },
+          // S75 (FR-PS-07): 커스텀 역할(시스템 backfill 역할 제외)을 한 번에 join 해 N+1 회피.
+          memberRoles: {
+            select: { role: { select: { id: true, name: true, colorHex: true, isSystem: true } } },
+          },
+        },
+      }),
+      this.prisma.workspaceMemberProfile.findUnique({
+        where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+        select: { nickname: true, avatarKey: true, workspaceBio: true },
+      }),
+      this.presence.bulkFor(viewerUserId, [targetUserId]),
+    ]);
+
+    // 컨트롤러가 멤버십을 보장하지만 동시 탈퇴 race 방어로 한 번 더 가드한다(enumeration 차단).
+    if (!member) {
+      throw new DomainError(ErrorCode.WORKSPACE_NOT_MEMBER, 'member not found in this workspace');
+    }
+    const u = member.user;
+
+    const wsAvatarKey = wsProfile?.avatarKey ?? null;
+    const [avatarUrl, bannerUrl, wsAvatarUrl] = await Promise.all([
+      u.avatarKey
+        ? this.s3.presignGet(u.avatarKey, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC })
+        : Promise.resolve(null),
+      u.bannerKey
+        ? this.s3.presignGet(u.bannerKey, { expiresIn: PROFILE_IMAGE_GET_TTL_SEC })
+        : Promise.resolve(null),
+      wsAvatarKey
+        ? this.s3.presignGet(wsAvatarKey, { expiresIn: WS_AVATAR_GET_TTL_SEC })
+        : Promise.resolve(null),
+    ]);
+
+    // 만료 커스텀 상태 마스킹(maskExpiredStatus 단일 규칙 — 만료분 text/emoji 모두 null).
+    const masked = maskExpiredStatus({
+      text: u.customStatus ?? null,
+      emoji: u.customStatusEmoji ?? null,
+      expiresAt: u.customStatusExpiresAt ?? null,
+      now,
+    });
+
+    const wsNickname = wsProfile?.nickname ?? null;
+    const workspaceBio = wsProfile?.workspaceBio ?? null;
+    const eff = computeEffectiveProfile({
+      username: u.username,
+      displayName: u.displayName,
+      wsNickname,
+      avatarUrl,
+      wsAvatarUrl,
+      bio: u.bio,
+      workspaceBio,
+    });
+
+    return {
+      userId: u.id,
+      username: u.username,
+      // Fork2(Option B): handle ?? username 폴백(전역 프로필 규칙 일관).
+      handle: u.handle ?? u.username,
+      displayName: u.displayName,
+      fullName: u.fullName,
+      pronouns: u.pronouns,
+      title: u.title,
+      timezone: u.timezone,
+      bio: u.bio,
+      avatarUrl,
+      bannerUrl,
+      wsNickname,
+      wsAvatarUrl,
+      workspaceBio,
+      presenceStatus: toFullProfilePresence(presences[0]?.status),
+      customStatus: masked.text,
+      customStatusEmoji: masked.emoji,
+      systemRole: member.role as SharedRole,
+      // 커스텀 역할만(시스템 backfill 역할 isSystem=true 제외). 색은 colorHex(#RRGGBB|null).
+      customRoles: member.memberRoles
+        .filter((mr) => !mr.role.isSystem)
+        .map((mr) => ({ id: mr.role.id, name: mr.role.name, color: mr.role.colorHex })),
+      effectiveDisplayName: eff.effectiveDisplayName,
+      effectiveAvatarUrl: eff.effectiveAvatarUrl,
+      effectiveBio: eff.effectiveBio,
     };
   }
 
@@ -228,5 +367,24 @@ export class WorkspaceMemberProfileService {
       case 'image/webp':
         return '.webp';
     }
+  }
+}
+
+/**
+ * S75 (FR-PS-07/08): bulkFor 가 돌려준 viewer-마스킹 PresenceStatus 를 full-profile 의
+ * 4-state(online/idle/dnd/offline)로 축약한다. 'invisible' 은 bulkFor 가 이미 타인에게
+ * offline 으로 마스킹하지만 self/누락 대비 방어적으로 offline 에 매핑한다(멤버목록 toStatusGroup
+ * 와 동일 규칙).
+ */
+function toFullProfilePresence(status: string | undefined): FullProfilePresenceStatus {
+  switch (status) {
+    case 'online':
+      return 'online';
+    case 'idle':
+      return 'idle';
+    case 'dnd':
+      return 'dnd';
+    default:
+      return 'offline';
   }
 }
