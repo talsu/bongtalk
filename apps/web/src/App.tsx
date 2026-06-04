@@ -68,6 +68,12 @@ const ProfileSettingsPage = lazy(() =>
     default: m.ProfileSettingsPage,
   })),
 );
+// S75 (D14 / FR-PS-14): 설정 > 개인정보 및 안전 탭(차단 목록 + 해제).
+const PrivacySafetySettingsPage = lazy(() =>
+  import('./features/settings/PrivacySafetySettingsPage').then((m) => ({
+    default: m.PrivacySafetySettingsPage,
+  })),
+);
 const ActivityPage = lazy(() =>
   import('./features/activity/ActivityPage').then((m) => ({ default: m.ActivityPage })),
 );
@@ -306,7 +312,11 @@ function LegacyDmChatRedirect(): JSX.Element {
   return <Navigate to={userId ? `/dm/${userId}` : '/dm'} replace />;
 }
 
-function ProtectedSettingsRoute({ page }: { page: 'notifications' | 'profile' }): JSX.Element {
+function ProtectedSettingsRoute({
+  page,
+}: {
+  page: 'notifications' | 'profile' | 'privacy';
+}): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
@@ -314,6 +324,7 @@ function ProtectedSettingsRoute({ page }: { page: 'notifications' | 'profile' })
     <Suspense fallback={<LoadingFallback />}>
       {page === 'notifications' ? <NotificationSettingsPage /> : null}
       {page === 'profile' ? <ProfileSettingsPage /> : null}
+      {page === 'privacy' ? <PrivacySafetySettingsPage /> : null}
     </Suspense>
   );
 }
@@ -384,6 +395,11 @@ export default function App(): JSX.Element {
                         <Route
                           path="/settings/profile"
                           element={<ProtectedSettingsRoute page="profile" />}
+                        />
+                        {/* S75 (D14 / FR-PS-14): 개인정보 및 안전(차단 목록) 탭. */}
+                        <Route
+                          path="/settings/privacy"
+                          element={<ProtectedSettingsRoute page="privacy" />}
                         />
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
                         {/* task-047 iter4 (M3): profile page */}

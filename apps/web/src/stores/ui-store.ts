@@ -57,6 +57,14 @@ type UIState = {
   memberDirectoryOpen: boolean;
   toggleMemberDirectory: () => void;
   setMemberDirectoryOpen: (v: boolean) => void;
+
+  /**
+   * S75 (D14 / FR-PS-08): 전체 프로필 패널이 표시 중인 멤버 userId. null 이면 패널 닫힘.
+   * 프로필 팝오버의 "전체 프로필" 링크가 setProfilePanelUser 로 연다. 패널 자체의 X/Esc
+   * 또는 다른 멤버 패널 열기로 교체된다(MemberProfilePanel 이 우측 슬롯을 슬라이드인으로 채움).
+   */
+  profilePanelUserId: string | null;
+  setProfilePanelUser: (userId: string | null) => void;
 };
 
 export const useUI = create<UIState>((set) => ({
@@ -101,5 +109,20 @@ export const useUI = create<UIState>((set) => ({
       v
         ? { memberDirectoryOpen: true, searchPanelQuery: null, activityInboxOpen: false }
         : { memberDirectoryOpen: false },
+    ),
+
+  profilePanelUserId: null,
+  // S75 (FR-PS-08): 전체 프로필 패널을 열 때 다른 우측 패널(검색/inbox/디렉터리)을 명시적으로
+  // 닫아 단일 패널만 활성이게 한다(memberDirectory 상호배타 선례). null 이면 패널만 닫는다.
+  setProfilePanelUser: (userId) =>
+    set(() =>
+      userId
+        ? {
+            profilePanelUserId: userId,
+            searchPanelQuery: null,
+            activityInboxOpen: false,
+            memberDirectoryOpen: false,
+          }
+        : { profilePanelUserId: null },
     ),
 }));

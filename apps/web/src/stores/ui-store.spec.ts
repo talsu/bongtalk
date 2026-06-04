@@ -45,3 +45,37 @@ describe('ui-store memberDirectory mutual exclusion', () => {
     expect(s.activityInboxOpen).toBe(false);
   });
 });
+
+// S75 (FR-PS-08): 전체 프로필 패널 상호배타.
+describe('ui-store profilePanelUserId (FR-PS-08)', () => {
+  beforeEach(() => {
+    useUI.setState({
+      profilePanelUserId: null,
+      memberDirectoryOpen: false,
+      searchPanelQuery: null,
+      activityInboxOpen: false,
+    });
+  });
+
+  it('setProfilePanelUser(userId) 가 다른 우측 패널을 닫는다', () => {
+    useUI.setState({
+      memberDirectoryOpen: true,
+      searchPanelQuery: 'q',
+      activityInboxOpen: true,
+    });
+    useUI.getState().setProfilePanelUser('u1');
+    const s = useUI.getState();
+    expect(s.profilePanelUserId).toBe('u1');
+    expect(s.memberDirectoryOpen).toBe(false);
+    expect(s.searchPanelQuery).toBeNull();
+    expect(s.activityInboxOpen).toBe(false);
+  });
+
+  it('setProfilePanelUser(null) 이 패널만 닫고 다른 상태는 보존한다', () => {
+    useUI.setState({ profilePanelUserId: 'u1', searchPanelQuery: 'keep' });
+    useUI.getState().setProfilePanelUser(null);
+    const s = useUI.getState();
+    expect(s.profilePanelUserId).toBeNull();
+    expect(s.searchPanelQuery).toBe('keep');
+  });
+});

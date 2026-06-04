@@ -33,6 +33,9 @@ export const qk = {
     myApplication: (slug: string) => ['workspaces', slug, 'applications', 'me'] as const,
     // S74 (D14 / FR-PS-06): 본인 워크스페이스별 프로필 오버라이드.
     myProfile: (wsId: string) => ['workspaces', wsId, 'my-profile'] as const,
+    // S75 (D14 / FR-PS-07·08): 타 멤버 전체 프로필(팝오버/패널 공유 캐시).
+    memberFullProfile: (wsId: string, userId: string) =>
+      ['workspaces', wsId, 'member-full-profile', userId] as const,
   },
   channels: {
     list: (wsId: string) => ['workspaces', wsId, 'channels'] as const,

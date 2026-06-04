@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, cleanup } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import type { ListMembersResponse, MemberWithPresence } from '@qufox/shared-types';
 
 /**
@@ -11,6 +12,11 @@ import type { ListMembersResponse, MemberWithPresence } from '@qufox/shared-type
 vi.mock('../design-system/primitives', () => ({
   Avatar: ({ name }: { name: string }) => <span data-testid="initials-avatar">{name}</span>,
   Icon: () => <svg aria-hidden="true" />,
+}));
+// S75 (FR-PS-07): 멤버 행이 프로필 팝오버로 감싸지지만, 이 스펙은 표시 우선순위만 검증하므로
+// 팝오버(useQuery/Radix Portal)는 children passthrough 로 모킹한다(테스트 격리 + QueryClient 불요).
+vi.mock('../features/profile/ProfilePopover', () => ({
+  ProfilePopover: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
 let groupsData: ListMembersResponse | undefined;

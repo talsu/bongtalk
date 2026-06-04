@@ -10,6 +10,8 @@ import { useUI } from '../stores/ui-store';
 import { Avatar } from '../design-system/primitives';
 import { cn } from '../lib/cn';
 import type { PresenceStatus } from '../features/presence/presenceStatus';
+// S75 (FR-PS-07): 멤버 행을 프로필 팝오버 트리거로 감싼다.
+import { ProfilePopover } from '../features/profile/ProfilePopover';
 
 export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Element | null {
   const open = useUI((s) => s.memberListOpen);
@@ -36,6 +38,7 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
           label={group.label}
           members={group.members}
           register={register}
+          workspaceId={workspaceId}
         />
       ))}
       {/* FR-P08: status-bucketed groups (online/idle/dnd/offline). */}
@@ -45,6 +48,7 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
           label={group.label}
           members={group.members}
           register={register}
+          workspaceId={workspaceId}
         />
       ))}
     </aside>
@@ -55,10 +59,12 @@ function MemberGroup({
   label,
   members,
   register,
+  workspaceId,
 }: {
   label: string;
   members: MemberWithPresence[];
   register: (userId: string) => (el: Element | null) => void;
+  workspaceId: string;
 }): JSX.Element | null {
   if (members.length === 0) return null;
   return (
@@ -68,7 +74,7 @@ function MemberGroup({
         {label} — {members.length}
       </div>
       {members.map((m) => (
-        <MemberRow key={m.userId} member={m} register={register} />
+        <MemberRow key={m.userId} member={m} register={register} workspaceId={workspaceId} />
       ))}
     </>
   );
@@ -77,9 +83,11 @@ function MemberGroup({
 function MemberRow({
   member,
   register,
+  workspaceId,
 }: {
   member: MemberWithPresence;
   register: (userId: string) => (el: Element | null) => void;
+  workspaceId: string;
 }): JSX.Element {
   // S27 (FR-P15/P16): prefer the live per-user push (presence:update →
   // qk.presence.user) over the REST group bucket so a status flip recolours the
@@ -100,44 +108,52 @@ function MemberRow({
         ? 'qf-member__role-mod'
         : undefined;
   return (
-    <div
-      ref={register(member.userId)}
-      data-testid={`member-${username}`}
-      data-presence={status}
-      className={cn('qf-member', status === 'offline' && 'opacity-50')}
-    >
-      {avatarUrl ? (
-        // page-scoped 아바타 이미지(DS Avatar 프리미티브는 이니셜 전용 — 미수정).
-        // 프레즌스 닷은 별도 span 으로 오버레이한다(DS qf-avatar__status 클래스 재사용).
-        <span className="qf-avatar qf-avatar--sm relative inline-flex items-center justify-center overflow-hidden">
-          <img
-            src={avatarUrl}
-            alt={`${displayName}의 프로필 사진`}
-            data-testid={`member-avatar-${username}`}
-            className="h-full w-full object-cover"
-          />
-          {status !== 'offline' ? (
-            <span className={`qf-avatar__status qf-avatar__status--${status}`} aria-hidden />
-          ) : null}
-        </span>
-      ) : (
-        <Avatar name={displayName} size="sm" status={status} />
-      )}
-      <span data-testid={`member-name-${username}`} className={cn('qf-member__name', roleClass)}>
-        {displayName}
-      </span>
-      {role !== 'MEMBER' ? (
-        <span
-          data-testid={`role-${username}`}
-          className="text-[length:var(--fs-11)] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
+    // S75 (FR-PS-07): 멤버 행 전체를 프로필 팝오버 트리거로 감싼다(클릭/Enter/Space → 200px
+    // 미니카드). register(IntersectionObserver) 는 외부 div 에 유지하고, 팝오버 트리거는 행
+    // 컨텐츠를 감싼다(트리거가 role=button aria-haspopup=dialog 를 부여).
+    <div ref={register(member.userId)} data-presence={status}>
+      <ProfilePopover userId={member.userId} workspaceId={workspaceId}>
+        <div
+          data-testid={`member-${username}`}
+          className={cn('qf-member', status === 'offline' && 'opacity-50')}
         >
-          {role}
-        </span>
-      ) : (
-        <span data-testid={`role-${username}`} className="sr-only">
-          {role}
-        </span>
-      )}
+          {avatarUrl ? (
+            // page-scoped 아바타 이미지(DS Avatar 프리미티브는 이니셜 전용 — 미수정).
+            // 프레즌스 닷은 별도 span 으로 오버레이한다(DS qf-avatar__status 클래스 재사용).
+            <span className="qf-avatar qf-avatar--sm relative inline-flex items-center justify-center overflow-hidden">
+              <img
+                src={avatarUrl}
+                alt={`${displayName}의 프로필 사진`}
+                data-testid={`member-avatar-${username}`}
+                className="h-full w-full object-cover"
+              />
+              {status !== 'offline' ? (
+                <span className={`qf-avatar__status qf-avatar__status--${status}`} aria-hidden />
+              ) : null}
+            </span>
+          ) : (
+            <Avatar name={displayName} size="sm" status={status} />
+          )}
+          <span
+            data-testid={`member-name-${username}`}
+            className={cn('qf-member__name', roleClass)}
+          >
+            {displayName}
+          </span>
+          {role !== 'MEMBER' ? (
+            <span
+              data-testid={`role-${username}`}
+              className="text-[length:var(--fs-11)] font-semibold uppercase tracking-[var(--tracking-caps)] text-text-muted"
+            >
+              {role}
+            </span>
+          ) : (
+            <span data-testid={`role-${username}`} className="sr-only">
+              {role}
+            </span>
+          )}
+        </div>
+      </ProfilePopover>
     </div>
   );
 }
