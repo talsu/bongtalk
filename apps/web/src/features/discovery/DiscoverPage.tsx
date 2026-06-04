@@ -1,6 +1,10 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { WORKSPACE_CATEGORY_META, type WorkspaceCategory } from '@qufox/shared-types';
+import {
+  WORKSPACE_CATEGORY_META,
+  type DiscoveryWorkspace,
+  type WorkspaceCategory,
+} from '@qufox/shared-types';
 import { Icon, Avatar, Button } from '../../design-system/primitives';
 import { useDiscoverWorkspaces, useJoinWorkspace } from './useDiscovery';
 import { cn } from '../../lib/cn';
@@ -30,6 +34,12 @@ export function DiscoverPage(): JSX.Element {
       }
       throw err;
     }
+  };
+
+  // S72 (D13 / FR-W16): joinMode 에 따라 카드 CTA 를 분기한다. APPLY 는 join 을
+  // 호출하지 않고 곧장 신청 폼으로 보낸다(서버 거부에 의존하지 않음 — 더 빠른 UX).
+  const onApply = (slug: string): void => {
+    navigate(`/w/${slug}/apply`);
   };
 
   const items = data?.items ?? [];
@@ -118,13 +128,7 @@ export function DiscoverPage(): JSX.Element {
                     {w.description}
                   </p>
                 ) : null}
-                <Button
-                  data-testid={`discover-join-${w.slug}`}
-                  onClick={() => onJoin(w.id, w.slug)}
-                  size="sm"
-                >
-                  참가
-                </Button>
+                <JoinCta workspace={w} onJoin={onJoin} onApply={onApply} />
               </article>
             ))}
           </div>
@@ -161,5 +165,54 @@ function CategoryChip({
       <Icon name={icon as never} size="sm" />
       <span className="text-[length:var(--fs-13)]">{label}</span>
     </button>
+  );
+}
+
+/**
+ * S72 (D13 / FR-W16): 디스커버리 카드 CTA — joinMode 3분기.
+ *   PUBLIC  → "참가"      → onJoin(즉시 가입 후 워크스페이스 진입).
+ *   APPLY   → "신청"      → onApply(가입 신청 폼 /w/:slug/apply).
+ *   PRIVATE → "초대 필요"  → 비활성(초대로만 진입 가능).
+ */
+function JoinCta({
+  workspace: w,
+  onJoin,
+  onApply,
+}: {
+  workspace: DiscoveryWorkspace;
+  onJoin: (id: string, slug: string) => void;
+  onApply: (slug: string) => void;
+}): JSX.Element {
+  if (w.joinMode === 'APPLY') {
+    return (
+      <Button
+        data-testid={`discover-cta-${w.slug}`}
+        variant="secondary"
+        onClick={() => onApply(w.slug)}
+        size="sm"
+      >
+        신청
+      </Button>
+    );
+  }
+  if (w.joinMode === 'PRIVATE') {
+    return (
+      <Button
+        data-testid={`discover-cta-${w.slug}`}
+        variant="ghost"
+        size="sm"
+        disabled
+        aria-disabled="true"
+        aria-label="초대를 받아야 참가할 수 있습니다"
+      >
+        초대 필요
+      </Button>
+    );
+  }
+  // PUBLIC(기본)
+  return (
+    <Button data-testid={`discover-cta-${w.slug}`} onClick={() => onJoin(w.id, w.slug)} size="sm">
+      참가
+    </Button>
   );
 }

@@ -40,14 +40,19 @@ function makeService(opts: { findUnique: ReturnType<typeof vi.fn> }) {
     $transaction,
   };
   const outbox = { record: outboxRecord };
+  // S72 (D13 / FR-W16): softDelete/restore 는 PUBLIC 노출을 바꾸므로 discover 캐시를
+  // 무효화한다 — invalidate 스텁을 주입해 호출 여부도 검증 가능하게 둔다.
+  const invalidate = vi.fn(async () => undefined);
+  const discoverCache = { invalidate };
   const svc = new WorkspacesService(
     prisma as never,
     outbox as never,
     {} as never,
     {} as never,
     {} as never,
+    discoverCache as never,
   );
-  return { svc, txUpdate, outboxRecord, findUnique: opts.findUnique };
+  return { svc, txUpdate, outboxRecord, invalidate, findUnique: opts.findUnique };
 }
 
 describe('WorkspacesService.softDelete — confirmation gate (FR-W15)', () => {

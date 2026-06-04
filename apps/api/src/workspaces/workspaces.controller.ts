@@ -10,8 +10,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   CreateWorkspaceRequest,
   CreateWorkspaceRequestSchema,
@@ -66,14 +68,19 @@ export class WorkspacesController {
     @Query('q') q: string | undefined,
     @Query('cursor') cursor: string | undefined,
     @Query('limit', new DefaultValuePipe(20)) limitRaw: string | number,
+    @Res({ passthrough: true }) res: Response,
   ) {
     const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
-    return this.workspaces.discover({
+    // S72 (D13 / FR-W16): 검색 결과를 Redis 5분 캐시로 감싼다. 서비스가 HIT/MISS 를
+    // 돌려주면 X-Cache 헤더로 echo 한다(비인증도 호출 가능 — 현행 유지).
+    const { payload, cacheStatus } = await this.workspaces.discover({
       category,
       q,
       cursor: cursor ?? null,
       limit: limit || 20,
     });
+    res.setHeader('X-Cache', cacheStatus);
+    return payload;
   }
 
   @Post(':id/join')
