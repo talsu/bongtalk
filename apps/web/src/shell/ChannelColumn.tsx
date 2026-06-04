@@ -112,7 +112,8 @@ export function ChannelColumn({ workspace, activeChannelName }: Props): JSX.Elem
             aria-label="멤버 초대 링크 생성"
             onClick={async () => {
               try {
-                const res = await createInvite.mutateAsync({ maxUses: 10 });
+                // S67 (FR-W02): 빠른 초대 버튼은 영구 멤버(temporary=false) 링크를 만든다.
+                const res = await createInvite.mutateAsync({ maxUses: 10, temporary: false });
                 setInviteUrl(res.url);
                 await navigator.clipboard?.writeText(res.url).catch(() => undefined);
                 notify({ variant: 'success', title: '초대 링크 복사됨', body: res.url });

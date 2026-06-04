@@ -8,6 +8,7 @@ import {
   createWorkspace,
   deleteRole,
   getWorkspace,
+  hardDeleteInvite,
   kickMember,
   kickUndo,
   leaveWorkspace,
@@ -18,6 +19,7 @@ import {
   listMyWorkspaces,
   listRoles,
   previewInvite,
+  revokeInvite,
   revokeRole,
   timeoutMember,
   transferOwnership,
@@ -179,6 +181,28 @@ export function useAcceptInvite() {
     mutationFn: acceptInvite,
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// S67 (D13 / FR-W17): 초대 비활성화(soft revoke). 목록 캐시를 무효화한다.
+export function useRevokeInvite(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => revokeInvite(id, inviteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.invites(id) });
+    },
+  });
+}
+
+// S67 (D13 / FR-W17 · Fork C-2): 초대 영구 삭제(hard delete). 목록 캐시를 무효화한다.
+export function useHardDeleteInvite(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (inviteId: string) => hardDeleteInvite(id, inviteId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.invites(id) });
     },
   });
 }

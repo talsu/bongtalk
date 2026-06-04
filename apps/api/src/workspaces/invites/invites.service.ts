@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, WorkspaceRole } from '@prisma/client';
-import { randomBytes, randomUUID } from 'node:crypto';
-import { CreateInviteRequest } from '@qufox/shared-types';
+import { randomInt, randomUUID } from 'node:crypto';
+import {
+  CreateInviteRequest,
+  ROLE_RANK,
+  type WorkspaceRole as SharedWorkspaceRole,
+} from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
@@ -9,6 +13,7 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import {
   INVITE_ACCEPTED,
   INVITE_CREATED,
+  INVITE_DELETED,
   INVITE_REVOKED,
   MEMBER_JOINED,
 } from '../events/workspace-events';
@@ -16,16 +21,67 @@ import {
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
 import { ModerationService } from '../moderation/moderation.service';
+// S67 fix-forward (security MEDIUM + reviewer #5): hard delete 파괴적 액션 감사 기록.
+import { AuditService, AuditAction } from '../../common/audit/audit.service';
 // S66 (D13 / FR-W05a): 초대 수락 시점 emailVerified + emailDomains 진입 게이트.
 import { assertWorkspaceEntryAllowed } from '../workspace-entry-gate';
 
-function codeBytes(): number {
-  const n = Number(process.env.INVITE_CODE_BYTES ?? 16);
-  return Number.isFinite(n) && n >= 12 ? n : 16;
-}
+// S67 (D13 / FR-W02 · Fork B): 신규 초대 코드는 8자 alphanumeric 으로 발급한다.
+// 혼동 문자(0/O/1/l/I)를 제외한 커스텀 알파벳(57자)을 쓰며, 편향 없는 균등 추출을
+// 위해 crypto.randomInt(상한 미만 균등) 로 매 자리를 뽑는다(Math.random 금지).
+// 길이 8 · 알파벳 57 → 엔트로피 ≈ 8·log2(57) ≈ 46.7bit. 코드 자체의 엔트로피로
+// brute-force 를 막기보다, 초대 preview/accept 의 per-IP·per-code·per-user
+// rate-limit(invites.controller·rate-limit.service)이 enumeration 의 1차 방어선이며
+// code 는 @unique 라 충돌 시 재시도한다. 기존 22자 base64url 코드는 길이 불문 @unique
+// 로 그대로 동작한다(신규만 8자 — 기존 보존).
+const INVITE_CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789';
+const INVITE_CODE_LENGTH = 8;
 
 function makeCode(): string {
-  return randomBytes(codeBytes()).toString('base64url');
+  let out = '';
+  for (let i = 0; i < INVITE_CODE_LENGTH; i++) {
+    out += INVITE_CODE_ALPHABET[randomInt(INVITE_CODE_ALPHABET.length)];
+  }
+  return out;
+}
+
+// S67 (D13 / FR-W17): 관리 목록 표시용 파생값(잔여 사용 횟수 + 활성 여부). 서버가
+// 한 곳에서 계산해 FE 가 재계산하지 않게 한다.
+function usesRemainingOf(maxUses: number | null, usedCount: number): number | null {
+  return maxUses === null ? null : Math.max(0, maxUses - usedCount);
+}
+
+function isActiveInvite(
+  invite: {
+    revokedAt: Date | null;
+    expiresAt: Date | null;
+    maxUses: number | null;
+    usedCount: number;
+  },
+  now: Date,
+): boolean {
+  if (invite.revokedAt) return false;
+  if (invite.expiresAt && invite.expiresAt.getTime() <= now.getTime()) return false;
+  if (invite.maxUses !== null && invite.usedCount >= invite.maxUses) return false;
+  return true;
+}
+
+// S67 fix-forward (reviewer #3): accept() 의 멤버 INSERT 가 던진 P2002 가 WorkspaceMember
+// 복합 PK(workspaceId+userId — 동일 사용자 동시 수락 패자) 충돌인지 판별한다. Prisma 의
+// meta.target 은 Postgres 에서 보통 제약 이름 문자열("WorkspaceMember_pkey")이지만 일부
+// 버전/경로에선 필드명 배열(["workspaceId","userId"])로 온다 — 둘 다 안전하게 매칭한다.
+// 다른 unique 제약(향후 추가분·syncMemberSystemRole 내부 제약) 충돌이면 false → 호출부가
+// rethrow 해 좌석 오환불·실패 은폐를 막는다.
+function isWorkspaceMemberPkConflict(e: Prisma.PrismaClientKnownRequestError): boolean {
+  const target = e.meta?.target;
+  if (typeof target === 'string') {
+    return target.includes('WorkspaceMember') && target.includes('pkey');
+  }
+  if (Array.isArray(target)) {
+    const fields = target.map((t) => String(t));
+    return fields.includes('workspaceId') && fields.includes('userId');
+  }
+  return false;
 }
 
 @Injectable()
@@ -35,6 +91,8 @@ export class InvitesService {
     private readonly outbox: OutboxService,
     // S63 (FR-RM06): 차단된 userId 의 초대 수락 재가입을 거부하기 위한 차단 조회.
     private readonly moderation: ModerationService,
+    // S67 fix-forward (security MEDIUM + reviewer #5): hard delete 감사 기록(파괴적 액션).
+    private readonly audit: AuditService,
   ) {}
 
   async create(workspaceId: string, createdById: string, input: CreateInviteRequest) {
@@ -49,6 +107,8 @@ export class InvitesService {
               createdById,
               expiresAt: input.expiresAt ? new Date(input.expiresAt) : null,
               maxUses: input.maxUses ?? null,
+              // S67 (D13 / FR-W02): 임시 멤버십 초대 플래그.
+              temporary: input.temporary ?? false,
             },
           });
           await this.outbox.record(tx, {
@@ -73,17 +133,51 @@ export class InvitesService {
     throw new Error('unreachable — collision retry exhausted');
   }
 
-  async list(workspaceId: string) {
-    return this.prisma.invite.findMany({
-      where: { workspaceId, revokedAt: null },
+  /**
+   * S67 (D13 / FR-W17): 초대 관리 목록.
+   * - ADMIN 이상(OWNER/ADMIN): 워크스페이스 전체 초대.
+   * - MODERATOR: 자신이 생성한 초대만(createdById = actorId).
+   * 비활성(취소/만료/소진)도 함께 반환해 FE 가 활성/비활성 구분을 표시한다.
+   * usesRemaining/active/createdBy 파생 필드를 서버가 계산해 내려보낸다.
+   */
+  async list(workspaceId: string, actorId: string, actorRole: SharedWorkspaceRole) {
+    const where: Prisma.InviteWhereInput = { workspaceId };
+    // MODERATOR 는 본인 생성분만. ADMIN/OWNER 는 전체.
+    if (ROLE_RANK[actorRole] < ROLE_RANK.ADMIN) {
+      where.createdById = actorId;
+    }
+    const rows = await this.prisma.invite.findMany({
+      where,
       orderBy: { createdAt: 'desc' },
+      include: { createdBy: { select: { id: true, username: true } } },
     });
+    const now = new Date();
+    return rows.map((r) => ({
+      ...r,
+      usesRemaining: usesRemainingOf(r.maxUses, r.usedCount),
+      active: isActiveInvite(r, now),
+    }));
   }
 
-  async revoke(workspaceId: string, inviteId: string, actorId: string) {
+  /**
+   * S67 (D13 / FR-W17): 비활성화(soft revoke). revokedAt 을 찍는다.
+   * MODERATOR 는 본인 생성분만 취소 가능(타인 링크는 INVITE_NOT_FOUND 로 비노출).
+   */
+  async revoke(
+    workspaceId: string,
+    inviteId: string,
+    actorId: string,
+    actorRole: SharedWorkspaceRole,
+  ) {
     await this.prisma.$transaction(async (tx) => {
+      const where: Prisma.InviteWhereInput = { id: inviteId, workspaceId, revokedAt: null };
+      // MODERATOR 는 본인 생성분만 — 타인 링크는 매칭에서 제외돼 INVITE_NOT_FOUND(403 대신
+      // 404, 타인 링크 존재 사실을 누출하지 않음).
+      if (ROLE_RANK[actorRole] < ROLE_RANK.ADMIN) {
+        where.createdById = actorId;
+      }
       const result = await tx.invite.updateMany({
-        where: { id: inviteId, workspaceId, revokedAt: null },
+        where,
         data: { revokedAt: new Date() },
       });
       if (result.count === 0) {
@@ -95,6 +189,53 @@ export class InvitesService {
         eventType: INVITE_REVOKED,
         payload: { workspaceId, inviteId, actorId },
       });
+    });
+  }
+
+  /**
+   * S67 (D13 / FR-W17 · Fork C-2): 영구 삭제(hard delete). soft revoke(revokedAt)와
+   * 구분되는 별도 경로다 — 행 자체를 제거한다(이미 취소된 초대도 정리 가능). 권한은
+   * create/revoke 와 동일(ADMIN 전체 · MODERATOR 본인 생성분). MODERATOR 의 타인 링크는
+   * 매칭에서 제외돼 INVITE_NOT_FOUND.
+   */
+  async hardDelete(
+    workspaceId: string,
+    inviteId: string,
+    actorId: string,
+    actorRole: SharedWorkspaceRole,
+  ) {
+    const where: Prisma.InviteWhereInput = { id: inviteId, workspaceId };
+    if (ROLE_RANK[actorRole] < ROLE_RANK.ADMIN) {
+      where.createdById = actorId;
+    }
+    // S67 fix-forward (security MEDIUM + reviewer #5): 파괴적 hard delete 를 $transaction
+    // 으로 감싸 행 삭제 + outbox(INVITE_DELETED) + 감사 로그(AuditAction.INVITE_DELETED)를
+    // 하나의 commit 으로 묶는다. soft revoke 가 INVITE_REVOKED outbox 를 남기는 것과 대칭이며,
+    // rogue admin 의 무단 영구 삭제를 추적할 수 있게 한다. 삭제 *전* 행을 읽어 code 를
+    // 확보한 뒤 같은 tx 에서 제거한다(권한 필터는 where 로 강제 — MODERATOR 타인 링크는
+    // 매칭 0건 → INVITE_NOT_FOUND).
+    await this.prisma.$transaction(async (tx) => {
+      const target = await tx.invite.findFirst({ where, select: { id: true, code: true } });
+      if (!target) {
+        throw new DomainError(ErrorCode.INVITE_NOT_FOUND, 'invite not found');
+      }
+      await tx.invite.delete({ where: { id: target.id } });
+      await this.outbox.record(tx, {
+        aggregateType: 'invite',
+        aggregateId: target.id,
+        eventType: INVITE_DELETED,
+        payload: { workspaceId, inviteId: target.id, actorId },
+      });
+      await this.audit.record(
+        {
+          workspaceId,
+          actorId,
+          action: AuditAction.INVITE_DELETED,
+          targetId: target.id,
+          details: { code: target.code },
+        },
+        tx,
+      );
     });
   }
 
@@ -158,8 +299,30 @@ export class InvitesService {
         revokedAt: true,
         expiresAt: true,
         maxUses: true,
+        // S67 (D13 / FR-W03): temporary=true 링크 수락 시 WorkspaceMember.isTemporary 기록.
+        temporary: true,
         // S66 (D13 / FR-W05a): 도메인 게이트용 화이트리스트.
-        workspace: { select: { emailDomains: true } },
+        // S67 fix-forward (perf #2): 응답에 필요한 워크스페이스 컬럼을 여기서 함께 selct 해
+        // already-member·P2002·정상 가입 3개 분기의 workspace.findUnique 재조회(중복 쿼리)를
+        // 없앤다. WorkspaceSchema 응답 shape 와 일치하도록 전 scalar 컬럼을 포함한다.
+        workspace: {
+          select: {
+            id: true,
+            name: true,
+            slug: true,
+            description: true,
+            iconUrl: true,
+            ownerId: true,
+            visibility: true,
+            category: true,
+            joinMode: true,
+            emailDomains: true,
+            defaultChannelId: true,
+            createdAt: true,
+            deletedAt: true,
+            deleteAt: true,
+          },
+        },
       },
     });
     if (!existing) {
@@ -179,10 +342,12 @@ export class InvitesService {
       where: { workspaceId_userId: { workspaceId: existing.workspaceId, userId } },
     });
     if (already) {
-      throw new DomainError(
-        ErrorCode.WORKSPACE_ALREADY_MEMBER,
-        'you are already a member of this workspace',
-      );
+      // S67 (D13 / FR-W03): 이미 멤버인 사용자의 재수락은 throw(409) 대신 멱등 성공으로
+      // 처리한다 — 초대 링크를 다시 눌러도 워크스페이스로 자연스럽게 이동하게 한다. 좌석
+      // 소모(CAS) 전이므로 usedCount 도 건드리지 않는다. alreadyMember=true 로 신규 가입과
+      // 구분해 FE 가 안내 문구를 분기한다.
+      // S67 fix-forward (perf #2): pre-CAS findUnique 에서 함께 읽은 existing.workspace 재사용.
+      return { workspace: existing.workspace, alreadyMember: true };
     }
 
     // S63 (FR-RM06): 차단된 userId 는 초대를 받아도 재진입할 수 없다. CAS(usedCount
@@ -244,7 +409,14 @@ export class InvitesService {
     try {
       await this.prisma.$transaction(async (tx) => {
         await tx.workspaceMember.create({
-          data: { workspaceId: existing.workspaceId, userId, role: WorkspaceRole.MEMBER },
+          data: {
+            workspaceId: existing.workspaceId,
+            userId,
+            role: WorkspaceRole.MEMBER,
+            // S67 (D13 / FR-W03): temporary=true 초대로 가입한 멤버는 임시로 기록한다
+            // (S70 의 연결 종료 강퇴 배치 대상). 영구 초대(false)면 영구 멤버.
+            isTemporary: existing.temporary,
+          },
         });
         // S61 fix-forward (security A-2 · MemberRole desync): 가입 트랜잭션에서 MEMBER
         // 시스템 MemberRole 을 시드한다(enum ↔ 시스템 Role 동기 불변식). 누락 시
@@ -268,22 +440,30 @@ export class InvitesService {
         });
       });
     } catch (e) {
-      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+      if (
+        e instanceof Prisma.PrismaClientKnownRequestError &&
+        e.code === 'P2002' &&
+        // S67 fix-forward (reviewer #3): P2002 가 WorkspaceMember 복합 PK(=동일 사용자
+        // 동시 수락 패자) 충돌일 때만 좌석 환불 + 멱등 성공으로 처리한다. 다른 unique 제약
+        // (예: syncMemberSystemRole 의 MemberRole, 향후 추가 제약) 충돌을 alreadyMember 로
+        // 오탐하면 좌석을 잘못 환불하고 실패를 성공으로 숨긴다. meta.target 이 멤버 복합 PK
+        // (workspaceId+userId) 를 가리키는지 확인하고, 아니면 rethrow 한다.
+        isWorkspaceMemberPkConflict(e)
+      ) {
+        // 동일 사용자의 동시 수락(두 탭) 패자: 방금 소모한 좌석을 환불하고, 이미 멤버가
+        // 되었으므로 멱등 성공으로 처리한다(S67 — throw 대신 alreadyMember=true).
         await this.prisma.$executeRawUnsafe(
           `UPDATE "Invite" SET "usedCount" = "usedCount" - 1 WHERE code = $1 AND "usedCount" > 0`,
           code,
         );
-        throw new DomainError(
-          ErrorCode.WORKSPACE_ALREADY_MEMBER,
-          'you are already a member of this workspace',
-        );
+        // S67 fix-forward (perf #2): pre-CAS findUnique 에서 함께 읽은 existing.workspace 재사용.
+        return { workspace: existing.workspace, alreadyMember: true };
       }
       throw e;
     }
 
-    const workspace = await this.prisma.workspace.findUnique({
-      where: { id: existing.workspaceId },
-    });
-    return workspace!;
+    // S67 (D13 / FR-W03): 신규 가입 — alreadyMember=false.
+    // S67 fix-forward (perf #2): pre-CAS findUnique 에서 함께 읽은 existing.workspace 재사용.
+    return { workspace: existing.workspace, alreadyMember: false };
   }
 }

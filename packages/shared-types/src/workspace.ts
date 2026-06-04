@@ -343,6 +343,9 @@ export type TransferOwnershipRequest = z.infer<typeof TransferOwnershipRequestSc
 export const CreateInviteRequestSchema = z.object({
   expiresAt: z.string().datetime().optional(),
   maxUses: z.number().int().positive().max(10_000).optional(),
+  // S67 (D13 / FR-W02): 임시 멤버십 초대. 미지정 시 false(영구 멤버). 이 링크로 수락한
+  // 멤버는 WorkspaceMember.isTemporary=true 로 기록된다(강퇴 배치는 S70 / FR-W12).
+  temporary: z.boolean().optional().default(false),
 });
 export type CreateInviteRequest = z.infer<typeof CreateInviteRequestSchema>;
 
@@ -355,8 +358,18 @@ export const InviteSchema = z.object({
   maxUses: z.number().int().positive().nullable(),
   usedCount: z.number().int().nonnegative(),
   revokedAt: z.string().datetime().nullable(),
+  // S67 (D13 / FR-W02): 임시 멤버십 초대 여부.
+  temporary: z.boolean().default(false),
   createdAt: z.string().datetime(),
   url: z.string().url(),
+  // S67 (D13 / FR-W17): 관리 목록 표시용 파생 필드. usesRemaining 는 무제한(maxUses
+  // null)이면 null, 아니면 max(0, maxUses-usedCount). active 는 미취소 + 미만료 +
+  // 미소진. 서버 list() 가 계산해 내려보낸다(FE 가 재계산하지 않게).
+  usesRemaining: z.number().int().nonnegative().nullable().optional(),
+  active: z.boolean().optional(),
+  // S67 (D13 / FR-W17): 생성자 표시(목록의 "생성자" 컬럼). best-effort 조인이며 없으면
+  // 생략된다(FE 는 createdById 로 폴백).
+  createdBy: z.object({ id: z.string().uuid(), username: z.string() }).nullable().optional(),
 });
 export type Invite = z.infer<typeof InviteSchema>;
 
@@ -370,3 +383,12 @@ export const InvitePreviewSchema = z.object({
   usesRemaining: z.number().int().nullable(),
 });
 export type InvitePreview = z.infer<typeof InvitePreviewSchema>;
+
+// S67 (D13 / FR-W03): 초대 수락 응답. 신규 가입(alreadyMember=false)과 이미 멤버였던
+// 경우(alreadyMember=true · 멱등 200)를 한 shape 로 담는다. FE 는 두 경우 모두 workspace
+// 로 이동하므로 alreadyMember 는 토스트 문구 분기용이다(throw 대신 멱등 성공).
+export const AcceptInviteResponseSchema = z.object({
+  workspace: WorkspaceSchema,
+  alreadyMember: z.boolean(),
+});
+export type AcceptInviteResponse = z.infer<typeof AcceptInviteResponseSchema>;

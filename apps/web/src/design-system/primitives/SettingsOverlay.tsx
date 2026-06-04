@@ -33,7 +33,14 @@ export function SettingsOverlay({
     <RDialog.Root open={open} onOpenChange={(v) => !v && onClose()}>
       <RDialog.Portal>
         <RDialog.Overlay className="qf-settings-overlay__backdrop" />
-        <RDialog.Content data-testid={testId} className="qf-settings-overlay__card">
+        <RDialog.Content
+          data-testid={testId}
+          // S67 fix-forward (a11y M-4): Radix 1.1.x 가 Content 에 aria-modal 을 출력하지
+          // 않아 AT 가 모달 경계를 인식하지 못한다. Dialog primitive 와 동일하게 명시한다
+          // (focus trap 은 Radix 가 처리·primitive 는 앱코드라 DS 4파일 아님).
+          aria-modal="true"
+          className="qf-settings-overlay__card"
+        >
           {/* Radix closes on Escape + outside click by default; both
               route through onOpenChange → onClose. */}
           <RDialog.Title className="sr-only">{title}</RDialog.Title>

@@ -85,8 +85,9 @@ describe('Invite rate limits (task-013-A1 / task-031)', () => {
       .set('Authorization', `Bearer ${joiner.accessToken}`)
       .expect(201);
 
-    // 29 more accept attempts that the service will 409 (already member)
-    // — those still count toward the per-user bucket because the rate
+    // 29 more accept attempts that the service now treats as an idempotent
+    // already-member success (S67 / FR-W03: 200 alreadyMember=true, no longer
+    // 409) — those still count toward the per-user bucket because the rate
     // limiter runs BEFORE the service call.
     let saw429 = false;
     for (let i = 0; i < 30; i++) {

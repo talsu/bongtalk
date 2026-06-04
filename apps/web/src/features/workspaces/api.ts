@@ -1,5 +1,6 @@
 import { apiRequest } from '../../lib/api';
 import type {
+  AcceptInviteResponse,
   CreateInviteRequest,
   CreateRoleRequest,
   CreateWorkspaceRequest,
@@ -136,8 +137,20 @@ export function previewInvite(code: string): Promise<InvitePreview> {
   return apiRequest(`/invites/${code}`, { retryOn401: false });
 }
 
-export function acceptInvite(code: string): Promise<{ workspace: Workspace }> {
+// S67 (D13 / FR-W03): 수락 응답은 { workspace, alreadyMember }. 신규 가입과 이미 멤버였던
+// 멱등 수락(200) 모두 workspace 를 담으므로 FE 는 alreadyMember 로 안내만 분기한다.
+export function acceptInvite(code: string): Promise<AcceptInviteResponse> {
   return apiRequest(`/invites/${code}/accept`, { method: 'POST' });
+}
+
+// S67 (D13 / FR-W17): 비활성화(soft revoke) — revokedAt 을 찍는다(204).
+export function revokeInvite(id: string, inviteId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/invites/${inviteId}`, { method: 'DELETE' });
+}
+
+// S67 (D13 / FR-W17 · Fork C-2): 영구 삭제(hard delete) — 행을 제거한다(204).
+export function hardDeleteInvite(id: string, inviteId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/invites/${inviteId}/permanent`, { method: 'DELETE' });
 }
 
 // ── S61 (D12 / FR-RM01·04·15): 역할 관리 ──────────────────────────────────────
