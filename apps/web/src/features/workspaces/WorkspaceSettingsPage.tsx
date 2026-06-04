@@ -7,6 +7,7 @@ import {
 } from '@qufox/shared-types';
 import { Button, Dialog, Input, SettingsOverlay } from '../../design-system/primitives';
 import {
+  useDeleteWorkspace,
   useLeaveWorkspace,
   useTransferOwnership,
   useUpdateDefaultChannel,
@@ -177,6 +178,13 @@ export function WorkspaceSettingsPage({
   const [transferPassword, setTransferPassword] = useState<string>('');
   const [dangerErr, setDangerErr] = useState<string | null>(null);
 
+  // S72 (FR-W15): 워크스페이스 삭제 — OWNER 전용, slug 타이핑 확인 모달.
+  const deleteWorkspace = useDeleteWorkspace(workspace.id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const [deleteConfirm, setDeleteConfirm] = useState('');
+  // 클라 검증: 입력값이 정확히 slug 와 일치해야 삭제 버튼이 활성화된다(서버가 최종 권위).
+  const deleteConfirmMatches = deleteConfirm === workspaceSlug;
+
   const closeSettings = (): void => {
     navigate(`/w/${workspaceSlug}`);
   };
@@ -206,6 +214,21 @@ export function WorkspaceSettingsPage({
     setDangerErr(null);
     try {
       await leave.mutateAsync();
+      navigate('/dm');
+    } catch (e) {
+      setDangerErr((e as Error).message);
+    }
+  };
+
+  // S72 (FR-W15): slug 일치 확인 후 삭제 → 목록 제거 + 홈(/dm) 리다이렉트. 불일치 입력은
+  // 버튼이 disabled 라 도달하지 않지만, 방어적으로 게이트한다(서버가 422 로 최종 거부).
+  const onDelete = async (): Promise<void> => {
+    setDangerErr(null);
+    if (!deleteConfirmMatches) return;
+    try {
+      await deleteWorkspace.mutateAsync(deleteConfirm);
+      setDeleteOpen(false);
+      setDeleteConfirm('');
       navigate('/dm');
     } catch (e) {
       setDangerErr((e as Error).message);
@@ -623,6 +646,37 @@ export function WorkspaceSettingsPage({
               </div>
             </section>
 
+            {/* S72 (FR-W15): 워크스페이스 삭제 — OWNER 전용. slug 타이핑 확인 모달을 거친다. */}
+            {ownerEditable ? (
+              <section
+                data-testid="ws-delete-section"
+                aria-labelledby="ws-delete-heading"
+                className="flex flex-col gap-[var(--s-2)] border-t border-border-subtle pt-[var(--s-4)]"
+              >
+                <h3 id="ws-delete-heading" className="font-semibold text-[length:var(--fs-15)]">
+                  워크스페이스 삭제
+                </h3>
+                <p id="ws-delete-warning" className="text-[length:var(--fs-13)] text-text-muted">
+                  워크스페이스를 삭제하면 30일 후 영구적으로 사라집니다. 그 전까지는 복원할 수
+                  있습니다. 모든 채널·메시지·멤버가 함께 제거됩니다.
+                </p>
+                <div>
+                  <Button
+                    variant="danger"
+                    data-testid="ws-delete-open"
+                    aria-describedby="ws-delete-warning"
+                    onClick={() => {
+                      setDeleteConfirm('');
+                      setDangerErr(null);
+                      setDeleteOpen(true);
+                    }}
+                  >
+                    워크스페이스 삭제
+                  </Button>
+                </div>
+              </section>
+            ) : null}
+
             {dangerErr ? (
               // S65 fix-forward (a11y BLOCKER-3): 위험 구역 에러는 role="alert" 로 즉시 안내.
               <p className="qf-field__error" data-testid="ws-danger-error" role="alert">
@@ -660,6 +714,52 @@ export function WorkspaceSettingsPage({
           <Button data-testid="workspace-visibility-confirm-ok" onClick={doSave}>
             변경
           </Button>
+        </div>
+      </Dialog>
+
+      {/* S72 (FR-W15): 워크스페이스 삭제 확인 모달. 파괴적·비가역적(30일 후 영구) 액션이라
+          alertDialog 로 role="alertdialog" 를 노출하고, slug 를 정확히 타이핑해야 삭제
+          버튼이 활성화된다(클라 검증 + 서버 422 최종 게이트). */}
+      <Dialog
+        open={deleteOpen}
+        onOpenChange={(o) => {
+          setDeleteOpen(o);
+          if (!o) setDeleteConfirm('');
+        }}
+        alertDialog
+        title="워크스페이스 삭제"
+        description={`이 작업은 30일 후 되돌릴 수 없습니다. 확인을 위해 워크스페이스 식별자 "${workspaceSlug}" 를 그대로 입력하세요.`}
+        className="w-[min(420px,92vw)]"
+      >
+        <div data-testid="ws-delete-confirm" className="flex flex-col gap-[var(--s-3)]">
+          <Input
+            aria-label="워크스페이스 식별자 확인"
+            data-testid="ws-delete-confirm-input"
+            placeholder={workspaceSlug}
+            value={deleteConfirm}
+            onChange={(e) => setDeleteConfirm(e.target.value)}
+          />
+          <div className="flex gap-[var(--s-2)] justify-end">
+            <Button
+              variant="ghost"
+              data-testid="ws-delete-cancel"
+              onClick={() => {
+                setDeleteOpen(false);
+                setDeleteConfirm('');
+              }}
+            >
+              취소
+            </Button>
+            <Button
+              variant="danger"
+              data-testid="ws-delete-confirm-ok"
+              onClick={onDelete}
+              disabled={!deleteConfirmMatches || deleteWorkspace.isPending}
+              aria-busy={deleteWorkspace.isPending || undefined}
+            >
+              {deleteWorkspace.isPending ? '삭제 중…' : '영구 삭제'}
+            </Button>
+          </div>
         </div>
       </Dialog>
     </SettingsOverlay>

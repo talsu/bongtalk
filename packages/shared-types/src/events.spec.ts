@@ -173,6 +173,35 @@ describe('S70 application + member_left payloads', () => {
       }),
     ).toThrow();
   });
+
+  // S72 (D13 · FR-W15): 워크스페이스 삭제/복원 wire 이벤트.
+  it('ws:workspace_deleted carries workspaceId + actorId + ISO deleteAt', () => {
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_DELETED].parse({
+      workspaceId: 'w1',
+      actorId: 'u1',
+      deleteAt: '2025-01-31T00:00:00.000Z',
+    });
+    expect(p).toMatchObject({ workspaceId: 'w1', actorId: 'u1' });
+    // deleteAt must be an ISO datetime — a bare date is rejected.
+    expect(() =>
+      WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_DELETED].parse({
+        workspaceId: 'w1',
+        actorId: 'u1',
+        deleteAt: '2025-01-31',
+      }),
+    ).toThrow();
+  });
+
+  it('ws:workspace_restored carries workspaceId + actorId', () => {
+    const p = WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_RESTORED].parse({
+      workspaceId: 'w1',
+      actorId: 'u1',
+    });
+    expect(p).toMatchObject({ workspaceId: 'w1', actorId: 'u1' });
+    expect(() =>
+      WS_EVENT_PAYLOAD_SCHEMAS[WS_EVENTS.WORKSPACE_RESTORED].parse({ workspaceId: 'w1' }),
+    ).toThrow();
+  });
 });
 
 describe('message:created payload', () => {

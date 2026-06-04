@@ -685,6 +685,35 @@ export class OutboxToWsSubscriber {
       this.io.to(rooms.workspace(env.workspaceId)).emit(wireType, wire);
       this.metrics?.wsEventsEmittedTotal.labels(this.metrics.bucket('wsEventType', wireType)).inc();
     }
+    // S72 (FR-W15): 워크스페이스 소프트 삭제/복원은 PRD 가 명시한 콜론 wire 이벤트
+    // ws:workspace_deleted / ws:workspace_restored 를 워크스페이스 룸으로 추가 emit 한다.
+    // 서버 내부 outbox eventType 은 dot 표기(workspace.deleted / workspace.restored)라 위
+    // emitAndBuffer 가 dot 이름으로 워크스페이스 룸에 보내지만, FE dispatcher 의 콜론 핸들러
+    // (내 워크스페이스 목록 무효화 + 현재 워크스페이스면 리다이렉트)가 받을 콜론 이름은 별도로
+    // emit 한다(member:kicked / ws:member_left dot→colon 선례). deleted 는 actorId + deleteAt
+    // (grace 종료 시각)을, restored 는 actorId 를 싣는다. payload 의 deleteAt 은 outbox
+    // payload(softDelete 가 ISO 문자열로 기록)에서 그대로 넘어온다.
+    if (this.io && env.type === 'workspace.deleted') {
+      const wire = {
+        workspaceId: env.workspaceId,
+        actorId: (env as { actorId?: string }).actorId ?? '',
+        deleteAt: (env as { deleteAt?: string }).deleteAt ?? new Date().toISOString(),
+      };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_DELETED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_DELETED))
+        .inc();
+    }
+    if (this.io && env.type === 'workspace.restored') {
+      const wire = {
+        workspaceId: env.workspaceId,
+        actorId: (env as { actorId?: string }).actorId ?? '',
+      };
+      this.io.to(rooms.workspace(env.workspaceId)).emit(WS_EVENTS.WORKSPACE_RESTORED, wire);
+      this.metrics?.wsEventsEmittedTotal
+        .labels(this.metrics.bucket('wsEventType', WS_EVENTS.WORKSPACE_RESTORED))
+        .inc();
+    }
     // S70 (FR-W12): 멤버 이탈(임시멤버 자동 강퇴 포함)은 PRD 가 명시한 콜론 wire 이벤트
     // ws:member_left { workspaceId, userId, reason } 를 워크스페이스 룸으로 추가 emit 한다.
     // 서버 내부 outbox eventType 은 dot 표기(workspace.member.left)라 위 emitAndBuffer 가

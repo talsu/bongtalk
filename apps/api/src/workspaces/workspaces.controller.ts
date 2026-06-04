@@ -15,6 +15,7 @@ import {
 import {
   CreateWorkspaceRequest,
   CreateWorkspaceRequestSchema,
+  DeleteWorkspaceRequestSchema,
   TransferOwnershipRequest,
   TransferOwnershipRequestSchema,
   UpdateDefaultChannelRequestSchema,
@@ -151,8 +152,16 @@ export class WorkspacesController {
   async softDelete(
     @Param('id', new ParseUUIDPipe()) id: string,
     @CurrentUser() user: CurrentUserPayload,
+    @Body() body: unknown,
   ) {
-    const result = await this.workspaces.softDelete(id, user.id);
+    // S72 (D13 / FR-W15): 파괴적 액션이라 body.confirmation(= slug) 타이핑 확인을 강제한다.
+    // 형태는 Zod 로(confirmation: string), 실제 slug 대조는 서비스가 한다(불일치 → 422
+    // WORKSPACE_CONFIRMATION_MISMATCH). 형태 오류(누락/비문자열)는 400 VALIDATION_FAILED.
+    const parsed = DeleteWorkspaceRequestSchema.safeParse(body);
+    if (!parsed.success) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
+    }
+    const result = await this.workspaces.softDelete(id, user.id, parsed.data.confirmation);
     return { deleteAt: result.deleteAt };
   }
 

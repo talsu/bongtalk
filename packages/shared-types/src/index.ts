@@ -85,6 +85,8 @@ export const ErrorCodeSchema = z.enum([
   'WORKSPACE_APPLY_NOT_SUPPORTED',
   // S65 fix-forward (D-2): PUBLIC 전환 시 category/description 누락(422).
   'WORKSPACE_PUBLIC_REQUIRES_METADATA',
+  // S72 (D13 / FR-W15): 삭제 confirmation(= slug) 불일치(422).
+  'WORKSPACE_CONFIRMATION_MISMATCH',
   // S61 (D12 / FR-RM01·04·15): 커스텀 Role 시스템 에러 코드.
   'ROLE_NOT_FOUND',
   'ROLE_NAME_TAKEN',

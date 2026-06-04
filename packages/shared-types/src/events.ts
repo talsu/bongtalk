@@ -198,6 +198,16 @@ export const WS_EVENTS = {
   // 은 다른 경로). 워크스페이스 룸(workspace:{wsId})으로 push 해 다른 멤버의 멤버 목록
   // 캐시를 무효화한다.
   MEMBER_LEFT: 'ws:member_left',
+  // S72 (D13 · FR-W15): 워크스페이스 소프트 삭제/복원 라이프사이클. OWNER 가 워크스페이스를
+  // 삭제(soft-delete)하면 모든 멤버에게 ws:workspace_deleted 를, grace 내 복원하면
+  // ws:workspace_restored 를 워크스페이스 룸(workspace:{wsId})으로 push 한다. 서버 내부
+  // outbox eventType 은 dot 표기(workspace.deleted / workspace.restored)지만 outbox→WS
+  // subscriber 가 이 콜론 wire 이름으로 변환해 워크스페이스 룸에 추가 emit 한다(member:kicked
+  // dot→colon 선례). 수신 클라는 deleted 시 내 워크스페이스 목록을 무효화해 사이드바에서
+  // 제거하고, 현재 보고 있던 워크스페이스면 홈(/dm)으로 리다이렉트한다. restored 는 목록을
+  // 다시 무효화해 사이드바에 복귀시킨다.
+  WORKSPACE_DELETED: 'ws:workspace_deleted',
+  WORKSPACE_RESTORED: 'ws:workspace_restored',
 } as const;
 
 export type WsEventName = (typeof WS_EVENTS)[keyof typeof WS_EVENTS];
@@ -1007,6 +1017,33 @@ export const MemberLeftPayloadSchema = z.object({
 export type MemberLeftPayload = z.infer<typeof MemberLeftPayloadSchema>;
 
 /**
+ * ws:workspace_deleted — 워크스페이스 소프트 삭제 시 워크스페이스 룸(workspace:{wsId})으로
+ * fanout(S72 · FR-W15). 서버 내부 outbox eventType 은 dot 표기(workspace.deleted)지만
+ * outbox→WS subscriber 가 이 콜론 wire 이름으로 변환해 워크스페이스 룸에 추가 emit 한다.
+ * payload 는 라우팅·소비에 필요한 최소 식별자 — 워크스페이스 id + 삭제 주체 actorId +
+ * grace 종료 시각 deleteAt(ISO UTC)이다. 모든 멤버는 내 워크스페이스 목록을 무효화해
+ * 사이드바에서 제거하고, 현재 보고 있던 워크스페이스면 홈으로 리다이렉트한다(OWNER 본인
+ * 포함 — 자기 탭의 다른 세션도 동기화). deleteAt 은 복원 가능 잔여 기간 안내에 쓴다.
+ */
+export const WorkspaceDeletedPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  actorId: z.string().min(1),
+  deleteAt: z.string().datetime(),
+});
+export type WorkspaceDeletedPayload = z.infer<typeof WorkspaceDeletedPayloadSchema>;
+
+/**
+ * ws:workspace_restored — grace 내 복원 시 워크스페이스 룸(workspace:{wsId})으로 fanout
+ * (S72 · FR-W15). deleted 와 동일한 변환·라우팅 패턴이며 payload 는 workspaceId + 복원
+ * 주체 actorId 다. 수신 클라는 내 워크스페이스 목록을 다시 무효화해 사이드바에 복귀시킨다.
+ */
+export const WorkspaceRestoredPayloadSchema = z.object({
+  workspaceId: z.string().min(1),
+  actorId: z.string().min(1),
+});
+export type WorkspaceRestoredPayload = z.infer<typeof WorkspaceRestoredPayloadSchema>;
+
+/**
  * 이벤트명 → 페이로드 스키마 매핑. 게이트웨이/클라이언트가 런타임 검증에
  * 사용합니다. (이름 단일성 + 페이로드 단일성을 한 곳에서 강제)
  */
@@ -1059,4 +1096,6 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.APPLICATION_RECEIVED]: ApplicationReceivedPayloadSchema,
   [WS_EVENTS.APPLICATION_REVIEWED]: ApplicationReviewedPayloadSchema,
   [WS_EVENTS.MEMBER_LEFT]: MemberLeftPayloadSchema,
+  [WS_EVENTS.WORKSPACE_DELETED]: WorkspaceDeletedPayloadSchema,
+  [WS_EVENTS.WORKSPACE_RESTORED]: WorkspaceRestoredPayloadSchema,
 } as const satisfies Record<WsEventName, z.ZodTypeAny>;

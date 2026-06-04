@@ -27,6 +27,25 @@ async function main() {
   const aliceId = id('user', 'alice');
   const bobId = id('user', 'bob');
   const seedPasswordHash = await hashSeedPassword('Password1!');
+
+  // S72 (D13 / FR-W15): 익명화 대상 시스템 사용자(SYSTEM_ANON). 워크스페이스 30일 grace
+  // purge 시 Message.authorId 를 이 사용자로 익명화한다(내용 보존, 작성자만 마스킹). FK
+  // (Message.authorId → User)가 유효하려면 이 행이 반드시 존재해야 하므로 seed 와
+  // purge.sh 가 선행 idempotent insert 로 보장한다. ID 는 env ANON_AUTHOR_UUID 우선,
+  // 미설정 시 결정론 uuid v5(user:system-anon). 로그인 불가(랜덤 argon2 해시), emailVerified
+  // 는 게이트 우회용으로 true. 멤버십이 없어 어떤 워크스페이스에도 보이지 않는 placeholder 다.
+  const anonId = process.env.ANON_AUTHOR_UUID ?? id('user', 'system-anon');
+  await prisma.user.upsert({
+    where: { id: anonId },
+    update: {},
+    create: {
+      id: anonId,
+      email: 'anon@system.qufox',
+      username: 'deleted-user',
+      passwordHash: await hashSeedPassword(`anon-${anonId}-no-login`),
+      emailVerified: true,
+    },
+  });
   const wsId = id('workspace', 'acme');
   const generalChannelId = id('channel', 'acme:general');
   const randomChannelId = id('channel', 'acme:random');
