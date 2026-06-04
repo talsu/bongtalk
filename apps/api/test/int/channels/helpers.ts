@@ -159,6 +159,26 @@ export async function seedWorkspaceWithRoles(baseUrl: string): Promise<{
     .set('Authorization', `Bearer ${owner.accessToken}`)
     .send({ role: 'ADMIN' });
 
+  // S65 (D13 / FR-W01): 워크스페이스 생성이 #general 기본 채널을 자동 시드한다.
+  // 이 채널 헬퍼를 쓰는 대다수 스펙은 "채널 0개에서 시작"을 가정하므로(정확한
+  // 채널 수/등간격 position 단언), 시드 직후 자동 #general 을 soft-delete 해 종전
+  // 토폴로지(빈 채널 목록)를 복원한다. FK(Workspace.defaultChannelId → Channel)는
+  // ON DELETE SET NULL 이지만 soft-delete 는 행을 남기므로, 모든 채널 조회가
+  // deletedAt IS NULL 로 필터하는 한 테스트에는 보이지 않는다.
+  const channels = await request(baseUrl)
+    .get(`/workspaces/${workspaceId}/channels`)
+    .set('origin', ORIGIN)
+    .set('Authorization', `Bearer ${owner.accessToken}`);
+  const general = (channels.body.uncategorized as Array<{ id: string; name: string }>).find(
+    (c) => c.name === 'general',
+  );
+  if (general) {
+    await request(baseUrl)
+      .delete(`/workspaces/${workspaceId}/channels/${general.id}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`);
+  }
+
   return { workspaceId, owner, admin, member, nonMember };
 }
 

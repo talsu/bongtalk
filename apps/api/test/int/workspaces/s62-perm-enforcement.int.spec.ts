@@ -10,7 +10,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { WsIntEnv, setupWsIntEnv, signupAsUser } from './helpers';
+import { WsIntEnv, setupWsIntEnv, signupAsUser, STRONG_PW } from './helpers';
 
 let env: WsIntEnv;
 const ORIGIN = 'http://localhost:45173';
@@ -160,7 +160,8 @@ describe('S62 A-1: system-role change invalidates perms cache', () => {
     await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/transfer-ownership`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ toUserId: heir.userId })
+      // S65 (FR-W13): 양도는 OWNER 비밀번호 재확인을 강제한다.
+      .send({ toUserId: heir.userId, password: STRONG_PW })
       .expect(200);
 
     // A-1 핵심: from(ex-OWNER) + to(new OWNER) 두 멤버 모두 캐시가 무효화된다.

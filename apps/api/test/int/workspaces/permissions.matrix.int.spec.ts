@@ -11,7 +11,7 @@
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
-import { WsIntEnv, setupWsIntEnv, signupAsUser } from './helpers';
+import { WsIntEnv, setupWsIntEnv, signupAsUser, STRONG_PW } from './helpers';
 import { PERMISSION_MATRIX, Role, Outcome } from './permission-matrix.data';
 
 let env: WsIntEnv;
@@ -163,7 +163,9 @@ function bodyFor(method: string, path: string): object | undefined {
   }
   if (method === 'PATCH' && /members\/.*\/role$/.test(path)) return { role: 'ADMIN' };
   if (method === 'POST' && path.endsWith('/transfer-ownership'))
-    return { toUserId: actors.admin.userId };
+    // S65 (FR-W13): 양도는 OWNER 비밀번호 재확인을 강제한다. 매트릭스의 양도 액터는
+    // OWNER 이므로 OWNER 의 비밀번호(STRONG_PW)를 함께 보낸다.
+    return { toUserId: actors.admin.userId, password: STRONG_PW };
   if (method === 'POST' && path.endsWith('/invites')) return { maxUses: 1 };
   if (method === 'POST' && path.endsWith('/channels')) {
     return { name: `ch-mtx-${Math.random().toString(36).slice(2, 8)}`, type: 'TEXT' };

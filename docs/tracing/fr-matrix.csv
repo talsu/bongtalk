@@ -277,10 +277,10 @@ FR-RM09,D12-roles-moderation,P1,S64,done
 FR-RM10,D12-roles-moderation,P1,S64,todo
 FR-RM11,D12-roles-moderation,P1,S64,done
 FR-RM12,D12-roles-moderation,P1,S64,done
-FR-W01,D13-workspace-invite,P0,S65,todo
-FR-W13,D13-workspace-invite,P1,S65,todo
-FR-W14,D13-workspace-invite,P0,S65,todo
-FR-W19,D13-workspace-invite,P1,S65,todo
+FR-W01,D13-workspace-invite,P0,S65,done
+FR-W13,D13-workspace-invite,P1,S65,done
+FR-W14,D13-workspace-invite,P0,S65,done
+FR-W19,D13-workspace-invite,P1,S65,done
 FR-W05a,D13-workspace-invite,P0,S66,todo
 FR-W05b,D13-workspace-invite,P0,S66,todo
 FR-W21,D13-workspace-invite,P0,S66,todo

@@ -54,7 +54,11 @@ describe('PATCH /workspaces/:id visibility', () => {
       .post(`/workspaces/${wsId}/invites`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
       .send({});
-    const code = inv.body.code as string;
+    // S65 fix-forward (D-2): 초대 생성 응답 shape 은 `{ invite: { code, … }, url }`
+    // (invites.controller). 종전 `inv.body.code`(undefined) 는 develop-latent 버그라
+    // 초대 코드가 undefined 로 흘러 admin 가입·승격이 모두 실패했고, 그 결과 ADMIN
+    // 비주얼 PATCH 가 403(권한 부족)이 아니라 404(비멤버)로 떨어졌다.
+    const code = inv.body.invite.code as string;
     await request(env.baseUrl)
       .post(`/invites/${code}/accept`)
       .set('Authorization', `Bearer ${admin.accessToken}`);

@@ -35,7 +35,7 @@ export function InviteAcceptPage(): JSX.Element {
           className="max-w-md p-[var(--s-9)] text-center"
           style={CARD_STYLE}
         >
-          <h1 className="text-[var(--fs-20)] font-semibold text-warning">
+          <h1 className="text-[length:var(--fs-20)] font-semibold text-warning">
             초대 링크를 사용할 수 없어요
           </h1>
           <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
@@ -51,7 +51,7 @@ export function InviteAcceptPage(): JSX.Element {
       <section className="w-full max-w-md p-[var(--s-9)] text-center" style={CARD_STYLE}>
         <div className="qf-eyebrow mb-[var(--s-3)]">workspace invite</div>
         <h1
-          className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
+          className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
           data-testid="invite-workspace-name"
         >
           {preview.workspace.name} 에 합류

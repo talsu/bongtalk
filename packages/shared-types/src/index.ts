@@ -66,6 +66,12 @@ export const ErrorCodeSchema = z.enum([
   'WORKSPACE_ALREADY_MEMBER',
   'WORKSPACE_PURGED',
   'WORKSPACE_NOT_PUBLIC',
+  // S65 (D13 / FR-W19): 기본 채널 변경 대상이 비공개 채널일 때.
+  'WORKSPACE_DEFAULT_CHANNEL_NOT_PUBLIC',
+  // S65 fix-forward (security A-2): joinMode=APPLY 즉시 가입 차단(409).
+  'WORKSPACE_APPLY_NOT_SUPPORTED',
+  // S65 fix-forward (D-2): PUBLIC 전환 시 category/description 누락(422).
+  'WORKSPACE_PUBLIC_REQUIRES_METADATA',
   // S61 (D12 / FR-RM01·04·15): 커스텀 Role 시스템 에러 코드.
   'ROLE_NOT_FOUND',
   'ROLE_NAME_TAKEN',
