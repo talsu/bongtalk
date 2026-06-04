@@ -1,6 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import {
+  AUDIT_LOG_PAGE_DEFAULT,
+  AUDIT_LOG_PAGE_MAX,
+  type AuditLogEntry,
+  type ListAuditLogsResponse,
+} from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
+import { DomainError } from '../errors/domain-error';
+import { ErrorCode } from '../errors/error-code.enum';
 
 /**
  * S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그 서비스(append-only).
@@ -47,6 +55,68 @@ export class AuditService {
   }
 
   /**
+   * S64 (FR-RM12): 감사 로그 조회(append-only read). VIEW_AUDIT_LOG 권한 게이트
+   * (ADMIN+ enum 계층)는 컨트롤러가 끝낸 상태로 호출된다 — 서비스는 cursor 페이지네이션
+   * + action/actor 필터만 수행한다. 정렬은 (createdAt DESC, id DESC) 최신순이며,
+   * `[workspaceId, createdAt]` · `[workspaceId, action, createdAt]` 인덱스를 탄다.
+   *
+   * cursor 는 opaque base64url(JSON{createdAt,id}) 다음 페이지 토큰이다. limit+1 을
+   * 읽어 다음 페이지 존재 여부를 판정하고, 초과분의 마지막 노출 행으로 nextCursor 를
+   * 만든다(없으면 null = 마지막 페이지).
+   */
+  async listAuditLogs(args: {
+    workspaceId: string;
+    cursor?: string;
+    limit?: number;
+    action?: string;
+    actorId?: string;
+  }): Promise<ListAuditLogsResponse> {
+    const take = Math.min(args.limit ?? AUDIT_LOG_PAGE_DEFAULT, AUDIT_LOG_PAGE_MAX);
+    const where: Prisma.AuditLogWhereInput = { workspaceId: args.workspaceId };
+    if (args.action) where.action = args.action;
+    if (args.actorId) where.actorId = args.actorId;
+    // cursor 키셋: (createdAt, id) < (cursorCreatedAt, cursorId) — DESC 순서.
+    if (args.cursor) {
+      const decoded = decodeAuditCursor(args.cursor);
+      where.OR = [
+        { createdAt: { lt: decoded.createdAt } },
+        { createdAt: decoded.createdAt, id: { lt: decoded.id } },
+      ];
+    }
+    const rows = await this.prisma.auditLog.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: take + 1,
+    });
+    const hasMore = rows.length > take;
+    const page = hasMore ? rows.slice(0, take) : rows;
+    // 액터 표시 정보 batch 조회(N+1 회피). 사용자 삭제 행은 null 폴백.
+    const actorIds = Array.from(new Set(page.map((r) => r.actorId)));
+    const actors =
+      actorIds.length === 0
+        ? []
+        : await this.prisma.user.findMany({
+            where: { id: { in: actorIds } },
+            select: { id: true, username: true },
+          });
+    const actorMap = new Map(actors.map((u) => [u.id, u]));
+    const entries: AuditLogEntry[] = page.map((r) => ({
+      id: r.id,
+      workspaceId: r.workspaceId,
+      actorId: r.actorId,
+      action: r.action,
+      targetId: r.targetId ?? null,
+      channelId: r.channelId ?? null,
+      details: (r.details as AuditLogEntry['details']) ?? null,
+      createdAt: r.createdAt.toISOString(),
+      actor: actorMap.get(r.actorId) ?? null,
+    }));
+    const last = page[page.length - 1];
+    const nextCursor = hasMore && last ? encodeAuditCursor(last.createdAt, last.id) : null;
+    return { entries, nextCursor };
+  }
+
+  /**
    * 보안 감사 기록이 도메인 액션을 절대 막지 않아야 하는 best-effort 경로용 헬퍼
    * (예: ADMINISTRATOR 채널 우회는 이미 허용된 액션이라, 감사 INSERT 실패가 송신
    * 자체를 깨면 안 된다). 실패는 warn 으로만 남긴다.
@@ -88,6 +158,75 @@ export const AuditAction = {
   MEMBER_TIMEOUT: 'MEMBER_TIMEOUT',
   /** FR-RM07: 음소거 수동 해제(mutedUntil null). */
   MEMBER_UNTIMEOUT: 'MEMBER_UNTIMEOUT',
+  // S64 (D12 / FR-RM09·11·12): FR-RM12 감사 조회가 의미를 가지려면 아래 관리 액션들이
+  // 실제로 기록돼야 한다. 종전 미기록 지점에 AuditService.record() 호출을 추가한다.
+  /** FR-RM09: 채널 메시지 일괄 soft-delete. details.messageIds[] 배열 1행. */
+  BULK_MESSAGE_DELETE: 'BULK_MESSAGE_DELETE',
+  /** 개별 메시지 soft-delete(작성자 본인 외 모더레이터 삭제 포함). */
+  MESSAGE_DELETE: 'MESSAGE_DELETE',
+  /** 멤버 시스템 역할 enum 변경(MembersService.updateRole). */
+  MEMBER_ROLE_UPDATE: 'MEMBER_ROLE_UPDATE',
+  /** FR-RM01/15: 커스텀 역할 생성. */
+  ROLE_CREATE: 'ROLE_CREATE',
+  /** FR-RM01: 커스텀 역할 수정. */
+  ROLE_UPDATE: 'ROLE_UPDATE',
+  /** FR-RM15: 커스텀 역할 삭제. */
+  ROLE_DELETE: 'ROLE_DELETE',
+  /** FR-RM03/14: 채널 권한 오버라이드 설정(USER/ROLE upsert). */
+  CHANNEL_PERMISSION_OVERRIDE_SET: 'CHANNEL_PERMISSION_OVERRIDE_SET',
+  // S64 fix-forward (reviewer M-2 = A-3): CHANNEL_PERMISSION_OVERRIDE_REMOVE 는 enum/label
+  // 만 정의됐고 record 호출 경로가 없었다(관리자 override 삭제 엔드포인트 부재 —
+  // leaveChannel 은 FR-CH-07 self-leave 라 의미가 다르다). dead key 를 제거한다. 향후
+  // 관리자 override 해제 엔드포인트가 생기면 그 슬라이스에서 재도입한다.
+  /** FR-CH-08: 채널 슬로우모드 간격 변경. */
+  SLOWMODE_UPDATE: 'SLOWMODE_UPDATE',
+  /** FR-RM04: 권한 상승 시도 거부(assertGrant/position 게이트 거부). */
+  PRIVILEGE_ESCALATION_DENIED: 'PRIVILEGE_ESCALATION_DENIED',
+  /** FR-RM11: 신고 처리(DISMISS/WARN/DELETE_MESSAGE/TIMEOUT/BAN). */
+  REPORT_RESOLVE: 'REPORT_RESOLVE',
 } as const;
 
 export type AuditActionKey = (typeof AuditAction)[keyof typeof AuditAction];
+
+/**
+ * S64 (FR-RM12): 감사 로그 cursor 인코드/디코드. 메시지 cursor 와 동일한 opaque
+ * base64url(JSON{createdAt,id}) 포맷이되, 잘못된 토큰은 VALIDATION_FAILED(400)로
+ * 거부한다(messages 의 MESSAGE_CURSOR_INVALID 와 도메인 분리).
+ */
+function encodeAuditCursor(createdAt: Date, id: string): string {
+  return Buffer.from(JSON.stringify({ createdAt: createdAt.toISOString(), id }), 'utf8').toString(
+    'base64url',
+  );
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const ISO_DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/;
+
+function decodeAuditCursor(raw: string): { createdAt: Date; id: string } {
+  if (typeof raw !== 'string' || raw.length === 0 || raw.length > 512) {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'audit cursor empty or too long');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8'));
+  } catch {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'audit cursor decode failed');
+  }
+  if (!parsed || typeof parsed !== 'object') {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'audit cursor not an object');
+  }
+  const obj = parsed as Record<string, unknown>;
+  const createdAt = obj.createdAt;
+  const id = obj.id;
+  if (
+    typeof createdAt !== 'string' ||
+    !ISO_DATETIME_RE.test(createdAt) ||
+    !Number.isFinite(Date.parse(createdAt))
+  ) {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'audit cursor.createdAt invalid');
+  }
+  if (typeof id !== 'string' || !UUID_RE.test(id)) {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'audit cursor.id must be a uuid');
+  }
+  return { createdAt: new Date(createdAt), id };
+}

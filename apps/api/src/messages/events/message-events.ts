@@ -226,6 +226,19 @@ export type MessageDeletedPayload = {
   message: { id: string; authorId: string; deletedAt: string };
 };
 
+// S64 (FR-RM09): bulk purge. MANAGE_MESSAGES 권한자가 채널 메시지를 일괄 soft-delete
+// 하면 개별 MESSAGE_DELETED 가 아니라 이 단일 이벤트를 발행한다. dot 컨벤션(message.*)을
+// 유지해 outbox→WS subscriber 의 `message.**` 와일드카드가 잡고, 콜론 wire
+// `message:bulk_deleted` 로 변환해 채널 룸으로 fanout 한다(reaction:cleared 선례).
+export const MESSAGE_BULK_DELETED = 'message.bulk_deleted';
+
+export type MessageBulkDeletedPayload = {
+  workspaceId: string | null;
+  channelId: string;
+  actorId: string;
+  messageIds: string[];
+};
+
 /**
  * task-014-B fan-out cap. The thread.replied outbox event targets the
  * root author + the most recent N distinct repliers. N=20 balances

@@ -42,6 +42,15 @@ export enum ErrorCode {
   // kick undo 토큰 만료/무효/이미 사용/재가입됨 → 409.
   KICK_UNDO_INVALID = 'KICK_UNDO_INVALID',
 
+  // S64 (D12 / FR-RM09): bulk purge 선택 메시지 개수가 상한(200) 초과 → 400.
+  BULK_DELETE_LIMIT = 'BULK_DELETE_LIMIT',
+  // S64 (D12 / FR-RM11): 같은 메시지를 같은 신고자가 중복 신고 → 409(@@unique 충돌).
+  REPORT_DUPLICATE = 'REPORT_DUPLICATE',
+  // S64 (D12 / FR-RM11): 처리 대상 신고가 없음 → 404.
+  REPORT_NOT_FOUND = 'REPORT_NOT_FOUND',
+  // S64 (D12 / FR-RM11): 이미 처리된 신고를 재처리 → 409(상태 충돌).
+  REPORT_ALREADY_RESOLVED = 'REPORT_ALREADY_RESOLVED',
+
   FRIEND_TARGET_NOT_FOUND = 'FRIEND_TARGET_NOT_FOUND',
   FRIEND_CANNOT_SELF = 'FRIEND_CANNOT_SELF',
   FRIEND_ALREADY = 'FRIEND_ALREADY',
@@ -249,6 +258,11 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.MEMBER_NOT_BANNED]: 404,
   [ErrorCode.MEMBER_TIMED_OUT]: 403,
   [ErrorCode.KICK_UNDO_INVALID]: 409,
+  // S64 (D12 / FR-RM09·11): bulk purge 상한 / 신고 중복·미존재·재처리.
+  [ErrorCode.BULK_DELETE_LIMIT]: 400,
+  [ErrorCode.REPORT_DUPLICATE]: 409,
+  [ErrorCode.REPORT_NOT_FOUND]: 404,
+  [ErrorCode.REPORT_ALREADY_RESOLVED]: 409,
   [ErrorCode.FRIEND_TARGET_NOT_FOUND]: 404,
   [ErrorCode.FRIEND_CANNOT_SELF]: 400,
   [ErrorCode.FRIEND_ALREADY]: 409,

@@ -36,7 +36,10 @@ import { ChannelNotificationPreferencesController } from '../notifications/chann
   // 역참조용 forwardRef. MessagesModule 도 ChannelsModule 을 forwardRef 로
   // 가져오므로 양방향 순환이 끊긴다.
   imports: [
-    WorkspacesModule,
+    // S64 fix-forward (security A-1/A-2): WorkspacesModule(ModerationReportService)이
+    // ChannelAccessService 를 주입하려고 ChannelsModule 을 forwardRef 로 가져오므로,
+    // 이 import 도 forwardRef 로 바꿔 양방향 순환을 끊는다.
+    forwardRef(() => WorkspacesModule),
     OutboxModule,
     forwardRef(() => MessagesModule),
     StorageModule,

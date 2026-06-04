@@ -84,6 +84,14 @@ export const ErrorCodeSchema = z.enum([
   'MEMBER_NOT_BANNED',
   'MEMBER_TIMED_OUT',
   'KICK_UNDO_INVALID',
+  // S64 (D12 / FR-RM09): bulk purge 선택 메시지 개수가 상한(200)을 초과 → 400.
+  'BULK_DELETE_LIMIT',
+  // S64 (D12 / FR-RM11): 같은 메시지를 같은 신고자가 중복 신고 → 409(@@unique 충돌).
+  'REPORT_DUPLICATE',
+  // S64 (D12 / FR-RM11): 처리 대상 신고가 없음(타 워크스페이스·삭제·잘못된 id) → 404.
+  'REPORT_NOT_FOUND',
+  // S64 (D12 / FR-RM11): 이미 처리(resolvedAt 존재)된 신고를 재처리 → 409(상태 충돌).
+  'REPORT_ALREADY_RESOLVED',
   'FRIEND_TARGET_NOT_FOUND',
   'FRIEND_CANNOT_SELF',
   'FRIEND_ALREADY',
@@ -219,7 +227,10 @@ export * from './workspace';
 // S61 (D12 / FR-RM01·02): 커스텀 Role 시스템 스키마/DTO/시스템역할 정의.
 export * from './roles';
 // S63 (D12 / FR-RM05·06·07): 모더레이션(Kick/Ban/Timeout) 스키마·DTO·상수.
+// S64 (D12 / FR-RM09·11): bulk purge + 신고 큐 스키마·DTO·상수도 같은 파일에 합류.
 export * from './moderation';
+// S64 (D12 / FR-RM12): 감사 로그 조회(cursor 페이지네이션·필터) 스키마·DTO.
+export * from './audit';
 export * from './channel';
 export * from './message';
 export * from './presence';

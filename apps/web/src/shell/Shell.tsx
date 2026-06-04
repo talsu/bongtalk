@@ -56,9 +56,10 @@ function DesktopShell(): JSX.Element {
   // ChannelSettingsPage while keeping the left rail + channel list intact.
   const inChannelSettings = rest[1] === 'settings';
   // S62 (FR-RM14): /w/:slug/:channel/settings/permissions 는 권한 오버라이드 섹션.
+  // S64 (FR-RM09): /settings/moderation 은 메시지 일괄 삭제(bulk purge) 섹션.
   // 알 수 없는 section 은 'general' 로 폴백한다.
-  const settingsSection: 'general' | 'permissions' =
-    rest[2] === 'permissions' ? 'permissions' : 'general';
+  const settingsSection: 'general' | 'permissions' | 'moderation' =
+    rest[2] === 'permissions' ? 'permissions' : rest[2] === 'moderation' ? 'moderation' : 'general';
   // S30 (FR-S03): 검색 결과 패널이 활성이면 우측 패널(멤버 목록)을 대체한다.
   const searchPanelQuery = useUI((s) => s.searchPanelQuery);
   const activityInboxOpen = useUI((s) => s.activityInboxOpen);

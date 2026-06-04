@@ -10,6 +10,9 @@ import { useUpdateWorkspace } from './useWorkspaces';
 import { WorkspaceEmojiManager } from '../emojis/WorkspaceEmojiManager';
 // S61 (D12 / FR-RM01): 역할 관리 본문(설정 오버레이 탭으로 인라인 렌더).
 import { RolesManager } from './roles/RolesModal';
+// S64 (D12 / FR-RM11·12): 감사 로그 조회 + 신고 큐 패널.
+import { AuditLogPanel } from './moderation/AuditLogPanel';
+import { ReportQueuePanel } from './moderation/ReportQueuePanel';
 import { cn } from '../../lib/cn';
 
 /**
@@ -48,8 +51,12 @@ export function WorkspaceSettingsPage({
   // S61 (FR-RM01): 역할 관리는 ADMIN+ 만 편집(MEMBER 는 탭 미노출). 편집 가능 여부는
   // canManageRoles 로 RolesManager 에 전달하며, 서버 게이트(@Roles ADMIN)가 최종 권위.
   const canManageRoles = myRole === 'OWNER' || myRole === 'ADMIN';
+  // S64 (FR-RM12): 감사 로그 조회는 ADMIN+ enum 게이트(★결정 B). 서버 @Roles('ADMIN') 권위.
+  const canViewAuditLog = myRole === 'OWNER' || myRole === 'ADMIN';
+  // S64 (FR-RM11): 신고 큐는 MODERATOR 이상. 서버 ModerationReportService 가 최종 게이트.
+  const canModerateReports = myRole === 'OWNER' || myRole === 'ADMIN' || myRole === 'MODERATOR';
 
-  type TabKey = 'general' | 'emoji' | 'roles';
+  type TabKey = 'general' | 'emoji' | 'roles' | 'reports' | 'audit-log';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -64,8 +71,14 @@ export function WorkspaceSettingsPage({
     if (canManageRoles) {
       list.push({ key: 'roles', label: '역할 관리', testId: 'ws-settings-tab-roles' });
     }
+    if (canModerateReports) {
+      list.push({ key: 'reports', label: '신고 큐', testId: 'ws-settings-tab-reports' });
+    }
+    if (canViewAuditLog) {
+      list.push({ key: 'audit-log', label: '감사 로그', testId: 'ws-settings-tab-audit-log' });
+    }
     return list;
-  }, [canManageEmoji, canManageRoles]);
+  }, [canManageEmoji, canManageRoles, canModerateReports, canViewAuditLog]);
   const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   const onTabKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>): void => {
@@ -170,12 +183,42 @@ export function WorkspaceSettingsPage({
           })}
         </div>
 
+        {/* S64 fix-forward (a11y H-01 · SC 2.1.1): 각 tabpanel 에 tabIndex={0} 로 키보드
+            포커스를 부여한다(탭 전환 후 패널 콘텐츠로 포커스 이동 가능). */}
         {tab === 'roles' && canManageRoles ? (
-          <div role="tabpanel" id="ws-settings-panel-roles" aria-labelledby="ws-settings-tab-roles">
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-roles"
+            aria-labelledby="ws-settings-tab-roles"
+            tabIndex={0}
+          >
             <RolesManager workspaceId={workspace.id} canManage={canManageRoles} />
           </div>
+        ) : tab === 'reports' && canModerateReports ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-reports"
+            aria-labelledby="ws-settings-tab-reports"
+            tabIndex={0}
+          >
+            <ReportQueuePanel workspaceId={workspace.id} />
+          </div>
+        ) : tab === 'audit-log' && canViewAuditLog ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-audit-log"
+            aria-labelledby="ws-settings-tab-audit-log"
+            tabIndex={0}
+          >
+            <AuditLogPanel workspaceId={workspace.id} />
+          </div>
         ) : tab === 'emoji' && canManageEmoji ? (
-          <div role="tabpanel" id="ws-settings-panel-emoji" aria-labelledby="ws-settings-tab-emoji">
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-emoji"
+            aria-labelledby="ws-settings-tab-emoji"
+            tabIndex={0}
+          >
             <WorkspaceEmojiManager workspaceId={workspace.id} />
           </div>
         ) : (
@@ -183,6 +226,7 @@ export function WorkspaceSettingsPage({
             role="tabpanel"
             id="ws-settings-panel-general"
             aria-labelledby="ws-settings-tab-general"
+            tabIndex={0}
             className="flex flex-col gap-[var(--s-5)]"
           >
             {!ownerEditable ? (
@@ -289,8 +333,10 @@ export function WorkspaceSettingsPage({
                 style={{ background: 'color-mix(in oklab, var(--bg-app) 60%, transparent)' }}
               >
                 <div
-                  className="bg-bg-subtle rounded-[var(--r-lg)] p-[var(--s-5)] w-[min(420px,92vw)]"
-                  style={{ boxShadow: 'var(--elev-3)' }}
+                  // S64 fix-forward (ui-designer H-02): inline boxShadow → shadow-elev-3
+                  // (tailwind.config boxShadow 키 var(--elev-3) 매핑). inline color-mix
+                  // 오버레이 배경은 선존(page-scoped) 유지.
+                  className="bg-bg-subtle rounded-[var(--r-lg)] p-[var(--s-5)] w-[min(420px,92vw)] shadow-elev-3"
                 >
                   <div id="ws-visibility-confirm-title" className="font-semibold mb-[var(--s-2)]">
                     공개 설정 변경

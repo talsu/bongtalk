@@ -237,6 +237,7 @@ export class ChannelsController {
       userId,
       allowMask,
       denyMask,
+      m.userId,
     );
     return { override: result };
   }
@@ -279,6 +280,7 @@ export class ChannelsController {
       role,
       allowMask,
       denyMask,
+      m.userId,
     );
     return { override: result };
   }

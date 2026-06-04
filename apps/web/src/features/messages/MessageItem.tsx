@@ -92,6 +92,12 @@ type Props = {
    */
   onMarkUnread?: () => void | Promise<void>;
   /**
+   * S64 (FR-RM11): 메시지 신고. 부모(MessageList)가 워크스페이스 채널(wsId 존재) +
+   * 타인 메시지일 때만 전달한다 — 전달되면 메뉴에 "메시지 신고" 항목이 노출되고,
+   * 클릭 시 ReportModal 을 연다. tmp/본인 메시지/DM 에는 부모가 전달하지 않는다.
+   */
+  onReport?: () => void;
+  /**
    * S34 (FR-TH-03): reply bar 의 최근 답글자(recentReplyUserIds) 아바타를 실제
    * 표시명으로 그리기 위한 userId→이름 resolver. 부모(MessageList)가 보유한
    * 워크스페이스 멤버 맵(nameById) + DM 참가자 fallback(extraNames)을 합친
@@ -131,6 +137,7 @@ export function MessageItem({
   isSaved,
   onRetry,
   onMarkUnread,
+  onReport,
   resolveName,
   pickerQuickReactions,
   pickerRecentEmojis,
@@ -594,6 +601,13 @@ export function MessageItem({
                     }}
                   >
                     <span data-testid={`msg-mark-unread-${msg.id}`}>미읽음으로 표시</span>
+                  </DropdownItem>
+                ) : null}
+                {onReport && !isMine && !msg.id.startsWith('tmp-') ? (
+                  // S64 (FR-RM11): 타인 메시지 신고. 부모가 워크스페이스 채널 + 타인
+                  // 메시지일 때만 전달한다. 클릭 시 ReportModal 을 연다(부모 소유).
+                  <DropdownItem onSelect={() => onReport()}>
+                    <span data-testid={`msg-report-${msg.id}`}>메시지 신고</span>
                   </DropdownItem>
                 ) : null}
                 {(viewerRole === 'OWNER' ||
