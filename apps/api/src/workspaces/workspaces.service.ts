@@ -3,6 +3,8 @@ import { ChannelType, Prisma, WorkspaceJoinMode, WorkspaceRole } from '@prisma/c
 import { randomUUID } from 'node:crypto';
 import {
   CreateWorkspaceRequest,
+  type DiscoveryPage as DiscoverPage,
+  type DiscoveryWorkspace,
   RESERVED_SLUGS,
   ROLE_RANK,
   UpdateWorkspaceRequest,
@@ -41,6 +43,8 @@ import { POSITION_STRIDE } from '../channels/positioning/fractional-position';
 import { CHANNEL_CREATED } from '../channels/events/channel-events';
 // S66 (D13 / FR-W05a): PUBLIC 즉시 가입 시점 emailVerified + emailDomains 진입 게이트.
 import { assertWorkspaceEntryAllowed } from './workspace-entry-gate';
+// S72 (D13 / FR-W16): 디스커버리 검색 Redis 5분 캐시 + 버전 기반 invalidation.
+import { DiscoverCacheService } from './discover-cache.service';
 
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
@@ -59,6 +63,8 @@ export class WorkspacesService {
     private readonly moderation: ModerationService,
     // S65 (D13 / FR-W13): 소유권 양도 비밀번호 재확인용 argon2 검증기.
     private readonly passwords: PasswordService,
+    // S72 (D13 / FR-W16): 디스커버리 검색 결과 캐시(read/write/invalidate).
+    private readonly discoverCache: DiscoverCacheService,
   ) {}
 
   private get graceMs(): number {
@@ -90,7 +96,7 @@ export class WorkspacesService {
       ? [...new Set(input.emailDomains.map((d) => d.trim().toLowerCase()))]
       : [];
     try {
-      return await this.prisma.$transaction(async (tx) => {
+      const created = await this.prisma.$transaction(async (tx) => {
         // S65 (D13 / FR-W01): #general 채널 id 를 미리 만들어 Workspace.defaultChannelId
         // 와 동기한다(단일 트랜잭션). FK(Workspace.defaultChannelId → Channel)가 deferrable
         // 가 아니므로 채널을 먼저 만든 뒤 워크스페이스를 업데이트한다.
@@ -165,6 +171,14 @@ export class WorkspacesService {
         });
         return updatedWorkspace;
       });
+      // S72 W16 fix-forward (reviewer HIGH-2): PUBLIC 워크스페이스를 새로 만들면 discover
+      // 결과에 즉시 나타나야 하므로 검색 캐시를 무효화한다(버전 bump → 다음 호출 MISS).
+      // PRIVATE 은 discover 에 노출되지 않으므로 무효화하지 않는다(update/softDelete/
+      // restore 의 invalidate 와 일관 — 노출 가능성이 있는 변경만 bump).
+      if (created.visibility === 'PUBLIC') {
+        await this.discoverCache.invalidate();
+      }
+      return created;
     } catch (e) {
       if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
         throw new DomainError(ErrorCode.WORKSPACE_SLUG_TAKEN, `slug "${input.slug}" is taken`);
@@ -250,7 +264,7 @@ export class WorkspacesService {
       input.emailDomains !== undefined
         ? [...new Set(input.emailDomains.map((d) => d.trim().toLowerCase()))]
         : undefined;
-    return this.prisma.workspace.update({
+    const updated = await this.prisma.workspace.update({
       where: { id: workspaceId },
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
@@ -261,6 +275,20 @@ export class WorkspacesService {
         ...(normalizedEmailDomains !== undefined ? { emailDomains: normalizedEmailDomains } : {}),
       },
     });
+    // S72 (D13 / FR-W16): 디스커버리 노출 필드(name/description/visibility/category)가
+    // 바뀌면 검색 캐시를 무효화한다 — 버전 키 bump 로 전체 네임스페이스를 옮긴다(다음
+    // discover 호출은 MISS). joinMode 는 현재 PATCH 로 변경되지 않으나(스코프 외), 추후
+    // 노출되면 함께 트리거하도록 조건에 둔다. emailDomains 는 discover 출력에 영향 없어
+    // 무효화 대상에서 제외한다.
+    if (
+      input.name !== undefined ||
+      input.description !== undefined ||
+      input.visibility !== undefined ||
+      input.category !== undefined
+    ) {
+      await this.discoverCache.invalidate();
+    }
+    return updated;
   }
 
   /**
@@ -316,13 +344,52 @@ export class WorkspacesService {
     };
   }
 
-  async discover(opts: { category?: string; q?: string; cursor: string | null; limit: number }) {
+  /**
+   * S72 (D13 / FR-W16): 디스커버리 검색. Redis 캐시를 앞에 둔다 — 같은
+   * (category|q|cursor|limit) 조합은 버전 키 기반 캐시 키로 HIT 시 DB 를 건너뛴다.
+   * 반환에 cacheStatus 를 실어 컨트롤러가 X-Cache 헤더로 echo 한다. 디스커버리 노출
+   * 필드 변경(create PUBLIC / PATCH name·description·visibility·category / softDelete /
+   * restore)은 버전 bump 로 전체 캐시를 무효화한다(stampede 는 TTL 로 수용).
+   *
+   * S72 W16 fix-forward (reviewer HIGH-1, memberCount/커서 stale): memberCount 변동(가입/
+   * 승인/초대 수락 등 멤버 수만 바뀌는 이벤트)은 의도적으로 invalidate() 하지 않는다 —
+   * 캐시된 memberCount 는 최대 TTL(DISCOVER_CACHE_TTL_SEC) 동안 stale 일 수 있다. 또한
+   * 커서가 memberCount 기반(`{memberCount}|{id}`)이라, 동일 캐시 윈도우 안에서 멤버 수가
+   * 바뀌면 페이지 경계 정합(누락/중복)도 같은 TTL 동안 stale 일 수 있다. TTL 을 60s 로
+   * 짧게 둬 stale 창을 좁힌다(discover-cache.service.ts 참조). 멤버 수의 분 단위 지연은
+   * discover UX 상 수용 가능하다.
+   *
+   * S72 W16 fix-forward (security MEDIUM): q/cursor 길이를 진입에서 클램프한다 — q 최대
+   * 200자(Redis 키 폭발 + ILIKE DoS 방지), cursor 최대 128자(`{memberCount}|{uuid}` 는
+   * ~50자라 넉넉한 상한). 초과 입력은 잘라 정상 경로로 처리한다(거부 대신 절단 —
+   * cursor 가 잘리면 파싱이 자연스럽게 실패해 첫 페이지로 폴백).
+   */
+  async discover(opts: {
+    category?: string;
+    q?: string;
+    cursor: string | null;
+    limit: number;
+  }): Promise<{ payload: DiscoverPage; cacheStatus: 'HIT' | 'MISS' }> {
+    // S72 W16 fix-forward (security MEDIUM): 캐시 키/ILIKE DoS 차단용 길이 클램프.
+    const clampedQ = opts.q === undefined ? undefined : opts.q.slice(0, 200);
+    const clampedCursor = opts.cursor === null ? null : opts.cursor.slice(0, 128);
+    const cacheKey = await this.discoverCache.keyFor({
+      category: opts.category,
+      q: clampedQ,
+      cursor: clampedCursor,
+      limit: opts.limit,
+    });
+    const cached = await this.discoverCache.read<DiscoverPage>(cacheKey);
+    if (cached !== null) {
+      return { payload: cached, cacheStatus: 'HIT' };
+    }
+
     const capped = Math.max(1, Math.min(50, opts.limit));
-    const q = (opts.q ?? '').trim();
+    const q = (clampedQ ?? '').trim();
     const cat = (opts.category ?? '').trim();
     let cursorParts: { memberCount: number; id: string } | null = null;
-    if (opts.cursor) {
-      const [mc, id] = opts.cursor.split('|');
+    if (clampedCursor) {
+      const [mc, id] = clampedCursor.split('|');
       if (mc && id) cursorParts = { memberCount: parseInt(mc, 10), id };
     }
     const rows = await this.prisma.$queryRaw<
@@ -333,6 +400,7 @@ export class WorkspacesService {
         description: string | null;
         iconUrl: string | null;
         category: string;
+        joinMode: string;
         memberCount: bigint;
         lastActivityAt: Date | null;
       }>
@@ -344,6 +412,8 @@ export class WorkspacesService {
         w.description,
         w."iconUrl",
         w.category::text AS category,
+        -- S72 (FR-W16): joinMode 노출 — FE 가 카드 CTA(참가/신청/초대필요)를 분기한다.
+        w."joinMode"::text AS "joinMode",
         COUNT(wm.*)::bigint AS "memberCount",
         MAX(m."createdAt") AS "lastActivityAt"
       FROM "Workspace" w
@@ -381,14 +451,19 @@ export class WorkspacesService {
       slug: r.slug,
       description: r.description,
       iconUrl: r.iconUrl,
-      category: r.category,
+      // S72 (FR-W16): raw enum 텍스트(::text)를 shared-types 와 동일한 합집합으로 좁힌다.
+      // WHERE 절이 category IS NOT NULL · visibility=PUBLIC 을 강제하므로 값은 유효 enum 이다.
+      category: r.category as DiscoveryWorkspace['category'],
+      joinMode: r.joinMode as DiscoveryWorkspace['joinMode'],
       memberCount: Number(r.memberCount),
       lastActivityAt: r.lastActivityAt ? r.lastActivityAt.toISOString() : null,
     }));
     const nextCursor = hasMore
       ? `${items[items.length - 1].memberCount}|${items[items.length - 1].id}`
       : null;
-    return { items, nextCursor };
+    const payload: DiscoverPage = { items, nextCursor };
+    await this.discoverCache.write(cacheKey, payload);
+    return { payload, cacheStatus: 'MISS' };
   }
 
   async joinPublic(
@@ -488,19 +563,23 @@ export class WorkspacesService {
     }
     const now = new Date();
     const deleteAt = new Date(now.getTime() + this.graceMs);
-    return this.prisma.$transaction(async (tx) => {
-      const workspace = await tx.workspace.update({
+    const workspace = await this.prisma.$transaction(async (tx) => {
+      const ws = await tx.workspace.update({
         where: { id: workspaceId },
         data: { deletedAt: now, deleteAt },
       });
       await this.outbox.record(tx, {
         aggregateType: 'workspace',
-        aggregateId: workspace.id,
+        aggregateId: ws.id,
         eventType: WORKSPACE_DELETED,
-        payload: { workspaceId: workspace.id, actorId, deleteAt: deleteAt.toISOString() },
+        payload: { workspaceId: ws.id, actorId, deleteAt: deleteAt.toISOString() },
       });
-      return workspace;
+      return ws;
     });
+    // S72 (D13 / FR-W16): 삭제는 PUBLIC 워크스페이스를 discover 결과에서 제외시키므로
+    // 검색 캐시를 무효화한다(다음 호출 MISS).
+    await this.discoverCache.invalidate();
+    return workspace;
   }
 
   async restore(workspaceId: string, actorId: string) {
@@ -517,19 +596,23 @@ export class WorkspacesService {
         'grace period elapsed — workspace is permanently gone',
       );
     }
-    return this.prisma.$transaction(async (tx) => {
-      const workspace = await tx.workspace.update({
+    const workspace = await this.prisma.$transaction(async (tx) => {
+      const ws = await tx.workspace.update({
         where: { id: workspaceId },
         data: { deletedAt: null, deleteAt: null },
       });
       await this.outbox.record(tx, {
         aggregateType: 'workspace',
-        aggregateId: workspace.id,
+        aggregateId: ws.id,
         eventType: WORKSPACE_RESTORED,
-        payload: { workspaceId: workspace.id, actorId },
+        payload: { workspaceId: ws.id, actorId },
       });
-      return workspace;
+      return ws;
     });
+    // S72 (D13 / FR-W16): 복원은 PUBLIC 워크스페이스를 다시 discover 노출 대상으로
+    // 되돌리므로 검색 캐시를 무효화한다.
+    await this.discoverCache.invalidate();
+    return workspace;
   }
 
   /**

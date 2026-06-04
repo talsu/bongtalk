@@ -19,14 +19,19 @@ function makeService() {
   const prisma = {
     workspace: { update, findUnique: vi.fn(async () => null) },
   };
+  // S72 (D13 / FR-W16): name/description/visibility/category PATCH 는 discover 캐시를
+  // 무효화하므로 invalidate 스텁을 주입한다(이 스펙은 emailDomains 게이트만 검증).
+  const invalidate = vi.fn(async () => undefined);
+  const discoverCache = { invalidate };
   const svc = new WorkspacesService(
     prisma as never,
     {} as never,
     {} as never,
     {} as never,
     {} as never,
+    discoverCache as never,
   );
-  return { svc, update };
+  return { svc, update, invalidate };
 }
 
 describe('S68 WorkspacesService.update — emailDomains OWNER gate', () => {

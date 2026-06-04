@@ -10,8 +10,10 @@ import {
   Patch,
   Post,
   Query,
+  Res,
   UseGuards,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import {
   CreateWorkspaceRequest,
   CreateWorkspaceRequestSchema,
@@ -66,14 +68,23 @@ export class WorkspacesController {
     @Query('q') q: string | undefined,
     @Query('cursor') cursor: string | undefined,
     @Query('limit', new DefaultValuePipe(20)) limitRaw: string | number,
+    @Res({ passthrough: true }) res: Response,
   ) {
     const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
-    return this.workspaces.discover({
+    // S72 (D13 / FR-W16): 검색 결과를 Redis 캐시로 감싼다. 서비스가 HIT/MISS 를 돌려주면
+    // X-Cache 헤더로 echo 한다.
+    // S72 W16 fix-forward (security MEDIUM): 이 라우트는 인증 필수다 — 글로벌
+    // JwtAuthGuard(APP_GUARD)가 걸려 있고 @Public 데코레이터가 없으므로 유효 JWT 없이는
+    // 401 이다. @Public 을 추가하면 비인증 DoS 표면(Redis 키 폭발 + ILIKE)이 커지므로
+    // 의도적으로 인증을 유지한다(비공개 정보는 없으나 비용 보호용 게이트).
+    const { payload, cacheStatus } = await this.workspaces.discover({
       category,
       q,
       cursor: cursor ?? null,
       limit: limit || 20,
     });
+    res.setHeader('X-Cache', cacheStatus);
+    return payload;
   }
 
   @Post(':id/join')

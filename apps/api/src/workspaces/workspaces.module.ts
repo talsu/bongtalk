@@ -45,6 +45,8 @@ import { ApplicationsService } from './applications/applications.service';
 // OnboardingWelcomeQueueService 는 @Global QueueModule 이 제공하므로 import 불필요(주입만).
 import { OnboardingController } from './onboarding/onboarding.controller';
 import { OnboardingService } from './onboarding/onboarding.service';
+// S72 (D13 / FR-W16): 디스커버리 검색 Redis 5분 캐시. Redis 는 @Global RedisModule 제공.
+import { DiscoverCacheService } from './discover-cache.service';
 
 @Module({
   imports: [
@@ -79,6 +81,7 @@ import { OnboardingService } from './onboarding/onboarding.service';
     ModerationReportService,
     ApplicationsService,
     OnboardingService,
+    DiscoverCacheService,
   ],
   exports: [
     WorkspacesService,
