@@ -318,6 +318,23 @@ export enum ErrorCode {
   // MIME 거부 전용 코드로, finalize 의 실 바이트 불일치(INVALID_MAGIC_BYTES 422)와 구분한다.
   INVALID_MIME = 'INVALID_MIME',
 
+  // S77b (D14 / FR-PS-15·20): 보안(자격증명 변경·TOTP 2FA·세션 관리).
+  //   PASSWORD_INCORRECT: 비번/이메일 변경·2FA 해제 시 현재 비번 재확인 실패 → 403.
+  //     AUTH_INVALID_CREDENTIALS(로그인 401)와 구분 — 이미 인증된 세션의 재확인 거부다.
+  //   TOTP_CODE_REQUIRED: 2FA 해제 시 비번만 보내고 TOTP 코드를 누락 → 403(비번 단독 해제 차단).
+  //   TOTP_INVALID:       제출한 6자리 TOTP 코드가 시크릿과 불일치(verify/disable) → 403.
+  //   TOTP_ALREADY_ENABLED: 이미 totpEnabled=true 인데 setup/verify 재시도 → 409(상태 충돌).
+  //   TOTP_NOT_ENABLED:   totpEnabled=false 인데 disable 시도 → 409(상태 충돌).
+  //   SESSION_NOT_FOUND:  로그아웃 대상 RefreshToken 이 본인 소유 아니거나 미존재 → 404(중립).
+  //   ENCRYPTION_UNAVAILABLE: APP_ENCRYPTION_KEY 미설정 → 2FA 엔드포인트 graceful 503(크래시 금지).
+  PASSWORD_INCORRECT = 'PASSWORD_INCORRECT',
+  TOTP_CODE_REQUIRED = 'TOTP_CODE_REQUIRED',
+  TOTP_INVALID = 'TOTP_INVALID',
+  TOTP_ALREADY_ENABLED = 'TOTP_ALREADY_ENABLED',
+  TOTP_NOT_ENABLED = 'TOTP_NOT_ENABLED',
+  SESSION_NOT_FOUND = 'SESSION_NOT_FOUND',
+  ENCRYPTION_UNAVAILABLE = 'ENCRYPTION_UNAVAILABLE',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -515,6 +532,14 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.HANDLE_COOLDOWN_ACTIVE]: 400,
   [ErrorCode.FILE_TOO_LARGE]: 413,
   [ErrorCode.INVALID_MIME]: 415,
+  // S77b (D14 / FR-PS-15·20): 보안(자격증명 변경·TOTP·세션) 상태코드.
+  [ErrorCode.PASSWORD_INCORRECT]: 403,
+  [ErrorCode.TOTP_CODE_REQUIRED]: 403,
+  [ErrorCode.TOTP_INVALID]: 403,
+  [ErrorCode.TOTP_ALREADY_ENABLED]: 409,
+  [ErrorCode.TOTP_NOT_ENABLED]: 409,
+  [ErrorCode.SESSION_NOT_FOUND]: 404,
+  [ErrorCode.ENCRYPTION_UNAVAILABLE]: 503,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
   [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,

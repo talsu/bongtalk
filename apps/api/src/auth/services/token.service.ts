@@ -5,10 +5,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
-import {
-  SESSION_COMPROMISED,
-  SessionCompromisedEvent,
-} from '../events/session-compromised.event';
+import { SESSION_COMPROMISED, SessionCompromisedEvent } from '../events/session-compromised.event';
 
 export type AccessTokenPayload = {
   sub: string;
@@ -158,6 +155,8 @@ export class TokenService {
           userAgent: meta.userAgent ?? null,
           ip: meta.ip ?? null,
           expiresAt: new Date(Date.now() + this.refreshTtlSec * 1000),
+          // S77b (D14 / FR-PS-15): rotation 시점을 "마지막 활동"으로 기록한다(세션 목록 표기).
+          lastSeenAt: now,
         },
       }),
     ]);
@@ -171,5 +170,109 @@ export class TokenService {
       where: { tokenHash: incomingHash, revokedAt: null },
       data: { revokedAt: new Date() },
     });
+  }
+
+  // ── S77b (D14 / FR-PS-15): 세션 관리 + 자격증명 변경 보조 ────────────────────
+
+  /**
+   * 주어진 raw refresh 토큰의 familyId 를 찾는다(현재 세션 식별용). 없으면 null.
+   *
+   * LOW-2 (reviewer) fix-forward: 종전에는 해시 매칭만 보아 revoked/expired 토큰도 familyId 를
+   * 돌려줘 isCurrent 가 오표시될 수 있었다(이미 끊긴 세션을 "현재"로 표시 → 그 세션이 목록에서
+   * 빠지지 않거나 잘못 제외됨). 활성 토큰(revokedAt=null · expiresAt>now)만 매칭하도록 가드한다.
+   */
+  async familyIdForRaw(rawIncoming: string): Promise<string | null> {
+    const record = await this.prisma.refreshToken.findFirst({
+      where: {
+        tokenHash: this.hashToken(rawIncoming),
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { familyId: true },
+    });
+    return record?.familyId ?? null;
+  }
+
+  /**
+   * 활성 세션(revokedAt null · expiresAt>now) 목록을 familyId 단위로 1행씩 반환한다. 한
+   * familyId 는 rotation 으로 여러 행을 가질 수 있으므로 가장 최근(createdAt desc) 행만
+   * 대표로 노출한다(세션 = 패밀리). lastSeenAt 은 null 이면 createdAt 폴백 표기를 호출부가 한다.
+   */
+  async listSessions(
+    userId: string,
+    now: Date = new Date(),
+  ): Promise<
+    Array<{
+      id: string;
+      familyId: string;
+      userAgent: string | null;
+      ip: string | null;
+      createdAt: Date;
+      lastSeenAt: Date | null;
+    }>
+  > {
+    const rows = await this.prisma.refreshToken.findMany({
+      where: { userId, revokedAt: null, expiresAt: { gt: now } },
+      orderBy: { createdAt: 'desc' },
+      select: {
+        id: true,
+        familyId: true,
+        userAgent: true,
+        ip: true,
+        createdAt: true,
+        lastSeenAt: true,
+      },
+    });
+    // familyId 당 최신 1행만(세션 단위).
+    const seen = new Set<string>();
+    const sessions: Array<{
+      id: string;
+      familyId: string;
+      userAgent: string | null;
+      ip: string | null;
+      createdAt: Date;
+      lastSeenAt: Date | null;
+    }> = [];
+    for (const r of rows) {
+      if (seen.has(r.familyId)) continue;
+      seen.add(r.familyId);
+      sessions.push(r);
+    }
+    return sessions;
+  }
+
+  /**
+   * 개별 세션 로그아웃. sessionId(대표 행 id)로 familyId 를 찾아 본인 소유를 검증한 뒤 그
+   * familyId 의 활성 토큰 전체를 revoke 한다. 본인 소유가 아니거나 없으면 SESSION_NOT_FOUND(404).
+   */
+  async revokeSession(userId: string, sessionId: string): Promise<void> {
+    const record = await this.prisma.refreshToken.findFirst({
+      where: { id: sessionId, userId },
+      select: { familyId: true },
+    });
+    if (!record) {
+      throw new DomainError(ErrorCode.SESSION_NOT_FOUND, 'session not found');
+    }
+    await this.prisma.refreshToken.updateMany({
+      where: { familyId: record.familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+  }
+
+  /**
+   * 현재 세션(exceptFamilyId)을 제외한 사용자의 모든 활성 세션을 revoke 한다. exceptFamilyId
+   * 가 null 이면(현재 패밀리 식별 불가) 전체를 revoke 한다.
+   * @returns revoke 된 토큰 행 수.
+   */
+  async revokeAllExceptFamily(userId: string, exceptFamilyId: string | null): Promise<number> {
+    const res = await this.prisma.refreshToken.updateMany({
+      where: {
+        userId,
+        revokedAt: null,
+        ...(exceptFamilyId ? { familyId: { not: exceptFamilyId } } : {}),
+      },
+      data: { revokedAt: new Date() },
+    });
+    return res.count;
   }
 }

@@ -62,6 +62,12 @@ export async function setupWsIntEnv(): Promise<WsIntEnv> {
   process.env.S3_SECRET_ACCESS_KEY = process.env.S3_SECRET_ACCESS_KEY ?? 'inttestsecret';
   process.env.S3_BUCKET = process.env.S3_BUCKET ?? 'qufox-attachments';
   process.env.S3_REGION = process.env.S3_REGION ?? 'us-east-1';
+  // S77b (D14 / FR-PS-15): TOTP 2FA 시크릿 암호화 키(AES-256-GCM · base64 32B). 테스트 전용
+  // dev 키. 키 미설정 시 2FA 엔드포인트가 503 ENCRYPTION_UNAVAILABLE 로 응답하므로, 기본은
+  // 설정해 두고 ENCRYPTION_UNAVAILABLE 검증 스펙만 일시적으로 키를 제거해 확인한다.
+  process.env.APP_ENCRYPTION_KEY =
+    process.env.APP_ENCRYPTION_KEY ??
+    Buffer.from('int-test-totp-encryption-key-32!').toString('base64');
 
   const apiRoot = path.resolve(__dirname, '../../..');
   execSync('pnpm exec prisma migrate deploy', {
