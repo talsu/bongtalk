@@ -139,6 +139,11 @@ export const ReactivateAccountRequestSchema = z
   .object({
     // 비활성 계정은 인증 컨텍스트가 없으므로(로그인 차단) 로그인 자격증명을 함께 받는다.
     email: z.string().email(),
+    // CF13(contract minor): password 는 정책상 min(8)이지만 여기선 min(1)이 의도다 — 재활성화는
+    // *기존* 자격증명을 검증할 뿐 새 비번을 설정하지 않으므로 신규 정책 길이를 강제하면 정책 강화
+    // 이전에 가입한(또는 정책이 바뀐) 계정의 짧은 기존 비번을 well-formed 단계에서 잘못 거부할 수
+    // 있다. 비번 일치 여부는 서버가 argon2 verify 로 판정하고, 불일치/부재는 모두 PASSWORD_INCORRECT
+    // (중립)로 응답한다 — 길이는 인증 결과에 영향을 주지 않는다.
     password: z.string().min(1).max(128),
     totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
   })

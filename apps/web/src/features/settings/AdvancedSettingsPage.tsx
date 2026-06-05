@@ -23,7 +23,8 @@ export function AdvancedSettingsPage(): JSX.Element {
       className="mx-auto flex w-full max-w-2xl flex-col gap-[var(--s-5)]"
     >
       <header>
-        <h1 className="text-[length:var(--fs-18)] font-semibold">고급</h1>
+        {/* CF12 (ui LOW): h1 에 text-text-strong 보강(본문 대비 위계 강화). */}
+        <h1 className="text-[length:var(--fs-18)] font-semibold text-text-strong">고급</h1>
       </header>
 
       {/* 위험구역 (FR-PS-16·19) */}
@@ -76,6 +77,8 @@ function DeactivateConfirmDialog({
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [errorField, setErrorField] = useState<'password' | 'code' | null>(null);
+  // CF6 (a11y HIGH-01): 처리중/성공을 polite 라이브영역으로 통지한다(에러는 별도 role="alert").
+  const [status, setStatus] = useState<string | null>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -84,6 +87,7 @@ function DeactivateConfirmDialog({
       setCode('');
       setError(null);
       setErrorField(null);
+      setStatus(null);
       const t = setTimeout(() => firstRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
@@ -93,11 +97,13 @@ function DeactivateConfirmDialog({
   const onSubmit = async (): Promise<void> => {
     setError(null);
     setErrorField(null);
+    setStatus('계정을 비활성화하는 중입니다…');
     try {
       await deactivate.mutateAsync({
         currentPassword: password,
         ...(totpEnabled ? { totpCode: code } : {}),
       });
+      setStatus('계정을 비활성화했습니다.');
       // 서버가 이미 세션을 끊었으므로 클라 상태도 즉시 비운다(logout 은 best-effort — 토큰은 이미 무효).
       onOpenChange(false);
       await logout();
@@ -109,6 +115,8 @@ function DeactivateConfirmDialog({
       navigate('/login', { replace: true });
     } catch (err) {
       const e = err as Error & { errorCode?: string };
+      // 실패 시 처리중 상태를 비워(에러는 role="alert" 가 통지) 라이브영역 중복 통지를 피한다.
+      setStatus(null);
       if (e.errorCode === 'PASSWORD_INCORRECT') {
         setError('비밀번호가 올바르지 않습니다.');
         setErrorField('password');
@@ -140,11 +148,12 @@ function DeactivateConfirmDialog({
         }}
       >
         <div className="flex flex-col gap-[var(--s-1)]">
+          {/* CF7 (a11y HIGH-02): 필수 입력 표기 + tracking 토큰화(CF12). */}
           <label
             htmlFor="deactivate-password"
-            className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted"
+            className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted"
           >
-            현재 비밀번호
+            현재 비밀번호 (필수)
           </label>
           <input
             id="deactivate-password"
@@ -153,6 +162,8 @@ function DeactivateConfirmDialog({
             type="password"
             className="qf-input"
             autoComplete="current-password"
+            required
+            aria-required="true"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
             aria-invalid={errorField === 'password'}
@@ -163,9 +174,9 @@ function DeactivateConfirmDialog({
           <div className="flex flex-col gap-[var(--s-1)]">
             <label
               htmlFor="deactivate-code"
-              className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted"
+              className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted"
             >
-              인증 코드
+              인증 코드 (필수)
             </label>
             <input
               id="deactivate-code"
@@ -175,6 +186,8 @@ function DeactivateConfirmDialog({
               inputMode="numeric"
               autoComplete="one-time-code"
               maxLength={TOTP_CODE_LENGTH}
+              required
+              aria-required="true"
               value={code}
               onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
               placeholder="000000"
@@ -183,6 +196,15 @@ function DeactivateConfirmDialog({
             />
           </div>
         ) : null}
+        {/* CF6 (a11y HIGH-01): 처리중/성공 polite 라이브영역(에러는 아래 role="alert" 가 담당). */}
+        <p
+          data-testid="deactivate-status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {status ?? ''}
+        </p>
         {error ? (
           <p
             id="deactivate-error"

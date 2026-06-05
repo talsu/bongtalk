@@ -474,8 +474,14 @@ model User {
   //   deactivatedAt: 비활성화 시각(UTC). null = 활성. 30일 익명화 크론이 `deactivatedAt < now-30d`
   //                  인 row 만 골라 PII null화 + Message.authorId 를 SYSTEM_ANON 으로 익명화한다
   //                  (30일 미만/활성 row 는 절대 미접근). reactivate 시 null 로 되돌린다.
+  //   anonymizedAt:  익명화 완료 시각(UTC). null = 미익명화. S77c fix-forward(reviewer M1·GDPR):
+  //                  익명화 후에도 isDeactivated=true + deactivatedAt 가 유지되므로, 이 컬럼이 없으면
+  //                  익명화된 row 가 크론 후보(deactivatedAt<cutoff)에서 영원히 안 빠져 LIMIT 500
+  //                  배치를 점유한다(신규 PII 영구 미삭제 starvation). 크론은 `anonymizedAt: null`
+  //                  필터로 이미 익명화한 row 를 제외하고, anonymizeOne 이 이 값을 now 로 세팅한다.
   isDeactivated               Boolean            @default(false)
   deactivatedAt               DateTime?          @db.Timestamptz
+  anonymizedAt                DateTime?          @db.Timestamptz
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 

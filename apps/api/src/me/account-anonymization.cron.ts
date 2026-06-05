@@ -10,7 +10,8 @@ import { deactivatedKey } from './account-lifecycle.service';
 /**
  * S77c (D14 / FR-PS-19): 30일 익명화 크론.
  *
- * `deactivatedAt < now-30d` 인 비활성 계정을 대상으로 영구 익명화한다:
+ * `deactivatedAt < now-30d` 이고 아직 익명화되지 않은(`anonymizedAt IS NULL`) 비활성 계정을 대상으로
+ * 영구 익명화한다:
  *   1. PII null화 — handle / displayName / fullName / pronouns / title / bio / timezone /
  *      customStatus(+emoji/expiresAt) / avatarKey / bannerKey / handleChangedAt. email/username 은
  *      UNIQUE 라 충돌 회피 placeholder(deleted-{userId}@deleted.qufox · deleted-{userId})로 교체한다.
@@ -20,13 +21,18 @@ import { deactivatedKey } from './account-lifecycle.service';
  *      AttachmentUploadSession(미완료 세션)은 행 삭제.
  *   4. WorkspaceMemberProfile(워크스페이스별 닉네임/About/아바타 = 추가 PII) 행 삭제(아바타 MinIO 동반 삭제).
  *   5. RefreshToken(세션) 삭제 + Redis `deactivated:{userId}` / `search:recent:{userId}` 정리.
- *   6. isDeactivated 유지(true) + deactivatedAt 보존하되 PII 만 제거 — 계정 자체는 "익명화됨" 상태로 남는다.
+ *   6. passwordHash 무효화 + totpSecretEnc/totpEnabled 정리 + BackupCode 행 삭제(잔류 자격증명 제거 —
+ *      security MEDIUM). isDeactivated 유지(true) + deactivatedAt 보존하되 PII/자격증명만 제거 — 계정
+ *      자체는 "익명화됨" 상태로 남는다.
+ *   7. anonymizedAt = now 세팅 — 이 row 가 다음 배치 후보에서 제외되게 한다(GDPR starvation 차단).
  *
- * ★ 멱등: 이미 익명화된(handle/displayName 등이 null 이고 email 이 placeholder 인) row 를 재실행해도
- *   같은 결과로 수렴한다(updateMany 가 동일 값으로 덮어쓰며, MinIO delete 는 idempotent).
- * ★ 30일 미만 / 비활성 아닌 계정 절대 미접근 — WHERE `isDeactivated=true AND deactivatedAt < cutoff` 가
- *   유일한 대상 필터다(활성 계정·복구창 내 계정은 절대 매칭되지 않는다).
+ * ★ 멱등: 이미 익명화된(anonymizedAt 가 세팅된) row 는 `anonymizedAt: null` 필터로 후보에서 빠지므로
+ *   재처리되지 않는다(MinIO delete 는 어차피 idempotent). 같은 결과로 수렴한다.
+ * ★ 30일 미만 / 비활성 아닌 계정 절대 미접근 — WHERE `isDeactivated=true AND deactivatedAt < cutoff
+ *   AND anonymizedAt IS NULL` 이 유일한 대상 필터다(활성·복구창 내·이미 익명화한 계정은 절대 매칭 안 됨).
  * ★ LIMIT 500 배치(대량 대비) — 한 번에 최대 500명만 처리하고, 다음 주기에 이어 처리한다.
+ *   ★fix-forward(reviewer M1·GDPR): anonymizedAt 필터가 없으면 익명화된 row 가 후보에서 안 빠져
+ *   LIMIT 500 + orderBy asc 가 ≥500 누적 시 신규 PII 를 영구 미삭제한다 — anonymizedAt 가 그 단절점.
  */
 @Injectable()
 export class AccountAnonymizationCron {
@@ -52,9 +58,11 @@ export class AccountAnonymizationCron {
     const cutoff = new Date(
       now.getTime() - AccountAnonymizationCron.RECOVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
-    // ★ 유일한 대상 필터 — 비활성 + 복구창 경과. 활성/복구창 내 계정은 절대 매칭되지 않는다.
+    // ★ 유일한 대상 필터 — 비활성 + 복구창 경과 + 미익명화. 활성/복구창 내/이미 익명화한 계정은 절대
+    //   매칭되지 않는다. `anonymizedAt: null` 이 없으면 익명화된 row 가 후보에 영원히 남아 LIMIT 500
+    //   배치를 점유 → 신규 PII 영구 미삭제(reviewer M1·GDPR starvation).
     const targets = await this.prisma.user.findMany({
-      where: { isDeactivated: true, deactivatedAt: { lt: cutoff } },
+      where: { isDeactivated: true, deactivatedAt: { lt: cutoff }, anonymizedAt: null },
       orderBy: { deactivatedAt: 'asc' },
       take: AccountAnonymizationCron.BATCH_LIMIT,
       select: { id: true },
@@ -76,7 +84,7 @@ export class AccountAnonymizationCron {
     for (const { id: userId } of targets) {
       if (userId === anonId) continue; // SYSTEM_ANON 자체는 익명화하지 않는다(방어).
       try {
-        await this.anonymizeOne(userId, anonId);
+        await this.anonymizeOne(userId, anonId, now);
         processed += 1;
       } catch (err) {
         this.logger.error(
@@ -95,7 +103,7 @@ export class AccountAnonymizationCron {
    * 단일 계정 익명화. MinIO 삭제(네트워크)는 트랜잭션 밖에서 먼저 best-effort 로 수행하고, DB
    * 변형(PII null·authorId 재배치·세션 삭제)은 단일 트랜잭션으로 원자 적용한다.
    */
-  private async anonymizeOne(userId: string, anonId: string): Promise<void> {
+  private async anonymizeOne(userId: string, anonId: string, now: Date): Promise<void> {
     // (a) 사용자가 업로드한 Attachment 의 MinIO 객체 영구삭제(storageKey + thumbnailKey).
     const attachments = await this.prisma.attachment.findMany({
       where: { uploaderId: userId },
@@ -124,7 +132,10 @@ export class AccountAnonymizationCron {
       await tx.attachmentUploadSession.deleteMany({ where: { uploaderId: userId } });
       await tx.workspaceMemberProfile.deleteMany({ where: { userId } });
       await tx.refreshToken.deleteMany({ where: { userId } });
-      await tx.user.update({ where: { id: userId }, data: anonymizedUserData(userId) });
+      // security MEDIUM(CF5): 잔류 자격증명 제거 — 백업코드 행 전체 삭제.
+      await tx.backupCode.deleteMany({ where: { userId } });
+      // PII null화 + 자격증명 무효화(passwordHash/totp) + anonymizedAt 세팅(다음 배치 후보 제외).
+      await tx.user.update({ where: { id: userId }, data: anonymizedUserData(userId, now) });
     });
 
     // (d) Redis 정리(블랙리스트 + 검색 이력) — best-effort.
@@ -157,11 +168,19 @@ export class AccountAnonymizationCron {
 }
 
 /**
- * 익명화 후 User row 의 PII null화 + UNIQUE 충돌 회피 placeholder. 순수 함수(부작용 없음) — 단위
- * 테스트가 직접 검증한다. isDeactivated 는 true 로 유지하고(계정은 "익명화됨" 상태로 남음),
- * deactivatedAt 은 건드리지 않는다(멱등 재실행 시 cutoff 판정 동일).
+ * 익명화 후 User row 의 PII null화 + UNIQUE 충돌 회피 placeholder + 자격증명 무효화 + anonymizedAt
+ * 세팅. 순수 함수(부작용 없음) — 단위 테스트가 직접 검증한다. isDeactivated 는 true 로 유지하고(계정은
+ * "익명화됨" 상태로 남음), deactivatedAt 은 건드리지 않는다(멱등 재실행 판정용 보존). anonymizedAt 을
+ * now 로 세팅해 다음 배치 후보에서 제외한다(reviewer M1·GDPR starvation 차단).
+ *
+ * CF5(security MEDIUM): passwordHash 를 로그인 불가 placeholder 로 덮고, totpSecretEnc=null·
+ * totpEnabled=false 로 비활성화한다(BackupCode 행 삭제는 호출부 tx 에서 수행 — 행 삭제는 컬럼 update 가
+ * 아니라서 여기 순수 함수 밖이다).
  */
-export function anonymizedUserData(userId: string): {
+export function anonymizedUserData(
+  userId: string,
+  now: Date,
+): {
   email: string;
   username: string;
   handle: null;
@@ -177,6 +196,10 @@ export function anonymizedUserData(userId: string): {
   avatarKey: null;
   bannerKey: null;
   handleChangedAt: null;
+  passwordHash: string;
+  totpSecretEnc: null;
+  totpEnabled: false;
+  anonymizedAt: Date;
 } {
   return {
     // UNIQUE(email/username/handle) 충돌 회피 — userId 로 결정론 placeholder(멱등).
@@ -195,5 +218,12 @@ export function anonymizedUserData(userId: string): {
     avatarKey: null,
     bannerKey: null,
     handleChangedAt: null,
+    // CF5(security MEDIUM): 잔류 자격증명 무효화. passwordHash 는 argon2 형식이 아닌 결정론
+    // placeholder 라 어떤 비번과도 verify 실패한다(로그인 영구 불가). TOTP 도 해제한다.
+    passwordHash: `deactivated-${userId}`,
+    totpSecretEnc: null,
+    totpEnabled: false,
+    // 다음 배치 후보 제외 마커(reviewer M1·GDPR).
+    anonymizedAt: now,
   };
 }

@@ -72,19 +72,28 @@ export class AccountLifecycleService {
       await tx.refreshToken.deleteMany({ where: { userId } });
     });
 
-    // tx 커밋 직후: Redis 블랙리스트 SET(즉시 차단) + 검색 이력 DEL. keyPrefix(qufox:)는 ioredis 가
-    // 자동 부여하므로 여기선 논리 키만 쓴다.
-    await this.redis.set(
-      deactivatedKey(userId),
-      '1',
-      'EX',
-      AccountLifecycleService.DEACTIVATED_BLACKLIST_TTL_SEC,
-    );
-    await this.redis.del(recentSearchKey(userId));
-
-    // 활성 소켓에 session:revoked emit 후 강제 disconnect(다기기 즉시 로그아웃).
-    this.realtime.emitToUserRoom(userId, 'session:revoked', { reason: 'account_deactivated' });
-    await this.realtime.kickUserEverywhere(userId, 'account_deactivated');
+    // CF9 fix-forward (reviewer M3): tx 는 이미 커밋되어 비활성화는 영속됐다. 커밋 후 부수효과(Redis
+    // 블랙리스트 SET · 검색 이력 DEL · 소켓 강제 종료)는 best-effort 로 감싸 이미 성공한 비활성화를 500
+    // 으로 만들지 않는다. Redis/소켓 실패해도 DB isDeactivated 가 다음 요청부터 차단하고(JwtStrategy
+    // 이중검사 ②), 블랙리스트 미설정은 최악의 경우 토큰 TTL(15m)만큼 지연될 뿐 영속 차단은 보장된다.
+    try {
+      // keyPrefix(qufox:)는 ioredis 가 자동 부여하므로 여기선 논리 키만 쓴다.
+      await this.redis.set(
+        deactivatedKey(userId),
+        '1',
+        'EX',
+        AccountLifecycleService.DEACTIVATED_BLACKLIST_TTL_SEC,
+      );
+      await this.redis.del(recentSearchKey(userId));
+      // 활성 소켓에 session:revoked emit 후 강제 disconnect(다기기 즉시 로그아웃).
+      this.realtime.emitToUserRoom(userId, 'session:revoked', { reason: 'account_deactivated' });
+      await this.realtime.kickUserEverywhere(userId, 'account_deactivated');
+    } catch (err) {
+      this.logger.warn(
+        JSON.stringify({ event: 'account.deactivate.post_commit_failed', userId }),
+        err as Error,
+      );
+    }
 
     this.logger.log(JSON.stringify({ event: 'account.deactivated', userId }));
   }
@@ -125,10 +134,19 @@ export class AccountLifecycleService {
     await this.twoFactor.assertCredentialChangeTotp(user.id, totpCode);
 
     // 30일 복구창 검증 — 창이 지났으면(익명화 대상) 복구를 거부한다(ACCOUNT_DEACTIVATED 유지).
+    // CF11(security LOW): deactivatedAt 이 null 인데 isDeactivated=true 인 비정상 상태(데이터 정합
+    // 결함)는 복구창 판정 기준이 없으므로 안전측으로 거부한다(임의 복구 금지). 정상 경로에선
+    // deactivate 가 항상 deactivatedAt 을 세팅하므로 발생하지 않는다.
+    if (!user.deactivatedAt) {
+      throw new DomainError(
+        ErrorCode.ACCOUNT_DEACTIVATED,
+        'deactivation timestamp missing; account cannot be reactivated',
+      );
+    }
     const cutoff = new Date(
       Date.now() - AccountLifecycleService.RECOVERY_WINDOW_DAYS * 24 * 60 * 60 * 1000,
     );
-    if (user.deactivatedAt && user.deactivatedAt.getTime() < cutoff.getTime()) {
+    if (user.deactivatedAt.getTime() < cutoff.getTime()) {
       throw new DomainError(
         ErrorCode.ACCOUNT_DEACTIVATED,
         'recovery window has elapsed; account can no longer be reactivated',

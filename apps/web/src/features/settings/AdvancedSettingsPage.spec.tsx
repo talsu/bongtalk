@@ -117,4 +117,45 @@ describe('AdvancedSettingsPage (FR-PS-16·19)', () => {
       expect(deactivate).toHaveBeenCalledWith({ currentPassword: 'pass-1', totpCode: '123456' }),
     );
   });
+
+  // CF7 (a11y HIGH-02): 비활성화 입력은 required + aria-required.
+  it('CF7 — 비밀번호/인증코드 입력에 required + aria-required 가 있다', () => {
+    totpEnabled = true;
+    render(<AdvancedSettingsPage />);
+    fireEvent.click(screen.getByTestId('account-deactivate-open'));
+    const pw = screen.getByTestId('deactivate-password');
+    expect(pw.hasAttribute('required')).toBe(true);
+    expect(pw.getAttribute('aria-required')).toBe('true');
+    const code = screen.getByTestId('deactivate-code');
+    expect(code.hasAttribute('required')).toBe(true);
+    expect(code.getAttribute('aria-required')).toBe('true');
+  });
+
+  // CF6 (a11y HIGH-01): 처리중/성공 polite 라이브영역.
+  it('CF6 — 상태 라이브영역(aria-live=polite)이 존재한다', () => {
+    render(<AdvancedSettingsPage />);
+    fireEvent.click(screen.getByTestId('account-deactivate-open'));
+    const status = screen.getByTestId('deactivate-status');
+    expect(status.getAttribute('aria-live')).toBe('polite');
+    expect(status.getAttribute('aria-atomic')).toBe('true');
+  });
+
+  it('CF6 — 처리 시작 시 라이브영역에 진행 메시지를 표시한다', async () => {
+    // mutateAsync 를 보류시켜(미해결 Promise) 처리중 상태를 관찰한다 — 성공 시엔 다이얼로그가
+    // 즉시 닫히고 /login 으로 이동하므로 진행중 상태가 관찰 가능한 정본이다.
+    let resolveDeactivate: (() => void) | undefined;
+    deactivate.mockReturnValueOnce(
+      new Promise<void>((resolve) => {
+        resolveDeactivate = resolve;
+      }),
+    );
+    render(<AdvancedSettingsPage />);
+    fireEvent.click(screen.getByTestId('account-deactivate-open'));
+    fireEvent.change(screen.getByTestId('deactivate-password'), { target: { value: 'pass-1' } });
+    fireEvent.click(screen.getByTestId('deactivate-confirm'));
+    await waitFor(() =>
+      expect(screen.getByTestId('deactivate-status').textContent).toContain('비활성화하는 중'),
+    );
+    resolveDeactivate?.();
+  });
 });

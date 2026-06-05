@@ -13,10 +13,12 @@ beforeEach(() => {
   vi.setSystemTime('2025-01-01T00:00:00Z');
 });
 
-describe('anonymizedUserData — PII null화 + UNIQUE 충돌 회피 placeholder', () => {
+describe('anonymizedUserData — PII null화 + 자격증명 무효화 + UNIQUE 충돌 회피 placeholder', () => {
+  const NOW = new Date('2025-02-01T00:00:00Z');
+
   it('전 PII 컬럼을 null 로 두고 email/username 만 결정론 placeholder 로 교체', () => {
     const userId = '11111111-1111-1111-1111-111111111111';
-    const data = anonymizedUserData(userId);
+    const data = anonymizedUserData(userId, NOW);
     // UNIQUE 충돌 회피 placeholder(멱등 — userId 결정론).
     expect(data.email).toBe(`deleted-${userId}@deleted.qufox`);
     expect(data.username).toBe(`deleted-${userId}`);
@@ -39,9 +41,24 @@ describe('anonymizedUserData — PII null화 + UNIQUE 충돌 회피 placeholder'
     expect('deactivatedAt' in data).toBe(false);
   });
 
-  it('멱등 — 같은 userId 는 항상 같은 placeholder 로 수렴', () => {
+  it('CF5 — 잔류 자격증명 무효화(passwordHash placeholder · totp 해제)', () => {
+    const userId = '11111111-1111-1111-1111-111111111111';
+    const data = anonymizedUserData(userId, NOW);
+    // 어떤 비번과도 verify 실패하는 결정론 placeholder(argon2 형식 아님).
+    expect(data.passwordHash).toBe(`deactivated-${userId}`);
+    expect(data.totpSecretEnc).toBeNull();
+    expect(data.totpEnabled).toBe(false);
+  });
+
+  it('CF3 — anonymizedAt 를 now 로 세팅(다음 배치 후보 제외 마커)', () => {
+    const userId = '11111111-1111-1111-1111-111111111111';
+    const data = anonymizedUserData(userId, NOW);
+    expect(data.anonymizedAt).toBe(NOW);
+  });
+
+  it('멱등 — 같은 userId/now 는 항상 같은 값으로 수렴', () => {
     const u = '22222222-2222-2222-2222-222222222222';
-    expect(anonymizedUserData(u)).toEqual(anonymizedUserData(u));
+    expect(anonymizedUserData(u, NOW)).toEqual(anonymizedUserData(u, NOW));
   });
 });
 
@@ -77,6 +94,7 @@ describe('AccountAnonymizationCron.anonymizeBatch — 대상 선별 + 멱등 + �
     attachmentUploadSession: { deleteMany: ReturnType<typeof vi.fn> };
     workspaceMemberProfile: { deleteMany: ReturnType<typeof vi.fn> };
     refreshToken: { deleteMany: ReturnType<typeof vi.fn> };
+    backupCode: { deleteMany: ReturnType<typeof vi.fn> };
     user: { update: ReturnType<typeof vi.fn> };
   };
 
@@ -92,6 +110,7 @@ describe('AccountAnonymizationCron.anonymizeBatch — 대상 선별 + 멱등 + �
       attachmentUploadSession: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       workspaceMemberProfile: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       refreshToken: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      backupCode: { deleteMany: vi.fn().mockResolvedValue({ count: 0 }) },
       user: { update: vi.fn().mockResolvedValue({}) },
     };
     const $transaction = vi.fn(async (fn: (t: Tx) => Promise<void>) => fn(tx));
@@ -115,7 +134,7 @@ describe('AccountAnonymizationCron.anonymizeBatch — 대상 선별 + 멱등 + �
     return { cron, findManyUser, tx };
   }
 
-  it('대상 필터는 isDeactivated=true AND deactivatedAt < now-30d 만 스캔(30일 미만/활성 미접근)', async () => {
+  it('대상 필터는 isDeactivated=true AND deactivatedAt < now-30d AND anonymizedAt=null 만 스캔', async () => {
     const { cron, findManyUser } = makeCron({
       targets: [{ id: '44444444-4444-4444-4444-444444444444' }],
       anonExists: true,
@@ -128,14 +147,17 @@ describe('AccountAnonymizationCron.anonymizeBatch — 대상 선별 + 멱등 + �
     // cutoff = now - 30d.
     const expectedCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
     expect((call.where.deactivatedAt.lt as Date).getTime()).toBe(expectedCutoff.getTime());
+    // CF3(reviewer M1·GDPR): 이미 익명화한 row 제외 — anonymizedAt: null 필터.
+    expect(call.where.anonymizedAt).toBeNull();
     // LIMIT 500 배치.
     expect(call.take).toBe(500);
   });
 
-  it('대상이 있으면 Message.authorId → SYSTEM_ANON 으로 재배치하고 PII 를 null 로 업데이트', async () => {
+  it('대상이 있으면 Message.authorId → SYSTEM_ANON 재배치 + PII/자격증명 정리 + 백업코드 삭제', async () => {
     const target = '55555555-5555-5555-5555-555555555555';
+    const now = new Date('2025-02-01T00:00:00Z');
     const { cron, tx } = makeCron({ targets: [{ id: target }], anonExists: true });
-    const res = await cron.anonymizeBatch(new Date('2025-02-01T00:00:00Z'));
+    const res = await cron.anonymizeBatch(now);
 
     expect(res.processed).toBe(1);
     expect(tx.message.updateMany).toHaveBeenCalledWith({
@@ -147,9 +169,12 @@ describe('AccountAnonymizationCron.anonymizeBatch — 대상 선별 + 멱등 + �
       data: { uploaderId: ANON },
     });
     expect(tx.refreshToken.deleteMany).toHaveBeenCalledWith({ where: { userId: target } });
+    // CF5: 잔류 자격증명 — 백업코드 행 전체 삭제.
+    expect(tx.backupCode.deleteMany).toHaveBeenCalledWith({ where: { userId: target } });
+    // PII null + 자격증명 무효화 + anonymizedAt=now.
     expect(tx.user.update).toHaveBeenCalledWith({
       where: { id: target },
-      data: anonymizedUserData(target),
+      data: anonymizedUserData(target, now),
     });
   });
 

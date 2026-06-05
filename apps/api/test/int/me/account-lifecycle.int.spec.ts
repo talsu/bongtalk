@@ -154,6 +154,29 @@ describe('S77c 비활성화/재활성화 (FR-PS-16)', () => {
     expect(res.status).toBe(409);
     expect(res.body.errorCode).toBe('ACCOUNT_NOT_DEACTIVATED');
   });
+
+  it('CF4 — reactivate 는 IP 스코프(10/15m)를 email 버킷 앞에서 집행한다(분산 brute-force 차단)', async () => {
+    // 동일 IP(X-Forwarded-For 고정)에서 서로 다른 email 로 11회 시도 → email 버킷(3/h)이 아니라
+    // IP 버킷(10/15m)이 먼저 소진되어 11번째가 429 RATE_LIMITED 여야 한다. 자격증명은 모두 부재 →
+    // 정상 경로라면 PASSWORD_INCORRECT(403) 가 나지만, IP 한도 초과는 그보다 먼저 막는다.
+    const ip = `203.0.113.${Math.floor(Math.random() * 250) + 1}`;
+    let limited = false;
+    for (let i = 0; i < 11; i += 1) {
+      const res = await request(env.baseUrl)
+        .post('/users/me/reactivate')
+        .set('origin', ORIGIN)
+        .set('x-forwarded-for', ip)
+        .send({ email: `cf4-${i}-${Date.now()}@qufox.dev`, password: STRONG_PW });
+      if (res.status === 429) {
+        expect(res.body.errorCode).toBe('RATE_LIMITED');
+        limited = true;
+        break;
+      }
+      // 한도 이내엔 자격증명 검증으로 진입 → 부재라 403 PASSWORD_INCORRECT.
+      expect(res.status).toBe(403);
+    }
+    expect(limited).toBe(true);
+  });
 });
 
 describe('S77c 30일 익명화 크론 (FR-PS-19) — ★격리 fixture 만', () => {
@@ -227,6 +250,12 @@ describe('S77c 30일 익명화 크론 (FR-PS-19) — ★격리 fixture 만', () 
     expect(anonized?.email).toBe(`deleted-${targetU.userId}@deleted.qufox`);
     expect(anonized?.username).toBe(`deleted-${targetU.userId}`);
     expect(anonized?.isDeactivated).toBe(true); // 익명화 후에도 비활성 유지.
+    // CF3(reviewer M1·GDPR): anonymizedAt 세팅(다음 배치 후보 제외 마커).
+    expect(anonized?.anonymizedAt).toBeTruthy();
+    // CF5(security MEDIUM): 잔류 자격증명 무효화(passwordHash placeholder · totp 해제).
+    expect(anonized?.passwordHash).toBe(`deactivated-${targetU.userId}`);
+    expect(anonized?.totpEnabled).toBe(false);
+    expect(anonized?.totpSecretEnc).toBeNull();
 
     // 메시지 작성자 → SYSTEM_ANON(내용 보존).
     const reauthored = await env.prisma.message.findUnique({ where: { id: msg.id } });
@@ -239,11 +268,23 @@ describe('S77c 30일 익명화 크론 (FR-PS-19) — ★격리 fixture 만', () 
     const activeRow = await env.prisma.user.findUnique({ where: { id: activeU.userId } });
     expect(activeRow?.displayName).toBe('Active Keep');
 
-    // ── 멱등: 재실행해도 대상 0(이미 익명화·displayName 등 null이지만 deactivatedAt 보존이라
-    //    다시 매칭되더라도 같은 값으로 수렴) → 메시지 authorId 무변. ──
+    // ── 멱등 + CF3 배치 제외: 익명화된 row 는 anonymizedAt 세팅으로 다음 배치 후보(anonymizedAt:null)
+    //    에서 제외된다 → 이 fixture 의 target 은 재처리되지 않고 메시지 authorId 도 무변(이미 SYSTEM_ANON).
+    //    (공유 DB 라 다른 비활성 fixture 가 r2.processed 에 잡힐 수 있으므로 전역 카운트가 아니라
+    //     본 target 의 anonymizedAt 가 r1 이후 변하지 않음을 직접 단언한다.) ──
+    const afterR1 = await env.prisma.user.findUnique({
+      where: { id: targetU.userId },
+      select: { anonymizedAt: true },
+    });
     const r2 = await cron.anonymizeBatch(now);
     const reauthored2 = await env.prisma.message.findUnique({ where: { id: msg.id } });
     expect(reauthored2?.authorId).toBe(anonId);
+    // 이미 익명화한 target 은 다음 배치 후보에서 제외 → anonymizedAt 가 재실행 후에도 동일(재처리 안 됨).
+    const afterR2 = await env.prisma.user.findUnique({
+      where: { id: targetU.userId },
+      select: { anonymizedAt: true },
+    });
+    expect(afterR2?.anonymizedAt?.getTime()).toBe(afterR1?.anonymizedAt?.getTime());
     // 재실행이 추가로 손대도 결과 동일(멱등) — recent/active 여전히 보존.
     expect((await env.prisma.user.findUnique({ where: { id: recentU.userId } }))?.displayName).toBe(
       'Recent Keep',

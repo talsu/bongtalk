@@ -84,4 +84,28 @@ describe('LoginPage — ACCOUNT_DEACTIVATED 복구 CTA (FR-PS-16)', () => {
     await waitFor(() => expect(screen.getByTestId('login-error')).toBeTruthy());
     expect(screen.queryByTestId('login-reactivate')).toBeNull();
   });
+
+  // CF2 (a11y BLK-01): 서버 에러 라이브영역(role="alert")으로 SR 즉시 통지.
+  it('CF2 — 서버 에러 메시지는 role="alert" 라이브영역으로 노출된다', async () => {
+    loginMock.mockRejectedValueOnce(
+      Object.assign(new Error('invalid credentials'), {
+        errorCode: 'AUTH_INVALID_CREDENTIALS',
+      }),
+    );
+    render(<LoginPage />);
+    await submitLogin('me@qufox.dev', 'wrong');
+    await waitFor(() => expect(screen.getByTestId('login-error')).toBeTruthy());
+    expect(screen.getByTestId('login-error').getAttribute('role')).toBe('alert');
+  });
+
+  // CF8 (a11y HIGH-03): ACCOUNT_DEACTIVATED 통지 후 "계정 복구" 버튼으로 포커스 이동.
+  it('CF8 — 비활성 안내가 뜨면 "계정 복구" 버튼으로 포커스가 이동한다', async () => {
+    loginMock.mockRejectedValueOnce(
+      Object.assign(new Error('account is deactivated'), { errorCode: 'ACCOUNT_DEACTIVATED' }),
+    );
+    render(<LoginPage />);
+    await submitLogin('me@qufox.dev', 'Quanta-Beetle-Nebula-42!');
+    const btn = await screen.findByTestId('login-reactivate');
+    await waitFor(() => expect(document.activeElement).toBe(btn));
+  });
 });
