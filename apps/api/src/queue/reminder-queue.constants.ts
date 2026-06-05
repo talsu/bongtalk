@@ -27,3 +27,38 @@ export interface ReminderJobData {
   savedMessageId: string;
   userId: string;
 }
+
+/**
+ * S80 (D15 / FR-SC-06): /remind 리마인더 발화 잡 페이로드. SavedMessage 리마인더와 같은
+ * REMINDER_QUEUE 를 공유하되, jobId 접두사(`reminder:{reminderId}`) + jobData 형태로
+ * 구분한다(ReminderProcessor 가 라우팅 분기). `kind` 판별 필드로 ReminderJobData(SavedMessage)
+ * 와 명시 구분한다(접두사 + 형태 이중 판별).
+ */
+export interface RemindJobData {
+  kind: 'remind';
+  reminderId: string;
+  userId: string;
+}
+
+/** /remind 잡 id 접두사. SavedMessage 리마인더(jobId=savedMessageId uuid)와 구분한다. */
+export const REMIND_JOB_ID_PREFIX = 'reminder:';
+
+/** reminderId → BullMQ jobId(`reminder:{reminderId}`). */
+export function remindJobId(reminderId: string): string {
+  return `${REMIND_JOB_ID_PREFIX}${reminderId}`;
+}
+
+/** jobId 가 /remind(Reminder 모델) 잡인지 판정(접두사 기준). false 면 SavedMessage 잡. */
+export function isRemindJobId(jobId: string | undefined | null): boolean {
+  return typeof jobId === 'string' && jobId.startsWith(REMIND_JOB_ID_PREFIX);
+}
+
+/** jobData 가 RemindJobData(/remind) 인지 형태로 판정(접두사와 이중 판별). */
+export function isRemindJobData(data: unknown): data is RemindJobData {
+  return (
+    typeof data === 'object' &&
+    data !== null &&
+    (data as { kind?: unknown }).kind === 'remind' &&
+    typeof (data as { reminderId?: unknown }).reminderId === 'string'
+  );
+}

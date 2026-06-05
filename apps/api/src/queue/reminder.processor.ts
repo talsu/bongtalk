@@ -1,11 +1,21 @@
 import { Logger, Optional } from '@nestjs/common';
 import { Processor, WorkerHost } from '@nestjs/bullmq';
 import type { Job } from 'bullmq';
-import { WS_EVENTS, type ReminderFirePayload, type SavedUpdatedPayload } from '@qufox/shared-types';
+import {
+  WS_EVENTS,
+  type ReminderFirePayload,
+  type ReminderNewFirePayload,
+  type SavedUpdatedPayload,
+} from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { MetricsService } from '../observability/metrics/metrics.service';
-import { REMINDER_QUEUE, type ReminderJobData } from './reminder-queue.constants';
+import {
+  REMINDER_QUEUE,
+  isRemindJobData,
+  type ReminderJobData,
+  type RemindJobData,
+} from './reminder-queue.constants';
 
 // 발화 토스트/Notification 발췌 길이 상한(SavedService.EXCERPT_LEN 과 동일 정책).
 const PREVIEW_LEN = 150;
@@ -54,7 +64,14 @@ export class ReminderProcessor extends WorkerHost {
     super();
   }
 
-  async process(job: Job<ReminderJobData>): Promise<void> {
+  async process(job: Job<ReminderJobData | RemindJobData>): Promise<void> {
+    // S80 (D15 / FR-SC-06): 같은 REMINDER_QUEUE 를 SavedMessage 리마인더(jobId=savedMessageId)
+    // 와 /remind Reminder 잡(jobId=`reminder:{id}`·jobData.kind='remind')이 공유한다. jobData
+    // 형태로 라우팅을 분기한다(jobId 접두사와 이중 판별 — isRemindJobData 가 kind 필드 확인).
+    if (isRemindJobData(job.data)) {
+      await this.processRemind(job.data);
+      return;
+    }
     const { savedMessageId, userId } = job.data;
     const now = new Date();
 
@@ -131,5 +148,49 @@ export class ReminderProcessor extends WorkerHost {
       .inc();
 
     this.logger.log(`[reminder] fired saved=${savedMessageId} user=${userId} deleted=${deleted}`);
+  }
+
+  /**
+   * S80 (D15 / FR-SC-06): /remind(Reminder 모델) 발화. SavedMessage 경로와 분리된 처리:
+   *   (1) Reminder 행 조회. 부재(취소·계정삭제 cascade)면 skip.
+   *   (2) status != PENDING(이미 SENT/CANCELLED)면 skip(중복 발화·취소 후 잔존 잡 방어).
+   *   (3) tx: status=SENT 로 원자적 전이(updateMany — WHERE 에 status='PENDING' 동봉으로 멱등).
+   *   (4) reminder:fire(신규 와이어)를 user:{userId} 룸으로 emit(DND bypass — 사용자가 직접 건 예약).
+   *
+   * 오프라인이어도 status=SENT 는 기록되므로(emit 만 no-op), 재접속 시 목록에서 SENT 로 보인다.
+   */
+  private async processRemind(data: RemindJobData): Promise<void> {
+    const { reminderId, userId } = data;
+    const row = await this.prisma.reminder.findFirst({
+      where: { id: reminderId, userId },
+      select: { id: true, message: true, channelId: true, status: true },
+    });
+    if (!row) {
+      this.logger.debug(`[remind] fire skip (no row) reminder=${reminderId}`);
+      return;
+    }
+    if (row.status !== 'PENDING') {
+      this.logger.debug(`[remind] fire skip (status=${row.status}) reminder=${reminderId}`);
+      return;
+    }
+    // (3) PENDING → SENT 원자 전이(멱등 — 재시도/재기동에도 1회만 PENDING 매칭).
+    const updated = await this.prisma.reminder.updateMany({
+      where: { id: reminderId, userId, status: 'PENDING' },
+      data: { status: 'SENT' },
+    });
+    if (updated.count === 0) {
+      // 동시 처리/취소로 PENDING 이 사라짐 → emit 하지 않는다(중복 발화 방지).
+      return;
+    }
+    const payload: ReminderNewFirePayload = {
+      reminderId: row.id,
+      message: row.message,
+      channelId: row.channelId,
+    };
+    this.gateway.emitToUserRoom(userId, WS_EVENTS.REMINDER_NEW_FIRE, payload);
+    this.metrics?.wsEventsEmittedTotal
+      .labels(this.metrics.bucket('wsEventType', WS_EVENTS.REMINDER_NEW_FIRE))
+      .inc();
+    this.logger.log(`[remind] fired reminder=${reminderId} user=${userId}`);
   }
 }

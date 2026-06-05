@@ -142,6 +142,14 @@ export const WS_EVENTS = {
   // DND 게이트는 적용하지 않는다 — 사용자가 직접 설정한 예약이므로 Slack 처럼
   // 항상 발화한다(서버 처리부에서 bypass).
   REMINDER_FIRE: 'user:reminder_fire',
+  // /remind 리마인더 발화 (S80 · D15 · FR-SC-06): 슬래시 `/remind` 가 만든 신규
+  // Reminder 모델의 scheduledAt 이 도래하면 BullMQ worker(ReminderProcessor 의 reminder:
+  // 접두 잡)가 수신자의 user:{userId} 룸으로 push 한다. S53 의 user:reminder_fire(저장
+  // 메시지 리마인더, savedMessageId 키)와는 **별개** 이벤트다 — 발화원(Reminder vs
+  // SavedMessage)·페이로드(reminderId + 자유 message + 채널링크)가 다르므로 와이어
+  // 이름도 분리한다. 클라이언트는 우하단 토스트(8초)를 띄우고 channelId 가 있으면
+  // 채널 내비게이션 링크를 노출한다(DND bypass — 사용자가 직접 건 예약).
+  REMINDER_NEW_FIRE: 'reminder:fire',
   // 저장 항목 갱신 (S53 · D10 · FR-PS-09/10/11): 리마인더 설정/취소/스누즈/발화
   // 등으로 저장 항목 메타가 바뀌면 수신자의 user:{userId} 룸으로 push 한다(다른
   // 기기/탭 동기화). 클라이언트는 저장 목록 캐시를 무효화한다. payload 는 최소
@@ -598,6 +606,19 @@ export const ReminderFirePayloadSchema = z.object({
   originalSavedAt: z.string().datetime(),
 });
 export type ReminderFirePayload = z.infer<typeof ReminderFirePayloadSchema>;
+
+/**
+ * reminder:fire — /remind Reminder(S80 · FR-SC-06) 발화 payload. S53 의
+ * user:reminder_fire(저장 메시지 리마인더)와는 별개 와이어 이벤트다. 페이로드는
+ * 토스트 렌더에 필요한 최소 컨텍스트 — reminderId + 자유 message 텍스트 + 채널 링크.
+ * channelId 가 null 이면 클라가 채널 내비게이션을 숨긴다(예약 채널 soft-delete 시 SetNull).
+ */
+export const ReminderNewFirePayloadSchema = z.object({
+  reminderId: z.string().uuid(),
+  message: z.string(),
+  channelId: z.string().uuid().nullable(),
+});
+export type ReminderNewFirePayload = z.infer<typeof ReminderNewFirePayloadSchema>;
 
 /**
  * user:saved_updated — 저장 항목 메타(status / reminderAt) 변경 시 수신자의
@@ -1107,6 +1128,7 @@ export const WS_EVENT_PAYLOAD_SCHEMAS = {
   [WS_EVENTS.CHANNEL_PIN_ADDED]: ChannelPinAddedPayloadSchema,
   [WS_EVENTS.CHANNEL_PIN_REMOVED]: ChannelPinRemovedPayloadSchema,
   [WS_EVENTS.REMINDER_FIRE]: ReminderFirePayloadSchema,
+  [WS_EVENTS.REMINDER_NEW_FIRE]: ReminderNewFirePayloadSchema,
   [WS_EVENTS.SAVED_UPDATED]: SavedUpdatedPayloadSchema,
   [WS_EVENTS.ATTACHMENT_PROCESSING_DONE]: AttachmentProcessingDonePayloadSchema,
   [WS_EVENTS.MESSAGE_EMBED_UPDATED]: MessageEmbedUpdatedPayloadSchema,

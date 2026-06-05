@@ -304,6 +304,16 @@ export enum ErrorCode {
   // 일치하지 않으면 존재 자체를 누출하지 않도록 중립적으로 404 로 거부한다.
   SAVED_NOT_FOUND = 'SAVED_NOT_FOUND',
 
+  // S80 (D15 / FR-SC-04·05·06): 슬래시 커맨드 실행.
+  //   SLASH_COMMAND_UNKNOWN: command 가 BUILTIN_COMMANDS/커스텀 어디에도 없음 → 404.
+  //   SLASH_COMMAND_NOT_EXECUTABLE: 실행 핸들러 미구현 커맨드(/giphy·커스텀 — S81+) → 422.
+  //   REMINDER_PARSE_FAILED: /remind 자연어 시각 파싱 실패(과거/모호/미인식) → 400 + 구문 예시.
+  //   REMINDER_NOT_FOUND: DELETE 대상 리마인더가 본인 소유가 아니거나 없음 → 404.
+  SLASH_COMMAND_UNKNOWN = 'SLASH_COMMAND_UNKNOWN',
+  SLASH_COMMAND_NOT_EXECUTABLE = 'SLASH_COMMAND_NOT_EXECUTABLE',
+  REMINDER_PARSE_FAILED = 'REMINDER_PARSE_FAILED',
+  REMINDER_NOT_FOUND = 'REMINDER_NOT_FOUND',
+
   // S73 (D14 / FR-PS-02): 전역 핸들(handle)은 @unique 라 다른 사용자가 이미 점유한
   // 핸들로 변경 시도 → 409(상태 충돌). DB unique 제약(P2002)을 흡수해 이 코드로 변환한다.
   HANDLE_TAKEN = 'HANDLE_TAKEN',
@@ -534,6 +544,11 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   // S51 (FR-PS-07): 개인 저장함 한도(500) 초과는 422(처리 불가).
   [ErrorCode.SAVED_LIMIT_EXCEEDED]: 422,
   [ErrorCode.SAVED_NOT_FOUND]: 404,
+  // S80 (D15 / FR-SC-04·05·06): 슬래시 커맨드 실행 상태코드.
+  [ErrorCode.SLASH_COMMAND_UNKNOWN]: 404,
+  [ErrorCode.SLASH_COMMAND_NOT_EXECUTABLE]: 422,
+  [ErrorCode.REMINDER_PARSE_FAILED]: 400,
+  [ErrorCode.REMINDER_NOT_FOUND]: 404,
   // S73 (D14 / FR-PS-01/02/03): 프로필/아바타.
   [ErrorCode.HANDLE_TAKEN]: 409,
   [ErrorCode.HANDLE_COOLDOWN_ACTIVE]: 400,

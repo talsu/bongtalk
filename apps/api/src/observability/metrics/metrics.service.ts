@@ -125,6 +125,8 @@ const L = {
     // BullMQ worker / PATCH 경로가 게이트웨이를 통해 직접 emit 한다.
     'user:reminder_fire',
     'user:saved_updated',
+    // S80 (FR-SC-06): /remind 리마인더 발화(개인 user 룸 emit). SavedMessage 와 별개 와이어.
+    'reminder:fire',
     // S70 (FR-W06·W06a·W12): 가입 신청 결과 + 멤버 이탈(임시멤버 강퇴) 콜론 wire.
     'ws:application_received',
     'ws:application_reviewed',

@@ -47,7 +47,9 @@ import type { RankableMember } from './autocomplete/rankMembers';
 import type { RankableChannel } from './autocomplete/filterChannels';
 import type { EmojiCandidate } from './autocomplete/filterEmojis';
 import { useSlashCommands } from './slashCommands/useSlashCommands';
-import { paramHintForRow, slashToken } from './composerSlash';
+import { executeSlashCommand } from './slashCommands/api';
+import { useEphemeralMessages } from './slashCommands/useEphemeralMessages';
+import { detectSlashExecution, paramHintForRow, slashToken } from './composerSlash';
 
 type Props = {
   /** null for Global DM channels — custom emoji picker is empty then. */
@@ -242,6 +244,8 @@ export function MessageComposer({
   // S79 (FR-SC-01): 슬래시 커맨드 목록(빌트인 상수 + 워크스페이스 커스텀 병합). 5분 캐시.
   // workspaceId=null(Global DM)이면 훅이 enabled=false 로 자동 비활성.
   const { data: slashCommandData } = useSlashCommands(workspaceId);
+  // S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지) 채널별 스토어.
+  const ephemeral = useEphemeralMessages(channelId);
 
   const myRole: WorkspaceRole =
     wsData?.myRole ??
@@ -493,11 +497,62 @@ export function MessageComposer({
       .finally(() => setSending(false));
   };
 
+  // S80 (FR-SC-04·05·06): draft 가 실행 가능한 슬래시 커맨드면 doSend 대신 execute 한다.
+  // IN_CHANNEL(메시지 생성) → draft 클리어(WS message:created 가 자동 표시), EPHEMERAL →
+  // 인라인 시스템 메시지 표시, error → draft 유지(사용자가 고쳐 재시도). detect 가 null 이면
+  // 일반 전송으로 폴백한다. workspaceId=null(Global DM)은 슬래시 실행 비활성(폴백).
+  const runSlashExecution = (command: string, text: string): void => {
+    if (workspaceId === null) {
+      doSend();
+      return;
+    }
+    const idempotencyKey = crypto.randomUUID();
+    setSending(true);
+    void executeSlashCommand({ workspaceId, channelId, command, text, idempotencyKey })
+      .then((res) => {
+        if (res.responseType === 'IN_CHANNEL') {
+          // 채널 게시 성공 — draft 비움(message:created WS 가 메시지를 표시).
+          clearDraft(channelId);
+          setPendingSpecial(null);
+          sendTypingStop();
+          return;
+        }
+        // EPHEMERAL — 발신자 전용 인라인 메시지. error 면 draft 유지(고쳐 재시도).
+        const isError = res.error === true;
+        ephemeral.push(res.content, isError);
+        announce(res.content);
+        if (!isError) {
+          clearDraft(channelId);
+          setPendingSpecial(null);
+          sendTypingStop();
+        }
+      })
+      .catch((err: unknown) => {
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : '슬래시 커맨드 실행에 실패했습니다';
+        // 서버 에러도 인라인 ephemeral 로 보여주고 draft 는 유지한다.
+        ephemeral.push(message, true);
+        announce(message);
+      })
+      .finally(() => setSending(false));
+  };
+
   const submit = (): void => {
     // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
     if (counter.overLimit) return;
     const trimmed = draft.trim();
     if (!trimmed && trayItems.length === 0) return;
+    // S80 (FR-SC-04·05·06): 슬래시 커맨드 실행 분기(첨부 없는 텍스트 전용). 자동완성
+    // 팝업이 열려 있으면(키보드 핸들러가 먼저 삽입을 처리) 이 분기는 닫힌 뒤에만 도달한다.
+    if (trayItems.length === 0 && uploading === 0) {
+      const slash = detectSlashExecution(trimmed, slashCommandData ?? []);
+      if (slash) {
+        runSlashExecution(slash.command, slash.text);
+        return;
+      }
+    }
     // S44 (FR-MN-16): 권한 없는 @everyone/@here 를 입력하면 전송 전 경고 토스트로
     // "이 채널에서 알림이 가지 않음"을 고지한다. 메시지는 그대로 전송되며(서버
     // 게이트가 fanout 만 silently 무효화 — FR-MN-02 / Discord parity), 사용자는

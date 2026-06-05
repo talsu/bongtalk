@@ -10,6 +10,7 @@ import {
 import { AckScheduler, type AckFlush } from '../features/messages/ackScheduler';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
+import { EphemeralList } from '../features/messages/slashCommands/EphemeralList';
 import { useDropZone } from '../features/attachments/useDropZone';
 import { DropZoneOverlay } from '../features/attachments/DropZoneOverlay';
 import { PinPanel } from '../features/messages/PinPanel';
@@ -478,6 +479,8 @@ export function MessageColumn({
           viewerId={user?.id ?? null}
           nameByUserId={nameByUserId}
         />
+        {/* S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지). */}
+        <EphemeralList channelId={channelId} />
         <MessageComposer
           workspaceId={workspaceId}
           channelId={channelId}

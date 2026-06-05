@@ -1,7 +1,12 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommandItem } from '@qufox/shared-types';
 import type { AutocompleteRow } from './autocomplete/useAutocomplete';
-import { insertSlashCommand, paramHintForRow, slashToken } from './composerSlash';
+import {
+  detectSlashExecution,
+  insertSlashCommand,
+  paramHintForRow,
+  slashToken,
+} from './composerSlash';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -55,5 +60,37 @@ describe('composerSlash (S79 / FR-SC-03) — 선택 삽입 + 파라미터 힌트
       online: true,
     };
     expect(paramHintForRow(row)).toBeNull();
+  });
+});
+
+describe('detectSlashExecution (S80 / FR-SC-04·05·06)', () => {
+  const commands: SlashCommandItem[] = [
+    command({ name: 'shrug', responseType: 'IN_CHANNEL', handlerType: 'BUILTIN' }),
+    command({ name: 'me', responseType: 'IN_CHANNEL', handlerType: 'BUILTIN' }),
+    command({ name: 'remind', handlerType: 'INTERNAL_ACTION' }),
+  ];
+
+  it('알려진 커맨드 + 인자를 분리한다', () => {
+    expect(detectSlashExecution('/shrug 안녕', commands)).toEqual({
+      command: 'shrug',
+      text: '안녕',
+    });
+  });
+
+  it('인자 없는 커맨드는 text 빈 문자열', () => {
+    expect(detectSlashExecution('/me', commands)).toEqual({ command: 'me', text: '' });
+  });
+
+  it('대소문자 무관하게 매칭한다', () => {
+    expect(detectSlashExecution('/SHRUG x', commands)?.command).toBe('shrug');
+  });
+
+  it('목록에 없는 커맨드는 null(일반 메시지로 전송)', () => {
+    expect(detectSlashExecution('/unknown x', commands)).toBeNull();
+  });
+
+  it('슬래시로 시작하지 않으면 null', () => {
+    expect(detectSlashExecution('hello', commands)).toBeNull();
+    expect(detectSlashExecution('text /shrug', commands)).toBeNull();
   });
 });
