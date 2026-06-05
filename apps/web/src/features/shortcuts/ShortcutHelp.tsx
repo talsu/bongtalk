@@ -38,8 +38,11 @@ const CATEGORIES: ShortcutCategory[] = [
       { combo: 'Alt + ↑ / ↓', desc: '이전 / 다음 채널' },
       { combo: 'Ctrl/Cmd + Shift + A', desc: '다음 워크스페이스', mnemonic: 'A = Auto-cycle' },
       { combo: '?', desc: '이 도움말 열기', mnemonic: '? = 물음표 = 도움말' },
-      { combo: 'Escape', desc: '열린 modal / dropdown 닫기' },
-      { combo: 'Esc', desc: '현재 채널 읽음 표시' },
+      // S78 reviewer N1: Esc 는 맥락에 따라 동작이 다르다. 종전 'Escape'(닫기)와
+      // 'Esc'(읽음 표시)가 별개 키처럼 읽혀 혼란스러웠다 — 표기를 'Esc' 로
+      // 통일하고 각 행에 적용 맥락을 명시해 같은 키의 맥락별 동작임을 드러낸다.
+      { combo: 'Esc', desc: '열린 modal / dropdown 이 있을 때: 닫기' },
+      { combo: 'Esc', desc: '입력 포커스가 없을 때: 현재 채널 읽음 표시' },
       { combo: 'Shift + Esc', desc: '워크스페이스 전체 읽음 표시' },
     ],
   },
@@ -78,60 +81,66 @@ export function ShortcutHelp(): JSX.Element | null {
       title="단축키"
       description="카테고리별 키맵 — `?` 키로 언제든 다시 열 수 있습니다."
     >
-      {CATEGORIES.map((cat) => (
-        <section key={cat.title} className="mb-[var(--s-4)]">
-          <h3
-            className="text-[length:var(--fs-12)] font-medium uppercase tracking-wide"
-            style={{ color: 'var(--text-secondary)', marginBottom: 'var(--s-2)' }}
-          >
-            {cat.title}
-          </h3>
-          <ul>
-            {cat.entries.map((s) => (
-              <li
-                key={s.combo}
-                className="flex items-start justify-between py-[var(--s-2)] text-[length:var(--fs-14)]"
-                style={{ borderBottom: '1px solid var(--divider)' }}
-              >
-                <div className="flex flex-col">
-                  <span className="text-text">
-                    {s.desc}
-                    {s.pending && (
+      {CATEGORIES.map((cat, ci) => {
+        // S78 reviewer FF5 (a11y MAJOR): 각 섹션을 제목과 명시적으로 연결한다.
+        // heading id 를 section aria-labelledby 가 가리켜, SR 이 항목 그룹의
+        // 맥락(어느 카테고리인지)을 그룹 단위로 안내하게 한다.
+        const headingId = `shortcut-cat-${ci}`;
+        return (
+          <section key={cat.title} aria-labelledby={headingId} className="mb-[var(--s-4)]">
+            <h3
+              id={headingId}
+              className="text-[length:var(--fs-12)] font-medium uppercase tracking-wide mb-[var(--s-2)]"
+              style={{ color: 'var(--text-secondary)' }}
+            >
+              {cat.title}
+            </h3>
+            <ul>
+              {cat.entries.map((s, ei) => (
+                <li
+                  // combo 가 맥락별로 중복(예: Esc 2행)될 수 있어 index 로 키를 잡는다.
+                  key={`${ci}-${ei}`}
+                  className="flex items-start justify-between py-[var(--s-2)] text-[length:var(--fs-14)]"
+                  style={{ borderBottom: '1px solid var(--divider)' }}
+                >
+                  <div className="flex flex-col">
+                    <span className="text-text">
+                      {s.desc}
+                      {s.pending && (
+                        <>
+                          {/* FF5 (a11y MAJOR): 시각 뱃지는 aria-hidden 으로 중복
+                              낭독을 막고, "(준비 중)" 맥락은 sr-only 로 SR 에
+                              전달해 미배선 단축키임을 알린다. */}
+                          <span
+                            aria-hidden="true"
+                            className="ml-[var(--s-2)] text-[length:var(--fs-11)]"
+                            style={{ color: 'var(--text-secondary)' }}
+                          >
+                            (준비 중)
+                          </span>
+                          <span className="sr-only">— 준비 중인 단축키입니다</span>
+                        </>
+                      )}
+                    </span>
+                    {s.mnemonic && (
                       <span
-                        className="ml-[var(--s-2)] text-[length:var(--fs-11)]"
+                        className="text-[length:var(--fs-12)] mt-[var(--s-1)]"
                         style={{ color: 'var(--text-secondary)' }}
                       >
-                        (준비 중)
+                        {s.mnemonic}
                       </span>
                     )}
-                  </span>
-                  {s.mnemonic && (
-                    <span
-                      className="text-[length:var(--fs-12)]"
-                      style={{ color: 'var(--text-secondary)', marginTop: '2px' }}
-                    >
-                      {s.mnemonic}
-                    </span>
-                  )}
-                </div>
-                <kbd
-                  className="qf-menu__kbd"
-                  style={{
-                    border: '1px solid var(--border)',
-                    borderRadius: 'var(--r-xs)',
-                    padding: '2px 6px',
-                    background: 'var(--bg-panel)',
-                    flexShrink: 0,
-                    marginLeft: 'var(--s-3)',
-                  }}
-                >
-                  {s.combo}
-                </kbd>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ))}
+                  </div>
+                  {/* MEDIUM: raw px(inline border/padding/background)을 제거하고
+                      DS 키캡 클래스 `.qf-kbd` 에 위임한다. 레이아웃(축소 방지·
+                      왼쪽 간격)만 spacing 토큰으로 남긴다. */}
+                  <kbd className="qf-kbd shrink-0 ml-[var(--s-3)]">{s.combo}</kbd>
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
     </Dialog>
   );
 }

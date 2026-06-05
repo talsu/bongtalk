@@ -146,6 +146,57 @@ describe('parseMrkdwn — block syntax (FR-MSG-01)', () => {
   });
 });
 
+// S78 reviewer B1 (FR-MD-01 P0): the parser must tokenize `# H1`-`### H3`
+// headings into heading nodes (level = number of leading hashes). The
+// renderer + AST schema already supported heading nodes, but parseBlocks let
+// `#` lines fall through to a paragraph, so the live syntax was a no-op.
+describe('parseMrkdwn — heading syntax (FR-MD-01)', () => {
+  it('parses `# H1` into a heading node at level 1', () => {
+    const { ast } = parseMrkdwn('# Title');
+    expect(ast.nodes[0]).toMatchObject({ type: 'heading', level: 1 });
+  });
+
+  it('parses `## H2` into a heading node at level 2', () => {
+    const { ast } = parseMrkdwn('## Section');
+    expect(ast.nodes[0]).toMatchObject({ type: 'heading', level: 2 });
+  });
+
+  it('parses `### H3` into a heading node at level 3', () => {
+    const { ast } = parseMrkdwn('### Sub');
+    expect(ast.nodes[0]).toMatchObject({ type: 'heading', level: 3 });
+  });
+
+  it('parses heading inline content (e.g. *bold*) into the heading nodes', () => {
+    const { ast } = parseMrkdwn('# *bold* head');
+    const head = ast.nodes[0] as { type: string; nodes: TextNode[] };
+    expect(head.type).toBe('heading');
+    const boldNode = head.nodes.find((n) => n.type === 'text' && n.marks?.includes('bold'));
+    expect(boldNode).toBeTruthy();
+  });
+
+  it('treats `#tag` without a following space as a paragraph (not a heading)', () => {
+    const { ast } = parseMrkdwn('#tag');
+    expect(ast.nodes[0].type).toBe('paragraph');
+  });
+
+  it('treats `#### H4` (4+ hashes, over level cap) as a paragraph', () => {
+    const { ast } = parseMrkdwn('#### too deep');
+    expect(ast.nodes[0].type).toBe('paragraph');
+  });
+
+  it('breaks a paragraph run at a heading line', () => {
+    const { ast } = parseMrkdwn('intro line\n# Heading\noutro line');
+    expect(ast.nodes[0].type).toBe('paragraph');
+    expect(ast.nodes[1]).toMatchObject({ type: 'heading', level: 1 });
+    expect(ast.nodes[2].type).toBe('paragraph');
+  });
+
+  it('produces a schema-valid root for a heading', () => {
+    const { ast } = parseMrkdwn('## Section');
+    expect(isRichTextRoot(ast)).toBe(true);
+  });
+});
+
 describe('parseMrkdwn — mention tokens (FR-RC02 / FR-RC22)', () => {
   it('parses @{cuid2} into a mention_user node', () => {
     const p = firstParagraph('hi @{clh3z2k0v0000abcd1234ef}');

@@ -14,6 +14,11 @@
  * clearTimeout 으로 이전 타이머를 취소한다. 연속 팝업 시 "초기화 → 새 텍스트
  * 주입" 순서를 보장해 중복 낭독/뒤늦은 초기화로 인한 clobber 를 막는다.
  *
+ * S78 reviewer M2 (의도 명시): 이 영역은 의도적으로 단일 싱글턴이라, 마지막
+ * 호출자의 공지가 이전 공지를 덮어쓴다(cross-caller clobber). 동시에 두
+ * 자동완성/단축키 공지가 경쟁하는 상황은 UX 상 발생하지 않으며(한 번에 하나의
+ * 컨텍스트만 활성), 단일 라이브 영역이 SR 의 큐 폭주를 막는 의도된 설계다.
+ *
  * SSR/노드 테스트(document 부재)에서는 안전하게 no-op 한다.
  */
 let region: HTMLElement | null = null;
@@ -36,6 +41,10 @@ function ensureRegion(): HTMLElement | null {
   // S23 cheap fix (#9): aria-atomic 명시 — 라이브 영역 전체를 한 단위로 다시
   // 읽게 해, 부분 갱신으로 SR 이 일부만 읽는 일을 막는다.
   el.setAttribute('aria-atomic', 'true');
+  // S78 reviewer (a11y MINOR): 텍스트 추가/변경만 통지하도록 relevant 를
+  // 명시한다(노드 제거는 무시) — reset→write 순서에서 빈 제거가 잡음으로
+  // 읽히는 것을 막는다.
+  el.setAttribute('aria-relevant', 'additions text');
   // 기존 testid 유지(테스트 영향 최소·싱글턴 식별).
   el.setAttribute('data-testid', 'a11y-live-region');
   // 시각적으로 숨기되 SR 에는 노출(표준 visually-hidden 패턴, raw px 아님 —

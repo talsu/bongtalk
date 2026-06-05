@@ -140,10 +140,10 @@ describe('renderAst — blocks (FR-MSG-01)', () => {
     expect(html('> quoted')).toContain('<blockquote');
   });
 
-  // S78 (FR-MD regression): heading AST nodes (levels 1-3) render as the
-  // matching semantic heading element. The live mrkdwn parser doesn't emit
-  // `#` headings today (paragraph-only), so the renderer's heading path is
-  // exercised with crafted AST nodes (server-built / future parser).
+  // S78 (FR-MD-01): the live mrkdwn parser now tokenizes `#`-`###` headings
+  // (reviewer B1 fix), so the renderer's heading path is exercised both
+  // end-to-end (parse → render, below) and with crafted AST nodes (for
+  // explicit per-level element/text assertions).
   function headingAst(level: 1 | 2 | 3, text: string): RichTextRoot {
     return {
       type: 'root',
@@ -167,6 +167,19 @@ describe('renderAst — blocks (FR-MSG-01)', () => {
     const out = htmlOf(headingAst(3, 'Sub'));
     expect(out).toContain('<h3');
     expect(out).toContain('Sub');
+  });
+
+  // S78 (FR-MD-01 reviewer B1): end-to-end parse → render. `# H1` text in the
+  // composer now reaches the DOM as a real <h1> (was paragraph-only before).
+  it('renders `# H1` mrkdwn end-to-end as an <h1>', () => {
+    const out = html('# Title');
+    expect(out).toContain('<h1');
+    expect(out).toContain('Title');
+  });
+
+  it('renders `## H2` / `### H3` mrkdwn end-to-end as <h2> / <h3>', () => {
+    expect(html('## Section')).toContain('<h2');
+    expect(html('### Sub')).toContain('<h3');
   });
 
   it('renders an unordered list', () => {

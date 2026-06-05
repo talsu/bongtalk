@@ -187,6 +187,12 @@ const FENCE_RE = /^```([a-zA-Z0-9_+-]*)\s*$/;
 const ORDERED_RE = /^(\d{1,9})\.\s+(.*)$/;
 const UNORDERED_RE = /^[-*]\s+(.*)$/;
 const QUOTE_RE = /^>\s?(.*)$/;
+// FR-MD-01 (S78 reviewer B1): `# H1` ~ `### H3` heading. `#` 직후 공백이
+// 반드시 1개 이상 있어야 하며(공백 없는 `#tag` 는 paragraph), `#` 개수가
+// heading level(1-3)을 정합니다. `####`(4개 이상)는 level 캡으로 인해 이
+// 패턴에 매치되지 않아 paragraph 로 흐릅니다(QUOTE_RE/ORDERED_RE 와 동일한
+// 앵커드·단순 수량자 스타일 — ReDoS 안전).
+const HEADING_RE = /^(#{1,3})[ \t]+(.+)$/;
 
 function parseBlocks(raw: string, state: ScanState): RichTextNode[] {
   const lines = raw.split('\n');
@@ -208,6 +214,15 @@ function parseBlocks(raw: string, state: ScanState): RichTextNode[] {
       }
       if (i < lines.length) i += 1; // consume closing fence
       out.push({ type: 'code_block', code: body.join('\n'), lang });
+      continue;
+    }
+
+    // ---- heading (FR-MD-01): `# H1` ~ `### H3`. 단일 라인 블록.
+    const heading = HEADING_RE.exec(line);
+    if (heading) {
+      const level = heading[1].length as 1 | 2 | 3;
+      out.push({ type: 'heading', level, nodes: parseInline(heading[2], state) });
+      i += 1;
       continue;
     }
 
@@ -244,6 +259,7 @@ function parseBlocks(raw: string, state: ScanState): RichTextNode[] {
     while (
       i < lines.length &&
       !FENCE_RE.test(lines[i]) &&
+      !HEADING_RE.test(lines[i]) &&
       !QUOTE_RE.test(lines[i]) &&
       !ORDERED_RE.test(lines[i]) &&
       !UNORDERED_RE.test(lines[i])

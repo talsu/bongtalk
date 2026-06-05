@@ -18,6 +18,9 @@ describe('composerAnnouncement (FR-A11Y-01)', () => {
     expect(composerAnnouncement('emoji', 5)).toBe('이모지 5개');
   });
 
+  // S78 reviewer FF3: the 0-row branch is reachable — MessageComposer wires
+  // useAutocomplete's `emptyTriggerKind` (trigger active, popup closed because
+  // rows=0) to composerAnnouncement(kind, 0) so SR users hear "결과 없음".
   it('announces the empty-result message when there are 0 rows', () => {
     expect(composerAnnouncement('mention', 0)).toBe('검색 결과가 없습니다');
     expect(composerAnnouncement('channel', 0)).toBe('검색 결과가 없습니다');
