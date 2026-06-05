@@ -72,11 +72,15 @@ const CATEGORIES: ShortcutCategory[] = [
   {
     title: '메시지 액션',
     entries: [
-      { combo: 'E', desc: '내 메시지 편집', mnemonic: 'E = Edit', pending: true },
-      { combo: 'Delete', desc: '내 메시지 삭제 다이얼로그', pending: true },
-      { combo: 'R', desc: '이모지 반응 피커', mnemonic: 'R = React', pending: true },
-      { combo: 'T / →', desc: '스레드 열기', mnemonic: 'T = Thread', pending: true },
-      { combo: 'P', desc: '핀 / 언핀', mnemonic: 'P = Pin', pending: true },
+      // S83b (FR-KS-08): 메시지에 hover 또는 키보드 포커스 시 단일 키로 동작한다
+      // (E/Delete 는 내 메시지만). pending 해제 + A(북마크)·M(리마인더) 추가.
+      { combo: 'E', desc: '내 메시지 편집', mnemonic: 'E = Edit' },
+      { combo: 'Delete', desc: '내 메시지 삭제 다이얼로그' },
+      { combo: 'R', desc: '이모지 반응 피커', mnemonic: 'R = React' },
+      { combo: 'T', desc: '스레드 열기', mnemonic: 'T = Thread' },
+      { combo: 'P', desc: '핀 / 언핀', mnemonic: 'P = Pin' },
+      { combo: 'A', desc: '북마크(저장) 토글', mnemonic: 'A = Add to saved' },
+      { combo: 'M', desc: '리마인더 설정', mnemonic: 'M = reMind' },
     ],
   },
 ];

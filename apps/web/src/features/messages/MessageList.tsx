@@ -25,6 +25,9 @@ import { OPTIMISTIC_PREFIX } from './sendState';
 import { MessageItem } from './MessageItem';
 import { ReportModal } from './ReportModal';
 import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedMessages';
+import { ReminderModal } from '../saved/ReminderModal';
+import { useSetReminder } from '../saved/useReminder';
+import { saveMessage } from '../saved/api';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
@@ -207,6 +210,27 @@ export function MessageList({
   // dispatch 한다. 현재 채널의 마지막 내 메시지(tmp 제외)에 nonce 를 bump 해 MessageItem 이
   // 인라인 편집 모드로 진입하게 한다. 내 메시지가 없으면 no-op.
   const [editReq, setEditReq] = useState<{ id: string; nonce: number } | null>(null);
+
+  // S83b (FR-KS-08): hover 활성 메시지 id. 키보드 포커스 활성은 row onKeyDown 이
+  // 직접 단일키를 처리하므로(포커스 우선), 여기 hover 만 추적해 hover-only 단일키를
+  // window keydown 으로 라우팅한다. 어떤 row 든 DOM 포커스가 있으면 hover 경로는
+  // 양보한다(이중 실행 방지).
+  const [hoverId, setHoverId] = useState<string | null>(null);
+  const hoverIdRef = useRef<string | null>(null);
+  hoverIdRef.current = hoverId;
+  // S83b: hover-only 단일키가 MessageItem 의 동일 resolve→execute 경로로 가도록
+  // raw key 를 담아 nonce 를 bump 하는 요청. 대상 메시지 id 와 함께 보관한다.
+  const [actionReq, setActionReq] = useState<{ id: string; key: string; nonce: number } | null>(
+    null,
+  );
+  // S83b (FR-KS-08): M(리마인더) 단일키 대상. 저장 안 돼 있으면 먼저 저장 후
+  // savedMessageId 를 확보해 ReminderModal 을 연다.
+  const setReminderMut = useSetReminder();
+  const [reminderTarget, setReminderTarget] = useState<{
+    savedMessageId: string;
+    channelName: string;
+    hasReminder: boolean;
+  } | null>(null);
   useEffect(() => {
     const onEditLast = (ev: Event): void => {
       const detail = (ev as CustomEvent<{ channelId?: string }>).detail;
@@ -224,6 +248,42 @@ export function MessageList({
     window.addEventListener('qufox.message.editLast', onEditLast);
     return () => window.removeEventListener('qufox.message.editLast', onEditLast);
   }, [channelId, user?.id]);
+
+  // S83b (FR-KS-08): hover-only 단일키 라우팅. 메시지에 마우스를 올린 상태에서(키보드
+  // 포커스는 없음) 단일 키를 누르면, 해당 메시지에 raw key + nonce 를 bump 한다 →
+  // MessageItem 이 포커스 경로와 동일한 resolve→execute 로 처리한다(권한/가용성 게이트
+  // 포함). 가드:
+  //   - 입력/textarea/contentEditable 포커스 중에는 비활성(타이핑 방해 금지).
+  //   - 메시지 row(혹은 그 자식)에 DOM 포커스가 있으면 양보(포커스 경로가 처리 — 이중 실행 방지).
+  //   - 수정자 키(Ctrl/Cmd/Alt) 조합은 단일키가 아니므로 통과(전역 단축키 보존).
+  const SINGLE_KEYS = useRef(
+    new Set(['e', 'r', 't', 'p', 'a', 'm', 'delete', 'backspace']),
+  ).current;
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent): void => {
+      const id = hoverIdRef.current;
+      if (!id) return;
+      if (e.ctrlKey || e.metaKey || e.altKey) return;
+      if (!SINGLE_KEYS.has(e.key.toLowerCase())) return;
+      const ae = document.activeElement as HTMLElement | null;
+      if (ae) {
+        if (
+          ae.isContentEditable ||
+          ae.tagName === 'INPUT' ||
+          ae.tagName === 'TEXTAREA' ||
+          ae.tagName === 'SELECT'
+        ) {
+          return;
+        }
+        // 메시지 row(또는 그 자식)에 포커스가 있으면 포커스 경로가 처리하므로 양보.
+        if (ae.closest('.qf-message')) return;
+      }
+      e.preventDefault();
+      setActionReq((prev) => ({ id, key: e.key, nonce: (prev?.nonce ?? 0) + 1 }));
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [SINGLE_KEYS]);
 
   // S52 (FR-PS-13): 렌더 중인 메시지 id 배치로 서버 저장 상태를 1회 seed 해 툴바
   // 북마크 채움을 초기화한다(N+1 단건 GET 금지). tmp(낙관적 send) 행은 서버 id 가
@@ -733,6 +793,33 @@ export function MessageList({
     // (이 repo 는 react-hooks/exhaustive-deps 규칙 미설치 — disable 주석 불필요.)
   }, [lastMessageId]);
 
+  // S83b (FR-KS-08): M(리마인더) 단일키. ReminderModal 은 SavedMessage(savedMessageId)
+  // 기반이므로, 대상 메시지가 저장 안 돼 있으면 먼저 저장(POST — idempotent, 기존
+  // savedMessageId 반환)해 savedMessageId 를 확보한 뒤 모달을 연다. 저장 목록·카운트가
+  // 함께 갱신되도록 save 토글 캐시도 seed 한다. 실패 시 경고 토스트.
+  const handleSetReminder = async (messageId: string): Promise<void> => {
+    try {
+      const res = await saveMessage(messageId);
+      if (!res.savedMessageId) return;
+      // 저장됨 상태를 낙관적으로 캐시에 반영(북마크 채움 동기화).
+      qc.setQueryData<boolean>(savedKeys.status(messageId), true);
+      void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
+      void qc.invalidateQueries({ queryKey: savedKeys.count() });
+      setReminderTarget({
+        savedMessageId: res.savedMessageId,
+        channelName: channelMeta?.name ?? '채널',
+        hasReminder: false,
+      });
+    } catch {
+      pushNotification({
+        variant: 'warning',
+        title: '리마인더를 설정하지 못했습니다',
+        body: '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
+
   return (
     <CustomEmojiProvider workspaceId={workspaceId}>
       <div className="relative flex min-h-0 flex-1 flex-col">
@@ -908,6 +995,22 @@ export function MessageList({
                       msg={m}
                       isMine={m.authorId === user?.id}
                       editRequestNonce={editReq?.id === m.id ? editReq.nonce : undefined}
+                      // S83b (FR-KS-08): hover-only 단일키 라우팅(이 row 가 hover 활성일
+                      // 때만 raw key + nonce 를 받아 동일 resolve→execute 경로로 처리).
+                      actionRequest={
+                        actionReq?.id === m.id
+                          ? { key: actionReq.key, nonce: actionReq.nonce }
+                          : undefined
+                      }
+                      // S83b (FR-KS-08): hover 활성 메시지 추적(키보드 포커스 경로는 row
+                      // onKeyDown 이 직접 처리하므로 hover 만 부모로 올린다).
+                      onRowMouseEnter={() => setHoverId(m.id)}
+                      onRowMouseLeave={() => setHoverId((cur) => (cur === m.id ? null : cur))}
+                      // S83b (FR-KS-08): M(리마인더) 단일키 — 저장 후 ReminderModal. tmp 행
+                      // 은 서버 id 가 없어 미전달(저장/리마인더 불가).
+                      onSetReminder={
+                        !m.id.startsWith('tmp-') ? () => void handleSetReminder(m.id) : undefined
+                      }
                       // S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프
                       // history 엔드포인트를 호출하기 위한 wsId. DM(null)이면
                       // 팝오버가 fetch 를 비활성한다.
@@ -1014,6 +1117,22 @@ export function MessageList({
           channelId={channelId}
           messageId={reportTargetId}
           onClose={() => setReportTargetId(null)}
+        />
+      ) : null}
+      {/* S83b (FR-KS-08): M(리마인더) 단일키로 저장한 항목의 리마인더 설정 모달.
+          SavedView 와 동일한 ReminderModal·useSetReminder 를 재사용한다. */}
+      {reminderTarget ? (
+        <ReminderModal
+          open={reminderTarget !== null}
+          channelName={reminderTarget.channelName}
+          hasReminder={reminderTarget.hasReminder}
+          onClose={() => setReminderTarget(null)}
+          onSubmit={(reminderAt) =>
+            setReminderMut.mutate({
+              savedMessageId: reminderTarget.savedMessageId,
+              reminderAt,
+            })
+          }
         />
       ) : null}
     </CustomEmojiProvider>

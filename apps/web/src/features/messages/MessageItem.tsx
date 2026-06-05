@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { announce } from '../../lib/a11y-announce';
@@ -29,6 +29,11 @@ import { useChannelMediaCollapsed } from './mediaCollapseStore';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
 import { canStartThread, threadChipVisible as computeThreadChipVisible } from './threadActionGate';
+import {
+  resolveMessageKeyAction,
+  announceForAction,
+  type MessageKeyContext,
+} from './messageKeyActions';
 // S75 (FR-PS-07): 작성자 아바타/이름 → 프로필 팝오버 트리거(워크스페이스 채널 한정).
 import { ProfilePopover } from '../profile/ProfilePopover';
 
@@ -41,6 +46,28 @@ type Props = {
    * 인라인 편집 모드로 진입한다. undefined/0 이면 무동작.
    */
   editRequestNonce?: number;
+  /**
+   * S83b (FR-KS-08): hover-only(키보드 포커스 없음) 단일키가 MessageItem 내부
+   * state 액션(E=편집 / R=반응 피커)을 트리거하기 위한 일반화된 요청. MessageList
+   * 가 hover 활성 메시지에 nonce 를 bump 하면, 값이 바뀔 때(그리고 가능하면) 해당
+   * 내부 액션을 수행한다. 키보드 포커스 경로는 row onKeyDown 이 직접 처리하므로
+   * 이 prop 을 쓰지 않는다. undefined/nonce 0 이면 무동작.
+   */
+  actionRequest?: { nonce: number; key: string };
+  /**
+   * S83b (FR-KS-08): 메시지 row 가 키보드 포커스를 받으면(onFocus) / 잃으면(onBlur)
+   * 활성 메시지 후보를 부모(MessageList)에 알린다. 부모는 focus 우선·없으면 hover
+   * 로 activeMessageId 를 결정한다.
+   */
+  onRowFocus?: () => void;
+  onRowBlur?: () => void;
+  onRowMouseEnter?: () => void;
+  onRowMouseLeave?: () => void;
+  /**
+   * S83b (FR-KS-08): M(리마인더) 단일키. 부모가 비-tmp 행에 전달한다 — 저장 안 돼
+   * 있으면 먼저 저장한 뒤 리마인더 모달을 연다(부모 소유). tmp 행에는 미전달.
+   */
+  onSetReminder?: () => void;
   /**
    * S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프 history 엔드포인트를
    * 호출하기 위한 wsId. DM(null)이면 팝오버가 fetch 를 비활성하고 (수정됨) 라벨만
@@ -133,6 +160,12 @@ export function MessageItem({
   msg,
   isMine,
   editRequestNonce,
+  actionRequest,
+  onRowFocus,
+  onRowBlur,
+  onRowMouseEnter,
+  onRowMouseLeave,
+  onSetReminder,
   workspaceId,
   isContinuation,
   authorName,
@@ -223,6 +256,146 @@ export function MessageItem({
   // (msg.deleted) 보다 위에서 호출해 Rules of Hooks 를 지킨다.
   const clock24h = useClock24h();
 
+  // S83b (FR-KS-08): pin/unpin/delete 토스트 흐름을 핸들러로 추출해 단일키 경로와
+  // 기존 MoreMenu 가 동일 동작을 공유한다(회귀 방지 — 토스트/성공·실패/언마운트 가드).
+  const runPin = async (): Promise<void> => {
+    if (!onPin) return;
+    try {
+      await onPin();
+      notify({ variant: 'success', title: '메시지 고정', ttlMs: 2000 });
+    } catch (e) {
+      const code = (e as { errorCode?: string } | undefined)?.errorCode;
+      notify({
+        variant: 'danger',
+        title: '고정 실패',
+        body:
+          code === 'MESSAGE_PIN_CAP_EXCEEDED'
+            ? '채널당 최대 50개까지 고정할 수 있습니다'
+            : '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
+  const runUnpin = async (): Promise<void> => {
+    if (!onUnpin) return;
+    try {
+      await onUnpin();
+      notify({ variant: 'success', title: '메시지 고정 해제', ttlMs: 2000 });
+    } catch {
+      notify({
+        variant: 'danger',
+        title: '고정 해제 실패',
+        body: '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
+  const runDelete = async (): Promise<void> => {
+    // task-041 A-2 + task-042 R0 F4 + F5: surface delete pending state, success
+    // toast (review M4), failure toast, and unmount-safe setState (review M3).
+    setDeletePending(true);
+    try {
+      await onDelete();
+      if (isMountedRef.current) {
+        notify({ variant: 'success', title: '메시지 삭제 완료', ttlMs: 2500 });
+      }
+    } catch {
+      if (isMountedRef.current) {
+        notify({
+          variant: 'danger',
+          title: '메시지 삭제 실패',
+          body: '잠시 후 다시 시도하세요.',
+          ttlMs: 4000,
+        });
+      }
+    } finally {
+      safeSet(setDeletePending, false);
+    }
+  };
+
+  // S83b (FR-KS-08): 단일키 → 액션 결정에 쓰는 가용성 컨텍스트. 부모가 넘긴 prop
+  // 존재 여부 + viewer 권한으로 게이트한다(서버 게이트와 정합).
+  const keyCtx: MessageKeyContext = {
+    isMine,
+    canReact: !!onToggleReaction,
+    hasOpenThread: !!onOpenThread,
+    viewerRole: viewerRole ?? null,
+    memberCanPin,
+    hasPin: !!onPin,
+    hasUnpin: !!onUnpin,
+    hasSave: !!onToggleSave,
+    hasReminder: !!onSetReminder,
+  };
+
+  // S83b (FR-KS-08): 해석된 액션 실행(키보드 포커스 경로 · hover 경로 공통). SR 통지
+  // 후 부수효과를 수행한다(E/R 은 내부 state, 나머지는 prop/추출 핸들러).
+  const runKeyAction = (action: NonNullable<ReturnType<typeof resolveMessageKeyAction>>): void => {
+    announce(announceForAction(action));
+    switch (action) {
+      case 'edit':
+        if (editing === null) setEditing(msg.content ?? '');
+        break;
+      case 'react':
+        setPickerOpen(true);
+        break;
+      case 'thread':
+        onOpenThread?.(msg.id);
+        break;
+      case 'pin':
+        void runPin();
+        break;
+      case 'unpin':
+        void runUnpin();
+        break;
+      case 'save':
+        void onToggleSave?.(isSaved === true);
+        break;
+      case 'reminder':
+        onSetReminder?.();
+        break;
+      case 'delete':
+        void runDelete();
+        break;
+    }
+  };
+
+  // S83b (FR-KS-08): 메시지 row 키보드 포커스 경로의 단일키 처리(a11y 핵심). 입력/
+  // textarea/contentEditable 또는 편집 input 포커스 중에는 무동작(타이핑 방해 금지).
+  const handleRowKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
+    // 편집 중(편집 input 포커스)이면 단일키 비활성.
+    if (editing !== null) return;
+    // 입력 포커스(컴포저/검색/contentEditable) 중에는 비활성.
+    const tgt = e.target as HTMLElement;
+    if (
+      tgt &&
+      (tgt.isContentEditable ||
+        tgt.tagName === 'INPUT' ||
+        tgt.tagName === 'TEXTAREA' ||
+        tgt.tagName === 'SELECT')
+    ) {
+      return;
+    }
+    // 수정자 키 조합(Ctrl/Cmd/Alt)은 단일키가 아니므로 통과(전역 단축키 보존).
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    const action = resolveMessageKeyAction(e.key, msg, keyCtx);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    runKeyAction(action);
+  };
+
+  // S83b (FR-KS-08): hover-only(키보드 포커스 없음) 단일키. MessageList 가 hover 활성
+  // 메시지에 raw key 를 담아 nonce 를 bump 하면, 동일한 resolve→execute 경로로
+  // 실행한다(포커스 경로와 단일 출처). 편집 중/삭제 메시지는 무동작.
+  useEffect(() => {
+    if (!actionRequest || !actionRequest.nonce) return;
+    if (msg.deleted || editing !== null) return;
+    const action = resolveMessageKeyAction(actionRequest.key, msg, keyCtx);
+    if (!action) return;
+    runKeyAction(action);
+    // nonce 변경에만 반응(이 repo 는 exhaustive-deps 규칙 미설치 — disable 주석 불필요).
+  }, [actionRequest?.nonce]);
+
   if (msg.deleted) {
     return (
       <div
@@ -272,6 +445,10 @@ export function MessageItem({
   // mutated. data-mutation-pending hook for e2e selectors.
   const mutationPending = editPending || deletePending;
 
+  // S83b (FR-KS-08): 메시지 row 의 접근 가능한 맥락 라벨. 키보드 포커스 시 SR 이
+  // "누가, 언제" 의 메시지인지 안내하도록 작성자명 + 시각을 합친다(role="article").
+  const rowAriaLabel = `${authorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
+
   return (
     <>
       <article
@@ -279,6 +456,17 @@ export function MessageItem({
         data-mutation-pending={mutationPending ? (deletePending ? 'delete' : 'edit') : undefined}
         // S03 (FR-MSG-04/05): optimistic send state for e2e + CSS dimming.
         data-send-state={sendState}
+        // S83b (FR-KS-08): 단일키 액션을 위해 row 를 포커스 가능한 article 로 만든다.
+        // 키보드 포커스(onFocus)·hover(onMouseEnter)를 부모에 알려 activeMessageId 를
+        // 결정하게 하고, onKeyDown 에서 포커스 경로 단일키를 직접 처리한다(a11y 핵심).
+        role="article"
+        aria-label={rowAriaLabel}
+        tabIndex={0}
+        onKeyDown={handleRowKeyDown}
+        onFocus={onRowFocus}
+        onBlur={onRowBlur}
+        onMouseEnter={onRowMouseEnter}
+        onMouseLeave={onRowMouseLeave}
         style={
           mutationPending
             ? { opacity: 0.55, pointerEvents: 'none' }
@@ -701,52 +889,12 @@ export function MessageItem({
                     <DropdownSeparator />
                     {msg.pinnedAt ? (
                       onUnpin ? (
-                        <DropdownItem
-                          onSelect={async () => {
-                            try {
-                              await onUnpin();
-                              notify({
-                                variant: 'success',
-                                title: '메시지 고정 해제',
-                                ttlMs: 2000,
-                              });
-                            } catch {
-                              notify({
-                                variant: 'danger',
-                                title: '고정 해제 실패',
-                                body: '잠시 후 다시 시도하세요.',
-                                ttlMs: 4000,
-                              });
-                            }
-                          }}
-                        >
+                        <DropdownItem onSelect={() => void runUnpin()}>
                           <span data-testid={`msg-unpin-${msg.id}`}>메시지 고정 해제</span>
                         </DropdownItem>
                       ) : null
                     ) : onPin ? (
-                      <DropdownItem
-                        onSelect={async () => {
-                          try {
-                            await onPin();
-                            notify({
-                              variant: 'success',
-                              title: '메시지 고정',
-                              ttlMs: 2000,
-                            });
-                          } catch (e) {
-                            const code = (e as { errorCode?: string } | undefined)?.errorCode;
-                            notify({
-                              variant: 'danger',
-                              title: '고정 실패',
-                              body:
-                                code === 'MESSAGE_PIN_CAP_EXCEEDED'
-                                  ? '채널당 최대 50개까지 고정할 수 있습니다'
-                                  : '잠시 후 다시 시도하세요.',
-                              ttlMs: 4000,
-                            });
-                          }
-                        }}
-                      >
+                      <DropdownItem onSelect={() => void runPin()}>
                         <span data-testid={`msg-pin-${msg.id}`}>메시지 고정</span>
                       </DropdownItem>
                     ) : null}
@@ -755,41 +903,7 @@ export function MessageItem({
                 {isMine ? (
                   <>
                     <DropdownSeparator />
-                    <DropdownItem
-                      danger
-                      onSelect={async () => {
-                        // task-041 A-2 + task-042 R0 F4 + F5: surface
-                        // delete pending state, success toast (review
-                        // M4), failure toast, and unmount-safe setState
-                        // (review M3). The mutation hook returns a
-                        // Promise; await + try/catch.
-                        setDeletePending(true);
-                        try {
-                          await onDelete();
-                          // F5: success path — symmetric with failure
-                          // toast so a slow successful delete is not a
-                          // silent fade-and-vanish.
-                          if (isMountedRef.current) {
-                            notify({
-                              variant: 'success',
-                              title: '메시지 삭제 완료',
-                              ttlMs: 2500,
-                            });
-                          }
-                        } catch {
-                          if (isMountedRef.current) {
-                            notify({
-                              variant: 'danger',
-                              title: '메시지 삭제 실패',
-                              body: '잠시 후 다시 시도하세요.',
-                              ttlMs: 4000,
-                            });
-                          }
-                        } finally {
-                          safeSet(setDeletePending, false);
-                        }
-                      }}
-                    >
+                    <DropdownItem danger onSelect={() => void runDelete()}>
                       <span data-testid={`msg-delete-${msg.id}`}>메시지 삭제</span>
                     </DropdownItem>
                   </>
