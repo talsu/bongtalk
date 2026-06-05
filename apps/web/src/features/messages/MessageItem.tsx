@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
+import { announce } from '../../lib/a11y-announce';
 import {
   Avatar,
   DropdownRoot,
@@ -34,6 +35,12 @@ import { ProfilePopover } from '../profile/ProfilePopover';
 type Props = {
   msg: MessageDto;
   isMine: boolean;
+  /**
+   * S83a (FR-KS-06): composer 에서 ↑(빈 draft)로 "최근 내 메시지 편집"을 요청하면
+   * MessageList 가 마지막 내 메시지에 이 nonce 를 bump 한다. 값이 바뀌면(그리고 isMine)
+   * 인라인 편집 모드로 진입한다. undefined/0 이면 무동작.
+   */
+  editRequestNonce?: number;
   /**
    * S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프 history 엔드포인트를
    * 호출하기 위한 wsId. DM(null)이면 팝오버가 fetch 를 비활성하고 (수정됨) 라벨만
@@ -125,6 +132,7 @@ type Props = {
 export function MessageItem({
   msg,
   isMine,
+  editRequestNonce,
   workspaceId,
   isContinuation,
   authorName,
@@ -175,6 +183,17 @@ export function MessageItem({
       isMountedRef.current = false;
     };
   }, []);
+  // S83a (FR-KS-06): editRequestNonce 가 bump 되면(내 메시지·편집중 아님) 인라인 편집 진입.
+  // nonce 자체에만 반응해 같은 메시지 재요청도 동작한다(0/undefined 는 무시).
+  useEffect(() => {
+    if (!editRequestNonce || !isMine) return;
+    if ((msg.content ?? '') === '') return;
+    setEditing(msg.content ?? '');
+    // SR 통지(편집 모드 진입). composer ↑ 진입은 시각 포커스가 편집 input 으로 이동한다.
+    announce('메시지 편집 모드로 전환했습니다');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequestNonce]);
+
   const safeSet = <T,>(setter: (v: T) => void, value: T): void => {
     if (isMountedRef.current) setter(value);
   };
@@ -372,6 +391,7 @@ export function MessageItem({
               <input
                 data-testid={`msg-edit-${msg.id}`}
                 aria-label="메시지 편집"
+                // 편집 진입 시(↑ 단축키·메뉴 모두) 편집 필드로 포커스(line 아래 autoFocus 기존).
                 className="qf-input flex-1"
                 value={editing}
                 onChange={(e) => setEditing(e.target.value)}

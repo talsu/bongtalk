@@ -196,6 +196,23 @@ export function MessageList({
 
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
 
+  // S83a (FR-KS-06): composer 가 빈 draft 에서 ↑ 를 누르면 qufox.message.editLast 를
+  // dispatch 한다. 현재 채널의 마지막 내 메시지(tmp 제외)에 nonce 를 bump 해 MessageItem 이
+  // 인라인 편집 모드로 진입하게 한다. 내 메시지가 없으면 no-op.
+  const [editReq, setEditReq] = useState<{ id: string; nonce: number } | null>(null);
+  useEffect(() => {
+    const onEditLast = (ev: Event): void => {
+      const detail = (ev as CustomEvent<{ channelId?: string }>).detail;
+      if (detail?.channelId && detail.channelId !== channelId) return;
+      const mine = messages.filter((m) => m.authorId === user?.id && !m.id.startsWith('tmp-'));
+      const last = mine[mine.length - 1];
+      if (!last) return;
+      setEditReq((prev) => ({ id: last.id, nonce: (prev?.nonce ?? 0) + 1 }));
+    };
+    window.addEventListener('qufox.message.editLast', onEditLast);
+    return () => window.removeEventListener('qufox.message.editLast', onEditLast);
+  }, [messages, user?.id, channelId]);
+
   // S52 (FR-PS-13): 렌더 중인 메시지 id 배치로 서버 저장 상태를 1회 seed 해 툴바
   // 북마크 채움을 초기화한다(N+1 단건 GET 금지). tmp(낙관적 send) 행은 서버 id 가
   // 없어 제외한다.
@@ -878,6 +895,7 @@ export function MessageList({
                     <MessageItem
                       msg={m}
                       isMine={m.authorId === user?.id}
+                      editRequestNonce={editReq?.id === m.id ? editReq.nonce : undefined}
                       // S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프
                       // history 엔드포인트를 호출하기 위한 wsId. DM(null)이면
                       // 팝오버가 fetch 를 비활성한다.
