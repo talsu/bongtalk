@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { announce } from '../../lib/a11y-announce';
@@ -29,8 +29,20 @@ import { useChannelMediaCollapsed } from './mediaCollapseStore';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
 import { canStartThread, threadChipVisible as computeThreadChipVisible } from './threadActionGate';
+import {
+  resolveMessageKeyAction,
+  announceForAction,
+  type MessageKeyContext,
+} from './messageKeyActions';
+import { isRovingKey } from './rovingFocus';
 // S75 (FR-PS-07): 작성자 아바타/이름 → 프로필 팝오버 트리거(워크스페이스 채널 한정).
 import { ProfilePopover } from '../profile/ProfilePopover';
+
+/**
+ * S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8): Delete 단일키 2단계 확인 창.
+ * 첫 Delete 후 이 시간 안에 다시 Delete 를 누르면 삭제 실행, 지나면 1단계로 복귀.
+ */
+const DELETE_CONFIRM_WINDOW_MS = 3000;
 
 type Props = {
   msg: MessageDto;
@@ -41,6 +53,29 @@ type Props = {
    * 인라인 편집 모드로 진입한다. undefined/0 이면 무동작.
    */
   editRequestNonce?: number;
+  /**
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. 부모(MessageList)가
+   * 소유한 focusedMsgId 와 이 row 의 id 가 같으면 true → tabIndex=0(Tab 한 스톱),
+   * 아니면 tabIndex=-1. 미전달이면(이전 동작 호환·spec 단독 렌더) tabIndex=0 으로
+   * 폴백해 단독 포커스 가능.
+   */
+  focused?: boolean;
+  /**
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): 메시지 row 가 키보드 포커스를 받으면
+   * 부모에 알려 focusedMsgId 를 이 row 로 동기화한다(roving 동기 — onRowFocus 배선).
+   */
+  onRowFocus?: () => void;
+  /**
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): ↑/↓/Home/End 로 다음 포커스 행 이동을
+   * 부모에 요청한다(가상화: 부모가 scrollToIndex 후 대상 row 에 .focus()). 부모가
+   * 미전달이면 roving 이동은 no-op(단일키만 동작).
+   */
+  onRovingMove?: (key: 'ArrowUp' | 'ArrowDown' | 'Home' | 'End') => void;
+  /**
+   * S83b (FR-KS-08): M(리마인더) 단일키. 부모가 비-tmp 행에 전달한다 — 저장 안 돼
+   * 있으면 먼저 저장한 뒤 리마인더 모달을 연다(부모 소유). tmp 행에는 미전달.
+   */
+  onSetReminder?: () => void;
   /**
    * S37 (FR-MSG-08): 편집 이력 팝오버가 워크스페이스 스코프 history 엔드포인트를
    * 호출하기 위한 wsId. DM(null)이면 팝오버가 fetch 를 비활성하고 (수정됨) 라벨만
@@ -133,6 +168,10 @@ export function MessageItem({
   msg,
   isMine,
   editRequestNonce,
+  focused,
+  onRowFocus,
+  onRovingMove,
+  onSetReminder,
   workspaceId,
   isContinuation,
   authorName,
@@ -183,6 +222,35 @@ export function MessageItem({
       isMountedRef.current = false;
     };
   }, []);
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8 · security #4): Delete 단일키
+  // 2단계 확인. 첫 Delete 는 안내(announce + aria-live)만 하고 실행하지 않는다. 짧은
+  // 창(DELETE_CONFIRM_WINDOW_MS) 안에 다시 Delete 를 누르면 실제 삭제한다. armedAt 에
+  // 첫 입력 시각을 보관하고, 창이 지나면 다시 1단계로 돌아간다(우발 삭제 방지).
+  const deleteArmedAtRef = useRef<number | null>(null);
+  // S83b round-2 (reviewer/a11y MAJOR #9b): 무장 상태를 ref 와 병행해 state 로도 들어
+  // 렌더에 반영한다(저시력/키보드 사용자가 확인 대기 중을 시각적으로 인지). data-delete-armed
+  // 속성으로 노출하고 app-layer index.css 가 좌측 강조선을 그린다. 창 만료 타이머로 자동
+  // 해제해 시각 피드백이 영구히 남지 않게 한다.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const deleteArmTimerRef = useRef<number | null>(null);
+  // 무장 해제(ref + state + 만료 타이머 정리)를 단일 헬퍼로 모은다.
+  const disarmDelete = (): void => {
+    deleteArmedAtRef.current = null;
+    if (deleteArmTimerRef.current !== null) {
+      window.clearTimeout(deleteArmTimerRef.current);
+      deleteArmTimerRef.current = null;
+    }
+    if (isMountedRef.current) setDeleteArmed(false);
+  };
+  // 언마운트 시 무장 만료 타이머 정리(누수/언마운트-후-setState 방지).
+  useEffect(() => {
+    return () => {
+      if (deleteArmTimerRef.current !== null) {
+        window.clearTimeout(deleteArmTimerRef.current);
+        deleteArmTimerRef.current = null;
+      }
+    };
+  }, []);
   // S83a (FR-KS-06): editRequestNonce 가 bump 되면(내 메시지·편집중 아님) 인라인 편집 진입.
   // nonce 자체에만 반응해 같은 메시지 재요청도 동작한다(0/undefined 는 무시).
   useEffect(() => {
@@ -222,6 +290,183 @@ export function MessageItem({
   // S76 (FR-PS-09): 24시간 시계 외관 설정(appearance 스토어 단일 출처). early-return
   // (msg.deleted) 보다 위에서 호출해 Rules of Hooks 를 지킨다.
   const clock24h = useClock24h();
+
+  // S83b (FR-KS-08): pin/unpin/delete 토스트 흐름을 핸들러로 추출해 단일키 경로와
+  // 기존 MoreMenu 가 동일 동작을 공유한다(회귀 방지 — 토스트/성공·실패/언마운트 가드).
+  const runPin = async (): Promise<void> => {
+    if (!onPin) return;
+    try {
+      await onPin();
+      notify({ variant: 'success', title: '메시지 고정', ttlMs: 2000 });
+    } catch (e) {
+      const code = (e as { errorCode?: string } | undefined)?.errorCode;
+      notify({
+        variant: 'danger',
+        title: '고정 실패',
+        body:
+          code === 'MESSAGE_PIN_CAP_EXCEEDED'
+            ? '채널당 최대 50개까지 고정할 수 있습니다'
+            : '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
+  const runUnpin = async (): Promise<void> => {
+    if (!onUnpin) return;
+    try {
+      await onUnpin();
+      notify({ variant: 'success', title: '메시지 고정 해제', ttlMs: 2000 });
+    } catch {
+      notify({
+        variant: 'danger',
+        title: '고정 해제 실패',
+        body: '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
+  const runDelete = async (): Promise<void> => {
+    // task-041 A-2 + task-042 R0 F4 + F5: surface delete pending state, success
+    // toast (review M4), failure toast, and unmount-safe setState (review M3).
+    setDeletePending(true);
+    try {
+      await onDelete();
+      if (isMountedRef.current) {
+        notify({ variant: 'success', title: '메시지 삭제 완료', ttlMs: 2500 });
+      }
+    } catch {
+      if (isMountedRef.current) {
+        notify({
+          variant: 'danger',
+          title: '메시지 삭제 실패',
+          body: '잠시 후 다시 시도하세요.',
+          ttlMs: 4000,
+        });
+      }
+    } finally {
+      safeSet(setDeletePending, false);
+    }
+  };
+
+  // S83b (FR-KS-08): 단일키 → 액션 결정에 쓰는 가용성 컨텍스트. 부모가 넘긴 prop
+  // 존재 여부 + viewer 권한으로 게이트한다(서버 게이트와 정합).
+  const keyCtx: MessageKeyContext = {
+    isMine,
+    canReact: !!onToggleReaction,
+    hasOpenThread: !!onOpenThread,
+    viewerRole: viewerRole ?? null,
+    memberCanPin,
+    hasPin: !!onPin,
+    hasUnpin: !!onUnpin,
+    hasSave: !!onToggleSave,
+    hasReminder: !!onSetReminder,
+  };
+
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8): Delete 단일키 2단계 확인.
+  // 첫 Delete 는 announce 안내만, 짧은 창 안에 재입력 시 실행. 다른 단일키 입력이
+  // 끼어들면 무장 상태를 해제한다(우발 삭제 방지).
+  const handleDeleteKey = (): void => {
+    const now = Date.now();
+    const armedAt = deleteArmedAtRef.current;
+    if (armedAt !== null && now - armedAt <= DELETE_CONFIRM_WINDOW_MS) {
+      disarmDelete();
+      announce('메시지를 삭제합니다');
+      void runDelete();
+      return;
+    }
+    // 1단계: 무장 + 안내(실행하지 않음). 시각 피드백(state)도 켜고, 창 만료 시 자동 해제한다.
+    deleteArmedAtRef.current = now;
+    if (isMountedRef.current) setDeleteArmed(true);
+    if (deleteArmTimerRef.current !== null) window.clearTimeout(deleteArmTimerRef.current);
+    deleteArmTimerRef.current = window.setTimeout(() => {
+      deleteArmTimerRef.current = null;
+      disarmDelete();
+    }, DELETE_CONFIRM_WINDOW_MS);
+    // S83b round-2 (reviewer/a11y MAJOR #9a): 취소 방법까지 안내해 우발 삭제를 막는다.
+    announce('한 번 더 Delete 를 누르면 삭제됩니다. 취소하려면 다른 키를 누르거나 3초 기다리세요.');
+  };
+
+  // S83b 리뷰 fix-forward: 해석된 액션 실행(키보드 포커스 경로). SR 통지 후 부수효과를
+  // 수행한다(E/R 은 내부 state, 나머지는 prop/추출 핸들러). Delete 외 액션이 들어오면
+  // Delete 무장 상태를 해제한다(다른 키로 확인 창 무효화).
+  const runKeyAction = (action: NonNullable<ReturnType<typeof resolveMessageKeyAction>>): void => {
+    if (action !== 'delete') disarmDelete();
+    switch (action) {
+      case 'edit':
+        // S83b round-2 (reviewer/a11y MED #8): 포커스 이동을 동반하는 단일키(edit·react)
+        // 의 announce 는 queueMicrotask 로 미뤄, autoFocus/dialog 의 포커스 이동 이후에
+        // 발화되게 한다(편집 진입에 이미 적용된 패턴을 단일키 전반에 일관 적용 — SR
+        // 낭독 순서 안정). thread/pin/save 등 비-포커스이동 액션은 동기 통지를 유지한다.
+        if (editing === null) setEditing(msg.content ?? '');
+        queueMicrotask(() => announce(announceForAction(action)));
+        break;
+      case 'react':
+        setPickerOpen(true);
+        queueMicrotask(() => announce(announceForAction(action)));
+        break;
+      case 'thread':
+        announce(announceForAction(action));
+        onOpenThread?.(msg.id);
+        break;
+      case 'pin':
+        announce(announceForAction(action));
+        void runPin();
+        break;
+      case 'unpin':
+        announce(announceForAction(action));
+        void runUnpin();
+        break;
+      case 'save':
+        announce(announceForAction(action));
+        void onToggleSave?.(isSaved === true);
+        break;
+      case 'reminder':
+        announce(announceForAction(action));
+        onSetReminder?.();
+        break;
+      case 'delete':
+        // 2단계 확인은 handleDeleteKey 가 announce 를 담당(여기서는 중복 통지 안 함).
+        handleDeleteKey();
+        break;
+    }
+  };
+
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1 · #2): 메시지 row 키보드 포커스 경로의
+  // 단일키 + roving 이동 처리(a11y 핵심). 활성화 메커니즘을 포커스 전용으로 단일화해
+  // (hover-key/window keydown 제거) WCAG 2.1.4 위반·SR 가상커서 충돌을 동시에 없앤다.
+  // 입력/textarea/contentEditable 또는 편집 input 포커스 중에는 무동작(타이핑 방해 금지).
+  const handleRowKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
+    // 편집 중(편집 input 포커스)이면 단일키/roving 비활성.
+    if (editing !== null) return;
+    // 입력 포커스(컴포저/검색/contentEditable) 중에는 비활성.
+    const tgt = e.target as HTMLElement;
+    if (
+      tgt &&
+      (tgt.isContentEditable ||
+        tgt.tagName === 'INPUT' ||
+        tgt.tagName === 'TEXTAREA' ||
+        tgt.tagName === 'SELECT')
+    ) {
+      return;
+    }
+    // 수정자 키 조합(Ctrl/Cmd/Alt)은 단일키가 아니므로 통과(전역 단축키 보존).
+    if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // roving 이동(↑/↓/Home/End): 부모에 다음 포커스 행 이동을 요청한다(가상화 처리).
+    if (isRovingKey(e.key)) {
+      if (!onRovingMove) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 이동 시 진행 중인 Delete 무장 상태 해제(다른 행으로 이동하면 확인 창 무효).
+      disarmDelete();
+      onRovingMove(e.key);
+      return;
+    }
+    const action = resolveMessageKeyAction(e.key, msg, keyCtx);
+    if (!action) return;
+    e.preventDefault();
+    e.stopPropagation();
+    runKeyAction(action);
+  };
 
   if (msg.deleted) {
     return (
@@ -272,6 +517,17 @@ export function MessageItem({
   // mutated. data-mutation-pending hook for e2e selectors.
   const mutationPending = editPending || deletePending;
 
+  // S83b (FR-KS-08): 메시지 row 의 접근 가능한 맥락 라벨. 키보드 포커스 시 SR 이
+  // "누가, 언제" 의 메시지인지 안내하도록 작성자명 + 시각을 합친다(role="article").
+  //
+  // S83b round-2 (reviewer/a11y HIGH #4): continuation 행은 작성자명/시각을 시각적으로
+  // 렌더하지 않으므로(head 행에서만 meta 노출), aria-label 에 "{author} 의 메시지, {time}"
+  // 을 항상 붙이면 SR 낭독이 시각 표시와 불일치한다(존재하지 않는 정보를 읽음). head 행은
+  // 현행(작성자 + 시각) 유지, continuation 행은 시각 정보(gutterTime)만 안내해 시각·SR 정합.
+  const rowAriaLabel = isContinuation
+    ? `${authorName ?? 'unknown'} 의 메시지 계속, ${gutterTime}`
+    : `${authorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
+
   return (
     <>
       <article
@@ -279,6 +535,23 @@ export function MessageItem({
         data-mutation-pending={mutationPending ? (deletePending ? 'delete' : 'edit') : undefined}
         // S03 (FR-MSG-04/05): optimistic send state for e2e + CSS dimming.
         data-send-state={sendState}
+        // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. 활성화는 키보드
+        // 포커스 전용으로 단일화한다(hover-key 제거). focusedMsgId 인 row 만 tabIndex=0
+        // 이라 목록 전체가 Tab 한 스톱만 차지하고, 진입 후 ↑/↓ 로 행을 순회한다.
+        // focused 미전달(spec 단독 렌더 등)이면 0 으로 폴백해 단독 포커스 가능.
+        // onFocus 로 부모의 focusedMsgId 를 이 row 로 동기화(roving 배선).
+        role="article"
+        // S83b round-2 (reviewer/a11y HIGH #3): SR 이 "아티클" 대신 "메시지"로 낭독해
+        // roving 맥락(메시지 목록을 순회 중)을 명확히 한다.
+        aria-roledescription="메시지"
+        aria-label={rowAriaLabel}
+        // S83b round-2 (reviewer/a11y MAJOR #9b): Delete 무장 상태 시각 피드백. ref 만으론
+        // 렌더에 반영되지 않아 저시력/키보드 사용자가 "확인 대기 중"임을 볼 수 없다. state
+        // 를 병행해 data 속성으로 노출하고, app-layer index.css 가 좌측 강조선을 입힌다.
+        data-delete-armed={deleteArmed ? 'true' : undefined}
+        tabIndex={focused === false ? -1 : 0}
+        onKeyDown={handleRowKeyDown}
+        onFocus={onRowFocus}
         style={
           mutationPending
             ? { opacity: 0.55, pointerEvents: 'none' }
@@ -563,7 +836,16 @@ export function MessageItem({
         </div>
         {editing === null ? (
           <div
-            className={cn('qf-message__toolbar absolute', 'group-hover:!flex', moreOpen && '!flex')}
+            // S83b 리뷰 fix-forward (a11y HIGH #3): row 가 키보드 포커스를 받으면
+            // (group-focus-within) 툴바를 노출해 마우스 없이도 액션 버튼이 보이게 한다.
+            // 키보드 사용자는 단일키로도 액션 가능하므로 툴바 노출은 보조 수단이다.
+            // DS components.css 의 `.qf-message:focus-within .qf-message__toolbar` reveal
+            // 추가는 DS-owner 이월(DS 4파일 무수정) — app-layer Tailwind 로만 합성한다.
+            className={cn(
+              'qf-message__toolbar absolute',
+              'group-hover:!flex group-focus-within:!flex',
+              moreOpen && '!flex',
+            )}
           >
             {onToggleReaction ? (
               <button
@@ -701,52 +983,12 @@ export function MessageItem({
                     <DropdownSeparator />
                     {msg.pinnedAt ? (
                       onUnpin ? (
-                        <DropdownItem
-                          onSelect={async () => {
-                            try {
-                              await onUnpin();
-                              notify({
-                                variant: 'success',
-                                title: '메시지 고정 해제',
-                                ttlMs: 2000,
-                              });
-                            } catch {
-                              notify({
-                                variant: 'danger',
-                                title: '고정 해제 실패',
-                                body: '잠시 후 다시 시도하세요.',
-                                ttlMs: 4000,
-                              });
-                            }
-                          }}
-                        >
+                        <DropdownItem onSelect={() => void runUnpin()}>
                           <span data-testid={`msg-unpin-${msg.id}`}>메시지 고정 해제</span>
                         </DropdownItem>
                       ) : null
                     ) : onPin ? (
-                      <DropdownItem
-                        onSelect={async () => {
-                          try {
-                            await onPin();
-                            notify({
-                              variant: 'success',
-                              title: '메시지 고정',
-                              ttlMs: 2000,
-                            });
-                          } catch (e) {
-                            const code = (e as { errorCode?: string } | undefined)?.errorCode;
-                            notify({
-                              variant: 'danger',
-                              title: '고정 실패',
-                              body:
-                                code === 'MESSAGE_PIN_CAP_EXCEEDED'
-                                  ? '채널당 최대 50개까지 고정할 수 있습니다'
-                                  : '잠시 후 다시 시도하세요.',
-                              ttlMs: 4000,
-                            });
-                          }
-                        }}
-                      >
+                      <DropdownItem onSelect={() => void runPin()}>
                         <span data-testid={`msg-pin-${msg.id}`}>메시지 고정</span>
                       </DropdownItem>
                     ) : null}
@@ -755,41 +997,7 @@ export function MessageItem({
                 {isMine ? (
                   <>
                     <DropdownSeparator />
-                    <DropdownItem
-                      danger
-                      onSelect={async () => {
-                        // task-041 A-2 + task-042 R0 F4 + F5: surface
-                        // delete pending state, success toast (review
-                        // M4), failure toast, and unmount-safe setState
-                        // (review M3). The mutation hook returns a
-                        // Promise; await + try/catch.
-                        setDeletePending(true);
-                        try {
-                          await onDelete();
-                          // F5: success path — symmetric with failure
-                          // toast so a slow successful delete is not a
-                          // silent fade-and-vanish.
-                          if (isMountedRef.current) {
-                            notify({
-                              variant: 'success',
-                              title: '메시지 삭제 완료',
-                              ttlMs: 2500,
-                            });
-                          }
-                        } catch {
-                          if (isMountedRef.current) {
-                            notify({
-                              variant: 'danger',
-                              title: '메시지 삭제 실패',
-                              body: '잠시 후 다시 시도하세요.',
-                              ttlMs: 4000,
-                            });
-                          }
-                        } finally {
-                          safeSet(setDeletePending, false);
-                        }
-                      }}
-                    >
+                    <DropdownItem danger onSelect={() => void runDelete()}>
                       <span data-testid={`msg-delete-${msg.id}`}>메시지 삭제</span>
                     </DropdownItem>
                   </>
