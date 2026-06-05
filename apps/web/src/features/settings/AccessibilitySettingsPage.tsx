@@ -19,7 +19,7 @@ import {
  * 보정만 적용한다(carryover — DS-owner 가 고대비 토큰 추가 시 강화).
  */
 export function AccessibilitySettingsPage(): JSX.Element {
-  const { data } = useAccessibilitySettings();
+  const { data, isLoading } = useAccessibilitySettings();
   const update = useUpdateAccessibilitySettings();
   const notify = useNotifications((s) => s.push);
 
@@ -67,56 +67,73 @@ export function AccessibilitySettingsPage(): JSX.Element {
         화면 표시 방식을 바꾸면 즉시 저장되고 모든 기기에 반영됩니다.
       </p>
 
-      {/* 모션 줄이기 */}
-      <section aria-labelledby="a11y-motion-heading" data-testid="a11y-reduce-motion">
-        <h2 id="a11y-motion-heading" className="sr-only">
-          모션 줄이기
-        </h2>
-        <div className="qf-toggle-row">
-          <div className="qf-toggle-row__text">
-            <div className="qf-toggle-row__title">모션 줄이기</div>
-            <div className="qf-toggle-row__desc">
-              애니메이션과 자동 재생, 부드러운 스크롤을 줄여 어지러움을 완화합니다. 운영체제에서
-              모션 줄이기를 켜 두었다면 기본으로 반영됩니다.
-            </div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.reduceMotion}
-            aria-label="모션 줄이기"
-            disabled={update.isPending}
-            data-testid="a11y-reduce-motion-toggle"
-            className="qf-switch"
-            onClick={() => onReduceMotion(!settings.reduceMotion)}
-          />
+      {/* F6 (a11y M-3): 서버값 로딩 중에는 aria-busy 영역으로 SR 에 통지한다(차단목록 섹션
+          패턴과 일관). 로딩이 끝나면 토글이 렌더된다. */}
+      {isLoading ? (
+        <div
+          role="status"
+          aria-busy="true"
+          data-testid="a11y-loading"
+          className="flex flex-col gap-[var(--s-3)]"
+        >
+          <span className="sr-only">접근성 설정 불러오는 중</span>
+          <div className="qf-skel h-[var(--s-9)] w-full" aria-hidden="true" />
+          <div className="qf-skel h-[var(--s-9)] w-full" aria-hidden="true" />
         </div>
-      </section>
+      ) : (
+        <>
+          {/* 모션 줄이기 — F5 (a11y M-2): sr-only h2 와 버튼 aria-label 의 이중 발화를 없앤다.
+              섹션 제목은 시각 텍스트(qf-toggle-row__title)가 담당하고, 버튼은 aria-label 로
+              접근명을, aria-describedby 로 설명을 연결한다(중복 라벨 제거). */}
+          <section data-testid="a11y-reduce-motion">
+            <div className="qf-toggle-row">
+              <div className="qf-toggle-row__text">
+                <div className="qf-toggle-row__title">모션 줄이기</div>
+                <div id="a11y-motion-desc" className="qf-toggle-row__desc">
+                  애니메이션과 자동 재생, 부드러운 스크롤을 줄여 어지러움을 완화합니다. 운영체제에서
+                  모션 줄이기를 켜 두면 이 설정과 무관하게 모션이 꺼집니다.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.reduceMotion}
+                aria-label="모션 줄이기"
+                aria-describedby="a11y-motion-desc"
+                aria-busy={update.isPending}
+                disabled={update.isPending}
+                data-testid="a11y-reduce-motion-toggle"
+                className="qf-switch disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => onReduceMotion(!settings.reduceMotion)}
+              />
+            </div>
+          </section>
 
-      {/* 고대비 */}
-      <section aria-labelledby="a11y-contrast-heading" data-testid="a11y-high-contrast">
-        <h2 id="a11y-contrast-heading" className="sr-only">
-          고대비
-        </h2>
-        <div className="qf-toggle-row">
-          <div className="qf-toggle-row__text">
-            <div className="qf-toggle-row__title">고대비</div>
-            <div className="qf-toggle-row__desc">
-              테두리와 포커스 표시를 또렷하게 보강해 가독성을 높입니다.
+          {/* 고대비 — F5 동일 처리. */}
+          <section data-testid="a11y-high-contrast">
+            <div className="qf-toggle-row">
+              <div className="qf-toggle-row__text">
+                <div className="qf-toggle-row__title">고대비</div>
+                <div id="a11y-contrast-desc" className="qf-toggle-row__desc">
+                  테두리와 포커스 표시를 또렷하게 보강해 가독성을 높입니다.
+                </div>
+              </div>
+              <button
+                type="button"
+                role="switch"
+                aria-checked={settings.highContrast}
+                aria-label="고대비"
+                aria-describedby="a11y-contrast-desc"
+                aria-busy={update.isPending}
+                disabled={update.isPending}
+                data-testid="a11y-high-contrast-toggle"
+                className="qf-switch disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={() => onHighContrast(!settings.highContrast)}
+              />
             </div>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={settings.highContrast}
-            aria-label="고대비"
-            disabled={update.isPending}
-            data-testid="a11y-high-contrast-toggle"
-            className="qf-switch"
-            onClick={() => onHighContrast(!settings.highContrast)}
-          />
-        </div>
-      </section>
+          </section>
+        </>
+      )}
 
       {/* 자동저장 상태 라이브 영역(S76 F-H4 선례 — 시각적으로는 sr-only). */}
       <p

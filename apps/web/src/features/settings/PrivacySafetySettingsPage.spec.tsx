@@ -29,9 +29,10 @@ vi.mock('../friends/useFriends', () => ({
 // S77a (FR-PS-13): 프라이버시 섹션 hooks 모킹.
 import type { PrivacySettings } from '@qufox/shared-types';
 let privacyCurrent: PrivacySettings;
+let privacyLoading: boolean;
 const privacyMutateAsync = vi.fn();
 vi.mock('./usePrivacySettings', () => ({
-  usePrivacySettings: () => ({ data: privacyCurrent }),
+  usePrivacySettings: () => ({ data: privacyCurrent, isLoading: privacyLoading }),
   useUpdatePrivacySettings: () => ({ mutateAsync: privacyMutateAsync, isPending: false }),
 }));
 
@@ -55,6 +56,7 @@ beforeEach(() => {
     messageRequestEnabled: true,
     allowFriendRequests: 'EVERYONE',
   };
+  privacyLoading = false;
   privacyMutateAsync.mockReset();
   privacyMutateAsync.mockResolvedValue(privacyCurrent);
 });
@@ -136,5 +138,21 @@ describe('PrivacySafetySettingsPage — privacy section (FR-PS-13)', () => {
     expect(screen.getByTestId('privacy-allow-dm-toggle').getAttribute('aria-checked')).toBe(
       'false',
     );
+  });
+
+  // F6 (a11y M-3): 프라이버시 서버값 로딩 중에는 aria-busy 스켈레톤을 보이고 토글은 미렌더.
+  it('shows an aria-busy loading region while privacy settings load', () => {
+    privacyLoading = true;
+    renderPage();
+    const busy = screen.getByTestId('privacy-prefs-loading');
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByTestId('privacy-allow-dm-toggle')).toBeNull();
+  });
+
+  // F7 (a11y M-4): 장식용 eyebrow 는 접근성 트리에서 제거(aria-hidden).
+  it('hides the decorative eyebrow from assistive tech', () => {
+    renderPage();
+    const eyebrow = document.querySelector('.qf-eyebrow');
+    expect(eyebrow?.getAttribute('aria-hidden')).toBe('true');
   });
 });

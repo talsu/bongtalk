@@ -63,6 +63,15 @@ html[data-high-contrast='true'] {
   --border: var(--border-strong);
 }
 
+/* S77a (a11y HIGH-01): DS tokens.css 가 select:focus-visible 의 halo 를 opt-out 하고
+ * components.css 의 .qf-input:focus 가 outline 을 제거해, select.qf-input 은 키보드 포커스
+ * 표시가 전무했다(마우스/키보드 구분 없이 포커스 위치를 알 수 없음 — WCAG 2.4.7 위반).
+ * DS 4파일을 건드리지 않고 app-layer 에서 select.qf-input 에 한해 포커스 링을 복원한다
+ * (다른 텍스트 입력의 의도된 halo opt-out 은 보존). --ring-focus 는 DS 토큰을 그대로 쓴다. */
+select.qf-input:focus-visible {
+  box-shadow: var(--ring-focus);
+}
+
 /* S64 fix-forward (ui-designer M-04): ChannelSettingsPage 의 nav 는 action 버튼이 섞여
  * tablist 가 아니라 nav 패턴이라 활성 항목을 aria-current="page" 로 표시한다(S62 a11y B4).
  * 그러나 DS components.css 의 활성 스타일은 .qf-settings__nav-item[aria-selected="true"]

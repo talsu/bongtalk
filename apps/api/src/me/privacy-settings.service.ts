@@ -17,9 +17,12 @@ import { PrismaService } from '../prisma/prisma.module';
  *     allowFriendRequests=EVERYONE)을 반환한다(행 미생성).
  *   - 부분 갱신(updatePrivacy): 전달된 필드만 upsert 한다(create-if-not-exists).
  *
- * ★ 게이트 enforcement 는 본 서비스가 아니라 도메인 서비스에서 이 값을 읽어 강제한다:
- *   - allowDmFromWorkspaceMembers → DirectMessagesService.assertDmPrivacyAllows
- *   - allowFriendRequests         → FriendsService.requestByUsername
+ * ★ 게이트 enforcement 는 본 서비스가 아니라 도메인 서비스에서 이 값을 읽어 강제한다(S77a HIGH-1
+ * fix-forward — 죽은 컨트롤 금지, 도달 가능 경로에만 배선):
+ *   - allowDmFromWorkspaceMembers → DirectMessagesService.assertDmPrivacyAllows(도달 경로:
+ *       createOrGetGlobal → POST /me/dms · createGroupDm · addParticipants). 공통 워크스페이스
+ *       소속만을 근거로 한 신규 DM 을 false 면 차단(ACCEPTED 친구는 계속 허용·차단 우선).
+ *   - allowFriendRequests         → FriendsService.requestByUsername(대상 정책 확인).
  *   - messageRequestEnabled       → message-request 인프라 부재로 저장만(carryover).
  */
 @Injectable()

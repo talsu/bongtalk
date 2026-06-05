@@ -148,25 +148,32 @@ export class DirectMessagesService {
   }
 
   /**
-   * S19 (FR-DM-12): DM 수신권한 게이트. `assertCanDm` 의 형제 — DM 개시
-   * (createOrGetGlobal / createGroupDm) + 그룹 DM 멤버 추가(FR-DM-07)가 친구
-   * 게이트와 함께 호출한다. target 의 allowDmFrom 을 확인한다:
+   * S19 (FR-DM-12) + S77a (FR-PS-13): DM 수신권한 게이트. `assertCanDm` 의 형제 — DM 개시
+   * (createOrGetGlobal / createGroupDm) + 그룹 DM 멤버 추가(FR-DM-07)가 친구 게이트와 함께
+   * **도달 가능한** 경로에서 호출한다. target 의 `allowDmFrom` + `UserSettings
+   * .allowDmFromWorkspaceMembers` 를 한 번의 User 조회에 fold 해 확인한다:
    *
    *  - EVERYONE             → 통과.
-   *  - WORKSPACE_MEMBER     → initiator 와 target 이 **공통 WorkspaceMember**(교집합)
-   *                           이거나 **ACCEPTED friend** 면 통과, 아니면 403
-   *                           DM_PRIVACY_RESTRICTED.
+   *  - WORKSPACE_MEMBER     → 우선 ACCEPTED friend 면 통과(친구는 워크스페이스와 독립한
+   *                           상위 신뢰 관계). 친구가 아니면 **공통 WorkspaceMember**(교집합)
+   *                           으로 통과하되, target 의 `allowDmFromWorkspaceMembers=false` 면
+   *                           "같은 워크스페이스 소속만을 근거로 한" 통과를 무효화한다
+   *                           (S77a FR-PS-13). 둘 다 아니면 403 DM_PRIVACY_RESTRICTED.
    *
-   * 'OR friend' 폴백이 필수다 — 친구끼리의 전역(workspace 없는) 그룹 DM 이 공통
-   * 워크스페이스가 없다는 이유로 막히면 안 되기 때문이다(친구 게이트를 이미 통과한
-   * 흐름과 모순). FRIENDS_ONLY 는 Phase2 carryover — enum 값으로도 선반영하지 않으며,
-   * 현재 DmPrivacy 에 존재하지 않으므로 별도 분기가 없다.
+   * S77a (FR-PS-13, HIGH-1 fix-forward): allowDmFromWorkspaceMembers 게이트를 여기(도달
+   * 가능한 assertDmPrivacyAllows)에 배선한다 — 신규 DM 개시의 유일한 실제 경로
+   * (createOrGetGlobal → POST /me/dms · createGroupDm · addParticipants)가 모두 이 게이트를
+   * 통과하기 때문이다. 과거 죽은 `createOrGet.assertWorkspaceDmAllowed` 배선(S76 B-1 재발)을
+   * 폐기하고, 토글이 실제로 효력을 갖는 경로로 이전했다. 친구는 항상 허용(별도 분기), 차단된
+   * 사용자는 호출부의 assertCanDm(친구 게이트)이 우선 차단, 기존 채널 조회(existing 분기)는
+   * 개시 이전이라 게이트되지 않는다. 행 부재(구 가입자)는 기본 true(허용) — 무회귀.
    *
-   * S77a 주의: FR-PS-13 의 allowDmFromWorkspaceMembers 게이트는 여기(전역 DM 경로)에
-   * 두지 않는다 — 전역 DM 은 상위 assertCanDm(친구 게이트)이 비-친구를 이미 차단하므로
-   * 워크스페이스-멤버-발 DM 의 차단 효과가 사실상 도달 불가(죽은 컨트롤)이기 때문이다.
-   * 그 게이트는 실제로 도달 가능한 워크스페이스 스코프 DM 개시(createOrGet 의
-   * assertWorkspaceDmAllowed)에 배선했다(S76 B-1/M-1 교훈 — 동작하는 곳에만 배선).
+   * 'friend 우선' 분기가 필수다 — 친구끼리의 전역(workspace 없는) 그룹 DM 이 공통 워크스페이스가
+   * 없다는 이유로 막히면 안 되며, allowDmFromWorkspaceMembers 토글도 친구를 막아선 안 되기
+   * 때문이다. FRIENDS_ONLY 는 Phase2 carryover — enum 값으로도 선반영하지 않으며, 현재
+   * DmPrivacy 에 존재하지 않으므로 별도 분기가 없다.
+   *
+   * UserSettings 읽기는 기존 User 조회에 fold 한다(추가 쿼리 회피 — perf MODERATE 동시 해소).
    *
    * 비노출(H-03): friend-gate(FRIEND_NOT_FOUND) 와 동일 중립 메시지를 쓰되 권한
    * 거부는 전용 403 코드로 분리해 클라이언트가 "DM 수신 제한" UI 로 분기하게 한다.
@@ -182,9 +189,11 @@ export class DirectMessagesService {
     // 경로(createOrGetGlobal / createGroupDm)는 tx 없이 그대로라 무회귀.
     const db = tx ?? this.prisma;
     if (initiatorId === targetId) return;
+    // S77a (FR-PS-13): allowDmFrom + UserSettings.allowDmFromWorkspaceMembers 를 한 번에
+    // 읽는다(추가 쿼리 회피). 행 부재(구 가입자)는 기본 true — 무회귀.
     const target = await db.user.findUnique({
       where: { id: targetId },
-      select: { allowDmFrom: true },
+      select: { allowDmFrom: true, settings: { select: { allowDmFromWorkspaceMembers: true } } },
     });
     // target 부재는 friend-gate(assertCanDm) 가 이미 거른 경로라 여기 도달 시
     // 보수적으로 거부한다(중립 메시지).
@@ -193,19 +202,9 @@ export class DirectMessagesService {
     }
     if (target.allowDmFrom === 'EVERYONE') return;
 
-    // WORKSPACE_MEMBER: 공통 워크스페이스 멤버 교집합 OR ACCEPTED friend.
-    const sharedWorkspace = await db.workspaceMember.findFirst({
-      where: {
-        userId: initiatorId,
-        workspace: {
-          deletedAt: null,
-          members: { some: { userId: targetId } },
-        },
-      },
-      select: { workspaceId: true },
-    });
-    if (sharedWorkspace) return;
-
+    // WORKSPACE_MEMBER: ACCEPTED friend 면 무조건 통과(워크스페이스 토글과 독립한 상위
+    // 신뢰 관계). 친구가 아니면 공통 워크스페이스 멤버 교집합으로 통과하되, target 의
+    // allowDmFromWorkspaceMembers=false 면 "워크스페이스 소속만을 근거로 한" 통과를 막는다.
     const friendship = await db.friendship.findFirst({
       where: {
         status: 'ACCEPTED',
@@ -217,6 +216,23 @@ export class DirectMessagesService {
       select: { id: true },
     });
     if (friendship) return;
+
+    // S77a (FR-PS-13): 워크스페이스 멤버발 DM 수신을 끈 대상은 공통 워크스페이스만으로는
+    // 신규 DM 을 열 수 없다(친구는 위에서 이미 통과). 행 부재 → 기본 true(허용).
+    const allowWorkspaceDm = target.settings?.allowDmFromWorkspaceMembers ?? true;
+    if (allowWorkspaceDm) {
+      const sharedWorkspace = await db.workspaceMember.findFirst({
+        where: {
+          userId: initiatorId,
+          workspace: {
+            deletedAt: null,
+            members: { some: { userId: targetId } },
+          },
+        },
+        select: { workspaceId: true },
+      });
+      if (sharedWorkspace) return;
+    }
 
     throw new DomainError(ErrorCode.DM_PRIVACY_RESTRICTED, 'cannot DM: not permitted');
   }
@@ -400,38 +416,15 @@ export class DirectMessagesService {
   }
 
   /**
-   * S77a (D14 / FR-PS-13): 워크스페이스 멤버발 DM 수신 게이트(죽은 컨트롤 금지). 워크스페이스
-   * 스코프 DM 개시(createOrGet)에서 **신규 채널 생성 직전**에 호출한다. target 의
-   * UserSettings.allowDmFromWorkspaceMembers 가 false 면 같은 워크스페이스 멤버라는 사유만으로
-   * 새 DM 을 열 수 없게 한다(403 DM_PRIVACY_RESTRICTED). 단:
-   *
-   *  - ACCEPTED 친구는 항상 허용(친구 관계는 워크스페이스 멤버십과 독립한 상위 신뢰 관계).
-   *  - 차단(BLOCKED)된 사용자는 호출부의 친구/차단 게이트가 이미 우선 차단한다(여기 도달 X).
-   *  - 행 부재(구 가입자)는 기본 true(허용) — 무회귀.
-   *  - 이미 존재하는 DM 채널 조회(createOrGet 의 existing 분기)는 게이트하지 않는다 —
-   *    기존 대화 단절을 막는다. 정책은 **새 대화 개시**에만 적용된다(Slack/Discord 관례).
+   * @deprecated HTTP 미도달 — 프로덕션 호출처 0. task-037-A 가 workspace-scoped DM
+   * 컨트롤러를 제거한 뒤로 모든 신규 DM 개시는 전역 경로(createOrGetGlobal →
+   * POST /me/dms)를 거친다. 이 메서드는 워크스페이스-멤버 게이트의 dead 배선
+   * (S76 B-1/S77a HIGH-1 재발)을 더는 두지 않으며, allowDmFromWorkspaceMembers
+   * 게이트는 도달 가능한 assertDmPrivacyAllows 로 이전했다. 시그니처는 과거 unit/int
+   * 회귀 픽스처 호환을 위해 보존하되, 신규 코드는 createOrGetGlobal 을 써야 한다.
+   * 향후 워크스페이스 DM-open HTTP 표면이 다시 필요하면 assertDmPrivacyAllows 를
+   * 호출하는 형태로 재배선한다(여기 직접 게이트를 부활시키지 말 것).
    */
-  private async assertWorkspaceDmAllowed(initiatorId: string, targetId: string): Promise<void> {
-    const target = await this.prisma.user.findUnique({
-      where: { id: targetId },
-      select: { settings: { select: { allowDmFromWorkspaceMembers: true } } },
-    });
-    const allow = target?.settings?.allowDmFromWorkspaceMembers ?? true;
-    if (allow) return;
-    const friendship = await this.prisma.friendship.findFirst({
-      where: {
-        status: 'ACCEPTED',
-        OR: [
-          { requesterId: initiatorId, addresseeId: targetId },
-          { requesterId: targetId, addresseeId: initiatorId },
-        ],
-      },
-      select: { id: true },
-    });
-    if (friendship) return;
-    throw new DomainError(ErrorCode.DM_PRIVACY_RESTRICTED, 'cannot DM: not permitted');
-  }
-
   async createOrGet(
     workspaceId: string,
     meId: string,
@@ -456,10 +449,6 @@ export class DirectMessagesService {
       select: { id: true },
     });
     if (existing) return { channelId: existing.id, created: false };
-
-    // S77a (FR-PS-13): 신규 워크스페이스 DM 개시 전에 대상의 수신 정책을 강제한다(기존 채널
-    // 조회는 위에서 이미 반환됨 — 정책은 새 대화 개시에만 적용).
-    await this.assertWorkspaceDmAllowed(meId, otherUserId);
 
     // Transaction: new Channel + two ChannelPermissionOverride rows.
     // task-027 reviewer H1: two concurrent POSTs for the same pair race
@@ -522,7 +511,15 @@ export class DirectMessagesService {
    * 때 신청자(아직 워크스페이스 멤버 아님)와의 1:1 DM 을 만든다. createOrGet 과 동일한
    * 채널 shape(workspace-scoped DIRECT + 두 USER override + dm.created outbox)이되, 신청자가
    * 멤버가 아니므로 member 게이트를 적용하지 않는다(ADMIN 주도 채널 — 권한 게이트는 호출부
-   * ApplicationsService 의 ADMIN+ 검사가 담당). 멱등: 같은 (admin, applicant) 쌍은 동일
+   * ApplicationsService 의 ADMIN+ 검사가 담당).
+   *
+   * S77a (FR-PS-13, security MED) — 시스템/오너 주도 DM 예외(의도): 이 경로는 친구 게이트
+   * (assertCanDm)도, DM 수신권한 게이트(assertDmPrivacyAllows · allowDmFromWorkspaceMembers)도
+   * 적용하지 않는다. 인터뷰 DM 은 신청자의 의사가 아니라 ADMIN 의 가입심사 액션으로 개설되며,
+   * 신청자의 프라이버시 토글로 워크스페이스 운영 흐름(가입 인터뷰)이 막혀선 안 되기 때문이다.
+   * 사용자-개시 DM(createOrGetGlobal / createGroupDm)만 프라이버시 게이트의 대상이다.
+   *
+   * 멱등: 같은 (admin, applicant) 쌍은 동일
    * `dm:` slug 라 기존 채널을 반환한다(P2002 레이스도 winner 재조회로 흡수). 호출부는 같은
    * 신청 처리 흐름에서 이 channelId 를 application.interviewChannelId 에 기록한다.
    */

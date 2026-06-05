@@ -120,9 +120,11 @@ export type FriendReqPolicy = z.infer<typeof FriendReqPolicySchema>;
  * 기본값(서버 컬럼 default 와 1:1):
  *   allowDmFromWorkspaceMembers=true · messageRequestEnabled=true · allowFriendRequests=EVERYONE.
  *
- * ★ 게이트 enforcement(죽은 컨트롤 금지):
- *   - allowDmFromWorkspaceMembers → DM 수신권한 게이트(assertDmPrivacyAllows)에 배선 —
- *     공통 워크스페이스만으로 허용되던 DM 을 false 면 차단(친구는 계속 허용·차단 우선).
+ * ★ 게이트 enforcement(죽은 컨트롤 금지 — S77a HIGH-1: 도달 가능 경로에만 배선):
+ *   - allowDmFromWorkspaceMembers → DM 수신권한 게이트(DirectMessagesService.assertDmPrivacyAllows)에
+ *     배선. 도달 경로는 createOrGetGlobal(→ POST /me/dms) · createGroupDm · addParticipants 이며,
+ *     공통 워크스페이스만으로 허용되던 신규 DM 을 false 면 차단한다(ACCEPTED 친구는 계속 허용·
+ *     차단 사용자 우선차단·기존 채널 조회는 미차단). 과거 죽은 createOrGet 배선은 폐기됐다.
  *   - allowFriendRequests        → 친구 요청 생성 게이트(requestByUsername)에 배선 —
  *     NOBODY 거부 / MUTUAL_WORKSPACE 공통 ws 멤버만 / EVERYONE 허용.
  *   - messageRequestEnabled      → 본 슬라이스 기준 message-request 인프라가 코드에

@@ -108,7 +108,15 @@ export class OnboardingWelcomeProcessor extends WorkerHost {
     this.logger.log(`[welcome] delivered ws=${workspaceId} user=${userId}`);
   }
 
-  /** workspace-scoped 1:1 DM(owner ↔ member) createOrGet. createInterviewDm 의 행 형태 복제. */
+  /**
+   * workspace-scoped 1:1 DM(owner ↔ member) createOrGet. createInterviewDm 의 행 형태 복제.
+   *
+   * S77a (FR-PS-13, security MED) — 시스템/오너 주도 DM 예외(의도): 환영 DM 은 신규 멤버의
+   * 의사가 아니라 워크스페이스 가입 완료 시 시스템(welcome 큐)이 owner ↔ 멤버로 개설하는
+   * 채널이라, 친구 게이트도 DM 수신권한 게이트(allowDmFromWorkspaceMembers)도 적용하지
+   * 않는다. DirectMessagesService 를 거치지 않고 채널/override 를 직접 작성하므로 게이트가
+   * 끼어들 지점도 없다. 사용자-개시 DM(createOrGetGlobal / createGroupDm)만 게이트 대상이다.
+   */
   private async ensureWelcomeDm(
     workspaceId: string,
     ownerId: string,

@@ -206,53 +206,66 @@ describe('S77a accessibility + privacy + gates (int)', () => {
       .expect(400);
   });
 
-  // ── 게이트: allowDmFromWorkspaceMembers (createOrGet.assertWorkspaceDmAllowed) ─
+  // ── 게이트: allowDmFromWorkspaceMembers (도달 경로 createOrGetGlobal) ──────────
   //
-  // 워크스페이스 스코프 DM 개시(DirectMessagesService.createOrGet)는 친구 게이트가 없는
-  // 유일한 도달 가능 DM-create 경로다(전역 DM /me/dms 는 친구 게이트가 비-친구를 이미 차단).
-  // 현재 HTTP 컨트롤러가 노출돼 있지 않아 게이트를 서비스 레이어에서 실 DB 로 검증한다
-  // (REPORT 의 carryover — workspace DM-open HTTP 표면 노출 시 그대로 동작).
+  // S77a HIGH-1 fix-forward: allowDmFromWorkspaceMembers 게이트는 죽은 createOrGet(프로덕션
+  // 호출처 0)이 아니라 **도달 가능한** assertDmPrivacyAllows(createOrGetGlobal → POST /me/dms)에
+  // 배선돼 있다. 전역 DM 경로는 상위 친구 게이트(assertCanDm)가 비-친구를 우선 차단하므로,
+  // ACCEPTED 친구는 워크스페이스 토글과 무관하게 항상 허용된다(친구는 상위 신뢰 관계). 토글이
+  // 워크스페이스 소속만을 근거로 한 통과를 무효화하는 차단 분기는 게이트의 순수 단위
+  // 테스트(dm-privacy.service.s77a-gate.spec.ts)가 도달 경로 호출로 보증한다 — 전역 경로에서는
+  // 친구 게이트 우선으로 차단이 FRIEND_NOT_FOUND 로 먼저 표출되기 때문이다(REPORT 참조).
 
-  it('allowDmFromWorkspaceMembers=true (default) → workspace member DM creation allowed', async () => {
-    const owner = await signup('dmwsowner');
-    const target = await signup('dmwstarget');
-    const { workspaceId } = await makeSharedWorkspace(owner, target);
-    // 기본 allowDmFromWorkspaceMembers=true → 신규 워크스페이스 DM 개시 허용.
-    const res = await dms.createOrGet(workspaceId, owner.userId, target.userId);
+  it('allowDmFromWorkspaceMembers=false + ACCEPTED friends → createOrGetGlobal still allowed (friend overrides toggle)', async () => {
+    const owner = await signup('dmwsownerC');
+    const target = await signup('dmwstargetC');
+    await makeSharedWorkspace(owner, target);
+    await request(baseUrl)
+      .patch('/me/settings/privacy')
+      .set('authorization', `Bearer ${target.token}`)
+      .send({ allowDmFromWorkspaceMembers: false })
+      .expect(200);
+    // 친구 관계 수립(차단 우선·친구 허용 정합) — 전역 DM 의 친구 게이트(assertCanDm) 통과.
+    await prisma.friendship.create({
+      data: { requesterId: owner.userId, addresseeId: target.userId, status: 'ACCEPTED' },
+    });
+    const res = await dms.createOrGetGlobal(owner.userId, target.userId);
     expect(res.created).toBe(true);
     expect(res.channelId).toBeTruthy();
   });
 
-  it('allowDmFromWorkspaceMembers=false → workspace member DM creation blocked (DM_PRIVACY_RESTRICTED)', async () => {
-    const owner = await signup('dmwsownerB');
-    const target = await signup('dmwstargetB');
-    const { workspaceId } = await makeSharedWorkspace(owner, target);
-    // 대상이 워크스페이스 멤버발 DM 을 끈다 → 친구 아님 → 신규 DM 개시 차단.
-    await request(baseUrl)
-      .patch('/me/settings/privacy')
-      .set('authorization', `Bearer ${target.token}`)
-      .send({ allowDmFromWorkspaceMembers: false })
-      .expect(200);
-    await expect(dms.createOrGet(workspaceId, owner.userId, target.userId)).rejects.toMatchObject({
-      code: 'DM_PRIVACY_RESTRICTED',
-    });
-  });
-
-  it('allowDmFromWorkspaceMembers=false but ACCEPTED friends → DM creation still allowed', async () => {
-    const owner = await signup('dmwsownerC');
-    const target = await signup('dmwstargetC');
-    const { workspaceId } = await makeSharedWorkspace(owner, target);
-    await request(baseUrl)
-      .patch('/me/settings/privacy')
-      .set('authorization', `Bearer ${target.token}`)
-      .send({ allowDmFromWorkspaceMembers: false })
-      .expect(200);
-    // 친구 관계 수립(차단 우선·친구 허용 정합).
+  it('allowDmFromWorkspaceMembers=false + existing DM channel → createOrGetGlobal returns it unchanged (no gate on existing)', async () => {
+    const owner = await signup('dmwsownerD');
+    const target = await signup('dmwstargetD');
+    await makeSharedWorkspace(owner, target);
     await prisma.friendship.create({
       data: { requesterId: owner.userId, addresseeId: target.userId, status: 'ACCEPTED' },
     });
-    const res = await dms.createOrGet(workspaceId, owner.userId, target.userId);
-    expect(res.created).toBe(true);
+    const first = await dms.createOrGetGlobal(owner.userId, target.userId);
+    expect(first.created).toBe(true);
+    // 채널이 생긴 뒤 대상이 토글을 끈다 → 기존 채널 조회는 게이트 무관(기존 대화 단절 금지).
+    await request(baseUrl)
+      .patch('/me/settings/privacy')
+      .set('authorization', `Bearer ${target.token}`)
+      .send({ allowDmFromWorkspaceMembers: false })
+      .expect(200);
+    const second = await dms.createOrGetGlobal(owner.userId, target.userId);
+    expect(second).toEqual({ channelId: first.channelId, created: false });
+  });
+
+  it('non-friend on the global path is blocked by the friend gate first (FRIEND_NOT_FOUND)', async () => {
+    const owner = await signup('dmwsownerE');
+    const target = await signup('dmwstargetE');
+    // 같은 워크스페이스 멤버지만 친구가 아니다 → 전역 DM 의 친구 게이트가 우선 차단.
+    await makeSharedWorkspace(owner, target);
+    await request(baseUrl)
+      .patch('/me/settings/privacy')
+      .set('authorization', `Bearer ${target.token}`)
+      .send({ allowDmFromWorkspaceMembers: false })
+      .expect(200);
+    await expect(dms.createOrGetGlobal(owner.userId, target.userId)).rejects.toMatchObject({
+      code: 'FRIEND_NOT_FOUND',
+    });
   });
 
   // ── 게이트: allowFriendRequests (requestByUsername) ──────────────────────────

@@ -89,16 +89,20 @@ export function SettingsShell(): JSX.Element {
           </Link>
           <h1 className="qf-m-topbar__title">설정</h1>
         </header>
-        <nav className="qf-m-list" aria-label="설정" data-testid="settings-mobile-nav">
+        {/* F4 (ui M-1): qf-m-list 는 mobile.css 에 등록되지 않은 유령 클래스라 스타일이 전혀
+            적용되지 않았다. nav 컨테이너는 클래스 없이 두고(자식 qf-m-row 가 자체 chrome/divider
+            를 소유), 각 행은 DS 의 qf-m-row 를 그대로 쓴다. */}
+        <nav aria-label="설정" data-testid="settings-mobile-nav">
           {SETTINGS_TABS.map((t, i) => (
             <button
               key={t.id}
               ref={i === 0 ? (firstNavRef as React.Ref<HTMLButtonElement>) : undefined}
               type="button"
-              className="qf-m-row"
+              className="qf-m-row disabled:cursor-not-allowed disabled:opacity-50"
               data-testid={`settings-tab-${t.id}`}
               aria-current={active === t.id ? 'page' : undefined}
-              aria-disabled={!t.enabled || undefined}
+              // F9 (a11y MINOR-03): aria-disabled 는 문자열로 명시한다("true" 또는 미부여).
+              aria-disabled={!t.enabled ? 'true' : undefined}
               disabled={!t.enabled}
               onClick={() => t.enabled && navigate(t.path)}
             >
@@ -138,11 +142,12 @@ export function SettingsShell(): JSX.Element {
             // F-H2 (a11y HIGH-02): disabled 탭은 span 대신 disabled 버튼으로 둬 키보드/AT
             // 가 인지하게 한다(span aria-disabled 는 포커스/통지 불가). raw inline style 대신
             // Tailwind 유틸로 시각 비활성을 표현한다.
+            // F9 (a11y MINOR-02): native `disabled` 가 이미 포커스 차단 + AT 비활성 통지를
+            // 모두 담당하므로 aria-disabled 중복을 제거한다(disabled 단독으로 일관).
             <button
               key={t.id}
               type="button"
               disabled
-              aria-disabled="true"
               title="준비 중입니다"
               className="qf-settings__nav-item cursor-not-allowed opacity-50"
               data-testid={`settings-tab-${t.id}`}

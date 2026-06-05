@@ -62,11 +62,13 @@ function makeService(stub: Stub) {
   const friendship = {
     findFirst: stub.friendshipFindFirst ?? vi.fn().mockResolvedValue({ status: 'ACCEPTED' }),
   };
-  // S19 (FR-DM-12): assertDmPrivacyAllows 가 user.findUnique 로 allowDmFrom 을
-  // 조회한다. 기본 EVERYONE 으로 게이트를 통과시켜 기존 친구 게이트 단위 검증을
-  // 보존한다(privacy 게이트는 int 에서 별도 검증).
+  // S19 (FR-DM-12) + S77a (FR-PS-13): assertDmPrivacyAllows 가 user.findUnique 로
+  // allowDmFrom + settings.allowDmFromWorkspaceMembers 를 한 번에 조회한다. 기본
+  // EVERYONE 으로 게이트를 통과시켜(EVERYONE 분기는 settings 를 읽지 않음) 기존 친구
+  // 게이트 단위 검증을 보존한다(allowDmFromWorkspaceMembers 게이트는 int 에서 별도 검증).
   const user = {
-    findUnique: stub.userFindUnique ?? vi.fn().mockResolvedValue({ allowDmFrom: 'EVERYONE' }),
+    findUnique:
+      stub.userFindUnique ?? vi.fn().mockResolvedValue({ allowDmFrom: 'EVERYONE', settings: null }),
   };
   const tx: TxStub = { channel, channelPermissionOverride };
   const prisma = {
