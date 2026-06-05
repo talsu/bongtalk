@@ -20,6 +20,9 @@ import { CustomStatusController } from './custom-status.controller';
 import { CustomStatusService } from './custom-status.service';
 import { NotificationOnboardingController } from './notification-onboarding.controller';
 import { MeProfileController } from './me-profile.controller';
+// S76 (D14 / FR-PS-09): 외관 설정(테마/밀도/폰트/24h). 서버 단일 출처 + 자동 저장.
+import { AppearanceSettingsController } from './appearance-settings.controller';
+import { AppearanceSettingsService } from './appearance-settings.service';
 // S73 (D14 / FR-PS-01·02·03): 전역 프로필 + 아바타. ProfileService 가 도메인 규칙을
 // 보유하고, 아바타는 StorageModule 의 S3Service(presignPut/headObject/magic-byte)를 쓴다.
 import { MeAvatarController } from './me-avatar.controller';
@@ -57,6 +60,7 @@ import { SavedService } from './saved/saved.service';
     DndScheduleController,
     NotificationOnboardingController,
     MeProfileController,
+    AppearanceSettingsController,
     MeAvatarController,
     MeBannerController,
     ChannelAckController,
@@ -71,6 +75,7 @@ import { SavedService } from './saved/saved.service';
     CustomStatusService,
     SavedService,
     ProfileService,
+    AppearanceSettingsService,
   ],
   exports: [MeMentionsService, MeActivityService, DndScheduleService, CustomStatusService],
 })

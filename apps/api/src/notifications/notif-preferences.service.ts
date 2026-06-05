@@ -93,20 +93,38 @@ export class NotifPreferencesService {
 
   // ── 글로벌 (UserSettings) ────────────────────────────────────────────────
 
-  /** 글로벌 알림 설정 조회. 행이 없으면 기본값(MENTIONS / 빈 keywords)을 반환. */
+  /** 글로벌 알림 설정 조회. 행이 없으면 기본값(MENTIONS / 빈 keywords / 채널 ON)을 반환. */
   async getGlobal(userId: string): Promise<GlobalNotificationSettings> {
     const row = await this.prisma.userSettings.findUnique({
       where: { userId },
-      select: { notifTrigger: true, keywords: true, dndUntil: true, dndSchedule: true },
+      select: {
+        notifTrigger: true,
+        keywords: true,
+        dndUntil: true,
+        dndSchedule: true,
+        // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF.
+        notifDesktop: true,
+        notifMobile: true,
+      },
     });
     if (!row) {
-      return { notifTrigger: 'MENTIONS', keywords: [], dndUntil: null, dndSchedule: null };
+      return {
+        notifTrigger: 'MENTIONS',
+        keywords: [],
+        dndUntil: null,
+        dndSchedule: null,
+        // S76: 행 부재 폴백 — 컬럼 default 와 동일하게 둘 다 ON.
+        notifDesktop: true,
+        notifMobile: true,
+      };
     }
     return {
       notifTrigger: row.notifTrigger,
       keywords: row.keywords,
       dndUntil: row.dndUntil ? row.dndUntil.toISOString() : null,
       dndSchedule: (row.dndSchedule as DndSchedule | null) ?? null,
+      notifDesktop: row.notifDesktop,
+      notifMobile: row.notifMobile,
     };
   }
 
@@ -132,6 +150,9 @@ export class NotifPreferencesService {
       // dndUntil 과 동시 전달 시 이 값이 우선한다. S48 의 dndUntil 게이트/만료 재사용.
       dndSnoozeMinutes?: number;
       dndSchedule?: DndSchedule | null;
+      // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF(부분 갱신).
+      notifDesktop?: boolean;
+      notifMobile?: boolean;
     },
     now: Date = new Date(),
   ): Promise<GlobalNotificationSettings> {
@@ -140,6 +161,14 @@ export class NotifPreferencesService {
     if (patch.notifTrigger !== undefined) {
       update.notifTrigger = patch.notifTrigger;
       create.notifTrigger = patch.notifTrigger;
+    }
+    if (patch.notifDesktop !== undefined) {
+      update.notifDesktop = patch.notifDesktop;
+      create.notifDesktop = patch.notifDesktop;
+    }
+    if (patch.notifMobile !== undefined) {
+      update.notifMobile = patch.notifMobile;
+      create.notifMobile = patch.notifMobile;
     }
     // S54 (D11 / FR-P13): 분 단위 snooze 를 절대 dndUntil 로 환산해 기존 검증 경로(과거·
     // 7일 상한)를 그대로 통과시킨다. dndUntil 보다 우선하도록 patch.dndUntil 을 덮어쓴다.

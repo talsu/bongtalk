@@ -47,6 +47,9 @@ export class GlobalNotificationSettingsController {
           'dndSchedule' in parsed.data
             ? (parsed.data.dndSchedule as DndSchedule | null)
             : undefined,
+        // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF.
+        notifDesktop: parsed.data.notifDesktop,
+        notifMobile: parsed.data.notifMobile,
       },
       new Date(),
     );

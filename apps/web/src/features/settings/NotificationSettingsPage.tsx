@@ -91,6 +91,19 @@ export function NotificationSettingsPage(): JSX.Element {
       body: '키워드는 최대 25개까지 등록할 수 있습니다.',
     });
 
+  // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF 토글(즉시 PATCH 자동 저장).
+  const setChannelToggle = async (
+    field: 'notifDesktop' | 'notifMobile',
+    next: boolean,
+    failTitle: string,
+  ) => {
+    try {
+      await updateGlobal.mutateAsync({ [field]: next });
+    } catch (err) {
+      notify({ variant: 'danger', title: failTitle, body: (err as Error).message });
+    }
+  };
+
   const workspaces = useMemo(() => mine?.workspaces ?? [], [mine]);
   // Tabs: "Global" first, then one per workspace the user is in.
   type Tab = { id: string; label: string; workspaceId: string | null };
@@ -215,6 +228,69 @@ export function NotificationSettingsPage(): JSX.Element {
             onChange={(next) => void setKeywords(next)}
             onLimitExceeded={onKeywordLimit}
           />
+        </section>
+
+        {/* S76 (FR-PS-10): 알림 채널(데스크톱 배너 / 모바일 푸시) ON·OFF. */}
+        <section
+          className="mb-[var(--s-6)] rounded-[var(--r-xl)] border border-border bg-bg-surface p-[var(--s-5)]"
+          data-testid="notif-channels-section"
+          aria-labelledby="notif-channels-heading"
+        >
+          <h2
+            id="notif-channels-heading"
+            className="mb-[var(--s-1)] text-[length:var(--fs-16)] font-semibold text-text-strong"
+          >
+            알림 채널
+          </h2>
+          <p className="mb-[var(--s-4)] text-[length:var(--fs-12)] text-text-muted">
+            기기별로 알림을 받을지 선택합니다. 끄면 해당 기기에서는 배너·푸시가 표시되지 않습니다.
+          </p>
+          <div className="qf-toggle-row">
+            <div className="qf-toggle-row__text">
+              <div className="qf-toggle-row__title">데스크톱 배너</div>
+              <div className="qf-toggle-row__desc">화면 우측에 토스트 배너로 알립니다.</div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={globalSettings?.notifDesktop ?? true}
+              aria-label="데스크톱 배너"
+              disabled={updateGlobal.isPending || !globalSettings}
+              data-testid="notif-desktop-toggle"
+              className="qf-switch"
+              onClick={() =>
+                void setChannelToggle(
+                  'notifDesktop',
+                  !(globalSettings?.notifDesktop ?? true),
+                  '데스크톱 알림 저장 실패',
+                )
+              }
+            />
+          </div>
+          <div className="qf-toggle-row">
+            <div className="qf-toggle-row__text">
+              <div className="qf-toggle-row__title">모바일 푸시</div>
+              <div className="qf-toggle-row__desc">
+                모바일 기기로 푸시 알림을 보냅니다(푸시 전송은 준비 중).
+              </div>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={globalSettings?.notifMobile ?? true}
+              aria-label="모바일 푸시"
+              disabled={updateGlobal.isPending || !globalSettings}
+              data-testid="notif-mobile-toggle"
+              className="qf-switch"
+              onClick={() =>
+                void setChannelToggle(
+                  'notifMobile',
+                  !(globalSettings?.notifMobile ?? true),
+                  '모바일 알림 저장 실패',
+                )
+              }
+            />
+          </div>
         </section>
 
         {/* S49 (FR-MN-17): "현재 뮤트 중" 채널/서버 목록 + 남은 시간 + 개별 해제. */}

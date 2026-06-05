@@ -11,6 +11,7 @@ import {
   Icon,
 } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
+import { useClock24h } from '../../stores/appearance-store';
 import { ReactionBar } from '../reactions/ReactionBar';
 import { ReactionUsersModal } from '../reactions/ReactionUsersModal';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
@@ -182,6 +183,9 @@ export function MessageItem({
   // top-left. Keep the toolbar visible while the menu is open.
   const [moreOpen, setMoreOpen] = useState(false);
   const notify = useNotifications((s) => s.push);
+  // S76 (FR-PS-09): 24시간 시계 외관 설정(appearance 스토어 단일 출처). early-return
+  // (msg.deleted) 보다 위에서 호출해 Rules of Hooks 를 지킨다.
+  const clock24h = useClock24h();
 
   if (msg.deleted) {
     return (
@@ -201,12 +205,13 @@ export function MessageItem({
   // collapse them. The same layout grid keeps the body/toolbar
   // columns aligned across both variants.
   const isHead = !isContinuation;
-  // S06 (FR-MSG-12): head 행 시각 라벨 + hover tooltip(ISO 전체). clock24h
-  // 설정 wiring 은 D14(S73~S77) 후속이라 현재는 기본값(24h)을 사용합니다.
-  const headTimeLabel = formatMessageTime(msg.createdAt, new Date());
+  // S06 (FR-MSG-12): head 행 시각 라벨 + hover tooltip(ISO 전체).
+  // S76 (FR-PS-09): clock24h 외관 설정을 appearance 스토어에서 읽어 12/24시간제를 결정한다
+  // (서버 단일 출처 → 스토어 → 시각 포맷). 미설정/기본은 false(12시간제 — DEFAULT_APPEARANCE).
+  const headTimeLabel = formatMessageTime(msg.createdAt, new Date(), { clock24h });
   const isoTooltip = formatMessageTimeISO(msg.createdAt);
-  // S06 (FR-MSG-10): continuation 행 hover gutter 에 표시할 HH:MM(24h) 시각.
-  const gutterTime = formatClockPart(new Date(msg.createdAt), true);
+  // S06 (FR-MSG-10): continuation 행 hover gutter 에 표시할 시각(clock24h 설정 반영).
+  const gutterTime = formatClockPart(new Date(msg.createdAt), clock24h);
   // S06 (FR-RC15, P2): 이모지 1~3개로만 구성된 본문은 32px 로 확대. AST 없는
   // legacy(content 평문) 행은 판정 불가 → 기본 크기(과확대 회피).
   const jumbo = isJumboEmoji(msg.contentAst);

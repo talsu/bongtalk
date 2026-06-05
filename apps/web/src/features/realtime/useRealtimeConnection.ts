@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { NotificationPreference } from '@qufox/shared-types';
+import type { DndScheduleResponse, NotificationPreference } from '@qufox/shared-types';
 import { connect, disconnect, getLastEventId, setLastEventId } from '../../lib/socket';
+import { shouldSuppressNotificationToast } from '../notifications/notificationDndGate';
 import { getAccessToken } from '../../lib/api';
 import { useUI } from '../../stores/ui-store';
 import { useAuth } from '../auth/AuthProvider';
@@ -134,6 +135,13 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
       resolveNotificationChannel: (workspaceId, eventType) => {
         const prefs = qc.getQueryData<NotificationPreference[]>(qk.me.notificationPreferences());
         return resolveChannel(prefs, workspaceId, eventType);
+      },
+      // S76 (FR-PS-11): effective DND 여부를 dndSchedule 캐시의 server effective
+      // preference 로 판정한다(스케줄 활성/수동 DND 모두 'dnd' 로 수렴 — 서버 단일 출처).
+      // 캐시 miss(스케줄 미로딩)면 억제하지 않는다(보수적 폴백 — shouldSuppressNotificationToast).
+      isDndSuppressed: () => {
+        const dnd = qc.getQueryData<DndScheduleResponse>(qk.me.dndSchedule());
+        return shouldSuppressNotificationToast(dnd?.preference);
       },
     });
 

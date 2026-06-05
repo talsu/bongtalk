@@ -334,3 +334,5 @@ export * from './links';
 export * from './member-application';
 // S71 — 워크스페이스 온보딩 컨트랙트 (D13 / FR-W07·W08·W09·W09a)
 export * from './onboarding';
+// S76 — 외관 설정 컨트랙트 (D14 / FR-PS-09 + FR-PS-18)
+export * from './settings';

@@ -115,6 +115,13 @@ export interface DispatcherContext {
     workspaceId: string,
     eventType: 'MENTION' | 'REPLY' | 'REACTION' | 'DIRECT',
   ) => 'TOAST' | 'BROWSER' | 'BOTH' | 'OFF';
+  /**
+   * S76 (D14 / FR-PS-11): effective DND 여부. true 면 멘션/답글 토스트(배너)를 억제한다
+   * (DND 스케줄 활성 또는 presencePreference=dnd — 서버 effective preference 재사용).
+   * 미지정이면 억제하지 않는다(보수적 폴백). 알림 채널 선호(resolveNotificationChannel)와
+   * 직교한다 — DND 는 채널 선호와 무관하게 배너만 추가로 억제한다.
+   */
+  isDndSuppressed?: () => boolean;
 }
 
 const DEFAULT_CTX: DispatcherContext = {
@@ -483,6 +490,9 @@ export function installRealtimeDispatcher(
     // task-019-D: gate reply toast by preference.
     const replyChannel = ctx.resolveNotificationChannel?.(env.workspaceId, 'REPLY') ?? 'BOTH';
     if (replyChannel === 'OFF' || replyChannel === 'BROWSER') return;
+    // S76 (FR-PS-11): DND(스케줄 활성/수동) 중이면 배너(토스트) 억제. 캐시 갱신은 위에서
+    // 이미 끝났으므로 미읽/배지는 정상 — 토스트만 막는다.
+    if (ctx.isDndSuppressed?.()) return;
     // Note: mention-precedence is already enforced server-side — the
     // recipients list excludes anyone the same message @-mentioned.
     if (replyThrottle.tryConsume()) {
@@ -1509,6 +1519,9 @@ export function installRealtimeDispatcher(
     // tracks intent for when it lands).
     const channel = ctx.resolveNotificationChannel?.(workspaceId, 'MENTION') ?? 'BOTH';
     if (channel === 'OFF' || channel === 'BROWSER') return;
+    // S76 (FR-PS-11): DND(스케줄 활성/수동) 중이면 배너(토스트) 억제. 멘션 캐시/배지는
+    // 위에서 이미 갱신됐으므로 영향 없음 — 토스트만 막는다.
+    if (ctx.isDndSuppressed?.()) return;
 
     const push = useNotifications.getState().push;
     const url = ctx.resolveMentionUrl?.({

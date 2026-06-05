@@ -88,6 +88,11 @@ export const GlobalNotificationSettingsSchema = z.object({
   dndUntil: z.string().datetime().nullable(),
   // 주간 DND 스케줄(presence 의 카노니컬 DndScheduleSchema 재사용). null = 미설정.
   dndSchedule: DndScheduleSchema.nullable(),
+  // S76 (D14 / FR-PS-10): 데스크톱 배너(토스트) 알림 ON/OFF. 기본 true.
+  notifDesktop: z.boolean(),
+  // S76 (D14 / FR-PS-10): 모바일 푸시 알림 ON/OFF. 기본 true. 푸시 인프라는 MVP 밖이라
+  // S76 은 컬럼 저장만 — 실제 푸시 전송 배선은 후속(클라 표시 게이트만 동작).
+  notifMobile: z.boolean(),
 });
 export type GlobalNotificationSettings = z.infer<typeof GlobalNotificationSettingsSchema>;
 
@@ -113,6 +118,9 @@ export const UpdateGlobalNotificationSettingsRequestSchema = z
       .max(7 * 24 * 60)
       .optional(),
     dndSchedule: DndScheduleSchema.nullable().optional(),
+    // S76 (D14 / FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF 토글(부분 갱신).
+    notifDesktop: z.boolean().optional(),
+    notifMobile: z.boolean().optional(),
   })
   .strict();
 export type UpdateGlobalNotificationSettingsRequest = z.infer<

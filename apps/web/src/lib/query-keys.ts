@@ -47,6 +47,8 @@ export const qk = {
     notificationPreferences: () => ['me', 'notification-preferences'] as const,
     // S46 (FR-MN-05): 글로벌 알림 설정(NotifLevel + keywords + dnd).
     globalNotificationSettings: () => ['me', 'settings', 'notifications'] as const,
+    // S76 (FR-PS-09): 외관 설정(테마/밀도/폰트/24h).
+    appearanceSettings: () => ['me', 'settings', 'appearance'] as const,
     // S46 (FR-MN-06): 서버별 알림 오버라이드.
     serverNotificationPref: (wsId: string) =>
       ['workspaces', wsId, 'notification-preferences'] as const,

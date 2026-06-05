@@ -157,6 +157,20 @@ enum MarkAsReadMode {
   MANUAL_FROM_LATEST
 }
 
+// S76 (D14 / FR-PS-09): 외관 테마. SYSTEM 은 클라가 prefers-color-scheme 로 해석한다
+// (DS data-theme 토큰은 dark/light 2값 — SYSTEM 은 클라 런타임 해석). 기본 DARK.
+enum Theme {
+  DARK
+  LIGHT
+  SYSTEM
+}
+
+// S76 (D14 / FR-PS-09): 메시지 밀도. DS [data-density="compact"] 셀렉터와 대응. 기본 COZY.
+enum Density {
+  COZY
+  COMPACT
+}
+
 // S46 (D06 / FR-MN-05): 사용자 글로벌 알림 설정. userId @unique — 사용자당 1행.
 // 행이 없으면 기본 MENTIONS(backfill 불요 — resolve 시 행 부재를 MENTIONS 로 폴백).
 // PRD NotificationPreference(글로벌) 카드에 대응하나, 본 프로젝트는 기존
@@ -175,6 +189,16 @@ model UserSettings {
   dndSchedule    Json?
   // S54 (D11 / FR-RS-13): 메시지 읽음 처리 모드. 기본 AUTO_FROM_POSITION.
   markAsReadMode MarkAsReadMode @default(AUTO_FROM_POSITION)
+  // S76 (D14 / FR-PS-09): 외관 설정. 행이 없으면 GET/PATCH 가 행을 생성(create-if-not-exists).
+  //   theme=DARK · density=COZY · chatFontSize=15 · clock24h=false 가 기본값.
+  theme          Theme          @default(DARK)
+  density        Density        @default(COZY)
+  chatFontSize   Int            @default(15)
+  clock24h       Boolean        @default(false)
+  // S76 (D14 / FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF. 둘 다 기본 true.
+  // notifMobile 의 실 푸시 전송은 MVP 밖이라 컬럼 저장만(클라 표시 게이트만 동작).
+  notifDesktop   Boolean        @default(true)
+  notifMobile    Boolean        @default(true)
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
 
