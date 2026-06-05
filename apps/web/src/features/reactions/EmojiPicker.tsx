@@ -111,6 +111,11 @@ type Props = {
   /** Tailwind class appended to the outer panel (position, z-index). */
   className?: string;
   /**
+   * S78 reviewer (a11y MEDIUM): 호출부가 트리거 버튼의 aria-controls 로 이
+   * 패널을 가리킬 수 있도록 외부에서 주입하는 DOM id. 미제공 시 id 없음.
+   */
+  id?: string;
+  /**
    * task-037-D: workspace custom emoji pack. When supplied + non-empty,
    * a "워크스페이스" tab renders first so users default to the pack they
    * uploaded rather than scrolling past the curated Unicode tabs.
@@ -139,6 +144,7 @@ export function EmojiPicker({
   onDismiss,
   isActive,
   className,
+  id,
   customEmojis,
   quickReactions,
   recentEmojis,
@@ -205,6 +211,7 @@ export function EmojiPicker({
   return (
     <div
       ref={rootRef}
+      id={id}
       role="menu"
       data-testid="emoji-picker"
       className={cn('qf-menu flex w-64 flex-col gap-[var(--s-2)] p-[var(--s-3)]', className)}

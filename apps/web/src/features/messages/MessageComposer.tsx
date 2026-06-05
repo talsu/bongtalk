@@ -23,6 +23,8 @@ import { useAttachmentUpload } from '../attachments/useAttachmentUpload';
 import { AttachmentTray } from '../attachments/AttachmentTray';
 import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
 import { computeCounter } from './composerCounter';
+import { composerAnnouncement } from './composerAnnouncement';
+import { announce } from '../../lib/a11y-announce';
 import { cn } from '../../lib/cn';
 import { Autocomplete } from './autocomplete/Autocomplete';
 import { SpecialMentionConfirmDialog } from './autocomplete/SpecialMentionConfirmDialog';
@@ -32,7 +34,7 @@ import {
   type AutocompleteSources,
 } from './autocomplete/useAutocomplete';
 import { insertToken } from './autocomplete/insertToken';
-import { detectTrigger, type TriggerKind } from './autocomplete/detectTrigger';
+import { detectTrigger } from './autocomplete/detectTrigger';
 import { useAutocompleteMaxHeight } from './autocomplete/popupMaxHeight';
 import {
   canUseSpecialMention,
@@ -80,13 +82,6 @@ function makeTypingEmitter(channelId: string): TypingEmitter {
     },
   });
 }
-
-// A-03: 자동완성 종류별 sr-only 통지 명사. "멤버 3개" 처럼 결과 수와 결합한다.
-const AC_SECTION_NOUN: Record<TriggerKind, string> = {
-  mention: '멤버',
-  channel: '채널',
-  emoji: '이모지',
-};
 
 /**
  * S18 (FR-RC06): 선택된 자동완성 행을 컴포저에 삽입할 토큰으로 변환.
@@ -311,6 +306,7 @@ export function MessageComposer({
     setActiveIndex: acSetActive,
     activeRow: acActiveRow,
     close: acClose,
+    emptyTriggerKind: acEmptyKind,
   } = useAutocomplete({
     text: draft,
     caret,
@@ -321,14 +317,43 @@ export function MessageComposer({
 
   const listboxId = useId();
   const optionId = (index: number): string => `${listboxId}-opt-${index}`;
+  // S78 reviewer (a11y MEDIUM): 이모지 버튼 aria-controls 가 가리킬 패널 id.
+  const emojiPickerId = useId();
   const acMaxHeight = useAutocompleteMaxHeight(acState.open);
 
-  // A-03: 팝업 등장/결과 수를 sr-only aria-live 로 통지한다. 닫히면 빈
-  // 문자열로 되돌려(무음) 다음 open 전환에서 다시 읽히게 한다. live region
-  // 노드는 항상 마운트해 둬야 SR 이 텍스트 변경을 감지한다.
-  const acAnnouncement = acState.open
-    ? `${AC_SECTION_NOUN[acState.kind]} ${acState.rows.length}개`
-    : '';
+  // S78 (FR-A11Y-01): 자동완성 팝업의 등장/결과 수를 공유 라이브 영역
+  // (`qf-a11y-announcer`)에 통지한다. 종전엔 컴포저 내부 sr-only div 에 직접
+  // 바인딩했으나, 모든 자동완성(@멘션·#채널·:이모지·향후 슬래시/검색)이 동일
+  // 리전을 공유하도록 announce() 헬퍼 경유로 전환한다. 팝업이 닫히면 200ms 뒤
+  // 빈 문자열로 초기화해 이전 공지의 재낭독을 막는다(race-safe: 연속 팝업 시
+  // 헬퍼가 pending 초기화 타이머를 취소하고 새 텍스트를 주입). open 상태와 결과
+  // 수가 바뀔 때만 재공지하도록 의존성을 좁힌다. acState 는 판별 유니온이라
+  // open=false 면 kind/rows 가 없으므로, 효과로 넘길 스칼라를 미리 추린다.
+  //
+  // S78 reviewer FF3 (a11y): 팝업은 rows>0 일 때만 열리므로, "트리거 활성·결과
+  // 0건"은 acState.open=false 라 위 경로로는 공지되지 않았다(empty-result 분기
+  // 도달 불가). acEmptyKind(훅이 노출) 가 있으면 팝업이 닫혀 있어도
+  // composerAnnouncement(kind, 0) → "검색 결과가 없습니다" 를 공지해 SR
+  // 사용자에게 결과 없음을 전달한다.
+  const acOpen = acState.open;
+  const acMessage = acState.open
+    ? composerAnnouncement(acState.kind, acState.rows.length)
+    : acEmptyKind
+      ? composerAnnouncement(acEmptyKind, 0)
+      : '';
+  // FF4 (a11y MAJOR): 언마운트/채널 전환 시 cleanup 으로 announcer 잔류를
+  // 제거한다. 공유 싱글턴이라 이 컴포저가 사라져도 이전 공지가 남아 다른
+  // 화면에서 재낭독될 수 있으므로, 즉시(resetDelayMs:0) 비운다.
+  useEffect(() => {
+    if (acMessage) {
+      announce(acMessage);
+    } else {
+      announce('', { resetDelayMs: 200 });
+    }
+    return () => {
+      announce('', { resetDelayMs: 0 });
+    };
+  }, [acOpen, acMessage]);
 
   // 선택된 행을 컴포저에 삽입하고 트리거 범위를 토큰으로 치환한다.
   //
@@ -733,20 +758,17 @@ export function MessageComposer({
               onHover={(index) => acSetActive(index)}
             />
           ) : null}
-          {/* A-03: 자동완성 팝업 등장/결과 수 통지. 항상 마운트(무음 시 빈
-              텍스트)해 SR 이 open 전환의 텍스트 변경을 감지하게 한다. */}
-          <span
-            className="sr-only"
-            role="status"
-            aria-live="polite"
-            data-testid="autocomplete-live"
-          >
-            {acAnnouncement}
-          </span>
+          {/* S78 (FR-A11Y-01): 자동완성 등장/결과 수 통지는 공유 라이브 영역
+              (`qf-a11y-announcer`)으로 위임한다(announce() 헬퍼·위 useEffect).
+              컴포저 내부 sr-only div 는 제거했다. */}
           <button
             type="button"
             data-testid="composer-emoji"
             aria-label="이모티콘 삽입"
+            // S78 reviewer (a11y MEDIUM): 팝업 종류(dialog)와 제어 대상 패널을
+            // 노출해 SR 사용자가 버튼이 어떤 오버레이를 여는지 알 수 있게 한다.
+            aria-haspopup="dialog"
+            aria-controls={emojiPickerId}
             aria-expanded={emojiOpen}
             onClick={() => setEmojiOpen((v) => !v)}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm self-end"
@@ -755,6 +777,7 @@ export function MessageComposer({
           </button>
           {emojiOpen ? (
             <EmojiPicker
+              id={emojiPickerId}
               className="absolute bottom-full right-0 mb-[var(--s-2)]"
               onSelect={(emoji) => {
                 insertAtCursor(emoji);

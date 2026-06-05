@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { cn } from '../../../lib/cn';
 import type { AutocompleteRow } from './useAutocomplete';
-import type { TriggerKind } from './detectTrigger';
+import { TRIGGER_KIND_LABEL, type TriggerKind } from './detectTrigger';
 
 /**
  * S18 (FR-RC03/04/05/06) — 자동완성 listbox UI.
@@ -15,13 +15,10 @@ import type { TriggerKind } from './detectTrigger';
  *   qf-autocomplete / __header / __item / __item--mention|channel|emoji /
  *   __avatar / __text / __label / __sub / __meta / __meta-dot--online /
  *   __shortcode. raw hex/px/shadow 없음.
+ *
+ * S78 reviewer FF6 (contract): 섹션 라벨은 detectTrigger.TRIGGER_KIND_LABEL
+ * 단일 출처를 쓴다(SR 결과 공지 composerAnnouncement 와 동일 명사 공유).
  */
-const SECTION_LABEL: Record<TriggerKind, string> = {
-  mention: '멤버',
-  channel: '채널',
-  emoji: '이모지',
-};
-
 export function Autocomplete({
   kind,
   rows,
@@ -54,13 +51,13 @@ export function Autocomplete({
     <ul
       role="listbox"
       id={listboxId}
-      aria-label={`${SECTION_LABEL[kind]} 자동완성`}
+      aria-label={`${TRIGGER_KIND_LABEL[kind]} 자동완성`}
       data-testid={`autocomplete-${kind}`}
       className="qf-autocomplete"
       style={{ maxHeight: `${maxHeight}px` }}
     >
       <li className="qf-autocomplete__header" role="presentation" aria-hidden="true">
-        {SECTION_LABEL[kind]}
+        {TRIGGER_KIND_LABEL[kind]}
       </li>
       {rows.map((row, index) => (
         <Row

@@ -14,6 +14,20 @@
  */
 export type TriggerKind = 'mention' | 'channel' | 'emoji';
 
+/**
+ * S78 reviewer FF6 (contract): 트리거 종류 → 한국어 섹션 명사 단일 출처.
+ * 종전엔 Autocomplete.tsx(`SECTION_LABEL`)와 composerAnnouncement.ts
+ * (`AC_SECTION_NOUN`)에 동일 매핑이 중복돼 있었습니다 — 한쪽만 고치면 SR
+ * 공지와 시각 섹션 라벨이 어긋날 위험이 있어 여기로 통합합니다(향후 슬래시/
+ * 검색 종류 추가도 한 곳에서). 자동완성 listbox 섹션 헤더와 SR 결과 공지가
+ * 이 동일 명사를 공유합니다.
+ */
+export const TRIGGER_KIND_LABEL: Record<TriggerKind, string> = {
+  mention: '멤버',
+  channel: '채널',
+  emoji: '이모지',
+};
+
 export type Trigger = {
   kind: TriggerKind;
   /** sigil 뒤부터 캐럿까지의 검색어(소문자 정규화 전 원문). */
