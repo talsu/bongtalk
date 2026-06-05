@@ -1,4 +1,5 @@
-import { useEffect, useRef, type RefObject } from 'react';
+import { forwardRef, useEffect, useImperativeHandle, useRef, type RefObject } from 'react';
+import { createPortal } from 'react-dom';
 import { Icon, type IconName } from '../../design-system/primitives';
 import type { ToolbarFormat } from './formatWrap';
 
@@ -15,9 +16,14 @@ import type { ToolbarFormat } from './formatWrap';
  * 단어 단위 좌표 대신 textarea 상단 고정으로 결정론적으로 띄운다(UNDERSTAND 권고·뷰포트
  * 경계 보정 포함). position:fixed + 뷰포트 클램프라 스크롤 컨테이너 안에서도 안정적이다.
  *
+ * S83c round-2(a11y BLOCKER 1.3.2): SR 가상 커서의 DOM 순서/스태킹을 깨지 않도록
+ * createPortal 로 document.body 에 마운트한다. position:fixed 라 좌표 계산엔 영향이 없고,
+ * blur 판정을 위한 toolbarRef.current?.contains(relatedTarget) 는 포털이어도 그대로 동작한다.
+ * 상위(composer)가 toolbarRef 를 소유해 onBlur 에서 직접 비교하므로 DOM testid 쿼리가 불필요하다.
+ *
  * 닫힘은 상위가 제어한다(선택 해제·blur). 이 컴포넌트는 Esc 를 받아 onClose 를 호출하고
  * textarea 포커스를 되돌린다. 마우스 클릭으로 선택이 풀리지 않도록 버튼은 onMouseDown 에서
- * preventDefault 한다.
+ * preventDefault 한다. 상위는 toolbarRef 의 focusFirst() 로 키보드 진입(Tab)을 구현한다.
  */
 
 interface ToolbarButton {
@@ -38,6 +44,17 @@ const BUTTONS: ToolbarButton[] = [
   { format: 'link', icon: 'link', label: '링크' },
 ];
 
+/**
+ * 상위(composer)가 toolbarRef 로 잡는 명령형 핸들. contains 는 onBlur 의 relatedTarget 비교에,
+ * focusFirst 는 키보드 Tab 진입(첫 버튼 포커스)에 쓴다.
+ */
+export interface FormatToolbarHandle {
+  /** relatedTarget 이 툴바 내부인지 — onBlur 가 툴바로의 포커스 이동을 닫힘에서 제외하는 데 쓴다. */
+  contains: (_node: Node | null) => boolean;
+  /** 키보드 Tab 진입 시 툴바 첫 버튼으로 포커스를 옮긴다(키보드 도달 경로). */
+  focusFirst: () => void;
+}
+
 interface FormatToolbarProps {
   /** 선택 영역 위치 계산의 기준이 되는 textarea. */
   anchorRef: RefObject<HTMLTextAreaElement>;
@@ -47,91 +64,135 @@ interface FormatToolbarProps {
   onClose: () => void;
 }
 
-/** 툴바 위치(fixed). textarea 상단 위에 두고 뷰포트 좌/우/상단 경계로 클램프한다. */
-function computePosition(rect: DOMRect): { top: number; left: number } {
-  const GAP = 8; // textarea 상단과 툴바 사이 간격(px) — 위치 계산 상수(레이아웃 토큰 아님).
-  const ESTIMATED_HEIGHT = 40; // 툴바 추정 높이 — 상단 경계 클램프용.
-  const top = Math.max(GAP, rect.top - ESTIMATED_HEIGHT - GAP);
-  // 좌측은 textarea 좌측에 맞추되 뷰포트 안으로 클램프.
-  const left = Math.max(GAP, rect.left);
+const GAP = 8; // textarea 상단과 툴바 사이 간격(px) — 위치 계산 상수(레이아웃 토큰 아님).
+const FALLBACK_HEIGHT = 40; // offsetHeight 측정 불가(첫 페인트/jsdom) 시 상단 클램프용 추정 높이.
+
+/**
+ * 툴바 위치(fixed). textarea 상단 위에 두고 뷰포트 좌/우/상단 경계로 클램프한다.
+ * M-3: 우측은 (innerWidth - 툴바폭 - GAP)으로 클램프하고, 상단 높이/폭은 실측(offsetWidth/
+ * Height)을 우선 쓰되 측정 불가 시 FALLBACK_HEIGHT 로 폴백한다.
+ */
+function computePosition(
+  rect: DOMRect,
+  toolbarWidth: number,
+  toolbarHeight: number,
+): { top: number; left: number } {
+  const height = toolbarHeight > 0 ? toolbarHeight : FALLBACK_HEIGHT;
+  const top = Math.max(GAP, rect.top - height - GAP);
+  // 좌측은 textarea 좌측에 맞추되 뷰포트 좌/우 경계 안으로 클램프한다.
+  const maxLeft = Math.max(GAP, window.innerWidth - toolbarWidth - GAP);
+  const left = Math.min(Math.max(GAP, rect.left), maxLeft);
   return { top, left };
 }
 
-export function FormatToolbar({ anchorRef, onApply, onClose }: FormatToolbarProps): JSX.Element {
-  const toolbarRef = useRef<HTMLDivElement>(null);
-  const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
+export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>(
+  function FormatToolbar({ anchorRef, onApply, onClose }, ref): JSX.Element {
+    const toolbarRef = useRef<HTMLDivElement>(null);
+    const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
-  // 위치 계산: 마운트 시 + 윈도우 리사이즈/스크롤 시 anchor rect 기준으로 갱신한다.
-  useEffect(() => {
-    const place = (): void => {
-      const anchor = anchorRef.current;
-      const el = toolbarRef.current;
-      if (!anchor || !el) return;
-      const rect = anchor.getBoundingClientRect();
-      const { top, left } = computePosition(rect);
-      el.style.top = `${top}px`;
-      el.style.left = `${left}px`;
+    // 상위(composer)가 onBlur 비교/키보드 진입에 쓰는 명령형 핸들. testid DOM 쿼리(brittle·
+    // prod attr strip 위험)를 제거하고 ref 로 toolbar 노드를 직접 소유하게 한다(HIGH 4.1.3).
+    useImperativeHandle(
+      ref,
+      () => ({
+        contains: (node: Node | null) =>
+          node ? (toolbarRef.current?.contains(node) ?? false) : false,
+        focusFirst: () => {
+          buttonRefs.current.find((b): b is HTMLButtonElement => b !== null)?.focus();
+        },
+      }),
+      [],
+    );
+
+    // 위치 계산: 마운트 시 + 윈도우 리사이즈/스크롤 시 anchor rect 기준으로 갱신한다.
+    // perf(SERIOUS/MODERATE): scroll/resize 핸들러는 rAF 로 프레임당 1회만 place 하도록
+    // throttle 하고(단일 rAF guard), scroll 리스너는 capture+passive 로 등록한다.
+    useEffect(() => {
+      let rafId: number | null = null;
+      const place = (): void => {
+        const anchor = anchorRef.current;
+        const el = toolbarRef.current;
+        if (!anchor || !el) return;
+        const rect = anchor.getBoundingClientRect();
+        const { top, left } = computePosition(rect, el.offsetWidth, el.offsetHeight);
+        el.style.top = `${top}px`;
+        el.style.left = `${left}px`;
+        // N-3: 위치 확정 후 보이게 해 첫 페인트에서 좌상단(0,0)으로 튀지 않게 한다.
+        el.style.visibility = 'visible';
+      };
+      const schedule = (): void => {
+        if (rafId !== null) return; // 단일 rAF guard — 프레임당 1회.
+        rafId = window.requestAnimationFrame(() => {
+          rafId = null;
+          place();
+        });
+      };
+      place();
+      window.addEventListener('resize', schedule, { passive: true });
+      window.addEventListener('scroll', schedule, { capture: true, passive: true });
+      return () => {
+        if (rafId !== null) window.cancelAnimationFrame(rafId);
+        window.removeEventListener('resize', schedule);
+        window.removeEventListener('scroll', schedule, { capture: true });
+      };
+    }, [anchorRef]);
+
+    // a11y: 방향키로 버튼 사이를 순회한다(roving — Left/Right). Esc 는 툴바를 닫고
+    // textarea 로 포커스를 되돌린다.
+    const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        onClose();
+        anchorRef.current?.focus();
+        return;
+      }
+      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+        e.preventDefault();
+        const buttons = buttonRefs.current.filter((b): b is HTMLButtonElement => b !== null);
+        if (buttons.length === 0) return;
+        const activeIdx = buttons.findIndex((b) => b === document.activeElement);
+        const step = e.key === 'ArrowRight' ? 1 : -1;
+        const from = activeIdx < 0 ? 0 : activeIdx;
+        const next = (from + step + buttons.length) % buttons.length;
+        buttons[next]?.focus();
+      }
     };
-    place();
-    window.addEventListener('resize', place);
-    window.addEventListener('scroll', place, true);
-    return () => {
-      window.removeEventListener('resize', place);
-      window.removeEventListener('scroll', place, true);
-    };
-  }, [anchorRef]);
 
-  // a11y: 방향키로 버튼 사이를 순회한다(roving — Left/Right). Esc 는 툴바를 닫고
-  // textarea 로 포커스를 되돌린다.
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    if (e.key === 'Escape') {
-      e.preventDefault();
-      e.stopPropagation();
-      onClose();
-      anchorRef.current?.focus();
-      return;
-    }
-    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
-      e.preventDefault();
-      const buttons = buttonRefs.current.filter((b): b is HTMLButtonElement => b !== null);
-      if (buttons.length === 0) return;
-      const activeIdx = buttons.findIndex((b) => b === document.activeElement);
-      const step = e.key === 'ArrowRight' ? 1 : -1;
-      const from = activeIdx < 0 ? 0 : activeIdx;
-      const next = (from + step + buttons.length) % buttons.length;
-      buttons[next]?.focus();
-    }
-  };
+    // S83c round-2(a11y 1.3.2): SR 가상 커서 순서/스태킹을 위해 document.body 포털로 마운트.
+    // position:fixed 라 좌표는 effect 가 anchor rect 기준으로 채운다. 초기 visibility:hidden 으로
+    // 첫 페인트에서 좌상단으로 튀는 것을 막고(N-3), place() 가 'visible' 로 전환한다.
+    return createPortal(
+      <div
+        ref={toolbarRef}
+        role="toolbar"
+        aria-label="텍스트 서식 (방향키로 이동, Esc로 닫기)"
+        data-testid="format-toolbar"
+        onKeyDown={onKeyDown}
+        className="fixed z-[var(--z-dropdown)] flex items-center gap-[var(--s-1)] rounded-[var(--r-md)] border border-border-subtle bg-bg-surface p-[var(--s-1)] shadow-elev-2"
+        style={{ top: 0, left: 0, visibility: 'hidden' }}
+      >
+        {BUTTONS.map((btn, i) => (
+          <button
+            key={btn.format}
+            ref={(node) => {
+              buttonRefs.current[i] = node;
+            }}
+            type="button"
+            aria-label={btn.label}
+            data-testid={`format-toolbar-${btn.format}`}
+            className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+            // 선택 유지: 클릭으로 textarea selection 이 풀리지 않도록 기본 동작을 막는다.
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={() => onApply(btn.format)}
+          >
+            <Icon name={btn.icon} size="sm" />
+          </button>
+        ))}
+      </div>,
+      document.body,
+    );
+  },
+);
 
-  return (
-    <div
-      ref={toolbarRef}
-      role="toolbar"
-      aria-label="텍스트 서식"
-      data-testid="format-toolbar"
-      onKeyDown={onKeyDown}
-      // position:fixed — top/left 는 effect 가 anchor rect 기준으로 채운다. 초기값은
-      // 화면 밖이 아니라 좌상단 근처로 두어 첫 페인트에서 튀지 않게 한다.
-      className="fixed z-50 flex items-center gap-[var(--s-1)] rounded-[var(--r-md)] border border-border-subtle bg-bg-elevated p-[var(--s-1)] shadow-md"
-      style={{ top: 0, left: 0 }}
-    >
-      {BUTTONS.map((btn, i) => (
-        <button
-          key={btn.format}
-          ref={(node) => {
-            buttonRefs.current[i] = node;
-          }}
-          type="button"
-          aria-label={btn.label}
-          data-testid={`format-toolbar-${btn.format}`}
-          className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
-          // 선택 유지: 클릭으로 textarea selection 이 풀리지 않도록 기본 동작을 막는다.
-          onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onApply(btn.format)}
-        >
-          <Icon name={btn.icon} size="sm" />
-        </button>
-      ))}
-    </div>
-  );
-}
+FormatToolbar.displayName = 'FormatToolbar';
