@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type {
   ExecuteSlashCommandResponse,
   ExecuteSlashEphemeralResponse,
+  ExecuteSlashGiphyPreviewResponse,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
@@ -28,6 +29,7 @@ import {
 } from './slash-transforms';
 import { parseReminder, REMINDER_SYNTAX_HINT } from './reminder-parse';
 import { ReminderService } from './reminder.service';
+import { GiphyProxyService } from './giphy-proxy.service';
 
 // /topic 길이 상한 — REST 경로의 UpdateChannelRequestSchema.topic.max(1024)와 동일하게
 // 맞춘다(channel.ts). 슬래시 경로가 이 검증을 우회하지 않도록 runTopic 에서 강제한다.
@@ -64,6 +66,8 @@ export class SlashExecutionService {
     private readonly memberProfile: WorkspaceMemberProfileService,
     private readonly moderation: ModerationService,
     private readonly mutes: MutesService,
+    // S81b (FR-SC-07): /giphy 는 GIPHY Search API 서버 프록시를 통해 GIF 한 개를 받는다.
+    private readonly giphy: GiphyProxyService,
   ) {}
 
   async execute(args: {
@@ -119,8 +123,11 @@ export class SlashExecutionService {
           return this.runInvite(args);
         case 'msg':
           return this.runMsg(args, now);
+        // ── S81b (FR-SC-07): /giphy → GIPHY 프록시 + 발신자 전용 GIF 프리뷰 ──────────
+        case 'giphy':
+          return this.runGiphy(args);
         default:
-          // giphy 등 — 실행기 미구현(S81b OUT).
+          // 그 외 INTERNAL_ACTION 미구현 — 방어적(현재 도달 불가).
           throw new DomainError(
             ErrorCode.SLASH_COMMAND_NOT_EXECUTABLE,
             `이 커맨드는 아직 실행을 지원하지 않습니다: /${command}`,
@@ -484,6 +491,54 @@ export class SlashExecutionService {
       navigate: { kind: 'dm', channelId, userId: targetId },
     };
     return response;
+  }
+
+  /**
+   * S81b (FR-SC-07): /giphy [키워드] → GIPHY 프록시 검색 후 발신자 전용 GIF 프리뷰
+   * (GIPHY_PREVIEW). 채널에 게시하지 않고(FE 가 Shuffle/Send/Cancel UI 를 띄움), Send 시
+   * gifUrl 을 일반 메시지로 게시한다(별도 경로 — FE). 키워드가 없으면 EPHEMERAL 안내,
+   * 결과가 없으면 EPHEMERAL "결과 없음", 키 미설정/GIPHY 오류(GIPHY_UNAVAILABLE)는 graceful
+   * 하게 EPHEMERAL error 로 흡수한다(절대 500/크래시 금지 — env-gate inert prod 포함).
+   */
+  private async runGiphy(args: { text: string }): Promise<ExecuteSlashCommandResponse> {
+    const keyword = (args.text ?? '').trim();
+    if (keyword.length === 0) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: '검색할 키워드를 입력해 주세요. 예: `/giphy 고양이`',
+        error: true,
+      };
+    }
+    let result: Awaited<ReturnType<GiphyProxyService['search']>>;
+    try {
+      result = await this.giphy.search(keyword, 0);
+    } catch (err) {
+      // GIPHY_UNAVAILABLE(키 미설정/오류/형식 위반)는 발신자 전용 EPHEMERAL error 로 흡수한다.
+      if (err instanceof DomainError && err.code === ErrorCode.GIPHY_UNAVAILABLE) {
+        return {
+          responseType: 'EPHEMERAL',
+          content: 'GIPHY 를 사용할 수 없습니다. 잠시 후 다시 시도해 주세요',
+          error: true,
+        };
+      }
+      throw err;
+    }
+    if (result === null) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: `"${keyword}" 에 해당하는 GIF 를 찾지 못했습니다`,
+        error: true,
+      };
+    }
+    const preview: ExecuteSlashGiphyPreviewResponse = {
+      responseType: 'GIPHY_PREVIEW',
+      gifUrl: result.gifUrl,
+      gifThumbUrl: result.gifThumbUrl,
+      title: result.title,
+      keyword,
+      offset: 0,
+    };
+    return preview;
   }
 
   // ── S81a (FR-SC-08): 공유 헬퍼 ──────────────────────────────────────────────────

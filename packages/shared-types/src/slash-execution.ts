@@ -65,11 +65,65 @@ export const ExecuteSlashEphemeralResponseSchema = z.object({
 });
 export type ExecuteSlashEphemeralResponse = z.infer<typeof ExecuteSlashEphemeralResponseSchema>;
 
+// ── S81b (D15 / FR-SC-07): /giphy 실행 — 발신자 전용 GIF 프리뷰 응답 ─────────────
+//
+// `/giphy [키워드]` 실행 시 서버가 GIPHY Search API 를 프록시해 GIF 한 개를 골라
+// 발신자에게만 ephemeral 프리뷰로 돌려준다(채널 미게시). FE 는 이 응답을 받아 썸네일 +
+// "Powered By GIPHY" attribution + [Shuffle][Send][Cancel] 을 인라인으로 렌더한다.
+//   - Shuffle → POST .../giphy/search { keyword, offset: 이전+1 } 로 다른 GIF 재요청.
+//   - Send    → gifUrl 을 일반 메시지로 채널 게시(기존 send 경로 — S60 unfurl 이 인라인 렌더).
+//   - Cancel  → 프리뷰 로컬 제거(서버 호출 없음).
+// keyword/offset 을 함께 실어 FE 가 Shuffle 시 같은 키워드의 다음 offset 을 요청한다.
+// security HIGH-1 (S81b 리뷰): gifUrl/gifThumbUrl 은 채널 게시(unfurl) · <img src>
+// 로 직접 쓰이므로 javascript:/data: 등 비-https 스킴을 계약 수준에서 차단한다
+// (defense-in-depth — 서버 프록시도 동일 검증). https 전용 GIF URL 만 허용.
+const HttpsUrl = z
+  .string()
+  .url()
+  .refine((v) => v.startsWith('https://'), 'https only');
+
+export const ExecuteSlashGiphyPreviewResponseSchema = z.object({
+  responseType: z.literal('GIPHY_PREVIEW'),
+  // 채널 게시 시 사용할 원본 GIF URL(GIPHY images.original.url).
+  gifUrl: HttpsUrl,
+  // 프리뷰에 표시할 썸네일 URL(GIPHY images.fixed_width.url).
+  gifThumbUrl: HttpsUrl,
+  // GIF 제목(접근성 alt / 표시 보조). GIPHY title 이 비면 빈 문자열.
+  title: z.string(),
+  // 검색 키워드(Shuffle 재요청에 재사용). 빈 키워드는 EPHEMERAL 안내로 분기하므로 ≥1.
+  keyword: z.string().min(1).max(100),
+  // 현재 결과의 offset(Shuffle 시 +1 해 다음 GIF 요청).
+  offset: z.number().int().nonnegative(),
+});
+export type ExecuteSlashGiphyPreviewResponse = z.infer<
+  typeof ExecuteSlashGiphyPreviewResponseSchema
+>;
+
 export const ExecuteSlashCommandResponseSchema = z.discriminatedUnion('responseType', [
   ExecuteSlashInChannelResponseSchema,
   ExecuteSlashEphemeralResponseSchema,
+  ExecuteSlashGiphyPreviewResponseSchema,
 ]);
 export type ExecuteSlashCommandResponse = z.infer<typeof ExecuteSlashCommandResponseSchema>;
+
+// ── S81b (D15 / FR-SC-07): POST .../giphy/search — Shuffle 재요청 ────────────────
+//
+// 프리뷰의 Shuffle 버튼이 같은 키워드의 다른 GIF(offset 증가)를 받기 위해 호출한다.
+// 서버는 GIPHY Search API 를 프록시(API 키는 서버 env 만 — 클라 노출 금지)하고 단일
+// GIF 의 url/thumb/title 을 돌려준다. keyword 는 ≤100자, offset 은 기본 0.
+export const GiphySearchRequestSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  offset: z.number().int().nonnegative().max(4999).optional(),
+});
+export type GiphySearchRequest = z.infer<typeof GiphySearchRequestSchema>;
+
+export const GiphySearchResponseSchema = z.object({
+  // security HIGH-1 (S81b 리뷰): https 전용(위 ExecuteSlashGiphyPreviewResponse 와 동일 규칙).
+  gifUrl: HttpsUrl,
+  gifThumbUrl: HttpsUrl,
+  title: z.string(),
+});
+export type GiphySearchResponse = z.infer<typeof GiphySearchResponseSchema>;
 
 // responseType 재노출 편의(execute 호출부가 slash-command.ts 를 따로 import 하지 않도록).
 export { ResponseTypeSchema };
