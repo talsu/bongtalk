@@ -74,12 +74,20 @@ export type ExecuteSlashEphemeralResponse = z.infer<typeof ExecuteSlashEphemeral
 //   - Send    → gifUrl 을 일반 메시지로 채널 게시(기존 send 경로 — S60 unfurl 이 인라인 렌더).
 //   - Cancel  → 프리뷰 로컬 제거(서버 호출 없음).
 // keyword/offset 을 함께 실어 FE 가 Shuffle 시 같은 키워드의 다음 offset 을 요청한다.
+// security HIGH-1 (S81b 리뷰): gifUrl/gifThumbUrl 은 채널 게시(unfurl) · <img src>
+// 로 직접 쓰이므로 javascript:/data: 등 비-https 스킴을 계약 수준에서 차단한다
+// (defense-in-depth — 서버 프록시도 동일 검증). https 전용 GIF URL 만 허용.
+const HttpsUrl = z
+  .string()
+  .url()
+  .refine((v) => v.startsWith('https://'), 'https only');
+
 export const ExecuteSlashGiphyPreviewResponseSchema = z.object({
   responseType: z.literal('GIPHY_PREVIEW'),
   // 채널 게시 시 사용할 원본 GIF URL(GIPHY images.original.url).
-  gifUrl: z.string().url(),
+  gifUrl: HttpsUrl,
   // 프리뷰에 표시할 썸네일 URL(GIPHY images.fixed_width.url).
-  gifThumbUrl: z.string().url(),
+  gifThumbUrl: HttpsUrl,
   // GIF 제목(접근성 alt / 표시 보조). GIPHY title 이 비면 빈 문자열.
   title: z.string(),
   // 검색 키워드(Shuffle 재요청에 재사용). 빈 키워드는 EPHEMERAL 안내로 분기하므로 ≥1.
@@ -110,8 +118,9 @@ export const GiphySearchRequestSchema = z.object({
 export type GiphySearchRequest = z.infer<typeof GiphySearchRequestSchema>;
 
 export const GiphySearchResponseSchema = z.object({
-  gifUrl: z.string().url(),
-  gifThumbUrl: z.string().url(),
+  // security HIGH-1 (S81b 리뷰): https 전용(위 ExecuteSlashGiphyPreviewResponse 와 동일 규칙).
+  gifUrl: HttpsUrl,
+  gifThumbUrl: HttpsUrl,
   title: z.string(),
 });
 export type GiphySearchResponse = z.infer<typeof GiphySearchResponseSchema>;

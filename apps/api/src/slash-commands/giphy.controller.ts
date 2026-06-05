@@ -39,6 +39,11 @@ export class GiphyController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    // security MED-1 (S81b 리뷰): 미인증 계정은 슬래시 실행(execute) 게이트와 동일하게
+    // GIPHY 검색(프리뷰 Shuffle)도 차단한다(S81a 패턴 동일 — EMAIL_NOT_VERIFIED 403).
+    if (!user.emailVerified) {
+      throw new DomainError(ErrorCode.EMAIL_NOT_VERIFIED, '이메일 인증 후 사용할 수 있습니다');
+    }
     await this.rate.enforce([{ key: `giphy:search:u:${user.id}`, windowSec: 60, max: 10 }]);
 
     const result = await this.giphy.search(parsed.data.keyword, parsed.data.offset ?? 0);

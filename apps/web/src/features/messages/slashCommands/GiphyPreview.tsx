@@ -2,7 +2,12 @@ import { useState } from 'react';
 import { Icon } from '../../../design-system/primitives';
 import { cn } from '../../../lib/cn';
 import { searchGiphy } from './api';
-import { useGiphyPreview } from './useGiphyPreview';
+import { useGiphyPreviewStore } from './useGiphyPreview';
+
+/** 컴포저 textarea 로 포커스를 되돌린다(Send/Cancel 로 프리뷰가 언마운트된 뒤 호출). */
+function focusComposer(): void {
+  document.getElementById('msg-input')?.focus();
+}
 
 /**
  * S81b (D15 / FR-SC-07) — /giphy 발신자 전용 GIF 프리뷰(채널 미게시).
@@ -28,9 +33,15 @@ export function GiphyPreview({
   onSend: (gifUrl: string) => void;
   announce?: (msg: string) => void;
 }): JSX.Element | null {
-  const { preview, set, clear } = useGiphyPreview(channelId);
+  // reviewer HIGH-1 (S81b 리뷰): store 액션을 직접 안정 참조로 구독한다(useGiphyPreview 훅의
+  // 매-렌더 새 클로저가 cleanup/콜백 의존성을 흔들지 않게). preview 만 채널별로 선택 구독한다.
+  const preview = useGiphyPreviewStore((s) => s.byChannel[channelId] ?? null);
+  const setPreview = useGiphyPreviewStore((s) => s.set);
+  const clearPreview = useGiphyPreviewStore((s) => s.clear);
   const [shuffling, setShuffling] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // reviewer LOW-1 (S81b 리뷰): 썸네일 로드 실패 시 인라인 안내로 폴백한다(깨진 이미지 숨김).
+  const [thumbBroken, setThumbBroken] = useState(false);
 
   if (!preview) return null;
 
@@ -38,10 +49,12 @@ export function GiphyPreview({
     if (shuffling) return;
     setShuffling(true);
     setError(null);
+    setThumbBroken(false);
     const nextOffset = preview.offset + 1;
     void searchGiphy({ workspaceId, channelId, keyword: preview.keyword, offset: nextOffset })
       .then((res) => {
-        set({
+        setPreview({
+          channelId,
           gifUrl: res.gifUrl,
           gifThumbUrl: res.gifThumbUrl,
           title: res.title,
@@ -50,29 +63,36 @@ export function GiphyPreview({
         });
         announce?.('다른 GIF 를 불러왔습니다');
       })
-      .catch((err: unknown) => {
-        const message =
-          err && typeof err === 'object' && 'message' in err
-            ? String((err as { message: unknown }).message)
-            : '다른 GIF 를 불러오지 못했습니다';
-        setError(message);
-        announce?.(message);
+      .catch(() => {
+        // a11y HIGH-3 + reviewer MED-1 (S81b 리뷰): raw err.message(Zod blob 등)를 노출하지
+        // 않고 고정 친화 문구만 보여준다. SR 통지는 아래 role="alert" 가 담당하므로 여기서
+        // announce 를 중복 호출하지 않는다(이중 낭독 방지).
+        setError('GIF 를 더 불러오지 못했습니다');
       })
       .finally(() => setShuffling(false));
   };
 
   const handleSend = (): void => {
+    // a11y HIGH-2 (S81b 리뷰): clear() 로 카드가 언마운트되기 전에 전송 성공을 SR 에 통지한다.
     onSend(preview.gifUrl);
-    clear();
+    announce?.('GIF 를 채널에 보냈습니다');
+    clearPreview(channelId);
+    // a11y HIGH(focus): 언마운트 후 컴포저 textarea 로 포커스를 되돌린다.
+    focusComposer();
   };
 
   const handleCancel = (): void => {
-    clear();
+    clearPreview(channelId);
+    focusComposer();
   };
 
   return (
     <div
       data-testid="giphy-preview"
+      // a11y BLK-1 (S81b 리뷰): EphemeralList 와 일관되게 group + aria-label 로 "나만 보임"
+      // 맥락을 노출한다.
+      role="group"
+      aria-label="GIF 미리보기 — 나만 보임"
       // EphemeralMessage 와 동일 시각 토큰(bg-bg-subtle 유효) — 발신자 전용 인라인 카드.
       className={cn(
         'qf-giphy-preview group flex flex-col gap-2 rounded-md bg-bg-subtle px-3 py-2',
@@ -84,16 +104,28 @@ export function GiphyPreview({
         <span className="text-xs font-medium">나만 보임 · GIF 미리보기</span>
       </div>
 
-      <img
-        src={preview.gifThumbUrl}
-        alt={preview.title || `"${preview.keyword}" GIF`}
-        data-testid="giphy-preview-image"
-        // DS 토큰 기반 라운드 + 최대폭(인라인 카드). 서버 리사이즈 없이 CSS 다운스케일.
-        className="max-w-[var(--giphy-preview-max-w,320px)] rounded-md"
-      />
+      {thumbBroken ? (
+        // reviewer LOW-1 (S81b 리뷰): 썸네일 로드 실패 시 깨진 img 대신 인라인 안내를 보여준다.
+        <span data-testid="giphy-preview-thumb-error" className="text-xs text-text-muted">
+          GIF 미리보기를 불러오지 못했습니다
+        </span>
+      ) : (
+        <img
+          src={preview.gifThumbUrl}
+          alt={preview.title || `"${preview.keyword}" GIF`}
+          data-testid="giphy-preview-image"
+          // perf MINOR (S81b 리뷰): 디코딩을 비동기로 돌려 메인 스레드 블로킹을 줄인다.
+          decoding="async"
+          // reviewer LOW-1 (S81b 리뷰): 깨진 썸네일 URL 이면 인라인 에러로 폴백한다.
+          onError={() => setThumbBroken(true)}
+          // DS 토큰 기반 라운드 + 최대폭(인라인 카드). 서버 리사이즈 없이 CSS 다운스케일.
+          className="max-w-[var(--giphy-preview-max-w,320px)] rounded-md"
+        />
+      )}
 
       {error ? (
-        <span data-testid="giphy-preview-error" className="text-[color:var(--danger-400)]">
+        // a11y HIGH-3 (S81b 리뷰): role="alert" 로 SR 에 즉시 통지, 색은 Tailwind danger 키.
+        <span data-testid="giphy-preview-error" role="alert" className="text-danger">
           {error}
         </span>
       ) : null}
@@ -108,7 +140,9 @@ export function GiphyPreview({
             type="button"
             onClick={handleShuffle}
             disabled={shuffling}
-            aria-label="다른 GIF 보기"
+            // a11y BLK-2 (S81b 리뷰): 로딩 중을 SR 에 노출(disabled 는 유지). a11y MAJ-3:
+            // 가시 텍스트("셔플")가 접근성 이름이 되도록 aria-label 은 두지 않는다(label-in-name 일치).
+            aria-busy={shuffling}
             data-testid="giphy-shuffle"
             className="qf-btn qf-btn--ghost qf-btn--sm"
           >
@@ -133,6 +167,8 @@ export function GiphyPreview({
             className="qf-btn qf-btn--ghost qf-btn--sm"
           >
             <Icon name="x" />
+            {/* a11y MAJ-1 (S81b 리뷰): 다른 버튼과 가시 일관 — sr-only 라벨을 함께 둔다. */}
+            <span className="sr-only">닫기</span>
           </button>
         </div>
       </div>

@@ -108,6 +108,20 @@ describe('ExecuteSlashCommand contract', () => {
       }),
     ).toThrow();
   });
+
+  // security HIGH-1 (S81b 리뷰): https 스킴이 아닌 GIF URL 은 거부한다(defense-in-depth).
+  it('GIPHY_PREVIEW 응답의 gifUrl 이 비-https 면 거부한다', () => {
+    expect(() =>
+      ExecuteSlashCommandResponseSchema.parse({
+        responseType: 'GIPHY_PREVIEW',
+        gifUrl: 'http://media.giphy.com/media/abc/giphy.gif',
+        gifThumbUrl: 'https://media.giphy.com/media/abc/200w.gif',
+        title: 'cat',
+        keyword: 'cat',
+        offset: 0,
+      }),
+    ).toThrow();
+  });
 });
 
 // S81b (FR-SC-07): /giphy Shuffle 재요청 계약.
@@ -137,6 +151,17 @@ describe('GiphySearch contract', () => {
       title: 'dog',
     });
     expect(parsed.title).toBe('dog');
+  });
+
+  // security HIGH-1 (S81b 리뷰): 비-https gifThumbUrl 은 거부한다.
+  it('응답의 gifThumbUrl 이 비-https(javascript:) 면 거부한다', () => {
+    expect(() =>
+      GiphySearchResponseSchema.parse({
+        gifUrl: 'https://media.giphy.com/media/abc/giphy.gif',
+        gifThumbUrl: 'javascript:alert(1)',
+        title: 'dog',
+      }),
+    ).toThrow();
   });
 });
 

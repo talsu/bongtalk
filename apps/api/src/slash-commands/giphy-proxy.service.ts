@@ -71,9 +71,12 @@ export class GiphyProxyService {
     if (apiKey === null) {
       throw new DomainError(ErrorCode.GIPHY_UNAVAILABLE, 'GIPHY 가 설정되지 않았습니다');
     }
-    const normalizedKeyword = keyword.trim().toLowerCase();
+    // perf MINOR + security MED-2 (S81b 리뷰): 내부 연속 공백을 단일 공백으로 접어
+    // "cat  dog" 와 "cat dog" 가 같은 캐시 엔트리를 쓰게 하고, 캐시 키의 keyword 는
+    // encodeURIComponent 로 인코딩해 키워드에 콜론(`:`)이 섞여도 키 구분자와 충돌하지 않게 한다.
+    const normalizedKeyword = keyword.trim().toLowerCase().replace(/\s+/g, ' ');
     const safeOffset = Number.isInteger(offset) && offset >= 0 ? offset : 0;
-    const cacheKey = `giphy:${normalizedKeyword}:${safeOffset}`;
+    const cacheKey = `giphy:${encodeURIComponent(normalizedKeyword)}:${safeOffset}`;
 
     const cached = await this.readCache(cacheKey);
     if (cached) return cached;
@@ -135,6 +138,13 @@ export class GiphyProxyService {
     const gifThumbUrl = first?.images?.fixed_width?.url;
     if (typeof gifUrl !== 'string' || typeof gifThumbUrl !== 'string') {
       this.logger.warn('GIPHY search response missing image urls');
+      throw new DomainError(ErrorCode.GIPHY_UNAVAILABLE, 'GIF 응답 형식이 올바르지 않습니다');
+    }
+    // security HIGH-1 (S81b 리뷰): 두 URL 이 모두 https 스킴인지 검증한다. GIPHY 는
+    // https 만 반환하지만, 변조/예외 응답으로 javascript:/data:/http 가 섞이면 채널 게시·
+    // <img src> 에 그대로 흘러 XSS/혼합콘텐츠가 되므로 계약 진입 전에 거부한다(defense-in-depth).
+    if (!gifUrl.startsWith('https://') || !gifThumbUrl.startsWith('https://')) {
+      this.logger.warn('GIPHY search response had non-https image url');
       throw new DomainError(ErrorCode.GIPHY_UNAVAILABLE, 'GIF 응답 형식이 올바르지 않습니다');
     }
     return {

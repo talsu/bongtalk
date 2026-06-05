@@ -130,6 +130,43 @@ describe('GiphyProxyService', () => {
     });
   });
 
+  // security HIGH-1 (S81b 리뷰): 비-https 스킴(javascript:/data:/http)은 거부한다.
+  it('gifUrl 이 비-https 면 GIPHY_UNAVAILABLE 을 던진다', async () => {
+    const evil = {
+      data: [
+        {
+          title: 'x',
+          images: {
+            original: { url: 'javascript:alert(1)' },
+            fixed_width: { url: 'https://media.giphy.com/media/abc/200w.gif' },
+          },
+        },
+      ],
+    };
+    const { service } = makeService({ apiKey: ENV_KEY, fetch: okFetch(evil) });
+    await expect(service.search('cat', 0)).rejects.toMatchObject({
+      code: ErrorCode.GIPHY_UNAVAILABLE,
+    });
+  });
+
+  it('gifThumbUrl 이 비-https(http) 면 GIPHY_UNAVAILABLE 을 던진다', async () => {
+    const mixed = {
+      data: [
+        {
+          title: 'x',
+          images: {
+            original: { url: 'https://media.giphy.com/media/abc/giphy.gif' },
+            fixed_width: { url: 'http://media.giphy.com/media/abc/200w.gif' },
+          },
+        },
+      ],
+    };
+    const { service } = makeService({ apiKey: ENV_KEY, fetch: okFetch(mixed) });
+    await expect(service.search('cat', 0)).rejects.toMatchObject({
+      code: ErrorCode.GIPHY_UNAVAILABLE,
+    });
+  });
+
   it('Redis 캐시 hit 면 HTTP 를 호출하지 않는다', async () => {
     const cached = JSON.stringify({
       gifUrl: 'https://media.giphy.com/media/cached/giphy.gif',
@@ -155,5 +192,21 @@ describe('GiphyProxyService', () => {
     const { service, redis: r } = makeService({ apiKey: ENV_KEY, redis });
     await service.search('  Cat  ', 0);
     expect(r.set).toHaveBeenCalledWith('giphy:cat:0', expect.any(String), 'EX', 300);
+  });
+
+  // perf MINOR (S81b 리뷰): 내부 연속 공백은 단일 공백으로 접어 같은 캐시 엔트리를 쓴다.
+  it('내부 연속 공백을 단일 공백으로 정규화한다', async () => {
+    const redis = makeRedis();
+    const { service, redis: r } = makeService({ apiKey: ENV_KEY, redis });
+    await service.search('cat   dog', 0);
+    expect(r.set).toHaveBeenCalledWith('giphy:cat%20dog:0', expect.any(String), 'EX', 300);
+  });
+
+  // security MED-2 (S81b 리뷰): 키워드의 콜론은 인코딩돼 캐시 키 구분자와 충돌하지 않는다.
+  it('키워드의 콜론을 인코딩해 캐시 키 구분자 충돌을 막는다', async () => {
+    const redis = makeRedis();
+    const { service, redis: r } = makeService({ apiKey: ENV_KEY, redis });
+    await service.search('a:b', 0);
+    expect(r.set).toHaveBeenCalledWith('giphy:a%3Ab:0', expect.any(String), 'EX', 300);
   });
 });

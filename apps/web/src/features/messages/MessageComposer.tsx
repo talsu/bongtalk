@@ -49,7 +49,7 @@ import type { EmojiCandidate } from './autocomplete/filterEmojis';
 import { useSlashCommands } from './slashCommands/useSlashCommands';
 import { executeSlashCommand } from './slashCommands/api';
 import { useEphemeralMessages } from './slashCommands/useEphemeralMessages';
-import { useGiphyPreview } from './slashCommands/useGiphyPreview';
+import { useGiphyPreviewStore } from './slashCommands/useGiphyPreview';
 import {
   detectClientSlashAction,
   detectSlashExecution,
@@ -260,7 +260,10 @@ export function MessageComposer({
   // S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지) 채널별 스토어.
   const ephemeral = useEphemeralMessages(channelId);
   // S81b (FR-SC-07): /giphy 실행이 받은 GIF 프리뷰(발신자 전용·채널별 단일).
-  const giphyPreview = useGiphyPreview(channelId);
+  // perf MODERATE (S81b 리뷰): Composer 는 set 액션만 필요하므로 preview 는 구독하지 않는다
+  // (종전 useGiphyPreview(channelId) 가 preview 까지 반환해 GIF 로드/Shuffle 마다 Composer
+  // 전체가 리렌더됐다). set 은 store 의 안정 참조다.
+  const setGiphyPreview = useGiphyPreviewStore((s) => s.set);
   // S81a (FR-SC-08): 클라이언트 전용 슬래시 커맨드가 조작하는 로컬 UI 상태들.
   const setMediaCollapsed = useMediaCollapseStore((s) => s.setCollapsed);
   const openSearchPanel = useUI((s) => s.openSearchPanel);
@@ -541,7 +544,8 @@ export function MessageComposer({
         // S81b (FR-SC-07): GIPHY_PREVIEW — 발신자 전용 GIF 프리뷰를 인라인 카드로 띄운다.
         // 채널 미게시(Send 시에만 게시). draft 를 비워 후속 입력을 받게 한다.
         if (res.responseType === 'GIPHY_PREVIEW') {
-          giphyPreview.set({
+          setGiphyPreview({
+            channelId,
             gifUrl: res.gifUrl,
             gifThumbUrl: res.gifThumbUrl,
             title: res.title,
