@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { SlashCommandItem } from '@qufox/shared-types';
 import type { AutocompleteRow } from './autocomplete/useAutocomplete';
 import {
+  detectClientSlashAction,
   detectSlashExecution,
   insertSlashCommand,
   paramHintForRow,
@@ -92,5 +93,45 @@ describe('detectSlashExecution (S80 / FR-SC-04·05·06)', () => {
   it('슬래시로 시작하지 않으면 null', () => {
     expect(detectSlashExecution('hello', commands)).toBeNull();
     expect(detectSlashExecution('text /shrug', commands)).toBeNull();
+  });
+});
+
+describe('detectClientSlashAction (S81a / FR-SC-08) — 클라이언트 전용 커맨드 분류', () => {
+  it('collapse → collapseMedia', () => {
+    expect(detectClientSlashAction('collapse', '')).toEqual({ kind: 'collapseMedia' });
+  });
+
+  it('expand → expandMedia', () => {
+    expect(detectClientSlashAction('expand', '')).toEqual({ kind: 'expandMedia' });
+  });
+
+  it('search [키워드] → openSearch + trim 된 query', () => {
+    expect(detectClientSlashAction('search', '  버그 리포트 ')).toEqual({
+      kind: 'openSearch',
+      query: '버그 리포트',
+    });
+  });
+
+  it('search 인자 없으면 빈 query', () => {
+    expect(detectClientSlashAction('search', '')).toEqual({ kind: 'openSearch', query: '' });
+  });
+
+  it('shortcuts → openShortcuts', () => {
+    expect(detectClientSlashAction('shortcuts', '')).toEqual({ kind: 'openShortcuts' });
+  });
+
+  it('darkmode → toggleTheme', () => {
+    expect(detectClientSlashAction('darkmode', '')).toEqual({ kind: 'toggleTheme' });
+  });
+
+  it('대소문자 무관', () => {
+    expect(detectClientSlashAction('DARKMODE', '')).toEqual({ kind: 'toggleTheme' });
+  });
+
+  it('서버 액션/일반 커맨드는 null(서버 execute 로 진행)', () => {
+    expect(detectClientSlashAction('nick', 'x')).toBeNull();
+    expect(detectClientSlashAction('topic', 'x')).toBeNull();
+    expect(detectClientSlashAction('kick', '@alice')).toBeNull();
+    expect(detectClientSlashAction('shrug', '')).toBeNull();
   });
 });

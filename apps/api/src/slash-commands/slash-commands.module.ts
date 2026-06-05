@@ -10,6 +10,11 @@ import { MessagesModule } from '../messages/messages.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { MeModule } from '../me/me.module';
+// S81a (FR-SC-08): /nick·/kick 서버 커맨드가 WorkspaceMemberProfileService·ModerationService 를,
+// /mute 가 MutesService 를 재사용한다. ChannelsModule(이미 import)이 ChannelsService·
+// ChannelAccessService·DirectMessagesService(/topic·/invite·/msg)를 제공한다.
+import { WorkspacesModule } from '../workspaces/workspaces.module';
+import { MutesModule } from '../notifications/mutes/mutes.module';
 
 /**
  * S79 (D15 / FR-SC-01·02·03) — 슬래시 커맨드 모듈.
@@ -28,7 +33,15 @@ import { MeModule } from '../me/me.module';
  * 커스텀 CRUD(S81)·/giphy 실행(S81)은 본 슬라이스 OUT.
  */
 @Module({
-  imports: [AuthModule, MessagesModule, ChannelsModule, RealtimeModule, MeModule],
+  imports: [
+    AuthModule,
+    MessagesModule,
+    ChannelsModule,
+    RealtimeModule,
+    MeModule,
+    WorkspacesModule,
+    MutesModule,
+  ],
   controllers: [SlashCommandController, SlashExecutionController, ReminderController],
   providers: [SlashCommandService, SlashExecutionService, ReminderService],
   exports: [SlashCommandService, ReminderService],

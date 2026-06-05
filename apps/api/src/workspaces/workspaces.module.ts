@@ -107,6 +107,8 @@ import { WorkspaceMemberProfileService } from './member-profile/workspace-member
     ModerationService,
     ModerationReportService,
     IpSoftBlockService,
+    // S81a (FR-SC-08): /nick 슬래시 커맨드가 워크스페이스 닉네임 변경에 재사용.
+    WorkspaceMemberProfileService,
   ],
 })
 export class WorkspacesModule {}

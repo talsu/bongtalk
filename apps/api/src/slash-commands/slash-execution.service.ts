@@ -1,6 +1,9 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import type { ExecuteSlashCommandResponse } from '@qufox/shared-types';
+import type {
+  ExecuteSlashCommandResponse,
+  ExecuteSlashEphemeralResponse,
+} from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -8,6 +11,14 @@ import { MessagesService } from '../messages/messages.service';
 import { PresenceService } from '../realtime/presence/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CustomStatusService } from '../me/custom-status.service';
+import { ChannelsService } from '../channels/channels.service';
+import { ChannelAccessService } from '../channels/permission/channel-access.service';
+import { DirectMessagesService } from '../channels/direct-messages/direct-messages.service';
+import { Permission } from '../auth/permissions';
+import { WorkspaceMemberProfileService } from '../workspaces/member-profile/workspace-member-profile.service';
+import { ModerationService } from '../workspaces/moderation/moderation.service';
+import { MutesService } from '../notifications/mutes/mutes.service';
+import { resolveMentionHandles } from '../messages/mentions/mention-extractor';
 import { buildBuiltinCommands } from './builtin-commands';
 import {
   formatReminderAt,
@@ -17,6 +28,10 @@ import {
 } from './slash-transforms';
 import { parseReminder, REMINDER_SYNTAX_HINT } from './reminder-parse';
 import { ReminderService } from './reminder.service';
+
+// /topic 길이 상한 — REST 경로의 UpdateChannelRequestSchema.topic.max(1024)와 동일하게
+// 맞춘다(channel.ts). 슬래시 경로가 이 검증을 우회하지 않도록 runTopic 에서 강제한다.
+const CHANNEL_TOPIC_MAX = 1024;
 
 /**
  * S80 (D15 / FR-SC-04·05·06) — 슬래시 커맨드 *실행* 도메인 서비스 (Fork2 = A 단일 진입점).
@@ -42,6 +57,13 @@ export class SlashExecutionService {
     private readonly gateway: RealtimeGateway,
     private readonly status: CustomStatusService,
     private readonly reminders: ReminderService,
+    // S81a (FR-SC-08): 서버 액션 커맨드는 기존 도메인 서비스를 그대로 재사용한다.
+    private readonly channels: ChannelsService,
+    private readonly channelAccess: ChannelAccessService,
+    private readonly directMessages: DirectMessagesService,
+    private readonly memberProfile: WorkspaceMemberProfileService,
+    private readonly moderation: ModerationService,
+    private readonly mutes: MutesService,
   ) {}
 
   async execute(args: {
@@ -84,8 +106,21 @@ export class SlashExecutionService {
           return this.runStatus(args.userId, args.text, now);
         case 'remind':
           return this.runRemind(args, now);
+        // ── S81a (FR-SC-08): 서버 액션 커맨드(기존 도메인 서비스 재사용) ──────────
+        case 'nick':
+          return this.runNick(args);
+        case 'topic':
+          return this.runTopic(args);
+        case 'mute':
+          return this.runMute(args);
+        case 'kick':
+          return this.runKick(args);
+        case 'invite':
+          return this.runInvite(args);
+        case 'msg':
+          return this.runMsg(args, now);
         default:
-          // giphy·nick 등 — 실행기 미구현(S81+ OUT).
+          // giphy 등 — 실행기 미구현(S81b OUT).
           throw new DomainError(
             ErrorCode.SLASH_COMMAND_NOT_EXECUTABLE,
             `이 커맨드는 아직 실행을 지원하지 않습니다: /${command}`,
@@ -231,6 +266,301 @@ export class SlashExecutionService {
     };
   }
 
+  // ── S81a (FR-SC-08): 서버 액션 커맨드 핸들러 ─────────────────────────────────────
+
+  /**
+   * /nick [별명] → 워크스페이스 닉네임 변경(본인). WorkspaceMemberProfileService.updateProfile
+   * 재사용. 인자 없으면 닉네임을 비운다(null → 전역 표시명으로 폴백). DM(워크스페이스 없음)은
+   * 워크스페이스 스코프가 없어 EPHEMERAL error.
+   */
+  private async runNick(args: {
+    userId: string;
+    workspaceId: string | null;
+    text: string;
+  }): Promise<ExecuteSlashCommandResponse> {
+    if (args.workspaceId === null) {
+      return this.forbiddenEphemeral('이 커맨드는 워크스페이스 채널에서만 사용할 수 있습니다');
+    }
+    const nickname = (args.text ?? '').trim();
+    try {
+      // 빈 입력 → null(닉네임 해제). 비어 있지 않으면 그 값으로 설정.
+      await this.memberProfile.updateProfile(args.workspaceId, args.userId, {
+        nickname: nickname.length > 0 ? nickname : null,
+      });
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+    return {
+      responseType: 'EPHEMERAL',
+      content:
+        nickname.length > 0 ? `닉네임을 "${nickname}" 으로 바꿨습니다` : '닉네임을 지웠습니다',
+    };
+  }
+
+  /**
+   * /topic [텍스트] → 채널 토픽 변경. MANAGE_CHANNEL 비트 필요. ChannelsService.update 재사용
+   * (토픽이 실제로 바뀌면 내부에서 SYSTEM_CHANNEL_TOPIC_CHANGED 메시지를 자동 발행한다).
+   * 인자 없으면 토픽을 비운다(null). DM(워크스페이스 없음)은 EPHEMERAL error.
+   */
+  private async runTopic(args: {
+    userId: string;
+    workspaceId: string | null;
+    channelId: string;
+    text: string;
+  }): Promise<ExecuteSlashCommandResponse> {
+    if (args.workspaceId === null) {
+      return this.forbiddenEphemeral('이 커맨드는 워크스페이스 채널에서만 사용할 수 있습니다');
+    }
+    const channel = await this.loadChannelMeta(args.channelId, args.workspaceId);
+    if (!channel) {
+      return this.forbiddenEphemeral('채널을 찾을 수 없습니다');
+    }
+    const allowed = await this.channelAccess.hasPermission(
+      channel,
+      args.userId,
+      Permission.MANAGE_CHANNEL,
+    );
+    if (!allowed) {
+      return this.forbiddenEphemeral('이 채널의 토픽을 바꿀 권한이 없습니다');
+    }
+    const topic = (args.text ?? '').trim();
+    // S81a review fix(security H-1/reviewer MED-1): execute text 상한(3967)이 REST 경로의
+    // UpdateChannelRequestSchema.topic.max(1024) 보다 커서, 슬래시 경로가 채널 토픽 길이
+    // 검증을 우회해 과대 토픽이 SYSTEM 메시지로 fan-out 되는 abuse 면이 있었다. REST 와 동일한
+    // 1024 상한을 슬래시 경로에도 강제한다(초과 시 발신자 전용 EPHEMERAL error).
+    if (topic.length > CHANNEL_TOPIC_MAX) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: `채널 토픽은 ${CHANNEL_TOPIC_MAX}자를 넘을 수 없습니다`,
+        error: true,
+      };
+    }
+    try {
+      await this.channels.update(args.workspaceId, args.channelId, args.userId, {
+        topic: topic.length > 0 ? topic : null,
+      });
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+    return {
+      responseType: 'EPHEMERAL',
+      content: topic.length > 0 ? `채널 토픽을 바꿨습니다: ${topic}` : '채널 토픽을 지웠습니다',
+    };
+  }
+
+  /**
+   * /mute → 현재 채널 음소거(본인). MutesService.setMute 재사용(영구 뮤트 — mutedUntil null).
+   * 권한은 채널 접근 가드(컨트롤러)가 이미 보장하므로 추가 게이트 불필요.
+   */
+  private async runMute(args: {
+    userId: string;
+    channelId: string;
+  }): Promise<ExecuteSlashCommandResponse> {
+    await this.mutes.setMute({ userId: args.userId, channelId: args.channelId, mutedUntil: null });
+    return { responseType: 'EPHEMERAL', content: '이 채널의 알림을 음소거했습니다' };
+  }
+
+  /**
+   * /kick @사람 → 멤버 강퇴. ModerationService.kick 재사용(KICK_MEMBERS 비트 + 계층 방어를
+   * 서비스 내부가 강제). 대상 토큰을 워크스페이스 멤버로 해석하지 못하면 EPHEMERAL error.
+   * DM(워크스페이스 없음)은 EPHEMERAL error.
+   */
+  private async runKick(args: {
+    userId: string;
+    workspaceId: string | null;
+    text: string;
+  }): Promise<ExecuteSlashCommandResponse> {
+    if (args.workspaceId === null) {
+      return this.forbiddenEphemeral('이 커맨드는 워크스페이스 채널에서만 사용할 수 있습니다');
+    }
+    const targetId = await this.resolveSingleTarget(args.workspaceId, args.text);
+    if (!targetId) {
+      return this.targetNotFoundEphemeral();
+    }
+    try {
+      await this.moderation.kick({
+        workspaceId: args.workspaceId,
+        actorId: args.userId,
+        targetUserId: targetId,
+      });
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+    return { responseType: 'EPHEMERAL', content: '멤버를 내보냈습니다' };
+  }
+
+  /**
+   * /invite @사람 → 채널에 멤버 추가. MANAGE_CHANNEL 비트 필요. 채널 멤버십은
+   * ChannelPermissionOverride(USER principal)의 READ ALLOW 로 표현되므로(비공개 채널 가시성
+   * 모델), ChannelsService.addChannelMemberOverride 로 MEMBER baseline 마스크를 부여한다.
+   * DM(워크스페이스 없음)은 EPHEMERAL error.
+   */
+  private async runInvite(args: {
+    userId: string;
+    workspaceId: string | null;
+    channelId: string;
+    text: string;
+  }): Promise<ExecuteSlashCommandResponse> {
+    if (args.workspaceId === null) {
+      return this.forbiddenEphemeral('이 커맨드는 워크스페이스 채널에서만 사용할 수 있습니다');
+    }
+    const channel = await this.loadChannelMeta(args.channelId, args.workspaceId);
+    if (!channel) {
+      return this.forbiddenEphemeral('채널을 찾을 수 없습니다');
+    }
+    const allowed = await this.channelAccess.hasPermission(
+      channel,
+      args.userId,
+      Permission.MANAGE_CHANNEL,
+    );
+    if (!allowed) {
+      return this.forbiddenEphemeral('이 채널에 멤버를 추가할 권한이 없습니다');
+    }
+    const targetId = await this.resolveSingleTarget(args.workspaceId, args.text);
+    if (!targetId) {
+      return this.targetNotFoundEphemeral();
+    }
+    try {
+      // 채널 멤버십 부여 = USER override 에 READ(+ 일반 참여) ALLOW. MEMBER baseline 을
+      // 그대로 부여해 공개/비공개 채널 모두에서 정상 참여하게 한다(DM override 마스크와 동일
+      // 의미의 채널 참여 권한). denyMask 0.
+      await this.channels.addChannelMemberOverride(
+        args.workspaceId,
+        args.channelId,
+        targetId,
+        CHANNEL_MEMBER_ALLOW_MASK,
+        0,
+        args.userId,
+      );
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+    return { responseType: 'EPHEMERAL', content: '멤버를 이 채널에 추가했습니다' };
+  }
+
+  /**
+   * /msg @사람 [메시지] → 1:1 DM 을 열고(없으면 생성) 선택적으로 첫 메시지를 보낸다.
+   * DirectMessagesService.createOrGetGlobal 재사용(친구/프라이버시 게이트 포함). 응답은
+   * EPHEMERAL 확인 + navigate(dm 채널 id) — FE 가 그 DM 으로 이동한다. 본문이 있으면
+   * MessagesService.send 로 DM 채널에 게시한다(workspaceId=null).
+   */
+  private async runMsg(
+    args: {
+      userId: string;
+      workspaceId: string | null;
+      text: string;
+      idempotencyKey: string;
+    },
+    _now: Date,
+  ): Promise<ExecuteSlashCommandResponse> {
+    const { targetId, rest } = await this.resolveTargetAndRest(args.workspaceId, args.text);
+    if (!targetId) {
+      return this.targetNotFoundEphemeral();
+    }
+    let channelId: string;
+    try {
+      const dm = await this.directMessages.createOrGetGlobal(args.userId, targetId);
+      channelId = dm.channelId;
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+    const body = rest.trim();
+    if (body.length > 0) {
+      try {
+        await this.messages.send({
+          workspaceId: null,
+          channelId,
+          authorId: args.userId,
+          content: body,
+          idempotencyKey: args.idempotencyKey,
+        });
+      } catch (err) {
+        return this.domainErrorToEphemeral(err);
+      }
+    }
+    const response: ExecuteSlashEphemeralResponse = {
+      responseType: 'EPHEMERAL',
+      content: body.length > 0 ? '다이렉트 메시지를 보냈습니다' : '다이렉트 메시지를 열었습니다',
+      navigate: { kind: 'dm', channelId, userId: targetId },
+    };
+    return response;
+  }
+
+  // ── S81a (FR-SC-08): 공유 헬퍼 ──────────────────────────────────────────────────
+
+  /** 채널 ACL 검사에 필요한 최소 메타(id/workspaceId/isPrivate)를 로드한다. soft-delete 제외. */
+  private async loadChannelMeta(
+    channelId: string,
+    workspaceId: string,
+  ): Promise<{ id: string; workspaceId: string | null; isPrivate: boolean } | null> {
+    const ch = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true, workspaceId: true, isPrivate: true },
+    });
+    return ch;
+  }
+
+  /**
+   * text 에서 첫 `@username` 토큰을 워크스페이스 멤버 userId 로 해석한다. 기존 멘션 resolver
+   * (resolveMentionHandles — 워크스페이스 멤버 스코프)를 재사용한다. 해석 결과가 정확히
+   * 하나가 아니면(0개 또는 미해결) null. 본인 자신은 대상에서 제외하지 않는다(호출부 도메인
+   * 서비스가 self 금지를 자체 강제 — 예: moderation.kick → MODERATION_CANNOT_SELF).
+   */
+  private async resolveSingleTarget(workspaceId: string, text: string): Promise<string | null> {
+    const map = await resolveMentionHandles(this.prisma, workspaceId, text ?? '');
+    const ids = [...new Set(map.values())];
+    return ids.length === 1 ? ids[0] : null;
+  }
+
+  /**
+   * /msg 용 — 첫 @username 대상 해석 + 그 토큰 이후의 본문을 분리한다. text 가 `@alice 안녕`
+   * 이면 { targetId, rest:'안녕' }. 대상 토큰을 텍스트에서 제거해 본문에 핸들이 남지 않게 한다.
+   * 해석 실패 시 targetId=null.
+   */
+  private async resolveTargetAndRest(
+    workspaceId: string | null,
+    text: string,
+  ): Promise<{ targetId: string | null; rest: string }> {
+    const raw = text ?? '';
+    // DM 개시는 전역(친구) 스코프지만, @핸들 해석은 워크스페이스 멤버 네임스페이스에 의존한다.
+    // 슬래시는 워크스페이스 채널에서 트리거되므로 그 워크스페이스로 핸들을 해석한다.
+    if (workspaceId === null) {
+      return { targetId: null, rest: raw };
+    }
+    const match = raw.match(/@([A-Za-z0-9_.-]{2,32})/);
+    if (!match) {
+      return { targetId: null, rest: raw };
+    }
+    const map = await resolveMentionHandles(this.prisma, workspaceId, raw);
+    const targetId = map.get(match[1].toLowerCase()) ?? null;
+    // 매칭된 핸들 토큰을 본문에서 한 번 제거한다(첫 매치 기준).
+    const rest = raw.replace(match[0], '').replace(/\s+/g, ' ').trim();
+    return { targetId, rest };
+  }
+
+  private forbiddenEphemeral(content: string): ExecuteSlashCommandResponse {
+    return { responseType: 'EPHEMERAL', content, error: true };
+  }
+
+  private targetNotFoundEphemeral(): ExecuteSlashCommandResponse {
+    return {
+      responseType: 'EPHEMERAL',
+      content: '대상을 찾을 수 없습니다. @사용자명 형태로 지정해 주세요',
+      error: true,
+    };
+  }
+
+  /**
+   * 도메인 서비스가 던진 DomainError 를 발신자 전용 EPHEMERAL error 로 변환한다(채널 미게시).
+   * 도메인 에러가 아니면 그대로 rethrow 해 상위 예외 필터가 처리하게 둔다(예상치 못한 오류).
+   */
+  private domainErrorToEphemeral(err: unknown): ExecuteSlashCommandResponse {
+    if (err instanceof DomainError) {
+      return { responseType: 'EPHEMERAL', content: err.message, error: true };
+    }
+    throw err;
+  }
+
   private async userWorkspaceIds(userId: string): Promise<string[]> {
     const memberships = await this.prisma.workspaceMember.findMany({
       where: { userId, workspace: { deletedAt: null } },
@@ -239,3 +569,14 @@ export class SlashExecutionService {
     return memberships.map((m) => m.workspaceId);
   }
 }
+
+/**
+ * S81a (FR-SC-08): /invite 가 부여하는 채널 멤버십 권한 마스크. DM 멤버십(READ|WRITE|
+ * DELETE_OWN|UPLOAD)과 동일한 일반 참여 비트 — 비공개 채널 가시성 게이트는 READ ALLOW 로
+ * 열리고, 공개 채널에서는 baseline 위 무해한 중복이다(이미 가진 비트 재부여).
+ */
+const CHANNEL_MEMBER_ALLOW_MASK =
+  Permission.READ |
+  Permission.WRITE_MESSAGE |
+  Permission.DELETE_OWN_MESSAGE |
+  Permission.UPLOAD_ATTACHMENT;

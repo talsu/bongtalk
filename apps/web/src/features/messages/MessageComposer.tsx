@@ -49,7 +49,19 @@ import type { EmojiCandidate } from './autocomplete/filterEmojis';
 import { useSlashCommands } from './slashCommands/useSlashCommands';
 import { executeSlashCommand } from './slashCommands/api';
 import { useEphemeralMessages } from './slashCommands/useEphemeralMessages';
-import { detectSlashExecution, paramHintForRow, slashToken } from './composerSlash';
+import {
+  detectClientSlashAction,
+  detectSlashExecution,
+  paramHintForRow,
+  slashToken,
+  type ClientSlashAction,
+} from './composerSlash';
+// S81a (FR-SC-08): 클라이언트 전용 슬래시 커맨드(collapse/expand/search/shortcuts/darkmode).
+import { useMediaCollapseStore } from './mediaCollapseStore';
+import { useUI } from '../../stores/ui-store';
+import { useTheme } from '../../design-system/theme/ThemeProvider';
+// S81a (FR-SC-08): /msg 응답의 navigate(DM 으로 이동) 처리.
+import { useNavigate } from 'react-router-dom';
 
 type Props = {
   /** null for Global DM channels — custom emoji picker is empty then. */
@@ -246,6 +258,12 @@ export function MessageComposer({
   const { data: slashCommandData } = useSlashCommands(workspaceId);
   // S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지) 채널별 스토어.
   const ephemeral = useEphemeralMessages(channelId);
+  // S81a (FR-SC-08): 클라이언트 전용 슬래시 커맨드가 조작하는 로컬 UI 상태들.
+  const setMediaCollapsed = useMediaCollapseStore((s) => s.setCollapsed);
+  const openSearchPanel = useUI((s) => s.openSearchPanel);
+  const setOpenModal = useUI((s) => s.setOpenModal);
+  const { toggle: toggleTheme, resolved: resolvedTheme } = useTheme();
+  const navigate = useNavigate();
 
   const myRole: WorkspaceRole =
     wsData?.myRole ??
@@ -525,6 +543,10 @@ export function MessageComposer({
           clearDraft(channelId);
           setPendingSpecial(null);
           sendTypingStop();
+          // S81a (FR-SC-08): /msg 는 DM 을 열고 navigate 대상을 싣는다 — 그 DM 으로 이동한다.
+          if (res.navigate?.kind === 'dm') {
+            navigate(`/dm/${res.navigate.userId}`);
+          }
         }
       })
       .catch((err: unknown) => {
@@ -539,6 +561,47 @@ export function MessageComposer({
       .finally(() => setSending(false));
   };
 
+  // S81a (FR-SC-08): 클라이언트 전용 슬래시 커맨드를 서버 호출 없이 로컬에서 수행한다.
+  // collapse/expand → 현재 채널 미디어 접기/펼치기, search → 검색 패널 + 키워드 pre-fill,
+  // shortcuts → 단축키 오버레이, darkmode → 테마 토글. 각 액션 후 draft 를 비우고
+  // 발신자 전용 EPHEMERAL 확인을 인라인으로 띄운다(서버 미게시).
+  const runClientSlashAction = (action: ClientSlashAction): void => {
+    let confirmText: string;
+    switch (action.kind) {
+      case 'collapseMedia':
+        setMediaCollapsed(channelId, true);
+        confirmText = '이 채널의 인라인 미디어를 접었습니다';
+        break;
+      case 'expandMedia':
+        setMediaCollapsed(channelId, false);
+        confirmText = '이 채널의 인라인 미디어를 펼쳤습니다';
+        break;
+      case 'openSearch':
+        openSearchPanel(action.query);
+        confirmText =
+          action.query.length > 0
+            ? `"${action.query}" 검색을 열었습니다`
+            : '검색 패널을 열었습니다';
+        break;
+      case 'openShortcuts':
+        setOpenModal('shortcut-help');
+        confirmText = '단축키 도움말을 열었습니다';
+        break;
+      case 'toggleTheme':
+        // a11y(MAJOR-2): 전환 방향을 확인 메시지에 명시한다(SR 상태 메시지 충분성). toggle 은
+        // resolved === 'dark' ? 'light' : 'dark' 이므로 현재값의 반대가 다음 테마다.
+        confirmText =
+          resolvedTheme === 'dark' ? '라이트 모드로 전환했습니다' : '다크 모드로 전환했습니다';
+        toggleTheme();
+        break;
+    }
+    ephemeral.push(confirmText, false);
+    announce(confirmText);
+    clearDraft(channelId);
+    setPendingSpecial(null);
+    sendTypingStop();
+  };
+
   const submit = (): void => {
     // 한도 초과 시 전송 차단(FR-MSG-03 — "초과 시 전송 불가").
     if (counter.overLimit) return;
@@ -549,6 +612,12 @@ export function MessageComposer({
     if (trayItems.length === 0 && uploading === 0) {
       const slash = detectSlashExecution(trimmed, slashCommandData ?? []);
       if (slash) {
+        // S81a (FR-SC-08): 클라이언트 전용 커맨드면 서버 호출 없이 로컬 UI 액션을 수행한다.
+        const clientAction = detectClientSlashAction(slash.command, slash.text);
+        if (clientAction) {
+          runClientSlashAction(clientAction);
+          return;
+        }
         runSlashExecution(slash.command, slash.text);
         return;
       }

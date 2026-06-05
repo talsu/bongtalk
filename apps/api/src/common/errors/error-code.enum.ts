@@ -313,6 +313,10 @@ export enum ErrorCode {
   SLASH_COMMAND_NOT_EXECUTABLE = 'SLASH_COMMAND_NOT_EXECUTABLE',
   REMINDER_PARSE_FAILED = 'REMINDER_PARSE_FAILED',
   REMINDER_NOT_FOUND = 'REMINDER_NOT_FOUND',
+  // S81a (D15 / FR-SC-08): /msg·/invite·/kick·/topic 의 대상 해석/권한 실패는 별도 wire
+  // ErrorCode 를 두지 않는다 — execute() 가 모두 발신자 전용 EPHEMERAL error:true 로 흡수해
+  // (forbiddenEphemeral·targetNotFoundEphemeral) 채널에 게시하지 않고 인라인 표시하므로,
+  // HTTP 로 노출될 코드가 없다(리뷰 fix-forward: 미사용 enum 제거·drift 테스트 정합).
 
   // S73 (D14 / FR-PS-02): 전역 핸들(handle)은 @unique 라 다른 사용자가 이미 점유한
   // 핸들로 변경 시도 → 409(상태 충돌). DB unique 제약(P2002)을 흡수해 이 코드로 변환한다.

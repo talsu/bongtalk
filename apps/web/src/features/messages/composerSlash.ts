@@ -69,3 +69,43 @@ export function detectSlashExecution(
   if (!known) return null;
   return { command, text };
 }
+
+/**
+ * S81a (D15 / FR-SC-08) — 클라이언트 전용 슬래시 커맨드(서버 execute 없이 로컬 UI 액션).
+ *
+ * 이 커맨드들은 서버 execute 가 SLASH_COMMAND_NOT_EXECUTABLE 을 던지므로, MessageComposer 가
+ * 서버 호출 전에 가로채 로컬 UI 액션(미디어 접기/펼치기, 검색 패널 열기, 단축키 오버레이,
+ * 테마 토글)을 수행한다. 분류는 순수 함수로 분리해 DOM 마운트 없이 단위 테스트한다.
+ *
+ *   collapse / expand → 현재 채널 인라인 미디어 접기/펼치기 토글
+ *   search [키워드]    → 검색 패널 열기 + 키워드 pre-fill
+ *   shortcuts         → 단축키 치트시트 오버레이 열기
+ *   darkmode          → 라이트/다크 테마 토글
+ */
+export type ClientSlashAction =
+  | { kind: 'collapseMedia' }
+  | { kind: 'expandMedia' }
+  | { kind: 'openSearch'; query: string }
+  | { kind: 'openShortcuts' }
+  | { kind: 'toggleTheme' };
+
+/**
+ * 입력 커맨드명(소문자)·인자로 클라이언트 전용 액션을 만든다. 클라이언트 전용이 아니면
+ * null(= 서버 execute 로 진행). search 의 인자(키워드)는 trim 해 query 로 싣는다.
+ */
+export function detectClientSlashAction(command: string, text: string): ClientSlashAction | null {
+  switch (command.toLowerCase()) {
+    case 'collapse':
+      return { kind: 'collapseMedia' };
+    case 'expand':
+      return { kind: 'expandMedia' };
+    case 'search':
+      return { kind: 'openSearch', query: text.trim() };
+    case 'shortcuts':
+      return { kind: 'openShortcuts' };
+    case 'darkmode':
+      return { kind: 'toggleTheme' };
+    default:
+      return null;
+  }
+}
