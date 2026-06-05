@@ -8,7 +8,8 @@
 --   프로필은 무영향(이 마이그레이션이 손대지 않음). 테이블을 먼저 DROP 한 뒤(enum 의존) enum 을
 --   DROP 한다(순서가 중요 — enum 컬럼이 살아 있으면 DROP TYPE 이 거부된다).
 
--- (1) SlashCommand 테이블 제거(FK·인덱스 동반).
+-- (1) SlashCommand 테이블 제거(FK·UNIQUE 인덱스 동반 — S79 fix-forward 로 중복 단순
+--     인덱스를 제거했으므로 UNIQUE 인덱스 하나만 테이블과 함께 정리된다).
 DROP TABLE IF EXISTS "SlashCommand";
 
 -- (2) HandlerType enum 제거(컬럼 의존 해소 후).

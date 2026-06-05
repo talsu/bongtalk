@@ -58,7 +58,8 @@ describe('GET /workspaces/:wsId/slash-commands (int)', () => {
   });
 
   it('FR-SC-01: GIPHY_API_KEY 설정 시 /giphy 가 목록에 포함된다', async () => {
-    process.env.GIPHY_API_KEY = 'test-giphy-key';
+    // S79 fix-forward (security LOW): gitleaks 오탐을 막는 명백한 비-시크릿 픽스처.
+    process.env.GIPHY_API_KEY = 'FAKE_GIPHY_KEY_FOR_TEST';
     try {
       const res = await request(env.baseUrl)
         .get(`/workspaces/${stack.workspaceId}/slash-commands`)

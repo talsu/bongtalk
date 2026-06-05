@@ -357,8 +357,8 @@ export function MessageComposer({
   // S78 reviewer FF3 (a11y): 팝업은 rows>0 일 때만 열리므로, "트리거 활성·결과
   // 0건"은 acState.open=false 라 위 경로로는 공지되지 않았다(empty-result 분기
   // 도달 불가). acEmptyKind(훅이 노출) 가 있으면 팝업이 닫혀 있어도
-  // composerAnnouncement(kind, 0) → "검색 결과가 없습니다" 를 공지해 SR
-  // 사용자에게 결과 없음을 전달한다.
+  // composerAnnouncement(kind, 0) → "<종류> 검색 결과가 없습니다"(S79 N-01: 종류별)
+  // 를 공지해 SR 사용자에게 결과 없음을 전달한다.
   const acOpen = acState.open;
   const acMessage = acState.open
     ? composerAnnouncement(acState.kind, acState.rows.length)
@@ -378,6 +378,18 @@ export function MessageComposer({
       announce('', { resetDelayMs: 0 });
     };
   }, [acOpen, acMessage]);
+
+  // S79 fix-forward (a11y B-02): 슬래시 커맨드 선택 시 파라미터 usage hint 는
+  // placeholder 로만 노출돼 SR 에 전달되지 않았다(입력 중 placeholder 는 재낭독
+  // 안 됨). paramHint 가 새로 설정되면 공유 announcer 로 "파라미터 힌트: …" 를
+  // 명시 공지한다. 이 효과는 위 자동완성 공지 효과보다 뒤에 등록돼, 행 선택 직후
+  // 같은 commit 에서 acClose 로 acMessage='' → announce('') 가 먼저 돈 뒤 이 효과가
+  // 힌트를 주입하므로(announce 헬퍼가 pending writeTimer 를 취소·재설정), 자동완성
+  // 빈 공지에 clobber 되지 않고 힌트가 최종 낭독된다. paramHint=null(초기/리셋)이면
+  // 공지하지 않는다. */
+  useEffect(() => {
+    if (paramHint) announce(`파라미터 힌트: ${paramHint}`);
+  }, [paramHint]);
 
   // 선택된 행을 컴포저에 삽입하고 트리거 범위를 토큰으로 치환한다.
   //
@@ -583,7 +595,7 @@ export function MessageComposer({
               disabled
               aria-label="이 채널은 관리자만 게시할 수 있습니다"
               placeholder="이 채널은 관리자만 게시할 수 있습니다"
-              className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text cursor-not-allowed"
+              className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-foreground cursor-not-allowed"
               style={{ minHeight: `${MIN_HEIGHT_PX}px` }}
             />
           </div>
@@ -770,7 +782,7 @@ export function MessageComposer({
             // S79 (FR-SC-03 · Fork A): 슬래시 커맨드 선택 직후엔 파라미터 usage hint 를
             // placeholder 로 노출하고, 그 외엔 기본 채널 placeholder 를 쓴다.
             placeholder={paramHint ?? `# ${channelName} 에 메시지…`}
-            className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
+            className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-foreground"
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />
           {acState.open ? (

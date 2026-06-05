@@ -83,3 +83,17 @@ html[data-high-contrast='true'] {
   background: var(--bg-selected);
   color: var(--text-strong);
 }
+
+/* S79 fix-forward (a11y B-01 / ui M-02): 슬래시 커맨드 자동완성 행의 선택상태 대비.
+ * 슬래시 행은 채널 변형(--channel) 골격을 재사용하되 슬래시 전용 변형(--slash)을 함께
+ * 단다. usageHint 는 우측 __meta 슬롯(__shortcode)에 노출되는데, DS 의 기본 __meta 색은
+ * text-muted 이고 선택(aria-selected) 시 배경이 bg-selected 로 바뀌면 text-muted 대비가
+ * 다크 3.74:1 / 라이트 3.90:1 로 WCAG AA(4.5:1) 에 미달했다(이모지 행엔 shortcode override
+ * 가 있었으나 슬래시엔 없었다). DS 4파일을 건드리지 않고, app-layer 에서 --slash 스코프로만
+ * 선택상태 usageHint 를 text-secondary(다크 6.15:1 / 라이트 7.66:1, AA 충족)로 올린다.
+ * 시맨틱 토큰만 사용(raw hex/px 없음). 채널 행(--channel 단독)에는 영향이 없다 — 셀렉터가
+ * --slash 를 함께 요구하기 때문. 비선택 상태는 DS 기본 __meta(text-muted)를 그대로 둔다
+ * (bg-floating 위 text-muted 는 AA 충족). */
+.qf-autocomplete__item--slash[aria-selected='true'] .qf-autocomplete__meta {
+  color: var(--text-secondary);
+}

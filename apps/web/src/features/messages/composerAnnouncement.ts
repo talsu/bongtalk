@@ -20,6 +20,9 @@ import { TRIGGER_KIND_LABEL, type TriggerKind } from './autocomplete/detectTrigg
  * 유지한다(FF3 — 죽은 분기 아님).
  */
 export function composerAnnouncement(kind: TriggerKind, rowCount: number): string {
-  if (rowCount <= 0) return '검색 결과가 없습니다';
+  // S79 fix-forward (a11y N-01): 0건 문구를 종류별로 분기한다. 종전 "검색 결과가
+  // 없습니다" 는 어떤 트리거(@멤버 / #채널 / :이모지 / /슬래시)에서 결과가 없는지
+  // SR 에 전달하지 못했다. "<종류 명사> 검색 결과가 없습니다" 로 맥락을 준다.
+  if (rowCount <= 0) return `${TRIGGER_KIND_LABEL[kind]} 검색 결과가 없습니다`;
   return `${TRIGGER_KIND_LABEL[kind]} ${rowCount}개`;
 }

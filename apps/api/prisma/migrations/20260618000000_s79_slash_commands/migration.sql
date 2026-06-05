@@ -43,10 +43,13 @@ END
 $$;
 
 -- ── table: SlashCommand ─────────────────────────────────────────────────────
+-- S79 fix-forward (reviewer MEDIUM): "name" 은 VARCHAR(32) 로 상한한다(Zod
+-- SlashCommandItem.name max(32) 정합·list-poison 예방). 이 마이그레이션은 미배포 상태라
+-- 직접 편집한다(별도 ALTER 마이그레이션 불필요). down 도 동일 정의로 정합한다.
 CREATE TABLE IF NOT EXISTS "SlashCommand" (
   "id"           UUID NOT NULL,
   "workspaceId"  UUID,
-  "name"         TEXT NOT NULL,
+  "name"         VARCHAR(32) NOT NULL,
   "description"  TEXT NOT NULL DEFAULT '',
   "usageHint"    TEXT NOT NULL DEFAULT '',
   "responseType" "ResponseType" NOT NULL DEFAULT 'EPHEMERAL',
@@ -58,12 +61,11 @@ CREATE TABLE IF NOT EXISTS "SlashCommand" (
 );
 
 -- 워크스페이스 내 커맨드명 unique(NULL 슬롯끼리는 distinct — S79 는 NULL 행 미생성).
+-- S79 fix-forward (perf MINOR): 별도의 "SlashCommand_workspaceId_idx" 단순 인덱스는
+-- 이 복합 UNIQUE 의 좌측 prefix 와 중복이라 생성하지 않는다(UNIQUE 가 workspaceId 조회를
+-- 커버). 중복 인덱스 제거로 쓰기 오버헤드/저장 공간을 줄인다.
 CREATE UNIQUE INDEX IF NOT EXISTS "SlashCommand_workspaceId_name_key"
   ON "SlashCommand" ("workspaceId", "name");
-
--- 워크스페이스별 목록 조회 인덱스.
-CREATE INDEX IF NOT EXISTS "SlashCommand_workspaceId_idx"
-  ON "SlashCommand" ("workspaceId");
 
 -- FK: 워크스페이스 삭제 시 커스텀 커맨드 정리(Cascade). 멱등 가드.
 DO $$

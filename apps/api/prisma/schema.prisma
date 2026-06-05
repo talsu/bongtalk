@@ -1951,7 +1951,10 @@ model Feedback {
 model SlashCommand {
   id           String       @id @default(uuid()) @db.Uuid
   workspaceId  String?      @db.Uuid
-  name         String
+  // S79 fix-forward (reviewer MEDIUM): name 을 VarChar(32) 로 상한해 list-poison 을
+  // 예방한다(Zod SlashCommandItem.name max(32) 와 정합). 자동완성 목록이 과대 행으로
+  // 오염되지 않게 DB 레벨에서 길이를 강제한다. description/usageHint max 는 S81 CRUD 시.
+  name         String       @db.VarChar(32)
   description  String       @default("")
   usageHint    String       @default("")
   responseType ResponseType @default(EPHEMERAL)
@@ -1962,6 +1965,8 @@ model SlashCommand {
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
+  // S79 fix-forward (perf MINOR): @@index([workspaceId]) 는 @@unique([workspaceId, name])
+  // 의 prefix 와 중복(복합 인덱스가 좌측 prefix 조회를 커버)이라 제거했다 — 워크스페이스별
+  // 목록 조회는 UNIQUE 인덱스가 그대로 커버한다.
   @@unique([workspaceId, name])
-  @@index([workspaceId])
 }
