@@ -1,4 +1,4 @@
-import type { MessageDto } from '@qufox/shared-types';
+import { isSystemMessageType, type MessageDto } from '@qufox/shared-types';
 import { OPTIMISTIC_PREFIX } from './sendState';
 
 /**
@@ -19,6 +19,22 @@ export type RovingKey = 'ArrowUp' | 'ArrowDown' | 'Home' | 'End';
 
 export function isRovingKey(key: string): key is RovingKey {
   return key === 'ArrowUp' || key === 'ArrowDown' || key === 'Home' || key === 'End';
+}
+
+/**
+ * S83b round-2 (reviewer/a11y BLOCKER #1 · MAJOR M1): roving 가능한(키보드 포커스
+ * 타깃 article 로 렌더되는) 메시지 id 만 추린다. MessageList 의 navigableIds 계산을
+ * 이 순수 헬퍼로 단일화해, "삭제/시스템 행 제외" 규칙을 단위 검증으로 고정한다.
+ *
+ * 제외 대상:
+ *   - 시스템 메시지(SYSTEM_ 계열 / broadcast): SystemMessage 로 렌더돼 포커스 타깃 없음.
+ *   - 삭제 메시지(deleted): MessageItem 이 role="note" placeholder 로 early-return 해
+ *     포커스 타깃 article(`msg-${id}`)이 없음 → roving 에 포함하면 이동이 깨진다.
+ */
+export function computeNavigableIds(
+  messages: readonly Pick<MessageDto, 'id' | 'type' | 'deleted'>[],
+): string[] {
+  return messages.filter((m) => !isSystemMessageType(m.type) && !m.deleted).map((m) => m.id);
 }
 
 /**

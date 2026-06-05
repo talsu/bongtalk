@@ -132,7 +132,9 @@ export function announceForAction(action: MessageKeyAction): string {
     case 'save':
       return '북마크 전환을 요청합니다';
     case 'reminder':
-      return '리마인더 설정을 엽니다';
+      // S83b round-2 (reviewer/a11y MED #8): 리마인더 모달은 동기적으로 열리므로(즉시
+      // 마운트) 완료형으로 통지한다("엽니다"→"열었습니다").
+      return '리마인더 설정을 열었습니다';
     case 'delete':
       return '메시지 삭제를 진행합니다';
     default:

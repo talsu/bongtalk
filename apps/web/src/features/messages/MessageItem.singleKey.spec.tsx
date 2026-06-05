@@ -123,6 +123,14 @@ function press(row: HTMLElement, key: string): void {
   fireEvent.keyDown(row, { key });
 }
 
+// S83b round-2 (MED #8): edit/react 의 announce 는 포커스 이동 이후로 미루기 위해
+// queueMicrotask 로 발화한다. 동기 press 직후엔 아직 호출되지 않으므로, microtask 큐를
+// 비운 뒤 검증한다.
+async function flushMicrotasks(): Promise<void> {
+  await Promise.resolve();
+  await Promise.resolve();
+}
+
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
   announceSpy.mockReset();
@@ -135,6 +143,33 @@ describe('MessageItem single-key — row accessibility & roving tabindex', () =>
     expect(row).toBeTruthy();
     expect(row.getAttribute('role')).toBe('article');
     expect(row.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  // S83b round-2 (reviewer/a11y HIGH #3): SR 이 "메시지"로 낭독하도록 roledescription.
+  it('exposes aria-roledescription="메시지" so SR reads "메시지" not "article"', () => {
+    const { row } = renderItem({});
+    expect(row.getAttribute('aria-roledescription')).toBe('메시지');
+  });
+
+  // S83b round-2 (reviewer/a11y HIGH #4): continuation 행은 작성자명/시각을 시각적으로
+  // 렌더하지 않으므로 aria-label 이 "계속" 으로 분기한다(시각·SR 정합).
+  it('continuation row aria-label says "메시지 계속" (matches the collapsed visual)', () => {
+    const { row } = renderItem({ msg: makeMsg(), isMine: true });
+    void row;
+    cleanup();
+    const utils = renderWithClient(
+      <MessageItem
+        msg={makeMsg()}
+        isMine
+        isContinuation
+        authorName="Alice"
+        viewerRole="OWNER"
+        onEditSave={vi.fn()}
+        onDelete={vi.fn()}
+      />,
+    );
+    const contRow = utils.container.querySelector('[role="article"]') as HTMLElement;
+    expect(contRow.getAttribute('aria-label')).toContain('계속');
   });
 
   // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. focused 행만 0,
@@ -187,11 +222,13 @@ describe('MessageItem single-key — roving move (↑/↓/Home/End)', () => {
 });
 
 describe('MessageItem single-key — E (edit, isMine gate)', () => {
-  it('E on my message enters inline edit (internal state) + announces', () => {
+  it('E on my message enters inline edit (internal state) + announces', async () => {
     const { row, container } = renderItem({ isMine: true });
     press(row, 'e');
     // 편집 input 이 나타난다(내부 state setEditing 트리거).
     expect(container.querySelector('[data-testid^="msg-edit-"]')).toBeTruthy();
+    // announce 는 포커스 이동 이후(queueMicrotask)에 발화된다.
+    await flushMicrotasks();
     expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('편집'));
   });
 
@@ -210,9 +247,11 @@ describe('MessageItem single-key — E (edit, isMine gate)', () => {
 });
 
 describe('MessageItem single-key — R (react picker, internal state)', () => {
-  it('R opens the reaction picker when onToggleReaction is provided', () => {
+  it('R opens the reaction picker when onToggleReaction is provided', async () => {
     const { row } = renderItem({});
     press(row, 'r');
+    // announce 는 피커 오픈(포커스 이동) 이후(queueMicrotask)에 발화된다.
+    await flushMicrotasks();
     expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('이모지'));
   });
 
@@ -343,6 +382,30 @@ describe('MessageItem single-key — Delete (isMine gate · 2-step confirm)', ()
     press(row, 'Delete');
     expect(onDelete).not.toHaveBeenCalled();
     expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('한 번 더'));
+    // S83b round-2 (MAJOR #9a): 취소 방법까지 안내한다.
+    expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('취소'));
+  });
+
+  // S83b round-2 (reviewer/a11y MAJOR #9b): 무장 상태 시각 피드백(data 속성 렌더 반영).
+  it('first Delete sets data-delete-armed; a non-Delete key clears it', () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const { row } = renderItem({ isMine: true, handlers: { onDelete } });
+    expect(row.getAttribute('data-delete-armed')).toBeNull();
+    press(row, 'Delete');
+    expect(row.getAttribute('data-delete-armed')).toBe('true');
+    // 다른 단일키가 끼어들면 무장 해제(시각 피드백도 사라진다).
+    press(row, 'r');
+    expect(row.getAttribute('data-delete-armed')).toBeNull();
+  });
+
+  it('data-delete-armed clears after the second (confirming) Delete', () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const { row } = renderItem({ isMine: true, handlers: { onDelete } });
+    press(row, 'Delete');
+    expect(row.getAttribute('data-delete-armed')).toBe('true');
+    press(row, 'Delete');
+    expect(row.getAttribute('data-delete-armed')).toBeNull();
+    expect(onDelete).toHaveBeenCalledTimes(1);
   });
 
   it('second Delete within the window triggers onDelete', () => {

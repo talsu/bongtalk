@@ -227,6 +227,30 @@ export function MessageItem({
   // 창(DELETE_CONFIRM_WINDOW_MS) 안에 다시 Delete 를 누르면 실제 삭제한다. armedAt 에
   // 첫 입력 시각을 보관하고, 창이 지나면 다시 1단계로 돌아간다(우발 삭제 방지).
   const deleteArmedAtRef = useRef<number | null>(null);
+  // S83b round-2 (reviewer/a11y MAJOR #9b): 무장 상태를 ref 와 병행해 state 로도 들어
+  // 렌더에 반영한다(저시력/키보드 사용자가 확인 대기 중을 시각적으로 인지). data-delete-armed
+  // 속성으로 노출하고 app-layer index.css 가 좌측 강조선을 그린다. 창 만료 타이머로 자동
+  // 해제해 시각 피드백이 영구히 남지 않게 한다.
+  const [deleteArmed, setDeleteArmed] = useState(false);
+  const deleteArmTimerRef = useRef<number | null>(null);
+  // 무장 해제(ref + state + 만료 타이머 정리)를 단일 헬퍼로 모은다.
+  const disarmDelete = (): void => {
+    deleteArmedAtRef.current = null;
+    if (deleteArmTimerRef.current !== null) {
+      window.clearTimeout(deleteArmTimerRef.current);
+      deleteArmTimerRef.current = null;
+    }
+    if (isMountedRef.current) setDeleteArmed(false);
+  };
+  // 언마운트 시 무장 만료 타이머 정리(누수/언마운트-후-setState 방지).
+  useEffect(() => {
+    return () => {
+      if (deleteArmTimerRef.current !== null) {
+        window.clearTimeout(deleteArmTimerRef.current);
+        deleteArmTimerRef.current = null;
+      }
+    };
+  }, []);
   // S83a (FR-KS-06): editRequestNonce 가 bump 되면(내 메시지·편집중 아님) 인라인 편집 진입.
   // nonce 자체에만 반응해 같은 메시지 재요청도 동작한다(0/undefined 는 무시).
   useEffect(() => {
@@ -345,29 +369,40 @@ export function MessageItem({
     const now = Date.now();
     const armedAt = deleteArmedAtRef.current;
     if (armedAt !== null && now - armedAt <= DELETE_CONFIRM_WINDOW_MS) {
-      deleteArmedAtRef.current = null;
+      disarmDelete();
       announce('메시지를 삭제합니다');
       void runDelete();
       return;
     }
-    // 1단계: 무장 + 안내(실행하지 않음).
+    // 1단계: 무장 + 안내(실행하지 않음). 시각 피드백(state)도 켜고, 창 만료 시 자동 해제한다.
     deleteArmedAtRef.current = now;
-    announce('한 번 더 Delete 를 누르면 삭제됩니다');
+    if (isMountedRef.current) setDeleteArmed(true);
+    if (deleteArmTimerRef.current !== null) window.clearTimeout(deleteArmTimerRef.current);
+    deleteArmTimerRef.current = window.setTimeout(() => {
+      deleteArmTimerRef.current = null;
+      disarmDelete();
+    }, DELETE_CONFIRM_WINDOW_MS);
+    // S83b round-2 (reviewer/a11y MAJOR #9a): 취소 방법까지 안내해 우발 삭제를 막는다.
+    announce('한 번 더 Delete 를 누르면 삭제됩니다. 취소하려면 다른 키를 누르거나 3초 기다리세요.');
   };
 
   // S83b 리뷰 fix-forward: 해석된 액션 실행(키보드 포커스 경로). SR 통지 후 부수효과를
   // 수행한다(E/R 은 내부 state, 나머지는 prop/추출 핸들러). Delete 외 액션이 들어오면
   // Delete 무장 상태를 해제한다(다른 키로 확인 창 무효화).
   const runKeyAction = (action: NonNullable<ReturnType<typeof resolveMessageKeyAction>>): void => {
-    if (action !== 'delete') deleteArmedAtRef.current = null;
+    if (action !== 'delete') disarmDelete();
     switch (action) {
       case 'edit':
-        announce(announceForAction(action));
+        // S83b round-2 (reviewer/a11y MED #8): 포커스 이동을 동반하는 단일키(edit·react)
+        // 의 announce 는 queueMicrotask 로 미뤄, autoFocus/dialog 의 포커스 이동 이후에
+        // 발화되게 한다(편집 진입에 이미 적용된 패턴을 단일키 전반에 일관 적용 — SR
+        // 낭독 순서 안정). thread/pin/save 등 비-포커스이동 액션은 동기 통지를 유지한다.
         if (editing === null) setEditing(msg.content ?? '');
+        queueMicrotask(() => announce(announceForAction(action)));
         break;
       case 'react':
-        announce(announceForAction(action));
         setPickerOpen(true);
+        queueMicrotask(() => announce(announceForAction(action)));
         break;
       case 'thread':
         announce(announceForAction(action));
@@ -422,7 +457,7 @@ export function MessageItem({
       e.preventDefault();
       e.stopPropagation();
       // 이동 시 진행 중인 Delete 무장 상태 해제(다른 행으로 이동하면 확인 창 무효).
-      deleteArmedAtRef.current = null;
+      disarmDelete();
       onRovingMove(e.key);
       return;
     }
@@ -484,7 +519,14 @@ export function MessageItem({
 
   // S83b (FR-KS-08): 메시지 row 의 접근 가능한 맥락 라벨. 키보드 포커스 시 SR 이
   // "누가, 언제" 의 메시지인지 안내하도록 작성자명 + 시각을 합친다(role="article").
-  const rowAriaLabel = `${authorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
+  //
+  // S83b round-2 (reviewer/a11y HIGH #4): continuation 행은 작성자명/시각을 시각적으로
+  // 렌더하지 않으므로(head 행에서만 meta 노출), aria-label 에 "{author} 의 메시지, {time}"
+  // 을 항상 붙이면 SR 낭독이 시각 표시와 불일치한다(존재하지 않는 정보를 읽음). head 행은
+  // 현행(작성자 + 시각) 유지, continuation 행은 시각 정보(gutterTime)만 안내해 시각·SR 정합.
+  const rowAriaLabel = isContinuation
+    ? `${authorName ?? 'unknown'} 의 메시지 계속, ${gutterTime}`
+    : `${authorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
 
   return (
     <>
@@ -499,7 +541,14 @@ export function MessageItem({
         // focused 미전달(spec 단독 렌더 등)이면 0 으로 폴백해 단독 포커스 가능.
         // onFocus 로 부모의 focusedMsgId 를 이 row 로 동기화(roving 배선).
         role="article"
+        // S83b round-2 (reviewer/a11y HIGH #3): SR 이 "아티클" 대신 "메시지"로 낭독해
+        // roving 맥락(메시지 목록을 순회 중)을 명확히 한다.
+        aria-roledescription="메시지"
         aria-label={rowAriaLabel}
+        // S83b round-2 (reviewer/a11y MAJOR #9b): Delete 무장 상태 시각 피드백. ref 만으론
+        // 렌더에 반영되지 않아 저시력/키보드 사용자가 "확인 대기 중"임을 볼 수 없다. state
+        // 를 병행해 data 속성으로 노출하고, app-layer index.css 가 좌측 강조선을 입힌다.
+        data-delete-armed={deleteArmed ? 'true' : undefined}
         tabIndex={focused === false ? -1 : 0}
         onKeyDown={handleRowKeyDown}
         onFocus={onRowFocus}

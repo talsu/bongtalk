@@ -108,3 +108,35 @@ html[data-high-contrast='true'] {
   outline: var(--s-1) solid var(--accent);
   outline-offset: calc(-1 * var(--s-1));
 }
+
+/* S83b round-2 (reviewer/a11y BLOCKER #2): 메시지 row 가 키보드 포커스를 받으면
+ * (focus-within) 호버 툴바를 시각적으로 노출한다. DS components.css 의
+ * `.qf-message__toolbar` 는 opacity:0 / visibility:hidden / pointer-events:none 로
+ * 숨겨 두고 `.qf-message:hover` 에서만 해제하므로, MessageItem 의 group-focus-within:!flex
+ * (display 만 flex 로 전환)만으론 여전히 보이지 않는다(opacity/visibility/pointer-events 가
+ * 그대로 hidden). app-layer 에서 focus-within 시 그 3속성 + transform 까지 함께 풀어
+ * 키보드 사용자에게 툴바가 실제로 보이게 한다. DS components.css 정본 reveal 규칙
+ * 추가는 DS-owner 이월(carryover — DS 4파일 무수정). */
+.qf-message:focus-within .qf-message__toolbar {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+
+/* S83b round-2 (reviewer/a11y MAJOR #9b): Delete 단일키 2단계 확인의 "무장(armed)"
+ * 상태를 색 외 인디케이터로 노출한다(저시력/키보드 사용자가 확인 대기 중을 시각적으로
+ * 인지). MessageItem 이 data-delete-armed 를 무장 동안만 부여하고, 창 만료/다른 키
+ * 입력 시 해제한다. 좌측 inset 강조선으로 위험(삭제 대기)을 표시한다 — 시맨틱 위험
+ * 토큰(--danger-400)만 사용(raw hex/px 금지). */
+.qf-message[data-delete-armed='true'] {
+  /* --s-1 = 2px (DS 토큰) — raw px 회피. 좌측 2px 위험 강조선. */
+  box-shadow: inset var(--s-1) 0 0 var(--danger-400);
+}
+
+/* S83b round-2 (reviewer/a11y MINOR #10): roving 포커스 이동 시 focus-visible 링이
+ * 스크롤 컨테이너 경계에서 잘리지 않도록 scroll-margin 여백을 둔다(scrollIntoView 가
+ * 행을 경계에 딱 붙여도 링 1~2px 이 가려지지 않게). DS 4파일 무수정 · app-layer 만. */
+.qf-message:focus-visible {
+  scroll-margin: var(--s-1);
+}

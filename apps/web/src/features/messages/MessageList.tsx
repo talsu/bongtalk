@@ -29,7 +29,14 @@ import { ReminderModal } from '../saved/ReminderModal';
 import { useSetReminder } from '../saved/useReminder';
 import { saveMessage } from '../saved/api';
 import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
-import { initialFocusId, nextRovingFocus, deriveHasReminder, type RovingKey } from './rovingFocus';
+import {
+  computeNavigableIds,
+  initialFocusId,
+  nextRovingFocus,
+  deriveHasReminder,
+  type RovingKey,
+} from './rovingFocus';
+import { announce } from '../../lib/a11y-announce';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
@@ -223,10 +230,13 @@ export function MessageList({
   // 이 아닌 SystemMessage 로 렌더돼 `msg-${id}` 포커스 타깃이 없으므로 roving 순회에서
   // 제외한다(focus 유실 방지). 가상화여도 전체 순서를 그대로 쓰므로 윈도우 밖 이동도
   // 좌표가 정합한다(아래 가상 인덱스 변환은 전체 messageIds 기준 인덱스를 쓴다).
-  const navigableIds = useMemo(
-    () => messages.filter((m) => !isSystemMessageType(m.type)).map((m) => m.id),
-    [messages],
-  );
+  //
+  // S83b round-2 (reviewer/a11y BLOCKER #1): 삭제된 메시지(deleted)는 MessageItem 이
+  // `role="note"` placeholder 로 early-return 해 포커스 타깃 article(`msg-${id}`)이
+  // 없다. 따라서 roving 순회에 포함하면 ↑/↓ 가 포커스 타깃이 없는 행으로 이동해
+  // 키보드 진입/이동이 깨진다. editLast 필터(!m.deleted)와 일관되게 삭제 행을 제외한다.
+  // 필터 규칙은 computeNavigableIds(순수 헬퍼) 단일 출처로 단위 검증된다.
+  const navigableIds = useMemo(() => computeNavigableIds(messages), [messages]);
   // roving 의 "현재 tabIndex=0 인 행". 사용자가 아직 어떤 행도 포커스하지 않았으면
   // (focusedMsgId=null) 최신(마지막) navigable 메시지가 Tab 한 스톱을 차지한다
   // (initialFocusId). 이미 이동했으면 그 id. focusedMsgId 가 가리키는 행이 사라졌으면
@@ -440,6 +450,12 @@ export function MessageList({
   // 읽도록 ref 로 노출한다(재바인딩 없이).
   const navigableIdsRef = useRef(navigableIds);
   navigableIdsRef.current = navigableIds;
+  // S83b round-2 (reviewer/a11y MED #7): roving 이동 기준 좌표를 raw focusedMsgId 가
+  // 아니라 effectiveFocusedId(실제 tabIndex=0 으로 표시되는 행 — 폴백/필터 적용)로
+  // 단일화한다. 핸들러가 이 ref 를 읽어 "표시되는 현재 행"에서 다음 행을 계산하므로
+  // 표시(tabIndex=0)와 이동 기준이 어긋나지 않는다(삭제·evict 폴백 시 정합).
+  const effectiveFocusedIdRef = useRef(effectiveFocusedId);
+  effectiveFocusedIdRef.current = effectiveFocusedId;
   const historyRef = useRef(history);
   historyRef.current = history;
   const virtualizerRef = useRef(virtualizer);
@@ -800,9 +816,28 @@ export function MessageList({
     }
   };
   const handleRovingMove = (key: RovingKey): void => {
-    // 다음 포커스 대상은 navigable(비-시스템) id 중에서 고른다.
-    const { nextId } = nextRovingFocus(navigableIdsRef.current, focusedMsgId, key);
+    // S83b round-2 (MED #7): 이동 기준 좌표를 effectiveFocusedId(표시 tabIndex=0 행)로
+    // 단일화한다. 다음 포커스 대상은 navigable(비-시스템·비-삭제) id 중에서 고른다.
+    const ids = navigableIdsRef.current;
+    const current = effectiveFocusedIdRef.current;
+    const { nextId } = nextRovingFocus(ids, current, key);
     if (nextId === null) return;
+    // S83b round-2 (HIGH #5): Home/End 와 ↑/↓ 경계 도달을 SR 로 공지한다(키보드
+    // 사용자의 위치 맥락 유지). announce 는 포커스 이동 이후에 발화되도록 queueMicrotask
+    // 로 미룬다(MED #8 — 포커스 동반 통지 타이밍 일관).
+    let announcement: string | null = null;
+    if (key === 'Home') {
+      announcement = '첫 메시지로 이동';
+    } else if (key === 'End') {
+      announcement = '마지막 메시지로 이동';
+    } else if (nextId === current) {
+      // clamp(경계) — 더 이동할 행이 없다.
+      announcement = key === 'ArrowUp' ? '첫 메시지입니다' : '마지막 메시지입니다';
+    }
+    if (announcement !== null) {
+      const text = announcement;
+      queueMicrotask(() => announce(text));
+    }
     setFocusedMsgId(nextId);
     // 렌더된 행이면 즉시 포커스, 아니면 가상 인덱스로 스크롤 후 rAF 로 포커스.
     const existing = scrollRef.current?.querySelector<HTMLElement>(`[data-testid="msg-${nextId}"]`);
@@ -884,8 +919,12 @@ export function MessageList({
         <Scrollable
           ref={scrollRef}
           data-testid="msg-list"
+          // S83b round-2 (reviewer/a11y HIGH #6): role="log" 은 암묵적으로
+          // aria-live="polite" 를 내포하므로 명시적 aria-live 를 제거한다(중복 선언이
+          // 일부 SR 에서 이중 라이브 영역으로 해석돼 과다 낭독을 유발). role="feed" +
+          // aria-posinset/setsize 마이그레이션은 라이브 영역과의 트레이드오프(feed 는
+          // 비-라이브)가 있어 이번 이월(carryover — DS/UX 결정 필요).
           role="log"
-          aria-live="polite"
           aria-label="메시지"
           // S23 a11y BLOCKER fix (#7): jump 후 pill 언마운트로 포커스가 body 로
           // 떨어지지 않게, jumpToFirstUnread 가 이 컨테이너로 포커스를 옮긴다.

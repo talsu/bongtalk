@@ -111,6 +111,11 @@ export function ShortcutHelp(): JSX.Element | null {
         // heading id 를 section aria-labelledby 가 가리켜, SR 이 항목 그룹의
         // 맥락(어느 카테고리인지)을 그룹 단위로 안내하게 한다.
         const headingId = `shortcut-cat-${ci}`;
+        // S83b round-2 (reviewer/a11y MINOR #10): 카테고리 활성 조건 note 를 <p id> 로
+        // 두고, 항목 <ul> 이 aria-describedby 로 가리키게 연결한다. note 가 없는
+        // 카테고리는 undefined 로 두어 빈 참조를 만들지 않는다(SR 가 목록을 읽을 때
+        // 활성 조건을 보조 설명으로 함께 안내).
+        const noteId = cat.note ? `shortcut-cat-${ci}-note` : undefined;
         return (
           <section key={cat.title} aria-labelledby={headingId} className="mb-[var(--s-4)]">
             <h3
@@ -124,13 +129,14 @@ export function ShortcutHelp(): JSX.Element | null {
             </h3>
             {cat.note ? (
               <p
+                id={noteId}
                 className="text-[length:var(--fs-12)] mb-[var(--s-2)]"
                 style={{ color: 'var(--text-secondary)' }}
               >
                 {cat.note}
               </p>
             ) : null}
-            <ul>
+            <ul aria-describedby={noteId}>
               {cat.entries.map((s, ei) => (
                 <li
                   // combo 가 맥락별로 중복(예: Esc 2행)될 수 있어 index 로 키를 잡는다.
