@@ -68,6 +68,31 @@ describe('renderAst — links (FR-MSG-20)', () => {
     expect(out).not.toContain('href="javascript:');
   });
 
+  // S78 (FR-MD-01 regression): the link's display text is rendered, not the
+  // raw url, while the safe url stays in the href.
+  it('renders the link display text (not the raw url) for [text](url)', () => {
+    const out = html('[qufox 공식](https://qufox.com)');
+    expect(out).toContain('href="https://qufox.com"');
+    expect(out).toContain('qufox 공식');
+  });
+
+  // S78 (FR-MD-01 regression): a bare url with no display text falls back to
+  // rendering the url itself as the link label.
+  it('falls back to the url as label when a link AST node has no text', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [{ type: 'link', url: 'https://qufox.com', text: null }],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const out = htmlOf(ast);
+    expect(out).toContain('href="https://qufox.com"');
+    expect(out).toContain('https://qufox.com');
+  });
+
   it('hardens a malformed link AST node (defense-in-depth href=#)', () => {
     // Even if a hand-crafted AST carries an unsafe url, the renderer must
     // not emit it as an active href.
@@ -113,6 +138,35 @@ describe('renderAst — blocks (FR-MSG-01)', () => {
 
   it('renders a blockquote', () => {
     expect(html('> quoted')).toContain('<blockquote');
+  });
+
+  // S78 (FR-MD regression): heading AST nodes (levels 1-3) render as the
+  // matching semantic heading element. The live mrkdwn parser doesn't emit
+  // `#` headings today (paragraph-only), so the renderer's heading path is
+  // exercised with crafted AST nodes (server-built / future parser).
+  function headingAst(level: 1 | 2 | 3, text: string): RichTextRoot {
+    return {
+      type: 'root',
+      nodes: [{ type: 'heading', level, nodes: [{ type: 'text', text }] }],
+    } as unknown as RichTextRoot;
+  }
+
+  it('renders an H1 heading node', () => {
+    const out = htmlOf(headingAst(1, 'Title'));
+    expect(out).toContain('<h1');
+    expect(out).toContain('Title');
+  });
+
+  it('renders an H2 heading node', () => {
+    const out = htmlOf(headingAst(2, 'Section'));
+    expect(out).toContain('<h2');
+    expect(out).toContain('Section');
+  });
+
+  it('renders an H3 heading node', () => {
+    const out = htmlOf(headingAst(3, 'Sub'));
+    expect(out).toContain('<h3');
+    expect(out).toContain('Sub');
   });
 
   it('renders an unordered list', () => {

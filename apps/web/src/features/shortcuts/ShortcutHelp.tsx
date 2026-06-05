@@ -6,6 +6,13 @@ import { useUI } from '../../stores/ui-store';
  *
  * 045 까지의 평면 list 를 카테고리 단위로 묶어 학습 부담 감소.
  * 각 항목의 한국어 mnemonic (예: "K = 빠른 이동", "/ = 검색") 을 명시.
+ *
+ * S78 (PRD parity): PRD D15 의 3-카테고리(내비게이션 / 메시지 포맷 / 메시지
+ * 액션) 구조로 확장한다. 이번 슬라이스는 **치트시트 표시만** 한다 — 포맷
+ * 단축키(Ctrl+B/I…)와 메시지 액션 단축키(E/Delete/R/T…)의 실제 동작 배선은
+ * 각각 S83 / S82 에서 구현하므로, 아직 미배선인 항목은 `pending: true` 로
+ * "준비 중" 뱃지를 단다(거짓 약속 방지). 이미 동작하는 항목(Enter, Ctrl/Cmd+K,
+ * Alt+↑/↓, Ctrl/Cmd+/, Escape 등)은 뱃지 없이 그대로 노출한다.
  */
 
 interface ShortcutEntry {
@@ -13,6 +20,8 @@ interface ShortcutEntry {
   desc: string;
   /** 한국어 mnemonic — 단축키와 동작의 연결 단서 */
   mnemonic?: string;
+  /** 아직 동작이 배선되지 않은 단축키(표시만). S82/S83 에서 실동작 도입. */
+  pending?: boolean;
 }
 
 interface ShortcutCategory {
@@ -22,31 +31,38 @@ interface ShortcutCategory {
 
 const CATEGORIES: ShortcutCategory[] = [
   {
-    title: '탐색',
+    title: '내비게이션',
     entries: [
-      { combo: 'Ctrl/Cmd + K', desc: '빠른 이동 팔레트', mnemonic: 'K = 점프(K-jump)' },
+      { combo: 'Ctrl/Cmd + K', desc: '퀵스위처(빠른 이동)', mnemonic: 'K = 점프(K-jump)' },
+      { combo: 'Ctrl/Cmd + /', desc: '단축키 오버레이 / 검색 포커스', mnemonic: '/ = 검색 슬래시' },
       { combo: 'Alt + ↑ / ↓', desc: '이전 / 다음 채널' },
       { combo: 'Ctrl/Cmd + Shift + A', desc: '다음 워크스페이스', mnemonic: 'A = Auto-cycle' },
-    ],
-  },
-  {
-    title: '검색 & 도움말',
-    entries: [
-      { combo: 'Ctrl/Cmd + /', desc: '메시지 검색 포커스', mnemonic: '/ = 검색 슬래시' },
       { combo: '?', desc: '이 도움말 열기', mnemonic: '? = 물음표 = 도움말' },
+      { combo: 'Escape', desc: '열린 modal / dropdown 닫기' },
+      { combo: 'Esc', desc: '현재 채널 읽음 표시' },
+      { combo: 'Shift + Esc', desc: '워크스페이스 전체 읽음 표시' },
     ],
   },
   {
-    title: '메시지',
+    title: '메시지 포맷',
     entries: [
       { combo: 'Enter', desc: '메시지 전송 (composer)' },
       { combo: 'Shift + Enter', desc: '줄바꿈 (composer)' },
-      { combo: 'Shift + Esc', desc: '읽음 표시 (예정)' },
+      { combo: 'Ctrl/Cmd + B', desc: '볼드', mnemonic: 'B = Bold', pending: true },
+      { combo: 'Ctrl/Cmd + I', desc: '이탤릭', mnemonic: 'I = Italic', pending: true },
+      { combo: 'Ctrl + Shift + X', desc: '취소선', pending: true },
+      { combo: 'Ctrl + Shift + C', desc: '인라인 코드', pending: true },
     ],
   },
   {
-    title: '오버레이',
-    entries: [{ combo: 'Escape', desc: '열린 modal / dropdown 닫기' }],
+    title: '메시지 액션',
+    entries: [
+      { combo: 'E', desc: '내 메시지 편집', mnemonic: 'E = Edit', pending: true },
+      { combo: 'Delete', desc: '내 메시지 삭제 다이얼로그', pending: true },
+      { combo: 'R', desc: '이모지 반응 피커', mnemonic: 'R = React', pending: true },
+      { combo: 'T / →', desc: '스레드 열기', mnemonic: 'T = Thread', pending: true },
+      { combo: 'P', desc: '핀 / 언핀', mnemonic: 'P = Pin', pending: true },
+    ],
   },
 ];
 
@@ -78,7 +94,17 @@ export function ShortcutHelp(): JSX.Element | null {
                 style={{ borderBottom: '1px solid var(--divider)' }}
               >
                 <div className="flex flex-col">
-                  <span className="text-text">{s.desc}</span>
+                  <span className="text-text">
+                    {s.desc}
+                    {s.pending && (
+                      <span
+                        className="ml-[var(--s-2)] text-[length:var(--fs-11)]"
+                        style={{ color: 'var(--text-secondary)' }}
+                      >
+                        (준비 중)
+                      </span>
+                    )}
+                  </span>
                   {s.mnemonic && (
                     <span
                       className="text-[length:var(--fs-12)]"
