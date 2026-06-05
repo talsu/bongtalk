@@ -73,12 +73,15 @@ function renderBlock(
         </p>
       );
     case 'heading': {
+      // FR-MD-01 (S78 reviewer B1): PRD 명세 24/20/18px. 모두 tokens.css 에
+      // 등록된 폰트 토큰을 씁니다 — 종전 h2 `--fs-17` 은 미등록 토큰이라
+      // var() 가 빈 값으로 해석돼 글자 크기가 깨졌습니다.
       const cls =
         node.level === 1
-          ? 'text-[length:var(--fs-20)] font-semibold'
+          ? 'text-[length:var(--fs-24)] font-semibold'
           : node.level === 2
-            ? 'text-[length:var(--fs-17)] font-semibold'
-            : 'text-[length:var(--fs-15)] font-semibold';
+            ? 'text-[length:var(--fs-20)] font-semibold'
+            : 'text-[length:var(--fs-18)] font-semibold';
       const children = node.nodes.map((n, i) =>
         renderInline(n, `${key}-i${i}`, customEmojis, mentions),
       );
@@ -284,8 +287,14 @@ function Spoiler({ children }: { children: ReactNode }): JSX.Element {
       className={
         revealed
           ? 'qf-spoiler cursor-pointer rounded-[var(--r-sm)]'
-          : 'qf-spoiler cursor-pointer rounded-[var(--r-sm)] bg-bg-strong text-transparent'
+          : 'qf-spoiler cursor-pointer rounded-[var(--r-sm)] text-transparent'
       }
+      // FR-MD-02 (S78 ui HIGH): 마스킹 배경. 종전 `bg-bg-strong` 은 tailwind
+      // config 에 키가 없는 무효 유틸리티라 배경이 적용되지 않았고, `.qf-spoiler`
+      // 는 DS 4파일에 정의가 없어 자체 background 도 제공하지 않았습니다. 등록
+      // 토큰 `--n-6`(중성 강조 면)로 솔리드 마스킹 블록을 그려 reveal 전 텍스트가
+      // 실제로 가려지게 합니다(text-transparent 와 함께).
+      style={revealed ? undefined : { background: 'var(--n-6)' }}
       role="button"
       tabIndex={0}
       aria-label={revealed ? '스포일러 숨기기' : '스포일러 보기'}

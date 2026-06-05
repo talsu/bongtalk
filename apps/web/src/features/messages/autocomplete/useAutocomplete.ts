@@ -66,6 +66,14 @@ export type UseAutocompleteResult = {
   /** 현재 active 행. 없으면 null. */
   activeRow: AutocompleteRow | null;
   close: () => void;
+  /**
+   * S78 reviewer FF3 (a11y): 트리거(@/#/:)는 활성(미해제)인데 결과가 0건이라
+   * 팝업이 열리지 않는 상태. 팝업은 rows>0 일 때만 열리므로 이 신호가 없으면
+   * SR 사용자는 "결과 없음"을 알 수 없다(시각 사용자는 빈 팝업 부재로 추정).
+   * 호출부(MessageComposer)가 이 신호로 "검색 결과가 없습니다"를 공지한다.
+   * 활성 트리거가 없거나(=null) 결과가 1건 이상이면 null.
+   */
+  emptyTriggerKind: TriggerKind | null;
 };
 
 function buildMentionRows(query: string, sources: AutocompleteSources): MentionRow[] {
@@ -183,11 +191,17 @@ export function useAutocomplete({
 
   const activeRow = open ? (rows[Math.min(activeIndex, rows.length - 1)] ?? null) : null;
 
+  // FF3: 트리거 활성(미해제)인데 결과 0건 → 팝업은 닫혀 있지만 "결과 없음"을
+  // SR 에 알려야 하는 상태. 사용자가 Esc 로 해제(dismissed)했으면 알리지 않는다.
+  const emptyTriggerKind =
+    !dismissed && trigger !== null && rows.length === 0 ? trigger.kind : null;
+
   return {
     state,
     move,
     setActiveIndex,
     activeRow,
     close: () => setDismissed(true),
+    emptyTriggerKind,
   };
 }
