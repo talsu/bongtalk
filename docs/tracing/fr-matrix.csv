@@ -328,9 +328,9 @@ FR-PS-20,D14-profile-settings,P1,S77,done
 FR-A11Y-01,D15-commands-shortcuts,P0,S78,done
 FR-MD-01,D15-commands-shortcuts,P0,S78,done
 FR-MD-02,D15-commands-shortcuts,P1,S78,done
-FR-SC-01,D15-commands-shortcuts,P0,S79,todo
-FR-SC-02,D15-commands-shortcuts,P0,S79,todo
-FR-SC-03,D15-commands-shortcuts,P0,S79,todo
+FR-SC-01,D15-commands-shortcuts,P0,S79,done
+FR-SC-02,D15-commands-shortcuts,P0,S79,done
+FR-SC-03,D15-commands-shortcuts,P0,S79,done
 FR-RC18,D16-richcontent,P2,S80,todo
 FR-SC-04,D15-commands-shortcuts,P0,S80,todo
 FR-SC-05,D15-commands-shortcuts,P0,S80,todo

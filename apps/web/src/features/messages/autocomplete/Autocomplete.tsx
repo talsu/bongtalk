@@ -1,7 +1,21 @@
 import { useEffect, useRef } from 'react';
+import type { SlashCommandItem } from '@qufox/shared-types';
 import { cn } from '../../../lib/cn';
 import type { AutocompleteRow } from './useAutocomplete';
 import { TRIGGER_KIND_LABEL, type TriggerKind } from './detectTrigger';
+
+/**
+ * S79 fix-forward (a11y H-01): 슬래시 커맨드 option 의 접근명을 만든다.
+ * 시각 행은 /name + 설명 + usageHint 를 시각 슬롯에 나눠 두지만(아이콘/meta 는
+ * aria-hidden), SR 은 이 단일 라벨로 의미를 전달받는다. 설명/usageHint 가 없는
+ * 커맨드도 최소 "슬래시 커맨드 /name" 은 읽히게 한다(빈 조각은 제외).
+ */
+export function slashOptionLabel(command: SlashCommandItem): string {
+  const parts = [`슬래시 커맨드 /${command.name}`];
+  if (command.description) parts.push(command.description);
+  if (command.usageHint) parts.push(`사용법 ${command.usageHint}`);
+  return parts.join(', ');
+}
 
 /**
  * S18 (FR-RC03/04/05/06) — 자동완성 listbox UI.
@@ -82,6 +96,7 @@ function rowKey(row: AutocompleteRow, index: number): string {
   if (row.type === 'special') return `sp-${row.item.key}`;
   if (row.type === 'member') return `m-${row.member.userId}`;
   if (row.type === 'channel') return `c-${row.channel.id}`;
+  if (row.type === 'slash') return `s-${row.command.id}`;
   return `e-${row.emoji.kind}-${row.emoji.name}-${index}`;
 }
 
@@ -164,6 +179,46 @@ function Row({
             <span className="qf-autocomplete__sub">{row.channel.topic}</span>
           ) : null}
         </span>
+      </li>
+    );
+  }
+
+  // S79 (FR-SC-02): 슬래시 커맨드 행. / 아이콘 + 커맨드명(label) + 짧은 설명(sub),
+  // usage hint 는 우측 meta 슬롯에 모노폭으로 노출한다. 기존 qf-autocomplete* 골격을
+  // 재사용하되(채널 행과 동일 레이아웃), 슬래시 전용 변형 클래스 --slash 를 함께 부여한다.
+  //
+  // S79 fix-forward (a11y B-01 / ui M-02): 채널 변형(--channel)을 그대로 쓰면 선택
+  // (aria-selected) 시 usageHint(__meta, text-muted) 가 bg-selected 위에서 3.74:1 로
+  // AA(4.5:1) 미달이었다. DS slash 클래스(qf-slash-menu__arg)도 text-muted 라 같은
+  // 문제가 있고, listbox(ul/li) 레이아웃과 qf-slash-menu__item 의 독립 flex/padding 이
+  // 충돌하므로, 채널 골격 + 슬래시 전용 변형 클래스(--slash) 조합을 택한다. 선택상태
+  // usageHint 를 text-secondary(6.15:1 다크 / 7.66:1 라이트, AA 충족)로 올리는 규칙은
+  // app-layer index.css 에 --slash 스코프로만 추가해 채널 행에는 영향이 없다.
+  //
+  // S79 fix-forward (a11y H-01): description/usageHint 가 없는 커맨드도 SR 이 의미를
+  // 전달하도록 option 에 명시 aria-label 을 붙인다. 아이콘/meta 는 aria-hidden 이라
+  // 라벨이 단일 접근명이 된다.
+  if (row.type === 'slash') {
+    return (
+      <li
+        {...common}
+        className="qf-autocomplete__item qf-autocomplete__item--channel qf-autocomplete__item--slash"
+        aria-label={slashOptionLabel(row.command)}
+      >
+        <span className="qf-autocomplete__avatar" aria-hidden="true">
+          /
+        </span>
+        <span className="qf-autocomplete__text">
+          <span className="qf-autocomplete__label">/{row.command.name}</span>
+          {row.command.description ? (
+            <span className="qf-autocomplete__sub">{row.command.description}</span>
+          ) : null}
+        </span>
+        {row.command.usageHint ? (
+          <span className="qf-autocomplete__meta qf-autocomplete__shortcode" aria-hidden="true">
+            {row.command.usageHint}
+          </span>
+        ) : null}
       </li>
     );
   }

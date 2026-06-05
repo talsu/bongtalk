@@ -20,6 +20,7 @@ import { AttachmentsModule } from './attachments/attachments.module';
 import { StorageModule } from './storage/storage.module';
 import { ReactionsModule } from './reactions/reactions.module';
 import { EmojisModule } from './emojis/emojis.module';
+import { SlashCommandsModule } from './slash-commands/slash-commands.module';
 import { SearchModule } from './search/search.module';
 import { FeedbackModule } from './feedback/feedback.module';
 import { NotificationsModule } from './notifications/notifications.module';
@@ -60,6 +61,8 @@ import { QueueModule } from './queue/queue.module';
     AttachmentsModule,
     ReactionsModule,
     EmojisModule,
+    // S79 (D15 / FR-SC-01·02·03): 슬래시 커맨드 목록(빌트인 상수 + 워크스페이스 커스텀 병합).
+    SlashCommandsModule,
     SearchModule,
     FeedbackModule,
     NotificationsModule,
