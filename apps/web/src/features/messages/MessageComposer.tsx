@@ -25,6 +25,12 @@ import { clampAttachments, MAX_ATTACHMENTS } from './clampAttachments';
 import { computeCounter } from './composerCounter';
 import { composerAnnouncement } from './composerAnnouncement';
 import { announce } from '../../lib/a11y-announce';
+import {
+  wrapSelection,
+  matchFormatShortcut,
+  FORMAT_MARKERS,
+  type FormatShortcut,
+} from './formatWrap';
 import { cn } from '../../lib/cn';
 import { Autocomplete } from './autocomplete/Autocomplete';
 import { SpecialMentionConfirmDialog } from './autocomplete/SpecialMentionConfirmDialog';
@@ -706,6 +712,24 @@ export function MessageComposer({
     });
   };
 
+  // S83a (FR-KS-05): composer 마크다운 단축키. 선택 텍스트를 마커로 감싸(또는 빈 선택 시
+  // 마커 삽입) draft 를 갱신하고, 새 selection 을 다음 tick 에 복원한다(insertAtCursor 패턴).
+  const applyFormat = (shortcut: FormatShortcut): void => {
+    const el = textareaRef.current;
+    if (!el) return;
+    const { before, after } = FORMAT_MARKERS[shortcut];
+    const start = el.selectionStart ?? draft.length;
+    const end = el.selectionEnd ?? draft.length;
+    const r = wrapSelection({ text: draft, start, end, before, after });
+    setDraft(channelId, r.text);
+    queueMicrotask(() => {
+      if (!textareaRef.current) return;
+      textareaRef.current.focus();
+      textareaRef.current.setSelectionRange(r.newStart, r.newEnd);
+      setCaret(r.newEnd);
+    });
+  };
+
   // S56 (D11 / FR-AM-01): 파일 진입(드롭다운 input / 드롭 / 붙여넣기) 공통 경로.
   // 클램프(최대 10개)는 트레이 항목 수 ref 기준으로 racing 호출을 직렬화한다.
   const onFiles = async (files: FileList | File[] | null): Promise<void> => {
@@ -893,6 +917,16 @@ export function MessageComposer({
               // before composition end.
               const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
               if (native.isComposing || e.keyCode === 229) return;
+              // S83a (FR-KS-05): 마크다운 포맷 단축키(Ctrl/Cmd+B/I·Ctrl/Cmd+Shift+X/C/Enter)를
+              // 자동완성/제출보다 먼저 처리한다. 수식키 조합이라 일반 Enter/멘션과 충돌하지 않는다.
+              {
+                const fmt = matchFormatShortcut(e);
+                if (fmt) {
+                  e.preventDefault();
+                  applyFormat(fmt);
+                  return;
+                }
+              }
               // S18 (FR-RC06): 자동완성 팝업이 열려 있으면 ↑↓ 이동,
               // Enter/Tab 삽입, Esc 닫기를 컴포저 제출보다 먼저 처리한다.
               if (acState.open) {
@@ -927,6 +961,24 @@ export function MessageComposer({
                   acClose();
                   return;
                 }
+              }
+              // S83a (FR-KS-06): draft 가 비어 있고 자동완성도 닫혀 있을 때 ↑ → 최근 내
+              // 메시지 인라인 편집 진입. MessageList 가 qufox.message.editLast 를 수신해
+              // 현재 채널의 마지막 내 메시지를 편집 모드로 연다(없으면 no-op).
+              if (
+                e.key === 'ArrowUp' &&
+                !acState.open &&
+                draft.trim() === '' &&
+                !e.shiftKey &&
+                !e.altKey &&
+                !e.metaKey &&
+                !e.ctrlKey
+              ) {
+                e.preventDefault();
+                window.dispatchEvent(
+                  new CustomEvent('qufox.message.editLast', { detail: { channelId } }),
+                );
+                return;
               }
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
