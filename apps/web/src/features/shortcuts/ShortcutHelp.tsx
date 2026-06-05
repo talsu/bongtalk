@@ -27,6 +27,12 @@ interface ShortcutEntry {
 interface ShortcutCategory {
   title: string;
   entries: ShortcutEntry[];
+  /**
+   * S83b 리뷰 fix-forward (a11y MINOR #10): 카테고리 활성 조건 안내. "메시지 액션"
+   * 단일키는 메시지에 키보드 포커스가 있을 때만 동작하므로(hover-key 제거) 그
+   * 조건을 명시해 발견성·정확성을 높인다.
+   */
+  note?: string;
 }
 
 const CATEGORIES: ShortcutCategory[] = [
@@ -71,12 +77,19 @@ const CATEGORIES: ShortcutCategory[] = [
   },
   {
     title: '메시지 액션',
+    // S83b 리뷰 fix-forward (a11y MINOR #10): 활성 조건 안내. 단일키는 메시지에
+    // 키보드 포커스가 있을 때만 동작한다(hover-key 제거 — 포커스로 단일화).
+    note: '메시지에 키보드 포커스(Tab 으로 진입, ↑/↓ 로 이동) 시 동작합니다.',
     entries: [
-      { combo: 'E', desc: '내 메시지 편집', mnemonic: 'E = Edit', pending: true },
-      { combo: 'Delete', desc: '내 메시지 삭제 다이얼로그', pending: true },
-      { combo: 'R', desc: '이모지 반응 피커', mnemonic: 'R = React', pending: true },
-      { combo: 'T / →', desc: '스레드 열기', mnemonic: 'T = Thread', pending: true },
-      { combo: 'P', desc: '핀 / 언핀', mnemonic: 'P = Pin', pending: true },
+      // S83b 리뷰 fix-forward: 메시지에 키보드 포커스 시 단일 키로 동작한다
+      // (E/Delete 는 내 메시지만 · Delete 는 2단계 확인). A(북마크)·M(리마인더) 포함.
+      { combo: 'E', desc: '내 메시지 편집', mnemonic: 'E = Edit' },
+      { combo: 'Delete', desc: '내 메시지 삭제(한 번 더 Delete 로 확인)' },
+      { combo: 'R', desc: '이모지 반응 피커', mnemonic: 'R = React' },
+      { combo: 'T', desc: '스레드 열기', mnemonic: 'T = Thread' },
+      { combo: 'P', desc: '핀 / 언핀', mnemonic: 'P = Pin' },
+      { combo: 'A', desc: '북마크(저장) 토글', mnemonic: 'A = Add to saved' },
+      { combo: 'M', desc: '리마인더 설정', mnemonic: 'M = reMind' },
     ],
   },
 ];
@@ -98,22 +111,39 @@ export function ShortcutHelp(): JSX.Element | null {
         // heading id 를 section aria-labelledby 가 가리켜, SR 이 항목 그룹의
         // 맥락(어느 카테고리인지)을 그룹 단위로 안내하게 한다.
         const headingId = `shortcut-cat-${ci}`;
+        // S83b round-2 (reviewer/a11y MINOR #10): 카테고리 활성 조건 note 를 <p id> 로
+        // 두고, 항목 <ul> 이 aria-describedby 로 가리키게 연결한다. note 가 없는
+        // 카테고리는 undefined 로 두어 빈 참조를 만들지 않는다(SR 가 목록을 읽을 때
+        // 활성 조건을 보조 설명으로 함께 안내).
+        const noteId = cat.note ? `shortcut-cat-${ci}-note` : undefined;
         return (
           <section key={cat.title} aria-labelledby={headingId} className="mb-[var(--s-4)]">
             <h3
               id={headingId}
-              className="text-[length:var(--fs-12)] font-medium uppercase tracking-wide mb-[var(--s-2)]"
+              // S83b 리뷰 fix-forward (ui HIGH/MED): raw `tracking-wide` → DS 토큰
+              // `--tracking-caps`(eyebrow caps 0.12em)로 토큰화.
+              className="text-[length:var(--fs-12)] font-medium uppercase tracking-[var(--tracking-caps)] mb-[var(--s-2)]"
               style={{ color: 'var(--text-secondary)' }}
             >
               {cat.title}
             </h3>
-            <ul>
+            {cat.note ? (
+              <p
+                id={noteId}
+                className="text-[length:var(--fs-12)] mb-[var(--s-2)]"
+                style={{ color: 'var(--text-secondary)' }}
+              >
+                {cat.note}
+              </p>
+            ) : null}
+            <ul aria-describedby={noteId}>
               {cat.entries.map((s, ei) => (
                 <li
                   // combo 가 맥락별로 중복(예: Esc 2행)될 수 있어 index 로 키를 잡는다.
                   key={`${ci}-${ei}`}
-                  className="flex items-start justify-between py-[var(--s-2)] text-[length:var(--fs-14)]"
-                  style={{ borderBottom: '1px solid var(--divider)' }}
+                  // S83b 리뷰 fix-forward (ui HIGH/MED): inline `borderBottom` 스타일을
+                  // DS 토큰 className(`border-b border-[color:var(--divider)]`)으로 토큰화.
+                  className="flex items-start justify-between py-[var(--s-2)] text-[length:var(--fs-14)] border-b border-[color:var(--divider)]"
                 >
                   <div className="flex flex-col">
                     {/* S83a 사후 리뷰(ui-designer LOW-1): 바레 `text-text` 는 무효 Tailwind

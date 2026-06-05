@@ -42,10 +42,20 @@ describe('ShortcutHelp categories (S78 PRD parity)', () => {
     expect(text).toContain('스레드');
   });
 
-  it('marks not-yet-wired shortcuts as 준비 중 (display-only this slice)', () => {
+  // S83b (FR-KS-08): 메시지 액션 단일키(E/Delete/R/T/P)가 실제 동작하므로 pending
+  // 뱃지를 모두 해제한다. 현재 치트시트에는 "준비 중" 항목이 없어야 한다.
+  it('no longer marks message-action shortcuts as 준비 중 (S83b wired)', () => {
     render(<ShortcutHelp />);
     const text = document.body.textContent ?? '';
-    expect(text).toContain('준비 중');
+    expect(text).not.toContain('준비 중');
+  });
+
+  // S83b (FR-KS-08): A(북마크)·M(리마인더) 단일키 항목이 추가됐다.
+  it('lists the A(북마크) and M(리마인더) single-key actions', () => {
+    render(<ShortcutHelp />);
+    const text = document.body.textContent ?? '';
+    expect(text).toContain('북마크');
+    expect(text).toContain('리마인더');
   });
 
   it('renders nothing when the modal is closed', () => {
@@ -70,18 +80,18 @@ describe('ShortcutHelp categories (S78 PRD parity)', () => {
     });
   });
 
-  // FF5: the visual "(준비 중)" badge is aria-hidden; the SR context is carried
-  // by a separate sr-only string so the meaning still reaches assistive tech.
-  it('hides the visual (준비 중) badge from SR and conveys it via sr-only text', () => {
+  // S83b (FR-KS-08): 모든 메시지 액션 단축키가 배선돼 "준비 중" 뱃지가 사라졌다.
+  // (FF5 의 aria-hidden 뱃지 + sr-only 보조 텍스트는 pending 항목이 0 이라 미렌더.)
+  it('renders no (준비 중) badge nor sr-only pending text (all wired)', () => {
     render(<ShortcutHelp />);
     const hiddenBadge = Array.from(document.querySelectorAll('[aria-hidden="true"]')).find((el) =>
       (el.textContent ?? '').includes('준비 중'),
     );
-    expect(hiddenBadge).toBeTruthy();
+    expect(hiddenBadge).toBeFalsy();
     const srContext = Array.from(document.querySelectorAll('.sr-only')).find((el) =>
       (el.textContent ?? '').includes('준비 중'),
     );
-    expect(srContext).toBeTruthy();
+    expect(srContext).toBeFalsy();
   });
 
   // MEDIUM: keycaps delegate styling to the DS `.qf-kbd` class (no raw inline
