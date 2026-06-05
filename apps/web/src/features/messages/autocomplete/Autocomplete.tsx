@@ -82,6 +82,7 @@ function rowKey(row: AutocompleteRow, index: number): string {
   if (row.type === 'special') return `sp-${row.item.key}`;
   if (row.type === 'member') return `m-${row.member.userId}`;
   if (row.type === 'channel') return `c-${row.channel.id}`;
+  if (row.type === 'slash') return `s-${row.command.id}`;
   return `e-${row.emoji.kind}-${row.emoji.name}-${index}`;
 }
 
@@ -164,6 +165,30 @@ function Row({
             <span className="qf-autocomplete__sub">{row.channel.topic}</span>
           ) : null}
         </span>
+      </li>
+    );
+  }
+
+  // S79 (FR-SC-02): 슬래시 커맨드 행. / 아이콘 + 커맨드명(label) + 짧은 설명(sub),
+  // usage hint 는 우측 meta 슬롯에 모노폭으로 노출한다. 기존 qf-autocomplete* 클래스만
+  // 재사용하고(채널 행과 동일 구조), usageHint 우측 정렬은 __meta 슬롯을 빌려 쓴다.
+  if (row.type === 'slash') {
+    return (
+      <li {...common} className="qf-autocomplete__item qf-autocomplete__item--channel">
+        <span className="qf-autocomplete__avatar" aria-hidden="true">
+          /
+        </span>
+        <span className="qf-autocomplete__text">
+          <span className="qf-autocomplete__label">/{row.command.name}</span>
+          {row.command.description ? (
+            <span className="qf-autocomplete__sub">{row.command.description}</span>
+          ) : null}
+        </span>
+        {row.command.usageHint ? (
+          <span className="qf-autocomplete__meta qf-autocomplete__shortcode">
+            {row.command.usageHint}
+          </span>
+        ) : null}
       </li>
     );
   }

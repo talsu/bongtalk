@@ -46,6 +46,8 @@ import {
 import type { RankableMember } from './autocomplete/rankMembers';
 import type { RankableChannel } from './autocomplete/filterChannels';
 import type { EmojiCandidate } from './autocomplete/filterEmojis';
+import { useSlashCommands } from './slashCommands/useSlashCommands';
+import { paramHintForRow, slashToken } from './composerSlash';
 
 type Props = {
   /** null for Global DM channels — custom emoji picker is empty then. */
@@ -93,6 +95,9 @@ function tokenForRow(row: AutocompleteRow): string {
   if (row.type === 'special') return row.item.token;
   if (row.type === 'member') return `@${row.member.username}`;
   if (row.type === 'channel') return `#${row.channel.name}`;
+  // S79 (FR-SC-03): 슬래시 커맨드 선택 시 `/커맨드명` 을 삽입한다(insertToken 이 공백을
+  // 덧붙여 `/name ` 형태로 파라미터 입력을 이어가게 한다). 실행은 S80.
+  if (row.type === 'slash') return slashToken(row.command.name);
   if (row.emoji.kind === 'unicode') return row.emoji.glyph;
   // S42 (FR-PK02): 별칭 후보면 카노니컬 이름(insertName)으로 삽입한다. 일반 커스텀
   // 후보는 name 자체가 카노니컬이라 insertName 이 없다.
@@ -234,6 +239,9 @@ export function MessageComposer({
   const { data: wsData } = useWorkspace(workspaceId ?? undefined);
   const { data: channelData } = useChannelList(workspaceId ?? undefined);
   const { onlineUserIds, dndUserIds } = usePresence(workspaceId ?? undefined);
+  // S79 (FR-SC-01): 슬래시 커맨드 목록(빌트인 상수 + 워크스페이스 커스텀 병합). 5분 캐시.
+  // workspaceId=null(Global DM)이면 훅이 enabled=false 로 자동 비활성.
+  const { data: slashCommandData } = useSlashCommands(workspaceId);
 
   const myRole: WorkspaceRole =
     wsData?.myRole ??
@@ -277,21 +285,29 @@ export function MessageComposer({
     [onlineUserIds, dndUserIds],
   );
 
+  const acSlashCommands = useMemo(() => slashCommandData ?? [], [slashCommandData]);
+
   const acSources = useMemo<AutocompleteSources>(
     () => ({
       members: acMembers,
       channels: acChannels,
       customEmojis: acCustomEmojis,
+      // S79 (FR-SC-01): 슬래시 커맨드 후보 주입(빌트인 + 커스텀 병합 GET 결과).
+      slashCommands: acSlashCommands,
       online: acOnline,
       // 최근 대화상대/이모지 가중치는 후속 데이터 소스 도입 시 채운다(DEFER).
       recentMembers: [],
       recentEmojis: [],
       role: myRole,
     }),
-    [acMembers, acChannels, acCustomEmojis, acOnline, myRole],
+    [acMembers, acChannels, acCustomEmojis, acSlashCommands, acOnline, myRole],
   );
 
   const [caret, setCaret] = useState(0);
+  // S79 (FR-SC-03 · Fork A = Option 1): 슬래시 커맨드 선택 직후 파라미터 힌트를
+  // textarea placeholder 로 일시 교체한다(DS 무변경·단순). null 이면 기본 placeholder.
+  // draft 가 비워지거나 채널 전환 시 초기화한다(아래 effect).
+  const [paramHint, setParamHint] = useState<string | null>(null);
   // 채널 전환 시 caret 을 새 draft 끝으로 동기화해 이전 채널의 트리거가
   // 잔류하지 않게 한다. draft 길이는 ref 로 읽어 매 키 입력마다 caret 이
   // 끝으로 튀지 않게 한다(채널 전환 시에만 적용).
@@ -299,6 +315,14 @@ export function MessageComposer({
   draftLenRef.current = draft.length;
   useEffect(() => {
     setCaret(draftLenRef.current);
+  }, [channelId]);
+  // S79 (FR-SC-03 · Fork A): draft 가 완전히 비워지거나 채널이 바뀌면 파라미터 힌트
+  // placeholder 를 기본으로 되돌린다(전송/clearDraft 후 다음 메시지에 잔류 방지).
+  useEffect(() => {
+    if (draft.length === 0) setParamHint(null);
+  }, [draft.length]);
+  useEffect(() => {
+    setParamHint(null);
   }, [channelId]);
   const {
     state: acState,
@@ -374,6 +398,10 @@ export function MessageComposer({
     const token = tokenForRow(row);
     const { text, caretPos } = applyToken(draft, liveTrigger.start, liveTrigger.end, token);
     setDraft(channelId, text);
+    // S79 (FR-SC-03 · Fork A): 슬래시 커맨드 선택 시 파라미터 힌트를 placeholder 로
+    // 일시 교체해 사용자가 무엇을 입력할지 안내한다(실행은 S80). 슬래시가 아니면 null.
+    const hint = paramHintForRow(row);
+    if (hint) setParamHint(hint);
     acClose();
     queueMicrotask(() => {
       const node = textareaRef.current;
@@ -739,7 +767,9 @@ export function MessageComposer({
               }
             }}
             aria-invalid={counter.overLimit || undefined}
-            placeholder={`# ${channelName} 에 메시지…`}
+            // S79 (FR-SC-03 · Fork A): 슬래시 커맨드 선택 직후엔 파라미터 usage hint 를
+            // placeholder 로 노출하고, 그 외엔 기본 채널 placeholder 를 쓴다.
+            placeholder={paramHint ?? `# ${channelName} 에 메시지…`}
             className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-text"
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />

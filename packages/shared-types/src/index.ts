@@ -361,3 +361,5 @@ export * from './onboarding';
 export * from './settings';
 // S77b — 보안 컨트랙트(자격증명 변경·TOTP 2FA·세션 관리) (D14 / FR-PS-15·20)
 export * from './security';
+// S79 — 슬래시 커맨드 자동완성 컨트랙트 (D15 / FR-SC-01·02·03)
+export * from './slash-command';

@@ -40,6 +40,21 @@ enum AuthorType {
   SYSTEM
 }
 
+// S79 (D15 / FR-SC-01·02·03) — 슬래시 커맨드 응답/핸들러 분류. PRD D15 빌트인 상세
+// 테이블과 정합한다. responseType: EPHEMERAL(발신자 전용 시스템 메시지) / IN_CHANNEL
+// (채널 전체 전송). handlerType: BUILTIN(순수 텍스트 변환·서버 내부) / INTERNAL_ACTION
+// (Presence·Reminder·Channel 등 도메인 서비스 호출). 외부 webhook URL 핸들러는 MVP 범위
+// 외이다. 실행은 S80 — S79 는 자동완성 표시/삽입까지만 쓴다.
+enum ResponseType {
+  EPHEMERAL
+  IN_CHANNEL
+}
+
+enum HandlerType {
+  BUILTIN
+  INTERNAL_ACTION
+}
+
 // S04 (ADR-2 / FR-MSG-19 / FR-RC10) — MessageType 단일 카노니컬 정의.
 // 값 집합은 packages/shared-types/src/message-type.ts 와 1:1 동기화됩니다.
 // SYSTEM_* 는 authorType=SYSTEM, grouped=false 강제, 편집·삭제 UI 미표시.
@@ -777,6 +792,10 @@ model Workspace {
   welcome                 WorkspaceWelcome?
   // S74 (D14 / FR-PS-06): 이 워크스페이스의 멤버별 프로필 오버라이드들. onDelete Cascade.
   memberProfiles          WorkspaceMemberProfile[]
+  // S79 (D15 / FR-SC-01): 이 워크스페이스의 커스텀 슬래시 커맨드들. onDelete Cascade.
+  // 빌트인 커맨드는 DB 에 시드하지 않고 NestJS 상수(BUILTIN_COMMANDS)로만 제공하므로
+  // 이 관계는 워크스페이스 커스텀 전용이다(S81 CRUD 가 채운다).
+  slashCommands           SlashCommand[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -1915,4 +1934,34 @@ model Feedback {
 
   @@index([createdAt(sort: Desc)])
   @@index([userId, createdAt(sort: Desc)])
+}
+
+// S79 (D15 / FR-SC-01) — 워크스페이스 커스텀 슬래시 커맨드.
+//
+// 빌트인 커맨드(/shrug · /me · /status · /dnd · /remind · /giphy 등)는 DB 에
+// 시드하지 않고 NestJS `BUILTIN_COMMANDS` 상수로만 제공한다(Fork B = Option 1).
+// 따라서 이 테이블은 **워크스페이스 커스텀 전용**이며 S81 CRUD 가 채운다(Fork C
+// = Option 1: 마이그레이션은 S79 에 포함하되 테이블은 비어 있는 채로 둔다). GET
+// 목록 엔드포인트는 상수 빌트인 + 이 테이블의 커스텀을 병합해 반환한다.
+//
+// workspaceId 는 String?(nullable)로 둔다 — 스키마상 NULL=빌트인 슬롯이지만 실제로
+// 빌트인은 상수로 제공하므로 S79 시점엔 항상 NOT NULL(커스텀)만 들어간다. nullable 로
+// 두는 것은 향후(테이블 기반 빌트인이 필요해질 경우)의 확장 여지를 위함이다.
+// @@unique([workspaceId, name]) 로 워크스페이스 내 커맨드명 중복을 막는다.
+model SlashCommand {
+  id           String       @id @default(uuid()) @db.Uuid
+  workspaceId  String?      @db.Uuid
+  name         String
+  description  String       @default("")
+  usageHint    String       @default("")
+  responseType ResponseType @default(EPHEMERAL)
+  handlerType  HandlerType  @default(INTERNAL_ACTION)
+  enabled      Boolean      @default(true)
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  @@unique([workspaceId, name])
+  @@index([workspaceId])
 }

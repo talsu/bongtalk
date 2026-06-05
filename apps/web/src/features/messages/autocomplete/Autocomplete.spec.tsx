@@ -8,7 +8,7 @@ beforeEach(() => {
 });
 
 function markup(
-  kind: 'mention' | 'channel' | 'emoji',
+  kind: 'mention' | 'channel' | 'emoji' | 'slash',
   rows: AutocompleteRow[],
   active = 0,
 ): string {
@@ -67,5 +67,30 @@ describe('Autocomplete — WAI-ARIA listbox 정합 (S18 A11y)', () => {
     const html = markup('emoji', custom);
     expect(html).toContain('alt=""');
     expect(html).toContain(':parrot:');
+  });
+
+  it('S79 (FR-SC-02): slash Row 는 /이름·설명·usage hint 를 렌더하고 섹션 라벨이 슬래시 커맨드', () => {
+    const rows: AutocompleteRow[] = [
+      {
+        type: 'slash',
+        command: {
+          id: 'builtin:shrug',
+          name: 'shrug',
+          description: '어깨를 으쓱',
+          usageHint: '/shrug [메시지]',
+          responseType: 'IN_CHANNEL',
+          handlerType: 'BUILTIN',
+          isBuiltin: true,
+        },
+      },
+    ];
+    const html = markup('slash', rows);
+    expect(html).toContain('role="listbox"');
+    expect(html).toContain('role="option"');
+    // 섹션 헤더 + aria-label 에 한국어 명사.
+    expect(html).toContain('슬래시 커맨드');
+    expect(html).toContain('/shrug');
+    expect(html).toContain('어깨를 으쓱');
+    expect(html).toContain('/shrug [메시지]');
   });
 });

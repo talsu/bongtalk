@@ -16,6 +16,7 @@ const baseSources = (overrides: Partial<AutocompleteSources> = {}): Autocomplete
     { id: 'c2', name: 'gaming', topic: null },
   ],
   customEmojis: [{ kind: 'custom', name: 'party_parrot', url: 'https://cdn/p.png' }],
+  slashCommands: [],
   online: new Set<string>(['u1']),
   recentMembers: [],
   recentEmojis: [],

@@ -1,8 +1,10 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import type { SlashCommandItem } from '@qufox/shared-types';
 import { detectTrigger, type Trigger, type TriggerKind } from './detectTrigger';
 import { rankMembers, type RankableMember } from './rankMembers';
 import { filterChannels, type RankableChannel } from './filterChannels';
 import { filterEmojis, type EmojiCandidate } from './filterEmojis';
+import { filterSlashCommands } from './filterSlashCommands';
 import { UNICODE_EMOJI_CANDIDATES } from './emojiShortcodes';
 import { specialMentionItems, type SpecialMentionItem, type WorkspaceRole } from './specialMention';
 import { nextActiveIndex, type NavDirection } from './listboxNav';
@@ -22,6 +24,8 @@ const CHANNEL_LIMIT = 8;
 // S42 (FR-PK02): 이모지 자동완성 후보 상한을 10 으로 낮춘다(종전 12). 유니코드 +
 // 커스텀 이름 + 커스텀 별칭이 혼합되어도 최대 10개만 노출한다.
 const EMOJI_LIMIT = 10;
+// S79 (FR-SC-01): 슬래시 커맨드 후보 상한(PRD D15: 최대 10개·스크롤 가능).
+const SLASH_LIMIT = 10;
 
 export type MentionRow =
   | { type: 'special'; item: SpecialMentionItem }
@@ -29,7 +33,8 @@ export type MentionRow =
 
 export type ChannelRow = { type: 'channel'; channel: RankableChannel };
 export type EmojiRow = { type: 'emoji'; emoji: EmojiCandidate };
-export type AutocompleteRow = MentionRow | ChannelRow | EmojiRow;
+export type SlashCommandRow = { type: 'slash'; command: SlashCommandItem };
+export type AutocompleteRow = MentionRow | ChannelRow | EmojiRow | SlashCommandRow;
 
 export type AutocompleteState =
   | { open: false }
@@ -45,6 +50,9 @@ export type AutocompleteSources = {
   members: RankableMember[];
   channels: RankableChannel[];
   customEmojis: EmojiCandidate[];
+  // S79 (FR-SC-01): 슬래시 커맨드 후보(빌트인 상수 + 워크스페이스 커스텀 병합).
+  // useSlashCommands 훅의 GET 응답을 호출부가 주입한다.
+  slashCommands: SlashCommandItem[];
   online: Set<string>;
   recentMembers: string[];
   recentEmojis: string[];
@@ -117,19 +125,32 @@ function buildRows(
   query: string,
   sources: AutocompleteSources,
 ): AutocompleteRow[] {
-  if (kind === 'mention') return buildMentionRows(query, sources);
-  if (kind === 'channel') {
-    return filterChannels({ channels: sources.channels, query, limit: CHANNEL_LIMIT }).map(
-      (channel): ChannelRow => ({ type: 'channel', channel }),
-    );
+  // S79: exhaustive switch — 새 TriggerKind 추가 시 default 의 never 할당이
+  // 컴파일 에러를 내 분기 누락을 막는다.
+  switch (kind) {
+    case 'mention':
+      return buildMentionRows(query, sources);
+    case 'channel':
+      return filterChannels({ channels: sources.channels, query, limit: CHANNEL_LIMIT }).map(
+        (channel): ChannelRow => ({ type: 'channel', channel }),
+      );
+    case 'emoji':
+      return filterEmojis({
+        unicode: UNICODE_EMOJI_CANDIDATES,
+        custom: sources.customEmojis,
+        recent: sources.recentEmojis,
+        query,
+        limit: EMOJI_LIMIT,
+      }).map((emoji): EmojiRow => ({ type: 'emoji', emoji }));
+    case 'slash':
+      return filterSlashCommands(sources.slashCommands, query, SLASH_LIMIT).map(
+        (command): SlashCommandRow => ({ type: 'slash', command }),
+      );
+    default: {
+      const _exhaustive: never = kind;
+      return _exhaustive;
+    }
   }
-  return filterEmojis({
-    unicode: UNICODE_EMOJI_CANDIDATES,
-    custom: sources.customEmojis,
-    recent: sources.recentEmojis,
-    query,
-    limit: EMOJI_LIMIT,
-  }).map((emoji): EmojiRow => ({ type: 'emoji', emoji }));
 }
 
 export function useAutocomplete({
