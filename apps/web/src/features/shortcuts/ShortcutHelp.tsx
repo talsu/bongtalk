@@ -61,10 +61,12 @@ const CATEGORIES: ShortcutCategory[] = [
     entries: [
       { combo: 'Enter', desc: '메시지 전송 (composer)' },
       { combo: 'Shift + Enter', desc: '줄바꿈 (composer)' },
-      { combo: 'Ctrl/Cmd + B', desc: '볼드', mnemonic: 'B = Bold', pending: true },
-      { combo: 'Ctrl/Cmd + I', desc: '이탤릭', mnemonic: 'I = Italic', pending: true },
-      { combo: 'Ctrl + Shift + X', desc: '취소선', pending: true },
-      { combo: 'Ctrl + Shift + C', desc: '인라인 코드', pending: true },
+      { combo: 'Ctrl/Cmd + B', desc: '볼드', mnemonic: 'B = Bold' },
+      { combo: 'Ctrl/Cmd + I', desc: '이탤릭', mnemonic: 'I = Italic' },
+      { combo: 'Ctrl/Cmd + Shift + X', desc: '취소선' },
+      { combo: 'Ctrl/Cmd + Shift + C', desc: '인라인 코드' },
+      { combo: 'Ctrl/Cmd + Shift + Enter', desc: '코드 블록' },
+      { combo: '↑', desc: '빈 입력창에서: 최근 내 메시지 편집' },
     ],
   },
   {
