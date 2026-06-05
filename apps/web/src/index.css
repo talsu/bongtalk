@@ -97,3 +97,14 @@ html[data-high-contrast='true'] {
 .qf-autocomplete__item--slash[aria-selected='true'] .qf-autocomplete__meta {
   color: var(--text-secondary);
 }
+
+/* S82a fix-forward (a11y #6): 퀵스위처 선택 행이 배경색 단독으로만 구분되는 것을
+ * 보완해, 색 외 인디케이터(좌측 강조 border + outline)를 함께 둔다(WCAG 1.4.1
+ * 색 단독 의존 회피). DS 4파일 무수정 · 시맨틱 토큰만 사용(raw hex/px 금지).
+ * data-qs-active 는 QuickSwitcher 가 focusIdx 행에만 부여한다. DS --bg-selected
+ * 자체의 텍스트 대비 검증은 DS-owner 이월(carryover). */
+.qf-menu__item[data-qs-active='true'] {
+  border-left: var(--s-1) solid var(--accent);
+  outline: var(--s-1) solid var(--accent);
+  outline-offset: calc(-1 * var(--s-1));
+}

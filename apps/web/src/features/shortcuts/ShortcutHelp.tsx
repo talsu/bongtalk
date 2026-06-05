@@ -34,6 +34,13 @@ const CATEGORIES: ShortcutCategory[] = [
     title: '내비게이션',
     entries: [
       { combo: 'Ctrl/Cmd + K', desc: '퀵스위처(빠른 이동)', mnemonic: 'K = 점프(K-jump)' },
+      // S82a fix-forward (reviewer LOW-2): Cmd+K 퀵스위처와 별개로 Cmd+Shift+K 가
+      // 명령 팰릿(액션 실행)으로 재바인딩됐음을 치트시트에 명시한다.
+      {
+        combo: 'Ctrl/Cmd + Shift + K',
+        desc: '명령 팰릿(액션 실행)',
+        mnemonic: 'Shift+K = 액션(Kommand)',
+      },
       { combo: 'Ctrl/Cmd + /', desc: '단축키 오버레이 / 검색 포커스', mnemonic: '/ = 검색 슬래시' },
       { combo: 'Alt + ↑ / ↓', desc: '이전 / 다음 채널' },
       { combo: 'Ctrl/Cmd + Shift + A', desc: '다음 워크스페이스', mnemonic: 'A = Auto-cycle' },

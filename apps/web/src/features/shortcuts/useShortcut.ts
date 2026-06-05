@@ -93,10 +93,21 @@ export function useGlobalShortcuts(): void {
 
       if (inputActive) return;
 
-      // Ctrl/Cmd + K → command palette
-      if (matches(e, { key: 'k', ctrlOrMeta: true })) {
+      // S82a (FR-KS-01): Ctrl/Cmd + Shift + K → 액션 팰릿(CommandPalette). 종전
+      // 단축 Cmd+K 는 신규 퀵스위처(채널/멤버/DM 이동)로 넘어갔고, 기존 액션
+      // 팰릿은 충돌을 피해 Shift 조합으로 재바인딩한다(동작 자체는 보존). Shift
+      // 분기를 비-Shift 분기보다 먼저 검사해, matches 의 정확한 Shift 매칭이
+      // Cmd+K 와 갈리도록 한다.
+      if (matches(e, { key: 'k', ctrlOrMeta: true, shift: true })) {
         e.preventDefault();
         setOpenModal(openModal === 'command-palette' ? null : 'command-palette');
+        return;
+      }
+
+      // S82a (FR-KS-01): Ctrl/Cmd + K → 퀵스위처(채널/멤버/DM 퍼지 이동).
+      if (matches(e, { key: 'k', ctrlOrMeta: true })) {
+        e.preventDefault();
+        setOpenModal(openModal === 'quick-switcher' ? null : 'quick-switcher');
         return;
       }
 
