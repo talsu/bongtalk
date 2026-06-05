@@ -47,7 +47,9 @@ const CATEGORIES: ShortcutCategory[] = [
         desc: '명령 팰릿(액션 실행)',
         mnemonic: 'Shift+K = 액션(Kommand)',
       },
-      { combo: 'Ctrl/Cmd + /', desc: '단축키 오버레이 / 검색 포커스', mnemonic: '/ = 검색 슬래시' },
+      // S83c (FR-KS-09): Ctrl/Cmd + / 는 이제 단축키 치트시트만 연다(검색 포커스
+      // 이중 라벨 제거). 검색은 토픽바 입력 클릭 / 명령 팰릿 / Ctrl/Cmd+F 로 진입한다.
+      { combo: 'Ctrl/Cmd + /', desc: '단축키 오버레이 열기', mnemonic: '/ = 단축키 슬래시' },
       { combo: 'Alt + ↑ / ↓', desc: '이전 / 다음 채널' },
       // S82b fix-forward (reviewer LOW-1 / a11y MODERATE): 신규 단축키 2종 노출(발견성).
       { combo: 'Alt + Shift + ↑ / ↓', desc: '이전 / 다음 미읽 채널' },

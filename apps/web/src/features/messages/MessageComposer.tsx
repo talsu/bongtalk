@@ -26,12 +26,13 @@ import { computeCounter } from './composerCounter';
 import { composerAnnouncement } from './composerAnnouncement';
 import { announce } from '../../lib/a11y-announce';
 import {
-  wrapSelection,
-  wrapSelectionPerLine,
   matchFormatShortcut,
-  FORMAT_MARKERS,
+  applyToolbarFormatToText,
+  shouldShowFormatToolbar,
   type FormatShortcut,
+  type ToolbarFormat,
 } from './formatWrap';
+import { FormatToolbar, type FormatToolbarHandle } from './FormatToolbar';
 import { cn } from '../../lib/cn';
 import { Autocomplete } from './autocomplete/Autocomplete';
 import { SpecialMentionConfirmDialog } from './autocomplete/SpecialMentionConfirmDialog';
@@ -91,12 +92,15 @@ const MIN_HEIGHT_PX = 22;
 const MAX_HEIGHT_PX = 200;
 
 // S83a 사후 리뷰(a11y A2 MAJOR): 포맷 단축키 적용 시 SR 공지에 쓸 한국어 라벨.
-const FORMAT_LABELS: Record<FormatShortcut, string> = {
+// S83c (FR-KS-10): 인라인 툴바 전용 quote/link 를 더해 ToolbarFormat 전체를 덮는다.
+const FORMAT_LABELS: Record<ToolbarFormat, string> = {
   bold: '굵게',
   italic: '기울임',
   strike: '취소선',
   code: '인라인 코드',
   codeBlock: '코드 블록',
+  quote: '인용',
+  link: '링크',
 };
 
 /**
@@ -157,6 +161,9 @@ export function MessageComposer({
   const clearDraft = useCompose((s) => s.clearDraft);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  // S83c round-2(a11y HIGH 4.1.3): 포맷 툴바 명령형 핸들. onBlur 의 relatedTarget 비교와
+  // 키보드 Tab 진입(focusFirst)을 DOM testid 쿼리 없이 ref 로 직접 처리한다(brittle 제거).
+  const toolbarRef = useRef<FormatToolbarHandle>(null);
   // S32 (FR-RT-08): typing:start 3초 스로틀 + 10초 idle 자동 stop 상태 머신.
   // 채널별로 새 인스턴스를 만들어 이전 채널의 타이머/상태가 누수되지 않게 합니다.
   // emit 콜백은 콜론 이벤트(typing:start/typing:stop)로 현재 채널에 보냅니다.
@@ -348,6 +355,17 @@ export function MessageComposer({
   );
 
   const [caret, setCaret] = useState(0);
+  // S83c (FR-KS-10): 인라인 포맷 툴바 표시용 선택 범위. textarea 의 selectionStart/End 를
+  // 추적해 start !== end(비어있지 않은 선택)일 때만 툴바를 띄운다. 선택 해제·blur·Esc 로
+  // null 로 돌려 닫는다. 자동완성/멘션/슬래시 팝업과 겹치지 않도록 그 팝업이 열려 있으면
+  // 툴바를 표시하지 않는다(아래 showFormatToolbar).
+  const [selectionRange, setSelectionRange] = useState<{ start: number; end: number } | null>(null);
+  // textarea 의 현재 selection 을 읽어 비어있지 않으면 범위를, 아니면 null 을 설정한다.
+  const syncSelection = (el: HTMLTextAreaElement): void => {
+    const start = el.selectionStart ?? 0;
+    const end = el.selectionEnd ?? 0;
+    setSelectionRange(start !== end ? { start, end } : null);
+  };
   // S79 (FR-SC-03 · Fork A = Option 1): 슬래시 커맨드 선택 직후 파라미터 힌트를
   // textarea placeholder 로 일시 교체한다(DS 무변경·단순). null 이면 기본 placeholder.
   // draft 가 비워지거나 채널 전환 시 초기화한다(아래 effect).
@@ -725,38 +743,48 @@ export function MessageComposer({
   // S83a (FR-KS-05): composer 마크다운 단축키. 선택 텍스트를 마커로 감싸(또는 빈 선택 시
   // 마커 삽입) draft 를 갱신하고, 새 selection 을 다음 tick 에 복원한다(insertAtCursor 패턴).
   const applyFormat = (shortcut: FormatShortcut): void => {
+    applyToolbarFormat(shortcut);
+  };
+
+  // S83c (FR-KS-10): 인라인 포맷 툴바 버튼(및 S83a 포맷 단축키) → 서식 적용. 종류별 텍스트
+  // 변환은 applyToolbarFormatToText 순수 함수로 위임(quote/link 전용 헬퍼 + 인라인/코드블록
+  // 마커 — codeBlock 여는 펜스 줄 시작 보정 포함). 적용 후 동일한 selection 복원 + SR 공지
+  // 패턴을 따른다. selectionRange 는 닫지 않는다 — 복원된 선택(여전히 비어있지 않음)이 다음
+  // onSelect 로 다시 반영돼 툴바가 유지된다(연속 서식 가능).
+  const applyToolbarFormat = (format: ToolbarFormat): void => {
     const el = textareaRef.current;
     if (!el) return;
     const start = el.selectionStart ?? draft.length;
     const end = el.selectionEnd ?? draft.length;
-    let r;
-    if (shortcut === 'codeBlock') {
-      // S83a 사후 리뷰(reviewer MED): 코드블록 펜스(```)는 줄 시작 앵커라(parser FENCE_RE
-      // `^```…$`), caret 이 줄 중간이면 여는 펜스가 줄 시작에 오지 않아 코드블록으로 인식되지
-      // 않는다. 직전 문자가 개행이 아니면 여는 펜스 앞에 `\n` 을 선행해 줄 시작에 오게 한다
-      // (닫는 펜스는 marker 의 after 가 이미 `\n``` ` 라 줄 경계가 보장됨).
-      const needsLeadingNewline = start > 0 && draft[start - 1] !== '\n';
-      const before = needsLeadingNewline
-        ? `\n${FORMAT_MARKERS.codeBlock.before}`
-        : FORMAT_MARKERS.codeBlock.before;
-      r = wrapSelection({ text: draft, start, end, before, after: FORMAT_MARKERS.codeBlock.after });
-    } else {
-      // S83a 사후 리뷰(reviewer MED): 인라인 마커는 `\n` 을 넘어 미마감이라(`**a\nb**` 리터럴),
-      // 멀티라인 선택이면 각 비어있지 않은 줄을 개별 래핑한다(wrapSelectionPerLine — 단일 줄은
-      // 종전과 동일).
-      const { before, after } = FORMAT_MARKERS[shortcut];
-      r = wrapSelectionPerLine({ text: draft, start, end, before, after });
-    }
+    const r = applyToolbarFormatToText({ text: draft, start, end, format });
     setDraft(channelId, r.text);
     // A2 (a11y MAJOR): 서식 적용을 SR 에 통지한다(시각 피드백만으로는 알 수 없음).
-    announce(`${FORMAT_LABELS[shortcut]} 서식 적용`);
+    // S83c round-2(N-1): link 는 url 플레이스홀더가 선택되므로 다음 액션(URL 입력)을 안내한다.
+    announce(
+      format === 'link'
+        ? '링크 서식 적용 — URL을 입력하세요'
+        : `${FORMAT_LABELS[format]} 서식 적용`,
+    );
     queueMicrotask(() => {
-      if (!textareaRef.current) return;
-      textareaRef.current.focus();
-      textareaRef.current.setSelectionRange(r.newStart, r.newEnd);
+      const node = textareaRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(r.newStart, r.newEnd);
       setCaret(r.newEnd);
+      syncSelection(node);
     });
   };
+
+  // S83c (FR-KS-10): 툴바 표시 조건. 선택이 비어있지 않고, 자동완성/멘션/슬래시 팝업이
+  // 닫혀 있을 때만 띄운다(겹침 방지). 게시 제한 채널은 아래 early-return 으로 컴포저 자체가
+  // 비활성이라 여기 도달하지 않는다.
+  // S83c round-2(reviewer MED-1): 인라인 게이트(selectionRange !== null && !acState.open)는
+  // 테스트된 순수 함수 shouldShowFormatToolbar 를 그대로 호출해 드리프트를 막는다.
+  const showFormatToolbar = shouldShowFormatToolbar({
+    selectionStart: selectionRange?.start ?? null,
+    selectionEnd: selectionRange?.end ?? null,
+    autocompleteOpen: acState.open,
+  });
 
   // S56 (D11 / FR-AM-01): 파일 진입(드롭다운 input / 드롭 / 붙여넣기) 공통 경로.
   // 클램프(최대 10개)는 트레이 항목 수 ref 기준으로 racing 호출을 직렬화한다.
@@ -923,18 +951,41 @@ export function MessageComposer({
               if (next.length > 0) maybePing();
               else sendTypingStop();
             }}
-            onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
-            onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+            onSelect={(e) => {
+              setCaret(e.currentTarget.selectionStart ?? 0);
+              // S83c (FR-KS-10): 선택 변화마다 툴바 표시 범위를 동기화한다(드래그/Shift+화살표
+              // 모두 onSelect 를 발화). 비어있지 않으면 툴바 노출, 풀리면 닫힌다.
+              syncSelection(e.currentTarget);
+            }}
+            onClick={(e) => {
+              setCaret(e.currentTarget.selectionStart ?? 0);
+              syncSelection(e.currentTarget);
+            }}
+            // S83c (FR-KS-10): textarea 가 포커스를 잃으면 툴바를 닫는다. 단, 툴바 버튼으로
+            // 포커스가 옮겨가는 경우(relatedTarget 이 툴바 내부)는 닫지 않는다 — 버튼은
+            // onMouseDown preventDefault 로 선택을 유지하지만, 키보드 Tab 진입도 허용한다.
+            // S83c round-2(a11y HIGH 4.1.3): DOM testid 쿼리(brittle·prod attr strip 위험)
+            // 대신 toolbarRef 가 소유한 toolbar 노드와 직접 비교한다(포털 마운트여도 동작).
+            onBlur={(e) => {
+              const next = e.relatedTarget as Node | null;
+              if (toolbarRef.current?.contains(next)) return;
+              setSelectionRange(null);
+            }}
             onKeyUp={(e) => {
               // 방향키/Home/End 등으로 캐럿이 움직이면 트리거 재평가를 위해
               // caret 을 동기화한다(삽입/제출 키는 keyDown 에서 이미 처리).
+              // S83c round-2(B-2): Shift+ArrowUp/Down(여러 줄 선택)도 syncSelection 대상에
+              // 포함해, 키보드 행 단위 선택으로도 툴바가 뜨고/사라지게 한다.
               if (
                 e.key === 'ArrowLeft' ||
                 e.key === 'ArrowRight' ||
+                e.key === 'ArrowUp' ||
+                e.key === 'ArrowDown' ||
                 e.key === 'Home' ||
                 e.key === 'End'
               ) {
                 setCaret(e.currentTarget.selectionStart ?? 0);
+                syncSelection(e.currentTarget);
               }
             }}
             onKeyDown={(e) => {
@@ -954,6 +1005,15 @@ export function MessageComposer({
                   applyFormat(fmt);
                   return;
                 }
+              }
+              // S83c round-2(a11y BLOCKER 2.1.1): 키보드로 인라인 툴바에 진입하는 경로.
+              // 텍스트를 선택해 툴바가 떠 있고(showFormatToolbar) 자동완성이 닫혀 있을 때 Tab
+              // (Shift 없이)은 기본 포커스 이동 대신 툴바 첫 버튼으로 이동한다. 이로써 quote/
+              // link 등 툴바 전용 액션을 키보드만으로 적용할 수 있다(Esc 로 textarea 복귀).
+              if (e.key === 'Tab' && !e.shiftKey && showFormatToolbar && !acState.open) {
+                e.preventDefault();
+                toolbarRef.current?.focusFirst();
+                return;
               }
               // S18 (FR-RC06): 자동완성 팝업이 열려 있으면 ↑↓ 이동,
               // Enter/Tab 삽입, Esc 닫기를 컴포저 제출보다 먼저 처리한다.
@@ -1033,6 +1093,17 @@ export function MessageComposer({
                 if (row) applyAutocompleteRow(row);
               }}
               onHover={(index) => acSetActive(index)}
+            />
+          ) : null}
+          {/* S83c (FR-KS-10): 인라인 포맷 툴바. 텍스트 선택 시(비어있지 않음·자동완성 닫힘)
+              선택 영역 위에 플로팅으로 떠 볼드/이탤릭/취소선/코드/코드블록/인용/링크 버튼을
+              제공한다. position:fixed 라 컴포저 레이아웃에 영향 없다. */}
+          {showFormatToolbar ? (
+            <FormatToolbar
+              ref={toolbarRef}
+              anchorRef={textareaRef}
+              onApply={applyToolbarFormat}
+              onClose={() => setSelectionRange(null)}
             />
           ) : null}
           {/* S78 (FR-A11Y-01): 자동완성 등장/결과 수 통지는 공유 라이브 영역

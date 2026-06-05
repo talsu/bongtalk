@@ -4,6 +4,11 @@ import {
   wrapSelectionPerLine,
   matchFormatShortcut,
   FORMAT_MARKERS,
+  prefixQuote,
+  wrapLink,
+  LINK_URL_PLACEHOLDER,
+  shouldShowFormatToolbar,
+  applyToolbarFormatToText,
 } from './formatWrap';
 
 /** S83a (FR-KS-05): 마크다운 래핑 + 단축키 매칭 순수 함수 테스트. */
@@ -139,5 +144,150 @@ describe('matchFormatShortcut', () => {
     expect(matchFormatShortcut({ ...base, key: 'z', ctrlKey: true })).toBeNull();
     // Shift 없는 Ctrl+X 는(잘라내기) 매칭 안 함.
     expect(matchFormatShortcut({ ...base, key: 'x', ctrlKey: true })).toBeNull();
+  });
+});
+
+describe('prefixQuote (S83c / FR-KS-10)', () => {
+  it('단일 줄 선택 각 줄 앞에 `> ` prefix 를 붙인다', () => {
+    const r = prefixQuote({ text: 'hello', start: 0, end: 5 });
+    expect(r.text).toBe('> hello');
+    // selection 은 치환된 줄 전체.
+    expect(r.text.slice(r.newStart, r.newEnd)).toBe('> hello');
+  });
+
+  it('멀티라인 선택은 각 줄 앞에 `> ` 를 붙인다(per-line — 연속 blockquote 정합)', () => {
+    const r = prefixQuote({ text: 'a\nb\nc', start: 0, end: 5 });
+    expect(r.text).toBe('> a\n> b\n> c');
+  });
+
+  it('가운데 빈 줄도 `> ` 를 붙여 연속 blockquote 가 끊기지 않게 한다', () => {
+    const r = prefixQuote({ text: 'a\n\nb', start: 0, end: 4 });
+    expect(r.text).toBe('> a\n> \n> b');
+  });
+
+  it('줄 중간에서 시작/끝나는 선택도 그 줄 전체를 인용한다(줄 경계로 확장)', () => {
+    // 'foo bar' 의 'o b'(2~5)만 선택해도 줄 전체에 prefix.
+    const r = prefixQuote({ text: 'foo bar', start: 2, end: 5 });
+    expect(r.text).toBe('> foo bar');
+  });
+
+  it('선택 앞뒤 줄은 보존하고 선택이 걸친 줄만 인용한다', () => {
+    const text = 'pre\nmid\npost';
+    // 'mid'(4~7)만 선택.
+    const r = prefixQuote({ text, start: 4, end: 7 });
+    expect(r.text).toBe('pre\n> mid\npost');
+  });
+
+  it('선택이 줄 끝 개행에서 끝나면 그 개행은 다음 줄 소속이라 포함하지 않는다', () => {
+    // 'a\nb' 에서 'a\n'(0~2) 선택 → 'a' 줄만 인용.
+    const r = prefixQuote({ text: 'a\nb', start: 0, end: 2 });
+    expect(r.text).toBe('> a\nb');
+  });
+
+  it('빈 선택(caret)은 caret 이 있는 줄 시작에 `> ` 를 삽입한다', () => {
+    const r = prefixQuote({ text: 'abc', start: 1, end: 1 });
+    expect(r.text).toBe('> abc');
+  });
+});
+
+describe('wrapLink (S83c / FR-KS-10)', () => {
+  it('선택을 `[선택](url)` 로 감싸고 selection 을 url 플레이스홀더 위에 올린다', () => {
+    const r = wrapLink({ text: 'qufox', start: 0, end: 5 });
+    expect(r.text).toBe('[qufox](url)');
+    // 다음 입력이 url 을 덮어쓰도록 'url' 위에 선택.
+    expect(r.text.slice(r.newStart, r.newEnd)).toBe(LINK_URL_PLACEHOLDER);
+  });
+
+  it('빈 선택은 `[](url)` 를 삽입하고 url 플레이스홀더를 선택한다', () => {
+    const r = wrapLink({ text: '', start: 0, end: 0 });
+    expect(r.text).toBe('[](url)');
+    expect(r.text.slice(r.newStart, r.newEnd)).toBe(LINK_URL_PLACEHOLDER);
+  });
+
+  it('앞뒤 컨텍스트를 보존하며 선택 범위만 링크로 감싼다', () => {
+    const r = wrapLink({ text: 'see qufox here', start: 4, end: 9 });
+    expect(r.text).toBe('see [qufox](url) here');
+  });
+
+  it('파서 MD_LINK_RE 와 정합 — label 개행 없음·url 공백/괄호 없음', () => {
+    const r = wrapLink({ text: 'doc', start: 0, end: 3 });
+    // [label](url) 형태: label='doc', url='url'.
+    expect(r.text).toMatch(/^\[doc\]\(url\)$/);
+  });
+});
+
+describe('shouldShowFormatToolbar (S83c / FR-KS-10)', () => {
+  it('비어있지 않은 선택 + 자동완성 닫힘이면 표시한다', () => {
+    expect(
+      shouldShowFormatToolbar({ selectionStart: 0, selectionEnd: 5, autocompleteOpen: false }),
+    ).toBe(true);
+  });
+
+  it('빈 선택(start === end)이면 숨긴다', () => {
+    expect(
+      shouldShowFormatToolbar({ selectionStart: 3, selectionEnd: 3, autocompleteOpen: false }),
+    ).toBe(false);
+  });
+
+  it('자동완성/멘션/슬래시 팝업이 열려 있으면 선택이 있어도 숨긴다(겹침 방지)', () => {
+    expect(
+      shouldShowFormatToolbar({ selectionStart: 0, selectionEnd: 5, autocompleteOpen: true }),
+    ).toBe(false);
+  });
+
+  it('selection 정보가 없으면(null) 숨긴다', () => {
+    expect(
+      shouldShowFormatToolbar({
+        selectionStart: null,
+        selectionEnd: null,
+        autocompleteOpen: false,
+      }),
+    ).toBe(false);
+  });
+});
+
+describe('applyToolbarFormatToText (S83c / FR-KS-10)', () => {
+  it('bold/italic/strike/code 는 마커로 감싼다(인라인)', () => {
+    expect(applyToolbarFormatToText({ text: 'x', start: 0, end: 1, format: 'bold' }).text).toBe(
+      '**x**',
+    );
+    expect(applyToolbarFormatToText({ text: 'x', start: 0, end: 1, format: 'italic' }).text).toBe(
+      '_x_',
+    );
+    expect(applyToolbarFormatToText({ text: 'x', start: 0, end: 1, format: 'strike' }).text).toBe(
+      '~~x~~',
+    );
+    expect(applyToolbarFormatToText({ text: 'x', start: 0, end: 1, format: 'code' }).text).toBe(
+      '`x`',
+    );
+  });
+
+  it('인라인 마커는 멀티라인이면 줄 단위로 감싼다(per-line)', () => {
+    expect(applyToolbarFormatToText({ text: 'a\nb', start: 0, end: 3, format: 'bold' }).text).toBe(
+      '**a**\n**b**',
+    );
+  });
+
+  it('codeBlock 은 줄 시작이 아니면 여는 펜스 앞에 \\n 을 선행한다', () => {
+    // 'foo bar' 의 'bar'(4~7) → 여는 펜스가 줄 중간이 아니라 개행 뒤에 오게.
+    const r = applyToolbarFormatToText({ text: 'foo bar', start: 4, end: 7, format: 'codeBlock' });
+    expect(r.text).toBe('foo \n```\nbar\n```');
+  });
+
+  it('codeBlock 이 줄 시작이면 \\n 을 선행하지 않는다', () => {
+    const r = applyToolbarFormatToText({ text: 'bar', start: 0, end: 3, format: 'codeBlock' });
+    expect(r.text).toBe('```\nbar\n```');
+  });
+
+  it('quote 는 `> ` 줄 prefix(per-line)로 적용한다', () => {
+    expect(applyToolbarFormatToText({ text: 'a\nb', start: 0, end: 3, format: 'quote' }).text).toBe(
+      '> a\n> b',
+    );
+  });
+
+  it('link 는 `[선택](url)` 로 감싸고 url 플레이스홀더를 선택한다', () => {
+    const r = applyToolbarFormatToText({ text: 'qufox', start: 0, end: 5, format: 'link' });
+    expect(r.text).toBe('[qufox](url)');
+    expect(r.text.slice(r.newStart, r.newEnd)).toBe(LINK_URL_PLACEHOLDER);
   });
 });
