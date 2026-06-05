@@ -7,7 +7,7 @@ import type {
 } from '@qufox/shared-types';
 import { connect, disconnect, getLastEventId, setLastEventId } from '../../lib/socket';
 import { shouldSuppressNotificationToast } from '../notifications/notificationDndGate';
-import { getAccessToken } from '../../lib/api';
+import { getAccessToken, forceLogout } from '../../lib/api';
 import { useUI } from '../../stores/ui-store';
 import { useAuth } from '../auth/AuthProvider';
 import { installRealtimeDispatcher, DISPATCHED_EVENTS } from './dispatcher';
@@ -62,6 +62,18 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
     socket.on('connect', () => setStatus('connected'));
     socket.on('disconnect', () => setStatus('disconnected'));
     socket.on('connect_error', () => setStatus('disconnected'));
+
+    // S77c (D14 / FR-PS-16): 계정 비활성화 시 서버가 session:revoked 를 사용자 룸에 emit 한 직후
+    // 소켓을 강제 disconnect 한다. 이 이벤트를 받으면 access 토큰을 비우고 강제 로그아웃을 통지해
+    // (forceLogout → AuthProvider) 자동 로그아웃 + /login 라우팅을 트리거한다. reason 무관하게
+    // 처리한다(현재는 account_deactivated 단일 — 향후 관리자 강제 로그아웃 등 확장 대비).
+    socket.on('session:revoked', () => {
+      forceLogout();
+      if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
+        window.history.pushState({}, '', '/login');
+        window.dispatchEvent(new PopStateEvent('popstate'));
+      }
+    });
 
     // S72 fix-forward (reviewer H1 = realtime BLOCKER): 워크스페이스 삭제 시 서버는
     // ws:workspace_deleted 를 룸에 emit 한 직후 같은 이벤트로 룸 소켓을 강제 disconnect

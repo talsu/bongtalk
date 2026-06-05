@@ -90,6 +90,12 @@ const AccountSettingsPage = lazy(() =>
     default: m.AccountSettingsPage,
   })),
 );
+// S77c (D14 / FR-PS-16·19): 설정 > 고급 탭(위험구역 — 계정 비활성화/삭제).
+const AdvancedSettingsPage = lazy(() =>
+  import('./features/settings/AdvancedSettingsPage').then((m) => ({
+    default: m.AdvancedSettingsPage,
+  })),
+);
 // S76 (D14 / FR-PS-09): 설정 > 외관 탭(테마/밀도/폰트/24h · 자동 저장).
 const AppearanceSettingsPage = lazy(() =>
   import('./features/settings/AppearanceSettingsPage').then((m) => ({
@@ -455,6 +461,8 @@ export default function App(): JSX.Element {
                           <Route path="profile" element={<ProfileSettingsPage />} />
                           {/* S75 (D14 / FR-PS-14): 개인정보 및 안전(차단 목록). */}
                           <Route path="privacy" element={<PrivacySafetySettingsPage />} />
+                          {/* S77c (D14 / FR-PS-16·19): 고급(위험구역 — 계정 비활성화/삭제). */}
+                          <Route path="advanced" element={<AdvancedSettingsPage />} />
                         </Route>
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
                         {/* task-047 iter4 (M3): profile page */}

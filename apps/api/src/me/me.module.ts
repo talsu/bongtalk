@@ -54,6 +54,11 @@ import { TwoFactorController } from './two-factor.controller';
 import { SessionsController } from './sessions.controller';
 import { SessionsService } from './sessions.service';
 
+// S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화 + 30일 익명화 크론.
+import { AccountLifecycleController } from './account-lifecycle.controller';
+import { AccountLifecycleService } from './account-lifecycle.service';
+import { AccountAnonymizationCron } from './account-anonymization.cron';
+
 // task-045 iter7: MeStatusController 가 RealtimeGateway 를 inject 하므로
 // RealtimeModule 이 이미 imports 에 있어야 함 — 그대로 OK.
 // task-046 iter0: StatusBroadcastThrottler (MED-1 carry-over).
@@ -84,6 +89,8 @@ import { SessionsService } from './sessions.service';
     AccountSecurityController,
     TwoFactorController,
     SessionsController,
+    // S77c (D14 / FR-PS-16): 계정 비활성화/재활성화.
+    AccountLifecycleController,
   ],
   providers: [
     MeMentionsService,
@@ -99,6 +106,9 @@ import { SessionsService } from './sessions.service';
     // S77b (D14 / FR-PS-15): 자격증명 변경 + 세션 도메인 서비스(2FA/Crypto 는 AuthModule export).
     AccountSecurityService,
     SessionsService,
+    // S77c (D14 / FR-PS-16·19): 비활성화/재활성화 도메인 서비스 + 30일 익명화 크론.
+    AccountLifecycleService,
+    AccountAnonymizationCron,
   ],
   exports: [MeMentionsService, MeActivityService, DndScheduleService, CustomStatusService],
 })

@@ -118,6 +118,14 @@ export class AuthService {
       throw new DomainError(ErrorCode.AUTH_INVALID_CREDENTIALS, 'invalid credentials');
     }
 
+    // S77c (D14 / FR-PS-16): 비활성 계정은 자격증명이 맞아도 로그인을 차단하고 ACCOUNT_DEACTIVATED 로
+    // 응답한다(403). FE 는 이 코드를 받아 "계정 복구" CTA(POST /users/me/reactivate)로 분기한다.
+    // 자격증명 검증을 먼저 통과시킨 뒤 분기하므로(존재/비번 확인 완료) 복구 CTA 노출이 안전하다.
+    if (user.isDeactivated) {
+      this.metrics?.authLoginsTotal.labels('deactivated').inc();
+      throw new DomainError(ErrorCode.ACCOUNT_DEACTIVATED, 'account is deactivated');
+    }
+
     await this.users.updateLoginSuccess(user.id);
     this.metrics?.authLoginsTotal.labels('success').inc();
     const accessToken = this.tokens.signAccess(user.id);
