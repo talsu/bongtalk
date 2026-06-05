@@ -59,3 +59,47 @@ describe('detectTrigger (FR-RC03/04/05) — 커서 기준 @/#/: 트리거 감지
     expect(detectTrigger(long, long.length)).toBeNull();
   });
 });
+
+describe('detectTrigger (S79 / FR-SC-01) — / 슬래시 커맨드 트리거', () => {
+  beforeEach(() => {
+    vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  });
+
+  it('줄 맨앞의 / 는 빈 query 로 즉시 트리거한다', () => {
+    expect(detectTrigger('/', 1)).toEqual({ kind: 'slash', query: '', start: 0, end: 1 });
+  });
+
+  it('줄 맨앞의 /sh 를 트리거한다', () => {
+    expect(detectTrigger('/sh', 3)).toEqual({ kind: 'slash', query: 'sh', start: 0, end: 3 });
+  });
+
+  it('개행 직후의 / 도 줄 맨앞으로 보고 트리거한다', () => {
+    expect(detectTrigger('hi\n/me', 6)).toEqual({
+      kind: 'slash',
+      query: 'me',
+      start: 3,
+      end: 6,
+    });
+  });
+
+  it('공백 직후의 / 는 트리거하지 않는다(슬래시는 줄 맨앞 전용 — Discord parity)', () => {
+    // FR-SC-01: 슬래시 커맨드는 메시지 맨 앞에서만 의미가 있으므로, 텍스트 중간의
+    // 공백 직후 / 는 트리거하지 않는다(예: "and /or" 같은 일반 문장).
+    expect(detectTrigger('and /or', 7)).toBeNull();
+  });
+
+  it('URL 의 // 는 트리거하지 않는다(https:// 오작동 방지)', () => {
+    expect(detectTrigger('see https://x', 13)).toBeNull();
+    // 캐럿이 첫 / 직후여도 앞이 ':' 라 트리거 아님.
+    expect(detectTrigger('https:/', 7)).toBeNull();
+  });
+
+  it('경로 표기 /var 가 단어 중간이면 트리거하지 않는다', () => {
+    // "cd /var" — / 앞이 공백이지만 줄 맨앞이 아니므로 트리거 안 함.
+    expect(detectTrigger('cd /var', 7)).toBeNull();
+  });
+
+  it('query 안에 공백이 들어가면 트리거하지 않는다(닫힌 토큰)', () => {
+    expect(detectTrigger('/shrug hi', 9)).toBeNull();
+  });
+});
