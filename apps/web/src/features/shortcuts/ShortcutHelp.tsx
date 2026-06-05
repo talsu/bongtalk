@@ -43,6 +43,9 @@ const CATEGORIES: ShortcutCategory[] = [
       },
       { combo: 'Ctrl/Cmd + /', desc: '단축키 오버레이 / 검색 포커스', mnemonic: '/ = 검색 슬래시' },
       { combo: 'Alt + ↑ / ↓', desc: '이전 / 다음 채널' },
+      // S82b fix-forward (reviewer LOW-1 / a11y MODERATE): 신규 단축키 2종 노출(발견성).
+      { combo: 'Alt + Shift + ↑ / ↓', desc: '이전 / 다음 미읽 채널' },
+      { combo: 'Ctrl/Cmd + N', desc: '새 DM 시작', mnemonic: 'N = New DM' },
       { combo: 'Ctrl/Cmd + Shift + A', desc: '다음 워크스페이스', mnemonic: 'A = Auto-cycle' },
       { combo: '?', desc: '이 도움말 열기', mnemonic: '? = 물음표 = 도움말' },
       // S78 reviewer N1: Esc 는 맥락에 따라 동작이 다르다. 종전 'Escape'(닫기)와
