@@ -179,19 +179,33 @@ export function useGlobalShortcuts(): void {
         // 현재 채널이 미읽 목록에 없으면(-1) 첫 미읽로. 있으면 다음/이전으로 wrap.
         const nextIdx =
           currentIdx < 0 ? 0 : (currentIdx + step + unreadChannels.length) % unreadChannels.length;
-        navigate(`/w/${slug}/${unreadChannels[nextIdx].name}`);
+        const target = unreadChannels[nextIdx];
+        // a11y(#3): SPA navigate 는 SR 에 페이지 전환을 자동 통지하지 않으므로(S81a MAJ-5
+        // cross-cutting 이월) 이동 대상 채널명을 공유 announcer 로 공지한다.
+        announce(`${target.name} 채널로 이동했습니다 (미읽)`);
+        navigate(`/w/${slug}/${target.name}`);
         return;
       }
 
-      // Alt + ↑/↓: previous/next channel in current workspace
-      if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey && slug && channels) {
+      // Alt + ↑/↓: previous/next channel in current workspace.
+      // S82b LOW-2: !e.shiftKey 로 Alt+Shift+Arrow(미읽순회)와의 상호배제를 분기 순서가
+      // 아니라 구조적으로 보장한다(향후 분기 재정렬에도 cross-fire 방지).
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        e.altKey &&
+        !e.shiftKey &&
+        slug &&
+        channels
+      ) {
         const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
         if (flat.length === 0) return;
         const currentIdx = flat.findIndex((c) => c.name === channelName);
         const step = e.key === 'ArrowDown' ? 1 : -1;
         const nextIdx = currentIdx < 0 ? 0 : (currentIdx + step + flat.length) % flat.length;
         e.preventDefault();
-        navigate(`/w/${slug}/${flat[nextIdx].name}`);
+        const target = flat[nextIdx];
+        announce(`${target.name} 채널로 이동했습니다`);
+        navigate(`/w/${slug}/${target.name}`);
         return;
       }
 

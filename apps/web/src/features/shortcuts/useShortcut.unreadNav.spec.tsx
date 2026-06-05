@@ -149,6 +149,14 @@ describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', 
     expect(navigate).toHaveBeenCalledWith('/w/acme/random');
   });
 
+  it('S82b LOW-3: Alt+Shift+↑ from a non-unread channel also lands on the first unread', () => {
+    // 방향 결정 고정: 현재 채널이 미읽 목록에 없으면 ↑/↓ 모두 첫 미읽(index 0)로 점프한다.
+    unreadSummary = { channels: [{ channelId: 'c-random', unreadCount: 5 }] };
+    renderHook(() => useGlobalShortcuts());
+    press({ key: 'ArrowUp', altKey: true, shiftKey: true });
+    expect(navigate).toHaveBeenCalledWith('/w/acme/random');
+  });
+
   it('no-op outside a workspace (no slug)', () => {
     params = { slug: undefined, channelName: undefined };
     unreadSummary = { channels: [{ channelId: 'c-random', unreadCount: 5 }] };
