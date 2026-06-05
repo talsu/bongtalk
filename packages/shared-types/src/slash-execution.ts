@@ -39,11 +39,29 @@ export type ExecuteSlashInChannelResponse = z.infer<typeof ExecuteSlashInChannel
 
 // EPHEMERAL 응답 — 발신자 전용 확인/에러. content 는 항상 채워지고(성공·실패 공통
 // 사용자 메시지), error=true 면 실패(구문 예시 등)를 의미한다.
+//
+// S81a (D15 / FR-SC-08): `/msg @사람` 은 DM 채널을 열고(필요시 생성) 발신자에게만 확인
+// 메시지를 돌려주는 EPHEMERAL 이되, 클라이언트가 그 DM 으로 이동해야 한다. navigate 필드에
+// 이동 대상(DM 채널 id)을 실어, FE 가 ephemeral 확인을 띄운 뒤 해당 DM 으로 라우팅한다.
+// 비-`/msg` EPHEMERAL 응답은 navigate 를 생략한다(기존 계약 무변경).
+export const ExecuteSlashNavigateSchema = z.object({
+  // 이동 대상 종류. 현재는 DM 채널만(전역 DM). 향후 채널/스레드 확장 여지를 위해 enum.
+  kind: z.literal('dm'),
+  // 이동할 DM(DIRECT) 채널 id.
+  channelId: z.string().uuid(),
+  // DM 상대 userId. 웹 DM 라우트는 `/dm/:userId` 형태(userId 기반)라, FE 가 이 값으로
+  // 라우팅하고 channelId 는 식별/디버깅 보조다(서버가 이미 해석한 대상).
+  userId: z.string().uuid(),
+});
+export type ExecuteSlashNavigate = z.infer<typeof ExecuteSlashNavigateSchema>;
+
 export const ExecuteSlashEphemeralResponseSchema = z.object({
   responseType: z.literal('EPHEMERAL'),
   content: z.string(),
   // 실패(파싱 불가 등)면 true. 성공 확인이면 생략/false.
   error: z.boolean().optional(),
+  // S81a (FR-SC-08): `/msg` 가 연 DM 으로의 클라이언트 네비게이션 대상(선택). 없으면 이동 없음.
+  navigate: ExecuteSlashNavigateSchema.optional(),
 });
 export type ExecuteSlashEphemeralResponse = z.infer<typeof ExecuteSlashEphemeralResponseSchema>;
 

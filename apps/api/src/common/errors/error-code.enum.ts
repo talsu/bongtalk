@@ -313,6 +313,14 @@ export enum ErrorCode {
   SLASH_COMMAND_NOT_EXECUTABLE = 'SLASH_COMMAND_NOT_EXECUTABLE',
   REMINDER_PARSE_FAILED = 'REMINDER_PARSE_FAILED',
   REMINDER_NOT_FOUND = 'REMINDER_NOT_FOUND',
+  // S81a (D15 / FR-SC-08): /msg·/invite·/kick 의 @대상 토큰을 워크스페이스 멤버로
+  // 해석하지 못함(미입력·미존재·비멤버) → 발신자 전용 EPHEMERAL error 로 변환된다.
+  // 도메인 계층에선 422 로 매핑하되, execute() 가 대부분 EPHEMERAL error:true 로
+  // 흡수해 채널에 게시하지 않고 발신자에게만 사유를 인라인 표시한다.
+  SLASH_COMMAND_TARGET_NOT_FOUND = 'SLASH_COMMAND_TARGET_NOT_FOUND',
+  // S81a (D15 / FR-SC-08): 슬래시 커맨드가 요구하는 권한 비트(MANAGE_CHANNEL·
+  // KICK_MEMBERS) 또는 워크스페이스 컨텍스트(DM 에서 /topic 등)가 없음 → EPHEMERAL error.
+  SLASH_COMMAND_FORBIDDEN = 'SLASH_COMMAND_FORBIDDEN',
 
   // S73 (D14 / FR-PS-02): 전역 핸들(handle)은 @unique 라 다른 사용자가 이미 점유한
   // 핸들로 변경 시도 → 409(상태 충돌). DB unique 제약(P2002)을 흡수해 이 코드로 변환한다.
@@ -549,6 +557,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.SLASH_COMMAND_NOT_EXECUTABLE]: 422,
   [ErrorCode.REMINDER_PARSE_FAILED]: 400,
   [ErrorCode.REMINDER_NOT_FOUND]: 404,
+  // S81a (D15 / FR-SC-08): /msg·/invite·/kick·/topic 의 대상 해석/권한 실패.
+  [ErrorCode.SLASH_COMMAND_TARGET_NOT_FOUND]: 422,
+  [ErrorCode.SLASH_COMMAND_FORBIDDEN]: 403,
   // S73 (D14 / FR-PS-01/02/03): 프로필/아바타.
   [ErrorCode.HANDLE_TAKEN]: 409,
   [ErrorCode.HANDLE_COOLDOWN_ACTIVE]: 400,

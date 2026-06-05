@@ -23,6 +23,8 @@ import { EditHistoryPopover } from './EditHistoryPopover';
 import { AttachmentsList } from '../attachments/AttachmentsList';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { LinkPreview } from './LinkPreview';
+// S81a (FR-SC-08): `/collapse`·`/expand` 로 토글하는 채널 인라인 미디어 접힘 상태.
+import { useChannelMediaCollapsed } from './mediaCollapseStore';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
 import { isJumboEmoji } from './jumboEmoji';
 import { canStartThread, threadChipVisible as computeThreadChipVisible } from './threadActionGate';
@@ -146,6 +148,10 @@ export function MessageItem({
   pickerRecentEmojis,
   pickerDefaultSkinTone,
 }: Props): JSX.Element {
+  // S81a (FR-SC-08): `/collapse`·`/expand` 로 토글한 채널 인라인 미디어 접힘 상태. true 면
+  // 첨부 미리보기·링크 임베드를 숨긴다(텍스트 본문은 유지). 채널 단위 구독.
+  const mediaCollapsed = useChannelMediaCollapsed(msg.channelId);
+
   // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
   // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
   const sendState = (msg as MessageDto & { sendState?: 'pending' | 'failed' }).sendState;
@@ -468,21 +474,29 @@ export function MessageItem({
                   ) : null}
                 </div>
               ) : null}
-              {attachments.length > 0 ? <AttachmentsList attachments={attachments} /> : null}
+              {/* S81a (FR-SC-08): /collapse 로 접은 채널에서는 인라인 첨부/임베드를 숨긴다
+                 (텍스트 본문은 유지). /expand 로 다시 펼친다. */}
+              {!mediaCollapsed && attachments.length > 0 ? (
+                <AttachmentsList attachments={attachments} />
+              ) : null}
               {/* S60 (D11 · FR-RC07/08): link unfurl `.qf-embed` 카드.
                  서버가 비동기 unfurl 해 push 한 msg.embeds 가 있으면 그것을 렌더한다
                  (이미지는 백엔드 프록시 경로 · suppressedAt 카드는 hide). 없으면 종전
                  task-045 lazy-fetch(/links/preview)로 폴백한다(서버가 아직 push 안 한 호환). */}
-              {(() => {
-                const serverEmbeds = msg.embeds ?? [];
-                if (serverEmbeds.length > 0) {
-                  return serverEmbeds.map((e) => <LinkPreview key={`embed-${e.id}`} embed={e} />);
-                }
-                const urls = extractMessageUrls(msg.content ?? '');
-                return urls.length > 0
-                  ? urls.map((u) => <LinkPreview key={`embed-${u}`} url={u} />)
-                  : null;
-              })()}
+              {!mediaCollapsed
+                ? (() => {
+                    const serverEmbeds = msg.embeds ?? [];
+                    if (serverEmbeds.length > 0) {
+                      return serverEmbeds.map((e) => (
+                        <LinkPreview key={`embed-${e.id}`} embed={e} />
+                      ));
+                    }
+                    const urls = extractMessageUrls(msg.content ?? '');
+                    return urls.length > 0
+                      ? urls.map((u) => <LinkPreview key={`embed-${u}`} url={u} />)
+                      : null;
+                  })()
+                : null}
               {onToggleReaction ? (
                 <ReactionBar
                   reactions={msg.reactions ?? []}
