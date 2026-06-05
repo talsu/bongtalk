@@ -162,6 +162,12 @@ export class DirectMessagesService {
    * 흐름과 모순). FRIENDS_ONLY 는 Phase2 carryover — enum 값으로도 선반영하지 않으며,
    * 현재 DmPrivacy 에 존재하지 않으므로 별도 분기가 없다.
    *
+   * S77a 주의: FR-PS-13 의 allowDmFromWorkspaceMembers 게이트는 여기(전역 DM 경로)에
+   * 두지 않는다 — 전역 DM 은 상위 assertCanDm(친구 게이트)이 비-친구를 이미 차단하므로
+   * 워크스페이스-멤버-발 DM 의 차단 효과가 사실상 도달 불가(죽은 컨트롤)이기 때문이다.
+   * 그 게이트는 실제로 도달 가능한 워크스페이스 스코프 DM 개시(createOrGet 의
+   * assertWorkspaceDmAllowed)에 배선했다(S76 B-1/M-1 교훈 — 동작하는 곳에만 배선).
+   *
    * 비노출(H-03): friend-gate(FRIEND_NOT_FOUND) 와 동일 중립 메시지를 쓰되 권한
    * 거부는 전용 403 코드로 분리해 클라이언트가 "DM 수신 제한" UI 로 분기하게 한다.
    */
@@ -393,6 +399,39 @@ export class DirectMessagesService {
     }
   }
 
+  /**
+   * S77a (D14 / FR-PS-13): 워크스페이스 멤버발 DM 수신 게이트(죽은 컨트롤 금지). 워크스페이스
+   * 스코프 DM 개시(createOrGet)에서 **신규 채널 생성 직전**에 호출한다. target 의
+   * UserSettings.allowDmFromWorkspaceMembers 가 false 면 같은 워크스페이스 멤버라는 사유만으로
+   * 새 DM 을 열 수 없게 한다(403 DM_PRIVACY_RESTRICTED). 단:
+   *
+   *  - ACCEPTED 친구는 항상 허용(친구 관계는 워크스페이스 멤버십과 독립한 상위 신뢰 관계).
+   *  - 차단(BLOCKED)된 사용자는 호출부의 친구/차단 게이트가 이미 우선 차단한다(여기 도달 X).
+   *  - 행 부재(구 가입자)는 기본 true(허용) — 무회귀.
+   *  - 이미 존재하는 DM 채널 조회(createOrGet 의 existing 분기)는 게이트하지 않는다 —
+   *    기존 대화 단절을 막는다. 정책은 **새 대화 개시**에만 적용된다(Slack/Discord 관례).
+   */
+  private async assertWorkspaceDmAllowed(initiatorId: string, targetId: string): Promise<void> {
+    const target = await this.prisma.user.findUnique({
+      where: { id: targetId },
+      select: { settings: { select: { allowDmFromWorkspaceMembers: true } } },
+    });
+    const allow = target?.settings?.allowDmFromWorkspaceMembers ?? true;
+    if (allow) return;
+    const friendship = await this.prisma.friendship.findFirst({
+      where: {
+        status: 'ACCEPTED',
+        OR: [
+          { requesterId: initiatorId, addresseeId: targetId },
+          { requesterId: targetId, addresseeId: initiatorId },
+        ],
+      },
+      select: { id: true },
+    });
+    if (friendship) return;
+    throw new DomainError(ErrorCode.DM_PRIVACY_RESTRICTED, 'cannot DM: not permitted');
+  }
+
   async createOrGet(
     workspaceId: string,
     meId: string,
@@ -417,6 +456,10 @@ export class DirectMessagesService {
       select: { id: true },
     });
     if (existing) return { channelId: existing.id, created: false };
+
+    // S77a (FR-PS-13): 신규 워크스페이스 DM 개시 전에 대상의 수신 정책을 강제한다(기존 채널
+    // 조회는 위에서 이미 반환됨 — 정책은 새 대화 개시에만 적용).
+    await this.assertWorkspaceDmAllowed(meId, otherUserId);
 
     // Transaction: new Channel + two ChannelPermissionOverride rows.
     // task-027 reviewer H1: two concurrent POSTs for the same pair race

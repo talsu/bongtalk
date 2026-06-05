@@ -9,6 +9,7 @@ import { ConnectionBanner } from './features/connection/ConnectionBanner';
 // S76 (D14 / FR-PS-09·18 · Fork C1): Ctrl+, 설정 단축키 + 로그인 후 외관 서버값 보정.
 import { useSettingsHotkey } from './features/settings/useSettingsHotkey';
 import { useAppearanceSettings } from './features/settings/useAppearanceSettings';
+import { useAccessibilitySettings } from './features/settings/useAccessibilitySettings';
 // S76 (FR-PS-11): DND 억제 게이트가 읽는 effective preference 를 전역에서 로드해둔다.
 import { useDndSchedule } from './features/presence/useDndSchedule';
 // task-047 iter7 (P4): 글로벌 에러 boundary.
@@ -87,6 +88,12 @@ const SettingsShell = lazy(() =>
 const AppearanceSettingsPage = lazy(() =>
   import('./features/settings/AppearanceSettingsPage').then((m) => ({
     default: m.AppearanceSettingsPage,
+  })),
+);
+// S77a (D14 / FR-PS-12): 설정 > 접근성 탭(모션 줄이기/고대비 · 자동 저장).
+const AccessibilitySettingsPage = lazy(() =>
+  import('./features/settings/AccessibilitySettingsPage').then((m) => ({
+    default: m.AccessibilitySettingsPage,
   })),
 );
 const ActivityPage = lazy(() =>
@@ -373,6 +380,9 @@ function SettingsHost(): JSX.Element | null {
   useSettingsHotkey();
   const authed = status === 'authenticated';
   useAppearanceSettings(authed);
+  // S77a (FR-PS-12): 인증 시 접근성 서버값을 로드해 documentElement 의 data-reduce-motion/
+  // data-high-contrast 를 보정한다(reduceMotion 이 app CSS 로 실제 동작 — 죽은 컨트롤 아님).
+  useAccessibilitySettings(authed);
   // 인증된 동안에만 DND 스케줄을 전역 로드해 FR-PS-11 억제 게이트가 effective
   // preference 를 항상 갖게 한다(useDndSchedule 은 자체 enabled 가 없으므로 마운트 분기).
   return authed ? <AuthedSettingsHost /> : null;
@@ -429,6 +439,8 @@ export default function App(): JSX.Element {
                         <Route path="/settings" element={<ProtectedSettingsShellRoute />}>
                           {/* S76 (D14 / FR-PS-09): 외관(신규 · 자동 저장). */}
                           <Route path="appearance" element={<AppearanceSettingsPage />} />
+                          {/* S77a (D14 / FR-PS-12): 접근성(모션 줄이기/고대비 · 자동 저장). */}
+                          <Route path="accessibility" element={<AccessibilitySettingsPage />} />
                           {/* S46: 알림(NotifLevel + DND + 키워드 + 데스크톱/모바일 토글). */}
                           <Route path="notifications" element={<NotificationSettingsPage />} />
                           {/* S73 (D14 / FR-PS-01·02·03): 프로필(명시적 저장). */}

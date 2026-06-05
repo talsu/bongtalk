@@ -121,6 +121,9 @@ export const ErrorCodeSchema = z.enum([
   'FRIEND_NOT_FOUND',
   'FRIEND_INVALID_STATE',
   'FRIEND_CAP_REACHED',
+  // S77a (FR-PS-13): 대상의 친구 요청 수신 정책(allowFriendRequests) 미충족 → 403.
+  // NOBODY 거부 / MUTUAL_WORKSPACE 공통 워크스페이스 부재 시 발생(FRIEND_TARGET_NOT_FOUND 404 와 구분).
+  'FRIEND_REQUEST_BLOCKED',
   // S16 (FR-DM-02): 그룹 DM 구성원 cap 초과 → 422.
   'DM_GROUP_CAP_EXCEEDED',
   // S19 (FR-DM-12): DM 수신권한(allowDmFrom) 미충족 → 403. 클라이언트는 이 코드를

@@ -49,6 +49,10 @@ export const qk = {
     globalNotificationSettings: () => ['me', 'settings', 'notifications'] as const,
     // S76 (FR-PS-09): 외관 설정(테마/밀도/폰트/24h).
     appearanceSettings: () => ['me', 'settings', 'appearance'] as const,
+    // S77a (FR-PS-12): 접근성 설정(모션 줄이기/고대비).
+    accessibilitySettings: () => ['me', 'settings', 'accessibility'] as const,
+    // S77a (FR-PS-13): 프라이버시 설정(DM/메시지요청/친구요청 정책).
+    privacySettings: () => ['me', 'settings', 'privacy'] as const,
     // S46 (FR-MN-06): 서버별 알림 오버라이드.
     serverNotificationPref: (wsId: string) =>
       ['workspaces', wsId, 'notification-preferences'] as const,

@@ -21,6 +21,12 @@ body,
   height: 100%;
 }
 
+/* S77a (FR-PS-12): 모션 줄이기를 두 출처로 강제한다 — OS prefers-reduced-motion 미디어쿼리와
+ * 사용자 명시 설정(html[data-reduce-motion="true"], 서버 단일 출처를 SettingsHost 가 적용).
+ * 둘 중 하나라도 켜지면 애니메이션/트랜지션/부드러운 스크롤을 무력화한다(DS 4파일 무수정 —
+ * a11y 오버라이드라 app-layer 가 적정). 이 규칙은 DS 의 qf-typing/qf-skel/qf-*-in 키프레임,
+ * 검색 하이라이트 펄스, 스피너 회전, 슬라이드인 트랜지션을 모두 0ms 로 만들어 실제로 멈춘다.
+ * (자동 재생 GIF 정지는 CSS 로 불가 — JS 레이어 carryover.) */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -30,6 +36,31 @@ body,
     transition-duration: 0ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+html[data-reduce-motion='true'] *,
+html[data-reduce-motion='true'] *::before,
+html[data-reduce-motion='true'] *::after {
+  animation-duration: 0ms !important;
+  animation-iteration-count: 1 !important;
+  animation-delay: 0ms !important;
+  transition-duration: 0ms !important;
+  scroll-behavior: auto !important;
+}
+
+/* S77a (FR-PS-12): 고대비 — DS 4파일에 고대비 테마/토큰이 아직 없으므로(carryover, DS-owner
+ * 위임) app-layer 에서 최소 보정만 한다. 포커스 링과 구분선/테두리를 또렷하게 강화해 가독성을
+ * 높인다(시맨틱 토큰만 사용 — raw hex/px 금지). DS 가 고대비 토큰을 도입하면 이 블록을 그 토큰에
+ * 재배선한다. data-high-contrast 는 SettingsHost 가 서버값으로 적용한다. */
+html[data-high-contrast='true'] *:focus-visible {
+  outline: var(--s-1) solid var(--accent) !important;
+  outline-offset: var(--s-1) !important;
+}
+html[data-high-contrast='true'] {
+  /* border-subtle Tailwind 유틸은 --divider 로 매핑되므로 두 변수만 강화하면 테두리/구분선이
+   * 일괄 또렷해진다(별도 --border-subtle 변수는 존재하지 않음). */
+  --divider: var(--border-strong);
+  --border: var(--border-strong);
 }
 
 /* S64 fix-forward (ui-designer M-04): ChannelSettingsPage 의 nav 는 action 버튼이 섞여
