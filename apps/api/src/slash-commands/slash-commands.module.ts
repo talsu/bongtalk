@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { SlashCommandController } from './slash-command.controller';
 import { SlashCommandService } from './slash-command.service';
+import { CustomSlashCommandController } from './custom-slash-command.controller';
+import { CustomSlashCommandService } from './custom-slash-command.service';
 import { SlashExecutionController } from './slash-execution.controller';
 import { SlashExecutionService } from './slash-execution.service';
 import { ReminderController } from './reminder.controller';
@@ -52,6 +54,8 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
   ],
   controllers: [
     SlashCommandController,
+    // S81c (FR-SC-09·10): 커스텀 슬래시 커맨드 CRUD(ADMIN 전용). GET 목록은 SlashCommandController.
+    CustomSlashCommandController,
     SlashExecutionController,
     ReminderController,
     // S81b (FR-SC-07): GIPHY 검색 프록시(프리뷰 Shuffle).
@@ -59,6 +63,7 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
   ],
   providers: [
     SlashCommandService,
+    CustomSlashCommandService,
     SlashExecutionService,
     ReminderService,
     GiphyProxyService,

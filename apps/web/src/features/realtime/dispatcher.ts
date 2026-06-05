@@ -976,6 +976,14 @@ export function installRealtimeDispatcher(
       // 채널 컨텍스트가 있으면 "채널로 이동" 액션을 노출한다(workspace 슬러그를 모르면
       // navigate 없이 토스트만 — 최소 UI). resolveMentionUrl 은 workspaceId 를 요구하므로
       // 본 슬라이스에선 channelId 기반 best-effort 만 시도한다.
+      //
+      // TODO(S81c carryover · MAJOR-1 동일 잠복버그): `/c/:channelId` 라우트는 App.tsx 에
+      //   없어 catch-all `*`→`/` 로 튕긴다(슬래시 REDIRECT_CHANNEL 과 동일 결함). 올바른
+      //   canonical 라우트는 `/w/:slug/:channelName` 이나, reminder:fire WS payload
+      //   (ReminderNewFirePayloadSchema)에는 channelId 만 있고 slug/channelName 이 없다.
+      //   슬래시 경로처럼 서버가 해석해 실어주려면 WS payload + 서버 발화부(processor) 확장이
+      //   필요해 본 5항목 fix-forward 스코프 밖이다 — reminder payload 확장으로 별도 후속에서
+      //   처리한다. 그때까지 jump 동작은 종전과 동일(미작동 상태 유지 · 회귀 아님).
       action:
         channelId && ctx.navigate
           ? {

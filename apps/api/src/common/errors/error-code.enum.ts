@@ -318,6 +318,13 @@ export enum ErrorCode {
   // 동일한 graceful "기능 비활성/외부 의존 불가" 신호로, 절대 500/크래시로 떨어지지 않는다.
   // 키워드 결과 0건은 GIPHY 자체는 정상이므로 이 코드가 아니라 EPHEMERAL "결과 없음"으로 분기한다.
   GIPHY_UNAVAILABLE = 'GIPHY_UNAVAILABLE',
+  // S81c (D15 / FR-SC-09·10): 워크스페이스 커스텀 슬래시 커맨드 CRUD.
+  //   SLASH_COMMAND_BUILTIN_CONFLICT: 등록/수정 name 이 빌트인 커맨드명과 충돌(override 금지) → 409.
+  //   SLASH_COMMAND_DUPLICATE:        워크스페이스 내 동일 name 커스텀 이미 존재(@@unique P2002 흡수) → 409.
+  //   SLASH_COMMAND_NOT_FOUND:        PATCH/DELETE 대상 커스텀이 본 워크스페이스에 없음(빌트인은 DB 행 없음) → 404.
+  SLASH_COMMAND_BUILTIN_CONFLICT = 'SLASH_COMMAND_BUILTIN_CONFLICT',
+  SLASH_COMMAND_DUPLICATE = 'SLASH_COMMAND_DUPLICATE',
+  SLASH_COMMAND_NOT_FOUND = 'SLASH_COMMAND_NOT_FOUND',
   // S81a (D15 / FR-SC-08): /msg·/invite·/kick·/topic 의 대상 해석/권한 실패는 별도 wire
   // ErrorCode 를 두지 않는다 — execute() 가 모두 발신자 전용 EPHEMERAL error:true 로 흡수해
   // (forbiddenEphemeral·targetNotFoundEphemeral) 채널에 게시하지 않고 인라인 표시하므로,
@@ -560,6 +567,10 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.REMINDER_NOT_FOUND]: 404,
   // S81b (D15 / FR-SC-07): GIPHY 프록시 불가 → 503(graceful·ENCRYPTION_UNAVAILABLE 선례).
   [ErrorCode.GIPHY_UNAVAILABLE]: 503,
+  // S81c (D15 / FR-SC-09·10): 커스텀 슬래시 커맨드 CRUD 상태코드.
+  [ErrorCode.SLASH_COMMAND_BUILTIN_CONFLICT]: 409,
+  [ErrorCode.SLASH_COMMAND_DUPLICATE]: 409,
+  [ErrorCode.SLASH_COMMAND_NOT_FOUND]: 404,
   // S73 (D14 / FR-PS-01/02/03): 프로필/아바타.
   [ErrorCode.HANDLE_TAKEN]: 409,
   [ErrorCode.HANDLE_COOLDOWN_ACTIVE]: 400,
