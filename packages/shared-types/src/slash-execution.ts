@@ -44,15 +44,27 @@ export type ExecuteSlashInChannelResponse = z.infer<typeof ExecuteSlashInChannel
 // 메시지를 돌려주는 EPHEMERAL 이되, 클라이언트가 그 DM 으로 이동해야 한다. navigate 필드에
 // 이동 대상(DM 채널 id)을 실어, FE 가 ephemeral 확인을 띄운 뒤 해당 DM 으로 라우팅한다.
 // 비-`/msg` EPHEMERAL 응답은 navigate 를 생략한다(기존 계약 무변경).
-export const ExecuteSlashNavigateSchema = z.object({
-  // 이동 대상 종류. 현재는 DM 채널만(전역 DM). 향후 채널/스레드 확장 여지를 위해 enum.
+// kind='dm' — `/msg` 가 연 DM(DIRECT) 채널로의 이동. 웹 DM 라우트는 `/dm/:userId` 형태라
+// userId 로 라우팅하고 channelId 는 식별/디버깅 보조다(서버가 이미 해석한 대상).
+export const ExecuteSlashNavigateDmSchema = z.object({
   kind: z.literal('dm'),
-  // 이동할 DM(DIRECT) 채널 id.
   channelId: z.string().uuid(),
-  // DM 상대 userId. 웹 DM 라우트는 `/dm/:userId` 형태(userId 기반)라, FE 가 이 값으로
-  // 라우팅하고 channelId 는 식별/디버깅 보조다(서버가 이미 해석한 대상).
   userId: z.string().uuid(),
 });
+
+// S81c (D15 / FR-SC-10): kind='channel' — 커스텀 REDIRECT_CHANNEL 액션이 가리키는 일반 채널로의
+// 이동. 서버가 본인 접근 가능 여부를 검증한 뒤에만 이 navigate 를 싣는다(IDOR 방지). DM 과 달리
+// userId 가 없으므로 discriminated union 으로 분리한다(FE 는 kind 로 라우트를 분기).
+export const ExecuteSlashNavigateChannelSchema = z.object({
+  kind: z.literal('channel'),
+  channelId: z.string().uuid(),
+});
+
+// 이동 대상. 현재 DM(전역) + 일반 채널(REDIRECT_CHANNEL). 향후 스레드 등 확장 여지를 위해 union.
+export const ExecuteSlashNavigateSchema = z.discriminatedUnion('kind', [
+  ExecuteSlashNavigateDmSchema,
+  ExecuteSlashNavigateChannelSchema,
+]);
 export type ExecuteSlashNavigate = z.infer<typeof ExecuteSlashNavigateSchema>;
 
 export const ExecuteSlashEphemeralResponseSchema = z.object({

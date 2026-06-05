@@ -570,6 +570,10 @@ export function MessageComposer({
           if (res.navigate?.kind === 'dm') {
             navigate(`/dm/${res.navigate.userId}`);
           }
+          // S81c (FR-SC-10): 커스텀 REDIRECT_CHANNEL 커맨드는 접근 검증된 채널로 이동한다.
+          if (res.navigate?.kind === 'channel') {
+            navigate(`/c/${res.navigate.channelId}`);
+          }
         }
       })
       .catch((err: unknown) => {

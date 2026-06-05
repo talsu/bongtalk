@@ -1,10 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type {
+  CustomActionType,
   ExecuteSlashCommandResponse,
   ExecuteSlashEphemeralResponse,
   ExecuteSlashGiphyPreviewResponse,
 } from '@qufox/shared-types';
+import { MESSAGE_MAX_LENGTH } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
@@ -82,14 +84,13 @@ export class SlashExecutionService {
     const now = args.now ?? new Date();
     const command = args.command.replace(/^\//, '').trim().toLowerCase();
 
-    // command 해석 — 빌트인 카탈로그 조회(GIPHY env 게이트 적용). 커스텀은 S81 OUT.
+    // command 해석 — 빌트인 카탈로그 조회(GIPHY env 게이트 적용).
     const builtins = buildBuiltinCommands((process.env.GIPHY_API_KEY ?? '').trim().length > 0);
     const def = builtins.find((c) => c.name === command);
     if (!def) {
-      throw new DomainError(
-        ErrorCode.SLASH_COMMAND_UNKNOWN,
-        `알 수 없는 커맨드입니다: /${command}`,
-      );
+      // S81c (FR-SC-10): 빌트인에 없으면 워크스페이스 커스텀 커맨드(enabled·workspaceId·name)를
+      // 조회해 configurable action 으로 실행한다. DM(workspaceId=null)은 커스텀 스코프가 없다.
+      return this.runCustom(args, command);
     }
 
     // IN_CHANNEL 빌트인(텍스트 변환 → 메시지 전송 경로 재사용).
@@ -541,6 +542,154 @@ export class SlashExecutionService {
     return preview;
   }
 
+  // ── S81c (FR-SC-09·10): 워크스페이스 커스텀 커맨드 실행 ───────────────────────────
+
+  /**
+   * 빌트인에 없는 커맨드를 워크스페이스 커스텀 SlashCommand 로 조회해 실행한다.
+   *   - DM(workspaceId=null) 또는 미존재·disabled → SLASH_COMMAND_UNKNOWN(빌트인 부재와 동일).
+   *   - actionType 별 분기(EPHEMERAL_TEXT / SEND_TEMPLATE / REDIRECT_CHANNEL).
+   *   - actionType/actionParams 형식 위반은 발신자 전용 EPHEMERAL error 로 흡수한다(채널 미게시).
+   * ★ 외부 호출 분기 없음(PRD·SSRF 회피) — 안전한 in-process 액션만 실행한다.
+   */
+  private async runCustom(
+    args: {
+      userId: string;
+      workspaceId: string | null;
+      channelId: string;
+      text: string;
+      idempotencyKey: string;
+    },
+    command: string,
+  ): Promise<ExecuteSlashCommandResponse> {
+    if (args.workspaceId === null) {
+      throw new DomainError(
+        ErrorCode.SLASH_COMMAND_UNKNOWN,
+        `알 수 없는 커맨드입니다: /${command}`,
+      );
+    }
+    const row = await this.prisma.slashCommand.findFirst({
+      where: { workspaceId: args.workspaceId, name: command, enabled: true },
+      select: { actionType: true, actionParams: true },
+    });
+    if (!row || row.actionType === null) {
+      throw new DomainError(
+        ErrorCode.SLASH_COMMAND_UNKNOWN,
+        `알 수 없는 커맨드입니다: /${command}`,
+      );
+    }
+    const params = (row.actionParams ?? {}) as Record<string, unknown>;
+    const actionType = row.actionType as CustomActionType;
+    switch (actionType) {
+      case 'EPHEMERAL_TEXT':
+        return this.runCustomEphemeralText(params);
+      case 'SEND_TEMPLATE':
+        return this.runCustomTemplate(args, params);
+      case 'REDIRECT_CHANNEL':
+        return this.runCustomRedirect(args, params);
+      default:
+        // enum 이 확장됐는데 핸들러가 누락된 경우의 방어(현재 도달 불가).
+        return this.malformedActionEphemeral();
+    }
+  }
+
+  /** EPHEMERAL_TEXT: actionParams.text 를 발신자 전용 EPHEMERAL 로 반환(고정 안내문). */
+  private runCustomEphemeralText(params: Record<string, unknown>): ExecuteSlashCommandResponse {
+    const text = typeof params.text === 'string' ? params.text : '';
+    if (text.length === 0) return this.malformedActionEphemeral();
+    return { responseType: 'EPHEMERAL', content: text };
+  }
+
+  /**
+   * SEND_TEMPLATE: actionParams.template 의 `{args}` 자리에 사용자 인자(args.text)를 1회 치환해
+   * 채널에 일반 메시지로 게시한다(IN_CHANNEL·기존 MessagesService.send 재사용·멱등키). 치환 후
+   * 본문이 비거나 MESSAGE 상한(4000)을 넘으면 발신자 전용 EPHEMERAL error 로 거부한다(채널 미게시).
+   * `{args}` 가 없으면 인자는 무시되고 템플릿 그대로 게시된다.
+   */
+  private async runCustomTemplate(
+    args: {
+      userId: string;
+      workspaceId: string | null;
+      channelId: string;
+      text: string;
+      idempotencyKey: string;
+    },
+    params: Record<string, unknown>,
+  ): Promise<ExecuteSlashCommandResponse> {
+    const template = typeof params.template === 'string' ? params.template : '';
+    if (template.length === 0) return this.malformedActionEphemeral();
+    const content = substituteTemplateArgs(template, args.text ?? '');
+    if (content.length === 0) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: '보낼 내용이 비어 있습니다',
+        error: true,
+      };
+    }
+    if (content.length > MESSAGE_MAX_LENGTH) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: `메시지가 너무 깁니다(${MESSAGE_MAX_LENGTH}자 이내)`,
+        error: true,
+      };
+    }
+    try {
+      const { message } = await this.messages.send({
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        authorId: args.userId,
+        content,
+        idempotencyKey: args.idempotencyKey,
+      });
+      return { responseType: 'IN_CHANNEL', messageId: message.id };
+    } catch (err) {
+      return this.domainErrorToEphemeral(err);
+    }
+  }
+
+  /**
+   * REDIRECT_CHANNEL: actionParams.channelId 로 클라이언트 네비게이션. ★IDOR 방지 — 대상 채널이
+   * 본 워크스페이스 소속이고 발신자가 접근(READ) 가능한 경우에만 navigate 를 싣는다. 접근 불가/
+   * 미존재면 발신자 전용 EPHEMERAL error(존재 누출 없이 "이동할 수 없습니다").
+   */
+  private async runCustomRedirect(
+    args: { userId: string; workspaceId: string | null },
+    params: Record<string, unknown>,
+  ): Promise<ExecuteSlashCommandResponse> {
+    const channelId = typeof params.channelId === 'string' ? params.channelId : '';
+    if (channelId.length === 0 || args.workspaceId === null) {
+      return this.malformedActionEphemeral();
+    }
+    const channel = await this.loadChannelMeta(channelId, args.workspaceId);
+    if (!channel) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: '이동할 채널을 찾을 수 없습니다',
+        error: true,
+      };
+    }
+    const allowed = await this.channelAccess.hasPermission(channel, args.userId, Permission.READ);
+    if (!allowed) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: '이 채널에 접근할 권한이 없습니다',
+        error: true,
+      };
+    }
+    return {
+      responseType: 'EPHEMERAL',
+      content: '채널로 이동합니다',
+      navigate: { kind: 'channel', channelId },
+    };
+  }
+
+  private malformedActionEphemeral(): ExecuteSlashCommandResponse {
+    return {
+      responseType: 'EPHEMERAL',
+      content: '이 커맨드의 설정이 올바르지 않습니다. 워크스페이스 관리자에게 문의해 주세요',
+      error: true,
+    };
+  }
+
   // ── S81a (FR-SC-08): 공유 헬퍼 ──────────────────────────────────────────────────
 
   /** 채널 ACL 검사에 필요한 최소 메타(id/workspaceId/isPrivate)를 로드한다. soft-delete 제외. */
@@ -635,3 +784,20 @@ const CHANNEL_MEMBER_ALLOW_MASK =
   Permission.WRITE_MESSAGE |
   Permission.DELETE_OWN_MESSAGE |
   Permission.UPLOAD_ATTACHMENT;
+
+/**
+ * S81c (FR-SC-10): SEND_TEMPLATE 치환 — 템플릿의 `{args}` 토큰(전부)을 사용자 인자로 1회 치환한다.
+ *
+ * 안전성:
+ *   - 치환은 단순 문자열 replace 다. 사용자 인자는 그대로 메시지 본문이 되고(채널 게시), mrkdwn
+ *     렌더링/이스케이프는 메시지 표시 파이프라인(클라)이 일반 메시지와 동일하게 처리한다 — 즉
+ *     이 경로가 만드는 본문은 사용자가 직접 친 메시지와 동일한 신뢰 수준이다(권한 상승 없음).
+ *   - 정규식 특수문자(`$1` 등 replacement 패턴)가 인자에 들어가도 영향받지 않도록 replacer 함수
+ *     형태로 치환한다(String.prototype.replace 의 `$` 치환 패턴 우회).
+ *   - 길이 상한(MESSAGE_MAX_LENGTH)은 호출부가 치환 결과에 강제한다(여기선 미강제).
+ * 인자가 비어 있으면 `{args}` 는 빈 문자열로 치환된다(템플릿 그대로 유지가 아니라 토큰 제거).
+ */
+export function substituteTemplateArgs(template: string, rawArgs: string): string {
+  const replacement = rawArgs.trim();
+  return template.replace(/\{args\}/g, () => replacement).trim();
+}

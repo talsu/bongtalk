@@ -3,6 +3,7 @@ import {
   CreateReminderRequestSchema,
   ExecuteSlashCommandRequestSchema,
   ExecuteSlashCommandResponseSchema,
+  ExecuteSlashNavigateSchema,
   GiphySearchRequestSchema,
   GiphySearchResponseSchema,
   ReminderItemSchema,
@@ -14,6 +15,33 @@ import { WS_EVENTS, WS_EVENT_PAYLOAD_SCHEMAS, ReminderNewFirePayloadSchema } fro
 /**
  * S80 (D15 / FR-SC-04·05·06 + FR-RC18) — 슬래시 실행 + Reminder 계약 단위 테스트.
  */
+describe('ExecuteSlashNavigate union (S81a dm + S81c channel)', () => {
+  const DM_CH = '11111111-1111-1111-1111-111111111111';
+  const USER = '22222222-2222-2222-2222-222222222222';
+  const CH = '33333333-3333-3333-3333-333333333333';
+
+  it('kind=dm 은 channelId + userId 를 요구한다(/msg)', () => {
+    const parsed = ExecuteSlashNavigateSchema.parse({
+      kind: 'dm',
+      channelId: DM_CH,
+      userId: USER,
+    });
+    expect(parsed.kind).toBe('dm');
+    // dm 에 userId 누락은 거부.
+    expect(() => ExecuteSlashNavigateSchema.parse({ kind: 'dm', channelId: DM_CH })).toThrow();
+  });
+
+  it('kind=channel 은 channelId 만 요구한다(REDIRECT_CHANNEL)', () => {
+    const parsed = ExecuteSlashNavigateSchema.parse({ kind: 'channel', channelId: CH });
+    expect(parsed.kind).toBe('channel');
+    if (parsed.kind === 'channel') expect(parsed.channelId).toBe(CH);
+  });
+
+  it('알 수 없는 kind 는 거부한다', () => {
+    expect(() => ExecuteSlashNavigateSchema.parse({ kind: 'thread', channelId: CH })).toThrow();
+  });
+});
+
 describe('ExecuteSlashCommand contract', () => {
   it('요청은 command/text/idempotencyKey 를 파싱한다', () => {
     const parsed = ExecuteSlashCommandRequestSchema.parse({

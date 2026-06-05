@@ -285,6 +285,13 @@ export const ErrorCodeSchema = z.enum([
   // S81b (D15 / FR-SC-07): /giphy 프록시 불가(env 미설정 / GIPHY 오류·타임아웃 / 형식 위반)
   //   → 503(graceful·ENCRYPTION_UNAVAILABLE 선례). 결과 0건은 EPHEMERAL 안내로 분기(이 코드 아님).
   'GIPHY_UNAVAILABLE',
+  // S81c (D15 / FR-SC-09·10): 워크스페이스 커스텀 슬래시 커맨드 CRUD.
+  //   SLASH_COMMAND_BUILTIN_CONFLICT: 등록/수정하려는 name 이 빌트인 커맨드명과 충돌(override 금지) → 409.
+  //   SLASH_COMMAND_DUPLICATE:        워크스페이스 내 동일 name 커스텀이 이미 존재(@@unique P2002 흡수) → 409.
+  //   SLASH_COMMAND_NOT_FOUND:        PATCH/DELETE 대상 커스텀이 본 워크스페이스에 없음(빌트인은 DB 행 없어 404) → 404.
+  'SLASH_COMMAND_BUILTIN_CONFLICT',
+  'SLASH_COMMAND_DUPLICATE',
+  'SLASH_COMMAND_NOT_FOUND',
   // S73 (D14 / FR-PS-01/02/03): 전역 프로필 + 아바타.
   //   HANDLE_TAKEN:           핸들이 이미 점유됨(다른 사용자 @unique) → 409.
   //   HANDLE_COOLDOWN_ACTIVE: 핸들 변경 쿨다운(30일) 미경과 → 400 + details.nextAllowedAt(ISO).
