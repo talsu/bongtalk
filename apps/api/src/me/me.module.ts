@@ -47,6 +47,13 @@ import { WorkspaceReadAllController } from './workspace-read-all.controller';
 import { SavedController } from './saved/saved.controller';
 import { SavedService } from './saved/saved.service';
 
+// S77b (D14 / FR-PS-15·20): 보안 — 자격증명 변경 + TOTP 2FA + 세션 관리.
+import { AccountSecurityController } from './account-security.controller';
+import { AccountSecurityService } from './account-security.service';
+import { TwoFactorController } from './two-factor.controller';
+import { SessionsController } from './sessions.controller';
+import { SessionsService } from './sessions.service';
+
 // task-045 iter7: MeStatusController 가 RealtimeGateway 를 inject 하므로
 // RealtimeModule 이 이미 imports 에 있어야 함 — 그대로 OK.
 // task-046 iter0: StatusBroadcastThrottler (MED-1 carry-over).
@@ -73,6 +80,10 @@ import { SavedService } from './saved/saved.service';
     ChannelAckController,
     WorkspaceReadAllController,
     SavedController,
+    // S77b (D14 / FR-PS-15·20): 자격증명 변경 + 2FA + 세션.
+    AccountSecurityController,
+    TwoFactorController,
+    SessionsController,
   ],
   providers: [
     MeMentionsService,
@@ -85,6 +96,9 @@ import { SavedService } from './saved/saved.service';
     AppearanceSettingsService,
     AccessibilitySettingsService,
     PrivacySettingsService,
+    // S77b (D14 / FR-PS-15): 자격증명 변경 + 세션 도메인 서비스(2FA/Crypto 는 AuthModule export).
+    AccountSecurityService,
+    SessionsService,
   ],
   exports: [MeMentionsService, MeActivityService, DndScheduleService, CustomStatusService],
 })

@@ -27,4 +27,7 @@ regexes = [
   # Placeholder tokens used in docs / examples.
   '''change-me-[a-z0-9-]+''',
   '''replace-with-real-[a-z0-9-]+''',
+  # S77b security MED-1: dev APP_ENCRYPTION_KEY example — base64 of the literal
+  # placeholder "change-me-dev-only-totp-key-32by" (NOT a real secret).
+  '''Y2hhbmdlLW1lLWRldi1vbmx5LXRvdHAta2V5LTMyYnk=''',
 ]

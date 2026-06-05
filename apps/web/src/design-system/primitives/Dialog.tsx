@@ -1,6 +1,7 @@
 import * as RDialog from '@radix-ui/react-dialog';
 import type { ReactNode } from 'react';
 import { cn } from '../../lib/cn';
+import { Icon } from './Icon';
 
 export function Dialog({
   open,
@@ -49,6 +50,19 @@ export function Dialog({
                 </RDialog.Description>
               ) : null}
             </div>
+            {/* S77b (a11y MAJOR-01): 모든 모달에 가시적 닫기(X) 버튼을 둔다. 종전에는 Esc/오버레이
+               클릭만으로 닫혀 마우스 사용자/AT 에 명시적 닫기 어포던스가 없었다. RDialog.Close 로
+               Radix 의 닫기 동작에 위임하고 aria-label="닫기" 로 접근명을 부여한다. */}
+            <RDialog.Close asChild>
+              <button
+                type="button"
+                data-testid="dialog-close"
+                aria-label="닫기"
+                className="qf-btn qf-btn--ghost qf-btn--sm inline-flex shrink-0 items-center"
+              >
+                <Icon name="x" size="md" />
+              </button>
+            </RDialog.Close>
           </div>
           <div className="qf-modal__body pb-[var(--s-6)]">{children}</div>
         </RDialog.Content>

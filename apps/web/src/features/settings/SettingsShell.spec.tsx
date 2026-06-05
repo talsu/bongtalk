@@ -22,6 +22,7 @@ function renderAt(path: string): void {
       <HotkeyHost />
       <Routes>
         <Route path="/settings" element={<SettingsShell />}>
+          <Route path="account" element={<div data-testid="page-account">내 계정</div>} />
           <Route path="appearance" element={<div data-testid="page-appearance">외관</div>} />
           <Route path="profile" element={<div data-testid="page-profile">프로필</div>} />
           <Route path="notifications" element={<div data-testid="page-notifications">알림</div>} />
@@ -78,9 +79,10 @@ describe('SettingsShell (FR-PS-18)', () => {
     );
   });
 
-  it('disables account/advanced tabs (이후 슬라이스)', () => {
+  // S77b: account 탭이 활성화돼 advanced 만 비활성으로 남는다.
+  it('disables only the advanced tab (이후 슬라이스)', () => {
     renderAt('/settings/appearance');
-    for (const id of ['account', 'advanced']) {
+    for (const id of ['advanced']) {
       const el = screen.getByTestId(`settings-tab-${id}`);
       // F-H2 (a11y HIGH-02): span 이 아니라 disabled <button> 이라 키보드/AT 가 인지한다.
       expect(el.tagName).toBe('BUTTON');
@@ -91,11 +93,20 @@ describe('SettingsShell (FR-PS-18)', () => {
     }
   });
 
+  // S77b (D14 / FR-PS-15·20): 내 계정 탭이 활성화(enabled)되어 딥링크/Outlet 이 동작한다.
+  it('enables the account tab and deep-links to its Outlet content (S77b)', () => {
+    renderAt('/settings/account');
+    const tab = screen.getByTestId('settings-tab-account');
+    expect(tab.tagName).toBe('A'); // enabled → Link(<a>), not a disabled button.
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('page-account')).toBeTruthy();
+  });
+
   // F9 (a11y MINOR-03): 모바일 비활성 탭은 aria-disabled 를 문자열 "true" 로 명시한다.
   it('mobile: disabled tabs set aria-disabled="true" as a string + native disabled', () => {
     mobile = true;
     renderAt('/settings');
-    for (const id of ['account', 'advanced']) {
+    for (const id of ['advanced']) {
       const el = screen.getByTestId(`settings-tab-${id}`);
       expect(el.tagName).toBe('BUTTON');
       expect((el as HTMLButtonElement).disabled).toBe(true);

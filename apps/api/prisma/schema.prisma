@@ -459,6 +459,13 @@ model User {
   // default false 라 기존 row 안전(무회귀 — 옵션 미설정 = 종전 동작). UserPresence 전체
   // 이관은 별도 슬라이스(OUT) — 본 컬럼은 만료→DND 옵션만 완결한다.
   dndDuringStatus             Boolean            @default(false)
+  // S77b (D14 / FR-PS-15·20): TOTP 2FA. 둘 다 additive 라 기존 row 안전(마이그레이션
+  // 20260616000000_s77b_security_2fa_sessions).
+  //   totpSecretEnc: AES-256-GCM 암호화된 base32 시크릿(`iv:tag:ciphertext` base64). null =
+  //                  미설정. 평문 시크릿은 절대 영속/로그하지 않는다(CryptoService 가 암복호).
+  //   totpEnabled:   2FA 활성 여부. verify 성공 시 true, disable(비번+코드) 시 false.
+  totpSecretEnc               String?
+  totpEnabled                 Boolean            @default(false)
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 
@@ -473,6 +480,8 @@ model User {
   refreshTokens                 RefreshToken[]
   // S66 (D13 / FR-W05b): 이메일 인증 토큰들. onDelete Cascade(계정 삭제 시 정리).
   emailVerificationTokens       EmailVerificationToken[]
+  // S77b (D14 / FR-PS-15): TOTP 백업코드 행들(bcrypt 해싱·1회용). onDelete Cascade.
+  backupCodes                   BackupCode[]
   attachments                   Attachment[]
   // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
   attachmentUploadSessions      AttachmentUploadSession[]
@@ -590,11 +599,31 @@ model RefreshToken {
   expiresAt  DateTime
   revokedAt  DateTime?
   replacedAt DateTime?
+  // S77b (D14 / FR-PS-15): 세션 목록(GET /me/sessions)의 "마지막 활동" 표기 + rotation
+  // 시 갱신. additive nullable 라 기존 row 안전(NULL = 활동 기록 없음 → createdAt 폴백).
+  lastSeenAt DateTime?
   createdAt  DateTime  @default(now())
 
   @@index([userId])
   @@index([familyId])
   @@index([expiresAt])
+}
+
+// S77b (D14 / FR-PS-15): TOTP 2FA 백업코드. verify 성공 시 10행을 bcrypt(cost≥12) 해싱해
+// 영속하고, 평문은 응답으로 1회만 반환한다(재조회 불가). disable(비번+코드) 시 해당 사용자의
+// 모든 행을 삭제한다. additive 신규 테이블이라 기존 row 영향 없음(backfill 불요). onDelete
+// Cascade — 계정 하드삭제 시 함께 정리된다. usedAt 은 백업코드 로그인 대체(S77c 후속)에서
+// 1회용 소진을 기록할 컬럼이며, 본 슬라이스는 생성/저장/disable 만 다룬다(usedAt 미사용).
+model BackupCode {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  codeHash  String
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
 }
 
 // S66 (D13 / FR-W05b): 이메일 인증 토큰. signup 시 1행 생성 + ConsoleMailSender 로

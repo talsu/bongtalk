@@ -34,9 +34,10 @@ type TabDef = {
   enabled: boolean;
 };
 
-// FR-PS-18: 7탭 표준 순서. enabled=false 는 S77 이후 활성(현재 disabled).
+// FR-PS-18: 7탭 표준 순서. enabled=false 는 후속 슬라이스에서 활성.
+// S77b (D14 / FR-PS-15·20): 내 계정 탭 활성(자격증명 변경·2FA·세션). 고급은 여전히 준비 중.
 export const SETTINGS_TABS: readonly TabDef[] = [
-  { id: 'account', label: '내 계정', path: '/settings/account', enabled: false },
+  { id: 'account', label: '내 계정', path: '/settings/account', enabled: true },
   { id: 'profile', label: '프로필', path: '/settings/profile', enabled: true },
   { id: 'appearance', label: '외관', path: '/settings/appearance', enabled: true },
   { id: 'notifications', label: '알림', path: '/settings/notifications', enabled: true },

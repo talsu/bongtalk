@@ -129,6 +129,8 @@ function makeMailStub(): MailSender & { sent: Array<{ to: string; url: string }>
     // S68 (D13 / FR-W04 · Fork B): MailSender 인터페이스에 워크스페이스 초대 메일이
     // 추가돼 stub 도 구현을 가져야 한다(이 스펙은 인증 메일만 검증하므로 no-op).
     sendWorkspaceInviteEmail: vi.fn(async () => undefined),
+    // S77b (D14 / FR-PS-15): 보안 알림 메일 인터페이스 추가(이 스펙은 미검증 — no-op).
+    sendSecurityAlertEmail: vi.fn(async () => undefined),
   };
 }
 
