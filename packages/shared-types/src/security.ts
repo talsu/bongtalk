@@ -28,19 +28,26 @@ export const TOTP_CODE_LENGTH = 6;
 export const TOTP_SETUP_TTL_SEC = 10 * 60;
 
 // ── 자격증명 변경 ────────────────────────────────────────────────────────────
+// SF3 (security HIGH-3): 2FA 활성 사용자는 비번 변경 시 totpCode 재확인이 필수다. 스키마에선
+// optional 로 두고(2FA 미활성 사용자는 누락도 well-formed) 서버가 totpEnabled 를 보고 강제한다
+// (누락 403 TOTP_CODE_REQUIRED · 불일치 403 TOTP_INVALID).
 export const ChangePasswordRequestSchema = z
   .object({
     currentPassword: z.string().min(1).max(128),
     // newPassword 정책은 PasswordSchema(min 8 · max 128)를 재사용한다.
     newPassword: PasswordSchema,
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
   })
   .strict();
 export type ChangePasswordRequest = z.infer<typeof ChangePasswordRequestSchema>;
 
+// SF2 (security HIGH-2): 동일하게 이메일 변경도 2FA 활성 시 totpCode 재확인 필수(optional 스키마
+// + 서버 강제).
 export const ChangeEmailRequestSchema = z
   .object({
     currentPassword: z.string().min(1).max(128),
     newEmail: z.string().email(),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
   })
   .strict();
 export type ChangeEmailRequest = z.infer<typeof ChangeEmailRequestSchema>;
@@ -65,10 +72,7 @@ export type TotpSetupResponse = z.infer<typeof TotpSetupResponseSchema>;
 
 export const TotpVerifyRequestSchema = z
   .object({
-    code: z
-      .string()
-      .length(TOTP_CODE_LENGTH)
-      .regex(/^\d+$/, 'code must be digits'),
+    code: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits'),
   })
   .strict();
 export type TotpVerifyRequest = z.infer<typeof TotpVerifyRequestSchema>;
@@ -85,11 +89,7 @@ export const TotpDisableRequestSchema = z
     currentPassword: z.string().min(1).max(128),
     // 해제는 비번 + TOTP 코드 동시 필수. 누락 시 서버가 403 TOTP_CODE_REQUIRED.
     // 스키마에선 optional 로 두고(누락도 well-formed) 서버가 도메인 거부한다.
-    totpCode: z
-      .string()
-      .length(TOTP_CODE_LENGTH)
-      .regex(/^\d+$/, 'code must be digits')
-      .optional(),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
   })
   .strict();
 export type TotpDisableRequest = z.infer<typeof TotpDisableRequestSchema>;

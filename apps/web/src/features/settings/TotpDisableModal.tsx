@@ -25,6 +25,8 @@ export function TotpDisableModal({
   const [password, setPassword] = useState('');
   const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // AF3 (a11y HIGH-02): 에러를 정확한 필드에 연결한다(password vs code).
+  const [errorField, setErrorField] = useState<'password' | 'code' | null>(null);
   const firstFieldRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
@@ -32,6 +34,7 @@ export function TotpDisableModal({
       setPassword('');
       setCode('');
       setError(null);
+      setErrorField(null);
       // 진입 포커스 — 첫 입력란.
       const t = setTimeout(() => firstFieldRef.current?.focus(), 0);
       return () => clearTimeout(t);
@@ -43,6 +46,7 @@ export function TotpDisableModal({
 
   const onSubmit = async (): Promise<void> => {
     setError(null);
+    setErrorField(null);
     try {
       await disable.mutateAsync({ currentPassword: password, totpCode: code });
       notify({ variant: 'success', title: '2단계 인증을 해제했습니다.' });
@@ -50,12 +54,15 @@ export function TotpDisableModal({
       onOpenChange(false);
     } catch (err) {
       const e = err as Error & { errorCode?: string };
+      // AF3: PASSWORD_INCORRECT → password 필드, TOTP_* → code 필드에 연결한다.
       if (e.errorCode === 'PASSWORD_INCORRECT') {
         setError('비밀번호가 올바르지 않습니다.');
+        setErrorField('password');
         return;
       }
       if (e.errorCode === 'TOTP_INVALID' || e.errorCode === 'TOTP_CODE_REQUIRED') {
         setError('인증 코드가 올바르지 않습니다.');
+        setErrorField('code');
         return;
       }
       notify({ variant: 'danger', title: '2단계 인증 해제 실패', body: e.message });
@@ -94,6 +101,8 @@ export function TotpDisableModal({
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={errorField === 'password'}
+            aria-describedby={errorField === 'password' ? 'totp-disable-error' : undefined}
           />
         </div>
         <div className="flex flex-col gap-[var(--s-1)]">
@@ -107,14 +116,16 @@ export function TotpDisableModal({
             id="totp-disable-code"
             data-testid="totp-disable-code"
             className="qf-input"
+            // MAJOR-02 (a11y): OTP 입력에 type="text" 명시(inputMode=numeric 로 숫자 키패드 유지).
+            type="text"
             inputMode="numeric"
             autoComplete="one-time-code"
             maxLength={TOTP_CODE_LENGTH}
             value={code}
             onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
             placeholder="000000"
-            aria-invalid={error !== null}
-            aria-describedby={error ? 'totp-disable-error' : undefined}
+            aria-invalid={errorField === 'code'}
+            aria-describedby={errorField === 'code' ? 'totp-disable-error' : undefined}
           />
         </div>
         {error ? (
@@ -122,7 +133,7 @@ export function TotpDisableModal({
             id="totp-disable-error"
             data-testid="totp-disable-error"
             role="alert"
-            className="text-[length:var(--fs-12)] text-[color:var(--danger-600)]"
+            className="qf-field__error"
           >
             {error}
           </p>

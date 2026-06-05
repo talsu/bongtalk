@@ -1,11 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react';
+import type { ReactNode } from 'react';
 import type { SessionListResponse } from '@qufox/shared-types';
 
 const pushMock = vi.fn();
 vi.mock('../../stores/notification-store', () => ({
   useNotifications: (sel: (s: { push: typeof pushMock }) => unknown) => sel({ push: pushMock }),
+}));
+
+// MINOR-02: 전체 로그아웃 확인 alertDialog 는 Radix portal 거동을 피해 pass-through 로 모킹.
+vi.mock('../../design-system/primitives', () => ({
+  Dialog: ({ children, open }: { children?: ReactNode; open?: boolean }) =>
+    open ? <div role="alertdialog">{children}</div> : null,
 }));
 
 let data: SessionListResponse | undefined;
@@ -73,10 +80,14 @@ describe('SessionsSection (FR-PS-15)', () => {
     expect(revokeMutate).toHaveBeenCalledWith('s-other');
   });
 
-  it('다른 기기 모두 로그아웃 → revokeAll 호출', async () => {
+  it('다른 기기 모두 로그아웃 → 확인 alertDialog 후 revokeAll 호출', async () => {
     render(<SessionsSection />);
+    // MINOR-02: 버튼 클릭은 즉시 revoke 하지 않고 확인 다이얼로그를 연다.
+    fireEvent.click(screen.getByTestId('sessions-revoke-all'));
+    expect(revokeAllMutate).not.toHaveBeenCalled();
+    expect(screen.getByTestId('sessions-revoke-all-confirm')).toBeTruthy();
     await act(async () => {
-      fireEvent.click(screen.getByTestId('sessions-revoke-all'));
+      fireEvent.click(screen.getByTestId('sessions-revoke-all-submit'));
     });
     expect(revokeAllMutate).toHaveBeenCalled();
   });

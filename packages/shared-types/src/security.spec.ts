@@ -44,6 +44,39 @@ describe('S77b security (FR-PS-15·20) Zod', () => {
     ).toBe(false);
   });
 
+  // SF2·SF3: 2FA 활성 사용자용 totpCode 는 optional(누락 well-formed) + 형식(6자리 숫자) 검증.
+  it('ChangeEmail/ChangePassword accept an optional 6-digit totpCode', () => {
+    expect(
+      ChangeEmailRequestSchema.safeParse({
+        currentPassword: 'x',
+        newEmail: 'a@b.com',
+        totpCode: '123456',
+      }).success,
+    ).toBe(true);
+    // 형식 위반(5자리)은 거부.
+    expect(
+      ChangeEmailRequestSchema.safeParse({
+        currentPassword: 'x',
+        newEmail: 'a@b.com',
+        totpCode: '12345',
+      }).success,
+    ).toBe(false);
+    expect(
+      ChangePasswordRequestSchema.safeParse({
+        currentPassword: 'old',
+        newPassword: 'new-strong-1',
+        totpCode: '654321',
+      }).success,
+    ).toBe(true);
+    // 누락은 여전히 허용(2FA 미활성 사용자 — 서버가 totpEnabled 로 강제).
+    expect(
+      ChangePasswordRequestSchema.safeParse({
+        currentPassword: 'old',
+        newPassword: 'new-strong-1',
+      }).success,
+    ).toBe(true);
+  });
+
   it('TotpVerify requires a 6-digit numeric code', () => {
     expect(TotpVerifyRequestSchema.safeParse({ code: '123456' }).success).toBe(true);
     expect(TotpVerifyRequestSchema.safeParse({ code: '12345' }).success).toBe(false);
@@ -64,9 +97,9 @@ describe('S77b security (FR-PS-15·20) Zod', () => {
 
   it('TotpVerifyResponse requires exactly 10 backup codes', () => {
     const codes = Array.from({ length: TOTP_BACKUP_CODE_COUNT }, (_, i) => `code${i}`);
-    expect(TotpVerifyResponseSchema.safeParse({ totpEnabled: true, backupCodes: codes }).success).toBe(
-      true,
-    );
+    expect(
+      TotpVerifyResponseSchema.safeParse({ totpEnabled: true, backupCodes: codes }).success,
+    ).toBe(true);
     expect(
       TotpVerifyResponseSchema.safeParse({ totpEnabled: true, backupCodes: codes.slice(0, 5) })
         .success,

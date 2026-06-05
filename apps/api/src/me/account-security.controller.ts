@@ -45,9 +45,7 @@ export class AccountSecurityController {
     @Body() body: unknown,
     @Req() req: Request,
   ): Promise<void> {
-    await this.rate.enforce([
-      { key: `change-password:u:${user.id}`, windowSec: 900, max: 10 },
-    ]);
+    await this.rate.enforce([{ key: `change-password:u:${user.id}`, windowSec: 900, max: 10 }]);
     const parsed = ChangePasswordRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new DomainError(
@@ -61,6 +59,8 @@ export class AccountSecurityController {
       parsed.data.currentPassword,
       parsed.data.newPassword,
       familyId,
+      // SF3: 2FA 활성 사용자는 totpCode 재확인 필수(미활성이면 서비스가 무시).
+      parsed.data.totpCode,
     );
   }
 
@@ -78,6 +78,12 @@ export class AccountSecurityController {
         'invalid change-email body (currentPassword/newEmail)',
       );
     }
-    return this.account.changeEmail(user.id, parsed.data.currentPassword, parsed.data.newEmail);
+    return this.account.changeEmail(
+      user.id,
+      parsed.data.currentPassword,
+      parsed.data.newEmail,
+      // SF2: 2FA 활성 사용자는 totpCode 재확인 필수(미활성이면 서비스가 무시).
+      parsed.data.totpCode,
+    );
   }
 }

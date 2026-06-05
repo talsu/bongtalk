@@ -1,8 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { authenticator } from 'otplib';
-import { compare as bcryptCompare } from 'bcryptjs';
+import { verify as argon2Verify } from '@node-rs/argon2';
 import { TwoFactorService } from '../../../src/auth/services/two-factor.service';
 import { CryptoService } from '../../../src/auth/services/crypto.service';
+import { PasswordService } from '../../../src/auth/services/password.service';
 import { ErrorCode } from '../../../src/common/errors/error-code.enum';
 import { TOTP_BACKUP_CODE_COUNT } from '@qufox/shared-types';
 
@@ -36,6 +37,23 @@ function makePrisma(user: UserRow) {
         Object.assign(user, data);
         return user;
       }),
+      // RF1 (TOCTOU): verify 는 totpEnabled=false 인 행만 조건부 업데이트한다. mock 은 where.id
+      // 와 where.totpEnabled 를 모두 만족해야 count=1 을 돌려준다.
+      updateMany: vi.fn(
+        async ({
+          where,
+          data,
+        }: {
+          where: { id: string; totpEnabled?: boolean };
+          data: Partial<UserRow>;
+        }) => {
+          if (where.totpEnabled !== undefined && user.totpEnabled !== where.totpEnabled) {
+            return { count: 0 };
+          }
+          Object.assign(user, data);
+          return { count: 1 };
+        },
+      ),
     },
     backupCode: {
       deleteMany: vi.fn(async () => {
@@ -43,10 +61,12 @@ function makePrisma(user: UserRow) {
         backupCodes.length = 0;
         return { count: n };
       }),
-      createMany: vi.fn(async ({ data }: { data: Array<{ id: string; userId: string; codeHash: string }> }) => {
-        backupCodes.push(...data);
-        return { count: data.length };
-      }),
+      createMany: vi.fn(
+        async ({ data }: { data: Array<{ id: string; userId: string; codeHash: string }> }) => {
+          backupCodes.push(...data);
+          return { count: data.length };
+        },
+      ),
     },
   };
   return {
@@ -64,8 +84,9 @@ function makeService(user: UserRow) {
   const redis = makeRedis();
   const prisma = makePrisma(user);
   const crypto = new CryptoService();
-  const svc = new TwoFactorService(prisma as never, redis as never, crypto);
-  return { svc, redis, prisma, crypto };
+  const passwords = new PasswordService();
+  const svc = new TwoFactorService(prisma as never, redis as never, crypto, passwords);
+  return { svc, redis, prisma, crypto, passwords };
 }
 
 describe('S77b TwoFactorService (FR-PS-15·20)', () => {
@@ -101,9 +122,9 @@ describe('S77b TwoFactorService (FR-PS-15·20)', () => {
     });
   });
 
-  // bcrypt cost=12 × 10 codes 는 NAS(kernel 4.4) 병렬 실행 시 10s 기본 한도를 넘을 수 있어
-  // per-test 타임아웃을 넉넉히 둔다(현실적 cost 유지 — cost 를 낮추지 않는다).
-  it('verify 성공 시 totpEnabled=true + 백업코드 10개(bcrypt) 생성 + 평문 1회 반환', async () => {
+  // PF1: 백업코드 해싱이 argon2(native · libuv threadpool)로 교체돼 종전 bcrypt(이벤트루프
+  // ~6s 블로킹)의 per-test 타임아웃 확대(30s)가 불필요하다 — 기본 한도로 충분히 통과한다.
+  it('verify 성공 시 totpEnabled=true + 백업코드 10개(argon2) 생성 + 평문 1회 반환', async () => {
     const user: UserRow = { totpEnabled: false, totpSecretEnc: null };
     const { svc, redis, prisma } = makeService(user);
     const setup = await svc.setup('u1', 'a@b.com');
@@ -114,29 +135,70 @@ describe('S77b TwoFactorService (FR-PS-15·20)', () => {
     expect(res.backupCodes).toHaveLength(TOTP_BACKUP_CODE_COUNT);
     // 평문 백업코드는 모두 서로 다르다.
     expect(new Set(res.backupCodes).size).toBe(TOTP_BACKUP_CODE_COUNT);
-    // DB 에는 bcrypt 해시 10행이 들어간다(평문 미저장).
+    // DB 에는 argon2id 해시 10행이 들어간다(평문 미저장).
     expect(prisma.backupCodes).toHaveLength(TOTP_BACKUP_CODE_COUNT);
     for (const row of prisma.backupCodes) {
-      expect(row.codeHash).toMatch(/^\$2[aby]\$/); // bcrypt 해시 포맷.
+      expect(row.codeHash).toMatch(/^\$argon2id\$/); // argon2id 해시 포맷.
       expect(res.backupCodes).not.toContain(row.codeHash); // 해시 ≠ 평문.
     }
-    // 첫 평문 코드가 첫 해시와 매칭(bcrypt compare).
-    expect(await bcryptCompare(res.backupCodes[0], prisma.backupCodes[0].codeHash)).toBe(true);
+    // 첫 평문 코드가 첫 해시와 매칭(argon2 verify).
+    expect(await argon2Verify(prisma.backupCodes[0].codeHash, res.backupCodes[0])).toBe(true);
     // 사용자 상태 갱신 + Redis setup 키 정리.
     expect(user.totpEnabled).toBe(true);
     expect(user.totpSecretEnc).toBeTruthy();
     expect(redis.store.has('totp:setup:u1')).toBe(false);
-  }, 30_000);
+  });
 
   it('verify 코드 불일치는 403 TOTP_INVALID', async () => {
     const { svc } = makeService({ totpEnabled: false, totpSecretEnc: null });
     await svc.setup('u1', 'a@b.com');
-    await expect(svc.verify('u1', '000000')).rejects.toMatchObject({ code: ErrorCode.TOTP_INVALID });
+    await expect(svc.verify('u1', '000000')).rejects.toMatchObject({
+      code: ErrorCode.TOTP_INVALID,
+    });
   });
 
   it('setup 미진행(Redis 시크릿 없음) verify 는 403 TOTP_INVALID', async () => {
     const { svc } = makeService({ totpEnabled: false, totpSecretEnc: null });
-    await expect(svc.verify('u1', '123456')).rejects.toMatchObject({ code: ErrorCode.TOTP_INVALID });
+    await expect(svc.verify('u1', '123456')).rejects.toMatchObject({
+      code: ErrorCode.TOTP_INVALID,
+    });
+  });
+
+  // SF1 (security HIGH-1 / reviewer MED1): replay 차단. verify 성공 시 사용 코드가
+  // totp:last:{userId} 에 90초 SET 되고, 이후 같은 코드는 assertTotpCode 가 거부한다.
+  it('SF1 replay: verify 성공 시 totp:last:{userId} 에 사용 코드를 90초 SET 한다', async () => {
+    const user: UserRow = { totpEnabled: false, totpSecretEnc: null };
+    const { svc, redis } = makeService(user);
+    const setup = await svc.setup('u1', 'a@b.com');
+    const code = authenticator.generate(setup.secret);
+    await svc.verify('u1', code);
+
+    // totp:last:{userId} 에 사용 코드가 기록됐다(이후 자격증명 변경/disable 의 같은 코드 차단).
+    expect(redis.store.get('totp:last:u1')).toBe(code);
+    expect(redis.set).toHaveBeenCalledWith('totp:last:u1', code, 'EX', 90);
+
+    // 같은 코드로 자격증명 변경 TOTP 재확인을 시도하면 replay 로 거부된다(같은 step 내 재사용).
+    await expect(svc.assertCredentialChangeTotp('u1', code)).rejects.toMatchObject({
+      code: ErrorCode.TOTP_INVALID,
+    });
+  });
+
+  it('SF1 replay (disable): disable 성공 후 같은 코드 재사용 시 totp:last 가 막는다', async () => {
+    const user: UserRow = { totpEnabled: false, totpSecretEnc: null };
+    const { svc, crypto, redis } = makeService(user);
+    const setup = await svc.setup('u1', 'a@b.com');
+    // 서로 다른 step 의 코드를 쓰기 위해 verify 와 disable 사이에 시간을 진행한다.
+    await svc.verify('u1', authenticator.generate(setup.secret));
+    expect(user.totpEnabled).toBe(true);
+
+    // 30초 진행 → 새 step 코드.
+    vi.setSystemTime(new Date('2025-01-01T00:00:31Z'));
+    const liveSecret = crypto.decrypt(user.totpSecretEnc as string);
+    const disableCode = authenticator.generate(liveSecret);
+    await svc.disable('u1', disableCode);
+    expect(user.totpEnabled).toBe(false);
+    // disable 에 쓴 코드가 totp:last 에 기록돼 같은 코드의 즉시 재사용을 막는다.
+    expect(redis.store.get('totp:last:u1')).toBe(disableCode);
   });
 
   it('disable 은 유효한 코드로 totpSecretEnc/totpEnabled 해제 + 백업코드 삭제', async () => {
@@ -146,18 +208,52 @@ describe('S77b TwoFactorService (FR-PS-15·20)', () => {
     await svc.verify('u1', authenticator.generate(setup.secret));
     expect(user.totpEnabled).toBe(true);
 
-    // disable 은 저장된 암호화 시크릿을 복호화해 코드를 검증한다.
+    // 30초 진행해 verify 와 다른 step 코드를 쓴다(replay 기록 회피).
+    vi.setSystemTime(new Date('2025-01-01T00:00:31Z'));
     const live = authenticator.generate(crypto.decrypt(user.totpSecretEnc as string));
     await svc.disable('u1', live);
     expect(user.totpEnabled).toBe(false);
     expect(user.totpSecretEnc).toBeNull();
-  }, 30_000);
+  });
 
   it('disable 미활성 상태는 409 TOTP_NOT_ENABLED', async () => {
     const { svc } = makeService({ totpEnabled: false, totpSecretEnc: null });
     await expect(svc.disable('u1', '123456')).rejects.toMatchObject({
       code: ErrorCode.TOTP_NOT_ENABLED,
     });
+  });
+
+  // SF2·SF3: 자격증명 변경 TOTP 게이트. 미활성이면 no-op, 활성인데 누락이면 TOTP_CODE_REQUIRED,
+  // 불일치면 TOTP_INVALID, 유효 코드면 통과.
+  it('assertCredentialChangeTotp: 2FA 미활성이면 코드 없이도 통과(no-op)', async () => {
+    const { svc } = makeService({ totpEnabled: false, totpSecretEnc: null });
+    await expect(svc.assertCredentialChangeTotp('u1', undefined)).resolves.toBeUndefined();
+  });
+
+  it('assertCredentialChangeTotp: 2FA 활성인데 코드 누락은 403 TOTP_CODE_REQUIRED', async () => {
+    const user: UserRow = { totpEnabled: false, totpSecretEnc: null };
+    const { svc } = makeService(user);
+    const setup = await svc.setup('u1', 'a@b.com');
+    await svc.verify('u1', authenticator.generate(setup.secret));
+    await expect(svc.assertCredentialChangeTotp('u1', undefined)).rejects.toMatchObject({
+      code: ErrorCode.TOTP_CODE_REQUIRED,
+    });
+  });
+
+  it('assertCredentialChangeTotp: 2FA 활성 + 유효 코드면 통과, 불일치는 TOTP_INVALID', async () => {
+    const user: UserRow = { totpEnabled: false, totpSecretEnc: null };
+    const { svc, crypto } = makeService(user);
+    const setup = await svc.setup('u1', 'a@b.com');
+    await svc.verify('u1', authenticator.generate(setup.secret));
+
+    await expect(svc.assertCredentialChangeTotp('u1', '000000')).rejects.toMatchObject({
+      code: ErrorCode.TOTP_INVALID,
+    });
+
+    // 30초 진행 → 새 step 코드(replay 회피) → 통과.
+    vi.setSystemTime(new Date('2025-01-01T00:00:31Z'));
+    const live = authenticator.generate(crypto.decrypt(user.totpSecretEnc as string));
+    await expect(svc.assertCredentialChangeTotp('u1', live)).resolves.toBeUndefined();
   });
 
   it('키 미설정이면 setup/verify/disable 모두 503 ENCRYPTION_UNAVAILABLE(graceful)', async () => {

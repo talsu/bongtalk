@@ -5,10 +5,7 @@ import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../../prisma/prisma.module';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
-import {
-  SESSION_COMPROMISED,
-  SessionCompromisedEvent,
-} from '../events/session-compromised.event';
+import { SESSION_COMPROMISED, SessionCompromisedEvent } from '../events/session-compromised.event';
 
 export type AccessTokenPayload = {
   sub: string;
@@ -178,12 +175,19 @@ export class TokenService {
   // ── S77b (D14 / FR-PS-15): 세션 관리 + 자격증명 변경 보조 ────────────────────
 
   /**
-   * 주어진 raw refresh 토큰의 familyId 를 찾는다(현재 세션 식별용). 미존재/만료 무관하게
-   * 해시 매칭만 본다(쿠키가 만료 직전이라도 isCurrent 매핑은 유지). 없으면 null.
+   * 주어진 raw refresh 토큰의 familyId 를 찾는다(현재 세션 식별용). 없으면 null.
+   *
+   * LOW-2 (reviewer) fix-forward: 종전에는 해시 매칭만 보아 revoked/expired 토큰도 familyId 를
+   * 돌려줘 isCurrent 가 오표시될 수 있었다(이미 끊긴 세션을 "현재"로 표시 → 그 세션이 목록에서
+   * 빠지지 않거나 잘못 제외됨). 활성 토큰(revokedAt=null · expiresAt>now)만 매칭하도록 가드한다.
    */
   async familyIdForRaw(rawIncoming: string): Promise<string | null> {
-    const record = await this.prisma.refreshToken.findUnique({
-      where: { tokenHash: this.hashToken(rawIncoming) },
+    const record = await this.prisma.refreshToken.findFirst({
+      where: {
+        tokenHash: this.hashToken(rawIncoming),
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
       select: { familyId: true },
     });
     return record?.familyId ?? null;

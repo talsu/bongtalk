@@ -37,7 +37,10 @@ function auth(token: string) {
 }
 
 // 새 로그인 → 새 세션(familyId) 1개. accessToken + refresh 쿠키를 돌려준다.
-async function loginAgain(email: string, userAgent: string): Promise<{ token: string; cookie: string }> {
+async function loginAgain(
+  email: string,
+  userAgent: string,
+): Promise<{ token: string; cookie: string }> {
   const res = await request(env.baseUrl)
     .post('/auth/login')
     .set('origin', ORIGIN)
@@ -55,9 +58,7 @@ async function loginAgain(email: string, userAgent: string): Promise<{ token: st
 describe('S77b TOTP 2FA — setup → verify → disable (FR-PS-15·20)', () => {
   it('setup 은 200 + Cache-Control no-store + otpauth/secret/qr + Redis 단일키 TTL', async () => {
     const u = await signupAsUser(env.baseUrl, 'totpsetup');
-    const res = await request(env.baseUrl)
-      .post('/me/2fa/totp/setup')
-      .set(auth(u.accessToken));
+    const res = await request(env.baseUrl).post('/me/2fa/totp/setup').set(auth(u.accessToken));
     expect(res.status).toBe(200);
     // FR-PS-20: no-store 헤더 필수.
     expect(res.headers['cache-control']).toBe('no-store');
@@ -142,10 +143,16 @@ describe('S77b TOTP 2FA — setup → verify → disable (FR-PS-15·20)', () => 
     const badPw = await request(env.baseUrl)
       .delete('/me/2fa/totp')
       .set(auth(u.accessToken))
-      .send({ currentPassword: 'wrong-password-1', totpCode: authenticator.generate(setup.body.secret) });
+      .send({
+        currentPassword: 'wrong-password-1',
+        totpCode: authenticator.generate(setup.body.secret),
+      });
     expect(badPw.status).toBe(403);
     expect(badPw.body.errorCode).toBe('PASSWORD_INCORRECT');
 
+    // SF1: verify 가 totp:last 에 사용 코드를 기록했으므로, 같은 step 코드를 disable 에 재사용하면
+    // replay 로 거부된다. 30초 진행해 다른 step 코드를 쓴다.
+    vi.setSystemTime(new Date('2025-01-01T00:00:31Z'));
     // 비번 + 유효 코드 → 204 해제.
     const ok = await request(env.baseUrl)
       .delete('/me/2fa/totp')
@@ -205,12 +212,18 @@ describe('S77b 자격증명 변경 (FR-PS-15)', () => {
     expect(bad.status).toBe(403);
     expect(bad.body.errorCode).toBe('PASSWORD_INCORRECT');
 
-    // 정상 변경(현재 세션 쿠키 동반) → 204. 2FA 활성이라 타 세션이 revoke 된다.
+    // SF3: 2FA 활성이라 totpCode 가 필수. 새 step 코드(replay 회피)로 정상 변경 → 204. 2FA
+    // 활성 + 쿠키 동반(familyId 해석)이라 타 세션이 revoke 된다.
+    vi.setSystemTime(new Date('2025-01-01T00:01:00Z'));
     const ok = await request(env.baseUrl)
       .post('/users/me/change-password')
       .set(auth(u.accessToken))
       .set('Cookie', u.cookie)
-      .send({ currentPassword: STRONG_PW, newPassword: 'Quanta-New-Pass-99!' });
+      .send({
+        currentPassword: STRONG_PW,
+        newPassword: 'Quanta-New-Pass-99!',
+        totpCode: authenticator.generate(setup.body.secret),
+      });
     expect(ok.status).toBe(204);
 
     // 현재 세션은 남고 타 세션(other)은 revoke 됐다 — 다른 쿠키로 refresh 시 401.
@@ -253,6 +266,127 @@ describe('S77b 자격증명 변경 (FR-PS-15)', () => {
       .send({ currentPassword: 'wrong-1', newEmail });
     expect(bad.status).toBe(403);
     expect(bad.body.errorCode).toBe('PASSWORD_INCORRECT');
+  });
+
+  // SF2·SF3 (security HIGH-2·3) fix-forward: 2FA 활성 사용자는 비번/이메일 변경 시 TOTP 코드를
+  // 필수로 재확인한다(누락 403 TOTP_CODE_REQUIRED · 불일치 403 TOTP_INVALID · 유효코드면 변경).
+  // 비번 단독으로 자격증명을 바꾸는 2FA 우회를 막는다.
+  it('SF3 change-password: 2FA 활성 시 totpCode 누락은 403 TOTP_CODE_REQUIRED, 유효코드면 변경', async () => {
+    const u = await signupAsUser(env.baseUrl, 'sf3pw');
+    const setup = await request(env.baseUrl)
+      .post('/me/2fa/totp/setup')
+      .set(auth(u.accessToken))
+      .expect(200);
+    await request(env.baseUrl)
+      .post('/me/2fa/totp/verify')
+      .set(auth(u.accessToken))
+      .send({ code: authenticator.generate(setup.body.secret) })
+      .expect(200);
+
+    // 코드 누락 → 403 TOTP_CODE_REQUIRED (비번이 맞아도 거부 — 2FA 우회 차단).
+    const noCode = await request(env.baseUrl)
+      .post('/users/me/change-password')
+      .set(auth(u.accessToken))
+      .set('Cookie', u.cookie)
+      .send({ currentPassword: STRONG_PW, newPassword: 'Quanta-New-Sf3-99!' });
+    expect(noCode.status).toBe(403);
+    expect(noCode.body.errorCode).toBe('TOTP_CODE_REQUIRED');
+
+    // 잘못된 코드 → 403 TOTP_INVALID.
+    const badCode = await request(env.baseUrl)
+      .post('/users/me/change-password')
+      .set(auth(u.accessToken))
+      .set('Cookie', u.cookie)
+      .send({ currentPassword: STRONG_PW, newPassword: 'Quanta-New-Sf3-99!', totpCode: '000000' });
+    expect(badCode.status).toBe(403);
+    expect(badCode.body.errorCode).toBe('TOTP_INVALID');
+
+    // 새 step 코드(replay 회피 — setup/verify 와 다른 step)로 정상 변경 → 204.
+    vi.setSystemTime(new Date('2025-01-01T00:01:00Z'));
+    const ok = await request(env.baseUrl)
+      .post('/users/me/change-password')
+      .set(auth(u.accessToken))
+      .set('Cookie', u.cookie)
+      .send({
+        currentPassword: STRONG_PW,
+        newPassword: 'Quanta-New-Sf3-99!',
+        totpCode: authenticator.generate(setup.body.secret),
+      });
+    expect(ok.status).toBe(204);
+  });
+
+  it('SF2 change-email: 2FA 활성 시 totpCode 누락은 403 TOTP_CODE_REQUIRED, 유효코드면 발송', async () => {
+    const u = await signupAsUser(env.baseUrl, 'sf2email');
+    const setup = await request(env.baseUrl)
+      .post('/me/2fa/totp/setup')
+      .set(auth(u.accessToken))
+      .expect(200);
+    await request(env.baseUrl)
+      .post('/me/2fa/totp/verify')
+      .set(auth(u.accessToken))
+      .send({ code: authenticator.generate(setup.body.secret) })
+      .expect(200);
+
+    const newEmail = `sf2-new-${Date.now()}@qufox.dev`;
+    // 코드 누락 → 403 TOTP_CODE_REQUIRED.
+    const noCode = await request(env.baseUrl)
+      .post('/users/me/change-email')
+      .set(auth(u.accessToken))
+      .send({ currentPassword: STRONG_PW, newEmail });
+    expect(noCode.status).toBe(403);
+    expect(noCode.body.errorCode).toBe('TOTP_CODE_REQUIRED');
+
+    // 새 step 코드로 정상 발송 → 200.
+    vi.setSystemTime(new Date('2025-01-01T00:01:00Z'));
+    const ok = await request(env.baseUrl)
+      .post('/users/me/change-email')
+      .set(auth(u.accessToken))
+      .send({
+        currentPassword: STRONG_PW,
+        newEmail,
+        totpCode: authenticator.generate(setup.body.secret),
+      });
+    expect(ok.status).toBe(200);
+    expect(ok.body.pendingEmail).toBe(newEmail);
+  });
+
+  // RF2 (reviewer M2) fail-open: 현재 familyId 를 해석할 쿠키가 없으면(쿠키 미동반) "현재 제외
+  // revoke" 가 현재 세션까지 끊을 위험이 있어 revoke 를 생략한다(현재 세션 보존 보장). 따라서
+  // 다른 디바이스 세션이 그대로 살아 있어야 한다(전체가 끊기지 않음).
+  it('RF2 change-password (2FA · 쿠키 부재): familyId=null 이면 타 세션을 보존(전체 revoke 안 함)', async () => {
+    const u = await signupAsUser(env.baseUrl, 'rf2');
+    const setup = await request(env.baseUrl)
+      .post('/me/2fa/totp/setup')
+      .set(auth(u.accessToken))
+      .expect(200);
+    await request(env.baseUrl)
+      .post('/me/2fa/totp/verify')
+      .set(auth(u.accessToken))
+      .send({ code: authenticator.generate(setup.body.secret) })
+      .expect(200);
+
+    // 다른 디바이스 로그인 → 추가 세션.
+    const other = await loginAgain(u.email, 'Rf2Other/1.0');
+
+    // 쿠키를 동반하지 않고(familyId 해석 불가) 비번 변경 → 새 step 코드.
+    vi.setSystemTime(new Date('2025-01-01T00:01:00Z'));
+    const ok = await request(env.baseUrl)
+      .post('/users/me/change-password')
+      .set(auth(u.accessToken))
+      // ★ Cookie 미설정 — currentFamilyId=null 분기.
+      .send({
+        currentPassword: STRONG_PW,
+        newPassword: 'Quanta-New-Rf2-99!',
+        totpCode: authenticator.generate(setup.body.secret),
+      });
+    expect(ok.status).toBe(204);
+
+    // fail-open: 타 세션(other)이 revoke 되지 않고 살아 있어 refresh 가 성공한다.
+    const refreshOther = await request(env.baseUrl)
+      .post('/auth/refresh')
+      .set('origin', ORIGIN)
+      .set('Cookie', other.cookie);
+    expect(refreshOther.status).toBe(200);
   });
 });
 

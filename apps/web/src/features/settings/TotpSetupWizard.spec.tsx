@@ -64,6 +64,13 @@ describe('TotpSetupWizard (FR-PS-15·20)', () => {
     const list = screen.getByTestId('totp-backup-codes');
     expect(list.querySelectorAll('li')).toHaveLength(10);
 
+    // AF4 (a11y HIGH-03): 백업코드 heading 이 role=alert + aria-live=assertive + 포커스 가능
+    // (tabIndex=-1)으로 노출돼 스크린리더가 경고를 즉시 읽는다.
+    const heading = screen.getByTestId('totp-backup-heading');
+    expect(heading.getAttribute('role')).toBe('alert');
+    expect(heading.getAttribute('aria-live')).toBe('assertive');
+    expect(heading.getAttribute('tabindex')).toBe('-1');
+
     // 저장 확인 전엔 완료 비활성, 체크 후 활성 → 클릭 시 onCompleted + 닫기.
     const complete = screen.getByTestId('totp-complete') as HTMLButtonElement;
     expect(complete.disabled).toBe(true);

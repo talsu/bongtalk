@@ -1,12 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
+import { TOTP_CODE_LENGTH } from '@qufox/shared-types';
 import { Dialog } from '../../design-system/primitives';
 import { useAuth } from '../auth/AuthProvider';
 import { useNotifications } from '../../stores/notification-store';
-import {
-  useChangeEmail,
-  useChangePassword,
-  useTwoFactorStatus,
-} from './useSecurity';
+import { useChangeEmail, useChangePassword, useTwoFactorStatus } from './useSecurity';
 import { TotpSetupWizard } from './TotpSetupWizard';
 import { TotpDisableModal } from './TotpDisableModal';
 import { SessionsSection } from './SessionsSection';
@@ -80,7 +77,10 @@ export function AccountSettingsPage(): JSX.Element {
       </section>
 
       {/* 2단계 인증 (FR-PS-15·20) */}
-      <section aria-label="2단계 인증" className="flex items-center justify-between gap-[var(--s-3)]">
+      <section
+        aria-label="2단계 인증"
+        className="flex items-center justify-between gap-[var(--s-3)]"
+      >
         <div className="flex flex-col">
           <span className="text-[length:var(--fs-12)] uppercase tracking-wide text-text-muted">
             2단계 인증 (TOTP)
@@ -114,8 +114,12 @@ export function AccountSettingsPage(): JSX.Element {
       {/* 세션 (FR-PS-15) */}
       <SessionsSection />
 
-      <ChangeEmailModal open={emailOpen} onOpenChange={setEmailOpen} />
-      <ChangePasswordModal open={passwordOpen} onOpenChange={setPasswordOpen} />
+      <ChangeEmailModal open={emailOpen} onOpenChange={setEmailOpen} totpEnabled={totpEnabled} />
+      <ChangePasswordModal
+        open={passwordOpen}
+        onOpenChange={setPasswordOpen}
+        totpEnabled={totpEnabled}
+      />
       <TotpSetupWizard
         open={setupOpen}
         onOpenChange={setSetupOpen}
@@ -130,25 +134,35 @@ export function AccountSettingsPage(): JSX.Element {
   );
 }
 
+// AF2 (a11y BLK-02): 에러를 종류별 필드에 정확히 연결하기 위한 대상 식별자.
+type CredentialErrorField = 'password' | 'email' | 'code' | null;
+
 function ChangeEmailModal({
   open,
   onOpenChange,
+  totpEnabled,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  totpEnabled: boolean;
 }): JSX.Element {
   const notify = useNotifications((s) => s.push);
   const changeEmail = useChangeEmail();
   const [password, setPassword] = useState('');
   const [newEmail, setNewEmail] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // AF2: 에러가 어느 필드에 속하는지 추적해 aria-invalid/aria-describedby 를 정확히 연결한다.
+  const [errorField, setErrorField] = useState<CredentialErrorField>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       setPassword('');
       setNewEmail('');
+      setCode('');
       setError(null);
+      setErrorField(null);
       const t = setTimeout(() => firstRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
@@ -157,8 +171,14 @@ function ChangeEmailModal({
 
   const onSubmit = async (): Promise<void> => {
     setError(null);
+    setErrorField(null);
     try {
-      const res = await changeEmail.mutateAsync({ currentPassword: password, newEmail });
+      const res = await changeEmail.mutateAsync({
+        currentPassword: password,
+        newEmail,
+        // SF2: 2FA 활성 시에만 코드를 동봉(미활성이면 undefined).
+        ...(totpEnabled ? { totpCode: code } : {}),
+      });
       notify({
         variant: 'success',
         title: '인증 메일을 보냈습니다.',
@@ -167,8 +187,15 @@ function ChangeEmailModal({
       onOpenChange(false);
     } catch (err) {
       const e = err as Error & { errorCode?: string };
+      // AF2: PASSWORD_INCORRECT 는 password 필드, TOTP_* 는 code 필드에 연결한다.
       if (e.errorCode === 'PASSWORD_INCORRECT') {
         setError('비밀번호가 올바르지 않습니다.');
+        setErrorField('password');
+        return;
+      }
+      if (e.errorCode === 'TOTP_INVALID' || e.errorCode === 'TOTP_CODE_REQUIRED') {
+        setError('인증 코드가 올바르지 않습니다.');
+        setErrorField('code');
         return;
       }
       notify({ variant: 'danger', title: '이메일 변경 실패', body: e.message });
@@ -200,6 +227,8 @@ function ChangeEmailModal({
             autoComplete="current-password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            aria-invalid={errorField === 'password'}
+            aria-describedby={errorField === 'password' ? 'ce-error' : undefined}
           />
         </Labeled>
         <Labeled label="새 이메일" htmlFor="ce-email">
@@ -211,24 +240,56 @@ function ChangeEmailModal({
             autoComplete="email"
             value={newEmail}
             onChange={(e) => setNewEmail(e.target.value)}
-            aria-invalid={error !== null}
-            aria-describedby={error ? 'ce-error' : undefined}
+            aria-invalid={errorField === 'email'}
+            aria-describedby={errorField === 'email' ? 'ce-error' : undefined}
           />
         </Labeled>
+        {totpEnabled ? (
+          <Labeled label="인증 코드" htmlFor="ce-code">
+            <input
+              id="ce-code"
+              data-testid="change-email-code"
+              type="text"
+              className="qf-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={TOTP_CODE_LENGTH}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              aria-invalid={errorField === 'code'}
+              aria-describedby={errorField === 'code' ? 'ce-error' : undefined}
+            />
+          </Labeled>
+        ) : null}
         {error ? (
-          <p id="ce-error" data-testid="change-email-error" role="alert" className="text-[length:var(--fs-12)] text-[color:var(--danger-600)]">
+          <p
+            id="ce-error"
+            data-testid="change-email-error"
+            role="alert"
+            className="qf-field__error"
+          >
             {error}
           </p>
         ) : null}
         <div className="flex justify-end gap-[var(--s-2)]">
-          <button type="button" className="qf-btn qf-btn--ghost" onClick={() => onOpenChange(false)}>
+          <button
+            type="button"
+            className="qf-btn qf-btn--ghost"
+            onClick={() => onOpenChange(false)}
+          >
             취소
           </button>
           <button
             type="submit"
             data-testid="change-email-submit"
             className="qf-btn qf-btn--primary"
-            disabled={password.length === 0 || newEmail.length === 0 || changeEmail.isPending}
+            disabled={
+              password.length === 0 ||
+              newEmail.length === 0 ||
+              (totpEnabled && code.length !== TOTP_CODE_LENGTH) ||
+              changeEmail.isPending
+            }
             aria-busy={changeEmail.isPending}
           >
             {changeEmail.isPending ? '전송 중…' : '인증 메일 보내기'}
@@ -242,22 +303,29 @@ function ChangeEmailModal({
 function ChangePasswordModal({
   open,
   onOpenChange,
+  totpEnabled,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  totpEnabled: boolean;
 }): JSX.Element {
   const notify = useNotifications((s) => s.push);
   const changePassword = useChangePassword();
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');
+  const [code, setCode] = useState('');
   const [error, setError] = useState<string | null>(null);
+  // AF3 (a11y HIGH-01): 에러를 정확한 필드에 연결한다(current-password vs new-password vs code).
+  const [errorField, setErrorField] = useState<CredentialErrorField>(null);
   const firstRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     if (open) {
       setCurrent('');
       setNext('');
+      setCode('');
       setError(null);
+      setErrorField(null);
       const t = setTimeout(() => firstRef.current?.focus(), 0);
       return () => clearTimeout(t);
     }
@@ -268,18 +336,33 @@ function ChangePasswordModal({
 
   const onSubmit = async (): Promise<void> => {
     setError(null);
+    setErrorField(null);
     if (next.length < 8) {
+      // new-password 약함은 tooShort 힌트(상시 aria-describedby)로 안내하므로 errorField 는
+      // 비워 두고 일반 에러 문구만 띄운다.
       setError('새 비밀번호는 8자 이상이어야 합니다.');
       return;
     }
     try {
-      await changePassword.mutateAsync({ currentPassword: current, newPassword: next });
+      await changePassword.mutateAsync({
+        currentPassword: current,
+        newPassword: next,
+        // SF3: 2FA 활성 시에만 코드를 동봉(미활성이면 undefined).
+        ...(totpEnabled ? { totpCode: code } : {}),
+      });
       notify({ variant: 'success', title: '비밀번호를 변경했습니다.' });
       onOpenChange(false);
     } catch (err) {
       const e = err as Error & { errorCode?: string };
+      // AF3: PASSWORD_INCORRECT → current 필드, TOTP_* → code 필드에 연결.
       if (e.errorCode === 'PASSWORD_INCORRECT') {
         setError('현재 비밀번호가 올바르지 않습니다.');
+        setErrorField('password');
+        return;
+      }
+      if (e.errorCode === 'TOTP_INVALID' || e.errorCode === 'TOTP_CODE_REQUIRED') {
+        setError('인증 코드가 올바르지 않습니다.');
+        setErrorField('code');
         return;
       }
       if (e.errorCode === 'AUTH_WEAK_PASSWORD') {
@@ -310,6 +393,8 @@ function ChangePasswordModal({
             autoComplete="current-password"
             value={current}
             onChange={(e) => setCurrent(e.target.value)}
+            aria-invalid={errorField === 'password'}
+            aria-describedby={errorField === 'password' ? 'cp-error' : undefined}
           />
         </Labeled>
         <Labeled label="새 비밀번호" htmlFor="cp-new">
@@ -321,24 +406,60 @@ function ChangePasswordModal({
             autoComplete="new-password"
             value={next}
             onChange={(e) => setNext(e.target.value)}
-            aria-invalid={tooShort || error !== null}
-            aria-describedby={error ? 'cp-error' : undefined}
+            aria-invalid={tooShort}
+            // AF3: tooShort 힌트를 상시 aria-describedby 로 연결(에러 없을 때도 정책 안내).
+            aria-describedby="cp-new-hint"
           />
+          <p id="cp-new-hint" className="text-[length:var(--fs-12)] text-text-muted">
+            8자 이상 · 문자/숫자/기호 조합을 권장합니다.
+          </p>
         </Labeled>
+        {totpEnabled ? (
+          <Labeled label="인증 코드" htmlFor="cp-code">
+            <input
+              id="cp-code"
+              data-testid="change-password-code"
+              type="text"
+              className="qf-input"
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              maxLength={TOTP_CODE_LENGTH}
+              value={code}
+              onChange={(e) => setCode(e.target.value.replace(/\D/g, ''))}
+              placeholder="000000"
+              aria-invalid={errorField === 'code'}
+              aria-describedby={errorField === 'code' ? 'cp-error' : undefined}
+            />
+          </Labeled>
+        ) : null}
         {error ? (
-          <p id="cp-error" data-testid="change-password-error" role="alert" className="text-[length:var(--fs-12)] text-[color:var(--danger-600)]">
+          <p
+            id="cp-error"
+            data-testid="change-password-error"
+            role="alert"
+            className="qf-field__error"
+          >
             {error}
           </p>
         ) : null}
         <div className="flex justify-end gap-[var(--s-2)]">
-          <button type="button" className="qf-btn qf-btn--ghost" onClick={() => onOpenChange(false)}>
+          <button
+            type="button"
+            className="qf-btn qf-btn--ghost"
+            onClick={() => onOpenChange(false)}
+          >
             취소
           </button>
           <button
             type="submit"
             data-testid="change-password-submit"
             className="qf-btn qf-btn--primary"
-            disabled={current.length === 0 || next.length < 8 || changePassword.isPending}
+            disabled={
+              current.length === 0 ||
+              next.length < 8 ||
+              (totpEnabled && code.length !== TOTP_CODE_LENGTH) ||
+              changePassword.isPending
+            }
             aria-busy={changePassword.isPending}
           >
             {changePassword.isPending ? '변경 중…' : '변경'}

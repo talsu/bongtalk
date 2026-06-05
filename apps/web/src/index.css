@@ -63,13 +63,15 @@ html[data-high-contrast='true'] {
   --border: var(--border-strong);
 }
 
-/* S77a (a11y HIGH-01): DS tokens.css 가 select:focus-visible 의 halo 를 opt-out 하고
- * components.css 의 .qf-input:focus 가 outline 을 제거해, select.qf-input 은 키보드 포커스
- * 표시가 전무했다(마우스/키보드 구분 없이 포커스 위치를 알 수 없음 — WCAG 2.4.7 위반).
- * DS 4파일을 건드리지 않고 app-layer 에서 select.qf-input 에 한해 포커스 링을 복원한다
- * (다른 텍스트 입력의 의도된 halo opt-out 은 보존). --ring-focus 는 DS 토큰을 그대로 쓴다. */
-select.qf-input:focus-visible {
+/* S77b (a11y BLK-01): DS components.css 의 .qf-input:focus 가 outline:none 으로 포커스 링을
+ * 제거해, 보안 설정 모달의 모든 텍스트/이메일/코드 입력(비번·이메일·TOTP)이 키보드 포커스
+ * 표시가 전무했다(WCAG 2.4.7 위반). S77a 의 select.qf-input 전용 복원을 일반 .qf-input 으로
+ * 확장한다 — DS 4파일 무수정, app-layer 에서 --ring-focus + --accent 테두리로 포커스 위치를
+ * 또렷이 한다(:focus-visible 이라 마우스 클릭 시엔 노출되지 않아 의도된 halo opt-out 의
+ * 시각적 정숙성은 보존). select 도 .qf-input 을 공유하므로 이 규칙으로 함께 커버된다. */
+.qf-input:focus-visible {
   box-shadow: var(--ring-focus);
+  border-color: var(--accent);
 }
 
 /* S64 fix-forward (ui-designer M-04): ChannelSettingsPage 의 nav 는 action 버튼이 섞여

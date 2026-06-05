@@ -1,4 +1,6 @@
+import { useState } from 'react';
 import type { SessionSummary } from '@qufox/shared-types';
+import { Dialog } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useRevokeAllSessions, useRevokeSession, useSessions } from './useSecurity';
 
@@ -13,6 +15,9 @@ export function SessionsSection(): JSX.Element {
   const { data, isLoading, isError } = useSessions();
   const revoke = useRevokeSession();
   const revokeAll = useRevokeAllSessions();
+
+  // MINOR-02 (a11y): "다른 기기 모두 로그아웃" 은 파괴적 액션이라 alertDialog 확인을 거친다.
+  const [confirmOpen, setConfirmOpen] = useState(false);
 
   const sessions = data?.sessions ?? [];
   const hasOthers = sessions.some((s) => !s.isCurrent);
@@ -30,13 +35,18 @@ export function SessionsSection(): JSX.Element {
     try {
       await revokeAll.mutateAsync();
       notify({ variant: 'success', title: '다른 모든 기기에서 로그아웃했습니다.' });
+      setConfirmOpen(false);
     } catch (err) {
       notify({ variant: 'danger', title: '로그아웃 실패', body: (err as Error).message });
     }
   };
 
   return (
-    <section data-testid="sessions-section" aria-label="활성 세션" className="flex flex-col gap-[var(--s-3)]">
+    <section
+      data-testid="sessions-section"
+      aria-label="활성 세션"
+      className="flex flex-col gap-[var(--s-3)]"
+    >
       <div className="flex items-center justify-between">
         <h2 className="text-[length:var(--fs-15)] font-semibold">활성 세션</h2>
         {hasOthers ? (
@@ -44,7 +54,7 @@ export function SessionsSection(): JSX.Element {
             type="button"
             data-testid="sessions-revoke-all"
             className="qf-btn qf-btn--ghost qf-btn--sm"
-            onClick={() => void onRevokeAll()}
+            onClick={() => setConfirmOpen(true)}
             disabled={revokeAll.isPending}
             aria-busy={revokeAll.isPending}
           >
@@ -58,7 +68,7 @@ export function SessionsSection(): JSX.Element {
           불러오는 중…
         </p>
       ) : isError ? (
-        <p role="alert" className="text-[color:var(--danger-600)]">
+        <p role="alert" className="qf-field__error">
           세션을 불러올 수 없습니다.
         </p>
       ) : sessions.length === 0 ? (
@@ -70,6 +80,38 @@ export function SessionsSection(): JSX.Element {
           ))}
         </ul>
       )}
+
+      {/* MINOR-02 (a11y): 파괴적 액션 확인 alertDialog. */}
+      <Dialog
+        open={confirmOpen}
+        onOpenChange={setConfirmOpen}
+        title="다른 모든 기기에서 로그아웃"
+        description="현재 기기를 제외한 모든 세션이 즉시 로그아웃됩니다. 계속할까요?"
+        alertDialog
+      >
+        <div
+          data-testid="sessions-revoke-all-confirm"
+          className="flex justify-end gap-[var(--s-2)]"
+        >
+          <button
+            type="button"
+            className="qf-btn qf-btn--ghost"
+            onClick={() => setConfirmOpen(false)}
+          >
+            취소
+          </button>
+          <button
+            type="button"
+            data-testid="sessions-revoke-all-submit"
+            className="qf-btn qf-btn--danger"
+            onClick={() => void onRevokeAll()}
+            disabled={revokeAll.isPending}
+            aria-busy={revokeAll.isPending}
+          >
+            {revokeAll.isPending ? '로그아웃 중…' : '모두 로그아웃'}
+          </button>
+        </div>
+      </Dialog>
     </section>
   );
 }
@@ -94,7 +136,10 @@ function SessionRow({
         <span className="text-[length:var(--fs-14)] font-medium">
           {label}
           {session.isCurrent ? (
-            <span data-testid="session-current-badge" className="ml-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted">
+            <span
+              data-testid="session-current-badge"
+              className="ml-[var(--s-2)] text-[length:var(--fs-11)] text-text-muted"
+            >
               (현재 기기)
             </span>
           ) : null}
