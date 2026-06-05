@@ -21,6 +21,7 @@ import {
   ApplicationReceivedPayloadSchema,
   ApplicationReviewedPayloadSchema,
   ReminderFirePayloadSchema,
+  ReminderNewFirePayloadSchema,
   SavedUpdatedPayloadSchema,
   WorkspaceProfileUpdatedPayloadSchema,
   MESSAGE_PIN_CAP,
@@ -956,6 +957,35 @@ export function installRealtimeDispatcher(
     void qc.invalidateQueries({ queryKey: ['saved', 'overdue'] }); // S53 리뷰 M1
   });
 
+  // ---------- /remind 리마인더 발화 (S80 · D15 · FR-SC-06) ----------
+  // reminder:fire — /remind 가 만든 Reminder 의 scheduledAt 도래. 개인 user 룸으로 push 된다.
+  // 우하단 토스트(8초)를 띄우고, 본인이 만든 예약이므로 DND 게이트는 적용하지 않는다(서버
+  // 발화부에서도 bypass). 채널 링크 있으면 본문에 채널 컨텍스트가 포함된다. S53 의
+  // user:reminder_fire(저장 메시지 리마인더)와는 별개 와이어 이벤트다(payload/발화원 상이).
+  // 리마인더 목록 캐시가 있으면 무효화한다(SENT 로 전이됨).
+  on<unknown>(WS_EVENTS.REMINDER_NEW_FIRE, (env) => {
+    const parsed = ReminderNewFirePayloadSchema.safeParse(env);
+    if (!parsed.success) return;
+    const { message, channelId } = parsed.data;
+    void qc.invalidateQueries({ queryKey: ['reminders'] });
+    useNotifications.getState().push({
+      variant: 'warning',
+      title: '리마인더',
+      body: message.slice(0, 180),
+      ttlMs: 8000,
+      // 채널 컨텍스트가 있으면 "채널로 이동" 액션을 노출한다(workspace 슬러그를 모르면
+      // navigate 없이 토스트만 — 최소 UI). resolveMentionUrl 은 workspaceId 를 요구하므로
+      // 본 슬라이스에선 channelId 기반 best-effort 만 시도한다.
+      action:
+        channelId && ctx.navigate
+          ? {
+              label: '채널로 이동',
+              onClick: () => ctx.navigate?.(`/c/${channelId}`),
+            }
+          : undefined,
+    });
+  });
+
   // ---------- Read state (S21 · FR-RS-01) ----------
   // read_state:updated 는 호출자의 user:{userId} 룸으로만 emit 된다(ACK 한
   // 기기 + 다른 기기/탭). 한 기기에서 채널을 읽으면 다른 기기의 사이드바
@@ -1648,6 +1678,8 @@ export const DISPATCHED_EVENTS = [
   // S53 (D10 · FR-PS-09/10/11): 저장 리마인더 발화 + 저장 항목 갱신(개인 user 룸).
   WS_EVENTS.REMINDER_FIRE,
   WS_EVENTS.SAVED_UPDATED,
+  // S80 (D15 · FR-SC-06): /remind 리마인더 발화(개인 user 룸 · SavedMessage 와 별개 와이어).
+  WS_EVENTS.REMINDER_NEW_FIRE,
   // S58 (D11 · FR-AM-25): 첨부 후처리 완료(채널 룸 fanout · forward-compat no-op-ready).
   WS_EVENTS.ATTACHMENT_PROCESSING_DONE,
   // S60 (D11 · FR-RC07/08): 링크 unfurl 결과 갱신(채널 룸 fanout).

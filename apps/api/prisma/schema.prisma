@@ -148,6 +148,16 @@ enum NotificationChannel {
   OFF
 }
 
+// S80 (D15 / FR-SC-06): /remind 리마인더 상태 머신.
+//   PENDING   — 예약됨(BullMQ 지연잡 등록). scheduledAt 도래 시 발화.
+//   SENT      — 발화 완료(reminder:fire emit + 상태 전이). 멱등(재시도/재기동에도 1회).
+//   CANCELLED — 사용자가 DELETE 로 취소(BullMQ 잡도 제거).
+enum ReminderStatus {
+  PENDING
+  SENT
+  CANCELLED
+}
+
 // S46 (D06 / ADR-6 / FR-MN-05/06/07/08): 알림 레벨 카노니컬 enum.
 //   ALL      — 모든 메시지 알림.
 //   MENTIONS — 멘션·키워드만(broad @everyone/@here 스킵, 직접 @username 통과). 기본값.
@@ -386,6 +396,42 @@ model SavedMessage {
   @@index([messageId])
 }
 
+// S80 (D15 / FR-SC-06): /remind 슬래시 커맨드가 만드는 리마인더.
+//
+// Fork1 = Option A(PRD 정본): S53 의 SavedMessage 리마인더(저장 메시지에 붙는 메타)와는
+// 독립한 신규 1급 모델이다 — /remind 는 임의 자연어 본문을 시각에 발화하므로 SavedMessage
+// 의 무결성(원본 메시지 FK·@@unique(userId,messageId))을 오염시키지 않는다. additive 라
+// 기존 테이블 무변경.
+//
+// BullMQ: scheduledAt 도래 시 발화하는 지연잡을 공유 REMINDER_QUEUE 에 등록한다. 잡 id 는
+// `reminder:{reminderId}` 접두사로 SavedMessage 리마인더(jobId=savedMessageId uuid)와 구분하고,
+// ReminderProcessor 가 jobData 형태로 라우팅을 분기한다. bullJobId 는 등록한 잡 id 사본(취소
+// 시 BullMQ remove 키). null = 잡 미등록(스케줄 실패 best-effort).
+model Reminder {
+  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId       String         @db.Uuid
+  // 발화 시 내비게이션할 채널(예약 시점의 채널). 채널 hard-delete 시 SetNull → 토스트는
+  // 채널 링크 없이 표시된다(발화 자체는 막지 않음).
+  channelId    String?        @db.Uuid
+  // @person remind(FR-SC-06 확장)용 컬럼만 선반영 — 본 슬라이스는 기능 DEFER(항상 발신자
+  // 본인에게 발화). 신규 슬라이스가 마이그레이션 없이 FK·핸들러만 더하면 되게 둔다.
+  targetUserId String?        @db.Uuid
+  message      String         @db.VarChar(500)
+  scheduledAt  DateTime       @db.Timestamptz
+  // 등록한 BullMQ 잡 id(`reminder:{id}`). null = 미등록. DELETE/취소 시 remove 키.
+  bullJobId    String?
+  status       ReminderStatus @default(PENDING)
+  createdAt    DateTime       @default(now()) @db.Timestamptz
+
+  user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
+
+  // 사용자별 상태/시각 목록 조회 + bootstrap 복구 스캔(PENDING·scheduledAt 정렬).
+  @@index([userId, status, scheduledAt])
+  // bootstrap 복구가 PENDING·scheduledAt>now 전수 스캔할 때의 보조 인덱스.
+  @@index([scheduledAt])
+}
+
 model User {
   id                          String             @id @db.Uuid
   email                       String             @unique
@@ -541,6 +587,8 @@ model User {
   ownedChannels                 Channel[]                    @relation("ChannelOwner")
   // S51 (D10 / FR-PS-07): 본인이 개인 저장함에 담은 메시지들. onDelete Cascade.
   savedMessages                 SavedMessage[]
+  // S80 (D15 / FR-SC-06): 본인이 /remind 로 만든 리마인더들. onDelete Cascade.
+  reminders                     Reminder[]
   // S64 fix-forward (security A-6 = MEDIUM-2): 본인이 제출한 메시지 신고들. 계정
   // 하드삭제 시 ON DELETE SET NULL 로 reporterId 가 null 화되어 익명화된다(행 보존).
   moderationReportsFiled        ModerationReport[]           @relation("ModerationReportReporter")
@@ -1168,6 +1216,9 @@ model Channel {
   // S71 (D13 / FR-W09): 이 채널을 웰컴 입장 메시지 채널로 가리키는 웰컴 설정(역참조).
   // 채널 하드삭제 시 그 쪽 FK 가 SetNull 로 끊긴다(WorkspaceWelcome.welcomeChannel).
   welcomeForWorkspaces     WorkspaceWelcome[]          @relation("WorkspaceWelcomeChannel")
+  // S80 (D15 / FR-SC-06): 이 채널을 발화 컨텍스트로 가리키는 /remind 리마인더들(역참조).
+  // 채널 하드삭제 시 Reminder.channelId 가 SetNull 로 끊긴다(발화는 채널 링크 없이 진행).
+  reminders                Reminder[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
