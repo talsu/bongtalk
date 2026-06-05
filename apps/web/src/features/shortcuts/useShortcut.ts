@@ -115,13 +115,15 @@ export function useGlobalShortcuts(): void {
         return;
       }
 
-      // task-015-C: Ctrl/Cmd + / → focus the inline topbar search.
-      // Help is `?` alone. Previously this opened a modal; the
-      // search UX now lives in the topbar input with an inline
-      // results dropdown, so we just focus the input.
+      // S83c (FR-KS-09): Ctrl/Cmd + / → 단축키 치트시트 오버레이.
+      // PRD FR-KS-09 는 이 조합을 단축키 오버레이로 지정한다(`?` 와 동일 동작 —
+      // 의도적 중복: 물리 키보드는 `Cmd+/`, 텍스트 입력 외 맥락은 `?`).
+      // 종전(task-015-C)엔 인라인 topbar 검색 포커스를 발화했으나, 검색 진입은
+      // 토픽바 입력 클릭 + CommandPalette 검색 액션 + Ctrl/Cmd+F(현재 채널 검색)로
+      // 충분히 보존되므로 전용 단축키를 제거하고 치트시트로 양보한다.
       if (matches(e, { key: '/', ctrlOrMeta: true })) {
         e.preventDefault();
-        window.dispatchEvent(new CustomEvent('qufox.search.focus'));
+        setOpenModal(openModal === 'shortcut-help' ? null : 'shortcut-help');
         return;
       }
 
