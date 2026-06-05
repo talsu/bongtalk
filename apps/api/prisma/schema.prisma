@@ -55,6 +55,21 @@ enum HandlerType {
   INTERNAL_ACTION
 }
 
+// S81c (D15 / FR-SC-09·10) — 워크스페이스 커스텀 슬래시 커맨드의 실행 액션 종류.
+//
+// ★ 외부 URL/webhook 호출은 절대 없다(PRD 명시·SSRF 회피). 따라서 INTERNAL_WEBHOOK 류는
+//   이 enum 에 두지 않는다(향후 별도 슬라이스). 안전한 in-process 액션만 정의한다:
+//   - EPHEMERAL_TEXT:   actionParams.text 를 발신자 전용 EPHEMERAL 로 반환(고정 안내문).
+//   - SEND_TEMPLATE:    actionParams.template 을 채널에 일반 메시지로 게시(IN_CHANNEL).
+//                       template 의 `{args}` 자리에 사용자 인자를 1회 치환(길이 MESSAGE_MAX 준수).
+//   - REDIRECT_CHANNEL: actionParams.channelId 로 클라이언트 네비게이션(본인 접근 가능 채널만).
+// 이 enum 은 커스텀 행에만 쓰이며(nullable), 빌트인은 코드 카탈로그(DB 미적재)라 무영향이다.
+enum CustomActionType {
+  EPHEMERAL_TEXT
+  SEND_TEMPLATE
+  REDIRECT_CHANNEL
+}
+
 // S04 (ADR-2 / FR-MSG-19 / FR-RC10) — MessageType 단일 카노니컬 정의.
 // 값 집합은 packages/shared-types/src/message-type.ts 와 1:1 동기화됩니다.
 // SYSTEM_* 는 authorType=SYSTEM, grouped=false 강제, 편집·삭제 UI 미표시.
@@ -608,6 +623,9 @@ model User {
   workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
   // S74 (D14 / FR-PS-06): 워크스페이스별 프로필 오버라이드들. 계정 삭제 시 Cascade.
   workspaceMemberProfiles       WorkspaceMemberProfile[]
+  // S81c (D15 / FR-SC-09): 본인이 등록한 워크스페이스 커스텀 슬래시 커맨드들. 계정 하드삭제 시
+  // SetNull(커맨드는 워크스페이스 자산이라 행 보존 — createdBy 만 null 화).
+  slashCommandsCreated          SlashCommand[]               @relation("SlashCommandCreator")
 
   // S73 (D14 / FR-PS-02): handle 조회(@멘션 해석 등)는 @unique 가 만드는 btree 로 충분하다.
   // perf minor 리뷰: 별도 @@index([handle]) 는 동일 컬럼 단일 btree 중복이라 제거했다
@@ -2016,15 +2034,31 @@ model SlashCommand {
   // 예방한다(Zod SlashCommandItem.name max(32) 와 정합). 자동완성 목록이 과대 행으로
   // 오염되지 않게 DB 레벨에서 길이를 강제한다. description/usageHint max 는 S81 CRUD 시.
   name         String       @db.VarChar(32)
-  description  String       @default("")
-  usageHint    String       @default("")
+  // S81c (FR-SC-09): description/usageHint 길이 상한을 DB 레벨에서 강제한다(CRUD Zod 와 정합 —
+  // description ≤255, usageHint ≤128). prod SlashCommand 테이블은 비어 있으므로(빌트인은 코드
+  // 카탈로그) 이 additive type tighten 은 안전하다(기존 행 절단 위험 없음).
+  description  String       @default("") @db.VarChar(255)
+  usageHint    String       @default("") @db.VarChar(128)
   responseType ResponseType @default(EPHEMERAL)
   handlerType  HandlerType  @default(INTERNAL_ACTION)
   enabled      Boolean      @default(true)
+  // S81c (FR-SC-09·10): 커스텀 커맨드의 configurable action. 커스텀 행에만 채워지며
+  // (nullable), 실행기(slash-execution)가 actionType 으로 분기해 actionParams 를 해석한다.
+  // 빌트인은 코드 카탈로그라 DB 행이 없어 이 컬럼은 항상 NULL 인 종전 행에 영향 없다(additive).
+  //   actionParams 형태(actionType 별):
+  //     EPHEMERAL_TEXT   → { text: string }
+  //     SEND_TEMPLATE    → { template: string }
+  //     REDIRECT_CHANNEL → { channelId: string(uuid) }
+  actionType   CustomActionType?
+  actionParams Json?
+  // S81c (FR-SC-09): 등록한 워크스페이스 관리자. 계정 하드삭제 시 SetNull(행 보존 — 커맨드는
+  // 워크스페이스 자산이라 등록자 삭제로 사라지면 안 됨). nullable additive 라 기존 행 안전.
+  createdBy    String?      @db.Uuid
   createdAt    DateTime     @default(now())
   updatedAt    DateTime     @updatedAt
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  creator   User?      @relation("SlashCommandCreator", fields: [createdBy], references: [id], onDelete: SetNull)
 
   // S79 fix-forward (perf MINOR): @@index([workspaceId]) 는 @@unique([workspaceId, name])
   // 의 prefix 와 중복(복합 인덱스가 좌측 prefix 조회를 커버)이라 제거했다 — 워크스페이스별
