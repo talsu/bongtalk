@@ -1,5 +1,4 @@
 import { useState } from 'react';
-import { Link } from 'react-router-dom';
 import { Avatar } from '../../design-system/primitives';
 import { Dialog } from '../../design-system/primitives/Dialog';
 import { useNotifications } from '../../stores/notification-store';
@@ -50,22 +49,15 @@ export function PrivacySafetySettingsPage(): JSX.Element {
   };
 
   return (
-    <main
-      className="min-h-full bg-background p-[var(--s-7)]"
-      aria-label="개인정보 및 안전 설정"
-      data-testid="privacy-safety-settings"
-    >
+    // F-M3 / F-B3: bare 콘텐츠 — 프레임(main/bg/패딩)은 SettingsShell 의 qf-settings__main 이
+    // 제공한다. 자체 <main>/bg/외곽패딩/"닫기" 링크를 제거(중첩·이중 배경/패딩/스크롤 해소).
+    <div data-testid="privacy-safety-settings">
       <div className="mx-auto max-w-[var(--w-settings)]">
-        <div className="mb-[var(--s-5)] flex items-center justify-between">
-          <div>
-            <div className="qf-eyebrow">settings</div>
-            <h1 className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
-              개인정보 및 안전
-            </h1>
-          </div>
-          <Link to="/" className="qf-btn qf-btn--ghost">
-            닫기
-          </Link>
+        <div className="mb-[var(--s-5)]">
+          <div className="qf-eyebrow">settings</div>
+          <h1 className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            개인정보 및 안전
+          </h1>
         </div>
 
         <section
@@ -167,6 +159,6 @@ export function PrivacySafetySettingsPage(): JSX.Element {
           </button>
         </div>
       </Dialog>
-    </main>
+    </div>
   );
 }

@@ -73,8 +73,15 @@ export class AppearanceSettingsService {
       create.clock24h = patch.clock24h;
     }
 
-    await this.prisma.userSettings.upsert({ where: { userId }, update, create });
-    return this.getAppearance(userId);
+    // F-P2 (perf MODERATE): upsert 결과를 그대로 toView 로 클램프해 반환한다(이전엔 upsert 후
+    // getAppearance 재조회로 2-RTT 였다 — 단일 RTT 로 축소). select 로 외관 4컬럼만 가져온다.
+    const row = await this.prisma.userSettings.upsert({
+      where: { userId },
+      update,
+      create,
+      select: { theme: true, density: true, chatFontSize: true, clock24h: true },
+    });
+    return this.toView(row);
   }
 
   private toView(row: {

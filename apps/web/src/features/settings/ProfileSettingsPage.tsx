@@ -318,9 +318,12 @@ export function ProfileSettingsPage(): JSX.Element {
       .join(' ') || undefined;
 
   return (
+    // F-M3: bare 콘텐츠 — 프레임은 SettingsShell 의 qf-settings__main 이 제공한다.
+    // min-h-screen/외곽패딩/뒤로가기 버튼을 제거(이중 스크롤/패딩·셸 내 중복 chrome 해소).
+    // 자체 h1 은 유지한다. (모바일은 SettingsShell 이 자식 Outlet 만 전체화면 렌더 — F-B4.)
     <form
       data-testid="profile-settings-page"
-      className="mx-auto flex min-h-screen w-full max-w-2xl flex-col gap-[var(--s-5)] p-[var(--s-5)]"
+      className="mx-auto flex w-full max-w-2xl flex-col gap-[var(--s-5)]"
       onSubmit={(e) => {
         // a11y MODERATE-4: Enter 제출 — 저장 버튼은 type=submit.
         e.preventDefault();
@@ -328,14 +331,6 @@ export function ProfileSettingsPage(): JSX.Element {
       }}
     >
       <header className="flex items-center gap-[var(--s-3)]">
-        <button
-          type="button"
-          aria-label="뒤로"
-          className="qf-btn qf-btn--ghost qf-btn--icon"
-          onClick={() => navigate(-1)}
-        >
-          <Icon name="chevron-left" size="md" />
-        </button>
         <h1 className="text-[length:var(--fs-18)] font-semibold">프로필</h1>
         {/*
           S75 fix-forward (F15 / FR-PS-14 도달성): 차단 목록(/settings/privacy)이

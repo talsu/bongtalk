@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useIsMobile } from '../../lib/useBreakpoint';
 
@@ -8,7 +9,7 @@ import { useIsMobile } from '../../lib/useBreakpoint';
  * 좌측 사이드바 + 우측 <Outlet/> 으로 구성한다. 각 탭 라우트는 SettingsShell 의
  * 자식으로 중첩되며 콘텐츠는 Outlet 에 렌더된다(딥링크 유지). 모바일은 사이드바를
  * 드릴다운 목록으로 보여주고(탭 선택 시 라우트 진입), 콘텐츠 라우트에서는 목록 대신
- * Outlet 만 렌더한다.
+ * Outlet 만 렌더한다(F-B4 — 자식이 자체 h1 소유).
  *
  * 활성 탭(S76): 외관(신규) · 프로필(S73) · 알림(S46) · 프라이버시 & 안전(S75).
  * 비활성(S77 이후): 내 계정 · 접근성 · 고급 — disabled 로 표시.
@@ -55,12 +56,33 @@ export function SettingsShell(): JSX.Element {
   const isMobile = useIsMobile();
   const active = activeTabId(location.pathname);
 
-  // 모바일 '설정' 루트(/settings 자체는 redirect 라 닿지 않지만, 드릴다운 목록 화면을
-  // 별도 경로 없이 표현하려고 콘텐츠가 비활성/미선택일 때 목록을 보여준다). 데스크톱은
-  // 항상 사이드바 + Outlet 동시 렌더.
+  // F-H5 (a11y HIGH-05): 셸 마운트 시 첫 활성 nav 항목에 포커스를 옮긴다(키보드/SR
+  // 사용자가 설정 진입 직후 탐색 컨텍스트를 바로 얻도록). 데스크톱 사이드바와 모바일
+  // 목록 모두 첫 활성 항목 ref 에 focus().
+  const firstNavRef = useRef<HTMLAnchorElement | HTMLButtonElement | null>(null);
+  // 마운트 시 1회만 포커스를 옮긴다(라우트 변경/탭 전환마다 포커스를 빼앗지 않도록 deps 는
+  // 의도적으로 비운다 — exhaustive-deps 룰은 이 워크스페이스 ESLint 설정에 없어 disable
+  // 디렉티브를 두지 않는다).
+  useEffect(() => {
+    firstNavRef.current?.focus();
+  }, []);
+
+  // F-B4 (a11y BLK-02): 모바일에서 자식 탭(콘텐츠 라우트)이 활성이면 셸의 h1/nav 를
+  // 숨기고 Outlet 만 렌더한다 — 자식 페이지가 자체 h1 을 소유하므로 h1 중복을 막는다.
+  // /settings 자체는 redirect 라 닿지 않지만, active 가 null 인 예외 상황에서는 목록을 보여준다.
   if (isMobile) {
+    if (active !== null) {
+      return (
+        <div className="qf-m-screen" data-testid="settings-shell-mobile">
+          {/* 모바일 콘텐츠 라우트: 자식이 전체 화면 + 자체 h1 을 소유(셸 h1/nav 미렌더). */}
+          <div data-testid="settings-mobile-outlet">
+            <Outlet />
+          </div>
+        </div>
+      );
+    }
     return (
-      <main className="qf-m-screen" data-testid="settings-shell-mobile">
+      <div className="qf-m-screen" data-testid="settings-shell-mobile">
         <header className="qf-m-topbar">
           <Link to="/" className="qf-m-topbar__back" aria-label="홈으로">
             ←
@@ -68,9 +90,10 @@ export function SettingsShell(): JSX.Element {
           <h1 className="qf-m-topbar__title">설정</h1>
         </header>
         <nav className="qf-m-list" aria-label="설정" data-testid="settings-mobile-nav">
-          {SETTINGS_TABS.map((t) => (
+          {SETTINGS_TABS.map((t, i) => (
             <button
               key={t.id}
+              ref={i === 0 ? (firstNavRef as React.Ref<HTMLButtonElement>) : undefined}
               type="button"
               className="qf-m-row"
               data-testid={`settings-tab-${t.id}`}
@@ -84,13 +107,12 @@ export function SettingsShell(): JSX.Element {
             </button>
           ))}
         </nav>
-        {/* 모바일에서 콘텐츠는 선택된 탭 라우트가 전체 화면으로 대체 렌더한다(Outlet). */}
-        <div data-testid="settings-mobile-outlet">
-          <Outlet />
-        </div>
-      </main>
+      </div>
     );
   }
+
+  // 첫 활성(enabled) 탭의 id — 사이드바에서 그 항목에 포커스 ref 를 단다(F-H5).
+  const firstEnabledId = SETTINGS_TABS.find((t) => t.enabled)?.id;
 
   return (
     <div className="qf-settings" data-testid="settings-shell">
@@ -100,25 +122,33 @@ export function SettingsShell(): JSX.Element {
           t.enabled ? (
             <Link
               key={t.id}
+              ref={
+                t.id === firstEnabledId ? (firstNavRef as React.Ref<HTMLAnchorElement>) : undefined
+              }
               to={t.path}
               className="qf-settings__nav-item"
               data-testid={`settings-tab-${t.id}`}
-              aria-selected={active === t.id}
+              // F-H3 (a11y HIGH-03): role=link 에는 aria-selected 가 부적합하다 —
+              // aria-current="page" 단독으로 현재 탭을 표시한다.
               aria-current={active === t.id ? 'page' : undefined}
             >
               {t.label}
             </Link>
           ) : (
-            <span
+            // F-H2 (a11y HIGH-02): disabled 탭은 span 대신 disabled 버튼으로 둬 키보드/AT
+            // 가 인지하게 한다(span aria-disabled 는 포커스/통지 불가). raw inline style 대신
+            // Tailwind 유틸로 시각 비활성을 표현한다.
+            <button
               key={t.id}
-              className="qf-settings__nav-item"
-              data-testid={`settings-tab-${t.id}`}
+              type="button"
+              disabled
               aria-disabled="true"
               title="준비 중입니다"
-              style={{ opacity: 0.5, cursor: 'not-allowed' }}
+              className="qf-settings__nav-item cursor-not-allowed opacity-50"
+              data-testid={`settings-tab-${t.id}`}
             >
               {t.label}
-            </span>
+            </button>
           ),
         )}
       </nav>

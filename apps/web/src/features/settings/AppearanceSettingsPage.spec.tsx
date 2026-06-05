@@ -49,21 +49,28 @@ describe('AppearanceSettingsPage (FR-PS-09 · Fork B1)', () => {
     expect(mutateAsync).toHaveBeenCalledWith({ clock24h: true });
   });
 
-  it('debounces the font slider — single PATCH after 200ms', () => {
+  // F-M1: 폰트 슬라이더는 DS 미지원으로 비활성(준비 중) — 값은 저장/조회만 유지.
+  it('disables the chat font slider (F-M1 · 준비 중) and never PATCHes from it', () => {
     render(<AppearanceSettingsPage />);
-    const slider = screen.getByTestId('appearance-font-slider');
-    // index 0..5 → [12,13,14,15,16,18]. Drag through 3 then 4 then 5.
-    fireEvent.change(slider, { target: { value: '3' } });
-    fireEvent.change(slider, { target: { value: '4' } });
+    const slider = screen.getByTestId('appearance-font-slider') as HTMLInputElement;
+    expect(slider.disabled).toBe(true);
+    expect(slider.getAttribute('aria-disabled')).toBe('true');
+    // 비활성 컨트롤은 change 를 일으키지 않으며, 어떤 chatFontSize PATCH 도 보내지 않는다.
     fireEvent.change(slider, { target: { value: '5' } });
-    // Before debounce fires, no PATCH yet.
     expect(mutateAsync).not.toHaveBeenCalled();
-    act(() => {
-      vi.advanceTimersByTime(200);
+    // 현재 저장된 px 안내가 노출된다(데이터는 유지).
+    expect(screen.getByTestId('appearance-font-hint').textContent).toContain('15px');
+  });
+
+  // F-H4 (a11y HIGH-04): 저장 성공 시 라이브 영역에 "저장됨" 이 통지된다.
+  it('announces "저장됨" in a live region after a successful save (F-H4)', async () => {
+    render(<AppearanceSettingsPage />);
+    expect(screen.getByTestId('appearance-save-status').textContent).toBe('');
+    fireEvent.click(screen.getByTestId('appearance-theme-LIGHT'));
+    await act(async () => {
+      await Promise.resolve();
     });
-    // Only the final value (index 5 = 18px) is sent, exactly once.
-    expect(mutateAsync).toHaveBeenCalledTimes(1);
-    expect(mutateAsync).toHaveBeenCalledWith({ chatFontSize: 18 });
+    expect(screen.getByTestId('appearance-save-status').textContent).toBe('저장됨');
   });
 
   it('shows a danger toast when a PATCH fails (revert is handled by the hook)', async () => {

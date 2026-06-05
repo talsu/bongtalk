@@ -10,7 +10,13 @@ import { z } from 'zod';
  *   GET   /me/settings/appearance  → AppearanceSettings (행 없으면 기본값).
  *   PATCH /me/settings/appearance  → UpdateAppearanceSettings (.partial().strict()).
  *
- * 기본값: theme=DARK · density=COZY · chatFontSize=15 · clock24h=false.
+ * 기본값: theme=DARK · density=COZY · chatFontSize=15 · clock24h=true.
+ *
+ * S76 fix-forward (F-B2): clock24h 기본값은 true(24시간제)다. 기존 전체 사용자는
+ * formatMessageTime 의 24시간제 기본 동작을 보고 있었으므로(한국어 관례 + spec 단언),
+ * S76 이 default 를 false 로 도입하면 기존 사용자가 무단으로 12시간제로 회귀한다.
+ * shared-types 기본값 · Prisma 컬럼 DEFAULT · store · MessageItem 폴백을 모두 true 로
+ * 통일해 기존 동작을 보존한다(미배포 마이그레이션이라 컬럼 DEFAULT 편집 가능).
  */
 
 // 테마 — DS data-theme 토큰과 대응(SYSTEM 은 클라가 prefers-color-scheme 로 해석).
@@ -41,7 +47,8 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   theme: 'DARK',
   density: 'COZY',
   chatFontSize: 15,
-  clock24h: false,
+  // F-B2: 24시간제가 기존(회귀 방지) 기본값. formatMessageTime 도 기본 true.
+  clock24h: true,
 };
 
 export const AppearanceSettingsSchema = z.object({

@@ -67,10 +67,13 @@ beforeEach(() => {
 afterEach(() => cleanup());
 
 describe('NotificationSettingsPage channel toggles (FR-PS-10)', () => {
-  it('renders desktop + mobile toggles reflecting current state', () => {
+  it('renders desktop toggle reflecting current state; mobile toggle is disabled (준비 중)', () => {
     renderPage();
     expect(screen.getByTestId('notif-desktop-toggle').getAttribute('aria-checked')).toBe('true');
-    expect(screen.getByTestId('notif-mobile-toggle').getAttribute('aria-checked')).toBe('true');
+    // F-B1: 모바일 푸시는 실 푸시 인프라 부재로 토글 비활성("준비 중") — 죽은 컨트롤 방지.
+    const mobile = screen.getByTestId('notif-mobile-toggle') as HTMLButtonElement;
+    expect(mobile.disabled).toBe(true);
+    expect(mobile.getAttribute('aria-disabled')).toBe('true');
   });
 
   it('PATCHes notifDesktop=false when the desktop toggle is flipped off', () => {
@@ -79,10 +82,10 @@ describe('NotificationSettingsPage channel toggles (FR-PS-10)', () => {
     expect(updateMutate).toHaveBeenCalledWith({ notifDesktop: false });
   });
 
-  it('PATCHes notifMobile=false when the mobile toggle is flipped off', () => {
+  it('does NOT PATCH from the disabled mobile toggle (F-B1)', () => {
     renderPage();
     fireEvent.click(screen.getByTestId('notif-mobile-toggle'));
-    expect(updateMutate).toHaveBeenCalledWith({ notifMobile: false });
+    expect(updateMutate).not.toHaveBeenCalled();
   });
 
   it('flips back on when currently off', () => {

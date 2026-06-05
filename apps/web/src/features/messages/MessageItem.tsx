@@ -207,7 +207,8 @@ export function MessageItem({
   const isHead = !isContinuation;
   // S06 (FR-MSG-12): head 행 시각 라벨 + hover tooltip(ISO 전체).
   // S76 (FR-PS-09): clock24h 외관 설정을 appearance 스토어에서 읽어 12/24시간제를 결정한다
-  // (서버 단일 출처 → 스토어 → 시각 포맷). 미설정/기본은 false(12시간제 — DEFAULT_APPEARANCE).
+  // (서버 단일 출처 → 스토어 → 시각 포맷). F-B2: 미설정/기본은 true(24시간제 —
+  // DEFAULT_APPEARANCE.clock24h=true · formatMessageTime 기본 true 와 정합 · 회귀 방지).
   const headTimeLabel = formatMessageTime(msg.createdAt, new Date(), { clock24h });
   const isoTooltip = formatMessageTimeISO(msg.createdAt);
   // S06 (FR-MSG-10): continuation 행 hover gutter 에 표시할 시각(clock24h 설정 반영).

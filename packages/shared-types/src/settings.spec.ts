@@ -15,12 +15,13 @@ describe('S76 settings (FR-PS-09) Zod', () => {
     expect(parsed.success).toBe(true);
   });
 
-  it('default is theme=DARK, density=COZY, chatFontSize=15, clock24h=false', () => {
+  it('default is theme=DARK, density=COZY, chatFontSize=15, clock24h=true (F-B2 회귀 방지)', () => {
     expect(DEFAULT_APPEARANCE).toEqual({
       theme: 'DARK',
       density: 'COZY',
       chatFontSize: 15,
-      clock24h: false,
+      // F-B2: 24시간제가 기존 동작 — 기본 true 로 보존(formatMessageTime 기본 true 와 정합).
+      clock24h: true,
     });
   });
 

@@ -8,10 +8,12 @@
 --      theme(Theme NOT NULL DEFAULT 'DARK')      — FR-PS-09 테마.
 --      density(Density NOT NULL DEFAULT 'COZY')  — FR-PS-09 메시지 밀도.
 --      chatFontSize(INTEGER NOT NULL DEFAULT 15) — FR-PS-09 채팅 폰트 크기(6단계 중 15px).
---      clock24h(BOOLEAN NOT NULL DEFAULT false)  — FR-PS-09 24시간 시계.
+--      clock24h(BOOLEAN NOT NULL DEFAULT true)   — FR-PS-09 24시간 시계.
+--        (F-B2: 기존 전체 사용자는 24시간제 동작을 보고 있었으므로 default true 로 회귀
+--         방지 — false 면 backfill 로 전체 사용자가 12시간제로 무단 전환된다.)
 --      notifDesktop(BOOLEAN NOT NULL DEFAULT true) — FR-PS-10 데스크톱 배너 ON/OFF.
 --      notifMobile(BOOLEAN NOT NULL DEFAULT true)  — FR-PS-10 모바일 푸시 ON/OFF.
---      기존 UserSettings 행은 default 로 backfill 되어 무회귀(미설정 = 종전 외관 = DARK/COZY/15).
+--      기존 UserSettings 행은 default 로 backfill 되어 무회귀(미설정 = 종전 외관 = DARK/COZY/15/24h).
 --
 -- ★ NO CONCURRENTLY: `prisma migrate deploy` 가 migration.sql 을 단일 트랜잭션으로
 --   실행하므로 트랜잭션 블록에서 금지되는 ADD COLUMN ... CONCURRENTLY / CREATE INDEX
@@ -44,6 +46,6 @@ $$;
 ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "theme"        "Theme"   NOT NULL DEFAULT 'DARK';
 ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "density"      "Density" NOT NULL DEFAULT 'COZY';
 ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "chatFontSize" INTEGER   NOT NULL DEFAULT 15;
-ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "clock24h"     BOOLEAN   NOT NULL DEFAULT false;
+ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "clock24h"     BOOLEAN   NOT NULL DEFAULT true;
 ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "notifDesktop" BOOLEAN   NOT NULL DEFAULT true;
 ALTER TABLE "UserSettings" ADD COLUMN IF NOT EXISTS "notifMobile"  BOOLEAN   NOT NULL DEFAULT true;

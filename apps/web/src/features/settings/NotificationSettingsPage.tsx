@@ -1,5 +1,4 @@
 import { useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import type {
   NotificationChannel,
   NotificationEventType,
@@ -91,16 +90,13 @@ export function NotificationSettingsPage(): JSX.Element {
       body: '키워드는 최대 25개까지 등록할 수 있습니다.',
     });
 
-  // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF 토글(즉시 PATCH 자동 저장).
-  const setChannelToggle = async (
-    field: 'notifDesktop' | 'notifMobile',
-    next: boolean,
-    failTitle: string,
-  ) => {
+  // S76 (FR-PS-10): 데스크톱 배너 ON·OFF 토글(즉시 PATCH 자동 저장). 모바일 푸시는 실
+  // 푸시 인프라 부재로 토글을 disabled 처리(F-B1) — 여기서는 데스크톱만 다룬다.
+  const setDesktopToggle = async (next: boolean) => {
     try {
-      await updateGlobal.mutateAsync({ [field]: next });
+      await updateGlobal.mutateAsync({ notifDesktop: next });
     } catch (err) {
-      notify({ variant: 'danger', title: failTitle, body: (err as Error).message });
+      notify({ variant: 'danger', title: '데스크톱 알림 저장 실패', body: (err as Error).message });
     }
   };
 
@@ -144,21 +140,16 @@ export function NotificationSettingsPage(): JSX.Element {
   };
 
   return (
-    <main
-      className="min-h-full bg-background p-[var(--s-7)]"
-      data-testid="notification-settings-page"
-    >
+    // F-M3 / F-B3: SettingsShell 의 qf-settings__main 이 프레임(main/bg/패딩)을 제공하므로
+    // 이 페이지는 bare 콘텐츠다 — 자체 <main>/bg/외곽패딩/"← 홈으로" 링크를 두지 않는다
+    // (<main> 중첩·이중 배경/패딩/스크롤 제거). 자체 h1 은 유지한다.
+    <div data-testid="notification-settings-page">
       <div className="mx-auto max-w-[var(--w-settings)]">
-        <div className="mb-[var(--s-5)] flex items-center justify-between">
-          <div>
-            <div className="qf-eyebrow">settings</div>
-            <h1 className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
-              알림 설정
-            </h1>
-          </div>
-          <Link to="/" className="qf-btn qf-btn--ghost">
-            ← 홈으로
-          </Link>
+        <div className="mb-[var(--s-5)]">
+          <div className="qf-eyebrow">settings</div>
+          <h1 className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            알림 설정
+          </h1>
         </div>
 
         {/* S46 (FR-MN-05): 글로벌 알림 수준 (NotifLevel). M-03: section aria-labelledby. */}
@@ -258,37 +249,32 @@ export function NotificationSettingsPage(): JSX.Element {
               disabled={updateGlobal.isPending || !globalSettings}
               data-testid="notif-desktop-toggle"
               className="qf-switch"
-              onClick={() =>
-                void setChannelToggle(
-                  'notifDesktop',
-                  !(globalSettings?.notifDesktop ?? true),
-                  '데스크톱 알림 저장 실패',
-                )
-              }
+              onClick={() => void setDesktopToggle(!(globalSettings?.notifDesktop ?? true))}
             />
           </div>
+          {/*
+            S76 fix-forward (F-B1): 모바일 푸시는 실제 푸시 전송 인프라가 아직 없어
+            토글을 disabled("준비 중")로 둔다 — notifDesktop 처럼 동작하는 억제 로직이
+            없으므로 켜고 끌 수 있게 두면 죽은 컨트롤이 된다. 라벨로 미지원을 명시한다.
+          */}
           <div className="qf-toggle-row">
             <div className="qf-toggle-row__text">
-              <div className="qf-toggle-row__title">모바일 푸시</div>
+              <div className="qf-toggle-row__title">
+                모바일 푸시 <span className="text-text-muted">· 준비 중</span>
+              </div>
               <div className="qf-toggle-row__desc">
-                모바일 기기로 푸시 알림을 보냅니다(푸시 전송은 준비 중).
+                모바일 기기로 푸시 알림을 보냅니다. 푸시 전송 인프라는 준비 중입니다.
               </div>
             </div>
             <button
               type="button"
               role="switch"
-              aria-checked={globalSettings?.notifMobile ?? true}
-              aria-label="모바일 푸시"
-              disabled={updateGlobal.isPending || !globalSettings}
+              aria-checked={false}
+              aria-label="모바일 푸시 (준비 중)"
+              aria-disabled="true"
+              disabled
               data-testid="notif-mobile-toggle"
-              className="qf-switch"
-              onClick={() =>
-                void setChannelToggle(
-                  'notifMobile',
-                  !(globalSettings?.notifMobile ?? true),
-                  '모바일 알림 저장 실패',
-                )
-              }
+              className="qf-switch opacity-50"
             />
           </div>
         </section>
@@ -389,6 +375,6 @@ export function NotificationSettingsPage(): JSX.Element {
           변경 사항은 최대 5분 이내에 모든 탭에 반영됩니다.
         </p>
       </div>
-    </main>
+    </div>
   );
 }

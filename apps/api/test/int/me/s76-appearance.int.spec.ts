@@ -110,7 +110,7 @@ describe('S76 appearance + notif channels (int)', () => {
       theme: 'DARK',
       density: 'COZY',
       chatFontSize: 15,
-      clock24h: false,
+      clock24h: true, // F-B2: 기본 24시간제(회귀 방지)
     });
     // 읽기만으로는 행을 만들지 않는다.
     const row = await prisma.userSettings.findUnique({ where: { userId } });
@@ -132,7 +132,7 @@ describe('S76 appearance + notif channels (int)', () => {
       theme: 'LIGHT',
       density: 'COZY', // 미전달 — default 보존
       chatFontSize: 18,
-      clock24h: false,
+      clock24h: true, // F-B2: 미전달 — default(24시간제) 보존
     });
     const row = await prisma.userSettings.findUnique({ where: { userId } });
     expect(row).not.toBeNull();
