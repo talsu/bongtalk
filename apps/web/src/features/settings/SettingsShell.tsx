@@ -11,8 +11,8 @@ import { useIsMobile } from '../../lib/useBreakpoint';
  * 드릴다운 목록으로 보여주고(탭 선택 시 라우트 진입), 콘텐츠 라우트에서는 목록 대신
  * Outlet 만 렌더한다(F-B4 — 자식이 자체 h1 소유).
  *
- * 활성 탭: 외관(S76) · 프로필(S73) · 알림(S46) · 접근성(S77a) · 프라이버시 & 안전(S75/S77a).
- * 비활성(이후 슬라이스): 내 계정 · 고급 — disabled 로 표시.
+ * 활성 탭: 외관(S76) · 프로필(S73) · 알림(S46) · 접근성(S77a) · 프라이버시 & 안전(S75/S77a) ·
+ * 내 계정(S77b) · 고급(S77c — 계정 비활성화/삭제).
  *
  * Ctrl+,(Cmd+,) 전역 단축키는 App 레벨에서 라우팅을 담당하므로 여기서는 셸 안의
  * 탐색 UX 만 책임진다(전역 핸들러는 useSettingsHotkey).
@@ -35,7 +35,8 @@ type TabDef = {
 };
 
 // FR-PS-18: 7탭 표준 순서. enabled=false 는 후속 슬라이스에서 활성.
-// S77b (D14 / FR-PS-15·20): 내 계정 탭 활성(자격증명 변경·2FA·세션). 고급은 여전히 준비 중.
+// S77b (D14 / FR-PS-15·20): 내 계정 탭 활성(자격증명 변경·2FA·세션).
+// S77c (D14 / FR-PS-16·19): 고급 탭 활성(계정 비활성화/삭제 위험구역).
 export const SETTINGS_TABS: readonly TabDef[] = [
   { id: 'account', label: '내 계정', path: '/settings/account', enabled: true },
   { id: 'profile', label: '프로필', path: '/settings/profile', enabled: true },
@@ -43,7 +44,7 @@ export const SETTINGS_TABS: readonly TabDef[] = [
   { id: 'notifications', label: '알림', path: '/settings/notifications', enabled: true },
   { id: 'accessibility', label: '접근성', path: '/settings/accessibility', enabled: true },
   { id: 'privacy', label: '프라이버시 & 안전', path: '/settings/privacy', enabled: true },
-  { id: 'advanced', label: '고급', path: '/settings/advanced', enabled: false },
+  { id: 'advanced', label: '고급', path: '/settings/advanced', enabled: true },
 ];
 
 function activeTabId(pathname: string): SettingsTabId | null {

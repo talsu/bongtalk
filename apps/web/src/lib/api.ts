@@ -30,6 +30,14 @@ function fireLogout(): void {
   for (const fn of logoutListeners) fn();
 }
 
+// S77c (D14 / FR-PS-16): 서버가 session:revoked 를 emit 하면(계정 비활성화 등) 클라가 access 토큰을
+// 비우고 onForcedLogout 구독자(AuthProvider)에게 강제 로그아웃을 통지한다. apiRequest 의 401 경로와
+// 동일한 fireLogout 을 재사용하되, 외부(소켓 핸들러)에서 호출할 수 있도록 공개한다.
+export function forceLogout(): void {
+  accessToken = null;
+  fireLogout();
+}
+
 async function refreshOnce(): Promise<boolean> {
   const res = await fetch(`${API_BASE}/auth/refresh`, {
     method: 'POST',

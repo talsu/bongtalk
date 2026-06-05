@@ -335,6 +335,13 @@ export enum ErrorCode {
   SESSION_NOT_FOUND = 'SESSION_NOT_FOUND',
   ENCRYPTION_UNAVAILABLE = 'ENCRYPTION_UNAVAILABLE',
 
+  // S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화.
+  //   ACCOUNT_DEACTIVATED:     비활성 계정의 인증 요청(JWT 이중검사) / 로그인 시도 → 403.
+  //     로그인 응답에선 FE 가 "계정 복구" CTA 로 분기한다(자격증명 검증 후 reactivate 허용).
+  //   ACCOUNT_NOT_DEACTIVATED: 활성 계정에서 reactivate 시도(상태 충돌) → 409.
+  ACCOUNT_DEACTIVATED = 'ACCOUNT_DEACTIVATED',
+  ACCOUNT_NOT_DEACTIVATED = 'ACCOUNT_NOT_DEACTIVATED',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -540,6 +547,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.TOTP_NOT_ENABLED]: 409,
   [ErrorCode.SESSION_NOT_FOUND]: 404,
   [ErrorCode.ENCRYPTION_UNAVAILABLE]: 503,
+  // S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화 상태코드.
+  [ErrorCode.ACCOUNT_DEACTIVATED]: 403,
+  [ErrorCode.ACCOUNT_NOT_DEACTIVATED]: 409,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
   [ErrorCode.KEYWORD_LIMIT_EXCEEDED]: 400,

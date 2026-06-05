@@ -117,3 +117,35 @@ export const SessionListResponseSchema = z.object({
   sessions: z.array(SessionSummarySchema),
 });
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
+
+// ── 계정 비활성화/재활성화 (S77c · D14 / FR-PS-16) ───────────────────────────
+//
+//   POST /api/v1/users/me/deactivate  DeactivateAccountRequest → 204
+//   POST /api/v1/users/me/reactivate  ReactivateAccountRequest → 204
+//
+// 둘 다 현재 비밀번호 재확인이 필수다. 2FA 활성 사용자는 totpCode 도 재확인한다(S77b 패턴 일관 —
+// 스키마에선 optional 로 두고 서버가 totpEnabled 를 보고 강제: 누락 403 TOTP_CODE_REQUIRED ·
+// 불일치 403 TOTP_INVALID). reactivate 는 비활성 계정이 로그인 차단되므로(ACCOUNT_DEACTIVATED)
+// 로그인 자격증명(email+password)을 함께 받아 검증 후 복구한다.
+export const DeactivateAccountRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(128),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
+  })
+  .strict();
+export type DeactivateAccountRequest = z.infer<typeof DeactivateAccountRequestSchema>;
+
+export const ReactivateAccountRequestSchema = z
+  .object({
+    // 비활성 계정은 인증 컨텍스트가 없으므로(로그인 차단) 로그인 자격증명을 함께 받는다.
+    email: z.string().email(),
+    // CF13(contract minor): password 는 정책상 min(8)이지만 여기선 min(1)이 의도다 — 재활성화는
+    // *기존* 자격증명을 검증할 뿐 새 비번을 설정하지 않으므로 신규 정책 길이를 강제하면 정책 강화
+    // 이전에 가입한(또는 정책이 바뀐) 계정의 짧은 기존 비번을 well-formed 단계에서 잘못 거부할 수
+    // 있다. 비번 일치 여부는 서버가 argon2 verify 로 판정하고, 불일치/부재는 모두 PASSWORD_INCORRECT
+    // (중립)로 응답한다 — 길이는 인증 결과에 영향을 주지 않는다.
+    password: z.string().min(1).max(128),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
+  })
+  .strict();
+export type ReactivateAccountRequest = z.infer<typeof ReactivateAccountRequestSchema>;

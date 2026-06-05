@@ -6,6 +6,7 @@ import {
   ORIGIN,
   seedRtStack,
   setupRtIntEnv,
+  signup,
   waitForEvent,
   type RtIntEnv,
 } from './helpers';
@@ -95,5 +96,36 @@ describe('WS handshake', () => {
   it('rejects a tampered token', async () => {
     const bad = stack.member.accessToken.slice(0, -5) + 'XXXXX';
     await expect(connectClient(env.wsUrl, bad)).rejects.toBeDefined();
+  });
+
+  // S77c fix-forward (CF1 · reviewer B1 · perf MODERATE): 비활성 계정의 살아있는 access token 으로
+  // 새 WS 재연결을 시도하면 핸드셰이크 이중검사(Redis 블랙리스트 + DB isDeactivated)가 connect_error
+  // 로 거부해야 한다. 거부하지 못하면 fan-out/presence/typing 을 계속 수신한다(HTTP 만 막힘).
+  describe('비활성 계정 WS 게이트 (CF1)', () => {
+    it('Redis 블랙리스트 적중 시 동일 토큰 WS 연결을 connect_error 로 거부', async () => {
+      const u = await signup(env.baseUrl, 'wsdeactr');
+      // 연결 자체는 활성 상태에서 성공함을 먼저 확인(토큰 자체는 유효).
+      const ok = await connectClient(env.wsUrl, u.accessToken);
+      expect(ok.connected).toBe(true);
+      ok.disconnect();
+
+      // 비활성화 시뮬레이션: Redis 블랙리스트만 SET(즉시 차단 경로 — TTL 15m).
+      await env.redis.set(`deactivated:${u.userId}`, '1', 'EX', 900);
+
+      // 동일 토큰으로 재연결 → connect_error.
+      await expect(connectClient(env.wsUrl, u.accessToken)).rejects.toBeDefined();
+    });
+
+    it('Redis 블랙리스트 만료 후에도 DB isDeactivated=true 면 WS 연결을 거부', async () => {
+      const u = await signup(env.baseUrl, 'wsdeactd');
+      // 블랙리스트는 없고(만료 가정) DB 컬럼만 비활성.
+      await env.redis.del(`deactivated:${u.userId}`).catch(() => undefined);
+      await env.prisma.user.update({
+        where: { id: u.userId },
+        data: { isDeactivated: true, deactivatedAt: new Date() },
+      });
+
+      await expect(connectClient(env.wsUrl, u.accessToken)).rejects.toBeDefined();
+    });
   });
 });

@@ -297,6 +297,11 @@ export const ErrorCodeSchema = z.enum([
   'TOTP_NOT_ENABLED',
   'SESSION_NOT_FOUND',
   'ENCRYPTION_UNAVAILABLE',
+  // S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화.
+  //   ACCOUNT_DEACTIVATED:     비활성 계정의 로그인/인증 요청 → 403(로그인 시엔 복구 CTA 분기).
+  //   ACCOUNT_NOT_DEACTIVATED: 활성 계정에서 reactivate 시도(상태 충돌) → 409.
+  'ACCOUNT_DEACTIVATED',
+  'ACCOUNT_NOT_DEACTIVATED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',

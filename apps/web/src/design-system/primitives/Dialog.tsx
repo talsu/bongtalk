@@ -36,6 +36,11 @@ export function Dialog({
           // alertDialog=false 면 role 을 *전혀 전달하지 않아* Radix 기본 role="dialog" 를
           // 보존한다(role={undefined} 를 명시 전달하면 Radix 기본값을 덮어써 누락된다).
           {...(alertDialog ? { role: 'alertdialog' } : {})}
+          // S77c fix-forward (CF10 · a11y MAJOR-01): 파괴적 alertdialog 는 오버레이/외부 클릭으로
+          // 닫히지 않게 한다(우발적 닫힘 방지 — 확인/취소 버튼으로만 닫힘). 비파괴 모달(alertDialog=
+          // false)은 종전대로 오버레이 클릭 닫힘을 유지한다. Esc 닫힘은 보존한다(접근성 탈출 경로).
+          onPointerDownOutside={alertDialog ? (e) => e.preventDefault() : undefined}
+          onInteractOutside={alertDialog ? (e) => e.preventDefault() : undefined}
           className={cn(
             'qf-modal fixed left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2',
             className,
