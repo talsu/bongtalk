@@ -91,6 +91,9 @@ describe('S46 글로벌 알림 설정 API (/me/settings/notifications, FR-MN-05)
       keywords: [],
       dndUntil: null,
       dndSchedule: null,
+      // S76 (FR-PS-10): 글로벌 알림 응답에 데스크톱/모바일 채널 토글이 포함된다(기본 true).
+      notifDesktop: true,
+      notifMobile: true,
     });
 
     const p = await request(env.baseUrl)

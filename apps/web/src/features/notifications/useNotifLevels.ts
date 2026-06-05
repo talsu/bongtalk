@@ -180,6 +180,9 @@ export const NOTIF_LEVEL_OPTIONS: ReadonlyArray<{
 export const MUTE_DURATION_OPTIONS: ReadonlyArray<{ value: MuteDurationKey; label: string }> = [
   { value: '15m', label: '15분' },
   { value: '1h', label: '1시간' },
+  // F-C1 (contract): '3h' 누락 보강 — MuteDurationKey enum(15m/1h/3h/8h/24h/forever)·
+  // PRD(FR-CH-17: 15분/1시간/3시간/8시간/24시간/무기한)와 정합.
+  { value: '3h', label: '3시간' },
   { value: '8h', label: '8시간' },
   { value: '24h', label: '24시간' },
   { value: 'forever', label: '영구' },

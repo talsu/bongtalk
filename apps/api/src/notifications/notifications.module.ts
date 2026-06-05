@@ -7,8 +7,12 @@ import { NotifLevelService } from './notif-level.service';
 import { MuteExpiryCron } from './mute-expiry.cron';
 import { GlobalNotificationSettingsController } from './global-notification-settings.controller';
 import { ServerNotificationPreferencesController } from './server-notification-preferences.controller';
+// F-S1 (security MED): GlobalNotificationSettingsController 의 GET/PATCH rate-limit 강제용.
+import { AuthModule } from '../auth/auth.module';
 
 @Module({
+  // F-S1: RateLimitService 를 export 하는 AuthModule 을 import 해 컨트롤러에 주입한다.
+  imports: [AuthModule],
   controllers: [
     NotificationPreferencesController,
     // S46: 글로벌(/me/settings/notifications) + 서버(/workspaces/:id/notification-preferences).

@@ -1516,4 +1516,61 @@ describe('realtime dispatcher', () => {
       detach();
     });
   });
+
+  // ── S76 fix-forward (F-B1 / FR-PS-10): notifDesktop 토글이 토스트 발화를 게이트 ──
+  describe('mention:new → notifDesktop 데스크톱 배너 게이트(F-B1)', () => {
+    const mentionEnv = {
+      targetUserId: 'u-viewer',
+      workspaceId: 'ws-1',
+      channelId: 'ch-other',
+      messageId: 'm-mention',
+      actorId: 'u-actor',
+      snippet: '@viewer hi',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      everyone: false,
+      here: false,
+    };
+
+    async function run(ctxOverrides: Record<string, unknown>): Promise<Array<{ variant: string }>> {
+      const socket = makeFakeSocket();
+      const qc = new QueryClient();
+      const { useNotifications } = await import('../../stores/notification-store');
+      const pushed: Array<{ variant: string }> = [];
+      const spy = vi
+        .spyOn(useNotifications.getState(), 'push')
+        .mockImplementation((n) => pushed.push(n as { variant: string }) as unknown as string);
+      const detach = installRealtimeDispatcher(socket, qc, {
+        viewerId: () => 'u-viewer',
+        activeChannelId: () => null, // 멘션 채널을 보고 있지 않음(토스트 후보).
+        ...ctxOverrides,
+      });
+      socket.emit('mention:new', mentionEnv);
+      spy.mockRestore();
+      detach();
+      return pushed;
+    }
+
+    it('notifDesktop=false(isDesktopBannerEnabled→false) 면 토스트를 발화하지 않는다', async () => {
+      const pushed = await run({ isDesktopBannerEnabled: () => false });
+      expect(pushed).toHaveLength(0);
+    });
+
+    it('notifDesktop=true(isDesktopBannerEnabled→true) 면 멘션 토스트를 발화한다', async () => {
+      const pushed = await run({ isDesktopBannerEnabled: () => true });
+      expect(pushed.some((n) => n.variant === 'mention')).toBe(true);
+    });
+
+    it('isDesktopBannerEnabled 미지정(캐시 미로딩 폴백) 이면 토스트를 발화한다(기존 동작 유지)', async () => {
+      const pushed = await run({});
+      expect(pushed.some((n) => n.variant === 'mention')).toBe(true);
+    });
+
+    it('DND 억제와 직교 — DND 가 켜져 있으면 notifDesktop 무관하게 억제', async () => {
+      const pushed = await run({
+        isDndSuppressed: () => true,
+        isDesktopBannerEnabled: () => true,
+      });
+      expect(pushed).toHaveLength(0);
+    });
+  });
 });

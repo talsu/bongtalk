@@ -2,6 +2,7 @@ import { Body, Controller, Get, Patch, UseGuards } from '@nestjs/common';
 import { UpdateGlobalNotificationSettingsRequestSchema } from '@qufox/shared-types';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { RateLimitService } from '../auth/services/rate-limit.service';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import type { DndSchedule } from '../me/dnd-schedule.service';
@@ -16,19 +17,27 @@ import { NotifPreferencesService } from './notif-preferences.service';
  * 기존 /me/notification-preferences(TOAST/BROWSER)와는 별도 URL 이다 — breaking
  * 금지(두 축 병행). NotifLevel(ALL/MENTIONS/NOTHING) + keywords + dndUntil +
  * dndSchedule 을 다룬다. keywords 스캔은 BullMQ(S45) 후속이라 컬럼 저장만.
+ *
+ * F-S1 (security MED): 외관 설정(AppearanceSettingsController)과 동일하게 GET 60/min·
+ * PATCH 30/min/user rate-limit 을 강제한다(자동 저장 토글이 잦은 PATCH 를 좀 더 빡빡하게).
  */
 @UseGuards(JwtAuthGuard)
 @Controller('me/settings/notifications')
 export class GlobalNotificationSettingsController {
-  constructor(private readonly prefs: NotifPreferencesService) {}
+  constructor(
+    private readonly prefs: NotifPreferencesService,
+    private readonly rate: RateLimitService,
+  ) {}
 
   @Get()
   async get(@CurrentUser() user: CurrentUserPayload) {
+    await this.rate.enforce([{ key: `me-notif-get:u:${user.id}`, windowSec: 60, max: 60 }]);
     return this.prefs.getGlobal(user.id);
   }
 
   @Patch()
   async update(@CurrentUser() user: CurrentUserPayload, @Body() body: unknown) {
+    await this.rate.enforce([{ key: `me-notif-patch:u:${user.id}`, windowSec: 60, max: 30 }]);
     const parsed = UpdateGlobalNotificationSettingsRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
@@ -47,6 +56,9 @@ export class GlobalNotificationSettingsController {
           'dndSchedule' in parsed.data
             ? (parsed.data.dndSchedule as DndSchedule | null)
             : undefined,
+        // S76 (FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF.
+        notifDesktop: parsed.data.notifDesktop,
+        notifMobile: parsed.data.notifMobile,
       },
       new Date(),
     );

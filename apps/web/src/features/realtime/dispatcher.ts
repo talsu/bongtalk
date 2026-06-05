@@ -115,6 +115,23 @@ export interface DispatcherContext {
     workspaceId: string,
     eventType: 'MENTION' | 'REPLY' | 'REACTION' | 'DIRECT',
   ) => 'TOAST' | 'BROWSER' | 'BOTH' | 'OFF';
+  /**
+   * S76 (D14 / FR-PS-11): effective DND 여부. true 면 멘션/답글 토스트(배너)를 억제한다
+   * (DND 스케줄 활성 또는 presencePreference=dnd — 서버 effective preference 재사용).
+   * 미지정이면 억제하지 않는다(보수적 폴백). 알림 채널 선호(resolveNotificationChannel)와
+   * 직교한다 — DND 는 채널 선호와 무관하게 배너만 추가로 억제한다.
+   */
+  isDndSuppressed?: () => boolean;
+  /**
+   * S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너(notifDesktop) 토글 상태. false 면
+   * 데스크톱 토스트 배너를 억제한다(설정 페이지의 "끄면 배너가 표시되지 않습니다" 약속을
+   * 실제 토스트 경로에 배선 — 종전엔 persist 만 되고 토스트 게이트가 참조하지 않아 죽은
+   * 컨트롤이었다). 설정값은 글로벌 알림 설정 캐시(qk.me.globalNotificationSettings)에서
+   * 동기 읽는다. isDndSuppressed 와 직교하며(둘 중 하나라도 억제면 토스트 미발화), 캐시
+   * 미로딩/미지정이면 true(기본 ON — 보수적 폴백으로 기존 동작 유지). 모바일 푸시
+   * (notifMobile)는 실 푸시 인프라가 없어 게이트하지 않는다(라벨 "준비 중").
+   */
+  isDesktopBannerEnabled?: () => boolean;
 }
 
 const DEFAULT_CTX: DispatcherContext = {
@@ -483,6 +500,12 @@ export function installRealtimeDispatcher(
     // task-019-D: gate reply toast by preference.
     const replyChannel = ctx.resolveNotificationChannel?.(env.workspaceId, 'REPLY') ?? 'BOTH';
     if (replyChannel === 'OFF' || replyChannel === 'BROWSER') return;
+    // S76 (FR-PS-11): DND(스케줄 활성/수동) 중이면 배너(토스트) 억제. 캐시 갱신은 위에서
+    // 이미 끝났으므로 미읽/배지는 정상 — 토스트만 막는다.
+    if (ctx.isDndSuppressed?.()) return;
+    // S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너 토글이 꺼져 있으면 토스트 억제
+    // (설정 페이지 약속과 정합). 캐시 미로딩이면 기본 ON(폴백)이라 기존 동작 유지.
+    if (ctx.isDesktopBannerEnabled?.() === false) return;
     // Note: mention-precedence is already enforced server-side — the
     // recipients list excludes anyone the same message @-mentioned.
     if (replyThrottle.tryConsume()) {
@@ -1509,6 +1532,12 @@ export function installRealtimeDispatcher(
     // tracks intent for when it lands).
     const channel = ctx.resolveNotificationChannel?.(workspaceId, 'MENTION') ?? 'BOTH';
     if (channel === 'OFF' || channel === 'BROWSER') return;
+    // S76 (FR-PS-11): DND(스케줄 활성/수동) 중이면 배너(토스트) 억제. 멘션 캐시/배지는
+    // 위에서 이미 갱신됐으므로 영향 없음 — 토스트만 막는다.
+    if (ctx.isDndSuppressed?.()) return;
+    // S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너 토글이 꺼져 있으면 토스트 억제
+    // (설정 페이지 약속과 정합). 캐시 갱신은 위에서 이미 끝나 미읽/배지는 정상.
+    if (ctx.isDesktopBannerEnabled?.() === false) return;
 
     const push = useNotifications.getState().push;
     const url = ctx.resolveMentionUrl?.({

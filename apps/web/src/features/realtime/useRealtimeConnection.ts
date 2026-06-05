@@ -1,7 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import type { NotificationPreference } from '@qufox/shared-types';
+import type {
+  DndScheduleResponse,
+  GlobalNotificationSettings,
+  NotificationPreference,
+} from '@qufox/shared-types';
 import { connect, disconnect, getLastEventId, setLastEventId } from '../../lib/socket';
+import { shouldSuppressNotificationToast } from '../notifications/notificationDndGate';
 import { getAccessToken } from '../../lib/api';
 import { useUI } from '../../stores/ui-store';
 import { useAuth } from '../auth/AuthProvider';
@@ -134,6 +139,22 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
       resolveNotificationChannel: (workspaceId, eventType) => {
         const prefs = qc.getQueryData<NotificationPreference[]>(qk.me.notificationPreferences());
         return resolveChannel(prefs, workspaceId, eventType);
+      },
+      // S76 (FR-PS-11): effective DND 여부를 dndSchedule 캐시의 server effective
+      // preference 로 판정한다(스케줄 활성/수동 DND 모두 'dnd' 로 수렴 — 서버 단일 출처).
+      // 캐시 miss(스케줄 미로딩)면 억제하지 않는다(보수적 폴백 — shouldSuppressNotificationToast).
+      isDndSuppressed: () => {
+        const dnd = qc.getQueryData<DndScheduleResponse>(qk.me.dndSchedule());
+        return shouldSuppressNotificationToast(dnd?.preference);
+      },
+      // S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너(notifDesktop) 토글 상태를 글로벌
+      // 알림 설정 캐시에서 동기 읽는다. 캐시 미로딩(설정 페이지를 한 번도 안 연 세션)이면
+      // 기본 true(ON) — 기존 동작 유지. notifDesktop===false 일 때만 데스크톱 토스트를 억제.
+      isDesktopBannerEnabled: () => {
+        const global = qc.getQueryData<GlobalNotificationSettings>(
+          qk.me.globalNotificationSettings(),
+        );
+        return global?.notifDesktop ?? true;
       },
     });
 
