@@ -32,10 +32,14 @@ import { cn } from '../../lib/cn';
  * 모든 분기에 적용한다.
  *
  * Keyboard surface:
- *   - Ctrl/Cmd + /  → focus this input
  *   - Escape         → blur + close dropdown
  *   - ArrowDown / Up → move active option highlight
  *   - Enter          → select active option / open the highlighted result
+ *
+ * S83c round-2(reviewer LOW-3): Ctrl/Cmd + / 는 더 이상 이 입력을 포커스하지 않는다
+ * (S83c 에서 단축키 치트시트로 재바인딩됨). 검색 포커스는 CommandPalette / 토픽바 경로로
+ * 들어온다(qufox.search.focus 이벤트는 그쪽에서 dispatch). placeholder 의 "Ctrl+/" 표기는
+ * 후속 정리 대상이나 본 라운드 스코프 밖이다.
  */
 
 const QUERY_DEBOUNCE_MS = 300;
