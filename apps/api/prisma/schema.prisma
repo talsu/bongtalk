@@ -171,37 +171,61 @@ enum Density {
   COMPACT
 }
 
+// S77a (D14 / FR-PS-13): 친구 요청 수신 정책. 친구 요청 생성 게이트
+// (FriendsService.requestByUsername)가 **대상의** 정책을 확인한다.
+//   EVERYONE          — 누구나 친구 요청 가능(기본).
+//   MUTUAL_WORKSPACE  — 공통 워크스페이스 멤버만 친구 요청 가능.
+//   NOBODY            — 친구 요청 수신 차단.
+enum FriendReqPolicy {
+  EVERYONE
+  MUTUAL_WORKSPACE
+  NOBODY
+}
+
 // S46 (D06 / FR-MN-05): 사용자 글로벌 알림 설정. userId @unique — 사용자당 1행.
 // 행이 없으면 기본 MENTIONS(backfill 불요 — resolve 시 행 부재를 MENTIONS 로 폴백).
 // PRD NotificationPreference(글로벌) 카드에 대응하나, 본 프로젝트는 기존
 // UserNotificationPreference(TOAST/BROWSER)와 충돌을 피하려 별도 UserSettings
 // 테이블로 둔다. keywords 스캔은 S46 에서 컬럼 저장만(실 스캔은 BullMQ·S45 후속).
 model UserSettings {
-  id             String         @id @default(uuid()) @db.Uuid
-  userId         String         @unique @db.Uuid
+  id                          String          @id @default(uuid()) @db.Uuid
+  userId                      String          @unique @db.Uuid
   // 글로벌 알림 트리거. 기본값 MENTIONS(ADR-6).
-  notifTrigger   NotifLevel     @default(MENTIONS)
+  notifTrigger                NotifLevel      @default(MENTIONS)
   // 키워드 알림 — 최대 25개(서비스 레이어 enforce). S46 은 저장만.
-  keywords       String[]       @default([])
+  keywords                    String[]        @default([])
   // 1회성 DND 종료 시각. null = 미설정. 주간 스케줄(dndSchedule)과 독립.
-  dndUntil       DateTime?      @db.Timestamptz
+  dndUntil                    DateTime?       @db.Timestamptz
   // 주간 DND 스케줄. shape: { days: [{ day, startMin, endMin }] } (me/dnd-schedule 정합).
-  dndSchedule    Json?
+  dndSchedule                 Json?
   // S54 (D11 / FR-RS-13): 메시지 읽음 처리 모드. 기본 AUTO_FROM_POSITION.
-  markAsReadMode MarkAsReadMode @default(AUTO_FROM_POSITION)
+  markAsReadMode              MarkAsReadMode  @default(AUTO_FROM_POSITION)
   // S76 (D14 / FR-PS-09): 외관 설정. 행이 없으면 GET/PATCH 가 행을 생성(create-if-not-exists).
   //   theme=DARK · density=COZY · chatFontSize=15 · clock24h=true 가 기본값.
   // F-B2: clock24h 기본값은 true(24시간제) — 기존 사용자가 보던 동작 보존(회귀 방지).
-  theme          Theme          @default(DARK)
-  density        Density        @default(COZY)
-  chatFontSize   Int            @default(15)
-  clock24h       Boolean        @default(true)
+  theme                       Theme           @default(DARK)
+  density                     Density         @default(COZY)
+  chatFontSize                Int             @default(15)
+  clock24h                    Boolean         @default(true)
   // S76 (D14 / FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF. 둘 다 기본 true.
   // notifMobile 의 실 푸시 전송은 MVP 밖이라 컬럼 저장만(클라 표시 게이트만 동작).
-  notifDesktop   Boolean        @default(true)
-  notifMobile    Boolean        @default(true)
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
+  notifDesktop                Boolean         @default(true)
+  notifMobile                 Boolean         @default(true)
+  // S77a (D14 / FR-PS-12): 접근성. reduceMotion=true 면 app CSS 가 애니메이션/트랜지션을
+  // 무력화하고(html[data-reduce-motion=true]), highContrast=true 면 고대비 속성을 적용한다.
+  // 둘 다 기본 false — false 는 "사용자 미설정" 을 뜻하며 OS prefers-reduced-motion 가 우선.
+  reduceMotion                Boolean         @default(false)
+  highContrast                Boolean         @default(false)
+  // S77a (D14 / FR-PS-13): 프라이버시. 게이트 enforcement 위치(죽은 컨트롤 금지):
+  //   allowDmFromWorkspaceMembers=false → 워크스페이스 스코프 DM 개시 차단
+  //     (DirectMessagesService.createOrGet → assertWorkspaceDmAllowed · 친구는 허용·차단 우선).
+  //   messageRequestEnabled            → message-request 인프라 부재로 저장만(carryover).
+  //   allowFriendRequests              → 친구 요청 생성 게이트(FriendsService.requestByUsername).
+  allowDmFromWorkspaceMembers Boolean         @default(true)
+  messageRequestEnabled       Boolean         @default(true)
+  allowFriendRequests         FriendReqPolicy @default(EVERYONE)
+  createdAt                   DateTime        @default(now())
+  updatedAt                   DateTime        @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }

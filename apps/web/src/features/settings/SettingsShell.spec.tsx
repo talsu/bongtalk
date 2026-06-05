@@ -25,6 +25,10 @@ function renderAt(path: string): void {
           <Route path="appearance" element={<div data-testid="page-appearance">외관</div>} />
           <Route path="profile" element={<div data-testid="page-profile">프로필</div>} />
           <Route path="notifications" element={<div data-testid="page-notifications">알림</div>} />
+          <Route
+            path="accessibility"
+            element={<div data-testid="page-accessibility">접근성</div>}
+          />
           <Route path="privacy" element={<div data-testid="page-privacy">프라이버시</div>} />
         </Route>
         <Route path="/" element={<div data-testid="home">home</div>} />
@@ -74,15 +78,41 @@ describe('SettingsShell (FR-PS-18)', () => {
     );
   });
 
-  it('disables account/accessibility/advanced tabs (S77 이후)', () => {
+  it('disables account/advanced tabs (이후 슬라이스)', () => {
     renderAt('/settings/appearance');
-    for (const id of ['account', 'accessibility', 'advanced']) {
+    for (const id of ['account', 'advanced']) {
       const el = screen.getByTestId(`settings-tab-${id}`);
-      expect(el.getAttribute('aria-disabled')).toBe('true');
       // F-H2 (a11y HIGH-02): span 이 아니라 disabled <button> 이라 키보드/AT 가 인지한다.
       expect(el.tagName).toBe('BUTTON');
       expect((el as HTMLButtonElement).disabled).toBe(true);
+      // F9 (a11y MINOR-02): 데스크톱 탭은 native `disabled` 가 비활성 통지를 담당하므로
+      // aria-disabled 중복을 두지 않는다(disabled 단독).
+      expect(el.getAttribute('aria-disabled')).toBeNull();
     }
+  });
+
+  // F9 (a11y MINOR-03): 모바일 비활성 탭은 aria-disabled 를 문자열 "true" 로 명시한다.
+  it('mobile: disabled tabs set aria-disabled="true" as a string + native disabled', () => {
+    mobile = true;
+    renderAt('/settings');
+    for (const id of ['account', 'advanced']) {
+      const el = screen.getByTestId(`settings-tab-${id}`);
+      expect(el.tagName).toBe('BUTTON');
+      expect((el as HTMLButtonElement).disabled).toBe(true);
+      expect(el.getAttribute('aria-disabled')).toBe('true');
+    }
+    // F4 (ui M-1): 모바일 nav 는 유령 클래스 qf-m-list 를 더 이상 쓰지 않는다.
+    const nav = screen.getByTestId('settings-mobile-nav');
+    expect(nav.classList.contains('qf-m-list')).toBe(false);
+  });
+
+  // S77a: 접근성 탭이 활성화(enabled)되어 딥링크/Outlet 이 동작한다.
+  it('enables the accessibility tab and deep-links to its Outlet content (S77a)', () => {
+    renderAt('/settings/accessibility');
+    const tab = screen.getByTestId('settings-tab-accessibility');
+    expect(tab.tagName).toBe('A'); // enabled → Link(<a>), not a disabled button.
+    expect(tab.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByTestId('page-accessibility')).toBeTruthy();
   });
 
   it('navigating tabs swaps Outlet content', () => {

@@ -26,6 +26,16 @@ vi.mock('../friends/useFriends', () => ({
   useUnblockUser: () => ({ mutate: unblockMutate, isPending: false }),
 }));
 
+// S77a (FR-PS-13): 프라이버시 섹션 hooks 모킹.
+import type { PrivacySettings } from '@qufox/shared-types';
+let privacyCurrent: PrivacySettings;
+let privacyLoading: boolean;
+const privacyMutateAsync = vi.fn();
+vi.mock('./usePrivacySettings', () => ({
+  usePrivacySettings: () => ({ data: privacyCurrent, isLoading: privacyLoading }),
+  useUpdatePrivacySettings: () => ({ mutateAsync: privacyMutateAsync, isPending: false }),
+}));
+
 import { PrivacySafetySettingsPage } from './PrivacySafetySettingsPage';
 
 function renderPage(): void {
@@ -41,6 +51,14 @@ beforeEach(() => {
   blockedRows = [];
   unblockMutate.mockReset();
   pushMock.mockReset();
+  privacyCurrent = {
+    allowDmFromWorkspaceMembers: true,
+    messageRequestEnabled: true,
+    allowFriendRequests: 'EVERYONE',
+  };
+  privacyLoading = false;
+  privacyMutateAsync.mockReset();
+  privacyMutateAsync.mockResolvedValue(privacyCurrent);
 });
 
 afterEach(() => cleanup());
@@ -77,5 +95,64 @@ describe('PrivacySafetySettingsPage (FR-PS-14)', () => {
     fireEvent.click(screen.getByTestId('blocked-unblock-u-blocked'));
     fireEvent.click(screen.getByTestId('unblock-confirm-cancel'));
     expect(unblockMutate).not.toHaveBeenCalled();
+  });
+});
+
+describe('PrivacySafetySettingsPage — privacy section (FR-PS-13)', () => {
+  it('renders the privacy preferences section + keeps the blocked-list section', () => {
+    renderPage();
+    expect(screen.getByTestId('privacy-prefs')).toBeTruthy();
+    // 기존 차단 목록 섹션은 유지된다.
+    expect(screen.getByTestId('blocked-empty')).toBeTruthy();
+  });
+
+  it('PATCHes allowDmFromWorkspaceMembers on toggle', () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId('privacy-allow-dm-toggle'));
+    expect(privacyMutateAsync).toHaveBeenCalledWith({ allowDmFromWorkspaceMembers: false });
+  });
+
+  it('PATCHes messageRequestEnabled on toggle (honest stored-only label)', () => {
+    renderPage();
+    fireEvent.click(screen.getByTestId('privacy-message-request-toggle'));
+    expect(privacyMutateAsync).toHaveBeenCalledWith({ messageRequestEnabled: false });
+  });
+
+  it('PATCHes allowFriendRequests on dropdown change', () => {
+    renderPage();
+    fireEvent.change(screen.getByTestId('privacy-friend-req-select'), {
+      target: { value: 'NOBODY' },
+    });
+    expect(privacyMutateAsync).toHaveBeenCalledWith({ allowFriendRequests: 'NOBODY' });
+  });
+
+  it('reflects the current allowFriendRequests value on the select', () => {
+    privacyCurrent = {
+      allowDmFromWorkspaceMembers: false,
+      messageRequestEnabled: true,
+      allowFriendRequests: 'MUTUAL_WORKSPACE',
+    };
+    renderPage();
+    const select = screen.getByTestId('privacy-friend-req-select') as HTMLSelectElement;
+    expect(select.value).toBe('MUTUAL_WORKSPACE');
+    expect(screen.getByTestId('privacy-allow-dm-toggle').getAttribute('aria-checked')).toBe(
+      'false',
+    );
+  });
+
+  // F6 (a11y M-3): 프라이버시 서버값 로딩 중에는 aria-busy 스켈레톤을 보이고 토글은 미렌더.
+  it('shows an aria-busy loading region while privacy settings load', () => {
+    privacyLoading = true;
+    renderPage();
+    const busy = screen.getByTestId('privacy-prefs-loading');
+    expect(busy.getAttribute('aria-busy')).toBe('true');
+    expect(screen.queryByTestId('privacy-allow-dm-toggle')).toBeNull();
+  });
+
+  // F7 (a11y M-4): 장식용 eyebrow 는 접근성 트리에서 제거(aria-hidden).
+  it('hides the decorative eyebrow from assistive tech', () => {
+    renderPage();
+    const eyebrow = document.querySelector('.qf-eyebrow');
+    expect(eyebrow?.getAttribute('aria-hidden')).toBe('true');
   });
 });

@@ -94,6 +94,10 @@ export enum ErrorCode {
   FRIEND_NOT_FOUND = 'FRIEND_NOT_FOUND',
   FRIEND_INVALID_STATE = 'FRIEND_INVALID_STATE',
   FRIEND_CAP_REACHED = 'FRIEND_CAP_REACHED',
+  // S77a (FR-PS-13): 대상의 친구 요청 수신 정책(allowFriendRequests)을 충족하지 못해
+  // 친구 요청 생성이 거부됨(NOBODY 거부 / MUTUAL_WORKSPACE 공통 워크스페이스 부재). 권한
+  // 거부라 403 으로 매핑한다(FRIEND_TARGET_NOT_FOUND 404 와 구분).
+  FRIEND_REQUEST_BLOCKED = 'FRIEND_REQUEST_BLOCKED',
 
   // S16 (FR-DM-02): 그룹 DM 구성원 수 상한(본인 포함 ≤20) 초과. 요청 자체는
   // 형식상 유효하지만 도메인 한도를 넘어 처리 불가 → 422 (Unprocessable Entity).
@@ -386,6 +390,7 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.FRIEND_NOT_FOUND]: 404,
   [ErrorCode.FRIEND_INVALID_STATE]: 409,
   [ErrorCode.FRIEND_CAP_REACHED]: 422,
+  [ErrorCode.FRIEND_REQUEST_BLOCKED]: 403,
   // S16 (FR-DM-02): 그룹 DM cap 초과 → 422.
   [ErrorCode.DM_GROUP_CAP_EXCEEDED]: 422,
   // S19 (FR-DM-12): DM 수신권한 미충족 → 403.
