@@ -3,15 +3,13 @@ import {
   CreateReminderRequestSchema,
   ExecuteSlashCommandRequestSchema,
   ExecuteSlashCommandResponseSchema,
+  GiphySearchRequestSchema,
+  GiphySearchResponseSchema,
   ReminderItemSchema,
   ReminderListResponseSchema,
   ReminderStatusSchema,
 } from './slash-execution';
-import {
-  WS_EVENTS,
-  WS_EVENT_PAYLOAD_SCHEMAS,
-  ReminderNewFirePayloadSchema,
-} from './events';
+import { WS_EVENTS, WS_EVENT_PAYLOAD_SCHEMAS, ReminderNewFirePayloadSchema } from './events';
 
 /**
  * S80 (D15 / FR-SC-04·05·06 + FR-RC18) — 슬래시 실행 + Reminder 계약 단위 테스트.
@@ -80,6 +78,66 @@ describe('ExecuteSlashCommand contract', () => {
       }),
     ).toThrow();
   });
+
+  // S81b (FR-SC-07): /giphy 실행 — GIPHY_PREVIEW 변형.
+  it('GIPHY_PREVIEW 응답은 gifUrl/gifThumbUrl/title/keyword/offset 을 가진다', () => {
+    const parsed = ExecuteSlashCommandResponseSchema.parse({
+      responseType: 'GIPHY_PREVIEW',
+      gifUrl: 'https://media.giphy.com/media/abc/giphy.gif',
+      gifThumbUrl: 'https://media.giphy.com/media/abc/200w.gif',
+      title: 'cat',
+      keyword: 'cat',
+      offset: 0,
+    });
+    expect(parsed.responseType).toBe('GIPHY_PREVIEW');
+    if (parsed.responseType === 'GIPHY_PREVIEW') {
+      expect(parsed.keyword).toBe('cat');
+      expect(parsed.offset).toBe(0);
+    }
+  });
+
+  it('GIPHY_PREVIEW 응답의 gifUrl 은 URL 이어야 한다', () => {
+    expect(() =>
+      ExecuteSlashCommandResponseSchema.parse({
+        responseType: 'GIPHY_PREVIEW',
+        gifUrl: 'not-a-url',
+        gifThumbUrl: 'https://media.giphy.com/media/abc/200w.gif',
+        title: 'cat',
+        keyword: 'cat',
+        offset: 0,
+      }),
+    ).toThrow();
+  });
+});
+
+// S81b (FR-SC-07): /giphy Shuffle 재요청 계약.
+describe('GiphySearch contract', () => {
+  it('요청은 keyword(+선택 offset)를 파싱한다', () => {
+    const parsed = GiphySearchRequestSchema.parse({ keyword: 'dog', offset: 3 });
+    expect(parsed.keyword).toBe('dog');
+    expect(parsed.offset).toBe(3);
+  });
+
+  it('keyword 가 비면 거부한다', () => {
+    expect(() => GiphySearchRequestSchema.parse({ keyword: '' })).toThrow();
+  });
+
+  it('keyword 가 100자를 넘으면 거부한다', () => {
+    expect(() => GiphySearchRequestSchema.parse({ keyword: 'a'.repeat(101) })).toThrow();
+  });
+
+  it('offset 은 음수면 거부한다', () => {
+    expect(() => GiphySearchRequestSchema.parse({ keyword: 'dog', offset: -1 })).toThrow();
+  });
+
+  it('응답은 gifUrl/gifThumbUrl/title 을 파싱한다', () => {
+    const parsed = GiphySearchResponseSchema.parse({
+      gifUrl: 'https://media.giphy.com/media/abc/giphy.gif',
+      gifThumbUrl: 'https://media.giphy.com/media/abc/200w.gif',
+      title: 'dog',
+    });
+    expect(parsed.title).toBe('dog');
+  });
 });
 
 describe('Reminder contract', () => {
@@ -126,9 +184,7 @@ describe('Reminder contract', () => {
       channelId: null,
     });
     expect(parsed.when).toBe('tomorrow 10am');
-    expect(() =>
-      CreateReminderRequestSchema.parse({ when: '', message: '빈 시각' }),
-    ).toThrow();
+    expect(() => CreateReminderRequestSchema.parse({ when: '', message: '빈 시각' })).toThrow();
   });
 });
 

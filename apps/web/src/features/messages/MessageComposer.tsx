@@ -49,6 +49,7 @@ import type { EmojiCandidate } from './autocomplete/filterEmojis';
 import { useSlashCommands } from './slashCommands/useSlashCommands';
 import { executeSlashCommand } from './slashCommands/api';
 import { useEphemeralMessages } from './slashCommands/useEphemeralMessages';
+import { useGiphyPreview } from './slashCommands/useGiphyPreview';
 import {
   detectClientSlashAction,
   detectSlashExecution,
@@ -258,6 +259,8 @@ export function MessageComposer({
   const { data: slashCommandData } = useSlashCommands(workspaceId);
   // S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지) 채널별 스토어.
   const ephemeral = useEphemeralMessages(channelId);
+  // S81b (FR-SC-07): /giphy 실행이 받은 GIF 프리뷰(발신자 전용·채널별 단일).
+  const giphyPreview = useGiphyPreview(channelId);
   // S81a (FR-SC-08): 클라이언트 전용 슬래시 커맨드가 조작하는 로컬 UI 상태들.
   const setMediaCollapsed = useMediaCollapseStore((s) => s.setCollapsed);
   const openSearchPanel = useUI((s) => s.openSearchPanel);
@@ -530,6 +533,22 @@ export function MessageComposer({
       .then((res) => {
         if (res.responseType === 'IN_CHANNEL') {
           // 채널 게시 성공 — draft 비움(message:created WS 가 메시지를 표시).
+          clearDraft(channelId);
+          setPendingSpecial(null);
+          sendTypingStop();
+          return;
+        }
+        // S81b (FR-SC-07): GIPHY_PREVIEW — 발신자 전용 GIF 프리뷰를 인라인 카드로 띄운다.
+        // 채널 미게시(Send 시에만 게시). draft 를 비워 후속 입력을 받게 한다.
+        if (res.responseType === 'GIPHY_PREVIEW') {
+          giphyPreview.set({
+            gifUrl: res.gifUrl,
+            gifThumbUrl: res.gifThumbUrl,
+            title: res.title,
+            keyword: res.keyword,
+            offset: res.offset,
+          });
+          announce(`"${res.keyword}" GIF 미리보기를 열었습니다`);
           clearDraft(channelId);
           setPendingSpecial(null);
           sendTypingStop();

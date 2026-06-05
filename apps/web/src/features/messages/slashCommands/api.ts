@@ -1,7 +1,9 @@
 import {
   ExecuteSlashCommandResponseSchema,
+  GiphySearchResponseSchema,
   SlashCommandListResponseSchema,
   type ExecuteSlashCommandResponse,
+  type GiphySearchResponse,
   type SlashCommandItem,
 } from '@qufox/shared-types';
 import { apiRequest } from '../../../lib/api';
@@ -43,4 +45,27 @@ export async function executeSlashCommand(args: {
     },
   );
   return ExecuteSlashCommandResponseSchema.parse(raw);
+}
+
+/**
+ * S81b (D15 / FR-SC-07) — GIPHY 검색 프록시 API 클라이언트(프리뷰 Shuffle).
+ *
+ * POST /workspaces/:workspaceId/channels/:channelId/giphy/search → 단일 GIF 의 url/thumb/title.
+ * 같은 키워드의 offset 을 올려 다른 GIF 를 받는다. API 키는 서버 env 만 — 클라이언트는 절대
+ * 키를 알지 못한다. 응답은 shared-types Zod 로 파싱해 계약 위반을 런타임에서도 잡는다.
+ */
+export async function searchGiphy(args: {
+  workspaceId: string;
+  channelId: string;
+  keyword: string;
+  offset: number;
+}): Promise<GiphySearchResponse> {
+  const raw = await apiRequest(
+    `/workspaces/${args.workspaceId}/channels/${args.channelId}/giphy/search`,
+    {
+      method: 'POST',
+      body: { keyword: args.keyword, offset: args.offset },
+    },
+  );
+  return GiphySearchResponseSchema.parse(raw);
 }

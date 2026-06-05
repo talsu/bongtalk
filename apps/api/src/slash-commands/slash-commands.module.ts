@@ -5,6 +5,14 @@ import { SlashExecutionController } from './slash-execution.controller';
 import { SlashExecutionService } from './slash-execution.service';
 import { ReminderController } from './reminder.controller';
 import { ReminderService } from './reminder.service';
+import { GiphyController } from './giphy.controller';
+import {
+  GiphyProxyService,
+  GIPHY_FETCH,
+  GIPHY_KEY_PROVIDER,
+  type GiphyFetch,
+  type GiphyKeyProvider,
+} from './giphy-proxy.service';
 import { AuthModule } from '../auth/auth.module';
 import { MessagesModule } from '../messages/messages.module';
 import { ChannelsModule } from '../channels/channels.module';
@@ -42,8 +50,35 @@ import { MutesModule } from '../notifications/mutes/mutes.module';
     WorkspacesModule,
     MutesModule,
   ],
-  controllers: [SlashCommandController, SlashExecutionController, ReminderController],
-  providers: [SlashCommandService, SlashExecutionService, ReminderService],
+  controllers: [
+    SlashCommandController,
+    SlashExecutionController,
+    ReminderController,
+    // S81b (FR-SC-07): GIPHY 검색 프록시(프리뷰 Shuffle).
+    GiphyController,
+  ],
+  providers: [
+    SlashCommandService,
+    SlashExecutionService,
+    ReminderService,
+    GiphyProxyService,
+    // S81b (FR-SC-07): GiphyProxyService 의 HTTP 경계 + 키 공급자를 명시적으로 제공한다.
+    // 고정 호스트(api.giphy.com)라 SSRF 무관 — global fetch 를 그대로 어댑트한다(테스트는
+    // GiphyProxyService 생성자에 vi.fn() 을 직접 주입해 이 토큰을 우회한다).
+    {
+      provide: GIPHY_FETCH,
+      useValue: ((url, init) =>
+        fetch(url, init).then((r) => ({
+          ok: r.ok,
+          status: r.status,
+          json: () => r.json(),
+        }))) satisfies GiphyFetch,
+    },
+    {
+      provide: GIPHY_KEY_PROVIDER,
+      useValue: (() => process.env.GIPHY_API_KEY) satisfies GiphyKeyProvider,
+    },
+  ],
   exports: [SlashCommandService, ReminderService],
 })
 export class SlashCommandsModule {}
