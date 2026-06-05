@@ -25,7 +25,8 @@ const CMD_ID = '99999999-9999-9999-9999-999999999999';
 function makeService(overrides?: {
   create?: ReturnType<typeof vi.fn>;
   findFirst?: ReturnType<typeof vi.fn>;
-  update?: ReturnType<typeof vi.fn>;
+  findUnique?: ReturnType<typeof vi.fn>;
+  updateMany?: ReturnType<typeof vi.fn>;
   deleteMany?: ReturnType<typeof vi.fn>;
 }) {
   const create =
@@ -39,8 +40,11 @@ function makeService(overrides?: {
       handlerType: 'INTERNAL_ACTION',
     }));
   const findFirst = overrides?.findFirst ?? vi.fn(async () => ({ id: CMD_ID }));
-  const update =
-    overrides?.update ??
+  // S81c 리뷰 fix-forward(#5): update() 는 updateMany({id,workspaceId}) 원자 갱신 후 findUnique
+  // 재조회로 바뀌었다(TOCTOU 제거). 기본 mock 은 1건 갱신 + 갱신된 행 반환.
+  const updateMany = overrides?.updateMany ?? vi.fn(async () => ({ count: 1 }));
+  const findUnique =
+    overrides?.findUnique ??
     vi.fn(async () => ({
       id: CMD_ID,
       name: 'deploy',
@@ -50,9 +54,11 @@ function makeService(overrides?: {
       handlerType: 'INTERNAL_ACTION',
     }));
   const deleteMany = overrides?.deleteMany ?? vi.fn(async () => ({ count: 1 }));
-  const prisma = { slashCommand: { create, findFirst, update, deleteMany } };
+  const prisma = {
+    slashCommand: { create, findFirst, findUnique, updateMany, deleteMany },
+  };
   const svc = new CustomSlashCommandService(prisma as never);
-  return { svc, create, findFirst, update, deleteMany };
+  return { svc, create, findFirst, findUnique, updateMany, deleteMany };
 }
 
 const ephemeralReq: CreateCustomCommandRequest = {
@@ -132,26 +138,35 @@ describe('CustomSlashCommandService.create', () => {
 
 describe('CustomSlashCommandService.update', () => {
   it('미존재(다른 워크스페이스 포함) PATCH 는 404 SLASH_COMMAND_NOT_FOUND', async () => {
-    const { svc, update } = makeService({ findFirst: vi.fn(async () => null) });
+    // updateMany count===0(소유 스코프 밖) → NOT_FOUND. 재조회(findUnique)는 도달하지 않는다.
+    const { svc, findUnique } = makeService({ updateMany: vi.fn(async () => ({ count: 0 })) });
     await expect(svc.update(WS_ID, CMD_ID, { description: 'x' })).rejects.toMatchObject({
       code: ErrorCode.SLASH_COMMAND_NOT_FOUND,
     });
-    expect(update).not.toHaveBeenCalled();
+    expect(findUnique).not.toHaveBeenCalled();
+  });
+
+  it('updateMany 는 workspaceId 스코프를 where 에 포함한다(TOCTOU/IDOR 방지)', async () => {
+    const { svc, updateMany } = makeService();
+    await svc.update(WS_ID, CMD_ID, { description: 'x' });
+    const arg = updateMany.mock.calls[0][0] as { where: Record<string, unknown> };
+    expect(arg.where).toEqual({ id: CMD_ID, workspaceId: WS_ID });
   });
 
   it('name 변경 시 빌트인 충돌을 다시 차단한다', async () => {
-    const { svc } = makeService();
+    const { svc, updateMany } = makeService();
     await expect(svc.update(WS_ID, CMD_ID, { name: 'me' })).rejects.toMatchObject({
       code: ErrorCode.SLASH_COMMAND_BUILTIN_CONFLICT,
     });
+    expect(updateMany).not.toHaveBeenCalled();
   });
 
   it('부분 갱신(action 만)은 responseType/actionParams 를 함께 갱신한다', async () => {
-    const { svc, update } = makeService();
+    const { svc, updateMany } = makeService();
     await svc.update(WS_ID, CMD_ID, {
       action: { actionType: 'REDIRECT_CHANNEL', channelId: WS_ID },
     });
-    const arg = update.mock.calls[0][0] as { data: Record<string, unknown> };
+    const arg = updateMany.mock.calls[0][0] as { data: Record<string, unknown> };
     expect(arg.data.responseType).toBe('EPHEMERAL');
     expect(arg.data.actionType).toBe('REDIRECT_CHANNEL');
     expect(arg.data.actionParams).toEqual({ channelId: WS_ID });

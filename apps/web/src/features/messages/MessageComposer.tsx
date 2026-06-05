@@ -571,8 +571,12 @@ export function MessageComposer({
             navigate(`/dm/${res.navigate.userId}`);
           }
           // S81c (FR-SC-10): 커스텀 REDIRECT_CHANNEL 커맨드는 접근 검증된 채널로 이동한다.
+          // S81c 리뷰 fix-forward(MAJOR-1 / a11y SC-1): canonical 라우트는 `/w/:slug/:channelName`
+          // 이다(ChannelList/ChannelBrowser 등 전부 동일). 종전 `/c/:channelId` 는 라우트가 없어
+          // catch-all `*`→`/` 로 튕겼다(기능 미작동). 서버가 검증·해석해 실어준 slug + channelName
+          // 으로 기존 채널 경로에 그대로 이동한다.
           if (res.navigate?.kind === 'channel') {
-            navigate(`/c/${res.navigate.channelId}`);
+            navigate(`/w/${res.navigate.slug}/${res.navigate.channelName}`);
           }
         }
       })

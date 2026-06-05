@@ -65,19 +65,7 @@ export class CustomSlashCommandService {
     cmdId: string,
     req: UpdateCustomCommandRequest,
   ): Promise<SlashCommandItem> {
-    // 소유 스코프 확인(IDOR 방지 — 다른 워크스페이스 행은 존재 자체를 누출하지 않고 404).
-    const existing = await this.prisma.slashCommand.findFirst({
-      where: { id: cmdId, workspaceId },
-      select: { id: true },
-    });
-    if (!existing) {
-      throw new DomainError(
-        ErrorCode.SLASH_COMMAND_NOT_FOUND,
-        '대상 커스텀 커맨드를 찾을 수 없습니다',
-      );
-    }
-
-    const data: Prisma.SlashCommandUpdateInput = {};
+    const data: Prisma.SlashCommandUpdateManyMutationInput = {};
     if (req.name !== undefined) {
       const name = normalizeName(req.name);
       assertNotBuiltinName(name);
@@ -94,16 +82,39 @@ export class CustomSlashCommandService {
       data.actionParams = actionToParams(req.action);
     }
 
+    // S81c 리뷰 fix-forward(security/perf #5): 종전 findFirst({id,workspaceId}) 후
+    // update({where:{id}}) 는 두 쿼리 사이에 워크스페이스 스코프가 풀려 TOCTOU 가 있었다
+    // (Prisma update 는 비-unique 복합 where 미지원). remove() 의 deleteMany 선례처럼
+    // updateMany({where:{id,workspaceId}}) 단일 원자 쿼리로 소유 스코프 안에서만 갱신하고,
+    // count===0 → NOT_FOUND(IDOR 방지 — 타 워크스페이스 행은 존재 누출 없이 404).
+    let res: Prisma.BatchPayload;
     try {
-      const row = await this.prisma.slashCommand.update({
-        where: { id: cmdId },
+      res = await this.prisma.slashCommand.updateMany({
+        where: { id: cmdId, workspaceId },
         data,
-        select: SELECT_ITEM,
       });
-      return toItem(row);
     } catch (err) {
       throw mapUniqueViolation(err);
     }
+    if (res.count === 0) {
+      throw new DomainError(
+        ErrorCode.SLASH_COMMAND_NOT_FOUND,
+        '대상 커스텀 커맨드를 찾을 수 없습니다',
+      );
+    }
+    // 갱신된 행을 재조회해 read DTO 를 돌려준다(원자 갱신은 위 updateMany 가 이미 보장 —
+    // 이 시점엔 본 워크스페이스 소유가 확정된 행이므로 단순 findUnique 로 충분).
+    const row = await this.prisma.slashCommand.findUnique({
+      where: { id: cmdId },
+      select: SELECT_ITEM,
+    });
+    if (!row) {
+      throw new DomainError(
+        ErrorCode.SLASH_COMMAND_NOT_FOUND,
+        '대상 커스텀 커맨드를 찾을 수 없습니다',
+      );
+    }
+    return toItem(row);
   }
 
   /** 삭제(FR-SC-09). 본 워크스페이스 소유 커스텀만. 멱등(없으면 404). */

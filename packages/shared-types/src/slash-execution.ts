@@ -55,9 +55,20 @@ export const ExecuteSlashNavigateDmSchema = z.object({
 // S81c (D15 / FR-SC-10): kind='channel' — 커스텀 REDIRECT_CHANNEL 액션이 가리키는 일반 채널로의
 // 이동. 서버가 본인 접근 가능 여부를 검증한 뒤에만 이 navigate 를 싣는다(IDOR 방지). DM 과 달리
 // userId 가 없으므로 discriminated union 으로 분리한다(FE 는 kind 로 라우트를 분기).
+//
+// S81c 리뷰 fix-forward(MAJOR-1 / a11y SC-1): 채널 canonical 웹 라우트는 `/w/:slug/:channelName`
+// 이다(ChannelList/ChannelBrowser 등 전부 동일). 기존엔 channelId 만 실어 FE 가 존재하지 않는
+// `/c/:channelId` 로 navigate → catch-all `*`→`/` 로 튕겨 기능이 작동하지 않았다. 서버가 이미
+// 채널을 로드(loadChannelMeta)하므로, 그 워크스페이스 slug + 채널 name 을 payload 에 실어 FE 가
+// 새 라우트 없이 기존 채널 경로로 바로 이동하게 한다. channelId 는 식별/디버깅 보조로 유지한다
+// (dm 변형과 동일 — userId 로 라우팅, channelId 보조).
 export const ExecuteSlashNavigateChannelSchema = z.object({
   kind: z.literal('channel'),
   channelId: z.string().uuid(),
+  // 워크스페이스 slug — `/w/:slug/:channelName` 라우트의 첫 세그먼트.
+  slug: z.string().min(1),
+  // 채널 name(표시명 displayName 이 아니라 라우트 식별 name) — 두 번째 세그먼트.
+  channelName: z.string().min(1),
 });
 
 // 이동 대상. 현재 DM(전역) + 일반 채널(REDIRECT_CHANNEL). 향후 스레드 등 확장 여지를 위해 union.

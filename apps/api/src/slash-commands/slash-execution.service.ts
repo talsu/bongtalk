@@ -163,6 +163,11 @@ export class SlashExecutionService {
         error: true,
       };
     }
+    // S81c 리뷰 fix-forward(MED-1 authz): 컨트롤러 ChannelAccessGuard 는 READ 만 검증하므로,
+    // READ-only 멤버가 /shrug·/me 등으로 채널에 글을 게시하는 우회 면이 있었다. 게시 전에
+    // WRITE_MESSAGE 비트를 검사한다(없으면 발신자 전용 EPHEMERAL error · 채널 미게시).
+    const denied = await this.assertCanWrite(args.channelId, args.userId);
+    if (denied) return denied;
     const { message } = await this.messages.send({
       workspaceId: args.workspaceId,
       channelId: args.channelId,
@@ -567,11 +572,15 @@ export class SlashExecutionService {
         `알 수 없는 커맨드입니다: /${command}`,
       );
     }
-    const row = await this.prisma.slashCommand.findFirst({
-      where: { workspaceId: args.workspaceId, name: command, enabled: true },
-      select: { actionType: true, actionParams: true },
+    // S81c 리뷰 fix-forward(perf #1/#2): @@unique([workspaceId, name]) 복합 키로 단일 행을
+    // 정확 조회한다(findFirst 풀스캔 회피). 이 경로에서 workspaceId 는 위 가드로 non-null 보장.
+    // enabled 는 WHERE 가 아니라 코드에서 체크해, disabled 행도 미존재와 동일하게 UNKNOWN 으로
+    // 떨군다(자동완성 목록은 enabled 만 노출하므로 사용자 관점에선 동일).
+    const row = await this.prisma.slashCommand.findUnique({
+      where: { workspaceId_name: { workspaceId: args.workspaceId, name: command } },
+      select: { actionType: true, actionParams: true, enabled: true },
     });
-    if (!row || row.actionType === null) {
+    if (!row || row.actionType === null || row.enabled !== true) {
       throw new DomainError(
         ErrorCode.SLASH_COMMAND_UNKNOWN,
         `알 수 없는 커맨드입니다: /${command}`,
@@ -632,6 +641,10 @@ export class SlashExecutionService {
         error: true,
       };
     }
+    // S81c 리뷰 fix-forward(MED-1 authz): SEND_TEMPLATE 도 채널에 메시지를 게시하므로 게시 전에
+    // WRITE_MESSAGE 비트를 검사한다(READ-only 멤버 우회 차단 — runInChannel 과 동일 게이트).
+    const denied = await this.assertCanWrite(args.channelId, args.userId);
+    if (denied) return denied;
     try {
       const { message } = await this.messages.send({
         workspaceId: args.workspaceId,
@@ -675,10 +688,17 @@ export class SlashExecutionService {
         error: true,
       };
     }
+    // S81c 리뷰 fix-forward(MAJOR-1): canonical 라우트(`/w/:slug/:channelName`)를 구성할 수 있도록
+    // slug + channelName 을 싣는다. 워크스페이스 slug 가 없는 비정상 행(이론상 도달 불가 — 위에서
+    // workspaceId 일치 + 채널 로드 성공)은 안전하게 형식 위반으로 흡수한다(존재 누출 없이 미게시).
+    const slug = channel.workspace?.slug;
+    if (!slug) {
+      return this.malformedActionEphemeral();
+    }
     return {
       responseType: 'EPHEMERAL',
       content: '채널로 이동합니다',
-      navigate: { kind: 'channel', channelId },
+      navigate: { kind: 'channel', channelId, slug, channelName: channel.name },
     };
   }
 
@@ -692,14 +712,67 @@ export class SlashExecutionService {
 
   // ── S81a (FR-SC-08): 공유 헬퍼 ──────────────────────────────────────────────────
 
-  /** 채널 ACL 검사에 필요한 최소 메타(id/workspaceId/isPrivate)를 로드한다. soft-delete 제외. */
+  /**
+   * S81c 리뷰 fix-forward(MED-1 authz): IN_CHANNEL 게시(/shrug·/me·SEND_TEMPLATE) 직전의
+   * WRITE_MESSAGE 게이트. channelId 는 컨트롤러 ChannelAccessGuard 가 READ 검증한 URL 경로
+   * 식별자라 신뢰 가능하므로, 워크스페이스 일치 제약 없이 id 로 ACL 메타(workspaceId/isPrivate)를
+   * 로드한다(DM 채널도 동일 경로 — DM 멤버는 override 로 WRITE 보유). soft-delete 행은 제외한다.
+   *
+   * 반환값: 권한이 없으면(또는 채널 미존재) 발신자 전용 EPHEMERAL error 응답을, 게시 허용이면
+   * null 을 돌려준다(호출부는 null 이면 send 로 진행).
+   *
+   * ★ANNOUNCEMENT 채널 게이트·slowmode 는 이번 OUT(carryover) — WRITE_MESSAGE 비트만 검사한다.
+   */
+  private async assertCanWrite(
+    channelId: string,
+    userId: string,
+  ): Promise<ExecuteSlashCommandResponse | null> {
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, deletedAt: null },
+      select: { id: true, workspaceId: true, isPrivate: true },
+    });
+    if (!channel) {
+      return { responseType: 'EPHEMERAL', content: '채널을 찾을 수 없습니다', error: true };
+    }
+    const allowed = await this.channelAccess.hasPermission(
+      channel,
+      userId,
+      Permission.WRITE_MESSAGE,
+    );
+    if (!allowed) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: '이 채널에 글을 쓸 권한이 없습니다',
+        error: true,
+      };
+    }
+    return null;
+  }
+
+  /**
+   * 채널 ACL 검사에 필요한 메타를 로드한다. soft-delete 제외. id/workspaceId/isPrivate 외에,
+   * REDIRECT_CHANNEL navigate 가 canonical 라우트(`/w/:slug/:channelName`)를 구성하도록 채널
+   * name 과 워크스페이스 slug 를 함께 싣는다(추가 컬럼은 다른 호출부에 무해 — ACL 검사만 쓰면 무시).
+   */
   private async loadChannelMeta(
     channelId: string,
     workspaceId: string,
-  ): Promise<{ id: string; workspaceId: string | null; isPrivate: boolean } | null> {
+  ): Promise<{
+    id: string;
+    workspaceId: string | null;
+    isPrivate: boolean;
+    name: string;
+    workspace: { slug: string } | null;
+  } | null> {
     const ch = await this.prisma.channel.findFirst({
       where: { id: channelId, workspaceId, deletedAt: null },
-      select: { id: true, workspaceId: true, isPrivate: true },
+      select: {
+        id: true,
+        workspaceId: true,
+        isPrivate: true,
+        name: true,
+        workspace: { select: { slug: true } },
+      },
     });
     return ch;
   }

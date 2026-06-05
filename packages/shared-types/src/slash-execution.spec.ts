@@ -31,10 +31,21 @@ describe('ExecuteSlashNavigate union (S81a dm + S81c channel)', () => {
     expect(() => ExecuteSlashNavigateSchema.parse({ kind: 'dm', channelId: DM_CH })).toThrow();
   });
 
-  it('kind=channel 은 channelId 만 요구한다(REDIRECT_CHANNEL)', () => {
-    const parsed = ExecuteSlashNavigateSchema.parse({ kind: 'channel', channelId: CH });
+  it('kind=channel 은 channelId + slug + channelName 을 요구한다(REDIRECT_CHANNEL)', () => {
+    const parsed = ExecuteSlashNavigateSchema.parse({
+      kind: 'channel',
+      channelId: CH,
+      slug: 'eng',
+      channelName: 'general',
+    });
     expect(parsed.kind).toBe('channel');
-    if (parsed.kind === 'channel') expect(parsed.channelId).toBe(CH);
+    if (parsed.kind === 'channel') {
+      expect(parsed.channelId).toBe(CH);
+      expect(parsed.slug).toBe('eng');
+      expect(parsed.channelName).toBe('general');
+    }
+    // slug/channelName 누락은 거부(라우트 세그먼트 불가).
+    expect(() => ExecuteSlashNavigateSchema.parse({ kind: 'channel', channelId: CH })).toThrow();
   });
 
   it('알 수 없는 kind 는 거부한다', () => {

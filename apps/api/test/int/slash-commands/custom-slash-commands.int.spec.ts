@@ -6,6 +6,7 @@ import {
   ORIGIN,
   seedMessageStack,
   setupMsgIntEnv,
+  signup,
   type MsgIntEnv,
   type SeededStack,
 } from '../messages/helpers';
@@ -144,6 +145,89 @@ describe('Custom slash commands CRUD + execute (int)', () => {
     expect(again.status).toBe(404);
   });
 
+  it('security MED(WorkspaceMemberGuard): 비멤버는 POST/PATCH/DELETE 모두 404', async () => {
+    // 먼저 ADMIN 으로 대상 커맨드 하나를 만들어 둔다(PATCH/DELETE 표적).
+    const created = await request(env.baseUrl)
+      .post(crudUrl(stack))
+      .set('origin', ORIGIN)
+      .set(bearer(stack.admin.accessToken))
+      .send({ name: 'nm-target', action: { actionType: 'EPHEMERAL_TEXT', text: 'x' } });
+    expect(created.status).toBe(201);
+    const cmdId = created.body.id as string;
+
+    // 비멤버(stack.nonMember)는 WorkspaceMemberGuard 에서 404(WORKSPACE_NOT_MEMBER) —
+    // 존재 자체를 누출하지 않는다(403 아님 · 가드 주석 명시).
+    const post = await request(env.baseUrl)
+      .post(crudUrl(stack))
+      .set('origin', ORIGIN)
+      .set(bearer(stack.nonMember.accessToken))
+      .send({ name: 'nm-create', action: { actionType: 'EPHEMERAL_TEXT', text: 'x' } });
+    expect(post.status).toBe(404);
+
+    const patch = await request(env.baseUrl)
+      .patch(`${crudUrl(stack)}/${cmdId}`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.nonMember.accessToken))
+      .send({ description: '침입' });
+    expect(patch.status).toBe(404);
+
+    const del = await request(env.baseUrl)
+      .delete(`${crudUrl(stack)}/${cmdId}`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.nonMember.accessToken));
+    expect(del.status).toBe(404);
+
+    // 비멤버 시도 후에도 원본 커맨드는 그대로 살아 있어야 한다(삭제 미수행 확인).
+    const stillThere = await env.prisma.slashCommand.findUnique({ where: { id: cmdId } });
+    expect(stillThere).not.toBeNull();
+  });
+
+  it('security MED(cross-ws IDOR): 타 워크스페이스 cmdId 의 PATCH/DELETE 는 404(스코프 거부)', async () => {
+    // 워크스페이스 A(stack)에 ADMIN 이 커맨드를 만든다.
+    const created = await request(env.baseUrl)
+      .post(crudUrl(stack))
+      .set('origin', ORIGIN)
+      .set(bearer(stack.admin.accessToken))
+      .send({
+        name: 'idor-target',
+        description: 'A 소유',
+        action: { actionType: 'EPHEMERAL_TEXT', text: 'A 본문' },
+      });
+    expect(created.status).toBe(201);
+    const cmdIdA = created.body.id as string;
+
+    // 별도 워크스페이스 B 를 만든다(다른 OWNER — B 의 관리자).
+    const ownerB = await signup(env.baseUrl, 'idorb');
+    const wsB = await request(env.baseUrl)
+      .post('/workspaces')
+      .set('origin', ORIGIN)
+      .set(bearer(ownerB.accessToken))
+      .send({ name: 'IdorWsB', slug: `idor-ws-b-${Date.now().toString(36)}` });
+    expect(wsB.status).toBe(201);
+    const wsIdB = wsB.body.id as string;
+
+    // B 의 OWNER 가 A 의 cmdId 를 B 의 URL 스코프로 PATCH → updateMany({id, workspaceId:B})
+    // count 0 → 404(존재 누출 없이 NOT_FOUND · TOCTOU 없는 단일 원자 쿼리).
+    const patch = await request(env.baseUrl)
+      .patch(`/workspaces/${wsIdB}/slash-commands/${cmdIdA}`)
+      .set('origin', ORIGIN)
+      .set(bearer(ownerB.accessToken))
+      .send({ description: '교차 침입' });
+    expect(patch.status).toBe(404);
+    expect(patch.body.errorCode).toBe('SLASH_COMMAND_NOT_FOUND');
+
+    const del = await request(env.baseUrl)
+      .delete(`/workspaces/${wsIdB}/slash-commands/${cmdIdA}`)
+      .set('origin', ORIGIN)
+      .set(bearer(ownerB.accessToken));
+    expect(del.status).toBe(404);
+    expect(del.body.errorCode).toBe('SLASH_COMMAND_NOT_FOUND');
+
+    // A 소유 커맨드는 변경/삭제되지 않고 그대로다(스코프 격리 확인).
+    const intact = await env.prisma.slashCommand.findUnique({ where: { id: cmdIdA } });
+    expect(intact?.description).toBe('A 소유');
+  });
+
   it('FR-SC-10: SEND_TEMPLATE 실행 → {args} 치환 후 채널에 메시지 게시(IN_CHANNEL)', async () => {
     const created = await request(env.baseUrl)
       .post(crudUrl(stack))
@@ -199,7 +283,19 @@ describe('Custom slash commands CRUD + execute (int)', () => {
       .send({ command: 'go', text: '', idempotencyKey: randomUUID() });
     expect(exec.status).toBe(201);
     expect(exec.body.responseType).toBe('EPHEMERAL');
-    expect(exec.body.navigate).toEqual({ kind: 'channel', channelId: stack.channelId });
+    // S81c 리뷰 fix-forward(MAJOR-1): navigate 는 canonical 라우트(`/w/:slug/:channelName`)를
+    // 구성할 slug + channelName 을 싣는다(존재하지 않는 `/c/:channelId` 가 아니다). 서버가 채널·
+    // 워크스페이스를 실제 조회해 실어주므로 DB 의 채널 name + 워크스페이스 slug 와 일치해야 한다.
+    const ch = await env.prisma.channel.findUnique({
+      where: { id: stack.channelId },
+      select: { name: true, workspace: { select: { slug: true } } },
+    });
+    expect(exec.body.navigate).toEqual({
+      kind: 'channel',
+      channelId: stack.channelId,
+      slug: ch?.workspace?.slug,
+      channelName: ch?.name,
+    });
   });
 
   it('FR-SC-10: 미존재 커스텀 커맨드는 SLASH_COMMAND_UNKNOWN(404)', async () => {

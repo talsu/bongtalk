@@ -20,20 +20,32 @@ const IDEM = '66666666-6666-6666-6666-666666666666';
 type CustomRow = {
   actionType: string | null;
   actionParams: Record<string, unknown> | null;
+  // S81c 리뷰 fix-forward(perf #1/#2): findUnique 가 enabled 를 select 하고 코드에서 체크한다.
+  // 테스트 fixture 는 enabled 를 생략하면 기본 true 로 본다(makeService 가 주입).
+  enabled?: boolean;
 } | null;
 
 function makeService(opts?: { customRow?: CustomRow; hasPermission?: boolean }) {
-  const slashFindFirst = vi.fn(async () => opts?.customRow ?? null);
+  // S81c 리뷰 fix-forward(perf #1/#2): runCustom 은 findUnique(workspaceId_name) 로 바뀌었다.
+  // enabled 는 코드에서 체크하므로(WHERE 가 아니라), fixture 에 없으면 true 로 채워 조회 결과를
+  // 흉내낸다(존재하는 enabled 행). disabled 행 시나리오는 customRow=null 로 흉내낸다(미존재 동치).
+  const customRowResolved =
+    opts?.customRow != null ? { enabled: true, ...opts.customRow } : (opts?.customRow ?? null);
+  const slashFindUnique = vi.fn(async () => customRowResolved);
   const send = vi.fn(async () => ({ message: { id: 'm-custom' } }));
   const hasPermission = vi.fn(async () => opts?.hasPermission ?? true);
+  // loadChannelMeta(REDIRECT)는 name + workspace.slug 를, assertCanWrite 는 id/workspaceId/
+  // isPrivate 만 select 한다. 두 select 를 모두 만족하는 행을 돌려준다.
   const channelFindFirst = vi.fn(async () => ({
     id: TARGET_CH,
     workspaceId: WS_ID,
     isPrivate: true,
+    name: 'target-channel',
+    workspace: { slug: 'eng' },
   }));
 
   const prisma = {
-    slashCommand: { findFirst: slashFindFirst },
+    slashCommand: { findUnique: slashFindUnique },
     channel: { findFirst: channelFindFirst },
     user: { findMany: vi.fn(async () => []) },
     workspaceMember: { findMany: vi.fn(async () => []) },
@@ -54,7 +66,7 @@ function makeService(opts?: { customRow?: CustomRow; hasPermission?: boolean }) 
     {} as never, // mutes
     { search: vi.fn() } as never, // giphy
   );
-  return { service, slashFindFirst, send, hasPermission, channelFindFirst };
+  return { service, slashFindUnique, send, hasPermission, channelFindFirst };
 }
 
 function args(over: Partial<Parameters<SlashExecutionService['execute']>[0]>) {
@@ -80,9 +92,9 @@ describe('execute() 커스텀 분기 — EPHEMERAL_TEXT', () => {
       customRow: { actionType: 'EPHEMERAL_TEXT', actionParams: { text: '배포 가이드 링크' } },
     });
     const res = await m.service.execute(args({ command: 'guide' }));
-    expect(m.slashFindFirst).toHaveBeenCalledWith(
+    expect(m.slashFindUnique).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { workspaceId: WS_ID, name: 'guide', enabled: true },
+        where: { workspaceId_name: { workspaceId: WS_ID, name: 'guide' } },
       }),
     );
     expect(res.responseType).toBe('EPHEMERAL');
@@ -145,7 +157,14 @@ describe('execute() 커스텀 분기 — REDIRECT_CHANNEL', () => {
     const res = await m.service.execute(args({ command: 'go' }));
     expect(res.responseType).toBe('EPHEMERAL');
     if (res.responseType === 'EPHEMERAL') {
-      expect(res.navigate).toEqual({ kind: 'channel', channelId: TARGET_CH });
+      // S81c 리뷰 fix-forward(MAJOR-1): navigate 는 canonical 라우트 세그먼트(slug + channelName)를
+      // 싣는다(FE 가 /w/:slug/:channelName 으로 이동 — 존재하지 않는 /c/:channelId 가 아니다).
+      expect(res.navigate).toEqual({
+        kind: 'channel',
+        channelId: TARGET_CH,
+        slug: 'eng',
+        channelName: 'target-channel',
+      });
       expect(res.error).toBeUndefined();
     }
   });
@@ -194,7 +213,7 @@ describe('execute() 커스텀 분기 — 미존재 / DM', () => {
     await expect(
       m.service.execute(args({ command: 'guide', workspaceId: null })),
     ).rejects.toMatchObject({ code: ErrorCode.SLASH_COMMAND_UNKNOWN });
-    expect(m.slashFindFirst).not.toHaveBeenCalled();
+    expect(m.slashFindUnique).not.toHaveBeenCalled();
   });
 
   it('actionType=null(빌트인 슬롯) 행은 실행하지 않고 UNKNOWN', async () => {
