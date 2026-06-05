@@ -273,6 +273,15 @@ export const ErrorCodeSchema = z.enum([
   'SAVED_LIMIT_EXCEEDED',
   // S52 (FR-PS-08): PATCH 대상 저장 항목이 본인 소유가 아니거나 없음 → 404.
   'SAVED_NOT_FOUND',
+  // S80 (D15 / FR-SC-04·05·06): 슬래시 커맨드 실행.
+  //   SLASH_COMMAND_UNKNOWN: command 가 BUILTIN_COMMANDS/커스텀 어디에도 없음 → 404.
+  //   SLASH_COMMAND_NOT_EXECUTABLE: 실행 핸들러 미구현 커맨드(예: /giphy·커스텀 — S81+) → 422.
+  //   REMINDER_PARSE_FAILED: /remind 자연어 시각 파싱 실패(과거/모호/미인식) → 400 + 구문 예시.
+  //   REMINDER_NOT_FOUND: DELETE 대상 리마인더가 본인 소유가 아니거나 없음 → 404.
+  'SLASH_COMMAND_UNKNOWN',
+  'SLASH_COMMAND_NOT_EXECUTABLE',
+  'REMINDER_PARSE_FAILED',
+  'REMINDER_NOT_FOUND',
   // S73 (D14 / FR-PS-01/02/03): 전역 프로필 + 아바타.
   //   HANDLE_TAKEN:           핸들이 이미 점유됨(다른 사용자 @unique) → 409.
   //   HANDLE_COOLDOWN_ACTIVE: 핸들 변경 쿨다운(30일) 미경과 → 400 + details.nextAllowedAt(ISO).
@@ -363,3 +372,5 @@ export * from './settings';
 export * from './security';
 // S79 — 슬래시 커맨드 자동완성 컨트랙트 (D15 / FR-SC-01·02·03)
 export * from './slash-command';
+// S80 — 슬래시 커맨드 실행 + Reminder 컨트랙트 (D15 / FR-SC-04·05·06 + FR-RC18)
+export * from './slash-execution';

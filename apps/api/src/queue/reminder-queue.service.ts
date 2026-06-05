@@ -5,7 +5,9 @@ import {
   REMINDER_QUEUE,
   REMINDER_FIRE_JOB,
   REMINDER_JOB_OPTS,
+  remindJobId,
   type ReminderJobData,
+  type RemindJobData,
 } from './reminder-queue.constants';
 
 /**
@@ -24,7 +26,11 @@ import {
 export class ReminderQueueService {
   private readonly logger = new Logger(ReminderQueueService.name);
 
-  constructor(@InjectQueue(REMINDER_QUEUE) private readonly queue: Queue<ReminderJobData>) {}
+  // 같은 큐에 SavedMessage 잡(ReminderJobData)과 /remind 잡(RemindJobData)을 함께 싣는다.
+  // jobId 접두사(`reminder:`)로 구분하므로 큐 타입은 두 페이로드의 합집합이다.
+  constructor(
+    @InjectQueue(REMINDER_QUEUE) private readonly queue: Queue<ReminderJobData | RemindJobData>,
+  ) {}
 
   /**
    * 리마인더를 예약(또는 재예약)한다. jobId=savedMessageId 로 멱등 — 기존 잡을
@@ -83,5 +89,51 @@ export class ReminderQueueService {
     now?: Date;
   }): Promise<void> {
     await this.schedule(args);
+  }
+
+  /**
+   * S80 (D15 / FR-SC-06): /remind(Reminder 모델) 지연잡을 등록한다. jobId 는
+   * `reminder:{reminderId}` 접두사로 SavedMessage 잡(jobId=savedMessageId uuid)과 구분하고,
+   * jobData 는 kind:'remind' 판별 필드를 실어 Processor 가 형태로도 분기하게 한다. delay 는
+   * max(0, scheduledAt-now)(과거면 즉시 큐잉 — 놓친 예약 보정). 등록한 jobId 를 반환해
+   * 호출부가 Reminder.bullJobId 로 영속하게 한다(취소 시 remove 키). best-effort —
+   * Redis 일시 실패는 warn 만 남기고 jobId 는 그대로 반환(DB scheduledAt 이 진실원·복구는
+   * bootstrap 스캔이 담당).
+   */
+  async scheduleRemind(args: {
+    reminderId: string;
+    userId: string;
+    scheduledAt: Date;
+    now?: Date;
+  }): Promise<string> {
+    const now = args.now ?? new Date();
+    const delay = Math.max(0, args.scheduledAt.getTime() - now.getTime());
+    const jobId = remindJobId(args.reminderId);
+    try {
+      await this.queue.remove(jobId).catch(() => undefined);
+      await this.queue.add(
+        REMINDER_FIRE_JOB,
+        { kind: 'remind', reminderId: args.reminderId, userId: args.userId },
+        { ...REMINDER_JOB_OPTS, jobId, delay },
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[remind] schedule failed reminder=${args.reminderId} delay=${delay}ms: ${String(err).slice(0, 160)}`,
+      );
+    }
+    return jobId;
+  }
+
+  /**
+   * S80 (D15 / FR-SC-06): 예약된 /remind 잡을 취소한다(DELETE / 발화 후 정리). reminderId
+   * 또는 bullJobId 어느 쪽으로도 호출할 수 있게 jobId 를 받는다. 잡이 없으면 no-op.
+   * best-effort — 실패해도 throw 하지 않는다(DB status 가 진실원).
+   */
+  async cancelRemind(jobId: string): Promise<void> {
+    try {
+      await this.queue.remove(jobId);
+    } catch (err) {
+      this.logger.warn(`[remind] cancel failed job=${jobId}: ${String(err).slice(0, 160)}`);
+    }
   }
 }
