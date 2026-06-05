@@ -187,10 +187,20 @@ export function MessageItem({
   // nonce 자체에만 반응해 같은 메시지 재요청도 동작한다(0/undefined 는 무시).
   useEffect(() => {
     if (!editRequestNonce || !isMine) return;
+    // S83a 사후 리뷰(a11y A1 HIGH): 이 effect 는 아래 `if (msg.deleted)` early-return 보다
+    // *먼저* 실행되므로(early-return 은 렌더 본문, effect 는 commit 후), 삭제된 메시지가
+    // 편집 모드로 진입하는 유령 편집을 effect 진입부에서 한 번 더 막는다(MessageList 필터와
+    // 이중 방어).
+    if (msg.deleted) return;
+    // S83a 사후 리뷰(reviewer LOW / a11y A3 MAJOR): 이미 편집 중이면(editing!==null) 진행
+    // 중인 편집 내용을 nonce bump 가 덮어쓰지 않도록 무시한다.
+    if (editing !== null) return;
     if ((msg.content ?? '') === '') return;
     setEditing(msg.content ?? '');
     // SR 통지(편집 모드 진입). composer ↑ 진입은 시각 포커스가 편집 input 으로 이동한다.
-    announce('메시지 편집 모드로 전환했습니다');
+    // S83a 사후 리뷰(a11y A4 MOD): announce 를 queueMicrotask 로 미뤄 autoFocus 의 포커스
+    // 이동 이후에 발화되게 한다(SR 낭독 순서 안정).
+    queueMicrotask(() => announce('메시지 편집 모드로 전환했습니다'));
     // nonce 변경에만 반응한다(msg.content/isMine 은 동일 nonce 내 안정). 이 repo 는
     // react-hooks/exhaustive-deps 규칙 미설치라 disable 주석은 불필요(에러 유발).
   }, [editRequestNonce]);
@@ -447,6 +457,8 @@ export function MessageItem({
                   }
                 }}
                 disabled={editPending}
+                // S83a 사후 리뷰(a11y A5 MIN): 저장 진행 중을 SR 에 알린다.
+                aria-busy={editPending}
                 className="qf-btn qf-btn--ghost qf-btn--sm"
               >
                 {editPending ? '저장 중…' : '저장'}

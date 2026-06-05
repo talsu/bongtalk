@@ -27,6 +27,7 @@ import { composerAnnouncement } from './composerAnnouncement';
 import { announce } from '../../lib/a11y-announce';
 import {
   wrapSelection,
+  wrapSelectionPerLine,
   matchFormatShortcut,
   FORMAT_MARKERS,
   type FormatShortcut,
@@ -88,6 +89,15 @@ type Props = {
 // scrolls internally.
 const MIN_HEIGHT_PX = 22;
 const MAX_HEIGHT_PX = 200;
+
+// S83a 사후 리뷰(a11y A2 MAJOR): 포맷 단축키 적용 시 SR 공지에 쓸 한국어 라벨.
+const FORMAT_LABELS: Record<FormatShortcut, string> = {
+  bold: '굵게',
+  italic: '기울임',
+  strike: '취소선',
+  code: '인라인 코드',
+  codeBlock: '코드 블록',
+};
 
 /**
  * S32 (FR-RT-08): 주어진 channelId 로 콜론 이벤트를 emit 하는 TypingEmitter 를
@@ -717,11 +727,29 @@ export function MessageComposer({
   const applyFormat = (shortcut: FormatShortcut): void => {
     const el = textareaRef.current;
     if (!el) return;
-    const { before, after } = FORMAT_MARKERS[shortcut];
     const start = el.selectionStart ?? draft.length;
     const end = el.selectionEnd ?? draft.length;
-    const r = wrapSelection({ text: draft, start, end, before, after });
+    let r;
+    if (shortcut === 'codeBlock') {
+      // S83a 사후 리뷰(reviewer MED): 코드블록 펜스(```)는 줄 시작 앵커라(parser FENCE_RE
+      // `^```…$`), caret 이 줄 중간이면 여는 펜스가 줄 시작에 오지 않아 코드블록으로 인식되지
+      // 않는다. 직전 문자가 개행이 아니면 여는 펜스 앞에 `\n` 을 선행해 줄 시작에 오게 한다
+      // (닫는 펜스는 marker 의 after 가 이미 `\n``` ` 라 줄 경계가 보장됨).
+      const needsLeadingNewline = start > 0 && draft[start - 1] !== '\n';
+      const before = needsLeadingNewline
+        ? `\n${FORMAT_MARKERS.codeBlock.before}`
+        : FORMAT_MARKERS.codeBlock.before;
+      r = wrapSelection({ text: draft, start, end, before, after: FORMAT_MARKERS.codeBlock.after });
+    } else {
+      // S83a 사후 리뷰(reviewer MED): 인라인 마커는 `\n` 을 넘어 미마감이라(`**a\nb**` 리터럴),
+      // 멀티라인 선택이면 각 비어있지 않은 줄을 개별 래핑한다(wrapSelectionPerLine — 단일 줄은
+      // 종전과 동일).
+      const { before, after } = FORMAT_MARKERS[shortcut];
+      r = wrapSelectionPerLine({ text: draft, start, end, before, after });
+    }
     setDraft(channelId, r.text);
+    // A2 (a11y MAJOR): 서식 적용을 SR 에 통지한다(시각 피드백만으로는 알 수 없음).
+    announce(`${FORMAT_LABELS[shortcut]} 서식 적용`);
     queueMicrotask(() => {
       if (!textareaRef.current) return;
       textareaRef.current.focus();
