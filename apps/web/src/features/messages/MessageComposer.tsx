@@ -262,7 +262,7 @@ export function MessageComposer({
   const setMediaCollapsed = useMediaCollapseStore((s) => s.setCollapsed);
   const openSearchPanel = useUI((s) => s.openSearchPanel);
   const setOpenModal = useUI((s) => s.setOpenModal);
-  const { toggle: toggleTheme } = useTheme();
+  const { toggle: toggleTheme, resolved: resolvedTheme } = useTheme();
   const navigate = useNavigate();
 
   const myRole: WorkspaceRole =
@@ -588,8 +588,11 @@ export function MessageComposer({
         confirmText = '단축키 도움말을 열었습니다';
         break;
       case 'toggleTheme':
+        // a11y(MAJOR-2): 전환 방향을 확인 메시지에 명시한다(SR 상태 메시지 충분성). toggle 은
+        // resolved === 'dark' ? 'light' : 'dark' 이므로 현재값의 반대가 다음 테마다.
+        confirmText =
+          resolvedTheme === 'dark' ? '라이트 모드로 전환했습니다' : '다크 모드로 전환했습니다';
         toggleTheme();
-        confirmText = '테마를 전환했습니다';
         break;
     }
     ephemeral.push(confirmText, false);

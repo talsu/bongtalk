@@ -29,6 +29,10 @@ import {
 import { parseReminder, REMINDER_SYNTAX_HINT } from './reminder-parse';
 import { ReminderService } from './reminder.service';
 
+// /topic 길이 상한 — REST 경로의 UpdateChannelRequestSchema.topic.max(1024)와 동일하게
+// 맞춘다(channel.ts). 슬래시 경로가 이 검증을 우회하지 않도록 runTopic 에서 강제한다.
+const CHANNEL_TOPIC_MAX = 1024;
+
 /**
  * S80 (D15 / FR-SC-04·05·06) — 슬래시 커맨드 *실행* 도메인 서비스 (Fork2 = A 단일 진입점).
  *
@@ -320,6 +324,17 @@ export class SlashExecutionService {
       return this.forbiddenEphemeral('이 채널의 토픽을 바꿀 권한이 없습니다');
     }
     const topic = (args.text ?? '').trim();
+    // S81a review fix(security H-1/reviewer MED-1): execute text 상한(3967)이 REST 경로의
+    // UpdateChannelRequestSchema.topic.max(1024) 보다 커서, 슬래시 경로가 채널 토픽 길이
+    // 검증을 우회해 과대 토픽이 SYSTEM 메시지로 fan-out 되는 abuse 면이 있었다. REST 와 동일한
+    // 1024 상한을 슬래시 경로에도 강제한다(초과 시 발신자 전용 EPHEMERAL error).
+    if (topic.length > CHANNEL_TOPIC_MAX) {
+      return {
+        responseType: 'EPHEMERAL',
+        content: `채널 토픽은 ${CHANNEL_TOPIC_MAX}자를 넘을 수 없습니다`,
+        error: true,
+      };
+    }
     try {
       await this.channels.update(args.workspaceId, args.channelId, args.userId, {
         topic: topic.length > 0 ? topic : null,

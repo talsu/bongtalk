@@ -145,6 +145,20 @@ describe('SlashExecutionService S81a — /topic', () => {
     expect(m.channelsUpdate).not.toHaveBeenCalled();
     if (res.responseType === 'EPHEMERAL') expect(res.error).toBe(true);
   });
+
+  it('review fix(security H-1): 1024자 초과 토픽은 EPHEMERAL error 이고 update 미호출', async () => {
+    const m = makeService({ hasPermission: true });
+    const res = await m.service.execute(args({ command: 'topic', text: 'x'.repeat(1025) }));
+    expect(m.channelsUpdate).not.toHaveBeenCalled();
+    if (res.responseType === 'EPHEMERAL') expect(res.error).toBe(true);
+  });
+
+  it('review fix(security H-1): 정확히 1024자 토픽은 허용', async () => {
+    const m = makeService({ hasPermission: true });
+    const res = await m.service.execute(args({ command: 'topic', text: 'x'.repeat(1024) }));
+    expect(m.channelsUpdate).toHaveBeenCalledWith(WS_ID, CH_ID, ME_ID, { topic: 'x'.repeat(1024) });
+    if (res.responseType === 'EPHEMERAL') expect(res.error).toBeUndefined();
+  });
 });
 
 describe('SlashExecutionService S81a — /mute', () => {
