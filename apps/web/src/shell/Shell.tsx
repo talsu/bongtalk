@@ -24,6 +24,7 @@ import { useAuth } from '../features/auth/AuthProvider';
 import { ToastViewport } from '../design-system/primitives';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
+import { QuickSwitcher } from '../features/shortcuts/QuickSwitcher';
 import { ShortcutHelp } from '../features/shortcuts/ShortcutHelp';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { useGlobalShortcuts } from '../features/shortcuts/useShortcut';
@@ -209,6 +210,7 @@ function DesktopShell(): JSX.Element {
           미완료일 때만 전체화면 모달로 마운트된다(OWNER·빈 카탈로그는 미표시 — Fork A-1). */}
       {active ? <OnboardingHost workspaceId={active.id} slug={active.slug} /> : null}
       <CommandPalette />
+      <QuickSwitcher />
       <ShortcutHelp />
       <FeedbackDialog />
       <ToastViewport />
