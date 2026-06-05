@@ -3,6 +3,8 @@ import type {
   ChangeEmailRequest,
   ChangeEmailResponse,
   ChangePasswordRequest,
+  DeactivateAccountRequest,
+  ReactivateAccountRequest,
   SessionListResponse,
   TotpDisableRequest,
   TotpSetupResponse,
@@ -23,7 +25,8 @@ export function useTwoFactorStatus(enabled = true) {
   return useQuery({
     queryKey: qk.me.twoFactorStatus(),
     enabled,
-    queryFn: (): Promise<TwoFactorStatus> => apiRequest<TwoFactorStatus>('/me/2fa', { method: 'GET' }),
+    queryFn: (): Promise<TwoFactorStatus> =>
+      apiRequest<TwoFactorStatus>('/me/2fa', { method: 'GET' }),
     staleTime: 30_000,
   });
 }
@@ -100,5 +103,23 @@ export function useRevokeAllSessions() {
     onSuccess: () => {
       void qc.invalidateQueries({ queryKey: qk.me.sessions() });
     },
+  });
+}
+
+// S77c (D14 / FR-PS-16): 계정 비활성화. 성공 시 서버가 session:revoked 를 emit 하고 모든 세션을
+// 끊으므로, 호출부(AdvancedSettingsPage)가 직후 자동 로그아웃 + 로그인 이동을 수행한다.
+export function useDeactivateAccount() {
+  return useMutation({
+    mutationFn: (input: DeactivateAccountRequest): Promise<void> =>
+      apiRequest<void>('/users/me/deactivate', { method: 'POST', body: input, retryOn401: false }),
+  });
+}
+
+// S77c (D14 / FR-PS-16): 계정 재활성화. 비활성 계정은 로그인 차단되므로 자격증명을 직접 받는
+// 공개 엔드포인트다(retryOn401 불필요 — 인증 컨텍스트 없음).
+export function useReactivateAccount() {
+  return useMutation({
+    mutationFn: (input: ReactivateAccountRequest): Promise<void> =>
+      apiRequest<void>('/users/me/reactivate', { method: 'POST', body: input, retryOn401: false }),
   });
 }

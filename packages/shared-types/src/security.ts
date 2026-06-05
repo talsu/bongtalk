@@ -117,3 +117,30 @@ export const SessionListResponseSchema = z.object({
   sessions: z.array(SessionSummarySchema),
 });
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
+
+// ── 계정 비활성화/재활성화 (S77c · D14 / FR-PS-16) ───────────────────────────
+//
+//   POST /api/v1/users/me/deactivate  DeactivateAccountRequest → 204
+//   POST /api/v1/users/me/reactivate  ReactivateAccountRequest → 204
+//
+// 둘 다 현재 비밀번호 재확인이 필수다. 2FA 활성 사용자는 totpCode 도 재확인한다(S77b 패턴 일관 —
+// 스키마에선 optional 로 두고 서버가 totpEnabled 를 보고 강제: 누락 403 TOTP_CODE_REQUIRED ·
+// 불일치 403 TOTP_INVALID). reactivate 는 비활성 계정이 로그인 차단되므로(ACCOUNT_DEACTIVATED)
+// 로그인 자격증명(email+password)을 함께 받아 검증 후 복구한다.
+export const DeactivateAccountRequestSchema = z
+  .object({
+    currentPassword: z.string().min(1).max(128),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
+  })
+  .strict();
+export type DeactivateAccountRequest = z.infer<typeof DeactivateAccountRequestSchema>;
+
+export const ReactivateAccountRequestSchema = z
+  .object({
+    // 비활성 계정은 인증 컨텍스트가 없으므로(로그인 차단) 로그인 자격증명을 함께 받는다.
+    email: z.string().email(),
+    password: z.string().min(1).max(128),
+    totpCode: z.string().length(TOTP_CODE_LENGTH).regex(/^\d+$/, 'code must be digits').optional(),
+  })
+  .strict();
+export type ReactivateAccountRequest = z.infer<typeof ReactivateAccountRequestSchema>;

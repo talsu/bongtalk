@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import {
   ChangeEmailRequestSchema,
   ChangePasswordRequestSchema,
+  DeactivateAccountRequestSchema,
+  ReactivateAccountRequestSchema,
   SessionSummarySchema,
   TOTP_BACKUP_CODE_COUNT,
   TOTP_CODE_LENGTH,
@@ -141,6 +143,42 @@ describe('S77b security (FR-PS-15·20) Zod', () => {
       'SESSION_NOT_FOUND',
       'ENCRYPTION_UNAVAILABLE',
     ]) {
+      expect(() => ErrorCodeSchema.parse(code)).not.toThrow();
+    }
+  });
+});
+
+describe('S77c account lifecycle (FR-PS-16·19) Zod', () => {
+  it('Deactivate requires currentPassword + optional 6-digit totpCode (strict)', () => {
+    expect(DeactivateAccountRequestSchema.safeParse({ currentPassword: 'pw' }).success).toBe(true);
+    expect(
+      DeactivateAccountRequestSchema.safeParse({ currentPassword: 'pw', totpCode: '123456' })
+        .success,
+    ).toBe(true);
+    // 빈 비번 거부.
+    expect(DeactivateAccountRequestSchema.safeParse({ currentPassword: '' }).success).toBe(false);
+    // 잘못된 코드 형식 거부.
+    expect(
+      DeactivateAccountRequestSchema.safeParse({ currentPassword: 'pw', totpCode: '12' }).success,
+    ).toBe(false);
+    // 미지의 키 거부(strict).
+    expect(
+      DeactivateAccountRequestSchema.safeParse({ currentPassword: 'pw', bogus: 1 }).success,
+    ).toBe(false);
+  });
+
+  it('Reactivate requires email + password (비활성 계정은 인증 컨텍스트 없음)', () => {
+    expect(
+      ReactivateAccountRequestSchema.safeParse({ email: 'a@b.com', password: 'pw' }).success,
+    ).toBe(true);
+    expect(
+      ReactivateAccountRequestSchema.safeParse({ email: 'not-email', password: 'pw' }).success,
+    ).toBe(false);
+    expect(ReactivateAccountRequestSchema.safeParse({ email: 'a@b.com' }).success).toBe(false);
+  });
+
+  it('ErrorCodeSchema accepts the new S77c codes', () => {
+    for (const code of ['ACCOUNT_DEACTIVATED', 'ACCOUNT_NOT_DEACTIVATED']) {
       expect(() => ErrorCodeSchema.parse(code)).not.toThrow();
     }
   });

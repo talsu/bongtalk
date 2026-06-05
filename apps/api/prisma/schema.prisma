@@ -466,6 +466,16 @@ model User {
   //   totpEnabled:   2FA 활성 여부. verify 성공 시 true, disable(비번+코드) 시 false.
   totpSecretEnc               String?
   totpEnabled                 Boolean            @default(false)
+  // S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화 + 30일 익명화. 둘 다 additive 라 기존 row
+  // 안전(마이그레이션 20260617000000_s77c_account_lifecycle).
+  //   isDeactivated: 계정 비활성화 여부. POST /users/me/deactivate 가 true, /reactivate 가 false 로
+  //                  전환한다. JwtStrategy 가 매 요청 이 컬럼 + Redis `deactivated:{userId}` 블랙
+  //                  리스트를 이중검사해 비활성 계정 요청을 ACCOUNT_DEACTIVATED 로 차단한다.
+  //   deactivatedAt: 비활성화 시각(UTC). null = 활성. 30일 익명화 크론이 `deactivatedAt < now-30d`
+  //                  인 row 만 골라 PII null화 + Message.authorId 를 SYSTEM_ANON 으로 익명화한다
+  //                  (30일 미만/활성 row 는 절대 미접근). reactivate 시 null 로 되돌린다.
+  isDeactivated               Boolean            @default(false)
+  deactivatedAt               DateTime?          @db.Timestamptz
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 

@@ -31,6 +31,7 @@ function renderAt(path: string): void {
             element={<div data-testid="page-accessibility">접근성</div>}
           />
           <Route path="privacy" element={<div data-testid="page-privacy">프라이버시</div>} />
+          <Route path="advanced" element={<div data-testid="page-advanced">고급</div>} />
         </Route>
         <Route path="/" element={<div data-testid="home">home</div>} />
       </Routes>
@@ -79,17 +80,12 @@ describe('SettingsShell (FR-PS-18)', () => {
     );
   });
 
-  // S77b: account 탭이 활성화돼 advanced 만 비활성으로 남는다.
-  it('disables only the advanced tab (이후 슬라이스)', () => {
+  // S77c (D14 / FR-PS-16·19): 고급 탭이 활성화되어 더 이상 비활성 탭이 없다 — 7탭 전부 Link(<a>)다.
+  it('enables every standard tab (no disabled tab after S77c)', () => {
     renderAt('/settings/appearance');
-    for (const id of ['advanced']) {
-      const el = screen.getByTestId(`settings-tab-${id}`);
-      // F-H2 (a11y HIGH-02): span 이 아니라 disabled <button> 이라 키보드/AT 가 인지한다.
-      expect(el.tagName).toBe('BUTTON');
-      expect((el as HTMLButtonElement).disabled).toBe(true);
-      // F9 (a11y MINOR-02): 데스크톱 탭은 native `disabled` 가 비활성 통지를 담당하므로
-      // aria-disabled 중복을 두지 않는다(disabled 단독).
-      expect(el.getAttribute('aria-disabled')).toBeNull();
+    for (const t of SETTINGS_TABS) {
+      const el = screen.getByTestId(`settings-tab-${t.id}`);
+      expect(el.tagName).toBe('A'); // enabled → Link(<a>), not a disabled button.
     }
   });
 
@@ -102,15 +98,14 @@ describe('SettingsShell (FR-PS-18)', () => {
     expect(screen.getByTestId('page-account')).toBeTruthy();
   });
 
-  // F9 (a11y MINOR-03): 모바일 비활성 탭은 aria-disabled 를 문자열 "true" 로 명시한다.
-  it('mobile: disabled tabs set aria-disabled="true" as a string + native disabled', () => {
+  // S77c: 모바일에서도 모든 탭이 활성(enabled)이라 disabled 행이 없다(전 탭 클릭 가능).
+  it('mobile: all tabs are enabled (no disabled row) + no ghost qf-m-list class', () => {
     mobile = true;
     renderAt('/settings');
-    for (const id of ['advanced']) {
-      const el = screen.getByTestId(`settings-tab-${id}`);
-      expect(el.tagName).toBe('BUTTON');
-      expect((el as HTMLButtonElement).disabled).toBe(true);
-      expect(el.getAttribute('aria-disabled')).toBe('true');
+    for (const t of SETTINGS_TABS) {
+      const el = screen.getByTestId(`settings-tab-${t.id}`) as HTMLButtonElement;
+      expect(el.disabled).toBe(false);
+      expect(el.getAttribute('aria-disabled')).toBeNull();
     }
     // F4 (ui M-1): 모바일 nav 는 유령 클래스 qf-m-list 를 더 이상 쓰지 않는다.
     const nav = screen.getByTestId('settings-mobile-nav');
