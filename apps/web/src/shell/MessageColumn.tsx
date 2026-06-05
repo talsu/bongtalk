@@ -11,6 +11,7 @@ import { AckScheduler, type AckFlush } from '../features/messages/ackScheduler';
 import { MessageList } from '../features/messages/MessageList';
 import { MessageComposer } from '../features/messages/MessageComposer';
 import { EphemeralList } from '../features/messages/slashCommands/EphemeralList';
+import { GiphyPreviewSlot } from '../features/messages/slashCommands/GiphyPreviewSlot';
 import { useDropZone } from '../features/attachments/useDropZone';
 import { DropZoneOverlay } from '../features/attachments/DropZoneOverlay';
 import { PinPanel } from '../features/messages/PinPanel';
@@ -481,6 +482,8 @@ export function MessageColumn({
         />
         {/* S80 (FR-SC-05): EPHEMERAL 슬래시 응답(발신자 전용 인라인 시스템 메시지). */}
         <EphemeralList channelId={channelId} />
+        {/* S81b (FR-SC-07): /giphy 발신자 전용 GIF 프리뷰(Shuffle/Send/Cancel). */}
+        {workspaceId ? <GiphyPreviewSlot workspaceId={workspaceId} channelId={channelId} /> : null}
         <MessageComposer
           workspaceId={workspaceId}
           channelId={channelId}

@@ -75,6 +75,7 @@ function makeService(opts?: {
     { updateProfile } as never,
     { kick } as never,
     { setMute } as never,
+    { search: vi.fn() } as never, // giphy (S81b)
   );
 
   return {

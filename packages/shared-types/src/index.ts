@@ -282,6 +282,9 @@ export const ErrorCodeSchema = z.enum([
   'SLASH_COMMAND_NOT_EXECUTABLE',
   'REMINDER_PARSE_FAILED',
   'REMINDER_NOT_FOUND',
+  // S81b (D15 / FR-SC-07): /giphy 프록시 불가(env 미설정 / GIPHY 오류·타임아웃 / 형식 위반)
+  //   → 503(graceful·ENCRYPTION_UNAVAILABLE 선례). 결과 0건은 EPHEMERAL 안내로 분기(이 코드 아님).
+  'GIPHY_UNAVAILABLE',
   // S73 (D14 / FR-PS-01/02/03): 전역 프로필 + 아바타.
   //   HANDLE_TAKEN:           핸들이 이미 점유됨(다른 사용자 @unique) → 409.
   //   HANDLE_COOLDOWN_ACTIVE: 핸들 변경 쿨다운(30일) 미경과 → 400 + details.nextAllowedAt(ISO).
