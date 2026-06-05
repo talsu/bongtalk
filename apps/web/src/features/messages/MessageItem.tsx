@@ -191,7 +191,8 @@ export function MessageItem({
     setEditing(msg.content ?? '');
     // SR 통지(편집 모드 진입). composer ↑ 진입은 시각 포커스가 편집 input 으로 이동한다.
     announce('메시지 편집 모드로 전환했습니다');
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // nonce 변경에만 반응한다(msg.content/isMine 은 동일 nonce 내 안정). 이 repo 는
+    // react-hooks/exhaustive-deps 규칙 미설치라 disable 주석은 불필요(에러 유발).
   }, [editRequestNonce]);
 
   const safeSet = <T,>(setter: (v: T) => void, value: T): void => {
