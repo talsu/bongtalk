@@ -61,6 +61,7 @@ function Harness(): JSX.Element {
     <div>
       <textarea
         data-testid="ta"
+        aria-label="메시지 입력"
         ref={textareaRef}
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
