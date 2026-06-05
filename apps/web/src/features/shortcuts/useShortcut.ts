@@ -3,7 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { useUI } from '../../stores/ui-store';
 import { useMyWorkspaces } from '../workspaces/useWorkspaces';
 import { useChannelList } from '../channels/useChannels';
-import { useMarkAllRead } from '../channels/useUnread';
+import { useMarkAllRead, useUnreadSummary } from '../channels/useUnread';
 import { classifyReadShortcut } from './readShortcut';
 import { searchPrefillQuery } from './searchPrefill';
 import { announce } from '../../lib/a11y-announce';
@@ -52,6 +52,10 @@ export function useGlobalShortcuts(): void {
   // S23 (FR-RS-11): Shift+Esc = 워크스페이스 전체 읽음. 현재 워크스페이스
   // scope 로 bulk read-all 을 발화한다.
   const markAllRead = useMarkAllRead(currentWorkspaceId);
+  // S82b (FR-KS-04): Alt+Shift+↑/↓ 미읽 채널 순회용 요약. 사이드바와 동일한
+  // 권위 캐시를 공유 구독한다(조건부 호출 금지 — 훅 규칙 준수, slug 없을 때는
+  // currentWorkspaceId 가 undefined 라 useQuery enabled:false 로 idle).
+  const { data: unreadSummary } = useUnreadSummary(currentWorkspaceId);
 
   useEffect(() => {
     function onKey(e: KeyboardEvent): void {
@@ -146,6 +150,39 @@ export function useGlobalShortcuts(): void {
         return;
       }
 
+      // S82b (FR-KS-04): Alt + Shift + ↑/↓ → 미읽 채널 순회. 비-Shift Alt+↑/↓
+      // (아래 채널 순회)보다 **먼저** 검사해야 한다 — Shift 정확 매칭으로 둘이
+      // 교차 발화하지 않게 한다(Cmd+Shift+K vs Cmd+K 선례와 동일한 가드).
+      //
+      // 정렬: 사이드바 flat 순서(uncategorized + categories.flatMap)를 그대로
+      // 따라 사용자의 멘탈 모델과 일치시키고, 그 순서에서 unreadCount > 0 인
+      // 채널만 추린다(서버 lastMessageAt 정렬이 아니라 시각적 채널 순서 우선).
+      // 현재 채널 기준 다음(↓)/이전(↑) 미읽으로 wrap-around 이동하고, 현재
+      // 채널이 미읽 목록에 없으면 첫 미읽로 점프한다. 미읽 0개면 no-op.
+      // DM 미읽 순회는 OUT(FR-KS-04 는 "미읽 채널"만) — workspace 채널만 대상.
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        e.altKey &&
+        e.shiftKey &&
+        slug &&
+        channels
+      ) {
+        const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
+        const unreadIds = new Set(
+          (unreadSummary?.channels ?? []).filter((c) => c.unreadCount > 0).map((c) => c.channelId),
+        );
+        const unreadChannels = flat.filter((c) => unreadIds.has(c.id));
+        if (unreadChannels.length === 0) return;
+        e.preventDefault();
+        const step = e.key === 'ArrowDown' ? 1 : -1;
+        const currentIdx = unreadChannels.findIndex((c) => c.name === channelName);
+        // 현재 채널이 미읽 목록에 없으면(-1) 첫 미읽로. 있으면 다음/이전으로 wrap.
+        const nextIdx =
+          currentIdx < 0 ? 0 : (currentIdx + step + unreadChannels.length) % unreadChannels.length;
+        navigate(`/w/${slug}/${unreadChannels[nextIdx].name}`);
+        return;
+      }
+
       // Alt + ↑/↓: previous/next channel in current workspace
       if ((e.key === 'ArrowUp' || e.key === 'ArrowDown') && e.altKey && slug && channels) {
         const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
@@ -171,6 +208,19 @@ export function useGlobalShortcuts(): void {
         navigate(`/w/${next.slug}`);
         return;
       }
+
+      // S82b (FR-KS-11): Ctrl/Cmd + N → 새 DM 시작. friends list 가 새 DM 진입점
+      // 이므로 /friends 로 이동한다(S82a 빈상태 힌트의 실제 배선). inputActive
+      // 가드는 위에서 이미 통과했다.
+      //
+      // CAVEAT: 다수 브라우저가 Ctrl+N 을 "새 창" 으로 예약해 두어, 일부 환경
+      // 에서는 keydown 이 페이지로 전달되기 전에 가로채여 preventDefault 가 먹지
+      // 않을 수 있다(best-effort). 이 경우 빈상태의 힌트가 대체 안내를 제공한다.
+      if (matches(e, { key: 'n', ctrlOrMeta: true })) {
+        e.preventDefault();
+        navigate('/friends');
+        return;
+      }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
@@ -185,5 +235,6 @@ export function useGlobalShortcuts(): void {
     openSearchPanel,
     currentWorkspaceId,
     markAllRead,
+    unreadSummary,
   ]);
 }
