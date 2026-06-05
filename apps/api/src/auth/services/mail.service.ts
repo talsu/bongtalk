@@ -35,6 +35,15 @@ export interface MailSender {
     role: string,
     inviterName: string,
   ): Promise<void>;
+
+  /**
+   * S77b (D14 / FR-PS-15): 보안 알림 메일(비밀번호 변경 등 민감 액션 발생 시 등록 이메일로
+   * 통지). Console stub 은 이벤트/사유를 구조화 로그로 출력한다. SMTP 실발송은 후속(S77c+).
+   *
+   * @param to     수신자 이메일(등록 이메일).
+   * @param event  알림 사유(예: 'password_changed').
+   */
+  sendSecurityAlertEmail(to: string, event: string): Promise<void>;
 }
 
 /** DI 토큰 — MailSender 구현 주입에 쓴다(인터페이스는 런타임 토큰이 될 수 없음). */
@@ -113,6 +122,21 @@ export class ConsoleMailSender implements MailSender {
         role,
         inviterName,
         tokenTail: maskInviteUrl(inviteUrl),
+        note: 'email sender not configured (console stub)',
+      }),
+    );
+  }
+
+  /**
+   * S77b (D14 / FR-PS-15): 보안 알림 메일 Console stub. 비밀번호 변경 같은 민감 액션 발생
+   * 시 등록 이메일로 통지한다(시크릿/토큰 미포함이라 환경별 마스킹 불요). SMTP 실발송은 후속.
+   */
+  async sendSecurityAlertEmail(to: string, event: string): Promise<void> {
+    this.logger.warn(
+      JSON.stringify({
+        event: 'security_alert_sent',
+        to,
+        reason: event,
         note: 'email sender not configured (console stub)',
       }),
     );

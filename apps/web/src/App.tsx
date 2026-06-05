@@ -84,6 +84,12 @@ const PrivacySafetySettingsPage = lazy(() =>
 const SettingsShell = lazy(() =>
   import('./features/settings/SettingsShell').then((m) => ({ default: m.SettingsShell })),
 );
+// S77b (D14 / FR-PS-15·20): 설정 > 내 계정 탭(자격증명 변경 · 2FA · 세션).
+const AccountSettingsPage = lazy(() =>
+  import('./features/settings/AccountSettingsPage').then((m) => ({
+    default: m.AccountSettingsPage,
+  })),
+);
 // S76 (D14 / FR-PS-09): 설정 > 외관 탭(테마/밀도/폰트/24h · 자동 저장).
 const AppearanceSettingsPage = lazy(() =>
   import('./features/settings/AppearanceSettingsPage').then((m) => ({
@@ -437,6 +443,8 @@ export default function App(): JSX.Element {
                         {/* S76 (FR-PS-18 · Fork A1): Layout Route — SettingsShell + <Outlet/>.
                             각 탭은 자식 라우트로 중첩되어 콘텐츠 영역에 렌더된다(딥링크 유지). */}
                         <Route path="/settings" element={<ProtectedSettingsShellRoute />}>
+                          {/* S77b (D14 / FR-PS-15·20): 내 계정(자격증명 변경 · 2FA · 세션). */}
+                          <Route path="account" element={<AccountSettingsPage />} />
                           {/* S76 (D14 / FR-PS-09): 외관(신규 · 자동 저장). */}
                           <Route path="appearance" element={<AppearanceSettingsPage />} />
                           {/* S77a (D14 / FR-PS-12): 접근성(모션 줄이기/고대비 · 자동 저장). */}

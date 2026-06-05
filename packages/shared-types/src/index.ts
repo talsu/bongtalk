@@ -282,6 +282,21 @@ export const ErrorCodeSchema = z.enum([
   'HANDLE_COOLDOWN_ACTIVE',
   'FILE_TOO_LARGE',
   'INVALID_MIME',
+  // S77b (D14 / FR-PS-15·20): 보안(자격증명 변경·TOTP 2FA·세션 관리).
+  //   PASSWORD_INCORRECT:      현재 비밀번호 재확인 실패(비번/이메일 변경·2FA 해제) → 403.
+  //   TOTP_CODE_REQUIRED:      2FA 해제 시 TOTP 코드 누락 → 403(비번만으론 해제 불가).
+  //   TOTP_INVALID:            제출한 6자리 TOTP 코드가 시크릿과 불일치 → 403.
+  //   TOTP_ALREADY_ENABLED:    이미 2FA 활성 상태에서 setup/verify 재시도 → 409.
+  //   TOTP_NOT_ENABLED:        2FA 미활성 상태에서 해제(disable) 시도 → 409.
+  //   SESSION_NOT_FOUND:       로그아웃 대상 세션(RefreshToken)이 본인 소유 아니거나 없음 → 404.
+  //   ENCRYPTION_UNAVAILABLE:  APP_ENCRYPTION_KEY 미설정 → 2FA 엔드포인트 graceful 503(크래시 금지).
+  'PASSWORD_INCORRECT',
+  'TOTP_CODE_REQUIRED',
+  'TOTP_INVALID',
+  'TOTP_ALREADY_ENABLED',
+  'TOTP_NOT_ENABLED',
+  'SESSION_NOT_FOUND',
+  'ENCRYPTION_UNAVAILABLE',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -339,3 +354,5 @@ export * from './member-application';
 export * from './onboarding';
 // S76 — 외관 설정 컨트랙트 (D14 / FR-PS-09 + FR-PS-18)
 export * from './settings';
+// S77b — 보안 컨트랙트(자격증명 변경·TOTP 2FA·세션 관리) (D14 / FR-PS-15·20)
+export * from './security';

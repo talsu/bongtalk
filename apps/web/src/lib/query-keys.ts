@@ -70,6 +70,10 @@ export const qk = {
     dndSchedule: () => ['me', 'dnd-schedule'] as const,
     // S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭).
     threads: () => ['me', 'threads'] as const,
+    // S77b (FR-PS-15): 2FA 상태(totpEnabled).
+    twoFactorStatus: () => ['me', '2fa'] as const,
+    // S77b (FR-PS-15): 활성 세션 목록.
+    sessions: () => ['me', 'sessions'] as const,
   },
   messages: {
     list: (wsId: string, chId: string) => ['messages', wsId, chId] as const,
