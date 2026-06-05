@@ -6,6 +6,11 @@ import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
 import { ConnectionBanner } from './features/connection/ConnectionBanner';
+// S76 (D14 / FR-PS-09·18 · Fork C1): Ctrl+, 설정 단축키 + 로그인 후 외관 서버값 보정.
+import { useSettingsHotkey } from './features/settings/useSettingsHotkey';
+import { useAppearanceSettings } from './features/settings/useAppearanceSettings';
+// S76 (FR-PS-11): DND 억제 게이트가 읽는 effective preference 를 전역에서 로드해둔다.
+import { useDndSchedule } from './features/presence/useDndSchedule';
 // task-047 iter7 (P4): 글로벌 에러 boundary.
 import { ErrorBoundary } from './components/ErrorBoundary';
 
@@ -72,6 +77,16 @@ const ProfileSettingsPage = lazy(() =>
 const PrivacySafetySettingsPage = lazy(() =>
   import('./features/settings/PrivacySafetySettingsPage').then((m) => ({
     default: m.PrivacySafetySettingsPage,
+  })),
+);
+// S76 (D14 / FR-PS-18): 설정 IA 셸(Layout Route) — 7탭 사이드바 + Outlet.
+const SettingsShell = lazy(() =>
+  import('./features/settings/SettingsShell').then((m) => ({ default: m.SettingsShell })),
+);
+// S76 (D14 / FR-PS-09): 설정 > 외관 탭(테마/밀도/폰트/24h · 자동 저장).
+const AppearanceSettingsPage = lazy(() =>
+  import('./features/settings/AppearanceSettingsPage').then((m) => ({
+    default: m.AppearanceSettingsPage,
   })),
 );
 const ActivityPage = lazy(() =>
@@ -312,19 +327,18 @@ function LegacyDmChatRedirect(): JSX.Element {
   return <Navigate to={userId ? `/dm/${userId}` : '/dm'} replace />;
 }
 
-function ProtectedSettingsRoute({
-  page,
-}: {
-  page: 'notifications' | 'profile' | 'privacy';
-}): JSX.Element {
+/**
+ * S76 (D14 / FR-PS-18 · Fork A1): 설정 Layout Route 가드. SettingsShell(사이드바 +
+ * Outlet)을 인증 게이트로 감싼다. 각 탭 페이지는 이 라우트의 자식으로 중첩되어
+ * Outlet 에 렌더된다(딥링크 유지). 인증 미충족 시 /login 으로.
+ */
+function ProtectedSettingsShellRoute(): JSX.Element {
   const { status } = useAuth();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
   return (
     <Suspense fallback={<LoadingFallback />}>
-      {page === 'notifications' ? <NotificationSettingsPage /> : null}
-      {page === 'profile' ? <ProfileSettingsPage /> : null}
-      {page === 'privacy' ? <PrivacySafetySettingsPage /> : null}
+      <SettingsShell />
     </Suspense>
   );
 }
@@ -349,6 +363,27 @@ function AppRealtimeHost(): JSX.Element {
 }
 
 /**
+ * S76 (D14 / FR-PS-09·18 · Fork C1): 전역 설정 호스트. Ctrl+,(Cmd+,) 단축키를 항상
+ * 등록하고(로그아웃 상태에서도 /settings 진입 시 /login 으로 가드됨), 인증된 사용자에
+ * 한해 GET /me/settings/appearance 로 서버 외관값을 DOM/스토어에 보정한다(서버 단일
+ * 출처 — localStorage 즉시값을 덮어 다기기 정합). 렌더 출력은 없다(부수효과 전용).
+ */
+function SettingsHost(): JSX.Element | null {
+  const { status } = useAuth();
+  useSettingsHotkey();
+  const authed = status === 'authenticated';
+  useAppearanceSettings(authed);
+  // 인증된 동안에만 DND 스케줄을 전역 로드해 FR-PS-11 억제 게이트가 effective
+  // preference 를 항상 갖게 한다(useDndSchedule 은 자체 enabled 가 없으므로 마운트 분기).
+  return authed ? <AuthedSettingsHost /> : null;
+}
+
+function AuthedSettingsHost(): null {
+  useDndSchedule();
+  return null;
+}
+
+/**
  * task-041 A-1 (review M1 follow): wrap the banner + Routes in a
  * single flex column so the banner pushes content down via normal
  * flow instead of overlaying it. With #root sized to 100% by
@@ -360,6 +395,7 @@ function AppLayout({ children }: { children: React.ReactNode }): JSX.Element {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
       <AppRealtimeHost />
+      <SettingsHost />
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>{children}</div>
     </div>
   );
@@ -383,24 +419,23 @@ export default function App(): JSX.Element {
                         <Route path="/verify-email" element={<VerifyEmailLanding />} />
                         <Route path="/invite/:code" element={<InviteAcceptPage />} />
                         <Route path="/w/new" element={<CreateWorkspacePage />} />
+                        {/* S76 (FR-PS-18 · Fork A1): /settings → 외관 리다이렉트(자동저장 첫 탭). */}
                         <Route
                           path="/settings"
-                          element={<Navigate to="/settings/notifications" replace />}
+                          element={<Navigate to="/settings/appearance" replace />}
                         />
-                        <Route
-                          path="/settings/notifications"
-                          element={<ProtectedSettingsRoute page="notifications" />}
-                        />
-                        {/* S73 (D14 / FR-PS-01·02·03): 프로필 설정 탭. */}
-                        <Route
-                          path="/settings/profile"
-                          element={<ProtectedSettingsRoute page="profile" />}
-                        />
-                        {/* S75 (D14 / FR-PS-14): 개인정보 및 안전(차단 목록) 탭. */}
-                        <Route
-                          path="/settings/privacy"
-                          element={<ProtectedSettingsRoute page="privacy" />}
-                        />
+                        {/* S76 (FR-PS-18 · Fork A1): Layout Route — SettingsShell + <Outlet/>.
+                            각 탭은 자식 라우트로 중첩되어 콘텐츠 영역에 렌더된다(딥링크 유지). */}
+                        <Route path="/settings" element={<ProtectedSettingsShellRoute />}>
+                          {/* S76 (D14 / FR-PS-09): 외관(신규 · 자동 저장). */}
+                          <Route path="appearance" element={<AppearanceSettingsPage />} />
+                          {/* S46: 알림(NotifLevel + DND + 키워드 + 데스크톱/모바일 토글). */}
+                          <Route path="notifications" element={<NotificationSettingsPage />} />
+                          {/* S73 (D14 / FR-PS-01·02·03): 프로필(명시적 저장). */}
+                          <Route path="profile" element={<ProfileSettingsPage />} />
+                          {/* S75 (D14 / FR-PS-14): 개인정보 및 안전(차단 목록). */}
+                          <Route path="privacy" element={<PrivacySafetySettingsPage />} />
+                        </Route>
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
                         {/* task-047 iter4 (M3): profile page */}
                         <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
