@@ -95,18 +95,8 @@ export const CreateReminderRequestSchema = z.object({
 });
 export type CreateReminderRequest = z.infer<typeof CreateReminderRequestSchema>;
 
-// ── reminder:fire WS payload (FR-SC-06) ──────────────────────────────────────
-/**
- * reminder:fire — /remind Reminder 발화 시 수신자의 user:{userId} 룸으로 emit.
- *
- * S53 의 user:reminder_fire(SavedMessage 리마인더, savedMessageId 키)와는 **별개**
- * 이벤트다 — /remind 는 SavedMessage 가 아니라 신규 Reminder 모델을 발화원으로 하고,
- * 페이로드도 reminderId + 자유 message 텍스트 + 채널 링크다. 클라이언트는 우하단
- * 토스트(8초)를 띄우고 channelId 가 있으면 채널 내비게이션 링크를 노출한다.
- */
-export const ReminderFiredPayloadSchema = z.object({
-  reminderId: z.string().uuid(),
-  message: z.string(),
-  channelId: z.string().uuid().nullable(),
-});
-export type ReminderFiredPayload = z.infer<typeof ReminderFiredPayloadSchema>;
+// ── reminder:fire WS payload ─────────────────────────────────────────────────
+// S80 reviewer L1 fix: reminder:fire 발화 payload 의 정본 스키마는 events.ts 의
+// ReminderNewFirePayloadSchema 다(WS_EVENT_PAYLOAD_SCHEMAS 에 등록·processor/dispatcher 가
+// 실제 사용). 여기 중복 정의돼 있던 ReminderFiredPayloadSchema 는 어디서도 import 되지
+// 않는 dead 코드여서 제거했다(와이어 계약 단일원: events.ts).

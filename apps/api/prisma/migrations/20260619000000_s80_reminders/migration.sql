@@ -42,10 +42,17 @@ CREATE TABLE IF NOT EXISTS "Reminder" (
   "message"      VARCHAR(500) NOT NULL,
   "scheduledAt"  TIMESTAMPTZ NOT NULL,
   "bullJobId"    TEXT,
+  -- S80 reviewer H1: execute 멱등키. 동일 (userId, idempotencyKey) 재시도 시 새 행/잡을
+  --   만들지 않게 하는 DB 2차 방어선(Redis slash-idem read-then-write race 보강). REST 직접
+  --   생성은 NULL(Postgres 는 NULL 을 distinct 처리하므로 부분 UNIQUE 충돌 없음).
+  "idempotencyKey" UUID,
   "status"       "ReminderStatus" NOT NULL DEFAULT 'PENDING',
   "createdAt"    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
   CONSTRAINT "Reminder_pkey" PRIMARY KEY ("id")
 );
+
+-- up→down→up 재적용 시 table IF NOT EXISTS 가 스킵돼도 컬럼은 보강한다(멱등 가드).
+ALTER TABLE "Reminder" ADD COLUMN IF NOT EXISTS "idempotencyKey" UUID;
 
 -- 사용자별 상태/시각 목록 + bootstrap 복구 스캔(PENDING·scheduledAt 정렬) 보조 인덱스.
 CREATE INDEX IF NOT EXISTS "Reminder_userId_status_scheduledAt_idx"
@@ -54,6 +61,14 @@ CREATE INDEX IF NOT EXISTS "Reminder_userId_status_scheduledAt_idx"
 -- bootstrap 복구가 PENDING·scheduledAt>now 전수 스캔할 때의 보조 인덱스.
 CREATE INDEX IF NOT EXISTS "Reminder_scheduledAt_idx"
   ON "Reminder" ("scheduledAt");
+
+-- S80 perf fix: recoverPending(WHERE status='PENDING' ORDER BY scheduledAt) status-first 서빙.
+CREATE INDEX IF NOT EXISTS "Reminder_status_scheduledAt_idx"
+  ON "Reminder" ("status", "scheduledAt");
+
+-- S80 reviewer H1 fix: /remind 멱등 dedup(부분 NULL distinct — REST NULL 키는 충돌 안 함).
+CREATE UNIQUE INDEX IF NOT EXISTS "Reminder_userId_idempotencyKey_key"
+  ON "Reminder" ("userId", "idempotencyKey");
 
 -- FK: 계정 삭제 시 리마인더 정리(Cascade). 멱등 가드.
 DO $$

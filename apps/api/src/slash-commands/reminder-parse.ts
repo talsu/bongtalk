@@ -18,13 +18,22 @@ import * as chrono from 'chrono-node';
  *
  * now 를 인자로 받아 상대 표현을 기준 시각에 고정한다(테스트 결정성).
  */
-export type ReminderParseResult =
-  | { ok: true; scheduledAt: Date; message: string }
-  | { ok: false };
+export type ReminderParseResult = { ok: true; scheduledAt: Date; message: string } | { ok: false };
 
 // /remind 구문 예시(EPHEMERAL 에러 안내에 노출).
 export const REMINDER_SYNTAX_HINT =
   '예: `/remind in 30 minutes 회의 준비` · `/remind tomorrow 10am 약 먹기` · `/remind 내일 9시 운동`';
+
+// S80 security HIGH fix: /remind 발화 시각 상한(2년). chrono 가 'next year'·'in 9999 days'
+// 같은 far-future 를 만들거나 사용자가 비현실적 시각을 넣어도 BullMQ 에 초장기 지연잡이
+// 쌓이지 않게 한다(부팅 복구 스캔 비대화/DoS 면 차단). 상한 초과는 파싱 실패로 처리한다.
+export const REMINDER_MAX_HORIZON_MS = 2 * 365 * 24 * 60 * 60 * 1000;
+
+/** now < scheduledAt ≤ now + 상한 인지 검증(과거 + 초장기 미래 모두 거부). */
+function isSchedulable(scheduledAt: Date, now: Date): boolean {
+  const t = scheduledAt.getTime();
+  return t > now.getTime() && t <= now.getTime() + REMINDER_MAX_HORIZON_MS;
+}
 
 /** Slack 스타일 `me to <...>` 접두를 제거한다(있으면). */
 function stripMePrefix(input: string): string {
@@ -41,7 +50,11 @@ function parseKorean(input: string, now: Date): ReminderParseResult | null {
     const unitMin = rel[2] === '시간' ? 60 : 1;
     const message = rel[4].trim();
     if (amount > 0 && message.length > 0) {
-      return { ok: true, scheduledAt: new Date(now.getTime() + amount * unitMin * 60_000), message };
+      return {
+        ok: true,
+        scheduledAt: new Date(now.getTime() + amount * unitMin * 60_000),
+        message,
+      };
     }
   }
   // `내일 H시 <메시지>` (H 는 0–23)
@@ -79,7 +92,7 @@ export function parseReminder(rawText: string, now: Date): ReminderParseResult {
   // 0) 한국어 보조 파싱 우선(chrono 가 한국어를 오인식하지 않도록).
   const ko = parseKorean(input, now);
   if (ko) {
-    if (ko.ok && ko.scheduledAt.getTime() <= now.getTime()) return { ok: false };
+    if (ko.ok && !isSchedulable(ko.scheduledAt, now)) return { ok: false };
     return ko;
   }
 
@@ -89,7 +102,7 @@ export function parseReminder(rawText: string, now: Date): ReminderParseResult {
     const parsed = chrono.parse(quoted.rest, now, { forwardDate: true });
     if (parsed.length === 0) return { ok: false };
     const scheduledAt = parsed[0].start.date();
-    if (scheduledAt.getTime() <= now.getTime()) return { ok: false };
+    if (!isSchedulable(scheduledAt, now)) return { ok: false };
     return { ok: true, scheduledAt, message: quoted.message };
   }
 
@@ -98,7 +111,7 @@ export function parseReminder(rawText: string, now: Date): ReminderParseResult {
   if (results.length === 0) return { ok: false };
   const first = results[0];
   const scheduledAt = first.start.date();
-  if (scheduledAt.getTime() <= now.getTime()) return { ok: false };
+  if (!isSchedulable(scheduledAt, now)) return { ok: false };
   const matched = first.text;
   const idx = input.indexOf(matched);
   let message = input;

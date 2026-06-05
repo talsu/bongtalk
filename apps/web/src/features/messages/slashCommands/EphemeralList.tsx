@@ -21,6 +21,10 @@ export function EphemeralList({ channelId }: { channelId: string }): JSX.Element
   if (messages.length === 0) return null;
   return (
     <div
+      // S80 a11y fix: SR 통지는 공유 announcer 가 담당하고, 이 컨테이너는 group + aria-label
+      // 로 "슬래시 명령 응답" 맥락만 노출한다(일반 메시지 목록과 구분 — 라이브 영역은 두지 않음).
+      role="group"
+      aria-label="슬래시 명령 응답"
       data-testid="ephemeral-list"
       className="flex flex-col gap-1 px-[var(--s-4)] pb-1"
     >

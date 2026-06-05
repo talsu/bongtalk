@@ -420,6 +420,11 @@ model Reminder {
   scheduledAt  DateTime       @db.Timestamptz
   // 등록한 BullMQ 잡 id(`reminder:{id}`). null = 미등록. DELETE/취소 시 remove 키.
   bullJobId    String?
+  // S80 reviewer H1 fix: execute 멱등키(uuid). 동일 (userId, idempotencyKey) 재시도는
+  // 새 Reminder/잡을 만들지 않고 기존 행을 반환한다(Redis slash-idem 의 read-then-write
+  // race 가 뚫려도 DB UNIQUE 가 2차 방어 — IN_CHANNEL 의 send UNIQUE 와 동급). REST 직접
+  // 생성(createFromNaturalLanguage)은 키 없이 NULL(Postgres NULL distinct → 충돌 없음).
+  idempotencyKey String?      @db.Uuid
   status       ReminderStatus @default(PENDING)
   createdAt    DateTime       @default(now()) @db.Timestamptz
 
@@ -430,6 +435,11 @@ model Reminder {
   @@index([userId, status, scheduledAt])
   // bootstrap 복구가 PENDING·scheduledAt>now 전수 스캔할 때의 보조 인덱스.
   @@index([scheduledAt])
+  // S80 perf fix: recoverPending 의 WHERE status='PENDING' ORDER BY scheduledAt 를
+  // status-first 로 직접 서빙(userId-first 복합 인덱스는 status-only 스캔에 비효율).
+  @@index([status, scheduledAt])
+  // S80 reviewer H1 fix: /remind 멱등 dedup(부분 NULL 은 Postgres 가 distinct 처리).
+  @@unique([userId, idempotencyKey])
 }
 
 model User {

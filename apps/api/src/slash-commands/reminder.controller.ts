@@ -52,6 +52,12 @@ export class ReminderController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
+    // S80 security BLOCKER fix: execute 경로(slash-execution.controller)와 동일하게 미인증
+    // 계정의 리마인더 생성을 차단한다(S66 FR-W05a). 직접 REST 진입도 동일 게이트 적용 —
+    // 미인증 계정이 BullMQ 지연잡을 적재(부팅 복구 DoS 면)하지 못하게 한다.
+    if (!user.emailVerified) {
+      throw new DomainError(ErrorCode.EMAIL_NOT_VERIFIED, '이메일 인증 후 사용할 수 있습니다');
+    }
     await this.rate.enforce([{ key: `reminders:create:u:${user.id}`, windowSec: 60, max: 30 }]);
     return this.reminders.createFromNaturalLanguage({
       userId: user.id,

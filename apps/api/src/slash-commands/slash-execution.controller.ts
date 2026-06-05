@@ -55,9 +55,7 @@ export class SlashExecutionController {
     if (!user.emailVerified) {
       throw new DomainError(ErrorCode.EMAIL_NOT_VERIFIED, '이메일 인증 후 사용할 수 있습니다');
     }
-    await this.rate.enforce([
-      { key: `slash:exec:u:${user.id}`, windowSec: 60, max: 30 },
-    ]);
+    await this.rate.enforce([{ key: `slash:exec:u:${user.id}`, windowSec: 60, max: 30 }]);
 
     // 멱등성 1차: 같은 (userId, key) 가 24h 내 이미 처리됐으면 캐시된 응답을 그대로 반환한다.
     const idemKey = `slash-idem:${user.id}:${parsed.data.idempotencyKey}`;
@@ -72,7 +70,10 @@ export class SlashExecutionController {
       text: parsed.data.text,
       idempotencyKey: parsed.data.idempotencyKey,
     });
-    await this.writeIdem(idemKey, result);
+    // S80 reviewer H2 fix: 에러 EPHEMERAL(파싱 실패 등)은 캐시하지 않는다 — 캐시하면 같은
+    // 키로 고쳐 재시도해도 24h 동안 stale 에러가 반환된다. 성공/IN_CHANNEL 만 멱등 캐시한다.
+    const isErrorEphemeral = result.responseType === 'EPHEMERAL' && result.error === true;
+    if (!isErrorEphemeral) await this.writeIdem(idemKey, result);
     return result;
   }
 

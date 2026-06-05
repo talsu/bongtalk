@@ -27,15 +27,29 @@ describe('EphemeralMessage', () => {
     expect(screen.getByText('나만 보임')).toBeTruthy();
   });
 
-  it('a11y: role=status + aria-live=polite', () => {
+  it('a11y(S80 fix): per-item 은 라이브 영역이 아니다(SR 통지는 공유 announcer 가 담당)', () => {
+    // 마운트와 동시에 채워지는 노드의 aria-live 는 SR 이 감지하지 못하고 announcer 와
+    // 겹치면 이중 낭독이 되므로, 행에는 role=status/aria-live 를 두지 않는다.
     render(<EphemeralMessage msg={make()} onDismiss={() => {}} />);
     const el = screen.getByTestId('ephemeral-eph-1');
-    expect(el.getAttribute('role')).toBe('status');
-    expect(el.getAttribute('aria-live')).toBe('polite');
+    expect(el.getAttribute('role')).toBeNull();
+    expect(el.getAttribute('aria-live')).toBeNull();
+  });
+
+  it('a11y: 닫기 버튼은 aria-label 로 의미를 노출한다', () => {
+    render(<EphemeralMessage msg={make()} onDismiss={() => {}} />);
+    expect(screen.getByTestId('ephemeral-dismiss-eph-1').getAttribute('aria-label')).toBe(
+      '알림 닫기',
+    );
   });
 
   it('error 면 data-error=true 로 표시한다', () => {
-    render(<EphemeralMessage msg={make({ error: true, content: '시각 이해 불가' })} onDismiss={() => {}} />);
+    render(
+      <EphemeralMessage
+        msg={make({ error: true, content: '시각 이해 불가' })}
+        onDismiss={() => {}}
+      />,
+    );
     expect(screen.getByTestId('ephemeral-eph-1').getAttribute('data-error')).toBe('true');
   });
 

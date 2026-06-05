@@ -80,6 +80,21 @@ export function parseDndDuration(text: string, now: Date): DndDuration {
  * 나머지를 text 로 분리한다. 이모지가 없으면 emoji=null, 전체를 text 로 본다. 빈 인자면
  * 둘 다 null(상태 클리어 의도). CustomStatusService.set 에 그대로 넘긴다.
  */
+/**
+ * /remind 확인 메시지용 발화 시각 포맷(FR-SC-06 · reviewer M3). raw ISO 대신 한국어 로캘로
+ * 보여준다. 서버 타임존에 의존하지 않도록 timeZone 을 'Asia/Seoul'(KST)로 고정한다(MVP 단일
+ * 로캘 — 사용자별 tz 는 향후 슬라이스). 파싱 불가한 입력은 원본 문자열을 그대로 돌려준다.
+ */
+export function formatReminderAt(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return new Intl.DateTimeFormat('ko-KR', {
+    timeZone: 'Asia/Seoul',
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  }).format(d);
+}
+
 export function parseStatusArgs(text: string): { emoji: string | null; text: string | null } {
   const trimmed = text.trim();
   if (trimmed.length === 0) return { emoji: null, text: null };

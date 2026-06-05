@@ -161,9 +161,34 @@ describe('POST /workspaces/:wsId/channels/:chid/slash-commands/execute (int)', (
       .send({ command: 'shrug', text: '멱등', idempotencyKey: key });
     expect(r1.body.messageId).toBe(r2.body.messageId);
     const count = await env.prisma.message.count({
-      where: { channelId: stack.channelId, authorId: stack.member.userId, content: { contains: '멱등' } },
+      where: {
+        channelId: stack.channelId,
+        authorId: stack.member.userId,
+        content: { contains: '멱등' },
+      },
     });
     expect(count).toBe(1);
+  });
+
+  it('멱등성(reviewer H1): 같은 idempotencyKey 로 /remind 재호출 → Reminder 1행·잡 1개', async () => {
+    const key = randomUUID();
+    const send = () =>
+      request(env.baseUrl)
+        .post(execUrl(stack))
+        .set('origin', ORIGIN)
+        .set(bearer(stack.member.accessToken))
+        .send({ command: 'remind', text: 'in 45 minutes 멱등리마인드', idempotencyKey: key });
+    // 동일 키로 순차 2회(read-then-write race 가 뚫린 상황을 보수적으로 모사) — DB UNIQUE 가
+    // 2차 방어선이라 새 Reminder/잡을 만들지 않고 같은 행을 반환해야 한다.
+    const r1 = await send();
+    const r2 = await send();
+    expect(r1.status).toBe(201);
+    expect(r2.status).toBe(201);
+    const reminders = await env.prisma.reminder.findMany({
+      where: { userId: stack.member.userId, message: '멱등리마인드' },
+    });
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0].idempotencyKey).toBe(key);
   });
 
   it('알 수 없는 커맨드 → 404 SLASH_COMMAND_UNKNOWN', async () => {
@@ -187,9 +212,7 @@ describe('POST /workspaces/:wsId/channels/:chid/slash-commands/execute (int)', (
 
   it('존재하지 않는 채널 → 404(ChannelAccessGuard)', async () => {
     const res = await request(env.baseUrl)
-      .post(
-        `/workspaces/${stack.workspaceId}/channels/${randomUUID()}/slash-commands/execute`,
-      )
+      .post(`/workspaces/${stack.workspaceId}/channels/${randomUUID()}/slash-commands/execute`)
       .set('origin', ORIGIN)
       .set(bearer(stack.member.accessToken))
       .send({ command: 'shrug', text: 'x', idempotencyKey: randomUUID() });

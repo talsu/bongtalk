@@ -9,7 +9,12 @@ import { PresenceService } from '../realtime/presence/presence.service';
 import { RealtimeGateway } from '../realtime/realtime.gateway';
 import { CustomStatusService } from '../me/custom-status.service';
 import { buildBuiltinCommands } from './builtin-commands';
-import { parseDndDuration, parseStatusArgs, transformInChannel } from './slash-transforms';
+import {
+  formatReminderAt,
+  parseDndDuration,
+  parseStatusArgs,
+  transformInChannel,
+} from './slash-transforms';
 import { parseReminder, REMINDER_SYNTAX_HINT } from './reminder-parse';
 import { ReminderService } from './reminder.service';
 
@@ -55,7 +60,10 @@ export class SlashExecutionService {
     const builtins = buildBuiltinCommands((process.env.GIPHY_API_KEY ?? '').trim().length > 0);
     const def = builtins.find((c) => c.name === command);
     if (!def) {
-      throw new DomainError(ErrorCode.SLASH_COMMAND_UNKNOWN, `알 수 없는 커맨드입니다: /${command}`);
+      throw new DomainError(
+        ErrorCode.SLASH_COMMAND_UNKNOWN,
+        `알 수 없는 커맨드입니다: /${command}`,
+      );
     }
 
     // IN_CHANNEL 빌트인(텍스트 변환 → 메시지 전송 경로 재사용).
@@ -195,7 +203,7 @@ export class SlashExecutionService {
 
   /** /remind <자연어 시각> <메시지> → 파싱 + Reminder 저장 + BullMQ 잡. */
   private async runRemind(
-    args: { userId: string; channelId: string; text: string },
+    args: { userId: string; channelId: string; text: string; idempotencyKey: string },
     now: Date,
   ): Promise<ExecuteSlashCommandResponse> {
     const parsed = parseReminder(args.text ?? '', now);
@@ -211,11 +219,15 @@ export class SlashExecutionService {
       channelId: args.channelId,
       message: parsed.message,
       scheduledAt: parsed.scheduledAt,
+      // S80 reviewer H1 fix: execute 멱등키를 영속해 (userId, key) UNIQUE 로 동시/재시도
+      //   중복 등록을 차단한다(Redis slash-idem 의 read-then-write race 2차 방어).
+      idempotencyKey: args.idempotencyKey,
       now,
     });
     return {
       responseType: 'EPHEMERAL',
-      content: `${item.scheduledAt} 에 알려드릴게요: "${item.message}"`,
+      // S80 reviewer M3 fix: raw ISO 대신 한국어 로캘 + KST 로 발화 시각을 보여준다.
+      content: `${formatReminderAt(item.scheduledAt)} 에 알려드릴게요: "${item.message}"`,
     };
   }
 

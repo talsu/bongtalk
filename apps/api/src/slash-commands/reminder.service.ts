@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import type { ReminderItem } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
@@ -40,26 +41,36 @@ export class ReminderService implements OnModuleInit {
     }
   }
 
-  /** PENDING Reminder 전수 재등록(부팅 복구). */
+  // S80 perf/security fix: 부팅 복구 스캔 1회 상한(미인증/대량 PENDING 의 부팅 DoS 면 차단 +
+  // unbounded 스캔 방지). scheduledAt 오름차순(가장 임박/지연된 것 우선)으로 최대 N 건만 재등록.
+  private static readonly RECOVER_CAP = 500;
+
+  /** PENDING Reminder 재등록(부팅 복구·상한·status-first 인덱스). */
   async recoverPending(now: Date = new Date()): Promise<number> {
     const pending = await this.prisma.reminder.findMany({
       where: { status: 'PENDING' },
+      orderBy: [{ scheduledAt: 'asc' }],
+      take: ReminderService.RECOVER_CAP,
       select: { id: true, userId: true, scheduledAt: true },
     });
     for (const r of pending) {
-      const jobId = await this.queue.scheduleRemind({
+      // bullJobId 는 remindJobId(id) 로 결정적이고 persist 가 이미 영속했으므로(재등록해도
+      // 동일 값) 여기선 DB update 를 생략한다 — 부팅 시 N 회 no-op 쓰기를 제거(perf SERIOUS).
+      await this.queue.scheduleRemind({
         reminderId: r.id,
         userId: r.userId,
         scheduledAt: r.scheduledAt,
         now,
       });
-      // 재등록한 jobId 사본을 영속(취소 키 동기 — 종전 값과 동일하지만 명시).
-      await this.prisma.reminder
-        .update({ where: { id: r.id }, data: { bullJobId: jobId } })
-        .catch(() => undefined);
     }
     if (pending.length > 0) {
       this.logger.log(`[remind] bootstrap recovered ${pending.length} pending reminder(s)`);
+    }
+    if (pending.length === ReminderService.RECOVER_CAP) {
+      // 상한 도달 — 더 미래의 PENDING 은 이번 부팅에 재등록되지 않았음을 명시(silent-cap 금지).
+      this.logger.warn(
+        `[remind] bootstrap recovery hit cap (${ReminderService.RECOVER_CAP}); 초과분은 다음 재기동/수동 트리거에 재등록됩니다`,
+      );
     }
     return pending.length;
   }
@@ -104,26 +115,62 @@ export class ReminderService implements OnModuleInit {
     channelId: string | null;
     message: string;
     scheduledAt: Date;
+    idempotencyKey?: string | null;
     now?: Date;
   }): Promise<ReminderItem> {
     const now = args.now ?? new Date();
-    const row = await this.prisma.reminder.create({
-      data: {
-        userId: args.userId,
-        channelId: args.channelId,
-        message: args.message.slice(0, 500),
-        scheduledAt: args.scheduledAt,
-        status: 'PENDING',
-      },
-      select: {
-        id: true,
-        channelId: true,
-        message: true,
-        scheduledAt: true,
-        status: true,
-        createdAt: true,
-      },
-    });
+    const idempotencyKey = args.idempotencyKey ?? null;
+    let row: {
+      id: string;
+      channelId: string | null;
+      message: string;
+      scheduledAt: Date;
+      status: 'PENDING' | 'SENT' | 'CANCELLED';
+      createdAt: Date;
+    };
+    try {
+      row = await this.prisma.reminder.create({
+        data: {
+          userId: args.userId,
+          channelId: args.channelId,
+          message: args.message.slice(0, 500),
+          scheduledAt: args.scheduledAt,
+          idempotencyKey,
+          status: 'PENDING',
+        },
+        select: {
+          id: true,
+          channelId: true,
+          message: true,
+          scheduledAt: true,
+          status: true,
+          createdAt: true,
+        },
+      });
+    } catch (err) {
+      // S80 reviewer H1 fix: 동일 (userId, idempotencyKey) 동시/재시도 → UNIQUE(P2002) 위반.
+      //   기존 행을 반환하고 새 BullMQ 잡을 등록하지 않는다(중복 발화 방지 — execute 의
+      //   read-then-write race 가 뚫려도 여기서 1회만 보장). NULL 키(REST)는 충돌 없음.
+      if (
+        idempotencyKey &&
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002'
+      ) {
+        const existing = await this.prisma.reminder.findFirst({
+          where: { userId: args.userId, idempotencyKey },
+          select: {
+            id: true,
+            channelId: true,
+            message: true,
+            scheduledAt: true,
+            status: true,
+            createdAt: true,
+          },
+        });
+        if (existing) return this.toItem(existing);
+      }
+      throw err;
+    }
     const jobId = await this.queue.scheduleRemind({
       reminderId: row.id,
       userId: args.userId,
