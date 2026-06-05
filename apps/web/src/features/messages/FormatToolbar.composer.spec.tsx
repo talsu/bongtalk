@@ -175,4 +175,59 @@ describe('FormatToolbar ↔ composer 통합 (S83c round-2 / MED-2)', () => {
     expect(document.activeElement).toBe(ta);
     expect(doc.queryByTestId('format-toolbar')).toBeNull();
   });
+
+  // S83c round-3(B-1b): Tab(Shift 무관) 으로 툴바를 벗어나면 닫히고 textarea 로 복귀한다
+  // (트랜지언트 팝업 — 고아 잔류 방지). 진입(textarea Tab)→이탈(toolbar Tab) 왕복을 검증.
+  it('툴바에서 Tab → textarea 로 포커스 복귀 + 닫힘(고아 잔류 방지)', () => {
+    const { getByTestId } = render(<Harness />);
+    const doc = within(document.body);
+    const ta = getByTestId('ta') as HTMLTextAreaElement;
+    selectRange(ta, 6, 11);
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    const toolbar = doc.getByTestId('format-toolbar');
+    expect(document.activeElement).toBe(doc.getByTestId('format-toolbar-bold'));
+    fireEvent.keyDown(toolbar, { key: 'Tab' });
+    expect(document.activeElement).toBe(ta);
+    expect(doc.queryByTestId('format-toolbar')).toBeNull();
+  });
+
+  it('툴바에서 Shift+Tab → textarea 로 포커스 복귀 + 닫힘', () => {
+    const { getByTestId } = render(<Harness />);
+    const doc = within(document.body);
+    const ta = getByTestId('ta') as HTMLTextAreaElement;
+    selectRange(ta, 6, 11);
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    const toolbar = doc.getByTestId('format-toolbar');
+    fireEvent.keyDown(toolbar, { key: 'Tab', shiftKey: true });
+    expect(document.activeElement).toBe(ta);
+    expect(doc.queryByTestId('format-toolbar')).toBeNull();
+  });
+
+  // S83c round-3(B-1b focusout 안전망): 포커스가 툴바 밖(클릭아웃 등)으로 새면 닫힌다.
+  it('툴바 버튼에서 툴바 밖으로 포커스가 이탈하면 닫힌다(focusout 안전망)', () => {
+    const { getByTestId } = render(<Harness />);
+    const doc = within(document.body);
+    const ta = getByTestId('ta') as HTMLTextAreaElement;
+    selectRange(ta, 6, 11);
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    const bold = doc.getByTestId('format-toolbar-bold');
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    fireEvent.blur(bold, { relatedTarget: outside });
+    expect(doc.queryByTestId('format-toolbar')).toBeNull();
+  });
+
+  it('roving: 툴바 진입 후 ←/→ 로 버튼을 순회하고 tabIndex 가 따라온다', () => {
+    const { getByTestId } = render(<Harness />);
+    const doc = within(document.body);
+    const ta = getByTestId('ta') as HTMLTextAreaElement;
+    selectRange(ta, 6, 11);
+    fireEvent.keyDown(ta, { key: 'Tab' });
+    const toolbar = doc.getByTestId('format-toolbar');
+    expect(doc.getByTestId('format-toolbar-bold').getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(toolbar, { key: 'ArrowRight' });
+    expect(document.activeElement).toBe(doc.getByTestId('format-toolbar-italic'));
+    expect(doc.getByTestId('format-toolbar-italic').getAttribute('tabindex')).toBe('0');
+    expect(doc.getByTestId('format-toolbar-bold').getAttribute('tabindex')).toBe('-1');
+  });
 });

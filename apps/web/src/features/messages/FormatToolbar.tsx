@@ -1,4 +1,12 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, type RefObject } from 'react';
+import {
+  forwardRef,
+  useCallback,
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type RefObject,
+} from 'react';
 import { createPortal } from 'react-dom';
 import { Icon, type IconName } from '../../design-system/primitives';
 import type { ToolbarFormat } from './formatWrap';
@@ -24,6 +32,17 @@ import type { ToolbarFormat } from './formatWrap';
  * 닫힘은 상위가 제어한다(선택 해제·blur). 이 컴포넌트는 Esc 를 받아 onClose 를 호출하고
  * textarea 포커스를 되돌린다. 마우스 클릭으로 선택이 풀리지 않도록 버튼은 onMouseDown 에서
  * preventDefault 한다. 상위는 toolbarRef 의 focusFirst() 로 키보드 진입(Tab)을 구현한다.
+ *
+ * S83c round-3(a11y BLOCKER B-1a + HIGH B-1b): WAI-ARIA toolbar 패턴 + 트랜지언트 팝업으로
+ * 키보드 동작을 완성한다.
+ *   - roving tabindex: 활성(현재 포커스/초기 0번) 버튼만 tabIndex=0, 나머지 -1 — 툴바 전체가
+ *     단일 탭스톱이 된다. ←/→(및 ↑/↓ 동일 매핑)로 활성 인덱스를 옮기며 wrap-around 한다.
+ *     Home/End 는 처음/끝으로 점프한다.
+ *   - Tab/Shift+Tab 경계: 툴바는 트랜지언트 팝업이므로 Tab 은 내부 순회가 아니라 툴바를 닫고
+ *     컴포저(anchor textarea)로 복귀한다(화살표가 내부 이동 담당). focusout 으로 고아 잔류하지
+ *     않게 한다.
+ *   - focusout 안전망: 포커스가 어떤 경로로든 툴바 밖으로 나가면(클릭아웃·프로그램적 이탈) 닫는다.
+ *     단, 버튼→버튼 이동(relatedTarget 이 툴바 내부)에는 닫지 않도록 contains 가드를 둔다.
  */
 
 interface ToolbarButton {
@@ -90,6 +109,16 @@ export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>
     const toolbarRef = useRef<HTMLDivElement>(null);
     const buttonRefs = useRef<Array<HTMLButtonElement | null>>([]);
 
+    // S83c round-3(B-1a): roving tabindex 활성 인덱스. 활성 버튼만 tabIndex=0(툴바 단일 탭스톱),
+    // 나머지 -1. ←/→/↑/↓/Home/End 가 이 값을 옮기며 해당 버튼에 .focus() 한다.
+    const [activeIndex, setActiveIndex] = useState(0);
+
+    // 활성 인덱스를 옮기고 해당 버튼으로 포커스를 이동한다(roving 의 단일 진입점).
+    const moveActive = useCallback((index: number): void => {
+      setActiveIndex(index);
+      buttonRefs.current[index]?.focus();
+    }, []);
+
     // 상위(composer)가 onBlur 비교/키보드 진입에 쓰는 명령형 핸들. testid DOM 쿼리(brittle·
     // prod attr strip 위험)를 제거하고 ref 로 toolbar 노드를 직접 소유하게 한다(HIGH 4.1.3).
     useImperativeHandle(
@@ -97,11 +126,10 @@ export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>
       () => ({
         contains: (node: Node | null) =>
           node ? (toolbarRef.current?.contains(node) ?? false) : false,
-        focusFirst: () => {
-          buttonRefs.current.find((b): b is HTMLButtonElement => b !== null)?.focus();
-        },
+        // 키보드 Tab 진입 시 roving 활성 인덱스를 첫 버튼으로 재설정하고 포커스를 옮긴다.
+        focusFirst: () => moveActive(0),
       }),
-      [],
+      [moveActive],
     );
 
     // 위치 계산: 마운트 시 + 윈도우 리사이즈/스크롤 시 anchor rect 기준으로 갱신한다.
@@ -137,26 +165,54 @@ export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>
       };
     }, [anchorRef]);
 
-    // a11y: 방향키로 버튼 사이를 순회한다(roving — Left/Right). Esc 는 툴바를 닫고
-    // textarea 로 포커스를 되돌린다.
+    // a11y: 방향키로 버튼 사이를 roving 순회한다(←/→ 및 일관성 위해 ↑/↓ 동일 매핑·wrap-around).
+    // Home/End 는 처음/끝으로 점프한다. Esc 는 툴바를 닫고 textarea 로 포커스를 되돌린다.
+    // S83c round-3(B-1b): Tab/Shift+Tab 경계 — 툴바는 트랜지언트 팝업이므로 내부 순회가 아니라
+    // 툴바를 닫고 컴포저(anchor)로 복귀한다(화살표가 내부 이동 담당). 고아 잔류 방지.
     const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' || e.key === 'Tab') {
+        // Esc·Tab(shift 무관) 모두 닫고 textarea 로 복귀한다.
         e.preventDefault();
         e.stopPropagation();
         onClose();
         anchorRef.current?.focus();
         return;
       }
-      if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const count = BUTTONS.length;
+      if (count === 0) return;
+      const from = activeIndex;
+      if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const buttons = buttonRefs.current.filter((b): b is HTMLButtonElement => b !== null);
-        if (buttons.length === 0) return;
-        const activeIdx = buttons.findIndex((b) => b === document.activeElement);
-        const step = e.key === 'ArrowRight' ? 1 : -1;
-        const from = activeIdx < 0 ? 0 : activeIdx;
-        const next = (from + step + buttons.length) % buttons.length;
-        buttons[next]?.focus();
+        moveActive((from + 1) % count);
+        return;
       }
+      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        moveActive((from - 1 + count) % count);
+        return;
+      }
+      if (e.key === 'Home') {
+        e.preventDefault();
+        moveActive(0);
+        return;
+      }
+      if (e.key === 'End') {
+        e.preventDefault();
+        moveActive(count - 1);
+      }
+    };
+
+    // S83c round-3(B-1b focusout 안전망): 포커스가 어떤 경로로든 툴바 밖으로 나가면 닫는다
+    // (클릭아웃·프로그램적 포커스 이탈로 인한 고아 잔류 방지). onClose 는 상위에서 selectionRange
+    // 초기화로 이어져 showFormatToolbar=false 가 된다. 두 가드:
+    //   1. 버튼→버튼 이동(relatedTarget 이 툴바 내부)에는 닫지 않는다(roving).
+    //   2. anchor textarea 로의 복귀(Esc/Tab 핸들러가 이미 onClose 후 .focus() 한 의도된 이탈)는
+    //      이미 닫혔으므로 중복 onClose 를 막는다(닫힘 자체는 동일하게 보장된다).
+    const onBlur = (e: React.FocusEvent<HTMLDivElement>): void => {
+      const next = e.relatedTarget as Node | null;
+      if (toolbarRef.current?.contains(next)) return;
+      if (next && next === anchorRef.current) return;
+      onClose();
     };
 
     // S83c round-2(a11y 1.3.2): SR 가상 커서 순서/스태킹을 위해 document.body 포털로 마운트.
@@ -169,6 +225,7 @@ export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>
         aria-label="텍스트 서식 (방향키로 이동, Esc로 닫기)"
         data-testid="format-toolbar"
         onKeyDown={onKeyDown}
+        onBlur={onBlur}
         className="fixed z-[var(--z-dropdown)] flex items-center gap-[var(--s-1)] rounded-[var(--r-md)] border border-border-subtle bg-bg-surface p-[var(--s-1)] shadow-elev-2"
         style={{ top: 0, left: 0, visibility: 'hidden' }}
       >
@@ -181,6 +238,9 @@ export const FormatToolbar = forwardRef<FormatToolbarHandle, FormatToolbarProps>
             type="button"
             aria-label={btn.label}
             data-testid={`format-toolbar-${btn.format}`}
+            // S83c round-3(B-1a roving tabindex): 활성 버튼만 0, 나머지 -1 — 툴바 전체가 단일
+            // 탭스톱이 되고 내부 이동은 화살표가 담당한다(WAI-ARIA toolbar 패턴).
+            tabIndex={i === activeIndex ? 0 : -1}
             className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
             // 선택 유지: 클릭으로 textarea selection 이 풀리지 않도록 기본 동작을 막는다.
             onMouseDown={(e) => e.preventDefault()}

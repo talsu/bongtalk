@@ -126,6 +126,108 @@ describe('FormatToolbar (S83c / FR-KS-10)', () => {
     expect(document.activeElement).toBe(getByTestId('format-toolbar-bold'));
   });
 
+  // S83c round-3(B-1a): roving tabindex — 활성 버튼만 0, 나머지 -1(툴바 단일 탭스톱).
+  it('roving tabindex: only the active button has tabIndex=0, rest are -1', () => {
+    const { getByTestId } = setup();
+    const formats: ToolbarFormat[] = [
+      'bold',
+      'italic',
+      'strike',
+      'code',
+      'codeBlock',
+      'quote',
+      'link',
+    ];
+    // 초기 활성 = 0번(bold).
+    expect(getByTestId('format-toolbar-bold').getAttribute('tabindex')).toBe('0');
+    for (const fmt of formats.slice(1)) {
+      expect(getByTestId(`format-toolbar-${fmt}`).getAttribute('tabindex')).toBe('-1');
+    }
+  });
+
+  it('roving tabindex follows the arrow-key active index (0 moves with focus)', () => {
+    const { getByTestId, getByRole } = setup();
+    const toolbar = getByRole('toolbar');
+    getByTestId('format-toolbar-bold').focus();
+    fireEvent.keyDown(toolbar, { key: 'ArrowRight' });
+    // 활성이 italic 으로 이동 — italic 만 0, bold 는 -1.
+    expect(getByTestId('format-toolbar-italic').getAttribute('tabindex')).toBe('0');
+    expect(getByTestId('format-toolbar-bold').getAttribute('tabindex')).toBe('-1');
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-italic'));
+  });
+
+  it('ArrowDown / ArrowUp mirror ArrowRight / ArrowLeft roving', () => {
+    const { getByTestId, getByRole } = setup();
+    const toolbar = getByRole('toolbar');
+    getByTestId('format-toolbar-bold').focus();
+    fireEvent.keyDown(toolbar, { key: 'ArrowDown' });
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-italic'));
+    fireEvent.keyDown(toolbar, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-bold'));
+    // wrap-around: ArrowUp from first → last.
+    fireEvent.keyDown(toolbar, { key: 'ArrowUp' });
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-link'));
+  });
+
+  it('Home / End jump roving focus to the first / last button', () => {
+    const { getByTestId, getByRole } = setup();
+    const toolbar = getByRole('toolbar');
+    getByTestId('format-toolbar-bold').focus();
+    fireEvent.keyDown(toolbar, { key: 'End' });
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-link'));
+    expect(getByTestId('format-toolbar-link').getAttribute('tabindex')).toBe('0');
+    fireEvent.keyDown(toolbar, { key: 'Home' });
+    expect(document.activeElement).toBe(getByTestId('format-toolbar-bold'));
+  });
+
+  // S83c round-3(B-1b): Tab(및 Shift+Tab) 경계 — 트랜지언트 팝업이므로 닫고 textarea 복귀.
+  it('Tab closes the toolbar and returns focus to the anchor textarea', () => {
+    const { getByRole, onClose, anchor } = setup();
+    const toolbar = getByRole('toolbar');
+    fireEvent.keyDown(toolbar, { key: 'Tab' });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(anchor);
+  });
+
+  it('Shift+Tab also closes the toolbar and returns focus to the anchor textarea', () => {
+    const { getByRole, onClose, anchor } = setup();
+    const toolbar = getByRole('toolbar');
+    fireEvent.keyDown(toolbar, { key: 'Tab', shiftKey: true });
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(document.activeElement).toBe(anchor);
+  });
+
+  // S83c round-3(B-1b focusout 안전망): 포커스가 툴바 밖으로 새면(클릭아웃 등) 닫힌다.
+  it('focusout to a node outside the toolbar closes it (orphan-leak guard)', () => {
+    const { getByTestId, onClose } = setup();
+    const bold = getByTestId('format-toolbar-bold');
+    const outside = document.createElement('button');
+    document.body.appendChild(outside);
+    bold.focus();
+    // 버튼 → 툴바 밖 노드로 포커스 이탈.
+    fireEvent.blur(bold, { relatedTarget: outside });
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it('focusout between toolbar buttons does NOT close (roving stays open)', () => {
+    const { getByTestId, onClose } = setup();
+    const bold = getByTestId('format-toolbar-bold');
+    const italic = getByTestId('format-toolbar-italic');
+    bold.focus();
+    // 버튼 → 같은 툴바 내부 버튼: contains 가드로 닫지 않음.
+    fireEvent.blur(bold, { relatedTarget: italic });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
+  it('focusout back to the anchor textarea does NOT double-fire onClose', () => {
+    const { getByTestId, onClose, anchor } = setup();
+    const bold = getByTestId('format-toolbar-bold');
+    bold.focus();
+    // Esc/Tab 핸들러가 이미 onClose 후 anchor.focus() 한 의도된 복귀 — 중복 onClose 방지.
+    fireEvent.blur(bold, { relatedTarget: anchor });
+    expect(onClose).not.toHaveBeenCalled();
+  });
+
   it('exposes a ref handle: contains() reports whether a node is inside the toolbar', () => {
     const { getByTestId, handleRef, anchor } = setup();
     const bold = getByTestId('format-toolbar-bold');
