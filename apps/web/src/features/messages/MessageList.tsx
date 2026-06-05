@@ -21,6 +21,7 @@ import {
   useUpdateMessage,
 } from './useMessages';
 import { qk } from '../../lib/query-keys';
+import { OPTIMISTIC_PREFIX } from './sendState';
 import { MessageItem } from './MessageItem';
 import { ReportModal } from './ReportModal';
 import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedMessages';
@@ -196,6 +197,12 @@ export function MessageList({
 
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
 
+  // S83a 사후 리뷰(reviewer LOW): editLast 리스너가 messages 를 deps 로 가지면 메시지
+  // 도착마다 remove/add 로 재구독돼(churn) 이벤트 유실 윈도우가 생긴다. messages 를 ref 로
+  // 읽어 리스너 effect deps 를 [channelId, user?.id] 로 안정화한다(채널당 1회 구독).
+  const messagesRef = useRef<MessageDto[]>(messages);
+  messagesRef.current = messages;
+
   // S83a (FR-KS-06): composer 가 빈 draft 에서 ↑ 를 누르면 qufox.message.editLast 를
   // dispatch 한다. 현재 채널의 마지막 내 메시지(tmp 제외)에 nonce 를 bump 해 MessageItem 이
   // 인라인 편집 모드로 진입하게 한다. 내 메시지가 없으면 no-op.
@@ -204,14 +211,19 @@ export function MessageList({
     const onEditLast = (ev: Event): void => {
       const detail = (ev as CustomEvent<{ channelId?: string }>).detail;
       if (detail?.channelId && detail.channelId !== channelId) return;
-      const mine = messages.filter((m) => m.authorId === user?.id && !m.id.startsWith('tmp-'));
+      // S83a 사후 리뷰(reviewer MED / a11y A1 HIGH): 삭제된 메시지는 편집 대상에서 제외한다
+      // (삭제된 마지막 메시지가 유령 편집으로 열리는 회귀 방지). 낙관적(tmp) 행도 서버 id 가
+      // 없어 제외한다.
+      const mine = messagesRef.current.filter(
+        (m) => m.authorId === user?.id && !m.id.startsWith(OPTIMISTIC_PREFIX) && !m.deleted,
+      );
       const last = mine[mine.length - 1];
       if (!last) return;
       setEditReq((prev) => ({ id: last.id, nonce: (prev?.nonce ?? 0) + 1 }));
     };
     window.addEventListener('qufox.message.editLast', onEditLast);
     return () => window.removeEventListener('qufox.message.editLast', onEditLast);
-  }, [messages, user?.id, channelId]);
+  }, [channelId, user?.id]);
 
   // S52 (FR-PS-13): 렌더 중인 메시지 id 배치로 서버 저장 상태를 1회 seed 해 툴바
   // 북마크 채움을 초기화한다(N+1 단건 GET 금지). tmp(낙관적 send) 행은 서버 id 가

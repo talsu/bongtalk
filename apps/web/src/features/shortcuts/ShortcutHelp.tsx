@@ -116,7 +116,9 @@ export function ShortcutHelp(): JSX.Element | null {
                   style={{ borderBottom: '1px solid var(--divider)' }}
                 >
                   <div className="flex flex-col">
-                    <span className="text-text">
+                    {/* S83a 사후 리뷰(ui-designer LOW-1): 바레 `text-text` 는 무효 Tailwind
+                        키라 `text-foreground`(tailwind.config foreground=var(--text))로 교정. */}
+                    <span className="text-foreground">
                       {s.desc}
                       {s.pending && (
                         <>
