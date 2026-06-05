@@ -55,9 +55,15 @@ describe('resolveMessageKeyAction — key mapping', () => {
     expect(resolveMessageKeyAction('R', msg(), ctx())).toBe('react');
   });
 
-  it('maps Delete and Backspace → delete', () => {
+  it('maps Delete → delete', () => {
     expect(resolveMessageKeyAction('Delete', msg(), ctx())).toBe('delete');
-    expect(resolveMessageKeyAction('Backspace', msg(), ctx())).toBe('delete');
+  });
+
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8 · security #4): Backspace 는
+  // 단일키 삭제 매핑에서 제거됐다(삭제 하이재킹 위험 — Delete 만).
+  it('Backspace is no longer a delete key (null)', () => {
+    expect(resolveMessageKeyAction('Backspace', msg(), ctx())).toBeNull();
+    expect(resolveMessageKeyAction('Backspace', msg(), ctx({ isMine: false }))).toBeNull();
   });
 
   it('returns null for unmapped keys', () => {

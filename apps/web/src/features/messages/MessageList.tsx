@@ -28,6 +28,8 @@ import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedM
 import { ReminderModal } from '../saved/ReminderModal';
 import { useSetReminder } from '../saved/useReminder';
 import { saveMessage } from '../saved/api';
+import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
+import { initialFocusId, nextRovingFocus, deriveHasReminder, type RovingKey } from './rovingFocus';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
@@ -211,18 +213,28 @@ export function MessageList({
   // 인라인 편집 모드로 진입하게 한다. 내 메시지가 없으면 no-op.
   const [editReq, setEditReq] = useState<{ id: string; nonce: number } | null>(null);
 
-  // S83b (FR-KS-08): hover 활성 메시지 id. 키보드 포커스 활성은 row onKeyDown 이
-  // 직접 단일키를 처리하므로(포커스 우선), 여기 hover 만 추적해 hover-only 단일키를
-  // window keydown 으로 라우팅한다. 어떤 row 든 DOM 포커스가 있으면 hover 경로는
-  // 양보한다(이중 실행 방지).
-  const [hoverId, setHoverId] = useState<string | null>(null);
-  const hoverIdRef = useRef<string | null>(null);
-  hoverIdRef.current = hoverId;
-  // S83b: hover-only 단일키가 MessageItem 의 동일 resolve→execute 경로로 가도록
-  // raw key 를 담아 nonce 를 bump 하는 요청. 대상 메시지 id 와 함께 보관한다.
-  const [actionReq, setActionReq] = useState<{ id: string; key: string; nonce: number } | null>(
-    null,
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex 의 활성 메시지 id.
+  // MessageList 가 단일 출처로 소유한다. 이 id 인 row 만 tabIndex=0(Tab 한 스톱),
+  // ↑/↓/Home/End 로 이동하면 대상 row 에 .focus()+scrollIntoView 한다(가상화 처리).
+  // null 이면 첫 Tab 진입 시 최신 메시지(initialFocusId)가 포커스를 받는다.
+  const [focusedMsgId, setFocusedMsgId] = useState<string | null>(null);
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving 가능한(키보드 포커스 가능한 article
+  // 로 렌더되는) 메시지 id 만 추린다. 시스템 메시지(SYSTEM_*/broadcast)는 MessageItem
+  // 이 아닌 SystemMessage 로 렌더돼 `msg-${id}` 포커스 타깃이 없으므로 roving 순회에서
+  // 제외한다(focus 유실 방지). 가상화여도 전체 순서를 그대로 쓰므로 윈도우 밖 이동도
+  // 좌표가 정합한다(아래 가상 인덱스 변환은 전체 messageIds 기준 인덱스를 쓴다).
+  const navigableIds = useMemo(
+    () => messages.filter((m) => !isSystemMessageType(m.type)).map((m) => m.id),
+    [messages],
   );
+  // roving 의 "현재 tabIndex=0 인 행". 사용자가 아직 어떤 행도 포커스하지 않았으면
+  // (focusedMsgId=null) 최신(마지막) navigable 메시지가 Tab 한 스톱을 차지한다
+  // (initialFocusId). 이미 이동했으면 그 id. focusedMsgId 가 가리키는 행이 사라졌으면
+  // (삭제·페이지 evict) 최신으로 폴백한다.
+  const effectiveFocusedId = useMemo(() => {
+    if (focusedMsgId !== null && navigableIds.includes(focusedMsgId)) return focusedMsgId;
+    return initialFocusId(navigableIds);
+  }, [focusedMsgId, navigableIds]);
   // S83b (FR-KS-08): M(리마인더) 단일키 대상. 저장 안 돼 있으면 먼저 저장 후
   // savedMessageId 를 확보해 ReminderModal 을 연다.
   const setReminderMut = useSetReminder();
@@ -249,41 +261,13 @@ export function MessageList({
     return () => window.removeEventListener('qufox.message.editLast', onEditLast);
   }, [channelId, user?.id]);
 
-  // S83b (FR-KS-08): hover-only 단일키 라우팅. 메시지에 마우스를 올린 상태에서(키보드
-  // 포커스는 없음) 단일 키를 누르면, 해당 메시지에 raw key + nonce 를 bump 한다 →
-  // MessageItem 이 포커스 경로와 동일한 resolve→execute 로 처리한다(권한/가용성 게이트
-  // 포함). 가드:
-  //   - 입력/textarea/contentEditable 포커스 중에는 비활성(타이핑 방해 금지).
-  //   - 메시지 row(혹은 그 자식)에 DOM 포커스가 있으면 양보(포커스 경로가 처리 — 이중 실행 방지).
-  //   - 수정자 키(Ctrl/Cmd/Alt) 조합은 단일키가 아니므로 통과(전역 단축키 보존).
-  const SINGLE_KEYS = useRef(
-    new Set(['e', 'r', 't', 'p', 'a', 'm', 'delete', 'backspace']),
-  ).current;
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent): void => {
-      const id = hoverIdRef.current;
-      if (!id) return;
-      if (e.ctrlKey || e.metaKey || e.altKey) return;
-      if (!SINGLE_KEYS.has(e.key.toLowerCase())) return;
-      const ae = document.activeElement as HTMLElement | null;
-      if (ae) {
-        if (
-          ae.isContentEditable ||
-          ae.tagName === 'INPUT' ||
-          ae.tagName === 'TEXTAREA' ||
-          ae.tagName === 'SELECT'
-        ) {
-          return;
-        }
-        // 메시지 row(또는 그 자식)에 포커스가 있으면 포커스 경로가 처리하므로 양보.
-        if (ae.closest('.qf-message')) return;
-      }
-      e.preventDefault();
-      setActionReq((prev) => ({ id, key: e.key, nonce: (prev?.nonce ?? 0) + 1 }));
-    };
-    window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
-  }, [SINGLE_KEYS]);
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1 · #2): hover-key 경로(window keydown ·
+  // hoverId · SINGLE_KEYS · actionRequest nonce)를 전면 제거했다. 단일키는 row
+  // onKeyDown(키보드 포커스 시)만 처리하고, hover 는 기존 group-hover 툴바 노출만
+  // 유지한다. 근거: hover-key 가 WCAG 2.1.4 위반·SR 가상커서 충돌·전체 리렌더·
+  // Backspace 하이재킹의 공통 원인이었다. 포커스 경로는 2.1.4 'active-on-focus' 예외
+  // 를 충족한다. (PRD "hover 또는 포커스 단일키" 중 hover-key 는 a11y 안티패턴이라
+  // 포커스로 통일 — deviation.)
 
   // S52 (FR-PS-13): 렌더 중인 메시지 id 배치로 서버 저장 상태를 1회 seed 해 툴바
   // 북마크 채움을 초기화한다(N+1 단건 GET 금지). tmp(낙관적 send) 행은 서버 id 가
@@ -452,6 +436,10 @@ export function MessageList({
   // momentum-scroll events can be dropped.
   const messageIdsRef = useRef(messageIds);
   messageIdsRef.current = messageIds;
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving 핸들러가 최신 navigable id 목록을
+  // 읽도록 ref 로 노출한다(재바인딩 없이).
+  const navigableIdsRef = useRef(navigableIds);
+  navigableIdsRef.current = navigableIds;
   const historyRef = useRef(history);
   historyRef.current = history;
   const virtualizerRef = useRef(virtualizer);
@@ -509,6 +497,9 @@ export function MessageList({
     prevLengthRef.current = 0;
     prevFirstIdRef.current = null;
     prevLastIdRef.current = null;
+    // S83b 리뷰 fix-forward (a11y BLOCKER #1): 채널 전환 시 roving 포커스 초기화 →
+    // 새 채널 첫 Tab 진입은 최신 메시지(initialFocusId)로 떨어진다.
+    setFocusedMsgId(null);
   }, [channelId]);
 
   useLayoutEffect(() => {
@@ -793,10 +784,59 @@ export function MessageList({
     // (이 repo 는 react-hooks/exhaustive-deps 규칙 미설치 — disable 주석 불필요.)
   }, [lastMessageId]);
 
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving 이동 핸들러. row onKeyDown 에서
+  // ↑/↓/Home/End 가 들어오면 다음 포커스 행을 계산(nextRovingFocus — 순수)하고,
+  // focusedMsgId 를 갱신한 뒤 대상 row 에 DOM 포커스 + scrollIntoView 한다.
+  //
+  // 가상화 처리: 대상이 현재 렌더 윈도우 밖이면 먼저 scrollToIndex 로 윈도우에 마운트
+  // 한 뒤(가상화), rAF 로 다음 페인트에서 DOM 노드를 찾아 .focus() 한다. 렌더된 행이면
+  // 즉시 포커스한다. 어느 경우든 messageIds 전체 순서를 기준으로 인덱스를 계산하므로
+  // 윈도우 밖 이동도 좌표가 정합한다(렌더 범위 내로 제한하지 않음).
+  const focusRow = (id: string): void => {
+    const el = scrollRef.current?.querySelector<HTMLElement>(`[data-testid="msg-${id}"]`);
+    if (el) {
+      el.focus();
+      el.scrollIntoView({ block: 'nearest' });
+    }
+  };
+  const handleRovingMove = (key: RovingKey): void => {
+    // 다음 포커스 대상은 navigable(비-시스템) id 중에서 고른다.
+    const { nextId } = nextRovingFocus(navigableIdsRef.current, focusedMsgId, key);
+    if (nextId === null) return;
+    setFocusedMsgId(nextId);
+    // 렌더된 행이면 즉시 포커스, 아니면 가상 인덱스로 스크롤 후 rAF 로 포커스.
+    const existing = scrollRef.current?.querySelector<HTMLElement>(`[data-testid="msg-${nextId}"]`);
+    if (existing) {
+      existing.focus();
+      existing.scrollIntoView({ block: 'nearest' });
+      return;
+    }
+    // 가상화: 대상이 렌더 윈도우 밖이면 전체 messageIds 기준 인덱스로 scrollToIndex 후
+    // rAF 로 다음 페인트에서 포커스한다(구분선 행 보정을 위해 가상 인덱스로 변환).
+    const fullIndex = messageIdsRef.current.indexOf(nextId);
+    if (fullIndex < 0) return;
+    const vIdx = virtualIndexForMessageIndex(rowPlanRef.current, fullIndex);
+    virtualizerRef.current.scrollToIndex(vIdx, { align: 'center' });
+    requestAnimationFrame(() => focusRow(nextId));
+  };
+
   // S83b (FR-KS-08): M(리마인더) 단일키. ReminderModal 은 SavedMessage(savedMessageId)
   // 기반이므로, 대상 메시지가 저장 안 돼 있으면 먼저 저장(POST — idempotent, 기존
   // savedMessageId 반환)해 savedMessageId 를 확보한 뒤 모달을 연다. 저장 목록·카운트가
   // 함께 갱신되도록 save 토글 캐시도 seed 한다. 실패 시 경고 토스트.
+  //
+  // S83b 리뷰 fix-forward (reviewer MED-1): hasReminder 를 하드코딩 false 대신 캐시된
+  // 저장 목록(어느 status 든)에서 savedMessageId 로 항목을 찾아 도출한다. 캐시 hit 면
+  // 기존 리마인더를 모달에서 해제/변경할 수 있다(캐시 miss 면 false 폴백).
+  const deriveSavedHasReminder = (savedMessageId: string): boolean => {
+    const statuses: SaveStatus[] = ['IN_PROGRESS', 'ARCHIVED', 'COMPLETED'];
+    for (const status of statuses) {
+      const list = qc.getQueryData<SavedMessageListResponse>(savedKeys.list(status));
+      const found = list?.items.find((it) => it.id === savedMessageId);
+      if (found) return deriveHasReminder(found);
+    }
+    return false;
+  };
   const handleSetReminder = async (messageId: string): Promise<void> => {
     try {
       const res = await saveMessage(messageId);
@@ -808,7 +848,7 @@ export function MessageList({
       setReminderTarget({
         savedMessageId: res.savedMessageId,
         channelName: channelMeta?.name ?? '채널',
-        hasReminder: false,
+        hasReminder: deriveSavedHasReminder(res.savedMessageId),
       });
     } catch {
       pushNotification({
@@ -995,17 +1035,14 @@ export function MessageList({
                       msg={m}
                       isMine={m.authorId === user?.id}
                       editRequestNonce={editReq?.id === m.id ? editReq.nonce : undefined}
-                      // S83b (FR-KS-08): hover-only 단일키 라우팅(이 row 가 hover 활성일
-                      // 때만 raw key + nonce 를 받아 동일 resolve→execute 경로로 처리).
-                      actionRequest={
-                        actionReq?.id === m.id
-                          ? { key: actionReq.key, nonce: actionReq.nonce }
-                          : undefined
-                      }
-                      // S83b (FR-KS-08): hover 활성 메시지 추적(키보드 포커스 경로는 row
-                      // onKeyDown 이 직접 처리하므로 hover 만 부모로 올린다).
-                      onRowMouseEnter={() => setHoverId(m.id)}
-                      onRowMouseLeave={() => setHoverId((cur) => (cur === m.id ? null : cur))}
+                      // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. 이 row
+                      // 가 effectiveFocusedId 면 tabIndex=0(Tab 한 스톱), 아니면 -1.
+                      focused={m.id === effectiveFocusedId}
+                      // onFocus 시 focusedMsgId 를 이 row 로 동기화(roving 배선 — 마우스
+                      // 클릭 포커스/탭 진입 모두 반영).
+                      onRowFocus={() => setFocusedMsgId(m.id)}
+                      // ↑/↓/Home/End 로 다음 포커스 행 이동(가상화 처리는 핸들러 내부).
+                      onRovingMove={handleRovingMove}
                       // S83b (FR-KS-08): M(리마인더) 단일키 — 저장 후 ReminderModal. tmp 행
                       // 은 서버 id 가 없어 미전달(저장/리마인더 불가).
                       onSetReminder={

@@ -68,6 +68,8 @@ interface Handlers {
   onUnpin?: ReturnType<typeof vi.fn>;
   onToggleSave?: ReturnType<typeof vi.fn>;
   onSetReminder?: ReturnType<typeof vi.fn>;
+  onRovingMove?: ReturnType<typeof vi.fn>;
+  onRowFocus?: ReturnType<typeof vi.fn>;
 }
 
 function renderItem(opts: {
@@ -76,9 +78,10 @@ function renderItem(opts: {
   viewerRole?: WorkspaceRole | null;
   memberCanPin?: boolean;
   isSaved?: boolean;
+  focused?: boolean;
   handlers?: Handlers;
 }) {
-  const h: Required<Handlers> = {
+  const h = {
     onEditSave: opts.handlers?.onEditSave ?? vi.fn(),
     onDelete: opts.handlers?.onDelete ?? vi.fn(),
     onToggleReaction: opts.handlers?.onToggleReaction ?? vi.fn(),
@@ -87,6 +90,8 @@ function renderItem(opts: {
     onUnpin: opts.handlers?.onUnpin ?? vi.fn(),
     onToggleSave: opts.handlers?.onToggleSave ?? vi.fn(),
     onSetReminder: opts.handlers?.onSetReminder ?? vi.fn(),
+    onRovingMove: opts.handlers?.onRovingMove ?? vi.fn(),
+    onRowFocus: opts.handlers?.onRowFocus ?? vi.fn(),
   };
   const utils = renderWithClient(
     <MessageItem
@@ -97,6 +102,9 @@ function renderItem(opts: {
       viewerRole={'viewerRole' in opts ? (opts.viewerRole ?? null) : 'OWNER'}
       memberCanPin={opts.memberCanPin ?? true}
       isSaved={opts.isSaved}
+      focused={opts.focused}
+      onRovingMove={h.onRovingMove}
+      onRowFocus={h.onRowFocus}
       onEditSave={h.onEditSave}
       onDelete={h.onDelete}
       onToggleReaction={opts.handlers?.onToggleReaction === null ? undefined : h.onToggleReaction}
@@ -121,13 +129,60 @@ beforeEach(() => {
 });
 afterEach(() => cleanup());
 
-describe('MessageItem single-key — row accessibility', () => {
+describe('MessageItem single-key — row accessibility & roving tabindex', () => {
   it('renders the row as a focusable article with an aria-label', () => {
     const { row } = renderItem({});
     expect(row).toBeTruthy();
     expect(row.getAttribute('role')).toBe('article');
-    expect(row.getAttribute('tabindex')).toBe('0');
     expect(row.getAttribute('aria-label')).toBeTruthy();
+  });
+
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. focused 행만 0,
+  // 나머지는 -1 → 목록 전체가 Tab 한 스톱만 차지(Tab flooding 해소).
+  it('focused row has tabindex 0, unfocused row has tabindex -1', () => {
+    const { row: focusedRow } = renderItem({ focused: true });
+    expect(focusedRow.getAttribute('tabindex')).toBe('0');
+    cleanup();
+    const { row: unfocusedRow } = renderItem({ focused: false });
+    expect(unfocusedRow.getAttribute('tabindex')).toBe('-1');
+  });
+
+  it('defaults to tabindex 0 when focused prop is omitted (standalone render)', () => {
+    const { row } = renderItem({});
+    expect(row.getAttribute('tabindex')).toBe('0');
+  });
+
+  it('onFocus syncs the focused row to the parent (roving wiring)', () => {
+    const onRowFocus = vi.fn();
+    const { row } = renderItem({ handlers: { onRowFocus } });
+    fireEvent.focus(row);
+    expect(onRowFocus).toHaveBeenCalled();
+  });
+});
+
+describe('MessageItem single-key — roving move (↑/↓/Home/End)', () => {
+  it('ArrowUp / ArrowDown request a roving move from the parent', () => {
+    const onRovingMove = vi.fn();
+    const { row } = renderItem({ handlers: { onRovingMove } });
+    press(row, 'ArrowDown');
+    expect(onRovingMove).toHaveBeenCalledWith('ArrowDown');
+    press(row, 'ArrowUp');
+    expect(onRovingMove).toHaveBeenCalledWith('ArrowUp');
+  });
+
+  it('Home / End request a roving move', () => {
+    const onRovingMove = vi.fn();
+    const { row } = renderItem({ handlers: { onRovingMove } });
+    press(row, 'Home');
+    press(row, 'End');
+    expect(onRovingMove).toHaveBeenCalledWith('Home');
+    expect(onRovingMove).toHaveBeenCalledWith('End');
+  });
+
+  it('roving keys do not fire single-key actions (no announce)', () => {
+    const { row } = renderItem({});
+    press(row, 'ArrowDown');
+    expect(announceSpy).not.toHaveBeenCalled();
   });
 });
 
@@ -279,19 +334,49 @@ describe('MessageItem single-key — M (reminder)', () => {
   });
 });
 
-describe('MessageItem single-key — Delete (isMine gate)', () => {
-  it('Delete on my message triggers onDelete + announce', () => {
+describe('MessageItem single-key — Delete (isMine gate · 2-step confirm)', () => {
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8): 첫 Delete 는 확인 안내만,
+  // 짧은 창 안에 두 번째 Delete 에서만 실제 삭제한다(우발 삭제 방지).
+  it('first Delete only arms + announces a confirm prompt (no delete yet)', () => {
     const onDelete = vi.fn().mockResolvedValue(undefined);
     const { row } = renderItem({ isMine: true, handlers: { onDelete } });
     press(row, 'Delete');
-    expect(onDelete).toHaveBeenCalled();
+    expect(onDelete).not.toHaveBeenCalled();
+    expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('한 번 더'));
+  });
+
+  it('second Delete within the window triggers onDelete', () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const { row } = renderItem({ isMine: true, handlers: { onDelete } });
+    press(row, 'Delete');
+    expect(onDelete).not.toHaveBeenCalled();
+    press(row, 'Delete');
+    expect(onDelete).toHaveBeenCalledTimes(1);
     expect(announceSpy).toHaveBeenCalledWith(expect.stringContaining('삭제'));
+  });
+
+  it('a non-Delete single key between two Deletes cancels the confirm window', () => {
+    const onDelete = vi.fn().mockResolvedValue(undefined);
+    const { row } = renderItem({ isMine: true, handlers: { onDelete } });
+    press(row, 'Delete'); // arm
+    press(row, 'r'); // 다른 단일키가 끼어들면 무장 해제
+    press(row, 'Delete'); // 다시 1단계(재무장)일 뿐 삭제 안 됨
+    expect(onDelete).not.toHaveBeenCalled();
   });
 
   it('Delete on another user message does nothing', () => {
     const onDelete = vi.fn();
     const { row } = renderItem({ isMine: false, handlers: { onDelete } });
     press(row, 'Delete');
+    press(row, 'Delete');
+    expect(onDelete).not.toHaveBeenCalled();
+  });
+
+  it('Backspace no longer triggers delete (hijack guard)', () => {
+    const onDelete = vi.fn();
+    const { row } = renderItem({ isMine: true, handlers: { onDelete } });
+    press(row, 'Backspace');
+    press(row, 'Backspace');
     expect(onDelete).not.toHaveBeenCalled();
   });
 });
@@ -333,37 +418,8 @@ describe('MessageItem single-key — input-focus & edit guards', () => {
   });
 });
 
-describe('MessageItem single-key — hover path (actionRequest nonce)', () => {
-  it('actionRequest with a raw key executes the same resolve→execute path', () => {
-    const onSetReminder = vi.fn();
-    const utils = renderWithClient(
-      <MessageItem
-        msg={makeMsg()}
-        isMine
-        viewerRole="OWNER"
-        onEditSave={vi.fn()}
-        onDelete={vi.fn()}
-        onSetReminder={onSetReminder}
-        actionRequest={{ key: 'm', nonce: 1 }}
-      />,
-    );
-    expect(onSetReminder).toHaveBeenCalled();
-    utils.unmount();
-  });
-
-  it('actionRequest nonce 0 is a no-op', () => {
-    const onSetReminder = vi.fn();
-    renderWithClient(
-      <MessageItem
-        msg={makeMsg()}
-        isMine
-        viewerRole="OWNER"
-        onEditSave={vi.fn()}
-        onDelete={vi.fn()}
-        onSetReminder={onSetReminder}
-        actionRequest={{ key: 'm', nonce: 0 }}
-      />,
-    );
-    expect(onSetReminder).not.toHaveBeenCalled();
-  });
-});
+// S83b 리뷰 fix-forward (a11y #2 · #6 · perf): hover-only 단일키 경로(actionRequest
+// nonce)는 전면 제거됐다(WCAG 2.1.4 위반·SR 충돌·전체 리렌더 원인). hover 는 기존
+// group-hover 툴바 노출만 유지하고 단일키를 트리거하지 않는다. 따라서 종전
+// actionRequest 경로 테스트는 삭제하고, 활성화는 키보드 포커스(onKeyDown) 경로로만
+// 검증한다(위 describe 블록들).

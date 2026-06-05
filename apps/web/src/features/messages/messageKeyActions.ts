@@ -11,7 +11,12 @@ import { canStartThread } from './threadActionGate';
  *   P      = 핀 / 언핀
  *   A      = 북마크(저장 토글)
  *   M      = 리마인더
- *   Delete = 삭제(내 메시지만)
+ *   Delete = 삭제(내 메시지만 · 2단계 확인 — 호출부에서 처리)
+ *
+ * S83b 리뷰 fix-forward: 활성화 메커니즘을 키보드 포커스 전용(roving tabindex)으로
+ * 단일화했다. hover 는 기존 툴바 노출만 유지하고 단일키를 트리거하지 않는다(WCAG
+ * 2.1.4 위반·SR 가상커서 충돌 제거). 포커스 경로는 2.1.4 'active-on-focus' 예외 충족.
+ * Backspace 단일키는 삭제 하이재킹 위험으로 제거했다(Delete 만 · 2단계 확인).
  *
  * 권한/가용성 게이트는 서버 게이트 및 기존 툴바/MoreMenu 노출 조건과 정합해야
  * 한다. 이 순수 헬퍼는 "키 + 컨텍스트 → 액션 enum | null" 만 결정해 단위 검증으로
@@ -73,8 +78,11 @@ export function resolveMessageKeyAction(
   msg: Pick<MessageDto, 'id' | 'parentMessageId' | 'deleted' | 'pinnedAt'>,
   ctx: MessageKeyContext,
 ): MessageKeyAction | null {
-  // Delete 는 대소문자 변환 대상이 아니므로 원본 key 로 먼저 분기한다.
-  if (key === 'Delete' || key === 'Backspace') {
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8 · security #4): Backspace 를
+  // 단일키 매핑에서 제거한다(Delete 키만). Backspace 는 SR 가상커서/일반 탐색에서
+  // 흔히 쓰여 의도치 않은 삭제(하이재킹) 위험이 크다. Delete 는 대소문자 변환 대상이
+  // 아니므로 원본 key 로 먼저 분기한다.
+  if (key === 'Delete') {
     return ctx.isMine ? 'delete' : null;
   }
   const k = key.toLowerCase();
@@ -100,7 +108,15 @@ export function resolveMessageKeyAction(
   }
 }
 
-/** 액션 실행 시 스크린리더로 통지할 한국어 문구. */
+/**
+ * 액션 실행 시 스크린리더로 통지할 한국어 문구.
+ *
+ * S83b 리뷰 fix-forward (a11y MINOR #9): 비동기 액션(pin/unpin/save)은 발화 시점에
+ * 아직 완료되지 않았으므로 완료형("~했습니다") 대신 진행형("~합니다/요청했습니다")으로
+ * 통지한다(성공/실패 결과는 기존 toast 가 별도로 안내). edit/react/thread 는 즉시
+ * 동기 UI 전환이라 완료형을 유지한다. delete 는 2단계 확인이라 호출부가 별도 문구를
+ * 통지하므로 여기서는 폴백 문구만 둔다.
+ */
 export function announceForAction(action: MessageKeyAction): string {
   switch (action) {
     case 'edit':
@@ -110,11 +126,11 @@ export function announceForAction(action: MessageKeyAction): string {
     case 'thread':
       return '스레드를 열었습니다';
     case 'pin':
-      return '메시지를 고정했습니다';
+      return '메시지 고정을 요청합니다';
     case 'unpin':
-      return '메시지 고정을 해제했습니다';
+      return '메시지 고정 해제를 요청합니다';
     case 'save':
-      return '북마크를 전환했습니다';
+      return '북마크 전환을 요청합니다';
     case 'reminder':
       return '리마인더 설정을 엽니다';
     case 'delete':

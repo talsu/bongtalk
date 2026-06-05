@@ -34,8 +34,15 @@ import {
   announceForAction,
   type MessageKeyContext,
 } from './messageKeyActions';
+import { isRovingKey } from './rovingFocus';
 // S75 (FR-PS-07): 작성자 아바타/이름 → 프로필 팝오버 트리거(워크스페이스 채널 한정).
 import { ProfilePopover } from '../profile/ProfilePopover';
+
+/**
+ * S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8): Delete 단일키 2단계 확인 창.
+ * 첫 Delete 후 이 시간 안에 다시 Delete 를 누르면 삭제 실행, 지나면 1단계로 복귀.
+ */
+const DELETE_CONFIRM_WINDOW_MS = 3000;
 
 type Props = {
   msg: MessageDto;
@@ -47,22 +54,23 @@ type Props = {
    */
   editRequestNonce?: number;
   /**
-   * S83b (FR-KS-08): hover-only(키보드 포커스 없음) 단일키가 MessageItem 내부
-   * state 액션(E=편집 / R=반응 피커)을 트리거하기 위한 일반화된 요청. MessageList
-   * 가 hover 활성 메시지에 nonce 를 bump 하면, 값이 바뀔 때(그리고 가능하면) 해당
-   * 내부 액션을 수행한다. 키보드 포커스 경로는 row onKeyDown 이 직접 처리하므로
-   * 이 prop 을 쓰지 않는다. undefined/nonce 0 이면 무동작.
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. 부모(MessageList)가
+   * 소유한 focusedMsgId 와 이 row 의 id 가 같으면 true → tabIndex=0(Tab 한 스톱),
+   * 아니면 tabIndex=-1. 미전달이면(이전 동작 호환·spec 단독 렌더) tabIndex=0 으로
+   * 폴백해 단독 포커스 가능.
    */
-  actionRequest?: { nonce: number; key: string };
+  focused?: boolean;
   /**
-   * S83b (FR-KS-08): 메시지 row 가 키보드 포커스를 받으면(onFocus) / 잃으면(onBlur)
-   * 활성 메시지 후보를 부모(MessageList)에 알린다. 부모는 focus 우선·없으면 hover
-   * 로 activeMessageId 를 결정한다.
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): 메시지 row 가 키보드 포커스를 받으면
+   * 부모에 알려 focusedMsgId 를 이 row 로 동기화한다(roving 동기 — onRowFocus 배선).
    */
   onRowFocus?: () => void;
-  onRowBlur?: () => void;
-  onRowMouseEnter?: () => void;
-  onRowMouseLeave?: () => void;
+  /**
+   * S83b 리뷰 fix-forward (a11y BLOCKER #1): ↑/↓/Home/End 로 다음 포커스 행 이동을
+   * 부모에 요청한다(가상화: 부모가 scrollToIndex 후 대상 row 에 .focus()). 부모가
+   * 미전달이면 roving 이동은 no-op(단일키만 동작).
+   */
+  onRovingMove?: (key: 'ArrowUp' | 'ArrowDown' | 'Home' | 'End') => void;
   /**
    * S83b (FR-KS-08): M(리마인더) 단일키. 부모가 비-tmp 행에 전달한다 — 저장 안 돼
    * 있으면 먼저 저장한 뒤 리마인더 모달을 연다(부모 소유). tmp 행에는 미전달.
@@ -160,11 +168,9 @@ export function MessageItem({
   msg,
   isMine,
   editRequestNonce,
-  actionRequest,
+  focused,
   onRowFocus,
-  onRowBlur,
-  onRowMouseEnter,
-  onRowMouseLeave,
+  onRovingMove,
   onSetReminder,
   workspaceId,
   isContinuation,
@@ -216,6 +222,11 @@ export function MessageItem({
       isMountedRef.current = false;
     };
   }, []);
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8 · security #4): Delete 단일키
+  // 2단계 확인. 첫 Delete 는 안내(announce + aria-live)만 하고 실행하지 않는다. 짧은
+  // 창(DELETE_CONFIRM_WINDOW_MS) 안에 다시 Delete 를 누르면 실제 삭제한다. armedAt 에
+  // 첫 입력 시각을 보관하고, 창이 지나면 다시 1단계로 돌아간다(우발 삭제 방지).
+  const deleteArmedAtRef = useRef<number | null>(null);
   // S83a (FR-KS-06): editRequestNonce 가 bump 되면(내 메시지·편집중 아님) 인라인 편집 진입.
   // nonce 자체에만 반응해 같은 메시지 재요청도 동작한다(0/undefined 는 무시).
   useEffect(() => {
@@ -327,42 +338,70 @@ export function MessageItem({
     hasReminder: !!onSetReminder,
   };
 
-  // S83b (FR-KS-08): 해석된 액션 실행(키보드 포커스 경로 · hover 경로 공통). SR 통지
-  // 후 부수효과를 수행한다(E/R 은 내부 state, 나머지는 prop/추출 핸들러).
+  // S83b 리뷰 fix-forward (reviewer MAJOR-1 · a11y #8): Delete 단일키 2단계 확인.
+  // 첫 Delete 는 announce 안내만, 짧은 창 안에 재입력 시 실행. 다른 단일키 입력이
+  // 끼어들면 무장 상태를 해제한다(우발 삭제 방지).
+  const handleDeleteKey = (): void => {
+    const now = Date.now();
+    const armedAt = deleteArmedAtRef.current;
+    if (armedAt !== null && now - armedAt <= DELETE_CONFIRM_WINDOW_MS) {
+      deleteArmedAtRef.current = null;
+      announce('메시지를 삭제합니다');
+      void runDelete();
+      return;
+    }
+    // 1단계: 무장 + 안내(실행하지 않음).
+    deleteArmedAtRef.current = now;
+    announce('한 번 더 Delete 를 누르면 삭제됩니다');
+  };
+
+  // S83b 리뷰 fix-forward: 해석된 액션 실행(키보드 포커스 경로). SR 통지 후 부수효과를
+  // 수행한다(E/R 은 내부 state, 나머지는 prop/추출 핸들러). Delete 외 액션이 들어오면
+  // Delete 무장 상태를 해제한다(다른 키로 확인 창 무효화).
   const runKeyAction = (action: NonNullable<ReturnType<typeof resolveMessageKeyAction>>): void => {
-    announce(announceForAction(action));
+    if (action !== 'delete') deleteArmedAtRef.current = null;
     switch (action) {
       case 'edit':
+        announce(announceForAction(action));
         if (editing === null) setEditing(msg.content ?? '');
         break;
       case 'react':
+        announce(announceForAction(action));
         setPickerOpen(true);
         break;
       case 'thread':
+        announce(announceForAction(action));
         onOpenThread?.(msg.id);
         break;
       case 'pin':
+        announce(announceForAction(action));
         void runPin();
         break;
       case 'unpin':
+        announce(announceForAction(action));
         void runUnpin();
         break;
       case 'save':
+        announce(announceForAction(action));
         void onToggleSave?.(isSaved === true);
         break;
       case 'reminder':
+        announce(announceForAction(action));
         onSetReminder?.();
         break;
       case 'delete':
-        void runDelete();
+        // 2단계 확인은 handleDeleteKey 가 announce 를 담당(여기서는 중복 통지 안 함).
+        handleDeleteKey();
         break;
     }
   };
 
-  // S83b (FR-KS-08): 메시지 row 키보드 포커스 경로의 단일키 처리(a11y 핵심). 입력/
-  // textarea/contentEditable 또는 편집 input 포커스 중에는 무동작(타이핑 방해 금지).
+  // S83b 리뷰 fix-forward (a11y BLOCKER #1 · #2): 메시지 row 키보드 포커스 경로의
+  // 단일키 + roving 이동 처리(a11y 핵심). 활성화 메커니즘을 포커스 전용으로 단일화해
+  // (hover-key/window keydown 제거) WCAG 2.1.4 위반·SR 가상커서 충돌을 동시에 없앤다.
+  // 입력/textarea/contentEditable 또는 편집 input 포커스 중에는 무동작(타이핑 방해 금지).
   const handleRowKeyDown = (e: ReactKeyboardEvent<HTMLElement>): void => {
-    // 편집 중(편집 input 포커스)이면 단일키 비활성.
+    // 편집 중(편집 input 포커스)이면 단일키/roving 비활성.
     if (editing !== null) return;
     // 입력 포커스(컴포저/검색/contentEditable) 중에는 비활성.
     const tgt = e.target as HTMLElement;
@@ -377,24 +416,22 @@ export function MessageItem({
     }
     // 수정자 키 조합(Ctrl/Cmd/Alt)은 단일키가 아니므로 통과(전역 단축키 보존).
     if (e.ctrlKey || e.metaKey || e.altKey) return;
+    // roving 이동(↑/↓/Home/End): 부모에 다음 포커스 행 이동을 요청한다(가상화 처리).
+    if (isRovingKey(e.key)) {
+      if (!onRovingMove) return;
+      e.preventDefault();
+      e.stopPropagation();
+      // 이동 시 진행 중인 Delete 무장 상태 해제(다른 행으로 이동하면 확인 창 무효).
+      deleteArmedAtRef.current = null;
+      onRovingMove(e.key);
+      return;
+    }
     const action = resolveMessageKeyAction(e.key, msg, keyCtx);
     if (!action) return;
     e.preventDefault();
     e.stopPropagation();
     runKeyAction(action);
   };
-
-  // S83b (FR-KS-08): hover-only(키보드 포커스 없음) 단일키. MessageList 가 hover 활성
-  // 메시지에 raw key 를 담아 nonce 를 bump 하면, 동일한 resolve→execute 경로로
-  // 실행한다(포커스 경로와 단일 출처). 편집 중/삭제 메시지는 무동작.
-  useEffect(() => {
-    if (!actionRequest || !actionRequest.nonce) return;
-    if (msg.deleted || editing !== null) return;
-    const action = resolveMessageKeyAction(actionRequest.key, msg, keyCtx);
-    if (!action) return;
-    runKeyAction(action);
-    // nonce 변경에만 반응(이 repo 는 exhaustive-deps 규칙 미설치 — disable 주석 불필요).
-  }, [actionRequest?.nonce]);
 
   if (msg.deleted) {
     return (
@@ -456,17 +493,16 @@ export function MessageItem({
         data-mutation-pending={mutationPending ? (deletePending ? 'delete' : 'edit') : undefined}
         // S03 (FR-MSG-04/05): optimistic send state for e2e + CSS dimming.
         data-send-state={sendState}
-        // S83b (FR-KS-08): 단일키 액션을 위해 row 를 포커스 가능한 article 로 만든다.
-        // 키보드 포커스(onFocus)·hover(onMouseEnter)를 부모에 알려 activeMessageId 를
-        // 결정하게 하고, onKeyDown 에서 포커스 경로 단일키를 직접 처리한다(a11y 핵심).
+        // S83b 리뷰 fix-forward (a11y BLOCKER #1): roving tabindex. 활성화는 키보드
+        // 포커스 전용으로 단일화한다(hover-key 제거). focusedMsgId 인 row 만 tabIndex=0
+        // 이라 목록 전체가 Tab 한 스톱만 차지하고, 진입 후 ↑/↓ 로 행을 순회한다.
+        // focused 미전달(spec 단독 렌더 등)이면 0 으로 폴백해 단독 포커스 가능.
+        // onFocus 로 부모의 focusedMsgId 를 이 row 로 동기화(roving 배선).
         role="article"
         aria-label={rowAriaLabel}
-        tabIndex={0}
+        tabIndex={focused === false ? -1 : 0}
         onKeyDown={handleRowKeyDown}
         onFocus={onRowFocus}
-        onBlur={onRowBlur}
-        onMouseEnter={onRowMouseEnter}
-        onMouseLeave={onRowMouseLeave}
         style={
           mutationPending
             ? { opacity: 0.55, pointerEvents: 'none' }
@@ -751,7 +787,16 @@ export function MessageItem({
         </div>
         {editing === null ? (
           <div
-            className={cn('qf-message__toolbar absolute', 'group-hover:!flex', moreOpen && '!flex')}
+            // S83b 리뷰 fix-forward (a11y HIGH #3): row 가 키보드 포커스를 받으면
+            // (group-focus-within) 툴바를 노출해 마우스 없이도 액션 버튼이 보이게 한다.
+            // 키보드 사용자는 단일키로도 액션 가능하므로 툴바 노출은 보조 수단이다.
+            // DS components.css 의 `.qf-message:focus-within .qf-message__toolbar` reveal
+            // 추가는 DS-owner 이월(DS 4파일 무수정) — app-layer Tailwind 로만 합성한다.
+            className={cn(
+              'qf-message__toolbar absolute',
+              'group-hover:!flex group-focus-within:!flex',
+              moreOpen && '!flex',
+            )}
           >
             {onToggleReaction ? (
               <button
