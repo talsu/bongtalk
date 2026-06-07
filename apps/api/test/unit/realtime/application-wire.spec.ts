@@ -33,11 +33,28 @@ describe('OutboxToWsSubscriber.onApplicationEvent — application.received ADMIN
         findMany: vi.fn().mockResolvedValue(adminUserIds.map((userId) => ({ userId }))),
       },
     } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    // S86: application 경로는 push enqueue 를 타지 않으므로 빈 스텁이면 충분하다.
+    const presence = {
+      lastActivityMs: vi.fn().mockResolvedValue(null),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    const pushQueue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[7];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
-    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[8];
+    return new OutboxToWsSubscriber(
+      gateway,
+      replay,
+      seq,
+      messages,
+      badges,
+      prisma,
+      presence,
+      pushQueue,
+      metrics,
+    );
   }
 
   beforeEach(() => {

@@ -54,7 +54,21 @@ function makeSubscriber() {
     bucket: (_k: string, v: string) => v,
   } as never;
 
-  const sub = new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
+  // S86: workspace lifecycle 경로는 push enqueue 를 타지 않으므로 빈 스텁이면 충분하다.
+  const presence = { lastActivityMs: vi.fn(async () => null) } as never;
+  const pushQueue = { enqueue: vi.fn(async () => undefined) } as never;
+
+  const sub = new OutboxToWsSubscriber(
+    gateway,
+    replay,
+    seq,
+    messages,
+    badges,
+    prisma,
+    presence,
+    pushQueue,
+    metrics,
+  );
   return { sub, emitCalls, resolveAppend: () => resolveAppend?.() };
 }
 

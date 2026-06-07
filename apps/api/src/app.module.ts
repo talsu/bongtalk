@@ -31,6 +31,8 @@ import { ObservabilityModule } from './observability/observability.module';
 import { LinksModule } from './links/links.module';
 import { MutesModule } from './notifications/mutes/mutes.module';
 import { QueueModule } from './queue/queue.module';
+// S86 (D16 / FR-MN-15): Web Push(VAPID) REST(공개키·구독 등록/해제) + 전송 코어.
+import { PushModule } from './push/push.module';
 
 @Module({
   imports: [
@@ -69,6 +71,10 @@ import { QueueModule } from './queue/queue.module';
     RealtimeModule,
     LinksModule,
     MutesModule,
+    // S86 (D16 / FR-MN-15): Web Push(VAPID) — GET /push/vapid-public-key, POST/DELETE
+    // /me/push/subscriptions, PushService(전송 코어). QueueModule 이 PushProcessor 를 위해
+    // PushModule 을 import 하지만, REST 라우트 마운트를 위해 app 에도 명시 등록한다.
+    PushModule,
     // S53 (D10 / FR-PS-09/10/11): 저장 리마인더 BullMQ in-process 큐 + worker.
     // @Global 이라 ReminderQueueService 가 앱 전역 주입(MessagesService/SavedService)
     // 된다. RealtimeModule 뒤에 둬 모듈 초기화 순서가 단방향(QueueModule→Realtime)이게.
