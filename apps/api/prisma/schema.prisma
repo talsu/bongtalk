@@ -576,6 +576,7 @@ model User {
   // S69 (D13 / FR-W10): 이 사용자가 초대한 멤버들(초대자 표시 조인의 역방향).
   invitedMembers                WorkspaceMember[]            @relation("WorkspaceMemberInviter")
   messages                      Message[]
+  incomingWebhooks              IncomingWebhook[]            @relation("IncomingWebhookCreator")
   invitesCreated                Invite[]                     @relation("InviteCreator")
   // S68 (D13 / FR-W04·W18): 이 사용자가 보낸 이메일 보류 초대들(생성자 표시·목록 조인).
   pendingInvitesCreated         WorkspacePendingInvite[]     @relation("WorkspacePendingInviteInviter")
@@ -872,6 +873,7 @@ model Workspace {
   // 빌트인 커맨드는 DB 에 시드하지 않고 NestJS 상수(BUILTIN_COMMANDS)로만 제공하므로
   // 이 관계는 워크스페이스 커스텀 전용이다(S81 CRUD 가 채운다).
   slashCommands           SlashCommand[]
+  incomingWebhooks        IncomingWebhook[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -1231,6 +1233,7 @@ model Channel {
   category                 Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
   owner                    User?                       @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   messages                 Message[]
+  incomingWebhooks         IncomingWebhook[]
   attachments              Attachment[]
   // S54 (D11 / FR-AM-03): presigned 업로드 세션. onDelete Cascade.
   attachmentUploadSessions AttachmentUploadSession[]
@@ -1521,8 +1524,22 @@ model Message {
   //     함께 S36 에서 마무리한다(이 슬라이스는 플래그·게시·가시성만).
   isBroadcast    Boolean     @default(false)
 
+  // ── S84a (D16 / FR-RC11) — 인커밍 웹훅 / 봇 메시지 ─────────────────────────
+  // 웹훅으로 게시된 메시지는 authorType=BOT 으로 저장된다. authorId 는 NOT NULL FK
+  // 라 웹훅 소유자(IncomingWebhook.createdBy)를 넣어 감사 추적을 남기고, 화면에
+  // 보이는 이름/아바타는 요청마다 override 가능한 아래 필드로 표시한다(전부 nullable
+  // additive — 기존/USER/SYSTEM row 안전). 마이그레이션 20260621000000_s84a_incoming_webhook.
+  //   webhookId    — 게시한 웹훅. 웹훅 삭제 시 SetNull(메시지 자체는 보존).
+  //   botUsername  — 이 메시지 한정 표시 이름 override(예약어 검증은 API). null 이면
+  //                  웹훅 botDisplayName, 그것도 null 이면 웹훅 name 으로 폴백(렌더).
+  //   botAvatarUrl — 표시 아바타 URL override. null 이면 웹훅 avatarUrl 폴백.
+  webhookId      String?     @db.Uuid
+  botUsername    String?     @db.VarChar(80)
+  botAvatarUrl   String?     @db.Text
+
   channel          Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author           User                 @relation(fields: [authorId], references: [id])
+  webhook          IncomingWebhook?     @relation(fields: [webhookId], references: [id], onDelete: SetNull)
   attachments      Attachment[]
   reactions        MessageReaction[]
   parent           Message?             @relation("MessageReplies", fields: [parentMessageId], references: [id], onDelete: SetNull)
@@ -1560,6 +1577,8 @@ model Message {
   // includeDeleted=false default path (soft-delete filter).
   @@index([channelId, deletedAt, createdAt])
   @@index([authorId])
+  // S84a (FR-RC11): 웹훅 삭제 SetNull 역참조 + 웹훅별 메시지 조회 보조.
+  @@index([webhookId])
   // thread replies list — ORDER BY createdAt ASC for the ThreadPanel.
   // Partial index `(channelId, createdAt DESC) WHERE parentMessageId IS NULL`
   // + the replies index `(parentMessageId, createdAt ASC)` are defined in
@@ -1569,6 +1588,39 @@ model Message {
   // Partial WHERE pinnedAt IS NOT NULL 은 raw-SQL migration 으로 보강합니다
   // (Prisma @@index 가 partial 미지원).
   @@index([channelId, pinnedAt])
+}
+
+// ── S84a (D16 / FR-RC11) — 인커밍 웹훅 ────────────────────────────────────────
+// 채널에 봇 메시지를 게시할 수 있는 인커밍 웹훅. 토큰은 평문 미저장 — 생성/rotate
+// 시 평문을 1회만 반환하고 DB 에는 sha256(rawToken) 64-hex 만 저장한다(bcrypt 미사용).
+// 검증은 timingSafeEqual(sha256(입력), tokenHash). revoke 는 행 삭제가 아니라
+// revokedAt 표식(감사 추적 보존) — 폐기/회전된 토큰 POST 는 403. 마이그레이션
+// 20260621000000_s84a_incoming_webhook (reversible · NO CONCURRENTLY).
+model IncomingWebhook {
+  id             String    @id @default(uuid()) @db.Uuid
+  workspaceId    String    @db.Uuid
+  channelId      String    @db.Uuid
+  // 관리용 이름(필수). botDisplayName/avatarUrl 은 메시지 표시 기본값(요청 override 가능).
+  name           String    @db.VarChar(80)
+  botDisplayName String?   @db.VarChar(80)
+  avatarUrl      String?   @db.Text
+  // sha256(rawToken) 의 64-hex. @unique 라 토큰→웹훅 조회가 단일 인덱스 히트 +
+  // 평문은 어디에도 저장하지 않는다(생성/rotate 응답에서 1회만 평문 반환).
+  tokenHash      String    @unique @db.VarChar(64)
+  createdBy      String    @db.Uuid
+  createdAt      DateTime  @default(now()) @db.Timestamptz(6)
+  rotatedAt      DateTime? @db.Timestamptz(6)
+  // revoke(삭제) 표식. NOT NULL 이면 폐기 — 인커밍 POST 는 403(행은 감사 보존).
+  revokedAt      DateTime? @db.Timestamptz(6)
+  lastUsedAt     DateTime? @db.Timestamptz(6)
+
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  creator   User      @relation("IncomingWebhookCreator", fields: [createdBy], references: [id])
+  messages  Message[]
+
+  @@index([workspaceId])
+  @@index([channelId])
 }
 
 // ── S60 (D11 / FR-RC07/08/09/21 · FR-AM-13~16) — 링크 unfurl 결과 ────────────
