@@ -395,3 +395,6 @@ export * from './slash-command';
 export * from './slash-execution';
 
 export * from './webhook';
+
+// S84b — 봇/웹훅 rich embed 배열 (D16 / FR-RC12)
+export * from './rich-embed';

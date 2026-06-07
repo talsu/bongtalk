@@ -24,6 +24,7 @@ import { EditHistoryPopover } from './EditHistoryPopover';
 import { AttachmentsList } from '../attachments/AttachmentsList';
 import type { AttachmentLite } from '@qufox/shared-types';
 import { LinkPreview } from './LinkPreview';
+import { RichEmbeds } from './RichEmbed';
 // S81a (FR-SC-08): `/collapse`·`/expand` 로 토글하는 채널 인라인 미디어 접힘 상태.
 import { useChannelMediaCollapsed } from './mediaCollapseStore';
 import { formatMessageTime, formatMessageTimeISO, formatClockPart } from './formatMessageTime';
@@ -813,6 +814,9 @@ export function MessageItem({
                       : null;
                   })()
                 : null}
+              {/* S84b (FR-RC12): 봇/웹훅 rich embed 배열. unfurl 카드와 별개 필드(msg.richEmbeds)라
+                 항상 렌더한다(collapse 시엔 미디어와 함께 숨긴다). */}
+              {!mediaCollapsed ? <RichEmbeds embeds={msg.richEmbeds} /> : null}
               {onToggleReaction ? (
                 <ReactionBar
                   reactions={msg.reactions ?? []}

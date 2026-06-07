@@ -204,6 +204,53 @@ describe('S84a incoming webhook post', () => {
     expect(res.body.errorCode ?? res.body.code).toBe('WEBHOOK_REVOKED');
   });
 
+  it('stores rich embeds (FR-RC12) on the bot message + normalizes color', async () => {
+    const wh = await createWebhook('s84bembed');
+    const res = await request(env.baseUrl)
+      .post(`/webhooks/${wh.webhookId}`)
+      .set('Authorization', `Bearer ${wh.token}`)
+      .send({
+        content: 'deploy report',
+        embeds: [
+          {
+            color: '#5865F2',
+            title: 'Build #42',
+            url: 'https://ci.example.com/42',
+            description: 'passed',
+            fields: [{ name: 'branch', value: 'main', inline: true }],
+          },
+          {}, // 빈 embed → 서비스가 제거(저장 안 됨)
+        ],
+      })
+      .expect(201);
+    const msg = await env.prisma.message.findUnique({ where: { id: res.body.messageId } });
+    expect(msg!.authorType).toBe('BOT');
+    const embeds = msg!.richEmbeds as Array<Record<string, unknown>> | null;
+    expect(Array.isArray(embeds)).toBe(true);
+    expect(embeds!).toHaveLength(1); // 빈 embed 제거됨
+    expect(embeds![0].title).toBe('Build #42');
+    // color 정규화: #RRGGBB 소문자.
+    expect(embeds![0].color).toBe('#5865f2');
+  });
+
+  it('accepts an embed-only message (no content) and rejects unsafe embed URLs', async () => {
+    const wh = await createWebhook('s84bembedonly');
+    // embed-only(콘텐츠 없음) → 201.
+    const ok = await request(env.baseUrl)
+      .post(`/webhooks/${wh.webhookId}`)
+      .set('Authorization', `Bearer ${wh.token}`)
+      .send({ embeds: [{ title: 'embed only' }] })
+      .expect(201);
+    const msg = await env.prisma.message.findUnique({ where: { id: ok.body.messageId } });
+    expect((msg!.richEmbeds as Array<unknown>)!).toHaveLength(1);
+    // 비-http(s) URL → 422(VALIDATION_FAILED, 스키마 거부).
+    await request(env.baseUrl)
+      .post(`/webhooks/${wh.webhookId}`)
+      .set('Authorization', `Bearer ${wh.token}`)
+      .send({ embeds: [{ title: 'x', url: 'file:///etc/passwd' }] })
+      .expect(400);
+  });
+
   it('does not leak REVOKED for a wrong token on a revoked webhook (no existence oracle)', async () => {
     const wh = await createWebhook('s84aoracle');
     await request(env.baseUrl)

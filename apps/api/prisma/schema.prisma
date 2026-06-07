@@ -1536,6 +1536,11 @@ model Message {
   webhookId      String?     @db.Uuid
   botUsername    String?     @db.VarChar(80)
   botAvatarUrl   String?     @db.Text
+  // S84b (D16 / FR-RC12): 봇/웹훅 rich embed 배열(Discord 스타일). 게시 시점에 통째
+  // 제공되는 불변 데이터라 별도 테이블 대신 JSON 컬럼에 자족 저장한다(≤10 embed ×
+  // ≤25 field 로 bounded · mentions/contentAst JSON 선례). null=embed 없음.
+  // 마이그레이션 20260622000000_s84b_rich_embeds.
+  richEmbeds     Json?
 
   channel          Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author           User                 @relation(fields: [authorId], references: [id])

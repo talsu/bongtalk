@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { MessageContentSchema } from './message';
+import { RichEmbedArraySchema } from './rich-embed';
 
 /**
  * S84a (D16 / FR-RC11) — 인커밍 웹훅 / 봇 메시지 계약.
@@ -88,10 +89,18 @@ export type WebhookListResponse = z.infer<typeof WebhookListResponseSchema>;
  * POST /webhooks/:id 본문. content 는 필수(embed 배열은 S84b 에서 추가).
  * username/avatar_url 은 이 메시지 한정 표시 override(예약어 거부는 서비스 422).
  */
-export const IncomingWebhookPayloadSchema = z.object({
-  content: MessageContentSchema,
-  username: z.string().trim().min(1).max(WEBHOOK_NAME_MAX).optional(),
-  // eslint-disable-next-line @typescript-eslint/naming-convention
-  avatar_url: AvatarUrlSchema.optional(),
-});
+export const IncomingWebhookPayloadSchema = z
+  .object({
+    // S84b (FR-RC12): content 는 embeds 가 있으면 생략 가능(Discord parity — embed-only
+    // 메시지 허용). 둘 다 비면 아래 refine 이 거부한다. 있으면 길이 검증(MessageContentSchema).
+    content: MessageContentSchema.optional(),
+    username: z.string().trim().min(1).max(WEBHOOK_NAME_MAX).optional(),
+    // eslint-disable-next-line @typescript-eslint/naming-convention
+    avatar_url: AvatarUrlSchema.optional(),
+    // S84b (FR-RC12): rich embed 배열(≤10). 각 embed 의 URL 은 http(s) 만(SSRF).
+    embeds: RichEmbedArraySchema.optional(),
+  })
+  .refine((p) => (p.content && p.content.trim().length > 0) || (p.embeds && p.embeds.length > 0), {
+    message: 'content or embeds is required',
+  });
 export type IncomingWebhookPayload = z.infer<typeof IncomingWebhookPayloadSchema>;
