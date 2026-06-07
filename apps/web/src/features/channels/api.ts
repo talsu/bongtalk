@@ -15,6 +15,12 @@ import type {
   ReorderChannelsRequest,
   UpdateChannelRequest,
   Category,
+  CreateSidebarSectionRequest,
+  MoveSidebarChannelRequest,
+  MoveSidebarSectionRequest,
+  SidebarSection,
+  SidebarSectionsResponse,
+  UpdateSidebarSectionRequest,
 } from '@qufox/shared-types';
 
 export function listChannels(wsId: string): Promise<ChannelListResponse> {
@@ -138,6 +144,85 @@ export function moveFavorite(
 // S43 (FR-CH-15): 전체 즐겨찾기 목록(개인 스코프).
 export function listFavorites(): Promise<FavoritesResponse> {
   return apiRequest(`/me/favorites`);
+}
+
+// ── S85 (FR-CH-16): 사이드바 개인 섹션 ────────────────────────────────────────
+
+// 워크스페이스 내 본인 섹션 목록(position asc · 각 섹션 channelIds 포함).
+export function listSidebarSections(wsId: string): Promise<SidebarSectionsResponse> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections`);
+}
+
+// 섹션 생성(201 + 단일 SidebarSection).
+export function createSidebarSection(
+  wsId: string,
+  input: CreateSidebarSectionRequest,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections`, { method: 'POST', body: input });
+}
+
+// 섹션 이름/이모지/정렬방식 부분 갱신.
+export function updateSidebarSection(
+  wsId: string,
+  sectionId: string,
+  input: UpdateSidebarSectionRequest,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/${sectionId}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+// 섹션 삭제(204). 할당 채널은 사이드바 기본 위치로 복귀.
+export function deleteSidebarSection(wsId: string, sectionId: string): Promise<void> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/${sectionId}`, { method: 'DELETE' });
+}
+
+// 섹션 재정렬(드래그). fractional anchor(beforeId/afterId).
+export function moveSidebarSection(
+  wsId: string,
+  sectionId: string,
+  input: MoveSidebarSectionRequest,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/${sectionId}/position`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+// 채널을 섹션에 할당(멱등). 200 + 갱신된 섹션.
+export function assignSidebarChannel(
+  wsId: string,
+  sectionId: string,
+  channelId: string,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/${sectionId}/channels`, {
+    method: 'POST',
+    body: { channelId },
+  });
+}
+
+// 채널 할당 해제. 200 + 갱신된 섹션.
+export function unassignSidebarChannel(
+  wsId: string,
+  sectionId: string,
+  channelId: string,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/${sectionId}/channels/${channelId}`, {
+    method: 'DELETE',
+  });
+}
+
+// 섹션 내 채널 재정렬 + 섹션 간 이동(드래그). fractional anchor + sectionId.
+export function moveSidebarChannel(
+  wsId: string,
+  channelId: string,
+  input: MoveSidebarChannelRequest,
+): Promise<SidebarSection> {
+  return apiRequest(`/workspaces/${wsId}/sidebar-sections/channels/${channelId}/position`, {
+    method: 'PATCH',
+    body: input,
+  });
 }
 
 // S43 (FR-CH-17): 채널 뮤트 설정. until=ISO(만료 시각) 또는 null(무기한).
