@@ -22,6 +22,7 @@ import { DndSnoozeControl } from '../notifications/DndSnoozeControl';
 import { KeywordsInput } from '../notifications/KeywordsInput';
 import { ServerNotifSettings } from '../notifications/ServerNotifSettings';
 import { MuteListSection } from '../notifications/MuteListSection';
+import { PushPermissionSection } from '../notifications/PushPermissionSection';
 
 const EVENT_TYPES: readonly NotificationEventType[] = [
   'MENTION',
@@ -278,6 +279,9 @@ export function NotificationSettingsPage(): JSX.Element {
             />
           </div>
         </section>
+
+        {/* S86 (FR-MN-15): 브라우저 알림 권한 UX(첫 진입 자동 요청 금지 — 버튼 클릭 시에만). */}
+        <PushPermissionSection />
 
         {/* S49 (FR-MN-17): "현재 뮤트 중" 채널/서버 목록 + 남은 시간 + 개별 해제. */}
         <MuteListSection />

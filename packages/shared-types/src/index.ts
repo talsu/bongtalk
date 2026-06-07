@@ -336,6 +336,9 @@ export const ErrorCodeSchema = z.enum([
   //   SIDEBAR_ASSIGNMENT_NOT_FOUND: 재정렬/해제 대상 채널 할당이 본인 섹션에 없음 → 404.
   'SIDEBAR_SECTION_NOT_FOUND',
   'SIDEBAR_ASSIGNMENT_NOT_FOUND',
+  // S86 (FR-MN-15): Web Push(VAPID).
+  //   PUSH_SUBSCRIPTION_INVALID: 구독 등록 요청(endpoint/keys) 형식 오류 → 400.
+  'PUSH_SUBSCRIPTION_INVALID',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -407,3 +410,6 @@ export * from './rich-embed';
 
 // S85 — 사이드바 개인 섹션 컨트랙트 (FR-CH-16)
 export * from './sidebar-section';
+
+// S86 — Web Push(VAPID) 구독 + 공개키 컨트랙트 (FR-MN-15)
+export * from './push';

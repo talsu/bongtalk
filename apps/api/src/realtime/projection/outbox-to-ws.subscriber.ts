@@ -12,6 +12,8 @@ import { withSpan } from '../../observability/otel/propagation';
 import { MessagesService } from '../../messages/messages.service';
 import { MeNotificationBadgesService } from '../../me/me-notification-badges.service';
 import { PrismaService } from '../../prisma/prisma.module';
+import { PresenceService } from '../presence/presence.service';
+import { PushQueueService } from '../../push/push-queue.service';
 
 function pickTargetUserId(env: WsEnvelope): string | null {
   const memberField = (env as { member?: { userId?: string } }).member;
@@ -51,8 +53,16 @@ export class OutboxToWsSubscriber {
     // S70 fix-forward (security M-3): application.received 를 ADMIN+ user 룸으로만
     // 보내기 위한 ADMIN+ userId 저빈도 조회용.
     private readonly prisma: PrismaService,
+    // S86 (FR-MN-15): 멘션 도착 시 데스크톱 활성(lastSeen<5분) 판정 + push-send 잡 enqueue.
+    private readonly presence: PresenceService,
+    private readonly pushQueue: PushQueueService,
     @Optional() private readonly metrics?: MetricsService,
   ) {}
+
+  /** S86 (FR-MN-15): 데스크톱 세션 활성 판정 임계(ms). lastActivity 5분 이내면 활성. */
+  private static readonly PUSH_DESKTOP_ACTIVE_MS = 5 * 60 * 1000;
+  /** S86: 데스크톱 활성 시 푸시 지연(ms). 그 사이 읽으면 잡이 read-check 로 skip. */
+  private static readonly PUSH_ACTIVE_DELAY_MS = 60 * 1000;
 
   private get io(): Server | null {
     return this.gateway.server ?? null;
@@ -280,6 +290,54 @@ export class OutboxToWsSubscriber {
         .labels(this.metrics.bucket('wsEventType', WS_EVENTS.UNREAD_COUNT_INCREMENT))
         .inc();
       await this.emitBadgeUpdate(targetUserId, workspaceId, env.channelId ?? null);
+    }
+
+    // S86 (FR-MN-15): WS emit 후 web-push 잡을 enqueue 한다. 멘션 fanout 은 이미 mute/DND/
+    // NotifLevel 1차 게이트를 통과한 수신자에게만 도달하므로, 여기선 데스크톱 활성 여부로 지연만
+    // 정하고(활성=60초·비활성=즉시) 잡 실행 시점에 PushProcessor 가 게이트 재평가 + read-check 를
+    // 한다. enqueue 실패는 PushQueueService 가 흡수(best-effort — WS 전달은 이미 끝남).
+    await this.enqueueMentionPush(targetUserId, env);
+  }
+
+  /**
+   * S86 (FR-MN-15): 멘션 envelope 에서 push-send 잡 데이터를 구성해 enqueue 한다. 데스크톱
+   * 세션 활성(presence lastActivity < 5분)이면 60초 지연, 비활성이면 즉시. actorName 은 저빈도
+   * 1쿼리로 보강(없으면 generic 카피). 게이트는 전부 잡 실행 시점(PushProcessor)에서 재평가하므로
+   * 여기서는 라우팅 메타만 싣는다.
+   */
+  private async enqueueMentionPush(targetUserId: string, env: WsEnvelope): Promise<void> {
+    const channelId = env.channelId ?? (env as { channelId?: string }).channelId;
+    const messageId = (env as { messageId?: string }).messageId;
+    const actorId = (env as { actorId?: string }).actorId;
+    if (!channelId || !messageId || !actorId) return;
+    try {
+      const lastActivityMs = await this.presence.lastActivityMs(targetUserId);
+      const desktopActive =
+        lastActivityMs !== null &&
+        Date.now() - lastActivityMs < OutboxToWsSubscriber.PUSH_DESKTOP_ACTIVE_MS;
+      const delayMs = desktopActive ? OutboxToWsSubscriber.PUSH_ACTIVE_DELAY_MS : 0;
+      const actor = await this.prisma.user.findUnique({
+        where: { id: actorId },
+        select: { displayName: true, username: true },
+      });
+      await this.pushQueue.enqueue(
+        {
+          userId: targetUserId,
+          workspaceId: (env as { workspaceId?: string | null }).workspaceId ?? null,
+          channelId,
+          messageId,
+          actorId,
+          snippet: (env as { snippet?: string }).snippet ?? '',
+          everyone: (env as { everyone?: boolean }).everyone === true,
+          here: (env as { here?: boolean }).here === true,
+          actorName: actor?.displayName ?? actor?.username ?? undefined,
+        },
+        delayMs,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `[realtime] push enqueue failed uid=${targetUserId} ev=${env.id} err=${String(err).slice(0, 160)}`,
+      );
     }
   }
 
