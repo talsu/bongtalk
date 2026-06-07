@@ -2,9 +2,10 @@
 
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
-> **✅ D16(S84a/b/c) + FR-CH-16(S85) 완료·배포·LIVE.** `main=9167f0a`·`develop=016ac7f`(push·ls-remote 검증). **진행률 337/354 FR done.** 이번 세션 4슬라이스 전부 prod LIVE.
-> **다음 트랙 = FR-MN-03/19/21(@role 멘션 그룹·P0·빌드가능).** 잔여 6 중 VAPID 만 진짜 차단(아래 정정).
+> **✅ D16(S84a/b/c)+FR-CH-16(S85)+FR-MN-15(S86 Web Push) 완료·배포·LIVE.** `main=ad84225`·`develop=c9ce7ff`(push·ls-remote 검증). **진행률 338/354 FR done.** 이번 세션 **5슬라이스 전부 prod LIVE.**
+> **다음 트랙 후보**: FR-MN-18(채널별 데스크톱/모바일 알림·小·S86 companion) · FR-MN-03/19/21(@role·P0·大) · FR-RM10(AutoMod). VAPID 차단 해소됨.
 >
+> - **✅ S86(FR-MN-15 Web Push VAPID) LIVE** — FR-MN-15=done. `PushSubscription`(endpoint @unique·`20260625`) + push.ts(SSRF allowlist) + PushController(vapid-public-key·구독 upsert/해제) + PushService(sendToUser·410/404 GC·graceful no-op) + push-send BullMQ 큐/프로세서(지연·DND/mute/NotifLevel/read/멤버십 재게이트) + onMentionEvent enqueue + Service Worker + 권한 UX. **VAPID 키 3개 `.env.prod` 설정완료(사용자)·api 컨테이너 주입 확인(87자)** → prod push 실동작. feature-implementer 구현 → reviewer fix-forward(MAJOR SSRF allowlist·MEDIUM-2 멤버십 재검증). verify green(web 1710) · int 7/7 실DB. LIVE: `/readyz=200`·vapid-public-key 401·prod 테이블·env 주입.
 > - **✅ S85(FR-CH-16 사이드바 개인 섹션) LIVE** — FR-CH-16=done. `UserSidebarSection`+`UserSidebarChannelAssignment`(@@unique[userId,channelId]) + enum `SidebarSectionSortMode`(마이그레이션 `20260624000000`) + sidebar-sections service/controller(favorites 패턴·calcBetween·개인 스코프·WorkspaceMemberGuard) + web SidebarSections.tsx(dnd-kit 2계층 드래그·ChannelList 통합). feature-implementer 구현 → reviewer **approve** + 1 fix-forward(LOW-1 moveChannel workspace 스코프). verify green(web 1693·2 flaky 재실행 통과) · int 4/4 실DB. LIVE: `/readyz=200`·prod 테이블 2개·라우트 401.
 > - **✅ S84c(FR-RC19 링크 미리보기 토글) LIVE** — `UserSettings.linkPreviewsEnabled`(`20260623`)·MessageItem unfurl 스킵(봇 embed 유지). int 8/8.
 > - **✅ S84b(FR-RC12 rich embed) LIVE** — `Message.richEmbeds Json?`(`20260622`)·SSRF http(s)·6000자 캡·embed-only. int 14/14.
@@ -13,8 +14,9 @@
 > **잔여 6 FR(정정 — 일부 빌드가능):**
 > - **🔨 FR-MN-03/19/21**(@role fanout·MentionRecord·mention-broadcast BullMQ·@here SLO) — **빌드가능·진행 중**. BullMQ 승인([[project_bullmq_greenlight]])+커스텀 Role(S61) 존재+SLO 목표(P95 5s)는 PRD 명시 → 외부 결정 불요. 大작업(async 워커 파이프라인·2~3 슬라이스 분할). S45 deferral 의 원인(커스텀 Role 부재)은 S61 로 해소됨.
 > - **🔨 FR-RM10**(AutoMod 키워드) — **빌드가능**. PRD 가 "re2 **또는** 100ms timeout / Worker **또는** BullMQ" 대안 제시 → no-native-dep 경로(Worker Thread timeout 또는 승인된 BullMQ)로 진입 가능(re2 네이티브 의존 회피·kernel4.4 ABI 위험 없음).
-> - **⛔ FR-MN-15/18**(VAPID 웹푸시) — **유일한 진짜 차단**. VAPID 키/web-push 인프라가 사용자 제공 필요(키 생성·env 주입). 사용자 greenlight 후 진입.
-> - ※ [[project_direction_pivot]]: parity 메가루프는 검증/안정성으로 선회했으나, 사용자가 "모든 슬라이스 수행" 지시(2026-06-07) → @role 그룹부터 빌드가능 잔여를 마저 진행.
+> - **🔨 FR-MN-18**(채널별 데스크톱/모바일 독립 알림) — **빌드가능·小**. S86 push 동작하므로, UserNotificationPreference(채널 오버라이드)에 desktopLevel/mobileLevel 분리 + push 전송이 기기별 레벨 존중. VAPID 차단 해소(S86 LIVE).
+> - ⛔→✅ **FR-MN-15(VAPID)** 완료: VAPID 키 사용자 제공·`.env.prod` 주입 완료. 잔여 VAPID 차단 없음.
+> - ※ [[project_direction_pivot]]: 사용자 "모든 슬라이스 수행" 지시(2026-06-07) → 빌드가능 잔여(FR-MN-18 小 → @role 그룹 大 → AutoMod) 순 진행.
 >
 > **⚠️ 인프라 변경(디스크 복구로 인한):**
 >
