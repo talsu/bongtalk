@@ -63,6 +63,11 @@ function makeService(opts?: {
   update?: ReturnType<typeof vi.fn>;
   deleteMany?: ReturnType<typeof vi.fn>;
   findFirst?: ReturnType<typeof vi.fn>;
+  // 리뷰 F1: 작성자 멤버십 조회(actorRole 미지정 시 면제 판정). 기본은 MEMBER(비면제).
+  memberFindUnique?: ReturnType<typeof vi.fn>;
+  // 리뷰 F3: exempt 소유 검증용 role/channel findMany. 기본은 입력 그대로 모두 발견(통과).
+  roleFindMany?: ReturnType<typeof vi.fn>;
+  channelFindMany?: ReturnType<typeof vi.fn>;
 }) {
   const findMany = opts?.findMany ?? vi.fn(async () => []);
   const count = opts?.count ?? vi.fn(async () => 0);
@@ -70,6 +75,18 @@ function makeService(opts?: {
   const update = opts?.update ?? vi.fn(async () => ruleRow({}));
   const deleteMany = opts?.deleteMany ?? vi.fn(async () => ({ count: 1 }));
   const findFirst = opts?.findFirst ?? vi.fn(async () => ({ id: RULE }));
+  const memberFindUnique = opts?.memberFindUnique ?? vi.fn(async () => ({ role: 'MEMBER' }));
+  // 기본 roleFindMany/channelFindMany: 요청된 id 를 그대로 반환(전부 소속 → 통과).
+  const roleFindMany =
+    opts?.roleFindMany ??
+    vi.fn(async (q: { where: { id: { in: string[] } } }) =>
+      q.where.id.in.map((id: string) => ({ id })),
+    );
+  const channelFindMany =
+    opts?.channelFindMany ??
+    vi.fn(async (q: { where: { id: { in: string[] } } }) =>
+      q.where.id.in.map((id: string) => ({ id })),
+    );
   const auditCreate = vi.fn(async () => undefined);
   const txClient = {
     autoModRule: { create, update, deleteMany },
@@ -77,6 +94,9 @@ function makeService(opts?: {
   };
   const prisma = {
     autoModRule: { findMany, count, findFirst },
+    workspaceMember: { findUnique: memberFindUnique },
+    role: { findMany: roleFindMany },
+    channel: { findMany: channelFindMany },
     $transaction: vi.fn(async (cb: (tx: typeof txClient) => unknown) => cb(txClient)),
   };
   const auditRecord = vi.fn(async () => undefined);
@@ -92,6 +112,9 @@ function makeService(opts?: {
     update,
     deleteMany,
     findFirst,
+    memberFindUnique,
+    roleFindMany,
+    channelFindMany,
     auditRecord,
     timeoutBySystem,
   };
@@ -265,6 +288,94 @@ describe('AutoModService.check', () => {
     });
     expect(findMany).toHaveBeenCalledTimes(2);
   });
+
+  // ★리뷰 F1 (보안): AutoMod 집행은 OWNER/ADMIN 작성자에게 적용하지 않는다(모더레이터 면제).
+  it.each(['OWNER', 'ADMIN'] as const)(
+    'exempts %s authors from enforcement (actorRole passed) without loading rules',
+    async (role) => {
+      const { svc, findMany, memberFindUnique } = makeService({
+        findMany: vi.fn(async () => [ruleRow({ keywords: ['spam'] })]),
+      });
+      const hit = await svc.check({
+        workspaceId: WS,
+        channelId: CH,
+        authorId: AUTHOR,
+        actorRoleIds: [],
+        contentPlain: 'this is spam',
+        actorRole: role,
+      });
+      expect(hit).toBeNull();
+      // actorRole 이 면제이면 규칙 로드/멤버 조회 자체를 건너뛴다(hot-path).
+      expect(findMany).not.toHaveBeenCalled();
+      expect(memberFindUnique).not.toHaveBeenCalled();
+    },
+  );
+
+  it('still enforces against MEMBER authors (actorRole passed)', async () => {
+    const { svc } = makeService({
+      findMany: vi.fn(async () => [ruleRow({ keywords: ['spam'] })]),
+    });
+    const hit = await svc.check({
+      workspaceId: WS,
+      channelId: CH,
+      authorId: AUTHOR,
+      actorRoleIds: [],
+      contentPlain: 'this is spam',
+      actorRole: 'MEMBER',
+    });
+    expect(hit?.action).toBe('BLOCK');
+  });
+
+  it('falls back to a membership lookup when actorRole is omitted and exempts an ADMIN', async () => {
+    const memberFindUnique = vi.fn(async () => ({ role: 'ADMIN' }));
+    const { svc, findMany } = makeService({
+      findMany: vi.fn(async () => [ruleRow({ keywords: ['spam'] })]),
+      memberFindUnique,
+    });
+    const hit = await svc.check({
+      workspaceId: WS,
+      channelId: CH,
+      authorId: AUTHOR,
+      actorRoleIds: [],
+      contentPlain: 'this is spam',
+      // actorRole 미지정 → 서비스가 작성자 멤버십을 조회해 ADMIN 면제 판정.
+    });
+    expect(hit).toBeNull();
+    expect(memberFindUnique).toHaveBeenCalledTimes(1);
+    expect(findMany).not.toHaveBeenCalled();
+  });
+
+  // ★리뷰 F4 (한국어 정확성): WORD 경계가 유니코드 — 한국어/CJK 키워드가 더 큰 단어 안에서
+  // SUBSTRING 으로 degrade 하지 않는다('욕설' WORD 룰이 '욕설쟁이' 를 매칭하면 과차단).
+  it('WORD mode does not match a Korean keyword inside a larger Korean word', async () => {
+    const { svc } = makeService({
+      findMany: vi.fn(async () => [ruleRow({ keywords: ['욕설'], matchMode: 'WORD' })]),
+    });
+    const hit = await svc.check({
+      workspaceId: WS,
+      channelId: CH,
+      authorId: AUTHOR,
+      actorRoleIds: [],
+      contentPlain: '저 사람은 욕설쟁이야',
+      actorRole: 'MEMBER',
+    });
+    expect(hit).toBeNull();
+  });
+
+  it('WORD mode matches a standalone Korean keyword (space/punctuation boundary)', async () => {
+    const { svc } = makeService({
+      findMany: vi.fn(async () => [ruleRow({ keywords: ['욕설'], matchMode: 'WORD' })]),
+    });
+    const hit = await svc.check({
+      workspaceId: WS,
+      channelId: CH,
+      authorId: AUTHOR,
+      actorRoleIds: [],
+      contentPlain: '그건 욕설 입니다.',
+      actorRole: 'MEMBER',
+    });
+    expect(hit?.keyword).toBe('욕설');
+  });
 });
 
 describe('AutoModService CRUD', () => {
@@ -319,6 +430,57 @@ describe('AutoModService CRUD', () => {
     const { svc } = makeService({ update });
     await svc.update(WS, AUTHOR, RULE, { action: 'BLOCK' });
     expect(update.mock.calls[0][0].data.timeoutSeconds).toBeNull();
+  });
+
+  // ★리뷰 F3 (보안): exempt 역할/채널은 모두 본 워크스페이스 소속이어야 한다.
+  it('create rejects exemptRoleIds that are not in the workspace (400 VALIDATION_FAILED)', async () => {
+    // role.findMany 가 빈 배열 → 요청한 id 가 워크스페이스에 없음.
+    const { svc } = makeService({ roleFindMany: vi.fn(async () => []) });
+    await expect(
+      svc.create(WS, AUTHOR, {
+        name: 'rule',
+        triggerType: 'KEYWORD',
+        keywords: ['spam'],
+        matchMode: 'SUBSTRING',
+        action: 'BLOCK',
+        exemptRoleIds: [ROLE_A],
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
+  });
+
+  it('create rejects exemptChannelIds that are not in the workspace (400)', async () => {
+    const { svc } = makeService({ channelFindMany: vi.fn(async () => []) });
+    await expect(
+      svc.create(WS, AUTHOR, {
+        name: 'rule',
+        triggerType: 'KEYWORD',
+        keywords: ['spam'],
+        matchMode: 'SUBSTRING',
+        action: 'BLOCK',
+        exemptChannelIds: [CH],
+      }),
+    ).rejects.toMatchObject({ code: ErrorCode.VALIDATION_FAILED });
+  });
+
+  it('create accepts exempt ids that all belong to the workspace', async () => {
+    const { svc, create } = makeService();
+    await svc.create(WS, AUTHOR, {
+      name: 'rule',
+      triggerType: 'KEYWORD',
+      keywords: ['spam'],
+      matchMode: 'SUBSTRING',
+      action: 'BLOCK',
+      exemptRoleIds: [ROLE_A],
+      exemptChannelIds: [CH],
+    });
+    expect(create).toHaveBeenCalledTimes(1);
+  });
+
+  it('update rejects exemptRoleIds not in the workspace (400)', async () => {
+    const { svc } = makeService({ roleFindMany: vi.fn(async () => []) });
+    await expect(svc.update(WS, AUTHOR, RULE, { exemptRoleIds: [ROLE_A] })).rejects.toMatchObject({
+      code: ErrorCode.VALIDATION_FAILED,
+    });
   });
 
   it('remove records an audit and throws NOT_FOUND when nothing deleted', async () => {

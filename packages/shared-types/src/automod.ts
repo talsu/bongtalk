@@ -17,6 +17,13 @@ export const AUTOMOD_KEYWORDS_MAX = 50;
 export const AUTOMOD_KEYWORD_MAX_LEN = 256;
 /** 워크스페이스당 AutoMod 규칙 최대 개수(과다 규칙 hot-path 보호). */
 export const AUTOMOD_RULES_PER_WORKSPACE_MAX = 100;
+/**
+ * FR-RM10a (리뷰 F5): 규칙 1개의 면제 역할/채널 ID 최대 개수. 종전엔 규칙 cap 상수
+ * (AUTOMOD_RULES_PER_WORKSPACE_MAX)를 오용해 의미가 어긋났다 — 면제 목록은 별도의
+ * 작은 cap 으로 둔다(과다 면제 주입 방지 · check() 의 면제 스캔 비용 bounded).
+ */
+export const AUTOMOD_EXEMPT_ROLES_MAX = 50;
+export const AUTOMOD_EXEMPT_CHANNELS_MAX = 50;
 
 /** AutoMod 트리거 종류. FR-RM10a 는 KEYWORD 만 구현(나머지는 예약). */
 export const AUTOMOD_TRIGGERS = ['KEYWORD', 'MENTION_SPAM', 'REPEAT_SPAM'] as const;
@@ -124,8 +131,8 @@ export const CreateAutoModRuleRequestSchema = z
       .min(AUTOMOD_TIMEOUT_MIN_SECONDS)
       .max(AUTOMOD_TIMEOUT_MAX_SECONDS)
       .optional(),
-    exemptRoleIds: z.array(z.string().uuid()).max(AUTOMOD_RULES_PER_WORKSPACE_MAX).optional(),
-    exemptChannelIds: z.array(z.string().uuid()).max(AUTOMOD_RULES_PER_WORKSPACE_MAX).optional(),
+    exemptRoleIds: z.array(z.string().uuid()).max(AUTOMOD_EXEMPT_ROLES_MAX).optional(),
+    exemptChannelIds: z.array(z.string().uuid()).max(AUTOMOD_EXEMPT_CHANNELS_MAX).optional(),
     enabled: z.boolean().optional(),
   })
   .superRefine(refineTimeout);
@@ -153,8 +160,8 @@ export const UpdateAutoModRuleRequestSchema = z
       .max(AUTOMOD_TIMEOUT_MAX_SECONDS)
       .nullable()
       .optional(),
-    exemptRoleIds: z.array(z.string().uuid()).max(AUTOMOD_RULES_PER_WORKSPACE_MAX).optional(),
-    exemptChannelIds: z.array(z.string().uuid()).max(AUTOMOD_RULES_PER_WORKSPACE_MAX).optional(),
+    exemptRoleIds: z.array(z.string().uuid()).max(AUTOMOD_EXEMPT_ROLES_MAX).optional(),
+    exemptChannelIds: z.array(z.string().uuid()).max(AUTOMOD_EXEMPT_CHANNELS_MAX).optional(),
     enabled: z.boolean().optional(),
   })
   .superRefine((val, ctx) => {

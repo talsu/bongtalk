@@ -42,6 +42,9 @@ const L = {
     '_other',
   ]),
   replayResult: new Set(['served', 'truncated']),
+  // FR-RM10a (리뷰 F7): AutoMod 집행 액션/결과. action 은 집행 종류 + timeout 적용 실패
+  // (timeout_failed)를 라벨로 구분한다. 고정 enum 이라 카디널리티 bounded.
+  automodAction: new Set(['block', 'alert', 'timeout', 'timeout_failed', '_other']),
   authResult: new Set(['success', 'invalid_credentials', 'locked', 'rate_limited']),
   poolState: new Set(['active', 'idle', 'pending']),
   // task-016-B (009-nit-4 closure): the previous raw event_type
@@ -179,6 +182,8 @@ export class MetricsService {
   // ----- BullMQ workers (S88b · FR-MN-19)
   readonly bullmqJobDurationSeconds: Histogram;
   readonly bullmqJobsFailedTotal: Counter;
+  // ----- AutoMod (FR-RM10a · 리뷰 F7)
+  readonly automodActionsTotal: Counter;
 
   constructor() {
     this.registry = new Registry();
@@ -383,6 +388,16 @@ export class MetricsService {
       name: 'bullmq_jobs_failed_total',
       help: 'BullMQ worker jobs that exhausted all retries by queue',
       labelNames: ['queue'],
+      registers: [this.registry],
+    });
+
+    // ----- AutoMod (FR-RM10a · 리뷰 F7): 집행된 AutoMod 액션 카운트. action 은
+    // block/alert/timeout 집행과 timeout_failed(시스템 타임아웃 적용 실패)를 구분하고,
+    // trigger 는 규칙 트리거 종류(KEYWORD 등 — 고정 enum, 카디널리티 bounded)다.
+    this.automodActionsTotal = new Counter({
+      name: 'automod_actions_total',
+      help: 'AutoMod actions enforced on send/edit by action and trigger',
+      labelNames: ['action', 'trigger'],
       registers: [this.registry],
     });
   }

@@ -88,7 +88,7 @@ export function AutoModPanel({
                   <span className="truncate text-[length:var(--fs-14)] text-foreground">
                     {rule.name}
                   </span>
-                  <span className="shrink-0 rounded-[var(--r-sm)] bg-bg-default px-[var(--s-2)] text-[length:var(--fs-12)] text-text-muted">
+                  <span className="shrink-0 rounded-[var(--r-sm)] bg-bg-muted px-[var(--s-2)] text-[length:var(--fs-12)] text-text-muted">
                     {AUTOMOD_ACTION_LABELS[rule.action]}
                   </span>
                   {!rule.enabled && (

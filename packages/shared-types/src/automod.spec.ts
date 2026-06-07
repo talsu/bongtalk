@@ -2,12 +2,21 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   AUTOMOD_KEYWORDS_MAX,
   AUTOMOD_KEYWORD_MAX_LEN,
+  AUTOMOD_EXEMPT_ROLES_MAX,
+  AUTOMOD_EXEMPT_CHANNELS_MAX,
+  AUTOMOD_RULES_PER_WORKSPACE_MAX,
   CreateAutoModRuleRequestSchema,
   UpdateAutoModRuleRequestSchema,
   ListAutoModRulesResponseSchema,
 } from './automod';
 
 const UUID = '11111111-1111-1111-1111-111111111111';
+
+/** UUID v4-shaped generator so cap tests use distinct valid uuids. */
+function uuid(n: number): string {
+  const hex = n.toString(16).padStart(12, '0');
+  return `11111111-1111-4111-8111-${hex}`;
+}
 
 describe('FR-RM10a AutoMod Zod contracts', () => {
   beforeEach(() => {
@@ -104,6 +113,31 @@ describe('FR-RM10a AutoMod Zod contracts', () => {
         exemptRoleIds: ['not-a-uuid'],
       });
       expect(parsed.success).toBe(false);
+    });
+
+    // ★리뷰 F5: exempt cap 은 keywords/규칙 cap 과 무관한 별도 상수(50)다.
+    it('uses a dedicated exempt cap distinct from the per-workspace rule cap', () => {
+      expect(AUTOMOD_EXEMPT_ROLES_MAX).toBe(50);
+      expect(AUTOMOD_EXEMPT_CHANNELS_MAX).toBe(50);
+      expect(AUTOMOD_EXEMPT_ROLES_MAX).not.toBe(AUTOMOD_RULES_PER_WORKSPACE_MAX);
+    });
+
+    it('accepts exactly the exempt-role cap and rejects one over', () => {
+      const ok = Array.from({ length: AUTOMOD_EXEMPT_ROLES_MAX }, (_, i) => uuid(i));
+      expect(CreateAutoModRuleRequestSchema.safeParse({ ...base, exemptRoleIds: ok }).success).toBe(
+        true,
+      );
+      const over = Array.from({ length: AUTOMOD_EXEMPT_ROLES_MAX + 1 }, (_, i) => uuid(i));
+      expect(
+        CreateAutoModRuleRequestSchema.safeParse({ ...base, exemptRoleIds: over }).success,
+      ).toBe(false);
+    });
+
+    it('rejects exempt channels over the dedicated cap', () => {
+      const over = Array.from({ length: AUTOMOD_EXEMPT_CHANNELS_MAX + 1 }, (_, i) => uuid(i));
+      expect(
+        CreateAutoModRuleRequestSchema.safeParse({ ...base, exemptChannelIds: over }).success,
+      ).toBe(false);
     });
   });
 

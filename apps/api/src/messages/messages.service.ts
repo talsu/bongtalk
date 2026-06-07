@@ -381,6 +381,9 @@ export class MessagesService {
     authorId: string;
     actorRoleIds: string[];
     contentPlain: string;
+    // FR-RM10a (리뷰 F1): 작성자의 시스템 역할 enum. OWNER/ADMIN 이면 check 가 즉시 면제한다
+    // (모더레이터 면제 — 계층 방어 우회 차단). 컨트롤러가 m.role 로 넘긴다(없으면 service 가 조회).
+    actorRole?: WorkspaceRole;
   }): Promise<void> {
     if (!this.autoMod || args.workspaceId === null) return;
     const hit = await this.autoMod.check({
@@ -389,6 +392,7 @@ export class MessagesService {
       authorId: args.authorId,
       actorRoleIds: args.actorRoleIds,
       contentPlain: args.contentPlain,
+      actorRole: args.actorRole,
     });
     if (!hit) return;
     const workspaceId = args.workspaceId;
@@ -401,11 +405,16 @@ export class MessagesService {
         channelId: args.channelId,
         details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
       });
+      // 리뷰 F7: ALERT 집행 메트릭(저장은 통과하지만 감사·관측은 남긴다).
+      this.metrics?.automodActionsTotal.inc({ action: 'alert', trigger: 'KEYWORD' });
       return;
     }
     // BLOCK / TIMEOUT 은 메시지를 저장하지 않는다. TIMEOUT 은 추가로 작성자를 타임아웃한다.
     if (hit.action === 'TIMEOUT') {
-      await this.autoMod.applyTimeout({
+      // 리뷰 F2: applyTimeout 은 best-effort(실패 흡수)지만, 차단 사유(ruleId/keyword) 감사는
+      // mute 성공 여부와 무관하게 남겨 차단 근거를 항상 추적 가능하게 한다. 종전엔 TIMEOUT
+      // 분기가 applyTimeout 만 호출하고 감사를 누락해 mute 실패 시 무감사·무타임아웃 silent 였다.
+      const muted = await this.autoMod.applyTimeout({
         workspaceId,
         authorId: args.authorId,
         // check 가 TIMEOUT 을 반환하면 규칙에 timeoutSeconds 가 있어야 한다(스키마 refine).
@@ -413,6 +422,27 @@ export class MessagesService {
         timeoutSeconds: hit.timeoutSeconds ?? 60,
         ruleName: hit.rule.name,
       });
+      await this.audit?.recordBestEffort({
+        workspaceId,
+        actorId: args.authorId,
+        action: AuditAction.AUTOMOD_BLOCK,
+        targetId: args.authorId,
+        channelId: args.channelId,
+        details: {
+          ruleId: hit.rule.id,
+          ruleName: hit.rule.name,
+          keyword: hit.keyword,
+          channelId: args.channelId,
+          wasTimeout: true,
+          // mute 적용 결과(false 면 mutedUntil 미설정 — 차단은 유지하되 음소거는 실패).
+          timeoutApplied: muted,
+        },
+      });
+      // 리뷰 F7: TIMEOUT 집행 메트릭 + mute 실패 시 별도 카운트(관측 공백 제거).
+      this.metrics?.automodActionsTotal.inc({ action: 'timeout', trigger: 'KEYWORD' });
+      if (!muted) {
+        this.metrics?.automodActionsTotal.inc({ action: 'timeout_failed', trigger: 'KEYWORD' });
+      }
     } else {
       await this.audit?.recordBestEffort({
         workspaceId,
@@ -422,6 +452,8 @@ export class MessagesService {
         channelId: args.channelId,
         details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
       });
+      // 리뷰 F7: BLOCK 집행 메트릭.
+      this.metrics?.automodActionsTotal.inc({ action: 'block', trigger: 'KEYWORD' });
     }
     throw new DomainError(ErrorCode.AUTOMOD_BLOCKED, '자동 모더레이션 규칙에 의해 차단되었습니다');
   }
@@ -1696,6 +1728,8 @@ export class MessagesService {
       authorId: args.authorId,
       actorRoleIds: args.actorMemberRoleUuids ?? [],
       contentPlain,
+      // 리뷰 F1: 작성자 시스템 역할(OWNER/ADMIN 면제 판정용). 컨트롤러가 m.role 로 넘긴다.
+      actorRole: args.actorRole,
     });
     // S29 (FR-S05): 비정규화 검색 플래그 계산 — hasLink 는 AST 의 link 노드,
     // hasImage/hasFile 은 연결할 첨부 kind 집합에서 유도.
@@ -3064,6 +3098,8 @@ export class MessagesService {
       authorId: args.actorId,
       actorRoleIds: args.actorMemberRoleUuids ?? [],
       contentPlain,
+      // 리뷰 F1: 편집자 시스템 역할(OWNER/ADMIN 면제 판정용 · send 와 대칭).
+      actorRole: args.actorRole,
     });
     const editedAt = new Date();
 

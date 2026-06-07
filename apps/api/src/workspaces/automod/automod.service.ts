@@ -1,5 +1,5 @@
 import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { Prisma, WorkspaceRole } from '@prisma/client';
 import {
   AUTOMOD_RULES_PER_WORKSPACE_MAX,
   type AutoModAction,
@@ -73,6 +73,9 @@ export class AutoModService {
       );
     }
     const keywords = normalizeKeywords(input.keywords);
+    // ★F3 (보안): exempt 역할/채널 ID 가 모두 본 워크스페이스 소속인지 검증한다(타 워크스페이스
+    // UUID 주입 차단). 무효 ID 가 있으면 400 으로 거부한다.
+    await this.assertExemptOwnership(workspaceId, input.exemptRoleIds, input.exemptChannelIds);
     const created = await this.prisma.$transaction(async (tx) => {
       const row = await tx.autoModRule.create({
         data: {
@@ -120,6 +123,9 @@ export class AutoModService {
     if (!existing) {
       throw new DomainError(ErrorCode.NOT_FOUND, 'AutoMod rule not found');
     }
+    // ★F3 (보안): 수정 요청에 exempt 가 오면 본 워크스페이스 소속인지 검증한다(타 워크스페이스
+    // UUID 주입 차단). undefined(미변경)면 검증 생략.
+    await this.assertExemptOwnership(workspaceId, input.exemptRoleIds, input.exemptChannelIds);
     const data: Prisma.AutoModRuleUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
     if (input.keywords !== undefined) data.keywords = normalizeKeywords(input.keywords);
@@ -173,6 +179,50 @@ export class AutoModService {
     this.invalidate(workspaceId);
   }
 
+  /**
+   * ★FR-RM10a (리뷰 F3 · 보안): exempt 역할/채널 ID 가 전부 본 워크스페이스 소속인지 검증한다.
+   * 종전엔 검증이 없어 타 워크스페이스 UUID 를 주입할 수 있었다(정보 노출/규칙 오작동). 각
+   * 목록을 `findMany({where:{workspaceId, id:{in:[...]}}})` 로 조회해 발견 수가 요청 수와
+   * 다르면(= 하나라도 타 워크스페이스/존재하지 않음) 어느 ID 가 무효인지 명시해 400 으로 거부한다.
+   * undefined(미변경/미제공)이거나 빈 배열이면 검증을 생략한다.
+   */
+  private async assertExemptOwnership(
+    workspaceId: string,
+    exemptRoleIds: string[] | undefined,
+    exemptChannelIds: string[] | undefined,
+  ): Promise<void> {
+    if (exemptRoleIds !== undefined && exemptRoleIds.length > 0) {
+      const ids = [...new Set(exemptRoleIds)];
+      const found = await this.prisma.role.findMany({
+        where: { workspaceId, id: { in: ids } },
+        select: { id: true },
+      });
+      if (found.length !== ids.length) {
+        const foundSet = new Set(found.map((r) => r.id));
+        const invalid = ids.filter((id) => !foundSet.has(id));
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          `exemptRoleIds contains roles not in this workspace: ${invalid.join(', ')}`,
+        );
+      }
+    }
+    if (exemptChannelIds !== undefined && exemptChannelIds.length > 0) {
+      const ids = [...new Set(exemptChannelIds)];
+      const found = await this.prisma.channel.findMany({
+        where: { workspaceId, id: { in: ids } },
+        select: { id: true },
+      });
+      if (found.length !== ids.length) {
+        const foundSet = new Set(found.map((c) => c.id));
+        const invalid = ids.filter((id) => !foundSet.has(id));
+        throw new DomainError(
+          ErrorCode.VALIDATION_FAILED,
+          `exemptChannelIds contains channels not in this workspace: ${invalid.join(', ')}`,
+        );
+      }
+    }
+  }
+
   // ── check (send/edit hook) ──────────────────────────────────────────────────
 
   /**
@@ -183,6 +233,12 @@ export class AutoModService {
    * exemptRoleIds) 면 건너뛴다 → ★리터럴 매칭(contentPlain 소문자 vs keywords·정규식 없음).
    * DM(workspaceId=null)은 워크스페이스 규칙이 없으므로 즉시 null. 콘텐츠/키워드 길이는
    * cap 해 매칭 비용을 bounded 로 둔다.
+   *
+   * ★FR-RM10a (리뷰 F1 · 보안): AutoMod 집행은 **OWNER/ADMIN 작성자에게 적용하지 않는다**
+   * (모더레이터 면제 — 룰을 통제·신뢰하는 주체이며 Discord AutoMod parity). 이로써 악의적
+   * ADMIN 이 'OWNER 가 쓰는 단어'를 키워드 등록해 OWNER 를 자동 타임아웃(락아웃)하는 계층
+   * 방어 우회를 막는다. actorRole 은 send/edit 컨트롤러가 이미 로드(m.role)해 전달하며,
+   * 누락 시(actorRole=undefined) 본 서비스가 작성자의 WorkspaceMember.role 을 조회해 판정한다.
    */
   async check(args: {
     workspaceId: string | null;
@@ -190,6 +246,8 @@ export class AutoModService {
     authorId: string;
     actorRoleIds: string[];
     contentPlain: string;
+    /** 작성자의 시스템 역할 enum(없으면 서비스가 조회). OWNER/ADMIN 이면 집행 skip. */
+    actorRole?: WorkspaceRole;
   }): Promise<{
     action: AutoModAction;
     rule: { id: string; name: string };
@@ -198,6 +256,9 @@ export class AutoModService {
   } | null> {
     // DM(워크스페이스 없음) 또는 빈 본문은 평가 대상이 아니다.
     if (args.workspaceId === null) return null;
+    // ★F1: OWNER/ADMIN 작성자는 AutoMod 비대상(모더레이터 면제). 컨트롤러가 actorRole 을
+    // 넘기면 그것을, 아니면 작성자 멤버십을 조회해 판정한다(자기역할 self-exempt 우려 무의미).
+    if (await this.isModeratorExempt(args.workspaceId, args.authorId, args.actorRole)) return null;
     const rules = await this.loadEnabledRules(args.workspaceId);
     if (rules.length === 0) return null;
 
@@ -224,18 +285,45 @@ export class AutoModService {
   }
 
   /**
+   * ★FR-RM10a (리뷰 F1 · 보안): 작성자가 OWNER/ADMIN 이면 AutoMod 집행 비대상(true).
+   * 컨트롤러가 actorRole 을 넘기면 그대로 쓰고(추가 조회 없음 — hot-path), 미지정이면
+   * WorkspaceMember.role 을 1회 조회한다. 멤버가 아니면(레이스) 면제하지 않는다(false →
+   * 규칙 평가 진행하되 후속 단계가 비멤버를 자연히 처리). 모더레이터는 룰을 통제·신뢰하는
+   * 주체라 면제한다(Discord AutoMod parity).
+   */
+  private async isModeratorExempt(
+    workspaceId: string,
+    authorId: string,
+    actorRole?: WorkspaceRole,
+  ): Promise<boolean> {
+    if (actorRole !== undefined) {
+      return actorRole === WorkspaceRole.OWNER || actorRole === WorkspaceRole.ADMIN;
+    }
+    const member = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: authorId } },
+      select: { role: true },
+    });
+    if (!member) return false;
+    return member.role === WorkspaceRole.OWNER || member.role === WorkspaceRole.ADMIN;
+  }
+
+  /**
    * FR-RM10a (ADR E3): TIMEOUT 액션의 tx-후 작성자 타임아웃(best-effort). self-timeout
    * 방어는 호출부에서 author=actor 이므로 ModerationService 의 self 가드를 우회하기 위해
    * actorId 를 워크스페이스 OWNER 등으로 둘 수 없다 — 대신 system actor 가 아니라 규칙
    * 적용 결과로서 작성자 본인을 타임아웃해야 하므로, ModerationService.timeout 의 self
    * 가드를 피하려 별도 시스템 경로 대신 직접 mutedUntil 업데이트 + 감사를 수행한다.
    */
+  /**
+   * @returns true 면 타임아웃 적용 성공, false 면 실패(흡수됨). 리뷰 F2/F7: 호출부가 실패
+   * 여부로 관측 메트릭/감사 보완을 결정할 수 있게 boolean 을 반환한다(종전 void → silent).
+   */
   async applyTimeout(args: {
     workspaceId: string;
     authorId: string;
     timeoutSeconds: number;
     ruleName: string;
-  }): Promise<void> {
+  }): Promise<boolean> {
     try {
       await this.moderation.timeoutBySystem({
         workspaceId: args.workspaceId,
@@ -243,10 +331,12 @@ export class AutoModService {
         durationSeconds: args.timeoutSeconds,
         reason: `AutoMod: ${args.ruleName}`,
       });
+      return true;
     } catch (err) {
       this.logger.warn(
         `[automod] timeout apply failed ws=${args.workspaceId} author=${args.authorId}: ${String(err).slice(0, 160)}`,
       );
+      return false;
     }
   }
 
@@ -330,16 +420,18 @@ function matchKeyword(haystack: string, keywords: string[], mode: AutoModMatch):
   return null;
 }
 
-/** 단어 문자 판정(영숫자 + 언더스코어). 빈 문자열(경계)은 false. */
+/**
+ * 단어 문자 판정 — 빈 문자열(경계)은 false.
+ *
+ * FR-RM10a (리뷰 F4): 종전 ASCII-only(`[0-9A-Za-z_]`) 판정은 한국어/CJK WORD 룰을
+ * SUBSTRING 으로 degrade 시켰다(예: '욕설' WORD 룰이 '욕설쟁이' 를 매칭 = 과차단). 한국어가
+ * 주 사용자이므로 인접 코드포인트를 ★유니코드 문자/숫자(+언더스코어)로 판정한다. 입력은
+ * 항상 단일 문자(고정 길이)라 `/u` 정규식이라도 ReDoS 가 없다(역추적 입력 비종속).
+ */
+const WORD_CHAR_RE = /[\p{L}\p{N}_]/u;
 function isWordChar(ch: string): boolean {
   if (ch.length === 0) return false;
-  const c = ch.charCodeAt(0);
-  return (
-    (c >= 48 && c <= 57) || // 0-9
-    (c >= 65 && c <= 90) || // A-Z
-    (c >= 97 && c <= 122) || // a-z
-    c === 95 // _
-  );
+  return WORD_CHAR_RE.test(ch);
 }
 
 /** 키워드 정규화 — trim · 소문자 · 빈 제거 · 중복 제거(순서 보존). */
