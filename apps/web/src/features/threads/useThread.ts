@@ -175,7 +175,14 @@ export function useSendReply(wsId: string, channelId: string, rootId: string) {
         contentPlain: content,
         // S04: optimistic reply 는 항상 일반 메시지(DEFAULT).
         type: 'DEFAULT',
-        mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+        mentions: {
+          users: [],
+          channels: [],
+          everyone: false,
+          here: false,
+          channel: false,
+          roles: [],
+        },
         edited: false,
         deleted: false,
         createdAt: new Date().toISOString(),

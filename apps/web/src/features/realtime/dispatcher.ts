@@ -1518,6 +1518,9 @@ export function installRealtimeDispatcher(
     everyone: boolean;
     // S44 contract fix-forward: 서버 MentionReceivedPayload 와 정합하는 @here 표식.
     here: boolean;
+    // S88a review F2 (FR-MN-03): 역할 멘션 유래 표식. 명시 @user 와 둘 다면 dedup
+    // 후 명시 멘션이 우선이라 false. 서버 MentionReceivedPayload.role 과 정합·optional.
+    role?: boolean;
   }>('mention:new', (rawEnv) => {
     // S44 contract fix-forward: 신뢰경계 가드 — 형태가 어긋난 mention:new
     // 페이로드는 캐시를 건드리지 않고 버린다(reaction:updated 패턴 동일·서버 회귀/
@@ -1550,6 +1553,8 @@ export function installRealtimeDispatcher(
         everyone: env.everyone,
         // S44 contract fix-forward: @here 표식 캐시 반영.
         here: env.here,
+        // S88a review F2 (FR-MN-03): 역할 멘션 유래 표식 캐시 반영(없으면 false).
+        role: env.role ?? false,
       };
       if (!old) return { unreadCount: 1, recent: [entry] };
       if (old.recent.some((m) => m.messageId === env.messageId)) return old;

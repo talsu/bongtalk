@@ -86,6 +86,29 @@ describe('channel / role / emoji regexes', () => {
     );
   });
 
+  // S88a (FR-MN-03 / FR-RC22): Role.id 는 @db.Uuid 라 토큰이 uuid 여야 한다.
+  it('MENTION_ROLE_RE matches <@&uuid> (Role.id = @db.Uuid)', () => {
+    expect(
+      new RegExp(MENTION_ROLE_RE.source).exec('<@&3f2504e0-4f89-41d3-9a0c-0305e82c3301>')?.[1],
+    ).toBe('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
+  it('MENTION_ROLE_RE matches multiple role tokens (uuid + cuid2 mixed)', () => {
+    const text = 'hey <@&3f2504e0-4f89-41d3-9a0c-0305e82c3301> and <@&clh3z2k0v0000abcd1234>';
+    const ids = [...text.matchAll(new RegExp(MENTION_ROLE_RE.source, 'g'))].map((m) => m[1]);
+    expect(ids).toEqual(['3f2504e0-4f89-41d3-9a0c-0305e82c3301', 'clh3z2k0v0000abcd1234']);
+  });
+
+  // S88a review F5 (security): uuid 분기는 RFC-4122 8-4-4-4-12 고정 구조여야
+  // 한다. 종전 `[0-9a-f-]{36}` 은 하이픈 36개 같은 garbage 도 수락했다.
+  it('MENTION_ROLE_RE rejects garbage uuid-shaped tokens (36 hyphens / wrong layout)', () => {
+    const allHyphens = `<@&${'-'.repeat(36)}>`;
+    expect(new RegExp(MENTION_ROLE_RE.source).test(allHyphens)).toBe(false);
+    // 자리수 위치가 어긋난 36자(하이픈 위치 불일치)도 거부.
+    const wrongLayout = '<@&3f2504e04f8941d39a0c0305e82c33-1>';
+    expect(new RegExp(MENTION_ROLE_RE.source).test(wrongLayout)).toBe(false);
+  });
+
   it('EMOJI_RE matches :name: within 2-32 lowercase/underscore', () => {
     expect(new RegExp(EMOJI_RE.source).exec(':party_blob:')?.[1]).toBe('party_blob');
     expect(new RegExp(EMOJI_RE.source).test(':a:')).toBe(false); // too short (min 2)

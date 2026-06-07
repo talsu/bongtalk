@@ -10,7 +10,7 @@ import {
   type WorkspaceRole,
 } from '@qufox/shared-types';
 import { useAuth } from '../auth/AuthProvider';
-import { useMembers } from '../workspaces/useWorkspaces';
+import { useMembers, useRoles } from '../workspaces/useWorkspaces';
 import {
   useDeleteMessage,
   useJumpAround,
@@ -154,6 +154,9 @@ export function MessageList({
 }: Props): JSX.Element {
   const { user } = useAuth();
   const { data: members } = useMembers(workspaceId ?? undefined);
+  // S88a (FR-MN-03): mention_role 렌더용 roleId→name 룩업 소스. 서버가 노드에 label 을
+  // 박지만(우선), label 부재(legacy/누락) 시 이 맵으로 폴백한다.
+  const { data: rolesList } = useRoles(workspaceId ?? undefined);
   // S06 (FR-MSG-22): 빈 채널 상태 보강용 채널 메타(name/type/topic/createdAt).
   // workspaceId 가 null(DM)이면 hook 이 비활성(enabled:false)이라 undefined.
   const { data: channelList } = useChannelList(workspaceId ?? undefined);
@@ -318,11 +321,20 @@ export function MessageList({
   // userId(cuid2) 만 담습니다. 워크스페이스 멤버 맵(nameById) + DM 참가자
   // fallback(extraNames) 으로 표시명을 다시 해석해 `@username` pill 을
   // 그립니다. 맵에 없으면 renderAst 가 userId 로 폴백합니다.
+  // S88a (FR-MN-03): roleId → 역할명 룩업 맵. mention_role 노드의 label 폴백.
+  const roleNameById = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const r of rolesList ?? []) map.set(r.id, r.name);
+    return map;
+  }, [rolesList]);
+
   const mentionLookup = useMemo<MentionLookup>(
     () => ({
       userName: (userId: string) => nameById.get(userId) ?? extraNames?.get(userId),
+      // S88a (FR-MN-03): 역할명 resolver(노드 label 부재 시 폴백).
+      roleName: (roleId: string) => roleNameById.get(roleId),
     }),
-    [nameById, extraNames],
+    [nameById, extraNames, roleNameById],
   );
 
   // S34 (FR-TH-03): reply bar 의 최근 답글자 아바타 표시명 resolver. mention

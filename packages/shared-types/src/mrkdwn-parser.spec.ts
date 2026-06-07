@@ -210,6 +210,22 @@ describe('parseMrkdwn — mention tokens (FR-RC02 / FR-RC22)', () => {
     expect(mention).toMatchObject({ type: 'mention_user', userId: 'clh3z2k0v0000abcd1234ef' });
     expect((mention as { label?: string }).label).toBeUndefined();
   });
+
+  // S88a (FR-MN-03): <@&uuid|cuid2> 역할 토큰을 mention_role 노드로 파싱한다.
+  it('parses <@&uuid> into a mention_role node (Role.id = @db.Uuid)', () => {
+    const p = firstParagraph('ping <@&3f2504e0-4f89-41d3-9a0c-0305e82c3301>');
+    const mention = p.nodes.find((n) => n.type === 'mention_role');
+    expect(mention).toMatchObject({
+      type: 'mention_role',
+      roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    });
+  });
+
+  it('leaves mention_role.label undefined when no role resolver is given (legacy)', () => {
+    const p = firstParagraph('ping <@&3f2504e0-4f89-41d3-9a0c-0305e82c3301>');
+    const mention = p.nodes.find((n) => n.type === 'mention_role');
+    expect((mention as { label?: string }).label).toBeUndefined();
+  });
 });
 
 // S04 review HIGH (FR-MSG-13): 정규화는 @username 을 @{cuid2} 로 저장하므로
@@ -253,6 +269,21 @@ describe('parseMrkdwn — mention label injection (S04 review HIGH / FR-MSG-13)'
       const mention = p.nodes.find((n) => n.type === 'mention_user');
       expect((mention as { label?: string }).label).toBeUndefined();
     }
+  });
+
+  it('populates mention_role.label from the role resolver (S88a / FR-MN-03)', () => {
+    const { ast } = parseMrkdwn('ping <@&3f2504e0-4f89-41d3-9a0c-0305e82c3301>', {
+      mentionLabels: {
+        role: (id) => (id === '3f2504e0-4f89-41d3-9a0c-0305e82c3301' ? 'Project Managers' : null),
+      },
+    });
+    const p = ast.nodes[0] as ParagraphNode;
+    const mention = p.nodes.find((n) => n.type === 'mention_role');
+    expect(mention).toMatchObject({
+      type: 'mention_role',
+      roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      label: 'Project Managers',
+    });
   });
 
   it('still produces a schema-valid root with labels present', () => {

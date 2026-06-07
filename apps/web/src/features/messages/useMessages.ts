@@ -272,7 +272,14 @@ export function useSendMessage(wsId: string | null, channelId: string) {
         contentPlain: content,
         // S04: optimistic 메시지는 항상 일반 메시지(DEFAULT).
         type: 'DEFAULT',
-        mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+        mentions: {
+          users: [],
+          channels: [],
+          everyone: false,
+          here: false,
+          channel: false,
+          roles: [],
+        },
         edited: false,
         deleted: false,
         createdAt: new Date().toISOString(),

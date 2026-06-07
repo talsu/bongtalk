@@ -54,6 +54,7 @@ function role(over: Partial<Role>): Role {
     position: over.position ?? 100,
     permissions: over.permissions ?? '0',
     isSystem: over.isSystem ?? false,
+    mentionable: over.mentionable ?? false,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   };
@@ -100,7 +101,54 @@ describe('RolesModal', () => {
     fireEvent.click(screen.getByTestId('role-item-OWNER'));
     expect((screen.getByTestId('role-edit-name') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByTestId('role-delete-btn')).toBeNull();
-    expect(screen.getByText('시스템 역할은 수정/삭제할 수 없습니다.')).toBeTruthy();
+    // S88a (FR-MN-03 · D6): 시스템 역할도 @멘션 허용 토글 + 저장 버튼은 노출된다.
+    expect(screen.getByText('시스템 역할은 @멘션 허용만 변경할 수 있습니다.')).toBeTruthy();
+    expect(screen.getByTestId('role-save-btn')).toBeTruthy();
+  });
+
+  // S88a (FR-MN-03 · D6): mentionable 토글 — 시스템 역할도 mentionable 만 저장한다.
+  it('system role: toggling @멘션 허용 saves only mentionable', async () => {
+    updateMut.mutateAsync.mockResolvedValue(undefined);
+    render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('role-item-OWNER'));
+    const toggle = screen
+      .getByTestId('role-mentionable')
+      .querySelector('input') as HTMLInputElement;
+    expect(toggle.checked).toBe(false);
+    expect(toggle.disabled).toBe(false); // canManage 면 시스템 역할도 토글 가능.
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByTestId('role-save-btn'));
+    expect(updateMut.mutateAsync).toHaveBeenCalledTimes(1);
+    const arg = updateMut.mutateAsync.mock.calls[0][0];
+    expect(arg.input).toEqual({ mentionable: true });
+    expect(arg.roleId).toBe('owner');
+  });
+
+  // S88a review F8 (a11y): mentionable 체크박스 설명이 title-only 가 아니라
+  // sr-only + aria-describedby 로 키보드/SR/터치에 도달해야 한다.
+  it('mentionable checkbox exposes its description via aria-describedby (F8)', () => {
+    render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('role-item-OWNER'));
+    const input = screen.getByTestId('role-mentionable').querySelector('input') as HTMLInputElement;
+    expect(input.getAttribute('aria-describedby')).toBe('mentionable-desc');
+    const desc = document.getElementById('mentionable-desc');
+    expect(desc?.textContent).toBe('이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.');
+    // title 속성은 더 이상 쓰지 않는다(키보드/SR/터치 미도달).
+    expect(screen.getByTestId('role-mentionable').querySelector('[title]')).toBeNull();
+  });
+
+  // S88a (FR-MN-03 · D6): 커스텀 역할 저장 payload 에 mentionable 포함.
+  it('custom role: save includes mentionable in payload', async () => {
+    updateMut.mutateAsync.mockResolvedValue(undefined);
+    render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('role-item-Helpers'));
+    const toggle = screen
+      .getByTestId('role-mentionable')
+      .querySelector('input') as HTMLInputElement;
+    fireEvent.click(toggle);
+    fireEvent.click(screen.getByTestId('role-save-btn'));
+    const arg = updateMut.mutateAsync.mock.calls[0][0];
+    expect(arg.input.mentionable).toBe(true);
   });
 
   it('selecting a custom role reflects its permission toggles and saves serialized bits', async () => {

@@ -49,8 +49,10 @@ describe('VerifyEmailLanding (FR-W05b) fix-forward', () => {
     // (A4) 결과가 polite status 컨테이너 안에 있다.
     const region = screen.getByRole('status');
     expect(region.getAttribute('aria-live')).toBe('polite');
-    // (C3) 성공 타이틀.
-    expect(document.title).toBe('이메일 인증 완료 | qufox');
+    // (C3) 성공 타이틀. document.title 은 status별 useEffect(passive effect)로 갱신되므로,
+    // success 텍스트 commit 직후 같은 tick 에 즉시 단언하면 effect flush 전 pending 타이틀을
+    // 읽는 race 가 있다(전체 스위트 스케줄링에서 표면화). waitFor 로 effect flush 를 기다린다.
+    await vi.waitFor(() => expect(document.title).toBe('이메일 인증 완료 | qufox'));
     // (m3) 로그인 세션이면 refreshMe 로 stale 게이트 해제.
     await vi.waitFor(() => expect(refreshMe).toHaveBeenCalledTimes(1));
   });
@@ -64,7 +66,8 @@ describe('VerifyEmailLanding (FR-W05b) fix-forward', () => {
     const region = screen.getByRole('alert');
     expect(region.getAttribute('aria-live')).toBe('assertive');
     expect(screen.getByTestId('verify-landing-error').textContent).toContain('만료');
-    expect(document.title).toBe('인증 링크 오류 | qufox');
+    // 성공 타이틀과 동일한 passive-effect race 회피(waitFor).
+    await vi.waitFor(() => expect(document.title).toBe('인증 링크 오류 | qufox'));
   });
 
   it('토큰 없으면 invalid 분기로 안내한다', async () => {

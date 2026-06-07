@@ -17,6 +17,7 @@ import {
   ListReactionUsersQuerySchema,
   REACTION_USERS_DEFAULT_LIMIT,
   REACTION_USERS_MAX_LIMIT,
+  MessageMentionsSchema,
 } from './message';
 
 /**
@@ -429,5 +430,60 @@ describe('S40 (FR-RE05) — reactor 전체 목록 cursor 페이지네이션 계�
   it('limit 는 문자열 쿼리도 강제 정수 변환한다(z.coerce)', () => {
     const parsed = ListReactionUsersQuerySchema.parse({ limit: '25' });
     expect(parsed.limit).toBe(25);
+  });
+});
+
+// S88a (FR-MN-03 · D7): MessageMentions.roles 와이어 계약.
+describe('MessageMentionsSchema.roles (S88a / FR-MN-03)', () => {
+  const UUID = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+
+  it('roles 키가 없는 legacy JSON row 는 [] 로 forward-compat 된다', () => {
+    const parsed = MessageMentionsSchema.parse({
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      // roles 키 의도적으로 누락(기존 DB JSONB row 시뮬레이션).
+    });
+    expect(parsed.roles).toEqual([]);
+  });
+
+  it('roles 는 uuid roleId 배열을 그대로 수용한다(TransitionalId)', () => {
+    const parsed = MessageMentionsSchema.parse({
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      roles: [UUID],
+    });
+    expect(parsed.roles).toEqual([UUID]);
+  });
+
+  it('roles 항목이 uuid/cuid2 형식이 아니면 거부된다(신뢰 경계)', () => {
+    const res = MessageMentionsSchema.safeParse({
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      roles: ['not-an-id'],
+    });
+    expect(res.success).toBe(false);
+  });
+});
+
+// S88a (FR-MN-03 · D1): 역할은 서버가 본문에서 권위 추출하므로 클라 송신 intent 에
+// roles 를 넣지 않는다(user/channel 과 동일). SendMessageRequest.mentions 는 roles 키를
+// 받지 않고 무시한다.
+describe('SendMessageRequestSchema.mentions has no roles intent (S88a / FR-MN-03)', () => {
+  it('mentions intent 에 roles 를 넣어도 스키마가 그것을 보존하지 않는다', () => {
+    const parsed = SendMessageRequestSchema.parse({
+      content: 'hi',
+      mentions: { everyone: true, roles: ['3f2504e0-4f89-41d3-9a0c-0305e82c3301'] },
+    });
+    expect((parsed.mentions as Record<string, unknown>).roles).toBeUndefined();
+    expect(parsed.mentions?.everyone).toBe(true);
   });
 });

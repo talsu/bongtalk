@@ -1423,6 +1423,11 @@ model Role {
   permissions BigInt   @default(0)
   // true = 시스템 고정 역할(name/position/삭제 불가). false = 커스텀.
   isSystem    Boolean  @default(false)
+  // S88a (FR-MN-03 · D6): `@<RoleName>` 멘션 허용 플래그. true 면 누구나 이 역할을
+  // 멘션할 수 있고, false 면 MENTION_EVERYONE 권한(ADR-4 0x0080) 보유자만 멘션할 수
+  // 있다(서버 게이트가 판정). 비권한 메타라 시스템 역할도 토글 가능하다(name/
+  // position/permissions 불변 가드와 별개). default false = 기존 역할은 멘션 불가.
+  mentionable Boolean  @default(false)
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @db.Timestamptz(6)
 

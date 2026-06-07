@@ -45,3 +45,22 @@ export function gateChannelMention(mentions: Mentions, hasMentionEveryone: boole
   if (!mentions.channel) return mentions;
   return hasMentionEveryone ? mentions : { ...mentions, channel: false };
 }
+
+/**
+ * S88a (FR-MN-03 · D3): `@<RoleName>` 역할 멘션 게이트(순수 함수).
+ *
+ * 접근제어 정책은 "역할별 `mentionable===true` OR actor 가 MENTION_EVERYONE 권한
+ * 보유" 입니다. 정책 판정(mentionable 플래그 로드 + non-mentionable 1개 이상일 때만
+ * lazy `resolveMentionEveryone` 호출)은 service 가 수행하고, 이 함수는 그 결과로
+ * 산출된 **허용 roleId 집합**으로 `mentions.roles` 를 필터링하기만 합니다 — gate 가
+ * prisma/권한에 의존하지 않게 유지(다른 게이트들과 동일한 순수성).
+ *
+ * 게이트 탈락 역할은 silent downgrade(roles 에서 제거) — 권한 없는 특수멘션과 동일
+ * 정책입니다. allowedRoleIds 가 mentions.roles 와 동일하면 새 객체 할당을 피합니다.
+ */
+export function gateRoleMention(mentions: Mentions, allowedRoleIds: ReadonlySet<string>): Mentions {
+  if (mentions.roles.length === 0) return mentions;
+  const filtered = mentions.roles.filter((id) => allowedRoleIds.has(id));
+  if (filtered.length === mentions.roles.length) return mentions;
+  return { ...mentions, roles: filtered };
+}

@@ -13,6 +13,9 @@ export interface MentionSummary {
   // MentionReceivedPayload)와 정합한다. REST 인박스 응답도 동일 필드를 실어야
   // 일관되며, 미실릴 경우 dispatcher 캐시 병합과 형태가 어긋날 수 있다.
   here: boolean;
+  // S88a review F2 (FR-MN-03): 역할 멘션(@role) 유래 표식. dispatcher 캐시 병합과
+  // 형태를 맞추기 위해 optional 로 둔다(명시 @user 와 dedup 시 false · 구 응답 호환).
+  role?: boolean;
 }
 
 export interface MentionInboxResponse {

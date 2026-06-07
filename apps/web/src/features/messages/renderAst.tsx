@@ -210,7 +210,9 @@ function renderInline(
       );
     }
     case 'mention_role': {
-      const name = mentions?.roleName?.(node.roleId) ?? node.roleId;
+      // S88a (FR-MN-03): user/channel 과 동일 우선순위 — 노드 label(서버가 정규화
+      // 시점에 박은 역할명) → 런타임 룩업(roleId→name) → roleId 폴백.
+      const name = node.label ?? mentions?.roleName?.(node.roleId) ?? node.roleId;
       return (
         <span
           key={key}

@@ -95,6 +95,7 @@ export function Autocomplete({
 function rowKey(row: AutocompleteRow, index: number): string {
   if (row.type === 'special') return `sp-${row.item.key}`;
   if (row.type === 'member') return `m-${row.member.userId}`;
+  if (row.type === 'role') return `r-${row.role.id}`;
   if (row.type === 'channel') return `c-${row.channel.id}`;
   if (row.type === 'slash') return `s-${row.command.id}`;
   return `e-${row.emoji.kind}-${row.emoji.name}-${index}`;
@@ -160,6 +161,36 @@ function Row({
               'qf-autocomplete__meta-dot',
               row.online && 'qf-autocomplete__meta-dot--online',
             )}
+            aria-hidden="true"
+          />
+        </span>
+      </li>
+    );
+  }
+
+  // S88a (FR-MN-03): 역할 행. @ 아바타 + 역할명(label). colorHex 가 있으면 점으로 표시
+  // (DS 토큰 외 색은 사용자 데이터라 인라인 style 허용 — 역할 색상 점 표시).
+  if (row.type === 'role') {
+    return (
+      <li
+        {...common}
+        className="qf-autocomplete__item qf-autocomplete__item--mention"
+        aria-label={`역할 멘션: @${row.role.name}`}
+      >
+        <span className="qf-autocomplete__avatar" aria-hidden="true">
+          @
+        </span>
+        <span className="qf-autocomplete__text">
+          <span className="qf-autocomplete__label">{row.role.name}</span>
+          <span className="qf-autocomplete__sub">역할</span>
+        </span>
+        {/* S88a review F13 (ui): colorHex 가 null 이어도 meta 슬롯을 유지해 멤버 행과
+            우측 정렬을 맞춘다(슬롯 미렌더 시 정렬 어긋남). 색이 없으면 disabled 토큰
+            색의 placeholder 점으로 슬롯을 채운다(DS 4파일 미수정 — 컴포넌트만). */}
+        <span className="qf-autocomplete__meta">
+          <span
+            className="qf-autocomplete__meta-dot"
+            style={{ backgroundColor: row.role.colorHex ?? 'var(--text-disabled)' }}
             aria-hidden="true"
           />
         </span>

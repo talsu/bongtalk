@@ -284,3 +284,61 @@ describe('S61 fix-forward B-1: out-of-range permission bit → 422', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// S88a (FR-MN-03 · D6): Role.mentionable CRUD.
+describe('S88a Role.mentionable (FR-MN-03)', () => {
+  it('create 시 mentionable 미지정은 false, 지정하면 그 값으로 응답에 노출', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s88am');
+    const def = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'DefaultRole', position: 10 })
+      .expect(201);
+    expect(def.body.mentionable).toBe(false);
+
+    const on = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'PingableRole', position: 11, mentionable: true })
+      .expect(201);
+    expect(on.body.mentionable).toBe(true);
+  });
+
+  it('update 로 mentionable 토글 가능(응답·DB 반영)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s88au');
+    const created = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Toggle', position: 10 })
+      .expect(201);
+    const roleId = created.body.id as string;
+    expect(created.body.mentionable).toBe(false);
+
+    const patched = await request(env.baseUrl)
+      .patch(`/workspaces/${workspaceId}/roles/${roleId}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ mentionable: true })
+      .expect(200);
+    expect(patched.body.mentionable).toBe(true);
+
+    const row = await env.prisma.role.findUnique({ where: { id: roleId } });
+    expect(row?.mentionable).toBe(true);
+  });
+
+  it('시스템 역할도 mentionable 토글 가능(OWNER 가 자신 미만 역할 대상)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('s88asys');
+    // OWNER(position 500) 가 MEMBER 시스템 역할(position 200)의 mentionable 을 켠다.
+    const member = await env.prisma.role.findFirst({
+      where: { workspaceId, isSystem: true, name: 'MEMBER' },
+      select: { id: true, mentionable: true },
+    });
+    expect(member?.mentionable).toBe(false);
+    const patched = await request(env.baseUrl)
+      .patch(`/workspaces/${workspaceId}/roles/${member!.id}`)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ mentionable: true })
+      .expect(200);
+    expect(patched.body.mentionable).toBe(true);
+    expect(patched.body.isSystem).toBe(true);
+  });
+});

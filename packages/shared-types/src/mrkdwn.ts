@@ -44,8 +44,29 @@ export function mentionUserRe(): RegExp {
 /** 채널 멘션 토큰: `<#cuid2>` → mention_channel AST 노드. */
 export const MENTION_CHANNEL_RE = /<#([a-z0-9]{20,})>/g;
 
-/** 역할 멘션 토큰: `<@&cuid2>` → mention_role AST 노드. */
-export const MENTION_ROLE_RE = /<@&([a-z0-9]{20,})>/g;
+/**
+ * 역할 멘션 토큰: `<@&id>` → mention_role AST 노드.
+ *
+ * S88a (FR-MN-03 / FR-RC22): 캡처 ID 를 uuid|cuid2 로 확장합니다. `Role.id` 는
+ * `@db.Uuid` 라(36자 하이픈 포함) 종전 cuid2 전용 패턴은 라이브 역할 멘션 토큰을
+ * 매칭하지 못했습니다. 두 분기 모두 앵커드·고정 구조·단순 수량자(bounded)라
+ * ReDoS 안전입니다. 이 정규식 변경은 shared-types 버전 범프를 요구합니다(FR-RC22).
+ *
+ * S88a review F5 (security): uuid 분기를 `[0-9a-f-]{36}` 에서 RFC-4122
+ * 8-4-4-4-12 고정 구조로 강화했습니다. 종전 패턴은 `------…`(하이픈 36개)
+ * 같은 garbage 도 수락해 비유효 roleId 토큰이 mention_role 노드로 흘러
+ * 들어갈 수 있었습니다. 고정 자리수 + 하이픈 위치 강제로 ungrounded 토큰을
+ * 정규식 단계에서 차단합니다(여전히 앵커드·ReDoS-safe).
+ *   - uuid : `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
+ *   - cuid2: `[a-z0-9]{20,}`  (소문자 영숫자 20자 이상)
+ */
+export const MENTION_ROLE_RE =
+  /<@&([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{20,})>/g;
+
+/** stateless 매칭이 필요할 때 매번 새 정규식을 반환하는 팩토리(역할 토큰). */
+export function mentionRoleRe(): RegExp {
+  return new RegExp(MENTION_ROLE_RE.source, MENTION_ROLE_RE.flags);
+}
 
 /** 커스텀 이모지 토큰: `:name:` (소문자 영숫자 + 밑줄 2-32자, ADR-7 slug). */
 export const EMOJI_RE = /:([a-z0-9_]{2,32}):/g;

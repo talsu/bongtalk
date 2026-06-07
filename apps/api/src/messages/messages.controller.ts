@@ -494,6 +494,11 @@ export class MessagesController {
       // 서비스가 SYSTEM_THREAD_BROADCAST 채널 행을 동시 게시한다. 답글이 아닌
       // send 에 true 가 와도 서비스가 parentMessageId 가드로 무시한다.
       isBroadcast: parsed.data.isBroadcast === true,
+      // S88a (FR-MN-03 / D3): non-mentionable 역할 멘션의 lazy MENTION_EVERYONE 권한
+      // 계산용. 위에서 로드한 멤버 메타(m.role + 보유 Role UUID)를 그대로 넘긴다 —
+      // service 가 non-mentionable 역할이 1개 이상일 때만 resolveMentionEveryone 을 호출.
+      actorRole: m.role,
+      actorMemberRoleUuids: memberRoleUuids,
     });
     if (replayed) res.setHeader('Idempotency-Replayed', 'true');
     res.status(replayed ? 200 : 201);
@@ -563,6 +568,10 @@ export class MessagesController {
       expectedVersion: parsed.data.expectedVersion,
       // S44 (FR-MN-02/16): override-aware MENTION_EVERYONE 권한 게이트.
       hasMentionEveryone: editHasMentionEveryone,
+      // S88a (FR-MN-03 / D3): non-mentionable 역할 멘션 lazy 권한 계산용 actor 역할.
+      // memberRoleUuids 는 미지정 — service 의 resolveMentionEveryone 이 필요 시 자체
+      // 조회한다(편집은 hot-path 가 아니라 preload 불요).
+      actorRole: m.role,
     });
     // S60 (FR-RC07): 편집으로 본문 URL 이 바뀌었을 수 있으므로 unfurl 을 재enqueue 한다
     // (jobId=messageId 멱등 · MessageEmbed upsert). URL 이 사라졌으면 기존 embed 는 그대로
