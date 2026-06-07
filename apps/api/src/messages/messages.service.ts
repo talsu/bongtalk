@@ -110,6 +110,12 @@ type MessageRow = {
   // (authorType==='SYSTEM' && type==='SYSTEM_PIN') 를 검사한다. SELECT 미선택 시
   // undefined(forward-compat) — DELETE 경로의 getOne 은 full-row 라 항상 채워진다.
   authorType?: 'USER' | 'BOT' | 'SYSTEM' | null;
+  // S84a (FR-RC11): 인커밍 웹훅 봇 메시지 식별 + 표시 override. webhookId 는 게시한
+  // 웹훅(삭제 시 SetNull), botUsername/botAvatarUrl 은 게시 시점에 해석한 최종 표시
+  // 이름/아바타다. SELECT 미선택 시 undefined → toDto 가 null 폴백(USER/SYSTEM row 안전).
+  webhookId?: string | null;
+  botUsername?: string | null;
+  botAvatarUrl?: string | null;
   mentions: Prisma.JsonValue;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -192,6 +198,13 @@ export type MessageDto = {
   // S04 (ADR-2 / FR-MSG-19): 메시지 타입. SYSTEM_* 는 시스템 행 렌더 +
   // grouped=false + 편집/삭제 UI 숨김의 클라이언트 분기 키.
   type: MessageType;
+  // S84a (FR-RC11): 작성자 분류 + 봇 표시 override. authorType==='BOT' 인 인커밍
+  // 웹훅 메시지만 botUsername/botAvatarUrl 이 채워진다(게시 시점 해석값 — 웹훅 삭제
+  // 후에도 보존). 일반/시스템 메시지는 둘 다 null. 식별 필드라 deleted 와 무관하게
+  // 유지한다(authorId 마스킹 안 함과 동일 — placeholder 도 BOT 정체는 남는다).
+  authorType: 'USER' | 'BOT' | 'SYSTEM';
+  botUsername: string | null;
+  botAvatarUrl: string | null;
   mentions: MessageMentions;
   edited: boolean;
   deleted: boolean;
@@ -455,6 +468,12 @@ export class MessagesService {
       // S04: SYSTEM 메시지는 삭제돼도 type 을 유지(삭제 placeholder 분기와
       // 무관). 기존 row(type 미선택/NULL)는 DEFAULT 폴백.
       type: row.type ?? 'DEFAULT',
+      // S84a (FR-RC11): 작성자 분류 + 봇 표시 override. authorId 와 마찬가지로
+      // 식별 정보라 deleted 여도 마스킹하지 않는다(BOT placeholder 도 봇 이름/배지
+      // 유지). SELECT 미선택/legacy row 는 'USER'/null 폴백(forward-compat).
+      authorType: row.authorType ?? 'USER',
+      botUsername: row.botUsername ?? null,
+      botAvatarUrl: row.botAvatarUrl ?? null,
       mentions,
       // S33 fix-forward (보안 BLOCKER): 삭제된 메시지는 편집 여부/시각도
       // 마스킹합니다. 삭제 전 편집 이력(edited=true / editedAt 시각)이 placeholder
@@ -2120,6 +2139,96 @@ export class MessagesService {
     });
   }
 
+  // ------------------------------------------------ S84a bot (webhook) messages
+
+  /**
+   * S84a (D16 / FR-RC11) — 인커밍 웹훅 봇 메시지 생성. `createSystemMessage` 를
+   * 템플릿으로 하되 authorType='BOT' · type='DEFAULT' 로 일반 메시지처럼 채널
+   * 타임라인에 게시한다. authorId 는 웹훅 소유자(IncomingWebhook.createdBy)를 넣어
+   * 감사 추적을 남기고(Message.authorId 는 NOT NULL FK), 화면 표시 이름/아바타는
+   * 게시 시점에 이미 해석된 `botUsername`/`botAvatarUrl`(요청 username → 웹훅
+   * botDisplayName → 웹훅 name 순)로 override 한다 — 웹훅이 삭제(webhookId SetNull)
+   * 돼도 표시가 보존되도록 메시지에 자족적으로 저장한다.
+   *
+   * 본문은 일반 메시지처럼 mrkdwn 파싱(contentRaw/contentAst/contentPlain)하되,
+   * @멘션 fan-out 알림은 본 슬라이스 범위 밖이라 mentions 는 빈 값으로 둔다(봇
+   * 메시지의 @멘션은 표시는 되지만 알림은 발생하지 않음 — FR-RC11 최소 스코프).
+   * 예약어 검증·토큰 인증은 호출측(WebhooksService.verifyAndPost)이 책임진다.
+   */
+  async createBotMessage(args: {
+    workspaceId: string | null;
+    channelId: string;
+    /** 웹훅 소유자 userId — authorId 로 저장(감사 추적). */
+    authorId: string;
+    /** 게시한 인커밍 웹훅 id — Message.webhookId(삭제 시 SetNull). */
+    webhookId: string;
+    /** 게시 본문(원문). mrkdwn 파싱 대상. */
+    content: string;
+    /** 해석된 최종 표시 이름(요청 username → 웹훅 botDisplayName → 웹훅 name). */
+    botUsername: string;
+    /** 해석된 표시 아바타 URL(요청 avatar_url → 웹훅 avatarUrl). 없으면 null. */
+    botAvatarUrl: string | null;
+  }): Promise<MessageRow> {
+    const processed = processMrkdwn(args.content);
+    const emptyMentions: MessageMentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+    };
+    return this.prisma.$transaction(async (tx) => {
+      const created = await tx.message.create({
+        data: {
+          channelId: args.channelId,
+          authorId: args.authorId,
+          authorType: 'BOT',
+          type: 'DEFAULT',
+          content: args.content,
+          contentPlain: processed.contentPlain,
+          contentRaw: args.content,
+          contentAst: processed.contentAst as unknown as Prisma.InputJsonValue,
+          contentPlainV2: processed.contentPlain,
+          mentions: emptyMentions as unknown as Prisma.InputJsonValue,
+          webhookId: args.webhookId,
+          botUsername: args.botUsername,
+          botAvatarUrl: args.botAvatarUrl,
+        },
+      });
+      const payload: MessageCreatedPayload = {
+        workspaceId: args.workspaceId,
+        channelId: args.channelId,
+        actorId: args.authorId,
+        nonce: null,
+        message: {
+          id: created.id,
+          authorId: created.authorId,
+          content: created.content,
+          contentRaw: created.contentRaw ?? created.content,
+          contentAst: processed.contentAst,
+          contentPlain: processed.contentPlain,
+          type: created.type,
+          // S84a (FR-RC11): 봇 분류 + 표시 override 를 WS payload 에 실어 라이브
+          // 수신측 캐시가 REST refetch 없이 BOT 배지 + 이름/아바타 override 를
+          // 렌더하게 한다(additive — 구 디스패처는 무시).
+          authorType: 'BOT',
+          botUsername: args.botUsername,
+          botAvatarUrl: args.botAvatarUrl,
+          mentions: emptyMentions,
+          createdAt: created.createdAt.toISOString(),
+          parentMessageId: created.parentMessageId,
+        },
+      };
+      await this.outbox.record(tx, {
+        aggregateType: 'Message',
+        aggregateId: created.id,
+        eventType: MESSAGE_CREATED,
+        payload,
+      });
+      return created as MessageRow;
+    });
+  }
+
   // ------------------------------------------------------------------ list
 
   async list(args: ListMessagesArgs): Promise<{
@@ -2307,7 +2416,8 @@ export class MessagesService {
     // isBroadcast=false 라 두 조건 모두 불만족).
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
-             "contentRaw", "contentAst", "type", mentions,
+             "contentRaw", "contentAst", "type", "authorType",
+             "webhookId", "botUsername", "botAvatarUrl", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"
@@ -2377,7 +2487,8 @@ export class MessagesService {
     // 가 스레드 안에서 자기 답글의 중복으로 보이지 않도록).
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
-             "contentRaw", "contentAst", "type", mentions,
+             "contentRaw", "contentAst", "type", "authorType",
+             "webhookId", "botUsername", "botAvatarUrl", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"

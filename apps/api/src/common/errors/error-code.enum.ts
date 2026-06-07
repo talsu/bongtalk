@@ -368,6 +368,16 @@ export enum ErrorCode {
   ACCOUNT_DEACTIVATED = 'ACCOUNT_DEACTIVATED',
   ACCOUNT_NOT_DEACTIVATED = 'ACCOUNT_NOT_DEACTIVATED',
 
+  // S84a (D16 / FR-RC11): 인커밍 웹훅 / 봇 메시지.
+  //   WEBHOOK_NOT_FOUND:     관리/회전/삭제 대상 웹훅 미존재(또는 타 워크스페이스) → 404.
+  //   WEBHOOK_REVOKED:       폐기/회전된 토큰으로의 인커밍 POST → 403.
+  //   WEBHOOK_INVALID_TOKEN: 토큰 미일치/형식오류 인커밍 POST → 403(존재 노출 회피).
+  //   WEBHOOK_NAME_RESERVED: username/botDisplayName 예약어(system/qufox/admin) → 422.
+  WEBHOOK_NOT_FOUND = 'WEBHOOK_NOT_FOUND',
+  WEBHOOK_REVOKED = 'WEBHOOK_REVOKED',
+  WEBHOOK_INVALID_TOKEN = 'WEBHOOK_INVALID_TOKEN',
+  WEBHOOK_NAME_RESERVED = 'WEBHOOK_NAME_RESERVED',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -586,6 +596,10 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.ENCRYPTION_UNAVAILABLE]: 503,
   // S77c (D14 / FR-PS-16·19): 계정 비활성화/재활성화 상태코드.
   [ErrorCode.ACCOUNT_DEACTIVATED]: 403,
+  [ErrorCode.WEBHOOK_NOT_FOUND]: 404,
+  [ErrorCode.WEBHOOK_REVOKED]: 403,
+  [ErrorCode.WEBHOOK_INVALID_TOKEN]: 403,
+  [ErrorCode.WEBHOOK_NAME_RESERVED]: 422,
   [ErrorCode.ACCOUNT_NOT_DEACTIVATED]: 409,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,

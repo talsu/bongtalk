@@ -179,6 +179,19 @@ export const MessageDtoSchema = z.object({
   // 시스템 행(아이콘 + 이탤릭, 편집·삭제 미표시)으로 표시하고 그루핑에서
   // grouped=false 를 강제합니다.
   type: MessageTypeSchema.default('DEFAULT'),
+  // S84a (D16 / FR-RC11): 작성자 분류. 인커밍 웹훅 게시 메시지는 'BOT' 으로 내려가
+  // 클라이언트가 BOT 배지(.qf-badge--accent) + botUsername/botAvatarUrl override 를
+  // 렌더한다. 일반 사용자 메시지는 'USER', 시스템 행은 'SYSTEM'. optional 이라 구 API
+  // 빌드 응답·기존 MessageDto 리터럴(필드 누락)도 forward-compat — 누락(undefined)은
+  // 클라이언트가 일반 사용자(USER)로 취급한다(`=== 'BOT'` 분기만 BOT 경로 진입).
+  authorType: z.enum(['USER', 'BOT', 'SYSTEM']).optional(),
+  // S84a (FR-RC11): 봇 메시지 표시 override. authorType==='BOT' 일 때만 채워진다.
+  // 서버가 게시 시점에 (요청 username → 웹훅 botDisplayName → 웹훅 name) 순으로
+  // 최종 표시명을 해석해 저장하므로 클라이언트는 추가 룩업 없이 그대로 렌더한다
+  // (웹훅 삭제로 webhookId 가 SetNull 돼도 표시명/아바타는 메시지에 남아 보존).
+  // 일반/시스템 메시지는 둘 다 null/미포함. optional 이라 forward-compat.
+  botUsername: z.string().nullable().optional(),
+  botAvatarUrl: z.string().nullable().optional(),
   mentions: MessageMentionsSchema,
   edited: z.boolean(),
   deleted: z.boolean(),

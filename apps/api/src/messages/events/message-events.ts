@@ -110,6 +110,13 @@ export type MessageCreatedPayload = {
     // 디스패처가 누락 시 'DEFAULT' 로 폴백). 클라이언트 캐시가 시스템 행
     // 렌더 + grouped=false 분기에 사용. Additive — 구 디스패처는 무시.
     type?: string;
+    // S84a (FR-RC11): 봇 메시지 e2e 전파. 디스패처가 이 message 를 캐시에 MessageDto
+    // 로 삽입하므로, 라이브 봇 메시지가 REST refetch 없이 BOT 배지 + 표시 override 를
+    // 렌더하려면 WS payload 도 REST DTO 와 동일한 봇 필드를 실어야 한다. authorType
+    // 누락 시 디스패처가 'USER' 로 폴백. Additive — 구 디스패처는 무시.
+    authorType?: string;
+    botUsername?: string | null;
+    botAvatarUrl?: string | null;
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     // S21 fix-forward (MAJOR-D): @channel flag e2e propagation — 디스패처
     // isMention 이 @channel 을 인식해 live 배지가 reload 와 일치하도록.

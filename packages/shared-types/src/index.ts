@@ -321,6 +321,15 @@ export const ErrorCodeSchema = z.enum([
   //   ACCOUNT_NOT_DEACTIVATED: 활성 계정에서 reactivate 시도(상태 충돌) → 409.
   'ACCOUNT_DEACTIVATED',
   'ACCOUNT_NOT_DEACTIVATED',
+  // S84a (D16 / FR-RC11): 인커밍 웹훅 / 봇 메시지.
+  //   WEBHOOK_NOT_FOUND:     관리/회전/삭제 대상 웹훅 미존재(또는 타 워크스페이스) → 404.
+  //   WEBHOOK_REVOKED:       폐기/회전된 토큰으로의 인커밍 POST → 403.
+  //   WEBHOOK_INVALID_TOKEN: 토큰 미일치/형식오류 인커밍 POST → 403(존재 노출 회피).
+  //   WEBHOOK_NAME_RESERVED: username/botDisplayName 예약어(system/qufox/admin) → 422.
+  'WEBHOOK_NOT_FOUND',
+  'WEBHOOK_REVOKED',
+  'WEBHOOK_INVALID_TOKEN',
+  'WEBHOOK_NAME_RESERVED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -384,3 +393,5 @@ export * from './security';
 export * from './slash-command';
 // S80 — 슬래시 커맨드 실행 + Reminder 컨트랙트 (D15 / FR-SC-04·05·06 + FR-RC18)
 export * from './slash-execution';
+
+export * from './webhook';
