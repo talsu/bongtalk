@@ -146,6 +146,9 @@ beforeEach(async () => {
   });
   await env.prisma.role.deleteMany({ where: { workspaceId: stack.workspaceId, isSystem: false } });
   await env.prisma.userChannelMute.deleteMany({});
+  // S88b 게이트 negative 케이스가 차단 관계(Friendship BLOCKED)를 seed 하므로 매 테스트
+  // 시작 시 비워 테스트 간 누수를 막는다(block 케이스가 후속 케이스에 새지 않게).
+  await env.prisma.friendship.deleteMany({});
   // S88a 이관 케이스(MENTIONS-level direct)가 UserSettings.notifTrigger 를 변경하므로 초기화.
   await env.prisma.serverNotificationPref.deleteMany({});
   await env.prisma.userSettings.deleteMany({
@@ -263,6 +266,84 @@ describe('S88b @role fanout — migrated from S88a (FR-MN-03 / D3·D4)', () => {
     // 정확히 1건(2건이면 cross-dedup 회귀). @role MentionRecord 도 0(직접 멘션 수신자 제외).
     expect(await outboxTargets(msgId)).toEqual([memberB.userId]);
     expect(await recordTargets(msgId)).toEqual([]);
+  });
+});
+
+// ★F1 (BLOCKER) end-to-end 가드: 워커가 동기 send 경로와 동일한 per-recipient 게이트
+// (block/mute/NotifLevel)를 재적용함을 실 Postgres+Redis+실 워커 drain 으로 증명한다.
+// 종전 워커는 게이트를 빠뜨려 차단/뮤트/NOTHING 역할멤버에게도 @role 알림이 누출됐다
+// (block 누출은 FR-PS-14 보안 회귀). 각 케이스: @mentionable 역할에 memberB·memberC 둘
+// 다 배정 → memberB 에만 게이트 조건 설정 → 작성자(stack.member)가 @Role 멘션 → drain.
+// 단언: 대조군 memberC 는 정상 1행(MentionRecord + mention.received outbox) 수신 ─ 전체
+// fanout 실패가 아니라 "게이트만 제외" ─ 반면 memberB 는 0행/0건(게이트로 차단).
+describe('S88b worker per-recipient gate negative guards (F1 / ★BLOCKER · FR-PS-14)', () => {
+  /**
+   * @mentionable 역할에 memberB·memberC 를 배정하고 작성자(stack.member)가 그 역할을 멘션,
+   * 워커 drain 까지 마친 뒤 messageId 를 돌려준다. 대조군 memberC 가 1행 쓰일 때까지 대기하고
+   * (waitForRecords 1), 게이트로 막힌 memberB 가 뒤늦게 추가되지 않음을 확인할 여유도 둔다.
+   */
+  async function postRoleMentionAndDrain(): Promise<{ msgId: string; roleId: string }> {
+    const roleId = await createRole('Engineers', true);
+    await assignRole(roleId, memberB.userId);
+    await assignRole(roleId, memberC.userId);
+
+    const msgId = await postMessage(stack.member.accessToken, stack.channelId, 'ping @Engineers');
+    await waitForMentionBroadcastDrain(env.mentionBroadcastQueue);
+    // 대조군(memberC)은 게이트를 통과하므로 최소 1행이 쓰여야 한다.
+    await waitForRecords(msgId, 1);
+    // 게이트로 막힌 memberB 가 뒤늦게(잡 후속 처리) 추가되지 않음을 확인할 여유.
+    await new Promise((r) => setTimeout(r, 400));
+    return { msgId, roleId };
+  }
+
+  it('① 차단(BLOCKED Friendship) 역할멤버 제외 — memberB 0, 대조군 memberC 1 (FR-PS-14 보안)', async () => {
+    // memberB 가 작성자(stack.member)를 차단(피차단 방향: requesterId=memberB → author).
+    // 게이트는 작성자↔수신자 어느 방향이든 BLOCKED 면 제외해야 한다.
+    await env.prisma.friendship.create({
+      data: {
+        requesterId: memberB.userId,
+        addresseeId: stack.member.userId,
+        status: 'BLOCKED',
+      },
+    });
+
+    const { msgId } = await postRoleMentionAndDrain();
+
+    // 차단 관계 memberB 는 누출 0(MentionRecord 행 0 + mention.received outbox 0건).
+    expect(await recordTargets(msgId)).toEqual([memberC.userId]);
+    expect(await outboxTargets(msgId)).toEqual([memberC.userId]);
+  });
+
+  it('② 채널 뮤트(UserChannelMute isMuted) 역할멤버 제외 — memberB 0, 대조군 memberC 1', async () => {
+    // memberB 가 해당 채널을 영구 뮤트(isMuted=true · mutedUntil null). 활성 뮤트로 제외.
+    await env.prisma.userChannelMute.create({
+      data: {
+        userId: memberB.userId,
+        channelId: stack.channelId,
+        isMuted: true,
+        mutedUntil: null,
+      },
+    });
+
+    const { msgId } = await postRoleMentionAndDrain();
+
+    expect(await recordTargets(msgId)).toEqual([memberC.userId]);
+    expect(await outboxTargets(msgId)).toEqual([memberC.userId]);
+  });
+
+  it('③ 글로벌 NotifLevel=NOTHING 역할멤버 제외 — memberB 0, 대조군 memberC 1', async () => {
+    // memberB 글로벌 알림 레벨 NOTHING(UserSettings.notifTrigger). NOTHING 은 direct
+    // (역할 멘션)도 차단한다(MENTIONS 와 달리 통과 안 함 — 기존 MENTIONS 케이스의 대비).
+    await env.prisma.userSettings.upsert({
+      where: { userId: memberB.userId },
+      create: { userId: memberB.userId, notifTrigger: 'NOTHING' },
+      update: { notifTrigger: 'NOTHING' },
+    });
+
+    const { msgId } = await postRoleMentionAndDrain();
+
+    expect(await recordTargets(msgId)).toEqual([memberC.userId]);
+    expect(await outboxTargets(msgId)).toEqual([memberC.userId]);
   });
 });
 
