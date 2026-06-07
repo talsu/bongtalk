@@ -50,12 +50,19 @@ services:
     networks: [internal]
 
   qufox-api:
-    build:
-      context: .
-      dockerfile: apps/api/Dockerfile
-    image: qufox/api:latest
+    # Pull-based deploy (safe-deploy redesign pillar A): the image is built by
+    # the isolated qufox-builder and pulled from the local registry — the prod
+    # daemon NEVER builds, so per-layer btrfs subvolume churn (the 2026-06
+    # metadata-exhaustion runaway) cannot recur. Tag overridable via
+    # QUFOX_API_TAG (rollout/rollback retag :latest in the registry).
+    image: localhost:5050/qufox/api:${QUFOX_API_TAG:-latest}
     container_name: qufox-api
-    restart: unless-stopped
+    # on-failure:5 bounds a crash loop instead of unless-stopped's infinite
+    # retry. Paired with removing the boot-time `prisma migrate deploy` from
+    # the image CMD (migrations now run as a one-shot pre-deploy step), the api
+    # can no longer self-restart into the failure loop that amplified the
+    # runaway.
+    restart: on-failure:5
     env_file: [.env.prod]
     environment:
       NODE_ENV: production
@@ -63,6 +70,21 @@ services:
       DATABASE_URL: postgresql://qufox:${POSTGRES_PASSWORD:?}@qufox-postgres-prod:5432/qufox?schema=public
       REDIS_URL: redis://qufox-redis-prod:6379
       CORS_ORIGINS: https://qufox.com
+    # Resource ceilings so a misbehaving release can't starve the NAS.
+    # NOTE: this DSM kernel reports "No cpu cfs quota support", so `cpus:` is
+    # unsupported (NanoCPUs error) and intentionally omitted — only mem_limit
+    # and pids_limit are honoured here.
+    mem_limit: 1g
+    pids_limit: 256
+    healthcheck:
+      # busybox wget ships in the node:alpine runtime. /healthz is liveness
+      # only (no DB/Redis) so a slow dependency doesn't flap the container;
+      # the deploy gate polls /readyz externally for readiness.
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:3001/healthz >/dev/null 2>&1 || exit 1']
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
     depends_on:
       qufox-postgres-prod:
         condition: service_healthy
@@ -71,13 +93,22 @@ services:
     networks: [internal]
 
   qufox-web:
-    build:
-      context: .
-      dockerfile: apps/web/Dockerfile
-    image: qufox/web:latest
+    # Pull-based deploy (see qufox-api above). Built by qufox-builder, pulled
+    # from the local registry; the prod daemon never builds.
+    image: localhost:5050/qufox/web:${QUFOX_WEB_TAG:-latest}
     container_name: qufox-web
-    restart: unless-stopped
-    depends_on: [qufox-api]
+    restart: on-failure:5
+    mem_limit: 256m
+    pids_limit: 128
+    healthcheck:
+      test: ['CMD-SHELL', 'wget -qO- http://localhost:80/ >/dev/null 2>&1 || exit 1']
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      qufox-api:
+        condition: service_healthy
     networks: [internal]
 
   # task-012-F: single-tenant MinIO for attachments + any future user

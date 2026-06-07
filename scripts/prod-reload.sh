@@ -1,22 +1,26 @@
 #!/usr/bin/env bash
-# Rebuild + redeploy the qufox production stack.
+# Manual rebuild + redeploy of qufox production services — the operator's
+# break-glass escape hatch. Mirrors the automated path: build in the isolated
+# qufox-builder, push to the local registry, then pull-based rollout with
+# health-gated rollback. The production daemon never builds (pillar A).
 #
 # Usage:
-#   scripts/prod-reload.sh                 # rebuild + recreate both api & web
+#   scripts/prod-reload.sh                 # rebuild + roll out api & web
 #   scripts/prod-reload.sh api             # only api
 #   scripts/prod-reload.sh web             # only web
 #   scripts/prod-reload.sh --force         # skip the shared flock (break-glass)
 #   scripts/prod-reload.sh --force api     # combined
 #
-# Expects .env.prod at repo root and the shared `internal` Docker network.
+# NOTE: this does NOT run db migrations (it's a code/image reload). For a
+# deploy that includes schema changes use scripts/deploy/auto-deploy.sh,
+# which runs the one-shot `prisma migrate deploy` before rollout.
 #
-# task-011 reviewer MED-4 fix: --force is the operator's break-glass when
-# the webhook is wedged holding the flock (process died without firing
-# the EXIT trap — e.g. under SIGKILL). An audit line is written to
-# .deploy/audit.jsonl so the bypass is visible after-the-fact.
+# --force is for when the webhook died holding the flock (no EXIT trap fired,
+# e.g. SIGKILL). An audit line records the bypass.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+REPO="$(pwd)"
 
 FORCE=0
 ARGS=()
@@ -27,11 +31,9 @@ for a in "$@"; do
   esac
 done
 
-# Share the webhook's flock (task-011-C MED-2). A manual prod-reload now
-# blocks if an auto-deploy is in flight and vice versa. Release on
-# script exit via the EXIT trap below.
+# Share the webhook's flock so a manual reload and an auto-deploy never race.
 # shellcheck source=./deploy/lock.sh
-. "$(dirname "$0")/deploy/lock.sh"
+. "$REPO/scripts/deploy/lock.sh"
 if [[ "$FORCE" -eq 1 ]]; then
   mkdir -p .deploy
   printf '{"ts":"%s","event":"manual.force-unlock","source":"prod-reload.sh"}\n' \
@@ -43,22 +45,20 @@ else
 fi
 
 TARGET="${ARGS[0]:-all}"
-COMPOSE=(docker compose --env-file .env.prod -f docker-compose.prod.yml)
-
 case "$TARGET" in
-  api)    SVC=(qufox-api) ;;
-  web)    SVC=(qufox-web) ;;
-  all|"") SVC=(qufox-api qufox-web) ;;
+  api)    SVC=(api) ;;
+  web)    SVC=(web) ;;
+  all|"") SVC=(api web) ;;
   *) echo "unknown target: $TARGET (expected: api | web | all)"; exit 2 ;;
 esac
 
-echo "==> building: ${SVC[*]}"
-"${COMPOSE[@]}" build "${SVC[@]}"
+SHA="$(git rev-parse --short HEAD 2>/dev/null || echo manual)"
 
-echo "==> recreating: ${SVC[*]}"
-"${COMPOSE[@]}" up -d --no-deps "${SVC[@]}"
+for svc in "${SVC[@]}"; do
+  echo "==> build+push: $svc (sha=$SHA)"
+  bash "$REPO/scripts/deploy/build-and-push.sh" "$svc" "$SHA"
+  echo "==> rollout: $svc"
+  bash "$REPO/scripts/deploy/rollout.sh" "$svc"
+done
 
-echo "==> health check"
-sleep 3
-curl -skf https://qufox.com/api/healthz >/dev/null && echo "  api OK" || echo "  api FAIL"
-curl -skf https://qufox.com/ -o /dev/null && echo "  web OK" || echo "  web FAIL"
+echo "==> done"

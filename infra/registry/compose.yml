@@ -1,0 +1,50 @@
+# Local image registry for qufox CD — pillar A of the safe-deploy redesign
+# (build OFF the production docker daemon).
+#
+# WHY THIS EXISTS
+#   The 2026-06 runaway exhausted btrfs metadata on /volume2 because every
+#   `docker compose build` ran on the production daemon, so each image layer
+#   became a host btrfs subvolume under /volume2/@docker/btrfs/subvolumes and
+#   they accumulated without bound across repeated/failed builds.
+#
+#   New flow: the isolated `qufox-builder` (docker-container buildx driver)
+#   builds in its OWN container and pushes only finished images here; the prod
+#   stack does `compose pull && up -d`. Build-layer churn never touches the
+#   production graph driver.
+#
+# NETWORK / SECURITY
+#   Bound to 127.0.0.1 only — never exposed on the LAN. Plain HTTP is fine:
+#   docker treats localhost/127.0.0.1 registries as insecure-allowed, so no
+#   daemon.json edit and no TLS cert are required. The buildx builder reaches
+#   it via `--driver-opt network=host`.
+#
+#   PORT: 5050 (NOT 5000/5001 — those are Synology DSM's own web UI).
+#   docker's localhost-insecure exemption applies to any 127.0.0.1 port, so
+#   image refs are `localhost:5050/qufox/<svc>:<tag>`.
+#
+# STORAGE
+#   Named volume on /volume2 (the dedicated dockers volume, ~425 GB free).
+#   REGISTRY_STORAGE_DELETE_ENABLED lets `registry garbage-collect` reclaim
+#   space after old `:sha-*` tags are deleted (see scripts/deploy prune hook).
+#
+# Bring up:   sudo docker compose -p qufox-registry -f infra/registry/compose.yml up -d
+services:
+  qufox-registry:
+    image: registry:2
+    container_name: qufox-registry
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:5050:5000'
+    environment:
+      REGISTRY_STORAGE_DELETE_ENABLED: 'true'
+      # Fixed HTTP secret so an in-flight buildx push survives a registry
+      # restart (a random per-boot secret would break the upload). NOT a
+      # credential: the registry is loopback-only (127.0.0.1) with no auth, so
+      # this only salts the upload-state HMAC. Override with
+      # QUFOX_REGISTRY_HTTP_SECRET if you ever expose the registry.
+      REGISTRY_HTTP_SECRET: ${QUFOX_REGISTRY_HTTP_SECRET:-qufox-loopback-registry}
+    volumes:
+      - qufox-registry:/var/lib/registry
+
+volumes:
+  qufox-registry:
