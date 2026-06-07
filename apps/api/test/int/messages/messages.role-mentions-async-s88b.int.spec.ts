@@ -154,7 +154,10 @@ beforeEach(async () => {
   await env.prisma.userSettings.deleteMany({
     where: { userId: { in: [memberB.userId, memberC.userId] } },
   });
-  const keys = await env.redis.keys('qufox:rl:mention:*');
+  // mention(user/role 멘션) + role:mutate(createRole/assignRole 엔드포인트) rate-limit 키를
+  // 매 테스트 리셋한다. 공유 stack(beforeAll) 에서 테스트마다 createRole/assignRole 을 반복하므로
+  // role:mutate:ws 슬라이딩 윈도가 누적돼 후속 테스트가 429 로 깨지는 것을 막는다.
+  const keys = await env.redis.keys('qufox:rl:*');
   if (keys.length > 0) {
     await env.redis.del(...keys.map((k) => k.replace(/^qufox:/, '')));
   }
