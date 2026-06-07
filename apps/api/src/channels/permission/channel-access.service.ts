@@ -611,6 +611,39 @@ export class ChannelAccessService {
   }
 
   /**
+   * S88b fix-forward (F4 / MEDIUM perf+correctness): 채널 VIEW_CHANNEL 가시 후보를
+   * **공개/비공개 무관하게** N+1 없이(공개=쿼리 1, 비공개=쿼리 2) 필터링한다.
+   *
+   * 종전 @role 워커는 후보마다 `hasPermission(READ)` 를 루프 호출해, (a) 공개 채널에도
+   * per-user N+1 을 냈고, (b) 강퇴됐으나 MemberRole 이 미정리된 사용자에 대해
+   * `resolveEffective` 가 `WORKSPACE_NOT_MEMBER` 를 throw 해 잡 전체가 실패/재시도하던
+   * 문제가 있었다. 이 메서드는:
+   *   - 공개 채널 → 후보 중 **현 워크스페이스 멤버만** 통과(비멤버 자연 제외 · throw 없음).
+   *   - 비공개 채널 → filterPrivateChannelVisibleUsers 재사용(override + 멤버 1쿼리 ·
+   *     비멤버는 workspaceMember 행 부재로 자연 제외).
+   * 어느 경로든 throw 하지 않고 가시 userId Set 을 돌려준다(잡 안전).
+   */
+  async filterChannelVisibleUsers(
+    channel: { id: string; isPrivate: boolean },
+    workspaceId: string,
+    candidateUserIds: string[],
+    tx?: Prisma.TransactionClient,
+  ): Promise<Set<string>> {
+    if (candidateUserIds.length === 0) return new Set<string>();
+    if (channel.isPrivate) {
+      return this.filterPrivateChannelVisibleUsers(channel.id, workspaceId, candidateUserIds, tx);
+    }
+    // 공개 채널: 가시성은 워크스페이스 멤버십과 동치(VIEW_CHANNEL base allow). 후보 중
+    // 현 멤버만 통과시켜 강퇴 후 MemberRole 잔존 사용자를 자연 제외한다(throw 없음 · 1쿼리).
+    const db = tx ?? this.prisma;
+    const members = await db.workspaceMember.findMany({
+      where: { workspaceId, userId: { in: candidateUserIds } },
+      select: { userId: true },
+    });
+    return new Set(members.map((m) => m.userId));
+  }
+
+  /**
    * S62 (FR-RM03): 멤버가 보유한 Role.id(UUID) 목록을 반환한다. ROLE override
    * 조회에서 시스템 역할 리터럴(레거시 principalId) 외에 커스텀 Role UUID
    * principalId 도 함께 매칭하기 위함이다. 멤버가 아니거나 역할이 없으면 빈 배열.

@@ -4,6 +4,9 @@ import { NotificationPreferencesService } from './notification-preferences.servi
 // S46 (D06 / FR-MN-05/06/07/08): NotifLevel 3계층 알림 설정.
 import { NotifPreferencesService } from './notif-preferences.service';
 import { NotifLevelService } from './notif-level.service';
+// S88b fix-forward (F1 / ★BLOCKER): 동기 send 경로와 @role async 워커가 공유하는
+// per-recipient 멘션 게이트(block/mute/DND/thread-OFF/NotifLevel) 단일 출처.
+import { MentionGateService } from './mention-gate.service';
 import { MuteExpiryCron } from './mute-expiry.cron';
 import { GlobalNotificationSettingsController } from './global-notification-settings.controller';
 import { ServerNotificationPreferencesController } from './server-notification-preferences.controller';
@@ -25,6 +28,7 @@ import { AuthModule } from '../auth/auth.module';
     NotificationPreferencesService,
     NotifPreferencesService,
     NotifLevelService,
+    MentionGateService,
     MuteExpiryCron,
   ],
   exports: [
@@ -32,6 +36,8 @@ import { AuthModule } from '../auth/auth.module';
     // S46: 멘션 fanout(MessagesModule)·채널 컨트롤러(ChannelsModule)가 소비.
     NotifPreferencesService,
     NotifLevelService,
+    // S88b (F1): 동기 send 경로(MessagesModule)·@role 워커(QueueModule)가 공유.
+    MentionGateService,
   ],
 })
 export class NotificationsModule {}

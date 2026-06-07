@@ -12,19 +12,53 @@ import cookieParser from 'cookie-parser';
 import { execSync } from 'node:child_process';
 import * as path from 'node:path';
 import request from 'supertest';
+import { getQueueToken } from '@nestjs/bullmq';
+import type { Queue } from 'bullmq';
 import { AppModule } from '../../../src/app.module';
 import { PrismaService } from '../../../src/prisma/prisma.module';
 import { REDIS } from '../../../src/redis/redis.module';
 import { OutboxDispatcher } from '../../../src/common/outbox/outbox.dispatcher';
+import {
+  MENTION_BROADCAST_QUEUE,
+  type MentionBroadcastJobData,
+} from '../../../src/queue/mention-broadcast-queue.constants';
 
 export type MsgIntEnv = {
   app: INestApplication;
   prisma: PrismaService;
   redis: Redis;
   dispatcher: OutboxDispatcher;
+  /**
+   * S88b: @role async fanout(mention-broadcast) BullMQ 큐 핸들. fanout 을 단언하는 스펙은
+   * `waitForMentionBroadcastDrain` 으로 잡 처리 완료를 기다린 뒤 MentionRecord/outbox 를
+   * 직접 조회한다(동기 send 와 비동기 워커가 분리됐으므로).
+   */
+  mentionBroadcastQueue: Queue<MentionBroadcastJobData>;
   baseUrl: string;
   stop: () => Promise<void>;
 };
+
+/**
+ * S88b: mention-broadcast 큐가 active+waiting+delayed 잡 0 이 될 때까지 폴링한다(워커 drain).
+ * 동기 send 응답 후 @role fanout 이 워커에서 끝났음을 보장하려는 fanout 스펙이 호출한다.
+ * 잡 카운트로 대기하므로(폴링 부수효과 무관) S88a/S88b 양 스펙이 공유한다.
+ */
+export async function waitForMentionBroadcastDrain(
+  queue: Queue<MentionBroadcastJobData>,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const counts = await queue.getJobCounts('active', 'waiting', 'delayed', 'paused');
+    const pending =
+      (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0) + (counts.paused ?? 0);
+    if (pending === 0) return;
+    if (Date.now() > deadline) {
+      throw new Error(`timeout waiting for mention-broadcast drain (pending=${pending})`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
 
 export const STRONG_PW = 'Quanta-Beetle-Nebula-42!';
 export const ORIGIN = 'http://localhost:45173';
@@ -93,6 +127,9 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
   const prisma = app.get(PrismaService);
   const redisClient = app.get<Redis>(REDIS);
   const dispatcher = app.get(OutboxDispatcher);
+  const mentionBroadcastQueue = app.get<Queue<MentionBroadcastJobData>>(
+    getQueueToken(MENTION_BROADCAST_QUEUE),
+  );
   dispatcher.pausePolling();
   // S66 (D13 / FR-W05a): signup 의 기본 emailVerified=true 마킹에 쓸 prisma 핸들을
   // 모듈 스코프에 보관한다(헬퍼가 호출부 시그니처를 바꾸지 않고 DB 를 만지게 함).
@@ -103,8 +140,16 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
     prisma,
     redis: redisClient,
     dispatcher,
+    mentionBroadcastQueue,
     baseUrl,
     stop: async () => {
+      // S88b: testcontainer Redis 가 멈추기 전에 mention-broadcast 잡을 비우고(obliterate)
+      // BullMQ Worker 를 graceful close 한다. 그러지 않으면 워커의 blocking poll 이 Redis
+      // 종료 후 "Connection is closed" unhandled rejection 을 던져 전역 핸들러로 테스트가
+      // 깨진다(S88a 스펙이 @role 잡을 enqueue 하지만 drain 안 하던 회귀). 순서가
+      // 핵심이다: obliterate(잔여 잡 제거) → app.close()(WorkerHost onModuleDestroy →
+      // worker.close 가 in-flight 완료 대기) → redis/pg container stop.
+      await mentionBroadcastQueue.obliterate({ force: true }).catch(() => undefined);
       await app.close();
       await redis.stop().catch(() => undefined);
       await pg.stop().catch(() => undefined);
