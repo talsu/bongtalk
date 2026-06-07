@@ -344,6 +344,11 @@ export const MessageCreatedPayloadSchema = z.object({
     content: z.string().nullable(),
     createdAt: z.string().datetime(),
     editedAt: z.string().datetime().nullable(),
+    // S84a (FR-RC11): 봇 메시지 분류 + 표시 override(additive optional). 인커밍
+    // 웹훅 게시 메시지는 authorType='BOT' + botUsername/botAvatarUrl 을 싣는다.
+    authorType: z.enum(['USER', 'BOT', 'SYSTEM']).optional(),
+    botUsername: z.string().nullable().optional(),
+    botAvatarUrl: z.string().nullable().optional(),
   }),
 });
 export type MessageCreatedPayload = z.infer<typeof MessageCreatedPayloadSchema>;

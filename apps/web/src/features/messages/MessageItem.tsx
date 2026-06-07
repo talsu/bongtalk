@@ -202,7 +202,14 @@ export function MessageItem({
   // S03 (FR-MSG-04/05): client-only optimistic send state. 'pending' renders a
   // muted/clock affordance; 'failed' renders the "다시 시도" retry control.
   const sendState = (msg as MessageDto & { sendState?: 'pending' | 'failed' }).sendState;
-  const badge = roleBadgeLabel(authorRole);
+  // S84a (FR-RC11): 인커밍 웹훅 봇 메시지. authorType==='BOT' 이면 표시 이름을
+  // botUsername override 로 바꾸고(서버가 요청 username → 웹훅 botDisplayName →
+  // 웹훅 name 순으로 해석해 채운다) 역할 배지 대신 'BOT' 배지(.qf-badge--accent)를
+  // 노출한다. 아바타 이미지(botAvatarUrl) 렌더는 DS Avatar 프리미티브가 이미지
+  // 슬롯을 갖출 때까지 후속(현재는 봇 이름 시드 아바타).
+  const isBot = msg.authorType === 'BOT';
+  const effectiveAuthorName = isBot ? (msg.botUsername ?? authorName) : authorName;
+  const badge = isBot ? 'BOT' : roleBadgeLabel(authorRole);
   const customEmojis = useCustomEmojiLookup();
   const [editing, setEditing] = useState<string | null>(null);
   // task-041 A-2 (R3 follow-up): mutation-pending state surfaces a
@@ -525,8 +532,8 @@ export function MessageItem({
   // 을 항상 붙이면 SR 낭독이 시각 표시와 불일치한다(존재하지 않는 정보를 읽음). head 행은
   // 현행(작성자 + 시각) 유지, continuation 행은 시각 정보(gutterTime)만 안내해 시각·SR 정합.
   const rowAriaLabel = isContinuation
-    ? `${authorName ?? 'unknown'} 의 메시지 계속, ${gutterTime}`
-    : `${authorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
+    ? `${effectiveAuthorName ?? 'unknown'} 의 메시지 계속, ${gutterTime}`
+    : `${effectiveAuthorName ?? 'unknown'} 의 메시지, ${headTimeLabel}`;
 
   return (
     <>
@@ -565,7 +572,9 @@ export function MessageItem({
           // S75 (FR-PS-07): 워크스페이스 채널(workspaceId 존재)에서만 아바타를 프로필 팝오버
           // 트리거로 감싼다. DM-context(전역) 팝오버는 S75 OUT 이라 DM 에서는 종전대로 정적 아바타.
           // tmp(낙관적 send) 행은 서버 authorId 가 유효하므로 동일하게 동작한다.
-          workspaceId ? (
+          // S84a (FR-RC11): BOT 메시지는 멤버 프로필이 없으므로 팝오버로 감싸지 않고(웹훅
+          // 소유자 프로필 노출 회피) 봇 이름 시드 아바타만 그린다.
+          workspaceId && !isBot ? (
             // F5 (a11y M-1): 아바타 트리거는 마우스 전용(tabIndex=-1 + aria-hidden)으로
             // 두어, 같은 유저의 작성자명 트리거를 단일 키보드 진입점으로 만든다(중복
             // 포커스 스톱 제거). 클릭/탭 동작은 그대로 유지된다.
@@ -575,14 +584,14 @@ export function MessageItem({
               triggerProps={{ tabIndex: -1, 'aria-hidden': true }}
             >
               <Avatar
-                name={authorName ?? msg.authorId.slice(0, 2)}
+                name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
                 size="md"
                 className="qf-message__avatar"
               />
             </ProfilePopover>
           ) : (
             <Avatar
-              name={authorName ?? msg.authorId.slice(0, 2)}
+              name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
               size="md"
               className="qf-message__avatar"
             />
@@ -614,13 +623,14 @@ export function MessageItem({
         <div className="min-w-0">
           {isHead ? (
             <div className="qf-message__meta">
-              {/* S75 (FR-PS-07): 작성자명도 워크스페이스 채널에서 프로필 팝오버 트리거. */}
-              {workspaceId ? (
+              {/* S75 (FR-PS-07): 작성자명도 워크스페이스 채널에서 프로필 팝오버 트리거.
+                  S84a (FR-RC11): BOT 은 멤버 프로필이 없어 팝오버 없이 봇 이름만 렌더. */}
+              {workspaceId && !isBot ? (
                 <ProfilePopover userId={msg.authorId} workspaceId={workspaceId}>
-                  <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+                  <span className="qf-message__author">{effectiveAuthorName ?? 'unknown'}</span>
                 </ProfilePopover>
               ) : (
-                <span className="qf-message__author">{authorName ?? 'unknown'}</span>
+                <span className="qf-message__author">{effectiveAuthorName ?? 'unknown'}</span>
               )}
               {badge ? (
                 <span data-testid={`msg-role-${msg.id}`} className="qf-badge qf-badge--accent">

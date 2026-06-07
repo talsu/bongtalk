@@ -57,6 +57,11 @@ import { StorageModule } from '../storage/storage.module';
 import { RealtimeModule } from '../realtime/realtime.module';
 import { WorkspaceMemberProfileController } from './member-profile/workspace-member-profile.controller';
 import { WorkspaceMemberProfileService } from './member-profile/workspace-member-profile.service';
+// S84a (D16 / FR-RC11): 인커밍 웹훅 / 봇 메시지. 관리 REST + 토큰 인증 인커밍 게시.
+// BOT 메시지 생성에 MessagesService(이미 forwardRef import 됨)를 재사용한다.
+import { WebhooksController } from './webhooks/webhooks.controller';
+import { IncomingWebhookController } from './webhooks/incoming-webhook.controller';
+import { WebhooksService } from './webhooks/webhooks.service';
 
 @Module({
   imports: [
@@ -82,6 +87,8 @@ import { WorkspaceMemberProfileService } from './member-profile/workspace-member
     ApplicationsController,
     OnboardingController,
     WorkspaceMemberProfileController,
+    WebhooksController,
+    IncomingWebhookController,
   ],
   providers: [
     WorkspacesService,
@@ -97,6 +104,7 @@ import { WorkspaceMemberProfileService } from './member-profile/workspace-member
     DiscoverCacheService,
     IpSoftBlockService,
     WorkspaceMemberProfileService,
+    WebhooksService,
   ],
   exports: [
     WorkspacesService,
