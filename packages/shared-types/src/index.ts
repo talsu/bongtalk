@@ -339,6 +339,9 @@ export const ErrorCodeSchema = z.enum([
   // S86 (FR-MN-15): Web Push(VAPID).
   //   PUSH_SUBSCRIPTION_INVALID: 구독 등록 요청(endpoint/keys) 형식 오류 → 400.
   'PUSH_SUBSCRIPTION_INVALID',
+  // FR-RM10a (063): AutoMod 키워드 규칙(BLOCK/TIMEOUT)에 의해 메시지 전송/편집이
+  //   차단됨 → 422(요청 envelope 은 well-formed 이나 도메인 모더레이션 규칙 위반).
+  'AUTOMOD_BLOCKED',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -366,6 +369,8 @@ export * from './roles';
 export * from './moderation';
 // S64 (D12 / FR-RM12): 감사 로그 조회(cursor 페이지네이션·필터) 스키마·DTO.
 export * from './audit';
+// FR-RM10a (063): AutoMod 키워드 모더레이션 규칙 스키마·DTO·상수.
+export * from './automod';
 export * from './channel';
 export * from './message';
 export * from './presence';

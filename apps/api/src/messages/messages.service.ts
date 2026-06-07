@@ -67,6 +67,7 @@ import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-
 import { isDndSuppressed } from '../notifications/dnd-gate';
 import { NotifLevelService, type NotifGate } from '../notifications/notif-level.service';
 import { MentionGateService } from '../notifications/mention-gate.service';
+import { AutoModService } from '../workspaces/automod/automod.service';
 import type { MentionKind } from '../notifications/notif-level';
 import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
@@ -357,7 +358,73 @@ export class MessagesService {
     // 게이트로 폴백한다(동작 동일 — 아래 send/edit 분기 참조).
     @Optional()
     private readonly mentionGate?: MentionGateService,
+    // FR-RM10a (063 / ADR E3): AutoMod 키워드 모더레이션. send/edit 의 contentPlain
+    // 확정 후·tx 전에 check 해 BLOCK/ALERT/TIMEOUT 을 집행한다. WorkspacesModule export
+    // (양방향 forwardRef). @Optional 이라 미주입 단위테스트는 AutoMod 게이트를 건너뛴다.
+    @Optional()
+    @Inject(forwardRef(() => AutoModService))
+    private readonly autoMod?: AutoModService,
   ) {}
+
+  /**
+   * FR-RM10a (063 / ADR E3): send/edit 공유 AutoMod 게이트. contentPlain 확정 후·tx 전에
+   * 호출한다. 매칭 결과에 따라:
+   *   - null/AutoMod 미주입/DM: no-op(통과).
+   *   - BLOCK   → AUTOMOD_BLOCK 감사(best-effort) 후 AUTOMOD_BLOCKED(422) throw — 메시지 미저장.
+   *   - TIMEOUT → 작성자 타임아웃 적용(best-effort · AUTOMOD_TIMEOUT 감사 포함) 후 throw — 미저장.
+   *   - ALERT   → 메시지는 통과시키고 AUTOMOD_ALERT 감사만 남긴다(best-effort).
+   * 시스템/봇 메시지·DM(workspaceId=null)은 호출부에서 걸러진다(workspaceId null guard).
+   */
+  private async enforceAutoMod(args: {
+    workspaceId: string | null;
+    channelId: string;
+    authorId: string;
+    actorRoleIds: string[];
+    contentPlain: string;
+  }): Promise<void> {
+    if (!this.autoMod || args.workspaceId === null) return;
+    const hit = await this.autoMod.check({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      authorId: args.authorId,
+      actorRoleIds: args.actorRoleIds,
+      contentPlain: args.contentPlain,
+    });
+    if (!hit) return;
+    const workspaceId = args.workspaceId;
+    if (hit.action === 'ALERT') {
+      await this.audit?.recordBestEffort({
+        workspaceId,
+        actorId: args.authorId,
+        action: AuditAction.AUTOMOD_ALERT,
+        targetId: args.authorId,
+        channelId: args.channelId,
+        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
+      });
+      return;
+    }
+    // BLOCK / TIMEOUT 은 메시지를 저장하지 않는다. TIMEOUT 은 추가로 작성자를 타임아웃한다.
+    if (hit.action === 'TIMEOUT') {
+      await this.autoMod.applyTimeout({
+        workspaceId,
+        authorId: args.authorId,
+        // check 가 TIMEOUT 을 반환하면 규칙에 timeoutSeconds 가 있어야 한다(스키마 refine).
+        // 방어적으로 누락 시 최소값(60초)으로 폴백한다.
+        timeoutSeconds: hit.timeoutSeconds ?? 60,
+        ruleName: hit.rule.name,
+      });
+    } else {
+      await this.audit?.recordBestEffort({
+        workspaceId,
+        actorId: args.authorId,
+        action: AuditAction.AUTOMOD_BLOCK,
+        targetId: args.authorId,
+        channelId: args.channelId,
+        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
+      });
+    }
+    throw new DomainError(ErrorCode.AUTOMOD_BLOCKED, '자동 모더레이션 규칙에 의해 차단되었습니다');
+  }
 
   /**
    * S60 (FR-RC07 · FR-AM-13): 메시지 본문에서 추출한 URL 의 unfurl 잡을 fire-and-forget
@@ -1619,6 +1686,17 @@ export class MessagesService {
       },
     });
     const contentPlain = processed.contentPlain;
+    // FR-RM10a (063 / ADR E3): AutoMod 키워드 게이트 — contentPlain 확정 후·$transaction
+    // 진입 전에 평가한다(BLOCK/TIMEOUT 매칭 시 tx 전이라 메시지가 저장되지 않는다).
+    // DM(workspaceId=null)·AutoMod 미주입 단위테스트는 enforceAutoMod 가 즉시 통과한다.
+    // actorRoleIds 는 컨트롤러가 로드해 넘긴 보유 Role UUID(역할 exempt 판정용)다.
+    await this.enforceAutoMod({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      authorId: args.authorId,
+      actorRoleIds: args.actorMemberRoleUuids ?? [],
+      contentPlain,
+    });
     // S29 (FR-S05): 비정규화 검색 플래그 계산 — hasLink 는 AST 의 link 노드,
     // hasImage/hasFile 은 연결할 첨부 kind 집합에서 유도.
     const { hasImage, hasFile } = flagsFromAttachmentKinds(attachmentKinds);
@@ -2909,6 +2987,8 @@ export class MessagesService {
     hasMentionEveryone?: boolean;
     // S88a (FR-MN-03 / D3): 편집 본문의 non-mentionable 역할 멘션 lazy 권한 계산용.
     actorRole?: WorkspaceRole;
+    // FR-RM10a (063): 편집 경로 AutoMod 역할 exempt 판정용 actor 보유 Role UUID(send 와
+    // 대칭). 미지정이면 빈 배열로 보고 역할 면제 없이 평가한다.
     actorMemberRoleUuids?: string[];
   }): Promise<MessageRow> {
     // S88a review F6 (perf): 편집 경로도 user·channel 추출 / 역할 추출 / 핸들 resolve
@@ -2975,6 +3055,16 @@ export class MessagesService {
       },
     });
     const contentPlain = processed.contentPlain;
+    // FR-RM10a (063 / ADR E3): 편집 경로도 send 와 동일하게 AutoMod 게이트를 건다(우회
+    // 방지). contentPlain 확정 후·$transaction 진입 전에 평가해 BLOCK/TIMEOUT 매칭 시
+    // 편집을 거부한다(기존 본문은 유지 — updateMany 미실행). DM·AutoMod 미주입은 통과.
+    await this.enforceAutoMod({
+      workspaceId: args.workspaceId,
+      channelId: args.channelId,
+      authorId: args.actorId,
+      actorRoleIds: args.actorMemberRoleUuids ?? [],
+      contentPlain,
+    });
     const editedAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {

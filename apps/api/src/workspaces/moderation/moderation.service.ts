@@ -454,6 +454,51 @@ export class ModerationService {
     return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
   }
 
+  /**
+   * FR-RM10a (063): 시스템(AutoMod) 발 타임아웃. 인간 모더레이터가 아니라 AutoMod 규칙
+   * 적용 결과로 작성자 본인을 음소거하므로, 권한 비트 검사·self 가드·계층 방어를 적용하지
+   * 않는다(actor 가 시스템이라 의미 없음). mutedUntil 만 갱신하고 AUTOMOD_TIMEOUT 감사를
+   * 남긴다(actorId = targetUserId — 시스템 액션이지만 감사 무결성상 대상을 actor 로 표기).
+   * 대상이 더 이상 멤버가 아니면(레이스) WORKSPACE_TARGET_NOT_MEMBER(404)로 변환(호출부
+   * best-effort 라 로그만 남고 흡수된다).
+   */
+  async timeoutBySystem(args: {
+    workspaceId: string;
+    targetUserId: string;
+    durationSeconds: number;
+    reason?: string;
+  }): Promise<TimeoutMemberResponse> {
+    const { workspaceId, targetUserId, durationSeconds } = args;
+    const reason = normalizeReason(args.reason);
+    const mutedUntil = new Date(Date.now() + durationSeconds * 1000);
+    await this.runMemberWrite(async () => {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+          data: { mutedUntil },
+        });
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId: targetUserId,
+            action: AuditAction.AUTOMOD_TIMEOUT,
+            targetId: targetUserId,
+            details: {
+              durationSeconds,
+              mutedUntil: mutedUntil.toISOString(),
+              ...(reason ? { reason } : {}),
+            },
+          },
+          tx,
+        );
+      });
+    });
+    await this.memberRoles
+      .invalidateMemberPermsCache(workspaceId, targetUserId)
+      .catch(() => undefined);
+    return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
+  }
+
   /** FR-RM07: 음소거 수동 해제. mutedUntil 을 null 로 되돌린다. AuditLog 필수. */
   async untimeout(args: {
     workspaceId: string;
