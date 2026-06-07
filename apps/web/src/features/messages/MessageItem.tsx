@@ -12,7 +12,7 @@ import {
   Icon,
 } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
-import { useClock24h } from '../../stores/appearance-store';
+import { useClock24h, useLinkPreviewsEnabled } from '../../stores/appearance-store';
 import { ReactionBar } from '../reactions/ReactionBar';
 import { ReactionUsersModal } from '../reactions/ReactionUsersModal';
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
@@ -298,6 +298,9 @@ export function MessageItem({
   // S76 (FR-PS-09): 24시간 시계 외관 설정(appearance 스토어 단일 출처). early-return
   // (msg.deleted) 보다 위에서 호출해 Rules of Hooks 를 지킨다.
   const clock24h = useClock24h();
+  // S84c (FR-RC19): 링크 미리보기 전역 토글. false 면 unfurl embed(OG 카드 + URL lazy
+  // 프리뷰)를 렌더하지 않는다(서버 unfurl 은 계속 · 봇 rich embed 는 유지).
+  const linkPreviewsEnabled = useLinkPreviewsEnabled();
 
   // S83b (FR-KS-08): pin/unpin/delete 토스트 흐름을 핸들러로 추출해 단일키 경로와
   // 기존 MoreMenu 가 동일 동작을 공유한다(회귀 방지 — 토스트/성공·실패/언마운트 가드).
@@ -800,7 +803,9 @@ export function MessageItem({
                  서버가 비동기 unfurl 해 push 한 msg.embeds 가 있으면 그것을 렌더한다
                  (이미지는 백엔드 프록시 경로 · suppressedAt 카드는 hide). 없으면 종전
                  task-045 lazy-fetch(/links/preview)로 폴백한다(서버가 아직 push 안 한 호환). */}
-              {!mediaCollapsed
+              {/* S84c (FR-RC19): 링크 미리보기 전역 비활성화 시 unfurl embed 렌더 스킵
+                 (서버 unfurl 은 계속 · 봇 rich embed 는 아래에서 별도 유지). */}
+              {!mediaCollapsed && linkPreviewsEnabled
                 ? (() => {
                     const serverEmbeds = msg.embeds ?? [];
                     if (serverEmbeds.length > 0) {

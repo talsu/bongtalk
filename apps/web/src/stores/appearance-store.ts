@@ -22,3 +22,12 @@ export const useAppearanceStore = create<AppearanceState>((set) => ({
 export function useClock24h(): boolean {
   return useAppearanceStore((s) => s.settings.clock24h);
 }
+
+/**
+ * S84c (FR-RC19): 링크 미리보기 전역 토글 셀렉터. MessageItem 이 구독해 false 면
+ * unfurl embed(OG 카드) 렌더를 스킵한다(봇 rich embed 는 무관). 이 값만 구독해
+ * 불필요한 리렌더를 피한다(useClock24h 선례).
+ */
+export function useLinkPreviewsEnabled(): boolean {
+  return useAppearanceStore((s) => s.settings.linkPreviewsEnabled);
+}

@@ -29,6 +29,8 @@ describe('S76 settings (FR-PS-09) Zod', () => {
       chatFontSize: 15,
       // F-B2: 24시간제가 기존 동작 — 기본 true 로 보존(formatMessageTime 기본 true 와 정합).
       clock24h: true,
+      // S84c (FR-RC19): 링크 미리보기 기본 ON(회귀 방지).
+      linkPreviewsEnabled: true,
     });
   });
 

@@ -66,6 +66,9 @@ export function AppearanceSettingsPage(): JSX.Element {
   const onTheme = (theme: Theme): void => save({ theme }, '테마 저장 실패');
   const onDensity = (density: Density): void => save({ density }, '밀도 저장 실패');
   const onClock = (clock24h: boolean): void => save({ clock24h }, '시계 형식 저장 실패');
+  // S84c (FR-RC19): 링크 미리보기 전역 토글.
+  const onLinkPreviews = (linkPreviewsEnabled: boolean): void =>
+    save({ linkPreviewsEnabled }, '링크 미리보기 설정 저장 실패');
 
   // F-M1: 슬라이더는 비활성(준비 중)이라 현재 저장된 폰트 값만 표시한다.
   const fontIndex = Math.max(0, CHAT_FONT_SIZES.indexOf(settings.chatFontSize));
@@ -246,6 +249,34 @@ export function AppearanceSettingsPage(): JSX.Element {
             data-testid="appearance-clock-toggle"
             className="qf-switch"
             onClick={() => onClock(!settings.clock24h)}
+          />
+        </div>
+      </section>
+
+      {/* S84c (FR-RC19): 링크 미리보기 전역 토글 */}
+      <section
+        aria-labelledby="appearance-linkpreview-heading"
+        data-testid="appearance-linkpreview"
+      >
+        <h2 id="appearance-linkpreview-heading" className="sr-only">
+          링크 미리보기
+        </h2>
+        <div className="qf-toggle-row">
+          <div className="qf-toggle-row__text">
+            <div className="qf-toggle-row__title">링크 미리보기</div>
+            <div className="qf-toggle-row__desc">
+              메시지의 링크에 미리보기 카드를 표시합니다. 끄면 내 화면에서만 카드가 숨겨집니다.
+            </div>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={settings.linkPreviewsEnabled}
+            aria-label="링크 미리보기"
+            disabled={update.isPending}
+            data-testid="appearance-linkpreview-toggle"
+            className="qf-switch"
+            onClick={() => onLinkPreviews(!settings.linkPreviewsEnabled)}
           />
         </div>
       </section>
