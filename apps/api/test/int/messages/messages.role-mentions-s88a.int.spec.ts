@@ -86,7 +86,13 @@ beforeEach(async () => {
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
   await env.prisma.channelPermissionOverride.deleteMany({});
-  await env.prisma.memberRole.deleteMany({ where: { workspaceId: stack.workspaceId } });
+  // 커스텀(비시스템) 역할 할당만 정리한다. 시스템 MemberRole(owner=OWNER/500 등)을 지우면
+  // computeActorContext 의 topPosition 이 0 이 되어 이후 createRole 이 FR-RM04 가드(403)에
+  // 걸린다(원 헬퍼 버그). role.deleteMany(isSystem:false) 가 cascade 로 커스텀 MemberRole 을
+  // 지우지만, 명시적으로 비시스템 역할 할당만 선삭제해 의도를 분명히 한다.
+  await env.prisma.memberRole.deleteMany({
+    where: { workspaceId: stack.workspaceId, role: { isSystem: false } },
+  });
   await env.prisma.role.deleteMany({ where: { workspaceId: stack.workspaceId, isSystem: false } });
   await env.prisma.serverNotificationPref.deleteMany({});
   await env.prisma.userChannelMute.deleteMany({});
