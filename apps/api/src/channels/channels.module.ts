@@ -15,6 +15,9 @@ import { GlobalDmController } from './direct-messages/global-dm.controller';
 // S43 (FR-CH-15): 채널 즐겨찾기 — 워크스페이스 스코프 + /me/favorites.
 import { FavoritesService } from './favorites/favorites.service';
 import { FavoritesController, MeFavoritesController } from './favorites/favorites.controller';
+// S85 (FR-CH-16): 사이드바 개인 섹션 — 워크스페이스 스코프 + per-user.
+import { SidebarSectionsService } from './sidebar-sections/sidebar-sections.service';
+import { SidebarSectionsController } from './sidebar-sections/sidebar-sections.controller';
 import { WorkspacesModule } from '../workspaces/workspaces.module';
 import { OutboxModule } from '../common/outbox/outbox.module';
 import { MessagesModule } from '../messages/messages.module';
@@ -55,6 +58,8 @@ import { ChannelNotificationPreferencesController } from '../notifications/chann
     GlobalDmController,
     FavoritesController,
     MeFavoritesController,
+    // S85 (FR-CH-16): 사이드바 개인 섹션 CRUD + 할당 + 재정렬.
+    SidebarSectionsController,
     // S46 (FR-MN-07): 채널 단위 알림 오버라이드.
     ChannelNotificationPreferencesController,
   ],
@@ -74,6 +79,8 @@ import { ChannelNotificationPreferencesController } from '../notifications/chann
     SlowmodeService,
     // S43 (FR-CH-15): 채널 즐겨찾기 CRUD + 재정렬.
     FavoritesService,
+    // S85 (FR-CH-16): 사이드바 개인 섹션 CRUD + 할당 + 재정렬.
+    SidebarSectionsService,
   ],
   exports: [
     ChannelsService,

@@ -197,6 +197,15 @@ enum MarkAsReadMode {
   MANUAL_FROM_LATEST
 }
 
+// S85 (FR-CH-16): 개인 사이드바 섹션의 채널 정렬 방식.
+//   MANUAL       — 사용자가 드래그로 정한 position 순서를 그대로 따른다.
+//   ALPHABETICAL — 표시 시 채널명 가나다(로캘) 정렬을 적용한다(저장 position 무관 —
+//                  클라이언트가 렌더 시점에 정렬, 서버는 position 을 보존한다).
+enum SidebarSectionSortMode {
+  MANUAL
+  ALPHABETICAL
+}
+
 // S76 (D14 / FR-PS-09): 외관 테마. SYSTEM 은 클라가 prefers-color-scheme 로 해석한다
 // (DS data-theme 토큰은 dark/light 2값 — SYSTEM 은 클라 런타임 해석). 기본 DARK.
 enum Theme {
@@ -370,6 +379,54 @@ model UserChannelFavorite {
 
   @@unique([userId, channelId])
   @@index([userId, position])
+}
+
+// S85 (FR-CH-16): 사용자별 사이드바 개인 섹션. 멤버가 본인 사이드바에 자기만 보는
+// 채널 그룹(이름·이모지·정렬방식)을 만든다(타인 미노출 — 워크스페이스 카테고리와 별개).
+// 섹션 간 순서는 fractional position(Decimal 20,10)으로 드래그 조정한다(채널/카테고리/
+// 즐겨찾기 position 과 동일 calcBetween 규약). 전부 개인 상태라 onDelete Cascade
+// (user/workspace 삭제 시 함께 정리). additive only — 신규 테이블이라 backfill 불요.
+// 마이그레이션 20260624000000_s85_sidebar_sections.
+model UserSidebarSection {
+  id          String                 @id @default(uuid()) @db.Uuid
+  userId      String                 @db.Uuid
+  workspaceId String                 @db.Uuid
+  name        String                 @db.VarChar(100)
+  // 섹션 헤더 이모지(유니코드, ≤16자). null = 이모지 없음.
+  emoji       String?                @db.VarChar(16)
+  sortMode    SidebarSectionSortMode @default(MANUAL)
+  position    Decimal                @db.Decimal(20, 10)
+  createdAt   DateTime               @default(now())
+  updatedAt   DateTime               @updatedAt
+
+  user        User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  // 섹션 삭제 시 할당 행도 함께 정리(아래 모델의 section FK 가 Cascade).
+  assignments UserSidebarChannelAssignment[]
+
+  @@index([userId, workspaceId, position])
+}
+
+// S85 (FR-CH-16): 개인 섹션 ↔ 채널 할당. 채널은 사용자당 한 섹션에만 속한다
+// (@@unique([userId, channelId])). 섹션 안에서의 채널 순서도 fractional position 으로
+// 드래그 조정한다. user/channel/section 삭제 시 onDelete Cascade — 섹션 삭제 시 할당이
+// 사라지면 그 채널은 사이드바 카테고리 기본 위치로 자연 복귀한다(클라가 미할당 채널을
+// 기본 위치에 렌더). additive only — backfill 불요.
+model UserSidebarChannelAssignment {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @db.Uuid
+  channelId String   @db.Uuid
+  sectionId String   @db.Uuid
+  position  Decimal  @db.Decimal(20, 10)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user    User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  channel Channel            @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  section UserSidebarSection @relation(fields: [sectionId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, channelId])
+  @@index([userId, sectionId, position])
 }
 
 // S51 (D10 / FR-PS-07): 개인 저장함. 철저히 개인 전용(Socket.IO 불요)이며 (userId,
@@ -604,6 +661,9 @@ model User {
   channelMutes                  UserChannelMute[]
   // S43 (FR-CH-15): 채널 즐겨찾기. onDelete Cascade.
   channelFavorites              UserChannelFavorite[]
+  // S85 (FR-CH-16): 사이드바 개인 섹션 + 채널 할당. onDelete Cascade.
+  sidebarSections               UserSidebarSection[]
+  sidebarChannelAssignments     UserSidebarChannelAssignment[]
   friendshipsRequested          Friendship[]                 @relation("FriendshipRequester")
   friendshipsReceived           Friendship[]                 @relation("FriendshipAddressee")
   customEmojis                  CustomEmoji[]                @relation("CustomEmojiCreator")
@@ -853,6 +913,8 @@ model Workspace {
   notificationPreferences UserNotificationPreference[]
   // S46 (D06 / FR-MN-06): 이 워크스페이스의 서버별 알림 오버라이드. onDelete Cascade.
   serverNotificationPrefs ServerNotificationPref[]
+  // S85 (FR-CH-16): 이 워크스페이스의 개인 사이드바 섹션들. onDelete Cascade.
+  sidebarSections         UserSidebarSection[]
   customEmojis            CustomEmoji[]
   // S42 (FR-PK04): 워크스페이스 이모지 설정(1:1, 퀵반응 기본값 + canMemberUpload).
   emojiConfig             WorkspaceEmojiConfig?
@@ -1246,6 +1308,8 @@ model Channel {
   mutes                    UserChannelMute[]
   // S43 (FR-CH-15): 이 채널을 즐겨찾기한 행. onDelete Cascade.
   favorites                UserChannelFavorite[]
+  // S85 (FR-CH-16): 이 채널을 개인 섹션에 할당한 행. onDelete Cascade.
+  sidebarAssignments       UserSidebarChannelAssignment[]
   // S64 fix-forward (security A-6 = MEDIUM-2): 이 채널 메시지에 대한 신고 행들.
   // 채널 하드삭제 시 ON DELETE CASCADE 로 함께 정리된다.
   moderationReports        ModerationReport[]

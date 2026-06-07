@@ -378,6 +378,13 @@ export enum ErrorCode {
   WEBHOOK_INVALID_TOKEN = 'WEBHOOK_INVALID_TOKEN',
   WEBHOOK_NAME_RESERVED = 'WEBHOOK_NAME_RESERVED',
 
+  // S85 (FR-CH-16): 사이드바 개인 섹션.
+  //   SIDEBAR_SECTION_NOT_FOUND:    조회/수정/삭제/재정렬 대상 섹션 또는 anchor 가 본인
+  //                                 소유가 아니거나 없음 → 404(중립 — 존재 누출 방지).
+  //   SIDEBAR_ASSIGNMENT_NOT_FOUND: 재정렬/해제 대상 채널 할당이 본인 섹션에 없음 → 404.
+  SIDEBAR_SECTION_NOT_FOUND = 'SIDEBAR_SECTION_NOT_FOUND',
+  SIDEBAR_ASSIGNMENT_NOT_FOUND = 'SIDEBAR_ASSIGNMENT_NOT_FOUND',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -600,6 +607,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.WEBHOOK_REVOKED]: 403,
   [ErrorCode.WEBHOOK_INVALID_TOKEN]: 403,
   [ErrorCode.WEBHOOK_NAME_RESERVED]: 422,
+  // S85 (FR-CH-16): 사이드바 개인 섹션/할당 미존재(중립 404).
+  [ErrorCode.SIDEBAR_SECTION_NOT_FOUND]: 404,
+  [ErrorCode.SIDEBAR_ASSIGNMENT_NOT_FOUND]: 404,
   [ErrorCode.ACCOUNT_NOT_DEACTIVATED]: 409,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,

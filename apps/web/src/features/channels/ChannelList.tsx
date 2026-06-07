@@ -26,6 +26,8 @@ import { deriveSidebarRowState } from './sidebarRowState';
 import { isCategoryCollapsed, setCategoryCollapsed } from './categoryCollapse';
 import { isContextMenuKey } from './unreadsA11y';
 import { FavoritesSection } from './FavoritesSection';
+import { SidebarSections } from './SidebarSections';
+import { useAssignedChannelIds, useCreateSidebarSection } from './useSidebarSections';
 import { CreateChannelModal } from './CreateChannelModal';
 import {
   Icon,
@@ -661,6 +663,13 @@ export function ChannelList({
   const mutedChannelIds = useMutedChannelIds();
   // S43 (FR-CH-15): 즐겨찾기 channelId 집합(컨텍스트 메뉴 토글 라벨 결정용).
   const favoriteChannelIds = useFavoriteChannelIds();
+  // S85 (FR-CH-16): 개인 섹션에 할당된 channelId 집합. 카테고리 기본 위치에서 제외해
+  // 같은 채널이 섹션·기본 위치에 중복 노출되지 않게 한다.
+  const assignedChannelIds = useAssignedChannelIds(workspaceId);
+  // S85 (FR-CH-16): 새 섹션 생성(인라인 입력). 성공 시 sidebar-sections 무효화는 훅 내부.
+  const createSectionMut = useCreateSidebarSection(workspaceId);
+  const [creatingSection, setCreatingSection] = useState(false);
+  const [newSectionName, setNewSectionName] = useState('');
   // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" — 채널 최신까지 ACK 전진
   // (기존 markRead 재사용, monotonic 전진).
   const markReadMut = useMarkChannelRead(workspaceId);
@@ -723,8 +732,20 @@ export function ChannelList({
     [workspaceId],
   );
 
-  const uncategorized = useMemo(() => data?.uncategorized ?? [], [data]);
-  const categories = useMemo(() => data?.categories ?? [], [data]);
+  // S85 (FR-CH-16): 개인 섹션에 할당된 채널은 카테고리 기본 위치에서 제외한다(섹션에서
+  // 표시). channelsById(전체)는 섹션이 채널 메타를 끌어오는 데 쓰이므로 별도로 둔다.
+  const uncategorized = useMemo(
+    () => (data?.uncategorized ?? []).filter((c) => !assignedChannelIds.has(c.id)),
+    [data, assignedChannelIds],
+  );
+  const categories = useMemo(
+    () =>
+      (data?.categories ?? []).map((cat) => ({
+        ...cat,
+        channels: cat.channels.filter((c) => !assignedChannelIds.has(c.id)),
+      })),
+    [data, assignedChannelIds],
+  );
 
   const sectionOf = useMemo(() => {
     const m = new Map<string, string>();
@@ -745,12 +766,14 @@ export function ChannelList({
   // S43 (FR-CH-15): 즐겨찾기 섹션이 channelId 로 채널 메타(name/categoryId)를
   // 끌어오기 위한 평탄 맵. 현재 워크스페이스 채널만 담으므로, 다른 워크스페이스
   // 즐겨찾기는 섹션에서 자연히 누락(렌더 제외)된다.
+  // S85 (FR-CH-16): 전체 채널 맵(할당 채널 포함 — 섹션이 채널 메타를 끌어옴). 필터된
+  // uncategorized/categories 가 아니라 raw data 에서 만든다.
   const channelsById = useMemo(() => {
     const m = new Map<string, Channel>();
-    for (const c of uncategorized) m.set(c.id, c);
-    for (const cat of categories) for (const c of cat.channels) m.set(c.id, c);
+    for (const c of data?.uncategorized ?? []) m.set(c.id, c);
+    for (const cat of data?.categories ?? []) for (const c of cat.channels) m.set(c.id, c);
     return m;
-  }, [uncategorized, categories]);
+  }, [data]);
 
   const unreadByChannel = useMemo(() => {
     const m = new Map<string, { count: number; mentionCount: number }>();
@@ -875,6 +898,54 @@ export function ChannelList({
         unreadByChannel={unreadByChannel}
         mutedChannelIds={mutedChannelIds}
       />
+      {/* S85 (FR-CH-16): 개인 섹션 영역(Favorites 아래·카테고리 위). 자체 DnD 컨텍스트를
+          가지므로 채널 DndContext 밖(위)에 둔다. */}
+      <SidebarSections
+        workspaceId={workspaceId}
+        workspaceSlug={workspaceSlug}
+        channelsById={channelsById}
+        activeChannelName={activeChannelName}
+        unreadByChannel={unreadByChannel}
+        mutedChannelIds={mutedChannelIds}
+      />
+      {/* S85 (FR-CH-16): 새 개인 섹션 생성(인라인 입력). 멤버 누구나 자기 사이드바를
+          정리할 수 있으므로 canManage 게이트 없이 노출한다. */}
+      {creatingSection ? (
+        <input
+          autoFocus
+          aria-label="새 섹션 이름"
+          data-testid="sidebar-section-create-input"
+          maxLength={100}
+          placeholder="새 섹션 이름"
+          value={newSectionName}
+          onChange={(e) => setNewSectionName(e.target.value)}
+          onBlur={() => {
+            const name = newSectionName.trim();
+            setCreatingSection(false);
+            setNewSectionName('');
+            if (name.length > 0) createSectionMut.mutate({ name });
+          }}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') (e.target as HTMLInputElement).blur();
+            if (e.key === 'Escape') {
+              setNewSectionName('');
+              setCreatingSection(false);
+            }
+          }}
+          className="qf-input my-[var(--s-1)] w-full"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setCreatingSection(true)}
+          data-testid="sidebar-section-create"
+          aria-label="새 개인 섹션 추가"
+          className="qf-category flex w-full items-center pr-[var(--s-2)] text-left"
+        >
+          <Icon name="plus" size="sm" aria-hidden className="qf-icon--muted shrink-0" />
+          <span className="truncate pl-[var(--s-1)]">새 섹션</span>
+        </button>
+      )}
       <DndContext
         sensors={sensors}
         collisionDetection={closestCorners}

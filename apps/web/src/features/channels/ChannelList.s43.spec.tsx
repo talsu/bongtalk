@@ -85,6 +85,9 @@ function installApi(state: ApiState): void {
       }
       if (path === '/me/mutes') return { items: state.mutes };
       if (path === '/me/favorites') return { items: state.favorites };
+      // S85 (FR-CH-16): ChannelList 가 SidebarSections 를 렌더하면서 섹션 목록을
+      // 조회한다. 이 S43 회귀고정 스펙은 섹션 없음(빈 배열)으로 둔다.
+      if (path === `/workspaces/${WS}/sidebar-sections`) return { sections: [] };
       if (path.startsWith('/me/mutes/channels/')) {
         const channelId = path.split('/').pop() as string;
         if (method === 'POST') {
