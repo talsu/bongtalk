@@ -2,19 +2,19 @@
 
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
-> **✅ D16-richcontent(S84a/b/c · FR-RC11/12/19) 전체 완료·배포·LIVE.** `main=2f87bfa`·`develop=08da0dd`(push·ls-remote 검증). **진행률 336/354 FR done.**
-> **다음 = 잔여 7 FR 은 전부 결정-게이트(아래) — 자율 진행 불가, 사용자 결정 대기.**
+> **✅ D16(S84a/b/c) + FR-CH-16(S85) 완료·배포·LIVE.** `main=9167f0a`·`develop=016ac7f`(push·ls-remote 검증). **진행률 337/354 FR done.** 이번 세션 4슬라이스 전부 prod LIVE.
+> **다음 = 잔여 6 FR 은 전부 결정-게이트/대규모-deferred — 자율 진행 불가, 사용자 결정 대기.**
 >
-> - **✅ S84c(FR-RC19 링크 미리보기 전역 비활성화) LIVE** — FR-RC19=done. `UserSettings.linkPreviewsEnabled Boolean @default(true)`(마이그레이션 `20260623000000`) + AppearanceSettings 스키마/store(`useLinkPreviewsEnabled`)/AppearanceSettingsPage 토글 + MessageItem 이 false 면 **unfurl embeds 만 스킵**(서버 unfurl 계속·봇 rich embed 유지). reviewer **approve**(fix-forward 0). verify green(web 1685) · int 8/8(+왕복·기존 3 toEqual 갱신). LIVE: `/readyz=200`·prod `UserSettings.linkPreviewsEnabled` 컬럼 존재.
-> - **✅ S84b(FR-RC12 rich embed) LIVE** — FR-RC12=done. `Message.richEmbeds Json?`(`20260622`) + rich-embed.ts(캡·isRenderable·normalizeColor·6000자 캡·SSRF http(s)) + IncomingWebhookPayload embeds[](embed-only 허용) + createBotMessage JSON 저장·WS 전파 + web RichEmbed.tsx. reviewer approve + 2 fix-forward(content:""·byte 캡). int 14/14.
-> - **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) LIVE** — FR-RC11=done. WebhooksService(create/list/rotate/revoke/verifyAndPost) + 관리/인커밍 2컨트롤러 + 토큰 crypto(sha256·timingSafeEqual) + createBotMessage + web BOT 배지. reviewer 6 fix-forward(HIGH-1 폐기-oracle·SSRF·IP rate-limit 등). `20260621`. int 12/12.
+> - **✅ S85(FR-CH-16 사이드바 개인 섹션) LIVE** — FR-CH-16=done. `UserSidebarSection`+`UserSidebarChannelAssignment`(@@unique[userId,channelId]) + enum `SidebarSectionSortMode`(마이그레이션 `20260624000000`) + sidebar-sections service/controller(favorites 패턴·calcBetween·개인 스코프·WorkspaceMemberGuard) + web SidebarSections.tsx(dnd-kit 2계층 드래그·ChannelList 통합). feature-implementer 구현 → reviewer **approve** + 1 fix-forward(LOW-1 moveChannel workspace 스코프). verify green(web 1693·2 flaky 재실행 통과) · int 4/4 실DB. LIVE: `/readyz=200`·prod 테이블 2개·라우트 401.
+> - **✅ S84c(FR-RC19 링크 미리보기 토글) LIVE** — `UserSettings.linkPreviewsEnabled`(`20260623`)·MessageItem unfurl 스킵(봇 embed 유지). int 8/8.
+> - **✅ S84b(FR-RC12 rich embed) LIVE** — `Message.richEmbeds Json?`(`20260622`)·SSRF http(s)·6000자 캡·embed-only. int 14/14.
+> - **✅ S84a(FR-RC11 웹훅/봇) LIVE** — WebhooksService·토큰 crypto·BOT 배지(`20260621`). reviewer 6 fix-forward. int 12/12.
 >
-> **⛔ 잔여 7 FR = 결정-게이트(사용자 승인 필요 — 자율 진행 금지):**
-> - **FR-MN-09/11/15/18**(VAPID 웹푸시) — VAPID 키/인프라 도입 결정 보류([[project_direction_pivot]] 일관). 사용자가 VAPID greenlight 해야 진입.
-> - **FR-RM10**(AutoMod 키워드 차단) — re2 vs Worker 엔진 선택 결정 필요(별도분리·handoff 명시).
-> - **FR-MN-03/19/21**(@role fanout·MentionRecord·@here SLO) — S45 부분보류. 데이터모델(S61 커스텀 Role)은 존재하나 fanout/SLO 는 大작업·별도 슬라이스 분할 + SLO 목표치 결정 필요.
-> - **FR-CH-16**(P2) — 장기 deferred(D02).
-> ※ [[project_direction_pivot]]: parity 메가루프는 이미 검증/안정성으로 선회 완료. 텍스트 parity 사실상 완성(336/354·잔여는 전부 인프라/결정 의존).
+> **⛔ 잔여 6 FR = 결정-게이트(자율 진행 금지 — 사용자 결정 필요):**
+> - **FR-MN-15/18**(VAPID 웹푸시) — VAPID 키/web-push 인프라 도입 결정 보류([[project_direction_pivot]] 일관).
+> - **FR-RM10**(AutoMod 키워드) — ReDoS 방지 엔진 선택(re2 네이티브 의존 vs Worker Thread 100ms timeout) 결정 필요.
+> - **FR-MN-03/19/21**(@role fanout·MentionRecord·@here SLO) — S45 부분보류. BullMQ(승인)+커스텀 Role(S61) 준비됐으나 大작업(async 워커 파이프라인·2~3 슬라이스) + S45 deferral 해제 결정 + @here P95 SLO 목표치 결정 필요.
+> - ※ [[project_direction_pivot]]: parity 메가루프는 검증/안정성으로 선회 완료. 텍스트 parity 사실상 완성(337/354·잔여는 전부 인프라/엔진/SLO 결정 의존). 사용자가 트랙 선택 시 진입.
 >
 > **⚠️ 인프라 변경(디스크 복구로 인한):**
 >
