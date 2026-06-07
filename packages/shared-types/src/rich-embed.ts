@@ -85,8 +85,33 @@ export const RichEmbedSchema = z.object({
 });
 export type RichEmbed = z.infer<typeof RichEmbedSchema>;
 
-/** 메시지당 embed 배열 캡(≤10). 인커밍 payload·MessageDto 공용. */
-export const RichEmbedArraySchema = z.array(RichEmbedSchema).max(RICH_EMBED_MAX_PER_MESSAGE);
+/**
+ * S84b 리뷰 fix-forward (LOW-2 = DoS/WS-fanout hardening): 메시지 내 모든 embed 의
+ * 텍스트 길이 총합 상한(Discord 의 combined-embed 한도와 동일 6000자). 개수·필드별 캡만으론
+ * 10 embed × (desc 4096 + 25 field × 1280 …) ≈ 385KB JSONB 가 저장·WS 브로드캐스트될 수
+ * 있다. 총합 캡으로 단일 토큰의 payload 폭주(저장 + 전 채널뷰어 fanout)를 막는다.
+ */
+export const RICH_EMBED_TOTAL_CHARS_MAX = 6000;
+
+/** embed 배열의 표시 텍스트 총 글자 수(title+description+author.name+footer.text+fields). */
+export function richEmbedsTotalChars(embeds: RichEmbed[]): number {
+  let total = 0;
+  for (const e of embeds) {
+    total += (e.title?.length ?? 0) + (e.description?.length ?? 0);
+    total += e.author?.name.length ?? 0;
+    total += e.footer?.text.length ?? 0;
+    for (const f of e.fields ?? []) total += f.name.length + f.value.length;
+  }
+  return total;
+}
+
+/** 메시지당 embed 배열 캡(≤10 + 총 텍스트 ≤6000자). 인커밍 payload·MessageDto 공용. */
+export const RichEmbedArraySchema = z
+  .array(RichEmbedSchema)
+  .max(RICH_EMBED_MAX_PER_MESSAGE)
+  .refine((embeds) => richEmbedsTotalChars(embeds) <= RICH_EMBED_TOTAL_CHARS_MAX, {
+    message: `combined embed text exceeds ${RICH_EMBED_TOTAL_CHARS_MAX} characters`,
+  });
 
 /**
  * embed 가 렌더할 내용이 하나라도 있는지(빈 embed 제거용). color/timestamp 만으로는

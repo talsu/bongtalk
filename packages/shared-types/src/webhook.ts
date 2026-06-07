@@ -93,7 +93,10 @@ export const IncomingWebhookPayloadSchema = z
   .object({
     // S84b (FR-RC12): content 는 embeds 가 있으면 생략 가능(Discord parity — embed-only
     // 메시지 허용). 둘 다 비면 아래 refine 이 거부한다. 있으면 길이 검증(MessageContentSchema).
-    content: MessageContentSchema.optional(),
+    // S84b 리뷰 fix-forward (LOW-1): Discord 클라이언트가 보내는 `content: ""`(빈 문자열 +
+    // embeds)도 embed-only 로 받도록 ""→undefined 로 preprocess 한다(MessageContentSchema 의
+    // min(1)이 refine 전에 먼저 거부해 "embed-only 인데 content 빈값"이 오인 400 나던 것 수정).
+    content: z.preprocess((v) => (v === '' ? undefined : v), MessageContentSchema.optional()),
     username: z.string().trim().min(1).max(WEBHOOK_NAME_MAX).optional(),
     // eslint-disable-next-line @typescript-eslint/naming-convention
     avatar_url: AvatarUrlSchema.optional(),

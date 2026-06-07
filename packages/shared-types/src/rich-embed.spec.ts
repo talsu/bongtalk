@@ -77,6 +77,22 @@ describe('S84b rich embed contracts (FR-RC12)', () => {
       const embeds = Array.from({ length: RICH_EMBED_MAX_PER_MESSAGE + 1 }, () => ({ title: 'x' }));
       expect(RichEmbedArraySchema.safeParse(embeds).success).toBe(false);
     });
+    // S84b 리뷰 fix-forward (LOW-2): combined-char 총합 캡(6000).
+    it('rejects when combined embed text exceeds 6000 chars', () => {
+      const big = [{ description: 'a'.repeat(4096) }, { description: 'b'.repeat(4096) }];
+      expect(RichEmbedArraySchema.safeParse(big).success).toBe(false);
+      const ok = [{ description: 'a'.repeat(3000) }, { description: 'b'.repeat(3000) }];
+      expect(RichEmbedArraySchema.safeParse(ok).success).toBe(true);
+    });
+    it('rejects SSRF URLs on image/thumbnail/author.icon/footer.icon', () => {
+      expect(RichEmbedArraySchema.safeParse([{ image: { url: 'ftp://h/i' } }]).success).toBe(false);
+      expect(RichEmbedArraySchema.safeParse([{ thumbnail: { url: 'file:///x' } }]).success).toBe(
+        false,
+      );
+      expect(
+        RichEmbedArraySchema.safeParse([{ footer: { text: 't', icon_url: 'ftp://h/i' } }]).success,
+      ).toBe(false);
+    });
   });
 
   describe('isRenderableRichEmbed', () => {
@@ -107,6 +123,15 @@ describe('S84b rich embed contracts (FR-RC12)', () => {
       expect(IncomingWebhookPayloadSchema.safeParse({ embeds: [{ title: 'x' }] }).success).toBe(
         true,
       );
+    });
+    // S84b 리뷰 fix-forward (LOW-1): Discord 의 content:"" + embeds 도 embed-only 로 허용.
+    it('accepts content:"" with embeds (empty string preprocessed)', () => {
+      expect(
+        IncomingWebhookPayloadSchema.safeParse({ content: '', embeds: [{ title: 'x' }] }).success,
+      ).toBe(true);
+    });
+    it('rejects content:"" with no embeds', () => {
+      expect(IncomingWebhookPayloadSchema.safeParse({ content: '' }).success).toBe(false);
     });
     it('rejects empty payload (neither content nor embeds)', () => {
       expect(IncomingWebhookPayloadSchema.safeParse({}).success).toBe(false);
