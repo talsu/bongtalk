@@ -1,5 +1,5 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import type { WorkspaceRole } from '@prisma/client';
+import type { Prisma, WorkspaceRole } from '@prisma/client';
 import type Redis from 'ioredis';
 import { PERMISSIONS, fromStoragePermissions, has } from '@qufox/shared-types';
 import { PrismaService } from '../../prisma/prisma.module';
@@ -549,21 +549,29 @@ export class ChannelAccessService {
    * 한 번의 채널 override findMany + 한 번의 후보 멤버(role + memberRoles) findMany 로
    * in-memory 계산한다(역할 멘션 fanout 의 hot-path · 멤버당 쿼리 금지). 정밀한
    * job-time 재검증은 S88b.
+   *
+   * S88a review F9 (perf/correctness): 선택적 `tx` 를 받는다. 역할 멘션 fanout 은
+   * resolveRoleMentionRecipients 가 send 의 `$transaction` 콜백 안에서 호출하므로,
+   * tx 를 전달하지 않으면 별도 connection(this.prisma)으로 다른 스냅샷을 읽어
+   * tx 내부에서 갓 생성/수정된 채널 override·멤버 역할과 불일치할 수 있다. tx 미지정
+   * 시 this.prisma 로 폴백해 기존 호출부와 후방호환된다(서비스 전반의 tx 주입 패턴).
    */
   async filterPrivateChannelVisibleUsers(
     channelId: string,
     workspaceId: string,
     candidateUserIds: string[],
+    tx?: Prisma.TransactionClient,
   ): Promise<Set<string>> {
     const visible = new Set<string>();
     if (candidateUserIds.length === 0) return visible;
 
+    const db = tx ?? this.prisma;
     const [overrides, members] = await Promise.all([
-      this.prisma.channelPermissionOverride.findMany({
+      db.channelPermissionOverride.findMany({
         where: { channelId },
         select: { principalType: true, principalId: true, allowMask: true },
       }),
-      this.prisma.workspaceMember.findMany({
+      db.workspaceMember.findMany({
         where: { workspaceId, userId: { in: candidateUserIds } },
         select: {
           userId: true,

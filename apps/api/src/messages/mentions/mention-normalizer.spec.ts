@@ -80,3 +80,32 @@ describe('normalizeMentions (FR-MSG-13)', () => {
     expect(normalizeMentions(once, resolve)).toBe(once);
   });
 });
+
+// S88a review F3 — normalizeMentions 의 역할 패스(@<RoleName> → <@&roleId>) longest-
+// match·코드영역 회귀. 추출/정규화가 공유하는 scanRoleMentions 의 시맨틱을 정규화
+// 출력 형태로 가드한다(scanner 자체는 role-mention-scanner.spec, 추출은
+// mention-extractor.spec 에서 별도 커버).
+describe('normalizeMentions role pass (S88a FR-MN-03 / F3)', () => {
+  const resolve = (handle: string): string | null => {
+    const table: Record<string, string> = { alice: 'clh3z2k0v0000aaaaaaaaaaaa' };
+    return table[handle.toLowerCase()] ?? null;
+  };
+  const PM = '3f2504e0-4f89-41d3-9a0c-0305e82c3301';
+  const PM_LEADS = '11111111-2222-3333-4444-555555555555';
+
+  it('longest-match: rewrites only the long role, not the short prefix (uuid roleIds)', () => {
+    // 핵심 회귀: "@PM Leads" 는 PM Leads 토큰으로만 치환되고 "PM" 으로 갉아먹히지 않는다.
+    const out = normalizeMentions('@PM Leads go', resolve, [
+      { name: 'PM', roleId: PM },
+      { name: 'PM Leads', roleId: PM_LEADS },
+    ]);
+    expect(out).toBe(`<@&${PM_LEADS}> go`);
+  });
+
+  it('runs role pass before user pass (multi-word role not eaten by @username)', () => {
+    const out = normalizeMentions('@PM Leads and @alice', resolve, [
+      { name: 'PM Leads', roleId: PM_LEADS },
+    ]);
+    expect(out).toBe(`<@&${PM_LEADS}> and @{clh3z2k0v0000aaaaaaaaaaaa}`);
+  });
+});

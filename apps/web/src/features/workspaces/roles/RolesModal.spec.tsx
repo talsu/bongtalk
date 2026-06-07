@@ -124,6 +124,19 @@ describe('RolesModal', () => {
     expect(arg.roleId).toBe('owner');
   });
 
+  // S88a review F8 (a11y): mentionable 체크박스 설명이 title-only 가 아니라
+  // sr-only + aria-describedby 로 키보드/SR/터치에 도달해야 한다.
+  it('mentionable checkbox exposes its description via aria-describedby (F8)', () => {
+    render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('role-item-OWNER'));
+    const input = screen.getByTestId('role-mentionable').querySelector('input') as HTMLInputElement;
+    expect(input.getAttribute('aria-describedby')).toBe('mentionable-desc');
+    const desc = document.getElementById('mentionable-desc');
+    expect(desc?.textContent).toBe('이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.');
+    // title 속성은 더 이상 쓰지 않는다(키보드/SR/터치 미도달).
+    expect(screen.getByTestId('role-mentionable').querySelector('[title]')).toBeNull();
+  });
+
   // S88a (FR-MN-03 · D6): 커스텀 역할 저장 payload 에 mentionable 포함.
   it('custom role: save includes mentionable in payload', async () => {
     updateMut.mutateAsync.mockResolvedValue(undefined);

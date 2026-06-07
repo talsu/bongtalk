@@ -15,6 +15,8 @@
  *   - 이미 `@{cuid2}` 인 토큰은 다시 건드리지 않습니다(멱등성).
  */
 
+import { scanRoleMentions } from './role-mention-scanner';
+
 /**
  * `@username` 토큰. 핸들 문법은 SignupRequestSchema 와 동일(2-32, alnum/._-).
  * `@` 앞에 단어 문자가 없을 때만 매칭(이메일 local part 오탐 방지). `@` 뒤에
@@ -36,11 +38,6 @@ export type MentionResolver = (handle: string) => string | null;
  * 위한 (정확한 역할명, roleId) 쌍. 게이트를 통과한 역할만 넘긴다.
  */
 export type RoleNameToken = { name: string; roleId: string };
-
-/** 정규식 메타문자 이스케이프 — 알려진 역할명을 anchored 정규식에 안전하게 박는다. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /**
  * contentRaw 의 멘션을 안정 토큰으로 정규화합니다. 코드 영역은 그대로 보존합니다.
@@ -89,39 +86,31 @@ export function normalizeMentions(
 
 /**
  * S88a (FR-MN-03): 알려진 역할명 `@<RoleName>` 을 `<@&roleId>` 로 치환한다. 코드
- * 영역은 보존하고, 긴 이름 우선으로 순차 치환해 다단어 역할명이 부분 매칭으로
- * 깨지지 않게 한다. 정규식은 알려진 이름만 이스케이프 후 경계 anchored ·
- * case-insensitive(ReDoS 안전 — bounded known set).
+ * 영역은 보존하고, 긴 이름 우선으로 매칭해 다단어 역할명이 부분 매칭으로 깨지지
+ * 않게 한다.
+ *
+ * S88a review F3 (data integrity): extractRoleMentions 와 **동일한 단일 패스 소비
+ * 기반 스캐너**(scanRoleMentions)를 공유한다. 종전에는 토큰별로 전역 정규식 치환을
+ * 반복하여 `@PM Leads` 에서 "PM" 도 따로 매칭될 여지가 있었고, 추출과 정규화의
+ * 매칭 집합이 갈라질 수 있었다. 이제 스캐너가 좌→우 1회 훑으며 매칭 구간을 소비해
+ * 짧은 prefix 가 같은 구간을 재매칭하지 못하므로, 저장 토큰 ↔ mentions.roles 가
+ * 정합한다. 코드 영역 건너뜀도 스캐너가 일괄 처리한다(원본 기준 단일 패스).
  */
 function replaceRoleTokens(raw: string, roleTokens: RoleNameToken[]): string {
-  // 코드 영역을 매 치환마다 재계산하면 인덱스가 어긋나므로, 치환 시 캡처 그룹으로
-  // 멘션의 선행/후행 경계를 보존하며 한 토큰씩 전역 치환한다. 코드 영역 보호는
-  // anchored boundary(앞 비단어 · 뒤 비단어)로 충분하지 않으므로, 단일 패스 스캐너
-  // 대신 토큰별로 코드 영역 밖에서만 치환한다.
-  const sorted = [...roleTokens].sort((a, b) => b.name.length - a.name.length);
-  let text = raw;
-  for (const { name, roleId } of sorted) {
-    const trimmed = name.trim();
-    if (trimmed.length === 0) continue;
-    const re = new RegExp(`(?<![A-Za-z0-9_])@${escapeRegExp(trimmed)}(?![A-Za-z0-9_])`, 'gi');
-    // 코드 영역은 매 토큰 치환 직전에 재수집한다(앞선 치환으로 길이가 바뀌므로).
-    const codeSpans = collectCodeSpans(text);
-    const inCode = (idx: number): boolean => codeSpans.some((s) => idx >= s.start && idx < s.end);
-    let out = '';
-    let cursor = 0;
-    let m: RegExpExecArray | null;
-    re.lastIndex = 0;
-    while ((m = re.exec(text)) !== null) {
-      const start = m.index;
-      if (inCode(start)) continue; // 코드 영역 내부 토큰은 보존.
-      out += text.slice(cursor, start);
-      out += `<@&${roleId}>`;
-      cursor = start + m[0].length;
-    }
-    out += text.slice(cursor);
-    text = out;
+  const candidates = roleTokens.map((t) => ({ name: t.name, value: t.roleId }));
+  const matches = scanRoleMentions(raw, candidates);
+  if (matches.length === 0) return raw;
+
+  // scanRoleMentions 는 좌→우 순서로 비겹침 매칭을 반환하므로 그대로 이어붙인다.
+  let out = '';
+  let cursor = 0;
+  for (const m of matches) {
+    out += raw.slice(cursor, m.start);
+    out += `<@&${m.value}>`;
+    cursor = m.end;
   }
-  return text;
+  out += raw.slice(cursor);
+  return out;
 }
 
 interface CodeSpan {

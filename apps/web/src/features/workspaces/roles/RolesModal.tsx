@@ -340,8 +340,14 @@ function RoleEditor({
           disabled={mentionReadOnly}
           onChange={(e) => setMentionable(e.target.checked)}
           style={{ accentColor: 'var(--accent)' }}
+          // S88a review F8 (a11y): title 은 키보드/SR/터치에 도달하지 못한다.
+          // 설명을 sr-only 로 노출하고 aria-describedby 로 연결한다.
+          aria-describedby="mentionable-desc"
         />
-        <span title="이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.">@멘션 허용</span>
+        <span>@멘션 허용</span>
+        <span id="mentionable-desc" className="sr-only">
+          이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.
+        </span>
       </label>
 
       {canManage ? (

@@ -62,9 +62,21 @@ export const MentionChannelNodeSchema = z.object({
 });
 export type MentionChannelNode = z.infer<typeof MentionChannelNodeSchema>;
 
+/**
+ * S88a review F1 (ADR D2) — 역할 ID 는 uuid|cuid2 transitional.
+ *
+ * `Role.id` 는 `@db.Uuid`(8-4-4-4-12 하이픈 포함 36자)라 cuid2 전용
+ * `Cuid2Schema` 로는 라이브 `<@&uuid>` 토큰이 출력하는 mention_role 노드를
+ * 거부합니다. AST 스키마 검증 도입 시 전면 파싱 실패를 막기 위해 roleId 는
+ * uuid 또는 cuid2 를 모두 수용합니다(message.ts 의 TransitionalIdSchema 와
+ * 동일 정의 — 순환참조를 피하려 여기서는 인라인). mention_user/channel 은
+ * cuid2 전용 그대로입니다(해당 id 는 @db 변경이 없음).
+ */
+const RoleIdSchema = z.string().uuid().or(Cuid2Schema);
+
 export const MentionRoleNodeSchema = z.object({
   type: z.literal('mention_role'),
-  roleId: Cuid2Schema,
+  roleId: RoleIdSchema,
   /**
    * S88a (FR-MN-03) — 정규화 시점에 해석한 역할명. 표시 전용 캐시 — 없으면
    * 런타임 룩업(roleId→name)/ id 폴백. mention_user/channel 의 label 과 동일한

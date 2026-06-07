@@ -158,6 +158,14 @@ type MessageRow = {
 // 시 shared-types MESSAGE_PIN_CAP / HARD_PIN_CAP 도 동일 값으로 갱신해야 합니다.
 export const MESSAGE_PIN_CAP = 50;
 
+// S88a review F4 (DoS 팬아웃): 메시지 1건이 멘션할 수 있는 distinct 역할 수의
+// 상한. 단일 역할의 멤버 수(총 수신자)는 @everyone 과 동일하게 워크스페이스
+// 크기로 bounded 되고 S88b async 워커로 fanout 을 이관하므로, 여기서는 역할
+// **개수**만 cap 한다 — `@a @b @c …` 50개 역할을 한 tx 에서 fanout 하면 역할당
+// memberRole findMany + 가시성 계산이 직렬로 쌓여 hot send-path 가 폭증한다.
+// 게이트 통과 distinct 역할 수가 이를 초과하면 422 로 클라가 다듬게 한다.
+export const MAX_ROLE_MENTIONS_PER_MSG = 10;
+
 // S33 (FR-TH-16 / FR-TH-03): threadMeta.replyParticipants(=recentReplyUserIds)
 // 의 상한. PRD FR-TH-16/03 은 "최초 답글자 최대 5명"을 명시한다. 이 값을
 // 바꾸면 shared-types ThreadSummarySchema 의 `.max(N)` 도 동일하게 갱신해야 한다.
@@ -1209,10 +1217,13 @@ export class MessagesService {
       for (const id of memberIds) out.add(id);
       return out;
     }
+    // S88a review F9: tx 를 전달해 fanout 트랜잭션과 동일 스냅샷에서 가시성을
+    // 계산한다(별도 connection 의 stale 스냅샷 회피).
     const visible = await this.channelAccess.filterPrivateChannelVisibleUsers(
       args.channelId,
       args.workspaceId,
       memberIds,
+      tx,
     );
     for (const id of visible) out.add(id);
     return out;
@@ -1363,14 +1374,19 @@ export class MessagesService {
     // mention_user 노드(S02 carryover MED-3)가 활성화됩니다. 미해결 핸들은
     // literal 로 유지됩니다. `extractMentions` 는 핸들→userId resolve 를 자체
     // 수행하므로 원본(`args.content`)을 그대로 받습니다.
-    const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
+    // S88a review F6 (perf): handle resolve / user·channel 추출 / 역할 추출은
+    // 상호 의존이 없고 결과는 모두 이후 단계에서 소비되므로 Promise.all 로
+    // 병렬화한다(hot send-path 의 3직렬 DB RTT → 1라운드트립). extractMentions 는
+    // 핸들→userId resolve 를 자체 수행하므로 원본(args.content)을 그대로 받는다.
     // Mentions resolve against workspace members / channels. Unknown handles
-    // are silently dropped — client must never pre-compute this.
-    const extracted = await extractMentions(this.prisma, args.workspaceId, args.content);
-    // S88a (FR-MN-03 / D1): `@<RoleName>` 역할 멘션을 본문에서 권위 추출한다(알려진
-    // 워크스페이스 역할명 longest-match · mentionable 플래그 동반). 게이트(D3) 전이라
-    // 아직 다운그레이드되지 않은 후보다.
-    const extractedRoles = await extractRoleMentions(this.prisma, args.workspaceId, args.content);
+    // are silently dropped — client must never pre-compute this. extractRoleMentions
+    // 는 `@<RoleName>` 을 알려진 워크스페이스 역할명 longest-match 로 권위 추출한다
+    // (mentionable 플래그 동반 · 게이트 전 후보).
+    const [handleMap, extracted, extractedRoles] = await Promise.all([
+      resolveMentionHandles(this.prisma, args.workspaceId, args.content),
+      extractMentions(this.prisma, args.workspaceId, args.content),
+      extractRoleMentions(this.prisma, args.workspaceId, args.content),
+    ]);
     // S21 (FR-RS-16): 특수멘션은 본문 sigil 추출값과 composer 힌트를 OR 병합한다.
     // user/channel(이름) 멘션은 본문 권위 추출만 신뢰한다(힌트 미반영). DM
     // 채널(workspaceId=null)은 extractMentions 가 전부 false 를 반환하므로 힌트도
@@ -1417,6 +1433,15 @@ export class MessagesService {
       throw new DomainError(
         ErrorCode.MESSAGE_CONTENT_INVALID,
         'message mentions too many users (max 50)',
+      );
+    }
+    // S88a review F4 (DoS 팬아웃): 게이트 통과 distinct 역할 수 cap. gateRoleMention
+    // 직후·rate-limit 전에 검사해, 과다 역할 멘션은 rate-limit 토큰을 소모하기 전에
+    // 422 로 거부한다(역할당 fanout 비용이 직렬로 누적되는 hot send-path 보호).
+    if (gatedRoleIds.length > MAX_ROLE_MENTIONS_PER_MSG) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_CONTENT_INVALID,
+        `message mentions too many roles (max ${MAX_ROLE_MENTIONS_PER_MSG})`,
       );
     }
     // S88a (FR-MN-03 / D5): 역할 멘션 이중 rate-limit. 게이트 통과 역할이 1개+ 일 때만
@@ -2791,16 +2816,23 @@ export class MessagesService {
     actorRole?: WorkspaceRole;
     actorMemberRoleUuids?: string[];
   }): Promise<MessageRow> {
-    const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
+    // S88a review F6 (perf): 편집 경로도 user·channel 추출 / 역할 추출 / 핸들 resolve
+    // 는 상호 의존이 없어 Promise.all 로 병렬화한다(3직렬 DB RTT → 1라운드트립).
+    // resolveMentionHandles 는 게이트 결과가 아니라 원본 본문에만 의존하므로 함께
+    // 앞당겨 병렬화해도 안전하다(이후 정규화 단계에서 소비).
+    const [rawMentions, extractedRoles, handleMap] = await Promise.all([
+      extractMentions(this.prisma, args.workspaceId, args.content),
+      // S88a (FR-MN-03): 편집 본문도 역할 멘션을 권위 추출·게이트해 저장 mentions.roles
+      // 와 AST mention_role 토큰을 정합 갱신한다(D4 — 편집은 신규 mention.received 스팸을
+      // 만들지 않고, 기존 diff 기반 알림 의미를 유지한다).
+      extractRoleMentions(this.prisma, args.workspaceId, args.content),
+      resolveMentionHandles(this.prisma, args.workspaceId, args.content),
+    ]);
     const hasMentionEveryone = args.hasMentionEveryone === true;
     const broadGated = gateChannelMention(
       gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
       hasMentionEveryone,
     );
-    // S88a (FR-MN-03): 편집 본문도 역할 멘션을 권위 추출·게이트해 저장 mentions.roles
-    // 와 AST mention_role 토큰을 정합 갱신한다(D4 — 편집은 신규 mention.received 스팸을
-    // 만들지 않고, 기존 diff 기반 알림 의미를 유지한다).
-    const extractedRoles = await extractRoleMentions(this.prisma, args.workspaceId, args.content);
     const allowedRoleIds = await this.resolveAllowedRoleMentions(extractedRoles, {
       channelId: args.channelId,
       workspaceId: args.workspaceId,
@@ -2813,11 +2845,19 @@ export class MessagesService {
       allowedRoleIds,
     );
     const gatedRoleIds = mentions.roles;
+    // S88a review F4 (DoS 팬아웃): 편집 본문도 게이트 통과 distinct 역할 수를 cap 한다
+    // (send 경로와 대칭 — 편집으로 과다 역할 멘션을 주입하지 못하게).
+    if (gatedRoleIds.length > MAX_ROLE_MENTIONS_PER_MSG) {
+      throw new DomainError(
+        ErrorCode.MESSAGE_CONTENT_INVALID,
+        `message mentions too many roles (max ${MAX_ROLE_MENTIONS_PER_MSG})`,
+      );
+    }
     const gatedRoleTokens: RoleNameToken[] = extractedRoles
       .filter((r) => allowedRoleIds.has(r.id))
       .map((r) => ({ name: r.name, roleId: r.id }));
     // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — 역할 패스 먼저, 그 다음 `@username`.
-    const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
+    // handleMap 은 위 Promise.all 에서 이미 병렬 resolve 했다(F6).
     const normalizedContent = normalizeMentions(
       args.content,
       (h) => handleMap.get(h.toLowerCase()) ?? null,

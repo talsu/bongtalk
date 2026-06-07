@@ -169,7 +169,7 @@ describe('extractRoleMentions (S88a / FR-MN-03)', () => {
     expect(out.map((r) => r.id)).toEqual(['r1']);
   });
 
-  it('longest-match — 긴 이름을 우선해 매칭(부분 매칭 방지)', async () => {
+  it('longest-match — 긴 이름만 매칭하고 짧은 prefix 는 제외(F3 소비 기반)', async () => {
     const fake = makePrisma(
       [],
       [],
@@ -179,10 +179,24 @@ describe('extractRoleMentions (S88a / FR-MN-03)', () => {
       ],
     );
     const out = await extractRoleMentions(fake as any, WS, 'ping @PM Leads now');
-    // 둘 다 @PM 으로 시작하지만 "PM Leads" 가 더 길어 먼저 매칭된다. "PM" 은 경계상
-    // "@PM Leads" 안에서 단독 토큰이 아니므로(뒤가 공백이라 경계 OK)도 매칭될 수 있어
-    // 둘 다 잡힐 수 있으나, longest 가 포함됨을 보장한다.
-    expect(out.map((r) => r.id)).toContain('long');
+    // S88a review F3 (data integrity): 단일 패스 소비 기반 스캐너라 "PM Leads" 구간을
+    // 소비하므로 짧은 prefix "PM" 은 같은 구간을 재매칭하지 못한다. 종전 구현은 둘 다
+    // 매칭해 짧은 역할 멤버에게도 과다 fanout + 저장 토큰과 mentions.roles 불일치를
+    // 일으켰다. 이제 roles=[longId] 만 나와야 한다.
+    expect(out.map((r) => r.id)).toEqual(['long']);
+  });
+
+  it('짧은 prefix 역할이 단독으로 등장하면 그 역할만 매칭', async () => {
+    const fake = makePrisma(
+      [],
+      [],
+      [
+        { id: 'short', name: 'PM', mentionable: true },
+        { id: 'long', name: 'PM Leads', mentionable: true },
+      ],
+    );
+    const out = await extractRoleMentions(fake as any, WS, 'ping @PM now');
+    expect(out.map((r) => r.id)).toEqual(['short']);
   });
 
   it('case-insensitive 매칭', async () => {

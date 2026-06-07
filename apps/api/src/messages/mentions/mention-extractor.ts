@@ -1,4 +1,5 @@
 import type { PrismaClient } from '@prisma/client';
+import { scanRoleMentions } from './role-mention-scanner';
 
 export type Mentions = {
   users: string[];
@@ -26,11 +27,6 @@ export type Mentions = {
  * 추가 쿼리 없이 판정할 수 있게 한다.
  */
 export type ExtractedRoleMention = { id: string; name: string; mentionable: boolean };
-
-/** 정규식 메타문자 이스케이프 — 알려진 역할명을 anchored 정규식에 안전하게 박는다. */
-function escapeRegExp(s: string): string {
-  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
 /** 역할 매칭에서 제외하는 예약 특수멘션 키. 동명 역할이 있어도 멘션으로 보지 않는다. */
 const RESERVED_MENTION_NAMES = new Set(['everyone', 'here', 'channel']);
@@ -115,16 +111,20 @@ export async function extractMentions(
  *
  * 역할명은 RoleNameSchema 가 공백을 허용하므로("Project Managers") 자유 정규식으로는
  * 추출할 수 없다 → **알려진 워크스페이스 역할명 longest-match**. 워크스페이스 역할
- * 목록을 로드한 뒤(@ 포함 메시지에 한해), 본문에서 정확한 역할명을 경계 anchored ·
- * case-insensitive · 긴 이름 우선으로 스캔해 매칭된 roleId 를 수집한다.
+ * 목록을 로드한 뒤(@ 포함 메시지에 한해), 본문을 단일 패스 소비 기반 스캐너로 훑어
+ * 매칭된 roleId 를 수집한다.
  *
  * - workspaceId=null(DM) 또는 `@` 미포함 텍스트면 즉시 [] (쿼리 생략).
  * - 예약어 everyone/here/channel 동명 역할은 제외한다.
  * - 미지의 역할명은 silent drop(extractMentions 와 동일 신뢰 모델).
  * - mentionable 플래그를 함께 반환해 service 게이트가 추가 쿼리 없이 판정한다.
  *
- * ReDoS 안전: 알려진 이름만 escapeRegExp 후 anchored(앞뒤 단어경계) lookaround 로
- * 1회 매칭한다 — 입력 길이에 선형이고 백트래킹 폭발이 없다(bounded known set).
+ * S88a review F3 (data integrity): scanRoleMentions 단일 패스 **소비 기반** longest-
+ * match 를 쓴다. 종전 구현은 정렬된 역할명을 각각 독립 `.test()` 하여 `@PM Leads`
+ * 입력에서 "PM Leads" 와 "PM" 이 둘 다 매칭됐다(짧은 prefix 역할 과다 fanout +
+ * 저장 토큰과 mentions.roles 불일치). 이제 정규화의 replaceRoleTokens 와 **동일
+ * 스캐너**를 공유하므로 추출과 토큰화가 같은 매칭 집합을 보장한다. 스캐너는 코드
+ * 영역도 건너뛰어, 코드블록 내부 역할명이 fanout 되는 일도 없다(정규화와 정합).
  */
 export async function extractRoleMentions(
   prisma: PrismaClient,
@@ -141,19 +141,19 @@ export async function extractRoleMentions(
   });
   if (roles.length === 0) return [];
 
-  // 긴 이름 우선(longest-match) — "PM Leads" 가 "PM" 보다 먼저 매칭되게 정렬한다.
-  const sorted = [...roles].sort((a, b) => b.name.length - a.name.length);
+  // 예약 특수멘션 동명 역할은 멘션 대상에서 제외(@everyone 등은 별도 경로).
+  const candidates = roles
+    .filter((r) => {
+      const trimmed = r.name.trim();
+      return trimmed.length > 0 && !RESERVED_MENTION_NAMES.has(trimmed.toLowerCase());
+    })
+    .map((r) => ({ name: r.name, value: r }));
+
+  // 소비 기반 단일 패스 스캐너 — 짧은 prefix 가 긴 매칭 구간을 재매칭하지 못한다.
   const matched = new Map<string, ExtractedRoleMention>();
-  for (const role of sorted) {
-    const trimmed = role.name.trim();
-    if (trimmed.length === 0) continue;
-    // 예약 특수멘션 동명 역할은 멘션 대상에서 제외(@everyone 등은 별도 경로).
-    if (RESERVED_MENTION_NAMES.has(trimmed.toLowerCase())) continue;
-    // `@<RoleName>` 경계 anchored · case-insensitive. name 은 정규식 이스케이프.
-    const re = new RegExp(`(?<![A-Za-z0-9_])@${escapeRegExp(trimmed)}(?![A-Za-z0-9_])`, 'i');
-    if (re.test(text)) {
-      matched.set(role.id, { id: role.id, name: role.name, mentionable: role.mentionable });
-    }
+  for (const m of scanRoleMentions(text, candidates)) {
+    const role = m.value;
+    matched.set(role.id, { id: role.id, name: role.name, mentionable: role.mentionable });
   }
   return [...matched.values()];
 }

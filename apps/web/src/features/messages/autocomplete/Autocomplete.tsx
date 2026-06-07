@@ -184,15 +184,16 @@ function Row({
           <span className="qf-autocomplete__label">{row.role.name}</span>
           <span className="qf-autocomplete__sub">역할</span>
         </span>
-        {row.role.colorHex ? (
-          <span className="qf-autocomplete__meta">
-            <span
-              className="qf-autocomplete__meta-dot"
-              style={{ backgroundColor: row.role.colorHex }}
-              aria-hidden="true"
-            />
-          </span>
-        ) : null}
+        {/* S88a review F13 (ui): colorHex 가 null 이어도 meta 슬롯을 유지해 멤버 행과
+            우측 정렬을 맞춘다(슬롯 미렌더 시 정렬 어긋남). 색이 없으면 disabled 토큰
+            색의 placeholder 점으로 슬롯을 채운다(DS 4파일 미수정 — 컴포넌트만). */}
+        <span className="qf-autocomplete__meta">
+          <span
+            className="qf-autocomplete__meta-dot"
+            style={{ backgroundColor: row.role.colorHex ?? 'var(--text-disabled)' }}
+            aria-hidden="true"
+          />
+        </span>
       </li>
     );
   }
