@@ -1,15 +1,17 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-08 · S88b @role async LIVE)
+> ## ▶ 현재 재개 지점 (2026-06-08 · ★@role 멘션 그룹 S88 전체 완료 · 다음=AutoMod)
 >
-> **✅ S88a LIVE**(동기 @role·migration 20260627). **✅ S88b(@role async·FR-MN-03 done·FR-MN-19 done) 완료·배포·LIVE.** `feat/s88b-mention-async` 6커밋: 구현 `f181efc` → int 회귀+cross-dedup `d85c747` → 7차원 리뷰 fix-forward `d47ec09`(★BLOCKER: 워커 per-recipient 게이트 누락→`MentionGateService` 공유추출·동기/워커 공용·FR-PS-14 + HIGH 6 시정) → 게이트 negative int 가드 `e414dc5` → rate-limit reset `6d34dc2`. **게이트: `pnpm verify` 19/19 + int 28/28(async 9[공개·private skip·**차단/뮤트/NOTHING 게이트 0**·cross-dedup·멱등] + S88a 4 + events 동기회귀 4 + roles 11).** **수동배포 완료(승인): migration `20260628` prod 적용(`MentionRecord` 테이블)·api/web rollout `/readyz=200`·smoke OK.** `main=cb75ca5`(머지커밋)·`develop=8e44758`(push·ls-remote 검증). **진행률 343/354 done.** @role 그룹 잔여=**S88c(FR-MN-21 SLO eval)뿐.**
+> **✅✅✅ @role 멘션 그룹(FR-MN-03/19/21) 전체 완료.** S88a(동기 코어·LIVE)·S88b(async MentionRecord+BullMQ·LIVE)·S88c(@here SLO eval·머지·evals-only 무배포). **진행률 344/354 done.** @role 그룹 잔여 0.
+> - **S88a LIVE**: migration 20260627(`Role.mentionable`)·@role 동기 fanout.
+> - **S88b LIVE**: migration 20260628(`MentionRecord`)·mention-broadcast BullMQ 워커. ★BLOCKER(워커 per-recipient 게이트 누락·FR-PS-14) → `MentionGateService` 공유추출(동기/워커 공용)로 시정·int 가드 증명. verify 19/19 + int 28/28.
+> - **S88c 머지**: `evals/perf/mention-fanout-slo.ts`(@here ONLINE N P95<5s·socket.io-client·soak 패턴) + `evals/tasks/060-…yaml` + prom BullMQ latency 연동. reviewer approve(LOW 4·머지차단 0). verify 19/19·evals typecheck·frozen-lockfile 일관. **@here 동기 유지**(빠름·async 무이득). **이메일 게이트(S66)로 prod self-bootstrap 불가→테스트 스택/PERF_REUSE on-demand**(soak 동일 제약·문서 062 §C5). evals-only=배포 불요.
 >
-> ### ▶▶ 다음 작업 = **S88c (FR-MN-21 @here SLO eval)** → AutoMod(FR-RM10)
+> ### ▶▶ 다음 작업 = **FR-RM10 (AutoMod 키워드)** — 빌드가능·외부결정 불요
 >
-> - **S88c (FR-MN-21·todo·小)**: `evals/tasks/mention-fanout-slo.yaml` + k6/artillery(ONLINE 100명 @here mention:new P95 5s) + BullMQ latency prom 연동. @here 는 현재 동기 fanout(빠름) — SLO 측정 대상·async 이관 여부 검토. S88c 완료 시 **@role 그룹(FR-MN-03/19/21) 전체 종료** → 다음 FR-RM10(AutoMod).
-> - **S88b 핵심(완료·참고)**: 워커=expand→`filterChannelVisibleUsers`(공개 short-circuit·비공개 bulk)→**`MentionGateService.filterNotifiable`(block/mute/DND/thread-OFF/NotifLevel 공유게이트·동기경로와 동일)**→`MentionRecord` upsert(`INSERT…ON CONFLICT DO NOTHING RETURNING` 신규분만)→`outbox.record(mention.received·role=true)` → 기존 outbox-to-ws subscriber 재사용. @role 만 async·나머지 동기. cross-dedup=`syncNotifiedUserIds`(users∪broad 게이트통과). `app.enableShutdownHooks()` 추가(graceful worker close). prom `bullmq_job_duration_seconds`+`bullmq_jobs_failed_total`. **defer(062 §B6)**: commit↔enqueue 크래시윈도우(push/unfurl 동일 선례·문서화), online-snapshot 정밀화·transactional-outbox-이관·@here async(S88c SLO 시 검토).
-> - **S88c (FR-MN-21·todo)**: `evals/tasks/mention-fanout-slo.yaml` + k6/artillery(ONLINE 100명 @here P95 5s) + BullMQ latency prom.
-> - **S88a 잔여 defer(062 문서화·S88b 권장)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip(user `@{id}` 선례 일관).
+> - **FR-RM10(AutoMod·todo·別백로그)**: PRD 가 "re2 **또는** 100ms timeout / Worker **또는** BullMQ" 대안 제시 → **no-native-dep 경로**(Worker Thread timeout 또는 승인된 BullMQ·[[project_bullmq_greenlight]])로 진입(re2 네이티브 ABI·kernel4.4 위험 회피). 마이그레이션 다음 = `20260629…`. 키워드 룰 CRUD(ADMIN) + 메시지 send 시 매칭→차단/플래그/감사. UNDERSTAND 부터.
+> - **S88 defer(후속·062 §B6/S88a defer)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip·commit↔enqueue 크래시윈도우(transactional-outbox)·online-snapshot 정밀화·@here async. 전부 비차단.
+> - **S88c follow-up**: 풀 100-user @here SLO 실측은 테스트 compose 스택(이메일 게이트 우회/DB-seed) 또는 PERF_REUSE(prod·사전검증 계정) on-demand.
 > - **인프라 교훈(이번 세션)**: 컨테이너 verify 와 무거운 리뷰 워크플로우 **동시 실행 시 kernel4.4 자원고갈로 web 인터랙션 테스트 timeout flake** → verify 는 **단독** 실행. int 컨테이너는 `--network host`+docker.sock+`TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1`+`TESTCONTAINERS_RYUK_DISABLED=true`, 명령에 `apt-get install git openssl` 필수(없으면 git 127 / contract 6건 fail).
 >
 

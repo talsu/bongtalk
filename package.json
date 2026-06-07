@@ -34,6 +34,8 @@
     "eval": "tsx evals/run.ts",
     "soak": "tsx evals/soak/run.ts",
     "soak:local": "SOAK_DURATION_MINUTES=15 tsx evals/soak/run.ts",
+    "perf:mention-slo": "tsx evals/perf/mention-fanout-slo.ts",
+    "evals:typecheck": "tsc -p evals/tsconfig.json --noEmit",
     "db:up": "docker-compose --profile dev up -d postgres redis",
     "db:down": "docker-compose --profile dev down",
     "db:reset": "pnpm --filter @qufox/api db:reset",
@@ -52,6 +54,7 @@
     "lint-staged": "15.2.10",
     "prettier": "3.3.3",
     "simple-git-hooks": "2.11.1",
+    "socket.io-client": "4.8.1",
     "tsx": "4.19.2",
     "turbo": "2.3.3",
     "typescript": "5.6.3"
