@@ -77,6 +77,12 @@ export class MentionBroadcastProcessor extends WorkerHost {
   private async run(data: MentionBroadcastJobData): Promise<void> {
     const { messageId, channelId, workspaceId, actorId, gatedRoleIds } = data;
     if (gatedRoleIds.length === 0) return;
+    // S88b cross-path dedup(★correctness): 직접 @user 로 멘션된 수신자(send 동기 경로가 이미
+    // mention.received 1건 발송 완료)는 역할 expand 집합에서 제외한다. 이로써 @user ∪ @role
+    // 양쪽에 걸린 수신자가 동기(@user)+async(@role)로 2건 받지 않고 정확히 1건만 받는다
+    // (S88a union-dedup 의미 복원). enqueue payload 의 mentionedUserIds(저장 mentions.users)를
+    // 권위로 쓴다(메시지 재조회 회피).
+    const directlyMentioned = new Set(data.mentionedUserIds ?? []);
 
     // (0) 메시지 생존 확인 + 채널 메타(VIEW_CHANNEL 재검증용 isPrivate). 삭제됐으면 전체 skip
     //     (멘션 무의미). isPrivate 은 hasPermission 시그니처가 요구한다.
@@ -100,7 +106,9 @@ export class MentionBroadcastProcessor extends WorkerHost {
       select: { userId: true },
     });
     const candidateIds = Array.from(new Set(memberRows.map((r) => r.userId))).filter(
-      (uid) => uid !== actorId,
+      // self(작성자)는 send 권위 게이트와 일관되게 제외. 직접 @user 로 이미 동기 발송된
+      // 수신자도 제외(cross-path dedup — 중복 mention.received 회피).
+      (uid) => uid !== actorId && !directlyMentioned.has(uid),
     );
     if (candidateIds.length === 0) return;
 
@@ -160,8 +168,8 @@ export class MentionBroadcastProcessor extends WorkerHost {
           here: data.here === true,
           // S88b: 이 경로는 @role 멘션 전용이므로 항상 역할 유래(role=true). 동일 수신자가
           // 직접 @user 로도 멘션됐다면 그쪽은 send 동기 경로가 이미 role=false 로 1건 emit
-          // 했고, MentionRecord 는 @user 동기 경로가 만들지 않으므로 여기서 또 1건이 생길 수
-          // 있다(전달 로그 멱등은 @role 워커 내부 한정 · @user 와의 cross-dedup 은 후속).
+          // 했고, 그 수신자는 위 expand 단계에서 directlyMentioned 로 제외돼 여기 도달하지
+          // 않는다(cross-path dedup — 1수신자 정확히 1건 · S88b fix-forward).
           role: true,
         };
         await this.outbox.record(tx, {

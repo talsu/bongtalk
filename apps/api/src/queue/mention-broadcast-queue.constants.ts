@@ -69,6 +69,14 @@ export interface MentionBroadcastJobData {
   actorId: string;
   /** S88a send 시점 게이트(mentionable/MENTION_EVERYONE)를 통과한 역할 id 집합. */
   gatedRoleIds: string[];
+  /**
+   * S88b cross-path dedup(★correctness): send 동기 경로가 직접 `@user` 로 이미 mention.received
+   * 를 1건 발송 완료한 수신자 집합(저장 mentions.users). 워커는 역할 멤버 expand 후 이 집합을
+   * 제외해, @user ∪ @role 양쪽에 걸린 수신자가 동기(@user)+async(@role) 로 2건 받지 않도록
+   * 한다(S88a union-dedup 의미 복원 · 1수신자 정확히 1건). enqueue 시점에 mentions.users 를
+   * 싣어 워커의 메시지 재조회를 피한다(이미 send tx 에서 mentions JSONB 로 저장됨).
+   */
+  mentionedUserIds: string[];
   /** mention.received outbox 의 snippet(작성 시점 본문 미리보기). */
   snippet: string;
   /** 본문/힌트의 @everyone 표식(outbox payload 정합). */

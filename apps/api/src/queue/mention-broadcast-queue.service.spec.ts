@@ -32,6 +32,7 @@ const baseData: MentionBroadcastJobData = {
   workspaceId: 'ws-1',
   actorId: 'author-1',
   gatedRoleIds: ['role-1', 'role-2'],
+  mentionedUserIds: [],
   snippet: 'hello @Designers',
   everyone: false,
   here: false,

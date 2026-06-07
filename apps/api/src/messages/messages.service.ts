@@ -2100,6 +2100,9 @@ export class MessagesService {
           workspaceId: args.workspaceId,
           actorId: args.authorId,
           gatedRoleIds,
+          // S88b cross-path dedup: 직접 @user 로 동기 발송 완료한 수신자(저장 mentions.users)를
+          // 워커가 역할 expand 에서 제외하도록 함께 싣는다(@user∪@role 양쪽 걸린 수신자 1건만).
+          mentionedUserIds: mentions.users,
           snippet: buildSnippet(args.content),
           everyone: mentions.everyone === true,
           here: mentions.here === true,

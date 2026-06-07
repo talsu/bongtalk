@@ -101,6 +101,7 @@ function job(
       workspaceId: 'ws-1',
       actorId: 'author-1',
       gatedRoleIds: ['role-1'],
+      mentionedUserIds: [],
       snippet: 'hi @Team',
       everyone: false,
       here: false,
@@ -137,6 +138,30 @@ describe('S88b MentionBroadcastProcessor (FR-MN-03 · FR-MN-19)', () => {
     await p.process(job());
     const createArg = m.createMany.mock.calls[0][0] as { data: Array<{ targetId: string }> };
     expect(createArg.data.map((r) => r.targetId)).toEqual(['u2']);
+  });
+
+  it('excludes recipients already directly @user-mentioned (cross-path dedup)', async () => {
+    // u1 은 @user 동기 경로가 이미 mention.received 1건 발송 완료(mentionedUserIds). 워커는
+    // @role expand 에서 u1 을 제외해 u2 만 기록 → u1 이 동기+async 로 2건 받지 않는다.
+    const m = makeMocks({ members: ['u1', 'u2'] });
+    const p = new MentionBroadcastProcessor(m.prisma, m.outbox, m.channelAccess);
+    await p.process(job({ mentionedUserIds: ['u1'] }));
+
+    const createArg = m.createMany.mock.calls[0][0] as { data: Array<{ targetId: string }> };
+    expect(createArg.data.map((r) => r.targetId)).toEqual(['u2']);
+    expect(m.record).toHaveBeenCalledTimes(1);
+    expect(m.record.mock.calls[0][1].payload.targetUserId).toBe('u2');
+    // 직접 멘션 수신자는 VIEW_CHANNEL 재검증 대상에서도 빠진다(불필요한 권한 조회 회피).
+    expect(m.hasPermission).not.toHaveBeenCalledWith(expect.anything(), 'u1', Permission.READ);
+  });
+
+  it('is a no-op when every role member was already directly @user-mentioned', async () => {
+    const m = makeMocks({ members: ['u1', 'u2'] });
+    const p = new MentionBroadcastProcessor(m.prisma, m.outbox, m.channelAccess);
+    await p.process(job({ mentionedUserIds: ['u1', 'u2'] }));
+    // 후보가 전부 직접 멘션 → expand 집합 공집합 → createMany/outbox 미호출.
+    expect(m.createMany).not.toHaveBeenCalled();
+    expect(m.record).not.toHaveBeenCalled();
   });
 
   it('skips VIEW_CHANNEL-invisible members on a private channel (no record/outbox)', async () => {

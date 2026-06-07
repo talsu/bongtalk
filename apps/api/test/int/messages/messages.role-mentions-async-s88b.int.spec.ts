@@ -18,7 +18,15 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Job } from 'bullmq';
 import request from 'supertest';
-import { MsgIntEnv, ORIGIN, bearer, seedMessageStack, signup, setupMsgIntEnv } from './helpers';
+import {
+  MsgIntEnv,
+  ORIGIN,
+  bearer,
+  seedMessageStack,
+  signup,
+  setupMsgIntEnv,
+  waitForMentionBroadcastDrain,
+} from './helpers';
 import { MentionBroadcastProcessor } from '../../../src/queue/mention-broadcast.processor';
 import type { MentionBroadcastJobData } from '../../../src/queue/mention-broadcast-queue.constants';
 
@@ -138,6 +146,11 @@ beforeEach(async () => {
   });
   await env.prisma.role.deleteMany({ where: { workspaceId: stack.workspaceId, isSystem: false } });
   await env.prisma.userChannelMute.deleteMany({});
+  // S88a 이관 케이스(MENTIONS-level direct)가 UserSettings.notifTrigger 를 변경하므로 초기화.
+  await env.prisma.serverNotificationPref.deleteMany({});
+  await env.prisma.userSettings.deleteMany({
+    where: { userId: { in: [memberB.userId, memberC.userId] } },
+  });
   const keys = await env.redis.keys('qufox:rl:mention:*');
   if (keys.length > 0) {
     await env.redis.del(...keys.map((k) => k.replace(/^qufox:/, '')));
@@ -196,6 +209,63 @@ describe('S88b private channel VIEW_CHANNEL re-check at job time (FR-MN-03 / B1)
   });
 });
 
+// S88a 에서 이관된 fanout(recipients) 케이스. @role fanout 이 async 로 옮겨졌으므로
+// send 응답이 아니라 워커 drain 후 MentionRecord/outbox 를 권위 단언한다(중복 제거).
+describe('S88b @role fanout — migrated from S88a (FR-MN-03 / D3·D4)', () => {
+  it('MENTION_EVERYONE 권한자(OWNER)의 non-mentionable 역할 멘션 → 게이트 통과 후 fanout', async () => {
+    const roleId = await createRole('Secret', false);
+    await assignRole(roleId, memberB.userId);
+
+    const msgId = await postMessage(stack.owner.accessToken, stack.channelId, 'team @Secret');
+    await waitForMentionBroadcastDrain(env.mentionBroadcastQueue);
+    await waitForRecords(msgId, 1);
+
+    // OWNER 가 non-mentionable 역할을 멘션하면 게이트 통과 → 워커가 역할 멤버(memberB) fanout.
+    expect(await recordTargets(msgId)).toEqual([memberB.userId]);
+    expect(await outboxTargets(msgId)).toEqual([memberB.userId]);
+  });
+
+  it('글로벌 MENTIONS 레벨 사용자도 역할 멘션을 수신(direct 분류)', async () => {
+    const roleId = await createRole('Engineers', true);
+    await assignRole(roleId, memberB.userId);
+    // memberB 글로벌 알림 레벨을 MENTIONS 로 설정(UserSettings.notifTrigger).
+    await env.prisma.userSettings.upsert({
+      where: { userId: memberB.userId },
+      create: { userId: memberB.userId, notifTrigger: 'MENTIONS' },
+      update: { notifTrigger: 'MENTIONS' },
+    });
+
+    const msgId = await postMessage(stack.owner.accessToken, stack.channelId, 'review @Engineers');
+    await waitForMentionBroadcastDrain(env.mentionBroadcastQueue);
+    await waitForRecords(msgId, 1);
+
+    // MENTIONS 레벨이어도 역할 멘션(direct)은 수신.
+    expect(await recordTargets(msgId)).toEqual([memberB.userId]);
+    expect(await outboxTargets(msgId)).toEqual([memberB.userId]);
+  });
+
+  it('@user ∪ @role cross-path dedup — 양쪽에 걸린 수신자는 정확히 1건(회귀 가드)', async () => {
+    const roleId = await createRole('Engineers', true);
+    await assignRole(roleId, memberB.userId);
+
+    // memberB 는 @user(동기 role=false)와 @role(async role=true) 양쪽에 걸린다. 워커가 직접
+    // @user 수신자를 expand 에서 제외해야(cross-path dedup) mention.received 가 정확히 1건이다.
+    const msgId = await postMessage(
+      stack.member.accessToken,
+      stack.channelId,
+      `@${memberB.username} also @Engineers`,
+    );
+    // 동기 @user outbox 1건은 즉시. async @role 잡까지 drain 한 뒤 회귀를 단언한다.
+    await waitForMentionBroadcastDrain(env.mentionBroadcastQueue);
+    // 잠시 더 대기해 워커가 (잘못) 두 번째 outbox 를 쓰지 않음을 확인.
+    await new Promise((r) => setTimeout(r, 300));
+
+    // 정확히 1건(2건이면 cross-dedup 회귀). @role MentionRecord 도 0(직접 멘션 수신자 제외).
+    expect(await outboxTargets(msgId)).toEqual([memberB.userId]);
+    expect(await recordTargets(msgId)).toEqual([]);
+  });
+});
+
 describe('S88b idempotency — re-processing the same job (FR-MN-19 / B4)', () => {
   it('a second worker pass inserts no new MentionRecord and emits no extra outbox', async () => {
     const roleId = await createRole('Engineers', true);
@@ -219,6 +289,7 @@ describe('S88b idempotency — re-processing the same job (FR-MN-19 / B4)', () =
         workspaceId: stack.workspaceId,
         actorId: stack.owner.userId,
         gatedRoleIds: [roleId],
+        mentionedUserIds: [],
         snippet: 'review @Engineers',
         everyone: false,
         here: false,
