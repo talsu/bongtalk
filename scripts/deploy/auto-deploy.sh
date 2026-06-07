@@ -1,47 +1,47 @@
 #!/usr/bin/env bash
-# Full production deploy, triggered by the webhook service. Reuses the
-# same compose file + env file as the manual scripts/prod-reload.sh so
-# the two paths are interchangeable (manual stays as an escape hatch).
+# Full production deploy, triggered by the webhook service (or run by hand).
+# REWRITTEN for the safe-deploy redesign — the production daemon NEVER builds.
+#
+# Pipeline:
+#   lock → breaker gate → fetch/checkout → build+push api,web (isolated
+#   builder → local registry) → one-shot prisma migrate → deploy-hook SQL →
+#   rollout api (pull+up+health, rollback on fail) → rollout web → smoke →
+#   record breaker result → post-deploy prune.
+#
+# WHY each guard exists: see scripts/deploy/build-and-push.sh (pillar A,
+# build isolation), scripts/deploy/breaker.sh (pillar B, retry-loop cap),
+# apps/api/Dockerfile (pillar C, no boot-time migrate), and
+# scripts/ops/btrfs-watchdog.sh + the prune step below (pillar D).
 #
 # Environment (provided by services/webhook via process env):
-#   DEPLOY_SHA      — commit SHA being deployed (optional, used for tags)
-#   DEPLOY_BRANCH   — branch name (for logs / notifications)
-#   DEPLOY_PUSHER   — GitHub username that triggered the push
-#   REPO_PATH       — absolute path to the repo on disk
+#   DEPLOY_SHA / DEPLOY_BRANCH / DEPLOY_PUSHER / REPO_PATH
 #
 # Exit codes:
 #   0  success
-#  75  could not acquire deploy lock (another deploy is active)
-#   1  rollout or migration failure (already rolled back)
+#  70  breaker OPEN — deploy refused (run reset-breaker.sh after a fix)
+#  75  could not acquire deploy lock (another deploy active)
+#   1  build / migration / rollout failure (rolled back; breaker incremented)
 #   2  unrecoverable (e.g. git fetch failed)
-
 set -euo pipefail
 
 REPO="${REPO_PATH:-$(cd "$(dirname "$0")/../.." && pwd)}"
 cd "$REPO"
 
-# task-016 ops fix-forward: the webhook container runs as root and
-# bind-mounts /volume2/dockers/qufox (admin:users on the host) as
-# /repo. Git >= 2.35 refuses `git fetch` inside such a tree unless
-# the path is explicitly marked safe (the "dubious ownership" error).
-# Mark it here at the top of the deploy so the setting survives
-# across the fetch/checkout block below. Scoped to this repo only.
+# Mark the bind-mounted repo safe for git (webhook runs as root over an
+# admin-owned tree); scoped to this repo only.
 git config --global --add safe.directory "$REPO" 2>/dev/null || true
-
-# Task-017-D: redirect OpenSSH's known_hosts writes to tmpfs so every
-# deploy log stops carrying
-#   "hostfile_replace_entries: mkstemp: Read-only file system"
-# (the deploy-key dir is bind-mounted :ro). Build-time seed lives at
-# /tmp/known_hosts-seed; the container's CMD copies it onto
-# /tmp/known_hosts at boot, so git's ssh only needs to point at it.
+# Redirect OpenSSH known_hosts writes to tmpfs (deploy-key dir is mounted :ro).
 export GIT_SSH_COMMAND="ssh -o UserKnownHostsFile=/tmp/known_hosts -o StrictHostKeyChecking=yes"
 
 # shellcheck source=/volume2/dockers/qufox/scripts/deploy/lock.sh
 . "$REPO/scripts/deploy/lock.sh"
+# shellcheck source=/volume2/dockers/qufox/scripts/deploy/breaker.sh
+. "$REPO/scripts/deploy/breaker.sh"
 
 SHA="${DEPLOY_SHA:-}"
 BRANCH="${DEPLOY_BRANCH:-main}"
 PUSHER="${DEPLOY_PUSHER:-unknown}"
+REGISTRY="${QUFOX_REGISTRY:-localhost:5050}"
 
 LOG_DIR="$REPO/.deploy/logs"
 mkdir -p "$LOG_DIR"
@@ -56,6 +56,16 @@ log "begin branch=$BRANCH sha=$SHA pusher=$PUSHER repo=$REPO log=$LOG_FILE"
 deploy::acquire_lock || exit $?
 trap 'deploy::release_lock' EXIT
 
+# --- 1.5 circuit breaker gate (pillar B) --------------------------------
+# Refuse to deploy a service whose breaker is open. This is what stops the
+# fix-forward → rebuild → fail → repeat loop that fed the runaway.
+for svc in api web; do
+  if breaker::is_open "$svc"; then
+    log "breaker OPEN for $svc — refusing deploy. Run: scripts/deploy/reset-breaker.sh $svc" >&2
+    exit 70
+  fi
+done
+
 # --- 2. fetch + checkout ------------------------------------------------
 if [[ -n "$SHA" ]]; then
   log "git fetch origin $BRANCH"
@@ -66,64 +76,48 @@ else
   log "no DEPLOY_SHA provided — building current checkout"
 fi
 
-# --- 3. db migrations (fail-abort keeps previous containers serving) ---
-#
-# DATABASE_URL is NOT overridden here: the qufox-api service in
-# docker-compose.prod.yml already defines it with $POSTGRES_PASSWORD
-# interpolated by compose itself (from --env-file .env.prod). The
-# previous shell-expansion override was broken because this script runs
-# inside the webhook container whose env comes from .env.deploy, so the
-# password was empty and every migration authentication-failed.
-log "run prisma migrate deploy"
-# Runtime image ships a global `prisma` CLI but NO `pnpm` (prod-only
-# slim). The earlier `pnpm --filter @qufox/api db:migrate` call was a
-# dev shape that crashed with "No such file or directory" on a real
-# webhook deploy. Overriding the entrypoint sidesteps the CMD's
-# `prisma migrate deploy && node dist/main.js` — we want only the
-# migrate half here, and node startup follows during the rollout.
-if ! docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml run --rm \
-      --entrypoint prisma qufox-api migrate deploy --schema=prisma/schema.prisma; then
+SHA_ARG="${SHA:-manual}"
+
+# --- 3. build + push images in the ISOLATED builder (pillar A) ----------
+# build-and-push.sh also preserves the current :latest as :prev for rollback.
+for svc in api web; do
+  log "build+push $svc (isolated builder → $REGISTRY)"
+  if ! bash "$REPO/scripts/deploy/build-and-push.sh" "$svc" "$SHA_ARG"; then
+    log "build+push $svc FAILED — aborting (previous containers still serving)" >&2
+    breaker::record_failure "$svc"
+    exit 1
+  fi
+done
+
+# --- 4. one-shot db migration with the NEW api image (pillar C) ---------
+# Migrations no longer run on container boot. Pull the freshly-built api
+# image and run `prisma migrate deploy` exactly once here; on failure the
+# currently-running containers keep serving and we abort before rollout.
+COMPOSE=(docker compose -p qufox --env-file .env.prod -f docker-compose.prod.yml)
+log "pull api image for migration"
+"${COMPOSE[@]}" pull qufox-api
+log "run prisma migrate deploy (one-shot)"
+if ! "${COMPOSE[@]}" run --rm --entrypoint prisma qufox-api \
+      migrate deploy --schema=prisma/schema.prisma; then
   log "migration failed — aborting deploy (previous containers still serving)" >&2
+  breaker::record_failure api
   exit 1
 fi
 
-# --- 3.5 deploy-hook SQL (task-016-A) ----------------------------------
-# Non-transactional DDL (CREATE INDEX CONCURRENTLY, REINDEX …) that
-# Prisma's transactional migrations can't host. Each file is expected
-# to be idempotent — `IF NOT EXISTS` for creates, `IF EXISTS` for
-# drops. Alphabetical run order means a new hook lands by file-drop,
-# no registration step. Failure aborts the deploy BEFORE the rollout;
-# `ON_ERROR_STOP=1` makes psql exit non-zero on the first SQL error so
-# we don't silently skip the rest. See docs/ops/runbook-deploy.md for
-# when to add a hook and what "idempotent" means in this context.
+# --- 4.5 deploy-hook SQL (non-transactional DDL) ------------------------
+# Each file must be idempotent (IF NOT EXISTS / IF EXISTS). Run via docker cp
+# + `psql -f` wrapped in `timeout` (the stdin-redirect form could hang after
+# psql finished and wedge the flock — see git history for the S73 incident).
 HOOK_DIR="$REPO/scripts/deploy/sql"
 HOOKS=()
-for f in "$HOOK_DIR"/*.sql; do
-  [[ -e "$f" ]] && HOOKS+=("$f")
-done
-# ops fix-forward (closes the S73 / a22a9c9 deploy-wedge incident): copy
-# each hook into the postgres container and run it via `psql -f` wrapped
-# in `timeout`, instead of piping the file through
-# `docker compose exec -T … < "$f"`. The stdin-redirect form
-# intermittently hangs AFTER psql has already finished — the compose-exec
-# hijacked stream does not always close on EOF — leaving auto-deploy.sh
-# blocked on the child forever while it STILL holds the deploy flock,
-# which silently wedges every subsequent deploy (both indexes were
-# already valid no-ops, so this was never a CREATE INDEX CONCURRENTLY /
-# idle-in-transaction stall as first suspected — it was the exec stream).
-# `docker cp` + `psql -f` removes the stdin pipe (the hang's root cause);
-# `timeout` bounds any residual hang so a stuck hook aborts the deploy
-# (flock released on EXIT trap) instead of hanging indefinitely. `psql -f`
-# keeps statement-at-a-time autocommit, so CREATE INDEX CONCURRENTLY still
-# runs outside a transaction exactly as the stdin form did.
+for f in "$HOOK_DIR"/*.sql; do [[ -e "$f" ]] && HOOKS+=("$f"); done
 HOOK_TIMEOUT="${DEPLOY_HOOK_TIMEOUT:-600}"
 if [[ "${#HOOKS[@]}" -gt 0 ]]; then
   for f in "${HOOKS[@]}"; do
     base="$(basename "$f")"
     log "deploy-hook SQL: $base"
     if ! docker cp "$f" qufox-postgres-prod:/tmp/qufox-deploy-hook.sql; then
-      log "deploy-hook SQL copy failed: $base — aborting" >&2
-      exit 1
+      log "deploy-hook SQL copy failed: $base — aborting" >&2; breaker::record_failure api; exit 1
     fi
     rc=0
     timeout "$HOOK_TIMEOUT" docker exec qufox-postgres-prod \
@@ -131,56 +125,46 @@ if [[ "${#HOOKS[@]}" -gt 0 ]]; then
       || rc=$?
     docker exec qufox-postgres-prod rm -f /tmp/qufox-deploy-hook.sql 2>/dev/null || true
     if [[ "$rc" -ne 0 ]]; then
-      if [[ "$rc" -eq 124 ]]; then
-        log "deploy-hook SQL timed out after ${HOOK_TIMEOUT}s: $base — aborting" >&2
-      else
-        log "deploy-hook SQL failed (rc=$rc): $base — aborting" >&2
-      fi
-      exit 1
+      [[ "$rc" -eq 124 ]] && log "deploy-hook SQL timed out after ${HOOK_TIMEOUT}s: $base — aborting" >&2 \
+                          || log "deploy-hook SQL failed (rc=$rc): $base — aborting" >&2
+      breaker::record_failure api; exit 1
     fi
   done
 else
   log "no deploy-hook SQL to run"
 fi
 
-# --- 4. rollout each service (each rolls back on its own health fail) --
+# --- 5. rollout each service (pull + up + health, rollback on fail) ------
 log "rollout api"
 if ! bash "$REPO/scripts/deploy/rollout.sh" api; then
   log "api rollout failed — already rolled back by rollout.sh" >&2
+  breaker::record_failure api
   exit 1
 fi
 
 log "rollout web"
 if ! bash "$REPO/scripts/deploy/rollout.sh" web; then
   log "web rollout failed — already rolled back by rollout.sh" >&2
-  log "note: api was swapped successfully, web is now pointing at :prev web" >&2
+  log "note: api swapped OK; web is now pointing at :prev web" >&2
+  breaker::record_failure web
   exit 1
 fi
 
-# --- 5. post-deploy smoke (cheap) --------------------------------------
+# --- 6. post-deploy smoke (cheap) --------------------------------------
 log "post-deploy smoke"
 curl -skf "${API_HEALTH_URL:-https://qufox.com/api/healthz}" >/dev/null && log "  api smoke OK"
 curl -skf "${WEB_HEALTH_URL:-https://qufox.com/}" -o /dev/null && log "  web smoke OK"
 
-# --- 6. gc old :sha-* tags ---------------------------------------------
-# Keep newest $KEEP :sha-* tags; prune the rest. `docker image ls` sorted
-# by CreatedAt DESC via the format string ensures the newest are first,
-# then `tail -n +$((KEEP+1))` drops the first $KEEP rows and emits the
-# rest (which are the older ones we want to prune). Busybox tail supports
-# `+N` so the pipeline works on alpine without coreutils.
-KEEP="${IMAGE_HISTORY_KEEP:-10}"
-for img in qufox/api qufox/web; do
-  mapfile -t stale < <(docker image ls --format '{{.CreatedAt}}\t{{.Tag}}' "$img" \
-    | awk '$2 ~ /^sha-/' \
-    | sort -r \
-    | awk '{print $2}' \
-    | tail -n +$((KEEP + 1)))
-  for t in "${stale[@]:-}"; do
-    [[ -z "$t" ]] && continue
-    log "gc $img:$t"
-    docker image rm "$img:$t" >/dev/null 2>&1 || true
-  done
-done
+# --- 7. record success (closes breaker, stamps sha) --------------------
+breaker::record_success api "$SHA_ARG"
+breaker::record_success web "$SHA_ARG"
+
+# --- 8. post-deploy prune (pillar D) -----------------------------------
+# Reclaim host graph (dangling pulled layers) and trim old registry sha-tags.
+# Build-cache pruning already happened inside build-and-push.sh.
+log "post-deploy prune"
+docker image prune -f >/dev/null 2>&1 || true
+[ "$SHA_ARG" != manual ] && bash "$REPO/scripts/deploy/registry-gc.sh" "${SHA_ARG:0:7}" >/dev/null 2>&1 || true
 
 log "deploy done sha=$SHA"
 exit 0

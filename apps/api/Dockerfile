@@ -43,4 +43,13 @@ RUN prisma generate --schema=prisma/schema.prisma
 RUN chmod -R a+rX /app
 EXPOSE 3001
 ENTRYPOINT ["/sbin/tini","--"]
-CMD ["sh","-c","prisma migrate deploy --schema=prisma/schema.prisma && node dist/main.js"]
+# Runtime is node ONLY. `prisma migrate deploy` was REMOVED from the boot
+# command on purpose (safe-deploy redesign pillar C): running migrations on
+# every container start meant a failed/slow migration crashed the process,
+# and `restart: unless-stopped` then re-ran the migration and crashed again —
+# an infinite crash loop that amplified the 2026-06 runaway. Migrations now
+# run exactly once per deploy as a one-shot pre-step in
+# scripts/deploy/auto-deploy.sh (`docker compose run --rm --entrypoint prisma
+# qufox-api migrate deploy`) BEFORE the new container is rolled out. The
+# image still ships the prisma CLI so that one-shot works.
+CMD ["node","dist/main.js"]
