@@ -2,9 +2,17 @@
 
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
-> **✅ D16(S84a/b/c)+FR-CH-16(S85)+FR-MN-15(S86)+FR-MN-18(S87) 완료·배포·LIVE.** `main=48859b3`·`develop=18f0dc4`(push·ls-remote 검증). **진행률 339/354 FR done.** 이번 세션 **6슬라이스 전부 prod LIVE.**
-> **다음 트랙**: FR-MN-03/19/21(@role·P0·大) · FR-RM10(AutoMod). 둘 다 빌드가능(외부 결정 불요).
+> **✅ D16(S84a/b/c)+FR-CH-16(S85)+FR-MN-15(S86)+FR-MN-18(S87) 완료·배포·LIVE.** `main=develop=ce8409b`(push·ls-remote 검증). **진행률 339/354 FR done.** 이번 세션 **6슬라이스 전부 prod LIVE.**
 >
+> ### ▶▶ 다음 작업 = @role 멘션 그룹 (FR-MN-03/19/21 · P0 · 새 세션 시작점)
+>
+> **계약 문서: `docs/tasks/062-s88-role-mentions.md` (먼저 정독 — 서브슬라이스 분할·PRD 요구·기존 인프라 맵 전부 거기).** 요지:
+> - **무엇**: `@role` 멘션 — 역할명 파싱→roleId→역할 멤버 전원에게 멘션 알림. 접근제어=MENTION_EVERYONE(0x80) 또는 `Role.mentionable`(신규 필드). PRD 는 **mention-broadcast BullMQ 큐**(idempotent job `mention:{messageId}:{targetId}`·잡 시점 VIEW_CHANNEL 재검증·online=Inbox만/offline=mention:new·비공개 채널 채널명/프리뷰 마스킹·이중 rate-limit 5/분·동일역할 10/5분) + @here SLO eval(P95 5s·k6/artillery)을 명시.
+> - **결정 필요(첫 세션에서 사용자에게 물을 것)**: PRD대로 **async BullMQ 풀 전체**(2~3 서브슬라이스·완성도↑·큼) vs **동기 fanout 먼저**(기존 @here/@everyone 동기 경로에 @role 얹어 바로 동작·BullMQ/MentionRecord/SLO 후속·S46 선례 deviation). [사용자가 이번 세션 끝에 미선택 — 새 세션에서 AskUserQuestion]
+> - **기존 인프라(재사용)**: `Role`(schema:1413 · **mentionable 필드 없음 → 추가 필요**) · `MemberRole`(역할→멤버 매핑) · 멘션 fanout `messages.service.ts:1464~1640`(현 @user/@here/@everyone 동기 fanout·1인당 mention.received outbox 1건·mute/DND/NotifLevel/OFF 게이트) · `mention.received`/`UserMention` outbox(aggregateType='UserMention') · mrkdwn `mention_role` AST 노드 존재하나 **`mentions` 요약(fanout 입력)엔 roles 없음 → 추출 추가 필요** · MENTION_EVERYONE 비트=0x80(channel-access.service `resolveMentionEveryone`/`resolveChannelEveryone`) · BullMQ 패턴=`apps/api/src/queue/reminder.processor.ts`+`queue.module.ts`(승인됨 [[project_bullmq_greenlight]]) · presence online 판정=`presence.service.ts` lastSeen · VIEW_CHANNEL 재검증=`channel-access.service.ts` · **MentionRecord 모델 없음 → 신규**.
+> - **마이그레이션 다음 번호**: `20260627000000_…`(20260626 다음).
+>
+
 > - **✅ S87(FR-MN-18 채널별 데스크톱/모바일 알림) LIVE** — FR-MN-18=done. `UserChannelMute.pushDesktop/pushMobile Boolean?`(null=글로벌 상속·`20260626`) + `classifyPushDevice(ua)`(보수적) + push.service.sendToUser device opts(ua 분류 필터) + push.processor 채널 effective per-device 산정 + web ChannelNotifSettings(채널 컨텍스트 메뉴→모달). feature-implementer+배선 후속 → reviewer fix-forward(MEDIUM-1 카테고리 bulk 가 push 오버라이드 보존). verify green(web 1717) · int 20/20 실DB. LIVE: `/readyz=200`·prod 컬럼 2개.
 > - **✅ S86(FR-MN-15 Web Push VAPID) LIVE** — FR-MN-15=done. `PushSubscription`(endpoint @unique·`20260625`) + push.ts(SSRF allowlist) + PushController(vapid-public-key·구독 upsert/해제) + PushService(sendToUser·410/404 GC·graceful no-op) + push-send BullMQ 큐/프로세서(지연·DND/mute/NotifLevel/read/멤버십 재게이트) + onMentionEvent enqueue + Service Worker + 권한 UX. **VAPID 키 3개 `.env.prod` 설정완료(사용자)·api 컨테이너 주입 확인(87자)** → prod push 실동작. feature-implementer 구현 → reviewer fix-forward(MAJOR SSRF allowlist·MEDIUM-2 멤버십 재검증). verify green(web 1710) · int 7/7 실DB. LIVE: `/readyz=200`·vapid-public-key 401·prod 테이블·env 주입.
 > - **✅ S85(FR-CH-16 사이드바 개인 섹션) LIVE** — FR-CH-16=done. `UserSidebarSection`+`UserSidebarChannelAssignment`(@@unique[userId,channelId]) + enum `SidebarSectionSortMode`(마이그레이션 `20260624000000`) + sidebar-sections service/controller(favorites 패턴·calcBetween·개인 스코프·WorkspaceMemberGuard) + web SidebarSections.tsx(dnd-kit 2계층 드래그·ChannelList 통합). feature-implementer 구현 → reviewer **approve** + 1 fix-forward(LOW-1 moveChannel workspace 스코프). verify green(web 1693·2 flaky 재실행 통과) · int 4/4 실DB. LIVE: `/readyz=200`·prod 테이블 2개·라우트 401.
