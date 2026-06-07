@@ -335,3 +335,61 @@ FR-MN-19=done·FR-MN-03 partial→done(async 이관 완료 시) · verify green 
   transactional-outbox 이관(@role 도 tx 내 마커 → relay 가 enqueue)은 후속 과제로 둔다.
 - **(LOW)** `MentionRecord.channelId` FK 부재(채널 hard-delete orphan) → 미배포 마이그레이션(신규 테이블)이라 cheap
   하므로 `MentionRecord_channelId_fkey`(CASCADE) 를 같은 마이그레이션/스키마에 추가(orphan 원천 제거).
+
+---
+
+## ▶ S88c 구현 결정 (ADR · 2026-06-08 · FR-MN-21 @here SLO eval · UNDERSTAND wf_4d564517)
+
+> S88c = @here fanout SLO eval. 자율 결정(사용자 "계속 자율"): 헤드라인 A/B(B)는 S88a 서 확정됨.
+
+### C1 — @here 는 동기 유지(async 이관 안 함)
+
+@here/@everyone/@channel 은 현재 동기 fanout(tx 내 outbox→subscriber→WS)로 이미 빠르다(NFR P95<200ms 대상).
+async 이관은 무이득+회귀위험 → **유지**. FR-MN-21 의 "BullMQ job latency prom 연동" 은 **@role async 경로의
+`bullmq_job_duration_seconds{queue=mention-broadcast}`(S88b 추가)** 메트릭을 eval 이 함께 리포트해 충족.
+
+### C2 — 리포 soak 하니스 패턴 재사용(k6/artillery 신설 안 함)
+
+PRD 문구 "k6/artillery" 대신 **리포의 `evals/soak/` 패턴(node + socket.io-client + REST 헬퍼)** 재사용.
+근거: k6/artillery 미설치·CLAUDE.md self-hosted/NAS-only 원칙·기존 soak 하니스와 일관. **deviation 문서화.**
+신규 `evals/perf/mention-fanout-slo.ts`(집중 SLO 측정) + `pnpm perf:mention-slo` 스크립트.
+
+### C3 — 측정 시나리오(client-side end-to-end P95)
+
+1. `CONN_COUNT`(기본 100) 유저 signup/login(soak 헬퍼 패턴) → 워크스페이스 1 + TEXT 채널 1 → 전원 가입/채널 접근.
+2. N개 `socket.io-client` WS 연결 + 채널 room join + `CONNECTION_READY` 대기(전원 online-in-channel).
+3. 1명이 `@here` 메시지 1건 POST → 각 클라가 `mention:new`(또는 message:created+mention) 수신 시각 기록.
+4. **send 시각 ~ 각 수신 시각 분포의 P95 < 5초** assert(헤드라인 SLO). 도달률(수신/대상)도 리포트.
+5. `PROMETHEUS_URL` 있으면 `histogram_quantile(0.95, bullmq_job_duration_seconds{queue="mention-broadcast"})`
+   질의해 @role async job latency P95 도 리포트(FR-MN-21 BullMQ 연동).
+
+- env: `CONN_COUNT`/`BASE_URL`/`SOAK_ORIGIN`/`PROMETHEUS_URL`/`SLO_P95_MS`(기본 5000)/`PERF_CLEANUP`(기본 true=생성
+  워크스페이스 삭제). exit code: P95 위반 시 1(eval DoD 채점 가능).
+
+### C4 — eval task + 검증
+
+- `evals/tasks/mention-fanout-slo.yaml`(run.ts 스키마 id/title/goal/dod). dod: ① evals typecheck/lint green ②
+  `evals/perf/mention-fanout-slo.ts` 존재 + `@here`/`mention:new` 참조 ③ `pnpm eval` dry-run 이 YAML 검증.
+- evals/ typecheck-clean(verify graph 영향 없게). **앱 코드(apps/api) 무변경**(새 메트릭 불요·기존 재사용)→마이그레이션 없음.
+- 검증: 메인루프가 **소규모 smoke**(`CONN_COUNT=5 PERF_CLEANUP=true` against prod stack·생성 ws 삭제)로 하니스
+  end-to-end 동작 + P95 측정 확인. **풀 100-user 런은 on-demand**(prod 부하 회피·문서화).
+
+### Acceptance (S88c)
+
+FR-MN-21=done · evals/perf 러너 + task YAML 작성 + evals typecheck green + 소규모 smoke(P95 측정 동작) green +
+reviewer 통과 · handoff/fr-matrix 갱신 → **@role 그룹(FR-MN-03/19/21) 전체 종료**.
+
+### C5 — SLO 하니스 게이트 견고화(2026-06-08 · evals/ 만·앱 무변경)
+
+검증: frozen-lockfile 일관성 green · evals typecheck green · prod smoke 는 이메일 게이트(S66 `EMAIL_NOT_VERIFIED`)로
+self-bootstrap 불가(= 올바른 앱 동작) → 테스트 스택/PERF_REUSE on-demand. soak 와 동일 제약. 소규모 smoke 가 prod 대상
+signup→workspace 생성에서 `403 EMAIL_NOT_VERIFIED`(이메일 인증 게이트)로 막힌 것을 근본 제약으로 확인하고, 순수 HTTP
+부하 하니스가 게이트 스택에서 self-bootstrap 못함을 문서화·견고화함. 변경(`evals/perf/mention-fanout-slo.ts` +
+`evals/tasks/060-mention-fanout-slo.yaml`): ① graceful preflight — signup-bootstrap 이 게이트(또는 4xx·도달
+불가)에 막히면 크래시 대신 안내 메시지 + distinct exit code(2)로 종료(운영자가 "테스트 스택 또는 PERF_REUSE 필요" 를 즉시
+인지). ② PERF_REUSE 모드(옵셔널) — `PERF_REUSE=1` 일 때 signup 생략, `PERF_OWNER_TOKEN`(또는
+`PERF_OWNER_EMAIL`+`PERF_OWNER_PASSWORD`) + `PERF_WORKSPACE_ID` + `PERF_CHANNEL_ID` +
+`PERF_ACCOUNTS_FILE`(JSON `[{email,password}]`) 로 사전검증 계정/기존 워크스페이스를 재사용(생성·CLEANUP 생략)해
+이메일 게이트 스택(prod 포함)에서도 측정 가능. 두 경로 모두 WS 연결→채널 join→@here→`mention:new` P95 측정은 동일.
+옵셔널 env 누락 시 네트워크 호출 전에 명확한 에러. tsx graceful 확인: 죽은 BASE_URL/게이트 mock → preflight 메시지 +
+exit 2(크래시 없음), PERF_REUSE=1 + 필수 env 누락 → 명확 에러 + exit 1.
