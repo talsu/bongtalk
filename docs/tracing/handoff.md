@@ -1,12 +1,11 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-08 · S88a 동기 @role 코어 완료·검증 green)
+> ## ▶ 현재 재개 지점 (2026-06-08 · S88a 동기 @role 코어 LIVE)
 >
-> **✅ S88a(@role 동기 fanout·FR-MN-03 partial) 코드완료 + verify green + int green.** 사용자 **B(동기 우선)** 선택. `feat/s88a-role-mentions`(c649df0→HEAD) 6커밋: 구현 `527218e` → 7차원 adversarial 리뷰 fix-forward `4ac027f`(BLOCKER 2/HIGH 9 시정) → 테스트 안정화 3건. **게이트: `pnpm verify` 19/19 green(node20 단독·web 1729) + int 18/18(messages role-mentions 7 + roles 11·실DB testcontainers·migration 20260627 적용).** 직전 LIVE `main=develop=c649df0`(아직 S88a 미배포).
+> **✅ S88a(@role 동기 fanout·FR-MN-03 partial) 완료·배포·LIVE.** 사용자 **B(동기 우선)** 선택. `feat/s88a-role-mentions` 6커밋: 구현 `527218e` → 7차원 adversarial 리뷰 fix-forward `4ac027f`(BLOCKER 2/HIGH 9 시정) → 테스트 안정화 3건. **게이트: `pnpm verify` 19/19 green(node20 단독·web 1729) + int 18/18(messages role-mentions 7 + roles 11·실DB testcontainers).** **수동배포 완료(승인): migration `20260627` prod 적용(`Role.mentionable`)·api/web rollout `/readyz=200`·smoke OK.** `main=692a0ed`(머지커밋)·`develop=2d957e8`(push·ls-remote 검증). **진행률 341/354 done + FR-MN-03 partial.**
 >
-> ### ▶▶ 다음 작업 = **S88a 수동 배포 승인 대기** → 그 후 S88b/S88c
+> ### ▶▶ 다음 작업 = **S88b (MentionRecord + BullMQ async·FR-MN-19)** → S88c
 >
-> - **즉시**: S88a 를 develop→main 머지·push 후 **수동 배포(auto-deploy.sh·승인 후)** → `/readyz=200` + prod `Role.mentionable` 컬럼 검증. webhook 자동배포 OFF.
 > - **S88b (FR-MN-19·todo)**: `MentionRecord` 모델 + mention-broadcast **BullMQ** 워커(concurrency10·idempotent job `mention:{messageId}:{targetId}`·잡시점 VIEW_CHANNEL 재검증·online=Inbox/offline=mention:new·비공개 마스킹·retry3+Inbox 실패알림·prom 메트릭). @role(+선택 @here) fanout 을 워커로 이관. **마이그레이션 다음 = `20260628…`.** FR-MN-03 의 online/offline 이중전달·private masking·MentionRecord 부분이 여기로 이관됨(그래서 FR-MN-03=partial).
 > - **S88c (FR-MN-21·todo)**: `evals/tasks/mention-fanout-slo.yaml` + k6/artillery(ONLINE 100명 @here P95 5s) + BullMQ latency prom.
 > - **S88a 잔여 defer(062 문서화·S88b 권장)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip(user `@{id}` 선례 일관).
