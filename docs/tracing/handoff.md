@@ -2,13 +2,14 @@
 
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
-> **다음 슬라이스 = S84b(FR-RC12 rich embed 배열)** → 이어서 S84c(FR-RC19 링크프리뷰 전역 비활성화) → slice-backlog 다음(잔여 ~16 FR).
-> **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) 완료·배포·LIVE** — `develop=main=8aa1af8`(push·ls-remote 검증). FR-RC11=done.
+> **다음 슬라이스 = S84c(FR-RC19 링크프리뷰 전역 비활성화)** → slice-backlog 다음(잔여 ~15 FR).
+> **✅ S84b(FR-RC12 봇/웹훅 rich embed 배열) 완료·배포·LIVE** — `main=7c2d8f0`·`develop=f4e9c3b`(push·ls-remote 검증). FR-RC12=done.
 >
-> - 구현: WebhooksService(create/list/rotate/revoke/verifyAndPost) + 관리/인커밍 2컨트롤러(@Roles ADMIN / @Public 토큰인증) + 토큰 crypto util + `MessagesService.createBotMessage` + read-path SELECT 봇필드 + shared-types webhook.ts/MessageDto(authorType/botUsername/botAvatarUrl **optional**) + web MessageItem BOT 배지/override.
-> - reviewer(adversarial) 6 fix-forward: **HIGH-1 폐기-oracle**(revoke 검사를 토큰 검증 뒤로) · MEDIUM-3 postUrl 토큰쿼리 제거 · LOW-5 삭제시 botAvatarUrl 마스킹 · LOW-6 avatar_url http(s) scheme 제한(SSRF) · LOW-7 per-IP rate-limit · NIT-8 GET 목록 ADMIN 게이트. (MEDIUM-4 authorType optional 은 의도적 유지 — 기존 MessageDto 리터럴 15+ 무회귀.)
-> - 검증: `pnpm verify`(node20 컨테이너) green(무관 flaky `VerifyEmailLanding` document.title 1건 — 단독 4/4 통과) · 실DB 통합 `webhooks-s84a.int.spec.ts` **12/12 GREEN**(토큰해시·INVALID/REVOKED·oracle차단·rotate·예약어422·cross-ws404·list멤버403·BOT authorType·lastUsedAt).
-> - **✅ 배포 완료·LIVE(사용자 승인 후 수동 배포)**: `auto-deploy.sh`(DEPLOY_SHA 없음=현재 checkout 8aa1af8 빌드·격리 빌더→localhost:5050) → 마이그레이션 `20260621000000_s84a_incoming_webhook` prod 적용("All migrations successfully applied") → rollout api/web healthy(/readyz 120s 게이트 통과) → smoke OK → deploy done(exit 0). **LIVE 검증**: `/api/readyz=200` · `POST /api/webhooks/<uuid>` 잘못된 토큰 → 403 `WEBHOOK_INVALID_TOKEN`(라우트 등록·토큰 게이트·oracle 차단 정상). webhook 자동배포 컨테이너 미실행=OFF.
+> - 구현: `Message.richEmbeds Json?`(마이그레이션 `20260622000000`) + shared-types `rich-embed.ts`(RichEmbedSchema·캡·isRenderable·normalizeColor·**combined 6000자 캡**) + IncomingWebhookPayload `embeds[]`(content|embeds refine·embed-only 허용) + MessageDto/events `richEmbeds` optional + `createBotMessage` JSON 저장·WS 전파 + verifyAndPost embed 정규화 + toDto/rawList/thread SELECT(삭제시 [] 마스킹) + web `RichEmbed.tsx`(.qf-embed·color border-left·isSafeLinkUrl deep-defense·DS qf-embed--image·DS 4파일 미수정).
+> - 보안: 모든 embed URL http(s)만(SSRF) · color hex 정규식 · combined 6000자 캡(DoS/WS fanout). reviewer **approve**(BLOCKER/HIGH 0) + 2 fix-forward(LOW-1 content:"" embed-only · LOW-2 byte 캡).
+> - 검증: `pnpm verify`(node20) green(무관 flaky `ImageMosaicGrid` 1건 — 단독 21/21 통과) · 실DB 통합 `webhooks-s84a.int.spec.ts` **14/14 GREEN**(+embed 저장·color 정규화·빈embed 제거·embed-only·unsafe URL 400). 배포: `auto-deploy.sh` manual → 마이그레이션 `20260622` prod 적용 → rollout healthy → smoke OK(exit 0). LIVE: `/readyz=200` · embed payload 라우트 게이트 정상 · prod `Message.richEmbeds` 컬럼 존재.
+>
+> ─ 이전: **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) LIVE** — FR-RC11=done. WebhooksService(create/list/rotate/revoke/verifyAndPost) + 관리/인커밍 2컨트롤러(@Roles ADMIN / @Public 토큰인증) + 토큰 crypto(sha256·timingSafeEqual) + createBotMessage + web BOT 배지/override. reviewer 6 fix-forward(HIGH-1 폐기-oracle·MEDIUM-3 postUrl·LOW-5 botAvatar 마스킹·LOW-6 SSRF·LOW-7 IP rate-limit·NIT-8 목록 ADMIN). 마이그레이션 `20260621000000`. int 12/12.
 >
 > **⚠️ 인프라 변경(디스크 복구로 인한):**
 >
