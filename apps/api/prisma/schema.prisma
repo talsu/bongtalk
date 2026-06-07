@@ -331,22 +331,22 @@ model UserNotificationPreference {
 // 만료된 row 는 cleanup job 없이 query 시 (mutedUntil > now) 필터로 제외.
 // (userId, channelId) 가 unique — 한 채널은 1 행만.
 model UserChannelMute {
-  id         String      @id @default(uuid()) @db.Uuid
-  userId     String      @db.Uuid
-  channelId  String      @db.Uuid
-  mutedUntil DateTime?   @db.Timestamptz
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @db.Uuid
+  channelId   String      @db.Uuid
+  mutedUntil  DateTime?   @db.Timestamptz
   // S46 (D06 / FR-MN-07): 채널 단위 알림 레벨 오버라이드. null = 서버
   // (ServerNotificationPref) 상속(additive — 기존 row 는 NULL=상속이라 무회귀).
   // PRD ChannelNotificationPref 별도 테이블 대신 기존 UserChannelMute 에 level
   // 컬럼만 더해 S43 뮤트 UI·S22 사이드바·멘션 fanout 무교란을 노린 deviation 이다.
-  level      NotifLevel?
+  level       NotifLevel?
   // S46 fix-forward (BLOCKER 3): 채널 뮤트 여부를 mutedUntil 과 분리한 명시 축.
   // 활성 뮤트 = isMuted && (mutedUntil null=영구 | mutedUntil>now). 이전에는
   // mutedUntil=null 이 "영구 뮤트"·"레벨전용 비뮤트(level 만 오버라이드)" 양쪽을
   // 뜻해 {level:ALL,isMuted:false} 가 채널 영구 차단으로 오작동했다(서버
   // ServerNotificationPref.isMuted 와 대칭). 마이그레이션이 기존 S43 뮤트 행을
   // isMuted=true 로 backfill 한다(무회귀).
-  isMuted    Boolean     @default(false)
+  isMuted     Boolean     @default(false)
   // S87 (FR-MN-18): 채널별 데스크톱/모바일 push 독립 토글. null = 글로벌
   // (UserSettings.notifDesktop/notifMobile) 상속(additive — 기존 row 는 NULL=상속이라
   // 무회귀). effective 산정은 push.processor 가
@@ -355,8 +355,8 @@ model UserChannelMute {
   // DND/read 게이트는 그대로 — 통과 후 device 분배만 좁힌다).
   pushDesktop Boolean?
   pushMobile  Boolean?
-  createdAt  DateTime    @default(now())
-  updatedAt  DateTime    @updatedAt
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
 
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
@@ -407,8 +407,8 @@ model UserSidebarSection {
   createdAt   DateTime               @default(now())
   updatedAt   DateTime               @updatedAt
 
-  user        User                            @relation(fields: [userId], references: [id], onDelete: Cascade)
-  workspace   Workspace                       @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  user        User                           @relation(fields: [userId], references: [id], onDelete: Cascade)
+  workspace   Workspace                      @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   // 섹션 삭제 시 할당 행도 함께 정리(아래 모델의 section FK 가 Cascade).
   assignments UserSidebarChannelAssignment[]
 
@@ -493,29 +493,31 @@ model SavedMessage {
 // ReminderProcessor 가 jobData 형태로 라우팅을 분기한다. bullJobId 는 등록한 잡 id 사본(취소
 // 시 BullMQ remove 키). null = 잡 미등록(스케줄 실패 best-effort).
 model Reminder {
-  id           String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String         @db.Uuid
+  id             String         @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId         String         @db.Uuid
   // 발화 시 내비게이션할 채널(예약 시점의 채널). 채널 hard-delete 시 SetNull → 토스트는
   // 채널 링크 없이 표시된다(발화 자체는 막지 않음).
-  channelId    String?        @db.Uuid
+  channelId      String?        @db.Uuid
   // @person remind(FR-SC-06 확장)용 컬럼만 선반영 — 본 슬라이스는 기능 DEFER(항상 발신자
   // 본인에게 발화). 신규 슬라이스가 마이그레이션 없이 FK·핸들러만 더하면 되게 둔다.
-  targetUserId String?        @db.Uuid
-  message      String         @db.VarChar(500)
-  scheduledAt  DateTime       @db.Timestamptz
+  targetUserId   String?        @db.Uuid
+  message        String         @db.VarChar(500)
+  scheduledAt    DateTime       @db.Timestamptz
   // 등록한 BullMQ 잡 id(`reminder:{id}`). null = 미등록. DELETE/취소 시 remove 키.
-  bullJobId    String?
+  bullJobId      String?
   // S80 reviewer H1 fix: execute 멱등키(uuid). 동일 (userId, idempotencyKey) 재시도는
   // 새 Reminder/잡을 만들지 않고 기존 행을 반환한다(Redis slash-idem 의 read-then-write
   // race 가 뚫려도 DB UNIQUE 가 2차 방어 — IN_CHANNEL 의 send UNIQUE 와 동급). REST 직접
   // 생성(createFromNaturalLanguage)은 키 없이 NULL(Postgres NULL distinct → 충돌 없음).
-  idempotencyKey String?      @db.Uuid
-  status       ReminderStatus @default(PENDING)
-  createdAt    DateTime       @default(now()) @db.Timestamptz
+  idempotencyKey String?        @db.Uuid
+  status         ReminderStatus @default(PENDING)
+  createdAt      DateTime       @default(now()) @db.Timestamptz
 
   user    User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   channel Channel? @relation(fields: [channelId], references: [id], onDelete: SetNull)
 
+  // S80 reviewer H1 fix: /remind 멱등 dedup(부분 NULL 은 Postgres 가 distinct 처리).
+  @@unique([userId, idempotencyKey])
   // 사용자별 상태/시각 목록 조회 + bootstrap 복구 스캔(PENDING·scheduledAt 정렬).
   @@index([userId, status, scheduledAt])
   // bootstrap 복구가 PENDING·scheduledAt>now 전수 스캔할 때의 보조 인덱스.
@@ -523,8 +525,6 @@ model Reminder {
   // S80 perf fix: recoverPending 의 WHERE status='PENDING' ORDER BY scheduledAt 를
   // status-first 로 직접 서빙(userId-first 복합 인덱스는 status-only 스캔에 비효율).
   @@index([status, scheduledAt])
-  // S80 reviewer H1 fix: /remind 멱등 dedup(부분 NULL 은 Postgres 가 distinct 처리).
-  @@unique([userId, idempotencyKey])
 }
 
 model User {
@@ -641,15 +641,15 @@ model User {
   createdAt                   DateTime           @default(now())
   updatedAt                   DateTime           @updatedAt
 
-  ownedWorkspaces               Workspace[]                  @relation("WorkspaceOwner")
+  ownedWorkspaces               Workspace[]                    @relation("WorkspaceOwner")
   memberships                   WorkspaceMember[]
   // S69 (D13 / FR-W10): 이 사용자가 초대한 멤버들(초대자 표시 조인의 역방향).
-  invitedMembers                WorkspaceMember[]            @relation("WorkspaceMemberInviter")
+  invitedMembers                WorkspaceMember[]              @relation("WorkspaceMemberInviter")
   messages                      Message[]
-  incomingWebhooks              IncomingWebhook[]            @relation("IncomingWebhookCreator")
-  invitesCreated                Invite[]                     @relation("InviteCreator")
+  incomingWebhooks              IncomingWebhook[]              @relation("IncomingWebhookCreator")
+  invitesCreated                Invite[]                       @relation("InviteCreator")
   // S68 (D13 / FR-W04·W18): 이 사용자가 보낸 이메일 보류 초대들(생성자 표시·목록 조인).
-  pendingInvitesCreated         WorkspacePendingInvite[]     @relation("WorkspacePendingInviteInviter")
+  pendingInvitesCreated         WorkspacePendingInvite[]       @relation("WorkspacePendingInviteInviter")
   refreshTokens                 RefreshToken[]
   // S66 (D13 / FR-W05b): 이메일 인증 토큰들. onDelete Cascade(계정 삭제 시 정리).
   emailVerificationTokens       EmailVerificationToken[]
@@ -672,34 +672,34 @@ model User {
   // S85 (FR-CH-16): 사이드바 개인 섹션 + 채널 할당. onDelete Cascade.
   sidebarSections               UserSidebarSection[]
   sidebarChannelAssignments     UserSidebarChannelAssignment[]
-  friendshipsRequested          Friendship[]                 @relation("FriendshipRequester")
-  friendshipsReceived           Friendship[]                 @relation("FriendshipAddressee")
-  customEmojis                  CustomEmoji[]                @relation("CustomEmojiCreator")
+  friendshipsRequested          Friendship[]                   @relation("FriendshipRequester")
+  friendshipsReceived           Friendship[]                   @relation("FriendshipAddressee")
+  customEmojis                  CustomEmoji[]                  @relation("CustomEmojiCreator")
   // S42 (FR-EM05 / FR-PK03): 별칭 생성 이력 + 사용자 이모지 선호(1:1).
-  customEmojiAliases            CustomEmojiAlias[]           @relation("CustomEmojiAliasCreator")
+  customEmojiAliases            CustomEmojiAlias[]             @relation("CustomEmojiAliasCreator")
   emojiPreference               UserEmojiPreference?
   threadSubscriptions           ThreadSubscription[]
   // S36 (D04·D09 / FR-RS-12 / FR-TH-11/12): 스레드별 읽음 커서. 채널 미읽과
   // 독립적으로 추적한다.
   threadReadStates              ThreadReadState[]
   // S19 (FR-DM-08/09): 본인이 owner 인 그룹 DM 채널. onDelete SET NULL.
-  ownedChannels                 Channel[]                    @relation("ChannelOwner")
+  ownedChannels                 Channel[]                      @relation("ChannelOwner")
   // S51 (D10 / FR-PS-07): 본인이 개인 저장함에 담은 메시지들. onDelete Cascade.
   savedMessages                 SavedMessage[]
   // S80 (D15 / FR-SC-06): 본인이 /remind 로 만든 리마인더들. onDelete Cascade.
   reminders                     Reminder[]
   // S64 fix-forward (security A-6 = MEDIUM-2): 본인이 제출한 메시지 신고들. 계정
   // 하드삭제 시 ON DELETE SET NULL 로 reporterId 가 null 화되어 익명화된다(행 보존).
-  moderationReportsFiled        ModerationReport[]           @relation("ModerationReportReporter")
+  moderationReportsFiled        ModerationReport[]             @relation("ModerationReportReporter")
   // S70 (D13 / FR-W06): 본인이 제출한 가입 신청들. 계정 삭제 시 Cascade.
-  workspaceApplications         WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationApplicant")
+  workspaceApplications         WorkspaceMemberApplication[]   @relation("WorkspaceMemberApplicationApplicant")
   // S70 (D13 / FR-W06): 본인이 검토(승인/거절/인터뷰)한 가입 신청들. 계정 삭제 시 SetNull.
-  workspaceApplicationsReviewed WorkspaceMemberApplication[] @relation("WorkspaceMemberApplicationReviewer")
+  workspaceApplicationsReviewed WorkspaceMemberApplication[]   @relation("WorkspaceMemberApplicationReviewer")
   // S74 (D14 / FR-PS-06): 워크스페이스별 프로필 오버라이드들. 계정 삭제 시 Cascade.
   workspaceMemberProfiles       WorkspaceMemberProfile[]
   // S81c (D15 / FR-SC-09): 본인이 등록한 워크스페이스 커스텀 슬래시 커맨드들. 계정 하드삭제 시
   // SetNull(커맨드는 워크스페이스 자산이라 행 보존 — createdBy 만 null 화).
-  slashCommandsCreated          SlashCommand[]               @relation("SlashCommandCreator")
+  slashCommandsCreated          SlashCommand[]                 @relation("SlashCommandCreator")
   // S86 (FR-MN-15): Web Push(VAPID) 구독들(브라우저/기기별). 계정 삭제 시 Cascade.
   pushSubscriptions             PushSubscription[]
 
@@ -951,6 +951,8 @@ model Workspace {
   // 이 관계는 워크스페이스 커스텀 전용이다(S81 CRUD 가 채운다).
   slashCommands           SlashCommand[]
   incomingWebhooks        IncomingWebhook[]
+  // S88b (FR-MN-19 / FR-MN-03): 이 워크스페이스의 @role 멘션 전달 로그. onDelete Cascade.
+  mentionRecords          MentionRecord[]
 
   @@index([ownerId])
   @@index([deletedAt])
@@ -1303,12 +1305,12 @@ model Channel {
   createdAt         DateTime    @default(now())
   updatedAt         DateTime    @updatedAt
 
-  workspace                Workspace?                  @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+  workspace                Workspace?                     @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   // S65 (D13 / FR-W19): 이 채널을 기본 채널로 가리키는 워크스페이스(역참조). 채널
   // hard-delete 시 그 쪽 FK 가 SetNull 로 끊긴다(Workspace.defaultChannel).
-  defaultForWorkspaces     Workspace[]                 @relation("WorkspaceDefaultChannel")
-  category                 Category?                   @relation(fields: [categoryId], references: [id], onDelete: SetNull)
-  owner                    User?                       @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  defaultForWorkspaces     Workspace[]                    @relation("WorkspaceDefaultChannel")
+  category                 Category?                      @relation(fields: [categoryId], references: [id], onDelete: SetNull)
+  owner                    User?                          @relation("ChannelOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   messages                 Message[]
   incomingWebhooks         IncomingWebhook[]
   attachments              Attachment[]
@@ -1325,10 +1327,13 @@ model Channel {
   moderationReports        ModerationReport[]
   // S71 (D13 / FR-W09): 이 채널을 웰컴 입장 메시지 채널로 가리키는 웰컴 설정(역참조).
   // 채널 하드삭제 시 그 쪽 FK 가 SetNull 로 끊긴다(WorkspaceWelcome.welcomeChannel).
-  welcomeForWorkspaces     WorkspaceWelcome[]          @relation("WorkspaceWelcomeChannel")
+  welcomeForWorkspaces     WorkspaceWelcome[]             @relation("WorkspaceWelcomeChannel")
   // S80 (D15 / FR-SC-06): 이 채널을 발화 컨텍스트로 가리키는 /remind 리마인더들(역참조).
   // 채널 하드삭제 시 Reminder.channelId 가 SetNull 로 끊긴다(발화는 채널 링크 없이 진행).
   reminders                Reminder[]
+  // S88b 리뷰 fix-forward(LOW): 이 채널의 @role 멘션 전달 로그(역참조). 채널 하드삭제 시
+  // MentionRecord.channelId FK CASCADE 로 함께 정리(orphan 방지).
+  mentionRecords           MentionRecord[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
@@ -1454,6 +1459,45 @@ model MemberRole {
   @@id([workspaceId, userId, roleId])
   @@index([roleId])
   @@index([workspaceId, userId])
+}
+
+// S88b (D ADR B3 / FR-MN-19 · FR-MN-03): 멘션 전달 로그 + 멱등 게이트.
+//
+// mention-broadcast BullMQ 워커가 `@<RoleName>` 멘션을 역할 멤버로 expand 한 뒤,
+// VIEW_CHANNEL 가시 멤버마다 1행을 멱등 INSERT 한다(`@@unique([messageId, targetId,
+// targetType])` + ON CONFLICT DO NOTHING). 신규 삽입된 행에 한해서만 워커가
+// mention.received outbox 를 1건 기록하므로(retry/재시작 재처리에도 1행·outbox 0
+// 중복), 멱등 보장의 단일 출처다. @user 동기 fanout 은 기존 Message.mentions JSONB
+// 경로를 그대로 쓰며 MentionRecord 를 만들지 않는다(@role 워커 전용 전달 로그 —
+// 읽기 경로 전환/backfill 은 후속). FK CASCADE: 메시지/워크스페이스 hard-delete 시
+// 함께 정리. targetType 은 enum(USER 만 사용 · ROLE 예약) — @role 은 워커가 멤버로
+// expand 해 targetType=USER · targetId=userId 로 기록한다(@user 와 동형 · dedup 일관).
+// 마이그레이션 20260628000000_s88b_mention_record (additive · NO CONCURRENTLY · reversible).
+model MentionRecord {
+  id          String            @id @default(uuid()) @db.Uuid
+  messageId   String            @db.Uuid
+  targetId    String            @db.Uuid
+  targetType  MentionTargetType
+  channelId   String            @db.Uuid
+  workspaceId String            @db.Uuid
+  createdAt   DateTime          @default(now())
+
+  message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  // S88b 리뷰 fix-forward(LOW): channelId FK CASCADE — 채널 hard-delete 시 orphan 방지.
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
+  workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
+
+  // 멱등 게이트(B3·B4): 동일 (메시지, 대상, 대상유형) 조합은 정확히 1행.
+  @@unique([messageId, targetId, targetType])
+  // 사용자별 멘션 타임라인 조회(후속 읽기 경로 전환용) 커버 인덱스.
+  @@index([targetId, createdAt])
+}
+
+// S88b: 멘션 대상 유형. USER 만 사용한다(@role 은 워커가 멤버로 expand 해 USER 로
+// 기록). ROLE 은 향후 역할 자체를 대상으로 보관할 여지를 위한 예약값(현재 미사용).
+enum MentionTargetType {
+  USER
+  ROLE
 }
 
 // S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그. append-only(INSERT 전용 ·
@@ -1617,14 +1661,14 @@ model Message {
   //   botUsername  — 이 메시지 한정 표시 이름 override(예약어 검증은 API). null 이면
   //                  웹훅 botDisplayName, 그것도 null 이면 웹훅 name 으로 폴백(렌더).
   //   botAvatarUrl — 표시 아바타 URL override. null 이면 웹훅 avatarUrl 폴백.
-  webhookId      String?     @db.Uuid
-  botUsername    String?     @db.VarChar(80)
-  botAvatarUrl   String?     @db.Text
+  webhookId    String? @db.Uuid
+  botUsername  String? @db.VarChar(80)
+  botAvatarUrl String? @db.Text
   // S84b (D16 / FR-RC12): 봇/웹훅 rich embed 배열(Discord 스타일). 게시 시점에 통째
   // 제공되는 불변 데이터라 별도 테이블 대신 JSON 컬럼에 자족 저장한다(≤10 embed ×
   // ≤25 field 로 bounded · mentions/contentAst JSON 선례). null=embed 없음.
   // 마이그레이션 20260622000000_s84b_rich_embeds.
-  richEmbeds     Json?
+  richEmbeds   Json?
 
   channel          Channel              @relation(fields: [channelId], references: [id], onDelete: Cascade)
   author           User                 @relation(fields: [authorId], references: [id])
@@ -1654,6 +1698,9 @@ model Message {
   // S64 (D12 / FR-RM11): 이 메시지에 대한 신고 행들. 메시지 hard delete(운영 purge)
   // 시 ON DELETE CASCADE 로 함께 정리된다(soft-delete 는 행을 유지하므로 신고도 보존).
   reports          ModerationReport[]
+  // S88b (FR-MN-19 / FR-MN-03): mention-broadcast 워커가 만든 @role 멘션 전달 로그.
+  // 메시지 hard delete(운영 purge) 시 ON DELETE CASCADE 로 함께 정리된다.
+  mentionRecords   MentionRecord[]
   // S29 (FR-S05): has: 필터용 partial index `(channelId) WHERE hasX = true`
   // 3종은 raw-SQL migration 20260601900000_s29_search_denormalized_flags 가
   // 생성합니다(Prisma @@index 가 partial WHERE 미지원이라 여기엔 선언 불가).
@@ -2169,20 +2216,20 @@ model Feedback {
 // 두는 것은 향후(테이블 기반 빌트인이 필요해질 경우)의 확장 여지를 위함이다.
 // @@unique([workspaceId, name]) 로 워크스페이스 내 커맨드명 중복을 막는다.
 model SlashCommand {
-  id           String       @id @default(uuid()) @db.Uuid
-  workspaceId  String?      @db.Uuid
+  id           String            @id @default(uuid()) @db.Uuid
+  workspaceId  String?           @db.Uuid
   // S79 fix-forward (reviewer MEDIUM): name 을 VarChar(32) 로 상한해 list-poison 을
   // 예방한다(Zod SlashCommandItem.name max(32) 와 정합). 자동완성 목록이 과대 행으로
   // 오염되지 않게 DB 레벨에서 길이를 강제한다. description/usageHint max 는 S81 CRUD 시.
-  name         String       @db.VarChar(32)
+  name         String            @db.VarChar(32)
   // S81c (FR-SC-09): description/usageHint 길이 상한을 DB 레벨에서 강제한다(CRUD Zod 와 정합 —
   // description ≤255, usageHint ≤128). prod SlashCommand 테이블은 비어 있으므로(빌트인은 코드
   // 카탈로그) 이 additive type tighten 은 안전하다(기존 행 절단 위험 없음).
-  description  String       @default("") @db.VarChar(255)
-  usageHint    String       @default("") @db.VarChar(128)
-  responseType ResponseType @default(EPHEMERAL)
-  handlerType  HandlerType  @default(INTERNAL_ACTION)
-  enabled      Boolean      @default(true)
+  description  String            @default("") @db.VarChar(255)
+  usageHint    String            @default("") @db.VarChar(128)
+  responseType ResponseType      @default(EPHEMERAL)
+  handlerType  HandlerType       @default(INTERNAL_ACTION)
+  enabled      Boolean           @default(true)
   // S81c (FR-SC-09·10): 커스텀 커맨드의 configurable action. 커스텀 행에만 채워지며
   // (nullable), 실행기(slash-execution)가 actionType 으로 분기해 actionParams 를 해석한다.
   // 빌트인은 코드 카탈로그라 DB 행이 없어 이 컬럼은 항상 NULL 인 종전 행에 영향 없다(additive).
@@ -2194,9 +2241,9 @@ model SlashCommand {
   actionParams Json?
   // S81c (FR-SC-09): 등록한 워크스페이스 관리자. 계정 하드삭제 시 SetNull(행 보존 — 커맨드는
   // 워크스페이스 자산이라 등록자 삭제로 사라지면 안 됨). nullable additive 라 기존 행 안전.
-  createdBy    String?      @db.Uuid
-  createdAt    DateTime     @default(now())
-  updatedAt    DateTime     @updatedAt
+  createdBy    String?           @db.Uuid
+  createdAt    DateTime          @default(now())
+  updatedAt    DateTime          @updatedAt
 
   workspace Workspace? @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
   creator   User?      @relation("SlashCommandCreator", fields: [createdBy], references: [id], onDelete: SetNull)
@@ -2220,13 +2267,13 @@ model SlashCommand {
 //
 // additive 신규 테이블이라 기존 row 영향 없음(마이그레이션 20260625000000_s86_push_subscription).
 model PushSubscription {
-  id         String   @id @default(uuid()) @db.Uuid
-  userId     String   @db.Uuid
-  endpoint   String   @unique
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @db.Uuid
+  endpoint   String    @unique
   p256dh     String
   auth       String
   ua         String?
-  createdAt  DateTime @default(now())
+  createdAt  DateTime  @default(now())
   lastUsedAt DateTime?
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)

@@ -1,16 +1,22 @@
 /**
- * S88a (FR-MN-03) @role 멘션 동기 fanout 통합 검증 — 실 Postgres + Redis(testcontainer).
+ * S88a (FR-MN-03) @role 멘션 send-time 동기 로직 통합 검증 — 실 Postgres + Redis(testcontainer).
  *
- * 커버리지(ADR Acceptance 3):
- *   - @<mentionable role> → 역할 멤버 전원 mention.received(공개 채널).
- *   - non-mentionable 역할은 MENTION_EVERYONE 권한자(OWNER/ADMIN)만 멘션 가능.
- *   - 비공개 채널: VIEW_CHANNEL 비가시 역할 멤버는 제외.
- *   - user 5/분 · role 10/5분 초과 시 429.
- *   - @user ∪ @role dedup(중복 1건).
- *   - MENTIONS notif level 사용자도 역할 멘션 수신(direct 분류).
+ * ★범위(S88b fix-forward 로 분리): S88b 가 @role fanout 을 동기 outbox → mention-broadcast
+ * BullMQ 워커로 이관했다. 따라서 이 스펙은 **메시지 전송 시점에 동기로 끝나는 로직만** 검증한다:
+ *   - mentionable / non-mentionable 게이트의 응답 계약(`mentions.roles`).
+ *   - non-mentionable 다운그레이드(비권한 멤버): 게이트가 역할을 떨궈 fanout 자체가 일어나지
+ *     않음(roles=[] · 큐 enqueue 없음 · 수신자 0). 이것은 send 시점에 완결되는 동기 검증이다.
+ *   - dual rate-limit(user 5/분 · role 10/5분) 429.
  *
- * 멘션 fanout 은 메시지 저장 tx 에서 UserMention outbox 행으로 기록되므로 outbox 를
- * 직접 조회해 수신자 집합을 권위 검증한다(S44 스펙 패턴 재사용).
+ * 실제 @role fanout(역할 멤버 expand · VIEW_CHANNEL 재검증 · 수신자 집합 · @user∪@role
+ * cross-path dedup · MENTIONS-level direct 수신)은 워커 drain 이 필요하므로
+ * `messages.role-mentions-async-s88b.int.spec.ts` 로 이관했다(중복 제거 · async 모델 일관).
+ *
+ * 동기 검증 단언은 응답 본문(mentions.roles)·HTTP 상태(429)만 본다 — 워커가 비동기로 쓰는
+ * MentionRecord/outbox 행은 보지 않으므로 drain 불요다.
+ *
+ * ★S88a int 헬퍼 교훈: createRole 은 명시 position(낮은 값) 부여(FR-RM04 가드 회피),
+ * beforeEach 의 MemberRole 정리는 시스템 역할 보존(role:{isSystem:false} 필터).
  */
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import request from 'supertest';
@@ -36,8 +42,8 @@ async function joinWorkspace(token: string): Promise<void> {
 
 // 커스텀 역할 position 은 액터(OWNER, top=500) 최고 position 미만이어야 한다(FR-RM04 가드).
 // position 을 명시하지 않으면 nextCustomPosition 기본값이 가드에 걸릴 수 있어, roles.int.spec
-// 과 동일하게 명시적으로 낮은(서로 다른) position 을 부여한다. mention fanout 검증은 position 과
-// 무관하므로 단조 증가 값(10,20,…)으로 충분하다(roles.int 가 50/30 으로 통과 — 더 낮게 둔다).
+// 과 동일하게 명시적으로 낮은(서로 다른) position 을 부여한다. mention 게이트 검증은 position 과
+// 무관하므로 단조 증가 값(10,20,…)으로 충분하다.
 let rolePositionSeq = 10;
 async function createRole(name: string, mentionable: boolean): Promise<string> {
   const position = rolePositionSeq;
@@ -60,6 +66,7 @@ async function assignRole(roleId: string, userId: string): Promise<void> {
   if (res.status >= 300) throw new Error(`assignRole: ${res.status} ${res.text}`);
 }
 
+/** 특정 메시지의 mention.received outbox 수신자(aggregateId) 집합 — 동기 경로 단언용. */
 async function mentionRecipients(): Promise<string[]> {
   const rows = await env.prisma.outboxEvent.findMany({
     where: { aggregateType: 'UserMention', eventType: 'mention.received' },
@@ -83,6 +90,7 @@ afterAll(async () => {
 
 beforeEach(async () => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+  await env.prisma.mentionRecord.deleteMany({});
   await env.prisma.message.deleteMany({ where: { channelId: stack.channelId } });
   await env.prisma.outboxEvent.deleteMany({});
   await env.prisma.channelPermissionOverride.deleteMany({});
@@ -103,13 +111,14 @@ beforeEach(async () => {
   }
 });
 
-describe('S88a @mentionable role fanout (FR-MN-03 / D3·D4)', () => {
-  it('mentionable 역할 멘션 → 역할 멤버 전원 mention.received(공개 채널)', async () => {
+describe('S88a @role mention send-time gate response (FR-MN-03 / D3)', () => {
+  it('mentionable 역할은 비권한 멤버도 멘션 가능 — 응답 mentions.roles 에 포함(fanout 은 async)', async () => {
     const roleId = await createRole('Engineers', true);
     await assignRole(roleId, memberB.userId);
     await assignRole(roleId, memberC.userId);
 
-    // member(비권한)도 mentionable 역할은 멘션 가능.
+    // member(비권한)도 mentionable 역할은 멘션 가능. 실제 수신자 fanout 은 mention-broadcast
+    // 워커가 비동기로 처리하므로 여기서는 send 응답 계약만 본다(수신자 단언은 S88b 스펙).
     const post = await request(env.baseUrl)
       .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
       .set('origin', ORIGIN)
@@ -117,27 +126,9 @@ describe('S88a @mentionable role fanout (FR-MN-03 / D3·D4)', () => {
       .send({ content: 'ship it @Engineers' });
     expect(post.status).toBe(201);
     expect(post.body.message.mentions.roles).toEqual([roleId]);
-    // 역할 멤버(memberB·memberC) 전원 수신. 작성자(member)는 역할 멤버가 아님.
-    expect(await mentionRecipients()).toEqual([memberB.userId, memberC.userId].sort());
   });
 
-  it('@user ∪ @role dedup — 양쪽에 걸린 수신자는 1건만', async () => {
-    const roleId = await createRole('Engineers', true);
-    await assignRole(roleId, memberB.userId);
-
-    const post = await request(env.baseUrl)
-      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
-      .set('origin', ORIGIN)
-      .set(bearer(stack.member.accessToken))
-      .send({ content: `@${memberB.username} also @Engineers` });
-    expect(post.status).toBe(201);
-    // memberB 는 @user 와 @role 양쪽 — 정확히 1건.
-    expect(await mentionRecipients()).toEqual([memberB.userId]);
-  });
-});
-
-describe('S88a non-mentionable role gate (FR-MN-03 / D3)', () => {
-  it('비권한(member)의 non-mentionable 역할 멘션은 다운그레이드 — fanout 없음', async () => {
+  it('비권한(member)의 non-mentionable 역할 멘션은 다운그레이드 — roles=[] · 동기 수신자 0', async () => {
     const roleId = await createRole('Secret', false);
     await assignRole(roleId, memberB.userId);
 
@@ -147,11 +138,12 @@ describe('S88a non-mentionable role gate (FR-MN-03 / D3)', () => {
       .set(bearer(stack.member.accessToken))
       .send({ content: 'psst @Secret' });
     expect(post.status).toBe(201);
+    // 게이트가 역할을 떨궈 fanout 자체가 일어나지 않는다(큐 enqueue 없음 · 동기 send 에서 완결).
     expect(post.body.message.mentions.roles).toEqual([]);
     expect(await mentionRecipients()).toEqual([]);
   });
 
-  it('MENTION_EVERYONE 권한자(OWNER)의 non-mentionable 역할 멘션은 통과', async () => {
+  it('MENTION_EVERYONE 권한자(OWNER)의 non-mentionable 역할 멘션은 게이트 통과 — roles 에 포함', async () => {
     const roleId = await createRole('Secret', false);
     await assignRole(roleId, memberB.userId);
 
@@ -161,42 +153,8 @@ describe('S88a non-mentionable role gate (FR-MN-03 / D3)', () => {
       .set(bearer(stack.owner.accessToken))
       .send({ content: 'team @Secret' });
     expect(post.status).toBe(201);
+    // 게이트 통과(응답 계약). 실제 fanout 수신자(memberB)는 워커 drain 후 단언 — S88b 스펙.
     expect(post.body.message.mentions.roles).toEqual([roleId]);
-    expect(await mentionRecipients()).toEqual([memberB.userId]);
-  });
-});
-
-describe('S88a private channel VIEW_CHANNEL filter (FR-MN-03 / D4)', () => {
-  it('비공개 채널: 가시성 없는 역할 멤버는 fanout 에서 제외', async () => {
-    // 비공개 채널 생성(owner 만 자동 가시).
-    const ch = await request(env.baseUrl)
-      .post(`/workspaces/${stack.workspaceId}/channels`)
-      .set('origin', ORIGIN)
-      .set(bearer(stack.owner.accessToken))
-      .send({ name: `priv-${Date.now().toString(36).slice(-6)}`, type: 'TEXT', isPrivate: true });
-    expect(ch.status).toBe(201);
-    const privId = ch.body.id as string;
-
-    const roleId = await createRole('Engineers', true);
-    await assignRole(roleId, memberB.userId);
-    await assignRole(roleId, memberC.userId);
-    // memberB 만 비공개 채널에 READ ALLOW override 부여(가시) — memberC 는 비가시.
-    const READ_BIT = 0x0001;
-    await request(env.baseUrl)
-      .post(`/workspaces/${stack.workspaceId}/channels/${privId}/members`)
-      .set('origin', ORIGIN)
-      .set(bearer(stack.owner.accessToken))
-      .send({ userId: memberB.userId, allowMask: READ_BIT })
-      .expect(201);
-
-    const post = await request(env.baseUrl)
-      .post(`/workspaces/${stack.workspaceId}/channels/${privId}/messages`)
-      .set('origin', ORIGIN)
-      .set(bearer(stack.owner.accessToken))
-      .send({ content: 'huddle @Engineers' });
-    expect(post.status).toBe(201);
-    // 가시 멤버(memberB)만 수신. 비가시 memberC 제외.
-    expect(await mentionRecipients()).toEqual([memberB.userId]);
   });
 });
 
@@ -217,27 +175,5 @@ describe('S88a dual rate-limit (FR-MN-03 / D5)', () => {
       if (res.status === 429) break;
     }
     expect(last).toBe(429);
-  });
-});
-
-describe('S88a MENTIONS notif level receives role mention (FR-MN-03 / D4)', () => {
-  it('글로벌 MENTIONS 레벨 사용자도 역할 멘션을 수신(direct 분류)', async () => {
-    const roleId = await createRole('Engineers', true);
-    await assignRole(roleId, memberB.userId);
-    // memberB 글로벌 알림 레벨을 MENTIONS 로 설정(UserSettings.notifTrigger).
-    await env.prisma.userSettings.upsert({
-      where: { userId: memberB.userId },
-      create: { userId: memberB.userId, notifTrigger: 'MENTIONS' },
-      update: { notifTrigger: 'MENTIONS' },
-    });
-
-    const post = await request(env.baseUrl)
-      .post(`/workspaces/${stack.workspaceId}/channels/${stack.channelId}/messages`)
-      .set('origin', ORIGIN)
-      .set(bearer(stack.owner.accessToken))
-      .send({ content: 'review @Engineers' });
-    expect(post.status).toBe(201);
-    // MENTIONS 레벨이어도 역할 멘션(direct)은 수신.
-    expect(await mentionRecipients()).toEqual([memberB.userId]);
   });
 });
