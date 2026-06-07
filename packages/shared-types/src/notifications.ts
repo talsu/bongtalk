@@ -159,6 +159,10 @@ export const ChannelNotificationPreferenceSchema = z.object({
   level: NotifLevelSchema.nullable(),
   isMuted: z.boolean(),
   muteUntil: z.string().datetime().nullable(),
+  // S87 (FR-MN-18): 채널별 데스크톱/모바일 push 독립 토글. null = 글로벌
+  // (UserSettings.notifDesktop/notifMobile) 상속. effective = push ?? global ?? true.
+  pushDesktop: z.boolean().nullable(),
+  pushMobile: z.boolean().nullable(),
 });
 export type ChannelNotificationPreference = z.infer<typeof ChannelNotificationPreferenceSchema>;
 
@@ -167,6 +171,10 @@ export const PutChannelNotificationPreferenceRequestSchema = z
     level: NotifLevelSchema.nullable().optional(),
     isMuted: z.boolean().optional(),
     muteDuration: MuteDurationKeySchema.optional(),
+    // S87 (FR-MN-18): 채널별 데스크톱/모바일 push 토글 부분 갱신. undefined=미변경,
+    // null=명시 상속(글로벌로 되돌림), true/false=오버라이드.
+    pushDesktop: z.boolean().nullable().optional(),
+    pushMobile: z.boolean().nullable().optional(),
     // 카테고리 일괄 적용: 지정 시 해당 카테고리의 하위 채널 전체에 동일 설정을
     // bulk upsert 한다(FR-MN-07). 미지정 시 path 의 단일 채널만.
     categoryId: UuidSchema.optional(),

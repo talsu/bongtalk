@@ -332,10 +332,17 @@ export class NotifPreferencesService {
   ): Promise<ChannelNotificationPreference> {
     const row = await this.prisma.userChannelMute.findUnique({
       where: { userId_channelId: { userId, channelId } },
-      select: { level: true, mutedUntil: true, isMuted: true },
+      select: {
+        level: true,
+        mutedUntil: true,
+        isMuted: true,
+        // S87 (FR-MN-18): 채널별 데스크톱/모바일 push 토글. null = 글로벌 상속.
+        pushDesktop: true,
+        pushMobile: true,
+      },
     });
     if (!row) {
-      return { level: null, isMuted: false, muteUntil: null };
+      return { level: null, isMuted: false, muteUntil: null, pushDesktop: null, pushMobile: null };
     }
     // S46 fix-forward (BLOCKER 3): 활성 채널 뮤트 = isMuted && (mutedUntil null=영구
     // | mutedUntil>now). isMuted=false 이면 level 오버라이드만 살아있는 비뮤트 행.
@@ -345,6 +352,8 @@ export class NotifPreferencesService {
       level: row.level,
       isMuted: muted,
       muteUntil: row.mutedUntil ? row.mutedUntil.toISOString() : null,
+      pushDesktop: row.pushDesktop,
+      pushMobile: row.pushMobile,
     };
   }
 
@@ -360,14 +369,32 @@ export class NotifPreferencesService {
   async putChannel(
     userId: string,
     channelId: string,
-    patch: { level?: NotifLevel | null; isMuted?: boolean; muteDuration?: MuteDurationKey },
+    patch: {
+      level?: NotifLevel | null;
+      isMuted?: boolean;
+      muteDuration?: MuteDurationKey;
+      // S87 (FR-MN-18): null=명시 상속(글로벌로 되돌림), undefined=미변경, true/false=오버라이드.
+      pushDesktop?: boolean | null;
+      pushMobile?: boolean | null;
+    },
     now: Date,
   ): Promise<ChannelNotificationPreference> {
     const existing = await this.prisma.userChannelMute.findUnique({
       where: { userId_channelId: { userId, channelId } },
-      select: { level: true, mutedUntil: true, isMuted: true },
+      select: {
+        level: true,
+        mutedUntil: true,
+        isMuted: true,
+        pushDesktop: true,
+        pushMobile: true,
+      },
     });
     const nextLevel = patch.level !== undefined ? patch.level : (existing?.level ?? null);
+    // S87 (FR-MN-18): push 토글 부분 갱신. undefined=기존 보존, null/boolean=명시 set.
+    const nextPushDesktop =
+      patch.pushDesktop !== undefined ? patch.pushDesktop : (existing?.pushDesktop ?? null);
+    const nextPushMobile =
+      patch.pushMobile !== undefined ? patch.pushMobile : (existing?.pushMobile ?? null);
     // S46 fix-forward (BLOCKER 3): isMuted 를 명시 축으로 set. 뮤트 경로(isMuted=true)는
     // isMuted=true + mutedUntil 산정, level-only 경로(isMuted=false)는 isMuted=false +
     // mutedUntil=null(레벨만 오버라이드). 미지정이면 기존 값 보존.
@@ -384,21 +411,30 @@ export class NotifPreferencesService {
       nextMutedUntil = existing?.mutedUntil ?? null;
     }
 
-    // 비뮤트 + level 상속(null) → 의미 없는 행 → 정리(서버 상속 + 비뮤트 = 행 없음).
-    if (!nextIsMuted && nextLevel === null) {
+    // 비뮤트 + level 상속(null) + push 둘 다 상속(null) → 의미 없는 행 → 정리(전부
+    // 상속 + 비뮤트 = 행 없음). S87: push 오버라이드가 하나라도 있으면 행을 보존한다.
+    if (!nextIsMuted && nextLevel === null && nextPushDesktop === null && nextPushMobile === null) {
       await this.prisma.userChannelMute.deleteMany({ where: { userId, channelId } });
-      return { level: null, isMuted: false, muteUntil: null };
+      return { level: null, isMuted: false, muteUntil: null, pushDesktop: null, pushMobile: null };
     }
 
     await this.prisma.userChannelMute.upsert({
       where: { userId_channelId: { userId, channelId } },
-      update: { level: nextLevel, mutedUntil: nextMutedUntil, isMuted: nextIsMuted },
+      update: {
+        level: nextLevel,
+        mutedUntil: nextMutedUntil,
+        isMuted: nextIsMuted,
+        pushDesktop: nextPushDesktop,
+        pushMobile: nextPushMobile,
+      },
       create: {
         userId,
         channelId,
         level: nextLevel,
         mutedUntil: nextMutedUntil,
         isMuted: nextIsMuted,
+        pushDesktop: nextPushDesktop,
+        pushMobile: nextPushMobile,
       },
     });
     return this.getChannel(userId, channelId, now);
@@ -434,7 +470,16 @@ export class NotifPreferencesService {
       // N+1 제거: 기존 행을 일괄 조회 후 메모리 맵으로 fold.
       const existingRows = await tx.userChannelMute.findMany({
         where: { userId, channelId: { in: channelIds } },
-        select: { channelId: true, level: true, mutedUntil: true, isMuted: true },
+        // S87 리뷰 fix-forward (MEDIUM-1): push 오버라이드를 함께 읽어, 카테고리 일괄
+        // 적용이 level/mute 만 리셋해도 push 오버라이드를 가진 행은 삭제하지 않는다.
+        select: {
+          channelId: true,
+          level: true,
+          mutedUntil: true,
+          isMuted: true,
+          pushDesktop: true,
+          pushMobile: true,
+        },
       });
       const existingByChannel = new Map(existingRows.map((r) => [r.channelId, r]));
 
@@ -461,7 +506,11 @@ export class NotifPreferencesService {
           nextIsMuted = existing?.isMuted ?? false;
           nextMutedUntil = existing?.mutedUntil ?? null;
         }
-        if (!nextIsMuted && nextLevel === null) {
+        // S87 리뷰 fix-forward (MEDIUM-1): push 오버라이드(pushDesktop/pushMobile 중 하나라도
+        // 비-null)가 있으면, level/mute 가 모두 비어도 행을 삭제하지 않고 upsert 로 보존한다
+        // (upsert update 는 level/mutedUntil/isMuted 만 건드려 push 값은 그대로 유지된다).
+        const hasPushOverride = existing?.pushDesktop != null || existing?.pushMobile != null;
+        if (!nextIsMuted && nextLevel === null && !hasPushOverride) {
           idsToDelete.push(channelId);
           continue;
         }
@@ -511,15 +560,16 @@ export class NotifPreferencesService {
   ): Promise<ChannelNotificationPreference> {
     const existing = await this.prisma.userChannelMute.findUnique({
       where: { userId_channelId: { userId, channelId } },
-      select: { level: true },
+      // S87: push 오버라이드가 있으면 뮤트 해제 후에도 행을 보존해야 한다.
+      select: { level: true, pushDesktop: true, pushMobile: true },
     });
     if (!existing) {
-      return { level: null, isMuted: false, muteUntil: null };
+      return { level: null, isMuted: false, muteUntil: null, pushDesktop: null, pushMobile: null };
     }
-    if (existing.level === null) {
-      // 상속 level + 뮤트 해제 = 흔적 없음 → 행 삭제.
+    if (existing.level === null && existing.pushDesktop === null && existing.pushMobile === null) {
+      // 상속 level + push 상속 + 뮤트 해제 = 흔적 없음 → 행 삭제.
       await this.prisma.userChannelMute.deleteMany({ where: { userId, channelId } });
-      return { level: null, isMuted: false, muteUntil: null };
+      return { level: null, isMuted: false, muteUntil: null, pushDesktop: null, pushMobile: null };
     }
     // level 오버라이드 보존, 뮤트만 해제.
     await this.prisma.userChannelMute.update({
