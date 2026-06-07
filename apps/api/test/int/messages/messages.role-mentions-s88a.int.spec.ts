@@ -34,12 +34,19 @@ async function joinWorkspace(token: string): Promise<void> {
     .set(bearer(token));
 }
 
+// 커스텀 역할 position 은 액터(OWNER, top=500) 최고 position 미만이어야 한다(FR-RM04 가드).
+// position 을 명시하지 않으면 nextCustomPosition 기본값이 가드에 걸릴 수 있어, roles.int.spec
+// 과 동일하게 명시적으로 낮은(서로 다른) position 을 부여한다. mention fanout 검증은 position 과
+// 무관하므로 단조 증가 값(10,20,…)으로 충분하다(roles.int 가 50/30 으로 통과 — 더 낮게 둔다).
+let rolePositionSeq = 10;
 async function createRole(name: string, mentionable: boolean): Promise<string> {
+  const position = rolePositionSeq;
+  rolePositionSeq += 10;
   const res = await request(env.baseUrl)
     .post(`/workspaces/${stack.workspaceId}/roles`)
     .set('origin', ORIGIN)
     .set(bearer(stack.owner.accessToken))
-    .send({ name, mentionable });
+    .send({ name, mentionable, position });
   if (res.status !== 201) throw new Error(`createRole ${name}: ${res.status} ${res.text}`);
   return res.body.id as string;
 }
