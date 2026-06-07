@@ -247,6 +247,11 @@ model UserSettings {
   density                     Density         @default(COZY)
   chatFontSize                Int             @default(15)
   clock24h                    Boolean         @default(true)
+  // S84c (D16 / FR-RC19): 링크 미리보기 전역 비활성화. false 면 클라가 unfurl embed
+  // (OG 카드) 렌더를 건너뛴다(서버 unfurl 은 계속 수행 — 타 사용자 무영향). 봇 rich
+  // embed 는 영향 없음(링크 미리보기가 아님). 기본 true(기존 동작 보존). 마이그레이션
+  // 20260623000000_s84c_link_preview_toggle.
+  linkPreviewsEnabled         Boolean         @default(true)
   // S76 (D14 / FR-PS-10): 데스크톱 배너 / 모바일 푸시 ON·OFF. 둘 다 기본 true.
   // notifMobile 의 실 푸시 전송은 MVP 밖이라 컬럼 저장만(클라 표시 게이트만 동작).
   notifDesktop                Boolean         @default(true)

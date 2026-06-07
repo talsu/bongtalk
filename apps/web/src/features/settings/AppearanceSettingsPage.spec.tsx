@@ -20,7 +20,13 @@ import { AppearanceSettingsPage } from './AppearanceSettingsPage';
 beforeEach(() => {
   vi.useFakeTimers();
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
-  current = { theme: 'DARK', density: 'COZY', chatFontSize: 15, clock24h: false };
+  current = {
+    theme: 'DARK',
+    density: 'COZY',
+    chatFontSize: 15,
+    clock24h: false,
+    linkPreviewsEnabled: true,
+  };
   mutateAsync.mockReset();
   mutateAsync.mockResolvedValue(current);
   pushMock.mockReset();
@@ -47,6 +53,15 @@ describe('AppearanceSettingsPage (FR-PS-09 · Fork B1)', () => {
     render(<AppearanceSettingsPage />);
     fireEvent.click(screen.getByTestId('appearance-clock-toggle'));
     expect(mutateAsync).toHaveBeenCalledWith({ clock24h: true });
+  });
+
+  // S84c (FR-RC19): 링크 미리보기 토글. 현재 true → 클릭 시 false 로 PATCH.
+  it('toggles linkPreviewsEnabled immediately', () => {
+    render(<AppearanceSettingsPage />);
+    const toggle = screen.getByTestId('appearance-linkpreview-toggle');
+    expect(toggle.getAttribute('aria-checked')).toBe('true');
+    fireEvent.click(toggle);
+    expect(mutateAsync).toHaveBeenCalledWith({ linkPreviewsEnabled: false });
   });
 
   // F-M1: 폰트 슬라이더는 DS 미지원으로 비활성(준비 중) — 값은 저장/조회만 유지.

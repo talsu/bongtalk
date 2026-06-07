@@ -4,7 +4,14 @@ import type { AppearanceSettings } from '@qufox/shared-types';
 import { applyAppearanceToDOM, resolveTheme, themeToPreference } from './applyAppearanceToDOM';
 
 function base(overrides: Partial<AppearanceSettings> = {}): AppearanceSettings {
-  return { theme: 'DARK', density: 'COZY', chatFontSize: 15, clock24h: true, ...overrides };
+  return {
+    theme: 'DARK',
+    density: 'COZY',
+    chatFontSize: 15,
+    clock24h: true,
+    linkPreviewsEnabled: true,
+    ...overrides,
+  };
 }
 
 describe('S76 applyAppearanceToDOM (FR-PS-09 · Fork C1 · F-M1/F-M2)', () => {

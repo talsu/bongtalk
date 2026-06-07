@@ -31,7 +31,13 @@ export class AppearanceSettingsService {
   async getAppearance(userId: string): Promise<AppearanceSettings> {
     const row = await this.prisma.userSettings.findUnique({
       where: { userId },
-      select: { theme: true, density: true, chatFontSize: true, clock24h: true },
+      select: {
+        theme: true,
+        density: true,
+        chatFontSize: true,
+        clock24h: true,
+        linkPreviewsEnabled: true,
+      },
     });
     if (!row) return { ...DEFAULT_APPEARANCE };
     return this.toView(row);
@@ -72,14 +78,24 @@ export class AppearanceSettingsService {
       update.clock24h = patch.clock24h;
       create.clock24h = patch.clock24h;
     }
+    if (patch.linkPreviewsEnabled !== undefined) {
+      update.linkPreviewsEnabled = patch.linkPreviewsEnabled;
+      create.linkPreviewsEnabled = patch.linkPreviewsEnabled;
+    }
 
     // F-P2 (perf MODERATE): upsert 결과를 그대로 toView 로 클램프해 반환한다(이전엔 upsert 후
-    // getAppearance 재조회로 2-RTT 였다 — 단일 RTT 로 축소). select 로 외관 4컬럼만 가져온다.
+    // getAppearance 재조회로 2-RTT 였다 — 단일 RTT 로 축소). select 로 외관 5컬럼만 가져온다.
     const row = await this.prisma.userSettings.upsert({
       where: { userId },
       update,
       create,
-      select: { theme: true, density: true, chatFontSize: true, clock24h: true },
+      select: {
+        theme: true,
+        density: true,
+        chatFontSize: true,
+        clock24h: true,
+        linkPreviewsEnabled: true,
+      },
     });
     return this.toView(row);
   }
@@ -89,6 +105,7 @@ export class AppearanceSettingsService {
     density: Density;
     chatFontSize: number;
     clock24h: boolean;
+    linkPreviewsEnabled: boolean;
   }): AppearanceSettings {
     // chatFontSize 가 6단계 밖(예: 외부 변조/구 데이터)이면 기본값으로 클램프해 클라
     // union 타입과 정합시킨다(서버가 항상 유효한 6값만 노출).
@@ -98,6 +115,7 @@ export class AppearanceSettingsService {
       density: row.density,
       chatFontSize: parsed.success ? parsed.data : DEFAULT_APPEARANCE.chatFontSize,
       clock24h: row.clock24h,
+      linkPreviewsEnabled: row.linkPreviewsEnabled,
     };
   }
 }
