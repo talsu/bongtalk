@@ -100,19 +100,32 @@ describe('S84a webhook management', () => {
     expect(res.body.items[0].tokenHash).toBeUndefined();
   });
 
-  it('forbids non-ADMIN members from managing webhooks (403)', async () => {
+  it('forbids non-ADMIN members from managing webhooks (403, incl. list)', async () => {
     const { owner, workspaceId } = await setupOwnerWsChannel('s84aperm');
     const member = await inviteAndJoin(workspaceId, owner.accessToken, 's84amember');
+    // NIT-8: 목록도 ADMIN 게이트 — 일반 멤버는 403.
     await request(env.baseUrl)
       .get(`/workspaces/${workspaceId}/webhooks`)
       .set('Authorization', `Bearer ${member.accessToken}`)
-      .expect(200); // GET 은 멤버 허용(목록 읽기)
+      .expect(403);
     const res = await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/webhooks`)
       .set('Authorization', `Bearer ${member.accessToken}`)
       .send({ channelId: workspaceId, name: 'Sneaky' })
       .expect(403);
     expect(res.status).toBe(403);
+  });
+
+  it('rejects creating a webhook for a channel in another workspace (CHANNEL_NOT_FOUND)', async () => {
+    const a = await setupOwnerWsChannel('s84axwsa');
+    const b = await setupOwnerWsChannel('s84axwsb');
+    // a 의 OWNER 가 b 의 채널을 대상으로 자기 워크스페이스 웹훅을 만들려 시도 → 차단.
+    const res = await request(env.baseUrl)
+      .post(`/workspaces/${a.workspaceId}/webhooks`)
+      .set('Authorization', `Bearer ${a.owner.accessToken}`)
+      .send({ channelId: b.channelId, name: 'Cross WS' })
+      .expect(404);
+    expect(res.body.errorCode ?? res.body.code).toBe('CHANNEL_NOT_FOUND');
   });
 });
 
@@ -189,6 +202,21 @@ describe('S84a incoming webhook post', () => {
       .send({ content: 'after revoke' })
       .expect(403);
     expect(res.body.errorCode ?? res.body.code).toBe('WEBHOOK_REVOKED');
+  });
+
+  it('does not leak REVOKED for a wrong token on a revoked webhook (no existence oracle)', async () => {
+    const wh = await createWebhook('s84aoracle');
+    await request(env.baseUrl)
+      .delete(`/workspaces/${wh.workspaceId}/webhooks/${wh.webhookId}`)
+      .set('Authorization', `Bearer ${wh.owner.accessToken}`)
+      .expect(204);
+    // 폐기된 웹훅 + 잘못된 토큰 → REVOKED 가 아니라 INVALID_TOKEN(라이프사이클 비노출).
+    const res = await request(env.baseUrl)
+      .post(`/webhooks/${wh.webhookId}`)
+      .set('Authorization', `Bearer whk_wrong-token-on-revoked`)
+      .send({ content: 'probe' })
+      .expect(403);
+    expect(res.body.errorCode ?? res.body.code).toBe('WEBHOOK_INVALID_TOKEN');
   });
 
   it('invalidates the old token and accepts the new one after rotate', async () => {

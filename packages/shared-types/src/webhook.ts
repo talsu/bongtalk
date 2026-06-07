@@ -27,7 +27,16 @@ export const WEBHOOK_NAME_MAX = 80;
 export const WEBHOOK_AVATAR_URL_MAX = 2048;
 
 const WebhookNameSchema = z.string().trim().min(1).max(WEBHOOK_NAME_MAX);
-const AvatarUrlSchema = z.string().url().max(WEBHOOK_AVATAR_URL_MAX);
+// S84a 리뷰 fix-forward (security LOW-6 = SSRF hardening): avatar_url 은 클라이언트가
+// 아바타 이미지로 렌더하므로 scheme 을 http/https 로 제한한다. z.string().url() 만으로는
+// `file:`/`ftp:`/`http://169.254.169.254/...`(SSRF·내부망) 같은 scheme 도 통과하므로,
+// 향후 DS Avatar 이미지 슬롯 도입 시 인증 없는 인커밍 게시자가 임의 fetch URL 을 모든
+// 채널 뷰어에게 주입하는 표면을 미리 막는다. CreateWebhookRequest/인커밍 payload 공통.
+const AvatarUrlSchema = z
+  .string()
+  .url()
+  .max(WEBHOOK_AVATAR_URL_MAX)
+  .refine((u) => /^https?:\/\//i.test(u), { message: 'avatar URL must be http(s)' });
 
 // ── 1. 관리 REST ─────────────────────────────────────────────────────────────
 

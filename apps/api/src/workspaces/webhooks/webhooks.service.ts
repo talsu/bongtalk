@@ -60,8 +60,11 @@ export class WebhooksService {
     return {
       ...this.toSummary(w),
       token: rawToken,
-      // 인커밍 게시 경로 안내. 토큰은 Authorization: Bearer 또는 ?token= 로 보낼 수 있다.
-      postUrl: `/webhooks/${w.id}?token=${rawToken}`,
+      // S84a 리뷰 fix-forward (security MEDIUM-3): postUrl 에 토큰 평문을 쿼리로 박지
+      // 않는다 — 쿼리스트링 토큰은 proxy/access 로그·브라우저 히스토리·Referer 로 새기
+      // 쉽다. bare 경로만 안내하고, 권장 전송은 `Authorization: Bearer <token>` 헤더다
+      // (컨트롤러는 호환을 위해 `?token=` 도 계속 받지만 광고하지 않는다).
+      postUrl: `/webhooks/${w.id}`,
     };
   }
 
@@ -172,21 +175,31 @@ export class WebhooksService {
   /**
    * 인커밍 토큰 게시. 멤버 가드 없이 토큰 자체가 인증이다.
    *   1) 웹훅 조회(미존재 → INVALID_TOKEN 403, 존재 노출 회피).
-   *   2) revoke 여부 → REVOKED 403.
-   *   3) safeTokenEquals(timingSafeEqual) 불일치 → INVALID_TOKEN 403.
+   *   2) safeTokenEquals(timingSafeEqual) 불일치 → INVALID_TOKEN 403.
+   *   3) (토큰 일치 후에야) revoke 여부 → REVOKED 403.
    *   4) 요청 username 예약어 → NAME_RESERVED 422.
    *   5) 표시 이름/아바타 해석(요청 → 웹훅 botDisplayName/name, 요청 → 웹훅 avatarUrl).
    *   6) BOT 메시지 생성 + lastUsedAt 갱신.
-   * rate-limit 은 웹훅·채널 단위로 무차별 대입/폭주를 막는다.
+   * rate-limit 은 IP·웹훅·채널 단위로 무차별 대입/폭주를 막는다.
+   *
+   * S84a 리뷰 fix-forward (security HIGH-1): revoke 검사를 **토큰 검증 뒤**로 옮겼다.
+   * 종전엔 revoke 를 먼저 검사해, 토큰 없이 webhookId 만 아는 호출자가 REVOKED vs
+   * INVALID_TOKEN 응답 차이로 "그 id 가 존재하고 폐기됐는지"를 알아내는 존재/라이프
+   * 사이클 oracle 이 있었다. 토큰이 일치하기 전에는 어떤 상태도 구분하지 않는다.
    */
   async verifyAndPost(
     webhookId: string,
     rawToken: string,
     payload: IncomingWebhookPayload,
+    // S84a 리뷰 fix-forward (security LOW-7): @Public 라우트에 전역 IP throttle 이 없어,
+    // 컨트롤러가 전달한 클라이언트 IP 로 per-IP 버킷을 먼저 건다(NFR "IP + User 이중").
+    // per-id 버킷만으로는 id 를 회전하는 단일 소스의 총량을 못 막는다.
+    clientIp?: string,
   ): Promise<{ messageId: string; channelId: string; createdAt: string }> {
-    // 무차별 대입 방어: 토큰 검증 전에 웹훅 단위 rate-limit 을 먼저 건다(미존재 id 도
-    // 동일 비용). 채널 폭주 방어는 검증 통과 후(유효 토큰 한정)에 건다.
+    // 무차별 대입/폭주 방어: 토큰 검증 전에 IP·웹훅 단위 rate-limit 을 먼저 건다(미존재
+    // id 도 동일 비용). 채널 폭주 방어는 검증 통과 후(유효 토큰 한정)에 건다.
     await this.rateLimit.enforce([
+      ...(clientIp ? [{ key: `webhook:post:ip:${clientIp}`, windowSec: 60, max: 300 }] : []),
       { key: `webhook:post:wh:${webhookId}`, windowSec: 60, max: 120 },
     ]);
 
@@ -195,11 +208,13 @@ export class WebhooksService {
     if (!webhook) {
       throw new DomainError(ErrorCode.WEBHOOK_INVALID_TOKEN, 'invalid webhook token');
     }
-    if (webhook.revokedAt) {
-      throw new DomainError(ErrorCode.WEBHOOK_REVOKED, 'webhook revoked');
-    }
+    // HIGH-1: 토큰을 먼저 상수시간 검증한다. 불일치는 revoke 여부와 무관하게 INVALID_TOKEN.
     if (!safeTokenEquals(rawToken, webhook.tokenHash)) {
       throw new DomainError(ErrorCode.WEBHOOK_INVALID_TOKEN, 'invalid webhook token');
+    }
+    // 토큰이 일치한 뒤에만 폐기 상태를 구분해 알려준다(유효 토큰 보유자에게만 의미 있는 정보).
+    if (webhook.revokedAt) {
+      throw new DomainError(ErrorCode.WEBHOOK_REVOKED, 'webhook revoked');
     }
     // 요청 username 예약어 거부(웹훅 name/botDisplayName 은 create 시 이미 검증됨).
     this.assertNotReserved(payload.username);

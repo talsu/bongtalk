@@ -468,12 +468,16 @@ export class MessagesService {
       // S04: SYSTEM 메시지는 삭제돼도 type 을 유지(삭제 placeholder 분기와
       // 무관). 기존 row(type 미선택/NULL)는 DEFAULT 폴백.
       type: row.type ?? 'DEFAULT',
-      // S84a (FR-RC11): 작성자 분류 + 봇 표시 override. authorId 와 마찬가지로
-      // 식별 정보라 deleted 여도 마스킹하지 않는다(BOT placeholder 도 봇 이름/배지
-      // 유지). SELECT 미선택/legacy row 는 'USER'/null 폴백(forward-compat).
+      // S84a (FR-RC11): 작성자 분류 + 봇 표시 이름. authorId 와 마찬가지로 식별
+      // 정보라 deleted 여도 마스킹하지 않는다(BOT placeholder 도 봇 이름/배지 유지).
+      // SELECT 미선택/legacy row 는 'USER'/null 폴백(forward-compat).
       authorType: row.authorType ?? 'USER',
       botUsername: row.botUsername ?? null,
-      botAvatarUrl: row.botAvatarUrl ?? null,
+      // S84a 리뷰 fix-forward (security LOW-5): botAvatarUrl 은 식별정보가 아니라
+      // 요청마다 지정된 임의 원격 URL(추적 픽셀 표면)이므로, 삭제 메시지는 첨부/embed
+      // 마스킹과 동일하게 가린다 — 모더레이션/삭제된 봇 메시지가 계속 원격 이미지를
+      // fetch 하지 않도록. 봇 이름(식별)만 placeholder 에 남는다.
+      botAvatarUrl: isDeleted ? null : (row.botAvatarUrl ?? null),
       mentions,
       // S33 fix-forward (보안 BLOCKER): 삭제된 메시지는 편집 여부/시각도
       // 마스킹합니다. 삭제 전 편집 이력(edited=true / editedAt 시각)이 placeholder

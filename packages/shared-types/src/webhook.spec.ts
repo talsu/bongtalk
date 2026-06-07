@@ -57,6 +57,17 @@ describe('S84a webhook contracts (FR-RC11)', () => {
       });
       expect(r.success).toBe(false);
     });
+    // S84a 리뷰 fix-forward (security LOW-6): http/https 외 scheme 거부(SSRF hardening).
+    it('rejects a non-http(s) avatarUrl scheme', () => {
+      for (const avatarUrl of [
+        'ftp://host/a.png',
+        'file:///etc/passwd',
+        'data:image/png;base64,AA',
+      ]) {
+        const r = CreateWebhookRequestSchema.safeParse({ channelId: UUID, name: 'x', avatarUrl });
+        expect(r.success).toBe(false);
+      }
+    });
   });
 
   describe('IncomingWebhookPayloadSchema', () => {

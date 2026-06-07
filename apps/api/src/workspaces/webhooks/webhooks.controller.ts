@@ -46,6 +46,10 @@ export class WebhooksController {
     ]);
   }
 
+  // S84a 리뷰 fix-forward (NIT-8): 목록도 @Roles('ADMIN') 게이트 — task 계약이 GET 을
+  // MANAGE_WEBHOOKS 로 명시한다. 일반 멤버에게 웹훅 메타(이름/대상채널/생성자/lastUsedAt)를
+  // 노출하지 않는다(토큰/해시는 toSummary 가 애초에 비노출이지만 메타 자체도 관리자 전용).
+  @Roles('ADMIN')
   @Get()
   async list(
     @Param('id', new ParseUUIDPipe()) _id: string,

@@ -3,6 +3,7 @@ import {
   Controller,
   Headers,
   HttpCode,
+  Ip,
   Param,
   ParseUUIDPipe,
   Post,
@@ -36,6 +37,9 @@ export class IncomingWebhookController {
     @Param('webhookId', new ParseUUIDPipe()) webhookId: string,
     @Headers('authorization') authHeader: string | undefined,
     @Query('token') queryToken: string | undefined,
+    // S84a 리뷰 fix-forward (security LOW-7): per-IP rate-limit 키용 클라이언트 IP.
+    // main.ts 의 trust proxy=1 로 X-Forwarded-For 첫 홉이 req.ip 로 복원된다.
+    @Ip() clientIp: string,
     @Body() body: unknown,
   ) {
     const rawToken = extractToken(authHeader, queryToken);
@@ -47,7 +51,7 @@ export class IncomingWebhookController {
     if (!parsed.success) {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
-    return this.webhooks.verifyAndPost(webhookId, rawToken, parsed.data);
+    return this.webhooks.verifyAndPost(webhookId, rawToken, parsed.data, clientIp);
   }
 }
 
