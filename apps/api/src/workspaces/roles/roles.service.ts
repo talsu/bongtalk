@@ -106,6 +106,8 @@ export class RolesService {
             position,
             permissions: toStoragePermissions(requested),
             isSystem: false,
+            // S88a (FR-MN-03 · D6): 멘션 허용 플래그. 미지정 시 false(멘션 불가).
+            mentionable: body.mentionable ?? false,
           },
         });
         // FR-RM12: 역할 생성 감사(같은 tx — 원자성).
@@ -119,6 +121,7 @@ export class RolesService {
               name: row.name,
               position: row.position,
               permissions: row.permissions.toString(),
+              mentionable: row.mentionable,
             },
           },
           tx,
@@ -171,6 +174,9 @@ export class RolesService {
     const data: Prisma.RoleUpdateInput = {};
     if (body.name !== undefined) data.name = body.name;
     if (body.colorHex !== undefined) data.colorHex = body.colorHex;
+    // S88a (FR-MN-03 · D6): 멘션 허용 토글. 비권한 메타라 시스템 역할도 변경 가능하다
+    // (name/position/permissions 의 isSystem 불변 가드와 별개). 권한상승 검사 불요.
+    if (body.mentionable !== undefined) data.mentionable = body.mentionable;
     if (body.permissions !== undefined) {
       const requested = deserializePermissions(body.permissions);
       await this.assertGrantWithinActor(
@@ -453,6 +459,8 @@ function toRoleDto(row: PrismaRole): RoleDto {
     position: row.position,
     permissions: serializePermissions(fromStoragePermissions(row.permissions)),
     isSystem: row.isSystem,
+    // S88a (FR-MN-03 · D6): 멘션 허용 플래그를 응답에 노출.
+    mentionable: row.mentionable,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };

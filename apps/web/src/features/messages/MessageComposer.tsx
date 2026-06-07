@@ -15,7 +15,7 @@ import {
 } from '../../design-system/primitives';
 import { EmojiPicker } from '../reactions/EmojiPicker';
 import { useCustomEmojis } from '../emojis/useCustomEmojis';
-import { useMembers, useWorkspace } from '../workspaces/useWorkspaces';
+import { useMembers, useWorkspace, useRoles } from '../workspaces/useWorkspaces';
 import { useAuth } from '../auth/AuthProvider';
 import { useChannelList } from '../channels/useChannels';
 import { usePresence } from '../realtime/usePresence';
@@ -40,6 +40,7 @@ import {
   useAutocomplete,
   type AutocompleteRow,
   type AutocompleteSources,
+  type RoleCandidate,
 } from './autocomplete/useAutocomplete';
 import { insertToken } from './autocomplete/insertToken';
 import { detectTrigger } from './autocomplete/detectTrigger';
@@ -129,6 +130,9 @@ function makeTypingEmitter(channelId: string): TypingEmitter {
 function tokenForRow(row: AutocompleteRow): string {
   if (row.type === 'special') return row.item.token;
   if (row.type === 'member') return `@${row.member.username}`;
+  // S88a (FR-MN-03): 역할 행 → 가독 handle `@<RoleName>` 삽입. 서버 normalizeMentions 가
+  // 알려진 역할명을 <@&roleId> 토큰으로 정규화한다(클라가 토큰을 만들지 않음).
+  if (row.type === 'role') return `@${row.role.name}`;
   if (row.type === 'channel') return `#${row.channel.name}`;
   // S79 (FR-SC-03): 슬래시 커맨드 선택 시 `/커맨드명` 을 삽입한다(insertToken 이 공백을
   // 덧붙여 `/name ` 형태로 파라미터 입력을 이어가게 한다). 실행은 S80.
@@ -275,6 +279,8 @@ export function MessageComposer({
   const { user } = useAuth();
   const { data: membersData } = useMembers(workspaceId ?? undefined);
   const { data: wsData } = useWorkspace(workspaceId ?? undefined);
+  // S88a (FR-MN-03): @ 자동완성 역할 후보. listRoles 응답을 RoleCandidate 로 매핑한다.
+  const { data: rolesData } = useRoles(workspaceId ?? undefined);
   const { data: channelData } = useChannelList(workspaceId ?? undefined);
   const { onlineUserIds, dndUserIds } = usePresence(workspaceId ?? undefined);
   // S79 (FR-SC-01): 슬래시 커맨드 목록(빌트인 상수 + 워크스페이스 커스텀 병합). 5분 캐시.
@@ -338,6 +344,19 @@ export function MessageComposer({
 
   const acSlashCommands = useMemo(() => slashCommandData ?? [], [slashCommandData]);
 
+  // S88a (FR-MN-03): 역할 후보. 가시성 게이트(mentionable / 권한)는 useAutocomplete 가
+  // myRole 로 처리하므로 여기서는 전체 역할을 RoleCandidate 로 매핑만 한다.
+  const acRoles = useMemo<RoleCandidate[]>(
+    () =>
+      (rolesData ?? []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        colorHex: r.colorHex,
+        mentionable: r.mentionable,
+      })),
+    [rolesData],
+  );
+
   const acSources = useMemo<AutocompleteSources>(
     () => ({
       members: acMembers,
@@ -350,8 +369,10 @@ export function MessageComposer({
       recentMembers: [],
       recentEmojis: [],
       role: myRole,
+      // S88a (FR-MN-03): @ 자동완성 역할 후보.
+      roles: acRoles,
     }),
-    [acMembers, acChannels, acCustomEmojis, acSlashCommands, acOnline, myRole],
+    [acMembers, acChannels, acCustomEmojis, acSlashCommands, acOnline, myRole, acRoles],
   );
 
   const [caret, setCaret] = useState(0);

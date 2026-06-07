@@ -25,4 +25,9 @@ export type MentionReceivedPayload = {
   // 측 분기 가능하도록 payload 에 포함. UI 가 @here 표시 / online-only
   // filter 적용은 후속 dispatcher 통합 (047 follow-up 이거나 별도 task).
   here: boolean;
+  // S88a (FR-MN-03): 이 수신자가 `@<RoleName>` 역할 멘션에서 유래했는지 표식.
+  // 명시 @user 와 역할 멘션 양쪽에 걸린 수신자는 dedup 되어 1건만 emit 되며, 그때
+  // 명시 멘션이 우선이라 role 은 false 다(direct 분류와 일관). UI 분기용 · optional
+  // 이라 구 dispatcher/payload 와 forward-compat.
+  role?: boolean;
 };

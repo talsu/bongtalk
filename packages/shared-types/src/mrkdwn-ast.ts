@@ -65,6 +65,12 @@ export type MentionChannelNode = z.infer<typeof MentionChannelNodeSchema>;
 export const MentionRoleNodeSchema = z.object({
   type: z.literal('mention_role'),
   roleId: Cuid2Schema,
+  /**
+   * S88a (FR-MN-03) — 정규화 시점에 해석한 역할명. 표시 전용 캐시 — 없으면
+   * 런타임 룩업(roleId→name)/ id 폴백. mention_user/channel 의 label 과 동일한
+   * additive·후방호환 전략(nullable+optional 이라 label 없는 구 AST 도 통과).
+   */
+  label: z.string().min(1).max(100).nullable().optional(),
 });
 export type MentionRoleNode = z.infer<typeof MentionRoleNodeSchema>;
 

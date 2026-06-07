@@ -32,21 +32,45 @@ const SPECIAL_MENTIONS = new Set(['everyone', 'here', 'channel']);
 export type MentionResolver = (handle: string) => string | null;
 
 /**
- * contentRaw 의 `@username` 을 `@{cuid2}` 로 정규화합니다. 코드 영역은
- * 그대로 보존합니다. resolver 가 null 을 반환하는 핸들과 특수 멘션은
- * 원문 그대로 둡니다.
+ * S88a (FR-MN-03): 알려진 역할 1건 — `@<RoleName>` 토큰을 `<@&roleId>` 로 치환하기
+ * 위한 (정확한 역할명, roleId) 쌍. 게이트를 통과한 역할만 넘긴다.
  */
-export function normalizeMentions(raw: string, resolve: MentionResolver): string {
-  // 코드 영역(펜스/인라인) span 을 먼저 수집해 그 안의 토큰은 건드리지 않게
-  // 합니다. 단일 패스 스캔 — 정규식 백트래킹 없음.
-  const codeSpans = collectCodeSpans(raw);
+export type RoleNameToken = { name: string; roleId: string };
+
+/** 정규식 메타문자 이스케이프 — 알려진 역할명을 anchored 정규식에 안전하게 박는다. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/**
+ * contentRaw 의 멘션을 안정 토큰으로 정규화합니다. 코드 영역은 그대로 보존합니다.
+ *
+ * S88a (FR-MN-03): **역할 패스를 user 패스보다 먼저** 수행합니다 — 게이트를 통과한
+ * 알려진 역할명 `@<RoleName>` 을 `<@&roleId>` 로 치환한 뒤, 그 다음 기존 user 패스가
+ * `@username` 을 `@{userId}` 로 치환합니다. 다단어 역할명("Project Managers")을 user
+ * 패스가 첫 단어만 부분 매칭해 갉아먹지 않도록 순서를 보장합니다. 코드 영역과
+ * 특수멘션(@everyone/@here/@channel), 미해결 핸들은 원문 그대로 둡니다.
+ *
+ * roleTokens 미지정/빈 배열이면 역할 패스를 건너뜁니다(기존 호출부 호환).
+ */
+export function normalizeMentions(
+  raw: string,
+  resolve: MentionResolver,
+  roleTokens: RoleNameToken[] = [],
+): string {
+  // 1) 역할 패스 — 게이트 통과 역할명 @<RoleName> → <@&roleId>. 긴 이름 우선으로
+  //    치환해 "PM Leads" 가 "PM" 보다 먼저 매칭되게 한다(부분 매칭 방지).
+  const withRoles = roleTokens.length === 0 ? raw : replaceRoleTokens(raw, roleTokens);
+
+  // 2) user 패스 — @username → @{userId}. 역할 토큰 치환 후의 본문을 받는다.
+  const codeSpans = collectCodeSpans(withRoles);
   const inCode = (idx: number): boolean => codeSpans.some((s) => idx >= s.start && idx < s.end);
 
   USERNAME_MENTION_RE.lastIndex = 0;
   let out = '';
   let cursor = 0;
   let m: RegExpExecArray | null;
-  while ((m = USERNAME_MENTION_RE.exec(raw)) !== null) {
+  while ((m = USERNAME_MENTION_RE.exec(withRoles)) !== null) {
     const handle = m[1];
     const start = m.index;
     // 특수 멘션·코드 영역 토큰은 원문 유지.
@@ -55,12 +79,49 @@ export function normalizeMentions(raw: string, resolve: MentionResolver): string
     }
     const userId = resolve(handle);
     if (!userId) continue; // 미해결 핸들 → literal
-    out += raw.slice(cursor, start);
+    out += withRoles.slice(cursor, start);
     out += `@{${userId}}`;
     cursor = start + m[0].length;
   }
-  out += raw.slice(cursor);
+  out += withRoles.slice(cursor);
   return out;
+}
+
+/**
+ * S88a (FR-MN-03): 알려진 역할명 `@<RoleName>` 을 `<@&roleId>` 로 치환한다. 코드
+ * 영역은 보존하고, 긴 이름 우선으로 순차 치환해 다단어 역할명이 부분 매칭으로
+ * 깨지지 않게 한다. 정규식은 알려진 이름만 이스케이프 후 경계 anchored ·
+ * case-insensitive(ReDoS 안전 — bounded known set).
+ */
+function replaceRoleTokens(raw: string, roleTokens: RoleNameToken[]): string {
+  // 코드 영역을 매 치환마다 재계산하면 인덱스가 어긋나므로, 치환 시 캡처 그룹으로
+  // 멘션의 선행/후행 경계를 보존하며 한 토큰씩 전역 치환한다. 코드 영역 보호는
+  // anchored boundary(앞 비단어 · 뒤 비단어)로 충분하지 않으므로, 단일 패스 스캐너
+  // 대신 토큰별로 코드 영역 밖에서만 치환한다.
+  const sorted = [...roleTokens].sort((a, b) => b.name.length - a.name.length);
+  let text = raw;
+  for (const { name, roleId } of sorted) {
+    const trimmed = name.trim();
+    if (trimmed.length === 0) continue;
+    const re = new RegExp(`(?<![A-Za-z0-9_])@${escapeRegExp(trimmed)}(?![A-Za-z0-9_])`, 'gi');
+    // 코드 영역은 매 토큰 치환 직전에 재수집한다(앞선 치환으로 길이가 바뀌므로).
+    const codeSpans = collectCodeSpans(text);
+    const inCode = (idx: number): boolean => codeSpans.some((s) => idx >= s.start && idx < s.end);
+    let out = '';
+    let cursor = 0;
+    let m: RegExpExecArray | null;
+    re.lastIndex = 0;
+    while ((m = re.exec(text)) !== null) {
+      const start = m.index;
+      if (inCode(start)) continue; // 코드 영역 내부 토큰은 보존.
+      out += text.slice(cursor, start);
+      out += `<@&${roleId}>`;
+      cursor = start + m[0].length;
+    }
+    out += text.slice(cursor);
+    text = out;
+  }
+  return text;
 }
 
 interface CodeSpan {

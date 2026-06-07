@@ -5,6 +5,7 @@ import {
   TextNodeSchema,
   MentionUserNodeSchema,
   MentionChannelNodeSchema,
+  MentionRoleNodeSchema,
   CodeBlockNodeSchema,
   DividerNodeSchema,
   LinkNodeSchema,
@@ -162,6 +163,35 @@ describe('MentionChannelNodeSchema label (S04 review HIGH / FR-MSG-13)', () => {
       channelId: 'clh3z2k0v0000abcd1234ef',
     });
     expect(parsed.label).toBeUndefined();
+  });
+});
+
+describe('MentionRoleNodeSchema label (S88a / FR-MN-03)', () => {
+  it('accepts an optional role-name label (additive)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: 'clh3z2k0v0000abcd1234ef',
+      label: 'Project Managers',
+    });
+    expect(parsed.label).toBe('Project Managers');
+  });
+
+  it('stays backward-compatible when label is omitted (legacy AST)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: 'clh3z2k0v0000abcd1234ef',
+    });
+    expect(parsed.label).toBeUndefined();
+  });
+
+  it('rejects an empty-string label (min length 1)', () => {
+    expect(() =>
+      MentionRoleNodeSchema.parse({
+        type: 'mention_role',
+        roleId: 'clh3z2k0v0000abcd1234ef',
+        label: '',
+      }),
+    ).toThrow();
   });
 });
 

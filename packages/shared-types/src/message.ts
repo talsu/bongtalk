@@ -35,6 +35,13 @@ export const MessageMentionsSchema = z.object({
   // isMention 이 @channel 을 무시해 배지가 reload 와 불일치했다. default(false)
   // 로 기존 row(channel 키 누락) forward-compat.
   channel: z.boolean().default(false),
+  // S88a (FR-MN-03): `@<RoleName>` 멘션이 가리키는 역할 id 목록. 서버가 본문에서
+  // 알려진 워크스페이스 역할명을 longest-match 로 권위 추출해 게이트(mentionable
+  // 또는 MENTION_EVERYONE)를 통과한 roleId 만 저장한다. 클라이언트는 user/channel
+  // 과 동일하게 이 값을 신뢰하되 송신 시 힌트로 보내지는 않는다(SendMessageRequest
+  // 의 mentions intent 에 roles 없음 — 역할은 서버 본문 추출이 단일 권위). default([])
+  // 로 roles 키가 없는 legacy JSON row 도 forward-compat(safeParse → []).
+  roles: z.array(TransitionalIdSchema).default([]),
 });
 export type MessageMentions = z.infer<typeof MessageMentionsSchema>;
 

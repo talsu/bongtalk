@@ -1,10 +1,15 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   gateChannelMention,
   gateEveryoneMention,
   gateHereMention,
+  gateRoleMention,
 } from '../../../src/messages/mentions/gate';
 import type { Mentions } from '../../../src/messages/mentions/mention-extractor';
+
+beforeEach(() => {
+  vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
+});
 
 const BASE: Mentions = {
   users: ['u1'],
@@ -12,6 +17,7 @@ const BASE: Mentions = {
   everyone: true,
   here: false,
   channel: false,
+  roles: [],
 };
 
 /**
@@ -34,7 +40,14 @@ describe('gateEveryoneMention (S44 boolean gate)', () => {
   });
 
   it('이미 false 면 권한 유무와 무관하게 그대로', () => {
-    const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
+    const m: Mentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      roles: [],
+    };
     expect(gateEveryoneMention(m, false)).toEqual(m);
     expect(gateEveryoneMention(m, true)).toEqual(m);
   });
@@ -46,6 +59,7 @@ describe('gateEveryoneMention (S44 boolean gate)', () => {
       everyone: true,
       here: false,
       channel: false,
+      roles: [],
     };
     const out = gateEveryoneMention(input, false);
     expect(input.everyone).toBe(true); // 원본 변경되지 않음
@@ -60,6 +74,7 @@ describe('gateHereMention (S44 boolean gate)', () => {
     everyone: false,
     here: true,
     channel: false,
+    roles: [],
   };
 
   it('권한 있으면 here=true 유지', () => {
@@ -73,7 +88,14 @@ describe('gateHereMention (S44 boolean gate)', () => {
   });
 
   it('이미 here=false 면 그대로', () => {
-    const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
+    const m: Mentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      roles: [],
+    };
     expect(gateHereMention(m, false)).toEqual(m);
   });
 });
@@ -85,6 +107,7 @@ describe('gateChannelMention (S44 boolean gate)', () => {
     everyone: false,
     here: false,
     channel: true,
+    roles: [],
   };
 
   it('권한 있으면 channel=true 유지', () => {
@@ -98,7 +121,52 @@ describe('gateChannelMention (S44 boolean gate)', () => {
   });
 
   it('이미 channel=false 면 그대로', () => {
-    const m: Mentions = { users: [], channels: [], everyone: false, here: false, channel: false };
+    const m: Mentions = {
+      users: [],
+      channels: [],
+      everyone: false,
+      here: false,
+      channel: false,
+      roles: [],
+    };
     expect(gateChannelMention(m, false)).toEqual(m);
+  });
+});
+
+// S88a (FR-MN-03 / D3): 역할 멘션 게이트는 service 가 산정한 허용 roleId 집합으로
+// mentions.roles 를 필터하는 순수 함수다(prisma/권한 의존 없음).
+describe('gateRoleMention (S88a / FR-MN-03)', () => {
+  const withRoles = (roles: string[]): Mentions => ({
+    users: ['u1'],
+    channels: [],
+    everyone: false,
+    here: false,
+    channel: false,
+    roles,
+  });
+
+  it('roles 가 비어 있으면 그대로 반환(no-op)', () => {
+    const m = withRoles([]);
+    expect(gateRoleMention(m, new Set(['r1']))).toBe(m);
+  });
+
+  it('허용 집합에 없는 역할은 silently 제거(다운그레이드)', () => {
+    const m = withRoles(['r1', 'r2', 'r3']);
+    const out = gateRoleMention(m, new Set(['r1', 'r3']));
+    expect(out.roles).toEqual(['r1', 'r3']);
+    // users 등 다른 필드는 영향 없음.
+    expect(out.users).toEqual(['u1']);
+  });
+
+  it('전부 허용이면 동일 객체를 반환(불필요한 할당 회피)', () => {
+    const m = withRoles(['r1', 'r2']);
+    expect(gateRoleMention(m, new Set(['r1', 'r2']))).toBe(m);
+  });
+
+  it('전부 비허용이면 roles=[] 로 다운그레이드', () => {
+    const m = withRoles(['r1', 'r2']);
+    const out = gateRoleMention(m, new Set<string>());
+    expect(out.roles).toEqual([]);
+    expect(out).not.toBe(m); // 새 객체 반환
   });
 });

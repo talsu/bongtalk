@@ -198,21 +198,29 @@ function RoleEditor({
   const [colorHex, setColorHex] = useState<string | null>(role.colorHex);
   const [position, setPosition] = useState(role.position);
   const [permissions, setPermissions] = useState<bigint>(parsePermissions(role.permissions));
+  // S88a (FR-MN-03 · D6): 멘션 허용 토글. 비권한 메타라 시스템 역할도 변경 가능하다.
+  const [mentionable, setMentionable] = useState(role.mentionable);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const readOnly = !canManage || role.isSystem;
+  // S88a (FR-MN-03 · D6): mentionable 은 시스템 역할도 변경 가능 — readOnly 와 별개로
+  // canManage 만으로 게이트한다(name/position/permissions 의 isSystem 불변과 분리).
+  const mentionReadOnly = !canManage;
 
   async function onSave(): Promise<void> {
     try {
-      await update.mutateAsync({
-        roleId: role.id,
-        input: {
-          name: name.trim(),
-          colorHex,
-          position,
-          permissions: serializePermissions(permissions),
-        },
-      });
+      // 시스템 역할은 name/position/permissions 변경이 서버에서 거부되므로,
+      // mentionable 만 보낸다(비시스템은 전체 필드 전송).
+      const input = role.isSystem
+        ? { mentionable }
+        : {
+            name: name.trim(),
+            colorHex,
+            position,
+            permissions: serializePermissions(permissions),
+            mentionable,
+          };
+      await update.mutateAsync({ roleId: role.id, input });
       notify({ variant: 'success', title: '역할 저장됨' });
     } catch (err) {
       notify({ variant: 'danger', title: '역할 저장 실패', body: (err as Error).message });
@@ -320,10 +328,27 @@ function RoleEditor({
         </div>
       </fieldset>
 
-      {canManage && !role.isSystem ? (
+      {/* S88a (FR-MN-03 · D6): @<RoleName> 멘션 허용 토글. 권한 체크박스 패턴 재사용.
+          비권한 메타라 시스템 역할도 canManage 면 변경 가능(mentionReadOnly). */}
+      <label
+        data-testid="role-mentionable"
+        className="flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)] text-text-secondary"
+      >
+        <input
+          type="checkbox"
+          checked={mentionable}
+          disabled={mentionReadOnly}
+          onChange={(e) => setMentionable(e.target.checked)}
+          style={{ accentColor: 'var(--accent)' }}
+        />
+        <span title="이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.">@멘션 허용</span>
+      </label>
+
+      {canManage ? (
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-[var(--s-2)]">
-            {confirmDelete ? (
+            {/* 삭제는 비시스템 역할에만(시스템 역할은 삭제 불가). */}
+            {!role.isSystem && confirmDelete ? (
               <>
                 <span className="text-[length:var(--fs-12)] text-danger">삭제할까요?</span>
                 <Button
@@ -344,7 +369,7 @@ function RoleEditor({
                   취소
                 </button>
               </>
-            ) : (
+            ) : !role.isSystem ? (
               <button
                 type="button"
                 data-testid="role-delete-btn"
@@ -353,21 +378,24 @@ function RoleEditor({
               >
                 역할 삭제
               </button>
+            ) : (
+              // 시스템 역할은 name/position/permissions 가 잠겨 있고 @멘션 허용만 저장된다.
+              <span className="text-[length:var(--fs-12)] text-text-muted">
+                시스템 역할은 @멘션 허용만 변경할 수 있습니다.
+              </span>
             )}
           </div>
           <Button
             size="sm"
             data-testid="role-save-btn"
-            disabled={update.isPending || name.trim().length === 0}
+            disabled={update.isPending || (!role.isSystem && name.trim().length === 0)}
             onClick={() => void onSave()}
           >
             저장
           </Button>
         </div>
       ) : (
-        <p className="text-[length:var(--fs-12)] text-text-muted">
-          {role.isSystem ? '시스템 역할은 수정/삭제할 수 없습니다.' : '읽기 전용입니다.'}
-        </p>
+        <p className="text-[length:var(--fs-12)] text-text-muted">읽기 전용입니다.</p>
       )}
     </div>
   );

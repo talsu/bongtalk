@@ -279,6 +279,55 @@ describe('renderAst — mentions / emoji', () => {
     expect(out).toContain('data-channel-id="clh3z2k0v0000chan1234ab"');
   });
 
+  // S88a (FR-MN-03): mention_role 렌더 — 노드 label 우선 → roleName resolver → roleId 폴백.
+  it('renders a role mention from the AST node label (no lookup needed)', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [
+            { type: 'mention_role', roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301', label: 'PM' },
+          ],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const out = renderToStaticMarkup(<>{renderAst(ast)}</>);
+    expect(out).toContain('@PM');
+    expect(out).toContain('data-role-id="3f2504e0-4f89-41d3-9a0c-0305e82c3301"');
+  });
+
+  it('resolves a role mention via the roleName lookup when label is absent', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [{ type: 'mention_role', roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301' }],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const mentions: MentionLookup = {
+      roleName: (id) => (id === '3f2504e0-4f89-41d3-9a0c-0305e82c3301' ? 'Engineers' : undefined),
+    };
+    const out = renderToStaticMarkup(<>{renderAst(ast, undefined, mentions)}</>);
+    expect(out).toContain('@Engineers');
+  });
+
+  it('falls back to the roleId when neither label nor lookup resolves', () => {
+    const ast = {
+      type: 'root',
+      nodes: [
+        {
+          type: 'paragraph',
+          nodes: [{ type: 'mention_role', roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301' }],
+        },
+      ],
+    } as unknown as RichTextRoot;
+    const out = renderToStaticMarkup(<>{renderAst(ast)}</>);
+    expect(out).toContain('@3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
   it('escapes a malicious AST node label (no markup injection)', () => {
     const ast = {
       type: 'root',

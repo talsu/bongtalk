@@ -538,6 +538,71 @@ export class ChannelAccessService {
   }
 
   /**
+   * S88a (FR-MN-03 · D4): 비공개 채널의 VIEW_CHANNEL 가시성으로 후보 userId 집합을
+   * **N+1 없이** 필터링한다. 공개 채널은 호출하지 않는다(호출자가 isPrivate 분기).
+   *
+   * 비공개 가시성 규칙(computeEffectiveForMember 의 private 게이트와 동일):
+   *   - OWNER 는 무조건 가시(base 억제 면제).
+   *   - 그 외 멤버는 채널에 명시 READ ALLOW override(USER 본인 또는 보유 역할 ROLE)가
+   *     있어야 가시.
+   *
+   * 한 번의 채널 override findMany + 한 번의 후보 멤버(role + memberRoles) findMany 로
+   * in-memory 계산한다(역할 멘션 fanout 의 hot-path · 멤버당 쿼리 금지). 정밀한
+   * job-time 재검증은 S88b.
+   */
+  async filterPrivateChannelVisibleUsers(
+    channelId: string,
+    workspaceId: string,
+    candidateUserIds: string[],
+  ): Promise<Set<string>> {
+    const visible = new Set<string>();
+    if (candidateUserIds.length === 0) return visible;
+
+    const [overrides, members] = await Promise.all([
+      this.prisma.channelPermissionOverride.findMany({
+        where: { channelId },
+        select: { principalType: true, principalId: true, allowMask: true },
+      }),
+      this.prisma.workspaceMember.findMany({
+        where: { workspaceId, userId: { in: candidateUserIds } },
+        select: {
+          userId: true,
+          role: true,
+          memberRoles: { select: { roleId: true } },
+        },
+      }),
+    ]);
+
+    // READ ALLOW 를 부여하는 USER principal 집합 + ROLE principal 집합을 미리 만든다.
+    const userReadAllow = new Set<string>();
+    const roleReadAllow = new Set<string>();
+    for (const o of overrides) {
+      if ((Number(o.allowMask) & Permission.READ) !== Permission.READ) continue;
+      if (o.principalType === 'USER') userReadAllow.add(o.principalId);
+      else if (o.principalType === 'ROLE') roleReadAllow.add(o.principalId);
+    }
+
+    for (const m of members) {
+      // OWNER 무조건 가시.
+      if (m.role === 'OWNER') {
+        visible.add(m.userId);
+        continue;
+      }
+      // 본인 USER override READ ALLOW.
+      if (userReadAllow.has(m.userId)) {
+        visible.add(m.userId);
+        continue;
+      }
+      // 보유 역할 중 하나라도 ROLE override READ ALLOW(시스템 역할 리터럴 + 커스텀 UUID).
+      const rolePrincipalIds = [m.role as string, ...m.memberRoles.map((r) => r.roleId)];
+      if (rolePrincipalIds.some((rid) => roleReadAllow.has(rid))) {
+        visible.add(m.userId);
+      }
+    }
+    return visible;
+  }
+
+  /**
    * S62 (FR-RM03): 멤버가 보유한 Role.id(UUID) 목록을 반환한다. ROLE override
    * 조회에서 시스템 역할 리터럴(레거시 principalId) 외에 커스텀 Role UUID
    * principalId 도 함께 매칭하기 위함이다. 멤버가 아니거나 역할이 없으면 빈 배열.

@@ -13,7 +13,7 @@ function msg(id: string, createdAt: string, parentMessageId: string | null = nul
     contentAst: null,
     contentPlain: id,
     type: 'DEFAULT',
-    mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+    mentions: { users: [], channels: [], everyone: false, here: false, channel: false, roles: [] },
     edited: false,
     deleted: false,
     createdAt,

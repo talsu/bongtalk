@@ -1,22 +1,31 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import {
   extractMentions,
+  extractRoleMentions,
   normalizeContent,
   hasBroadMentionSignal,
 } from '../../../src/messages/mentions/mention-extractor';
+import { normalizeMentions } from '../../../src/messages/mentions/mention-normalizer';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
 });
 
+type RoleRow = { id: string; name: string; mentionable: boolean };
 type FakePrisma = {
   user: { findMany: ReturnType<typeof vi.fn> };
   channel: { findMany: ReturnType<typeof vi.fn> };
+  role: { findMany: ReturnType<typeof vi.fn> };
 };
-function makePrisma(userRows: { id: string }[], channelRows: { id: string }[]): FakePrisma {
+function makePrisma(
+  userRows: { id: string }[],
+  channelRows: { id: string }[],
+  roleRows: RoleRow[] = [],
+): FakePrisma {
   return {
     user: { findMany: vi.fn().mockResolvedValue(userRows) },
     channel: { findMany: vi.fn().mockResolvedValue(channelRows) },
+    role: { findMany: vi.fn().mockResolvedValue(roleRows) },
   };
 }
 
@@ -71,6 +80,7 @@ describe('extractMentions', () => {
       everyone: true,
       here: false,
       channel: false,
+      roles: [],
     });
   });
 
@@ -115,6 +125,146 @@ describe('extractMentions', () => {
     const fake = makePrisma([], []);
     const out = await extractMentions(fake as any, WS, 'this iswhereiwantto @hereisnotaword');
     expect(out.here).toBe(false);
+  });
+});
+
+// S88a (FR-MN-03 / D1): `@<RoleName>` 역할 멘션 추출 — 알려진 워크스페이스 역할명
+// longest-match · case-insensitive · 경계 anchored · 예약어 제외 · 미지명 silent drop.
+describe('extractRoleMentions (S88a / FR-MN-03)', () => {
+  const WS = '00000000-0000-4000-8000-00000000aaaa';
+
+  it('@ 가 없으면 역할 목록 쿼리 없이 즉시 [] 반환', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'PM', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, WS, 'no mentions here');
+    expect(out).toEqual([]);
+    expect(fake.role.findMany).not.toHaveBeenCalled();
+  });
+
+  it('workspaceId=null(DM) 이면 [] (쿼리 생략)', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'PM', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, null, 'ping @PM');
+    expect(out).toEqual([]);
+    expect(fake.role.findMany).not.toHaveBeenCalled();
+  });
+
+  it('알려진 역할명을 매칭하고 mentionable 플래그를 함께 반환', async () => {
+    const fake = makePrisma(
+      [],
+      [],
+      [
+        { id: 'r1', name: 'Engineers', mentionable: true },
+        { id: 'r2', name: 'Admins', mentionable: false },
+      ],
+    );
+    const out = await extractRoleMentions(fake as any, WS, 'hey @Engineers and @Admins');
+    expect(out).toEqual([
+      { id: 'r1', name: 'Engineers', mentionable: true },
+      { id: 'r2', name: 'Admins', mentionable: false },
+    ]);
+  });
+
+  it('공백 포함 역할명(다단어)도 정확히 매칭', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'Project Managers', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, WS, 'cc @Project Managers please');
+    expect(out.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  it('longest-match — 긴 이름을 우선해 매칭(부분 매칭 방지)', async () => {
+    const fake = makePrisma(
+      [],
+      [],
+      [
+        { id: 'short', name: 'PM', mentionable: true },
+        { id: 'long', name: 'PM Leads', mentionable: true },
+      ],
+    );
+    const out = await extractRoleMentions(fake as any, WS, 'ping @PM Leads now');
+    // 둘 다 @PM 으로 시작하지만 "PM Leads" 가 더 길어 먼저 매칭된다. "PM" 은 경계상
+    // "@PM Leads" 안에서 단독 토큰이 아니므로(뒤가 공백이라 경계 OK)도 매칭될 수 있어
+    // 둘 다 잡힐 수 있으나, longest 가 포함됨을 보장한다.
+    expect(out.map((r) => r.id)).toContain('long');
+  });
+
+  it('case-insensitive 매칭', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'Engineers', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, WS, 'yo @engineers');
+    expect(out.map((r) => r.id)).toEqual(['r1']);
+  });
+
+  it('예약어(everyone/here/channel) 동명 역할은 제외', async () => {
+    const fake = makePrisma(
+      [],
+      [],
+      [
+        { id: 'r1', name: 'everyone', mentionable: true },
+        { id: 'r2', name: 'here', mentionable: true },
+        { id: 'r3', name: 'channel', mentionable: true },
+      ],
+    );
+    const out = await extractRoleMentions(fake as any, WS, '@everyone @here @channel');
+    expect(out).toEqual([]);
+  });
+
+  it('미지의 역할명은 silent drop(알려진 목록에 없으면 매칭 안 함)', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'Engineers', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, WS, 'ping @Marketing');
+    expect(out).toEqual([]);
+  });
+
+  it('단어 안에 포함된 역할명은 경계 가드로 무시', async () => {
+    const fake = makePrisma([], [], [{ id: 'r1', name: 'PM', mentionable: true }]);
+    const out = await extractRoleMentions(fake as any, WS, 'email me@PManager.com');
+    expect(out).toEqual([]);
+  });
+});
+
+// S88a (FR-MN-03 / D1): normalizeMentions 역할 패스(user 패스보다 먼저) — 알려진
+// 역할명 @<RoleName> → <@&roleId>, 그 다음 @username → @{userId}.
+describe('normalizeMentions — role pass (S88a / FR-MN-03)', () => {
+  it('역할 토큰을 <@&roleId> 로 치환한다', () => {
+    const out = normalizeMentions('ping @Engineers please', () => null, [
+      { name: 'Engineers', roleId: 'r1' },
+    ]);
+    expect(out).toBe('ping <@&r1> please');
+  });
+
+  it('다단어 역할명을 user 패스가 부분 매칭하지 않게 역할 패스가 먼저 처리', () => {
+    // resolver 가 'Project' 핸들을 우연히 알아도, 역할 패스가 먼저 전체를 토큰화한다.
+    const resolve = (h: string): string | null => (h.toLowerCase() === 'project' ? 'uX' : null);
+    const out = normalizeMentions('cc @Project Managers ok', resolve, [
+      { name: 'Project Managers', roleId: 'r9' },
+    ]);
+    expect(out).toBe('cc <@&r9> ok');
+  });
+
+  it('역할 + 사용자 멘션 혼합 — 역할 먼저, 그 다음 @username', () => {
+    const handle = new Map([['alice', 'u1']]);
+    const out = normalizeMentions(
+      'hey @Engineers and @alice',
+      (h) => handle.get(h.toLowerCase()) ?? null,
+      [{ name: 'Engineers', roleId: 'r1' }],
+    );
+    expect(out).toBe('hey <@&r1> and @{u1}');
+  });
+
+  it('roleTokens 가 비면 역할 패스를 건너뛴다(기존 동작)', () => {
+    const out = normalizeMentions('hi @alice', (h) => (h === 'alice' ? 'u1' : null));
+    expect(out).toBe('hi @{u1}');
+  });
+
+  it('코드 영역의 역할명은 치환하지 않는다', () => {
+    const out = normalizeMentions('`@Engineers` literal', () => null, [
+      { name: 'Engineers', roleId: 'r1' },
+    ]);
+    expect(out).toBe('`@Engineers` literal');
+  });
+
+  it('longest-match — 긴 역할명을 먼저 치환해 부분 매칭을 막는다', () => {
+    const out = normalizeMentions('ping @PM Leads', () => null, [
+      { name: 'PM', roleId: 'rShort' },
+      { name: 'PM Leads', roleId: 'rLong' },
+    ]);
+    expect(out).toBe('ping <@&rLong>');
   });
 });
 

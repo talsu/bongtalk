@@ -12,7 +12,28 @@ export type Mentions = {
    * 반영되며, gate.ts 로 권한 게이트한다.
    */
   channel: boolean;
+  /**
+   * S88a (FR-MN-03): `@<RoleName>` 멘션이 가리키는 역할 id 목록. extractRoleMentions 가
+   * 본문에서 알려진 워크스페이스 역할명을 longest-match 로 권위 추출한 roleId 들이다
+   * (게이트/정규화는 호출자가 별도 수행). DM(workspaceId=null)은 항상 [].
+   */
+  roles: string[];
 };
+
+/**
+ * S88a (FR-MN-03): extractRoleMentions 가 반환하는 역할 1건. mentionable 플래그를
+ * 함께 실어 service 의 접근제어 게이트(mentionable===true OR actorHasMentionEveryone)가
+ * 추가 쿼리 없이 판정할 수 있게 한다.
+ */
+export type ExtractedRoleMention = { id: string; name: string; mentionable: boolean };
+
+/** 정규식 메타문자 이스케이프 — 알려진 역할명을 anchored 정규식에 안전하게 박는다. */
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** 역할 매칭에서 제외하는 예약 특수멘션 키. 동명 역할이 있어도 멘션으로 보지 않는다. */
+const RESERVED_MENTION_NAMES = new Set(['everyone', 'here', 'channel']);
 
 // Username grammar mirrors SignupRequestSchema: 2-32, alnum/._-
 const MENTION_USER_RE = /(?<![A-Za-z0-9_])@([A-Za-z0-9_.-]{2,32})/g;
@@ -40,7 +61,7 @@ export async function extractMentions(
   // namespace to resolve @handles against, so drop mentions entirely.
   // `@everyone` in a DM would also be meaningless.
   if (workspaceId === null) {
-    return { users: [], channels: [], everyone: false, here: false, channel: false };
+    return { users: [], channels: [], everyone: false, here: false, channel: false, roles: [] };
   }
   const everyone = MENTION_EVERYONE_RE.test(text);
   const here = MENTION_HERE_RE.test(text);
@@ -84,7 +105,57 @@ export async function extractMentions(
           .then((rs) => rs.map((r) => r.id)),
   ]);
 
-  return { users, channels, everyone, here, channel: channelScope };
+  // S88a (FR-MN-03): `roles` 는 extractRoleMentions 가 별도로 채운다(service 가
+  // mentionable 플래그까지 필요로 하므로 호출을 분리한다). 여기서는 빈 배열을 둔다.
+  return { users, channels, everyone, here, channel: channelScope, roles: [] };
+}
+
+/**
+ * S88a (FR-MN-03 · D1): 본문에서 `@<RoleName>` 멘션을 추출한다.
+ *
+ * 역할명은 RoleNameSchema 가 공백을 허용하므로("Project Managers") 자유 정규식으로는
+ * 추출할 수 없다 → **알려진 워크스페이스 역할명 longest-match**. 워크스페이스 역할
+ * 목록을 로드한 뒤(@ 포함 메시지에 한해), 본문에서 정확한 역할명을 경계 anchored ·
+ * case-insensitive · 긴 이름 우선으로 스캔해 매칭된 roleId 를 수집한다.
+ *
+ * - workspaceId=null(DM) 또는 `@` 미포함 텍스트면 즉시 [] (쿼리 생략).
+ * - 예약어 everyone/here/channel 동명 역할은 제외한다.
+ * - 미지의 역할명은 silent drop(extractMentions 와 동일 신뢰 모델).
+ * - mentionable 플래그를 함께 반환해 service 게이트가 추가 쿼리 없이 판정한다.
+ *
+ * ReDoS 안전: 알려진 이름만 escapeRegExp 후 anchored(앞뒤 단어경계) lookaround 로
+ * 1회 매칭한다 — 입력 길이에 선형이고 백트래킹 폭발이 없다(bounded known set).
+ */
+export async function extractRoleMentions(
+  prisma: PrismaClient,
+  workspaceId: string | null,
+  text: string,
+): Promise<ExtractedRoleMention[]> {
+  if (workspaceId === null) return [];
+  // `@` 가 전혀 없으면 역할 멘션이 있을 수 없다 — 역할 목록 쿼리 자체를 생략.
+  if (!text.includes('@')) return [];
+
+  const roles = await prisma.role.findMany({
+    where: { workspaceId },
+    select: { id: true, name: true, mentionable: true },
+  });
+  if (roles.length === 0) return [];
+
+  // 긴 이름 우선(longest-match) — "PM Leads" 가 "PM" 보다 먼저 매칭되게 정렬한다.
+  const sorted = [...roles].sort((a, b) => b.name.length - a.name.length);
+  const matched = new Map<string, ExtractedRoleMention>();
+  for (const role of sorted) {
+    const trimmed = role.name.trim();
+    if (trimmed.length === 0) continue;
+    // 예약 특수멘션 동명 역할은 멘션 대상에서 제외(@everyone 등은 별도 경로).
+    if (RESERVED_MENTION_NAMES.has(trimmed.toLowerCase())) continue;
+    // `@<RoleName>` 경계 anchored · case-insensitive. name 은 정규식 이스케이프.
+    const re = new RegExp(`(?<![A-Za-z0-9_])@${escapeRegExp(trimmed)}(?![A-Za-z0-9_])`, 'i');
+    if (re.test(text)) {
+      matched.set(role.id, { id: role.id, name: role.name, mentionable: role.mentionable });
+    }
+  }
+  return [...matched.values()];
 }
 
 /**
@@ -143,10 +214,19 @@ export async function resolveMentionLabelMaps(
   prisma: PrismaClient,
   workspaceId: string | null,
   text: string,
-): Promise<{ users: Map<string, string>; channels: Map<string, string> }> {
+  // S88a (FR-MN-03): 게이트를 통과해 실제 저장될 roleId 들. 이 집합에 한해 역할명을
+  // 로드해 label 맵에 채운다(추출은 됐으나 게이트 탈락한 역할은 토큰화되지 않으므로
+  // label 도 불필요). 미지정/빈 배열이면 roles 맵은 비운다(기존 호출부 호환).
+  gatedRoleIds: string[] = [],
+): Promise<{
+  users: Map<string, string>;
+  channels: Map<string, string>;
+  roles: Map<string, string>;
+}> {
   const users = new Map<string, string>();
   const channels = new Map<string, string>();
-  if (workspaceId === null) return { users, channels };
+  const roles = new Map<string, string>();
+  if (workspaceId === null) return { users, channels, roles };
 
   const usernames = new Set<string>();
   for (const m of text.matchAll(MENTION_USER_RE)) {
@@ -159,7 +239,7 @@ export async function resolveMentionLabelMaps(
     channelNames.add(m[1]);
   }
 
-  const [userRows, channelRows] = await Promise.all([
+  const [userRows, channelRows, roleRows] = await Promise.all([
     usernames.size === 0
       ? Promise.resolve([] as { id: string; username: string }[])
       : prisma.user.findMany({
@@ -175,10 +255,17 @@ export async function resolveMentionLabelMaps(
           where: { workspaceId, deletedAt: null, name: { in: [...channelNames] } },
           select: { id: true, name: true },
         }),
+    gatedRoleIds.length === 0
+      ? Promise.resolve([] as { id: string; name: string }[])
+      : prisma.role.findMany({
+          where: { workspaceId, id: { in: gatedRoleIds } },
+          select: { id: true, name: true },
+        }),
   ]);
   for (const r of userRows) users.set(r.id, r.username);
   for (const r of channelRows) channels.set(r.id, r.name);
-  return { users, channels };
+  for (const r of roleRows) roles.set(r.id, r.name);
+  return { users, channels, roles };
 }
 
 /**

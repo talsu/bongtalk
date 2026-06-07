@@ -71,6 +71,8 @@ export interface MentionLabelResolvers {
   user?: (userId: string) => string | null | undefined;
   /** channelId(cuid2) → channel name. 없으면 undefined/null. */
   channel?: (channelId: string) => string | null | undefined;
+  /** S88a (FR-MN-03): roleId(uuid|cuid2) → role name. 없으면 undefined/null. */
+  role?: (roleId: string) => string | null | undefined;
 }
 
 export interface ParseMrkdwnOptions {
@@ -418,13 +420,20 @@ function parseInlineRun(text: string, activeMarks: TextMark[], state: ScanState)
       continue;
     }
 
-    // --- mention_role <@&cuid2>
+    // --- mention_role <@&id> (uuid|cuid2)
     const roleRe = new RegExp(MENTION_ROLE_RE.source);
     const rm = roleRe.exec(rest);
     if (rm && rm.index === 0) {
       flush();
       bumpNode(state);
-      out.push({ type: 'mention_role', roleId: rm[1] });
+      const roleId = rm[1];
+      // S88a (FR-MN-03): 정규화 시점에 해석한 역할명을 label 로 캐시(user/channel 패턴).
+      const label = resolveLabel(state.mentionLabels?.role, roleId);
+      out.push(
+        label === undefined
+          ? { type: 'mention_role', roleId }
+          : { type: 'mention_role', roleId, label },
+      );
       pos += rm[0].length;
       continue;
     }

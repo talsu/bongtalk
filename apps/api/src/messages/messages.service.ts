@@ -23,14 +23,24 @@ import type { RichTextRoot } from '@qufox/shared-types';
 import { cursorFor, decodeCursor } from './cursor/cursor';
 import {
   extractMentions,
+  extractRoleMentions,
   resolveMentionHandles,
   resolveMentionLabelMaps,
   type Mentions,
+  type ExtractedRoleMention,
 } from './mentions/mention-extractor';
-import { normalizeMentions } from './mentions/mention-normalizer';
+import { normalizeMentions, type RoleNameToken } from './mentions/mention-normalizer';
 import { processMrkdwn } from './mrkdwn-pipeline';
 import { astHasLink, flagsFromAttachmentKinds } from '../search/message-flags';
-import { gateChannelMention, gateEveryoneMention, gateHereMention } from './mentions/gate';
+import {
+  gateChannelMention,
+  gateEveryoneMention,
+  gateHereMention,
+  gateRoleMention,
+} from './mentions/gate';
+import { ChannelAccessService } from '../channels/permission/channel-access.service';
+import { RateLimitService } from '../auth/services/rate-limit.service';
+import type { WorkspaceRole } from '@prisma/client';
 import { ThreadSubscriptionsService } from './thread-subscriptions.service';
 import { UnreadService } from '../channels/unread.service';
 import { S3Service } from '../storage/s3.service';
@@ -313,6 +323,17 @@ export class MessagesService {
     // AuditModule 제공이지만, 미주입 단위 테스트는 @Optional 로 기록을 건너뛴다.
     @Optional()
     private readonly audit?: AuditService,
+    // S88a (FR-MN-03 / D5): `@<RoleName>` 멘션 이중 rate-limit(user 5/분 · role 10/5분).
+    // RateLimitService 는 AuthModule export(MessagesModule import). REDIS 필수 의존이라
+    // @Optional — 미주입 단위테스트는 rate-limit 을 건너뛴다(DB 경로만).
+    @Optional()
+    private readonly rate?: RateLimitService,
+    // S88a (FR-MN-03 / D3·D4): 역할 멘션 접근제어(non-mentionable 역할의 lazy
+    // MENTION_EVERYONE 권한 계산) + 비공개 채널 VIEW_CHANNEL 가시성 필터. ChannelsModule
+    // (forwardRef) export. @Optional 이라 미주입 단위테스트는 역할 게이트/필터를 건너뛴다.
+    @Optional()
+    @Inject(forwardRef(() => ChannelAccessService))
+    private readonly channelAccess?: ChannelAccessService,
   ) {}
 
   /**
@@ -433,7 +454,8 @@ export class MessagesService {
       everyone: false,
       here: false,
       channel: false,
-    }) as MessageMentions & { here?: boolean; channel?: boolean };
+      roles: [],
+    }) as MessageMentions & { here?: boolean; channel?: boolean; roles?: string[] };
     // S33 fix-forward (보안 BLOCKER): 삭제된 메시지는 본문/첨부와 마찬가지로
     // mentions 도 빈 값으로 마스킹합니다. S33 이 답글 보유 deleted thread-root
     // 와 deleted 답글을 채널 목록·스레드 패널에 placeholder 로 새로 노출시키면서,
@@ -442,7 +464,7 @@ export class MessagesService {
     // content-masking 규칙과 동일하게 비노출 처리합니다 — maskBlockedAuthors 의
     // 빈 mentions 형태와 일관(실제 MessageMentionsSchema 형태).
     const mentions: MessageMentions = isDeleted
-      ? { users: [], channels: [], everyone: false, here: false, channel: false }
+      ? { users: [], channels: [], everyone: false, here: false, channel: false, roles: [] }
       : {
           users: rawMentions.users,
           channels: rawMentions.channels,
@@ -452,6 +474,8 @@ export class MessagesService {
           // live dispatcher 의 isMention 이 @channel 을 인식한다. 누락(legacy row)은
           // false 폴백.
           channel: rawMentions.channel ?? false,
+          // S88a (FR-MN-03): 역할 멘션 roleId 목록. legacy row(roles 키 없음)는 [] 폴백.
+          roles: rawMentions.roles ?? [],
         };
     return {
       id: row.id,
@@ -1025,7 +1049,14 @@ export class MessagesService {
         // S37 (FR-MSG-17): 평문 정본도 placeholder 로 치환 — content 와 동일하게
         // 차단 author 의 본문이 "메시지 복사" 로 새지 않도록 한다.
         contentPlain: BLOCKED_MESSAGE_PLACEHOLDER,
-        mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+        mentions: {
+          users: [],
+          channels: [],
+          everyone: false,
+          here: false,
+          channel: false,
+          roles: [],
+        },
         // S60: 차단 author 의 메시지 unfurl 카드도 비운다(본문 마스킹과 일관 — 차단한
         // 사용자의 링크 미리보기가 노출되지 않도록).
         embeds: [],
@@ -1097,6 +1128,96 @@ export class MessagesService {
     });
   }
 
+  /**
+   * S88a (FR-MN-03 / D3): 추출된 역할 멘션 중 **멘션이 허용되는 roleId 집합**을 산정한다.
+   *
+   *   - mentionable===true 역할은 누구나 멘션 가능 → 무조건 통과.
+   *   - mentionable===false 역할은 actor 가 MENTION_EVERYONE 권한(ADR-4 0x0080) 보유 시에만.
+   *     non-mentionable 역할이 1개 이상일 때만 lazy 로 `resolveMentionEveryone` 을 호출해
+   *     (override fold 1쿼리) 흔한 경로(역할 없음/전부 mentionable)의 +1 RTT 를 없앤다.
+   *
+   * DM(workspaceId=null)·미주입(channelAccess 없음) 환경은 mentionable=true 역할만 통과시킨다
+   * (non-mentionable 은 권한 계산 경로가 없어 보수적으로 제외).
+   */
+  private async resolveAllowedRoleMentions(
+    extractedRoles: ExtractedRoleMention[],
+    ctx: {
+      channelId: string;
+      workspaceId: string | null;
+      authorId: string;
+      actorRole?: WorkspaceRole;
+      actorMemberRoleUuids?: string[];
+    },
+  ): Promise<Set<string>> {
+    const allowed = new Set<string>();
+    if (extractedRoles.length === 0) return allowed;
+
+    const mentionableRoles = extractedRoles.filter((r) => r.mentionable);
+    for (const r of mentionableRoles) allowed.add(r.id);
+
+    const restrictedRoles = extractedRoles.filter((r) => !r.mentionable);
+    if (restrictedRoles.length === 0) return allowed;
+
+    // non-mentionable 역할이 있을 때만 MENTION_EVERYONE 권한을 lazy 계산한다.
+    if (ctx.workspaceId === null || !this.channelAccess || ctx.actorRole === undefined) {
+      return allowed; // 권한 계산 경로 부재 → restricted 역할 제외(보수적).
+    }
+    const actorHasMentionEveryone = await this.channelAccess.resolveMentionEveryone(
+      { id: ctx.channelId, workspaceId: ctx.workspaceId },
+      ctx.authorId,
+      ctx.actorRole,
+      ctx.actorMemberRoleUuids,
+    );
+    if (actorHasMentionEveryone) {
+      for (const r of restrictedRoles) allowed.add(r.id);
+    }
+    return allowed;
+  }
+
+  /**
+   * S88a (FR-MN-03 / D4): 게이트 통과 역할의 멤버 userId 집합을 resolve 한다.
+   *
+   *   - 역할 멤버 = `MemberRole.findMany({ where: { workspaceId, roleId in gated } })`(1쿼리).
+   *   - 비공개 채널이면 VIEW_CHANNEL 가시성으로 필터한다(공개 채널은 전원). 채널 isPrivate
+   *     은 멤버를 resolve 해야 할 때만 1쿼리로 읽는다. 가시성 계산은 ChannelAccessService.
+   *     filterPrivateChannelVisibleUsers(채널 override + 후보 멤버 1쿼리 · in-memory)로 N+1 없음.
+   *
+   * gatedRoleIds 빈 배열·DM(workspaceId=null)·channelAccess 미주입이면 빈 집합을 돌려준다.
+   * (DM 채널은 역할 네임스페이스가 없어 gatedRoleIds 가 이미 비어 있다.)
+   */
+  private async resolveRoleMentionRecipients(
+    tx: Prisma.TransactionClient,
+    args: { workspaceId: string | null; channelId: string; gatedRoleIds: string[] },
+  ): Promise<Set<string>> {
+    const out = new Set<string>();
+    if (args.gatedRoleIds.length === 0 || args.workspaceId === null) return out;
+
+    const memberRows = await tx.memberRole.findMany({
+      where: { workspaceId: args.workspaceId, roleId: { in: args.gatedRoleIds } },
+      select: { userId: true },
+    });
+    const memberIds = Array.from(new Set(memberRows.map((r) => r.userId)));
+    if (memberIds.length === 0) return out;
+
+    // 채널 가시성: 비공개 채널만 필터(공개는 전원 통과). isPrivate 은 여기서만 읽는다.
+    const channel = await tx.channel.findUnique({
+      where: { id: args.channelId },
+      select: { isPrivate: true },
+    });
+    if (!channel?.isPrivate || !this.channelAccess) {
+      // 공개 채널(또는 채널 메타 없음 — 보수적 전원) → 전원 후보.
+      for (const id of memberIds) out.add(id);
+      return out;
+    }
+    const visible = await this.channelAccess.filterPrivateChannelVisibleUsers(
+      args.channelId,
+      args.workspaceId,
+      memberIds,
+    );
+    for (const id of visible) out.add(id);
+    return out;
+  }
+
   // ------------------------------------------------------------------ send
 
   /**
@@ -1152,6 +1273,11 @@ export class MessagesService {
     // broadcast 행의 content 는 답글 본문 복제이고 SYSTEM 템플릿을 쓰지 않으므로
     // actor username 은 필요 없다(클라가 레이블/excerpt 만 별도 렌더).
     isBroadcast?: boolean;
+    // S88a (FR-MN-03 / D3): non-mentionable 역할 멘션의 lazy MENTION_EVERYONE 권한
+    // 계산용. 컨트롤러가 이미 로드한 멤버 메타(m.role + 보유 Role UUID)를 넘긴다.
+    // 미지정(DM 등)이면 non-mentionable 역할 멘션은 권한 없음으로 다운그레이드된다.
+    actorRole?: WorkspaceRole;
+    actorMemberRoleUuids?: string[];
   }): Promise<{ message: MessageRow; replayed: boolean }> {
     // S03 (FR-MSG-05 / FR-RT-04): Redis read-through 2차 캐시. 재전송 시
     // 동일 키가 캐시에 있으면 DB INSERT 시도 자체를 생략하고 캐시된
@@ -1238,13 +1364,13 @@ export class MessagesService {
     // literal 로 유지됩니다. `extractMentions` 는 핸들→userId resolve 를 자체
     // 수행하므로 원본(`args.content`)을 그대로 받습니다.
     const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
-    const normalizedContent = normalizeMentions(
-      args.content,
-      (h) => handleMap.get(h.toLowerCase()) ?? null,
-    );
     // Mentions resolve against workspace members / channels. Unknown handles
     // are silently dropped — client must never pre-compute this.
     const extracted = await extractMentions(this.prisma, args.workspaceId, args.content);
+    // S88a (FR-MN-03 / D1): `@<RoleName>` 역할 멘션을 본문에서 권위 추출한다(알려진
+    // 워크스페이스 역할명 longest-match · mentionable 플래그 동반). 게이트(D3) 전이라
+    // 아직 다운그레이드되지 않은 후보다.
+    const extractedRoles = await extractRoleMentions(this.prisma, args.workspaceId, args.content);
     // S21 (FR-RS-16): 특수멘션은 본문 sigil 추출값과 composer 힌트를 OR 병합한다.
     // user/channel(이름) 멘션은 본문 권위 추출만 신뢰한다(힌트 미반영). DM
     // 채널(workspaceId=null)은 extractMentions 가 전부 false 를 반환하므로 힌트도
@@ -1261,10 +1387,27 @@ export class MessagesService {
     // 채널 override 5단계 fold 로 산정한 boolean(args.hasMentionEveryone)이고, 미지정
     // (DM 채널 등)은 false 로 보수 처리됩니다.
     const hasMentionEveryone = args.hasMentionEveryone === true;
-    const mentions = gateChannelMention(
+    const broadGated = gateChannelMention(
       gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
       hasMentionEveryone,
     );
+    // S88a (FR-MN-03 / D3): 역할 멘션 접근제어 게이트 — 역할별 mentionable===true OR
+    // actor 가 MENTION_EVERYONE 권한 보유. mentionable=true 역할은 누구나 멘션 가능하고,
+    // mentionable=false 역할이 1개 이상 추출됐을 때만 lazy 로 actorHasMentionEveryone 을
+    // 계산한다(흔한 경로 — 역할 없음/전부 mentionable — 는 override fold 회피).
+    const allowedRoleIds = await this.resolveAllowedRoleMentions(extractedRoles, {
+      channelId: args.channelId,
+      workspaceId: args.workspaceId,
+      authorId: args.authorId,
+      actorRole: args.actorRole,
+      actorMemberRoleUuids: args.actorMemberRoleUuids,
+    });
+    const mentionsWithRoles: typeof broadGated = {
+      ...broadGated,
+      roles: extractedRoles.map((r) => r.id),
+    };
+    const mentions = gateRoleMention(mentionsWithRoles, allowedRoleIds);
+    const gatedRoleIds = mentions.roles;
     // task-013-A3 (task-011-follow-6 closure): cap the mention fan-out.
     // A message `@a @b @c ...` 500 times would emit 500 outbox rows +
     // 500 WS sends in one tx — tangible latency and a DoS vector. 50
@@ -1276,6 +1419,30 @@ export class MessagesService {
         'message mentions too many users (max 50)',
       );
     }
+    // S88a (FR-MN-03 / D5): 역할 멘션 이중 rate-limit. 게이트 통과 역할이 1개+ 일 때만
+    // tx 전에 enforce 한다 — user 5/분 먼저(초과 시 per-role count 부수효과 최소화),
+    // 그 다음 per-user-per-role 10/5분. 초과 시 ErrorCode.RATE_LIMITED(429·컨트롤러 필터).
+    if (gatedRoleIds.length > 0 && this.rate) {
+      await this.rate.enforce([
+        { key: `mention:user:${args.authorId}`, windowSec: 60, max: 5 },
+        ...gatedRoleIds.map((rid) => ({
+          key: `mention:role:${args.authorId}:${rid}`,
+          windowSec: 300,
+          max: 10,
+        })),
+      ]);
+    }
+    // S88a (FR-MN-03 / D1): 정규화 — 역할 패스를 user 패스보다 먼저 수행한다. 게이트를
+    // 통과한 알려진 역할명 `@<RoleName>` 을 `<@&roleId>` 토큰으로 치환한 뒤 `@username`
+    // → `@{userId}` 를 수행해, 다단어 역할명을 user 패스가 부분 매칭하지 않게 한다.
+    const gatedRoleTokens: RoleNameToken[] = extractedRoles
+      .filter((r) => allowedRoleIds.has(r.id))
+      .map((r) => ({ name: r.name, roleId: r.id }));
+    const normalizedContent = normalizeMentions(
+      args.content,
+      (h) => handleMap.get(h.toLowerCase()) ?? null,
+      gatedRoleTokens,
+    );
     // S02 (FR-MSG-01/03/20/23): mrkdwn 송수신 코어. 원본 → AST + plain 으로
     // 파싱·검증(AST 64KB / 깊이 / 노드 한도). 한도 위반은 DomainError
     // (PARSE_* / MESSAGE_TOO_LONG) 로 던져 전역 필터가 400 매핑.
@@ -1299,11 +1466,19 @@ export class MessagesService {
     // S04 review HIGH (FR-MSG-13): 정규화 시점에 이미 해석한 username/channel
     // name 을 mention 노드의 label 로 박아, 라이브 렌더가 멤버 맵 도착 전에도
     // raw cuid 가 아니라 `@username` 을 표시하게 합니다(회귀 방지).
-    const labelMaps = await resolveMentionLabelMaps(this.prisma, args.workspaceId, args.content);
+    // S88a (FR-MN-03): 게이트 통과 roleId 들의 역할명도 label 맵에 채워, mention_role
+    // 노드가 raw uuid 가 아니라 `@<RoleName>` 으로 렌더되게 한다(user/channel 패턴).
+    const labelMaps = await resolveMentionLabelMaps(
+      this.prisma,
+      args.workspaceId,
+      args.content,
+      gatedRoleIds,
+    );
     const processed = processMrkdwn(normalizedContent, {
       mentionLabels: {
         user: (id) => labelMaps.users.get(id),
         channel: (id) => labelMaps.channels.get(id),
+        role: (id) => labelMaps.roles.get(id),
       },
     });
     const contentPlain = processed.contentPlain;
@@ -1477,12 +1652,24 @@ export class MessagesService {
           workspaceId: args.workspaceId,
           mentions,
         });
+        // S88a (FR-MN-03 / D4): `@<RoleName>` 역할 멤버 fanout. 게이트 통과 roleId 의
+        // MemberRole 멤버를 resolve 한 뒤, 비공개 채널이면 VIEW_CHANNEL 가시성으로
+        // 필터한다(공개 채널은 전원 후보). bulk 1쿼리 + 채널 가시성 in-memory 계산으로
+        // N+1 을 피한다(정밀 job-time 재검증은 S88b). 역할 멤버는 'direct' 로 분류해
+        // MENTIONS 레벨 사용자도 수신하게 한다(개인 멘션 parity).
+        const roleRecipientSet = await this.resolveRoleMentionRecipients(tx, {
+          workspaceId: args.workspaceId,
+          channelId: args.channelId,
+          gatedRoleIds: mentions.roles,
+        });
         // task-045 iter6: mute dispatcher gate. 채널 muted user 는
         // mention.received outbox 자체를 스킵 — emit 안 하면 fanout 비용
         // 도 절약. mute 만료 OR 무기한 모두 처리. cleanup job 없음.
-        const candidateMentionUserIds = [...mentions.users, ...broadRecipientIds].filter(
-          (uid) => uid && uid !== args.authorId,
-        );
+        const candidateMentionUserIds = [
+          ...mentions.users,
+          ...broadRecipientIds,
+          ...roleRecipientSet,
+        ].filter((uid) => uid && uid !== args.authorId);
         const dedupedMentionUserIds = Array.from(new Set(candidateMentionUserIds));
         const now = new Date();
         // S75 fix-forward (security F1 / FR-PS-14 "차단 시 @멘션 불가"): 차단
@@ -1586,7 +1773,9 @@ export class MessagesService {
         // 글로벌/서버/채널 prefs 를 같은 tx 로 batch 로드해(N+1 방지) per-recipient
         // fold 한다. NOTHING→스킵, MENTIONS→broad 스킵·direct 통과, ALL→통과.
         // 명시적 @username(mentions.users)은 'direct', broad 확장 수신자는 'broad'.
-        const directMentionSet = new Set(mentions.users);
+        // S88a (FR-MN-03 / D4): 역할 멘션 수신자도 'direct' 로 분류 → MENTIONS 레벨
+        // 사용자도 역할 멘션을 수신한다(개인 멘션 parity). @here/@everyone('broad')과 구분.
+        const directMentionSet = new Set([...mentions.users, ...roleRecipientSet]);
         const kindFor = (uid: string): MentionKind =>
           directMentionSet.has(uid) ? 'direct' : 'broad';
         const notifGate: NotifGate | null =
@@ -1613,6 +1802,9 @@ export class MessagesService {
           // S46 (FR-MN-05/06/07/08): NotifLevel 게이트(NOTHING/MENTIONS-broad/isMuted).
           if (notifGate && !notifGate.shouldNotify(uid, kindFor(uid))) continue;
           mentionedUserIds.add(uid);
+          // S88a (FR-MN-03): 역할 멘션 유래 수신자 표식. 명시 @user 와 둘 다면 명시
+          // 멘션이 우선이라 role=false(dedup — 1건만 emit). UI 분기용.
+          const fromRoleOnly = roleRecipientSet.has(uid) && !mentions.users.includes(uid);
           const mentionPayload: MentionReceivedPayload = {
             targetUserId: uid,
             workspaceId: args.workspaceId,
@@ -1624,6 +1816,8 @@ export class MessagesService {
             everyone: mentions.everyone === true,
             // task-047 iter0 (HIGH-046-B): @here e2e payload.
             here: mentions.here === true,
+            // S88a (FR-MN-03): 역할 멘션 유래 표식(명시 @user 우선이라 dedup).
+            role: fromRoleOnly,
           };
           await this.outbox.record(tx, {
             aggregateType: 'UserMention',
@@ -1781,6 +1975,7 @@ export class MessagesService {
                 everyone: false,
                 here: false,
                 channel: false,
+                roles: [],
               } as unknown as Prisma.InputJsonValue,
             },
           });
@@ -1797,7 +1992,14 @@ export class MessagesService {
               contentRaw: broadcast.contentRaw ?? broadcast.content,
               contentAst: processed.contentAst,
               type: broadcast.type,
-              mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+              mentions: {
+                users: [],
+                channels: [],
+                everyone: false,
+                here: false,
+                channel: false,
+                roles: [],
+              },
               createdAt: broadcast.createdAt.toISOString(),
               parentMessageId: broadcast.parentMessageId,
               isBroadcast: true,
@@ -2105,6 +2307,8 @@ export class MessagesService {
       everyone: false,
       here: false,
       channel: false,
+      // S88a (FR-MN-03): 시스템 메시지는 역할 멘션이 없다.
+      roles: [],
     };
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.message.create({
@@ -2194,6 +2398,8 @@ export class MessagesService {
       everyone: false,
       here: false,
       channel: false,
+      // S88a (FR-MN-03): 시스템 메시지는 역할 멘션이 없다.
+      roles: [],
     };
     return this.prisma.$transaction(async (tx) => {
       const created = await tx.message.create({
@@ -2581,27 +2787,56 @@ export class MessagesService {
     // S44 (FR-MN-02/16): edit 도중 `@everyone` 추가 시 send 와 동일하게
     // MENTION_EVERYONE override-aware 권한 체크. 미지정 시 false(차단)로 보수 처리.
     hasMentionEveryone?: boolean;
+    // S88a (FR-MN-03 / D3): 편집 본문의 non-mentionable 역할 멘션 lazy 권한 계산용.
+    actorRole?: WorkspaceRole;
+    actorMemberRoleUuids?: string[];
   }): Promise<MessageRow> {
     const rawMentions = await extractMentions(this.prisma, args.workspaceId, args.content);
     const hasMentionEveryone = args.hasMentionEveryone === true;
-    const mentions = gateChannelMention(
+    const broadGated = gateChannelMention(
       gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
       hasMentionEveryone,
     );
-    // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — `@username` → `@{cuid2}`.
+    // S88a (FR-MN-03): 편집 본문도 역할 멘션을 권위 추출·게이트해 저장 mentions.roles
+    // 와 AST mention_role 토큰을 정합 갱신한다(D4 — 편집은 신규 mention.received 스팸을
+    // 만들지 않고, 기존 diff 기반 알림 의미를 유지한다).
+    const extractedRoles = await extractRoleMentions(this.prisma, args.workspaceId, args.content);
+    const allowedRoleIds = await this.resolveAllowedRoleMentions(extractedRoles, {
+      channelId: args.channelId,
+      workspaceId: args.workspaceId,
+      authorId: args.actorId,
+      actorRole: args.actorRole,
+      actorMemberRoleUuids: args.actorMemberRoleUuids,
+    });
+    const mentions = gateRoleMention(
+      { ...broadGated, roles: extractedRoles.map((r) => r.id) },
+      allowedRoleIds,
+    );
+    const gatedRoleIds = mentions.roles;
+    const gatedRoleTokens: RoleNameToken[] = extractedRoles
+      .filter((r) => allowedRoleIds.has(r.id))
+      .map((r) => ({ name: r.name, roleId: r.id }));
+    // S04 (FR-MSG-13): 편집 본문도 멘션 정규화 적용 — 역할 패스 먼저, 그 다음 `@username`.
     const handleMap = await resolveMentionHandles(this.prisma, args.workspaceId, args.content);
     const normalizedContent = normalizeMentions(
       args.content,
       (h) => handleMap.get(h.toLowerCase()) ?? null,
+      gatedRoleTokens,
     );
     // S02: 편집 본문도 동일 파이프라인으로 파싱·검증. 한도 위반 시
     // DomainError(400) — 편집 트랜잭션 진입 전에 거부됩니다.
     // S04 review HIGH (FR-MSG-13): 편집 본문도 멘션 label 을 박습니다.
-    const labelMaps = await resolveMentionLabelMaps(this.prisma, args.workspaceId, args.content);
+    const labelMaps = await resolveMentionLabelMaps(
+      this.prisma,
+      args.workspaceId,
+      args.content,
+      gatedRoleIds,
+    );
     const processed = processMrkdwn(normalizedContent, {
       mentionLabels: {
         user: (id) => labelMaps.users.get(id),
         channel: (id) => labelMaps.channels.get(id),
+        role: (id) => labelMaps.roles.get(id),
       },
     });
     const contentPlain = processed.contentPlain;
@@ -2743,6 +2978,7 @@ export class MessagesService {
         everyone: false,
         here: false,
         channel: false,
+        roles: [],
       }) as Partial<Mentions>;
       const prevBroadRecipientIds = await this.resolveBroadMentionRecipients(tx, {
         workspaceId: args.workspaceId,
@@ -2752,6 +2988,9 @@ export class MessagesService {
           everyone: prevMentions.everyone === true,
           here: prevMentions.here === true,
           channel: prevMentions.channel === true,
+          // resolveBroadMentionRecipients 는 roles 를 보지 않지만(broad 전용) 타입을
+          // 만족시키기 위해 채운다 — 편집의 역할 멘션 diff/재알림은 본 슬라이스 비대상.
+          roles: prevMentions.roles ?? [],
         },
       });
       const previouslyNotified = new Set<string>([
@@ -3406,6 +3645,8 @@ export class MessagesService {
       everyone: false,
       here: false,
       channel: false,
+      // S88a (FR-MN-03): 시스템 메시지는 역할 멘션이 없다.
+      roles: [],
     };
     const created = await tx.message.create({
       data: {

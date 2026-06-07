@@ -1,0 +1,11 @@
+-- S88a (FR-MN-03 · ADR D6): Role.mentionable 플래그 추가.
+--
+-- `@<RoleName>` 멘션 허용 여부. true 면 누구나 멘션 가능, false 면 MENTION_EVERYONE
+-- 권한(ADR-4 카탈로그 0x0080) 보유자만 멘션할 수 있다(서버 게이트가 판정). 비권한
+-- 메타라 시스템 역할도 토글 가능하다. default false 라 기존 역할은 멘션 불가로 시작.
+--
+-- reversible: down migration =
+--   ALTER TABLE "Role" DROP COLUMN "mentionable";
+-- NOT NULL DEFAULT false 라 기존 행은 즉시 false 로 채워지고, 추가 데이터 손실 없이
+-- 컬럼만 떨어뜨리면 완전히 되돌아간다.
+ALTER TABLE "Role" ADD COLUMN "mentionable" boolean NOT NULL DEFAULT false;

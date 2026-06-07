@@ -137,6 +137,12 @@ export const RoleSchema = z.object({
   /** ADR-11: BigInt 비트필드를 string 으로 직렬화. */
   permissions: z.string(),
   isSystem: z.boolean(),
+  /**
+   * S88a (FR-MN-03 · D6): `@<RoleName>` 멘션 허용 여부. true 면 누구나 멘션 가능,
+   * false 면 MENTION_EVERYONE 권한 보유자만 멘션할 수 있다(서버 게이트가 판정).
+   * 비권한 메타라 시스템 역할도 토글 가능하다.
+   */
+  mentionable: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -157,6 +163,8 @@ export const CreateRoleRequestSchema = z.object({
   colorHex: ColorHexSchema.nullable().optional(),
   permissions: PermissionsBitfieldSchema.optional(),
   position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
+  // S88a (FR-MN-03 · D6): 멘션 허용 플래그. 미지정 시 서버가 false(멘션 불가)로 생성.
+  mentionable: z.boolean().optional(),
 });
 export type CreateRoleRequest = z.infer<typeof CreateRoleRequestSchema>;
 
@@ -171,13 +179,16 @@ export const UpdateRoleRequestSchema = z
     permissions: PermissionsBitfieldSchema.optional(),
     // S61 fix-forward (security HIGH-2): [0, 499] 정수만(시스템 OWNER 500 미만).
     position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
+    // S88a (FR-MN-03 · D6): 멘션 허용 토글. 시스템 역할도 변경 가능(비권한 메타).
+    mentionable: z.boolean().optional(),
   })
   .refine(
     (d) =>
       d.name !== undefined ||
       d.colorHex !== undefined ||
       d.permissions !== undefined ||
-      d.position !== undefined,
+      d.position !== undefined ||
+      d.mentionable !== undefined,
     { message: 'at least one field must be provided' },
   );
 export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequestSchema>;
