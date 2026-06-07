@@ -58,6 +58,8 @@ export class ChannelNotificationPreferencesController {
       // FR-MN-07: 카테고리 일괄 적용. 하위 채널 전체 bulk upsert.
       // BLOCKER 2 (IDOR): URL 의 :id(워크스페이스)로 categoryId 를 스코프해
       // 타 워크스페이스 채널 조작/ID 열거를 차단한다.
+      // S87: pushDesktop/pushMobile 의 카테고리 일괄 적용은 비목표(scope OUT) — bulk
+      // 경로는 level/mute 만 반영하고 push 토글은 단일 채널 PUT 으로만 설정한다.
       const channelIds = await this.prefs.putCategoryChannels(
         user.id,
         wsId,

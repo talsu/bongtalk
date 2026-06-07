@@ -201,6 +201,90 @@ describe('PushProcessor.process — 게이트 skip', () => {
   });
 });
 
+describe('PushProcessor.process — S87 채널 per-device 산정(FR-MN-18)', () => {
+  it('글로벌 둘 다 OFF·채널 오버라이드 없음 → effective 둘 다 false → skip(S86 무회귀)', async () => {
+    const prisma = makePrisma({
+      settings: {
+        notifTrigger: 'MENTIONS',
+        dndUntil: null,
+        dndSchedule: null,
+        notifMobile: false,
+        notifDesktop: false,
+      },
+      // channelMute null → pushDesktop/pushMobile 폴백 null → global(false) 상속.
+    });
+    const { proc, sendToUser } = makeProcessor(prisma);
+    await proc.process(job());
+    expect(sendToUser).not.toHaveBeenCalled();
+  });
+
+  it('채널 pushMobile=false·pushDesktop=true → 전송하되 sendToUser 에 mobileEnabled=false 전달', async () => {
+    const prisma = makePrisma({
+      channelMute: {
+        level: null,
+        mutedUntil: null,
+        isMuted: false,
+        pushDesktop: true,
+        pushMobile: false,
+      },
+    });
+    const { proc, sendToUser } = makeProcessor(prisma);
+    await proc.process(job());
+    expect(sendToUser).toHaveBeenCalledTimes(1);
+    const [, , opts] = sendToUser.mock.calls[0];
+    expect(opts).toEqual({ desktopEnabled: true, mobileEnabled: false });
+  });
+
+  it('채널 push 둘 다 false → effective 둘 다 false → skip(글로벌이 ON 이어도 채널이 이김)', async () => {
+    const prisma = makePrisma({
+      channelMute: {
+        level: null,
+        mutedUntil: null,
+        isMuted: false,
+        pushDesktop: false,
+        pushMobile: false,
+      },
+    });
+    const { proc, sendToUser } = makeProcessor(prisma);
+    await proc.process(job());
+    expect(sendToUser).not.toHaveBeenCalled();
+  });
+
+  it('채널 pushDesktop=true 가 글로벌 notifDesktop=false 를 오버라이드(전송 + desktopEnabled=true)', async () => {
+    const prisma = makePrisma({
+      settings: {
+        notifTrigger: 'MENTIONS',
+        dndUntil: null,
+        dndSchedule: null,
+        notifMobile: false,
+        notifDesktop: false,
+      },
+      channelMute: {
+        level: null,
+        mutedUntil: null,
+        isMuted: false,
+        pushDesktop: true,
+        pushMobile: null,
+      },
+    });
+    const { proc, sendToUser } = makeProcessor(prisma);
+    await proc.process(job());
+    expect(sendToUser).toHaveBeenCalledTimes(1);
+    const [, , opts] = sendToUser.mock.calls[0];
+    // pushMobile=null → 글로벌 notifMobile=false 상속. pushDesktop=true 오버라이드.
+    expect(opts).toEqual({ desktopEnabled: true, mobileEnabled: false });
+  });
+
+  it('기본(채널/글로벌 모두 ON·오버라이드 없음) → sendToUser opts 둘 다 true', async () => {
+    const prisma = makePrisma();
+    const { proc, sendToUser } = makeProcessor(prisma);
+    await proc.process(job());
+    expect(sendToUser).toHaveBeenCalledTimes(1);
+    const [, , opts] = sendToUser.mock.calls[0];
+    expect(opts).toEqual({ desktopEnabled: true, mobileEnabled: true });
+  });
+});
+
 describe('PushProcessor.process — broad(@everyone) suppressEveryone', () => {
   it('MENTIONS + suppressEveryone 이면 @everyone 멘션은 skip', async () => {
     const prisma = makePrisma({

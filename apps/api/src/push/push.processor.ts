@@ -71,7 +71,14 @@ export class PushProcessor extends WorkerHost {
         : Promise.resolve(null),
       this.prisma.userChannelMute.findFirst({
         where: { userId: data.userId, channelId: data.channelId },
-        select: { level: true, mutedUntil: true, isMuted: true },
+        // S87 (FR-MN-18): 채널별 per-device push 토글을 effective 산정에 포함.
+        select: {
+          level: true,
+          mutedUntil: true,
+          isMuted: true,
+          pushDesktop: true,
+          pushMobile: true,
+        },
       }),
     ]);
 
@@ -100,11 +107,14 @@ export class PushProcessor extends WorkerHost {
       }
     }
 
-    // (1) 모든 기기 알림 OFF → 전송 의미 없음. settings 행 부재는 기본 ON 으로 본다.
-    const notifMobile = settings?.notifMobile ?? true;
-    const notifDesktop = settings?.notifDesktop ?? true;
-    if (!notifMobile && !notifDesktop) {
-      this.logger.debug(`[push] skip (all notif channels off) user=${data.userId}`);
+    // (1) 채널 effective per-device 산정(S87 / FR-MN-18). 채널 오버라이드(pushDesktop/
+    // pushMobile)가 글로벌(notifDesktop/notifMobile)을 이긴다. 행/컬럼 부재(null)는 상속·
+    // 최종 폴백 true. 둘 다 false 면 전송 의미 없음 → skip(S86 의 "둘 다 OFF skip" 을 채널
+    // -aware 로 일반화 — 글로벌만 OFF·채널 오버라이드 없음이면 종전과 동일하게 skip).
+    const desktopEnabled = channelMute?.pushDesktop ?? settings?.notifDesktop ?? true;
+    const mobileEnabled = channelMute?.pushMobile ?? settings?.notifMobile ?? true;
+    if (!desktopEnabled && !mobileEnabled) {
+      this.logger.debug(`[push] skip (all notif devices off) user=${data.userId}`);
       return;
     }
 
@@ -156,9 +166,13 @@ export class PushProcessor extends WorkerHost {
       return;
     }
 
-    // (5) 전송. payload 는 SW 가 showNotification 으로 매핑한다.
+    // (5) 전송. payload 는 SW 가 showNotification 으로 매핑한다. S87: device 게이트를
+    // 전달해 각 구독을 ua 분류로 해당 device enabled 인 것에만 보낸다(둘 다 true 면 전부).
     const payload = this.buildPayload(data);
-    const sent = await this.push.sendToUser(data.userId, payload);
+    const sent = await this.push.sendToUser(data.userId, payload, {
+      desktopEnabled,
+      mobileEnabled,
+    });
     this.logger.debug(`[push] sent=${sent} user=${data.userId} ch=${data.channelId}`);
   }
 

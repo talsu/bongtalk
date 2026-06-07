@@ -114,6 +114,83 @@ describe('PushService.sendToUser — 전송 + stale GC', () => {
   });
 });
 
+describe('PushService.sendToUser — S87 per-device 게이트(FR-MN-18)', () => {
+  function configuredService(prisma: ReturnType<typeof makePrisma>, sender: WebPushSender) {
+    const svc = new PushService(prisma as unknown as PrismaService);
+    svc.setWebPushSender(sender);
+    return svc;
+  }
+
+  const MOBILE_UA =
+    'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148';
+  const DESKTOP_UA =
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/120.0 Safari/537.36';
+
+  function twoDeviceSubs(prisma: ReturnType<typeof makePrisma>): void {
+    prisma.pushSubscription.findMany.mockResolvedValue([
+      { id: 'desk', endpoint: 'https://push/desk', p256dh: 'p', auth: 'a', ua: DESKTOP_UA },
+      { id: 'mob', endpoint: 'https://push/mob', p256dh: 'p', auth: 'a', ua: MOBILE_UA },
+    ]);
+  }
+
+  it('opts 미전달이면 전부 전송한다(S86 무회귀)', async () => {
+    const prisma = makePrisma();
+    twoDeviceSubs(prisma);
+    const sender = vi.fn().mockResolvedValue({ statusCode: 201 });
+    const svc = configuredService(prisma, sender);
+    const sent = await svc.sendToUser('user-1', { title: 't', body: 'b' });
+    expect(sent).toBe(2);
+    expect(sender).toHaveBeenCalledTimes(2);
+  });
+
+  it('desktopEnabled=false 면 데스크톱 UA 구독은 미전송·모바일 UA 구독은 전송', async () => {
+    const prisma = makePrisma();
+    twoDeviceSubs(prisma);
+    const sender = vi.fn().mockResolvedValue({ statusCode: 201 });
+    const svc = configuredService(prisma, sender);
+    const sent = await svc.sendToUser(
+      'user-1',
+      { title: 't', body: 'b' },
+      { desktopEnabled: false, mobileEnabled: true },
+    );
+    expect(sent).toBe(1);
+    expect(sender).toHaveBeenCalledTimes(1);
+    const [sub] = sender.mock.calls[0];
+    expect((sub as { endpoint: string }).endpoint).toBe('https://push/mob');
+  });
+
+  it('mobileEnabled=false 면 모바일 UA 구독은 미전송·데스크톱 UA 구독은 전송', async () => {
+    const prisma = makePrisma();
+    twoDeviceSubs(prisma);
+    const sender = vi.fn().mockResolvedValue({ statusCode: 201 });
+    const svc = configuredService(prisma, sender);
+    const sent = await svc.sendToUser(
+      'user-1',
+      { title: 't', body: 'b' },
+      { desktopEnabled: true, mobileEnabled: false },
+    );
+    expect(sent).toBe(1);
+    const [sub] = sender.mock.calls[0];
+    expect((sub as { endpoint: string }).endpoint).toBe('https://push/desk');
+  });
+
+  it('ua 가 null 인 구독은 desktop 으로 분류(desktop OFF 면 미전송)', async () => {
+    const prisma = makePrisma();
+    prisma.pushSubscription.findMany.mockResolvedValue([
+      { id: 'unknown', endpoint: 'https://push/u', p256dh: 'p', auth: 'a', ua: null },
+    ]);
+    const sender = vi.fn().mockResolvedValue({ statusCode: 201 });
+    const svc = configuredService(prisma, sender);
+    const sent = await svc.sendToUser(
+      'user-1',
+      { title: 't', body: 'b' },
+      { desktopEnabled: false, mobileEnabled: true },
+    );
+    expect(sent).toBe(0);
+    expect(sender).not.toHaveBeenCalled();
+  });
+});
+
 describe('PushService.upsert/remove — userId 스코프', () => {
   it('upsert 는 endpoint 기준이며 userId/keys 를 함께 저장한다', async () => {
     const prisma = makePrisma();

@@ -36,7 +36,10 @@ import {
   DropdownContent,
   DropdownItem,
   DropdownSeparator,
+  Dialog,
 } from '../../design-system/primitives';
+import { ChannelNotifSettings } from '../notifications/ChannelNotifSettings';
+import { useGlobalNotificationSettings } from '../notifications/useNotifLevels';
 import { cn } from '../../lib/cn';
 
 type Props = {
@@ -138,6 +141,7 @@ function CollapseArrow({ collapsed }: { collapsed: boolean }): JSX.Element {
 
 function DraggableChannelRow({
   channel,
+  workspaceId,
   workspaceSlug,
   active,
   showUnreadStyle,
@@ -147,6 +151,8 @@ function DraggableChannelRow({
   canManage,
   isDropTarget,
   hasUnread,
+  globalDesktop,
+  globalMobile,
   onMarkRead,
   onToggleFavorite,
   onSetMute,
@@ -154,6 +160,9 @@ function DraggableChannelRow({
   draggable = true,
 }: {
   channel: Channel;
+  // S87 (FR-MN-18): 채널 알림 설정 모달에 워크스페이스 스코프를 전달하기 위한 wsId.
+  // 워크스페이스 채널일 때만 존재(undefined 면 알림 설정 항목 비노출).
+  workspaceId?: string;
   workspaceSlug: string;
   active: boolean;
   showUnreadStyle: boolean;
@@ -166,6 +175,9 @@ function DraggableChannelRow({
   isDropTarget: boolean;
   // S24 (FR-RS-09): 우클릭 컨텍스트 메뉴 "읽음으로 표시" 노출 여부 + 핸들러.
   hasUnread: boolean;
+  // S87 (FR-MN-18): 글로벌 push 설정(채널 알림 모달의 상속 effective 표시용).
+  globalDesktop?: boolean;
+  globalMobile?: boolean;
   onMarkRead: (channelId: string) => void;
   onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
   onSetMute: (channelId: string, duration: MuteDurationKey) => void;
@@ -178,6 +190,10 @@ function DraggableChannelRow({
   // Radix DropdownMenu(DS qf-menu 클래스)를 controlled 로 쓰고, 행의
   // onContextMenu 가 메뉴를 연다(트리거는 행 안의 0-size 앵커).
   const [menuOpen, setMenuOpen] = useState(false);
+  // S87 (FR-MN-18): 채널 알림(데스크톱/모바일 push) 설정 모달 열림 상태. 메뉴의
+  // "알림 설정" 항목이 연다. role="switch" 컨트롤을 메뉴 안에 직접 넣으면 Radix
+  // 메뉴의 roving/typeahead 와 충돌하므로, 별도 DS Dialog 로 분리해 회귀를 막는다.
+  const [notifOpen, setNotifOpen] = useState(false);
   // user request 2026-04-21:
   //  - `disabled: !canManage` stops the sortable from reacting to
   //    pointer events for non-managers (no drag starts at all).
@@ -329,6 +345,15 @@ function DraggableChannelRow({
                   {isFavorite ? '즐겨찾기 해제' : '즐겨찾기 추가'}
                 </span>
               </DropdownItem>
+              {/* S87 (FR-MN-18): 채널별 데스크톱/모바일 push 알림 설정 진입점. 워크스페이스
+                  채널(wsId 존재)만 노출한다 — DM/전역 채널은 워크스페이스 스코프 prefs 가
+                  없다. 항목 선택 시 메뉴를 닫고 별도 DS Dialog 로 토글 UI 를 연다(메뉴
+                  안에 switch 를 직접 두지 않아 roving/typeahead 회귀를 막는다). */}
+              {workspaceId ? (
+                <DropdownItem onSelect={() => setNotifOpen(true)} preventDefault={false}>
+                  <span data-testid={`channel-notif-settings-open-${channel.name}`}>알림 설정</span>
+                </DropdownItem>
+              ) : null}
               <DropdownSeparator />
               {/* S43 (FR-CH-17): 채널 뮤트 — duration 평탄 항목 + 해제(현재 뮤트 시).
                   신규 서브메뉴 primitive 없이 기존 qf-menu 항목을 그대로 쓴다. */}
@@ -365,6 +390,24 @@ function DraggableChannelRow({
           </DropdownRoot>
         </span>
       </li>
+      {/* S87 (FR-MN-18): 채널 알림 설정 모달. 워크스페이스 채널일 때만 렌더한다.
+          ChannelNotifSettings 가 useChannelNotificationPref 로 자체 fetch 하며, 글로벌
+          push 설정을 상속 effective 표시용으로 주입한다. */}
+      {workspaceId ? (
+        <Dialog
+          open={notifOpen}
+          onOpenChange={setNotifOpen}
+          title={`# ${channel.name} 알림 설정`}
+          description="이 채널의 데스크톱·모바일 알림을 따로 설정합니다."
+        >
+          <ChannelNotifSettings
+            workspaceId={workspaceId}
+            channelId={channel.id}
+            globalDesktop={globalDesktop}
+            globalMobile={globalMobile}
+          />
+        </Dialog>
+      ) : null}
     </>
   );
 }
@@ -403,6 +446,7 @@ function DefaultSectionHeader({
 function SortableCategorySection({
   category,
   channels,
+  workspaceId,
   workspaceSlug,
   activeChannelName,
   unreadByChannel,
@@ -413,6 +457,8 @@ function SortableCategorySection({
   dragOverId,
   activeType,
   isCategoryDropTarget,
+  globalDesktop,
+  globalMobile,
   onMarkRead,
   onToggleFavorite,
   onSetMute,
@@ -422,6 +468,7 @@ function SortableCategorySection({
 }: {
   category: { id: string; name: string };
   channels: Channel[];
+  workspaceId: string;
   workspaceSlug: string;
   activeChannelName: string | null;
   unreadByChannel: Map<string, { count: number; mentionCount: number }>;
@@ -432,6 +479,9 @@ function SortableCategorySection({
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
   isCategoryDropTarget: boolean;
+  // S87 (FR-MN-18): 채널 알림 설정 모달의 상속 effective 표시용 글로벌 push 설정.
+  globalDesktop?: boolean;
+  globalMobile?: boolean;
   onMarkRead: (channelId: string) => void;
   onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
   onSetMute: (channelId: string, duration: MuteDurationKey) => void;
@@ -543,6 +593,7 @@ function SortableCategorySection({
                   <DraggableChannelRow
                     key={ch.id}
                     channel={ch}
+                    workspaceId={workspaceId}
                     workspaceSlug={workspaceSlug}
                     active={isActive}
                     showUnreadStyle={rowState.showUnreadStyle}
@@ -552,6 +603,8 @@ function SortableCategorySection({
                     canManage={canManage}
                     isDropTarget={activeType === 'channel' && dragOverId === ch.id}
                     hasUnread={(u?.count ?? 0) > 0}
+                    globalDesktop={globalDesktop}
+                    globalMobile={globalMobile}
                     onMarkRead={onMarkRead}
                     onToggleFavorite={onToggleFavorite}
                     onSetMute={onSetMute}
@@ -570,6 +623,7 @@ function SortableCategorySection({
 
 function DefaultSection({
   channels,
+  workspaceId,
   workspaceSlug,
   activeChannelName,
   unreadByChannel,
@@ -579,12 +633,15 @@ function DefaultSection({
   onAddChannel,
   dragOverId,
   activeType,
+  globalDesktop,
+  globalMobile,
   onMarkRead,
   onToggleFavorite,
   onSetMute,
   onRemoveMute,
 }: {
   channels: Channel[];
+  workspaceId: string;
   workspaceSlug: string;
   activeChannelName: string | null;
   unreadByChannel: Map<string, { count: number; mentionCount: number }>;
@@ -594,6 +651,9 @@ function DefaultSection({
   onAddChannel: () => void;
   dragOverId: string | null;
   activeType: 'channel' | 'category' | null;
+  // S87 (FR-MN-18): 채널 알림 설정 모달의 상속 effective 표시용 글로벌 push 설정.
+  globalDesktop?: boolean;
+  globalMobile?: boolean;
   onMarkRead: (channelId: string) => void;
   onToggleFavorite: (channelId: string, isFavorite: boolean) => void;
   onSetMute: (channelId: string, duration: MuteDurationKey) => void;
@@ -628,6 +688,7 @@ function DefaultSection({
               <DraggableChannelRow
                 key={ch.id}
                 channel={ch}
+                workspaceId={workspaceId}
                 workspaceSlug={workspaceSlug}
                 active={isActive}
                 showUnreadStyle={rowState.showUnreadStyle}
@@ -637,6 +698,8 @@ function DefaultSection({
                 canManage={canManage}
                 isDropTarget={activeType === 'channel' && dragOverId === ch.id}
                 hasUnread={(u?.count ?? 0) > 0}
+                globalDesktop={globalDesktop}
+                globalMobile={globalMobile}
                 onMarkRead={onMarkRead}
                 onToggleFavorite={onToggleFavorite}
                 onSetMute={onSetMute}
@@ -659,6 +722,10 @@ export function ChannelList({
 }: Props): JSX.Element {
   const { data } = useChannelList(workspaceId);
   const { data: unread } = useUnreadSummary(workspaceId);
+  // S87 (FR-MN-18): 글로벌 데스크톱/모바일 push 설정. 채널 알림 설정 모달이 상속(null)
+  // 상태일 때 effective 값을 스위치에 반영하도록 전달한다(죽은 컨트롤 방지). 미로드면
+  // ChannelNotifSettings 기본값(true)으로 떨어진다.
+  const { data: globalNotif } = useGlobalNotificationSettings();
   // S22 (FR-RS-05): 뮤트 채널 id 집합. unread bold/pill 억제에 사용.
   const mutedChannelIds = useMutedChannelIds();
   // S43 (FR-CH-15): 즐겨찾기 channelId 집합(컨텍스트 메뉴 토글 라벨 결정용).
@@ -957,6 +1024,7 @@ export function ChannelList({
         <nav className="flex flex-col" data-testid="channel-sidebar" aria-label="채널">
           <DefaultSection
             channels={uncategorized}
+            workspaceId={workspaceId}
             workspaceSlug={workspaceSlug}
             activeChannelName={activeChannelName}
             unreadByChannel={unreadByChannel}
@@ -966,6 +1034,8 @@ export function ChannelList({
             onAddChannel={() => openChannelCreate(null, '채널')}
             dragOverId={dragOverId}
             activeType={activeDragType}
+            globalDesktop={globalNotif?.notifDesktop}
+            globalMobile={globalNotif?.notifMobile}
             onMarkRead={onMarkRead}
             onToggleFavorite={onToggleFavorite}
             onSetMute={onSetMute}
@@ -977,6 +1047,7 @@ export function ChannelList({
                 key={cat.id}
                 category={cat}
                 channels={cat.channels}
+                workspaceId={workspaceId}
                 workspaceSlug={workspaceSlug}
                 activeChannelName={activeChannelName}
                 unreadByChannel={unreadByChannel}
@@ -987,6 +1058,8 @@ export function ChannelList({
                 dragOverId={dragOverId}
                 activeType={activeDragType}
                 isCategoryDropTarget={activeDragType === 'category' && dragOverId === cat.id}
+                globalDesktop={globalNotif?.notifDesktop}
+                globalMobile={globalNotif?.notifMobile}
                 onMarkRead={onMarkRead}
                 onToggleFavorite={onToggleFavorite}
                 onSetMute={onSetMute}

@@ -347,6 +347,14 @@ model UserChannelMute {
   // ServerNotificationPref.isMuted 와 대칭). 마이그레이션이 기존 S43 뮤트 행을
   // isMuted=true 로 backfill 한다(무회귀).
   isMuted    Boolean     @default(false)
+  // S87 (FR-MN-18): 채널별 데스크톱/모바일 push 독립 토글. null = 글로벌
+  // (UserSettings.notifDesktop/notifMobile) 상속(additive — 기존 row 는 NULL=상속이라
+  // 무회귀). effective 산정은 push.processor 가
+  //   desktopEnabled = pushDesktop ?? notifDesktop ?? true (mobile 동일).
+  // 둘 다 false 면 push skip. 이 두 컬럼은 NotifLevel/뮤트 축과 독립이다(서버/멤버십/
+  // DND/read 게이트는 그대로 — 통과 후 device 분배만 좁힌다).
+  pushDesktop Boolean?
+  pushMobile  Boolean?
   createdAt  DateTime    @default(now())
   updatedAt  DateTime    @updatedAt
 

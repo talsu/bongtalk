@@ -169,7 +169,13 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
       .set('origin', ORIGIN)
       .set(tok);
     expect(g0.status).toBe(200);
-    expect(g0.body).toEqual({ level: null, isMuted: false, muteUntil: null });
+    expect(g0.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
 
     // level-only(ALL) — isMuted 미전달이므로 비뮤트 + level 오버라이드만.
     const put = await request(env.baseUrl)
@@ -187,7 +193,13 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
       .set('origin', ORIGIN)
       .set(tok);
     expect(del.status).toBe(200);
-    expect(del.body).toEqual({ level: 'ALL', isMuted: false, muteUntil: null });
+    expect(del.body).toEqual({
+      level: 'ALL',
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
 
     // 정리: level 을 다시 상속(null)으로 PUT 하면 의미 없는 행이 삭제된다.
     const reset = await request(env.baseUrl)
@@ -196,7 +208,83 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
       .set(tok)
       .send({ level: null, isMuted: false });
     expect(reset.status).toBe(200);
-    expect(reset.body).toEqual({ level: null, isMuted: false, muteUntil: null });
+    expect(reset.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
+  });
+
+  it('S87 (FR-MN-18): 채널 pushDesktop/pushMobile 부분 갱신 → GET 왕복', async () => {
+    const ws = stack.workspaceId;
+    const ch = stack.channelId;
+    const tok = bearer(stack.member.accessToken);
+
+    // 기본: push 토글은 상속(null).
+    const g0 = await request(env.baseUrl)
+      .get(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok);
+    expect(g0.status).toBe(200);
+    expect(g0.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
+
+    // pushMobile=false 단독 갱신(level/mute 미전달). push 오버라이드가 있으므로 행 보존.
+    const put1 = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ pushMobile: false });
+    expect(put1.status).toBe(200);
+    expect(put1.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: false,
+    });
+
+    // pushDesktop=true 추가 — pushMobile=false 는 보존(부분 갱신).
+    const put2 = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ pushDesktop: true });
+    expect(put2.status).toBe(200);
+    expect(put2.body).toMatchObject({ pushDesktop: true, pushMobile: false });
+
+    // GET 재확인.
+    const g1 = await request(env.baseUrl)
+      .get(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok);
+    expect(g1.body).toMatchObject({ pushDesktop: true, pushMobile: false });
+
+    // 둘 다 null(명시 상속) 로 되돌리면 다른 오버라이드가 없으므로 행이 정리된다.
+    const reset = await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ pushDesktop: null, pushMobile: null });
+    expect(reset.status).toBe(200);
+    expect(reset.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
+    const rows = await env.prisma.userChannelMute.findMany({
+      where: { userId: stack.member.userId, channelId: ch },
+    });
+    expect(rows).toHaveLength(0);
   });
 
   it('level=null(상속) 행 unmute → 행 삭제(흔적 없음)', async () => {
@@ -218,7 +306,13 @@ describe('S46 채널 알림 설정 API (FR-MN-07)', () => {
       .set('origin', ORIGIN)
       .set(tok);
     expect(del.status).toBe(200);
-    expect(del.body).toEqual({ level: null, isMuted: false, muteUntil: null });
+    expect(del.body).toEqual({
+      level: null,
+      isMuted: false,
+      muteUntil: null,
+      pushDesktop: null,
+      pushMobile: null,
+    });
   });
 });
 
@@ -400,6 +494,49 @@ describe('S46 카테고리 일괄 적용 (FR-MN-07)', () => {
     });
     expect(rows).toHaveLength(2);
     expect(rows.every((r) => r.level === 'NOTHING')).toBe(true);
+  });
+
+  it('S87 (MEDIUM-1): 카테고리 일괄 리셋이 채널 push 오버라이드를 지우지 않는다', async () => {
+    const ws = stack.workspaceId;
+    const tok = bearer(stack.member.accessToken);
+    const cat = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/categories`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.admin.accessToken))
+      .send({ name: `cat-push-${Date.now().toString(36)}` });
+    expect(cat.status).toBe(201);
+    const categoryId = cat.body.id as string;
+    const c = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/channels`)
+      .set('origin', ORIGIN)
+      .set(bearer(stack.admin.accessToken))
+      .send({ name: `pushch-${Date.now().toString(36)}`, type: 'TEXT', categoryId });
+    expect(c.status).toBe(201);
+    const ch = c.body.id as string;
+
+    // 채널에 push 오버라이드만 설정(level/mute 없음).
+    await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ pushMobile: false })
+      .expect(200);
+
+    // 카테고리 일괄 리셋(level=null·비뮤트) — push 오버라이드만 가진 행이 삭제되면 안 된다.
+    await request(env.baseUrl)
+      .put(`/workspaces/${ws}/channels/${ch}/notification-preferences`)
+      .set('origin', ORIGIN)
+      .set(tok)
+      .send({ level: null, isMuted: false, categoryId })
+      .expect(200);
+
+    // push 오버라이드 보존 검증(행 보존 + pushMobile=false 유지).
+    const row = await env.prisma.userChannelMute.findUnique({
+      where: { userId_channelId: { userId: stack.member.userId, channelId: ch } },
+      select: { pushMobile: true, pushDesktop: true, level: true, isMuted: true },
+    });
+    expect(row).not.toBeNull();
+    expect(row!.pushMobile).toBe(false);
   });
 
   it('BLOCKER 2: 타 워크스페이스 categoryId → workspaceId 스코프로 빈 결과(채널 무조작/ID 비열거)', async () => {
