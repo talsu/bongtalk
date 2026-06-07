@@ -232,3 +232,66 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
 ### 게이트(메인루프 단독 재실행)
 - 자체검증(fix-forward): shared-types 534 · api unit 169(타깃) · web 24+51(타깃) · typecheck 0 · eslint 0 error.
 - 컨테이너 전체 `pnpm verify`(node20·단독) + prisma generate + int 2종 + 마이그레이션 = 메인루프.
+
+### ✅ S88a 종료 (2026-06-08 LIVE)
+`main=develop=76260d5`. migration `20260627` prod 적용·`/readyz=200`·smoke OK. FR-MN-03=partial.
+
+---
+
+## ▶ S88b 구현 결정 (ADR · 2026-06-08 · UNDERSTAND wf_8cfff1df 후)
+
+> S88b = MentionRecord + mention-broadcast BullMQ 워커로 **@role fanout 을 async 이관**(FR-MN-19 + FR-MN-03 잔여). BullMQ 인프라는 reminder/unfurl/push 패턴 확립됨(`apps/api/src/queue/*`). 마이그레이션 다음 = `20260628000000_…`.
+
+### B1 — 워커 = expand → 재검증 → MentionRecord(멱등) → **기존 outbox 재사용** (★이중경로 회피)
+- mention-broadcast 워커 `process(job)`: ① job 의 gatedRoleIds 를 **job 시점** MemberRole 로 expand →
+  userId 집합. ② 각 userId **VIEW_CHANNEL 재검증**(`channelAccess.hasPermission(READ)`·job 별도 컨텍스트라
+  this.prisma). 비가시자는 **skip**(MentionRecord/알림 미생성 — S88a 동작 일치·마스킹 불요). ③ 워커 자체 prisma
+  tx 로 **MentionRecord upsert(ON CONFLICT(messageId,targetId,targetType) DO NOTHING)** + 신규 삽입된
+  recipient 에 한해 **`outbox.record(tx, mention.received)`** 1건. ④ 그 다음은 **기존
+  `outbox-to-ws.subscriber`(onMentionEvent)** 가 mention:new WS·badge 재집계(unread_count:increment)·
+  push-send enqueue·replay append 를 @user 와 **동일하게** 처리.
+- **근거**: 워커가 WS/badge/push/replay 를 직접 재emit 하면 subscriber 와 로직 중복+divergence+이중발송 위험.
+  outbox 를 거치면 모든 부수효과가 단일 경로(@user 와 통일)로 흐른다. MentionRecord 가 멱등 게이트(retry/restart
+  재처리 시 1행·신규 삽입분만 outbox).
+- **online/offline**: 기존 in-room WS 수신 + replay(offline catch-up) + push-active-gating 이 PRD 의
+  online=Inbox/offline=mention:new 의도를 이미 충족(in-room 사용자는 listening·push 는 active-check). 워커는
+  별도 online 분기 안 함(단순·무중복). **deviation 문서화**(PRD 의 명시적 online-snapshot 분기 대신 기존 메커니즘
+  재사용 — 동일 사용자 경험·이중발송 0). 향후 push 억제 정밀화는 후속.
+
+### B2 — 라우팅: @role 만 async, 나머지 동기 유지
+- `messages.service`: @role recipient 를 동기 outbox 로 쓰지 말고 **mention-broadcast job 1건 enqueue**
+  (gatedRoleIds + messageId + channelId + workspaceId + actorId + snippet + everyone/here). @user/@everyone/
+  @here/@channel 은 **S88a 동기 outbox 유지**(불변). **모든 멘션 emission 사이트 audit**(send·PATCH 편집·
+  thread-broadcast — @role 누락/이중 금지).
+- **jobId = `mention:{messageId}`**(메시지당 1잡·재enqueue 멱등). PRD 의 `mention:{messageId}:{targetId}` 는
+  per-target 잡 전제 — 우리는 per-message 잡 + **MentionRecord per-target ON CONFLICT** 로 동일 멱등 보증(잡 수↓).
+  deviation 문서화.
+
+### B3 — MentionRecord 모델(additive)
+- `model MentionRecord { id · messageId · targetId(Uuid) · targetType(enum USER) · channelId · workspaceId ·
+  createdAt · @@unique([messageId, targetId, targetType]) · @@index([targetId, createdAt]) }`. targetType 은
+  enum(USER 우선·ROLE 는 미사용/예약). @role 은 워커가 멤버로 expand → targetType=USER·targetId=userId 로 기록
+  (@user 와 동형·dedup 일관). FK CASCADE(message/workspace 삭제 시).
+- **기존 /me/mentions·/me/activity inbox-read 경로 불변**(Message.mentions JSONB + UserChannelReadState).
+  MentionRecord 는 **전달로그+멱등 전용**(읽기 경로 전환은 후속·backfill 불요·신규만 기록).
+
+### B4 — 큐/워커/메트릭/실패
+- `queue/mention-broadcast-queue.constants.ts`(QUEUE='mention-broadcast'·JOB='broadcast-mention'·OPTS
+  {attempts:3, backoff:{exponential,2000}, removeOnComplete:1000, removeOnFail:1000}·CONCURRENCY=10·
+  `mentionBroadcastJobId(messageId)`) + `mention-broadcast-queue.service.ts`(facade enqueue·best-effort) +
+  `mention-broadcast.processor.ts`(@Processor(QUEUE,{concurrency:10}) WorkerHost). queue.module 에 registerQueue
+  + providers + exports(service). BullMQ rate-limit `{max:100, duration:1000}`(100 jobs/s·forRoot 또는 worker opts).
+- **prom 메트릭**: `bullmq_job_duration_seconds{queue}` Histogram(process 진입~종료). metrics.service 에 추가.
+- **최종 실패(attempts 소진)**: ERROR 로그 + 해당 메시지 작성자(또는 영향 사용자) Inbox 실패 알림(간단 outbox/activity).
+- **rate-limit 재적용 금지**(S88a send 시점 enforce 됨). 워커는 BullMQ throughput throttle 만.
+
+### B5 — 검증/배포 (S88a 동일·[[reference_container_verify_concurrency]])
+- int 신규 `messages.role-mentions-async-s88b.int.spec.ts`: enqueue→워커 처리→MentionRecord 1행(공개)·
+  VIEW_CHANNEL 비가시 skip·**멱등(잡 2회=1행)**·재시작 pending 재처리·최종실패 Inbox. **테스트 헬퍼는 S88a 버그
+  교훈**(createRole position 명시·beforeEach 는 시스템 MemberRole 보존). 워커를 int 에서 구동하려면 실 Redis(testcontainer)
+  + 워커 drain 대기 패턴 필요.
+- verify 단독·int `--network host`+sock+override+ryuk off. 머지 develop→main(ls-remote)·**수동배포 승인 후**.
+
+### Acceptance (S88b)
+FR-MN-19=done·FR-MN-03 partial→done(async 이관 완료 시) · verify green + int(멱등·재검증·재처리) + reviewer 통과 +
+수동배포 LIVE(`/readyz=200`·prod MentionRecord 테이블).

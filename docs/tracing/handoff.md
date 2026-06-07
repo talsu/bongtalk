@@ -4,9 +4,9 @@
 >
 > **✅ S88a(@role 동기 fanout·FR-MN-03 partial) 완료·배포·LIVE.** 사용자 **B(동기 우선)** 선택. `feat/s88a-role-mentions` 6커밋: 구현 `527218e` → 7차원 adversarial 리뷰 fix-forward `4ac027f`(BLOCKER 2/HIGH 9 시정) → 테스트 안정화 3건. **게이트: `pnpm verify` 19/19 green(node20 단독·web 1729) + int 18/18(messages role-mentions 7 + roles 11·실DB testcontainers).** **수동배포 완료(승인): migration `20260627` prod 적용(`Role.mentionable`)·api/web rollout `/readyz=200`·smoke OK.** `main=692a0ed`(머지커밋)·`develop=2d957e8`(push·ls-remote 검증). **진행률 341/354 done + FR-MN-03 partial.**
 >
-> ### ▶▶ 다음 작업 = **S88b (MentionRecord + BullMQ async·FR-MN-19)** → S88c
+> ### ▶▶ 다음 작업 = **S88b 구현 (ADR 완료·062 §S88b B1~B5)** → S88c
 >
-> - **S88b (FR-MN-19·todo)**: `MentionRecord` 모델 + mention-broadcast **BullMQ** 워커(concurrency10·idempotent job `mention:{messageId}:{targetId}`·잡시점 VIEW_CHANNEL 재검증·online=Inbox/offline=mention:new·비공개 마스킹·retry3+Inbox 실패알림·prom 메트릭). @role(+선택 @here) fanout 을 워커로 이관. **마이그레이션 다음 = `20260628…`.** FR-MN-03 의 online/offline 이중전달·private masking·MentionRecord 부분이 여기로 이관됨(그래서 FR-MN-03=partial).
+> - **S88b (FR-MN-19·UNDERSTAND+PLAN 완료·구현 진입)**: 설계는 `062 §S88b 구현 결정(B1~B5)` 확정. 요지: 워커=expand→VIEW_CHANNEL 재검증→**MentionRecord(멱등 ON CONFLICT)**→`outbox.record(mention.received)` → **기존 outbox-to-ws subscriber 재사용**(WS/badge/push/replay 단일경로·이중경로 회피). @role 만 async 이관·나머지 동기 유지. jobId=`mention:{messageId}`(per-msg 잡 + per-target MentionRecord 멱등). online/offline 은 기존 in-room+replay+push-active 재사용(deviation 문서화). MentionRecord additive(읽기경로 불변). 큐 concurrency10·rate-limit100/s·retry3(2s exp)·prom `bullmq_job_duration_seconds`. **마이그레이션 = `20260628…`.** 구현 feature-implementer 위임→7차원 리뷰→verify 단독+int→머지→**수동배포 승인**.
 > - **S88c (FR-MN-21·todo)**: `evals/tasks/mention-fanout-slo.yaml` + k6/artillery(ONLINE 100명 @here P95 5s) + BullMQ latency prom.
 > - **S88a 잔여 defer(062 문서화·S88b 권장)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip(user `@{id}` 선례 일관).
 > - **인프라 교훈(이번 세션)**: 컨테이너 verify 와 무거운 리뷰 워크플로우 **동시 실행 시 kernel4.4 자원고갈로 web 인터랙션 테스트 timeout flake** → verify 는 **단독** 실행. int 컨테이너는 `--network host`+docker.sock+`TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1`+`TESTCONTAINERS_RYUK_DISABLED=true`, 명령에 `apt-get install git openssl` 필수(없으면 git 127 / contract 6건 fail).
