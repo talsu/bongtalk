@@ -12,6 +12,11 @@ goal: |
   latency P95 (bullmq_job_duration_seconds{queue="mention-broadcast"})
   is reported alongside when PROMETHEUS_URL is set. The runner exits 1
   on P95 breach so the SLO is machine-scorable.
+  Running it requires a test stack OR PERF_REUSE (email gate): the
+  signup-bootstrap path needs an email-ungated stack, while an
+  email-gated stack (prod) needs PERF_REUSE=1 with pre-verified
+  accounts — see the harness header. A bootstrap blocked by the gate
+  exits 2 (graceful preflight stop), not a crash.
 dod:
   - command: pnpm -s exec tsc -p evals/tsconfig.json --noEmit
     expect: exit 0
