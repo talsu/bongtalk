@@ -111,6 +111,7 @@ describe('S76 appearance + notif channels (int)', () => {
       density: 'COZY',
       chatFontSize: 15,
       clock24h: true, // F-B2: 기본 24시간제(회귀 방지)
+      linkPreviewsEnabled: true, // S84c: 기본 ON
     });
     // 읽기만으로는 행을 만들지 않는다.
     const row = await prisma.userSettings.findUnique({ where: { userId } });
@@ -133,6 +134,7 @@ describe('S76 appearance + notif channels (int)', () => {
       density: 'COZY', // 미전달 — default 보존
       chatFontSize: 18,
       clock24h: true, // F-B2: 미전달 — default(24시간제) 보존
+      linkPreviewsEnabled: true, // S84c: 미전달 — default 보존
     });
     const row = await prisma.userSettings.findUnique({ where: { userId } });
     expect(row).not.toBeNull();
@@ -155,7 +157,29 @@ describe('S76 appearance + notif channels (int)', () => {
       density: 'COMPACT', // 보존
       chatFontSize: 15,
       clock24h: true, // 보존
+      linkPreviewsEnabled: true, // S84c: 보존
     });
+  });
+
+  it('S84c (FR-RC19): round-trips linkPreviewsEnabled (default true → false)', async () => {
+    const { token } = await signup('applinkprev');
+    const def = await request(baseUrl)
+      .get('/me/settings/appearance')
+      .set('authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(def.body.linkPreviewsEnabled).toBe(true);
+    const patched = await request(baseUrl)
+      .patch('/me/settings/appearance')
+      .set('authorization', `Bearer ${token}`)
+      .send({ linkPreviewsEnabled: false })
+      .expect(200);
+    expect(patched.body.linkPreviewsEnabled).toBe(false);
+    const got = await request(baseUrl)
+      .get('/me/settings/appearance')
+      .set('authorization', `Bearer ${token}`)
+      .expect(200);
+    expect(got.body.linkPreviewsEnabled).toBe(false);
+    expect(got.body.clock24h).toBe(true); // 다른 외관 필드 보존
   });
 
   it('rejects an off-step chatFontSize with 400', async () => {

@@ -49,6 +49,8 @@ export const DEFAULT_APPEARANCE: AppearanceSettings = {
   chatFontSize: 15,
   // F-B2: 24시간제가 기존(회귀 방지) 기본값. formatMessageTime 도 기본 true.
   clock24h: true,
+  // S84c (FR-RC19): 링크 미리보기 전역 ON 이 기존(회귀 방지) 기본값.
+  linkPreviewsEnabled: true,
 };
 
 export const AppearanceSettingsSchema = z.object({
@@ -56,6 +58,9 @@ export const AppearanceSettingsSchema = z.object({
   density: DensitySchema,
   chatFontSize: ChatFontSizeSchema,
   clock24h: z.boolean(),
+  // S84c (D16 / FR-RC19): 링크 미리보기 전역 비활성화. false 면 클라가 unfurl embed(OG
+  // 카드) 렌더를 스킵한다(서버 unfurl 은 계속 · 봇 rich embed 는 무관). 기본 true.
+  linkPreviewsEnabled: z.boolean(),
 });
 export type AppearanceSettings = z.infer<typeof AppearanceSettingsSchema>;
 
