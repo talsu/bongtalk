@@ -3,6 +3,7 @@ import { Cuid2Schema } from './mrkdwn';
 import { RichTextRootSchema } from './mrkdwn-ast';
 import { MessageTypeSchema } from './message-type';
 import { MessageEmbedDtoSchema } from './links';
+import { RichEmbedArraySchema } from './rich-embed';
 
 export const MESSAGE_MAX_LENGTH = 4000;
 
@@ -237,6 +238,11 @@ export const MessageDtoSchema = z.object({
   // message:embed_updated WS 이벤트로 채워진다. suppress 되거나 삭제된 메시지는
   // 서버가 [] 로 마스킹한다. default([]) 라 구 API 빌드 응답(필드 누락)도 forward-compat.
   embeds: z.array(MessageEmbedDtoSchema).default([]),
+  // S84b (D16 / FR-RC12): 봇/웹훅 rich embed 배열(Discord 스타일). S60 unfurl `embeds`
+  // 와 별개 필드 — 웹훅 게시 시점에 통째 제공되는 불변 데이터를 Message.richEmbeds(JSON)
+  // 에서 그대로 내려보낸다. optional 이라 기존 MessageDto 리터럴·구 API 빌드(필드 누락)
+  // 모두 forward-compat — 클라이언트는 누락(undefined)을 빈 배열로 취급한다.
+  richEmbeds: RichEmbedArraySchema.optional(),
 });
 export type MessageDto = z.infer<typeof MessageDtoSchema>;
 

@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { IncomingWebhook } from '@prisma/client';
 import {
   isReservedBotName,
+  isRenderableRichEmbed,
+  normalizeEmbedColor,
   type CreateWebhookRequest,
   type IncomingWebhookPayload,
   type WebhookCreatedResponse,
@@ -228,14 +230,23 @@ export class WebhooksService {
     const botUsername = payload.username ?? webhook.botDisplayName ?? webhook.name;
     const botAvatarUrl = payload.avatar_url ?? webhook.avatarUrl ?? null;
 
+    // S84b (FR-RC12): rich embed 정규화 — 렌더할 내용이 없는 빈 embed 제거 + color 를
+    // `#rrggbb` 정규형으로. 스키마(RichEmbedArraySchema)가 이미 캡·URL scheme·fields≤25
+    // 를 강제했으므로 여기선 표시 정규화만 한다.
+    const richEmbeds = (payload.embeds ?? [])
+      .filter(isRenderableRichEmbed)
+      .map((e) => (e.color ? { ...e, color: normalizeEmbedColor(e.color) } : e));
+
     const row = await this.messages.createBotMessage({
       workspaceId: webhook.workspaceId,
       channelId: webhook.channelId,
       authorId: webhook.createdBy,
       webhookId: webhook.id,
-      content: payload.content,
+      // embed-only 메시지는 content 가 없을 수 있다(payload refine 이 content|embeds 보장).
+      content: payload.content ?? '',
       botUsername,
       botAvatarUrl,
+      richEmbeds,
     });
 
     // lastUsedAt 갱신(베스트-에포트 — 실패해도 게시 자체는 성공). 표식용이라 트랜잭션 분리.

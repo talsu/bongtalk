@@ -117,6 +117,11 @@ export type MessageCreatedPayload = {
     authorType?: string;
     botUsername?: string | null;
     botAvatarUrl?: string | null;
+    // S84b (FR-RC12): 봇/웹훅 rich embed 배열 e2e 전파. 디스패처가 이 message 를 캐시에
+    // MessageDto 로 삽입하므로 라이브 봇 메시지가 REST refetch 없이 embed 를 렌더하려면
+    // WS payload 도 실어야 한다. JSON-serializable 이라 unknown[] 로 둔다(contentAst 동일 —
+    // 이 모듈을 shared-types import 로부터 자유롭게 유지).
+    richEmbeds?: unknown[];
     // task-047 iter0 (HIGH-046-B): @here flag e2e propagation.
     // S21 fix-forward (MAJOR-D): @channel flag e2e propagation — 디스패처
     // isMention 이 @channel 을 인식해 live 배지가 reload 와 일치하도록.

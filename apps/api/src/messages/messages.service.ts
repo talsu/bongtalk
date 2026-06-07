@@ -61,7 +61,7 @@ import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
 import { ReminderQueueService } from '../queue/reminder-queue.service';
 import { UnfurlQueueService } from '../queue/unfurl-queue.service';
-import { extractUnfurlUrls, type MessageEmbedDto } from '@qufox/shared-types';
+import { extractUnfurlUrls, type MessageEmbedDto, type RichEmbed } from '@qufox/shared-types';
 import { toMessageEmbedDto, MESSAGE_EMBED_UPDATED_EVENT } from '../links/message-embed.mapper';
 
 /**
@@ -116,6 +116,9 @@ type MessageRow = {
   webhookId?: string | null;
   botUsername?: string | null;
   botAvatarUrl?: string | null;
+  // S84b (FR-RC12): 봇/웹훅 rich embed 배열(JSON). SELECT 미선택 시 undefined →
+  // toDto 가 [] 폴백. 비-BOT row 는 NULL.
+  richEmbeds?: Prisma.JsonValue;
   mentions: Prisma.JsonValue;
   editedAt: Date | null;
   deletedAt: Date | null;
@@ -205,6 +208,9 @@ export type MessageDto = {
   authorType: 'USER' | 'BOT' | 'SYSTEM';
   botUsername: string | null;
   botAvatarUrl: string | null;
+  // S84b (FR-RC12): 봇/웹훅 rich embed 배열. authorType==='BOT' 메시지만 채워질 수 있다.
+  // 삭제 메시지는 unfurl embeds/attachments 와 동일하게 [] 마스킹(원격 URL 잔존 방지).
+  richEmbeds: RichEmbed[];
   mentions: MessageMentions;
   edited: boolean;
   deleted: boolean;
@@ -512,6 +518,10 @@ export class MessagesService {
       // 가린다(삭제된 메시지의 OG 카드 잔존 방지). aggregateEmbeds 가 suppressedAt IS NULL
       // 만 넘기므로 정상 메시지의 embeds 는 비-suppress 카드만 담긴다.
       embeds: isDeleted ? [] : embeds,
+      // S84b (FR-RC12): 봇/웹훅 rich embed 배열. unfurl embeds/attachments 와 동일하게
+      // 삭제 메시지는 [] 마스킹(원격 URL·추적픽셀 잔존 방지). SELECT 미선택/legacy/비-BOT
+      // row 는 NULL → [] 폴백. JSON 컬럼이라 캐스팅해 그대로 통과한다.
+      richEmbeds: isDeleted ? [] : ((row.richEmbeds as RichEmbed[] | null) ?? []),
     };
   }
 
@@ -2166,14 +2176,18 @@ export class MessagesService {
     authorId: string;
     /** 게시한 인커밍 웹훅 id — Message.webhookId(삭제 시 SetNull). */
     webhookId: string;
-    /** 게시 본문(원문). mrkdwn 파싱 대상. */
+    /** 게시 본문(원문). mrkdwn 파싱 대상. embed-only 메시지는 ''(빈 문자열). */
     content: string;
     /** 해석된 최종 표시 이름(요청 username → 웹훅 botDisplayName → 웹훅 name). */
     botUsername: string;
     /** 해석된 표시 아바타 URL(요청 avatar_url → 웹훅 avatarUrl). 없으면 null. */
     botAvatarUrl: string | null;
+    // S84b (FR-RC12): 정규화된 rich embed 배열(빈 embed 제거·color 정규화는 호출측 책임).
+    // 비면 undefined → 컬럼 NULL.
+    richEmbeds?: RichEmbed[];
   }): Promise<MessageRow> {
     const processed = processMrkdwn(args.content);
+    const richEmbeds = args.richEmbeds && args.richEmbeds.length > 0 ? args.richEmbeds : undefined;
     const emptyMentions: MessageMentions = {
       users: [],
       channels: [],
@@ -2197,6 +2211,8 @@ export class MessagesService {
           webhookId: args.webhookId,
           botUsername: args.botUsername,
           botAvatarUrl: args.botAvatarUrl,
+          // S84b (FR-RC12): rich embed 배열을 JSON 으로 저장(없으면 컬럼 미설정=NULL).
+          ...(richEmbeds ? { richEmbeds: richEmbeds as unknown as Prisma.InputJsonValue } : {}),
         },
       });
       const payload: MessageCreatedPayload = {
@@ -2218,6 +2234,9 @@ export class MessagesService {
           authorType: 'BOT',
           botUsername: args.botUsername,
           botAvatarUrl: args.botAvatarUrl,
+          // S84b (FR-RC12): rich embed 배열을 WS payload 에 실어 라이브 봇 메시지가
+          // REST refetch 없이 embed 를 렌더하게 한다(additive · 빈 배열이면 생략).
+          ...(richEmbeds ? { richEmbeds } : {}),
           mentions: emptyMentions,
           createdAt: created.createdAt.toISOString(),
           parentMessageId: created.parentMessageId,
@@ -2421,7 +2440,7 @@ export class MessagesService {
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", "authorType",
-             "webhookId", "botUsername", "botAvatarUrl", mentions,
+             "webhookId", "botUsername", "botAvatarUrl", "richEmbeds", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"
@@ -2492,7 +2511,7 @@ export class MessagesService {
     const sql = `
       SELECT id, "channelId", "authorId", content, "contentPlain", "contentPlainV2",
              "contentRaw", "contentAst", "type", "authorType",
-             "webhookId", "botUsername", "botAvatarUrl", mentions,
+             "webhookId", "botUsername", "botAvatarUrl", "richEmbeds", mentions,
              "editedAt", "deletedAt", "createdAt", "idempotencyKey", "parentMessageId",
              "pinnedAt", "pinnedBy", "version", "isBroadcast", "threadLocked"
         FROM "Message"
