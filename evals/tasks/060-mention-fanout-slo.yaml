@@ -1,0 +1,25 @@
+id: 060
+title: at-here fan-out SLO — ONLINE 100 P95 under 5s
+goal: |
+  An `@here` mention posted in a TEXT channel must reach every ONLINE
+  channel member's `mention:new` event with a P95 delivery latency
+  under 5 seconds at 100 concurrent connections (FR-MN-21). The eval
+  (evals/perf/mention-fanout-slo.ts) signs up CONN_COUNT users, joins
+  them all to one channel, opens a websocket per user (auth.accessToken,
+  websocket transport, awaiting connection:ready), posts one @here
+  message, and measures (mention:new arrival - send) → P95 vs SLO_P95_MS.
+  @here is synchronous fan-out; the @role async path's BullMQ job
+  latency P95 (bullmq_job_duration_seconds{queue="mention-broadcast"})
+  is reported alongside when PROMETHEUS_URL is set. The runner exits 1
+  on P95 breach so the SLO is machine-scorable.
+dod:
+  - command: pnpm -s exec tsc -p evals/tsconfig.json --noEmit
+    expect: exit 0
+  - command: test -f evals/perf/mention-fanout-slo.ts && grep -q "@here" evals/perf/mention-fanout-slo.ts && grep -q "mention:new" evals/perf/mention-fanout-slo.ts
+    expect: exit 0
+  - scope_allow:
+      - evals/perf/**
+      - evals/tasks/060-mention-fanout-slo.yaml
+      - evals/tsconfig.json
+      - package.json
+max_turns: 25
