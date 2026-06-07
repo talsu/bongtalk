@@ -330,6 +330,12 @@ export const ErrorCodeSchema = z.enum([
   'WEBHOOK_REVOKED',
   'WEBHOOK_INVALID_TOKEN',
   'WEBHOOK_NAME_RESERVED',
+  // S85 (FR-CH-16): 사이드바 개인 섹션.
+  //   SIDEBAR_SECTION_NOT_FOUND:    조회/수정/삭제/재정렬 대상 섹션 또는 anchor 가 본인
+  //                                 소유가 아니거나 없음 → 404(중립 — 존재 누출 방지).
+  //   SIDEBAR_ASSIGNMENT_NOT_FOUND: 재정렬/해제 대상 채널 할당이 본인 섹션에 없음 → 404.
+  'SIDEBAR_SECTION_NOT_FOUND',
+  'SIDEBAR_ASSIGNMENT_NOT_FOUND',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
@@ -398,3 +404,6 @@ export * from './webhook';
 
 // S84b — 봇/웹훅 rich embed 배열 (D16 / FR-RC12)
 export * from './rich-embed';
+
+// S85 — 사이드바 개인 섹션 컨트랙트 (FR-CH-16)
+export * from './sidebar-section';
