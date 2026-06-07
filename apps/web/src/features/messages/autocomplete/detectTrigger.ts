@@ -25,7 +25,10 @@ export type TriggerKind = 'mention' | 'channel' | 'emoji' | 'slash';
  * S79 (FR-SC-01): 슬래시 커맨드 추가. 공지 문구는 "슬래시 커맨드 N개" 로 읽힙니다.
  */
 export const TRIGGER_KIND_LABEL: Record<TriggerKind, string> = {
-  mention: '멤버',
+  // S88a review F7 (a11y/ui): @ 트리거는 멤버뿐 아니라 멘션 가능 역할도 함께
+  // 노출하므로 '멤버 및 역할' 로 표기한다. 이 단일 출처가 listbox aria-label·
+  // 섹션 헤더·composerAnnouncement SR 공지를 모두 구동해 3건이 동시 정합한다.
+  mention: '멤버 및 역할',
   channel: '채널',
   emoji: '이모지',
   slash: '슬래시 커맨드',

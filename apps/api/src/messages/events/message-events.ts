@@ -131,6 +131,9 @@ export type MessageCreatedPayload = {
       everyone: boolean;
       here: boolean;
       channel: boolean;
+      // S88a (FR-MN-03): 역할 멘션 roleId 목록. optional 이라 구 디스패처/payload 와
+      // forward-compat — 누락(undefined)은 클라가 [] 로 취급.
+      roles?: string[];
     };
     createdAt: string;
     // task-014-B: null for root, uuid for reply. Additive — existing
@@ -182,6 +185,9 @@ export type MessageThreadBroadcastPayload = {
       everyone: boolean;
       here: boolean;
       channel: boolean;
+      // S88a (FR-MN-03): 역할 멘션 roleId 목록(broadcast 행은 항상 []). optional 이라
+      // 구 디스패처/payload 와 forward-compat.
+      roles?: string[];
     };
     createdAt: string;
     parentMessageId: string | null;
@@ -217,6 +223,9 @@ export type MessageUpdatedPayload = {
       everyone: boolean;
       here: boolean;
       channel: boolean;
+      // S88a (FR-MN-03): 역할 멘션 roleId 목록. 편집 경로는 저장 mentions.roles 정합만
+      // 갱신하고 신규 mention.received 는 emit 하지 않는다. optional · forward-compat.
+      roles?: string[];
     };
     editedAt: string;
     // S05 verify (FR-MSG-07): (수정됨) 뱃지의 라이브 전파. 디스패처는 캐시 행

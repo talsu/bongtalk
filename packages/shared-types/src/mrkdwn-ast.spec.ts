@@ -5,6 +5,7 @@ import {
   TextNodeSchema,
   MentionUserNodeSchema,
   MentionChannelNodeSchema,
+  MentionRoleNodeSchema,
   CodeBlockNodeSchema,
   DividerNodeSchema,
   LinkNodeSchema,
@@ -162,6 +163,63 @@ describe('MentionChannelNodeSchema label (S04 review HIGH / FR-MSG-13)', () => {
       channelId: 'clh3z2k0v0000abcd1234ef',
     });
     expect(parsed.label).toBeUndefined();
+  });
+});
+
+describe('MentionRoleNodeSchema label (S88a / FR-MN-03)', () => {
+  it('accepts an optional role-name label (additive)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: 'clh3z2k0v0000abcd1234ef',
+      label: 'Project Managers',
+    });
+    expect(parsed.label).toBe('Project Managers');
+  });
+
+  it('stays backward-compatible when label is omitted (legacy AST)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: 'clh3z2k0v0000abcd1234ef',
+    });
+    expect(parsed.label).toBeUndefined();
+  });
+
+  it('rejects an empty-string label (min length 1)', () => {
+    expect(() =>
+      MentionRoleNodeSchema.parse({
+        type: 'mention_role',
+        roleId: 'clh3z2k0v0000abcd1234ef',
+        label: '',
+      }),
+    ).toThrow();
+  });
+
+  // S88a review F1 (ADR D2): Role.id 는 @db.Uuid 라 roleId 는 uuid 도 수용해야
+  // 한다. 종전 Cuid2Schema 전용이면 라이브 <@&uuid> 노드가 AST 검증서 거부됐다.
+  it('accepts a uuid roleId (Role.id = @db.Uuid — transitional id)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      label: 'Project Managers',
+    });
+    expect(parsed.roleId).toBe('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
+  it('still accepts a cuid2 roleId (legacy / non-uuid)', () => {
+    const parsed = MentionRoleNodeSchema.parse({
+      type: 'mention_role',
+      roleId: 'clh3z2k0v0000abcd1234ef',
+    });
+    expect(parsed.roleId).toBe('clh3z2k0v0000abcd1234ef');
+  });
+
+  it('rejects a non-uuid / non-cuid2 roleId', () => {
+    expect(() =>
+      MentionRoleNodeSchema.parse({
+        type: 'mention_role',
+        roleId: 'not-an-id',
+      }),
+    ).toThrow();
   });
 });
 

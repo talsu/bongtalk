@@ -39,6 +39,42 @@ describe('Autocomplete — WAI-ARIA listbox 정합 (S18 A11y)', () => {
     expect(html).toContain('aria-selected="true"');
   });
 
+  // S88a review F7 (a11y/ui): @ 트리거는 멤버 + 멘션 가능 역할을 함께 노출하므로
+  // listbox aria-label·섹션 헤더가 '멤버 및 역할' 로 읽혀야 한다(단일 출처
+  // TRIGGER_KIND_LABEL.mention).
+  it('mention listbox surfaces "멤버 및 역할" in aria-label and header (F7)', () => {
+    const rows: AutocompleteRow[] = [
+      { type: 'member', member: { userId: 'u1', username: 'alice' }, online: true },
+    ];
+    const html = markup('mention', rows);
+    expect(html).toContain('aria-label="멤버 및 역할 자동완성"');
+    expect(html).toContain('멤버 및 역할');
+  });
+
+  // S88a review F13 (ui): role 행은 colorHex 가 null 이어도 meta 슬롯을 렌더해 멤버
+  // 행과 우측 정렬을 맞춘다(슬롯 미렌더 시 정렬 어긋남).
+  it('role row keeps the meta slot even when colorHex is null (F13)', () => {
+    const withColor: AutocompleteRow[] = [
+      {
+        type: 'role',
+        role: { id: 'r1', name: 'PM', colorHex: '#ff0000', mentionable: true },
+      },
+    ];
+    const noColor: AutocompleteRow[] = [
+      {
+        type: 'role',
+        role: { id: 'r2', name: 'Devs', colorHex: null, mentionable: true },
+      },
+    ];
+    // 둘 다 meta 슬롯(__meta)과 점(__meta-dot)을 렌더한다.
+    expect(markup('mention', withColor)).toContain('qf-autocomplete__meta');
+    const noColorHtml = markup('mention', noColor);
+    expect(noColorHtml).toContain('qf-autocomplete__meta');
+    expect(noColorHtml).toContain('qf-autocomplete__meta-dot');
+    // colorHex=null 이면 disabled 토큰 색 placeholder 로 채운다.
+    expect(noColorHtml).toContain('var(--text-disabled)');
+  });
+
   it('A-05: member rows expose online state as sr-only text (not colour-only)', () => {
     const online: AutocompleteRow[] = [
       { type: 'member', member: { userId: 'u1', username: 'alice' }, online: true },

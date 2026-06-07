@@ -1,16 +1,16 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
+> ## ▶ 현재 재개 지점 (2026-06-08 · S88a 동기 @role 코어 완료·검증 green)
 >
-> **✅ D16(S84a/b/c)+FR-CH-16(S85)+FR-MN-15(S86)+FR-MN-18(S87) 완료·배포·LIVE.** `main=develop=ce8409b`(push·ls-remote 검증). **진행률 339/354 FR done.** 이번 세션 **6슬라이스 전부 prod LIVE.**
+> **✅ S88a(@role 동기 fanout·FR-MN-03 partial) 코드완료 + verify green + int green.** 사용자 **B(동기 우선)** 선택. `feat/s88a-role-mentions`(c649df0→HEAD) 6커밋: 구현 `527218e` → 7차원 adversarial 리뷰 fix-forward `4ac027f`(BLOCKER 2/HIGH 9 시정) → 테스트 안정화 3건. **게이트: `pnpm verify` 19/19 green(node20 단독·web 1729) + int 18/18(messages role-mentions 7 + roles 11·실DB testcontainers·migration 20260627 적용).** 직전 LIVE `main=develop=c649df0`(아직 S88a 미배포).
 >
-> ### ▶▶ 다음 작업 = @role 멘션 그룹 (FR-MN-03/19/21 · P0 · 새 세션 시작점)
+> ### ▶▶ 다음 작업 = **S88a 수동 배포 승인 대기** → 그 후 S88b/S88c
 >
-> **계약 문서: `docs/tasks/062-s88-role-mentions.md` (먼저 정독 — 서브슬라이스 분할·PRD 요구·기존 인프라 맵 전부 거기).** 요지:
-> - **무엇**: `@role` 멘션 — 역할명 파싱→roleId→역할 멤버 전원에게 멘션 알림. 접근제어=MENTION_EVERYONE(0x80) 또는 `Role.mentionable`(신규 필드). PRD 는 **mention-broadcast BullMQ 큐**(idempotent job `mention:{messageId}:{targetId}`·잡 시점 VIEW_CHANNEL 재검증·online=Inbox만/offline=mention:new·비공개 채널 채널명/프리뷰 마스킹·이중 rate-limit 5/분·동일역할 10/5분) + @here SLO eval(P95 5s·k6/artillery)을 명시.
-> - **결정 필요(첫 세션에서 사용자에게 물을 것)**: PRD대로 **async BullMQ 풀 전체**(2~3 서브슬라이스·완성도↑·큼) vs **동기 fanout 먼저**(기존 @here/@everyone 동기 경로에 @role 얹어 바로 동작·BullMQ/MentionRecord/SLO 후속·S46 선례 deviation). [사용자가 이번 세션 끝에 미선택 — 새 세션에서 AskUserQuestion]
-> - **기존 인프라(재사용)**: `Role`(schema:1413 · **mentionable 필드 없음 → 추가 필요**) · `MemberRole`(역할→멤버 매핑) · 멘션 fanout `messages.service.ts:1464~1640`(현 @user/@here/@everyone 동기 fanout·1인당 mention.received outbox 1건·mute/DND/NotifLevel/OFF 게이트) · `mention.received`/`UserMention` outbox(aggregateType='UserMention') · mrkdwn `mention_role` AST 노드 존재하나 **`mentions` 요약(fanout 입력)엔 roles 없음 → 추출 추가 필요** · MENTION_EVERYONE 비트=0x80(channel-access.service `resolveMentionEveryone`/`resolveChannelEveryone`) · BullMQ 패턴=`apps/api/src/queue/reminder.processor.ts`+`queue.module.ts`(승인됨 [[project_bullmq_greenlight]]) · presence online 판정=`presence.service.ts` lastSeen · VIEW_CHANNEL 재검증=`channel-access.service.ts` · **MentionRecord 모델 없음 → 신규**.
-> - **마이그레이션 다음 번호**: `20260627000000_…`(20260626 다음).
+> - **즉시**: S88a 를 develop→main 머지·push 후 **수동 배포(auto-deploy.sh·승인 후)** → `/readyz=200` + prod `Role.mentionable` 컬럼 검증. webhook 자동배포 OFF.
+> - **S88b (FR-MN-19·todo)**: `MentionRecord` 모델 + mention-broadcast **BullMQ** 워커(concurrency10·idempotent job `mention:{messageId}:{targetId}`·잡시점 VIEW_CHANNEL 재검증·online=Inbox/offline=mention:new·비공개 마스킹·retry3+Inbox 실패알림·prom 메트릭). @role(+선택 @here) fanout 을 워커로 이관. **마이그레이션 다음 = `20260628…`.** FR-MN-03 의 online/offline 이중전달·private masking·MentionRecord 부분이 여기로 이관됨(그래서 FR-MN-03=partial).
+> - **S88c (FR-MN-21·todo)**: `evals/tasks/mention-fanout-slo.yaml` + k6/artillery(ONLINE 100명 @here P95 5s) + BullMQ latency prom.
+> - **S88a 잔여 defer(062 문서화·S88b 권장)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip(user `@{id}` 선례 일관).
+> - **인프라 교훈(이번 세션)**: 컨테이너 verify 와 무거운 리뷰 워크플로우 **동시 실행 시 kernel4.4 자원고갈로 web 인터랙션 테스트 timeout flake** → verify 는 **단독** 실행. int 컨테이너는 `--network host`+docker.sock+`TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1`+`TESTCONTAINERS_RYUK_DISABLED=true`, 명령에 `apt-get install git openssl` 필수(없으면 git 127 / contract 6건 fail).
 >
 
 > - **✅ S87(FR-MN-18 채널별 데스크톱/모바일 알림) LIVE** — FR-MN-18=done. `UserChannelMute.pushDesktop/pushMobile Boolean?`(null=글로벌 상속·`20260626`) + `classifyPushDevice(ua)`(보수적) + push.service.sendToUser device opts(ua 분류 필터) + push.processor 채널 effective per-device 산정 + web ChannelNotifSettings(채널 컨텍스트 메뉴→모달). feature-implementer+배선 후속 → reviewer fix-forward(MEDIUM-1 카테고리 bulk 가 push 오버라이드 보존). verify green(web 1717) · int 20/20 실DB. LIVE: `/readyz=200`·prod 컬럼 2개.

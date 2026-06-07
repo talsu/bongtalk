@@ -38,7 +38,7 @@ function makePin(overrides: Partial<MessageDto> = {}): MessageDto {
     contentAst: null,
     contentPlain: 'pinned body',
     type: 'DEFAULT',
-    mentions: { users: [], channels: [], everyone: false, here: false, channel: false },
+    mentions: { users: [], channels: [], everyone: false, here: false, channel: false, roles: [] },
     edited: false,
     deleted: false,
     createdAt: '2025-01-01T00:00:00.000Z',

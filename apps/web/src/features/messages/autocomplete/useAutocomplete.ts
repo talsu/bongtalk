@@ -27,9 +27,21 @@ const EMOJI_LIMIT = 10;
 // S79 (FR-SC-01): 슬래시 커맨드 후보 상한(PRD D15: 최대 10개·스크롤 가능).
 const SLASH_LIMIT = 10;
 
+/**
+ * S88a (FR-MN-03): `@` 자동완성에 노출할 워크스페이스 역할 후보. colorHex 는 표시용,
+ * mentionable 은 가시성 게이트용(non-mentionable 역할은 OWNER/ADMIN 에게만 노출).
+ */
+export type RoleCandidate = {
+  id: string;
+  name: string;
+  colorHex: string | null;
+  mentionable: boolean;
+};
+
 export type MentionRow =
   | { type: 'special'; item: SpecialMentionItem }
-  | { type: 'member'; member: RankableMember; online: boolean };
+  | { type: 'member'; member: RankableMember; online: boolean }
+  | { type: 'role'; role: RoleCandidate };
 
 export type ChannelRow = { type: 'channel'; channel: RankableChannel };
 export type EmojiRow = { type: 'emoji'; emoji: EmojiCandidate };
@@ -57,6 +69,9 @@ export type AutocompleteSources = {
   recentMembers: string[];
   recentEmojis: string[];
   role: WorkspaceRole;
+  // S88a (FR-MN-03): 워크스페이스 역할 후보(@ 자동완성용). 호출부(MessageComposer)가
+  // listRoles 응답을 주입한다. 미지정이면 역할 행을 노출하지 않는다(기존 동작).
+  roles?: RoleCandidate[];
 };
 
 type UseAutocompleteInput = {
@@ -84,10 +99,32 @@ export type UseAutocompleteResult = {
   emptyTriggerKind: TriggerKind | null;
 };
 
+/**
+ * S88a (FR-MN-03): `@` 자동완성에 노출할 역할 행을 만든다.
+ *
+ * 가시성(서버가 최종 권위 · 보수적 클라 규칙):
+ *   - mentionable 역할은 모두 노출(누구나 멘션 가능).
+ *   - non-mentionable 역할은 actor 가 OWNER/ADMIN 일 때만 노출(MENTION_EVERYONE 추정 —
+ *     specialMention 의 canUseSpecialMention 패턴과 일관).
+ *
+ * 이름 prefix(case-insensitive) 로 필터하고 MENTION_LIMIT 으로 cap 한다.
+ */
+function buildRoleRows(query: string, sources: AutocompleteSources): MentionRow[] {
+  if (!sources.roles || sources.roles.length === 0) return [];
+  const canMentionRestricted = sources.role === 'OWNER' || sources.role === 'ADMIN';
+  const q = query.toLowerCase();
+  return sources.roles
+    .filter((r) => r.mentionable || canMentionRestricted)
+    .filter((r) => q.length === 0 || r.name.toLowerCase().startsWith(q))
+    .slice(0, MENTION_LIMIT)
+    .map((role): MentionRow => ({ type: 'role', role }));
+}
+
 function buildMentionRows(query: string, sources: AutocompleteSources): MentionRow[] {
   const specials = specialMentionItems(sources.role, query).map(
     (item): MentionRow => ({ type: 'special', item }),
   );
+  const roles = buildRoleRows(query, sources);
   const members = rankMembers({
     members: sources.members,
     query,
@@ -101,7 +138,8 @@ function buildMentionRows(query: string, sources: AutocompleteSources): MentionR
       online: sources.online.has(member.userId),
     }),
   );
-  return [...specials, ...members];
+  // 순서: 특수멘션(@everyone/@here) → 역할 → 멤버.
+  return [...specials, ...roles, ...members];
 }
 
 /**

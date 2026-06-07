@@ -7,7 +7,9 @@ beforeEach(() => {
 
 describe('composerAnnouncement (FR-A11Y-01)', () => {
   it('announces "<명사> N개" for an open mention popup with rows', () => {
-    expect(composerAnnouncement('mention', 3)).toBe('멤버 3개');
+    // S88a review F7: @ 트리거는 멤버 + 멘션 가능 역할을 함께 노출하므로 명사가
+    // '멤버 및 역할' 이다(TRIGGER_KIND_LABEL.mention 단일 출처).
+    expect(composerAnnouncement('mention', 3)).toBe('멤버 및 역할 3개');
   });
 
   it('announces channel count for an open channel popup', () => {
@@ -29,7 +31,7 @@ describe('composerAnnouncement (FR-A11Y-01)', () => {
   // S79 fix-forward (a11y N-01): the empty-result message is now kind-scoped so
   // SR users know which trigger had no matches.
   it('announces a kind-scoped empty-result message when there are 0 rows', () => {
-    expect(composerAnnouncement('mention', 0)).toBe('멤버 검색 결과가 없습니다');
+    expect(composerAnnouncement('mention', 0)).toBe('멤버 및 역할 검색 결과가 없습니다');
     expect(composerAnnouncement('channel', 0)).toBe('채널 검색 결과가 없습니다');
     expect(composerAnnouncement('emoji', 0)).toBe('이모지 검색 결과가 없습니다');
     expect(composerAnnouncement('slash', 0)).toBe('슬래시 커맨드 검색 결과가 없습니다');

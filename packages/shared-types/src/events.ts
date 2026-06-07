@@ -528,6 +528,14 @@ export const MentionNewPayloadSchema = z.object({
   createdAt: z.string(),
   everyone: z.boolean(),
   here: z.boolean(),
+  /**
+   * S88a review F2 (FR-MN-03 / D4) — 역할 멘션(@role) 유래 표식. 서버
+   * MentionReceivedPayload.role 과 1:1 정합한다. 동일 수신자가 직접 @user 와
+   * @role 양쪽으로 멘션된 경우 dedup 후 직접 멘션이 우선하므로 false 가 된다
+   * (역할 유래 표식은 직접 멘션이 없을 때만 true). additive·optional 이라
+   * 구 payload 와 후방호환된다.
+   */
+  role: z.boolean().optional(),
 });
 export type MentionNewPayload = z.infer<typeof MentionNewPayloadSchema>;
 

@@ -191,9 +191,9 @@ FR-MN-01,D06-mentions-notif,P0,S44,done
 FR-MN-02,D06-mentions-notif,P0,S44,done
 FR-MN-04,D06-mentions-notif,P0,S44,done
 FR-MN-16,D06-mentions-notif,P1,S44,done
-FR-MN-03,D06-mentions-notif,P0,S45,todo
-FR-MN-19,D06-mentions-notif,P1,S45,todo
-FR-MN-21,D06-mentions-notif,P1,S45,todo
+FR-MN-03,D06-mentions-notif,P0,S88a,partial
+FR-MN-19,D06-mentions-notif,P1,S88b,todo
+FR-MN-21,D06-mentions-notif,P1,S88c,todo
 FR-MN-05,D06-mentions-notif,P0,S46,done
 FR-MN-06,D06-mentions-notif,P0,S46,done
 FR-MN-07,D06-mentions-notif,P0,S46,done

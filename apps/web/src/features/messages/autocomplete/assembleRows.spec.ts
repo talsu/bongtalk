@@ -89,3 +89,44 @@ describe('assembleRows (FR-RC03/04/05) — 트리거 → 행 조립 합성', () 
     expect(r.rows).toEqual([]);
   });
 });
+
+// S88a (FR-MN-03): @ 자동완성 역할 행 — mentionable 은 모두, non-mentionable 은
+// OWNER/ADMIN 에게만 노출(보수적 클라 규칙 · 서버 최종 권위).
+describe('assembleRows — role mention rows (S88a / FR-MN-03)', () => {
+  const roles = [
+    { id: 'r1', name: 'Engineers', colorHex: null, mentionable: true },
+    { id: 'r2', name: 'Secret', colorHex: null, mentionable: false },
+    { id: 'r3', name: 'Eng Leads', colorHex: '#ff0000', mentionable: true },
+  ];
+
+  it('MEMBER 는 mentionable 역할만 본다(non-mentionable 숨김)', () => {
+    const r = assembleRows('@', 1, baseSources({ role: 'MEMBER', roles }));
+    const roleNames = r.rows
+      .filter((row) => row.type === 'role')
+      .map((row) => (row.type === 'role' ? row.role.name : ''));
+    expect(roleNames).toContain('Engineers');
+    expect(roleNames).toContain('Eng Leads');
+    expect(roleNames).not.toContain('Secret');
+  });
+
+  it('OWNER 는 non-mentionable 역할도 본다', () => {
+    const r = assembleRows('@', 1, baseSources({ role: 'OWNER', roles }));
+    const roleNames = r.rows
+      .filter((row) => row.type === 'role')
+      .map((row) => (row.type === 'role' ? row.role.name : ''));
+    expect(roleNames).toContain('Secret');
+  });
+
+  it('역할명 prefix(case-insensitive)로 필터한다', () => {
+    const r = assembleRows('@eng', 4, baseSources({ role: 'MEMBER', roles }));
+    const roleNames = r.rows
+      .filter((row) => row.type === 'role')
+      .map((row) => (row.type === 'role' ? row.role.name : ''));
+    expect(roleNames).toEqual(['Engineers', 'Eng Leads']);
+  });
+
+  it('roles 미주입이면 역할 행이 없다(기존 동작)', () => {
+    const r = assembleRows('@', 1, baseSources({ role: 'OWNER' }));
+    expect(r.rows.some((row) => row.type === 'role')).toBe(false);
+  });
+});
