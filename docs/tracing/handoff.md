@@ -3,12 +3,12 @@
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
 > **다음 슬라이스 = S84b(FR-RC12 rich embed 배열)** → 이어서 S84c(FR-RC19 링크프리뷰 전역 비활성화) → slice-backlog 다음(잔여 ~16 FR).
-> **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) 완료·머지(미배포)** — `develop=a9b6636`, `main=0863bd0`(둘 다 push·ls-remote 검증). FR-RC11=done.
+> **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) 완료·배포·LIVE** — `develop=main=8aa1af8`(push·ls-remote 검증). FR-RC11=done.
 >
 > - 구현: WebhooksService(create/list/rotate/revoke/verifyAndPost) + 관리/인커밍 2컨트롤러(@Roles ADMIN / @Public 토큰인증) + 토큰 crypto util + `MessagesService.createBotMessage` + read-path SELECT 봇필드 + shared-types webhook.ts/MessageDto(authorType/botUsername/botAvatarUrl **optional**) + web MessageItem BOT 배지/override.
 > - reviewer(adversarial) 6 fix-forward: **HIGH-1 폐기-oracle**(revoke 검사를 토큰 검증 뒤로) · MEDIUM-3 postUrl 토큰쿼리 제거 · LOW-5 삭제시 botAvatarUrl 마스킹 · LOW-6 avatar_url http(s) scheme 제한(SSRF) · LOW-7 per-IP rate-limit · NIT-8 GET 목록 ADMIN 게이트. (MEDIUM-4 authorType optional 은 의도적 유지 — 기존 MessageDto 리터럴 15+ 무회귀.)
 > - 검증: `pnpm verify`(node20 컨테이너) green(무관 flaky `VerifyEmailLanding` document.title 1건 — 단독 4/4 통과) · 실DB 통합 `webhooks-s84a.int.spec.ts` **12/12 GREEN**(토큰해시·INVALID/REVOKED·oracle차단·rotate·예약어422·cross-ws404·list멤버403·BOT authorType·lastUsedAt).
-> - **⚠️ 미배포 — 수동 배포 대기(사용자 승인 후)**: build-and-push.sh api,web → auto-deploy.sh manual(또는 prod-reload.sh) → /readyz. 마이그레이션 `20260621000000_s84a_incoming_webhook` 가 prod 미적용이라 배포 시 prisma migrate deploy 동반(deploy-hook). webhook 자동배포 컨테이너 미실행=OFF 라 main push 는 prod 무영향.
+> - **✅ 배포 완료·LIVE(사용자 승인 후 수동 배포)**: `auto-deploy.sh`(DEPLOY_SHA 없음=현재 checkout 8aa1af8 빌드·격리 빌더→localhost:5050) → 마이그레이션 `20260621000000_s84a_incoming_webhook` prod 적용("All migrations successfully applied") → rollout api/web healthy(/readyz 120s 게이트 통과) → smoke OK → deploy done(exit 0). **LIVE 검증**: `/api/readyz=200` · `POST /api/webhooks/<uuid>` 잘못된 토큰 → 403 `WEBHOOK_INVALID_TOKEN`(라우트 등록·토큰 게이트·oracle 차단 정상). webhook 자동배포 컨테이너 미실행=OFF.
 >
 > **⚠️ 인프라 변경(디스크 복구로 인한):**
 >
