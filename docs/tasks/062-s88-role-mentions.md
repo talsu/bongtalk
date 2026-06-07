@@ -199,3 +199,36 @@ PRD 는 @role 을 **BullMQ async** 로 명시한다. 기존 @here/@everyone 은 
    없는 legacy JSON → []) · MentionRoleNode label.
 6. reviewer(adversarial)+contract-validator+security+perf+a11y/ui 통과(BLOCKER/HIGH fix-forward).
 7. 수동 배포 후 `/readyz=200` + prod `Role.mentionable` 컬럼 검증.
+
+---
+
+## ▶ S88a 리뷰 결과 (2026-06-08 · 7차원 병렬 adversarial 리뷰 wf_9645bd82)
+
+구현 `527218e` → 7차원(correctness/contract/security/perf/ui/a11y/visual·18 에이전트) 리뷰 →
+adversarial 재검증 → **fix-forward `4ac027f`**. visual=approve. 41 findings 중 confirmed
+BLOCKER 2/HIGH 9 + MEDIUM 다수.
+
+### fix-forward 적용(`4ac027f`)
+- **F1(BLOCKER)** MentionRoleNodeSchema.roleId cuid2→`uuid|cuid2`(D2 정합·AST 검증 도입 시 역할 멘션 전면거부 방지).
+- **F2(BLOCKER)** MentionNewPayloadSchema `role?` 누락→추가 + web dispatcher inline 타입/캐시 전파 + MentionSummary `role?`.
+- **F3(HIGH·데이터무결성)** extractRoleMentions longest-match **미소비** 버그(짧은 prefix 역할 과다 fanout) → 신규 `role-mention-scanner.ts` 소비기반 단일패스를 추출/정규화가 **공유**(저장 토큰 ↔ mentions.roles 정합 보장).
+- **F4(HIGH·DoS)** 메시지당 역할 멘션 수 `MAX_ROLE_MENTIONS_PER_MSG=10` 초과 422.
+- **F5(HIGH·sec)** MENTION_ROLE_RE uuid 브랜치 RFC-4122 8-4-4-4-12 고정(garbage `<@&----…>` 거부).
+- **F6(perf)** send/edit 멘션 추출 3직렬 RTT→`Promise.all`.
+- **F7(HIGH·a11y/ui)** autocomplete `TRIGGER_KIND_LABEL.mention` '멤버'→'멤버 및 역할'(listbox aria-label·헤더·SR 공지 단일출처 3건 동시해소).
+- **F8(a11y)** mentionable 체크박스 title-only 설명 → sr-only + aria-describedby.
+- **F9(perf/correctness)** filterPrivateChannelVisibleUsers 가 tx 미사용(다른 스냅샷) → 선택적 tx 주입.
+- **F11(test)** per-role rate-limit 규칙형태 단위검증(enforce 스파이·키/window/max).
+- **F13(ui)** colorHex=null 역할 자동완성 meta-slot 정렬(placeholder dot).
+- **F12 스킵(정당)**: RolesModal bg-muted 는 S61 `4fe67aa` 유래(S88a 무관) — scope 밖.
+
+### 의도적 defer(문서화 — 후속/S88b)
+- **dispatcher isMention @role 낙관배지 누락**: 역할-only 멘션 뷰어의 라이브 배지 +1 안 됨(@here/@channel 과 비대칭). 서버 mention.received→read_state 가 권위적으로 자가치유(깜빡임만). 뷰어 보유 roleId 집합 클라 plumbing 필요 → 후속.
+- **다단어 역할명 수동 공백 입력 트리거**: `@Project ` 공백이 자동완성 트리거 종료. 단 **부분입력(@Pro)→리스트 선택(Enter)** 으로 다단어 역할 선택은 정상 동작(tokenForRow 가 `@전체이름` 삽입). 수동 전체타이핑만 불가 → isQueryChar 공백허용은 멤버 멘션 회귀위험으로 defer.
+- **편집(PATCH) @role 재알림 비대칭**: 편집으로 @everyone 추가→재알림 O, @role 추가→X(ADR D4 의도·스팸방지). S88b async 이관 시 통일 검토.
+- **총 수신자 fanout cap / rate-limit Redis 파이프라인**: 단일 大역할 동기 fanout(=기존 @everyone 과 동일 bounded·워크스페이스 크기)·enforce N직렬 RTT → **S88b BullMQ async 워커가 정위치**. 역할 **개수** cap(F4)만 동기 적용.
+- **ungrounded `<@&id>` 토큰 strip**: 클라가 raw 역할 토큰 주입 시 fanout 은 없으나(gatedRoleIds 기반) 역할 pill 렌더 가능(social-eng 경미). **기존 user `@{id}` 토큰과 동일 선례**(미수정)·봇 raw-token 회귀위험 → user+role 통합 token-grounding 하드닝 후속.
+
+### 게이트(메인루프 단독 재실행)
+- 자체검증(fix-forward): shared-types 534 · api unit 169(타깃) · web 24+51(타깃) · typecheck 0 · eslint 0 error.
+- 컨테이너 전체 `pnpm verify`(node20·단독) + prisma generate + int 2종 + 마이그레이션 = 메인루프.
