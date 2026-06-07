@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { MessageMentionsSchema } from './message';
 import { MessageEmbedDtoSchema } from './links';
+import { RichEmbedArraySchema } from './rich-embed';
 import { TYPING_MAX_VISIBLE } from './constants';
 
 /**
@@ -349,6 +350,8 @@ export const MessageCreatedPayloadSchema = z.object({
     authorType: z.enum(['USER', 'BOT', 'SYSTEM']).optional(),
     botUsername: z.string().nullable().optional(),
     botAvatarUrl: z.string().nullable().optional(),
+    // S84b (FR-RC12): 봇/웹훅 rich embed 배열(additive optional · JSON passthrough).
+    richEmbeds: RichEmbedArraySchema.optional(),
   }),
 });
 export type MessageCreatedPayload = z.infer<typeof MessageCreatedPayloadSchema>;
