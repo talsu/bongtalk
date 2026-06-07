@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
 import webpush from 'web-push';
-import type { PushNotificationPayload, PushSubscriptionRequest } from '@qufox/shared-types';
+import {
+  classifyPushDevice,
+  type PushNotificationPayload,
+  type PushSubscriptionRequest,
+} from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 
 /**
@@ -117,8 +121,17 @@ export class PushService {
    * (+1회 warn). 각 구독은 독립 전송하며, 404/410 응답은 stale endpoint 로 보고 즉시
    * 삭제(GC)한다. 그 외 오류는 비-치명 warn(전송 best-effort — 알림 전달 실패가 잡을
    * 실패시키지 않게 throw 하지 않는다). 반환: 전송 성공 구독 수(진단용).
+   *
+   * S87 (FR-MN-18): opts.desktopEnabled/mobileEnabled 를 전달하면 각 구독을 ua 로
+   * device 분류(classifyPushDevice)해 해당 device 가 enabled 인 구독에만 전송한다.
+   * opts 미전달(또는 두 값 모두 미지정)이면 기존대로 전부 전송한다(S86 무회귀). device
+   * 게이트로 걸러진 구독은 전송도 GC 도 하지 않는다(상태 변경 없음 — 다음 잡에서 재평가).
    */
-  async sendToUser(userId: string, payload: PushNotificationPayload): Promise<number> {
+  async sendToUser(
+    userId: string,
+    payload: PushNotificationPayload,
+    opts?: { desktopEnabled?: boolean; mobileEnabled?: boolean },
+  ): Promise<number> {
     if (!this.vapidConfigured) {
       if (!this.vapidWarned) {
         this.vapidWarned = true;
@@ -129,10 +142,22 @@ export class PushService {
       return 0;
     }
 
-    const subs = await this.prisma.pushSubscription.findMany({
+    const allSubs = await this.prisma.pushSubscription.findMany({
       where: { userId },
-      select: { id: true, endpoint: true, p256dh: true, auth: true },
+      // S87: ua 를 분류 입력으로 select 에 포함.
+      select: { id: true, endpoint: true, p256dh: true, auth: true, ua: true },
     });
+
+    // S87: opts 가 device 게이트를 명시하면 ua 분류로 대상 구독을 좁힌다. 둘 다 undefined
+    // 면(=opts 미전달 또는 빈 객체) 기존대로 전부 전송한다(S86 무회귀).
+    const desktopEnabled = opts?.desktopEnabled ?? true;
+    const mobileEnabled = opts?.mobileEnabled ?? true;
+    const subs =
+      desktopEnabled && mobileEnabled
+        ? allSubs
+        : allSubs.filter((s) =>
+            classifyPushDevice(s.ua) === 'mobile' ? mobileEnabled : desktopEnabled,
+          );
     if (subs.length === 0) return 0;
 
     const body = JSON.stringify(payload);

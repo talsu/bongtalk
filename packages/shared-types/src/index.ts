@@ -413,3 +413,6 @@ export * from './sidebar-section';
 
 // S86 — Web Push(VAPID) 구독 + 공개키 컨트랙트 (FR-MN-15)
 export * from './push';
+
+// S87 — push 구독 device 분류(ua → mobile/desktop) 순수 함수 (FR-MN-18)
+export * from './push-device';
