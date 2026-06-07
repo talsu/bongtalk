@@ -2,11 +2,13 @@
 
 > ## ▶ 현재 재개 지점 (2026-06-07 · 디스크 복구 후 루프 재개)
 >
-> **다음 슬라이스 = S84(D16-richcontent)**, FR-RC11/12/19 → UNDERSTAND 권고로 **S84a/b/c 분할**.
-> **S84a(FR-RC11 웹훅/봇 메시지) 진행 중 — 기초까지 완료·검증, 백엔드/렌더/테스트 남음.**
-> 상세·이어받기 체크리스트: **`docs/tasks/056-s84a-webhook-bot-messages.md` 의 §RESUME STATE**.
-> 완료·검증됨: Prisma `IncomingWebhook` 모델+Message bot 컬럼+마이그레이션 `20260621000000_s84a_incoming_webhook`(throwaway PG16 적용 확인)·shared-types `webhook.ts`(13 tests)·토큰 crypto util(6 tests).
-> 남음: webhooks service/controller·`MessagesService.createBotMessage`·DTO/WS payload bot 필드·모듈 와이어링·prisma generate·web BOT 배지·통합테스트·`pnpm verify`·수동배포.
+> **다음 슬라이스 = S84b(FR-RC12 rich embed 배열)** → 이어서 S84c(FR-RC19 링크프리뷰 전역 비활성화) → slice-backlog 다음(잔여 ~16 FR).
+> **✅ S84a(FR-RC11 인커밍 웹훅/봇 메시지) 완료·머지(미배포)** — `develop=a9b6636`, `main=0863bd0`(둘 다 push·ls-remote 검증). FR-RC11=done.
+>
+> - 구현: WebhooksService(create/list/rotate/revoke/verifyAndPost) + 관리/인커밍 2컨트롤러(@Roles ADMIN / @Public 토큰인증) + 토큰 crypto util + `MessagesService.createBotMessage` + read-path SELECT 봇필드 + shared-types webhook.ts/MessageDto(authorType/botUsername/botAvatarUrl **optional**) + web MessageItem BOT 배지/override.
+> - reviewer(adversarial) 6 fix-forward: **HIGH-1 폐기-oracle**(revoke 검사를 토큰 검증 뒤로) · MEDIUM-3 postUrl 토큰쿼리 제거 · LOW-5 삭제시 botAvatarUrl 마스킹 · LOW-6 avatar_url http(s) scheme 제한(SSRF) · LOW-7 per-IP rate-limit · NIT-8 GET 목록 ADMIN 게이트. (MEDIUM-4 authorType optional 은 의도적 유지 — 기존 MessageDto 리터럴 15+ 무회귀.)
+> - 검증: `pnpm verify`(node20 컨테이너) green(무관 flaky `VerifyEmailLanding` document.title 1건 — 단독 4/4 통과) · 실DB 통합 `webhooks-s84a.int.spec.ts` **12/12 GREEN**(토큰해시·INVALID/REVOKED·oracle차단·rotate·예약어422·cross-ws404·list멤버403·BOT authorType·lastUsedAt).
+> - **⚠️ 미배포 — 수동 배포 대기(사용자 승인 후)**: build-and-push.sh api,web → auto-deploy.sh manual(또는 prod-reload.sh) → /readyz. 마이그레이션 `20260621000000_s84a_incoming_webhook` 가 prod 미적용이라 배포 시 prisma migrate deploy 동반(deploy-hook). webhook 자동배포 컨테이너 미실행=OFF 라 main push 는 prod 무영향.
 >
 > **⚠️ 인프라 변경(디스크 복구로 인한):**
 >
