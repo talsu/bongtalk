@@ -15,6 +15,10 @@ import { UnfurlProcessor } from './unfurl.processor';
 import { ROLE_CACHE_QUEUE } from './role-cache-queue.constants';
 import { RoleCacheQueueService } from './role-cache-queue.service';
 import { RoleCacheProcessor } from './role-cache.processor';
+// S88b (D ADR B4 / FR-MN-19 · FR-MN-03): @role 멘션 async fanout 큐.
+import { MENTION_BROADCAST_QUEUE } from './mention-broadcast-queue.constants';
+import { MentionBroadcastQueueService } from './mention-broadcast-queue.service';
+import { MentionBroadcastProcessor } from './mention-broadcast.processor';
 // S70 (D13 / FR-W12): 임시 멤버 disconnect debounce 강퇴 큐.
 import { TEMP_EVICT_QUEUE } from './temp-evict-queue.constants';
 import { TempEvictQueueService } from './temp-evict-queue.service';
@@ -31,6 +35,11 @@ import { PushModule } from '../push/push.module';
 import { PUSH_SEND_QUEUE } from '../push/push-queue.constants';
 import { PushQueueService } from '../push/push-queue.service';
 import { PushProcessor } from '../push/push.processor';
+// S88b (FR-MN-03 · FR-MN-19): MentionBroadcastProcessor 가 잡 시점 VIEW_CHANNEL 재검증에
+// ChannelAccessService 를 주입한다. ChannelAccessService 의 의존(PrismaService · AuditService ·
+// REDIS)은 전부 @Global 이라 무거운 ChannelsModule 을 import 하지 않고 이 서비스만 직접
+// provider 로 등록한다(ChannelsModule ⇄ MessagesModule forwardRef 사이클 회피).
+import { ChannelAccessService } from '../channels/permission/channel-access.service';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -78,6 +87,10 @@ import { PushProcessor } from '../push/push.processor';
     BullModule.registerQueue({ name: ONBOARDING_WELCOME_QUEUE }),
     // S86 (FR-MN-15): Web Push 전송 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: PUSH_SEND_QUEUE }),
+    // S88b (FR-MN-19): @role 멘션 async fanout 큐. throughput 제한(100 jobs/s)은 worker
+    // 측 limiter(@Processor 옵션 · MentionBroadcastProcessor)에서 적용한다 — RegisterQueue
+    // Options 에는 limiter 필드가 없고, BullMQ 의 rate-limit 은 Worker 레벨 설정이다.
+    BullModule.registerQueue({ name: MENTION_BROADCAST_QUEUE }),
     RealtimeModule,
     // S86: PushProcessor 가 PushService 를 주입한다(전송 코어 · 구독 GC). PushModule 은
     // QueueModule 을 import 하지 않으므로(단방향) 순환 없음. PrismaService 는 @Global.
@@ -112,6 +125,12 @@ import { PushProcessor } from '../push/push.processor';
     // Processor 가 PushService(PushModule) + PrismaService(@Global) 를 주입한다.
     PushQueueService,
     PushProcessor,
+    // S88b (FR-MN-03 · FR-MN-19): @role 멘션 async fanout 큐 서비스(MessagesService 가 @Global
+    // 주입) + worker. Processor 가 OutboxService(@Global) + PrismaService(@Global) +
+    // ChannelAccessService(아래 직접 등록) + MetricsService(@Optional)를 주입한다.
+    ChannelAccessService,
+    MentionBroadcastQueueService,
+    MentionBroadcastProcessor,
   ],
   exports: [
     ReminderQueueService,
@@ -120,6 +139,7 @@ import { PushProcessor } from '../push/push.processor';
     TempEvictQueueService,
     OnboardingWelcomeQueueService,
     PushQueueService,
+    MentionBroadcastQueueService,
   ],
 })
 export class QueueModule {}

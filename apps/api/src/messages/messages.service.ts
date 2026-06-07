@@ -71,6 +71,7 @@ import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
 import { ReminderQueueService } from '../queue/reminder-queue.service';
 import { UnfurlQueueService } from '../queue/unfurl-queue.service';
+import { MentionBroadcastQueueService } from '../queue/mention-broadcast-queue.service';
 import { extractUnfurlUrls, type MessageEmbedDto, type RichEmbed } from '@qufox/shared-types';
 import { toMessageEmbedDto, MESSAGE_EMBED_UPDATED_EVENT } from '../links/message-embed.mapper';
 
@@ -342,6 +343,13 @@ export class MessagesService {
     @Optional()
     @Inject(forwardRef(() => ChannelAccessService))
     private readonly channelAccess?: ChannelAccessService,
+    // S88b (ADR B2 / FR-MN-19 · FR-MN-03): `@<RoleName>` 멘션을 동기 outbox 대신
+    // mention-broadcast BullMQ 잡으로 비동기 이관한다(워커가 잡 시점 멤버 expand +
+    // VIEW_CHANNEL 재검증 + MentionRecord 멱등 + outbox). QueueModule 이 @Global 이라
+    // import 없이 주입되며, @Optional 이라 미주입 단위테스트는 동기 fanout 으로 폴백한다
+    // (아래 send() 분기 참조 — 큐 미주입 시 종전 동기 경로 유지).
+    @Optional()
+    private readonly mentionBroadcast?: MentionBroadcastQueueService,
   ) {}
 
   /**
@@ -1677,16 +1685,24 @@ export class MessagesService {
           workspaceId: args.workspaceId,
           mentions,
         });
-        // S88a (FR-MN-03 / D4): `@<RoleName>` 역할 멤버 fanout. 게이트 통과 roleId 의
-        // MemberRole 멤버를 resolve 한 뒤, 비공개 채널이면 VIEW_CHANNEL 가시성으로
-        // 필터한다(공개 채널은 전원 후보). bulk 1쿼리 + 채널 가시성 in-memory 계산으로
-        // N+1 을 피한다(정밀 job-time 재검증은 S88b). 역할 멤버는 'direct' 로 분류해
-        // MENTIONS 레벨 사용자도 수신하게 한다(개인 멘션 parity).
-        const roleRecipientSet = await this.resolveRoleMentionRecipients(tx, {
-          workspaceId: args.workspaceId,
-          channelId: args.channelId,
-          gatedRoleIds: mentions.roles,
-        });
+        // S88b (ADR B2 / FR-MN-19): `@<RoleName>` 멘션 fanout 을 async 로 이관한다. 큐가
+        // 주입돼 있으면(런타임/int) 동기 경로에서 역할 멤버를 resolve 하지 않고(빈 집합) tx
+        // 커밋 후 mention-broadcast 잡 1건을 enqueue 한다 — 워커가 잡 시점 멤버 expand +
+        // VIEW_CHANNEL 재검증 + MentionRecord 멱등 + mention.received outbox 를 처리한다.
+        // 큐 미주입(단위테스트)면 S88a 동기 fanout 으로 폴백한다(아래 resolveRoleMention
+        // Recipients · 종전 동작 유지 — 동기/비동기 어느 경로든 수신자 결과는 동일하다).
+        //
+        // @user/@everyone/@here/@channel 은 이 분기와 무관하게 항상 동기 outbox 를 유지한다
+        // (B2 불변). 편집(PATCH) 경로는 S88a 부터 @role 재알림을 하지 않으므로(스팸 방지)
+        // 큐 enqueue 도 하지 않는다(불변 — 위 audit 결론).
+        const roleAsync = this.mentionBroadcast !== undefined && gatedRoleIds.length > 0;
+        const roleRecipientSet = roleAsync
+          ? new Set<string>()
+          : await this.resolveRoleMentionRecipients(tx, {
+              workspaceId: args.workspaceId,
+              channelId: args.channelId,
+              gatedRoleIds: mentions.roles,
+            });
         // task-045 iter6: mute dispatcher gate. 채널 muted user 는
         // mention.received outbox 자체를 스킵 — emit 안 하면 fanout 비용
         // 도 절약. mute 만료 OR 무기한 모두 처리. cleanup job 없음.
@@ -2071,6 +2087,24 @@ export class MessagesService {
       // DB INSERT entirely. Best-effort — a Redis failure never fails the send.
       if (args.idempotencyKey) {
         await this.writeIdemCache(args.authorId, args.idempotencyKey, row.id);
+      }
+      // S88b (ADR B2 / FR-MN-19): `@<RoleName>` 멘션 fanout 잡을 tx 커밋 후 enqueue 한다.
+      // 큐가 주입돼 있고(런타임/int) 게이트 통과 역할이 1개+ 일 때만 — 커밋 후라 메시지
+      // 저장 실패 시 잡이 남지 않는다(UnfurlQueueService.enqueue 후행 타이밍과 동일).
+      // best-effort(서비스 내부에서 흡수) — Redis 일시 실패는 메시지 전송에 영향 0 ·
+      // @role 알림만 안 갈 뿐(DB 메시지가 진실원). @user 동기 outbox 는 이미 커밋됐다.
+      if (this.mentionBroadcast && gatedRoleIds.length > 0 && args.workspaceId !== null) {
+        await this.mentionBroadcast.enqueue({
+          messageId: row.id,
+          channelId: args.channelId,
+          workspaceId: args.workspaceId,
+          actorId: args.authorId,
+          gatedRoleIds,
+          snippet: buildSnippet(args.content),
+          everyone: mentions.everyone === true,
+          here: mentions.here === true,
+          createdAt: row.createdAt.toISOString(),
+        });
       }
       return { message: row, replayed: false };
     } catch (e) {

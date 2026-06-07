@@ -176,6 +176,9 @@ export class MetricsService {
   readonly authRefreshRotationsTotal: Counter;
   // ----- Active users (task-016-C-4)
   readonly activeUsers: Gauge;
+  // ----- BullMQ workers (S88b · FR-MN-19)
+  readonly bullmqJobDurationSeconds: Histogram;
+  readonly bullmqJobsFailedTotal: Counter;
 
   constructor() {
     this.registry = new Registry();
@@ -364,6 +367,22 @@ export class MetricsService {
       name: 'qufox_active_users',
       help: 'Distinct users with a refresh-token rotation in the last N days',
       labelNames: ['window'],
+      registers: [this.registry],
+    });
+    // S88b (FR-MN-19): BullMQ 워커 잡 처리 시간(진입~종료). 큐 이름은 고정 카디널리티
+    // (모듈 상수)라 bucket allowlist 없이 직접 label 한다. mention-broadcast 가 첫 사용처이며
+    // 다른 큐도 같은 메트릭을 재사용할 수 있다(label='queue').
+    this.bullmqJobDurationSeconds = new Histogram({
+      name: 'bullmq_job_duration_seconds',
+      help: 'BullMQ worker job processing time by queue',
+      labelNames: ['queue'],
+      buckets: DEFAULT_BUCKETS,
+      registers: [this.registry],
+    });
+    this.bullmqJobsFailedTotal = new Counter({
+      name: 'bullmq_jobs_failed_total',
+      help: 'BullMQ worker jobs that exhausted all retries by queue',
+      labelNames: ['queue'],
       registers: [this.registry],
     });
   }

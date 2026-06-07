@@ -18,6 +18,7 @@ import {
   ThreadLockChangedPayloadSchema,
   ConnectionReadyPayloadSchema,
   UnreadCountIncrementPayloadSchema,
+  MentionNewPayloadSchema,
 } from './events';
 import { TYPING_MAX_VISIBLE } from './constants';
 import { extractMentionUserIds } from './mrkdwn';
@@ -568,5 +569,41 @@ describe('S69 unread_count:increment workspaceId', () => {
   it('forward-compat — workspaceId 누락도 허용한다(구 서버)', () => {
     const p = UnreadCountIncrementPayloadSchema.parse({ channelId: 'c1', delta: 1 });
     expect(p.workspaceId).toBeUndefined();
+  });
+});
+
+// S88b (FR-MN-03 / FR-MN-19): @role 멘션 async fanout. mention-broadcast 워커가 만든
+// mention.received outbox → outbox-to-ws subscriber 가 mention:new 로 변환해 emit 하는
+// payload 가 MentionNewPayloadSchema 와 정합해야 한다(role=true · 직접 @user 와 동일 형태).
+describe('S88b mention:new role payload (FR-MN-03 async fanout)', () => {
+  it('accepts a role-mention payload with role=true (역할 유래 표식)', () => {
+    const p = MentionNewPayloadSchema.parse({
+      targetUserId: 'u1',
+      workspaceId: 'w1',
+      channelId: 'c1',
+      messageId: 'm1',
+      actorId: 'a1',
+      snippet: 'hello @Designers',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      everyone: false,
+      here: false,
+      role: true,
+    });
+    expect(p.role).toBe(true);
+  });
+
+  it('forward-compat — role 누락도 허용한다(@user 동기 경로 구 payload)', () => {
+    const p = MentionNewPayloadSchema.parse({
+      targetUserId: 'u1',
+      workspaceId: 'w1',
+      channelId: 'c1',
+      messageId: 'm1',
+      actorId: 'a1',
+      snippet: 'hi',
+      createdAt: '2025-01-01T00:00:00.000Z',
+      everyone: false,
+      here: false,
+    });
+    expect(p.role).toBeUndefined();
   });
 });
