@@ -23,6 +23,14 @@ import { TempEvictProcessor } from './temp-evict.processor';
 import { ONBOARDING_WELCOME_QUEUE } from './onboarding-welcome.constants';
 import { OnboardingWelcomeQueueService } from './onboarding-welcome-queue.service';
 import { OnboardingWelcomeProcessor } from './onboarding-welcome.processor';
+// S86 (D16 / FR-MN-15): Web Push(VAPID) 전송 지연잡 큐(reminder 선례). PushProcessor 가
+// PushService(전송 코어)를 주입하므로 PushModule 을 import 한다(단방향 — PushModule 은
+// QueueModule 을 import 하지 않아 순환 없음). PushQueueService 는 @Global 로 OutboxToWs
+// Subscriber 가 import 없이 주입한다.
+import { PushModule } from '../push/push.module';
+import { PUSH_SEND_QUEUE } from '../push/push-queue.constants';
+import { PushQueueService } from '../push/push-queue.service';
+import { PushProcessor } from '../push/push.processor';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -68,7 +76,12 @@ import { OnboardingWelcomeProcessor } from './onboarding-welcome.processor';
     BullModule.registerQueue({ name: TEMP_EVICT_QUEUE }),
     // S71 (FR-W09): 워크스페이스 웰컴 발송 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: ONBOARDING_WELCOME_QUEUE }),
+    // S86 (FR-MN-15): Web Push 전송 큐. forRootAsync 연결을 재사용한다.
+    BullModule.registerQueue({ name: PUSH_SEND_QUEUE }),
     RealtimeModule,
+    // S86: PushProcessor 가 PushService 를 주입한다(전송 코어 · 구독 GC). PushModule 은
+    // QueueModule 을 import 하지 않으므로(단방향) 순환 없음. PrismaService 는 @Global.
+    PushModule,
     // S55: AttachmentGcProcessor 가 AttachmentGcService 를 주입한다. AttachmentsModule
     // 은 QueueModule 을 import 하지 않으므로(단방향) 순환 없음. ChannelsModule 은 이미
     // RealtimeModule 경유로 그래프에 있어 신규 간선이 추가하는 사이클이 없다.
@@ -95,6 +108,10 @@ import { OnboardingWelcomeProcessor } from './onboarding-welcome.processor';
     // OutboxService(@Global) + PrismaService(@Global) 만 주입해 무거운 도메인 모듈을 끌어들이지 않는다.
     OnboardingWelcomeQueueService,
     OnboardingWelcomeProcessor,
+    // S86 (FR-MN-15): Web Push 전송 큐 서비스(OutboxToWsSubscriber 가 @Global 주입) + worker.
+    // Processor 가 PushService(PushModule) + PrismaService(@Global) 를 주입한다.
+    PushQueueService,
+    PushProcessor,
   ],
   exports: [
     ReminderQueueService,
@@ -102,6 +119,7 @@ import { OnboardingWelcomeProcessor } from './onboarding-welcome.processor';
     RoleCacheQueueService,
     TempEvictQueueService,
     OnboardingWelcomeQueueService,
+    PushQueueService,
   ],
 })
 export class QueueModule {}

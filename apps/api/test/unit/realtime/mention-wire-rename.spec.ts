@@ -37,12 +37,32 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
     } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
     // S70 fix-forward (M-3): application.received ADMIN+ emit 용 PrismaService. mention
     // 경로는 prisma 를 쓰지 않으므로 빈 mock.
-    const prisma = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    // S86: enqueueMentionPush 가 actorName 보강용 user.findUnique 를 호출한다.
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ displayName: null, username: 'actor' }) },
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    // S86: 데스크톱 활성 판정(lastActivityMs) + push 잡 enqueue 스텁.
+    const presence = {
+      lastActivityMs: vi.fn().mockResolvedValue(null),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    const pushQueue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[7];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
-    return new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[8];
+    return new OutboxToWsSubscriber(
+      gateway,
+      replay,
+      seq,
+      messages,
+      badges,
+      prisma,
+      presence,
+      pushQueue,
+      metrics,
+    );
   }
 
   beforeEach(() => {
@@ -120,12 +140,30 @@ describe('OutboxToWsSubscriber.onMentionEvent — wire `mention:new` (S44 FR-MN-
       .fn()
       .mockResolvedValue({ workspaceId: 'ws-7', mentionCount: 3, unreadCount: 9 });
     const badges = { badgeFor } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[4];
-    const prisma = {} as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    const prisma = {
+      user: { findUnique: vi.fn().mockResolvedValue({ displayName: null, username: 'actor' }) },
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[5];
+    const presence = {
+      lastActivityMs: vi.fn().mockResolvedValue(null),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
+    const pushQueue = {
+      enqueue: vi.fn().mockResolvedValue(undefined),
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[7];
     const metrics = {
       wsEventsEmittedTotal,
       bucket: (_k: string, v: string) => v,
-    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[6];
-    const sub = new OutboxToWsSubscriber(gateway, replay, seq, messages, badges, prisma, metrics);
+    } as unknown as ConstructorParameters<typeof OutboxToWsSubscriber>[8];
+    const sub = new OutboxToWsSubscriber(
+      gateway,
+      replay,
+      seq,
+      messages,
+      badges,
+      prisma,
+      presence,
+      pushQueue,
+      metrics,
+    );
 
     const env = {
       id: 'evt-3',
