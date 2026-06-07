@@ -45,7 +45,10 @@ CREATE UNIQUE INDEX IF NOT EXISTS "MentionRecord_messageId_targetId_targetType_k
 CREATE INDEX IF NOT EXISTS "MentionRecord_targetId_createdAt_idx"
   ON "MentionRecord" ("targetId", "createdAt");
 
--- FK: 메시지/워크스페이스 hard-delete 시 전달 로그도 함께 정리(CASCADE).
+-- FK: 메시지/채널/워크스페이스 hard-delete 시 전달 로그도 함께 정리(CASCADE).
+-- S88b 리뷰 fix-forward (LOW note): channelId FK 부재로 채널 hard-delete 시 orphan 이
+-- 남을 여지가 있었다. 채널은 보통 soft-delete 라 영향은 작지만, 이 마이그레이션은
+-- 미배포(feature branch · 신규 테이블)라 FK 추가가 cheap 하므로 함께 넣는다(orphan 원천 제거).
 DO $$
 BEGIN
   IF NOT EXISTS (
@@ -54,6 +57,19 @@ BEGIN
     ALTER TABLE "MentionRecord"
       ADD CONSTRAINT "MentionRecord_messageId_fkey"
       FOREIGN KEY ("messageId") REFERENCES "Message"("id")
+      ON DELETE CASCADE ON UPDATE CASCADE;
+  END IF;
+END
+$$;
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'MentionRecord_channelId_fkey'
+  ) THEN
+    ALTER TABLE "MentionRecord"
+      ADD CONSTRAINT "MentionRecord_channelId_fkey"
+      FOREIGN KEY ("channelId") REFERENCES "Channel"("id")
       ON DELETE CASCADE ON UPDATE CASCADE;
   END IF;
 END

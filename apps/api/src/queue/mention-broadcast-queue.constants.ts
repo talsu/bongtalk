@@ -65,18 +65,26 @@ export interface MentionBroadcastJobData {
   channelId: string;
   /** 워크스페이스 id(역할 네임스페이스 · MentionRecord.workspaceId). @role 은 항상 non-null. */
   workspaceId: string;
-  /** 메시지 작성자 userId(self 제외 · outbox actorId). */
+  /** 메시지 작성자 userId(self 제외 · outbox actorId · block 양방향 게이트 기준). */
   actorId: string;
+  /**
+   * S88b fix-forward (F1): 답글이면 루트 메시지 id, 루트 send 면 null. 워커의 공유
+   * 게이트가 thread-OFF(ThreadSubscription.notificationLevel=OFF) 수신자를 제외하는 데
+   * 쓴다(동기 경로와 동일 게이트 — parentMessageId 없으면 thread-OFF 게이트 비적용).
+   */
+  parentMessageId: string | null;
   /** S88a send 시점 게이트(mentionable/MENTION_EVERYONE)를 통과한 역할 id 집합. */
   gatedRoleIds: string[];
   /**
-   * S88b cross-path dedup(★correctness): send 동기 경로가 직접 `@user` 로 이미 mention.received
-   * 를 1건 발송 완료한 수신자 집합(저장 mentions.users). 워커는 역할 멤버 expand 후 이 집합을
-   * 제외해, @user ∪ @role 양쪽에 걸린 수신자가 동기(@user)+async(@role) 로 2건 받지 않도록
-   * 한다(S88a union-dedup 의미 복원 · 1수신자 정확히 1건). enqueue 시점에 mentions.users 를
-   * 싣어 워커의 메시지 재조회를 피한다(이미 send tx 에서 mentions JSONB 로 저장됨).
+   * S88b fix-forward cross-path dedup(F2 / ★correctness): send 동기 경로가 실제로
+   * mention.received 를 1건 발송 완료한 **게이트-통과 전체 수신자** 집합(@user 직접
+   * 멘션 ∪ @everyone/@here/@channel broad 확장 — block/mute/DND/OFF/NotifLevel 게이트를
+   * 모두 통과한 최종 집합). 워커는 역할 멤버 expand 후 이 집합을 제외해, 동기 경로로
+   * 이미 알림받은 사용자가 @role 멤버이기도 할 때 2건(동기+async) 받지 않도록 한다
+   * (1수신자 정확히 1건). 종전(d85c747)엔 직접 @user(mentions.users)만 제외해
+   * broad∩@role 이중 알림이 누락됐다 — F2 가 전체 동기 수신자 집합으로 정정.
    */
-  mentionedUserIds: string[];
+  syncNotifiedUserIds: string[];
   /** mention.received outbox 의 snippet(작성 시점 본문 미리보기). */
   snippet: string;
   /** 본문/힌트의 @everyone 표식(outbox payload 정합). */

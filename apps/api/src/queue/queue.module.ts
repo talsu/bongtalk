@@ -40,6 +40,15 @@ import { PushProcessor } from '../push/push.processor';
 // REDIS)은 전부 @Global 이라 무거운 ChannelsModule 을 import 하지 않고 이 서비스만 직접
 // provider 로 등록한다(ChannelsModule ⇄ MessagesModule forwardRef 사이클 회피).
 import { ChannelAccessService } from '../channels/permission/channel-access.service';
+// S88b fix-forward (F1 / ★BLOCKER): MentionBroadcastProcessor 가 동기 send 경로와 동일한
+// per-recipient 게이트(block/mute/DND/thread-OFF/NotifLevel)를 재적용하도록 공유
+// MentionGateService 를 주입한다. MentionGateService 는 NotifLevelService 에 의존하고,
+// 둘 다 @Global PrismaService 외 무거운 도메인 의존이 없어(NotifLevelService 는 Prisma 만,
+// MentionGateService 는 Prisma + NotifLevelService) ChannelAccessService 와 동일하게
+// NotificationsModule 을 import 하지 않고 두 서비스만 직접 provider 로 등록한다(AuthModule
+// 경유 무거운 모듈 그래프·잠재 사이클 회피 — 기존 ChannelAccessService 직등록 선례).
+import { NotifLevelService } from '../notifications/notif-level.service';
+import { MentionGateService } from '../notifications/mention-gate.service';
 
 /**
  * S53 (D10 / FR-PS-09/10/11): BullMQ in-process 통합 모듈.
@@ -127,8 +136,11 @@ import { ChannelAccessService } from '../channels/permission/channel-access.serv
     PushProcessor,
     // S88b (FR-MN-03 · FR-MN-19): @role 멘션 async fanout 큐 서비스(MessagesService 가 @Global
     // 주입) + worker. Processor 가 OutboxService(@Global) + PrismaService(@Global) +
-    // ChannelAccessService(아래 직접 등록) + MetricsService(@Optional)를 주입한다.
+    // ChannelAccessService + MentionGateService(아래 직접 등록) + MetricsService(@Optional)를
+    // 주입한다. F1 fix-forward: 워커도 동기 경로와 동일 게이트를 거치도록 게이트 서비스 주입.
     ChannelAccessService,
+    NotifLevelService,
+    MentionGateService,
     MentionBroadcastQueueService,
     MentionBroadcastProcessor,
   ],

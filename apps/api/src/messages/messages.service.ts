@@ -66,6 +66,7 @@ import {
 import { MENTION_RECEIVED, type MentionReceivedPayload } from './events/mention-events';
 import { isDndSuppressed } from '../notifications/dnd-gate';
 import { NotifLevelService, type NotifGate } from '../notifications/notif-level.service';
+import { MentionGateService } from '../notifications/mention-gate.service';
 import type { MentionKind } from '../notifications/notif-level';
 import type { DndSchedule } from '../me/dnd-schedule.service';
 import { PresenceService } from '../realtime/presence/presence.service';
@@ -350,6 +351,12 @@ export class MessagesService {
     // (아래 send() 분기 참조 — 큐 미주입 시 종전 동기 경로 유지).
     @Optional()
     private readonly mentionBroadcast?: MentionBroadcastQueueService,
+    // S88b fix-forward (F1 / ★BLOCKER): 동기 send 경로와 @role async 워커가 공유하는
+    // per-recipient 멘션 게이트(block/mute/DND/thread-OFF/NotifLevel). NotificationsModule
+    // export(MessagesModule import). @Optional 이라 미주입 단위테스트는 종전 인라인
+    // 게이트로 폴백한다(동작 동일 — 아래 send/edit 분기 참조).
+    @Optional()
+    private readonly mentionGate?: MentionGateService,
   ) {}
 
   /**
@@ -1237,6 +1244,103 @@ export class MessagesService {
     return out;
   }
 
+  /**
+   * S88b fix-forward (F1): MentionGateService 미주입(@Optional · 단위테스트) 시 종전
+   * 인라인 게이트를 그대로 수행하는 폴백. block 은 호출부가 자동구독용으로 이미 계산한
+   * blockedSet 을 재사용한다(중복 조회 회피). mute/DND/thread-OFF/NotifLevel 을 동일
+   * 정책으로 fold 해 알림 대상 집합을 돌려준다. 런타임/int 는 mentionGate 가 주입돼
+   * 이 경로를 타지 않는다(동기/비동기 게이트 단일 출처는 MentionGateService).
+   */
+  private async inlineNotifiableFallback(
+    tx: Prisma.TransactionClient,
+    args: {
+      channelId: string;
+      workspaceId: string | null;
+      parentMessageId: string | null;
+      candidateUserIds: string[];
+      blockedSet: Set<string>;
+      kindFor: (userId: string) => MentionKind;
+      now: Date;
+    },
+  ): Promise<Set<string>> {
+    const out = new Set<string>();
+    const candidates = args.candidateUserIds;
+    if (candidates.length === 0) return out;
+    const now = args.now;
+
+    const mutedRows = await tx.userChannelMute.findMany({
+      where: {
+        channelId: args.channelId,
+        userId: { in: candidates },
+        isMuted: true,
+        OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
+      },
+      select: { userId: true },
+    });
+    const mutedSet = new Set(mutedRows.map((m) => m.userId));
+
+    const dndRows = await tx.user.findMany({
+      where: { id: { in: candidates } },
+      select: {
+        id: true,
+        presencePreference: true,
+        dndSchedule: true,
+        timezone: true,
+        settings: { select: { dndUntil: true } },
+      },
+    });
+    const dndSuppressedSet = new Set(
+      dndRows
+        .filter((r) =>
+          isDndSuppressed(
+            {
+              presencePreference: r.presencePreference,
+              dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
+              dndUntil: r.settings?.dndUntil ?? null,
+              timezone: r.timezone,
+            },
+            now,
+          ),
+        )
+        .map((r) => r.id),
+    );
+
+    const offMentionSet = new Set<string>();
+    if (args.parentMessageId) {
+      const offSubRows = await tx.threadSubscription.findMany({
+        where: {
+          threadParentId: args.parentMessageId,
+          userId: { in: candidates },
+          notificationLevel: 'OFF',
+        },
+        select: { userId: true },
+      });
+      for (const r of offSubRows) offMentionSet.add(r.userId);
+    }
+
+    const notifGate: NotifGate | null = this.notifLevel
+      ? await this.notifLevel.buildGate(
+          {
+            channelId: args.channelId,
+            workspaceId: args.workspaceId,
+            candidateUserIds: candidates,
+            now,
+          },
+          tx,
+        )
+      : null;
+
+    for (const uid of candidates) {
+      if (args.blockedSet.has(uid)) continue;
+      if (mutedSet.has(uid)) continue;
+      if (dndSuppressedSet.has(uid)) continue;
+      if (offMentionSet.has(uid)) continue;
+      if (notifGate && !notifGate.shouldNotify(uid, args.kindFor(uid))) continue;
+      out.add(uid);
+    }
+    return out;
+  }
+
   // ------------------------------------------------------------------ send
 
   /**
@@ -1520,6 +1624,13 @@ export class MessagesService {
     const { hasImage, hasFile } = flagsFromAttachmentKinds(attachmentKinds);
     const hasLink = astHasLink(processed.contentAst);
 
+    // S88b fix-forward (F2 / HIGH): 동기 경로가 실제로 mention.received 를 발송한
+    // 최종 게이트-통과 수신자 집합(@user ∪ broad). tx 안에서 채워, 커밋 후 @role
+    // 워커 enqueue 의 cross-path exclusion 으로 넘긴다(@here/@everyone/@channel 로
+    // 이미 동기 알림받은 사용자가 @role 멤버이기도 하면 이중 알림되던 회귀 차단 —
+    // 종전엔 직접 @user(mentions.users)만 제외해 broad∩@role 누락).
+    const syncNotifiedUserIds: string[] = [];
+
     try {
       const row = await this.prisma.$transaction(async (tx) => {
         // S34 (FR-TH-17): TOCTOU orphan 방어. 위 pre-tx findFirst 가 parent 를
@@ -1739,109 +1850,46 @@ export class MessagesService {
           // 작성자가 아닌 쪽이 곧 차단 관계의 상대(멘션 수신자 후보).
           blockedMentionSet.add(r.requesterId === args.authorId ? r.addresseeId : r.requesterId);
         }
-        const mutedRows =
-          dedupedMentionUserIds.length === 0
-            ? []
-            : await tx.userChannelMute.findMany({
-                where: {
-                  channelId: args.channelId,
-                  userId: { in: dedupedMentionUserIds },
-                  // S46 fix-forward (BLOCKER 3): 활성 뮤트 = isMuted && (null|미래).
-                  // level-only 비뮤트 행(isMuted=false)은 멘션을 막지 않는다.
-                  isMuted: true,
-                  OR: [{ mutedUntil: null }, { mutedUntil: { gt: now } }],
-                },
-                select: { userId: true },
-              });
-        const mutedSet = new Set(mutedRows.map((m) => m.userId));
-        // S28 (FR-P05/P06): DND 알림 차단 게이트. 수신자가 수동 DND(presencePreference
-        // = dnd) 이거나 DND 스케줄 구간이 send-time 에 활성이면 mention.received outbox
-        // 자체를 스킵한다(mute 와 동일하게 fanout 비용도 절약). 같은 tx 안에서 후보의
-        // presencePreference + dndSchedule 을 한 번에 조회해 atomic snapshot 을 보장한다.
-        const dndRows =
-          dedupedMentionUserIds.length === 0
-            ? []
-            : await tx.user.findMany({
-                where: { id: { in: dedupedMentionUserIds } },
-                // S48 (FR-MN-11/12): dndUntil(임시 snooze, UserSettings) + timezone
-                // (스케줄 로컬 변환)을 같은 snapshot 으로 함께 읽는다.
-                select: {
-                  id: true,
-                  presencePreference: true,
-                  dndSchedule: true,
-                  timezone: true,
-                  settings: { select: { dndUntil: true } },
-                },
-              });
-        const dndSuppressedSet = new Set(
-          dndRows
-            .filter((r) =>
-              isDndSuppressed(
-                {
-                  presencePreference: r.presencePreference,
-                  dndSchedule: (r.dndSchedule as DndSchedule | null) ?? null,
-                  dndUntil: r.settings?.dndUntil ?? null,
-                  timezone: r.timezone,
-                },
-                now,
-              ),
-            )
-            .map((r) => r.id),
-        );
-        // S38 fix-forward (reviewer MAJOR / FR-TH-08): notificationLevel=OFF 는
-        // "전면 제외"다 — OFF 구독자는 일반 thread.replied 뿐 아니라 @멘션 답글의
-        // mention.received 알림에서도 빠져야 한다(종전엔 mute/DND 만 게이트해 OFF
-        // 스레드도 멘션 알림을 받아 OFF==MENTIONS 로 동작하던 회귀). 답글
-        // (parentMessageId 보유)일 때만 의미가 있으므로 그 경우에만 루트의
-        // ThreadSubscription.notificationLevel=OFF 인 멘션 대상 집합을 같은 tx 에서
-        // 조회해(원자적 snapshot) 제외한다. MENTIONS 구독자는 멘션 시 수신해야
-        // 하므로 제외하지 않는다(OFF 만 차단 — thread.replied 의 MENTIONS 제외와
-        // 역할 분담). 루트 메시지(parentMessageId 없음)는 스레드 구독 컨텍스트가
-        // 없어 이 필터를 적용하지 않는다.
-        const offMentionSet = new Set<string>();
-        if (created.parentMessageId && dedupedMentionUserIds.length > 0) {
-          const offSubRows = await tx.threadSubscription.findMany({
-            where: {
-              threadParentId: created.parentMessageId,
-              userId: { in: dedupedMentionUserIds },
-              notificationLevel: 'OFF',
-            },
-            select: { userId: true },
-          });
-          for (const r of offSubRows) offMentionSet.add(r.userId);
-        }
-        // S46 (D06 / FR-MN-05/06/07/08): NotifLevel 3계층 게이트. 후보 전원의
-        // 글로벌/서버/채널 prefs 를 같은 tx 로 batch 로드해(N+1 방지) per-recipient
-        // fold 한다. NOTHING→스킵, MENTIONS→broad 스킵·direct 통과, ALL→통과.
-        // 명시적 @username(mentions.users)은 'direct', broad 확장 수신자는 'broad'.
-        // S88a (FR-MN-03 / D4): 역할 멘션 수신자도 'direct' 로 분류 → MENTIONS 레벨
-        // 사용자도 역할 멘션을 수신한다(개인 멘션 parity). @here/@everyone('broad')과 구분.
+        // S46 (D06 / FR-MN-05/06/07/08): NotifLevel kind 분류. 명시적 @username
+        // (mentions.users)은 'direct', broad 확장 수신자는 'broad'. S88a (FR-MN-03 / D4):
+        // 역할 멘션 수신자도 'direct' 로 분류 → MENTIONS 레벨 사용자도 역할 멘션을
+        // 수신한다(개인 멘션 parity). @here/@everyone('broad')과 구분.
         const directMentionSet = new Set([...mentions.users, ...roleRecipientSet]);
         const kindFor = (uid: string): MentionKind =>
           directMentionSet.has(uid) ? 'direct' : 'broad';
-        const notifGate: NotifGate | null =
-          this.notifLevel && dedupedMentionUserIds.length > 0
-            ? await this.notifLevel.buildGate(
-                {
-                  channelId: args.channelId,
-                  workspaceId: args.workspaceId,
-                  candidateUserIds: dedupedMentionUserIds,
-                  now,
-                },
-                tx,
-              )
-            : null;
+        // S88b fix-forward (F1 / ★BLOCKER): per-recipient 알림 게이트(block/mute/DND/
+        // thread-OFF/NotifLevel)를 공유 MentionGateService 로 위임한다 — @role async
+        // 워커(mention-broadcast.processor)가 같은 메서드를 호출하므로 동기/비동기 경로의
+        // 게이트가 divergence 없이 정확히 일치한다(워커가 게이트를 빠뜨려 차단/뮤트/DND/
+        // OFF/NotifLevel 사용자에게 @role 누출하던 회귀 차단 · block 누출은 보안 회귀).
+        // blockedMentionSet 은 위에서 자동구독 게이트용으로 이미 계산했고(게이트와 별
+        // 책임), 게이트 내부도 동일 양방향 BLOCKED 조회를 한다 — 후보가 작으면 무시할
+        // 비용이고 책임 분리를 우선한다.
+        //
+        // 미주입 단위테스트(@Optional)는 종전 인라인 게이트로 폴백한다(동작 동일).
+        const notifiableSet =
+          this.mentionGate && dedupedMentionUserIds.length > 0
+            ? await this.mentionGate.filterNotifiable(tx, {
+                channelId: args.channelId,
+                workspaceId: args.workspaceId,
+                authorId: args.authorId,
+                parentMessageId: created.parentMessageId,
+                candidateUserIds: dedupedMentionUserIds,
+                kindFor,
+                now,
+              })
+            : await this.inlineNotifiableFallback(tx, {
+                channelId: args.channelId,
+                workspaceId: args.workspaceId,
+                parentMessageId: created.parentMessageId,
+                candidateUserIds: dedupedMentionUserIds,
+                blockedSet: blockedMentionSet,
+                kindFor,
+                now,
+              });
         const mentionedUserIds = new Set<string>();
         for (const uid of dedupedMentionUserIds) {
-          // S75 fix-forward (security F1 / FR-PS-14): 차단 관계(양방향)인 상대는
-          // mute/DND/level 게이트보다 먼저 제외합니다. "차단 시 @멘션 불가".
-          if (blockedMentionSet.has(uid)) continue;
-          if (mutedSet.has(uid)) continue;
-          if (dndSuppressedSet.has(uid)) continue;
-          // S38 fix-forward (FR-TH-08): OFF 구독자는 멘션 알림에서도 전면 제외.
-          if (offMentionSet.has(uid)) continue;
-          // S46 (FR-MN-05/06/07/08): NotifLevel 게이트(NOTHING/MENTIONS-broad/isMuted).
-          if (notifGate && !notifGate.shouldNotify(uid, kindFor(uid))) continue;
+          if (!notifiableSet.has(uid)) continue;
           mentionedUserIds.add(uid);
           // S88a (FR-MN-03): 역할 멘션 유래 수신자 표식. 명시 @user 와 둘 다면 명시
           // 멘션이 우선이라 role=false(dedup — 1건만 emit). UI 분기용.
@@ -1866,6 +1914,11 @@ export class MessagesService {
             eventType: MENTION_RECEIVED,
             payload: mentionPayload,
           });
+          // S88b fix-forward (F2): 이 수신자는 동기 경로에서 mention.received 1건을
+          // 받았다 → @role 워커의 cross-path exclusion 으로 넘긴다(@user 직접 멘션이든
+          // broad 확장이든 무관 — 동기로 이미 알림된 전체 집합). 워커가 이 집합과
+          // 겹치는 @role 멤버를 expand 에서 제외해 1수신자 정확히 1건을 보장한다.
+          syncNotifiedUserIds.push(uid);
         }
 
         // S33 (FR-TH-16 / FR-TH-17): 답글이면 같은 $transaction 안에서 루트의
@@ -2099,10 +2152,15 @@ export class MessagesService {
           channelId: args.channelId,
           workspaceId: args.workspaceId,
           actorId: args.authorId,
+          // S88b fix-forward (F1): 답글이면 루트 id — 워커 공유 게이트의 thread-OFF
+          // 판정에 쓴다(루트 send 면 null → thread-OFF 게이트 비적용).
+          parentMessageId: row.parentMessageId,
           gatedRoleIds,
-          // S88b cross-path dedup: 직접 @user 로 동기 발송 완료한 수신자(저장 mentions.users)를
-          // 워커가 역할 expand 에서 제외하도록 함께 싣는다(@user∪@role 양쪽 걸린 수신자 1건만).
-          mentionedUserIds: mentions.users,
+          // S88b fix-forward (F2 / HIGH): 동기 경로가 실제로 mention.received 를 발송한
+          // 게이트-통과 전체 수신자(@user ∪ broad)를 넘겨, 워커가 역할 expand 에서 이
+          // 전체 집합을 제외하도록 한다(@here/@everyone/@channel 로 이미 동기 알림된
+          // 사용자가 @role 멤버이기도 하면 이중 알림되던 회귀 차단 · 1수신자 정확히 1건).
+          syncNotifiedUserIds,
           snippet: buildSnippet(args.content),
           everyone: mentions.everyone === true,
           here: mentions.here === true,

@@ -72,6 +72,17 @@ async function bootstrap(): Promise<void> {
 
   // OTEL SDK already started at the top of the file (before Nest import).
 
+  // S88b fix-forward (F3 / HIGH ops): SIGTERM/SIGINT 시 Nest 의 lifecycle 훅
+  // (onModuleDestroy / onApplicationShutdown)을 구동한다. 이게 없으면 @nestjs/bullmq 의
+  // WorkerHost.onApplicationShutdown(worker.close — in-flight 잡 drain)이 호출되지 않아,
+  // 배포 rollout(009 stack)의 컨테이너 recreate(docker stop → SIGTERM) 시점에 처리 중이던
+  // BullMQ 잡(mention-broadcast/reminder/unfurl/push/temp-evict/onboarding-welcome 전 큐
+  // 공통)이 mid-flight 로 끊긴다. mention-broadcast 는 MentionRecord 멱등(ON CONFLICT)이
+  // 있어 재처리 안전하지만, drain 으로 진행 중 잡을 우아하게 마치면 재시도 노이즈/지연이
+  // 준다. enableShutdownHooks 는 부작용이 없다 — 기존 onModuleDestroy 훅(io-adapter 등)도
+  // 정상 동작하며, 미등록 시에는 no-op 이다.
+  app.enableShutdownHooks();
+
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
   logger.info({ port }, 'qufox-api listening');

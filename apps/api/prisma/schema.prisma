@@ -1331,6 +1331,9 @@ model Channel {
   // S80 (D15 / FR-SC-06): 이 채널을 발화 컨텍스트로 가리키는 /remind 리마인더들(역참조).
   // 채널 하드삭제 시 Reminder.channelId 가 SetNull 로 끊긴다(발화는 채널 링크 없이 진행).
   reminders                Reminder[]
+  // S88b 리뷰 fix-forward(LOW): 이 채널의 @role 멘션 전달 로그(역참조). 채널 하드삭제 시
+  // MentionRecord.channelId FK CASCADE 로 함께 정리(orphan 방지).
+  mentionRecords           MentionRecord[]
 
   // S12 (FR-CH-03): channel-name uniqueness within a workspace is enforced by a
   // PARTIAL unique index `(workspaceId, name) WHERE "deletedAt" IS NULL`
@@ -1480,6 +1483,8 @@ model MentionRecord {
   createdAt   DateTime          @default(now())
 
   message   Message   @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  // S88b 리뷰 fix-forward(LOW): channelId FK CASCADE — 채널 hard-delete 시 orphan 방지.
+  channel   Channel   @relation(fields: [channelId], references: [id], onDelete: Cascade)
   workspace Workspace @relation(fields: [workspaceId], references: [id], onDelete: Cascade)
 
   // 멱등 게이트(B3·B4): 동일 (메시지, 대상, 대상유형) 조합은 정확히 1행.

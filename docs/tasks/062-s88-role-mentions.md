@@ -209,6 +209,7 @@ adversarial 재검증 → **fix-forward `4ac027f`**. visual=approve. 41 findings
 BLOCKER 2/HIGH 9 + MEDIUM 다수.
 
 ### fix-forward 적용(`4ac027f`)
+
 - **F1(BLOCKER)** MentionRoleNodeSchema.roleId cuid2→`uuid|cuid2`(D2 정합·AST 검증 도입 시 역할 멘션 전면거부 방지).
 - **F2(BLOCKER)** MentionNewPayloadSchema `role?` 누락→추가 + web dispatcher inline 타입/캐시 전파 + MentionSummary `role?`.
 - **F3(HIGH·데이터무결성)** extractRoleMentions longest-match **미소비** 버그(짧은 prefix 역할 과다 fanout) → 신규 `role-mention-scanner.ts` 소비기반 단일패스를 추출/정규화가 **공유**(저장 토큰 ↔ mentions.roles 정합 보장).
@@ -223,6 +224,7 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
 - **F12 스킵(정당)**: RolesModal bg-muted 는 S61 `4fe67aa` 유래(S88a 무관) — scope 밖.
 
 ### 의도적 defer(문서화 — 후속/S88b)
+
 - **dispatcher isMention @role 낙관배지 누락**: 역할-only 멘션 뷰어의 라이브 배지 +1 안 됨(@here/@channel 과 비대칭). 서버 mention.received→read_state 가 권위적으로 자가치유(깜빡임만). 뷰어 보유 roleId 집합 클라 plumbing 필요 → 후속.
 - **다단어 역할명 수동 공백 입력 트리거**: `@Project ` 공백이 자동완성 트리거 종료. 단 **부분입력(@Pro)→리스트 선택(Enter)** 으로 다단어 역할 선택은 정상 동작(tokenForRow 가 `@전체이름` 삽입). 수동 전체타이핑만 불가 → isQueryChar 공백허용은 멤버 멘션 회귀위험으로 defer.
 - **편집(PATCH) @role 재알림 비대칭**: 편집으로 @everyone 추가→재알림 O, @role 추가→X(ADR D4 의도·스팸방지). S88b async 이관 시 통일 검토.
@@ -230,10 +232,12 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
 - **ungrounded `<@&id>` 토큰 strip**: 클라가 raw 역할 토큰 주입 시 fanout 은 없으나(gatedRoleIds 기반) 역할 pill 렌더 가능(social-eng 경미). **기존 user `@{id}` 토큰과 동일 선례**(미수정)·봇 raw-token 회귀위험 → user+role 통합 token-grounding 하드닝 후속.
 
 ### 게이트(메인루프 단독 재실행)
+
 - 자체검증(fix-forward): shared-types 534 · api unit 169(타깃) · web 24+51(타깃) · typecheck 0 · eslint 0 error.
 - 컨테이너 전체 `pnpm verify`(node20·단독) + prisma generate + int 2종 + 마이그레이션 = 메인루프.
 
 ### ✅ S88a 종료 (2026-06-08 LIVE)
+
 `main=develop=76260d5`. migration `20260627` prod 적용·`/readyz=200`·smoke OK. FR-MN-03=partial.
 
 ---
@@ -243,6 +247,7 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
 > S88b = MentionRecord + mention-broadcast BullMQ 워커로 **@role fanout 을 async 이관**(FR-MN-19 + FR-MN-03 잔여). BullMQ 인프라는 reminder/unfurl/push 패턴 확립됨(`apps/api/src/queue/*`). 마이그레이션 다음 = `20260628000000_…`.
 
 ### B1 — 워커 = expand → 재검증 → MentionRecord(멱등) → **기존 outbox 재사용** (★이중경로 회피)
+
 - mention-broadcast 워커 `process(job)`: ① job 의 gatedRoleIds 를 **job 시점** MemberRole 로 expand →
   userId 집합. ② 각 userId **VIEW_CHANNEL 재검증**(`channelAccess.hasPermission(READ)`·job 별도 컨텍스트라
   this.prisma). 비가시자는 **skip**(MentionRecord/알림 미생성 — S88a 동작 일치·마스킹 불요). ③ 워커 자체 prisma
@@ -259,6 +264,7 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
   재사용 — 동일 사용자 경험·이중발송 0). 향후 push 억제 정밀화는 후속.
 
 ### B2 — 라우팅: @role 만 async, 나머지 동기 유지
+
 - `messages.service`: @role recipient 를 동기 outbox 로 쓰지 말고 **mention-broadcast job 1건 enqueue**
   (gatedRoleIds + messageId + channelId + workspaceId + actorId + snippet + everyone/here). @user/@everyone/
   @here/@channel 은 **S88a 동기 outbox 유지**(불변). **모든 멘션 emission 사이트 audit**(send·PATCH 편집·
@@ -268,30 +274,64 @@ BLOCKER 2/HIGH 9 + MEDIUM 다수.
   deviation 문서화.
 
 ### B3 — MentionRecord 모델(additive)
+
 - `model MentionRecord { id · messageId · targetId(Uuid) · targetType(enum USER) · channelId · workspaceId ·
-  createdAt · @@unique([messageId, targetId, targetType]) · @@index([targetId, createdAt]) }`. targetType 은
+createdAt · @@unique([messageId, targetId, targetType]) · @@index([targetId, createdAt]) }`. targetType 은
   enum(USER 우선·ROLE 는 미사용/예약). @role 은 워커가 멤버로 expand → targetType=USER·targetId=userId 로 기록
   (@user 와 동형·dedup 일관). FK CASCADE(message/workspace 삭제 시).
 - **기존 /me/mentions·/me/activity inbox-read 경로 불변**(Message.mentions JSONB + UserChannelReadState).
   MentionRecord 는 **전달로그+멱등 전용**(읽기 경로 전환은 후속·backfill 불요·신규만 기록).
 
 ### B4 — 큐/워커/메트릭/실패
+
 - `queue/mention-broadcast-queue.constants.ts`(QUEUE='mention-broadcast'·JOB='broadcast-mention'·OPTS
   {attempts:3, backoff:{exponential,2000}, removeOnComplete:1000, removeOnFail:1000}·CONCURRENCY=10·
   `mentionBroadcastJobId(messageId)`) + `mention-broadcast-queue.service.ts`(facade enqueue·best-effort) +
   `mention-broadcast.processor.ts`(@Processor(QUEUE,{concurrency:10}) WorkerHost). queue.module 에 registerQueue
-  + providers + exports(service). BullMQ rate-limit `{max:100, duration:1000}`(100 jobs/s·forRoot 또는 worker opts).
+  - providers + exports(service). BullMQ rate-limit `{max:100, duration:1000}`(100 jobs/s·forRoot 또는 worker opts).
 - **prom 메트릭**: `bullmq_job_duration_seconds{queue}` Histogram(process 진입~종료). metrics.service 에 추가.
 - **최종 실패(attempts 소진)**: ERROR 로그 + 해당 메시지 작성자(또는 영향 사용자) Inbox 실패 알림(간단 outbox/activity).
 - **rate-limit 재적용 금지**(S88a send 시점 enforce 됨). 워커는 BullMQ throughput throttle 만.
 
 ### B5 — 검증/배포 (S88a 동일·[[reference_container_verify_concurrency]])
+
 - int 신규 `messages.role-mentions-async-s88b.int.spec.ts`: enqueue→워커 처리→MentionRecord 1행(공개)·
   VIEW_CHANNEL 비가시 skip·**멱등(잡 2회=1행)**·재시작 pending 재처리·최종실패 Inbox. **테스트 헬퍼는 S88a 버그
   교훈**(createRole position 명시·beforeEach 는 시스템 MemberRole 보존). 워커를 int 에서 구동하려면 실 Redis(testcontainer)
-  + 워커 drain 대기 패턴 필요.
+  - 워커 drain 대기 패턴 필요.
 - verify 단독·int `--network host`+sock+override+ryuk off. 머지 develop→main(ls-remote)·**수동배포 승인 후**.
 
 ### Acceptance (S88b)
+
 FR-MN-19=done·FR-MN-03 partial→done(async 이관 완료 시) · verify green + int(멱등·재검증·재처리) + reviewer 통과 +
 수동배포 LIVE(`/readyz=200`·prod MentionRecord 테이블).
+
+### B6 — S88b 7차원 adversarial 리뷰 fix-forward (HEAD d85c747 이후)
+
+- **F1 [★BLOCKER · correctness/security]** 워커가 per-recipient 게이트(block/mute/DND/thread-OFF/NotifLevel)를
+  빠뜨려, 차단/뮤트/DND/OFF/NotifLevel=NOTHING|MENTIONS 사용자에게 @role 토스트+배지가 누출됐다(block 누출은
+  보안 회귀). **수정**: 동기 send 경로의 5게이트 fold 를 `notifications/mention-gate.service.ts`
+  (`MentionGateService.filterNotifiable(tx, …)`)로 추출 → **동기 경로(messages.service)와 워커(processor) 둘 다
+  동일 공유 게이트 호출**(divergence 원천 제거). 워커는 VIEW_CHANNEL 가시성 필터 후·MentionRecord/outbox 전에 tx
+  안에서 게이트 적용. @role 은 'direct' 분류(개인 멘션 parity).
+- **F2 [HIGH · correctness]** cross-path dedup 이 직접 @user(mentions.users)만 제외해 broad(@everyone/@here/
+  @channel)∩@role 이중 알림 누락. **수정**: enqueue 가 동기로 알림 발송된 **게이트-통과 전체 수신자**
+  (`syncNotifiedUserIds` = @user ∪ broad)를 job payload 로 전달 → 워커가 그 전체를 exclusion 으로 사용. 잡 필드명
+  `mentionedUserIds`→`syncNotifiedUserIds` 로 정정.
+- **F3 [HIGH · ops]** `apps/api/src/main.ts` 에 `app.enableShutdownHooks()` 추가(app.listen 전). SIGTERM 시
+  @nestjs/bullmq WorkerHost 의 onApplicationShutdown(worker.close drain)이 구동돼 배포 rollout 컨테이너 recreate 시
+  in-flight 잡이 우아하게 마무리된다(전 큐 공통 — reminder/unfurl/push/temp-evict/onboarding-welcome 도 수혜).
+- **F4 [MEDIUM · perf+correctness]** 워커 VIEW_CHANNEL 재검증의 per-user `hasPermission` 루프가 공개채널 N+1 +
+  강퇴 후 MemberRole 잔존 사용자에 `WORKSPACE_NOT_MEMBER` throw(잡 전체 실패). **수정**:
+  `ChannelAccessService.filterChannelVisibleUsers`(신규 — 공개=1쿼리 short-circuit·비공개=
+  filterPrivateChannelVisibleUsers 재사용·비멤버 자연 제외·throw 없음)로 교체.
+- **F5 [MEDIUM · correctness]** outbox emit 이 사전조회 newIds 기반이라 동시 재처리 시 같은 uid 에 outbox 2건.
+  **수정**: `INSERT … ON CONFLICT(messageId,targetId,targetType) DO NOTHING RETURNING "targetId"` 로 **실제 삽입분만**
+  받아 그 set 에만 outbox.record(exactly-once outbox 실보장).
+- **F6 [MEDIUM · doc] commit↔enqueue 크래시 윈도우 — accepted loss.** tx 커밋 후 enqueue 전 프로세스 크래시 시
+  @role 알림이 영구 유실될 수 있다(@user/broad 는 tx 내 outbox 라 복구 가능). 이는 **기존 push/unfurl 의 post-commit
+  enqueue 와 동일 선례**이며, 메시지 자체(DB)는 진실원으로 보존되므로 알림 누락만 발생한다. enqueue 실패는
+  `MentionBroadcastQueueService.enqueue` 가 `logger.warn` 으로 loud 하게 남긴다(throw 하지 않아 전송 무영향). 완전
+  transactional-outbox 이관(@role 도 tx 내 마커 → relay 가 enqueue)은 후속 과제로 둔다.
+- **(LOW)** `MentionRecord.channelId` FK 부재(채널 hard-delete orphan) → 미배포 마이그레이션(신규 테이블)이라 cheap
+  하므로 `MentionRecord_channelId_fkey`(CASCADE) 를 같은 마이그레이션/스키마에 추가(orphan 원천 제거).
