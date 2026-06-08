@@ -39,6 +39,11 @@ export class DomainExceptionFilter implements ExceptionFilter {
             // S73 (D14 / FR-PS-03): 핸들 쿨다운 거부 시 다음 변경 가능 시각(ISO)을
             // 클라이언트에 전달해 "다음 변경 가능일 D-N" 안내를 즉시 갱신하게 한다.
             nextAllowedAt?: string;
+            // S94 (067 / FR-MSG-14): BULK_MENTION_CONFIRM_REQUIRED 시 클라이언트가 확인
+            // dialog 카피("@channel 이 N명에게 알림…")에 쓸 멘션 종류/대상 수/임계값.
+            mention?: string;
+            count?: number;
+            threshold?: number;
           }
         | undefined;
       if (d && typeof d.retryAfterSec === 'number') {
@@ -57,6 +62,16 @@ export class DomainExceptionFilter implements ExceptionFilter {
       // S73 (D14 / FR-PS-03): HANDLE_COOLDOWN_ACTIVE 의 nextAllowedAt 전달.
       if (d && typeof d.nextAllowedAt === 'string') {
         details = { ...(details as object | undefined), nextAllowedAt: d.nextAllowedAt };
+      }
+      // S94 (067 / FR-MSG-14): BULK_MENTION_CONFIRM_REQUIRED 의 mention/count/threshold
+      // 를 body.details 로 실어 클라이언트가 확인 dialog 카피를 정확히 구성하게 한다.
+      if (code === ErrorCode.BULK_MENTION_CONFIRM_REQUIRED && d && typeof d.mention === 'string') {
+        details = {
+          ...(details as object | undefined),
+          mention: d.mention,
+          count: d.count,
+          threshold: d.threshold,
+        };
       }
     } else if (exception instanceof HttpException) {
       status = exception.getStatus();

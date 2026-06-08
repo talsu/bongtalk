@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { QueryClient } from '@tanstack/react-query';
 import { useNotifications } from '../../stores/notification-store';
-import { buildSendFailureToastBody } from './useMessages';
+import { buildSendFailureToastBody, isBulkMentionConfirmRequired } from './useMessages';
 
 /**
  * task-041 B-2 (review M2 follow): mutation-driven test for the
@@ -74,6 +74,63 @@ describe('useSendMessage onError → toast push (task-041 B-2)', () => {
     expect(items[0].title).toBe('메시지 전송 실패');
     expect(items[0].body).toContain('500');
     expect(items[0].body).toContain('INTERNAL');
+  });
+
+  // S94 (067 / FR-MSG-14): 서버 대규모 범위 멘션 확인 요구(409)면 onError 가 일반 실패
+  // 토스트 대신 위임 콜백을 호출한다(서버 안전망). 분기 판정 + onError wiring 을 검증한다.
+  it('isBulkMentionConfirmRequired detects only the 409 BULK_MENTION_CONFIRM_REQUIRED code', () => {
+    expect(isBulkMentionConfirmRequired({ errorCode: 'BULK_MENTION_CONFIRM_REQUIRED' })).toBe(true);
+    expect(isBulkMentionConfirmRequired({ errorCode: 'INTERNAL' })).toBe(false);
+    expect(isBulkMentionConfirmRequired({ status: 500 })).toBe(false);
+    expect(isBulkMentionConfirmRequired(new Error('x'))).toBe(false);
+    expect(isBulkMentionConfirmRequired(undefined)).toBe(false);
+  });
+
+  it('onError delegates to the confirm callback (no toast) on BULK_MENTION_CONFIRM_REQUIRED', async () => {
+    const qc = new QueryClient({
+      defaultOptions: { mutations: { retry: false }, queries: { retry: false } },
+    });
+    const onBulkMentionConfirmRequired = vi.fn();
+    const mutationFn = vi.fn(async () => {
+      throw Object.assign(new Error('confirm'), {
+        status: 409,
+        errorCode: 'BULK_MENTION_CONFIRM_REQUIRED',
+        details: { mention: 'everyone', count: 6, threshold: 6 },
+      });
+    });
+    // useSendMessage.onError 와 동일한 분기 로직을 재현한다(콜백 우선 → 토스트 생략).
+    const mutation = qc.getMutationCache().build(qc, {
+      mutationFn,
+      onError: (err, vars: { content: string; attachmentIds?: string[] }) => {
+        if (isBulkMentionConfirmRequired(err) && onBulkMentionConfirmRequired) {
+          const mention = (err as { details?: { mention?: string } }).details?.mention;
+          onBulkMentionConfirmRequired({
+            content: vars.content,
+            attachmentIds: vars.attachmentIds,
+            mention,
+          });
+          return;
+        }
+        useNotifications.getState().push({
+          variant: 'danger',
+          ...buildSendFailureToastBody(err),
+          ttlMs: 5000,
+        });
+      },
+    });
+    try {
+      await mutation.execute({ content: 'big @everyone' });
+    } catch {
+      /* expected */
+    }
+    expect(onBulkMentionConfirmRequired).toHaveBeenCalledTimes(1);
+    expect(onBulkMentionConfirmRequired).toHaveBeenCalledWith({
+      content: 'big @everyone',
+      attachmentIds: undefined,
+      mention: 'everyone',
+    });
+    // 일반 실패 토스트는 띄우지 않는다(확인 dialog 로 위임).
+    expect(useNotifications.getState().items).toHaveLength(0);
   });
 
   it('does not retain stale toast across two failed mutations (each fires its own)', async () => {

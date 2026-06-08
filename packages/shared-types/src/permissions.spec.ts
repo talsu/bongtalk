@@ -30,6 +30,8 @@ describe('permissions bit table (ADR-4)', () => {
     expect(PERMISSIONS.CREATE_INVITES).toBe(0x0400n);
     expect(PERMISSIONS.USE_EXTERNAL_EMOJI).toBe(0x0800n);
     expect(PERMISSIONS.BYPASS_SLOWMODE).toBe(0x1000n);
+    // S94 (067 / FR-MSG-14): @channel/@here 범위 멘션 비트(0x2000).
+    expect(PERMISSIONS.MENTION_CHANNEL).toBe(0x2000n);
     expect(PERMISSIONS.ADMINISTRATOR).toBe(0x8000000000000000n);
   });
 
@@ -39,11 +41,15 @@ describe('permissions bit table (ADR-4)', () => {
 
   // S63 (FR-RM05·06·07): KICK_MEMBERS(0x4000)·BAN_MEMBERS(0x8000)·
   // TIMEOUT_MEMBERS(0x10000) 3개 워크스페이스 레벨 모더레이션 비트가 합류했다.
-  // 채널 overwrite 대상이 아니므로 CHANNEL_OVERWRITE_FLAGS 는 여전히 13개다.
-  it('defines exactly 17 flags (13 overwrite + 3 moderation + ADMINISTRATOR)', () => {
-    expect(Object.keys(PERMISSIONS)).toHaveLength(17);
-    expect(CHANNEL_OVERWRITE_FLAGS).toHaveLength(13);
+  // 채널 overwrite 대상이 아니므로 CHANNEL_OVERWRITE_FLAGS 에 포함하지 않는다.
+  // S94 (067 / FR-MSG-14): MENTION_CHANNEL(0x2000) 채널 overwrite 비트 1개 추가로
+  // overwrite 13→14개, 전체 17→18개가 됐다.
+  it('defines exactly 18 flags (14 overwrite + 3 moderation + ADMINISTRATOR)', () => {
+    expect(Object.keys(PERMISSIONS)).toHaveLength(18);
+    expect(CHANNEL_OVERWRITE_FLAGS).toHaveLength(14);
     expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('ADMINISTRATOR');
+    // S94: MENTION_CHANNEL 은 채널 overwrite 대상이다(역할/멤버별 박탈 가능).
+    expect(CHANNEL_OVERWRITE_FLAGS).toContain('MENTION_CHANNEL');
     // S63: 모더레이션 비트는 채널 overwrite 대상이 아니다(워크스페이스 레벨 권한).
     expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('KICK_MEMBERS');
     expect(CHANNEL_OVERWRITE_FLAGS).not.toContain('BAN_MEMBERS');
@@ -57,9 +63,9 @@ describe('permissions bit table (ADR-4)', () => {
     expect(PERMISSIONS.TIMEOUT_MEMBERS).toBe(1n << 16n);
   });
 
-  it('all 13 overwrite bits are distinct and below bit 63', () => {
+  it('all 14 overwrite bits are distinct and below bit 63', () => {
     const bits = CHANNEL_OVERWRITE_FLAGS.map((f) => PERMISSIONS[f]);
-    expect(new Set(bits).size).toBe(13);
+    expect(new Set(bits).size).toBe(14);
     for (const b of bits) {
       expect(b < PERMISSIONS.ADMINISTRATOR).toBe(true);
     }
@@ -157,8 +163,9 @@ describe('BigInt <-> string serialization (ADR-11)', () => {
 
   it('rejects leading-zero and out-of-range bitmasks', () => {
     expect(() => deserializePermissions('01')).toThrow(RangeError);
-    // ALL_PERMISSIONS + 1 비트(정의되지 않은 비트 13) → 범위 밖
-    const undefinedBit = (1n << 13n).toString();
+    // S94 (067): 비트 13 은 이제 MENTION_CHANNEL 로 정의됐다. 미정의 비트는 17
+    // (14~16 은 S63 모더레이션 비트)을 쓴다 → 여전히 ALL_PERMISSIONS 범위 밖.
+    const undefinedBit = (1n << 17n).toString();
     expect(() => deserializePermissions(undefinedBit)).toThrow(RangeError);
   });
 

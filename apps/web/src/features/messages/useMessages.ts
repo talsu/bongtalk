@@ -114,6 +114,16 @@ export function buildSendFailureToastBody(err: unknown): { title: string; body: 
 }
 
 /**
+ * S94 (067 / FR-MSG-14): 버블된 API 에러가 서버의 대규모 범위 멘션 확인 요구
+ * (BULK_MENTION_CONFIRM_REQUIRED · 409)인지 판정한다. 이 경우 send onError 는 일반
+ * 실패 토스트 대신 확인 dialog 위임 콜백을 호출한다(서버 안전망). 순수 함수라
+ * onError 분기 회귀를 React 렌더 없이 단위 검증할 수 있다.
+ */
+export function isBulkMentionConfirmRequired(err: unknown): boolean {
+  return (err as { errorCode?: string } | undefined)?.errorCode === 'BULK_MENTION_CONFIRM_REQUIRED';
+}
+
+/**
  * S09 (FR-RT-22): 메시지 목록 페이지의 fetch 쿼리 인자 결정 — 단일 출처.
  *
  * LRU 로 evict 됐던 채널을 재진입하는 **초기 로드**(pageParam undefined)면,
@@ -175,7 +185,25 @@ export function useMessageHistory(
   });
 }
 
-export function useSendMessage(wsId: string | null, channelId: string) {
+export function useSendMessage(
+  wsId: string | null,
+  channelId: string,
+  // S94 (067 / FR-MSG-14): 서버가 BULK_MENTION_CONFIRM_REQUIRED(409)를 던지면 일반
+  // 실패 토스트 대신 이 콜백으로 컴포저에 위임한다 — 컴포저가 확인 dialog 를 띄우고
+  // 확인 시 bulkMentionConfirmed=true 로 재전송한다(서버 안전망). 미지정이면 일반
+  // 실패 처리로 폴백한다(콜백 없는 기존 호출부 호환).
+  //
+  // S94 fix-forward (067 · MED-1): 위임 시 원래 전송의 `clientNonce` 를 함께 넘긴다.
+  // 컴포저가 확인 후 send(…, true, clientNonce) 로 **같은 nonce** 재전송하면, onMutate 가
+  // 기존 낙관행을 markOptimisticPending 으로 되살려(중복 행 미생성) failed 버블 잔류를
+  // 없앤다. 종전엔 재전송이 새 nonce 로 새 낙관행을 만들어 원래 failed 행이 영구 잔류했다.
+  onBulkMentionConfirmRequired?: (info: {
+    content: string;
+    attachmentIds?: string[];
+    mention?: string;
+    clientNonce: string;
+  }) => void,
+) {
   const qc = useQueryClient();
   const { user } = useAuth();
 
@@ -212,6 +240,9 @@ export function useSendMessage(wsId: string | null, channelId: string) {
       content: string;
       clientNonce: string;
       attachmentIds?: string[];
+      // S94 (067 / FR-MSG-14): 대규모 범위 멘션 확인 토큰. 클라 선제 confirm 을
+      // 거쳤거나 서버 409(BULK_MENTION_CONFIRM_REQUIRED) 후 재전송 시 true 로 보낸다.
+      bulkMentionConfirmed?: boolean;
     }) => {
       const optimisticId = optimisticIdFor(args.clientNonce);
       // S09 (FR-RT-05): 전송 시작과 동시에 타임아웃 타이머 + AbortController 를
@@ -241,6 +272,8 @@ export function useSendMessage(wsId: string | null, channelId: string) {
           ...(args.attachmentIds && args.attachmentIds.length > 0
             ? { attachmentIds: args.attachmentIds }
             : {}),
+          // S94 (067 / FR-MSG-14): 확인 토큰. true 일 때만 동봉(미동봉=undefined 보수).
+          ...(args.bulkMentionConfirmed ? { bulkMentionConfirmed: true } : {}),
         },
         // clientNonce → POST body nonce + Idempotency-Key header.
         args.clientNonce,
@@ -317,9 +350,29 @@ export function useSendMessage(wsId: string | null, channelId: string) {
       return { optimisticId };
     },
     onError: (err, vars, ctx) => {
+      const optimisticId = ctx?.optimisticId ?? optimisticIdFor(vars.clientNonce);
+      // S94 fix-forward (067 / FR-MSG-14 · MED-1): 서버 대규모 범위 멘션 확인 요구(409)면
+      // 일반 실패 토스트 대신 컴포저에 위임한다(확인 dialog → bulkMentionConfirmed=true
+      // 재전송). 이 경우 낙관행을 **failed 로 표시하지 않고**(early return·markOptimisticFailed
+      // 미적용) pending 상태로 유지한다. 컴포저가 확인 후 **같은 clientNonce** 로 재전송하면
+      // onMutate 가 이 행을 markOptimisticPending 으로 되살려(중복 행 미생성) 그대로 이어간다.
+      // 종전엔 여기서 failed 로 표시한 뒤 재전송이 새 nonce 로 새 행을 만들어, 원래 failed
+      // 버블이 딜리버된 메시지 옆에 영구 잔류했다(고아 "다시 시도" 버블). 서버 중복은 없다
+      // (409 가 INSERT 전이라 idempotencyKey 미소비). 콜백이 없으면(기존 호출부) 아래 일반
+      // 실패 처리로 내려가 failed 표시 + 토스트를 수행한다.
+      if (isBulkMentionConfirmRequired(err) && onBulkMentionConfirmRequired) {
+        const mention = (err as { details?: { mention?: string } } | undefined)?.details?.mention;
+        onBulkMentionConfirmRequired({
+          content: vars.content,
+          attachmentIds: vars.attachmentIds,
+          mention,
+          // MED-1: 원래 nonce 를 위임해 재전송이 같은 낙관행을 재사용하게 한다.
+          clientNonce: vars.clientNonce,
+        });
+        return;
+      }
       // FR-MSG-05: do NOT roll the row out — mark it failed so the bubble keeps
       // showing the content + a "다시 시도" button (same clientNonce on retry).
-      const optimisticId = ctx?.optimisticId ?? optimisticIdFor(vars.clientNonce);
       qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) =>
         markOptimisticFailed(old, optimisticId),
       );
@@ -351,11 +404,19 @@ export function useSendMessage(wsId: string | null, channelId: string) {
   });
 
   const send = useCallback(
-    (content: string, attachmentIds?: string[]) => {
+    (
+      content: string,
+      attachmentIds?: string[],
+      bulkMentionConfirmed?: boolean,
+      // S94 fix-forward (067 · MED-1): 대규모 멘션 확인 dialog 후 재전송 경로가 **원래**
+      // clientNonce 를 넘기면(같은 Idempotency-Key·같은 낙관행) onMutate 가 기존 행을
+      // 되살려 failed 버블 잔류를 막는다. 미지정(일반 첫 전송)이면 새 UUID 를 발급한다.
+      reuseClientNonce?: string,
+    ) => {
       // FR-MSG-04: ONE UUID v4 — used as the optimistic id seed, POST body
-      // nonce, and Idempotency-Key header.
-      const clientNonce = crypto.randomUUID();
-      mutation.mutate({ content, clientNonce, attachmentIds });
+      // nonce, and Idempotency-Key header. (재전송이면 원래 nonce 를 재사용한다.)
+      const clientNonce = reuseClientNonce ?? crypto.randomUUID();
+      mutation.mutate({ content, clientNonce, attachmentIds, bulkMentionConfirmed });
     },
     [mutation],
   );
@@ -396,20 +457,56 @@ export function useSendMessage(wsId: string | null, channelId: string) {
  * 하고 "다른 곳에서 수정되었습니다" 안내 토스트를 띄웁니다. MessageItem 의
  * onEditSave 가 reject 를 받으므로 편집창은 닫히지 않고 유지됩니다.
  */
-export function useUpdateMessage(wsId: string | null, channelId: string) {
+export function useUpdateMessage(
+  wsId: string | null,
+  channelId: string,
+  // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집(PATCH)으로 새로 추가한 대규모 범위
+  // 멘션이 임계값을 넘어 서버가 BULK_MENTION_CONFIRM_REQUIRED(409)를 던지면, send 와 동일하게
+  // 이 콜백으로 위임한다 — 호출부가 확인 dialog 를 띄우고 확인 시 bulkMentionConfirmed=true
+  // 로 같은 편집을 재시도한다. 미지정이면 일반 실패 토스트로 폴백한다(기존 호출부 호환).
+  onBulkMentionConfirmRequired?: (info: {
+    msgId: string;
+    content: string;
+    expectedVersion: number;
+    mention?: string;
+  }) => void,
+) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: ({
       msgId,
       content,
       expectedVersion,
+      bulkMentionConfirmed,
     }: {
       msgId: string;
       content: string;
       expectedVersion: number;
-    }) => updateMessage(wsId, channelId, msgId, { content, expectedVersion }),
+      // S94 fix-forward (067 · HIGH-1): 편집 확인 토큰. 409 후 확인 dialog 를 거쳐 true 로
+      // 재편집 시 동봉한다. true 일 때만 보낸다(미동봉=undefined 보수).
+      bulkMentionConfirmed?: boolean;
+    }) =>
+      updateMessage(wsId, channelId, msgId, {
+        content,
+        expectedVersion,
+        ...(bulkMentionConfirmed ? { bulkMentionConfirmed: true } : {}),
+      }),
     onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) }),
-    onError: (err) => {
+    onError: (err, vars) => {
+      // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 새로 추가한 대규모 범위 멘션
+      // 확인 요구(409)면 일반 실패 토스트 대신 위임한다(확인 dialog → bulkMentionConfirmed=true
+      // 재편집). 콜백이 없으면 아래 일반 처리로 내려간다. 편집 conflict(version)와는 별개
+      // 코드이므로 applyEditConflict 보다 먼저 가른다.
+      if (isBulkMentionConfirmRequired(err) && onBulkMentionConfirmRequired) {
+        const mention = (err as { details?: { mention?: string } } | undefined)?.details?.mention;
+        onBulkMentionConfirmRequired({
+          msgId: vars.msgId,
+          content: vars.content,
+          expectedVersion: vars.expectedVersion,
+          mention,
+        });
+        return;
+      }
       // S05 (FR-MSG-06): 낙관적 잠금 충돌이면 공유 함수가 캐시 롤백 + 토스트를
       // 처리하고 true 를 반환한다 — 그 외 에러만 아래 일반 처리로 내려간다.
       if (applyEditConflict(qc, wsId, channelId, err)) return;

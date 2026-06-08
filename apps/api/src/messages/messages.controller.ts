@@ -459,16 +459,18 @@ export class MessagesController {
       parsed.data.mentions?.everyone === true ||
       parsed.data.mentions?.here === true ||
       parsed.data.mentions?.channel === true;
-    const hasMentionEveryone =
+    // S94 (067 / FR-MSG-14): @everyone(MENTION_EVERYONE)과 @here/@channel(MENTION_CHANNEL)
+    // 권한을 한 번의 override fold 로 동시 산정한다(resolveMentionScopes — 두 비트, 1쿼리).
+    const mentionScopes =
       channel && wantsBroadMention
-        ? await this.channelAccess.resolveMentionEveryone(
+        ? await this.channelAccess.resolveMentionScopes(
             { id: channel.id, workspaceId: channel.workspaceId },
             user.id,
             m.role,
             // perf B-1: 위에서 로드한 멤버 Role UUID 재사용(memberRole.findMany 생략).
             memberRoleUuids,
           )
-        : false;
+        : { hasMentionEveryone: false, hasMentionChannel: false };
     const idempotencyKey = validateIdempotencyKey(idempotencyHeader);
     const { message, replayed } = await this.messages.send({
       workspaceId: m.workspaceId,
@@ -482,7 +484,12 @@ export class MessagesController {
       parentMessageId: parsed.data.parentMessageId ?? null,
       attachmentIds: parsed.data.attachmentIds,
       // S44 (FR-MN-02/16): override-aware MENTION_EVERYONE 권한(불리언) 게이트.
-      hasMentionEveryone,
+      hasMentionEveryone: mentionScopes.hasMentionEveryone,
+      // S94 (067 / FR-MSG-14): override-aware MENTION_CHANNEL(@here/@channel) 권한 게이트.
+      hasMentionChannel: mentionScopes.hasMentionChannel,
+      // S94 (067 / FR-MSG-14): 대규모 범위 멘션 전송 확인 토큰. 서버 임계값 enforce 가
+      // 게이트 통과 후·INSERT 전에 검사해, 미동봉 시 409(BULK_MENTION_CONFIRM_REQUIRED).
+      bulkMentionConfirmed: parsed.data.bulkMentionConfirmed === true,
       // S20 (MAJOR/perf): ChannelAccessGuard 가 로드한 channel.type 을 넘겨 send 의
       // DM hidden-restore 게이트가 채널을 다시 SELECT 하지 않게 한다. channel 이
       // undefined 면 send 가 workspaceId 폴백으로 판정한다(여기는 워크스페이스 경로).
@@ -548,14 +555,15 @@ export class MessagesController {
     // S44 fix-forward (MAJOR · perf): 편집 본문에 범위 멘션 sigil 이 있을 때만
     // override fold(findMany 1쿼리)를 수행한다. 신호가 없으면 false 로 skip 해
     // 일반 편집의 +1 RTT 를 제거한다(편집은 composer 힌트가 없어 본문만 스캔).
-    const editHasMentionEveryone =
+    // S94 (067 / FR-MSG-14): 편집도 @everyone/@here/@channel 권한을 한 번에 산정한다.
+    const editMentionScopes =
       channel && hasBroadMentionSignal(parsed.data.content)
-        ? await this.channelAccess.resolveMentionEveryone(
+        ? await this.channelAccess.resolveMentionScopes(
             { id: channel.id, workspaceId: channel.workspaceId },
             user.id,
             m.role,
           )
-        : false;
+        : { hasMentionEveryone: false, hasMentionChannel: false };
     // FR-RM10a (063 / ADR E3): 편집도 AutoMod 게이트를 타므로(우회 방지) actor 보유 Role
     // UUID 를 로드해 역할 exempt 판정에 넘긴다(워크스페이스 채널일 때만 의미 — DM 은 빈 배열).
     const editMember =
@@ -574,11 +582,17 @@ export class MessagesController {
       // DomainExceptionFilter 가 표준 envelope 에 details 를 실어 응답한다.
       expectedVersion: parsed.data.expectedVersion,
       // S44 (FR-MN-02/16): override-aware MENTION_EVERYONE 권한 게이트.
-      hasMentionEveryone: editHasMentionEveryone,
+      hasMentionEveryone: editMentionScopes.hasMentionEveryone,
+      // S94 (067 / FR-MSG-14): override-aware MENTION_CHANNEL(@here/@channel) 권한 게이트.
+      hasMentionChannel: editMentionScopes.hasMentionChannel,
       // S88a (FR-MN-03 / D3): non-mentionable 역할 멘션 lazy 권한 계산용 actor 역할.
       actorRole: m.role,
       // FR-RM10a (063): AutoMod 역할 exempt 판정용 actor 보유 Role UUID.
       actorMemberRoleUuids: editMemberRoleUuids,
+      // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 새로 추가한 대규모 broad
+      // 멘션 확인 토큰. send 와 동일하게 미동봉 시 서버가 임계값을 검사해 초과하면
+      // 409(BULK_MENTION_CONFIRM_REQUIRED)를 던진다(UPDATE 미실행 — 편집 거부).
+      bulkMentionConfirmed: parsed.data.bulkMentionConfirmed === true,
     });
     // S60 (FR-RC07): 편집으로 본문 URL 이 바뀌었을 수 있으므로 unfurl 을 재enqueue 한다
     // (jobId=messageId 멱등 · MessageEmbed upsert). URL 이 사라졌으면 기존 embed 는 그대로

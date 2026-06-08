@@ -274,12 +274,14 @@ describe('S61 fix-forward A-1: transferOwnership cleans up ex-OWNER MemberRole',
 
 // S61 fix-forward (reviewer BLOCKER-3): 범위 밖 권한 비트는 500 이 아니라 422 로.
 describe('S61 fix-forward B-1: out-of-range permission bit → 422', () => {
-  it('rejects bit13 (8192) with 422 VALIDATION_FAILED instead of 500', async () => {
+  // S94 (067 / FR-MSG-14): bit13(8192)은 이제 MENTION_CHANNEL 로 정의돼 유효하다.
+  // 미정의 비트는 bit17(131072 — 14~16 은 S63 모더레이션 비트)을 쓴다.
+  it('rejects undefined bit17 (131072) with 400 VALIDATION_FAILED instead of 500', async () => {
     const { owner, workspaceId } = await setupOwnerAndWs('s61b1');
     const res = await request(env.baseUrl)
       .post(`/workspaces/${workspaceId}/roles`)
       .set('Authorization', `Bearer ${owner.accessToken}`)
-      .send({ name: 'OutOfRange', permissions: '8192', position: 10 });
+      .send({ name: 'OutOfRange', permissions: '131072', position: 10 });
     // Zod refine 이 미리 거부 → 컨트롤러 safeParse 실패 → VALIDATION_FAILED(400).
     expect(res.status).toBe(400);
   });

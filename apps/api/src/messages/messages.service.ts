@@ -11,6 +11,8 @@ import {
   type EditHistoryDto,
   THREAD_BROADCAST_EXCERPT_CAP,
   BULK_DELETE_MAX,
+  EVERYONE_CONFIRM_THRESHOLD,
+  BULK_MENTION_CONFIRM_THRESHOLD,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { REDIS } from '../redis/redis.module';
@@ -1218,6 +1220,50 @@ export class MessagesService {
    *
    * (전체 멤버 enumerate 비용/SLO 200명 cap·5초는 S45 carryover.)
    */
+  /**
+   * S94 (067 / FR-MSG-14): 서버 측 대규모 범위 멘션 임계값 enforce.
+   *
+   * 게이트를 통과한 특수멘션(@everyone/@here/@channel)이 **워크스페이스 멤버수**
+   * (=broad fanout 대상이라 실제 핑 폭과 일치 — resolveBroadMentionRecipients 가
+   * WorkspaceMember 전원을 enumerate 한다) 임계값을 넘으면
+   * BULK_MENTION_CONFIRM_REQUIRED(409)를 던진다 — `@everyone` 은
+   * EVERYONE_CONFIRM_THRESHOLD(6), `@here`/`@channel` 은 BULK_MENTION_CONFIRM_THRESHOLD(50).
+   * 클라이언트가 이미 선제 confirm dialog 를 띄우지만(specialMention.ts), 클라 우회 시
+   * 무제한 mass-ping 을 막는 서버 안전망이다(send + edit 양 경로에 적용).
+   *
+   * 호출자는 메시지 INSERT(트랜잭션) 진입 **전**에 이 검사를 수행하므로 idempotencyKey
+   * 가 소비되지 않는다 — 사용자가 확인 후 동일 키로 재전송하면 정상 처리된다. 멤버수는
+   * resolveBroadMentionRecipients(전원 findMany)와 별개로 가벼운 count 1쿼리로 구한다.
+   *
+   * 우선순위: 더 낮은 임계값을 먼저 트리거하는 @everyone(≥6)을 먼저 검사한다 — @everyone
+   * 과 @here/@channel 이 한 메시지에 함께 있어도 가장 보수적인 임계값으로 확인을 요구한다.
+   * details(mention/count/threshold)는 클라이언트가 확인 dialog 카피를 구성하는 데 쓴다.
+   */
+  private async enforceBulkMentionThreshold(
+    workspaceId: string,
+    gated: Pick<Mentions, 'everyone' | 'here' | 'channel'>,
+  ): Promise<void> {
+    const memberCount = await this.prisma.workspaceMember.count({ where: { workspaceId } });
+    if (gated.everyone && memberCount >= EVERYONE_CONFIRM_THRESHOLD) {
+      throw new DomainError(
+        ErrorCode.BULK_MENTION_CONFIRM_REQUIRED,
+        'large @everyone mention requires confirmation',
+        { mention: 'everyone', count: memberCount, threshold: EVERYONE_CONFIRM_THRESHOLD },
+      );
+    }
+    if ((gated.here || gated.channel) && memberCount >= BULK_MENTION_CONFIRM_THRESHOLD) {
+      throw new DomainError(
+        ErrorCode.BULK_MENTION_CONFIRM_REQUIRED,
+        'large @channel/@here mention requires confirmation',
+        {
+          mention: gated.channel ? 'channel' : 'here',
+          count: memberCount,
+          threshold: BULK_MENTION_CONFIRM_THRESHOLD,
+        },
+      );
+    }
+  }
+
   private async resolveBroadMentionRecipients(
     tx: Prisma.TransactionClient,
     args: { workspaceId: string | null; mentions: Mentions },
@@ -1480,9 +1526,19 @@ export class MessagesService {
     // S44 (FR-MN-02/16): `MENTION_EVERYONE`(카탈로그 0x0080) override-aware 권한.
     // 컨트롤러가 ChannelAccessService.resolveMentionEveryone 로 ADR-4 5단계 fold 한
     // boolean 을 넘긴다(MEMBER 도 override allow 면 true, OWNER/ADMIN 도 deny 면 false).
-    // 미지정(DM 채널 등)은 false 로 보수 처리 — `@everyone`/`@here`/`@channel` 다운그레이드.
+    // 미지정(DM 채널 등)은 false 로 보수 처리 — `@everyone` 다운그레이드.
     // (task-044~046 까지는 role enum 이었으나 override 집행을 위해 boolean 으로 교체.)
     hasMentionEveryone?: boolean;
+    // S94 (067 / FR-MSG-14): `@here`/`@channel` 의 `MENTION_CHANNEL`(0x2000) override-aware
+    // 권한(@everyone 과 분리·기본 MEMBER 허용). 컨트롤러가 ChannelAccessService.
+    // resolveMentionScopes 로 한 쿼리에서 hasMentionEveryone 과 함께 산정해 넘긴다.
+    // 미지정(DM 등)은 false 로 보수 처리 — `@here`/`@channel` 다운그레이드.
+    hasMentionChannel?: boolean;
+    // S94 (067 / FR-MSG-14): 대규모 범위 멘션 전송 전 확인 토큰. 클라이언트가 서버
+    // 409(BULK_MENTION_CONFIRM_REQUIRED)를 받고 확인 dialog 를 거친 뒤 true 로 재전송한다.
+    // false/미지정이면 임계값(@everyone 채널멤버≥6 · @here/@channel ≥50) 초과 시 INSERT
+    // 전에 409 를 던진다(idempotencyKey 미소비).
+    bulkMentionConfirmed?: boolean;
     // S20 (MAJOR/perf fix-forward): caller-provided channel type so the DM
     // hidden-restore gate skips the per-send `channel.findUnique`. Both send
     // controllers already hold the channel meta on req.channel (the
@@ -1616,15 +1672,30 @@ export class MessagesService {
       here: extracted.here || hint?.here === true,
       channel: extracted.channel || hint?.channel === true,
     };
-    // S44 (FR-MN-02/16) + S21: 권한 없는 특수멘션(@everyone/@here/@channel)은
-    // MENTION_EVERYONE 권한 게이트로 silently false 다운그레이드. 권한은 컨트롤러가
-    // 채널 override 5단계 fold 로 산정한 boolean(args.hasMentionEveryone)이고, 미지정
-    // (DM 채널 등)은 false 로 보수 처리됩니다.
+    // S44 (FR-MN-02/16) + S21 + S94(067): 권한 없는 특수멘션은 권한 게이트로 silently
+    // false 다운그레이드. S94(Option B)로 @everyone(MENTION_EVERYONE)과 @here/@channel
+    // (MENTION_CHANNEL)이 별도 비트라 게이트별로 다른 boolean 을 적용한다 — 컨트롤러가
+    // resolveMentionScopes 로 한 쿼리에서 산정해 넘긴다. 미지정(DM 등)은 false 로 보수 처리.
     const hasMentionEveryone = args.hasMentionEveryone === true;
+    const hasMentionChannel = args.hasMentionChannel === true;
     const broadGated = gateChannelMention(
-      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
-      hasMentionEveryone,
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionChannel),
+      hasMentionChannel,
     );
+    // S94 (067 / FR-MSG-14): 서버 측 대규모 범위 멘션 임계값 enforce. 게이트를 살아남은
+    // 특수멘션(broadGated.everyone/here/channel)만 검사한다 — 권한 없어 strip 된 멘션은
+    // fanout 0 이라 대상이 아니다. @everyone 은 워크스페이스 멤버수 ≥6, @here/@channel 은 ≥50 에서
+    // bulkMentionConfirmed 가 없으면 409 를 던진다. **메시지 INSERT(트랜잭션) 전**에 던져
+    // idempotencyKey 를 소비하지 않으므로, 사용자 확인 후 동일 키 재전송이 정상 동작한다.
+    // count 는 가벼운 1쿼리(WorkspaceMember count)이고, DM(workspaceId=null)은 게이트가
+    // 모두 strip 해 이 분기에 들어오지 않는다.
+    if (
+      (broadGated.everyone || broadGated.here || broadGated.channel) &&
+      args.bulkMentionConfirmed !== true &&
+      args.workspaceId !== null
+    ) {
+      await this.enforceBulkMentionThreshold(args.workspaceId, broadGated);
+    }
     // S88a (FR-MN-03 / D3): 역할 멘션 접근제어 게이트 — 역할별 mentionable===true OR
     // actor 가 MENTION_EVERYONE 권한 보유. mentionable=true 역할은 누구나 멘션 가능하고,
     // mentionable=false 역할이 1개 이상 추출됐을 때만 lazy 로 actorHasMentionEveryone 을
@@ -3044,6 +3115,14 @@ export class MessagesService {
     // S44 (FR-MN-02/16): edit 도중 `@everyone` 추가 시 send 와 동일하게
     // MENTION_EVERYONE override-aware 권한 체크. 미지정 시 false(차단)로 보수 처리.
     hasMentionEveryone?: boolean;
+    // S94 (067 / FR-MSG-14): 편집 도중 `@here`/`@channel` 추가 시 MENTION_CHANNEL
+    // override-aware 권한 체크(@everyone 과 분리). 미지정 시 false 로 보수 처리.
+    hasMentionChannel?: boolean;
+    // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 *새로* 추가된 broad 멘션
+    // (@everyone/@here/@channel)이 임계값을 넘으면 send 와 동일하게 확인을 요구한다.
+    // 클라이언트가 409(BULK_MENTION_CONFIRM_REQUIRED) 후 확인 dialog 를 거쳐 true 로
+    // 재편집하면 통과한다. 미지정/false 면 신규 broad 추가 시 서버가 임계값을 검사한다.
+    bulkMentionConfirmed?: boolean;
     // S88a (FR-MN-03 / D3): 편집 본문의 non-mentionable 역할 멘션 lazy 권한 계산용.
     actorRole?: WorkspaceRole;
     // FR-RM10a (063): 편집 경로 AutoMod 역할 exempt 판정용 actor 보유 Role UUID(send 와
@@ -3062,10 +3141,14 @@ export class MessagesService {
       extractRoleMentions(this.prisma, args.workspaceId, args.content),
       resolveMentionHandles(this.prisma, args.workspaceId, args.content),
     ]);
+    // S94 (067 / FR-MSG-14): 편집 경로도 @everyone(MENTION_EVERYONE)과 @here/@channel
+    // (MENTION_CHANNEL) 권한 비트를 분리 적용한다(send 와 대칭). 컨트롤러가
+    // resolveMentionScopes 로 두 boolean 을 산정해 넘긴다.
     const hasMentionEveryone = args.hasMentionEveryone === true;
+    const hasMentionChannel = args.hasMentionChannel === true;
     const broadGated = gateChannelMention(
-      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionEveryone),
-      hasMentionEveryone,
+      gateHereMention(gateEveryoneMention(rawMentions, hasMentionEveryone), hasMentionChannel),
+      hasMentionChannel,
     );
     const allowedRoleIds = await this.resolveAllowedRoleMentions(extractedRoles, {
       channelId: args.channelId,
@@ -3126,6 +3209,40 @@ export class MessagesService {
       // 리뷰 F1: 편집자 시스템 역할(OWNER/ADMIN 면제 판정용 · send 와 대칭).
       actorRole: args.actorRole,
     });
+    // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집 경로 broad 멘션 임계값 enforce.
+    // send() 의 안전망(라인 ~1690)이 편집(update)에는 없어, 평문 메시지를 보낸 뒤
+    // 편집으로 @everyone/@here/@channel 을 주입하면 update() 가 broad fanout
+    // (resolveBroadMentionRecipients·신규 추가분)을 임계값 확인 없이 수행해 워크스페이스
+    // 전원 mass-ping 으로 send 게이트를 우회할 수 있었다(보안 갭).
+    //
+    // **편집으로 새로 추가된** broad 멘션(이전 버전에 없던 것)만 검사한다 — 이미 @channel
+    // 이 있던 메시지의 내용만 바꾸는 편집은 재확인을 요구하지 않는다(신규 fanout 폭이 늘지
+    // 않으므로). 이전 mentions 는 트랜잭션 안에서 다시 읽지만(prevMentions diff·중복알림
+    // 방지), 임계값은 **UPDATE 쓰기 전**에 막아야 편집이 미적용 상태로 롤백되므로, 같은
+    // 컬럼을 트랜잭션 진입 전에 경량 read 로 한 번 더 끌어와 신규추가를 판정한다.
+    // 미동봉(bulkMentionConfirmed!==true) + 신규 broad 추가 + 임계값 초과 → 409
+    // (UPDATE 미실행 — 편집 거부). DM(workspaceId=null)은 게이트가 broad 를 전부 strip 해
+    // broadGated 가 false 라 이 분기에 들어오지 않는다.
+    if (
+      (broadGated.everyone || broadGated.here || broadGated.channel) &&
+      args.bulkMentionConfirmed !== true &&
+      args.workspaceId !== null
+    ) {
+      const beforeForGate = await this.prisma.message.findFirst({
+        where: { id: args.msgId, channelId: args.channelId },
+        select: { mentions: true },
+      });
+      const prevForGate = (beforeForGate?.mentions as unknown as Partial<Mentions> | null) ?? null;
+      // 신규추가 판정: 게이트 통과 broad 중 이전 버전에 없던(=true 가 아니던) 것만.
+      const addedBroad = {
+        everyone: broadGated.everyone && prevForGate?.everyone !== true,
+        here: broadGated.here && prevForGate?.here !== true,
+        channel: broadGated.channel && prevForGate?.channel !== true,
+      };
+      if (addedBroad.everyone || addedBroad.here || addedBroad.channel) {
+        await this.enforceBulkMentionThreshold(args.workspaceId, addedBroad);
+      }
+    }
     const editedAt = new Date();
 
     return this.prisma.$transaction(async (tx) => {

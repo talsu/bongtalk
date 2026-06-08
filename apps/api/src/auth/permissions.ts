@@ -49,6 +49,29 @@ export const ALL_PERMISSIONS =
   Permission.BYPASS_SLOWMODE;
 
 /**
+ * S94 (067 / FR-MSG-14): 채널 override allow/deny mask 가 합법적으로 담을 수 있는 비트 집합.
+ *
+ * 집행 비트(ALL_PERMISSIONS=0x17F) + **카탈로그 멘션 비트** 2개:
+ *   - MENTION_EVERYONE(0x0080) — @everyone (집행 enum 에서는 비워둔 예약 비트, 멘션 게이트가 읽음)
+ *   - MENTION_CHANNEL (0x2000) — @here/@channel (S94 신설, 멘션 게이트가 읽음)
+ * 멘션 비트는 집행 매트릭스가 아니라 `channel-access.service.resolveMentionScopes` 가 동일 override
+ * 컬럼에서 fold 하므로, override 생성/수정 검증이 이 비트들을 허용해야 한다. 그 외(ADMINISTRATOR
+ * 2^63 · KICK/BAN/TIMEOUT 0x4000~ · 예약 비트 9~12)는 override 가 해석하지 않으므로 제외해
+ * 권한 상승/garbage 영속을 막는다. **BigInt 로 검사**해야 한다(JS number bitwise 는 int32 wrap 으로
+ * 2^63 가 0 으로 접혀 빠져나갈 수 있음 — 종전 numeric `> ALL_PERMISSIONS` 가 이를 피하려던 의도).
+ */
+export const CHANNEL_OVERRIDE_BITS = BigInt(ALL_PERMISSIONS) | 0x0080n | 0x2000n; // 0x21FF
+
+/**
+ * 채널 override mask(number)가 허용 비트 집합 안에 드는지 검사한다. BigInt 로 좁혀
+ * int32 wrap 을 피한다(2^63=ADMINISTRATOR 가 0 으로 접히는 것을 막음). 음수/비정수는
+ * 호출 전 Zod(PermissionMaskSchema)가 이미 거른다.
+ */
+export function isWithinChannelOverrideBits(mask: number): boolean {
+  return (BigInt(mask) & ~CHANNEL_OVERRIDE_BITS) === 0n;
+}
+
+/**
  * Workspace-role baseline. This is the mask every channel starts
  * with before its overrides apply.
  *

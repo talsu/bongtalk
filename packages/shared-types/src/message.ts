@@ -390,6 +390,13 @@ export const SendMessageRequestSchema = z.object({
   // 타임라인에 동시 게시한다. parentMessageId 없이 isBroadcast=true 만 보내면
   // 무시한다(루트/일반 send 에는 broadcast 개념이 없음). default(false).
   isBroadcast: z.boolean().optional(),
+  // S94 (067 / FR-MSG-14): 대규모 범위 멘션(@everyone 워크스페이스 멤버수 ≥6 ·
+  // @here/@channel ≥50) 전송 확인 토큰. 클라이언트가 서버 409(BULK_MENTION_CONFIRM_REQUIRED)
+  // 를 받고 확인 dialog 를 거친 뒤 true 로 **동일 nonce** 재전송한다(같은 Idempotency-Key·
+  // 같은 낙관행 재사용 — 잔류 실패행 없음, useMessages.ts 의 onBulkMentionConfirmRequired 가
+  // 원래 clientNonce 를 위임). 미동봉/false 면 서버가 게이트 통과 후·INSERT 전에 임계값을
+  // 검사해 초과 시 409 를 던진다(idempotencyKey 미소비).
+  bulkMentionConfirmed: z.boolean().optional(),
 });
 export type SendMessageRequest = z.infer<typeof SendMessageRequestSchema>;
 
@@ -401,6 +408,13 @@ export const UpdateMessageRequestSchema = z.object({
   // 상한 = Postgres INT4 max. 초과값은 WHERE version=:expected 바인딩 시
   // overflow(500) 를 유발하므로 계약에서 차단합니다.
   expectedVersion: z.number().int().nonnegative().max(2_147_483_647),
+  // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 *새로* 추가한 대규모 범위
+  // 멘션(@everyone 워크스페이스 멤버수 ≥6 · @here/@channel ≥50) 확인 토큰. send 와
+  // 동일하게 클라이언트가 서버 409(BULK_MENTION_CONFIRM_REQUIRED)를 받고 확인 dialog 를
+  // 거친 뒤 true 로 재편집한다. 미동봉/false 면 서버가 신규 broad 추가 시 UPDATE 쓰기
+  // 전에 임계값을 검사한다(편집이 미적용 상태로 거부). 이미 있던 멘션의 내용만 바꾸는
+  // 편집은 신규추가가 아니라 재확인을 요구하지 않는다.
+  bulkMentionConfirmed: z.boolean().optional(),
 });
 export type UpdateMessageRequest = z.infer<typeof UpdateMessageRequestSchema>;
 

@@ -21,10 +21,12 @@ const BASE: Mentions = {
 };
 
 /**
- * S44 (FR-MN-02 / FR-MN-16): 게이트 시그니처가 role enum 에서 boolean
- * `hasMentionEveryone` 으로 바뀌었다. 권한 산정(역할 기본값 + 채널 override
- * 5단계 fold)은 ChannelAccessService.resolveMentionEveryone 이 수행하고, gate 는
- * 그 boolean 결과만 적용하는 순수 후처리 함수다.
+ * S44 (FR-MN-02 / FR-MN-16) · S94 (067 / FR-MSG-14): 게이트 시그니처가 role enum
+ * 에서 boolean 으로 바뀌었고(S44), S94 에서 @everyone 과 @here/@channel 의 권한
+ * 비트가 분리됐다(Option B). gateEveryoneMention 은 hasMentionEveryone(MENTION_EVERYONE,
+ * OWNER/ADMIN 전용), gateHere/ChannelMention 은 hasMentionChannel(MENTION_CHANNEL,
+ * 기본 MEMBER 허용)을 받는다. 권한 산정은 ChannelAccessService.resolveMentionScopes 가
+ * 수행하고, gate 는 그 boolean 결과만 적용하는 순수 후처리 함수다.
  */
 describe('gateEveryoneMention (S44 boolean gate)', () => {
   it('권한 있으면(true) everyone=true 유지', () => {
@@ -67,7 +69,7 @@ describe('gateEveryoneMention (S44 boolean gate)', () => {
   });
 });
 
-describe('gateHereMention (S44 boolean gate)', () => {
+describe('gateHereMention (S94 hasMentionChannel gate)', () => {
   const HERE_BASE: Mentions = {
     users: ['u1'],
     channels: [],
@@ -77,11 +79,11 @@ describe('gateHereMention (S44 boolean gate)', () => {
     roles: [],
   };
 
-  it('권한 있으면 here=true 유지', () => {
+  it('hasMentionChannel=true(=MEMBER 기본 허용)면 here=true 유지', () => {
     expect(gateHereMention(HERE_BASE, true).here).toBe(true);
   });
 
-  it('권한 없으면 here=true 는 silently false', () => {
+  it('hasMentionChannel=false 면 here=true 는 silently false', () => {
     const out = gateHereMention(HERE_BASE, false);
     expect(out.here).toBe(false);
     expect(out.users).toEqual(['u1']); // users 영향 없음
@@ -100,7 +102,7 @@ describe('gateHereMention (S44 boolean gate)', () => {
   });
 });
 
-describe('gateChannelMention (S44 boolean gate)', () => {
+describe('gateChannelMention (S94 hasMentionChannel gate)', () => {
   const CH_BASE: Mentions = {
     users: ['u1'],
     channels: [],
@@ -110,11 +112,11 @@ describe('gateChannelMention (S44 boolean gate)', () => {
     roles: [],
   };
 
-  it('권한 있으면 channel=true 유지', () => {
+  it('hasMentionChannel=true(=MEMBER 기본 허용)면 channel=true 유지', () => {
     expect(gateChannelMention(CH_BASE, true).channel).toBe(true);
   });
 
-  it('권한 없으면 channel=true 는 silently false', () => {
+  it('hasMentionChannel=false 면 channel=true 는 silently false', () => {
     const out = gateChannelMention(CH_BASE, false);
     expect(out.channel).toBe(false);
     expect(out.users).toEqual(['u1']); // users 영향 없음
@@ -130,6 +132,60 @@ describe('gateChannelMention (S44 boolean gate)', () => {
       roles: [],
     };
     expect(gateChannelMention(m, false)).toEqual(m);
+  });
+});
+
+/**
+ * S94 (067 / FR-MSG-14 / Option B): @everyone 과 @here/@channel 의 권한 비트 분리 검증.
+ * messages.service 가 두 gate 를 합성하는 순서대로(gateChannel(gateHere(gateEveryone))),
+ * hasMentionEveryone 과 hasMentionChannel 두 boolean 을 각각 적용한다.
+ */
+describe('combined broad gate (S94 권한 비트 분리)', () => {
+  const ALL_THREE: Mentions = {
+    users: ['u1'],
+    channels: [],
+    everyone: true,
+    here: true,
+    channel: true,
+    roles: [],
+  };
+
+  const applyBroadGate = (
+    m: Mentions,
+    hasMentionEveryone: boolean,
+    hasMentionChannel: boolean,
+  ): Mentions =>
+    gateChannelMention(
+      gateHereMention(gateEveryoneMention(m, hasMentionEveryone), hasMentionChannel),
+      hasMentionChannel,
+    );
+
+  it('MEMBER 기본(everyone=false, channel=true): @everyone strip, @here/@channel 통과', () => {
+    const out = applyBroadGate(ALL_THREE, false, true);
+    expect(out.everyone).toBe(false);
+    expect(out.here).toBe(true);
+    expect(out.channel).toBe(true);
+  });
+
+  it('둘 다 권한 있으면(OWNER/ADMIN) 전부 통과', () => {
+    const out = applyBroadGate(ALL_THREE, true, true);
+    expect(out.everyone).toBe(true);
+    expect(out.here).toBe(true);
+    expect(out.channel).toBe(true);
+  });
+
+  it('둘 다 false(GUEST 또는 override 전부 박탈)면 전부 strip', () => {
+    const out = applyBroadGate(ALL_THREE, false, false);
+    expect(out.everyone).toBe(false);
+    expect(out.here).toBe(false);
+    expect(out.channel).toBe(false);
+  });
+
+  it('@channel 만 deny(hasMentionChannel=false)면 @here/@channel strip, @everyone 은 권한대로', () => {
+    const out = applyBroadGate(ALL_THREE, true, false);
+    expect(out.everyone).toBe(true);
+    expect(out.here).toBe(false);
+    expect(out.channel).toBe(false);
   });
 });
 
