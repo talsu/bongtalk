@@ -1,4 +1,4 @@
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, WorkspaceRole } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import type Redis from 'ioredis';
@@ -38,6 +38,8 @@ import type { BannedMember, ListBansResponse, TimeoutMemberResponse } from '@quf
  */
 @Injectable()
 export class ModerationService {
+  private readonly logger = new Logger(ModerationService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly outbox: OutboxService,
@@ -451,6 +453,71 @@ export class ModerationService {
         );
       });
     });
+    return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
+  }
+
+  /**
+   * FR-RM10a (063): 시스템(AutoMod) 발 타임아웃. 인간 모더레이터가 아니라 AutoMod 규칙
+   * 적용 결과로 작성자 본인을 음소거하므로, 권한 비트 검사·self 가드·계층 방어를 적용하지
+   * 않는다(actor 가 시스템이라 의미 없음). mutedUntil 만 갱신하고 AUTOMOD_TIMEOUT 감사를
+   * 남긴다(actorId = targetUserId — 시스템 액션이지만 감사 무결성상 대상을 actor 로 표기).
+   * 대상이 더 이상 멤버가 아니면(레이스) WORKSPACE_TARGET_NOT_MEMBER(404)로 변환(호출부
+   * best-effort 라 로그만 남고 흡수된다).
+   */
+  async timeoutBySystem(args: {
+    workspaceId: string;
+    targetUserId: string;
+    durationSeconds: number;
+    reason?: string;
+  }): Promise<TimeoutMemberResponse> {
+    const { workspaceId, targetUserId, durationSeconds } = args;
+    const reason = normalizeReason(args.reason);
+    const mutedUntil = new Date(Date.now() + durationSeconds * 1000);
+    // ★FR-RM10a (리뷰 F1 · 방어심층 · 보안): AutoMod 면제는 1차로 AutoModService.check 진입부에서
+    // 적용되지만, 시스템 타임아웃 경로의 최후 방어선으로 여기서도 대상 역할을 재확인한다 —
+    // 대상이 OWNER 면 mutedUntil 을 쓰지 않고 no-op 후 반환한다(악의적 ADMIN 이 어떤 경로로든
+    // OWNER 를 시스템 타임아웃해 락아웃하는 것을 막는다). ADMIN 1차 면제는 check 가 담당하고,
+    // 여기서는 절대 음소거되면 안 되는 OWNER 만 시스템 경로에서 강제 차단한다.
+    const targetMember = await this.prisma.workspaceMember.findUnique({
+      where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+      select: { role: true, mutedUntil: true },
+    });
+    if (targetMember?.role === WorkspaceRole.OWNER) {
+      this.logger.warn(
+        `[automod] refused system timeout of OWNER ws=${workspaceId} user=${targetUserId} — owner is exempt`,
+      );
+      // 음소거를 쓰지 않는다(no-op). 반환은 best-effort 호출부에서 무시되며, OWNER 의 기존
+      // mutedUntil(있으면)을 그대로, 없으면 epoch(과거 = 음소거 아님)를 보고한다.
+      return {
+        userId: targetUserId,
+        mutedUntil: (targetMember.mutedUntil ?? new Date(0)).toISOString(),
+      };
+    }
+    await this.runMemberWrite(async () => {
+      await this.prisma.$transaction(async (tx) => {
+        await tx.workspaceMember.update({
+          where: { workspaceId_userId: { workspaceId, userId: targetUserId } },
+          data: { mutedUntil },
+        });
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId: targetUserId,
+            action: AuditAction.AUTOMOD_TIMEOUT,
+            targetId: targetUserId,
+            details: {
+              durationSeconds,
+              mutedUntil: mutedUntil.toISOString(),
+              ...(reason ? { reason } : {}),
+            },
+          },
+          tx,
+        );
+      });
+    });
+    await this.memberRoles
+      .invalidateMemberPermsCache(workspaceId, targetUserId)
+      .catch(() => undefined);
     return { userId: targetUserId, mutedUntil: mutedUntil.toISOString() };
   }
 

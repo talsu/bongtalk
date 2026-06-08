@@ -1,15 +1,15 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-08 · ★@role 멘션 그룹 S88 전체 완료 · 다음=AutoMod)
+> ## ▶ 현재 재개 지점 (2026-06-08 · FR-RM10a AutoMod 키워드 검증 green·배포 대기)
 >
-> **✅✅✅ @role 멘션 그룹(FR-MN-03/19/21) 전체 완료.** S88a(동기 코어·LIVE)·S88b(async MentionRecord+BullMQ·LIVE)·S88c(@here SLO eval·머지·evals-only 무배포). **진행률 344/354 done.** @role 그룹 잔여 0.
-> - **S88a LIVE**: migration 20260627(`Role.mentionable`)·@role 동기 fanout.
-> - **S88b LIVE**: migration 20260628(`MentionRecord`)·mention-broadcast BullMQ 워커. ★BLOCKER(워커 per-recipient 게이트 누락·FR-PS-14) → `MentionGateService` 공유추출(동기/워커 공용)로 시정·int 가드 증명. verify 19/19 + int 28/28.
-> - **S88c 머지**: `evals/perf/mention-fanout-slo.ts`(@here ONLINE N P95<5s·socket.io-client·soak 패턴) + `evals/tasks/060-…yaml` + prom BullMQ latency 연동. reviewer approve(LOW 4·머지차단 0). verify 19/19·evals typecheck·frozen-lockfile 일관. **@here 동기 유지**(빠름·async 무이득). **이메일 게이트(S66)로 prod self-bootstrap 불가→테스트 스택/PERF_REUSE on-demand**(soak 동일 제약·문서 062 §C5). evals-only=배포 불요.
+> **✅ @role 그룹(S88a/b/c) 전체 LIVE/머지.** **✅ FR-RM10a(AutoMod KEYWORD 리터럴 모더레이션·FR-RM10 partial) 코드완료 + verify 19/19 + int 20/20 — 수동배포 대기.** `feat/frrm10a-automod-keyword` 3커밋: ADR 063 → 구현 `d5342ca` → 7차원 리뷰 fix-forward `8f14c3d`(confirmed 4: ★HIGH timeoutBySystem OWNER 타임아웃→**AutoMod 가 OWNER/ADMIN 면제**[정책]·TIMEOUT 감사누락·exempt cross-ws 검증·한국어 WORD 경계 유니코드 + DS/메트릭). int 20/20(automod 16[OWNER/ADMIN 면제·cross-ws exempt 거부·한국어 WORD·BLOCK422·ALERT·TIMEOUT+mute·exempt] + messages.events 회귀 4). **마이그레이션 `20260629`(AutoModRule) 미배포.**
+> - **★정책 결정(자율)**: AutoMod 집행(BLOCK/ALERT/TIMEOUT)은 **OWNER/ADMIN 작성자 비대상**(모더레이터는 룰 통제·신뢰·Discord parity·락아웃 방지). timeoutBySystem 에 OWNER 하드가드(방어심층).
+> - **★스코프(063)**: FR-RM10a=**KEYWORD 리터럴 매칭만**(정규식 없음=ReDoS 없음·Worker/re2 불요). 정규식 패턴·MENTION_SPAM·REPEAT_SPAM → **FR-RM10b 후속**.
 >
-> ### ▶▶ 다음 작업 = **FR-RM10 (AutoMod 키워드)** — 빌드가능·외부결정 불요
+> ### ▶▶ 다음 작업 = **FR-RM10a 수동 배포 승인** → FR-RM10b(정규식·spam) 또는 잔여 FR
 >
-> - **FR-RM10(AutoMod·todo·別백로그)**: PRD 가 "re2 **또는** 100ms timeout / Worker **또는** BullMQ" 대안 제시 → **no-native-dep 경로**(Worker Thread timeout 또는 승인된 BullMQ·[[project_bullmq_greenlight]])로 진입(re2 네이티브 ABI·kernel4.4 위험 회피). 마이그레이션 다음 = `20260629…`. 키워드 룰 CRUD(ADMIN) + 메시지 send 시 매칭→차단/플래그/감사. UNDERSTAND 부터.
+> - **즉시**: FR-RM10a develop→main 머지·push 후 **수동배포(승인)** → `/readyz=200` + prod `AutoModRule` 테이블 검증.
+> - **FR-RM10b(후속)**: 정규식 패턴(Worker Thread 격리·100ms 검증/10ms 매칭) + MENTION_SPAM/REPEAT_SPAM(행동형·sliding-window). 마이그레이션 `20260630…`.
 > - **S88 defer(후속·062 §B6/S88a defer)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip·commit↔enqueue 크래시윈도우(transactional-outbox)·online-snapshot 정밀화·@here async. 전부 비차단.
 > - **S88c follow-up**: 풀 100-user @here SLO 실측은 테스트 compose 스택(이메일 게이트 우회/DB-seed) 또는 PERF_REUSE(prod·사전검증 계정) on-demand.
 > - **인프라 교훈(이번 세션)**: 컨테이너 verify 와 무거운 리뷰 워크플로우 **동시 실행 시 kernel4.4 자원고갈로 web 인터랙션 테스트 timeout flake** → verify 는 **단독** 실행. int 컨테이너는 `--network host`+docker.sock+`TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1`+`TESTCONTAINERS_RYUK_DISABLED=true`, 명령에 `apt-get install git openssl` 필수(없으면 git 127 / contract 6건 fail).

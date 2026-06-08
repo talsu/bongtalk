@@ -40,6 +40,10 @@ import type {
   MyApplicationResponse,
   ProcessApplicationAction,
   WorkspaceMemberApplication,
+  AutoModRule,
+  CreateAutoModRuleRequest,
+  UpdateAutoModRuleRequest,
+  ListAutoModRulesResponse,
 } from '@qufox/shared-types';
 
 // S65 (D13 / FR-W13): 소유권 양도는 비밀번호 재확인을 강제한다(서버 argon2 verify).
@@ -301,6 +305,34 @@ export function updateRole(id: string, roleId: string, input: UpdateRoleRequest)
 
 export function deleteRole(id: string, roleId: string): Promise<void> {
   return apiRequest(`/workspaces/${id}/roles/${roleId}`, { method: 'DELETE' });
+}
+
+// ── FR-RM10a (063): AutoMod 키워드 규칙 관리 ──────────────────────────────────
+
+export function listAutoModRules(id: string): Promise<ListAutoModRulesResponse> {
+  return apiRequest(`/workspaces/${id}/automod-rules`);
+}
+
+export function createAutoModRule(
+  id: string,
+  input: CreateAutoModRuleRequest,
+): Promise<AutoModRule> {
+  return apiRequest(`/workspaces/${id}/automod-rules`, { method: 'POST', body: input });
+}
+
+export function updateAutoModRule(
+  id: string,
+  ruleId: string,
+  input: UpdateAutoModRuleRequest,
+): Promise<AutoModRule> {
+  return apiRequest(`/workspaces/${id}/automod-rules/${ruleId}`, {
+    method: 'PATCH',
+    body: input,
+  });
+}
+
+export function deleteAutoModRule(id: string, ruleId: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/automod-rules/${ruleId}`, { method: 'DELETE' });
 }
 
 export function assignRole(id: string, roleId: string, userId: string): Promise<void> {

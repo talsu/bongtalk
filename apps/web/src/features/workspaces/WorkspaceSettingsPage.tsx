@@ -16,6 +16,8 @@ import {
 import { WorkspaceEmojiManager } from '../emojis/WorkspaceEmojiManager';
 // S61 (D12 / FR-RM01): 역할 관리 본문(설정 오버레이 탭으로 인라인 렌더).
 import { RolesManager } from './roles/RolesModal';
+// FR-RM10a (063): AutoMod 키워드 규칙 관리(ADMIN+ 탭).
+import { AutoModPanel } from './automod/AutoModPanel';
 // S64 (D12 / FR-RM11·12): 감사 로그 조회 + 신고 큐 패널.
 import { AuditLogPanel } from './moderation/AuditLogPanel';
 import { ReportQueuePanel } from './moderation/ReportQueuePanel';
@@ -96,11 +98,14 @@ export function WorkspaceSettingsPage({
     | 'email-invites'
     | 'emoji'
     | 'roles'
+    | 'automod'
     | 'reports'
     | 'audit-log'
     | 'onboarding';
   // S71 (결정 5): 온보딩 카탈로그 CRUD 는 ADMIN+ 만.
   const canManageOnboarding = myRole === 'OWNER' || myRole === 'ADMIN';
+  // FR-RM10a (063): AutoMod 규칙 관리는 ADMIN+ 만(서버 @Roles ADMIN 게이트가 최종 권위).
+  const canManageAutomod = myRole === 'OWNER' || myRole === 'ADMIN';
   const [tab, setTab] = useState<TabKey>('general');
   // E B1+S1 (SC 4.1.2/2.1.1): WAI-ARIA tab 패턴 — 노출 가능한 탭만 모아 화살표/Home/
   // End 키보드 이동을 구성한다. canManageEmoji/canManageRoles 가 false 면 그 탭은
@@ -127,6 +132,9 @@ export function WorkspaceSettingsPage({
     if (canManageRoles) {
       list.push({ key: 'roles', label: '역할 관리', testId: 'ws-settings-tab-roles' });
     }
+    if (canManageAutomod) {
+      list.push({ key: 'automod', label: 'AutoMod', testId: 'ws-settings-tab-automod' });
+    }
     if (canModerateReports) {
       list.push({ key: 'reports', label: '신고 큐', testId: 'ws-settings-tab-reports' });
     }
@@ -142,6 +150,7 @@ export function WorkspaceSettingsPage({
     canManageEmailInvites,
     canManageEmoji,
     canManageRoles,
+    canManageAutomod,
     canModerateReports,
     canViewAuditLog,
     canManageOnboarding,
@@ -375,6 +384,15 @@ export function WorkspaceSettingsPage({
             tabIndex={0}
           >
             <RolesManager workspaceId={workspace.id} canManage={canManageRoles} />
+          </div>
+        ) : tab === 'automod' && canManageAutomod ? (
+          <div
+            role="tabpanel"
+            id="ws-settings-panel-automod"
+            aria-labelledby="ws-settings-tab-automod"
+            tabIndex={0}
+          >
+            <AutoModPanel workspaceId={workspace.id} canManage={canManageAutomod} />
           </div>
         ) : tab === 'reports' && canModerateReports ? (
           <div
