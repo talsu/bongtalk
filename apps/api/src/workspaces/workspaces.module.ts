@@ -62,6 +62,11 @@ import { WorkspaceMemberProfileService } from './member-profile/workspace-member
 import { WebhooksController } from './webhooks/webhooks.controller';
 import { IncomingWebhookController } from './webhooks/incoming-webhook.controller';
 import { WebhooksService } from './webhooks/webhooks.service';
+// FR-RM10a (063): AutoMod 키워드 모더레이션 REST + 도메인 서비스. AuditService 는 @Global
+// AuditModule, ModerationService 는 같은 모듈 provider. MessagesService 가 forwardRef 로
+// AutoModService 를 주입해 send/edit hook 에서 check 한다(양방향 forwardRef 로 순환 해소).
+import { AutoModController } from './automod/automod.controller';
+import { AutoModService } from './automod/automod.service';
 
 @Module({
   imports: [
@@ -89,6 +94,7 @@ import { WebhooksService } from './webhooks/webhooks.service';
     WorkspaceMemberProfileController,
     WebhooksController,
     IncomingWebhookController,
+    AutoModController,
   ],
   providers: [
     WorkspacesService,
@@ -105,6 +111,7 @@ import { WebhooksService } from './webhooks/webhooks.service';
     IpSoftBlockService,
     WorkspaceMemberProfileService,
     WebhooksService,
+    AutoModService,
   ],
   exports: [
     WorkspacesService,
@@ -117,6 +124,8 @@ import { WebhooksService } from './webhooks/webhooks.service';
     IpSoftBlockService,
     // S81a (FR-SC-08): /nick 슬래시 커맨드가 워크스페이스 닉네임 변경에 재사용.
     WorkspaceMemberProfileService,
+    // FR-RM10a (063): MessagesService 가 send/edit hook 에서 check 하도록 export.
+    AutoModService,
   ],
 })
 export class WorkspacesModule {}

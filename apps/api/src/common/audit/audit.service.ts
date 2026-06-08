@@ -204,6 +204,20 @@ export const AuditAction = {
   SUSPICIOUS_JOIN: 'SUSPICIOUS_JOIN',
   /** FR-W22: 동일 차단 IP 의 24h SUSPICIOUS_JOIN 누적이 threshold 도달(모더레이션 알림). */
   SUSPICIOUS_JOIN_THRESHOLD: 'SUSPICIOUS_JOIN_THRESHOLD',
+  // FR-RM10a (063): AutoMod 키워드 모더레이션. details 에 ruleId·keyword·action 을 싣고,
+  // BLOCK/TIMEOUT 은 targetId=작성자(메시지 미저장), ALERT 은 저장된 메시지 컨텍스트를 남긴다.
+  /** FR-RM10a: AutoMod 규칙 생성. */
+  AUTOMOD_RULE_CREATE: 'AUTOMOD_RULE_CREATE',
+  /** FR-RM10a: AutoMod 규칙 수정. */
+  AUTOMOD_RULE_UPDATE: 'AUTOMOD_RULE_UPDATE',
+  /** FR-RM10a: AutoMod 규칙 삭제. */
+  AUTOMOD_RULE_DELETE: 'AUTOMOD_RULE_DELETE',
+  /** FR-RM10a: BLOCK 액션 — 메시지를 저장하지 않고 거부(details.ruleId/keyword). */
+  AUTOMOD_BLOCK: 'AUTOMOD_BLOCK',
+  /** FR-RM10a: ALERT 액션 — 메시지는 저장하되 모더레이션 신호만 기록(details.ruleId/keyword). */
+  AUTOMOD_ALERT: 'AUTOMOD_ALERT',
+  /** FR-RM10a: TIMEOUT 액션 — 메시지 차단 + 작성자 타임아웃(details.ruleId/keyword/durationSeconds). */
+  AUTOMOD_TIMEOUT: 'AUTOMOD_TIMEOUT',
 } as const;
 
 export type AuditActionKey = (typeof AuditAction)[keyof typeof AuditAction];

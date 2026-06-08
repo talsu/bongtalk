@@ -388,6 +388,10 @@ export enum ErrorCode {
   // S86 (FR-MN-15): Web Push(VAPID) 구독 등록 요청(endpoint/keys) 형식 오류 → 400.
   PUSH_SUBSCRIPTION_INVALID = 'PUSH_SUBSCRIPTION_INVALID',
 
+  // FR-RM10a (063): AutoMod 키워드 규칙(BLOCK/TIMEOUT)에 메시지 send/edit 이 차단됨 →
+  // 422(요청 envelope 은 well-formed 이나 도메인 모더레이션 규칙 위반 — 처리 불가).
+  AUTOMOD_BLOCKED = 'AUTOMOD_BLOCKED',
+
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
   NOT_FOUND = 'NOT_FOUND',
@@ -615,6 +619,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.SIDEBAR_ASSIGNMENT_NOT_FOUND]: 404,
   // S86 (FR-MN-15): 푸시 구독 등록 형식 오류 → 400.
   [ErrorCode.PUSH_SUBSCRIPTION_INVALID]: 400,
+  // FR-RM10a (063): AutoMod 규칙에 의한 메시지 차단 → 422(도메인 모더레이션 규칙 위반).
+  [ErrorCode.AUTOMOD_BLOCKED]: 422,
   [ErrorCode.ACCOUNT_NOT_DEACTIVATED]: 409,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,

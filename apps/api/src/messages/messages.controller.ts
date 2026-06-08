@@ -556,6 +556,13 @@ export class MessagesController {
             m.role,
           )
         : false;
+    // FR-RM10a (063 / ADR E3): 편집도 AutoMod 게이트를 타므로(우회 방지) actor 보유 Role
+    // UUID 를 로드해 역할 exempt 판정에 넘긴다(워크스페이스 채널일 때만 의미 — DM 은 빈 배열).
+    const editMember =
+      channel && channel.workspaceId !== null
+        ? await this.channelAccess.loadAdministratorBypassMember(channel.workspaceId, user.id)
+        : null;
+    const editMemberRoleUuids = editMember?.memberRoles.map((r) => r.roleId) ?? [];
     const row = await this.messages.update({
       workspaceId: m.workspaceId,
       channelId,
@@ -569,9 +576,9 @@ export class MessagesController {
       // S44 (FR-MN-02/16): override-aware MENTION_EVERYONE 권한 게이트.
       hasMentionEveryone: editHasMentionEveryone,
       // S88a (FR-MN-03 / D3): non-mentionable 역할 멘션 lazy 권한 계산용 actor 역할.
-      // memberRoleUuids 는 미지정 — service 의 resolveMentionEveryone 이 필요 시 자체
-      // 조회한다(편집은 hot-path 가 아니라 preload 불요).
       actorRole: m.role,
+      // FR-RM10a (063): AutoMod 역할 exempt 판정용 actor 보유 Role UUID.
+      actorMemberRoleUuids: editMemberRoleUuids,
     });
     // S60 (FR-RC07): 편집으로 본문 URL 이 바뀌었을 수 있으므로 unfurl 을 재enqueue 한다
     // (jobId=messageId 멱등 · MessageEmbed upsert). URL 이 사라졌으면 기존 embed 는 그대로

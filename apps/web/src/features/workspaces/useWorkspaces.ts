@@ -33,6 +33,10 @@ import {
   updateMemberRole,
   updateRole,
   updateWorkspace,
+  listAutoModRules,
+  createAutoModRule,
+  updateAutoModRule,
+  deleteAutoModRule,
 } from './api';
 import type {
   BulkMemberAction,
@@ -41,6 +45,8 @@ import type {
   UpdateMemberRoleRequest,
   UpdateRoleRequest,
   WorkspaceRole,
+  CreateAutoModRuleRequest,
+  UpdateAutoModRuleRequest,
 } from '@qufox/shared-types';
 import { qk } from '../../lib/query-keys';
 
@@ -73,6 +79,8 @@ const keys = {
   roles: (id: string) => ['workspaces', id, 'roles'] as const,
   // S63 (D12 / FR-RM06): 차단 목록 캐시 키.
   bans: (id: string) => ['workspaces', id, 'bans'] as const,
+  // FR-RM10a (063): AutoMod 규칙 목록 캐시 키.
+  autoModRules: (id: string) => ['workspaces', id, 'automod-rules'] as const,
 };
 
 export function useMyWorkspaces() {
@@ -295,6 +303,47 @@ export function useDeleteRole(id: string) {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.roles(id) });
       qc.invalidateQueries({ queryKey: keys.members(id) });
+    },
+  });
+}
+
+// ── FR-RM10a (063): AutoMod 키워드 규칙 ────────────────────────────────────────
+
+export function useAutoModRules(id: string | undefined) {
+  return useQuery({
+    queryKey: keys.autoModRules(id ?? ''),
+    queryFn: async () => (await listAutoModRules(id!)).rules,
+    enabled: !!id,
+  });
+}
+
+export function useCreateAutoModRule(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (input: CreateAutoModRuleRequest) => createAutoModRule(id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.autoModRules(id) });
+    },
+  });
+}
+
+export function useUpdateAutoModRule(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ruleId, input }: { ruleId: string; input: UpdateAutoModRuleRequest }) =>
+      updateAutoModRule(id, ruleId, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.autoModRules(id) });
+    },
+  });
+}
+
+export function useDeleteAutoModRule(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (ruleId: string) => deleteAutoModRule(id, ruleId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.autoModRules(id) });
     },
   });
 }
