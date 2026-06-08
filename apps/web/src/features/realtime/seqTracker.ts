@@ -64,6 +64,12 @@ export class SeqTracker {
   /** join 스냅샷 등으로 받은 채널 seq 기준선을 설정합니다. */
   setBaseline(channelId: string, seq: number): void {
     if (seq === SEQ_SENTINEL) return;
+    // S99 (S10 carryover · LOW): 서버가 손상된 Redis 값에서 NaN 을 흘려보내거나
+    // (서버측 parseSeq 가드 이전 빌드) 와이어가 비유한 seq 를 싣는 경우, NaN 을
+    // baseline 으로 박으면 이후 observe 의 monotonic 비교(seq === prev+1)가 항상
+    // 거짓이 되어 채널이 영구 hole 로 굳는다. 비유한 값은 기준선을 세우지 않는다
+    // (다음 정상 seq 가 첫 관측처럼 기준선을 수립).
+    if (!Number.isFinite(seq)) return;
     this.lastSeq.set(channelId, seq);
   }
 

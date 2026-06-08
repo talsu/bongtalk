@@ -683,41 +683,52 @@ export function installRealtimeDispatcher(
     });
   });
 
-  on<{ channelId: string; workspaceId: string; message: { id: string } }>(
-    'message.deleted',
-    (env) => {
-      if (!env.channelId || !env.workspaceId) return;
-      qc.setQueryData<InfiniteData<ListMessagesResponse>>(
-        qk.messages.list(env.workspaceId, env.channelId),
-        (old) => {
-          if (!old) return old;
-          // S05 (FR-MSG-09): 스레드 reply 가 달린 root 는 플레이스홀더로 대체
-          // (deleted:true 마킹 → MessageItem 이 "(삭제된 메시지)" 렌더), reply
-          // 없는 단독 메시지는 목록에서 즉시 제거. reply 존재 여부는 캐시 행의
-          // thread.replyCount 로 판정한다(서버 events 스키마 변경 없이 결정).
-          return {
-            ...old,
-            pages: old.pages.map((p) => {
-              const target = p.items.find((m) => m.id === env.message.id);
-              const isThreadRootWithReplies =
-                !!target &&
-                target.parentMessageId === null &&
-                !!target.thread &&
-                target.thread.replyCount > 0;
-              if (target && !isThreadRootWithReplies) {
-                // 단독 메시지(또는 reply 자신) → 즉시 제거.
-                return { ...p, items: p.items.filter((m) => m.id !== env.message.id) };
-              }
-              return {
-                ...p,
-                items: p.items.map((m) =>
-                  m.id === env.message.id ? { ...m, deleted: true, content: null } : m,
-                ),
-              };
-            }),
-          };
-        },
-      );
+  on<{
+    channelId: string;
+    workspaceId: string;
+    message: { id: string; version?: number };
+  }>('message.deleted', (env) => {
+    if (!env.channelId || !env.workspaceId) return;
+    // S99 (S05-verify carryover · LOW): 삭제 페이로드가 싣는 version 으로 캐시
+    // 행의 낙관적-잠금 baseline 을 갱신한다(MessageUpdated 와 대칭). 플레이스홀더로
+    // 남는 thread-root 행이 stale version 을 들고 있으면, 다른 클라의 후속 동작이
+    // 잘못된 baseline 으로 충돌 판정될 수 있다. version 이 없으면(구 서버) 미적용.
+    const deletedVersion = env.message.version;
+    // deleted 플레이스홀더 마킹 시 함께 적용할 부분 패치. version 이 실려오면
+    // baseline 도 갱신, 없으면 종전 그대로(deleted:true + content:null).
+    const deletedPatch =
+      typeof deletedVersion === 'number'
+        ? { deleted: true, content: null, version: deletedVersion }
+        : { deleted: true, content: null };
+    qc.setQueryData<InfiniteData<ListMessagesResponse>>(
+      qk.messages.list(env.workspaceId, env.channelId),
+      (old) => {
+        if (!old) return old;
+        // S05 (FR-MSG-09): 스레드 reply 가 달린 root 는 플레이스홀더로 대체
+        // (deleted:true 마킹 → MessageItem 이 "(삭제된 메시지)" 렌더), reply
+        // 없는 단독 메시지는 목록에서 즉시 제거. reply 존재 여부는 캐시 행의
+        // thread.replyCount 로 판정한다(서버 events 스키마 변경 없이 결정).
+        return {
+          ...old,
+          pages: old.pages.map((p) => {
+            const target = p.items.find((m) => m.id === env.message.id);
+            const isThreadRootWithReplies =
+              !!target &&
+              target.parentMessageId === null &&
+              !!target.thread &&
+              target.thread.replyCount > 0;
+            if (target && !isThreadRootWithReplies) {
+              // 단독 메시지(또는 reply 자신) → 즉시 제거.
+              return { ...p, items: p.items.filter((m) => m.id !== env.message.id) };
+            }
+            return {
+              ...p,
+              items: p.items.map((m) => (m.id === env.message.id ? { ...m, ...deletedPatch } : m)),
+            };
+          }),
+        };
+      },
+    );
 
       // S35 (FR-TH-20b): 채널 타임라인과 Thread Panel 의 공유 상태 동기화. 같은
       // message.deleted 이벤트로 양쪽을 한 번에 처리한다(별도 2차 fetch 없음 →
@@ -746,11 +757,9 @@ export function installRealtimeDispatcher(
             changed = true;
             return {
               ...p,
-              root: rootHit ? { ...p.root, deleted: true, content: null } : p.root,
+              root: rootHit ? { ...p.root, ...deletedPatch } : p.root,
               replies: replyHit
-                ? p.replies.map((r) =>
-                    r.id === env.message.id ? { ...r, deleted: true, content: null } : r,
-                  )
+                ? p.replies.map((r) => (r.id === env.message.id ? { ...r, ...deletedPatch } : r))
                 : p.replies,
             };
           });

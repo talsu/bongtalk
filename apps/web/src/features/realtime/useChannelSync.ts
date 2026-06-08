@@ -129,7 +129,39 @@ export function installChannelSync(
   const queue = new GapFetchQueue();
   const pendingByChannel = new Map<string, PendingEventBuffer>();
   const backoffByChannel = new Map<string, Backoff>();
+  // S99 (S10 carryover · MED): 재시도 setTimeout id 를 채널별로 보관한다. 재시도
+  // 타이머는 채널당 최대 1개(다음 attempt 가 잡힐 때 기존 것을 clear)이므로
+  // Map<channelId, timer> 로 관리한다. detach/cleanup 에서 전부 clearTimeout 해
+  // 로그아웃/소켓 교체 후 orphan 타이머가 stale 클로저로 runSync 를 발화(401 +
+  // stray "동기화 실패" 토스트)하는 것을 막는다. maxAttempts 자가종료로 bounded
+  // 지만 명시 취소가 필요하다.
+  const retryTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  // S99 review (MEDIUM-1): retryTimers 는 *발화 대기 중*인 타이머만 취소한다.
+  // 타이머가 이미 발화해 runSync→queue.enqueue 가 in-flight 인 사이에 detach 가
+  // 일어나고, 그 후 queue Promise 가 reject 되면 실패 콜백이 scheduleRetry 로
+  // detach 이후 새 타이머를 부활시킨다(Map 취소가 못 막는 경로). detached 플래그로
+  // in-flight 정착 콜백을 무력화해 그 윈도우까지 닫는다.
+  let detached = false;
   const detachers: Array<() => void> = [];
+
+  const clearRetryTimer = (channelId: string): void => {
+    const t = retryTimers.get(channelId);
+    if (t !== undefined) {
+      clearTimeout(t);
+      retryTimers.delete(channelId);
+    }
+  };
+
+  const scheduleRetry = (channelId: string, delay: number): void => {
+    // 채널당 1개 유지: 기존 예약이 있으면 먼저 취소(중복 발화 방지).
+    clearRetryTimer(channelId);
+    const t = setTimeout(() => {
+      // 발화 즉시 추적에서 제거(재예약은 다음 실패에서 다시 잡는다).
+      retryTimers.delete(channelId);
+      runSync(channelId);
+    }, delay);
+    retryTimers.set(channelId, t);
+  };
 
   const pendingFor = (channelId: string): PendingEventBuffer => {
     let buf = pendingByChannel.get(channelId);
@@ -168,10 +200,16 @@ export function installChannelSync(
       )
       .then(
         () => {
+          // S99 review (MEDIUM-1): detach 이후 정착한 콜백은 무시(stale 클로저로
+          // store/타이머를 건드리지 않는다).
+          if (detached) return;
           backoffFor(channelId).reset();
           store.dispatch(channelId, { type: 'synced' });
         },
         () => {
+          // S99 review (MEDIUM-1): detach 후 실패 정착이 scheduleRetry 로 타이머를
+          // 부활시키는 경로를 차단한다.
+          if (detached) return;
           // MED fix (S10 review): 한 번의 실패는 attempt 를 정확히 1만 소진해야
           // 합니다. 예전엔 nextDelay() 를 두 번(소진 판정 전 1회 + 재시도 지연
           // 계산 1회) 호출해 실패당 attempt 가 2씩 늘어 3회 한도를 절반의
@@ -189,7 +227,8 @@ export function installChannelSync(
             });
           } else {
             // 백오프 후 재시도 — SYNC_FAILED 로 가지 않고 GAP_FETCHING 유지.
-            setTimeout(() => runSync(channelId), delay);
+            // S99: orphan 방지를 위해 추적되는 타이머로 예약한다.
+            scheduleRetry(channelId, delay);
           }
         },
       );
@@ -305,7 +344,16 @@ export function installChannelSync(
   }
 
   return () => {
+    // S99 review (MEDIUM-1): in-flight gap-fetch 정착 콜백이 재시도를 부활시키지
+    // 못하도록 먼저 플래그를 세운다(detachers 실행/타이머 취소보다 선행).
+    detached = true;
     for (const d of detachers) d();
+    // S99 (S10 carryover · MED): 보류 중인 재시도 타이머를 전부 취소한다. 안 하면
+    // 로그아웃/소켓 교체로 이 클로저가 detach 된 뒤에도 setTimeout 이 살아남아
+    // stale 소켓·인증으로 runSync(→listMessages)를 발화해 401 + stray
+    // "동기화 실패" 토스트를 만든다.
+    for (const t of retryTimers.values()) clearTimeout(t);
+    retryTimers.clear();
     clearActiveSeqTracker(seq);
     seq.clear();
   };

@@ -713,8 +713,10 @@ export class RealtimeGateway
    * S26 fix-forward(reviewer BLOCKER · authz-staleness): does `viewer` STILL have
    * the right to observe `targetUserId`'s presence right now? Unlike the
    * subscribe-time authz, this must NOT trust the socket's cached
-   * `state.workspaceIds` — a viewer who was kicked/left keeps the stale id in
-   * memory until reconnect (refreshUserChannelIds only adds, never removes), and
+   * `state.workspaceIds` — a viewer who was kicked/left can keep a stale id in
+   * memory until reconnect (refreshUserChannelIds reconciles join+leave per S99
+   * but only fires on channel.created / member.joined fan-out, not on every
+   * membership change, so cached state can still lag), and
    * authorizePresenceTargets only checks that the TARGET is in those workspaces,
    * not the viewer. So we re-read the VIEWER's current workspace membership from
    * the DB, intersect it against the target's, and additionally require a shared
@@ -1034,6 +1036,7 @@ export class RealtimeGateway
     const userRoomSockets = await this.server.in(rooms.user(userId)).fetchSockets();
     if (userRoomSockets.length === 0) return;
     const fresh = await this.roomMgr.roomsForUser(userId);
+    const freshSet = new Set(fresh.channelIds);
     for (const s of userRoomSockets) {
       const data = (s as unknown as { data: { state?: SocketState } }).data;
       if (!data.state) continue;
@@ -1041,6 +1044,17 @@ export class RealtimeGateway
       const toJoin = fresh.channelIds.filter((id) => !already.has(id));
       if (toJoin.length > 0) {
         await s.join(toJoin.map((id) => rooms.channel(id)));
+      }
+      // S99 (S07 carryover · LOW): join 과 대칭으로 leave 도 처리한다. fresh
+      // (cap=MAX_JOINED_CHANNELS 적용)에서 밀려난(이미 join 돼 있으나 더 이상
+      // 가입 대상이 아닌) 채널은 toLeave 로 계산해 실제 룸에서 leave 시킨다.
+      // 종전엔 channelIds 를 fresh 로 덮어쓰기만 해 내부 추적은 줄었으나 소켓이
+      // 여전히 옛 채널 룸에 남아 fanout 을 받았다(cap 단조성 위반 · 유령 구독).
+      // RemoteSocket.leave 는 단일 room 만 받으므로(배열을 받는 join 과 비대칭)
+      // 채널마다 호출한다.
+      const toLeave = data.state.channelIds.filter((id) => !freshSet.has(id));
+      for (const id of toLeave) {
+        await s.leave(rooms.channel(id));
       }
       data.state.channelIds = fresh.channelIds;
       data.state.workspaceIds = fresh.workspaceIds;

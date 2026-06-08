@@ -9,6 +9,7 @@ import {
   DropdownItem,
 } from '../design-system/primitives';
 import { useDmPresence } from '../features/realtime/useDmPresence';
+import { useDmCreated } from '../features/dms/useDmCreated';
 import { useAuth } from '../features/auth/AuthProvider';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
@@ -206,6 +207,12 @@ export function DmShell(): JSX.Element {
   const [query, setQuery] = useState('');
   // task-040 R3 + reviewer H1: realtime now App-level.
   useNotificationPreferences();
+  // S99 (S16 carryover · MED): dm:created WS 이벤트를 DM Shell 에서 소비한다.
+  // 다른 기기/상대가 새 DM·그룹 DM 을 개설하면 서버가 user:{userId} 룸으로 push 하고,
+  // 이 훅이 ['dm','list']/['dm','groups'] 캐시를 무효화해 사이드바 목록이 즉시
+  // 새 대화를 띄운다. 훅은 존재했으나 어떤 Shell 에도 배선돼 있지 않아 dormant 였다.
+  // DmShell 은 /dm 과 /dm/:userId 양쪽에서 마운트되므로 여기서 1회 opt-in 한다.
+  useDmCreated();
   // task-041 A-3: aggregate workspace presence so DM list rows show
   // online/dnd/offline dots even though DMs are workspaceless.
   const { getStatus } = useDmPresence();

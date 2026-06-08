@@ -27,6 +27,18 @@ export class ChannelSeqService {
   }
 
   /**
+   * S99 (S10 carryover · LOW): Redis 의 raw seq 문자열을 안전한 정수 baseline 으로
+   * 정규화한다. 키 없음(null/undefined) 또는 비유한(NaN/±Infinity — 손상·비정수
+   * 값) 은 모두 0(미관측 baseline)으로 떨어뜨려, NaN 이 setBaseline 을 거쳐 클라
+   * seqTracker 의 monotonic 비교를 영구 hole 로 굳히는 것을 막는다.
+   */
+  private parseSeq(raw: string | null | undefined): number {
+    if (raw === null || raw === undefined) return 0;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : 0;
+  }
+
+  /**
    * 채널 seq 를 1 증가시키고 새 값을 반환합니다. Redis 장애 시 SEQ_SENTINEL.
    */
   async next(channelId: string): Promise<number> {
@@ -47,7 +59,11 @@ export class ChannelSeqService {
   async current(channelId: string): Promise<number> {
     try {
       const raw = await this.redis.get(this.key(channelId));
-      return raw === null ? 0 : Number(raw);
+      // S99 (S10 carryover · LOW): 비정수/손상 Redis 값(예: 수동 SET 'foo')은
+      // Number('foo')=NaN 이 되어 baseline 으로 흘러가면 클라 seqTracker 가
+      // NaN 과의 비교(seq === prev+1 등)에서 영구 hole 로 굳는다. 키 없음(null)
+      // 만 0 폴백하던 데서, 비유한 파싱 결과도 0 으로 정규화한다.
+      return this.parseSeq(raw);
     } catch (err) {
       this.logger.warn(
         `[realtime] seq GET failed channel=${channelId} → sentinel err=${String(err).slice(0, 200)}`,
@@ -68,8 +84,8 @@ export class ChannelSeqService {
     try {
       const raws = await this.redis.mget(...channelIds.map((id) => this.key(id)));
       channelIds.forEach((id, i) => {
-        const raw = raws[i];
-        out.set(id, raw === null || raw === undefined ? 0 : Number(raw));
+        // S99: current() 와 동일한 NaN 가드. 손상 값은 0(미관측 baseline)으로.
+        out.set(id, this.parseSeq(raws[i]));
       });
     } catch (err) {
       this.logger.warn(

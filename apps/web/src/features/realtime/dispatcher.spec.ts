@@ -1067,6 +1067,72 @@ describe('realtime dispatcher', () => {
     detach();
   });
 
+  // S99 (S05-verify carryover · LOW): message.deleted 가 version 을 실으면 플레이스홀더로
+  // 남는 thread-root 행의 낙관적-잠금 baseline(version)도 함께 갱신한다(MessageUpdated 대칭).
+  it('message.deleted 가 version 을 실으면 placeholder 행 version baseline 갱신 (S99)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [
+            seedMsg({
+              id: 'msg-root',
+              version: 3,
+              thread: { replyCount: 1, lastRepliedAt: null, recentReplyUserIds: [] },
+            }),
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.deleted', {
+      id: 'ev-d3',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-root', version: 4 },
+    });
+    const row = readItems(qc).find((m) => m.id === 'msg-root');
+    expect(row?.deleted).toBe(true);
+    expect(row?.content).toBeNull();
+    expect(row?.version).toBe(4);
+    detach();
+  });
+
+  // version 이 없는(구 서버) 페이로드는 기존 version 을 보존한다(후방호환).
+  it('message.deleted version 누락 시 기존 version 보존 (S99 후방호환)', () => {
+    const socket = makeFakeSocket();
+    const qc = new QueryClient();
+    qc.setQueryData(qk.messages.list('ws-1', 'ch-1'), {
+      pages: [
+        {
+          items: [
+            seedMsg({
+              id: 'msg-root',
+              version: 7,
+              thread: { replyCount: 1, lastRepliedAt: null, recentReplyUserIds: [] },
+            }),
+          ],
+          pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+        },
+      ],
+      pageParams: [undefined],
+    });
+    const detach = installRealtimeDispatcher(socket, qc);
+    socket.emit('message.deleted', {
+      id: 'ev-d4',
+      channelId: 'ch-1',
+      workspaceId: 'ws-1',
+      message: { id: 'msg-root' },
+    });
+    const row = readItems(qc).find((m) => m.id === 'msg-root');
+    expect(row?.deleted).toBe(true);
+    expect(row?.version).toBe(7);
+    detach();
+  });
+
   // S60 (FR-RC07/08): message:embed_updated 가 해당 messageId 행의 embeds 를 통째로
   // 교체한다(idempotent replace · 채널 룸 fanout).
   it('message:embed_updated replaces the message embeds in the channel cache', () => {
