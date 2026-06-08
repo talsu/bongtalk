@@ -8,10 +8,30 @@
 - [ ] **S98 — carryover 정리(docs)**: 조용히-해소 11건 RESOLVED 마킹(S00 allowMask·parse ReDoS·
       PARSE errorcode·S05 qf-text-danger·S05-v badge/threads RED·S09 FR-RT-22 x2·S11 cuid2·S11-v int·
       S12 FR-CH-03). 배포 없음.
-- [ ] **S99 — realtime/WS 정확성 번들** (MED/LOW): ① useChannelSync gap-fetch 재시도 setTimeout
+- [x] **S99 — realtime/WS 정확성 번들** (MED/LOW): ① useChannelSync gap-fetch 재시도 setTimeout
       detach 미취소→타이머 Set cleanup(S10) ② refreshUserChannelIds cap 초과 채널 leave(S07)
       ③ MessageDeletedPayload version 필드(S05-v·낙관잠금 baseline) ④ ChannelSeqService NaN 가드(S10)
       ⑤ read_state:updated 웹 소비/useDmCreated Shell 배선(S16·S97 후 재확인).
+      → DONE: ① retryTimers Map<channelId,timer> + detach/재예약 clearTimeout ② toLeave=already−fresh
+      leave(RemoteSocket.leave 단건) ③ shared-types version optional(후방호환) + service softDelete 동봉
+      + dispatcher version baseline 갱신 ④ 서버 parseSeq(Number.isFinite)·클라 setBaseline NaN 가드
+      ⑤ read_state:updated 는 이미 dispatcher 완전 소비(스킵)·useDmCreated 미배선→DmShell+MobileDmList 배선.
+      host typecheck+vitest unit green, 마이그레이션 없음. user-scope 오프라인 catch-up 갭은 별도 잔여.
+      → VERIFY: standalone 컨테이너 verify green(web 220f/1771t·turbo 19/19) + int 2스펙 green
+      (messages.events + ws.channel-cap). ws.channel-cap 픽스처 1건 수정(eviction 후보를 비-priority
+      공개채널로 한정 — 직전 테스트의 DM override 가 priority 로 고정돼 오집계).
+      → 7차원 리뷰(reviewer·security·contract·performance) 후 fix-forward:
+        • MEDIUM-1(reviewer): useChannelSync detach 후 in-flight gap-fetch reject 시 scheduleRetry 가
+          타이머 부활 → `detached` 플래그로 정착 콜백 무력화 + 회귀 테스트 추가.
+        • NIT-2(reviewer): canStillObservePresence 의 stale "only adds, never removes" 주석 정정.
+        • contract MED: MessageDeletedPayload 내부 required ↔ wire optional 은 의도된 비대칭(발행측
+          강제 vs 후방호환) → message-events.ts 주석으로 명시(타입 변경 없음).
+        • perf "serious"(toLeave 직렬 await) + NIT-1(leave 배열 미지원 주석) = 거짓양성: RemoteSocket.leave
+          는 반환 void(fire-and-forget·Redis 왕복 블로킹 아님) + 타입상 단일 room(주석 정확). 무변경.
+      → 잔여(별도 추적·프리-이그지스팅 LOW 보안): ⓐ channel.updated 로 isPrivate 공개→비공개 전환 시
+        refreshChannelIdsForWorkspace 미트리거 → 비구성원 소켓이 룸에 잔존해 fanout 수신(outbox-to-ws
+        onChannelEvent 에 isPrivate 변경 분기 추가 필요·S105 흡수). ⓑ message.deleted raw payload 의
+        actorId/authorId 채널 룸 전파(wire 스키마엔 없음·기존 동작).
 - [ ] **S100 — a11y 번들** (MED): ① gutter-time `:focus-within`(app-layer index.css·DS 4파일 금지)
       ② 메시지 행 article accessible name(aria-label) ③ 유니코드 이모지 폴백 role=img/aria-label(renderAst).
 - [ ] **S101 — perf 번들** (MED/LOW): ① MessageItem React.memo + DayDivider memo + time/jumbo useMemo

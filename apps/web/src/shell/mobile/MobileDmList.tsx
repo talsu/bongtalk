@@ -7,6 +7,7 @@ import { useMutedChannelIds } from '../../features/channels/useMutes';
 import { deriveDmBadgeCount, dmBadgeText } from '../../features/dms/dmRowBadge';
 import { useFriendsList } from '../../features/friends/useFriends';
 import { useDmPresence } from '../../features/realtime/useDmPresence';
+import { useDmCreated } from '../../features/dms/useDmCreated';
 import { MobileTabBar } from './MobileTabBar';
 
 /**
@@ -28,6 +29,9 @@ export function MobileDmList(): JSX.Element {
   const [newOpen, setNewOpen] = useState(false);
   // task-041 A-3: aggregated workspace presence for the DM peer dot.
   const { getStatus } = useDmPresence();
+  // S99 (S16 carryover · MED): 데스크톱 DmShell 과 동일하게 dm:created 를 소비해
+  // 새 DM·그룹 DM 개설 시 모바일 DM 목록을 즉시 갱신한다(dormant 훅 배선).
+  useDmCreated();
 
   const norm = query.trim().toLowerCase();
   const rows = (dms?.items ?? []).filter(

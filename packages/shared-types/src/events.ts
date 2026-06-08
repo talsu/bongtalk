@@ -393,6 +393,12 @@ export const MessageDeletedPayloadSchema = z.object({
   messageId: z.string().min(1),
   channelId: ChannelIdSchema,
   deletedAt: z.string().datetime(),
+  // S99 (S05-verify carryover · LOW): 삭제 시점의 메시지 version 을 실어보낸다.
+  // 수신 클라가 해당 행을 deleted 플레이스홀더로 마킹할 때 캐시의 낙관적-잠금
+  // baseline(MessageDto.version)을 최신값으로 함께 갱신하도록 — MessageUpdated
+  // 와 대칭(편집 후 version 전파). optional 후방호환: 구 서버 페이로드(version
+  // 누락)는 종전대로 동작하고, 신규 emit 은 항상 싣는다.
+  version: z.number().int().nonnegative().optional(),
 });
 export type MessageDeletedPayload = z.infer<typeof MessageDeletedPayloadSchema>;
 

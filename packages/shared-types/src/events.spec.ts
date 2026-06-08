@@ -496,6 +496,39 @@ describe('read_state / presence / typing payloads', () => {
     ).not.toThrow();
   });
 
+  // S99 (S05-verify carryover · LOW): version 은 optional 후방호환 — 없어도 통과,
+  // 있으면 비음수 정수로 검증되고 파싱 결과에 보존된다.
+  it('message:deleted version 은 optional (구 서버 호환)', () => {
+    const p = MessageDeletedPayloadSchema.parse({
+      seq: 2,
+      messageId: 'm2',
+      channelId: 'c2',
+      deletedAt: ISO,
+    });
+    expect(p.version).toBeUndefined();
+  });
+
+  it('message:deleted 가 version 을 실으면 baseline 으로 보존', () => {
+    const p = MessageDeletedPayloadSchema.parse({
+      seq: 3,
+      messageId: 'm3',
+      channelId: 'c3',
+      deletedAt: ISO,
+      version: 5,
+    });
+    expect(p.version).toBe(5);
+    // 음수 version 은 거부.
+    expect(() =>
+      MessageDeletedPayloadSchema.parse({
+        seq: 4,
+        messageId: 'm4',
+        channelId: 'c4',
+        deletedAt: ISO,
+        version: -1,
+      }),
+    ).toThrow();
+  });
+
   it('channel:joined carries seq snapshot + lastMessageId', () => {
     const p = ChannelJoinedPayloadSchema.parse({
       channelId: 'c1',
