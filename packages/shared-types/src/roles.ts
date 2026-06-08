@@ -32,6 +32,20 @@ export const SYSTEM_ROLE_POSITION: Record<SystemRoleName, number> = {
 };
 
 /**
+ * FR-P09 (task-068 · S95): 시스템 역할의 기본 hoistInMemberList 값. OWNER·ADMIN 만
+ * true 라 종전 S27 의 '운영진'(staff) 단일 그룹 동작을 per-role 그룹으로 회귀 없이
+ * 보존한다. backfill 마이그레이션과 신규 워크스페이스 시드(seedSystemRoles)가 이 매핑을
+ * 단일 출처로 공유한다 — 두 경로의 동작이 항상 일치한다(기존/신규 워크스페이스 동형).
+ */
+export const SYSTEM_ROLE_HOIST_DEFAULT: Record<SystemRoleName, boolean> = {
+  OWNER: true,
+  ADMIN: true,
+  MODERATOR: false,
+  MEMBER: false,
+  GUEST: false,
+};
+
+/**
  * S61 (FR-RM02): 시스템 역할의 기본 권한 비트(ADR-4 카탈로그 BigInt). 종전 집행
  * enum `ROLE_BASELINE`(OWNER/ADMIN/MEMBER) 를 BigInt 카탈로그로 대체합니다.
  *
@@ -143,6 +157,12 @@ export const RoleSchema = z.object({
    * 비권한 메타라 시스템 역할도 토글 가능하다.
    */
   mentionable: z.boolean(),
+  /**
+   * FR-P09 (task-068 · S95): true 면 이 역할 멤버(온라인)가 멤버 목록 상단에 역할별
+   * 별도 그룹으로 hoist 된다(Discord hoist). 비권한 메타라 시스템 역할도 토글 가능하다
+   * (mentionable 과 동형). 시스템 OWNER·ADMIN 은 기본 true.
+   */
+  hoistInMemberList: z.boolean(),
   createdAt: z.string().datetime(),
   updatedAt: z.string().datetime(),
 });
@@ -165,6 +185,8 @@ export const CreateRoleRequestSchema = z.object({
   position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
   // S88a (FR-MN-03 · D6): 멘션 허용 플래그. 미지정 시 서버가 false(멘션 불가)로 생성.
   mentionable: z.boolean().optional(),
+  // FR-P09 (task-068 · S95): hoist 플래그. 미지정 시 서버가 false(비-hoist)로 생성.
+  hoistInMemberList: z.boolean().optional(),
 });
 export type CreateRoleRequest = z.infer<typeof CreateRoleRequestSchema>;
 
@@ -181,6 +203,8 @@ export const UpdateRoleRequestSchema = z
     position: z.number().int().min(ROLE_POSITION_MIN).max(ROLE_POSITION_MAX).optional(),
     // S88a (FR-MN-03 · D6): 멘션 허용 토글. 시스템 역할도 변경 가능(비권한 메타).
     mentionable: z.boolean().optional(),
+    // FR-P09 (task-068 · S95): hoist 토글. 시스템 역할도 변경 가능(비권한 메타 · mentionable 동형).
+    hoistInMemberList: z.boolean().optional(),
   })
   .refine(
     (d) =>
@@ -188,7 +212,8 @@ export const UpdateRoleRequestSchema = z
       d.colorHex !== undefined ||
       d.permissions !== undefined ||
       d.position !== undefined ||
-      d.mentionable !== undefined,
+      d.mentionable !== undefined ||
+      d.hoistInMemberList !== undefined,
     { message: 'at least one field must be provided' },
   );
 export type UpdateRoleRequest = z.infer<typeof UpdateRoleRequestSchema>;

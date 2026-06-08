@@ -1,7 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma, WorkspaceRole } from '@prisma/client';
 import {
-  HOISTED_ROLES,
   LARGE_WORKSPACE_THRESHOLD,
   MEMBER_DIRECTORY_PAGE_SIZE,
   MEMBER_LIST_PAGE_SIZE,
@@ -16,6 +15,7 @@ import {
   type StatusGroup,
   WorkspaceRole as SharedRole,
 } from '@qufox/shared-types';
+import { pickTopHoistRoleId, sortHoistedRoles, type HoistedRoleInfo } from './member-hoist';
 import { PrismaService } from '../../prisma/prisma.module';
 import { S3Service } from '../../storage/s3.service';
 import { DomainError } from '../../common/errors/domain-error';
@@ -47,6 +47,9 @@ const STATUS_SORT_WEIGHT: Record<MemberStatusGroup, number> = {
   dnd: 2,
   offline: 3,
 };
+
+/** FR-P09 (task-068): hoisted 역할 미보유 멤버용 공유 빈 집합(불필요한 Set 할당 회피). */
+const EMPTY_ROLE_SET: ReadonlySet<string> = new Set<string>();
 
 interface MemberRow {
   workspaceId: string;
@@ -134,10 +137,16 @@ export class MembersService {
    * except themselves (FR-P08 single masking point) and returns each row's real
    * status so the lastSeenAt leak guard can act on it.
    *
-   * Grouping: hoisted roles (OWNER/ADMIN baseline, FR-P09) lift into a single
-   * "staff" group above the status buckets; everyone else buckets by masked
-   * status (online/idle/dnd/offline). Within every group, online-first
-   * (STATUS_SORT_WEIGHT) then joinedAt asc for a stable, paginate-safe order.
+   * Grouping (FR-P09 · task-068 · S95): 역할기반 hoist. Role.hoistInMemberList=true
+   * 역할마다 별도 그룹을 status 버킷 위에 올린다(per-role · 종전 단일 'staff' 그룹 대체).
+   * 각 멤버는 보유한 hoisted 역할 중 최상위(position 최대) 1개 그룹에만 들어간다(다중
+   * hoisted 역할 dedup). **온라인 멤버만 hoist** 된다 — hoisted 역할 보유여도 offline 이면
+   * offline status 그룹으로 강등한다(PRD "그룹 내 온라인 멤버만 기본 표시"). hoisted 역할이
+   * 없거나 offline 인 멤버는 masked status(online/idle/dnd/offline)로 버킷팅한다. 모든
+   * 그룹 내부는 online-first(STATUS_SORT_WEIGHT) → joinedAt asc 로 안정·페이지 안전 정렬.
+   *
+   * hoist 쿼리 경로(N+1 회피): hoisted Role 1회 배치 조회 + 그 역할들의 MemberRole
+   * assignment 1회 배치 조회(roleId IN)만 추가한다 — 멤버당 쿼리가 아니다(FR-P12).
    */
   async listGrouped(args: {
     workspaceId: string;
@@ -194,8 +203,53 @@ export class MembersService {
     );
     const byUser = new Map(presences.map((p) => [p.userId, p]));
 
+    // FR-P09 (task-068 · S95): 역할기반 hoist 입력 2개를 배치 조회한다(N+1 없음).
+    //   1. hoistInMemberList=true 역할(position DESC) — 그룹 정의 + 표시 순서.
+    //   2. 그 역할들의 MemberRole assignment(roleId IN) — userId → 보유 hoisted 역할 집합.
+    // hoisted 역할이 없으면 assignment 조회를 건너뛴다(추가 쿼리 0).
+    const hoistedRoleRows = await this.prisma.role.findMany({
+      where: { workspaceId, hoistInMemberList: true },
+      select: { id: true, name: true, position: true, colorHex: true },
+      orderBy: [{ position: 'desc' }, { id: 'asc' }],
+    });
+    const sortedHoistedRoles: HoistedRoleInfo[] = sortHoistedRoles(
+      hoistedRoleRows.map((r) => ({
+        roleId: r.id,
+        name: r.name,
+        position: r.position,
+        colorHex: r.colorHex,
+      })),
+    );
+    const memberHoistedRoleIds = new Map<string, Set<string>>();
+    if (sortedHoistedRoles.length > 0) {
+      // FR-P09 fix-forward (reviewer MED + perf serious): LARGE 경로(restrictToUserIds
+      // 설정 시)에는 렌더 대상 online/dnd 집합으로 assignment 조회를 바운드한다. 종전엔
+      // hoistInMemberList=true 역할의 워크스페이스 전체 assignment 를 가져왔는데, hoist
+      // 계산은 로드된 rows 의 userId 만 인덱싱하므로 online 집합 밖 행은 어차피 미사용이라
+      // 결과 불변(출력 동일)이면서 행 수만 줄인다. restrictToUserIds 없으면(SMALL) 종전대로
+      // 워크스페이스 전체를 받는다(@@index([workspaceId, roleId]) 커버).
+      const assignments = await this.prisma.memberRole.findMany({
+        where: {
+          workspaceId,
+          roleId: { in: sortedHoistedRoles.map((r) => r.roleId) },
+          ...(restrictToUserIds ? { userId: { in: restrictToUserIds } } : {}),
+        },
+        select: { userId: true, roleId: true },
+      });
+      for (const a of assignments) {
+        let set = memberHoistedRoleIds.get(a.userId);
+        if (!set) {
+          set = new Set<string>();
+          memberHoistedRoleIds.set(a.userId, set);
+        }
+        set.add(a.roleId);
+      }
+    }
+
     // Build COMPLETE groups over the whole set first (authoritative grouping).
-    const hoistMembers: MemberWithPresence[] = [];
+    // FR-P09: per-role hoist 버킷(roleId → members). 표시 순서는 sortedHoistedRoles.
+    const hoistBuckets = new Map<string, MemberWithPresence[]>();
+    for (const r of sortedHoistedRoles) hoistBuckets.set(r.roleId, []);
     const statusBuckets: Record<MemberStatusGroup, MemberWithPresence[]> = {
       online: [],
       idle: [],
@@ -218,15 +272,23 @@ export class MembersService {
       }),
     );
     for (const { row, status, dto } of dtos) {
-      if (HOISTED_ROLES.has(row.role)) {
-        hoistMembers.push(dto);
-        continue;
+      // FR-P09: 온라인(≠offline)이고 보유한 hoisted 역할이 있으면 그 최상위 1개 그룹으로.
+      // offline 이면 hoisted 역할 보유여도 status 그룹으로 강등한다(PRD — hoist 는 online 만).
+      if (status !== 'offline') {
+        const topRoleId = pickTopHoistRoleId(
+          sortedHoistedRoles,
+          memberHoistedRoleIds.get(row.userId) ?? EMPTY_ROLE_SET,
+        );
+        if (topRoleId !== null) {
+          hoistBuckets.get(topRoleId)!.push(dto);
+          continue;
+        }
       }
       if (status === 'offline' && !includeOffline) continue; // FR-P11
       statusBuckets[status].push(dto);
     }
 
-    sortGroup(hoistMembers);
+    for (const bucket of hoistBuckets.values()) sortGroup(bucket);
     for (const key of STATUS_GROUP_ORDER) sortGroup(statusBuckets[key]);
 
     // S27 fix-forward(FR-P12): canonical flat order = hoist then status groups in
@@ -234,11 +296,22 @@ export class MembersService {
     // the groups within a page are authoritative (computed over all members) and
     // pages never duplicate or drop a member. nextCursor = userId of the last row
     // in the window (keyset over the deterministic sort).
-    const flat: Array<{ groupKey: 'staff' | MemberStatusGroup; dto: MemberWithPresence }> = [];
-    for (const dto of hoistMembers) flat.push({ groupKey: 'staff', dto });
+    //
+    // FR-P09 (task-068 · S95): hoist 영역은 per-role 이라 entry 에 group kind 를 구분해
+    // 싣는다(hoist=roleId, status=status key). hoist 그룹은 sortedHoistedRoles 의 표시
+    // 순서(position DESC)로 flatten 한다.
+    type FlatEntry =
+      | { kind: 'hoist'; roleId: string; dto: MemberWithPresence }
+      | { kind: 'status'; status: MemberStatusGroup; dto: MemberWithPresence };
+    const flat: FlatEntry[] = [];
+    for (const role of sortedHoistedRoles) {
+      for (const dto of hoistBuckets.get(role.roleId) ?? []) {
+        flat.push({ kind: 'hoist', roleId: role.roleId, dto });
+      }
+    }
     for (const key of STATUS_GROUP_ORDER) {
       if (key === 'offline' && !includeOffline) continue; // FR-P11
-      for (const dto of statusBuckets[key]) flat.push({ groupKey: key, dto });
+      for (const dto of statusBuckets[key]) flat.push({ kind: 'status', status: key, dto });
     }
 
     const decoded = decodeCursor(cursor);
@@ -257,20 +330,35 @@ export class MembersService {
         : null;
 
     // Re-assemble the page slice into groups (preserving display order).
-    const pageHoist: MemberWithPresence[] = [];
+    // FR-P09: hoist 는 roleId 별 버킷으로, status 는 status key 별 버킷으로 재조립한다.
+    const pageHoistByRole = new Map<string, MemberWithPresence[]>();
     const pageBuckets: Record<MemberStatusGroup, MemberWithPresence[]> = {
       online: [],
       idle: [],
       dnd: [],
       offline: [],
     };
-    for (const { groupKey, dto } of window) {
-      if (groupKey === 'staff') pageHoist.push(dto);
-      else pageBuckets[groupKey].push(dto);
+    for (const entry of window) {
+      if (entry.kind === 'hoist') {
+        let bucket = pageHoistByRole.get(entry.roleId);
+        if (!bucket) {
+          bucket = [];
+          pageHoistByRole.set(entry.roleId, bucket);
+        }
+        bucket.push(entry.dto);
+      } else {
+        pageBuckets[entry.status].push(entry.dto);
+      }
     }
 
-    const hoist: HoistGroup[] =
-      pageHoist.length > 0 ? [{ key: 'staff', label: '운영진', members: pageHoist }] : [];
+    // FR-P09: hoist 그룹 = 역할별 1개({key: roleId, label: 역할명, color, members}),
+    // position DESC(sortedHoistedRoles 순서). 이 페이지에 멤버가 없는 hoisted 역할은 생략.
+    const hoist: HoistGroup[] = [];
+    for (const role of sortedHoistedRoles) {
+      const members = pageHoistByRole.get(role.roleId);
+      if (!members || members.length === 0) continue;
+      hoist.push({ key: role.roleId, label: role.name, color: role.colorHex, members });
+    }
 
     const groups: StatusGroup[] = [];
     for (const key of STATUS_GROUP_ORDER) {
