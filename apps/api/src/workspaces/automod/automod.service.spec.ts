@@ -25,9 +25,13 @@ interface RuleRow {
   name: string;
   triggerType: string;
   keywords: string[];
-  matchMode: 'SUBSTRING' | 'WORD';
+  matchMode: 'SUBSTRING' | 'WORD' | 'REGEX';
   action: 'BLOCK' | 'ALERT' | 'TIMEOUT';
   timeoutSeconds: number | null;
+  // MED-1: spam 트리거 파라미터(KEYWORD 룰은 null).
+  mentionThreshold: number | null;
+  repeatThreshold: number | null;
+  windowSeconds: number | null;
   exemptRoleIds: string[];
   exemptChannelIds: string[];
   enabled: boolean;
@@ -46,6 +50,9 @@ function ruleRow(over: Partial<RuleRow>): RuleRow {
     matchMode: 'SUBSTRING',
     action: 'BLOCK',
     timeoutSeconds: null,
+    mentionThreshold: null,
+    repeatThreshold: null,
+    windowSeconds: null,
     exemptRoleIds: [],
     exemptChannelIds: [],
     enabled: true,
@@ -68,6 +75,9 @@ function makeService(opts?: {
   // 리뷰 F3: exempt 소유 검증용 role/channel findMany. 기본은 입력 그대로 모두 발견(통과).
   roleFindMany?: ReturnType<typeof vi.fn>;
   channelFindMany?: ReturnType<typeof vi.fn>;
+  // MED-1: spam 트리거(MENTION_SPAM/REPEAT_SPAM) record/count 모킹. 미지정 시 spam 미주입(undefined).
+  recordAndCountMentions?: ReturnType<typeof vi.fn>;
+  recordAndCountRepeats?: ReturnType<typeof vi.fn>;
 }) {
   const findMany = opts?.findMany ?? vi.fn(async () => []);
   const count = opts?.count ?? vi.fn(async () => 0);
@@ -103,7 +113,23 @@ function makeService(opts?: {
   const audit = { record: auditRecord };
   const timeoutBySystem = vi.fn(async () => ({ userId: AUTHOR, mutedUntil: 'x' }));
   const moderation = { timeoutBySystem };
-  const svc = new AutoModService(prisma as never, audit as never, moderation as never);
+  // MED-1: spam 모킹이 하나라도 주입되면 AutoModSpamService 자리에 fake spam 을 넘긴다.
+  const recordAndCountMentions = opts?.recordAndCountMentions;
+  const recordAndCountRepeats = opts?.recordAndCountRepeats;
+  const spam =
+    recordAndCountMentions || recordAndCountRepeats
+      ? {
+          recordAndCountMentions: recordAndCountMentions ?? vi.fn(async () => 0),
+          recordAndCountRepeats: recordAndCountRepeats ?? vi.fn(async () => 0),
+        }
+      : undefined;
+  const svc = new AutoModService(
+    prisma as never,
+    audit as never,
+    moderation as never,
+    undefined, // regex runner 미주입(spam 트리거 테스트는 REGEX 불요).
+    spam as never,
+  );
   return {
     svc,
     findMany,
@@ -117,6 +143,7 @@ function makeService(opts?: {
     channelFindMany,
     auditRecord,
     timeoutBySystem,
+    spam,
   };
 }
 
@@ -375,6 +402,138 @@ describe('AutoModService.check', () => {
       actorRole: 'MEMBER',
     });
     expect(hit?.keyword).toBe('욕설');
+  });
+
+  // ── MED-1 (069 fix-forward): edit 경로 spam 트리거 record/count 스킵 ─────────────────
+  describe('recordSpam flag (MED-1)', () => {
+    function mentionRule(over: Partial<RuleRow> = {}) {
+      return ruleRow({
+        triggerType: 'MENTION_SPAM',
+        keywords: [],
+        mentionThreshold: 3,
+        windowSeconds: 60,
+        action: 'BLOCK',
+        ...over,
+      });
+    }
+    function repeatRule(over: Partial<RuleRow> = {}) {
+      return ruleRow({
+        triggerType: 'REPEAT_SPAM',
+        keywords: [],
+        repeatThreshold: 3,
+        windowSeconds: 60,
+        action: 'BLOCK',
+        ...over,
+      });
+    }
+
+    it('send (recordSpam default/true) records and counts MENTION_SPAM', async () => {
+      const recordAndCountMentions = vi.fn(async () => 5); // ≥ threshold 3 → hit.
+      const { svc } = makeService({
+        findMany: vi.fn(async () => [mentionRule()]),
+        recordAndCountMentions,
+      });
+      const hit = await svc.check({
+        workspaceId: WS,
+        channelId: CH,
+        authorId: AUTHOR,
+        actorRoleIds: [],
+        contentPlain: 'hey @a @b @c @d @e',
+        mentionCount: 5,
+        actorRole: 'MEMBER',
+        // recordSpam 미지정 → 기본 true(send).
+      });
+      expect(recordAndCountMentions).toHaveBeenCalledTimes(1);
+      expect(hit?.trigger).toBe('MENTION_SPAM');
+    });
+
+    it('★edit (recordSpam=false) SKIPS MENTION_SPAM record/count entirely', async () => {
+      const recordAndCountMentions = vi.fn(async () => 99);
+      const { svc } = makeService({
+        findMany: vi.fn(async () => [mentionRule()]),
+        recordAndCountMentions,
+      });
+      const hit = await svc.check({
+        workspaceId: WS,
+        channelId: CH,
+        authorId: AUTHOR,
+        actorRoleIds: [],
+        contentPlain: 'hey @a @b @c @d @e',
+        mentionCount: 5,
+        actorRole: 'MEMBER',
+        recordSpam: false, // edit 경로.
+      });
+      // record/count 가 ★호출되지 않아야 한다(이중카운트 방지) → 매칭도 없음.
+      expect(recordAndCountMentions).not.toHaveBeenCalled();
+      expect(hit).toBeNull();
+    });
+
+    it('★edit (recordSpam=false) SKIPS REPEAT_SPAM record/count entirely', async () => {
+      const recordAndCountRepeats = vi.fn(async () => 99);
+      const { svc } = makeService({
+        findMany: vi.fn(async () => [repeatRule()]),
+        recordAndCountRepeats,
+      });
+      const hit = await svc.check({
+        workspaceId: WS,
+        channelId: CH,
+        authorId: AUTHOR,
+        actorRoleIds: [],
+        contentPlain: 'buy now buy now buy now',
+        actorRole: 'MEMBER',
+        recordSpam: false,
+      });
+      expect(recordAndCountRepeats).not.toHaveBeenCalled();
+      expect(hit).toBeNull();
+    });
+
+    it('★edit STILL enforces KEYWORD rules (regex/keyword bypass guard kept)', async () => {
+      // edit 은 spam 만 스킵 — KEYWORD 집행은 유지(평문→금칙어 편집 우회 차단).
+      const recordAndCountMentions = vi.fn(async () => 0);
+      const { svc } = makeService({
+        findMany: vi.fn(async () => [
+          ruleRow({ keywords: ['badword'], matchMode: 'SUBSTRING', action: 'BLOCK' }),
+          mentionRule(),
+        ]),
+        recordAndCountMentions,
+      });
+      const hit = await svc.check({
+        workspaceId: WS,
+        channelId: CH,
+        authorId: AUTHOR,
+        actorRoleIds: [],
+        contentPlain: 'this contains badword now',
+        mentionCount: 5,
+        actorRole: 'MEMBER',
+        recordSpam: false, // edit.
+      });
+      expect(hit?.trigger).toBe('KEYWORD');
+      expect(hit?.keyword).toBe('badword');
+      // spam record 는 여전히 미호출(KEYWORD 가 먼저 매칭되기도 하고, edit 은 spam 스킵).
+      expect(recordAndCountMentions).not.toHaveBeenCalled();
+    });
+
+    it('repeated edits do NOT inflate REPEAT_SPAM (record skipped every edit)', async () => {
+      // 같은 메시지를 N회 편집해도 record 가 한 번도 호출되지 않아 REPEAT_SPAM 이 발화하지 않는다.
+      const recordAndCountRepeats = vi.fn(async () => 1);
+      const { svc } = makeService({
+        findMany: vi.fn(async () => [repeatRule()]),
+        recordAndCountRepeats,
+      });
+      for (let i = 0; i < 5; i++) {
+        const hit = await svc.check({
+          workspaceId: WS,
+          channelId: CH,
+          authorId: AUTHOR,
+          actorRoleIds: [],
+          contentPlain: 'edit edit edit',
+          actorRole: 'MEMBER',
+          recordSpam: false,
+        });
+        expect(hit).toBeNull();
+      }
+      expect(recordAndCountRepeats).not.toHaveBeenCalled();
+    });
   });
 });
 

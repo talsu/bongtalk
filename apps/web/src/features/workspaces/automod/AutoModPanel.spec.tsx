@@ -56,6 +56,10 @@ function rule(over: Partial<AutoModRule>): AutoModRule {
     matchMode: over.matchMode ?? 'SUBSTRING',
     action: over.action ?? 'BLOCK',
     timeoutSeconds: over.timeoutSeconds ?? null,
+    // FR-RM10b: spam 트리거 파라미터(KEYWORD 룰은 null).
+    mentionThreshold: over.mentionThreshold ?? null,
+    repeatThreshold: over.repeatThreshold ?? null,
+    windowSeconds: over.windowSeconds ?? null,
     exemptRoleIds: over.exemptRoleIds ?? [],
     exemptChannelIds: over.exemptChannelIds ?? [],
     enabled: over.enabled ?? true,
