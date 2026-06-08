@@ -1,15 +1,15 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-08 · FR-RM10a AutoMod 키워드 검증 green·배포 대기)
+> ## ▶ 현재 재개 지점 (2026-06-08 · FR-RM10a AutoMod 키워드 LIVE)
 >
-> **✅ @role 그룹(S88a/b/c) 전체 LIVE/머지.** **✅ FR-RM10a(AutoMod KEYWORD 리터럴 모더레이션·FR-RM10 partial) 코드완료 + verify 19/19 + int 20/20 — 수동배포 대기.** `feat/frrm10a-automod-keyword` 3커밋: ADR 063 → 구현 `d5342ca` → 7차원 리뷰 fix-forward `8f14c3d`(confirmed 4: ★HIGH timeoutBySystem OWNER 타임아웃→**AutoMod 가 OWNER/ADMIN 면제**[정책]·TIMEOUT 감사누락·exempt cross-ws 검증·한국어 WORD 경계 유니코드 + DS/메트릭). int 20/20(automod 16[OWNER/ADMIN 면제·cross-ws exempt 거부·한국어 WORD·BLOCK422·ALERT·TIMEOUT+mute·exempt] + messages.events 회귀 4). **마이그레이션 `20260629`(AutoModRule) 미배포.**
+> **✅ @role 그룹(S88a/b/c) 전체 LIVE/머지.** **✅ FR-RM10a(AutoMod KEYWORD 리터럴 모더레이션·FR-RM10 partial) 완료·배포·LIVE.** `main=9b7cbfa`·`develop=f3d8011`(ls-remote). migration `20260629`(AutoModRule) prod 적용·`/readyz=200`·smoke OK. **배포 후 디스크 39G→33G·btrfs 서브볼륨 339→339(누적 0·폭주 없음·격리빌더+prune 검증).** verify 19/19 + int 20/20. `feat/frrm10a-automod-keyword` 3커밋: ADR 063 → 구현 `d5342ca` → 7차원 리뷰 fix-forward `8f14c3d`(confirmed 4: ★HIGH timeoutBySystem OWNER 타임아웃→**AutoMod 가 OWNER/ADMIN 면제**[정책]·TIMEOUT 감사누락·exempt cross-ws 검증·한국어 WORD 경계 유니코드 + DS/메트릭). int 20/20(automod 16[OWNER/ADMIN 면제·cross-ws exempt 거부·한국어 WORD·BLOCK422·ALERT·TIMEOUT+mute·exempt] + messages.events 회귀 4). **마이그레이션 `20260629`(AutoModRule) 미배포.**
 > - **★정책 결정(자율)**: AutoMod 집행(BLOCK/ALERT/TIMEOUT)은 **OWNER/ADMIN 작성자 비대상**(모더레이터는 룰 통제·신뢰·Discord parity·락아웃 방지). timeoutBySystem 에 OWNER 하드가드(방어심층).
 > - **★스코프(063)**: FR-RM10a=**KEYWORD 리터럴 매칭만**(정규식 없음=ReDoS 없음·Worker/re2 불요). 정규식 패턴·MENTION_SPAM·REPEAT_SPAM → **FR-RM10b 후속**.
 >
-> ### ▶▶ 다음 작업 = **FR-RM10a 수동 배포 승인** → FR-RM10b(정규식·spam) 또는 잔여 FR
+> ### ▶▶ 다음 작업 = **FR-RM10b(정규식·spam) 또는 잔여 FR**
 >
-> - **즉시**: FR-RM10a develop→main 머지·push 후 **수동배포(승인)** → `/readyz=200` + prod `AutoModRule` 테이블 검증.
-> - **FR-RM10b(후속)**: 정규식 패턴(Worker Thread 격리·100ms 검증/10ms 매칭) + MENTION_SPAM/REPEAT_SPAM(행동형·sliding-window). 마이그레이션 `20260630…`.
+> - **FR-RM10b(후속·todo)**: 정규식 패턴(Worker Thread 격리·100ms 검증/10ms 매칭·re2 회피) + MENTION_SPAM/REPEAT_SPAM(행동형·sliding-window 카운터). AutoModRule.triggerType enum 에 이미 예약됨. 마이그레이션 `20260630…`. UNDERSTAND 부터.
+> - **잔여 FR**: fr-matrix 에서 todo/partial 조회. FR-RM10 partial(키워드 done·정규식/spam 잔여).
 > - **S88 defer(후속·062 §B6/S88a defer)**: dispatcher isMention @role 낙관배지·다단어 역할 수동공백 트리거·편집 @role 재알림 비대칭·총 수신자 cap·rate-limit Redis 파이프라인·ungrounded `<@&id>` strip·commit↔enqueue 크래시윈도우(transactional-outbox)·online-snapshot 정밀화·@here async. 전부 비차단.
 > - **S88c follow-up**: 풀 100-user @here SLO 실측은 테스트 compose 스택(이메일 게이트 우회/DB-seed) 또는 PERF_REUSE(prod·사전검증 계정) on-demand.
 > - **인프라 교훈(이번 세션)**: 컨테이너 verify 와 무거운 리뷰 워크플로우 **동시 실행 시 kernel4.4 자원고갈로 web 인터랙션 테스트 timeout flake** → verify 는 **단독** 실행. int 컨테이너는 `--network host`+docker.sock+`TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1`+`TESTCONTAINERS_RYUK_DISABLED=true`, 명령에 `apt-get install git openssl` 필수(없으면 git 127 / contract 6건 fail).
