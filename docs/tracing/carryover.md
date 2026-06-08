@@ -157,3 +157,23 @@
 | S96(069) | FR-RM10b AutoMod 정규식/spam 7차원 리뷰 후속(비차단): ★보안 BLOCKER(validateSafety 메인스레드 ReDoS 동기재실행)·HIGH(probe 단일문자 false negative·exit 리스너 누수)·MED(edit spam 중복·respawn cold-start·member 충돌) 전부 fix-forward 완료. int 회귀 4건은 전부 테스트 버그(약한 (a|aa)+$→(a+)+$·editMessage expectedVersion 누락). 잔여 carryover: ① 약한 Fibonacci catastrophic((a|aa)+$ 류)은 bounded probe(22자) 검증 false-negative→저장 통과→match-time 10ms 워치독 fail-open 으로 룰 무력화(DoS 없음·근본해결=정규식 AST nested-quantifier 정적분석·re2 회피 유지). ② perf: REGEX N룰 직렬 worker 왕복·MENTION_SPAM 대량멘션(mentionCount≤63) 66op pipeline·단일 persistent worker 직렬(룰 cap bounded·고throughput 시 worker 풀 후속). ③ REPEAT_SPAM 해시 정확일치만(구두점/제로폭/유니코드 trivial 우회·Phase 2·UI "정확일치" 명기 권고). ④ spam 트리거 FE 편집 폼 미구현(API-only). ⑤ AUTOMOD_TIMEOUT 메트릭 카운터(현 audit만). ⑥ concurrent match collateral fail-open(terminate 시 다른 in-flight 매칭이 false-negative·무audit·관측 추가 권고). ⑦ 좀비 worker((a+)+$ ~1s·rate-limit 20/60s 로 최대 ~20 동시·bounded). |
 
 | S97(070) | FR-RT-22 around 재로드 7차원 리뷰 후속(전부 NIT/LOW·비차단·reviewer approve): NIT(gateway connect seq+lastRead 직렬 await→Promise.all 동시화) fix-forward 반영. 잔여: ① channelLru pendingAround set prune 경로 없음(방문 채널 수로 bounded·string 소량·실질 leak 아님). ② useMessageHistory queryFn 의 실제 react-query retry end-to-end 통합 테스트 부재(peek+clear 분해로 구조적 증명·useInfiniteQuery+failing-mock 으로 보강 권고). ③ gateway `?? null` redundant(getLastReadMessageIds 누락 채널 null 선반영·방어적·무해). int 회귀 1건=테스트버그(posted.body.id→body.message.id·게이트웨이 정확·FR-RM10b/FR-MSG-14 와 동일 패턴 — send 응답은 {message:{id}}). ★메시지 send 응답 body shape = `{message:{id,version,...},replayed}` — int 테스트 작성 시 `body.message.id`/`body.message.version` 사용(반복 실수). |
+
+---
+
+## ✅ S98 검증 정리 (2026-06-09 · wf_7bb9f0b2 코드 대조) — 아래 11건은 이후 슬라이스에서 **해소 확인**(carryover RESOLVED)
+
+코드-대조로 still-resolved 확정. 신규 작업 불요(표식만):
+
+- **S00** channels.controller allow/denyMask class-validator 미적용(권한상승) → **해소**(PermissionMaskSchema + S94 isWithinChannelOverrideBits).
+- **S00** parseContent fencePattern O(n²) ReDoS → **해소**(MRKDWN_PARSE_LIMITS enforce).
+- **S00** ErrorCode PARSE\_\* 누락 → **해소**(enum + HTTP map 동기화).
+- **S05** MessageItem 송신실패 `qf-text-danger` DS 미등록 → **해소**(DS 정합 정리됨).
+- **S05-verify** grouped continuation 편집 뱃지 미표시 → **해소**(S06 그룹핑).
+- **S05-verify** threads.int 'reply message.created parentMessageId' RED → **해소**(D04 threads).
+- **S09** FR-RT-22 around 재로드 공급원 부재 → **해소**(S97).
+- **S09** FR-RT-22 GAP_FETCHING reset → **해소**(S10 channelLru FSM reset).
+- **S11** Message.id cuid2 미구현 → (createdAt,id) 튜플로 **수렴 완료**(sortable-id 전면전환은 별도 대형마이그·여전히 OUT).
+- **S11-verify** 선제존재 int 실패 3건(@everyone/DENY/zero-entry) → **해소**(이후 권한/unread 슬라이스).
+- **S12** FR-CH-03 default-channel 삭제보호 → **해소**(이번 세션).
+
+**남은 진짜 후속**은 `carryover-backlog.md` 큐(S99~S105)로 이관해 순차 소화.
