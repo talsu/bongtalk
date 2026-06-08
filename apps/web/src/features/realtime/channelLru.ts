@@ -42,7 +42,8 @@ type ChannelLruState = {
   order: string[];
   /**
    * 한 번이라도 evict 되어 재진입 시 around 재로드가 필요한 채널 키 집합.
-   * 재진입해 around 로드를 소비하면(consumeAround) 제거됩니다.
+   * 재진입해 around 로드가 **확정 적용된 뒤**(첫 페이지 fetch 성공) clearAround
+   * 로 제거됩니다.
    */
   pendingAround: Set<string>;
   /**
@@ -50,8 +51,19 @@ type ChannelLruState = {
    * (실제 removeQueries 는 훅이 수행합니다.)
    */
   enter: (key: string, maxSize: number) => string[];
-  /** 재진입 시 around 재로드가 필요한지 — true 면 플래그를 소비(제거)합니다. */
-  consumeAround: (key: string) => boolean;
+  /**
+   * S97 (FR-RT-22 하드닝): 재진입 시 around 재로드가 필요한지 **소비 없이**
+   * 조회합니다(peek). HIGH-2: queryFn 이 network 실패로 retry 될 때 같은
+   * around 가 재계산되도록, 그리고 MED-1: lastRead 가 아직 미공급(race)일 때
+   * 플래그가 소진되지 않도록, resolveListFetchArgs 는 peek 만 합니다.
+   */
+  peekAround: (key: string) => boolean;
+  /**
+   * S97 (FR-RT-22 하드닝): around 재로드가 **확정 적용된 뒤**(첫 페이지 fetch
+   * 성공) 명시적으로 플래그를 제거합니다. 성공 전(retry 중·lastRead 미공급)에는
+   * 호출하지 않아 around 기회를 잃지 않습니다.
+   */
+  clearAround: (key: string) => void;
 };
 
 export const useChannelLruStore = create<ChannelLruState>((set, get) => ({
@@ -69,13 +81,13 @@ export const useChannelLruStore = create<ChannelLruState>((set, get) => ({
     set({ order, pendingAround });
     return evicted;
   },
-  consumeAround: (key) => {
+  peekAround: (key) => get().pendingAround.has(key),
+  clearAround: (key) => {
     const { pendingAround } = get();
-    if (!pendingAround.has(key)) return false;
+    if (!pendingAround.has(key)) return;
     const next = new Set(pendingAround);
     next.delete(key);
     set({ pendingAround: next });
-    return true;
   },
 }));
 

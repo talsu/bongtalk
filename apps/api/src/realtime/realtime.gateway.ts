@@ -343,14 +343,26 @@ export class RealtimeGateway
     // 스냅샷을 baseline 으로 내려보냅니다. 이게 없으면 이번 세션에 라이브
     // 메시지가 없던 채널은 클라 SeqTracker 가 비어 재연결 시 gap-fetch 대상에서
     // 통째로 빠집니다("절전 후 재연결" 케이스). 부하 가드: 채널 seq 는 단일
-    // MGET 으로 묶어 연결당 1 라운드트립, 채널당 emit 1회뿐입니다. unread/
-    // lastMessage 등 무거운 필드는 싣지 않습니다(현재 소비처 없음 + per-channel
-    // 서브쿼리 폭주 회피 — 스키마에서 optional).
-    const seqByChannel = await this.seq.currentMany(channelIds);
+    // MGET 으로 묶어 연결당 1 라운드트립, 채널당 emit 1회뿐입니다.
+    //
+    // S97 (FR-RT-22): 같은 루프에서 채널별 lastReadMessageId 도 함께 싣습니다.
+    // LRU evict 된 채널 재진입 시 클라가 around=lastReadMessageId 로 재로드해
+    // 마지막으로 읽던 지점으로 복원하는 seam 의 공급원입니다. per-channel
+    // 서브쿼리 폭주를 피하려 lastRead 는 **배치 1쿼리**(getLastReadMessageIds)로
+    // 묶어 연결당 1 라운드트립이며(seq MGET 과 합쳐 2회), 채널당 emit 은 여전히
+    // 1회뿐입니다(추가 emit 아님). lastMessageId/unreadCount 등 다른 무거운
+    // 필드는 여전히 싣지 않습니다(현재 소비처 없음 — 스키마에서 optional).
+    // S97 review NIT: seq(Redis MGET)와 lastRead(Postgres IN)는 서로 독립이라 connect
+    // hot-path 에서 Promise.all 로 동시 실행해 라운드트립 1회분 latency 를 줄인다.
+    const [seqByChannel, lastReadByChannel] = await Promise.all([
+      this.seq.currentMany(channelIds),
+      this.unread.getLastReadMessageIds(user.userId, channelIds),
+    ]);
     for (const chId of channelIds) {
       const snapshot: ChannelJoinedPayload = {
         channelId: chId,
         seq: seqByChannel.get(chId) ?? 0,
+        lastReadMessageId: lastReadByChannel.get(chId) ?? null,
       };
       client.emit(WS_EVENTS.CHANNEL_JOINED, snapshot);
     }

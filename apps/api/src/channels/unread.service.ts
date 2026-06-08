@@ -389,6 +389,34 @@ export class UnreadService {
   }
 
   /**
+   * S97 (FR-RT-22): 여러 채널의 lastReadMessageId 를 **배치 1쿼리**로 조회한다.
+   * realtime.gateway 가 connect 직후 eager-join 한 채널마다 `channel:joined`
+   * 스냅샷에 lastReadMessageId 를 실어 보내기 위한 출처다(LRU evict 채널 재진입
+   * 시 around=lastReadMessageId 재로드 seam 공급원). per-channel 서브쿼리 폭주를
+   * 막기 위해 단일 `findMany({ channelId: { in } })` 로 묶고, 행이 없거나
+   * lastReadMessageId 가 null 인 채널은 Map 에 null 로 채워 호출부가 채널마다
+   * 결정적으로 매핑할 수 있게 한다(누락 채널도 키 존재).
+   *
+   * 빈 입력은 빈 Map 으로 즉시 반환(불필요 쿼리 회피). 채널 수는 호출부의
+   * refreshUserChannelIds cap(50) 내라 단일 IN 쿼리로 bounded.
+   */
+  async getLastReadMessageIds(
+    userId: string,
+    channelIds: string[],
+  ): Promise<Map<string, string | null>> {
+    const result = new Map<string, string | null>();
+    if (channelIds.length === 0) return result;
+    // 누락 채널도 null 로 결정적 매핑 — 호출부가 map.get(chId) ?? null 로 안전.
+    for (const chId of channelIds) result.set(chId, null);
+    const rows = await this.prisma.userChannelReadState.findMany({
+      where: { userId, channelId: { in: channelIds } },
+      select: { channelId: true, lastReadMessageId: true },
+    });
+    for (const row of rows) result.set(row.channelId, row.lastReadMessageId);
+    return result;
+  }
+
+  /**
    * S21 (FR-RS-16): single-channel mention recount with the same tuple cursor.
    * mentionCount = 미읽음 메시지 중 본인 대상 멘션(직접 + everyone/here/channel)
    * 수. ACK 시 0 으로 수렴(커서 전진 → 미읽음 멘션 메시지가 사라짐). 멘션 판정은

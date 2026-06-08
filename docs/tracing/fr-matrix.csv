@@ -37,7 +37,7 @@ FR-RT-03,D17-realtime-sync,P0,S08,done
 FR-RT-04,D17-realtime-sync,P0,S08,done
 FR-RT-15,D17-realtime-sync,P0,S08,done
 FR-RT-05,D17-realtime-sync,P0,S09,done
-FR-RT-22,D17-realtime-sync,P1,S09,partial
+FR-RT-22,D17-realtime-sync,P1,S97,done
 FR-RT-24,D17-realtime-sync,P1,S09,done
 FR-RT-06,D17-realtime-sync,P1,S10,done
 FR-RT-07,D17-realtime-sync,P0,S10,done
