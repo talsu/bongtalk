@@ -31,11 +31,14 @@ export function MemberColumn({ workspaceId }: { workspaceId: string }): JSX.Elem
       aria-label="멤버 목록"
       className="qf-memberlist hidden lg:block"
     >
-      {/* FR-P09: hoisted OWNER/ADMIN staff group on top. */}
+      {/* FR-P09 (task-068 · S95): 역할기반 per-role hoist 그룹(hoistInMemberList=true)을
+          상단에 표시한다(position DESC). 헤더 라벨=역할명, 역할 colorHex 는 라벨 옆 색 점으로
+          표시한다(텍스트 color 아님 — a11y BLOCKER fix-forward · WCAG 1.4.3). */}
       {data?.hoist.map((group) => (
         <MemberGroup
           key={`hoist-${group.key}`}
           label={group.label}
+          color={group.color ?? null}
           members={group.members}
           register={register}
           workspaceId={workspaceId}
@@ -60,17 +63,37 @@ function MemberGroup({
   members,
   register,
   workspaceId,
+  color = null,
 }: {
   label: string;
   members: MemberWithPresence[];
   register: (userId: string) => (el: Element | null) => void;
   workspaceId: string;
+  /** FR-P09 (task-068 · S95): hoist 그룹 역할 색(colorHex). 라벨 옆 색 점으로만 표시하고
+   * 헤더 텍스트 color 로는 쓰지 않는다(a11y · WCAG 1.4.3). null=점 미표시(status 그룹). */
+  color?: string | null;
 }): JSX.Element | null {
   if (members.length === 0) return null;
   return (
     <>
       {/* a11y L-2: 그룹 헤더를 heading 으로 노출(SR 네비게이션 · MobileMembers HIGH-5 와 동일). */}
+      {/* FR-P09 fix-forward (a11y BLOCKER · WCAG 1.4.3): 역할 색을 헤더 텍스트 color 로
+          적용하지 않는다 — 사용자 지정 역할색(예 #5865F2)은 12px/600 일반 텍스트의 4.5:1
+          대비를 만족하지 못해 신규 위반이 된다. 대신 라벨 왼쪽에 작은 색 점만 두고(점은
+          텍스트 대비 규칙 비대상 · aria-hidden), 헤더 텍스트는 DS 기본색(qf-memberlist__group
+          의 --text-muted)을 유지한다. 색이 없으면 점을 표시하지 않는다. 점 색만 동적
+          사용자 hex 라 인라인 backgroundColor 를 쓰고(DS 토큰으로 표현 불가), 점 크기/간격은
+          DS 토큰(--s-*)을 사용한다. 역할명 텍스트가 항상 동반되므로 색 단독 비의존(1.4.1)도
+          충족한다. status 그룹(color=null)은 점 없이 종전과 동일하다. */}
       <div className="qf-memberlist__group" role="heading" aria-level={3}>
+        {color ? (
+          <span
+            aria-hidden="true"
+            data-testid="hoist-group-dot"
+            className="mr-[var(--s-1)] inline-block h-[var(--s-2)] w-[var(--s-2)] shrink-0 rounded-full align-middle"
+            style={{ backgroundColor: color }}
+          />
+        ) : null}
         {label} — {members.length}
       </div>
       {members.map((m) => (

@@ -362,16 +362,24 @@ export const MemberWithPresenceSchema = MemberSchema.extend({
 export type MemberWithPresence = z.infer<typeof MemberWithPresenceSchema>;
 
 /**
- * S27 (FR-P09): hoisted role group. qufox has no custom-role system yet
- * (WorkspaceRole enum only), so OWNER/ADMIN are the baseline hoist set —
- * surfaced as a single "운영진" (staff) group above the status groups. Custom
- * per-role hoist (hoistInMemberList column) is a carryover pending the role
- * system.
+ * FR-P09 (task-068 · S95): hoisted role group. 역할기반 hoistInMemberList 컬럼이
+ * true 인 역할마다 별도 그룹을 만든다(Discord per-role hoist). 종전 S27 은 커스텀 Role
+ * 부재로 OWNER/ADMIN 을 단일 '운영진'(staff) 그룹으로 하드코딩했으나, S61 커스텀 Role 로
+ * 차단이 해소되어 역할기반 동적 hoist 로 전환했다(key 가 'staff' 리터럴 → roleId).
+ * 그룹은 position DESC 정렬되고, 각 멤버는 보유한 hoisted 역할 중 최상위(position 최대)
+ * 1개 그룹에만 들어간다(다중 hoisted 역할 dedup). 온라인 멤버만 hoist 된다(FR-P09 —
+ * offline hoisted 멤버는 offline status 그룹으로 강등).
  */
 export const HoistGroupSchema = z.object({
-  /** stable group key — `staff` for the OWNER/ADMIN baseline. */
-  key: z.literal('staff'),
+  /** stable group key = hoisted role id(React key · per-role 그룹 식별). */
+  key: z.string(),
+  /** 역할명(그룹 헤더 라벨). */
   label: z.string(),
+  /**
+   * FR-P09: 역할 색(#RRGGBB) 또는 null. FE 가 그룹 헤더에 틴트로 쓸 수 있다(optional —
+   * 색상 미설정 역할은 생략/기본색).
+   */
+  color: z.string().nullable().optional(),
   members: z.array(MemberWithPresenceSchema),
 });
 export type HoistGroup = z.infer<typeof HoistGroupSchema>;
@@ -384,7 +392,7 @@ export const StatusGroupSchema = z.object({
 export type StatusGroup = z.infer<typeof StatusGroupSchema>;
 
 export const ListMembersResponseSchema = z.object({
-  /** FR-P09: hoisted OWNER/ADMIN, online-first within the group. */
+  /** FR-P09: per-role hoisted groups(hoistInMemberList=true), position DESC, online-first 내부 정렬. */
   hoist: z.array(HoistGroupSchema),
   /** FR-P08: status-bucketed remaining members (online/idle/dnd/offline). */
   groups: z.array(StatusGroupSchema),
@@ -484,16 +492,10 @@ export const ListMemberDirectoryResponseSchema = z.object({
 });
 export type ListMemberDirectoryResponse = z.infer<typeof ListMemberDirectoryResponseSchema>;
 
-/**
- * S27 (FR-P09): roles surfaced in the baseline hoist group. Until a custom
- * role system exists, OWNER + ADMIN are the staff hoist set.
- */
-export const HOISTED_ROLES: ReadonlySet<WorkspaceRole> = new Set<WorkspaceRole>(['OWNER', 'ADMIN']);
-
-/** S27 (FR-P09): true iff this role is hoisted into the staff group. */
-export function isHoistedRole(role: WorkspaceRole): boolean {
-  return HOISTED_ROLES.has(role);
-}
+// FR-P09 (task-068 · S95): 종전 S27 의 HOISTED_ROLES/isHoistedRole(OWNER/ADMIN
+// 하드코딩 enum 집합)은 역할기반 Role.hoistInMemberList 컬럼으로 대체되어 제거했다.
+// hoist 대상은 이제 워크스페이스별 Role.hoistInMemberList=true 행이 단일 출처다
+// (시스템 역할 기본값은 roles.ts SYSTEM_ROLE_HOIST_DEFAULT — OWNER/ADMIN true).
 
 // S61: 커스텀 Role 의 UpdateRoleRequestSchema(roles.ts) 와 이름 충돌을 피하려
 // 멤버 시스템 역할 변경 바디는 UpdateMemberRoleRequestSchema 로 명명한다.

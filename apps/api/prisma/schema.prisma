@@ -1496,6 +1496,12 @@ model Role {
   // 있다(서버 게이트가 판정). 비권한 메타라 시스템 역할도 토글 가능하다(name/
   // position/permissions 불변 가드와 별개). default false = 기존 역할은 멘션 불가.
   mentionable Boolean  @default(false)
+  // FR-P09 (task-068 · S95): true 면 이 역할 멤버(온라인)가 멤버 목록 상단에 역할별
+  // 별도 그룹으로 hoist 된다(Discord hoist). 멤버목록 조회가 hoistInMemberList=true 역할을
+  // position DESC 로 로드해 각 멤버를 최상위 hoisted 역할 1개 그룹에 배치한다. 비권한
+  // 메타라 시스템 역할도 토글 가능하다(mentionable 과 동형). default false = 비-hoist.
+  // 시드/backfill: 시스템 OWNER·ADMIN 만 true(종전 '운영진' 그룹 동작 보존).
+  hoistInMemberList Boolean @default(false)
   createdAt   DateTime @default(now()) @db.Timestamptz(6)
   updatedAt   DateTime @updatedAt @db.Timestamptz(6)
 
@@ -1522,6 +1528,10 @@ model MemberRole {
   @@id([workspaceId, userId, roleId])
   @@index([roleId])
   @@index([workspaceId, userId])
+  // FR-P09 (task-068 · S95): hoist assignment 조회(where workspaceId + roleId IN)를
+  // 커버한다. 종전 @@index([roleId]) 단독은 roleId IN 만 커버해 workspaceId 선행 필터를
+  // 인덱스로 좁히지 못했다(마이그레이션 20260633000000_frp09_memberrole_ws_role_idx).
+  @@index([workspaceId, roleId])
 }
 
 // S88b (D ADR B3 / FR-MN-19 · FR-MN-03): 멘션 전달 로그 + 멱등 게이트.
