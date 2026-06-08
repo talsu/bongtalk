@@ -1,7 +1,7 @@
 import { useEffect } from 'react';
 import { useQueryClient, type InfiniteData, type QueryClient } from '@tanstack/react-query';
 import type { Socket } from 'socket.io-client';
-import type { ListMessagesResponse } from '@qufox/shared-types';
+import { ChannelJoinedPayloadSchema, type ListMessagesResponse } from '@qufox/shared-types';
 import { qk } from '../../lib/query-keys';
 import { listMessages } from '../messages/api';
 import { useNotifications } from '../../stores/notification-store';
@@ -228,18 +228,23 @@ export function installChannelSync(
   // 등록해, 이번 세션에 라이브 메시지가 없던 채널도 재연결 시 gap-fetch/
   // FSM 전이 대상(seqTrackedChannels)에 포함되도록 합니다(no-op FSM 해소).
   const onChannelJoined = (payload: unknown): void => {
-    if (!payload || typeof payload !== 'object') return;
-    const p = payload as { channelId?: unknown; seq?: unknown; lastReadMessageId?: unknown };
-    if (typeof p.channelId !== 'string' || typeof p.seq !== 'number') return;
+    // S97 (FR-RT-22) 신뢰경계 가드: 인라인 typeof 체크 대신 공유 스키마로
+    // safeParse 한다(mention:new / reaction:updated dispatcher 패턴과 동일 ·
+    // 서버 회귀/멀티 dispatcher 오발신 방어). 형태가 어긋나면 seq baseline 도
+    // read-state 도 건드리지 않고 버린다. 이 핸들러가 channel:joined 의 유일한
+    // 소비처이므로(dispatcher 에 별도 리스너 없음 — 중복 리스너 금지), seq
+    // baseline 과 lastReadMessageId 를 한 곳에서 함께 처리한다.
+    const parsed = ChannelJoinedPayloadSchema.safeParse(payload);
+    if (!parsed.success) return;
+    const p = parsed.data;
     seq.setBaseline(p.channelId, p.seq);
-    // S23 (FR-RS-06): channel:joined 가 lastReadMessageId 를 실어 보내면
-    // readStateStore 에 기록한다. NEW MESSAGES 구분선이 진입 시점의 lastRead
-    // 직후 첫 미읽 메시지를 찾는 출처이자 around-reload seam(FR-RT-22)의 공급원.
-    // 페이로드가 누락(경량 baseline-only emit)하면 종전대로 store 미변경.
-    if (typeof p.lastReadMessageId === 'string') {
+    // S23 (FR-RS-06) / S97 (FR-RT-22): channel:joined 가 lastReadMessageId 를
+    // 실어 보내면 readStateStore 에 기록한다. NEW MESSAGES 구분선이 진입 시점의
+    // lastRead 직후 첫 미읽 메시지를 찾는 출처이자 around-reload seam 의 공급원.
+    // 서버가 이제 connect 직후 배치로 채워 보낸다(realtime.gateway). 페이로드가
+    // 누락(구 서버 baseline-only emit · undefined)하면 종전대로 store 미변경.
+    if (p.lastReadMessageId !== undefined) {
       useReadState.getState().setLastRead(p.channelId, p.lastReadMessageId);
-    } else if (p.lastReadMessageId === null) {
-      useReadState.getState().setLastRead(p.channelId, null);
     }
   };
   socket.on('channel:joined', onChannelJoined);

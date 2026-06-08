@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import { resolveListFetchArgs } from './useMessages';
+import { resolveListFetchArgs, clearAroundFlagOnSuccess } from './useMessages';
 import { lruKey, useChannelLruStore } from '../realtime/channelLru';
 import { useReadState } from '../realtime/readStateStore';
 
@@ -24,9 +24,37 @@ describe('resolveListFetchArgs (FR-RT-22 around-reload)', () => {
     useReadState.getState().setLastRead('ch-1', 'm-42');
     const args = resolveListFetchArgs('ws-1', 'ch-1', undefined);
     expect(args).toEqual({ limit: 50, around: 'm-42' });
-    // 1회성 소비 후 두 번째 호출은 around 없이 폴백.
-    const args2 = resolveListFetchArgs('ws-1', 'ch-1', undefined);
-    expect(args2).toEqual({ limit: 50, before: undefined });
+  });
+
+  // S97 (HIGH-2): resolveListFetchArgs 는 peek 라 소비하지 않는다 — queryFn 이
+  // network 실패로 retry 될 때 같은 around 가 재계산돼야 한다. 플래그 clear 는
+  // queryFn 성공 후(useMessageHistory)에서만 일어난다.
+  it('HIGH-2: 같은 인자 재호출(retry)에도 around 보존(플래그 미소진)', () => {
+    const key = lruKey('ws-1', 'ch-1');
+    useChannelLruStore.setState({ order: [], pendingAround: new Set([key]) });
+    useReadState.getState().setLastRead('ch-1', 'm-42');
+    expect(resolveListFetchArgs('ws-1', 'ch-1', undefined)).toEqual({ limit: 50, around: 'm-42' });
+    // retry 가정: 두 번째 호출도 동일 around(소비 안 됨).
+    expect(resolveListFetchArgs('ws-1', 'ch-1', undefined)).toEqual({ limit: 50, around: 'm-42' });
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
+  });
+
+  // S97 (MED-1): lastRead 가 아직 미공급(channel:joined race)이면 around 를 쓰지
+  // 않고 before 폴백하되, 플래그는 소진하지 않는다(peek). lastRead 도착 후 다음
+  // fetch 에서 around 가 적용된다.
+  it('MED-1: lastRead 미공급(race) 시 before 폴백 + 플래그 보존, 도착 후 around 적용', () => {
+    const key = lruKey('ws-1', 'ch-1');
+    useChannelLruStore.setState({ order: [], pendingAround: new Set([key]) });
+    // lastRead 아직 없음.
+    expect(resolveListFetchArgs('ws-1', 'ch-1', undefined)).toEqual({
+      limit: 50,
+      before: undefined,
+    });
+    // 플래그 미소진(다음 기회 유지).
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
+    // lastRead 가 channel:joined 로 도착하면 다음 fetch 에서 around 적용.
+    useReadState.getState().setLastRead('ch-1', 'm-42');
+    expect(resolveListFetchArgs('ws-1', 'ch-1', undefined)).toEqual({ limit: 50, around: 'm-42' });
   });
 
   it('evict 됐지만 lastRead 미보유 → 최신 로드로 폴백(과설계 방지)', () => {
@@ -74,5 +102,41 @@ describe('resolveListFetchArgs (FR-RT-22 around-reload)', () => {
       const args = resolveListFetchArgs('ws-1', 'ch-1', 'cursor-abc', 'jump-99');
       expect(args).toEqual({ limit: 50, before: 'cursor-abc' });
     });
+  });
+});
+
+// S97 (FR-RT-22 하드닝): clearAroundFlagOnSuccess — fetch 성공 후에만 플래그를
+// 비우는 결정 로직(queryFn 의 await 성공 분기와 동일 출처).
+describe('clearAroundFlagOnSuccess (FR-RT-22 onSuccess clear)', () => {
+  const key = lruKey('ws-1', 'ch-1');
+  beforeEach(() => {
+    useChannelLruStore.setState({ order: [], pendingAround: new Set([key]) });
+    useReadState.setState({ lastReadByChannel: {} });
+  });
+
+  it('초기 로드 + around 적용됨 → 플래그 clear(성공 1회)', () => {
+    clearAroundFlagOnSuccess('ws-1', 'ch-1', undefined, null, { limit: 50, around: 'm-42' });
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(false);
+  });
+
+  it('MED-1: around 미적용(before 폴백) → 플래그 보존(clear 안 함)', () => {
+    clearAroundFlagOnSuccess('ws-1', 'ch-1', undefined, null, { limit: 50, before: undefined });
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
+  });
+
+  it('older-page fetch(pageParam 존재) → 플래그 보존(clear 안 함)', () => {
+    clearAroundFlagOnSuccess('ws-1', 'ch-1', 'cursor-abc', null, {
+      limit: 50,
+      before: 'cursor-abc',
+    });
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
+  });
+
+  it('jump around(LRU 유래 아님) → LRU 플래그 보존(clear 안 함)', () => {
+    clearAroundFlagOnSuccess('ws-1', 'ch-1', undefined, 'jump-99', {
+      limit: 50,
+      around: 'jump-99',
+    });
+    expect(useChannelLruStore.getState().pendingAround.has(key)).toBe(true);
   });
 });
