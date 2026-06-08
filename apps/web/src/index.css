@@ -124,6 +124,18 @@ html[data-high-contrast='true'] {
   transform: translateY(0);
 }
 
+/* S100 (S06 carryover · a11y MED): continuation 행의 gutter 타임스탬프도 키보드
+ * 포커스(focus-within) 시 시각적으로 노출한다. DS components.css 의
+ * `.qf-message__gutter-time` 는 opacity:0 으로 숨겨 두고 `.qf-message:hover` 에서만
+ * opacity:1 로 드러내므로(269-272행), 마우스 없는 키보드 사용자는 roving 포커스로
+ * 행을 짚어도 시각(시점) 정보를 못 본다(시점은 aria-label 로 SR 엔 전달되지만 저시력·
+ * 시각 키보드 사용자에겐 누락). 툴바 reveal(위 규칙)과 동일하게 focus-within 으로도
+ * opacity 를 풀어 hover 와 시각 정합을 맞춘다. DS 4파일 무수정 · 시맨틱만 사용. DS
+ * components.css 정본 reveal 규칙 추가는 DS-owner 이월(carryover). */
+.qf-message:focus-within .qf-message__gutter-time {
+  opacity: 1;
+}
+
 /* S83b round-2 (reviewer/a11y MAJOR #9b): Delete 단일키 2단계 확인의 "무장(armed)"
  * 상태를 색 외 인디케이터로 노출한다(저시력/키보드 사용자가 확인 대기 중을 시각적으로
  * 인지). MessageItem 이 data-delete-armed 를 무장 동안만 부여하고, 창 만료/다른 키

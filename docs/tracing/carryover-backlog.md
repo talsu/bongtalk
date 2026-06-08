@@ -32,8 +32,16 @@
         refreshChannelIdsForWorkspace 미트리거 → 비구성원 소켓이 룸에 잔존해 fanout 수신(outbox-to-ws
         onChannelEvent 에 isPrivate 변경 분기 추가 필요·S105 흡수). ⓑ message.deleted raw payload 의
         actorId/authorId 채널 룸 전파(wire 스키마엔 없음·기존 동작).
-- [ ] **S100 — a11y 번들** (MED): ① gutter-time `:focus-within`(app-layer index.css·DS 4파일 금지)
+- [x] **S100 — a11y 번들** (MED): ① gutter-time `:focus-within`(app-layer index.css·DS 4파일 금지)
       ② 메시지 행 article accessible name(aria-label) ③ 유니코드 이모지 폴백 role=img/aria-label(renderAst).
+      → 진단 결과 ②③은 이미 해소: ② MessageItem.tsx:554-558 `role="article"`+`aria-roledescription="메시지"`+
+      `aria-label=rowAriaLabel`(head=작성자+시각·continuation=작성자+gutterTime) = S83b 구현. ③ renderAst
+      `case 'emoji'` 커스텀이모지는 `<img alt=":name:">`(암묵 role=img + accessible name)로 적절·미해결
+      `:name:`은 리터럴 텍스트가 정답(role=img 오용 회피). → 진짜 잔여=①뿐: DS components.css 의
+      `.qf-message__gutter-time`(opacity:0·:hover 에서만 1)에 focus-within 규칙 없어 시각 키보드 사용자가
+      roving 포커스로 continuation 행을 짚어도 시점이 안 보임(시점은 aria-label 로 SR 엔 전달). → app-layer
+      index.css 에 `.qf-message:focus-within .qf-message__gutter-time{opacity:1}`(line 120 toolbar 규칙 미러·
+      DS 4파일 무수정). VERIFY green(19/19·web 1772). 배포는 S101 과 묶음(develop 누적).
 - [ ] **S101 — perf 번들** (MED/LOW): ① MessageItem React.memo + DayDivider memo + time/jumbo useMemo
       ② edit-history ring buffer 단일 DELETE + MessageEditHistory UNIQUE(마이그) ③ blocked-set Redis TTL 캐시(S17).
 - [ ] **S102 — DM 갭 번들** (MED): ① DM `/history` 엔드포인트 ② DM rate-limit 3엔드포인트(S16/S19)
