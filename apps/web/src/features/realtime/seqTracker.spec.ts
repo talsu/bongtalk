@@ -73,6 +73,22 @@ describe('SeqTracker', () => {
     expect(t.get('c1')).toBeUndefined();
   });
 
+  // S99 (S10 carryover · LOW): 비유한 seq(NaN/Infinity)는 baseline 을 오염시키지 않는다.
+  it('setBaseline(NaN) 은 무시 — 영구 hole 방지', () => {
+    const t = new SeqTracker();
+    t.setBaseline('c1', Number.NaN);
+    expect(t.get('c1')).toBeUndefined();
+    // NaN baseline 이 박히지 않았으므로 다음 정상 seq 가 첫 관측처럼 기준선을 세운다.
+    expect(t.observe('c1', 7)).toEqual({ kind: 'ok' });
+    expect(t.get('c1')).toBe(7);
+  });
+
+  it('setBaseline(Infinity) 은 무시', () => {
+    const t = new SeqTracker();
+    t.setBaseline('c1', Number.POSITIVE_INFINITY);
+    expect(t.get('c1')).toBeUndefined();
+  });
+
   it('reset/clear', () => {
     const t = new SeqTracker();
     t.observe('c1', 1);

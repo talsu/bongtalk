@@ -244,7 +244,15 @@ export type MessageDeletedPayload = {
   workspaceId: string | null;
   channelId: string;
   actorId: string;
-  message: { id: string; authorId: string; deletedAt: string };
+  // S99 (S05-verify carryover · LOW): 삭제 시점의 message version 을 동봉한다.
+  // 라이브 수신 클라가 메시지를 deleted 플레이스홀더로 마킹할 때 캐시의 낙관적
+  // 잠금 baseline(MessageDto.version)을 최신값으로 갱신하도록 — MessageUpdated 의
+  // version 전파와 대칭. Additive — 구 디스패처는 무시.
+  // ※ 의도된 비대칭(contract 리뷰 참고): 이 내부 발행 타입은 version 을 required 로
+  //   둬 발행측(messages.service)이 항상 싣도록 컴파일타임에 강제한다. 반면 와이어
+  //   계약 MessageDeletedPayloadSchema 의 version 은 optional(후방호환 additive)이라
+  //   version 없는 구 페이로드도 수신측에서 안전하다. 둘의 차이는 drift 가 아니다.
+  message: { id: string; authorId: string; deletedAt: string; version: number };
 };
 
 // S64 (FR-RM09): bulk purge. MANAGE_MESSAGES 권한자가 채널 메시지를 일괄 soft-delete

@@ -15,8 +15,9 @@ import { getSocket } from '../../lib/socket';
  * 메시지 리스트 전체 prefix(['messages'])를 무효화한다 — 차단 해제는 드물어
  * 과도한 비용이 아니다.
  *
- * 주의(carryover): 이 훅은 현재 어떤 Shell 에도 배선돼 있지 않다(dormant).
- * useDmCreated/신규 훅 Shell 배선은 별도 작업으로 이관됐다(DEFER).
+ * 주의(carryover): 이 훅(useUserUnblocked)은 현재 어떤 Shell 에도 배선돼 있지
+ * 않다(dormant). useDmCreated 는 S99 에서 DmShell 에 배선됐고, useUserUnblocked
+ * 의 Shell 배선은 별도 작업으로 남아 있다(DEFER).
  */
 export function useUserUnblocked(): void {
   const qc = useQueryClient();

@@ -3690,7 +3690,15 @@ export class MessagesService {
       // authorId + S33 카운터 감소 분기용 parentMessageId 를 함께 읽는다.
       const updated = await tx.message.findUniqueOrThrow({
         where: { id: args.msgId },
-        select: { id: true, authorId: true, parentMessageId: true, isBroadcast: true },
+        // S99 (S05-verify carryover · LOW): version 을 함께 읽어 MESSAGE_DELETED
+        // 페이로드에 동봉한다(수신 클라의 낙관적 잠금 baseline 갱신).
+        select: {
+          id: true,
+          authorId: true,
+          parentMessageId: true,
+          isBroadcast: true,
+          version: true,
+        },
       });
       // S33 (FR-TH-16 / FR-TH-17): 삭제된 메시지가 답글이면 루트의 비정규화
       // replyCount 를 같은 $transaction 안에서 원자적으로 감소시킨다.
@@ -3735,6 +3743,9 @@ export class MessagesService {
           id: updated.id,
           authorId: updated.authorId,
           deletedAt: deletedAt.toISOString(),
+          // S99 (S05-verify carryover): 삭제 시점 version(soft-delete 는 version 을
+          // 증가시키지 않으므로 마지막 편집의 version 그대로) 전파.
+          version: updated.version,
         },
       };
       await this.outbox.record(tx, {

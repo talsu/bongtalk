@@ -113,6 +113,17 @@ describe('Messages outbox events', () => {
       'message.updated',
       'message.deleted',
     ]);
+
+    // S99 (S05-verify carryover · LOW): message.deleted 페이로드가 삭제 시점
+    // version 을 동봉하는지 검증한다(수신 클라의 낙관적 잠금 baseline 갱신용).
+    // 편집(version 0→1) 후 삭제이므로 soft-delete 는 version 을 올리지 않아
+    // 마지막 편집의 version(1)이 그대로 실린다.
+    const deletedEvent = events.find((e) => e.eventType === 'message.deleted');
+    const deletedPayload = deletedEvent?.payload as {
+      message?: { id?: string; deletedAt?: string; version?: number };
+    };
+    expect(deletedPayload?.message?.version).toBe(1);
+    expect(typeof deletedPayload?.message?.deletedAt).toBe('string');
   });
 
   it('guard rejects BEFORE tx → no message.created outbox row (archived channel)', async () => {
