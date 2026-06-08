@@ -13,6 +13,9 @@ export interface DmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
+  // FR-DM-15: 미읽음 @멘션 건수(뮤트 DM 배지용). 서버가 점진 롤아웃 중일 수 있어
+  // 소비처(DmShell/MobileDmList)는 `?? 0` 으로 안전 폴백한다(dmRowBadge 입력).
+  mentionCount: number;
   // S16 (FR-DM-03): 참여자 프로필. 1:1 DM 은 상대방 단일 요소(항상 1개).
   participants: DmParticipantProfile[];
 }
@@ -66,6 +69,36 @@ export function useDmByUser(workspaceId: string | undefined, userId: string | un
     queryFn: () => apiRequest(`/me/dms/by-user/${userId}`),
     enabled: !!userId,
     staleTime: 60_000,
+  });
+}
+
+/**
+ * FR-DM-15: DM 뮤트 설정/해제 mutation. 채널 뮤트(useMutes)와 동일한
+ * UserChannelMute 테이블을 쓰지만, 설정은 DM 전용 라우트(PATCH /me/dms/:channelId/
+ * mute {mutedUntil:null}=무기한)를, 해제는 카노니컬 DELETE /me/mutes/channels/:id
+ * (level 오버라이드 보존 로직 포함)를 재사용한다. 성공 시 ['me','mutes'](사이드바
+ * 뮤트 집합 useMutedChannelIds)와 DM 목록 쿼리를 무효화해 회색/배지 표시를 갱신한다.
+ */
+export function useSetDmMute(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<{ channelId: string; mutedUntil: string | null }, Error, string>({
+    mutationFn: (channelId) =>
+      apiRequest(`/me/dms/${channelId}/mute`, { method: 'PATCH', body: { mutedUntil: null } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['me', 'mutes'] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
+    },
+  });
+}
+
+export function useRemoveDmMute(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (channelId) => apiRequest(`/me/mutes/channels/${channelId}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['me', 'mutes'] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
+    },
   });
 }
 

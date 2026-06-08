@@ -91,6 +91,8 @@ export function MobileDmList(): JSX.Element {
             const badge = deriveDmBadgeCount({
               unreadCount: d.unreadCount,
               muted: mutedChannelIds.has(d.channelId),
+              // FR-DM-15: 뮤트 DM 은 @멘션 건수만 배지로(서버 점진 롤아웃 대비 `?? 0`).
+              mentionCount: d.mentionCount ?? 0,
             });
             return (
               <button
