@@ -2803,7 +2803,7 @@ unread:{workspaceId}:{userId}  (Hash)
         <td>
           Redis 불가 시 큐잉 실패 → 기능별 fallback:<br>
           <span class="subtle">• <strong>멘션</strong>: DB 직접 <code>MentionRecord</code> 기록 동기 fallback</span><br>
-          <span class="subtle">• <strong>이메일</strong>: DB 큐 테이블(<code>email_queue</code>) fallback — Redis 복구 후 재처리</span><br>
+          <span class="subtle">• <strong>이메일</strong>: BullMQ/큐 미사용 — SMTP2GO 릴레이로 best-effort 동기 발송(실패 시 Pino 로그, 재시도·바운스는 릴레이 담당). Redis 의존은 rate-limit(전역+per-recipient)뿐이며, Redis 불가 시 fail-open(발송 진행)</span><br>
           <span class="subtle">• <strong>그 외(unfurl·썸네일·리마인더)</strong>: <code>429 Too Many Requests + Retry-After</code> 또는 best-effort skip + Pino error 로그</span>
         </td>
       </tr>
@@ -2815,35 +2815,35 @@ unread:{workspaceId}:{userId}  (Hash)
     </tbody>
   </table>
 
-  <h2><span class="qf-eyebrow">이메일 인프라</span> self-hosted SMTP + BullMQ 이메일 큐</h2>
+  <h2><span class="qf-eyebrow">이메일 인프라</span> SMTP2GO 릴레이 + best-effort 발송</h2>
 
   <div class="callout callout--warn">
-    <svg class="qf-icon"><use href="#qf-i-lock"/></svg>
-    NAS 단일 배포 정책에 따라 클라우드 SaaS 메일 서비스(SendGrid·SES·Mailgun 등) 사용 금지. 모든 이메일 발송은 self-hosted SMTP로만 처리한다.
+    <svg class="qf-icon"><use href="#qf-i-info"/></svg>
+    <strong>2026-06 역-업데이트(구현 반영):</strong> 종전 PRD 는 self-hosted Postfix + BullMQ 이메일 큐를 명시하고 클라우드 SaaS 메일을 금지했으나, 실제 구현은 <strong>SMTP2GO(외부 SMTP 릴레이)</strong>를 채택했다. self-hosted Postfix 는 가정용 회선 IP 평판·딜리버러빌리티(스팸 분류)·SPF/DKIM/PTR 운영 부담으로 보류하고, 이메일은 NAS-only 정책에서 <strong>유일하게 승인된 외부 의존성</strong>으로 둔다. 인증정보(<code>SMTP_PASS</code>)는 <code>.env.prod</code> 시크릿(미커밋·gitleaks). 릴레이 자체가 큐잉·재시도·바운스 처리를 담당하므로 앱 측 BullMQ 이메일 큐는 두지 않는다.
   </div>
 
   <div class="grid grid--2">
     <div class="card">
       <div class="card__preview">
-        <h3>인프라 구성</h3>
+        <h3>인프라 구성 (구현 반영)</h3>
         <ul class="stories">
-          <li><strong>Prod</strong>: Postfix (NAS docker-compose, <code>qufox-smtp</code> 서비스)</li>
-          <li><strong>Dev / CI</strong>: Mailpit (<code>qufox-mailpit</code>, SMTP :1025, Web UI :8025)</li>
-          <li>BullMQ <code>email</code> 큐 + Worker: NestJS <code>EmailModule</code> 내 정의</li>
-          <li>발송 실패 시 지수 백오프 3회 재시도 (1s → 2s → 4s)</li>
-          <li>3회 전부 실패 시 <code>email_failed</code> 이벤트 emit + Pino error 로그 + <code>errorCode: EMAIL_DELIVERY_FAILED</code></li>
+          <li><strong>Prod</strong>: SMTP2GO 릴레이 — <code>mail.smtp2go.com:2525</code> STARTTLS(<code>SMTP_SECURE=false</code> + <code>requireTLS</code>), nodemailer <code>SmtpMailSender</code>, <code>MAIL_FROM=no-reply@qufox.com</code></li>
+          <li><strong>Dev / CI</strong>: <code>ConsoleMailSender</code> — <code>SMTP_HOST</code> 빈값이면 폴백(인증/초대 링크를 구조화 로그로 출력, dev 편의). Mailpit 미사용</li>
+          <li><strong>어댑터 팩토리</strong>(<code>auth.module</code>): <code>SMTP_HOST</code> 설정 시 <code>SmtpMailSender</code> / 미설정 시 <code>ConsoleMailSender</code>. 인터페이스 <code>MailSender</code> · DI 토큰 <code>MAIL_SENDER</code> (어댑터 교체 단일 지점)</li>
+          <li><strong>best-effort 발송</strong>(BullMQ 이메일 큐·<code>email_queue</code> 미사용): 동기 발송 후 실패해도 throw 하지 않는다 — 가입/초대/비밀번호변경 도메인 트랜잭션을 메일 실패가 막지 않는다. 재시도/바운스/큐잉은 릴레이(SMTP2GO)가 담당</li>
+          <li>발송/실패/스킵은 Pino 로그(<code>email_sent</code> / <code>email_send_failed</code> / <code>email_send_skipped</code>) — <code>to</code> + <code>type</code>(verification·invite·security)만 기록, verifyUrl/토큰/subject 미노출</li>
         </ul>
       </div>
     </div>
     <div class="card">
       <div class="card__preview">
-        <h3>D13 부분성공 응답 연동</h3>
+        <h3>발송 대상 · rate-limit · 전송 보안</h3>
         <ul class="stories">
-          <li>초대 일괄 발송 등 대량 이메일 작업은 D13 부분성공 패턴 적용</li>
-          <li>응답 구조: <code>{ succeeded: string[], failed: string[], queued: string[] }</code></li>
-          <li>큐 투입 성공한 주소는 <code>queued</code>에 포함, HTTP 202 반환</li>
-          <li>큐 투입 자체 실패한 주소는 <code>failed</code>에 포함, 전체 요청은 207 반환</li>
-          <li>재시도 결과는 Webhook 또는 관리자 알림으로 사후 통지</li>
+          <li><strong>발송 경로 3종</strong>: 이메일 인증(FR-W05b)·워크스페이스 직접 초대(FR-W04)·보안 알림(FR-PS-15, 비밀번호 변경 등)</li>
+          <li><strong>rate-limit</strong>(Redis sliding window): 전역 <code>EMAIL_RATE_MAX</code>(기본 25 / <code>EMAIL_RATE_DURATION_MS</code> 1h — 릴레이 쿼터·남용 방지) + per-recipient(<code>email:send:to:{addr}</code> 5/윈도 — 동일 주소 스팸·shared-fate 완화). 초과 시 warn 로그 + 스킵</li>
+          <li><strong>전송 보안</strong>: <code>requireTLS</code>(STARTTLS 강제 — 자격증명 평문 폴백 차단) · 메일 HTML 본문의 사용자 입력 HTML escape(XSS) · subject CRLF sanitize(헤더 인젝션) · 버튼 href 는 http(s) 스킴만 허용</li>
+          <li><strong>D13 일괄 초대</strong>: 대량 초대 메일도 best-effort 발송(앱 큐 없음). 초대 <em>레코드</em> 생성 자체는 D13 부분성공 패턴(<code>succeeded</code>/<code>failed</code>) 유지 — 메일 전달 성공 여부는 응답에 포함하지 않는다(발송은 fire-and-forget)</li>
+          <li><strong>SMTP_PASS 회전</strong>: <code>.env.prod</code> 수정 후 api 컨테이너 recreate(<code>env_file</code> 재로딩)로 반영</li>
         </ul>
       </div>
     </div>
@@ -2869,7 +2869,7 @@ unread:{workspaceId}:{userId}  (Hash)
       <div class="card__preview">
         <h3>용량 경보 및 제한 정책</h3>
         <ul class="stories">
-          <li>MinIO 볼륨 사용률 <strong>80%</strong> 도달 시: 워크스페이스 <strong>OWNER</strong>에게 <strong>인앱 토스트 알림</strong> + <code>system:storage_warning</code> Socket.IO 이벤트 + <strong>이메일(self-hosted SMTP)</strong> 동시 발송. 대상은 워크스페이스 OWNER 역할 보유자</li>
+          <li>MinIO 볼륨 사용률 <strong>80%</strong> 도달 시: 워크스페이스 <strong>OWNER</strong>에게 <strong>인앱 토스트 알림</strong> + <code>system:storage_warning</code> Socket.IO 이벤트 + <strong>이메일(SMTP2GO 릴레이)</strong> 동시 발송. 대상은 워크스페이스 OWNER 역할 보유자</li>
           <li>볼륨 <strong>100% 초과</strong>(또는 쿼터 초과) 시 파일 업로드 엔드포인트 전체 <code>503 Service Unavailable</code> + <code>Retry-After</code> 헤더 반환</li>
           <li>Prometheus 메트릭: <code>minio_bucket_usage_bytes</code> (버킷별 gauge)</li>
           <li>MinIO 헬스체크는 <code>/readyz</code> 응답에 <code>minio: "ok"|"degraded"</code>로 포함</li>
