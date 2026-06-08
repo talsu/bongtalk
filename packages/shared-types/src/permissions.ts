@@ -6,13 +6,15 @@
  * (domain-model ADR-4 / ADR-11)
  *
  * 폐기됨: D02(7개 비트 표기) · D12(13개 비트 표기) · D06(MENTION_EVERYONE=0x100000)
- * 표기는 모두 폐기. 본 표(채널 overwrite 13 + ADMINISTRATOR 1 = 14개)가 유일 권위.
+ * 표기는 모두 폐기. 본 표(채널 overwrite 14 + 워크스페이스 모더레이션 3 +
+ * ADMINISTRATOR 1)가 유일 권위. (S94/067: MENTION_CHANNEL 0x2000 추가로 채널
+ * overwrite 13→14개.)
  */
 
 /**
- * 14개 권한 플래그(BigInt 비트마스크). 채널 overwrite 가능 플래그 13개 +
- * ADMINISTRATOR 1개. ADMINISTRATOR 비트 소유자는 모든 권한을 가지며 채널
- * overwrite 검사 전체를 면제받습니다.
+ * 권한 플래그(BigInt 비트마스크). 채널 overwrite 가능 플래그 14개 + 워크스페이스
+ * 모더레이션 비트 3개 + ADMINISTRATOR 1개. ADMINISTRATOR 비트 소유자는 모든
+ * 권한을 가지며 채널 overwrite 검사 전체를 면제받습니다.
  */
 export const PERMISSIONS = {
   VIEW_CHANNEL: 1n << 0n, // 0x0001 채널 조회
@@ -28,6 +30,11 @@ export const PERMISSIONS = {
   CREATE_INVITES: 1n << 10n, // 0x0400 초대 링크 생성
   USE_EXTERNAL_EMOJI: 1n << 11n, // 0x0800 외부 커스텀 이모지
   BYPASS_SLOWMODE: 1n << 12n, // 0x1000 슬로우모드 면제
+  // S94 (067 / FR-MSG-14): @channel / @here 범위 멘션 권한. MENTION_EVERYONE
+  // (@everyone 전용)과 분리한 별도 비트로, 기본 MEMBER 허용(@channel/@here 는
+  // PRD 상 일반 멤버도 사용 가능)이다. 채널 overwrite 가능 비트라 아래
+  // CHANNEL_OVERWRITE_FLAGS 에도 포함한다(채널 ADMIN 이 역할/멤버별 박탈 가능).
+  MENTION_CHANNEL: 1n << 13n, // 0x2000 @channel / @here
   // S63 (D12 / FR-RM05·06·07): 워크스페이스 레벨 모더레이션 비트. 채널 overwrite
   // 대상이 아니라 CHANNEL_OVERWRITE_FLAGS 에 포함하지 않는다(아래). 13~62 의 빈 비트
   // 중 14~16 을 사용한다 — moderation 컨트롤러가 카탈로그 비트를 직접 검사한다(S62
@@ -40,7 +47,7 @@ export const PERMISSIONS = {
 
 export type PermissionFlag = keyof typeof PERMISSIONS;
 
-/** 채널 overwrite 가능한 13개 플래그(ADMINISTRATOR 제외). */
+/** 채널 overwrite 가능한 14개 플래그(ADMINISTRATOR 제외). */
 export const CHANNEL_OVERWRITE_FLAGS = [
   'VIEW_CHANNEL',
   'SEND_MESSAGES',
@@ -55,6 +62,9 @@ export const CHANNEL_OVERWRITE_FLAGS = [
   'CREATE_INVITES',
   'USE_EXTERNAL_EMOJI',
   'BYPASS_SLOWMODE',
+  // S94 (067 / FR-MSG-14): @channel/@here 범위 멘션. 채널별 override 로 역할/멤버
+  // 단위 박탈이 가능하도록 overwrite 대상에 포함한다(기본 MEMBER 허용).
+  'MENTION_CHANNEL',
 ] as const satisfies readonly PermissionFlag[];
 
 /** 정의된 모든 비트의 OR — 유효 비트 검증/마스킹용. */

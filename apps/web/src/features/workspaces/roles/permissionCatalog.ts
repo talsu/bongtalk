@@ -68,7 +68,14 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     flag: 'MENTION_EVERYONE',
     bit: PERMISSIONS.MENTION_EVERYONE,
     label: '전체 멘션',
-    description: '@everyone / @here',
+    description: '@everyone',
+  },
+  // S94 (067 / FR-MSG-14): @channel/@here 범위 멘션 권한(@everyone 과 분리·기본 MEMBER 허용).
+  {
+    flag: 'MENTION_CHANNEL',
+    bit: PERMISSIONS.MENTION_CHANNEL,
+    label: '채널 멘션',
+    description: '@channel / @here',
   },
   {
     flag: 'MANAGE_CHANNEL',

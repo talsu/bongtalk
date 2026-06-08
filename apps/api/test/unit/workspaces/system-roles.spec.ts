@@ -135,18 +135,24 @@ describe('S61 role DTO schemas', () => {
   });
 
   // S61 fix-forward (reviewer BLOCKER-3): 범위 밖 비트는 Zod 에서 거부(→ 컨트롤러 422).
-  it('PermissionsBitfieldSchema rejects bits outside the catalog (bit13=8192)', () => {
-    // ALL_PERMISSIONS = 0x1FFF | ADMINISTRATOR(1<<63). bit13(8192=0x2000)은 미정의 →
-    // 종전엔 deserialize RangeError → 500. 이제 Zod refine 이 미리 거부한다.
-    expect(CreateRoleRequestSchema.safeParse({ name: 'evil', permissions: '8192' }).success).toBe(
+  // S94 (067 / FR-MSG-14): bit13(8192=0x2000)은 이제 MENTION_CHANNEL 로 정의돼 통과한다.
+  // 미정의 비트는 bit17(131072=0x20000 — 14~16 은 S63 모더레이션 비트)을 쓴다.
+  it('PermissionsBitfieldSchema rejects bits outside the catalog (bit17=131072)', () => {
+    // ALL_PERMISSIONS 범위 밖 비트(미정의 bit17) → 종전엔 deserialize RangeError → 500.
+    // 이제 Zod refine 이 미리 거부한다.
+    expect(CreateRoleRequestSchema.safeParse({ name: 'evil', permissions: '131072' }).success).toBe(
       false,
     );
-    expect(UpdateRoleRequestSchema.safeParse({ permissions: '8192' }).success).toBe(false);
+    expect(UpdateRoleRequestSchema.safeParse({ permissions: '131072' }).success).toBe(false);
+    // S94: bit13(8192=MENTION_CHANNEL)은 이제 정의된 카탈로그 비트라 통과한다.
+    expect(CreateRoleRequestSchema.safeParse({ name: 'ok', permissions: '8192' }).success).toBe(
+      true,
+    );
     // ADMINISTRATOR 비트(1<<63)는 정의된 비트라 형식상 통과한다(권한 상승 방어는 서비스).
     expect(
       CreateRoleRequestSchema.safeParse({ name: 'ok', permissions: '9223372036854775808' }).success,
     ).toBe(true);
-    // 13비트 카탈로그 합(0x1FFF=8191)도 통과.
+    // 하위 채널 overwrite 카탈로그 합(0x1FFF=8191)도 통과.
     expect(CreateRoleRequestSchema.safeParse({ name: 'ok', permissions: '8191' }).success).toBe(
       true,
     );

@@ -47,14 +47,15 @@ describe('assembleRows (FR-RC03/04/05) — 트리거 → 행 조립 합성', () 
     expect(memberNames).not.toContain('bob');
   });
 
-  it('@ mention rows for an OWNER include @here and @everyone but never @channel', () => {
+  // S94 (067, Option B): @channel 도 기본 MEMBER 허용이 되어 자동완성에 노출된다(복원).
+  it('@ mention rows for an OWNER include @here, @channel and @everyone', () => {
     const r = assembleRows('@', 1, baseSources({ role: 'OWNER' }));
     const specialKeys = r.rows
       .filter((row) => row.type === 'special')
       .map((row) => (row.type === 'special' ? (row.item.key as string) : ''));
     expect(specialKeys).toContain('here');
+    expect(specialKeys).toContain('channel');
     expect(specialKeys).toContain('everyone');
-    expect(specialKeys).not.toContain('channel');
   });
 
   it('OWNER sees @everyone in the @ rows', () => {

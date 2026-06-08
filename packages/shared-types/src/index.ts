@@ -197,6 +197,10 @@ export const ErrorCodeSchema = z.enum([
   // S14 (FR-CH-05): 비공개→공개 전환 confirmName 누락/불일치 → 400. 클라이언트는
   // 이 코드를 받으면 "채널 이름 재입력" confirm 모달의 검증 실패로 분기한다.
   'CHANNEL_CONFIRM_REQUIRED',
+  // S94 (067 / FR-MSG-14): 대규모 범위 멘션(@everyone ≥6 · @channel/@here ≥50)
+  // 전송 시 bulkMentionConfirmed 미동봉 → 확인 요구 → 409. 클라이언트는 이 코드를
+  // 받으면 확인 dialog 후 bulkMentionConfirmed:true 로 재전송한다.
+  'BULK_MENTION_CONFIRM_REQUIRED',
   // S14 (FR-CH-07): 비공개 채널 자유 가입 거부 → 403(초대 기반 가입만).
   'CHANNEL_PRIVATE_INVITE_ONLY',
   // S14 (FR-CH-07): 비멤버 탈퇴 → 409.

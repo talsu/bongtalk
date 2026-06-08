@@ -30,7 +30,7 @@ import {
 import { WorkspaceMemberGuard } from '../workspaces/guards/workspace-member.guard';
 import { WorkspaceRoleGuard } from '../workspaces/guards/workspace-role.guard';
 import { CurrentUser, CurrentUserPayload } from '../auth/decorators/current-user.decorator';
-import { ALL_PERMISSIONS } from '../auth/permissions';
+import { isWithinChannelOverrideBits } from '../auth/permissions';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { RateLimitService } from '../auth/services/rate-limit.service';
@@ -209,12 +209,16 @@ export class ChannelsController {
     // an ADMIN inject allowMask:-1 or an undefined bit to escalate. zod first
     // bounds userId (uuid) + masks (non-negative int32 shape). Then we bound
     // against the **enforcement** bitfield — `ALL_PERMISSIONS` from
-    // auth/permissions (0x1FF: the 9 channel-override bits ChannelAccessService
-    // actually interprets — S15 added BYPASS_SLOWMODE=0x0100), NOT the broader
-    // shared-types PERMISSIONS catalog (which includes ADMINISTRATOR + reserved
-    // bits the override layer ignores). Bits outside 0x1FF are meaningless to
-    // enforcement and would persist as garbage, so reject them. review S12
-    // BLOCKER-1 fix.
+    // auth/permissions (0x17F: the 8 channel-override enforcement bits
+    // ChannelAccessService actually interprets — READ|WRITE|DELETE_OWN|
+    // DELETE_ANY|MANAGE_MEMBERS|MANAGE_CHANNEL|UPLOAD|BYPASS_SLOWMODE; S61
+    // retired PIN_MESSAGE=0x80, freeing that bit for the catalog mention bits),
+    // NOT the broader shared-types PERMISSIONS catalog (which includes
+    // ADMINISTRATOR + reserved bits the override layer ignores). S94 widens the
+    // accepted set to ALL_PERMISSIONS + the two mention bits (MENTION_EVERYONE
+    // 0x80 + MENTION_CHANNEL 0x2000) via isWithinChannelOverrideBits (0x21FF);
+    // bits outside that set are meaningless to enforcement / mention fold and
+    // would persist as garbage, so reject them. review S12 BLOCKER-1 fix.
     // S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
     await this.enforceOverrideRateLimit(m.workspaceId);
     const parsed = ChannelMemberOverrideRequestSchema.safeParse(body);
@@ -222,10 +226,11 @@ export class ChannelsController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     const { userId, allowMask, denyMask } = parsed.data;
-    // ALL_PERMISSIONS (0x1FF) is contiguous bits 0..8, so a numeric range check
-    // is equivalent to a bit-subset check AND avoids JS int32 bitwise wrap
-    // (e.g. 2^63 & ~0x1FF would wrap to 0 and slip through; 2^63 > 0x1FF does not).
-    if (allowMask > ALL_PERMISSIONS || denyMask > ALL_PERMISSIONS) {
+    // S94 (067 / FR-MSG-14): override 가 담을 수 있는 비트(집행 0x17F + 멘션 0x80/0x2000)
+    // subset 검사. 종전 numeric `> ALL_PERMISSIONS(0x17F)` 는 MENTION_EVERYONE(0x80<0x17F)만
+    // 우연히 통과시키고 MENTION_CHANNEL(0x2000)을 거부했다. isWithinChannelOverrideBits 는
+    // BigInt 로 검사해 int32 wrap(2^63→0 slip) 을 피하면서 두 멘션 비트를 모두 허용한다.
+    if (!isWithinChannelOverrideBits(allowMask) || !isWithinChannelOverrideBits(denyMask)) {
       throw new DomainError(
         ErrorCode.VALIDATION_FAILED,
         'permission mask has bits outside the channel permission set',
@@ -267,8 +272,10 @@ export class ChannelsController {
       throw new DomainError(ErrorCode.VALIDATION_FAILED, parsed.error.message);
     }
     const { role, allowMask, denyMask } = parsed.data;
-    // S12 BLOCKER-1 reuse: bound masks against the enforcement set (0xFF).
-    if (allowMask > ALL_PERMISSIONS || denyMask > ALL_PERMISSIONS) {
+    // S94 (067 / FR-MSG-14): override 허용 비트 subset 검사(USER override 와 동일).
+    // 집행 비트 + 멘션 비트(MENTION_EVERYONE 0x80 · MENTION_CHANNEL 0x2000)만 허용,
+    // ADMINISTRATOR/모더레이션/예약 비트는 거부(BigInt — int32 wrap 회피).
+    if (!isWithinChannelOverrideBits(allowMask) || !isWithinChannelOverrideBits(denyMask)) {
       throw new DomainError(
         ErrorCode.VALIDATION_FAILED,
         'permission mask has bits outside the channel permission set',
