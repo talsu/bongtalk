@@ -47,7 +47,7 @@ FR-RT-14,D17-realtime-sync,P0,S11,done
 FR-RT-19,D17-realtime-sync,P0,S11,done
 FR-CH-01,D02-channels,P0,S12,done
 FR-CH-02,D02-channels,P0,S12,done
-FR-CH-03,D02-channels,P0,S12,partial
+FR-CH-03,D02-channels,P0,S91,done
 FR-CH-20,D02-channels,P0,S12,done
 FR-CH-04,D02-channels,P0,S13,done
 FR-CH-09,D02-channels,P1,S13,done
