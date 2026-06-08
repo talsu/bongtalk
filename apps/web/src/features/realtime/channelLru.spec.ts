@@ -49,11 +49,25 @@ describe('useChannelLruStore.enter (FR-RT-22)', () => {
     expect(useChannelLruStore.getState().pendingAround.has('a')).toBe(true);
   });
 
-  it('consumeAround 는 1회성(소비 후 false)', () => {
+  // S97 (FR-RT-22 하드닝): peek 은 소비 없음, clear 가 명시 제거.
+  it('peekAround 는 소비하지 않는다(여러 번 호출해도 true 유지)', () => {
     for (const k of ['a', 'b', 'c']) useChannelLruStore.getState().enter(k, 3);
     useChannelLruStore.getState().enter('d', 3); // a evict
-    expect(useChannelLruStore.getState().consumeAround('a')).toBe(true);
-    expect(useChannelLruStore.getState().consumeAround('a')).toBe(false);
+    expect(useChannelLruStore.getState().peekAround('a')).toBe(true);
+    // retry 시 같은 around 가 재계산되도록 peek 는 플래그를 소진하지 않는다(HIGH-2).
+    expect(useChannelLruStore.getState().peekAround('a')).toBe(true);
+    expect(useChannelLruStore.getState().pendingAround.has('a')).toBe(true);
+  });
+
+  it('clearAround 후에야 peek 이 false', () => {
+    for (const k of ['a', 'b', 'c']) useChannelLruStore.getState().enter(k, 3);
+    useChannelLruStore.getState().enter('d', 3); // a evict
+    expect(useChannelLruStore.getState().peekAround('a')).toBe(true);
+    useChannelLruStore.getState().clearAround('a');
+    expect(useChannelLruStore.getState().peekAround('a')).toBe(false);
+    // 이미 비운 키를 다시 clear 해도 무해(no-op).
+    useChannelLruStore.getState().clearAround('a');
+    expect(useChannelLruStore.getState().peekAround('a')).toBe(false);
   });
 });
 
@@ -77,8 +91,9 @@ describe('runChannelLruEntry → removeQueries on eviction (FR-RT-22)', () => {
     expect(qc.getQueryData(qk.messages.list('ws-1', 'c1'))).toBeUndefined();
     expect(qc.getQueryData(qk.messages.list('ws-1', 'c2'))).toBeDefined();
     expect(qc.getQueryData(qk.messages.list('ws-1', 'c4'))).toBeDefined();
-    // evict 된 c1 은 재진입 시 around 재로드 대상.
-    expect(useChannelLruStore.getState().consumeAround(lruKey('ws-1', 'c1'))).toBe(true);
+    // evict 된 c1 은 재진입 시 around 재로드 대상(peek=true, 소비 없음).
+    expect(useChannelLruStore.getState().peekAround(lruKey('ws-1', 'c1'))).toBe(true);
+    expect(useChannelLruStore.getState().pendingAround.has(lruKey('ws-1', 'c1'))).toBe(true);
   });
 
   it('재진입으로 recency 갱신된 채널은 evict 대상이 아니다', () => {

@@ -137,8 +137,17 @@ export function isBulkMentionConfirmRequired(err: unknown): boolean {
  * **우선**합니다(사용자가 명시적으로 그 메시지로 점프하길 원했으므로).
  * jumpMessageId 가 있으면 LRU around 소비 분기는 건너뜁니다.
  *
- * 부수효과(consumeAround 1회성 소비)를 포함하므로 queryFn 호출당 한 번만
- * 호출해야 합니다. 훅과 테스트가 공유합니다.
+ * S97 (FR-RT-22 하드닝): 이 함수는 LRU pendingAround 플래그를 **peek**(소비
+ * 없음)합니다. 종전엔 queryFn 안에서 1회성 consumeAround 로 소진했는데, 그러면
+ *   - HIGH-2: network 실패로 queryFn 이 retry 될 때 첫 시도에서 이미 소진돼
+ *     around 가 영구 상실됐고,
+ *   - MED-1: lastReadMessageId 가 아직 미공급(channel:joined race)이면 플래그만
+ *     소진되고 around 는 못 써 영영 복원 기회를 잃었습니다.
+ * 이제 peek + lastRead 존재 시에만 around 를 쓰고, 플래그 clear 는 **첫 페이지
+ * fetch 성공 후**(useMessageHistory queryFn 의 await 성공 직후)에 1회만 합니다.
+ * 따라서 retry 중에는 같은 around 가 재계산되고(HIGH-2), lastRead 미공급이면
+ * before 폴백하되 플래그가 남아 lastRead 도착 후 다음 fetch 에서 around 적용
+ * 기회를 유지합니다(MED-1). 순수 조회라 queryFn 당 여러 번 호출돼도 안전합니다.
  */
 export function resolveListFetchArgs(
   wsId: string | null,
@@ -148,15 +157,41 @@ export function resolveListFetchArgs(
 ): Partial<ListMessagesQuery> {
   if (pageParam === undefined) {
     // M2: 검색 점프 anchor 가 lastRead 복원보다 우선. (jump 가 있으면 LRU
-    // around 플래그는 소비하지 않고 그대로 둔다 — 점프가 곧 around 로드이므로.)
+    // around 플래그는 건드리지 않고 그대로 둔다 — 점프가 곧 around 로드이므로.)
     if (jumpMessageId) return { limit: 50, around: jumpMessageId };
-    const wantsAround = useChannelLruStore.getState().consumeAround(lruKey(wsId, channelId));
+    const wantsAround = useChannelLruStore.getState().peekAround(lruKey(wsId, channelId));
     if (wantsAround) {
       const around = useReadState.getState().getLastRead(channelId);
+      // MED-1: lastRead 가 아직 null(미공급/race)이면 around 를 쓰지 않고 before
+      // 폴백한다. 플래그는 peek 라 소진되지 않으므로, lastRead 도착 후 다음
+      // fetch(refetch/재진입)에서 around 가 적용된다.
       if (around) return { limit: 50, around };
     }
   }
   return { limit: 50, before: pageParam ?? undefined };
+}
+
+/**
+ * S97 (FR-RT-22 하드닝): 첫 페이지 fetch 가 **성공한 직후** LRU around 플래그를
+ * clear 할지 결정하고 수행하는 순수 부수효과 헬퍼. queryFn 의 await 성공 분기에서
+ * 호출합니다. 다음 조건이 모두 참일 때만 clear 합니다:
+ *   - pageParam === undefined (초기 로드 — older-page fetch 는 around 와 무관),
+ *   - jumpMessageId 부재 (jump around 는 LRU pendingAround 유래가 아님),
+ *   - 이번 호출에 around 가 실제 적용됨(appliedArgs.around !== undefined).
+ * 성공 후에만 호출되므로 retry(network 실패)에는 도달하지 않아 around 가 보존되고
+ * (HIGH-2), lastRead 미공급으로 before 폴백한 경우엔 args.around 가 없어 clear 되지
+ * 않습니다(MED-1 — 다음 기회 유지). 훅과 단위 테스트가 공유하는 단일 출처입니다.
+ */
+export function clearAroundFlagOnSuccess(
+  wsId: string | null,
+  channelId: string,
+  pageParam: string | undefined,
+  jumpMessageId: string | null | undefined,
+  appliedArgs: Partial<ListMessagesQuery>,
+): void {
+  if (pageParam === undefined && !jumpMessageId && appliedArgs.around !== undefined) {
+    useChannelLruStore.getState().clearAround(lruKey(wsId, channelId));
+  }
 }
 
 export function useMessageHistory(
@@ -168,12 +203,15 @@ export function useMessageHistory(
 ) {
   return useInfiniteQuery({
     queryKey: keys.list(wsId, channelId),
-    queryFn: ({ pageParam }) =>
-      listMessages(
-        wsId,
-        channelId,
-        resolveListFetchArgs(wsId, channelId, pageParam as string | undefined, jumpMessageId),
-      ),
+    queryFn: async ({ pageParam }) => {
+      const param = pageParam as string | undefined;
+      const args = resolveListFetchArgs(wsId, channelId, param, jumpMessageId);
+      const res = await listMessages(wsId, channelId, args);
+      // S97 (FR-RT-22 하드닝): fetch 가 **성공한 직후에만** LRU around 플래그를
+      // clear 한다(retry 는 throw 로 여기 도달 전 빠져나가 around 보존 — HIGH-2).
+      clearAroundFlagOnSuccess(wsId, channelId, param, jumpMessageId, args);
+      return res;
+    },
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: ListMessagesResponse) =>
       last.pageInfo.hasMore ? (last.pageInfo.nextCursor ?? undefined) : undefined,
