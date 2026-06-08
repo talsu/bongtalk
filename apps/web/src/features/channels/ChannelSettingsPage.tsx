@@ -5,9 +5,13 @@ import { cn } from '../../lib/cn';
 import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useDeleteChannel, useUpdateChannel } from './useChannels';
+import { useWorkspace } from '../workspaces/useWorkspaces';
 import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
 import { ChannelPermissionsTab } from './ChannelPermissionsTab';
 import { bulkDeleteMessages } from '../messages/api';
+
+// FR-CH-03 (065): 기본 채널 삭제 차단 안내 문구(SR + 토스트 공용).
+const DEFAULT_CHANNEL_BLOCK_REASON = '기본 채널은 삭제할 수 없습니다';
 
 // S15 (FR-CH-08): 슬로우모드 간격 프리셋(초). Discord 와 동일한 구간.
 const SLOWMODE_OPTIONS: { seconds: number; label: string }[] = [
@@ -66,6 +70,14 @@ export function ChannelSettingsPage({
   const deleteMut = useDeleteChannel(workspaceId);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
+  // FR-CH-03 (065): 기본 채널(가입자 랜딩)은 삭제·보관할 수 없다. 워크스페이스 상세의
+  // defaultChannelId 와 현재 채널을 비교해 판단한다(MessageColumn 선례 — 채널 DTO 가
+  // isDefault 를 노출하지 않으므로 워크스페이스 상세를 단일 출처로 쓴다). 서버가 가드를
+  // 강제하지만(409 DEFAULT_CHANNEL_PROTECTED), UI 에서도 "채널 삭제" 항목을 비활성화해
+  // 헛클릭을 막고 사유를 SR 에 노출한다(graceful — 상세 미로딩 시엔 활성, 서버가 최종 게이트).
+  const { data: wsDetail } = useWorkspace(workspaceId);
+  const isDefaultChannel = wsDetail?.defaultChannelId === channel.id;
+
   const NAV_ITEMS: NavItem[] = [
     { type: 'section', id: 'general', label: '일반' },
     // S62 (FR-RM14): 채널 권한 오버라이드 섹션.
@@ -114,15 +126,28 @@ export function ChannelSettingsPage({
                 </button>
               );
             }
+            // FR-CH-03 (065): 기본 채널이면 "채널 삭제" action 을 비활성화하고 사유를
+            // SR(aria-label)에 노출한다. disabled 버튼은 title 로 시각 사용자에게도
+            // 사유를 보여준다(DS 토큰만 사용 · 새 클래스 미도입).
             return (
               <button
                 key={item.id}
                 type="button"
                 data-testid={`channel-settings-nav-${item.id}`}
                 onClick={() => setDeleteOpen(true)}
+                disabled={isDefaultChannel}
+                aria-disabled={isDefaultChannel || undefined}
+                aria-label={
+                  isDefaultChannel ? `${item.label} (${DEFAULT_CHANNEL_BLOCK_REASON})` : undefined
+                }
+                title={isDefaultChannel ? DEFAULT_CHANNEL_BLOCK_REASON : undefined}
                 // S62 fix-forward (ui-designer M-03): inline color 제거 → text-danger.
                 // 색 대비 자체는 DS-owner(라이트 테마 danger 토큰) — 구조만 className 화.
-                className="qf-settings__nav-item w-full text-left text-danger"
+                // 비활성 시 DS 의 표준 disabled 상태(qf-settings__nav-item:disabled)를 따른다.
+                className={cn(
+                  'qf-settings__nav-item w-full text-left text-danger',
+                  isDefaultChannel && 'cursor-not-allowed opacity-50',
+                )}
               >
                 {item.label}
               </button>
@@ -193,10 +218,17 @@ export function ChannelSettingsPage({
                       });
                       navigate(`/w/${workspaceSlug}`);
                     } catch (err) {
+                      // FR-CH-03 (065): 서버 가드(409 DEFAULT_CHANNEL_PROTECTED)도
+                      // graceful 토스트로 폴백한다. UI disabled 와 서버 응답 사이의
+                      // 경합(상세 미로딩·다른 탭에서 기본 변경)을 명확한 안내로 흡수한다.
+                      const e = err as Error & { errorCode?: string };
                       notify({
                         variant: 'danger',
                         title: '채널 삭제 실패',
-                        body: (err as Error).message,
+                        body:
+                          e.errorCode === 'DEFAULT_CHANNEL_PROTECTED'
+                            ? '기본 채널은 삭제할 수 없습니다. 먼저 다른 채널을 기본으로 지정하세요.'
+                            : e.message,
                       });
                     }
                   })();

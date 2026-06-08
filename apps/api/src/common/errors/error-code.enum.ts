@@ -188,6 +188,11 @@ export enum ErrorCode {
   // retryAfterMs(details) 로 잔여 밀리초를 실어보내 클라이언트가 카운트다운을
   // 띄울 수 있게 한다. BYPASS_SLOWMODE 비트 보유자는 이 게이트를 우회한다.
   CHANNEL_SLOWMODE_ACTIVE = 'CHANNEL_SLOWMODE_ACTIVE',
+  // FR-CH-03 (065): 기본 채널(Workspace.defaultChannelId · Channel.isDefault=true)의
+  // 삭제/보관 시도 → 409(상태 충돌). 가입자 랜딩 채널은 항상 존재·접근 가능해야 하므로
+  // updateDefaultChannel 로 다른 공개 채널을 기본으로 지정한 뒤에만 삭제/보관할 수 있다.
+  // 일반 FORBIDDEN(권한 부족)과 구분해 FE 가 "기본 채널 보호" 안내로 분기하게 한다.
+  DEFAULT_CHANNEL_PROTECTED = 'DEFAULT_CHANNEL_PROTECTED',
   CATEGORY_NOT_FOUND = 'CATEGORY_NOT_FOUND',
   CATEGORY_NAME_TAKEN = 'CATEGORY_NAME_TAKEN',
   // S43 (FR-CH-15): 즐겨찾기 재정렬 anchor 가 가리키는 즐겨찾기 행이 없음
@@ -519,6 +524,9 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CHANNEL_NOT_MEMBER]: 409,
   // S15 (FR-CH-08): 슬로우모드 활성은 429(rate-limit 계열) + retry-after.
   [ErrorCode.CHANNEL_SLOWMODE_ACTIVE]: 429,
+  // FR-CH-03 (065): 기본 채널 삭제/보관 거부는 409(상태 충돌 — 다른 채널을 기본으로
+  // 지정해야만 해소 가능). CHANNEL_ARCHIVED(409)·WORKSPACE_OWNER_MUST_TRANSFER(409) 선례 계열.
+  [ErrorCode.DEFAULT_CHANNEL_PROTECTED]: 409,
   [ErrorCode.CATEGORY_NOT_FOUND]: 404,
   [ErrorCode.CATEGORY_NAME_TAKEN]: 409,
   // S43 (FR-CH-15): 즐겨찾기 재정렬 anchor 미존재는 404.

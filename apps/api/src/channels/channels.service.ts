@@ -440,6 +440,25 @@ export class ChannelsService {
   }
 
   async softDelete(workspaceId: string, channelId: string, actorId: string) {
+    // FR-CH-03 (065): 기본 채널은 삭제할 수 없다. 가입자 랜딩 채널은 항상 존재·접근
+    // 가능해야 하므로(없으면 워크스페이스 진입이 깨짐), updateDefaultChannel 로 다른
+    // 공개 채널을 기본으로 옮긴 뒤에만 삭제할 수 있다. workspaceId 스코프로 조회해
+    // (restore 패턴) 타 워크스페이스 채널 누출을 막고, isDefault 면 409 로 거부한다.
+    // ChannelAccessGuard 가 이미 in-workspace 채널을 확인하지만, 가드는 isDefault 를
+    // 보지 않으므로 도메인 불변식을 서비스에서 직접 강제한다.
+    const target = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId },
+      select: { id: true, isDefault: true },
+    });
+    if (!target) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+    if (target.isDefault) {
+      throw new DomainError(
+        ErrorCode.DEFAULT_CHANNEL_PROTECTED,
+        '기본 채널은 삭제/보관할 수 없습니다. 먼저 다른 채널을 기본으로 지정하세요.',
+      );
+    }
     return this.prisma.$transaction(async (tx) => {
       const channel = await tx.channel.update({
         where: { id: channelId },
@@ -491,10 +510,21 @@ export class ChannelsService {
 
   async archive(workspaceId: string, channelId: string, actorId: string) {
     // S13 (FR-CH-04): 이미 보관 상태면 시스템 메시지를 중복 발행하지 않는다.
-    const before = await this.prisma.channel.findUnique({
-      where: { id: channelId },
-      select: { archivedAt: true },
+    // FR-CH-03 (065): 기본 채널은 보관할 수 없다(보관 시 목록에서 사라져 랜딩 불가).
+    // softDelete 와 동일하게 workspaceId 스코프로 조회해 isDefault 면 409 로 거부한다.
+    const before = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId },
+      select: { archivedAt: true, isDefault: true },
     });
+    if (!before) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found');
+    }
+    if (before.isDefault) {
+      throw new DomainError(
+        ErrorCode.DEFAULT_CHANNEL_PROTECTED,
+        '기본 채널은 삭제/보관할 수 없습니다. 먼저 다른 채널을 기본으로 지정하세요.',
+      );
+    }
     const channel = await this.prisma.$transaction(async (tx) => {
       const updated = await tx.channel.update({
         where: { id: channelId },
