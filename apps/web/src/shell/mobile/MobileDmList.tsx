@@ -88,9 +88,12 @@ export function MobileDmList(): JSX.Element {
           </div>
         ) : (
           rows.map((d) => {
+            const muted = mutedChannelIds.has(d.channelId);
             const badge = deriveDmBadgeCount({
               unreadCount: d.unreadCount,
-              muted: mutedChannelIds.has(d.channelId),
+              muted,
+              // FR-DM-15: 뮤트 DM 은 @멘션 건수만 배지로(서버 점진 롤아웃 대비 `?? 0`).
+              mentionCount: d.mentionCount ?? 0,
             });
             return (
               <button
@@ -114,7 +117,7 @@ export function MobileDmList(): JSX.Element {
                   {badge > 0 ? (
                     <span
                       data-testid={`mobile-dm-badge-${d.otherUsername}`}
-                      aria-label={`읽지 않음 ${badge}개`}
+                      aria-label={muted ? `멘션 ${badge}개` : `읽지 않음 ${badge}개`}
                       className="qf-badge qf-badge--count"
                     >
                       {dmBadgeText(badge)}
