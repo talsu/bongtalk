@@ -203,6 +203,11 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_NOT_MEMBER',
   // S15 (FR-CH-08): 슬로우모드 활성 중 재송신 → 429 + retryAfterMs.
   'CHANNEL_SLOWMODE_ACTIVE',
+  // FR-CH-03 (065): 기본 채널(Workspace.defaultChannelId · Channel.isDefault=true)의
+  // 삭제/보관 시도 → 409(상태 충돌). 가입자 랜딩 채널은 항상 존재·접근 가능해야 하므로
+  // 먼저 다른 채널을 기본으로 지정한 뒤에만 삭제/보관할 수 있다. FE 는 이 코드를 받으면
+  // "기본 채널은 삭제/보관할 수 없습니다" 안내로 분기한다(일반 FORBIDDEN 과 구분).
+  'DEFAULT_CHANNEL_PROTECTED',
   'CATEGORY_NOT_FOUND',
   'CATEGORY_NAME_TAKEN',
   // S43 (FR-CH-15): 즐겨찾기 재정렬 anchor 미존재 → 404.
