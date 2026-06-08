@@ -74,6 +74,7 @@ import { PresenceService } from '../realtime/presence/presence.service';
 import { ReminderQueueService } from '../queue/reminder-queue.service';
 import { UnfurlQueueService } from '../queue/unfurl-queue.service';
 import { MentionBroadcastQueueService } from '../queue/mention-broadcast-queue.service';
+import { MentionScanQueueService } from '../queue/mention-scan-queue.service';
 import { extractUnfurlUrls, type MessageEmbedDto, type RichEmbed } from '@qufox/shared-types';
 import { toMessageEmbedDto, MESSAGE_EMBED_UPDATED_EVENT } from '../links/message-embed.mapper';
 
@@ -352,6 +353,12 @@ export class MessagesService {
     // (아래 send() 분기 참조 — 큐 미주입 시 종전 동기 경로 유지).
     @Optional()
     private readonly mentionBroadcast?: MentionBroadcastQueueService,
+    // FR-MN-10 (066 / S93): 키워드 알림 스캔 async 큐. tx 커밋 후 루트 메시지(스레드 댓글
+    // 제외) · 워크스페이스 채널(DM 제외)에 한해 enqueue 한다(워커가 watcher 키워드를 잡
+    // 시점에 매칭). QueueModule 이 @Global 이라 import 없이 주입되며, @Optional 이라 미주입
+    // 단위테스트는 키워드 스캔을 건너뛴다(mentionBroadcast 와 동일 패턴).
+    @Optional()
+    private readonly mentionScan?: MentionScanQueueService,
     // S88b fix-forward (F1 / ★BLOCKER): 동기 send 경로와 @role async 워커가 공유하는
     // per-recipient 멘션 게이트(block/mute/DND/thread-OFF/NotifLevel). NotificationsModule
     // export(MessagesModule import). @Optional 이라 미주입 단위테스트는 종전 인라인
@@ -2277,6 +2284,24 @@ export class MessagesService {
           everyone: mentions.everyone === true,
           here: mentions.here === true,
           createdAt: row.createdAt.toISOString(),
+        });
+      }
+      // FR-MN-10 (066 / S93): 키워드 알림 스캔 잡을 tx 커밋 후 enqueue 한다. **루트 메시지**
+      // (row.parentMessageId === null · 스레드 댓글 제외 · PRD)이며 **워크스페이스 채널**
+      // (workspaceId !== null · DM 제외 · 상대가 어차피 알림받음)일 때만. 워커가 잡 시점
+      // watcher(키워드 보유자)를 매칭하므로 send 시점엔 키워드 보유자 존재 여부를 싸게 알
+      // 수 없어 루트마다 enqueue 한다(워커 (2) 쿼리가 0명 ws 에서 early-exit). best-effort —
+      // Redis 일시 실패는 메시지 전송에 영향 0(서비스 내부 흡수). syncNotifiedUserIds 로
+      // @user/broad 로 이미 알림된 수신자에 키워드 record 이중생성을 막는다.
+      if (this.mentionScan && args.workspaceId !== null && row.parentMessageId === null) {
+        await this.mentionScan.enqueue({
+          messageId: row.id,
+          channelId: args.channelId,
+          workspaceId: args.workspaceId,
+          actorId: args.authorId,
+          snippet: buildSnippet(args.content),
+          createdAt: row.createdAt.toISOString(),
+          syncNotifiedUserIds,
         });
       }
       return { message: row, replayed: false };

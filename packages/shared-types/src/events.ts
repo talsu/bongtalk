@@ -536,6 +536,13 @@ export const MentionNewPayloadSchema = z.object({
    * 구 payload 와 후방호환된다.
    */
   role: z.boolean().optional(),
+  /**
+   * FR-MN-10 (066 / S93) — 키워드 알림(mention-scan 워커) 유래 표식. 본문에 수신자의
+   * 등록 키워드가 어절 정확 일치해 알림된 경우 true. 서버 MentionReceivedPayload.keyword
+   * 와 1:1 정합한다. @user/@role 유래 멘션은 false/미설정. additive·optional 이라 구
+   * payload(키워드 아님)와 후방호환된다. UI 가 "키워드 알림" 레이블 분기에 쓴다.
+   */
+  keyword: z.boolean().optional(),
 });
 export type MentionNewPayload = z.infer<typeof MentionNewPayloadSchema>;
 

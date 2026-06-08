@@ -1556,11 +1556,14 @@ model MentionRecord {
   @@index([targetId, createdAt])
 }
 
-// S88b: 멘션 대상 유형. USER 만 사용한다(@role 은 워커가 멤버로 expand 해 USER 로
-// 기록). ROLE 은 향후 역할 자체를 대상으로 보관할 여지를 위한 예약값(현재 미사용).
+// S88b: 멘션 대상 유형. USER(@user · @role 멤버 expand 후), ROLE(예약 · 미사용).
+// FR-MN-10 (066 / S93): KEYWORD — mention-scan 워커가 watcher 키워드 일치 시 수신자별로
+// 기록하는 키워드 유래 멘션. me-mentions/me-activity 가 이 type 으로 keyword=true 를 판별한다.
+// 마이그레이션 20260630000000_frmn10_mention_keyword (additive ADD VALUE · down=no-op).
 enum MentionTargetType {
   USER
   ROLE
+  KEYWORD
 }
 
 // S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그. append-only(INSERT 전용 ·

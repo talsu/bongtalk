@@ -32,6 +32,10 @@ export interface ActivityRow {
   snippet: string;
   createdAt: string;
   readAt: string | null;
+  // FR-MN-10 (066 / S93): 키워드 알림 유래 표식(kind='mention' 행에 한해 의미). 본문에
+  // 호출자 등록 키워드가 어절 정확 일치해 알림된 멘션이면 true. UI 가 "키워드 알림"
+  // 레이블 분기에 쓴다. mention 외 kind 는 항상 false.
+  keyword: boolean;
   extra?: Record<string, unknown>;
 }
 
@@ -101,6 +105,7 @@ export class MeActivityService {
         snippet: string;
         createdAt: Date;
         readAt: Date | null;
+        keyword: boolean;
       }>
     >`
       WITH acc AS (
@@ -164,7 +169,14 @@ export class MeActivityService {
           m."authorId"               AS "actorId",
           au.username                AS "actorName",
           LEFT(m."contentPlain", 140) AS "snippet",
-          m."createdAt"
+          m."createdAt",
+          -- FR-MN-10 (066): 키워드 유래 멘션 표식(KEYWORD MentionRecord 보유). UI 레이블 분기용.
+          EXISTS (
+            SELECT 1 FROM "MentionRecord" mr
+             WHERE mr."messageId" = m.id
+               AND mr."targetId" = ${userId}::uuid
+               AND mr."targetType" = 'KEYWORD'
+          ) AS "keyword"
         FROM "Message" m
         JOIN acc ON acc."channelId" = m."channelId"
         LEFT JOIN "User" au ON au.id = m."authorId"
@@ -174,6 +186,13 @@ export class MeActivityService {
           AND (
             m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
             OR (m.mentions->>'everyone')::boolean IS TRUE
+            -- FR-MN-10 (066): 키워드/@role expand 유래 MentionRecord 도 통합 피드 멘션으로
+            -- 노출(추가형 OR · ACL 절 AND 보존). live 경로와 정합 · @role(USER record) latent
+            -- 갭 해소(@here/@everyone 은 MentionRecord 미기록 — everyone JSON 플래그로만 노출).
+            OR EXISTS (
+              SELECT 1 FROM "MentionRecord" mr
+               WHERE mr."messageId" = m.id AND mr."targetId" = ${userId}::uuid
+            )
           )
           AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),
@@ -187,7 +206,8 @@ export class MeActivityService {
           m."authorId"             AS "actorId",
           au.username              AS "actorName",
           LEFT(m."contentPlain", 140) AS "snippet",
-          m."createdAt"
+          m."createdAt",
+          false                    AS "keyword"
         FROM "Message" m
         JOIN "Message" root
           ON root.id = m."parentMessageId"
@@ -215,7 +235,8 @@ export class MeActivityService {
           mr."userId"                  AS "actorId",
           ru.username                  AS "actorName",
           COALESCE(mr.emoji, '')       AS "snippet",
-          mr."createdAt"
+          mr."createdAt",
+          false                        AS "keyword"
         FROM "MessageReaction" mr
         JOIN "Message" m ON m.id = mr."messageId" AND m."deletedAt" IS NULL
         JOIN acc ON acc."channelId" = m."channelId"
@@ -235,7 +256,8 @@ export class MeActivityService {
           m."authorId"              AS "actorId",
           du.username               AS "actorName",
           LEFT(m."contentPlain", 140) AS "snippet",
-          m."createdAt"
+          m."createdAt",
+          false                     AS "keyword"
         FROM "Message" m
         JOIN "Channel" c ON c.id = m."channelId" AND c.type = 'DIRECT' AND c."deletedAt" IS NULL
         JOIN "ChannelPermissionOverride" mine
@@ -258,7 +280,8 @@ export class MeActivityService {
           f."requesterId"                   AS "actorId",
           u.username                        AS "actorName",
           u.username                        AS "snippet",
-          f."createdAt"
+          f."createdAt",
+          false                             AS "keyword"
         FROM "Friendship" f
         JOIN "User" u ON u.id = f."requesterId"
         WHERE ${includeFriendRequest}
@@ -304,6 +327,7 @@ export class MeActivityService {
       snippet: r.snippet,
       createdAt: r.createdAt.toISOString(),
       readAt: r.readAt ? r.readAt.toISOString() : null,
+      keyword: r.keyword === true,
     }));
     const nextCursor = hasMore
       ? `${items[items.length - 1].createdAt}|${items[items.length - 1].activityKey}`
@@ -347,6 +371,12 @@ export class MeActivityService {
            AND (
              m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
              OR (m.mentions->>'everyone')::boolean IS TRUE
+             -- FR-MN-10 (066): MentionRecord(키워드/@role) 도 미읽 멘션 카운트에 포함
+             -- (mentions CTE 와 동일 OR · ACL 절 AND 보존).
+             OR EXISTS (
+               SELECT 1 FROM "MentionRecord" mr
+                WHERE mr."messageId" = m.id AND mr."targetId" = ${userId}::uuid
+             )
            )
            AND (acc."isPrivate" = false OR acc.role = 'OWNER' OR acc.overrideBit > 0)
       ),
@@ -594,6 +624,12 @@ export class MeActivityService {
            (${isMention} AND (
              m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
              OR (m.mentions->>'everyone')::boolean IS TRUE
+             -- FR-MN-10 (066): 키워드/@role expand 유래 멘션도 호출자 소유로 인정해
+             -- markRead 가 가능하게 한다(page()/unreadCounts() 의 mention 술어와 정합).
+             OR EXISTS (
+               SELECT 1 FROM "MentionRecord" mr
+                WHERE mr."messageId" = m.id AND mr."targetId" = ${userId}::uuid
+             )
            ))
            OR (NOT ${isMention} AND m."isBroadcast" = false AND root."authorId" = ${userId}::uuid)
          )

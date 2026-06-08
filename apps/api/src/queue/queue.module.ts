@@ -19,6 +19,10 @@ import { RoleCacheProcessor } from './role-cache.processor';
 import { MENTION_BROADCAST_QUEUE } from './mention-broadcast-queue.constants';
 import { MentionBroadcastQueueService } from './mention-broadcast-queue.service';
 import { MentionBroadcastProcessor } from './mention-broadcast.processor';
+// FR-MN-10 (066 / S93): 키워드 알림 스캔 async 큐(mention-broadcast 미러).
+import { MENTION_SCAN_QUEUE } from './mention-scan-queue.constants';
+import { MentionScanQueueService } from './mention-scan-queue.service';
+import { MentionScanProcessor } from './mention-scan.processor';
 // S70 (D13 / FR-W12): 임시 멤버 disconnect debounce 강퇴 큐.
 import { TEMP_EVICT_QUEUE } from './temp-evict-queue.constants';
 import { TempEvictQueueService } from './temp-evict-queue.service';
@@ -100,6 +104,9 @@ import { MentionGateService } from '../notifications/mention-gate.service';
     // 측 limiter(@Processor 옵션 · MentionBroadcastProcessor)에서 적용한다 — RegisterQueue
     // Options 에는 limiter 필드가 없고, BullMQ 의 rate-limit 은 Worker 레벨 설정이다.
     BullModule.registerQueue({ name: MENTION_BROADCAST_QUEUE }),
+    // FR-MN-10 (066 / S93): 키워드 알림 스캔 큐. throughput 제한(100 jobs/s)은 worker 측
+    // limiter(@Processor 옵션 · MentionScanProcessor)에서 적용한다(mention-broadcast 와 동일).
+    BullModule.registerQueue({ name: MENTION_SCAN_QUEUE }),
     RealtimeModule,
     // S86: PushProcessor 가 PushService 를 주입한다(전송 코어 · 구독 GC). PushModule 은
     // QueueModule 을 import 하지 않으므로(단방향) 순환 없음. PrismaService 는 @Global.
@@ -143,6 +150,12 @@ import { MentionGateService } from '../notifications/mention-gate.service';
     MentionGateService,
     MentionBroadcastQueueService,
     MentionBroadcastProcessor,
+    // FR-MN-10 (066 / S93): 키워드 스캔 큐 서비스(MessagesService 가 @Global 주입) + worker.
+    // Processor 가 OutboxService(@Global) + PrismaService(@Global) + ChannelAccessService +
+    // MentionGateService(위 직접 등록 재사용) + MetricsService(@Optional)를 주입한다 —
+    // mention-broadcast 와 동일한 게이트/가시성 의존을 공유한다(추가 모듈 import 없음).
+    MentionScanQueueService,
+    MentionScanProcessor,
   ],
   exports: [
     ReminderQueueService,
@@ -152,6 +165,7 @@ import { MentionGateService } from '../notifications/mention-gate.service';
     OnboardingWelcomeQueueService,
     PushQueueService,
     MentionBroadcastQueueService,
+    MentionScanQueueService,
   ],
 })
 export class QueueModule {}

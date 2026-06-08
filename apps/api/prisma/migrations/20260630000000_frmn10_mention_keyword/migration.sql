@@ -1,0 +1,17 @@
+-- FR-MN-10 (Task 066 / S93): 키워드 알림 스캔 — MentionRecord 의 targetType 에 KEYWORD 추가.
+--
+-- mention-scan 워커가 watcher 의 키워드와 어절 정확 일치한 메시지에 대해 수신자별
+-- MentionRecord 를 targetType='KEYWORD' 로 기록한다(@user='USER' · @role 도 멤버 expand
+-- 후 'USER'). KEYWORD 는 me-mentions/me-activity 가 키워드 유래 멘션을 historical Inbox
+-- 에 노출(keyword=true)하는 데 쓰인다.
+--
+-- ★forward-safe(additive): PostgreSQL enum 은 값 추가만 무중단으로 가능하다. ALTER TYPE
+--   ... ADD VALUE 는 기존 행/인덱스/뷰를 건드리지 않으며 잠금 비용이 작다(NO CONCURRENTLY
+--   불필요 · MentionRecord 의 @@unique([messageId,targetId,targetType]) 인덱스도 무변경).
+--
+-- ★down=no-op(reversible 한계 문서화): PostgreSQL 은 enum 값 제거(DROP VALUE)를 지원하지
+--   않는다(타입 재생성 + 의존 컬럼 캐스트 + 인덱스 재구축이 필요해 비가역에 준함). 따라서
+--   이 마이그레이션의 down 은 의도적으로 no-op 이다. 롤백이 필요하면 KEYWORD 값을 미사용
+--   상태로 남겨두면 되며(데이터 무해 · 코드만 되돌림), 향후 정리 시 별도 타입 재생성
+--   마이그레이션으로 처리한다(s88b MentionRecord 마이그레이션의 reversible 한계와 동형).
+ALTER TYPE "MentionTargetType" ADD VALUE 'KEYWORD';
