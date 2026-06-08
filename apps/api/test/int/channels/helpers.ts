@@ -185,18 +185,26 @@ export async function seedWorkspaceWithRoles(baseUrl: string): Promise<{
   // 토폴로지(빈 채널 목록)를 복원한다. FK(Workspace.defaultChannelId → Channel)는
   // ON DELETE SET NULL 이지만 soft-delete 는 행을 남기므로, 모든 채널 조회가
   // deletedAt IS NULL 로 필터하는 한 테스트에는 보이지 않는다.
-  const channels = await request(baseUrl)
-    .get(`/workspaces/${workspaceId}/channels`)
-    .set('origin', ORIGIN)
-    .set('Authorization', `Bearer ${owner.accessToken}`);
-  const general = (channels.body.uncategorized as Array<{ id: string; name: string }>).find(
-    (c) => c.name === 'general',
-  );
-  if (general) {
-    await request(baseUrl)
-      .delete(`/workspaces/${workspaceId}/channels/${general.id}`)
-      .set('origin', ORIGIN)
-      .set('Authorization', `Bearer ${owner.accessToken}`);
+  //
+  // FR-CH-03 (065): #general 은 기본 채널(isDefault=true)이라 DELETE 라우트가 이제
+  // DEFAULT_CHANNEL_PROTECTED(409)로 막는다 — 가드 도입 전엔 HTTP DELETE 로 지웠으나,
+  // 이제 도메인 가드를 우회해 prisma 로 직접 isDefault 해제 + soft-delete + Workspace
+  // .defaultChannelId 를 null 로 떨어뜨려 종전 토폴로지(빈 목록)를 그대로 복원한다.
+  if (helperPrisma) {
+    const general = await helperPrisma.channel.findFirst({
+      where: { workspaceId, name: 'general', deletedAt: null },
+      select: { id: true },
+    });
+    if (general) {
+      await helperPrisma.workspace.update({
+        where: { id: workspaceId },
+        data: { defaultChannelId: null },
+      });
+      await helperPrisma.channel.update({
+        where: { id: general.id },
+        data: { deletedAt: new Date(), isDefault: false },
+      });
+    }
   }
 
   return { workspaceId, owner, admin, member, nonMember };

@@ -1,6 +1,9 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-08 · FR-DM-15 LIVE · 이메일 SMTP2GO LIVE · PRD /prd/ 갱신반영)
+> ## ▶ 현재 재개 지점 (2026-06-08 · FR-CH-03 기본채널 보호 검증 green·배포 대기 · FR-DM-15/이메일 LIVE)
+>
+> **✅ FR-CH-03(기본 채널 삭제/보관 보호·P0 partial→done) 코드완료 + verify 19/19 + int(channels/messages 324/324·신규 FR-CH-03 spec 포함) — 수동배포 대기.** `feat/frch03-default-channel-protect`(6249bb0→): ADR 065 → 구현 `94c8b82`. **default-channel 인프라는 S65 에 이미 완비**(carryover outdated) → 잔여=가드만. `channels.service` softDelete/archive 에 isDefault 가드(→`DEFAULT_CHANNEL_PROTECTED` 409·shared-types+enum+HTTP map) + 프론트 ChannelSettingsPage 기본채널 삭제 disabled+사유+409 폴백. **마이그레이션 없음.** int 헬퍼(`test/int/channels/helpers.ts`)가 #general 삭제를 prisma 직접(가드 우회·defaultChannelId null·isDefault false·soft-delete)으로 변경 — channels/messages int 324/324 green(헬퍼 무회귀 확인). 
+> - **★사전존재 broken int(FR-CH-03 무관·carryover)**: `permissions.matrix [OWNER] DELETE /workspaces/:id` → expected 400 to be 202(S72 confirmation 게이트 vs matrix bodyFor 미갱신·matrix 는 변경헬퍼 미사용). 전체 int 동시실행 시 S70 2초 debounce 등 타이밍 flake(격리 통과). 둘 다 FR-CH-03 무관·별 슬라이스.
 >
 > **✅ FR-DM-15(DM 미읽/멘션 배지 + 뮤트 토글·P0 partial→done) 완료·배포·LIVE.** `main=fb9f19d`·`develop=35e3eab`(ls-remote). api/web rollout `/readyz=200`·디스크 8%·서브볼륨 343(누적0). verify 19/19 + int 68/68. **web 재배포로 갱신 PRD(/prd/ SMTP2GO 역-업데이트)도 라이브.** `feat/frdm15-dm-badges`(ae5bbeb→): ADR 064 → 구현 `46ee66e` → 6차원 리뷰 a11y fix-forward. server `direct-messages.service.list()` 에 per-DM **mentionCount** 서브쿼리(mentionMatchSql 재사용·unread 와 동일 술어·roots-only 보강) + useDms/DmShell/MobileDmList 배지 배선 + **DM 뮤트 토글 UI**(PATCH /me/dms/:id/mute·DELETE /me/mutes/channels/:id·ChannelList 패턴). a11y: DM 버튼 aria-label 에 미읽/멘션 건수+뮤트 일원화(시각요소 aria-hidden). **마이그레이션 없음.** int 68/68(dm-badges 4 + DM 회귀 64). **알려진 한계**(검증·문서화): 1:1 DM 은 extractMentions(workspaceId=null) 가 멘션 드롭→mentionCount 항상 0(뮤트 DM 배지 없음=PRD 문자그대로). DM DTO 는 shared-types 미정의(기존 패턴 일관·후속). 정규식/그룹DM 멘션은 OUT.
 >
