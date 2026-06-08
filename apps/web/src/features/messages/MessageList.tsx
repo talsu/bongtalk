@@ -24,6 +24,8 @@ import { qk } from '../../lib/query-keys';
 import { OPTIMISTIC_PREFIX } from './sendState';
 import { MessageItem } from './MessageItem';
 import { ReportModal } from './ReportModal';
+import { SpecialMentionConfirmDialog } from './autocomplete/SpecialMentionConfirmDialog';
+import type { SpecialMentionKey } from './autocomplete/specialMention';
 import { useInitSavedStatus, useToggleSave, savedKeys } from '../saved/useSavedMessages';
 import { ReminderModal } from '../saved/ReminderModal';
 import { useSetReminder } from '../saved/useReminder';
@@ -175,7 +177,18 @@ export function MessageList({
   // 여부 / 404)가 not-found 토스트 판정과 메인 list seed(스크롤)의 단일 출처다.
   const jumpAround = useJumpAround(workspaceId, channelId, jumpMessageId);
   const delMut = useDeleteMessage(workspaceId, channelId);
-  const updMut = useUpdateMessage(workspaceId, channelId);
+  // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 새로 추가한 대규모 범위 멘션이
+  // 서버 임계값을 넘으면 BULK_MENTION_CONFIRM_REQUIRED(409)가 오는데, 그때 확인 dialog 를
+  // 띄우기 위한 보류 편집 상태. 확인 시 같은 편집을 bulkMentionConfirmed=true 로 재시도한다.
+  const [editBulkConfirm, setEditBulkConfirm] = useState<{
+    msgId: string;
+    content: string;
+    expectedVersion: number;
+    mention?: string;
+  } | null>(null);
+  const updMut = useUpdateMessage(workspaceId, channelId, (info) => {
+    setEditBulkConfirm(info);
+  });
   const reactMut = useToggleReaction(workspaceId, channelId);
   // task-045 iter1: pin/unpin mutations. DM 채널 (workspaceId=null) 은
   // hook 안에서 reject 하므로 호출 자체는 항상 가능. UI 쪽에서 wsId 가
@@ -1223,6 +1236,30 @@ export function MessageList({
           }
         />
       ) : null}
+      {/* S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집으로 새로 추가한 대규모 범위 멘션이
+          서버 임계값(@everyone ≥6 · @here/@channel ≥50)을 넘으면 서버가 409 로 거부한다(편집
+          미적용). send 와 동일한 확인 dialog 를 띄우고, 확인 시 bulkMentionConfirmed=true 로
+          같은 편집을 재시도한다. */}
+      <SpecialMentionConfirmDialog
+        open={editBulkConfirm !== null}
+        mentionKey={
+          editBulkConfirm
+            ? ((editBulkConfirm.mention as SpecialMentionKey | undefined) ?? 'channel')
+            : null
+        }
+        onConfirm={() => {
+          const pending = editBulkConfirm;
+          setEditBulkConfirm(null);
+          if (!pending) return;
+          void updMut.mutateAsync({
+            msgId: pending.msgId,
+            content: pending.content,
+            expectedVersion: pending.expectedVersion,
+            bulkMentionConfirmed: true,
+          });
+        }}
+        onCancel={() => setEditBulkConfirm(null)}
+      />
     </CustomEmojiProvider>
   );
 }

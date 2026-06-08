@@ -179,7 +179,19 @@ export function MessageComposer({
   // optional chaining 으로 호출하므로, 첫 렌더~첫 effect 사이의 짧은 null 구간은
   // 무해합니다(그 사이 사용자 입력이 들어올 수 없음).
   const typingEmitterRef = useRef<TypingEmitter | null>(null);
-  const { send, mutation } = useSendMessage(workspaceId, channelId);
+  // S94 (067 / FR-MSG-14): 서버 BULK_MENTION_CONFIRM_REQUIRED(409) 시 확인 dialog 를
+  // 띄우고 확인하면 그 페이로드를 bulkMentionConfirmed=true 로 재전송하기 위한 보류 상태.
+  // S94 fix-forward (MED-1): 원래 전송의 clientNonce 를 함께 보관해, 확인 후 같은 nonce 로
+  // 재전송한다(같은 낙관행 재사용 → 고아 failed 버블 방지).
+  const [serverBulkConfirm, setServerBulkConfirm] = useState<{
+    content: string;
+    attachmentIds?: string[];
+    mention?: string;
+    clientNonce: string;
+  } | null>(null);
+  const { send, mutation } = useSendMessage(workspaceId, channelId, (info) => {
+    setServerBulkConfirm(info);
+  });
   const notify = useNotifications((s) => s.push);
   const { data: customEmojiData } = useCustomEmojis(workspaceId);
   const [emojiOpen, setEmojiOpen] = useState(false);
@@ -511,13 +523,13 @@ export function MessageComposer({
   const [pendingSpecial, setPendingSpecial] = useState<SpecialMentionKey | null>(null);
 
   // 현재 draft 에서 confirm 이 필요한 특수멘션(권한 보유분)을 찾는다.
-  // 게이트는 서버(gateEveryoneMention / gateHereMention)와 동일 역할 로직을
+  // 게이트는 서버(gateEveryone/Here/ChannelMention)와 동일 역할 로직을
   // canUseSpecialMention 으로 공유한다 — 권한 없으면 서버가 fanout 을 무효화
-  // (FR-MSG-15)하므로 confirm 도 띄우지 않는다. `@channel` 은 서버 extractor 가
-  // 추출하지 않아 알림이 안 가므로 confirm 세트에서 제외한다(거짓 약속 방지).
+  // (FR-MSG-15)하므로 confirm 도 띄우지 않는다. S94(067, Option B)로 @channel/@here
+  // 가 기본 MEMBER 허용이 되어 @channel 도 confirm 세트에 포함한다(서버 fanout 추출됨).
   const findSpecialNeedingConfirm = (text: string): SpecialMentionKey | null => {
     const lower = text.toLowerCase();
-    const keys: SpecialMentionKey[] = ['everyone', 'here'];
+    const keys: SpecialMentionKey[] = ['everyone', 'here', 'channel'];
     for (const key of keys) {
       const re = new RegExp(`(?<![A-Za-z0-9_])@${key}(?![A-Za-z0-9_])`);
       if (!re.test(lower)) continue;
@@ -528,7 +540,7 @@ export function MessageComposer({
     return null;
   };
 
-  const doSend = (): void => {
+  const doSend = (bulkMentionConfirmed = false): void => {
     const trimmed = draft.trim();
     const hasAttachments = trayItems.length > 0;
     if (!trimmed && !hasAttachments) return;
@@ -550,7 +562,7 @@ export function MessageComposer({
 
     if (!hasAttachments) {
       // 첨부 없는 일반 전송 — 동기.
-      send(trimmed || ' ');
+      send(trimmed || ' ', undefined, bulkMentionConfirmed);
       clearDraft(channelId);
       setPendingSpecial(null);
       sendTypingStop();
@@ -567,7 +579,7 @@ export function MessageComposer({
         // complete 가 실패하면(빈 배열) 토스트는 훅이 이미 띄웠고, 본문만으로
         // 전송할지 사용자가 다시 시도할 수 있게 draft 는 유지한다(failed 항목 보존).
         if (attachmentIds.length === 0) return;
-        send(trimmed || ' ', attachmentIds);
+        send(trimmed || ' ', attachmentIds, bulkMentionConfirmed);
         tray.clearConfirmed();
         clearDraft(channelId);
         setPendingSpecial(null);
@@ -720,10 +732,7 @@ export function MessageComposer({
       // 단정형("전송되지 않습니다") 대신 불확정형으로 안내해 거짓 약속을 피한다.
       notify({
         variant: 'warning',
-        title:
-          unauthorized === 'everyone'
-            ? '@everyone 권한이 없을 수 있습니다'
-            : '@here 권한이 없을 수 있습니다',
+        title: `@${unauthorized} 권한이 없을 수 있습니다`,
         body: '이 채널에서 해당 멘션 알림 권한이 없으면 알림이 가지 않을 수 있습니다.',
         ttlMs: 6000,
       });
@@ -1205,13 +1214,34 @@ export function MessageComposer({
           }
         />
       </form>
-      {/* S18 (FR-MSG-14): 대규모 특수멘션 전송 전 확인 dialog. 수신자 수는
-          정확한 채널 멤버 수 소스가 없어 dialog 가 범위만 완곡히 안내한다. */}
+      {/* S18 (FR-MSG-14): 대규모 특수멘션 전송 전 확인 dialog(클라 선제). 수신자 수는
+          정확한 채널 멤버 수 소스가 없어 dialog 가 범위만 완곡히 안내한다. 확인 시
+          bulkMentionConfirmed=true 로 전송해 서버 임계값(S94)도 통과시킨다. */}
       <SpecialMentionConfirmDialog
         open={pendingSpecial !== null}
         mentionKey={pendingSpecial}
-        onConfirm={doSend}
+        onConfirm={() => doSend(true)}
         onCancel={() => setPendingSpecial(null)}
+      />
+      {/* S94 (067 / FR-MSG-14): 서버 안전망 — 클라 선제 confirm 을 우회했거나 채널 멤버
+          수가 클라 추정과 달라 서버가 BULK_MENTION_CONFIRM_REQUIRED(409)를 던지면 확인
+          dialog 를 띄우고, 확인 시 보류 페이로드를 bulkMentionConfirmed=true 로 재전송한다. */}
+      <SpecialMentionConfirmDialog
+        open={serverBulkConfirm !== null}
+        mentionKey={
+          serverBulkConfirm
+            ? ((serverBulkConfirm.mention as SpecialMentionKey | undefined) ?? 'channel')
+            : null
+        }
+        onConfirm={() => {
+          const pending = serverBulkConfirm;
+          setServerBulkConfirm(null);
+          if (!pending) return;
+          // S94 fix-forward (MED-1): 원래 clientNonce 로 재전송 → 같은 낙관행을 되살려
+          // (markOptimisticPending) failed 버블 잔류 없이 pending→confirmed 로 이어간다.
+          send(pending.content, pending.attachmentIds, true, pending.clientNonce);
+        }}
+        onCancel={() => setServerBulkConfirm(null)}
       />
     </div>
   );

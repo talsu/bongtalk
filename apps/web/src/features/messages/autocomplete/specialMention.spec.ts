@@ -12,40 +12,52 @@ beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
 });
 
-describe('canUseSpecialMention (FR-MSG-15) — 서버 게이트 정합', () => {
-  it('allows @everyone only for OWNER/ADMIN', () => {
+describe('canUseSpecialMention (FR-MSG-15 · S94 Option B) — 서버 게이트 정합', () => {
+  it('allows @everyone only for OWNER/ADMIN/MODERATOR (MENTION_EVERYONE base)', () => {
     expect(canUseSpecialMention('everyone', 'OWNER')).toBe(true);
     expect(canUseSpecialMention('everyone', 'ADMIN')).toBe(true);
+    expect(canUseSpecialMention('everyone', 'MODERATOR')).toBe(true);
     expect(canUseSpecialMention('everyone', 'MEMBER')).toBe(false);
+    expect(canUseSpecialMention('everyone', 'GUEST')).toBe(false);
   });
 
-  // S18 리뷰 MAJOR: 서버 gateHereMention 이 MEMBER 의 @here fanout 을 무효화하므로
-  // 클라 권한 게이트도 @here 를 OWNER/ADMIN 전용으로 맞춘다(이전엔 MEMBER 허용).
-  it('allows @here only for OWNER/ADMIN (matches gateHereMention)', () => {
-    expect(canUseSpecialMention('here', 'OWNER')).toBe(true);
-    expect(canUseSpecialMention('here', 'ADMIN')).toBe(true);
-    expect(canUseSpecialMention('here', 'MEMBER')).toBe(false);
+  // S94 (067, Option B): @here/@channel 는 MENTION_CHANNEL(기본 MEMBER 허용)이라
+  // GUEST 를 제외한 전 역할이 사용 가능(서버 gateHere/ChannelMention 정합).
+  it('allows @here / @channel for everyone except GUEST (MENTION_CHANNEL base)', () => {
+    for (const key of ['here', 'channel'] as const) {
+      expect(canUseSpecialMention(key, 'OWNER')).toBe(true);
+      expect(canUseSpecialMention(key, 'ADMIN')).toBe(true);
+      expect(canUseSpecialMention(key, 'MODERATOR')).toBe(true);
+      expect(canUseSpecialMention(key, 'MEMBER')).toBe(true);
+      expect(canUseSpecialMention(key, 'GUEST')).toBe(false);
+    }
   });
 });
 
-describe('specialMentionItems (FR-RC03) — 팝업 상단 특수항목', () => {
-  // S18 리뷰 MAJOR: 서버 extractor 가 @channel 을 추출하지 않으므로 특수항목에서
-  // 완전히 제거. @here 는 OWNER/ADMIN 전용이라 MEMBER 에게는 특수항목이 없다.
-  it('shows no special items for a MEMBER (no @channel, @here/@everyone gated)', () => {
+describe('specialMentionItems (FR-RC03 · S94) — 팝업 상단 특수항목', () => {
+  // S94 (067, Option B): MEMBER 도 @here/@channel 을 기본 사용할 수 있어 특수항목에
+  // 노출된다(@everyone 만 권한 없음). 종전 "MEMBER 특수항목 없음" 회귀를 복원.
+  it('shows @here and @channel (not @everyone) for a MEMBER', () => {
     const keys = specialMentionItems('MEMBER', '').map((i) => i.key);
+    expect(keys).toEqual<SpecialMentionKey[]>(['here', 'channel']);
+  });
+
+  it('shows no special items for a GUEST', () => {
+    const keys = specialMentionItems('GUEST', '').map((i) => i.key);
     expect(keys).toEqual<SpecialMentionKey[]>([]);
   });
 
-  it('never includes @channel for any role', () => {
+  it('includes @channel for permitted roles (S94 복원)', () => {
     for (const role of ['OWNER', 'ADMIN', 'MEMBER'] as const) {
       const keys = specialMentionItems(role, '').map((i) => i.key as string);
-      expect(keys).not.toContain('channel');
+      expect(keys).toContain('channel');
     }
   });
 
-  it('includes @here and @everyone for an ADMIN', () => {
+  it('includes @here, @channel, @everyone for an ADMIN', () => {
     const keys = specialMentionItems('ADMIN', '').map((i) => i.key);
     expect(keys).toContain('here');
+    expect(keys).toContain('channel');
     expect(keys).toContain('everyone');
   });
 
@@ -54,9 +66,9 @@ describe('specialMentionItems (FR-RC03) — 팝업 상단 특수항목', () => {
     expect(keys).toEqual<SpecialMentionKey[]>(['everyone']);
   });
 
-  it('shows all permitted items (here → everyone) for an empty query', () => {
+  it('shows all permitted items (here → channel → everyone) for an empty query', () => {
     const keys = specialMentionItems('OWNER', '').map((i) => i.key);
-    expect(keys).toEqual<SpecialMentionKey[]>(['here', 'everyone']);
+    expect(keys).toEqual<SpecialMentionKey[]>(['here', 'channel', 'everyone']);
   });
 });
 
@@ -66,9 +78,11 @@ describe('needsSpecialMentionConfirm (FR-MSG-14) — 임계값 confirm', () => {
     expect(needsSpecialMentionConfirm('everyone', EVERYONE_CONFIRM_THRESHOLD)).toBe(true);
   });
 
-  it('requires confirm for @here at or above BULK_MENTION_CONFIRM_THRESHOLD', () => {
-    expect(needsSpecialMentionConfirm('here', BULK_MENTION_CONFIRM_THRESHOLD - 1)).toBe(false);
-    expect(needsSpecialMentionConfirm('here', BULK_MENTION_CONFIRM_THRESHOLD)).toBe(true);
+  it('requires confirm for @here / @channel at or above BULK_MENTION_CONFIRM_THRESHOLD', () => {
+    for (const key of ['here', 'channel'] as const) {
+      expect(needsSpecialMentionConfirm(key, BULK_MENTION_CONFIRM_THRESHOLD - 1)).toBe(false);
+      expect(needsSpecialMentionConfirm(key, BULK_MENTION_CONFIRM_THRESHOLD)).toBe(true);
+    }
   });
 
   it('uses the lower @everyone threshold, not the bulk one', () => {
@@ -78,18 +92,26 @@ describe('needsSpecialMentionConfirm (FR-MSG-14) — 임계값 confirm', () => {
   });
 });
 
-describe('firstUnauthorizedSpecialMention (S44 FR-MN-16) — 경고 토스트 트리거', () => {
+describe('firstUnauthorizedSpecialMention (S44 FR-MN-16 · S94) — 경고 토스트 트리거', () => {
   it('MEMBER 가 @everyone 입력 시 everyone 반환(권한 없음)', () => {
     expect(firstUnauthorizedSpecialMention('hey @everyone look', 'MEMBER')).toBe('everyone');
   });
 
-  it('MEMBER 가 @here 입력 시 here 반환', () => {
-    expect(firstUnauthorizedSpecialMention('@here standup', 'MEMBER')).toBe('here');
+  // S94 (067, Option B): @here/@channel 는 MEMBER 기본 허용이라 더 이상 경고하지 않는다.
+  it('MEMBER 가 @here / @channel 입력 시 null(기본 허용 — 경고 없음)', () => {
+    expect(firstUnauthorizedSpecialMention('@here standup', 'MEMBER')).toBeNull();
+    expect(firstUnauthorizedSpecialMention('@channel heads up', 'MEMBER')).toBeNull();
+  });
+
+  // GUEST 는 @here/@channel 도 권한이 없어 경고한다(MENTION_CHANNEL base off).
+  it('GUEST 가 @here / @channel 입력 시 해당 키 반환(권한 없음)', () => {
+    expect(firstUnauthorizedSpecialMention('@here standup', 'GUEST')).toBe('here');
+    expect(firstUnauthorizedSpecialMention('@channel heads up', 'GUEST')).toBe('channel');
   });
 
   it('OWNER / ADMIN 은 권한이 있어 null(경고 없음)', () => {
-    expect(firstUnauthorizedSpecialMention('@everyone @here', 'OWNER')).toBeNull();
-    expect(firstUnauthorizedSpecialMention('@everyone @here', 'ADMIN')).toBeNull();
+    expect(firstUnauthorizedSpecialMention('@everyone @here @channel', 'OWNER')).toBeNull();
+    expect(firstUnauthorizedSpecialMention('@everyone @here @channel', 'ADMIN')).toBeNull();
   });
 
   it('특수멘션이 없으면 null', () => {

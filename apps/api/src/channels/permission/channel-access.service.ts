@@ -27,6 +27,14 @@ import { bigintToEnforcementMask } from './bigint-to-enforcement';
 const MENTION_EVERYONE_BIT = Number(PERMISSIONS.MENTION_EVERYONE);
 
 /**
+ * S94 (067 / FR-MSG-14): `MENTION_CHANNEL` 카탈로그 비트(0x2000). `@channel`/`@here`
+ * 범위 멘션 권한으로, `@everyone`(MENTION_EVERYONE)과 분리한 별도 비트다. base 가
+ * 모든 시스템 역할 ON(GUEST 제외)이라 일반 MEMBER 도 기본 사용 가능하고, 채널
+ * override deny 로 역할/멤버별 박탈할 수 있다(아래 5단계 fold).
+ */
+const MENTION_CHANNEL_BIT = Number(PERMISSIONS.MENTION_CHANNEL);
+
+/**
  * S44: 역할별 `MENTION_EVERYONE` 기본값(base). OWNER/ADMIN 은 on, MEMBER 는 off.
  * 채널 override 가 이 base 위에 5단계 fold 로 누적된다.
  */
@@ -43,11 +51,37 @@ export type AdministratorBypassMember = {
 const MENTION_EVERYONE_ROLE_BASE: Record<WorkspaceRole, number> = {
   OWNER: MENTION_EVERYONE_BIT,
   ADMIN: MENTION_EVERYONE_BIT,
-  // S61: MODERATOR 는 staff 등급으로 @everyone/@here 기본 허용. MEMBER/GUEST 는 off
+  // S61: MODERATOR 는 staff 등급으로 @everyone 기본 허용. MEMBER/GUEST 는 off
   // (채널 override allow 로만 부여 가능).
   MODERATOR: MENTION_EVERYONE_BIT,
   MEMBER: 0,
   GUEST: 0,
+};
+
+/**
+ * S94 (067 / FR-MSG-14): 역할별 `MENTION_CHANNEL`(@channel/@here) 기본값(base).
+ *
+ * PRD "@channel/@here 는 기본 MEMBER 허용" 에 따라 OWNER/ADMIN/MODERATOR/MEMBER
+ * 모두 ON 이다. GUEST 만 보수적으로 off(채널 override allow 로만 부여) — 게스트가
+ * 채널 멤버 전원을 대량 핑하는 것을 기본 차단한다. @everyone 과 달리 base 가
+ * MEMBER 까지 켜져 있는 점만 다르고, 채널 override 5단계 fold 경로는 동일하다.
+ */
+const MENTION_CHANNEL_ROLE_BASE: Record<WorkspaceRole, number> = {
+  OWNER: MENTION_CHANNEL_BIT,
+  ADMIN: MENTION_CHANNEL_BIT,
+  MODERATOR: MENTION_CHANNEL_BIT,
+  MEMBER: MENTION_CHANNEL_BIT,
+  GUEST: 0,
+};
+
+/**
+ * S94 (067 / FR-MSG-14): 한 채널 override 조회로 산정한 두 범위 멘션 권한 결과.
+ * `@everyone` 은 hasMentionEveryone, `@channel`/`@here` 는 hasMentionChannel 로
+ * 게이트한다.
+ */
+export type MentionScopePermissions = {
+  hasMentionEveryone: boolean;
+  hasMentionChannel: boolean;
 };
 
 /**
@@ -498,7 +532,31 @@ export class ChannelAccessService {
     // 내부 `memberRole.findMany` 왕복을 생략한다(정확성 불변). 미지정 시 자체 조회.
     preloadedRoleUuids?: string[],
   ): Promise<boolean> {
-    if (channel.workspaceId === null) return false;
+    return (await this.resolveMentionScopes(channel, userId, role, preloadedRoleUuids))
+      .hasMentionEveryone;
+  }
+
+  /**
+   * S94 (067 / FR-MSG-14): 한 번의 override 조회로 `@everyone`(MENTION_EVERYONE)과
+   * `@channel`/`@here`(MENTION_CHANNEL) 두 권한 비트를 동시에 ADR-4 5단계 fold 한다.
+   *
+   * 종전 `resolveMentionEveryone` 이 MENTION_EVERYONE 한 비트만 fold 했으나, 별도
+   * 비트로 분리된 @channel/@here 권한도 동일한 override findMany 결과에서 fold 할 수
+   * 있어 한 쿼리로 통합한다(send hot-path 의 +1 RTT 방지). base 만 다르고(0x80 은
+   * OWNER/ADMIN/MODERATOR, 0x2000 은 + MEMBER) override 누적 로직은 비트별로 동일하다.
+   *
+   * DM 채널(workspaceId=null)은 워크스페이스 멤버/역할 개념이 없어 두 권한 모두
+   * false 다 — 범위 멘션 자체가 무의미하고 extractMentions 도 false 를 반환한다.
+   */
+  async resolveMentionScopes(
+    channel: { id: string; workspaceId: string | null },
+    userId: string,
+    role: WorkspaceRole,
+    preloadedRoleUuids?: string[],
+  ): Promise<MentionScopePermissions> {
+    if (channel.workspaceId === null) {
+      return { hasMentionEveryone: false, hasMentionChannel: false };
+    }
     // S62 (MED-3 / FR-RM03): 커스텀 Role UUID override 도 ROLE tier 로 반영한다.
     const roleUuids =
       preloadedRoleUuids ?? (await this.memberRoleUuids(channel.workspaceId, userId));
@@ -518,7 +576,8 @@ export class ChannelAccessService {
     let userAllow = 0;
     let userDeny = 0;
     for (const o of overrides) {
-      // S61: BigInt → number(집행 0xFF 도메인 · MENTION_EVERYONE 비트 0x80 포함).
+      // S61: BigInt → number(집행 0xFF 도메인 · MENTION_EVERYONE 0x80 / MENTION_CHANNEL
+      // 0x2000 포함). 두 비트를 같은 누적기에 모아 비트별로 따로 fold 한다.
       if (o.principalType === 'USER' && o.principalId === userId) {
         userAllow |= Number(o.allowMask);
         userDeny |= Number(o.denyMask);
@@ -528,13 +587,36 @@ export class ChannelAccessService {
         roleDeny |= Number(o.denyMask);
       }
     }
-    // ADR-4 5단계 fold — MENTION_EVERYONE 비트만 누적(다른 비트는 무관).
-    let mask = MENTION_EVERYONE_ROLE_BASE[role] ?? 0;
-    mask |= roleAllow & MENTION_EVERYONE_BIT;
-    mask &= ~(roleDeny & MENTION_EVERYONE_BIT);
-    mask |= userAllow & MENTION_EVERYONE_BIT;
-    mask &= ~(userDeny & MENTION_EVERYONE_BIT);
-    return (mask & MENTION_EVERYONE_BIT) === MENTION_EVERYONE_BIT;
+    return {
+      hasMentionEveryone: this.foldScopeBit(
+        MENTION_EVERYONE_ROLE_BASE[role] ?? 0,
+        MENTION_EVERYONE_BIT,
+        { roleAllow, roleDeny, userAllow, userDeny },
+      ),
+      hasMentionChannel: this.foldScopeBit(
+        MENTION_CHANNEL_ROLE_BASE[role] ?? 0,
+        MENTION_CHANNEL_BIT,
+        { roleAllow, roleDeny, userAllow, userDeny },
+      ),
+    };
+  }
+
+  /**
+   * S94 (067): ADR-4 5단계 fold 를 단일 비트에 적용한다(base → roleAllow → roleDeny →
+   * userAllow → userDeny). resolveMentionScopes 가 MENTION_EVERYONE / MENTION_CHANNEL
+   * 두 비트에 각각 호출한다 — 비트별로 base 만 다르고 누적 마스크는 공유한다.
+   */
+  private foldScopeBit(
+    base: number,
+    bit: number,
+    masks: { roleAllow: number; roleDeny: number; userAllow: number; userDeny: number },
+  ): boolean {
+    let mask = base;
+    mask |= masks.roleAllow & bit;
+    mask &= ~(masks.roleDeny & bit);
+    mask |= masks.userAllow & bit;
+    mask &= ~(masks.userDeny & bit);
+    return (mask & bit) === bit;
   }
 
   /**

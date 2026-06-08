@@ -30,6 +30,11 @@ const COPY: Record<SpecialMentionKey, { title: string; body: string }> = {
     title: '@here 로 알릴까요?',
     body: '이 채널에서 지금 온라인인 멤버 전원에게 알림이 갑니다. 계속할까요?',
   },
+  // S94 (067 / FR-MSG-14): @channel 도 기본 MEMBER 허용이 되어 confirm 대상에 합류.
+  channel: {
+    title: '@channel 로 알릴까요?',
+    body: '이 채널의 멤버 전원에게 알림이 갑니다. 계속할까요?',
+  },
   everyone: {
     title: '@everyone 로 알릴까요?',
     body: '워크스페이스의 모든 멤버에게 알림이 갑니다. 계속할까요?',

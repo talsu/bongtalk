@@ -180,6 +180,12 @@ export enum ErrorCode {
   // 파괴적·되돌릴 수 없는 변경이므로 전용 코드로 분리해 클라이언트가
   // "이름 재입력" UI 를 띄울 수 있게 한다. → 400.
   CHANNEL_CONFIRM_REQUIRED = 'CHANNEL_CONFIRM_REQUIRED',
+  // S94 (067 / FR-MSG-14): 대규모 범위 멘션(@everyone 채널 멤버수 ≥6 ·
+  // @channel/@here ≥50) 전송 시 bulkMentionConfirmed 미동봉 → 전송 전 확인 요구.
+  // 게이트 통과 후·메시지 INSERT 전에 던져 idempotencyKey 를 소비하지 않는다
+  // (사용자 확인 후 동일 키 재전송이 정상 동작). 클라이언트는 details(mention/
+  // count/threshold)로 확인 dialog 를 띄운다. → 409(상태 충돌·재시도 가능 계열).
+  BULK_MENTION_CONFIRM_REQUIRED = 'BULK_MENTION_CONFIRM_REQUIRED',
   // S14 (FR-CH-07): 비공개 채널은 초대 기반 가입만 허용 — 자유 가입 시도 거부. → 403.
   CHANNEL_PRIVATE_INVITE_ONLY = 'CHANNEL_PRIVATE_INVITE_ONLY',
   // S14 (FR-CH-07): 채널 멤버가 아닌데 탈퇴 시도. → 409.
@@ -518,6 +524,8 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.CHANNEL_POSTING_RESTRICTED]: 403,
   // S14 (FR-CH-05): confirmName 누락/불일치는 400(검증 실패 계열).
   [ErrorCode.CHANNEL_CONFIRM_REQUIRED]: 400,
+  // S94 (067 / FR-MSG-14): 대규모 범위 멘션 확인 요구는 409(상태 충돌·확인 후 재시도).
+  [ErrorCode.BULK_MENTION_CONFIRM_REQUIRED]: 409,
   // S14 (FR-CH-07): 비공개 채널 자유 가입 거부는 403.
   [ErrorCode.CHANNEL_PRIVATE_INVITE_ONLY]: 403,
   // S14 (FR-CH-07): 비멤버 탈퇴는 409(상태 충돌).
