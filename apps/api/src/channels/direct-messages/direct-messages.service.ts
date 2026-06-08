@@ -10,6 +10,7 @@ import { OutboxService } from '../../common/outbox/outbox.service';
 import type { OutboxTxClient } from '../../common/outbox/outbox.types';
 import { S3Service, sanitizeFilename } from '../../storage/s3.service';
 import { matchesMagic, type MagicSupportedMime } from '../../storage/validate-magic-bytes';
+import { mentionMatchSql } from '../../common/acl/read-visibility.sql';
 import {
   DM_CREATED,
   DM_GROUP_UPDATED,
@@ -60,6 +61,13 @@ export interface DmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
+  // S? (FR-DM-15): 미읽음 메시지 중 본인 대상 @멘션(직접 users / everyone / here /
+  // channel) 건수. unreadCount 와 **동일한 읽음 커서·roots-only·deletedAt 술어**로
+  // 산정해 일관성을 유지한다(common/acl mentionMatchSql + unread 서브쿼리 동형).
+  // 사이드바 dmRowBadge 가 뮤트 DM 에서 unread 대신 이 값을 배지로 쓴다.
+  // (현행: Global DM 은 extractMentions 가 멘션을 드롭하므로 정상 send 경로에서는
+  //  항상 0 — 서버 contract 만 선제 노출하고, 채워진 mentions 행은 정확히 센다.)
+  mentionCount: number;
   // S16 (FR-DM-03): 미리보기용 참여자 프로필(상대방 측). 1:1 DM 목록(list)에서는
   // 본인 제외 상대 1명이라 **항상 정확히 1개 요소**다. 그룹 목록(listGroups)이
   // 같은 shape 으로 ≤5 슬라이스를 싣는다. 헤더/아바타 스택이 멤버 set 일관 렌더.
@@ -857,6 +865,7 @@ export class DirectMessagesService {
         lastMessageAt: Date | null;
         lastMessagePreview: string | null;
         unreadCount: bigint;
+        mentionCount: bigint;
       }>
     >(Prisma.sql`
       WITH my_dms AS (
@@ -909,13 +918,37 @@ export class DirectMessagesService {
              AND rs."channelId" = m2."channelId"
            WHERE m2."channelId" = p."channelId"
              AND m2."deletedAt" IS NULL
+             -- S36 fix-forward (FR-TH-11): unread 도 roots-only — 스레드 답글이
+             -- 채널/DM 미읽 배지에 산입되지 않게 한다(unread.service 술어와 동일).
+             AND (m2."parentMessageId" IS NULL OR m2."isBroadcast" = true)
              -- S11 (FR-RT-14): (createdAt, id) 튜플 커서로 통일. read-state
              -- NULL ⇒ 전부 미읽음. senderId 제외 없음(자기 메시지 포함).
              AND (
                rs."lastReadMessageCreatedAt" IS NULL
                OR (m2."createdAt", m2.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
              )
-        ), 0) AS "unreadCount"
+        ), 0) AS "unreadCount",
+        -- S? (FR-DM-15): per-DM 멘션 카운트. unreadCount 서브쿼리와 **동일 술어**
+        -- (deletedAt IS NULL · roots-only · 동일 (createdAt,id) 읽음 커서)에 더해
+        -- common/acl mentionMatchSql(users @> / everyone / here / channel) 을 AND
+        -- 한다. DM 은 ACL 이 단순해 read-visibility 5단계 fold/private gate 가 불필요
+        -- 하다(멤버십이 USER override 로만 표현됨). N+1 회피 위해 list() 단일 raw
+        -- 쿼리에 fold 한다(unread.service.mentionCountFor 와 동형).
+        COALESCE((
+          SELECT COUNT(*)::bigint
+            FROM "Message" m3
+            LEFT JOIN "UserChannelReadState" rs2
+              ON rs2."userId" = ${meId}::uuid
+             AND rs2."channelId" = m3."channelId"
+           WHERE m3."channelId" = p."channelId"
+             AND m3."deletedAt" IS NULL
+             AND (m3."parentMessageId" IS NULL OR m3."isBroadcast" = true)
+             AND ${mentionMatchSql(Prisma.sql`m3`, Prisma.sql`${meId}::text`)}
+             AND (
+               rs2."lastReadMessageCreatedAt" IS NULL
+               OR (m3."createdAt", m3.id) > (rs2."lastReadMessageCreatedAt", rs2."lastReadMessageId")
+             )
+        ), 0) AS "mentionCount"
       FROM peers p
       JOIN "User" u ON u.id = p."otherUserId"::uuid
       LEFT JOIN last_msg lm ON lm."channelId" = p."channelId"
@@ -932,6 +965,9 @@ export class DirectMessagesService {
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       unreadCount: Number(r.unreadCount),
+      // FR-DM-15: 미읽음 @멘션 건수(뮤트 DM 배지용). 서브쿼리가 COUNT(*)::bigint 를
+      // 반환하므로 Number 로 좁힌다(unreadCount 와 동일 패턴).
+      mentionCount: Number(r.mentionCount),
       // FR-DM-03: 1:1 DM 의 상대방 프로필을 참여자 배열로도 노출(헤더/아바타 스택이
       // 멤버 set 을 일관 렌더). 1:1 은 본인을 제외한 상대 1명이므로 **항상 정확히
       // 1개 요소**다(그룹 listGroups 의 ≤5 슬라이스와 shape 만 동일).
