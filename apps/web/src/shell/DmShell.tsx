@@ -105,7 +105,11 @@ function DmRow({
         }}
         // a11y(S22 review #4): button role 에 `aria-selected` 비허용 → `aria-current`.
         aria-current={active ? 'page' : undefined}
-        aria-label={`${dm.otherUsername} 대화 열기${muted ? ' (뮤트됨)' : ''}`}
+        // a11y(FR-DM-15 리뷰): 포커스되는 버튼 하나에 상태(뮤트·미읽/멘션 건수)를 모두 실어
+        // Tab 탐색만으로 SR 이 배지 정보를 듣게 한다. 배지/bell-off 시각요소는 aria-hidden(장식).
+        aria-label={`${dm.otherUsername} 대화 열기${muted ? ' (뮤트됨)' : ''}${
+          badge > 0 ? (muted ? `, 멘션 ${badge}개` : `, 읽지 않음 ${badge}개`) : ''
+        }`}
         className="absolute inset-0 flex w-full items-center gap-[var(--s-2)] bg-transparent px-[var(--s-3)] text-left"
       >
         <Avatar name={dm.otherUsername} size="sm" status={status} />
@@ -119,7 +123,7 @@ function DmRow({
           <Icon
             name="bell-off"
             size="sm"
-            aria-label="뮤트됨"
+            aria-hidden
             data-testid={`dm-shell-muted-${dm.otherUsername}`}
             className="qf-icon--muted shrink-0"
           />
@@ -127,7 +131,7 @@ function DmRow({
         {badge > 0 ? (
           <span
             data-testid={`dm-shell-badge-${dm.otherUsername}`}
-            aria-label={`읽지 않음 ${badge}개`}
+            aria-hidden
             className="qf-badge qf-badge--count"
           >
             {dmBadgeText(badge)}
