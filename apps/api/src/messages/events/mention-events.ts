@@ -30,4 +30,9 @@ export type MentionReceivedPayload = {
   // 명시 멘션이 우선이라 role 은 false 다(direct 분류와 일관). UI 분기용 · optional
   // 이라 구 dispatcher/payload 와 forward-compat.
   role?: boolean;
+  // FR-MN-10 (066 / S93): 이 수신자가 키워드 알림 스캔(mention-scan 워커)에서 유래했는지
+  // 표식. true 면 본문에 이 사용자의 등록 키워드가 어절 정확 일치해 알림된 것이다(@user/
+  // @role 과 별개 사유). UI 가 Inbox 에서 "키워드 알림" 레이블을 분기하는 데 쓴다.
+  // optional 이라 구 dispatcher/payload(키워드 아님 = undefined→false)와 forward-compat.
+  keyword?: boolean;
 };

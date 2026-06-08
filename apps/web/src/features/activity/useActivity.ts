@@ -37,6 +37,9 @@ export interface ActivityRow {
   snippet: string;
   createdAt: string;
   readAt: string | null;
+  // FR-MN-10 (066 / S93): 키워드 알림 유래 표식(kind='mention' 행에 한해 의미). 서버
+  // ActivityRow.keyword 와 정합 · optional(구 응답 호환 — undefined→키워드 아님).
+  keyword?: boolean;
 }
 
 export interface ActivityPage {
