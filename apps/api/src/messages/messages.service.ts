@@ -92,6 +92,20 @@ function buildSnippet(content: string): string {
 }
 
 /**
+ * FR-RM10b: AutoMod MENTION_SPAM 누적용 멘션 수. 게이트 통과한 @user + @role 의 distinct 수에
+ * broad 멘션(@everyone/@here/@channel)을 각 1 로 합산한다. 게이트(권한·mentionable·broad
+ * 임계값)를 이미 통과한 mentions 객체를 받으므로 권한 우회 없이 "이 메시지가 실제로 알린 대상의
+ * 폭"을 근사한다(spam 트리거는 멘션 폭주 작성자를 윈도 누적으로 잡는다).
+ */
+function countMentions(mentions: MessageMentions): number {
+  let n = mentions.users.length + mentions.roles.length;
+  if (mentions.everyone) n += 1;
+  if (mentions.here) n += 1;
+  if (mentions.channel) n += 1;
+  return n;
+}
+
+/**
  * S35 (FR-TH-06): broadcast 메시지의 루트 excerpt. 루트 본문을 공백 collapse 한
  * 뒤 THREAD_BROADCAST_EXCERPT_CAP(50)자로 자르고 초과 시 (cap-1)자 + "…" 로
  * 만든다. PRD "루트 메시지 excerpt(50자, 초과 시 …)". null/빈 본문(삭제 루트
@@ -383,6 +397,9 @@ export class MessagesService {
    *   - TIMEOUT → 작성자 타임아웃 적용(best-effort · AUTOMOD_TIMEOUT 감사 포함) 후 throw — 미저장.
    *   - ALERT   → 메시지는 통과시키고 AUTOMOD_ALERT 감사만 남긴다(best-effort).
    * 시스템/봇 메시지·DM(workspaceId=null)은 호출부에서 걸러진다(workspaceId null guard).
+   *
+   * MED-1 (069 fix-forward): send 는 recordSpam=true(spam 트리거 누적), edit 는 recordSpam=false
+   * (KEYWORD/REGEX 만 집행 · spam 누적 스킵 — 편집 반복 inflate/이중카운트 방지).
    */
   private async enforceAutoMod(args: {
     workspaceId: string | null;
@@ -390,9 +407,15 @@ export class MessagesService {
     authorId: string;
     actorRoleIds: string[];
     contentPlain: string;
+    // FR-RM10b: 이번 메시지의 멘션 수(@user+@role+@everyone/@here/@channel). MENTION_SPAM 용.
+    mentionCount?: number;
     // FR-RM10a (리뷰 F1): 작성자의 시스템 역할 enum. OWNER/ADMIN 이면 check 가 즉시 면제한다
     // (모더레이터 면제 — 계층 방어 우회 차단). 컨트롤러가 m.role 로 넘긴다(없으면 service 가 조회).
     actorRole?: WorkspaceRole;
+    // MED-1 (069 fix-forward): spam 트리거 record/count 수행 여부. send=true(기본)·edit=false.
+    // edit 은 KEYWORD/REGEX 만 집행하고 MENTION_SPAM/REPEAT_SPAM 누적은 건너뛴다(편집 반복으로
+    // spam 카운트가 inflate/이중카운트되어 정상 사용자가 차단되던 회귀 차단).
+    recordSpam?: boolean;
   }): Promise<void> {
     if (!this.autoMod || args.workspaceId === null) return;
     const hit = await this.autoMod.check({
@@ -401,10 +424,15 @@ export class MessagesService {
       authorId: args.authorId,
       actorRoleIds: args.actorRoleIds,
       contentPlain: args.contentPlain,
+      mentionCount: args.mentionCount,
       actorRole: args.actorRole,
+      recordSpam: args.recordSpam,
     });
     if (!hit) return;
     const workspaceId = args.workspaceId;
+    // FR-RM10b: 메트릭/감사 trigger 라벨은 매칭한 룰의 트리거 종류를 쓴다(KEYWORD/MENTION_SPAM/
+    // REPEAT_SPAM). 종전 고정 'KEYWORD' 를 hit.trigger 로 일반화한다.
+    const trigger = hit.trigger;
     if (hit.action === 'ALERT') {
       await this.audit?.recordBestEffort({
         workspaceId,
@@ -412,10 +440,10 @@ export class MessagesService {
         action: AuditAction.AUTOMOD_ALERT,
         targetId: args.authorId,
         channelId: args.channelId,
-        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
+        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword, trigger },
       });
       // 리뷰 F7: ALERT 집행 메트릭(저장은 통과하지만 감사·관측은 남긴다).
-      this.metrics?.automodActionsTotal.inc({ action: 'alert', trigger: 'KEYWORD' });
+      this.metrics?.automodActionsTotal.inc({ action: 'alert', trigger });
       return;
     }
     // BLOCK / TIMEOUT 은 메시지를 저장하지 않는다. TIMEOUT 은 추가로 작성자를 타임아웃한다.
@@ -441,6 +469,7 @@ export class MessagesService {
           ruleId: hit.rule.id,
           ruleName: hit.rule.name,
           keyword: hit.keyword,
+          trigger,
           channelId: args.channelId,
           wasTimeout: true,
           // mute 적용 결과(false 면 mutedUntil 미설정 — 차단은 유지하되 음소거는 실패).
@@ -448,9 +477,9 @@ export class MessagesService {
         },
       });
       // 리뷰 F7: TIMEOUT 집행 메트릭 + mute 실패 시 별도 카운트(관측 공백 제거).
-      this.metrics?.automodActionsTotal.inc({ action: 'timeout', trigger: 'KEYWORD' });
+      this.metrics?.automodActionsTotal.inc({ action: 'timeout', trigger });
       if (!muted) {
-        this.metrics?.automodActionsTotal.inc({ action: 'timeout_failed', trigger: 'KEYWORD' });
+        this.metrics?.automodActionsTotal.inc({ action: 'timeout_failed', trigger });
       }
     } else {
       await this.audit?.recordBestEffort({
@@ -459,10 +488,10 @@ export class MessagesService {
         action: AuditAction.AUTOMOD_BLOCK,
         targetId: args.authorId,
         channelId: args.channelId,
-        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword },
+        details: { ruleId: hit.rule.id, ruleName: hit.rule.name, keyword: hit.keyword, trigger },
       });
       // 리뷰 F7: BLOCK 집행 메트릭.
-      this.metrics?.automodActionsTotal.inc({ action: 'block', trigger: 'KEYWORD' });
+      this.metrics?.automodActionsTotal.inc({ action: 'block', trigger });
     }
     throw new DomainError(ErrorCode.AUTOMOD_BLOCKED, '자동 모더레이션 규칙에 의해 차단되었습니다');
   }
@@ -1806,8 +1835,12 @@ export class MessagesService {
       authorId: args.authorId,
       actorRoleIds: args.actorMemberRoleUuids ?? [],
       contentPlain,
+      // FR-RM10b: MENTION_SPAM 누적용 멘션 수(게이트 통과 @user+@role + broad 각 1).
+      mentionCount: countMentions(mentions),
       // 리뷰 F1: 작성자 시스템 역할(OWNER/ADMIN 면제 판정용). 컨트롤러가 m.role 로 넘긴다.
       actorRole: args.actorRole,
+      // MED-1 (069 fix-forward): send 경로만 spam 트리거를 record/count 한다(edit 은 false).
+      recordSpam: true,
     });
     // S29 (FR-S05): 비정규화 검색 플래그 계산 — hasLink 는 AST 의 link 노드,
     // hasImage/hasFile 은 연결할 첨부 kind 집합에서 유도.
@@ -3206,8 +3239,13 @@ export class MessagesService {
       authorId: args.actorId,
       actorRoleIds: args.actorMemberRoleUuids ?? [],
       contentPlain,
+      // FR-RM10b: 편집 본문의 멘션 수(send 와 대칭 · MENTION_SPAM 누적).
+      mentionCount: countMentions(mentions),
       // 리뷰 F1: 편집자 시스템 역할(OWNER/ADMIN 면제 판정용 · send 와 대칭).
       actorRole: args.actorRole,
+      // MED-1 (069 fix-forward): 편집 경로는 spam 트리거 record/count 를 건너뛴다(편집 반복으로
+      // REPEAT_SPAM inflate·MENTION_SPAM 이중카운트 방지). KEYWORD/REGEX 집행은 유지(편집 우회 차단).
+      recordSpam: false,
     });
     // S94 fix-forward (067 / FR-MSG-14 · HIGH-1): 편집 경로 broad 멘션 임계값 enforce.
     // send() 의 안전망(라인 ~1690)이 편집(update)에는 없어, 평문 메시지를 보낸 뒤

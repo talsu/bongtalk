@@ -45,9 +45,12 @@ enum AutoModAction {
 // FR-RM10a (063 / ADR E2): 키워드 매칭 모드.
 //   SUBSTRING — contentPlain.toLowerCase() 가 키워드를 부분 문자열로 포함하면 매칭.
 //   WORD      — 단어 경계(앞뒤가 영숫자/언더스코어가 아님) 단위로만 매칭(부분어 오탐 회피).
+//   REGEX     — FR-RM10b: keywords[] 를 정규식 패턴으로 해석. 저장 시 ReDoS 안전 검증
+//               (worker 100ms 워치독), 매칭은 worker_threads 격리(단일 패턴 ≤10ms 워치독).
 enum AutoModMatch {
   SUBSTRING
   WORD
+  REGEX
 }
 
 enum ChannelType {
@@ -1007,6 +1010,13 @@ model AutoModRule {
   action           AutoModAction
   // action=TIMEOUT 일 때만 의미 있는 타임아웃 길이(초). 그 외 액션은 null.
   timeoutSeconds   Int?
+  // FR-RM10b: spam 트리거 파라미터(전부 nullable · KEYWORD 룰은 null).
+  //   MENTION_SPAM — mentionThreshold: 윈도 내 누적 멘션 수 임계값.
+  //   REPEAT_SPAM  — repeatThreshold: 윈도 내 동일 본문 반복 횟수 임계값.
+  //   두 spam 모두 windowSeconds(Redis sliding window 길이·초)를 함께 쓴다.
+  mentionThreshold Int?
+  repeatThreshold  Int?
+  windowSeconds    Int?
   // 이 역할(들)을 보유한 작성자는 규칙 평가에서 면제(actorRoleIds ∩ exemptRoleIds).
   exemptRoleIds    String[]       @default([]) @db.Uuid
   // 이 채널(들)에서는 규칙을 평가하지 않는다(channelId ∈ exemptChannelIds).

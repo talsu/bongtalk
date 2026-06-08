@@ -351,6 +351,11 @@ export const ErrorCodeSchema = z.enum([
   // FR-RM10a (063): AutoMod 키워드 규칙(BLOCK/TIMEOUT)에 의해 메시지 전송/편집이
   //   차단됨 → 422(요청 envelope 은 well-formed 이나 도메인 모더레이션 규칙 위반).
   'AUTOMOD_BLOCKED',
+  // FR-RM10b (069):
+  //   REGEX_UNSAFE     — REGEX 매칭 룰 저장 시 정규식이 ReDoS 위험/컴파일 실패 → 400.
+  //   AUTOMOD_TIMEOUT  — 정규식 매칭 worker 가 10ms 워치독 초과 강제 종료(audit/관측 내부 코드).
+  'REGEX_UNSAFE',
+  'AUTOMOD_TIMEOUT',
   'FORBIDDEN',
   'VALIDATION_FAILED',
   'NOT_FOUND',
