@@ -1,5 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import {
+  SYSTEM_ROLE_HOIST_DEFAULT,
   SYSTEM_ROLE_NAMES,
   SYSTEM_ROLE_PERMISSIONS,
   SYSTEM_ROLE_POSITION,
@@ -27,6 +28,9 @@ export async function seedSystemRoles(
       position: SYSTEM_ROLE_POSITION[name],
       permissions: toStoragePermissions(SYSTEM_ROLE_PERMISSIONS[name]),
       isSystem: true,
+      // FR-P09 (task-068 · S95): OWNER·ADMIN 만 hoist=true 로 시드해 신규 워크스페이스도
+      // 마이그레이션 backfill 과 동일하게 동작한다(SYSTEM_ROLE_HOIST_DEFAULT 단일 출처).
+      hoistInMemberList: SYSTEM_ROLE_HOIST_DEFAULT[name],
     })),
     skipDuplicates: true,
   });

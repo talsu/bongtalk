@@ -100,8 +100,8 @@ function allMemberIds(body: ListMembersResponse): string[] {
   return ids;
 }
 
-describe('S27 GET /workspaces/:id/members — status + hoist groups (FR-P08/P09)', () => {
-  it('hoists OWNER/ADMIN into the staff group; MEMBER buckets by status', async () => {
+describe('S27/FR-P09 GET /workspaces/:id/members — status + per-role hoist groups (FR-P08/P09)', () => {
+  it('hoists OWNER/ADMIN into per-role groups (backfill); MEMBER buckets by status', async () => {
     const owner = await signupAsUser(env.baseUrl, 'o');
     const admin = await signupAsUser(env.baseUrl, 'a');
     const onlineMember = await signupAsUser(env.baseUrl, 'm1');
@@ -112,21 +112,152 @@ describe('S27 GET /workspaces/:id/members — status + hoist groups (FR-P08/P09)
     await inviteAndJoin(ws, owner, offlineMember);
     await promoteToAdmin(ws, owner, admin);
 
+    // FR-P09: hoist 는 온라인 멤버만 → OWNER/ADMIN 도 온라인이어야 hoist 그룹에 뜬다.
+    await bringOnline(owner.userId, ws);
+    await bringOnline(admin.userId, ws);
     await bringOnline(onlineMember.userId, ws);
 
     const body = await getMembers(ws, owner);
 
-    // FR-P09: OWNER + ADMIN in a single "staff" hoist group, MEMBERs excluded.
-    expect(body.hoist).toHaveLength(1);
-    expect(body.hoist[0].key).toBe('staff');
-    const staffIds = body.hoist[0].members.map((m) => m.userId).sort();
-    expect(staffIds).toEqual([owner.userId, admin.userId].sort());
+    // FR-P09: 시드/backfill 로 OWNER·ADMIN 시스템 역할이 hoistInMemberList=true →
+    // per-role 그룹 2개(position DESC: OWNER 500 → ADMIN 400). 종전 단일 'staff' 그룹에서
+    // per-role 그룹으로 전환(의도된 진화). key 는 roleId, label 은 역할명.
+    expect(body.hoist).toHaveLength(2);
+    expect(body.hoist.map((g) => g.label)).toEqual(['OWNER', 'ADMIN']);
+    expect(body.hoist[0].members.map((m) => m.userId)).toEqual([owner.userId]);
+    expect(body.hoist[1].members.map((m) => m.userId)).toEqual([admin.userId]);
+    // key 는 'staff' 리터럴이 아니라 roleId(uuid)다.
+    expect(body.hoist[0].key).not.toBe('staff');
 
     // FR-P08: the online MEMBER is in the online group, offline MEMBER offline.
     const onlineGroup = body.groups.find((g) => g.key === 'online');
     const offlineGroup = body.groups.find((g) => g.key === 'offline');
     expect(onlineGroup?.members.map((m) => m.userId)).toEqual([onlineMember.userId]);
     expect(offlineGroup?.members.map((m) => m.userId)).toEqual([offlineMember.userId]);
+  });
+
+  // FR-P09 (task-068 · S95): hoisted 역할 멤버라도 offline 이면 offline 그룹으로 강등.
+  it('demotes an OFFLINE hoisted member to the offline status group (hoist = online only)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'o');
+    const admin = await signupAsUser(env.baseUrl, 'a');
+    const ws = await createWorkspace(owner);
+    await inviteAndJoin(ws, owner, admin);
+    await promoteToAdmin(ws, owner, admin);
+
+    // OWNER 만 온라인, ADMIN 은 offline(세션 없음).
+    await bringOnline(owner.userId, ws);
+
+    const body = await getMembers(ws, owner);
+
+    // OWNER 는 hoist 그룹(온라인), ADMIN 은 hoisted 역할이지만 offline → offline 그룹.
+    const hoistIds = body.hoist.flatMap((g) => g.members.map((m) => m.userId));
+    expect(hoistIds).toEqual([owner.userId]);
+    expect(body.hoist.map((g) => g.label)).toEqual(['OWNER']);
+    const offlineGroup = body.groups.find((g) => g.key === 'offline');
+    expect(offlineGroup?.members.map((m) => m.userId)).toContain(admin.userId);
+  });
+
+  // FR-P09 (task-068 · S95): 커스텀 역할에 hoistInMemberList=true 부여 → 그 역할 그룹 노출.
+  it('hoists a custom role with hoistInMemberList=true into its own group', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'o');
+    const member = await signupAsUser(env.baseUrl, 'm');
+    const ws = await createWorkspace(owner);
+    await inviteAndJoin(ws, owner, member);
+
+    // 커스텀 역할 생성(hoistInMemberList=true) + 멤버에게 배정.
+    const created = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Helpers', position: 50, hoistInMemberList: true })
+      .expect(201);
+    const roleId = created.body.id as string;
+    expect(created.body.hoistInMemberList).toBe(true);
+    await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles/assign`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ roleId, userId: member.userId })
+      .expect(204);
+
+    await bringOnline(member.userId, ws);
+
+    const body = await getMembers(ws, member);
+    const helperGroup = body.hoist.find((g) => g.key === roleId);
+    expect(helperGroup).toBeDefined();
+    expect(helperGroup?.label).toBe('Helpers');
+    expect(helperGroup?.members.map((m) => m.userId)).toEqual([member.userId]);
+  });
+
+  // FR-P09 (task-068 · S95): hoistInMemberList=false 커스텀 역할 멤버는 status 그룹에 남는다.
+  it('keeps a member of a non-hoist (hoistInMemberList=false) role in the status group', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'o');
+    const member = await signupAsUser(env.baseUrl, 'm');
+    const ws = await createWorkspace(owner);
+    await inviteAndJoin(ws, owner, member);
+
+    const created = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Plain', position: 50 }) // hoistInMemberList 미지정 → false
+      .expect(201);
+    expect(created.body.hoistInMemberList).toBe(false);
+    await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles/assign`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ roleId: created.body.id, userId: member.userId })
+      .expect(204);
+
+    await bringOnline(member.userId, ws);
+
+    const body = await getMembers(ws, member);
+    // 이 멤버는 hoist 그룹 어디에도 없고 online status 그룹에 있다.
+    const hoistIds = body.hoist.flatMap((g) => g.members.map((m) => m.userId));
+    expect(hoistIds).not.toContain(member.userId);
+    expect(body.groups.find((g) => g.key === 'online')?.members.map((m) => m.userId)).toContain(
+      member.userId,
+    );
+  });
+
+  // FR-P09 (task-068 · S95): 다중 hoisted 역할 멤버는 최상위(position 최대) 1개 그룹만.
+  it('places a member with multiple hoisted roles in only the TOP one (dedup)', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'o');
+    const member = await signupAsUser(env.baseUrl, 'm');
+    const ws = await createWorkspace(owner);
+    await inviteAndJoin(ws, owner, member);
+
+    // 두 커스텀 hoist 역할(High 90 / Low 40). 멤버에게 둘 다 배정.
+    const high = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'High', position: 90, hoistInMemberList: true })
+      .expect(201);
+    const low = await request(env.baseUrl)
+      .post(`/workspaces/${ws}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Low', position: 40, hoistInMemberList: true })
+      .expect(201);
+    for (const roleId of [high.body.id, low.body.id]) {
+      await request(env.baseUrl)
+        .post(`/workspaces/${ws}/roles/assign`)
+        .set('origin', ORIGIN)
+        .set('Authorization', `Bearer ${owner.accessToken}`)
+        .send({ roleId, userId: member.userId })
+        .expect(204);
+    }
+
+    await bringOnline(member.userId, ws);
+
+    const body = await getMembers(ws, member);
+    // 멤버는 최상위 High 그룹에만 있고 Low 그룹엔 없다(중복 없음).
+    const highGroup = body.hoist.find((g) => g.key === high.body.id);
+    const lowGroup = body.hoist.find((g) => g.key === low.body.id);
+    expect(highGroup?.members.map((m) => m.userId)).toContain(member.userId);
+    expect(lowGroup?.members.map((m) => m.userId) ?? []).not.toContain(member.userId);
   });
 
   it('buckets idle and dnd members into their own groups', async () => {
@@ -191,8 +322,41 @@ describe('S27 member list — INVISIBLE masking (FR-P08/P12)', () => {
     const ghostSelf = [...ghostView.groups, ...ghostView.hoist]
       .flatMap((g) => g.members)
       .find((m) => m.userId === ghost.userId);
-    // self is in the staff group (ghost is a MEMBER though) → offline bucket.
+    // ghost 는 MEMBER(비-hoist 역할) → 어느 그룹이든 자기 자신은 보인다(invisible 자기노출).
     expect(ghostSelf).toBeDefined();
+  });
+
+  // FR-P09 fix-forward (security LOW): hoisted 역할(OWNER 등)을 보유한 INVISIBLE 멤버는
+  // 타인 응답에서 hoist 그룹에 노출되면 "연결됨"이 새어나간다. masked→offline 이므로
+  // hoist(online 만)에서 제외되고 offline status 그룹에 들어가야 한다(연결 여부 비노출).
+  it('does NOT hoist an INVISIBLE member who holds a hoisted role; shows them OFFLINE to others', async () => {
+    const owner = await signupAsUser(env.baseUrl, 'o');
+    const admin = await signupAsUser(env.baseUrl, 'a');
+    const ws = await createWorkspace(owner);
+    await inviteAndJoin(ws, owner, admin);
+    await promoteToAdmin(ws, owner, admin);
+
+    // OWNER 는 hoisted 역할이지만 INVISIBLE(라이브 세션 보유). ADMIN 은 온라인 뷰어.
+    await presence.register({
+      sessionId: `sess-${owner.userId}`,
+      userId: owner.userId,
+      workspaceIds: [ws],
+      preference: 'invisible',
+    });
+    await bringOnline(admin.userId, ws);
+
+    // ADMIN(타인) 시점: OWNER 는 hoist 그룹 어디에도 없어야 한다(연결 비노출).
+    const adminView = await getMembers(ws, admin);
+    const hoistIds = adminView.hoist.flatMap((g) => g.members.map((m) => m.userId));
+    expect(hoistIds).not.toContain(owner.userId);
+    // 대신 OWNER 는 offline status 그룹으로 강등돼 보인다(마스킹된 offline).
+    const offlineGroup = adminView.groups.find((g) => g.key === 'offline');
+    expect(offlineGroup?.members.map((m) => m.userId)).toContain(owner.userId);
+    const ownerRow = offlineGroup?.members.find((m) => m.userId === owner.userId);
+    expect(ownerRow?.status).toBe('offline');
+    // ADMIN 자신은(온라인 hoisted 역할) ADMIN hoist 그룹에 정상 노출된다(회귀 가드).
+    const adminHoist = adminView.hoist.find((g) => g.label === 'ADMIN');
+    expect(adminHoist?.members.map((m) => m.userId)).toContain(admin.userId);
   });
 
   it('does NOT leak lastSeenAt for an invisible-masked user (FR-P10)', async () => {

@@ -200,25 +200,29 @@ function RoleEditor({
   const [permissions, setPermissions] = useState<bigint>(parsePermissions(role.permissions));
   // S88a (FR-MN-03 · D6): 멘션 허용 토글. 비권한 메타라 시스템 역할도 변경 가능하다.
   const [mentionable, setMentionable] = useState(role.mentionable);
+  // FR-P09 (task-068 · S95): hoist 토글. 멘션 허용과 동형(비권한 메타 · 시스템 역할도 가능).
+  const [hoistInMemberList, setHoistInMemberList] = useState(role.hoistInMemberList);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   const readOnly = !canManage || role.isSystem;
   // S88a (FR-MN-03 · D6): mentionable 은 시스템 역할도 변경 가능 — readOnly 와 별개로
   // canManage 만으로 게이트한다(name/position/permissions 의 isSystem 불변과 분리).
-  const mentionReadOnly = !canManage;
+  // FR-P09: hoist 토글도 동일 게이트(시스템 역할도 canManage 면 변경 가능).
+  const metaReadOnly = !canManage;
 
   async function onSave(): Promise<void> {
     try {
-      // 시스템 역할은 name/position/permissions 변경이 서버에서 거부되므로,
-      // mentionable 만 보낸다(비시스템은 전체 필드 전송).
+      // 시스템 역할은 name/position/permissions 변경이 서버에서 거부되므로, 비권한 메타
+      // (mentionable · hoistInMemberList)만 보낸다(비시스템은 전체 필드 전송).
       const input = role.isSystem
-        ? { mentionable }
+        ? { mentionable, hoistInMemberList }
         : {
             name: name.trim(),
             colorHex,
             position,
             permissions: serializePermissions(permissions),
             mentionable,
+            hoistInMemberList,
           };
       await update.mutateAsync({ roleId: role.id, input });
       notify({ variant: 'success', title: '역할 저장됨' });
@@ -329,7 +333,7 @@ function RoleEditor({
       </fieldset>
 
       {/* S88a (FR-MN-03 · D6): @<RoleName> 멘션 허용 토글. 권한 체크박스 패턴 재사용.
-          비권한 메타라 시스템 역할도 canManage 면 변경 가능(mentionReadOnly). */}
+          비권한 메타라 시스템 역할도 canManage 면 변경 가능(metaReadOnly). */}
       <label
         data-testid="role-mentionable"
         className="flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)] text-text-secondary"
@@ -337,16 +341,40 @@ function RoleEditor({
         <input
           type="checkbox"
           checked={mentionable}
-          disabled={mentionReadOnly}
+          disabled={metaReadOnly}
           onChange={(e) => setMentionable(e.target.checked)}
           style={{ accentColor: 'var(--accent)' }}
           // S88a review F8 (a11y): title 은 키보드/SR/터치에 도달하지 못한다.
           // 설명을 sr-only 로 노출하고 aria-describedby 로 연결한다.
-          aria-describedby="mentionable-desc"
+          // FR-P09 fix-forward (a11y minor): RolesManager 가 2회 마운트(예: 모달 +
+          // 설정 탭)되면 고정 id 가 중복되므로 role.id 로 스코프한다.
+          aria-describedby={`mentionable-desc-${role.id}`}
         />
         <span>@멘션 허용</span>
-        <span id="mentionable-desc" className="sr-only">
+        <span id={`mentionable-desc-${role.id}`} className="sr-only">
           이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.
+        </span>
+      </label>
+
+      {/* FR-P09 (task-068 · S95): 멤버 목록 hoist 토글. mentionable 과 동형(비권한 메타라
+          시스템 역할도 canManage 면 변경 가능). 온라인 멤버가 별도 상단 그룹으로 표시된다. */}
+      <label
+        data-testid="role-hoist"
+        className="flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)] text-text-secondary"
+      >
+        <input
+          type="checkbox"
+          checked={hoistInMemberList}
+          disabled={metaReadOnly}
+          onChange={(e) => setHoistInMemberList(e.target.checked)}
+          style={{ accentColor: 'var(--accent)' }}
+          // FR-P09 fix-forward (a11y minor): RolesManager 2회 마운트 시 id 중복을
+          // 피하려 role.id 로 스코프한다(mentionable-desc 와 동형).
+          aria-describedby={`hoist-desc-${role.id}`}
+        />
+        <span>멤버 목록 별도 표시</span>
+        <span id={`hoist-desc-${role.id}`} className="sr-only">
+          이 역할의 온라인 멤버를 멤버 목록 상단에 별도 그룹으로 표시합니다.
         </span>
       </label>
 
@@ -385,9 +413,10 @@ function RoleEditor({
                 역할 삭제
               </button>
             ) : (
-              // 시스템 역할은 name/position/permissions 가 잠겨 있고 @멘션 허용만 저장된다.
+              // 시스템 역할은 name/position/permissions 가 잠겨 있고 비권한 메타
+              // (@멘션 허용 · 멤버 목록 별도 표시)만 저장된다.
               <span className="text-[length:var(--fs-12)] text-text-muted">
-                시스템 역할은 @멘션 허용만 변경할 수 있습니다.
+                시스템 역할은 @멘션 허용·멤버 목록 별도 표시만 변경할 수 있습니다.
               </span>
             )}
           </div>

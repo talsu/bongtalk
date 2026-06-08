@@ -344,3 +344,80 @@ describe('S88a Role.mentionable (FR-MN-03)', () => {
     expect(patched.body.isSystem).toBe(true);
   });
 });
+
+// FR-P09 (task-068 · S95): Role.hoistInMemberList CRUD + 시스템 역할 시드 backfill.
+describe('FR-P09 Role.hoistInMemberList (task-068)', () => {
+  it('create 시 hoistInMemberList 미지정은 false, 지정하면 그 값으로 응답에 노출', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('frp09c');
+    const def = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'PlainRole', position: 10 })
+      .expect(201);
+    expect(def.body.hoistInMemberList).toBe(false);
+
+    const on = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'StaffRole', position: 11, hoistInMemberList: true })
+      .expect(201);
+    expect(on.body.hoistInMemberList).toBe(true);
+  });
+
+  it('update 로 hoistInMemberList 토글 가능(응답·DB 반영)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('frp09u');
+    const created = await request(env.baseUrl)
+      .post(`/workspaces/${workspaceId}/roles`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ name: 'Toggle', position: 10 })
+      .expect(201);
+    const roleId = created.body.id as string;
+    expect(created.body.hoistInMemberList).toBe(false);
+
+    const patched = await request(env.baseUrl)
+      .patch(`/workspaces/${workspaceId}/roles/${roleId}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ hoistInMemberList: true })
+      .expect(200);
+    expect(patched.body.hoistInMemberList).toBe(true);
+
+    const row = await env.prisma.role.findUnique({ where: { id: roleId } });
+    expect(row?.hoistInMemberList).toBe(true);
+  });
+
+  it('시스템 역할 시드: OWNER·ADMIN 만 hoistInMemberList=true, 나머지는 false', async () => {
+    const { workspaceId } = await setupOwnerAndWs('frp09seed');
+    const systemRoles = await env.prisma.role.findMany({
+      where: { workspaceId, isSystem: true },
+      select: { name: true, hoistInMemberList: true },
+    });
+    const byName = new Map(systemRoles.map((r) => [r.name, r.hoistInMemberList]));
+    expect(byName.get('OWNER')).toBe(true);
+    expect(byName.get('ADMIN')).toBe(true);
+    expect(byName.get('MODERATOR')).toBe(false);
+    expect(byName.get('MEMBER')).toBe(false);
+    expect(byName.get('GUEST')).toBe(false);
+  });
+
+  it('시스템 역할도 hoistInMemberList 토글 가능(OWNER 가 자신 미만 역할 대상)', async () => {
+    const { owner, workspaceId } = await setupOwnerAndWs('frp09sys');
+    // OWNER(position 500)가 MODERATOR 시스템 역할(position 300 · 기본 false)을 hoist on.
+    const mod = await env.prisma.role.findFirst({
+      where: { workspaceId, isSystem: true, name: 'MODERATOR' },
+      select: { id: true, hoistInMemberList: true },
+    });
+    expect(mod?.hoistInMemberList).toBe(false);
+    const patched = await request(env.baseUrl)
+      .patch(`/workspaces/${workspaceId}/roles/${mod!.id}`)
+      .set('origin', ORIGIN)
+      .set('Authorization', `Bearer ${owner.accessToken}`)
+      .send({ hoistInMemberList: true })
+      .expect(200);
+    expect(patched.body.hoistInMemberList).toBe(true);
+    expect(patched.body.isSystem).toBe(true);
+  });
+});

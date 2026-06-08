@@ -1,22 +1,27 @@
 import { describe, expect, it } from 'vitest';
 import {
-  HOISTED_ROLES,
+  HoistGroupSchema,
   LARGE_WORKSPACE_THRESHOLD,
   ListMembersResponseSchema,
   MEMBER_LIST_PAGE_SIZE,
   MemberWithPresenceSchema,
-  isHoistedRole,
 } from './workspace';
+import { SYSTEM_ROLE_HOIST_DEFAULT } from './roles';
 
 /**
- * S27 (FR-P08/P09/P11/P12): grouped member-list contract.
+ * S27 / FR-P09 (task-068 · S95): grouped member-list contract.
+ *
+ * FR-P09: hoist 는 역할기반(Role.hoistInMemberList)으로 전환됐다. 종전 HOISTED_ROLES/
+ * isHoistedRole(OWNER/ADMIN enum 하드코딩)은 제거됐고, HoistGroup.key 는 roleId(z.string)
+ * 다. 시스템 역할 기본 hoist 값은 SYSTEM_ROLE_HOIST_DEFAULT(OWNER/ADMIN true)가 출처다.
  */
-describe('S27 member list contract', () => {
-  it('hoists OWNER + ADMIN, not MEMBER (FR-P09)', () => {
-    expect(isHoistedRole('OWNER')).toBe(true);
-    expect(isHoistedRole('ADMIN')).toBe(true);
-    expect(isHoistedRole('MEMBER')).toBe(false);
-    expect(HOISTED_ROLES.has('MEMBER')).toBe(false);
+describe('member list contract', () => {
+  it('hoists OWNER + ADMIN system roles by default, not the rest (FR-P09)', () => {
+    expect(SYSTEM_ROLE_HOIST_DEFAULT.OWNER).toBe(true);
+    expect(SYSTEM_ROLE_HOIST_DEFAULT.ADMIN).toBe(true);
+    expect(SYSTEM_ROLE_HOIST_DEFAULT.MODERATOR).toBe(false);
+    expect(SYSTEM_ROLE_HOIST_DEFAULT.MEMBER).toBe(false);
+    expect(SYSTEM_ROLE_HOIST_DEFAULT.GUEST).toBe(false);
   });
 
   it('page size is 50, large threshold is 1000 (FR-P11/P12)', () => {
@@ -49,14 +54,36 @@ describe('S27 member list contract', () => {
     expect(offline.lastSeenAt).toBe('2025-01-01T00:00:00.000Z');
   });
 
-  it('a full response parses with hoist + status groups + cursor (FR-P08/P12)', () => {
+  it('FR-P09: a hoist group keys on roleId and carries an optional role color', () => {
+    const roleId = '33333333-3333-4333-8333-333333333333';
+    const parsed = HoistGroupSchema.parse({
+      key: roleId,
+      label: '운영진',
+      color: '#5865f2',
+      members: [],
+    });
+    expect(parsed.key).toBe(roleId);
+    expect(parsed.color).toBe('#5865f2');
+
+    // color 는 optional — 색 없는 역할은 생략/null 도 유효하다.
+    const noColor = HoistGroupSchema.parse({ key: roleId, label: 'Mods', members: [] });
+    expect(noColor.color).toBeUndefined();
+    const nullColor = HoistGroupSchema.parse({
+      key: roleId,
+      label: 'Mods',
+      color: null,
+      members: [],
+    });
+    expect(nullColor.color).toBeNull();
+  });
+
+  it('a full response parses with per-role hoist + status groups + cursor (FR-P08/P09/P12)', () => {
+    const ownerRoleId = '44444444-4444-4444-4444-444444444444';
+    const adminRoleId = '55555555-5555-5555-5555-555555555555';
     const parsed = ListMembersResponseSchema.parse({
       hoist: [
-        {
-          key: 'staff',
-          label: '운영진',
-          members: [],
-        },
+        { key: ownerRoleId, label: 'OWNER', members: [] },
+        { key: adminRoleId, label: 'ADMIN', members: [] },
       ],
       groups: [
         { key: 'online', label: '온라인', members: [] },
@@ -65,7 +92,7 @@ describe('S27 member list contract', () => {
       nextCursor: null,
       includeOffline: true,
     });
-    expect(parsed.hoist[0].key).toBe('staff');
+    expect(parsed.hoist.map((g) => g.key)).toEqual([ownerRoleId, adminRoleId]);
     expect(parsed.groups.map((g) => g.key)).toEqual(['online', 'offline']);
     expect(parsed.includeOffline).toBe(true);
   });

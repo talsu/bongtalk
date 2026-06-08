@@ -20,6 +20,8 @@ describe('RoleSchema.mentionable (S88a / FR-MN-03)', () => {
     position: 250,
     permissions: '0',
     isSystem: false,
+    // FR-P09 (task-068 · S95): RoleSchema 는 hoistInMemberList 도 필수로 노출한다.
+    hoistInMemberList: false,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   };
@@ -30,7 +32,19 @@ describe('RoleSchema.mentionable (S88a / FR-MN-03)', () => {
     if (ok.success) expect(ok.data.mentionable).toBe(true);
 
     // mentionable 누락은 거부(응답 필수 — forward-compat 가 아님).
-    const missing = RoleSchema.safeParse(base);
+    const { mentionable: _omitMentionable, ...withoutMentionable } = { ...base, mentionable: true };
+    const missing = RoleSchema.safeParse(withoutMentionable);
+    expect(missing.success).toBe(false);
+  });
+
+  // FR-P09 (task-068 · S95): hoistInMemberList 와이어 계약(mentionable 동형).
+  it('응답 DTO 는 hoistInMemberList 를 필수로 요구한다', () => {
+    const ok = RoleSchema.safeParse({ ...base, mentionable: false, hoistInMemberList: true });
+    expect(ok.success).toBe(true);
+    if (ok.success) expect(ok.data.hoistInMemberList).toBe(true);
+
+    const { hoistInMemberList: _omit, ...withoutHoist } = { ...base, mentionable: false };
+    const missing = RoleSchema.safeParse(withoutHoist);
     expect(missing.success).toBe(false);
   });
 });
@@ -53,5 +67,23 @@ describe('UpdateRoleRequestSchema.mentionable (S88a / FR-MN-03)', () => {
 
   it('빈 객체는 여전히 거부된다(변경 필드 없음)', () => {
     expect(UpdateRoleRequestSchema.safeParse({}).success).toBe(false);
+  });
+});
+
+// FR-P09 (task-068 · S95): hoistInMemberList 요청 계약(mentionable 동형).
+describe('Create/Update RoleRequestSchema.hoistInMemberList (FR-P09)', () => {
+  it('Create 에서 hoistInMemberList 는 optional 이며 boolean 만 수용한다', () => {
+    expect(CreateRoleRequestSchema.safeParse({ name: 'Staff' }).success).toBe(true);
+    expect(
+      CreateRoleRequestSchema.safeParse({ name: 'Staff', hoistInMemberList: true }).success,
+    ).toBe(true);
+    expect(
+      CreateRoleRequestSchema.safeParse({ name: 'Staff', hoistInMemberList: 'yes' }).success,
+    ).toBe(false);
+  });
+
+  it('Update 에서 hoistInMemberList 단독 변경도 유효하다(refine 통과)', () => {
+    expect(UpdateRoleRequestSchema.safeParse({ hoistInMemberList: true }).success).toBe(true);
+    expect(UpdateRoleRequestSchema.safeParse({ hoistInMemberList: false }).success).toBe(true);
   });
 });

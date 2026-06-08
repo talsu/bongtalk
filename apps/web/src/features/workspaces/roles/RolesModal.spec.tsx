@@ -55,6 +55,7 @@ function role(over: Partial<Role>): Role {
     permissions: over.permissions ?? '0',
     isSystem: over.isSystem ?? false,
     mentionable: over.mentionable ?? false,
+    hoistInMemberList: over.hoistInMemberList ?? false,
     createdAt: '2025-01-01T00:00:00.000Z',
     updatedAt: '2025-01-01T00:00:00.000Z',
   };
@@ -101,13 +102,16 @@ describe('RolesModal', () => {
     fireEvent.click(screen.getByTestId('role-item-OWNER'));
     expect((screen.getByTestId('role-edit-name') as HTMLInputElement).disabled).toBe(true);
     expect(screen.queryByTestId('role-delete-btn')).toBeNull();
-    // S88a (FR-MN-03 · D6): 시스템 역할도 @멘션 허용 토글 + 저장 버튼은 노출된다.
-    expect(screen.getByText('시스템 역할은 @멘션 허용만 변경할 수 있습니다.')).toBeTruthy();
+    // S88a (FR-MN-03 · D6) + FR-P09: 시스템 역할도 비권한 메타 토글 + 저장 버튼은 노출된다.
+    expect(
+      screen.getByText('시스템 역할은 @멘션 허용·멤버 목록 별도 표시만 변경할 수 있습니다.'),
+    ).toBeTruthy();
     expect(screen.getByTestId('role-save-btn')).toBeTruthy();
   });
 
-  // S88a (FR-MN-03 · D6): mentionable 토글 — 시스템 역할도 mentionable 만 저장한다.
-  it('system role: toggling @멘션 허용 saves only mentionable', async () => {
+  // S88a (FR-MN-03 · D6) + FR-P09 (task-068 · S95): mentionable 토글 — 시스템 역할도
+  // 비권한 메타(mentionable · hoistInMemberList)만 저장한다.
+  it('system role: toggling @멘션 허용 saves only the non-priv meta fields', async () => {
     updateMut.mutateAsync.mockResolvedValue(undefined);
     render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('role-item-OWNER'));
@@ -120,19 +124,41 @@ describe('RolesModal', () => {
     fireEvent.click(screen.getByTestId('role-save-btn'));
     expect(updateMut.mutateAsync).toHaveBeenCalledTimes(1);
     const arg = updateMut.mutateAsync.mock.calls[0][0];
-    expect(arg.input).toEqual({ mentionable: true });
+    // 시스템 역할은 name/position/permissions 없이 비권한 메타만 전송한다(@멘션만 켰으니
+    // hoistInMemberList 는 fixture 기본 false 그대로).
+    expect(arg.input).toEqual({ mentionable: true, hoistInMemberList: false });
     expect(arg.roleId).toBe('owner');
+  });
+
+  // FR-P09 (task-068 · S95): 멤버 목록 별도 표시(hoist) 토글 — 시스템 역할도 변경 가능.
+  it('system role: toggling 멤버 목록 별도 표시 saves hoistInMemberList', async () => {
+    updateMut.mutateAsync.mockResolvedValue(undefined);
+    render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
+    fireEvent.click(screen.getByTestId('role-item-OWNER'));
+    const hoist = screen.getByTestId('role-hoist').querySelector('input') as HTMLInputElement;
+    // OWNER fixture 는 hoistInMemberList 기본 false(시드 default 와 별개 · fixture 값).
+    expect(hoist.disabled).toBe(false);
+    fireEvent.click(hoist);
+    fireEvent.click(screen.getByTestId('role-save-btn'));
+    const arg = updateMut.mutateAsync.mock.calls[0][0];
+    expect(arg.input.hoistInMemberList).toBe(true);
   });
 
   // S88a review F8 (a11y): mentionable 체크박스 설명이 title-only 가 아니라
   // sr-only + aria-describedby 로 키보드/SR/터치에 도달해야 한다.
-  it('mentionable checkbox exposes its description via aria-describedby (F8)', () => {
+  // FR-P09 fix-forward (a11y minor): id 는 role.id 로 스코프된다(RolesManager 2회
+  // 마운트 시 id 중복 방지). OWNER fixture id='owner' → 'mentionable-desc-owner'.
+  it('mentionable checkbox exposes its description via aria-describedby scoped by role id (F8)', () => {
     render(<RolesModal workspaceId="ws" canManage open onClose={vi.fn()} />);
     fireEvent.click(screen.getByTestId('role-item-OWNER'));
     const input = screen.getByTestId('role-mentionable').querySelector('input') as HTMLInputElement;
-    expect(input.getAttribute('aria-describedby')).toBe('mentionable-desc');
-    const desc = document.getElementById('mentionable-desc');
+    expect(input.getAttribute('aria-describedby')).toBe('mentionable-desc-owner');
+    const desc = document.getElementById('mentionable-desc-owner');
     expect(desc?.textContent).toBe('이 역할을 @역할명 으로 멘션할 수 있게 허용합니다.');
+    // FR-P09 fix-forward (a11y minor): hoist 토글도 동일하게 role.id 로 스코프된다.
+    const hoistInput = screen.getByTestId('role-hoist').querySelector('input') as HTMLInputElement;
+    expect(hoistInput.getAttribute('aria-describedby')).toBe('hoist-desc-owner');
+    expect(document.getElementById('hoist-desc-owner')).not.toBeNull();
     // title 속성은 더 이상 쓰지 않는다(키보드/SR/터치 미도달).
     expect(screen.getByTestId('role-mentionable').querySelector('[title]')).toBeNull();
   });

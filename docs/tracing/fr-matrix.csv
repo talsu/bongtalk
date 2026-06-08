@@ -112,7 +112,7 @@ FR-P14,D08-presence-status,P0,S26,done
 FR-P16,D08-presence-status,P0,S26,done
 FR-RT-12,D17-realtime-sync,P1,S26,done
 FR-P08,D08-presence-status,P0,S27,done
-FR-P09,D08-presence-status,P1,S27,partial
+FR-P09,D08-presence-status,P1,S95,done
 FR-P10,D08-presence-status,P1,S27,done
 FR-P11,D08-presence-status,P1,S27,done
 FR-P12,D08-presence-status,P0,S27,done

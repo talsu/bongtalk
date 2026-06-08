@@ -101,3 +101,48 @@ describe('MemberColumn display priority (FR-PS-06)', () => {
     expect(screen.getByTestId('initials-avatar').textContent).toBe('Alice Disp');
   });
 });
+
+/**
+ * FR-P09 fix-forward (a11y BLOCKER · WCAG 1.4.3): hoist 그룹 헤더는 역할 colorHex 를
+ * 헤더 텍스트 color 로 적용하지 않는다(사용자 지정 색이 12px/600 텍스트 4.5:1 대비를
+ * 만족하지 못하므로). 색은 라벨 옆 aria-hidden 색 점으로만 표시하고 헤더 텍스트는 DS
+ * 기본색(qf-memberlist__group)을 유지한다.
+ */
+describe('MemberColumn hoist group color a11y (FR-P09 · WCAG 1.4.3)', () => {
+  function setHoist(color: string | null): void {
+    groupsData = {
+      hoist: [
+        {
+          key: '00000000-0000-0000-0000-0000000000aa',
+          label: 'OWNER',
+          color,
+          members: [member({})],
+        },
+      ],
+      groups: [],
+      nextCursor: null,
+      includeOffline: true,
+    };
+  }
+
+  it('renders the role color as an aria-hidden dot, not as header text color', () => {
+    setHoist('#5865F2');
+    render(<MemberColumn workspaceId="w1" />);
+    // 헤더 텍스트에는 인라인 color 가 없어야 한다(DS 기본색 유지).
+    const header = screen.getByRole('heading', { level: 3 });
+    expect(header.style.color).toBe('');
+    // 색은 aria-hidden 점의 backgroundColor 로만 노출된다.
+    const dot = screen.getByTestId('hoist-group-dot');
+    expect(dot.getAttribute('aria-hidden')).toBe('true');
+    expect(dot.style.backgroundColor).not.toBe('');
+    // 역할명 텍스트는 항상 동반된다(1.4.1 색 단독 비의존).
+    expect(header.textContent).toContain('OWNER');
+  });
+
+  it('omits the color dot when the role has no color', () => {
+    setHoist(null);
+    render(<MemberColumn workspaceId="w1" />);
+    expect(screen.queryByTestId('hoist-group-dot')).toBeNull();
+    expect(screen.getByRole('heading', { level: 3 }).style.color).toBe('');
+  });
+});
