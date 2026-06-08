@@ -323,7 +323,9 @@ function displayName(row: ActivityRow): string {
 function verbFor(row: ActivityRow): string {
   switch (row.kind) {
     case 'mention':
-      return '님이 회원님을 멘션함';
+      // FR-MN-10 (066 / S93): 키워드 알림 유래 멘션은 별도 레이블로 분기한다(등록 키워드가
+      // 본문에 어절 정확 일치). 일반 @멘션과 구분해 사용자가 알림 사유를 인지하게 한다.
+      return row.keyword ? '님의 메시지에 키워드 알림이 있음' : '님이 회원님을 멘션함';
     case 'reply':
       return '님이 답글을 남김';
     case 'reaction':

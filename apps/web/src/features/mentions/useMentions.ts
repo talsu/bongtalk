@@ -16,6 +16,9 @@ export interface MentionSummary {
   // S88a review F2 (FR-MN-03): 역할 멘션(@role) 유래 표식. dispatcher 캐시 병합과
   // 형태를 맞추기 위해 optional 로 둔다(명시 @user 와 dedup 시 false · 구 응답 호환).
   role?: boolean;
+  // FR-MN-10 (066 / S93): 키워드 알림(mention-scan) 유래 표식. REST 인박스 응답(서버
+  // MentionSummary.keyword) 및 dispatcher mention:new 캐시 병합과 정합 · optional(구 응답 호환).
+  keyword?: boolean;
 }
 
 export interface MentionInboxResponse {

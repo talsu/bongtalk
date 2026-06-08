@@ -22,6 +22,10 @@ import {
   MENTION_BROADCAST_QUEUE,
   type MentionBroadcastJobData,
 } from '../../../src/queue/mention-broadcast-queue.constants';
+import {
+  MENTION_SCAN_QUEUE,
+  type MentionScanJobData,
+} from '../../../src/queue/mention-scan-queue.constants';
 
 export type MsgIntEnv = {
   app: INestApplication;
@@ -34,6 +38,12 @@ export type MsgIntEnv = {
    * 직접 조회한다(동기 send 와 비동기 워커가 분리됐으므로).
    */
   mentionBroadcastQueue: Queue<MentionBroadcastJobData>;
+  /**
+   * FR-MN-10 (066 / S93): 키워드 알림 스캔(mention-scan) BullMQ 큐 핸들. 키워드 스캔 스펙은
+   * `waitForMentionScanDrain` 으로 잡 처리 완료를 기다린 뒤 MentionRecord(KEYWORD)/outbox 를
+   * 직접 조회한다(mention-broadcast 와 동형).
+   */
+  mentionScanQueue: Queue<MentionScanJobData>;
   baseUrl: string;
   stop: () => Promise<void>;
 };
@@ -55,6 +65,28 @@ export async function waitForMentionBroadcastDrain(
     if (pending === 0) return;
     if (Date.now() > deadline) {
       throw new Error(`timeout waiting for mention-broadcast drain (pending=${pending})`);
+    }
+    await new Promise((r) => setTimeout(r, 100));
+  }
+}
+
+/**
+ * FR-MN-10 (066 / S93): mention-scan 큐가 active+waiting+delayed+paused 잡 0 이 될 때까지
+ * 폴링한다(워커 drain · waitForMentionBroadcastDrain 미러). 동기 send 응답 후 키워드 스캔
+ * 워커 처리 완료를 보장하려는 키워드 스펙이 호출한다.
+ */
+export async function waitForMentionScanDrain(
+  queue: Queue<MentionScanJobData>,
+  timeoutMs = 15_000,
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  for (;;) {
+    const counts = await queue.getJobCounts('active', 'waiting', 'delayed', 'paused');
+    const pending =
+      (counts.active ?? 0) + (counts.waiting ?? 0) + (counts.delayed ?? 0) + (counts.paused ?? 0);
+    if (pending === 0) return;
+    if (Date.now() > deadline) {
+      throw new Error(`timeout waiting for mention-scan drain (pending=${pending})`);
     }
     await new Promise((r) => setTimeout(r, 100));
   }
@@ -130,6 +162,8 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
   const mentionBroadcastQueue = app.get<Queue<MentionBroadcastJobData>>(
     getQueueToken(MENTION_BROADCAST_QUEUE),
   );
+  // FR-MN-10 (066 / S93): 키워드 스캔 큐 핸들(drain 대기 · stop 시 obliterate).
+  const mentionScanQueue = app.get<Queue<MentionScanJobData>>(getQueueToken(MENTION_SCAN_QUEUE));
   dispatcher.pausePolling();
   // S66 (D13 / FR-W05a): signup 의 기본 emailVerified=true 마킹에 쓸 prisma 핸들을
   // 모듈 스코프에 보관한다(헬퍼가 호출부 시그니처를 바꾸지 않고 DB 를 만지게 함).
@@ -141,6 +175,7 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
     redis: redisClient,
     dispatcher,
     mentionBroadcastQueue,
+    mentionScanQueue,
     baseUrl,
     stop: async () => {
       // S88b: testcontainer Redis 가 멈추기 전에 mention-broadcast 잡을 비우고(obliterate)
@@ -150,6 +185,9 @@ export async function setupMsgIntEnv(): Promise<MsgIntEnv> {
       // 핵심이다: obliterate(잔여 잡 제거) → app.close()(WorkerHost onModuleDestroy →
       // worker.close 가 in-flight 완료 대기) → redis/pg container stop.
       await mentionBroadcastQueue.obliterate({ force: true }).catch(() => undefined);
+      // FR-MN-10: 키워드 스캔 워커도 동일하게 잡 제거 후 graceful close(blocking poll 의
+      // "Connection is closed" unhandled rejection 방지 · mention-broadcast 와 동형).
+      await mentionScanQueue.obliterate({ force: true }).catch(() => undefined);
       await app.close();
       await redis.stop().catch(() => undefined);
       await pg.stop().catch(() => undefined);
