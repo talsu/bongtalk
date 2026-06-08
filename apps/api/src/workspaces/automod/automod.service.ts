@@ -1,10 +1,11 @@
-import { forwardRef, Inject, Injectable, Logger } from '@nestjs/common';
+import { forwardRef, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { Prisma, WorkspaceRole } from '@prisma/client';
 import {
   AUTOMOD_RULES_PER_WORKSPACE_MAX,
   type AutoModAction,
   type AutoModMatch,
   type AutoModRule,
+  type AutoModTrigger,
   type CreateAutoModRuleRequest,
   type ListAutoModRulesResponse,
   type UpdateAutoModRuleRequest,
@@ -14,6 +15,8 @@ import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { AuditService, AuditAction } from '../../common/audit/audit.service';
 import { ModerationService } from '../moderation/moderation.service';
+import { AutoModRegexRunner, validateRegexSafetyInline } from './automod-regex-runner';
+import { AutoModSpamService } from './automod-spam.service';
 
 /**
  * FR-RM10a (063 / ADR E3·E5): AutoMod 키워드 모더레이션 서비스.
@@ -45,6 +48,14 @@ export class AutoModService {
     // WorkspacesModule 내 provider 라 직접 주입(순환 없음). best-effort 호출.
     @Inject(forwardRef(() => ModerationService))
     private readonly moderation: ModerationService,
+    // FR-RM10b: REGEX KEYWORD 룰의 worker_threads 격리 매칭/검증. @Optional 이라 미주입
+    // 단위테스트(리터럴/spam 만 검증)는 REGEX 룰이 매칭 없음으로 fail-open 된다.
+    @Optional()
+    private readonly regex?: AutoModRegexRunner,
+    // FR-RM10b: MENTION_SPAM/REPEAT_SPAM 의 Redis sliding window. @Optional 이라 미주입
+    // 단위테스트는 spam 룰을 평가하지 못해 통과한다(best-effort).
+    @Optional()
+    private readonly spam?: AutoModSpamService,
   ) {}
 
   // ── CRUD ───────────────────────────────────────────────────────────────────
@@ -72,33 +83,27 @@ export class AutoModService {
         `workspace already has the maximum of ${AUTOMOD_RULES_PER_WORKSPACE_MAX} AutoMod rules`,
       );
     }
-    const keywords = normalizeKeywords(input.keywords);
     // ★F3 (보안): exempt 역할/채널 ID 가 모두 본 워크스페이스 소속인지 검증한다(타 워크스페이스
     // UUID 주입 차단). 무효 ID 가 있으면 400 으로 거부한다.
     await this.assertExemptOwnership(workspaceId, input.exemptRoleIds, input.exemptChannelIds);
+    // FR-RM10b: triggerType 별 저장 데이터 구성. KEYWORD 는 keywords + matchMode(REGEX 면
+    // ReDoS 검증), spam 2종은 threshold + windowSeconds(keywords 빈 배열·matchMode placeholder).
+    const data = await this.buildCreateData(workspaceId, actorId, input);
     const created = await this.prisma.$transaction(async (tx) => {
-      const row = await tx.autoModRule.create({
-        data: {
-          workspaceId,
-          name: input.name,
-          triggerType: 'KEYWORD',
-          keywords,
-          matchMode: input.matchMode,
-          action: input.action,
-          timeoutSeconds: input.action === 'TIMEOUT' ? (input.timeoutSeconds ?? null) : null,
-          exemptRoleIds: input.exemptRoleIds ?? [],
-          exemptChannelIds: input.exemptChannelIds ?? [],
-          enabled: input.enabled ?? true,
-          createdBy: actorId,
-        },
-      });
+      const row = await tx.autoModRule.create({ data });
       await this.audit.record(
         {
           workspaceId,
           actorId,
           action: AuditAction.AUTOMOD_RULE_CREATE,
           targetId: null,
-          details: { ruleId: row.id, name: row.name, action: row.action, matchMode: row.matchMode },
+          details: {
+            ruleId: row.id,
+            name: row.name,
+            triggerType: row.triggerType,
+            action: row.action,
+            matchMode: row.matchMode,
+          },
         },
         tx,
       );
@@ -108,6 +113,86 @@ export class AutoModService {
     return toDto(created);
   }
 
+  /**
+   * FR-RM10b: 생성 요청(discriminated union)을 Prisma create data 로 변환한다. REGEX 룰은
+   * 저장 전 각 패턴을 worker(또는 인라인 폴백)로 ReDoS 검증한다 — 하나라도 위험/컴파일 불가면
+   * REGEX_UNSAFE(400). spam 룰은 keywords=[]·matchMode='SUBSTRING'(NOT NULL placeholder).
+   */
+  private async buildCreateData(
+    workspaceId: string,
+    actorId: string,
+    input: CreateAutoModRuleRequest,
+  ): Promise<Prisma.AutoModRuleUncheckedCreateInput> {
+    const base = {
+      workspaceId,
+      name: input.name,
+      action: input.action,
+      timeoutSeconds: input.action === 'TIMEOUT' ? (input.timeoutSeconds ?? null) : null,
+      exemptRoleIds: input.exemptRoleIds ?? [],
+      exemptChannelIds: input.exemptChannelIds ?? [],
+      enabled: input.enabled ?? true,
+      createdBy: actorId,
+    };
+    if (input.triggerType === 'KEYWORD') {
+      // REGEX 는 원문 패턴 보존(대소문자 의미), 리터럴(SUBSTRING/WORD)은 소문자 정규화.
+      const keywords =
+        input.matchMode === 'REGEX'
+          ? normalizeRegexPatterns(input.keywords)
+          : normalizeKeywords(input.keywords);
+      if (input.matchMode === 'REGEX') {
+        await this.assertRegexPatternsSafe(keywords);
+      }
+      return {
+        ...base,
+        triggerType: 'KEYWORD',
+        keywords,
+        matchMode: input.matchMode,
+        mentionThreshold: null,
+        repeatThreshold: null,
+        windowSeconds: null,
+      };
+    }
+    if (input.triggerType === 'MENTION_SPAM') {
+      return {
+        ...base,
+        triggerType: 'MENTION_SPAM',
+        keywords: [],
+        matchMode: 'SUBSTRING',
+        mentionThreshold: input.mentionThreshold,
+        repeatThreshold: null,
+        windowSeconds: input.windowSeconds,
+      };
+    }
+    // REPEAT_SPAM
+    return {
+      ...base,
+      triggerType: 'REPEAT_SPAM',
+      keywords: [],
+      matchMode: 'SUBSTRING',
+      mentionThreshold: null,
+      repeatThreshold: input.repeatThreshold,
+      windowSeconds: input.windowSeconds,
+    };
+  }
+
+  /**
+   * FR-RM10b: 정규식 패턴들을 ReDoS 검증한다(저장 전). regex runner 가 있으면 worker 격리
+   * 검증, 없으면 인라인 폴백. 하나라도 unsafe(위험/컴파일 불가)면 REGEX_UNSAFE(400).
+   */
+  private async assertRegexPatternsSafe(patterns: string[]): Promise<void> {
+    for (const src of patterns) {
+      const safe = this.regex
+        ? await this.regex.validateSafety(src)
+        : validateRegexSafetyInline(src);
+      if (!safe) {
+        throw new DomainError(
+          ErrorCode.REGEX_UNSAFE,
+          `unsafe or invalid regex pattern: ${src.slice(0, 80)}`,
+        );
+      }
+    }
+  }
+
   /** FR-RM10a: 규칙 수정(부분). 키워드 변경 시 소문자 정규화. AuditLog 필수. */
   async update(
     workspaceId: string,
@@ -115,10 +200,11 @@ export class AutoModService {
     ruleId: string,
     input: UpdateAutoModRuleRequest,
   ): Promise<AutoModRule> {
-    // 본 워크스페이스 소유 규칙인지 확인(타 워크스페이스 누출 방지).
+    // 본 워크스페이스 소유 규칙인지 확인(타 워크스페이스 누출 방지). FR-RM10b: triggerType/
+    // matchMode/keywords 도 읽어 REGEX 검증·spam 필드 적용 분기에 쓴다.
     const existing = await this.prisma.autoModRule.findFirst({
       where: { id: ruleId, workspaceId },
-      select: { id: true },
+      select: { id: true, triggerType: true, matchMode: true, keywords: true },
     });
     if (!existing) {
       throw new DomainError(ErrorCode.NOT_FOUND, 'AutoMod rule not found');
@@ -128,8 +214,6 @@ export class AutoModService {
     await this.assertExemptOwnership(workspaceId, input.exemptRoleIds, input.exemptChannelIds);
     const data: Prisma.AutoModRuleUpdateInput = {};
     if (input.name !== undefined) data.name = input.name;
-    if (input.keywords !== undefined) data.keywords = normalizeKeywords(input.keywords);
-    if (input.matchMode !== undefined) data.matchMode = input.matchMode;
     if (input.action !== undefined) {
       data.action = input.action;
       // 액션이 TIMEOUT 이 아니면 timeoutSeconds 를 null 로 정리한다(정합).
@@ -139,6 +223,36 @@ export class AutoModService {
     if (input.exemptRoleIds !== undefined) data.exemptRoleIds = input.exemptRoleIds;
     if (input.exemptChannelIds !== undefined) data.exemptChannelIds = input.exemptChannelIds;
     if (input.enabled !== undefined) data.enabled = input.enabled;
+
+    // FR-RM10b: 룰의 실제 triggerType 에 맞는 필드만 적용한다(무관 필드 무시).
+    if (existing.triggerType === 'KEYWORD') {
+      // 최종 matchMode(요청값 우선·없으면 기존)와 최종 keywords(요청값 우선·없으면 기존)를
+      // 산정해, 결과가 REGEX 면 패턴을 ReDoS 검증한다(matchMode 또는 keywords 둘 중 하나만
+      // 바뀌어도 위험 패턴 주입 가능 — 둘 다 고려).
+      const finalMatchMode: AutoModMatch =
+        (input.matchMode as AutoModMatch | undefined) ?? (existing.matchMode as AutoModMatch);
+      if (input.keywords !== undefined) {
+        const normalized =
+          finalMatchMode === 'REGEX'
+            ? normalizeRegexPatterns(input.keywords)
+            : normalizeKeywords(input.keywords);
+        data.keywords = normalized;
+        if (finalMatchMode === 'REGEX') await this.assertRegexPatternsSafe(normalized);
+      } else if (input.matchMode === 'REGEX') {
+        // keywords 미변경이지만 모드만 REGEX 로 전환 — 기존 keywords 를 정규식으로 재검증.
+        await this.assertRegexPatternsSafe(existing.keywords);
+      }
+      if (input.matchMode !== undefined) data.matchMode = input.matchMode;
+    } else {
+      // spam 룰: threshold/window 만 적용(keywords/matchMode 무시).
+      if (existing.triggerType === 'MENTION_SPAM' && input.mentionThreshold !== undefined) {
+        data.mentionThreshold = input.mentionThreshold;
+      }
+      if (existing.triggerType === 'REPEAT_SPAM' && input.repeatThreshold !== undefined) {
+        data.repeatThreshold = input.repeatThreshold;
+      }
+      if (input.windowSeconds !== undefined) data.windowSeconds = input.windowSeconds;
+    }
 
     const updated = await this.prisma.$transaction(async (tx) => {
       const row = await tx.autoModRule.update({ where: { id: ruleId }, data });
@@ -246,42 +360,149 @@ export class AutoModService {
     authorId: string;
     actorRoleIds: string[];
     contentPlain: string;
+    /** FR-RM10b: 이번 메시지의 멘션 수(@user+@role+@everyone/@here/@channel). MENTION_SPAM 용. */
+    mentionCount?: number;
     /** 작성자의 시스템 역할 enum(없으면 서비스가 조회). OWNER/ADMIN 이면 집행 skip. */
     actorRole?: WorkspaceRole;
+    /**
+     * MED-1 (069 fix-forward): spam 트리거(MENTION_SPAM/REPEAT_SPAM) 평가 수행 여부. 기본 true
+     * (send 경로). ★edit 경로는 false 로 호출해 spam record/count 를 ★건너뛴다 — 편집을 반복하면
+     * 같은 메시지가 REPEAT_SPAM 으로 누적되거나 MENTION_SPAM 이 이중 카운트되어 정상 사용자가
+     * 차단되던 회귀를 막는다. KEYWORD/REGEX 집행은 edit 에서도 유지한다(평문→금칙어 편집 우회 차단).
+     */
+    recordSpam?: boolean;
   }): Promise<{
     action: AutoModAction;
     rule: { id: string; name: string };
+    /** 매칭 근거(KEYWORD: 매칭 키워드/패턴 · spam: 카운트 요약 문자열). */
     keyword: string;
+    /** FR-RM10b: 매칭한 룰의 트리거 종류(감사/메트릭 라벨). */
+    trigger: AutoModTrigger;
     timeoutSeconds: number | null;
   } | null> {
-    // DM(워크스페이스 없음) 또는 빈 본문은 평가 대상이 아니다.
+    // DM(워크스페이스 없음)은 평가 대상이 아니다.
     if (args.workspaceId === null) return null;
+    const workspaceId = args.workspaceId;
     // ★F1: OWNER/ADMIN 작성자는 AutoMod 비대상(모더레이터 면제). 컨트롤러가 actorRole 을
     // 넘기면 그것을, 아니면 작성자 멤버십을 조회해 판정한다(자기역할 self-exempt 우려 무의미).
-    if (await this.isModeratorExempt(args.workspaceId, args.authorId, args.actorRole)) return null;
-    const rules = await this.loadEnabledRules(args.workspaceId);
+    if (await this.isModeratorExempt(workspaceId, args.authorId, args.actorRole)) return null;
+    const rules = await this.loadEnabledRules(workspaceId);
     if (rules.length === 0) return null;
 
-    const haystack = args.contentPlain.slice(0, AutoModService.MAX_CONTENT_SCAN_LEN).toLowerCase();
-    if (haystack.length === 0) return null;
+    const capped = args.contentPlain.slice(0, AutoModService.MAX_CONTENT_SCAN_LEN);
+    const haystack = capped.toLowerCase();
     const actorRoleSet = new Set(args.actorRoleIds);
+    const mentionCount = args.mentionCount ?? 0;
+    // MED-1: spam 트리거 평가 여부(기본 true · edit 은 false → record/count 스킵).
+    const recordSpam = args.recordSpam ?? true;
+
+    // REGEX 룰은 worker 격리 매칭이 비싸므로, 모든 면제 통과 REGEX 패턴을 모아 1회 worker
+    // 왕복으로 처리한다(룰→패턴 역인덱스로 매칭 패턴이 어느 룰인지 복원).
+    const regexCandidates: { rule: CachedRule; sources: string[] }[] = [];
 
     for (const rule of rules) {
       // 채널 면제.
       if (rule.exemptChannelIds.includes(args.channelId)) continue;
       // 역할 면제(actorRoleIds ∩ exemptRoleIds).
       if (rule.exemptRoleIds.some((rid) => actorRoleSet.has(rid))) continue;
-      const matched = matchKeyword(haystack, rule.keywords, rule.matchMode);
-      if (matched !== null) {
-        return {
-          action: rule.action,
-          rule: { id: rule.id, name: rule.name },
-          keyword: matched,
-          timeoutSeconds: rule.timeoutSeconds,
-        };
+
+      if (rule.triggerType === 'KEYWORD') {
+        if (rule.matchMode === 'REGEX') {
+          if (rule.keywords.length > 0) regexCandidates.push({ rule, sources: rule.keywords });
+          continue; // worker 매칭은 리터럴 루프 뒤에 일괄.
+        }
+        if (haystack.length === 0) continue;
+        const matched = matchKeyword(haystack, rule.keywords, rule.matchMode);
+        if (matched !== null) {
+          return this.hit(rule, matched, 'KEYWORD');
+        }
+        continue;
+      }
+
+      if (rule.triggerType === 'MENTION_SPAM') {
+        // MED-1: edit 경로(recordSpam=false)는 spam 트리거를 평가하지 않는다(편집 반복 이중카운트
+        // 방지). KEYWORD/REGEX 만 편집 우회 차단에 필요하다.
+        if (!recordSpam) continue;
+        if (!this.spam || rule.mentionThreshold === null || rule.windowSeconds === null) continue;
+        if (mentionCount <= 0) continue;
+        const total = await this.spam.recordAndCountMentions({
+          workspaceId,
+          ruleId: rule.id,
+          userId: args.authorId,
+          mentionCount,
+          windowSeconds: rule.windowSeconds,
+        });
+        if (total >= rule.mentionThreshold) {
+          return this.hit(rule, `mentions=${total}/${rule.mentionThreshold}`, 'MENTION_SPAM');
+        }
+        continue;
+      }
+
+      // REPEAT_SPAM
+      // MED-1: edit 경로(recordSpam=false)는 평가 스킵(편집 반복으로 REPEAT_SPAM inflate 방지).
+      if (!recordSpam) continue;
+      if (!this.spam || rule.repeatThreshold === null || rule.windowSeconds === null) continue;
+      if (capped.length === 0) continue;
+      const repeats = await this.spam.recordAndCountRepeats({
+        workspaceId,
+        ruleId: rule.id,
+        userId: args.authorId,
+        contentPlain: capped,
+        windowSeconds: rule.windowSeconds,
+      });
+      if (repeats >= rule.repeatThreshold) {
+        return this.hit(rule, `repeats=${repeats}/${rule.repeatThreshold}`, 'REPEAT_SPAM');
+      }
+    }
+
+    // REGEX 룰 일괄 매칭(worker 격리 · ≤10ms 워치독). 룰 순서대로 평가해 첫 매칭 반환.
+    if (regexCandidates.length > 0 && this.regex && capped.length > 0) {
+      for (const cand of regexCandidates) {
+        const { matched, timedOut } = await this.regex.match(cand.sources, capped);
+        if (timedOut) {
+          // 워치독 초과 — worker 강제 종료됨. AUTOMOD_TIMEOUT 감사(best-effort) 후 fail-open
+          // (이 룰은 매칭 없음으로 다음 룰 평가 — 메시지 통과 우선).
+          await this.audit.recordBestEffort({
+            workspaceId,
+            actorId: args.authorId,
+            action: AuditAction.AUTOMOD_TIMEOUT,
+            targetId: args.authorId,
+            channelId: args.channelId,
+            details: {
+              ruleId: cand.rule.id,
+              ruleName: cand.rule.name,
+              errorCode: 'AUTOMOD_TIMEOUT',
+            },
+          });
+          continue;
+        }
+        if (matched !== null) {
+          return this.hit(cand.rule, matched, 'KEYWORD');
+        }
       }
     }
     return null;
+  }
+
+  /** check 매칭 결과를 표준 hit 형태로 변환(반환 형태 단일화). */
+  private hit(
+    rule: CachedRule,
+    keyword: string,
+    trigger: AutoModTrigger,
+  ): {
+    action: AutoModAction;
+    rule: { id: string; name: string };
+    keyword: string;
+    trigger: AutoModTrigger;
+    timeoutSeconds: number | null;
+  } {
+    return {
+      action: rule.action,
+      rule: { id: rule.id, name: rule.name },
+      keyword,
+      trigger,
+      timeoutSeconds: rule.timeoutSeconds,
+    };
   }
 
   /**
@@ -347,16 +568,21 @@ export class AutoModService {
     const now = Date.now();
     const hit = this.cache.get(workspaceId);
     if (hit && hit.expiresAt > now) return hit.rules;
+    // FR-RM10b: 모든 트리거(KEYWORD/MENTION_SPAM/REPEAT_SPAM)의 enabled 룰을 로드한다.
     const rows = await this.prisma.autoModRule.findMany({
-      where: { workspaceId, enabled: true, triggerType: 'KEYWORD' },
+      where: { workspaceId, enabled: true },
       orderBy: { createdAt: 'asc' },
       select: {
         id: true,
         name: true,
+        triggerType: true,
         keywords: true,
         matchMode: true,
         action: true,
         timeoutSeconds: true,
+        mentionThreshold: true,
+        repeatThreshold: true,
+        windowSeconds: true,
         exemptRoleIds: true,
         exemptChannelIds: true,
       },
@@ -364,10 +590,14 @@ export class AutoModService {
     const rules: CachedRule[] = rows.map((r) => ({
       id: r.id,
       name: r.name,
+      triggerType: r.triggerType as AutoModTrigger,
       keywords: r.keywords,
       matchMode: r.matchMode,
       action: r.action,
       timeoutSeconds: r.timeoutSeconds,
+      mentionThreshold: r.mentionThreshold,
+      repeatThreshold: r.repeatThreshold,
+      windowSeconds: r.windowSeconds,
       exemptRoleIds: r.exemptRoleIds,
       exemptChannelIds: r.exemptChannelIds,
     }));
@@ -385,10 +615,15 @@ export class AutoModService {
 interface CachedRule {
   id: string;
   name: string;
+  triggerType: AutoModTrigger;
   keywords: string[];
   matchMode: AutoModMatch;
   action: AutoModAction;
   timeoutSeconds: number | null;
+  // FR-RM10b: spam 트리거 파라미터(KEYWORD 룰은 null).
+  mentionThreshold: number | null;
+  repeatThreshold: number | null;
+  windowSeconds: number | null;
   exemptRoleIds: string[];
   exemptChannelIds: string[];
 }
@@ -447,6 +682,23 @@ function normalizeKeywords(keywords: string[]): string[] {
   return out;
 }
 
+/**
+ * FR-RM10b: 정규식 패턴 정규화 — trim · 빈 제거 · 중복 제거(순서 보존). ★소문자화하지 않는다
+ * (정규식은 대소문자가 의미를 가지며, 매칭은 contentPlain 의 소문자 캡이 아니라 원문 캡에
+ * 대해 수행한다 — check 가 capped 원문을 worker 에 넘긴다).
+ */
+function normalizeRegexPatterns(patterns: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of patterns) {
+    const p = raw.trim();
+    if (p.length === 0 || seen.has(p)) continue;
+    seen.add(p);
+    out.push(p);
+  }
+  return out;
+}
+
 /** Prisma row → 응답 DTO. */
 function toDto(row: {
   id: string;
@@ -457,6 +709,9 @@ function toDto(row: {
   matchMode: string;
   action: string;
   timeoutSeconds: number | null;
+  mentionThreshold: number | null;
+  repeatThreshold: number | null;
+  windowSeconds: number | null;
   exemptRoleIds: string[];
   exemptChannelIds: string[];
   enabled: boolean;
@@ -473,6 +728,9 @@ function toDto(row: {
     matchMode: row.matchMode as AutoModMatch,
     action: row.action as AutoModAction,
     timeoutSeconds: row.timeoutSeconds,
+    mentionThreshold: row.mentionThreshold,
+    repeatThreshold: row.repeatThreshold,
+    windowSeconds: row.windowSeconds,
     exemptRoleIds: row.exemptRoleIds,
     exemptChannelIds: row.exemptChannelIds,
     enabled: row.enabled,

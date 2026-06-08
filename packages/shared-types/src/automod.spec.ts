@@ -37,11 +37,18 @@ describe('FR-RM10a AutoMod Zod contracts', () => {
       expect(parsed.success).toBe(true);
     });
 
-    it('rejects non-KEYWORD trigger (FR-RM10a is KEYWORD-only)', () => {
+    // FR-RM10b: MENTION_SPAM 은 keywords/matchMode 가 아니라 threshold/window 를 요구한다 —
+    // KEYWORD 모양으로 보내면(spam 필드 누락) discriminatedUnion 이 거부한다.
+    it('rejects a MENTION_SPAM rule shaped like a KEYWORD rule (missing threshold/window)', () => {
       const parsed = CreateAutoModRuleRequestSchema.safeParse({
         ...base,
         triggerType: 'MENTION_SPAM',
       });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('rejects an unknown trigger type', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({ ...base, triggerType: 'BOGUS' });
       expect(parsed.success).toBe(false);
     });
 
@@ -139,6 +146,86 @@ describe('FR-RM10a AutoMod Zod contracts', () => {
         CreateAutoModRuleRequestSchema.safeParse({ ...base, exemptChannelIds: over }).success,
       ).toBe(false);
     });
+
+    // FR-RM10b: KEYWORD 트리거가 matchMode='REGEX' 를 허용한다(ReDoS 검증은 서버 worker).
+    it('accepts a KEYWORD rule with matchMode REGEX', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        ...base,
+        matchMode: 'REGEX',
+        keywords: ['\\d{4,}'],
+      });
+      expect(parsed.success).toBe(true);
+    });
+  });
+
+  // FR-RM10b: MENTION_SPAM / REPEAT_SPAM 트리거의 discriminated union 멤버 검증.
+  describe('CreateAutoModRuleRequestSchema — spam triggers', () => {
+    it('accepts a MENTION_SPAM rule with threshold + window', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'mention spam',
+        triggerType: 'MENTION_SPAM',
+        mentionThreshold: 5,
+        windowSeconds: 60,
+        action: 'BLOCK',
+      });
+      expect(parsed.success).toBe(true);
+    });
+
+    it('accepts a REPEAT_SPAM rule with threshold + window', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'repeat spam',
+        triggerType: 'REPEAT_SPAM',
+        repeatThreshold: 3,
+        windowSeconds: 30,
+        action: 'TIMEOUT',
+        timeoutSeconds: 300,
+      });
+      expect(parsed.success).toBe(true);
+    });
+
+    it('rejects spam threshold below the minimum', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'spam',
+        triggerType: 'MENTION_SPAM',
+        mentionThreshold: 0,
+        windowSeconds: 60,
+        action: 'BLOCK',
+      });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('rejects spam window below the minimum', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'spam',
+        triggerType: 'REPEAT_SPAM',
+        repeatThreshold: 3,
+        windowSeconds: 1,
+        action: 'BLOCK',
+      });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('rejects spam window above the maximum', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'spam',
+        triggerType: 'MENTION_SPAM',
+        mentionThreshold: 5,
+        windowSeconds: 99999,
+        action: 'BLOCK',
+      });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('rejects MENTION_SPAM TIMEOUT without timeoutSeconds (refine)', () => {
+      const parsed = CreateAutoModRuleRequestSchema.safeParse({
+        name: 'spam',
+        triggerType: 'MENTION_SPAM',
+        mentionThreshold: 5,
+        windowSeconds: 60,
+        action: 'TIMEOUT',
+      });
+      expect(parsed.success).toBe(false);
+    });
   });
 
   describe('UpdateAutoModRuleRequestSchema', () => {
@@ -168,7 +255,7 @@ describe('FR-RM10a AutoMod Zod contracts', () => {
   });
 
   describe('ListAutoModRulesResponseSchema', () => {
-    it('validates a rule DTO list', () => {
+    it('validates a KEYWORD rule DTO list (FR-RM10b: spam fields nullable)', () => {
       const parsed = ListAutoModRulesResponseSchema.safeParse({
         rules: [
           {
@@ -180,6 +267,36 @@ describe('FR-RM10a AutoMod Zod contracts', () => {
             matchMode: 'WORD',
             action: 'ALERT',
             timeoutSeconds: null,
+            mentionThreshold: null,
+            repeatThreshold: null,
+            windowSeconds: null,
+            exemptRoleIds: [],
+            exemptChannelIds: [],
+            enabled: true,
+            createdBy: UUID,
+            createdAt: '2025-01-01T00:00:00.000Z',
+            updatedAt: '2025-01-01T00:00:00.000Z',
+          },
+        ],
+      });
+      expect(parsed.success).toBe(true);
+    });
+
+    it('validates a MENTION_SPAM rule DTO (threshold/window populated)', () => {
+      const parsed = ListAutoModRulesResponseSchema.safeParse({
+        rules: [
+          {
+            id: UUID,
+            workspaceId: UUID,
+            name: 'mspam',
+            triggerType: 'MENTION_SPAM',
+            keywords: [],
+            matchMode: 'SUBSTRING',
+            action: 'BLOCK',
+            timeoutSeconds: null,
+            mentionThreshold: 5,
+            repeatThreshold: null,
+            windowSeconds: 60,
             exemptRoleIds: [],
             exemptChannelIds: [],
             enabled: true,

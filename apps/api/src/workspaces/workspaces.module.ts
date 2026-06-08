@@ -67,6 +67,10 @@ import { WebhooksService } from './webhooks/webhooks.service';
 // AutoModService 를 주입해 send/edit hook 에서 check 한다(양방향 forwardRef 로 순환 해소).
 import { AutoModController } from './automod/automod.controller';
 import { AutoModService } from './automod/automod.service';
+// FR-RM10b (069): 정규식 KEYWORD 의 worker_threads 격리 실행자 + spam(MENTION/REPEAT) 의
+// Redis sliding window. AutoModService 가 둘 다 @Optional 주입한다(REDIS 는 @Global RedisModule).
+import { AutoModRegexRunner } from './automod/automod-regex-runner';
+import { AutoModSpamService } from './automod/automod-spam.service';
 
 @Module({
   imports: [
@@ -112,6 +116,8 @@ import { AutoModService } from './automod/automod.service';
     WorkspaceMemberProfileService,
     WebhooksService,
     AutoModService,
+    AutoModRegexRunner,
+    AutoModSpamService,
   ],
   exports: [
     WorkspacesService,

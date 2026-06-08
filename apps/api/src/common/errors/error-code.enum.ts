@@ -402,6 +402,12 @@ export enum ErrorCode {
   // FR-RM10a (063): AutoMod 키워드 규칙(BLOCK/TIMEOUT)에 메시지 send/edit 이 차단됨 →
   // 422(요청 envelope 은 well-formed 이나 도메인 모더레이션 규칙 위반 — 처리 불가).
   AUTOMOD_BLOCKED = 'AUTOMOD_BLOCKED',
+  // FR-RM10b (069): REGEX 매칭 룰 저장 시 정규식이 ReDoS 위험(병리적 입력에 100ms 워치독
+  // 초과) 또는 컴파일 실패 → 400(클라가 패턴 수정). 저장 전 worker 검증에서만 발생한다.
+  REGEX_UNSAFE = 'REGEX_UNSAFE',
+  // FR-RM10b (069): 정규식 매칭 worker 가 단일 패턴 10ms 워치독을 초과해 강제 종료됨.
+  // 클라 응답 코드가 아니라 AuditLog/관측용 내부 errorCode 다(메시지는 fail-open 통과).
+  AUTOMOD_TIMEOUT = 'AUTOMOD_TIMEOUT',
 
   FORBIDDEN = 'FORBIDDEN',
   VALIDATION_FAILED = 'VALIDATION_FAILED',
@@ -637,6 +643,11 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.PUSH_SUBSCRIPTION_INVALID]: 400,
   // FR-RM10a (063): AutoMod 규칙에 의한 메시지 차단 → 422(도메인 모더레이션 규칙 위반).
   [ErrorCode.AUTOMOD_BLOCKED]: 422,
+  // FR-RM10b (069): 위험/컴파일불가 정규식 룰 저장 → 400. AUTOMOD_TIMEOUT 은 클라에 노출
+  // 되지 않는 내부 코드지만 HTTP 매핑이 누락되면 전역 필터가 500 으로 떨어지므로 422 로 둔다
+  // (방어적 — 정상 흐름에선 throw 되지 않고 audit/관측에만 쓰인다).
+  [ErrorCode.REGEX_UNSAFE]: 400,
+  [ErrorCode.AUTOMOD_TIMEOUT]: 422,
   [ErrorCode.ACCOUNT_NOT_DEACTIVATED]: 409,
   [ErrorCode.FORBIDDEN]: 403,
   [ErrorCode.VALIDATION_FAILED]: 400,
