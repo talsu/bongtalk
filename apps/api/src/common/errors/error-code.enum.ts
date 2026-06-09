@@ -21,6 +21,13 @@ export enum ErrorCode {
   // S66 (D13 / FR-W05b): 인증 토큰 미존재/형식오류/이미 사용됨(usedAt) → 400.
   EMAIL_VERIFICATION_TOKEN_INVALID = 'EMAIL_VERIFICATION_TOKEN_INVALID',
 
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정(미인증/비로그인) 토큰.
+  // EmailVerification 컨벤션을 그대로 따른다 — 만료는 410(자원이 한때 유효했으나 소멸),
+  // 미존재/형식오류/이미 사용됨은 400. forgot-password 는 계정 열거 방어로 항상 200 이라
+  // 이 코드들은 reset-password 경로에서만 노출된다.
+  PASSWORD_RESET_TOKEN_EXPIRED = 'PASSWORD_RESET_TOKEN_EXPIRED',
+  PASSWORD_RESET_TOKEN_INVALID = 'PASSWORD_RESET_TOKEN_INVALID',
+
   WORKSPACE_NOT_FOUND = 'WORKSPACE_NOT_FOUND',
   WORKSPACE_NOT_MEMBER = 'WORKSPACE_NOT_MEMBER',
   WORKSPACE_SLUG_TAKEN = 'WORKSPACE_SLUG_TAKEN',
@@ -431,6 +438,10 @@ export const ERROR_CODE_HTTP_STATUS: Record<ErrorCode, number> = {
   [ErrorCode.EMAIL_VERIFICATION_RATE_LIMITED]: 429,
   [ErrorCode.EMAIL_VERIFICATION_TOKEN_EXPIRED]: 410,
   [ErrorCode.EMAIL_VERIFICATION_TOKEN_INVALID]: 400,
+
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 토큰 상태코드(EmailVerification 일관).
+  [ErrorCode.PASSWORD_RESET_TOKEN_EXPIRED]: 410,
+  [ErrorCode.PASSWORD_RESET_TOKEN_INVALID]: 400,
 
   [ErrorCode.WORKSPACE_NOT_FOUND]: 404,
   [ErrorCode.WORKSPACE_NOT_MEMBER]: 404,

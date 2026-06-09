@@ -71,6 +71,13 @@ describe('LoginPage — ACCOUNT_DEACTIVATED 복구 CTA (FR-PS-16)', () => {
     expect(screen.getByText('바로 대화를 이어가세요.')).toBeTruthy();
   });
 
+  // AUTH-3 (PRD D18 / C-7): "비밀번호 찾기" 링크가 폼 하단에 노출된다(react-router Link mock
+  // 은 children 만 렌더하므로 텍스트로 단언). AUTH-1 에서 페이지 부재로 보류했던 것.
+  it('AUTH-3 — "비밀번호 찾기" 링크가 노출된다', () => {
+    render(<LoginPage />);
+    expect(screen.getByText('비밀번호 찾기')).toBeTruthy();
+  });
+
   it('복구 CTA 클릭 → reactivate 호출(입력 자격증명) → 재로그인 + 이동', async () => {
     loginMock.mockRejectedValueOnce(
       Object.assign(new Error('account is deactivated'), { errorCode: 'ACCOUNT_DEACTIVATED' }),

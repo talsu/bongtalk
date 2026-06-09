@@ -63,6 +63,17 @@ const VerifyEmailLanding = lazy(() =>
     default: m.VerifyEmailLanding,
   })),
 );
+// AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 찾기 + 재설정(미인증/비로그인 비보호 영역).
+const ForgotPasswordPage = lazy(() =>
+  import('./features/auth/ForgotPasswordPage').then((m) => ({
+    default: m.ForgotPasswordPage,
+  })),
+);
+const ResetPasswordPage = lazy(() =>
+  import('./features/auth/ResetPasswordPage').then((m) => ({
+    default: m.ResetPasswordPage,
+  })),
+);
 const NotificationSettingsPage = lazy(() =>
   import('./features/settings/NotificationSettingsPage').then((m) => ({
     default: m.NotificationSettingsPage,
@@ -176,7 +187,14 @@ function ProtectedShellRoute(): JSX.Element {
  * 경로(/login·/signup·/verify-email)는 게이트를 건너뛰어 사용자가 로그아웃하거나 링크로
  * 인증을 완료할 수 있게 한다. anonymous·loading 은 통과시켜 기존 라우팅이 처리한다.
  */
-const VERIFY_GATE_EXEMPT = new Set(['/login', '/signup', '/verify-email']);
+const VERIFY_GATE_EXEMPT = new Set([
+  '/login',
+  '/signup',
+  '/verify-email',
+  // AUTH-3 (FR-AUTH-40~44): 비밀번호 찾기/재설정도 게이트 면제(비로그인/미인증 진입 경로).
+  '/forgot-password',
+  '/reset-password',
+]);
 // S66 fix-forward (review LOW-2): 미인증 사용자가 초대 링크(/invite/:code)를 클릭하면
 // 게이트로 튕기지 않고 InviteAcceptPage 를 보게 한다(백엔드 진입 게이트 + 수락 403 사유
 // 분기가 보호하므로 안전). prefix 매칭이 필요한 경로는 여기에 둔다.
@@ -439,6 +457,9 @@ export default function App(): JSX.Element {
                         <Route path="/signup" element={<SignupPage />} />
                         {/* S66 (FR-W05b): 메일 인증 링크 랜딩(공개 — 미인증 토큰 처리). */}
                         <Route path="/verify-email" element={<VerifyEmailLanding />} />
+                        {/* AUTH-3 (FR-AUTH-40~44): 비밀번호 찾기/재설정(비로그인 공개 영역). */}
+                        <Route path="/forgot-password" element={<ForgotPasswordPage />} />
+                        <Route path="/reset-password" element={<ResetPasswordPage />} />
                         <Route path="/invite/:code" element={<InviteAcceptPage />} />
                         <Route path="/w/new" element={<CreateWorkspacePage />} />
                         {/* S76 (FR-PS-18 · Fork A1): /settings → 외관 리다이렉트(자동저장 첫 탭). */}

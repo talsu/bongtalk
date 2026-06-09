@@ -131,6 +131,8 @@ function makeMailStub(): MailSender & { sent: Array<{ to: string; url: string }>
     sendWorkspaceInviteEmail: vi.fn(async () => undefined),
     // S77b (D14 / FR-PS-15): 보안 알림 메일 인터페이스 추가(이 스펙은 미검증 — no-op).
     sendSecurityAlertEmail: vi.fn(async () => undefined),
+    // AUTH-3 (FR-AUTH-40~44): 비밀번호 재설정 메일 인터페이스 추가(이 스펙은 미검증 — no-op).
+    sendPasswordResetEmail: vi.fn(async () => undefined),
   };
 }
 

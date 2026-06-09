@@ -163,6 +163,18 @@ export function LoginPage(): JSX.Element {
             가입하기
           </Link>
         </p>
+        {/* AUTH-3 (PRD D18 / C-7): AUTH-1 에서 페이지 부재로 보류했던 "비밀번호 찾기" 링크.
+            "가입하기" 와 같은 스타일/줄로 둔다. */}
+        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
+          비밀번호를 잊으셨나요?{' '}
+          <Link
+            to="/forgot-password"
+            data-testid="login-forgot-link"
+            className="font-medium text-link hover:text-link-hover"
+          >
+            비밀번호 찾기
+          </Link>
+        </p>
       </section>
     </main>
   );
