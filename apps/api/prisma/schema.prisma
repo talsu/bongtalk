@@ -683,6 +683,8 @@ model User {
   refreshTokens                 RefreshToken[]
   // S66 (D13 / FR-W05b): 이메일 인증 토큰들. onDelete Cascade(계정 삭제 시 정리).
   emailVerificationTokens       EmailVerificationToken[]
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 토큰들. onDelete Cascade.
+  passwordResetTokens           PasswordResetToken[]
   // S77b (D14 / FR-PS-15): TOTP 백업코드 행들(bcrypt 해싱·1회용). onDelete Cascade.
   backupCodes                   BackupCode[]
   attachments                   Attachment[]
@@ -850,6 +852,29 @@ model EmailVerificationToken {
   id        String    @id @default(uuid()) @db.Uuid
   userId    String    @db.Uuid
   token     String    @unique @db.Uuid
+  expiresAt DateTime  @db.Timestamptz(6)
+  usedAt    DateTime? @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @db.Timestamptz(6)
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 토큰. POST /auth/forgot-password 가
+// 활성 사용자에게 1행 생성하고 메일로 resetUrl(reset-password?token=raw)을 보낸다. POST
+// /auth/reset-password 가 sha256(token) 으로 조회·검증·단일 tx CAS 소모(usedAt)한다.
+// EmailVerificationToken 을 미러링하되 두 가지가 다르다:
+//   ① token 평문이 아니라 tokenHash(sha256 hex)만 저장한다(invite tokenHash 패턴 — DB
+//      유출 시 토큰 역산 방지·계정 탈취 표면 축소). @unique 로 O(1) 조회.
+//   ② TTL 이 24h 가 아닌 1h(발급+1h). 재설정은 즉시 사용을 전제하므로 짧게 둔다.
+// expiresAt 경과 시 410, usedAt 존재 시 400 으로 거부한다. additive 신규 테이블(backfill
+// 불요). onDelete Cascade — 계정 하드삭제 시 토큰 행도 함께 정리된다. IP rate-limit/이메일
+// 쿨다운은 토큰 행이 아닌 Redis 키로 집행한다(EmailVerification resend 패턴과 일관).
+model PasswordResetToken {
+  id        String    @id @default(uuid()) @db.Uuid
+  userId    String    @db.Uuid
+  tokenHash String    @unique
   expiresAt DateTime  @db.Timestamptz(6)
   usedAt    DateTime? @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @db.Timestamptz(6)

@@ -44,6 +44,17 @@ export interface MailSender {
    * @param event  알림 사유(예: 'password_changed').
    */
   sendSecurityAlertEmail(to: string, event: string): Promise<void>;
+
+  /**
+   * AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 메일. POST /auth/forgot-password 가
+   * 활성 사용자에게만 발송한다(계정 열거 방어 — 미존재/비활성은 발송 자체를 하지 않고 200).
+   * resetUrl 엔 raw 토큰이 실리므로(WEB_URL/reset-password?token=…) verifyUrl 과 동일하게
+   * 운영 로그에서는 토큰을 마스킹한다. Console stub 은 dev 에서 링크를 그대로 출력한다.
+   *
+   * @param to        수신자 이메일.
+   * @param resetUrl  POST /auth/reset-password 로 이어지는 절대 URL(reset-password?token=raw).
+   */
+  sendPasswordResetEmail(to: string, resetUrl: string): Promise<void>;
 }
 
 /** DI 토큰 — MailSender 구현 주입에 쓴다(인터페이스는 런타임 토큰이 될 수 없음). */
@@ -137,6 +148,33 @@ export class ConsoleMailSender implements MailSender {
         event: 'security_alert_sent',
         to,
         reason: event,
+        note: 'email sender not configured (console stub)',
+      }),
+    );
+  }
+
+  /**
+   * AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 메일 Console stub. resetUrl 엔 raw
+   * 토큰이 실리므로 sendVerificationEmail(HIGH-4) 과 동일한 환경별 마스킹을 적용한다 —
+   * development 외(test 포함·미설정)에서는 토큰 끝 6자만 마스킹 노출(평문 토큰 로그 금지).
+   */
+  async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
+    if (process.env.NODE_ENV === 'development') {
+      // dev 편의 — 수동 검증을 위해 링크를 그대로 출력한다.
+      this.logger.log(
+        JSON.stringify({
+          event: 'password_reset_sent',
+          to,
+          resetUrl,
+        }),
+      );
+      return;
+    }
+    this.logger.warn(
+      JSON.stringify({
+        event: 'password_reset_sent',
+        to,
+        tokenTail: maskToken(resetUrl),
         note: 'email sender not configured (console stub)',
       }),
     );

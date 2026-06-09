@@ -40,7 +40,7 @@ export interface SmtpTransport {
  * 발송 로그 분류 라벨(F5). subject(workspaceName 등 민감 입력 포함)를 로그에 남기는 대신
  * 이 라벨만 남겨 수신자↔워크스페이스 매핑 노출을 줄인다.
  */
-type EmailType = 'verification' | 'invite' | 'security';
+type EmailType = 'verification' | 'invite' | 'security' | 'password_reset';
 
 /**
  * 보안(F2): 동일 수신자 주소에 대한 보조 발송 상한. 전역 cap(EMAIL_RATE_MAX) 만으로는
@@ -235,6 +235,31 @@ export class SmtpMailSender implements MailSender {
     await this.send(to, 'invite', subject, text, html);
   }
 
+  async sendPasswordResetEmail(to: string, resetUrl: string): Promise<void> {
+    // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): sendVerificationEmail 과 동일 톤. 정적 subject 라
+    // 인젝션 표면은 없지만 일관성을 위해 sanitize 를 통과시킨다(F3). 버튼 href 는 button()
+    // 내부에서 http(s) 스킴을 검증한다(F4 — resetUrl 비-http 스킴이면 '#' 으로 치환).
+    const subject = sanitizeHeader('[qufox] 비밀번호 재설정 안내');
+    const text = [
+      '비밀번호 재설정 요청을 받았습니다.',
+      '',
+      '아래 링크에서 새 비밀번호를 설정해 주세요. 이 링크는 1시간 동안만 유효합니다.',
+      resetUrl,
+      '',
+      '본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다. 비밀번호는 변경되지 않습니다.',
+    ].join('\n');
+    const html = layout(
+      '비밀번호 재설정',
+      `
+      <p>비밀번호 재설정 요청을 받았습니다.</p>
+      <p>아래 버튼을 눌러 새 비밀번호를 설정해 주세요. 이 링크는 <strong>1시간</strong> 동안만 유효합니다.</p>
+      ${button(resetUrl, '비밀번호 재설정하기')}
+      <p style="font-size:12px;color:#888;">본인이 요청하지 않았다면 이 메일을 무시하셔도 됩니다. 비밀번호는 변경되지 않습니다.</p>
+      `,
+    );
+    await this.send(to, 'password_reset', subject, text, html);
+  }
+
   async sendSecurityAlertEmail(to: string, event: string): Promise<void> {
     const safeEvent = escapeHtml(event);
     // 정적 subject 지만 일관성을 위해 sanitize 를 통과시킨다(F3).
@@ -308,7 +333,10 @@ function layout(title: string, bodyHtml: string): string {
  */
 function button(href: string, label: string): string {
   const safeHref = escapeHtml(safeButtonHref(href));
-  return `<p><a href="${safeHref}" style="display:inline-block;padding:10px 20px;background:#5865f2;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(
+  // ui(브랜드 MED): qufox 브랜드 accent(#8B5CF6). 이메일 HTML 은 웹 DS CSS 변수를 쓸 수 없어
+  // raw hex 가 불가피하나, 종전 Discord blurple(#5865f2)을 그대로 둔 것은 브랜드 불일치라
+  // 모든 메일(verify/invite/reset) 공통 버튼을 브랜드 accent 로 맞춘다.
+  return `<p><a href="${safeHref}" style="display:inline-block;padding:10px 20px;background:#8B5CF6;color:#fff;text-decoration:none;border-radius:6px;">${escapeHtml(
     label,
   )}</a></p>
   <p style="font-size:12px;color:#888;word-break:break-all;">버튼이 작동하지 않으면 아래 주소를 복사해 주세요:<br>${safeHref}</p>`;

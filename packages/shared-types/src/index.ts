@@ -67,6 +67,12 @@ export const ErrorCodeSchema = z.enum([
   'EMAIL_VERIFICATION_RATE_LIMITED',
   'EMAIL_VERIFICATION_TOKEN_EXPIRED',
   'EMAIL_VERIFICATION_TOKEN_INVALID',
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정(미인증/비로그인).
+  // PASSWORD_RESET_TOKEN_EXPIRED: 재설정 토큰 만료(발급 1h 경과) → 410(한때 유효했으나 소멸).
+  // PASSWORD_RESET_TOKEN_INVALID: 토큰 미존재/형식오류/이미 사용됨(usedAt) → 400.
+  //   (forgot-password 자체는 계정 열거 방어로 항상 200 — 이 코드들은 reset-password 전용.)
+  'PASSWORD_RESET_TOKEN_EXPIRED',
+  'PASSWORD_RESET_TOKEN_INVALID',
   'WORKSPACE_NOT_FOUND',
   'WORKSPACE_NOT_MEMBER',
   'WORKSPACE_SLUG_TAKEN',
