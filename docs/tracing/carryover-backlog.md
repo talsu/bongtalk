@@ -110,9 +110,21 @@
       무변경·마이그 없음·src 무변경(test-only) → 런타임 영향 0 → 배포 불필요**(S98 과 동일). VERIFY green
       (api 1356·+5 drift-guard). **잔여(문서화)**: 전면 통일(Fork B)은 사용자가 미선택(고위험). web↔api
       집행 미러는 패키지 경계상 자동 cross-check 불가(각자 spec 잠금 + 주석 명시).
-- [ ] **S105 — 채널/misc 번들** (MED): announcement canPost 서버플래그+클라(S13)·공개채널 leave 사이드바(S14)·
+- [x] **S105 — 채널/misc 번들** (MED): announcement canPost 서버플래그+클라(S13)·공개채널 leave 사이드바(S14)·
       비공개 join 403→404(S14)·slowmode SET NX idem-replay 뒤로(S15)·채널 재정렬 드래그UI/WS fanout(S15)·
       channels↔messages↔attachments 순환참조 디커플(S13)·announcement fold 중앙매트릭스(S13).
+      → **triage: 대부분 이미 해소** — ② 비공개 403→404=channel-access.guard `CHANNEL_NOT_FOUND`(404·존재
+      비누출) 구현·공개채널 leave=`@Post(':chid/leave')` 백엔드 존재·announcement canPost=S13/FR-CH-19 서버
+      (messages.controller:385 OWNER/ADMIN/허용역할 `CHANNEL_POSTING_RESTRICTED`)+클라(MessageComposer:82)
+      구현·slowmode=이미 `SET NX EX` 원자 패턴.
+      → **진짜 잔여(구현·★보안)**: ★**S99 잔여 channel.updated isPrivate 공개→비공개 leak**. onChannelEvent 가
+      channel.created/deleted 에서만 refreshChannelIdsForWorkspace 트리거 → 비공개 전환 시 비구성원 소켓이
+      채널 룸 잔존·이후 fanout 수신(IDOR 성 구독누수). **수정**: channel.updated 마다 refresh(admin PATCH·
+      드묾·create/delete 와 같은 빈도 클래스)→roomsForUser ACL 재평가→S99 toLeave 가 가시성 잃은 구독 leave.
+      신규 int `ws.channel-privacy-leave`(공개→비공개 후 member 소켓 룸 leave 검증). VERIFY green(api 1356).
+      → **defer(저가치 refactor·기능갭 아님)**: slowmode idem-replay 순서(NX 이미 원자)·채널 재정렬 드래그UI
+      (FE 폴리시·reorder 백엔드/WS fanout 존재)·channels↔messages↔attachments 순환참조 디커플(아키 정리·
+      기능 무영향)·announcement fold 중앙매트릭스(refactor). measure/필요 시 재개.
 - [ ] **경미(~41)**: 각 번들에 흡수 가능분 흡수, 잔여는 LOW/NIT carryover 유지.
 
 ## 배포 정책
