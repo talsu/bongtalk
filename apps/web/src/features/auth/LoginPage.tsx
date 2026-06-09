@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { LoginRequest, LoginRequestSchema } from '@qufox/shared-types';
-import { Button, Input } from '../../design-system/primitives';
+import { Button, Input, Icon } from '../../design-system/primitives';
 import { BrandMark } from '../../design-system/brand/BrandMark';
 import { useAuth } from './AuthProvider';
 import { useReactivateAccount } from '../settings/useSecurity';
@@ -73,14 +73,20 @@ export function LoginPage(): JSX.Element {
           boxShadow: 'var(--elev-2)',
         }}
       >
-        <BrandMark variant="wordmark" size={28} className="mb-[var(--s-6)]" />
-        <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign in</div>
-        <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
-          다시 만나서 반가워요
-        </h1>
-        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
-          이메일과 비밀번호를 입력해 로그인하세요.
-        </p>
+        {/* AUTH-1 (PRD D18 / FR-AUTH-17): 심볼+eyebrow+제목+부제목을 세로 중앙 정렬 블록으로
+            묶어 카드 상단에 둔다(로그인 목업). 폼 필드는 아래에서 좌측 정렬을 유지한다. */}
+        <div className="mb-[var(--s-7)] flex flex-col items-center text-center">
+          {/* a11y(HIGH-3): 바로 뒤 eyebrow "qufox · sign in" 가 맥락을 주므로 심볼은 장식
+              처리(decorative)해 "qufox, qufox sign in" 중복 낭독을 피한다(WCAG 1.1.1). */}
+          <BrandMark variant="symbol" size={56} decorative className="mb-[var(--s-5)]" />
+          <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign in</div>
+          <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            다시 만나서 반가워요
+          </h1>
+          <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
+            바로 대화를 이어가세요.
+          </p>
+        </div>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
           <div className="qf-field">
             <label className="qf-field__label" htmlFor="login-email">
@@ -116,27 +122,29 @@ export function LoginPage(): JSX.Element {
               {serverError}
             </p>
           )}
-          {/* S77c (D14 / FR-PS-16): 비활성 계정 안내 + 복구 CTA. */}
+          {/* S77c (D14 / FR-PS-16): 비활성 계정 안내 + 복구 CTA. AUTH-1 (PRD D18 / C-1):
+              DS .qf-notice--warn 구조로 교체해 좌측 강조선 + 아이콘으로 색 단독 의존을 피한다. */}
           {deactivated && (
             <div
               data-testid="login-deactivated-notice"
               role="alert"
-              className="flex flex-col gap-[var(--s-2)] rounded-[var(--r-md)] border border-border-subtle bg-bg-subtle p-[var(--s-3)]"
+              className="qf-notice qf-notice--warn"
             >
-              <p className="text-[length:var(--fs-13)] text-text-muted">
-                비활성화된 계정입니다. 30일 이내라면 계정을 복구할 수 있습니다.
-              </p>
-              <Button
-                ref={reactivateRef}
-                data-testid="login-reactivate"
-                type="button"
-                size="sm"
-                variant="secondary"
-                disabled={reactivate.isPending}
-                onClick={() => void onReactivate()}
-              >
-                {reactivate.isPending ? '복구 중…' : '계정 복구'}
-              </Button>
+              <Icon name="alert" className="qf-notice__icon" aria-hidden />
+              <div className="qf-notice__body flex flex-col gap-[var(--s-2)]">
+                <p>비활성화된 계정입니다. 30일 이내라면 계정을 복구할 수 있습니다.</p>
+                <Button
+                  ref={reactivateRef}
+                  data-testid="login-reactivate"
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  disabled={reactivate.isPending}
+                  onClick={() => void onReactivate()}
+                >
+                  {reactivate.isPending ? '복구 중…' : '계정 복구'}
+                </Button>
+              </div>
             </div>
           )}
           <Button

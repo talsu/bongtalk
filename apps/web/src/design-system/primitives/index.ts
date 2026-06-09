@@ -18,3 +18,5 @@ export {
 } from './DropdownMenu';
 export { ToastViewport } from './Toast';
 export { Scrollable } from './Scrollable';
+export { StrengthMeter, evaluatePasswordStrength } from './StrengthMeter';
+export type { PasswordStrength, StrengthResult } from './StrengthMeter';

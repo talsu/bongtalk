@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { EMAIL_VERIFY_RESEND_COOLDOWN_SEC } from '@qufox/shared-types';
-import { Button } from '../../design-system/primitives';
+import { Button, Icon } from '../../design-system/primitives';
 import { BrandMark } from '../../design-system/brand/BrandMark';
 import { resendVerificationEmail } from '../../lib/api';
 import { useAuth } from './AuthProvider';
@@ -158,30 +158,38 @@ export function EmailVerificationGate(): JSX.Element {
         )}
 
         <div className="mt-[var(--s-7)] flex flex-col gap-[var(--s-3)]">
+          {/* AUTH-1 (PRD D18 / C-3): 주 동작인 "인증 메일 다시 보내기" 를 primary·첫 번째로,
+              보조 동작 "이미 인증했어요" 를 secondary·두 번째로 둔다. */}
+          <Button
+            type="button"
+            data-testid="verify-resend"
+            size="lg"
+            // (B4) HTML disabled 대신 aria-disabled — 포커스를 유지하고 사유를 aria-label
+            // 로 알린다. AUTH-1: 비활성 시각화는 opacity 단독이 아니라 배경/테두리 변화를
+            // 동반해 색 단독 의존(WCAG 1.4.1)을 피한다.
+            aria-disabled={resendDisabled}
+            aria-busy={resending}
+            aria-label={resendAriaLabel}
+            // AUTH-1 a11y(BLOCKER-1): primary 버튼은 accent 배경 + 흰 텍스트라, 비활성 시
+            // 배경을 밝은 bg-subtle 로 바꾸면 흰 텍스트가 묻혀 라이트 테마 대비가 붕괴한다.
+            // 배경 swap 대신 opacity 만 낮춘다(배경·텍스트가 함께 페이드 → 상대 대비 보존).
+            // 비활성 사유는 색이 아니라 카운트다운 텍스트 + aria-disabled/aria-label 로 전달해
+            // 색 단독 의존(1.4.1)을 피한다.
+            className={resendDisabled ? 'opacity-60' : undefined}
+            onClick={onResend}
+          >
+            {resending ? '보내는 중…' : '인증 메일 다시 보내기'}
+          </Button>
           <Button
             type="button"
             data-testid="verify-already"
+            variant="secondary"
             size="lg"
             disabled={checking}
             aria-busy={checking}
             onClick={onAlreadyVerified}
           >
             {checking ? '확인 중…' : '이미 인증했어요'}
-          </Button>
-          <Button
-            type="button"
-            data-testid="verify-resend"
-            variant="secondary"
-            size="lg"
-            // (B4) HTML disabled 대신 aria-disabled — 포커스를 유지하고 사유를 aria-label
-            // 로 알린다. 시각적 비활성은 className opacity 로(DS selector 비의존).
-            aria-disabled={resendDisabled}
-            aria-busy={resending}
-            aria-label={resendAriaLabel}
-            className={resendDisabled ? 'opacity-60' : undefined}
-            onClick={onResend}
-          >
-            {resending ? '보내는 중…' : '인증 메일 다시 보내기'}
           </Button>
           {/* (A2) 시각 카운트다운 — 버튼 밖, AT 에서 숨긴다(매초 재고지 방지). */}
           {cooldown > 0 && (
@@ -203,29 +211,49 @@ export function EmailVerificationGate(): JSX.Element {
           )}
         </div>
 
-        {/* (A1) notice·error 는 라이브 영역으로 DOM 을 유지하고 텍스트만 교체한다. */}
-        <p
+        {/* (A1) notice·error 는 항상 DOM 에 존재하는 라이브 영역이다(텍스트만 교체).
+            AUTH-1 (PRD D18 + ui/a11y 리뷰 H-1): `.qf-notice` 를 라이브 영역 자체에 두고,
+            내용이 있을 때만 __icon + __body 자식을 렌더한다 — 좌측 강조선 + 아이콘으로 색
+            단독 의존(WCAG 1.4.1)을 피한다. 비었을 때는 `:empty` → `empty:hidden`(특이도
+            우선)으로 display:none 되어 시각적으로 숨고 textContent 는 ''. */}
+        <div
           data-testid="verify-notice"
           role="status"
           aria-live="polite"
           aria-atomic="true"
-          className="mt-[var(--s-4)] text-[var(--fs-12)] text-text-muted empty:hidden"
+          className="qf-notice qf-notice--info mt-[var(--s-4)] text-left empty:hidden"
         >
-          {notice}
-        </p>
-        <p
+          {notice ? (
+            <>
+              <span className="qf-notice__icon">
+                <Icon name="info" size="sm" aria-hidden />
+              </span>
+              <span className="qf-notice__body">{notice}</span>
+            </>
+          ) : null}
+        </div>
+        <div
           data-testid="verify-error"
           role="alert"
           aria-live="assertive"
-          className="mt-[var(--s-4)] text-[var(--fs-12)] text-text-strong empty:hidden"
+          aria-atomic="true"
+          className="qf-notice qf-notice--danger mt-[var(--s-4)] text-left empty:hidden"
         >
-          {error}
-        </p>
+          {error ? (
+            <>
+              <span className="qf-notice__icon">
+                <Icon name="alert" size="sm" aria-hidden />
+              </span>
+              <span className="qf-notice__body">{error}</span>
+            </>
+          ) : null}
+        </div>
 
+        {/* AUTH-1 a11y(MED-2 / WCAG 2.5.3 Label in Name): 보이는 텍스트를 그대로
+            접근명으로 쓴다(별도 aria-label 제거 — 음성 제어 "다른 계정으로 로그인" 일치). */}
         <button
           type="button"
           data-testid="verify-logout"
-          aria-label="로그아웃 후 로그인 화면으로 이동"
           className="qf-btn qf-btn--link mt-[var(--s-6)] text-[var(--fs-13)]"
           onClick={() => void logout()}
         >
