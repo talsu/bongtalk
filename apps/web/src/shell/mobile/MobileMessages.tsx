@@ -14,6 +14,7 @@ import { useCompose } from '../../stores/compose-store';
 import { renderMessageContent } from '../../features/messages/parseContent';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
+import { MobileEditSheet } from './MobileEditSheet';
 import { ThreadPanel } from '../../features/threads/ThreadPanel';
 import { cn } from '../../lib/cn';
 
@@ -52,6 +53,9 @@ export function MobileMessages({
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
+  // S103 (FR-MSG-06 모바일): 편집 중인 메시지(시트에서 '메시지 편집' 선택 시 세팅).
+  // 비-null 이면 MobileEditSheet 오버레이를 띄운다.
+  const [editingMsg, setEditingMsg] = useState<MessageDto | null>(null);
   // S35 (FR-TH-05): 모바일 전체화면 스레드 패널 상태. 시트의 '스레드에서 답글'
   // 액션이 루트 messageId 를 세팅한다. 워크스페이스 채널에서만 연다(DM 스레드는
   // 데스크톱과 동일하게 비범위 — workspaceId 가 null 인 DM 은 열지 않는다).
@@ -63,10 +67,7 @@ export function MobileMessages({
   const previousFocusRef = useRef<HTMLElement | null>(null);
   const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
-  // suppress unused warnings until wired into sheet actions
-  void updMut;
-  void delMut;
-  void reactMut;
+  // suppress unused warnings (workspaceSlug 은 시그니처 호환용 미사용 prop).
   void workspaceSlug;
 
   const messages = useMemo<MessageDto[]>(() => {
@@ -186,6 +187,19 @@ export function MobileMessages({
             }
             setSheetMsg(null);
           }}
+          // S103 (FR-MSG-06 모바일): 내 메시지만 편집. 낙관적(tmp-) 행은 서버 id·
+          // version 이 없어 PATCH 불가, 삭제된 행은 본문이 없으므로 숨긴다(데스크톱
+          // editRequestNonce 게이트와 동일 정책). 편집 시트로 전환한다.
+          onEdit={
+            sheetMsg.authorId === user?.id &&
+            !sheetMsg.id.startsWith('tmp-') &&
+            !sheetMsg.deleted
+              ? () => {
+                  setEditingMsg(sheetMsg);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
           // S35 (FR-TH-05): 워크스페이스 채널에서만 스레드 진입(DM 비범위).
           // 답글(parentMessageId 보유)을 탭하면 그 루트의 스레드를 연다.
           // 낙관적(tmp-) 행은 서버 id 가 없어 스레드를 열 수 없으므로 숨긴다.
@@ -204,6 +218,31 @@ export function MobileMessages({
                 }
               : undefined
           }
+        />
+      ) : null}
+      {/* S103 (FR-MSG-06 모바일): 메시지 편집 바텀시트. 저장 시 낙관적 잠금
+          PATCH(updMut) — 성공하면 editingMsg 를 풀어 닫고, 충돌/검증 실패는 훅이
+          토스트로 안내하며 시트를 유지한다(MobileEditSheet 내부에서 reject 흡수). */}
+      {editingMsg ? (
+        <MobileEditSheet
+          msg={editingMsg}
+          onCancel={() => setEditingMsg(null)}
+          onSave={async (content) => {
+            // S103 리뷰 HIGH-1: 편집 시트가 열린 사이 다른 클라가 같은 메시지를
+            // 수정하면 낙관잠금 409 → 훅(applyEditConflict)이 캐시를 최신 version 으로
+            // 갱신한다. expectedVersion 을 editingMsg(시트 오픈 스냅샷) 대신 *현재
+            // 캐시*(messages memo)의 최신 version 으로 재도출해야, 충돌 후 재시도가
+            // 새 version 으로 성공한다(stale version 무한 409 데드엔드 방지 — 데스크톱
+            // MessageList onEditSave 가 매 렌더 m.version 을 재읽는 것과 동일 효과).
+            // 캐시 밖(페이지네이션) 이면 스냅샷 version 으로 폴백.
+            const live = messages.find((m) => m.id === editingMsg.id);
+            await updMut.mutateAsync({
+              msgId: editingMsg.id,
+              content,
+              expectedVersion: live?.version ?? editingMsg.version,
+            });
+            setEditingMsg(null);
+          }}
         />
       ) : null}
       {/* S35 (FR-TH-05): 모바일 전체화면 스레드 패널. ThreadPanel 의 모든 로직을

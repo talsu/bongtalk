@@ -58,7 +58,28 @@
           캐시는 차단/해제 무효화 복잡 + **stale=프라이버시 오마스킹** 위험. → 진짜 병목 측정되면 재개.
 - [ ] **S102 — DM 갭 번들** (MED): ① DM `/history` 엔드포인트 ② DM rate-limit 3엔드포인트(S16/S19)
       ③ UserBlock 모델 + hidden-restore visibleFrom(S17) ④ DmListItem/DmParticipant shared-types 이관.
-- [ ] **S103 — 모바일 편집 UI** (★HIGH): MobileMessages/MobileMessageSheet 편집 개시(useUpdateMessage 배선·FR-MSG-06 모바일).
+- [x] **S103 — 모바일 편집 UI** (★HIGH): MobileMessages/MobileMessageSheet 편집 개시(useUpdateMessage 배선·FR-MSG-06 모바일).
+      → 진짜 갭 확인(`MobileMessages.tsx void updMut` dormant·시트에 편집 액션 없음). 구현: 신규
+      `MobileEditSheet`(편집 바텀시트·textarea+저장/취소·trim·빈/변경없음/전송중 비활성·reject 시 유지) +
+      MobileMessageSheet "메시지 편집"(isMine·!tmp-·!deleted 게이트) + MobileMessages 배선
+      (onSave→`updMut.mutateAsync({msgId,content,expectedVersion})`). 신규 spec 2(MobileEditSheet 7 +
+      MobileMessageSheet 2). VERIFY green(web 222f/1781t·typecheck·lint 0err). 마이그 없음.
+      → 3차원 리뷰(reviewer·ui-designer·a11y) fix-forward:
+        • reviewer HIGH-1(편집 중 409 후 stale expectedVersion 재시도 데드엔드)→onSave 가 시트-오픈
+          스냅샷 대신 **현재 캐시(messages memo) 최신 version** 재도출(데스크톱 onEdit Save 동일).
+        • ui HIGH/MED(qf-m-composer__send 원형·qf-m-sheet__item 좌정렬 재활용 오용)→저장/취소를
+          page-scoped Tailwind+DS 토큰으로 재작성(터치타깃 min-h=44px·raw hex/px 없음).
+        • a11y M-1(disabled+aria-disabled 중복)→native disabled 단독·M-2(aria-label+헤딩 중복낭독)→
+          aria-labelledby·M-3(저장 중 SR 무알림)→"저장 중…" 텍스트+aria-busy. reviewer NIT-1(stale
+          void delMut/reactMut) 제거.
+        • **거짓양성 기각**: ui-designer LOW `active:bg-bg-muted` = tailwind.config `'bg-muted':var(--bg-hover)`
+          매핑 존재로 **유효**([[reference_tailwind_double_prefix]]·기존 코드 무변경).
+      → **잔여(별도 추적)**: ⓐ reviewer MED-1 모바일 편집 시 대규모 멘션(@everyone/@here/@channel) 추가
+        409(BULK_MENTION_CONFIRM_REQUIRED) 미배선 → 일반 토스트(데스크톱 SpecialMentionConfirmDialog 미러
+        필요·드문 엣지). ⓑ a11y H-1/H-2 모바일 바텀시트 focus 복귀+focus trap = MobileMessageSheet 와
+        **공유하는 사전존재 패턴**(전 모바일 시트 일괄 focus-management 유틸 슬라이스·ThreadPanel trap 재사용).
+        ⓒ accent 버튼 대비 4.23:1(DS-owner·--accent 토큰·전앱 공통). ⓓ MobileMessages onSave 재도출 통합
+        테스트 갭(heavy 하니스).
 - [ ] **S104 — 권한 스킴 수렴** (★HIGH·大·신중): shared-types 카탈로그 비트 ↔ auth/permissions 집행 enum
       2중화 제거(같은 override 컬럼·다른 의미·drift). 설계 ADR + 보안 중점 리뷰. **제품/보안 분기 발견 시 사용자 확인.**
 - [ ] **S105 — 채널/misc 번들** (MED): announcement canPost 서버플래그+클라(S13)·공개채널 leave 사이드바(S14)·
