@@ -94,8 +94,22 @@
         **공유하는 사전존재 패턴**(전 모바일 시트 일괄 focus-management 유틸 슬라이스·ThreadPanel trap 재사용).
         ⓒ accent 버튼 대비 4.23:1(DS-owner·--accent 토큰·전앱 공통). ⓓ MobileMessages onSave 재도출 통합
         테스트 갭(heavy 하니스).
-- [ ] **S104 — 권한 스킴 수렴** (★HIGH·大·신중): shared-types 카탈로그 비트 ↔ auth/permissions 집행 enum
+- [x] **S104 — 권한 스킴 수렴** (★HIGH·大·신중): shared-types 카탈로그 비트 ↔ auth/permissions 집행 enum
       2중화 제거(같은 override 컬럼·다른 의미·drift). 설계 ADR + 보안 중점 리뷰. **제품/보안 분기 발견 시 사용자 확인.**
+      → **정밀 스코핑 결과 "2중화"는 drift 버그가 아니라 의도된·테스트된 분리(S62 "Fork A")**. 역할권한=
+      shared-types `PERMISSIONS` BigInt 카탈로그 / 채널 ACL 집행+override=`auth/permissions.ts` `Permission`
+      enum number(13년치 ~16 사용처) / 브리지 `bigintToEnforcementMask`(5역할 baseline 일치 spec 잠금). web
+      `channelPermissionCatalog.ts` 도 집행 레이아웃 정확 사용 → **frontend/backend 불일치 버그 없음**(완전
+      정합). Fork A 분리 사유=통일 시 prod 권한 붕괴 위험. 즉 "수렴(통일)"=팀이 의도적으로 deferred 한
+      고위험 리팩터. → **AskUserQuestion 으로 분기 제시 → 사용자 결정 = (A) 현 브리지 수용 + drift-guard
+      강화**(통일 안 함·저위험).
+      → **구현(A)**: `bigint-to-enforcement.spec.ts` 에 drift-guard 5건 추가(★보안: 카탈로그 멘션 비트
+      MENTION_EVERYONE 0x80·MENTION_CHANNEL 0x2000 가 집행 ALL_PERMISSIONS 와 비겹침=권한상승 가드 / 멘션
+      비트 위치 고정 / CHANNEL_OVERRIDE_BITS=0x21FF 구성 / 14 overwrite 플래그 브리지 결정성 / 18 카탈로그
+      키 canary). 이 spec 이 Fork A 2-레이아웃 불변식의 **단일 정본**(CI 가 향후 drift 차단). **집행 로직
+      무변경·마이그 없음·src 무변경(test-only) → 런타임 영향 0 → 배포 불필요**(S98 과 동일). VERIFY green
+      (api 1356·+5 drift-guard). **잔여(문서화)**: 전면 통일(Fork B)은 사용자가 미선택(고위험). web↔api
+      집행 미러는 패키지 경계상 자동 cross-check 불가(각자 spec 잠금 + 주석 명시).
 - [ ] **S105 — 채널/misc 번들** (MED): announcement canPost 서버플래그+클라(S13)·공개채널 leave 사이드바(S14)·
       비공개 join 403→404(S14)·slowmode SET NX idem-replay 뒤로(S15)·채널 재정렬 드래그UI/WS fanout(S15)·
       channels↔messages↔attachments 순환참조 디커플(S13)·announcement fold 중앙매트릭스(S13).
