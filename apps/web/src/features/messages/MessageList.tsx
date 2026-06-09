@@ -1,4 +1,12 @@
-import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
+import {
+  memo,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type ReactNode,
+} from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
@@ -1382,7 +1390,13 @@ function NewMessagesDivider(): JSX.Element {
  * (--divider / --fs-11 / --s-4)을 Tailwind arbitrary 로만 사용해 구성합니다
  * (raw hex/px 금지). 가운데 라벨('YYYY년 MM월 DD일') + 양옆 1px 선.
  */
-function DayDivider({ iso }: { iso: string }): JSX.Element {
+// S101 (perf carryover · LOW): DayDivider 는 단일 원시 prop(iso: string)만 받는
+// 순수 leaf 다. 부모 MessageList 가 가시 행 map 을 매 렌더 재실행하며 날짜 구분선을
+// 새로 만들어도, iso 가 바뀌지 않으면 memo 가 내부 DOM 재렌더(formatDayDivider /
+// localDayKey 재호출)를 건너뛴다. prop 이 원시 1개라 memo 비교가 항상 정확하다.
+// (MessageItem 전체 memo 는 부모가 per-row 인라인 클로저를 넘겨 무력화 + 가상화로
+//  이득 제한이라 measure-first 로 이월 — carryover-backlog S101 참조.)
+const DayDivider = memo(function DayDivider({ iso }: { iso: string }): JSX.Element {
   return (
     <div
       role="separator"
@@ -1402,4 +1416,4 @@ function DayDivider({ iso }: { iso: string }): JSX.Element {
       <span aria-hidden="true" className="h-px flex-1 bg-[var(--divider)]" />
     </div>
   );
-}
+});
