@@ -1724,3 +1724,89 @@
 .qf-modal-backdrop,
 .qf-settings-overlay__backdrop { animation: qf-fade-in var(--dur-fast) var(--ease-standard); }
 .qf-settings-overlay__card { animation: qf-modal-in var(--dur-base) var(--ease-emphasized); }
+
+/* ============================================================
+ * D18 — 인증 화면(로그인/가입/2FA/인증대기/비번재설정) 전용 컴포넌트.
+ * 폼 기본은 .qf-field / .qf-input / .qf-btn 을 재사용하고, 아래는 인증
+ * 화면이 추가로 필요로 하는 조각만 정의한다. 전부 DS 토큰 기반(raw hex/px
+ * 금지 · 1px 하어라인 border 만 예외). 신규 도입분이라 기존 화면엔 dormant.
+ * ============================================================ */
+
+/* 알림 박스 — .qf-field__error(인라인 폼 에러)와 구분되는 정보/경고/위험
+ * 등급 안내 블록. 좌측 강조선 + 아이콘 슬롯으로 색 단독 의존을 피한다
+ * (WCAG 1.4.1). 계정 복구 안내·세션 만료 배너처럼 발견성이 중요한 안내용. */
+.qf-notice {
+  display: flex; gap: var(--s-3); align-items: flex-start;
+  padding: var(--s-3) var(--s-4);
+  border: 1px solid var(--border);
+  border-left-width: var(--s-1);
+  border-left-color: var(--info-400);
+  border-radius: var(--r-md);
+  background: var(--bg-elevated);
+  color: var(--text-secondary);
+  font-size: var(--fs-13); line-height: var(--lh-normal);
+}
+.qf-notice__icon { flex-shrink: 0; color: var(--info-400); }
+.qf-notice__body { flex: 1; min-width: 0; }
+.qf-notice__title { font-weight: 600; color: var(--text-strong); }
+.qf-notice--info   { border-left-color: var(--info-400); }
+.qf-notice--info   .qf-notice__icon { color: var(--info-400); }
+.qf-notice--warn   { border-left-color: var(--warn-400); }
+.qf-notice--warn   .qf-notice__icon { color: var(--warn-400); }
+.qf-notice--danger { border-left-color: var(--danger-400); }
+.qf-notice--danger .qf-notice__icon { color: var(--danger-400); }
+
+/* OTP/인증코드 입력 — 6자리 균등 박스. 자리별 포커스/붙여넣기 분배는
+ * 컴포넌트(JS)가 담당하고, 여기서는 시각 레이아웃만 정의한다.
+ * inputMode=numeric · type=text(스피너/로케일 회피) 전제. */
+.qf-otp-input { display: flex; gap: var(--s-2); justify-content: center; }
+.qf-otp-input__digit {
+  width: var(--s-10); height: var(--s-10);
+  text-align: center;
+  font: 600 var(--fs-24) var(--font-mono);
+  color: var(--text-strong);
+  background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+  transition: border-color var(--dur-fast), box-shadow var(--dur-fast);
+}
+.qf-otp-input__digit:focus { outline: none; border-color: var(--accent); box-shadow: var(--ring-accent); }
+.qf-otp-input__digit[aria-invalid="true"] { border-color: var(--danger-400); box-shadow: var(--ring-danger); }
+
+/* 비밀번호 강도 미터 — 가입·재설정 시 실시간 피드백. 막대 4단 + 라벨.
+ * 강도(약함/보통/강함)는 data-strength 로 받아 채워진 막대(.is-on) 색을 입힌다. */
+.qf-strength-meter { display: flex; flex-direction: column; gap: var(--s-2); }
+.qf-strength-meter__track { display: flex; gap: var(--s-1); }
+.qf-strength-meter__bar {
+  flex: 1; height: var(--s-1); border-radius: var(--r-sm);
+  background: var(--bg-hover); transition: background var(--dur-fast);
+}
+.qf-strength-meter__label { font-size: var(--fs-12); color: var(--text-muted); }
+.qf-strength-meter[data-strength="weak"]   .qf-strength-meter__bar.is-on { background: var(--danger-400); }
+.qf-strength-meter[data-strength="weak"]   .qf-strength-meter__label { color: var(--danger-400); }
+.qf-strength-meter[data-strength="ok"]     .qf-strength-meter__bar.is-on { background: var(--warn-400); }
+.qf-strength-meter[data-strength="ok"]     .qf-strength-meter__label { color: var(--warn-600); }
+.qf-strength-meter[data-strength="strong"] .qf-strength-meter__bar.is-on { background: var(--ok-400); }
+.qf-strength-meter[data-strength="strong"] .qf-strength-meter__label { color: var(--ok-600); }
+
+/* 백업 코드 표시 — 2FA 활성화 시 1회 노출되는 복구 코드 10개. mono 2열. */
+.qf-backup-codes {
+  display: grid; grid-template-columns: 1fr 1fr; gap: var(--s-2);
+  padding: var(--s-4);
+  background: var(--bg-input);
+  border: 1px solid var(--border); border-radius: var(--r-md);
+}
+.qf-backup-codes__code {
+  font: 500 var(--fs-14) var(--font-mono);
+  color: var(--text-strong); text-align: center;
+  letter-spacing: var(--tracking-caps);
+}
+.qf-backup-codes__code.is-used { color: var(--text-muted); text-decoration: line-through; }
+
+/* 체크박스 — 약관 동의·"백업코드를 저장했습니다" 등 확인용. 네이티브 input
+ * 위에 accent-color 만 얹어 focus-visible 동작을 보존한다. */
+.qf-checkbox { display: flex; gap: var(--s-3); align-items: flex-start; cursor: pointer; }
+.qf-checkbox__input {
+  flex-shrink: 0; width: var(--s-5); height: var(--s-5); margin: 0;
+  accent-color: var(--accent);
+}
+.qf-checkbox__label { font-size: var(--fs-13); color: var(--text-secondary); line-height: var(--lh-normal); }

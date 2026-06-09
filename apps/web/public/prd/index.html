@@ -277,6 +277,7 @@
       <a class="sidebar__link" data-page="D15-commands-shortcuts" onclick="nav('D15-commands-shortcuts')"><span class="n">D15</span> 커맨드 · 단축키</a>
       <a class="sidebar__link" data-page="D16-richcontent" onclick="nav('D16-richcontent')"><span class="n">D16</span> 리치 콘텐츠</a>
       <a class="sidebar__link" data-page="D17-realtime-sync" onclick="nav('D17-realtime-sync')"><span class="n">D17</span> 실시간 · 동기화</a>
+      <a class="sidebar__link" data-page="D18-auth" onclick="nav('D18-auth')"><span class="n">D18</span> 인증 · 로그인 · 가입</a>
     </div>
   </aside>
 
@@ -13192,7 +13193,7 @@ createdAt      DateTime @default(now())
 
   <!-- 부록: Auth 도메인 -->
   <h3 style="margin-top:var(--s-6)">부록 A — Auth 도메인</h3>
-  <div class="subtle">워크스페이스·초대 기능의 전제 조건인 Auth 플로우 요약. 상세 명세는 D01-auth 참조.</div>
+  <div class="subtle">워크스페이스·초대 기능의 전제 조건인 Auth 플로우 요약. 상세 명세는 <a onclick="nav('D18-auth')" style="color:var(--link);cursor:pointer;">D18 인증 · 로그인 · 회원가입</a> 섹션 참조.</div>
 
   <div class="grid grid--2" style="gap:var(--s-4);margin-bottom:var(--s-4)">
     <div class="callout">
@@ -17961,6 +17962,380 @@ expiresAt    DateTime
     <li>PATCH /channels/:id/messages/:id body 가 {contentRaw, version} 형식으로 수신됨 (unit test)</li>
     <li>message:updated WS 페이로드에 messageId, channelId, contentRaw, contentPlain, contentAst, version, editedAt, mentions 필드가 포함됨 (unit test — D01/ADR-12 정합 검증)</li>
     <li>DB write P95(Prometheus scope=db_write) 측정값이 50ms 이하임 (integration test, Prometheus metric assertion)</li>
+  </ul>
+
+</section>
+
+  <section class="page" data-page="D18-auth">
+
+  <!-- 1. 헤더 -->
+  <div class="qf-eyebrow">PRD · D18</div>
+  <h1 class="page-title">인증 · 로그인 · 회원가입</h1>
+  <p class="page-lede">qufox의 인증 도메인은 단일 NAS 자체호스팅 환경을 전제로 한다. 외부 OAuth/SSO/CAPTCHA 인프라 없이 <strong>이메일 + 비밀번호</strong>와 선택적 <strong>TOTP 2단계 인증</strong>만으로 안전한 가입·로그인·세션 수명주기를 제공한다. 가입 즉시 세션을 발급하되 이메일 미인증 상태에서는 앱 진입을 게이트(<a onclick="nav('D13-workspace-invite')" style="color:var(--link);cursor:pointer;">D13</a>)하고, refresh 토큰 회전·재사용 감지로 세션 탈취를 방어하며, 계정 비활성화 후 30일 익명화까지 전 주기를 다룬다. 모든 인증 화면은 <strong>전체화면 중앙 단일 카드</strong> 레이아웃으로 통일한다(분할 패널 없음 — Discord·Slack 관행). 2FA 셋업/관리·비밀번호 변경·세션 목록 등 <em>로그인 이후</em> 계정 설정은 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a>가, 가입 후 온보딩 오버레이는 <a onclick="nav('ia')" style="color:var(--link);cursor:pointer;">02-IA</a>가 소유하며, 본 섹션은 인증 자체의 플로우·정책·화면을 단일 출처로 규정한다.</p>
+
+  <!-- 2. 기능 명세 -->
+  <h2><span class="qf-eyebrow">Spec</span> 기능 명세</h2>
+  <div class="subtle">이메일+비밀번호 가입/로그인 · 선택적 TOTP 2FA · 이메일 인증 게이트 · refresh 회전 세션 · 비밀번호 재설정 · 계정 비활성화/30일 익명화</div>
+
+  <h3>§1 회원가입 (Signup)</h3>
+  <p><code>POST /auth/signup</code> 은 <code>email</code> · <code>username</code>(2–32자) · <code>password</code> 를 받아 계정을 만들고 <strong>즉시 세션을 발급</strong>한다(access JWT 15분 + refresh 7일 httpOnly 쿠키). 가입 직후 사용자는 <code>emailVerified=false</code> 상태이며, 같은 트랜잭션에서 이메일 인증 토큰을 발급·발송한다(§4). 비밀번호는 argon2id 로 해싱하고 정책 미달 시 거부한다. 클로즈드 베타 운영(<code>BETA_INVITE_REQUIRED=true</code>) 시 <code>inviteCode</code> 가 필수이며, 존재·미만료·미revoke·잔여횟수를 게이트가 검증한다. 미인증 상태로는 앱 본진입이 차단되므로(게이트 enforce 는 <a onclick="nav('D13-workspace-invite')" style="color:var(--link);cursor:pointer;">D13</a>) 가입 성공 화면은 곧바로 <strong>이메일 인증 대기</strong>로 분기한다.</p>
+
+  <h3>§2 로그인 (Login)</h3>
+  <p><code>POST /auth/login</code> 은 email+password 를 argon2 로 검증한다. 존재하지 않는 이메일에도 <em>dummy verify</em> 로 동일 시간 프로파일을 유지(타이밍 사이드채널 방어)하고, 미존재·비번오류를 모두 <code>AUTH_INVALID_CREDENTIALS(401)</code> 로 중립화해 <strong>계정 열거를 차단</strong>한다. 보호 장치는 두 겹이다 — IP 단위 rate-limit + <strong>이메일당 15분 슬라이딩 윈도우 5회</strong> 초과 시 <code>AUTH_ACCOUNT_LOCKED(423)</code> 잠금. 2FA(<code>totpEnabled=true</code>) 사용자는 1차 자격증명 통과 후 <strong>별도 챌린지 단계</strong>로 전환되어 TOTP 6자리 또는 백업코드를 통과해야 세션이 확정된다(§3). 비활성 계정은 자격증명이 맞아도 <code>ACCOUNT_DEACTIVATED(403)</code> 로 분기해 복구 CTA 를 안전하게 노출한다(§7).</p>
+
+  <h3>§3 2단계 인증 (TOTP 2FA)</h3>
+  <p>RFC 6238 TOTP(otplib) 기반 선택적 2FA. 셋업은 base32 시크릿을 만들어 Redis 에 10분 TTL 로 임시 보관(DB 미오염)하고 otpauth URI·QR 을 반환하며, 검증 성공 시 트랜잭션으로 <code>totpEnabled=true</code> + 백업코드 10개를 생성한다. 시크릿은 <strong>AES-256-GCM</strong>(<code>APP_ENCRYPTION_KEY</code>)으로 <code>User.totpSecretEnc</code> 에 저장하고, 키 미설정 환경은 모든 2FA 엔드포인트가 <code>ENCRYPTION_UNAVAILABLE(503)</code> 로 graceful 하게 막힌다. 백업코드는 40bit hex·argon2 해싱·1회용이고, 성공 코드는 Redis 에 짧게 기록해 ±30초 윈도우 내 replay 를 거부한다. 본 섹션은 <strong>로그인 챌린지</strong>(§2)와 모델·정책을 규정하고, 설정 화면의 셋업/비활성화 UI 는 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a>가 소유한다.</p>
+
+  <h3>§4 이메일 인증 (Email Verification)</h3>
+  <p>가입 시 24시간 TTL 토큰을 발급해 SMTP2GO 릴레이로 인증 링크를 발송한다. <code>GET /auth/verify-email?token=</code> 은 형식→행 조회→미사용→미만료를 거쳐 단일 트랜잭션 CAS(<code>usedAt IS NULL</code>)로 <code>emailVerified=true</code> 로 전이하고, 만료는 <code>410</code>·무효/중복소모는 <code>400</code> 으로 구분한다. 토큰 추측 brute-force 를 막기 위해 IP 당 60초 20회 rate-limit 를 건다. 재발송 <code>POST /auth/resend-verification</code> 은 Redis 쿨다운 60초 + 일일 한도를 적용하고 응답에 잔여 쿨다운/오늘 남은 횟수를 실어 UI 카운트다운을 그린다. 인증 게이트의 enforce 지점(미인증 토큰으로 워크스페이스/메시지 접근 시 403)은 <a onclick="nav('D13-workspace-invite')" style="color:var(--link);cursor:pointer;">D13</a>가 소유한다.</p>
+
+  <h3>§5 비밀번호 재설정 <span class="prio prio--p1" style="vertical-align:middle;">P1 · 계획</span></h3>
+  <p><strong>미인증(비로그인) 비밀번호 재설정</strong> 플로우. <code>POST /auth/forgot-password</code> 는 이메일 존재 여부와 무관하게 항상 200 을 반환(열거 방어)하고, 존재 시에만 1시간 TTL 토큰을 발급·발송한다. <code>POST /auth/reset-password</code> 는 토큰 유효성 + 비밀번호 정책을 검증하고 1회 소모하며, 성공 시 해당 사용자의 <strong>전 refresh 토큰을 revoke</strong>(모든 기기 강제 로그아웃)한다. 현재 빌드는 이 두 엔드포인트가 미구현 상태(<code>S77b</code> OUT)로, 본 절은 차기 구현 대상 요구사항으로 규정한다. (<em>로그인 후</em> 설정에서의 비밀번호 변경은 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a> 소유.)</p>
+
+  <h3>§6 세션 · 로그아웃 (Session)</h3>
+  <p>Access JWT 15분 + Refresh 7일(랜덤 32바이트, DB 에 sha256 해시·familyId·parentId 로 저장). <code>POST /auth/refresh</code> 는 회전식이다 — 정상이면 같은 family 에 신규 토큰을 발급하고, <strong>이미 사용된(회전된) 토큰의 재사용을 감지</strong>하면 그 family 전체를 revoke 하고 <code>AUTH_SESSION_COMPROMISED(401)</code> 를 반환하며 보안 이벤트를 emit 한다(토큰 탈취·재생 방어). refresh/logout 은 <code>CORS_ORIGINS</code> 화이트리스트로 origin 을 검증한다. <code>POST /auth/logout</code> 은 현재 refresh 토큰을 soft revoke 한다. 클라이언트는 refresh 실패(401) 시 즉시 <code>/login</code> 으로 전환하고 "세션이 만료되어 다시 로그인이 필요합니다" 배너를 띄운다. 세션 <em>목록/개별 종료</em> 관리 UI 는 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a> 소유.</p>
+
+  <h3>§7 계정 관리 (비활성화 · 익명화)</h3>
+  <p>비활성화 <code>POST /users/me/deactivate</code> 는 현재 비밀번호(+2FA 활성 시 코드) 재확인 후 트랜잭션으로 <code>isDeactivated=true</code> + 전 refresh 토큰 삭제 + Redis 블랙리스트(즉시성) + 소켓 강제 종료를 수행한다. 30일 복구창 내에는 로그인 시 <code>ACCOUNT_DEACTIVATED</code> 분기에서 <strong>계정 복구</strong> CTA → <code>POST /users/me/reactivate</code>(email+비번+2FA, dummyVerify 로 열거 방어)로 되살릴 수 있다. 매일 03:00 크론이 <code>deactivatedAt &lt; now−30일</code> 대상을 익명화한다 — PII null화 + email/username/passwordHash 치환 + 아바타 삭제 + 백업코드 삭제(멱등 <code>anonymizedAt</code>). 작성한 메시지/첨부의 <code>authorId</code> 는 <code>SYSTEM_ANON</code> 으로 치환해 <strong>콘텐츠는 보존하되 작성자 PII 는 제거</strong>한다.</p>
+
+  <h3>§8 가입 후 온보딩 흐름</h3>
+  <p>인증 성공 → <strong>워크스페이스 생성 또는 초대 참여</strong>로 분기한다(Slack 의 축소판 — 목적 입력·팀원 강제 초대 단계는 생략). 링크 초대 <code>/invite/:code</code> 는 미인증 시 <code>?from</code> 을 보존해 로그인/가입으로 유도하고, 인증 시 "초대 수락" 버튼을 노출하며 403/410 사유(미인증·도메인 불허·만료·소진·revoke)를 각각 안내한다. 이메일 직접 초대 <code>/w/:slug/email-invite#token=</code> 는 raw 토큰을 URL fragment 로만 받아(로그·서버 미노출) opaque 로 교환 후 자동 수락한다. 워크스페이스 진입 직후의 온보딩 오버레이(규칙 동의→관심사→웰컴 3-step)는 <a onclick="nav('ia')" style="color:var(--link);cursor:pointer;">02-IA</a>의 명세를 따르며, 본 절은 그 진입 트리거까지만 규정한다.</p>
+
+  <!-- 3. 화면 Mock -->
+  <h2><span class="qf-eyebrow">Mock</span> 화면</h2>
+  <div class="subtle">전체화면 중앙 단일 카드 · bg-elevated + 1px border + r-xl + elev-2 · max-width 448px · 모바일 width 100%. 아래는 축소 목업.</div>
+
+  <div class="grid grid--3" style="gap:var(--s-5);margin-top:var(--s-5);">
+    <div class="card">
+      <div class="card__preview" style="align-items:flex-start;">
+        <div style="width:100%;max-width:280px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);">
+          <div style="font:700 var(--fs-18) var(--font-sans);color:var(--accent);margin-bottom:var(--s-4);">qufox</div>
+          <div class="qf-eyebrow">qufox · sign in</div>
+          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">다시 만나서 반가워요</div>
+          <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-5);">바로 대화를 이어가세요.</div>
+          <div class="qf-field" style="margin-bottom:var(--s-4);">
+            <label class="qf-field__label">Email</label>
+            <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);">you@team.com</div>
+          </div>
+          <div class="qf-field" style="margin-bottom:var(--s-5);">
+            <label class="qf-field__label">Password</label>
+            <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);">••••••••</div>
+          </div>
+          <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;">로그인</button>
+          <div style="display:flex;justify-content:space-between;font-size:var(--fs-12);margin-top:var(--s-4);">
+            <span style="color:var(--link);">가입하기</span>
+            <span style="color:var(--link);">비밀번호 찾기</span>
+          </div>
+        </div>
+      </div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>로그인</strong> — 2필드 + "비밀번호 찾기"(신규)·"가입하기" 링크. 잠금/2FA 분기.</div>
+    </div>
+
+    <div class="card">
+      <div class="card__preview" style="align-items:flex-start;">
+        <div style="width:100%;max-width:280px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);">
+          <div class="qf-eyebrow">qufox · create account</div>
+          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">qufox에 오신 걸 환영해요</div>
+          <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-5);">1분이면 대화를 시작할 수 있어요.</div>
+          <div class="qf-field" style="margin-bottom:var(--s-4);">
+            <label class="qf-field__label">Username</label>
+            <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);"><span style="color:var(--text-muted);">@</span>&nbsp;seoyeon</div>
+          </div>
+          <div class="qf-field" style="margin-bottom:var(--s-3);">
+            <label class="qf-field__label">Password</label>
+            <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);">••••••••••</div>
+          </div>
+          <div class="qf-strength-meter" data-strength="strong" style="margin-bottom:var(--s-5);">
+            <div class="qf-strength-meter__track">
+              <div class="qf-strength-meter__bar is-on"></div><div class="qf-strength-meter__bar is-on"></div>
+              <div class="qf-strength-meter__bar is-on"></div><div class="qf-strength-meter__bar is-on"></div>
+            </div>
+            <div class="qf-strength-meter__label">강함 — 좋은 비밀번호예요</div>
+          </div>
+          <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;">가입하기</button>
+        </div>
+      </div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>회원가입</strong> — 단일 폼 · <code>@</code> handle 프리픽스 · <code>.qf-strength-meter</code> 실시간 강도.</div>
+    </div>
+
+    <div class="card">
+      <div class="card__preview" style="align-items:flex-start;">
+        <div style="width:100%;max-width:280px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);text-align:center;">
+          <div style="width:var(--s-10);height:var(--s-10);border-radius:var(--r-pill);background:var(--accent-subtle);display:grid;place-items:center;margin:0 auto var(--s-4);">
+            <svg class="qf-icon" style="width:22px;height:22px;color:var(--accent);"><use href="#qf-i-inbox"/></svg>
+          </div>
+          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);">이메일을 확인해 주세요</div>
+          <div style="font-size:var(--fs-13);color:var(--text-secondary);margin:var(--s-2) 0 var(--s-1);">아래 주소로 인증 링크를 보냈어요.</div>
+          <div style="font:500 var(--fs-13) var(--font-mono);color:var(--text-strong);margin-bottom:var(--s-5);">seoyeon@team.com</div>
+          <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;margin-bottom:var(--s-3);">인증 메일 다시 보내기</button>
+          <button class="qf-btn qf-btn--secondary qf-btn--sm" style="width:100%;">이미 인증했어요 · 새로고침</button>
+          <div style="font-size:var(--fs-12);color:var(--text-muted);margin-top:var(--s-3);">60초 후 다시 보낼 수 있어요</div>
+        </div>
+      </div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>이메일 인증 대기</strong> — ★버튼 순서 개선(다시 보내기=primary). 쿨다운 카운트다운.</div>
+    </div>
+  </div>
+
+  <div class="grid grid--2" style="gap:var(--s-5);margin-top:var(--s-5);">
+    <div class="card">
+      <div class="card__preview" style="align-items:flex-start;">
+        <div style="width:100%;max-width:320px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);text-align:center;">
+          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);">2단계 인증</div>
+          <div style="font-size:var(--fs-13);color:var(--text-secondary);margin:var(--s-2) 0 var(--s-5);">인증 앱에 표시된 6자리 코드를 입력하세요.</div>
+          <div class="qf-otp-input" style="margin-bottom:var(--s-5);">
+            <div class="qf-otp-input__digit">4</div><div class="qf-otp-input__digit">8</div><div class="qf-otp-input__digit">1</div>
+            <div class="qf-otp-input__digit">9</div><div class="qf-otp-input__digit"></div><div class="qf-otp-input__digit"></div>
+          </div>
+          <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;">인증</button>
+          <div style="font-size:var(--fs-12);color:var(--link);margin-top:var(--s-3);">백업 코드로 인증</div>
+        </div>
+      </div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>2FA 챌린지</strong>(로그인 중) — <code>.qf-otp-input</code> · "백업 코드로 인증" 토글.</div>
+    </div>
+
+    <div class="card">
+      <div class="card__preview" style="align-items:flex-start;">
+        <div style="width:100%;max-width:320px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);">
+          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);">비밀번호 재설정</div>
+          <div style="font-size:var(--fs-13);color:var(--text-secondary);margin:var(--s-2) 0 var(--s-5);">새 비밀번호를 입력하세요. 변경 후 모든 기기에서 다시 로그인이 필요해요.</div>
+          <div class="qf-field" style="margin-bottom:var(--s-4);">
+            <label class="qf-field__label">새 비밀번호</label>
+            <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);">••••••••••</div>
+          </div>
+          <div class="qf-notice qf-notice--warn" style="margin-bottom:var(--s-5);">
+            <span class="qf-notice__icon"><svg class="qf-icon" style="width:16px;height:16px;"><use href="#qf-i-alert"/></svg></span>
+            <div class="qf-notice__body"><span class="qf-notice__title">모든 세션이 종료됩니다</span><br>보안을 위해 변경 후 전 기기에서 로그아웃돼요.</div>
+          </div>
+          <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;">비밀번호 변경</button>
+        </div>
+      </div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>비밀번호 재설정</strong>(P1·계획) — <code>.qf-notice--warn</code> 세션 종료 안내.</div>
+    </div>
+  </div>
+
+  <div class="ds-ref">DS 참조: <b>.qf-field / .qf-input / .qf-field__label / .qf-field__error</b> · <b>.qf-btn--primary / --secondary / --lg / --sm / --link</b> · <b>.qf-modal</b> · <b>.qf-notice / --warn / --danger / --info</b>(신규) · <b>.qf-otp-input / __digit</b>(신규) · <b>.qf-strength-meter / __bar / __label</b>(신규) · <b>.qf-backup-codes / __code</b>(신규) · <b>.qf-checkbox</b>(신규) — 신규 5종은 D18 와 함께 <code>components.css</code> 에 추가됨(토큰 기반·dormant).</div>
+
+  <!-- 4. 사용자 스토리 -->
+  <h2><span class="qf-eyebrow">User stories</span> 사용자 스토리</h2>
+  <ul>
+    <li><strong>신규 사용자로서</strong> 이메일·아이디·비밀번호만으로 1분 안에 가입하고, 비밀번호가 충분히 강한지 입력 중에 바로 확인하고 싶다.</li>
+    <li><strong>가입자로서</strong> 인증 메일이 안 보이면 한 번의 탭으로 다시 받고, 남은 쿨다운/오늘 한도를 명확히 알고 싶다.</li>
+    <li><strong>복귀 사용자로서</strong> 비밀번호를 잊었을 때 로그인 화면에서 바로 재설정을 시작하고 싶다.</li>
+    <li><strong>보안에 민감한 사용자로서</strong> 2단계 인증을 켜고, 휴대폰을 잃어도 백업 코드로 로그인할 수 있길 원한다.</li>
+    <li><strong>사용자로서</strong> 내 자격증명이 노출됐을 때 다른 기기의 재사용이 자동 차단되고(세션 탈취 방어) 보안 알림을 받고 싶다.</li>
+    <li><strong>잠시 떠나는 사용자로서</strong> 계정을 비활성화해도 30일 안에는 데이터 손실 없이 되살릴 수 있길 바란다.</li>
+    <li><strong>공격자 관점에서</strong> 로그인 실패 응답으로 어떤 이메일이 가입돼 있는지 알아낼 수 없어야 하고, 무차별 대입은 잠금으로 막혀야 한다.</li>
+    <li><strong>초대받은 사용자로서</strong> 초대 링크를 누르면 가입/로그인 후 곧장 해당 워크스페이스로 들어가고 싶다.</li>
+  </ul>
+
+  <!-- 5. 기능 요구사항 -->
+  <h2><span class="qf-eyebrow">FR</span> 기능 요구사항</h2>
+  <div class="subtle">FR-AUTH-01~75. 번호 블록 = 회원가입(01~) · 로그인(10~) · 2FA(20~) · 이메일인증(30~) · 비번재설정(40~·계획) · 세션(50~) · 계정관리(60~) · 온보딩(70~).</div>
+  <table class="spec">
+    <thead><tr><th>ID</th><th>요구사항</th><th>우선순위</th></tr></thead>
+    <tbody>
+      <tr><td class="id">FR-AUTH-01</td><td>가입 <code>POST /auth/signup</code>: <code>email</code>·<code>username</code>(2–32자)·<code>password</code>. 성공 시 access(JWT 15m)+refresh(7d httpOnly·secure·sameSite) 쿠키 발급 + <code>{accessToken, user:{id,email,username,emailVerified:false}}</code> 반환</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-02</td><td>비밀번호 정책 검증(최소 길이 + 문자 클래스). 미달 시 거부. argon2id 해싱(@node-rs/argon2 · native)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-03</td><td>중복 검증: 이메일/username 선점 시 충돌 에러. 폼은 인라인으로 "이미 사용 중" 표시 + 로그인 경로 유도</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-04</td><td>클로즈드 베타 게이트: <code>BETA_INVITE_REQUIRED=true</code> 시 <code>inviteCode</code> 필수. 존재·미만료·미revoke·잔여횟수 검증, 실패 <code>BETA_INVITE_REQUIRED(403)</code></td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-05</td><td>가입 직후 <code>emailVerified=false</code> 로 즉시 세션 발급 → 이메일 인증 대기 화면으로 분기. 앱 본진입 차단은 D13 게이트</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-06</td><td>가입 트랜잭션에서 이메일 인증 토큰 발급 + SMTP2GO 발송(FR-AUTH-30)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-07</td><td><strong>(계획)</strong> username 입력 시 실시간 중복 체크: debounce <code>GET /auth/check-username</code> → "사용 가능/이미 사용 중" 인라인 표시(현재 미구현 — 제출 시 검증)</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-10</td><td>로그인 <code>POST /auth/login</code>: email+password argon2 검증. 미존재 이메일도 dummyVerify 로 동일 시간 프로파일(타이밍 사이드채널 방어)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-11</td><td>실패 중립화: 미존재·비번오류 모두 <code>AUTH_INVALID_CREDENTIALS(401)</code> — 이메일/비번 구분 없음(계정 열거 방어)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-12</td><td>Rate-limit: IP 단위 + <strong>이메일당 15분 슬라이딩 윈도우 5회</strong>(<code>login:email:{email}</code> windowSec=900 max=5)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-13</td><td>계정 잠금: 반복 실패 시 <code>AUTH_ACCOUNT_LOCKED(423)</code> + 잔여 시간 안내(metrics <code>authLogins{result=locked}</code>)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-14</td><td>비활성 계정: 자격증명 일치해도 <code>isDeactivated=true</code> 면 <code>ACCOUNT_DEACTIVATED(403)</code> → 복구 CTA 분기(§7·FR-AUTH-61)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-15</td><td>2FA 챌린지 분기: <code>totpEnabled=true</code> 사용자는 1차 통과 후 별도 챌린지 화면(TOTP 6자리 또는 백업코드). 통과 시에만 세션 확정</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-16</td><td>초대/원경로 복원: <code>location.state.from</code>(또는 <code>?from=</code>)으로 로그인 후 원래 목적지(<code>/invite/:code</code> 등)로 리다이렉트</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-20</td><td>2FA 셋업 <code>POST /users/me/2fa/setup</code>: base32 시크릿 생성, Redis 10분 TTL 임시 보관(DB 미오염), otpauth URI + QR 반환</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-21</td><td>2FA 검증/활성화 <code>POST /users/me/2fa/verify</code>: setup 시크릿 코드 검증(replay 차단) → tx 로 <code>totpEnabled=true</code> + 백업코드 10개 생성, 평문 1회 반환 후 Redis 키 삭제</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-22</td><td>시크릿 저장: <strong>AES-256-GCM</strong>(<code>APP_ENCRYPTION_KEY</code>)로 <code>User.totpSecretEnc</code>. 키 미설정 시 모든 2FA 엔드포인트 <code>ENCRYPTION_UNAVAILABLE(503)</code> graceful</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-23</td><td>백업코드: 10개·40bit hex·argon2 해싱·1회용. 사용분 무효</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-24</td><td>replay 차단: 성공 코드 Redis 단기 SET, ±30초 윈도우 내 재사용 거부</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-25</td><td>로그인 챌린지 검증: TOTP 6자리 또는 백업코드 1개(FR-AUTH-15 연계). UI 는 <code>.qf-otp-input</code></td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-26</td><td>비활성화 <code>DELETE /users/me/2fa</code>: 비번 + TOTP 재확인 → secret/enabled 해제 + 백업코드 삭제</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-27</td><td>민감 작업 2FA 재확인: 비번/이메일 변경·비활성화·복구 시 2FA 활성이면 totpCode 필수, 미제출 <code>TOTP_CODE_REQUIRED(403)</code>(상세 D14)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-28</td><td><strong>(계획)</strong> 2FA 분실 복구: 워크스페이스 OWNER/ADMIN 이 멤버 2FA 강제 해제 경로(Slack 관행 — "백업코드 없으면 영구 잠금"은 채택 안 함)</td><td><span class="prio prio--p2">P2</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-30</td><td>인증 메일 발송: 가입 시 24h TTL <code>EmailVerificationToken</code> 발급 + SMTP2GO 릴레이로 verifyUrl 발송</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-31</td><td>검증 <code>GET /auth/verify-email?token=</code>: 형식→행조회→미사용→미만료 → 단일 tx CAS(<code>usedAt IS NULL</code>)로 usedAt + <code>emailVerified=true</code></td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-32</td><td>토큰 상태 구분: 만료 <code>410</code> · 무효/중복소모 <code>400</code></td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-33</td><td>검증 IP rate-limit(<code>verify-email:ip</code> windowSec=60 max=20) — 토큰 추측 brute-force 방어</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-34</td><td>재발송 <code>POST /auth/resend-verification</code>: Redis 쿨다운 60s NX + 일일 한도. 초과 <code>429</code> + 응답에 <code>{cooldownSec, remainingToday}</code></td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-35</td><td>이미 인증된 사용자의 재발송은 토큰/쿼터 소비 없이 멱등 통과</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-36</td><td>랜딩 시 URL <code>?token=</code> 즉시 <code>history.replaceState</code> 로 제거(노출 완화)</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-40</td><td><strong>(계획)</strong> 재설정 요청 <code>POST /auth/forgot-password</code>: 존재 여부 무관 항상 200(열거 방어). 존재 시 1h TTL <code>PasswordResetToken</code> 발급·발송</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-41</td><td><strong>(계획)</strong> 재설정 <code>POST /auth/reset-password</code>: token + 새 비밀번호. 토큰 유효성 + 비번 정책 검증, 1회 소모</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-42</td><td><strong>(계획)</strong> 재설정 성공 시 해당 사용자 전 refresh 토큰 revoke(전 세션 강제 로그아웃)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-43</td><td><strong>(계획)</strong> 토큰 만료/무효 시 "링크가 만료되었습니다 → 재요청" 안내(<code>.qf-notice</code>)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-44</td><td><strong>(계획)</strong> 현재 빌드는 미인증 reset 경로 미구현(S77b OUT) — 차기 구현 대상. <em>로그인 후</em> 비번 변경은 D14</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-50</td><td>토큰 모델: access JWT 15m <code>{sub,type,jti}</code>; refresh 32B·7d, DB 저장(tokenHash sha256, familyId, parentId, expiresAt, ua/ip, revokedAt)</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-51</td><td>회전 <code>POST /auth/refresh</code>: 정상 시 같은 family 신규 발급(parentId=old). <strong>재사용(회전됨) 감지 시 family 전체 revoke + <code>AUTH_SESSION_COMPROMISED(401)</code></strong> + 이벤트 emit</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-52</td><td>로그아웃 <code>POST /auth/logout</code>: refresh 쿠키로 토큰 조회 후 soft revoke</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-53</td><td>origin 검증: refresh/logout 은 <code>CORS_ORIGINS</code> 화이트리스트 대조, 불일치 <code>AUTH_INVALID_TOKEN(401)</code></td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AUTH-54</td><td>세션 목록: familyId 당 최신 1행을 세션으로 노출, sessionId 로 개별 revoke(관리 UI 는 D14)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-55</td><td>만료 재로그인 UX: refresh 401 시 즉시 <code>/login</code> + "세션이 만료되어 다시 로그인이 필요합니다" 배너(<code>.qf-notice</code>)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-56</td><td><code>AUTH_SESSION_COMPROMISED</code> 수신 시 전 세션 무효 안내 + 강제 로그아웃 + 보안 알림 메일</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-60</td><td>비활성화 <code>POST /users/me/deactivate</code>: 비번(+2FA) 재확인 → tx(<code>isDeactivated=true</code> + refresh 전삭제) + Redis 블랙리스트(즉시성) + 소켓 강제 종료. 204</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-61</td><td>복구 <code>POST /users/me/reactivate</code>(@Public): email+비번(+2FA), dummyVerify 열거 방어. 30일 복구창 경과 시 <code>ACCOUNT_DEACTIVATED(403)</code></td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-62</td><td>30일 익명화 크론(매일 03:00): <code>deactivatedAt &lt; now−30d</code> 대상 PII null화 + email/username/passwordHash 치환 + 아바타/백업코드 삭제. 배치·멱등(<code>anonymizedAt</code>)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-63</td><td>비활성 차단 이중화: JwtStrategy 가 DB <code>isDeactivated</code> + Redis 블랙리스트(즉시성)를 동시 확인</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-64</td><td>rate-limit: deactivate/reactivate 각 IP·이메일 단위 제한</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-65</td><td>익명화 시 메시지/첨부 <code>authorId</code> → <code>SYSTEM_ANON</code> 치환(콘텐츠 보존, 작성자 PII 제거)</td><td><span class="prio prio--p1">P1</span></td></tr>
+
+      <tr><td class="id">FR-AUTH-70</td><td>인증 성공 → 워크스페이스 생성 또는 초대 참여 분기(이름 입력 단일 폼 — 목적/팀원 강제 단계 생략)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-71</td><td>링크 초대 <code>/invite/:code</code>: 미인증 시 <code>?from</code> 보존 로그인/가입 유도, 인증 시 "초대 수락". 403(미인증·도메인불허)/410(만료·소진·revoke) 사유별 안내</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-72</td><td>이메일 직접 초대 <code>/w/:slug/email-invite#token=</code>: rawToken(fragment·로그/서버 미노출) → opaque 교환(10m) → 가입/로그인 후 자동 수락. 4분기(미가입/일치/다른계정/만료)</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-73</td><td><strong>(계획)</strong> 워크스페이스 생성/참여 직후 General 채널 진입 + 시스템 웰컴 메시지(봇 인프라 없이 시스템 메시지로)</td><td><span class="prio prio--p2">P2</span></td></tr>
+      <tr><td class="id">FR-AUTH-74</td><td>온보딩 오버레이(규칙 동의→관심사→웰컴)는 <a onclick="nav('ia')" style="color:var(--link);cursor:pointer;">02-IA</a> 명세 — D18 은 진입 트리거만</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-75</td><td>규칙 미동의 시 메시지/리액션 차단 <code>RULES_NOT_ACCEPTED(403)</code>(enforce 는 D13/IA)</td><td><span class="prio prio--p1">P1</span></td></tr>
+    </tbody>
+  </table>
+
+  <!-- 6. 데이터 모델 -->
+  <h2><span class="qf-eyebrow">Data model</span> 데이터 모델</h2>
+  <div class="subtle">인증 전용 토큰/코드 엔티티 + User 의 인증 관련 컬럼. 모든 id 는 cuid2 String(ADR-1).</div>
+  <div class="grid grid--2">
+    <div class="entity">
+      <div class="entity__name">RefreshToken <span style="font-size:var(--fs-12);font-weight:400;color:var(--text-muted);">(세션)</span></div>
+      <pre class="entity__fields">id          String   @id @default(cuid())
+userId      String
+tokenHash   String   // sha256(raw)
+familyId    String   // 회전 체인 식별
+parentId    String?  // 직전 토큰(회전 사슬)
+expiresAt   DateTime
+userAgent   String?
+ip          String?
+lastSeenAt  DateTime?
+revokedAt   DateTime?
+createdAt   DateTime @default(now())</pre>
+      <div class="entity__notes">raw 토큰은 저장하지 않고 sha256 해시만 보관. familyId 당 최신 1행이 "세션". revokedAt 있는 토큰 재사용 감지 시 같은 familyId 전체 revoke(FR-AUTH-51).</div>
+    </div>
+    <div class="entity">
+      <div class="entity__name">EmailVerificationToken</div>
+      <pre class="entity__fields">id         String   @id @default(cuid())
+userId     String
+tokenHash  String   // 또는 opaque token
+expiresAt  DateTime // 발급 +24h
+usedAt     DateTime?
+createdAt  DateTime @default(now())</pre>
+      <div class="entity__notes">검증은 단일 tx CAS(<code>usedAt IS NULL</code>)로 1회만 소모. 만료 410 / 무효·중복 400.</div>
+    </div>
+    <div class="entity">
+      <div class="entity__name">PasswordResetToken <span style="font-size:var(--fs-12);font-weight:400;color:var(--text-muted);">(계획)</span></div>
+      <pre class="entity__fields">id         String   @id @default(cuid())
+userId     String
+tokenHash  String
+expiresAt  DateTime // 발급 +1h
+usedAt     DateTime?
+createdAt  DateTime @default(now())</pre>
+      <div class="entity__notes">미인증 재설정 플로우(FR-AUTH-40~44)용 — 현재 미구현. 성공 시 해당 user 의 전 RefreshToken revoke.</div>
+    </div>
+    <div class="entity">
+      <div class="entity__name">BackupCode <span style="font-size:var(--fs-12);font-weight:400;color:var(--text-muted);">(2FA)</span></div>
+      <pre class="entity__fields">id         String   @id @default(cuid())
+userId     String
+codeHash   String   // argon2(40bit hex)
+usedAt     DateTime?
+createdAt  DateTime @default(now())</pre>
+      <div class="entity__notes">2FA 활성화 시 10개 생성·평문 1회 노출 후 폐기. 1회용 — 사용분 usedAt. 계정 익명화 시 일괄 삭제.</div>
+    </div>
+    <div class="entity">
+      <div class="entity__name">User <span style="font-size:var(--fs-12);font-weight:400;color:var(--text-muted);">(인증 컬럼)</span></div>
+      <pre class="entity__fields">passwordHash    String   // argon2id
+emailVerified   Boolean  @default(false)
+totpSecretEnc   String?  // AES-256-GCM
+totpEnabled     Boolean  @default(false)
+isDeactivated   Boolean  @default(false)
+deactivatedAt   DateTime?
+anonymizedAt    DateTime?</pre>
+      <div class="entity__notes">totpSecretEnc 는 <code>APP_ENCRYPTION_KEY</code> AES-256-GCM. 익명화 시 email/username/passwordHash 치환 + PII null화 + anonymizedAt 세팅(멱등).</div>
+    </div>
+    <div class="entity">
+      <div class="entity__name">관련(타 도메인 소유)</div>
+      <pre class="entity__fields">Invite           // 워크스페이스 초대 → D13
+PendingEmailInvite // 이메일 직접 초대 → D13
+WorkspaceOnboardingRule // 규칙 동의 → IA/D13</pre>
+      <div class="entity__notes">초대·온보딩 규칙 모델은 D13/02-IA 가 소유. D18 은 인증 측 진입(가입/로그인 후 수락·게이트)만 규정.</div>
+    </div>
+  </div>
+
+  <!-- 7. API & 실시간 이벤트 -->
+  <h2><span class="qf-eyebrow">API</span> 엔드포인트 &amp; 실시간 이벤트</h2>
+  <table class="spec">
+    <thead><tr><th>메서드 · 경로</th><th>설명</th><th>인증</th></tr></thead>
+    <tbody>
+      <tr><td class="id"><code>POST /auth/signup</code></td><td>가입 + 세션 발급 + 인증메일 발송</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /auth/login</code></td><td>로그인(중립화 실패·잠금·2FA 분기)</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /auth/refresh</code></td><td>refresh 회전(재사용 감지 시 family revoke)</td><td>@Public(쿠키)</td></tr>
+      <tr><td class="id"><code>POST /auth/logout</code></td><td>현재 refresh soft revoke</td><td>@Public(쿠키)</td></tr>
+      <tr><td class="id"><code>GET /auth/me</code></td><td>현재 사용자</td><td>JWT</td></tr>
+      <tr><td class="id"><code>GET /auth/verify-email?token=</code></td><td>이메일 인증(IP rate-limit)</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /auth/resend-verification</code></td><td>인증메일 재발송(쿨다운+일일한도)</td><td>JWT</td></tr>
+      <tr><td class="id"><code>POST /auth/forgot-password</code> <span class="prio prio--p1">계획</span></td><td>재설정 요청(항상 200·열거 방어)</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /auth/reset-password</code> <span class="prio prio--p1">계획</span></td><td>토큰으로 비번 재설정 + 전 세션 revoke</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /users/me/2fa/setup</code></td><td>TOTP 시크릿/QR 생성(Redis 임시)</td><td>JWT</td></tr>
+      <tr><td class="id"><code>POST /users/me/2fa/verify</code></td><td>코드 검증 → 활성화 + 백업코드 발급</td><td>JWT</td></tr>
+      <tr><td class="id"><code>DELETE /users/me/2fa</code></td><td>비번+TOTP 재확인 후 2FA 해제</td><td>JWT</td></tr>
+      <tr><td class="id"><code>POST /users/me/deactivate</code></td><td>계정 비활성화(세션 전삭제+소켓 종료)</td><td>JWT</td></tr>
+      <tr><td class="id"><code>POST /users/me/reactivate</code></td><td>30일 내 계정 복구</td><td>@Public</td></tr>
+    </tbody>
+  </table>
+  <p style="margin-top:var(--s-4);"><strong>실시간/부수 이벤트</strong>: <code>session:revoked</code>(비활성화·강제 로그아웃 시 사용자 소켓 종료), <code>auth.session.compromised</code>(refresh 재사용 감지 → 보안 알림 메일), 보안 알림 메일(로그인 이상·세션 탈취·2FA 변경)은 SMTP2GO best-effort. 인증메일/초대메일 발송도 동일 릴레이.</p>
+
+  <!-- 8. 현 구현 개선 포인트 -->
+  <h2><span class="qf-eyebrow">UX</span> 현 구현 개선 포인트</h2>
+  <div class="subtle">현재 인증 화면(LoginPage/SignupPage/EmailVerificationGate/VerifyEmailLanding 등)에서 짚인 어색함과 본 PRD 가 규정하는 개선 방향. DS 신규 컴포넌트로 해소.</div>
+  <table class="spec">
+    <thead><tr><th>#</th><th>현상</th><th>개선 방향(PRD 규정)</th></tr></thead>
+    <tbody>
+      <tr><td class="id">C-1</td><td>계정 비활성화 경고가 subtle 배경만이라 발견성 낮음 → 복구 액션을 놓치기 쉬움</td><td>경고 등급 <code>.qf-notice--warn</code>(좌측 강조선 + ⚠ 아이콘 — 색 단독 의존 해소)로 격상</td></tr>
+      <tr><td class="id">C-2</td><td>로그인/가입 문구 톤 불일치(실무형 vs 가치제안형 혼재)</td><td>정서 + 가치제안 통일 — 로그인 "다시 만나서 반가워요 / 바로 대화를 이어가세요", 가입 "qufox에 오신 걸 환영해요 / 1분이면 대화를 시작할 수 있어요"</td></tr>
+      <tr><td class="id">C-3</td><td>인증 대기 화면 버튼 우선순위 역전 — "이미 인증했어요"(낙관)가 primary, "다시 보내기"(실제 필요)가 secondary</td><td><strong>다시 보내기 = primary, 이미 인증했어요/새로고침 = secondary</strong>. 비활성 시각화는 opacity 단독 금지(border/배경 동반)</td></tr>
+      <tr><td class="id">C-4</td><td>verify-email 성공의 "계속하기"가 세션 무관 고정 → 비로그인 사용자는 튕김</td><td>세션 유무 분기 — 인증됨 "계속하기"+자동진입 / 비로그인 "로그인하기"</td></tr>
+      <tr><td class="id">C-5</td><td>OTP 입력이 일반 input 1개 — 자리별 포커스/붙여넣기 미정의</td><td><code>.qf-otp-input</code>(6칸·inputMode=numeric·type=text·paste 분배)</td></tr>
+      <tr><td class="id">C-6</td><td>비밀번호 강도 피드백 부재 — 제출 후에야 거부</td><td><code>.qf-strength-meter</code> 실시간 강도(가입·재설정)</td></tr>
+      <tr><td class="id">C-7</td><td>로그인 화면에 "비밀번호 찾기" 링크 없음(백엔드 재설정 자체도 미구현)</td><td>§5 재설정 플로우 구현 + 로그인 카드에 링크 노출</td></tr>
+    </tbody>
+  </table>
+  <div class="callout" style="margin-top:var(--s-4);"><span><svg class="qf-icon"><use href="#qf-i-info"/></svg></span><span>인증 화면은 손수 작성한 inline style 카드(C-1)와 일관성 결여가 누적돼 있다. 본 PRD 와 함께 <code>.qf-notice</code>·<code>.qf-otp-input</code>·<code>.qf-strength-meter</code>·<code>.qf-backup-codes</code>·<code>.qf-checkbox</code> 5종을 <code>design-system/components.css</code> 에 추가(토큰 기반·dormant)했다. 후속 작업에서 LoginPage/SignupPage/EmailVerificationGate 가 이 클래스를 채택하면 어색함이 해소된다.</span></div>
+
+  <h2><span class="qf-eyebrow">Edge</span> 엣지 케이스</h2>
+  <ul>
+    <li>인증 메일 미도달(스팸함·지연) → 재발송 한도 내 재시도 + "이메일이 안 보이면 스팸함 확인" 안내. 도메인 차단 시 다른 메일로 재가입 유도.</li>
+    <li>인증 링크 만료(24h) 후 클릭 → 410 "만료" 화면 + 로그인 후 재발송 경로.</li>
+    <li>2FA 켠 뒤 기기/인증앱 분실 + 백업코드도 분실 → OWNER/ADMIN 강제 해제(FR-AUTH-28·계획)로만 복구.</li>
+    <li>refresh 토큰 동시 사용(다중 탭 회전 경합) → 서버는 단조 회전만 허용, 정상 동시성은 family 유지·진짜 재사용만 compromise 처리.</li>
+    <li>비활성화 30일 경과 후 복구 시도 → 410/403 "복구 기간이 지났습니다". 익명화 후에는 같은 이메일로 신규 가입만 가능.</li>
+    <li>이메일 직접 초대 토큰을 다른 계정으로 로그인한 채 열기 → "다른 계정으로 초대됨" 분기 안내.</li>
+    <li><code>APP_ENCRYPTION_KEY</code> 미설정 환경 → 2FA 전 경로 503 graceful(가입/로그인 자체는 정상).</li>
+  </ul>
+
+  <!-- 9. 수용 기준 -->
+  <h2><span class="qf-eyebrow">AC</span> 수용 기준</h2>
+  <ul class="ac">
+    <li>가입 성공 시 emailVerified=false 로 세션이 발급되고 이메일 인증 대기 화면으로 진입함 (e2e, Playwright)</li>
+    <li>미인증 사용자의 토큰으로 <code class="code">GET /workspaces</code> 호출 시 403 EMAIL_NOT_VERIFIED 가 반환됨 (integration test · 게이트는 D13)</li>
+    <li>존재하지 않는 이메일과 잘못된 비밀번호 로그인이 동일한 AUTH_INVALID_CREDENTIALS(401)·동일 시간 프로파일로 응답함 (integration test, 타이밍 측정)</li>
+    <li>같은 이메일 로그인 6회 연속 실패 시 6번째가 AUTH_ACCOUNT_LOCKED(423) 로 잠김 (integration test, login:email window=900 max=5)</li>
+    <li>totpEnabled=true 사용자는 1차 자격증명 통과 후 2FA 챌린지를 통과하기 전까지 세션이 확정되지 않음 (e2e, Playwright)</li>
+    <li>2FA 백업코드 1개로 로그인 성공 후 같은 코드 재사용이 거부됨 (integration test)</li>
+    <li>24h 만료된 EmailVerificationToken 으로 verify-email 호출 시 410 이 반환됨 (integration test, vi.setSystemTime)</li>
+    <li>같은 인증 토큰으로 verify-email 2회 호출 시 1회만 emailVerified=true 로 전이하고 2회차는 400 (integration test, CAS 검증)</li>
+    <li>refresh 토큰을 회전 후 옛 토큰으로 다시 refresh 시 family 전체가 revoke 되고 AUTH_SESSION_COMPROMISED(401) 가 반환됨 (integration test)</li>
+    <li>로그아웃 후 같은 refresh 쿠키로 refresh 호출 시 401 이 반환됨 (integration test)</li>
+    <li>비활성화 직후 기존 access 토큰으로 보호 엔드포인트 호출 시 Redis 블랙리스트로 즉시 401 이 반환됨 (integration test)</li>
+    <li>deactivatedAt 이 30일을 초과한 계정이 익명화 크론 1회 실행으로 email/username/passwordHash 가 치환되고 anonymizedAt 이 세팅됨 (integration test, vi.setSystemTime)</li>
+    <li>익명화된 사용자의 과거 메시지는 콘텐츠가 보존되되 작성자가 SYSTEM_ANON 으로 표시됨 (integration test)</li>
+    <li>resend-verification 을 60초 내 2회 호출 시 2회차가 429 + retryAfterSec 로 거부됨 (integration test, Redis NX)</li>
+    <li>BETA_INVITE_REQUIRED=true 환경에서 inviteCode 없이 signup 호출 시 403 BETA_INVITE_REQUIRED 가 반환됨 (integration test)</li>
+    <li>로그인 화면이 모바일 폭(&lt;380px)에서 카드 width 100% · 버튼 터치 타겟 ≥44px 로 렌더됨 (e2e, Playwright viewport)</li>
   </ul>
 
 </section>
