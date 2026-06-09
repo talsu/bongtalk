@@ -17981,10 +17981,10 @@ expiresAt    DateTime
   <p><code>POST /auth/signup</code> 은 <code>email</code> · <code>username</code>(2–32자) · <code>password</code> 를 받아 계정을 만들고 <strong>즉시 세션을 발급</strong>한다(access JWT 15분 + refresh 7일 httpOnly 쿠키). 가입 직후 사용자는 <code>emailVerified=false</code> 상태이며, 같은 트랜잭션에서 이메일 인증 토큰을 발급·발송한다(§4). 비밀번호는 argon2id 로 해싱하고 정책 미달 시 거부한다. 클로즈드 베타 운영(<code>BETA_INVITE_REQUIRED=true</code>) 시 <code>inviteCode</code> 가 필수이며, 존재·미만료·미revoke·잔여횟수를 게이트가 검증한다. 미인증 상태로는 앱 본진입이 차단되므로(게이트 enforce 는 <a onclick="nav('D13-workspace-invite')" style="color:var(--link);cursor:pointer;">D13</a>) 가입 성공 화면은 곧바로 <strong>이메일 인증 대기</strong>로 분기한다.</p>
 
   <h3>§2 로그인 (Login)</h3>
-  <p><code>POST /auth/login</code> 은 email+password 를 argon2 로 검증한다. 존재하지 않는 이메일에도 <em>dummy verify</em> 로 동일 시간 프로파일을 유지(타이밍 사이드채널 방어)하고, 미존재·비번오류를 모두 <code>AUTH_INVALID_CREDENTIALS(401)</code> 로 중립화해 <strong>계정 열거를 차단</strong>한다. 보호 장치는 두 겹이다 — IP 단위 rate-limit + <strong>이메일당 15분 슬라이딩 윈도우 5회</strong> 초과 시 <code>AUTH_ACCOUNT_LOCKED(423)</code> 잠금. 2FA(<code>totpEnabled=true</code>) 사용자는 1차 자격증명 통과 후 <strong>별도 챌린지 단계</strong>로 전환되어 TOTP 6자리 또는 백업코드를 통과해야 세션이 확정된다(§3). 비활성 계정은 자격증명이 맞아도 <code>ACCOUNT_DEACTIVATED(403)</code> 로 분기해 복구 CTA 를 안전하게 노출한다(§7).</p>
+  <p><code>POST /auth/login</code> 은 email+password 를 argon2 로 검증한다. 존재하지 않는 이메일에도 <em>dummy verify</em> 로 동일 시간 프로파일을 유지(타이밍 사이드채널 방어)하고, 미존재·비번오류를 모두 <code>AUTH_INVALID_CREDENTIALS(401)</code> 로 중립화해 <strong>계정 열거를 차단</strong>한다. 보호 장치는 두 겹이다 — IP 단위 rate-limit + <strong>이메일당 15분 슬라이딩 윈도우 5회</strong> 초과 시 <code>AUTH_ACCOUNT_LOCKED(423)</code> 잠금. 2FA 는 <strong>옵트인 step-up 전용</strong>으로 운용하므로 로그인 자체에는 챌린지를 강제하지 않는다 — <code>totpEnabled=true</code> 사용자도 1차 자격증명만으로 세션이 확정되고, 2FA 는 민감 작업 재확인(§D14·FR-AUTH-27)에서만 요구된다(로그인 챌린지는 보류·선택 도입 — FR-AUTH-15). 비활성 계정은 자격증명이 맞아도 <code>ACCOUNT_DEACTIVATED(403)</code> 로 분기해 복구 CTA 를 안전하게 노출한다(§7).</p>
 
   <h3>§3 2단계 인증 (TOTP 2FA)</h3>
-  <p>RFC 6238 TOTP(otplib) 기반 선택적 2FA. 셋업은 base32 시크릿을 만들어 Redis 에 10분 TTL 로 임시 보관(DB 미오염)하고 otpauth URI·QR 을 반환하며, 검증 성공 시 트랜잭션으로 <code>totpEnabled=true</code> + 백업코드 10개를 생성한다. 시크릿은 <strong>AES-256-GCM</strong>(<code>APP_ENCRYPTION_KEY</code>)으로 <code>User.totpSecretEnc</code> 에 저장하고, 키 미설정 환경은 모든 2FA 엔드포인트가 <code>ENCRYPTION_UNAVAILABLE(503)</code> 로 graceful 하게 막힌다. 백업코드는 40bit hex·argon2 해싱·1회용이고, 성공 코드는 Redis 에 짧게 기록해 ±30초 윈도우 내 replay 를 거부한다. 본 섹션은 <strong>로그인 챌린지</strong>(§2)와 모델·정책을 규정하고, 설정 화면의 셋업/비활성화 UI 는 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a>가 소유한다.</p>
+  <p>RFC 6238 TOTP(otplib) 기반 선택적 2FA. 셋업은 base32 시크릿을 만들어 Redis 에 10분 TTL 로 임시 보관(DB 미오염)하고 otpauth URI·QR 을 반환하며, 검증 성공 시 트랜잭션으로 <code>totpEnabled=true</code> + 백업코드 10개를 생성한다. 시크릿은 <strong>AES-256-GCM</strong>(<code>APP_ENCRYPTION_KEY</code>)으로 <code>User.totpSecretEnc</code> 에 저장하고, 키 미설정 환경은 모든 2FA 엔드포인트가 <code>ENCRYPTION_UNAVAILABLE(503)</code> 로 graceful 하게 막힌다. 백업코드는 40bit hex·argon2 해싱·1회용이고, 성공 코드는 Redis 에 짧게 기록해 ±30초 윈도우 내 replay 를 거부한다. 본 섹션은 2FA 모델·정책을 규정하고, 셋업/비활성화·<strong>민감작업 step-up 재확인</strong> UI 는 <a onclick="nav('D14-profile-settings')" style="color:var(--link);cursor:pointer;">D14</a>가 소유한다. 로그인 챌린지(§2)는 현 설계상 보류(선택)다.</p>
 
   <h3>§4 이메일 인증 (Email Verification)</h3>
   <p>가입 시 24시간 TTL 토큰을 발급해 SMTP2GO 릴레이로 인증 링크를 발송한다. <code>GET /auth/verify-email?token=</code> 은 형식→행 조회→미사용→미만료를 거쳐 단일 트랜잭션 CAS(<code>usedAt IS NULL</code>)로 <code>emailVerified=true</code> 로 전이하고, 만료는 <code>410</code>·무효/중복소모는 <code>400</code> 으로 구분한다. 토큰 추측 brute-force 를 막기 위해 IP 당 60초 20회 rate-limit 를 건다. 재발송 <code>POST /auth/resend-verification</code> 은 Redis 쿨다운 60초 + 일일 한도를 적용하고 응답에 잔여 쿨다운/오늘 남은 횟수를 실어 UI 카운트다운을 그린다. 인증 게이트의 enforce 지점(미인증 토큰으로 워크스페이스/메시지 접근 시 403)은 <a onclick="nav('D13-workspace-invite')" style="color:var(--link);cursor:pointer;">D13</a>가 소유한다.</p>
@@ -18030,7 +18030,7 @@ expiresAt    DateTime
           </div>
         </div>
       </div>
-      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>로그인</strong> — 2필드 + "비밀번호 찾기"(신규)·"가입하기" 링크. 잠금/2FA 분기.</div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>로그인</strong> — 2필드 + "비밀번호 찾기"(신규)·"가입하기" 링크. 잠금/비활성 분기(2FA 로그인 챌린지는 보류·§2).</div>
     </div>
 
     <div class="card">
@@ -18095,7 +18095,7 @@ expiresAt    DateTime
           <div style="font-size:var(--fs-12);color:var(--link);margin-top:var(--s-3);">백업 코드로 인증</div>
         </div>
       </div>
-      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>2FA 챌린지</strong>(로그인 중) — <code>.qf-otp-input</code> · "백업 코드로 인증" 토글.</div>
+      <div style="font-size:var(--fs-13);color:var(--text-secondary);margin-top:var(--s-2);"><strong>2FA 챌린지</strong>(로그인 중·<em>보류</em>) — <code>.qf-otp-input</code> · "백업 코드로 인증" 토글. <strong>현 설계상 2FA 는 옵트인 step-up 전용</strong>(민감작업 재확인·FR-AUTH-27)이며 로그인 챌린지는 미강제·향후 선택 도입(FR-AUTH-15 참조).</div>
     </div>
 
     <div class="card">
@@ -18152,7 +18152,7 @@ expiresAt    DateTime
       <tr><td class="id">FR-AUTH-12</td><td>Rate-limit: IP 단위 + <strong>이메일당 15분 슬라이딩 윈도우 5회</strong>(<code>login:email:{email}</code> windowSec=900 max=5)</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AUTH-13</td><td>계정 잠금: 반복 실패 시 <code>AUTH_ACCOUNT_LOCKED(423)</code> + 잔여 시간 안내(metrics <code>authLogins{result=locked}</code>)</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AUTH-14</td><td>비활성 계정: 자격증명 일치해도 <code>isDeactivated=true</code> 면 <code>ACCOUNT_DEACTIVATED(403)</code> → 복구 CTA 분기(§7·FR-AUTH-61)</td><td><span class="prio prio--p1">P1</span></td></tr>
-      <tr><td class="id">FR-AUTH-15</td><td>2FA 챌린지 분기: <code>totpEnabled=true</code> 사용자는 1차 통과 후 별도 챌린지 화면(TOTP 6자리 또는 백업코드). 통과 시에만 세션 확정</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-15</td><td><strong>(보류 — 선택)</strong> 2FA 로그인 챌린지 분기: <code>totpEnabled=true</code> 사용자에게 1차 통과 후 별도 챌린지 화면(TOTP 6자리 또는 백업코드). <strong>현 설계는 2FA 를 옵트인 step-up 전용으로 운용</strong>(로그인 미강제·FR-AUTH-27)하므로 로그인 챌린지는 도입하지 않음. 향후 사용자/워크스페이스 정책 옵션으로 선택 활성화 검토</td><td><span class="prio prio--p2">P2</span></td></tr>
       <tr><td class="id">FR-AUTH-16</td><td>초대/원경로 복원: <code>location.state.from</code>(또는 <code>?from=</code>)으로 로그인 후 원래 목적지(<code>/invite/:code</code> 등)로 리다이렉트</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-17</td><td>브랜드 각인: 첫 진입 화면(로그인·회원가입)은 fox 심볼(<code>fox-symbol-dark.svg</code>·앱 아이콘 룩)을 카드 상단 중앙에 두고 eyebrow + 환영 문구를 정렬한다. 폼 이후 화면(인증대기·2FA·재설정)은 맥락 아이콘 사용. BRAND.md 가이드(심볼=avatar/badge·2색 고정·테마별 재색 금지) 준수</td><td><span class="prio prio--p1">P1</span></td></tr>
 
@@ -18161,7 +18161,7 @@ expiresAt    DateTime
       <tr><td class="id">FR-AUTH-22</td><td>시크릿 저장: <strong>AES-256-GCM</strong>(<code>APP_ENCRYPTION_KEY</code>)로 <code>User.totpSecretEnc</code>. 키 미설정 시 모든 2FA 엔드포인트 <code>ENCRYPTION_UNAVAILABLE(503)</code> graceful</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-23</td><td>백업코드: 10개·40bit hex·argon2 해싱·1회용. 사용분 무효</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-24</td><td>replay 차단: 성공 코드 Redis 단기 SET, ±30초 윈도우 내 재사용 거부</td><td><span class="prio prio--p1">P1</span></td></tr>
-      <tr><td class="id">FR-AUTH-25</td><td>로그인 챌린지 검증: TOTP 6자리 또는 백업코드 1개(FR-AUTH-15 연계). UI 는 <code>.qf-otp-input</code></td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-25</td><td><strong>(보류 — 선택)</strong> 로그인 챌린지 검증: TOTP 6자리 또는 백업코드 1개(FR-AUTH-15 연계·로그인 미강제). UI 는 <code>.qf-otp-input</code></td><td><span class="prio prio--p2">P2</span></td></tr>
       <tr><td class="id">FR-AUTH-26</td><td>비활성화 <code>DELETE /users/me/2fa</code>: 비번 + TOTP 재확인 → secret/enabled 해제 + 백업코드 삭제</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-27</td><td>민감 작업 2FA 재확인: 비번/이메일 변경·비활성화·복구 시 2FA 활성이면 totpCode 필수, 미제출 <code>TOTP_CODE_REQUIRED(403)</code>(상세 D14)</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-28</td><td><strong>(계획)</strong> 2FA 분실 복구: 워크스페이스 OWNER/ADMIN 이 멤버 2FA 강제 해제 경로(Slack 관행 — "백업코드 없으면 영구 잠금"은 채택 안 함)</td><td><span class="prio prio--p2">P2</span></td></tr>
@@ -18278,7 +18278,7 @@ WorkspaceOnboardingRule // 규칙 동의 → IA/D13</pre>
     <thead><tr><th>메서드 · 경로</th><th>설명</th><th>인증</th></tr></thead>
     <tbody>
       <tr><td class="id"><code>POST /auth/signup</code></td><td>가입 + 세션 발급 + 인증메일 발송</td><td>@Public</td></tr>
-      <tr><td class="id"><code>POST /auth/login</code></td><td>로그인(중립화 실패·잠금·2FA 분기)</td><td>@Public</td></tr>
+      <tr><td class="id"><code>POST /auth/login</code></td><td>로그인(중립화 실패·잠금·비활성 분기. 2FA 로그인 챌린지는 보류·선택)</td><td>@Public</td></tr>
       <tr><td class="id"><code>POST /auth/refresh</code></td><td>refresh 회전(재사용 감지 시 family revoke)</td><td>@Public(쿠키)</td></tr>
       <tr><td class="id"><code>POST /auth/logout</code></td><td>현재 refresh soft revoke</td><td>@Public(쿠키)</td></tr>
       <tr><td class="id"><code>GET /auth/me</code></td><td>현재 사용자</td><td>JWT</td></tr>
@@ -18330,8 +18330,8 @@ WorkspaceOnboardingRule // 규칙 동의 → IA/D13</pre>
     <li>미인증 사용자의 토큰으로 <code class="code">GET /workspaces</code> 호출 시 403 EMAIL_NOT_VERIFIED 가 반환됨 (integration test · 게이트는 D13)</li>
     <li>존재하지 않는 이메일과 잘못된 비밀번호 로그인이 동일한 AUTH_INVALID_CREDENTIALS(401)·동일 시간 프로파일로 응답함 (integration test, 타이밍 측정)</li>
     <li>같은 이메일 로그인 6회 연속 실패 시 6번째가 AUTH_ACCOUNT_LOCKED(423) 로 잠김 (integration test, login:email window=900 max=5)</li>
-    <li>totpEnabled=true 사용자는 1차 자격증명 통과 후 2FA 챌린지를 통과하기 전까지 세션이 확정되지 않음 (e2e, Playwright)</li>
-    <li>2FA 백업코드 1개로 로그인 성공 후 같은 코드 재사용이 거부됨 (integration test)</li>
+    <li><strong>(보류 — 선택)</strong> totpEnabled=true 사용자의 로그인 챌린지(1차 통과 후 2FA 통과 전까지 세션 미확정)는 현 설계상 미도입 — 2FA 는 옵트인 step-up 전용(FR-AUTH-15·25 참조)</li>
+    <li>2FA 백업코드 1개로 <strong>민감작업 step-up</strong> 통과 후 같은 코드 재사용이 거부됨 (integration test)</li>
     <li>24h 만료된 EmailVerificationToken 으로 verify-email 호출 시 410 이 반환됨 (integration test, vi.setSystemTime)</li>
     <li>같은 인증 토큰으로 verify-email 2회 호출 시 1회만 emailVerified=true 로 전이하고 2회차는 400 (integration test, CAS 검증)</li>
     <li>refresh 토큰을 회전 후 옛 토큰으로 다시 refresh 시 family 전체가 revoke 되고 AUTH_SESSION_COMPROMISED(401) 가 반환됨 (integration test)</li>
