@@ -29,6 +29,7 @@ export function MobileMessageSheet({
   onCopy,
   onReact,
   onReply,
+  onEdit,
   onOpenThread,
 }: {
   msg: MessageDto;
@@ -38,6 +39,9 @@ export function MobileMessageSheet({
   onCopy: () => void;
   onReact: (emoji: string) => void;
   onReply: () => void;
+  // S103 (FR-MSG-06 모바일): '메시지 편집' — 편집 바텀시트를 연다. 미지정이면
+  // (내 메시지 아님 · 낙관적 tmp- 행 · 삭제됨) 액션을 숨긴다(호출측이 게이트).
+  onEdit?: () => void;
   // S35 (FR-TH-05): '스레드에서 답글' — 전체화면 스레드 패널을 연다. 미지정이면
   // (DM 등 스레드 비지원 컨텍스트) 액션을 숨긴다.
   onOpenThread?: () => void;
@@ -114,6 +118,21 @@ export function MobileMessageSheet({
           </span>
           <span>메시지 복사</span>
         </button>
+        {/* S103 (FR-MSG-06 모바일): 내 메시지 편집. 호출측이 isMine·!tmp-·!deleted
+            게이트를 통과한 경우에만 onEdit 을 전달한다(미전달 시 숨김). */}
+        {onEdit ? (
+          <button
+            type="button"
+            data-testid="mobile-msg-edit"
+            onClick={onEdit}
+            className="qf-m-sheet__item"
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="edit" size="sm" />
+            </span>
+            <span>메시지 편집</span>
+          </button>
+        ) : null}
         {isMine ? (
           <button
             type="button"
