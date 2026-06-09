@@ -18003,16 +18003,18 @@ expiresAt    DateTime
 
   <!-- 3. 화면 Mock -->
   <h2><span class="qf-eyebrow">Mock</span> 화면</h2>
-  <div class="subtle">전체화면 중앙 단일 카드 · bg-elevated + 1px border + r-xl + elev-2 · max-width 448px · 모바일 width 100%. 아래는 축소 목업.</div>
+  <div class="subtle">전체화면 중앙 단일 카드 · bg-elevated + 1px border + r-xl + elev-2 · max-width 448px · 모바일 width 100%. <strong>첫 진입(로그인·회원가입)은 fox 심볼(<code>../brand-assets/svg/fox-symbol-dark.svg</code> · navy 라운드 타일 + lavender fox)을 카드 상단 중앙에 배치</strong>해 브랜드를 각인한다(FR-AUTH-17). 아래는 축소 목업.</div>
 
   <div class="grid grid--3" style="gap:var(--s-5);margin-top:var(--s-5);">
     <div class="card">
       <div class="card__preview" style="align-items:flex-start;">
         <div style="width:100%;max-width:280px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);">
-          <div style="font:700 var(--fs-18) var(--font-sans);color:var(--accent);margin-bottom:var(--s-4);">qufox</div>
-          <div class="qf-eyebrow">qufox · sign in</div>
-          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">다시 만나서 반가워요</div>
-          <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-5);">바로 대화를 이어가세요.</div>
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:var(--s-6);">
+            <img src="../brand-assets/svg/fox-symbol-dark.svg" alt="qufox" width="56" height="56" style="box-shadow:var(--elev-2);border-radius:var(--r-lg);margin-bottom:var(--s-4);" />
+            <div class="qf-eyebrow">qufox · sign in</div>
+            <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">다시 만나서 반가워요</div>
+            <div style="font-size:var(--fs-12);color:var(--text-muted);margin-top:var(--s-1);">바로 대화를 이어가세요.</div>
+          </div>
           <div class="qf-field" style="margin-bottom:var(--s-4);">
             <label class="qf-field__label">Email</label>
             <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);">you@team.com</div>
@@ -18034,9 +18036,12 @@ expiresAt    DateTime
     <div class="card">
       <div class="card__preview" style="align-items:flex-start;">
         <div style="width:100%;max-width:280px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-xl);box-shadow:var(--elev-2);padding:var(--s-7);">
-          <div class="qf-eyebrow">qufox · create account</div>
-          <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">qufox에 오신 걸 환영해요</div>
-          <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-5);">1분이면 대화를 시작할 수 있어요.</div>
+          <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:var(--s-5);">
+            <img src="../brand-assets/svg/fox-symbol-dark.svg" alt="qufox" width="48" height="48" style="box-shadow:var(--elev-2);border-radius:var(--r-lg);margin-bottom:var(--s-3);" />
+            <div class="qf-eyebrow">qufox · create account</div>
+            <div style="font:600 var(--fs-18) var(--font-sans);color:var(--text-strong);margin-top:var(--s-2);">qufox에 오신 걸 환영해요</div>
+            <div style="font-size:var(--fs-12);color:var(--text-muted);margin-top:var(--s-1);">1분이면 대화를 시작할 수 있어요.</div>
+          </div>
           <div class="qf-field" style="margin-bottom:var(--s-4);">
             <label class="qf-field__label">Username</label>
             <div class="qf-input" style="display:flex;align-items:center;color:var(--text-muted);"><span style="color:var(--text-muted);">@</span>&nbsp;seoyeon</div>
@@ -18149,6 +18154,7 @@ expiresAt    DateTime
       <tr><td class="id">FR-AUTH-14</td><td>비활성 계정: 자격증명 일치해도 <code>isDeactivated=true</code> 면 <code>ACCOUNT_DEACTIVATED(403)</code> → 복구 CTA 분기(§7·FR-AUTH-61)</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-15</td><td>2FA 챌린지 분기: <code>totpEnabled=true</code> 사용자는 1차 통과 후 별도 챌린지 화면(TOTP 6자리 또는 백업코드). 통과 시에만 세션 확정</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-16</td><td>초대/원경로 복원: <code>location.state.from</code>(또는 <code>?from=</code>)으로 로그인 후 원래 목적지(<code>/invite/:code</code> 등)로 리다이렉트</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AUTH-17</td><td>브랜드 각인: 첫 진입 화면(로그인·회원가입)은 fox 심볼(<code>fox-symbol-dark.svg</code>·앱 아이콘 룩)을 카드 상단 중앙에 두고 eyebrow + 환영 문구를 정렬한다. 폼 이후 화면(인증대기·2FA·재설정)은 맥락 아이콘 사용. BRAND.md 가이드(심볼=avatar/badge·2색 고정·테마별 재색 금지) 준수</td><td><span class="prio prio--p1">P1</span></td></tr>
 
       <tr><td class="id">FR-AUTH-20</td><td>2FA 셋업 <code>POST /users/me/2fa/setup</code>: base32 시크릿 생성, Redis 10분 TTL 임시 보관(DB 미오염), otpauth URI + QR 반환</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AUTH-21</td><td>2FA 검증/활성화 <code>POST /users/me/2fa/verify</code>: setup 시크릿 코드 검증(replay 차단) → tx 로 <code>totpEnabled=true</code> + 백업코드 10개 생성, 평문 1회 반환 후 Redis 키 삭제</td><td><span class="prio prio--p1">P1</span></td></tr>
