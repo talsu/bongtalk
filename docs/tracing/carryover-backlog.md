@@ -42,8 +42,20 @@
       roving 포커스로 continuation 행을 짚어도 시점이 안 보임(시점은 aria-label 로 SR 엔 전달). → app-layer
       index.css 에 `.qf-message:focus-within .qf-message__gutter-time{opacity:1}`(line 120 toolbar 규칙 미러·
       DS 4파일 무수정). VERIFY green(19/19·web 1772). 배포는 S101 과 묶음(develop 누적).
-- [ ] **S101 — perf 번들** (MED/LOW): ① MessageItem React.memo + DayDivider memo + time/jumbo useMemo
+- [x] **S101 — perf 번들** (MED/LOW): ① MessageItem React.memo + DayDivider memo + time/jumbo useMemo
       ② edit-history ring buffer 단일 DELETE + MessageEditHistory UNIQUE(마이그) ③ blocked-set Redis TTL 캐시(S17).
+      → **진단 후 안전·고가치만 구현, 나머지는 measure-first defer**([[project_direction_pivot]] 안정성>perf):
+        • **구현**: `DayDivider`→`React.memo`(단일 원시 prop iso·텍스트북-안전·부모 가시행 map 재실행 시 동일 iso
+          행 내부 DOM 재렌더 skip). 시각 라벨(headTimeLabel/gutterTime)은 `new Date()` 상대시각이라 memo 시
+          stale("2분 전" 고정)→**의도적 미적용**.
+        • **defer(문서화)**: ★MessageItem React.memo = 부모 MessageList 가 per-row 인라인 클로저
+          (onRowFocus={()=>setFocusedMsgId(m.id)} 등) 다수 전달 → memo 무력화. 효과 내려면 전 prop 참조안정
+          대규모 리팩터(critical surface·최다 테스트·고위험) 필요 + **리스트 이미 가상화**(가시 ~25행만 렌더)로
+          이득 제한 + 프로파일링 근거 없음. renderAst 본문 useMemo 도 deps(customEmojis.byName·mentions prop)
+          참조안정 불확실(stale 멘션/이모지 위험). ② edit-history = **이미 ring-buffer cap(10) enforce**
+          (count→findMany→deleteMany·tx·edit cold path)·단일 DELETE 는 Prisma raw 필요·UNIQUE 마이그는
+          중복위험 낮아 가치<위험. ③ loadBlockedUserIds = **이미 단일 인덱스 SELECT**(N+1 없음)·Redis TTL
+          캐시는 차단/해제 무효화 복잡 + **stale=프라이버시 오마스킹** 위험. → 진짜 병목 측정되면 재개.
 - [ ] **S102 — DM 갭 번들** (MED): ① DM `/history` 엔드포인트 ② DM rate-limit 3엔드포인트(S16/S19)
       ③ UserBlock 모델 + hidden-restore visibleFrom(S17) ④ DmListItem/DmParticipant shared-types 이관.
 - [ ] **S103 — 모바일 편집 UI** (★HIGH): MobileMessages/MobileMessageSheet 편집 개시(useUpdateMessage 배선·FR-MSG-06 모바일).
