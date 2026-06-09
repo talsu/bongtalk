@@ -19,6 +19,7 @@ import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { CurrentUser, CurrentUserPayload } from '../../auth/decorators/current-user.decorator';
 import { DirectMessagesService, type DmListItem } from './direct-messages.service';
 import { MutesService } from '../../notifications/mutes/mutes.service';
+import { RateLimitService } from '../../auth/services/rate-limit.service';
 import { DomainError } from '../../common/errors/domain-error';
 import { ErrorCode } from '../../common/errors/error-code.enum';
 import { CreateDmDto } from './dto/create-dm.dto';
@@ -51,12 +52,25 @@ interface UploadedMultipartFile {
   size: number;
 }
 
+// S102 (FR-DM rate-limit · carryover): DM 채널 생성/관리 mutation 의 per-user
+// sliding-window 한도. 친구(ACCEPTED) 게이트가 1차 방어이므로 이 한도는 burst
+// 스팸·rapid create/대량 참가자추가에 대한 defense-in-depth 다(정상 사용·테스트
+// 무영향 수준으로 관대하게 설정). createOrGet 은 DM 열기마다 호출되는 idempotent
+// 엔드포인트라 브라우징을 막지 않도록 특히 관대하다. 키 컨벤션 `dm:{action}:u:{id}`
+// (메트릭 라벨=앞 2세그먼트 `dm:{action}` 로 카디널리티 bound).
+const DM_CREATE_WINDOW_SEC = 60;
+const DM_CREATE_MAX = 60; // 1:1 DM 열기/생성 (idempotent·브라우징 허용)
+const DM_GROUP_CREATE_MAX = 20; // 그룹 DM 생성 (combinatorial 스팸 차단)
+const DM_ADD_PARTICIPANTS_MAX = 30; // 그룹 참가자 추가
+const DM_RENAME_MAX = 10; // 그룹 이름 변경 (S102 보안 리뷰 MED-2: write + 전원 WS fanout)
+
 @UseGuards(JwtAuthGuard)
 @Controller('me/dms')
 export class GlobalDmController {
   constructor(
     private readonly svc: DirectMessagesService,
     private readonly mutes: MutesService,
+    private readonly rate: RateLimitService,
   ) {}
 
   @Get()
@@ -85,6 +99,9 @@ export class GlobalDmController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: CreateDmDto,
   ): Promise<{ channelId: string; created: boolean }> {
+    await this.rate.enforce([
+      { key: `dm:create:u:${user.id}`, windowSec: DM_CREATE_WINDOW_SEC, max: DM_CREATE_MAX },
+    ]);
     return this.svc.createOrGetGlobal(user.id, body.userId);
   }
 
@@ -105,6 +122,9 @@ export class GlobalDmController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: CreateGroupDmDto,
   ): Promise<{ channelId: string; created: boolean; memberIds: string[] }> {
+    await this.rate.enforce([
+      { key: `dm:group:u:${user.id}`, windowSec: DM_CREATE_WINDOW_SEC, max: DM_GROUP_CREATE_MAX },
+    ]);
     const workspaceId =
       typeof body.workspaceId === 'string' && body.workspaceId.length > 0 ? body.workspaceId : null;
     return this.svc.createGroupDm({ workspaceId, meId: user.id, memberIds: body.memberIds });
@@ -174,6 +194,13 @@ export class GlobalDmController {
     @Param('channelId', new ParseUUIDPipe()) channelId: string,
     @Body() body: AddParticipantsDto,
   ): Promise<{ channelId: string; addedUserIds: string[] }> {
+    await this.rate.enforce([
+      {
+        key: `dm:participant:u:${user.id}`,
+        windowSec: DM_CREATE_WINDOW_SEC,
+        max: DM_ADD_PARTICIPANTS_MAX,
+      },
+    ]);
     return this.svc.addParticipants({ meId: user.id, channelId, userIds: body.userIds });
   }
 
@@ -224,6 +251,11 @@ export class GlobalDmController {
     @Param('channelId', new ParseUUIDPipe()) channelId: string,
     @Body() body: RenameGroupDmDto,
   ): Promise<{ channelId: string; displayName: string }> {
+    // S102 보안 리뷰 MED-2: 이름 변경은 DB write + 참여자 전원 dm:group_updated
+    // fanout 을 유발하므로 반복 호출 abuse 를 막는다(현역 멤버 누구나 호출 가능).
+    await this.rate.enforce([
+      { key: `dm:rename:u:${user.id}`, windowSec: DM_CREATE_WINDOW_SEC, max: DM_RENAME_MAX },
+    ]);
     return this.svc.renameGroup({ meId: user.id, channelId, name: body.name });
   }
 
