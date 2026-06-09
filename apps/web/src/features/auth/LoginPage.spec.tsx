@@ -52,6 +52,25 @@ describe('LoginPage — ACCOUNT_DEACTIVATED 복구 CTA (FR-PS-16)', () => {
     expect(screen.getByTestId('login-reactivate')).toBeTruthy();
   });
 
+  // AUTH-1 (PRD D18 / C-1): 비활성 안내는 DS .qf-notice--warn 구조다(색 단독 의존 회피).
+  it('AUTH-1 — 비활성 안내가 .qf-notice .qf-notice--warn 클래스를 갖는다', async () => {
+    loginMock.mockRejectedValueOnce(
+      Object.assign(new Error('account is deactivated'), { errorCode: 'ACCOUNT_DEACTIVATED' }),
+    );
+    render(<LoginPage />);
+    await submitLogin('me@qufox.dev', 'Quanta-Beetle-Nebula-42!');
+    const notice = await screen.findByTestId('login-deactivated-notice');
+    expect(notice.className.includes('qf-notice')).toBe(true);
+    expect(notice.className.includes('qf-notice--warn')).toBe(true);
+    expect(notice.getAttribute('role')).toBe('alert');
+  });
+
+  // AUTH-1 (PRD D18 / C-2): 부제목 카피 교체.
+  it('AUTH-1 — 부제목이 "바로 대화를 이어가세요." 다', () => {
+    render(<LoginPage />);
+    expect(screen.getByText('바로 대화를 이어가세요.')).toBeTruthy();
+  });
+
   it('복구 CTA 클릭 → reactivate 호출(입력 자격증명) → 재로그인 + 이동', async () => {
     loginMock.mockRejectedValueOnce(
       Object.assign(new Error('account is deactivated'), { errorCode: 'ACCOUNT_DEACTIVATED' }),

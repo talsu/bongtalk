@@ -87,4 +87,25 @@ describe('VerifyEmailLanding (FR-W05b) fix-forward', () => {
     // 검증에는 추출해둔 토큰을 쓴다(콜은 정상 수행).
     expect(verifyEmailToken).toHaveBeenCalledWith('00000000-0000-4000-8000-000000000000');
   });
+
+  // AUTH-1 (PRD D18 / C-4): 세션 유무로 CTA 분기.
+  it('AUTH-1 — 로그인 세션이면 "계속하기" 가 노출된다', async () => {
+    authStatus = 'authenticated';
+    verifyEmailToken.mockResolvedValue({ emailVerified: true });
+    refreshMe.mockResolvedValue(true);
+    renderAt('?token=00000000-0000-4000-8000-000000000000');
+    await vi.waitFor(() => expect(screen.getByText('이메일 인증이 완료되었습니다')).toBeTruthy());
+    expect(screen.getByTestId('verify-landing-continue').textContent).toBe('계속하기');
+  });
+
+  it('AUTH-1 — 미로그인(anonymous)이면 "로그인하기" 가 노출된다', async () => {
+    // AuthProvider.Status 의 실제 미로그인 값은 'anonymous'(존재하지 않는 'unauthenticated' 아님).
+    authStatus = 'anonymous';
+    verifyEmailToken.mockResolvedValue({ emailVerified: true });
+    renderAt('?token=00000000-0000-4000-8000-000000000000');
+    await vi.waitFor(() => expect(screen.getByText('이메일 인증이 완료되었습니다')).toBeTruthy());
+    expect(screen.getByTestId('verify-landing-continue').textContent).toBe('로그인하기');
+    // 미로그인이면 refreshMe 는 호출되지 않는다(status !== authenticated).
+    expect(refreshMe).not.toHaveBeenCalled();
+  });
 });

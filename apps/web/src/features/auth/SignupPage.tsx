@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { SignupRequest, SignupRequestSchema } from '@qufox/shared-types';
-import { Button, Input } from '../../design-system/primitives';
+import { Button, Input, StrengthMeter } from '../../design-system/primitives';
 import { BrandMark } from '../../design-system/brand/BrandMark';
 import { useAuth } from './AuthProvider';
 
@@ -14,8 +14,11 @@ export function SignupPage(): JSX.Element {
   const {
     register,
     handleSubmit,
+    watch,
     formState: { errors, isSubmitting },
   } = useForm<SignupRequest>({ resolver: zodResolver(SignupRequestSchema) });
+  // AUTH-1 (PRD D18 / C-6): 비밀번호 강도 미터에 실시간 입력값을 전달한다.
+  const password = watch('password') ?? '';
 
   const onSubmit = handleSubmit(async (values) => {
     setServerError(null);
@@ -38,14 +41,19 @@ export function SignupPage(): JSX.Element {
           boxShadow: 'var(--elev-2)',
         }}
       >
-        <BrandMark variant="wordmark" size={28} className="mb-[var(--s-6)]" />
-        <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign up</div>
-        <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
-          계정 만들기
-        </h1>
-        <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
-          1분 안에 대화를 시작할 수 있어요.
-        </p>
+        {/* AUTH-1 (PRD D18): 심볼+eyebrow+제목+부제목 세로 중앙 정렬 블록(로그인과 동일 패턴). */}
+        <div className="mb-[var(--s-7)] flex flex-col items-center text-center">
+          {/* a11y(HIGH-3): 바로 뒤 eyebrow "qufox · sign up" 가 맥락을 주므로 심볼은 장식
+              처리(decorative)해 "qufox, qufox sign up" 중복 낭독을 피한다(WCAG 1.1.1). */}
+          <BrandMark variant="symbol" size={48} decorative className="mb-[var(--s-5)]" />
+          <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign up</div>
+          <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            qufox에 오신 걸 환영해요
+          </h1>
+          <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">
+            1분이면 대화를 시작할 수 있어요.
+          </p>
+        </div>
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
           <div className="qf-field">
             <label className="qf-field__label" htmlFor="signup-email">
@@ -88,9 +96,12 @@ export function SignupPage(): JSX.Element {
               {...register('password')}
             />
             {errors.password && <p className="qf-field__error">{errors.password.message}</p>}
+            {/* AUTH-1 (PRD D18 / C-6): 입력 중 비밀번호 강도를 실시간 표시한다(빈 값이면 숨김). */}
+            <StrengthMeter password={password} />
           </div>
           {serverError && (
-            <p data-testid="signup-error" className="qf-field__error">
+            // a11y(HIGH-1): 가입 실패 사유를 SR 이 즉시 통지받도록 라이브 영역화(LoginPage 와 동일).
+            <p data-testid="signup-error" role="alert" className="qf-field__error">
               {serverError}
             </p>
           )}
