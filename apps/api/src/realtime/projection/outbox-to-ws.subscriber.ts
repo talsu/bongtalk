@@ -402,6 +402,17 @@ export class OutboxToWsSubscriber {
     }
     // Sidebar reorder / archive toggle also needs the workspace view.
     await this.emitAndBuffer('workspace', wsId, env);
+    // S105 (S99 보안 잔여): channel.updated 가 isPrivate 공개→비공개 전환을 포함하면,
+    // 종전엔 어떤 경로도 refreshChannelIdsForWorkspace 를 트리거하지 않아 비구성원
+    // 소켓이 채널 룸에 잔존하며 이후 메시지 fanout 을 계속 수신했다(IDOR 성 구독누수 —
+    // S99 가 도입한 toLeave 가 닫는 케이스이나 그 트리거 경로가 없었음). channel.updated
+    // 마다(rename/topic/slowmode/privacy/archive — 전부 admin PATCH 라 드묾·create/delete
+    // 와 같은 빈도 클래스) 워크스페이스 멤버의 채널 구독을 현재 가시성 기준으로 재조정해,
+    // 권한을 잃은(이제 비공개·비구성원) 구독을 실제 룸에서 leave 시킨다. roomsForUser 가
+    // ACL 을 재평가하므로 어떤 필드가 바뀌었든 결과적으로 정합한다.
+    if (env.type === 'channel.updated') {
+      await this.refreshChannelIdsForWorkspace(wsId);
+    }
   }
 
   @OnEvent('category.**')
