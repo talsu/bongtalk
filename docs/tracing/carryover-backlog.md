@@ -5,7 +5,7 @@
 
 ## 큐 (우선순위순)
 
-- [ ] **S98 — carryover 정리(docs)**: 조용히-해소 11건 RESOLVED 마킹(S00 allowMask·parse ReDoS·
+- [x] **S98 — carryover 정리(docs)**: 조용히-해소 11건 RESOLVED 마킹(S00 allowMask·parse ReDoS·
       PARSE errorcode·S05 qf-text-danger·S05-v badge/threads RED·S09 FR-RT-22 x2·S11 cuid2·S11-v int·
       S12 FR-CH-03). 배포 없음.
 - [x] **S99 — realtime/WS 정확성 번들** (MED/LOW): ① useChannelSync gap-fetch 재시도 setTimeout
