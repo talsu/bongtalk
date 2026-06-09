@@ -1,15 +1,24 @@
 import { Body, Controller, Get, HttpCode, Post, Query, Req, Res, UseGuards } from '@nestjs/common';
 import type { Request, Response } from 'express';
-import type { VerificationResendResponse, VerifyEmailResponse } from '@qufox/shared-types';
+import type {
+  ForgotPasswordResponse,
+  ResetPasswordResponse,
+  VerificationResendResponse,
+  VerifyEmailResponse,
+} from '@qufox/shared-types';
 import { AuthService } from './auth.service';
 import { SignupDto } from './dto/signup.dto';
 import { LoginDto } from './dto/login.dto';
+import { ForgotPasswordDto } from './dto/forgot-password.dto';
+import { ResetPasswordDto } from './dto/reset-password.dto';
 import { Public } from './decorators/public.decorator';
 import { CurrentUser, CurrentUserPayload } from './decorators/current-user.decorator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
 // S66 (D13 / FR-W05b): 이메일 인증 토큰 검증/재발송.
 import { EmailVerificationService } from './services/email-verification.service';
+// AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): 비밀번호 재설정 토큰 발급/검증/소모.
+import { PasswordResetService } from './services/password-reset.service';
 // S66 fix-forward (review HIGH-2): @Public GET /auth/verify-email 에 IP rate-limit 적용.
 import { RateLimitService } from './services/rate-limit.service';
 import { DomainError } from '../common/errors/domain-error';
@@ -31,6 +40,8 @@ export class AuthController {
     private readonly auth: AuthService,
     // S66 (D13 / FR-W05b): verify-email / resend-verification 처리.
     private readonly emailVerification: EmailVerificationService,
+    // AUTH-3 (PRD D18 §5 / FR-AUTH-40~44): forgot-password / reset-password 처리.
+    private readonly passwordReset: PasswordResetService,
     // S66 fix-forward (review HIGH-2): verify-email IP rate-limit.
     private readonly rateLimit: RateLimitService,
   ) {}
@@ -216,6 +227,44 @@ export class AuthController {
     @CurrentUser() user: CurrentUserPayload,
   ): Promise<VerificationResendResponse> {
     return this.emailVerification.resend(user.id, user.email);
+  }
+
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-40): 비밀번호 재설정 요청. @Public(비로그인). 계정 존재
+  // 여부와 무관하게 **항상 200 { ok: true }** 를 반환한다(계정 열거 방어). 사용자가 존재하고
+  // 활성일 때만 PasswordResetToken(1h TTL) 발급 + 재설정 메일을 보낸다. 무차별 발송/열거
+  // 시도를 막기 위해 IP 당 15분 5회로 제한한다(초과 시 429 RATE_LIMITED). 이메일당 쿨다운은
+  // 서비스 레이어가 Redis NX 로 집행한다(쿨다운에 걸려도 throw 하지 않고 200 — 열거 방어).
+  @Public()
+  @Post('forgot-password')
+  @HttpCode(200)
+  async forgotPassword(
+    @Body() dto: ForgotPasswordDto,
+    @Req() req: Request,
+  ): Promise<ForgotPasswordResponse> {
+    await this.rateLimit.enforce([
+      { key: `forgot-password:ip:${this.clientIp(req)}`, windowSec: 900, max: 5 },
+    ]);
+    await this.passwordReset.requestReset(dto.email);
+    return { ok: true };
+  }
+
+  // AUTH-3 (PRD D18 §5 / FR-AUTH-41·42): 비밀번호 재설정 확정. @Public(비로그인). token 유효성
+  // (형식→조회→미사용→미만료) + 비밀번호 정책(ResetPasswordDto min(8))을 검증하고, 단일 tx
+  // CAS 로 1회 소모하며 argon2 재해싱으로 비밀번호를 교체한다. 성공 시 해당 사용자의 전
+  // RefreshToken 을 revoke 한다(전 기기 강제 로그아웃 · FR-AUTH-42). 만료 410 / 무효·재사용
+  // 400 은 도메인 에러가 필터에서 매핑. 토큰 brute-force 를 막기 위해 IP 당 60초 20회로 제한.
+  @Public()
+  @Post('reset-password')
+  @HttpCode(200)
+  async resetPassword(
+    @Body() dto: ResetPasswordDto,
+    @Req() req: Request,
+  ): Promise<ResetPasswordResponse> {
+    await this.rateLimit.enforce([
+      { key: `reset-password:ip:${this.clientIp(req)}`, windowSec: 60, max: 20 },
+    ]);
+    await this.passwordReset.reset(dto.token, dto.password);
+    return { ok: true };
   }
 
   private refreshTtlMs(): number {

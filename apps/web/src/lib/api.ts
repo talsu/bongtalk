@@ -178,6 +178,27 @@ export async function verifyEmailToken(token: string): Promise<{ emailVerified: 
   });
 }
 
+// AUTH-3 (PRD D18 §5 / FR-AUTH-40): 비밀번호 재설정 요청. 계정 존재 여부와 무관하게 항상
+// 200 { ok: true } 가 돌아온다(서버 열거 방어). 공개 엔드포인트라 retryOn401 불요.
+export async function forgotPassword(email: string): Promise<{ ok: true }> {
+  return apiRequest('/auth/forgot-password', {
+    method: 'POST',
+    body: { email },
+    retryOn401: false,
+  });
+}
+
+// AUTH-3 (PRD D18 §5 / FR-AUTH-41·42): 비밀번호 재설정 확정. 만료 410
+// (PASSWORD_RESET_TOKEN_EXPIRED) / 무효·재사용 400 (PASSWORD_RESET_TOKEN_INVALID)은
+// 에러로 throw 되며 errorCode 로 분기한다. 성공 시 서버가 전 기기 세션을 revoke 한다.
+export async function resetPassword(token: string, password: string): Promise<{ ok: true }> {
+  return apiRequest('/auth/reset-password', {
+    method: 'POST',
+    body: { token, password },
+    retryOn401: false,
+  });
+}
+
 export async function tryRestoreSession(): Promise<MeResponse | null> {
   const ok = await refreshOnce();
   if (!ok) return null;
