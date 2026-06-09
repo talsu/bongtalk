@@ -56,8 +56,22 @@
           (count→findMany→deleteMany·tx·edit cold path)·단일 DELETE 는 Prisma raw 필요·UNIQUE 마이그는
           중복위험 낮아 가치<위험. ③ loadBlockedUserIds = **이미 단일 인덱스 SELECT**(N+1 없음)·Redis TTL
           캐시는 차단/해제 무효화 복잡 + **stale=프라이버시 오마스킹** 위험. → 진짜 병목 측정되면 재개.
-- [ ] **S102 — DM 갭 번들** (MED): ① DM `/history` 엔드포인트 ② DM rate-limit 3엔드포인트(S16/S19)
+- [x] **S102 — DM 갭 번들** (MED): ① DM `/history` 엔드포인트 ② DM rate-limit 3엔드포인트(S16/S19)
       ③ UserBlock 모델 + hidden-restore visibleFrom(S17) ④ DmListItem/DmParticipant shared-types 이관.
+      → **진단: ①③ 이미 해소**(① DM history=`global-dm-messages.controller @Get()` cursor 페이지네이션·
+      rate-limit 기존 적용·FR-MSG-21 / ③ visibleFrom+hiddenAt+자동복원 S17/S19 구현·차단=Friendship.BLOCKED
+      established·별도 UserBlock 모델 불요). DM send/history rate-limit 도 이미 적용됨.
+      → **진짜 잔여 ②'(구현)**: `GlobalDmController` 의 DM **채널 관리 mutation** 4엔드포인트에 per-user
+      sliding-window rate-limit(RateLimitService.enforce·`dm:{action}:u:{id}`·친구게이트 1차방어 뒤
+      defense-in-depth): createOrGet 60/60s(idempotent·브라우징 허용 관대)·createGroupDm 20/60s·
+      addParticipants 30/60s·**renameGroup 10/60s(보안리뷰 MED-2 fix-forward·write+전원 fanout)**. 신규
+      int `dm-ratelimit`(createOrGet 61번째 429). VERIFY green(api 1351·web 1781) + DM int 47(s16/s19/s20/
+      ratelimit·false-trip 없음). 마이그 없음.
+      → **거짓양성/deferred**: security MED-1 hit() INCR-EXPIRE 비원자성(Redis 장애 시 키 영구잔존 DoS)=
+      **프리-이그지스팅·전 RateLimitService 사용처 공통**(의미론 변경이 전 엔드포인트 영향 → 별도 슬라이스).
+      LOW: setGroupIcon(multer 한도 있음)·retryAfter 노출(의도)·kick/leave(표면 협소). **④ DmListItem/
+      DmParticipant 타입 이관**: API service + web 양쪽 중복 정의지만 동작 정상·순수 조직화·churn 위험 →
+      저가치 defer(measure 시 재개).
 - [x] **S103 — 모바일 편집 UI** (★HIGH): MobileMessages/MobileMessageSheet 편집 개시(useUpdateMessage 배선·FR-MSG-06 모바일).
       → 진짜 갭 확인(`MobileMessages.tsx void updMut` dormant·시트에 편집 액션 없음). 구현: 신규
       `MobileEditSheet`(편집 바텀시트·textarea+저장/취소·trim·빈/변경없음/전송중 비활성·reject 시 유지) +
