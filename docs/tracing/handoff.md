@@ -1,6 +1,8 @@
 # qufox 자율 슬라이스 루프 — 세션 핸드오프
 
-> ## ▶ 현재 재개 지점 (2026-06-09 · ★carryover 백로그 S98~S105 전체 완료·LIVE · 자율 큐 비었음)
+> ## ▶ 현재 재개 지점 (2026-06-09 · carryover 백로그 완료 + PRD D18 인증 섹션 신설·LIVE · 자율 큐 비었음)
+>
+> **✅ 사용자 요청(2026-06-09): "로그인/가입이 PRD에 있어? 어색하니 로그인/아웃/가입 PRD + UI/UX 추가, 필요하면 DS도".** 진단=PRD 에 인증 전용 섹션 없음(00/01·D13·D14 산발). 워크플로우(wf_8c746f26)로 현 auth 구현·PRD형식·DS·Discord/Slack UX 병렬조사+백엔드 코드검증 후 **PRD D18 "인증·로그인·회원가입" 섹션 신설**(`apps/web/public/prd/index.html`·9블록·FR-AUTH-01~75 54개·구현 vs "(계획)"·5목업·UX개선진단 C-1~C-7·sidebar 링크+부록A cross-ref 정정) + **DS auth 컴포넌트 5종**(`components.css` 에 `.qf-notice`/`.qf-otp-input`/`.qf-strength-meter`/`.qf-backup-codes`/`.qf-checkbox`·토큰기반·dormant). **LIVE**(qufox.com/prd/·/design-system/) main=`63cd89e`. ★백엔드 정합: argon2id(bcrypt 아님)·계정잠금·베타게이트 확인·check-username/비번재설정은 미구현→"(계획)". [[reference_prd_page]] 갱신(23섹션). 후속: LoginPage/SignupPage 등이 신규 DS 클래스 채택하면 어색함 실해소(현재 PRD/DS 만 규정).
 >
 > **🎉 carryover 백로그(S98~S105) 전체 소화 완료.** 8슬라이스 — S98(docs 정리·배포없음)·S99(realtime/WS 정확성)·S100+S101(a11y/perf 번들)·S102(DM rate-limit)·S103(모바일 편집)·S104(권한 Fork A drift-guard·배포없음)·S105(channel.updated 비공개 leak). **5배포 전부 LIVE**(S99·S100+S101·S102·S103·S105). main=`6848846`. **자율 슬라이스 큐 비었음** — 잔여는 전부 LOW/NIT carryover 또는 measure-first defer(아래 각 슬라이스 "잔여/defer" 참조). 새 작업은 사용자 지시 후.
 >
