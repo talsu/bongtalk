@@ -62,6 +62,29 @@ describe('EmailVerificationGate (FR-W05b)', () => {
     expect(error.textContent).toBe('');
   });
 
+  // AUTH-1 (PRD D18 / C-3): "인증 메일 다시 보내기" 가 primary·첫 번째, "이미 인증했어요" 가
+  // secondary·두 번째다(버튼 순서 반전).
+  it('AUTH-1 — 재발송 버튼이 primary·첫 번째, "이미 인증했어요" 가 두 번째다', () => {
+    render(<EmailVerificationGate />);
+    const resend = screen.getByTestId('verify-resend');
+    const already = screen.getByTestId('verify-already');
+    // DOM 순서상 resend 가 already 보다 먼저 나타난다.
+    const order = resend.compareDocumentPosition(already);
+    expect(!!(order & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
+    // 재발송은 primary(secondary 클래스 없음), already 는 secondary.
+    expect(resend.className.includes('qf-btn--secondary')).toBe(false);
+    expect(already.className.includes('qf-btn--secondary')).toBe(true);
+  });
+
+  // AUTH-1 (PRD D18 / C-3): notice/error 에 DS .qf-notice 클래스를 적용한다.
+  it('AUTH-1 — notice 는 .qf-notice, error 는 .qf-notice--danger 클래스를 갖는다', () => {
+    render(<EmailVerificationGate />);
+    expect(screen.getByTestId('verify-notice').className.includes('qf-notice')).toBe(true);
+    const error = screen.getByTestId('verify-error');
+    expect(error.className.includes('qf-notice')).toBe(true);
+    expect(error.className.includes('qf-notice--danger')).toBe(true);
+  });
+
   it('재발송 클릭 시 쿨다운을 시작하되 버튼 이름은 고정·카운트다운은 분리된다 (A2/B4)', async () => {
     resendVerificationEmail.mockResolvedValue({ cooldownSec: 60, remainingToday: 4 });
     render(<EmailVerificationGate />);
@@ -106,11 +129,13 @@ describe('EmailVerificationGate (FR-W05b)', () => {
     });
   });
 
-  it('로그인 버튼에 사유 aria-label 을 단다 (D1)', () => {
+  it('AUTH-1(MED-2) — 로그아웃 버튼은 보이는 텍스트를 접근명으로 쓴다 (Label in Name·WCAG 2.5.3)', () => {
     render(<EmailVerificationGate />);
-    expect(screen.getByTestId('verify-logout').getAttribute('aria-label')).toBe(
-      '로그아웃 후 로그인 화면으로 이동',
-    );
+    const logout = screen.getByTestId('verify-logout');
+    // 별도 aria-label("로그아웃 후 …")은 보이는 텍스트를 포함하지 않아 2.5.3 위반이라 제거.
+    // 이제 보이는 텍스트 "다른 계정으로 로그인" 이 그대로 접근명(음성 제어와 일치).
+    expect(logout.getAttribute('aria-label')).toBeNull();
+    expect(logout.textContent).toBe('다른 계정으로 로그인');
   });
 
   it('"이미 인증했어요" 클릭 시 refreshMe 를 호출하고, 미인증이면 안내를 띄운다', async () => {

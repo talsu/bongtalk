@@ -139,15 +139,30 @@ export function VerifyEmailLanding(): JSX.Element {
               <p className="mt-[var(--s-3)] text-[var(--fs-13)] text-text-muted">
                 이제 워크스페이스에 참여하고 대화를 시작할 수 있습니다.
               </p>
-              <Button
-                type="button"
-                data-testid="verify-landing-continue"
-                size="lg"
-                className="mt-[var(--s-7)] w-full"
-                onClick={() => navigate('/', { replace: true })}
-              >
-                계속하기
-              </Button>
+              {/* AUTH-1 (PRD D18 / C-4): 세션 유무로 분기한다. 로그인 상태면 곧장 워크스페이스
+                  (/)로, 미로그인(예: 로그아웃 상태에서 메일 링크만 클릭)이면 로그인 화면으로
+                  안내한다(인증만 됐을 뿐 세션이 없으므로 / 로 보내면 다시 로그인으로 튕긴다). */}
+              {status === 'authenticated' ? (
+                <Button
+                  type="button"
+                  data-testid="verify-landing-continue"
+                  size="lg"
+                  className="mt-[var(--s-7)] w-full"
+                  onClick={() => navigate('/', { replace: true })}
+                >
+                  계속하기
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  data-testid="verify-landing-continue"
+                  size="lg"
+                  className="mt-[var(--s-7)] w-full"
+                  onClick={() => navigate('/login', { replace: true })}
+                >
+                  로그인하기
+                </Button>
+              )}
             </>
           )}
           {isError && (
