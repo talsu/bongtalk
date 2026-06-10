@@ -17,11 +17,14 @@ export function MobileChannelList({
   workspaces,
   activeChannelName,
   onPick,
+  onBrowse,
 }: {
   workspace: Pick<Workspace, 'id' | 'name' | 'slug'>;
   workspaces: Pick<Workspace, 'id' | 'name' | 'slug'>[];
   activeChannelName: string | null;
   onPick: () => void;
+  /** 071-M2 E5 (FR-IA-MOB-03): server-header 의 + 액션 — 채널 둘러보기 오픈. */
+  onBrowse?: () => void;
 }): JSX.Element {
   const { data } = useChannelList(workspace.id);
   const { data: unread } = useUnreadSummary(workspace.id);
@@ -38,9 +41,21 @@ export function MobileChannelList({
 
   return (
     <div>
-      {/* Workspace header block with title */}
-      <div className="qf-m-section">
-        <div>{workspace.name}</div>
+      {/* 071-M2 E5: DS server-header — 서버명 + 채널 탐색 액션(FR-IA-MOB-03).
+          서버 메뉴 시트(초대/설정 등)는 M3 도달성에서 확장. */}
+      <div className="qf-m-server-header" data-testid="mobile-server-header">
+        <span className="qf-m-server-header__name">{workspace.name}</span>
+        {onBrowse ? (
+          <button
+            type="button"
+            data-testid="mobile-server-browse"
+            aria-label="채널 둘러보기"
+            className="qf-m-server-header__action"
+            onClick={onBrowse}
+          >
+            <Icon name="plus-circle" size="md" />
+          </button>
+        ) : null}
       </div>
 
       {/* 071-M2 E4 (A안): 서버레일은 항상 렌더 — DM 인박스 슬롯 + 워크스페이스들.
@@ -182,8 +197,11 @@ function ChannelRow({
         </div>
         <div className="qf-m-row__aside">
           {hasUnread ? (
+            // 071-M2 E5 (감사 B-43): 뱃지 의미 분리 — 멘션은 danger 토큰 배경
+            // (--badge-mention-bg), 일반 미읽음은 기본 count 뱃지(violet).
             <span
               className="qf-badge qf-badge--count"
+              style={unread?.mention ? { background: 'var(--badge-mention-bg)' } : undefined}
               data-testid={unread?.mention ? 'mobile-unread-mention' : 'mobile-unread'}
             >
               {unread!.count > 99 ? '99+' : unread!.count}

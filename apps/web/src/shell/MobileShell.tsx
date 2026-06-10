@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
+import { useMyWorkspaces, useMembers } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
+// 071-M2 E5 (FR-IA-MOB-03): 채널 둘러보기 — 데스크톱 ChannelBrowser + SettingsOverlay
+// 재사용(모바일에서 풀스크린 오버레이로 동작).
+import { ChannelBrowser } from '../features/channels/ChannelBrowser';
+import { SettingsOverlay } from '../design-system/primitives';
+import { useAuth } from '../features/auth/AuthProvider';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { Icon } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
@@ -56,6 +61,13 @@ export function MobileShell(): JSX.Element {
 
   // 071-M2 E2: 단일 패널 상태(center/left/right) — DS .qf-m-panels 상태 수식자와 1:1.
   const [panel, setPanel] = useState<PanelSide>('center');
+  // 071-M2 E5 (FR-IA-MOB-03/02): 채널 둘러보기 오버레이 + 멤버수 표기용 데이터.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const { user } = useAuth();
+  const { data: membersData } = useMembers(active?.id);
+  const memberCount = membersData?.members.length ?? 0;
+  const myRole = membersData?.members.find((m) => m.userId === user?.id)?.role ?? null;
+  const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const navigate = useNavigate();
   const location = useLocation();
   const [sp] = useSearchParams();
@@ -165,6 +177,10 @@ export function MobileShell(): JSX.Element {
             workspaces={mine?.workspaces ?? []}
             activeChannelName={activeChannel?.name ?? null}
             onPick={() => setPanel('center')}
+            onBrowse={() => {
+              setPanel('center');
+              setBrowseOpen(true);
+            }}
           />
         </div>
       }
@@ -194,15 +210,24 @@ export function MobileShell(): JSX.Element {
           </div>
           <div className="qf-m-topbar__actions">
             {activeChannel ? (
+              // 071-M2 E5 (FR-IA-MOB-02): 멤버 버튼에 멤버 수 병기 + aria-expanded.
               <button
                 type="button"
                 data-testid="mobile-topbar-members"
                 className="qf-m-topbar__action"
-                aria-label="멤버 보기"
+                aria-label={`멤버 보기 (${memberCount}명)`}
                 aria-expanded={panel === 'right'}
                 onClick={() => setPanel(panel === 'right' ? 'center' : 'right')}
               >
                 <Icon name="users" size="md" />
+                {memberCount > 0 ? (
+                  <span
+                    data-testid="mobile-member-count"
+                    className="text-[length:var(--fs-11)] text-text-muted"
+                  >
+                    {memberCount}
+                  </span>
+                ) : null}
               </button>
             ) : null}
           </div>
@@ -235,6 +260,22 @@ export function MobileShell(): JSX.Element {
             게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
         <OnboardingHost workspaceId={active.id} slug={active.slug} />
         <FeedbackDialog />
+
+        {/* 071-M2 E5 (FR-IA-MOB-03): 채널 둘러보기 — 데스크톱 컴포넌트 재사용.
+            채널 생성 모달은 M3 도달성에서 모바일 변형 — 여기서는 닫기만. */}
+        <SettingsOverlay
+          open={browseOpen}
+          onClose={() => setBrowseOpen(false)}
+          title="채널 둘러보기"
+          testId="mobile-channel-browser-overlay"
+        >
+          <ChannelBrowser
+            workspaceId={active.id}
+            workspaceSlug={active.slug}
+            canManage={canManage}
+            onCreateChannel={() => setBrowseOpen(false)}
+          />
+        </SettingsOverlay>
       </div>
     </MobilePanels>
   );

@@ -34,7 +34,7 @@
 | E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |         |
 | E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |         |
 | E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | **done**                                                        |         |
-| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | todo                                                            |         |
+| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | **done**                                                        |         |
 | E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo                                                            |         |
 | E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | todo                                                            |         |
 | E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | todo                                                            |         |
@@ -94,5 +94,16 @@
   (mobile-rail-dms → /dms). 프로브(.tour/probe-m2-e4.mjs) green: 랜딩 자동 진입/
   DM 슬롯 → /dms/'/' 재진입 시 마지막 채팅 컨텍스트(/dms) 복귀.
   주: MobileHome 결합 e2e(home-mobile-\*·tabbar-3-tabs 등)도 red — E7 갱신 목록에 포함.
-- 다음 작업: E5(server-header·채널 브라우저 진입·멤버수 버튼·뱃지 의미 분리 잔여)
-  → E6(슬래시 모바일 표면 + 자동완성 켜기 + 답장 데드엔드) → E7 게이트 → E8.
+- (세션 #2) E5 완료 — MobileChannelList 에 DS qf-m-server-header(서버명 + 채널
+  둘러보기 + 액션 — 서버 메뉴 시트 확장은 M3), 채널 둘러보기는 데스크톱
+  ChannelBrowser + SettingsOverlay(design-system/primitives) 재사용(mobile-channel-
+  browser-overlay, 채널 생성 모달은 M3 — onCreateChannel 은 닫기만). topbar 멤버
+  버튼에 멤버수 병기(mobile-member-count)+aria-label 인원. 멘션 뱃지는
+  --badge-mention-bg(danger) 분리. 프로브(.tour/probe-m2-e5.mjs) green: 멤버수 2/
+  server-header/멘션 뱃지 rgb(220,38,38)/브라우저 오버레이.
+- 다음 작업: E6(M1 이월 — ①MobileMessages 에 EphemeralList·GiphyPreviewSlot 장착
+  ②MobileComposer submit 에 detectSlashExecution/클라 액션(모바일 안전 부분집합:
+  collapse/expand/darkmode — /search 는 /search 탭 navigate, /shortcuts 는 미지원
+  토스트) ③acSources.slashCommands 켜기 ④답장 데드엔드: replyTarget 을 전송에
+  연결할 서버 지원 확인(reply 필드 부재 시 스레드 답글로 라우팅하거나 액션 제거 결정)
+  → E7 게이트(e2e 전면 갱신: drawer/home 결합 스펙 → 패널/5탭 모델) → E8.
