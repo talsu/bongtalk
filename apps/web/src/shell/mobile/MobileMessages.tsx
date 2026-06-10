@@ -22,9 +22,14 @@ import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../../lib/query-keys';
 import {
   useMarkChannelRead,
+  useUnreadSummary,
   zeroOutChannelUnread,
   type UnreadChannelSummary,
 } from '../../features/channels/useUnread';
+// 071-M1 D6: 첫 미읽 위치(count 역산)·점프 pill 판정 — 데스크톱 순수 함수 공유.
+import { computeFirstUnreadIndex } from '../../features/messages/newMessages';
+import { useSearchParams } from 'react-router-dom';
+import { useNotifications } from '../../stores/notification-store';
 import { useCompose } from '../../stores/compose-store';
 import { renderMessageContent } from '../../features/messages/parseContent';
 // 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
@@ -139,6 +144,30 @@ export function MobileMessages({
     if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
   });
 
+  // 071-M1 D6(FR-RS-06): 첫 미읽 구분선 입력 스냅샷. 아래 zero-out 효과가 캐시를
+  // 0 으로 누르기 *전에* 채널 진입 시점의 unreadCount 를 고정한다(효과 선언 순서로
+  // 보장 — 이 효과가 먼저 실행됨). summary 에 lastReadMessageId 가 없으므로
+  // computeFirstUnreadIndex 의 count 역산 폴백을 쓴다.
+  const { data: unreadSummary } = useUnreadSummary(workspaceId ?? undefined);
+  const unreadSnapRef = useRef<{ channelId: string; unreadCount: number } | null>(null);
+  if (unreadSnapRef.current && unreadSnapRef.current.channelId !== channelId) {
+    unreadSnapRef.current = null; // 채널 전환 — 새 채널에서 재스냅.
+  }
+  if (unreadSnapRef.current === null && unreadSummary) {
+    const row = unreadSummary.channels.find((c) => c.channelId === channelId);
+    unreadSnapRef.current = { channelId, unreadCount: row?.unreadCount ?? 0 };
+  }
+  const firstUnreadIndex = useMemo(() => {
+    const snap = unreadSnapRef.current;
+    if (!snap || snap.channelId !== channelId) return null;
+    return computeFirstUnreadIndex({
+      messageIds: messages.map((m) => m.id),
+      lastReadMessageId: null,
+      unreadCount: snap.unreadCount,
+    });
+    // unreadSnapRef 는 ref 지만 messages 변경 시 재계산되면 충분(스냅은 불변).
+  }, [messages, channelId]);
+
   // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 미읽음/멘션
   // 배지가 영구 잔존했다 — 데스크톱 MessageColumn 의 채널-open 패턴(낙관적 zero-out +
   // POST read-ack)을 동일 적용한다. DM(workspaceId=null)은 데스크톱과 같은 이유로 스킵,
@@ -163,13 +192,20 @@ export function MobileMessages({
   const wasAtBottomRef = useRef(true);
   const hasAnchoredRef = useRef(false);
   const prevScrollHeightRef = useRef(0);
+  // 071-M1 D6(FR-RS-07 모바일 단순화): 하단 이탈 중 도착한 새 메시지 수 — jump 버튼 배지.
+  const prevLastIdRef = useRef<string | null>(null);
+  const prevLenRef = useRef(0);
+  const [newWhileAway, setNewWhileAway] = useState(0);
   useLayoutEffect(() => {
     const el = scrollRef.current;
     if (!el || messages.length === 0) return;
+    const lastId = messages[messages.length - 1]?.id ?? null;
     if (!hasAnchoredRef.current) {
       el.scrollTop = el.scrollHeight;
       hasAnchoredRef.current = true;
       prevScrollHeightRef.current = el.scrollHeight;
+      prevLastIdRef.current = lastId;
+      prevLenRef.current = messages.length;
       return;
     }
     if (history.isFetchingNextPage) {
@@ -178,11 +214,60 @@ export function MobileMessages({
       const delta = el.scrollHeight - prevScrollHeightRef.current;
       if (delta > 0) el.scrollTop = el.scrollTop + delta;
       prevScrollHeightRef.current = el.scrollHeight;
+      prevLastIdRef.current = lastId;
+      prevLenRef.current = messages.length;
       return;
+    }
+    // append(마지막 id 변경) 인데 하단 이탈 상태 → jump 배지 카운트 누적.
+    if (lastId !== prevLastIdRef.current && !wasAtBottomRef.current) {
+      const appended = Math.max(1, messages.length - prevLenRef.current);
+      setNewWhileAway((n) => n + appended);
     }
     if (wasAtBottomRef.current) el.scrollTop = el.scrollHeight;
     prevScrollHeightRef.current = el.scrollHeight;
-  }, [messages.length, history.isFetchingNextPage]);
+    prevLastIdRef.current = lastId;
+    prevLenRef.current = messages.length;
+  }, [messages.length, history.isFetchingNextPage, messages]);
+
+  // 071-M1 D6: `?msg=` 점프 — 리스트에 있으면 스크롤+2초 강조 후 파라미터 제거,
+  // 히스토리를 다 불러왔는데도 없으면 토스트 1회(around 로드는 M1 범위 외 — 071 문서).
+  const [sp, setSp] = useSearchParams();
+  const pushToast = useNotifications((s) => s.push);
+  const rawJump = sp.get('msg');
+  const jumpId =
+    rawJump && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawJump)
+      ? rawJump
+      : null;
+  const [highlightId, setHighlightId] = useState<string | null>(null);
+  const jumpHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!jumpId || jumpHandledRef.current === jumpId) return;
+    const clearParam = (): void =>
+      setSp(
+        (prevParams) => {
+          const next = new URLSearchParams(prevParams);
+          next.delete('msg');
+          next.delete('thread');
+          return next;
+        },
+        { replace: true },
+      );
+    if (messages.some((m) => m.id === jumpId)) {
+      jumpHandledRef.current = jumpId;
+      const el = document.querySelector(`[data-testid="mobile-msg-${jumpId}"]`);
+      el?.scrollIntoView({ block: 'center' });
+      wasAtBottomRef.current = false;
+      setHighlightId(jumpId);
+      window.setTimeout(() => setHighlightId(null), 2000);
+      clearParam();
+      return;
+    }
+    if (!history.hasNextPage && !history.isFetchingNextPage && messages.length > 0) {
+      jumpHandledRef.current = jumpId;
+      pushToast({ variant: 'warning', title: '메시지를 찾을 수 없습니다', ttlMs: 4000 });
+      clearParam();
+    }
+  }, [jumpId, messages, history.hasNextPage, history.isFetchingNextPage, setSp, pushToast]);
 
   return (
     <>
@@ -192,7 +277,10 @@ export function MobileMessages({
         className="flex-1 overflow-y-auto px-[var(--s-3)] py-[var(--s-3)] min-h-0"
         onScroll={(e) => {
           const el = e.currentTarget;
-          wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+          wasAtBottomRef.current = near;
+          // D6: 하단 복귀 시 jump 배지 해제.
+          if (near) setNewWhileAway(0);
         }}
       >
         {/* 071-M1 D1: 날짜 구분선 + 그루핑(--head/--cont) + 시스템 행 + 스레드 chip —
@@ -203,10 +291,21 @@ export function MobileMessages({
             !prev || !isSameLocalDay(m.createdAt, prev.createdAt) ? (
               <DayDivider iso={m.createdAt} />
             ) : null;
+          {/* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */}
+          const unreadDivider =
+            firstUnreadIndex === i ? (
+              <div className="qf-m-unread-divider" data-testid="mobile-unread-divider">
+                <span className="qf-m-unread-divider__label">새 메시지</span>
+                <span className="qf-m-unread-divider__pill">
+                  {unreadSnapRef.current?.unreadCount ?? ''}
+                </span>
+              </div>
+            ) : null;
           if (isSystemMessageType(m.type)) {
             return (
               <div key={m.id}>
                 {dayDivider}
+                {unreadDivider}
                 <SystemMessage
                   msg={m}
                   onOpenThread={
@@ -221,10 +320,12 @@ export function MobileMessages({
           return (
             <div key={m.id}>
               {dayDivider}
+              {unreadDivider}
               <MobileMessageRow
                 msg={m}
                 cont={isContinuation(m, prev)}
                 isMine={m.authorId === user?.id}
+                highlighted={highlightId === m.id}
                 mentionsMe={astMentionsViewer(m.contentAst, user?.id)}
                 authorName={nameById.get(m.authorId)}
                 customEmojiByName={customEmojiByName}
@@ -264,6 +365,26 @@ export function MobileMessages({
           );
         })}
       </div>
+      {/* D6(FR-RS-07 모바일): 하단 이탈 중 새 메시지 도착 — DS qf-m-jump-btn(+배지). */}
+      {newWhileAway > 0 ? (
+        <button
+          type="button"
+          data-testid="mobile-jump-btn"
+          className="qf-m-jump-btn"
+          aria-label={`새 메시지 ${newWhileAway}개 — 최신으로 이동`}
+          onClick={() => {
+            const el = scrollRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+            wasAtBottomRef.current = true;
+            setNewWhileAway(0);
+          }}
+        >
+          <Icon name="chevron-down" size="sm" />
+          <span className="qf-m-jump-btn__badge">
+            {newWhileAway > 99 ? '99+' : newWhileAway}
+          </span>
+        </button>
+      ) : null}
       <MobileComposer
         channelId={channelId}
         channelName={channelName}
@@ -412,6 +533,7 @@ function MobileMessageRow({
   msg,
   cont,
   isMine,
+  highlighted,
   mentionsMe,
   authorName,
   customEmojiByName,
@@ -426,6 +548,8 @@ function MobileMessageRow({
   /** 그루핑 continuation — 아바타/메타 숨김(qf-m-msg--cont). */
   cont: boolean;
   isMine: boolean;
+  /** `?msg=` 점프 직후 2초 강조. */
+  highlighted: boolean;
   /** 본문에 내 멘션 포함 — 행 배경 강조(--mention-bg). */
   mentionsMe: boolean;
   authorName?: string;
@@ -520,10 +644,11 @@ function MobileMessageRow({
       // 071-M1 D1: 그루핑 변형(--head/--cont — DS 가 cont 의 아바타/메타를 숨김) +
       // 내 멘션 행 배경 강조(--mention-bg 토큰, PRD D01 모바일 멘션 행).
       data-send-state={sendState}
+      data-jump-highlight={highlighted ? 'true' : undefined}
       className={cn(
         'qf-m-msg',
         cont ? 'qf-m-msg--cont' : 'qf-m-msg--head',
-        mentionsMe && 'bg-[var(--mention-bg)]',
+        (mentionsMe || highlighted) && 'bg-[var(--mention-bg)]',
         sendState === 'pending' && 'opacity-60',
       )}
       style={{
