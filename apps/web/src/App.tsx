@@ -13,6 +13,9 @@ import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { ToastViewport, TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
+// 071-M2 E1: 반응형 분기 일원화 — 라우트 가드들의 matchMedia 1회 평가(회전/리사이즈
+// 미반응)를 Shell 과 동일한 구독형 훅으로 통일한다.
+import { useIsMobile } from './lib/useBreakpoint';
 import { ConnectionBanner } from './features/connection/ConnectionBanner';
 // S76 (D14 / FR-PS-09·18 · Fork C1): Ctrl+, 설정 단축키 + 로그인 후 외관 서버값 보정.
 import { useSettingsHotkey } from './features/settings/useSettingsHotkey';
@@ -245,9 +248,10 @@ function VerificationGate({ children }: { children: ReactNode }): JSX.Element {
  */
 function ProtectedActivityRoute(): JSX.Element {
   const { status } = useAuth();
+  // 071-M2 E1: 훅은 조기 return 보다 먼저(Rules of Hooks).
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileActivity /> : <ActivityPage />}
@@ -292,9 +296,9 @@ function ProtectedDmChatRoute(): JSX.Element {
 
 function ProtectedFriendsRoute(): JSX.Element {
   const { status } = useAuth();
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileFriends /> : <FriendsPage />}
@@ -306,19 +310,18 @@ function ProtectedDmShellRoute(): JSX.Element {
   const { status } = useAuth();
   const params = useParams<{ userId?: string }>();
   const [dmSearch] = useSearchParams();
+  // 071-M2 E1: 구독형 훅으로 통일(조기 return 보다 먼저 — Rules of Hooks).
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
   // H-4(071-M0 C8): 종전엔 모바일 390px 에서도 데스크톱 3컬럼 DmShell 이 그대로 렌더돼
   // 우측 빈 패널이 한 글자씩 세로로 깨졌다. 모바일은 전용 표면으로 분기한다:
   //  - /dm?new=<userId> (홈 친구 행 진입) → /dms/:userId (MobileDmChat 이 createOrGet)
   //  - /dm/:userId → /dms/:userId, /dm → /dms (MobileDmList)
-  // matchMedia 1회 평가는 이웃 라우트 가드들과 동일 패턴(반응형 일원화는 M2 범위).
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   if (isMobile) {
     const newUserId = dmSearch.get('new');
     if (newUserId) return <Navigate to={`/dms/${encodeURIComponent(newUserId)}`} replace />;
-    if (params.userId)
-      return <Navigate to={`/dms/${encodeURIComponent(params.userId)}`} replace />;
+    if (params.userId) return <Navigate to={`/dms/${encodeURIComponent(params.userId)}`} replace />;
     return <Navigate to="/dms" replace />;
   }
   return (
@@ -330,11 +333,11 @@ function ProtectedDmShellRoute(): JSX.Element {
 
 function ProtectedDiscoverRoute(): JSX.Element {
   const { status } = useAuth();
-  if (status === 'loading') return <LoadingFallback />;
-  if (status === 'anonymous') return <Navigate to="/login" replace />;
   // Desktop keeps the server rail + bottom bar chrome via DiscoverShell;
   // mobile renders the full-screen qf-m-screen variant.
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  const isMobile = useIsMobile();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileDiscover /> : <DiscoverShell />}
