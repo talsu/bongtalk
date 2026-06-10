@@ -17,3 +17,19 @@
   min-width: var(--m-touch);
   min-height: var(--m-touch);
 }
+
+/* 071-M1 D2: 데스크톱 ReactionBar 를 모바일 행에 재사용 — 칩(.qf-reaction)의
+ * 데스크톱 시각 크기는 유지하되 모바일 터치 플로어(44px)를 히트박스로 보장한다
+ * (PRD D05 모바일 mock '반응 칩 — 44px 터치 영역 보장'). 767px 이하 한정. */
+@media (max-width: 767px) {
+  .qf-reaction {
+    min-height: var(--m-touch);
+    min-width: var(--m-touch);
+  }
+
+  /* 071-M1 D8(e): 데스크톱 자동완성 listbox 행을 모바일 컴포저 위에 재사용 —
+   * 행 높이를 터치 플로어(44px)까지 키워 탭 오선택을 막는다. */
+  .qf-autocomplete__item {
+    min-height: var(--m-touch);
+  }
+}

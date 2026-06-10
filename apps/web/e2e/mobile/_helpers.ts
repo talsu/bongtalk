@@ -89,6 +89,78 @@ export async function bootstrapWorkspace(
   return { workspaceId: wsId, channelIds };
 }
 
+// 071-M1 D11: 멤버 초대+가입(2인 시나리오 공용).
+export async function inviteAndJoin(
+  request: APIRequestContext,
+  ownerToken: string,
+  workspaceId: string,
+  memberToken: string,
+): Promise<void> {
+  const inv = await request.post(`${API}/workspaces/${workspaceId}/invites`, {
+    headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },
+    data: {},
+  });
+  if (!inv.ok()) throw new Error(`invite create failed: ${inv.status()}`);
+  const code = ((await inv.json()) as { invite: { code: string } }).invite.code;
+  const acc = await request.post(`${API}/invites/${code}/accept`, {
+    headers: { authorization: `Bearer ${memberToken}`, origin: ORIGIN },
+    data: {},
+  });
+  if (!acc.ok()) throw new Error(`invite accept failed: ${acc.status()}`);
+}
+
+// 071-M1 D11: API 메시지 시드(반환: message id).
+export async function apiSendMessage(
+  request: APIRequestContext,
+  token: string,
+  workspaceId: string,
+  channelId: string,
+  content: string,
+  extra?: Record<string, unknown>,
+): Promise<string> {
+  const r = await request.post(`${API}/workspaces/${workspaceId}/channels/${channelId}/messages`, {
+    headers: {
+      authorization: `Bearer ${token}`,
+      origin: ORIGIN,
+      'idempotency-key': crypto.randomUUID(),
+    },
+    data: { content, ...(extra ?? {}) },
+  });
+  if (!r.ok()) throw new Error(`send failed: ${r.status()} ${await r.text()}`);
+  const body = (await r.json()) as { message?: { id: string }; id?: string };
+  return body.message?.id ?? body.id ?? '';
+}
+
+// 071-M1 D11: 롱프레스 시뮬레이션 — MobileMessageRow 의 setTimeout(500) 발화.
+// Playwright Chromium 은 네이티브 long-press 제스처가 없어 TouchEvent 를 합성한다.
+// 낙관적(tmp-) 행이 확정 스왑으로 detach 되는 찰나의 dispatch 증발을 피하려면
+// 호출측이 확정 행 선택자(:not([data-testid^="mobile-msg-tmp-"]))를 써야 한다.
+export async function dispatchLongPress(
+  locator: ReturnType<Page['locator']>,
+  holdMs = 650,
+): Promise<void> {
+  await locator.evaluate((el) => {
+    const target = el as HTMLElement;
+    const rect = target.getBoundingClientRect();
+    const touch = new Touch({
+      identifier: 1,
+      target,
+      clientX: rect.left + rect.width / 2,
+      clientY: rect.top + rect.height / 2,
+    });
+    target.dispatchEvent(
+      new TouchEvent('touchstart', {
+        touches: [touch],
+        targetTouches: [touch],
+        changedTouches: [touch],
+        bubbles: true,
+        cancelable: true,
+      }),
+    );
+  });
+  await locator.page().waitForTimeout(holdMs);
+}
+
 export async function loginUI(page: Page, email: string, expectedSlug: string): Promise<void> {
   await page.goto('/login');
   await page.getByTestId('login-email').fill(email);

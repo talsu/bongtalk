@@ -139,6 +139,18 @@ export type MessageCreatedPayload = {
     // task-014-B: null for root, uuid for reply. Additive — existing
     // 005/011/013 dispatcher branches ignore unknown fields.
     parentMessageId: string | null;
+    // 071-M1 D11 (FR-AM-07): 첨부 lite 목록 e2e 전파. 디스패처가 이 message 를
+    // 캐시에 MessageDto 로 삽입하므로, 종전처럼 payload 가 첨부를 누락하면
+    // 발신자(낙관 스왑)와 라이브 수신자 모두 REST refetch 전까지 이미지/파일이
+    // 보이지 않았다. REST DTO 의 AttachmentLite 와 동일 형태. Additive —
+    // 구 디스패처는 무시.
+    attachments?: Array<{
+      id: string;
+      kind: string;
+      mime: string;
+      sizeBytes: number;
+      originalName: string;
+    }>;
   };
 };
 

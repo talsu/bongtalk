@@ -46,9 +46,22 @@ export type TextNode = z.infer<typeof TextNodeSchema>;
  *   - userId/channelId 가 단일 신뢰 출처로 남고, label 은 표시 캐시일 뿐입니다
  *     (렌더러는 label 없으면 룩업 맵 → id 폴백 순서로 동작).
  */
+/**
+ * S88a review F1 (ADR D2) → 071-M1 D11 일반화 — 멘션 ID 는 uuid|cuid2 transitional.
+ *
+ * `User.id` / `Channel.id` / `Role.id` 전부 Prisma `@db.Uuid`(8-4-4-4-12
+ * 하이픈 포함 36자)다. S88a 는 역할만 확장하며 "mention_user/channel 은 @db
+ * 변경이 없음(=cuid2)" 이라고 전제했지만 실제 스키마와 달랐다 — cuid2 전용
+ * `Cuid2Schema` 는 라이브 `@{uuid}` / `<#uuid>` 토큰이 출력하는 멘션 노드를
+ * 거부한다(mrkdwn.ts 정규식 확장과 동시 수리 — 그 전까지는 파서가 토큰을
+ * 매칭조차 못 해 평문으로 남았다). message.ts 의 TransitionalIdSchema 와
+ * 동일 정의 — 순환참조를 피하려 여기서는 인라인.
+ */
+const MentionIdSchema = z.string().uuid().or(Cuid2Schema);
+
 export const MentionUserNodeSchema = z.object({
   type: z.literal('mention_user'),
-  userId: Cuid2Schema,
+  userId: MentionIdSchema,
   /** 정규화 시점에 해석한 username. 표시 전용 캐시 — 없으면 룩업/ id 폴백. */
   label: z.string().min(1).max(100).nullable().optional(),
 });
@@ -56,27 +69,15 @@ export type MentionUserNode = z.infer<typeof MentionUserNodeSchema>;
 
 export const MentionChannelNodeSchema = z.object({
   type: z.literal('mention_channel'),
-  channelId: Cuid2Schema,
+  channelId: MentionIdSchema,
   /** 정규화 시점에 해석한 channel name. 표시 전용 캐시 — 없으면 룩업/ id 폴백. */
   label: z.string().min(1).max(100).nullable().optional(),
 });
 export type MentionChannelNode = z.infer<typeof MentionChannelNodeSchema>;
 
-/**
- * S88a review F1 (ADR D2) — 역할 ID 는 uuid|cuid2 transitional.
- *
- * `Role.id` 는 `@db.Uuid`(8-4-4-4-12 하이픈 포함 36자)라 cuid2 전용
- * `Cuid2Schema` 로는 라이브 `<@&uuid>` 토큰이 출력하는 mention_role 노드를
- * 거부합니다. AST 스키마 검증 도입 시 전면 파싱 실패를 막기 위해 roleId 는
- * uuid 또는 cuid2 를 모두 수용합니다(message.ts 의 TransitionalIdSchema 와
- * 동일 정의 — 순환참조를 피하려 여기서는 인라인). mention_user/channel 은
- * cuid2 전용 그대로입니다(해당 id 는 @db 변경이 없음).
- */
-const RoleIdSchema = z.string().uuid().or(Cuid2Schema);
-
 export const MentionRoleNodeSchema = z.object({
   type: z.literal('mention_role'),
-  roleId: RoleIdSchema,
+  roleId: MentionIdSchema,
   /**
    * S88a (FR-MN-03) — 정규화 시점에 해석한 역할명. 표시 전용 캐시 — 없으면
    * 런타임 룩업(roleId→name)/ id 폴백. mention_user/channel 의 label 과 동일한

@@ -111,8 +111,15 @@ async function authedFetch(path: string): Promise<Response> {
   const headers: Record<string, string> = {};
   const token = getAccessToken();
   if (token) headers['authorization'] = `Bearer ${token}`;
-  // credentials:include 로 쿠키도 동봉(향후 쿠키 인증 대비) — 현 가드는 Bearer 우선.
-  return fetch(`${API_BASE}${path}`, { headers, credentials: 'include' });
+  // 071-M1 D11 (플랫폼 수리): credentials 는 'omit'.
+  //
+  // 공개 채널 다운로드는 API 가 302 로 MinIO presigned GET(교차 출처)에 넘기는데,
+  // 종전 'include' 는 리다이렉트 hop 을 credentialed CORS 로 만들어 MinIO 의
+  // `Access-Control-Allow-Origin: *` 와 양립 불가 → fetch 가 ERR_FAILED 로 죽고
+  // 공개 채널 이미지 전부가 "첨부를 불러오지 못했습니다" 로 떨어졌다.
+  // 1홉(API 프록시) 인증은 위의 Bearer 헤더가 전담하고(쿠키 불요), presigned URL
+  // 은 서명이 곧 인가라 자격증명이 필요 없다 — omit 이 두 hop 모두에서 정확하다.
+  return fetch(`${API_BASE}${path}`, { headers, credentials: 'omit' });
 }
 
 /**

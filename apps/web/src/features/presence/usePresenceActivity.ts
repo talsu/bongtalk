@@ -31,9 +31,14 @@ export function usePresenceActivity(socket: Socket | null): void {
 
     window.addEventListener('mousemove', send, { passive: true });
     window.addEventListener('keydown', send);
+    // 071-M1 D10 (FR-PS-17 모바일): 터치 기기는 mousemove/keydown 이 거의 발생하지
+    // 않아 모바일 사용자가 활발히 쓰는 중에도 10분 뒤 IDLE 로 떨어졌다. touchstart
+    // 를 활동 신호에 포함한다(스로틀/visibility 가드는 동일 경로 공유).
+    window.addEventListener('touchstart', send, { passive: true });
     return () => {
       window.removeEventListener('mousemove', send);
       window.removeEventListener('keydown', send);
+      window.removeEventListener('touchstart', send);
     };
   }, [socket]);
 }
