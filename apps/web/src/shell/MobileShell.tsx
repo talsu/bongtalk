@@ -21,6 +21,10 @@ import { MobilePanels, type PanelSide } from './mobile/MobilePanels';
 import { WorkspaceSettingsOverlayHost } from './Shell';
 // 071-M3 F2: 서버 메뉴 시트 + 진입 대상들(데스크톱 컴포넌트 재사용).
 import { MobileServerMenuSheet } from './mobile/MobileServerMenuSheet';
+// 071-M3 F3: 채널 핀 목록(topbar 버튼 + 풀스크린 오버레이 + ?msg= 점프).
+import { MobilePinList } from './mobile/MobilePinList';
+import { usePinCount } from '../features/messages/useMessages';
+import { useMemo as useMemoReact } from 'react';
 import { CreateChannelModal } from '../features/channels/CreateChannelModal';
 import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
 import { CreateInviteModal } from '../features/workspaces/CreateInviteModal';
@@ -93,7 +97,15 @@ export function MobileShell(): JSX.Element {
   const [createChannelOpen, setCreateChannelOpen] = useState(false);
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
-  const [overlay, setOverlay] = useState<'invites' | 'directory' | null>(null);
+  const [overlay, setOverlay] = useState<'invites' | 'directory' | 'pins' | null>(null);
+  // F3: 핀 카운트 배지(채널 컨텍스트에서만 — DM/설정 화면 비활성).
+  const { data: pinCountData } = usePinCount(active?.id ?? null, activeChannel?.id ?? '');
+  const nameByUserId = useMemoReact(() => {
+    const m = new Map<string, string>();
+    for (const x of membersData?.members ?? []) m.set(x.userId, x.user.username);
+    return m;
+  }, [membersData]);
+  const canPinViewer = canManageWorkspace || (myRole === 'MEMBER' && true); // memberCanPin 채널 비트는 시트 경로(M1)와 동일하게 서버 최종 판정
   const leaveMut = useLeaveWorkspace(active?.id ?? '');
   const pushToast = useNotifications((st) => st.push);
   // F2 ★레이스 봉인: 좌패널이 열린 상태에서 시트를 동시 오픈하면 MobilePanels 의
@@ -106,7 +118,7 @@ export function MobileShell(): JSX.Element {
   };
   const navigate = useNavigate();
   const location = useLocation();
-  const [sp] = useSearchParams();
+  const [sp, setSp] = useSearchParams();
 
   // FR-IA-WS-01(071-M0 C11) + A-24(C5): 채널 활성 시 lastChannel 을 기억하고,
   // 채널 없는 /w/:slug 진입은 ①`?ch=<channelId>`(Activity 점프 — 채널 목록 로드 후
@@ -274,6 +286,27 @@ export function MobileShell(): JSX.Element {
             <div className="qf-m-topbar__subtitle">{topbarSubtitle}</div>
           </div>
           <div className="qf-m-topbar__actions">
+            {activeChannel ? (
+              // 071-M3 F3 (FR-PS-04): 핀 목록 버튼(카운트 병기).
+              <button
+                type="button"
+                data-testid="mobile-topbar-pin"
+                className="qf-m-topbar__action"
+                aria-label={`고정된 메시지 (${pinCountData?.used ?? 0}개)`}
+                aria-expanded={overlay === 'pins'}
+                onClick={() => setOverlay('pins')}
+              >
+                <Icon name="pin" size="md" />
+                {(pinCountData?.used ?? 0) > 0 ? (
+                  <span
+                    data-testid="mobile-pin-count"
+                    className="text-[length:var(--fs-11)] text-text-muted"
+                  >
+                    {pinCountData!.used}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
             {activeChannel ? (
               // 071-M2 E5 (FR-IA-MOB-02): 멤버 버튼에 멤버 수 병기 + aria-expanded.
               <button
@@ -465,6 +498,29 @@ export function MobileShell(): JSX.Element {
           testId="mobile-invites-overlay"
         >
           <InviteManagerPanel workspaceId={active.id} />
+        </SettingsOverlay>
+        <SettingsOverlay
+          open={overlay === 'pins'}
+          onClose={() => setOverlay(null)}
+          title="고정된 메시지"
+          testId="mobile-pins-overlay"
+        >
+          {activeChannel ? (
+            <MobilePinList
+              workspaceId={active.id}
+              channelId={activeChannel.id}
+              nameByUserId={nameByUserId}
+              canUnpin={canPinViewer}
+              onJump={(messageId) => {
+                setOverlay(null);
+                // 현재 채널 URL 에 ?msg= 만 세팅 — MobileMessages 의 기존 점프
+                // 소비(스크롤+2초 강조+파라미터 정리)가 처리한다.
+                const next = new URLSearchParams(sp);
+                next.set('msg', messageId);
+                setSp(next, { replace: true });
+              }}
+            />
+          ) : null}
         </SettingsOverlay>
         <SettingsOverlay
           open={overlay === 'directory'}
