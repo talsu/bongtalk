@@ -37,16 +37,27 @@ jobs:
       # 071-M0 리뷰 H1: 빈 DB 에서 /readyz 는 503(outbox health) → test-api healthcheck
       # 실패 → `up -d` 가 "dependency failed" 로 비0 종료해 migrate 단계에 도달하지
       # 못한다. 데이터 서비스 기동 → 마이그레이션 → 앱 기동 순으로 강제한다.
+      # (스텝 분해 사유: 이 레포 운영환경엔 GHA 로그 열람 수단이 없어, 무인증 jobs API 의
+      #  스텝 단위 conclusion 만으로 실패 지점을 특정할 수 있어야 한다 — build/up 분리.)
+      - name: Build images
+        run: docker compose -f ${COMPOSE_FILE} build
+
       - name: Start data services
         run: docker compose -f ${COMPOSE_FILE} up -d test-postgres test-redis test-minio test-minio-init
 
       - name: Run migrations (one-shot)
         run: |
-          docker compose -f ${COMPOSE_FILE} run --rm --build --entrypoint prisma \
+          docker compose -f ${COMPOSE_FILE} run --rm --entrypoint prisma \
             test-api migrate deploy --schema=prisma/schema.prisma
 
       - name: Start app services
-        run: docker compose -f ${COMPOSE_FILE} up -d --build
+        run: docker compose -f ${COMPOSE_FILE} up -d
+
+      - name: Diag — compose state on failure
+        if: failure()
+        run: |
+          docker compose -f ${COMPOSE_FILE} ps -a
+          docker compose -f ${COMPOSE_FILE} logs --tail 120 test-api test-web || true
 
       - name: Wait for /readyz
         run: |
