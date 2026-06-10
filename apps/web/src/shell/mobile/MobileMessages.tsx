@@ -31,7 +31,18 @@ import { computeFirstUnreadIndex } from '../../features/messages/newMessages';
 import { useSearchParams } from 'react-router-dom';
 import { useNotifications } from '../../stores/notification-store';
 import { useCompose } from '../../stores/compose-store';
-import { renderMessageContent } from '../../features/messages/parseContent';
+import { renderMessageContent, extractMessageUrls } from '../../features/messages/parseContent';
+// 071-M1 D3(FR-AM-07/09·RC07/08·RC12): 첨부 그리드+라이트박스·unfurl 카드·봇 rich embed —
+// 데스크톱 컴포넌트 재사용(AttachmentsList 는 라이트박스 내장 단일 진실원).
+import { AttachmentsList } from '../../features/attachments/AttachmentsList';
+import { LinkPreview } from '../../features/messages/LinkPreview';
+import { RichEmbeds } from '../../features/messages/RichEmbed';
+import { useLinkPreviewsEnabled } from '../../stores/appearance-store';
+// 071-M1 D4(FR-AM-01): + 버튼 업로드 — 데스크톱 트레이 파이프라인(presign→PUT→complete)
+// 그대로 재사용. presign 이 워크스페이스 스코프라 DM(workspaceId=null)은 비활성.
+import { useAttachmentUpload } from '../../features/attachments/useAttachmentUpload';
+import { AttachmentTray } from '../../features/attachments/AttachmentTray';
+import { clampAttachments, MAX_ATTACHMENTS } from '../../features/messages/clampAttachments';
 // 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
 // ReDoS-안전 AST 렌더러(멘션 pill/스포일러/헤딩)·점보 이모지·시스템 행·스레드 chip.
 import { isContinuation } from '../../features/messages/grouping';
@@ -394,6 +405,7 @@ export function MobileMessages({
       {/* D7: 타이핑 인디케이터 — 리스트와 컴포저 사이(데스크톱과 동일 위치). */}
       <TypingIndicator channelId={channelId} viewerId={user?.id ?? null} nameByUserId={nameById} />
       <MobileComposer
+        workspaceId={workspaceId}
         channelId={channelId}
         channelName={channelName}
         send={send}
@@ -643,6 +655,8 @@ function MobileMessageRow({
   const jumbo = isJumboEmoji(msg.contentAst);
   // 071-M1 D5(FR-MSG-04/05): 낙관 행 전송 상태 — pending=흐림, failed=경고+재시도.
   const sendState = (msg as MessageDto & { sendState?: 'pending' | 'failed' }).sendState;
+  // D3: 링크 미리보기 전역 설정(외관 설정과 공유 스토어).
+  const linkPreviews = useLinkPreviewsEnabled();
 
   return (
     <article
@@ -724,6 +738,42 @@ function MobileMessageRow({
           </div>
         ) : null}
       </div>
+      {/* D3(FR-AM-07/09): 첨부 그리드 + 내장 라이트박스. */}
+      {(msg.attachments?.length ?? 0) > 0 ? (
+        <div className="col-start-2">
+          <AttachmentsList attachments={msg.attachments ?? []} />
+        </div>
+      ) : null}
+      {/* D3(FR-RC07/08): 서버 unfurl embed 우선, 없으면 본문 URL lazy-fetch 폴백 —
+          데스크톱 MessageItem 과 동일 분기(전역 링크 미리보기 설정 존중). */}
+      {linkPreviews
+        ? (() => {
+            const serverEmbeds = msg.embeds ?? [];
+            if (serverEmbeds.length > 0) {
+              return (
+                <div className="col-start-2">
+                  {serverEmbeds.map((e) => (
+                    <LinkPreview key={`embed-${e.id}`} embed={e} />
+                  ))}
+                </div>
+              );
+            }
+            const urls = extractMessageUrls(msg.content ?? '');
+            return urls.length > 0 ? (
+              <div className="col-start-2">
+                {urls.map((u) => (
+                  <LinkPreview key={`embed-${u}`} url={u} />
+                ))}
+              </div>
+            ) : null;
+          })()
+        : null}
+      {/* D3(FR-RC12): 봇/웹훅 rich embed. */}
+      {(msg.richEmbeds?.length ?? 0) > 0 ? (
+        <div className="col-start-2">
+          <RichEmbeds embeds={msg.richEmbeds} />
+        </div>
+      ) : null}
       {/* 071-M1 D2(FR-RE01/02/03): 리액션 칩 행 — 데스크톱 ReactionBar 재사용.
           모바일 44px 터치 플로어는 mobile-touch-target.css 가 .qf-reaction 에 보장. */}
       {onToggleReaction && (msg.reactions?.length ?? 0) > 0 ? (
@@ -740,14 +790,17 @@ function MobileMessageRow({
 }
 
 function MobileComposer({
+  workspaceId,
   channelId,
   channelName,
   send,
   inputRef,
 }: {
+  /** null = Global DM — presign 이 ws 스코프라 첨부 비활성. */
+  workspaceId: string | null;
   channelId: string;
   channelName: string;
-  send: (content: string) => void;
+  send: (content: string, attachmentIds?: string[]) => void;
   inputRef: RefObject<HTMLInputElement>;
 }): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
@@ -755,6 +808,35 @@ function MobileComposer({
   const clearDraft = useCompose((s) => s.clearDraft);
   const replyTarget = useCompose((s) => s.replyTargets[channelId]);
   const setReplyTarget = useCompose((s) => s.setReplyTarget);
+
+  // D4(FR-AM-01): 업로드 트레이 — 데스크톱 파이프라인 재사용. 채널 전환 시 reset.
+  const pushToast = useNotifications((s) => s.push);
+  const tray = useAttachmentUpload(workspaceId, channelId, (t) => pushToast(t));
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const trayResetRef = useRef(tray.reset);
+  trayResetRef.current = tray.reset;
+  useEffect(() => {
+    return () => trayResetRef.current();
+  }, [channelId]);
+  const [sending, setSending] = useState(false);
+  const onFiles = (files: FileList | File[] | null): void => {
+    if (!files) return;
+    const incoming = Array.from(files);
+    if (incoming.length === 0) return;
+    const { accepted, rejected, truncated } = clampAttachments({
+      currentCount: tray.items.length,
+      incoming,
+    });
+    if (truncated) {
+      pushToast({
+        variant: 'warning',
+        title: '첨부 파일 한도',
+        body: `최대 ${MAX_ATTACHMENTS}개까지 첨부할 수 있습니다. ${rejected}개를 무시했습니다.`,
+        ttlMs: 4000,
+      });
+    }
+    if (accepted.length > 0) tray.addFiles(accepted);
+  };
 
   // D7(FR-RT-08): 입력 → typing:start(스로틀)/idle-stop. 채널 전환·언마운트 시 stop.
   // emit 시점에 소켓을 재조회하므로 재연결에도 안전(데스크톱 makeTypingEmitter 동일).
@@ -779,11 +861,38 @@ function MobileComposer({
 
   const submit = (): void => {
     const trimmed = draft.trim();
-    if (!trimmed) return;
-    send(trimmed);
-    clearDraft(channelId);
-    setReplyTarget(channelId, null);
-    typingRef.current?.stop();
+    const hasAttachments = tray.items.length > 0;
+    if (!trimmed && !hasAttachments) return;
+    if (tray.uploadingCount > 0 || sending) return;
+    // D4(FR-AM-24 미러): 실패 첨부 잔존 시 전송 차단 — 무언 유실 방지(데스크톱 동일).
+    if (tray.failedCount > 0) {
+      pushToast({
+        variant: 'warning',
+        title: '업로드 실패한 첨부가 있습니다',
+        body: '실패한 첨부를 제거하거나 다시 시도해 주세요.',
+        ttlMs: 6000,
+      });
+      return;
+    }
+    if (!hasAttachments) {
+      send(trimmed);
+      clearDraft(channelId);
+      setReplyTarget(channelId, null);
+      typingRef.current?.stop();
+      return;
+    }
+    setSending(true);
+    void tray
+      .completeAndCollect()
+      .then((attachmentIds) => {
+        if (attachmentIds.length === 0) return; // complete 실패 — 훅이 토스트, draft 유지.
+        send(trimmed || ' ', attachmentIds);
+        tray.clearConfirmed();
+        clearDraft(channelId);
+        setReplyTarget(channelId, null);
+        typingRef.current?.stop();
+      })
+      .finally(() => setSending(false));
   };
 
   return (
@@ -808,6 +917,14 @@ function MobileComposer({
           </button>
         </div>
       ) : null}
+      {/* D4: 업로드 트레이(진행/실패/ALT/스포일러) — 데스크톱 컴포넌트 재사용. */}
+      <AttachmentTray
+        items={tray.items}
+        onRemove={tray.removeItem}
+        onRetry={tray.retryItem}
+        onAltChange={tray.setAltText}
+        onToggleSpoiler={tray.toggleSpoiler}
+      />
       <form
         data-testid="mobile-composer"
         className="qf-m-composer"
@@ -816,14 +933,39 @@ function MobileComposer({
           submit();
         }}
       >
+        {/* D4(FR-AM-01): 종전 onClick 미배선 죽은 컨트롤 → 파일 선택 배선.
+            DM(workspaceId=null)은 presign 스코프상 미지원 — 안내 토스트. */}
         <button
           type="button"
           data-testid="mobile-composer-plus"
           aria-label="첨부 추가"
+          aria-disabled={workspaceId === null ? 'true' : undefined}
           className="qf-m-composer__plus"
+          onClick={() => {
+            if (workspaceId === null) {
+              pushToast({
+                variant: 'info',
+                title: 'DM 첨부는 아직 지원되지 않습니다',
+                ttlMs: 3000,
+              });
+              return;
+            }
+            fileInputRef.current?.click();
+          }}
         >
           <Icon name="plus-circle" size="md" />
         </button>
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          hidden
+          data-testid="mobile-composer-file-input"
+          onChange={(e) => {
+            onFiles(e.target.files);
+            e.target.value = ''; // 같은 파일 재선택 허용.
+          }}
+        />
         <input
           ref={inputRef}
           data-testid="mobile-msg-input"
@@ -851,7 +993,11 @@ function MobileComposer({
           data-testid="mobile-composer-send"
           aria-label="전송"
           className="qf-m-composer__send"
-          disabled={draft.trim().length === 0}
+          disabled={
+            (draft.trim().length === 0 && tray.items.length === 0) ||
+            tray.uploadingCount > 0 ||
+            sending
+          }
         >
           <Icon name="send" size="md" />
         </button>
