@@ -25,24 +25,38 @@ export const CUID2_RE = /^[a-z0-9]{20,}$/;
 export const Cuid2Schema = z.string().regex(CUID2_RE, { message: 'invalid cuid2 id' });
 
 /**
+ * 071-M1 D11 (FR-RC22 / S88a F5 후속): RFC-4122 uuid ID 분기 단일 출처.
+ *
+ * `User.id` / `Channel.id` / `Role.id` 는 전부 Prisma `@db.Uuid`(8-4-4-4-12
+ * 하이픈 포함 36자)다. S88a 는 역할 토큰만 uuid|cuid2 로 확장하며
+ * "mention_user/channel 은 @db 변경이 없음(=cuid2)" 이라고 전제했지만, 이는
+ * 사실과 달랐다 — 라이브 유저/채널 멘션 토큰(`@{uuid}` / `<#uuid>`)은 cuid2
+ * 전용 패턴에 한 번도 매칭되지 못해 mention_user/mention_channel AST 노드가
+ * 생성되지 않았고, 멘션 pill·멘션 하이라이트가 플랫폼 전역(데스크톱 포함)에서
+ * 평문 `@{uuid}` 로 깨져 있었다. 세 토큰 모두 동일한 uuid|cuid2 transitional
+ * 패턴을 쓴다. 고정 자리수 + 단순 수량자라 ReDoS 안전(S88a F5 와 동일 논거).
+ */
+const UUID_SRC = '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+
+/**
  * FR-RC22 — 멘션 사용자 토큰. ProseMirror serializer 가 mentionUser
- * AtomNode 를 `@{cuid2}` 토큰으로 변환하고, 서버 파서가 이 패턴을
+ * AtomNode 를 `@{id}` 토큰으로 변환하고, 서버 파서가 이 패턴을
  * mention_user AST 노드로 변환합니다.
  *
- * 카노니컬 표기: /@\{([a-z0-9]{20,})\}/g
+ * 카노니컬 표기: /@\{(uuid|[a-z0-9]{20,})\}/g  (uuid = RFC-4122 8-4-4-4-12)
  *
  * 주: 정규식 리터럴은 lastIndex 상태를 공유하므로, 매칭 시에는 항상 새
  * RegExp 를 만들거나 `mentionUserRe()` 팩토리를 사용하세요.
  */
-export const MENTION_USER_RE = /@\{([a-z0-9]{20,})\}/g;
+export const MENTION_USER_RE = new RegExp(`@\\{(${UUID_SRC}|[a-z0-9]{20,})\\}`, 'g');
 
 /** stateless 매칭이 필요할 때 매번 새 정규식을 반환하는 팩토리. */
 export function mentionUserRe(): RegExp {
   return new RegExp(MENTION_USER_RE.source, MENTION_USER_RE.flags);
 }
 
-/** 채널 멘션 토큰: `<#cuid2>` → mention_channel AST 노드. */
-export const MENTION_CHANNEL_RE = /<#([a-z0-9]{20,})>/g;
+/** 채널 멘션 토큰: `<#uuid|cuid2>` → mention_channel AST 노드. */
+export const MENTION_CHANNEL_RE = new RegExp(`<#(${UUID_SRC}|[a-z0-9]{20,})>`, 'g');
 
 /**
  * 역할 멘션 토큰: `<@&id>` → mention_role AST 노드.
@@ -60,8 +74,7 @@ export const MENTION_CHANNEL_RE = /<#([a-z0-9]{20,})>/g;
  *   - uuid : `[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}`
  *   - cuid2: `[a-z0-9]{20,}`  (소문자 영숫자 20자 이상)
  */
-export const MENTION_ROLE_RE =
-  /<@&([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{20,})>/g;
+export const MENTION_ROLE_RE = new RegExp(`<@&(${UUID_SRC}|[a-z0-9]{20,})>`, 'g');
 
 /** stateless 매칭이 필요할 때 매번 새 정규식을 반환하는 팩토리(역할 토큰). */
 export function mentionRoleRe(): RegExp {

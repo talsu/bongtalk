@@ -330,7 +330,8 @@ export function MobileMessageSheet({
             aria-live="polite"
             className={cn(
               'qf-m-sheet__item qf-m-sheet__item--danger',
-              deleteArmed && 'bg-[color:var(--danger-900,rgba(218,64,60,0.15))]',
+              // armed 강조는 DS 토큰만 사용(bg-selected + 굵기) — raw rgba 금지.
+              deleteArmed && 'bg-[color:var(--bg-selected)] font-semibold',
             )}
           >
             <span className="qf-m-sheet__icon">

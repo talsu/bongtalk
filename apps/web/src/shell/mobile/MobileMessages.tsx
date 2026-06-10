@@ -1520,6 +1520,7 @@ function MobileComposer({
           type="file"
           multiple
           hidden
+          aria-label="파일 첨부"
           data-testid="mobile-composer-file-input"
           onChange={(e) => {
             onFiles(e.target.files);

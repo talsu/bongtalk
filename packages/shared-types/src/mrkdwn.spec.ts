@@ -20,7 +20,11 @@ beforeEach(() => {
 
 describe('MENTION_USER_RE (FR-RC22)', () => {
   it('has the canonical source and global flag', () => {
-    expect(MENTION_USER_RE.source).toBe('@\\{([a-z0-9]{20,})\\}');
+    // 071-M1 D11 (FR-RC22): uuid|cuid2 transitional — User.id 가 @db.Uuid 라
+    // uuid 분기가 선두에 온다(S88a MENTION_ROLE_RE 와 동일 구조).
+    expect(MENTION_USER_RE.source).toBe(
+      '@\\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{20,})\\}',
+    );
     expect(MENTION_USER_RE.flags).toBe('g');
   });
 
@@ -97,6 +101,27 @@ describe('channel / role / emoji regexes', () => {
     const text = 'hey <@&3f2504e0-4f89-41d3-9a0c-0305e82c3301> and <@&clh3z2k0v0000abcd1234>';
     const ids = [...text.matchAll(new RegExp(MENTION_ROLE_RE.source, 'g'))].map((m) => m[1]);
     expect(ids).toEqual(['3f2504e0-4f89-41d3-9a0c-0305e82c3301', 'clh3z2k0v0000abcd1234']);
+  });
+
+  // 071-M1 D11 (FR-RC22): User.id / Channel.id 도 @db.Uuid — S88a 가 역할만
+  // 확장하고 남겨둔 잠복 버그(라이브 유저/채널 멘션 토큰이 영영 미매칭 →
+  // 멘션 pill 평문 깨짐). 세 토큰 전부 uuid|cuid2 를 수용해야 한다.
+  it('MENTION_USER_RE matches @{uuid} (User.id = @db.Uuid)', () => {
+    expect(
+      new RegExp(MENTION_USER_RE.source).exec('@{3f2504e0-4f89-41d3-9a0c-0305e82c3301}')?.[1],
+    ).toBe('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
+  it('MENTION_CHANNEL_RE matches <#uuid> (Channel.id = @db.Uuid)', () => {
+    expect(
+      new RegExp(MENTION_CHANNEL_RE.source).exec('<#3f2504e0-4f89-41d3-9a0c-0305e82c3301>')?.[1],
+    ).toBe('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
+  it('MENTION_USER_RE still rejects malformed uuid-ish garbage (hyphen positions enforced)', () => {
+    expect(
+      new RegExp(MENTION_USER_RE.source).exec('@{------------------------------------}'),
+    ).toBeNull();
   });
 
   // S88a review F5 (security): uuid 분기는 RFC-4122 8-4-4-4-12 고정 구조여야
