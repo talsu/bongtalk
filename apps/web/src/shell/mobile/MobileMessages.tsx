@@ -45,6 +45,12 @@ import { useCustomEmojis } from '../../features/emojis/useCustomEmojis';
 import type { CustomEmoji } from '../../features/emojis/api';
 // 071-M1 D2: 리액션 칩 행 — 데스크톱 ReactionBar 재사용(칩 토글 + 피커).
 import { ReactionBar } from '../../features/reactions/ReactionBar';
+// 071-M1 D7(FR-P07/RT-08·09): 타이핑 — 표시는 공유 TypingIndicator, 발행은 TypingEmitter
+// (스로틀/idle-stop 내장). emit 시점마다 소켓 재조회(재연결 안전 — 데스크톱과 동일).
+import { TypingIndicator } from '../../features/typing/TypingIndicator';
+import { TypingEmitter } from '../../features/typing/typingEmitter';
+import { getSocket } from '../../lib/socket';
+import { WS_EVENTS } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
 import { MobileEditSheet } from './MobileEditSheet';
@@ -385,6 +391,8 @@ export function MobileMessages({
           </span>
         </button>
       ) : null}
+      {/* D7: 타이핑 인디케이터 — 리스트와 컴포저 사이(데스크톱과 동일 위치). */}
+      <TypingIndicator channelId={channelId} viewerId={user?.id ?? null} nameByUserId={nameById} />
       <MobileComposer
         channelId={channelId}
         channelName={channelName}
@@ -748,12 +756,34 @@ function MobileComposer({
   const replyTarget = useCompose((s) => s.replyTargets[channelId]);
   const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
+  // D7(FR-RT-08): 입력 → typing:start(스로틀)/idle-stop. 채널 전환·언마운트 시 stop.
+  // emit 시점에 소켓을 재조회하므로 재연결에도 안전(데스크톱 makeTypingEmitter 동일).
+  const typingRef = useRef<TypingEmitter | null>(null);
+  useEffect(() => {
+    const emitter = new TypingEmitter({
+      emitStart: () => {
+        const socket = getSocket();
+        if (socket?.connected) socket.emit(WS_EVENTS.TYPING_START, { channelId });
+      },
+      emitStop: () => {
+        const socket = getSocket();
+        if (socket?.connected) socket.emit(WS_EVENTS.TYPING_STOP, { channelId });
+      },
+    });
+    typingRef.current = emitter;
+    return () => {
+      emitter.stop();
+      typingRef.current = null;
+    };
+  }, [channelId]);
+
   const submit = (): void => {
     const trimmed = draft.trim();
     if (!trimmed) return;
     send(trimmed);
     clearDraft(channelId);
     setReplyTarget(channelId, null);
+    typingRef.current?.stop();
   };
 
   return (
@@ -800,7 +830,12 @@ function MobileComposer({
           aria-label="메시지 입력"
           className="qf-m-composer__input"
           value={draft}
-          onChange={(e) => setDraft(channelId, e.target.value)}
+          onChange={(e) => {
+            setDraft(channelId, e.target.value);
+            // D7: 비움은 즉시 stop, 입력은 스로틀된 start.
+            if (e.target.value.trim() === '') typingRef.current?.stop();
+            else typingRef.current?.onInput();
+          }}
           placeholder={replyTarget ? `@${replyTarget.authorName}에게 답장…` : `# ${channelName}`}
           onKeyDown={(e) => {
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
