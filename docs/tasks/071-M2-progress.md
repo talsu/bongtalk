@@ -33,7 +33,7 @@
 | E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | **done** — 훅은 기존 lib/useBreakpoint 재사용, App.tsx 4곳 교체 | edcca99 |
 | E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |         |
 | E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |         |
-| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | todo                                                            |         |
+| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | **done**                                                        |         |
 | E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | todo                                                            |         |
 | E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo                                                            |         |
 | E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | todo                                                            |         |
@@ -88,5 +88,11 @@
   상태 변경은 기존 구현 존재 확인(연결 작업 불요). 프로브(.tour/probe-m2-e3.mjs)
   green: 5탭/스레드 인박스→패널 오픈/검색→Jump/나 탭 시트·dnd 반영·로그아웃
   confirm/채팅 복귀. (threadJump=false 출력은 파라미터 정리 후 측정 — 정상)
-- 다음 작업: E4(홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 채팅 탭 통합) —
-  MobileHome.tsx/MobileOverlay.tsx 정독 후 좌패널 서버레일 DM 슬롯 설계.
+- (세션 #2) E4 완료 — MobileHome/MobileOverlay/MobileDrawer 3파일 삭제(참조 0 확인).
+  '/'(slug 없음)는 lastChatPath → 첫 워크스페이스 순 리다이렉트(홈 화면 자체 폐기 —
+  채팅 탭 기본 컨텍스트). MobileChannelList 서버레일 항상 렌더 + DM 슬롯
+  (mobile-rail-dms → /dms). 프로브(.tour/probe-m2-e4.mjs) green: 랜딩 자동 진입/
+  DM 슬롯 → /dms/'/' 재진입 시 마지막 채팅 컨텍스트(/dms) 복귀.
+  주: MobileHome 결합 e2e(home-mobile-\*·tabbar-3-tabs 등)도 red — E7 갱신 목록에 포함.
+- 다음 작업: E5(server-header·채널 브라우저 진입·멤버수 버튼·뱃지 의미 분리 잔여)
+  → E6(슬래시 모바일 표면 + 자동완성 켜기 + 답장 데드엔드) → E7 게이트 → E8.

@@ -43,34 +43,50 @@ export function MobileChannelList({
         <div>{workspace.name}</div>
       </div>
 
-      {/* Workspace rail when > 1 workspace */}
-      {workspaces.length > 1 ? (
-        <nav
-          aria-label="워크스페이스 선택"
-          className="px-[var(--s-4)] py-[var(--s-2)] flex gap-[var(--s-2)] overflow-x-auto"
+      {/* 071-M2 E4 (A안): 서버레일은 항상 렌더 — DM 인박스 슬롯 + 워크스페이스들.
+          홈 오버레이 모델 폐기 후 DM 진입점은 좌패널 레일의 DM 슬롯이 담당한다
+          (PRD: DM 인박스 = '채팅' 탭의 워크스페이스-외 컨텍스트). */}
+      <nav
+        aria-label="워크스페이스 선택"
+        className="px-[var(--s-4)] py-[var(--s-2)] flex gap-[var(--s-2)] overflow-x-auto"
+      >
+        <Link
+          to="/dms"
+          onClick={onPick}
+          className="inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]"
+          data-testid="mobile-rail-dms"
         >
-          {workspaces.map((w) => (
-            <Link
-              key={w.id}
-              to={`/w/${w.slug}`}
-              onClick={onPick}
-              className={cn(
-                'inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]',
-                w.slug === workspace.slug ? 'bg-bg-accent' : '',
-              )}
-              data-testid={`mobile-ws-${w.slug}`}
+          <span className="qf-avatar qf-avatar--sm grid place-items-center bg-bg-subtle">
+            <Icon name="message" size="sm" />
+          </span>
+          <span
+            style={{ maxWidth: 'var(--s-10)' }}
+            className="text-[length:var(--fs-11)] text-text-muted truncate"
+          >
+            DM
+          </span>
+        </Link>
+        {workspaces.map((w) => (
+          <Link
+            key={w.id}
+            to={`/w/${w.slug}`}
+            onClick={onPick}
+            className={cn(
+              'inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]',
+              w.slug === workspace.slug ? 'bg-bg-accent' : '',
+            )}
+            data-testid={`mobile-ws-${w.slug}`}
+          >
+            <Avatar name={w.name} size="sm" />
+            <span
+              style={{ maxWidth: 'var(--s-10)' }}
+              className="text-[length:var(--fs-11)] text-text-muted truncate"
             >
-              <Avatar name={w.name} size="sm" />
-              <span
-                style={{ maxWidth: 'var(--s-10)' }}
-                className="text-[length:var(--fs-11)] text-text-muted truncate"
-              >
-                {w.name}
-              </span>
-            </Link>
-          ))}
-        </nav>
-      ) : null}
+              {w.name}
+            </span>
+          </Link>
+        ))}
+      </nav>
 
       {/* qf-m-search filter */}
       <div className="px-[var(--s-4)] pb-[var(--s-2)]">

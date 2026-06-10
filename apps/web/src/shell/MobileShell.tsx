@@ -6,7 +6,6 @@ import { useNotificationPreferences } from '../features/notifications/useNotific
 import { Icon } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { MobileChannelList } from './mobile/MobileChannelList';
-import { MobileHome } from './mobile/MobileHome';
 import { MobileMessages } from './mobile/MobileMessages';
 import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
@@ -118,12 +117,19 @@ export function MobileShell(): JSX.Element {
   // creation; DM + discover are both available to a zero-workspace
   // account. (Desktop Shell.tsx has the same redirect.)
   if ((mine?.workspaces.length ?? 0) === 0) return <Navigate to="/dm" replace />;
-  // task-035-E: mobile base state (/, no slug) renders MobileHome with
-  // its own rail/content split. Specific workspace routes (/w/:slug/*)
-  // continue to use the drawer-based MobileShell so channel-deep
-  // navigation stays identical to 024's behaviour.
+  // 071-M2 E4 (A안): 홈(`?chat=` 오버레이) 모델 폐기 — '/' 는 채팅 탭의 기본
+  // 컨텍스트로 보낸다: 마지막 채팅 위치(sessionStorage) → 첫 워크스페이스
+  // (lastChannel 복원은 /w/:slug 진입 effect 가 수행) 순. 워크스페이스 0개는
+  // 위에서 이미 /dm 으로 빠졌다.
   if (!slug) {
-    return <MobileHome />;
+    let last: string | null = null;
+    try {
+      last = sessionStorage.getItem('qf:lastChatPath');
+    } catch {
+      last = null;
+    }
+    if (last && last.startsWith('/')) return <Navigate to={last} replace />;
+    return <Navigate to={`/w/${mine!.workspaces[0].slug}`} replace />;
   }
   if (slug && !active) {
     return (
