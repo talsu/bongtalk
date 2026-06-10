@@ -222,12 +222,8 @@ export function MobileShell(): JSX.Element {
           )}
         </main>
 
-        {/* C7(071-M0): 홈 탭은 모든 화면에서 '/'(MobileHome) — 5탭 교체는 E3. */}
-        <MobileTabBar
-          onHome={() => navigate('/')}
-          onSettings={() => navigate('/settings')}
-          onActivity={() => navigate('/activity')}
-        />
+        {/* 071-M2 E3: PRD 5탭 — 탭바가 내부 라우팅(채팅 복귀=lastChatPath)을 소유한다. */}
+        <MobileTabBar />
 
         {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
             게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}

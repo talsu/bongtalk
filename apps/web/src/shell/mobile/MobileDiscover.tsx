@@ -173,11 +173,7 @@ export function MobileDiscover(): JSX.Element {
         )}
       </main>
 
-      <MobileTabBar
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+      <MobileTabBar />
     </div>
   );
 }

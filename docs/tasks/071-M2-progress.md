@@ -32,7 +32,7 @@
 | ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------- |
 | E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | **done** — 훅은 기존 lib/useBreakpoint 재사용, App.tsx 4곳 교체 | edcca99 |
 | E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |         |
-| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | todo                                                            |         |
+| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |         |
 | E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | todo                                                            |         |
 | E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | todo                                                            |         |
 | E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo                                                            |         |
@@ -75,5 +75,18 @@
   비고: 기존 e2e 의 drawer 결합 스펙(drawer-channels/members-drawer/drawer-back-button
   등)은 이 시점부터 red — E7 에서 패널 모델로 전면 갱신(계획된 파손).
   server-header 도입은 E5 에서(워크스페이스 전환 일원화와 함께).
-- 다음 작업: E3(5탭 탭바 + 신규 화면: 스레드 인박스/검색 풀스크린/나 탭) — 현
-  MobileTabBar.tsx 와 DS qf-m-tabbar/qf-m-thread-inbox/qf-m-you-header 스펙 정독부터.
+- (세션 #2) E3 완료 — MobileTabBar 5탭 전면 재작성(props 제거 — 탭바가 useLocation
+  으로 active 자동 판정 + 내부 라우팅; '채팅' 복귀는 sessionStorage qf:lastChatPath —
+  탭바 자신이 /w/_·/dms_ 에서 기록). 신규 화면 3개: MobileThreadsTab(useMyThreads
+  재사용·현재 ws 채널맵 필터·qf-m-thread-inbox 골격·탭→`?thread=` 진입),
+  MobileSearchTab(useSearch 무한쿼리·300ms 디바운스·markOnlyHtml 스니펫·탭→`?msg=`
+  Jump), MobileYouTab(qf-m-you-header/you-status·상태 시트 online/dnd/offline =
+  usePresenceStatus·로그아웃 confirm 시트). App.tsx: /threads /search /you 라우트
+  (ProtectedMobileTabRoute — 데스크톱은 '/' 폴백, lazy 3개). 사용처 7곳 탭바 호출
+  단순화(<MobileTabBar />). ★MobileMessages 에 `?thread=<rootId>` 소비 추가(스레드
+  패널 오픈 + URL 정리 — 종전 모바일은 파라미터 삭제만 했음). 데스크톱 BottomBar
+  상태 변경은 기존 구현 존재 확인(연결 작업 불요). 프로브(.tour/probe-m2-e3.mjs)
+  green: 5탭/스레드 인박스→패널 오픈/검색→Jump/나 탭 시트·dnd 반영·로그아웃
+  confirm/채팅 복귀. (threadJump=false 출력은 파라미터 정리 후 측정 — 정상)
+- 다음 작업: E4(홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 채팅 탭 통합) —
+  MobileHome.tsx/MobileOverlay.tsx 정독 후 좌패널 서버레일 DM 슬롯 설계.

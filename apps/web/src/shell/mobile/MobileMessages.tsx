@@ -394,6 +394,29 @@ export function MobileMessages({
     rawJump && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawJump)
       ? rawJump
       : null;
+  // 071-M2 E3 (FR-TH-09 모바일): `?thread=<rootId>` 소비 — 스레드 인박스 항목
+  // 진입 시 전체화면 스레드 패널을 연다(데스크톱 ?thread= 소비와 동등).
+  // 1회 소비 후 URL 에서 파라미터를 정리한다. DM(workspaceId=null)은 비범위.
+  const rawThread = sp.get('thread');
+  const threadParam =
+    rawThread && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawThread)
+      ? rawThread
+      : null;
+  const threadHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!threadParam || threadHandledRef.current === threadParam) return;
+    if (workspaceId === null) return;
+    threadHandledRef.current = threadParam;
+    setThreadRootId(threadParam);
+    setSp(
+      (prevParams) => {
+        const next = new URLSearchParams(prevParams);
+        next.delete('thread');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [threadParam, workspaceId, setSp]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const jumpHandledRef = useRef<string | null>(null);
   useEffect(() => {

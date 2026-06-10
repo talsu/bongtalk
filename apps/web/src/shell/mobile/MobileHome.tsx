@@ -184,12 +184,7 @@ export function MobileHome(): JSX.Element {
         </main>
       </div>
 
-      <MobileTabBar
-        active="home"
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+      <MobileTabBar />
 
       {chatChannelId ? (
         <MobileOverlay

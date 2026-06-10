@@ -159,6 +159,16 @@ const MobileFriends = lazy(() =>
 const MobileDiscover = lazy(() =>
   import('./shell/mobile/MobileDiscover').then((m) => ({ default: m.MobileDiscover })),
 );
+// 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 화면.
+const MobileThreadsTab = lazy(() =>
+  import('./shell/mobile/MobileThreadsTab').then((m) => ({ default: m.MobileThreadsTab })),
+);
+const MobileSearchTab = lazy(() =>
+  import('./shell/mobile/MobileSearchTab').then((m) => ({ default: m.MobileSearchTab })),
+);
+const MobileYouTab = lazy(() =>
+  import('./shell/mobile/MobileYouTab').then((m) => ({ default: m.MobileYouTab })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -268,6 +278,27 @@ function ProtectedMyProfileRoute(): JSX.Element {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <MyProfilePage />
+    </Suspense>
+  );
+}
+
+// 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 라우트 가드 — 스레드/검색/나.
+// 데스크톱 동등 surface 는 셸 내부에 있으므로 비모바일은 '/' 로 폴백한다.
+function ProtectedMobileTabRoute({ tab }: { tab: 'threads' | 'search' | 'you' }): JSX.Element {
+  const { status } = useAuth();
+  const isMobile = useIsMobile();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  if (!isMobile) return <Navigate to="/" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {tab === 'threads' ? (
+        <MobileThreadsTab />
+      ) : tab === 'search' ? (
+        <MobileSearchTab />
+      ) : (
+        <MobileYouTab />
+      )}
     </Suspense>
   );
 }
@@ -516,6 +547,15 @@ export default function App(): JSX.Element {
                           <Route path="advanced" element={<AdvancedSettingsPage />} />
                         </Route>
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
+                        {/* 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 화면 — 스레드/검색/나.
+                            데스크톱은 동등 surface 가 셸 내부(사이드바 Threads/검색 패널/
+                            BottomBar)에 있으므로 '/' 로 돌려보낸다. */}
+                        <Route
+                          path="/threads"
+                          element={<ProtectedMobileTabRoute tab="threads" />}
+                        />
+                        <Route path="/search" element={<ProtectedMobileTabRoute tab="search" />} />
+                        <Route path="/you" element={<ProtectedMobileTabRoute tab="you" />} />
                         {/* task-047 iter4 (M3): profile page */}
                         <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
                         <Route path="/dm" element={<ProtectedDmShellRoute />} />

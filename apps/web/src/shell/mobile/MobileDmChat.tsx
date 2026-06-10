@@ -80,12 +80,7 @@ export function MobileDmChat(): JSX.Element {
           <div className="qf-m-empty__body">불러오는 중…</div>
         </div>
       )}
-      <MobileTabBar
-        active="home"
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+      <MobileTabBar />
     </div>
   );
 }

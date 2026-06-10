@@ -209,7 +209,9 @@ export function MobileActivity(): JSX.Element {
                   </div>
                   <div>
                     <div className="qf-m-notif__head">
-                      <span className="qf-m-notif__actor">{row.actorName ?? '알 수 없는 사용자'}</span>
+                      <span className="qf-m-notif__actor">
+                        {row.actorName ?? '알 수 없는 사용자'}
+                      </span>
                       <span className="qf-m-notif__verb">{verbFor(row)}</span>
                       <span className="qf-m-notif__time">{relTime(row.createdAt)}</span>
                     </div>
@@ -232,11 +234,7 @@ export function MobileActivity(): JSX.Element {
         <Icon name="check-double" size="md" />
       </button>
 
-      <MobileTabBar
-        active="activity"
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-      />
+      <MobileTabBar />
     </div>
   );
 }
