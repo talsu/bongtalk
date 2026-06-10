@@ -71,7 +71,8 @@ export function MobileEditSheet({
       aria-labelledby={`mobile-edit-title-${msg.id}`}
     >
       <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onCancel} />
-      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0">
+      {/* H-1(071-M0 C2): 백드롭(z=60) 아래 깔리던 시트를 --z-modal(61)로 올린다. */}
+      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]">
         <div className="qf-m-sheet__grab" aria-hidden />
         <div className="px-[var(--s-4)] py-[var(--s-2)]">
           <p

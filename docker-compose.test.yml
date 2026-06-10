@@ -75,6 +75,9 @@ services:
     image: qufox/api:test
     environment:
       NODE_ENV: test
+      # 071-M0 C12: e2e 전용 이메일 인증 훅(POST /auth/test-hooks/verify-email) 활성.
+      # 이 flag 가 없으면 라우트 자체가 등록되지 않는다 — 테스트 compose 한정.
+      E2E_TEST_HOOKS: '1'
       API_PORT: '3001'
       DATABASE_URL: postgresql://qufox:qufox@test-postgres:5432/qufox_e2e?schema=public
       REDIS_URL: redis://test-redis:6379

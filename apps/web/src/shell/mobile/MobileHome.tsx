@@ -75,7 +75,7 @@ export function MobileHome(): JSX.Element {
   };
 
   return (
-    <div data-testid="mobile-home" className="qf-m-screen">
+    <div data-testid="mobile-home" className="qf-m-screen qf-m-screen--app">
       <div className="flex-1 flex min-h-0" data-testid="mobile-home-split">
         {/* Narrow rail */}
         <aside
@@ -187,7 +187,7 @@ export function MobileHome(): JSX.Element {
       <MobileTabBar
         active="home"
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
 

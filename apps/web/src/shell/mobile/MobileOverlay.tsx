@@ -97,7 +97,7 @@ export function MobileOverlay({
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
     >
-      <div className="qf-m-screen h-full">
+      <div className="qf-m-screen qf-m-screen--app h-full">
         <header className="qf-m-topbar qf-m-safe-top">
           <button
             type="button"

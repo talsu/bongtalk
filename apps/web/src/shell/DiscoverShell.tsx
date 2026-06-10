@@ -3,7 +3,7 @@ import { useNotificationPreferences } from '../features/notifications/useNotific
 import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
 import { DiscoverPage } from '../features/discovery/DiscoverPage';
-import { Icon, ToastViewport } from '../design-system/primitives';
+import { Icon } from '../design-system/primitives';
 
 /**
  * task-030 follow: the /discover page used to replace the whole viewport,
@@ -64,7 +64,6 @@ export function DiscoverShell(): JSX.Element {
       <div className="flex-1 min-w-0">
         <DiscoverPage />
       </div>
-      <ToastViewport />
     </div>
   );
 }

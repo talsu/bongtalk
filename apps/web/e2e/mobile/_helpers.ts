@@ -33,6 +33,13 @@ export async function signupToken(
     data: { email, username, password: PW },
   });
   if (!r.ok()) throw new Error(`signup failed: ${r.status()} ${await r.text()}`);
+  // 071-M0 C12: S66 이후 미인증 계정은 /w/* UI 게이트 + 메시지 전송 403 에 막힌다.
+  // 테스트 스택 전용 훅(E2E_TEST_HOOKS=1)으로 인증을 완료시킨다.
+  const v = await request.post(`${API}/auth/test-hooks/verify-email`, {
+    headers: { origin: ORIGIN },
+    data: { email },
+  });
+  if (!v.ok()) throw new Error(`test verify-email failed: ${v.status()} ${await v.text()}`);
   return ((await r.json()) as { accessToken: string }).accessToken;
 }
 
@@ -62,5 +69,10 @@ export async function loginUI(page: Page, email: string, expectedSlug: string): 
   await page.getByTestId('login-email').fill(email);
   await page.getByTestId('login-password').fill(PW);
   await page.getByTestId('login-submit').click();
+  // 071-M0 C12: task-035 이후 로그인 랜딩은 '/'(MobileHome) — 종전의 /w/:slug 자동
+  // 리다이렉트 대기는 모바일 스위트 전체를 silent-red 로 만들었다. 로그인 완료만
+  // 기다린 뒤 스펙들이 기대하는 워크스페이스 셸로 명시 이동한다.
+  await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+  await page.goto(`/w/${expectedSlug}`);
   await page.waitForURL(new RegExp(`/w/${expectedSlug}`));
 }

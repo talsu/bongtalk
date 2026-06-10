@@ -21,7 +21,6 @@ import { ChannelSettingsPage } from '../features/channels/ChannelSettingsPage';
 import { WorkspaceSettingsPage } from '../features/workspaces/WorkspaceSettingsPage';
 import { useMembers } from '../features/workspaces/useWorkspaces';
 import { useAuth } from '../features/auth/AuthProvider';
-import { ToastViewport } from '../design-system/primitives';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { CommandPalette } from '../features/shortcuts/CommandPalette';
 import { QuickSwitcher } from '../features/shortcuts/QuickSwitcher';
@@ -213,7 +212,6 @@ function DesktopShell(): JSX.Element {
       <QuickSwitcher />
       <ShortcutHelp />
       <FeedbackDialog />
-      <ToastViewport />
     </div>
   );
 }

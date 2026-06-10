@@ -58,7 +58,7 @@ export function MobileDiscover(): JSX.Element {
   const items = data?.items ?? [];
 
   return (
-    <div data-testid="mobile-discover" className="qf-m-screen">
+    <div data-testid="mobile-discover" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <button
           type="button"
@@ -92,14 +92,13 @@ export function MobileDiscover(): JSX.Element {
           </div>
         </div>
 
-        <div
-          className="qf-m-segment"
-          data-testid="mobile-discover-segment"
-          style={{ overflowX: 'auto' }}
-        >
+        {/* H-5(071-M0 C4): 9개 카테고리를 균등분할 qf-m-segment 에 넣으면 칩 폭이
+            글자 폭 밑으로 떨어져 한 글자씩 세로로 줄바꿈된다 — DS 용도 구분대로
+            가로 스크롤 qf-m-filter-bar + qf-m-filter-chip 으로 교체. */}
+        <div className="qf-m-filter-bar" data-testid="mobile-discover-segment">
           <button
             type="button"
-            className="qf-m-segment__btn"
+            className="qf-m-filter-chip"
             aria-selected={category === ''}
             data-testid="mobile-discover-cat-all"
             onClick={() => setCategory('')}
@@ -110,7 +109,7 @@ export function MobileDiscover(): JSX.Element {
             <button
               key={c}
               type="button"
-              className="qf-m-segment__btn"
+              className="qf-m-filter-chip"
               aria-selected={category === c}
               data-testid={`mobile-discover-cat-${c}`}
               onClick={() => setCategory(c)}
@@ -176,7 +175,7 @@ export function MobileDiscover(): JSX.Element {
 
       <MobileTabBar
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
     </div>
