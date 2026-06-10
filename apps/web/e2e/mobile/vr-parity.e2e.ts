@@ -33,8 +33,9 @@ for (const { name, viewport } of [
   { name: 'iphone-se', viewport: MOBILE_VIEWPORT },
   { name: 'iphone-14', viewport: MOBILE_VIEWPORT_PRO },
 ] as const) {
-  // TODO(task-049-follow-vr-parity-baseline): baseline 시드 후 fixme 해제.
-  test.fixme(
+  // 071-M0 C12: task-049-follow-vr-parity-baseline 해소 — 테스트 스택(빌드본 45173)에서
+  // baseline 시드 완료, fixme 해제. reseed 는 동일 스택에서 --update-snapshots 로.
+  test(
     `mobile shell renders stably at ${name} (${viewport.width}×${viewport.height})`,
     async ({ browser, request }) => {
       const stamp = Date.now();

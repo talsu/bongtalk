@@ -1,4 +1,12 @@
-import { useLayoutEffect, useMemo, useRef, useState, type RefObject, type TouchEvent } from 'react';
+import {
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type RefObject,
+  type TouchEvent,
+} from 'react';
 import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useMembers } from '../../features/workspaces/useWorkspaces';
@@ -10,6 +18,13 @@ import {
   useSendMessage,
 } from '../../features/messages/useMessages';
 import { useToggleReaction } from '../../features/reactions/useReactions';
+import { useQueryClient } from '@tanstack/react-query';
+import { qk } from '../../lib/query-keys';
+import {
+  useMarkChannelRead,
+  zeroOutChannelUnread,
+  type UnreadChannelSummary,
+} from '../../features/channels/useUnread';
 import { useCompose } from '../../stores/compose-store';
 import { renderMessageContent } from '../../features/messages/parseContent';
 import { Avatar, Icon } from '../../design-system/primitives';
@@ -92,6 +107,22 @@ export function MobileMessages({
   useScrollFetch(scrollRef, () => {
     if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
   });
+
+  // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 미읽음/멘션
+  // 배지가 영구 잔존했다 — 데스크톱 MessageColumn 의 채널-open 패턴(낙관적 zero-out +
+  // POST read-ack)을 동일 적용한다. DM(workspaceId=null)은 데스크톱과 같은 이유로 스킵,
+  // 커서 기반 정밀 ACK(FR-RS-02 AckScheduler)는 M1 범위.
+  const qc = useQueryClient();
+  const markRead = useMarkChannelRead(workspaceId ?? undefined);
+  useEffect(() => {
+    if (workspaceId === null) return;
+    qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
+      qk.channels.unreadSummary(workspaceId),
+      (old) => zeroOutChannelUnread(old, channelId),
+    );
+    markRead.mutate(channelId);
+    // markRead 는 useMutation 의 안정 참조 — 채널 변경 시에만 재발화한다.
+  }, [channelId, workspaceId, qc]);
 
   // Auto-scroll to bottom on mount + new incoming. task-025 follow-4:
   // history prepend grows messages.length while isFetchingNextPage is
@@ -285,6 +316,10 @@ function MobileMessageRow({
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const [swipeOffset, setSwipeOffset] = useState(0);
+  // 071-M0 C12: 커밋 판정을 state 클로저로 읽으면 같은 태스크에서 연속 발화하는 터치
+  // 시퀀스(합성 이벤트·고주사율 기기)에서 touchend 가 항상 초기값 0 을 봐 스와이프가
+  // 절대 커밋되지 않는다 — 판정은 ref, state 는 시각 transform 전용으로 분리한다.
+  const swipeOffsetRef = useRef(0);
 
   const LONG_PRESS_MS = 500;
   const SWIPE_THRESHOLD_PX = 80;
@@ -307,16 +342,21 @@ function MobileMessageRow({
       if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
       pressTimer.current = null;
     }
-    if (dx > 0 && Math.abs(dy) < 30) setSwipeOffset(Math.min(dx, 120));
+    if (dx > 0 && Math.abs(dy) < 30) {
+      const v = Math.min(dx, 120);
+      swipeOffsetRef.current = v;
+      setSwipeOffset(v);
+    }
   };
   const onTouchEnd = (): void => {
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
-    if (swipeOffset >= SWIPE_THRESHOLD_PX) {
+    if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
       // task-025 follow-2: swipe-right bypasses the sheet and enters
       // reply-mode directly (sets replyTarget + focuses composer).
       onSwipeReply();
     }
+    swipeOffsetRef.current = 0;
     setSwipeOffset(0);
     touchStart.current = null;
   };

@@ -62,10 +62,13 @@ export function MobileMessageSheet({
       aria-modal="true"
     >
       <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
-      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0">
+      {/* H-1(071-M0 C2): 백드롭(z=--z-modal-bg=60)이 z-auto 시트를 덮어 항목 탭을
+          가로채던 BLOCKER — 시트를 --z-modal(61)로 올린다. */}
+      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]">
         <div className="qf-m-sheet__grab" aria-hidden />
-        {/* Quick reaction row */}
-        <div className="flex items-center justify-around py-[var(--s-3)]">
+        {/* Quick reaction row — 071-M0 C12(감사 B-45): 임의 버튼(37×33)이 44px 터치
+            플로어를 위반했다. DS 정본 qf-m-react-row/chip(44×44)으로 교체. */}
+        <div className="qf-m-react-row justify-around">
           {QUICK.map((e) => (
             <button
               key={e}
@@ -73,7 +76,7 @@ export function MobileMessageSheet({
               data-testid={`mobile-quick-react-${e}`}
               onClick={() => onReact(e)}
               aria-label={`${QUICK_LABEL[e]} 반응`}
-              className="text-[length:var(--fs-18)] px-[var(--s-3)] py-[var(--s-2)] rounded-[var(--r-md)] active:bg-bg-muted"
+              className="qf-m-react-chip"
             >
               {e}
             </button>

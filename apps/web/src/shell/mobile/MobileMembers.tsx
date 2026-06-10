@@ -5,6 +5,9 @@ import {
 } from '@qufox/shared-types';
 import { useMembers } from '../../features/workspaces/useWorkspaces';
 import { usePresence } from '../../features/realtime/usePresence';
+// H-6(071-M0 C9): presence:subscribe 는 행이 뷰포트에 들어올 때 발행된다(S27 모델).
+// 모바일 드로어는 register 배선이 없어 구독이 0건 → 전원(본인 포함) 오프라인으로 보였다.
+import { useViewportPresence } from '../../features/realtime/useViewportPresence';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 // S75 (FR-PS-07): 모바일 멤버 행 탭 → 프로필 팝오버(터치 단일 진입점).
@@ -18,6 +21,7 @@ import { ProfilePopover } from '../../features/profile/ProfilePopover';
 export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Element {
   const { data: members } = useMembers(workspaceId);
   const { onlineUserIds, dndUserIds } = usePresence(workspaceId);
+  const { register } = useViewportPresence(workspaceId);
 
   const list = members?.members ?? [];
   const online = list.filter((m) => onlineUserIds.has(m.userId));
@@ -46,6 +50,7 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
               member={m}
               status={status(m.userId)}
               workspaceId={workspaceId}
+              register={register}
             />
           ))}
         </>
@@ -56,7 +61,13 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
             <div>오프라인 — {offline.length}</div>
           </div>
           {offline.map((m) => (
-            <MobileMemberRow key={m.userId} member={m} status="offline" workspaceId={workspaceId} />
+            <MobileMemberRow
+              key={m.userId}
+              member={m}
+              status="offline"
+              workspaceId={workspaceId}
+              register={register}
+            />
           ))}
         </>
       ) : null}
@@ -73,10 +84,12 @@ function MobileMemberRow({
   member,
   status,
   workspaceId,
+  register,
 }: {
   member: MemberWithPresence;
   status: 'online' | 'dnd' | 'offline';
   workspaceId: string;
+  register: (userId: string) => (el: Element | null) => void;
 }): JSX.Element {
   const displayName = resolveMemberDisplayName(member.user);
   const avatarUrl = resolveMemberAvatarUrl(member.user);
@@ -85,6 +98,7 @@ function MobileMemberRow({
     // F3 (a11y B-3): 모바일 멤버 행은 블록 `.qf-m-row` div 라 트리거 host 도 div.
     <ProfilePopover userId={member.userId} workspaceId={workspaceId} as="div">
       <div
+        ref={register(member.userId)}
         data-testid={`mobile-member-${member.user.username}`}
         data-presence={status}
         className={cn('qf-m-row', status === 'offline' && 'opacity-60')}

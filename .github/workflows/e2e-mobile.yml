@@ -1,0 +1,120 @@
+# 071-M0 C12 — 모바일 e2e 게이트.
+#
+# 기존 e2e.yml 은 전체 스위트(데스크톱 포함)를 돌리지만 어떤 머지 게이트에도
+# 강제되지 않아 모바일 회귀(드로어/시트 탭 차단·컴포저 소실)가 무증상 누적됐다.
+# 이 워크플로우는 e2e/mobile/* 만 분리해 develop/main push + PR 마다 돌리며,
+# **required check 로 취급한다** (브랜치 보호가 없으므로 CD 프로토콜상 develop
+# 머지 전 이 워크플로우 green 확인이 사람/에이전트 의무 — 071-M0-progress.md).
+name: e2e-mobile
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: docker-compose.test.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @qufox/api exec prisma generate
+
+      # 071-M0 리뷰 H1: 빈 DB 에서 /readyz 는 503(outbox health) → test-api healthcheck
+      # 실패 → `up -d` 가 "dependency failed" 로 비0 종료해 migrate 단계에 도달하지
+      # 못한다. 데이터 서비스 기동 → 마이그레이션 → 앱 기동 순으로 강제한다.
+      # (스텝 분해 사유: 이 레포 운영환경엔 GHA 로그 열람 수단이 없어, 무인증 jobs API 의
+      #  스텝 단위 conclusion 만으로 실패 지점을 특정할 수 있어야 한다 — build/up 분리.)
+      - name: Build images
+        run: docker compose -f ${COMPOSE_FILE} build
+
+      - name: Start data services
+        run: docker compose -f ${COMPOSE_FILE} up -d test-postgres test-redis test-minio test-minio-init
+
+      - name: Run migrations (one-shot)
+        run: |
+          docker compose -f ${COMPOSE_FILE} run --rm --entrypoint prisma \
+            test-api migrate deploy --schema=prisma/schema.prisma
+
+      - name: Start app services
+        run: docker compose -f ${COMPOSE_FILE} up -d
+
+      - name: Diag — compose state on failure
+        if: failure()
+        run: |
+          docker compose -f ${COMPOSE_FILE} ps -a
+          docker compose -f ${COMPOSE_FILE} logs --tail 120 test-api test-web || true
+          # 로그 열람 수단이 없는 운영환경용: 핵심 라인을 ::error 어노테이션으로 승격
+          # (무인증 check-runs API 로 읽힌다 · GitHub 상한 10개/스텝 — 안배: ps2+err2+tail6).
+          docker compose -f ${COMPOSE_FILE} ps -a --format '{{.Name}} {{.Status}}' \
+            | grep -E 'test-api|test-web' | while read -r l; do
+            echo "::error title=compose-ps::${l}"
+          done
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 200 test-api 2>/dev/null \
+            | grep -ivE 'PeriodicExportingMetricReader' \
+            | grep -iE 'error|exception|fatal|missing|invalid|refus|denied|cannot|P[0-9]{4}' \
+            | tail -2 | while read -r l; do
+            echo "::error title=api-log::${l:0:380}"
+          done
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 200 test-api 2>/dev/null \
+            | grep -ivE 'PeriodicExportingMetricReader|processTicksAndRejections|sdk-metrics' \
+            | tail -2 | while read -r l; do
+            echo "::error title=api-tail::${l:0:380}"
+          done
+          # healthcheck 판정 원문(가장 결정적): 마지막 프로브 2회의 exit/output.
+          docker inspect bongtalk-test-api-1 --format '{{json .State.Health}}' 2>/dev/null \
+            | python3 -c "import sys,json;h=json.load(sys.stdin);[print(f\"::error title=hc::exit={e['ExitCode']} out={(e.get('Output') or '')[:280]}\") for e in (h.get('Log') or [])[-2:]]" || true
+          # readyz 응답 본문: 컨테이너 내부 + 러너(퍼블리시 포트) 양쪽.
+          IN=$(docker compose -f ${COMPOSE_FILE} exec -T test-api node -e "require('http').get('http://127.0.0.1:3001/readyz',r=>{let b='';r.on('data',c=>b+=c);r.on('end',()=>console.log(r.statusCode,b.slice(0,250)))}).on('error',e=>console.log('ERR',String(e).slice(0,200)))" 2>&1 | tail -1)
+          echo "::error title=readyz-in::${IN:0:380}"
+          OUT=$(curl -s -m 5 -w ' HTTP%{http_code}' http://localhost:43001/readyz 2>&1 | tail -c 380)
+          echo "::error title=readyz-host::${OUT}"
+
+      - name: Wait for /readyz
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:43001/readyz || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "api /readyz is 200"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "api /readyz never returned 200"
+          docker compose -f ${COMPOSE_FILE} logs --tail 200
+          exit 1
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @qufox/web exec playwright install --with-deps chromium
+
+      - name: Run mobile Playwright suite
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:45173
+        run: pnpm exec playwright test --project=chromium e2e/mobile
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f ${COMPOSE_FILE} logs --tail 300
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-mobile-report
+          path: apps/web/playwright-report
+          retention-days: 7

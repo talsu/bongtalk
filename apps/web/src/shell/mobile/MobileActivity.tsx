@@ -11,6 +11,13 @@ import {
   type ActivityFilter,
   type ActivityRow,
 } from '../../features/activity/useActivity';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  resolveActivityClick,
+  ACTIVITY_TOAST,
+  type ActivityClickChannel,
+} from '../../features/activity/activityClick';
+import { useNotifications } from '../../stores/notification-store';
 import { MobileTabBar } from './MobileTabBar';
 import { useKeyboardDodge } from '../../lib/useKeyboardDodge';
 
@@ -50,14 +57,72 @@ export function MobileActivity(): JSX.Element {
   const items = data?.items ?? [];
   const groups = useMemo(() => groupByBucket(items), [items]);
 
+  const pushToast = useNotifications((s) => s.push);
+
+  /**
+   * A-23/24(071-M0 C5): 종전엔 DM 행이 `if (slug)` 가드에 걸려 무동작, 채널 행은
+   * 채널 세그먼트 없는 `/w/:slug?msg=` 로 가 빈 화면에 떨어졌다. 데스크톱과 동일한
+   * resolveActivityClick 분기를 재사용하되 모바일 라우트로 사상한다:
+   *  - DM → /dms/:otherUserId (모바일 DM 채팅)
+   *  - 채널 → /w/:slug?ch=<channelId>&msg=<id> — MobileShell 이 채널 목록 로드 후
+   *    ch 를 이름으로 해석해 실제 채널 라우트로 replace 한다(미캐시 워크스페이스도 동작).
+   *  - 친구 요청 → /friends (모바일 전용 화면 존재 — 데스크톱 noop 과 다른 의도적 분기)
+   */
+  // 리뷰 M1: 무조건 {accessible:true} 는 삭제/권한회수 fallback(②③ 토스트)을 도달
+  // 불능으로 만들었다 — 데스크톱(ActivityInboxPanel.lookupChannel)과 동일하게 캐시를
+  // 조회하되, 모바일은 미방문 워크스페이스 캐시가 없는 게 정상이라 **미캐시일 때만**
+  // optimistic true 로 점프한다(ch 해석은 MobileShell 이 채널 목록 로드 후 수행).
+  const qc = useQueryClient();
+  const lookupChannel = (
+    workspaceId: string,
+    channelId: string,
+  ): ActivityClickChannel | undefined => {
+    const channels = qc.getQueryData<{
+      categories: Array<{ channels: Array<{ id: string }> }>;
+      uncategorized: Array<{ id: string }>;
+    }>(['workspaces', workspaceId, 'channels']);
+    // 미캐시(미방문 워크스페이스) → optimistic 점프.
+    if (!channels) return { accessible: true };
+    const all = [
+      ...(channels.uncategorized ?? []),
+      ...(channels.categories?.flatMap((c) => c.channels) ?? []),
+    ];
+    // 캐시에 목록이 있는데 부재 → 데스크톱과 동일하게 not-found(undefined) 처리.
+    return all.some((c) => c.id === channelId) ? { accessible: true } : undefined;
+  };
+
   const open = (row: ActivityRow): void => {
     markRead.mutate(row.activityKey);
-    const slug = slugById.get(row.workspaceId);
-    if (slug) navigate(`/w/${slug}?msg=${row.messageId}`);
+    const action = resolveActivityClick(
+      row,
+      row.workspaceId && row.channelId
+        ? lookupChannel(row.workspaceId, row.channelId)
+        : { accessible: true },
+    );
+    switch (action.type) {
+      case 'dm-open':
+        navigate(`/dms/${encodeURIComponent(action.otherUserId)}`);
+        return;
+      case 'thread-jump':
+      case 'message-jump': {
+        const slug = slugById.get(action.workspaceId);
+        if (!slug) {
+          pushToast({ variant: 'warning', title: ACTIVITY_TOAST.channelNotFound, ttlMs: 4000 });
+          return;
+        }
+        const threadParam = action.type === 'thread-jump' ? '&thread=1' : '';
+        navigate(
+          `/w/${slug}?ch=${encodeURIComponent(action.channelId)}&msg=${encodeURIComponent(action.messageId)}${threadParam}`,
+        );
+        return;
+      }
+      default:
+        if (row.kind === 'friend_request') navigate('/friends');
+    }
   };
 
   return (
-    <div data-testid="mobile-activity" className="qf-m-screen">
+    <div data-testid="mobile-activity" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <button
           type="button"
@@ -69,7 +134,7 @@ export function MobileActivity(): JSX.Element {
           <Icon name="chevron-left" size="md" />
         </button>
         <div className="qf-m-topbar__titleBlock">
-          <div className="qf-m-topbar__title">Activity</div>
+          <div className="qf-m-topbar__title">활동</div>
           <div className="qf-m-topbar__subtitle">
             {unread && unread.total > 0 ? `읽지 않음 ${unread.total}` : '모두 읽음'}
           </div>
@@ -138,11 +203,13 @@ export function MobileActivity(): JSX.Element {
                   className={cn('qf-m-notif w-full text-left', !row.readAt && 'qf-m-notif--unread')}
                 >
                   <div className="qf-m-notif__avatar">
-                    <Avatar name={row.actorId.slice(0, 2)} size="md" />
+                    {/* A-25(071-M0 C5): actorId.slice 노출 금지(S47 데스크톱과 동일) —
+                        actorName 사용, 결측 시 중립 폴백. */}
+                    <Avatar name={row.actorName ?? '?'} size="md" />
                   </div>
                   <div>
                     <div className="qf-m-notif__head">
-                      <span className="qf-m-notif__actor">{row.actorId.slice(0, 8)}</span>
+                      <span className="qf-m-notif__actor">{row.actorName ?? '알 수 없는 사용자'}</span>
                       <span className="qf-m-notif__verb">{verbFor(row)}</span>
                       <span className="qf-m-notif__time">{relTime(row.createdAt)}</span>
                     </div>
@@ -168,7 +235,7 @@ export function MobileActivity(): JSX.Element {
       <MobileTabBar
         active="activity"
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
       />
     </div>
   );

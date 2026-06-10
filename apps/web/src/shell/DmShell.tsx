@@ -29,7 +29,6 @@ import type { PresenceStatus } from '../features/presence/presenceStatus';
 import { WorkspaceNav } from './WorkspaceNav';
 import { BottomBar } from './BottomBar';
 import { MessageColumn } from './MessageColumn';
-import { ToastViewport } from '../design-system/primitives';
 import { cn } from '../lib/cn';
 
 /**
@@ -382,7 +381,6 @@ export function DmShell(): JSX.Element {
           ) : null}
         </main>
       )}
-      <ToastViewport />
     </div>
   );
 }
