@@ -35,7 +35,7 @@
 | E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |         |
 | E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | **done**                                                        |         |
 | E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | **done**                                                        |         |
-| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo                                                            |         |
+| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | **done**                                                        |         |
 | E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | todo                                                            |         |
 | E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | todo                                                            |         |
 
@@ -101,9 +101,20 @@
   버튼에 멤버수 병기(mobile-member-count)+aria-label 인원. 멘션 뱃지는
   --badge-mention-bg(danger) 분리. 프로브(.tour/probe-m2-e5.mjs) green: 멤버수 2/
   server-header/멘션 뱃지 rgb(220,38,38)/브라우저 오버레이.
-- 다음 작업: E6(M1 이월 — ①MobileMessages 에 EphemeralList·GiphyPreviewSlot 장착
-  ②MobileComposer submit 에 detectSlashExecution/클라 액션(모바일 안전 부분집합:
-  collapse/expand/darkmode — /search 는 /search 탭 navigate, /shortcuts 는 미지원
-  토스트) ③acSources.slashCommands 켜기 ④답장 데드엔드: replyTarget 을 전송에
-  연결할 서버 지원 확인(reply 필드 부재 시 스레드 답글로 라우팅하거나 액션 제거 결정)
-  → E7 게이트(e2e 전면 갱신: drawer/home 결합 스펙 → 패널/5탭 모델) → E8.
+- (세션 #2) E6 완료 — ①EphemeralList+GiphyPreviewSlot 을 MobileMessages 에 장착
+  (데스크톱 MessageColumn 동일 위치) ②MobileComposer submit 에 슬래시 분기:
+  detectSlashExecution → 클라 액션(collapse/expand/darkmode 동일 스토어, /search →
+  `/search?q=` 탭 이동 + MobileSearchTab pre-fill, /shortcuts 는 EPHEMERAL 안내) →
+  서버 runSlashExecution(IN_CHANNEL/GIPHY_PREVIEW/EPHEMERAL + navigate dm/channel)
+  ③acSources.slashCommands = useSlashCommands 데이터(M1 보류 해제) ④답장 데드엔드
+  해소: 스와이프/시트 '답장' = 스레드 답글 단일 경로(setThreadRootId — DM/tmp 숨김),
+  replyTarget 배너·compose-store replyTargets 제거, 시트 '스레드에서 답글' 라벨은
+  '스레드 보기'로(중복 해소). 프로브(.tour/probe-m2-e6.mjs) green: 슬래시 자동완성/
+  /shrug IN_CHANNEL 게시(프로브 매칭 문자열만 마크다운 이스케이프 차이 — 디버그로
+  게시 실측)/darkmode 토글+EPHEMERAL/search 이동+pre-fill/스와이프→스레드 패널/
+  reply 배너 소멸.
+- 다음 작업: **E7 게이트** — ①구 모델 결합 e2e 전면 갱신(red 목록: drawer-channels·
+  members-drawer·drawer-back-button·home-mobile-base/overlay/swipe-back·tabbar-3-tabs·
+  tabbar(구 testid)·all-tabs-navigate·dm-fab-flow 등 — 패널/5탭 모델로 재작성, 신규:
+  panels-gesture/5tabs/threads-tab/search-tab/you-tab/slash-mobile) ②vr baseline 갱신
+  ③standalone verify ④적대 리뷰(checkout 금지 명시) fix-forward → E8(머지·배포·REPORT).

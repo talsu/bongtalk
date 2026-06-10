@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMyWorkspaces } from '../../features/workspaces/useWorkspaces';
 import { useSearch } from '../../features/search/useSearch';
 import { markOnlyHtml } from '../../features/search/sanitize';
@@ -29,8 +29,11 @@ export function MobileSearchTab(): JSX.Element {
   }, []);
   const ws = mine?.workspaces.find((w) => w.slug === lastSlug) ?? mine?.workspaces[0] ?? null;
 
-  const [input, setInput] = useState('');
-  const [q, setQ] = useState('');
+  // 071-M2 E6 (FR-SC-08): /search 슬래시 커맨드의 키워드 pre-fill(?q=).
+  const [sp] = useSearchParams();
+  const initialQ = sp.get('q') ?? '';
+  const [input, setInput] = useState(initialQ);
+  const [q, setQ] = useState(initialQ);
   // 300ms 디바운스 — 데스크톱 결과 패널과 동일한 요청 절제.
   useEffect(() => {
     const t = window.setTimeout(() => setQ(input.trim()), 300);
