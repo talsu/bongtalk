@@ -10,7 +10,8 @@ import { MobileHome } from './mobile/MobileHome';
 import { MobileMessages } from './mobile/MobileMessages';
 import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
-import { MobileDrawer } from './mobile/MobileDrawer';
+// 071-M2 E2 (A안): 드로어 오버레이 → DS OverlappingPanels 3패널 셸.
+import { MobilePanels, type PanelSide } from './mobile/MobilePanels';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -54,8 +55,8 @@ export function MobileShell(): JSX.Element {
     return flatChannels.find((c) => c.name === channelName) ?? null;
   }, [flatChannels, channelName]);
 
-  const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
+  // 071-M2 E2: 단일 패널 상태(center/left/right) — DS .qf-m-panels 상태 수식자와 1:1.
+  const [panel, setPanel] = useState<PanelSide>('center');
   const navigate = useNavigate();
   const location = useLocation();
   const [sp] = useSearchParams();
@@ -97,12 +98,11 @@ export function MobileShell(): JSX.Element {
     navigate(`/w/${active.slug}/${target.name}${qsStr ? `?${qsStr}` : ''}`, { replace: true });
   }, [active, activeChannel, channelName, flatChannels, sp, navigate]);
 
-  // Close both drawers on route change — covers hardware back, channel
-  // picks that navigate, and tab taps. Matches user intent: the drawer
+  // Close the side panels on route change — covers hardware back, channel
+  // picks that navigate, and tab taps. Matches user intent: the panel
   // is a per-screen modal, not a persistent surface.
   useEffect(() => {
-    setLeftOpen(false);
-    setRightOpen(false);
+    setPanel('center');
   }, [location.pathname]);
 
   if (isLoading) {
@@ -145,93 +145,95 @@ export function MobileShell(): JSX.Element {
   const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';
 
   return (
-    <div data-testid="mobile-shell" className="qf-m-screen qf-m-screen--app">
-      <header className="qf-m-topbar qf-m-safe-top">
-        <button
-          type="button"
-          data-testid="mobile-topbar-menu"
-          className="qf-m-topbar__back"
-          aria-label="메뉴 열기"
-          onClick={() => setLeftOpen(true)}
-        >
-          <Icon name="grid" size="md" />
-        </button>
-        <div className="qf-m-topbar__titleBlock">
-          <div className="qf-m-topbar__title">{topbarTitle}</div>
-          <div className="qf-m-topbar__subtitle">{topbarSubtitle}</div>
-        </div>
-        <div className="qf-m-topbar__actions">
-          {activeChannel ? (
-            <button
-              type="button"
-              data-testid="mobile-topbar-members"
-              className="qf-m-topbar__action"
-              aria-label="멤버 보기"
-              onClick={() => setRightOpen(true)}
-            >
-              <Icon name="users" size="md" />
-            </button>
-          ) : null}
-        </div>
-      </header>
-
-      {/* H-2(071-M0 C1): qf-m-body 는 display:flex 가 아니라서 MobileMessages 의
-          리스트(flex-1 min-h-0)가 무효 — 리스트가 내용 높이만큼 자라 컴포저가 화면 밖으로
-          밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
-          동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
-      <main className="qf-m-body flex min-h-0 flex-col">
-        {activeChannel ? (
-          <MobileMessages
-            workspaceId={active.id}
-            workspaceSlug={active.slug}
-            channelId={activeChannel.id}
-            channelName={activeChannel.name}
+    // 071-M2 E2 (A안): 드로어 오버레이 모델 폐기 — DS OverlappingPanels.
+    // 좌 패널 = 워크스페이스 레일 + 채널 목록(qf-m-safe-top 으로 노치 회피),
+    // 우 패널 = 멤버 목록(활성 채널일 때만 — 엣지 제스처도 함께 비활성),
+    // 중앙 = topbar + 채팅 + 탭바(기존 qf-m-screen 골격 유지).
+    <MobilePanels
+      open={panel}
+      onOpenChange={setPanel}
+      left={
+        <div className="qf-m-safe-top" data-testid="mobile-left-panel">
+          <MobileChannelList
+            workspace={active}
+            workspaces={mine?.workspaces ?? []}
+            activeChannelName={activeChannel?.name ?? null}
+            onPick={() => setPanel('center')}
           />
-        ) : (
-          <div className="qf-m-empty flex-1">
-            <div className="qf-m-empty__title">채널을 선택하세요</div>
-            <div className="qf-m-empty__body">좌상단 메뉴에서 채널을 고르면 대화가 시작돼요.</div>
+        </div>
+      }
+      right={
+        activeChannel ? (
+          <div className="qf-m-safe-top" data-testid="mobile-right-panel">
+            <MobileMembers workspaceId={active.id} />
           </div>
-        )}
-      </main>
+        ) : null
+      }
+    >
+      <div data-testid="mobile-shell" className="qf-m-screen qf-m-screen--app">
+        <header className="qf-m-topbar qf-m-safe-top">
+          <button
+            type="button"
+            data-testid="mobile-topbar-menu"
+            className="qf-m-topbar__back"
+            aria-label="채널 목록 열기"
+            aria-expanded={panel === 'left'}
+            onClick={() => setPanel(panel === 'left' ? 'center' : 'left')}
+          >
+            <Icon name="grid" size="md" />
+          </button>
+          <div className="qf-m-topbar__titleBlock">
+            <div className="qf-m-topbar__title">{topbarTitle}</div>
+            <div className="qf-m-topbar__subtitle">{topbarSubtitle}</div>
+          </div>
+          <div className="qf-m-topbar__actions">
+            {activeChannel ? (
+              <button
+                type="button"
+                data-testid="mobile-topbar-members"
+                className="qf-m-topbar__action"
+                aria-label="멤버 보기"
+                aria-expanded={panel === 'right'}
+                onClick={() => setPanel(panel === 'right' ? 'center' : 'right')}
+              >
+                <Icon name="users" size="md" />
+              </button>
+            ) : null}
+          </div>
+        </header>
 
-      {/* C7(071-M0): 홈 탭은 모든 화면에서 '/'(MobileHome) — 종전 /w/:slug 행은 C11 의
-          lastChannel 복원과 결합하면 사실상 무동작 버튼이 된다. */}
-      <MobileTabBar
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+        {/* H-2(071-M0 C1): qf-m-body 는 display:flex 가 아니라서 MobileMessages 의
+            리스트(flex-1 min-h-0)가 무효 — 리스트가 내용 높이만큼 자라 컴포저가 화면 밖으로
+            밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
+            동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
+        <main className="qf-m-body flex min-h-0 flex-col">
+          {activeChannel ? (
+            <MobileMessages
+              workspaceId={active.id}
+              workspaceSlug={active.slug}
+              channelId={activeChannel.id}
+              channelName={activeChannel.name}
+            />
+          ) : (
+            <div className="qf-m-empty flex-1">
+              <div className="qf-m-empty__title">채널을 선택하세요</div>
+              <div className="qf-m-empty__body">좌상단 메뉴에서 채널을 고르면 대화가 시작돼요.</div>
+            </div>
+          )}
+        </main>
 
-      {/* Left drawer: workspace + channel list */}
-      <MobileDrawer
-        side="left"
-        open={leftOpen}
-        onClose={() => setLeftOpen(false)}
-        testId="mobile-left-drawer"
-      >
-        <MobileChannelList
-          workspace={active}
-          workspaces={mine?.workspaces ?? []}
-          activeChannelName={activeChannel?.name ?? null}
-          onPick={() => setLeftOpen(false)}
+        {/* C7(071-M0): 홈 탭은 모든 화면에서 '/'(MobileHome) — 5탭 교체는 E3. */}
+        <MobileTabBar
+          onHome={() => navigate('/')}
+          onSettings={() => navigate('/settings')}
+          onActivity={() => navigate('/activity')}
         />
-      </MobileDrawer>
 
-      {/* Right drawer: member list for active channel */}
-      <MobileDrawer
-        side="right"
-        open={rightOpen}
-        onClose={() => setRightOpen(false)}
-        testId="mobile-right-drawer"
-      >
-        <MobileMembers workspaceId={active.id} />
-      </MobileDrawer>
-
-      {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
-          게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
-      <OnboardingHost workspaceId={active.id} slug={active.slug} />
-      <FeedbackDialog />
-    </div>
+        {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
+            게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
+        <OnboardingHost workspaceId={active.id} slug={active.slug} />
+        <FeedbackDialog />
+      </div>
+    </MobilePanels>
   );
 }

@@ -28,16 +28,16 @@
 
 ## 청크 상태
 
-| 청크 | 내용                                                                                                                                                            | 상태 | 커밋 |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
-| E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | todo |      |
-| E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | todo |      |
-| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | todo |      |
-| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | todo |      |
-| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | todo |      |
-| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo |      |
-| E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | todo |      |
-| E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | todo |      |
+| 청크 | 내용                                                                                                                                                            | 상태                                                            | 커밋    |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------- |
+| E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | **done** — 훅은 기존 lib/useBreakpoint 재사용, App.tsx 4곳 교체 | edcca99 |
+| E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |         |
+| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | todo                                                            |         |
+| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | todo                                                            |         |
+| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | todo                                                            |         |
+| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | todo                                                            |         |
+| E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | todo                                                            |         |
+| E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | todo                                                            |         |
 
 ## 결정 로그
 
@@ -58,5 +58,22 @@
 - (착수) M1 종료 직후 연속 진행. 검증 스택 가동 중. 서브에이전트 브리프에는
   "읽기 전용 — git checkout/branch 전환 금지" + "머지/배포/prod 접근 금지" 명시
   (M1 D11 에서 reviewer 가 main checkout 사고).
-- 다음 작업: E1(useIsMobile)부터 — App.tsx 의 matchMedia 분기 3곳 grep 후 훅 추출.
-  이어 E2 진입 전 DS mobile.css 420~491(.qf-m-panels)과 현 MobileShell.tsx 정독.
+- (세션 #2) E1 완료(edcca99) — useIsMobile 은 lib/useBreakpoint 에 이미 존재(Shell 사용
+  중), App.tsx 라우트 가드 4곳(Activity/Friends/DmShell/Discover)의 matchMedia 1회
+  평가를 훅으로 교체(Rules of Hooks — 조기 return 앞 호출).
+- (세션 #2) E2 완료 — 신규 `shell/mobile/MobilePanels.tsx`(DS .qf-m-panels 구동:
+  상태 외부 제어 open/onOpenChange, --dragging 인라인 transform 추종, --snapping 스냅
+  (타이머 400ms 해제), fling |vx|>500, 커밋 임계 60px, 엣지 24px, 방향 잠금 10px,
+  스크림 center 내부+진행도 opacity, 제스처 판정 전부 ref). MobileShell 의
+  MobileDrawer 2개 → MobilePanels(left=MobileChannelList, right=activeChannel 시
+  MobileMembers, center=qf-m-screen 골격). topbar 버튼 aria-expanded + 토글.
+  ★함정 적발: back 마커 cleanup 의 무조건 history.back() 이 **채널 픽 직후 라우터
+  push 를 되돌려 채널 전환이 무효**가 됐다 — history.state.qfPanel(마커 최상단)일
+  때만 back 하도록 수정. 프로브(.tour/probe-m2-e2{,b}.mjs) green: 메뉴/멤버 토글·
+  좌패널 x=0·우패널 폭 240·채널 픽 라우팅+닫힘·스크림 탭(가시영역 좌표 주의 —
+  show-right 시 스크림 좌표계는 center 기준)·엣지 스와이프 오픈·back 패널만 닫힘.
+  비고: 기존 e2e 의 drawer 결합 스펙(drawer-channels/members-drawer/drawer-back-button
+  등)은 이 시점부터 red — E7 에서 패널 모델로 전면 갱신(계획된 파손).
+  server-header 도입은 E5 에서(워크스페이스 전환 일원화와 함께).
+- 다음 작업: E3(5탭 탭바 + 신규 화면: 스레드 인박스/검색 풀스크린/나 탭) — 현
+  MobileTabBar.tsx 와 DS qf-m-tabbar/qf-m-thread-inbox/qf-m-you-header 스펙 정독부터.
