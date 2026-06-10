@@ -32,6 +32,9 @@ import { InviteManagerPanel } from '../features/workspaces/InviteManagerPanel';
 import { MemberDirectoryPanel } from '../features/workspaces/MemberDirectoryPanel';
 import { useLeaveWorkspace } from '../features/workspaces/useWorkspaces';
 import { useNotifications } from '../stores/notification-store';
+// 071-M3 F8 (FR-PS-08 모바일 / 감사 B-87): 전체 프로필 — ui-store 구독 자기완결
+// 패널을 모바일 풀스크린 변형으로 마운트(ProfilePopover '전체 프로필'이 연다).
+import { MemberProfilePanel } from '../features/profile/MemberProfilePanel';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -522,6 +525,8 @@ export function MobileShell(): JSX.Element {
             />
           ) : null}
         </SettingsOverlay>
+        {/* F8: 전체 프로필(풀스크린) — profilePanelUserId 가 null 이면 자체 미렌더. */}
+        <MemberProfilePanel workspaceId={active.id} mobile />
         <SettingsOverlay
           open={overlay === 'directory'}
           onClose={() => setOverlay(null)}

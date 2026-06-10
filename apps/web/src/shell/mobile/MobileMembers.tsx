@@ -3,8 +3,7 @@ import {
   resolveMemberAvatarUrl,
   type MemberWithPresence,
 } from '@qufox/shared-types';
-import { useMembers } from '../../features/workspaces/useWorkspaces';
-import { usePresence } from '../../features/realtime/usePresence';
+import { useMemberGroups } from '../../features/workspaces/useWorkspaces';
 // H-6(071-M0 C9): presence:subscribe 는 행이 뷰포트에 들어올 때 발행된다(S27 모델).
 // 모바일 드로어는 register 배선이 없어 구독이 0건 → 전원(본인 포함) 오프라인으로 보였다.
 import { useViewportPresence } from '../../features/realtime/useViewportPresence';
@@ -14,68 +13,99 @@ import { cn } from '../../lib/cn';
 import { ProfilePopover } from '../../features/profile/ProfilePopover';
 
 /**
- * Right-drawer member list. qf-m-row per member with presence-aware
- * primary colour. Presence comes from the same cache the desktop
- * MemberColumn reads.
+ * 071-M3 F8 (FR-P08/P09 모바일 / 감사 B-4·B-55·B-119·B-122) — 우패널 멤버 목록.
+ *
+ * 종전엔 클라이언트 2버킷(online/offline — idle/dnd 가 오프라인으로 강등)이었다.
+ * 데스크톱 MemberColumn 정본대로 **서버가 만든 그룹을 그대로 렌더**한다:
+ * hoist(per-role, position DESC, 역할 색점) → status 4버킷(온라인/자리비움/
+ * 방해금지/오프라인). 역할 표기는 한글화(감사 B-109).
  */
+const ROLE_LABEL: Record<string, string> = {
+  OWNER: '소유자',
+  ADMIN: '관리자',
+  MODERATOR: '운영진',
+  MEMBER: '멤버',
+  GUEST: '게스트',
+};
+
+const STATUS_BY_GROUP: Record<string, 'online' | 'idle' | 'dnd' | 'offline'> = {
+  online: 'online',
+  idle: 'idle',
+  dnd: 'dnd',
+  offline: 'offline',
+};
+
 export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Element {
-  const { data: members } = useMembers(workspaceId);
-  const { onlineUserIds, dndUserIds, idleUserIds } = usePresence(workspaceId);
+  // F8: 서버 그룹 응답(listMembers — hoist/groups). useMembers(전량 평탄)와 달리
+  // MemberColumn 과 동일 소스를 쓴다.
+  const { data } = useMemberGroups(workspaceId);
   const { register } = useViewportPresence(workspaceId);
 
-  const list = members?.members ?? [];
-  // 071-M1 D10: idle/dnd 도 접속 중 — 종전엔 onlineUserIds 만 봐서 자리비움/방해금지
-  // 멤버가 '오프라인' 그룹으로 떨어졌다. 상태 닷이 idle(노랑)/dnd(빨강)를 구분한다.
-  const isActive = (userId: string): boolean =>
-    onlineUserIds.has(userId) || idleUserIds.has(userId) || dndUserIds.has(userId);
-  const online = list.filter((m) => isActive(m.userId));
-  const offline = list.filter((m) => !isActive(m.userId));
-
-  const status = (userId: string): 'online' | 'idle' | 'dnd' | 'offline' => {
-    if (dndUserIds.has(userId)) return 'dnd';
-    if (idleUserIds.has(userId)) return 'idle';
-    if (onlineUserIds.has(userId)) return 'online';
-    return 'offline';
-  };
+  const hoist = data?.hoist ?? [];
+  const groups = data?.groups ?? [];
+  const total =
+    hoist.reduce((n, g) => n + g.members.length, 0) +
+    groups.reduce((n, g) => n + g.members.length, 0);
 
   return (
     <div>
       <div className="qf-m-section">
-        <div>멤버 · {list.length}</div>
+        <div>멤버 · {total}</div>
       </div>
-      {online.length > 0 ? (
-        <>
-          {/* a11y HIGH-5: 그룹 헤더를 heading 으로 노출(SR 네비게이션). */}
-          <div className="qf-m-section" role="heading" aria-level={3}>
-            <div>온라인 — {online.length}</div>
+      {/* FR-P09: per-role hoist 그룹(온라인 멤버만 — 서버 정본). */}
+      {hoist.map((g) =>
+        g.members.length === 0 ? null : (
+          <div key={`hoist-${g.key}`}>
+            <div
+              className="qf-m-section flex items-center gap-[var(--s-2)]"
+              role="heading"
+              aria-level={3}
+            >
+              {g.color ? (
+                <span
+                  data-testid="mobile-hoist-dot"
+                  aria-hidden
+                  className="inline-block h-[var(--sz-status-dot)] w-[var(--sz-status-dot)] rounded-[var(--r-pill)]"
+                  style={{ backgroundColor: g.color }}
+                />
+              ) : null}
+              <div>
+                {ROLE_LABEL[g.label] ?? g.label} — {g.members.length}
+              </div>
+            </div>
+            {g.members.map((m) => (
+              <MobileMemberRow
+                key={m.userId}
+                member={m}
+                status="online"
+                workspaceId={workspaceId}
+                register={register}
+              />
+            ))}
           </div>
-          {online.map((m) => (
-            <MobileMemberRow
-              key={m.userId}
-              member={m}
-              status={status(m.userId)}
-              workspaceId={workspaceId}
-              register={register}
-            />
-          ))}
-        </>
-      ) : null}
-      {offline.length > 0 ? (
-        <>
-          <div className="qf-m-section" role="heading" aria-level={3}>
-            <div>오프라인 — {offline.length}</div>
+        ),
+      )}
+      {/* FR-P08: status 4버킷(온라인/자리비움/방해금지/오프라인) — 서버 정본. */}
+      {groups.map((g) =>
+        g.members.length === 0 ? null : (
+          <div key={`status-${g.key}`}>
+            <div className="qf-m-section" role="heading" aria-level={3}>
+              <div>
+                {g.label} — {g.members.length}
+              </div>
+            </div>
+            {g.members.map((m) => (
+              <MobileMemberRow
+                key={m.userId}
+                member={m}
+                status={STATUS_BY_GROUP[g.key] ?? 'offline'}
+                workspaceId={workspaceId}
+                register={register}
+              />
+            ))}
           </div>
-          {offline.map((m) => (
-            <MobileMemberRow
-              key={m.userId}
-              member={m}
-              status="offline"
-              workspaceId={workspaceId}
-              register={register}
-            />
-          ))}
-        </>
-      ) : null}
+        ),
+      )}
     </div>
   );
 }
@@ -129,10 +159,11 @@ function MobileMemberRow({
         <div className="min-w-0 flex-1">
           {/* S74 (FR-PS-06): ws nickname > displayName > username 우선순위 표시. */}
           <div className="qf-m-row__primary">{displayName}</div>
-          <div className="qf-m-row__secondary">{member.role}</div>
+          {/* F8 (감사 B-109): 역할 한글화. */}
+          <div className="qf-m-row__secondary">{ROLE_LABEL[member.role] ?? member.role}</div>
         </div>
         {member.role === 'OWNER' ? (
-          <div className="qf-m-row__aside" aria-label="Owner">
+          <div className="qf-m-row__aside" aria-label="소유자">
             <Icon name="crown" size="sm" />
           </div>
         ) : null}
