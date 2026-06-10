@@ -189,11 +189,7 @@ export function MobileFriends(): JSX.Element {
         <Icon name="user-plus" size="md" />
       </button>
 
-      <MobileTabBar
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+      <MobileTabBar />
 
       {addOpen ? (
         <div

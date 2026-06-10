@@ -13,6 +13,9 @@ import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { ToastViewport, TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
+// 071-M2 E1: 반응형 분기 일원화 — 라우트 가드들의 matchMedia 1회 평가(회전/리사이즈
+// 미반응)를 Shell 과 동일한 구독형 훅으로 통일한다.
+import { useIsMobile } from './lib/useBreakpoint';
 import { ConnectionBanner } from './features/connection/ConnectionBanner';
 // S76 (D14 / FR-PS-09·18 · Fork C1): Ctrl+, 설정 단축키 + 로그인 후 외관 서버값 보정.
 import { useSettingsHotkey } from './features/settings/useSettingsHotkey';
@@ -156,6 +159,16 @@ const MobileFriends = lazy(() =>
 const MobileDiscover = lazy(() =>
   import('./shell/mobile/MobileDiscover').then((m) => ({ default: m.MobileDiscover })),
 );
+// 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 화면.
+const MobileThreadsTab = lazy(() =>
+  import('./shell/mobile/MobileThreadsTab').then((m) => ({ default: m.MobileThreadsTab })),
+);
+const MobileSearchTab = lazy(() =>
+  import('./shell/mobile/MobileSearchTab').then((m) => ({ default: m.MobileSearchTab })),
+);
+const MobileYouTab = lazy(() =>
+  import('./shell/mobile/MobileYouTab').then((m) => ({ default: m.MobileYouTab })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -245,9 +258,10 @@ function VerificationGate({ children }: { children: ReactNode }): JSX.Element {
  */
 function ProtectedActivityRoute(): JSX.Element {
   const { status } = useAuth();
+  // 071-M2 E1: 훅은 조기 return 보다 먼저(Rules of Hooks).
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileActivity /> : <ActivityPage />}
@@ -264,6 +278,27 @@ function ProtectedMyProfileRoute(): JSX.Element {
   return (
     <Suspense fallback={<LoadingFallback />}>
       <MyProfilePage />
+    </Suspense>
+  );
+}
+
+// 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 라우트 가드 — 스레드/검색/나.
+// 데스크톱 동등 surface 는 셸 내부에 있으므로 비모바일은 '/' 로 폴백한다.
+function ProtectedMobileTabRoute({ tab }: { tab: 'threads' | 'search' | 'you' }): JSX.Element {
+  const { status } = useAuth();
+  const isMobile = useIsMobile();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
+  if (!isMobile) return <Navigate to="/" replace />;
+  return (
+    <Suspense fallback={<LoadingFallback />}>
+      {tab === 'threads' ? (
+        <MobileThreadsTab />
+      ) : tab === 'search' ? (
+        <MobileSearchTab />
+      ) : (
+        <MobileYouTab />
+      )}
     </Suspense>
   );
 }
@@ -292,9 +327,9 @@ function ProtectedDmChatRoute(): JSX.Element {
 
 function ProtectedFriendsRoute(): JSX.Element {
   const { status } = useAuth();
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileFriends /> : <FriendsPage />}
@@ -306,19 +341,18 @@ function ProtectedDmShellRoute(): JSX.Element {
   const { status } = useAuth();
   const params = useParams<{ userId?: string }>();
   const [dmSearch] = useSearchParams();
+  // 071-M2 E1: 구독형 훅으로 통일(조기 return 보다 먼저 — Rules of Hooks).
+  const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
   // H-4(071-M0 C8): 종전엔 모바일 390px 에서도 데스크톱 3컬럼 DmShell 이 그대로 렌더돼
   // 우측 빈 패널이 한 글자씩 세로로 깨졌다. 모바일은 전용 표면으로 분기한다:
   //  - /dm?new=<userId> (홈 친구 행 진입) → /dms/:userId (MobileDmChat 이 createOrGet)
   //  - /dm/:userId → /dms/:userId, /dm → /dms (MobileDmList)
-  // matchMedia 1회 평가는 이웃 라우트 가드들과 동일 패턴(반응형 일원화는 M2 범위).
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
   if (isMobile) {
     const newUserId = dmSearch.get('new');
     if (newUserId) return <Navigate to={`/dms/${encodeURIComponent(newUserId)}`} replace />;
-    if (params.userId)
-      return <Navigate to={`/dms/${encodeURIComponent(params.userId)}`} replace />;
+    if (params.userId) return <Navigate to={`/dms/${encodeURIComponent(params.userId)}`} replace />;
     return <Navigate to="/dms" replace />;
   }
   return (
@@ -330,11 +364,11 @@ function ProtectedDmShellRoute(): JSX.Element {
 
 function ProtectedDiscoverRoute(): JSX.Element {
   const { status } = useAuth();
-  if (status === 'loading') return <LoadingFallback />;
-  if (status === 'anonymous') return <Navigate to="/login" replace />;
   // Desktop keeps the server rail + bottom bar chrome via DiscoverShell;
   // mobile renders the full-screen qf-m-screen variant.
-  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  const isMobile = useIsMobile();
+  if (status === 'loading') return <LoadingFallback />;
+  if (status === 'anonymous') return <Navigate to="/login" replace />;
   return (
     <Suspense fallback={<LoadingFallback />}>
       {isMobile ? <MobileDiscover /> : <DiscoverShell />}
@@ -513,6 +547,15 @@ export default function App(): JSX.Element {
                           <Route path="advanced" element={<AdvancedSettingsPage />} />
                         </Route>
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
+                        {/* 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 화면 — 스레드/검색/나.
+                            데스크톱은 동등 surface 가 셸 내부(사이드바 Threads/검색 패널/
+                            BottomBar)에 있으므로 '/' 로 돌려보낸다. */}
+                        <Route
+                          path="/threads"
+                          element={<ProtectedMobileTabRoute tab="threads" />}
+                        />
+                        <Route path="/search" element={<ProtectedMobileTabRoute tab="search" />} />
+                        <Route path="/you" element={<ProtectedMobileTabRoute tab="you" />} />
                         {/* task-047 iter4 (M3): profile page */}
                         <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
                         <Route path="/dm" element={<ProtectedDmShellRoute />} />
