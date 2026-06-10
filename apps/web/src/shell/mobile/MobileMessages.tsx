@@ -7,7 +7,7 @@ import {
   type RefObject,
   type TouchEvent,
 } from 'react';
-import type { MessageDto, WorkspaceRole } from '@qufox/shared-types';
+import { isSystemMessageType, type MessageDto, type WorkspaceRole } from '@qufox/shared-types';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { useMembers } from '../../features/workspaces/useWorkspaces';
 import {
@@ -27,6 +27,19 @@ import {
 } from '../../features/channels/useUnread';
 import { useCompose } from '../../stores/compose-store';
 import { renderMessageContent } from '../../features/messages/parseContent';
+// 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
+// ReDoS-안전 AST 렌더러(멘션 pill/스포일러/헤딩)·점보 이모지·시스템 행·스레드 chip.
+import { isContinuation } from '../../features/messages/grouping';
+import { isSameLocalDay } from '../../features/messages/formatMessageTime';
+import { DayDivider } from '../../features/messages/DayDivider';
+import { SystemMessage } from '../../features/messages/SystemMessage';
+import { renderAst, type MentionLookup } from '../../features/messages/renderAst';
+import { isJumboEmoji } from '../../features/messages/jumboEmoji';
+import { threadChipVisible } from '../../features/messages/threadActionGate';
+import { useCustomEmojis } from '../../features/emojis/useCustomEmojis';
+import type { CustomEmoji } from '../../features/emojis/api';
+// 071-M1 D2: 리액션 칩 행 — 데스크톱 ReactionBar 재사용(칩 토글 + 피커).
+import { ReactionBar } from '../../features/reactions/ReactionBar';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
 import { MobileEditSheet } from './MobileEditSheet';
@@ -64,7 +77,8 @@ export function MobileMessages({
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
   const reactMut = useToggleReaction(workspaceId, channelId);
-  const { send } = useSendMessage(workspaceId, channelId);
+  // 071-M1 D5(FR-MSG-04/05): retry 는 동일 clientNonce 로 실패 낙관 행을 재전송한다.
+  const { send, retry } = useSendMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLInputElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
@@ -96,6 +110,23 @@ export function MobileMessages({
     if (extraNames) for (const [k, v] of extraNames) if (!m.has(k)) m.set(k, v);
     return m;
   }, [members, extraNames]);
+
+  // 071-M1 D1: AST 멘션 pill 의 표시명 resolver(데스크톱 mentionLookup 과 동일 소스).
+  const mentionLookup = useMemo<MentionLookup>(
+    () => ({ userName: (userId: string) => nameById.get(userId) }),
+    [nameById],
+  );
+  // 커스텀 이모지 byName(+별칭) — CustomEmojiProvider 가 모바일 트리에 없으므로
+  // 프로바이더와 동일 로직으로 직접 구성(DM=workspace 없음 → 빈 맵, 리터럴 유지).
+  const { data: customEmojiData } = useCustomEmojis(workspaceId ?? null);
+  const customEmojiByName = useMemo(() => {
+    const byName = new Map<string, CustomEmoji>();
+    for (const ce of customEmojiData?.items ?? []) {
+      byName.set(ce.name, ce);
+      for (const alias of ce.aliases ?? []) if (!byName.has(alias)) byName.set(alias, ce);
+    }
+    return byName;
+  }, [customEmojiData?.items]);
 
   const roleById = useMemo(() => {
     const m = new Map<string, WorkspaceRole>();
@@ -164,22 +195,74 @@ export function MobileMessages({
           wasAtBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
         }}
       >
-        {messages.map((m) => (
-          <MobileMessageRow
-            key={m.id}
-            msg={m}
-            isMine={m.authorId === user?.id}
-            authorName={nameById.get(m.authorId)}
-            onLongPress={() => setSheetMsg(m)}
-            onSwipeReply={() => {
-              setReplyTarget(channelId, {
-                messageId: m.id,
-                authorName: nameById.get(m.authorId) ?? 'unknown',
-              });
-              composerInputRef.current?.focus();
-            }}
-          />
-        ))}
+        {/* 071-M1 D1: 날짜 구분선 + 그루핑(--head/--cont) + 시스템 행 + 스레드 chip —
+            데스크톱과 동일 순수 모듈(isContinuation/isSameLocalDay/SystemMessage)을 공유. */}
+        {messages.map((m, i) => {
+          const prev = i > 0 ? messages[i - 1] : null;
+          const dayDivider =
+            !prev || !isSameLocalDay(m.createdAt, prev.createdAt) ? (
+              <DayDivider iso={m.createdAt} />
+            ) : null;
+          if (isSystemMessageType(m.type)) {
+            return (
+              <div key={m.id}>
+                {dayDivider}
+                <SystemMessage
+                  msg={m}
+                  onOpenThread={
+                    workspaceId ? (rootId) => setThreadRootId(rootId) : undefined
+                  }
+                />
+              </div>
+            );
+          }
+          const chipVisible =
+            workspaceId !== null && threadChipVisible(m, m.thread, true) && !m.id.startsWith('tmp-');
+          return (
+            <div key={m.id}>
+              {dayDivider}
+              <MobileMessageRow
+                msg={m}
+                cont={isContinuation(m, prev)}
+                isMine={m.authorId === user?.id}
+                mentionsMe={astMentionsViewer(m.contentAst, user?.id)}
+                authorName={nameById.get(m.authorId)}
+                customEmojiByName={customEmojiByName}
+                mentions={mentionLookup}
+                onLongPress={() => setSheetMsg(m)}
+                onSwipeReply={() => {
+                  setReplyTarget(channelId, {
+                    messageId: m.id,
+                    authorName: nameById.get(m.authorId) ?? 'unknown',
+                  });
+                  composerInputRef.current?.focus();
+                }}
+                onToggleReaction={
+                  m.id.startsWith('tmp-')
+                    ? undefined
+                    : (emoji, byMe) =>
+                        reactMut.toggle({ messageId: m.id, emoji, currentlyByMe: byMe })
+                }
+                customEmojiList={customEmojiData?.items ?? []}
+                onRetry={() => retry(m.id, m.content ?? '')}
+              />
+              {chipVisible && m.thread ? (
+                <button
+                  type="button"
+                  data-testid={`mobile-thread-chip-${m.id}`}
+                  className="qf-thread-chip ml-[calc(var(--m-gutter)+40px+12px)]"
+                  aria-label={`${m.thread.replyCount}개 답글 보기`}
+                  onClick={() => {
+                    previousFocusRef.current = document.activeElement as HTMLElement | null;
+                    setThreadRootId(m.id);
+                  }}
+                >
+                  <span className="qf-thread-chip__count">{m.thread.replyCount}개 답글</span>
+                </button>
+              ) : null}
+            </div>
+          );
+        })}
       </div>
       <MobileComposer
         channelId={channelId}
@@ -300,18 +383,61 @@ export function MobileMessages({
   );
 }
 
+/**
+ * 071-M1 D1: 뷰어 멘션 판정 — contentAst 를 1회 순회해 mention_user(내 id)가
+ * 있으면 true. AST 스키마에 의존하지 않는 관대한 워커(노드 모양 변화에 안전).
+ */
+function astMentionsViewer(ast: unknown, meId: string | undefined): boolean {
+  if (!ast || !meId) return false;
+  const stack: unknown[] = [ast];
+  let guard = 0;
+  while (stack.length > 0 && guard < 5_000) {
+    guard += 1;
+    const node = stack.pop();
+    if (Array.isArray(node)) {
+      for (const child of node) stack.push(child);
+      continue;
+    }
+    if (typeof node !== 'object' || node === null) continue;
+    const rec = node as Record<string, unknown>;
+    if (rec.type === 'mention_user' && rec.userId === meId) return true;
+    for (const v of Object.values(rec)) {
+      if (v && typeof v === 'object') stack.push(v);
+    }
+  }
+  return false;
+}
+
 function MobileMessageRow({
   msg,
+  cont,
   isMine,
+  mentionsMe,
   authorName,
+  customEmojiByName,
+  mentions,
   onLongPress,
   onSwipeReply,
+  onToggleReaction,
+  customEmojiList,
+  onRetry,
 }: {
   msg: MessageDto;
+  /** 그루핑 continuation — 아바타/메타 숨김(qf-m-msg--cont). */
+  cont: boolean;
   isMine: boolean;
+  /** 본문에 내 멘션 포함 — 행 배경 강조(--mention-bg). */
+  mentionsMe: boolean;
   authorName?: string;
+  customEmojiByName: Map<string, CustomEmoji>;
+  mentions: MentionLookup;
   onLongPress: () => void;
   onSwipeReply: () => void;
+  /** undefined = 낙관적(tmp-) 행 — 칩 토글 비활성. */
+  onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
+  customEmojiList: CustomEmoji[];
+  /** 전송 실패(sendState='failed') 행의 동일 clientNonce 재시도. */
+  onRetry: () => void;
 }): JSX.Element {
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
@@ -377,14 +503,29 @@ function MobileMessageRow({
     );
   }
 
+  // 071-M1 D1: BOT 메시지(FR-RC11)는 botUsername override + 'BOT' 뱃지. 점보 이모지
+  // (FR-RC15)는 fs-32 확대. 본문은 데스크톱과 동일하게 contentAst→renderAst(멘션 pill/
+  // 스포일러/헤딩/커스텀 이모지), legacy(content)→renderMessageContent 폴백.
+  const isBot = msg.authorType === 'BOT';
+  const effectiveAuthorName = isBot ? (msg.botUsername ?? authorName) : authorName;
+  const jumbo = isJumboEmoji(msg.contentAst);
+  // 071-M1 D5(FR-MSG-04/05): 낙관 행 전송 상태 — pending=흐림, failed=경고+재시도.
+  const sendState = (msg as MessageDto & { sendState?: 'pending' | 'failed' }).sendState;
+
   return (
     <article
       data-testid={`mobile-msg-${msg.id}`}
       data-mine={isMine ? 'true' : 'false'}
       // S05 verify: DS 정본은 `qf-m-msg`(+__avatar/__meta/__author/__time/__body).
-      // 기존 `qf-m-message*` 는 DS 미등록이라 스타일이 안 먹었다. `__bubble` 래퍼는
-      // DS 에 없고 grid(40px 1fr)를 깨므로 제거 — avatar/meta/body 를 직접 자식으로.
-      className={cn('qf-m-msg')}
+      // 071-M1 D1: 그루핑 변형(--head/--cont — DS 가 cont 의 아바타/메타를 숨김) +
+      // 내 멘션 행 배경 강조(--mention-bg 토큰, PRD D01 모바일 멘션 행).
+      data-send-state={sendState}
+      className={cn(
+        'qf-m-msg',
+        cont ? 'qf-m-msg--cont' : 'qf-m-msg--head',
+        mentionsMe && 'bg-[var(--mention-bg)]',
+        sendState === 'pending' && 'opacity-60',
+      )}
       style={{
         transform: `translateX(${swipeOffset}px)`,
         // S35 fix-forward (DS 토큰화): raw 120ms → DS duration 토큰(--dur-fast=140ms).
@@ -395,12 +536,17 @@ function MobileMessageRow({
       onTouchEnd={onTouchEnd}
     >
       <Avatar
-        name={authorName ?? msg.authorId.slice(0, 2)}
+        name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
         size="sm"
         className="qf-m-msg__avatar"
       />
       <div className="qf-m-msg__meta">
-        <span className="qf-m-msg__author">{authorName ?? 'unknown'}</span>
+        <span className="qf-m-msg__author">{effectiveAuthorName ?? 'unknown'}</span>
+        {isBot ? (
+          <span data-testid={`mobile-msg-bot-${msg.id}`} className="qf-badge qf-badge--accent">
+            BOT
+          </span>
+        ) : null}
         <time className="qf-m-msg__time">
           {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
         </time>
@@ -416,7 +562,46 @@ function MobileMessageRow({
           </span>
         ) : null}
       </div>
-      <div className="qf-m-msg__body">{renderMessageContent(msg.content ?? '')}</div>
+      <div
+        className={cn(
+          'qf-m-msg__body',
+          jumbo && 'text-[length:var(--fs-32)] leading-[var(--lh-tight)]',
+        )}
+        data-jumbo={jumbo ? 'true' : undefined}
+      >
+        {msg.contentAst
+          ? renderAst(msg.contentAst, customEmojiByName, mentions)
+          : renderMessageContent(msg.content ?? '', customEmojiByName)}
+        {sendState === 'failed' ? (
+          <div
+            data-testid={`mobile-msg-send-failed-${msg.id}`}
+            className="mt-1 flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)]"
+          >
+            <span role="alert" className="text-[color:var(--danger-400)]">
+              전송 실패
+            </span>
+            <button
+              type="button"
+              data-testid={`mobile-msg-retry-${msg.id}`}
+              onClick={onRetry}
+              className="qf-btn qf-btn--ghost qf-btn--sm"
+            >
+              다시 시도
+            </button>
+          </div>
+        ) : null}
+      </div>
+      {/* 071-M1 D2(FR-RE01/02/03): 리액션 칩 행 — 데스크톱 ReactionBar 재사용.
+          모바일 44px 터치 플로어는 mobile-touch-target.css 가 .qf-reaction 에 보장. */}
+      {onToggleReaction && (msg.reactions?.length ?? 0) > 0 ? (
+        <div className="col-start-2">
+          <ReactionBar
+            reactions={msg.reactions ?? []}
+            onToggle={onToggleReaction}
+            customEmojis={customEmojiList.map((ce) => ({ id: ce.id, name: ce.name, url: ce.url }))}
+          />
+        </div>
+      ) : null}
     </article>
   );
 }
