@@ -74,5 +74,9 @@ export async function loginUI(page: Page, email: string, expectedSlug: string): 
   // 기다린 뒤 스펙들이 기대하는 워크스페이스 셸로 명시 이동한다.
   await page.waitForURL((u) => !u.pathname.startsWith('/login'));
   await page.goto(`/w/${expectedSlug}`);
-  await page.waitForURL(new RegExp(`/w/${expectedSlug}`));
+  // C11(FR-IA-WS-01): /w/:slug 는 lastChannel/기본 채널로 자동 진입하는 과도 상태다.
+  // 여기서 리다이렉트가 끝나기를 기다리지 않으면, 스펙이 연 드로어가 늦은 pathname
+  // 변경(자동 진입)에 의해 닫히는 레이스가 난다. 채널 라우트 정착까지 대기한다
+  // (bootstrapWorkspace 로 만든 워크스페이스는 항상 채널이 있다).
+  await page.waitForURL(new RegExp(`/w/${expectedSlug}/[^/?]+`));
 }

@@ -1,0 +1,78 @@
+# 071-M0 C12 — 모바일 e2e 게이트.
+#
+# 기존 e2e.yml 은 전체 스위트(데스크톱 포함)를 돌리지만 어떤 머지 게이트에도
+# 강제되지 않아 모바일 회귀(드로어/시트 탭 차단·컴포저 소실)가 무증상 누적됐다.
+# 이 워크플로우는 e2e/mobile/* 만 분리해 develop/main push + PR 마다 돌리며,
+# **required check 로 취급한다** (브랜치 보호가 없으므로 CD 프로토콜상 develop
+# 머지 전 이 워크플로우 green 확인이 사람/에이전트 의무 — 071-M0-progress.md).
+name: e2e-mobile
+on:
+  push:
+    branches: [main, develop]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  e2e-mobile:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    env:
+      COMPOSE_FILE: docker-compose.test.yml
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20.9.0
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - run: pnpm --filter @qufox/api exec prisma generate
+
+      - name: Start test stack
+        run: docker compose -f ${COMPOSE_FILE} up -d --build
+
+      - name: Run migrations (one-shot)
+        run: |
+          docker compose -f ${COMPOSE_FILE} run --rm --entrypoint prisma \
+            test-api migrate deploy --schema=prisma/schema.prisma
+
+      - name: Wait for /readyz
+        run: |
+          set -e
+          for i in $(seq 1 60); do
+            code=$(curl -sk -o /dev/null -w '%{http_code}' --max-time 3 http://localhost:43001/readyz || echo 000)
+            if [ "$code" = "200" ]; then
+              echo "api /readyz is 200"
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "api /readyz never returned 200"
+          docker compose -f ${COMPOSE_FILE} logs --tail 200
+          exit 1
+
+      - name: Install Playwright browsers
+        run: pnpm --filter @qufox/web exec playwright install --with-deps chromium
+
+      - name: Run mobile Playwright suite
+        working-directory: apps/web
+        env:
+          PLAYWRIGHT_BASE_URL: http://localhost:45173
+        run: pnpm exec playwright test --project=chromium e2e/mobile
+
+      - name: Stack logs on failure
+        if: failure()
+        run: docker compose -f ${COMPOSE_FILE} logs --tail 300
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: playwright-mobile-report
+          path: apps/web/playwright-report
+          retention-days: 7

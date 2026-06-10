@@ -44,6 +44,14 @@ jobs:
       - name: Start test stack
         run: docker compose -f ${COMPOSE_FILE} up -d --build
 
+      # 071-M0 C12: safe-deploy 재설계로 `prisma migrate deploy` 가 컨테이너 부트에서
+      # 제거된 뒤(apps/api/Dockerfile 참조) CI 에 마이그레이션 단계가 없어 test-api 가
+      # 빈 DB 로 기동 실패(/readyz 영구 비200) — e2e 전체가 조용히 죽어 있었다.
+      - name: Run migrations (one-shot)
+        run: |
+          docker compose -f ${COMPOSE_FILE} run --rm --entrypoint prisma \
+            test-api migrate deploy --schema=prisma/schema.prisma
+
       - name: Wait for /readyz
         run: |
           set -e
