@@ -94,6 +94,13 @@ export function MobileMessageSheet({
   }, []);
 
   // D9: 포커스 트랩 — 열릴 때 첫 포커서블로 이동, Tab 순환, 닫힐 때 복귀.
+  //
+  // M1 리뷰 M-1: 이 효과는 **마운트 1회**여야 한다. 종전 deps [onClose] 는 부모
+  // (MobileMessages)가 인라인 콜백을 넘겨 메시지 수신 등 재렌더마다 cleanup(포커스
+  // 복귀)+재설치(복귀 대상 덮어쓰기·첫 버튼 포커스 강탈)가 반복됐다. 최신 onClose
+  // 는 ref 로 읽는다.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     restoreRef.current = document.activeElement as HTMLElement | null;
     const panel = panelRef.current;
@@ -105,7 +112,7 @@ export function MobileMessageSheet({
     focusables()[0]?.focus();
     const onKey = (e: KeyboardEvent): void => {
       if (e.key === 'Escape') {
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (e.key !== 'Tab') return;
@@ -127,7 +134,8 @@ export function MobileMessageSheet({
       window.removeEventListener('keydown', onKey);
       restoreRef.current?.focus?.();
     };
-  }, [onClose]);
+    // 마운트 1회 — onClose 는 onCloseRef 경유(위 M-1 주석).
+  }, []);
 
   const handleDeleteTap = (): void => {
     if (!deleteArmed) {

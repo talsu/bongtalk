@@ -32,18 +32,23 @@ export function MobileEmojiDrawer({
   const searchRef = useRef<HTMLInputElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
 
+  // M1 리뷰 M-1: 마운트 1회 — deps 에 onClose 를 두면 부모 재렌더(인라인 콜백)마다
+  // cleanup(포커스 복귀)+재설치(복귀 대상 덮어쓰기·검색창 포커스 강탈)가 반복된다.
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     restoreRef.current = document.activeElement as HTMLElement | null;
     searchRef.current?.focus();
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose();
+      if (e.key === 'Escape') onCloseRef.current();
     };
     window.addEventListener('keydown', onKey);
     return () => {
       window.removeEventListener('keydown', onKey);
       restoreRef.current?.focus?.();
     };
-  }, [onClose]);
+    // 마운트 1회 — onClose 는 onCloseRef 경유(위 M-1 주석).
+  }, []);
 
   const q = query.trim().toLowerCase();
   const searchResults = useMemo(() => {
@@ -117,7 +122,8 @@ export function MobileEmojiDrawer({
                 <img
                   src={customEmojis![0]!.url}
                   alt=""
-                  style={{ width: 22, height: 22, objectFit: 'contain' }}
+                  // M1 리뷰 L-1: raw px 금지 — DS 스페이싱 토큰 사용.
+                  style={{ width: 'var(--s-6)', height: 'var(--s-6)', objectFit: 'contain' }}
                 />
               </button>
             ) : null}
@@ -175,7 +181,11 @@ export function MobileEmojiDrawer({
                         <img
                           src={cell.url ?? ''}
                           alt=""
-                          style={{ width: 28, height: 28, objectFit: 'contain' }}
+                          style={{
+                            width: 'var(--s-7)',
+                            height: 'var(--s-7)',
+                            objectFit: 'contain',
+                          }}
                         />
                       )}
                     </button>
@@ -200,7 +210,7 @@ export function MobileEmojiDrawer({
                       <img
                         src={ce.url}
                         alt=""
-                        style={{ width: 28, height: 28, objectFit: 'contain' }}
+                        style={{ width: 'var(--s-7)', height: 'var(--s-7)', objectFit: 'contain' }}
                       />
                     </button>
                   ))}

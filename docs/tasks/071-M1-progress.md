@@ -30,7 +30,7 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 | D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속 |
 | D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | **done**                                        |                     |
 | D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | **done**                                        |                     |
-| D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | todo                                            |                     |
+| D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | **done**                                        | caeeea2 + fix       |
 | D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | todo                                            |                     |
 
 ## 결정 로그
@@ -93,5 +93,25 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   /SWEEP=1000 추가(e2e 실검증용 — prod 기본 600s/30s 무변경). 프로브 실측: 31s 무활동
   후 touchstart → presence:activity 프레임(framesTotal=1, touch 가 유일 발신원),
   b 무활동 6s → a 멤버 드로어 data-presence="idle"+노랑 닷.
-- 다음: D11 게이트(신규 e2e: 그루핑/리액션/첨부/디바이더/타이핑/자동완성/presence-idle
-  - vr baseline 갱신 + 컨테이너 standalone verify + 적대 리뷰 fix-forward) → D12 머지·배포.
+- (세션 #2) D11 완료 — ★**플랫폼 잠복버그 3건을 모바일 e2e 가 적발·수리**(전부 데스크톱
+  포함 광역): ①멘션 토큰 파싱 불능(MENTION_USER/CHANNEL_RE cuid2 전용 vs @db.Uuid —
+  uuid|cuid2 확장, shared-types 0.1.2) ②공개채널 첨부 이미지 전멸(authedFetch
+  credentials include→omit, 302→MinIO credentialed CORS) ③첨부 라이브 미표시
+  (message:created WS payload+POST 응답에 attachments lite 추가). 신규 e2e 4파일 9테스트
+  (chat-core-render/composer/realtime/sheet) — 전체 모바일 스위트 35 passed/0 failed,
+  vr-parity green(갱신 불요). standalone verify green(ImageMosaicGrid 1건은 기록된
+  flake — 격리 21/21). **적대 리뷰 평결: approve, BLOCKER/HIGH 0** — fix-forward 적용:
+  M-1(시트/드로어 포커스트랩 마운트1회+onCloseRef — 메시지 수신마다 포커스 핑퐁),
+  M-2(미읽음 스냅 useState 화 — 늦은 summary 영영 미반영 race), L-1(드로어 raw px→토큰),
+  L-5(복사 contentPlain 우선), L-6(시트 onReact 라이브 캐시), L-7(자기 전송 jump 배지
+  제외+하단 스냅), L-9(onTouchCancel 정리).
+  ⚠ reviewer 가 워킹트리를 main 으로 checkout 해 두는 사고 — 복구함. 서브에이전트
+  브리핑에 "checkout 금지" 명시할 것.
+- **후속 태스크(리뷰 기록 — M1 비차단)**: ①멘션 백필(버그 기간 저장 행의 contentAst 에
+  평문 @{uuid} 잔존 — contentRaw 패턴 한정 재파싱, reversible 1회성) ②답장 UX 데드엔드
+  (replyTarget 이 전송에 안 실림 — 기존 결함, M2 IA 에서 해소 또는 액션 제거) ③emoji
+  customId Cuid2Schema → uuid|cuid2(동일 시한폭탄, dormant) ④PRD 카노니컬 정규식 표기
+  갱신(uuid|cuid2) ⑤e2e 수신측 라이브 첨부/비공개 채널 첨부 커버리지 ⑥send 응답 첨부
+  재조회 1쿼리 절약(컨트롤러가 tx lite 재사용).
+- 다음: D12 — develop --no-ff 머지(ls-remote 실측) → main 승격 → 수동 배포 → /readyz
+  → REPORT.

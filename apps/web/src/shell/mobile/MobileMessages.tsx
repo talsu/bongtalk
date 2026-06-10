@@ -262,24 +262,29 @@ export function MobileMessages({
   // 보장 — 이 효과가 먼저 실행됨). summary 에 lastReadMessageId 가 없으므로
   // computeFirstUnreadIndex 의 count 역산 폴백을 쓴다.
   const { data: unreadSummary } = useUnreadSummary(workspaceId ?? undefined);
-  const unreadSnapRef = useRef<{ channelId: string; unreadCount: number } | null>(null);
-  if (unreadSnapRef.current && unreadSnapRef.current.channelId !== channelId) {
-    unreadSnapRef.current = null; // 채널 전환 — 새 채널에서 재스냅.
+  // M1 리뷰 M-2: 종전 ref 스냅은 memo deps 에 없어, summary 가 messages 보다 늦게
+  // 도착하는 하드 로드/딥링크 경로에서 구분선이 영영 미표시였다. useState 스냅
+  // (render-phase 조건 세팅 — React 공식 'derived state' 조정 패턴)으로 바꿔
+  // 늦은 스냅 세팅이 곧바로 재렌더·재계산되게 한다. 채널당 1회 고정은 동일.
+  const [unreadSnap, setUnreadSnap] = useState<{
+    channelId: string;
+    unreadCount: number;
+  } | null>(null);
+  if (unreadSnap && unreadSnap.channelId !== channelId) {
+    setUnreadSnap(null); // 채널 전환 — 새 채널에서 재스냅.
   }
-  if (unreadSnapRef.current === null && unreadSummary) {
+  if (unreadSnap === null && unreadSummary) {
     const row = unreadSummary.channels.find((c) => c.channelId === channelId);
-    unreadSnapRef.current = { channelId, unreadCount: row?.unreadCount ?? 0 };
+    setUnreadSnap({ channelId, unreadCount: row?.unreadCount ?? 0 });
   }
   const firstUnreadIndex = useMemo(() => {
-    const snap = unreadSnapRef.current;
-    if (!snap || snap.channelId !== channelId) return null;
+    if (!unreadSnap || unreadSnap.channelId !== channelId) return null;
     return computeFirstUnreadIndex({
       messageIds: messages.map((m) => m.id),
       lastReadMessageId: null,
-      unreadCount: snap.unreadCount,
+      unreadCount: unreadSnap.unreadCount,
     });
-    // unreadSnapRef 는 ref 지만 messages 변경 시 재계산되면 충분(스냅은 불변).
-  }, [messages, channelId]);
+  }, [messages, channelId, unreadSnap]);
 
   // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 미읽음/멘션
   // 배지가 영구 잔존했다 — 데스크톱 MessageColumn 의 채널-open 패턴(낙관적 zero-out +
@@ -366,11 +371,16 @@ export function MobileMessages({
       return;
     }
     // append(마지막 id 변경) 인데 하단 이탈 상태 → jump 배지 카운트 누적.
-    if (lastId !== prevLastIdRef.current && !wasAtBottomRef.current) {
+    // M1 리뷰 L-7: 내가 보낸 메시지(낙관 tmp- 포함)는 배지 대상이 아니라 하단
+    // 스냅 대상이다 — 자기 전송에 "새 메시지 1" 배지가 뜨던 노이즈 제거.
+    const lastMsg = messages[messages.length - 1];
+    const mineAppend =
+      lastMsg !== undefined && (lastMsg.authorId === user?.id || lastMsg.id.startsWith('tmp-'));
+    if (lastId !== prevLastIdRef.current && !wasAtBottomRef.current && !mineAppend) {
       const appended = Math.max(1, messages.length - prevLenRef.current);
       setNewWhileAway((n) => n + appended);
     }
-    if (wasAtBottomRef.current) el.scrollTop = el.scrollHeight;
+    if (wasAtBottomRef.current || mineAppend) el.scrollTop = el.scrollHeight;
     prevScrollHeightRef.current = el.scrollHeight;
     prevLastIdRef.current = lastId;
     prevLenRef.current = messages.length;
@@ -444,9 +454,7 @@ export function MobileMessages({
             firstUnreadIndex === i ? (
               <div className="qf-m-unread-divider" data-testid="mobile-unread-divider">
                 <span className="qf-m-unread-divider__label">새 메시지</span>
-                <span className="qf-m-unread-divider__pill">
-                  {unreadSnapRef.current?.unreadCount ?? ''}
-                </span>
+                <span className="qf-m-unread-divider__pill">{unreadSnap?.unreadCount ?? ''}</span>
               </div>
             ) : null;
           if (isSystemMessageType(m.type)) {
@@ -567,7 +575,9 @@ export function MobileMessages({
             setSheetMsg(null);
           }}
           onCopy={() => {
-            void navigator.clipboard?.writeText(sheetMsg.content ?? '');
+            // M1 리뷰 L-5: 평문 정본(contentPlain) 우선 — raw mrkdwn/@{uuid}
+            // 토큰이 클립보드에 섞이지 않게 한다(데스크톱 copyPlainText 동일).
+            void navigator.clipboard?.writeText(sheetMsg.contentPlain ?? sheetMsg.content ?? '');
             setSheetMsg(null);
           }}
           onReply={() => {
@@ -580,10 +590,14 @@ export function MobileMessages({
           }}
           onReact={(emoji) => {
             if (!sheetMsg.id.startsWith('tmp-')) {
+              // M1 리뷰 L-6: 토글 방향은 시트 오픈 시점 스냅샷이 아니라 캐시
+              // 최신 행에서 읽는다(드로어 경로와 동일 — 시트가 열린 사이 타
+              // 기기에서 토글돼도 역방향 동작 없음).
+              const live = messages.find((mm) => mm.id === sheetMsg.id) ?? sheetMsg;
               reactMut.toggle({
                 messageId: sheetMsg.id,
                 emoji,
-                currentlyByMe: sheetMsg.reactions?.find((r) => r.emoji === emoji)?.byMe ?? false,
+                currentlyByMe: live.reactions?.find((r) => r.emoji === emoji)?.byMe ?? false,
               });
             }
             setSheetMsg(null);
@@ -930,6 +944,16 @@ function MobileMessageRow({
     setSwipeOffset(0);
     touchStart.current = null;
   };
+  // M1 리뷰 L-9: 브라우저가 제스처를 회수(touchcancel — 스크롤 컨테이너 개입 등)
+  // 하면 타이머/스와이프 상태만 정리한다. 답장 커밋은 의도된 touchend 전용 —
+  // 정리 없이는 long-press 타이머가 살아남아 의도치 않은 시트 오픈이 가능했다.
+  const onTouchCancel = (): void => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    swipeOffsetRef.current = 0;
+    setSwipeOffset(0);
+    touchStart.current = null;
+  };
 
   if (msg.deleted) {
     // S05 verify: DS 미등록 `qf-m-message` 그리드 클래스(40px 1fr)를 tombstone
@@ -981,6 +1005,7 @@ function MobileMessageRow({
       onTouchStart={onTouchStart}
       onTouchMove={onTouchMove}
       onTouchEnd={onTouchEnd}
+      onTouchCancel={onTouchCancel}
     >
       <Avatar
         name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
