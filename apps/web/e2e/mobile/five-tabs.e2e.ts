@@ -67,6 +67,17 @@ test('tabbar exposes exactly 5 tabs and routes each to its surface', async ({
   await expect(page.getByTestId('mobile-you-status')).toBeVisible();
   await expect(page.getByTestId('mobile-you-logout')).toBeVisible();
 
+  // M2 리뷰 H-1 게이트: 상태 시트에서 '오프라인 표시' 선택 → 라벨이 실제로
+  // 전환된다(종전엔 PATCH 도 라벨 변경도 없는 무음 no-op — invisible 매핑 검증).
+  await page.getByTestId('mobile-you-status').click();
+  await expect(page.getByTestId('mobile-status-sheet')).toBeVisible();
+  await page.getByTestId('mobile-status-offline').click();
+  await expect(page.getByTestId('mobile-you-state')).toHaveText('오프라인 표시');
+  // dnd 로도 전환 — 헤더 변형 클래스까지 반영.
+  await page.getByTestId('mobile-you-status').click();
+  await page.getByTestId('mobile-status-dnd').click();
+  await expect(page.getByTestId('mobile-you-state')).toHaveText('방해 금지');
+
   // 채팅 탭 → 마지막 채팅 위치 복귀.
   await page.getByTestId('mobile-tab-chat').click();
   await expect(page).toHaveURL(new RegExp(`/w/${slug}/general`));

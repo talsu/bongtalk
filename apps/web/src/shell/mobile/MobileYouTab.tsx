@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { usePresenceStatus } from '../../features/presence/usePresenceStatus';
+import { useDndSchedule } from '../../features/presence/useDndSchedule';
 import type { PresenceStatus } from '../../features/presence/presenceStatus';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -27,13 +28,28 @@ const STATUS_LABEL: Record<PresenceStatus, string> = {
 export function MobileYouTab(): JSX.Element {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
-  const { status, setStatus, pending } = usePresenceStatus('online');
+  const { status, setStatus, hydrate, pending } = usePresenceStatus('online');
   const [statusSheet, setStatusSheet] = useState(false);
   const [logoutConfirm, setLogoutConfirm] = useState(false);
+  // M2 리뷰 M-3: usePresenceStatus 는 로컬 낙관 상태뿐(GET 없음) — 서버의
+  // effective preference(GET /me/dnd-schedule, 60s 폴링 공유 캐시)로 1회
+  // hydrate 한다. 사용자가 이 화면에서 수동 변경한 뒤에는 덮지 않는다.
+  const { data: dndData } = useDndSchedule();
+  const touchedRef = useRef(false);
+  const hydratedRef = useRef(false);
+  useEffect(() => {
+    if (hydratedRef.current || touchedRef.current || !dndData) return;
+    hydratedRef.current = true;
+    const pref = dndData.preference;
+    if (pref === 'dnd') hydrate('dnd');
+    else if (pref === 'invisible') hydrate('offline');
+    // 'auto' 는 online 기본값 유지. (hydrate 는 로컬 표시만 — PATCH 미발행)
+  }, [dndData, hydrate]);
 
   const username = user?.username ?? '';
 
   const pick = (next: PresenceStatus): void => {
+    touchedRef.current = true; // M-3: 수동 변경 후 hydrate 가 덮지 않게.
     void setStatus(next);
     setStatusSheet(false);
   };

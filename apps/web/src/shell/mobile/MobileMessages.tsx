@@ -127,6 +127,7 @@ import { getSocket } from '../../lib/socket';
 import { WS_EVENTS } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
+import { PANEL_EDGE_PX } from './MobilePanels';
 import { MobileEditSheet } from './MobileEditSheet';
 import { ThreadPanel } from '../../features/threads/ThreadPanel';
 import { cn } from '../../lib/cn';
@@ -959,6 +960,10 @@ function MobileMessageRow({
 
   const onTouchStart = (e: TouchEvent): void => {
     const t = e.touches[0];
+    // M2 리뷰 M-1: 좌 엣지(PANEL_EDGE_PX) 시작 터치는 MobilePanels 의 패널 오픈
+    // 제스처에 양보한다 — 종전엔 같은 드래그가 좌 패널 + 스레드 패널을 이중
+    // 커밋했다(행 스와이프 80px, 패널 60px 임계로 둘 다 통과).
+    if (t.clientX <= PANEL_EDGE_PX) return;
     touchStart.current = { x: t.clientX, y: t.clientY };
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
@@ -985,8 +990,7 @@ function MobileMessageRow({
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
     if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
-      // task-025 follow-2: swipe-right bypasses the sheet and enters
-      // reply-mode directly (sets replyTarget + focuses composer).
+      // M2 E6: swipe-right = 스레드 답글 진입(호출측이 ThreadPanel 을 연다).
       onSwipeReply();
     }
     swipeOffsetRef.current = 0;
@@ -1525,7 +1529,9 @@ function MobileComposer({
       return;
     }
     // 071-M2 E6 (FR-SC-04): 슬래시 실행 분기 — 첨부 없는 텍스트 전용(데스크톱 동일).
-    if (!hasAttachments) {
+    // 리뷰 L-6: DM(workspaceId=null)은 분기 자체를 건너뛰어 일반 전송으로 폴백
+    // (슬래시 목록도 비어 있어 detect 가 null 이지만, 무음 소실 경로를 봉인).
+    if (!hasAttachments && workspaceId !== null) {
       const slash = detectSlashExecution(trimmed, slashCommandData ?? []);
       if (slash) {
         const clientAction = detectClientSlashAction(slash.command, slash.text);

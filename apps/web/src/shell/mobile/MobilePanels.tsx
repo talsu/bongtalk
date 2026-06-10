@@ -21,7 +21,12 @@ import { cn } from '../../lib/cn';
 export type PanelSide = 'center' | 'left' | 'right';
 
 const FLING_VX = 500; // px/s — DS 스펙
-const EDGE_PX = 24; // 엣지 스와이프 시작 인식 폭
+/**
+ * 엣지 스와이프 시작 인식 폭. 행 단위 제스처(MobileMessageRow 스와이프 답장)가
+ * 이 영역에서 시작한 터치를 양보해 패널 오픈과 이중 커밋되지 않도록 export 한다
+ * (M2 리뷰 M-1).
+ */
+export const PANEL_EDGE_PX = 24;
 const DIR_LOCK_PX = 10; // 방향 잠금 판정 최소 이동
 
 export function MobilePanels({
@@ -129,8 +134,8 @@ export function MobilePanels({
     let target: 'left' | 'right' | null = null;
     if (cur === 'left') target = 'left';
     else if (cur === 'right') target = 'right';
-    else if (t.clientX <= EDGE_PX) target = 'left';
-    else if (t.clientX >= w - EDGE_PX && hasRightRef.current) target = 'right';
+    else if (t.clientX <= PANEL_EDGE_PX) target = 'left';
+    else if (t.clientX >= w - PANEL_EDGE_PX && hasRightRef.current) target = 'right';
     if (target === 'right' && !hasRightRef.current) target = null;
     if (!target) return;
     gestureRef.current = {
@@ -183,14 +188,16 @@ export function MobilePanels({
       if (g?.locked === 'h') setDragging(false);
       return;
     }
-    const w = panelWidth(g.target);
     const dx = g.lastX - g.startX;
     const threshold = 60; // --m-swipe-threshold
+    // M2 리뷰 L-2: 빠르게 끌다 멈춘 채(이벤트 미발생) 손을 떼면 마지막 샘플의
+    // 과거 속도로 fling 이 오판된다 — 100ms 이상 정지했으면 fling 무효.
+    const vx = performance.now() - g.lastT > 100 ? 0 : g.vx;
     let commit: PanelSide;
-    if (Math.abs(g.vx) > FLING_VX) {
+    if (Math.abs(vx) > FLING_VX) {
       // fling — 진행 방향이 곧 결론.
-      if (g.target === 'left') commit = g.vx > 0 ? 'left' : 'center';
-      else commit = g.vx < 0 ? 'right' : 'center';
+      if (g.target === 'left') commit = vx > 0 ? 'left' : 'center';
+      else commit = vx < 0 ? 'right' : 'center';
     } else if (g.from === 'center') {
       // 열기 제스처: 임계 이상 끌었으면 열기.
       const opened = g.target === 'left' ? dx : -dx;
@@ -200,7 +207,6 @@ export function MobilePanels({
       const closed = g.from === 'left' ? -dx : dx;
       commit = closed >= threshold ? 'center' : g.from;
     }
-    void w;
     endDrag(commit);
   };
 

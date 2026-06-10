@@ -140,24 +140,41 @@ export function MobileShell(): JSX.Element {
     } catch {
       last = null;
     }
-    if (last && last.startsWith('/')) return <Navigate to={last} replace />;
+    // M2 리뷰 M-2: 탈퇴/추방으로 stale 해진 lastChatPath(/w/<없는 slug>/…)는
+    // 무시하고 항목도 지운다 — 그대로 보내면 ws-not-found 함정에 떨어진다.
+    // L-7③: '//host' 류는 차단(출처가 자체 pathname 뿐이라 방어적 봉인).
+    if (last && last.startsWith('/') && !last.startsWith('//')) {
+      const m = last.match(/^\/w\/([^/]+)\//);
+      const stale = m && !mine?.workspaces.some((w) => w.slug === m[1]);
+      if (!stale) return <Navigate to={last} replace />;
+      try {
+        sessionStorage.removeItem('qf:lastChatPath');
+      } catch {
+        /* noop */
+      }
+    }
     return <Navigate to={`/w/${mine!.workspaces[0].slug}`} replace />;
   }
-  if (slug && !active) {
+  if (!active) {
+    // M2 리뷰 M-2: 종전엔 topbar 만 렌더해 앱 내 탈출 수단이 없는 함정 화면이었다
+    // — 탭바를 장착해 채팅/나 탭 등으로 빠져나갈 수 있게 한다. (L-4: 도달 불가
+    // 분기였던 `!slug && mine` / 후행 `!active` 도 이 단일 분기로 정리.)
     return (
       <div data-testid="mobile-shell-ws-not-found" className="qf-m-screen qf-m-screen--app">
-        <header className="qf-m-topbar">
+        <header className="qf-m-topbar qf-m-safe-top">
           <div className="qf-m-topbar__titleBlock">
             <div className="qf-m-topbar__title">워크스페이스를 찾을 수 없습니다</div>
           </div>
         </header>
+        <main className="qf-m-body flex min-h-0 flex-col">
+          <div className="qf-m-empty flex-1">
+            <div className="qf-m-empty__body">초대가 만료됐거나 탈퇴한 워크스페이스예요.</div>
+          </div>
+        </main>
+        <MobileTabBar />
       </div>
     );
   }
-  if (!slug && mine) {
-    return <Navigate to={`/w/${mine.workspaces[0].slug}`} replace />;
-  }
-  if (!active) return <Navigate to="/dm" replace />;
 
   const topbarTitle = activeChannel ? `# ${activeChannel.name}` : active.name;
   const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';
