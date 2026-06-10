@@ -83,6 +83,16 @@
   프로브 green: OWNER 7항목/MEMBER 관리 숨김/채널 생성 관통(briefing 행)/디렉터리
   오버레이/나가기 armed→실탈퇴.
 
+- F3 완료(dcbbb13) — /saved(SavedView)+나 탭 행/배지, topbar 핀 버튼+MobilePinList
+  (?msg= 점프 재사용·canPinViewer 해제). ★SettingsOverlay 닫기 X(absolute)와 첫 행
+  버튼 겹침 — 섹션 헤더로 해소(오버레이에 콘텐츠 넣을 땐 상단 여백/헤더 필수).
+- F4 완료(b8e4964) — 채널 모두읽음+Undo(배지 복원 실측), 스레드 모두읽음, 토스트/
+  섹션 액션 44px.
+- F5 완료 — MobileChannelSheet(뮤트 6종/해제), ChannelRow 롱프레스(Link 합성 click
+  suppress + PANEL_EDGE_PX 양보), data-muted + bell-off + 미읽음 강조/배지 억제.
+  MUTE_DURATIONS 는 ChannelList 에서 export(단일 출처). ★MobilePanels onPop 에 계층
+  가드 추가(패널 위 시트 마커 pop 시 패널 유지 — qfPanel 최상단 검사).
+
 ## 세션 핸드오프 노트
 
 - (착수) M2 종료(main c3b42d2 · 배포 exit 0 · readyz ok) 직후 브랜치만 생성해 둔 상태.

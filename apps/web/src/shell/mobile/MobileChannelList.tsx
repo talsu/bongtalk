@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState, type TouchEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { useChannelList } from '../../features/channels/useChannels';
@@ -9,6 +9,15 @@ import {
   useUndoMarkAllRead,
 } from '../../features/channels/useUnread';
 import { useNotifications } from '../../stores/notification-store';
+// 071-M3 F5: 채널 롱프레스 시트(뮤트) — 뮤트 상태 표시/배지 억제 포함.
+import {
+  useMutedChannelIds,
+  useSetChannelMute,
+  useRemoveChannelMute,
+  type MuteDurationKey,
+} from '../../features/channels/useMutes';
+import { MobileChannelSheet } from './MobileChannelSheet';
+import { PANEL_EDGE_PX } from './MobilePanels';
 import { Icon, Avatar } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
@@ -56,6 +65,11 @@ export function MobileChannelList({
     });
   };
   const [filter, setFilter] = useState('');
+  // F5: 뮤트 상태/뮤테이션 + 롱프레스 시트 대상.
+  const mutedIds = useMutedChannelIds();
+  const setMute = useSetChannelMute();
+  const removeMute = useRemoveChannelMute();
+  const [sheetChannel, setSheetChannel] = useState<{ id: string; name: string } | null>(null);
   const unreadByChannel = new Map<string, { count: number; mention: boolean }>();
   for (const u of unread?.channels ?? []) {
     unreadByChannel.set(u.channelId, { count: u.unreadCount, mention: u.hasMention });
@@ -192,7 +206,9 @@ export function MobileChannelList({
                   name={c.name}
                   active={c.name === activeChannelName}
                   unread={unreadByChannel.get(c.id)}
+                  muted={mutedIds.has(c.id)}
                   onPick={onPick}
+                  onLongPress={() => setSheetChannel({ id: c.id, name: c.name })}
                 />
               ))}
           </ul>
@@ -215,13 +231,32 @@ export function MobileChannelList({
                   name={c.name}
                   active={c.name === activeChannelName}
                   unread={unreadByChannel.get(c.id)}
+                  muted={mutedIds.has(c.id)}
                   onPick={onPick}
+                  onLongPress={() => setSheetChannel({ id: c.id, name: c.name })}
                 />
               ))}
             </ul>
           </div>
         );
       })}
+
+      {/* F5: 채널 롱프레스 시트 — 뮤트 6종/해제. */}
+      {sheetChannel ? (
+        <MobileChannelSheet
+          channelName={sheetChannel.name}
+          muted={mutedIds.has(sheetChannel.id)}
+          onClose={() => setSheetChannel(null)}
+          onMute={(duration: MuteDurationKey) => {
+            setMute.mutate({ channelId: sheetChannel.id, duration });
+            setSheetChannel(null);
+          }}
+          onUnmute={() => {
+            removeMute.mutate(sheetChannel.id);
+            setSheetChannel(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -231,25 +266,83 @@ function ChannelRow({
   name,
   active,
   unread,
+  muted = false,
   onPick,
+  onLongPress,
 }: {
   slug: string;
   name: string;
   active: boolean;
   unread?: { count: number; mention: boolean };
+  /** F5: 활성 뮤트 — bell-off + 흐림 + 미읽음 강조/배지 억제(감사 B-12). */
+  muted?: boolean;
   onPick: () => void;
+  /** F5: 롱프레스(500ms) — 채널 옵션 시트. */
+  onLongPress?: () => void;
 }): JSX.Element {
-  const hasUnread = (unread?.count ?? 0) > 0;
+  // F5: 뮤트 채널은 미읽음 강조를 억제한다(데스크톱 showUnreadStyle 규칙).
+  const hasUnread = (unread?.count ?? 0) > 0 && !muted;
+  // F5: 롱프레스 — Link 행이라 touchend 의 합성 click 이 내비게이션을 발화한다.
+  // 발화 시 suppress 플래그로 onClick 을 preventDefault 한다(메시지 행 div 와
+  // 다른 점). 좌 엣지 시작은 패널 제스처에 양보(PANEL_EDGE_PX).
+  const pressTimer = useRef<number | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const clearPress = (): void => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    startRef.current = null;
+  };
+  const onTouchStart = (e: TouchEvent): void => {
+    if (!onLongPress) return;
+    const t = e.touches[0];
+    if (t.clientX <= PANEL_EDGE_PX) return;
+    startRef.current = { x: t.clientX, y: t.clientY };
+    suppressClickRef.current = false;
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      suppressClickRef.current = true;
+      onLongPress();
+    }, 500);
+  };
+  const onTouchMove = (e: TouchEvent): void => {
+    if (!startRef.current) return;
+    const t = e.touches[0];
+    if (
+      Math.abs(t.clientX - startRef.current.x) > 8 ||
+      Math.abs(t.clientY - startRef.current.y) > 8
+    ) {
+      clearPress();
+    }
+  };
   return (
     <li>
       <Link
         to={`/w/${slug}/${name}`}
-        onClick={onPick}
+        onClick={(e) => {
+          // 롱프레스가 발화했으면 합성 click 의 내비게이션을 막는다.
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            e.preventDefault();
+            return;
+          }
+          onPick();
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={clearPress}
+        onTouchCancel={clearPress}
+        style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
         aria-selected={active || undefined}
         data-testid={`mobile-channel-${name}`}
-        className={cn('qf-m-row', hasUnread && !active && 'qf-m-row--unread')}
+        data-muted={muted ? 'true' : undefined}
+        className={cn(
+          'qf-m-row',
+          hasUnread && !active && 'qf-m-row--unread',
+          muted && 'text-text-muted',
+        )}
       >
-        <Icon name="hash" size="sm" className="text-text-muted" />
+        <Icon name={muted ? 'bell-off' : 'hash'} size="sm" className="text-text-muted" />
         <div className="min-w-0 flex-1">
           <div className="qf-m-row__primary">{name}</div>
         </div>

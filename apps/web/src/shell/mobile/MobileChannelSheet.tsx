@@ -1,0 +1,115 @@
+import { useEffect, useRef } from 'react';
+import { Icon } from '../../design-system/primitives';
+import { type MuteDurationKey } from '../../features/channels/useMutes';
+import { MUTE_DURATIONS } from '../../features/channels/ChannelList';
+import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+
+/**
+ * 071-M3 F5 (FR-CH-17 모바일 / 감사 B-12·B-26) — 채널 롱프레스 시트.
+ *
+ * 좌패널 채널 행 롱프레스로 연다. 데스크톱 ChannelList 컨텍스트 메뉴의 뮤트
+ * 항목 구성을 시트로 이식: 비뮤트 시 duration 6종(15분~무기한), 뮤트 시 해제.
+ * 채널 push 알림 설정(레벨 라디오)은 전 플랫폼 신규 표면이라 보류(M4+).
+ */
+export function MobileChannelSheet({
+  channelName,
+  muted,
+  onClose,
+  onMute,
+  onUnmute,
+}: {
+  channelName: string;
+  muted: boolean;
+  onClose: () => void;
+  onMute: (duration: MuteDurationKey) => void;
+  onUnmute: () => void;
+}): JSX.Element {
+  const panelRef = useRef<HTMLDivElement>(null);
+  const restoreRef = useRef<HTMLElement | null>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  useSheetHistoryMarker(true, onClose);
+
+  useEffect(() => {
+    restoreRef.current = document.activeElement as HTMLElement | null;
+    const panel = panelRef.current;
+    const focusables = (): HTMLElement[] =>
+      Array.from(panel?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? []);
+    focusables()[0]?.focus();
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') {
+        onCloseRef.current();
+        return;
+      }
+      if (e.key !== 'Tab') return;
+      const list = focusables();
+      if (list.length === 0) return;
+      const first = list[0]!;
+      const last = list[list.length - 1]!;
+      const active = document.activeElement;
+      if (e.shiftKey && (active === first || !panel?.contains(active))) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && (active === last || !panel?.contains(active))) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('keydown', onKey);
+      restoreRef.current?.focus?.();
+    };
+    // 마운트 1회 — 최신 onClose 는 onCloseRef 경유(M1 리뷰 M-1 패턴).
+  }, []);
+
+  return (
+    <div
+      data-testid={`mobile-channel-sheet-${channelName}`}
+      className="fixed inset-0 z-[var(--z-modal,60)]"
+      role="dialog"
+      aria-modal="true"
+      aria-label={`#${channelName} 채널 옵션`}
+    >
+      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
+      <div
+        ref={panelRef}
+        className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+      >
+        <div className="qf-m-sheet__grab" aria-hidden />
+        <div className="qf-m-section">
+          <div># {channelName}</div>
+        </div>
+        {muted ? (
+          <button
+            type="button"
+            data-testid="mobile-channel-unmute"
+            className="qf-m-sheet__item"
+            onClick={onUnmute}
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="bell" size="sm" />
+            </span>
+            <span>뮤트 해제</span>
+          </button>
+        ) : (
+          MUTE_DURATIONS.map((opt) => (
+            <button
+              key={opt.key}
+              type="button"
+              data-testid={`mobile-channel-mute-${opt.key}`}
+              className="qf-m-sheet__item"
+              aria-label={opt.ariaLabel}
+              onClick={() => onMute(opt.key)}
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="bell-off" size="sm" />
+              </span>
+              <span>뮤트 — {opt.label}</span>
+            </button>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}

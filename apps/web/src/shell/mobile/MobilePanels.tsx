@@ -227,6 +227,11 @@ export function MobilePanels({
     window.history.pushState({ qfPanel: open }, '');
     markerRef.current = true;
     const onPop = (): void => {
+      // 071-M3 F5: 패널 위에 시트(useSheetHistoryMarker)가 떠 있을 때 시트 마커가
+      // pop 되면(도착 state 가 여전히 qfPanel) 패널은 유지한다 — 계층 구분 없이
+      // 닫으면 시트 닫기 back 이 패널까지 끌어내린다.
+      const st = window.history.state as { qfPanel?: string } | null;
+      if (st?.qfPanel) return;
       markerRef.current = false;
       onOpenChangeRef.current('center');
     };
