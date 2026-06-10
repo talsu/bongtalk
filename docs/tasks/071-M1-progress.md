@@ -20,11 +20,11 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 
 | 청크 | 내용 | 상태 | 커밋 |
 |------|------|------|------|
-| D1 | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | todo | |
-| D2 | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵 | todo | |
+| D1 | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | **done** | |
+| D2 | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵 | **done** | |
 | D3 | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스 | todo | |
 | D4 | 첨부 업로드(+버튼 배선, presign 훅 재사용) | todo | |
-| D5 | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19) | todo | |
+| D5 | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19) | **done(컴포저 게이트류는 D8)** | |
 | D6 | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트) | todo | |
 | D7 | 타이핑 인디케이터 양방향 | todo | |
 | D8 | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:/슬래시) | todo | |
@@ -43,3 +43,7 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 ## 세션 핸드오프 노트
 
 - (시작) feat/071-m1-chat-core 생성(develop 7b31f9a 기점). D1부터.
+- (세션 #1) D1·D2·D5 완료 — tsc green, 시각 프로브(.tour/probe-m1.mjs → .tour/shots-m1/)
+  실측: cont=2/head=3/divider=1/threadChip=1/반응칩 45×44, pageerror 0. 커밋 1c7204b.
+  비고: renderAst 는 표준 :shortcode: 를 렌더하지 않음(커스텀만 — 데스크톱과 동일 parity).
+  멘션 pill 실검증은 D8(자동완성으로 실제 멘션 작성) 때 수행.
