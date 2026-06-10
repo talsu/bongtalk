@@ -2,7 +2,13 @@ import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { useChannelList } from '../../features/channels/useChannels';
-import { useUnreadSummary } from '../../features/channels/useUnread';
+// 071-M3 F4 (FR-RS-18 모바일 / 감사 B-60): 모두 읽음 + Undo — 데스크톱 UnreadsView 정본.
+import {
+  useUnreadSummary,
+  useMarkAllRead,
+  useUndoMarkAllRead,
+} from '../../features/channels/useUnread';
+import { useNotifications } from '../../stores/notification-store';
 import { Icon, Avatar } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
@@ -31,6 +37,24 @@ export function MobileChannelList({
 }): JSX.Element {
   const { data } = useChannelList(workspace.id);
   const { data: unread } = useUnreadSummary(workspace.id);
+  const markAllMut = useMarkAllRead(workspace.id);
+  const undoMut = useUndoMarkAllRead(workspace.id);
+  const notify = useNotifications((st) => st.push);
+  // F4: UnreadsView.onMarkAll 정본 복제 — 0건 가드·8s Undo 토스트.
+  const onMarkAll = (): void => {
+    markAllMut.mutate(undefined, {
+      onSuccess: (res) => {
+        if (!res || res.channelsRead === 0) return;
+        notify({
+          variant: 'info',
+          title: '모든 채널을 읽음 처리했어요',
+          body: `${res.channelsRead}개 채널`,
+          ttlMs: 8000,
+          action: { label: '실행 취소', onClick: () => undoMut.mutate(res.snapshotId) },
+        });
+      },
+    });
+  };
   const [filter, setFilter] = useState('');
   const unreadByChannel = new Map<string, { count: number; mention: boolean }>();
   for (const u of unread?.channels ?? []) {
@@ -121,6 +145,21 @@ export function MobileChannelList({
           </Link>
         ))}
       </nav>
+
+      {/* 071-M3 F4: 채널 섹션 헤더 + 모두 읽음 액션. */}
+      <div className="qf-m-section flex items-center justify-between">
+        <div>채널</div>
+        <button
+          type="button"
+          data-testid="mobile-mark-all-read"
+          className="qf-m-section__action"
+          disabled={markAllMut.isPending}
+          aria-busy={markAllMut.isPending}
+          onClick={onMarkAll}
+        >
+          모두 읽음
+        </button>
+      </div>
 
       {/* qf-m-search filter */}
       <div className="px-[var(--s-4)] pb-[var(--s-2)]">
