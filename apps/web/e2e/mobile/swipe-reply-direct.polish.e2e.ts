@@ -41,7 +41,9 @@ test('swipe-right enters reply-mode, bypasses the long-press sheet', async ({
 
   const row = page
     .getByTestId('mobile-message-list')
-    .locator('[data-testid^="mobile-msg-"][data-mine="true"]')
+    // 071-M0 C12 플레이크 근원: 낙관적(tmp-) 행이 WS 확정 스왑으로 detach 되는 찰나에
+    // dispatch 하면 이벤트가 루트까지 버블되지 않아 조용히 증발한다 — 확정 행만 잡는다.
+    .locator('[data-testid^="mobile-msg-"][data-mine="true"]:not([data-testid^="mobile-msg-tmp-"])')
     .first();
   await expect(row).toBeVisible();
 

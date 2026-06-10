@@ -34,13 +34,19 @@ jobs:
 
       - run: pnpm --filter @qufox/api exec prisma generate
 
-      - name: Start test stack
-        run: docker compose -f ${COMPOSE_FILE} up -d --build
+      # 071-M0 리뷰 H1: 빈 DB 에서 /readyz 는 503(outbox health) → test-api healthcheck
+      # 실패 → `up -d` 가 "dependency failed" 로 비0 종료해 migrate 단계에 도달하지
+      # 못한다. 데이터 서비스 기동 → 마이그레이션 → 앱 기동 순으로 강제한다.
+      - name: Start data services
+        run: docker compose -f ${COMPOSE_FILE} up -d test-postgres test-redis test-minio test-minio-init
 
       - name: Run migrations (one-shot)
         run: |
-          docker compose -f ${COMPOSE_FILE} run --rm --entrypoint prisma \
+          docker compose -f ${COMPOSE_FILE} run --rm --build --entrypoint prisma \
             test-api migrate deploy --schema=prisma/schema.prisma
+
+      - name: Start app services
+        run: docker compose -f ${COMPOSE_FILE} up -d --build
 
       - name: Wait for /readyz
         run: |

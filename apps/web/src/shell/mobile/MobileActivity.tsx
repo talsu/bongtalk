@@ -11,9 +11,11 @@ import {
   type ActivityFilter,
   type ActivityRow,
 } from '../../features/activity/useActivity';
+import { useQueryClient } from '@tanstack/react-query';
 import {
   resolveActivityClick,
   ACTIVITY_TOAST,
+  type ActivityClickChannel,
 } from '../../features/activity/activityClick';
 import { useNotifications } from '../../stores/notification-store';
 import { MobileTabBar } from './MobileTabBar';
@@ -66,9 +68,37 @@ export function MobileActivity(): JSX.Element {
    *    ch 를 이름으로 해석해 실제 채널 라우트로 replace 한다(미캐시 워크스페이스도 동작).
    *  - 친구 요청 → /friends (모바일 전용 화면 존재 — 데스크톱 noop 과 다른 의도적 분기)
    */
+  // 리뷰 M1: 무조건 {accessible:true} 는 삭제/권한회수 fallback(②③ 토스트)을 도달
+  // 불능으로 만들었다 — 데스크톱(ActivityInboxPanel.lookupChannel)과 동일하게 캐시를
+  // 조회하되, 모바일은 미방문 워크스페이스 캐시가 없는 게 정상이라 **미캐시일 때만**
+  // optimistic true 로 점프한다(ch 해석은 MobileShell 이 채널 목록 로드 후 수행).
+  const qc = useQueryClient();
+  const lookupChannel = (
+    workspaceId: string,
+    channelId: string,
+  ): ActivityClickChannel | undefined => {
+    const channels = qc.getQueryData<{
+      categories: Array<{ channels: Array<{ id: string }> }>;
+      uncategorized: Array<{ id: string }>;
+    }>(['workspaces', workspaceId, 'channels']);
+    // 미캐시(미방문 워크스페이스) → optimistic 점프.
+    if (!channels) return { accessible: true };
+    const all = [
+      ...(channels.uncategorized ?? []),
+      ...(channels.categories?.flatMap((c) => c.channels) ?? []),
+    ];
+    // 캐시에 목록이 있는데 부재 → 데스크톱과 동일하게 not-found(undefined) 처리.
+    return all.some((c) => c.id === channelId) ? { accessible: true } : undefined;
+  };
+
   const open = (row: ActivityRow): void => {
     markRead.mutate(row.activityKey);
-    const action = resolveActivityClick(row, { accessible: true });
+    const action = resolveActivityClick(
+      row,
+      row.workspaceId && row.channelId
+        ? lookupChannel(row.workspaceId, row.channelId)
+        : { accessible: true },
+    );
     switch (action.type) {
       case 'dm-open':
         navigate(`/dms/${encodeURIComponent(action.otherUserId)}`);

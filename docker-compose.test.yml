@@ -49,7 +49,9 @@ services:
       retries: 30
 
   test-minio-init:
-    image: minio/mc:RELEASE.2024-09-09T16-17-43Z
+    # 071-M0 리뷰 H1 파생: 종전 RELEASE.2024-09-09T16-17-43Z 는 Docker Hub 에 존재한
+    # 적 없는 오타 태그(404) — init 이 항상 pull 실패였다. 실재 태그로 교정.
+    image: minio/mc:RELEASE.2024-09-16T17-43-14Z
     depends_on:
       test-minio:
         condition: service_healthy

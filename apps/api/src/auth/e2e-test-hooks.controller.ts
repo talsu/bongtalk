@@ -23,13 +23,24 @@ export class E2eTestHooksController {
   @Public()
   @Post('verify-email')
   async verifyEmail(@Body() body: { email?: string }): Promise<{ emailVerified: true }> {
-    if (process.env.E2E_TEST_HOOKS !== '1' || !body?.email) {
+    // 071-M0 리뷰 M3: flag 가드 2곳이 같은 env 를 읽어 실질 단일 스위치였다 —
+    // NODE_ENV=production 이면 flag 와 무관하게 무조건 404(독립 2팩터).
+    if (
+      process.env.NODE_ENV === 'production' ||
+      process.env.E2E_TEST_HOOKS !== '1' ||
+      !body?.email
+    ) {
       throw new NotFoundException();
     }
-    await this.prisma.user.update({
-      where: { email: body.email },
-      data: { emailVerified: true },
-    });
+    try {
+      await this.prisma.user.update({
+        where: { email: body.email },
+        data: { emailVerified: true },
+      });
+    } catch {
+      // 071-M0 리뷰 L6: 미존재 이메일의 Prisma P2025 가 500 으로 새지 않게 404 로 위장.
+      throw new NotFoundException();
+    }
     return { emailVerified: true };
   }
 }

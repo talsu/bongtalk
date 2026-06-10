@@ -71,8 +71,20 @@ export async function bootstrapWorkspace(
     categories: Array<{ channels: Array<{ id: string; name: string }> }>;
   };
   const channelIds: Record<string, string> = {};
-  for (const c of [...(list.uncategorized ?? []), ...(list.categories ?? []).flatMap((x) => x.channels)]) {
+  for (const c of [
+    ...(list.uncategorized ?? []),
+    ...(list.categories ?? []).flatMap((x) => x.channels),
+  ]) {
     channelIds[c.name] = c.id;
+  }
+  // 리뷰 L1: NAME_TAKEN 외의 생성 실패(rate limit 등)가 침묵 통과하면 종전의
+  // `/channels/undefined` 시드 전멸이 재발한다 — 요청 채널 전원이 매핑됐는지 확인.
+  for (const name of opts.channels) {
+    if (!channelIds[name]) {
+      throw new Error(
+        `bootstrapWorkspace: channel "${name}" missing after create+list (got: ${Object.keys(channelIds).join(',')})`,
+      );
+    }
   }
   return { workspaceId: wsId, channelIds };
 }

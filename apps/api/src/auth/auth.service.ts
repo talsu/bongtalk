@@ -88,7 +88,14 @@ export class AuthService {
       {
         key: `login:ip:${meta.ip ?? 'unknown'}`,
         windowSec: 60,
-        max: Number(process.env.LOGIN_RATE_IP_MAX ?? 10),
+        // 리뷰 L2: env 오타가 NaN 이 되면 enforce 의 `count > max` 가 항상 false 로
+        // 떨어져 로그인 IP 리밋이 조용히 전면 해제된다(빈 문자열은 0 → 전면 차단).
+        // 양의 유한수가 아니면 기본 10 으로 강제한다.
+        max:
+          Number.isFinite(Number(process.env.LOGIN_RATE_IP_MAX)) &&
+          Number(process.env.LOGIN_RATE_IP_MAX) > 0
+            ? Number(process.env.LOGIN_RATE_IP_MAX)
+            : 10,
       },
     ]);
 
