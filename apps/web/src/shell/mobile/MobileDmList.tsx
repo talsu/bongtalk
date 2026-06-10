@@ -144,12 +144,7 @@ export function MobileDmList(): JSX.Element {
         <Icon name="edit" size="md" />
       </button>
 
-      <MobileTabBar
-        active="home"
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
+      <MobileTabBar />
 
       {newOpen ? (
         <div

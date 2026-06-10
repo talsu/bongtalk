@@ -7,6 +7,7 @@ const PW = 'Quanta-Beetle-Nebula-42!';
 
 test.setTimeout(90_000);
 
+// TODO(071-M3): 구 DM 탭 모델 결합 — 레일 DM 슬롯(/dms) 경로로 포팅 후 skip 해제.
 test.skip('mobile DM chat — create + send + appears in composer', async ({ browser, request }) => {
   const stamp = Date.now();
   const slug = `mdmc-${stamp.toString(36)}`;

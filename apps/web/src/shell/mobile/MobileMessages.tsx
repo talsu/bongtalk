@@ -87,6 +87,21 @@ import {
   type SpecialMentionKey,
 } from '../../features/messages/autocomplete/specialMention';
 import { SpecialMentionConfirmDialog } from '../../features/messages/autocomplete/SpecialMentionConfirmDialog';
+// 071-M2 E6 (FR-SC 모바일): 슬래시 커맨드 — 목록/실행/표면 전부 데스크톱 모듈 재사용.
+import { useSlashCommands } from '../../features/messages/slashCommands/useSlashCommands';
+import { executeSlashCommand } from '../../features/messages/slashCommands/api';
+import { useEphemeralMessages } from '../../features/messages/slashCommands/useEphemeralMessages';
+import { useGiphyPreviewStore } from '../../features/messages/slashCommands/useGiphyPreview';
+import { EphemeralList } from '../../features/messages/slashCommands/EphemeralList';
+import { GiphyPreviewSlot } from '../../features/messages/slashCommands/GiphyPreviewSlot';
+import {
+  detectClientSlashAction,
+  detectSlashExecution,
+  type ClientSlashAction,
+} from '../../features/messages/composerSlash';
+import { useMediaCollapseStore } from '../../features/messages/mediaCollapseStore';
+import { useTheme } from '../../design-system/theme/ThemeProvider';
+import { useNavigate } from 'react-router-dom';
 // 071-M1 D8(c)(FR-CH-19): ANNOUNCEMENT 게시 제한 판정용 채널 타입 조회.
 import { useChannelList } from '../../features/channels/useChannels';
 import { useRoles, useWorkspace } from '../../features/workspaces/useWorkspaces';
@@ -112,6 +127,7 @@ import { getSocket } from '../../lib/socket';
 import { WS_EVENTS } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
+import { PANEL_EDGE_PX } from './MobilePanels';
 import { MobileEditSheet } from './MobileEditSheet';
 import { ThreadPanel } from '../../features/threads/ThreadPanel';
 import { cn } from '../../lib/cn';
@@ -175,7 +191,6 @@ export function MobileMessages({
   // dialog 닫힘 시 이 요소로 focus 를 복귀시켜 키보드/스크린리더 컨텍스트가
   // 배경으로 튀지 않게 한다(WAI-ARIA dialog 패턴).
   const previousFocusRef = useRef<HTMLElement | null>(null);
-  const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
   // suppress unused warnings (workspaceSlug 은 시그니처 호환용 미사용 prop).
   void workspaceSlug;
@@ -394,6 +409,29 @@ export function MobileMessages({
     rawJump && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawJump)
       ? rawJump
       : null;
+  // 071-M2 E3 (FR-TH-09 모바일): `?thread=<rootId>` 소비 — 스레드 인박스 항목
+  // 진입 시 전체화면 스레드 패널을 연다(데스크톱 ?thread= 소비와 동등).
+  // 1회 소비 후 URL 에서 파라미터를 정리한다. DM(workspaceId=null)은 비범위.
+  const rawThread = sp.get('thread');
+  const threadParam =
+    rawThread && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawThread)
+      ? rawThread
+      : null;
+  const threadHandledRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (!threadParam || threadHandledRef.current === threadParam) return;
+    if (workspaceId === null) return;
+    threadHandledRef.current = threadParam;
+    setThreadRootId(threadParam);
+    setSp(
+      (prevParams) => {
+        const next = new URLSearchParams(prevParams);
+        next.delete('thread');
+        return next;
+      },
+      { replace: true },
+    );
+  }, [threadParam, workspaceId, setSp]);
   const [highlightId, setHighlightId] = useState<string | null>(null);
   const jumpHandledRef = useRef<string | null>(null);
   useEffect(() => {
@@ -487,12 +525,13 @@ export function MobileMessages({
                 customEmojiByName={customEmojiByName}
                 mentions={mentionLookup}
                 onLongPress={() => setSheetMsg(m)}
+                // 071-M2 E6 (M1 리뷰 M-4): 종전 replyTarget 배너는 전송에 실리지
+                // 않는 데드엔드였다 — 스와이프 답장은 스레드 답글로 통일(디스코드
+                // 모바일 동일). DM(workspaceId=null)은 스레드 비범위라 no-op.
                 onSwipeReply={() => {
-                  setReplyTarget(channelId, {
-                    messageId: m.id,
-                    authorName: nameById.get(m.authorId) ?? 'unknown',
-                  });
-                  composerInputRef.current?.focus();
+                  if (!workspaceId || m.id.startsWith('tmp-')) return;
+                  previousFocusRef.current = document.activeElement as HTMLElement | null;
+                  setThreadRootId(m.parentMessageId ?? m.id);
                 }}
                 onToggleReaction={
                   m.id.startsWith('tmp-')
@@ -541,6 +580,10 @@ export function MobileMessages({
       ) : null}
       {/* D7: 타이핑 인디케이터 — 리스트와 컴포저 사이(데스크톱과 동일 위치). */}
       <TypingIndicator channelId={channelId} viewerId={user?.id ?? null} nameByUserId={nameById} />
+      {/* 071-M2 E6 (FR-SC-05/07): 슬래시 표면 — EPHEMERAL 인라인 응답 + /giphy
+          발신자 전용 프리뷰(데스크톱 MessageColumn 과 동일 장착 위치). */}
+      <EphemeralList channelId={channelId} />
+      {workspaceId ? <GiphyPreviewSlot workspaceId={workspaceId} channelId={channelId} /> : null}
       <MobileComposer
         workspaceId={workspaceId}
         channelId={channelId}
@@ -580,14 +623,21 @@ export function MobileMessages({
             void navigator.clipboard?.writeText(sheetMsg.contentPlain ?? sheetMsg.content ?? '');
             setSheetMsg(null);
           }}
-          onReply={() => {
-            setReplyTarget(channelId, {
-              messageId: sheetMsg.id,
-              authorName: nameById.get(sheetMsg.authorId) ?? 'unknown',
-            });
-            setSheetMsg(null);
-            composerInputRef.current?.focus();
-          }}
+          // 071-M2 E6 (M1 리뷰 M-4): '답장' = 스레드 답글(데드엔드 replyTarget
+          // 배너 폐기). DM/tmp 행은 시트가 항목을 숨긴다(미전달).
+          onReply={
+            workspaceId && !sheetMsg.id.startsWith('tmp-')
+              ? () => {
+                  previousFocusRef.current =
+                    (document.activeElement as HTMLElement | null) ??
+                    document.querySelector<HTMLElement>(
+                      `[data-testid="mobile-msg-${sheetMsg.id}"]`,
+                    );
+                  setThreadRootId(sheetMsg.parentMessageId ?? sheetMsg.id);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
           onReact={(emoji) => {
             if (!sheetMsg.id.startsWith('tmp-')) {
               // M1 리뷰 L-6: 토글 방향은 시트 오픈 시점 스냅샷이 아니라 캐시
@@ -910,6 +960,10 @@ function MobileMessageRow({
 
   const onTouchStart = (e: TouchEvent): void => {
     const t = e.touches[0];
+    // M2 리뷰 M-1: 좌 엣지(PANEL_EDGE_PX) 시작 터치는 MobilePanels 의 패널 오픈
+    // 제스처에 양보한다 — 종전엔 같은 드래그가 좌 패널 + 스레드 패널을 이중
+    // 커밋했다(행 스와이프 80px, 패널 60px 임계로 둘 다 통과).
+    if (t.clientX <= PANEL_EDGE_PX) return;
     touchStart.current = { x: t.clientX, y: t.clientY };
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
@@ -936,8 +990,7 @@ function MobileMessageRow({
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
     if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
-      // task-025 follow-2: swipe-right bypasses the sheet and enters
-      // reply-mode directly (sets replyTarget + focuses composer).
+      // M2 E6: swipe-right = 스레드 답글 진입(호출측이 ThreadPanel 을 연다).
       onSwipeReply();
     }
     swipeOffsetRef.current = 0;
@@ -1131,8 +1184,6 @@ function MobileComposer({
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
   const clearDraft = useCompose((s) => s.clearDraft);
-  const replyTarget = useCompose((s) => s.replyTargets[channelId]);
-  const setReplyTarget = useCompose((s) => s.setReplyTarget);
 
   // D8(b/c/e): 자동완성 소스·특수멘션 게이트·공지 게시 제한에 쓰는 워크스페이스
   // 데이터. 부모(MobileMessages)와 같은 쿼리 키라 react-query 캐시를 공유한다
@@ -1144,6 +1195,14 @@ function MobileComposer({
   const { data: channelData } = useChannelList(workspaceId ?? undefined);
   const { data: customEmojiData } = useCustomEmojis(workspaceId ?? null);
   const { onlineUserIds, dndUserIds } = usePresence(workspaceId ?? undefined);
+  // 071-M2 E6 (FR-SC 모바일): 슬래시 커맨드 — 목록(자동완성 후보)·서버 실행·
+  // EPHEMERAL 스토어·GIPHY 프리뷰·클라 액션 의존성. 전부 데스크톱 모듈 재사용.
+  const { data: slashCommandData } = useSlashCommands(workspaceId);
+  const ephemeral = useEphemeralMessages(channelId);
+  const setGiphyPreview = useGiphyPreviewStore((st) => st.set);
+  const setMediaCollapsed = useMediaCollapseStore((st) => st.setCollapsed);
+  const { toggle: toggleTheme, resolved: resolvedTheme } = useTheme();
+  const navigate = useNavigate();
 
   const myRole: WorkspaceRole =
     wsData?.myRole ??
@@ -1288,18 +1347,16 @@ function MobileComposer({
       members: acMembers,
       channels: acChannels,
       customEmojis: acCustomEmojis,
-      // D8(e) 보류: 슬래시 커맨드는 모바일에서 후보를 내지 않는다. 실행 표면
-      // (EPHEMERAL 인라인 리스트·GIPHY 프리뷰 슬롯·/search 등 클라 액션의 대상
-      // 패널)이 모바일 IA 에 아직 없어, 자동완성만 열면 "삽입은 되는데 실행이
-      // 안 되는" 반쪽 UX 가 된다. M2(IA 재구축)에서 표면과 함께 배선한다.
-      slashCommands: [],
+      // 071-M2 E6: M1 D8(e)의 슬래시 보류 해제 — 실행 표면(EPHEMERAL 리스트·
+      // GIPHY 슬롯·클라 액션)이 이번 슬라이스에서 배선됐다.
+      slashCommands: slashCommandData ?? [],
       online: acOnline,
       recentMembers: [],
       recentEmojis: [],
       role: myRole,
       roles: acRoles,
     }),
-    [acMembers, acChannels, acCustomEmojis, acOnline, myRole, acRoles],
+    [acMembers, acChannels, acCustomEmojis, slashCommandData, acOnline, myRole, acRoles],
   );
 
   const {
@@ -1366,6 +1423,95 @@ function MobileComposer({
     if (el) el.style.height = 'auto';
   };
 
+  // 071-M2 E6 (FR-SC-04·05·06 모바일): 서버 슬래시 실행 — 데스크톱 runSlashExecution
+  // 포팅. IN_CHANNEL=게시(WS 가 표시), GIPHY_PREVIEW=발신자 전용 프리뷰 슬롯,
+  // EPHEMERAL=인라인 시스템 행(에러면 draft 유지). navigate 지시(dm/channel)도 처리.
+  const finishSlash = (): void => {
+    clearDraft(channelId);
+    setPendingSpecial(null);
+    typingRef.current?.stop();
+    resetInputHeight();
+  };
+  const runSlashExecution = (command: string, text: string): void => {
+    if (workspaceId === null) return; // DM 은 슬래시 비범위(자동완성도 꺼짐).
+    setSending(true);
+    void executeSlashCommand({
+      workspaceId,
+      channelId,
+      command,
+      text,
+      idempotencyKey: crypto.randomUUID(),
+    })
+      .then((res) => {
+        if (res.responseType === 'IN_CHANNEL') {
+          finishSlash();
+          return;
+        }
+        if (res.responseType === 'GIPHY_PREVIEW') {
+          setGiphyPreview({
+            channelId,
+            gifUrl: res.gifUrl,
+            gifThumbUrl: res.gifThumbUrl,
+            title: res.title,
+            keyword: res.keyword,
+            offset: res.offset,
+          });
+          finishSlash();
+          return;
+        }
+        const isError = res.error === true;
+        ephemeral.push(res.content, isError);
+        if (!isError) {
+          finishSlash();
+          if (res.navigate?.kind === 'dm') navigate(`/dms/${res.navigate.userId}`);
+          if (res.navigate?.kind === 'channel') {
+            navigate(`/w/${res.navigate.slug}/${res.navigate.channelName}`);
+          }
+        }
+      })
+      .catch((err: unknown) => {
+        const message =
+          err && typeof err === 'object' && 'message' in err
+            ? String((err as { message: unknown }).message)
+            : '슬래시 커맨드 실행에 실패했습니다';
+        ephemeral.push(message, true);
+      })
+      .finally(() => setSending(false));
+  };
+
+  // 071-M2 E6 (FR-SC-08 모바일): 클라이언트 전용 커맨드 — 모바일 안전 매핑.
+  // collapse/expand·darkmode 는 데스크톱과 동일 스토어, /search 는 검색 탭으로
+  // 이동(쿼리 pre-fill), /shortcuts 는 키보드 단축키 표면이 없어 안내만.
+  const runClientSlashAction = (action: ClientSlashAction): void => {
+    let confirmText: string;
+    switch (action.kind) {
+      case 'collapseMedia':
+        setMediaCollapsed(channelId, true);
+        confirmText = '이 채널의 인라인 미디어를 접었습니다';
+        break;
+      case 'expandMedia':
+        setMediaCollapsed(channelId, false);
+        confirmText = '이 채널의 인라인 미디어를 펼쳤습니다';
+        break;
+      case 'openSearch':
+        finishSlash();
+        navigate(
+          action.query.length > 0 ? `/search?q=${encodeURIComponent(action.query)}` : '/search',
+        );
+        return;
+      case 'openShortcuts':
+        confirmText = '키보드 단축키는 데스크톱에서 제공됩니다';
+        break;
+      case 'toggleTheme':
+        confirmText =
+          resolvedTheme === 'dark' ? '라이트 모드로 전환했습니다' : '다크 모드로 전환했습니다';
+        toggleTheme();
+        break;
+    }
+    ephemeral.push(confirmText, false);
+    finishSlash();
+  };
+
   const submit = (bulkMentionConfirmed = false): void => {
     const trimmed = draft.trim();
     const hasAttachments = tray.items.length > 0;
@@ -1381,6 +1527,21 @@ function MobileComposer({
         ttlMs: 6000,
       });
       return;
+    }
+    // 071-M2 E6 (FR-SC-04): 슬래시 실행 분기 — 첨부 없는 텍스트 전용(데스크톱 동일).
+    // 리뷰 L-6: DM(workspaceId=null)은 분기 자체를 건너뛰어 일반 전송으로 폴백
+    // (슬래시 목록도 비어 있어 detect 가 null 이지만, 무음 소실 경로를 봉인).
+    if (!hasAttachments && workspaceId !== null) {
+      const slash = detectSlashExecution(trimmed, slashCommandData ?? []);
+      if (slash) {
+        const clientAction = detectClientSlashAction(slash.command, slash.text);
+        if (clientAction) {
+          runClientSlashAction(clientAction);
+          return;
+        }
+        runSlashExecution(slash.command, slash.text);
+        return;
+      }
     }
     // D8(b)(FR-MN-16 미러): 권한 없는 특수멘션은 "알림이 안 갈 수 있음"을 고지하고
     // 그대로 전송한다(서버 게이트가 fanout 만 무효화 — 데스크톱 S44 동일 불확정 카피).
@@ -1404,7 +1565,6 @@ function MobileComposer({
     if (!hasAttachments) {
       send(trimmed, undefined, bulkMentionConfirmed);
       clearDraft(channelId);
-      setReplyTarget(channelId, null);
       setPendingSpecial(null);
       typingRef.current?.stop();
       resetInputHeight();
@@ -1418,7 +1578,6 @@ function MobileComposer({
         send(trimmed || ' ', attachmentIds, bulkMentionConfirmed);
         tray.clearConfirmed();
         clearDraft(channelId);
-        setReplyTarget(channelId, null);
         setPendingSpecial(null);
         typingRef.current?.stop();
         resetInputHeight();
@@ -1447,26 +1606,8 @@ function MobileComposer({
 
   return (
     <div className="qf-m-safe-bottom">
-      {replyTarget ? (
-        <div
-          data-testid="mobile-reply-banner"
-          data-reply-to={replyTarget.messageId}
-          className="flex items-center gap-[var(--s-2)] px-[var(--s-4)] py-[var(--s-2)] bg-bg-subtle border-t border-border-subtle text-[length:var(--fs-13)] text-text-muted"
-        >
-          <Icon name="reply" size="sm" />
-          <span className="flex-1 truncate">@{replyTarget.authorName}에게 답장</span>
-          <button
-            type="button"
-            aria-label="답장 취소"
-            data-testid="mobile-reply-cancel"
-            onClick={() => setReplyTarget(channelId, null)}
-            style={{ minWidth: 'var(--m-touch)', minHeight: 'var(--m-touch)' }}
-            className="grid place-items-center"
-          >
-            <Icon name="x" size="sm" />
-          </button>
-        </div>
-      ) : null}
+      {/* 071-M2 E6 (M1 리뷰 M-4): replyTarget 배너 폐기 — '답장'은 스레드 답글
+          단일 경로(시트/스와이프가 ThreadPanel 을 연다). */}
       {/* D8(FR-RC02): 한도 근접/초과 카운터 — 경고 구간부터 노출. */}
       {counter.shouldShow ? (
         <div
@@ -1591,13 +1732,7 @@ function MobileComposer({
             // 방향키/Home/End 등 캐럿 이동도 트리거 재평가에 반영한다.
             setCaret(e.currentTarget.selectionStart ?? 0);
           }}
-          placeholder={
-            !online
-              ? '오프라인 — 연결되면 보낼 수 있습니다'
-              : replyTarget
-                ? `@${replyTarget.authorName}에게 답장…`
-                : `# ${channelName}`
-          }
+          placeholder={!online ? '오프라인 — 연결되면 보낼 수 있습니다' : `# ${channelName}`}
           onKeyDown={(e) => {
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
             if (native.isComposing || e.keyCode === 229) return;

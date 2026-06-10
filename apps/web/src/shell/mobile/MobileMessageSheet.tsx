@@ -59,7 +59,8 @@ export function MobileMessageSheet({
   onDelete: () => void;
   onCopy: () => void;
   onReact: (emoji: string) => void;
-  onReply: () => void;
+  /** 071-M2 E6 (M1 리뷰 M-4): '답장' = 스레드 답글. DM/tmp 행은 미전달 → 숨김. */
+  onReply?: () => void;
   // S103 (FR-MSG-06 모바일): '메시지 편집' — 편집 바텀시트를 연다. 미지정이면
   // (내 메시지 아님 · 낙관적 tmp- 행 · 삭제됨) 액션을 숨긴다(호출측이 게이트).
   onEdit?: () => void;
@@ -193,20 +194,21 @@ export function MobileMessageSheet({
           ) : null}
         </div>
         <div className="qf-m-sheet__divider" aria-hidden />
-        <button
-          type="button"
-          data-testid="mobile-msg-reply"
-          onClick={onReply}
-          className="qf-m-sheet__item"
-        >
-          <span className="qf-m-sheet__icon">
-            <Icon name="reply" size="sm" />
-          </span>
-          <span>답장</span>
-        </button>
-        {/* S35 (FR-TH-05): 스레드에서 답글 — 전체화면 스레드 패널 진입. 루트가
-            아닌 답글에서도 동일 루트로 진입하도록 호출측이 parentMessageId 를
-            해석한다(여기선 액션만 노출). */}
+        {/* 071-M2 E6 (M1 리뷰 M-4): '답장' = 스레드 답글 단일 경로 — 종전의
+            데드엔드 replyTarget 배너('답장')와 '스레드에서 답글' 중복을 통합. */}
+        {onReply ? (
+          <button
+            type="button"
+            data-testid="mobile-msg-reply"
+            onClick={onReply}
+            className="qf-m-sheet__item"
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="reply" size="sm" />
+            </span>
+            <span>답장</span>
+          </button>
+        ) : null}
         {onOpenThread ? (
           <button
             type="button"
@@ -217,7 +219,7 @@ export function MobileMessageSheet({
             <span className="qf-m-sheet__icon">
               <Icon name="thread" size="sm" />
             </span>
-            <span>스레드에서 답글</span>
+            <span>스레드 보기</span>
           </button>
         ) : null}
         <button

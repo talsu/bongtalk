@@ -1,16 +1,21 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
-import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
+import { useMyWorkspaces, useMembers } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
+// 071-M2 E5 (FR-IA-MOB-03): 채널 둘러보기 — 데스크톱 ChannelBrowser + SettingsOverlay
+// 재사용(모바일에서 풀스크린 오버레이로 동작).
+import { ChannelBrowser } from '../features/channels/ChannelBrowser';
+import { SettingsOverlay } from '../design-system/primitives';
+import { useAuth } from '../features/auth/AuthProvider';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
 import { Icon } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { MobileChannelList } from './mobile/MobileChannelList';
-import { MobileHome } from './mobile/MobileHome';
 import { MobileMessages } from './mobile/MobileMessages';
 import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
-import { MobileDrawer } from './mobile/MobileDrawer';
+// 071-M2 E2 (A안): 드로어 오버레이 → DS OverlappingPanels 3패널 셸.
+import { MobilePanels, type PanelSide } from './mobile/MobilePanels';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -54,8 +59,15 @@ export function MobileShell(): JSX.Element {
     return flatChannels.find((c) => c.name === channelName) ?? null;
   }, [flatChannels, channelName]);
 
-  const [leftOpen, setLeftOpen] = useState(false);
-  const [rightOpen, setRightOpen] = useState(false);
+  // 071-M2 E2: 단일 패널 상태(center/left/right) — DS .qf-m-panels 상태 수식자와 1:1.
+  const [panel, setPanel] = useState<PanelSide>('center');
+  // 071-M2 E5 (FR-IA-MOB-03/02): 채널 둘러보기 오버레이 + 멤버수 표기용 데이터.
+  const [browseOpen, setBrowseOpen] = useState(false);
+  const { user } = useAuth();
+  const { data: membersData } = useMembers(active?.id);
+  const memberCount = membersData?.members.length ?? 0;
+  const myRole = membersData?.members.find((m) => m.userId === user?.id)?.role ?? null;
+  const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const navigate = useNavigate();
   const location = useLocation();
   const [sp] = useSearchParams();
@@ -97,12 +109,11 @@ export function MobileShell(): JSX.Element {
     navigate(`/w/${active.slug}/${target.name}${qsStr ? `?${qsStr}` : ''}`, { replace: true });
   }, [active, activeChannel, channelName, flatChannels, sp, navigate]);
 
-  // Close both drawers on route change — covers hardware back, channel
-  // picks that navigate, and tab taps. Matches user intent: the drawer
+  // Close the side panels on route change — covers hardware back, channel
+  // picks that navigate, and tab taps. Matches user intent: the panel
   // is a per-screen modal, not a persistent surface.
   useEffect(() => {
-    setLeftOpen(false);
-    setRightOpen(false);
+    setPanel('center');
   }, [location.pathname]);
 
   if (isLoading) {
@@ -118,120 +129,171 @@ export function MobileShell(): JSX.Element {
   // creation; DM + discover are both available to a zero-workspace
   // account. (Desktop Shell.tsx has the same redirect.)
   if ((mine?.workspaces.length ?? 0) === 0) return <Navigate to="/dm" replace />;
-  // task-035-E: mobile base state (/, no slug) renders MobileHome with
-  // its own rail/content split. Specific workspace routes (/w/:slug/*)
-  // continue to use the drawer-based MobileShell so channel-deep
-  // navigation stays identical to 024's behaviour.
+  // 071-M2 E4 (A안): 홈(`?chat=` 오버레이) 모델 폐기 — '/' 는 채팅 탭의 기본
+  // 컨텍스트로 보낸다: 마지막 채팅 위치(sessionStorage) → 첫 워크스페이스
+  // (lastChannel 복원은 /w/:slug 진입 effect 가 수행) 순. 워크스페이스 0개는
+  // 위에서 이미 /dm 으로 빠졌다.
   if (!slug) {
-    return <MobileHome />;
+    let last: string | null = null;
+    try {
+      last = sessionStorage.getItem('qf:lastChatPath');
+    } catch {
+      last = null;
+    }
+    // M2 리뷰 M-2: 탈퇴/추방으로 stale 해진 lastChatPath(/w/<없는 slug>/…)는
+    // 무시하고 항목도 지운다 — 그대로 보내면 ws-not-found 함정에 떨어진다.
+    // L-7③: '//host' 류는 차단(출처가 자체 pathname 뿐이라 방어적 봉인).
+    if (last && last.startsWith('/') && !last.startsWith('//')) {
+      const m = last.match(/^\/w\/([^/]+)\//);
+      const stale = m && !mine?.workspaces.some((w) => w.slug === m[1]);
+      if (!stale) return <Navigate to={last} replace />;
+      try {
+        sessionStorage.removeItem('qf:lastChatPath');
+      } catch {
+        /* noop */
+      }
+    }
+    return <Navigate to={`/w/${mine!.workspaces[0].slug}`} replace />;
   }
-  if (slug && !active) {
+  if (!active) {
+    // M2 리뷰 M-2: 종전엔 topbar 만 렌더해 앱 내 탈출 수단이 없는 함정 화면이었다
+    // — 탭바를 장착해 채팅/나 탭 등으로 빠져나갈 수 있게 한다. (L-4: 도달 불가
+    // 분기였던 `!slug && mine` / 후행 `!active` 도 이 단일 분기로 정리.)
     return (
       <div data-testid="mobile-shell-ws-not-found" className="qf-m-screen qf-m-screen--app">
-        <header className="qf-m-topbar">
+        <header className="qf-m-topbar qf-m-safe-top">
           <div className="qf-m-topbar__titleBlock">
             <div className="qf-m-topbar__title">워크스페이스를 찾을 수 없습니다</div>
           </div>
         </header>
+        <main className="qf-m-body flex min-h-0 flex-col">
+          <div className="qf-m-empty flex-1">
+            <div className="qf-m-empty__body">초대가 만료됐거나 탈퇴한 워크스페이스예요.</div>
+          </div>
+        </main>
+        <MobileTabBar />
       </div>
     );
   }
-  if (!slug && mine) {
-    return <Navigate to={`/w/${mine.workspaces[0].slug}`} replace />;
-  }
-  if (!active) return <Navigate to="/dm" replace />;
 
   const topbarTitle = activeChannel ? `# ${activeChannel.name}` : active.name;
   const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';
 
   return (
-    <div data-testid="mobile-shell" className="qf-m-screen qf-m-screen--app">
-      <header className="qf-m-topbar qf-m-safe-top">
-        <button
-          type="button"
-          data-testid="mobile-topbar-menu"
-          className="qf-m-topbar__back"
-          aria-label="메뉴 열기"
-          onClick={() => setLeftOpen(true)}
-        >
-          <Icon name="grid" size="md" />
-        </button>
-        <div className="qf-m-topbar__titleBlock">
-          <div className="qf-m-topbar__title">{topbarTitle}</div>
-          <div className="qf-m-topbar__subtitle">{topbarSubtitle}</div>
+    // 071-M2 E2 (A안): 드로어 오버레이 모델 폐기 — DS OverlappingPanels.
+    // 좌 패널 = 워크스페이스 레일 + 채널 목록(qf-m-safe-top 으로 노치 회피),
+    // 우 패널 = 멤버 목록(활성 채널일 때만 — 엣지 제스처도 함께 비활성),
+    // 중앙 = topbar + 채팅 + 탭바(기존 qf-m-screen 골격 유지).
+    <MobilePanels
+      open={panel}
+      onOpenChange={setPanel}
+      left={
+        <div className="qf-m-safe-top" data-testid="mobile-left-panel">
+          <MobileChannelList
+            workspace={active}
+            workspaces={mine?.workspaces ?? []}
+            activeChannelName={activeChannel?.name ?? null}
+            onPick={() => setPanel('center')}
+            onBrowse={() => {
+              setPanel('center');
+              setBrowseOpen(true);
+            }}
+          />
         </div>
-        <div className="qf-m-topbar__actions">
-          {activeChannel ? (
-            <button
-              type="button"
-              data-testid="mobile-topbar-members"
-              className="qf-m-topbar__action"
-              aria-label="멤버 보기"
-              onClick={() => setRightOpen(true)}
-            >
-              <Icon name="users" size="md" />
-            </button>
-          ) : null}
-        </div>
-      </header>
+      }
+      right={
+        activeChannel ? (
+          <div className="qf-m-safe-top" data-testid="mobile-right-panel">
+            <MobileMembers workspaceId={active.id} />
+          </div>
+        ) : null
+      }
+    >
+      <div data-testid="mobile-shell" className="qf-m-screen qf-m-screen--app">
+        <header className="qf-m-topbar qf-m-safe-top">
+          <button
+            type="button"
+            data-testid="mobile-topbar-menu"
+            className="qf-m-topbar__back"
+            aria-label="채널 목록 열기"
+            aria-expanded={panel === 'left'}
+            onClick={() => setPanel(panel === 'left' ? 'center' : 'left')}
+          >
+            <Icon name="grid" size="md" />
+          </button>
+          <div className="qf-m-topbar__titleBlock">
+            <div className="qf-m-topbar__title">{topbarTitle}</div>
+            <div className="qf-m-topbar__subtitle">{topbarSubtitle}</div>
+          </div>
+          <div className="qf-m-topbar__actions">
+            {activeChannel ? (
+              // 071-M2 E5 (FR-IA-MOB-02): 멤버 버튼에 멤버 수 병기 + aria-expanded.
+              <button
+                type="button"
+                data-testid="mobile-topbar-members"
+                className="qf-m-topbar__action"
+                aria-label={`멤버 보기 (${memberCount}명)`}
+                aria-expanded={panel === 'right'}
+                onClick={() => setPanel(panel === 'right' ? 'center' : 'right')}
+              >
+                <Icon name="users" size="md" />
+                {memberCount > 0 ? (
+                  <span
+                    data-testid="mobile-member-count"
+                    className="text-[length:var(--fs-11)] text-text-muted"
+                  >
+                    {memberCount}
+                  </span>
+                ) : null}
+              </button>
+            ) : null}
+          </div>
+        </header>
 
-      {/* H-2(071-M0 C1): qf-m-body 는 display:flex 가 아니라서 MobileMessages 의
-          리스트(flex-1 min-h-0)가 무효 — 리스트가 내용 높이만큼 자라 컴포저가 화면 밖으로
-          밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
-          동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
-      <main className="qf-m-body flex min-h-0 flex-col">
-        {activeChannel ? (
-          <MobileMessages
+        {/* H-2(071-M0 C1): qf-m-body 는 display:flex 가 아니라서 MobileMessages 의
+            리스트(flex-1 min-h-0)가 무효 — 리스트가 내용 높이만큼 자라 컴포저가 화면 밖으로
+            밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
+            동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
+        <main className="qf-m-body flex min-h-0 flex-col">
+          {activeChannel ? (
+            <MobileMessages
+              workspaceId={active.id}
+              workspaceSlug={active.slug}
+              channelId={activeChannel.id}
+              channelName={activeChannel.name}
+            />
+          ) : (
+            <div className="qf-m-empty flex-1">
+              <div className="qf-m-empty__title">채널을 선택하세요</div>
+              <div className="qf-m-empty__body">좌상단 메뉴에서 채널을 고르면 대화가 시작돼요.</div>
+            </div>
+          )}
+        </main>
+
+        {/* 071-M2 E3: PRD 5탭 — 탭바가 내부 라우팅(채팅 복귀=lastChatPath)을 소유한다. */}
+        <MobileTabBar />
+
+        {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
+            게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
+        <OnboardingHost workspaceId={active.id} slug={active.slug} />
+        <FeedbackDialog />
+
+        {/* 071-M2 E5 (FR-IA-MOB-03): 채널 둘러보기 — 데스크톱 컴포넌트 재사용.
+            채널 생성 모달은 M3 도달성에서 모바일 변형 — 여기서는 닫기만. */}
+        <SettingsOverlay
+          open={browseOpen}
+          onClose={() => setBrowseOpen(false)}
+          title="채널 둘러보기"
+          testId="mobile-channel-browser-overlay"
+        >
+          <ChannelBrowser
             workspaceId={active.id}
             workspaceSlug={active.slug}
-            channelId={activeChannel.id}
-            channelName={activeChannel.name}
+            canManage={canManage}
+            onCreateChannel={() => setBrowseOpen(false)}
           />
-        ) : (
-          <div className="qf-m-empty flex-1">
-            <div className="qf-m-empty__title">채널을 선택하세요</div>
-            <div className="qf-m-empty__body">좌상단 메뉴에서 채널을 고르면 대화가 시작돼요.</div>
-          </div>
-        )}
-      </main>
-
-      {/* C7(071-M0): 홈 탭은 모든 화면에서 '/'(MobileHome) — 종전 /w/:slug 행은 C11 의
-          lastChannel 복원과 결합하면 사실상 무동작 버튼이 된다. */}
-      <MobileTabBar
-        onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings')}
-        onActivity={() => navigate('/activity')}
-      />
-
-      {/* Left drawer: workspace + channel list */}
-      <MobileDrawer
-        side="left"
-        open={leftOpen}
-        onClose={() => setLeftOpen(false)}
-        testId="mobile-left-drawer"
-      >
-        <MobileChannelList
-          workspace={active}
-          workspaces={mine?.workspaces ?? []}
-          activeChannelName={activeChannel?.name ?? null}
-          onPick={() => setLeftOpen(false)}
-        />
-      </MobileDrawer>
-
-      {/* Right drawer: member list for active channel */}
-      <MobileDrawer
-        side="right"
-        open={rightOpen}
-        onClose={() => setRightOpen(false)}
-        testId="mobile-right-drawer"
-      >
-        <MobileMembers workspaceId={active.id} />
-      </MobileDrawer>
-
-      {/* S71 (D13 / FR-W07·W08·W09): 모바일 가입자도 온보딩 오버레이를 받는다 — 규칙 동의
-          게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
-      <OnboardingHost workspaceId={active.id} slug={active.slug} />
-      <FeedbackDialog />
-    </div>
+        </SettingsOverlay>
+      </div>
+    </MobilePanels>
   );
 }

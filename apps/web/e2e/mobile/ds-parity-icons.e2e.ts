@@ -43,13 +43,12 @@ test('mobile shell chrome has zero hardcoded UI emoji in the visible DOM', async
     label: 'tabbar',
     text: (await page.getByTestId('mobile-tabbar').innerText()) ?? '',
   });
-  // Open drawer → scan its text.
+  // 071-M2 E7: 드로어 → OverlappingPanels 좌 패널. 메뉴 버튼으로 열고 텍스트 스캔.
   await page.getByTestId('mobile-topbar-menu').click();
   snaps.push({
-    label: 'left-drawer',
-    text: (await page.getByTestId('mobile-left-drawer').innerText()) ?? '',
+    label: 'left-panel',
+    text: (await page.getByTestId('mobile-panel-left').innerText()) ?? '',
   });
-  await page.keyboard.press('Escape');
 
   for (const s of snaps) {
     expect(s.text, `${s.label} contained a UI chrome emoji: ${s.text}`).not.toMatch(
