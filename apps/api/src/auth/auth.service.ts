@@ -82,7 +82,14 @@ export class AuthService {
     // IP-scoped rate limit runs first — protects against enumeration regardless
     // of whether the email exists.
     await this.rateLimit.enforce([
-      { key: `login:ip:${meta.ip ?? 'unknown'}`, windowSec: 60, max: 10 },
+      // 071-M0 C12: e2e 스택(단일 IP에서 스펙당 1로그인 병렬)이 고정 10/분에 걸려
+      // 스위트가 비결정적으로 깨졌다 — MESSAGE_RATE_* 패턴대로 env 상향만 허용
+      // (기본값 10 유지, prod 미설정).
+      {
+        key: `login:ip:${meta.ip ?? 'unknown'}`,
+        windowSec: 60,
+        max: Number(process.env.LOGIN_RATE_IP_MAX ?? 10),
+      },
     ]);
 
     const user = await this.users.findByEmail(input.email);

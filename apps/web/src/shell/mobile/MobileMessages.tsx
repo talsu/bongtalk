@@ -316,6 +316,10 @@ function MobileMessageRow({
   const pressTimer = useRef<number | null>(null);
   const touchStart = useRef<{ x: number; y: number } | null>(null);
   const [swipeOffset, setSwipeOffset] = useState(0);
+  // 071-M0 C12: 커밋 판정을 state 클로저로 읽으면 같은 태스크에서 연속 발화하는 터치
+  // 시퀀스(합성 이벤트·고주사율 기기)에서 touchend 가 항상 초기값 0 을 봐 스와이프가
+  // 절대 커밋되지 않는다 — 판정은 ref, state 는 시각 transform 전용으로 분리한다.
+  const swipeOffsetRef = useRef(0);
 
   const LONG_PRESS_MS = 500;
   const SWIPE_THRESHOLD_PX = 80;
@@ -338,16 +342,21 @@ function MobileMessageRow({
       if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
       pressTimer.current = null;
     }
-    if (dx > 0 && Math.abs(dy) < 30) setSwipeOffset(Math.min(dx, 120));
+    if (dx > 0 && Math.abs(dy) < 30) {
+      const v = Math.min(dx, 120);
+      swipeOffsetRef.current = v;
+      setSwipeOffset(v);
+    }
   };
   const onTouchEnd = (): void => {
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
-    if (swipeOffset >= SWIPE_THRESHOLD_PX) {
+    if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
       // task-025 follow-2: swipe-right bypasses the sheet and enters
       // reply-mode directly (sets replyTarget + focuses composer).
       onSwipeReply();
     }
+    swipeOffsetRef.current = 0;
     setSwipeOffset(0);
     touchStart.current = null;
   };

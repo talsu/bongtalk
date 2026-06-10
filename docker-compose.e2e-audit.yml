@@ -78,6 +78,12 @@ services:
       # 071-M0 C12: e2e 전용 이메일 인증 훅(POST /auth/test-hooks/verify-email) 활성.
       # 이 flag 가 없으면 라우트 자체가 등록되지 않는다 — 테스트 compose 한정.
       E2E_TEST_HOOKS: '1'
+      # 071-M0 C12: e2e 시드(스펙당 40+건 연속 전송)가 기본 30/10s 한도에 잘려
+      # 폴리시 스펙들이 빈 채널로 떨어졌다 — 테스트 스택은 메시지 한도를 사실상 해제.
+      # (rate-limit 자체를 검증하는 스펙은 feedback 등 별도 키를 사용 — 영향 없음)
+      MESSAGE_RATE_USER_MAX: '1000'
+      MESSAGE_RATE_CHANNEL_MAX: '1000'
+      LOGIN_RATE_IP_MAX: '1000'
       API_PORT: '3001'
       DATABASE_URL: postgresql://qufox:qufox@test-postgres:5432/qufox_e2e?schema=public
       REDIS_URL: redis://test-redis:6379

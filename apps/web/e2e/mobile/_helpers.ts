@@ -53,13 +53,26 @@ export async function bootstrapWorkspace(
     data: { name: opts.name, slug: opts.slug },
   });
   const wsId = ((await ws.json()) as { id: string }).id;
-  const channelIds: Record<string, string> = {};
+  // 071-M0 C12: 워크스페이스 생성이 'general' 채널을 자동 생성하게 된 뒤, 종전의
+  // 무검사 생성은 CHANNEL_NAME_TAKEN 응답에서 undefined id 를 받아
+  // channelIds.general=undefined → 시드 POST 가 /channels/undefined/... 로 전멸했다.
+  // 생성 실패(이미 존재)는 무시하고, 최종 id 매핑은 GET 채널 목록에서 만든다.
   for (const name of opts.channels) {
-    const c = await request.post(`${API}/workspaces/${wsId}/channels`, {
+    await request.post(`${API}/workspaces/${wsId}/channels`, {
       headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
       data: { name, type: 'TEXT' },
     });
-    channelIds[name] = ((await c.json()) as { id: string }).id;
+  }
+  const listRes = await request.get(`${API}/workspaces/${wsId}/channels`, {
+    headers: { authorization: `Bearer ${token}`, origin: ORIGIN },
+  });
+  const list = (await listRes.json()) as {
+    uncategorized: Array<{ id: string; name: string }>;
+    categories: Array<{ channels: Array<{ id: string; name: string }> }>;
+  };
+  const channelIds: Record<string, string> = {};
+  for (const c of [...(list.uncategorized ?? []), ...(list.categories ?? []).flatMap((x) => x.channels)]) {
+    channelIds[c.name] = c.id;
   }
   return { workspaceId: wsId, channelIds };
 }
