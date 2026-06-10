@@ -59,17 +59,21 @@ jobs:
           docker compose -f ${COMPOSE_FILE} ps -a
           docker compose -f ${COMPOSE_FILE} logs --tail 120 test-api test-web || true
           # 로그 열람 수단이 없는 운영환경용: 핵심 라인을 ::error 어노테이션으로 승격
-          # (어노테이션은 무인증 check-runs API 로 읽힌다).
-          docker compose -f ${COMPOSE_FILE} ps -a --format '{{.Name}} {{.Status}}' | while read -r l; do
+          # (무인증 check-runs API 로 읽힌다 · GitHub 상한 10개/스텝 — 안배: ps2+err2+tail6).
+          docker compose -f ${COMPOSE_FILE} ps -a --format '{{.Name}} {{.Status}}' \
+            | grep -E 'test-api|test-web' | while read -r l; do
             echo "::error title=compose-ps::${l}"
           done
-          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 60 test-api 2>/dev/null \
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 200 test-api 2>/dev/null \
+            | grep -ivE 'PeriodicExportingMetricReader' \
             | grep -iE 'error|exception|fatal|missing|invalid|refus|denied|cannot|P[0-9]{4}' \
-            | tail -6 | while read -r l; do
-            echo "::error title=api-log::${l:0:400}"
+            | tail -2 | while read -r l; do
+            echo "::error title=api-log::${l:0:380}"
           done
-          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 8 test-api 2>/dev/null | while read -r l; do
-            echo "::error title=api-tail::${l:0:400}"
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 200 test-api 2>/dev/null \
+            | grep -ivE 'PeriodicExportingMetricReader|processTicksAndRejections|sdk-metrics' \
+            | tail -6 | while read -r l; do
+            echo "::error title=api-tail::${l:0:380}"
           done
 
       - name: Wait for /readyz

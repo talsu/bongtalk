@@ -108,6 +108,10 @@ services:
       OUTBOX_MAX_ATTEMPTS: '10'
       LOG_LEVEL: info
       OTEL_EXPORTER: stdout
+      # 071-M0 C14: GHA(2vCPU)에서 OTLP 메트릭 export 실패 재시도가 부트를 지연시켜
+      # healthcheck 예산(150s) 안에 listen 에 도달하지 못했다(역사적 'readyz 영구 비200'
+      # 의 제2원인 후보). 테스트 스택은 OTel 자체를 끈다(표준 kill-switch).
+      OTEL_SDK_DISABLED: 'true'
       SEED_NAMESPACE: 00000000-0000-0000-0000-000000000000
       WEB_URL: http://localhost:5173
       # task-013-A4: S3 env pointing at test-minio so attachments int +
@@ -131,7 +135,10 @@ services:
       test: ['CMD-SHELL', 'wget -q --spider http://localhost:3001/readyz || exit 1']
       interval: 5s
       timeout: 3s
-      retries: 30
+      # 071-M0 C14: GHA 콜드 부트가 NAS 보다 훨씬 느려 150s 예산이 부족했다 —
+      # start_period 동안의 실패는 카운트되지 않고, 총 예산을 ~5분으로 확장.
+      start_period: 30s
+      retries: 60
 
   test-web:
     build:
