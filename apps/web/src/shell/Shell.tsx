@@ -249,7 +249,8 @@ function MemberDirectoryHost({
   );
 }
 
-function WorkspaceSettingsOverlayHost({
+// 071-M3 F1: MobileShell 의 /w/:slug/settings 분기도 동일 호스트를 재사용한다(export).
+export function WorkspaceSettingsOverlayHost({
   workspace,
   workspaceSlug,
 }: {

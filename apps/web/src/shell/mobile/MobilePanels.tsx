@@ -210,6 +210,16 @@ export function MobilePanels({
     endDrag(commit);
   };
 
+  // 071-M3 F1 (M2 리뷰 L-7④): aria-hidden 패널은 inert 로 포커스/클릭까지 차단한다.
+  // @types/react 18 에 inert prop 타입이 없어 ref 로 DOM 속성을 직접 설정한다.
+  useEffect(() => {
+    const setInert = (el: HTMLDivElement | null, hidden: boolean): void => {
+      if (el) (el as HTMLDivElement & { inert: boolean }).inert = hidden;
+    };
+    setInert(leftRef.current, open !== 'left' && !dragging);
+    setInert(rightRef.current, open !== 'right' && !dragging);
+  }, [open, dragging]);
+
   // 하드웨어 back: 패널 열림 시 마커 push — back 은 패널만 닫는다(MobileOverlay 패턴).
   const markerRef = useRef(false);
   useEffect(() => {

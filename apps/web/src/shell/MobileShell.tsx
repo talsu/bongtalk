@@ -16,6 +16,9 @@ import { MobileMembers } from './mobile/MobileMembers';
 import { MobileTabBar } from './mobile/MobileTabBar';
 // 071-M2 E2 (A안): 드로어 오버레이 → DS OverlappingPanels 3패널 셸.
 import { MobilePanels, type PanelSide } from './mobile/MobilePanels';
+// 071-M3 F1: /w/:slug/settings — 데스크톱 설정 호스트(내부 탭에 일반/신고 큐/감사
+// 로그 등 내장)를 직마운트한다(최소안 — qf-m-* 드릴다운 변형은 후속).
+import { WorkspaceSettingsOverlayHost } from './Shell';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -36,7 +39,11 @@ export function MobileShell(): JSX.Element {
   const params = useParams<{ slug: string; '*'?: string }>();
   const slug = params.slug;
   const rest = (params['*'] ?? '').split('/').filter(Boolean);
-  const channelName = rest[0] ?? undefined;
+  // 071-M3 F1 (감사 A-43/A-48): /w/:slug/settings 는 채널명이 아니라 워크스페이스
+  // 설정이다 — 데스크톱 Shell 과 동일 분기. 종전 모바일은 rest[0] 을 무조건
+  // 채널명으로 해석해 설정 URL 이 '채널을 선택하세요' 데드엔드였다.
+  const inWorkspaceSettings = rest[0] === 'settings' && !rest[1];
+  const channelName = inWorkspaceSettings ? undefined : (rest[0] ?? undefined);
   const { data: mine, isLoading } = useMyWorkspaces();
   // task-040 R3 + reviewer H1: realtime now App-level (see App.tsx
   // AppRealtimeHost). Banner survives mobile early-returns.
@@ -67,7 +74,12 @@ export function MobileShell(): JSX.Element {
   const { data: membersData } = useMembers(active?.id);
   const memberCount = membersData?.members.length ?? 0;
   const myRole = membersData?.members.find((m) => m.userId === user?.id)?.role ?? null;
-  const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
+  // 071-M3 F1 (정찰 충돌 조율): 용도별 게이트 분리 — 단일 canManage 확장 금지.
+  // canManageWorkspace = 채널/카테고리 생성·워크스페이스 설정(OWNER/ADMIN),
+  // canModerate = 신고 큐 등 모더레이션(MODERATOR 포함 — 데스크톱 Shell 정본).
+  const canManageWorkspace = myRole === 'OWNER' || myRole === 'ADMIN';
+  const canModerate = canManageWorkspace || myRole === 'MODERATOR';
+  void canModerate; // F2(서버 메뉴 시트)에서 소비.
   const navigate = useNavigate();
   const location = useLocation();
   const [sp] = useSearchParams();
@@ -78,6 +90,9 @@ export function MobileShell(): JSX.Element {
   // 종전엔 모든 워크스페이스 전환이 '채널을 선택하세요' 빈 화면에 떨어졌다(P0 미구현).
   useEffect(() => {
     if (!active) return;
+    // 071-M3 F1 ★함정 가드: 설정 화면(channelName=undefined)에서 이 자동복원이
+    // 발화하면 /w/:slug/<채널> 로 강제 리다이렉트돼 설정에서 즉시 튕긴다.
+    if (inWorkspaceSettings) return;
     if (activeChannel) {
       try {
         localStorage.setItem(`ws:${active.id}:lastChannel`, activeChannel.id);
@@ -107,7 +122,7 @@ export function MobileShell(): JSX.Element {
     if (thread) qs.set('thread', thread);
     const qsStr = qs.toString();
     navigate(`/w/${active.slug}/${target.name}${qsStr ? `?${qsStr}` : ''}`, { replace: true });
-  }, [active, activeChannel, channelName, flatChannels, sp, navigate]);
+  }, [active, activeChannel, channelName, flatChannels, sp, navigate, inWorkspaceSettings]);
 
   // Close the side panels on route change — covers hardware back, channel
   // picks that navigate, and tab taps. Matches user intent: the panel
@@ -176,8 +191,16 @@ export function MobileShell(): JSX.Element {
     );
   }
 
-  const topbarTitle = activeChannel ? `# ${activeChannel.name}` : active.name;
-  const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';
+  const topbarTitle = inWorkspaceSettings
+    ? '워크스페이스 설정'
+    : activeChannel
+      ? `# ${activeChannel.name}`
+      : active.name;
+  const topbarSubtitle = inWorkspaceSettings
+    ? active.name
+    : activeChannel
+      ? active.name
+      : '채널을 선택하세요';
 
   return (
     // 071-M2 E2 (A안): 드로어 오버레이 모델 폐기 — DS OverlappingPanels.
@@ -255,7 +278,27 @@ export function MobileShell(): JSX.Element {
             밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
             동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
         <main className="qf-m-body flex min-h-0 flex-col">
-          {activeChannel ? (
+          {inWorkspaceSettings ? (
+            // F1: 설정 본문 — 데스크톱 페이지 직마운트(가로 탭은 스크롤 허용).
+            <div
+              data-testid="mobile-ws-settings"
+              className="min-h-0 flex-1 overflow-y-auto [&_[role=tablist]]:overflow-x-auto"
+            >
+              <WorkspaceSettingsOverlayHost
+                workspace={{
+                  id: active.id,
+                  name: active.name,
+                  description: active.description ?? null,
+                  visibility: active.visibility,
+                  category: (active as { category?: string | null }).category ?? null,
+                  defaultChannelId:
+                    (active as { defaultChannelId?: string | null }).defaultChannelId ?? null,
+                  emailDomains: (active as { emailDomains?: string[] }).emailDomains ?? [],
+                }}
+                workspaceSlug={active.slug}
+              />
+            </div>
+          ) : activeChannel ? (
             <MobileMessages
               workspaceId={active.id}
               workspaceSlug={active.slug}
@@ -289,7 +332,7 @@ export function MobileShell(): JSX.Element {
           <ChannelBrowser
             workspaceId={active.id}
             workspaceSlug={active.slug}
-            canManage={canManage}
+            canManage={canManageWorkspace}
             onCreateChannel={() => setBrowseOpen(false)}
           />
         </SettingsOverlay>

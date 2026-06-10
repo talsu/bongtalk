@@ -100,9 +100,16 @@ async function bubbleError(res: Response): Promise<Error> {
       errorCode?: string;
       status?: number;
       details?: unknown;
+      retryAfterSec?: number;
+      retryAfterMs?: number;
     };
     err.errorCode = body?.errorCode;
     err.status = res.status;
+    // 071-M3 F1 (FR-CH-23 슬로우모드 선행): 서버 domain-exception 필터는
+    // retryAfterSec/retryAfterMs 를 body **최상위**에 싣는다(details 아님) —
+    // 종전엔 여기서 소실돼 클라이언트가 쿨다운 재동기화를 할 수 없었다. additive.
+    if (typeof body?.retryAfterSec === 'number') err.retryAfterSec = body.retryAfterSec;
+    if (typeof body?.retryAfterMs === 'number') err.retryAfterMs = body.retryAfterMs;
     // S05 (FR-MSG-06): 낙관적 잠금 충돌(MESSAGE_VERSION_CONFLICT) 응답은
     // body.details.current 에 서버 최신 MessageDto 를 싣는다. 편집창 롤백에
     // 쓰도록 에러에 그대로 전달한다(다른 에러는 details 미포함이라 무해).
