@@ -58,6 +58,19 @@ jobs:
         run: |
           docker compose -f ${COMPOSE_FILE} ps -a
           docker compose -f ${COMPOSE_FILE} logs --tail 120 test-api test-web || true
+          # 로그 열람 수단이 없는 운영환경용: 핵심 라인을 ::error 어노테이션으로 승격
+          # (어노테이션은 무인증 check-runs API 로 읽힌다).
+          docker compose -f ${COMPOSE_FILE} ps -a --format '{{.Name}} {{.Status}}' | while read -r l; do
+            echo "::error title=compose-ps::${l}"
+          done
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 60 test-api 2>/dev/null \
+            | grep -iE 'error|exception|fatal|missing|invalid|refus|denied|cannot|P[0-9]{4}' \
+            | tail -6 | while read -r l; do
+            echo "::error title=api-log::${l:0:400}"
+          done
+          docker compose -f ${COMPOSE_FILE} logs --no-color --tail 8 test-api 2>/dev/null | while read -r l; do
+            echo "::error title=api-tail::${l:0:400}"
+          done
 
       - name: Wait for /readyz
         run: |
