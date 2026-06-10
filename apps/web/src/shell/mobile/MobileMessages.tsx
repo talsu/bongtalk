@@ -43,6 +43,8 @@ import { useLinkPreviewsEnabled } from '../../stores/appearance-store';
 import { useAttachmentUpload } from '../../features/attachments/useAttachmentUpload';
 import { AttachmentTray } from '../../features/attachments/AttachmentTray';
 import { clampAttachments, MAX_ATTACHMENTS } from '../../features/messages/clampAttachments';
+// 071-M1 D8(FR-RC02): 4,000자 카운터/차단 — shared MESSAGE_MAX_LENGTH 단일 출처.
+import { computeCounter } from '../../features/messages/composerCounter';
 // 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
 // ReDoS-안전 AST 렌더러(멘션 pill/스포일러/헤딩)·점보 이모지·시스템 행·스레드 chip.
 import { isContinuation } from '../../features/messages/grouping';
@@ -102,7 +104,7 @@ export function MobileMessages({
   // 071-M1 D5(FR-MSG-04/05): retry 는 동일 clientNonce 로 실패 낙관 행을 재전송한다.
   const { send, retry } = useSendMessage(workspaceId, channelId);
   const scrollRef = useRef<HTMLDivElement>(null);
-  const composerInputRef = useRef<HTMLInputElement>(null);
+  const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
   // S103 (FR-MSG-06 모바일): 편집 중인 메시지(시트에서 '메시지 편집' 선택 시 세팅).
   // 비-null 이면 MobileEditSheet 오버레이를 띄운다.
@@ -801,7 +803,7 @@ function MobileComposer({
   channelId: string;
   channelName: string;
   send: (content: string, attachmentIds?: string[]) => void;
-  inputRef: RefObject<HTMLInputElement>;
+  inputRef: RefObject<HTMLTextAreaElement>;
 }): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
@@ -859,10 +861,19 @@ function MobileComposer({
     };
   }, [channelId]);
 
+  // D8(FR-RC02): 길이 카운터 — 경고 구간부터 노출, 초과 시 전송 차단.
+  const counter = computeCounter(draft);
+
+  const resetInputHeight = (): void => {
+    const el = inputRef.current;
+    if (el) el.style.height = 'auto';
+  };
+
   const submit = (): void => {
     const trimmed = draft.trim();
     const hasAttachments = tray.items.length > 0;
     if (!trimmed && !hasAttachments) return;
+    if (!counter.canSend) return;
     if (tray.uploadingCount > 0 || sending) return;
     // D4(FR-AM-24 미러): 실패 첨부 잔존 시 전송 차단 — 무언 유실 방지(데스크톱 동일).
     if (tray.failedCount > 0) {
@@ -879,6 +890,7 @@ function MobileComposer({
       clearDraft(channelId);
       setReplyTarget(channelId, null);
       typingRef.current?.stop();
+      resetInputHeight();
       return;
     }
     setSending(true);
@@ -891,6 +903,7 @@ function MobileComposer({
         clearDraft(channelId);
         setReplyTarget(channelId, null);
         typingRef.current?.stop();
+        resetInputHeight();
       })
       .finally(() => setSending(false));
   };
@@ -915,6 +928,19 @@ function MobileComposer({
           >
             <Icon name="x" size="sm" />
           </button>
+        </div>
+      ) : null}
+      {/* D8(FR-RC02): 한도 근접/초과 카운터 — 경고 구간부터 노출. */}
+      {counter.shouldShow ? (
+        <div
+          data-testid="mobile-composer-counter"
+          aria-live="polite"
+          className={cn(
+            'px-[var(--s-4)] py-[var(--s-1)] text-right text-[length:var(--fs-11)]',
+            counter.overLimit ? 'text-[color:var(--danger-400)]' : 'text-text-muted',
+          )}
+        >
+          {counter.remaining.toLocaleString()}자 남음
         </div>
       ) : null}
       {/* D4: 업로드 트레이(진행/실패/ALT/스포일러) — 데스크톱 컴포넌트 재사용. */}
@@ -966,14 +992,22 @@ function MobileComposer({
             e.target.value = ''; // 같은 파일 재선택 허용.
           }}
         />
-        <input
+        {/* D8(FR-RC01 모바일·FR-MSG-01): 멀티라인 textarea(autogrow, DS max-height 120px).
+            모바일 소프트 키보드의 Enter 는 줄바꿈(071 M4 PRD 개정 방향), 전송은 버튼 또는
+            하드웨어 Ctrl/Cmd+Enter. */}
+        <textarea
           ref={inputRef}
+          rows={1}
           data-testid="mobile-msg-input"
           aria-label="메시지 입력"
           className="qf-m-composer__input"
+          enterKeyHint="enter"
           value={draft}
           onChange={(e) => {
             setDraft(channelId, e.target.value);
+            // autogrow — CSS max-height(120px)가 상한을 클램프.
+            e.target.style.height = 'auto';
+            e.target.style.height = `${e.target.scrollHeight}px`;
             // D7: 비움은 즉시 stop, 입력은 스로틀된 start.
             if (e.target.value.trim() === '') typingRef.current?.stop();
             else typingRef.current?.onInput();
@@ -982,7 +1016,7 @@ function MobileComposer({
           onKeyDown={(e) => {
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
             if (native.isComposing || e.keyCode === 229) return;
-            if (e.key === 'Enter') {
+            if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               submit();
             }
@@ -995,6 +1029,7 @@ function MobileComposer({
           className="qf-m-composer__send"
           disabled={
             (draft.trim().length === 0 && tray.items.length === 0) ||
+            counter.overLimit ||
             tray.uploadingCount > 0 ||
             sending
           }
