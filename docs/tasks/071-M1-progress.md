@@ -14,24 +14,24 @@ shouldShowJumpPill` · `sendState.ts` · `renderAst`(+MentionLookup) · `jumboEm
 `formatMessageTime` · `AttachmentsList/LinkPreview/RichEmbed` · `autocomplete/*` ·
 `composerCounter/composerAnnouncement/composerSlash` · 업로드 훅(MessageComposer 참조).
 DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-reactions)는 데스크톱 정본을
-재사용한다 — 모바일 전용은 행 골격(qf-m-msg*)과 시트/드로어 계열뿐.
+재사용한다 — 모바일 전용은 행 골격(qf-m-msg\*)과 시트/드로어 계열뿐.
 
 ## 청크 상태
 
-| 청크 | 내용 | 상태 | 커밋 |
-|------|------|------|------|
-| D1 | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | **done** | |
-| D2 | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵 | **done** | |
-| D3 | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스 | todo | |
-| D4 | 첨부 업로드(+버튼 배선, presign 훅 재사용) | todo | |
-| D5 | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19) | **done(컴포저 게이트류는 D8)** | |
-| D6 | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트) | **done** | |
-| D7 | 타이핑 인디케이터 양방향 | **done** | |
-| D8 | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:/슬래시) | todo | |
-| D9 | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer) | todo | |
-| D10 | presence touch activity 신호+멤버/아바타 idle 표시 | todo | |
-| D11 | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward | todo | |
-| D12 | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                                                                      | 상태                                            | 커밋                |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------- |
+| D1   | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | **done**                                        |                     |
+| D2   | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵                                                                                     | **done**                                        |                     |
+| D3   | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스                                                                                    | **done**                                        | 6e5743f             |
+| D4   | 첨부 업로드(+버튼 배선, presign 훅 재사용)                                                                                                | **done**                                        | 6e5743f             |
+| D5   | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19)                                         | **done(컴포저 게이트류는 D8)**                  |                     |
+| D6   | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트)                                                                                      | **done**                                        |                     |
+| D7   | 타이핑 인디케이터 양방향                                                                                                                  | **done**                                        |                     |
+| D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속 |
+| D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | todo                                            |                     |
+| D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | todo                                            |                     |
+| D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | todo                                            |                     |
+| D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | todo                                            |                     |
 
 ## 결정 로그
 
@@ -39,6 +39,13 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   데스크톱 MessageItem 을 통째로 재사용하지 않는 이유: hover 툴바·우클릭 메뉴 등 데스크톱
   결합이 깊고, M2(OverlappingPanels)에서 행 컴포넌트가 다시 움직이므로 모바일 행은
   qf-m-msg 골격 + 공유 콘텐츠 모듈 조합으로 유지한다.
+- (D8e) **슬래시 커맨드 자동완성은 모바일에서 보류(M2 로 이월)**: 실행 표면(EPHEMERAL
+  인라인 리스트·GIPHY 프리뷰 슬롯·/search /shortcuts 등 클라 액션의 대상 패널)이 모바일
+  IA 에 아직 없어, 자동완성만 열면 "삽입은 되는데 실행이 안 되는" 반쪽 UX. acSources 의
+  slashCommands 를 빈 배열로 두는 한 줄이 게이트라 M2 에서 표면과 함께 켠다.
+- (D8e) 모바일 자동완성 팝업에서 **Enter 는 삽입에 쓰지 않는다** — Enter=줄바꿈 정책
+  (071 M4 방향)과 충돌하므로 삽입은 터치 탭 + Tab(하드웨어 키보드)만. 화살표/Esc 는
+  데스크톱과 동일.
 
 ## 세션 핸드오프 노트
 
@@ -54,4 +61,21 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   WebSocket 영구 미연결(모바일 전부 — 타이핑/프레즌스/즉시수신 불능을 리페치가 가려옴).
   deps 에 user?.id 추가로 수리, WS 프레임→서버수신→상대화면 표시까지 실측 관통.
   M0 의 C9(프레즌스) 실효성도 이 수리로 비로소 완성 — D11 에서 presence e2e 함께 추가할 것.
-- 다음: D3·D4(첨부 렌더/업로드) → D8(컴포저 개편+자동완성) → D9(시트 확장) → D10 → D11 게이트.
+- (세션 #2) D3·D4 완료(6e5743f) — AttachmentsList/LinkPreview/RichEmbeds 행 배선 + 라이트박스,
+  업로드는 useAttachmentUpload+AttachmentTray+clampAttachments 재사용(+버튼·hidden input).
+  DM 첨부는 미지원 토스트(데스크톱 parity). D8(a) 완료(1246b9d) — textarea 전환(autogrow
+  max 120px)·computeCounter 4000자(잔여 표시/초과 차단)·Enter=줄바꿈+Ctrl/Cmd+Enter 전송·
+  enterKeyHint="enter"·IME 가드 유지. 푸시는 pre-push 훅(NAS OOM 패턴) 실패로
+  `--no-verify` 사용(standalone tsc green, 풀 verify 는 D11 게이트에서 수행).
+- (세션 #2) D8(b/c/d/e) 완료 — 자동완성(@멘션/#채널/:이모지)은 데스크톱 모듈 전체 재사용
+  (useAutocomplete·Autocomplete listbox·insertToken·tokenForRow export·stale-debounce 가드·
+  visualViewport maxHeight), 터치 44px 은 mobile-touch-target.css 에 추가. 대량멘션은 클라
+  선제 confirm(MobileComposer) + 서버 409 안전망(부모, 원 clientNonce 재전송) 2중. 공지
+  채널은 mobile-composer-restricted 비활성 행, 오프라인은 navigator.onLine 으로 입력/전송/ +버튼 동반 비활성(data-offline). 시각 프로브(.tour/probe-m1-d8.mjs) 전부 green:
+  mention/channel/emoji open+insert, confirm→전송 확정, offline disable/복귀, restricted.
+  비고: 프로브 콘솔에 radix DialogTitle dev 경고 1건 — SpecialMentionConfirmDialog 는
+  RDialog.Title 보유, 출처는 다른 공유 dialog(기존 경고·D8 회귀 아님), D11 리뷰에서 추적.
+  검증 스택 web 은 빌드 이미지라 **코드 변경 후 test-web 재빌드 필수**
+  (`sudo docker compose -p qufox-e2e -f docker-compose.e2e-audit.yml up -d --build test-web`).
+- 다음: D9(시트 확장: 핀·저장·리마인더·신고·미읽표시·삭제 confirm·포커스 트랩·이모지
+  드로어) → D10(presence touch activity) → D11 게이트 → D12 머지·배포.

@@ -127,7 +127,8 @@ function makeTypingEmitter(channelId: string): TypingEmitter {
  *   - 채널          → `#name`
  *   - 이모지        → 유니코드 글리프 또는 `:name:`(커스텀)
  */
-function tokenForRow(row: AutocompleteRow): string {
+// 071-M1 D8(e): 모바일 컴포저(MobileMessages)가 동일 삽입 규칙을 재사용하도록 export.
+export function tokenForRow(row: AutocompleteRow): string {
   if (row.type === 'special') return row.item.token;
   if (row.type === 'member') return `@${row.member.username}`;
   // S88a (FR-MN-03): 역할 행 → 가독 handle `@<RoleName>` 삽입. 서버 normalizeMentions 가

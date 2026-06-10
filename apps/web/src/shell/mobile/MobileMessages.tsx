@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useId,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -45,6 +46,35 @@ import { AttachmentTray } from '../../features/attachments/AttachmentTray';
 import { clampAttachments, MAX_ATTACHMENTS } from '../../features/messages/clampAttachments';
 // 071-M1 D8(FR-RC02): 4,000자 카운터/차단 — shared MESSAGE_MAX_LENGTH 단일 출처.
 import { computeCounter } from '../../features/messages/composerCounter';
+// 071-M1 D8(e)(FR-RC03/04/05/06): 자동완성 — 데스크톱 오케스트레이션 훅·listbox UI·
+// 삽입 규칙(insertToken/tokenForRow)·stale-debounce 가드(detectTrigger 동기 재실행)를
+// 전부 재사용한다. 슬래시 커맨드는 소스에서 제외(아래 acSources 주석 참고).
+import { Autocomplete } from '../../features/messages/autocomplete/Autocomplete';
+import {
+  useAutocomplete,
+  type AutocompleteRow,
+  type AutocompleteSources,
+  type RoleCandidate,
+} from '../../features/messages/autocomplete/useAutocomplete';
+import { insertToken } from '../../features/messages/autocomplete/insertToken';
+import { detectTrigger } from '../../features/messages/autocomplete/detectTrigger';
+import { useAutocompleteMaxHeight } from '../../features/messages/autocomplete/popupMaxHeight';
+import { tokenForRow } from '../../features/messages/MessageComposer';
+import type { RankableMember } from '../../features/messages/autocomplete/rankMembers';
+import type { RankableChannel } from '../../features/messages/autocomplete/filterChannels';
+import type { EmojiCandidate } from '../../features/messages/autocomplete/filterEmojis';
+// 071-M1 D8(b)(FR-MSG-14/15): 대규모 특수멘션 confirm — 데스크톱과 동일 게이트 공유.
+import {
+  canUseSpecialMention,
+  firstUnauthorizedSpecialMention,
+  needsSpecialMentionConfirm,
+  type SpecialMentionKey,
+} from '../../features/messages/autocomplete/specialMention';
+import { SpecialMentionConfirmDialog } from '../../features/messages/autocomplete/SpecialMentionConfirmDialog';
+// 071-M1 D8(c)(FR-CH-19): ANNOUNCEMENT 게시 제한 판정용 채널 타입 조회.
+import { useChannelList } from '../../features/channels/useChannels';
+import { useRoles, useWorkspace } from '../../features/workspaces/useWorkspaces';
+import { usePresence } from '../../features/realtime/usePresence';
 // 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
 // ReDoS-안전 AST 렌더러(멘션 pill/스포일러/헤딩)·점보 이모지·시스템 행·스레드 chip.
 import { isContinuation } from '../../features/messages/grouping';
@@ -101,8 +131,19 @@ export function MobileMessages({
   const delMut = useDeleteMessage(workspaceId, channelId);
   const updMut = useUpdateMessage(workspaceId, channelId);
   const reactMut = useToggleReaction(workspaceId, channelId);
+  // 071-M1 D8(b)(FR-MSG-14): 서버 BULK_MENTION_CONFIRM_REQUIRED(409) 안전망 —
+  // 클라 선제 confirm 을 우회했거나 멤버 수 추정이 어긋나면 서버가 409 를 던지고,
+  // 이 콜백이 보류 페이로드를 받아 confirm dialog 를 띄운다(데스크톱 S94 동일).
+  const [serverBulkConfirm, setServerBulkConfirm] = useState<{
+    content: string;
+    attachmentIds?: string[];
+    mention?: string;
+    clientNonce: string;
+  } | null>(null);
   // 071-M1 D5(FR-MSG-04/05): retry 는 동일 clientNonce 로 실패 낙관 행을 재전송한다.
-  const { send, retry } = useSendMessage(workspaceId, channelId);
+  const { send, retry } = useSendMessage(workspaceId, channelId, (info) =>
+    setServerBulkConfirm(info),
+  );
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
   const [sheetMsg, setSheetMsg] = useState<MessageDto | null>(null);
@@ -310,7 +351,9 @@ export function MobileMessages({
             !prev || !isSameLocalDay(m.createdAt, prev.createdAt) ? (
               <DayDivider iso={m.createdAt} />
             ) : null;
-          {/* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */}
+          {
+            /* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */
+          }
           const unreadDivider =
             firstUnreadIndex === i ? (
               <div className="qf-m-unread-divider" data-testid="mobile-unread-divider">
@@ -327,15 +370,15 @@ export function MobileMessages({
                 {unreadDivider}
                 <SystemMessage
                   msg={m}
-                  onOpenThread={
-                    workspaceId ? (rootId) => setThreadRootId(rootId) : undefined
-                  }
+                  onOpenThread={workspaceId ? (rootId) => setThreadRootId(rootId) : undefined}
                 />
               </div>
             );
           }
           const chipVisible =
-            workspaceId !== null && threadChipVisible(m, m.thread, true) && !m.id.startsWith('tmp-');
+            workspaceId !== null &&
+            threadChipVisible(m, m.thread, true) &&
+            !m.id.startsWith('tmp-');
           return (
             <div key={m.id}>
               {dayDivider}
@@ -399,9 +442,7 @@ export function MobileMessages({
           }}
         >
           <Icon name="chevron-down" size="sm" />
-          <span className="qf-m-jump-btn__badge">
-            {newWhileAway > 99 ? '99+' : newWhileAway}
-          </span>
+          <span className="qf-m-jump-btn__badge">{newWhileAway > 99 ? '99+' : newWhileAway}</span>
         </button>
       ) : null}
       {/* D7: 타이핑 인디케이터 — 리스트와 컴포저 사이(데스크톱과 동일 위치). */}
@@ -412,6 +453,23 @@ export function MobileMessages({
         channelName={channelName}
         send={send}
         inputRef={composerInputRef}
+      />
+      {/* D8(b)(FR-MSG-14): 서버 안전망 confirm — 확인 시 원래 clientNonce 로 재전송해
+          같은 낙관 행을 되살린다(failed 버블 잔류 방지 — 데스크톱 S94 MED-1 동일). */}
+      <SpecialMentionConfirmDialog
+        open={serverBulkConfirm !== null}
+        mentionKey={
+          serverBulkConfirm
+            ? ((serverBulkConfirm.mention as SpecialMentionKey | undefined) ?? 'channel')
+            : null
+        }
+        onConfirm={() => {
+          const pending = serverBulkConfirm;
+          setServerBulkConfirm(null);
+          if (!pending) return;
+          send(pending.content, pending.attachmentIds, true, pending.clientNonce);
+        }}
+        onCancel={() => setServerBulkConfirm(null)}
       />
       {sheetMsg ? (
         <MobileMessageSheet
@@ -448,9 +506,7 @@ export function MobileMessages({
           // version 이 없어 PATCH 불가, 삭제된 행은 본문이 없으므로 숨긴다(데스크톱
           // editRequestNonce 게이트와 동일 정책). 편집 시트로 전환한다.
           onEdit={
-            sheetMsg.authorId === user?.id &&
-            !sheetMsg.id.startsWith('tmp-') &&
-            !sheetMsg.deleted
+            sheetMsg.authorId === user?.id && !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
               ? () => {
                   setEditingMsg(sheetMsg);
                   setSheetMsg(null);
@@ -802,7 +858,7 @@ function MobileComposer({
   workspaceId: string | null;
   channelId: string;
   channelName: string;
-  send: (content: string, attachmentIds?: string[]) => void;
+  send: (content: string, attachmentIds?: string[], bulkMentionConfirmed?: boolean) => void;
   inputRef: RefObject<HTMLTextAreaElement>;
 }): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
@@ -810,6 +866,53 @@ function MobileComposer({
   const clearDraft = useCompose((s) => s.clearDraft);
   const replyTarget = useCompose((s) => s.replyTargets[channelId]);
   const setReplyTarget = useCompose((s) => s.setReplyTarget);
+
+  // D8(b/c/e): 자동완성 소스·특수멘션 게이트·공지 게시 제한에 쓰는 워크스페이스
+  // 데이터. 부모(MobileMessages)와 같은 쿼리 키라 react-query 캐시를 공유한다
+  // (DM=workspaceId null 이면 전부 비활성 — 자동완성도 enabled=false).
+  const { user } = useAuth();
+  const { data: membersData } = useMembers(workspaceId ?? undefined);
+  const { data: wsData } = useWorkspace(workspaceId ?? undefined);
+  const { data: rolesData } = useRoles(workspaceId ?? undefined);
+  const { data: channelData } = useChannelList(workspaceId ?? undefined);
+  const { data: customEmojiData } = useCustomEmojis(workspaceId ?? null);
+  const { onlineUserIds, dndUserIds } = usePresence(workspaceId ?? undefined);
+
+  const myRole: WorkspaceRole =
+    wsData?.myRole ??
+    (membersData?.members.find((m) => m.userId === user?.id)?.role as WorkspaceRole | undefined) ??
+    'MEMBER';
+  const memberCount = membersData?.members.length ?? 0;
+
+  // D8(c)(FR-CH-19): ANNOUNCEMENT 채널은 OWNER/ADMIN 만 게시. 권한 비트 오버라이드는
+  // 서버가 최종 판정(403)하며 여기는 역할 기본값 기준의 UX 게이트만 둔다(데스크톱
+  // MessageColumn 과 동일 규칙 — 서버가 단일 진실원).
+  const channelType = useMemo(() => {
+    if (!channelData) return null;
+    const flat = [
+      ...channelData.uncategorized,
+      ...channelData.categories.flatMap((c) => c.channels),
+    ];
+    return flat.find((c) => c.id === channelId)?.type ?? null;
+  }, [channelData, channelId]);
+  const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
+  const postingRestricted = workspaceId !== null && channelType === 'ANNOUNCEMENT' && !canManage;
+
+  // D8(d)(FR-IA-STATE-05a): 오프라인이면 컴포저 비활성. navigator.onLine 신호는
+  // ConnectionBanner 와 동일 소스 — 배너가 사유를 고지하고 컴포저는 입력만 막는다.
+  const [online, setOnline] = useState<boolean>(() =>
+    typeof navigator === 'undefined' ? true : navigator.onLine,
+  );
+  useEffect(() => {
+    const handleOnline = (): void => setOnline(true);
+    const handleOffline = (): void => setOnline(false);
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
 
   // D4(FR-AM-01): 업로드 트레이 — 데스크톱 파이프라인 재사용. 채널 전환 시 reset.
   const pushToast = useNotifications((s) => s.push);
@@ -864,12 +967,139 @@ function MobileComposer({
   // D8(FR-RC02): 길이 카운터 — 경고 구간부터 노출, 초과 시 전송 차단.
   const counter = computeCounter(draft);
 
+  // D8(e): 캐럿 추적 — detectTrigger 입력. 채널 전환 시 새 draft 끝으로 동기화해
+  // 이전 채널의 트리거가 잔류하지 않게 한다(데스크톱 동일 패턴, ref 로 읽어
+  // 매 키 입력마다 끝으로 튀지 않게 함).
+  const [caret, setCaret] = useState(0);
+  const draftLenRef = useRef(draft.length);
+  draftLenRef.current = draft.length;
+  useEffect(() => {
+    setCaret(draftLenRef.current);
+  }, [channelId]);
+
+  const acMembers = useMemo<RankableMember[]>(
+    () =>
+      (membersData?.members ?? [])
+        .filter((m) => m.userId !== user?.id)
+        .map((m) => ({ userId: m.userId, username: m.user.username })),
+    [membersData, user?.id],
+  );
+  const acChannels = useMemo<RankableChannel[]>(() => {
+    if (!channelData) return [];
+    const flat = [
+      ...channelData.uncategorized,
+      ...channelData.categories.flatMap((c) => c.channels),
+    ];
+    return flat.map((c) => ({ id: c.id, name: c.name, topic: c.topic ?? null }));
+  }, [channelData]);
+  const acCustomEmojis = useMemo<EmojiCandidate[]>(() => {
+    const out: EmojiCandidate[] = [];
+    for (const ce of customEmojiData?.items ?? []) {
+      out.push({ kind: 'custom', name: ce.name, url: ce.url });
+      for (const alias of ce.aliases ?? []) {
+        out.push({ kind: 'custom', name: alias, url: ce.url, insertName: ce.name });
+      }
+    }
+    return out;
+  }, [customEmojiData]);
+  const acOnline = useMemo(
+    () => new Set<string>([...onlineUserIds, ...dndUserIds]),
+    [onlineUserIds, dndUserIds],
+  );
+  const acRoles = useMemo<RoleCandidate[]>(
+    () =>
+      (rolesData ?? []).map((r) => ({
+        id: r.id,
+        name: r.name,
+        colorHex: r.colorHex,
+        mentionable: r.mentionable,
+      })),
+    [rolesData],
+  );
+  const acSources = useMemo<AutocompleteSources>(
+    () => ({
+      members: acMembers,
+      channels: acChannels,
+      customEmojis: acCustomEmojis,
+      // D8(e) 보류: 슬래시 커맨드는 모바일에서 후보를 내지 않는다. 실행 표면
+      // (EPHEMERAL 인라인 리스트·GIPHY 프리뷰 슬롯·/search 등 클라 액션의 대상
+      // 패널)이 모바일 IA 에 아직 없어, 자동완성만 열면 "삽입은 되는데 실행이
+      // 안 되는" 반쪽 UX 가 된다. M2(IA 재구축)에서 표면과 함께 배선한다.
+      slashCommands: [],
+      online: acOnline,
+      recentMembers: [],
+      recentEmojis: [],
+      role: myRole,
+      roles: acRoles,
+    }),
+    [acMembers, acChannels, acCustomEmojis, acOnline, myRole, acRoles],
+  );
+
+  const {
+    state: acState,
+    move: acMove,
+    setActiveIndex: acSetActive,
+    activeRow: acActiveRow,
+    close: acClose,
+  } = useAutocomplete({
+    text: draft,
+    caret,
+    sources: acSources,
+    // Global DM(workspaceId=null)은 멘션/채널 네임스페이스가 없어 끈다.
+    enabled: workspaceId !== null,
+  });
+  const listboxId = useId();
+  const optionId = (index: number): string => `${listboxId}-opt-${index}`;
+  const acMaxHeight = useAutocompleteMaxHeight(acState.open);
+
+  // 데스크톱 S18 BLOCKER 가드 동일: acState.trigger 는 debounce 스냅샷 기준이라
+  // 삽입 직전 live draft/caret 으로 detectTrigger 를 동기 재실행해 범위를 다시 구한다.
+  const applyAutocompleteRow = (row: AutocompleteRow): void => {
+    if (!acState.open) return;
+    const el = inputRef.current;
+    const liveCaret = el?.selectionStart ?? caret;
+    const liveTrigger = detectTrigger(draft, liveCaret);
+    if (!liveTrigger) {
+      acClose();
+      return;
+    }
+    const token = tokenForRow(row);
+    const r = insertToken({ text: draft, start: liveTrigger.start, end: liveTrigger.end, token });
+    setDraft(channelId, r.text);
+    acClose();
+    queueMicrotask(() => {
+      const node = inputRef.current;
+      if (!node) return;
+      node.focus();
+      node.setSelectionRange(r.caret, r.caret);
+      setCaret(r.caret);
+      // 프로그램적 삽입은 onChange 를 타지 않으므로 autogrow 를 직접 재계산한다.
+      node.style.height = 'auto';
+      node.style.height = `${node.scrollHeight}px`;
+    });
+  };
+
+  // D8(b)(FR-MSG-14): 대규모 특수멘션 confirm — 데스크톱과 동일 게이트.
+  // 권한 없으면 서버가 fanout 을 무효화(FR-MSG-15)하므로 confirm 도 띄우지 않는다.
+  const [pendingSpecial, setPendingSpecial] = useState<SpecialMentionKey | null>(null);
+  const findSpecialNeedingConfirm = (text: string): SpecialMentionKey | null => {
+    const lower = text.toLowerCase();
+    const keys: SpecialMentionKey[] = ['everyone', 'here', 'channel'];
+    for (const key of keys) {
+      const re = new RegExp(`(?<![A-Za-z0-9_])@${key}(?![A-Za-z0-9_])`);
+      if (!re.test(lower)) continue;
+      if (!canUseSpecialMention(key, myRole)) continue;
+      if (needsSpecialMentionConfirm(key, memberCount)) return key;
+    }
+    return null;
+  };
+
   const resetInputHeight = (): void => {
     const el = inputRef.current;
     if (el) el.style.height = 'auto';
   };
 
-  const submit = (): void => {
+  const submit = (bulkMentionConfirmed = false): void => {
     const trimmed = draft.trim();
     const hasAttachments = tray.items.length > 0;
     if (!trimmed && !hasAttachments) return;
@@ -885,10 +1115,30 @@ function MobileComposer({
       });
       return;
     }
+    // D8(b)(FR-MN-16 미러): 권한 없는 특수멘션은 "알림이 안 갈 수 있음"을 고지하고
+    // 그대로 전송한다(서버 게이트가 fanout 만 무효화 — 데스크톱 S44 동일 불확정 카피).
+    const unauthorized = firstUnauthorizedSpecialMention(draft, myRole);
+    if (unauthorized) {
+      pushToast({
+        variant: 'warning',
+        title: `@${unauthorized} 권한이 없을 수 있습니다`,
+        body: '이 채널에서 해당 멘션 알림 권한이 없으면 알림이 가지 않을 수 있습니다.',
+        ttlMs: 6000,
+      });
+    }
+    // D8(b)(FR-MSG-14): 대규모 특수멘션이면 먼저 confirm dialog 를 띄운다.
+    if (!bulkMentionConfirmed) {
+      const needsConfirm = findSpecialNeedingConfirm(trimmed);
+      if (needsConfirm) {
+        setPendingSpecial(needsConfirm);
+        return;
+      }
+    }
     if (!hasAttachments) {
-      send(trimmed);
+      send(trimmed, undefined, bulkMentionConfirmed);
       clearDraft(channelId);
       setReplyTarget(channelId, null);
+      setPendingSpecial(null);
       typingRef.current?.stop();
       resetInputHeight();
       return;
@@ -898,15 +1148,35 @@ function MobileComposer({
       .completeAndCollect()
       .then((attachmentIds) => {
         if (attachmentIds.length === 0) return; // complete 실패 — 훅이 토스트, draft 유지.
-        send(trimmed || ' ', attachmentIds);
+        send(trimmed || ' ', attachmentIds, bulkMentionConfirmed);
         tray.clearConfirmed();
         clearDraft(channelId);
         setReplyTarget(channelId, null);
+        setPendingSpecial(null);
         typingRef.current?.stop();
         resetInputHeight();
       })
       .finally(() => setSending(false));
   };
+
+  // D8(c)(FR-CH-19): 게시 권한 없는 ANNOUNCEMENT 채널 — 입력 자체를 비활성화하고
+  // 사유를 placeholder 로 고지한다(데스크톱 composer-posting-restricted 동일 의미).
+  if (postingRestricted) {
+    return (
+      <div className="qf-m-safe-bottom">
+        <div data-testid="mobile-composer-restricted" className="qf-m-composer cursor-not-allowed">
+          <Icon name="megaphone" size="md" className="text-text-muted" />
+          <textarea
+            rows={1}
+            disabled
+            aria-label="이 채널은 관리자만 게시할 수 있습니다"
+            placeholder="이 채널은 관리자만 게시할 수 있습니다"
+            className="qf-m-composer__input cursor-not-allowed"
+          />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="qf-m-safe-bottom">
@@ -953,12 +1223,33 @@ function MobileComposer({
       />
       <form
         data-testid="mobile-composer"
-        className="qf-m-composer"
+        // D8(e): relative — .qf-autocomplete(absolute, bottom:100%)가 컴포저 전체
+        // 폭을 기준으로 바로 위에 뜨도록 anchor 를 form 으로 둔다.
+        className="qf-m-composer relative"
+        data-offline={online ? undefined : 'true'}
         onSubmit={(e) => {
           e.preventDefault();
           submit();
         }}
       >
+        {/* D8(e)(FR-RC03/04/05): @멘션/#채널/:이모지 자동완성 — 데스크톱 listbox UI
+            재사용. 터치 탭(onMouseDown 에뮬레이션)·하드웨어 키보드(Tab/화살표) 모두
+            삽입 가능. 팝업 maxHeight 는 visualViewport(소프트 키보드) 보정. */}
+        {acState.open ? (
+          <Autocomplete
+            kind={acState.kind}
+            rows={acState.rows}
+            activeIndex={acState.activeIndex}
+            listboxId={listboxId}
+            optionId={optionId}
+            maxHeight={acMaxHeight}
+            onSelect={(index) => {
+              const row = acState.rows[index];
+              if (row) applyAutocompleteRow(row);
+            }}
+            onHover={(index) => acSetActive(index)}
+          />
+        ) : null}
         {/* D4(FR-AM-01): 종전 onClick 미배선 죽은 컨트롤 → 파일 선택 배선.
             DM(workspaceId=null)은 presign 스코프상 미지원 — 안내 토스트. */}
         <button
@@ -966,6 +1257,7 @@ function MobileComposer({
           data-testid="mobile-composer-plus"
           aria-label="첨부 추가"
           aria-disabled={workspaceId === null ? 'true' : undefined}
+          disabled={!online}
           className="qf-m-composer__plus"
           onClick={() => {
             if (workspaceId === null) {
@@ -1003,8 +1295,21 @@ function MobileComposer({
           className="qf-m-composer__input"
           enterKeyHint="enter"
           value={draft}
+          // D8(d)(FR-IA-STATE-05a): 오프라인이면 입력 비활성(전송 버튼·+버튼 동반).
+          disabled={!online}
+          // D8(e): WAI-ARIA Combobox(activedescendant) — 포커스는 textarea 유지,
+          // active 항목만 aria-activedescendant 로 가리킨다(데스크톱 동일).
+          role="combobox"
+          aria-haspopup="listbox"
+          aria-expanded={acState.open}
+          aria-autocomplete="list"
+          aria-controls={listboxId}
+          aria-activedescendant={
+            acState.open && acState.activeIndex >= 0 ? optionId(acState.activeIndex) : undefined
+          }
           onChange={(e) => {
             setDraft(channelId, e.target.value);
+            setCaret(e.target.selectionStart ?? e.target.value.length);
             // autogrow — CSS max-height(120px)가 상한을 클램프.
             e.target.style.height = 'auto';
             e.target.style.height = `${e.target.scrollHeight}px`;
@@ -1012,10 +1317,51 @@ function MobileComposer({
             if (e.target.value.trim() === '') typingRef.current?.stop();
             else typingRef.current?.onInput();
           }}
-          placeholder={replyTarget ? `@${replyTarget.authorName}에게 답장…` : `# ${channelName}`}
+          onSelect={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+          onClick={(e) => setCaret(e.currentTarget.selectionStart ?? 0)}
+          onKeyUp={(e) => {
+            // 방향키/Home/End 등 캐럿 이동도 트리거 재평가에 반영한다.
+            setCaret(e.currentTarget.selectionStart ?? 0);
+          }}
+          placeholder={
+            !online
+              ? '오프라인 — 연결되면 보낼 수 있습니다'
+              : replyTarget
+                ? `@${replyTarget.authorName}에게 답장…`
+                : `# ${channelName}`
+          }
           onKeyDown={(e) => {
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
             if (native.isComposing || e.keyCode === 229) return;
+            // D8(e): 팝업이 열려 있으면 화살표/Tab/Esc 를 먼저 처리한다.
+            // Enter 는 가로채지 않는다 — 모바일 Enter=줄바꿈 정책(071 M4) 유지,
+            // 삽입은 터치 탭 또는 Tab(하드웨어 키보드)으로 한다.
+            if (acState.open) {
+              if (e.key === 'ArrowDown') {
+                e.preventDefault();
+                acMove('down');
+                return;
+              }
+              if (e.key === 'ArrowUp') {
+                e.preventDefault();
+                acMove('up');
+                return;
+              }
+              if (e.key === 'Tab') {
+                if (acActiveRow) {
+                  e.preventDefault();
+                  applyAutocompleteRow(acActiveRow);
+                } else {
+                  acClose();
+                }
+                return;
+              }
+              if (e.key === 'Escape') {
+                e.preventDefault();
+                acClose();
+                return;
+              }
+            }
             if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
               e.preventDefault();
               submit();
@@ -1031,12 +1377,24 @@ function MobileComposer({
             (draft.trim().length === 0 && tray.items.length === 0) ||
             counter.overLimit ||
             tray.uploadingCount > 0 ||
-            sending
+            sending ||
+            !online
           }
         >
           <Icon name="send" size="md" />
         </button>
       </form>
+      {/* D8(b)(FR-MSG-14): 대규모 특수멘션 클라 선제 confirm. 확인 시
+          bulkMentionConfirmed=true 로 전송해 서버 임계값(S94)도 통과시킨다. */}
+      <SpecialMentionConfirmDialog
+        open={pendingSpecial !== null}
+        mentionKey={pendingSpecial}
+        onConfirm={() => {
+          setPendingSpecial(null);
+          submit(true);
+        }}
+        onCancel={() => setPendingSpecial(null)}
+      />
     </div>
   );
 }
