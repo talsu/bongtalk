@@ -33,6 +33,8 @@ import { deriveHasReminder } from '../../features/messages/rovingFocus';
 import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
 import { ReportModal } from '../../features/messages/ReportModal';
 import { MobileEmojiDrawer } from './MobileEmojiDrawer';
+// 071-M3 F6: 편집 이력 시트.
+import { MobileEditHistorySheet } from './MobileEditHistorySheet';
 import { useToggleReaction } from '../../features/reactions/useReactions';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../../lib/query-keys';
@@ -62,6 +64,8 @@ import { AttachmentTray } from '../../features/attachments/AttachmentTray';
 import { clampAttachments, MAX_ATTACHMENTS } from '../../features/messages/clampAttachments';
 // 071-M1 D8(FR-RC02): 4,000자 카운터/차단 — shared MESSAGE_MAX_LENGTH 단일 출처.
 import { computeCounter } from '../../features/messages/composerCounter';
+// 071-M3 F6 (FR-CH-23): 슬로우모드 쿨다운(공유 훅 — 전 플랫폼 최초 구현).
+import { useSlowmodeCooldown } from '../../features/messages/useSlowmodeCooldown';
 // 071-M1 D8(e)(FR-RC03/04/05/06): 자동완성 — 데스크톱 오케스트레이션 훅·listbox UI·
 // 삽입 규칙(insertToken/tokenForRow)·stale-debounce 가드(detectTrigger 동기 재실행)를
 // 전부 재사용한다. 슬래시 커맨드는 소스에서 제외(아래 acSources 주석 참고).
@@ -245,6 +249,8 @@ export function MobileMessages({
   const [reportTargetId, setReportTargetId] = useState<string | null>(null);
   // 퀵반응 5종 밖 — 시트를 닫고 이모지 드로어를 연다(대상 메시지 스냅샷 유지).
   const [emojiDrawerMsg, setEmojiDrawerMsg] = useState<MessageDto | null>(null);
+  // F6: 편집 이력 시트 대상.
+  const [editHistoryMsg, setEditHistoryMsg] = useState<MessageDto | null>(null);
 
   // D9(FR-PS-05): 핀 권한 — 데스크톱 MessageItem 게이트와 동일(OWNER/ADMIN 또는
   // memberCanPin 채널의 MEMBER). 권한 비트 오버라이드는 서버가 최종 판정.
@@ -751,6 +757,15 @@ export function MobileMessages({
                 }
               : undefined
           }
+          // F6(FR-MSG-08): 편집 이력 — edited 행 + ws 채널 한정(서버 스코프).
+          onEditHistory={
+            workspaceId && !sheetMsg.id.startsWith('tmp-') && sheetMsg.editedAt
+              ? () => {
+                  setEditHistoryMsg(sheetMsg);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
           // D9(FR-RM11): 타인 메시지 신고(ws 채널·비-tmp·비삭제).
           onReport={
             workspaceId &&
@@ -858,6 +873,15 @@ export function MobileMessages({
               currentlyByMe: live.reactions?.find((r) => r.emoji === emoji)?.byMe ?? false,
             });
           }}
+        />
+      ) : null}
+      {/* F6: 편집 이력 시트. */}
+      {editHistoryMsg && workspaceId ? (
+        <MobileEditHistorySheet
+          workspaceId={workspaceId}
+          channelId={channelId}
+          msg={editHistoryMsg}
+          onClose={() => setEditHistoryMsg(null)}
         />
       ) : null}
       {/* D9(FR-RM11): 신고 모달 — 데스크톱 ReportModal 재사용. */}
@@ -1223,6 +1247,17 @@ function MobileComposer({
   }, [channelData, channelId]);
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const postingRestricted = workspaceId !== null && channelType === 'ANNOUNCEMENT' && !canManage;
+  // F6: 슬로우모드 — 같은 채널 lookup 에서 초를 읽는다. OWNER/ADMIN 은 통상 면제
+  // (서버 BYPASS 비트가 최종 권위 — 보수적으로 관리자만 클라 카운트 제외).
+  const slowmodeSeconds = useMemo(() => {
+    if (!channelData) return 0;
+    const flat = [
+      ...channelData.uncategorized,
+      ...channelData.categories.flatMap((c) => c.channels),
+    ];
+    return flat.find((c) => c.id === channelId)?.slowmodeSeconds ?? 0;
+  }, [channelData, channelId]);
+  const slowmode = useSlowmodeCooldown(canManage ? 0 : slowmodeSeconds);
 
   // D8(d)(FR-IA-STATE-05a): 오프라인이면 컴포저 비활성. navigator.onLine 신호는
   // ConnectionBanner 와 동일 소스 — 배너가 사유를 고지하고 컴포저는 입력만 막는다.
@@ -1517,6 +1552,7 @@ function MobileComposer({
     const hasAttachments = tray.items.length > 0;
     if (!trimmed && !hasAttachments) return;
     if (!counter.canSend) return;
+    if (slowmode.remainingSec > 0) return; // F6: 쿨다운 중 전송 차단.
     if (tray.uploadingCount > 0 || sending) return;
     // D4(FR-AM-24 미러): 실패 첨부 잔존 시 전송 차단 — 무언 유실 방지(데스크톱 동일).
     if (tray.failedCount > 0) {
@@ -1564,6 +1600,7 @@ function MobileComposer({
     }
     if (!hasAttachments) {
       send(trimmed, undefined, bulkMentionConfirmed);
+      slowmode.markSent();
       clearDraft(channelId);
       setPendingSpecial(null);
       typingRef.current?.stop();
@@ -1576,6 +1613,7 @@ function MobileComposer({
       .then((attachmentIds) => {
         if (attachmentIds.length === 0) return; // complete 실패 — 훅이 토스트, draft 유지.
         send(trimmed || ' ', attachmentIds, bulkMentionConfirmed);
+        slowmode.markSent();
         tray.clearConfirmed();
         clearDraft(channelId);
         setPendingSpecial(null);
@@ -1608,6 +1646,16 @@ function MobileComposer({
     <div className="qf-m-safe-bottom">
       {/* 071-M2 E6 (M1 리뷰 M-4): replyTarget 배너 폐기 — '답장'은 스레드 답글
           단일 경로(시트/스와이프가 ThreadPanel 을 연다). */}
+      {/* F6(FR-CH-23): 슬로우모드 쿨다운 — 잔여 초 표시. */}
+      {slowmode.remainingSec > 0 ? (
+        <div
+          data-testid="mobile-slowmode-cooldown"
+          aria-live="polite"
+          className="px-[var(--s-4)] py-[var(--s-1)] text-right text-[length:var(--fs-11)] text-text-muted"
+        >
+          슬로우모드 — {slowmode.remainingSec}초 후 전송 가능
+        </div>
+      ) : null}
       {/* D8(FR-RC02): 한도 근접/초과 카운터 — 경고 구간부터 노출. */}
       {counter.shouldShow ? (
         <div
@@ -1781,6 +1829,7 @@ function MobileComposer({
             counter.overLimit ||
             tray.uploadingCount > 0 ||
             sending ||
+            slowmode.remainingSec > 0 ||
             !online
           }
         >

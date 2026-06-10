@@ -104,6 +104,16 @@ export function applyEditConflict(
 export function buildSendFailureToastBody(err: unknown): { title: string; body: string } {
   const status = (err as { status?: number } | undefined)?.status;
   const code = (err as { errorCode?: string } | undefined)?.errorCode;
+  // 071-M3 F6 (FR-CH-23): 슬로우모드 429 는 generic 대신 잔여시간을 안내한다
+  // (retryAfterMs 는 F1 의 bubbleError additive 전달 — 종전엔 소실됐다).
+  if (code === 'CHANNEL_SLOWMODE_ACTIVE') {
+    const ms = (err as { retryAfterMs?: number } | undefined)?.retryAfterMs ?? 0;
+    const sec = Math.ceil(ms / 1000);
+    return {
+      title: '슬로우모드 진행 중',
+      body: sec > 0 ? `${sec}초 후 다시 보낼 수 있어요.` : '잠시 후 다시 보낼 수 있어요.',
+    };
+  }
   return {
     title: '메시지 전송 실패',
     body:
