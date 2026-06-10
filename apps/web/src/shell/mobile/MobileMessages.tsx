@@ -14,15 +14,31 @@ import { useMembers } from '../../features/workspaces/useWorkspaces';
 import {
   useDeleteMessage,
   useMessageHistory,
+  usePinMessage,
   useScrollFetch,
+  useUnpinMessage,
   useUpdateMessage,
   useSendMessage,
 } from '../../features/messages/useMessages';
+// 071-M1 D9: 시트 액션 확장 — 저장/리마인더/신고/미읽음/핀은 데스크톱 모듈 재사용.
+import {
+  useInitSavedStatus,
+  useToggleSave,
+  savedKeys,
+} from '../../features/saved/useSavedMessages';
+import { ReminderModal } from '../../features/saved/ReminderModal';
+import { useSetReminder } from '../../features/saved/useReminder';
+import { saveMessage } from '../../features/saved/api';
+import { deriveHasReminder } from '../../features/messages/rovingFocus';
+import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
+import { ReportModal } from '../../features/messages/ReportModal';
+import { MobileEmojiDrawer } from './MobileEmojiDrawer';
 import { useToggleReaction } from '../../features/reactions/useReactions';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../../lib/query-keys';
 import {
   useMarkChannelRead,
+  useMarkUnread,
   useUnreadSummary,
   zeroOutChannelUnread,
   type UnreadChannelSummary,
@@ -198,7 +214,44 @@ export function MobileMessages({
     for (const x of members?.members ?? []) m.set(x.userId, x.role);
     return m;
   }, [members]);
-  void roleById;
+
+  // ── 071-M1 D9: 시트 액션 확장 상태/뮤테이션 ─────────────────────────────
+  const pinMut = usePinMessage(workspaceId, channelId);
+  const unpinMut = useUnpinMessage(workspaceId, channelId);
+  const saveMut = useToggleSave();
+  const markUnreadMut = useMarkUnread(workspaceId ?? undefined);
+  const setReminderMut = useSetReminder();
+  const pushToast = useNotifications((s) => s.push);
+  const [reminderTarget, setReminderTarget] = useState<{
+    savedMessageId: string;
+    channelName: string;
+    hasReminder: boolean;
+  } | null>(null);
+  const [reportTargetId, setReportTargetId] = useState<string | null>(null);
+  // 퀵반응 5종 밖 — 시트를 닫고 이모지 드로어를 연다(대상 메시지 스냅샷 유지).
+  const [emojiDrawerMsg, setEmojiDrawerMsg] = useState<MessageDto | null>(null);
+
+  // D9(FR-PS-05): 핀 권한 — 데스크톱 MessageItem 게이트와 동일(OWNER/ADMIN 또는
+  // memberCanPin 채널의 MEMBER). 권한 비트 오버라이드는 서버가 최종 판정.
+  const viewerRole = user ? (roleById.get(user.id) ?? null) : null;
+  const { data: channelListForMeta } = useChannelList(workspaceId ?? undefined);
+  const memberCanPin = useMemo(() => {
+    if (!channelListForMeta) return true;
+    const all = [
+      ...channelListForMeta.uncategorized,
+      ...channelListForMeta.categories.flatMap((c) => c.channels),
+    ];
+    return all.find((c) => c.id === channelId)?.memberCanPin ?? true;
+  }, [channelListForMeta, channelId]);
+  const canPinViewer =
+    viewerRole === 'OWNER' || viewerRole === 'ADMIN' || (viewerRole === 'MEMBER' && memberCanPin);
+
+  // D9(FR-PS-13): 렌더 중 메시지의 저장 상태 1회 seed(증분 — 데스크톱 S52 동일).
+  const savedSeedIds = useMemo(
+    () => messages.map((m) => m.id).filter((id) => !id.startsWith('tmp-')),
+    [messages],
+  );
+  useInitSavedStatus(savedSeedIds);
 
   useScrollFetch(scrollRef, () => {
     if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
@@ -243,6 +296,40 @@ export function MobileMessages({
     markRead.mutate(channelId);
     // markRead 는 useMutation 의 안정 참조 — 채널 변경 시에만 재발화한다.
   }, [channelId, workspaceId, qc]);
+
+  // D9: 저장 + 리마인더 — 데스크톱 MessageList handleSetReminder 와 동일 흐름
+  // (저장 API → saved 캐시 낙관 반영 → ReminderModal). hasReminder 는 캐시된
+  // saved 목록에서 역산(deriveHasReminder)한다.
+  const deriveSavedHasReminder = (savedMessageId: string): boolean => {
+    const statuses: SaveStatus[] = ['IN_PROGRESS', 'ARCHIVED', 'COMPLETED'];
+    for (const status of statuses) {
+      const list = qc.getQueryData<SavedMessageListResponse>(savedKeys.list(status));
+      const found = list?.items.find((it) => it.id === savedMessageId);
+      if (found) return deriveHasReminder(found);
+    }
+    return false;
+  };
+  const handleSetReminder = async (messageId: string): Promise<void> => {
+    try {
+      const res = await saveMessage(messageId);
+      if (!res.savedMessageId) return;
+      qc.setQueryData<boolean>(savedKeys.status(messageId), true);
+      void qc.invalidateQueries({ queryKey: ['saved', 'list'] });
+      void qc.invalidateQueries({ queryKey: savedKeys.count() });
+      setReminderTarget({
+        savedMessageId: res.savedMessageId,
+        channelName,
+        hasReminder: deriveSavedHasReminder(res.savedMessageId),
+      });
+    } catch {
+      pushToast({
+        variant: 'warning',
+        title: '리마인더를 설정하지 못했습니다',
+        body: '잠시 후 다시 시도하세요.',
+        ttlMs: 4000,
+      });
+    }
+  };
 
   // Auto-scroll to bottom on mount + new incoming. task-025 follow-4:
   // history prepend grows messages.length while isFetchingNextPage is
@@ -292,7 +379,6 @@ export function MobileMessages({
   // 071-M1 D6: `?msg=` 점프 — 리스트에 있으면 스크롤+2초 강조 후 파라미터 제거,
   // 히스토리를 다 불러왔는데도 없으면 토스트 1회(around 로드는 M1 범위 외 — 071 문서).
   const [sp, setSp] = useSearchParams();
-  const pushToast = useNotifications((s) => s.push);
   const rawJump = sp.get('msg');
   const jumpId =
     rawJump && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawJump)
@@ -502,6 +588,117 @@ export function MobileMessages({
             }
             setSheetMsg(null);
           }}
+          // D9: 퀵 5종 밖 — 시트를 닫고 이모지 드로어로 전환(tmp/삭제 행 제외).
+          onMoreReactions={
+            !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
+              ? () => {
+                  setEmojiDrawerMsg(sheetMsg);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
+          // D9(FR-PS-05): 핀/해제 — 게이트는 데스크톱과 동일(ws 채널·비-tmp·권한),
+          // 토스트 카피도 데스크톱 runPin/runUnpin 과 동일.
+          onPin={
+            workspaceId &&
+            !sheetMsg.id.startsWith('tmp-') &&
+            !sheetMsg.deleted &&
+            !sheetMsg.pinnedAt &&
+            canPinViewer
+              ? () => {
+                  setSheetMsg(null);
+                  pinMut
+                    .mutateAsync(sheetMsg.id)
+                    .then(() =>
+                      pushToast({ variant: 'success', title: '메시지 고정', ttlMs: 2000 }),
+                    )
+                    .catch((e: unknown) => {
+                      const code = (e as { errorCode?: string } | undefined)?.errorCode;
+                      pushToast({
+                        variant: 'danger',
+                        title: '고정 실패',
+                        body:
+                          code === 'MESSAGE_PIN_CAP_EXCEEDED'
+                            ? '채널당 최대 50개까지 고정할 수 있습니다'
+                            : '잠시 후 다시 시도하세요.',
+                        ttlMs: 4000,
+                      });
+                    });
+                }
+              : undefined
+          }
+          onUnpin={
+            workspaceId && !sheetMsg.id.startsWith('tmp-') && !!sheetMsg.pinnedAt && canPinViewer
+              ? () => {
+                  setSheetMsg(null);
+                  unpinMut
+                    .mutateAsync(sheetMsg.id)
+                    .then(() =>
+                      pushToast({ variant: 'success', title: '메시지 고정 해제', ttlMs: 2000 }),
+                    )
+                    .catch(() =>
+                      pushToast({
+                        variant: 'danger',
+                        title: '고정 해제 실패',
+                        body: '잠시 후 다시 시도하세요.',
+                        ttlMs: 4000,
+                      }),
+                    );
+                }
+              : undefined
+          }
+          // D9(FR-PS-07/13): 개인 저장 토글(낙관적) — tmp/삭제 행 제외.
+          onToggleSave={
+            !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
+              ? (currentlySaved) => {
+                  saveMut.mutate({ messageId: sheetMsg.id, currentlySaved });
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
+          isSaved={qc.getQueryData<boolean>(savedKeys.status(sheetMsg.id)) === true}
+          // D9: 저장 후 리마인더 모달.
+          onSetReminder={
+            !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
+              ? () => {
+                  setSheetMsg(null);
+                  void handleSetReminder(sheetMsg.id);
+                }
+              : undefined
+          }
+          // D9(FR-RS-08): 이 메시지 직전으로 읽음 커서 후진(ws 채널 한정).
+          onMarkUnread={
+            workspaceId && !sheetMsg.id.startsWith('tmp-')
+              ? () => {
+                  setSheetMsg(null);
+                  markUnreadMut
+                    .mutateAsync({ channelId, messageId: sheetMsg.id })
+                    .then(() =>
+                      pushToast({ variant: 'success', title: '미읽음으로 표시', ttlMs: 2000 }),
+                    )
+                    .catch(() =>
+                      pushToast({
+                        variant: 'warning',
+                        title: '미읽음 표시 실패',
+                        body: '잠시 후 다시 시도하세요.',
+                        ttlMs: 4000,
+                      }),
+                    );
+                }
+              : undefined
+          }
+          // D9(FR-RM11): 타인 메시지 신고(ws 채널·비-tmp·비삭제).
+          onReport={
+            workspaceId &&
+            !sheetMsg.id.startsWith('tmp-') &&
+            !sheetMsg.deleted &&
+            sheetMsg.authorId !== user?.id
+              ? () => {
+                  setReportTargetId(sheetMsg.id);
+                  setSheetMsg(null);
+                }
+              : undefined
+          }
           // S103 (FR-MSG-06 모바일): 내 메시지만 편집. 낙관적(tmp-) 행은 서버 id·
           // version 이 없어 PATCH 불가, 삭제된 행은 본문이 없으므로 숨긴다(데스크톱
           // editRequestNonce 게이트와 동일 정책). 편집 시트로 전환한다.
@@ -576,6 +773,51 @@ export function MobileMessages({
             // 행이 여전히 포커스 가능하도록 다음 프레임에 복귀(언마운트 후).
             requestAnimationFrame(() => prev?.focus?.());
           }}
+        />
+      ) : null}
+      {/* D9: 이모지 드로어 — 퀵 5종 밖 반응. 토글 방향은 드로어 선택 시점의 캐시
+          최신 행에서 byMe 를 재조회한다(시트 스냅샷이 아닌 messages memo). */}
+      {emojiDrawerMsg ? (
+        <MobileEmojiDrawer
+          onClose={() => setEmojiDrawerMsg(null)}
+          customEmojis={customEmojiData?.items.map((ce) => ({
+            id: ce.id,
+            name: ce.name,
+            url: ce.url,
+          }))}
+          onSelect={(emoji) => {
+            if (emojiDrawerMsg.id.startsWith('tmp-')) return;
+            const live = messages.find((m) => m.id === emojiDrawerMsg.id) ?? emojiDrawerMsg;
+            reactMut.toggle({
+              messageId: emojiDrawerMsg.id,
+              emoji,
+              currentlyByMe: live.reactions?.find((r) => r.emoji === emoji)?.byMe ?? false,
+            });
+          }}
+        />
+      ) : null}
+      {/* D9(FR-RM11): 신고 모달 — 데스크톱 ReportModal 재사용. */}
+      {workspaceId && reportTargetId ? (
+        <ReportModal
+          workspaceId={workspaceId}
+          channelId={channelId}
+          messageId={reportTargetId}
+          onClose={() => setReportTargetId(null)}
+        />
+      ) : null}
+      {/* D9: 리마인더 설정 모달 — SavedView/MessageList 와 동일 컴포넌트·뮤테이션. */}
+      {reminderTarget ? (
+        <ReminderModal
+          open={reminderTarget !== null}
+          channelName={reminderTarget.channelName}
+          hasReminder={reminderTarget.hasReminder}
+          onClose={() => setReminderTarget(null)}
+          onSubmit={(reminderAt) =>
+            setReminderMut.mutate({
+              savedMessageId: reminderTarget.savedMessageId,
+              reminderAt,
+            })
+          }
         />
       ) : null}
     </>

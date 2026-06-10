@@ -28,7 +28,7 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 | D6   | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트)                                                                                      | **done**                                        |                     |
 | D7   | 타이핑 인디케이터 양방향                                                                                                                  | **done**                                        |                     |
 | D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속 |
-| D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | todo                                            |                     |
+| D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | **done**                                        |                     |
 | D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | todo                                            |                     |
 | D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | todo                                            |                     |
 | D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | todo                                            |                     |
@@ -77,5 +77,14 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   RDialog.Title 보유, 출처는 다른 공유 dialog(기존 경고·D8 회귀 아님), D11 리뷰에서 추적.
   검증 스택 web 은 빌드 이미지라 **코드 변경 후 test-web 재빌드 필수**
   (`sudo docker compose -p qufox-e2e -f docker-compose.e2e-audit.yml up -d --build test-web`).
-- 다음: D9(시트 확장: 핀·저장·리마인더·신고·미읽표시·삭제 confirm·포커스 트랩·이모지
-  드로어) → D10(presence touch activity) → D11 게이트 → D12 머지·배포.
+- (세션 #2) D9 완료 — 시트 액션 확장: 저장 토글(useToggleSave+useInitSavedStatus 증분
+  seed)·리마인더(saveMessage→ReminderModal, MessageList handleSetReminder 포팅)·핀/해제
+  (usePinMessage, 데스크톱 runPin 토스트 카피·MESSAGE_PIN_CAP_EXCEEDED 분기)·미읽음
+  표시(useMarkUnread)·신고(ReportModal 재사용) — 게이트 전부 데스크톱과 동일(tmp/삭제/
+  DM/권한). 삭제는 모달 대신 제자리 2-step(3초 armed 창, 데스크톱 Delete 2-step 동일
+  의도). 포커스 트랩(WAI-ARIA dialog: 첫 버튼 포커스→Tab 순환→복귀). 신규
+  MobileEmojiDrawer(DS qf-m-emoji-drawer 정본): 검색=자동완성 UNICODE_EMOJI_CANDIDATES +커스텀, 탭=EmojiPicker EMOJI_CATEGORIES+커스텀, 선택값 유니코드 글리프/`:name:`.
+  프로브(.tour/probe-m1-d9\*.mjs) 전부 green: 액션 6종 노출/타인 행 edit·delete 숨김/
+  focusInSheet/저장→'저장 해제'/핀 토스트/드로어 검색→🎉 칩/미읽 토스트/ReportModal/
+  armed 카피→2탭 삭제/ReminderModal.
+- 다음: D10(presence touch activity) → D11 게이트(verify+e2e+적대 리뷰) → D12 머지·배포.
