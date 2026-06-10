@@ -28,16 +28,16 @@
 
 ## 청크 상태
 
-| 청크 | 내용                                                                                                                                                            | 상태                                                            | 커밋            |
-| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | --------------- |
-| E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | **done** — 훅은 기존 lib/useBreakpoint 재사용, App.tsx 4곳 교체 | edcca99         |
-| E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |                 |
-| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |                 |
-| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | **done**                                                        |                 |
-| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | **done**                                                        |                 |
-| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | **done**                                                        |                 |
-| E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | **done**                                                        | 29aa067+bfb80b6 |
-| E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | todo                                                            |                 |
+| 청크 | 내용                                                                                                                                                            | 상태                                                            | 커밋                           |
+| ---- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------- | ------------------------------ |
+| E1   | `useIsMobile` 훅 + 반응형 분기 일원화(App.tsx 등 matchMedia 3곳)                                                                                                | **done** — 훅은 기존 lib/useBreakpoint 재사용, App.tsx 4곳 교체 | edcca99                        |
+| E2   | MobilePanels 3패널 골격(DS .qf-m-panels) — 엣지 스와이프/드래그/스냅/fling + 스크림, 좌(서버레일+채널)/중앙(채팅)/우(멤버) 장착, MobileShell 개편               | **done**                                                        |                                |
+| E3   | 5탭 탭바 + 라우트: 채팅/인박스(Activity)/스레드(thread inbox 신규)/검색(풀스크린 신규)/나(you 탭 신규 — 상태 변경 시트 포함, 데스크톱 BottomBar 연결)           | **done** — BottomBar 상태 변경은 기존 존재(추가 작업 불요 확인) |                                |
+| E4   | 홈 ?chat= 오버레이·MobileDrawer 폐기 + DM 인박스 '채팅' 탭 통합(서버레일 DM 슬롯)                                                                               | **done**                                                        |                                |
+| E5   | 채널 브라우저 진입·멤버수 버튼(aria-expanded)·뱃지 의미 분리·워크스페이스 전환 일원화 잔여                                                                      | **done**                                                        |                                |
+| E6   | M1 이월: 슬래시 커맨드 모바일 표면(EPHEMERAL 리스트·GIPHY 슬롯·클라 액션 — 새 IA 패널 대상) + 자동완성 켜기(acSources.slashCommands 한 줄) + 답장 데드엔드 해소 | **done**                                                        |                                |
+| E7   | 게이트: e2e 전면 갱신(드로어/?chat= 결합 스펙 재작성)+vr baseline+standalone verify+적대 리뷰 fix-forward                                                       | **done**                                                        | 29aa067+bfb80b6                |
+| E8   | develop --no-ff 머지(ls-remote 실측)→main 승격→수동 배포→/readyz→REPORT                                                                                         | **done**                                                        | develop a598dbc · main 55e4b29 |
 
 ## 결정 로그
 
@@ -127,5 +127,12 @@
   잔여 기록(비차단): L-1 마커 고아 엔트리(back 1회 시각 no-op — PR 문서 명시),
   스레드 탭→?thread= 풀체인·검색→?msg= 풀체인·로그아웃 confirm e2e 미커버(M3),
   aria-hidden 패널 inert 아님(M3 a11y).
-- 다음 작업: E8 — develop --no-ff 머지(ls-remote 실측) → main 승격 → 수동 배포
-  → /readyz → REPORT.
+- (세션 #2) E8 완료 — **M2 슬라이스 종료**. develop --no-ff a598dbc(ls-remote 실측)
+  → main 55e4b29 → 수동 auto-deploy.sh exit 0(rollout api/web healthy · smoke OK ·
+  deploy retained) → api /readyz `{"status":"ok","checks":{"db":"ok","redis":"ok",
+"outbox":"idle"}}` · qufox.com 200.
+- **다음 슬라이스: M3(도달성 — 071 문서 M3 절)**. M2 이월분을 M3 계획에 반영할 것:
+  서버 메뉴 시트 확장(초대/설정 진입)·채널 생성 모달 모바일 변형·스레드 '모두 읽음'·
+  dm-chat e2e 포팅(skip 해제)·스레드/검색 풀체인 e2e·aria-hidden 패널 inert·
+  멘션 백필(M1 이월)·L-1 마커 고아 엔트리 문서화. M4(PRD 개정)에는 5탭 카노니컬
+  통일 + 멘션 정규식 표기(uuid|cuid2) 갱신 포함.
