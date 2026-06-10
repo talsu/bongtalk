@@ -19,6 +19,15 @@ import { MobilePanels, type PanelSide } from './mobile/MobilePanels';
 // 071-M3 F1: /w/:slug/settings — 데스크톱 설정 호스트(내부 탭에 일반/신고 큐/감사
 // 로그 등 내장)를 직마운트한다(최소안 — qf-m-* 드릴다운 변형은 후속).
 import { WorkspaceSettingsOverlayHost } from './Shell';
+// 071-M3 F2: 서버 메뉴 시트 + 진입 대상들(데스크톱 컴포넌트 재사용).
+import { MobileServerMenuSheet } from './mobile/MobileServerMenuSheet';
+import { CreateChannelModal } from '../features/channels/CreateChannelModal';
+import { CreateCategoryModal } from '../features/channels/CreateCategoryModal';
+import { CreateInviteModal } from '../features/workspaces/CreateInviteModal';
+import { InviteManagerPanel } from '../features/workspaces/InviteManagerPanel';
+import { MemberDirectoryPanel } from '../features/workspaces/MemberDirectoryPanel';
+import { useLeaveWorkspace } from '../features/workspaces/useWorkspaces';
+import { useNotifications } from '../stores/notification-store';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -79,7 +88,22 @@ export function MobileShell(): JSX.Element {
   // canModerate = 신고 큐 등 모더레이션(MODERATOR 포함 — 데스크톱 Shell 정본).
   const canManageWorkspace = myRole === 'OWNER' || myRole === 'ADMIN';
   const canModerate = canManageWorkspace || myRole === 'MODERATOR';
-  void canModerate; // F2(서버 메뉴 시트)에서 소비.
+  // 071-M3 F2: 서버 메뉴 시트 + 진입 대상 상태.
+  const [serverMenuOpen, setServerMenuOpen] = useState(false);
+  const [createChannelOpen, setCreateChannelOpen] = useState(false);
+  const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [overlay, setOverlay] = useState<'invites' | 'directory' | null>(null);
+  const leaveMut = useLeaveWorkspace(active?.id ?? '');
+  const pushToast = useNotifications((st) => st.push);
+  // F2 ★레이스 봉인: 좌패널이 열린 상태에서 시트를 동시 오픈하면 MobilePanels 의
+  // back 마커 소거(history.back)가 방금 push 된 시트 마커를 pop 해 시트가 즉시
+  // 닫힌다. 패널을 먼저 닫고 popstate 가 소화된 다음 틱에 시트를 연다 — 패널발
+  // 시트 오픈(F2 서버 메뉴·F5 채널 롱프레스)은 반드시 이 헬퍼를 쓴다.
+  const openSheetFromPanel = (fn: () => void): void => {
+    setPanel('center');
+    window.setTimeout(fn, 80);
+  };
   const navigate = useNavigate();
   const location = useLocation();
   const [sp] = useSearchParams();
@@ -221,6 +245,7 @@ export function MobileShell(): JSX.Element {
               setPanel('center');
               setBrowseOpen(true);
             }}
+            onMenu={() => openSheetFromPanel(() => setServerMenuOpen(true))}
           />
         </div>
       }
@@ -333,7 +358,124 @@ export function MobileShell(): JSX.Element {
             workspaceId={active.id}
             workspaceSlug={active.slug}
             canManage={canManageWorkspace}
-            onCreateChannel={() => setBrowseOpen(false)}
+            onCreateChannel={() => {
+              // M3 F2 (M2 이월 해소): 종전엔 닫기만 했음 — 생성 모달로 연결.
+              setBrowseOpen(false);
+              setCreateChannelOpen(true);
+            }}
+          />
+        </SettingsOverlay>
+
+        {/* 071-M3 F2: 서버 메뉴 시트 + 진입 대상들. */}
+        {serverMenuOpen ? (
+          <MobileServerMenuSheet
+            workspaceName={active.name}
+            onClose={() => setServerMenuOpen(false)}
+            onDirectory={() => {
+              setServerMenuOpen(false);
+              setOverlay('directory');
+            }}
+            onBrowse={() => {
+              setServerMenuOpen(false);
+              setBrowseOpen(true);
+            }}
+            onCreateChannel={
+              canManageWorkspace
+                ? () => {
+                    setServerMenuOpen(false);
+                    setCreateChannelOpen(true);
+                  }
+                : undefined
+            }
+            onCreateCategory={
+              canManageWorkspace
+                ? () => {
+                    setServerMenuOpen(false);
+                    setCreateCategoryOpen(true);
+                  }
+                : undefined
+            }
+            onInvite={
+              canModerate
+                ? () => {
+                    setServerMenuOpen(false);
+                    setInviteOpen(true);
+                  }
+                : undefined
+            }
+            onManageInvites={
+              canModerate
+                ? () => {
+                    setServerMenuOpen(false);
+                    setOverlay('invites');
+                  }
+                : undefined
+            }
+            onSettings={
+              canManageWorkspace
+                ? () => {
+                    setServerMenuOpen(false);
+                    navigate(`/w/${active.slug}/settings`);
+                  }
+                : undefined
+            }
+            onLeave={
+              myRole && myRole !== 'OWNER'
+                ? () => {
+                    setServerMenuOpen(false);
+                    leaveMut.mutate(undefined, {
+                      onSuccess: () => {
+                        try {
+                          sessionStorage.removeItem('qf:lastChatPath');
+                        } catch {
+                          /* noop */
+                        }
+                        navigate('/');
+                      },
+                      onError: () =>
+                        pushToast({
+                          variant: 'danger',
+                          title: '워크스페이스를 나가지 못했습니다',
+                          body: '잠시 후 다시 시도하세요.',
+                          ttlMs: 4000,
+                        }),
+                    });
+                  }
+                : undefined
+            }
+          />
+        ) : null}
+        <CreateChannelModal
+          workspaceId={active.id}
+          categoryId={null}
+          categoryLabel="채널"
+          open={createChannelOpen}
+          onClose={() => setCreateChannelOpen(false)}
+        />
+        <CreateCategoryModal
+          workspaceId={active.id}
+          open={createCategoryOpen}
+          onClose={() => setCreateCategoryOpen(false)}
+        />
+        <CreateInviteModal workspaceId={active.id} open={inviteOpen} onOpenChange={setInviteOpen} />
+        <SettingsOverlay
+          open={overlay === 'invites'}
+          onClose={() => setOverlay(null)}
+          title="초대 관리"
+          testId="mobile-invites-overlay"
+        >
+          <InviteManagerPanel workspaceId={active.id} />
+        </SettingsOverlay>
+        <SettingsOverlay
+          open={overlay === 'directory'}
+          onClose={() => setOverlay(null)}
+          title="멤버 디렉터리"
+          testId="mobile-directory-overlay"
+        >
+          <MemberDirectoryPanel
+            workspaceId={active.id}
+            currentUserId={user?.id ?? ''}
+            canManage={canModerate}
           />
         </SettingsOverlay>
       </div>

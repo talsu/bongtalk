@@ -18,6 +18,7 @@ export function MobileChannelList({
   activeChannelName,
   onPick,
   onBrowse,
+  onMenu,
 }: {
   workspace: Pick<Workspace, 'id' | 'name' | 'slug'>;
   workspaces: Pick<Workspace, 'id' | 'name' | 'slug'>[];
@@ -25,6 +26,8 @@ export function MobileChannelList({
   onPick: () => void;
   /** 071-M2 E5 (FR-IA-MOB-03): server-header 의 + 액션 — 채널 둘러보기 오픈. */
   onBrowse?: () => void;
+  /** 071-M3 F2: server-header 본체 탭 — 서버 메뉴 시트 오픈(DS 의도). */
+  onMenu?: () => void;
 }): JSX.Element {
   const { data } = useChannelList(workspace.id);
   const { data: unread } = useUnreadSummary(workspace.id);
@@ -44,7 +47,23 @@ export function MobileChannelList({
       {/* 071-M2 E5: DS server-header — 서버명 + 채널 탐색 액션(FR-IA-MOB-03).
           서버 메뉴 시트(초대/설정 등)는 M3 도달성에서 확장. */}
       <div className="qf-m-server-header" data-testid="mobile-server-header">
-        <span className="qf-m-server-header__name">{workspace.name}</span>
+        {onMenu ? (
+          // F2: 헤더 본체(서버명+chevron)를 버튼화 — 탭하면 서버 메뉴 시트.
+          <button
+            type="button"
+            data-testid="mobile-server-menu-trigger"
+            className="flex min-w-0 flex-1 items-center gap-[var(--s-2)] bg-transparent text-left"
+            aria-haspopup="dialog"
+            onClick={onMenu}
+          >
+            <span className="qf-m-server-header__name">{workspace.name}</span>
+            <span className="qf-m-server-header__chevron" aria-hidden>
+              <Icon name="chevron-down" size="sm" />
+            </span>
+          </button>
+        ) : (
+          <span className="qf-m-server-header__name">{workspace.name}</span>
+        )}
         {onBrowse ? (
           <button
             type="button"

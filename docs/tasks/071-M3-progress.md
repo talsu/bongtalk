@@ -67,6 +67,22 @@
 - 사전존재 버그 의심(F11 리뷰에서 판단): MobileSearchTab 2자 placeholder vs
   isSearchQueryAllowed 3자 게이트 모순.
 
+## 세션 진행 노트 (M3)
+
+- F1 완료(32d1c1a) — settings 분기+가드(★튕김 함정), WorkspaceSettingsOverlayHost
+  직마운트(신고/감사 탭 내장 — F9 흡수), useSheetHistoryMarker, MobilePanels inert,
+  api.ts retryAfter, canManageWorkspace/canModerate 분리. 프로브: settings 직진입
+  유지/신고 탭/ReportQueuePanel green(감사 탭 testid 는 ws-settings-tab-audit-log).
+- F2 완료 — MobileServerMenuSheet(7항목+나가기 2-step), server-header 트리거 버튼화,
+  CreateChannel/CreateCategory/CreateInvite 모달 + InviteManager/MemberDirectory
+  오버레이 배선, ChannelBrowser onCreateChannel 연결(M2 이월 해소).
+  ★레이스 적발·봉인: 좌패널 열림 상태에서 시트 동시 오픈 시 MobilePanels back
+  마커 소거(history.back)가 시트 마커를 pop → 시트 즉시 닫힘. **openSheetFromPanel
+  헬퍼(패널 닫기 → 80ms 후 시트 오픈)** 로 봉인 — F5 채널 롱프레스 시트도 필수 사용.
+  비고: 패널 열림 중 ESC 는 패널을 닫지 않음(터치 전용 — 스크림이 클릭 가로챔).
+  프로브 green: OWNER 7항목/MEMBER 관리 숨김/채널 생성 관통(briefing 행)/디렉터리
+  오버레이/나가기 armed→실탈퇴.
+
 ## 세션 핸드오프 노트
 
 - (착수) M2 종료(main c3b42d2 · 배포 exit 0 · readyz ok) 직후 브랜치만 생성해 둔 상태.
