@@ -25,8 +25,8 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 | D3 | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스 | todo | |
 | D4 | 첨부 업로드(+버튼 배선, presign 훅 재사용) | todo | |
 | D5 | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19) | **done(컴포저 게이트류는 D8)** | |
-| D6 | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트) | todo | |
-| D7 | 타이핑 인디케이터 양방향 | todo | |
+| D6 | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트) | **done** | |
+| D7 | 타이핑 인디케이터 양방향 | **done** | |
 | D8 | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:/슬래시) | todo | |
 | D9 | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer) | todo | |
 | D10 | presence touch activity 신호+멤버/아바타 idle 표시 | todo | |
@@ -47,3 +47,11 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   실측: cont=2/head=3/divider=1/threadChip=1/반응칩 45×44, pageerror 0. 커밋 1c7204b.
   비고: renderAst 는 표준 :shortcode: 를 렌더하지 않음(커스텀만 — 데스크톱과 동일 parity).
   멘션 pill 실검증은 D8(자동완성으로 실제 멘션 작성) 때 수행.
+- (세션 #1) D6·D7 완료 — 확장 프로브 전부 green: ?msg= highlight+URL정리, unread divider(신규
+  유저 진입 시 '새 메시지 1' 경계), typingVisible=true(상대 화면 실시간). jump 버튼은 리스트가
+  화면보다 짧으면 미표시가 정답(시나리오 한계 — D11 e2e 에서 긴 히스토리로 검증 예정).
+- ★ **플랫폼 잠복 버그 적발·수리**: useRealtimeConnection deps=[qc] → 하드 로드 세션은
+  WebSocket 영구 미연결(모바일 전부 — 타이핑/프레즌스/즉시수신 불능을 리페치가 가려옴).
+  deps 에 user?.id 추가로 수리, WS 프레임→서버수신→상대화면 표시까지 실측 관통.
+  M0 의 C9(프레즌스) 실효성도 이 수리로 비로소 완성 — D11 에서 presence e2e 함께 추가할 것.
+- 다음: D3·D4(첨부 렌더/업로드) → D8(컴포저 개편+자동완성) → D9(시트 확장) → D10 → D11 게이트.
