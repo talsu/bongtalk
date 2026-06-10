@@ -29,7 +29,7 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 | D7   | 타이핑 인디케이터 양방향                                                                                                                  | **done**                                        |                     |
 | D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속 |
 | D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | **done**                                        |                     |
-| D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | todo                                            |                     |
+| D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | **done**                                        |                     |
 | D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | todo                                            |                     |
 | D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | todo                                            |                     |
 
@@ -87,4 +87,11 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   프로브(.tour/probe-m1-d9\*.mjs) 전부 green: 액션 6종 노출/타인 행 edit·delete 숨김/
   focusInSheet/저장→'저장 해제'/핀 토스트/드로어 검색→🎉 칩/미읽 토스트/ReportModal/
   armed 카피→2탭 삭제/ReminderModal.
-- 다음: D10(presence touch activity) → D11 게이트(verify+e2e+적대 리뷰) → D12 머지·배포.
+- (세션 #2) D10 완료 — usePresenceActivity 에 touchstart 추가(스로틀/visibility 가드
+  공유), MobileMembers 에 idle 닷 + 접속 버킷 수리(종전 idle/dnd 멤버가 '오프라인'
+  그룹으로 떨어지던 버그). 테스트 compose 2종(test/e2e-audit)에 PRESENCE_IDLE_TIMEOUT=5
+  /SWEEP=1000 추가(e2e 실검증용 — prod 기본 600s/30s 무변경). 프로브 실측: 31s 무활동
+  후 touchstart → presence:activity 프레임(framesTotal=1, touch 가 유일 발신원),
+  b 무활동 6s → a 멤버 드로어 data-presence="idle"+노랑 닷.
+- 다음: D11 게이트(신규 e2e: 그루핑/리액션/첨부/디바이더/타이핑/자동완성/presence-idle
+  - vr baseline 갱신 + 컨테이너 standalone verify + 적대 리뷰 fix-forward) → D12 머지·배포.

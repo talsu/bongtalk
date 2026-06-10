@@ -20,15 +20,20 @@ import { ProfilePopover } from '../../features/profile/ProfilePopover';
  */
 export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Element {
   const { data: members } = useMembers(workspaceId);
-  const { onlineUserIds, dndUserIds } = usePresence(workspaceId);
+  const { onlineUserIds, dndUserIds, idleUserIds } = usePresence(workspaceId);
   const { register } = useViewportPresence(workspaceId);
 
   const list = members?.members ?? [];
-  const online = list.filter((m) => onlineUserIds.has(m.userId));
-  const offline = list.filter((m) => !onlineUserIds.has(m.userId));
+  // 071-M1 D10: idle/dnd 도 접속 중 — 종전엔 onlineUserIds 만 봐서 자리비움/방해금지
+  // 멤버가 '오프라인' 그룹으로 떨어졌다. 상태 닷이 idle(노랑)/dnd(빨강)를 구분한다.
+  const isActive = (userId: string): boolean =>
+    onlineUserIds.has(userId) || idleUserIds.has(userId) || dndUserIds.has(userId);
+  const online = list.filter((m) => isActive(m.userId));
+  const offline = list.filter((m) => !isActive(m.userId));
 
-  const status = (userId: string): 'online' | 'dnd' | 'offline' => {
+  const status = (userId: string): 'online' | 'idle' | 'dnd' | 'offline' => {
     if (dndUserIds.has(userId)) return 'dnd';
+    if (idleUserIds.has(userId)) return 'idle';
     if (onlineUserIds.has(userId)) return 'online';
     return 'offline';
   };
@@ -87,7 +92,7 @@ function MobileMemberRow({
   register,
 }: {
   member: MemberWithPresence;
-  status: 'online' | 'dnd' | 'offline';
+  status: 'online' | 'idle' | 'dnd' | 'offline';
   workspaceId: string;
   register: (userId: string) => (el: Element | null) => void;
 }): JSX.Element {
