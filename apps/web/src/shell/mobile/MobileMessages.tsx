@@ -35,6 +35,8 @@ import { ReportModal } from '../../features/messages/ReportModal';
 import { MobileEmojiDrawer } from './MobileEmojiDrawer';
 // 071-M3 F6: 편집 이력 시트.
 import { MobileEditHistorySheet } from './MobileEditHistorySheet';
+// 071-M3 F7: 빈 채널 CTA(OWNER 기본채널) — 데스크톱 동일 컴포넌트.
+import { CreatorEmptyStateCta } from '../../features/onboarding/CreatorEmptyStateCta';
 import { useToggleReaction } from '../../features/reactions/useReactions';
 import { useQueryClient } from '@tanstack/react-query';
 import { qk } from '../../lib/query-keys';
@@ -485,6 +487,42 @@ export function MobileMessages({
       >
         {/* 071-M1 D1: 날짜 구분선 + 그루핑(--head/--cont) + 시스템 행 + 스레드 chip —
             데스크톱과 동일 순수 모듈(isContinuation/isSameLocalDay/SystemMessage)을 공유. */}
+        {/* 071-M3 F7 (감사 B-95/B-10): 에러/빈 상태 — errorCode 기준 분기. */}
+        {history.isError ? (
+          (() => {
+            const err = history.error as { errorCode?: string; status?: number } | null;
+            if (err?.errorCode === 'CHANNEL_NOT_VISIBLE' || err?.status === 403) {
+              return (
+                <div className="qf-m-empty flex-1" data-testid="mobile-channel-forbidden">
+                  <Icon name="lock" size="lg" className="text-text-muted" />
+                  <div className="qf-m-empty__title">이 채널을 볼 권한이 없습니다</div>
+                  <div className="qf-m-empty__body">관리자에게 접근 권한을 요청해 보세요.</div>
+                </div>
+              );
+            }
+            return (
+              <div className="qf-m-empty flex-1" data-testid="mobile-channel-error">
+                <div className="qf-m-empty__title">메시지를 불러오지 못했습니다</div>
+                <button
+                  type="button"
+                  data-testid="mobile-channel-error-retry"
+                  className="qf-btn qf-btn--ghost qf-btn--sm mt-[var(--s-3)]"
+                  onClick={() => void history.refetch()}
+                >
+                  다시 시도
+                </button>
+              </div>
+            );
+          })()
+        ) : !history.isLoading && messages.length === 0 ? (
+          <div className="qf-m-empty flex-1" data-testid="mobile-channel-empty">
+            <div className="qf-m-empty__title"># {channelName} 의 시작이에요</div>
+            <div className="qf-m-empty__body">첫 메시지를 남겨 대화를 시작해 보세요.</div>
+            {workspaceId && viewerRole === 'OWNER' ? (
+              <CreatorEmptyStateCta workspaceId={workspaceId} isOwner />
+            ) : null}
+          </div>
+        ) : null}
         {messages.map((m, i) => {
           const prev = i > 0 ? messages[i - 1] : null;
           const dayDivider =

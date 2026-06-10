@@ -138,6 +138,23 @@ export function MobileChannelList({
             DM
           </span>
         </Link>
+        <Link
+          to="/w/new"
+          onClick={onPick}
+          className="inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]"
+          data-testid="mobile-rail-new-ws"
+          aria-label="워크스페이스 만들기"
+        >
+          <span className="qf-avatar qf-avatar--sm grid place-items-center bg-bg-subtle">
+            <Icon name="plus" size="sm" />
+          </span>
+          <span
+            style={{ maxWidth: 'var(--s-10)' }}
+            className="text-[length:var(--fs-11)] text-text-muted truncate"
+          >
+            추가
+          </span>
+        </Link>
         {workspaces.map((w) => (
           <Link
             key={w.id}
