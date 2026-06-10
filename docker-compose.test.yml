@@ -129,11 +129,17 @@ services:
       test-redis:
         condition: service_healthy
     healthcheck:
-      test: ['CMD-SHELL', 'wget -q --spider http://localhost:3001/readyz || exit 1']
+      # 071-M0 C14: GHA 에서 앱이 listen 에 도달했는데도 busybox wget --spider 프로브만
+      # 5분 내내 실패하는 현상 → 프로브를 이미지에 보장된 node HTTP GET(127.0.0.1 명시)
+      # 으로 교체해 busybox/localhost 해석 변수를 제거한다.
+      test:
+        [
+          'CMD-SHELL',
+          "node -e \"require('http').get('http://127.0.0.1:3001/readyz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+        ]
       interval: 5s
-      timeout: 3s
-      # 071-M0 C14: GHA 콜드 부트가 NAS 보다 훨씬 느려 150s 예산이 부족했다 —
-      # start_period 동안의 실패는 카운트되지 않고, 총 예산을 ~5분으로 확장.
+      timeout: 4s
+      # GHA 콜드 부트 대비 총 예산 ~5분(start_period 실패는 미집계).
       start_period: 30s
       retries: 60
 
