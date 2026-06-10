@@ -89,6 +89,10 @@ services:
       MESSAGE_RATE_USER_MAX: '1000'
       MESSAGE_RATE_CHANNEL_MAX: '1000'
       LOGIN_RATE_IP_MAX: '1000'
+      # 071-M1 D10: presence idle 자동전환을 e2e 에서 실검증할 수 있게 가속
+      # (prod 기본 600s/30s — 테스트 스택 한정 5s/1s).
+      PRESENCE_IDLE_TIMEOUT: '5'
+      PRESENCE_IDLE_SWEEP_INTERVAL_MS: '1000'
       API_PORT: '3001'
       DATABASE_URL: postgresql://qufox:qufox@test-postgres:5432/qufox_e2e?schema=public
       REDIS_URL: redis://test-redis:6379
@@ -138,7 +142,7 @@ services:
       test:
         [
           'CMD-SHELL',
-          "node -e \"require('http').get('http://127.0.0.1:3001/readyz',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+          'node -e "require(''http'').get(''http://127.0.0.1:3001/readyz'',r=>process.exit(r.statusCode===200?0:1)).on(''error'',()=>process.exit(1))"',
         ]
       interval: 5s
       timeout: 4s

@@ -1927,6 +1927,11 @@ export class MessagesService {
             parentMessageId: args.parentMessageId ?? null,
           },
         });
+        // 071-M1 D11 (FR-AM-07): WS payload 에 실을 첨부 lite 목록. 링크 직후
+        // tx 안에서 읽어야 커밋 전 상태가 보인다(aggregateAttachments 는
+        // this.prisma 라 tx 미반영). 종전엔 payload 가 첨부를 누락해 발신자
+        // 낙관 스왑·라이브 수신자 모두 refetch 전까지 이미지가 안 보였다.
+        let liteAttachments: AttachmentLite[] = [];
         if (args.attachmentIds && args.attachmentIds.length > 0) {
           // Link the finalized attachments to the message. The pre-tx
           // validation above bounded the set to ids owned by this user
@@ -1943,6 +1948,18 @@ export class MessagesService {
             },
             data: { messageId: created.id, linkedAt: new Date() },
           });
+          const linked = await tx.attachment.findMany({
+            where: { messageId: created.id, finalizedAt: { not: null } },
+            orderBy: { createdAt: 'asc' },
+            select: { id: true, kind: true, mime: true, sizeBytes: true, originalName: true },
+          });
+          liteAttachments = linked.map((a) => ({
+            id: a.id,
+            kind: a.kind as 'IMAGE' | 'VIDEO' | 'FILE',
+            mime: a.mime,
+            sizeBytes: Number(a.sizeBytes),
+            originalName: a.originalName,
+          }));
         }
         const payload: MessageCreatedPayload = {
           workspaceId: args.workspaceId,
@@ -1977,6 +1994,8 @@ export class MessagesService {
             // branches that read only {id, authorId, content, …} ignore
             // it. New thread dispatcher branch reads it to route.
             parentMessageId: created.parentMessageId,
+            // 071-M1 D11 (FR-AM-07): 첨부 lite e2e 전파 — 없으면 생략(additive).
+            ...(liteAttachments.length > 0 ? { attachments: liteAttachments } : {}),
           },
         };
         await this.outbox.record(tx, {

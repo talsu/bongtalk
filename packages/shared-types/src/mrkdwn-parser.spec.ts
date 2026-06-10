@@ -226,6 +226,27 @@ describe('parseMrkdwn — mention tokens (FR-RC02 / FR-RC22)', () => {
     const mention = p.nodes.find((n) => n.type === 'mention_role');
     expect((mention as { label?: string }).label).toBeUndefined();
   });
+
+  // 071-M1 D11 (FR-RC22): User.id / Channel.id 도 @db.Uuid — 라이브 토큰
+  // `@{uuid}` / `<#uuid>` 가 mention 노드로 파싱돼야 멘션 pill 이 그려진다
+  // (종전 cuid2 전용 패턴은 영영 미매칭 → 평문 잔존, 플랫폼 전역 회귀).
+  it('parses @{uuid} into a mention_user node (User.id = @db.Uuid)', () => {
+    const p = firstParagraph('hi @{3f2504e0-4f89-41d3-9a0c-0305e82c3301}');
+    const mention = p.nodes.find((n) => n.type === 'mention_user');
+    expect(mention).toMatchObject({
+      type: 'mention_user',
+      userId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    });
+  });
+
+  it('parses <#uuid> into a mention_channel node (Channel.id = @db.Uuid)', () => {
+    const p = firstParagraph('see <#3f2504e0-4f89-41d3-9a0c-0305e82c3301>');
+    const mention = p.nodes.find((n) => n.type === 'mention_channel');
+    expect(mention).toMatchObject({
+      type: 'mention_channel',
+      channelId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+    });
+  });
 });
 
 // S04 review HIGH (FR-MSG-13): 정규화는 @username 을 @{cuid2} 로 저장하므로

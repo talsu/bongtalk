@@ -520,6 +520,16 @@ export class MessagesController {
         content: message.contentPlainV2 ?? message.contentPlain ?? message.content,
       });
     }
+    // 071-M1 D11 (FR-AM-07): 첨부 동반 전송이면 응답 DTO 에도 첨부 lite 를 싣는다.
+    // 종전엔 toDto 기본값([])이라, POST onSuccess 의 낙관 스왑이 WS echo 보다
+    // 먼저 도착한 탭에서 첨부가 refetch 전까지 보이지 않았다(WS payload 보강과
+    // 한 쌍 — FR-RT-24 dedupe 가 어느 쪽이 이겨도 첨부를 보존하게 한다).
+    if (parsed.data.attachmentIds && parsed.data.attachmentIds.length > 0) {
+      const amap = await this.messages.aggregateAttachments([message.id]);
+      return {
+        message: this.messages.toDto(message, [], null, amap.get(message.id) ?? []),
+      };
+    }
     return { message: this.messages.toDto(message) };
   }
 

@@ -214,7 +214,14 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
       disconnect();
       setSocket(null);
     };
-  }, [qc]);
+    // 071-M1 D7 적발(플랫폼 잠복 버그): 종전 deps=[qc] 는 마운트 1회만 실행 — 하드
+    // 페이지 로드에서는 silent refresh 가 끝나기 전이라 getAccessToken()===null 로
+    // 조기 return 한 뒤 **영영 재시도하지 않아**, 새로고침/딥링크로 들어온 모든
+    // 세션(모바일 전부)이 WebSocket 없이 동작했다(타이핑·프레즌스·즉시 수신 불능,
+    // 목록 갱신은 폴링/리페치로 가려짐). user?.id 를 deps 에 추가 — AuthProvider 가
+    // refresh 성공 시 user 를 세팅하므로(그 시점엔 토큰이 메모리에 존재) 그때 연결되고,
+    // 로그아웃(user→null) 시 cleanup 이 disconnect 한다.
+  }, [qc, user?.id]);
 
   return { status, replaying };
 }
