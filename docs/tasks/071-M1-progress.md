@@ -18,20 +18,20 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
 
 ## 청크 상태
 
-| 청크 | 내용                                                                                                                                      | 상태                                            | 커밋                |
-| ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------- |
-| D1   | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | **done**                                        |                     |
-| D2   | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵                                                                                     | **done**                                        |                     |
-| D3   | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스                                                                                    | **done**                                        | 6e5743f             |
-| D4   | 첨부 업로드(+버튼 배선, presign 훅 재사용)                                                                                                | **done**                                        | 6e5743f             |
-| D5   | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19)                                         | **done(컴포저 게이트류는 D8)**                  |                     |
-| D6   | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트)                                                                                      | **done**                                        |                     |
-| D7   | 타이핑 인디케이터 양방향                                                                                                                  | **done**                                        |                     |
-| D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속 |
-| D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | **done**                                        |                     |
-| D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | **done**                                        |                     |
-| D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | **done**                                        | caeeea2 + fix       |
-| D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | todo                                            |                     |
+| 청크 | 내용                                                                                                                                      | 상태                                            | 커밋                           |
+| ---- | ----------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------- | ------------------------------ |
+| D1   | 렌더 코어: 그루핑(--head/--cont)·날짜 디바이더·renderAst 통일(멘션 pill/하이라이트·스포일러·헤딩·점보)·시스템 메시지·BOT 뱃지·스레드 chip | **done**                                        |                                |
+| D2   | 리액션 칩 행 렌더+탭 토글(44px 터치)·커스텀 이모지 맵                                                                                     | **done**                                        |                                |
+| D3   | 첨부/embed 렌더(qf-m-img-grid·OG 축약 카드)+라이트박스                                                                                    | **done**                                        | 6e5743f                        |
+| D4   | 첨부 업로드(+버튼 배선, presign 훅 재사용)                                                                                                | **done**                                        | 6e5743f                        |
+| D5   | sendState(전송중/실패+재시도)+오프라인 컴포저 비활성(FR-IA-STATE-05a)+공지채널 disabled(FR-CH-19)                                         | **done(컴포저 게이트류는 D8)**                  |                                |
+| D6   | 미읽음 구분선+jump-btn+`?msg=` 점프 소비(하이라이트)                                                                                      | **done**                                        |                                |
+| D7   | 타이핑 인디케이터 양방향                                                                                                                  | **done**                                        |                                |
+| D8   | 컴포저 textarea 전환(autogrow·4000자 카운터·enterKeyHint)+대량 멘션 confirm(FR-MSG-14/15)+자동완성(@/#/:)+공지 disabled+오프라인 비활성   | **done** — 슬래시 자동완성만 M2 보류(결정 로그) | 1246b9d, (b–e) 후속            |
+| D9   | 시트 액션 확장(핀·저장·리마인더·신고·미읽표시)+삭제 confirm+포커스 트랩+이모지 드로어(qf-m-emoji-drawer)                                  | **done**                                        |                                |
+| D10  | presence touch activity 신호+멤버/아바타 idle 표시                                                                                        | **done**                                        |                                |
+| D11  | 게이트: 신규 모바일 e2e(그루핑/리액션/첨부/디바이더/타이핑/자동완성)+vr baseline 갱신+verify+적대 리뷰 fix-forward                        | **done**                                        | caeeea2 + fix                  |
+| D12  | develop 머지(ls-remote 확인)→main 승격→수동 배포→/readyz→REPORT                                                                           | **done**                                        | develop 9eaf7ab · main 2217a41 |
 
 ## 결정 로그
 
@@ -113,5 +113,10 @@ DS 모바일 목업도 본문 콘텐츠 클래스(qf-mention/qf-codeblock/qf-rea
   customId Cuid2Schema → uuid|cuid2(동일 시한폭탄, dormant) ④PRD 카노니컬 정규식 표기
   갱신(uuid|cuid2) ⑤e2e 수신측 라이브 첨부/비공개 채널 첨부 커버리지 ⑥send 응답 첨부
   재조회 1쿼리 절약(컨트롤러가 tx lite 재사용).
-- 다음: D12 — develop --no-ff 머지(ls-remote 실측) → main 승격 → 수동 배포 → /readyz
-  → REPORT.
+- (세션 #2) D12 완료 — **M1 슬라이스 종료**. develop --no-ff 머지 9eaf7ab(ls-remote
+  실측) → main 승격 2217a41 → 수동 `auto-deploy.sh` exit 0(rollout api/web healthy ·
+  smoke OK · deploy retained) → api 컨테이너 /readyz `{"status":"ok","checks":{"db":
+"ok","redis":"ok","outbox":"idle"}}`. 다음 슬라이스: **M2(A안 OverlappingPanels
+  3패널 + 5탭 IA 재구축)** — `docs/tasks/071-mobile-uiux-overhaul.md` M2 절 참조.
+  M2 진입 시 위 후속 태스크 목록(멘션 백필·답장 데드엔드·슬래시 표면)도 함께 계획에
+  반영할 것.
