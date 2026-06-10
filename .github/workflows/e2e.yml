@@ -41,7 +41,20 @@ jobs:
       # dedicated compose file. Each service healthchecks itself; we
       # wait for the api /readyz to flip to 200 before handing off to
       # Playwright.
-      - name: Start test stack
+      # 071-M0 C12: safe-deploy 재설계로 `prisma migrate deploy` 가 컨테이너 부트에서
+      # 제거된 뒤(apps/api/Dockerfile 참조) CI 에 마이그레이션 단계가 없어 test-api 가
+      # 빈 DB 로 기동 실패(/readyz 영구 비200) — e2e 전체가 조용히 죽어 있었다.
+      # 리뷰 H1: `up -d` 전체 기동은 빈 DB 에서 test-api healthcheck 실패로 비0 종료해
+      # migrate 에 도달하지 못한다 — 데이터 서비스 → migrate → 앱 기동 순서 강제.
+      - name: Start data services
+        run: docker compose -f ${COMPOSE_FILE} up -d test-postgres test-redis test-minio test-minio-init
+
+      - name: Run migrations (one-shot)
+        run: |
+          docker compose -f ${COMPOSE_FILE} run --rm --build --entrypoint prisma \
+            test-api migrate deploy --schema=prisma/schema.prisma
+
+      - name: Start app services
         run: docker compose -f ${COMPOSE_FILE} up -d --build
 
       - name: Wait for /readyz

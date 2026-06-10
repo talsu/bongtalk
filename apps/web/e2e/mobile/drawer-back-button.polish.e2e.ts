@@ -39,8 +39,10 @@ test('drawer closes via ESC, backdrop, channel pick, and back button', async ({
   await expect(page.getByTestId('mobile-left-drawer-root')).toHaveCount(0);
 
   // Backdrop click closes the drawer.
+  // 071-M0 C2 정합: z-스택 수정 후 좌측 86%는 패널이 올바르게 탭을 받는다 —
+  // 스크림 탭은 패널 밖(우측 가시 영역)을 눌러야 한다(실사용과 동일).
   await page.getByTestId('mobile-topbar-menu').click();
-  await page.getByTestId('mobile-left-drawer-backdrop').click({ position: { x: 20, y: 200 } });
+  await page.getByTestId('mobile-left-drawer-backdrop').click({ position: { x: 370, y: 200 } });
   await expect(page.getByTestId('mobile-left-drawer-root')).toHaveCount(0);
 
   // Channel pick (route change) dismisses the drawer.

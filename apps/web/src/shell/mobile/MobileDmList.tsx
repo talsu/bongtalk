@@ -48,7 +48,7 @@ export function MobileDmList(): JSX.Element {
   };
 
   return (
-    <div data-testid="mobile-dm-list" className="qf-m-screen">
+    <div data-testid="mobile-dm-list" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <div />
         <div className="qf-m-topbar__titleBlock">
@@ -147,7 +147,7 @@ export function MobileDmList(): JSX.Element {
       <MobileTabBar
         active="home"
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
 
@@ -160,7 +160,8 @@ export function MobileDmList(): JSX.Element {
           className="fixed inset-0 z-[var(--z-modal,60)]"
         >
           <div className="qf-m-sheet-backdrop absolute inset-0" onClick={() => setNewOpen(false)} />
-          <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0">
+          {/* H-1(071-M0 C2): 백드롭(z=60) 아래 깔리던 시트를 --z-modal(61)로 올린다. */}
+          <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]">
             <div className="qf-m-sheet__grab" aria-hidden />
             <div className="px-[var(--s-4)] pb-[var(--s-2)]">
               <div className="qf-m-search">

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Navigate, useParams, useNavigate, useLocation } from 'react-router-dom';
+import { Navigate, useParams, useNavigate, useLocation, useSearchParams } from 'react-router-dom';
 import { useMyWorkspaces } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
 import { useNotificationPreferences } from '../features/notifications/useNotificationPreferences';
-import { Icon, ToastViewport } from '../design-system/primitives';
+import { Icon } from '../design-system/primitives';
 import { FeedbackDialog } from '../features/feedback/FeedbackDialog';
 import { MobileChannelList } from './mobile/MobileChannelList';
 import { MobileHome } from './mobile/MobileHome';
@@ -42,16 +42,60 @@ export function MobileShell(): JSX.Element {
 
   const active = useMemo(() => mine?.workspaces.find((w) => w.slug === slug), [mine, slug]);
   const { data: channels } = useChannelList(active?.id);
+  const flatChannels = useMemo(
+    () =>
+      channels
+        ? [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)]
+        : null,
+    [channels],
+  );
   const activeChannel = useMemo(() => {
-    if (!channels || !channelName) return null;
-    const flat = [...channels.uncategorized, ...channels.categories.flatMap((c) => c.channels)];
-    return flat.find((c) => c.name === channelName) ?? null;
-  }, [channels, channelName]);
+    if (!flatChannels || !channelName) return null;
+    return flatChannels.find((c) => c.name === channelName) ?? null;
+  }, [flatChannels, channelName]);
 
   const [leftOpen, setLeftOpen] = useState(false);
   const [rightOpen, setRightOpen] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
+  const [sp] = useSearchParams();
+
+  // FR-IA-WS-01(071-M0 C11) + A-24(C5): 채널 활성 시 lastChannel 을 기억하고,
+  // 채널 없는 /w/:slug 진입은 ①`?ch=<channelId>`(Activity 점프 — 채널 목록 로드 후
+  // 이름으로 해석) → ②저장된 lastChannel → ③최상단 채널 순으로 자동 복원한다.
+  // 종전엔 모든 워크스페이스 전환이 '채널을 선택하세요' 빈 화면에 떨어졌다(P0 미구현).
+  useEffect(() => {
+    if (!active) return;
+    if (activeChannel) {
+      try {
+        localStorage.setItem(`ws:${active.id}:lastChannel`, activeChannel.id);
+      } catch {
+        /* storage 불가 환경은 복원만 포기 */
+      }
+      return;
+    }
+    // 채널명이 있는데 못 찾은 경우(삭제/권한)는 리다이렉트하지 않고 현 상태 유지.
+    if (channelName || !flatChannels || flatChannels.length === 0) return;
+    const chParam = sp.get('ch');
+    let stored: string | null = null;
+    try {
+      stored = localStorage.getItem(`ws:${active.id}:lastChannel`);
+    } catch {
+      stored = null;
+    }
+    const target =
+      (chParam ? flatChannels.find((c) => c.id === chParam) : undefined) ??
+      (stored ? flatChannels.find((c) => c.id === stored) : undefined) ??
+      flatChannels[0];
+    if (!target) return;
+    const qs = new URLSearchParams();
+    const msg = sp.get('msg');
+    const thread = sp.get('thread');
+    if (msg) qs.set('msg', msg);
+    if (thread) qs.set('thread', thread);
+    const qsStr = qs.toString();
+    navigate(`/w/${active.slug}/${target.name}${qsStr ? `?${qsStr}` : ''}`, { replace: true });
+  }, [active, activeChannel, channelName, flatChannels, sp, navigate]);
 
   // Close both drawers on route change — covers hardware back, channel
   // picks that navigate, and tab taps. Matches user intent: the drawer
@@ -63,7 +107,7 @@ export function MobileShell(): JSX.Element {
 
   if (isLoading) {
     return (
-      <div data-testid="mobile-shell-loading" className="qf-m-screen">
+      <div data-testid="mobile-shell-loading" className="qf-m-screen qf-m-screen--app">
         <div className="qf-m-empty">
           <div className="qf-m-empty__body">loading…</div>
         </div>
@@ -83,7 +127,7 @@ export function MobileShell(): JSX.Element {
   }
   if (slug && !active) {
     return (
-      <div data-testid="mobile-shell-ws-not-found" className="qf-m-screen">
+      <div data-testid="mobile-shell-ws-not-found" className="qf-m-screen qf-m-screen--app">
         <header className="qf-m-topbar">
           <div className="qf-m-topbar__titleBlock">
             <div className="qf-m-topbar__title">워크스페이스를 찾을 수 없습니다</div>
@@ -101,7 +145,7 @@ export function MobileShell(): JSX.Element {
   const topbarSubtitle = activeChannel ? active.name : '채널을 선택하세요';
 
   return (
-    <div data-testid="mobile-shell" className="qf-m-screen">
+    <div data-testid="mobile-shell" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <button
           type="button"
@@ -131,7 +175,11 @@ export function MobileShell(): JSX.Element {
         </div>
       </header>
 
-      <main className="qf-m-body">
+      {/* H-2(071-M0 C1): qf-m-body 는 display:flex 가 아니라서 MobileMessages 의
+          리스트(flex-1 min-h-0)가 무효 — 리스트가 내용 높이만큼 자라 컴포저가 화면 밖으로
+          밀리고 하단 앵커/스크롤 페치가 전부 죽었다. flex-col 을 명시해 오버레이/DM 경로와
+          동일한 골격(리스트 내부 스크롤 + 컴포저 고정)을 만든다. */}
+      <main className="qf-m-body flex min-h-0 flex-col">
         {activeChannel ? (
           <MobileMessages
             workspaceId={active.id}
@@ -140,15 +188,17 @@ export function MobileShell(): JSX.Element {
             channelName={activeChannel.name}
           />
         ) : (
-          <div className="qf-m-empty">
+          <div className="qf-m-empty flex-1">
             <div className="qf-m-empty__title">채널을 선택하세요</div>
             <div className="qf-m-empty__body">좌상단 메뉴에서 채널을 고르면 대화가 시작돼요.</div>
           </div>
         )}
       </main>
 
+      {/* C7(071-M0): 홈 탭은 모든 화면에서 '/'(MobileHome) — 종전 /w/:slug 행은 C11 의
+          lastChannel 복원과 결합하면 사실상 무동작 버튼이 된다. */}
       <MobileTabBar
-        onHome={() => navigate(`/w/${active.slug}`)}
+        onHome={() => navigate('/')}
         onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
@@ -182,7 +232,6 @@ export function MobileShell(): JSX.Element {
           게이트가 서버측이라 오버레이가 없으면 메시지가 영구 차단된다(ui INFO · 기능 필수). */}
       <OnboardingHost workspaceId={active.id} slug={active.slug} />
       <FeedbackDialog />
-      <ToastViewport />
     </div>
   );
 }

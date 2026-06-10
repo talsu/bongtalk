@@ -43,11 +43,13 @@ export function MobileDrawer({
         className="qf-m-sheet-backdrop absolute inset-0"
         onClick={onClose}
       />
+      {/* H-1(071-M0 C2): 백드롭(.qf-m-sheet-backdrop, z=--z-modal-bg=60)이 z-auto 형제
+          패널을 덮어 드로어 내부 탭 전부를 가로채던 BLOCKER — 패널을 --z-modal(61)로 올린다. */}
       <aside
         data-testid={testId}
         style={{ width: '86%', maxWidth: '360px', boxShadow: 'var(--elev-3)' }}
         className={cn(
-          'absolute top-0 bottom-0 bg-bg-subtle overflow-y-auto',
+          'absolute top-0 bottom-0 z-[var(--z-modal)] bg-bg-subtle overflow-y-auto',
           side === 'left' ? 'left-0' : 'right-0',
         )}
       >

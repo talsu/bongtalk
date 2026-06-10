@@ -1,3 +1,6 @@
+# 로컬 모바일 감사/검증 스택 — docker-compose.test.yml 의 sed 사본(호스트 5432/6379 충돌
+# 회피용 45432/46379 리매핑). CI 는 원본 test.yml 을 사용한다. 재생성:
+#   sed -e "s/\['5432:5432'\]/['45432:5432']/" -e "s/\['6379:6379'\]/['46379:6379']/" docker-compose.test.yml > docker-compose.e2e-audit.yml (헤더 별도)
 # Test-stack compose for `pnpm test:e2e`. Spins a lightweight copy of
 # the production topology (postgres + redis + api + web) on an isolated
 # network so Playwright can drive it end-to-end. Used by
@@ -11,7 +14,7 @@ services:
       POSTGRES_USER: qufox
       POSTGRES_PASSWORD: qufox
       POSTGRES_DB: qufox_e2e
-    ports: ['5432:5432']
+    ports: ['45432:5432']
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U qufox -d qufox_e2e']
       interval: 5s
@@ -20,7 +23,7 @@ services:
 
   test-redis:
     image: redis:7-alpine
-    ports: ['6379:6379']
+    ports: ['46379:6379']
     healthcheck:
       test: ['CMD', 'redis-cli', 'ping']
       interval: 5s

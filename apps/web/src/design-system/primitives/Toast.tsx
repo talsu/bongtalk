@@ -94,7 +94,10 @@ export function ToastViewport(): JSX.Element {
     <div
       role="region"
       aria-label="알림"
-      className="pointer-events-none fixed bottom-[var(--s-5)] right-[var(--s-5)] z-toast flex flex-col gap-[var(--s-3)]"
+      // 071-M0 리뷰 M4: 모바일(<768px)에서 bottom 20px 앵커는 탭바(z=40) 위에 320px 토스트를
+      // 얹어 TTL 동안 탭 2~3개의 터치를 가로챘다 — 모바일은 탭바+safe-area 위로 띄우고
+      // 좌우 여백 안에 맞춘다. md(768px+)는 종전 우하단 그대로.
+      className="pointer-events-none fixed z-toast flex flex-col gap-[var(--s-3)] bottom-[calc(var(--m-tabbar-h)+env(safe-area-inset-bottom)+var(--s-3))] right-[var(--s-3)] left-[var(--s-3)] md:bottom-[var(--s-5)] md:right-[var(--s-5)] md:left-auto items-end"
     >
       {items.map((t) => {
         const hasAction = typeof t.action?.onClick === 'function';

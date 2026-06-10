@@ -20,6 +20,8 @@ import { TwoFactorService } from './services/two-factor.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { BetaInviteRequiredGuard } from './guards/beta-invite-required.guard';
+// 071-M0 C12: e2e 테스트 스택 전용 이메일 인증 훅 — E2E_TEST_HOOKS=1 일 때만 등록.
+import { E2eTestHooksController } from './e2e-test-hooks.controller';
 import { UsersModule } from '../users/users.module';
 
 @Module({
@@ -36,7 +38,12 @@ import { UsersModule } from '../users/users.module';
       }),
     }),
   ],
-  controllers: [AuthController],
+  // E2E_TEST_HOOKS=1(테스트 compose 한정) 일 때만 훅 컨트롤러를 라우팅에 올린다 —
+  // prod/dev 환경에는 라우트 자체가 존재하지 않는다(컨트롤러 내부 2차 가드 별도).
+  controllers: [
+    AuthController,
+    ...(process.env.E2E_TEST_HOOKS === '1' ? [E2eTestHooksController] : []),
+  ],
   providers: [
     AuthService,
     PasswordService,

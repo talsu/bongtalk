@@ -74,17 +74,33 @@ export function SettingsShell(): JSX.Element {
   // /settings 자체는 redirect 라 닿지 않지만, active 가 null 인 예외 상황에서는 목록을 보여준다.
   if (isMobile) {
     if (active !== null) {
+      const tab = SETTINGS_TABS.find((t) => t.id === active);
       return (
-        <div className="qf-m-screen" data-testid="settings-shell-mobile">
-          {/* 모바일 콘텐츠 라우트: 자식이 전체 화면 + 자체 h1 을 소유(셸 h1/nav 미렌더). */}
-          <div data-testid="settings-mobile-outlet">
+        <div className="qf-m-screen qf-m-screen--app" data-testid="settings-shell-mobile">
+          {/* H-10(071-M0 C7): 콘텐츠 라우트에 back 어포던스가 없어 모바일에서 다른 설정
+              으로 갈 방법이 전무했다 — 목록(/settings)으로 복귀하는 토프바를 단다. */}
+          <header className="qf-m-topbar qf-m-safe-top">
+            <Link
+              to="/settings"
+              className="qf-m-topbar__back"
+              aria-label="설정 목록으로"
+              data-testid="settings-mobile-back"
+            >
+              ←
+            </Link>
+            <div className="qf-m-topbar__titleBlock">
+              <div className="qf-m-topbar__title">{tab?.label ?? '설정'}</div>
+            </div>
+            <div />
+          </header>
+          <div data-testid="settings-mobile-outlet" className="qf-m-body">
             <Outlet />
           </div>
         </div>
       );
     }
     return (
-      <div className="qf-m-screen" data-testid="settings-shell-mobile">
+      <div className="qf-m-screen qf-m-screen--app" data-testid="settings-shell-mobile">
         <header className="qf-m-topbar">
           <Link to="/" className="qf-m-topbar__back" aria-label="홈으로">
             ←

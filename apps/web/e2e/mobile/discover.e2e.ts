@@ -3,7 +3,6 @@ import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_he
 
 const API = 'http://localhost:43001';
 const ORIGIN = 'http://localhost:45173';
-const PW = 'Quanta-Beetle-Nebula-42!';
 
 test.setTimeout(60_000);
 
@@ -20,11 +19,8 @@ test('mobile /discover shows qf-m-segment category tabs + row list for PUBLIC wo
   await bootstrapWorkspace(request, viewerToken, { name: 'MDViewer', slug, channels: ['general'] });
 
   // Seed a PUBLIC workspace owned by another user so the viewer sees it.
-  const owner = await request.post(`${API}/auth/signup`, {
-    headers: { origin: ORIGIN },
-    data: { email: `md-o-${stamp}@qufox.dev`, username: `mdo${stamp}`, password: PW },
-  });
-  const ownerToken = ((await owner.json()) as { accessToken: string }).accessToken;
+  // 071-M0 C12: 미인증 owner 는 S66 게이트에 걸려 시드가 무산된다 — verify 포함 헬퍼 사용.
+  const ownerToken = await signupToken(request, `md-o-${stamp}@qufox.dev`, `mdo${stamp}`);
   const pubSlug = `pub-${stamp.toString(36)}`;
   await request.post(`${API}/workspaces`, {
     headers: { authorization: `Bearer ${ownerToken}`, origin: ORIGIN },

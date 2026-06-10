@@ -45,7 +45,7 @@ export function MobileFriends(): JSX.Element {
   const items = data?.items ?? [];
 
   return (
-    <div data-testid="mobile-friends" className="qf-m-screen">
+    <div data-testid="mobile-friends" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <button
           type="button"
@@ -191,7 +191,7 @@ export function MobileFriends(): JSX.Element {
 
       <MobileTabBar
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
 
@@ -203,7 +203,8 @@ export function MobileFriends(): JSX.Element {
           className="fixed inset-0 z-[var(--z-modal,60)]"
         >
           <div className="qf-m-sheet-backdrop absolute inset-0" onClick={() => setAddOpen(false)} />
-          <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 p-[var(--s-4)]">
+          {/* H-1(071-M0 C2): 백드롭(z=60) 아래 깔리던 시트를 --z-modal(61)로 올린다. */}
+          <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)] p-[var(--s-4)]">
             <div className="qf-m-sheet__grab" aria-hidden />
             <div className="font-semibold mb-[var(--s-2)]">친구 추가</div>
             <input

@@ -53,3 +53,4 @@ apps/api/dist
 *.zip
 *.tar.gz
 qufox-design.zip
+.tour/

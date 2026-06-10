@@ -47,7 +47,7 @@ export function MobileDmChat(): JSX.Element {
   }, [me, userId, friend]);
 
   return (
-    <div data-testid="mobile-dm-chat" className="qf-m-screen">
+    <div data-testid="mobile-dm-chat" className="qf-m-screen qf-m-screen--app">
       <header className="qf-m-topbar qf-m-safe-top">
         <button
           type="button"
@@ -83,7 +83,7 @@ export function MobileDmChat(): JSX.Element {
       <MobileTabBar
         active="home"
         onHome={() => navigate('/')}
-        onSettings={() => navigate('/settings/notifications')}
+        onSettings={() => navigate('/settings')}
         onActivity={() => navigate('/activity')}
       />
     </div>

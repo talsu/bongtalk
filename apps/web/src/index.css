@@ -152,3 +152,14 @@ html[data-high-contrast='true'] {
 .qf-message:focus-visible {
   scroll-margin: var(--s-1);
 }
+
+/* 071-M0 리뷰 M2: DS .qf-m-screen--app 의 height:100dvh 는 AppLayout flex 컬럼의
+ * 형제(ConnectionBanner)가 표시될 때 가용 높이보다 커져 탭바가 뷰포트 밖으로 잘린다.
+ * 키보드 수축은 useKeyboardDodge(--m-kb-inset)가 담당하므로 앱에서는 컨테이너 추종
+ * (height:100%)으로 되돌린다 — safe-area padding-top 등 --app 의 나머지는 그대로.
+ * DS 4파일 무수정 · app-layer 오버라이드. */
+@supports (height: 100dvh) {
+  .qf-m-screen--app {
+    height: 100%;
+  }
+}

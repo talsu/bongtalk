@@ -1,9 +1,17 @@
 import { lazy, Suspense, type ReactNode } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Navigate,
+  Route,
+  Routes,
+  useLocation,
+  useParams,
+  useSearchParams,
+} from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './features/auth/AuthProvider';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
-import { TooltipProvider } from './design-system/primitives';
+import { ToastViewport, TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
 import { ConnectionBanner } from './features/connection/ConnectionBanner';
 // S76 (D14 / FR-PS-09·18 · Fork C1): Ctrl+, 설정 단축키 + 로그인 후 외관 서버값 보정.
@@ -296,8 +304,23 @@ function ProtectedFriendsRoute(): JSX.Element {
 
 function ProtectedDmShellRoute(): JSX.Element {
   const { status } = useAuth();
+  const params = useParams<{ userId?: string }>();
+  const [dmSearch] = useSearchParams();
   if (status === 'loading') return <LoadingFallback />;
   if (status === 'anonymous') return <Navigate to="/login" replace />;
+  // H-4(071-M0 C8): 종전엔 모바일 390px 에서도 데스크톱 3컬럼 DmShell 이 그대로 렌더돼
+  // 우측 빈 패널이 한 글자씩 세로로 깨졌다. 모바일은 전용 표면으로 분기한다:
+  //  - /dm?new=<userId> (홈 친구 행 진입) → /dms/:userId (MobileDmChat 이 createOrGet)
+  //  - /dm/:userId → /dms/:userId, /dm → /dms (MobileDmList)
+  // matchMedia 1회 평가는 이웃 라우트 가드들과 동일 패턴(반응형 일원화는 M2 범위).
+  const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 767px)').matches;
+  if (isMobile) {
+    const newUserId = dmSearch.get('new');
+    if (newUserId) return <Navigate to={`/dms/${encodeURIComponent(newUserId)}`} replace />;
+    if (params.userId)
+      return <Navigate to={`/dms/${encodeURIComponent(params.userId)}`} replace />;
+    return <Navigate to="/dms" replace />;
+  }
   return (
     <Suspense fallback={<LoadingFallback />}>
       <DmShell />
@@ -437,6 +460,10 @@ function AppLayout({ children }: { children: React.ReactNode }): JSX.Element {
       <AppRealtimeHost />
       <SettingsHost />
       <div style={{ flex: 1, minHeight: 0, position: 'relative' }}>{children}</div>
+      {/* A-18(071-M0 C6): 종전엔 4개 셸(Shell/DmShell/DiscoverShell/MobileShell)에만
+          ToastViewport 가 있어 홈·DM 채팅·활동·친구·찾기·설정 등 모바일 화면 대부분에서
+          모든 토스트가 무음이었다 — App 레벨 단일 마운트로 승격(셸 측 마운트는 제거). */}
+      <ToastViewport />
     </div>
   );
 }
@@ -462,14 +489,14 @@ export default function App(): JSX.Element {
                         <Route path="/reset-password" element={<ResetPasswordPage />} />
                         <Route path="/invite/:code" element={<InviteAcceptPage />} />
                         <Route path="/w/new" element={<CreateWorkspacePage />} />
-                        {/* S76 (FR-PS-18 · Fork A1): /settings → 외관 리다이렉트(자동저장 첫 탭). */}
-                        <Route
-                          path="/settings"
-                          element={<Navigate to="/settings/appearance" replace />}
-                        />
                         {/* S76 (FR-PS-18 · Fork A1): Layout Route — SettingsShell + <Outlet/>.
-                            각 탭은 자식 라우트로 중첩되어 콘텐츠 영역에 렌더된다(딥링크 유지). */}
+                            각 탭은 자식 라우트로 중첩되어 콘텐츠 영역에 렌더된다(딥링크 유지).
+                            H-10(071-M0 C7): 종전의 독립 /settings → appearance 리다이렉트가
+                            모바일 드릴다운 목록(active===null 분기)을 영원히 가렸다 — index
+                            라우트로 옮겨 데스크톱만 리다이렉트한다(모바일 셸은 active===null
+                            에서 Outlet 을 렌더하지 않으므로 목록이 노출된다). */}
                         <Route path="/settings" element={<ProtectedSettingsShellRoute />}>
+                          <Route index element={<Navigate to="/settings/appearance" replace />} />
                           {/* S77b (D14 / FR-PS-15·20): 내 계정(자격증명 변경 · 2FA · 세션). */}
                           <Route path="account" element={<AccountSettingsPage />} />
                           {/* S76 (D14 / FR-PS-09): 외관(신규 · 자동 저장). */}
