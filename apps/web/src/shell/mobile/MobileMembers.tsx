@@ -7,6 +7,14 @@ import { useMemberGroups } from '../../features/workspaces/useWorkspaces';
 // H-6(071-M0 C9): presence:subscribe 는 행이 뷰포트에 들어올 때 발행된다(S27 모델).
 // 모바일 드로어는 register 배선이 없어 구독이 0건 → 전원(본인 포함) 오프라인으로 보였다.
 import { useViewportPresence } from '../../features/realtime/useViewportPresence';
+// F11 회귀 수리: 서버 그룹 버킷은 fetch 시점 스냅샷 — 데스크톱 MemberColumn 정본대로
+// presence:update 라이브 푸시(useUserPresence)를 우선 적용해야 idle 전이가 보인다.
+import { useUserPresence } from '../../features/realtime/useUserPresence';
+// F11 회귀 수리 2: per-user 푸시는 presence:subscribe **이후의 전이**만 흐른다 —
+// 패널이 닫혀 있는 동안(IO 비교차 → 구독 0건) 일어난 전이는 영영 안 온다. 종전
+// 모바일이 쓰던 워크스페이스 broadcast 스냅샷(presence.updated — 구독 불요, 셸
+// 루트 디스패처가 캐시에 기록)을 중간 폴백으로 복원한다.
+import { usePresence } from '../../features/realtime/usePresence';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 // S75 (FR-PS-07): 모바일 멤버 행 탭 → 프로필 팝오버(터치 단일 진입점).
@@ -40,6 +48,18 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
   // MemberColumn 과 동일 소스를 쓴다.
   const { data } = useMemberGroups(workspaceId);
   const { register } = useViewportPresence(workspaceId);
+  // 상태 우선순위: per-user 푸시(행) > 워크스페이스 broadcast 스냅샷 > REST 그룹 버킷.
+  // broadcast 는 전이마다 전체 목록을 다시 싣는다 — 캐시가 한 번이라도 쓰였다면
+  // (뷰어 자신이 접속해 있으므로 합집합이 비지 않음) 부재 = 오프라인이 정확하다.
+  const { onlineUserIds, dndUserIds, idleUserIds } = usePresence(workspaceId);
+  const hasBroadcast = onlineUserIds.size + dndUserIds.size + idleUserIds.size > 0;
+  const broadcastStatus = (userId: string): 'online' | 'idle' | 'dnd' | 'offline' | undefined => {
+    if (!hasBroadcast) return undefined;
+    if (dndUserIds.has(userId)) return 'dnd';
+    if (idleUserIds.has(userId)) return 'idle';
+    if (onlineUserIds.has(userId)) return 'online';
+    return 'offline';
+  };
 
   const hoist = data?.hoist ?? [];
   const groups = data?.groups ?? [];
@@ -77,7 +97,7 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
               <MobileMemberRow
                 key={m.userId}
                 member={m}
-                status="online"
+                status={broadcastStatus(m.userId) ?? 'online'}
                 workspaceId={workspaceId}
                 register={register}
               />
@@ -98,7 +118,7 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
               <MobileMemberRow
                 key={m.userId}
                 member={m}
-                status={STATUS_BY_GROUP[g.key] ?? 'offline'}
+                status={broadcastStatus(m.userId) ?? STATUS_BY_GROUP[g.key] ?? 'offline'}
                 workspaceId={workspaceId}
                 register={register}
               />
@@ -117,17 +137,22 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
  */
 function MobileMemberRow({
   member,
-  status,
+  status: groupStatus,
   workspaceId,
   register,
 }: {
   member: MemberWithPresence;
+  /** 서버 그룹 버킷(fetch 시점) — 라이브 푸시 미도착 시 폴백. */
   status: 'online' | 'idle' | 'dnd' | 'offline';
   workspaceId: string;
   register: (userId: string) => (el: Element | null) => void;
 }): JSX.Element {
   const displayName = resolveMemberDisplayName(member.user);
   const avatarUrl = resolveMemberAvatarUrl(member.user);
+  // S27 (FR-P15/P16): 라이브 per-user 푸시 > REST 그룹 버킷 — 상태 플립이 리페치
+  // 없이 닷을 재채색한다(MemberColumn 정본). 푸시 미도착이면 그룹 버킷 폴백.
+  const live = useUserPresence(member.userId);
+  const status = (live ?? groupStatus) as typeof groupStatus;
   return (
     // S75 (FR-PS-07): 모바일 멤버 행 탭 → 프로필 팝오버(터치 단일 진입점).
     // F3 (a11y B-3): 모바일 멤버 행은 블록 `.qf-m-row` div 라 트리거 host 도 div.
