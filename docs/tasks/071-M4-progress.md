@@ -37,7 +37,7 @@
 | G5   | 경계/AC/과명세/프리셋/긴장 해소 + 멘션 정규식 표기(작업 5)        | done | b16d319 |
 | G6   | fr-matrix 재감사·재분류(작업 6) + 동반 코드 보강 4건              | done | aba9141 |
 | G7   | 게이트: e2e 스위트+/prd/ 프로브+verify+적대 리뷰 fix-forward      | done | 63477bf |
-| G8   | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT        | todo |         |
+| G8   | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT        | done | f49e6fe |
 
 ## 세션 진행 노트 (M4)
 
@@ -63,5 +63,9 @@
   ⑨FR-KS-01 동등 경로 = 채널 목록 필터+DM 슬롯으로 정정 ⑩FR-S01/S02 후속
   한정+partial ⑪Cmd+K→퀵스위처 전용(검색은 Cmd+G) 3곳 통일 ⑫Mock C 배지를
   채팅 탭으로 이동(카노니컬 표 정합). fr-matrix partial 계 11.
+- G8 완료 — develop 7319c10(ls-remote 실측) → main f49e6fe → 수동 배포 exit 0
+  (health-wait 200 2회·api/web smoke OK) → /api/readyz ok(db/redis/outbox) →
+  prod /prd/ 200 + 개정본 라이브(FR-IA-MOB-07·탭바 매칭 확인). M4 종결 —
+  다음 M5(DS 채택 마무리+폴리시).
 - 서브에이전트 브리프 필수 문구: "읽기 전용 — git checkout/branch 전환 금지" +
   "머지/배포/prod 접근 금지".
