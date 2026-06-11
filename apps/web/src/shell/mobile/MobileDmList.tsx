@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 import { useSheetFocusTrap } from './useSheetFocusTrap';
-import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetHistoryMarker, transitionSheetMarker } from './useSheetHistoryMarker';
 import { useSheetDragDismiss } from './useSheetDragDismiss';
 import { useDmList, useCreateOrGetDm } from '../../features/dms/useDms';
 import { useMutedChannelIds } from '../../features/channels/useMutes';
@@ -47,8 +47,12 @@ export function MobileDmList(): JSX.Element {
 
   const startDm = async (otherUserId: string): Promise<void> => {
     const res = await createDm.mutateAsync({ userId: otherUserId });
-    setNewOpen(false);
-    navigate(`/dms/${otherUserId}?c=${res.channelId}`);
+    // M5 리뷰 M-7: navigate 동기 push 가 시트 마커 소거를 스킵시켜 qfSheet 고아
+    // 엔트리(새 DM 마다 죽은 back 1회)가 누적 — 마커 소화 후 이동.
+    transitionSheetMarker(
+      () => setNewOpen(false),
+      () => navigate(`/dms/${otherUserId}?c=${res.channelId}`),
+    );
   };
 
   return (

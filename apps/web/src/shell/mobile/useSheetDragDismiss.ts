@@ -86,14 +86,18 @@ export function useSheetDragDismiss(
         p.style.transform = dy > 0 ? `translateY(${dy}px)` : '';
       };
 
-      const onTouchEnd = (): void => {
+      const onTouchEnd = (e: TouchEvent): void => {
         if (!dragging) return;
         dragging = false;
         const p = panelRef.current;
         if (!p) return;
         const dy = Math.max(0, lastY - startY);
         const dt = Math.max(1, lastT - prevT);
-        const velocity = (lastY - prevY) / dt;
+        // M5 리뷰 M-6 (MobilePanels M2 L-2 동형): 손가락 정지 중엔 touchmove 가
+        // 안 와 속도 샘플이 과거 빠른 구간 값으로 동결된다 — 마지막 move 후
+        // 100ms 이상 지났으면 fling 무효(끌다 멈춘 채 떼면 스냅백이 정답).
+        const stale = e.timeStamp - lastT > 100;
+        const velocity = stale ? 0 : (lastY - prevY) / dt;
         const fling = velocity >= FLING_VELOCITY_PX_PER_MS && dy >= FLING_MIN_DY_PX;
         if (dy >= DISMISS_THRESHOLD_PX || fling) {
           // 커밋 — 기존 onClose 경로(back 마커 소거 포함)로만 닫는다. 시트는

@@ -60,6 +60,9 @@ export function useSheetFocusTrap(
       panel.focus();
     }
     const onKey = (e: KeyboardEvent): void => {
+      // M5 리뷰 M-5 (task-021-R2 IME 정본): 한글 IME 조합 중 Esc(조합 취소)가
+      // 시트 전체를 닫아 draft 를 날리지 않게 — 데스크톱 인라인 편집과 동일 가드.
+      if (e.isComposing || e.keyCode === 229) return;
       if (e.key === 'Escape') {
         onCloseRef.current();
         return;

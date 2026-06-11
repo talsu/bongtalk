@@ -34,6 +34,9 @@ export function FriendsPage(): JSX.Element {
     friendshipId: string;
     username: string;
   } | null>(null);
+  /** M5 리뷰 M-10: 차단도 confirm — 삭제보다 파괴적(친구 해제+상호 메시지 차단)인데
+      즉발이던 비대칭 해소(모바일 MobileConfirmSheet 와 정합). */
+  const [blockTarget, setBlockTarget] = useState<{ userId: string; username: string } | null>(null);
 
   const onRequest = async (): Promise<void> => {
     setErr(null);
@@ -103,7 +106,9 @@ export function FriendsPage(): JSX.Element {
                 // 071-M5 H5: 즉발 mutate 제거 — confirm 다이얼로그에서만 확정.
                 setRemoveTarget({ friendshipId: row.friendshipId, username: row.otherUsername })
               }
-              onBlock={() => block.mutate({ userId: row.otherUserId })}
+              onBlock={() =>
+                setBlockTarget({ userId: row.otherUserId, username: row.otherUsername })
+              }
               onUnblock={() => unblock.mutate({ userId: row.otherUserId })}
             />
           ))
@@ -178,6 +183,38 @@ export function FriendsPage(): JSX.Element {
             }}
           >
             삭제
+          </Button>
+        </div>
+      </Dialog>
+      {/* M5 리뷰 M-10: 차단 confirm — 삭제 confirm 과 동일 패턴. */}
+      <Dialog
+        open={blockTarget !== null}
+        onOpenChange={(v) => {
+          if (!v) setBlockTarget(null);
+        }}
+        alertDialog
+        title="이 사용자를 차단할까요?"
+        description={`${blockTarget?.username ?? ''}님과의 친구 관계가 해제되고 서로 메시지를 보낼 수 없게 됩니다. 차단 탭에서 해제할 수 있습니다.`}
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="friend-block-cancel"
+            onClick={() => setBlockTarget(null)}
+          >
+            취소
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid="friend-block-confirm"
+            onClick={() => {
+              if (blockTarget) block.mutate({ userId: blockTarget.userId });
+              setBlockTarget(null);
+            }}
+          >
+            차단
           </Button>
         </div>
       </Dialog>

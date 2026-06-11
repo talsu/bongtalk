@@ -1,4 +1,4 @@
-import { useRef } from 'react';
+import { useEffect, useRef } from 'react';
 import { Icon } from '../../design-system/primitives';
 import { useSheetFocusTrap } from './useSheetFocusTrap';
 import { useSheetHistoryMarker } from './useSheetHistoryMarker';
@@ -42,6 +42,13 @@ export function MobileConfirmSheet({
   useSheetHistoryMarker(true, onClose);
   // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 임계 통과 시 기존 onClose 경로만 재사용.
   const grabRef = useSheetDragDismiss(panelRef, onClose);
+  // M5 리뷰 M-11: 등장 모션(220ms) 중에는 파괴 확정 입력을 무시한다 — 트리거
+  // 버튼과 같은 화면 띠로 시트가 올라와 더블탭/손가락 바운스가 submit 에
+  // 착지하는 무확인 확정 사고 봉인(armed 시간은 모션+여유).
+  const armedAtRef = useRef(0);
+  useEffect(() => {
+    armedAtRef.current = Date.now() + 300;
+  }, []);
   const titleId = `${testId}-title`;
   const bodyId = `${testId}-body`;
   return (
@@ -73,7 +80,10 @@ export function MobileConfirmSheet({
           type="button"
           data-testid={`${testId}-submit`}
           className="qf-m-sheet__item qf-m-sheet__item--danger"
-          onClick={onConfirm}
+          onClick={() => {
+            if (Date.now() < armedAtRef.current) return;
+            onConfirm();
+          }}
         >
           <span className="qf-m-sheet__icon">
             <Icon name={confirmIcon} size="sm" />

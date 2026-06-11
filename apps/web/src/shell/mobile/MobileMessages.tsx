@@ -1215,9 +1215,14 @@ function MobileMessageRow({
       const v = Math.min(dx, 120);
       swipeOffsetRef.current = v;
       setSwipeOffset(v);
+    } else if (Math.abs(dy) >= 30) {
+      // M5 리뷰 M-12: 수직 전환 시 동결된 offset 으로 touchend 가 답장을 오발
+      // 커밋하지 않게 리셋(iOS 는 스크롤 중에도 move/end 가 계속 온다).
+      swipeOffsetRef.current = 0;
+      setSwipeOffset(0);
     }
   };
-  const onTouchEnd = (): void => {
+  const onTouchEnd = (e: TouchEvent): void => {
     if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
     pressTimer.current = null;
     if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
@@ -1228,8 +1233,14 @@ function MobileMessageRow({
       // 071-M5 H20 (정찰 ds-dormant ④): 더블탭 quick-react — 300ms 내 동일 행
       // 2탭(이동 <8px). 1탭째는 시각만 기록한다. touchStart null(엣지 양보)은
       // 탭으로 세지 않는다.
+      // M5 리뷰 M-8: 행 내부 인터랙티브 자식(반응 칩/버튼/링크)에서 버블된
+      // 탭은 더블탭으로 세지 않는다 — 칩 2연타(토글 취소)가 의도치 않은 공개
+      // 👍 전송으로 번지는 경로 봉인.
+      const onChild = (e.target as Element | null)?.closest?.('button, a, [role="button"]');
       const now = Date.now();
-      if (onQuickReact && now - lastTapAtRef.current <= DOUBLE_TAP_MS) {
+      if (onChild) {
+        lastTapAtRef.current = 0;
+      } else if (onQuickReact && now - lastTapAtRef.current <= DOUBLE_TAP_MS) {
         lastTapAtRef.current = 0;
         onQuickReact();
       } else {
