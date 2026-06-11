@@ -104,11 +104,13 @@ test('axe sweep — chat screen + tabbar / left panel / long-press sheet', async
   await expect(page.getByTestId('mobile-server-header')).toBeVisible();
   await scanSurface(page, 'left-panel');
 
-  // 스크림 탭으로 패널 정리(panels.e2e.ts 관행) 후 시트 단계로.
-  await page.getByTestId('mobile-panel-scrim').click({ position: { x: 300, y: 400 }, force: true });
+  // 패널 정리 — show-left 에선 스크림 가시 영역이 화면 x 240~375(center +240
+  // 이동)라 좌표 클릭이 취약하다. 검증된 hardware back 경로(panels.e2e.ts —
+  // 패널 마커가 패널만 닫음)로 닫는다.
+  await page.goBack();
   await expect(page.getByTestId('mobile-panels')).toHaveAttribute('data-open', 'center');
-  // M6 T5: 패널 마커 소거 back() 트래버설 정착 대기 — 시트 마커 pop 레이스
-  // 봉인(앱 측 onPop qfPanel 가드와 이중 방어).
+  // M6 T5: popstate 정착 대기 — 시트 마커 pop 레이스 봉인(앱 측 onPop qfPanel
+  // 가드와 이중 방어).
   await page.waitForTimeout(250);
 
   // (c) 메시지 롱프레스 시트 — 확정 행(tmp- 제외)만 잡아 dispatch 증발 방지
