@@ -490,8 +490,22 @@
   <div class="subtle">17개 도메인(D01~D17)을 하나의 화면 골격으로 통합한 IA 입니다. 데스크톱은 좌→우로 좁아지는 4컬럼(서버 레일 · 채널 리스트 · 메시지 캔버스 · 멤버 리스트)을 기본으로 하고, 모바일은 단일 컬럼 위에 OverlappingPanels(좌/중앙/우 3패널) 드로어와 하단 탭바를 얹어 같은 정보를 재배치합니다. 모든 색·간격은 DS 토큰을 경유합니다(다크 퍼스트).</div>
 
   <div class="callout">
-    <b>한 줄 요약 —</b> 워크스페이스(서버) → 카테고리 → 채널/DM → 메시지/스레드 의 4단계 위계가 데스크톱에서는 인접 컬럼으로, 모바일에서는 스와이프 가능한 겹침 패널 + 탭바로 표현됩니다. 검색·인박스·스레드·저장함 같은 횡단(cross-cutting) 뷰는 채널 리스트 상단의 고정 항목 또는 탭바 슬롯으로 진입합니다.
+    <b>한 줄 요약 —</b> 워크스페이스(서버) → 카테고리 → 채널/DM → 메시지/스레드 의 4단계 위계가 데스크톱에서는 인접 컬럼으로, 모바일에서는 스와이프 가능한 겹침 패널 + 탭바로 표현됩니다. 검색·인박스·스레드·저장함 같은 횡단(cross-cutting) 뷰는 채널 리스트 상단의 고정 항목 또는 탭바 슬롯으로 진입합니다(모바일 정위치는 아래 매핑 표가 단일 출처).
   </div>
+
+  <!-- ───────────────── 횡단 뷰 · 모바일 매핑 (단일 출처) ───────────────── -->
+  <table class="spec" style="margin:var(--s-4) 0 var(--s-3);">
+    <thead>
+      <tr><th>횡단 뷰</th><th>데스크톱 진입</th><th>모바일 진입</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="id">검색</td><td>채널 리스트 상단 고정 항목 · Cmd+K(D07·D15)</td><td>탭바 '검색' 탭</td></tr>
+      <tr><td class="id">인박스</td><td>채널 리스트 상단 고정 항목 → Activity Inbox 패널(D06)</td><td>탭바 '인박스' 탭</td></tr>
+      <tr><td class="id">스레드</td><td>채널 리스트 상단 고정 항목 → 스레드 인박스(D04)</td><td>탭바 '스레드' 탭</td></tr>
+      <tr><td class="id">저장함</td><td>채널 리스트 상단 고정 항목 '저장됨'(D10)</td><td>'나' 탭 → '저장됨' 행(<code>/saved</code> 라우트) — 탭바 직속 탭이 아님</td></tr>
+    </tbody>
+  </table>
+  <div class="subtle" style="margin-bottom:var(--s-5);">하단 탭바 구성 자체는 아래 '모바일 탭바 카노니컬 정의' 표를 따릅니다 — 저장함은 5탭에 포함되지 않습니다.</div>
 
   <!-- ───────────────── 데스크톱 4컬럼 ───────────────── -->
   <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">데스크톱 · 4컬럼 셸</h3>
@@ -707,7 +721,7 @@
   </div>
 
   <p style="font-size:var(--fs-14); color:var(--text-secondary); line-height:var(--lh-normal); margin-bottom:var(--s-7);">
-    <b style="color:var(--text-strong);">데스크톱 내비 모델 —</b> 좌측 <b>.qf-serverlist</b> 가 워크스페이스(서버) 전환의 최상위 축이며, 선택된 서버는 accent 사각형 + 좌측 인디케이터로, 미읽/멘션은 서버 아이콘 모서리 <b>.qf-server-btn__unread</b> 뱃지로 누적 표시합니다(D06·D09·D17). 둘째 컬럼 <b>.qf-channellist</b> 는 그 서버 안의 카테고리·채널·DM 위계를 담되, 검색·인박스·스레드·저장됨 같은 횡단 뷰(D07·D06·D04·D10)를 본문 최상단 고정 항목으로 끌어올립니다. 채널 행은 미읽이면 <b>.qf-channel--unread</b>(볼드 + 좌측 pill), @멘션이면 <b>.qf-badge--count</b>, 뮤트면 italic + bell-off 로 상태를 이중 인코딩합니다(D02·D09). 가운데 캔버스는 <b>.qf-topbar</b> + 메시지 스트림 + <b>.qf-composer</b> 로 고정되고, 스레드·핀·검색은 우측 패널을 토글해 같은 캔버스 폭을 공유합니다(D04·D10·D07). 가장 우측 <b>.qf-memberlist</b> 는 hoist 역할 그룹 → 온라인 → 오프라인 순으로 프레즌스를 그룹핑합니다(D08·D12). 768px 이하에서는 멤버 리스트가 숨겨지고 모바일 셸로 전환됩니다.
+    <b style="color:var(--text-strong);">데스크톱 내비 모델 —</b> 좌측 <b>.qf-serverlist</b> 가 워크스페이스(서버) 전환의 최상위 축이며, 선택된 서버는 accent 사각형 + 좌측 인디케이터로, 미읽/멘션은 서버 아이콘 모서리 <b>.qf-server-btn__unread</b> 뱃지로 누적 표시합니다(D06·D09·D17). 둘째 컬럼 <b>.qf-channellist</b> 는 그 서버 안의 카테고리·채널·DM 위계를 담되, 검색·인박스·스레드·저장됨 같은 횡단 뷰(D07·D06·D04·D10)를 본문 최상단 고정 항목으로 끌어올립니다. 채널 행은 미읽이면 <b>.qf-channel--unread</b>(볼드 + 좌측 pill), @멘션이면 <b>.qf-badge--count</b>, 뮤트면 italic + bell-off 로 상태를 이중 인코딩합니다(D02·D09). 가운데 캔버스는 <b>.qf-topbar</b> + 메시지 스트림 + <b>.qf-composer</b> 로 고정되고, 스레드·핀·검색은 우측 패널을 토글해 같은 캔버스 폭을 공유합니다(D04·D10·D07). 가장 우측 <b>.qf-memberlist</b> 는 hoist 역할 그룹 → 온라인 → 오프라인 순으로 프레즌스를 그룹핑합니다(D08·D12). 767px 이하(&lt;768px)에서는 멤버 리스트가 숨겨지고 모바일 셸로 전환됩니다(구현 기준: matchMedia '(max-width: 767px)' — apps/web/src/lib/useBreakpoint.ts).
   </p>
 
   <!-- ───────────────── 워크스페이스 전환 동작 규칙 ───────────────── -->
@@ -719,7 +733,7 @@
       <b>FR-IA-WS-01</b> — <span class="prio prio--p0">P0</span> <b>마지막 활성 채널 기억</b>: 워크스페이스별로 마지막으로 활성화된 채널 ID를 <code>localStorage</code>의 <code>ws:{workspaceId}:lastChannel</code> 키에 저장하고, 동일 워크스페이스로 재진입할 때 해당 채널을 복원한다. 저장된 채널이 없거나 접근 권한이 없으면 서버의 기본 채널(최상단 공개 채널)로 폴백한다.
     </li>
     <li>
-      <b>FR-IA-WS-02</b> — <span class="prio prio--p1">P1</span> <b>스크롤 포지션 초기화</b>: 워크스페이스를 전환하거나 채널을 전환할 때 메시지 캔버스 스크롤 포지션을 <b>최하단(최신 메시지)</b>으로 초기화한다. 이전 채널의 스크롤 위치를 유지하거나 복원하지 않는다.
+      <b>FR-IA-WS-02</b> — <span class="prio prio--p1">P1</span> <b>스크롤 포지션 초기화</b>: 워크스페이스/채널 전환 시 이전 채널의 스크롤 위치를 유지·복원하지 않는다. 진입 앵커는 D09 읽음 모델을 따른다: 미읽이 있으면 <b>첫 미읽(NEW MESSAGES 구분선) 위치를 우선 앵커</b>하고(AUTO_FROM_POSITION 기본 — FR-RS-06·D09 진입 모드 표 참조), 미읽이 없거나 읽기 모드가 *_FROM_LATEST면 최하단(최신 메시지)으로 초기화한다.
     </li>
     <li>
       <b>FR-IA-WS-03</b> — <span class="prio prio--p1">P1</span> <b>전환 중 draft 처리</b>: 워크스페이스 전환 시 현재 컴포저의 미전송 draft를 <code>localStorage</code>의 <code>draft:{channelId}</code> 키에 자동 저장한다(FR-IA-STATE-05a 연계). 전환 후 다른 채널로 돌아올 때 해당 draft를 컴포저에 복원한다. draft 저장 실패 시 사용자에게 경고하지 않고 조용히 폐기한다(불필요한 인터럽트 방지).
@@ -729,7 +743,7 @@
     <li>워크스페이스 A → B → A 재진입 시 A에서 마지막으로 열었던 채널이 자동으로 활성화된다.</li>
     <li><code>localStorage['ws:{workspaceId}:lastChannel']</code> 키가 채널 전환마다 갱신된다.</li>
     <li>저장된 채널이 삭제·접근 불가인 경우 기본 채널로 폴백하고 콘솔 에러가 발생하지 않는다.</li>
-    <li>채널 전환 시 메시지 캔버스가 최하단으로 스크롤된다(scrollTop = scrollHeight).</li>
+    <li>미읽 없는 채널로 전환 시 최하단(scrollTop = scrollHeight)으로, 미읽 있는 채널로 전환 시(AUTO_FROM_POSITION) NEW MESSAGES 구분선 위치로 스크롤된다.</li>
     <li>워크스페이스 전환 전 컴포저에 텍스트 입력 후 전환 → 복귀 시 동일 텍스트가 컴포저에 복원된다.</li>
     <li>draft 복원은 채널 뷰 마운트 시점에 즉시 반영된다(빈 컴포저가 먼저 보이지 않는다).</li>
   </ul>
@@ -904,8 +918,40 @@
   </div>
 
   <p style="font-size:var(--fs-14); color:var(--text-secondary); line-height:var(--lh-normal); margin-top:var(--s-5);">
-    <b style="color:var(--text-strong);">모바일 내비 모델 —</b> 데스크톱의 4컬럼은 모바일에서 <b>.qf-m-panels</b> 의 세 겹침 패널로 접힙니다. 기본은 <b>.qf-m-panel-center</b>(채널 뷰)만 보이고, 좌측 가장자리 스와이프로 <b>--show-left</b>(서버 헤더 + 채널 리스트)를, 멤버 버튼/우측 스와이프로 <b>--show-right</b>(멤버 리스트)를 끌어옵니다. 드로어가 열리면 center 위에 <b>.qf-m-drawer-scrim</b> 딤이 깔리고 탭하면 닫힙니다(D17의 fling/snap 제스처와 동일). 화면 하단 <b>.qf-m-tabbar</b> 는 앱 크롬으로 셸 레벨에 고정되어 채팅·인박스·스레드·검색·나 5개 1차 동선을 항상 노출합니다. 일반 미읽은 violet <b>.qf-m-tab__badge</b>, @멘션은 danger <b>--mention</b>, 약한 신호는 <b>.qf-m-tab__dot</b> 로 의미를 분리합니다(D06·D09). 채널 진입 시 <b>.qf-m-composer</b> 가 탭바 위에 붙고 키보드 인셋을 따라 떠오르며, 새 메시지 경계는 <b>.qf-m-unread-divider</b>, 하단 점프는 <b>.qf-m-jump-btn</b> 으로 안내합니다.
+    <b style="color:var(--text-strong);">모바일 내비 모델 —</b> 데스크톱의 4컬럼은 모바일에서 <b>.qf-m-panels</b> 의 세 겹침 패널로 접힙니다. 기본은 <b>.qf-m-panel-center</b>(채널 뷰)만 보이고, 좌측 가장자리 스와이프로 <b>--show-left</b>(서버 헤더 + 채널 리스트)를, 멤버 버튼/우측 스와이프로 <b>--show-right</b>(멤버 리스트)를 끌어옵니다. 드로어가 열리면 center 위에 <b>.qf-m-drawer-scrim</b> 딤이 깔리고 탭하면 닫힙니다(D17의 fling/snap 제스처와 동일). 화면 하단 <b>.qf-m-tabbar</b> 는 앱 크롬으로 셸 레벨에 고정되어 채팅·인박스·스레드·검색·나 5개 1차 동선을 항상 노출합니다. 일반 미읽은 violet <b>.qf-m-tab__badge</b>, @멘션은 danger <b>--mention</b>, 약한 신호는 <b>.qf-m-tab__dot</b> 로 의미를 분리합니다(D06·D09). 채널 진입 시 <b>.qf-m-composer</b> 가 탭바 위에 붙고 키보드 인셋을 따라 떠오르며, 새 메시지 경계는 <b>.qf-m-unread-divider</b>, 하단 점프는 <b>.qf-m-jump-btn</b> 으로 안내합니다. 워크스페이스 설정은 <code>/w/:slug/settings</code> 예약 세그먼트로 라우팅합니다(채널명 'settings'와 비충돌 — 라우터가 예약 세그먼트를 우선 해석). 모바일 진입은 서버 메뉴 시트(FR-IA-MOB-08) → '워크스페이스 설정'이며 신고 큐·감사 로그 탭을 포함합니다. 모바일 AC의 기준 뷰포트는 <b>390×844</b>(iPhone 14급, Playwright 모바일 에뮬레이션)를 카노니컬로 사용하며, 본 문서의 목업 프레임 치수(.phone 360×720, 인라인 320×520~580 등)는 시각 참고용일 뿐 검증 기준이 아닙니다.
   </p>
+
+  <!-- ───────────────── 모바일 탭바 카노니컬 정의 (단일 출처) ───────────────── -->
+  <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">모바일 탭바 카노니컬 정의 (단일 출처)</h3>
+  <table class="spec" style="margin-bottom:var(--s-3);">
+    <thead>
+      <tr><th>라벨</th><th>아이콘</th><th>배지 규칙</th><th>담당 화면</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="id">채팅</td><td><code>#qf-i-message</code></td><td>일반 미읽 violet <code>.qf-m-tab__badge</code> · @멘션 danger <code>--mention</code></td><td>채널 뷰 + 좌(서버 헤더·채널 리스트)/우(멤버) 패널 — DM 포함(별도 'DM' 탭 없음)</td></tr>
+      <tr><td class="id">인박스</td><td><code>#qf-i-inbox</code></td><td>@멘션 danger <code>--mention</code> 카운트</td><td>Activity Inbox 풀스크린 — 미읽 모아보기 포함(별도 '미읽'·'알림' 탭 없음)</td></tr>
+      <tr><td class="id">스레드</td><td><code>#qf-i-thread</code></td><td>약한 신호 <code>.qf-m-tab__dot</code></td><td>스레드 인박스 풀스크린</td></tr>
+      <tr><td class="id">검색</td><td><code>#qf-i-search</code></td><td>없음</td><td>검색 풀스크린 — 퀵스위처·Cmd+K 대체 경로(FR-IA-MOB-07 ④)</td></tr>
+      <tr><td class="id">나</td><td><code>#qf-i-user</code></td><td>없음</td><td>프로필 카드 + 상태 변경·저장됨·내 프로필·설정 드릴다운(FR-IA-MOB-06)</td></tr>
+    </tbody>
+  </table>
+  <div class="subtle" style="margin-bottom:var(--s-5);">활성 탭 표시는 <code>aria-selected="true"</code> + <b>.qf-m-tab__pill</b> 입니다. 각 도메인 목업(D01~D17)의 탭바 표기는 본 표에 종속되며, 상충 시 본 표가 우선합니다. 저장함·미디어·모더레이션 등 본 표 밖의 화면은 탭이 아니라 상위 화면 내 진입점입니다.</div>
+
+  <!-- ───────────────── 모바일 · 서버 메뉴 시트 ───────────────── -->
+  <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">모바일 · 서버 메뉴 시트</h3>
+  <div class="ds-ref" style="margin-bottom:var(--s-4);">DS 참조: <b>.qf-m-server-header</b> · <b>.qf-m-sheet</b> · <b>.qf-m-sheet__item</b></div>
+
+  <ul class="stories">
+    <li>
+      <b>FR-IA-MOB-08</b> — <span class="prio prio--p1">P1</span> <b>서버 메뉴 시트</b>: 좌 패널 <b>.qf-m-server-header</b> 탭 시 서버 메뉴 바텀시트(<b>.qf-m-sheet</b>)를 연다. 항목 — <b>멤버 디렉터리</b>·<b>채널 둘러보기</b>(전 멤버) / <b>멤버 초대</b>·<b>초대 관리</b>(MODERATOR 이상) / <b>채널 만들기</b>·<b>카테고리 추가</b>·<b>워크스페이스 설정</b>(<code>/w/:slug/settings</code>)(OWNER·ADMIN) / <b>워크스페이스 나가기</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 실행, OWNER 미노출). 권한 미달 항목은 시트에서 숨긴다. 목업 server-header의 user-plus 아이콘은 단독 초대 액션이 아니라 본 시트 진입 어포던스다.
+    </li>
+  </ul>
+  <ul class="ac">
+    <li><code>.qf-m-server-header</code> 탭 시 서버 메뉴 시트가 DOM에 마운트된다.</li>
+    <li>MEMBER 역할에서 관리 항목(채널 만들기·카테고리 추가·워크스페이스 설정)이 시트에 없다.</li>
+    <li>'워크스페이스 나가기' 첫 탭은 armed 카피로 전환되고, 3초 내 두 번째 탭만 실제로 나간다.</li>
+    <li>OWNER에게는 '워크스페이스 나가기' 항목이 노출되지 않는다.</li>
+  </ul>
 
   <!-- ───────────────── 모바일 온보딩 착지 화면 ───────────────── -->
   <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">모바일 · 온보딩 착지 화면</h3>
@@ -952,7 +998,7 @@
           </button>
         </div>
         <!-- 온보딩 오버레이: 전체화면, 탭바·스와이프 차단 (Step3 웰컴) -->
-        <div class="qf-m-onboarding-overlay" role="dialog" aria-modal="true" style="position:absolute; inset:0; background:var(--bg-app); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:var(--s-6) var(--s-5); z-index:9999;">
+        <div class="qf-m-onboarding-overlay" role="dialog" aria-modal="true" style="position:absolute; inset:0; background:var(--bg-app); display:flex; flex-direction:column; align-items:center; justify-content:center; padding:var(--s-6) var(--s-5); z-index:var(--z-modal);">
           <div style="width:48px; height:48px; border-radius:var(--r-pill); background:var(--accent); display:grid; place-items:center; margin-bottom:var(--s-4);">
             <svg class="qf-icon" style="width:28px;height:28px;color:var(--text-onAccent);"><use href="#qf-i-check"/></svg>
           </div>
@@ -1082,7 +1128,7 @@
     </li>
   </ul>
   <ul class="ac">
-    <li>375 px viewport에서 Step3 완료 후 <code>.qf-m-tabbar</code> DOM 노드가 존재한다.</li>
+    <li>390×844 viewport에서 Step3 완료 후 <code>.qf-m-tabbar</code> DOM 노드가 존재한다.</li>
     <li>채널 뷰(<code>.qf-m-panel-center[data-channel-id]</code>)가 활성 상태이다.</li>
     <li>오버레이 표시 중 탭바 tap 이벤트가 차단된다(<code>pointer-events:none</code> 또는 <code>inert</code>).</li>
     <li>오버레이 표시 중 좌/우 스와이프가 무시된다.</li>
@@ -1172,21 +1218,51 @@
           </div>
         </div>
       </div>
-      <div class="subtle" style="text-align:center;">본인 메시지는 편집/삭제, 타인 메시지는 신고가 노출됩니다(분기).</div>
+      <div class="subtle" style="text-align:center;">본인 메시지는 메시지 편집/삭제, 타인 메시지는 신고가 노출됩니다(분기). 목업은 대표 항목 발췌 — 전체 구성은 FR-IA-MOB-05 카노니컬 목록이 우선합니다.</div>
     </div>
   </div>
 
   <ul class="stories">
     <li>
-      <b>FR-IA-MOB-05</b> — <span class="prio prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 액션은 편집·삭제·반응·스레드·핀·저장·리마인더·신고로 구성하되, 본인 메시지는 <b>편집/삭제</b>를 노출하고 타인 메시지는 그 자리에 <b>신고</b>를 노출한다(본인/타인 분기). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
+      <b>FR-IA-MOB-05</b> — <span class="prio prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 시트 최상단에는 <b>퀵 반응 행</b>(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <b>.qf-m-emoji-drawer</b>)을 배치한다 — 데스크톱 hover 퀵 반응 3종과 모바일 시트 5종의 개수 차이는 의도적 분리다(D05 FR-RE04). 메뉴 항목(카노니컬 목록 — 실구현 MobileMessageSheet와 1:1)은 <b>답장</b>(=스레드 답글)·<b>스레드 보기</b>·<b>메시지 복사</b>·<b>나중에 보기 저장/저장 해제</b>(토글)·<b>리마인더 설정</b>·<b>메시지 고정/고정 해제</b>(권한 게이트)·<b>편집 이력</b>(edited 행 한정)·<b>미읽음으로 표시</b> 순으로 구성하며, 본인 메시지는 <b>메시지 편집</b>·<b>메시지 삭제</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 삭제)를, 타인 메시지는 <b>메시지 신고</b>를 노출한다(본인/타인 분기). 컨텍스트별 미해당 항목(예: DM의 스레드 계열)은 숨긴다. '<b>링크 복사</b>'는 모바일 시트에 포함하지 않는다(데스크톱 컨텍스트 메뉴 전용 — D01 FR-MSG-17). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
     </li>
   </ul>
   <ul class="ac">
     <li>메시지 롱프레스(0.5s) 시 <code>.qf-m-message-action-sheet</code>가 DOM에 마운트된다.</li>
-    <li>본인 메시지에서 '편집'·'삭제'(<code>.qf-m-action-row--danger</code>) 항목이 존재한다.</li>
-    <li>타인 메시지에서 '편집'·'삭제'가 없고 '신고' 항목이 존재한다.</li>
+    <li>시트 최상단 퀵 반응 행에 프리셋 5종과 '더 많은 이모지' 버튼이 존재한다.</li>
+    <li>본인 메시지에서 '메시지 편집'·'메시지 삭제'(<code>.qf-m-action-row--danger</code>, 2-step confirm) 항목이 존재한다.</li>
+    <li>타인 메시지에서 '메시지 편집'·'메시지 삭제'가 없고 '메시지 신고' 항목이 존재한다.</li>
     <li>scrim 탭 또는 Esc 시 시트가 DOM에서 제거된다.</li>
   </ul>
+
+  <!-- ───────────────── 모바일 대체 인터랙션 표준 (cross-cutting) ───────────────── -->
+  <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">모바일 · 대체 인터랙션 표준 (cross-cutting)</h3>
+  <div class="ds-ref" style="margin-bottom:var(--s-4);">DS 참조: <b>.qf-m-message-action-sheet</b> · <b>.qf-m-sheet</b> · <b>.qf-m-tabbar</b> · <b>.qf-m-emoji-drawer</b></div>
+
+  <ul class="stories">
+    <li>
+      <b>FR-IA-MOB-07</b> — <span class="prio prio--p0">P0</span> <b>모바일 대체 인터랙션 표준</b>: 데스크톱 전용 입력 수단(hover 툴바/툴팁·우클릭 컨텍스트 메뉴·드래그 재정렬·키보드 단축키)으로 명세된 모든 기능은 ≤767px 모바일에서 아래 표의 표준 대체 경로를 따른다. 개별 FR에 별도의 '모바일:' 명세가 있으면 그것이 우선한다.
+    </li>
+  </ul>
+  <table class="spec" style="margin-bottom:var(--s-3);">
+    <thead>
+      <tr><th>#</th><th>데스크톱 입력 수단</th><th>모바일 표준 대체 경로</th></tr>
+    </thead>
+    <tbody>
+      <tr><td class="id">①</td><td>메시지 hover 툴바/툴팁</td><td>메시지 롱프레스(0.5s) 액션 시트(<code>.qf-m-message-action-sheet</code> — FR-IA-MOB-05 카노니컬 목록)</td></tr>
+      <tr><td class="id">②</td><td>채널·DM 행 우클릭 컨텍스트 메뉴</td><td>행 롱프레스 액션 시트 — 뮤트(6종: 15분/1시간/3시간/8시간/24시간/무기한)·읽음으로 표시 등 동일 항목 제공</td></tr>
+      <tr><td class="id">③</td><td>드래그 재정렬(채널·카테고리·즐겨찾기·개인 섹션)</td><td>v1 모바일 미지원 — 데스크톱 변경 결과 순서만 반영. 확장 시 '순서 편집 모드' + 드래그 핸들 패턴을 따른다</td></tr>
+      <tr><td class="id">④</td><td>Ctrl/Cmd+K 퀵스위처 · Cmd+G 검색</td><td>탭바 '검색' 탭(풀스크린 검색 화면)</td></tr>
+      <tr><td class="id">⑤</td><td>Ctrl+F 채널 내 검색</td><td>채널 헤더 검색 아이콘(<code>in:</code> 현재 채널 자동 설정)</td></tr>
+      <tr><td class="id">⑥</td><td>Esc 현재 채널 읽음 · Shift+Esc 전체 읽음</td><td>채널 행 롱프레스 '읽음으로 표시' / 좌 패널 채널 목록 섹션 '모두 읽음'(+8초 Undo 토스트)</td></tr>
+      <tr><td class="id">⑦</td><td>↑ 마지막 내 메시지 편집</td><td>내 메시지 롱프레스 → '메시지 편집'(편집 바텀시트)</td></tr>
+      <tr><td class="id">⑧</td><td>Ctrl+,(Cmd+,) 설정 토글</td><td>'나' 탭 → '설정' 드릴다운(FR-IA-MOB-06)</td></tr>
+      <tr><td class="id">⑨</td><td>Ctrl+N 새 DM</td><td>DM 목록의 '새 DM' 버튼</td></tr>
+      <tr><td class="id">⑩</td><td>스레드 시작/이동</td><td>메시지 롱프레스 '답장'(=스레드 답글) + 탭바 '스레드' 탭(스레드 인박스)</td></tr>
+      <tr><td class="id">⑪</td><td><code>&lt;kbd&gt;</code> 단축키 힌트 텍스트</td><td>모바일에서 숨기거나 터치 동작 카피로 교체</td></tr>
+    </tbody>
+  </table>
+  <div class="subtle" style="margin-bottom:var(--s-5);">본 표는 D01~D17 전 도메인의 데스크톱 전용 인터랙션 서술에 공통 적용되는 폴백 표준입니다. 각 도메인 FR의 '모바일:' 분기 명세는 본 표를 구체화한 것으로, 상충 시 개별 FR이 우선합니다.</div>
 
   <!-- ───────────────── 모바일 설정 IA ('나' 탭) ───────────────── -->
   <h3 style="font:600 var(--fs-18) var(--font-sans); color:var(--text-strong); margin:var(--s-8) 0 var(--s-3);">모바일 · 설정 IA ('나' 탭)</h3>
@@ -1228,14 +1304,14 @@
     <div style="display:flex; flex-direction:column; justify-content:center; gap:var(--s-3);">
       <ul class="stories">
         <li>
-          <b>FR-IA-MOB-06</b> — <span class="prio prio--p1">P1</span> 탭바 <b>'나'</b> 탭은 프로필 카드 + 설정 목록(<b>.qf-m-settings-list</b>)을 보여주는 셸 레벨 진입점이다. 각 행(<b>.qf-m-settings-row</b>)은 D14 설정의 해당 하위 화면으로 <b>드릴다운</b>(push)되며, 뒤로가기로 목록에 복귀한다(프로필·알림·개인정보&amp;보안·화면&amp;테마·로그아웃).
+          <b>FR-IA-MOB-06</b> — <span class="prio prio--p1">P1</span> 탭바 <b>'나'</b> 탭은 프로필 카드 + 설정 목록(<b>.qf-m-settings-list</b>)을 보여주는 셸 레벨 진입점이다. 각 행(<b>.qf-m-settings-row</b>)은 해당 하위 화면으로 <b>드릴다운</b>(push)되며, 뒤로가기로 목록에 복귀한다. 행 구성은 <b>상태 변경</b>(온라인/방해 금지/오프라인 표시 바텀시트 — FR-P04/P17, idle은 자동 전용이라 선택지 제외)·<b>저장됨</b>(<code>/saved</code> 라우트 + IN_PROGRESS 카운트 배지)·<b>내 프로필</b>·<b>설정</b>(D14 7탭 드릴다운)·<b>로그아웃</b>(confirm 시트)이다.
         </li>
       </ul>
       <ul class="ac">
         <li>탭바 '나' 탭 선택 시 <code>.qf-m-settings-list</code>가 표시된다.</li>
         <li>설정 행 탭 시 D14의 대응 화면으로 push 내비게이션된다(<code>chevron-right</code> 어포던스).</li>
         <li>하위 화면에서 뒤로가기 시 설정 목록으로 복귀한다.</li>
-        <li>'로그아웃' 행은 파괴적 액션으로 표준 Confirm Dialog를 띄운다.</li>
+        <li>'로그아웃' 행은 파괴적 액션으로 confirm 시트를 띄운다.</li>
       </ul>
     </div>
   </div>
@@ -1287,7 +1363,7 @@
           <b>FR-IA-MOB-04</b> — <span class="prio prio--p1">P1</span> 모바일 Thread Panel은 320px 고정 side-panel 대신 전체화면 슬라이드(<b>.qf-m-panel-thread</b>)로 표시한다. topbar 좌측에 뒤로가기 버튼(<code>aria-label="스레드 닫기"</code>)을 배치하고, composer 하단에 <code>padding-bottom: env(safe-area-inset-bottom)</code>을 적용한다.
         </li>
         <li>
-          <b>FR-IA-MOB-04a</b> — <span class="prio prio--p0">P0</span> <b>Thread Panel 키보드 인셋</b>: Thread Panel이 열린 상태에서 composer(<b>.qf-m-composer</b>)가 포커스를 받으면 탭바(<b>.qf-m-tabbar</b>)를 <code>display:none</code>으로 숨긴다. composer는 <code>window.visualViewport</code>의 <code>resize</code> 이벤트를 구독하여 <code>translateY(window.innerHeight - visualViewport.height - visualViewport.offsetTop)px</code>으로 이동시킨다. Thread Panel의 <code>z-index</code>는 탭바(<code>z-index:100</code>)보다 높은 <code>z-index:200</code>으로 설정하고, <code>inset:0</code> 대신 <code>top:0; left:0; right:0; bottom:0</code>을 명시하여 키보드 inset 계산에 간섭받지 않도록 한다. composer blur 시 탭바를 <code>display:flex</code>로 복원한다.
+          <b>FR-IA-MOB-04a</b> — <span class="prio prio--p0">P0</span> <b>Thread Panel 키보드 인셋</b>: Thread Panel이 열린 상태에서 composer(<b>.qf-m-composer</b>)가 포커스를 받으면 ① 탭바(<b>.qf-m-tabbar</b>)가 숨겨지고 ② composer가 소프트 키보드 바로 위에 붙어 키보드·탭바와 겹치지 않으며 ③ blur 시 탭바가 복원된다. Thread Panel은 탭바보다 위 레이어에 렌더링한다 — z-index는 DS z-스케일 토큰(tokens.css의 <code>--z-tabbar:40</code> 등)으로 일원화하며 리터럴 100/200을 쓰지 않는다. <i>참고 구현 노트(비규범)</i>: <code>window.visualViewport</code> resize 구독 + translateY 보정은 구현 예시일 뿐이며, dvh 단위·<code>interactive-widget</code> 메타 등 동일한 관찰 결과를 내는 대안 구현을 허용한다.
         </li>
       </ul>
       <ul class="ac">
@@ -1295,10 +1371,10 @@
         <li>고정 320px 너비 클래스가 적용되지 않는다.</li>
         <li>뒤로가기 버튼(<code>aria-label="스레드 닫기"</code>) DOM이 존재한다.</li>
         <li>iPhone notch 환경에서 composer 하단에 safe-area gap이 확보된다.</li>
-        <li>iPhone 14 · iOS 17 환경(Playwright mobile emulation)에서 Thread Panel composer 포커스 + 소프트 키보드 표시 시 탭바와 composer가 겹치지 않는다.</li>
-        <li>Thread Panel composer 포커스 시 <code>.qf-m-tabbar</code>의 <code>display</code>가 <code>none</code>이 된다.</li>
-        <li>composer blur 시 <code>.qf-m-tabbar</code>의 <code>display</code>가 <code>flex</code>로 복원된다.</li>
-        <li><code>visualViewport resize</code> 이벤트마다 composer <code>translateY</code> 값이 갱신된다.</li>
+        <li>390×844 모바일 에뮬레이션에서 Thread Panel composer 포커스 + 소프트 키보드 표시 시 탭바와 composer가 겹치지 않는다.</li>
+        <li>Thread Panel composer 포커스 시 <code>.qf-m-tabbar</code>가 화면에서 숨겨진다(비표시).</li>
+        <li>composer blur 시 <code>.qf-m-tabbar</code>가 다시 표시된다.</li>
+        <li>소프트 키보드 표시 중 composer 하단이 가시 뷰포트(visualViewport) 하단에 인접(±8px)하게 유지된다.</li>
       </ul>
     </div>
   </div>
@@ -1310,7 +1386,7 @@
 
   <ul class="stories">
     <li>
-      <b>FR-IA-A11Y-03</b> — <span class="prio prio--p0">P0</span> <b>자동완성 목록 열림 발표</b>: 자동완성 팝업(<code>role="listbox"</code>)이 마운트될 때 연결된 <code>aria-live="polite"</code> 영역에 '{n}개의 결과가 있습니다. 위아래 화살표로 선택하세요.' 를 발표한다. 결과가 0건이면 '검색 결과가 없습니다.'를 발표한다. D15 검색 자동완성도 동일 정책을 따른다.
+      <b>FR-IA-A11Y-03</b> — <span class="prio prio--p0">P0</span> <b>자동완성 목록 열림 발표</b>: 자동완성 팝업(<code>role="listbox"</code>)이 마운트될 때 연결된 <code>aria-live="polite"</code> 영역에 '{n}개의 결과가 있습니다. 위아래 화살표로 선택하세요.' 를 발표한다. 결과가 0건이면 '검색 결과가 없습니다.'를 발표한다. 터치 환경(VoiceOver/TalkBack)에서는 스와이프 탐색으로 후보를 이동하고 더블 탭으로 선택하므로, '위아래 화살표' 발표 카피는 터치 스크린리더에서 해당 제스처 안내로 대체할 수 있다. D15 검색 자동완성도 동일 정책을 따른다.
     </li>
     <li>
       <b>FR-IA-A11Y-04</b> — <span class="prio prio--p0">P0</span> <b>선택 항목 발표</b>: 자동완성 목록에서 키보드 이동 시 <code>aria-activedescendant</code>를 갱신하고, 포커스된 항목 텍스트를 <code>aria-live="assertive"</code> 영역에 발표한다. 마우스 hover만으로는 발표하지 않는다.
@@ -1541,7 +1617,7 @@
     <ul class="stories" style="margin:0 0 var(--s-4) var(--s-4);">
       <li>모든 <code>@id</code> 는 <code>@default(cuid2())</code> — K-정렬(시간순 정렬) 보장, URL-safe 28자.</li>
       <li><b>seed 전용</b>: uuid v5 고정 namespace (<code>SEED_NS</code>) → 재실행 시 항상 동일 ID. 런타임 ID 는 cuid2 만 사용.</li>
-      <li>이전 명세의 <code>uuid()</code> / <code>cuid()</code> 혼용 표기는 <b>모두 cuid2 로 통일</b>. FK 참조 쪽 타입도 <code>String</code>(cuid2) 로 일치시켜야 함. 타입 불일치(uuid FK → cuid2 PK) 는 마이그레이션 시 블로커.</li>
+      <li>이전 명세의 <code>uuid()</code> / <code>cuid()</code> 혼용 표기는 <b>모두 cuid2 로 통일</b>. FK 참조 쪽 타입도 <code>String</code>(cuid2) 로 일치시켜야 함. 타입 불일치(uuid FK → cuid2 PK) 는 마이그레이션 시 블로커. <i>(현실 정합 주석: 현 스키마는 PK <code>@db.Uuid</code> — ID 문자열 검증·멘션 토큰은 uuid|cuid2 합집합을 수용합니다. <code>MENTION_USER_RE</code> 참조.)</i></li>
     </ul>
 
     <!-- ADR-2: Message 카노니컬 스키마 -->
@@ -2283,7 +2359,7 @@ userId    String
 endpoint  String  @unique
 p256dh    String ; auth String
 userAgent String?</pre>
-      <div class="entity__notes">D06. VAPID web-push 브라우저 구독(기기별). DND/뮤트 시 push 스킵, 410 시 자동 삭제.</div>
+      <div class="entity__notes">D06. VAPID web-push 브라우저 구독(기기별, iOS: PWA 설치 시). DND/뮤트 시 push 스킵, 410 시 자동 삭제.</div>
     </div>
 
     <div class="entity">
@@ -2415,7 +2491,7 @@ unread:{workspaceId}:{userId}  (Hash)
                    └──1:N── Invite(Link|Pending, tokenHash) · Onboarding(Rule|Question|Welcome)
                    └──1:N── Moderation(BannedMember · ModerationReport · AuditLog)
 
-   Mention ──► Notification 계층(글로벌→서버→채널, ADR-6 NotifLevel) ──► PushSubscription(VAPID)
+   Mention ──► Notification 계층(글로벌→서버→채널, ADR-6 NotifLevel) ──► PushSubscription(VAPID, iOS: PWA 설치 시)
    Reminder ──► (userId, channelId?, targetUserId?)  · BullMQ 지연 잡
    unread_count = COUNT(*) WHERE id &gt; lastReadMessageId AND deletedAt IS NULL  (ADR-5)
    BigInt 직렬화: ADR-11 BigIntSerializationInterceptor (전역, NestJS main.ts)
@@ -2495,6 +2571,7 @@ unread:{workspaceId}:{userId}  (Hash)
           10k 동시 소켓<br>
           <span class="subtle">메모리 &lt; 4GB(Node 프로세스), CPU &lt; 80%(NAS 4코어 기준)</span><br>
           <span class="subtle">Socket.IO 옵션: <code>transports: ['websocket']</code> 강제, <code>pingInterval 25s</code>, <code>pingTimeout 20s</code>, <code>maxHttpBufferSize 1MB</code></span><br>
+          <span class="subtle">polling 폴백 없음 — WS 차단 망/프록시 환경은 연결 불가 안내 화면으로 처리(D17 FR-RT-20)</span><br>
           <span class="subtle">채널당 fanout 상한: 동시 멤버 2,000명(초과 시 큐 분산) — 청크 분할 명세는 §Fanout 청크 정책 참조</span>
         </td>
       </tr>
@@ -2553,7 +2630,7 @@ unread:{workspaceId}:{userId}  (Hash)
         <td>
           WCAG 2.1 AA — 색상 대비: 일반 텍스트 4.5:1, 대형 텍스트(18pt+/14pt+ bold) 3:1, highContrast 모드 7:1<br>
           <span class="subtle">prefers-reduced-motion, 키보드 내비, 44px 터치 영역</span><br>
-          <span class="subtle">검증: Playwright + axe-core CI — 대상 라우트: <code>/login</code>, <code>/workspaces/:id</code>, <code>/channels/:id</code>, <code>/dm</code>, <code>/threads</code>, Activity Inbox 패널. 라우트별 axe-core 위반 0건 DoD 필수 (<code>evals/tasks/nfr-accessibility.yaml</code> 채점 포함, PR 체크리스트 연결)</span>
+          <span class="subtle">검증: Playwright + axe-core CI — 대상 라우트: <code>/login</code>, <code>/workspaces/:id</code>, <code>/channels/:id</code>, <code>/dm</code>, <code>/threads</code>, Activity Inbox 패널. 라우트별 axe-core 위반 0건 DoD 필수 (<code>evals/tasks/nfr-accessibility.yaml</code> 채점 포함, PR 체크리스트 연결). 모바일 에뮬레이션(390×844)에서 모바일 전용 표면(탭바 <code>.qf-m-tabbar</code>·겹침 패널·액션 시트·풀스크린 모달)도 동일 라우트 세트·동일 기준(위반 0건)으로 채점한다</span>
         </td>
       </tr>
     </tbody>
@@ -3013,7 +3090,7 @@ unread:{workspaceId}:{userId}  (Hash)
           <li><code>evals/tasks/nfr-latency.yaml</code> — NFR-1a·NFR-1b P95 검증. Playwright <code>timingEntry</code> / <code>performance.now()</code> 기반 <code>expect(elapsed).toBeLessThan(200)</code> 어설션 강제 fixture: <code>tests/fixtures/nfr-latency.fixture.ts</code>, 대상 라우트: <code>/channels/:id</code></li>
           <li><code>evals/tasks/nfr-concurrency.yaml</code> — NFR-2 10k 소켓·메모리/CPU 한도 채점</li>
           <li><code>evals/tasks/nfr-rate-limit.yaml</code> — NFR-5 각 엔드포인트 한도 초과 시 429 응답 검증</li>
-          <li><code>evals/tasks/nfr-accessibility.yaml</code> — NFR-9 axe-core 대상 라우트(<code>/login</code>, <code>/workspaces/:id</code>, <code>/channels/:id</code>, <code>/dm</code>, <code>/threads</code>, Activity Inbox 패널) 라우트별 위반 0건 DoD</li>
+          <li><code>evals/tasks/nfr-accessibility.yaml</code> — NFR-9 axe-core 대상 라우트(<code>/login</code>, <code>/workspaces/:id</code>, <code>/channels/:id</code>, <code>/dm</code>, <code>/threads</code>, Activity Inbox 패널) 라우트별 위반 0건 DoD + 모바일 에뮬레이션(390×844) 표면(탭바·겹침 패널·액션 시트·풀스크린 모달) 동일 기준 채점</li>
           <li>모든 NFR eval 성공률 ≥ 90% 미만 시 머지 차단</li>
         </ul>
       </div>
@@ -3056,7 +3133,7 @@ unread:{workspaceId}:{userId}  (Hash)
   </div>
 
   <h3>멘션 시스템</h3>
-  <p><code>@userId</code> 멘션은 클라이언트가 <code>@username</code> 자동완성 후 서버 저장 시 <code>@{cuid2}</code> 로 정규화합니다. 특수 멘션 권한 규칙은 아래와 같습니다.</p>
+  <p><code>@userId</code> 멘션은 클라이언트가 <code>@username</code> 자동완성 후 서버 저장 시 <code>@{userId}</code> 로 정규화합니다(userId 는 uuid — 현 스키마 User.id <code>@db.Uuid</code> — 또는 cuid2 문자열이며, 공유 정규식 <code>MENTION_USER_RE</code> 가 양쪽을 모두 수용합니다). 특수 멘션 권한 규칙은 아래와 같습니다.</p>
   <div class="callout callout--warn">
     <b>@everyone</b> — OWNER / ADMIN 전용. 채널 멤버 수 ≥ <code>EVERYONE_CONFIRM_THRESHOLD</code>(기본 <b>6</b>) 시 확인 dialog &nbsp;|&nbsp;
     <b>@channel / @here</b> — 기본 MEMBER 허용, 관리자가 ADMIN+ 로 제한 가능. 채널 멤버 수 ≥ <code>BULK_MENTION_CONFIRM_THRESHOLD</code>(기본 <b>50</b>) 시 전송 전 확인 dialog 표시 (서버에서도 enforce) &nbsp;|&nbsp;
@@ -3090,7 +3167,7 @@ unread:{workspaceId}:{userId}  (Hash)
   <p><code>MESSAGE_SEND_TIMEOUT_MS</code>(기본 <b>5000ms</b>, D17 명세 참조) 초과 또는 HTTP 오류 발생 시 "전송 실패" 상태로 전환하고 "다시 시도" 버튼을 제공합니다. 재시도 시 동일 <code>clientNonce</code>(= Idempotency-Key) 로 재전송합니다.</p>
 
   <h3>메시지 그루핑 + 타임스탬프</h3>
-  <p>동일 작성자가 이전 메시지 기준 5분 이내에 연속으로 작성한 경우 <code>grouped=true</code> 처리합니다. grouped 메시지는 아바타·이름·날짜 헤더를 숨기고 hover 시 HH:MM 타임스탬프만 표시합니다. 자정 경계에서 그룹을 강제 분리하고 날짜 구분선을 삽입합니다. 그루핑 계산은 클라이언트에서 수행합니다(서버가 grouped 필드를 내려주지 않음).</p>
+  <p>동일 작성자가 이전 메시지 기준 5분 이내에 연속으로 작성한 경우 <code>grouped=true</code> 처리합니다. grouped 메시지는 아바타·이름·날짜 헤더를 숨기고 hover 시 HH:MM 타임스탬프만 표시합니다. 모바일은 롱프레스 액션 시트 헤더에 전송 시각(HH:MM)을 표시합니다 — grouped 행에서도 시각 확인이 가능해야 합니다. 자정 경계에서 그룹을 강제 분리하고 날짜 구분선을 삽입합니다. 그루핑 계산은 클라이언트에서 수행합니다(서버가 grouped 필드를 내려주지 않음).</p>
   <div class="callout" style="margin-bottom:var(--s-3);">
     <b>그루핑 재계산 트리거 전체 목록:</b>
     <ul style="margin:var(--s-2) 0 0; padding-left:var(--s-5);">
@@ -3109,7 +3186,7 @@ unread:{workspaceId}:{userId}  (Hash)
     어제 → <b>어제 09:32</b> &nbsp;|&nbsp;
     7일 이내 → <b>N일 전 09:32</b> 또는 <b>월요일 09:32</b> (요일+날짜 병기) — 언어설정 로케일 적용 &nbsp;|&nbsp;
     그 이전 → <b>2025년 12월 25일</b><br>
-    hover tooltip: 전체 ISO 날짜+시각 (언제나 ISO 8601, 변경 없음)
+    hover tooltip: 전체 ISO 날짜+시각 (언제나 ISO 8601, 변경 없음) — <b>모바일:</b> 동일 정보(전체 시각)는 메시지 롱프레스 액션 시트 헤더에 노출(FR-IA-MOB-05)
   </div>
 
   <h3>편집 · 삭제</h3>
@@ -3479,7 +3556,7 @@ unread:{workspaceId}:{userId}  (Hash)
 
   <!-- Mobile mock -->
   <div class="card" style="margin-bottom:var(--s-6);">
-    <div class="card__label">모바일 — 채널 메시지 뷰</div>
+    <div class="card__label">모바일 — 채널 메시지 뷰 (액션 시트는 대표 항목 발췌 — 전체 구성은 FR-IA-MOB-05)</div>
     <div class="card__preview" style="display:flex; justify-content:center; padding:var(--s-5); background:var(--bg-app);">
       <div class="phone" style="width:320px; height:580px; border-radius:32px; overflow:hidden; border:2px solid var(--border); background:var(--bg-chat); display:flex; flex-direction:column;">
         <div class="qf-m-screen qf-m-screen--bare" style="display:flex; flex-direction:column; flex:1; overflow:hidden;">
@@ -3547,10 +3624,6 @@ unread:{workspaceId}:{userId}  (Hash)
               <span style="font-size:var(--fs-14); color:var(--text);">메시지 복사</span>
             </div>
             <div class="qf-m-sheet__item" style="display:flex; align-items:center; gap:var(--s-3); padding:var(--s-3) var(--s-5); cursor:pointer;">
-              <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-link"/></svg>
-              <span style="font-size:var(--fs-14); color:var(--text);">링크 복사</span>
-            </div>
-            <div class="qf-m-sheet__item" style="display:flex; align-items:center; gap:var(--s-3); padding:var(--s-3) var(--s-5); cursor:pointer;">
               <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-edit"/></svg>
               <span style="font-size:var(--fs-14); color:var(--text);">편집</span>
             </div>
@@ -3595,7 +3668,7 @@ unread:{workspaceId}:{userId}  (Hash)
     <tbody>
       <tr>
         <td class="id">FR-MSG-01</td>
-        <td>메시지 작성 영역에서 qufox mrkdwn 구문(굵게·기울임·취소선·인라인코드·코드블록·인용·항목목록·순서목록·하이퍼링크·스포일러)을 지원하며, Enter 전송 / Shift+Enter 줄바꿈을 기본으로 한다.</td>
+        <td>메시지 작성 영역에서 qufox mrkdwn 구문(굵게·기울임·취소선·인라인코드·코드블록·인용·항목목록·순서목록·하이퍼링크·스포일러)을 지원하며, Enter 전송 / Shift+Enter 줄바꿈을 기본으로 한다. 단, 모바일(≤767px·소프트 키보드) 환경에서는 Enter(return)=줄바꿈이며 전송은 send 버튼 전용이다. 컴포저 입력 요소에는 <code>enterKeyHint="enter"</code>를 기본 적용한다(<code>enterKeyHint="send"</code> 정책 전환은 옵션). 물리 키보드 연결 시에는 데스크톱 규칙을 따른다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -3625,7 +3698,7 @@ unread:{workspaceId}:{userId}  (Hash)
       </tr>
       <tr>
         <td class="id">FR-MSG-07</td>
-        <td>편집된 메시지에 '(edited)' 뱃지를 표시한다. 뱃지 hover 시 최초 편집 시각 tooltip 을 표시한다.</td>
+        <td>편집된 메시지에 '(edited)' 뱃지를 표시한다. 뱃지 hover 시 최초 편집 시각 tooltip 을 표시한다. <strong>모바일:</strong> hover 미지원 — 메시지 롱프레스 액션 시트의 '편집 이력' 항목에서 편집 시각·이력을 확인한다(FR-IA-MOB-05).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -3640,7 +3713,7 @@ unread:{workspaceId}:{userId}  (Hash)
       </tr>
       <tr>
         <td class="id">FR-MSG-10</td>
-        <td>동일 작성자의 연속 메시지가 5분 이내이고 사이에 다른 사용자 메시지가 없으면 grouped=true 처리하여 아바타·이름·날짜 헤더를 숨기고 hover 시 HH:MM 타임스탬프만 표시한다.</td>
+        <td>동일 작성자의 연속 메시지가 5분 이내이고 사이에 다른 사용자 메시지가 없으면 grouped=true 처리하여 아바타·이름·날짜 헤더를 숨기고 hover 시 HH:MM 타임스탬프만 표시한다. <strong>모바일:</strong> 롱프레스 액션 시트 헤더에 전송 시각(HH:MM)을 표시한다 — grouped 행에서도 시각 확인이 가능해야 한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -3650,12 +3723,12 @@ unread:{workspaceId}:{userId}  (Hash)
       </tr>
       <tr>
         <td class="id">FR-MSG-12</td>
-        <td>타임스탬프 표시는 사용자 clock24h·언어 설정을 반영한다. 오늘은 'HH:MM'(24h) 또는 '오전/오후 H:MM'(12h), 어제는 '어제 HH:MM', 7일 이내는 'N일 전 HH:MM' 또는 '요일+날짜' (로케일 적용), 그 이전은 'YYYY년 MM월 DD일'. hover tooltip 은 항상 ISO 8601 전체 시각.</td>
+        <td>타임스탬프 표시는 사용자 clock24h·언어 설정을 반영한다. 오늘은 'HH:MM'(24h) 또는 '오전/오후 H:MM'(12h), 어제는 '어제 HH:MM', 7일 이내는 'N일 전 HH:MM' 또는 '요일+날짜' (로케일 적용), 그 이전은 'YYYY년 MM월 DD일'. hover tooltip 은 항상 ISO 8601 전체 시각. <strong>모바일:</strong> hover 미지원 — 동일 정보(전체 시각)는 메시지 롱프레스 액션 시트 헤더에 노출한다(FR-IA-MOB-05).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-MSG-13</td>
-        <td>@username 입력 시 채널 멤버 자동완성 팝오버를 표시한다. 선택 시 content 에 @{cuid2} 로 정규화 저장하고 렌더 시 @displayName 으로 표시한다.</td>
+        <td>@username 입력 시 채널 멤버 자동완성 팝오버를 표시한다. 선택 시 content 에 @{userId} 로 정규화 저장하고 렌더 시 @displayName 으로 표시한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -3675,7 +3748,7 @@ unread:{workspaceId}:{userId}  (Hash)
       </tr>
       <tr>
         <td class="id">FR-MSG-17</td>
-        <td>메시지 컨텍스트 메뉴에 '메시지 복사'(plain text)와 '링크 복사'(permalink URL) 항목을 제공한다.</td>
+        <td>메시지 컨텍스트 메뉴에 '메시지 복사'(plain text)와 '링크 복사'(permalink URL) 항목을 제공한다. <strong>모바일:</strong> 메시지 롱프레스 액션 시트에 '메시지 복사'를 제공하되, <strong>'링크 복사'는 모바일 시트에 포함하지 않는다</strong>(데스크톱 컨텍스트 메뉴 전용 — FR-IA-MOB-05).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -3986,7 +4059,7 @@ bulkMentionThreshold  Int     @default(50)
     <li>message:created WS 이벤트에 nonce 필드(clientNonce 에코)가 포함되어 클라이언트 pending 메시지와 매핑, 확정 메시지로 교체됨을 WS 스파이로 확인. POST body 의 nonce 값과 message:created.nonce 가 일치함을 확인.</li>
     <li>WS 로 message:send 이벤트를 전송 시 서버가 무시하거나 4xx errorCode 를 emit 하고 메시지가 DB 에 저장되지 않음을 확인.</li>
     <li>채널 메시지가 0개일 때 .qf-channel-empty-state 컴포넌트가 채널명·생성일·생성자를 포함하여 렌더됨을 Playwright 로 확인.</li>
-    <li>Message.id 가 cuid2 형식(c 로 시작, 24자 이상)임을 확인. uuid 형식이 아님을 확인.</li>
+    <li>Message.id 가 uuid 형식임을 확인(현 스키마 PK <code>@db.Uuid</code> — ADR-1 현실 정합 주석 참조).</li>
     <li>10레벨 중첩 mrkdwn(<code>*_*_*_*_*_*_*_*_*_*text*_*_*_*_*_*_*_*_*_*</code>) 전송 시 400 + errorCode: PARSE_DEPTH_EXCEEDED 응답임을 확인(FR-MSG-23).</li>
     <li>ReDoS 패턴(예: <code>a?a?a?a?a?a?a?a?a?a?aaaaaaaaaa</code>) 포함 메시지 전송 시 50ms 이내 400 + errorCode: PARSE_TIMEOUT 응답임을 확인(FR-MSG-23).</li>
     <li>SYSTEM_MEMBER_JOINED 타입 메시지 생성 시 DB type 컬럼이 SYSTEM_MEMBER_JOINED, authorType=SYSTEM, contentRaw 가 템플릿 형식임을 확인(FR-MSG-19).</li>
@@ -4572,20 +4645,28 @@ bulkMentionThreshold  Int     @default(50)
             </span>
           </div>
 
-          <!-- 탭바 -->
+          <!-- 탭바 (§02 카노니컬 5탭 — 채널 목록 화면이므로 active=채팅) -->
           <div class="qf-m-tabbar" style="margin-top:auto;">
             <button class="qf-m-tab" aria-selected="true">
-              <div class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-hash"/></svg></div>
-              <div class="qf-m-tab__label">채널</div>
-              <div class="qf-m-tab__pill"></div>
+              <span class="qf-m-tab__pill"></span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">채팅</span>
             </button>
             <button class="qf-m-tab">
-              <div class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-bell"/></svg></div>
-              <div class="qf-m-tab__label">받은편지함</div>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">인박스</span>
             </button>
             <button class="qf-m-tab">
-              <div class="qf-m-tab__icon"><svg class="qf-icon"><use href="#qf-i-user"/></svg></div>
-              <div class="qf-m-tab__label">나</div>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+              <span class="qf-m-tab__label">스레드</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+              <span class="qf-m-tab__label">검색</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-m-tab__label">나</span>
             </button>
           </div>
         </div>
@@ -4679,7 +4760,7 @@ bulkMentionThreshold  Int     @default(50)
       </tr>
       <tr>
         <td class="id">FR-CH-06</td>
-        <td>채널 브라우저: 멤버(게스트 제외)가 공개 채널 목록을 이름·설명으로 검색하고 멤버 수·최근 활동 기준 정렬. 비가입 채널 클릭 시 즉시 가입. VIEW_CHANNEL DENY 채널은 목록 숨김. <strong>Empty state:</strong> ① 검색 0건 — ".qf-empty-state" 카피("검색어에 해당하는 채널이 없습니다") + 검색어 초기화 링크; ② 공개 채널 없음 — ".qf-empty-state" 일러스트(layers 아이콘) + ADMIN 이상에게 "첫 공개 채널 만들기" CTA 버튼 노출(MEMBER에게는 CTA 미노출).</td>
+        <td>채널 브라우저: 멤버(게스트 제외)가 공개 채널 목록을 이름·설명으로 검색하고 멤버 수·최근 활동 기준 정렬. 비가입 채널 클릭 시 즉시 가입. VIEW_CHANNEL DENY 채널은 목록 숨김. <strong>Empty state:</strong> ① 검색 0건 — ".qf-empty-state" 카피("검색어에 해당하는 채널이 없습니다") + 검색어 초기화 링크; ② 공개 채널 없음 — ".qf-empty-state" 일러스트(layers 아이콘) + ADMIN 이상에게 "첫 공개 채널 만들기" CTA 버튼 노출(MEMBER에게는 CTA 미노출). <strong>모바일:</strong> 채널 브라우저는 풀스크린 모달(<code>.qf-m-modal--fullscreen</code>, FR-IA-MOB-03)로 열리며 동일 정렬 기준(멤버 수·최근 활동)을 제공하고, 목록 페이지네이션은 무한 스크롤로 처리한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -4694,7 +4775,7 @@ bulkMentionThreshold  Int     @default(50)
       </tr>
       <tr>
         <td class="id">FR-CH-09</td>
-        <td>채널 토픽: topic VARCHAR(1024), 헤더에 항상 노출(100자 초과 시 접기/펼치기). 수정 시 타입 SYSTEM_CHANNEL_TOPIC_CHANGED인 system 메시지 생성 + channel.updated 이벤트.</td>
+        <td>채널 토픽: topic VARCHAR(1024). <strong>데스크톱:</strong> 헤더에 항상 노출(100자 초과 시 접기/펼치기). <strong>모바일:</strong> topbar 채널명 아래 subtitle(<code>.qf-m-topbar__subtitle</code>) 1줄 truncate로 노출하고, 탭 시 채널 정보 시트에서 전문을 확인한다 — 현 구현 subtitle은 워크스페이스명 표시이며 토픽 전환·채널 정보 시트는 후속(보류). 수정 시 타입 SYSTEM_CHANNEL_TOPIC_CHANGED인 system 메시지 생성 + channel.updated 이벤트.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -4714,7 +4795,7 @@ bulkMentionThreshold  Int     @default(50)
       </tr>
       <tr>
         <td class="id">FR-CH-13</td>
-        <td>채널·카테고리 순서 변경: MANAGE_CHANNEL 권한자가 드래그로 이동. fractional position(Decimal 20,10). PATCH /categories/positions · PATCH /channels/positions 배치 API. 인접 position 차이 &lt; 1e-10 시 단일 트랜잭션 + SELECT FOR UPDATE로 1,000 단위 등간격 재정규화 후 channels.reordered(전체 position 목록) 브로드캐스트.</td>
+        <td>채널·카테고리 순서 변경: MANAGE_CHANNEL 권한자가 드래그로 이동. 모바일 v1은 재정렬 미지원(데스크톱 전용) — 데스크톱에서 변경된 결과 순서만 반영하며, 확장 시 '순서 편집 모드'+드래그 핸들 패턴(FR-IA-MOB-07 ③)을 따른다. fractional position(Decimal 20,10). PATCH /categories/positions · PATCH /channels/positions 배치 API. 인접 position 차이 &lt; 1e-10 시 단일 트랜잭션 + SELECT FOR UPDATE로 1,000 단위 등간격 재정규화 후 channels.reordered(전체 position 목록) 브로드캐스트.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -4724,12 +4805,12 @@ bulkMentionThreshold  Int     @default(50)
       </tr>
       <tr>
         <td class="id">FR-CH-15</td>
-        <td>즐겨찾기: UserChannelFavorite 행 생성·삭제. 사이드바 Favorites 섹션 최상단 배치. 즐겨찾기 내 순서는 position으로 드래그 조정 가능.</td>
+        <td>즐겨찾기: UserChannelFavorite 행 생성·삭제. 사이드바 Favorites 섹션 최상단 배치. 즐겨찾기 내 순서는 position으로 드래그 조정 가능(데스크톱 전용 — 모바일은 결과 순서만 반영, FR-IA-MOB-07 ③).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-CH-16</td>
-        <td>사이드바 섹션(개인 정렬): 멤버가 섹션을 생성(이름·이모지·sortMode)하고 채널을 할당. 드래그로 재정렬. 개인 전용(타인 미노출).</td>
+        <td>사이드바 섹션(개인 정렬): 멤버가 섹션을 생성(이름·이모지·sortMode)하고 채널을 할당. 드래그로 재정렬(데스크톱 전용 — 모바일은 결과 순서만 반영, FR-IA-MOB-07 ③). 개인 전용(타인 미노출).</td>
         <td><span class="prio prio--p2">P2</span></td>
       </tr>
       <tr>
@@ -4744,7 +4825,7 @@ bulkMentionThreshold  Int     @default(50)
       </tr>
       <tr>
         <td class="id">FR-CH-19</td>
-        <td>ANNOUNCEMENT 채널 MEMBER UX: MEMBER 이하 역할은 SEND_MESSAGES 기본 DENY. OWNER·ADMIN·허용 역할만 게시 가능. <strong>프론트엔드 처리:</strong> ① MEMBER 이하 진입 시 <code>.qf-composer[disabled]</code> + placeholder "이 채널은 관리자만 게시할 수 있습니다" 표시; ② 헤더 배지 "공지 채널 — ADMIN 이상만 게시" 상시 노출(megaphone 아이콘); ③ disabled composer 클릭/탭 시 툴팁 "게시 권한이 없습니다" 표시. 서버: POST /messages 시도 시 403 errorCode=CHANNEL_POSTING_RESTRICTED 반환.</td>
+        <td>ANNOUNCEMENT 채널 MEMBER UX: MEMBER 이하 역할은 SEND_MESSAGES 기본 DENY. OWNER·ADMIN·허용 역할만 게시 가능. <strong>프론트엔드 처리:</strong> ① MEMBER 이하 진입 시 <code>.qf-composer[disabled]</code> + placeholder "이 채널은 관리자만 게시할 수 있습니다" 표시; ② 헤더 배지 "공지 채널 — ADMIN 이상만 게시" 상시 노출(megaphone 아이콘); ③ disabled composer 클릭 시 툴팁(데스크톱) / 탭 시 bottom toast 3초(모바일)로 "게시 권한이 없습니다" 표시(FR-DM-18 데스크톱 툴팁/모바일 toast 분기 패턴과 동일). 서버: POST /messages 시도 시 403 errorCode=CHANNEL_POSTING_RESTRICTED 반환.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -5183,7 +5264,7 @@ updatedAt DateTime @updatedAt
     <li><strong>기본 채널 보호:</strong> workspace.defaultChannelId 채널 삭제·아카이브·비공개 전환 시도 → 409 CONFLICT, errorCode: DEFAULT_CHANNEL_PROTECTED.</li>
     <li><strong>채널 이름 중복:</strong> (workspaceId, name) partial unique index(WHERE deletedAt IS NULL)로 DB 레벨 보호. API는 409 + errorCode: CHANNEL_NAME_CONFLICT. 소프트 삭제 행은 인덱스 대상에서 제외되어 동일 이름 재사용 가능.</li>
     <li><strong>카테고리 이름 중복:</strong> partial unique index category_ws_name_active(workspaceId, name WHERE deletedAt IS NULL)로 DB 레벨 보호. API는 409 + errorCode: CATEGORY_NAME_CONFLICT. 소프트 삭제 카테고리는 인덱스 대상에서 제외.</li>
-    <li><strong>비공개→공개 전환:</strong> 기존에 개인이 공유한 파일이 공개로 전환됨. FR-CH-05 2단계 confirm 모달 필수: 경고 카피 "공개로 전환하면 이전 공유 파일이 전 멤버에게 공개됩니다. 되돌릴 수 없습니다." + 채널 이름 타이핑 재확인 + alertdialog 접근성 패턴 + 모바일 .qf-m-modal--fullscreen.</li>
+    <li><strong>비공개→공개 전환:</strong> 기존에 개인이 공유한 파일이 공개로 전환됨. FR-CH-05 2단계 confirm 모달 필수: 경고 카피 "공개로 전환하면 이전 공유 파일이 전 멤버에게 공개됩니다. 되돌릴 수 없습니다." + 채널 이름 타이핑 재확인 + alertdialog 접근성 패턴 + 모바일 .qf-m-modal--fullscreen. 모바일 가상 키보드: 채널 이름 재확인 입력에는 자동수정·자동완성을 끈다(<code>autocorrect="off"</code>·<code>autocapitalize="none"</code>·<code>spellcheck="false"</code>) — 자동수정이 이름 불일치를 유발하지 않도록.</li>
     <li><strong>Slowmode Redis 장애:</strong> fail-open 단독으로 허용하지 않습니다. ① Redis 불가 시 DB 최근 메시지 타임스탬프 COUNT로 slowmode 위반 판단. ② DB도 불가한 경우 노드 in-memory 임시 limiter로 최소 방어. BYPASS_SLOWMODE 미보유자는 어떤 장애 상황에서도 무제한 우회가 허용되지 않습니다. WARNING 로깅 및 NFR Redis 장애 대응표와 연동.</li>
     <li><strong>카테고리 삭제 시 채널 처리:</strong> 소속 채널 categoryId=NULL → 사이드바에서 카테고리 없는 섹션으로 이동. channel.updated 이벤트 일괄 발행. deletedAt 기록(soft-delete)이므로 category.deleted 이벤트 발행.</li>
     <li><strong>Position 충돌(동시 재정렬):</strong> fractional position mid-point 계산으로 회피. 인접 position 차이가 1e-10 미만으로 수렴하면 서버가 재정규화를 트리거합니다. 재정규화는 해당 workspaceId의 카테고리/채널 전체를 단일 트랜잭션 + SELECT FOR UPDATE로 잠근 뒤 1,000 단위 등간격(1000, 2000, 3000…)으로 재할당. 완료 후 channels.reordered / categories.reordered(전체 position 목록 포함) 브로드캐스트.</li>
@@ -5372,8 +5453,8 @@ updatedAt DateTime @updatedAt
       <div class="card__label">DM 수신 권한 경고 · 뮤트 컨텍스트 메뉴</div>
       <div class="card__preview" style="position:relative;min-height:320px;padding:var(--s-5);display:flex;flex-direction:column;gap:var(--s-4);">
         <div class="qf-banner qf-banner--warn" style="display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-4);border-radius:var(--r-lg);background:var(--bg-elevated);border:1px solid var(--warn-400);"><svg class="qf-icon" style="width:18px;height:18px;color:var(--warn-400);flex-shrink:0;margin-top:1px;"><use href="#qf-i-bell"/></svg><div><div style="font-size:var(--fs-13);font-weight:600;color:var(--warn-400);margin-bottom:2px;">DM 수신 제한</div><div style="font-size:var(--fs-13);color:var(--text-secondary);">이 사용자는 같은 워크스페이스 멤버로부터만 DM을 받습니다. 공통 워크스페이스에 참여 후 다시 시도하세요.</div></div></div>
-        <div><div style="font-size:var(--fs-12);color:var(--text-muted);margin-bottom:var(--s-2);">DM 항목 우클릭 메뉴</div><div class="qf-menu" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:var(--s-2);min-width:180px;"><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--text);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-bell-off"/></svg>뮤트</div><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--text);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-eye-off"/></svg>대화 숨기기</div><div class="qf-menu__separator" style="height:1px;background:var(--divider);margin:var(--s-1) 0;"></div><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--danger-400);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-logout"/></svg>그룹 나가기</div></div></div>
-        <div><div style="font-size:var(--fs-12);color:var(--text-muted);margin-bottom:var(--s-2);">뮤트 기간 선택</div><div class="qf-menu" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s-2);min-width:160px;"><div class="qf-menu__item" style="display:flex;justify-content:space-between;align-items:center;padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);background:var(--bg-hover);">15분 <svg class="qf-icon" style="width:13px;height:13px;color:var(--accent);"><use href="#qf-i-check"/></svg></div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">1시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">8시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">해제될 때까지</div></div></div>
+        <div><div style="font-size:var(--fs-12);color:var(--text-muted);margin-bottom:var(--s-2);">DM 항목 우클릭 메뉴 (데스크톱 — 모바일: DM 행 롱프레스 시 동일 항목 액션 시트)</div><div class="qf-menu" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-lg);box-shadow:var(--elev-3);padding:var(--s-2);min-width:180px;"><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--text);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-bell-off"/></svg>뮤트</div><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--text);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-eye-off"/></svg>대화 숨기기</div><div class="qf-menu__separator" style="height:1px;background:var(--divider);margin:var(--s-1) 0;"></div><div class="qf-menu__item" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);color:var(--danger-400);"><svg class="qf-icon" style="width:15px;height:15px;"><use href="#qf-i-logout"/></svg>그룹 나가기</div></div></div>
+        <div><div style="font-size:var(--fs-12);color:var(--text-muted);margin-bottom:var(--s-2);">뮤트 기간 선택</div><div class="qf-menu" style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--r-lg);padding:var(--s-2);min-width:160px;"><div class="qf-menu__item" style="display:flex;justify-content:space-between;align-items:center;padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);background:var(--bg-hover);">15분 <svg class="qf-icon" style="width:13px;height:13px;color:var(--accent);"><use href="#qf-i-check"/></svg></div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">1시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">3시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">8시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">24시간</div><div class="qf-menu__item" style="padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;font-size:var(--fs-13);">무기한</div></div></div>
       </div>
     </div>
   </div>
@@ -5381,6 +5462,7 @@ updatedAt DateTime @updatedAt
   <div class="grid grid--2" style="margin-top:var(--s-5);gap:var(--s-5);">
     <div class="card">
       <div class="card__label">모바일 — DM 목록</div>
+      <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-2);">DM 인박스는 별도 탭이 아니라 '채팅' 탭의 워크스페이스-외 컨텍스트(<code>/dms</code> 라우트)로 진입합니다.</div>
       <div class="card__preview" style="display:flex;justify-content:center;padding:var(--s-4);">
         <div class="phone"><div class="qf-m-screen qf-m-screen--bare" style="width:100%;height:100%;">
           <div class="qf-m-topbar"><div class="qf-m-topbar__back"></div><div class="qf-m-topbar__titleBlock"><div class="qf-m-topbar__title">Direct Messages</div></div><button class="qf-m-topbar__action"><svg class="qf-icon"><use href="#qf-i-edit"/></svg></button></div>
@@ -5390,11 +5472,29 @@ updatedAt DateTime @updatedAt
             <div class="qf-m-row" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--divider);"><div style="position:relative;flex-shrink:0;width:44px;height:44px;"><div class="qf-avatar qf-avatar--sm" style="background:var(--info-400);position:absolute;top:0;left:0;">현</div><div class="qf-avatar qf-avatar--sm" style="background:var(--ok-600);position:absolute;bottom:0;right:0;">민</div></div><div class="qf-m-row__primary" style="flex:1;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;"><span style="font-size:var(--fs-15);font-weight:600;color:var(--text-strong);">디자인 팀 논의</span><div style="display:flex;align-items:center;gap:var(--s-2);"><span style="font-size:var(--fs-11);color:var(--text-muted);">오전 10:45</span><span class="qf-badge qf-badge--count" style="background:var(--accent);color:var(--text-onAccent);font-size:var(--fs-11);border-radius:99px;padding:1px 6px;">1</span></div></div><div style="font-size:var(--fs-13);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">현우: 목업 올렸습니다</div></div></div>
             <div class="qf-m-row" style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--divider);opacity:.7;"><div style="flex-shrink:0;"><div class="qf-avatar qf-avatar--md" style="background:var(--warn-400);">태</div></div><div class="qf-m-row__primary" style="flex:1;min-width:0;"><div style="display:flex;justify-content:space-between;align-items:center;"><div style="display:flex;align-items:center;gap:4px;"><span style="font-size:var(--fs-15);font-weight:500;color:var(--text);">태현</span><svg class="qf-icon" style="width:13px;height:13px;color:var(--text-muted);"><use href="#qf-i-bell-off"/></svg></div><span style="font-size:var(--fs-11);color:var(--text-muted);">어제</span></div><div style="font-size:var(--fs-13);color:var(--text-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-top:2px;">수고하셨습니다 :)</div></div></div>
           </div>
-          <div class="qf-m-tabbar" style="height:var(--m-tabbar-h);display:flex;border-top:1px solid var(--divider);background:var(--bg-sidebar);">
-            <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--text-muted);font-size:var(--fs-10);"><svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-hash"/></svg><span class="qf-m-tab__label">채널</span></div>
-            <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--accent);font-size:var(--fs-10);"><svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-mention"/></svg><span class="qf-m-tab__label" style="color:var(--accent);">DM</span></div>
-            <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--text-muted);font-size:var(--fs-10);"><svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-bell"/></svg><span class="qf-m-tab__label">알림</span></div>
-            <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;cursor:pointer;color:var(--text-muted);font-size:var(--fs-10);"><svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg><span class="qf-m-tab__label">나</span></div>
+          <!-- §02 카노니컬 5탭 — DM 인박스는 채팅 탭의 워크스페이스-외 컨텍스트(/dms)이므로 active=채팅 (별도 'DM' 탭 없음) -->
+          <div class="qf-m-tabbar">
+            <button class="qf-m-tab" aria-selected="true">
+              <span class="qf-m-tab__pill"></span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">채팅</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">인박스</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+              <span class="qf-m-tab__label">스레드</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+              <span class="qf-m-tab__label">검색</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-m-tab__label">나</span>
+            </button>
           </div>
         </div></div>
       </div>
@@ -5655,7 +5755,7 @@ mutedUntil   DateTime?
   <p>Slack의 인라인 스레드 패널(채널 우측 사이드, 단일 깊이) 방식을 채택합니다. Discord 자동 아카이브·잠금 개념은 단순화하여 수동 잠금(lock)만 구현하며, GUILD_FORUM 스타일 포럼 채널 타입은 v1 범위 밖입니다.</p>
 
   <h3>스레드 시작 · 단일 깊이 강제</h3>
-  <p>모든 루트 채널 메시지에서 "Reply in thread" 액션이 가능합니다(메시지 호버 시 툴바 노출). 스레드는 <strong>단일 깊이(1-level flat)</strong>로 제한되며, 서비스 레이어에서 <code class="code">parent.parentMessageId !== null</code>이면 즉시 400을 반환합니다. DM 채널도 스레드를 지원합니다. 스레드 제목(title)은 v1에서 지원하지 않습니다.</p>
+  <p>모든 루트 채널 메시지에서 "Reply in thread" 액션이 가능합니다(데스크톱: 메시지 호버 시 툴바 노출 / 모바일: 메시지 롱프레스 액션 시트의 '답장' — 모바일 답장은 별도 인용 답장이 아니라 스레드 답글 단일 경로, FR-IA-MOB-05). 스레드는 <strong>단일 깊이(1-level flat)</strong>로 제한되며, 서비스 레이어에서 <code class="code">parent.parentMessageId !== null</code>이면 즉시 400을 반환합니다. DM 채널도 스레드를 지원합니다. 스레드 제목(title)은 v1에서 지원하지 않습니다.</p>
 
   <h3>루트 메시지 Reply Bar</h3>
   <p>답글이 1개 이상 존재하는 루트 메시지 아래에 reply bar를 표시합니다. 표시 내용: 최초 답글자 최대 5명 아바타(오버랩) + <em>N replies</em> + <em>Last reply X시간 전</em>. 미읽 답글이 있으면 파란색 unread dot을 함께 표시하며, 클릭 시 Thread Panel이 열립니다.</p>
@@ -6126,7 +6226,7 @@ mutedUntil   DateTime?
     <tbody>
       <tr>
         <td class="id">FR-TH-01</td>
-        <td>채널의 모든 루트 메시지에 대해 'Reply in thread' 액션을 제공해야 한다. parentMessageId를 가진 메시지(답글)는 스레드 시작 불가.</td>
+        <td>채널의 모든 루트 메시지에 대해 'Reply in thread' 액션을 제공해야 한다. parentMessageId를 가진 메시지(답글)는 스레드 시작 불가. <strong>진입점 — 데스크톱:</strong> 메시지 hover 툴바 / <strong>모바일:</strong> 메시지 롱프레스 액션 시트의 '답장'(=스레드 답글)·'스레드 보기'(<code>.qf-m-message-action-sheet</code>, FR-IA-MOB-05). 스레드 인박스는 탭바 '스레드' 탭으로 진입한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -6507,7 +6607,7 @@ OFF      -- 알림 없음</pre>
   </ul>
 
   <h3>이모지 피커 UX</h3>
-  <p>메시지 hover 시 퀵 반응 3개 노출. 피커는 검색창 + 카테고리 탭(최근·커스텀·Smileys·People·Animals·Food·Travel·Activities·Objects·Symbols·Flags) + 가상 스크롤 8열 그리드(32×32 px) + 스킨톤 선택기(6가지 피츠패트릭)로 구성됩니다. 메시지 입력창에서 <code>:</code> 입력 후 3글자 이상이면 자동완성 드롭다운(최대 10개 후보)이 노출됩니다.</p>
+  <p><strong>데스크톱:</strong> 메시지 hover 시 퀵 반응 3개 노출. <strong>모바일:</strong> 메시지 롱프레스 액션 시트 상단에 퀵 반응 행(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <code>.qf-m-emoji-drawer</code>)을 배치한다 — 데스크톱 3종/모바일 5종의 개수 차이는 의도적 분리다(FR-IA-MOB-05). 피커는 검색창 + 카테고리 탭(최근·커스텀·Smileys·People·Animals·Food·Travel·Activities·Objects·Symbols·Flags) + 가상 스크롤 8열 그리드(32×32 px) + 스킨톤 선택기(6가지 피츠패트릭)로 구성됩니다. 메시지 입력창에서 <code>:</code> 입력 후 3글자 이상이면 자동완성 드롭다운(최대 10개 후보)이 노출됩니다.</p>
 
   <div class="callout callout--warn">
     <b>스킨톤 저장 방식</b>: 개별 이모지 오버라이드 없이 UserEmojiPreference.defaultSkinTone 컬럼(1-6) 하나로 단순화합니다. DB에는 수정자 포함 문자열로 저장되므로 <code>👍🏼</code>와 <code>👍🏽</code>는 별개 반응으로 집계됩니다.
@@ -6943,6 +7043,7 @@ OFF      -- 알림 없음</pre>
     <li>채널 참여자로서, 메시지에 hover했을 때 3개의 퀵 반응 버튼이 나타나 한 번의 클릭으로 빠르게 반응하고 싶다.</li>
     <li>채널 참여자로서, 이미 내가 추가한 반응을 다시 클릭하면 반응이 취소(토글)되어 실수로 중복 반응이 남지 않았으면 한다.</li>
     <li>채널 참여자로서, 반응 버블에 hover하면 누가 이 반응을 남겼는지 툴팁으로 확인하고 싶다.</li>
+    <li>모바일 사용자로서, 반응 칩을 롱프레스하면 해당 이모지에 반응한 전체 사용자 목록을 바텀시트로 확인하고 싶다.</li>
     <li>채널 참여자로서, 이모지 피커에서 이름으로 검색해 원하는 이모지를 빠르게 찾고 싶다.</li>
     <li>채널 참여자로서, 최근에 사용한 이모지가 피커 상단에 표시되어 반복 사용이 편리했으면 한다.</li>
     <li>채널 참여자로서, 스킨톤을 한 번 설정해두면 이후 모든 이모지에 자동 적용되었으면 한다.</li>
@@ -6982,7 +7083,7 @@ OFF      -- 알림 없음</pre>
       </tr>
       <tr>
         <td class="id">FR-RE05</td>
-        <td>GET /messages/:messageId/reactions/:emoji/users 는 해당 이모지에 반응한 전체 유저 목록을 cursor 기반 페이지네이션(기본 limit 50, 최대 100)으로 반환한다.</td>
+        <td>GET /messages/:messageId/reactions/:emoji/users 는 해당 이모지에 반응한 전체 유저 목록을 cursor 기반 페이지네이션(기본 limit 50, 최대 100)으로 반환한다. <strong>UI 소비처 — 데스크톱:</strong> 반응 버블 hover 툴팁(최대 5명, FR-RE04) + 클릭 시 전체 목록 팝오버 / <strong>모바일:</strong> 반응 칩 롱프레스 시 반응자 목록 바텀시트(이 API의 페이지네이션 소비처).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -7272,7 +7373,7 @@ updatedAt       DateTime @updatedAt</pre>
   <ul>
     <li><b>동시 토글 race:</b> 사용자가 반응을 빠르게 2회 클릭 시 DB unique constraint로 1회만 성공. 서비스 레이어에서 upsert-toggle 패턴(try/catch on unique violation → delete)으로 처리. 클라이언트는 in-flight 중 동일 messageId × 동일 이모지 클릭을 debounce(300 ms)로 차단(다른 이모지는 차단 없음).</li>
     <li><b>낙관적 업데이트 불일치:</b> API 실패(네트워크 에러/409) 시 <code>Map&lt;messageId, ReactionSummary[]&gt;</code> 로컬 캐시를 직전 스냅샷으로 즉시 롤백. GET 재조회 불필요 — 이후 수신되는 <code>reaction:updated</code> WS 이벤트가 서버 진실값으로 캐시를 갱신한다.</li>
-    <li><b>커스텀 이모지 삭제 후 기존 반응:</b> MessageReaction.customEmojiId는 onDelete: SetNull. customEmojiId=null인 반응은 UI에서 [삭제된 이모지] placeholder(회색 박스 + 물음표) + 원래 emoji 텍스트 툴팁으로 표시.</li>
+    <li><b>커스텀 이모지 삭제 후 기존 반응:</b> MessageReaction.customEmojiId는 onDelete: SetNull. customEmojiId=null인 반응은 UI에서 [삭제된 이모지] placeholder(회색 박스 + 물음표) + 원래 emoji 텍스트 툴팁으로 표시. 모바일: hover 툴팁 대신 반응 칩 롱프레스로 열리는 반응자 목록 바텀시트(FR-RE05)에 원래 emoji 텍스트를 표기한다.</li>
     <li><b>20종 한도 동시 추가:</b> 19종 상태에서 두 사용자가 동시에 다른 이모지로 반응 시 INSERT ON CONFLICT DO NOTHING 후 단일 트랜잭션 내 SELECT COUNT(*) … FOR UPDATE로 직렬화. 20 초과 시 방금 삽입된 행만 DELETE 후 409 REACTION_LIMIT_REACHED 반환. advisory lock은 사용하지 않는다(D12 FR-RM16 동일 패턴).</li>
     <li><b>커스텀 이모지 100개 한도 동시 업로드:</b> 99개 상태에서 두 ADMIN 동시 업로드 시 INSERT ON CONFLICT DO NOTHING 후 SELECT COUNT(*) … FOR UPDATE(단일 트랜잭션), 100 초과 시 방금 삽입된 행 DELETE + 409 EMOJI_WORKSPACE_LIMIT. advisory lock 미사용.</li>
     <li><b>GIF 프레임 과다:</b> 50프레임 초과 GIF 업로드 시 422 INVALID_FILE 반환(서버에서 sharp/gifsicle로 프레임 수 체크).</li>
@@ -7315,7 +7416,7 @@ updatedAt       DateTime @updatedAt</pre>
   <!-- 1. 헤더 -->
   <div class="qf-eyebrow">PRD · D06</div>
   <h1 class="page-title">멘션 &amp; 알림</h1>
-  <p class="page-lede">채팅 메시지 내 @user/@role/@everyone/@here 멘션 파싱·전달, 채널/서버/글로벌 단위 알림 수준(ALL/MENTIONS/NOTHING) 설정, 뮤트·DND 스케줄, 키워드 알림, 알림 배지(미읽/멘션 카운트), Inbox/Activity 피드를 포함하는 종합 알림 도메인입니다. 모든 기능은 NAS 단일 배포(Postgres + Redis + BullMQ + Socket.IO + web-push VAPID)로 구현되며, 외부 FCM/APNs 브로커 없이 브라우저 Web Push API를 통해 모바일까지 커버합니다.</p>
+  <p class="page-lede">채팅 메시지 내 @user/@role/@everyone/@here 멘션 파싱·전달, 채널/서버/글로벌 단위 알림 수준(ALL/MENTIONS/NOTHING) 설정, 뮤트·DND 스케줄, 키워드 알림, 알림 배지(미읽/멘션 카운트), Inbox/Activity 피드를 포함하는 종합 알림 도메인입니다. 모든 기능은 NAS 단일 배포(Postgres + Redis + BullMQ + Socket.IO + web-push VAPID)로 구현되며, 외부 FCM/APNs 브로커 없이 브라우저 Web Push API로 구현합니다. 단, iOS Safari는 홈 화면에 PWA로 설치(A2HS)된 경우에만 Web Push를 지원하므로 모바일 커버리지는 Android 브라우저 + iOS PWA 설치 환경으로 한정되며, 미설치 iOS는 인앱 Inbox/배지 + 재접속 폴링으로 폴백합니다.</p>
 
   <!-- 2. 기능 명세 -->
   <h2><span class="qf-eyebrow">Spec</span> 기능 명세</h2>
@@ -7404,7 +7505,8 @@ updatedAt       DateTime @updatedAt</pre>
   <div class="callout callout--warn">
     FCM/APNs 외부 브로커 없음. npm <code>web-push</code> 라이브러리로 NAS 단독 VAPID push. 데스크톱 세션 활성(lastSeen &lt; 5분) 시 60초 지연 후 미읽이면 전송. 구독 만료(endpoint 410) 시 PushSubscription 자동 삭제.<br><br>
     <strong>권한 요청 UX(FR-MN-15):</strong> 브라우저 알림 권한은 페이지 첫 진입 시 즉시 요청하지 않습니다. 설정 페이지 "알림" 탭 또는 Inbox 패널 상단 배너의 "브라우저 알림 허용하기" 버튼을 클릭할 때만 <code>Notification.requestPermission()</code>을 호출합니다.<br><br>
-    권한이 <strong>denied</strong>된 경우, 설정 UI에 다음 카피를 표시합니다: <em>"브라우저 알림이 차단되어 있습니다. 주소창 자물쇠/정보 아이콘에서 알림을 허용한 후 새로고침해 주세요."</em> 아울러 <em>"알림 설정 방법 보기"</em>(내부 도움말 링크)를 함께 노출합니다. userAgent 분기 없이 동일 카피를 적용합니다.
+    권한이 <strong>denied</strong>된 경우, 설정 UI에 다음 표준 카피를 표시합니다: <em>"브라우저 알림이 차단되어 있습니다. 사이트 권한 설정에서 알림을 허용한 후 새로고침해 주세요. (기기·브라우저별 방법은 도움말 참조)"</em> 아울러 <em>"알림 설정 방법 보기"</em>(내부 도움말 링크)를 함께 노출합니다. 미지원/PWA 미설치(iOS) 상태에는 별도 안내 분기를 허용합니다.<br><br>
+    <strong>iOS 전제(PWA):</strong> iOS Safari는 홈 화면 PWA 설치(A2HS) 상태에서만 Web Push 구독이 가능합니다 — web manifest + service worker 제공이 요건이며, 미설치 iOS에서는 권한 요청 버튼 대신 "홈 화면에 추가하면 푸시 알림을 받을 수 있습니다" 안내를 표시합니다.
   </div>
 
   <h3>알림 배지 &amp; 동기화</h3>
@@ -7551,7 +7653,7 @@ updatedAt       DateTime @updatedAt</pre>
 
           <!-- 뮤트 컨텍스트 메뉴 (화면 2) — 인라인 데모 -->
           <div style="margin:var(--s-5) var(--s-8); padding:var(--s-4); background:var(--bg-elevated); border-radius:var(--r-lg); border:1px solid var(--border);">
-            <div style="font:600 var(--fs-12) var(--font-sans); color:var(--text-muted); text-transform:uppercase; letter-spacing:var(--tracking-caps); margin-bottom:var(--s-3);">채널 우클릭 컨텍스트 메뉴</div>
+            <div style="font:600 var(--fs-12) var(--font-sans); color:var(--text-muted); text-transform:uppercase; letter-spacing:var(--tracking-caps); margin-bottom:var(--s-3);">채널 우클릭 컨텍스트 메뉴 (데스크톱 — 모바일: 채널 행 롱프레스 시트)</div>
             <div class="qf-menu" style="position:static; box-shadow:none; border:none; padding:0;">
               <div class="qf-menu__item">
                 <svg class="qf-icon"><use href="#qf-i-bell"/></svg>
@@ -7561,12 +7663,13 @@ updatedAt       DateTime @updatedAt</pre>
               <div style="padding:var(--s-1) var(--s-3); font:600 var(--fs-11) var(--font-sans); color:var(--text-muted); text-transform:uppercase; letter-spacing:var(--tracking-caps);">뮤트 기간 선택</div>
               <div class="qf-menu__item">15분</div>
               <div class="qf-menu__item">1시간</div>
+              <div class="qf-menu__item">3시간</div>
               <div class="qf-menu__item" style="color:var(--accent); font-weight:600;">
                 <svg class="qf-icon" style="color:var(--accent);"><use href="#qf-i-check"/></svg>
                 8시간
               </div>
               <div class="qf-menu__item">24시간</div>
-              <div class="qf-menu__item">해제 시까지</div>
+              <div class="qf-menu__item">무기한</div>
               <div class="qf-menu__separator"></div>
               <div class="qf-menu__item qf-menu__item--danger">
                 <svg class="qf-icon"><use href="#qf-i-bell-off"/></svg>
@@ -7770,17 +7873,25 @@ updatedAt       DateTime @updatedAt</pre>
               <div style="font-size:var(--fs-11); color:var(--text-muted); white-space:nowrap;">13:58</div>
             </div>
           </div>
-          <!-- 탭바 -->
+          <!-- 탭바 (§02 카노니컬 5탭 — Inbox 화면이므로 active=인박스, @멘션 배지 유지) -->
           <div class="qf-m-tabbar">
             <button class="qf-m-tab">
-              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-layers"/></svg></span>
-              <span class="qf-m-tab__label">채널</span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">채팅</span>
             </button>
             <button class="qf-m-tab" aria-selected="true">
-              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-bell"/></svg></span>
-              <span class="qf-m-tab__badge qf-m-tab__badge--mention">5</span>
-              <span class="qf-m-tab__label">알림</span>
               <span class="qf-m-tab__pill"></span>
+              <span class="qf-m-tab__badge qf-m-tab__badge--mention">5</span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">인박스</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+              <span class="qf-m-tab__label">스레드</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+              <span class="qf-m-tab__label">검색</span>
             </button>
             <button class="qf-m-tab">
               <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
@@ -7798,13 +7909,13 @@ updatedAt       DateTime @updatedAt</pre>
   <h2><span class="qf-eyebrow">User stories</span> 사용자 스토리</h2>
   <ul class="stories">
     <li>채팅 사용자로서 메시지에 @username을 입력할 때 자동완성 드롭다운이 표시되어 빠르게 멘션 대상을 선택하고 싶습니다.</li>
-    <li>채팅 사용자로서 특정 채널을 24시간 뮤트하고 싶어서, 채널을 우클릭하면 뮤트 기간을 선택할 수 있었으면 합니다.</li>
+    <li>채팅 사용자로서 특정 채널을 24시간 뮤트하고 싶어서, 채널을 우클릭(데스크톱)하거나 롱프레스(모바일 — 채널 행 롱프레스 시트)하면 뮤트 기간을 선택할 수 있었으면 합니다.</li>
     <li>채팅 사용자로서 내가 멘션된 모든 메시지를 한 곳에서 확인하고 싶어서, Inbox의 Mentions 탭에서 @everyone/@role 포함 여부를 필터링할 수 있었으면 합니다.</li>
     <li>채팅 사용자로서 퇴근 후 밤 10시부터 아침 8시까지 알림을 자동으로 끄고 싶어서, DND 스케줄(평일/전체/커스텀)을 설정할 수 있었으면 합니다.</li>
     <li>채팅 사용자로서 특정 키워드가 언급되면 알림을 받고 싶어서, 내 프로필 설정에서 키워드를 등록할 수 있었으면 합니다. 단, 스레드 댓글에서 해당 키워드가 나와도 알림은 오지 않습니다.</li>
     <li>채팅 사용자로서 특정 서버의 @everyone 알림을 영구 차단하고 싶어서, 서버별 suppress 설정을 켤 수 있었으면 합니다.</li>
     <li>서버 관리자로서 공지 채널에서 @everyone을 권한 있는 역할만 사용할 수 있도록 제한하고 싶습니다.</li>
-    <li>채팅 사용자로서 페이지를 열지 않아도 브라우저 push 알림으로 중요한 멘션을 즉시 받고 싶습니다. 브라우저가 알림 권한을 거부했다면, 주소창 자물쇠/정보 아이콘에서 허용하는 방법을 "알림 설정 방법 보기" 링크로 안내받고 싶습니다.</li>
+    <li>채팅 사용자로서 페이지를 열지 않아도 브라우저 push 알림으로 중요한 멘션을 즉시 받고 싶습니다. 브라우저가 알림 권한을 거부했다면, 사이트 권한 설정에서 허용하는 방법을 "알림 설정 방법 보기" 링크로 안내받고 싶습니다.</li>
     <li>채팅 사용자로서 어떤 채널을 뮤트했는지 목록으로 확인하고, 해제 버튼을 한 곳에서 누르고 싶습니다.</li>
     <li>채팅 사용자로서 채널별로 데스크톱과 모바일 알림을 각각 다르게 설정하고 싶습니다.</li>
   </ul>
@@ -7823,7 +7934,7 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-02</td>
-        <td>@everyone/@here 멘션: MENTION_EVERYONE 권한 보유 사용자만 사용 가능(ADR-4, 비트 0x0080). <strong>@everyone: 채널 인원 ≥ 6(상수 EVERYONE_CONFIRM_THRESHOLD=6) 시 전송 전 확인 다이얼로그.</strong> <strong>@channel/@here: 채널 인원 ≥ 50(상수 BULK_MENTION_CONFIRM_THRESHOLD=50, ADR-8) 시 확인 다이얼로그.</strong> @everyone은 서버 전원, @here는 ONLINE/IDLE 사용자에게만 알림.</td>
+        <td>@everyone/@here 멘션: MENTION_EVERYONE 권한 보유 사용자만 사용 가능(ADR-4, 비트 0x0080). <strong>@everyone: 채널 인원 ≥ 6(상수 EVERYONE_CONFIRM_THRESHOLD=6) 시 전송 전 확인 다이얼로그.</strong> <strong>@channel/@here: 채널 인원 ≥ 50(상수 BULK_MENTION_CONFIRM_THRESHOLD=50, ADR-8) 시 확인 다이얼로그.</strong> @everyone은 서버 전원, @here는 ONLINE/IDLE 사용자에게만 알림. <strong>모바일:</strong> 확인 다이얼로그는 바텀시트(<code>.qf-m-sheet</code>) confirm 형식으로 제시한다(동일 카피·동일 임계값).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -7843,12 +7954,12 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-06</td>
-        <td>서버별 알림 오버라이드: 글로벌 설정을 서버 단위로 재정의(NotifLevel ALL/MENTIONS/NOTHING + isMuted). 뮤트 기간 선택(15분/1시간/8시간/24시간/영구).</td>
+        <td>서버별 알림 오버라이드: 글로벌 설정을 서버 단위로 재정의(NotifLevel ALL/MENTIONS/NOTHING + isMuted). 뮤트 기간 선택(15분/1시간/3시간/8시간/24시간/무기한 — 6종, 전 표면 단일 목록).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-MN-07</td>
-        <td>채널별 알림 오버라이드: 서버 설정을 채널 단위로 재정의(NotifLevel + isMuted + muteUntil). 카테고리 단위 오버라이드 시 하위 채널 일괄 적용.</td>
+        <td>채널별 알림 오버라이드: 서버 설정을 채널 단위로 재정의(NotifLevel + isMuted + muteUntil). 카테고리 단위 오버라이드 시 하위 채널 일괄 적용. <strong>진입점 — 데스크톱:</strong> 채널 우클릭 컨텍스트 메뉴 / <strong>모바일:</strong> 채널 행 롱프레스 액션 시트(뮤트 6종/해제 — FR-MN-06). 뮤트 채널은 행에 bell-off 아이콘 + 미읽 강조·배지 억제 표시. <strong>NotifLevel 라디오 UI는 전 플랫폼 후속(보류)</strong>이며 v1 구현 범위는 뮤트(isMuted + muteUntil)만이다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -7878,17 +7989,17 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-13</td>
-        <td>Activity Inbox: 전용 패널(<code>role="complementary"</code>). All/Mentions/Threads/DMs 탭(<code>role="tablist"</code>/<code>role="tab"</code>/<code>role="tabpanel"</code> 패턴). 멘션 탭 필터(@everyone, @role 포함 여부). 항목별·전체 읽음 처리. 항목 클릭 시 메시지 점프. 탭별 빈 상태 카피: 전체="아직 알림이 없습니다", 멘션="멘션 알림이 없습니다", 스레드="스레드 댓글 알림이 없습니다", DM="DM 알림이 없습니다". 로딩 시 <code>.qf-skeleton</code> 3행(200ms 지연 후 표시). <strong>항목 클릭 fallback: ①채널 삭제 시 "채널을 찾을 수 없습니다" toast + Inbox 유지, ②권한 회수 시 "접근 권한이 없습니다" toast + Inbox 유지, ③스레드 답글 항목은 채널 이동 → Thread Panel 오픈 → lastReadMessageId 스크롤 → 2초 하이라이트(D07 jump 채널 가드 동일 적용).</strong> <strong>DMs 탭: 1:1/그룹 DM에서 발생한 @직접멘션 MentionRecord(targetType=USER)만 표시. D03에 교차 참조 추가.</strong></td>
+        <td>Activity Inbox: 전용 패널(<code>role="complementary"</code>). All/Mentions/Threads/DMs 탭(<code>role="tablist"</code>/<code>role="tab"</code>/<code>role="tabpanel"</code> 패턴). 멘션 탭 필터(@everyone, @role 포함 여부). 항목별·전체 읽음 처리. 항목 클릭 시 메시지 점프. 탭별 빈 상태 카피: 전체="아직 알림이 없습니다", 멘션="멘션 알림이 없습니다", 스레드="스레드 댓글 알림이 없습니다", DM="DM 알림이 없습니다". 로딩 시 <code>.qf-skeleton</code> 3행(200ms 지연 후 표시). <strong>항목 클릭 fallback: ①채널 삭제 시 "채널을 찾을 수 없습니다" toast + Inbox 유지, ②권한 회수 시 "접근 권한이 없습니다" toast + Inbox 유지, ③스레드 답글 항목은 채널 이동 → Thread Panel 오픈 → lastReadMessageId 스크롤 → 2초 하이라이트(D07 jump 채널 가드 동일 적용).</strong> <strong>DMs 탭: 1:1/그룹 DM에서 발생한 @직접멘션 MentionRecord(targetType=USER)만 표시. D03에 교차 참조 추가.</strong> <strong>모바일:</strong> 탭바 '인박스' 탭의 풀스크린 화면으로 제공한다(하단 시트 아님). 항목 탭 시 해당 채널/DM으로 이동하며 <code>?msg=</code> 파라미터로 메시지 점프. <code>role="complementary"</code>는 데스크톱 우측 패널 한정.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-MN-14</td>
-        <td>알림 배지: 서버 아이콘(멘션 숫자 + 미읽 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널·서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조.</td>
+        <td>알림 배지: 서버 아이콘(멘션 숫자 + 미읽 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널·서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조. <strong>모바일:</strong> 하단 탭바 배지(<code>.qf-m-tab__badge</code> 미읽 violet / <code>.qf-m-tab__badge--mention</code> 멘션 danger — §02 탭바 카노니컬 표)도 동일 카운트 소스로 동기화하며 본 FR의 검증 대상에 포함한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-MN-15</td>
-        <td>Web Push(VAPID): PushSubscription 등록 후 알림 이벤트 시 web-push 라이브러리로 전송. DND·뮤트 상태 스킵. 데스크톱 세션 활성(lastSeen &lt; 5분) 시 60초 지연. <strong>권한 요청 UX: 페이지 첫 진입 즉시 요청 금지. 설정 "알림" 탭 또는 Inbox 패널 상단 배너 "브라우저 알림 허용하기" 버튼 클릭 시에만 requestPermission() 호출.</strong> denied 상태 시 설정 UI에 <em>"브라우저 알림이 차단되어 있습니다. 사이트 권한 설정에서 알림을 허용한 후 새로고침해 주세요."</em> 안내 카피 + <em>"알림 설정 방법 보기"</em>(브라우저별 스크린샷 도움말 링크) 표시. userAgent 분기 없이 동일 카피 적용.</td>
+        <td>Web Push(VAPID): PushSubscription 등록 후 알림 이벤트 시 web-push 라이브러리로 전송. DND·뮤트 상태 스킵. 데스크톱 세션 활성(lastSeen &lt; 5분) 시 60초 지연. <strong>권한 요청 UX: 페이지 첫 진입 즉시 요청 금지. 설정 "알림" 탭 또는 Inbox 패널 상단 배너 "브라우저 알림 허용하기" 버튼 클릭 시에만 requestPermission() 호출.</strong> denied 상태 시 설정 UI에 <em>"브라우저 알림이 차단되어 있습니다. 사이트 권한 설정에서 알림을 허용한 후 새로고침해 주세요. (기기·브라우저별 방법은 도움말 참조)"</em> 표준 카피 + <em>"알림 설정 방법 보기"</em>(브라우저별 스크린샷 도움말 링크) 표시. iOS Safari는 홈 화면 PWA 설치(A2HS) 상태에서만 Web Push 구독이 가능하므로(web manifest + service worker 요건), 미설치 iOS 환경에서는 권한 요청 버튼 대신 '홈 화면에 추가하면 푸시 알림을 받을 수 있습니다' 안내를 표시한다. Notification API 미지원·PWA 미설치 상태의 안내 분기를 허용한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -7903,7 +8014,7 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-18</td>
-        <td>채널별 모바일/데스크톱 독립 알림 설정: 채널 오버라이드에서 데스크톱과 모바일 push 수준 각각 설정.</td>
+        <td>채널별 모바일/데스크톱 독립 알림 설정: 채널 오버라이드에서 데스크톱과 모바일 push 수준 각각 설정. <strong>'모바일' 판별 기준:</strong> ≤767px 뷰포트의 모바일 셸 + 해당 기기의 PushSubscription 보유 — mobileLevel은 이 구독에 대한 Web Push 발송 수준에 적용한다.</td>
         <td><span class="prio prio--p2">P2</span></td>
       </tr>
       <tr>
@@ -8281,7 +8392,7 @@ KEYWORD</pre>
     <li><strong>동시 뮤트 설정 race:</strong> 복수 탭 동시 PATCH 시 Postgres row-level locking(SELECT FOR UPDATE) + idempotency key로 중복 적용 방지.</li>
     <li><strong>채널/서버 삭제 시 cascade:</strong> ChannelNotificationPref, MentionRecord 모두 cascade delete. ServerNotificationPref도 cascade.</li>
     <li><strong>배지 카운트 정합성:</strong> 클라이언트 낙관적 +1(favicon 즉시 반영). isMuted=true 확인 후 증가. notification:badge_update 수신 또는 연결 복구·포커스 복귀 시 GET /me/notification-badges 1회 호출로 서버 진실값 재동기화(last-write-wins). 30초 주기 polling 미사용.</li>
-    <li><strong>Web Push 권한 denied:</strong> Notification.permission === 'denied' 상태에서 requestPermission() 재호출 불가. 설정 UI에 "브라우저 알림이 차단되어 있습니다. 주소창 자물쇠/정보 아이콘에서 알림을 허용한 후 새로고침해 주세요." 카피 + "알림 설정 방법 보기" 내부 도움말 링크 표시. userAgent 분기 없음.</li>
+    <li><strong>Web Push 권한 denied:</strong> Notification.permission === 'denied' 상태에서 requestPermission() 재호출 불가. 설정 UI에 "브라우저 알림이 차단되어 있습니다. 사이트 권한 설정에서 알림을 허용한 후 새로고침해 주세요. (기기·브라우저별 방법은 도움말 참조)" 표준 카피(FR-MN-15와 동일 문구) + "알림 설정 방법 보기" 내부 도움말 링크 표시. 미지원/PWA 미설치(iOS) 상태는 권한 denied와 구분해 별도 안내로 분기한다.</li>
     <li><strong>mention-broadcast Job 최종 실패:</strong> 3회 지수백오프 재시도 후에도 실패 시 ERROR 로그 기록 + 해당 사용자 Inbox에 "멘션 처리 중 오류가 발생했습니다" 알림 생성.</li>
     <li><strong>Activity Inbox 빈 상태·로딩:</strong> 탭별 empty 카피 표시(FR-MN-13). 로딩 중에는 .qf-skeleton 3행을 200ms 지연 후 표시. 패널 루트 role="complementary", 탭은 tablist/tab/tabpanel 패턴.</li>
   </ul>
@@ -8728,24 +8839,29 @@ KEYWORD</pre>
               <div style="font-size:var(--fs-13);color:var(--text);">v2.3.0 <mark style="background:var(--a-900);color:var(--a-200);border-radius:2px;padding:0 2px;">배포</mark> 릴리즈 노트 첨부.</div>
             </div>
           </div>
-          <!-- 탭바 -->
+          <!-- 탭바 (§02 카노니컬 5탭 — 검색 결과 화면이므로 active=검색) -->
           <div class="qf-m-tabbar">
-            <div class="qf-m-tab">
-              <svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-hash"/></svg>
-              <span class="qf-m-tab__label" style="font-size:10px;">채널</span>
-            </div>
-            <div class="qf-m-tab" style="color:var(--accent);">
-              <svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg>
-              <span class="qf-m-tab__label" style="font-size:10px;">검색</span>
-            </div>
-            <div class="qf-m-tab">
-              <svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-bell"/></svg>
-              <span class="qf-m-tab__label" style="font-size:10px;">알림</span>
-            </div>
-            <div class="qf-m-tab">
-              <svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg>
-              <span class="qf-m-tab__label" style="font-size:10px;">나</span>
-            </div>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">채팅</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">인박스</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+              <span class="qf-m-tab__label">스레드</span>
+            </button>
+            <button class="qf-m-tab" aria-selected="true">
+              <span class="qf-m-tab__pill"></span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+              <span class="qf-m-tab__label">검색</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-m-tab__label">나</span>
+            </button>
           </div>
         </div>
       </div>
@@ -8779,7 +8895,7 @@ KEYWORD</pre>
     <tbody>
       <tr>
         <td class="id">FR-S01</td>
-        <td>사용자는 검색창(Cmd+K 또는 헤더 돋보기 아이콘)을 클릭하면 최근 검색 목록(최대 10개)을 드롭다운으로 볼 수 있어야 한다. <strong>최근 검색어가 0건인 첫 포커스 시에는 수식어 치트시트 카드를 표시해야 한다</strong>(<code>from:@alice</code> 특정 사람 / <code>in:#general</code> 특정 채널 / <code>has:image</code> 이미지 포함 3가지 항목 포함).</td>
+        <td>사용자는 검색창(<strong>데스크톱:</strong> Cmd+K 또는 헤더 돋보기 아이콘 / <strong>모바일:</strong> 탭바 '검색' 탭 풀스크린 화면 — FR-IA-MOB-07 ④)을 열면 최근 검색 목록(최대 10개)을 드롭다운으로 볼 수 있어야 한다. <strong>최근 검색어가 0건인 첫 포커스 시에는 수식어 치트시트 카드를 표시해야 한다</strong>(<code>from:@alice</code> 특정 사람 / <code>in:#general</code> 특정 채널 / <code>has:image</code> 이미지 포함 3가지 항목 포함).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -8789,7 +8905,7 @@ KEYWORD</pre>
       </tr>
       <tr>
         <td class="id">FR-S03</td>
-        <td>Enter 입력 시 오른쪽 슬라이드-인 검색 결과 패널이 열리며 기존 우측 패널을 대체해야 한다. 결과 0건일 때 <code>[data-state=empty]</code> 컨테이너와 수식어 힌트 DOM이 존재해야 한다("&ldquo;[검색어]&rdquo; 결과 없음. from:, in:, has:로 좁혀보세요." 텍스트 포함). <strong>패널이 열려 있는 동안 <code>search:index-update</code> WS 이벤트가 수신되면 패널 상단에 "새 결과가 있을 수 있습니다. 재검색" 배너를 표시하고, 클릭 시 동일 쿼리를 재실행한다.</strong></td>
+        <td>Enter 입력 시 오른쪽 슬라이드-인 검색 결과 패널이 열리며 기존 우측 패널을 대체해야 한다. 결과 0건일 때 <code>[data-state=empty]</code> 컨테이너와 수식어 힌트 DOM이 존재해야 한다("&ldquo;[검색어]&rdquo; 결과 없음. from:, in:, has:로 좁혀보세요." 텍스트 포함). <strong>패널이 열려 있는 동안 <code>search:index-update</code> WS 이벤트가 수신되면 패널 상단에 "새 결과가 있을 수 있습니다. 재검색" 배너를 표시하고, 클릭 시 동일 쿼리를 재실행한다.</strong> <strong>모바일(≤767px):</strong> 우측 패널 대체가 아니라 탭바 '검색' 탭의 풀스크린 화면에 결과를 표시한다. 태블릿(768~1024px)은 데스크톱 셸 규칙(우측 슬라이드-인 패널)을 따른다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -8848,7 +8964,7 @@ KEYWORD</pre>
       </tr>
       <tr>
         <td class="id">FR-S12</td>
-        <td>채널 내 로컬 검색(Ctrl+F)은 in: 필터가 현재 채널로 자동 설정된 채 검색 패널을 열어야 한다.</td>
+        <td>채널 내 로컬 검색(Ctrl+F)은 in: 필터가 현재 채널로 자동 설정된 채 검색 패널을 열어야 한다. <strong>모바일:</strong> 채널 헤더의 검색 아이콘 탭이 동일 동작(in: 현재 채널 자동 설정 상태로 검색 화면 진입 — FR-IA-MOB-07 ⑤)이다.</td>
         <td><span class="prio prio--p2">P2</span></td>
       </tr>
       <tr>
@@ -9097,7 +9213,7 @@ search:rl:{userId}
   </div>
 
   <h3>자동 Idle 전환</h3>
-  <p>클라이언트는 포커스 상태일 때 mousemove/keydown이 발생할 때마다 최대 1회/30초로 스로틀하여 <code class="qf-code-inline">presence:activity</code>를 전송한다. 서버는 Redis 키 <code class="qf-code-inline">presence:{userId}:activity</code>를 <strong>TTL 600s(10분, PRESENCE_IDLE_TIMEOUT)</strong>으로 갱신한다. TTL 만료 시 <strong>IDLE 전환 fan-out은 BullMQ 큐 또는 keyspace notify 이벤트 기반으로 비동기 처리</strong>하여 30초 스케줄러 일괄 fan-out을 회피한다. <code class="qf-code-inline">presence:activity</code>는 연결 초기화 완료(<code class="qf-code-inline">connection:ready</code>) 이벤트 수신 후부터 전송한다.</p>
+  <p>클라이언트는 포커스 상태일 때 mousemove/keydown/touchstart(터치 기기)가 발생할 때마다 최대 1회/30초로 스로틀하여 <code class="qf-code-inline">presence:activity</code>를 전송한다. 서버는 Redis 키 <code class="qf-code-inline">presence:{userId}:activity</code>를 <strong>TTL 600s(10분, PRESENCE_IDLE_TIMEOUT)</strong>으로 갱신한다. TTL 만료 시 <strong>IDLE 전환 fan-out은 BullMQ 큐 또는 keyspace notify 이벤트 기반으로 비동기 처리</strong>하여 30초 스케줄러 일괄 fan-out을 회피한다. <code class="qf-code-inline">presence:activity</code>는 연결 초기화 완료(<code class="qf-code-inline">connection:ready</code>) 이벤트 수신 후부터 전송한다.</p>
 
   <div class="callout">수동으로 설정한 <strong>DND</strong> 또는 <strong>INVISIBLE</strong> 상태에서는 activity 신호가 들어와도 상태를 변경하지 않는다. 짧은 재연결(&lt;35초 grace)은 OFFLINE 브로드캐스트 없이 이전 수동 상태로 즉시 복원한다.</div>
 
@@ -9345,14 +9461,14 @@ search:rl:{userId}
     <thead><tr><th>ID</th><th>요구사항</th><th>우선순위</th></tr></thead>
     <tbody>
       <tr><td class="id">FR-P01</td><td>PresenceStatus는 ONLINE / IDLE / DND / OFFLINE / INVISIBLE 다섯 값을 가진다. 외부(다른 사용자)에게 INVISIBLE은 OFFLINE으로 브로드캐스트한다. presence:subscribe·bulk·update 및 GET /users/:id/profile·멤버목록 모두 동일하게 OFFLINE 변환 적용(본인 제외).</td><td><span class="prio prio--p0">P0</span></td></tr>
-      <tr><td class="id">FR-P02</td><td>WS 연결 유지 중 클라이언트가 mousemove/keydown 이벤트로 presence:activity를 전송하고, 서버는 Redis <code class="qf-code-inline">presence:{userId}:activity</code>를 <strong>TTL 600s(PRESENCE_IDLE_TIMEOUT=600s, 10분)</strong>으로 갱신한다. TTL 만료 시 <strong>IDLE 전환 fan-out은 BullMQ 큐 또는 Redis keyspace notify 이벤트 기반으로 비동기 처리</strong>한다(30초 스케줄러 일괄 fan-out 회피). IDLE 전환은 OFFLINE과 독립된 별도 기준이다.</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-P02</td><td>WS 연결 유지 중 클라이언트가 mousemove/keydown/touchstart(터치 기기) 이벤트로 presence:activity를 전송하고, 서버는 Redis <code class="qf-code-inline">presence:{userId}:activity</code>를 <strong>TTL 600s(PRESENCE_IDLE_TIMEOUT=600s, 10분)</strong>으로 갱신한다. TTL 만료 시 <strong>IDLE 전환 fan-out은 BullMQ 큐 또는 Redis keyspace notify 이벤트 기반으로 비동기 처리</strong>한다(30초 스케줄러 일괄 fan-out 회피). IDLE 전환은 OFFLINE과 독립된 별도 기준이다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P03</td><td>WS disconnect 후 <strong>35초 grace 내 재연결 없으면 OFFLINE 브로드캐스트(D17과 통일)</strong>. 35초 이내 재연결 시 OFFLINE 브로드캐스트 없이 이전 수동 상태(DND/INVISIBLE) 즉시 복원. reconnect 시 연결 초기화 순서: join rooms → restore subscriptions(presence:sub:{socketId}) → emit bulks(100명 청크) → connection:ready 신호. presence:activity는 connection:ready 이후 전송.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P04</td><td>커스텀 상태(emoji, text, expiresAt)를 설정·수정·삭제할 수 있다. expiresAt은 null(무기한) 또는 미래 ISO 8601 UTC 타임스탬프. '오늘 자정' 등 프리셋은 User.timezone(IANA) 기준 계산 후 UTC 저장, 미설정 시 클라이언트 브라우저 timezone fallback. PUT /users/me/status에 <code class="qf-code-inline">timezone</code> 필드(IANA 문자열) 포함하여 서버가 변환 처리. 서버 스케줄러(1분 주기)가 만료된 커스텀 상태를 초기화한다(FR-P17 만료 스케줄러 참조).</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P05</td><td>DND 수동 ON/OFF. DND 중 Notification 도메인은 멘션·채널 알림을 발송하지 않는다(브로드캐스트 단계 차단).</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P06</td><td>DND 스케줄: 사용자당 요일(0-6) × {startMinute, endMinute}(UTC 기준 분)으로 설정. 구간 진입 시 DND 자동 ON + snapshot, 종료 시 복원. 자정 걸침(start &gt; end)은 (now ≥ start OR now &lt; end) OR 처리.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-P07</td><td>타이핑 인디케이터: 클라이언트 <strong>3초 스로틀(D01·D17과 동일)</strong> typing:start → Redis <code class="qf-code-inline">typing:{channelId}:{userId}</code> <strong>TTL 10초</strong> + 채널 룸 브로드캐스트. 클라이언트 측 <strong>10초 타이머</strong> 만료 또는 typing:stop 수신 시 자동 제거. 동시 최대 3명(초과는 '외 N명'). <strong>서버는 브로드캐스트 직전 발신자의 현재 presence 상태를 Redis에서 실시간 확인하여 INVISIBLE이면 typing:update를 발행하지 않는다</strong>(FR-P12 race 대응).</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P08</td><td>멤버 목록 API: 멤버를 status 그룹 + hoist 역할 그룹으로 반환. cursor 기반 페이지네이션(<strong>limit 50</strong>). 멤버목록·DM 조회는 전역 단일 UserPresence SELECT로 N+1 제거.</td><td><span class="prio prio--p0">P0</span></td></tr>
-      <tr><td class="id">FR-P09</td><td>역할 hoistInMemberList ON 시 해당 역할 멤버가 별도 상단 그룹으로 표시. 그룹 내 온라인 멤버만 기본 표시.</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-P09</td><td>역할 hoistInMemberList ON 시 해당 역할 멤버가 별도 상단 그룹으로 표시. 그룹 내 온라인 멤버만 기본 표시. <strong>모바일:</strong> 우 패널 멤버 목록도 동일 그룹 렌더(hoist 그룹 + 온라인/자리비움/방해금지/오프라인 버킷, 역할 라벨 한글화)를 적용하며, 멤버 행 탭 시 풀스크린 프로필(D14 FR-PS-08 모바일 변형)로 진입한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-P10</td><td>lastSeenAt: OFFLINE/DND 전환 시 업데이트, INVISIBLE 전환 시 미갱신. hovercard에서 '오늘 / 어제 / N일 전' 둔감화 노출.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-P11</td><td>1000명 이상 워크스페이스에서 OFFLINE 그룹을 응답에서 제외(include_offline=false 기본). 프레즌스 fan-out도 온라인 멤버로 범위 제한.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-P12</td><td>INVISIBLE 사용자는 본인 조회 시 실제 상태를, 타인 조회 시 OFFLINE을 본다(presence:subscribe·bulk·update 및 GET /users/:id/profile·멤버목록 전범위 적용). <strong>presence:update·presence:bulk·멤버목록 응답에서 customEmoji·customText도 null로 대체</strong>하여 존재 자체를 노출하지 않는다. typing:update에서 INVISIBLE 사용자의 displayName을 본인 제외 수신자에게 마스킹한다. <strong>서버는 typing:update 브로드캐스트 직전 Redis에서 발신자 상태를 실시간 확인</strong>하여 INVISIBLE 전환 직후 typing:start 재전송 race에 대응한다. 멘션 자동완성 '최근 발화자' 정렬에서 INVISIBLE은 OFFLINE과 동일 처리한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
@@ -9360,7 +9476,7 @@ search:rl:{userId}
       <tr><td class="id">FR-P14</td><td>presence:subscribe{userIds} 수신 시 서버는 <strong>200ms 이내</strong> 즉시 presence:bulk로 현재 상태 응답. 이후 상태 변경은 구독 소켓에만 presence:update 전송. presence:bulk 페이로드는 <strong>100명 청크</strong> 단위로 분할 전송한다. <strong>서버는 각 userId가 요청자와 최소 1개 공통 워크스페이스 또는 DM 채널의 멤버인지 검증</strong>하고, 검증 실패 userId는 구독 목록에서 제외하거나 OFFLINE을 강제 반환한다. 단일 소켓 총 구독 userId 상한은 <strong>500개</strong>이며, 채널 전환 burst rate-limit은 <strong>10회/초</strong>를 기준으로 초과 시 요청 드랍.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-P15</td><td>클라이언트는 IntersectionObserver(<strong>200ms debounce — 동일 채널 내 스크롤에만 적용</strong>)로 뷰포트에 렌더된 userId만 수집하여 presence:subscribe에 전달한다(단일 요청 최대 100 userIds, 초과 시 100개 청크로 분할). <strong>채널 전환 시에는 IntersectionObserver를 즉시 disconnect → presence:unsubscribe(fire-and-forget) 후 새 채널 observer를 등록</strong>한다(채널 전환에는 debounce 미적용). DOM에서 사라진 멤버는 presence:unsubscribe로 제거한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-P16</td><td>presence:unsubscribe 서버 처리: presence:sub:{socketId} Set에서 해당 userId를 SREM. disconnect 시 presence:sub:{socketId}를 DEL 후 <strong>TTL 5분(EXPIRE)</strong> 설정하여 reconnect 복원 창 확보(reconnect는 통상 수초~수십초 이내 완료 — 5분으로 단축하여 Redis 메모리 효율 개선). 중장기적으로 userId 단위 구독 관리로 전환하여 reconnect socketId 변경 문제를 구조적으로 해결하는 방향을 검토한다. reconnect 시 socketId 변경에 대비하여 클라이언트가 현재 뷰포트 userId를 재전송하는 fallback 경로를 지원한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
-      <tr><td class="id">FR-P17</td><td>커스텀 상태 설정 UX: <strong>진입점</strong>은 presence 드롭다운(상태 피커 팝오버 내 커스텀 상태 섹션) 및 프로필 팝오버(호버카드 / 모바일 프로필 화면)에서 제공한다. <strong>만료 picker 프리셋</strong>: 30분 / 1시간 / 4시간 / 오늘 자정(User.timezone IANA 기준) / 이번 주 월요일 자정 / 무기한(null). <strong>만료 후 자동 클리어</strong>: NestJS @Cron 1분 주기 스케줄러가 DB <code class="qf-code-inline">customExpiresAt</code> 인덱스를 조회하여 만료된 커스텀 상태를 null로 초기화하고 presence:custom_status 이벤트를 발행한다(FR-P04 만료 처리와 동일 스케줄러). D14 프로필 편집과 연계하여 프로필 팝오버 내 커스텀 상태 편집 진입 경로를 제공한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-P17</td><td>커스텀 상태 설정 UX: <strong>진입점</strong>은 presence 드롭다운(상태 피커 팝오버 내 커스텀 상태 섹션) 및 프로필 팝오버(호버카드 / 모바일 프로필 화면)에서 제공한다. <strong>만료 picker 프리셋</strong>: 30분 / 1시간 / 4시간 / 오늘 자정(User.timezone IANA 기준) / 이번 주 월요일 자정 / 무기한(null). <strong>만료 후 자동 클리어</strong>: NestJS @Cron 1분 주기 스케줄러가 DB <code class="qf-code-inline">customExpiresAt</code> 인덱스를 조회하여 만료된 커스텀 상태를 null로 초기화하고 presence:custom_status 이벤트를 발행한다(FR-P04 만료 처리와 동일 스케줄러). D14 프로필 편집과 연계하여 프로필 팝오버 내 커스텀 상태 편집 진입 경로를 제공한다. <strong>모바일 진입점:</strong> '나' 탭 you-header의 '상태 변경' 행 → 상태 변경 바텀시트(온라인/방해 금지/오프라인 표시 — IDLE은 자동 전용이라 선택지 제외)이며, 커스텀 상태 편집도 이 시트에서 진입한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
     </tbody>
   </table>
 
@@ -9617,10 +9733,10 @@ workspace:{wsId}:online_sockets        Set
 
   <h3>수동 마크 &amp; 키보드 단축키</h3>
   <ul>
-    <li><strong>미읽으로 표시</strong>: 메시지 hover toolbar → 해당 메시지 이전 ID로 lastReadMessageId 되돌림.</li>
-    <li><strong>읽음으로 표시</strong>: 채널 우클릭 컨텍스트 메뉴 또는 채널 헤더 버튼.</li>
+    <li><strong>미읽으로 표시</strong>: 메시지 hover toolbar → 해당 메시지 이전 ID로 lastReadMessageId 되돌림. (모바일: 메시지 롱프레스 시트 '미읽음으로 표시' — FR-IA-MOB-05)</li>
+    <li><strong>읽음으로 표시</strong>: 채널 우클릭 컨텍스트 메뉴 또는 채널 헤더 버튼. (모바일: 채널 행 롱프레스 시트 '읽음으로 표시' — FR-IA-MOB-07 ②)</li>
     <li><strong>모두 읽음</strong>: Unreads View 하단 버튼 → 전체 채널 ACK 일괄 업데이트. <strong>5초 Undo 토스트</strong> (토스트 카피: "모든 채널을 읽음으로 표시했습니다." + "실행 취소" 버튼, 5초 후 자동 소멸).</li>
-    <li>키보드: <kbd>Esc</kbd> = 현재 채널 읽음, <kbd>Shift+Esc</kbd> = 워크스페이스 전체 읽음.</li>
+    <li>키보드: <kbd>Esc</kbd> = 현재 채널 읽음, <kbd>Shift+Esc</kbd> = 워크스페이스 전체 읽음. (모바일: 채널 행 롱프레스 '읽음으로 표시' / 좌 패널 채널 목록 섹션 '모두 읽음' — FR-IA-MOB-07 ⑥)</li>
   </ul>
 
   <h3>mark-all-read Undo 상세 동작</h3>
@@ -9941,10 +10057,10 @@ workspace:{wsId}:online_sockets        Set
     </div>
   </div>
 
-  <!-- Mock C: 모바일 미읽 탭 -->
+  <!-- Mock C: 모바일 미읽 모아보기(인박스 탭 내 표현 — 카노니컬 5탭에 별도 '미읽' 탭 없음) -->
   <div style="display:flex;justify-content:center;margin-top:var(--s-6);">
     <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-3);">
-      <div style="font:600 var(--fs-12)/1 var(--font-sans);color:var(--text-muted);text-transform:uppercase;letter-spacing:var(--tracking-caps);">Mobile — 미읽 탭</div>
+      <div style="font:600 var(--fs-12)/1 var(--font-sans);color:var(--text-muted);text-transform:uppercase;letter-spacing:var(--tracking-caps);">Mobile — 미읽 모아보기(인박스 탭 내 표현)</div>
       <div class="phone">
         <div class="qf-m-screen qf-m-screen--bare" style="display:flex;flex-direction:column;height:100%;">
           <!-- Topbar -->
@@ -9995,24 +10111,29 @@ workspace:{wsId}:online_sockets        Set
 
           </div>
 
-          <!-- Tab bar -->
-          <div class="qf-m-tabbar" style="display:flex;height:56px;background:var(--bg-panel);border-top:1px solid var(--divider);">
-            <button class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);">
-              <svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-hash"/></svg>
-              <span class="qf-m-tab__label" style="font:var(--fs-10);">채널</span>
+          <!-- Tab bar (§02 카노니컬 5탭 — 미읽 모아보기는 인박스 탭 내 표현이므로 active=인박스, 일반 미읽 합계는 violet 기본 배지) -->
+          <div class="qf-m-tabbar">
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+              <span class="qf-m-tab__label">채팅</span>
             </button>
-            <button class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;cursor:pointer;color:var(--a-300);position:relative;">
-              <svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg>
-              <span class="qf-m-tab__label" style="font:var(--fs-10);font-weight:600;">미읽</span>
-              <span class="qf-m-tab__badge" style="position:absolute;top:6px;right:calc(50% - 14px);background:var(--danger-600);color:#fff;border-radius:var(--r-pill);font:600 9px var(--font-sans);min-width:15px;height:15px;display:flex;align-items:center;justify-content:center;padding:0 3px;">19</span>
+            <button class="qf-m-tab" aria-selected="true">
+              <span class="qf-m-tab__pill"></span>
+              <span class="qf-m-tab__badge">19</span>
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+              <span class="qf-m-tab__label">인박스</span>
             </button>
-            <button class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);">
-              <svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg>
-              <span class="qf-m-tab__label" style="font:var(--fs-10);">스레드</span>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+              <span class="qf-m-tab__label">스레드</span>
             </button>
-            <button class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border:none;background:transparent;cursor:pointer;color:var(--text-muted);">
-              <svg class="qf-icon qf-m-tab__icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg>
-              <span class="qf-m-tab__label" style="font:var(--fs-10);">나</span>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+              <span class="qf-m-tab__label">검색</span>
+            </button>
+            <button class="qf-m-tab">
+              <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+              <span class="qf-m-tab__label">나</span>
             </button>
           </div>
         </div>
@@ -10050,7 +10171,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-02</td>
-        <td>클라이언트는 스크롤 이벤트에서 채널 ACK 전송 시 5초 디바운스를 적용한다. scroll-to-bottom 상태(<code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code>; 가상화 시 마지막 virtualIndex의 messageId 기준)에서 새 메시지 수신 시에는 디바운스 없이 즉시 ACK한다. ACK body에 <code>clientTimestamp</code>를 포함한다.</td>
+        <td>클라이언트는 스크롤 이벤트에서 채널 ACK 전송 시 5초 디바운스를 적용한다. scroll-to-bottom 상태(<code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code>; 가상화 시 마지막 virtualIndex의 messageId 기준)에서 새 메시지 수신 시에는 디바운스 없이 즉시 ACK한다. ACK body에 <code>clientTimestamp</code>를 포함한다. <strong>모바일 예외:</strong> 소프트 키보드 개폐·브라우저 주소창 수축으로 가시 viewport 높이가 변하는 동안에는 scroll-to-bottom 판정을 보류한다(visualViewport 안정화 후 재판정) — 레이아웃 변동에 의한 오ACK/ACK 누락 방지.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -10070,34 +10191,34 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-06</td>
-        <td>채널 오픈 시 lastReadMessageId 직후 첫 번째 미읽 메시지 바로 위에 "NEW MESSAGES" 구분선을 렌더링한다. 미읽이 없으면 구분선을 표시하지 않는다.</td>
+        <td>채널 오픈 시 lastReadMessageId 직후 첫 번째 미읽 메시지 바로 위에 "NEW MESSAGES" 구분선을 렌더링한다. 미읽이 없으면 구분선을 표시하지 않는다. <strong>모바일:</strong> 구분선은 DS <code>.qf-m-unread-divider</code>(라벨 '새 메시지')로 렌더링하며 위치 규칙은 데스크톱과 동일하다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-RS-07</td>
-        <td>NEW MESSAGES 구분선이 viewport 밖(위)에 있을 때 채팅 영역 상단에 "Jump to First Unread" 고정 pill 버튼을 표시한다. 구분선의 viewport 내외 판정은 가상화 리스트 환경에서 <code>IntersectionObserver</code> 대신 현재 첫 번째 렌더 인덱스와 구분선의 정렬 인덱스 비교로 결정한다. Jump 클릭 시 <code>scrollToIndex({ align: 'start' })</code> 호출 후 20ms 이내 미세 보정 스크롤을 수행한다.<br><strong>AC:</strong> 메시지 1000개 이상인 채널에서 Jump 클릭 후 구분선이 viewport 상단에 정확히 위치해야 한다.</td>
+        <td>NEW MESSAGES 구분선이 viewport 밖(위)에 있을 때 채팅 영역 상단에 "Jump to First Unread" 고정 pill 버튼을 표시한다. 구분선의 viewport 내외 판정은 가상화 리스트 환경에서 <code>IntersectionObserver</code> 대신 현재 첫 번째 렌더 인덱스와 구분선의 정렬 인덱스 비교로 결정한다. Jump 클릭 시 NEW MESSAGES 구분선이 viewport 상단에 앵커되도록 스크롤한다(보정 방식·타이밍·가상화 API는 구현 재량).<br><strong>AC:</strong> 메시지 1000개 이상인 채널에서 Jump 클릭 후 구분선이 viewport 상단 ±24px 이내에 위치해야 한다(모바일 모멘텀 스크롤·동적 이미지 높이 허용 오차).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-RS-08</td>
-        <td>메시지 hover toolbar에 "미읽으로 표시" 액션을 제공한다. 클릭 시 해당 메시지의 이전 메시지 ID로 lastReadMessageId를 되돌리고 unread_count를 재계산한다.</td>
+        <td>메시지 hover toolbar(<strong>데스크톱</strong>)에 "미읽으로 표시" 액션을, 메시지 롱프레스 액션 시트(<strong>모바일</strong>)에 '미읽음으로 표시' 항목을 제공한다(FR-IA-MOB-05). 실행 시 해당 메시지의 이전 메시지 ID로 lastReadMessageId를 되돌리고 unread_count를 재계산한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-RS-09</td>
-        <td>채널 우클릭 컨텍스트 메뉴에 "읽음으로 표시" 항목을 제공한다. 채널의 최신 메시지 ID로 ACK한다.</td>
+        <td>채널 우클릭 컨텍스트 메뉴(<strong>데스크톱</strong>) 및 채널 행 롱프레스 액션 시트(<strong>모바일</strong> — FR-IA-MOB-07 ②)에 "읽음으로 표시" 항목을 제공한다. 채널의 최신 메시지 ID로 ACK한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-RS-10</td>
-        <td>Unreads View를 사이드바 최상단에 상시 노출한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 5초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 5초 노출)를 표시한다. 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
+        <td><strong>데스크톱:</strong> Unreads View를 채널 사이드바 최상단에 상시 노출한다. <strong>모바일:</strong> 하단 탭바에 별도 '미읽' 탭은 두지 않으며, 좌 패널 채널 목록 섹션의 '모두 읽음'(+8초 Undo 토스트)과 인박스 탭(미읽 모아보기 — Mock C, 인박스 탭 내 표현)으로 제공한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 5초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 5초 노출)를 표시한다. 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
         View가 열려 있는 동안 <code>unread_count:increment</code> 이벤트 수신 시 해당 채널을 목록 <strong>최상단에 낙관 삽입(신규)하거나 카운트를 갱신</strong>한다. 신규 채널 항목은 항상 최상단에 삽입하고, 기존 항목은 커서 위치를 유지한 채 카운트만 갱신한다.<br><br>
         각 채널 미리보기(최대 5개 메시지)는 D03·D14 차단 정책(D03 FR-DM-18 동일 규칙)에 따라 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹하되 <code>username</code> 필드도 <code>차단된 사용자</code>로, <code>avatarUrl</code>은 <code>null</code>로 대체한다. GET /workspaces/:wsId/unreads API도 동일 마스킹을 적용한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-RS-11</td>
-        <td>Esc 키로 현재 채널 읽음 처리, Shift+Esc 키로 워크스페이스 전체 읽음 처리를 지원한다.</td>
+        <td>Esc 키로 현재 채널 읽음 처리, Shift+Esc 키로 워크스페이스 전체 읽음 처리를 지원한다. <strong>모바일 동등 경로:</strong> 채널 행 롱프레스 시트의 '읽음으로 표시'(현재 채널) / 좌 패널 채널 목록 섹션의 '모두 읽음' 버튼(전체 — FR-RS-10, FR-IA-MOB-07 ⑥).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -10441,7 +10562,7 @@ TTL: 300s (5분)
   <div class="subtle">채널 공유 핀(50개 soft limit + 권한 모델)과 개인 저장함(500개 + 3탭 + 리마인더)을 동시 제공한다.</div>
 
   <h3>1. 채널 핀 (Channel Pin)</h3>
-  <p>메시지 hover 시 <code class="qf-code-inline">qf-message__toolbar</code> 내 핀 아이콘 또는 컨텍스트 메뉴 → "채널에 고정". <strong>낙관적 UI</strong>로 즉시 accent 색상 아이콘 전환 + toast, 이후 서버 확정 시 <code class="qf-code-inline">channel:pin_added</code> 이벤트로 채널 전체 멤버에게 브로드캐스트.</p>
+  <p>메시지 hover 시 <code class="qf-code-inline">qf-message__toolbar</code> 내 핀 아이콘 또는 컨텍스트 메뉴 → "채널에 고정"(모바일: 메시지 롱프레스 액션 시트의 '메시지 고정'/'메시지 고정 해제' — 권한 게이트 동일). <strong>낙관적 UI</strong>로 즉시 accent 색상 아이콘 전환 + toast, 이후 서버 확정 시 <code class="qf-code-inline">channel:pin_added</code> 이벤트로 채널 전체 멤버에게 브로드캐스트.</p>
   <p>핀 추가 시 채널 메시지 스트림에 시스템 메시지(type=PIN_ADDED)가 자동 삽입된다. "Alice님이 메시지를 채널에 고정했습니다." 형식이며, 클릭 시 해당 핀 메시지로 스크롤된다.</p>
   <p>핀 해제는 조용하게 처리한다(시스템 메시지 없음). 핀 목록 패널 또는 원 메시지 아이콘 재클릭으로 즉시 해제.</p>
 
@@ -10455,12 +10576,12 @@ TTL: 300s (5분)
   <p>메시지 소프트 삭제 시 연결된 ChannelPin 레코드도 즉시 soft-delete + <code class="qf-code-inline">channel:pin_removed</code> 이벤트 발행(트랜잭션 커밋 후).</p>
 
   <h3>2. 개인 저장함 (Saved Messages)</h3>
-  <p>메시지 hover → 툴바 북마크 아이콘 클릭 → 즉시 채워진 아이콘(accent)으로 전환 + toast "저장됨". 좌측 사이드바 "저장됨" 항목 숫자 뱃지 업데이트. 저장은 완전 개인 전용으로 Socket.IO 이벤트 불필요.</p>
+  <p>메시지 hover → 툴바 북마크 아이콘 클릭(모바일: 롱프레스 시트 '나중에 보기 저장'/'저장 해제' 토글) → 즉시 채워진 아이콘(accent)으로 전환 + toast "저장됨". 좌측 사이드바 "저장됨" 항목 숫자 뱃지 업데이트(모바일: '나' 탭의 '저장됨' 행 — <code class="qf-code-inline">/saved</code> 라우트, IN_PROGRESS 카운트 배지 — 으로 진입, 동일 SavedView 3탭 재사용). 저장은 완전 개인 전용으로 Socket.IO 이벤트 불필요.</p>
   <p>저장함 뷰는 <strong>3탭</strong>으로 구성: <code class="qf-code-inline">IN_PROGRESS</code>(진행 중) / <code class="qf-code-inline">ARCHIVED</code>(보관) / <code class="qf-code-inline">COMPLETED</code>(완료). 각 탭 간 항목 이동, 완료 표시, 영구 삭제 지원. 저장 시간 역순 정렬 + 채널명·워크스페이스 컨텍스트 표시.</p>
 
   <div class="callout">
     <strong>리마인더 프리셋</strong>: 30분 후 · 1시간 후 · 내일 오전 9시 · 다음 주 월요일 오전 9시 · 직접 입력<br>
-    만료 시 <code class="qf-code-inline">user:reminder_fire</code> 이벤트 → 토스트 + 브라우저 Notification API. 스누즈: "10분 후 다시" 클릭으로 재예약.
+    만료 시 <code class="qf-code-inline">user:reminder_fire</code> 이벤트 → 토스트 + 브라우저 Notification API. Notification API 미지원·백그라운드 수신 불가 환경(특히 iOS Safari 비-PWA)에서는 D14 알림 파이프라인(모바일 푸시 토글, FR-PS-10)과 통합하고, 재접속 시 overdueReminder 폴링(GET /api/v1/me/saved?status=IN_PROGRESS&amp;overdueReminder=true)을 모바일 기본 전달 경로로 한다. 스누즈: "10분 후 다시" 클릭으로 재예약.
   </div>
 
   <div class="callout callout--warn">
@@ -10854,6 +10975,7 @@ TTL: 300s (5분)
                 <div class="qf-field" style="margin-bottom:var(--s-4);">
                   <label class="qf-field__label">직접 입력</label>
                   <input type="datetime-local" class="qf-input" />
+                  <div style="font-size:var(--fs-11);color:var(--text-muted);margin-top:var(--s-1);">OS 네이티브 날짜·시간 피커 사용(모바일 OS별 표현 차이 허용). 과거 시각 선택 시 "미래 시각만 설정할 수 있습니다" 인라인 오류로 차단하며, 서버도 scheduledAt이 미래인지 재검증합니다.</div>
                 </div>
                 <!-- 설정 버튼 -->
                 <button class="qf-btn qf-btn--primary qf-btn--lg" style="width:100%;">설정</button>
@@ -10894,7 +11016,7 @@ TTL: 300s (5분)
     <tbody>
       <tr>
         <td class="id">FR-PS-01</td>
-        <td>채널 멤버(권한 있는)는 텍스트 채널의 모든 메시지를 채널 핀으로 추가할 수 있어야 한다. 소프트-삭제된 메시지, 시스템 메시지는 핀 불가.</td>
+        <td>채널 멤버(권한 있는)는 텍스트 채널의 모든 메시지를 채널 핀으로 추가할 수 있어야 한다. 소프트-삭제된 메시지, 시스템 메시지는 핀 불가. 진입점 — <strong>데스크톱:</strong> hover 툴바 핀 아이콘·컨텍스트 메뉴 / <strong>모바일:</strong> 메시지 롱프레스 액션 시트 '메시지 고정'.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -10904,7 +11026,7 @@ TTL: 300s (5분)
       </tr>
       <tr>
         <td class="id">FR-PS-03</td>
-        <td>채널 핀 목록은 채널 헤더 우측 핀 아이콘 클릭으로 열리는 슬라이드인 패널에 표시된다. 최신순 정렬, 메시지 2줄 클램프, 원본 메시지로 점프 링크 포함.</td>
+        <td>채널 핀 목록은 채널 헤더 우측 핀 아이콘으로 연다 — <strong>데스크톱:</strong> 우측 슬라이드인 패널 / <strong>모바일:</strong> topbar 핀 버튼 → 풀스크린 핀 목록(항목 탭 시 <code>?msg=</code> 점프, 권한자 고정 해제 버튼). 최신순 정렬, 메시지 2줄 클램프, 원본 메시지로 점프 링크 포함.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -10934,7 +11056,7 @@ TTL: 300s (5분)
       </tr>
       <tr>
         <td class="id">FR-PS-09</td>
-        <td>저장 항목에 리마인더를 설정할 수 있다. 만료 시 서버가 user:reminder_fire 이벤트를 해당 사용자의 소켓에 발행하고, 클라이언트는 토스트 + 브라우저 Notification API로 표시한다.</td>
+        <td>저장 항목에 리마인더를 설정할 수 있다. 만료 시 서버가 user:reminder_fire 이벤트를 해당 사용자의 소켓에 발행하고, 클라이언트는 토스트 + 브라우저 Notification API로 표시한다. Notification API 미지원·백그라운드 수신 불가 모바일 환경(특히 iOS Safari 비-PWA)에서는 D14 모바일 푸시 토글(FR-PS-10) 경로와 통합하며, 재접속 시 overdueReminder 폴링(GET /api/v1/me/saved?status=IN_PROGRESS&amp;overdueReminder=true)이 모바일 기본 전달 경로다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -10954,7 +11076,7 @@ TTL: 300s (5분)
       </tr>
       <tr>
         <td class="id">FR-PS-13</td>
-        <td>이미 저장된 메시지는 툴바 북마크 아이콘이 채워진 상태(accent 색상)로 표시된다. 클릭 시 저장 해제(토글).</td>
+        <td>이미 저장된 메시지는 툴바 북마크 아이콘이 채워진 상태(accent 색상)로 표시된다. 클릭 시 저장 해제(토글). 모바일: 롱프레스 액션 시트에서 저장 상태에 따라 '나중에 보기 저장'/'저장 해제'로 레이블이 토글된다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -11214,7 +11336,7 @@ PIN_ADDED  // 핀 시스템 메시지
   </ul>
 
   <h3>전송 전 Preview Tray</h3>
-  <p>입력창 위 트레이에서 파일별 썸네일 또는 아이콘+이름 카드를 제공합니다. 드래그 핸들로 순서 재정렬, 연필 아이콘으로 alt text 입력, 눈 아이콘으로 스포일러 토글, X 버튼으로 개별 제거, 업로드 진행률을 선형 progress bar로 실시간 표시합니다.</p>
+  <p>입력창 위 트레이에서 파일별 썸네일 또는 아이콘+이름 카드를 제공합니다. 드래그 핸들로 순서 재정렬(모바일은 핸들 영역에서만 터치 드래그를 인식하고 카드 본문 터치는 스크롤로 유지), 연필 아이콘으로 alt text 입력, 눈 아이콘으로 스포일러 토글, X 버튼으로 개별 제거, 업로드 진행률을 선형 progress bar로 실시간 표시합니다.</p>
 
   <h3>파일 크기 &amp; 타입 제한</h3>
   <div class="callout callout--warn">
@@ -11288,7 +11410,7 @@ PIN_ADDED  // 핀 시스템 메시지
   </div>
 
   <h3>이미지 라이트박스</h3>
-  <p>position fixed, inset 0, z-index 9000. 이미지 최대 95vw × 90vh. 좌우 화살표(키보드 ←→), 마우스 휠 확대(0.5~3.0배) + 드래그 패닝, 상단 우측 닫기(Esc)·다운로드·원본 열기 버튼, 하단 "N / M" 카운터 + 파일명 + 크기.</p>
+  <p>position fixed, inset 0, z-index 9000. 이미지 최대 95vw × 90vh. 좌우 화살표(키보드 ←→), 마우스 휠 확대(0.5~3.0배) + 드래그 패닝(모바일: 핀치 줌 0.5~3.0배·줌 중 한 손가락 패닝·좌우 스와이프 이전/다음·아래로 스와이프 닫기), 상단 우측 닫기(Esc)·다운로드·원본 열기 버튼, 하단 "N / M" 카운터 + 파일명 + 크기.</p>
   <div class="callout callout--warn">
     <svg class="qf-icon" style="width:15px;height:15px;color:var(--warn-400);vertical-align:-2px;"><use href="#qf-i-eye"/></svg>
     <strong>접근성</strong>: <code>role="dialog"</code> + <code>aria-modal="true"</code>, 오픈 직후 첫 포커스는 닫기 버튼<br>
@@ -11683,19 +11805,29 @@ PIN_ADDED  // 핀 시스템 메시지
           </button>
         </div>
 
-        <div class="qf-m-tabbar" style="border-top:1px solid var(--divider);display:flex;padding:var(--s-2) 0;">
-          <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:var(--s-1);">
-            <svg class="qf-icon qf-m-tab__icon" style="width:20px;height:20px;color:var(--text-muted);"><use href="#qf-i-hash"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px;color:var(--text-muted);">채널</span>
-          </div>
-          <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:var(--s-1);">
-            <svg class="qf-icon qf-m-tab__icon" style="width:20px;height:20px;color:var(--accent);"><use href="#qf-i-image"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px;color:var(--accent);font-weight:600;">미디어</span>
-          </div>
-          <div class="qf-m-tab" style="flex:1;display:flex;flex-direction:column;align-items:center;gap:2px;padding:var(--s-1);">
-            <svg class="qf-icon qf-m-tab__icon" style="width:20px;height:20px;color:var(--text-muted);"><use href="#qf-i-bell"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px;color:var(--text-muted);">알림</span>
-          </div>
+        <!-- §02 카노니컬 5탭 — 채팅 화면이므로 active=채팅 -->
+        <div class="qf-m-tabbar">
+          <button class="qf-m-tab" aria-selected="true">
+            <span class="qf-m-tab__pill"></span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+            <span class="qf-m-tab__label">채팅</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+            <span class="qf-m-tab__label">인박스</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+            <span class="qf-m-tab__label">스레드</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+            <span class="qf-m-tab__label">검색</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+            <span class="qf-m-tab__label">나</span>
+          </button>
         </div>
       </div>
     </div>
@@ -11705,7 +11837,8 @@ PIN_ADDED  // 핀 시스템 메시지
         <strong>모바일 UX 핵심</strong><br>
         + 버튼 탭 → 시스템 파일 피커 / 이미지 탭 → 카메라 롤 선택 가능.<br>
         그리드 셀 탭 → 전체화면 라이트박스 슬라이드쇼 전환.<br>
-        OG embed는 축약 표시 (사이트명 + 제목만).
+        OG embed는 사이트명 + 제목 + 설명 2줄 클램프로 축약 표시 — 본 섹션 모바일 목업 기준(종전 '사이트명+제목만' 서술은 목업과 모순이라 폐기).<br>
+        미디어 갤러리는 탭바 항목이 아닙니다 — 채널 토프바·검색(in: 필터) 등 채널 내 진입점에서 여는 화면(미디어 보기/라이트박스)입니다.
       </div>
       <div class="callout callout--warn">
         <strong>접근성 체크리스트</strong><br>
@@ -11746,7 +11879,7 @@ PIN_ADDED  // 핀 시스템 메시지
     </thead>
     <tbody>
       <tr><td class="id">FR-AM-01</td><td>사용자는 + 버튼·드래그앤드롭·Ctrl+V 세 가지 방법으로 파일을 첨부할 수 있어야 한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
-      <tr><td class="id">FR-AM-02</td><td>전송 전 Preview Tray에서 파일 순서 재정렬·개별 삭제·alt text 입력·스포일러 지정이 가능해야 한다. 개별 파일 업로드 실패(MIME_MISMATCH, 크기 초과 등) 시 해당 카드에 빨간 테두리 + 오류 아이콘 + 재시도 버튼을 표시하고, 나머지 성공 파일은 그대로 전송 가능 상태를 유지해야 한다. 전송 버튼은 성공 파일만 전송하고 실패 파일은 Tray에 잔류한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-AM-02</td><td>전송 전 Preview Tray에서 파일 순서 재정렬(데스크톱: 드래그 핸들 / 모바일: 핸들 영역에서만 터치 드래그 인식 — 카드 본문 터치는 스크롤로 유지)·개별 삭제·alt text 입력·스포일러 지정이 가능해야 한다. 개별 파일 업로드 실패(MIME_MISMATCH, 크기 초과 등) 시 해당 카드에 빨간 테두리 + 오류 아이콘 + 재시도 버튼을 표시하고, 나머지 성공 파일은 그대로 전송 가능 상태를 유지해야 한다. 전송 버튼은 성공 파일만 전송하고 실패 파일은 Tray에 잔류한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AM-03</td><td>업로드는 백엔드 presigned URL → MinIO 직접 PUT → complete 신고 3단계로 처리되어야 하며, presigned PUT URL의 정책 조건에 content-type(허용 MIME 일치)과 content-length-range(1~UPLOAD_MAX_BYTES)를 포함해 위반 시 MinIO가 직접 403/413으로 거부하고, complete 단계에서 magic bytes 재검증을 유지해야 한다. presigned TTL은 파일 크기 기반으로 조정(30 MB 초과 30분, 80 MB 초과 60분)한다. presignedUrl은 DB에 저장하지 않으며(AttachmentUploadSession.presignedUrl 컬럼 없음 — 스키마 검증), upload-url 응답에서만 반환한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AM-04</td><td>단일 파일 크기는 UPLOAD_MAX_BYTES(기본 100 MB) 이하, 메시지당 최대 10개 파일이어야 한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AM-05</td><td>차단 확장자(.exe .dll .bat .com .msi .vbs .ps1 .jar .apk .dmg .ipa .iso 등) 업로드 시도는 즉시 거부되어야 한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
@@ -11763,8 +11896,8 @@ PIN_ADDED  // 핀 시스템 메시지
       <tr><td class="id">FR-AM-28</td><td>클라이언트는 진행 중인 sessionId를 sessionStorage에 저장하며, 재진입 시 미완료 sessionId를 FAILED 상태로 표시하고 사용자에게 토스트를 노출한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AM-29</td><td>Attachment에 linkedAt 컬럼을 추가하고, GC는 messageId IS NULL OR (linkedAt IS NULL AND createdAt &lt; now()-24h) 조건으로 미연결 orphan 첨부를 MinIO 오브젝트와 함께 회수한다.</td><td><span class="prio prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-AM-09</td><td>동일 메시지에 이미지 2개 이상 첨부 시 Mosaic 그리드(1/2/3/4/5+)로 표시되어야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
-      <tr><td class="id">FR-AM-10</td><td>이미지 클릭 시 라이트박스 오버레이가 열리고 ←→ 키로 동일 메시지 내 이미지를 탐색할 수 있어야 하며, 라이트박스는 role="dialog"+aria-modal="true"로 첫 포커스가 닫기 버튼이고 Tab이 내부에서만 순환하며 Esc로 닫을 때 트리거 요소로 포커스를 복원해야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
-      <tr><td class="id">FR-AM-11</td><td>라이트박스에서 마우스 휠로 확대(0.5~3.0배)·드래그 패닝이 가능해야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AM-10</td><td>이미지 클릭 시 라이트박스 오버레이가 열리고 ←→ 키(데스크톱) 또는 좌우 스와이프(모바일)로 동일 메시지 내 이미지를 탐색할 수 있어야 하며, 라이트박스는 role="dialog"+aria-modal="true"로 첫 포커스가 닫기 버튼이고 Tab이 내부에서만 순환하며 Esc로 닫을 때 트리거 요소로 포커스를 복원해야 한다. 모바일은 아래로 스와이프로도 닫을 수 있다.</td><td><span class="prio prio--p1">P1</span></td></tr>
+      <tr><td class="id">FR-AM-11</td><td>라이트박스에서 마우스 휠(데스크톱) 또는 핀치 제스처(모바일)로 확대(0.5~3.0배)가 가능하고, 드래그(데스크톱)·한 손가락 이동(모바일, 줌 배율이 1.0을 넘을 때)으로 패닝이 가능해야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AM-12</td><td>라이트박스에서 다운로드 버튼과 원본 열기 버튼을 제공해야 한다. SVG 파일의 경우 원본 열기 대신 다운로드만 허용한다(XSS 방어).</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AM-13</td><td>메시지 본문의 URL은 백엔드 UnfurlWorker가 비동기로 OG 메타 fetch 후 embed 카드로 렌더링해야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-AM-15</td><td>Unfurl 결과는 정규화된 URL의 sha256(cacheKey)로 Redis에 TTL 1800초로 캐시되어야 한다.</td><td><span class="prio prio--p1">P1</span></td></tr>
@@ -12485,6 +12618,7 @@ blockedExtensions   String[]</pre>
   <div class="grid grid--2" style="gap:var(--s-5);margin-bottom:var(--s-6)">
     <div class="card">
       <div class="card__label">모바일 — 신고 큐</div>
+      <div style="font-size:var(--fs-12);color:var(--text-muted);margin:var(--s-1) 0 var(--s-2);">모더레이션(신고 큐·감사 로그)은 탭바 항목이 아닙니다 — 서버 메뉴 시트(FR-IA-MOB-08) → 워크스페이스 설정(<code>/w/:slug/settings</code>) 내 탭으로 진입하며, 권한(모더레이터) 의존 항목은 탭바에 노출하지 않습니다.</div>
       <div class="card__preview" style="display:flex;justify-content:center;padding:var(--s-4)">
         <div class="phone">
           <div class="qf-m-screen qf-m-screen--bare" style="display:flex;flex-direction:column">
@@ -12506,6 +12640,7 @@ blockedExtensions   String[]</pre>
                 </div>
                 <div style="display:flex;gap:var(--s-2)">
                   <button class="qf-btn qf-btn--ghost qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">무시</button>
+                  <button class="qf-btn qf-btn--secondary qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">메시지 삭제</button>
                   <button class="qf-btn qf-btn--danger qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">타임아웃</button>
                 </div>
               </div>
@@ -12521,24 +12656,34 @@ blockedExtensions   String[]</pre>
                 </div>
                 <div style="display:flex;gap:var(--s-2)">
                   <button class="qf-btn qf-btn--ghost qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">무시</button>
+                  <button class="qf-btn qf-btn--secondary qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">메시지 삭제</button>
                   <button class="qf-btn qf-btn--danger qf-btn--sm" style="font-size:11px;height:24px;padding:0 var(--s-2)">타임아웃</button>
                 </div>
               </div>
             </div>
+            <!-- §02 카노니컬 5탭 — 설정 하위(신고 큐) 화면이므로 active=나 -->
             <div class="qf-m-tabbar">
-              <div class="qf-m-tab">
-                <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-hash"/></svg>
-                <span class="qf-m-tab__label">채널</span>
-              </div>
-              <div class="qf-m-tab">
-                <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-shield"/></svg>
-                <span class="qf-m-tab__label" style="color:var(--accent)">모더레이션</span>
-                <span class="qf-m-tab__badge qf-m-tab__badge--mention">3</span>
-              </div>
-              <div class="qf-m-tab">
-                <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-settings"/></svg>
-                <span class="qf-m-tab__label">설정</span>
-              </div>
+              <button class="qf-m-tab">
+                <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+                <span class="qf-m-tab__label">채팅</span>
+              </button>
+              <button class="qf-m-tab">
+                <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+                <span class="qf-m-tab__label">인박스</span>
+              </button>
+              <button class="qf-m-tab">
+                <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+                <span class="qf-m-tab__label">스레드</span>
+              </button>
+              <button class="qf-m-tab">
+                <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+                <span class="qf-m-tab__label">검색</span>
+              </button>
+              <button class="qf-m-tab" aria-selected="true">
+                <span class="qf-m-tab__pill"></span>
+                <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+                <span class="qf-m-tab__label">나</span>
+              </button>
             </div>
           </div>
         </div>
@@ -12650,7 +12795,7 @@ blockedExtensions   String[]</pre>
       </tr>
       <tr>
         <td class="id">FR-RM08</td>
-        <td>Slowmode: 채널별 rateLimitPerUser(0=off, 5~21600초). Redis key slowmode:{channelId}:{userId} TTL 확인으로 서버 강제. 쿨다운 내 재전송 시 HTTP 429 + Retry-After 헤더. BYPASS_SLOWMODE 또는 MANAGE_CHANNELS 면제.</td>
+        <td>Slowmode: 채널별 rateLimitPerUser(0=off, 5~21600초). Redis key slowmode:{channelId}:{userId} TTL 확인으로 서버 강제. 쿨다운 내 재전송 시 HTTP 429 + Retry-After 헤더. BYPASS_SLOWMODE 또는 MANAGE_CHANNELS 면제. 클라이언트(전 플랫폼): 컴포저에 남은 초 카운트다운을 표시하고 쿨다운 중 전송을 차단한다(useSlowmodeCooldown 공유 훅). 429 수신 시 CHANNEL_SLOWMODE_ACTIVE 잔여 초 토스트를 표시한다. 면제 판정은 서버 BYPASS_SLOWMODE 비트가 권위이며, 클라이언트 표시는 OWNER/ADMIN/MODERATOR를 면제로 간주한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -12680,7 +12825,7 @@ blockedExtensions   String[]</pre>
       </tr>
       <tr>
         <td class="id">FR-RM14</td>
-        <td>채널 overwrite UI: 채널 설정 &gt; 권한 탭에서 역할/멤버 추가 후 각 권한 비트에 ALLOW(초록)/DENY(빨강)/INHERIT(회색) 선택. 저장 즉시 권한 캐시 무효화 전략(택1): <strong>① 역할 단위 키 <code>perms:{channelId}:{roleId}</code> DEL</strong>, ② 채널 전체 <code>perms:{channelId}:*</code> SCAN DEL, ③ TTL 5초 이하로 유지. 로컬 메모리 캐싱 금지(TTL 허용 시 최대 5초). overwrite DENY 적용 후 300ms 이내에 해당 채널 SEND_MESSAGES 요청이 HTTP 403을 반환해야 한다. <strong>BullMQ 배치 처리 중에도 해당 역할 멤버의 SEND_MESSAGES는 항상 403이 보장되어야 하며, 300ms 조건과 정합한다.</strong></td>
+        <td>채널 overwrite UI: 채널 설정 &gt; 권한 탭에서 역할/멤버 추가 후 각 권한 비트에 ALLOW(초록)/DENY(빨강)/INHERIT(회색) 선택. 저장 즉시 권한 캐시 무효화 전략(택1): <strong>① 역할 단위 키 <code>perms:{channelId}:{roleId}</code> DEL</strong>, ② 채널 전체 <code>perms:{channelId}:*</code> SCAN DEL, ③ TTL 5초 이하로 유지. 로컬 메모리 캐싱 금지(TTL 허용 시 최대 5초). overwrite DENY 적용 후 300ms 이내에 해당 채널 SEND_MESSAGES 요청이 HTTP 403을 반환해야 한다. <strong>BullMQ 배치 처리 중에도 해당 역할 멤버의 SEND_MESSAGES는 항상 403이 보장되어야 하며, 300ms 조건과 정합한다.</strong> 모바일(≤767px): 역할 관리·채널 권한 2-pane 모달은 풀스크린 변형(목록 → 상세 드릴다운)으로 표시한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -13599,7 +13744,7 @@ createdAt      DateTime @default(now())
     <tbody>
       <tr>
         <td class="id">FR-W01</td>
-        <td>워크스페이스 생성: 이름(2–100자), slug(3–32자, 서버 전역 unique), 아이콘(MinIO, 최대 5 MB, 512 px 정사각형), 공개모드(PRIVATE/PUBLIC/APPLY), 이메일 도메인 화이트리스트. 생성 시 #general 채널 자동 생성, 생성자 OWNER 등록 — 단일 트랜잭션.</td>
+        <td>워크스페이스 생성: 이름(2–100자), slug(3–32자, 서버 전역 unique), 아이콘(MinIO, 최대 5 MB, 512 px 정사각형), 공개모드(PRIVATE/PUBLIC/APPLY), 이메일 도메인 화이트리스트. 생성 시 #general 채널 자동 생성, 생성자 OWNER 등록 — 단일 트랜잭션. 모바일(≤767px): 워크스페이스 생성 모달은 동일 입력·검증의 풀스크린 변형으로 표시한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -13719,7 +13864,7 @@ createdAt      DateTime @default(now())
       </tr>
       <tr>
         <td class="id">FR-W20</td>
-        <td>워크스페이스 전환 클라이언트 플로우: 이전 워크스페이스 채널 룸 leave → 새 워크스페이스 룸 join → unread-summary 재로드 → 타 워크스페이스 알림은 서버 아이콘 배지(멘션 카운트)만. connection:ready 이벤트에 가입한 모든 워크스페이스 멘션 카운트 포함.</td>
+        <td>워크스페이스 전환 클라이언트 플로우: 이전 워크스페이스 채널 룸 leave → 새 워크스페이스 룸 join → unread-summary 재로드 → 타 워크스페이스 알림은 서버 아이콘 배지(멘션 카운트)만(모바일: 좌 패널 워크스페이스 레일 아바타 배지 + 탭바 '인박스' 탭이 인지 표면). connection:ready 이벤트에 가입한 모든 워크스페이스 멘션 카운트 포함.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -13734,7 +13879,7 @@ createdAt      DateTime @default(now())
       </tr>
       <tr>
         <td class="id">FR-W23</td>
-        <td>다중 워크스페이스 unread 배지 동기화: 서버는 사용자가 가입한 모든 워크스페이스 채널의 unread_count:increment 이벤트를 현재 활성 워크스페이스 무관하게 해당 사용자 소켓으로 전달. 페이로드에 workspaceId 포함. 클라이언트는 workspaceId를 기반으로 서버 아이콘 배지(미읽음·멘션 카운트) 갱신.</td>
+        <td>다중 워크스페이스 unread 배지 동기화: 서버는 사용자가 가입한 모든 워크스페이스 채널의 unread_count:increment 이벤트를 현재 활성 워크스페이스 무관하게 해당 사용자 소켓으로 전달. 페이로드에 workspaceId 포함. 클라이언트는 workspaceId를 기반으로 서버 아이콘 배지(미읽음·멘션 카운트) 갱신. 모바일 인지 표면: 상시 서버 레일이 없으므로 좌 패널 워크스페이스 레일의 아바타 배지와 탭바 '인박스' 탭이 동일 페이로드를 소비해 표시한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
     </tbody>
@@ -14089,7 +14234,7 @@ createdAt   DateTime @default(now())</pre>
 
   <div class="callout">
     <b>커스텀 상태 (Slack 방식)</b><br>
-    statusText(≤100자) + statusEmoji + statusExpiresAt(null=무기한) 조합. 만료 프리셋: 30분·1시간·4시간·오늘 자정·금요일 자정·직접 입력. 만료 시 DND 동시 활성화 옵션 제공. 크론(1분) + Redis TTL 이중 보장으로 만료 처리합니다.<br>
+    statusText(≤100자) + statusEmoji + statusExpiresAt(null=무기한) 조합. 만료 프리셋: 30분·1시간·4시간·오늘 자정(User.timezone IANA 기준)·이번 주 월요일 자정·무기한(null) — 카노니컬 정의는 D08 FR-P17, 이 절은 참조. 만료 시 DND 동시 활성화 옵션은 D08 카노니컬에 없는 D14 전용 확장 옵션으로 제공. 크론(1분) + Redis TTL 이중 보장으로 만료 처리합니다.<br>
     <b>커스텀 상태는 UserPresence 테이블에 저장됩니다(ADR-3).</b> PUT /api/v1/users/me/status의 DB 저장 대상은 UserPresence이며, User 테이블에는 상태 필드가 포함되지 않습니다.
   </div>
 
@@ -14097,7 +14242,7 @@ createdAt   DateTime @default(now())</pre>
   <p>테마: <code>DARK</code>(기본) / <code>LIGHT</code> / <code>SYSTEM</code>. 메시지 밀도: <code>COZY</code>(아바타+간격 16px) / <code>COMPACT</code>(아바타 숨김, 간격 4px). 채팅 폰트 크기: 12/13/14/15/16/18px 6단계(기본 15px). 24시간 시계 boolean. 변경 즉시 클라이언트 반영 + 서버 저장.</p>
 
   <h3>알림 &amp; DND</h3>
-  <p>전역 알림 레벨은 카노니컬 <code>NotifLevel</code> 모델을 따릅니다: <code>ALL</code> / <code>MENTIONS</code> / <code>NOTHING</code>. <code>UserSettings.notifTrigger</code> 필드는 <code>NotifLevel</code> 타입으로 저장됩니다. 채널별 오버라이드(<code>ChannelNotifOverride</code>)는 <code>override: NotifLevel</code> + <code>isMuted: boolean</code> + <code>muteUntil: DateTime?</code> 3-필드 구조로 세분화됩니다. 레코드 없으면 전역 설정 사용. DND 스케줄: dndStart·dndEnd(HH:MM) + dndDays 비트마스크(Sun=1…Sat=64). 키워드 알림 최대 25개. 데스크톱 배너·모바일 푸시 각각 ON/OFF. DND 스케줄 범위 내 푸시 알림은 백엔드에서 전송 스킵합니다.</p>
+  <p>전역 알림 레벨은 카노니컬 <code>NotifLevel</code> 모델을 따릅니다: <code>ALL</code> / <code>MENTIONS</code> / <code>NOTHING</code>. <code>UserSettings.notifTrigger</code> 필드는 <code>NotifLevel</code> 타입으로 저장됩니다. 채널별 오버라이드(<code>ChannelNotifOverride</code>)는 <code>override: NotifLevel</code> + <code>isMuted: boolean</code> + <code>muteUntil: DateTime?</code> 3-필드 구조로 세분화됩니다. 레코드 없으면 전역 설정 사용. DND 스케줄: dndStart·dndEnd(HH:MM) + dndDays 비트마스크(Sun=1…Sat=64). 키워드 알림 최대 25개. 데스크톱 배너·모바일 푸시 각각 ON/OFF. '모바일 푸시'는 VAPID Web Push(FR-MN-15)를 의미하며, iOS Safari는 홈 화면 PWA 설치 상태에서만 수신 가능합니다. PWA 미설치 iOS에서는 토글 옆에 'iOS는 홈 화면에 추가 후 사용 가능' 제한 안내를 표시합니다(D06 FR-MN-15 참조). DND 스케줄 범위 내 푸시 알림은 백엔드에서 전송 스킵합니다.</p>
 
   <h3>프라이버시 &amp; 차단</h3>
   <p>allowDmFromWorkspaceMembers(기본 true), messageRequestEnabled(기본 true), allowFriendRequests(EVERYONE/MUTUAL_WORKSPACE/NOBODY). 차단(Block) 시 해당 유저 메시지가 <code>[차단된 사용자의 메시지입니다]</code> 플레이스홀더로 대체되며 DM·멘션이 차단됩니다. 차단 목록은 Redis Set 캐싱(TTL 5분)으로 O(1) 조회합니다.</p>
@@ -14111,7 +14256,7 @@ createdAt   DateTime @default(now())</pre>
     <b>Heartbeat vs Presence Activity — 용어 분리:</b>
     <ul style="margin:var(--s-2) 0 0;padding-left:var(--s-5);">
       <li><b>heartbeat:ping</b> — Socket.IO 연결 유지 목적. Socket.IO 내장 ping/pong 메커니즘으로 일원화. 별도 클라이언트 이벤트 전송 불필요.</li>
-      <li><b>presence:activity</b> — 사용자 활동 감지 목적. 클라이언트가 <code>mousemove</code>/<code>keydown</code> 이벤트를 감지해 서버에 activity 신호를 전송. 마지막 activity 수신 후 <code>PRESENCE_IDLE_TIMEOUT=600s</code>(10분) 경과 시 IDLE로 자동 전이. D08 Presence 도메인과 동일한 타임아웃 기준.</li>
+      <li><b>presence:activity</b> — 사용자 활동 감지 목적. 클라이언트가 <code>mousemove</code>/<code>keydown</code>/<code>touchstart</code>(터치 기기) 이벤트를 감지해 서버에 activity 신호를 전송. 마지막 activity 수신 후 <code>PRESENCE_IDLE_TIMEOUT=600s</code>(10분) 경과 시 IDLE로 자동 전이. D08 Presence 도메인과 동일한 타임아웃 기준.</li>
     </ul>
     <b>프레즌스 상태 전이:</b> ONLINE(소켓 연결) → IDLE(10분 activity 미수신, 자동) → DND(수동 또는 상태 연동) → OFFLINE(소켓 해제).
   </div>
@@ -14145,7 +14290,7 @@ createdAt   DateTime @default(now())</pre>
 
   <h3>설정 진입 단축키</h3>
   <div class="callout">
-    <b>Ctrl+, (Windows/Linux) · Cmd+, (macOS)</b>: 설정 페이지를 직접 열거나 이미 열려 있으면 닫는 토글 단축키. 클라이언트가 <code>keydown</code> 이벤트 리스너(Meta/Ctrl + 쉼표)로 처리. 설정 페이지 URL은 <code>/settings</code>(기본: 마지막 방문 탭 복원, 초기: <code>account</code> 탭).
+    <b>Ctrl+, (Windows/Linux) · Cmd+, (macOS)</b>: 설정 페이지를 직접 열거나 이미 열려 있으면 닫는 토글 단축키. 클라이언트가 <code>keydown</code> 이벤트 리스너(Meta/Ctrl + 쉼표)로 처리. 설정 페이지 URL은 <code>/settings</code>(기본: 마지막 방문 탭 복원, 초기: <code>account</code> 탭). 모바일에는 단축키가 없으며 '나' 탭 → '설정' 드릴다운(상단 '모바일 진입 경로' 절)이 동등 경로입니다.
   </div>
 
   <h3>자동저장 vs 명시적 저장 정책</h3>
@@ -14426,21 +14571,27 @@ createdAt   DateTime @default(now())</pre>
             <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-chevron-right"/></svg>
           </div>
         </div>
+        <!-- §02 카노니컬 5탭 — 프로필/설정 화면이므로 active=나 -->
         <div class="qf-m-tabbar">
           <button class="qf-m-tab">
-            <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-hash"/></svg>
-            <span class="qf-m-tab__label">채널</span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+            <span class="qf-m-tab__label">채팅</span>
           </button>
           <button class="qf-m-tab">
-            <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-send"/></svg>
-            <span class="qf-m-tab__label">DM</span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+            <span class="qf-m-tab__label">인박스</span>
           </button>
           <button class="qf-m-tab">
-            <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-bell"/></svg>
-            <span class="qf-m-tab__label">알림</span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+            <span class="qf-m-tab__label">스레드</span>
           </button>
-          <button class="qf-m-tab" style="color:var(--accent);">
-            <svg class="qf-icon qf-m-tab__icon"><use href="#qf-i-user"/></svg>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+            <span class="qf-m-tab__label">검색</span>
+          </button>
+          <button class="qf-m-tab" aria-selected="true">
+            <span class="qf-m-tab__pill"></span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
             <span class="qf-m-tab__label">나</span>
           </button>
         </div>
@@ -14517,7 +14668,7 @@ createdAt   DateTime @default(now())</pre>
       </tr>
       <tr>
         <td class="id">FR-PS-05</td>
-        <td>커스텀 상태: statusText(≤100자) + statusEmoji + statusExpiresAt(nullable) 설정. 만료 프리셋 6종(30분·1시간·4시간·오늘 자정·금요일 자정·직접 입력). 만료 시 DND 동시 활성화 옵션. <b>PUT /api/v1/users/me/status의 DB 저장 대상은 UserPresence 테이블이며 User 테이블에는 상태 필드가 없다(ADR-3, UserPresence 참조).</b></td>
+        <td>커스텀 상태: statusText(≤100자) + statusEmoji + statusExpiresAt(nullable) 설정. 만료 프리셋 6종(30분·1시간·4시간·오늘 자정(User.timezone IANA 기준)·이번 주 월요일 자정·무기한(null)) — 카노니컬 정의는 D08 FR-P17, 이 행은 참조. 만료 시 DND 동시 활성화 옵션(D08 카노니컬에 없는 D14 전용 확장 옵션). <b>PUT /api/v1/users/me/status의 DB 저장 대상은 UserPresence 테이블이며 User 테이블에는 상태 필드가 없다(ADR-3, UserPresence 참조).</b></td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -14527,12 +14678,12 @@ createdAt   DateTime @default(now())</pre>
       </tr>
       <tr>
         <td class="id">FR-PS-07</td>
-        <td>프로필 팝오버: 메시지의 아바타·이름 클릭 시 200px 너비 미니카드 표시. 항목: 워크스페이스 아바타(80px), 닉네임/표시이름, @핸들, 역할 뱃지(≤3+더보기), About Me(2줄), 온라인 상태, 'DM 보내기', '전체 프로필' 링크. 접근성: 트리거 요소에 <code>role=button</code> <code>aria-haspopup=dialog</code> 적용, 클릭/탭/Enter/Space로 열기, 팝오버 <code>role=dialog</code> 첫 포커스 DM 보내기 버튼, Esc·외부 탭 클릭 시 닫힘+포커스 트리거 복원. 터치기기는 tap이 유일 진입점.</td>
+        <td>프로필 팝오버: 메시지의 아바타·이름 클릭 시 미니카드 표시(너비 약 200px — 콘텐츠 기준 가변 허용·고정 강제 아님, 내부 액션 행은 44px 최소 터치 타깃 보장). 항목: 워크스페이스 아바타(80px), 닉네임/표시이름, @핸들, 역할 뱃지(≤3+더보기), About Me(2줄), 온라인 상태, 'DM 보내기', '전체 프로필' 링크. 접근성: 트리거 요소에 <code>role=button</code> <code>aria-haspopup=dialog</code> 적용, 클릭/탭/Enter/Space로 열기, 팝오버 <code>role=dialog</code> 첫 포커스 DM 보내기 버튼, Esc·외부 탭 클릭 시 닫힘+포커스 트리거 복원. 터치기기는 tap이 유일 진입점.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-PS-08</td>
-        <td>전체 프로필 패널: 채팅 우측에 280px 슬라이드로 열린다. 항목: 배너·아바타·표시이름·핸들·제목·대명사·시간대·현지시각·About Me·역할 목록·커스텀 상태·DM 버튼.</td>
+        <td>전체 프로필 패널 — <strong>데스크톱:</strong> 채팅 우측에 280px 슬라이드로 열린다. <strong>모바일:</strong> 동일 항목 구성의 풀스크린 변형(멤버 목록·프로필 팝오버에서 진입, 모더레이션 액션 포함). 항목: 배너·아바타·표시이름·핸들·제목·대명사·시간대·현지시각·About Me·역할 목록·커스텀 상태·DM 버튼.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -14542,7 +14693,7 @@ createdAt   DateTime @default(now())</pre>
       </tr>
       <tr>
         <td class="id">FR-PS-10</td>
-        <td>알림 설정: 전역 트리거(<code>NotifLevel</code>: ALL/MENTIONS/NOTHING), 채널별 오버라이드 레코드(<code>NotifLevel</code> + <code>isMuted</code> + <code>muteUntil</code>), DND 스케줄(HH:MM + 요일 비트마스크), 키워드 알림 최대 25개, 데스크톱 배너·모바일 푸시 각각 ON/OFF.</td>
+        <td>알림 설정: 전역 트리거(<code>NotifLevel</code>: ALL/MENTIONS/NOTHING), 채널별 오버라이드 레코드(<code>NotifLevel</code> + <code>isMuted</code> + <code>muteUntil</code>), DND 스케줄(HH:MM + 요일 비트마스크), 키워드 알림 최대 25개, 데스크톱 배너·모바일 푸시 각각 ON/OFF. 모바일 푸시는 VAPID Web Push 전제로, iOS Safari는 홈 화면 PWA 설치 시에만 동작한다. 미설치 iOS 환경에서는 토글에 제한 안내('홈 화면에 추가 후 사용 가능')를 표시한다(D06 FR-MN-15).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -14552,7 +14703,7 @@ createdAt   DateTime @default(now())</pre>
       </tr>
       <tr>
         <td class="id">FR-PS-12</td>
-        <td>접근성 — 모션 줄이기: <code>UserSettings.reduceMotion boolean</code> 저장. OS <code>prefers-reduced-motion: reduce</code>를 기본으로 반영(설정 레코드 없을 시 미디어 쿼리 우선). 활성 시 GIF 자동재생·슬라이드인·smooth scroll·타이핑 점·검색 하이라이트 애니메이션·pending spinner 비활성화. CSS 선택자: <code>html[data-reduce-motion=true]</code> + <code>@media (prefers-reduced-motion: reduce)</code> 병행 적용. highContrast boolean도 동일 방식으로 저장·적용.</td>
+        <td>접근성 — 모션 줄이기: <code>UserSettings.reduceMotion boolean</code> 저장. OS <code>prefers-reduced-motion: reduce</code>를 기본으로 반영(설정 레코드 없을 시 미디어 쿼리 우선). 활성 시 GIF 자동재생·슬라이드인·smooth scroll·타이핑 점·검색 하이라이트 애니메이션·pending spinner 비활성화. 단, 전송 중(pending) 피드백은 reduceMotion에서도 소실되지 않아야 한다 — 스피너 대신 정적 텍스트(예: '전송 중…')로 대체 표시한다(저속 모바일 망에서 전송 상태 확인 유지). CSS 선택자: <code>html[data-reduce-motion=true]</code> + <code>@media (prefers-reduced-motion: reduce)</code> 병행 적용. highContrast boolean도 동일 방식으로 저장·적용.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -14577,12 +14728,12 @@ createdAt   DateTime @default(now())</pre>
       </tr>
       <tr>
         <td class="id">FR-PS-17</td>
-        <td>프레즌스 상태: ONLINE/IDLE/DND/OFFLINE. <b>heartbeat:ping</b>은 Socket.IO 내장 ping/pong으로 일원화(연결 유지 전용, 별도 클라이언트 이벤트 없음). <b>presence:activity</b>는 클라이언트가 <code>mousemove</code>/<code>keydown</code> 이벤트 감지 시 서버에 전송. 마지막 activity 수신 후 <code>PRESENCE_IDLE_TIMEOUT=600s</code>(10분) 경과 시 IDLE 자동 전이 — D08 Presence 도메인과 동일한 타임아웃 기준. 10분 무활동 시 presence:changed(IDLE) 이벤트 발행.</td>
+        <td>프레즌스 상태: ONLINE/IDLE/DND/OFFLINE. <b>heartbeat:ping</b>은 Socket.IO 내장 ping/pong으로 일원화(연결 유지 전용, 별도 클라이언트 이벤트 없음). <b>presence:activity</b>는 클라이언트가 <code>mousemove</code>/<code>keydown</code>/<code>touchstart</code>(터치 기기) 이벤트 감지 시 서버에 전송. 마지막 activity 수신 후 <code>PRESENCE_IDLE_TIMEOUT=600s</code>(10분) 경과 시 IDLE 자동 전이 — D08 Presence 도메인과 동일한 타임아웃 기준. 10분 무활동 시 presence:changed(IDLE) 이벤트 발행.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-PS-18</td>
-        <td>설정 페이지 IA: 7개 표준 탭(내 계정/프로필/외관/알림/접근성/프라이버시&amp;안전/고급). 데스크톱은 좌측 180px 고정 사이드바, 모바일은 '나' 탭 → '설정' 버튼 → 드릴다운 목록 구조. Ctrl+,(Cmd+,) 단축키로 설정 토글 진입. 자동저장 탭(외관·접근성·알림·프라이버시&amp;안전)과 명시적 저장 탭(내 계정·프로필·고급)을 구분 적용한다.</td>
+        <td>설정 페이지 IA: 7개 표준 탭(내 계정/프로필/외관/알림/접근성/프라이버시&amp;안전/고급). 데스크톱은 좌측 180px 고정 사이드바, 모바일은 '나' 탭 → '설정' 버튼 → 드릴다운 목록 구조. Ctrl+,(Cmd+,) 단축키로 설정 토글 진입(데스크톱 — 모바일 동등 경로는 '나' 탭 드릴다운, FR-IA-MOB-07 ⑧). 자동저장 탭(외관·접근성·알림·프라이버시&amp;안전)과 명시적 저장 탭(내 계정·프로필·고급)을 구분 적용한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -14961,7 +15112,7 @@ createdAt DateTime @default(now())
       </tr>
       <tr>
         <td class="id">presence:activity</td>
-        <td>{} — 클라이언트가 mousemove/keydown 감지 시 서버에 전송. 서버가 마지막 activity 시각 갱신. PRESENCE_IDLE_TIMEOUT=600s 경과 시 IDLE 전이.</td>
+        <td>{} — 클라이언트가 mousemove/keydown/touchstart(터치 기기) 감지 시 서버에 전송. 서버가 마지막 activity 시각 갱신. PRESENCE_IDLE_TIMEOUT=600s 경과 시 IDLE 전이.</td>
         <td><span class="dir">C→S</span></td>
       </tr>
       <tr>
@@ -15247,7 +15398,7 @@ createdAt DateTime @default(now())
   <h3>퀵스위처 (Ctrl/Cmd+K)</h3>
   <p>전역 단축키로 모달형 팝업이 열린다. 검색창 플레이스홀더: <em>"채널, 멤버, DM으로 이동…"</em>. <code>@</code> 접두사는 멤버/DM만, <code>#</code> 접두사는 채널만 필터링. 쿼리 없을 때는 최근 방문 5개 + 미읽 채널 상위 5개를 기본 표시. 검색은 클라이언트사이드 퍼지 매칭(Socket.IO 초기 페이로드 캐시 기반).</p>
   <p>퀵스위처 모달은 접근성 요건을 준수한다. 모달 루트에 <code>role="dialog"</code>·<code>aria-modal="true"</code>·<code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 모달 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때는 트리거(Ctrl+K를 누른 요소)로 포커스가 복원된다. 검색 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다.</p>
-  <p>검색 결과가 0건인 경우 <code>[data-state="empty"]</code> 빈 상태 영역을 표시하며, <kbd>Ctrl+N</kbd>으로 새 DM 시작 가능함을 힌트로 안내하고 채널 브라우저 링크를 함께 제공한다. (→ FR-KS-11)</p>
+  <p>검색 결과가 0건인 경우 <code>[data-state="empty"]</code> 빈 상태 영역을 표시하며, <kbd>Ctrl+N</kbd>으로 새 DM 시작 가능함을 힌트로 안내하고(모바일: kbd 힌트를 숨기고 '새 DM 시작' 버튼 카피로 대체 — FR-IA-MOB-07 ⑪) 채널 브라우저 링크를 함께 제공한다. (→ FR-KS-11)</p>
 
   <h3>키보드 단축키 체계</h3>
   <div class="grid grid--3" style="gap:var(--s-4)">
@@ -15273,6 +15424,7 @@ Ctrl+Shift+8    불릿 목록
 Ctrl+Shift+7    번호 목록
 Shift+Enter     줄바꿈(전송 없이)
 ↑ (입력창 비어있을 때) 마지막 메시지 편집</pre>
+      <div class="entity__notes">모바일 소프트 키보드에는 Shift+Enter가 없다. 모바일에서는 Enter=줄바꿈, 전송은 send 버튼 전용(D01 FR-MSG-01 모바일 규칙). 물리 키보드 연결 시 위 단축키가 그대로 동작한다.</div>
     </div>
     <div class="entity">
       <div class="entity__name">메시지 액션 (호버/포커스)</div>
@@ -15283,7 +15435,7 @@ T / →  스레드 열기
 P      핀/언핀
 A      북마크 토글
 M      리마인더 설정</pre>
-      <div class="entity__notes">모바일에서는 위 단일 키 단축키 대신 롱프레스 액션 시트로 동일 기능을 제공한다. → IA 섹션 <em>모바일 메시지 액션 시트</em> 참조.</div>
+      <div class="entity__notes">모바일에서는 위 단일 키 단축키 대신 롱프레스 액션 시트로 동일 기능을 제공한다(→ IA 섹션 <em>모바일 메시지 액션 시트</em>). 내비게이션·포맷 열의 모바일 동등 경로: 퀵스위처·검색 → 탭바 '검색' 탭(④) · Ctrl+F → 채널 헤더 검색 아이콘(⑤) · 새 DM(Ctrl+N) → DM 목록 '새 DM' 버튼(⑨) · Esc/Shift+Esc → 채널 롱프레스 '읽음으로 표시'/채널 목록 '모두 읽음'(⑥) · ↑ 편집 → 롱프레스 '메시지 편집'(⑦) · Ctrl+, → '나' 탭 설정 드릴다운(⑧) · Ctrl+/ 치트시트 → 모바일 미노출 · Alt+Shift+↑↓ → 데스크톱 전용 · 포맷 단축키 → 컴포저 상단 고정 포맷 바(FR-KS-10 모바일 절). 원괄호 번호는 §02 <em>모바일 대체 인터랙션 표준</em>(FR-IA-MOB-07) 표 기준.</div>
     </div>
   </div>
 
@@ -15673,7 +15825,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-SC-06</td>
-        <td>/remind 커맨드는 chrono-node로 자연어 시간을 파싱하며, 파싱 성공 시 BullMQ 지연 잡을 등록하고 ephemeral 확인을 표시한다. 파싱 실패 시 ephemeral 에러와 올바른 구문 예시를 표시한다. 잡이 실행되면 <code>reminder:fire</code> 이벤트를 <code>user:{userId}</code> 개인 룸으로 emit하고, 클라이언트는 현재 채널과 무관하게 우하단 글로벌 토스트(8초)로 <em>[리마인더] {message} — {원본 채널 링크}</em>를 표시한다. 소켓 미연결 상태에서 scheduledAt에 도달한 경우 FR-MN-15 VAPID Web Push로 PushSubscription에 푸시 알림을 발송한다.</td>
+        <td>/remind 커맨드는 chrono-node로 자연어 시간을 파싱하며, 파싱 성공 시 BullMQ 지연 잡을 등록하고 ephemeral 확인을 표시한다. 파싱 실패 시 ephemeral 에러와 올바른 구문 예시를 표시한다. 잡이 실행되면 <code>reminder:fire</code> 이벤트를 <code>user:{userId}</code> 개인 룸으로 emit하고, 클라이언트는 현재 채널과 무관하게 우하단 글로벌 토스트(8초)로 <em>[리마인더] {message} — {원본 채널 링크}</em>를 표시한다. 소켓 미연결 상태에서 scheduledAt에 도달한 경우 FR-MN-15 VAPID Web Push로 PushSubscription에 푸시 알림을 발송한다. 모바일(≤767px): 글로벌 토스트는 우하단이 아니라 하단 탭바 위 <code>.qf-m-safe-bottom</code> 영역에 표시해 컴포저·탭바와 겹치지 않게 한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -15698,7 +15850,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-01</td>
-        <td>Ctrl/Cmd+K로 퀵스위처 모달이 열리며, 검색창에 타이핑 시 채널·멤버·DM을 혼합하여 퍼지 검색한다. @ 접두사는 멤버/DM, # 접두사는 채널만 필터링한다. 모달 루트에 <code>role="dialog"</code>·<code>aria-modal="true"</code>·<code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때 트리거로 포커스가 복원된다. 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다.</td>
+        <td>Ctrl/Cmd+K로 퀵스위처 모달이 열리며, 검색창에 타이핑 시 채널·멤버·DM을 혼합하여 퍼지 검색한다. @ 접두사는 멤버/DM, # 접두사는 채널만 필터링한다. 모달 루트에 <code>role="dialog"</code>·<code>aria-modal="true"</code>·<code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때 트리거로 포커스가 복원된다. 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다. 검색 소스는 서버 검색 API(<code>GET /quick-switcher</code>)가 정본이며, 클라이언트 퍼지 매칭은 로컬 캐시(최근 채널·멤버) 가속 수단이다(§API 표와의 이중 정의 해소). 모바일: 퀵스위처 모달은 미제공 — 탭바 '검색' 탭이 채널·멤버·DM 통합 이동의 동등 경로다(FR-IA-MOB-07 ④).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -15713,7 +15865,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-04</td>
-        <td>전역 단축키 Alt+Shift+↓/↑로 미읽 채널을 순서대로 이동할 수 있다.</td>
+        <td>전역 단축키 Alt+Shift+↓/↑로 미읽 채널을 순서대로 이동할 수 있다. 데스크톱 전용 — 모바일은 채널 목록의 미읽 강조와 Unreads View가 동등 수단이며 별도 제스처를 정의하지 않는다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -15723,12 +15875,12 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-06</td>
-        <td>입력창이 비어있을 때 ↑ 키를 누르면 가장 최근 내 메시지가 인라인 편집 모드로 진입한다. Esc는 편집 취소.</td>
+        <td>입력창이 비어있을 때 ↑ 키를 누르면 가장 최근 내 메시지가 인라인 편집 모드로 진입한다. Esc는 편집 취소. 모바일: 내 메시지 롱프레스 → '메시지 편집'(편집 바텀시트)이 동등 경로다(FR-IA-MOB-07 ⑦ — 물리 키보드 연결 시 ↑도 동작).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-KS-07</td>
-        <td>Shift+Enter는 메시지를 전송하지 않고 줄바꿈을 삽입한다.</td>
+        <td>Shift+Enter는 메시지를 전송하지 않고 줄바꿈을 삽입한다. 모바일 소프트 키보드 환경에는 Shift+Enter가 존재하지 않으므로 Enter(return)가 줄바꿈을 삽입하고, 전송은 컴포저 send 버튼으로만 수행한다(D01 FR-MSG-01 모바일 규칙 참조).</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -15738,17 +15890,17 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-09</td>
-        <td>Ctrl/Cmd+/는 단축키 치트시트 오버레이를 표시한다. 카테고리별(내비게이션/포맷/메시지 액션) 분류.</td>
+        <td>Ctrl/Cmd+/는 단축키 치트시트 오버레이를 표시한다. 카테고리별(내비게이션/포맷/메시지 액션) 분류. 모바일: 치트시트 진입점을 노출하지 않는다(물리 키보드 연결 시에만 단축키가 동작한다).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-KS-10</td>
-        <td>입력창에서 텍스트 선택 시 볼드·이탤릭·취소선·코드·코드블록·인용·링크 삽입 버튼이 있는 인라인 포맷 툴바가 선택 영역 위에 표시된다.</td>
+        <td>입력창에서 텍스트 선택 시 볼드·이탤릭·취소선·코드·코드블록·인용·링크 삽입 버튼이 있는 인라인 포맷 툴바가 선택 영역 위에 표시된다. 모바일에서는 iOS/Android 네이티브 텍스트 선택 메뉴가 선택 영역 위에 표시되므로, 인라인 포맷 툴바는 선택 영역 위가 아닌 컴포저 상단 고정 바 형태로 표시하여 네이티브 메뉴와 겹치지 않게 한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
         <td class="id">FR-KS-11</td>
-        <td>퀵스위처 검색 결과가 0건인 경우 <code>[data-state="empty"]</code> 빈 상태 영역을 표시한다. 빈 상태 영역에는 (1) '일치하는 채널 또는 멤버가 없습니다' 안내 문구, (2) <kbd>Ctrl+N</kbd>으로 새 DM을 시작할 수 있다는 힌트, (3) 채널 브라우저로 이동하는 링크가 포함된다.</td>
+        <td>퀵스위처 검색 결과가 0건인 경우 <code>[data-state="empty"]</code> 빈 상태 영역을 표시한다. 빈 상태 영역에는 (1) '일치하는 채널 또는 멤버가 없습니다' 안내 문구, (2) <kbd>Ctrl+N</kbd>으로 새 DM을 시작할 수 있다는 힌트, (3) 채널 브라우저로 이동하는 링크가 포함된다. ≤767px에서는 (2)의 kbd 힌트를 숨기고 '새 DM 시작' 버튼/링크 카피로 교체한다(FR-IA-MOB-07 ⑪).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -15963,10 +16115,10 @@ visitedAt   DateTime @default(now())
     <li>Reminder BullMQ 잡이 Redis 재시작 후 유실되면, 서버 재기동 시 PENDING 상태의 Reminder를 DB에서 조회하여 미래 scheduledAt에 대해 잡 재등록하는 복구 로직 필요.</li>
     <li>동일 <code>idempotencyKey</code>로 커맨드 실행 중복 요청 시 두 번째 이후는 첫 번째 응답을 그대로 반환(멱등성 보장).</li>
     <li><code>/</code> 타이핑 후 즉시 Backspace로 삭제하면 자동완성 팝업이 즉시 닫혀야 한다.</li>
-    <li>모바일 웹에서는 키보드 단축키(E/R/T/P/A/M) 대신 롱프레스 액션 시트로 메시지 액션을 제공한다(→ IA 섹션 참조). 포맷팅 툴바와 슬래시 커맨드 팝업은 모바일에서도 동작. 물리 키보드 연결 시 단축키도 동작.</li>
+    <li>모바일 웹에서는 키보드 단축키(E/R/T/P/A/M) 대신 롱프레스 액션 시트로 메시지 액션을 제공한다(→ IA 섹션 참조). 포맷팅 툴바는 모바일에서 컴포저 상단 고정 바로 표시되어 네이티브 선택 메뉴와 충돌하지 않으며(FR-KS-10 모바일 절), 슬래시 커맨드 팝업은 모바일에서도 동작. 모바일 Enter는 줄바꿈이고 전송은 send 버튼 전용(D01 FR-MSG-01). 물리 키보드 연결 시 단축키도 동작.</li>
     <li>자동완성 aria-live 리전(<code>id="qf-a11y-announcer"</code>)은 팝업이 닫힌 후 200ms 이내에 빈 문자열로 초기화하여 이전 공지가 재낭독되지 않도록 한다. 연속 팝업 오픈 시 초기화 후 새 텍스트를 주입하는 순서를 보장한다.</li>
     <li>퀵스위처 모달이 열릴 때 focus-trap이 활성화되어 <kbd>Tab</kbd> 키가 모달 외부 요소로 이동하지 않는다. <kbd>Esc</kbd> 닫힘 시 모달을 연 트리거 요소(예: 퀵스위처 버튼 또는 Ctrl+K를 누른 시점의 포커스 위치)로 포커스가 복원된다.</li>
-    <li>오프라인 상태에서 scheduledAt에 도달한 리마인더는 소켓 재연결 후 Socket.IO <code>reminder:fire</code> 대신 Web Push(VAPID)로 발송된다. PushSubscription이 없는 경우(Web Push 미등록) 리마인더는 소켓 재연결 시 pending 이벤트 큐로 fallback 처리한다.</li>
+    <li>오프라인 상태에서 scheduledAt에 도달한 리마인더는 소켓 재연결 후 Socket.IO <code>reminder:fire</code> 대신 Web Push(VAPID)로 발송된다. PushSubscription이 없는 경우(Web Push 미등록) 리마인더는 소켓 재연결 시 pending 이벤트 큐로 fallback 처리한다. PWA 미설치 iOS Safari는 PushSubscription 등록 자체가 불가하므로 이 fallback(재연결 시 전달)이 해당 환경의 기본 경로다(D06 FR-MN-15 iOS 전제 참조).</li>
   </ul>
 
   <!-- 9. 수용 기준 -->
@@ -16051,9 +16203,9 @@ visitedAt   DateTime @default(now())
 
   <h3>4. 멘션 AtomNode 직렬화 (FR-RC01 / D01 FR-MSG-13)</h3>
   <div class="callout">
-    <strong>컴포저 → contentRaw 직렬화:</strong> ProseMirror serializer가 <code>mentionUser</code> AtomNode를 <code>@{cuid2}</code> 토큰(예: <code>@{clh3z2k0v0000…}</code>)으로 변환해 <code>contentRaw</code>에 포함시킵니다.<br><br>
-    <strong>서버 파싱:</strong> mrkdwn 파서가 <code>contentRaw</code>의 <code>@{cuid2}</code> 패턴을 <code>mention_user</code> AST 노드(<code>{ type: "mention_user", userId: "clh3z2k0v0000…" }</code>)로 변환합니다.<br><br>
-    <strong>공유 정규식:</strong> <code>packages/shared-types</code>에서 <code>MENTION_USER_RE = /@\{([a-z0-9]{20,})\}/g</code>를 export합니다. 클라이언트(컴포저 serializer / 렌더러)와 서버(파서) 모두 이 정규식을 동일하게 사용합니다. 정규식이 변경되면 shared-types 버전을 올려야 합니다.<br><br>
+    <strong>컴포저 → contentRaw 직렬화:</strong> ProseMirror serializer가 <code>mentionUser</code> AtomNode를 <code>@{userId}</code> 토큰(예: uuid <code>@{8a6e0804-2bd0-4672-b79d-d97027f9071a}</code>, cuid2 <code>@{clh3z2k0v0000…}</code>)으로 변환해 <code>contentRaw</code>에 포함시킵니다.<br><br>
+    <strong>서버 파싱:</strong> mrkdwn 파서가 <code>contentRaw</code>의 <code>@{userId}</code> 패턴을 <code>mention_user</code> AST 노드(<code>{ type: "mention_user", userId: "clh3z2k0v0000…" }</code>)로 변환합니다.<br><br>
+    <strong>공유 정규식:</strong> <code>packages/shared-types</code>에서 <code>MENTION_USER_RE = /@\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{20,})\}/g</code>(uuid|cuid2 합집합 — uuid 분기 선두, 현 스키마 User.id 가 <code>@db.Uuid</code> 이므로 실사용 토큰은 uuid)를 export합니다. 클라이언트(컴포저 serializer / 렌더러)와 서버(파서) 모두 이 정규식을 동일하게 사용합니다. 정규식이 변경되면 shared-types 버전을 올려야 합니다.<br><br>
     <strong>IME 조합 중 Enter 억제:</strong> 컴포저는 IME 조합 세션 중(compositionstart → compositionend) Enter 키 전송을 억제해야 합니다. 구체적 규칙은 D01 FR-MSG-01을 따릅니다.
   </div>
 
@@ -16076,7 +16228,7 @@ visitedAt   DateTime @default(now())
     <li>이모지 1~3개로만 구성된 메시지 → 32px 확대 렌더 (4개 이상은 일반)</li>
     <li>스포일러 <code class="qf-code-inline">||텍스트||</code> → 클릭 전까지 불투명 박스, 클릭 시 토글</li>
     <li>코드블록 → Shiki SSR 문법강조, 미지원 언어는 plain text + lang 레이블 유지</li>
-    <li>편집된 메시지 → "(수정됨)" 레이블 + MessageRevision 이력 기록 + 우클릭 메뉴 "편집 이력 보기"</li>
+    <li>편집된 메시지 → "(수정됨)" 레이블 + MessageRevision 이력 기록 + 편집 이력 보기(데스크톱: "(수정됨)" 뱃지 클릭 팝오버 / 모바일: 메시지 롱프레스 시트 '편집 이력' 바텀시트)</li>
     <li>글자 수 제한: 사용자·봇 메시지 4,000자 / embed description 2,048자 / embed field value 1,024자</li>
     <li>ReDoS 방지: 파서에 최대 중첩 깊이·노드 수 제한 적용</li>
     <li>WS 이벤트명은 ADR-12 <code>WS_EVENTS</code> 상수를 단일 출처로 사용합니다. S→C 메시지 관련 이벤트는 <strong>과거분사형</strong>(<code>message:created</code> / <code>message:updated</code> / <code>message:deleted</code>)만 사용합니다. <code>message:create</code> / <code>message:update</code> / <code>message:delete</code> (현재형)는 폐기됐으며 사용을 금지합니다.</li>
@@ -16560,7 +16712,7 @@ visitedAt   DateTime @default(now())
   <h2><span class="qf-eyebrow">User stories</span> 사용자 스토리</h2>
   <ul class="stories">
     <li>채팅 참여자로서, <strong>굵게</strong> <em>기울임</em> <s>취소선</s> <code class="qf-code-inline">코드</code> 등 마크다운 서식을 입력하면 컴포저 내에서 즉시 인라인 렌더된 형태로 볼 수 있습니다(WYSIWYG-lite).</li>
-    <li>채팅 참여자로서, @를 입력하면 멤버 자동완성 팝업이 나타나 키보드로 선택 후 violet pill 멘션을 삽입할 수 있습니다. 멘션은 컴포저에서 <code class="qf-code-inline">@{cuid2}</code> 토큰으로 직렬화되어 전송됩니다.</li>
+    <li>채팅 참여자로서, @를 입력하면 멤버 자동완성 팝업이 나타나 키보드로 선택 후 violet pill 멘션을 삽입할 수 있습니다. 멘션은 컴포저에서 <code class="qf-code-inline">@{userId}</code> 토큰으로 직렬화되어 전송됩니다.</li>
     <li>채팅 참여자로서, 언급된 메시지는 배경이 강조되어 내가 멘션된 것을 한눈에 알 수 있습니다.</li>
     <li>채팅 참여자로서, URL을 붙여넣으면 전송 후 자동으로 미리보기 카드가 펼쳐져 내용을 확인할 수 있습니다.</li>
     <li>채팅 참여자로서, &lt;URL&gt; 형식으로 감싸면 미리보기 없이 링크만 표시할 수 있습니다.</li>
@@ -16586,12 +16738,12 @@ visitedAt   DateTime @default(now())
     <tbody>
       <tr>
         <td class="id">FR-RC01</td>
-        <td>컴포저는 ProseMirror/Tiptap 기반 WYSIWYG-lite 에디터(contenteditable)로 구현합니다. 마크다운 입력 시 인라인 즉시 렌더(굵게/**/, 기울임/*/_/, 밑줄/__/, 취소선/~~/, 스포일러/||/, 인라인코드/`/)합니다. 코드블록(```lang) 내부는 plain text로 유지합니다. Preview 탭은 제공하지 않습니다. @멘션은 <code>mentionUser</code> AtomNode로 삽입되며, 전송 시 ProseMirror serializer가 해당 노드를 <code>@{cuid2}</code> 토큰으로 변환해 <code>contentRaw</code>에 포함시킵니다. 포커스/블러 시 커서 위치가 보존됩니다. IME 조합 중(compositionstart → compositionend) Enter 전송은 억제합니다(D01 FR-MSG-01 참조). 모바일 자동완성 팝업(<code>.qf-m-autocomplete</code>)은 <code>position:absolute; bottom:100%</code>(컴포저 기준)로 배치하고, <code>visualViewport</code> API로 가상 키보드 높이를 감지해 <code>maxHeight</code>를 동적 계산합니다. iOS Safari <code>visualViewport.offsetTop</code> 보정은 <code>useVisualViewport</code> 공통 훅에서 처리합니다. 결정 근거: 모바일 IME 조합 처리·접근성(스크린리더)에서 contenteditable이 textarea 방식보다 우수합니다.</td>
+        <td>컴포저는 ProseMirror/Tiptap 기반 WYSIWYG-lite 에디터(contenteditable)로 구현합니다. 마크다운 입력 시 인라인 즉시 렌더(굵게/**/, 기울임/*/_/, 밑줄/__/, 취소선/~~/, 스포일러/||/, 인라인코드/`/)합니다. 코드블록(```lang) 내부는 plain text로 유지합니다. Preview 탭은 제공하지 않습니다. @멘션은 <code>mentionUser</code> AtomNode로 삽입되며, 전송 시 ProseMirror serializer가 해당 노드를 <code>@{userId}</code> 토큰으로 변환해 <code>contentRaw</code>에 포함시킵니다. 포커스/블러 시 커서 위치가 보존됩니다. IME 조합 중(compositionstart → compositionend) Enter 전송은 억제합니다(D01 FR-MSG-01 참조). 모바일에서는 Enter 키 입력을 전송이 아닌 줄바꿈 삽입으로 처리하고 전송은 send 버튼 전용으로 합니다. contenteditable 루트에 <code>enterKeyHint="enter"</code>를 지정합니다(<code>"send"</code> 정책 전환 옵션 — D01 FR-MSG-01 모바일 규칙). 모바일 자동완성 팝업(<code>.qf-m-autocomplete</code>)은 <code>position:absolute; bottom:100%</code>(컴포저 기준)로 배치하고, <code>visualViewport</code> API로 가상 키보드 높이를 감지해 <code>maxHeight</code>를 동적 계산합니다. iOS Safari <code>visualViewport.offsetTop</code> 보정은 <code>useVisualViewport</code> 공통 훅에서 처리합니다. 결정 근거: 모바일 IME 조합 처리·접근성(스크린리더)에서 contenteditable이 textarea 방식보다 우수합니다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-RC02</td>
-        <td>메시지 본문은 DB에 <code>contentRaw</code>(원본 마크다운 TEXT) + <code>contentAst</code>(파싱 AST JSONB) + <code>contentTsv</code>(전문 검색용 tsvector) 세 필드로 저장해야 합니다. AST 스키마는 root/paragraph/heading/blockquote/code_block/list/subtext/text/mention_user/mention_channel/mention_role/emoji/link 노드 타입을 포함해야 합니다. 서버 mrkdwn 파서는 <code>contentRaw</code>의 <code>@{cuid2}</code> 패턴(정규식: <code>packages/shared-types</code> <code>MENTION_USER_RE</code>)을 <code>mention_user</code> AST 노드로 변환해야 합니다.</td>
+        <td>메시지 본문은 DB에 <code>contentRaw</code>(원본 마크다운 TEXT) + <code>contentAst</code>(파싱 AST JSONB) + <code>contentTsv</code>(전문 검색용 tsvector) 세 필드로 저장해야 합니다. AST 스키마는 root/paragraph/heading/blockquote/code_block/list/subtext/text/mention_user/mention_channel/mention_role/emoji/link 노드 타입을 포함해야 합니다. 서버 mrkdwn 파서는 <code>contentRaw</code>의 <code>@{userId}</code> 패턴(정규식: <code>packages/shared-types</code> <code>MENTION_USER_RE</code>)을 <code>mention_user</code> AST 노드로 변환해야 합니다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -16661,7 +16813,7 @@ visitedAt   DateTime @default(now())
       </tr>
       <tr>
         <td class="id">FR-RC16</td>
-        <td>편집된 메시지는 타임스탬프 옆에 '(수정됨)' 레이블을 표시하고, MessageRevision 테이블에 이전 본문을 기록해야 합니다. 사용자는 우클릭 메뉴에서 편집 이력을 확인할 수 있어야 합니다.</td>
+        <td>편집된 메시지는 타임스탬프 옆에 '(수정됨)' 레이블을 표시하고, MessageRevision 테이블에 이전 본문을 기록해야 합니다. 사용자는 데스크톱에서는 '(수정됨)' 뱃지 클릭으로 열리는 편집 이력 팝오버에서, 모바일에서는 메시지 롱프레스 액션 시트의 '편집 이력' 항목 → 바텀시트에서 편집 이력을 확인할 수 있어야 합니다(권한 게이트: 작성자 본인 또는 모더레이터 — D01 FR-MSG-08과 동일).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -16691,7 +16843,7 @@ visitedAt   DateTime @default(now())
       </tr>
       <tr>
         <td class="id">FR-RC22</td>
-        <td><code>packages/shared-types</code>에서 <code>MENTION_USER_RE = /@\{([a-z0-9]{20,})\}/g</code>를 export해야 합니다. 클라이언트 컴포저 serializer·렌더러와 서버 mrkdwn 파서 모두 이 정규식을 동일하게 사용해야 합니다.</td>
+        <td><code>packages/shared-types</code>에서 <code>MENTION_USER_RE = /@\{([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|[a-z0-9]{20,})\}/g</code>(uuid|cuid2 합집합 — uuid 분기 선두, 현 스키마 User.id 가 <code>@db.Uuid</code> 이므로 실사용 토큰은 uuid)를 export해야 합니다. 클라이언트 컴포저 serializer·렌더러와 서버 mrkdwn 파서 모두 이 정규식을 동일하게 사용해야 합니다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -16726,7 +16878,6 @@ nonce            String?
 editedAt         DateTime?
 deletedAt        DateTime?
 createdAt        DateTime @default(now())
-replyToId        String?
 
 @@index([channelId, createdAt])
 @@index([nonce])
@@ -16855,7 +17006,7 @@ expiresAt    DateTime
       <tr>
         <td><span class="meth meth--post">POST</span></td>
         <td class="id">/workspaces/:wId/channels/:cId/messages</td>
-        <td>메시지 전송. body: { contentRaw, idempotencyKey?, nonce?, replyToId? }. 서버가 파싱해 contentAst·contentTsv 생성·저장. 멘션 알림 발행. URL이 있으면 normalizeUrl → unfurl 잡 큐 등록.</td>
+        <td>메시지 전송. body: { contentRaw, idempotencyKey?, nonce? }. 서버가 파싱해 contentAst·contentTsv 생성·저장. 멘션 알림 발행. URL이 있으면 normalizeUrl → unfurl 잡 큐 등록.</td>
       </tr>
       <tr>
         <td><span class="meth meth--patch">PATCH</span></td>
@@ -16952,7 +17103,7 @@ expiresAt    DateTime
     <tbody>
       <tr>
         <td class="id">message:created</td>
-        <td>{ message: MessageDto } — id, channelId, authorId, authorType, botDisplayName?, botAvatarUrl?, contentRaw, contentAst, messageType, typePayload?, createdAt, editedAt?, replyTo? 포함</td>
+        <td>{ message: MessageDto } — id, channelId, authorId, authorType, botDisplayName?, botAvatarUrl?, contentRaw, contentAst, messageType, typePayload?, createdAt, editedAt? 포함</td>
         <td><span class="dir">S→C</span></td>
       </tr>
       <tr>
@@ -17029,7 +17180,7 @@ expiresAt    DateTime
   <ul class="ac">
     <li>컴포저에 **굵게** 입력 시 컴포저 내 인라인 굵은 텍스트가 즉시 렌더되고(WYSIWYG-lite), POST /messages 응답의 contentAst에 bold:true 노드가 포함된다. Preview 탭은 존재하지 않는다.</li>
     <li>컴포저에 @ 입력 후 150ms 이내에 멤버 자동완성 팝업(role=listbox)이 표시되고, Enter 입력 시 mention_user AtomNode가 AST에 삽입된다. 팝업 combobox 입력 요소에 aria-activedescendant가 현재 포커스 option id를 가리킨다.</li>
-    <li>컴포저에서 멘션 선택 시 ProseMirror serializer가 AtomNode를 <code>@{cuid2}</code> 토큰으로 변환해 contentRaw에 포함시키고, 서버 파서가 해당 토큰을 mention_user AST 노드로 변환한다. <code>MENTION_USER_RE</code>는 packages/shared-types에서 export된다.</li>
+    <li>컴포저에서 멘션 선택 시 ProseMirror serializer가 AtomNode를 <code>@{userId}</code> 토큰으로 변환해 contentRaw에 포함시키고, 서버 파서가 해당 토큰을 mention_user AST 노드로 변환한다. <code>MENTION_USER_RE</code>는 packages/shared-types에서 export된다.</li>
     <li>mention_user 노드를 포함한 메시지가 저장되면 해당 userId의 사용자에게 알림 이벤트(notification:mention)가 발행된다.</li>
     <li>POST /messages 요청에 http:// URL이 포함되면 30초 이내에 message:embed_updated 소켓 이벤트가 해당 채널 구독자에게 전달된다.</li>
     <li>&lt;https://example.com&gt; 형식의 URL을 포함한 메시지는 embed 없이 클릭 가능 링크만 렌더되며 MessageEmbed 행이 생성되지 않는다.</li>
@@ -17059,7 +17210,7 @@ expiresAt    DateTime
     <li>멘션 자동완성 팝업이 열린 상태에서 스크린리더가 role=listbox를 인식하고 aria-activedescendant로 현재 포커스 항목을 읽는다.</li>
     <li>Socket.IO 이벤트 이름 카탈로그(WS_EVENTS 상수, packages/shared-types/src/constants/ws-events.ts)에서 message:created / message:updated / message:deleted 가 정의되어 있고, message:create / message:update / message:delete 는 존재하지 않는다.</li>
     <li>모바일 환경에서 가상 키보드가 열린 상태로 @ 입력 시 .qf-m-autocomplete 팝업이 컴포저 위에 표시되고 키보드에 가려지지 않는다. visualViewport.height 변화 시 팝업 maxHeight가 동적으로 재계산된다.</li>
-    <li>한글 IME 조합 중(compositionstart 이후) Enter 키 입력 시 메시지가 전송되지 않는다. compositionend 이후 Enter 키 입력 시 정상 전송된다.</li>
+    <li>(데스크톱·물리 키보드 기준) 한글 IME 조합 중(compositionstart 이후) Enter 키 입력 시 메시지가 전송되지 않는다. compositionend 이후 Enter 키 입력 시 정상 전송된다. 모바일 소프트 키보드에서는 Enter=줄바꿈이므로 본 AC를 적용하지 않는다(D01 FR-MSG-01 모바일 규칙).</li>
     <li>MessageType enum이 packages/shared-types/src/enums/message-type.ts 단일 파일에서만 정의되며, apps/api와 apps/web 모두 해당 파일을 import한다. D16 내에 별도 MessageType 정의가 존재하지 않는다.</li>
   </ul>
 </section>
@@ -17456,27 +17607,30 @@ expiresAt    DateTime
           </div>
         </div>
 
-        <!-- 탭 바 -->
-        <div class="qf-m-tabbar" style="display:flex; border-top:1px solid var(--border); background:var(--bg-panel);">
-          <div class="qf-m-tab" style="flex:1; display:flex; flex-direction:column; align-items:center; padding:var(--s-2); position:relative;">
-            <div class="qf-m-tab__icon" style="position:relative;">
-              <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-hash"/></svg>
-              <span class="qf-m-tab__badge qf-m-tab__badge--mention" style="position:absolute; top:-4px; right:-6px; background:var(--danger-600); color:var(--n-0); font-size:9px; font-weight:700; padding:0 4px; border-radius:99px; min-width:14px; text-align:center;">3</span>
-            </div>
-            <span class="qf-m-tab__label" style="font-size:10px; color:var(--text-muted);">채널</span>
-          </div>
-          <div class="qf-m-tab" style="flex:1; display:flex; flex-direction:column; align-items:center; padding:var(--s-2);">
-            <svg class="qf-icon" style="color:var(--accent);"><use href="#qf-i-inbox"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px; color:var(--accent);">메시지</span>
-          </div>
-          <div class="qf-m-tab" style="flex:1; display:flex; flex-direction:column; align-items:center; padding:var(--s-2);">
-            <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-bell"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px; color:var(--text-muted);">알림</span>
-          </div>
-          <div class="qf-m-tab" style="flex:1; display:flex; flex-direction:column; align-items:center; padding:var(--s-2);">
-            <svg class="qf-icon" style="color:var(--text-muted);"><use href="#qf-i-user"/></svg>
-            <span class="qf-m-tab__label" style="font-size:10px; color:var(--text-muted);">나</span>
-          </div>
+        <!-- 탭 바 (§02 카노니컬 5탭 — 채팅 화면이므로 active=채팅, @멘션 배지는 채팅 탭) -->
+        <div class="qf-m-tabbar">
+          <button class="qf-m-tab" aria-selected="true">
+            <span class="qf-m-tab__pill"></span>
+            <span class="qf-m-tab__badge qf-m-tab__badge--mention">3</span>
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
+            <span class="qf-m-tab__label">채팅</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
+            <span class="qf-m-tab__label">인박스</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-thread"/></svg></span>
+            <span class="qf-m-tab__label">스레드</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-search"/></svg></span>
+            <span class="qf-m-tab__label">검색</span>
+          </button>
+          <button class="qf-m-tab">
+            <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-user"/></svg></span>
+            <span class="qf-m-tab__label">나</span>
+          </button>
         </div>
       </div>
     </div>
@@ -17603,7 +17757,7 @@ expiresAt    DateTime
       </tr>
       <tr>
         <td class="id">FR-RT-20</td>
-        <td>Infra: Socket.IO 서버를 <code class="code">transports:['websocket']</code> 전용으로 설정(HTTP polling 비활성화). pingInterval=25000, pingTimeout=20000. Node 프로세스 힙 상한 <code class="code">--max-old-space-size</code> 설정. <code class="code">maxHttpBufferSize=1MB</code>. 채널당 fanout 상한(멤버 수 기준)을 설정하여 단일 이벤트 루프 점유를 방지한다.</td>
+        <td>Infra: Socket.IO 서버를 <code class="code">transports:['websocket']</code> 전용으로 설정(HTTP polling 비활성화). pingInterval=25000, pingTimeout=20000. Node 프로세스 힙 상한 <code class="code">--max-old-space-size</code> 설정. <code class="code">maxHttpBufferSize=1MB</code>. 채널당 fanout 상한(멤버 수 기준)을 설정하여 단일 이벤트 루프 점유를 방지한다. WebSocket이 차단된 망/프록시 환경에서 재연결 시도 한도까지 연결에 실패하면 폴링 폴백 없이 전체 화면 연결 불가 안내("실시간 연결을 만들 수 없습니다 — 네트워크/프록시에서 WebSocket(wss) 허용이 필요합니다")를 표시한다(폴백 transport 미제공은 의도된 설계).</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -18350,6 +18504,18 @@ WorkspaceOnboardingRule // 규칙 동의 → IA/D13</pre>
   <div class="qf-eyebrow">PRD · 변경 이력</div>
   <h1 class="page-title">Changelog</h1>
   <p class="page-lede">실리콘밸리 메시징 회사 가정 — PM·UX·FE·BE·실시간/인프라·보안·QA 7개 팀의 리뷰 사이클로 PRD를 버전업한 기록입니다. 최신 버전이 위에 옵니다.</p>
+
+  <div class="secblock">
+    <h2><span class="qf-eyebrow">v4</span> 071 모바일 UI/UX 오버홀(M2·M3) 구현 정합 개정: 모바일 IA 5탭 카노니컬 확정 + 답장=스레드 답글 단일화(replyToId 폐기) + 모바일 도달성 진입점 명문화 + 레거시 멘션 토큰 백필 반영.</h2>
+    <div class="subtle">071-M4 — 모바일 UI/UX 감사(D-1~59·A-1~45) 반영 → §02 IA·D01~D17 모바일 절 보강, 전 도메인 목업 탭바 카노니컬 통일.</div>
+    <h3>반영</h3>
+    <ul class="ac">
+    <li>[IA] 모바일 5탭(채팅·인박스·스레드·검색·나) + OverlappingPanels 카노니컬 확정 — 전 도메인 목업 탭바를 §02 카노니컬 표에 종속·통일, FR-IA-MOB-07(모바일 대체 인터랙션 표준)·FR-IA-MOB-08(서버 메뉴 시트) 신설</li>
+    <li>[메시징] 답장 = parentMessageId 스레드 답글 단일 경로 확정 — 인용형 답장 모델(Message.replyToId 컬럼, POST body replyToId?, MessageDto replyTo?) 폐기 (D16)</li>
+    <li>[도달성] 모바일 진입점 명문화: 서버 메뉴 시트 → 워크스페이스 설정(<code>/w/:slug/settings</code>) · '나' 탭 '저장됨'(<code>/saved</code>) · 핀 풀스크린 목록 · 채널 목록 '모두 읽음'(+Undo 토스트) · 채널 롱프레스 뮤트 6종 · 편집 이력 바텀시트 · 슬로우모드 쿨다운 표시 · hoist 멤버 그룹 · 풀스크린 프로필</li>
+    <li>[데이터] 레거시 @{uuid}/&lt;#uuid&gt; 멘션 토큰 1회성 백필(MentionBackfillBackup, reversible) + MentionIdSchema uuid|cuid2 확장(커스텀 이모지 customId 포함)</li>
+    </ul>
+  </div>
 
   <div class="secblock">
     <h2><span class="qf-eyebrow">v3</span> v1: PRD 전반의 카노니컬 충돌(스키마/이벤트/상수) 정정 + blocker/high UX·동시성·보안 공백을 FR/AC/데이터모델로 보강. seq 채널단위 전환, idempotencyKey 스코프·@db.Uuid·ADR-9 FK 정합, 이메일 인증/계정 비활성화 보안 경로, 가상화 렌더·동시편집·차단 race, 검색 오라클 방지, NFR 부하검증 기계화 포함.</h2>
