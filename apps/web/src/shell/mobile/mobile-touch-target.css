@@ -67,3 +67,14 @@
   border-radius: 2px;
   background: var(--n-5);
 }
+
+/* 071-M6 T5 (touch-target e2e 적발): 시트 내용이 max-height(80%)를 넘으면
+   flex column 이 자식들을 압축해 퀵 반응 칩이 44px 미만(43.x)으로 줄었다
+   (M5 의 시각 헤더+grab 확장으로 내용 증가 — 375×667 에서 초과). 자식 압축을
+   금지하고 넘침은 스크롤로 처리한다(DS .qf-m-sheet 무수정 — 앱 보강). */
+.qf-m-sheet > * {
+  flex-shrink: 0;
+}
+.qf-m-sheet {
+  overflow-y: auto;
+}

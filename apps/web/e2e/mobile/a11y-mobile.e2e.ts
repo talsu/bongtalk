@@ -29,13 +29,13 @@ import {
  *
  *  | rule id | 표면 | 사유/백로그 |
  *  |---------|------|------------|
- *  | (현재 없음 — 첫 실측 전) | — | — |
+ *  | color-contrast | left-panel(.qf-m-section__action) · you-tab(.qf-avatar 이니셜) · ws-settings(workspace-settings-save) | DS 4파일 소유 색 조합(serious) — DS frozen 이라 앱 레이어 수리 불가, DS 토큰 개정 백로그(사용자 결정 필요). 앱 소유였던 레일 활성 텍스트 1건과 aria-allowed-attr(탭바 role·채널행 aria-current)는 M6 T5 에서 코드 수리 완료 |
  * ────────────────────────────────────────────────────────────────────────
  */
 test.setTimeout(180_000);
 
 // 실측으로 확인된 기존 위반 룰만 명시 격리한다(위 백로그 표와 1:1 동기).
-const ISOLATED_RULES: string[] = [];
+const ISOLATED_RULES: string[] = ['color-contrast'];
 
 // 데스크톱 선례(axe-scan.e2e.ts)와 동일: Radix 가 포털 애니메이션 중 일시적으로
 // 거는 aria-hidden 이 만드는 프레임워크 오탐 — 실제 장벽이 아니므로 차단 집계에서

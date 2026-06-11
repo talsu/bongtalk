@@ -73,6 +73,8 @@ export function MobileTabBar(): JSX.Element {
       data-testid="mobile-tabbar"
       className="qf-m-tabbar qf-m-safe-bottom"
       aria-label="기본 탐색"
+      // M6 T5: 탭 버튼의 role=tab 합법화 짝(axe aria-required-parent).
+      role="tablist"
     >
       <Tab
         testId="mobile-tab-chat"
@@ -138,6 +140,11 @@ function Tab({
       type="button"
       data-testid={testId}
       className={cn('qf-m-tab', disabled && 'opacity-40 cursor-not-allowed')}
+      // M6 T5 (axe aria-allowed-attr critical): aria-selected 는 role 이 있어야
+      // 합법 — DS 가 [aria-selected] 셀렉터로 활성 스타일을 그리므로(mobile.css
+      // L112~, DS 4파일 frozen) 속성을 유지하고 tab role 을 부여한다(컨테이너
+      // nav 는 tablist — 하단 내비의 ARIA tabs 패턴 절충, Ionic 동례).
+      role="tab"
       aria-selected={selected ? 'true' : 'false'}
       aria-disabled={disabled ? 'true' : undefined}
       disabled={disabled}
