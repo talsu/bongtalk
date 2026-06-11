@@ -36,3 +36,30 @@ export function useSheetHistoryMarker(open: boolean, onClose: () => void): void 
     };
   }, [open]);
 }
+
+/**
+ * 071-M5 S6 회귀 수리 — 시트→시트 전환 핸드셰이크.
+ *
+ * 닫히는 시트의 마커 소거(history.back — 비동기 트래버설)가 곧바로 push 된
+ * 다음 시트의 qfSheet 마커를 pop 해 즉시 닫아버리는 레이스(M3 F2 패널판과
+ * 동일 계열 — MobileMessageSheet 가 M5 에서 마커를 갖게 되며 표면화).
+ * close 직후 popstate 소화를 기다렸다가 open 한다(마커가 없었으면 즉시,
+ * 소거가 스킵된 경우는 200ms 안전망 — MobileShell.afterMarkerSettles 동형).
+ */
+export function transitionSheetMarker(close: () => void, open: () => void): void {
+  const had = (window.history.state as { qfSheet?: boolean } | null)?.qfSheet === true;
+  close();
+  if (!had) {
+    open();
+    return;
+  }
+  let fired = false;
+  const fire = (): void => {
+    if (fired) return;
+    fired = true;
+    window.removeEventListener('popstate', fire);
+    open();
+  };
+  window.addEventListener('popstate', fire);
+  window.setTimeout(fire, 200);
+}

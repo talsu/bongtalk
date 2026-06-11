@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_helpers';
+import {
+  MOBILE_VIEWPORT,
+  bootstrapWorkspace,
+  dispatchLongPress,
+  loginUI,
+  signupToken,
+} from './_helpers';
 
 /**
  * task-025 polish harness. Every visible interactive element inside
@@ -56,26 +62,8 @@ test('every qf-m-* interactive hits 44×44 minimum', async ({ browser, request }
     // dispatch 하면 이벤트가 루트까지 버블되지 않아 조용히 증발한다 — 확정 행만 잡는다.
     .locator('[data-testid^="mobile-msg-"][data-mine="true"]:not([data-testid^="mobile-msg-tmp-"])')
     .first();
-  await row.evaluate((el) => {
-    const target = el as HTMLElement;
-    const r = target.getBoundingClientRect();
-    const touch = new Touch({
-      identifier: 1,
-      target,
-      clientX: r.left + r.width / 2,
-      clientY: r.top + r.height / 2,
-    });
-    target.dispatchEvent(
-      new TouchEvent('touchstart', {
-        touches: [touch],
-        targetTouches: [touch],
-        changedTouches: [touch],
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  await page.waitForTimeout(650);
+  // M5 S6: 부하 시 dispatch 증발 flake — 공용 헬퍼(미출현 시 1회 재시도)로 교체.
+  await dispatchLongPress(row, 650, page.locator('[data-testid^="mobile-msg-sheet-"]'));
   await expect(page.locator('[data-testid^="mobile-msg-sheet-"]')).toBeVisible();
 
   // Collect interactive elements inside the mobile shell.

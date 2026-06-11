@@ -79,7 +79,7 @@ test('channel long-press opens the mute sheet; mute suppresses the badge', async
   await expect(newsRow.getByTestId('mobile-unread')).toBeVisible();
 
   // 롱프레스(500ms 타이머) → 시트. 합성 click 미발화라 내비게이션 없음.
-  await dispatchLongPress(newsRow);
+  await dispatchLongPress(newsRow, 650, page.getByTestId('mobile-channel-sheet-news'));
   const sheet = page.getByTestId('mobile-channel-sheet-news');
   await expect(sheet).toBeVisible();
   await page.getByTestId('mobile-channel-mute-15m').click();
@@ -91,14 +91,14 @@ test('channel long-press opens the mute sheet; mute suppresses the badge', async
   await expect(page).toHaveURL(new RegExp(`/w/${slug}/general`));
 
   // 다시 롱프레스 → 해제 → 배지 복귀.
-  await dispatchLongPress(newsRow);
+  await dispatchLongPress(newsRow, 650, page.getByTestId('mobile-channel-sheet-news'));
   await expect(page.getByTestId('mobile-channel-sheet-news')).toBeVisible();
   await page.getByTestId('mobile-channel-unmute').click();
   await expect(newsRow).not.toHaveAttribute('data-muted', 'true');
   await expect(newsRow.getByTestId('mobile-unread')).toBeVisible();
 
   // M4 (FR-RS-09): 시트의 '읽음으로 표시' — 채널 진입 없이 배지 소거.
-  await dispatchLongPress(newsRow);
+  await dispatchLongPress(newsRow, 650, page.getByTestId('mobile-channel-sheet-news'));
   const sheet2 = page.getByTestId('mobile-channel-sheet-news');
   await expect(sheet2).toBeVisible();
   await page.getByTestId('mobile-channel-mark-read').click();

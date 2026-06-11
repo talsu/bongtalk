@@ -1,5 +1,11 @@
 import { test, expect } from '@playwright/test';
-import { MOBILE_VIEWPORT, bootstrapWorkspace, loginUI, signupToken } from './_helpers';
+import {
+  MOBILE_VIEWPORT,
+  bootstrapWorkspace,
+  dispatchLongPress,
+  loginUI,
+  signupToken,
+} from './_helpers';
 
 /**
  * Task-024 Chunk F: long-press (500ms) on a qf-m-message opens the
@@ -47,31 +53,9 @@ test('long-press on my own message opens the bottom sheet with delete', async ({
 
   // Simulate the touch long-press via synthetic events so the
   // setTimeout(500) in MobileMessageRow fires.
-  await row.evaluate((el) => {
-    const target = el as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    const x = rect.left + rect.width / 2;
-    const y = rect.top + rect.height / 2;
-    const touch = new Touch({
-      identifier: 1,
-      target,
-      clientX: x,
-      clientY: y,
-    });
-    target.dispatchEvent(
-      new TouchEvent('touchstart', {
-        touches: [touch],
-        targetTouches: [touch],
-        changedTouches: [touch],
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  // Wait longer than LONG_PRESS_MS (500ms).
-  await page.waitForTimeout(650);
-
+  // M5 S6: 부하 시 dispatch 증발 flake — 공용 헬퍼(미출현 시 1회 재시도)로 교체.
   const sheet = page.locator('[data-testid^="mobile-msg-sheet-"]').first();
+  await dispatchLongPress(row, 650, sheet);
   await expect(sheet).toBeVisible();
   await expect(page.getByTestId('mobile-msg-copy')).toBeVisible();
   await expect(page.getByTestId('mobile-msg-delete')).toBeVisible();

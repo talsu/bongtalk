@@ -136,6 +136,8 @@ import { getSocket } from '../../lib/socket';
 import { WS_EVENTS } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { MobileMessageSheet } from './MobileMessageSheet';
+// M5 S6: 시트→시트 전환 마커 레이스 핸드셰이크(드로어/편집/편집 이력).
+import { transitionSheetMarker } from './useSheetHistoryMarker';
 import { PANEL_EDGE_PX } from './MobilePanels';
 import { MobileEditSheet } from './MobileEditSheet';
 import { ThreadPanel } from '../../features/threads/ThreadPanel';
@@ -820,11 +822,15 @@ export function MobileMessages({
             setSheetMsg(null);
           }}
           // D9: 퀵 5종 밖 — 시트를 닫고 이모지 드로어로 전환(tmp/삭제 행 제외).
+          // M5 S6: 시트 마커 소거와 드로어 마커 push 레이스 → 핸드셰이크 필수.
           onMoreReactions={
             !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
               ? () => {
-                  setEmojiDrawerMsg(sheetMsg);
-                  setSheetMsg(null);
+                  const target = sheetMsg;
+                  transitionSheetMarker(
+                    () => setSheetMsg(null),
+                    () => setEmojiDrawerMsg(target),
+                  );
                 }
               : undefined
           }
@@ -919,11 +925,15 @@ export function MobileMessages({
               : undefined
           }
           // F6(FR-MSG-08): 편집 이력 — edited 행 + ws 채널 한정(서버 스코프).
+          // M5 S6: 시트→시트 마커 레이스 핸드셰이크.
           onEditHistory={
             workspaceId && !sheetMsg.id.startsWith('tmp-') && sheetMsg.editedAt
               ? () => {
-                  setEditHistoryMsg(sheetMsg);
-                  setSheetMsg(null);
+                  const target = sheetMsg;
+                  transitionSheetMarker(
+                    () => setSheetMsg(null),
+                    () => setEditHistoryMsg(target),
+                  );
                 }
               : undefined
           }
@@ -945,8 +955,12 @@ export function MobileMessages({
           onEdit={
             sheetMsg.authorId === user?.id && !sheetMsg.id.startsWith('tmp-') && !sheetMsg.deleted
               ? () => {
-                  setEditingMsg(sheetMsg);
-                  setSheetMsg(null);
+                  // M5 S6: 시트→편집 시트 마커 레이스 핸드셰이크.
+                  const target = sheetMsg;
+                  transitionSheetMarker(
+                    () => setSheetMsg(null),
+                    () => setEditingMsg(target),
+                  );
                 }
               : undefined
           }
