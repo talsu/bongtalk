@@ -43,7 +43,7 @@
 | F9   | 신고 큐/감사 로그: MobileWorkspaceSettings 행 → ReportQueuePanel/AuditLogPanel 재사용                                                                                                             | done | F1 흡수 |
 | F10  | (api) 멘션 백필 BullMQ 1회성 잡(raw SQL 배치·백업·멱등)+emoji customId uuid 확장(shared-types 범프)                                                                                               | done | 1737b55 |
 | F11  | 게이트: e2e(dm-chat 포팅·스레드/검색 풀체인·로그아웃·신규 표면)+standalone verify+적대 리뷰 fix-forward                                                                                           | done | 002cd83 |
-| F12  | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT                                                                                                                                        | todo |         |
+| F12  | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT                                                                                                                                        | done | 50d2b24 |
 
 ## 정찰 핵심(충돌 조율 — CRITIC 반영)
 
@@ -128,8 +128,12 @@
   M-8 백필 tokenRe 재단언, M-9 popstate 핸드셰이크. ④ 게이트: 전체 모바일
   e2e 45/45 green ×2회 + standalone verify 19/19 green(웹 1816 tests —
   AttachmentsList 1건은 미접촉 파일 부하 flake, 단독 31/31 green 확인).
-- 잔여: F12 머지·배포·REPORT(★백필 잡이 prod 에서 1회 실행됨 — migrate 후
-  재기동이라 첫 시도 성공 예상, attempts 3 흡수).
+- F12 완료 — develop 717c33a(ls-remote 실측) → main 50d2b24 → 수동 배포
+  exit 0(rollback 타깃 :prev 보존·health-wait 200 2회 만에 OK·api/web smoke OK)
+  → /api/readyz `{"status":"ok","checks":{"db":"ok","redis":"ok","outbox":"idle"}}`.
+  ★백필 잡 prod 1회 실행 확인: `mention backfill done: updated=0 skipped=0`
+  (prod 에 대상 행 없음 — 마이그레이션 20260636000000 적용 + Redis 완료 마커
+  세팅, 재배포 시 재실행 차단). M3 슬라이스 종결 — 다음 M4(PRD 개정).
 
 ## 세션 핸드오프 노트
 
