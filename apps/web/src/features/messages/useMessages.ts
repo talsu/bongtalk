@@ -251,6 +251,10 @@ export function useSendMessage(
     mention?: string;
     clientNonce: string;
   }) => void,
+  // 071-M3 F11 (리뷰 M-7): 429 CHANNEL_SLOWMODE_ACTIVE 의 retryAfterMs 를 컴포저
+  // 쿨다운에 재동기화 — 클라 예측(markSent)이 서버 권위 잔여시간과 어긋났을 때
+  // (새로고침/타기기/면제 오판) 과대·과소 표시를 보정하는 유일한 경로.
+  onSlowmodeRejected?: (retryAfterMs: number) => void,
 ) {
   const qc = useQueryClient();
   const { user } = useAuth();
@@ -418,6 +422,13 @@ export function useSendMessage(
           clientNonce: vars.clientNonce,
         });
         return;
+      }
+      // F11 (리뷰 M-7): 슬로우모드 429 — 서버 권위 잔여시간으로 쿨다운 재동기화.
+      // failed 표시/토스트는 그대로 진행한다(아래) — 보정은 additive.
+      const errCode = (err as { errorCode?: string } | undefined)?.errorCode;
+      if (errCode === 'CHANNEL_SLOWMODE_ACTIVE' && onSlowmodeRejected) {
+        const ms = (err as { retryAfterMs?: number } | undefined)?.retryAfterMs;
+        if (typeof ms === 'number' && ms > 0) onSlowmodeRejected(ms);
       }
       // FR-MSG-05: do NOT roll the row out — mark it failed so the bubble keeps
       // showing the content + a "다시 시도" button (same clientNonce on retry).

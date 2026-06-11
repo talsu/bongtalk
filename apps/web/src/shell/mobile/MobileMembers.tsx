@@ -3,7 +3,9 @@ import {
   resolveMemberAvatarUrl,
   type MemberWithPresence,
 } from '@qufox/shared-types';
-import { useMemberGroups } from '../../features/workspaces/useWorkspaces';
+// ★F11 리뷰 H-4: 그룹 응답은 첫 페이지(50명) 윈도 — 총원은 전량 워크 훅(useMembers,
+// topbar 멤버수와 동일 캐시)에서 읽어 한 화면 내 카운트 모순을 없앤다.
+import { useMemberGroups, useMembers } from '../../features/workspaces/useWorkspaces';
 // H-6(071-M0 C9): presence:subscribe 는 행이 뷰포트에 들어올 때 발행된다(S27 모델).
 // 모바일 드로어는 register 배선이 없어 구독이 0건 → 전원(본인 포함) 오프라인으로 보였다.
 import { useViewportPresence } from '../../features/realtime/useViewportPresence';
@@ -43,10 +45,18 @@ const STATUS_BY_GROUP: Record<string, 'online' | 'idle' | 'dnd' | 'offline'> = {
   offline: 'offline',
 };
 
-export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Element {
+export function MobileMembers({
+  workspaceId,
+  onDirectory,
+}: {
+  workspaceId: string;
+  /** ★F11 H-4: 51번째+ 멤버 도달 경로 — nextCursor 존재 시 디렉터리 풋터를 연다. */
+  onDirectory?: () => void;
+}): JSX.Element {
   // F8: 서버 그룹 응답(listMembers — hoist/groups). useMembers(전량 평탄)와 달리
   // MemberColumn 과 동일 소스를 쓴다.
   const { data } = useMemberGroups(workspaceId);
+  const { data: flatData } = useMembers(workspaceId);
   const { register } = useViewportPresence(workspaceId);
   // 상태 우선순위: per-user 푸시(행) > 워크스페이스 broadcast 스냅샷 > REST 그룹 버킷.
   // broadcast 는 전이마다 전체 목록을 다시 싣는다 — 캐시가 한 번이라도 쓰였다면
@@ -63,9 +73,12 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
 
   const hoist = data?.hoist ?? [];
   const groups = data?.groups ?? [];
-  const total =
+  // ★F11 H-4: 페이지 윈도 합산은 50명 초과 워크스페이스에서 topbar 카운트와
+  // 모순된다 — 전량 워크 결과(동일 캐시)를 우선하고 로드 전엔 윈도 합산 폴백.
+  const pageSum =
     hoist.reduce((n, g) => n + g.members.length, 0) +
     groups.reduce((n, g) => n + g.members.length, 0);
+  const total = flatData?.members.length ?? pageSum;
 
   return (
     <div>
@@ -126,6 +139,21 @@ export function MobileMembers({ workspaceId }: { workspaceId: string }): JSX.Ele
           </div>
         ),
       )}
+      {/* ★F11 H-4: 첫 페이지(50명) 밖 멤버 도달 경로 — 패널 내 무한스크롤 대신
+          전량 페이지네이션을 이미 갖춘 멤버 디렉터리로 보낸다. */}
+      {data?.nextCursor && onDirectory ? (
+        <button
+          type="button"
+          data-testid="mobile-members-more"
+          className="qf-m-row w-full text-left text-text-muted"
+          onClick={onDirectory}
+        >
+          <Icon name="users" size="sm" className="text-text-muted" />
+          <span className="qf-m-row__primary">
+            전체 멤버 보기 · {Math.max(total - pageSum, 0)}명 더
+          </span>
+        </button>
+      ) : null}
     </div>
   );
 }

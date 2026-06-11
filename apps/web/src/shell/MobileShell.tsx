@@ -35,6 +35,9 @@ import { useNotifications } from '../stores/notification-store';
 // 071-M3 F8 (FR-PS-08 모바일 / 감사 B-87): 전체 프로필 — ui-store 구독 자기완결
 // 패널을 모바일 풀스크린 변형으로 마운트(ProfilePopover '전체 프로필'이 연다).
 import { MemberProfilePanel } from '../features/profile/MemberProfilePanel';
+// ★F11 리뷰 H-2: 풀스크린 오버레이/프로필도 하드웨어 back 으로 닫혀야 한다.
+import { useSheetHistoryMarker } from './mobile/useSheetHistoryMarker';
+import { useUI } from '../stores/ui-store';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
@@ -101,6 +104,13 @@ export function MobileShell(): JSX.Element {
   const [createCategoryOpen, setCreateCategoryOpen] = useState(false);
   const [inviteOpen, setInviteOpen] = useState(false);
   const [overlay, setOverlay] = useState<'invites' | 'directory' | 'pins' | null>(null);
+  // ★F11 리뷰 H-2: 풀스크린 표면(초대 관리/핀 목록/디렉터리 오버레이 + 전체
+  // 프로필)이 back 마커 없이 떠서 하드웨어 back 이 화면 밑 라우터를 되감았다 —
+  // useSheetHistoryMarker 규약('신규 시트는 반드시 이 훅') 적용.
+  useSheetHistoryMarker(overlay !== null, () => setOverlay(null));
+  const profilePanelUserId = useUI((s) => s.profilePanelUserId);
+  const setProfilePanelUser = useUI((s) => s.setProfilePanelUser);
+  useSheetHistoryMarker(!!profilePanelUserId, () => setProfilePanelUser(null));
   // F3: 핀 카운트 배지(채널 컨텍스트에서만 — DM/설정 화면 비활성).
   const { data: pinCountData } = usePinCount(active?.id ?? null, activeChannel?.id ?? '');
   const nameByUserId = useMemoReact(() => {
@@ -108,16 +118,41 @@ export function MobileShell(): JSX.Element {
     for (const x of membersData?.members ?? []) m.set(x.userId, x.user.username);
     return m;
   }, [membersData]);
-  const canPinViewer = canManageWorkspace || (myRole === 'MEMBER' && true); // memberCanPin 채널 비트는 시트 경로(M1)와 동일하게 서버 최종 판정
+  // ★F11 리뷰 M-6: MEMBER 는 채널의 memberCanPin 비트를 실제로 읽는다 — 종전
+  // `(myRole==='MEMBER' && true)` 항등식은 비트를 무시해, 같은 채널의 롱프레스
+  // 시트 게이트(MobileMessages — memberCanPin 검사)와 모순된 해제 X 를 노출했다.
+  const canPinViewer =
+    canManageWorkspace || (myRole === 'MEMBER' && (activeChannel?.memberCanPin ?? true));
   const leaveMut = useLeaveWorkspace(active?.id ?? '');
   const pushToast = useNotifications((st) => st.push);
+  // ★F11 리뷰 M-9: 마커 소거(history.back)는 비동기 트래버설 — 고정 지연(80ms)
+  // 대신 popstate 핸드셰이크로 기다린다(느린 기기에서 타이머가 트래버설을
+  // 앞지르면 방금 연 시트가 즉시 닫히는 역전 봉인). 마커가 없으면 즉시 실행.
+  const afterMarkerSettles = (hadMarker: boolean, fn: () => void): void => {
+    if (!hadMarker) {
+      fn();
+      return;
+    }
+    let fired = false;
+    const fire = (): void => {
+      if (fired) return;
+      fired = true;
+      window.removeEventListener('popstate', fire);
+      fn();
+    };
+    window.addEventListener('popstate', fire);
+    window.setTimeout(fire, 200); // 안전망 — 마커 소거가 스킵된 경우(top 이 마커가 아님)
+  };
   // F2 ★레이스 봉인: 좌패널이 열린 상태에서 시트를 동시 오픈하면 MobilePanels 의
   // back 마커 소거(history.back)가 방금 push 된 시트 마커를 pop 해 시트가 즉시
-  // 닫힌다. 패널을 먼저 닫고 popstate 가 소화된 다음 틱에 시트를 연다 — 패널발
-  // 시트 오픈(F2 서버 메뉴·F5 채널 롱프레스)은 반드시 이 헬퍼를 쓴다.
+  // 닫힌다. 패널을 먼저 닫고 popstate 소화 후 시트를 연다 — 패널발 시트/오버레이
+  // 오픈(F2 서버 메뉴·우패널 디렉터리 등)은 반드시 이 헬퍼를 쓴다.
+  // (F5 채널 롱프레스 시트는 패널을 닫지 않고 그 위에 뜬다 — MobilePanels onPop
+  // 계층 가드가 보호하므로 이 헬퍼 미사용.)
   const openSheetFromPanel = (fn: () => void): void => {
+    const hadMarker = (window.history.state as { qfPanel?: string } | null)?.qfPanel !== undefined;
     setPanel('center');
-    window.setTimeout(fn, 80);
+    afterMarkerSettles(hadMarker, fn);
   };
   const navigate = useNavigate();
   const location = useLocation();
@@ -267,7 +302,10 @@ export function MobileShell(): JSX.Element {
       right={
         activeChannel ? (
           <div className="qf-m-safe-top" data-testid="mobile-right-panel">
-            <MobileMembers workspaceId={active.id} />
+            <MobileMembers
+              workspaceId={active.id}
+              onDirectory={() => openSheetFromPanel(() => setOverlay('directory'))}
+            />
           </div>
         ) : null
       }
@@ -515,12 +553,19 @@ export function MobileShell(): JSX.Element {
               nameByUserId={nameByUserId}
               canUnpin={canPinViewer}
               onJump={(messageId) => {
+                // ★F11 H-2 후속: 오버레이가 back 마커를 갖게 되어, 닫힘의 마커
+                // 소거(back)와 ?msg= 내비게이션이 경합하면 파라미터가 트래버설에
+                // 유실된다 — 마커 소화 후 세팅한다(URL 은 fire 시점 기준 재구성).
+                const hadMarker =
+                  (window.history.state as { qfSheet?: boolean } | null)?.qfSheet === true;
                 setOverlay(null);
-                // 현재 채널 URL 에 ?msg= 만 세팅 — MobileMessages 의 기존 점프
-                // 소비(스크롤+2초 강조+파라미터 정리)가 처리한다.
-                const next = new URLSearchParams(sp);
-                next.set('msg', messageId);
-                setSp(next, { replace: true });
+                afterMarkerSettles(hadMarker, () => {
+                  // 현재 채널 URL 에 ?msg= 만 세팅 — MobileMessages 의 기존 점프
+                  // 소비(스크롤+2초 강조+파라미터 정리)가 처리한다.
+                  const next = new URLSearchParams(window.location.search);
+                  next.set('msg', messageId);
+                  setSp(next, { replace: true });
+                });
               }}
             />
           ) : null}

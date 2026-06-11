@@ -299,6 +299,10 @@ function ChannelRow({
 }): JSX.Element {
   // F5: 뮤트 채널은 미읽음 강조를 억제한다(데스크톱 showUnreadStyle 규칙).
   const hasUnread = (unread?.count ?? 0) > 0 && !muted;
+  // ★F11 리뷰 H-3 (FR-RS-05): 멘션 배지는 뮤트를 바이패스한다 — 데스크톱 정본
+  // (sidebarRowState.deriveSidebarRowState)은 mute 가 행 스타일만 억제하고
+  // mentionBadgeCount 는 뮤트와 무관하게 유지한다. 배지 게이트를 분리.
+  const showBadge = (unread?.count ?? 0) > 0 && (!muted || unread?.mention === true);
   // F5: 롱프레스 — Link 행이라 touchend 의 합성 click 이 내비게이션을 발화한다.
   // 발화 시 suppress 플래그로 onClick 을 preventDefault 한다(메시지 행 div 와
   // 다른 점). 좌 엣지 시작은 패널 제스처에 양보(PANEL_EDGE_PX).
@@ -312,10 +316,12 @@ function ChannelRow({
   };
   const onTouchStart = (e: TouchEvent): void => {
     if (!onLongPress) return;
+    // ★F11 리뷰 H-1: stale suppress 해제는 엣지 양보(early-return)보다 먼저 —
+    // 좌측 엣지에서 시작한 다음 탭이 직전 롱프레스의 suppress 에 삼켜지지 않게.
+    suppressClickRef.current = false;
     const t = e.touches[0];
     if (t.clientX <= PANEL_EDGE_PX) return;
     startRef.current = { x: t.clientX, y: t.clientY };
-    suppressClickRef.current = false;
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
       suppressClickRef.current = true;
@@ -348,7 +354,18 @@ function ChannelRow({
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={clearPress}
-        onTouchCancel={clearPress}
+        onTouchCancel={() => {
+          // ★F11 리뷰 H-1: touchcancel 뒤엔 합성 click 이 오지 않는다 — suppress
+          // 를 여기서 풀지 않으면 다음 정상 탭이 한 번 조용히 삼켜진다.
+          clearPress();
+          suppressClickRef.current = false;
+        }}
+        onContextMenu={(e) => {
+          // ★F11 리뷰 H-1: Android Chrome 은 anchor 롱프레스에 네이티브 링크
+          // 컨텍스트 메뉴를 띄운다(WebkitTouchCallout 은 iOS 전용) — 뮤트 시트와
+          // 겹치거나 시트 자체를 막으므로 차단한다.
+          if (onLongPress) e.preventDefault();
+        }}
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
         aria-selected={active || undefined}
         data-testid={`mobile-channel-${name}`}
@@ -364,7 +381,7 @@ function ChannelRow({
           <div className="qf-m-row__primary">{name}</div>
         </div>
         <div className="qf-m-row__aside">
-          {hasUnread ? (
+          {showBadge ? (
             // 071-M2 E5 (감사 B-43): 뱃지 의미 분리 — 멘션은 danger 토큰 배경
             // (--badge-mention-bg), 일반 미읽음은 기본 count 뱃지(violet).
             <span

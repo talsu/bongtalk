@@ -129,20 +129,31 @@ export class MentionBackfillProcessor extends WorkerHost implements OnModuleInit
           this.logger.warn(`backfill parse skip ${row.id}: ${(e as Error).message}`);
           continue;
         }
-        await this.prisma.$transaction([
+        // ★F11 리뷰 M-8: SELECT~UPDATE 사이에 사용자 편집이 끼어들 수 있다(수 초
+        // 창) — 편집 경로는 contentAst 를 재파싱해 평문 토큰이 사라지므로,
+        // prefilter(tokenRe)를 양쪽 문에 재단언하면 편집된 행은 자연 no-op 이
+        // 된다(version/contentRaw 동등성 가드와 등가·더 단순).
+        const [, changed] = await this.prisma.$transaction([
           this.prisma.$executeRaw(Prisma.sql`
             INSERT INTO "MentionBackfillBackup" ("message_id", "content_ast_old", "content_plain_old")
-            SELECT id, "contentAst", "contentPlain" FROM "Message" WHERE id = ${row.id}::uuid
+            SELECT id, "contentAst", "contentPlain" FROM "Message"
+            WHERE id = ${row.id}::uuid AND "contentAst"::text ~ ${tokenRe}
             ON CONFLICT ("message_id") DO NOTHING
           `),
           this.prisma.$executeRaw(Prisma.sql`
             UPDATE "Message"
             SET "contentAst" = ${JSON.stringify(ast)}::jsonb,
                 "contentPlain" = ${plain}
-            WHERE id = ${row.id}::uuid
+            WHERE id = ${row.id}::uuid AND "contentAst"::text ~ ${tokenRe}
           `),
         ]);
-        updated += 1;
+        if (changed === 1) {
+          updated += 1;
+        } else {
+          // 동시 편집이 선행한 행 — 편집이 이미 올바른 AST 를 썼으므로 건너뜀.
+          skipped += 1;
+          this.logger.log(`backfill concurrent-edit skip ${row.id}`);
+        }
       }
       this.logger.log(`mention backfill progress: updated=${updated} skipped=${skipped}`);
     }

@@ -5,6 +5,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MutableRefObject,
   type RefObject,
   type TouchEvent,
 } from 'react';
@@ -179,8 +180,14 @@ export function MobileMessages({
     clientNonce: string;
   } | null>(null);
   // 071-M1 D5(FR-MSG-04/05): retry 는 동일 clientNonce 로 실패 낙관 행을 재전송한다.
-  const { send, retry } = useSendMessage(workspaceId, channelId, (info) =>
-    setServerBulkConfirm(info),
+  // F11 (리뷰 M-7): 슬로우모드 429 재동기화 브리지 — 쿨다운 훅 인스턴스는
+  // MobileComposer 에 있고 send 훅은 여기라 ref 로 잇는다(컴포저가 할당).
+  const slowmodeSyncRef = useRef<((ms: number) => void) | null>(null);
+  const { send, retry } = useSendMessage(
+    workspaceId,
+    channelId,
+    (info) => setServerBulkConfirm(info),
+    (ms) => slowmodeSyncRef.current?.(ms),
   );
   const scrollRef = useRef<HTMLDivElement>(null);
   const composerInputRef = useRef<HTMLTextAreaElement>(null);
@@ -634,6 +641,7 @@ export function MobileMessages({
         channelName={channelName}
         send={send}
         inputRef={composerInputRef}
+        slowmodeSyncRef={slowmodeSyncRef}
       />
       {/* D8(b)(FR-MSG-14): 서버 안전망 confirm — 확인 시 원래 clientNonce 로 재전송해
           같은 낙관 행을 되살린다(failed 버블 잔류 방지 — 데스크톱 S94 MED-1 동일). */}
@@ -1235,6 +1243,7 @@ function MobileComposer({
   channelName,
   send,
   inputRef,
+  slowmodeSyncRef,
 }: {
   /** null = Global DM — presign 이 ws 스코프라 첨부 비활성. */
   workspaceId: string | null;
@@ -1242,6 +1251,8 @@ function MobileComposer({
   channelName: string;
   send: (content: string, attachmentIds?: string[], bulkMentionConfirmed?: boolean) => void;
   inputRef: RefObject<HTMLTextAreaElement>;
+  /** F11 (리뷰 M-7): 부모 send 훅의 429 재동기화 콜백 브리지(컴포저가 할당). */
+  slowmodeSyncRef?: MutableRefObject<((ms: number) => void) | null>;
 }): JSX.Element {
   const draft = useCompose((s) => s.drafts[channelId] ?? '');
   const setDraft = useCompose((s) => s.setDraft);
@@ -1285,8 +1296,13 @@ function MobileComposer({
   }, [channelData, channelId]);
   const canManage = myRole === 'OWNER' || myRole === 'ADMIN';
   const postingRestricted = workspaceId !== null && channelType === 'ANNOUNCEMENT' && !canManage;
-  // F6: 슬로우모드 — 같은 채널 lookup 에서 초를 읽는다. OWNER/ADMIN 은 통상 면제
-  // (서버 BYPASS 비트가 최종 권위 — 보수적으로 관리자만 클라 카운트 제외).
+  // F6: 슬로우모드 — 같은 채널 lookup 에서 초를 읽는다.
+  // ★F11 리뷰 H-5: 서버 면제는 BYPASS_SLOWMODE 비트(slowmode.service hasBypass) —
+  // ROLE_BASELINE 상 MODERATOR 도 포함이라 클라 면제를 canModerate 로 넓힌다.
+  // 커스텀 역할/채널 override 로 비트를 받은 MEMBER 는 클라가 알 수 없어 예측
+  // 쿨다운이 걸리지만, 429 가 안 오므로(서버 면제) 아래 재동기화로도 안 풀린다 —
+  // 알려진 잔여 한계(서버 권위 무손상·표시 과대만, M4 권한 비트 DTO 노출 후보).
+  const canBypassSlowmode = canManage || myRole === 'MODERATOR';
   const slowmodeSeconds = useMemo(() => {
     if (!channelData) return 0;
     const flat = [
@@ -1295,7 +1311,10 @@ function MobileComposer({
     ];
     return flat.find((c) => c.id === channelId)?.slowmodeSeconds ?? 0;
   }, [channelData, channelId]);
-  const slowmode = useSlowmodeCooldown(canManage ? 0 : slowmodeSeconds);
+  const slowmode = useSlowmodeCooldown(canBypassSlowmode ? 0 : slowmodeSeconds);
+  // F11 (리뷰 M-7): 429 CHANNEL_SLOWMODE_ACTIVE → 서버 권위 잔여시간 재동기화.
+  // 부모(MobileMessages)의 send 훅 onError 가 이 ref 를 경유해 호출한다.
+  if (slowmodeSyncRef) slowmodeSyncRef.current = slowmode.syncFromRetryAfter;
 
   // D8(d)(FR-IA-STATE-05a): 오프라인이면 컴포저 비활성. navigator.onLine 신호는
   // ConnectionBanner 와 동일 소스 — 배너가 사유를 고지하고 컴포저는 입력만 막는다.
