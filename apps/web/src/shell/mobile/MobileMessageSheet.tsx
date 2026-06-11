@@ -185,176 +185,180 @@ export function MobileMessageSheet({
           ) : null}
         </div>
         <div className="qf-m-sheet__divider" aria-hidden />
-        {/* 071-M2 E6 (M1 리뷰 M-4): '답장' = 스레드 답글 단일 경로 — 종전의
+        {/* M6 리뷰 M-4: 넘침 스크롤은 메뉴 영역 내부로 한정 — grab/시각 헤더/
+            퀵 반응 행은 고정 유지(드래그 닫기 표면 보존, M5 H11 불변식). */}
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* 071-M2 E6 (M1 리뷰 M-4): '답장' = 스레드 답글 단일 경로 — 종전의
             데드엔드 replyTarget 배너('답장')와 '스레드에서 답글' 중복을 통합. */}
-        {onReply ? (
+          {onReply ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-reply"
+              onClick={onReply}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="reply" size="sm" />
+              </span>
+              <span>답장</span>
+            </button>
+          ) : null}
+          {onOpenThread ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-open-thread"
+              onClick={onOpenThread}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="thread" size="sm" />
+              </span>
+              <span>스레드 보기</span>
+            </button>
+          ) : null}
           <button
             type="button"
-            data-testid="mobile-msg-reply"
-            onClick={onReply}
+            data-testid="mobile-msg-copy"
+            onClick={onCopy}
             className="qf-m-sheet__item"
           >
             <span className="qf-m-sheet__icon">
-              <Icon name="reply" size="sm" />
+              <Icon name="copy" size="sm" />
             </span>
-            <span>답장</span>
+            <span>메시지 복사</span>
           </button>
-        ) : null}
-        {onOpenThread ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-open-thread"
-            onClick={onOpenThread}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="thread" size="sm" />
-            </span>
-            <span>스레드 보기</span>
-          </button>
-        ) : null}
-        <button
-          type="button"
-          data-testid="mobile-msg-copy"
-          onClick={onCopy}
-          className="qf-m-sheet__item"
-        >
-          <span className="qf-m-sheet__icon">
-            <Icon name="copy" size="sm" />
-          </span>
-          <span>메시지 복사</span>
-        </button>
-        {/* D9(FR-PS-07/13): 개인 저장 토글 — 저장됨이면 해제 카피. */}
-        {onToggleSave ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-save"
-            onClick={() => onToggleSave(isSaved === true)}
-            className="qf-m-sheet__item"
-          >
-            <span className={cn('qf-m-sheet__icon', isSaved && 'text-[color:var(--accent)]')}>
-              <Icon name="bookmark" size="sm" />
-            </span>
-            <span>{isSaved ? '저장 해제' : '나중에 보기 저장'}</span>
-          </button>
-        ) : null}
-        {/* D9: 저장 후 리마인더 설정 모달(호출측 소유). */}
-        {onSetReminder ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-reminder"
-            onClick={onSetReminder}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="clock" size="sm" />
-            </span>
-            <span>리마인더 설정</span>
-          </button>
-        ) : null}
-        {/* D9(FR-PS-05): 채널 핀 고정/해제 — 권한 게이트는 호출측. */}
-        {onPin ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-pin"
-            onClick={onPin}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="pin" size="sm" />
-            </span>
-            <span>메시지 고정</span>
-          </button>
-        ) : null}
-        {onUnpin ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-unpin"
-            onClick={onUnpin}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="pin" size="sm" />
-            </span>
-            <span>메시지 고정 해제</span>
-          </button>
-        ) : null}
-        {/* 071-M3 F6 (FR-MSG-08): 편집 이력 — edited 행 한정. */}
-        {onEditHistory ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-edit-history"
-            onClick={onEditHistory}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="clock" size="sm" />
-            </span>
-            <span>편집 이력</span>
-          </button>
-        ) : null}
-        {/* D9(FR-RS-08): 이 메시지부터 다시 읽기. */}
-        {onMarkUnread ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-mark-unread"
-            onClick={onMarkUnread}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="eye-off" size="sm" />
-            </span>
-            <span>미읽음으로 표시</span>
-          </button>
-        ) : null}
-        {/* S103 (FR-MSG-06 모바일): 내 메시지 편집. 호출측이 isMine·!tmp-·!deleted
+          {/* D9(FR-PS-07/13): 개인 저장 토글 — 저장됨이면 해제 카피. */}
+          {onToggleSave ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-save"
+              onClick={() => onToggleSave(isSaved === true)}
+              className="qf-m-sheet__item"
+            >
+              <span className={cn('qf-m-sheet__icon', isSaved && 'text-[color:var(--accent)]')}>
+                <Icon name="bookmark" size="sm" />
+              </span>
+              <span>{isSaved ? '저장 해제' : '나중에 보기 저장'}</span>
+            </button>
+          ) : null}
+          {/* D9: 저장 후 리마인더 설정 모달(호출측 소유). */}
+          {onSetReminder ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-reminder"
+              onClick={onSetReminder}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="clock" size="sm" />
+              </span>
+              <span>리마인더 설정</span>
+            </button>
+          ) : null}
+          {/* D9(FR-PS-05): 채널 핀 고정/해제 — 권한 게이트는 호출측. */}
+          {onPin ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-pin"
+              onClick={onPin}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="pin" size="sm" />
+              </span>
+              <span>메시지 고정</span>
+            </button>
+          ) : null}
+          {onUnpin ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-unpin"
+              onClick={onUnpin}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="pin" size="sm" />
+              </span>
+              <span>메시지 고정 해제</span>
+            </button>
+          ) : null}
+          {/* 071-M3 F6 (FR-MSG-08): 편집 이력 — edited 행 한정. */}
+          {onEditHistory ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-edit-history"
+              onClick={onEditHistory}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="clock" size="sm" />
+              </span>
+              <span>편집 이력</span>
+            </button>
+          ) : null}
+          {/* D9(FR-RS-08): 이 메시지부터 다시 읽기. */}
+          {onMarkUnread ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-mark-unread"
+              onClick={onMarkUnread}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="eye-off" size="sm" />
+              </span>
+              <span>미읽음으로 표시</span>
+            </button>
+          ) : null}
+          {/* S103 (FR-MSG-06 모바일): 내 메시지 편집. 호출측이 isMine·!tmp-·!deleted
             게이트를 통과한 경우에만 onEdit 을 전달한다(미전달 시 숨김). */}
-        {onEdit ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-edit"
-            onClick={onEdit}
-            className="qf-m-sheet__item"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="edit" size="sm" />
-            </span>
-            <span>메시지 편집</span>
-          </button>
-        ) : null}
-        {/* D9(FR-RM11): 타인 메시지 신고. */}
-        {onReport ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-report"
-            onClick={onReport}
-            className="qf-m-sheet__item qf-m-sheet__item--danger"
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="alert" size="sm" />
-            </span>
-            <span>메시지 신고</span>
-          </button>
-        ) : null}
-        {isMine ? (
-          <button
-            type="button"
-            data-testid="mobile-msg-delete"
-            data-armed={deleteArmed ? 'true' : undefined}
-            onClick={handleDeleteTap}
-            aria-live="polite"
-            className={cn(
-              'qf-m-sheet__item qf-m-sheet__item--danger',
-              // armed 강조는 DS 토큰만 사용(bg-selected + 굵기) — raw rgba 금지.
-              deleteArmed && 'bg-[color:var(--bg-selected)] font-semibold',
-            )}
-          >
-            <span className="qf-m-sheet__icon">
-              <Icon name="trash" size="sm" />
-            </span>
-            <span>{deleteArmed ? '한 번 더 탭하면 삭제됩니다' : '메시지 삭제'}</span>
-          </button>
-        ) : null}
+          {onEdit ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-edit"
+              onClick={onEdit}
+              className="qf-m-sheet__item"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="edit" size="sm" />
+              </span>
+              <span>메시지 편집</span>
+            </button>
+          ) : null}
+          {/* D9(FR-RM11): 타인 메시지 신고. */}
+          {onReport ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-report"
+              onClick={onReport}
+              className="qf-m-sheet__item qf-m-sheet__item--danger"
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="alert" size="sm" />
+              </span>
+              <span>메시지 신고</span>
+            </button>
+          ) : null}
+          {isMine ? (
+            <button
+              type="button"
+              data-testid="mobile-msg-delete"
+              data-armed={deleteArmed ? 'true' : undefined}
+              onClick={handleDeleteTap}
+              aria-live="polite"
+              className={cn(
+                'qf-m-sheet__item qf-m-sheet__item--danger',
+                // armed 강조는 DS 토큰만 사용(bg-selected + 굵기) — raw rgba 금지.
+                deleteArmed && 'bg-[color:var(--bg-selected)] font-semibold',
+              )}
+            >
+              <span className="qf-m-sheet__icon">
+                <Icon name="trash" size="sm" />
+              </span>
+              <span>{deleteArmed ? '한 번 더 탭하면 삭제됩니다' : '메시지 삭제'}</span>
+            </button>
+          ) : null}
+        </div>
       </div>
     </div>
   );

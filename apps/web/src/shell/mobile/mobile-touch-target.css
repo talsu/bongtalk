@@ -67,3 +67,30 @@
   border-radius: 2px;
   background: var(--n-5);
 }
+
+/* 071-M6 T5 (touch-target e2e 적발): 시트 내용이 max-height(80%)를 넘으면
+   flex column 이 자식들을 압축해 퀵 반응 칩이 44px 미만(43.x)으로 줄었다
+   (M5 의 시각 헤더+grab 확장으로 내용 증가 — 375×667 에서 초과). 자식 압축을
+   금지하고 넘침은 스크롤로 처리한다(DS .qf-m-sheet 무수정 — 앱 보강). */
+.qf-m-sheet > * {
+  flex-shrink: 0;
+}
+/* (M6 리뷰 M-4 정정) 컨테이너 overflow 스크롤은 grab/헤더까지 화면 밖으로
+   밀어 드래그 닫기 표면을 잃는다 — 넘침 스크롤은 시트별 내부 목록 영역
+   (MobileMessageSheet 메뉴 wrapper 등)이 담당한다. */
+
+/* 071-M6 리뷰 M-5: 탭바 활성 표시를 aria-current(nav 패턴 — 데스크톱 동례)로
+   전환하며 DS [aria-selected] 활성 스타일(mobile.css L112~123)을 동일 복제.
+   DS 4파일 frozen — 앱 레이어가 권위를 이어받는다. */
+.qf-m-tab[aria-current='page'] {
+  color: var(--accent);
+}
+.qf-m-tab[aria-current='page'] .qf-m-tab__label {
+  color: var(--text-strong);
+}
+.qf-m-tab[aria-current='page'] .qf-m-tab__icon {
+  transform: scale(1.1);
+}
+.qf-m-tab[aria-current='page'] .qf-m-tab__pill {
+  opacity: 1;
+}

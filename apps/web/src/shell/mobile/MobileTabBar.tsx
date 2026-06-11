@@ -138,7 +138,12 @@ function Tab({
       type="button"
       data-testid={testId}
       className={cn('qf-m-tab', disabled && 'opacity-40 cursor-not-allowed')}
-      aria-selected={selected ? 'true' : 'false'}
+      // M6 리뷰 M-5/M-10 (axe aria-allowed-attr): role=tablist/tab 부여는 행동
+      // 계약(roving tabindex·화살표 탐색) 없는 빈 약속 + navigation 랜드마크를
+      // 소멸시킨다 — 데스크톱 동례(index.css 'tablist 가 아니라 nav 패턴')대로
+      // aria-current 로 전환. DS [aria-selected] 활성 스타일은 앱 레이어 CSS 가
+      // [aria-current="page"] 로 동일 복제(mobile-touch-target.css — DS frozen).
+      aria-current={selected ? 'page' : undefined}
       aria-disabled={disabled ? 'true' : undefined}
       disabled={disabled}
       onClick={disabled ? undefined : onClick}

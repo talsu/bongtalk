@@ -229,17 +229,36 @@ export function MobilePanels({
   // 같은 커밋에서 inert 가 먼저 풀려 포커스가 들어간다(effect 선언 순서 의존).
   const restoreFocusRef = useRef<HTMLElement | null>(null);
   useEffect(() => {
+    // ★M6 T5 (세션 장기 미스터리 규명): focus() 기본 동작은 조상 스크롤 —
+    // transform 전환과 경합하면 overflow:hidden 루트에 scrollLeft(+240)가
+    // 잔류해 center 가 화면 밖으로 밀린다(겉보기 '우패널 열림' + 행 좌표
+    // 음수 → 메시지 롱프레스의 엣지 양보가 시트 오픈을 스킵). preventScroll
+    // 필수 + 아래 보정 effect 가 이중 방어.
     if (open === 'center') {
       const restore = restoreFocusRef.current;
       restoreFocusRef.current = null;
-      if (restore && document.contains(restore)) restore.focus();
+      if (restore && document.contains(restore)) restore.focus({ preventScroll: true });
       return;
     }
     if (!restoreFocusRef.current) {
       restoreFocusRef.current = document.activeElement as HTMLElement | null;
     }
     const panel = open === 'left' ? leftRef.current : rightRef.current;
-    panel?.querySelector<HTMLElement>(SHEET_FOCUSABLE_SELECTOR)?.focus();
+    panel?.querySelector<HTMLElement>(SHEET_FOCUSABLE_SELECTOR)?.focus({ preventScroll: true });
+  }, [open]);
+
+  // M6 T5: scrollLeft 잔류 보정 — 어떤 경로(포커스/브라우저 자동 스크롤)로든
+  // overflow:hidden 루트가 스크롤되면 패널 좌표계 전체가 틀어진다. 전환 정착
+  // 시점마다 0 으로 강제.
+  useEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    if (root.scrollLeft !== 0) root.scrollLeft = 0;
+    const onScroll = (): void => {
+      if (root.scrollLeft !== 0) root.scrollLeft = 0;
+    };
+    root.addEventListener('scroll', onScroll);
+    return () => root.removeEventListener('scroll', onScroll);
   }, [open]);
 
   // 하드웨어 back: 패널 열림 시 마커 push — back 은 패널만 닫는다(MobileOverlay 패턴).
