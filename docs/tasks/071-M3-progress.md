@@ -42,7 +42,7 @@
 | F8   | 멤버 우패널 업그레이드(useMemberGroups — hoist+4버킷·B-119 idle·B-109 역할 한글화)+풀 프로필 시트(ProfileBody 추출)+모더레이션 액션                                                               | done | f890f9e |
 | F9   | 신고 큐/감사 로그: MobileWorkspaceSettings 행 → ReportQueuePanel/AuditLogPanel 재사용                                                                                                             | done | F1 흡수 |
 | F10  | (api) 멘션 백필 BullMQ 1회성 잡(raw SQL 배치·백업·멱등)+emoji customId uuid 확장(shared-types 범프)                                                                                               | done | 1737b55 |
-| F11  | 게이트: e2e(dm-chat 포팅·스레드/검색 풀체인·로그아웃·신규 표면)+standalone verify+적대 리뷰 fix-forward                                                                                           | todo |         |
+| F11  | 게이트: e2e(dm-chat 포팅·스레드/검색 풀체인·로그아웃·신규 표면)+standalone verify+적대 리뷰 fix-forward                                                                                           | done | 002cd83 |
 | F12  | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT                                                                                                                                        | todo |         |
 
 ## 정찰 핵심(충돌 조율 — CRITIC 반영)
@@ -115,8 +115,21 @@
   테스트 스택 실증: 백업 3행·평문 토큰 잔존 0·mention_user+label 재파싱·Redis
   마커 확인(첫 시도 42P01 는 attempts 3 재시도가 흡수 — migrate 후라 prod 첫
   시도 성공 예상). ★migrate 는 재빌드 후 실행(구 이미지에 새 마이그레이션 없음).
-- 잔여: F11 게이트(e2e 신규 표면 spec + dm-chat 포팅 + 전체 모바일 스위트 +
-  standalone verify + 적대 리뷰 fix-forward) → F12 머지·배포·REPORT.
+- F11 완료(9fc1cc6 e2e + 002cd83 fix-forward) — ① 신규 e2e 11종(m3-server-menu/
+  m3-saved-pins/m3-read-mute/m3-states-chains + dm-chat 레일 포팅 skip 해제),
+  vr-parity 베이스라인 갱신(핀 버튼+빈채널 CTA — 의도 변경 diff 확인 후).
+  ② idle e2e 가 F8 실회귀 적발 → MobileMembers presence 3단 폴백 복원(per-user
+  푸시 > ws broadcast 스냅샷 > REST 그룹 버킷 — 데스크톱 MemberColumn 정본).
+  ③ 적대 리뷰(Workflow 7각도×6후보 → 25건 검증 통과, 상위 10 전부 CONFIRMED)
+  fix-forward: H-1 롱프레스 contextmenu/suppress, H-2 오버레이·프로필 back 마커
+  (+핀 점프 핸드셰이크), H-3 멘션 배지 뮤트 바이패스(FR-RS-05), H-4 멤버 총원
+  단일 출처+디렉터리 풋터, H-5 슬로우모드 canModerate 면제(커스텀 역할 비트는
+  잔여 한계 주석), M-6 memberCanPin 실독, M-7/10 syncFromRetryAfter 실배선,
+  M-8 백필 tokenRe 재단언, M-9 popstate 핸드셰이크. ④ 게이트: 전체 모바일
+  e2e 45/45 green ×2회 + standalone verify 19/19 green(웹 1816 tests —
+  AttachmentsList 1건은 미접촉 파일 부하 flake, 단독 31/31 green 확인).
+- 잔여: F12 머지·배포·REPORT(★백필 잡이 prod 에서 1회 실행됨 — migrate 후
+  재기동이라 첫 시도 성공 예상, attempts 3 흡수).
 
 ## 세션 핸드오프 노트
 
