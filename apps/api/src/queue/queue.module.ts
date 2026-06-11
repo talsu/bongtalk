@@ -8,6 +8,9 @@ import { REMINDER_QUEUE } from './reminder-queue.constants';
 import { ReminderQueueService } from './reminder-queue.service';
 import { ReminderProcessor } from './reminder.processor';
 import { ATTACHMENT_GC_QUEUE } from './attachment-gc.constants';
+// 071-M3 F10: 멘션 토큰 백필 1회성 잡.
+import { MENTION_BACKFILL_QUEUE } from './mention-backfill.constants';
+import { MentionBackfillProcessor } from './mention-backfill.processor';
 import { AttachmentGcProcessor } from './attachment-gc.processor';
 import { UNFURL_QUEUE } from './unfurl-queue.constants';
 import { UnfurlQueueService } from './unfurl-queue.service';
@@ -90,6 +93,8 @@ import { MentionGateService } from '../notifications/mention-gate.service';
     BullModule.registerQueue({ name: REMINDER_QUEUE }),
     // S55 (FR-AM-29): orphan GC repeatable 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: ATTACHMENT_GC_QUEUE }),
+    // 071-M3 F10: 멘션 백필(1회성 — 완료 마커로 재실행 차단).
+    BullModule.registerQueue({ name: MENTION_BACKFILL_QUEUE }),
     // S60 (FR-AM-13 · FR-RC07): 링크 unfurl 큐. forRootAsync 연결을 재사용한다.
     BullModule.registerQueue({ name: UNFURL_QUEUE }),
     // S61 (FR-RM15): 역할 삭제 cascade 권한 캐시 무효화 배치 큐(>1000명).
@@ -124,6 +129,7 @@ import { MentionGateService } from '../notifications/mention-gate.service';
     ReminderQueueService,
     ReminderProcessor,
     AttachmentGcProcessor,
+    MentionBackfillProcessor,
     UnfurlQueueService,
     UnfurlProcessor,
     RoleCacheQueueService,
