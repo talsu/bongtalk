@@ -21,7 +21,17 @@ export function useSheetHistoryMarker(open: boolean, onClose: () => void): void 
     if (!open) return;
     window.history.pushState({ qfSheet: true }, '');
     markerRef.current = true;
-    const onPop = (): void => {
+    const onPop = (e: PopStateEvent): void => {
+      // M6 T5 (★풀스위트 flake 근본 원인): 패널 마커 소거 back()은 비동기
+      // 트래버설 — 부하로 지연 도착하면 그 사이 push 된 이 시트 마커를 대신
+      // 소비한다(도착 state 가 stale qfPanel 엔트리). 이때 시트를 닫지 않고
+      // stale 엔트리를 qfSheet 마커로 재전환해 스택 깊이·시트를 모두 보존한다
+      // (MobilePanels onPop 의 qfPanel 계층 가드와 대칭).
+      const st = e.state as { qfPanel?: string } | null;
+      if (st?.qfPanel) {
+        window.history.replaceState({ qfSheet: true }, '');
+        return;
+      }
       markerRef.current = false;
       onCloseRef.current();
     };
