@@ -1,57 +1,99 @@
 import { test, expect } from '@playwright/test';
-import {
-  MOBILE_VIEWPORT,
-  MOBILE_VIEWPORT_PRO,
-  bootstrapWorkspace,
-  loginUI,
-  signupToken,
-} from './_helpers';
+import { MOBILE_VIEWPORTS, PW, bootstrapWorkspace, loginUI, signupToken } from './_helpers';
 
 /**
- * Task-024 Chunk I: VR parity. Renders the seeded mobile shell at
- * iPhone SE (375×667) and iPhone 14 (390×844) and snapshots a stable
- * sub-tree. Threshold matches ds-mockup-parity — we want real
- * regressions (missing tabbar, topbar layout flip) to blow this up,
- * not 1-2% antialiasing drift.
+ * Task-024 Chunk I: VR parity. Renders the seeded shell at the four
+ * MOBILE_VIEWPORTS dims and snapshots a stable sub-tree. Threshold
+ * matches ds-mockup-parity — we want real regressions (missing tabbar,
+ * topbar layout flip) to blow this up, not 1-2% antialiasing drift.
  *
- * task-049: **`test.fixme` 처리** — 이 spec 은 `mobile-shell-{iphone-se,
- * iphone-14}.png` baseline 이 디스크에 한 번도 commit 된 적이 없어
- * (`-snapshots/` 에 README.md 만), `--project=chromium` CI 에서
- * "snapshot doesn't exist" 로 상시 fail 해 왔다 (049 와 무관한 선행
- * 부채, reviewer finding #1). baseline 은 인증된 live mobile shell 을
- * 캡처해야 하므로 fixture signup + 테스트 스택(docker-compose.test.yml)
- * 이 필요한데, live prod NAS 는 host port 5432/6379 를 prod
- * postgres/redis 가 점유 중이라 테스트 스택을 안전하게 기동할 수 없다.
- * → CI 그린화를 위해 명시 skip, baseline 시드는 CI/테스트 스택 환경에서
- * 수행하도록 분리: `TODO(task-049-follow-vr-parity-baseline)`.
+ * task-049: 한때 baseline 부재로 `test.fixme` 였으나 071-M0 C12 에서
+ * 테스트 스택(빌드본 45173) 기준 iphone-se/iphone-14 baseline 을 시드해
+ * 해제했다. reseed 는 동일 스택에서 `--update-snapshots` 로.
+ *
+ * 071-M6 T3: 4뷰포트로 확장 — 기존 iphone-se(375×667)/iphone-14(390×844)
+ * 에 iphone-xr(414×896)/tablet-portrait(768×1024) 를 추가한다
+ * (_helpers MOBILE_VIEWPORTS 재사용).
+ *
+ * ⚠️ 신규 2뷰포트(iphone-xr / tablet-portrait)는 baseline 스냅샷이 아직
+ * 디스크에 없다 — 이 spec 이 처음 실행될 때 "snapshot doesn't exist" 로
+ * 실패하는 것이 정상이며, 오케스트레이터가 테스트 스택에서
+ * `--update-snapshots` 1회 실행으로 baseline 을 생성한다.
+ *
+ * tablet-portrait(768) 주의: App 의 useIsMobile 은 `(max-width: 767px)`
+ * 이므로 정확히 768 에서는 **데스크톱 셸**(shell-root)이 마운트된다.
+ * 이 케이스는 모바일 testid 가 아니라 데스크톱 testid 로 단언하고,
+ * 데스크톱 전용 동적 영역(BottomBar 의 run-unique username)은 mask 한다.
+ * (MemberColumn 은 `hidden lg:block` — 768 에서는 렌더되지 않는다.)
  */
 const THRESHOLD = Number(process.env.DS_PARITY_THRESHOLD ?? 0.02);
 
 test.setTimeout(90_000);
 
-for (const { name, viewport } of [
-  { name: 'iphone-se', viewport: MOBILE_VIEWPORT },
-  { name: 'iphone-14', viewport: MOBILE_VIEWPORT_PRO },
-] as const) {
-  // 071-M0 C12: task-049-follow-vr-parity-baseline 해소 — 테스트 스택(빌드본 45173)에서
-  // baseline 시드 완료, fixme 해제. reseed 는 동일 스택에서 --update-snapshots 로.
-  test(
-    `mobile shell renders stably at ${name} (${viewport.width}×${viewport.height})`,
-    async ({ browser, request }) => {
-      const stamp = Date.now();
-      const email = `mb-vr-${name}-${stamp}@qufox.dev`;
-      const username = `mbvr${name.replace(/-/g, '')}${stamp}`;
-      const slug = `mb-vr-${name}-${stamp.toString(36)}`;
+// 071-M6 T3: MOBILE_VIEWPORTS(스윕 순서 고정: se → pro → xr → tablet)에
+// 스냅샷 파일명을 짝지운다. 헬퍼에 뷰포트가 추가되면 여기도 갱신할 것.
+const CASES = [
+  { name: 'iphone-se', viewport: MOBILE_VIEWPORTS[0] },
+  { name: 'iphone-14', viewport: MOBILE_VIEWPORTS[1] },
+  { name: 'iphone-xr', viewport: MOBILE_VIEWPORTS[2] },
+  { name: 'tablet-portrait', viewport: MOBILE_VIEWPORTS[3] },
+] as const;
 
-      const token = await signupToken(request, email, username);
-      await bootstrapWorkspace(request, token, {
-        name: `VR ${name}`,
-        slug,
-        channels: ['general'],
+for (const { name, viewport } of CASES) {
+  // 768 경계: 데스크톱 셸 분기 (위 헤더 주석 참조).
+  const isDesktopShell = viewport.width >= 768;
+
+  test(`${isDesktopShell ? 'desktop' : 'mobile'} shell renders stably at ${name} (${viewport.width}×${viewport.height})`, async ({
+    browser,
+    request,
+  }) => {
+    const stamp = Date.now();
+    const email = `mb-vr-${name}-${stamp}@qufox.dev`;
+    const username = `mbvr${name.replace(/-/g, '')}${stamp}`;
+    const slug = `mb-vr-${name}-${stamp.toString(36)}`;
+
+    const token = await signupToken(request, email, username);
+    await bootstrapWorkspace(request, token, {
+      name: `VR ${name}`,
+      slug,
+      channels: ['general'],
+    });
+
+    const context = await browser.newContext({ viewport });
+    const page = await context.newPage();
+
+    if (isDesktopShell) {
+      // 071-M6 T3: loginUI 의 마지막 waitForURL 은 모바일 셸의 채널 자동
+      // 진입(FR-IA-WS-01, MobileShell 전용)에 의존한다 — 데스크톱 셸의
+      // `/w/:slug` 는 "채널을 선택하세요" 빈 상태로 머무르므로 여기서는
+      // 로그인만 수행하고 채널 라우트로 직접 이동한다.
+      await page.goto('/login');
+      await page.getByTestId('login-email').fill(email);
+      await page.getByTestId('login-password').fill(PW);
+      await page.getByTestId('login-submit').click();
+      await page.waitForURL((u) => !u.pathname.startsWith('/login'));
+      await page.goto(`/w/${slug}/general`);
+
+      // 768 에서는 데스크톱 셸이 뜨는 게 정상 — mobile-shell 이 아니라
+      // shell-root 로 단언한다.
+      await expect(page.getByTestId('shell-root')).toBeVisible();
+      await expect(page.getByTestId('mobile-shell')).toHaveCount(0);
+      // 스크린샷 전에 메시지 컬럼(빈 채널 상태)과 컴포저, BottomBar 가
+      // 모두 정착하기를 기다린다 — 로딩 중간 상태 캡처 방지.
+      await expect(page.getByTestId('msg-column-general')).toBeVisible();
+      await expect(page.getByTestId('msg-input')).toBeVisible();
+      await expect(page.getByTestId('bottom-bar')).toBeVisible();
+
+      const shot = await page.getByTestId('shell-root').screenshot();
+      expect(shot.length).toBeGreaterThan(500);
+      await expect(page.getByTestId('shell-root')).toHaveScreenshot(`desktop-shell-${name}.png`, {
+        maxDiffPixelRatio: THRESHOLD,
+        animations: 'disabled',
+        // BottomBar 는 run-unique username(타임스탬프 포함)을 노출하므로
+        // 픽셀 비교에서 가린다.
+        mask: [page.getByTestId('bottom-bar')],
       });
-
-      const context = await browser.newContext({ viewport });
-      const page = await context.newPage();
+    } else {
       await loginUI(page, email, slug);
 
       // Land on a channel so the topbar shows channel title / members icon.
@@ -66,8 +108,8 @@ for (const { name, viewport } of [
         maxDiffPixelRatio: THRESHOLD,
         animations: 'disabled',
       });
+    }
 
-      await context.close();
-    },
-  );
+    await context.close();
+  });
 }

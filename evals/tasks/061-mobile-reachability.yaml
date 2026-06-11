@@ -1,0 +1,28 @@
+# 071-M6 T4 — 모바일 시나리오 eval 태스크 (mobile-reachability).
+#
+# 071 모바일 IA(5탭 + 3패널) 도달성 표면이 회귀 없이 유지되는지
+# apps/web/e2e/mobile 풀스위트(playwright)로 기계 채점한다.
+# 채점 스택: qufox-e2e compose(api :43001 / web :45173) — e2e/mobile/_helpers.ts
+# 의 API/ORIGIN 상수가 이 스택을 가리킨다. 049 chunk D 규약대로
+# --project=chromium 단일 project 로만 실행한다(4× 중복 실행 + snapshot
+# suffix 불일치 방지).
+#
+# 스키마 주의: evals/run.ts 의 tiny parser 는 dod 항목을 1개로 접는다
+# (후속 `- command:` 줄이 같은 entry 를 덮어씀) — dod 는 단일 command 로
+# 유지할 것.
+
+id: 061
+title: Mobile e2e suite green (5-tab / 3-panel reachability)
+goal: |
+  apps/web/e2e/mobile 풀스위트가 green 이고, 주요 도달성 표면 — 5탭
+  탭바(채팅/친구/활동/찾기/나), 3패널 셸(좌 채널목록 / 우 멤버목록 +
+  엣지 제스처), 서버 메뉴 시트, 메시지 롱프레스 시트, 풀스크린
+  오버레이(핀 목록/초대 관리/멤버 디렉터리/워크스페이스 설정/채널
+  둘러보기), 채널 자동 복원(lastChannel) — 이 회귀 없이 도달 가능해야
+  한다. 합성 터치 스펙(touch-target-size / long-press-sheet)은 retries 1
+  안에서 green 이어야 하며, '우패널 미스터리'(docs/tasks/071-M6-progress.md
+  해당 절) 증상이 재발하면 trace 를 보존하고 회귀로 간주한다.
+dod:
+  - command: pnpm --filter @qufox/web test:e2e -- e2e/mobile --project=chromium
+    expect: exit 0
+max_turns: 25
