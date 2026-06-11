@@ -131,10 +131,10 @@ FR-S06,D07-search,P1,S30,partial
 FR-S07,D07-search,P0,S30,done
 FR-S09,D07-search,P1,S30,done
 FR-S10,D07-search,P0,S30,done
-FR-S01,D07-search,P1,S31,done
-FR-S02,D07-search,P1,S31,done
+FR-S01,D07-search,P1,S31,partial
+FR-S02,D07-search,P1,S31,partial
 FR-S11,D07-search,P1,S31,partial
-FR-S12,D07-search,P2,S31,done
+FR-S12,D07-search,P2,S31,partial
 FR-S13,D07-search,P1,S31,done
 FR-S14,D07-search,P1,S31,done
 FR-RT-08,D17-realtime-sync,P1,S32,done
@@ -200,7 +200,7 @@ FR-MN-06,D06-mentions-notif,P0,S46,done
 FR-MN-07,D06-mentions-notif,P0,S46,done
 FR-MN-08,D06-mentions-notif,P0,S46,done
 FR-MN-13,D06-mentions-notif,P1,S47,done
-FR-MN-14,D06-mentions-notif,P0,S47,done
+FR-MN-14,D06-mentions-notif,P0,S47,partial
 FR-MN-20,D06-mentions-notif,P0,S47,done
 FR-MN-09,D06-mentions-notif,P1,S48,done
 FR-MN-10,D06-mentions-notif,P1,S93,done

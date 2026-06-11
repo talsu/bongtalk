@@ -168,6 +168,23 @@ export function MobileMessageSheet({
         className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
       >
         <div className="qf-m-sheet__grab" aria-hidden />
+        {/* 071-M4 (FR-MSG-10/12 모바일): 시트 헤더에 전송 시각 노출 — grouped 행
+            (hover HH:MM 데스크톱 전용)에서도 시각 확인 경로를 제공한다. title 은
+            ISO 전체 시각(FR-MSG-12 hover tooltip 동등). */}
+        <div
+          className="qf-m-section"
+          data-testid="mobile-sheet-time"
+          title={new Date(msg.createdAt).toISOString()}
+        >
+          <div>
+            {new Date(msg.createdAt).toLocaleString('ko-KR', {
+              month: 'short',
+              day: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            })}
+          </div>
+        </div>
         {/* Quick reaction row — 071-M0 C12(감사 B-45): 임의 버튼(37×33)이 44px 터치
             플로어를 위반했다. DS 정본 qf-m-react-row/chip(44×44)으로 교체. */}
         <div className="qf-m-react-row justify-around">

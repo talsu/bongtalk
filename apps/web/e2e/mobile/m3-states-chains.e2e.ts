@@ -128,6 +128,11 @@ test('search hit jumps to the message with highlight via ?msg=', async ({ browse
     page.locator(`[data-testid="mobile-msg-${msgId}"][data-jump-highlight="true"]`),
   ).toBeVisible();
 
+  // M4 (FR-S07 복귀 AC): 브라우저 back → ?q= 동기화로 검색어·결과 복원.
+  await page.goBack();
+  await expect(page.getByTestId('mobile-search-input')).toHaveValue('zebrafinch');
+  await expect(page.getByTestId(`mobile-search-hit-${msgId}`)).toBeVisible();
+
   await context.close();
 });
 

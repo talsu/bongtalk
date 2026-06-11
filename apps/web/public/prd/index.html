@@ -499,7 +499,7 @@
       <tr><th>횡단 뷰</th><th>데스크톱 진입</th><th>모바일 진입</th></tr>
     </thead>
     <tbody>
-      <tr><td class="id">검색</td><td>채널 리스트 상단 고정 항목 · Cmd+K(D07·D15)</td><td>탭바 '검색' 탭</td></tr>
+      <tr><td class="id">검색</td><td>채널 리스트 상단 고정 항목 · Cmd+G 글로벌 / Ctrl+F 채널 내(D07·D15 — Cmd+K 는 퀵스위처)</td><td>탭바 '검색' 탭</td></tr>
       <tr><td class="id">인박스</td><td>채널 리스트 상단 고정 항목 → Activity Inbox 패널(D06)</td><td>탭바 '인박스' 탭</td></tr>
       <tr><td class="id">스레드</td><td>채널 리스트 상단 고정 항목 → 스레드 인박스(D04)</td><td>탭바 '스레드' 탭</td></tr>
       <tr><td class="id">저장함</td><td>채널 리스트 상단 고정 항목 '저장됨'(D10)</td><td>'나' 탭 → '저장됨' 행(<code>/saved</code> 라우트) — 탭바 직속 탭이 아님</td></tr>
@@ -1224,7 +1224,7 @@
 
   <ul class="stories">
     <li>
-      <b>FR-IA-MOB-05</b> — <span class="prio prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 시트 최상단에는 <b>퀵 반응 행</b>(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <b>.qf-m-emoji-drawer</b>)을 배치한다 — 데스크톱 hover 퀵 반응 3종과 모바일 시트 5종의 개수 차이는 의도적 분리다(D05 FR-RE04). 메뉴 항목(카노니컬 목록 — 실구현 MobileMessageSheet와 1:1)은 <b>답장</b>(=스레드 답글)·<b>스레드 보기</b>·<b>메시지 복사</b>·<b>나중에 보기 저장/저장 해제</b>(토글)·<b>리마인더 설정</b>·<b>메시지 고정/고정 해제</b>(권한 게이트)·<b>편집 이력</b>(edited 행 한정)·<b>미읽음으로 표시</b> 순으로 구성하며, 본인 메시지는 <b>메시지 편집</b>·<b>메시지 삭제</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 삭제)를, 타인 메시지는 <b>메시지 신고</b>를 노출한다(본인/타인 분기). 컨텍스트별 미해당 항목(예: DM의 스레드 계열)은 숨긴다. '<b>링크 복사</b>'는 모바일 시트에 포함하지 않는다(데스크톱 컨텍스트 메뉴 전용 — D01 FR-MSG-17). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
+      <b>FR-IA-MOB-05</b> — <span class="prio prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 시트 최상단에는 <b>헤더(전송 시각</b> — HH:MM 현지 표기, <code>title</code>=ISO 전체 시각으로 FR-MSG-10/12 의 hover 시각 확인 동등 경로<b>)</b>와 <b>퀵 반응 행</b>(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <b>.qf-m-emoji-drawer</b>)을 배치한다 — 데스크톱 hover 퀵 반응 3종과 모바일 시트 5종의 개수 차이는 의도적 분리다(D05 FR-RE04). 메뉴 항목(카노니컬 목록 — 실구현 MobileMessageSheet와 1:1)은 <b>답장</b>(=스레드 답글)·<b>스레드 보기</b>·<b>메시지 복사</b>·<b>나중에 보기 저장/저장 해제</b>(토글)·<b>리마인더 설정</b>·<b>메시지 고정/고정 해제</b>(권한 게이트)·<b>편집 이력</b>(edited 행 한정)·<b>미읽음으로 표시</b> 순으로 구성하며, 본인 메시지는 <b>메시지 편집</b>·<b>메시지 삭제</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 삭제)를, 타인 메시지는 <b>메시지 신고</b>를 노출한다(본인/타인 분기). 컨텍스트별 미해당 항목(예: DM의 스레드 계열)은 숨긴다. '<b>링크 복사</b>'는 모바일 시트에 포함하지 않는다(데스크톱 컨텍스트 메뉴 전용 — D01 FR-MSG-17). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
     </li>
   </ul>
   <ul class="ac">
@@ -1252,8 +1252,8 @@
       <tr><td class="id">①</td><td>메시지 hover 툴바/툴팁</td><td>메시지 롱프레스(0.5s) 액션 시트(<code>.qf-m-message-action-sheet</code> — FR-IA-MOB-05 카노니컬 목록)</td></tr>
       <tr><td class="id">②</td><td>채널·DM 행 우클릭 컨텍스트 메뉴</td><td>행 롱프레스 액션 시트 — 뮤트(6종: 15분/1시간/3시간/8시간/24시간/무기한)·읽음으로 표시 등 동일 항목 제공</td></tr>
       <tr><td class="id">③</td><td>드래그 재정렬(채널·카테고리·즐겨찾기·개인 섹션)</td><td>v1 모바일 미지원 — 데스크톱 변경 결과 순서만 반영. 확장 시 '순서 편집 모드' + 드래그 핸들 패턴을 따른다</td></tr>
-      <tr><td class="id">④</td><td>Ctrl/Cmd+K 퀵스위처 · Cmd+G 검색</td><td>탭바 '검색' 탭(풀스크린 검색 화면)</td></tr>
-      <tr><td class="id">⑤</td><td>Ctrl+F 채널 내 검색</td><td>채널 헤더 검색 아이콘(<code>in:</code> 현재 채널 자동 설정)</td></tr>
+      <tr><td class="id">④</td><td>Ctrl/Cmd+K 퀵스위처 · Cmd+G 검색</td><td>퀵스위처: 좌 패널 채널 목록 필터 + 레일 DM 슬롯 / 글로벌 검색: 탭바 '검색' 탭(메시지 본문 전용)</td></tr>
+      <tr><td class="id">⑤</td><td>Ctrl+F 채널 내 검색</td><td>채널 헤더 검색 아이콘(<code>in:</code> 현재 채널 자동 설정) — <em>후속(보류)</em>; 현행은 탭바 '검색' 탭 + <code>in:</code> 수동 입력</td></tr>
       <tr><td class="id">⑥</td><td>Esc 현재 채널 읽음 · Shift+Esc 전체 읽음</td><td>채널 행 롱프레스 '읽음으로 표시' / 좌 패널 채널 목록 섹션 '모두 읽음'(+8초 Undo 토스트)</td></tr>
       <tr><td class="id">⑦</td><td>↑ 마지막 내 메시지 편집</td><td>내 메시지 롱프레스 → '메시지 편집'(편집 바텀시트)</td></tr>
       <tr><td class="id">⑧</td><td>Ctrl+,(Cmd+,) 설정 토글</td><td>'나' 탭 → '설정' 드릴다운(FR-IA-MOB-06)</td></tr>
@@ -7994,7 +7994,7 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-14</td>
-        <td>알림 배지: 서버 아이콘(멘션 숫자 + 미읽 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널·서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조. <strong>모바일:</strong> 하단 탭바 배지(<code>.qf-m-tab__badge</code> 미읽 violet / <code>.qf-m-tab__badge--mention</code> 멘션 danger — §02 탭바 카노니컬 표)도 동일 카운트 소스로 동기화하며 본 FR의 검증 대상에 포함한다.</td>
+        <td>알림 배지: 서버 아이콘(멘션 숫자 + 미읽 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널·서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조. <strong>모바일:</strong> 하단 탭바 배지(§02 탭바 카노니컬 표 — 채팅 탭 미읽 violet/멘션 danger 분리)는 <em>목표 명세이며 후속(보류·fr-matrix partial)</em> — 현 구현은 인박스 탭에 활동 합계 violet 배지(10 미만은 dot 강등, 감사 B-43)만 표시한다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -8895,7 +8895,7 @@ KEYWORD</pre>
     <tbody>
       <tr>
         <td class="id">FR-S01</td>
-        <td>사용자는 검색창(<strong>데스크톱:</strong> Cmd+K 또는 헤더 돋보기 아이콘 / <strong>모바일:</strong> 탭바 '검색' 탭 풀스크린 화면 — FR-IA-MOB-07 ④)을 열면 최근 검색 목록(최대 10개)을 드롭다운으로 볼 수 있어야 한다. <strong>최근 검색어가 0건인 첫 포커스 시에는 수식어 치트시트 카드를 표시해야 한다</strong>(<code>from:@alice</code> 특정 사람 / <code>in:#general</code> 특정 채널 / <code>has:image</code> 이미지 포함 3가지 항목 포함).</td>
+        <td>사용자는 검색창(<strong>데스크톱:</strong> Cmd+G 또는 헤더 돋보기 아이콘 — Cmd+K 는 퀵스위처(D15 FR-KS-01) 전용 / <strong>모바일:</strong> 탭바 '검색' 탭 풀스크린 화면 — FR-IA-MOB-07 ④)을 열면 최근 검색 목록(최대 10개)을 드롭다운으로 볼 수 있어야 한다. <strong>최근 검색어가 0건인 첫 포커스 시에는 수식어 치트시트 카드를 표시해야 한다</strong>(<code>from:@alice</code> 특정 사람 / <code>in:#general</code> 특정 채널 / <code>has:image</code> 이미지 포함 3가지 항목 포함). <strong>모바일:</strong> 최근 검색 목록·치트시트 카드는 <em>후속(보류·fr-matrix partial)</em> — 현 검색 탭 빈 상태는 수식어 힌트 1줄만 제공한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -8964,7 +8964,7 @@ KEYWORD</pre>
       </tr>
       <tr>
         <td class="id">FR-S12</td>
-        <td>채널 내 로컬 검색(Ctrl+F)은 in: 필터가 현재 채널로 자동 설정된 채 검색 패널을 열어야 한다. <strong>모바일:</strong> 채널 헤더의 검색 아이콘 탭이 동일 동작(in: 현재 채널 자동 설정 상태로 검색 화면 진입 — FR-IA-MOB-07 ⑤)이다.</td>
+        <td>채널 내 로컬 검색(Ctrl+F)은 in: 필터가 현재 채널로 자동 설정된 채 검색 패널을 열어야 한다. <strong>모바일:</strong> 채널 헤더 검색 아이콘(in: 현재 채널 자동 설정 — FR-IA-MOB-07 ⑤)은 <em>후속(보류·fr-matrix partial)</em> — 현 모바일 진입은 탭바 '검색' 탭에서 in: 수식어 수동 입력이다.</td>
         <td><span class="prio prio--p2">P2</span></td>
       </tr>
       <tr>
@@ -9735,7 +9735,7 @@ workspace:{wsId}:online_sockets        Set
   <ul>
     <li><strong>미읽으로 표시</strong>: 메시지 hover toolbar → 해당 메시지 이전 ID로 lastReadMessageId 되돌림. (모바일: 메시지 롱프레스 시트 '미읽음으로 표시' — FR-IA-MOB-05)</li>
     <li><strong>읽음으로 표시</strong>: 채널 우클릭 컨텍스트 메뉴 또는 채널 헤더 버튼. (모바일: 채널 행 롱프레스 시트 '읽음으로 표시' — FR-IA-MOB-07 ②)</li>
-    <li><strong>모두 읽음</strong>: Unreads View 하단 버튼 → 전체 채널 ACK 일괄 업데이트. <strong>5초 Undo 토스트</strong> (토스트 카피: "모든 채널을 읽음으로 표시했습니다." + "실행 취소" 버튼, 5초 후 자동 소멸).</li>
+    <li><strong>모두 읽음</strong>: Unreads View 하단 버튼 → 전체 채널 ACK 일괄 업데이트. <strong>8초 Undo 토스트</strong> (토스트 카피: "모든 채널을 읽음으로 표시했습니다." + "실행 취소" 버튼, 8초 후 자동 소멸 — a11y WCAG 2.2.1 여유).</li>
     <li>키보드: <kbd>Esc</kbd> = 현재 채널 읽음, <kbd>Shift+Esc</kbd> = 워크스페이스 전체 읽음. (모바일: 채널 행 롱프레스 '읽음으로 표시' / 좌 패널 채널 목록 섹션 '모두 읽음' — FR-IA-MOB-07 ⑥)</li>
   </ul>
 
@@ -9747,7 +9747,7 @@ workspace:{wsId}:online_sockets        Set
     Undo 수행 시 Redis 히트 → Redis 복원. Redis miss → DB fallback 복원. 둘 다 없으면 409 Conflict("Undo 기간 만료").<br><br>
     <strong>500개+ 채널 배치 처리</strong>: chunk 100 단위 <strong>독립 트랜잭션</strong>으로 분리 실행. chunk별 실패는 다른 chunk에 영향을 주지 않으며, 실패한 채널 목록을 <code>{ failedChannelIds: string[] }</code>로 반환하여 부분 성공을 허용한다. 전통적인 전체 롤백을 원하면 /workspaces/:wsId/mark-all-read 요청 body의 <code>onPartialFailure: 'rollback' | 'partial'</code> 파라미터로 지정한다. <code>'rollback'</code> 선택 시 단일 트랜잭션으로 처리하고 어떤 chunk라도 실패하면 전체 롤백한다.<br><br>
     <strong>낙관적 로컬 처리</strong>: mark-all-read 호출 즉시 클라이언트에서 모든 채널 뱃지를 0으로 클리어(낙관 업데이트). 서버 응답 실패 시 이전 상태로 롤백한다.<br><br>
-    <strong>Undo 중 신규 메시지 도착</strong>: Undo 복원 이후에 도착한 메시지의 unread_count 증분(<code>unread_count:increment</code> 이벤트)은 서버 last-write-wins 정책으로 정상 적용된다. 응답 payload에 <code>deltaFromNewMessages</code> 필드로 복원 이후 신규 도착분을 포함하여 반환한다. Undo 토스트(5초) 표시 중 도착한 increment는 Undo 완료 후 복원값에 자동 가산한다.
+    <strong>Undo 중 신규 메시지 도착</strong>: Undo 복원 이후에 도착한 메시지의 unread_count 증분(<code>unread_count:increment</code> 이벤트)은 서버 last-write-wins 정책으로 정상 적용된다. 응답 payload에 <code>deltaFromNewMessages</code> 필드로 복원 이후 신규 도착분을 포함하여 반환한다. Undo 토스트(8초) 표시 중 도착한 increment는 Undo 완료 후 복원값에 자동 가산한다.
   </div>
 
   <h3>Unreads View</h3>
@@ -9991,7 +9991,7 @@ workspace:{wsId}:online_sockets        Set
         </div>
         -->
 
-        <!-- 모두 읽음 후 Undo 토스트 (5초 표시) -->
+        <!-- 모두 읽음 후 Undo 토스트 (8초 표시) -->
         <div class="qf-toast qf-toast--warn" style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-3) var(--s-4);margin:var(--s-3);border-radius:var(--r-md);background:var(--n-2);border:1px solid var(--border);">
           <span style="font:var(--fs-13);color:var(--text);">모든 채널을 읽음으로 표시했습니다.</span>
           <button class="qf-btn qf-btn--ghost qf-btn--sm" style="color:var(--a-300);">실행 취소</button>
@@ -10111,15 +10111,15 @@ workspace:{wsId}:online_sockets        Set
 
           </div>
 
-          <!-- Tab bar (§02 카노니컬 5탭 — 미읽 모아보기는 인박스 탭 내 표현이므로 active=인박스, 일반 미읽 합계는 violet 기본 배지) -->
+          <!-- Tab bar (§02 카노니컬 5탭 — 미읽 모아보기는 인박스 탭 내 표현이므로 active=인박스; 일반 미읽 합계 violet 배지는 카노니컬 표대로 채팅 탭 소관) -->
           <div class="qf-m-tabbar">
             <button class="qf-m-tab">
+              <span class="qf-m-tab__badge">19</span>
               <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-message"/></svg></span>
               <span class="qf-m-tab__label">채팅</span>
             </button>
             <button class="qf-m-tab" aria-selected="true">
               <span class="qf-m-tab__pill"></span>
-              <span class="qf-m-tab__badge">19</span>
               <span class="qf-m-tab__icon"><svg class="qf-icon" style="width:22px;height:22px;"><use href="#qf-i-inbox"/></svg></span>
               <span class="qf-m-tab__label">인박스</span>
             </button>
@@ -10211,7 +10211,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-10</td>
-        <td><strong>데스크톱:</strong> Unreads View를 채널 사이드바 최상단에 상시 노출한다. <strong>모바일:</strong> 하단 탭바에 별도 '미읽' 탭은 두지 않으며, 좌 패널 채널 목록 섹션의 '모두 읽음'(+8초 Undo 토스트)과 인박스 탭(미읽 모아보기 — Mock C, 인박스 탭 내 표현)으로 제공한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 5초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 5초 노출)를 표시한다. 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
+        <td><strong>데스크톱:</strong> Unreads View를 채널 사이드바 최상단에 상시 노출한다. <strong>모바일:</strong> 하단 탭바에 별도 '미읽' 탭은 두지 않으며, 좌 패널 채널 목록 섹션의 '모두 읽음'(+8초 Undo 토스트)과 인박스 탭(미읽 모아보기 — Mock C, 인박스 탭 내 표현)으로 제공한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 8초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 8초 노출 — 서버 스냅샷 TTL 5분과 독립)를 표시한다. 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
         View가 열려 있는 동안 <code>unread_count:increment</code> 이벤트 수신 시 해당 채널을 목록 <strong>최상단에 낙관 삽입(신규)하거나 카운트를 갱신</strong>한다. 신규 채널 항목은 항상 최상단에 삽입하고, 기존 항목은 커서 위치를 유지한 채 카운트만 갱신한다.<br><br>
         각 채널 미리보기(최대 5개 메시지)는 D03·D14 차단 정책(D03 FR-DM-18 동일 규칙)에 따라 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹하되 <code>username</code> 필드도 <code>차단된 사용자</code>로, <code>avatarUrl</code>은 <code>null</code>로 대체한다. GET /workspaces/:wsId/unreads API도 동일 마스킹을 적용한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
@@ -10261,7 +10261,7 @@ workspace:{wsId}:online_sockets        Set
         <td>mark-all-read 실행 순서: 1) 현재 ChannelReadState 스냅샷 SELECT → 2) Redis + DB 스냅샷 저장 → 3) chunk ACK UPDATE. 2단계 실패 시 ACK를 진행하지 않고 500 에러를 반환한다.<br><br>
         Undo 스냅샷은 Redis(TTL 5분)와 DB(MarkAllReadSnapshot 테이블, 내구성)에 이중 저장한다. Undo 수행 시 Redis 히트 → Redis 복원, Redis miss → DB fallback. 500개+ 채널 배치는 chunk 100 단위 <strong>독립 트랜잭션</strong>으로 분리 실행하며 실패한 channelId 목록을 <code>{ failedChannelIds: string[] }</code>로 반환한다. <code>onPartialFailure: 'rollback'</code> 선택 시 단일 트랜잭션으로 처리하여 하나의 chunk라도 실패하면 전체 롤백한다.<br><br>
         <strong>Undo + increment 경합:</strong> Undo 복원 트랜잭션에서 <code>lastReadMessageId</code> 비교 및 <code>unreadCount</code> 재집계를 동일 <code>SELECT FOR UPDATE</code> 내에서 수행한다. 최종 unreadCount = 복원값 + Undo 이후 실제 신규 도착분으로 결정한다.<br><br>
-        mark-all-read 호출 즉시 클라이언트에서 모든 채널 뱃지를 0으로 낙관 클리어한다. Undo 수행 시 <code>restoredStates</code>를 복원한 후 Undo 토스트(5초) 노출 중 도착한 <code>unread_count:increment</code>의 합산값을 <code>deltaFromNewMessages</code>로 가산한다. 서버는 last-write-wins 정책으로 Undo 이후 도착한 increment를 정상 적용하며 응답에 <code>deltaFromNewMessages</code>를 포함한다.</td>
+        mark-all-read 호출 즉시 클라이언트에서 모든 채널 뱃지를 0으로 낙관 클리어한다. Undo 수행 시 <code>restoredStates</code>를 복원한 후 Undo 토스트(8초) 노출 중 도착한 <code>unread_count:increment</code>의 합산값을 <code>deltaFromNewMessages</code>로 가산한다. 서버는 last-write-wins 정책으로 Undo 이후 도착한 increment를 정상 적용하며 응답에 <code>deltaFromNewMessages</code>를 포함한다.</td>
         <td><span class="prio prio--p1">P1</span></td>
       </tr>
     </tbody>
@@ -10536,13 +10536,13 @@ TTL: 300s (5분)
     <li>lastReadMessageId가 null인 채널에 입장 시 GET /channels/:id/messages?limit=50을 호출하고 최하단으로 스크롤되어야 한다. lastReadMessageId가 있는 채널 입장 시 around 커서로 호출하고 NEW MESSAGES 구분선 위치로 스크롤되어야 한다.</li>
     <li>신규 채널 가입(WorkspaceMember 생성) 시 AUTO_FROM_POSITION/AUTO_FROM_LATEST 모드 사용자의 ChannelReadState.lastReadMessageId가 가입 시점 최신 메시지 ID로 초기화되어 unreadCount = 0이어야 한다. MANUAL_FROM_LATEST 사용자는 null로 유지되어야 한다.</li>
     <li>scroll-to-bottom 조건(<code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code>)에서 새 메시지 도착 시 ACK body에 clientTimestamp가 포함되어 즉시 전송되어야 한다.</li>
-    <li>mark-all-read Undo 토스트가 "실행 취소" 버튼과 함께 5초 동안만 표시되고 이후 자동 소멸되어야 한다.</li>
+    <li>mark-all-read Undo 토스트가 "실행 취소" 버튼과 함께 8초 동안 표시되고 이후 자동 소멸되어야 한다.</li>
     <li>Unreads View에 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")가 렌더링되어야 한다.</li>
     <li>GET /workspaces/:wsId/unreads?limit=50&amp;cursor=:channelId 호출 시 다음 50개 채널 목록을 반환해야 한다(커서 페이지네이션 검증).</li>
     <li>unread:lock SET NX PX 뮤텍스로 동시 2개 요청이 진입할 때 DB 집계가 1회만 실행되어야 한다. 락 대기 3회 모두 실패 시 DB 직접 조회가 수행되어야 한다(stampede 방지 + fallback 검증).</li>
     <li>Unreads View가 열린 상태에서 unread_count:increment를 수신할 때, 신규 채널 항목은 목록 최상단에 낙관 삽입되고 기존 채널 항목의 카운트가 즉시 갱신되어야 한다(fake timer, unit).</li>
     <li>GET /workspaces/:wsId/unreads 응답의 미리보기 메시지 중 차단된 사용자의 메시지 본문이 <code>[차단된 사용자의 메시지]</code>로 마스킹되어야 한다(D03·D14 차단 정책, integration).</li>
-    <li>mark-all-read Undo 처리 중(5초 토스트 노출 기간) 2개의 unread_count:increment가 도착한 경우, Undo 완료 후 최종 unreadCount는 복원값+2이어야 한다(integration, fake timer).</li>
+    <li>mark-all-read Undo 처리 중(8초 토스트 노출 기간) 2개의 unread_count:increment가 도착한 경우, Undo 완료 후 최종 unreadCount는 복원값+2이어야 한다(integration, fake timer).</li>
     <li>MarkAllReadSnapshot 복원 시 chunk별 독립 트랜잭션으로 처리되어 특정 chunk 실패 시 해당 chunk의 <code>failedChannelIds</code>만 반환되고 나머지 chunk 복원은 정상 완료되어야 한다(부분 실패 안전, integration).</li>
     <li>Unreads View 스크롤 추가 로드 중 <code>unread_count:increment</code>로 동일 채널 항목이 낙관 삽입된 상태에서 커서 페이지네이션 응답에 동일 채널이 포함되더라도 목록에 중복 항목이 나타나지 않아야 한다(클라이언트 id set dedup, Playwright + 서버 cursor 교차 검증).</li>
     <li>mark-all-read 실행 시 스냅샷 저장(Redis + DB) 실패 시뮬레이션 후 ACK UPDATE가 수행되지 않아야 한다(순서 보장, integration).</li>
@@ -15850,7 +15850,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-01</td>
-        <td>Ctrl/Cmd+K로 퀵스위처 모달이 열리며, 검색창에 타이핑 시 채널·멤버·DM을 혼합하여 퍼지 검색한다. @ 접두사는 멤버/DM, # 접두사는 채널만 필터링한다. 모달 루트에 <code>role="dialog"</code>·<code>aria-modal="true"</code>·<code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때 트리거로 포커스가 복원된다. 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다. 검색 소스는 서버 검색 API(<code>GET /quick-switcher</code>)가 정본이며, 클라이언트 퍼지 매칭은 로컬 캐시(최근 채널·멤버) 가속 수단이다(§API 표와의 이중 정의 해소). 모바일: 퀵스위처 모달은 미제공 — 탭바 '검색' 탭이 채널·멤버·DM 통합 이동의 동등 경로다(FR-IA-MOB-07 ④).</td>
+        <td>Ctrl/Cmd+K로 퀵스위처 모달이 열리며, 검색창에 타이핑 시 채널·멤버·DM을 혼합하여 퍼지 검색한다. @ 접두사는 멤버/DM, # 접두사는 채널만 필터링한다. 모달 루트에 <code>role="dialog"</code>·<code>aria-modal="true"</code>·<code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때 트리거로 포커스가 복원된다. 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다. 검색 소스는 서버 검색 API(<code>GET /quick-switcher</code>)가 정본이며, 클라이언트 퍼지 매칭은 로컬 캐시(최근 채널·멤버) 가속 수단이다(§API 표와의 이중 정의 해소). 모바일: 퀵스위처 모달은 미제공 — 채널 이동은 좌 패널 채널 목록(필터 입력), DM 이동은 레일 DM 슬롯(/dms)이 동등 경로다(FR-IA-MOB-07 ④). 탭바 '검색' 탭은 메시지 본문 검색 전용이며 채널·멤버 퍼지 이동을 제공하지 않는다.</td>
         <td><span class="prio prio--p0">P0</span></td>
       </tr>
       <tr>
