@@ -41,5 +41,18 @@ H2 선행 후 H20.
 ## 세션 진행 노트 (M5)
 
 - (착수) M4 종결(main fc291aa · 배포 exit 0 · readyz ok) 직후. H1 정찰 가동.
+- S1~S5 완료(67ab495) — m5-implement Workflow(순차 5스테이지, 1차 실행은 세션
+  리밋 중단 → 부분 적용 재개): 트랩/마커/confirm/모션/드래그/더블탭/PTR/i18n/
+  풀스크린 모달/뱃지/정책 21청크. lint 신규 위반 5건 에이전트 자가 수정.
+- S6 완료(27363c9·fb4ab59·4804ad5) — ①e2e 가 시트→드로어 마커 레이스 실회귀
+  적발 → transitionSheetMarker 핸드셰이크 신설+3곳(MobileMessages) ②적대 리뷰
+  (7각도, 27건 통과·기각 0, 상위 12 CONFIRMED) fix-forward: grab 44px 히트영역
+  (4px 스트립 — 실기기 기능 사장), 서버 메뉴→오버레이/설정/둘러보기/새 DM 마커
+  레이스 4+1곳, browseOpen 마커 누락, 트랩 Esc IME 가드, fling stale 100ms,
+  더블탭 자식 버블 제외, 데스크톱 차단 confirm, confirm 등장 300ms 가드,
+  스와이프 수직 동결 리셋 ③retries 1 도입(M6 선취 — NAS 풀스위트 부하 flake
+  게이트 안정화, 단독·직렬 항상 green 실측). 최종 풀스위트 45/45.
+  ★우패널 미스터리: 병렬 실패 스크린샷에 스펙이 안 연 우패널 — 단독/스로틀
+  8x 재현 불가, M6 입력(trace 기반 정밀 추적 과제).
 - 서브에이전트 브리프 필수 문구: "읽기 전용 — git checkout/branch 전환 금지" +
   "머지/배포/prod 접근 금지".
