@@ -149,7 +149,9 @@ export function MobileYouTab(): JSX.Element {
       </main>
       <MobileTabBar />
 
-      {/* 상태 변경 바텀시트(FR-P04/P17) — idle 은 자동 전용이라 선택지 제외. */}
+      {/* 상태 변경 바텀시트 — presence 수동 전환(온라인/DND/오프라인 표시)만.
+          idle 은 자동 전용이라 선택지 제외. ★FR-P04/P17(커스텀 상태 emoji+text+
+          만료 프리셋 편집)은 미구현 — fr-matrix partial, 차기 감사 오판 방지(M4). */}
       {statusSheet ? (
         <div
           data-testid="mobile-status-sheet"

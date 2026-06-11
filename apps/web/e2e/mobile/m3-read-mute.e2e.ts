@@ -97,5 +97,13 @@ test('channel long-press opens the mute sheet; mute suppresses the badge', async
   await expect(newsRow).not.toHaveAttribute('data-muted', 'true');
   await expect(newsRow.getByTestId('mobile-unread')).toBeVisible();
 
+  // M4 (FR-RS-09): 시트의 '읽음으로 표시' — 채널 진입 없이 배지 소거.
+  await dispatchLongPress(newsRow);
+  const sheet2 = page.getByTestId('mobile-channel-sheet-news');
+  await expect(sheet2).toBeVisible();
+  await page.getByTestId('mobile-channel-mark-read').click();
+  await expect(newsRow.getByTestId('mobile-unread')).toHaveCount(0);
+  await expect(page).toHaveURL(new RegExp(`/w/${slug}/general`));
+
   await context.close();
 });
