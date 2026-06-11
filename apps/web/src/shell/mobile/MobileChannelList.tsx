@@ -231,7 +231,12 @@ export function MobileChannelList({
               </span>
               <span
                 style={{ maxWidth: 'var(--s-10)' }}
-                className="text-[length:var(--fs-11)] text-text-muted truncate"
+                // M6 T5 (axe color-contrast serious): 활성 레일 항목(bg-accent)
+                // 위 muted 텍스트가 대비 미달 — 활성일 땐 강조 톤.
+                className={cn(
+                  'text-[length:var(--fs-11)] truncate',
+                  w.slug === workspace.slug ? 'text-[color:var(--text-strong)]' : 'text-text-muted',
+                )}
               >
                 {w.name}
               </span>
@@ -462,7 +467,9 @@ function ChannelRow({
           if (onLongPress) e.preventDefault();
         }}
         style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
-        aria-selected={active || undefined}
+        // M6 T5 (axe aria-allowed-attr): a 요소에 aria-selected 불허 — 링크 내비
+        // 표준 aria-current 로 교체(DS .qf-m-row 엔 selected 셀렉터 없음 — 시각 무영향).
+        aria-current={active ? 'page' : undefined}
         data-testid={`mobile-channel-${name}`}
         data-muted={muted ? 'true' : undefined}
         className={cn(

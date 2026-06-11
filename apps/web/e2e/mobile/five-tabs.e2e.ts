@@ -46,12 +46,12 @@ test('tabbar exposes exactly 5 tabs and routes each to its surface', async ({
   ]) {
     await expect(page.getByTestId(id)).toBeVisible();
   }
-  await expect(page.getByTestId('mobile-tab-chat')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mobile-tab-chat')).toHaveAttribute('aria-current', 'page');
 
   // 인박스 → /activity.
   await page.getByTestId('mobile-tab-inbox').click();
   await expect(page).toHaveURL(/\/activity/);
-  await expect(page.getByTestId('mobile-tab-inbox')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mobile-tab-inbox')).toHaveAttribute('aria-current', 'page');
 
   // 스레드 탭 → 전용 화면.
   await page.getByTestId('mobile-tab-threads').click();

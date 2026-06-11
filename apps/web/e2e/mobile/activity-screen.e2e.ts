@@ -44,7 +44,7 @@ test('/activity on mobile shows qf-m-segment + qf-m-fab + qf-m-tabbar activity s
 
   await expect(page.getByTestId('mobile-activity-fab-mark-all')).toBeVisible();
   await expect(page.getByTestId('mobile-tabbar')).toBeVisible();
-  await expect(page.getByTestId('mobile-tab-inbox')).toHaveAttribute('aria-selected', 'true');
+  await expect(page.getByTestId('mobile-tab-inbox')).toHaveAttribute('aria-current', 'page');
 
   await context.close();
 });

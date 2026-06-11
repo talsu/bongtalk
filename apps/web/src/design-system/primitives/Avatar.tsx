@@ -25,7 +25,10 @@ function colorFromSeed(seed: string): string {
   let hash = 0;
   for (let i = 0; i < seed.length; i++) hash = (hash * 31 + seed.charCodeAt(i)) | 0;
   const hues = [258, 272, 290, 240, 220, 200, 310, 270];
-  return `hsl(${hues[Math.abs(hash) % hues.length]} 65% 55%)`;
+  // 071-M6 (axe color-contrast serious): L=55% 는 흰 이니셜 대비 4/8 hue 가
+  // AA(4.5:1) 미달(최악 hue 200 = 2.76:1) — L=40% 면 전 hue 4.64:1+ 충족
+  // (WCAG 산식 검산). hue 는 유지해 기존 사용자별 색 정체성 보존.
+  return `hsl(${hues[Math.abs(hash) % hues.length]} 65% 40%)`;
 }
 
 type Props = {
