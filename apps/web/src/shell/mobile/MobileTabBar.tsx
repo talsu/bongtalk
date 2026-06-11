@@ -35,6 +35,8 @@ export function activeTabFor(pathname: string): MobileTabKey | null {
   if (pathname.startsWith('/threads')) return 'threads';
   if (pathname.startsWith('/search')) return 'search';
   if (pathname.startsWith('/you')) return 'you';
+  // 071-M3 F3: 저장함은 '나' 탭의 드릴다운 화면 — 활성 탭 유지.
+  if (pathname.startsWith('/saved')) return 'you';
   if (isChatPath(pathname)) return 'chat';
   return null;
 }

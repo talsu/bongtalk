@@ -1,8 +1,23 @@
-import { useState } from 'react';
+import { useRef, useState, type TouchEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { useChannelList } from '../../features/channels/useChannels';
-import { useUnreadSummary } from '../../features/channels/useUnread';
+// 071-M3 F4 (FR-RS-18 모바일 / 감사 B-60): 모두 읽음 + Undo — 데스크톱 UnreadsView 정본.
+import {
+  useUnreadSummary,
+  useMarkAllRead,
+  useUndoMarkAllRead,
+} from '../../features/channels/useUnread';
+import { useNotifications } from '../../stores/notification-store';
+// 071-M3 F5: 채널 롱프레스 시트(뮤트) — 뮤트 상태 표시/배지 억제 포함.
+import {
+  useMutedChannelIds,
+  useSetChannelMute,
+  useRemoveChannelMute,
+  type MuteDurationKey,
+} from '../../features/channels/useMutes';
+import { MobileChannelSheet } from './MobileChannelSheet';
+import { PANEL_EDGE_PX } from './MobilePanels';
 import { Icon, Avatar } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
 
@@ -18,6 +33,7 @@ export function MobileChannelList({
   activeChannelName,
   onPick,
   onBrowse,
+  onMenu,
 }: {
   workspace: Pick<Workspace, 'id' | 'name' | 'slug'>;
   workspaces: Pick<Workspace, 'id' | 'name' | 'slug'>[];
@@ -25,10 +41,35 @@ export function MobileChannelList({
   onPick: () => void;
   /** 071-M2 E5 (FR-IA-MOB-03): server-header 의 + 액션 — 채널 둘러보기 오픈. */
   onBrowse?: () => void;
+  /** 071-M3 F2: server-header 본체 탭 — 서버 메뉴 시트 오픈(DS 의도). */
+  onMenu?: () => void;
 }): JSX.Element {
   const { data } = useChannelList(workspace.id);
   const { data: unread } = useUnreadSummary(workspace.id);
+  const markAllMut = useMarkAllRead(workspace.id);
+  const undoMut = useUndoMarkAllRead(workspace.id);
+  const notify = useNotifications((st) => st.push);
+  // F4: UnreadsView.onMarkAll 정본 복제 — 0건 가드·8s Undo 토스트.
+  const onMarkAll = (): void => {
+    markAllMut.mutate(undefined, {
+      onSuccess: (res) => {
+        if (!res || res.channelsRead === 0) return;
+        notify({
+          variant: 'info',
+          title: '모든 채널을 읽음 처리했어요',
+          body: `${res.channelsRead}개 채널`,
+          ttlMs: 8000,
+          action: { label: '실행 취소', onClick: () => undoMut.mutate(res.snapshotId) },
+        });
+      },
+    });
+  };
   const [filter, setFilter] = useState('');
+  // F5: 뮤트 상태/뮤테이션 + 롱프레스 시트 대상.
+  const mutedIds = useMutedChannelIds();
+  const setMute = useSetChannelMute();
+  const removeMute = useRemoveChannelMute();
+  const [sheetChannel, setSheetChannel] = useState<{ id: string; name: string } | null>(null);
   const unreadByChannel = new Map<string, { count: number; mention: boolean }>();
   for (const u of unread?.channels ?? []) {
     unreadByChannel.set(u.channelId, { count: u.unreadCount, mention: u.hasMention });
@@ -44,7 +85,23 @@ export function MobileChannelList({
       {/* 071-M2 E5: DS server-header — 서버명 + 채널 탐색 액션(FR-IA-MOB-03).
           서버 메뉴 시트(초대/설정 등)는 M3 도달성에서 확장. */}
       <div className="qf-m-server-header" data-testid="mobile-server-header">
-        <span className="qf-m-server-header__name">{workspace.name}</span>
+        {onMenu ? (
+          // F2: 헤더 본체(서버명+chevron)를 버튼화 — 탭하면 서버 메뉴 시트.
+          <button
+            type="button"
+            data-testid="mobile-server-menu-trigger"
+            className="flex min-w-0 flex-1 items-center gap-[var(--s-2)] bg-transparent text-left"
+            aria-haspopup="dialog"
+            onClick={onMenu}
+          >
+            <span className="qf-m-server-header__name">{workspace.name}</span>
+            <span className="qf-m-server-header__chevron" aria-hidden>
+              <Icon name="chevron-down" size="sm" />
+            </span>
+          </button>
+        ) : (
+          <span className="qf-m-server-header__name">{workspace.name}</span>
+        )}
         {onBrowse ? (
           <button
             type="button"
@@ -81,6 +138,23 @@ export function MobileChannelList({
             DM
           </span>
         </Link>
+        <Link
+          to="/w/new"
+          onClick={onPick}
+          className="inline-flex flex-col items-center gap-1 p-1 rounded-[var(--r-md)]"
+          data-testid="mobile-rail-new-ws"
+          aria-label="워크스페이스 만들기"
+        >
+          <span className="qf-avatar qf-avatar--sm grid place-items-center bg-bg-subtle">
+            <Icon name="plus" size="sm" />
+          </span>
+          <span
+            style={{ maxWidth: 'var(--s-10)' }}
+            className="text-[length:var(--fs-11)] text-text-muted truncate"
+          >
+            추가
+          </span>
+        </Link>
         {workspaces.map((w) => (
           <Link
             key={w.id}
@@ -102,6 +176,21 @@ export function MobileChannelList({
           </Link>
         ))}
       </nav>
+
+      {/* 071-M3 F4: 채널 섹션 헤더 + 모두 읽음 액션. */}
+      <div className="qf-m-section flex items-center justify-between">
+        <div>채널</div>
+        <button
+          type="button"
+          data-testid="mobile-mark-all-read"
+          className="qf-m-section__action"
+          disabled={markAllMut.isPending}
+          aria-busy={markAllMut.isPending}
+          onClick={onMarkAll}
+        >
+          모두 읽음
+        </button>
+      </div>
 
       {/* qf-m-search filter */}
       <div className="px-[var(--s-4)] pb-[var(--s-2)]">
@@ -134,7 +223,9 @@ export function MobileChannelList({
                   name={c.name}
                   active={c.name === activeChannelName}
                   unread={unreadByChannel.get(c.id)}
+                  muted={mutedIds.has(c.id)}
                   onPick={onPick}
+                  onLongPress={() => setSheetChannel({ id: c.id, name: c.name })}
                 />
               ))}
           </ul>
@@ -157,13 +248,32 @@ export function MobileChannelList({
                   name={c.name}
                   active={c.name === activeChannelName}
                   unread={unreadByChannel.get(c.id)}
+                  muted={mutedIds.has(c.id)}
                   onPick={onPick}
+                  onLongPress={() => setSheetChannel({ id: c.id, name: c.name })}
                 />
               ))}
             </ul>
           </div>
         );
       })}
+
+      {/* F5: 채널 롱프레스 시트 — 뮤트 6종/해제. */}
+      {sheetChannel ? (
+        <MobileChannelSheet
+          channelName={sheetChannel.name}
+          muted={mutedIds.has(sheetChannel.id)}
+          onClose={() => setSheetChannel(null)}
+          onMute={(duration: MuteDurationKey) => {
+            setMute.mutate({ channelId: sheetChannel.id, duration });
+            setSheetChannel(null);
+          }}
+          onUnmute={() => {
+            removeMute.mutate(sheetChannel.id);
+            setSheetChannel(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -173,30 +283,105 @@ function ChannelRow({
   name,
   active,
   unread,
+  muted = false,
   onPick,
+  onLongPress,
 }: {
   slug: string;
   name: string;
   active: boolean;
   unread?: { count: number; mention: boolean };
+  /** F5: 활성 뮤트 — bell-off + 흐림 + 미읽음 강조/배지 억제(감사 B-12). */
+  muted?: boolean;
   onPick: () => void;
+  /** F5: 롱프레스(500ms) — 채널 옵션 시트. */
+  onLongPress?: () => void;
 }): JSX.Element {
-  const hasUnread = (unread?.count ?? 0) > 0;
+  // F5: 뮤트 채널은 미읽음 강조를 억제한다(데스크톱 showUnreadStyle 규칙).
+  const hasUnread = (unread?.count ?? 0) > 0 && !muted;
+  // ★F11 리뷰 H-3 (FR-RS-05): 멘션 배지는 뮤트를 바이패스한다 — 데스크톱 정본
+  // (sidebarRowState.deriveSidebarRowState)은 mute 가 행 스타일만 억제하고
+  // mentionBadgeCount 는 뮤트와 무관하게 유지한다. 배지 게이트를 분리.
+  const showBadge = (unread?.count ?? 0) > 0 && (!muted || unread?.mention === true);
+  // F5: 롱프레스 — Link 행이라 touchend 의 합성 click 이 내비게이션을 발화한다.
+  // 발화 시 suppress 플래그로 onClick 을 preventDefault 한다(메시지 행 div 와
+  // 다른 점). 좌 엣지 시작은 패널 제스처에 양보(PANEL_EDGE_PX).
+  const pressTimer = useRef<number | null>(null);
+  const startRef = useRef<{ x: number; y: number } | null>(null);
+  const suppressClickRef = useRef(false);
+  const clearPress = (): void => {
+    if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
+    pressTimer.current = null;
+    startRef.current = null;
+  };
+  const onTouchStart = (e: TouchEvent): void => {
+    if (!onLongPress) return;
+    // ★F11 리뷰 H-1: stale suppress 해제는 엣지 양보(early-return)보다 먼저 —
+    // 좌측 엣지에서 시작한 다음 탭이 직전 롱프레스의 suppress 에 삼켜지지 않게.
+    suppressClickRef.current = false;
+    const t = e.touches[0];
+    if (t.clientX <= PANEL_EDGE_PX) return;
+    startRef.current = { x: t.clientX, y: t.clientY };
+    pressTimer.current = window.setTimeout(() => {
+      pressTimer.current = null;
+      suppressClickRef.current = true;
+      onLongPress();
+    }, 500);
+  };
+  const onTouchMove = (e: TouchEvent): void => {
+    if (!startRef.current) return;
+    const t = e.touches[0];
+    if (
+      Math.abs(t.clientX - startRef.current.x) > 8 ||
+      Math.abs(t.clientY - startRef.current.y) > 8
+    ) {
+      clearPress();
+    }
+  };
   return (
     <li>
       <Link
         to={`/w/${slug}/${name}`}
-        onClick={onPick}
+        onClick={(e) => {
+          // 롱프레스가 발화했으면 합성 click 의 내비게이션을 막는다.
+          if (suppressClickRef.current) {
+            suppressClickRef.current = false;
+            e.preventDefault();
+            return;
+          }
+          onPick();
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={clearPress}
+        onTouchCancel={() => {
+          // ★F11 리뷰 H-1: touchcancel 뒤엔 합성 click 이 오지 않는다 — suppress
+          // 를 여기서 풀지 않으면 다음 정상 탭이 한 번 조용히 삼켜진다.
+          clearPress();
+          suppressClickRef.current = false;
+        }}
+        onContextMenu={(e) => {
+          // ★F11 리뷰 H-1: Android Chrome 은 anchor 롱프레스에 네이티브 링크
+          // 컨텍스트 메뉴를 띄운다(WebkitTouchCallout 은 iOS 전용) — 뮤트 시트와
+          // 겹치거나 시트 자체를 막으므로 차단한다.
+          if (onLongPress) e.preventDefault();
+        }}
+        style={{ WebkitTouchCallout: 'none' } as React.CSSProperties}
         aria-selected={active || undefined}
         data-testid={`mobile-channel-${name}`}
-        className={cn('qf-m-row', hasUnread && !active && 'qf-m-row--unread')}
+        data-muted={muted ? 'true' : undefined}
+        className={cn(
+          'qf-m-row',
+          hasUnread && !active && 'qf-m-row--unread',
+          muted && 'text-text-muted',
+        )}
       >
-        <Icon name="hash" size="sm" className="text-text-muted" />
+        <Icon name={muted ? 'bell-off' : 'hash'} size="sm" className="text-text-muted" />
         <div className="min-w-0 flex-1">
           <div className="qf-m-row__primary">{name}</div>
         </div>
         <div className="qf-m-row__aside">
-          {hasUnread ? (
+          {showBadge ? (
             // 071-M2 E5 (감사 B-43): 뱃지 의미 분리 — 멘션은 danger 토큰 배경
             // (--badge-mention-bg), 일반 미읽음은 기본 count 뱃지(violet).
             <span

@@ -109,7 +109,8 @@ function DropLine(): JSX.Element {
 // a11y BLOCKER-4: 시각상 그룹 헤더("채널 뮤트")가 항목과 분리돼 SR 이 맥락을
 // 잃으므로, 각 항목에 "뮤트 N" 형태의 ariaLabel 을 부여해 항목 단독으로도
 // 의미가 통하게 한다(무기한은 "무기한 뮤트").
-const MUTE_DURATIONS: ReadonlyArray<{
+// 071-M3 F5: 모바일 채널 시트가 동일 선택지를 재사용한다(export — 단일 출처).
+export const MUTE_DURATIONS: ReadonlyArray<{
   key: MuteDurationKey;
   label: string;
   ariaLabel: string;

@@ -91,7 +91,9 @@ export const EmojiNodeSchema = z.object({
   type: z.literal('emoji'),
   /** :name: slug (유니코드/커스텀 공통). 커스텀이면 customId 동반. */
   name: z.string().min(1).max(64),
-  customId: Cuid2Schema.nullable().default(null),
+  // 071-M3 F10 (M1 이월): CustomEmoji.id 도 @db.Uuid — 멘션 ID 와 동일한
+  // uuid|cuid2 transitional(dormant 계약 정합 — 현 파서는 EmojiNode 미생산).
+  customId: MentionIdSchema.nullable().default(null),
 });
 export type EmojiNode = z.infer<typeof EmojiNodeSchema>;
 

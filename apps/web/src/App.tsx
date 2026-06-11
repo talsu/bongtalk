@@ -169,6 +169,10 @@ const MobileSearchTab = lazy(() =>
 const MobileYouTab = lazy(() =>
   import('./shell/mobile/MobileYouTab').then((m) => ({ default: m.MobileYouTab })),
 );
+// 071-M3 F3: 저장함 풀스크린('나' 탭 드릴다운).
+const MobileSavedScreen = lazy(() =>
+  import('./shell/mobile/MobileSavedScreen').then((m) => ({ default: m.MobileSavedScreen })),
+);
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { retry: 1, staleTime: 10_000 } },
@@ -284,7 +288,11 @@ function ProtectedMyProfileRoute(): JSX.Element {
 
 // 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 라우트 가드 — 스레드/검색/나.
 // 데스크톱 동등 surface 는 셸 내부에 있으므로 비모바일은 '/' 로 폴백한다.
-function ProtectedMobileTabRoute({ tab }: { tab: 'threads' | 'search' | 'you' }): JSX.Element {
+function ProtectedMobileTabRoute({
+  tab,
+}: {
+  tab: 'threads' | 'search' | 'you' | 'saved';
+}): JSX.Element {
   const { status } = useAuth();
   const isMobile = useIsMobile();
   if (status === 'loading') return <LoadingFallback />;
@@ -296,6 +304,8 @@ function ProtectedMobileTabRoute({ tab }: { tab: 'threads' | 'search' | 'you' })
         <MobileThreadsTab />
       ) : tab === 'search' ? (
         <MobileSearchTab />
+      ) : tab === 'saved' ? (
+        <MobileSavedScreen />
       ) : (
         <MobileYouTab />
       )}
@@ -556,6 +566,7 @@ export default function App(): JSX.Element {
                         />
                         <Route path="/search" element={<ProtectedMobileTabRoute tab="search" />} />
                         <Route path="/you" element={<ProtectedMobileTabRoute tab="you" />} />
+                        <Route path="/saved" element={<ProtectedMobileTabRoute tab="saved" />} />
                         {/* task-047 iter4 (M3): profile page */}
                         <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
                         <Route path="/dm" element={<ProtectedDmShellRoute />} />

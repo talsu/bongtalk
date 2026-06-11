@@ -13,6 +13,7 @@ import {
   Cuid2Schema,
 } from './mrkdwn';
 import { ErrorCodeSchema } from './index';
+import { EmojiNodeSchema } from './mrkdwn-ast';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -116,6 +117,17 @@ describe('channel / role / emoji regexes', () => {
     expect(
       new RegExp(MENTION_CHANNEL_RE.source).exec('<#3f2504e0-4f89-41d3-9a0c-0305e82c3301>')?.[1],
     ).toBe('3f2504e0-4f89-41d3-9a0c-0305e82c3301');
+  });
+
+  // 071-M3 F10: emoji customId 도 uuid 수용(CustomEmoji.id = @db.Uuid).
+  it('EmojiNodeSchema accepts a uuid customId', () => {
+    expect(() =>
+      EmojiNodeSchema.parse({
+        type: 'emoji',
+        name: 'party',
+        customId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      }),
+    ).not.toThrow();
   });
 
   it('MENTION_USER_RE still rejects malformed uuid-ish garbage (hyphen positions enforced)', () => {
