@@ -82,6 +82,10 @@ export function MemberProfilePanel({
       id="member-profile-panel"
       aria-label="멤버 프로필"
       data-testid="member-profile-panel"
+      // 071-M5 H4 (감사 A-30): 모바일 풀스크린 변형은 모달 시맨틱(role=dialog +
+      // aria-modal)을 노출한다 — 데스크톱은 비모달 complementary aside 그대로(불변).
+      role={mobile ? 'dialog' : undefined}
+      aria-modal={mobile ? true : undefined}
       // F16 (ui-designer MED · FR-PS-08): `.qf-thread-panel` 은 420px 골격이지만
       // 프로필 패널 명세 폭은 280px. DS 4파일은 수정 금지이므로 앱 레이어에서
       // page-scoped width 로만 좁힌다(DS 토큰/클래스 무수정). flexBasis 까지 좁혀야

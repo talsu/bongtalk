@@ -109,7 +109,15 @@ export function VerifyEmailLanding(): JSX.Element {
         className="w-full max-w-md p-[var(--s-9)] text-center"
         style={CARD_STYLE}
       >
-        <BrandMark variant="wordmark" size={28} className="mb-[var(--s-6)]" />
+        {/* 071-M5 H14 (감사 H-11 ④wordmark): wordmark SVG 절대좌표 분할 <text> 가 <img>
+            서빙 시 웹폰트 미로드 폴백 메트릭으로 겹쳐 보이는 결함 — EmailVerificationGate 와
+            동일하게 심볼 + 페이지 폰트 텍스트 lockup 으로 교체(원인 진단은 그쪽 주석 참조). */}
+        <div className="mb-[var(--s-6)] flex items-center justify-center gap-[var(--s-2)]">
+          <BrandMark variant="symbol" size={28} decorative />
+          <span className="text-[var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            qufox
+          </span>
+        </div>
         {/* (A4/A5/C2) verifying·success 는 polite status, expired·invalid 는 assertive
             alert 로 감싸 전환을 자동 고지한다. */}
         <div role={isError ? 'alert' : 'status'} aria-live={isError ? 'assertive' : 'polite'}>

@@ -1,8 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { EMOJI_CATEGORIES } from '../../features/reactions/EmojiPicker';
 import { UNICODE_EMOJI_CANDIDATES } from '../../features/messages/autocomplete/emojiShortcodes';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
+import { useSheetFocusTrap } from './useSheetFocusTrap';
+import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetDragDismiss } from './useSheetDragDismiss';
 
 /**
  * 071-M1 D9 — 모바일 이모지 드로어(DS `qf-m-emoji-drawer*` 정본 골격).
@@ -30,25 +33,18 @@ export function MobileEmojiDrawer({
   // 탭: 커스텀(있을 때만) → curated 카테고리들. 'custom' | 카테고리 인덱스.
   const [tab, setTab] = useState<'custom' | number>(0);
   const searchRef = useRef<HTMLInputElement>(null);
-  const restoreRef = useRef<HTMLElement | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  // M1 리뷰 M-1: 마운트 1회 — deps 에 onClose 를 두면 부모 재렌더(인라인 콜백)마다
-  // cleanup(포커스 복귀)+재설치(복귀 대상 덮어쓰기·검색창 포커스 강탈)가 반복된다.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    restoreRef.current = document.activeElement as HTMLElement | null;
-    searchRef.current?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCloseRef.current();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      restoreRef.current?.focus?.();
-    };
-    // 마운트 1회 — onClose 는 onCloseRef 경유(위 M-1 주석).
-  }, []);
+  // 071-M5 H4 (감사 A-30): 종전 effect(검색창 포커스+Esc+복귀)를 공용 트랩으로
+  // 교체 — 이모지 그리드에서 Tab 이 배경으로 새던 순환 누락을 해소한다(M-1
+  // 마운트 1회 패턴은 훅 내장, 검색창 포커스는 initialFocus 로 유지).
+  useSheetFocusTrap(panelRef, onClose, { initialFocus: () => searchRef.current });
+  // 071-M5 H4 (M3 F1 규약): 하드웨어 back 이 화면 이탈 대신 드로어만 닫는다.
+  useSheetHistoryMarker(true, onClose);
+  // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 드로어 본문은 세로 스크롤 그리드라
+  // grab 영역 한정으로만 드래그를 받는다(본문 스크롤 충돌 회피). 닫기는 기존
+  // onClose 경로만 재사용.
+  const grabRef = useSheetDragDismiss(panelRef, onClose);
 
   const q = query.trim().toLowerCase();
   const searchResults = useMemo(() => {
@@ -87,9 +83,14 @@ export function MobileEmojiDrawer({
       aria-modal="true"
       aria-label="이모지 선택"
     >
-      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
-      <div className="qf-m-emoji-drawer absolute bottom-0 left-0 right-0 z-[var(--z-modal)]">
-        <div className="qf-m-emoji-drawer__grab" aria-hidden />
+      {/* 071-M5 H7 (정찰 ①): 등장 모션 — DS L920 주석대로 드로어는 qf-m-sheet 톤
+          확장이라 동일한 slide-up/fade 클래스를 적용한다(enter-only). */}
+      <div className="qf-m-sheet-backdrop qfa-backdrop-in absolute inset-0" onClick={onClose} />
+      <div
+        ref={panelRef}
+        className="qf-m-emoji-drawer qfa-sheet-in absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+      >
+        <div ref={grabRef} className="qf-m-emoji-drawer__grab" aria-hidden />
         <div className="qf-m-emoji-drawer__search">
           <div className="qf-m-emoji-drawer__search-field">
             <span className="qf-m-emoji-drawer__search-icon" aria-hidden>

@@ -138,27 +138,38 @@ export async function apiSendMessage(
 export async function dispatchLongPress(
   locator: ReturnType<Page['locator']>,
   holdMs = 650,
+  // 071-M5 S6 (M6 선취): 부하 시 React 리렌더가 dispatch 직후 리스너를 detach
+  // 하면 이벤트가 조용히 증발한다(반복 flake 근원). 기대 표면 셀렉터를 주면
+  // 미출현 시 1회 재디스패치한다.
+  ensureVisible?: ReturnType<Page['locator']>,
 ): Promise<void> {
-  await locator.evaluate((el) => {
-    const target = el as HTMLElement;
-    const rect = target.getBoundingClientRect();
-    const touch = new Touch({
-      identifier: 1,
-      target,
-      clientX: rect.left + rect.width / 2,
-      clientY: rect.top + rect.height / 2,
+  const fire = async (): Promise<void> => {
+    await locator.evaluate((el) => {
+      const target = el as HTMLElement;
+      const rect = target.getBoundingClientRect();
+      const touch = new Touch({
+        identifier: 1,
+        target,
+        clientX: rect.left + rect.width / 2,
+        clientY: rect.top + rect.height / 2,
+      });
+      target.dispatchEvent(
+        new TouchEvent('touchstart', {
+          touches: [touch],
+          targetTouches: [touch],
+          changedTouches: [touch],
+          bubbles: true,
+          cancelable: true,
+        }),
+      );
     });
-    target.dispatchEvent(
-      new TouchEvent('touchstart', {
-        touches: [touch],
-        targetTouches: [touch],
-        changedTouches: [touch],
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
-  });
-  await locator.page().waitForTimeout(holdMs);
+    await locator.page().waitForTimeout(holdMs);
+  };
+  await fire();
+  if (ensureVisible) {
+    if (await ensureVisible.count()) return;
+    await fire();
+  }
 }
 
 export async function loginUI(page: Page, email: string, expectedSlug: string): Promise<void> {

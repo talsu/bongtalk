@@ -2,6 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import type { MessageDto } from '@qufox/shared-types';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
+import { useSheetFocusTrap } from './useSheetFocusTrap';
+import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetDragDismiss } from './useSheetDragDismiss';
+// 071-M5 H12 (정찰 ⑤clock24h): 시각 헤더 12/24시간제 반영 — 데스크톱 MessageItem
+// 과 동일한 스토어 구독 + 공유 포맷터 재사용.
+import { useClock24h } from '../../stores/appearance-store';
+import { formatClockPart } from '../../features/messages/formatMessageTime';
 
 /**
  * Bottom sheet surfaced by long-press / swipe on a message row.
@@ -86,7 +93,8 @@ export function MobileMessageSheet({
   onEditHistory?: () => void;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
-  const restoreRef = useRef<HTMLElement | null>(null);
+  // 071-M5 H12: 시각 헤더의 12/24시간제 설정 구독.
+  const clock24h = useClock24h();
   // D9: 삭제 2-step — armed 면 카피가 확인 문구로 바뀌고, 창 안의 재탭만 삭제.
   const [deleteArmed, setDeleteArmed] = useState(false);
   const armTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -97,49 +105,13 @@ export function MobileMessageSheet({
     };
   }, []);
 
-  // D9: 포커스 트랩 — 열릴 때 첫 포커서블로 이동, Tab 순환, 닫힐 때 복귀.
-  //
-  // M1 리뷰 M-1: 이 효과는 **마운트 1회**여야 한다. 종전 deps [onClose] 는 부모
-  // (MobileMessages)가 인라인 콜백을 넘겨 메시지 수신 등 재렌더마다 cleanup(포커스
-  // 복귀)+재설치(복귀 대상 덮어쓰기·첫 버튼 포커스 강탈)가 반복됐다. 최신 onClose
-  // 는 ref 로 읽는다.
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
-  useEffect(() => {
-    restoreRef.current = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const focusables = (): HTMLElement[] =>
-      Array.from(
-        panel?.querySelectorAll<HTMLElement>('button:not([disabled]), [href], [tabindex="0"]') ??
-          [],
-      );
-    focusables()[0]?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const list = focusables();
-      if (list.length === 0) return;
-      const first = list[0]!;
-      const last = list[list.length - 1]!;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || !panel?.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !panel?.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      restoreRef.current?.focus?.();
-    };
-    // 마운트 1회 — onClose 는 onCloseRef 경유(위 M-1 주석).
-  }, []);
+  // 071-M5 H3: 포커스 트랩(열림 첫 포커서블·Tab 순환·Esc·닫힘 복귀)을 공용 훅으로
+  // 치환(동작 무변경 — D9 트랩 블록이 훅의 정본이다. M1 리뷰 M-1 마운트 1회 패턴 내장).
+  useSheetFocusTrap(panelRef, onClose);
+  // 071-M5 H4 (M3 F1 규약): 하드웨어 back 이 화면 이탈 대신 시트만 닫는다.
+  useSheetHistoryMarker(true, onClose);
+  // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 임계 통과 시 기존 onClose 경로만 재사용.
+  const grabRef = useSheetDragDismiss(panelRef, onClose);
 
   const handleDeleteTap = (): void => {
     if (!deleteArmed) {
@@ -160,14 +132,15 @@ export function MobileMessageSheet({
       aria-modal="true"
       aria-label="메시지 동작"
     >
-      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
+      {/* 071-M5 H7 (정찰 ①): 등장 모션 — 백드롭 fade + 시트 slide-up(enter-only). */}
+      <div className="qf-m-sheet-backdrop qfa-backdrop-in absolute inset-0" onClick={onClose} />
       {/* H-1(071-M0 C2): 백드롭(z=--z-modal-bg=60)이 z-auto 시트를 덮어 항목 탭을
           가로채던 BLOCKER — 시트를 --z-modal(61)로 올린다. */}
       <div
         ref={panelRef}
-        className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+        className="qf-m-sheet qfa-sheet-in qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
       >
-        <div className="qf-m-sheet__grab" aria-hidden />
+        <div ref={grabRef} className="qf-m-sheet__grab" aria-hidden />
         {/* 071-M4 (FR-MSG-10/12 모바일): 시트 헤더에 전송 시각 노출 — grouped 행
             (hover HH:MM 데스크톱 전용)에서도 시각 확인 경로를 제공한다. title 은
             ISO 전체 시각(FR-MSG-12 hover tooltip 동등). */}
@@ -176,13 +149,11 @@ export function MobileMessageSheet({
           data-testid="mobile-sheet-time"
           title={new Date(msg.createdAt).toISOString()}
         >
+          {/* 071-M5 H12 (정찰 ⑤clock24h): 시각부를 공유 formatClockPart 로 교체해
+              12/24시간제 설정을 반영한다(M4 헤더의 '날짜+시각' 구성은 유지). */}
           <div>
-            {new Date(msg.createdAt).toLocaleString('ko-KR', {
-              month: 'short',
-              day: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {new Date(msg.createdAt).toLocaleString('ko-KR', { month: 'short', day: 'numeric' })}{' '}
+            {formatClockPart(new Date(msg.createdAt), clock24h)}
           </div>
         </div>
         {/* Quick reaction row — 071-M0 C12(감사 B-45): 임의 버튼(37×33)이 44px 터치

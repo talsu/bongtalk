@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { Icon } from '../../design-system/primitives';
 import { type MuteDurationKey } from '../../features/channels/useMutes';
 import { MUTE_DURATIONS } from '../../features/channels/ChannelList';
+import { useSheetFocusTrap } from './useSheetFocusTrap';
 import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetDragDismiss } from './useSheetDragDismiss';
 
 /**
  * 071-M3 F5 (FR-CH-17 모바일 / 감사 B-12·B-26) — 채널 롱프레스 시트.
@@ -31,43 +33,11 @@ export function MobileChannelSheet({
   onMarkRead: () => void;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
-  const restoreRef = useRef<HTMLElement | null>(null);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
   useSheetHistoryMarker(true, onClose);
-
-  useEffect(() => {
-    restoreRef.current = document.activeElement as HTMLElement | null;
-    const panel = panelRef.current;
-    const focusables = (): HTMLElement[] =>
-      Array.from(panel?.querySelectorAll<HTMLElement>('button:not([disabled])') ?? []);
-    focusables()[0]?.focus();
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') {
-        onCloseRef.current();
-        return;
-      }
-      if (e.key !== 'Tab') return;
-      const list = focusables();
-      if (list.length === 0) return;
-      const first = list[0]!;
-      const last = list[list.length - 1]!;
-      const active = document.activeElement;
-      if (e.shiftKey && (active === first || !panel?.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !panel?.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-    window.addEventListener('keydown', onKey);
-    return () => {
-      window.removeEventListener('keydown', onKey);
-      restoreRef.current?.focus?.();
-    };
-    // 마운트 1회 — 최신 onClose 는 onCloseRef 경유(M1 리뷰 M-1 패턴).
-  }, []);
+  // 071-M5 H3: 트랩 블록을 공용 useSheetFocusTrap 으로 치환(동작 무변경).
+  useSheetFocusTrap(panelRef, onClose);
+  // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 임계 통과 시 기존 onClose 경로만 재사용.
+  const grabRef = useSheetDragDismiss(panelRef, onClose);
 
   return (
     <div
@@ -77,12 +47,13 @@ export function MobileChannelSheet({
       aria-modal="true"
       aria-label={`#${channelName} 채널 옵션`}
     >
-      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
+      {/* 071-M5 H7 (정찰 ①): 등장 모션 — 백드롭 fade + 시트 slide-up(enter-only). */}
+      <div className="qf-m-sheet-backdrop qfa-backdrop-in absolute inset-0" onClick={onClose} />
       <div
         ref={panelRef}
-        className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+        className="qf-m-sheet qfa-sheet-in qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
       >
-        <div className="qf-m-sheet__grab" aria-hidden />
+        <div ref={grabRef} className="qf-m-sheet__grab" aria-hidden />
         <div className="qf-m-section">
           <div># {channelName}</div>
         </div>

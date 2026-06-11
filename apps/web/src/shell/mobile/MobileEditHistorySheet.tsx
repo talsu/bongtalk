@@ -1,8 +1,10 @@
-import { useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import type { MessageDto } from '@qufox/shared-types';
 import { useEditHistory } from '../../features/messages/useMessages';
 import { Icon } from '../../design-system/primitives';
+import { useSheetFocusTrap } from './useSheetFocusTrap';
 import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetDragDismiss } from './useSheetDragDismiss';
 
 /**
  * 071-M3 F6 (FR-MSG-08 모바일 / 감사 B-18) — 편집 이력 바텀시트.
@@ -23,17 +25,13 @@ export function MobileEditHistorySheet({
   onClose: () => void;
 }): JSX.Element {
   const { data, isLoading, isError } = useEditHistory(workspaceId, channelId, msg.id, true);
-  const onCloseRef = useRef(onClose);
-  onCloseRef.current = onClose;
+  const panelRef = useRef<HTMLDivElement>(null);
   useSheetHistoryMarker(true, onClose);
-
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCloseRef.current();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, []);
+  // 071-M5 H4 (감사 A-30): 종전 Esc 단독 effect 를 공용 트랩으로 교체 — 열림
+  // 자동 포커스/Tab 순환/닫힘 복귀를 함께 확보한다(Esc 동작은 훅이 흡수).
+  useSheetFocusTrap(panelRef, onClose);
+  // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 임계 통과 시 기존 onClose 경로만 재사용.
+  const grabRef = useSheetDragDismiss(panelRef, onClose);
 
   const items = data?.items ?? [];
 
@@ -45,11 +43,30 @@ export function MobileEditHistorySheet({
       aria-modal="true"
       aria-label="편집 이력"
     >
-      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onClose} />
-      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)] max-h-[70vh] overflow-y-auto">
-        <div className="qf-m-sheet__grab" aria-hidden />
-        <div className="qf-m-section">
+      {/* 071-M5 H7 (정찰 ①): 등장 모션 — 백드롭 fade + 시트 slide-up(enter-only). */}
+      <div className="qf-m-sheet-backdrop qfa-backdrop-in absolute inset-0" onClick={onClose} />
+      {/* 071-M5 H11: raw 70vh 상한 제거 — 시트는 fixed inset-0 래퍼의 absolute
+          bottom-0 직배치라 DS .qf-m-sheet(max-height:80%, flex column)가 그대로
+          상한을 잡는다. 스크롤은 컨테이너 대신 이력 목록(ul)으로 이동해 grab/
+          헤더를 고정한다(DM 새 시트와 동일 패턴). */}
+      <div
+        ref={panelRef}
+        className="qf-m-sheet qfa-sheet-in qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+      >
+        <div ref={grabRef} className="qf-m-sheet__grab" aria-hidden />
+        {/* 071-M5 H4: 이 시트는 종전 focusable 0개(키보드/스크린리더는 Esc 외 닫기
+            불가·트랩 앵커 부재) — 헤더에 가시적 닫기 버튼을 신설해 둘 다 해소. */}
+        <div className="qf-m-section flex items-center justify-between">
           <div>편집 이력</div>
+          <button
+            type="button"
+            data-testid="mobile-edit-history-close"
+            aria-label="닫기"
+            onClick={onClose}
+            className="flex min-h-[var(--m-touch)] min-w-[var(--m-touch)] items-center justify-center text-text-muted"
+          >
+            <Icon name="x" size="sm" />
+          </button>
         </div>
         {isLoading ? (
           <div className="qf-m-empty">
@@ -64,7 +81,11 @@ export function MobileEditHistorySheet({
             <div className="qf-m-empty__body">이전 버전이 없습니다.</div>
           </div>
         ) : (
-          <ul aria-label="이전 버전" data-testid="mobile-edit-history-list">
+          <ul
+            aria-label="이전 버전"
+            data-testid="mobile-edit-history-list"
+            className="min-h-0 flex-1 overflow-y-auto"
+          >
             {items.map((it) => (
               <li key={it.version} className="qf-m-row">
                 <Icon name="clock" size="sm" className="text-text-muted" />
