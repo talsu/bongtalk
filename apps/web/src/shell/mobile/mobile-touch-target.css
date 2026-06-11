@@ -32,4 +32,11 @@
   .qf-autocomplete__item {
     min-height: var(--m-touch);
   }
+
+  /* 071-M3 F4: 토스트 액션('실행 취소')과 섹션 액션('모두 읽음')의 터치 플로어. */
+  [data-testid^='toast-action-'],
+  .qf-m-section__action {
+    min-height: var(--m-touch);
+    min-width: var(--m-touch);
+  }
 }

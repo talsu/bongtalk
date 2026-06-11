@@ -3,6 +3,8 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../features/auth/AuthProvider';
 import { usePresenceStatus } from '../../features/presence/usePresenceStatus';
 import { useDndSchedule } from '../../features/presence/useDndSchedule';
+// 071-M3 F3: 저장함 진입(행 + IN_PROGRESS 카운트 배지).
+import { useSavedCount } from '../../features/saved/useSavedMessages';
 import type { PresenceStatus } from '../../features/presence/presenceStatus';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -47,6 +49,8 @@ export function MobileYouTab(): JSX.Element {
   }, [dndData, hydrate]);
 
   const username = user?.username ?? '';
+  const { data: savedCountData } = useSavedCount();
+  const savedCount = savedCountData?.count ?? 0;
 
   const pick = (next: PresenceStatus): void => {
     touchedRef.current = true; // M-3: 수동 변경 후 hydrate 가 덮지 않게.
@@ -95,6 +99,21 @@ export function MobileYouTab(): JSX.Element {
         </button>
 
         <nav aria-label="내 메뉴">
+          <button
+            type="button"
+            data-testid="mobile-you-saved"
+            className="qf-m-row w-full text-left"
+            onClick={() => navigate('/saved')}
+          >
+            <Icon name="bookmark" size="sm" className="text-text-muted" />
+            <span className="qf-m-row__primary flex-1">저장됨</span>
+            {savedCount > 0 ? (
+              <span className="qf-badge qf-badge--count" data-testid="mobile-you-saved-count">
+                {savedCount > 99 ? '99+' : savedCount}
+              </span>
+            ) : null}
+            <Icon name="chevron-right" size="sm" className="text-text-muted" />
+          </button>
           <button
             type="button"
             data-testid="mobile-you-profile"

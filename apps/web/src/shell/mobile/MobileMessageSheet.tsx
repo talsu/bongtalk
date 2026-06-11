@@ -45,6 +45,7 @@ export function MobileMessageSheet({
   onEdit,
   onOpenThread,
   onMoreReactions,
+  onEditHistory,
   onPin,
   onUnpin,
   onToggleSave,
@@ -81,6 +82,8 @@ export function MobileMessageSheet({
   onMarkUnread?: () => void;
   /** D9(FR-RM11): 타인 메시지 신고(모달은 호출측). */
   onReport?: () => void;
+  /** 071-M3 F6 (FR-MSG-08): 편집 이력 — edited 행에서만 호출측이 전달. */
+  onEditHistory?: () => void;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -286,6 +289,20 @@ export function MobileMessageSheet({
               <Icon name="pin" size="sm" />
             </span>
             <span>메시지 고정 해제</span>
+          </button>
+        ) : null}
+        {/* 071-M3 F6 (FR-MSG-08): 편집 이력 — edited 행 한정. */}
+        {onEditHistory ? (
+          <button
+            type="button"
+            data-testid="mobile-msg-edit-history"
+            onClick={onEditHistory}
+            className="qf-m-sheet__item"
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="clock" size="sm" />
+            </span>
+            <span>편집 이력</span>
           </button>
         ) : null}
         {/* D9(FR-RS-08): 이 메시지부터 다시 읽기. */}

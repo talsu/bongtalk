@@ -52,7 +52,14 @@ function formatZonedClock(timezone: string, now: Date): string | null {
   }
 }
 
-export function MemberProfilePanel({ workspaceId }: { workspaceId: string }): JSX.Element | null {
+export function MemberProfilePanel({
+  workspaceId,
+  mobile = false,
+}: {
+  workspaceId: string;
+  /** 071-M3 F8: 모바일 풀스크린 변형(ThreadPanel mobile prop 선례) — additive. */
+  mobile?: boolean;
+}): JSX.Element | null {
   const userId = useUI((s) => s.profilePanelUserId);
   const setProfilePanelUser = useUI((s) => s.setProfilePanelUser);
   const close = useCallback((): void => setProfilePanelUser(null), [setProfilePanelUser]);
@@ -79,8 +86,13 @@ export function MemberProfilePanel({ workspaceId }: { workspaceId: string }): JS
       // 프로필 패널 명세 폭은 280px. DS 4파일은 수정 금지이므로 앱 레이어에서
       // page-scoped width 로만 좁힌다(DS 토큰/클래스 무수정). flexBasis 까지 좁혀야
       // flex 슬롯에서 실제 280px 로 렌더된다.
-      style={{ width: 280, flexBasis: 280 }}
-      className="qf-thread-panel"
+      style={mobile ? undefined : { width: 280, flexBasis: 280 }}
+      className={
+        mobile
+          ? // F8: 모바일 풀스크린 — 패널 z 위에 고정, 내부 스크롤.
+            'qf-thread-panel fixed inset-0 z-[var(--z-modal,60)] !w-full overflow-y-auto'
+          : 'qf-thread-panel'
+      }
     >
       {/*
         F8 (a11y H-3): 패널 마운트 시 스크린리더에 1줄 알림. sr-only aria-live

@@ -1,7 +1,8 @@
 import { useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useMyWorkspaces } from '../../features/workspaces/useWorkspaces';
-import { useMyThreads } from '../../features/threads/useThread';
+import { useMyThreads, useMarkAllThreadsRead } from '../../features/threads/useThread';
+import { useNotifications } from '../../stores/notification-store';
 import { useChannelList } from '../../features/channels/useChannels';
 import { Icon } from '../../design-system/primitives';
 import { MobileTabBar } from './MobileTabBar';
@@ -33,6 +34,10 @@ export function MobileThreadsTab(): JSX.Element {
   }, []);
   const ws = mine?.workspaces.find((w) => w.slug === lastSlug) ?? mine?.workspaces[0] ?? null;
   const { data, isLoading } = useMyThreads(!!ws);
+  // 071-M3 F4 (FR-TH-10 모바일): 모두 읽음 — Undo 는 서버 스냅샷 부재로 데스크톱
+  // parity(토스트만). cross-workspace 뮤테이션이라 카운트가 화면 항목 수보다 클 수 있다.
+  const markAllMut = useMarkAllThreadsRead();
+  const notify = useNotifications((st) => st.push);
   const { data: channelData } = useChannelList(ws?.id);
 
   const channelNameById = useMemo(() => {
@@ -52,6 +57,28 @@ export function MobileThreadsTab(): JSX.Element {
         <div className="qf-m-topbar__titleBlock">
           <div className="qf-m-topbar__title">스레드</div>
           <div className="qf-m-topbar__subtitle">{ws?.name ?? ''}</div>
+        </div>
+        <div className="qf-m-topbar__actions">
+          <button
+            type="button"
+            data-testid="mobile-threads-mark-all-read"
+            className="qf-m-section__action"
+            disabled={markAllMut.isPending}
+            aria-busy={markAllMut.isPending}
+            onClick={() =>
+              markAllMut.mutate(undefined, {
+                onSuccess: (res) =>
+                  notify({
+                    variant: 'info',
+                    title: '스레드를 모두 읽음 처리했어요',
+                    body: `${(res as { updated?: number })?.updated ?? 0}개 스레드`,
+                    ttlMs: 4000,
+                  }),
+              })
+            }
+          >
+            모두 읽음
+          </button>
         </div>
       </header>
       <main className="qf-m-body flex min-h-0 flex-col overflow-y-auto">
