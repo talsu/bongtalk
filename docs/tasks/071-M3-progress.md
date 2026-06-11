@@ -30,20 +30,20 @@
 
 ## 청크 상태 (UNDERSTAND 워크플로우 12-agent 정찰 + 완전성 비평 반영)
 
-| 청크 | 내용                                                                                                                                                                                              | 상태 | 커밋 |
-| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ---- |
-| F1   | 기반: /w/:slug/settings 라우팅 분기(+lastChannel effect 가드 한 커밋)+MobileWorkspaceSettings 드릴다운+공용 시트 back 마커 훅+MobilePanels inert+api.ts retryAfter 전달+용도별 권한 게이트 분리   | todo |      |
-| F2   | 서버 메뉴 시트(MobileServerMenuSheet): 멤버/둘러보기/채널·카테고리 생성/초대 생성·관리/디렉터리/설정/나가기 — CreateChannelModal·CreateInviteModal·InviteManagerPanel·MemberDirectoryPanel 재사용 | todo |      |
-| F3   | 저장함('나' 탭 행+/saved 라우트+SavedView 재사용)+핀 목록(topbar 핀 버튼+MobilePinList+?msg= 점프)                                                                                                | todo |      |
-| F4   | '모두 읽음'+Undo(좌패널 섹션 액션, useMarkAllRead 복제)+스레드 탭 모두 읽음+touch-target 보강                                                                                                     | todo |      |
-| F5   | 채널 롱프레스 시트(MobileChannelSheet): 뮤트 6종/해제+알림 설정, Link click suppress, useMutedChannelIds 행 표시/배지 억제                                                                        | todo |      |
-| F6   | 편집 이력(EditHistoryBody 추출+시트)+슬로우모드 쿨다운(useSlowmodeCooldown 공유 훅+컴포저 표시)                                                                                                   | todo |      |
-| F7   | 상태 화면: 빈 채널 CTA+history.isError 분기(errorCode 기준 403/404/재시도)+워크스페이스 생성 모바일                                                                                               | todo |      |
-| F8   | 멤버 우패널 업그레이드(useMemberGroups — hoist+4버킷·B-119 idle·B-109 역할 한글화)+풀 프로필 시트(ProfileBody 추출)+모더레이션 액션                                                               | todo |      |
-| F9   | 신고 큐/감사 로그: MobileWorkspaceSettings 행 → ReportQueuePanel/AuditLogPanel 재사용                                                                                                             | todo |      |
-| F10  | (api) 멘션 백필 BullMQ 1회성 잡(raw SQL 배치·백업·멱등)+emoji customId uuid 확장(shared-types 범프)                                                                                               | todo |      |
-| F11  | 게이트: e2e(dm-chat 포팅·스레드/검색 풀체인·로그아웃·신규 표면)+standalone verify+적대 리뷰 fix-forward                                                                                           | todo |      |
-| F12  | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT                                                                                                                                        | todo |      |
+| 청크 | 내용                                                                                                                                                                                              | 상태 | 커밋    |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ---- | ------- |
+| F1   | 기반: /w/:slug/settings 라우팅 분기(+lastChannel effect 가드 한 커밋)+MobileWorkspaceSettings 드릴다운+공용 시트 back 마커 훅+MobilePanels inert+api.ts retryAfter 전달+용도별 권한 게이트 분리   | done | 32d1c1a |
+| F2   | 서버 메뉴 시트(MobileServerMenuSheet): 멤버/둘러보기/채널·카테고리 생성/초대 생성·관리/디렉터리/설정/나가기 — CreateChannelModal·CreateInviteModal·InviteManagerPanel·MemberDirectoryPanel 재사용 | done | 6d56a06 |
+| F3   | 저장함('나' 탭 행+/saved 라우트+SavedView 재사용)+핀 목록(topbar 핀 버튼+MobilePinList+?msg= 점프)                                                                                                | done | dcbbb13 |
+| F4   | '모두 읽음'+Undo(좌패널 섹션 액션, useMarkAllRead 복제)+스레드 탭 모두 읽음+touch-target 보강                                                                                                     | done | b8e4964 |
+| F5   | 채널 롱프레스 시트(MobileChannelSheet): 뮤트 6종/해제+알림 설정, Link click suppress, useMutedChannelIds 행 표시/배지 억제                                                                        | done | 01293b1 |
+| F6   | 편집 이력(EditHistoryBody 추출+시트)+슬로우모드 쿨다운(useSlowmodeCooldown 공유 훅+컴포저 표시)                                                                                                   | done | 043abf6 |
+| F7   | 상태 화면: 빈 채널 CTA+history.isError 분기(errorCode 기준 403/404/재시도)+워크스페이스 생성 모바일                                                                                               | done | 76837a5 |
+| F8   | 멤버 우패널 업그레이드(useMemberGroups — hoist+4버킷·B-119 idle·B-109 역할 한글화)+풀 프로필 시트(ProfileBody 추출)+모더레이션 액션                                                               | done | f890f9e |
+| F9   | 신고 큐/감사 로그: MobileWorkspaceSettings 행 → ReportQueuePanel/AuditLogPanel 재사용                                                                                                             | done | F1 흡수 |
+| F10  | (api) 멘션 백필 BullMQ 1회성 잡(raw SQL 배치·백업·멱등)+emoji customId uuid 확장(shared-types 범프)                                                                                               | done | 1737b55 |
+| F11  | 게이트: e2e(dm-chat 포팅·스레드/검색 풀체인·로그아웃·신규 표면)+standalone verify+적대 리뷰 fix-forward                                                                                           | todo |         |
+| F12  | develop 머지(ls-remote)→main 승격→수동 배포→/readyz→REPORT                                                                                                                                        | todo |         |
 
 ## 정찰 핵심(충돌 조율 — CRITIC 반영)
 
@@ -88,10 +88,35 @@
   버튼 겹침 — 섹션 헤더로 해소(오버레이에 콘텐츠 넣을 땐 상단 여백/헤더 필수).
 - F4 완료(b8e4964) — 채널 모두읽음+Undo(배지 복원 실측), 스레드 모두읽음, 토스트/
   섹션 액션 44px.
-- F5 완료 — MobileChannelSheet(뮤트 6종/해제), ChannelRow 롱프레스(Link 합성 click
-  suppress + PANEL_EDGE_PX 양보), data-muted + bell-off + 미읽음 강조/배지 억제.
+- F5 완료(01293b1) — MobileChannelSheet(뮤트 6종/해제), ChannelRow 롱프레스(Link 합성
+  click suppress + PANEL_EDGE_PX 양보), data-muted + bell-off + 미읽음 강조/배지 억제.
   MUTE_DURATIONS 는 ChannelList 에서 export(단일 출처). ★MobilePanels onPop 에 계층
   가드 추가(패널 위 시트 마커 pop 시 패널 유지 — qfPanel 최상단 검사).
+- F6 완료(043abf6) — MobileEditHistorySheet(useEditHistory·contentPlain 리스트,
+  MobileMessageSheet 항목 배선), useSlowmodeCooldown 공유 훅(features/messages —
+  데스크톱 후속 채택 무료) + MobileComposer 표시/전송 차단(canManage 면 0),
+  useMessages buildSendFailureToastBody 에 CHANNEL_SLOWMODE_ACTIVE 잔여초 분기.
+  프로브: 시트 오픈/이력 행/슬로우모드 카운트다운 green.
+- F7 완료(76837a5) — 빈 채널 CreatorEmptyStateCta(OWNER 한정)/history.isError
+  errorCode 분기(403 권한·404/410 부재·기타 재시도 버튼), 레일 워크스페이스
+  추가(/w/new) 슬롯. 프로브: 빈 채널 CTA·403 화면 green.
+- F8 완료(f890f9e) — MobileMembers 전면 재작성: useMemberGroups(hoist+groups 서버
+  정본·4버킷), ROLE_LABEL 한글화, hoist 색점(--sz-status-dot 토큰),
+  MemberProfilePanel mobile prop(additive 풀스크린 변형) + 모더레이션 액션(서버
+  정본 게이트). 프로브: 그룹 헤더/프로필 풀스크린/모더레이션 노출 green.
+- F9 — 별도 작업 없음: F1 의 WorkspaceSettingsOverlayHost 직마운트가 신고 큐/감사
+  로그 탭을 내장(F1 프로브에서 ReportQueuePanel green 확인).
+- F10 완료(1737b55) — MentionBackfillProcessor(BullMQ 1회성: onModuleInit 고정
+  jobId+Redis 완료 마커 `qufox:backfill:mention-uuid-071:done`), prefilter
+  `"contentAst"::text ~ '(@\{|<#)uuid(\}|>)'`(자연 멱등), $transaction(백업
+  ON CONFLICT DO NOTHING → UPDATE contentAst/contentPlain — updatedAt/version
+  불변), 마이그레이션 20260636000000(MentionBackfillBackup·되돌림 SQL 주석).
+  shared-types 0.1.3: emoji customId → MentionIdSchema(uuid|cuid2) nullable.
+  테스트 스택 실증: 백업 3행·평문 토큰 잔존 0·mention_user+label 재파싱·Redis
+  마커 확인(첫 시도 42P01 는 attempts 3 재시도가 흡수 — migrate 후라 prod 첫
+  시도 성공 예상). ★migrate 는 재빌드 후 실행(구 이미지에 새 마이그레이션 없음).
+- 잔여: F11 게이트(e2e 신규 표면 spec + dm-chat 포팅 + 전체 모바일 스위트 +
+  standalone verify + 적대 리뷰 fix-forward) → F12 머지·배포·REPORT.
 
 ## 세션 핸드오프 노트
 
