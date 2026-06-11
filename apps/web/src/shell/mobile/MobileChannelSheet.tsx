@@ -9,20 +9,26 @@ import { useSheetHistoryMarker } from './useSheetHistoryMarker';
  *
  * 좌패널 채널 행 롱프레스로 연다. 데스크톱 ChannelList 컨텍스트 메뉴의 뮤트
  * 항목 구성을 시트로 이식: 비뮤트 시 duration 6종(15분~무기한), 뮤트 시 해제.
+ * 071-M4 (FR-RS-09): '읽음으로 표시' 추가 — 데스크톱 우클릭 메뉴와 동등 경로.
  * 채널 push 알림 설정(레벨 라디오)은 전 플랫폼 신규 표면이라 보류(M4+).
  */
 export function MobileChannelSheet({
   channelName,
   muted,
+  hasUnread,
   onClose,
   onMute,
   onUnmute,
+  onMarkRead,
 }: {
   channelName: string;
   muted: boolean;
+  /** FR-RS-09: 미읽음이 있을 때만 '읽음으로 표시' 노출(0건 no-op 숨김). */
+  hasUnread: boolean;
   onClose: () => void;
   onMute: (duration: MuteDurationKey) => void;
   onUnmute: () => void;
+  onMarkRead: () => void;
 }): JSX.Element {
   const panelRef = useRef<HTMLDivElement>(null);
   const restoreRef = useRef<HTMLElement | null>(null);
@@ -80,6 +86,19 @@ export function MobileChannelSheet({
         <div className="qf-m-section">
           <div># {channelName}</div>
         </div>
+        {hasUnread ? (
+          <button
+            type="button"
+            data-testid="mobile-channel-mark-read"
+            className="qf-m-sheet__item"
+            onClick={onMarkRead}
+          >
+            <span className="qf-m-sheet__icon">
+              <Icon name="check" size="sm" />
+            </span>
+            <span>읽음으로 표시</span>
+          </button>
+        ) : null}
         {muted ? (
           <button
             type="button"

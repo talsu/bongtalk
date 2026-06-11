@@ -47,6 +47,11 @@ test('sheet on another member message exposes extended actions and opens report 
   const sheet = page.locator('[data-testid^="mobile-msg-sheet-"]').first();
   await expect(sheet).toBeVisible();
 
+  // M4 (FR-MSG-10/12): 시트 헤더 전송 시각 — grouped 행 hover 시각의 모바일 동등.
+  // testid 는 mobile-msg-sheet- prefix 선택자(시트 루트 매칭)와 충돌하지 않게 별도.
+  await expect(page.getByTestId('mobile-sheet-time')).toBeVisible();
+  await expect(page.getByTestId('mobile-sheet-time')).toHaveAttribute('title', /T.*Z$/);
+
   for (const id of [
     'mobile-msg-save',
     'mobile-msg-reminder',

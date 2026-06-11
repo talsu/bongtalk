@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useMyWorkspaces } from '../../features/workspaces/useWorkspaces';
 import { useSearch } from '../../features/search/useSearch';
+// 071-M4 (FR-S13 게이트 정렬): 종전 로컬 2자 게이트는 공유 게이트(3자 또는 수식어)와
+// 어긋나 2자 쿼리가 '검색 중…' 후 무결과처럼 보이는 거짓 UX 였다 — 단일 출처로 정렬.
+import { isSearchQueryAllowed, MIN_FREE_TEXT_LENGTH } from '../../features/search/searchQueryGate';
 import { markOnlyHtml } from '../../features/search/sanitize';
 import { Icon } from '../../design-system/primitives';
 import { MobileTabBar } from './MobileTabBar';
@@ -30,20 +33,27 @@ export function MobileSearchTab(): JSX.Element {
   const ws = mine?.workspaces.find((w) => w.slug === lastSlug) ?? mine?.workspaces[0] ?? null;
 
   // 071-M2 E6 (FR-SC-08): /search 슬래시 커맨드의 키워드 pre-fill(?q=).
-  const [sp] = useSearchParams();
+  const [sp, setSp] = useSearchParams();
   const initialQ = sp.get('q') ?? '';
   const [input, setInput] = useState(initialQ);
   const [q, setQ] = useState(initialQ);
   // 300ms 디바운스 — 데스크톱 결과 패널과 동일한 요청 절제.
+  // 071-M4 (FR-S07 복귀 AC): 확정 쿼리를 ?q= 에 동기화해 Jump 후 브라우저 back
+  // 으로 복귀했을 때 검색어/결과가 복원되게 한다(종전엔 state 전용이라 소실).
   useEffect(() => {
-    const t = window.setTimeout(() => setQ(input.trim()), 300);
+    const t = window.setTimeout(() => {
+      const next = input.trim();
+      setQ(next);
+      setSp(next ? { q: next } : {}, { replace: true });
+    }, 300);
     return () => window.clearTimeout(t);
-  }, [input]);
+  }, [input, setSp]);
 
-  const { data, isFetching } = useSearch({
+  const allowed = isSearchQueryAllowed(q);
+  const { data, isFetching, fetchNextPage, hasNextPage, isFetchingNextPage } = useSearch({
     workspaceId: ws?.id ?? '',
     q,
-    enabled: !!ws && q.length >= 2,
+    enabled: !!ws && allowed,
   });
   // useSearch 는 무한 쿼리(페이지당 20) — 첫 페이지부터 평탄화해 렌더.
   const results = data?.pages.flatMap((p) => p.results) ?? [];
@@ -65,16 +75,18 @@ export function MobileSearchTab(): JSX.Element {
             type="search"
             data-testid="mobile-search-input"
             className="qf-m-search__input"
-            placeholder="메시지 검색 (2자 이상)"
+            placeholder={`메시지 검색 (${MIN_FREE_TEXT_LENGTH}자 이상 또는 수식어)`}
             aria-label="메시지 검색"
             value={input}
             onChange={(e) => setInput(e.target.value)}
           />
         </div>
-        {q.length < 2 ? (
+        {!allowed ? (
           <div className="qf-m-empty flex-1">
             <div className="qf-m-empty__title">메시지를 검색하세요</div>
-            <div className="qf-m-empty__body">검색어를 2자 이상 입력하면 결과가 표시됩니다.</div>
+            <div className="qf-m-empty__body">
+              검색어를 {MIN_FREE_TEXT_LENGTH}자 이상 입력하거나 수식어를 쓰면 결과가 표시됩니다.
+            </div>
           </div>
         ) : isFetching && results.length === 0 ? (
           <div className="qf-m-empty">
@@ -83,7 +95,10 @@ export function MobileSearchTab(): JSX.Element {
         ) : results.length === 0 ? (
           <div className="qf-m-empty flex-1">
             <div className="qf-m-empty__title">결과가 없습니다</div>
-            <div className="qf-m-empty__body">다른 검색어로 시도해 보세요.</div>
+            {/* 071-M4 (FR-S14): 수식어 힌트 + 구체 예시 — 데스크톱 빈 상태와 동급. */}
+            <div className="qf-m-empty__body">
+              수식어로 좁혀보세요. 예: from:@alice in:#general 배포
+            </div>
           </div>
         ) : (
           <ul aria-label="검색 결과" data-testid="mobile-search-results">
@@ -118,6 +133,20 @@ export function MobileSearchTab(): JSX.Element {
                 </button>
               </li>
             ))}
+            {/* 071-M4 (FR-S09): 페이지네이션 트리거 — 종전엔 첫 페이지(20건)만 도달 가능. */}
+            {hasNextPage ? (
+              <li>
+                <button
+                  type="button"
+                  data-testid="mobile-search-more"
+                  className="qf-m-row w-full justify-center text-text-muted"
+                  disabled={isFetchingNextPage}
+                  onClick={() => void fetchNextPage()}
+                >
+                  {isFetchingNextPage ? '불러오는 중…' : '더 보기'}
+                </button>
+              </li>
+            ) : null}
           </ul>
         )}
       </main>

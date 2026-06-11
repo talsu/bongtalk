@@ -7,6 +7,8 @@ import {
   useUnreadSummary,
   useMarkAllRead,
   useUndoMarkAllRead,
+  // 071-M4 (FR-RS-09): 채널 단위 '읽음으로 표시' — 데스크톱 우클릭 메뉴 동등.
+  useMarkChannelRead,
 } from '../../features/channels/useUnread';
 import { useNotifications } from '../../stores/notification-store';
 // 071-M3 F5: 채널 롱프레스 시트(뮤트) — 뮤트 상태 표시/배지 억제 포함.
@@ -48,6 +50,7 @@ export function MobileChannelList({
   const { data: unread } = useUnreadSummary(workspace.id);
   const markAllMut = useMarkAllRead(workspace.id);
   const undoMut = useUndoMarkAllRead(workspace.id);
+  const markOneRead = useMarkChannelRead(workspace.id);
   const notify = useNotifications((st) => st.push);
   // F4: UnreadsView.onMarkAll 정본 복제 — 0건 가드·8s Undo 토스트.
   const onMarkAll = (): void => {
@@ -258,11 +261,12 @@ export function MobileChannelList({
         );
       })}
 
-      {/* F5: 채널 롱프레스 시트 — 뮤트 6종/해제. */}
+      {/* F5: 채널 롱프레스 시트 — 뮤트 6종/해제 + M4 '읽음으로 표시'(FR-RS-09). */}
       {sheetChannel ? (
         <MobileChannelSheet
           channelName={sheetChannel.name}
           muted={mutedIds.has(sheetChannel.id)}
+          hasUnread={(unreadByChannel.get(sheetChannel.id)?.count ?? 0) > 0}
           onClose={() => setSheetChannel(null)}
           onMute={(duration: MuteDurationKey) => {
             setMute.mutate({ channelId: sheetChannel.id, duration });
@@ -270,6 +274,10 @@ export function MobileChannelList({
           }}
           onUnmute={() => {
             removeMute.mutate(sheetChannel.id);
+            setSheetChannel(null);
+          }}
+          onMarkRead={() => {
+            markOneRead.mutate(sheetChannel.id);
             setSheetChannel(null);
           }}
         />

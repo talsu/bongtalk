@@ -1,4 +1,5 @@
 fr_id,domain,priority,slice_id,status
+# status 정의(071-M4): done = 데스크톱+모바일(≤767px) 양 플랫폼 AC 충족 / partial = 단일 플랫폼 또는 일부 AC 만 충족 / deferred = 의도적 OUT(P2)
 FR-MSG-23,D01-messaging,P0,S00,done
 FR-RC22,D16-richcontent,P0,S00,done
 FR-RC23,D16-richcontent,P0,S00,done
@@ -90,7 +91,7 @@ FR-RS-14,D09-readstate,P1,S21,done
 FR-RS-16,D09-readstate,P0,S21,done
 FR-RS-17,D09-readstate,P0,S21,done
 FR-DM-15,D03-dms,P0,S90,done
-FR-RS-02,D09-readstate,P0,S22,done
+FR-RS-02,D09-readstate,P0,S22,partial
 FR-RS-04,D09-readstate,P0,S22,done
 FR-RS-05,D09-readstate,P0,S22,done
 FR-RS-15,D09-readstate,P1,S22,done
@@ -117,23 +118,23 @@ FR-P10,D08-presence-status,P1,S27,done
 FR-P11,D08-presence-status,P1,S27,done
 FR-P12,D08-presence-status,P0,S27,done
 FR-P15,D08-presence-status,P1,S27,done
-FR-P04,D08-presence-status,P0,S28,done
+FR-P04,D08-presence-status,P0,S28,partial
 FR-P05,D08-presence-status,P0,S28,done
 FR-P06,D08-presence-status,P1,S28,done
-FR-P17,D08-presence-status,P1,S28,done
+FR-P17,D08-presence-status,P1,S28,partial
 FR-S04,D07-search,P0,S29,done
 FR-S05,D07-search,P0,S29,done
-FR-S08,D07-search,P1,S29,done
+FR-S08,D07-search,P1,S29,partial
 FR-S15,D07-search,P0,S29,done
 FR-S03,D07-search,P0,S30,done
-FR-S06,D07-search,P1,S30,done
+FR-S06,D07-search,P1,S30,partial
 FR-S07,D07-search,P0,S30,done
 FR-S09,D07-search,P1,S30,done
-FR-S10,D07-search,P1,S30,done
-FR-S01,D07-search,P1,S31,done
-FR-S02,D07-search,P1,S31,done
-FR-S11,D07-search,P1,S31,done
-FR-S12,D07-search,P2,S31,done
+FR-S10,D07-search,P0,S30,done
+FR-S01,D07-search,P1,S31,partial
+FR-S02,D07-search,P1,S31,partial
+FR-S11,D07-search,P1,S31,partial
+FR-S12,D07-search,P2,S31,partial
 FR-S13,D07-search,P1,S31,done
 FR-S14,D07-search,P1,S31,done
 FR-RT-08,D17-realtime-sync,P1,S32,done
@@ -199,7 +200,7 @@ FR-MN-06,D06-mentions-notif,P0,S46,done
 FR-MN-07,D06-mentions-notif,P0,S46,done
 FR-MN-08,D06-mentions-notif,P0,S46,done
 FR-MN-13,D06-mentions-notif,P1,S47,done
-FR-MN-14,D06-mentions-notif,P0,S47,done
+FR-MN-14,D06-mentions-notif,P0,S47,partial
 FR-MN-20,D06-mentions-notif,P0,S47,done
 FR-MN-09,D06-mentions-notif,P1,S48,done
 FR-MN-10,D06-mentions-notif,P1,S93,done
@@ -310,7 +311,7 @@ FR-PS-02,D14-profile-settings,P0,S73,done
 FR-PS-03,D14-profile-settings,P0,S73,done
 FR-PS-17,D14-profile-settings,P0,S73,done
 FR-PS-04,D14-profile-settings,P1,S74,done
-FR-PS-05,D14-profile-settings,P0,S74,done
+FR-PS-05,D14-profile-settings,P0,S74,partial
 FR-PS-06,D14-profile-settings,P1,S74,done
 FR-PS-07,D14-profile-settings,P0,S75,done
 FR-PS-08,D14-profile-settings,P1,S75,done
