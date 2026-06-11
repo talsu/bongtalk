@@ -184,7 +184,8 @@ function LoadingFallback(): JSX.Element {
       data-testid="app-loading"
       className="grid h-full place-items-center text-sm text-text-muted"
     >
-      loading…
+      {/* 071-M5 H9 (감사 H-11/A-51): i18n 영문 잔재 — 기존 한국어 선례(ActivityPage 등)와 통일. */}
+      불러오는 중…
     </div>
   );
 }

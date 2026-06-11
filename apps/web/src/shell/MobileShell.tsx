@@ -42,6 +42,9 @@ import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
 import './mobile/mobile-touch-target.css';
+// 071-M5 H7/H13: 시트 등장 모션(enter-only) + compact 밀도 모바일 보강 —
+// DS 무수정 앱 레이어 보조 시트(전례: 위 kb-dodge/touch-target).
+import './mobile/mobile-sheet-motion.css';
 
 /**
  * Task-024 mobile shell — qf-m-screen root, qf-m-topbar header,
@@ -209,7 +212,8 @@ export function MobileShell(): JSX.Element {
     return (
       <div data-testid="mobile-shell-loading" className="qf-m-screen qf-m-screen--app">
         <div className="qf-m-empty">
-          <div className="qf-m-empty__body">loading…</div>
+          {/* 071-M5 H9 (감사 H-11/A-51): i18n 영문 잔재 — MobileActivity 선례와 통일. */}
+          <div className="qf-m-empty__body">불러오는 중…</div>
         </div>
       </div>
     );

@@ -215,6 +215,19 @@ function MobileMemberRow({
           {/* F8 (감사 B-109): 역할 한글화. */}
           <div className="qf-m-row__secondary">{ROLE_LABEL[member.role] ?? member.role}</div>
         </div>
+        {member.mutedUntil ? (
+          // 071-M5 H17b (감사 B-76): 타임아웃 라벨 — 디렉터리(MemberDirectoryPanel) 정본
+          // 패턴(bell-off 시각 라벨 + sr-only 텍스트). mutedUntil 은 서버가 만료분
+          // (mutedUntil<=now)을 null 로 마스킹해 내려보내므로 비-null 이면 활성
+          // (MemberWithPresence 기존재 데이터 — 클라 추가 판정 불요).
+          <div
+            className="qf-m-row__aside flex items-center gap-[var(--s-1)] text-text-strong"
+            data-testid={`mobile-member-timeout-${member.user.username}`}
+          >
+            <Icon name="bell-off" size="sm" aria-hidden="true" />
+            <span className="sr-only">타임아웃 중</span>
+          </div>
+        ) : null}
         {member.role === 'OWNER' ? (
           <div className="qf-m-row__aside" aria-label="소유자">
             <Icon name="crown" size="sm" />

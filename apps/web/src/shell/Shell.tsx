@@ -114,7 +114,8 @@ function DesktopShell(): JSX.Element {
   if (isLoading) {
     return (
       <div data-testid="shell-loading" className="qf-empty h-full">
-        <div className="qf-empty__body">loading…</div>
+        {/* 071-M5 H9 (감사 H-11/A-51): i18n 영문 잔재 정리. */}
+        <div className="qf-empty__body">불러오는 중…</div>
       </div>
     );
   }

@@ -92,8 +92,10 @@ export function WorkspaceMembersModal({
                   // (h-7=--s-7, px-2=--s-2, w-auto)로만 조정한다(DS 컴포넌트 혼합/important 제거).
                   className="qf-input h-7 w-auto px-2 text-[length:var(--fs-11)]"
                 >
-                  <option value="MEMBER">MEMBER</option>
-                  <option value="ADMIN">ADMIN</option>
+                  {/* 071-M5 H9 (감사 H-11): enum 원문 노출 → 한글 라벨(value 는 enum 유지 —
+                      e2e selectOption('ADMIN') 등 value 셀렉터 무영향). */}
+                  <option value="MEMBER">멤버</option>
+                  <option value="ADMIN">관리자</option>
                 </select>
               ) : (
                 <span data-testid={`ws-role-${m.user.username}`} className="text-text-muted">

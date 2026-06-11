@@ -11,6 +11,7 @@ import { Avatar, Button, Dialog, Icon } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
 import { useBulkMemberAction, useMembersDirectory } from './useWorkspaces';
 import { MemberProfilePanel } from './MemberProfilePanel';
+import { ModerationActions } from './ModerationActions';
 import { ROLE_LABEL, STATUS_LABEL } from './memberLabels';
 
 type Props = {
@@ -343,6 +344,24 @@ export function MemberDirectoryPanel({
           title="멤버 프로필"
         >
           <MemberProfilePanel member={profile} onClose={() => setProfile(null)} />
+          {/* 071-M5 H19 (감사 B-73 잔여): Ban 진입 동선 — 데스크톱 정본은
+              WorkspaceMembersModal 의 ModerationActions(음소거/퇴장/차단)인데, 해당 모달은
+              ChannelColumn(데스크톱) 전용이라 모바일에서 Ban 도달 경로가 없었다. 디렉터리
+              일괄 액션의 서버 enum(BULK_MEMBER_ACTIONS = kick/timeout/role)에도 ban 이
+              없으므로, 프로필 다이얼로그에 정본 컴포넌트를 그대로 재사용해 멤버 단위
+              모더레이션(차단 포함)을 양 플랫폼 공통으로 노출한다(권한자, OWNER/본인 제외). */}
+          {canManage && profile.role !== 'OWNER' && profile.userId !== currentUserId ? (
+            <div
+              data-testid="directory-profile-moderation"
+              className="mt-[var(--s-3)] flex justify-end"
+            >
+              <ModerationActions
+                workspaceId={workspaceId}
+                targetUserId={profile.userId}
+                targetUsername={profile.user.username}
+              />
+            </div>
+          ) : null}
         </Dialog>
       ) : null}
 

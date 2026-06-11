@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -20,6 +20,8 @@ import {
 import { useNotifications } from '../../stores/notification-store';
 import { MobileTabBar } from './MobileTabBar';
 import { useKeyboardDodge } from '../../lib/useKeyboardDodge';
+// 071-M5 H21 (정찰 ds-dormant ⑤): 당겨서 새로고침 — 인박스/활동 표면 한정 적용.
+import { usePullToRefresh } from './usePullToRefresh';
 
 /**
  * task-026-D: mobile /activity screen — pixel-parity with
@@ -41,12 +43,16 @@ import { useKeyboardDodge } from '../../lib/useKeyboardDodge';
 export function MobileActivity(): JSX.Element {
   const [filter, setFilter] = useState<ActivityFilter>('all');
   const { data: mine } = useMyWorkspaces();
-  const { data, isLoading } = useActivityList(filter);
-  const { data: unread } = useActivityUnread();
+  const { data, isLoading, refetch: refetchList } = useActivityList(filter);
+  const { data: unread, refetch: refetchUnread } = useActivityUnread();
   const markRead = useMarkActivityRead();
   const markAll = useMarkAllActivityRead();
   const navigate = useNavigate();
   useKeyboardDodge();
+  // 071-M5 H21 (정찰 ds-dormant ⑤): 당겨서 새로고침 — 폴링 간격 사이 수동 갱신.
+  // 목록 + 미읽 카운트를 함께 refetch 해 topbar 부제와 행이 같이 신선해진다.
+  const bodyRef = useRef<HTMLElement>(null);
+  const refreshing = usePullToRefresh(bodyRef, () => Promise.all([refetchList(), refetchUnread()]));
 
   const slugById = useMemo(() => {
     const m = new Map<string, string>();
@@ -151,7 +157,18 @@ export function MobileActivity(): JSX.Element {
         </div>
       </header>
 
-      <main className="qf-m-body" data-testid="mobile-activity-body">
+      <main ref={bodyRef} className="qf-m-body" data-testid="mobile-activity-body">
+        {/* H21: refreshing 동안 DS .qf-m-ptr 스피너(dormant 클래스 채택) — 완료 시 해제. */}
+        {refreshing ? (
+          <div
+            className="qf-m-ptr"
+            role="status"
+            aria-label="새로고침 중"
+            data-testid="mobile-activity-ptr"
+          >
+            <div className="qf-m-ptr__spin" aria-hidden />
+          </div>
+        ) : null}
         <div className="qf-m-segment" data-testid="mobile-activity-segment">
           {(
             [

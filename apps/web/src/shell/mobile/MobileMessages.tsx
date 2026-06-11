@@ -49,7 +49,8 @@ import {
   type UnreadChannelSummary,
 } from '../../features/channels/useUnread';
 // 071-M1 D6: 첫 미읽 위치(count 역산)·점프 pill 판정 — 데스크톱 순수 함수 공유.
-import { computeFirstUnreadIndex } from '../../features/messages/newMessages';
+// 071-M5 H16 (감사 B-59 잔여): shouldShowJumpPill 도 데스크톱 정본을 공유한다.
+import { computeFirstUnreadIndex, shouldShowJumpPill } from '../../features/messages/newMessages';
 import { useSearchParams } from 'react-router-dom';
 import { useNotifications } from '../../stores/notification-store';
 import { useCompose } from '../../stores/compose-store';
@@ -59,7 +60,8 @@ import { renderMessageContent, extractMessageUrls } from '../../features/message
 import { AttachmentsList } from '../../features/attachments/AttachmentsList';
 import { LinkPreview } from '../../features/messages/LinkPreview';
 import { RichEmbeds } from '../../features/messages/RichEmbed';
-import { useLinkPreviewsEnabled } from '../../stores/appearance-store';
+// 071-M5 H12 (정찰 ⑤clock24h): 12/24시간제 설정 구독 — 데스크톱 MessageItem 정본 동일.
+import { useClock24h, useLinkPreviewsEnabled } from '../../stores/appearance-store';
 // 071-M1 D4(FR-AM-01): + 버튼 업로드 — 데스크톱 트레이 파이프라인(presign→PUT→complete)
 // 그대로 재사용. presign 이 워크스페이스 스코프라 DM(workspaceId=null)은 비활성.
 import { useAttachmentUpload } from '../../features/attachments/useAttachmentUpload';
@@ -116,7 +118,7 @@ import { usePresence } from '../../features/realtime/usePresence';
 // 071-M1 D1: 데스크톱과 동일한 렌더 코어를 공유한다 — 그루핑 규칙·날짜 구분선·
 // ReDoS-안전 AST 렌더러(멘션 pill/스포일러/헤딩)·점보 이모지·시스템 행·스레드 chip.
 import { isContinuation } from '../../features/messages/grouping';
-import { isSameLocalDay } from '../../features/messages/formatMessageTime';
+import { formatClockPart, isSameLocalDay } from '../../features/messages/formatMessageTime';
 import { DayDivider } from '../../features/messages/DayDivider';
 import { SystemMessage } from '../../features/messages/SystemMessage';
 import { renderAst, type MentionLookup } from '../../features/messages/renderAst';
@@ -146,6 +148,9 @@ import { cn } from '../../lib/cn';
  * message sends the bottom sheet's "reply in thread" action
  * immediately (matches Discord's swipe-to-reply).
  */
+
+/** 071-M5 H20: 더블탭 quick-react 토스트 표시 시간(ms) — DS mock 1.2s. */
+const REACT_TOAST_MS = 1200;
 export function MobileMessages({
   workspaceId,
   workspaceSlug,
@@ -260,6 +265,24 @@ export function MobileMessages({
   const [emojiDrawerMsg, setEmojiDrawerMsg] = useState<MessageDto | null>(null);
   // F6: 편집 이력 시트 대상.
   const [editHistoryMsg, setEditHistoryMsg] = useState<MessageDto | null>(null);
+  // 071-M5 H20 (정찰 ds-dormant ④): 더블탭 quick-react 토스트 — DS .qf-m-react-toast
+  // (mobile.css L584, 스프링 등장 키프레임 내장)를 1.2s 렌더 후 자동 소멸. 연속 발동
+  // 시 타이머만 연장(요소 유지 — 등장 애니메이션 재생은 최초 1회).
+  const [reactToastVisible, setReactToastVisible] = useState(false);
+  const reactToastTimerRef = useRef<number | null>(null);
+  const showReactToast = (): void => {
+    if (reactToastTimerRef.current !== null) window.clearTimeout(reactToastTimerRef.current);
+    setReactToastVisible(true);
+    reactToastTimerRef.current = window.setTimeout(() => {
+      setReactToastVisible(false);
+      reactToastTimerRef.current = null;
+    }, REACT_TOAST_MS);
+  };
+  useEffect(() => {
+    return () => {
+      if (reactToastTimerRef.current !== null) window.clearTimeout(reactToastTimerRef.current);
+    };
+  }, []);
 
   // D9(FR-PS-05): 핀 권한 — 데스크톱 MessageItem 게이트와 동일(OWNER/ADMIN 또는
   // memberCanPin 채널의 MEMBER). 권한 비트 오버라이드는 서버가 최종 판정.
@@ -315,6 +338,35 @@ export function MobileMessages({
       unreadCount: unreadSnap.unreadCount,
     });
   }, [messages, channelId, unreadSnap]);
+
+  // 071-M5 H16 (감사 B-59 잔여 · FR-RS-07): 첫 미읽 점프 pill — 데스크톱 정본
+  // shouldShowJumpPill 재사용. 모바일 리스트는 비가상화라 '구분선이 뷰포트 위로
+  // 벗어남'을 DOM 실측(getBoundingClientRect)으로 판정해 동일 인덱스 비교식의
+  // 입력으로 환산한다(구분선 위면 firstRendered=divider+1 — 판정식 단일 출처 유지).
+  // 구분선(qf-m-unread-divider)·하단 jump 버튼은 M1 D6 기해소 — pill 만 추가.
+  const [showJumpPill, setShowJumpPill] = useState(false);
+  const recomputeJumpPill = (): void => {
+    const el = scrollRef.current;
+    const divider = el?.querySelector('[data-testid="mobile-unread-divider"]');
+    if (firstUnreadIndex === null || !el || !divider) {
+      setShowJumpPill(false);
+      return;
+    }
+    const dividerAbove = divider.getBoundingClientRect().bottom <= el.getBoundingClientRect().top;
+    setShowJumpPill(
+      shouldShowJumpPill({
+        firstRenderedIndex: dividerAbove ? firstUnreadIndex + 1 : firstUnreadIndex,
+        dividerIndex: firstUnreadIndex,
+      }),
+    );
+  };
+  const recomputeJumpPillRef = useRef(recomputeJumpPill);
+  recomputeJumpPillRef.current = recomputeJumpPill;
+  useEffect(() => {
+    // 진입/로드 시 1회 판정 — 하단 앵커 useLayoutEffect 가 먼저 실행된 뒤다.
+    // 이후 갱신은 리스트 onScroll 이 담당한다.
+    recomputeJumpPillRef.current();
+  }, [firstUnreadIndex, messages.length, channelId]);
 
   // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 미읽음/멘션
   // 배지가 영구 잔존했다 — 데스크톱 MessageColumn 의 채널-open 패턴(낙관적 zero-out +
@@ -480,136 +532,199 @@ export function MobileMessages({
 
   return (
     <>
-      <div
-        ref={scrollRef}
-        data-testid="mobile-message-list"
-        className="flex-1 overflow-y-auto px-[var(--s-3)] py-[var(--s-3)] min-h-0"
-        onScroll={(e) => {
-          const el = e.currentTarget;
-          const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
-          wasAtBottomRef.current = near;
-          // D6: 하단 복귀 시 jump 배지 해제.
-          if (near) setNewWhileAway(0);
-        }}
-      >
-        {/* 071-M1 D1: 날짜 구분선 + 그루핑(--head/--cont) + 시스템 행 + 스레드 chip —
+      {/* 071-M5 H16: pill 의 absolute 기준 래퍼 — 데스크톱 MessageList 의 relative
+          래퍼와 동일 구조. 스크롤 컨테이너와 testid 는 불변(e2e 영향 없음). */}
+      <div className="relative flex min-h-0 flex-1 flex-col">
+        {showJumpPill ? (
+          <button
+            type="button"
+            data-testid="mobile-jump-to-unread"
+            // 071-M5 H16 (FR-RS-07): 데스크톱 jump-to-unread pill 과 동일 DS 토큰/카피
+            // (badge-unread-bg + text-onAccent — AA 대비, raw hex/px 없음).
+            className="absolute left-1/2 top-[var(--s-3)] z-[var(--z-sticky)] -translate-x-1/2 rounded-[var(--r-pill)] bg-[var(--badge-unread-bg)] px-[var(--s-4)] py-[var(--s-2)] text-[length:var(--fs-13)] font-medium text-[color:var(--text-onAccent)] shadow-[var(--elev-3)] focus-visible:shadow-[var(--ring-focus)] focus-visible:outline-none"
+            onClick={() => {
+              const divider = scrollRef.current?.querySelector(
+                '[data-testid="mobile-unread-divider"]',
+              );
+              divider?.scrollIntoView({ block: 'start' });
+              // 점프 후 하단 자동 스냅 방지(사용자가 위쪽 히스토리를 보는 중).
+              wasAtBottomRef.current = false;
+            }}
+          >
+            새 메시지로 이동
+          </button>
+        ) : null}
+        <div
+          ref={scrollRef}
+          data-testid="mobile-message-list"
+          className="flex-1 overflow-y-auto px-[var(--s-3)] py-[var(--s-3)] min-h-0"
+          onScroll={(e) => {
+            const el = e.currentTarget;
+            const near = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+            wasAtBottomRef.current = near;
+            // D6: 하단 복귀 시 jump 배지 해제.
+            if (near) setNewWhileAway(0);
+            // 071-M5 H16: 스크롤마다 pill 표시 재판정(구분선 가시성 기반).
+            recomputeJumpPill();
+          }}
+        >
+          {/* 071-M1 D1: 날짜 구분선 + 그루핑(--head/--cont) + 시스템 행 + 스레드 chip —
             데스크톱과 동일 순수 모듈(isContinuation/isSameLocalDay/SystemMessage)을 공유. */}
-        {/* 071-M3 F7 (감사 B-95/B-10): 에러/빈 상태 — errorCode 기준 분기. */}
-        {history.isError ? (
-          (() => {
-            const err = history.error as { errorCode?: string; status?: number } | null;
-            if (err?.errorCode === 'CHANNEL_NOT_VISIBLE' || err?.status === 403) {
+          {/* 071-M3 F7 (감사 B-95/B-10): 에러/빈 상태 — errorCode 기준 분기. */}
+          {history.isError ? (
+            (() => {
+              const err = history.error as { errorCode?: string; status?: number } | null;
+              if (err?.errorCode === 'CHANNEL_NOT_VISIBLE' || err?.status === 403) {
+                return (
+                  <div className="qf-m-empty flex-1" data-testid="mobile-channel-forbidden">
+                    <Icon name="lock" size="lg" className="text-text-muted" />
+                    <div className="qf-m-empty__title">이 채널을 볼 권한이 없습니다</div>
+                    <div className="qf-m-empty__body">관리자에게 접근 권한을 요청해 보세요.</div>
+                  </div>
+                );
+              }
               return (
-                <div className="qf-m-empty flex-1" data-testid="mobile-channel-forbidden">
-                  <Icon name="lock" size="lg" className="text-text-muted" />
-                  <div className="qf-m-empty__title">이 채널을 볼 권한이 없습니다</div>
-                  <div className="qf-m-empty__body">관리자에게 접근 권한을 요청해 보세요.</div>
+                <div className="qf-m-empty flex-1" data-testid="mobile-channel-error">
+                  <div className="qf-m-empty__title">메시지를 불러오지 못했습니다</div>
+                  <button
+                    type="button"
+                    data-testid="mobile-channel-error-retry"
+                    className="qf-btn qf-btn--ghost qf-btn--sm mt-[var(--s-3)]"
+                    onClick={() => void history.refetch()}
+                  >
+                    다시 시도
+                  </button>
+                </div>
+              );
+            })()
+          ) : !history.isLoading && messages.length === 0 ? (
+            <div className="qf-m-empty flex-1" data-testid="mobile-channel-empty">
+              {/* 071-M5 H10 (감사 H-11 DM placeholder): DM(workspaceId=null)은 channelName
+                이 상대 username 이라 '#' 채널 프리픽스가 오용 — @username 카피로 분기. */}
+              <div className="qf-m-empty__title">
+                {workspaceId === null
+                  ? `@${channelName} 님과의 대화 시작이에요`
+                  : `# ${channelName} 의 시작이에요`}
+              </div>
+              <div className="qf-m-empty__body">첫 메시지를 남겨 대화를 시작해 보세요.</div>
+              {workspaceId && viewerRole === 'OWNER' ? (
+                <CreatorEmptyStateCta workspaceId={workspaceId} isOwner />
+              ) : null}
+            </div>
+          ) : null}
+          {messages.map((m, i) => {
+            const prev = i > 0 ? messages[i - 1] : null;
+            const dayDivider =
+              !prev || !isSameLocalDay(m.createdAt, prev.createdAt) ? (
+                <DayDivider iso={m.createdAt} />
+              ) : null;
+            {
+              /* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */
+            }
+            const unreadDivider =
+              firstUnreadIndex === i ? (
+                <div className="qf-m-unread-divider" data-testid="mobile-unread-divider">
+                  <span className="qf-m-unread-divider__label">새 메시지</span>
+                  <span className="qf-m-unread-divider__pill">{unreadSnap?.unreadCount ?? ''}</span>
+                </div>
+              ) : null;
+            if (isSystemMessageType(m.type)) {
+              return (
+                <div key={m.id}>
+                  {dayDivider}
+                  {unreadDivider}
+                  <SystemMessage
+                    msg={m}
+                    onOpenThread={workspaceId ? (rootId) => setThreadRootId(rootId) : undefined}
+                  />
                 </div>
               );
             }
-            return (
-              <div className="qf-m-empty flex-1" data-testid="mobile-channel-error">
-                <div className="qf-m-empty__title">메시지를 불러오지 못했습니다</div>
-                <button
-                  type="button"
-                  data-testid="mobile-channel-error-retry"
-                  className="qf-btn qf-btn--ghost qf-btn--sm mt-[var(--s-3)]"
-                  onClick={() => void history.refetch()}
-                >
-                  다시 시도
-                </button>
-              </div>
-            );
-          })()
-        ) : !history.isLoading && messages.length === 0 ? (
-          <div className="qf-m-empty flex-1" data-testid="mobile-channel-empty">
-            <div className="qf-m-empty__title"># {channelName} 의 시작이에요</div>
-            <div className="qf-m-empty__body">첫 메시지를 남겨 대화를 시작해 보세요.</div>
-            {workspaceId && viewerRole === 'OWNER' ? (
-              <CreatorEmptyStateCta workspaceId={workspaceId} isOwner />
-            ) : null}
-          </div>
-        ) : null}
-        {messages.map((m, i) => {
-          const prev = i > 0 ? messages[i - 1] : null;
-          const dayDivider =
-            !prev || !isSameLocalDay(m.createdAt, prev.createdAt) ? (
-              <DayDivider iso={m.createdAt} />
-            ) : null;
-          {
-            /* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */
-          }
-          const unreadDivider =
-            firstUnreadIndex === i ? (
-              <div className="qf-m-unread-divider" data-testid="mobile-unread-divider">
-                <span className="qf-m-unread-divider__label">새 메시지</span>
-                <span className="qf-m-unread-divider__pill">{unreadSnap?.unreadCount ?? ''}</span>
-              </div>
-            ) : null;
-          if (isSystemMessageType(m.type)) {
+            const chipVisible =
+              workspaceId !== null &&
+              threadChipVisible(m, m.thread, true) &&
+              !m.id.startsWith('tmp-');
             return (
               <div key={m.id}>
                 {dayDivider}
                 {unreadDivider}
-                <SystemMessage
+                <MobileMessageRow
                   msg={m}
-                  onOpenThread={workspaceId ? (rootId) => setThreadRootId(rootId) : undefined}
+                  cont={isContinuation(m, prev)}
+                  isMine={m.authorId === user?.id}
+                  highlighted={highlightId === m.id}
+                  mentionsMe={astMentionsViewer(m.contentAst, user?.id)}
+                  authorName={nameById.get(m.authorId)}
+                  customEmojiByName={customEmojiByName}
+                  mentions={mentionLookup}
+                  onLongPress={() => setSheetMsg(m)}
+                  // 071-M2 E6 (M1 리뷰 M-4): 종전 replyTarget 배너는 전송에 실리지
+                  // 않는 데드엔드였다 — 스와이프 답장은 스레드 답글로 통일(디스코드
+                  // 모바일 동일). DM(workspaceId=null)은 스레드 비범위라 no-op.
+                  onSwipeReply={() => {
+                    if (!workspaceId || m.id.startsWith('tmp-')) return;
+                    previousFocusRef.current = document.activeElement as HTMLElement | null;
+                    setThreadRootId(m.parentMessageId ?? m.id);
+                  }}
+                  onToggleReaction={
+                    m.id.startsWith('tmp-')
+                      ? undefined
+                      : (emoji, byMe) =>
+                          reactMut.toggle({ messageId: m.id, emoji, currentlyByMe: byMe })
+                  }
+                  customEmojiList={customEmojiData?.items ?? []}
+                  onRetry={() => retry(m.id, m.content ?? '')}
+                  // 071-M5 H20 (정찰 ds-dormant ④ · 확정 결정): 더블탭 quick-react —
+                  // 기본 이모지 👍 고정. 이미 내가 👍 반응한 행은 no-op(더블탭이
+                  // 토글-오프로 오발동하지 않게 — 추가 전용), 기존 useToggleReaction
+                  // 뮤테이션 재사용. 낙관적(tmp-) 행은 서버 id 가 없어 비활성.
+                  onQuickReact={
+                    m.id.startsWith('tmp-')
+                      ? undefined
+                      : () => {
+                          const live = messages.find((mm) => mm.id === m.id) ?? m;
+                          if (live.reactions?.some((r) => r.emoji === '👍' && r.byMe)) return;
+                          reactMut.toggle({ messageId: m.id, emoji: '👍', currentlyByMe: false });
+                          showReactToast();
+                        }
+                  }
                 />
+                {chipVisible && m.thread ? (
+                  <button
+                    type="button"
+                    data-testid={`mobile-thread-chip-${m.id}`}
+                    className="qf-thread-chip ml-[calc(var(--m-gutter)+40px+12px)]"
+                    // 071-M5 H17a (감사 B-62): 미읽 답글 절을 aria-label 앞에 추가 —
+                    // 데스크톱 MessageItem chip 과 동일(dot 은 aria-hidden, 중복 발화 방지).
+                    aria-label={`${m.thread.hasUnread ? '안 읽은 답글 · ' : ''}${m.thread.replyCount}개 답글 보기`}
+                    onClick={() => {
+                      previousFocusRef.current = document.activeElement as HTMLElement | null;
+                      setThreadRootId(m.id);
+                    }}
+                  >
+                    {/* 071-M5 H17a (감사 B-62): per-viewer 미읽 답글 dot — 데스크톱 정본
+                      (MessageItem thread-unread-dot) 최소 파생. DS 토큰만(--accent/
+                      --r-pill/--s-3, raw hex/px 없음). 아바타·마지막 답글 시각은 생략. */}
+                    {m.thread.hasUnread ? (
+                      <span
+                        data-testid={`mobile-thread-unread-dot-${m.id}`}
+                        aria-hidden="true"
+                        className="inline-block rounded-[var(--r-pill)]"
+                        style={{
+                          width: 'var(--s-3)',
+                          height: 'var(--s-3)',
+                          background: 'var(--accent)',
+                          flexShrink: 0,
+                        }}
+                      />
+                    ) : null}
+                    <span className="qf-thread-chip__count">{m.thread.replyCount}개 답글</span>
+                  </button>
+                ) : null}
               </div>
             );
-          }
-          const chipVisible =
-            workspaceId !== null &&
-            threadChipVisible(m, m.thread, true) &&
-            !m.id.startsWith('tmp-');
-          return (
-            <div key={m.id}>
-              {dayDivider}
-              {unreadDivider}
-              <MobileMessageRow
-                msg={m}
-                cont={isContinuation(m, prev)}
-                isMine={m.authorId === user?.id}
-                highlighted={highlightId === m.id}
-                mentionsMe={astMentionsViewer(m.contentAst, user?.id)}
-                authorName={nameById.get(m.authorId)}
-                customEmojiByName={customEmojiByName}
-                mentions={mentionLookup}
-                onLongPress={() => setSheetMsg(m)}
-                // 071-M2 E6 (M1 리뷰 M-4): 종전 replyTarget 배너는 전송에 실리지
-                // 않는 데드엔드였다 — 스와이프 답장은 스레드 답글로 통일(디스코드
-                // 모바일 동일). DM(workspaceId=null)은 스레드 비범위라 no-op.
-                onSwipeReply={() => {
-                  if (!workspaceId || m.id.startsWith('tmp-')) return;
-                  previousFocusRef.current = document.activeElement as HTMLElement | null;
-                  setThreadRootId(m.parentMessageId ?? m.id);
-                }}
-                onToggleReaction={
-                  m.id.startsWith('tmp-')
-                    ? undefined
-                    : (emoji, byMe) =>
-                        reactMut.toggle({ messageId: m.id, emoji, currentlyByMe: byMe })
-                }
-                customEmojiList={customEmojiData?.items ?? []}
-                onRetry={() => retry(m.id, m.content ?? '')}
-              />
-              {chipVisible && m.thread ? (
-                <button
-                  type="button"
-                  data-testid={`mobile-thread-chip-${m.id}`}
-                  className="qf-thread-chip ml-[calc(var(--m-gutter)+40px+12px)]"
-                  aria-label={`${m.thread.replyCount}개 답글 보기`}
-                  onClick={() => {
-                    previousFocusRef.current = document.activeElement as HTMLElement | null;
-                    setThreadRootId(m.id);
-                  }}
-                >
-                  <span className="qf-thread-chip__count">{m.thread.replyCount}개 답글</span>
-                </button>
-              ) : null}
-            </div>
-          );
-        })}
+          })}
+        </div>
       </div>
       {/* D6(FR-RS-07 모바일): 하단 이탈 중 새 메시지 도착 — DS qf-m-jump-btn(+배지). */}
       {newWhileAway > 0 ? (
@@ -954,6 +1069,16 @@ export function MobileMessages({
           }
         />
       ) : null}
+      {/* 071-M5 H20 (정찰 ds-dormant ④): 더블탭 quick-react 피드백 — DS
+          .qf-m-react-toast 는 absolute + bottom calc(컴포저+탭바 위)라 position:
+          relative 인 qf-m-screen 기준으로 안착한다(MobileShell 채팅 화면에도
+          MobileTabBar 상주 — DS 좌표와 실레이아웃 일치, 정찰 실측). */}
+      {reactToastVisible ? (
+        <div className="qf-m-react-toast" data-testid="mobile-react-toast" role="status">
+          <span className="qf-m-react-toast__emoji">👍</span>
+          반응 추가됨
+        </div>
+      ) : null}
     </>
   );
 }
@@ -994,6 +1119,7 @@ function MobileMessageRow({
   mentions,
   onLongPress,
   onSwipeReply,
+  onQuickReact,
   onToggleReaction,
   customEmojiList,
   onRetry,
@@ -1011,6 +1137,8 @@ function MobileMessageRow({
   mentions: MentionLookup;
   onLongPress: () => void;
   onSwipeReply: () => void;
+  /** 071-M5 H20: 더블탭 quick-react(👍 고정). undefined = 낙관적(tmp-) 행 — 비활성. */
+  onQuickReact?: () => void;
   /** undefined = 낙관적(tmp-) 행 — 칩 토글 비활성. */
   onToggleReaction?: (emoji: string, currentlyByMe: boolean) => void;
   customEmojiList: CustomEmoji[];
@@ -1024,16 +1152,32 @@ function MobileMessageRow({
   // 시퀀스(합성 이벤트·고주사율 기기)에서 touchend 가 항상 초기값 0 을 봐 스와이프가
   // 절대 커밋되지 않는다 — 판정은 ref, state 는 시각 transform 전용으로 분리한다.
   const swipeOffsetRef = useRef(0);
+  // 071-M5 H20: 더블탭 판정 상태 — 직전 유효 탭 시각(ms)과 이동(>8px) 플래그.
+  // 롱프레스 타이머와는 독립이다(500ms 홀드 후 탭은 300ms 윈도우 밖이라 자연 배제).
+  const movedRef = useRef(false);
+  const lastTapAtRef = useRef(0);
+  // 071-M5 H12 (정찰 ⑤clock24h): 12/24시간제 설정 — 데스크톱 MessageItem 과 동일
+  // 스토어 구독. tombstone 조기 return 보다 앞에 둬 훅 호출 순서를 보장한다.
+  const clock24h = useClock24h();
 
   const LONG_PRESS_MS = 500;
-  const SWIPE_THRESHOLD_PX = 80;
+  // 071-M5 H2 (정찰 ds-dormant ③): 80 → 60 — DS --m-swipe-threshold(60px,
+  // mobile.css L18) 정합. MobilePanels threshold=60 과 동일 정렬. 패널 제스처와의
+  // 이중 커밋 방지 기제는 임계 분리(행 80/패널 60)가 아니라 좌 엣지 양보(아래
+  // onTouchStart 의 PANEL_EDGE_PX + MobilePanels 의 엣지 시작 한정)이므로 60 으로
+  // 내려도 안전하다(정찰 실측 판정 — M2 리뷰 M-1 로 기해소).
+  const SWIPE_THRESHOLD_PX = 60;
+  // 071-M5 H20: 더블탭 인정 간격(ms).
+  const DOUBLE_TAP_MS = 300;
 
   const onTouchStart = (e: TouchEvent): void => {
     const t = e.touches[0];
     // M2 리뷰 M-1: 좌 엣지(PANEL_EDGE_PX) 시작 터치는 MobilePanels 의 패널 오픈
     // 제스처에 양보한다 — 종전엔 같은 드래그가 좌 패널 + 스레드 패널을 이중
-    // 커밋했다(행 스와이프 80px, 패널 60px 임계로 둘 다 통과).
+    // 커밋했다. 071-M5 H2: 이 엣지 양보가 이중 커밋 방지의 실제 기제다(임계
+    // 분리가 아님 — 행 임계를 DS 60px 로 정합해도 안전한 근거).
     if (t.clientX <= PANEL_EDGE_PX) return;
+    movedRef.current = false;
     touchStart.current = { x: t.clientX, y: t.clientY };
     pressTimer.current = window.setTimeout(() => {
       pressTimer.current = null;
@@ -1049,6 +1193,9 @@ function MobileMessageRow({
     if (Math.abs(dx) > 8 || Math.abs(dy) > 8) {
       if (pressTimer.current !== null) window.clearTimeout(pressTimer.current);
       pressTimer.current = null;
+      // 071-M5 H20: 8px 초과 이동은 탭이 아니다(더블탭 판정 무효 — 스와이프 중
+      // 무효 조건도 함께 커버: 스와이프 커밋 60px ⊃ 이동 8px).
+      movedRef.current = true;
     }
     if (dx > 0 && Math.abs(dy) < 30) {
       const v = Math.min(dx, 120);
@@ -1062,6 +1209,20 @@ function MobileMessageRow({
     if (swipeOffsetRef.current >= SWIPE_THRESHOLD_PX) {
       // M2 E6: swipe-right = 스레드 답글 진입(호출측이 ThreadPanel 을 연다).
       onSwipeReply();
+      lastTapAtRef.current = 0;
+    } else if (!movedRef.current && touchStart.current !== null) {
+      // 071-M5 H20 (정찰 ds-dormant ④): 더블탭 quick-react — 300ms 내 동일 행
+      // 2탭(이동 <8px). 1탭째는 시각만 기록한다. touchStart null(엣지 양보)은
+      // 탭으로 세지 않는다.
+      const now = Date.now();
+      if (onQuickReact && now - lastTapAtRef.current <= DOUBLE_TAP_MS) {
+        lastTapAtRef.current = 0;
+        onQuickReact();
+      } else {
+        lastTapAtRef.current = now;
+      }
+    } else {
+      lastTapAtRef.current = 0;
     }
     swipeOffsetRef.current = 0;
     setSwipeOffset(0);
@@ -1106,134 +1267,152 @@ function MobileMessageRow({
   const linkPreviews = useLinkPreviewsEnabled();
 
   return (
-    <article
-      data-testid={`mobile-msg-${msg.id}`}
-      data-mine={isMine ? 'true' : 'false'}
-      // S05 verify: DS 정본은 `qf-m-msg`(+__avatar/__meta/__author/__time/__body).
-      // 071-M1 D1: 그루핑 변형(--head/--cont — DS 가 cont 의 아바타/메타를 숨김) +
-      // 내 멘션 행 배경 강조(--mention-bg 토큰, PRD D01 모바일 멘션 행).
-      data-send-state={sendState}
-      data-jump-highlight={highlighted ? 'true' : undefined}
-      className={cn(
-        'qf-m-msg',
-        cont ? 'qf-m-msg--cont' : 'qf-m-msg--head',
-        (mentionsMe || highlighted) && 'bg-[var(--mention-bg)]',
-        sendState === 'pending' && 'opacity-60',
-      )}
-      style={{
-        transform: `translateX(${swipeOffset}px)`,
-        // S35 fix-forward (DS 토큰화): raw 120ms → DS duration 토큰(--dur-fast=140ms).
-        transition: swipeOffset === 0 ? 'transform var(--dur-fast)' : undefined,
-      }}
-      onTouchStart={onTouchStart}
-      onTouchMove={onTouchMove}
-      onTouchEnd={onTouchEnd}
-      onTouchCancel={onTouchCancel}
-    >
-      <Avatar
-        name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
-        size="sm"
-        className="qf-m-msg__avatar"
-      />
-      <div className="qf-m-msg__meta">
-        <span className="qf-m-msg__author">{effectiveAuthorName ?? 'unknown'}</span>
-        {isBot ? (
-          <span data-testid={`mobile-msg-bot-${msg.id}`} className="qf-badge qf-badge--accent">
-            BOT
-          </span>
-        ) : null}
-        <time className="qf-m-msg__time">
-          {new Date(msg.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-        </time>
-        {msg.edited ? (
-          // S05 (FR-MSG-07) 모바일 parity: (수정됨) 뱃지. 데스크톱 MessageItem
-          // 과 동일하게 시각 토큰(qf-m-msg__time)을 재사용하고 editedAt 을 title 로.
-          <span
-            data-testid={`mobile-msg-edited-${msg.id}`}
-            className="qf-m-msg__time"
-            title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
-          >
-            (수정됨)
-          </span>
-        ) : null}
-      </div>
-      <div
+    // 071-M5 H2 (정찰 ds-dormant ③): 행 <article> 이 직접 translateX 되므로 스와이프
+    // 힌트는 relative wrapper 안에서 행 뒤에 깔린다(DS .qf-m-swipe — absolute left ·
+    // opacity 전환 · --m-swipe-icon-size, mobile.css L265). e2e 셀렉터
+    // ([data-testid^="mobile-msg-"])는 article 에 그대로 유지 — wrapper 무영향.
+    <div className="relative">
+      <span className="qf-m-swipe" aria-hidden="true" style={{ opacity: swipeOffset > 8 ? 1 : 0 }}>
+        <Icon name="reply" size="sm" />
+      </span>
+      <article
+        data-testid={`mobile-msg-${msg.id}`}
+        data-mine={isMine ? 'true' : 'false'}
+        // S05 verify: DS 정본은 `qf-m-msg`(+__avatar/__meta/__author/__time/__body).
+        // 071-M1 D1: 그루핑 변형(--head/--cont — DS 가 cont 의 아바타/메타를 숨김) +
+        // 내 멘션 행 배경 강조(--mention-bg 토큰, PRD D01 모바일 멘션 행).
+        data-send-state={sendState}
+        data-jump-highlight={highlighted ? 'true' : undefined}
         className={cn(
-          'qf-m-msg__body',
-          jumbo && 'text-[length:var(--fs-32)] leading-[var(--lh-tight)]',
+          'qf-m-msg',
+          // 071-M5 H20: iOS 더블탭 줌 억제(touch-action: manipulation — Tailwind 유틸).
+          'touch-manipulation',
+          cont ? 'qf-m-msg--cont' : 'qf-m-msg--head',
+          (mentionsMe || highlighted) && 'bg-[var(--mention-bg)]',
+          sendState === 'pending' && 'opacity-60',
         )}
-        data-jumbo={jumbo ? 'true' : undefined}
+        style={{
+          transform: `translateX(${swipeOffset}px)`,
+          // S35 fix-forward (DS 토큰화): raw 120ms → DS duration 토큰(--dur-fast=140ms).
+          transition: swipeOffset === 0 ? 'transform var(--dur-fast)' : undefined,
+        }}
+        onTouchStart={onTouchStart}
+        onTouchMove={onTouchMove}
+        onTouchEnd={onTouchEnd}
+        onTouchCancel={onTouchCancel}
       >
-        {msg.contentAst
-          ? renderAst(msg.contentAst, customEmojiByName, mentions)
-          : renderMessageContent(msg.content ?? '', customEmojiByName)}
-        {sendState === 'failed' ? (
-          <div
-            data-testid={`mobile-msg-send-failed-${msg.id}`}
-            className="mt-1 flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)]"
-          >
-            <span role="alert" className="text-[color:var(--danger-400)]">
-              전송 실패
+        <Avatar
+          name={effectiveAuthorName ?? msg.authorId.slice(0, 2)}
+          size="sm"
+          className="qf-m-msg__avatar"
+        />
+        <div className="qf-m-msg__meta">
+          <span className="qf-m-msg__author">{effectiveAuthorName ?? 'unknown'}</span>
+          {isBot ? (
+            <span data-testid={`mobile-msg-bot-${msg.id}`} className="qf-badge qf-badge--accent">
+              BOT
             </span>
-            <button
-              type="button"
-              data-testid={`mobile-msg-retry-${msg.id}`}
-              onClick={onRetry}
-              className="qf-btn qf-btn--ghost qf-btn--sm"
+          ) : null}
+          {/* 071-M5 H12 (정찰 ⑤clock24h): toLocaleTimeString 고정 포맷 → 공유 유틸
+            formatClockPart(데스크톱 MessageItem gutterTime 정본)로 12/24시간제 설정
+            반영. 날짜 맥락은 날짜 구분선이 제공하므로 시각만 표시(기존 동작 유지). */}
+          <time className="qf-m-msg__time">
+            {formatClockPart(new Date(msg.createdAt), clock24h)}
+          </time>
+          {msg.edited ? (
+            // S05 (FR-MSG-07) 모바일 parity: (수정됨) 뱃지. 데스크톱 MessageItem
+            // 과 동일하게 시각 토큰(qf-m-msg__time)을 재사용하고 editedAt 을 title 로.
+            <span
+              data-testid={`mobile-msg-edited-${msg.id}`}
+              className="qf-m-msg__time"
+              title={msg.editedAt ? new Date(msg.editedAt).toLocaleString() : undefined}
             >
-              다시 시도
-            </button>
+              (수정됨)
+            </span>
+          ) : null}
+        </div>
+        <div
+          className={cn(
+            'qf-m-msg__body',
+            jumbo && 'text-[length:var(--fs-32)] leading-[var(--lh-tight)]',
+          )}
+          data-jumbo={jumbo ? 'true' : undefined}
+        >
+          {msg.contentAst
+            ? renderAst(msg.contentAst, customEmojiByName, mentions)
+            : renderMessageContent(msg.content ?? '', customEmojiByName)}
+          {sendState === 'failed' ? (
+            <div
+              data-testid={`mobile-msg-send-failed-${msg.id}`}
+              className="mt-1 flex items-center gap-[var(--s-2)] text-[length:var(--fs-12)]"
+            >
+              <span role="alert" className="text-[color:var(--danger-400)]">
+                전송 실패
+              </span>
+              <button
+                type="button"
+                data-testid={`mobile-msg-retry-${msg.id}`}
+                onClick={onRetry}
+                className="qf-btn qf-btn--ghost qf-btn--sm"
+              >
+                다시 시도
+              </button>
+            </div>
+          ) : null}
+        </div>
+        {/* D3(FR-AM-07/09): 첨부 그리드 + 내장 라이트박스. */}
+        {(msg.attachments?.length ?? 0) > 0 ? (
+          <div className="col-start-2">
+            <AttachmentsList attachments={msg.attachments ?? []} />
           </div>
         ) : null}
-      </div>
-      {/* D3(FR-AM-07/09): 첨부 그리드 + 내장 라이트박스. */}
-      {(msg.attachments?.length ?? 0) > 0 ? (
-        <div className="col-start-2">
-          <AttachmentsList attachments={msg.attachments ?? []} />
-        </div>
-      ) : null}
-      {/* D3(FR-RC07/08): 서버 unfurl embed 우선, 없으면 본문 URL lazy-fetch 폴백 —
+        {/* D3(FR-RC07/08): 서버 unfurl embed 우선, 없으면 본문 URL lazy-fetch 폴백 —
           데스크톱 MessageItem 과 동일 분기(전역 링크 미리보기 설정 존중). */}
-      {linkPreviews
-        ? (() => {
-            const serverEmbeds = msg.embeds ?? [];
-            if (serverEmbeds.length > 0) {
-              return (
+        {linkPreviews
+          ? (() => {
+              const serverEmbeds = msg.embeds ?? [];
+              if (serverEmbeds.length > 0) {
+                return (
+                  <div className="col-start-2">
+                    {serverEmbeds.map((e) => (
+                      <LinkPreview key={`embed-${e.id}`} embed={e} />
+                    ))}
+                  </div>
+                );
+              }
+              const urls = extractMessageUrls(msg.content ?? '');
+              return urls.length > 0 ? (
                 <div className="col-start-2">
-                  {serverEmbeds.map((e) => (
-                    <LinkPreview key={`embed-${e.id}`} embed={e} />
+                  {urls.map((u) => (
+                    <LinkPreview key={`embed-${u}`} url={u} />
                   ))}
                 </div>
-              );
-            }
-            const urls = extractMessageUrls(msg.content ?? '');
-            return urls.length > 0 ? (
-              <div className="col-start-2">
-                {urls.map((u) => (
-                  <LinkPreview key={`embed-${u}`} url={u} />
-                ))}
-              </div>
-            ) : null;
-          })()
-        : null}
-      {/* D3(FR-RC12): 봇/웹훅 rich embed. */}
-      {(msg.richEmbeds?.length ?? 0) > 0 ? (
-        <div className="col-start-2">
-          <RichEmbeds embeds={msg.richEmbeds} />
-        </div>
-      ) : null}
-      {/* 071-M1 D2(FR-RE01/02/03): 리액션 칩 행 — 데스크톱 ReactionBar 재사용.
+              ) : null;
+            })()
+          : null}
+        {/* D3(FR-RC12): 봇/웹훅 rich embed. */}
+        {(msg.richEmbeds?.length ?? 0) > 0 ? (
+          <div className="col-start-2">
+            <RichEmbeds embeds={msg.richEmbeds} />
+          </div>
+        ) : null}
+        {/* 071-M1 D2(FR-RE01/02/03): 리액션 칩 행 — 데스크톱 ReactionBar 재사용.
           모바일 44px 터치 플로어는 mobile-touch-target.css 가 .qf-reaction 에 보장. */}
-      {onToggleReaction && (msg.reactions?.length ?? 0) > 0 ? (
-        <div className="col-start-2">
-          <ReactionBar
-            reactions={msg.reactions ?? []}
-            onToggle={onToggleReaction}
-            customEmojis={customEmojiList.map((ce) => ({ id: ce.id, name: ce.name, url: ce.url }))}
-          />
-        </div>
-      ) : null}
-    </article>
+        {onToggleReaction && (msg.reactions?.length ?? 0) > 0 ? (
+          <div className="col-start-2">
+            <ReactionBar
+              reactions={msg.reactions ?? []}
+              onToggle={onToggleReaction}
+              customEmojis={customEmojiList.map((ce) => ({
+                id: ce.id,
+                name: ce.name,
+                url: ce.url,
+              }))}
+            />
+          </div>
+        ) : null}
+      </article>
+    </div>
   );
 }
 
@@ -1837,7 +2016,16 @@ function MobileComposer({
             // 방향키/Home/End 등 캐럿 이동도 트리거 재평가에 반영한다.
             setCaret(e.currentTarget.selectionStart ?? 0);
           }}
-          placeholder={!online ? '오프라인 — 연결되면 보낼 수 있습니다' : `# ${channelName}`}
+          // 071-M5 H10 (감사 H-11 DM placeholder): DM(workspaceId=null)은 channelName
+          // 이 상대 username(MobileDmChat 전달 경로)이라 '# alice' 로 노출되는 채널
+          // 프리픽스 오용이었다 — '@사용자명 에게 메시지' 로 분기(데스크톱 동일 수정).
+          placeholder={
+            !online
+              ? '오프라인 — 연결되면 보낼 수 있습니다'
+              : workspaceId === null
+                ? `@${channelName} 에게 메시지`
+                : `# ${channelName}`
+          }
           onKeyDown={(e) => {
             const native = e.nativeEvent as KeyboardEvent & { isComposing?: boolean };
             if (native.isComposing || e.keyCode === 229) return;

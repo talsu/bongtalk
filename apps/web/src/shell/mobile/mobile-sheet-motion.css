@@ -1,0 +1,55 @@
+/*
+ * 071-M5 H7 (정찰 ds-dormant ①) — 바텀시트 등장 모션 (앱 레이어, enter-only).
+ *
+ * DS mobile.css 는 --m-sheet-dur/--m-sheet-ease 토큰만 정의하고
+ * .qf-m-sheet(L281)/.qf-m-sheet-backdrop(L276) 자체에는 모션을 걸지 않는다
+ * — 모션 적용은 앱 몫(DS 4파일 무수정 원칙). 전례(mobile-kb-dodge.css·
+ * mobile-touch-target.css)를 따라 MobileShell 에서 import 한다.
+ *
+ * enter-only: 닫힘 모션은 언마운트 지연 안무가 필요해 보류(H8 드래그 닫기와
+ * 묶어 후속 결정). reduced-motion 은 tokens.css 전역 가드(*, ::before,
+ * ::after — animation-duration 0.01ms)가 자동 커버하므로 컴포넌트별
+ * media query 를 두지 않는다.
+ */
+@keyframes qfa-sheet-in {
+  from {
+    transform: translateY(100%);
+  }
+  to {
+    transform: translateY(0);
+  }
+}
+@keyframes qfa-backdrop-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+.qfa-sheet-in {
+  animation: qfa-sheet-in var(--m-sheet-dur) var(--m-sheet-ease);
+}
+.qfa-backdrop-in {
+  animation: qfa-backdrop-in var(--m-sheet-dur) var(--ease-standard);
+}
+
+/*
+ * 071-M5 H13 (정찰 ⑤density) — compact 밀도 모바일 보강 (앱 레이어).
+ *
+ * data-density 는 html 루트에 적용 중(applyAppearanceToDOM.ts)이나 DS 의
+ * compact 커버리지는 4클래스(qf-m-tile 등)뿐 — 핵심 리스트 행(qf-m-row)과
+ * 시트 항목/섹션 헤더를 토큰으로만 압축한다. 과대 적용 금지: 행 높이·
+ * 항목/섹션 패딩 정도만(그리드 구조·가로 패딩 불변). 시트 항목의
+ * min-height: var(--m-touch) 44px 터치 플로어는 DS 값을 그대로 유지한다.
+ */
+[data-density='compact'] .qf-m-row {
+  min-height: var(--s-10);
+  padding-block: var(--s-2);
+}
+[data-density='compact'] .qf-m-sheet__item {
+  padding-block: var(--s-3);
+}
+[data-density='compact'] .qf-m-section {
+  padding-block: var(--s-3) var(--s-1);
+}
