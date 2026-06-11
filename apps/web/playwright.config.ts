@@ -76,7 +76,11 @@ export default defineConfig({
   fullyParallel: true,
   workers: WORKERS,
   forbidOnly: !!process.env.CI,
-  retries: process.env.CI ? 2 : 0,
+  // 071-M5 S6 (M6 선취): NAS(kernel 4.4) 풀스위트 부하에서 합성 터치 스펙이
+  // 무작위 1~2건 흔들린다(단독·직렬 항상 green — M3~M5 게이트 실측). 1회
+  // 재시도로 게이트를 안정화한다(trace retain-on-failure 가 재시도 실패분을
+  // 그대로 보존하므로 디버깅 정보 손실 없음).
+  retries: process.env.CI ? 2 : 1,
   reporter: [['list'], ['html', { open: 'never' }]],
   use: {
     // Default — env override > local-dev fallback.
