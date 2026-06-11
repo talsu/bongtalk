@@ -40,3 +40,30 @@
     min-width: var(--m-touch);
   }
 }
+
+/* 071-M5 리뷰 H-1 (--m-touch 플로어): 시트 grab 핸들의 드래그 히트영역을
+   44px 플로어로 확장 — composer__plus/send 와 동일 min-* 패턴. DS 원본(36×4px
+   막대)은 실기기 손끝 접점(~9mm)이 사실상 못 맞춰 드래그 닫기
+   (useSheetDragDismiss)가 죽는다. 히트박스는 키우고 시각 막대는 ::after 로
+   DS 원본 그대로 재현(--n-5 직참조는 DS L292 재현 목적 — TSX 직참조 금지와 별개). */
+.qf-m-sheet__grab,
+.qf-m-emoji-drawer__grab {
+  width: auto;
+  height: auto;
+  min-height: var(--m-touch);
+  background: none;
+  position: relative;
+  margin: calc(-1 * var(--s-3)) auto calc(-1 * var(--s-3));
+}
+.qf-m-sheet__grab::after,
+.qf-m-emoji-drawer__grab::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  width: 36px;
+  height: 4px;
+  border-radius: 2px;
+  background: var(--n-5);
+}

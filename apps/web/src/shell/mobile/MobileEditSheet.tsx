@@ -1,5 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useRef, useState } from 'react';
 import type { MessageDto } from '@qufox/shared-types';
+import { useSheetFocusTrap } from './useSheetFocusTrap';
+import { useSheetHistoryMarker } from './useSheetHistoryMarker';
+import { useSheetDragDismiss } from './useSheetDragDismiss';
 
 /**
  * S103 (FR-MSG-06 모바일): 메시지 편집 바텀시트. 데스크톱 MessageItem 인라인
@@ -27,23 +30,25 @@ export function MobileEditSheet({
   const [draft, setDraft] = useState(original);
   const [saving, setSaving] = useState(false);
   const taRef = useRef<HTMLTextAreaElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel();
-    };
-    window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
-  }, [onCancel]);
-
-  useEffect(() => {
-    // 진입 시 textarea 끝에 캐럿을 두고 포커스(편집 즉시 가능).
-    const ta = taRef.current;
-    if (!ta) return;
-    ta.focus();
-    const end = ta.value.length;
-    ta.setSelectionRange(end, end);
-  }, []);
+  // 071-M5 H4 (감사 A-30): 종전 Esc 단독 effect 를 공용 트랩으로 교체 — Tab 이
+  // 배경으로 새던 누설 + 닫힘 시 트리거 복귀 부재를 함께 해소한다. 진입 포커스는
+  // initialFocus 콜백으로 이전(캐럿을 끝에 두고 textarea 포커스 — 편집 즉시 가능).
+  useSheetFocusTrap(panelRef, onCancel, {
+    initialFocus: () => {
+      const ta = taRef.current;
+      if (ta) {
+        const end = ta.value.length;
+        ta.setSelectionRange(end, end);
+      }
+      return ta;
+    },
+  });
+  // 071-M5 H4 (M3 F1 규약): 하드웨어 back 이 화면 이탈 대신 편집 시트만 닫는다.
+  useSheetHistoryMarker(true, onCancel);
+  // 071-M5 H8 (정찰 ②): grab 드래그 닫기 — 임계 통과 시 기존 onCancel 경로만 재사용.
+  const grabRef = useSheetDragDismiss(panelRef, onCancel);
 
   const trimmed = draft.trim();
   const unchanged = trimmed === original.trim();
@@ -70,10 +75,14 @@ export function MobileEditSheet({
       // a11y M-2: dialog 이름을 시각 헤딩과 묶어 중복 낭독(aria-label + 헤딩) 제거.
       aria-labelledby={`mobile-edit-title-${msg.id}`}
     >
-      <div className="qf-m-sheet-backdrop absolute inset-0" onClick={onCancel} />
+      {/* 071-M5 H7 (정찰 ①): 등장 모션 — 백드롭 fade + 시트 slide-up(enter-only). */}
+      <div className="qf-m-sheet-backdrop qfa-backdrop-in absolute inset-0" onClick={onCancel} />
       {/* H-1(071-M0 C2): 백드롭(z=60) 아래 깔리던 시트를 --z-modal(61)로 올린다. */}
-      <div className="qf-m-sheet qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]">
-        <div className="qf-m-sheet__grab" aria-hidden />
+      <div
+        ref={panelRef}
+        className="qf-m-sheet qfa-sheet-in qf-m-safe-bottom absolute bottom-0 left-0 right-0 z-[var(--z-modal)]"
+      >
+        <div ref={grabRef} className="qf-m-sheet__grab" aria-hidden />
         <div className="px-[var(--s-4)] py-[var(--s-2)]">
           <p
             id={`mobile-edit-title-${msg.id}`}
@@ -96,7 +105,10 @@ export function MobileEditSheet({
         <div className="flex items-center justify-end gap-[var(--s-2)] px-[var(--s-3)] pb-[var(--s-3)]">
           {/* ui-designer HIGH/MED 리뷰: DS qf-m-composer__send(원형 전송)·qf-m-sheet__item
               (좌정렬 메뉴행) 재활용 대신, 가변폭 텍스트 버튼을 page-scoped Tailwind +
-              DS 토큰으로 구성한다(raw hex/px 없음·터치타깃 min-h=var(--m-touch)=44px). */}
+              DS 토큰으로 구성한다(raw hex/px 없음·터치타깃 min-h=var(--m-touch)=44px).
+              071-M5 H11: 저장 버튼은 src 유일의 n-5 토큰 직참조(disabled 배경)였다 —
+              DS qf-btn qf-btn--primary 채택(disabled 시각은 DS 기본 opacity 0.5),
+              44px 터치 플로어만 min-h 유틸로 보강. */}
           <button
             type="button"
             data-testid="mobile-edit-cancel"
@@ -113,7 +125,7 @@ export function MobileEditSheet({
             // a11y M-1: native disabled 가 비활성+포커스제거를 모두 처리하므로 중복
             // aria-disabled 는 제거. a11y M-3: 전송 중 상태를 aria-busy + 텍스트로 알림.
             aria-busy={saving}
-            className="flex min-h-[var(--m-touch)] items-center justify-center rounded-[var(--r-md)] bg-accent px-[var(--s-5)] text-[length:var(--fs-15)] font-semibold text-fg-primary disabled:bg-[var(--n-5)] disabled:text-text-muted"
+            className="qf-btn qf-btn--primary min-h-[var(--m-touch)]"
           >
             {saving ? '저장 중…' : '저장'}
           </button>

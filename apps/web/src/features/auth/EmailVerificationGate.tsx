@@ -135,7 +135,19 @@ export function EmailVerificationGate(): JSX.Element {
         className="w-full max-w-md p-[var(--s-9)] text-center"
         style={CARD_STYLE}
       >
-        <BrandMark variant="wordmark" size={28} className="mb-[var(--s-6)]" />
+        {/* 071-M5 H14 (감사 H-11 ④wordmark): wordmark SVG 는 Space Grotesk 메트릭을 가정한
+            절대좌표 분할 <text>('qu' x=24 / 'fox' x=206)인데 <img> 로 서빙되는 외부 SVG 문서는
+            페이지 웹폰트를 로드하지 못해 폴백 폰트 폭으로 'qu'·픽셀 fox·'fox' 가 겹쳐 보이고,
+            기본 tone=dark 잉크(#1E1B4B 계열)는 이 다크 카드(--bg-elevated)에서 대비도 깨진다.
+            로그인/가입 선례(symbol)대로 자기완결 심볼 + 페이지 폰트 텍스트 lockup 으로 교체
+            (DS 4파일·brand-assets 무수정 — 앱 레이어 해결). 심볼은 가시 텍스트 'qufox' 가
+            이름을 제공하므로 decorative(WCAG 1.1.1 중복 낭독 방지 — LoginPage HIGH-3 동일). */}
+        <div className="mb-[var(--s-6)] flex items-center justify-center gap-[var(--s-2)]">
+          <BrandMark variant="symbol" size={28} decorative />
+          <span className="text-[var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+            qufox
+          </span>
+        </div>
         {/* (B5) 장식 eyebrow — 대비 미달 토큰이므로 AT 에서 숨긴다. */}
         <div className="qf-eyebrow mb-[var(--s-3)]" aria-hidden="true">
           email verification

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode, type TouchEvent } from 'react';
 import { cn } from '../../lib/cn';
+import { SHEET_FOCUSABLE_SELECTOR } from './useSheetFocusTrap';
 
 /**
  * 071-M2 E2 (A안 / PRD §02) — OverlappingPanels 3패널 셸.
@@ -219,6 +220,27 @@ export function MobilePanels({
     setInert(leftRef.current, open !== 'left' && !dragging);
     setInert(rightRef.current, open !== 'right' && !dragging);
   }, [open, dragging]);
+
+  // 071-M5 H6 (감사 B-107 잔여): 패널 열림 시 열린 패널의 첫 포커서블로 자동
+  // 포커스 + 닫힘 시 열기 직전 activeElement(topbar 트리거 등)로 복귀. center 는
+  // inert 로 만들 수 없으므로(닫기 스크림/topbar 가 center 내부 — 정찰 함정 명시)
+  // 포커스 이동만 보장한다. left↔right 직접 전환에도 최초 트리거를 유지하도록
+  // 복귀 대상은 비어 있을 때만 캡처한다. ★위 inert 해제 effect 뒤에 선언해야
+  // 같은 커밋에서 inert 가 먼저 풀려 포커스가 들어간다(effect 선언 순서 의존).
+  const restoreFocusRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (open === 'center') {
+      const restore = restoreFocusRef.current;
+      restoreFocusRef.current = null;
+      if (restore && document.contains(restore)) restore.focus();
+      return;
+    }
+    if (!restoreFocusRef.current) {
+      restoreFocusRef.current = document.activeElement as HTMLElement | null;
+    }
+    const panel = open === 'left' ? leftRef.current : rightRef.current;
+    panel?.querySelector<HTMLElement>(SHEET_FOCUSABLE_SELECTOR)?.focus();
+  }, [open]);
 
   // 하드웨어 back: 패널 열림 시 마커 push — back 은 패널만 닫는다(MobileOverlay 패턴).
   const markerRef = useRef(false);

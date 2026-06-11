@@ -1,6 +1,21 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeAll, beforeEach, afterEach, vi } from 'vitest';
 import { render, screen, fireEvent, cleanup, waitFor } from '@testing-library/react';
+
+// 071-M5 H15: 이 jsdom 버전은 window.matchMedia 미구현 — useIsMobile 이 데스크톱(false)
+// 으로 평가되도록 비매칭 MQL 스텁을 둔다(모바일 풀스크린 분기는 본 spec 비대상).
+beforeAll(() => {
+  vi.stubGlobal(
+    'matchMedia',
+    (query: string): MediaQueryList =>
+      ({
+        matches: false,
+        media: query,
+        addEventListener: () => undefined,
+        removeEventListener: () => undefined,
+      }) as unknown as MediaQueryList,
+  );
+});
 
 /**
  * S65 (D13 / FR-W01): 워크스페이스 생성 모달의 joinMode 셀렉트 + 이메일 도메인

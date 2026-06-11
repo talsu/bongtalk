@@ -36,12 +36,15 @@ import { useNotifications } from '../stores/notification-store';
 // 패널을 모바일 풀스크린 변형으로 마운트(ProfilePopover '전체 프로필'이 연다).
 import { MemberProfilePanel } from '../features/profile/MemberProfilePanel';
 // ★F11 리뷰 H-2: 풀스크린 오버레이/프로필도 하드웨어 back 으로 닫혀야 한다.
-import { useSheetHistoryMarker } from './mobile/useSheetHistoryMarker';
+import { useSheetHistoryMarker, transitionSheetMarker } from './mobile/useSheetHistoryMarker';
 import { useUI } from '../stores/ui-store';
 import { OnboardingHost } from '../features/onboarding/OnboardingHost';
 import { useKeyboardDodge } from '../lib/useKeyboardDodge';
 import './mobile/mobile-kb-dodge.css';
 import './mobile/mobile-touch-target.css';
+// 071-M5 H7/H13: 시트 등장 모션(enter-only) + compact 밀도 모바일 보강 —
+// DS 무수정 앱 레이어 보조 시트(전례: 위 kb-dodge/touch-target).
+import './mobile/mobile-sheet-motion.css';
 
 /**
  * Task-024 mobile shell — qf-m-screen root, qf-m-topbar header,
@@ -108,6 +111,9 @@ export function MobileShell(): JSX.Element {
   // 프로필)이 back 마커 없이 떠서 하드웨어 back 이 화면 밑 라우터를 되감았다 —
   // useSheetHistoryMarker 규약('신규 시트는 반드시 이 훅') 적용.
   useSheetHistoryMarker(overlay !== null, () => setOverlay(null));
+  // M5 리뷰 H-4: 채널 둘러보기 풀스크린 오버레이도 동일 규약(M3 F1) — 정찰이
+  // 지목한 잔여 1건. 하드웨어 back 이 라우터 대신 오버레이만 닫는다.
+  useSheetHistoryMarker(browseOpen, () => setBrowseOpen(false));
   const profilePanelUserId = useUI((s) => s.profilePanelUserId);
   const setProfilePanelUser = useUI((s) => s.setProfilePanelUser);
   useSheetHistoryMarker(!!profilePanelUserId, () => setProfilePanelUser(null));
@@ -209,7 +215,8 @@ export function MobileShell(): JSX.Element {
     return (
       <div data-testid="mobile-shell-loading" className="qf-m-screen qf-m-screen--app">
         <div className="qf-m-empty">
-          <div className="qf-m-empty__body">loading…</div>
+          {/* 071-M5 H9 (감사 H-11/A-51): i18n 영문 잔재 — MobileActivity 선례와 통일. */}
+          <div className="qf-m-empty__body">불러오는 중…</div>
         </div>
       </div>
     );
@@ -445,14 +452,21 @@ export function MobileShell(): JSX.Element {
           <MobileServerMenuSheet
             workspaceName={active.name}
             onClose={() => setServerMenuOpen(false)}
-            onDirectory={() => {
-              setServerMenuOpen(false);
-              setOverlay('directory');
-            }}
-            onBrowse={() => {
-              setServerMenuOpen(false);
-              setBrowseOpen(true);
-            }}
+            // M5 리뷰 H-2/M-9: 시트 마커 소거(back)가 다음 마커 표면을 pop 하는
+            // 레이스 — 마커 보유 대상(오버레이/둘러보기/설정 navigate)은 전부
+            // transitionSheetMarker 핸드셰이크 경유(모달 3종은 마커 없음 — 직행).
+            onDirectory={() =>
+              transitionSheetMarker(
+                () => setServerMenuOpen(false),
+                () => setOverlay('directory'),
+              )
+            }
+            onBrowse={() =>
+              transitionSheetMarker(
+                () => setServerMenuOpen(false),
+                () => setBrowseOpen(true),
+              )
+            }
             onCreateChannel={
               canManageWorkspace
                 ? () => {
@@ -479,18 +493,22 @@ export function MobileShell(): JSX.Element {
             }
             onManageInvites={
               canModerate
-                ? () => {
-                    setServerMenuOpen(false);
-                    setOverlay('invites');
-                  }
+                ? () =>
+                    transitionSheetMarker(
+                      () => setServerMenuOpen(false),
+                      () => setOverlay('invites'),
+                    )
                 : undefined
             }
             onSettings={
               canManageWorkspace
-                ? () => {
-                    setServerMenuOpen(false);
-                    navigate(`/w/${active.slug}/settings`);
-                  }
+                ? () =>
+                    // M5 리뷰 M-9: navigate 동기 push 가 시트 마커 소거를 스킵시켜
+                    // qfSheet 고아 엔트리(죽은 back 1회)가 누적 — 소화 후 이동.
+                    transitionSheetMarker(
+                      () => setServerMenuOpen(false),
+                      () => navigate(`/w/${active.slug}/settings`),
+                    )
                 : undefined
             }
             onLeave={

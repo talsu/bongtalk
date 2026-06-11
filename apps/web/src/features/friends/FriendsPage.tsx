@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Avatar, Button, Icon } from '../../design-system/primitives';
+import { Avatar, Button, Dialog, Icon } from '../../design-system/primitives';
 import {
   useAcceptFriend,
   useBlockUser,
@@ -15,6 +15,7 @@ import {
 /**
  * task-032-C: desktop /friends — qf-tabs 4 filters + qf-m-row list +
  * 친구 추가 modal with username input + per-row actions.
+ * 071-M5 H5 (FR-IA-A11Y-01): 삭제 즉발 → alertdialog confirm(모바일과 동시 정합).
  */
 export function FriendsPage(): JSX.Element {
   const [filter, setFilter] = useState<FriendsFilter>('accepted');
@@ -28,6 +29,14 @@ export function FriendsPage(): JSX.Element {
   const [open, setOpen] = useState(false);
   const [username, setUsername] = useState('');
   const [err, setErr] = useState<string | null>(null);
+  /** 071-M5 H5: 삭제 confirm 대상(null=닫힘). */
+  const [removeTarget, setRemoveTarget] = useState<{
+    friendshipId: string;
+    username: string;
+  } | null>(null);
+  /** M5 리뷰 M-10: 차단도 confirm — 삭제보다 파괴적(친구 해제+상호 메시지 차단)인데
+      즉발이던 비대칭 해소(모바일 MobileConfirmSheet 와 정합). */
+  const [blockTarget, setBlockTarget] = useState<{ userId: string; username: string } | null>(null);
 
   const onRequest = async (): Promise<void> => {
     setErr(null);
@@ -60,7 +69,8 @@ export function FriendsPage(): JSX.Element {
       <nav className="qf-tabs px-[var(--s-6)]" data-testid="friends-tabs">
         {(
           [
-            { id: 'accepted', label: '모든' },
+            // 071-M5 H9 (감사 H-11): 단독 segment 라벨 '모든' → '전체'(문장형 '모든'은 비대상).
+            { id: 'accepted', label: '전체' },
             { id: 'pending_incoming', label: '대기중 (받음)' },
             { id: 'pending_outgoing', label: '대기중 (보냄)' },
             { id: 'blocked', label: '차단됨' },
@@ -92,8 +102,13 @@ export function FriendsPage(): JSX.Element {
               row={row}
               onAccept={() => accept.mutate({ friendshipId: row.friendshipId })}
               onReject={() => reject.mutate({ friendshipId: row.friendshipId })}
-              onRemove={() => remove.mutate({ friendshipId: row.friendshipId })}
-              onBlock={() => block.mutate({ userId: row.otherUserId })}
+              onRemove={() =>
+                // 071-M5 H5: 즉발 mutate 제거 — confirm 다이얼로그에서만 확정.
+                setRemoveTarget({ friendshipId: row.friendshipId, username: row.otherUsername })
+              }
+              onBlock={() =>
+                setBlockTarget({ userId: row.otherUserId, username: row.otherUsername })
+              }
               onUnblock={() => unblock.mutate({ userId: row.otherUserId })}
             />
           ))
@@ -117,7 +132,8 @@ export function FriendsPage(): JSX.Element {
               type="text"
               data-testid="friends-add-username"
               aria-label="추가할 친구의 사용자 이름"
-              placeholder="username"
+              // 071-M5 H9 (감사 H-11): placeholder 영문 잔재 'username' → '사용자명'.
+              placeholder="사용자명"
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="qf-input w-full"
@@ -135,6 +151,73 @@ export function FriendsPage(): JSX.Element {
           </div>
         </div>
       ) : null}
+
+      {/* 071-M5 H5 (FR-IA-A11Y-01): 친구 삭제 confirm — 데스크톱 파괴적 확인 관행
+          (ModerationActions 영구 차단 선례: Dialog alertDialog + danger 확정) 재사용.
+          트랩/Esc/복귀는 Radix 가 처리한다. */}
+      <Dialog
+        open={removeTarget !== null}
+        onOpenChange={(v) => {
+          if (!v) setRemoveTarget(null);
+        }}
+        alertDialog
+        title="친구를 삭제할까요?"
+        description={`${removeTarget?.username ?? ''}님을 친구에서 삭제합니다. 다시 추가하려면 새 친구 요청이 필요합니다.`}
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="friend-remove-cancel"
+            onClick={() => setRemoveTarget(null)}
+          >
+            취소
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid="friend-remove-confirm"
+            onClick={() => {
+              if (removeTarget) remove.mutate({ friendshipId: removeTarget.friendshipId });
+              setRemoveTarget(null);
+            }}
+          >
+            삭제
+          </Button>
+        </div>
+      </Dialog>
+      {/* M5 리뷰 M-10: 차단 confirm — 삭제 confirm 과 동일 패턴. */}
+      <Dialog
+        open={blockTarget !== null}
+        onOpenChange={(v) => {
+          if (!v) setBlockTarget(null);
+        }}
+        alertDialog
+        title="이 사용자를 차단할까요?"
+        description={`${blockTarget?.username ?? ''}님과의 친구 관계가 해제되고 서로 메시지를 보낼 수 없게 됩니다. 차단 탭에서 해제할 수 있습니다.`}
+      >
+        <div className="flex justify-end gap-[var(--s-2)]">
+          <Button
+            variant="secondary"
+            size="sm"
+            data-testid="friend-block-cancel"
+            onClick={() => setBlockTarget(null)}
+          >
+            취소
+          </Button>
+          <Button
+            variant="danger"
+            size="sm"
+            data-testid="friend-block-confirm"
+            onClick={() => {
+              if (blockTarget) block.mutate({ userId: blockTarget.userId });
+              setBlockTarget(null);
+            }}
+          >
+            차단
+          </Button>
+        </div>
+      </Dialog>
     </div>
   );
 }

@@ -52,7 +52,8 @@ export function ActivityPage(): JSX.Element {
     >
       <header className="flex items-center gap-[var(--s-3)] px-[var(--s-6)] h-[var(--h-topbar)] border-b border-border-subtle">
         <Icon name="bell" size="md" />
-        <div className="font-semibold text-[length:var(--fs-16)]">Activity</div>
+        {/* 071-M5 H9 (감사 H-11): 데스크톱 잔존 영문 헤더 — 모바일(MobileActivity)은 기해소. */}
+        <div className="font-semibold text-[length:var(--fs-16)]">활동</div>
         <div className="ml-auto flex items-center gap-[var(--s-3)]">
           {unread && unread.total > 0 ? (
             <span className="qf-badge qf-badge--count" data-testid="activity-unread-total">

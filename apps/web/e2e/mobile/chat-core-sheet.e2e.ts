@@ -43,7 +43,11 @@ test('sheet on another member message exposes extended actions and opens report 
   await loginUI(page, `mssa-${stamp}@qufox.dev`, slug);
   await expect(page.getByTestId('mobile-message-list')).toContainText('타인 메시지');
 
-  await dispatchLongPress(page.locator(theirRowSelector).first());
+  await dispatchLongPress(
+    page.locator(theirRowSelector).first(),
+    650,
+    page.locator('[data-testid^="mobile-msg-sheet-"]').first(),
+  );
   const sheet = page.locator('[data-testid^="mobile-msg-sheet-"]').first();
   await expect(sheet).toBeVisible();
 
@@ -94,7 +98,7 @@ test('deleting my message requires the in-place 2-step confirm', async ({ browse
     .locator('[data-testid^="mobile-msg-"][data-mine="true"]:not([data-testid^="mobile-msg-tmp-"])')
     .first();
   await expect(myRow).toBeVisible();
-  await dispatchLongPress(myRow);
+  await dispatchLongPress(myRow, 650, page.locator('[data-testid^="mobile-msg-sheet-"]').first());
 
   const del = page.getByTestId('mobile-msg-delete');
   await del.click();
@@ -132,7 +136,7 @@ test('emoji drawer search picks an emoji and the reaction chip appears on the ro
   await expect(page.getByTestId('mobile-message-list')).toContainText('드로어 반응 대상');
 
   const row = page.locator(theirRowSelector).first();
-  await dispatchLongPress(row);
+  await dispatchLongPress(row, 650, page.locator('[data-testid^="mobile-msg-sheet-"]').first());
   await page.getByTestId('mobile-more-reactions').click();
   await expect(page.getByTestId('mobile-emoji-drawer')).toBeVisible();
 

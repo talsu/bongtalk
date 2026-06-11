@@ -1107,7 +1107,15 @@ export function MessageComposer({
             aria-invalid={counter.overLimit || undefined}
             // S79 (FR-SC-03 · Fork A): 슬래시 커맨드 선택 직후엔 파라미터 usage hint 를
             // placeholder 로 노출하고, 그 외엔 기본 채널 placeholder 를 쓴다.
-            placeholder={paramHint ?? `# ${channelName} 에 메시지…`}
+            // 071-M5 H10 (감사 H-11 DM placeholder): Global DM(workspaceId=null)은
+            // DmShell 이 channelName=상대 username 을 전달한다 — '#' 채널 프리픽스
+            // 오용 대신 '@사용자명 에게 메시지' 카피로 분기(모바일 컴포저 동일 수정).
+            placeholder={
+              paramHint ??
+              (workspaceId === null
+                ? `@${channelName} 에게 메시지…`
+                : `# ${channelName} 에 메시지…`)
+            }
             className="flex-1 resize-none bg-transparent outline-none placeholder:text-text-muted text-foreground"
             style={{ minHeight: `${MIN_HEIGHT_PX}px`, maxHeight: `${MAX_HEIGHT_PX}px` }}
           />
