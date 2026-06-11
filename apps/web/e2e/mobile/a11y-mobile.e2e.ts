@@ -29,13 +29,19 @@ import {
  *
  *  | rule id | 표면 | 사유/백로그 |
  *  |---------|------|------------|
- *  | color-contrast | left-panel(.qf-m-section__action) · you-tab(.qf-avatar 이니셜) · ws-settings(workspace-settings-save) | DS 4파일 소유 색 조합(serious) — DS frozen 이라 앱 레이어 수리 불가, DS 토큰 개정 백로그(사용자 결정 필요). 앱 소유였던 레일 활성 텍스트 1건과 aria-allowed-attr(탭바 role·채널행 aria-current)는 M6 T5 에서 코드 수리 완료 |
+ *  | color-contrast(노드 exclude) | left-panel(.qf-m-section__action) · ws-settings(workspace-settings-save) | DS 4파일 소유 색 조합(serious) — DS frozen, 토큰 개정 백로그(사용자 결정 필요). ★you-tab(.qf-avatar 이니셜)은 리뷰 H-2 가 '앱 소유' 오분류를 적발 — Avatar colorFromSeed L 55→40% 로 실수리(전 hue AA). 레일 활성 텍스트·aria-allowed-attr(탭바 aria-current 전환·채널행)도 코드 수리 완료 |
  * ────────────────────────────────────────────────────────────────────────
  */
 test.setTimeout(180_000);
 
-// 실측으로 확인된 기존 위반 룰만 명시 격리한다(위 백로그 표와 1:1 동기).
-const ISOLATED_RULES: string[] = ['color-contrast'];
+// M6 리뷰 M-6 정정: 룰 전역 disable 은 향후 대비 회귀 전체를 침묵시킨다 —
+// DS frozen 소유로 확정된 노드만 스캔 영역에서 exclude(노드 격리)하고
+// color-contrast 룰 자체는 켜 둔다(위 백로그 표와 1:1 동기).
+const ISOLATED_RULES: string[] = [];
+const EXCLUDED_DS_NODES: readonly string[] = [
+  '.qf-m-section__action', // DS mobile.css L189 var(--accent) 조합
+  '[data-testid="workspace-settings-save"]', // DS qf-btn 클래스 조합
+];
 
 // 데스크톱 선례(axe-scan.e2e.ts)와 동일: Radix 가 포털 애니메이션 중 일시적으로
 // 거는 aria-hidden 이 만드는 프레임워크 오탐 — 실제 장벽이 아니므로 차단 집계에서
@@ -52,7 +58,9 @@ type AxeViolation = Awaited<ReturnType<AxeBuilder['analyze']>>['violations'][num
  * 5표면 전체 위반 목록을 한 번에 얻을 수 없다(soft 도 테스트는 fail 처리).
  */
 async function scanSurface(page: Page, label: string): Promise<void> {
-  const results = await new AxeBuilder({ page }).disableRules([...ISOLATED_RULES]).analyze();
+  let builder = new AxeBuilder({ page }).disableRules([...ISOLATED_RULES]);
+  for (const sel of EXCLUDED_DS_NODES) builder = builder.exclude(sel);
+  const results = await builder.analyze();
   if (results.violations.length > 0) {
     const triage = results.violations.map((v: AxeViolation) => ({
       id: v.id,

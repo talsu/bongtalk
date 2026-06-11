@@ -15,16 +15,10 @@ import { MOBILE_VIEWPORTS, PW, bootstrapWorkspace, loginUI, signupToken } from '
  * 에 iphone-xr(414×896)/tablet-portrait(768×1024) 를 추가한다
  * (_helpers MOBILE_VIEWPORTS 재사용).
  *
- * ⚠️ 신규 2뷰포트(iphone-xr / tablet-portrait)는 baseline 스냅샷이 아직
- * 디스크에 없다 — 이 spec 이 처음 실행될 때 "snapshot doesn't exist" 로
- * 실패하는 것이 정상이며, 오케스트레이터가 테스트 스택에서
- * `--update-snapshots` 1회 실행으로 baseline 을 생성한다.
- *
- * tablet-portrait(768) 주의: App 의 useIsMobile 은 `(max-width: 767px)`
- * 이므로 정확히 768 에서는 **데스크톱 셸**(shell-root)이 마운트된다.
- * 이 케이스는 모바일 testid 가 아니라 데스크톱 testid 로 단언하고,
- * 데스크톱 전용 동적 영역(BottomBar 의 run-unique username)은 mask 한다.
- * (MemberColumn 은 `hidden lg:block` — 768 에서는 렌더되지 않는다.)
+ * M6 T3 에서 4뷰포트로 확장 — 신규 2뷰포트(iphone-xr / tablet-portrait)
+ * baseline 은 cf2bb55 에서 시드 완료(테스트 스택 빌드본 기준). reseed 는 셸
+ * 의도 변경 시에만 동일 스택에서 `--update-snapshots` — diff 이미지 검수 없이
+ * 기계적으로 재생성하면 회귀가 baseline 으로 봉인되므로 금지(M6 리뷰 M-7).
  */
 const THRESHOLD = Number(process.env.DS_PARITY_THRESHOLD ?? 0.02);
 
