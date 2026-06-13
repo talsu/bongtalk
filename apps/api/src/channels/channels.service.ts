@@ -213,6 +213,65 @@ export class ChannelsService {
     };
   }
 
+  /**
+   * 072 백로그 S-D (FR-CH-06): 채널 둘러보기 목록. 공개·비보관·비삭제 채널에 대해
+   * 가입(opt-in) 멤버 수 + 호출자 가입 여부를 함께 싣는다.
+   *
+   * 멤버십 모델: 공개 채널 join 은 USER override 행을 만든다(joinChannel — allow:0/deny:0
+   * opt-in 마커). /invite 추가는 allow>0 grant 행을 만든다. 둘 다 "멤버"다. 그러나
+   * addChannelMemberOverride(ADMIN)는 공개 채널에도 게이트 없이 *순수 deny 제한*
+   * (allow:0 · deny>0) 행을 만들 수 있는데, 이는 "이미 보는 사용자에 대한 제한"이지
+   * 가입이 아니다(072 S-D 리뷰 MEDIUM). 따라서 멤버 집계에서 **순수 deny 제한 행
+   * (allowMask=0 AND denyMask>0)**을 제외한다 — join 마커(deny=0)와 grant(allow>0)는
+   * 포함. (잔여 edge: 가입 후 deny 제한이 걸린 사용자는 제외될 수 있음 — 드묾, 정밀
+   * 분리는 별도 멤버십 마커 컬럼 필요·마이그레이션 이월.) leftAt 은 DM 전용이라 일반
+   * 채널 override 는 항상 null 이지만 방어적으로 leftAt IS NULL 로 거른다.
+   *
+   * 사이드바 핫패스(listByWorkspace)는 건드리지 않고 전용 둘러보기 경로에서만 집계한다
+   * (groupBy + 호출자 행 조회 2쿼리, 둘 다 인덱스). 보관 채널은 가입 대상이 아니므로
+   * 제외한다(S-B 사이드바 숨김과 정합).
+   */
+  async listBrowsable(workspaceId: string, callerId: string) {
+    const channels = await this.prisma.channel.findMany({
+      where: {
+        workspaceId,
+        deletedAt: null,
+        archivedAt: null,
+        type: { not: 'DIRECT' },
+        isPrivate: false,
+      },
+      orderBy: [{ name: 'asc' }],
+    });
+    if (channels.length === 0) return { channels: [] };
+    const ids = channels.map((c) => c.id);
+    // 072 S-D 리뷰(MEDIUM): 순수 deny 제한 행(allow=0 AND deny>0)은 가입이 아니므로 제외.
+    const membershipRowWhere = {
+      principalType: 'USER' as const,
+      leftAt: null,
+      NOT: { allowMask: 0, denyMask: { gt: 0 } },
+    };
+    const [counts, mine] = await Promise.all([
+      this.prisma.channelPermissionOverride.groupBy({
+        by: ['channelId'],
+        where: { channelId: { in: ids }, ...membershipRowWhere },
+        _count: { _all: true },
+      }),
+      this.prisma.channelPermissionOverride.findMany({
+        where: { channelId: { in: ids }, principalId: callerId, ...membershipRowWhere },
+        select: { channelId: true },
+      }),
+    ]);
+    const countById = new Map(counts.map((c) => [c.channelId, c._count._all]));
+    const mineSet = new Set(mine.map((m) => m.channelId));
+    return {
+      channels: channels.map((c) => ({
+        ...this.toDto(c),
+        memberCount: countById.get(c.id) ?? 0,
+        isMember: mineSet.has(c.id),
+      })),
+    };
+  }
+
   async create(
     workspaceId: string,
     actorId: string,

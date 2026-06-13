@@ -244,6 +244,22 @@ export const ChannelListResponseSchema = z.object({
 });
 export type ChannelListResponse = z.infer<typeof ChannelListResponseSchema>;
 
+// 072 백로그 S-D (FR-CH-06): 채널 둘러보기 항목 — 공개 채널 + 가입 분기용 메타.
+//   - memberCount: 채널에 가입(opt-in)한 USER 수. 공개 채널 join 은 allowMask:0n opt-in
+//     마커 override 행을 만들므로(allowMask>0 아님), USER override 행 수로 집계한다.
+//   - isMember: 호출자의 USER override 행 존재 여부 → FE 가 "열기"/"가입" 버튼을 분기한다.
+// 사이드바 핫패스(ChannelListResponse)는 건드리지 않고 전용 둘러보기 응답에만 싣는다.
+export const ChannelBrowseItemSchema = ChannelSchema.extend({
+  memberCount: z.number().int().nonnegative(),
+  isMember: z.boolean(),
+});
+export type ChannelBrowseItem = z.infer<typeof ChannelBrowseItemSchema>;
+
+export const ListBrowsableChannelsResponseSchema = z.object({
+  channels: z.array(ChannelBrowseItemSchema),
+});
+export type ListBrowsableChannelsResponse = z.infer<typeof ListBrowsableChannelsResponseSchema>;
+
 // S43 (FR-CH-15): 즐겨찾기 재정렬 바디. 채널 move 와 동일한 fractional anchor
 // 규약을 따른다 — beforeId / afterId 는 상호 배타이며 둘 다 없으면 말단으로
 // 간주한다(서버 calcBetween 재사용). anchor 는 즐겨찾기 목록 안의 채널 id 다.
