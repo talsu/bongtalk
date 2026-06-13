@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import {
   Avatar,
@@ -129,6 +129,7 @@ function DmRowMenu({
  */
 function DmUnifiedRow({
   row,
+  meId,
   active,
   muted,
   status,
@@ -139,6 +140,7 @@ function DmUnifiedRow({
   onRemoveMute,
 }: {
   row: UnifiedDmRow;
+  meId: string | undefined;
   active: boolean;
   muted: boolean;
   status: PresenceStatus;
@@ -158,7 +160,19 @@ function DmUnifiedRow({
         muted,
         mentionCount: row.mentionCount ?? 0,
       });
-  const stackPeers = (row.participants ?? []).slice(0, 2);
+  const memberCount = row.memberIds?.length ?? 0;
+  // 072-N1(리뷰 MEDIUM): 아바타 스택에서 본인 제외(제목 groupDmTitle 과 정합).
+  const stackPeers = (row.participants ?? []).filter((p) => p.userId !== meId).slice(0, 2);
+  // 072-N1(리뷰 LOW): 메뉴 항목 선택 후 controlled 메뉴를 닫는다(preventDefault 로
+  // Radix 자동 닫힘이 막히므로 수동).
+  const close = (fn: () => void) => () => {
+    fn();
+    setMenuOpen(false);
+  };
+  const closeArg = (fn: (_m: number | null) => void) => (m: number | null) => {
+    fn(m);
+    setMenuOpen(false);
+  };
   return (
     <div
       data-testid={`dm-shell-row-${row.title}`}
@@ -170,6 +184,9 @@ function DmUnifiedRow({
       }}
       className={cn(
         'qf-channel group relative w-full',
+        // 072-N1(리뷰 plausible): 그룹 행은 2줄(제목+멤버수)이라 기본 32px 행에서
+        // absolute 콘텐츠가 클리핑된다 — spacious(40px)로 높여 둘째 줄을 수용한다.
+        isGroup && 'min-h-[var(--h-channel-row-spacious)]',
         active && 'qf-channel--active bg-[var(--bg-selected)] text-[var(--text-strong)]',
         muted && !active && 'text-[color:var(--text-muted)]',
       )}
@@ -184,9 +201,9 @@ function DmUnifiedRow({
           }
         }}
         aria-current={active ? 'page' : undefined}
-        aria-label={`${row.title} 대화 열기${muted ? ' (뮤트됨)' : ''}${
-          badge > 0 ? (muted ? `, 멘션 ${badge}개` : `, 읽지 않음 ${badge}개`) : ''
-        }`}
+        aria-label={`${row.title} 대화 열기${isGroup && memberCount > 0 ? `, 멤버 ${memberCount}명` : ''}${
+          muted ? ' (뮤트됨)' : ''
+        }${badge > 0 ? (muted ? `, 멘션 ${badge}개` : `, 읽지 않음 ${badge}개`) : ''}`}
         className="absolute inset-0 flex w-full items-center gap-[var(--s-2)] bg-transparent px-[var(--s-3)] text-left"
       >
         {isGroup ? (
@@ -209,8 +226,12 @@ function DmUnifiedRow({
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate">{row.title}</span>
           {isGroup ? (
-            <span className="truncate text-[length:var(--fs-12)] text-text-muted">
-              {row.memberIds ? `멤버 ${row.memberIds.length}명` : '그룹'}
+            // aria-hidden: 멤버 수는 위 button aria-label 에 이미 실려 SR 중복 방지(장식).
+            <span
+              aria-hidden
+              className="truncate text-[length:var(--fs-12)] text-text-muted"
+            >
+              {memberCount > 0 ? `멤버 ${memberCount}명` : '그룹'}
             </span>
           ) : null}
         </span>
@@ -239,7 +260,7 @@ function DmUnifiedRow({
             <button
               type="button"
               data-testid={`dm-shell-ctx-trigger-${row.title}`}
-              aria-label="DM 옵션"
+              aria-label={`${row.title} 대화 옵션`}
               onClick={(e) => e.stopPropagation()}
               onPointerDown={(e) => e.stopPropagation()}
               className={cn(
@@ -255,10 +276,10 @@ function DmUnifiedRow({
           <DmRowMenu
             row={row}
             muted={muted}
-            onHide={onHide}
-            onLeave={onLeave}
-            onSetMuteUntil={onSetMuteUntil}
-            onRemoveMute={onRemoveMute}
+            onHide={close(onHide)}
+            onLeave={close(onLeave)}
+            onSetMuteUntil={closeArg(onSetMuteUntil)}
+            onRemoveMute={close(onRemoveMute)}
           />
         </DropdownRoot>
       </span>
@@ -315,7 +336,9 @@ function NewConversationModal({
   };
 
   const submit = async (): Promise<void> => {
-    if (selected.length === 0) return;
+    // 072-N1(리뷰 LOW): 함수 내 pending 가드 — 빠른 더블클릭 이중 제출 방지(버튼
+    // disabled 의 UI 레벨 의존 보완).
+    if (selected.length === 0 || pending) return;
     setError(null);
     try {
       if (selected.length === 1) {
@@ -356,7 +379,7 @@ function NewConversationModal({
             {selected.map((id) => (
               <span
                 key={id}
-                className="qf-chip inline-flex items-center gap-[var(--s-1)] rounded-full bg-[var(--bg-selected)] px-[var(--s-2)] py-[var(--s-1)] text-[length:var(--fs-12)]"
+                className="inline-flex items-center gap-[var(--s-1)] rounded-full bg-[var(--bg-selected)] px-[var(--s-2)] py-[var(--s-1)] text-[length:var(--fs-12)]"
               >
                 {byId.get(id) ?? id}
                 <button
@@ -476,9 +499,18 @@ export function DmShell(): JSX.Element {
   const createDm = useCreateOrGetDm(undefined);
   const selectedDirectChannelId = byUser?.channelId ?? null;
 
+  // 072-N1(e2e 발견): createDm 폭주 가드. useMutation 객체는 매 렌더 새 정체성이라
+  // effect deps 로 두면 by-user 가 channelId 로 해소되기 전까지 매 렌더 createOrGet 을
+  // 재발사한다(idempotent 라 201 폭주 + createOrGet 이 hiddenAt 을 복원해 '숨기기'를
+  // 무력화). userId 당 1회만 시도하도록 ref 로 고정한다(에러 시 해제·재시도 허용).
+  const createAttemptedFor = useRef<string | null>(null);
   useEffect(() => {
     if (!validUserId || selectedDirectChannelId || byUser === undefined) return;
-    void createDm.mutateAsync({ userId: validUserId }).catch(() => undefined);
+    if (createAttemptedFor.current === validUserId) return;
+    createAttemptedFor.current = validUserId;
+    void createDm.mutateAsync({ userId: validUserId }).catch(() => {
+      createAttemptedFor.current = null;
+    });
   }, [validUserId, selectedDirectChannelId, byUser, createDm]);
 
   // 072-N1-1: 1:1 + 그룹 통합 정렬 행.
@@ -487,13 +519,27 @@ export function DmShell(): JSX.Element {
     [dms, groups, me],
   );
 
+  // 072-N1(리뷰 MEDIUM·critic): 열린 대화의 표시명이 검색어 입력으로 q-필터된
+  // 목록에서 빠질 때 '…'/멤버명나열로 퇴화하지 않게, 본 적 있는 라벨을 누적 캐시한다
+  // (u:userId→username, g:channelId→displayName). 검색 중에도 헤더/제목이 안정적.
+  const labelCacheRef = useRef<Map<string, string>>(new Map());
+  useEffect(() => {
+    for (const d of dms?.items ?? []) labelCacheRef.current.set(`u:${d.otherUserId}`, d.otherUsername);
+    for (const g of groups?.items ?? []) {
+      const dn = g.displayName?.trim();
+      if (dn) labelCacheRef.current.set(`g:${g.channelId}`, dn);
+    }
+  }, [dms, groups]);
+
   const selectedFriend = useMemo(() => {
     if (!validUserId) return null;
     const fromFriends = (friends?.items ?? []).find((f) => f.otherUserId === validUserId);
     if (fromFriends) return { userId: validUserId, username: fromFriends.otherUsername };
     const fromDms = (dms?.items ?? []).find((d) => d.otherUserId === validUserId);
     if (fromDms) return { userId: validUserId, username: fromDms.otherUsername };
-    return { userId: validUserId, username: '' };
+    // q-필터로 목록에서 빠진 비친구 DM 파트너 → 캐시된 마지막 username 사용.
+    const cached = labelCacheRef.current.get(`u:${validUserId}`);
+    return { userId: validUserId, username: cached ?? '' };
   }, [validUserId, friends, dms]);
 
   // 072-N1(적대 리뷰 HIGH): 열린 그룹을 q-필터/가시성-필터된 목록이 아니라 멤버
@@ -522,14 +568,17 @@ export function DmShell(): JSX.Element {
   }, [me, selectedFriend, routeGroupId, groupMembers]);
 
   const groupTitle = useMemo(() => {
-    const named = groupListEntry?.displayName?.trim();
+    // displayName 우선: 목록 항목 → (검색으로 빠졌으면) 캐시 → 멤버명 나열.
+    const named =
+      groupListEntry?.displayName?.trim() ||
+      (routeGroupId ? labelCacheRef.current.get(`g:${routeGroupId}`) : undefined);
     if (named) return named;
     const others = (groupMembers?.items ?? [])
       .filter((p) => p.userId !== me?.id)
       .map((p) => p.username)
       .filter((u) => u.length > 0);
     return others.length > 0 ? others.join(', ') : '그룹 대화';
-  }, [groupListEntry, groupMembers, me]);
+  }, [groupListEntry, groupMembers, me, routeGroupId]);
 
   const openRow = (row: UnifiedDmRow): void => {
     if (row.kind === 'group') navigate(`/dm/g/${row.channelId}`);
@@ -540,6 +589,13 @@ export function DmShell(): JSX.Element {
     otherUserId: f.otherUserId,
     otherUsername: f.otherUsername,
   }));
+
+  // 072-N1(리뷰 critic): DM 행은 서버 q 로 필터되는데 친구 섹션은 안 돼 검색 중
+  // 비일관(친구만 그대로 노출)이었다. 같은 검색어로 친구 섹션도 클라 필터한다.
+  const friendNorm = query.trim().toLowerCase();
+  const shownFriends = (friends?.items ?? []).filter(
+    (f) => !friendNorm || f.otherUsername.toLowerCase().includes(friendNorm),
+  );
 
   const nowMs = () => new Date().getTime();
 
@@ -587,22 +643,29 @@ export function DmShell(): JSX.Element {
                   <div className="qf-section__title">대화 목록</div>
                 </div>
               ) : null}
-              {rows.map((row) => (
+              {rows.map((row) => {
+                const isActive =
+                  row.kind === 'group'
+                    ? row.channelId === routeGroupId
+                    : row.otherUserId === routeUserId;
+                return (
                 <DmUnifiedRow
                   key={row.channelId}
                   row={row}
-                  active={
-                    row.kind === 'group'
-                      ? row.channelId === routeGroupId
-                      : row.otherUserId === routeUserId
-                  }
+                  meId={me?.id}
+                  active={isActive}
                   muted={mutedChannelIds.has(row.channelId)}
                   status={row.otherUserId ? getStatus(row.otherUserId) : 'offline'}
                   onOpen={() => openRow(row)}
-                  onHide={() =>
-                    setVisibility.mutate({ channelId: row.channelId, visibility: 'HIDDEN' })
-                  }
-                  onLeave={() => leaveGroup.mutate(row.channelId)}
+                  onHide={() => {
+                    setVisibility.mutate({ channelId: row.channelId, visibility: 'HIDDEN' });
+                    // 072-N1(리뷰 LOW): 열려있는 대화를 숨기면 우측 컬럼에 남지 않게 목록으로.
+                    if (isActive) navigate('/dm');
+                  }}
+                  onLeave={() => {
+                    leaveGroup.mutate(row.channelId);
+                    if (isActive) navigate('/dm');
+                  }}
                   onSetMuteUntil={(minutes) =>
                     setMuteUntil.mutate({
                       channelId: row.channelId,
@@ -611,13 +674,14 @@ export function DmShell(): JSX.Element {
                   }
                   onRemoveMute={() => removeDmMute.mutate(row.channelId)}
                 />
-              ))}
-              {(friends?.items ?? []).length > 0 ? (
+                );
+              })}
+              {shownFriends.length > 0 ? (
                 <div className="qf-section">
                   <div className="qf-section__title">친구</div>
                 </div>
               ) : null}
-              {(friends?.items ?? []).map((f) => (
+              {shownFriends.map((f) => (
                 <button
                   key={f.otherUserId}
                   type="button"
