@@ -31,6 +31,9 @@ import { ReminderModal } from '../../features/saved/ReminderModal';
 import { useSetReminder } from '../../features/saved/useReminder';
 import { saveMessage } from '../../features/saved/api';
 import { deriveHasReminder } from '../../features/messages/rovingFocus';
+// 072-N0 (N0-3): 뷰어 멘션 판정 공용 유틸로 추출 — 데스크톱(MessageItem)과 공유.
+// 071-M1 D1 의 로컬 구현을 동작 무변경으로 이동(모바일 회귀 금지).
+import { astMentionsViewer } from '../../features/messages/astMentionsViewer';
 import type { SaveStatus, SavedMessageListResponse } from '@qufox/shared-types';
 import { ReportModal } from '../../features/messages/ReportModal';
 import { MobileEmojiDrawer } from './MobileEmojiDrawer';
@@ -1095,31 +1098,6 @@ export function MobileMessages({
       ) : null}
     </>
   );
-}
-
-/**
- * 071-M1 D1: 뷰어 멘션 판정 — contentAst 를 1회 순회해 mention_user(내 id)가
- * 있으면 true. AST 스키마에 의존하지 않는 관대한 워커(노드 모양 변화에 안전).
- */
-function astMentionsViewer(ast: unknown, meId: string | undefined): boolean {
-  if (!ast || !meId) return false;
-  const stack: unknown[] = [ast];
-  let guard = 0;
-  while (stack.length > 0 && guard < 5_000) {
-    guard += 1;
-    const node = stack.pop();
-    if (Array.isArray(node)) {
-      for (const child of node) stack.push(child);
-      continue;
-    }
-    if (typeof node !== 'object' || node === null) continue;
-    const rec = node as Record<string, unknown>;
-    if (rec.type === 'mention_user' && rec.userId === meId) return true;
-    for (const v of Object.values(rec)) {
-      if (v && typeof v === 'object') stack.push(v);
-    }
-  }
-  return false;
 }
 
 function MobileMessageRow({

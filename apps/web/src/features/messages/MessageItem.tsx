@@ -19,6 +19,8 @@ import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import { roleBadgeLabel } from './roleBadge';
 import { renderMessageContent, extractMessageUrls } from './parseContent';
 import { renderAst, type MentionLookup } from './renderAst';
+// 072-N0 (N0-3): 뷰어 멘션 판정 공용 유틸(모바일과 공유 — 동작 무변경).
+import { astMentionsViewer } from './astMentionsViewer';
 import { resolveCopyPlainText } from './copyText';
 import { EditHistoryPopover } from './EditHistoryPopover';
 import { AttachmentsList } from '../attachments/AttachmentsList';
@@ -120,6 +122,14 @@ type Props = {
   onPin?: () => void | Promise<void>;
   onUnpin?: () => void | Promise<void>;
   /**
+   * 072-N0 (감사 FR-RC08 / FR-AM-16): 링크 unfurl embed 사후 억제(suppress) 게이트 +
+   * 핸들러. 부모(MessageList)가 작성자/OWNER/ADMIN 여부 + 워크스페이스 채널 여부를
+   * 평가해 canSuppressEmbed 를 넘기고, ✕ 클릭 시 onSuppressEmbed(embedId) 가 호출된다.
+   * 서버 embed 카드(LinkPreview)에만 전달되며, 둘 다 있을 때만 ✕ 가 노출된다.
+   */
+  canSuppressEmbed?: boolean;
+  onSuppressEmbed?: (embedId: string) => void;
+  /**
    * S51 (FR-PS-07/13): 개인 저장 토글. 부모가 전달하면 툴바에 북마크 아이콘이
    * 노출되고, 클릭 시 저장/해제를 낙관적으로 토글한다. `isSaved` 가 true 면 채워진
    * (accent) 아이콘, false 면 외곽선 아이콘으로 렌더한다. tmp(낙관적 send) 행에는
@@ -163,6 +173,15 @@ type Props = {
   pickerQuickReactions?: string[];
   pickerRecentEmojis?: string[];
   pickerDefaultSkinTone?: number;
+  /**
+   * 072-N0 (N0-3 · 감사 D01 3335 / D16 16313): 현재 로그인 사용자(viewer) id. 부모
+   * (MessageList)가 useAuth 의 `user?.id` 를 전달한다. contentAst 에 이 id 의
+   * mention_user 노드가 있으면 본문 행을 멘션 강조(.qf-message--mention)한다 — 모바일
+   * (MobileMessages)이 이미 동일 판정으로 강조하던 동작을 데스크톱에 정합한다. prop 으로
+   * 받아 useAuth 직접 호출을 피한다(MessageItem provider-less 정적 렌더 invariant 보존 —
+   * spec 들이 AuthProvider 없이 렌더). 미전달 시 강조하지 않는다(graceful).
+   */
+  viewerId?: string;
 };
 
 export function MessageItem({
@@ -186,6 +205,8 @@ export function MessageItem({
   onOpenThread,
   onPin,
   onUnpin,
+  canSuppressEmbed,
+  onSuppressEmbed,
   onToggleSave,
   isSaved,
   onRetry,
@@ -195,6 +216,7 @@ export function MessageItem({
   pickerQuickReactions,
   pickerRecentEmojis,
   pickerDefaultSkinTone,
+  viewerId,
 }: Props): JSX.Element {
   // S81a (FR-SC-08): `/collapse`·`/expand` 로 토글한 채널 인라인 미디어 접힘 상태. true 면
   // 첨부 미리보기·링크 임베드를 숨긴다(텍스트 본문은 유지). 채널 단위 구독.
@@ -508,6 +530,11 @@ export function MessageItem({
   // S06 (FR-RC15, P2): 이모지 1~3개로만 구성된 본문은 32px 로 확대. AST 없는
   // legacy(content 평문) 행은 판정 불가 → 기본 크기(과확대 회피).
   const jumbo = isJumboEmoji(msg.contentAst);
+  // 072-N0 (N0-3 · 감사 D01 3335 / D16 16313): 본인 멘션 하이라이트. contentAst 에 viewer
+  // id 의 mention_user 노드가 있으면 article 에 DS .qf-message--mention(좌측 accent 강조선 +
+  // --mention-bg 배경)을 입힌다. 모바일이 이미 동일 판정으로 행을 강조하던 것을 데스크톱에
+  // 정합한다(공용 astMentionsViewer 로 단일화 — 동작 동일). viewerId 미전달 시 false(무강조).
+  const mentionsMe = astMentionsViewer(msg.contentAst, viewerId);
   const attachments: AttachmentLite[] = msg.attachments ?? [];
   const messageUrl =
     typeof window !== 'undefined' ? `${window.location.pathname}?msg=${msg.id}` : '';
@@ -570,7 +597,12 @@ export function MessageItem({
               ? { opacity: 0.6 }
               : undefined
         }
-        className={cn('qf-message group', isHead ? 'qf-message--head' : 'qf-message--cont')}
+        className={cn(
+          'qf-message group',
+          isHead ? 'qf-message--head' : 'qf-message--cont',
+          // 072-N0 (N0-3): 본인 멘션 행 강조(DS .qf-message--mention).
+          mentionsMe && 'qf-message--mention',
+        )}
       >
         {isHead ? (
           // S75 (FR-PS-07): 워크스페이스 채널(workspaceId 존재)에서만 아바타를 프로필 팝오버
@@ -810,7 +842,13 @@ export function MessageItem({
                     const serverEmbeds = msg.embeds ?? [];
                     if (serverEmbeds.length > 0) {
                       return serverEmbeds.map((e) => (
-                        <LinkPreview key={`embed-${e.id}`} embed={e} />
+                        <LinkPreview
+                          key={`embed-${e.id}`}
+                          embed={e}
+                          // 072-N0 (감사 FR-RC08): 작성자/관리자 한정 ✕('embed 숨기기').
+                          canSuppress={canSuppressEmbed}
+                          onSuppress={onSuppressEmbed ? () => onSuppressEmbed(e.id) : undefined}
+                        />
                       ));
                     }
                     const urls = extractMessageUrls(msg.content ?? '');
@@ -866,6 +904,42 @@ export function MessageItem({
               moreOpen && '!flex',
             )}
           >
+            {/* 072-N0 (N0-1 · 감사 FR-RC04 HIGH): hover 툴바 퀵 반응 3종. 피커를 열지
+                않고도 자주 쓰는 이모지(부모가 합성한 pickerQuickReactions 앞 3개 —
+                보통 👍❤️😂)를 한 번에 토글한다. DS .qf-msg-quickreact 컨테이너 +
+                __slot(28px 정사각) 채택(신규 클래스 0). 현재 byMe 여부를 msg.reactions
+                에서 읽어 onToggleReaction(emoji, currentlyByMe) 에 직결한다. quickReactions
+                미전달/빈 배열이면 렌더 생략(graceful). 피커 열기 버튼은 separator 뒤 유지. */}
+            {onToggleReaction && pickerQuickReactions && pickerQuickReactions.length > 0 ? (
+              <span className="qf-msg-quickreact">
+                {pickerQuickReactions.slice(0, 3).map((emoji) => {
+                  const currentlyByMe =
+                    (msg.reactions ?? []).find((r) => r.emoji === emoji)?.byMe ?? false;
+                  return (
+                    <button
+                      key={emoji}
+                      type="button"
+                      data-testid={`msg-quickreact-${emoji}-${msg.id}`}
+                      data-bymine={currentlyByMe ? 'true' : 'false'}
+                      onClick={() => onToggleReaction(emoji, currentlyByMe)}
+                      aria-pressed={currentlyByMe}
+                      aria-label={`${emoji} 로 ${currentlyByMe ? '반응 취소' : '반응'}`}
+                      className="qf-msg-quickreact__slot"
+                    >
+                      <span aria-hidden="true">{emoji}</span>
+                    </button>
+                  );
+                })}
+              </span>
+            ) : null}
+            {/* 072-N0 (N0-1): 퀵 반응 그룹과 피커 열기/그 외 액션 버튼 사이 시각 구분선.
+                DS 토큰만 사용(1px · var(--divider)) — 신규 DS 클래스/raw px·hex 없음. */}
+            {onToggleReaction && pickerQuickReactions && pickerQuickReactions.length > 0 ? (
+              <span
+                aria-hidden="true"
+                className="self-stretch w-px my-[var(--s-1)] bg-[var(--divider)]"
+              />
+            ) : null}
             {onToggleReaction ? (
               <button
                 type="button"

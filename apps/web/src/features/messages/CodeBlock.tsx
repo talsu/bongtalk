@@ -1,5 +1,6 @@
-import { useMemo } from 'react';
+import { useCallback, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
+import { Icon } from '../../design-system/primitives';
 
 /**
  * S04 (FR-MSG-02 / FR-RC13) — 코드블록 syntax highlighting.
@@ -90,20 +91,55 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string | null }
     }
   }, [code, resolved]);
 
+  // 072-N0 (감사 D01 · mock 3379-3387): 코드블록 상단 헤더 바 + 복사 버튼.
+  // DS .qf-codeblock__header / __header-lang / __copy / --with-header 클래스를
+  // 채택한다(DS 4파일 무수정). 복사 직후 짧게 "복사됨" 상태(data-copied)를 토글한다.
+  const [copied, setCopied] = useState(false);
+  const copyTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const onCopy = useCallback(() => {
+    // navigator.clipboard 미지원/거부 환경에서는 조용히 무시한다(낙관적 표시 안 함).
+    void navigator.clipboard
+      ?.writeText(code)
+      .then(() => {
+        setCopied(true);
+        if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+        copyTimerRef.current = setTimeout(() => setCopied(false), 1500);
+      })
+      .catch(() => {
+        /* 클립보드 거부 — 무시 */
+      });
+  }, [code]);
+
   return (
-    <pre
-      className="qf-codeblock"
-      data-lang={lang ?? undefined}
-      data-highlighted={highlighted ? 'true' : 'false'}
-    >
-      {lang ? <span className="qf-codeblock__lang">{lang}</span> : null}
-      {highlighted ? (
-        // highlight.js 출력만 주입 — 입력은 highlight.js 가 자체 escape 함.
-        <code className="hljs" dangerouslySetInnerHTML={{ __html: highlighted }} />
-      ) : (
-        // plain 폴백 — React text child 자동 escape (FR-MSG-02 / FR-MSG-20).
-        <code>{code}</code>
-      )}
-    </pre>
+    <>
+      <div className="qf-codeblock__header">
+        {/* 언어 라벨(헤더 전용 __header-lang). 미지정이면 'TEXT' 폴백. */}
+        <span className="qf-codeblock__header-lang">{lang ?? 'TEXT'}</span>
+        <button
+          type="button"
+          className="qf-codeblock__copy"
+          data-copied={copied ? 'true' : undefined}
+          aria-label="코드 복사"
+          onClick={onCopy}
+        >
+          <Icon name={copied ? 'check' : 'copy'} size="sm" />
+          {copied ? '복사됨' : '복사'}
+        </button>
+      </div>
+      <pre
+        className="qf-codeblock qf-codeblock--with-header"
+        data-lang={lang ?? undefined}
+        data-highlighted={highlighted ? 'true' : 'false'}
+      >
+        {lang ? <span className="qf-codeblock__lang">{lang}</span> : null}
+        {highlighted ? (
+          // highlight.js 출력만 주입 — 입력은 highlight.js 가 자체 escape 함.
+          <code className="hljs" dangerouslySetInnerHTML={{ __html: highlighted }} />
+        ) : (
+          // plain 폴백 — React text child 자동 escape (FR-MSG-02 / FR-MSG-20).
+          <code>{code}</code>
+        )}
+      </pre>
+    </>
   );
 }

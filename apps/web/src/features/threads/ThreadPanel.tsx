@@ -13,6 +13,10 @@ import {
 import { useCompose, threadDraftKey } from '../../stores/compose-store';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
+// 072-N0 (감사 D04 · mock 5941): 스레드 패널 루트/답글 본문을 메인 타임라인과
+// 동일하게 커스텀 이모지까지 리치 렌더하기 위한 룩업 컨텍스트.
+import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
+import type { CustomEmoji } from '../emojis/api';
 import { cn } from '../../lib/cn';
 import {
   useThreadReplies,
@@ -61,6 +65,9 @@ export function ThreadPanel({
   mobile = false,
 }: Props): JSX.Element | null {
   const { data: members } = useMembers(workspaceId);
+  // 072-N0 (감사 D04): 커스텀 이모지 룩업. 루트/답글 본문을 메인 타임라인과
+  // 동일한 renderMessageContent(content, byName) 경로로 렌더하기 위해 주입한다.
+  const customEmojis = useCustomEmojiLookup();
   // S38 (FR-TH-13): 본인의 워크스페이스 역할(OWNER/ADMIN 만 잠금/해제 + 잠긴
   // 스레드 답글 가능). useWorkspace 의 myRole 을 단일 출처로 쓴다.
   const { data: wsData } = useWorkspace(workspaceId);
@@ -484,7 +491,11 @@ export function ThreadPanel({
                 {new Date(root.createdAt).toLocaleTimeString()}
               </span>
             </div>
-            <div className="qf-thread-origin__body">{root.content ?? ''}</div>
+            {/* 072-N0 (감사 D04 · mock 5941): 루트 본문도 답글과 동일하게
+               mrkdwn + 커스텀 이모지 리치 렌더(이전엔 plain text 였음). */}
+            <div className="qf-thread-origin__body">
+              {renderMessageContent(root.content ?? '', customEmojis.byName)}
+            </div>
           </div>
         ) : history.isLoading ? (
           <div className="qf-thread-divider">불러오는 중…</div>
@@ -527,6 +538,7 @@ export function ThreadPanel({
               msg={m}
               authorName={nameById.get(m.authorId)}
               isContinuation={isContinuation}
+              customEmojis={customEmojis.byName}
             />
           );
         })}
@@ -599,10 +611,14 @@ function ThreadReplyRow({
   msg,
   authorName,
   isContinuation,
+  // 072-N0 (감사 D04): 커스텀 이모지 룩업 맵. 답글 본문도 루트와 동일하게
+  // 메인 타임라인과 일관된 리치 렌더 경로를 타게 한다.
+  customEmojis,
 }: {
   msg: MessageDto;
   authorName?: string;
   isContinuation: boolean;
+  customEmojis?: Map<string, CustomEmoji>;
 }): JSX.Element {
   const isHead = !isContinuation;
   if (msg.deleted) {
@@ -644,7 +660,9 @@ function ThreadReplyRow({
             </span>
           </div>
         ) : null}
-        <div className="qf-thread-msg__body">{renderMessageContent(msg.content ?? '')}</div>
+        <div className="qf-thread-msg__body">
+          {renderMessageContent(msg.content ?? '', customEmojis)}
+        </div>
       </div>
     </article>
   );
