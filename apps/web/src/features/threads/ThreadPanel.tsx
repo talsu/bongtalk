@@ -14,7 +14,9 @@ import { useCompose, threadDraftKey } from '../../stores/compose-store';
 import { roleBadgeLabel } from '../messages/roleBadge';
 import { renderMessageContent } from '../messages/parseContent';
 // 072-N0 (감사 D04 · mock 5941): 스레드 패널 루트/답글 본문을 메인 타임라인과
-// 동일하게 커스텀 이모지까지 리치 렌더하기 위한 룩업 컨텍스트.
+// 동일하게 커스텀 이모지까지 리치 렌더하기 위한 룩업 컨텍스트. ★리뷰 MEDIUM:
+// 컨텍스트(쿼리 훅 아님 — 테스트 하니스 안전)를 쓰고, 실제 provider 는 마운트
+// 지점(MessageColumn/MobileMessages)이 CustomEmojiProvider 로 감싼다.
 import { useCustomEmojiLookup } from '../emojis/CustomEmojiContext';
 import type { CustomEmoji } from '../emojis/api';
 import { cn } from '../../lib/cn';
@@ -65,8 +67,10 @@ export function ThreadPanel({
   mobile = false,
 }: Props): JSX.Element | null {
   const { data: members } = useMembers(workspaceId);
-  // 072-N0 (감사 D04): 커스텀 이모지 룩업. 루트/답글 본문을 메인 타임라인과
-  // 동일한 renderMessageContent(content, byName) 경로로 렌더하기 위해 주입한다.
+  // 072-N0 (감사 D04) + 리뷰 MEDIUM: 커스텀 이모지 룩업(컨텍스트). 종전엔 ThreadPanel
+  // 이 CustomEmojiProvider 바깥의 형제라 빈 맵 → :slug: 평문 깨짐이었다. 수리는
+  // ThreadPanel 마운트 지점(MessageColumn 데스크톱 / MobileMessages 모바일)을
+  // CustomEmojiProvider 로 감싸 처리한다(여기선 컨텍스트 소비만 — 쿼리 훅 미사용).
   const customEmojis = useCustomEmojiLookup();
   // S38 (FR-TH-13): 본인의 워크스페이스 역할(OWNER/ADMIN 만 잠금/해제 + 잠긴
   // 스레드 답글 가능). useWorkspace 의 myRole 을 단일 출처로 쓴다.

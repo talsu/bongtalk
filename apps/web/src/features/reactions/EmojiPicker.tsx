@@ -1,6 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
 import { usePutUserEmojiPreference } from '../emojis/useCustomEmojis';
+// 072-N0 리뷰 HIGH: 검색을 글리프 이름(shortcode)으로 매칭(컴포저 ':' 자동완성과 동일).
+// ★leaf 모듈에서 import — emojiShortcodes 직접 import 는 EMOJI_CATEGORIES 순환을 만든다.
+import { GLYPH_TO_NAME } from '../messages/autocomplete/emojiGlyphNames';
 
 // Curated emoji palette. First tab is "frequently used" (the set the DS
 // composer + reaction mockups show), rest grouped by theme. Hand-curated
@@ -115,13 +118,17 @@ const SKIN_TONE_OPTIONS: { tone: number; label: string }[] = [
  * 유니코드 글리프(shortcode 이름 없음)와 커스텀 이모지 slug 두 종류라 입력 형태가
  * 달라 별도 순수 함수로 둔다(autocomplete 의 filterEmojis 는 EmojiCandidate[] 전제).
  *   - 커스텀 이모지: slug(name) 부분 일치.
- *   - 큐레이션 글리프: shortcode 이름이 없으므로 글리프 자체 포함 여부로만 매칭한다
- *     (이모지 글리프를 직접 입력하는 경우 대비 — 텍스트 질의에는 자연히 비매칭).
+ *   - 큐레이션 글리프: shortcode 이름(GLYPH_TO_NAME) 부분 일치 — ★리뷰 HIGH 수리.
+ *     종전엔 글리프 자체로만 매칭해 'fire'/'heart' 텍스트 질의가 전 세트에서 0건이라
+ *     검색이 무용이었다. 컴포저 ':' 자동완성과 동일 데이터로 정합. 글리프 직접 입력도 폴백.
  */
 export function filterPickerEmojis(glyphs: string[], query: string): string[] {
   const q = query.trim().toLowerCase();
   if (q.length === 0) return glyphs;
-  return glyphs.filter((g) => g.toLowerCase().includes(q));
+  return glyphs.filter((g) => {
+    const name = GLYPH_TO_NAME[g];
+    return (name !== undefined && name.includes(q)) || g.toLowerCase().includes(q);
+  });
 }
 
 function filterCustomEmojis(

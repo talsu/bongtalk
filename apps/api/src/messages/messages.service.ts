@@ -689,7 +689,11 @@ export class MessagesService {
       deleted: isDeleted,
       createdAt: row.createdAt.toISOString(),
       editedAt: isDeleted ? null : (row.editedAt?.toISOString() ?? null),
-      reactions,
+      // 072-N0 리뷰 HIGH (S33 보안 패턴): 삭제 placeholder 는 본문/멘션/첨부를
+      // 마스킹하는데, 이번 슬라이스가 추가한 previewUsers(반응자 username/displayName)
+      // 가 그대로 실리면 '누가 반응했는지' 신원이 처음으로 누출된다 — 삭제 행에선
+      // previewUsers 만 제거한다(count/byMe 는 종전과 동일 노출 유지).
+      reactions: isDeleted ? reactions.map((r) => ({ ...r, previewUsers: undefined })) : reactions,
       parentMessageId: row.parentMessageId,
       thread,
       // Deleted messages drop their attachments too — the wire shape
@@ -975,7 +979,9 @@ export class MessagesService {
                      'username', u.username,
                      'displayName', u."displayName"
                    )
-                   ORDER BY r2."createdAt" ASC
+                   -- 072-N0 리뷰 LOW: createdAt 동률 시 userId 로 결정적 정렬(LIMIT 5
+                   -- 선택과 agg 순서를 일치시켜 비결정성 제거).
+                   ORDER BY r2."createdAt" ASC, r2."userId" ASC
                  ) AS users
             FROM (
               SELECT mr."userId", mr."createdAt"
@@ -983,7 +989,7 @@ export class MessagesService {
                WHERE mr."messageId" = g."messageId"
                  AND mr.emoji = g.emoji
                  AND mr."customEmojiId" IS NOT DISTINCT FROM g."customEmojiId"
-               ORDER BY mr."createdAt" ASC
+               ORDER BY mr."createdAt" ASC, mr."userId" ASC
                LIMIT 5
             ) r2
             JOIN "User" u ON u.id = r2."userId"

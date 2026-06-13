@@ -575,14 +575,33 @@ describe('realtime dispatcher', () => {
       pages: Array<{
         items: Array<{
           id: string;
-          reactions: Array<{ emoji: string; count: number; byMe: boolean }>;
+          reactions: Array<{
+            emoji: string;
+            count: number;
+            byMe: boolean;
+            previewUsers?: Array<{ id: string; username: string; displayName: string | null }>;
+          }>;
         }>;
       }>;
     };
     // full replace: 🚀 가 1개 → 그대로, 🎉 신규. me 는 users 에 u-1 포함 여부로 계산.
+    // 072-N0: previewUsers 가 broadcast users(username 보유)로 재구성된다(툴팁 유지).
     expect(state.pages[0].items[0].reactions).toEqual([
-      { emoji: '🎉', count: 2, byMe: true },
-      { emoji: '🚀', count: 1, byMe: false },
+      {
+        emoji: '🎉',
+        count: 2,
+        byMe: true,
+        previewUsers: [
+          { id: 'u-1', username: 'me', displayName: null },
+          { id: 'u-2', username: 'other', displayName: null },
+        ],
+      },
+      {
+        emoji: '🚀',
+        count: 1,
+        byMe: false,
+        previewUsers: [{ id: 'u-9', username: 'someone', displayName: null }],
+      },
     ]);
     detach();
   });

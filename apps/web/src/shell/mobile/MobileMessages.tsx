@@ -128,6 +128,7 @@ import { renderAst, type MentionLookup } from '../../features/messages/renderAst
 import { isJumboEmoji } from '../../features/messages/jumboEmoji';
 import { threadChipVisible } from '../../features/messages/threadActionGate';
 import { useCustomEmojis } from '../../features/emojis/useCustomEmojis';
+import { CustomEmojiProvider } from '../../features/emojis/CustomEmojiContext';
 import type { CustomEmoji } from '../../features/emojis/api';
 // 071-M1 D2: 리액션 칩 행 — 데스크톱 ReactionBar 재사용(칩 토글 + 피커).
 import { ReactionBar } from '../../features/reactions/ReactionBar';
@@ -1016,21 +1017,25 @@ export function MobileMessages({
           재사용하고 mobile 플래그로 app-layer 전체화면 레이아웃을 입힌다(DS 무수정).
           워크스페이스 채널에서만 연다(workspaceId 보장). */}
       {threadRootId && workspaceId ? (
-        <ThreadPanel
-          mobile
-          workspaceId={workspaceId}
-          channelId={channelId}
-          channelName={channelName}
-          rootId={threadRootId}
-          onClose={() => {
-            setThreadRootId(null);
-            // dialog 닫힘 → 트리거(또는 원본 메시지 행)로 포커스 복귀.
-            const prev = previousFocusRef.current;
-            previousFocusRef.current = null;
-            // 행이 여전히 포커스 가능하도록 다음 프레임에 복귀(언마운트 후).
-            requestAnimationFrame(() => prev?.focus?.());
-          }}
-        />
+        // 072-N0 리뷰 MEDIUM: ThreadPanel(컨텍스트 소비)을 CustomEmojiProvider 로
+        // 감싸 모바일 스레드 패널 루트/답글의 :slug: 도 <img> 로 렌더되게 한다.
+        <CustomEmojiProvider workspaceId={workspaceId}>
+          <ThreadPanel
+            mobile
+            workspaceId={workspaceId}
+            channelId={channelId}
+            channelName={channelName}
+            rootId={threadRootId}
+            onClose={() => {
+              setThreadRootId(null);
+              // dialog 닫힘 → 트리거(또는 원본 메시지 행)로 포커스 복귀.
+              const prev = previousFocusRef.current;
+              previousFocusRef.current = null;
+              // 행이 여전히 포커스 가능하도록 다음 프레임에 복귀(언마운트 후).
+              requestAnimationFrame(() => prev?.focus?.());
+            }}
+          />
+        </CustomEmojiProvider>
       ) : null}
       {/* D9: 이모지 드로어 — 퀵 5종 밖 반응. 토글 방향은 드로어 선택 시점의 캐시
           최신 행에서 byMe 를 재조회한다(시트 스냅샷이 아닌 messages memo). */}

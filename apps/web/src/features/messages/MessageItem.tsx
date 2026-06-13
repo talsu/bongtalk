@@ -910,9 +910,16 @@ export function MessageItem({
                 __slot(28px 정사각) 채택(신규 클래스 0). 현재 byMe 여부를 msg.reactions
                 에서 읽어 onToggleReaction(emoji, currentlyByMe) 에 직결한다. quickReactions
                 미전달/빈 배열이면 렌더 생략(graceful). 피커 열기 버튼은 separator 뒤 유지. */}
-            {onToggleReaction && pickerQuickReactions && pickerQuickReactions.length > 0 ? (
+            {/* 072-N0 리뷰: tmp-(낙관 전송 중)·삭제 행은 토글 no-op 이라 퀵반응 숨김.
+               중복 이모지(서버 ≤3 만 검증·dedup 없음)는 React key/testid 충돌을 내므로
+               [...new Set] 으로 제거 후 3개. */}
+            {onToggleReaction &&
+            !msg.id.startsWith('tmp-') &&
+            !msg.deleted &&
+            pickerQuickReactions &&
+            pickerQuickReactions.length > 0 ? (
               <span className="qf-msg-quickreact">
-                {pickerQuickReactions.slice(0, 3).map((emoji) => {
+                {[...new Set(pickerQuickReactions)].slice(0, 3).map((emoji) => {
                   const currentlyByMe =
                     (msg.reactions ?? []).find((r) => r.emoji === emoji)?.byMe ?? false;
                   return (

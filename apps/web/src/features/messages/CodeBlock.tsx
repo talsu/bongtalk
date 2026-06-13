@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import hljs from 'highlight.js/lib/core';
 import { Icon } from '../../design-system/primitives';
 
@@ -109,6 +109,14 @@ export function CodeBlock({ code, lang }: { code: string; lang?: string | null }
         /* 클립보드 거부 — 무시 */
       });
   }, [code]);
+  // 072-N0 리뷰 LOW: 가상화 리스트에서 복사 직후 unmount 되면 setTimeout 이 떠도는
+  // 상태를 건드린다 — 언마운트 시 타이머 정리.
+  useEffect(
+    () => () => {
+      if (copyTimerRef.current) clearTimeout(copyTimerRef.current);
+    },
+    [],
+  );
 
   return (
     <>
