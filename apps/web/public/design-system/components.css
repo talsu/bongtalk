@@ -271,7 +271,8 @@
 }
 .qf-message:hover .qf-message__gutter-time { opacity: 1; }
 .qf-message__body {
-  font-size: var(--fs-15); line-height: var(--lh-normal); color: var(--text);
+  /* 072-N6-5 (D2): 채팅 폰트 크기 토큰. 미설정 시 base(--fs-15) 폴백. */
+  font-size: var(--fs-chat, var(--fs-15)); line-height: var(--lh-normal); color: var(--text);
   word-wrap: break-word;
 }
 .qf-message__body p { margin: 0; }

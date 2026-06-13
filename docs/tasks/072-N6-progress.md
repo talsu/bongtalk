@@ -14,7 +14,7 @@ N6 의 실시간/읽음 본체는 대부분 **서버 의존**이라 docs/검증 
 | N6-3 연결 불가 안내 (MEDIUM) | socket manager reconnect_failed + RealtimeStatus 'failed' 종단 — realtime plumbing | 이월 |
 | N6-3 세션 만료/탈취 배너 (FR-AUTH-55/56) | 인증/세션 이벤트 plumbing | 이월 |
 | N6-4 LOW(저장 원본이동·핀 메타·저장탭 카운트·2FA DS·배너 위계) | 혼합 | 이월(소규모 후속) |
-| **N6-5 D2/D5 DS 토큰** | **사용자 승인 필요** | **승인 게이트(사용자 결정 대기)** |
+| **N6-5 D2/D5 DS 토큰** | **사용자 D2+D5 일괄 승인** | ✅ 수행(아래 §N6-5) |
 | N6-6 PRD/fr-matrix 동기화 | docs only | 자율 수행(본 문서 + 추적 노트) |
 | N6-7 검증 상시화 | 슬라이스별 게이트로 대부분 충족 | 자율 정리 |
 
@@ -54,3 +54,19 @@ N6 의 실시간/읽음 본체는 대부분 **서버 의존**이라 docs/검증 
 
 **사용자 승인 게이트:**
 - D2 채팅 폰트 크기(`--fs-chat` DS 토큰 6단계) · D5 DS contrast 토큰 — DS 4파일 1회 개정.
+
+## N6-5 D2/D5 — DS 토큰 1회 개정 (사용자 D2+D5 일괄 승인)
+
+**서버 백로그 진행 여부**: 사용자 "지금은 보류(072 마감)" — 서버 의존 이월 항목은 다음 작업 때.
+
+- **D2 (FR-PS-09 P0 · 채팅 폰트 크기)**:
+  - `tokens.css`: `--fs-chat: var(--fs-15)` 신설(기본=본문 base).
+  - `components.css`: `.qf-message__body { font-size: var(--fs-chat, var(--fs-15)) }` 으로 retarget.
+  - `applyAppearanceToDOM.ts`: chatFontSize(12/13/14/15/16/18) → `--fs-chat: var(--fs-N)` 주입 재개
+    (raw px 아님 · rem 토큰 참조라 WCAG 1.4.4 Resize text 준수). spec 갱신.
+  - `AppearanceSettingsPage.tsx`: 폰트 슬라이더 활성화(F-M1 '준비 중' 해제) + onChatFontSize 저장. spec 갱신.
+- **D5 (071-M6 이월 contrast)**:
+  - `mobile.css` `.qf-m-section__action`: `color: var(--accent)`(a-500, 패널 위 <4.5:1) → `var(--link)`
+    (테마-aware a-300/a-600, AA 충족). workspace-settings-save 등 잔여는 axe 게이트로 검증.
+
+DS 4파일 수정은 D2/D5 승인 예외(다른 슬라이스는 무수정 유지). index.html 직접 link 라 데스크톱+모바일 즉시 반영.

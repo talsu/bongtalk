@@ -40,15 +40,15 @@ export function themeToPreference(theme: Theme): ThemePreference {
 
 /**
  * F-M2: density 만 DOM 에 반영한다. theme 은 ThemeProvider 가 단일 소유(setPreference 경유),
- * chatFontSize 는 DS-owner carryover(아래 NOTE)라 적용하지 않으며, clock24h 는 스토어가 보유한다.
+ * 072-N6-5(D2 승인): chatFontSize 도 --fs-chat 으로 반영한다(아래 NOTE), clock24h 는 스토어가 보유.
  */
 export function applyAppearanceToDOM(settings: AppearanceSettings): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   // COZY 는 명시적으로 cozy 로 둔다(DS 의 [data-density="compact"] 만 override, cozy=기본).
   root.dataset.density = settings.density === 'COMPACT' ? 'compact' : 'cozy';
-  // NOTE(F-M1 / DS carryover): chatFontSize 는 시각 적용을 보류한다 — DS 4파일에
-  // `--fs-chat` 참조 규칙이 0건이고 raw px 변수 주입은 1.4.4(Resize text) 위반이다.
-  // DS-owner 가 `.qf-message__body { font-size: var(--fs-chat, var(--fs-15)) }` 배선 +
-  // [data-density=compact] 충돌 해소 + px→rem 토큰화를 추가한 뒤 변수 주입을 되살린다.
+  // 072-N6-5(D2 · FR-PS-09, 사용자 승인 후 재개): chatFontSize(12/13/14/15/16/18)를 DS 의
+  // 동급 rem 토큰(--fs-12..--fs-18)을 참조하는 --fs-chat 으로 주입한다. raw px 가 아닌 rem
+  // 토큰 참조라 WCAG 1.4.4(Resize text) 준수. .qf-message__body 가 var(--fs-chat) 를 소비한다.
+  root.style.setProperty('--fs-chat', `var(--fs-${settings.chatFontSize})`);
 }

@@ -69,8 +69,10 @@ export function AppearanceSettingsPage(): JSX.Element {
   // S84c (FR-RC19): 링크 미리보기 전역 토글.
   const onLinkPreviews = (linkPreviewsEnabled: boolean): void =>
     save({ linkPreviewsEnabled }, '링크 미리보기 설정 저장 실패');
+  // 072-N6-5 (D2 · FR-PS-09): 채팅 폰트 크기 저장(6단계). applyAppearanceToDOM 이 --fs-chat 반영.
+  const onChatFontSize = (chatFontSize: (typeof CHAT_FONT_SIZES)[number]): void =>
+    save({ chatFontSize }, '폰트 크기 저장 실패');
 
-  // F-M1: 슬라이더는 비활성(준비 중)이라 현재 저장된 폰트 값만 표시한다.
   const fontIndex = Math.max(0, CHAT_FONT_SIZES.indexOf(settings.chatFontSize));
 
   return (
@@ -201,25 +203,23 @@ export function AppearanceSettingsPage(): JSX.Element {
           data-testid="appearance-font-hint"
           className="mb-[var(--s-3)] text-[length:var(--fs-12)] text-text-muted"
         >
-          준비 중 — 디자인 시스템 지원 후 활성화됩니다. (현재 {settings.chatFontSize}px)
+          메시지 본문 글자 크기를 조절합니다. (현재 {settings.chatFontSize}px)
         </p>
-        {/* F-M1 (a11y 1.4.4 · ui MAJOR): 슬라이더 비활성화. raw px `--fs-chat` 주입을
-            제거했으므로(applyAppearanceToDOM) 시각 효과가 없는 죽은 컨트롤을 막는다.
-            aria-disabled + describedby 로 비활성 사유를 보조기술에 전달한다. */}
+        {/* 072-N6-5 (D2 · FR-PS-09, 사용자 승인): DS 에 --fs-chat 토큰 + .qf-message__body
+            배선이 추가돼 슬라이더를 활성화한다. 변경 시 6단계(12~18) 중 선택값을 저장하고
+            applyAppearanceToDOM 이 --fs-chat(rem 토큰 참조)을 <html> 에 주입한다. */}
         <input
           aria-label="채팅 폰트 크기"
           aria-valuetext={`${settings.chatFontSize}px`}
-          aria-disabled="true"
           aria-describedby="appearance-font-hint"
           type="range"
           min={0}
           max={CHAT_FONT_SIZES.length - 1}
           step={1}
           value={fontIndex}
-          disabled
-          readOnly
+          onChange={(e) => onChatFontSize(CHAT_FONT_SIZES[Number(e.target.value)])}
           data-testid="appearance-font-slider"
-          className="w-full max-w-[var(--w-settings)] accent-[color:var(--accent)] opacity-50"
+          className="w-full max-w-[var(--w-settings)] accent-[color:var(--accent)]"
         />
         <div className="mt-[var(--s-1)] flex justify-between text-[length:var(--fs-11)] text-text-muted">
           {CHAT_FONT_SIZES.map((s) => (

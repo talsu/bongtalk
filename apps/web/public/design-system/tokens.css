@@ -63,6 +63,10 @@
   --fs-20:  1.25rem;     /* 20px — modal titles */
   --fs-24:  1.5rem;      /* 24px — page titles */
   --fs-32:  2rem;        /* 32px — display */
+  /* 072-N6-5 (D2 · FR-PS-09, 사용자 승인): 채팅 폰트 크기. 기본 = 메시지 본문 base(--fs-15).
+     외관 설정이 6단계(12/13/14/15/16/18 → --fs-12..--fs-18 rem 토큰) 중 하나를 <html>
+     style 에 --fs-chat 로 주입한다(rem 기반 — WCAG 1.4.4 Resize text 준수). */
+  --fs-chat: var(--fs-15);
 
   --lh-tight:  1.2;
   --lh-snug:   1.35;
