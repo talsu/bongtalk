@@ -13,7 +13,7 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
 | S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
 | S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
-| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | 🔄 진행 | —        | —        |
+| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
 | S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ⬜ 대기 | —        | —        |
 | S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ⬜ 대기 | —        | —        |
 | S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ⬜ 대기 | —        | —        |
@@ -164,4 +164,36 @@ raw → confirmed 3 (MEDIUM 1 + LOW 2).
 
 - standalone verify: **19/19 green** (첫 시도 + fix-forward 후 재확인 — webhook 8 / shared-types 35 /
   api 126 / web 231).
-- 머지/배포: (채움)
+- 머지/배포: develop `b8eed59e` (ls-remote 실측) → main `12c85878` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · api/web smoke OK) → /readyz
+  `{db:ok,redis:ok,outbox:idle}` · 두 컨테이너 healthy.
+
+---
+
+## S-F — suppress-embed fine-grained 권한 plumbing (FR-RC08 / N0-F4) · 🔄 리콘+설계 완료(구현 대기)
+
+브랜치: `feat/bl-f-suppress-embed-perm` (생성됨)
+
+### 리콘 결론 (Explore 실측)
+
+- **서버 게이트는 정확**: `PATCH /workspaces/:id/channels/:chid/messages/:msgId/embeds/:embedId/suppress`
+  (messages.controller.ts:743) = 작성자 본인 OR `Permission.DELETE_ANY_MESSAGE`(0x0008·채널 override
+  포함 — channelAccess.hasPermission). 서비스 suppressEmbed(messages.service.ts:561).
+- **갭(F4)**: FE 가 `canSuppressEmbed = !!workspaceId && !tmp && (authorId===me || viewerRole==='OWNER'
+|| viewerRole==='ADMIN')`(MessageList.tsx:1186) 로 **클라 추정** — 채널 MANAGE_MESSAGES override 무시.
+  → MEMBER 가 override 로 권한 받아도 버튼 미노출(false neg), OWNER/ADMIN 이 deny override 면 버튼
+  노출되나 클릭 시 403(false pos·UX 혼동). MessageDto 에 viewer 권한 필드 없음(authorId 만 있음).
+- FE 는 현재 viewer 의 채널 권한을 알 방법이 없음(useChannelPermissions 류 훅 부재). pin 은
+  memberCanPin 채널 컬럼으로 부분 반영, delete 도 override 미반영(동일 계열 갭).
+
+### 설계 (구현 시)
+
+서버-진실 노출이 정답: 활성 채널 응답에 `viewerCanManageMessages: boolean`(resolve DELETE_ANY_MESSAGE)
+을 싣고, MessageList 가 `canSuppressEmbed = isAuthor || channel.viewerCanManageMessages` 로 분기.
+
+- **결정 필요**: 노출 위치 — (A) 단일채널 GET `/channels/:chid`(ChannelAccessGuard 가 이미 권한 해석)
+  - FE useChannel(activeChannel) 훅 신설 [권장·핫패스 listByWorkspace 무영향], vs (B) ListMessagesResponse
+    per-channel 플래그. **(A) 권장** — 채널 스코프 권한이라 메시지마다 반복 불요, 작성자 체크만 per-msg(FE authorId 보유).
+- MessageList(:166)는 이미 useChannelList + channelId 보유 → 단일채널 권한 쿼리 추가 후 active 채널에서 읽기.
+- 확장: 같은 viewerCanManageMessages 로 delete 액션 override 반영도 가능(스코프 확장 검토).
+- 테스트: 권한 계산 단위 + canSuppressEmbed 분기. 적대 리뷰 후 머지/배포.
