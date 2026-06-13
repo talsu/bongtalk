@@ -1,5 +1,7 @@
 import { forwardRef, Module } from '@nestjs/common';
 import { WorkspacesController } from './workspaces.controller';
+// 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드 컨트롤러(WorkspacesService 재사용).
+import { WorkspaceIconController } from './workspace-icon.controller';
 import { WorkspacesService } from './workspaces.service';
 import { MembersController } from './members/members.controller';
 import { MembersService } from './members/members.service';
@@ -84,6 +86,7 @@ import { AutoModSpamService } from './automod/automod-spam.service';
   ],
   controllers: [
     WorkspacesController,
+    WorkspaceIconController,
     MembersController,
     WorkspaceInvitesController,
     PublicInvitesController,

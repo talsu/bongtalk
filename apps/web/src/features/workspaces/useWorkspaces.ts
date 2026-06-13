@@ -37,7 +37,13 @@ import {
   createAutoModRule,
   updateAutoModRule,
   deleteAutoModRule,
+  presignWorkspaceIcon,
+  finalizeWorkspaceIcon,
+  deleteWorkspaceIcon,
 } from './api';
+// 072 백로그 S-C (FR-W01): 워크스페이스 아이콘도 전역 아바타와 동일한 presigned POST
+// blob 업로드 헬퍼를 재사용한다(fields 먼저 + file 마지막 append).
+import { uploadAvatarBlob } from '../users/avatarUpload';
 import type {
   BulkMemberAction,
   CreateRoleRequest,
@@ -203,6 +209,39 @@ export function useUpdateWorkspace(id: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (input: Parameters<typeof updateWorkspace>[1]) => updateWorkspace(id, input),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.one(id) });
+      qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+// ── 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드/제거 ───────────────────
+// presign → MinIO 직접 POST → finalize 를 한 mutation 으로 묶는다(전역 아바타 흐름 동일).
+// 성공 시 상세(설정 페이지 현재 아이콘) + 내 워크스페이스 목록(레일)을 무효화한다.
+
+export function useUploadWorkspaceIcon(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: async (file: File) => {
+      const { key, url, fields } = await presignWorkspaceIcon(id, {
+        contentType: file.type,
+        sizeBytes: file.size,
+      });
+      await uploadAvatarBlob(url, fields, file);
+      return finalizeWorkspaceIcon(id, key);
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.one(id) });
+      qc.invalidateQueries({ queryKey: keys.mine });
+    },
+  });
+}
+
+export function useDeleteWorkspaceIcon(id: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => deleteWorkspaceIcon(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: keys.one(id) });
       qc.invalidateQueries({ queryKey: keys.mine });

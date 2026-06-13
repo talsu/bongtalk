@@ -32,6 +32,8 @@ function makeService() {
     discoverCache as never,
     // S72 (D13 / FR-W22): IpSoftBlockService — 이 스펙은 update() 게이트만 검증해 미사용.
     {} as never,
+    // 072 백로그 S-C (FR-W01): S3Service — 이 스펙은 update() 게이트만 검증해 미사용.
+    {} as never,
   );
   return { svc, update, invalidate };
 }
@@ -73,5 +75,32 @@ describe('S68 WorkspacesService.update — emailDomains OWNER gate', () => {
     await svc.update('ws', { emailDomains: [] }, 'OWNER');
     const data = update.mock.calls[0][0].data as { emailDomains: string[] };
     expect(data.emailDomains).toEqual([]);
+  });
+});
+
+// 072 백로그 S-C (FR-W01): joinMode 편집은 visibility/category 와 동일하게 OWNER 전용이며,
+// 변경 시에만 Prisma data 에 실린다(생략 시 미포함). update() 게이트만 검증한다.
+describe('072 S-C WorkspacesService.update — joinMode OWNER gate', () => {
+  it('rejects an ADMIN joinMode PATCH with WORKSPACE_INSUFFICIENT_ROLE', async () => {
+    const { svc, update } = makeService();
+    await expect(svc.update('ws', { joinMode: 'PUBLIC' }, 'ADMIN')).rejects.toMatchObject({
+      code: ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
+    });
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  it('allows an OWNER joinMode PATCH and writes joinMode to data', async () => {
+    const { svc, update } = makeService();
+    await svc.update('ws', { joinMode: 'APPLY' }, 'OWNER');
+    expect(update).toHaveBeenCalledTimes(1);
+    const data = update.mock.calls[0][0].data as { joinMode?: string };
+    expect(data.joinMode).toBe('APPLY');
+  });
+
+  it('does not touch joinMode when omitted (ADMIN name-only PATCH allowed)', async () => {
+    const { svc, update } = makeService();
+    await svc.update('ws', { name: 'Renamed' }, 'ADMIN');
+    const data = update.mock.calls[0][0].data as Record<string, unknown>;
+    expect('joinMode' in data).toBe(false);
   });
 });

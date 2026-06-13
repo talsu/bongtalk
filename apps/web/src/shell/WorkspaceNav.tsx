@@ -14,7 +14,9 @@ import { useBadgeStore } from '../features/notifications/badgeStore';
 import { cn } from '../lib/cn';
 
 type Props = {
-  workspaces: Array<Pick<Workspace, 'id' | 'name' | 'slug'>>;
+  // 072 백로그 S-C (FR-W01): iconUrl(presigned GET URL · 없으면 null)을 포함해 레일에
+  // 워크스페이스 아이콘을 렌더한다. 미설정이면 종전처럼 이니셜로 폴백한다.
+  workspaces: Array<Pick<Workspace, 'id' | 'name' | 'slug' | 'iconUrl'>>;
   activeSlug: string | null;
 };
 
@@ -85,7 +87,17 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
               data-unread={badge.variant !== 'none' ? 'true' : 'false'}
               data-mention={badge.variant === 'mention' ? 'true' : 'false'}
             >
-              {ws.name.slice(0, 2).toUpperCase()}
+              {/* 072 백로그 S-C (FR-W01): 아이콘이 있으면 이미지를, 없으면 이니셜을 렌더. */}
+              {ws.iconUrl ? (
+                <img
+                  src={ws.iconUrl}
+                  alt=""
+                  aria-hidden
+                  className="h-full w-full rounded-[inherit] object-cover"
+                />
+              ) : (
+                ws.name.slice(0, 2).toUpperCase()
+              )}
               {badge.variant !== 'none' ? (
                 <span
                   data-testid={`ws-unread-${ws.slug}`}
