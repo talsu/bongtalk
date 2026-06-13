@@ -169,7 +169,8 @@ function SectionBlock({
     const out: Channel[] = [];
     for (const id of section.channelIds) {
       const ch = channelsById.get(id);
-      if (ch) out.push(ch);
+      // 072 백로그 S-B (FR-CH-04): 보관 채널은 개인 섹션에서도 숨긴다(메인 목록과 정합).
+      if (ch && !ch.archivedAt) out.push(ch);
     }
     if (isAlpha) {
       return [...out].sort((a, b) => a.name.localeCompare(b.name));

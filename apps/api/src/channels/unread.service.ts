@@ -190,6 +190,9 @@ export class UnreadService {
           LEFT JOIN overrides o ON o."channelId" = c.id
          WHERE c."workspaceId" = ${workspaceId}::uuid
            AND c."deletedAt" IS NULL
+           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 미읽음 요약에서 제외(사이드바 숨김·읽기전용
+           -- 정합 — 유령 미읽음/멘션 행 방지). 보관 해제 시 메시지로부터 자동 재계산.
+           AND c."archivedAt" IS NULL
            -- MINOR-E: OWNER 단락 없음 — OWNER baseline 도 fold 통과(명시 DENY 존중).
            AND ${visible}
       )
@@ -310,6 +313,9 @@ export class UnreadService {
           FROM "Channel" c
           LEFT JOIN overrides o ON o."channelId" = c.id
          WHERE c."deletedAt" IS NULL
+           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 워크스페이스 미읽음 합산에서도 제외(레일
+           -- 배지 유령 카운트 방지). zero-channel 회귀는 LEFT JOIN 유지로 영향 없음.
+           AND c."archivedAt" IS NULL
       ),
       -- CRITICAL-C: 가시성 판정을 Channel LEFT JOIN 의 ON 절에 박아 비가시 채널은
       -- join 되지 않되(channel_id=NULL → 메시지 LATERAL 스킵), 멤버십 row 자체는

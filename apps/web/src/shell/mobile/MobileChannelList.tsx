@@ -118,8 +118,12 @@ export function MobileChannelList({
     unreadByChannel.set(u.channelId, { count: u.unreadCount, mention: u.hasMention });
   }
 
-  const uncategorized = data?.uncategorized ?? [];
-  const categories = data?.categories ?? [];
+  // 072 백로그 S-B (FR-CH-04): 모바일 사이드바도 보관 채널을 렌더에서 제외(데스크톱 정합).
+  const uncategorized = (data?.uncategorized ?? []).filter((c) => !c.archivedAt);
+  const categories = (data?.categories ?? []).map((cat) => ({
+    ...cat,
+    channels: cat.channels.filter((c) => !c.archivedAt),
+  }));
   const norm = filter.trim().toLowerCase();
   const match = (name: string): boolean => !norm || name.toLowerCase().includes(norm);
 

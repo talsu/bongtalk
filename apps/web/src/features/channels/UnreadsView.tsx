@@ -50,7 +50,23 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
     return m;
   }, [channelData]);
 
-  const sorted = useMemo(() => sortUnreadsView(unread?.channels ?? []), [unread]);
+  // 072 백로그 S-B (FR-CH-04): 보관 채널은 '읽지 않음' 뷰에서도 제외(사이드바 숨김과 정합,
+  // 유령 미읽음 행 방지). archivedAt 집합을 채널 데이터에서 만든다.
+  const archivedSet = useMemo(() => {
+    const s = new Set<string>();
+    for (const c of [
+      ...(channelData?.uncategorized ?? []),
+      ...((channelData?.categories ?? []).flatMap((c) => c.channels) ?? []),
+    ]) {
+      if (c.archivedAt) s.add(c.id);
+    }
+    return s;
+  }, [channelData]);
+
+  const sorted = useMemo(
+    () => sortUnreadsView((unread?.channels ?? []).filter((r) => !archivedSet.has(r.channelId))),
+    [unread, archivedSet],
+  );
   const page = useMemo(() => paginateUnreads(sorted, cursor, PAGE_SIZE), [sorted, cursor]);
 
   const onMarkAll = (): void => {
