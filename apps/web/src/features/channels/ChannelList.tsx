@@ -810,15 +810,18 @@ export function ChannelList({
 
   // S85 (FR-CH-16): 개인 섹션에 할당된 채널은 카테고리 기본 위치에서 제외한다(섹션에서
   // 표시). channelsById(전체)는 섹션이 채널 메타를 끌어오는 데 쓰이므로 별도로 둔다.
+  // 072 백로그 S-B (FR-CH-04): 보관(archivedAt) 채널은 사이드바 렌더에서 제외한다(서버
+  // write 게이트는 ChannelAccessGuard 409 로 이미 강제). channelsById(전체·raw)는 archived
+  // 를 유지해 설정/보관해제 경로(activeChannel 해석)가 깨지지 않게 한다.
   const uncategorized = useMemo(
-    () => (data?.uncategorized ?? []).filter((c) => !assignedChannelIds.has(c.id)),
+    () => (data?.uncategorized ?? []).filter((c) => !assignedChannelIds.has(c.id) && !c.archivedAt),
     [data, assignedChannelIds],
   );
   const categories = useMemo(
     () =>
       (data?.categories ?? []).map((cat) => ({
         ...cat,
-        channels: cat.channels.filter((c) => !assignedChannelIds.has(c.id)),
+        channels: cat.channels.filter((c) => !assignedChannelIds.has(c.id) && !c.archivedAt),
       })),
     [data, assignedChannelIds],
   );
