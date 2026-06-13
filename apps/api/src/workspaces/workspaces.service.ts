@@ -9,11 +9,18 @@ import {
   ROLE_RANK,
   UpdateWorkspaceRequest,
   WorkspaceRole as SharedWorkspaceRole,
+  // 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드 정책 상수.
+  WS_ICON_ALLOWED_MIME,
+  WS_ICON_MAX_BYTES,
+  type WsIconMime,
 } from '@qufox/shared-types';
 import { PrismaService } from '../prisma/prisma.module';
 import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { OutboxService } from '../common/outbox/outbox.service';
+// 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드(presigned POST + finalize magic).
+import { S3Service, sanitizeFilename } from '../storage/s3.service';
+import { matchesMagic, type MagicSupportedMime } from '../storage/validate-magic-bytes';
 import {
   OWNERSHIP_TRANSFERRED,
   WORKSPACE_CREATED,
@@ -49,6 +56,17 @@ import { assertWorkspaceEntryAllowed } from './workspace-entry-gate';
 // S72 (D13 / FR-W16): 디스커버리 검색 Redis 5분 캐시 + 버전 기반 invalidation.
 import { DiscoverCacheService } from './discover-cache.service';
 
+// 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 MinIO 키 prefix(`ws-icons/<wsId>/<file>`),
+// magic-byte 검사용 head 길이, presigned PUT/GET TTL. ws아바타(member-profile) 선례와
+// 동일한 값을 쓴다(전역 아바타 정책 일관).
+const WS_ICON_KEY_PREFIX = 'ws-icons';
+const WS_ICON_MAGIC_HEAD = 15;
+const WS_ICON_PRESIGN_TTL_SEC = Number(process.env.S3_PRESIGN_PUT_TTL_SEC ?? 900);
+// presigned GET URL TTL(초). 프로필 이미지(전역 avatar/banner/ws아바타)와 동일한 600s 로
+// 서명해 token-leak 표면을 줄인다. presignGet 은 순수 서명(네트워크 없음)이라 목록 read
+// 경로에서 워크스페이스마다 호출해도 round-trip 이 없다.
+const WS_ICON_GET_TTL_SEC = 600;
+
 /**
  * Every state-change writes an OutboxEvent inside the same Prisma transaction
  * as the business row. The dispatcher picks it up after commit — so subscribers
@@ -71,6 +89,9 @@ export class WorkspacesService {
     // S72 (D13 / FR-W22): joinPublic 의 IP soft-block + 가입 ipHash 기록. 생성자 끝에 두어
     // 기존 호출부(6-arg)의 인자 위치를 보존한다.
     private readonly ipSoftBlock: IpSoftBlockService,
+    // 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 presign/finalize/delete + 읽기 시
+    // storageKey → presigned GET URL 변환. StorageModule 이 제공(이미 import 됨).
+    private readonly s3: S3Service,
   ) {}
 
   private get graceMs(): number {
@@ -193,14 +214,20 @@ export class WorkspacesService {
     }
   }
 
-  listMine(userId: string) {
-    return this.prisma.workspace.findMany({
+  async listMine(userId: string) {
+    const rows = await this.prisma.workspace.findMany({
       where: {
         deletedAt: null,
         members: { some: { userId } },
       },
       orderBy: { createdAt: 'asc' },
     });
+    // 072 백로그 S-C (FR-W01): iconUrl 은 MinIO storageKey 이므로 레일 렌더용 presigned
+    // GET URL 로 변환한다. presignGet 은 순수 서명이라 워크스페이스마다 호출해도 round-trip
+    // 이 없다(아래 presignIconUrl 참고).
+    return Promise.all(
+      rows.map(async (w) => ({ ...w, iconUrl: await this.presignIconUrl(w.iconUrl) })),
+    );
   }
 
   async getWithMyRole(workspaceId: string, userId: string) {
@@ -213,7 +240,156 @@ export class WorkspacesService {
     if (!workspace || !member) {
       throw new DomainError(ErrorCode.WORKSPACE_NOT_FOUND, 'workspace not found');
     }
-    return { workspace, myRole: member.role as SharedWorkspaceRole };
+    // 072 백로그 S-C (FR-W01): 설정 페이지가 현재 아이콘을 표시하도록 presigned GET URL 로 변환.
+    return {
+      workspace: { ...workspace, iconUrl: await this.presignIconUrl(workspace.iconUrl) },
+      myRole: member.role as SharedWorkspaceRole,
+    };
+  }
+
+  /**
+   * 072 백로그 S-C (FR-W01): 저장된 iconUrl 은 MinIO storageKey 다. 외부 노출 전 presigned
+   * GET URL(600s)로 변환한다. null 이면 그대로 null(아이콘 미설정). 과거 PATCH 로 외부 절대
+   * URL 이 들어갔을 가능성에 대비해 http(s) 로 시작하면 presign 없이 통과시킨다(혼재 데이터 방어).
+   *
+   * public — 같은 모듈의 InvitesService(초대 미리보기)도 동일 변환을 재사용한다(presign-on-read
+   * 불변식을 워크스페이스 iconUrl 노출 표면 전체에서 일관 유지).
+   */
+  async presignIconUrl(key: string | null): Promise<string | null> {
+    if (!key) return null;
+    if (key.startsWith('http://') || key.startsWith('https://')) return key;
+    try {
+      return await this.s3.presignGet(key, { expiresIn: WS_ICON_GET_TTL_SEC });
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * 072 백로그 S-C 리뷰(LOW): discover 페이지의 각 항목 iconUrl(raw storageKey)을 presigned
+   * GET URL 로 변환한다. 캐시에는 raw 키를 저장하므로 HIT/MISS 양쪽 반환 직전에 호출해
+   * listMine/getWithMyRole 와 동일한 presign-on-read 불변식을 유지한다.
+   */
+  private async presignDiscoverPage(page: DiscoverPage): Promise<DiscoverPage> {
+    const items = await Promise.all(
+      page.items.map(async (it) => ({ ...it, iconUrl: await this.presignIconUrl(it.iconUrl) })),
+    );
+    return { ...page, items };
+  }
+
+  /**
+   * 072 백로그 S-C (FR-W01): POST /workspaces/:id/icon/presign. MIME/크기 검증 후 단일 키
+   * presigned POST 를 발급한다(MinIO 가 업로드 시점에 크기/Content-Type 강제). 매 업로드마다
+   * 새 uuid 세그먼트를 써서 finalize 전까지 기존 아이콘에 영향을 주지 않는다(ws아바타
+   * presignAvatar 패턴 동일). 서버 리사이즈 없음([[feedback_no_server_media_resize]]).
+   */
+  async presignIcon(
+    workspaceId: string,
+    contentType: string,
+    sizeBytes: number,
+  ): Promise<{ key: string; url: string; fields: Record<string, string>; expiresAt: string }> {
+    if (!(WS_ICON_ALLOWED_MIME as readonly string[]).includes(contentType)) {
+      throw new DomainError(
+        ErrorCode.INVALID_MIME,
+        `mime not allowed: ${contentType} (png/jpeg/webp only)`,
+      );
+    }
+    if (sizeBytes <= 0) {
+      throw new DomainError(ErrorCode.VALIDATION_FAILED, 'sizeBytes must be positive');
+    }
+    if (sizeBytes > WS_ICON_MAX_BYTES) {
+      throw new DomainError(
+        ErrorCode.FILE_TOO_LARGE,
+        `ws icon too large (${sizeBytes} > ${WS_ICON_MAX_BYTES})`,
+      );
+    }
+    const ext = this.iconExtForMime(contentType as WsIconMime);
+    const key = `${WS_ICON_KEY_PREFIX}/${workspaceId}/${randomUUID()}${sanitizeFilename(ext)}`;
+    const { url, fields } = await this.s3.presignPost(
+      key,
+      contentType,
+      WS_ICON_MAX_BYTES,
+      WS_ICON_PRESIGN_TTL_SEC,
+    );
+    const expiresAt = new Date(Date.now() + WS_ICON_PRESIGN_TTL_SEC * 1000).toISOString();
+    return { key, url, fields, expiresAt };
+  }
+
+  /**
+   * PUT /workspaces/:id/icon. presign 키가 이 워크스페이스 prefix 인지 + 업로드 landed/크기/
+   * 선언MIME/magic 을 검증한 뒤 Workspace.iconUrl 에 storageKey 를 저장한다. 이전 키(있고
+   * 외부 URL 이 아니면)는 best-effort 삭제. discover 카드가 아이콘을 노출하므로 캐시를
+   * 무효화하고 presigned GET URL 을 응답한다(ws아바타 finalizeAvatar 패턴 동일).
+   */
+  async finalizeIcon(workspaceId: string, key: string): Promise<{ iconUrl: string }> {
+    const expectedPrefix = `${WS_ICON_KEY_PREFIX}/${workspaceId}/`;
+    if (key.includes('..')) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'key contains a path traversal segment');
+    }
+    if (!key.startsWith(expectedPrefix)) {
+      throw new DomainError(ErrorCode.FORBIDDEN, 'key does not belong to this workspace');
+    }
+    const head = await this.s3.headObject(key);
+    if (!head) {
+      throw new DomainError(ErrorCode.INVALID_FILE, 'ws icon upload never landed');
+    }
+    if (head.contentLength > WS_ICON_MAX_BYTES) {
+      await this.s3.deleteObject(key).catch(() => undefined);
+      throw new DomainError(
+        ErrorCode.FILE_TOO_LARGE,
+        `ws icon too large (${head.contentLength} > ${WS_ICON_MAX_BYTES})`,
+      );
+    }
+    const declaredMime = head.contentType;
+    if (!declaredMime || !(WS_ICON_ALLOWED_MIME as readonly string[]).includes(declaredMime)) {
+      await this.s3.deleteObject(key).catch(() => undefined);
+      throw new DomainError(ErrorCode.INVALID_MIME, `ws icon mime not allowed: ${declaredMime}`);
+    }
+    const headBytes = await this.s3.getObjectRange(key, WS_ICON_MAGIC_HEAD);
+    if (!headBytes || !matchesMagic(headBytes, declaredMime as MagicSupportedMime)) {
+      await this.s3.deleteObject(key).catch(() => undefined);
+      throw new DomainError(
+        ErrorCode.INVALID_MAGIC_BYTES,
+        `declared ${declaredMime} but file magic does not match`,
+      );
+    }
+    const prev = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { iconUrl: true },
+    });
+    await this.prisma.workspace.update({ where: { id: workspaceId }, data: { iconUrl: key } });
+    // 이전 키 best-effort 정리(외부 절대 URL 레거시 값은 MinIO 객체가 아니므로 건너뛴다).
+    if (prev?.iconUrl && prev.iconUrl !== key && !prev.iconUrl.startsWith('http')) {
+      void this.s3.deleteObject(prev.iconUrl).catch(() => undefined);
+    }
+    await this.discoverCache.invalidate();
+    const iconUrl = await this.s3.presignGet(key, { expiresIn: WS_ICON_GET_TTL_SEC });
+    return { iconUrl };
+  }
+
+  /** DELETE /workspaces/:id/icon. iconUrl 을 null 로 리셋 + 객체 best-effort 삭제(멱등). */
+  async deleteIcon(workspaceId: string): Promise<void> {
+    const row = await this.prisma.workspace.findUnique({
+      where: { id: workspaceId },
+      select: { iconUrl: true },
+    });
+    if (!row?.iconUrl) return; // 이미 없음 — 멱등.
+    await this.prisma.workspace.update({ where: { id: workspaceId }, data: { iconUrl: null } });
+    if (!row.iconUrl.startsWith('http')) {
+      await this.s3.deleteObject(row.iconUrl).catch(() => undefined);
+    }
+    await this.discoverCache.invalidate();
+  }
+
+  private iconExtForMime(mime: WsIconMime): string {
+    switch (mime) {
+      case 'image/png':
+        return '.png';
+      case 'image/jpeg':
+        return '.jpg';
+      case 'image/webp':
+        return '.webp';
+    }
   }
 
   async update(workspaceId: string, input: UpdateWorkspaceRequest, actorRole?: string) {
@@ -221,10 +397,18 @@ export class WorkspacesService {
     // only. The PATCH route is shared with name/description (ADMIN-allowed),
     // so we enforce the OWNER gate at the service level when the incoming
     // patch touches visibility or category.
-    if ((input.visibility !== undefined || input.category !== undefined) && actorRole !== 'OWNER') {
+    // 072 백로그 S-C (FR-W01): joinMode(가입 모드) 변경도 visibility/category 와 동일하게
+    // OWNER 전용이다 — 누가 워크스페이스에 들어올 수 있는지를 좌우하는 정책이므로 ADMIN 이
+    // 임의로 바꿀 수 없게 막는다.
+    if (
+      (input.visibility !== undefined ||
+        input.category !== undefined ||
+        input.joinMode !== undefined) &&
+      actorRole !== 'OWNER'
+    ) {
       throw new DomainError(
         ErrorCode.WORKSPACE_INSUFFICIENT_ROLE,
-        'only OWNER can change visibility or category',
+        'only OWNER can change visibility, category, or join mode',
       );
     }
     // S68 (D13 / FR-W05 · Fork C): emailDomains 화이트리스트 변경은 OWNER 전용이다
@@ -275,22 +459,26 @@ export class WorkspacesService {
       data: {
         ...(input.name !== undefined ? { name: input.name } : {}),
         ...(input.description !== undefined ? { description: input.description } : {}),
-        ...(input.iconUrl !== undefined ? { iconUrl: input.iconUrl } : {}),
+        // 072 백로그 S-C 리뷰(LOW): iconUrl 은 PATCH 에서 제거 — 전용 presign/finalize/delete
+        // 엔드포인트가 storageKey 쓰기의 단일 출처다(dual-write/orphan 불일치 차단).
         ...(input.visibility !== undefined ? { visibility: input.visibility } : {}),
         ...(input.category !== undefined ? { category: input.category } : {}),
+        // 072 백로그 S-C (FR-W01): 가입 모드 편집. create() 와 동일한 WorkspaceJoinMode enum 캐스트.
+        ...(input.joinMode !== undefined ? { joinMode: input.joinMode as WorkspaceJoinMode } : {}),
         ...(normalizedEmailDomains !== undefined ? { emailDomains: normalizedEmailDomains } : {}),
       },
     });
-    // S72 (D13 / FR-W16): 디스커버리 노출 필드(name/description/visibility/category)가
+    // S72 (D13 / FR-W16): 디스커버리 노출 필드(name/description/visibility/category/joinMode)가
     // 바뀌면 검색 캐시를 무효화한다 — 버전 키 bump 로 전체 네임스페이스를 옮긴다(다음
-    // discover 호출은 MISS). joinMode 는 현재 PATCH 로 변경되지 않으나(스코프 외), 추후
-    // 노출되면 함께 트리거하도록 조건에 둔다. emailDomains 는 discover 출력에 영향 없어
-    // 무효화 대상에서 제외한다.
+    // discover 호출은 MISS). joinMode 는 072 백로그 S-C 에서 PATCH 로 편집 가능해졌고
+    // discover 카드에 가입 모드가 노출되므로 무효화 조건에 포함한다. emailDomains 는
+    // discover 출력에 영향 없어 무효화 대상에서 제외한다.
     if (
       input.name !== undefined ||
       input.description !== undefined ||
       input.visibility !== undefined ||
-      input.category !== undefined
+      input.category !== undefined ||
+      input.joinMode !== undefined
     ) {
       await this.discoverCache.invalidate();
     }
@@ -387,7 +575,9 @@ export class WorkspacesService {
     });
     const cached = await this.discoverCache.read<DiscoverPage>(cacheKey);
     if (cached !== null) {
-      return { payload: cached, cacheStatus: 'HIT' };
+      // 072 백로그 S-C 리뷰(LOW): 캐시에는 raw storageKey 가 들어 있으므로 반환 직전에
+      // presigned GET URL 로 변환한다(만료 서명을 캐시에 박지 않기 위해 read 마다 변환).
+      return { payload: await this.presignDiscoverPage(cached), cacheStatus: 'HIT' };
     }
 
     const capped = Math.max(1, Math.min(50, opts.limit));
@@ -468,8 +658,10 @@ export class WorkspacesService {
       ? `${items[items.length - 1].memberCount}|${items[items.length - 1].id}`
       : null;
     const payload: DiscoverPage = { items, nextCursor };
+    // 캐시에는 raw storageKey 가 든 payload 를 그대로 저장하고(서명 미포함), 반환 직전에만
+    // presign 한다 — listMine/getWithMyRole 와 동일한 presign-on-read 불변식 유지.
     await this.discoverCache.write(cacheKey, payload);
-    return { payload, cacheStatus: 'MISS' };
+    return { payload: await this.presignDiscoverPage(payload), cacheStatus: 'MISS' };
   }
 
   async joinPublic(

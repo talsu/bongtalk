@@ -289,6 +289,55 @@ export const WsAvatarFinalizeResultSchema = z.object({
 });
 export type WsAvatarFinalizeResult = z.infer<typeof WsAvatarFinalizeResultSchema>;
 
+// ──────────── 072 백로그 S-C (FR-W01) 워크스페이스 아이콘 업로드 ─────────────
+//
+// 워크스페이스 자체의 아이콘(레일/설정/디스커버리 카드에 표시). ws아바타(멤버별
+// 프로필 아바타)와 직교한다. ws아바타 presigned-POST + finalize(magic) 패턴을 그대로
+// 따르되 키는 워크스페이스 1개당 하나(`ws-icons/<wsId>/<file>`)다. 저장은 기존
+// Workspace.iconUrl 컬럼에 *storageKey* 를 넣고(=Channel.iconUrl/그룹DM 선례) 읽을 때
+// presigned GET 으로 변환한다(신규 마이그레이션 없음). 서버 리사이즈 없음
+// ([[feedback_no_server_media_resize]]) — 렌더는 CSS object-fit 다운스케일.
+
+/** 워크스페이스 아이콘 최대 크기/허용 MIME(전역 아바타와 동일 정책). */
+export const WS_ICON_MAX_BYTES = 8 * 1024 * 1024; // 8 MB
+export const WS_ICON_ALLOWED_MIME = AVATAR_ALLOWED_MIME;
+export type WsIconMime = (typeof WS_ICON_ALLOWED_MIME)[number];
+
+// security: ws아이콘 키는 `ws-icons/<wsId>/<file>` 3-세그먼트만 허용(traversal 차단).
+export const WS_ICON_KEY_RE = /^ws-icons\/[^/]+\/[A-Za-z0-9_.-]+$/;
+
+/** POST /workspaces/:id/icon/presign 요청. */
+export const WsIconPresignInputSchema = z
+  .object({
+    contentType: z.enum(WS_ICON_ALLOWED_MIME),
+    sizeBytes: z.number().int().positive().max(WS_ICON_MAX_BYTES),
+  })
+  .strict();
+export type WsIconPresignInput = z.infer<typeof WsIconPresignInputSchema>;
+
+/** POST /workspaces/:id/icon/presign 응답(presigned POST). */
+export const WsIconPresignResultSchema = z.object({
+  key: z.string(),
+  url: z.string(),
+  fields: z.record(z.string()).default({}),
+  expiresAt: z.string().datetime(),
+});
+export type WsIconPresignResult = z.infer<typeof WsIconPresignResultSchema>;
+
+/** PUT /workspaces/:id/icon 요청. */
+export const WsIconFinalizeInputSchema = z
+  .object({
+    key: z.string().min(1).max(512).regex(WS_ICON_KEY_RE),
+  })
+  .strict();
+export type WsIconFinalizeInput = z.infer<typeof WsIconFinalizeInputSchema>;
+
+/** PUT /workspaces/:id/icon 응답(presigned GET URL). */
+export const WsIconFinalizeResultSchema = z.object({
+  iconUrl: z.string(),
+});
+export type WsIconFinalizeResult = z.infer<typeof WsIconFinalizeResultSchema>;
+
 // ───────────── S75 (D14 / FR-PS-07·08) 타 멤버 전체 프로필 조회(full-profile) ─────────────
 
 /**

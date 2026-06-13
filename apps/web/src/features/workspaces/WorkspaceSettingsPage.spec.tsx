@@ -20,6 +20,9 @@ const leaveMutate = vi.fn().mockResolvedValue(undefined);
 const updateMutate = vi.fn().mockResolvedValue(undefined);
 // S72 (FR-W15): 삭제 뮤테이션 스파이.
 const deleteMutate = vi.fn().mockResolvedValue({ deleteAt: '2025-01-31T00:00:00.000Z' });
+// 072 백로그 S-C (FR-W01): 아이콘 업로드/제거 뮤테이션 스파이.
+const uploadIconMutate = vi.fn().mockResolvedValue({ iconUrl: 'http://minio/icon.png' });
+const deleteIconMutate = vi.fn().mockResolvedValue(undefined);
 
 vi.mock('./useWorkspaces', () => ({
   useUpdateWorkspace: () => ({ mutateAsync: updateMutate }),
@@ -27,6 +30,8 @@ vi.mock('./useWorkspaces', () => ({
   useUpdateDefaultChannel: () => ({ mutateAsync: defaultChannelMutate, isPending: false }),
   useLeaveWorkspace: () => ({ mutateAsync: leaveMutate, isPending: false }),
   useDeleteWorkspace: () => ({ mutateAsync: deleteMutate, isPending: false }),
+  useUploadWorkspaceIcon: () => ({ mutateAsync: uploadIconMutate, isPending: false }),
+  useDeleteWorkspaceIcon: () => ({ mutateAsync: deleteIconMutate, isPending: false }),
 }));
 
 // 위험 구역과 무관한 패널 컴포넌트는 스텁한다(렌더 트리 단순화).
@@ -240,5 +245,108 @@ describe('WorkspaceSettingsPage — 나가기 (FR-W14)', () => {
     expect(submit.disabled).toBe(false);
     fireEvent.click(submit);
     expect(leaveMutate).toHaveBeenCalled();
+  });
+});
+
+// 072 백로그 S-C (FR-W01): 가입 모드 셀렉트 + 아이콘 업로드 섹션.
+describe('WorkspaceSettingsPage — 가입 모드 (FR-W01)', () => {
+  beforeEach(() => updateMutate.mockClear());
+
+  it('OWNER 는 가입 모드 셀렉트가 활성화되고 변경 시 joinMode 가 저장 payload 에 실린다', async () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, joinMode: 'PRIVATE' }}
+        myRole="OWNER"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    const select = screen.getByTestId('ws-join-mode') as HTMLSelectElement;
+    expect(select.disabled).toBe(false);
+    fireEvent.change(select, { target: { value: 'APPLY' } });
+    fireEvent.click(screen.getByTestId('workspace-settings-save'));
+    await Promise.resolve();
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect(updateMutate.mock.calls[0][0]).toMatchObject({ joinMode: 'APPLY' });
+  });
+
+  it('joinMode 가 그대로면 저장 payload 에 포함하지 않는다', async () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, joinMode: 'PRIVATE' }}
+        myRole="OWNER"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    fireEvent.click(screen.getByTestId('workspace-settings-save'));
+    await Promise.resolve();
+    expect(updateMutate).toHaveBeenCalledTimes(1);
+    expect('joinMode' in updateMutate.mock.calls[0][0]).toBe(false);
+  });
+
+  it('ADMIN 은 가입 모드 셀렉트가 비활성화된다(OWNER 전용)', () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, joinMode: 'PRIVATE' }}
+        myRole="ADMIN"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    expect((screen.getByTestId('ws-join-mode') as HTMLSelectElement).disabled).toBe(true);
+  });
+});
+
+describe('WorkspaceSettingsPage — 아이콘 (FR-W01)', () => {
+  beforeEach(() => {
+    uploadIconMutate.mockClear();
+    deleteIconMutate.mockClear();
+  });
+
+  it('ADMIN+ 는 아이콘 업로드 버튼을 보고, 미설정 시 제거 버튼은 없다', () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, iconUrl: null }}
+        myRole="ADMIN"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    expect(screen.getByTestId('ws-icon-upload')).toBeTruthy();
+    expect(screen.queryByTestId('ws-icon-remove')).toBeNull();
+  });
+
+  it('아이콘이 있으면 미리보기 img + 제거 버튼을 노출하고, 제거 시 mutate 호출', () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, iconUrl: 'http://minio/icon.png' }}
+        myRole="OWNER"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    const preview = screen.getByTestId('ws-icon-preview');
+    expect(preview.querySelector('img')).toBeTruthy();
+    fireEvent.click(screen.getByTestId('ws-icon-remove'));
+    expect(deleteIconMutate).toHaveBeenCalled();
+  });
+
+  it('MEMBER 는 아이콘 변경 UI 대신 안내만 본다', () => {
+    render(
+      <WorkspaceSettingsPage
+        workspace={{ ...baseWorkspace, iconUrl: null }}
+        myRole="MEMBER"
+        workspaceSlug="acme"
+        members={members}
+        channels={channels}
+      />,
+    );
+    expect(screen.queryByTestId('ws-icon-upload')).toBeNull();
   });
 });

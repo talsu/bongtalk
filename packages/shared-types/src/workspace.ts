@@ -185,8 +185,14 @@ export type CreateWorkspaceRequest = z.infer<typeof CreateWorkspaceRequestSchema
 export const UpdateWorkspaceRequestSchema = z.object({
   name: z.string().min(1).max(64).optional(),
   description: z.string().max(500).nullable().optional(),
-  iconUrl: z.string().url().max(512).nullable().optional(),
+  // 072 백로그 S-C 리뷰(LOW): iconUrl 은 PATCH 에서 제거했다. 아이콘 변경은 전용 엔드포인트
+  // (POST /icon/presign · PUT /icon · DELETE /icon)가 단일 출처다. iconUrl 컬럼은 이제 MinIO
+  // storageKey 를 담는데(presign-on-read 변환), z.string().url() PATCH 는 외부 절대 URL 만
+  // 받아 storageKey 모델과 충돌하고 finalize-설정 키를 덮으며 orphan 객체를 남겼다.
   visibility: WorkspaceVisibilitySchema.optional(),
+  // 072 백로그 S-C (FR-W01): 가입 모드 편집(생성 모달엔 이미 있던 필드를 설정에도 노출).
+  // OWNER 게이트는 서비스 레이어(visibility/category 선례). joinMode 와 visibility 는 직교.
+  joinMode: WorkspaceJoinModeSchema.optional(),
   category: WorkspaceCategorySchema.nullable().optional(),
   // S68 (D13 / FR-W05 · Fork C): 이메일 도메인 화이트리스트 관리. 전용 엔드포인트 없이
   // 기존 PATCH /workspaces/:id 로 확장한다. OWNER 전용 게이트는 서비스 레이어가 강제하며

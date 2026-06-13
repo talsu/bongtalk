@@ -48,6 +48,14 @@ function makeIpSoftBlock(): IpSoftBlockService {
   } as unknown as IpSoftBlockService;
 }
 
+// 072 백로그 S-C 리뷰(LOW): preview 가 iconUrl(storageKey)을 presignIconUrl 로 변환하므로
+// WorkspacesService 스텁을 주입한다. 패스-스루(키 그대로 반환 — 테스트 iconUrl 은 null).
+function makeWorkspaces(): import('../../../src/workspaces/workspaces.service').WorkspacesService {
+  return {
+    presignIconUrl: vi.fn(async (k: string | null) => k),
+  } as unknown as import('../../../src/workspaces/workspaces.service').WorkspacesService;
+}
+
 async function expectDomainError(p: Promise<unknown>, code: ErrorCode) {
   await expect(p).rejects.toMatchObject({ code });
 }
@@ -70,6 +78,7 @@ describe('S67 InvitesService — makeCode (Fork B: 8-char alphanumeric)', () => 
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
 
     for (let i = 0; i < 50; i++) {
@@ -106,6 +115,7 @@ describe('S67 InvitesService — makeCode (Fork B: 8-char alphanumeric)', () => 
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
 
     const inv = await svc.create(WS, ACTOR, { temporary: false });
@@ -130,6 +140,7 @@ describe('S67 InvitesService — create stores temporary', () => {
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
 
     await svc.create(WS, ACTOR, { temporary: true });
@@ -166,6 +177,7 @@ describe('S67 InvitesService — list role filter (FR-W17)', () => {
         makeModeration(),
         makeAudit(),
         makeIpSoftBlock(),
+        makeWorkspaces(),
       ),
       findMany,
     };
@@ -206,6 +218,7 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
     await svc.revoke(WS, 'i1', ACTOR, 'MODERATOR');
     expect(updateMany).toHaveBeenCalledWith(
@@ -227,6 +240,7 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
     await expectDomainError(svc.revoke(WS, 'i1', OTHER, 'MODERATOR'), ErrorCode.INVITE_NOT_FOUND);
   });
@@ -244,7 +258,14 @@ describe('S67 InvitesService — revoke/hardDelete MODERATOR scope (FR-W17)', ()
     const outbox = makeOutbox();
     const audit = makeAudit();
     return {
-      svc: new InvitesService(prisma, outbox, makeModeration(), audit, makeIpSoftBlock()),
+      svc: new InvitesService(
+        prisma,
+        outbox,
+        makeModeration(),
+        audit,
+        makeIpSoftBlock(),
+        makeWorkspaces(),
+      ),
       findFirst,
       del,
       outbox,
@@ -337,6 +358,7 @@ describe('S67 InvitesService — accept already-member (FR-W03 멱등 200)', () 
       makeModeration(),
       makeAudit(),
       makeIpSoftBlock(),
+      makeWorkspaces(),
     );
 
     const res = await svc.accept('CODE1234', ACTOR, {
@@ -388,7 +410,14 @@ describe('S67 InvitesService — accept records isTemporary (FR-W03)', () => {
       $transaction: vi.fn(async (fn: (t: unknown) => unknown) => fn(tx)),
     } as unknown as PrismaService;
     return {
-      svc: new InvitesService(prisma, outbox, makeModeration(), makeAudit(), makeIpSoftBlock()),
+      svc: new InvitesService(
+        prisma,
+        outbox,
+        makeModeration(),
+        makeAudit(),
+        makeIpSoftBlock(),
+        makeWorkspaces(),
+      ),
       memberCreate,
     };
   }
@@ -456,6 +485,7 @@ describe('S67 InvitesService — accept P2002 target guard (reviewer #3)', () =>
         makeModeration(),
         makeAudit(),
         makeIpSoftBlock(),
+        makeWorkspaces(),
       ),
       refund,
     };

@@ -50,7 +50,8 @@ export function MobileChannelList({
   onMenu,
 }: {
   workspace: Pick<Workspace, 'id' | 'name' | 'slug'>;
-  workspaces: Pick<Workspace, 'id' | 'name' | 'slug'>[];
+  // 072 백로그 S-C (FR-W01): 레일 아이콘 렌더용 iconUrl(presigned · 없으면 null/이니셜 폴백).
+  workspaces: Pick<Workspace, 'id' | 'name' | 'slug' | 'iconUrl'>[];
   activeChannelName: string | null;
   onPick: () => void;
   /** 071-M2 E5 (FR-IA-MOB-03): server-header 의 + 액션 — 채널 둘러보기 오픈. */
@@ -230,7 +231,17 @@ export function MobileChannelList({
               aria-label={badgeAria ? `${w.name}, ${badgeAria}` : undefined}
             >
               <span className="relative">
-                <Avatar name={w.name} size="sm" />
+                {/* 072 백로그 S-C (FR-W01): 아이콘이 있으면 이미지를, 없으면 이니셜 Avatar. */}
+                {w.iconUrl ? (
+                  <img
+                    src={w.iconUrl}
+                    alt=""
+                    aria-hidden
+                    className="qf-avatar qf-avatar--sm object-cover"
+                  />
+                ) : (
+                  <Avatar name={w.name} size="sm" />
+                )}
                 <RailBadge badge={badge} testId={`mobile-ws-badge-${w.slug}`} />
               </span>
               <span

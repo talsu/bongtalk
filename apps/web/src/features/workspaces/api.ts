@@ -44,6 +44,8 @@ import type {
   CreateAutoModRuleRequest,
   UpdateAutoModRuleRequest,
   ListAutoModRulesResponse,
+  WsIconPresignResult,
+  WsIconFinalizeResult,
 } from '@qufox/shared-types';
 
 // S65 (D13 / FR-W13): 소유권 양도는 비밀번호 재확인을 강제한다(서버 argon2 verify).
@@ -80,6 +82,27 @@ export function getWorkspace(id: string): Promise<WorkspaceWithMyRole> {
 
 export function updateWorkspace(id: string, input: UpdateWorkspaceRequest): Promise<Workspace> {
   return apiRequest(`/workspaces/${id}`, { method: 'PATCH', body: input });
+}
+
+// ── 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드(presigned POST + finalize) ──
+// 전역 아바타 흐름과 동일하다: presign → MinIO 직접 POST(uploadAvatarBlob 재사용) → finalize.
+
+/** POST /workspaces/:id/icon/presign — presigned POST(크기/MIME 정책 포함) 발급. */
+export function presignWorkspaceIcon(
+  id: string,
+  input: { contentType: string; sizeBytes: number },
+): Promise<WsIconPresignResult> {
+  return apiRequest(`/workspaces/${id}/icon/presign`, { method: 'POST', body: input });
+}
+
+/** PUT /workspaces/:id/icon — 업로드 확정. storageKey 저장 + presigned GET URL 반환. */
+export function finalizeWorkspaceIcon(id: string, key: string): Promise<WsIconFinalizeResult> {
+  return apiRequest(`/workspaces/${id}/icon`, { method: 'PUT', body: { key } });
+}
+
+/** DELETE /workspaces/:id/icon — 아이콘 제거(멱등, 204). */
+export function deleteWorkspaceIcon(id: string): Promise<void> {
+  return apiRequest(`/workspaces/${id}/icon`, { method: 'DELETE' });
 }
 
 // S72 (D13 / FR-W15): 워크스페이스 소프트 삭제(OWNER). 파괴적 액션이라 confirmation
