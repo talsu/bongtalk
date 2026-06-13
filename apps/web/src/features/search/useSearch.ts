@@ -1,6 +1,11 @@
 import { useCallback, useMemo } from 'react';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RecentSearchesResponse, SearchResponse } from '@qufox/shared-types';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
+import type { RecentSearchesResponse, SearchResponse, SearchSort } from '@qufox/shared-types';
 import {
   searchMessages,
   fetchRecentSearches,
@@ -22,6 +27,8 @@ export function useSearch(args: {
   channelId?: string;
   /** S30 (FR-S06/S10): 결과 패널은 컨텍스트 + 스레드 루트 excerpt 가 필요. */
   withContext?: boolean;
+  /** 072-N4-2 (FR-S 정렬): relevance(기본) | recent. queryKey 에 포함. */
+  sort?: SearchSort;
   /**
    * S31 (NIT4): 호출측이 결과 쿼리를 일시 비활성화할 수 있다(예: suggest 모드
    * 활성 — 결과 드롭다운을 보여주지 않으므로 요청 낭비). 기본 true.
@@ -35,6 +42,7 @@ export function useSearch(args: {
       args.q,
       args.channelId ?? null,
       args.withContext ? 'ctx' : 'plain',
+      args.sort ?? 'relevance',
     ] as const,
     queryFn: ({ pageParam }) =>
       searchMessages({
@@ -45,9 +53,13 @@ export function useSearch(args: {
         // S30 (FR-S09): 페이지당 20, 더 보기로 누적(서버 max 100/5페이지).
         limit: 20,
         withContext: args.withContext,
+        sort: args.sort,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: SearchResponse) => last.nextCursor ?? undefined,
+    // 072-N4-2(리뷰 LOW): 정렬 토글 시 queryKey 가 바뀌어도 이전 결과를 유지해
+    // '검색 중…' 스피너로 깜빡이지 않게 한다(부드러운 재정렬).
+    placeholderData: keepPreviousData,
     // S31 (FR-S13): 순수 길이가 아니라 파서 기반 게이트 — 수식어가 있으면
     // 자유 텍스트 0자여도 허용, 없으면 3자 이상만 서버 요청. NIT4: 호출측이
     // enabled=false 를 넘기면(예: suggest 모드) 결과 쿼리를 비활성화한다.

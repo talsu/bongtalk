@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { SearchResult } from '@qufox/shared-types';
+import type { SearchResult, SearchSort } from '@qufox/shared-types';
 import { useChannelList } from '../channels/useChannels';
 import { useUI } from '../../stores/ui-store';
 import { useSearch, pushRecentSearch, useRecentSearches } from './useSearch';
@@ -42,7 +42,9 @@ export function SearchResultPanelContainer({
   }, [channelList]);
 
   const q = query ?? '';
-  const search = useSearch({ workspaceId, q, withContext: true });
+  // 072-N4-2 (FR-S·정렬): 관련도/최신 정렬 토글. 쿼리 변경 시 유지(사용자 선택 존중).
+  const [sort, setSort] = useState<SearchSort>('relevance');
+  const search = useSearch({ workspaceId, q, withContext: true, sort });
   const results: SearchResult[] = useMemo(
     () => (search.data?.pages ?? []).flatMap((p) => p.results),
     [search.data],
@@ -95,14 +97,17 @@ export function SearchResultPanelContainer({
     const chName = channelNameById.get(r.channelId);
     if (!chName) return;
     if (q.trim().length > 0) pushRecentSearch(q);
+    // 072-N4-1 (FR-S·P0): 점프해도 검색 패널을 닫지 않는다 — 연속 결과 탐색 가능
+    // (종전 패널 닫기 호출 제거).
     navigate(`/w/${workspaceSlug}/${chName}?msg=${r.messageId}`);
-    closeSearchPanel();
   };
 
   return (
     <SearchResultPanel
       query={q}
       results={results}
+      sort={sort}
+      onSortChange={setSort}
       channelNameById={channelNameById}
       isLoading={search.isLoading}
       hasNextPage={!!search.hasNextPage}

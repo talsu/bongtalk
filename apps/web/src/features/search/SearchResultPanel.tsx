@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { SearchResult } from '@qufox/shared-types';
+import type { SearchResult, SearchSort } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { searchSnippetHtml } from './sanitize';
 import {
@@ -34,6 +34,9 @@ type Props = {
   /** 디바운스된 현재 쿼리(빈 문자열이면 최근검색 노출). */
   query: string;
   results: SearchResult[];
+  /** 072-N4-2: 정렬(relevance|recent) + 변경 콜백. */
+  sort: SearchSort;
+  onSortChange: (_s: SearchSort) => void;
   channelNameById: Map<string, string>;
   isLoading: boolean;
   hasNextPage: boolean;
@@ -56,6 +59,8 @@ type Props = {
 export function SearchResultPanel({
   query,
   results,
+  sort,
+  onSortChange,
   channelNameById,
   isLoading,
   hasNextPage,
@@ -90,6 +95,21 @@ export function SearchResultPanel({
   const handleClearRecent = (): void => {
     onClearRecent();
     panelRef.current?.focus();
+  };
+
+  // 072-N4-2(리뷰 HIGH): WAI-ARIA tablist 키보드 — roving tabindex + 화살표 이동/선택.
+  const SORT_OPTIONS: { v: SearchSort; label: string }[] = [
+    { v: 'relevance', label: '관련도순' },
+    { v: 'recent', label: '최신순' },
+  ];
+  const tabRefs = useRef<Record<SearchSort, HTMLButtonElement | null>>({
+    relevance: null,
+    recent: null,
+  });
+  const moveSort = (idx: number, dir: number): void => {
+    const next = SORT_OPTIONS[(idx + dir + SORT_OPTIONS.length) % SORT_OPTIONS.length];
+    onSortChange(next.v);
+    tabRefs.current[next.v]?.focus();
   };
 
   // a11y A-6: 결과 상태를 aria-live 영역에 1줄로 통지(SR 전용).
@@ -130,6 +150,40 @@ export function SearchResultPanel({
         </button>
       </div>
 
+      {/* 072-N4-2 (FR-S 정렬): 결과 모드일 때만 관련도/최신 정렬 탭 노출(WAI-ARIA tablist). */}
+      {!showRecents ? (
+        <div role="tablist" aria-label="검색 정렬" className="qf-tabs px-[var(--s-5)]">
+          {SORT_OPTIONS.map((opt, idx) => (
+            <button
+              key={opt.v}
+              ref={(el) => {
+                tabRefs.current[opt.v] = el;
+              }}
+              type="button"
+              role="tab"
+              id={`search-sort-tab-${opt.v}`}
+              aria-selected={sort === opt.v}
+              aria-controls="search-panel-results"
+              tabIndex={sort === opt.v ? 0 : -1}
+              data-testid={`search-sort-${opt.v}`}
+              onClick={() => onSortChange(opt.v)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowRight' || e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  moveSort(idx, +1);
+                } else if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  moveSort(idx, -1);
+                }
+              }}
+              className="qf-tabs__item"
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
+
       {/* FR-S07: index-update 배너 — 패널 닫힘/재검색까지 유지. */}
       {indexUpdateAvailable ? (
         <button
@@ -146,6 +200,11 @@ export function SearchResultPanel({
       <div
         className="qf-search-overlay__results"
         data-testid="search-panel-results"
+        // 072-N4-2(리뷰): 정렬 탭의 tabpanel(아이디로 aria-controls 연결). 최근검색
+        // 모드(탭 없음)에선 tabpanel 역할을 부여하지 않는다.
+        id="search-panel-results"
+        role={!showRecents ? 'tabpanel' : undefined}
+        aria-labelledby={!showRecents ? `search-sort-tab-${sort}` : undefined}
         // a11y A-6: 결과 갱신을 SR 에 부드럽게 통지(정중하게, 누적 X).
         aria-live="polite"
         aria-atomic="false"
