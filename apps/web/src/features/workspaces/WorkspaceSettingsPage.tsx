@@ -262,14 +262,17 @@ export function WorkspaceSettingsPage({
   };
 
   const visibilityChanged = visibility !== workspace.visibility;
-  // 072-N5-4: 이름 변경(공백 trim·비어있지 않음·실제 변경)도 저장 허용 트리거.
+  // 072-N5-4: 이름 변경(공백 trim·비어있지 않음·실제 변경) — doSave 가 변경 시에만 전송.
   const nameChanged = name.trim().length > 0 && name.trim() !== workspace.name;
-  const canSave =
-    ownerEditable &&
-    (nameChanged ||
-      !visibilityChanged ||
-      visibility !== 'PUBLIC' ||
-      (category !== '' && description.trim().length > 0));
+  // 072-N5(리뷰 LOW): 이름은 비울 수 없다(서버 min(1) 사전 차단 + 인라인 안내).
+  const nameValid = name.trim().length > 0;
+  // 072-N5(리뷰 MEDIUM): PUBLIC 전환 메타데이터 게이트는 nameChanged 로 우회되면
+  // 안 된다 — visibilityValid 를 항상 AND 로 요구(종전 short-circuit 회귀 수리).
+  const visibilityValid =
+    !visibilityChanged ||
+    visibility !== 'PUBLIC' ||
+    (category !== '' && description.trim().length > 0);
+  const canSave = ownerEditable && nameValid && visibilityValid;
 
   const doSave = async (): Promise<void> => {
     setErr(null);
@@ -466,8 +469,20 @@ export function WorkspaceSettingsPage({
                 onChange={(e) => setName(e.target.value)}
                 maxLength={64}
                 disabled={!ownerEditable}
+                aria-invalid={!nameValid || undefined}
+                aria-describedby={!nameValid ? 'ws-settings-name-error' : undefined}
                 className="qf-input w-full"
               />
+              {!nameValid ? (
+                <p
+                  id="ws-settings-name-error"
+                  data-testid="ws-settings-name-error"
+                  role="status"
+                  className="qf-field__hint text-[color:var(--danger)]"
+                >
+                  이름은 비울 수 없습니다.
+                </p>
+              ) : null}
             </div>
 
             <fieldset className="qf-field" data-testid="workspace-visibility-field">
