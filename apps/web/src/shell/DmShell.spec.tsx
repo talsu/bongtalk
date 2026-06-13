@@ -86,15 +86,25 @@ function installApi(state: ApiState): void {
           ],
         };
       }
+      // 072-N1: 그룹 DM 목록(이 스펙은 그룹 없음 — 빈 목록).
+      if (path === '/me/dms/groups') return { items: [] };
       if (path === '/me/mutes') return { items: state.mutes };
-      // FR-DM-15: DM 뮤트 설정(무기한) — PATCH /me/dms/:id/mute {mutedUntil:null}.
+      // FR-DM-15/N1-3: DM 뮤트 설정 — PATCH /me/dms/:id/mute {mutedUntil}. 기간
+      // 지정(ISO) 또는 null(무기한) 모두 동일 경로.
       if (path.match(/^\/me\/dms\/.+\/mute$/) && method === 'PATCH') {
         const channelId = path.split('/')[3];
+        const mutedUntil = (opts?.body as { mutedUntil?: string | null })?.mutedUntil ?? null;
         state.mutes = [
           ...state.mutes.filter((m) => m.channelId !== channelId),
-          { channelId, mutedUntil: null },
+          { channelId, mutedUntil },
         ];
-        return { channelId, mutedUntil: null };
+        return { channelId, mutedUntil };
+      }
+      // 072-N1-3 (FR-DM-10): 대화 숨기기 — PATCH /me/dms/:id/visibility {visibility}.
+      if (path.match(/^\/me\/dms\/.+\/visibility$/) && method === 'PATCH') {
+        const channelId = path.split('/')[3];
+        const visibility = (opts?.body as { visibility?: string })?.visibility ?? 'VISIBLE';
+        return { channelId, visibility };
       }
       // 뮤트 해제 — DELETE /me/mutes/channels/:id (카노니컬 unmute 재사용).
       if (path.startsWith('/me/mutes/channels/') && method === 'DELETE') {
@@ -162,16 +172,28 @@ describe('FR-DM-15 DmShell 배지', () => {
   });
 });
 
-describe('FR-DM-15 DmShell 뮤트 토글', () => {
-  it('비뮤트 DM 컨텍스트 메뉴 "뮤트" → PATCH /me/dms/:id/mute {mutedUntil:null}', async () => {
+describe('FR-DM-15/N1-3 DmShell 메뉴(숨기기/뮤트기간/뮤트해제)', () => {
+  it('비뮤트 DM 컨텍스트 메뉴는 "대화 숨기기" + 뮤트 기간 서브메뉴 트리거를 노출한다', async () => {
+    // 072-N1-3: 뮤트는 기간 서브메뉴(15분~계속)로 바뀌었다. 서브메뉴 hover 전개는
+    // jsdom 에서 불안정해 트리거 노출만 단위검증하고, 실제 기간→PATCH 는 e2e 가 검증.
     renderShell({ mutes: [] });
     await screen.findByTestId('dm-shell-row-alice');
     fireEvent.contextMenu(screen.getByTestId('dm-shell-row-alice'));
-    fireEvent.click(await screen.findByTestId('dm-shell-mute-alice'));
+    expect(await screen.findByTestId('dm-shell-hide-alice')).toBeTruthy();
+    expect(screen.getByTestId('dm-shell-mute-alice')).toBeTruthy();
+    // 1:1 행에는 "그룹 나가기"가 없다.
+    expect(screen.queryByTestId('dm-shell-leave-alice')).toBeNull();
+  });
+
+  it('"대화 숨기기" → PATCH /me/dms/:id/visibility {visibility:HIDDEN}', async () => {
+    renderShell({ mutes: [] });
+    await screen.findByTestId('dm-shell-row-alice');
+    fireEvent.contextMenu(screen.getByTestId('dm-shell-row-alice'));
+    fireEvent.click(await screen.findByTestId('dm-shell-hide-alice'));
     await waitFor(() => {
       expect(apiRequest).toHaveBeenCalledWith(
-        `/me/dms/${CH_PLAIN}/mute`,
-        expect.objectContaining({ method: 'PATCH', body: { mutedUntil: null } }),
+        `/me/dms/${CH_PLAIN}/visibility`,
+        expect.objectContaining({ method: 'PATCH', body: { visibility: 'HIDDEN' } }),
       );
     });
   });
