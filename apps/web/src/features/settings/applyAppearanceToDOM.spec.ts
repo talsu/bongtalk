@@ -39,10 +39,13 @@ describe('S76 applyAppearanceToDOM (FR-PS-09 · Fork C1 · F-M1/F-M2)', () => {
     expect(document.documentElement.dataset.density).toBe('compact');
   });
 
-  // F-M1: raw px `--fs-chat` 주입을 제거했다(1.4.4 회피 · DS 미지원). 변수가 설정되지 않아야 한다.
-  it('does NOT inject the raw px --fs-chat variable (F-M1 · 1.4.4)', () => {
+  // 072-N6-5 (D2 승인): chatFontSize 를 rem 토큰 참조(--fs-chat = var(--fs-N))로 주입한다.
+  // raw px 가 아니라 DS rem 토큰 참조라 WCAG 1.4.4(Resize text) 준수.
+  it('injects --fs-chat as a rem-token reference (D2 · 1.4.4)', () => {
     applyAppearanceToDOM(base({ chatFontSize: 18 }));
-    expect(document.documentElement.style.getPropertyValue('--fs-chat')).toBe('');
+    expect(document.documentElement.style.getPropertyValue('--fs-chat')).toBe('var(--fs-18)');
+    applyAppearanceToDOM(base({ chatFontSize: 13 }));
+    expect(document.documentElement.style.getPropertyValue('--fs-chat')).toBe('var(--fs-13)');
   });
 
   it('resolveTheme: DARK/LIGHT are literal, SYSTEM resolves via prefers-color-scheme', () => {

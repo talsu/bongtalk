@@ -8,10 +8,9 @@ import type { ThemePreference } from '../../design-system/theme/ThemeProvider';
  *               (DS data-theme 토큰은 dark/light 2값 — SYSTEM 은 클라 런타임 해석).
  *   - density → <html data-density="cozy|compact">. DS [data-density="compact"] 셀렉터가
  *               메시지/타일 밀도를 줄인다(COZY 는 기본 비-compact — 속성도 cozy 로 명시).
- *   - chatFontSize → (F-M1) DOM 에 적용하지 않는다. DS 4파일에 `--fs-chat` 를 참조하는
- *               규칙이 0건이고 raw px 변수 주입은 1.4.4(Resize text) 위반이므로, DS-owner 가
- *               qf-message__body 배선(px→rem 토큰화)을 더하기 전까지는 시각 적용을 보류한다.
- *               값 자체는 서버/스토어/캐시에 계속 저장된다(데이터 유지) — 아래 NOTE(carryover).
+ *   - chatFontSize → (072-N6-5 D2 승인) <html> style 의 `--fs-chat = var(--fs-N)` 로 적용한다.
+ *               raw px 가 아닌 DS rem 토큰 참조라 1.4.4(Resize text) 준수. 메시지 본문
+ *               클래스(qf-message__body·thread·mobile·compact)가 var(--fs-chat) 를 소비한다.
  *   - clock24h → DOM 속성이 아니라 appearance 스토어가 보유한다(MessageItem 시각 포맷이 구독).
  *
  * 서버 단일 출처(Fork C1): index.html 의 즉시-적용 스크립트(localStorage theme)가 첫 페인트의
@@ -40,15 +39,15 @@ export function themeToPreference(theme: Theme): ThemePreference {
 
 /**
  * F-M2: density 만 DOM 에 반영한다. theme 은 ThemeProvider 가 단일 소유(setPreference 경유),
- * chatFontSize 는 DS-owner carryover(아래 NOTE)라 적용하지 않으며, clock24h 는 스토어가 보유한다.
+ * 072-N6-5(D2 승인): chatFontSize 도 --fs-chat 으로 반영한다(아래 NOTE), clock24h 는 스토어가 보유.
  */
 export function applyAppearanceToDOM(settings: AppearanceSettings): void {
   if (typeof document === 'undefined') return;
   const root = document.documentElement;
   // COZY 는 명시적으로 cozy 로 둔다(DS 의 [data-density="compact"] 만 override, cozy=기본).
   root.dataset.density = settings.density === 'COMPACT' ? 'compact' : 'cozy';
-  // NOTE(F-M1 / DS carryover): chatFontSize 는 시각 적용을 보류한다 — DS 4파일에
-  // `--fs-chat` 참조 규칙이 0건이고 raw px 변수 주입은 1.4.4(Resize text) 위반이다.
-  // DS-owner 가 `.qf-message__body { font-size: var(--fs-chat, var(--fs-15)) }` 배선 +
-  // [data-density=compact] 충돌 해소 + px→rem 토큰화를 추가한 뒤 변수 주입을 되살린다.
+  // 072-N6-5(D2 · FR-PS-09, 사용자 승인 후 재개): chatFontSize(12/13/14/15/16/18)를 DS 의
+  // 동급 rem 토큰(--fs-12..--fs-18)을 참조하는 --fs-chat 으로 주입한다. raw px 가 아닌 rem
+  // 토큰 참조라 WCAG 1.4.4(Resize text) 준수. .qf-message__body 가 var(--fs-chat) 를 소비한다.
+  root.style.setProperty('--fs-chat', `var(--fs-${settings.chatFontSize})`);
 }

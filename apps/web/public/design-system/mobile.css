@@ -186,7 +186,10 @@
   text-transform: uppercase; letter-spacing: var(--tracking-caps);
   display: flex; align-items: center; justify-content: space-between;
 }
-.qf-m-section__action { color: var(--accent); font-size: var(--fs-13); text-transform: none; letter-spacing: 0; }
+/* 072-N6-5 (D5 · 071-M6 이월 contrast, 사용자 승인): --accent(a-500 #8B5CF6)는 패널 위
+   본문 텍스트로 4.5:1 미만(AA 실패)이라, 텍스트 접근 대비용 테마-aware --link(다크 a-300/
+   라이트 a-600)로 교체한다. 액션 어포던스(클릭 가능) 의미는 동일. */
+.qf-m-section__action { color: var(--link); font-size: var(--fs-13); text-transform: none; letter-spacing: 0; }
 
 /* ───── Search field inline in topbar ───── */
 .qf-m-search {
@@ -259,7 +262,8 @@
 .qf-m-msg__meta { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; }
 .qf-m-msg__author { font: 600 var(--fs-15) var(--font-sans); color: var(--text-strong); }
 .qf-m-msg__time { font-size: var(--fs-11); color: var(--text-muted); }
-.qf-m-msg__body { font-size: var(--fs-15); line-height: var(--lh-snug); color: var(--text); word-wrap: break-word; }
+/* 072-N6-5(리뷰 HIGH): 모바일 메시지 본문도 채팅 폰트 크기(--fs-chat, 전역 설정) 존중. 미설정 시 --fs-15. */
+.qf-m-msg__body { font-size: var(--fs-chat, var(--fs-15)); line-height: var(--lh-snug); color: var(--text); word-wrap: break-word; }
 
 /* Swipe-to-reply hint (revealed when row translated) */
 .qf-m-swipe {
