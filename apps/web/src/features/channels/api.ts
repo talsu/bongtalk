@@ -2,6 +2,7 @@ import { apiRequest } from '../../lib/api';
 import type {
   Channel,
   ChannelListResponse,
+  ListBrowsableChannelsResponse,
   ChannelPermissionOverride,
   ChannelPermissionOverrideListResponse,
   CreateCategoryRequest,
@@ -25,6 +26,11 @@ import type {
 
 export function listChannels(wsId: string): Promise<ChannelListResponse> {
   return apiRequest(`/workspaces/${wsId}/channels`);
+}
+
+// 072 백로그 S-D (FR-CH-06): 채널 둘러보기 — 공개 채널 + memberCount + isMember.
+export function listBrowsableChannels(wsId: string): Promise<ListBrowsableChannelsResponse> {
+  return apiRequest(`/workspaces/${wsId}/channels/browse`);
 }
 
 export function createChannel(wsId: string, input: CreateChannelRequest): Promise<Channel> {
