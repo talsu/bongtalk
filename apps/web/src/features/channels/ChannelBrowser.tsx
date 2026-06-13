@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import type { Channel } from '@qufox/shared-types';
-import { useChannelList, useJoinChannel } from './useChannels';
+import type { ChannelBrowseItem } from '@qufox/shared-types';
+import { useBrowsableChannels, useJoinChannel } from './useChannels';
 import { useUnreadSummary } from './useUnread';
 import { Icon } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
@@ -21,11 +21,12 @@ type Props = {
  * S15 (FR-CH-06): 채널 브라우저.
  *
  * 멤버가 워크스페이스의 공개 채널 목록을 이름/설명 검색 + 정렬(이름·최근 활동)로
- * 둘러보고, 클릭 한 번에 가입(S14 join 재사용)한 뒤 해당 채널로 이동한다.
+ * 둘러보고, 가입(S14 join 재사용) 또는 이미 가입한 채널은 바로 열어 이동한다.
  *
- * - VIEW_CHANNEL DENY 처리: 서버의 listChannels 가 호출자가 볼 수 없는 비공개
- *   채널을 이미 응답에서 제외한다(정보 누출 없음). 브라우저는 그중 **공개 채널만**
- *   추가로 노출한다(isPrivate=false).
+ * - 데이터 소스(072 S-D): 전용 둘러보기 엔드포인트 listBrowsable(useBrowsableChannels).
+ *   서버가 **공개·비보관·비삭제 채널만** 반환하므로 클라 isPrivate 필터는 불요하며,
+ *   각 항목에 memberCount(가입 멤버 수) + isMember(호출자 가입 여부)를 동봉한다.
+ *   isMember 로 "가입"/"열기" 버튼을 분기하고 memberCount 를 표시한다.
  * - 검색: 클라이언트 필터(이름 + 설명, 대소문자 무시). 전문검색은 D07.
  * - Empty state:
  *     ① 검색 0건 → `.qf-empty` + "검색어에 해당하는 채널이 없습니다" + 초기화 링크.
@@ -39,7 +40,9 @@ export function ChannelBrowser({
   canManage,
   onCreateChannel,
 }: Props): JSX.Element {
-  const { data } = useChannelList(workspaceId);
+  // 072 백로그 S-D (FR-CH-06): 서버가 공개 채널 + memberCount + isMember 를 내려준다
+  // (사이드바 핫패스 listByWorkspace 와 분리된 전용 둘러보기 엔드포인트).
+  const { data } = useBrowsableChannels(workspaceId);
   const { data: unread } = useUnreadSummary(workspaceId);
   const join = useJoinChannel(workspaceId);
   const navigate = useNavigate();
@@ -47,14 +50,8 @@ export function ChannelBrowser({
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState<SortMode>('name');
 
-  // 모든 공개 채널을 단일 평탄 목록으로 모은다(카테고리 + uncategorized).
-  const publicChannels = useMemo<Channel[]>(() => {
-    const all: Channel[] = [
-      ...(data?.uncategorized ?? []),
-      ...(data?.categories ?? []).flatMap((c) => c.channels),
-    ];
-    return all.filter((c) => !c.isPrivate);
-  }, [data]);
+  // 서버가 공개 채널만 반환하므로 그대로 사용한다(클라 isPrivate 필터 불요).
+  const publicChannels = useMemo<ChannelBrowseItem[]>(() => data?.channels ?? [], [data]);
 
   const lastActivityByChannel = useMemo(() => {
     const m = new Map<string, number>();
@@ -83,8 +80,11 @@ export function ChannelBrowser({
     return matched;
   }, [publicChannels, query, sort, lastActivityByChannel]);
 
-  const onJoin = async (channel: Channel): Promise<void> => {
-    await join.mutateAsync(channel.id).catch(() => undefined);
+  // 072 백로그 S-D: 이미 가입(isMember)한 채널은 바로 열고, 아니면 가입 후 이동한다.
+  const onOpenOrJoin = async (channel: ChannelBrowseItem): Promise<void> => {
+    if (!channel.isMember) {
+      await join.mutateAsync(channel.id).catch(() => undefined);
+    }
     navigate(`/w/${workspaceSlug}/${channel.name}`);
   };
 
@@ -190,14 +190,33 @@ export function ChannelBrowser({
                     </div>
                   ) : null}
                 </div>
+                {/* 072 백로그 S-D: 가입(opt-in) 멤버 수. 0 명도 명시(빈칸 방지). */}
+                <span
+                  data-testid={`channel-browser-membercount-${c.name}`}
+                  className="shrink-0 text-[length:var(--fs-12)] text-text-muted"
+                >
+                  멤버 {c.memberCount.toLocaleString()}명
+                </span>
+                {/* 이미 가입했으면 "열기", 아니면 "가입" — isMember 로 분기. */}
                 <button
                   type="button"
-                  className={cn('qf-btn', 'qf-btn--secondary', 'qf-btn--sm')}
-                  data-testid={`channel-browser-join-${c.name}`}
-                  disabled={join.isPending}
-                  onClick={() => onJoin(c)}
+                  className={cn(
+                    'qf-btn',
+                    c.isMember ? 'qf-btn--ghost' : 'qf-btn--secondary',
+                    'qf-btn--sm',
+                  )}
+                  data-testid={
+                    c.isMember ? `channel-browser-open-${c.name}` : `channel-browser-join-${c.name}`
+                  }
+                  // a11y(S-D 리뷰 LOW): 버튼 접근명에 채널명 합성(rotor 순회 시 동일 라벨
+                  // N개 모호성 해소 — UnreadsView/FavoritesSection 선례 일관).
+                  aria-label={c.isMember ? `# ${c.name} 채널 열기` : `# ${c.name} 채널 가입`}
+                  // S-D 리뷰 LOW: "열기"는 join 뮤테이션을 안 쓰므로 가입 진행 중에도
+                  // 비활성화하지 않는다(무관한 가입 동작이 멤버 채널 열기를 막지 않게).
+                  disabled={!c.isMember && join.isPending}
+                  onClick={() => onOpenOrJoin(c)}
                 >
-                  가입
+                  {c.isMember ? '열기' : '가입'}
                 </button>
               </li>
             ))}

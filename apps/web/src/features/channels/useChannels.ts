@@ -7,6 +7,7 @@ import {
   joinChannel,
   leaveChannel,
   listChannels,
+  listBrowsableChannels,
   moveCategory,
   moveChannel,
   unarchiveChannel,
@@ -15,12 +16,24 @@ import {
 
 const keys = {
   list: (wsId: string) => ['channels', wsId] as const,
+  // 072 백로그 S-D (FR-CH-06): 채널 둘러보기(공개 채널 + memberCount/isMember) 캐시 키.
+  browse: (wsId: string) => ['channels', wsId, 'browse'] as const,
 };
 
 export function useChannelList(wsId: string | undefined) {
   return useQuery({
     queryKey: keys.list(wsId ?? ''),
     queryFn: () => listChannels(wsId!),
+    enabled: !!wsId,
+  });
+}
+
+// 072 백로그 S-D (FR-CH-06): 채널 둘러보기 데이터. 가입/탈퇴 시 무효화돼 멤버 수 +
+// 가입 여부("열기"/"가입" 분기)가 갱신된다.
+export function useBrowsableChannels(wsId: string | undefined) {
+  return useQuery({
+    queryKey: keys.browse(wsId ?? ''),
+    queryFn: () => listBrowsableChannels(wsId!),
     enabled: !!wsId,
   });
 }
@@ -72,7 +85,11 @@ export function useJoinChannel(wsId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (channelId: string) => joinChannel(wsId, channelId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.list(wsId) });
+      // 072 백로그 S-D: 둘러보기의 memberCount/isMember 도 갱신("가입"→"열기").
+      qc.invalidateQueries({ queryKey: keys.browse(wsId) });
+    },
   });
 }
 
@@ -80,7 +97,10 @@ export function useLeaveChannel(wsId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: (channelId: string) => leaveChannel(wsId, channelId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: keys.list(wsId) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: keys.list(wsId) });
+      qc.invalidateQueries({ queryKey: keys.browse(wsId) });
+    },
   });
 }
 

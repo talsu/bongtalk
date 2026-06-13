@@ -71,6 +71,21 @@ export class ChannelsController {
     return this.channels.listByWorkspace(m.workspaceId, user.id);
   }
 
+  /**
+   * 072 백로그 S-D (FR-CH-06): 채널 둘러보기 — 공개 채널 + 가입(opt-in) 멤버 수 +
+   * 호출자 가입 여부. FE 가 "가입"/"열기" 버튼을 분기하고 멤버 수를 표시한다. 모든
+   * 멤버가 열람 가능(member-only). 라우트 순서: `browse` 는 `:chid`(ParseUUIDPipe) 보다
+   * 먼저 선언해야 'browse' 가 UUID 로 잘못 파싱되지 않는다(positions 패턴 동일).
+   */
+  @Get('browse')
+  async browse(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.channels.listBrowsable(m.workspaceId, user.id);
+  }
+
   @Roles('ADMIN')
   @Post()
   async create(

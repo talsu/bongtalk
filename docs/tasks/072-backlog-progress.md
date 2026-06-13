@@ -11,8 +11,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | -------- | ----------------------------------------------------------------- | ------- | -------- | -------- |
 | S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23 |
 | S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
-| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | 🔄 진행 | —        | —        |
-| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ⬜ 대기 | —        | —        |
+| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
+| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | 🔄 진행 | —        | —        |
 | S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ⬜ 대기 | —        | —        |
 | S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ⬜ 대기 | —        | —        |
 | S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ⬜ 대기 | —        | —        |
@@ -71,5 +71,54 @@ raw 7 → confirmed 6(전부 **LOW**, BLOCKER/HIGH/MEDIUM 0). aria-hidden 프리
 
 ### 게이트
 
-- standalone verify: (배포 후 채움)
+- standalone verify: **19/19 green** (lint + typecheck + unit + contract; webhook 8 / shared-types 35 /
+  api 125 / web 231 test files). 컨테이너 단독 실행(리뷰 워크플로우와 분리 — 자원 경합 flake 회피).
+- 머지/배포: develop `ce2a1581` (ls-remote 실측) → main `c76c0633` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · api/web smoke OK) → /readyz 200.
+  배포 후 검증: api 컨테이너 라우트 매핑 로그에 `WorkspaceIconController {/workspaces/:id/icon}` +
+  presign/PUT/DELETE 확인, presign 라우트 컨테이너 내부 호출 401(인증 보호) — live.
+- 이월(LOW): icon/joinMode realtime fanout(선존 패턴) · `text-[color:var(--danger)]` 미정의
+  토큰(N5 선존·전역 4곳·범위 외) → 별도 follow-up.
+
+---
+
+## S-D — 채널 둘러보기 memberCount + isMember (FR-CH-06)
+
+브랜치: `feat/bl-d-channel-membercount`
+
+### 청크 표
+
+| #   | 청크         | 파일                                                                                                                                                                                                     |
+| --- | ------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| D1  | 둘러보기 DTO | `channel.ts` ChannelBrowseItemSchema(= ChannelSchema.extend memberCount/isMember) + ListBrowsableChannelsResponseSchema                                                                                  |
+| D2  | 둘러보기 BE  | `channels.service.ts` listBrowsable(공개·비보관 채널 + groupBy memberCount + 호출자 isMember) + `channels.controller.ts` `@Get('browse')`(:chid 보다 먼저, member-only)                                  |
+| D3  | 둘러보기 FE  | `api.ts` listBrowsableChannels + `useChannels.ts` useBrowsableChannels(+ join/leave 가 browse 캐시 무효화) + `ChannelBrowser.tsx` useBrowsableChannels 전환·memberCount 표시·isMember "열기"/"가입" 분기 |
+| D4  | 테스트       | `channels-browse.spec.ts`(listBrowsable 분기 — 필터/매핑/스코프)                                                                                                                                         |
+
+### 설계 결정 — 멤버십 의미
+
+★공개 채널은 **모든 워크스페이스 멤버에게 항상 보인다**(listByWorkspace `!isPrivate → true`).
+"가입"의 실체는 joinChannel 이 만드는 USER override **opt-in 마커(allow:0/deny:0)**다(allowMask>0
+아님 — 리콘 오판 정정). 따라서 둘러보기의 멤버십 = USER override 행 존재. 사이드바 핫패스는
+건드리지 않고 전용 `browse` 엔드포인트에서만 집계(groupBy + 호출자 행, 2쿼리·인덱스).
+
+### 적대 리뷰(wf_f1ec39d2-8a3 · 9 에이전트·3각도) fix-forward
+
+raw 6 → confirmed 5 (MEDIUM 1 + LOW 4).
+
+- **MEDIUM(수리)**: memberCount/isMember 가 모든 USER override 행을 셈 → addChannelMemberOverride
+  (ADMIN·공개 채널 게이트 없음)가 건 **순수 deny 제한 행(allow:0·deny>0)**을 멤버로 오집계 +
+  비가입자를 isMember=true 로 표기. join 마커(deny:0)·grant(allow>0)는 멤버, 순수 deny 제한은
+  비멤버로 분리 → `NOT: { allowMask:0, denyMask:{gt:0} }` 필터 추가(groupBy + 호출자 양쪽).
+  (잔여 edge: 가입 후 deny 제한 걸린 사용자 — 드묾, 정밀 분리는 멤버십 마커 컬럼·마이그레이션 이월.)
+- **LOW(수리)**: ChannelBrowser docblock stale(listChannels 기준) → listBrowsable 기준 갱신.
+- **LOW(수리)**: 버튼 접근명 채널명 미연결(rotor 모호) → `aria-label` 채널명 합성(UnreadsView 선례).
+- **LOW(수리)**: `disabled={join.isPending}` 가 "열기" 버튼까지 막음 → `!c.isMember && join.isPending`.
+- **LOW(이월)**: `/browse` 페이지네이션 없음(전 공개 채널 반환) — listByWorkspace 동일 자세,
+  현 규모 OK. 채널 수천 시 cursor + 서버 검색 별도 슬라이스.
+
+### 게이트
+
+- standalone verify: **19/19 green** (webhook 8 / shared-types 35 / api 126 / web 231 test files).
+  1회 ImageMosaicGrid(무관 첨부 테스트) kernel4.4 타이밍 flake → 재실행 통과 확정.
 - 머지/배포: (채움)
