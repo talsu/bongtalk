@@ -39,8 +39,10 @@ test.setTimeout(180_000);
 // color-contrast 룰 자체는 켜 둔다(위 백로그 표와 1:1 동기).
 const ISOLATED_RULES: string[] = [];
 const EXCLUDED_DS_NODES: readonly string[] = [
-  '.qf-m-section__action', // DS mobile.css L189 var(--accent) 조합
-  '[data-testid="workspace-settings-save"]', // DS qf-btn 클래스 조합
+  // 072-N6-5(D5): .qf-m-section__action 은 --accent→--link 로 AA 충족(6.6:1+) → 제외 해제(axe 강제).
+  // 072-N6-5(리뷰 MEDIUM·이월): .qf-btn--primary(workspace-settings-save 등)는 a-500 bg+흰 텍스트가
+  // AA 미만 — 전역 브랜드 버튼 색 결정이라 별도 슬라이스로 이월(여기선 노드 격리 유지).
+  '[data-testid="workspace-settings-save"]',
 ];
 
 // 데스크톱 선례(axe-scan.e2e.ts)와 동일: Radix 가 포털 애니메이션 중 일시적으로

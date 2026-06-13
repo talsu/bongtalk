@@ -70,3 +70,17 @@ N6 의 실시간/읽음 본체는 대부분 **서버 의존**이라 docs/검증 
     (테마-aware a-300/a-600, AA 충족). workspace-settings-save 등 잔여는 axe 게이트로 검증.
 
 DS 4파일 수정은 D2/D5 승인 예외(다른 슬라이스는 무수정 유지). index.html 직접 link 라 데스크톱+모바일 즉시 반영.
+
+## N6-5 적대 리뷰(wdbwcb6rl — 12 에이전트·3각도) fix-forward
+
+raw 12 → confirmed 9. D2 가 **불완전 배선**이었음을 적발 → 전면 수리.
+
+- **BLOCKER**: useAppearanceSettings.applyIfChanged 가 theme/density 변경 시에만 applyAppearanceToDOM
+  호출 → chatFontSize-only 변경(슬라이더)이 리로드 전까지 미적용. 조건에 chatFontSize 추가.
+- **HIGH×3**: --fs-chat 를 소비 안 하던 메시지 본문 클래스 전부 배선 —
+  `[data-density=compact] .qf-message__body`(--fs-14→var(--fs-chat,--fs-14)) ·
+  `.qf-thread-msg__body`(스레드 답글) · `.qf-m-msg__body`(모바일). 미설정 시 각 기본 폴백.
+- **LOW**: a11y-mobile axe 의 .qf-m-section__action 제외 해제(D5 후 6.6:1+ AA 충족 → axe 강제) ·
+  applyAppearanceToDOM/AppearanceSettingsPage 의 stale '준비 중/보류' 주석 정정.
+- **MEDIUM(이월)**: .qf-btn--primary(workspace-settings-save 등) a-500 bg+흰 텍스트 AA 미만 —
+  전역 브랜드 버튼 색 결정이라 별도 슬라이스 이월(axe 노드 격리 유지).

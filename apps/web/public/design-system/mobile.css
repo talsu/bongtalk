@@ -262,7 +262,8 @@
 .qf-m-msg__meta { display: flex; align-items: baseline; gap: 6px; margin-bottom: 2px; }
 .qf-m-msg__author { font: 600 var(--fs-15) var(--font-sans); color: var(--text-strong); }
 .qf-m-msg__time { font-size: var(--fs-11); color: var(--text-muted); }
-.qf-m-msg__body { font-size: var(--fs-15); line-height: var(--lh-snug); color: var(--text); word-wrap: break-word; }
+/* 072-N6-5(리뷰 HIGH): 모바일 메시지 본문도 채팅 폰트 크기(--fs-chat, 전역 설정) 존중. 미설정 시 --fs-15. */
+.qf-m-msg__body { font-size: var(--fs-chat, var(--fs-15)); line-height: var(--lh-snug); color: var(--text); word-wrap: break-word; }
 
 /* Swipe-to-reply hint (revealed when row translated) */
 .qf-m-swipe {

@@ -10,9 +10,9 @@ import { useAppearanceSettings, useUpdateAppearanceSettings } from './useAppeara
  * 편집한다. 모든 컨트롤은 onChange 즉시 PATCH 자동 저장하며(Fork B1, 낙관적 갱신 → 실패 시
  * revert + 토스트), 저장 성공 시 aria-live 영역으로 "저장됨" 을 통지한다(F-H4).
  *
- * F-M1: 채팅 폰트 크기 슬라이더는 DS 4파일에 `--fs-chat` 참조 규칙이 0건이라 시각 효과가
- * 없고 raw px 주입은 1.4.4 위반이므로 **비활성화**(준비 중)한다. 값은 저장/조회는 계속
- * 유지하되 시각 적용은 DS-owner 가 qf-message__body 배선을 추가하는 carryover 다.
+ * 072-N6-5(D2 승인): DS 에 `--fs-chat` 토큰 + 메시지 본문 배선(qf-message__body·thread·
+ * mobile·compact)이 추가돼 채팅 폰트 크기 슬라이더를 **활성화**한다. 변경 시 6단계(12~18)
+ * 중 선택값을 저장하고 applyAppearanceToDOM 이 --fs-chat(rem 토큰 참조)을 즉시 주입한다.
  */
 
 const THEME_OPTIONS: ReadonlyArray<{ value: Theme; label: string; hint: string }> = [
@@ -186,7 +186,7 @@ export function AppearanceSettingsPage(): JSX.Element {
         </div>
       </section>
 
-      {/* 채팅 폰트 크기 (F-M1: 비활성 — 준비 중. DS-owner 가 --fs-chat 배선 후 활성화) */}
+      {/* 채팅 폰트 크기 (072-N6-5 D2: --fs-chat 배선 완료 → 활성, 6단계 12~18px) */}
       <section
         className="mb-[var(--s-6)]"
         aria-labelledby="appearance-font-heading"
