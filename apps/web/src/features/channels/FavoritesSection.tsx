@@ -130,7 +130,8 @@ export function FavoritesSection({
     const out: Channel[] = [];
     for (const f of data?.items ?? []) {
       const ch = channelsById.get(f.channelId);
-      if (ch) out.push(ch);
+      // 072 백로그 S-B (FR-CH-04): 즐겨찾기된 보관 채널도 사이드바에서 숨긴다.
+      if (ch && !ch.archivedAt) out.push(ch);
     }
     return out;
   }, [data, channelsById]);
