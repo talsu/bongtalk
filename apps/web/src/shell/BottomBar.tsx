@@ -15,6 +15,8 @@ import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useUI } from '../stores/ui-store';
 import { usePresenceStatus } from '../features/presence/usePresenceStatus';
 import type { PresenceStatus } from '../features/presence/presenceStatus';
+import { useCustomStatus } from '../features/presence/useCustomStatus';
+import { CustomStatusModal } from '../features/presence/CustomStatusModal';
 
 const STATUS_LABEL: Record<PresenceStatus, string> = {
   online: '온라인',
@@ -30,6 +32,10 @@ export function BottomBar(): JSX.Element {
   const setOpenModal = useUI((s) => s.setOpenModal);
   const { status, setStatus, pending } = usePresenceStatus('online');
   const [statusOpen, setStatusOpen] = useState(false);
+  // 072-N2: 커스텀 상태(이모지+텍스트) 표시 + 편집 모달 진입.
+  const { data: customStatus } = useCustomStatus();
+  const [customOpen, setCustomOpen] = useState(false);
+  const customLabel = customStatus?.text || customStatus?.emoji ? customStatus : null;
 
   return (
     <footer
@@ -54,8 +60,14 @@ export function BottomBar(): JSX.Element {
               >
                 {user?.username ?? ''}
               </div>
-              <div data-testid="home-status" className="text-[length:var(--fs-11)] text-text-muted">
-                {STATUS_LABEL[status]}
+              <div
+                data-testid="home-status"
+                className="truncate text-[length:var(--fs-11)] text-text-muted"
+              >
+                {/* 072-N2: 커스텀 상태가 있으면 이모지+텍스트를, 없으면 프레즌스 라벨. */}
+                {customLabel
+                  ? `${customLabel.emoji ? `${customLabel.emoji} ` : ''}${customLabel.text ?? ''}`.trim()
+                  : STATUS_LABEL[status]}
               </div>
             </div>
           </button>
@@ -66,34 +78,53 @@ export function BottomBar(): JSX.Element {
               void setStatus('online');
             }}
           >
-            <span data-testid="presence-set-online">Online</span>
+            <span data-testid="presence-set-online">온라인</span>
           </DropdownItem>
           <DropdownItem
             onSelect={() => {
               void setStatus('dnd');
             }}
           >
-            <span data-testid="presence-set-dnd">Do not disturb</span>
+            <span data-testid="presence-set-dnd">방해 금지</span>
+          </DropdownItem>
+          {/* 072-N2(D1·FR-P01): Invisible 활성화 — setStatus('offline')은 wire
+              'invisible' 로 PATCH(서버 허용). 라벨은 PRD '오프라인으로 표시'. */}
+          <DropdownItem
+            onSelect={() => {
+              void setStatus('offline');
+            }}
+          >
+            <span data-testid="presence-set-invisible">오프라인으로 표시</span>
           </DropdownItem>
           <DropdownSeparator />
-          <DropdownItem disabled>
-            <span data-testid="presence-invisible-disabled">Invisible — 곧 제공 예정</span>
+          {/* 072-N2(FR-P04/P17): 커스텀 상태 편집 진입. */}
+          <DropdownItem
+            preventDefault
+            onSelect={() => {
+              setCustomOpen(true);
+            }}
+          >
+            <span data-testid="bottom-bar-custom-status">
+              {customLabel ? '커스텀 상태 변경' : '커스텀 상태 설정'}
+            </span>
           </DropdownItem>
           <DropdownSeparator />
           {/* task-033-H: Activity entry point from the desktop profile
               menu. Mobile gets the same surface via the tabbar 활동 tab. */}
           <DropdownItem asChild preventDefault={false}>
             <Link to="/activity" data-testid="bottom-bar-activity" className="w-full">
-              Activity
+              활동
             </Link>
           </DropdownItem>
           <DropdownItem asChild preventDefault={false}>
             <Link to="/settings" data-testid="bottom-bar-settings" className="w-full">
-              Settings
+              설정
             </Link>
           </DropdownItem>
         </DropdownContent>
       </DropdownRoot>
+
+      <CustomStatusModal open={customOpen} onOpenChange={setCustomOpen} />
 
       <div className="flex items-center gap-1">
         <Tooltip label={resolved === 'dark' ? '라이트 모드' : '다크 모드'} side="top">

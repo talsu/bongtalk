@@ -73,6 +73,11 @@ vi.mock('../presence/useCustomStatus', () => ({
   useCustomStatus: () => ({ data: statusData }),
   useSetCustomStatus: () => setStatusMut,
 }));
+// 072-N2: CustomStatusModal 은 자체 spec 가 커버 — 여기선 Dialog/EmojiPicker 의존을
+// 끊기 위해 스텁(이 페이지 스펙은 primitives 를 Icon 만 모킹).
+vi.mock('../presence/CustomStatusModal', () => ({
+  CustomStatusModal: () => null,
+}));
 
 import { ProfileSettingsPage } from './ProfileSettingsPage';
 

@@ -68,7 +68,8 @@ const TriggerHost = forwardRef<HTMLElement, TriggerHostProps>(function TriggerHo
 const STATUS_LABEL: Record<FullProfilePresenceStatus, string> = {
   online: '온라인',
   idle: '자리 비움',
-  dnd: '다른 용무 중',
+  // 072-N2(FR-P05): Avatar/PresenceDot 와 동일하게 '방해 금지'로 통일.
+  dnd: '방해 금지',
   offline: '오프라인',
 };
 
