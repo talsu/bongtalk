@@ -80,6 +80,25 @@ export function useDmByUser(workspaceId: string | undefined, userId: string | un
   });
 }
 
+// 072-N1 (적대 리뷰 HIGH): 열린 그룹 DM 의 멤버를 목록과 독립적으로 해석한다.
+// GET /me/dms/groups/:gdmId/members 는 멤버 게이트(가시성/q 무관)라 숨긴 그룹의
+// 딥링크·검색 중 입력에도 selectedGroup 이 사라지지 않는다(1:1 의 useDmByUser 와
+// 대칭). title 폴백·extraNames 를 이 응답으로 구성한다.
+export interface GroupMemberProfile {
+  userId: string;
+  username: string;
+  customStatus: string | null;
+}
+
+export function useDmGroupMembers(groupId: string | undefined) {
+  return useQuery<{ items: GroupMemberProfile[] }>({
+    queryKey: ['dm', 'group-members', groupId ?? ''],
+    queryFn: () => apiRequest(`/me/dms/groups/${groupId}/members`),
+    enabled: !!groupId,
+    staleTime: 30_000,
+  });
+}
+
 /**
  * FR-DM-15: DM 뮤트 설정/해제 mutation. 채널 뮤트(useMutes)와 동일한
  * UserChannelMute 테이블을 쓰지만, 설정은 DM 전용 라우트(PATCH /me/dms/:channelId/

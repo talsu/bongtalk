@@ -21,6 +21,7 @@ import { useNotificationPreferences } from '../features/notifications/useNotific
 import {
   useDmList,
   useDmGroupList,
+  useDmGroupMembers,
   useCreateOrGetDm,
   useCreateGroupDm,
   useDmByUser,
@@ -464,14 +465,21 @@ export function DmShell(): JSX.Element {
   const { getStatus } = useDmPresence();
 
   // 1:1 선택 채널 해석(라우트 :userId). 그룹은 channelId 가 라우트에 직접 있다.
-  const { data: byUser } = useDmByUser(undefined, routeUserId);
+  // 072-N1(적대 리뷰 MEDIUM): /dm/g(groupId 누락)는 React Router 가 /dm/:userId
+  // 에 userId='g' 로 폴백 매칭 → by-user 가 비-UUID 로 400 → 무한 로딩. UUID 형태가
+  // 아닌 routeUserId 는 무효로 보고 빈 상태로 떨어뜨린다.
+  const validUserId =
+    routeUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeUserId)
+      ? routeUserId
+      : undefined;
+  const { data: byUser } = useDmByUser(undefined, validUserId);
   const createDm = useCreateOrGetDm(undefined);
   const selectedDirectChannelId = byUser?.channelId ?? null;
 
   useEffect(() => {
-    if (!routeUserId || selectedDirectChannelId || byUser === undefined) return;
-    void createDm.mutateAsync({ userId: routeUserId }).catch(() => undefined);
-  }, [routeUserId, selectedDirectChannelId, byUser, createDm]);
+    if (!validUserId || selectedDirectChannelId || byUser === undefined) return;
+    void createDm.mutateAsync({ userId: validUserId }).catch(() => undefined);
+  }, [validUserId, selectedDirectChannelId, byUser, createDm]);
 
   // 072-N1-1: 1:1 + 그룹 통합 정렬 행.
   const rows = useMemo(
@@ -480,38 +488,48 @@ export function DmShell(): JSX.Element {
   );
 
   const selectedFriend = useMemo(() => {
-    if (!routeUserId) return null;
-    const fromFriends = (friends?.items ?? []).find((f) => f.otherUserId === routeUserId);
-    if (fromFriends) return { userId: routeUserId, username: fromFriends.otherUsername };
-    const fromDms = (dms?.items ?? []).find((d) => d.otherUserId === routeUserId);
-    if (fromDms) return { userId: routeUserId, username: fromDms.otherUsername };
-    return { userId: routeUserId, username: '' };
-  }, [routeUserId, friends, dms]);
+    if (!validUserId) return null;
+    const fromFriends = (friends?.items ?? []).find((f) => f.otherUserId === validUserId);
+    if (fromFriends) return { userId: validUserId, username: fromFriends.otherUsername };
+    const fromDms = (dms?.items ?? []).find((d) => d.otherUserId === validUserId);
+    if (fromDms) return { userId: validUserId, username: fromDms.otherUsername };
+    return { userId: validUserId, username: '' };
+  }, [validUserId, friends, dms]);
 
-  // 072-N1-1: 선택된 그룹(라우트 groupId)을 그룹 목록에서 찾는다(헤더 표시명·
-  // 참여자명 맵 공급). deep-link 시 목록에 없으면 로딩 폴백.
-  const selectedGroup = useMemo(
+  // 072-N1(적대 리뷰 HIGH): 열린 그룹을 q-필터/가시성-필터된 목록이 아니라 멤버
+  // 엔드포인트로 독립 해석한다 — 검색 입력 중·숨긴 그룹 딥링크에도 대화가 사라지지
+  // 않는다(1:1 의 useDmByUser 와 대칭). 목록 항목은 displayName 표시명에만 쓴다.
+  const {
+    data: groupMembers,
+    isError: groupMembersError,
+  } = useDmGroupMembers(routeGroupId);
+  const groupListEntry = useMemo(
     () => (routeGroupId ? (groups?.items ?? []).find((g) => g.channelId === routeGroupId) : null),
     [routeGroupId, groups],
   );
+  const groupReady = !!routeGroupId && groupMembers !== undefined;
 
-  // DM 작성자 이름 맵: 1:1 은 본인+상대, 그룹은 본인+전 참여자.
+  // DM 작성자 이름 맵: 1:1 은 본인+상대, 그룹은 본인+전 참여자(멤버 엔드포인트).
   const extraNames = useMemo(() => {
     const m = new Map<string, string>();
     if (me?.id && me?.username) m.set(me.id, me.username);
-    if (selectedGroup) {
-      for (const p of selectedGroup.participants) m.set(p.userId, p.username);
+    if (routeGroupId && groupMembers) {
+      for (const p of groupMembers.items) m.set(p.userId, p.username);
     } else if (selectedFriend?.userId && selectedFriend.username) {
       m.set(selectedFriend.userId, selectedFriend.username);
     }
     return m;
-  }, [me, selectedFriend, selectedGroup]);
+  }, [me, selectedFriend, routeGroupId, groupMembers]);
 
   const groupTitle = useMemo(() => {
-    if (!selectedGroup) return '…';
-    const r = rows.find((x) => x.channelId === selectedGroup.channelId);
-    return r?.title ?? selectedGroup.displayName ?? '그룹 대화';
-  }, [selectedGroup, rows]);
+    const named = groupListEntry?.displayName?.trim();
+    if (named) return named;
+    const others = (groupMembers?.items ?? [])
+      .filter((p) => p.userId !== me?.id)
+      .map((p) => p.username)
+      .filter((u) => u.length > 0);
+    return others.length > 0 ? others.join(', ') : '그룹 대화';
+  }, [groupListEntry, groupMembers, me]);
 
   const openRow = (row: UnifiedDmRow): void => {
     if (row.kind === 'group') navigate(`/dm/g/${row.channelId}`);
@@ -622,8 +640,14 @@ export function DmShell(): JSX.Element {
         <BottomBar />
       </div>
 
-      {/* 그룹 대화(채널 id 라우트) */}
-      {routeGroupId && selectedGroup ? (
+      {/* 그룹 대화(채널 id 라우트) — 멤버 엔드포인트로 독립 해석. */}
+      {routeGroupId && groupMembersError ? (
+        // 비멤버 딥링크 등 멤버 조회 실패 → 무한 로딩 대신 not-found.
+        <main className="qf-empty flex-1" data-testid="dm-shell-group-notfound">
+          <div className="qf-empty__title">대화를 찾을 수 없습니다</div>
+          <div className="qf-empty__body">이 그룹의 멤버가 아니거나 대화가 삭제되었습니다.</div>
+        </main>
+      ) : routeGroupId && groupReady ? (
         <MessageColumn
           workspaceId={null}
           workspaceSlug={null}
@@ -637,7 +661,7 @@ export function DmShell(): JSX.Element {
         <main className="qf-empty flex-1" data-testid="dm-shell-loading">
           <div className="qf-empty__title">대화를 준비 중…</div>
         </main>
-      ) : routeUserId && selectedDirectChannelId ? (
+      ) : validUserId && selectedDirectChannelId ? (
         <MessageColumn
           workspaceId={null}
           workspaceSlug={null}
@@ -647,7 +671,7 @@ export function DmShell(): JSX.Element {
           channelType="DIRECT"
           extraNames={extraNames}
         />
-      ) : routeUserId ? (
+      ) : validUserId ? (
         <main className="qf-empty flex-1" data-testid="dm-shell-loading">
           <div className="qf-empty__title">대화를 준비 중…</div>
         </main>

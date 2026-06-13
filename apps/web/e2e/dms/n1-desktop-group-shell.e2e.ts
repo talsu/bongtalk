@@ -92,6 +92,14 @@ test('desktop DM shell: group create modal + sidebar group row + hide 1:1', asyn
   const groupRow = page.locator('[data-testid^="dm-shell-row-"][data-kind="group"]');
   await expect(groupRow.first()).toBeVisible();
 
+  // ②-b (적대 리뷰 HIGH 회귀고정): 그룹 대화 중 무관한 검색어를 입력해도 열린
+  //     대화가 언마운트되지 않는다(그룹은 멤버 엔드포인트로 q 와 독립 해석).
+  await page.getByTestId('dm-shell-search').fill('zzz-no-such-conversation');
+  await page.waitForTimeout(450); // 250ms 디바운스 경과 대기
+  await expect(page).toHaveURL(/\/dm\/g\//);
+  await expect(page.getByTestId('msg-composer')).toBeVisible();
+  await page.getByTestId('dm-shell-search').fill(''); // 복구
+
   // ③ 사이드바 친구(B)를 눌러 1:1 DM 개설 → 대화 목록 행 등장 → 컨텍스트 메뉴
   //    "대화 숨기기" → 목록에서 사라짐(전부 UI 주도, B userId API 불필요).
   await page.getByTestId(`dm-side-friend-${bUser}`).click();
@@ -99,6 +107,12 @@ test('desktop DM shell: group create modal + sidebar group row + hide 1:1', asyn
   await page.getByTestId(`dm-shell-row-${bUser}`).click({ button: 'right' });
   await page.getByTestId(`dm-shell-hide-${bUser}`).click();
   await expect(page.getByTestId(`dm-shell-row-${bUser}`)).toHaveCount(0, { timeout: 15_000 });
+
+  // ④ (적대 리뷰 MEDIUM 회귀고정): /dm/g (groupId 누락) 딥링크가 무한 로딩에
+  //    빠지지 않고 빈/그룹 상태로 안전 폴백한다(userId='g' 비-UUID 400 루프 차단).
+  await page.goto(`${ORIGIN}/dm/g`);
+  await expect(page.getByTestId('dm-shell-root')).toBeVisible();
+  await expect(page.getByTestId('dm-shell-loading')).toHaveCount(0, { timeout: 10_000 });
 
   await context.close();
 });
