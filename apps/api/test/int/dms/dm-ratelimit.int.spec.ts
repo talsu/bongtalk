@@ -77,4 +77,38 @@ describe('S102 DM rate-limit (int)', () => {
     expect(statuses.filter((s) => s < 300).length).toBe(MAX);
     expect(statuses[MAX]).toBe(429);
   }, 60_000);
+
+  // 072 백로그 S-A(리뷰): setMute 는 다른 3개와 달리 assertDmMember(게이트) 직후 enforce 한다.
+  // 게이트-우선 순서를 고정 — 비멤버는 한도 이전에 404, 멤버는 DM_MUTE_MAX(30) 초과 시 429.
+  it('setMute 는 비멤버에 404(게이트), 멤버는 DM_MUTE_MAX(30) 초과 시 429', async () => {
+    const erin = await signup(env.baseUrl, 's102e');
+    const finn = await signup(env.baseUrl, 's102f');
+    await makeFriends(env.baseUrl, erin, finn);
+    const dm = await request(env.baseUrl)
+      .post('/me/dms')
+      .set('Authorization', `Bearer ${erin.accessToken}`)
+      .send({ userId: finn.userId });
+    const channelId = (dm.body as { channelId: string }).channelId;
+
+    // 비멤버(finn 의 DM 이 아닌 채널은 없으니, 무관한 제3자 grace 가 erin/finn DM 에 mute 시도) → 404.
+    const grace = await signup(env.baseUrl, 's102g');
+    const outsider = await request(env.baseUrl)
+      .patch(`/me/dms/${channelId}/mute`)
+      .set('Authorization', `Bearer ${grace.accessToken}`)
+      .send({ mutedUntil: null });
+    expect(outsider.status).toBe(404);
+
+    // 멤버(erin)는 30회 성공, 31번째 429.
+    const MAX = 30;
+    const statuses: number[] = [];
+    for (let i = 0; i < MAX + 1; i++) {
+      const res = await request(env.baseUrl)
+        .patch(`/me/dms/${channelId}/mute`)
+        .set('Authorization', `Bearer ${erin.accessToken}`)
+        .send({ mutedUntil: null });
+      statuses.push(res.status);
+    }
+    expect(statuses.filter((s) => s < 300).length).toBe(MAX);
+    expect(statuses[MAX]).toBe(429);
+  }, 60_000);
 });
