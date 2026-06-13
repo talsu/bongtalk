@@ -107,6 +107,26 @@ export const PERMISSION_CATALOG: PermissionMeta[] = [
     label: '슬로우모드 면제',
     description: '슬로우모드 우회',
   },
+  // 072-N5-2 (FR-RM05·06·07): 모더레이션 비트(ADR-4 단일출처 기존재, web 카탈로그
+  // 누락이라 역할 편집 토글에 노출 안 되던 것 합류). 비트 재정의 없음.
+  {
+    flag: 'KICK_MEMBERS',
+    bit: PERMISSIONS.KICK_MEMBERS,
+    label: '멤버 추방',
+    description: '멤버 강제 퇴장(재가입 가능)',
+  },
+  {
+    flag: 'BAN_MEMBERS',
+    bit: PERMISSIONS.BAN_MEMBERS,
+    label: '멤버 차단',
+    description: '멤버/비멤버 영구 차단(재진입 불가)',
+  },
+  {
+    flag: 'TIMEOUT_MEMBERS',
+    bit: PERMISSIONS.TIMEOUT_MEMBERS,
+    label: '멤버 타임아웃',
+    description: '멤버 임시 음소거',
+  },
 ];
 
 /** permissions string(BigInt as string) → 토글 상태(bigint). */
