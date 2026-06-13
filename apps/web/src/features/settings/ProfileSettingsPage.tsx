@@ -38,6 +38,7 @@ import {
   useBannerDelete,
 } from '../users/useMyProfile';
 import { useCustomStatus, useSetCustomStatus } from '../presence/useCustomStatus';
+import { CustomStatusModal } from '../presence/CustomStatusModal';
 import { uploadAvatarBlob } from '../users/avatarUpload';
 
 /**
@@ -92,6 +93,8 @@ export function ProfileSettingsPage(): JSX.Element {
   const [handleError, setHandleError] = useState<string | null>(null);
   // a11y M-2: DND 토글 실패 메시지(sr-only role=alert 로 통지).
   const [dndError, setDndError] = useState<string | null>(null);
+  // 072-N2-1: 커스텀 상태 편집 모달(BottomBar 와 동일 공용 모달).
+  const [statusModalOpen, setStatusModalOpen] = useState(false);
   const fileRef = useRef<HTMLInputElement | null>(null);
   const bannerRef = useRef<HTMLInputElement | null>(null);
 
@@ -602,6 +605,27 @@ export function ProfileSettingsPage(): JSX.Element {
         <span className="text-[length:var(--fs-12)] uppercase tracking-[var(--tracking-caps)] text-text-muted">
           커스텀 상태
         </span>
+        {/* 072-N2-1 (FR-P04/P17·FR-PS-05): 커스텀 상태 메시지(이모지+텍스트+만료) 편집
+            진입 — BottomBar 와 동일 공용 모달. 종전 이 섹션은 DND 동시활성 토글만 있었다. */}
+        <div className="qf-toggle-row" style={{ borderBottom: 'none', padding: 0 }}>
+          <div className="qf-toggle-row__text">
+            <div className="qf-toggle-row__title">상태 메시지</div>
+            <div className="qf-toggle-row__desc" data-testid="profile-custom-status-current">
+              {statusView?.text || statusView?.emoji
+                ? `${statusView.emoji ? `${statusView.emoji} ` : ''}${statusView.text ?? ''}`.trim()
+                : '설정된 상태 메시지가 없습니다.'}
+            </div>
+          </div>
+          <button
+            type="button"
+            data-testid="profile-custom-status-edit"
+            className="qf-btn qf-btn--ghost qf-btn--sm"
+            onClick={() => setStatusModalOpen(true)}
+          >
+            편집
+          </button>
+        </div>
+        <CustomStatusModal open={statusModalOpen} onOpenChange={setStatusModalOpen} />
         {/* a11y HIGH-1 + ui-designer MEDIUM-2: checkbox → role=switch 버튼 + DS .qf-toggle-row/
             .qf-switch 패턴. onToggleDnd 는 서버측 상태 보존(HIGH-1 fix)에 의존하므로 text 를
             보내지 않아도 활성 커스텀 상태가 삭제되지 않는다. */}

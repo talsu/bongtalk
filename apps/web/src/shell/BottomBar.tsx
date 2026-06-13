@@ -15,6 +15,8 @@ import { useTheme } from '../design-system/theme/ThemeProvider';
 import { useUI } from '../stores/ui-store';
 import { usePresenceStatus } from '../features/presence/usePresenceStatus';
 import type { PresenceStatus } from '../features/presence/presenceStatus';
+import { useCustomStatus } from '../features/presence/useCustomStatus';
+import { CustomStatusModal } from '../features/presence/CustomStatusModal';
 
 const STATUS_LABEL: Record<PresenceStatus, string> = {
   online: '온라인',
@@ -30,6 +32,16 @@ export function BottomBar(): JSX.Element {
   const setOpenModal = useUI((s) => s.setOpenModal);
   const { status, setStatus, pending } = usePresenceStatus('online');
   const [statusOpen, setStatusOpen] = useState(false);
+  // 072-N2: 커스텀 상태(이모지+텍스트) 표시 + 편집 모달 진입.
+  const { data: customStatus } = useCustomStatus();
+  const [customOpen, setCustomOpen] = useState(false);
+  const customLabel = customStatus?.text || customStatus?.emoji ? customStatus : null;
+  // 072-N2(리뷰 LOW): 프레즌스 라벨과 커스텀 상태를 함께 노출(둘 중 하나만 보이면
+  // 사용자가 자기 프레즌스/오프라인 여부를 텍스트로 확인 못 함 — ProfilePopover 와 정합).
+  const customText = customLabel
+    ? `${customLabel.emoji ? `${customLabel.emoji} ` : ''}${customLabel.text ?? ''}`.trim()
+    : '';
+  const statusLine = customText ? `${STATUS_LABEL[status]} · ${customText}` : STATUS_LABEL[status];
 
   return (
     <footer
@@ -42,7 +54,7 @@ export function BottomBar(): JSX.Element {
             type="button"
             data-testid="presence-status-trigger"
             data-presence={status}
-            aria-label={`내 상태: ${STATUS_LABEL[status]} (변경하기)`}
+            aria-label={`내 상태: ${statusLine} (변경하기)`}
             disabled={pending}
             className="flex items-center gap-2 rounded-[var(--r-sm)] px-[var(--s-2)] py-[var(--s-1)] hover:bg-bg-hover focus-visible:bg-bg-hover"
           >
@@ -54,8 +66,12 @@ export function BottomBar(): JSX.Element {
               >
                 {user?.username ?? ''}
               </div>
-              <div data-testid="home-status" className="text-[length:var(--fs-11)] text-text-muted">
-                {STATUS_LABEL[status]}
+              <div
+                data-testid="home-status"
+                className="truncate text-[length:var(--fs-11)] text-text-muted"
+              >
+                {/* 072-N2: 프레즌스 라벨 + (있으면) 커스텀 상태를 함께 노출. */}
+                {statusLine}
               </div>
             </div>
           </button>
@@ -66,34 +82,57 @@ export function BottomBar(): JSX.Element {
               void setStatus('online');
             }}
           >
-            <span data-testid="presence-set-online">Online</span>
+            <span data-testid="presence-set-online">온라인</span>
           </DropdownItem>
           <DropdownItem
             onSelect={() => {
               void setStatus('dnd');
             }}
           >
-            <span data-testid="presence-set-dnd">Do not disturb</span>
+            <span data-testid="presence-set-dnd">방해 금지</span>
+          </DropdownItem>
+          {/* 072-N2(D1·FR-P01): Invisible 활성화 — setStatus('offline')은 wire
+              'invisible' 로 PATCH(서버 허용). 라벨은 PRD '오프라인으로 표시'. */}
+          <DropdownItem
+            onSelect={() => {
+              void setStatus('offline');
+            }}
+          >
+            <span data-testid="presence-set-invisible">오프라인으로 표시</span>
           </DropdownItem>
           <DropdownSeparator />
-          <DropdownItem disabled>
-            <span data-testid="presence-invisible-disabled">Invisible — 곧 제공 예정</span>
+          {/* 072-N2(FR-P04/P17): 커스텀 상태 편집 진입. 메뉴를 닫고(preventDefault=false)
+              모달을 연다 — 메뉴를 연 채로 두면(preventDefault) 열린 DropdownMenu 포커스
+              스코프가 Dialog 위에 남아 모달이 표면화되지 않는다(e2e 발견). 닫힘 시
+              트리거로 포커스 복귀 후 Dialog 가 포커스를 트랩한다. */}
+          <DropdownItem
+            preventDefault={false}
+            onSelect={() => {
+              setStatusOpen(false);
+              setCustomOpen(true);
+            }}
+          >
+            <span data-testid="bottom-bar-custom-status">
+              {customLabel ? '커스텀 상태 변경' : '커스텀 상태 설정'}
+            </span>
           </DropdownItem>
           <DropdownSeparator />
           {/* task-033-H: Activity entry point from the desktop profile
               menu. Mobile gets the same surface via the tabbar 활동 tab. */}
           <DropdownItem asChild preventDefault={false}>
             <Link to="/activity" data-testid="bottom-bar-activity" className="w-full">
-              Activity
+              활동
             </Link>
           </DropdownItem>
           <DropdownItem asChild preventDefault={false}>
             <Link to="/settings" data-testid="bottom-bar-settings" className="w-full">
-              Settings
+              설정
             </Link>
           </DropdownItem>
         </DropdownContent>
       </DropdownRoot>
+
+      <CustomStatusModal open={customOpen} onOpenChange={setCustomOpen} />
 
       <div className="flex items-center gap-1">
         <Tooltip label={resolved === 'dark' ? '라이트 모드' : '다크 모드'} side="top">
