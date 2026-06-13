@@ -13,9 +13,16 @@
  * 의존이 없으므로 renderToStaticMarkup 으로 정적 검증한다.
  */
 import { afterEach, describe, it, expect } from 'vitest';
-import { render, screen, cleanup } from '@testing-library/react';
+import { render as rtlRender, screen, cleanup } from '@testing-library/react';
 import type { ReactionSummary } from '@qufox/shared-types';
 import { ReactionBar } from './ReactionBar';
+import { TooltipProvider } from '../../design-system/primitives';
+
+// 072-N0: ReactionBar 칩이 DS Tooltip(Radix) 을 쓰므로 TooltipProvider 가 필요하다.
+// 실앱은 App.tsx 루트에 Provider 가 있어 정상이며, 이 단위 스펙만 bare 렌더라
+// 래퍼를 주입한다(런타임 동작 무변경 — 테스트 하니스 정합).
+const render = (ui: Parameters<typeof rtlRender>[0]): ReturnType<typeof rtlRender> =>
+  rtlRender(ui, { wrapper: TooltipProvider });
 
 const reactions: ReactionSummary[] = [
   { emoji: '👍', count: 3, byMe: true },
