@@ -4,7 +4,12 @@ import { BULK_DELETE_MAX, type Channel } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
 import { Dialog, Button, Input, SettingsOverlay } from '../../design-system/primitives';
 import { useNotifications } from '../../stores/notification-store';
-import { useDeleteChannel, useUpdateChannel } from './useChannels';
+import {
+  useArchiveChannel,
+  useDeleteChannel,
+  useUnarchiveChannel,
+  useUpdateChannel,
+} from './useChannels';
 import { useWorkspace } from '../workspaces/useWorkspaces';
 import { ChannelPrivacyConfirmModal } from './ChannelPrivacyConfirmModal';
 import { ChannelPermissionsTab } from './ChannelPermissionsTab';
@@ -175,6 +180,7 @@ export function ChannelSettingsPage({
               workspaceId={workspaceId}
               workspaceSlug={workspaceSlug}
               channel={channel}
+              isDefaultChannel={isDefaultChannel}
             />
           ) : section === 'permissions' ? (
             <ChannelPermissionsTab workspaceId={workspaceId} channelId={channel.id} />
@@ -248,14 +254,39 @@ function GeneralSection({
   workspaceId,
   workspaceSlug,
   channel,
+  isDefaultChannel,
 }: {
   workspaceId: string;
   workspaceSlug: string;
   channel: Channel & { name: string };
+  isDefaultChannel: boolean;
 }): JSX.Element {
   const navigate = useNavigate();
   const notify = useNotifications((s) => s.push);
   const updateMut = useUpdateChannel(workspaceId);
+  // 072-N3-2 (FR-CH-04): 아카이브/보관 해제.
+  const archiveMut = useArchiveChannel(workspaceId);
+  const unarchiveMut = useUnarchiveChannel(workspaceId);
+  const [archiveSubmitting, setArchiveSubmitting] = useState(false);
+  const isArchived = channel.archivedAt != null;
+  const toggleArchive = (): void => {
+    void (async () => {
+      setArchiveSubmitting(true);
+      try {
+        if (isArchived) {
+          await unarchiveMut.mutateAsync(channel.id);
+          notify({ variant: 'success', title: '보관 해제됨', body: `#${channel.name} 이(가) 다시 활성화되었습니다.` });
+        } else {
+          await archiveMut.mutateAsync(channel.id);
+          notify({ variant: 'success', title: '보관됨', body: `#${channel.name} 이(가) 보관되었습니다.` });
+        }
+      } catch (err) {
+        notify({ variant: 'danger', title: '보관 처리 실패', body: (err as Error).message });
+      } finally {
+        setArchiveSubmitting(false);
+      }
+    })();
+  };
   const [name, setName] = useState(channel.name);
   const [topic, setTopic] = useState(channel.topic ?? '');
   // S13 (FR-CH-10): 채널 설명(≤500자). 토픽과 별개의 긴 소개 텍스트.
@@ -495,6 +526,29 @@ function GeneralSection({
             onClick={togglePinPermission}
           >
             {channel.memberCanPin ? '관리자만 고정으로 변경' : '멤버 전체 허용으로 변경'}
+          </Button>
+        </div>
+      </div>
+      {/* 072-N3-2 (FR-CH-04): 채널 보관(아카이브)/해제. 기본 채널은 비활성. */}
+      <div className="qf-field">
+        <span className="qf-field__label">보관</span>
+        <div className="flex items-center justify-between gap-[var(--s-4)]">
+          <p id="channel-archive-hint" className="qf-field__hint m-0">
+            {isDefaultChannel
+              ? '기본 채널은 보관할 수 없습니다.'
+              : isArchived
+                ? '보관된 채널입니다. 언제든 보관을 해제할 수 있어요.'
+                : '보관하면 활성 목록 정리에 도움이 됩니다. 언제든 해제할 수 있어요.'}
+          </p>
+          <Button
+            type="button"
+            variant="secondary"
+            data-testid="channel-settings-archive-toggle"
+            aria-describedby="channel-archive-hint"
+            disabled={isDefaultChannel || archiveSubmitting}
+            onClick={toggleArchive}
+          >
+            {isArchived ? '보관 해제' : '채널 보관'}
           </Button>
         </div>
       </div>

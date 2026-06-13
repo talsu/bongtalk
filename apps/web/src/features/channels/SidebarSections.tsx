@@ -18,6 +18,7 @@ import {
   DropdownItem,
 } from '../../design-system/primitives';
 import { cn } from '../../lib/cn';
+import { channelOpenLabel, channelPrefixIcon, channelPrefixKind } from './channelGlyph';
 import { deriveSidebarRowState } from './sidebarRowState';
 import { computeSectionChannelOrder } from './sidebarSectionOrder';
 import {
@@ -94,10 +95,17 @@ function SectionChannelRow({
       <Link
         to={`/w/${workspaceSlug}/${channel.name}`}
         tabIndex={-1}
-        aria-label={`# ${channel.name} 채널 열기`}
+        aria-label={channelOpenLabel(channel)}
         className="absolute inset-0"
       />
-      <span className="qf-channel__prefix pointer-events-none relative">#</span>
+      {/* 072-N3-4(리뷰 LOW): 개인 섹션 행도 메인 목록과 동일 prefix(비공개/공지). */}
+      <span className="qf-channel__prefix pointer-events-none relative flex items-center">
+        {channelPrefixIcon(channelPrefixKind(channel)) ? (
+          <Icon name={channelPrefixIcon(channelPrefixKind(channel))!} size="sm" aria-hidden />
+        ) : (
+          '#'
+        )}
+      </span>
       <span className="pointer-events-none relative flex-1 truncate">&nbsp;{channel.name}</span>
       <span className="qf-channel__suffix pointer-events-auto relative z-10">
         {muted ? (
