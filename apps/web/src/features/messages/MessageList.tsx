@@ -696,7 +696,13 @@ export function MessageList({
   //   (4) 없음 + around settled + 결과에 대상 없음(soft-deleted 필터) 또는 에러
   //       (404/MESSAGE_NOT_FOUND) → not-found 토스트 1회 + 소비.
   useEffect(() => {
-    if (!jumpMessageId) return;
+    if (!jumpMessageId) {
+      // 072-N4(리뷰 MEDIUM): ?msg 점프가 소비돼 파라미터가 비워지면 소비 가드를
+      // 리셋한다. 검색 패널이 점프 후에도 유지되므로(N4-1), 같은 결과를 다시 클릭하면
+      // 동일 id 로 재점프가 가능해야 한다(가드가 남으면 dead click + stale ?msg).
+      consumedJumpRef.current = null;
+      return;
+    }
     if (consumedJumpRef.current === jumpMessageId) return;
     const msgIndex = messageIds.indexOf(jumpMessageId);
     if (msgIndex < 0) {

@@ -35,6 +35,8 @@ function render(props: Partial<Parameters<typeof SearchResultPanel>[0]> = {}): s
     <SearchResultPanel
       query="needle"
       results={[]}
+      sort="relevance"
+      onSortChange={() => undefined}
       channelNameById={new Map([[CH, 'general']])}
       isLoading={false}
       hasNextPage={false}
