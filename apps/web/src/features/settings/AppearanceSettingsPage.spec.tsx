@@ -64,16 +64,15 @@ describe('AppearanceSettingsPage (FR-PS-09 · Fork B1)', () => {
     expect(mutateAsync).toHaveBeenCalledWith({ linkPreviewsEnabled: false });
   });
 
-  // F-M1: 폰트 슬라이더는 DS 미지원으로 비활성(준비 중) — 값은 저장/조회만 유지.
-  it('disables the chat font slider (F-M1 · 준비 중) and never PATCHes from it', () => {
+  // 072-N6-5 (D2 승인): 폰트 슬라이더 활성화 — 변경 시 6단계 중 선택값을 PATCH 한다.
+  it('enables the chat font slider and PATCHes the selected step (D2)', () => {
     render(<AppearanceSettingsPage />);
     const slider = screen.getByTestId('appearance-font-slider') as HTMLInputElement;
-    expect(slider.disabled).toBe(true);
-    expect(slider.getAttribute('aria-disabled')).toBe('true');
-    // 비활성 컨트롤은 change 를 일으키지 않으며, 어떤 chatFontSize PATCH 도 보내지 않는다.
+    expect(slider.disabled).toBe(false);
+    // index 5 = CHAT_FONT_SIZES[5] = 18px.
     fireEvent.change(slider, { target: { value: '5' } });
-    expect(mutateAsync).not.toHaveBeenCalled();
-    // 현재 저장된 px 안내가 노출된다(데이터는 유지).
+    expect(mutateAsync).toHaveBeenCalledWith({ chatFontSize: 18 });
+    // 현재 저장된 px 안내가 노출된다.
     expect(screen.getByTestId('appearance-font-hint').textContent).toContain('15px');
   });
 

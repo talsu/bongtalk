@@ -271,7 +271,8 @@
 }
 .qf-message:hover .qf-message__gutter-time { opacity: 1; }
 .qf-message__body {
-  font-size: var(--fs-15); line-height: var(--lh-normal); color: var(--text);
+  /* 072-N6-5 (D2): 채팅 폰트 크기 토큰. 미설정 시 base(--fs-15) 폴백. */
+  font-size: var(--fs-chat, var(--fs-15)); line-height: var(--lh-normal); color: var(--text);
   word-wrap: break-word;
 }
 .qf-message__body p { margin: 0; }
@@ -445,7 +446,8 @@
 }
 .qf-thread-msg__author { font: 600 var(--fs-14) var(--font-sans); color: var(--text-strong); }
 .qf-thread-msg__time { font-size: var(--fs-11); color: var(--text-muted); }
-.qf-thread-msg__body { font-size: var(--fs-14); line-height: var(--lh-normal); color: var(--text); word-wrap: break-word; }
+/* 072-N6-5(리뷰 HIGH): 스레드 답글 본문도 채팅 폰트 크기(--fs-chat) 존중. 미설정 시 --fs-14. */
+.qf-thread-msg__body { font-size: var(--fs-chat, var(--fs-14)); line-height: var(--lh-normal); color: var(--text); word-wrap: break-word; }
 
 /* Thread composer (smaller than main) */
 .qf-thread-composer {
@@ -1674,7 +1676,8 @@
   width: var(--avatar-msg-compact); height: var(--avatar-msg-compact);
 }
 [data-density="compact"] .qf-message__author { font-size: var(--fs-14); }
-[data-density="compact"] .qf-message__body { font-size: var(--fs-14); }
+/* 072-N6-5(리뷰 HIGH): compact 도 채팅 폰트 크기(--fs-chat) 존중. 미설정 시 compact 기본(--fs-14). */
+[data-density="compact"] .qf-message__body { font-size: var(--fs-chat, var(--fs-14)); }
 /* compact 연속 메시지: 아바타 자리 대신 인덴트로 본문 정렬 유지 */
 [data-density="compact"] .qf-message--cont { padding-left: var(--msg-indent); }
 [data-density="compact"] .qf-message--cont .qf-message__avatar { display: none; }

@@ -22,7 +22,7 @@ import { applyAppearanceToDOM, themeToPreference } from './applyAppearanceToDOM'
  * F-P1: applyAppearanceToDOM 은 값이 실제로 바뀐 경우에만 호출해 중복 적용을 피한다.
  */
 
-/** previous/next 의 시각 적용 대상(theme/density)이 동일하면 재적용을 건너뛴다(F-P1). */
+/** previous/next 의 시각 적용 대상(density/chatFontSize)이 동일하면 재적용을 건너뛴다(F-P1). */
 function applyIfChanged(
   prev: AppearanceSettings | undefined,
   next: AppearanceSettings,
@@ -32,7 +32,10 @@ function applyIfChanged(
     // 테마 단일 소유자(ThemeProvider)에 라우팅 — SYSTEM 은 prefers-color-scheme 라이브 추종.
     setPreference(themeToPreference(next.theme));
   }
-  if (!prev || prev.density !== next.density) {
+  // 072-N6-5(리뷰 BLOCKER): applyAppearanceToDOM 은 density + chatFontSize(--fs-chat) 를
+  // 모두 DOM 에 반영한다. chatFontSize-only 변경(폰트 슬라이더)도 즉시 적용되도록 둘 중
+  // 하나라도 바뀌면 호출한다(종전엔 density 만 검사해 폰트 변경이 리로드 전까지 무시됐다).
+  if (!prev || prev.density !== next.density || prev.chatFontSize !== next.chatFontSize) {
     applyAppearanceToDOM(next);
   }
 }
