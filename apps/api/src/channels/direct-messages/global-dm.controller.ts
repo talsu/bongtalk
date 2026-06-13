@@ -162,6 +162,9 @@ export class GlobalDmController {
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
+      // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 수(인박스 배지).
+      unreadCount: number;
+      mentionCount: number;
     }>;
   }> {
     const limit = typeof limitRaw === 'string' ? Number(limitRaw) : limitRaw;
@@ -331,7 +334,11 @@ export class GlobalDmController {
   ): Promise<{ channelId: string; visibility: 'HIDDEN' | 'VISIBLE' }> {
     // 072 백로그 S-A: write(USER override hiddenAt updateMany) 부하 상한.
     await this.rate.enforce([
-      { key: `dm:visibility:u:${user.id}`, windowSec: DM_CREATE_WINDOW_SEC, max: DM_VISIBILITY_MAX },
+      {
+        key: `dm:visibility:u:${user.id}`,
+        windowSec: DM_CREATE_WINDOW_SEC,
+        max: DM_VISIBILITY_MAX,
+      },
     ]);
     return this.svc.setVisibility({ meId: user.id, channelId, visibility: body.visibility });
   }
