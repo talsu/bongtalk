@@ -350,7 +350,7 @@ function ProtectedFriendsRoute(): JSX.Element {
 
 function ProtectedDmShellRoute(): JSX.Element {
   const { status } = useAuth();
-  const params = useParams<{ userId?: string }>();
+  const params = useParams<{ userId?: string; groupId?: string }>();
   const [dmSearch] = useSearchParams();
   // 071-M2 E1: 구독형 훅으로 통일(조기 return 보다 먼저 — Rules of Hooks).
   const isMobile = useIsMobile();
@@ -360,6 +360,8 @@ function ProtectedDmShellRoute(): JSX.Element {
   // 우측 빈 패널이 한 글자씩 세로로 깨졌다. 모바일은 전용 표면으로 분기한다:
   //  - /dm?new=<userId> (홈 친구 행 진입) → /dms/:userId (MobileDmChat 이 createOrGet)
   //  - /dm/:userId → /dms/:userId, /dm → /dms (MobileDmList)
+  // 072-N1: /dm/g/:groupId(그룹 DM)는 모바일 전용 그룹 표면이 아직 없어 /dms 목록으로
+  //  graceful 폴백한다(데스크톱 전용 슬라이스 — 모바일 그룹 DM 은 후속).
   if (isMobile) {
     const newUserId = dmSearch.get('new');
     if (newUserId) return <Navigate to={`/dms/${encodeURIComponent(newUserId)}`} replace />;
@@ -571,6 +573,9 @@ export default function App(): JSX.Element {
                         {/* task-047 iter4 (M3): profile page */}
                         <Route path="/me/profile" element={<ProtectedMyProfileRoute />} />
                         <Route path="/dm" element={<ProtectedDmShellRoute />} />
+                        {/* 072-N1: 그룹 DM(channelId 키잉) — :userId 보다 먼저(3-세그먼트
+                            라우트라 충돌 없지만 의도 명시). */}
+                        <Route path="/dm/g/:groupId" element={<ProtectedDmShellRoute />} />
                         <Route path="/dm/:userId" element={<ProtectedDmShellRoute />} />
                         <Route path="/discover" element={<ProtectedDiscoverRoute />} />
                         <Route path="/friends" element={<ProtectedFriendsRoute />} />
