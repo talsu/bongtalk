@@ -1,5 +1,10 @@
 import { useCallback, useMemo } from 'react';
-import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
+import {
+  keepPreviousData,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from '@tanstack/react-query';
 import type { RecentSearchesResponse, SearchResponse, SearchSort } from '@qufox/shared-types';
 import {
   searchMessages,
@@ -52,6 +57,9 @@ export function useSearch(args: {
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: SearchResponse) => last.nextCursor ?? undefined,
+    // 072-N4-2(리뷰 LOW): 정렬 토글 시 queryKey 가 바뀌어도 이전 결과를 유지해
+    // '검색 중…' 스피너로 깜빡이지 않게 한다(부드러운 재정렬).
+    placeholderData: keepPreviousData,
     // S31 (FR-S13): 순수 길이가 아니라 파서 기반 게이트 — 수식어가 있으면
     // 자유 텍스트 0자여도 허용, 없으면 3자 이상만 서버 요청. NIT4: 호출측이
     // enabled=false 를 넘기면(예: suggest 모드) 결과 쿼리를 비활성화한다.

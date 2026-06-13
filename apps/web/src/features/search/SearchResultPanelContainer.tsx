@@ -98,7 +98,7 @@ export function SearchResultPanelContainer({
     if (!chName) return;
     if (q.trim().length > 0) pushRecentSearch(q);
     // 072-N4-1 (FR-S·P0): 점프해도 검색 패널을 닫지 않는다 — 연속 결과 탐색 가능
-    // (종전 closeSearchPanel() 제거).
+    // (종전 패널 닫기 호출 제거).
     navigate(`/w/${workspaceSlug}/${chName}?msg=${r.messageId}`);
   };
 
