@@ -19,8 +19,32 @@
 | N3-2 | ChannelSettingsPage 아카이브/해제 토글(useArchiveChannel, 기본채널 비활성) (HIGH) | green | |
 | N3-3 | ChannelBrowser 멤버수 표시·정렬·가입/열기 분기 (MEDIUM) | deferred(서버) | |
 | N3-4 | ChannelList prefix 아이콘(lock/megaphone/#) (LOW) | green | |
-| N3-G | 게이트: 데스크톱 e2e(channels) + standalone verify + 적대 리뷰 | todo | |
+| N3-G | 게이트: 데스크톱 e2e(channels) + standalone verify + 적대 리뷰(w0m6yn8dh) | green | (fix-forward) |
 | N3-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+
+## N3-G 적대 리뷰(w0m6yn8dh — 10 에이전트·3각도) fix-forward
+
+raw 7 → confirmed 6 / plausible 0.
+
+**수리 완료:**
+
+- **HIGH**: 타입 radiogroup 이 ARIA radio 키보드 모델 위반(roving tabindex·화살표 핸들러 없음) →
+  TYPE_OPTIONS + radioRefs + roving tabindex(선택만 tab 진입) + Arrow←→↑↓ 이동·선택·포커스.
+- **MEDIUM**: description textarea maxLength 1024→500(계약 ChannelDescriptionSchema.max(500) 정합 —
+  501~1024 입력이 서버 400 raw-zod 토스트로 떨어지던 회귀).
+- **MEDIUM**: 행 네비 aria-label 이 항상 '# name'이라 비공개/공지 미전달 → channelOpenLabel 헬퍼로
+  '비공개/공지' 단어 포함.
+- **LOW**: prefix 분기를 공용 헬퍼(channelGlyph.ts)로 추출 → SectionChannelRow(개인 섹션)에도 적용
+  (메인 목록만 lock/megaphone, 개인 섹션은 '#' 던 불일치 해소).
+- **LOW**: 채널 이름 maxLength 80→32 + 계약 정규식(소문자 alphanum/_/-) 클라 검증·인라인 에러
+  (대문자/공백/33+자가 서버 raw-zod 토스트로 떨어지던 진단불가 UX 개선).
+
+**이월(문서화):**
+
+- 보관(아카이브) 채널의 사이드바 숨김/읽기전용 enforcement — 서버 list 쿼리가 archivedAt 미필터·
+  toggleArchive 가 이동 안 함(critic). 사이드바 client 필터 + read-only 분기는 데이터 흐름 광범위
+  변경이라 후속 슬라이스로 이월. 힌트 문구는 과대표기 제거(정확화).
+- N3-3(멤버수/가입-열기) 서버 의존 이월(상단).
 
 ## 이월(문서화)
 

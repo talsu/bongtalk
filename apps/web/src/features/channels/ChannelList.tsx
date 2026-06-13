@@ -29,6 +29,7 @@ import { FavoritesSection } from './FavoritesSection';
 import { SidebarSections } from './SidebarSections';
 import { useAssignedChannelIds, useCreateSidebarSection } from './useSidebarSections';
 import { CreateChannelModal } from './CreateChannelModal';
+import { channelOpenLabel, channelPrefixIcon, channelPrefixKind } from './channelGlyph';
 import {
   Icon,
   DropdownRoot,
@@ -270,15 +271,13 @@ function DraggableChannelRow({
         <Link
           to={`/w/${workspaceSlug}/${channel.name}`}
           tabIndex={-1}
-          aria-label={`# ${channel.name} 채널 열기`}
+          aria-label={channelOpenLabel(channel)}
           className="absolute inset-0"
         />
-        {/* 072-N3-4 (FR-CH prefix): 비공개→lock · 공지→megaphone · 그 외→#. */}
+        {/* 072-N3-4 (FR-CH prefix): 비공개→lock · 공지→megaphone · 그 외→#(공용 헬퍼). */}
         <span className="qf-channel__prefix pointer-events-none relative flex items-center">
-          {channel.isPrivate ? (
-            <Icon name="lock" size="sm" aria-hidden />
-          ) : channel.type === 'ANNOUNCEMENT' ? (
-            <Icon name="megaphone" size="sm" aria-hidden />
+          {channelPrefixIcon(channelPrefixKind(channel)) ? (
+            <Icon name={channelPrefixIcon(channelPrefixKind(channel))!} size="sm" aria-hidden />
           ) : (
             '#'
           )}
