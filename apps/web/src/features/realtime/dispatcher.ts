@@ -294,7 +294,11 @@ export function installRealtimeDispatcher(
     // task-027-E: DM channels feed the DM list cache too. Invalidation
     // only — the server ranking (last-message desc + unread counts)
     // is the source of truth.
-    qc.invalidateQueries({ queryKey: ['dm', 'list'] });
+    // 072 백로그 S-E (FR-DM-15): prefix ['dm'] 로 넓혀 1:1(['dm','list'])과 그룹
+    // (['dm','groups']) 미읽음 배지를 함께 무효화한다. message.created wire 에 isGroup
+    // 정보가 없으므로 prefix 무효화가 가장 단순·안전하다(종전엔 ['dm','list'] 만 무효화돼
+    // 그룹 배지가 staleTime(15s)/focus refetch 전까지 갱신 안 되는 1:1 대비 비대칭이었다).
+    qc.invalidateQueries({ queryKey: ['dm'] });
 
     // Unread-count bump (task-010-B). Skip when I sent it, or when I'm
     // already looking at this channel — an open channel drives its own
@@ -730,22 +734,22 @@ export function installRealtimeDispatcher(
       },
     );
 
-      // S35 (FR-TH-20b): 채널 타임라인과 Thread Panel 의 공유 상태 동기화. 같은
-      // message.deleted 이벤트로 양쪽을 한 번에 처리한다(별도 2차 fetch 없음 →
-      // 2회 렌더 방지). 삭제된 메시지가 *답글*이면 그 답글이 들어있는 열린 스레드
-      // 캐시에서 해당 행을 deleted:true 로 마킹한다(ThreadReplyRow 가 "(삭제된
-      // 답글)" placeholder 렌더). 삭제된 메시지가 *루트*면 그 루트의 thread 캐시
-      // (rootId = messageId)에서 root 를 deleted 로 마킹해 패널이 placeholder 를
-      // 보이게 한다. parentMessageId 가 이벤트에 없으므로 모든 thread 캐시를
-      // 순회하되, 일치하는 캐시 1곳만 실제로 바뀐다(나머지는 동일 참조 반환 →
-      // 무-렌더). thread 캐시는 보통 0~1개라 순회 비용은 무시할 만하다.
-      const threadQueries = qc.getQueriesData<
-        InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>
-      >({ queryKey: qk.messages.threadRoot() });
-      for (const [key] of threadQueries) {
-        qc.setQueryData<
-          InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>
-        >(key, (old) => {
+    // S35 (FR-TH-20b): 채널 타임라인과 Thread Panel 의 공유 상태 동기화. 같은
+    // message.deleted 이벤트로 양쪽을 한 번에 처리한다(별도 2차 fetch 없음 →
+    // 2회 렌더 방지). 삭제된 메시지가 *답글*이면 그 답글이 들어있는 열린 스레드
+    // 캐시에서 해당 행을 deleted:true 로 마킹한다(ThreadReplyRow 가 "(삭제된
+    // 답글)" placeholder 렌더). 삭제된 메시지가 *루트*면 그 루트의 thread 캐시
+    // (rootId = messageId)에서 root 를 deleted 로 마킹해 패널이 placeholder 를
+    // 보이게 한다. parentMessageId 가 이벤트에 없으므로 모든 thread 캐시를
+    // 순회하되, 일치하는 캐시 1곳만 실제로 바뀐다(나머지는 동일 참조 반환 →
+    // 무-렌더). thread 캐시는 보통 0~1개라 순회 비용은 무시할 만하다.
+    const threadQueries = qc.getQueriesData<
+      InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>
+    >({ queryKey: qk.messages.threadRoot() });
+    for (const [key] of threadQueries) {
+      qc.setQueryData<InfiniteData<{ root: MessageDto; replies: MessageDto[]; pageInfo: unknown }>>(
+        key,
+        (old) => {
           if (!old) return old;
           let changed = false;
           const pages = old.pages.map((p) => {
@@ -764,10 +768,10 @@ export function installRealtimeDispatcher(
             };
           });
           return changed ? { ...old, pages } : old;
-        });
-      }
-    },
-  );
+        },
+      );
+    }
+  });
 
   // S64 (FR-RM09): message:bulk_deleted — bulk purge 결과. channelId + messageIds[] 가
   // 실려오므로 해당 채널의 messages.list 캐시에서 그 id 들을 한 번에 제거한다(개별

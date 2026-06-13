@@ -1,13 +1,13 @@
 import { describe, it, expect } from 'vitest';
-import {
-  buildDmRows,
-  groupDmTitle,
-  muteUntilIso,
-  MUTE_DURATION_OPTIONS,
-} from './dmRows';
+import { buildDmRows, groupDmTitle, muteUntilIso, MUTE_DURATION_OPTIONS } from './dmRows';
 import type { DmListItem, GroupDmListItem } from './useDms';
 
-function dm(channelId: string, otherUserId: string, username: string, lastMessageAt: string | null): DmListItem {
+function dm(
+  channelId: string,
+  otherUserId: string,
+  username: string,
+  lastMessageAt: string | null,
+): DmListItem {
   return {
     channelId,
     otherUserId,
@@ -23,7 +23,12 @@ function dm(channelId: string, otherUserId: string, username: string, lastMessag
 function grp(
   channelId: string,
   lastMessageAt: string | null,
-  opts: { displayName?: string | null; participants?: Array<{ userId: string; username: string }> } = {},
+  opts: {
+    displayName?: string | null;
+    participants?: Array<{ userId: string; username: string }>;
+    unreadCount?: number;
+    mentionCount?: number;
+  } = {},
 ): GroupDmListItem {
   return {
     channelId,
@@ -38,6 +43,9 @@ function grp(
     lastMessageAt,
     lastMessagePreview: 'group hi',
     createdAt: '2025-01-01T00:00:00.000Z',
+    // 072 백로그 S-E (FR-DM-15): 그룹 DM 도 미읽음/멘션 수를 갖는다.
+    unreadCount: opts.unreadCount ?? 0,
+    mentionCount: opts.mentionCount ?? 0,
   };
 }
 
@@ -91,6 +99,16 @@ describe('buildDmRows', () => {
     expect(rows[1].kind).toBe('group');
     expect(rows[1].memberIds).toEqual(['me', 'a', 'b']);
     expect(rows[1].participants?.length).toBe(3);
+  });
+
+  // 072 백로그 S-E (FR-DM-15): 그룹 행도 서버가 준 unread/mention 을 그대로 보존한다.
+  it('group 행은 unreadCount/mentionCount 를 보존한다', () => {
+    const rows = buildDmRows(
+      [],
+      [grp('g1', '2025-01-01T08:00:00.000Z', { unreadCount: 7, mentionCount: 3 })],
+      'me',
+    );
+    expect(rows[0]).toMatchObject({ kind: 'group', unreadCount: 7, mentionCount: 3 });
   });
 });
 

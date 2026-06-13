@@ -4,9 +4,9 @@ import type { DmListItem, GroupDmListItem, DmParticipantProfile } from './useDms
  * 072-N1-1: DM 사이드바의 1:1·그룹 행을 하나의 정렬 목록으로 합치는 순수 로직.
  *
  * 데스크톱 DmShell 은 종전 1:1(useDmList)만 렌더했고 그룹(useDmGroupList)은
- * dormant 였다. 두 목록을 lastMessageAt DESC(없으면 맨 뒤)로 병합하되, 그룹 행은
- * unread/mention 카운트가 서버 listGroups 응답에 없어 배지 없이 렌더한다(뮤트
- * 회색 표시는 UserChannelMute 공유라 channelId 로 가능).
+ * dormant 였다. 두 목록을 lastMessageAt DESC(없으면 맨 뒤)로 병합한다. 072 백로그
+ * S-E 부터 서버 listGroups 가 unread/mention 카운트를 내려주므로 그룹 행도 1:1 과
+ * 동일하게 배지를 단다(뮤트 회색 표시는 UserChannelMute 공유라 channelId 로 가능).
  */
 export interface UnifiedDmRow {
   kind: 'direct' | 'group';
@@ -73,6 +73,9 @@ export function buildDmRows(
     lastMessageAt: g.lastMessageAt,
     participants: g.participants,
     memberIds: g.memberIds,
+    // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 — 1:1 과 동형으로 배지 산입.
+    unreadCount: g.unreadCount,
+    mentionCount: g.mentionCount ?? 0,
   }));
   return [...directRows, ...groupRows].sort((a, b) => {
     const ta = tsOrNeg(a.lastMessageAt);

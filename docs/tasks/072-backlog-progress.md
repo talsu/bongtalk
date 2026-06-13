@@ -12,8 +12,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23 |
 | S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
 | S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
-| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | 🔄 진행 | —        | —        |
-| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ⬜ 대기 | —        | —        |
+| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
+| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | 🔄 진행 | —        | —        |
 | S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ⬜ 대기 | —        | —        |
 | S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ⬜ 대기 | —        | —        |
 | S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ⬜ 대기 | —        | —        |
@@ -121,4 +121,47 @@ raw 6 → confirmed 5 (MEDIUM 1 + LOW 4).
 
 - standalone verify: **19/19 green** (webhook 8 / shared-types 35 / api 126 / web 231 test files).
   1회 ImageMosaicGrid(무관 첨부 테스트) kernel4.4 타이밍 flake → 재실행 통과 확정.
+- 머지/배포: develop `22ba9ca1` (ls-remote 실측) → main `0fe51a81` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · api/web smoke OK) → /readyz
+  `{db:ok,redis:ok,outbox:idle}`. 배포 후 검증: api 로그 `Mapped {/workspaces/:id/channels/browse, GET}`,
+  browse 라우트 컨테이너 내부 호출 401(인증 보호) — live.
+
+---
+
+## S-E — 그룹 DM 미읽음/멘션 집계 (FR-DM-15)
+
+브랜치: `feat/bl-e-groupdm-unread`
+
+### 청크 표
+
+| #   | 청크                   | 파일                                                                                                                                                  |
+| --- | ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| E1  | 그룹 DM 미읽음/멘션 BE | `direct-messages.service.ts` listGroups 에 unreadCount/mentionCount 상관 서브쿼리 추가(1:1 list() 패턴 미러) + `global-dm.controller.ts` 반환 타입    |
+| E2  | FE 배지                | `useDms.ts` GroupDmListItem 필드 + `dmRows.ts` buildDmRows 그룹 행 카운트 배선 + `DmShell.tsx` 그룹 배지 0 하드코딩 제거(deriveDmBadgeCount 1:1 동일) |
+| E3  | 테스트                 | `dmRows.spec.ts` grp 팩토리 필드 + 그룹 카운트 보존 테스트                                                                                            |
+
+### 설계 결정
+
+DM 도 Channel(type=DIRECT)이라 1:1 `list()` 가 이미 UserChannelReadState 기반 unreadCount/
+mentionCount 를 집계한다(검증된 선례). 그룹 `listGroups()` 만 빠져 있었다 → **같은 술어**
+(roots-only · deletedAt IS NULL · (createdAt,id) 읽음 커서 · mentionMatchSql)를 단일 raw
+쿼리에 fold(N+1 회피). 신규 마이그레이션 없음. 모바일 DM 목록은 1:1 만 렌더(그룹 미렌더 —
+선존 한계, S-E 스코프 외).
+
+### 적대 리뷰(wf_a8d23d11-dd4 · 10 에이전트·3각도) fix-forward
+
+raw → confirmed 3 (MEDIUM 1 + LOW 2).
+
+- **MEDIUM(수리)**: 그룹 DM 미읽음 배지가 실시간 갱신 안 됨 — dispatcher `message.created` 가
+  `['dm','list']` 만 무효화하고 `['dm','groups']` 미무효화 → 그룹 배지가 staleTime(15s)/focus
+  전까지 stale(1:1 대비 비대칭). prefix `['dm']` 무효화로 넓혀 1:1·그룹 동시 갱신.
+- **LOW(수리)**: DmShell docstring + dmRowBadge.ts 헤더 주석 stale("그룹=배지 없음 / 서버
+  mentionCount 미제공") → 현행(서버가 1:1·그룹 모두 제공) 반영.
+- **LOW(수리)**: listGroups mentionCount "항상 0" 주석 부정확(workspace-scoped 그룹은 비-0
+  가능) → 명확화.
+
+### 게이트
+
+- standalone verify: **19/19 green** (첫 시도 + fix-forward 후 재확인 — webhook 8 / shared-types 35 /
+  api 126 / web 231).
 - 머지/배포: (채움)
