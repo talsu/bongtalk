@@ -41,10 +41,18 @@ export interface GroupDmListItem {
 // The workspaceId argument is retained for call-site compatibility
 // but ignored — the server picks the implicit host via friendship.
 
-export function useDmList(workspaceId: string | undefined) {
+// 072-N1-4 (FR-DM-04): 검색어를 서버로 전달(`?q=`). q 가 있으면 서버가 참여자
+// username + 그룹 displayName/slug 를 ILIKE 매칭한다. q 는 queryKey 에 포함해
+// 디바운스된 입력마다 독립 캐시(빈 q 는 파라미터 생략 = 전체 목록).
+function dmQs(q: string | undefined): string {
+  const trimmed = (q ?? '').trim();
+  return trimmed ? `?q=${encodeURIComponent(trimmed)}` : '';
+}
+
+export function useDmList(workspaceId: string | undefined, q?: string) {
   return useQuery<{ items: DmListItem[] }>({
-    queryKey: ['dm', 'list', workspaceId ?? 'global'],
-    queryFn: () => apiRequest(`/me/dms`),
+    queryKey: ['dm', 'list', workspaceId ?? 'global', q?.trim() || ''],
+    queryFn: () => apiRequest(`/me/dms${dmQs(q)}`),
     enabled: true,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
@@ -53,10 +61,10 @@ export function useDmList(workspaceId: string | undefined) {
 
 // S16 (FR-DM-03): 그룹 DM 목록. 1:1 useDmList 와 별도 영역으로 분리해 UI 가
 // 두 목록을 섞지 않는다. participants(≤5) 로 헤더/아바타 스택을 렌더한다.
-export function useDmGroupList(workspaceId: string | undefined) {
+export function useDmGroupList(workspaceId: string | undefined, q?: string) {
   return useQuery<{ items: GroupDmListItem[] }>({
-    queryKey: ['dm', 'groups', workspaceId ?? 'global'],
-    queryFn: () => apiRequest(`/me/dms/groups`),
+    queryKey: ['dm', 'groups', workspaceId ?? 'global', q?.trim() || ''],
+    queryFn: () => apiRequest(`/me/dms/groups${dmQs(q)}`),
     enabled: true,
     staleTime: 15_000,
     refetchOnWindowFocus: true,
@@ -114,6 +122,75 @@ export function useCreateOrGetDm(workspaceId: string | undefined) {
       void qc.invalidateQueries({
         queryKey: ['dm', 'by-user', workspaceId ?? 'global', vars.userId],
       });
+    },
+  });
+}
+
+// 072-N1-2 (FR-DM-02): 그룹 DM 생성/조회. memberIds 는 본인 제외 2-19 명(서버가
+// ≥2·≤19 강제, 초과 시 422 DM_GROUP_CAP_EXCEEDED). 성공 시 그룹 목록을 무효화.
+// (workspaceId 인자는 list 캐시 키 호환용 — 전역 그룹은 친구 게이트.)
+export function useCreateGroupDm(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<
+    { channelId: string; created: boolean; memberIds: string[] },
+    Error,
+    { memberIds: string[] }
+  >({
+    mutationFn: (body) => apiRequest(`/me/dms/groups`, { method: 'POST', body }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dm', 'groups', workspaceId ?? 'global'] });
+    },
+  });
+}
+
+// 072-N1-3 (FR-DM-10): 대화 숨기기/복원. HIDDEN → 사이드바 목록 제외(USER override
+// hiddenAt=now). 상대 새 메시지 도착 시 서버가 수신자 hiddenAt 을 자동 복원한다.
+// 1:1·그룹 공통. 성공 시 1:1·그룹 목록 둘 다 무효화(채널 종류 모를 수 있어 양쪽).
+export function useSetDmVisibility(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<
+    { channelId: string; visibility: 'HIDDEN' | 'VISIBLE' },
+    Error,
+    { channelId: string; visibility: 'HIDDEN' | 'VISIBLE' }
+  >({
+    mutationFn: ({ channelId, visibility }) =>
+      apiRequest(`/me/dms/${channelId}/visibility`, { method: 'PATCH', body: { visibility } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'groups', workspaceId ?? 'global'] });
+    },
+  });
+}
+
+// 072-N1-3 (FR-DM-09): 그룹 나가기. 본인을 참여자에서 제거(DELETE participants/me).
+// 마지막 멤버가 나가면 서버가 채널을 정리한다. 성공 시 그룹 목록 무효화.
+export function useLeaveGroupDm(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<void, Error, string>({
+    mutationFn: (channelId) =>
+      apiRequest(`/me/dms/${channelId}/participants/me`, { method: 'DELETE' }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['dm', 'groups', workspaceId ?? 'global'] });
+    },
+  });
+}
+
+// 072-N1-3 (FR-DM-11): 기간 지정 뮤트. mutedUntil=ISO8601 → 그 시각까지만, null →
+// 무기한(useSetDmMute 와 동일 결과). 1:1·그룹 공통(UserChannelMute 공유). 성공 시
+// me/mutes + 1:1·그룹 목록 무효화(회색/배지 갱신).
+export function useSetDmMuteUntil(workspaceId: string | undefined) {
+  const qc = useQueryClient();
+  return useMutation<
+    { channelId: string; mutedUntil: string | null },
+    Error,
+    { channelId: string; mutedUntil: string | null }
+  >({
+    mutationFn: ({ channelId, mutedUntil }) =>
+      apiRequest(`/me/dms/${channelId}/mute`, { method: 'PATCH', body: { mutedUntil } }),
+    onSuccess: () => {
+      void qc.invalidateQueries({ queryKey: ['me', 'mutes'] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'list', workspaceId ?? 'global'] });
+      void qc.invalidateQueries({ queryKey: ['dm', 'groups', workspaceId ?? 'global'] });
     },
   });
 }

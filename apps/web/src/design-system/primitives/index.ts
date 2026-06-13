@@ -15,6 +15,9 @@ export {
   DropdownSeparator,
   DropdownRadioGroup,
   DropdownRadioItem,
+  DropdownSub,
+  DropdownSubTrigger,
+  DropdownSubContent,
 } from './DropdownMenu';
 export { ToastViewport } from './Toast';
 export { Scrollable } from './Scrollable';

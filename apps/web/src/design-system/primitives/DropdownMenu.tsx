@@ -87,6 +87,41 @@ export function DropdownSeparator(): JSX.Element {
 }
 
 /**
+ * 072-N1-3: 중첩 서브메뉴(예: DM 뮤트 기간 선택). Radix Sub 를 감싸 기존 qf-menu
+ * 클래스만 재사용한다(DS CSS 무수정 — 추가 export 만). SubTrigger 는 일반 item 처럼
+ * 보이되 우측 chevron 을 caller 가 children 으로 넣는다. SubContent 는 Portal 로
+ * 띄워 부모 메뉴 옆에 인접 렌더한다.
+ */
+export const DropdownSub = RDropdown.Sub;
+
+export function DropdownSubTrigger({
+  children,
+  disabled,
+}: {
+  children: ReactNode;
+  disabled?: boolean;
+}): JSX.Element {
+  return (
+    <RDropdown.SubTrigger
+      disabled={disabled}
+      className={cn('qf-menu__item outline-none', disabled && 'opacity-50')}
+    >
+      {children}
+    </RDropdown.SubTrigger>
+  );
+}
+
+export function DropdownSubContent({ children }: { children: ReactNode }): JSX.Element {
+  return (
+    <RDropdown.Portal>
+      <RDropdown.SubContent sideOffset={2} className={cn('qf-menu z-overlay')}>
+        {children}
+      </RDropdown.SubContent>
+    </RDropdown.Portal>
+  );
+}
+
+/**
  * S38 fix-forward (a11y B-01/B-02): single-select 메뉴(예: 스레드 알림 레벨
  * ALL/MENTIONS/OFF)용 radio 그룹. Radix RadioGroup/RadioItem 을 감싸 각 항목에
  * `role="menuitemradio"` + `aria-checked` 를 자동 부여해 현재 선택을 스크린리더에
@@ -99,7 +134,7 @@ export function DropdownRadioGroup({
   children,
 }: {
   value: string;
-  onValueChange: (next: string) => void;
+  onValueChange: (_next: string) => void;
   children: ReactNode;
 }): JSX.Element {
   return (
