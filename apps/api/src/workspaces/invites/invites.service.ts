@@ -21,6 +21,8 @@ import {
 import { syncMemberSystemRole } from '../roles/system-role-seed';
 // S63 (FR-RM06): 초대 수락 시 차단된 userId 재가입 거부.
 import { ModerationService } from '../moderation/moderation.service';
+// 072 백로그 S-C 리뷰(LOW): preview 의 iconUrl presign-on-read 변환에 재사용.
+import { WorkspacesService } from '../workspaces.service';
 // S72 (D13 / FR-W22): 초대 수락 IP soft-block(차단 IP INVITE 수락 허용+audit) + 가입 ipHash 기록.
 import { IpSoftBlockService } from '../moderation/ip-soft-block.service';
 // S67 fix-forward (security MEDIUM + reviewer #5): hard delete 파괴적 액션 감사 기록.
@@ -97,6 +99,9 @@ export class InvitesService {
     private readonly audit: AuditService,
     // S72 (D13 / FR-W22): 초대 수락 IP soft-block + 가입 ipHash 기록.
     private readonly ipSoftBlock: IpSoftBlockService,
+    // 072 백로그 S-C 리뷰(LOW): preview 의 workspace.iconUrl(이제 MinIO storageKey)을
+    // presigned GET URL 로 변환하기 위해 동일 모듈의 WorkspacesService.presignIconUrl 재사용.
+    private readonly workspaces: WorkspacesService,
   ) {}
 
   async create(workspaceId: string, createdById: string, input: CreateInviteRequest) {
@@ -273,7 +278,9 @@ export class InvitesService {
       workspace: {
         name: invite.workspace.name,
         slug: invite.workspace.slug,
-        iconUrl: invite.workspace.iconUrl,
+        // 072 백로그 S-C 리뷰(LOW): iconUrl 은 MinIO storageKey 이므로 presigned GET URL 로
+        // 변환해 노출한다(raw 키 누출 방지 · listMine/getWithMyRole/discover 와 동일 불변식).
+        iconUrl: await this.workspaces.presignIconUrl(invite.workspace.iconUrl),
       },
       expiresAt: invite.expiresAt ? invite.expiresAt.toISOString() : null,
       usesRemaining:

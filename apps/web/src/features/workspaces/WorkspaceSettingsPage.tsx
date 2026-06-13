@@ -2,16 +2,21 @@ import { useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
   WORKSPACE_CATEGORY_META,
+  WS_ICON_ALLOWED_MIME,
+  WS_ICON_MAX_BYTES,
   type WorkspaceCategory,
+  type WorkspaceJoinMode,
   type WorkspaceVisibility,
 } from '@qufox/shared-types';
 import { Button, Dialog, Input, SettingsOverlay } from '../../design-system/primitives';
 import {
   useDeleteWorkspace,
+  useDeleteWorkspaceIcon,
   useLeaveWorkspace,
   useTransferOwnership,
   useUpdateDefaultChannel,
   useUpdateWorkspace,
+  useUploadWorkspaceIcon,
 } from './useWorkspaces';
 import { WorkspaceEmojiManager } from '../emojis/WorkspaceEmojiManager';
 // S61 (D12 / FR-RM01): 역할 관리 본문(설정 오버레이 탭으로 인라인 렌더).
@@ -63,6 +68,9 @@ export function WorkspaceSettingsPage({
     defaultChannelId?: string | null;
     // S68 (FR-W05): 현재 이메일 도메인 화이트리스트(도메인 패널 초기값). 없으면 빈 배열.
     emailDomains?: string[];
+    // 072 백로그 S-C (FR-W01): 현재 아이콘(presigned GET URL · 없으면 null) + 가입 모드.
+    iconUrl?: string | null;
+    joinMode?: WorkspaceJoinMode;
   };
   // S61: 시스템 역할 5단계 확장.
   myRole: 'OWNER' | 'ADMIN' | 'MODERATOR' | 'MEMBER' | 'GUEST';
@@ -171,14 +179,57 @@ export function WorkspaceSettingsPage({
     setTab(next.key);
     tabRefs.current[next.key]?.focus();
   };
-  // 072-N5-4 (FR-W01): 워크스페이스 이름 편집(joinMode/slug 는 서버 스키마 미지원 → 이월).
+  // 072-N5-4 (FR-W01): 워크스페이스 이름 편집. 072 백로그 S-C 에서 joinMode(가입 모드)와
+  // 아이콘 업로드가 서버에 추가돼 함께 편집 가능해졌다(종전 "서버 미지원 → 이월" 해소).
   const [name, setName] = useState<string>(workspace.name);
   const [visibility, setVisibility] = useState<WorkspaceVisibility>(workspace.visibility);
   const [category, setCategory] = useState<WorkspaceCategory | ''>(workspace.category ?? '');
   const [description, setDescription] = useState<string>(workspace.description ?? '');
+  // 072 백로그 S-C (FR-W01): 가입 모드(PRIVATE 초대전용 / PUBLIC 즉시가입 / APPLY 신청).
+  // visibility(디스커버리 노출)와 직교한다. OWNER 전용.
+  const [joinMode, setJoinMode] = useState<WorkspaceJoinMode>(workspace.joinMode ?? 'PRIVATE');
   const [confirmOpen, setConfirmOpen] = useState(false);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+
+  // 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드/제거(ADMIN+). 전역 아바타 흐름과
+  // 동일(presign → MinIO POST → finalize). 업로드 결과 presigned URL 은 쿼리 무효화로
+  // 레일/설정에 반영된다.
+  const uploadIcon = useUploadWorkspaceIcon(workspace.id);
+  const deleteIcon = useDeleteWorkspaceIcon(workspace.id);
+  const iconInputRef = useRef<HTMLInputElement>(null);
+  const [iconErr, setIconErr] = useState<string | null>(null);
+  const canManageIcon = myRole === 'OWNER' || myRole === 'ADMIN';
+
+  const onPickIcon = async (e: React.ChangeEvent<HTMLInputElement>): Promise<void> => {
+    setIconErr(null);
+    const file = e.target.files?.[0];
+    // 같은 파일 재선택도 onChange 가 다시 발화하도록 value 를 비운다.
+    e.target.value = '';
+    if (!file) return;
+    if (!(WS_ICON_ALLOWED_MIME as readonly string[]).includes(file.type)) {
+      setIconErr('PNG · JPEG · WebP 이미지만 업로드할 수 있습니다.');
+      return;
+    }
+    if (file.size > WS_ICON_MAX_BYTES) {
+      setIconErr(`파일이 너무 큽니다 (최대 ${Math.floor(WS_ICON_MAX_BYTES / (1024 * 1024))}MB).`);
+      return;
+    }
+    try {
+      await uploadIcon.mutateAsync(file);
+    } catch (err2) {
+      setIconErr((err2 as Error).message);
+    }
+  };
+
+  const onRemoveIcon = async (): Promise<void> => {
+    setIconErr(null);
+    try {
+      await deleteIcon.mutateAsync();
+    } catch (err2) {
+      setIconErr((err2 as Error).message);
+    }
+  };
 
   // S65 (FR-W13/W19/W14): 위험 구역 — 기본 채널 변경·소유권 양도·나가기.
   const transfer = useTransferOwnership(workspace.id);
@@ -284,6 +335,8 @@ export function WorkspaceSettingsPage({
         description: description.length === 0 ? null : description,
         // 변경됐을 때만 name 전송(불필요한 검증 회피).
         ...(nameChanged ? { name: name.trim() } : {}),
+        // 072 백로그 S-C (FR-W01): joinMode 는 변경 시에만 전송(OWNER 게이트는 서버가 권위).
+        ...(joinMode !== (workspace.joinMode ?? 'PRIVATE') ? { joinMode } : {}),
       });
       closeSettings();
     } catch (e) {
@@ -457,6 +510,74 @@ export function WorkspaceSettingsPage({
               </div>
             ) : null}
 
+            {/* 072 백로그 S-C (FR-W01): 워크스페이스 아이콘 업로드/제거(ADMIN+). 전역
+                아바타와 동일한 presign→MinIO→finalize 흐름. 미설정 시 이니셜 폴백. */}
+            <div className="qf-field" data-testid="ws-icon-field">
+              <span className="qf-field__label">워크스페이스 아이콘</span>
+              <div className="flex items-center gap-[var(--s-4)]">
+                <div
+                  data-testid="ws-icon-preview"
+                  aria-hidden
+                  className="flex h-[var(--s-11)] w-[var(--s-11)] shrink-0 items-center justify-center overflow-hidden rounded-[var(--r-lg)] bg-bg-subtle text-[length:var(--fs-16)] font-semibold text-text-muted"
+                >
+                  {workspace.iconUrl ? (
+                    <img src={workspace.iconUrl} alt="" className="h-full w-full object-cover" />
+                  ) : (
+                    workspace.name.slice(0, 2).toUpperCase()
+                  )}
+                </div>
+                {canManageIcon ? (
+                  <div className="flex flex-col gap-[var(--s-2)]">
+                    <input
+                      ref={iconInputRef}
+                      type="file"
+                      accept={WS_ICON_ALLOWED_MIME.join(',')}
+                      data-testid="ws-icon-file"
+                      // a11y(input-label-guard): 시각적으로 숨겨 버튼으로 트리거하지만
+                      // 라벨 없는 input 은 가드 위반 — 접근명을 명시한다.
+                      aria-label="워크스페이스 아이콘 이미지 선택"
+                      onChange={onPickIcon}
+                      className="hidden"
+                    />
+                    <div className="flex gap-[var(--s-2)]">
+                      <Button
+                        variant="secondary"
+                        data-testid="ws-icon-upload"
+                        onClick={() => iconInputRef.current?.click()}
+                        disabled={uploadIcon.isPending || deleteIcon.isPending}
+                        aria-busy={uploadIcon.isPending || undefined}
+                      >
+                        {uploadIcon.isPending ? '업로드 중…' : '이미지 변경'}
+                      </Button>
+                      {workspace.iconUrl ? (
+                        <Button
+                          variant="ghost"
+                          data-testid="ws-icon-remove"
+                          onClick={onRemoveIcon}
+                          disabled={uploadIcon.isPending || deleteIcon.isPending}
+                          aria-busy={deleteIcon.isPending || undefined}
+                        >
+                          제거
+                        </Button>
+                      ) : null}
+                    </div>
+                    <p className="qf-field__hint text-text-muted">
+                      PNG · JPEG · WebP, 최대 {Math.floor(WS_ICON_MAX_BYTES / (1024 * 1024))}MB
+                    </p>
+                  </div>
+                ) : (
+                  <p className="text-[length:var(--fs-13)] text-text-muted">
+                    아이콘 변경은 관리자(ADMIN) 이상만 가능합니다.
+                  </p>
+                )}
+              </div>
+              {iconErr ? (
+                <p data-testid="ws-icon-error" role="alert" className="qf-field__error">
+                  {iconErr}
+                </p>
+              ) : null}
+            </div>
+
             {/* 072-N5-4 (FR-W01): 워크스페이스 이름 편집(OWNER 게이트). */}
             <div className="qf-field">
               <label className="qf-field__label" htmlFor="ws-settings-name">
@@ -512,6 +633,26 @@ export function WorkspaceSettingsPage({
                 <span>공개 (PUBLIC) — /찾기에 노출</span>
               </label>
             </fieldset>
+
+            {/* 072 백로그 S-C (FR-W01): 가입 모드(OWNER 전용). visibility 와 직교 —
+                디스커버리 노출 여부와 별개로 "어떻게 들어오는가"를 정한다. */}
+            <div className="qf-field">
+              <label className="qf-field__label" htmlFor="ws-join-mode">
+                가입 모드 <span className="text-text-muted">(OWNER 전용)</span>
+              </label>
+              <select
+                id="ws-join-mode"
+                data-testid="ws-join-mode"
+                className="qf-input"
+                disabled={!ownerEditable}
+                value={joinMode}
+                onChange={(e) => setJoinMode(e.target.value as WorkspaceJoinMode)}
+              >
+                <option value="PRIVATE">비공개 (PRIVATE) — 초대 전용</option>
+                <option value="PUBLIC">공개 (PUBLIC) — 누구나 즉시 가입</option>
+                <option value="APPLY">신청제 (APPLY) — 신청 후 승인</option>
+              </select>
+            </div>
 
             <div className="qf-field">
               <label className="qf-field__label" htmlFor="ws-category">

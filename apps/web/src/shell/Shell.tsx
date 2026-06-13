@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams } from 'react-router-dom';
-import type { WorkspaceRole } from '@qufox/shared-types';
+import type { WorkspaceJoinMode, WorkspaceRole } from '@qufox/shared-types';
 import { qk } from '../lib/query-keys';
 import { useMyWorkspaces, useWorkspace } from '../features/workspaces/useWorkspaces';
 import { useChannelList } from '../features/channels/useChannels';
@@ -265,6 +265,9 @@ export function WorkspaceSettingsOverlayHost({
     defaultChannelId?: string | null;
     // S68 (FR-W05): 이메일 도메인 화이트리스트(도메인 패널 초기값).
     emailDomains?: string[];
+    // 072 백로그 S-C (FR-W01): 아이콘(presigned GET URL · 없으면 null) + 가입 모드.
+    iconUrl?: string | null;
+    joinMode?: WorkspaceJoinMode;
   };
   workspaceSlug: string;
 }): JSX.Element | null {
@@ -302,6 +305,9 @@ export function WorkspaceSettingsOverlayHost({
         defaultChannelId: workspace.defaultChannelId ?? null,
         // S68 (FR-W05): 이메일 도메인 패널 초기값. 응답에 없으면 빈 배열.
         emailDomains: workspace.emailDomains ?? [],
+        // 072 백로그 S-C (FR-W01): 아이콘(presigned GET URL)·가입 모드 초기값.
+        iconUrl: workspace.iconUrl ?? null,
+        joinMode: workspace.joinMode,
       }}
       myRole={myRole}
       workspaceSlug={workspaceSlug}
