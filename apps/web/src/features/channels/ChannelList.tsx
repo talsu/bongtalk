@@ -273,7 +273,16 @@ function DraggableChannelRow({
           aria-label={`# ${channel.name} 채널 열기`}
           className="absolute inset-0"
         />
-        <span className="qf-channel__prefix pointer-events-none relative">#</span>
+        {/* 072-N3-4 (FR-CH prefix): 비공개→lock · 공지→megaphone · 그 외→#. */}
+        <span className="qf-channel__prefix pointer-events-none relative flex items-center">
+          {channel.isPrivate ? (
+            <Icon name="lock" size="sm" aria-hidden />
+          ) : channel.type === 'ANNOUNCEMENT' ? (
+            <Icon name="megaphone" size="sm" aria-hidden />
+          ) : (
+            '#'
+          )}
+        </span>
         <span className="pointer-events-none relative flex-1 truncate">&nbsp;{channel.name}</span>
         <span className="qf-channel__suffix pointer-events-auto relative z-10">
           {canManage ? (
