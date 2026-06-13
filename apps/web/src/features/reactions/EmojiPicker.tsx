@@ -1,5 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { cn } from '../../lib/cn';
+import { usePutUserEmojiPreference } from '../emojis/useCustomEmojis';
+// 072-N0 리뷰 HIGH: 검색을 글리프 이름(shortcode)으로 매칭(컴포저 ':' 자동완성과 동일).
+// ★leaf 모듈에서 import — emojiShortcodes 직접 import 는 EMOJI_CATEGORIES 순환을 만든다.
+import { GLYPH_TO_NAME } from '../messages/autocomplete/emojiGlyphNames';
 
 // Curated emoji palette. First tab is "frequently used" (the set the DS
 // composer + reaction mockups show), rest grouped by theme. Hand-curated
@@ -94,6 +98,49 @@ export function applySkinTone(glyph: string, tone: number): string {
   return glyph + SKIN_TONE_MODIFIERS[tone];
 }
 
+/**
+ * 072-N0 (감사 D05 mock 6800-6808, FR-PK03): 스킨톤 스와치 메타. 1=기본 + 2-6 톤.
+ * `swatch` 는 미리보기에 쓰는 대표 글리프(✋ 손)에 톤 수정자를 입힌 글리프이고,
+ * `label` 은 스크린리더용 한국어 명칭이다(스와치는 role="radio"·aria-label).
+ */
+const SKIN_TONE_OPTIONS: { tone: number; label: string }[] = [
+  { tone: 1, label: '기본 피부톤' },
+  { tone: 2, label: '밝은 피부톤' },
+  { tone: 3, label: '연한 피부톤' },
+  { tone: 4, label: '중간 피부톤' },
+  { tone: 5, label: '진한 피부톤' },
+  { tone: 6, label: '어두운 피부톤' },
+];
+
+/**
+ * 072-N0 (감사 D05 mock 6742-6747, FR-PK03): 피커 검색 필터. 컴포저 ':' 자동완성의
+ * filterEmojis 와 같은 "소문자 includes" 매칭 규칙을 따르되, 피커의 풀은 큐레이션
+ * 유니코드 글리프(shortcode 이름 없음)와 커스텀 이모지 slug 두 종류라 입력 형태가
+ * 달라 별도 순수 함수로 둔다(autocomplete 의 filterEmojis 는 EmojiCandidate[] 전제).
+ *   - 커스텀 이모지: slug(name) 부분 일치.
+ *   - 큐레이션 글리프: shortcode 이름(GLYPH_TO_NAME) 부분 일치 — ★리뷰 HIGH 수리.
+ *     종전엔 글리프 자체로만 매칭해 'fire'/'heart' 텍스트 질의가 전 세트에서 0건이라
+ *     검색이 무용이었다. 컴포저 ':' 자동완성과 동일 데이터로 정합. 글리프 직접 입력도 폴백.
+ */
+export function filterPickerEmojis(glyphs: string[], query: string): string[] {
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return glyphs;
+  return glyphs.filter((g) => {
+    const name = GLYPH_TO_NAME[g];
+    return (name !== undefined && name.includes(q)) || g.toLowerCase().includes(q);
+  });
+}
+
+function filterCustomEmojis(
+  customEmojis: CustomEmojiOption[] | undefined,
+  query: string,
+): CustomEmojiOption[] {
+  const list = customEmojis ?? [];
+  const q = query.trim().toLowerCase();
+  if (q.length === 0) return list;
+  return list.filter((ce) => ce.name.toLowerCase().includes(q));
+}
+
 type Props = {
   /**
    * Fired with the selected emoji token. Unicode glyph for the curated
@@ -153,9 +200,41 @@ export function EmojiPicker({
   const hasCustom = (customEmojis?.length ?? 0) > 0;
   const hasRecent = (recentEmojis?.length ?? 0) > 0;
   const hasQuick = (quickReactions?.length ?? 0) > 0;
-  const tone = defaultSkinTone ?? 1;
   const [tab, setTab] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
+
+  // 072-N0 (FR-PK03): 스킨톤은 로컬 낙관 상태로 둬 스와치 클릭 즉시 미리보기에
+  // 반영하고, 동시에 PUT /me/emoji-preferences 로 영속화한다. 서버가 응답하면
+  // usePutUserEmojiPreference 가 emoji-picker-data 쿼리를 무효화해 defaultSkinTone
+  // prop 이 재수렴하므로, prop 변경 시 로컬 상태를 동기화한다(외부 갱신·다른 기기).
+  const [tone, setTone] = useState(defaultSkinTone ?? 1);
+  useEffect(() => {
+    setTone(defaultSkinTone ?? 1);
+  }, [defaultSkinTone]);
+  const putPref = usePutUserEmojiPreference();
+  const onPickTone = (next: number): void => {
+    if (next === tone) return;
+    setTone(next); // 낙관 미리보기
+    putPref.mutate({ defaultSkinTone: next });
+  };
+
+  // 072-N0 (FR-PK03, 감사 D05 mock 6742-6747): 검색 질의. 큐레이션 글리프 + 커스텀
+  // slug 를 filterPickerEmojis/filterCustomEmojis 로 좁힌다. 질의가 있으면 탭 무관
+  // 통합 검색 그리드를 노출해 도달성을 보완한다(감사 finding "카테고리/세트 범위").
+  const [search, setSearch] = useState('');
+  const trimmedSearch = search.trim();
+  const isSearching = trimmedSearch.length > 0;
+  const searchCurated = useMemo(() => {
+    if (!isSearching) return [];
+    const all = EMOJI_CATEGORIES.flatMap((c) => c.emojis);
+    // 중복 글리프(여러 카테고리에 동일 글리프) 제거 후 필터.
+    const unique = Array.from(new Set(all));
+    return filterPickerEmojis(unique, trimmedSearch).map((g) => applySkinTone(g, tone));
+  }, [isSearching, trimmedSearch, tone]);
+  const searchCustom = useMemo(
+    () => (isSearching ? filterCustomEmojis(customEmojis, trimmedSearch) : []),
+    [isSearching, customEmojis, trimmedSearch],
+  );
 
   useEffect(() => {
     const onMouse = (e: MouseEvent): void => {
@@ -244,22 +323,93 @@ export function EmojiPicker({
           ))}
         </div>
       ) : null}
-      <div className="flex items-center gap-[var(--s-1)] border-b border-border-subtle pb-[var(--s-2)] text-[length:var(--fs-11)]">
-        {tabs.map((t, i) => (
-          <button
-            key={t.label}
-            type="button"
-            onClick={() => setTab(i)}
-            className={cn(
-              'px-[var(--s-2)] py-[var(--s-1)] rounded-[var(--r-sm)]',
-              i === tab ? 'bg-bg-selected text-text-strong' : 'text-text-muted hover:text-text',
-            )}
+      {/* 072-N0 (감사 D05 mock 6742-6747): 이모지 검색창. 입력 시 탭을 숨기고
+          큐레이션 + 커스텀 통합 결과 그리드를 노출한다. qf-input 토큰 폼만 사용. */}
+      <input
+        type="text"
+        data-testid="emoji-picker-search"
+        aria-label="이모지 검색"
+        placeholder="이모지 검색"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+        className="qf-input !h-8 !px-[var(--s-3)] text-[length:var(--fs-13)]"
+      />
+      {isSearching ? null : (
+        <div className="flex items-center gap-[var(--s-1)] border-b border-border-subtle pb-[var(--s-2)] text-[length:var(--fs-11)]">
+          {tabs.map((t, i) => (
+            <button
+              key={t.label}
+              type="button"
+              onClick={() => setTab(i)}
+              className={cn(
+                'px-[var(--s-2)] py-[var(--s-1)] rounded-[var(--r-sm)]',
+                i === tab ? 'bg-bg-selected text-text-strong' : 'text-text-muted hover:text-text',
+              )}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      )}
+      {isSearching ? (
+        // 072-N0 (감사 D05 mock 6742-6747): 검색 결과 — 커스텀(slug 일치) 먼저,
+        // 이어 큐레이션 글리프. 빈 결과면 안내 문구를 노출한다.
+        searchCurated.length + searchCustom.length === 0 ? (
+          <p
+            data-testid="emoji-picker-search-empty"
+            className="px-[var(--s-1)] py-[var(--s-3)] text-center text-[length:var(--fs-12)] text-text-muted"
           >
-            {t.label}
-          </button>
-        ))}
-      </div>
-      {recentTabActive ? (
+            결과 없음
+          </p>
+        ) : (
+          <div
+            className="grid grid-cols-8 gap-[var(--s-1)]"
+            data-testid="emoji-picker-search-grid"
+            role="group"
+            aria-label="이모지 검색 결과"
+          >
+            {searchCustom.map((ce) => {
+              const token = `:${ce.name}:`;
+              return (
+                <button
+                  key={`search-custom-${ce.id}`}
+                  type="button"
+                  data-testid={`emoji-pick-custom-${ce.name}`}
+                  aria-pressed={isActive?.(token) ?? undefined}
+                  onClick={() => onSelect(token)}
+                  title={token}
+                  className={cn(
+                    'qf-menu__item !p-[var(--s-1)] grid place-items-center',
+                    isActive?.(token) && 'bg-bg-selected',
+                  )}
+                >
+                  <img
+                    src={ce.url}
+                    alt={ce.name}
+                    className="qf-emoji-custom qf-emoji-custom--picker"
+                    style={{ width: 32, height: 32, objectFit: 'contain' }}
+                  />
+                </button>
+              );
+            })}
+            {searchCurated.map((toned) => (
+              <button
+                key={`search-${toned}`}
+                type="button"
+                data-testid={`emoji-pick-${toned}`}
+                aria-pressed={isActive?.(toned) ?? undefined}
+                onClick={() => onSelect(toned)}
+                className={cn(
+                  'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
+                  isActive?.(toned) && 'bg-bg-selected',
+                )}
+              >
+                {toned}
+              </button>
+            ))}
+          </div>
+        )
+      ) : recentTabActive ? (
         <div
           className="grid grid-cols-8 gap-[var(--s-1)]"
           data-testid="emoji-picker-recent-grid"
@@ -333,6 +483,38 @@ export function EmojiPicker({
           })}
         </div>
       )}
+      {/* 072-N0 (FR-PK03, 감사 D05 mock 6800-6808): 스킨톤 선택 푸터. 6종 스와치를
+          radiogroup 으로 노출한다. 선택 시 PUT /me/emoji-preferences 로 영속화하고
+          (usePutUserEmojiPreference) applySkinTone 으로 미리보기(✋)를 즉시 갱신한다.
+          스와치 색상은 인라인 hex/rgba 대신 톤 글리프를 직접 렌더해 토큰 규칙을 지킨다. */}
+      <div
+        data-testid="emoji-picker-skintone"
+        role="radiogroup"
+        aria-label="기본 스킨톤"
+        className="flex items-center justify-center gap-[var(--s-1)] border-t border-border-subtle pt-[var(--s-2)]"
+      >
+        {SKIN_TONE_OPTIONS.map(({ tone: t, label }) => {
+          const selected = t === tone;
+          return (
+            <button
+              key={`skintone-${t}`}
+              type="button"
+              role="radio"
+              data-testid={`emoji-skintone-${t}`}
+              aria-label={label}
+              aria-checked={selected}
+              disabled={putPref.isPending}
+              onClick={() => onPickTone(t)}
+              className={cn(
+                'qf-menu__item !p-[var(--s-1)] text-center text-[length:var(--fs-15)]',
+                selected && 'bg-bg-selected',
+              )}
+            >
+              {applySkinTone('✋', t)}
+            </button>
+          );
+        })}
+      </div>
     </div>
   );
 }

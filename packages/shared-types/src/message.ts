@@ -92,6 +92,21 @@ export const ReactionSummarySchema = z.object({
   // 셋 다 optional/nullable 이라 구 클라이언트/구 API 응답과 forward-compat.
   customEmojiId: z.string().uuid().nullable().optional(),
   url: z.string().nullable().optional(),
+  // 072-N0 (FR-RE04, audit 2026-06-13-desktop-uiux-audit.md): 반응 칩 hover
+  // 툴팁("A, B 외 N명")용 미리보기 반응자. 이모지당 최대 5명(안정 정렬 — 최초
+  // createdAt ASC, GET reactions 가 보유한 동일 cap). per-viewer REST 목록 read-path
+  // 가 채워 ReactionBar 가 호버 즉시 소비한다. forward-compat optional — 구
+  // 클라이언트/구 API 응답은 무시하고, 채워지지 않은 경로는 [] 폴백으로 다룬다.
+  previewUsers: z
+    .array(
+      z.object({
+        id: z.string(),
+        username: z.string(),
+        displayName: z.string().nullable().optional(),
+      }),
+    )
+    .max(5)
+    .optional(),
 });
 export type ReactionSummary = z.infer<typeof ReactionSummarySchema>;
 

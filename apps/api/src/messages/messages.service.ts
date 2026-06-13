@@ -204,6 +204,12 @@ export type ThreadSummary = {
   hasUnread: boolean;
 };
 
+export type ReactionPreviewUser = {
+  id: string;
+  username: string;
+  displayName?: string | null;
+};
+
 export type ReactionSummary = {
   emoji: string;
   count: number;
@@ -213,6 +219,11 @@ export type ReactionSummary = {
   // customEmojiId=null(emoji 슬러그만 남음 → UI placeholder).
   customEmojiId?: string | null;
   url?: string | null;
+  // 072-N0 (FR-RE04, audit 2026-06-13-desktop-uiux-audit.md): 반응 칩 hover
+  // 툴팁용 미리보기 반응자(이모지당 ≤5명, createdAt ASC 안정 정렬). 목록 read-path
+  // (aggregateReactions)가 bounded LATERAL 로 N+1 없이 채운다. 없을 수 있으므로
+  // 소비측은 [] 폴백.
+  previewUsers?: ReactionPreviewUser[];
 };
 
 export type AttachmentLite = {
@@ -678,7 +689,11 @@ export class MessagesService {
       deleted: isDeleted,
       createdAt: row.createdAt.toISOString(),
       editedAt: isDeleted ? null : (row.editedAt?.toISOString() ?? null),
-      reactions,
+      // 072-N0 리뷰 HIGH (S33 보안 패턴): 삭제 placeholder 는 본문/멘션/첨부를
+      // 마스킹하는데, 이번 슬라이스가 추가한 previewUsers(반응자 username/displayName)
+      // 가 그대로 실리면 '누가 반응했는지' 신원이 처음으로 누출된다 — 삭제 행에선
+      // previewUsers 만 제거한다(count/byMe 는 종전과 동일 노출 유지).
+      reactions: isDeleted ? reactions.map((r) => ({ ...r, previewUsers: undefined })) : reactions,
       parentMessageId: row.parentMessageId,
       thread,
       // Deleted messages drop their attachments too — the wire shape
@@ -932,19 +947,54 @@ export class MessagesService {
         byMe: boolean;
         customEmojiId: string | null;
         storageKey: string | null;
+        // 072-N0 (FR-RE04): 이모지(+customEmojiId) 그룹당 최초 반응 ≤5명
+        // (createdAt ASC). 호버 툴팁용 미리보기. jsonb_agg 가 빈 그룹엔 NULL.
+        previewUsers: { id: string; username: string | null; displayName: string | null }[] | null;
       }[]
     >(Prisma.sql`
-      SELECT r."messageId"                            AS "messageId",
-             r.emoji                                  AS "emoji",
-             COUNT(*)::bigint                         AS "count",
-             BOOL_OR(r."userId" = ${viewerId}::uuid)  AS "byMe",
-             r."customEmojiId"                        AS "customEmojiId",
-             MAX(ce."storageKey")                     AS "storageKey"
-        FROM "MessageReaction" r
-        LEFT JOIN "CustomEmoji" ce ON ce.id = r."customEmojiId"
-       WHERE r."messageId" IN (${Prisma.join(messageIds.map((id) => Prisma.sql`${id}::uuid`))})
-       GROUP BY r."messageId", r.emoji, r."customEmojiId"
-       ORDER BY r."messageId", count DESC, r.emoji ASC
+      SELECT g."messageId"                            AS "messageId",
+             g.emoji                                  AS "emoji",
+             g.cnt                                    AS "count",
+             g."byMe"                                 AS "byMe",
+             g."customEmojiId"                        AS "customEmojiId",
+             ce."storageKey"                          AS "storageKey",
+             COALESCE(top.users, '[]'::jsonb)         AS "previewUsers"
+        FROM (
+          SELECT r."messageId"                            AS "messageId",
+                 r.emoji                                  AS "emoji",
+                 COUNT(*)::bigint                         AS "cnt",
+                 BOOL_OR(r."userId" = ${viewerId}::uuid)  AS "byMe",
+                 r."customEmojiId"                        AS "customEmojiId"
+            FROM "MessageReaction" r
+           WHERE r."messageId" IN (${Prisma.join(messageIds.map((id) => Prisma.sql`${id}::uuid`))})
+           GROUP BY r."messageId", r.emoji, r."customEmojiId"
+        ) g
+        LEFT JOIN "CustomEmoji" ce ON ce.id = g."customEmojiId"
+        LEFT JOIN LATERAL (
+          -- 072-N0 (FR-RE04): (messageId, emoji, customEmojiId) 그룹당 최초 5명.
+          -- 메시지당 이모지 ≤20종(FR-RE02) × 5 라 fan-out 이 bounded — N+1 없음.
+          SELECT jsonb_agg(
+                   jsonb_build_object(
+                     'id', u.id,
+                     'username', u.username,
+                     'displayName', u."displayName"
+                   )
+                   -- 072-N0 리뷰 LOW: createdAt 동률 시 userId 로 결정적 정렬(LIMIT 5
+                   -- 선택과 agg 순서를 일치시켜 비결정성 제거).
+                   ORDER BY r2."createdAt" ASC, r2."userId" ASC
+                 ) AS users
+            FROM (
+              SELECT mr."userId", mr."createdAt"
+                FROM "MessageReaction" mr
+               WHERE mr."messageId" = g."messageId"
+                 AND mr.emoji = g.emoji
+                 AND mr."customEmojiId" IS NOT DISTINCT FROM g."customEmojiId"
+               ORDER BY mr."createdAt" ASC, mr."userId" ASC
+               LIMIT 5
+            ) r2
+            JOIN "User" u ON u.id = r2."userId"
+        ) top ON TRUE
+       ORDER BY g."messageId", g.cnt DESC, g.emoji ASC
     `);
     for (const r of rows) {
       const list = out.get(r.messageId) ?? [];
@@ -956,6 +1006,17 @@ export class MessagesService {
       if (r.customEmojiId !== null) {
         base.customEmojiId = r.customEmojiId;
         base.url = await this.presignEmojiUrl(r.storageKey);
+      }
+      // 072-N0 (FR-RE04): 호버 툴팁용 미리보기 반응자. username 이 NULL 인 row 는
+      // 안전하게 제외(스키마가 username:string 요구). displayName 은 nullable 그대로.
+      const previewUsers: ReactionPreviewUser[] = (r.previewUsers ?? [])
+        .filter(
+          (u): u is { id: string; username: string; displayName: string | null } =>
+            typeof u.username === 'string',
+        )
+        .map((u) => ({ id: u.id, username: u.username, displayName: u.displayName }));
+      if (previewUsers.length > 0) {
+        base.previewUsers = previewUsers;
       }
       list.push(base);
       out.set(r.messageId, list);

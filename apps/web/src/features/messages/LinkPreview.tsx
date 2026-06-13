@@ -1,6 +1,8 @@
+import { useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { isSafeLinkUrl, type MessageEmbedDto } from '@qufox/shared-types';
 import { apiRequest } from '../../lib/api';
+import { Icon } from '../../design-system/primitives';
 
 /**
  * task-045 iter6: link unfurl `.qf-embed` 카드 컴포넌트. S60 (D11): 서버 push embed 소비
@@ -31,11 +33,37 @@ function fetchPreview(url: string): Promise<Preview> {
   return apiRequest(`/links/preview?url=${encodeURIComponent(url)}`);
 }
 
-type Props = { url?: string; embed?: MessageEmbedDto };
+type Props = {
+  url?: string;
+  embed?: MessageEmbedDto;
+  /**
+   * 072-N0 (감사 FR-RC08 / FR-AM-16): viewer 가 이 카드를 억제(suppress)할 수 있는지.
+   * 작성자 또는 MANAGE_MESSAGES 권한자만 true. 부모(MessageItem)가 게이트를 평가해 넘긴다.
+   * true + onSuppress 가 함께 전달될 때만 카드 우상단 ✕('embed 숨기기')가 노출된다.
+   */
+  canSuppress?: boolean;
+  /**
+   * 072-N0: ✕ 클릭 시 호출. 부모가 useSuppressEmbed 로 bound 한 mutation 을 넘긴다
+   * (msgId/embedId 는 부모가 바인딩). 서버 성공 시 message:embed_updated 가 카드를
+   * 영구 제거하고, 본 컴포넌트는 즉시 낙관적 hide 만 담당한다.
+   */
+  onSuppress?: () => void;
+};
 
 /** S60: 서버 push embed 카드(`.qf-embed`). 이미지는 백엔드 프록시 경로로만 노출. */
-function ServerEmbedCard({ embed }: { embed: MessageEmbedDto }): JSX.Element | null {
+function ServerEmbedCard({
+  embed,
+  canSuppress,
+  onSuppress,
+}: {
+  embed: MessageEmbedDto;
+  canSuppress?: boolean;
+  onSuppress?: () => void;
+}): JSX.Element | null {
+  // 072-N0: ✕ 클릭 시 서버 fanout(message:embed_updated) 도착 전까지의 낙관적 hide.
+  const [dismissed, setDismissed] = useState(false);
   if (embed.suppressedAt) return null;
+  if (dismissed) return null;
   if (!embed.title && !embed.description && !embed.imageProxyUrl) return null;
   // S02 보안 선례: link 노드와 동일한 스킴 검증을 카드 제목 href 에도 적용한다.
   const titleHref = isSafeLinkUrl(embed.url) ? embed.url : null;
@@ -43,9 +71,32 @@ function ServerEmbedCard({ embed }: { embed: MessageEmbedDto }): JSX.Element | n
   // 수식자 없는 `.qf-embed` 안의 `.qf-embed__thumb` 는 components.css 의 width:100%·max-width
   // 규칙이 미적용이라 OG 이미지(예 1200x630)가 카드 폭을 넘어 overflow 한다. DS 4파일은
   // 수정하지 않고, 앱 className 으로만 기존 DS 규칙(`.qf-embed--image .qf-embed__thumb`)을 켠다.
-  const rootClass = embed.imageProxyUrl ? 'qf-embed qf-embed--image' : 'qf-embed';
+  // 072-N0: ✕ 버튼은 position:absolute 라 DS .qf-embed__dismiss 규칙이 요구하는
+  // position:relative 를 앱 클래스(relative)로 켠다(DS 4파일 무수정).
+  const showDismiss = Boolean(canSuppress && onSuppress);
+  const rootClass = [
+    'qf-embed',
+    embed.imageProxyUrl ? 'qf-embed--image' : '',
+    showDismiss ? 'relative' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
   return (
     <div className={rootClass} data-testid={`link-embed-${embed.id}`}>
+      {showDismiss ? (
+        <button
+          type="button"
+          className="qf-embed__dismiss"
+          aria-label="embed 숨기기"
+          data-testid={`link-embed-dismiss-${embed.id}`}
+          onClick={() => {
+            setDismissed(true);
+            onSuppress?.();
+          }}
+        >
+          <Icon name="x" size="sm" />
+        </button>
+      ) : null}
       {embed.siteName ? <div className="qf-embed__site">{embed.siteName}</div> : null}
       {embed.title ? (
         titleHref ? (
@@ -64,10 +115,12 @@ function ServerEmbedCard({ embed }: { embed: MessageEmbedDto }): JSX.Element | n
   );
 }
 
-export function LinkPreview({ url, embed }: Props): JSX.Element | null {
+export function LinkPreview({ url, embed, canSuppress, onSuppress }: Props): JSX.Element | null {
   // S60: 서버가 push 한 embed 가 있으면 그것을 우선 렌더한다(lazy fetch 안 함). 분기를
   // 별도 컴포넌트로 나눠 useQuery 가 조건부 훅이 되지 않게 한다(rules-of-hooks).
-  if (embed) return <ServerEmbedCard embed={embed} />;
+  // 072-N0: suppress ✕ 는 서버 embed(고유 id 존재) 에만 의미가 있어 ServerEmbedCard 에만 배선.
+  if (embed)
+    return <ServerEmbedCard embed={embed} canSuppress={canSuppress} onSuppress={onSuppress} />;
   if (!url) return null;
   return <LazyLinkPreview url={url} />;
 }
