@@ -1,6 +1,6 @@
 import { useCallback, useMemo } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import type { RecentSearchesResponse, SearchResponse } from '@qufox/shared-types';
+import type { RecentSearchesResponse, SearchResponse, SearchSort } from '@qufox/shared-types';
 import {
   searchMessages,
   fetchRecentSearches,
@@ -22,6 +22,8 @@ export function useSearch(args: {
   channelId?: string;
   /** S30 (FR-S06/S10): 결과 패널은 컨텍스트 + 스레드 루트 excerpt 가 필요. */
   withContext?: boolean;
+  /** 072-N4-2 (FR-S 정렬): relevance(기본) | recent. queryKey 에 포함. */
+  sort?: SearchSort;
   /**
    * S31 (NIT4): 호출측이 결과 쿼리를 일시 비활성화할 수 있다(예: suggest 모드
    * 활성 — 결과 드롭다운을 보여주지 않으므로 요청 낭비). 기본 true.
@@ -35,6 +37,7 @@ export function useSearch(args: {
       args.q,
       args.channelId ?? null,
       args.withContext ? 'ctx' : 'plain',
+      args.sort ?? 'relevance',
     ] as const,
     queryFn: ({ pageParam }) =>
       searchMessages({
@@ -45,6 +48,7 @@ export function useSearch(args: {
         // S30 (FR-S09): 페이지당 20, 더 보기로 누적(서버 max 100/5페이지).
         limit: 20,
         withContext: args.withContext,
+        sort: args.sort,
       }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (last: SearchResponse) => last.nextCursor ?? undefined,

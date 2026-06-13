@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import type { SearchResult } from '@qufox/shared-types';
+import type { SearchResult, SearchSort } from '@qufox/shared-types';
 import { Avatar, Icon } from '../../design-system/primitives';
 import { searchSnippetHtml } from './sanitize';
 import {
@@ -34,6 +34,9 @@ type Props = {
   /** 디바운스된 현재 쿼리(빈 문자열이면 최근검색 노출). */
   query: string;
   results: SearchResult[];
+  /** 072-N4-2: 정렬(relevance|recent) + 변경 콜백. */
+  sort: SearchSort;
+  onSortChange: (_s: SearchSort) => void;
   channelNameById: Map<string, string>;
   isLoading: boolean;
   hasNextPage: boolean;
@@ -56,6 +59,8 @@ type Props = {
 export function SearchResultPanel({
   query,
   results,
+  sort,
+  onSortChange,
   channelNameById,
   isLoading,
   hasNextPage,
@@ -129,6 +134,30 @@ export function SearchResultPanel({
           <Icon name="x" size="sm" />
         </button>
       </div>
+
+      {/* 072-N4-2 (FR-S 정렬): 결과 모드일 때만 관련도/최신 정렬 탭 노출. */}
+      {!showRecents ? (
+        <div role="tablist" aria-label="검색 정렬" className="qf-tabs px-[var(--s-5)]">
+          {(
+            [
+              { v: 'relevance', label: '관련도순' },
+              { v: 'recent', label: '최신순' },
+            ] as const
+          ).map((opt) => (
+            <button
+              key={opt.v}
+              type="button"
+              role="tab"
+              aria-selected={sort === opt.v}
+              data-testid={`search-sort-${opt.v}`}
+              onClick={() => onSortChange(opt.v)}
+              className="qf-tabs__item"
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      ) : null}
 
       {/* FR-S07: index-update 배너 — 패널 닫힘/재검색까지 유지. */}
       {indexUpdateAvailable ? (
