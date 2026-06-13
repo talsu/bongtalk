@@ -24,8 +24,33 @@
 | N1-2 | 새 DM/그룹 생성 모달(Dialog) — 헤더 버튼 → 받는사람 멀티셀렉트(친구·칩) → 1명=useCreateOrGetDm·2+=useCreateGroupDm (HIGH) | green | |
 | N1-3 | ⋯/우클릭 메뉴 확장 — 숨기기(visibility HIDDEN)·그룹 나가기(group only)·뮤트 기간 서브메뉴(6종, Dropdown Sub 신설) 또는 뮤트 해제 (HIGH) | green | |
 | N1-4 | DM 검색 서버 q 전달(250ms 디바운스, 1:1+그룹 동일 q·useDmList/useDmGroupList 시그니처 확장) (LOW/MED) | green | |
-| N1-G | 게이트: 데스크톱 e2e(dm) + standalone verify + 적대 리뷰 | todo | |
+| N1-G | 게이트: 데스크톱 e2e(dm) + standalone verify + 적대 리뷰(wfbfalyt8) | green | 90e1219·fa3f538 |
 | N1-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+
+## N1-G 적대 리뷰(wfbfalyt8 — 30 에이전트·6각도·1-vote·critic) fix-forward
+
+raw 23 → confirmed 16 / plausible 1. HIGH 들은 검증 중 이미 수리돼 대부분 REFUTED(수리 확증).
+
+**수리 완료(fix-forward 90e1219·fa3f538):**
+
+- **HIGH×2**: 열린 그룹을 q/가시성-필터된 목록이 아니라 `useDmGroupMembers`(멤버 게이트)로
+  독립 해석 → 검색 중 그룹 언마운트·숨긴 그룹 딥링크 무한로딩 차단. 비멤버 딥링크 not-found 폴백.
+- **MEDIUM**: /dm/g(groupId 누락) UUID 가드 · 아바타 스택 본인 제외 · 그룹 멤버수 행 aria-label
+  포함 · 컨텍스트 메뉴 트리거 accname 에 대화명 · 검색 시 열린 대화 표시명 퇴화 방지(labelCache).
+- **★createDm 폭주(e2e 발견·리뷰 미포착)**: useMutation 매-렌더 정체성 변경 → by-user 해소 전
+  createOrGet 무한 재발사 → 201 폭주 + hiddenAt 복원으로 '숨기기' 무력화. userId 당 1회 ref 가드.
+- **LOW**: 메뉴 항목 선택 후 닫힘 · 열린 대화 숨기기/나가기 시 /dm 이동 · 모달 pending 가드 ·
+  그룹 2줄 행 spacious(40px) 클리핑 방지 · qf-chip(no-op) 제거 · useSetDmMute 데드코드 제거 ·
+  친구 섹션 검색어 클라 필터(critic — DM 만 필터되던 비일관 해소).
+
+**이월(문서화·N5/서버):**
+
+- 그룹 행 미읽음 배지/aria 부재 — 서버 listGroups 가 unreadCount 미제공이 근인 → **서버 슬라이스**
+  필요(그룹 unread 집계). 시각·AT 양쪽 부재라 추후 서버 확장 시 동시 수리.
+- visibility/mute/leaveGroup/group-members GET rate-limit 부재(defense-in-depth, 전부 멤버게이트)
+  → **N5/보안 패스**(rename 패턴 따라 this.rate.enforce 추가; API 스코프).
+- testid 가 row.title 키잉(동일 displayName 충돌 시 latent flaky — 현 e2e 는 stamp 유니크라 무영향) ·
+  openRow direct 분기 silent no-op(계약위반 시만) · Avatar status 닷 SR(기존 Avatar 프리미티브) → 노트.
 
 ## 구현 메모
 
