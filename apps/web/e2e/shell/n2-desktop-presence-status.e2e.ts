@@ -30,6 +30,8 @@ test('desktop BottomBar: invisible toggle + custom status editor', async ({ brow
   await expect(page.getByTestId('bottom-bar')).toBeVisible();
 
   // ① INVISIBLE 활성: 드롭다운 → '오프라인으로 표시' → trigger data-presence=offline.
+  //    상태 항목은 선택 후 메뉴를 닫지 않으므로(기존 동작), 같은 열린 메뉴에서
+  //    이어서 커스텀 상태 진입을 누른다(트리거 재클릭 불필요).
   await page.getByTestId('presence-status-trigger').click();
   await page.getByTestId('presence-set-invisible').click();
   await expect(page.getByTestId('presence-status-trigger')).toHaveAttribute(
@@ -38,8 +40,7 @@ test('desktop BottomBar: invisible toggle + custom status editor', async ({ brow
     { timeout: 5000 },
   );
 
-  // ② 커스텀 상태 편집: 드롭다운 → '커스텀 상태 설정' → 모달 → 텍스트 저장.
-  await page.getByTestId('presence-status-trigger').click();
+  // ② 커스텀 상태 편집: (같은 열린 메뉴) '커스텀 상태 설정' → 모달 → 텍스트 저장.
   await page.getByTestId('bottom-bar-custom-status').click();
   await expect(page.getByTestId('custom-status-modal')).toBeVisible();
   await page.getByTestId('custom-status-text').fill('집중 모드');

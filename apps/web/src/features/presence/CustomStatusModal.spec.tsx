@@ -91,6 +91,25 @@ describe('CustomStatusModal', () => {
     });
   });
 
+  it('편집 중 백그라운드 current 변경이 입력을 덮어쓰지 않는다(리뷰 HIGH 회귀고정)', async () => {
+    apiRequest.mockImplementation(async (path: string, opts?: { method?: string }) => {
+      const method = opts?.method ?? 'GET';
+      if (path === '/users/me/status' && method === 'GET')
+        return { text: '점심', emoji: null, expiresAt: null };
+      throw new Error(`unexpected ${method} ${path}`);
+    });
+    const qc = newQc();
+    render(<CustomStatusModal open onOpenChange={() => undefined} />, { wrapper: wrapper(qc) });
+    const input = (await screen.findByTestId('custom-status-text')) as HTMLInputElement;
+    await waitFor(() => expect(input.value).toBe('점심'));
+    // 사용자가 편집(dirty) 시작.
+    fireEvent.change(input, { target: { value: '편집 중인 내용' } });
+    // 백그라운드 refetch 가 다른 데이터로 캐시를 갱신(만료 등).
+    qc.setQueryData(['me', 'custom-status'], { text: null, emoji: null, expiresAt: null });
+    // 입력은 사용자 편집값을 유지(덮어쓰기 금지).
+    await waitFor(() => expect(input.value).toBe('편집 중인 내용'));
+  });
+
   it("'상태 지우기' 버튼은 DELETE 한다", async () => {
     apiRequest.mockImplementation(async (path: string, opts?: { method?: string }) => {
       const method = opts?.method ?? 'GET';

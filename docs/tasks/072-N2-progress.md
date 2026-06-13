@@ -18,10 +18,34 @@
 
 | 청크 | 내용 | 상태 | 커밋 |
 | ---- | ---- | ---- | ---- |
-| N2-1 | CustomStatusModal(이모지+텍스트≤100+만료 프리셋 6종, EmojiPicker 재사용) 신설 + BottomBar '커스텀 상태 설정' 진입 + ProfileSettingsPage 편집 진입 (HIGH) | todo | |
-| N2-2 | BottomBar INVISIBLE 활성화(setStatus offline, '오프라인으로 표시') + 영문→한글 라벨 + ProfilePopover dnd '방해 금지' 통일 (D1·LOW) | todo | |
-| N2-G | 게이트: 데스크톱 e2e(presence) + standalone verify + 적대 리뷰 | todo | |
+| N2-1 | CustomStatusModal(이모지+텍스트≤100+만료 프리셋 6종, EmojiPicker 재사용) 신설 + BottomBar '커스텀 상태 설정' 진입 + ProfileSettingsPage 편집 진입 (HIGH) | green | d16ed8c |
+| N2-2 | BottomBar INVISIBLE 활성화(setStatus offline, '오프라인으로 표시') + 영문→한글 라벨 + ProfilePopover dnd '방해 금지' 통일 (D1·LOW) | green | d16ed8c |
+| N2-G | 게이트: 데스크톱 e2e(presence) + standalone verify + 적대 리뷰(wdz0d97s8) | green | (fix-forward) |
 | N2-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+
+## N2-G 적대 리뷰(wdz0d97s8 — 17 에이전트·4각도) fix-forward
+
+raw 12 → confirmed 10 / plausible 1.
+
+**수리 완료:**
+
+- **HIGH**: 모달 init useEffect 가 current 변경마다 재초기화 → refetchOnWindowFocus 시 편집 중
+  입력 덮어씀. dirtyRef 가드로 '열림 전환 + pristine 일 때만' 재반영(편집 시작 후 무덮어쓰기,
+  단 current 늦게 도착 시 채움). 회귀 단위테스트 추가.
+- **HIGH**: EmojiPicker 열린 상태 Esc 가 Dialog 까지 닫음 → 편집 폐기. 모달 onKeyDown 에서
+  emojiOpen 중 Esc 는 stopPropagation + 피커만 닫고 포커스 복귀(피커 닫혀있으면 Dialog Esc 보존).
+- **MEDIUM**: 트리거 aria-label 에 커스텀 상태 반영 · 이모지 버튼 aria-haspopup/aria-controls ·
+  피커 닫힘 시 트리거로 포커스 복귀 · 만료 미변경 시 기존 expiresAt 보존(텍스트만 수정해도 만료 유지).
+- **LOW**: BottomBar home-status 가 프레즌스 라벨 **+** 커스텀 상태 동시 노출(프레즌스 텍스트 소실 방지) ·
+  EmojiPicker 커스텀 토큰(':slug:') 방어 필터.
+
+**이월(문서화):**
+
+- 이모지 토글 버튼 double-toggle(클릭으로 닫으면 재오픈) — MessageComposer 기존 패턴과 동일(LOW) → 노트.
+- presence 드롭다운 항목의 현재 상태 AT 미노출(menuitem aria-checked 부재) — RadioGroup 전환은
+  presence-toggle e2e 영향 우려로 보류 → N5/별도.
+- 커스텀 상태 만료 후 표시 갱신(useCustomStatus refetchInterval 부재 — 서버는 GET 시 lazy clear) →
+  폴링/타이머 추가는 폴리시 항목 → 노트.
 
 ## 이월(문서화)
 
