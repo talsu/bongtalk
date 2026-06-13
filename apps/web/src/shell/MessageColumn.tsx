@@ -17,6 +17,7 @@ import { DropZoneOverlay } from '../features/attachments/DropZoneOverlay';
 import { PinPanel } from '../features/messages/PinPanel';
 import { usePinCount } from '../features/messages/useMessages';
 import { ThreadPanel } from '../features/threads/ThreadPanel';
+import { CustomEmojiProvider } from '../features/emojis/CustomEmojiContext';
 import { useLiveMessages } from '../features/realtime/useLiveMessages';
 import { useReadState } from '../features/realtime/readStateStore';
 import { captureUnreadSnapshot } from '../features/messages/newMessages';
@@ -492,13 +493,18 @@ export function MessageColumn({
         />
       </main>
       {activeThread && !isDm && workspaceId ? (
-        <ThreadPanel
-          workspaceId={workspaceId}
-          channelId={channelId}
-          channelName={channelName}
-          rootId={activeThread}
-          onClose={() => setActiveThread(null)}
-        />
+        // 072-N0 리뷰 MEDIUM: ThreadPanel 은 MessageList(내부 provider)의 형제라
+        // 커스텀 이모지 컨텍스트 밖이었다 — 여기서 감싸 루트/답글 :slug: 가 메인
+        // 타임라인과 동일하게 <img> 로 렌더된다(동일 쿼리키라 추가 요청 없음).
+        <CustomEmojiProvider workspaceId={workspaceId}>
+          <ThreadPanel
+            workspaceId={workspaceId}
+            channelId={channelId}
+            channelName={channelName}
+            rootId={activeThread}
+            onClose={() => setActiveThread(null)}
+          />
+        </CustomEmojiProvider>
       ) : null}
       {/* S50 (D10 · FR-PS-03): 고정된 메시지 슬라이드인 패널. 스레드 패널이 열려
           있지 않을 때만 우측 슬롯을 점유한다(같은 캔버스 폭 공유 — PRD 디자인 모델). */}

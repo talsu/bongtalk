@@ -1144,7 +1144,13 @@ export function installRealtimeDispatcher(
                 // 의도가 없으면(타인만 반응, 또는 WS 와 합의해 만료) 순수 inUsers.
                 const intent = peekReactionIntent(payload.messageId, r.emoji);
                 const byMe = intent !== null ? intent : inUsers;
-                return { emoji: r.emoji, count: r.count, byMe };
+                // 072-N0 리뷰: REST 가 채운 반응자 미리보기 툴팁(previewUsers)이 WS
+                // 패치에서 사라지지 않게, broadcast users(≤5, username 보유)로 재구성한다.
+                // displayName 은 broadcast 에 없어 다음 refetch 가 채운다(username 우선 표시).
+                const previewUsers = r.users
+                  .filter((u): u is { id: string; username: string } => !!u.username)
+                  .map((u) => ({ id: u.id, username: u.username, displayName: null }));
+                return { emoji: r.emoji, count: r.count, byMe, previewUsers };
               });
               return { ...m, reactions };
             }),

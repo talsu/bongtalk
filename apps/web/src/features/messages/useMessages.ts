@@ -23,6 +23,7 @@ import {
   listPins,
   pinMessage,
   sendMessage,
+  suppressEmbed,
   unpinMessage,
   updateMessage,
 } from './api';
@@ -643,6 +644,56 @@ export function useUnpinMessage(wsId: string | null, channelId: string) {
       useNotifications.getState().push({
         variant: 'danger',
         title: '메시지 고정 해제 실패',
+        body: f.message,
+        ttlMs: 5000,
+      });
+    },
+  });
+}
+
+/**
+ * 072-N0 (감사 FR-RC08 / FR-AM-16): 링크 unfurl embed 사후 억제(suppress) 훅.
+ * 작성자 또는 MANAGE_MESSAGES 권한자만 호출(서버 게이트 정합 — UI 노출도 동일 조건).
+ * DM(wsId=null)에는 embed suppress 엔드포인트가 없으므로 호출 자체를 막는다.
+ *
+ * 낙관적 hide: 해당 embedId 를 메시지 list 캐시(`['messages', ws, ch]`)에서 즉시 제거해
+ * round-trip 을 기다리지 않고 카드를 숨긴다. 서버 성공 시 message:embed_updated 가
+ * 비-suppress embed 전체 스냅샷을 fanout 하여 dispatcher 가 동일 상태로 수렴한다.
+ * 실패 시 onError 에서 list 를 invalidate 해 서버 진실로 롤백한다.
+ */
+export function useSuppressEmbed(wsId: string | null, channelId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: ({ msgId, embedId }: { msgId: string; embedId: string }) => {
+      if (!wsId) {
+        return Promise.reject(new Error('DM 채널은 임베드 숨기기를 지원하지 않습니다'));
+      }
+      return suppressEmbed(wsId, channelId, msgId, embedId);
+    },
+    onMutate: ({ msgId, embedId }) => {
+      // 낙관적: 캐시에서 해당 embed 만 제거(카드 즉시 hide). 다른 embed 는 보존.
+      qc.setQueryData<InfiniteData<ListMessagesResponse>>(keys.list(wsId, channelId), (old) => {
+        if (!old) return old;
+        return {
+          ...old,
+          pages: old.pages.map((p) => ({
+            ...p,
+            items: p.items.map((m) =>
+              m.id === msgId
+                ? { ...m, embeds: (m.embeds ?? []).filter((e) => e.id !== embedId) }
+                : m,
+            ),
+          })),
+        };
+      });
+    },
+    onError: (err) => {
+      // 서버 진실로 롤백(낙관적 hide 되돌리기).
+      void qc.invalidateQueries({ queryKey: keys.list(wsId, channelId) });
+      const f = friendlyError(err);
+      useNotifications.getState().push({
+        variant: 'danger',
+        title: '임베드 숨기기 실패',
         body: f.message,
         ttlMs: 5000,
       });

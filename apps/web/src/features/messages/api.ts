@@ -7,6 +7,7 @@ import type {
   ListPinsResponse,
   PinCountResponse,
   MessageDto,
+  MessageEmbedDto,
   PinMessageResponse,
   ReportCategory,
   SendMessageRequest,
@@ -141,6 +142,23 @@ export function unpinMessage(
 
 export function listPins(wsId: string, channelId: string): Promise<ListPinsResponse> {
   return apiRequest(`/workspaces/${wsId}/channels/${channelId}/messages/pins`);
+}
+
+// 072-N0 (감사 FR-RC08 / FR-AM-16): 링크 unfurl embed 사후 억제(suppress). 작성자
+// 또는 MANAGE_MESSAGES 권한자만 개별 카드를 끈다. 행 삭제가 아니라 suppressedAt
+// 표식이라 동일 URL 재추출 시 깜빡임을 막는다. 성공 시 서버가 message:embed_updated
+// 를 채널 룸으로 fanout 하여 모든 뷰어의 카드가 사라진다(dispatcher 가 캐시 갱신).
+// 응답은 해당 메시지의 비-suppress embed 전체 스냅샷({ messageId, embeds })이다.
+export function suppressEmbed(
+  wsId: string,
+  channelId: string,
+  msgId: string,
+  embedId: string,
+): Promise<{ messageId: string; embeds: MessageEmbedDto[] }> {
+  return apiRequest(
+    `/workspaces/${wsId}/channels/${channelId}/messages/${msgId}/embeds/${embedId}/suppress`,
+    { method: 'PATCH' },
+  );
 }
 
 // S50 (D10 · FR-PS-03): 채널 헤더 핀 카운트 배지 경량 조회. 본문/AST 없이 핀 수만.

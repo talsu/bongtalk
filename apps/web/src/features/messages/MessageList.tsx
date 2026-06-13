@@ -1,11 +1,4 @@
-import {
-  useEffect,
-  useLayoutEffect,
-  useMemo,
-  useRef,
-  useState,
-  type ReactNode,
-} from 'react';
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useVirtualizer } from '@tanstack/react-virtual';
 import { useQueryClient, type InfiniteData } from '@tanstack/react-query';
 import {
@@ -24,6 +17,7 @@ import {
   useMessageHistory,
   usePinMessage,
   useSendMessage,
+  useSuppressEmbed,
   useUnpinMessage,
   useUpdateMessage,
 } from './useMessages';
@@ -203,6 +197,9 @@ export function MessageList({
   // null 이면 onPin/onUnpin 콜백 자체를 undefined 로 전달해 메뉴 hide.
   const pinMut = usePinMessage(workspaceId, channelId);
   const unpinMut = useUnpinMessage(workspaceId, channelId);
+  // 072-N0 (감사 FR-RC08 / FR-AM-16): 링크 unfurl embed 사후 억제(suppress). 작성자
+  // 또는 OWNER/ADMIN 의 ✕('embed 숨기기')에서 호출(낙관적 hide + WS 수렴).
+  const suppressEmbedMut = useSuppressEmbed(workspaceId, channelId);
   // S51 (FR-PS-07/13): 개인 저장 토글. 낙관적으로 per-message saved 캐시를 뒤집는다.
   const saveMut = useToggleSave();
 
@@ -1136,6 +1133,8 @@ export function MessageList({
                       pickerQuickReactions={pickerQuickReactions}
                       pickerRecentEmojis={pickerData?.recentEmojis}
                       pickerDefaultSkinTone={pickerData?.defaultSkinTone}
+                      // 072-N0 (N0-3): 본인 멘션 행 강조 판정을 위한 viewer id.
+                      viewerId={user?.id}
                       onEditSave={async (content) => {
                         // S05 (FR-MSG-06): 편집창 오픈 시점의 version 을 낙관적
                         // 잠금 기대값으로 동봉. 서버 version 과 불일치 시 409 →
@@ -1173,6 +1172,20 @@ export function MessageList({
                               await unpinMut.mutateAsync(m.id);
                             }
                           : undefined
+                      }
+                      // 072-N0 (감사 FR-RC08/FR-AM-16): 링크 embed ✕('embed 숨기기').
+                      // 워크스페이스 채널 + 비-tmp 행에서만 의미가 있고, 서버 게이트(작성자
+                      // 또는 MANAGE_MESSAGES)와 정합되게 작성자/OWNER/ADMIN 에게만 노출한다.
+                      // MEMBER override 보유자는 버튼 미노출이지만 서버가 진실의 게이트다.
+                      canSuppressEmbed={
+                        !!workspaceId &&
+                        !m.id.startsWith('tmp-') &&
+                        (m.authorId === user?.id ||
+                          viewerRole === 'OWNER' ||
+                          viewerRole === 'ADMIN')
+                      }
+                      onSuppressEmbed={(embedId) =>
+                        suppressEmbedMut.mutate({ msgId: m.id, embedId })
                       }
                       // S51 (FR-PS-07/13): 개인 저장 토글. tmp(낙관적 send) 행은
                       // 서버 id 가 없어 비노출. saved 여부는 토글 캐시에서 읽는다.
@@ -1383,4 +1396,3 @@ function NewMessagesDivider(): JSX.Element {
     </div>
   );
 }
-

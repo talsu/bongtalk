@@ -1,7 +1,25 @@
 import { useCallback, useState } from 'react';
 import type { ReactionSummary } from '@qufox/shared-types';
 import { cn } from '../../lib/cn';
+import { Tooltip } from '../../design-system/primitives';
 import { EmojiPicker, type CustomEmojiOption } from './EmojiPicker';
+
+// 072-N0 (FR-RE04, audit 2026-06-13-desktop-uiux-audit.md): 반응 칩 hover 툴팁
+// 라벨을 산출한다. Stage1 이 ReactionSummary 에 previewUsers(≤5·안정정렬)를 추가했다.
+//   - previewUsers 가 있으면 "A, B, C 외 N명이 반응"(N = count - 표시인원, ≤0 이면 생략).
+//   - previewUsers 가 없거나 비면(구 API·미채움 경로) "N명이 반응"으로 graceful 폴백.
+// previewUsers 는 forward-compat optional 이라 옵셔널 접근으로 방어한다.
+function reactionTooltipLabel(r: ReactionSummary): string {
+  const preview = r.previewUsers ?? [];
+  if (preview.length === 0) {
+    return `${r.count}명이 반응`;
+  }
+  const names = preview.map((u) => u.displayName ?? u.username);
+  const remaining = r.count - names.length;
+  return remaining > 0
+    ? `${names.join(', ')} 외 ${remaining}명이 반응`
+    : `${names.join(', ')}님이 반응`;
+}
 
 type Props = {
   reactions: ReactionSummary[];
@@ -97,48 +115,55 @@ export function ReactionBar({
         const deleted = isCustomToken(r.emoji) && !url;
         return (
           <span key={r.emoji} className="inline-flex items-center">
-            <button
-              type="button"
-              data-testid={`reaction-${r.emoji}`}
-              data-bymine={r.byMe ? 'true' : 'false'}
-              data-custom={r.customEmojiId ? 'true' : undefined}
-              data-deleted={deleted ? 'true' : undefined}
-              onClick={() => onToggle(r.emoji, r.byMe)}
-              aria-pressed={r.byMe}
-              // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
-              // 내부 토큰은 aria-hidden 으로 가려 이중 읽기를 막는다. S41(FR-EM06):
-              // 삭제된 커스텀 이모지면 라벨에 슬러그 + "삭제된 이모지" 를 싣는다.
-              aria-label={`${
-                deleted ? `${r.emoji} 삭제된 이모지` : r.emoji
-              } 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
-              className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
-            >
-              {url ? (
-                // S41 (FR-EM06): 살아있는 커스텀 이모지 — CSS 고정크기 <img> 칩.
-                <img
-                  src={url}
-                  alt={r.emoji}
-                  aria-hidden="true"
-                  className="qf-emoji-custom qf-emoji-custom--reaction"
-                  style={{ width: 18, height: 18, objectFit: 'contain' }}
-                />
-              ) : isCustomToken(r.emoji) ? (
-                // S41 (FR-EM06): 삭제된 커스텀 이모지 — [삭제된 이모지] placeholder
-                // (회색 박스 + 물음표). 원래 슬러그는 title 툴팁으로 보존한다.
-                <span
-                  aria-hidden="true"
-                  title={r.emoji}
-                  data-testid={`reaction-deleted-${r.emoji}`}
-                >
-                  ⬚?
+            {/* 072-N0 (FR-RE04): 데스크톱 hover/focus 시 반응자 미리보기 툴팁(DS
+                .qf-tooltip — Radix Tooltip 프리미티브). Radix 는 포인터 hover·키보드
+                focus 에서만 열리고 터치는 발화하지 않으므로, 모바일(qf-m-*) 터치 동작은
+                그대로 보존된다(데스크톱 전용 affordance). asChild 로 칩 버튼 위에 합성돼
+                data-testid·aria-label 등 기존 속성은 유지된다. */}
+            <Tooltip label={reactionTooltipLabel(r)} side="top">
+              <button
+                type="button"
+                data-testid={`reaction-${r.emoji}`}
+                data-bymine={r.byMe ? 'true' : 'false'}
+                data-custom={r.customEmojiId ? 'true' : undefined}
+                data-deleted={deleted ? 'true' : undefined}
+                onClick={() => onToggle(r.emoji, r.byMe)}
+                aria-pressed={r.byMe}
+                // S39 (SHOULD 4): 칩의 의미를 완결문으로 — 이모지·인원수·내 반응 여부.
+                // 내부 토큰은 aria-hidden 으로 가려 이중 읽기를 막는다. S41(FR-EM06):
+                // 삭제된 커스텀 이모지면 라벨에 슬러그 + "삭제된 이모지" 를 싣는다.
+                aria-label={`${
+                  deleted ? `${r.emoji} 삭제된 이모지` : r.emoji
+                } 반응, ${r.count}명, ${r.byMe ? '내가 반응함' : '반응 안 함'}`}
+                className={cn('qf-reaction', r.byMe && 'qf-reaction--me')}
+              >
+                {url ? (
+                  // S41 (FR-EM06): 살아있는 커스텀 이모지 — CSS 고정크기 <img> 칩.
+                  <img
+                    src={url}
+                    alt={r.emoji}
+                    aria-hidden="true"
+                    className="qf-emoji-custom qf-emoji-custom--reaction"
+                    style={{ width: 18, height: 18, objectFit: 'contain' }}
+                  />
+                ) : isCustomToken(r.emoji) ? (
+                  // S41 (FR-EM06): 삭제된 커스텀 이모지 — [삭제된 이모지] placeholder
+                  // (회색 박스 + 물음표). 원래 슬러그는 title 툴팁으로 보존한다.
+                  <span
+                    aria-hidden="true"
+                    title={r.emoji}
+                    data-testid={`reaction-deleted-${r.emoji}`}
+                  >
+                    ⬚?
+                  </span>
+                ) : (
+                  <span aria-hidden="true">{r.emoji}</span>
+                )}
+                <span className="tabular-nums" aria-hidden="true">
+                  {r.count}
                 </span>
-              ) : (
-                <span aria-hidden="true">{r.emoji}</span>
-              )}
-              <span className="tabular-nums" aria-hidden="true">
-                {r.count}
-              </span>
-            </button>
+              </button>
+            </Tooltip>
             {onShowReactors ? (
               <button
                 type="button"
