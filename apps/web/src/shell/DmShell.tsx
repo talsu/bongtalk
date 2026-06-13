@@ -124,8 +124,9 @@ function DmRowMenu({
 
 /**
  * 072-N1: 통합 DM 행(1:1 + 그룹). 1:1 은 단일 아바타+프레즌스 닷+미읽/멘션 배지,
- * 그룹은 아바타 스택(2장 겹침)+카운트 없음(서버 listGroups 가 unread 미제공). 뮤트
- * 회색/표식은 UserChannelMute 공유라 channelId 로 양쪽 공통.
+ * 그룹은 아바타 스택(2장 겹침). 072 백로그 S-E 부터 서버 listGroups 가 그룹 unread/
+ * mention 을 내려주므로 그룹도 1:1 과 동일하게 미읽/멘션 배지를 단다(종전 0 하드코딩 제거).
+ * 뮤트 회색/표식은 UserChannelMute 공유라 channelId 로 양쪽 공통.
  */
 function DmUnifiedRow({
   row,
@@ -152,14 +153,13 @@ function DmUnifiedRow({
 }): JSX.Element {
   const [menuOpen, setMenuOpen] = useState(false);
   const isGroup = row.kind === 'group';
-  // 1:1: 비뮤트→unread / 뮤트→mention. 그룹은 카운트 없음(0).
-  const badge = isGroup
-    ? 0
-    : deriveDmBadgeCount({
-        unreadCount: row.unreadCount ?? 0,
-        muted,
-        mentionCount: row.mentionCount ?? 0,
-      });
+  // 비뮤트→unread / 뮤트→mention. 072 백로그 S-E: 그룹 DM 도 서버 listGroups 가
+  // unread/mention 을 내려주므로 1:1 과 동일 로직(종전 그룹=0 하드코딩 제거).
+  const badge = deriveDmBadgeCount({
+    unreadCount: row.unreadCount ?? 0,
+    muted,
+    mentionCount: row.mentionCount ?? 0,
+  });
   const memberCount = row.memberIds?.length ?? 0;
   // 072-N1(리뷰 MEDIUM): 아바타 스택에서 본인 제외(제목 groupDmTitle 과 정합).
   const stackPeers = (row.participants ?? []).filter((p) => p.userId !== meId).slice(0, 2);
@@ -208,7 +208,10 @@ function DmUnifiedRow({
       >
         {isGroup ? (
           // 그룹 아바타 스택(겹침 2장). DS 토큰 간격만 사용.
-          <span className="relative inline-flex shrink-0" data-testid={`dm-shell-stack-${row.title}`}>
+          <span
+            className="relative inline-flex shrink-0"
+            data-testid={`dm-shell-stack-${row.title}`}
+          >
             {stackPeers.map((p, i) => (
               <span
                 key={p.userId}
@@ -227,10 +230,7 @@ function DmUnifiedRow({
           <span className="truncate">{row.title}</span>
           {isGroup ? (
             // aria-hidden: 멤버 수는 위 button aria-label 에 이미 실려 SR 중복 방지(장식).
-            <span
-              aria-hidden
-              className="truncate text-[length:var(--fs-12)] text-text-muted"
-            >
+            <span aria-hidden className="truncate text-[length:var(--fs-12)] text-text-muted">
               {memberCount > 0 ? `멤버 ${memberCount}명` : '그룹'}
             </span>
           ) : null}
@@ -324,9 +324,10 @@ function NewConversationModal({
 
   const norm = filter.trim().toLowerCase();
   const shown = candidates.filter((c) => !norm || c.otherUsername.toLowerCase().includes(norm));
-  const byId = useMemo(() => new Map(candidates.map((c) => [c.otherUserId, c.otherUsername])), [
-    candidates,
-  ]);
+  const byId = useMemo(
+    () => new Map(candidates.map((c) => [c.otherUserId, c.otherUsername])),
+    [candidates],
+  );
 
   const toggle = (userId: string): void => {
     setError(null);
@@ -398,7 +399,9 @@ function NewConversationModal({
           {shown.length === 0 ? (
             <li className="qf-empty">
               <div className="qf-empty__body">
-                {candidates.length === 0 ? '친구가 없습니다. /friends 에서 추가하세요.' : '일치하는 친구가 없습니다.'}
+                {candidates.length === 0
+                  ? '친구가 없습니다. /friends 에서 추가하세요.'
+                  : '일치하는 친구가 없습니다.'}
               </div>
             </li>
           ) : (
@@ -492,7 +495,8 @@ export function DmShell(): JSX.Element {
   // 에 userId='g' 로 폴백 매칭 → by-user 가 비-UUID 로 400 → 무한 로딩. UUID 형태가
   // 아닌 routeUserId 는 무효로 보고 빈 상태로 떨어뜨린다.
   const validUserId =
-    routeUserId && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeUserId)
+    routeUserId &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(routeUserId)
       ? routeUserId
       : undefined;
   const { data: byUser } = useDmByUser(undefined, validUserId);
@@ -524,7 +528,8 @@ export function DmShell(): JSX.Element {
   // (u:userId→username, g:channelId→displayName). 검색 중에도 헤더/제목이 안정적.
   const labelCacheRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
-    for (const d of dms?.items ?? []) labelCacheRef.current.set(`u:${d.otherUserId}`, d.otherUsername);
+    for (const d of dms?.items ?? [])
+      labelCacheRef.current.set(`u:${d.otherUserId}`, d.otherUsername);
     for (const g of groups?.items ?? []) {
       const dn = g.displayName?.trim();
       if (dn) labelCacheRef.current.set(`g:${g.channelId}`, dn);
@@ -545,10 +550,7 @@ export function DmShell(): JSX.Element {
   // 072-N1(적대 리뷰 HIGH): 열린 그룹을 q-필터/가시성-필터된 목록이 아니라 멤버
   // 엔드포인트로 독립 해석한다 — 검색 입력 중·숨긴 그룹 딥링크에도 대화가 사라지지
   // 않는다(1:1 의 useDmByUser 와 대칭). 목록 항목은 displayName 표시명에만 쓴다.
-  const {
-    data: groupMembers,
-    isError: groupMembersError,
-  } = useDmGroupMembers(routeGroupId);
+  const { data: groupMembers, isError: groupMembersError } = useDmGroupMembers(routeGroupId);
   const groupListEntry = useMemo(
     () => (routeGroupId ? (groups?.items ?? []).find((g) => g.channelId === routeGroupId) : null),
     [routeGroupId, groups],
@@ -649,31 +651,31 @@ export function DmShell(): JSX.Element {
                     ? row.channelId === routeGroupId
                     : row.otherUserId === routeUserId;
                 return (
-                <DmUnifiedRow
-                  key={row.channelId}
-                  row={row}
-                  meId={me?.id}
-                  active={isActive}
-                  muted={mutedChannelIds.has(row.channelId)}
-                  status={row.otherUserId ? getStatus(row.otherUserId) : 'offline'}
-                  onOpen={() => openRow(row)}
-                  onHide={() => {
-                    setVisibility.mutate({ channelId: row.channelId, visibility: 'HIDDEN' });
-                    // 072-N1(리뷰 LOW): 열려있는 대화를 숨기면 우측 컬럼에 남지 않게 목록으로.
-                    if (isActive) navigate('/dm');
-                  }}
-                  onLeave={() => {
-                    leaveGroup.mutate(row.channelId);
-                    if (isActive) navigate('/dm');
-                  }}
-                  onSetMuteUntil={(minutes) =>
-                    setMuteUntil.mutate({
-                      channelId: row.channelId,
-                      mutedUntil: muteUntilIso(minutes, nowMs()),
-                    })
-                  }
-                  onRemoveMute={() => removeDmMute.mutate(row.channelId)}
-                />
+                  <DmUnifiedRow
+                    key={row.channelId}
+                    row={row}
+                    meId={me?.id}
+                    active={isActive}
+                    muted={mutedChannelIds.has(row.channelId)}
+                    status={row.otherUserId ? getStatus(row.otherUserId) : 'offline'}
+                    onOpen={() => openRow(row)}
+                    onHide={() => {
+                      setVisibility.mutate({ channelId: row.channelId, visibility: 'HIDDEN' });
+                      // 072-N1(리뷰 LOW): 열려있는 대화를 숨기면 우측 컬럼에 남지 않게 목록으로.
+                      if (isActive) navigate('/dm');
+                    }}
+                    onLeave={() => {
+                      leaveGroup.mutate(row.channelId);
+                      if (isActive) navigate('/dm');
+                    }}
+                    onSetMuteUntil={(minutes) =>
+                      setMuteUntil.mutate({
+                        channelId: row.channelId,
+                        mutedUntil: muteUntilIso(minutes, nowMs()),
+                      })
+                    }
+                    onRemoveMute={() => removeDmMute.mutate(row.channelId)}
+                  />
                 );
               })}
               {shownFriends.length > 0 ? (
@@ -753,10 +755,18 @@ export function DmShell(): JSX.Element {
           </div>
           {(friends?.items ?? []).length === 0 ? (
             <div className="flex gap-[var(--s-2)]">
-              <Link to="/friends" data-testid="dm-empty-cta-friends" className="qf-btn qf-btn--primary">
+              <Link
+                to="/friends"
+                data-testid="dm-empty-cta-friends"
+                className="qf-btn qf-btn--primary"
+              >
                 친구 추가
               </Link>
-              <Link to="/discover" data-testid="dm-empty-cta-discover" className="qf-btn qf-btn--ghost">
+              <Link
+                to="/discover"
+                data-testid="dm-empty-cta-discover"
+                className="qf-btn qf-btn--ghost"
+              >
                 워크스페이스 찾기
               </Link>
             </div>

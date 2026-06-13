@@ -621,6 +621,9 @@ export class DirectMessagesService {
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
+      // 072 백로그 S-E (FR-DM-15): 미읽음/미읽음 멘션 수(인박스 배지·1:1 list() 와 동형).
+      unreadCount: number;
+      mentionCount: number;
     }>
   > {
     const capped = Math.max(1, Math.min(100, limit));
@@ -656,6 +659,9 @@ export class DirectMessagesService {
       lastMessageAt: Date | null;
       lastMessagePreview: string | null;
       createdAt: Date;
+      // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 카운트(1:1 list() 와 동일 술어).
+      unreadCount: bigint;
+      mentionCount: bigint;
     };
     const rows = await this.prisma.$queryRaw<Row[]>(Prisma.sql`
       WITH my_groups AS (
@@ -709,7 +715,42 @@ export class DirectMessagesService {
              mg."iconUrl",
              lm."lastMessageAt",
              lm."lastMessagePreview",
-             mg."createdAt"
+             mg."createdAt",
+             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음 수. 1:1 list() 와 **동일 술어**
+             -- (deletedAt IS NULL · roots-only · (createdAt,id) 읽음 커서, read-state
+             -- NULL ⇒ 전부 미읽음). N+1 회피 위해 단일 raw 쿼리에 fold 한다.
+             COALESCE((
+               SELECT COUNT(*)::bigint
+                 FROM "Message" m2
+                 LEFT JOIN "UserChannelReadState" rs
+                   ON rs."userId" = ${meId}::uuid
+                  AND rs."channelId" = m2."channelId"
+                WHERE m2."channelId" = mg."channelId"
+                  AND m2."deletedAt" IS NULL
+                  AND (m2."parentMessageId" IS NULL OR m2."isBroadcast" = true)
+                  AND (
+                    rs."lastReadMessageCreatedAt" IS NULL
+                    OR (m2."createdAt", m2.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
+                  )
+             ), 0) AS "unreadCount",
+             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음 @멘션 수(뮤트 배지용). unread
+             -- 술어 + mentionMatchSql(users @> / everyone / here / channel). DM 은 ACL 이
+             -- USER override 로만 표현돼 read-visibility 5단계 fold/private gate 가 불필요.
+             COALESCE((
+               SELECT COUNT(*)::bigint
+                 FROM "Message" m3
+                 LEFT JOIN "UserChannelReadState" rs2
+                   ON rs2."userId" = ${meId}::uuid
+                  AND rs2."channelId" = m3."channelId"
+                WHERE m3."channelId" = mg."channelId"
+                  AND m3."deletedAt" IS NULL
+                  AND (m3."parentMessageId" IS NULL OR m3."isBroadcast" = true)
+                  AND ${mentionMatchSql(Prisma.sql`m3`, Prisma.sql`${meId}::text`)}
+                  AND (
+                    rs2."lastReadMessageCreatedAt" IS NULL
+                    OR (m3."createdAt", m3.id) > (rs2."lastReadMessageCreatedAt", rs2."lastReadMessageId")
+                  )
+             ), 0) AS "mentionCount"
         FROM my_groups mg
         JOIN members m ON m."channelId" = mg."channelId"
         LEFT JOIN last_msg lm ON lm."channelId" = mg."channelId"
@@ -739,6 +780,12 @@ export class DirectMessagesService {
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       createdAt: r.createdAt.toISOString(),
+      // 072 백로그 S-E (FR-DM-15): COUNT(*)::bigint → number(unreadCount 와 동일 패턴).
+      // mentionCount: 1:1·workspaceless 그룹은 extractMentions 가 멘션을 드롭해 0,
+      // workspace-scoped 그룹(API 직접 생성)은 멘션이 해석돼 비-0 가능 — 어느 경우든
+      // 실제 저장된 Message.mentions 를 정확히 센다(web 개설 그룹은 workspaceId 미전송 → 0).
+      unreadCount: Number(r.unreadCount),
+      mentionCount: Number(r.mentionCount),
     }));
   }
 

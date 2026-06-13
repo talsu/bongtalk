@@ -35,6 +35,10 @@ export interface GroupDmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   createdAt: string;
+  // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 수. 1:1 DmListItem 과 동형 —
+  // dmRows/배지 로직이 뮤트/비뮤트 분기를 동일하게 적용한다(서버 listGroups 동기화).
+  unreadCount: number;
+  mentionCount: number;
 }
 
 // task-037-A: all DM hooks now hit the Global DM surface at /me/dms.
