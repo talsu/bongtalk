@@ -3,9 +3,10 @@ import { z } from 'zod';
 /**
  * S64 (D12 / FR-RM12): 감사 로그 조회(audit-log) 단일 출처(shared-types).
  *
- * VIEW_AUDIT_LOG 권한은 별도 비트를 신설하지 않는다(★결정 B) — ADMIN+ enum 계층
- * 게이트(actor.isAdministrator || workspaceRole ∈ {ADMIN,OWNER})로 컨트롤러/서비스가
- * 직접 검사한다. AuditLog 스키마는 변경하지 않는다(★결정 A · details Json 유지).
+ * VIEW_AUDIT_LOG 권한은 별도 비트를 신설하지 않는다(★결정 B) — @Roles('ADMIN') +
+ * WorkspaceRoleGuard 의 ROLE_RANK enum 계층 게이트(OWNER/ADMIN 만 통과·isAdministrator
+ * 비트는 미사용)로 컨트롤러가 검사한다(072 S-G 리뷰: stale 주석 정정). AuditLog 스키마는
+ * 변경하지 않는다(★결정 A · details Json 유지).
  * cursor 페이지네이션 + action/actor 필터만 정의한다.
  */
 
@@ -58,6 +59,18 @@ export const AuditLogEntrySchema = z.object({
       username: z.string(),
     })
     .nullable(),
+  // 072 백로그 S-G (FR-RM12): 감사 로그 5열(시각·실행자·액션·대상·사유)용. target 은
+  // targetId 가 사용자일 때만 username 을 해석(메시지 등 비-사용자 대상은 null → FE 가
+  // targetId 폴백). reason 은 details.reason(모더레이션 사유)을 전용 열로 평탄화한다.
+  // 둘 다 forward-compat optional(구 클라/캐시 안전).
+  target: z
+    .object({
+      id: z.string().uuid(),
+      username: z.string(),
+    })
+    .nullable()
+    .optional(),
+  reason: z.string().nullable().optional(),
 });
 export type AuditLogEntry = z.infer<typeof AuditLogEntrySchema>;
 

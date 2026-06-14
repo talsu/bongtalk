@@ -3,6 +3,7 @@ import type {
   AutoModAction,
   AutoModMatch,
   AutoModRule,
+  AutoModTrigger,
   CreateAutoModRuleRequest,
 } from '@qufox/shared-types';
 import {
@@ -11,6 +12,12 @@ import {
   AUTOMOD_MATCH_LABELS,
   AUTOMOD_RULE_NAME_MAX,
   AUTOMOD_TIMEOUT_MIN_SECONDS,
+  // 072 백로그 S-G: spam 트리거 폼 분기용 라벨/범위.
+  AUTOMOD_TRIGGER_LABELS,
+  AUTOMOD_SPAM_THRESHOLD_MIN,
+  AUTOMOD_SPAM_THRESHOLD_MAX,
+  AUTOMOD_SPAM_WINDOW_MIN_SECONDS,
+  AUTOMOD_SPAM_WINDOW_MAX_SECONDS,
 } from '@qufox/shared-types';
 import { Dialog, Button } from '../../../design-system/primitives';
 import { useNotifications } from '../../../stores/notification-store';
@@ -98,7 +105,14 @@ export function AutoModPanel({
                   )}
                 </div>
                 <p className="truncate text-[length:var(--fs-12)] text-text-muted">
-                  {AUTOMOD_MATCH_LABELS[rule.matchMode]} · {rule.keywords.length}개 키워드
+                  {/* 072 백로그 S-G: 트리거별 요약 — KEYWORD 는 매칭 모드·키워드 수,
+                      spam 은 임계값·윈도를 보여준다. */}
+                  {AUTOMOD_TRIGGER_LABELS[rule.triggerType]}
+                  {rule.triggerType === 'KEYWORD'
+                    ? ` · ${AUTOMOD_MATCH_LABELS[rule.matchMode]} · ${rule.keywords.length}개 키워드`
+                    : rule.triggerType === 'MENTION_SPAM'
+                      ? ` · ${rule.mentionThreshold ?? '?'}회 멘션 / ${rule.windowSeconds ?? '?'}초`
+                      : ` · ${rule.repeatThreshold ?? '?'}회 반복 / ${rule.windowSeconds ?? '?'}초`}
                 </p>
               </div>
               {canManage && (
@@ -162,15 +176,31 @@ function RuleFormDialog({
   const update = useUpdateAutoModRule(workspaceId);
   const notify = useNotifications((s) => s.push);
 
+  // 072 백로그 S-G: 트리거 타입 분기. 생성 시 선택 가능, 수정 시 고정(서버가 triggerType
+  // 변경 미지원). spam 2종은 임계값 + 윈도(초), KEYWORD 는 키워드 칩 + 매칭 모드.
+  const [triggerType, setTriggerType] = useState<AutoModTrigger>(rule?.triggerType ?? 'KEYWORD');
   const [name, setName] = useState(rule?.name ?? '');
   const [keywords, setKeywords] = useState<string[]>(rule?.keywords ?? []);
   const [draft, setDraft] = useState('');
   const [matchMode, setMatchMode] = useState<AutoModMatch>(rule?.matchMode ?? 'SUBSTRING');
   const [action, setAction] = useState<AutoModAction>(rule?.action ?? 'BLOCK');
   const [timeoutSeconds, setTimeoutSeconds] = useState<number>(rule?.timeoutSeconds ?? 300);
+  // spam 파라미터. KEYWORD 룰 편집 시엔 null → 기본값으로 초기화(전환 불가라 미사용).
+  const [mentionThreshold, setMentionThreshold] = useState<number>(rule?.mentionThreshold ?? 5);
+  const [repeatThreshold, setRepeatThreshold] = useState<number>(rule?.repeatThreshold ?? 5);
+  const [windowSeconds, setWindowSeconds] = useState<number>(rule?.windowSeconds ?? 30);
+
+  const isKeyword = triggerType === 'KEYWORD';
+  const isMentionSpam = triggerType === 'MENTION_SPAM';
+  const isSpam = !isKeyword;
+  const spamThreshold = isMentionSpam ? mentionThreshold : repeatThreshold;
+  const setSpamThreshold = isMentionSpam ? setMentionThreshold : setRepeatThreshold;
 
   const addKeyword = (): void => {
-    const t = draft.trim().toLowerCase();
+    // 072 S-G 리뷰(MEDIUM): REGEX 패턴은 대소문자가 의미를 가지므로 소문자화하지 않는다
+    // (서버 normalizeRegexPatterns 가 원문 보존 — 리터럴만 소문자화). 종전 무조건 소문자화는
+    // `[A-Z]{4,}` 같은 대소문자 의존 정규식을 침묵 변형했다.
+    const t = matchMode === 'REGEX' ? draft.trim() : draft.trim().toLowerCase();
     if (t.length === 0) return;
     if (keywords.includes(t)) {
       setDraft('');
@@ -187,23 +217,36 @@ function RuleFormDialog({
     setDraft('');
   };
 
-  const canSubmit =
-    name.trim().length > 0 && name.trim().length <= AUTOMOD_RULE_NAME_MAX && keywords.length > 0;
+  const nameValid = name.trim().length > 0 && name.trim().length <= AUTOMOD_RULE_NAME_MAX;
+  // 트리거별 필수 입력: KEYWORD=키워드 1개+, spam=임계값/윈도가 허용 범위.
+  const spamValid =
+    // 072 S-G 리뷰(LOW): 서버 스키마가 .int() 이므로 소수 입력을 FE 에서 미리 막는다
+    // (range 만 검사하면 5.5 가 통과 후 서버 400 → 불명확 토스트).
+    Number.isInteger(spamThreshold) &&
+    Number.isInteger(windowSeconds) &&
+    spamThreshold >= AUTOMOD_SPAM_THRESHOLD_MIN &&
+    spamThreshold <= AUTOMOD_SPAM_THRESHOLD_MAX &&
+    windowSeconds >= AUTOMOD_SPAM_WINDOW_MIN_SECONDS &&
+    windowSeconds <= AUTOMOD_SPAM_WINDOW_MAX_SECONDS;
+  const canSubmit = nameValid && (isKeyword ? keywords.length > 0 : spamValid);
 
   const onSubmit = (): void => {
     if (!canSubmit) return;
+    const timeoutField = action === 'TIMEOUT' ? { timeoutSeconds } : {};
     if (rule) {
+      // 수정: 룰의 고정 triggerType 에 맞는 필드만 전송(서버가 무관 필드 무시).
+      const input = {
+        name: name.trim(),
+        action,
+        timeoutSeconds: action === 'TIMEOUT' ? timeoutSeconds : null,
+        ...(rule.triggerType === 'KEYWORD'
+          ? { keywords, matchMode }
+          : rule.triggerType === 'MENTION_SPAM'
+            ? { mentionThreshold, windowSeconds }
+            : { repeatThreshold, windowSeconds }),
+      };
       update.mutate(
-        {
-          ruleId: rule.id,
-          input: {
-            name: name.trim(),
-            keywords,
-            matchMode,
-            action,
-            timeoutSeconds: action === 'TIMEOUT' ? timeoutSeconds : null,
-          },
-        },
+        { ruleId: rule.id, input },
         {
           onSuccess: () => {
             notify({ variant: 'success', title: '규칙을 저장했습니다.' });
@@ -214,14 +257,36 @@ function RuleFormDialog({
       );
       return;
     }
-    const body: CreateAutoModRuleRequest = {
-      name: name.trim(),
-      triggerType: 'KEYWORD',
-      keywords,
-      matchMode,
-      action,
-      ...(action === 'TIMEOUT' ? { timeoutSeconds } : {}),
-    };
+    // 생성: discriminated union — triggerType 별 body 조립.
+    let body: CreateAutoModRuleRequest;
+    if (isKeyword) {
+      body = {
+        name: name.trim(),
+        triggerType: 'KEYWORD',
+        keywords,
+        matchMode,
+        action,
+        ...timeoutField,
+      };
+    } else if (isMentionSpam) {
+      body = {
+        name: name.trim(),
+        triggerType: 'MENTION_SPAM',
+        mentionThreshold,
+        windowSeconds,
+        action,
+        ...timeoutField,
+      };
+    } else {
+      body = {
+        name: name.trim(),
+        triggerType: 'REPEAT_SPAM',
+        repeatThreshold,
+        windowSeconds,
+        action,
+        ...timeoutField,
+      };
+    }
     create.mutate(body, {
       onSuccess: () => {
         notify({ variant: 'success', title: '규칙을 추가했습니다.' });
@@ -254,73 +319,133 @@ function RuleFormDialog({
           />
         </label>
 
-        <div className="flex flex-col gap-[var(--s-2)]">
-          <span className="text-[length:var(--fs-13)] text-text-muted">키워드</span>
-          {keywords.length > 0 && (
-            <ul
-              className="flex flex-wrap gap-[var(--s-2)]"
-              aria-label={`키워드 ${keywords.length}개`}
-            >
-              {keywords.map((kw) => (
-                <li
-                  key={kw}
-                  className="inline-flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] bg-bg-subtle px-[var(--s-3)] py-[var(--s-1)] text-[length:var(--fs-12)] text-foreground"
-                >
-                  <span>{kw}</span>
-                  <button
-                    type="button"
-                    className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
-                    aria-label={`키워드 "${kw}" 삭제`}
-                    onClick={() => setKeywords(keywords.filter((k) => k !== kw))}
-                  >
-                    ×
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <input
-            type="text"
-            className="qf-input w-full"
-            value={draft}
-            placeholder="키워드 입력 후 Enter"
-            data-testid="automod-keyword-draft"
-            aria-label="키워드 추가"
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
-                e.preventDefault();
-                addKeyword();
-              }
-            }}
-          />
-        </div>
-
+        {/* 072 백로그 S-G: 트리거 타입. 생성 시 선택, 수정 시 고정(서버 미지원). */}
         <label className="flex flex-col gap-[var(--s-2)]">
-          <span className="text-[length:var(--fs-13)] text-text-muted">매칭 모드</span>
+          <span className="text-[length:var(--fs-13)] text-text-muted">트리거</span>
           <select
+            aria-label="트리거 타입"
             className="qf-input w-full"
-            value={matchMode}
-            onChange={(e) => setMatchMode(e.target.value as AutoModMatch)}
-            data-testid="automod-match-mode"
-            aria-label="매칭 모드"
+            value={triggerType}
+            disabled={!!rule}
+            onChange={(e) => setTriggerType(e.target.value as AutoModTrigger)}
+            data-testid="automod-trigger-type"
           >
-            {(Object.keys(AUTOMOD_MATCH_LABELS) as AutoModMatch[]).map((m) => (
-              <option key={m} value={m}>
-                {AUTOMOD_MATCH_LABELS[m]}
+            {(Object.keys(AUTOMOD_TRIGGER_LABELS) as AutoModTrigger[]).map((t) => (
+              <option key={t} value={t}>
+                {AUTOMOD_TRIGGER_LABELS[t]}
               </option>
             ))}
           </select>
         </label>
 
+        {isKeyword && (
+          <>
+            <div className="flex flex-col gap-[var(--s-2)]">
+              <span className="text-[length:var(--fs-13)] text-text-muted">키워드</span>
+              {keywords.length > 0 && (
+                <ul
+                  className="flex flex-wrap gap-[var(--s-2)]"
+                  aria-label={`키워드 ${keywords.length}개`}
+                >
+                  {keywords.map((kw) => (
+                    <li
+                      key={kw}
+                      className="inline-flex items-center gap-[var(--s-2)] rounded-[var(--r-md)] bg-bg-subtle px-[var(--s-3)] py-[var(--s-1)] text-[length:var(--fs-12)] text-foreground"
+                    >
+                      <span>{kw}</span>
+                      <button
+                        type="button"
+                        className="qf-btn qf-btn--ghost qf-btn--icon qf-btn--sm"
+                        aria-label={`키워드 "${kw}" 삭제`}
+                        onClick={() => setKeywords(keywords.filter((k) => k !== kw))}
+                      >
+                        ×
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              <input
+                type="text"
+                className="qf-input w-full"
+                value={draft}
+                placeholder="키워드 입력 후 Enter"
+                data-testid="automod-keyword-draft"
+                aria-label="키워드 추가"
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ',') {
+                    e.preventDefault();
+                    addKeyword();
+                  }
+                }}
+              />
+            </div>
+
+            <label className="flex flex-col gap-[var(--s-2)]">
+              <span className="text-[length:var(--fs-13)] text-text-muted">매칭 모드</span>
+              <select
+                aria-label="매칭 모드"
+                className="qf-input w-full"
+                value={matchMode}
+                onChange={(e) => setMatchMode(e.target.value as AutoModMatch)}
+                data-testid="automod-match-mode"
+              >
+                {(Object.keys(AUTOMOD_MATCH_LABELS) as AutoModMatch[]).map((m) => (
+                  <option key={m} value={m}>
+                    {AUTOMOD_MATCH_LABELS[m]}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </>
+        )}
+
+        {isSpam && (
+          <>
+            <label className="flex flex-col gap-[var(--s-2)]">
+              <span className="text-[length:var(--fs-13)] text-text-muted">
+                {isMentionSpam ? '멘션 임계값(회)' : '반복 임계값(회)'}
+              </span>
+              <input
+                type="number"
+                // a11y(input-label-guard): aria-label 을 onChange(=> 포함) 보다 앞에 둬
+                // 가드의 attr 스캔(>에서 절단)이 인식하게 한다.
+                aria-label={isMentionSpam ? '멘션 임계값' : '반복 임계값'}
+                className="qf-input w-full"
+                step={1}
+                min={AUTOMOD_SPAM_THRESHOLD_MIN}
+                max={AUTOMOD_SPAM_THRESHOLD_MAX}
+                value={spamThreshold}
+                onChange={(e) => setSpamThreshold(Number(e.target.value))}
+                data-testid="automod-spam-threshold"
+              />
+            </label>
+            <label className="flex flex-col gap-[var(--s-2)]">
+              <span className="text-[length:var(--fs-13)] text-text-muted">윈도(초)</span>
+              <input
+                type="number"
+                aria-label="윈도 초"
+                className="qf-input w-full"
+                step={1}
+                min={AUTOMOD_SPAM_WINDOW_MIN_SECONDS}
+                max={AUTOMOD_SPAM_WINDOW_MAX_SECONDS}
+                value={windowSeconds}
+                onChange={(e) => setWindowSeconds(Number(e.target.value))}
+                data-testid="automod-spam-window"
+              />
+            </label>
+          </>
+        )}
+
         <label className="flex flex-col gap-[var(--s-2)]">
           <span className="text-[length:var(--fs-13)] text-text-muted">액션</span>
           <select
+            aria-label="액션"
             className="qf-input w-full"
             value={action}
             onChange={(e) => setAction(e.target.value as AutoModAction)}
             data-testid="automod-action"
-            aria-label="액션"
           >
             {(Object.keys(AUTOMOD_ACTION_LABELS) as AutoModAction[]).map((a) => (
               <option key={a} value={a}>
@@ -335,12 +460,12 @@ function RuleFormDialog({
             <span className="text-[length:var(--fs-13)] text-text-muted">타임아웃(초)</span>
             <input
               type="number"
+              aria-label="타임아웃 초"
               className="qf-input w-full"
               min={AUTOMOD_TIMEOUT_MIN_SECONDS}
               value={timeoutSeconds}
               onChange={(e) => setTimeoutSeconds(Number(e.target.value))}
               data-testid="automod-timeout"
-              aria-label="타임아웃 초"
             />
           </label>
         )}

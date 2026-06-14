@@ -11,6 +11,18 @@ import { DomainError } from '../errors/domain-error';
 import { ErrorCode } from '../errors/error-code.enum';
 
 /**
+ * 072 백로그 S-G (FR-RM12): 감사 로그 details(Json) 에서 모더레이션 사유(reason)를
+ * 전용 열로 평탄화한다. details 가 객체이고 reason 이 비어있지 않은 문자열일 때만 반환.
+ */
+export function extractAuditReason(details: unknown): string | null {
+  if (details && typeof details === 'object' && !Array.isArray(details)) {
+    const r = (details as Record<string, unknown>).reason;
+    if (typeof r === 'string' && r.trim().length > 0) return r;
+  }
+  return null;
+}
+
+/**
  * S62 (D12 / FR-RM17): 모더레이션/관리 감사 로그 서비스(append-only).
  *
  * INSERT 전용 — 갱신/삭제 메서드를 제공하지 않는다(감사 무결성). S63 의 kick/ban/
@@ -94,16 +106,20 @@ export class AuditService {
     });
     const hasMore = rows.length > take;
     const page = hasMore ? rows.slice(0, take) : rows;
-    // 액터 표시 정보 batch 조회(N+1 회피). 사용자 삭제 행은 null 폴백.
-    const actorIds = Array.from(new Set(page.map((r) => r.actorId)));
-    const actors =
-      actorIds.length === 0
+    // 072 백로그 S-G (FR-RM12): 실행자 + 대상(사용자) 표시 정보를 한 번에 batch 조회한다
+    // (N+1 회피). actorId 는 항상 사용자, targetId 는 사용자일 수도/아닐 수도(메시지·역할
+    // 등) 있어 User 조회에 매칭되는 것만 target 으로 해석하고 나머지는 null(FE targetId 폴백).
+    const actorIds = page.map((r) => r.actorId);
+    const targetIds = page.map((r) => r.targetId).filter((id): id is string => !!id);
+    const userIds = Array.from(new Set([...actorIds, ...targetIds]));
+    const users =
+      userIds.length === 0
         ? []
         : await this.prisma.user.findMany({
-            where: { id: { in: actorIds } },
+            where: { id: { in: userIds } },
             select: { id: true, username: true },
           });
-    const actorMap = new Map(actors.map((u) => [u.id, u]));
+    const userMap = new Map(users.map((u) => [u.id, u]));
     const entries: AuditLogEntry[] = page.map((r) => ({
       id: r.id,
       workspaceId: r.workspaceId,
@@ -113,7 +129,11 @@ export class AuditService {
       channelId: r.channelId ?? null,
       details: (r.details as AuditLogEntry['details']) ?? null,
       createdAt: r.createdAt.toISOString(),
-      actor: actorMap.get(r.actorId) ?? null,
+      actor: userMap.get(r.actorId) ?? null,
+      // 대상이 사용자면 username 해석, 아니면 null(메시지/역할 등 — FE 가 targetId 표시).
+      target: (r.targetId && userMap.get(r.targetId)) || null,
+      // details.reason(모더레이션 사유)을 전용 열로 평탄화. 문자열일 때만.
+      reason: extractAuditReason(r.details),
     }));
     const last = page[page.length - 1];
     const nextCursor = hasMore && last ? encodeAuditCursor(last.createdAt, last.id) : null;

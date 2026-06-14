@@ -51,7 +51,8 @@ function rule(over: Partial<AutoModRule>): AutoModRule {
     id: over.id ?? 'rule1',
     workspaceId: 'ws',
     name: over.name ?? 'block bad words',
-    triggerType: 'KEYWORD',
+    // 072 백로그 S-G: over.triggerType 을 honor(spam 룰 편집 테스트). 기본 KEYWORD.
+    triggerType: over.triggerType ?? 'KEYWORD',
     keywords: over.keywords ?? ['spam'],
     matchMode: over.matchMode ?? 'SUBSTRING',
     action: over.action ?? 'BLOCK',
@@ -135,5 +136,54 @@ describe('AutoModPanel', () => {
       { ruleId: 'r3', input: { enabled: false } },
       expect.anything(),
     );
+  });
+
+  // 072 백로그 S-G: 트리거 분기 — MENTION_SPAM 선택 시 키워드 대신 임계값/윈도 노출 +
+  // discriminated-union body 조립.
+  it('MENTION_SPAM 선택 시 키워드 필드 대신 임계값/윈도를 노출하고 spam body 를 제출한다', () => {
+    render(<AutoModPanel workspaceId="ws" canManage />);
+    fireEvent.click(screen.getByTestId('automod-create'));
+    expect(screen.getByTestId('automod-keyword-draft')).toBeTruthy();
+    expect(screen.queryByTestId('automod-spam-threshold')).toBeNull();
+
+    fireEvent.change(screen.getByTestId('automod-trigger-type'), {
+      target: { value: 'MENTION_SPAM' },
+    });
+    expect(screen.queryByTestId('automod-keyword-draft')).toBeNull();
+    expect(screen.getByTestId('automod-spam-threshold')).toBeTruthy();
+    expect(screen.getByTestId('automod-spam-window')).toBeTruthy();
+
+    fireEvent.change(screen.getByTestId('automod-name'), { target: { value: '멘션 폭주' } });
+    fireEvent.change(screen.getByTestId('automod-spam-threshold'), { target: { value: '10' } });
+    fireEvent.change(screen.getByTestId('automod-spam-window'), { target: { value: '60' } });
+    fireEvent.click(screen.getByTestId('automod-submit'));
+
+    expect(createMut.mutate).toHaveBeenCalledTimes(1);
+    const body = createMut.mutate.mock.calls[0][0];
+    expect(body).toMatchObject({
+      triggerType: 'MENTION_SPAM',
+      name: '멘션 폭주',
+      mentionThreshold: 10,
+      windowSeconds: 60,
+    });
+    expect('keywords' in body).toBe(false);
+  });
+
+  it('수정 모드에서는 트리거 타입 select 가 비활성화된다(서버 미지원)', () => {
+    rulesData = [
+      rule({
+        id: 'rs',
+        triggerType: 'REPEAT_SPAM',
+        repeatThreshold: 5,
+        windowSeconds: 30,
+        keywords: [],
+      }),
+    ];
+    render(<AutoModPanel workspaceId="ws" canManage />);
+    fireEvent.click(screen.getByTestId('automod-edit-rs'));
+    const select = screen.getByTestId('automod-trigger-type') as HTMLSelectElement;
+    expect(select.disabled).toBe(true);
+    expect(screen.getByTestId('automod-spam-threshold')).toBeTruthy();
+    expect(screen.getByTestId('automod-spam-window')).toBeTruthy();
   });
 });
