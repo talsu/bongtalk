@@ -14,8 +14,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
 | S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
 | S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
-| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | 🔄 진행 | —        | —        |
-| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ⬜ 대기 | —        | —        |
+| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336 |
+| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | 🔄 진행 | —        | —        |
 | S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ⬜ 대기 | —        | —        |
 | S-I      | Unreads 미리보기 엔드포인트                                       | ⬜ 대기 | —        | —        |
 | S-J      | 채널 권한 override 편집기                                         | ⬜ 대기 | —        | —        |
@@ -209,4 +209,46 @@ raw → confirmed 3 (전부 **LOW**, BLOCKER/HIGH/MEDIUM 0).
 
 - standalone verify: **19/19 green** (첫 시도 + fix-forward 재확인 — webhook 8 / shared-types 35 /
   api 126 / web 232). 1회 ImageMosaicGrid(무관 첨부) kernel4.4 타이밍 flake → 재실행 통과.
+- 머지/배포: develop `a44e3ce8` (ls-remote 실측) → main `b1f55336` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · smoke OK) → /readyz `{db:ok,redis:ok,outbox:idle}`.
+
+---
+
+## S-G — AutoMod 폼 분기 + 감사 로그 5열 (FR-RM10b / FR-RM12 · N5-3)
+
+브랜치: `feat/bl-g-automod-audit`
+
+### 청크 표
+
+| #   | 청크                     | 파일                                                                                                                                                             |
+| --- | ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| G1  | AutoMod 폼 type 분기(FE) | `AutoModPanel.tsx` triggerType select(생성 선택·수정 고정) + KEYWORD/MENTION_SPAM/REPEAT_SPAM 조건부 필드 + discriminated-union body 조립 + 리스트 트리거별 요약 |
+| G2  | 감사 로그 5열 BE         | `audit.ts` AuditLogEntry.target/reason(optional) + `audit.service.ts` listAuditLogs actor/target username batch 해석 + extractAuditReason(details.reason 평탄화) |
+| G3  | 감사 로그 5열 FE         | `AuditLogPanel.tsx` 5열(시각·실행자·액션·대상·사유) — target username/축약id·reason 행                                                                           |
+| G4  | 테스트                   | `audit.spec`(target/reason 계약) + `extract-audit-reason.spec`(엣지) + `audit-service.spec`(해석/분기) + `AutoModPanel.spec`(spam 폼 분기)                       |
+
+### 설계 결정
+
+- AutoMod: shared-types/BE 는 이미 3 트리거(discriminated union) 완비 — FE 만 KEYWORD 전용이었음.
+  triggerType 은 생성 시 선택, 수정 시 고정(서버 미지원). spam 은 임계값+윈도, KEYWORD 는 키워드 칩+매칭모드.
+- 감사 로그: targetId 가 사용자면 username 해석(actor+target 단일 User batch 쿼리·N+1 회피),
+  아니면 null(FE targetId 폴백). reason 은 details.reason 평탄화. 마이그레이션 없음.
+
+### 적대 리뷰(wf_e48274bf-490 · 8 에이전트·3각도) fix-forward
+
+raw 5 → confirmed 5 (MEDIUM 2 + LOW 3).
+
+- **MEDIUM(수리)**: addKeyword 가 REGEX 패턴도 소문자화 → 대소문자 의존 정규식 침묵 변형.
+  `matchMode==='REGEX'` 면 trim 만(서버 normalizeRegexPatterns 보존과 정합).
+- **MEDIUM(수리)**: listAuditLogs target/actor/reason 해석 경로 단위 미커버 → audit-service.spec 에
+  실재 user·비-사용자 target·details.reason 케이스 추가(4경로 assert).
+- **LOW(수리)**: spam 임계값/윈도 정수 검증 부재(소수 통과→서버 400) → spamValid Number.isInteger + step={1}.
+- **LOW(수리)**: audit.ts 게이트 주석 isAdministrator 드리프트 → ROLE_RANK 게이트로 정정.
+- **LOW(수리)**: AutoModPanel spam 폼 분기 컴포넌트 미커버 → AutoModPanel.spec spam 케이스 2건.
+
+### 게이트
+
+- standalone verify: **19/19 green** (fix-forward 후 — webhook 8 / shared-types 35 / api 127 / web 232).
+  1회 input-label-guard(spam input aria-label 이 onChange `=>` 뒤라 가드 attr 스캔서 절단 + 신규
+  label 이 timeout/action 의 wrapping-label 1500자 균형 깨짐) → 폼 컨트롤 6개 aria-label 을 onChange 앞으로 이동해 수리.
 - 머지/배포: (채움)

@@ -97,22 +97,41 @@ function AuditRow({ entry }: { entry: AuditLogEntry }): JSX.Element {
   const label = AUDIT_ACTION_LABELS[entry.action] ?? entry.action;
   const when = formatAuditTime(entry.createdAt);
   const actorName = entry.actor?.username ?? '(알 수 없는 사용자)';
+  // 072 백로그 S-G (FR-RM12): 5열(시각·실행자·액션·대상·사유). 대상은 서버가 사용자면
+  // username 을 해석해 내려준다(target). 아니면 targetId 축약 폴백. 사유는 별도 행.
+  const targetName = entry.target?.username ?? null;
+  const targetDisplay = targetName ?? (entry.targetId ? entry.targetId.slice(0, 8) : null);
+  const reason = entry.reason ?? null;
   return (
     <li
       role="listitem"
       data-testid="audit-log-row"
-      className="flex items-center justify-between gap-[var(--s-3)] rounded-[var(--r-sm)] bg-bg-subtle px-[var(--s-3)] py-[var(--s-2)]"
+      className="flex items-start justify-between gap-[var(--s-3)] rounded-[var(--r-sm)] bg-bg-subtle px-[var(--s-3)] py-[var(--s-2)]"
     >
       <div className="min-w-0 flex flex-col gap-[var(--s-1)]">
         <span className="text-[length:var(--fs-13)] text-text-strong">{label}</span>
         <span className="text-[length:var(--fs-12)] text-text-muted truncate">
-          {actorName}
-          {/* S64 fix-forward (a11y M-02 · SC 1.3.1): DTO 에 target username 이 없어
-              축약 id(8자)는 시각만 의미한다. aria-label 로 "대상: <id>" 를 명시한다. */}
-          {entry.targetId ? (
-            <span aria-label={`대상: ${entry.targetId}`}> → {entry.targetId.slice(0, 8)}</span>
+          <span data-testid="audit-log-actor">{actorName}</span>
+          {targetDisplay ? (
+            <span
+              data-testid="audit-log-target"
+              // target username 이 없으면(비-사용자 대상) 축약 id 가 시각만 의미하므로
+              // aria-label 로 전체 식별자를 명시한다(S64 a11y M-02 패턴 유지).
+              aria-label={targetName ? `대상: ${targetName}` : `대상: ${entry.targetId}`}
+            >
+              {' → '}
+              {targetName ? `@${targetName}` : targetDisplay}
+            </span>
           ) : null}
         </span>
+        {reason ? (
+          <span
+            data-testid="audit-log-reason"
+            className="text-[length:var(--fs-12)] text-text-muted truncate"
+          >
+            사유: {reason}
+          </span>
+        ) : null}
       </div>
       <time
         dateTime={entry.createdAt}
