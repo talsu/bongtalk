@@ -53,6 +53,46 @@ export function useUnreadSummary(workspaceId: string | undefined) {
   });
 }
 
+// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 미읽 채널 + 채널별 최근 미읽 메시지
+// ≤5(작성자+본문, 차단 마스킹). 서버 GET /workspaces/:id/unreads.
+export interface UnreadPreviewMessage {
+  id: string;
+  authorId: string | null;
+  authorUsername: string | null;
+  preview: string | null;
+  masked: boolean;
+  createdAt: string;
+}
+export interface UnreadChannelPreview {
+  channelId: string;
+  unreadCount: number;
+  mentionCount: number;
+  lastMessageAt: string | null;
+  messages: UnreadPreviewMessage[];
+}
+export interface UnreadsPreviewPage {
+  items: UnreadChannelPreview[];
+  nextCursor: string | null;
+}
+
+/**
+ * 072 백로그 S-I: Unreads 미리보기 1페이지(첫 ~20채널·채널별 ≤5 메시지). UnreadsView 가
+ * 채널명·배지(useUnreadSummary)에 더해 최근 미읽 본문 미리보기를 보여주는 데 쓴다. 미리보기는
+ * 보강 정보이므로 첫 페이지만 로드한다(커서는 향후 더보기용 — 응답에 nextCursor 포함).
+ */
+export function useUnreadsPreview(workspaceId: string | undefined) {
+  return useQuery({
+    queryKey: workspaceId ? ['unreads-preview', workspaceId] : ['unreads-preview', 'idle'],
+    // 072 S-I 리뷰(LOW): 서버 preview 정렬을 UnreadsView(sortUnreadsView, 멘션 우선)와
+    // 일치시켰고 limit=50(MAX) 으로 요청해 표시 페이지(PAGE_SIZE 20 + load-more 누적)의
+    // 미리보기 커버리지를 넓힌다. 50채널 초과는 보강 정보 특성상 라인만 비운다(graceful).
+    queryFn: () => apiRequest<UnreadsPreviewPage>(`/workspaces/${workspaceId}/unreads?limit=50`),
+    enabled: !!workspaceId,
+    refetchOnWindowFocus: true,
+    staleTime: 30_000,
+  });
+}
+
 /**
  * S22 (FR-RS-02): cursor-based ACK. POST /workspaces/:id/channels/:chid/ack
  * with `{ lastReadMessageId, clientTimestamp }`. 서버는 monotonic upsert +
