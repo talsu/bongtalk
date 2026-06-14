@@ -15,8 +15,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
 | S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
 | S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336 |
-| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | 🔄 진행 | —        | —        |
-| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ⬜ 대기 | —        | —        |
+| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d |
+| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | 🔄 진행 | —        | —        |
 | S-I      | Unreads 미리보기 엔드포인트                                       | ⬜ 대기 | —        | —        |
 | S-J      | 채널 권한 override 편집기                                         | ⬜ 대기 | —        | —        |
 
@@ -251,4 +251,50 @@ raw 5 → confirmed 5 (MEDIUM 2 + LOW 3).
 - standalone verify: **19/19 green** (fix-forward 후 — webhook 8 / shared-types 35 / api 127 / web 232).
   1회 input-label-guard(spam input aria-label 이 onChange `=>` 뒤라 가드 attr 스캔서 절단 + 신규
   label 이 timeout/action 의 wrapping-label 1500자 균형 깨짐) → 폼 컨트롤 6개 aria-label 을 onChange 앞으로 이동해 수리.
+- 머지/배포: develop `34452a97` (ls-remote 실측) → main `0776926d` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · smoke OK) → /readyz `{db:ok,redis:ok,outbox:idle}`.
+
+---
+
+## S-H — 실시간 연결 failed 배너 + 세션 종료 통지 (N6-3 / FR-AUTH-55)
+
+브랜치: `feat/bl-h-connection-banner`
+
+### 청크 표
+
+| #   | 청크                      | 파일                                                                                                                                                                                                                                                                  |
+| --- | ------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| H1  | 연결 failed 종단 배너(FE) | `useRealtimeConnection.ts` RealtimeStatus +'failed'(socket.io `reconnect_failed` = reconnectionAttempts 10 소진 종단) + `computeConnectionBanner.ts` failed level(reloadable·우선순위 offline>failed>disconnected>replaying) + `ConnectionBanner.tsx` "새로고침" 액션 |
+| H2  | 세션 종료 통지(FE)        | `lib/sessionEndNotice.ts` mark/consume/clear(StrictMode 1-shot) + `lib/api.ts` forceLogout(reason)·401→markSessionEnded('expired') + `useRealtimeConnection` session:revoked→forceLogout('revoked') + `LoginPage.tsx` consume→배너                                    |
+| H3  | 테스트                    | `computeConnectionBanner.spec`(failed) + `ConnectionBanner.spec`(reload 버튼) + `sessionEndNotice.spec` + `LoginPage.spec`(notice)                                                                                                                                    |
+
+### 설계 결정 / 스코프
+
+- **연결 failed**: 순수 FE — 상태(useRealtimeConnection)는 이미 존재. socket.io Manager 의
+  `reconnect_failed`(자동 재연결 종단)를 'failed' 로 매핑해 일시 'disconnected'와 구분, 새로고침 안내.
+  복구는 reload 또는 로그인 세션 변경(user.id)뿐(Manager 자동 재시도 없음 — 종단).
+- **세션 통지**: 기존 이벤트만 사용 — 401 리프레시 실패='expired', 서버 session:revoked(계정
+  비활성화 등)='revoked'. 강제 로그아웃 직전 사유를 sessionStorage 에 적고 LoginPage 가 1회 안내.
+  신규 서버 이벤트 불요.
+- **★범위 한정(이월)**: 현재 'revoked' 통지원은 session:revoked(계정 비활성화)뿐이다. **FR-AUTH-56
+  "다른 기기 per-session 강제 로그아웃 푸시"**(세션 레지스트리 + 대상 세션에 WS push)는 신규 서버
+  기능이라 본 슬라이스 OUT — 별도 슬라이스 이월. 본 슬라이스는 이미 발생하는 강제 로그아웃을
+  사용자에게 *설명*하는 데 한정한다.
+
+### 적대 리뷰(wf_5c0c9cb6-3a4 · 13 에이전트·3각도) fix-forward
+
+raw 10 → confirmed 8 (MEDIUM 2 + LOW 6, 일부 중복).
+
+- **MEDIUM(수리)**: 자발적 계정 비활성화가 session:revoked(응답보다 먼저 도착)로 markSessionEnded
+  ('revoked')를 적어 "다른 기기/관리자" 배너 오발 + 성공 토스트와 모순 → `clearSessionEndedReason()`
+  추가, AdvancedSettingsPage 비활성화 성공 직후 호출.
+- **MEDIUM(수리)**: 연결 배너 saturated 배경(warn/danger-400)+text-strong 다크테마 AA 미달 →
+  bg-elevated + 테마-aware var(--text) + 레벨 하단 컬러 보더로 재색(AA 보장·offline 톤 무고지 변경도 해소).
+- **LOW(수리)**: useRealtimeConnection 'failed' 주석 자동복구 과장 → 종단 사실로 정정 ·
+  StrictMode 이중 consume(dev 배너 소실) → sessionEndNotice 모듈 1-shot 캐시 · ConnectionBanner
+  렌더 테스트 부재 → spec 신설 · 'revoked 한정'/FR-AUTH-56 이월을 본 문서에 사실화(이 절).
+
+### 게이트
+
+- standalone verify: **19/19 green** (첫 시도 — webhook 8 / shared-types 35 / api 127 / web 233).
 - 머지/배포: (채움)

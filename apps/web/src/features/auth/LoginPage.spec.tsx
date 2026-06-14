@@ -25,6 +25,8 @@ vi.mock('../settings/useSecurity', () => ({
 vi.mock('../../design-system/brand/BrandMark', () => ({ BrandMark: () => <div /> }));
 
 import { LoginPage } from './LoginPage';
+// 072 백로그 S-H: 세션 통지 모듈 1-shot 캐시 리셋(테스트 격리).
+import { clearSessionEndedReason } from '../../lib/sessionEndNotice';
 
 beforeEach(() => {
   vi.setSystemTime(new Date('2025-01-01T00:00:00Z'));
@@ -133,5 +135,36 @@ describe('LoginPage — ACCOUNT_DEACTIVATED 복구 CTA (FR-PS-16)', () => {
     await submitLogin('me@qufox.dev', 'Quanta-Beetle-Nebula-42!');
     const btn = await screen.findByTestId('login-reactivate');
     await waitFor(() => expect(document.activeElement).toBe(btn));
+  });
+});
+
+// 072 백로그 S-H (N6-3): 비자발적 세션 종료 안내 배너.
+describe('LoginPage — 세션 종료 안내 배너 (S-H / FR-AUTH-55)', () => {
+  // clearSessionEndedReason 로 모듈 1-shot 캐시 + storage 를 모두 리셋(본 파일 앞선 테스트의
+  // LoginPage 마운트가 consume 해 캐시를 점유하므로 sessionStorage.clear 만으론 부족).
+  beforeEach(() => clearSessionEndedReason());
+  afterEach(() => clearSessionEndedReason());
+
+  it('만료(expired) 사유가 있으면 안내 배너를 1회 띄우고 sessionStorage 를 비운다', () => {
+    window.sessionStorage.setItem('qufox:sessionEnded', 'expired');
+    render(<LoginPage />);
+    const notice = screen.getByTestId('login-session-notice');
+    expect(notice.getAttribute('data-reason')).toBe('expired');
+    expect(notice.textContent).toContain('만료');
+    // consume 후 비워졌다(1회성).
+    expect(window.sessionStorage.getItem('qufox:sessionEnded')).toBeNull();
+  });
+
+  it('무효화(revoked) 사유면 다른 기기/관리자 안내 문구를 띄운다', () => {
+    window.sessionStorage.setItem('qufox:sessionEnded', 'revoked');
+    render(<LoginPage />);
+    const notice = screen.getByTestId('login-session-notice');
+    expect(notice.getAttribute('data-reason')).toBe('revoked');
+    expect(notice.textContent).toContain('다른 기기');
+  });
+
+  it('사유가 없으면 배너를 렌더하지 않는다', () => {
+    render(<LoginPage />);
+    expect(screen.queryByTestId('login-session-notice')).toBeNull();
   });
 });
