@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
+  deleteChannelOverride,
   listChannelOverrides,
   upsertChannelMemberOverride,
   upsertChannelRoleOverride,
@@ -45,5 +46,12 @@ export function useUpsertChannelOverride(wsId: string, channelId: string) {
     onSuccess: invalidate,
   });
 
-  return { roleMut, memberMut };
+  // 072 백로그 S-J (FR-RM14): override(USER/ROLE) 해제. 성공 시 동일 invalidate 로
+  // 목록 + 메시지 리스트(viewerPermissions) 재정합.
+  const deleteMut = useMutation({
+    mutationFn: (overrideId: string) => deleteChannelOverride(wsId, channelId, overrideId),
+    onSuccess: invalidate,
+  });
+
+  return { roleMut, memberMut, deleteMut };
 }

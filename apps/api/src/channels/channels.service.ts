@@ -841,6 +841,111 @@ export class ChannelsService {
   }
 
   /**
+   * 072 백로그 S-J (FR-RM14): 관리자 override 해제. override 행을 id 로 찾되 **반드시
+   * 이 채널 소속**으로 스코프해(cross-channel id 주입 방지) 삭제한다. USER override 를
+   * 삭제하면 공개 채널의 opt-in 마커가 사라져(해당 멤버가 사이드바에서 빠지고) 권한 deny
+   * 제한이 풀리며, 비공개 채널이면 접근 자체가 회수된다. ROLE override 삭제는 그 역할의
+   * 채널 권한이 워크스페이스 역할 권한으로 다시 상속된다.
+   *
+   * upsert 경로와 동일하게 `channel.permission.changed` 아웃박스 이벤트(removed:true)를
+   * 같은 트랜잭션에서 기록하고, 커밋 후 권한 캐시를 무효화한다(≤300ms). 영향 멤버의 채널
+   * 구독은 onChannelEvent 가 refreshChannelIdsForWorkspace 로 재조정한다(권한 잃은 소켓
+   * 룸 leave — S105 패턴). 액터/대상/해제 직전 마스크를 감사 기록한다.
+   */
+  async removeChannelOverride(
+    workspaceId: string,
+    channelId: string,
+    overrideId: string,
+    actorId?: string,
+  ): Promise<{ id: string }> {
+    // Channel must live in this workspace (cross-workspace 차단). 보관 채널의
+    // override 해제는 허용(컨트롤러가 @AllowArchivedChannel) — deletedAt 만 배제.
+    const channel = await this.prisma.channel.findFirst({
+      where: { id: channelId, workspaceId, deletedAt: null },
+      select: { id: true },
+    });
+    if (!channel) {
+      throw new DomainError(ErrorCode.CHANNEL_NOT_FOUND, 'channel not found in workspace');
+    }
+    // override 행을 id + channelId 로 스코프(다른 채널/워크스페이스의 override id 를
+    // 받아 삭제하는 IDOR 차단). 미존재 시 404(이미 해제됐거나 잘못된 id).
+    const existing = await this.prisma.channelPermissionOverride.findFirst({
+      where: { id: overrideId, channelId },
+      select: {
+        id: true,
+        principalType: true,
+        principalId: true,
+        allowMask: true,
+        denyMask: true,
+      },
+    });
+    if (!existing) {
+      throw new DomainError(
+        ErrorCode.CHANNEL_OVERRIDE_NOT_FOUND,
+        'permission override not found in channel',
+      );
+    }
+    await this.prisma.$transaction(async (tx) => {
+      // S-J fix-forward (review MEDIUM = 동시 삭제 race): delete 단건 대신 deleteMany 로
+      // 삭제한다. 두 요청이 같은 override 를 동시에 지우면 두 번째 tx.delete 는 Prisma
+      // P2025 를 던져(DomainExceptionFilter 가 안 잡음 → 500) 비멱등·감사/아웃박스
+      // 불일치를 만든다. deleteMany 는 행이 이미 사라졌으면 count=0 을 돌려주므로,
+      // count===0 이면 DomainError 를 던져 tx 를 롤백하고 graceful 404 로 응답한다
+      // (outbox/audit 미기록 — 첫 요청만 이벤트를 남겨 일관). where 는 id+channelId 스코프.
+      const del = await tx.channelPermissionOverride.deleteMany({
+        where: { id: existing.id, channelId },
+      });
+      if (del.count === 0) {
+        throw new DomainError(
+          ErrorCode.CHANNEL_OVERRIDE_NOT_FOUND,
+          'permission override not found in channel',
+        );
+      }
+      await this.outbox.record(tx, {
+        aggregateType: 'channel',
+        aggregateId: channelId,
+        eventType: CHANNEL_PERMISSION_CHANGED,
+        payload: {
+          workspaceId,
+          channelId,
+          principalType: existing.principalType,
+          ...(existing.principalType === 'USER'
+            ? { targetUserId: existing.principalId }
+            : { role: existing.principalId }),
+          // 해제 → 오버라이드가 사라지므로 effective 는 0(워크스페이스 역할 권한으로 상속).
+          allowMask: 0,
+          denyMask: 0,
+          effectiveMask: 0,
+          removed: true,
+        },
+      });
+      if (actorId) {
+        await this.audit.record(
+          {
+            workspaceId,
+            actorId,
+            action: AuditAction.CHANNEL_PERMISSION_OVERRIDE_REMOVE,
+            // USER override 면 대상 사용자, ROLE 면 channelId 만(역할 리터럴은 details).
+            targetId: existing.principalType === 'USER' ? existing.principalId : undefined,
+            channelId,
+            details: {
+              principalType: existing.principalType,
+              principalId: existing.principalId,
+              // 해제 직전 마스크(가역 복원/감사용). BigInt → string(ADR-11).
+              allowMask: existing.allowMask.toString(),
+              denyMask: existing.denyMask.toString(),
+            },
+          },
+          tx,
+        );
+      }
+    });
+    // S62 (FR-RM14): override 변경 직후 권한 캐시 무효화(≤300ms 반영).
+    await this.invalidateChannelPermsCache(channelId);
+    return { id: existing.id };
+  }
+
+  /**
    * S14 (FR-CH-07): 채널 가입. 멤버십 모델 결정(REPORT 참조):
    *   - 채널별 멤버십 테이블은 없다. 공개 채널은 workspace 멤버 전원이 자동
    *     가시·접근하므로(listByWorkspace), 공개 채널의 "가입"은 호출자 본인에 대한
