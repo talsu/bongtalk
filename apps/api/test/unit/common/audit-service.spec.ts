@@ -159,4 +159,57 @@ describe('S64 AuditService.listAuditLogs', () => {
       svc.listAuditLogs({ workspaceId: 'ws', cursor: 'garbage!!!' }),
     ).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
+
+  // 072 백로그 S-G (FR-RM12): actor/target username batch 해석 + reason 평탄화 검증.
+  it('actor/target username 을 해석하고, 비-사용자 target 은 null, details.reason 을 reason 으로 평탄화', async () => {
+    const actorId = '11111111-1111-4111-8111-111111111111';
+    const targetUserId = '22222222-2222-4222-8222-222222222222';
+    const targetMsgId = '33333333-3333-4333-8333-333333333333'; // 비-사용자(메시지 등)
+    const rows = [
+      {
+        id: 'aaaaaaaa-0000-4000-8000-000000000000',
+        workspaceId: 'ws',
+        actorId,
+        action: 'MEMBER_KICK',
+        targetId: targetUserId,
+        channelId: null,
+        details: { reason: '스팸', durationSeconds: 600 },
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+      },
+      {
+        id: 'bbbbbbbb-0000-4000-8000-000000000000',
+        workspaceId: 'ws',
+        actorId,
+        action: 'MESSAGE_DELETE',
+        targetId: targetMsgId,
+        channelId: null,
+        details: null,
+        createdAt: new Date('2025-01-01T00:00:00Z'),
+      },
+    ];
+    const findMany = vi.fn().mockResolvedValue(rows);
+    // user.findMany 는 actorId + targetUserId 만 매칭(메시지 id 는 미매칭).
+    const userFindMany = vi.fn().mockResolvedValue([
+      { id: actorId, username: 'mod' },
+      { id: targetUserId, username: 'victim' },
+    ]);
+    const prisma = {
+      auditLog: { findMany },
+      user: { findMany: userFindMany },
+    } as unknown as ConstructorParameters<typeof AuditService>[0];
+    const svc = new AuditService(prisma);
+    const res = await svc.listAuditLogs({ workspaceId: 'ws', limit: 50 });
+
+    // 행0: 사용자 대상 → actor/target 모두 해석 + reason 평탄화.
+    expect(res.entries[0].actor).toEqual({ id: actorId, username: 'mod' });
+    expect(res.entries[0].target).toEqual({ id: targetUserId, username: 'victim' });
+    expect(res.entries[0].reason).toBe('스팸');
+    // 행1: 비-사용자 대상 → target=null, reason 없음(details null).
+    expect(res.entries[1].actor).toEqual({ id: actorId, username: 'mod' });
+    expect(res.entries[1].target).toBeNull();
+    expect(res.entries[1].reason).toBeNull();
+    // batch 조회: actorId + targetIds 를 한 번에(중복 제거).
+    const where = userFindMany.mock.calls[0][0].where;
+    expect(where.id.in).toEqual(expect.arrayContaining([actorId, targetUserId, targetMsgId]));
+  });
 });
