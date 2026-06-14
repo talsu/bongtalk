@@ -5,6 +5,8 @@ import { Dialog } from '../../design-system/primitives';
 import { useAuth } from '../auth/AuthProvider';
 import { useNotifications } from '../../stores/notification-store';
 import { useDeactivateAccount, useTwoFactorStatus } from './useSecurity';
+// 072 백로그 S-H 리뷰(MEDIUM): 능동 비활성화 시 잘못된 'revoked' 통지 억제.
+import { clearSessionEndedReason } from '../../lib/sessionEndNotice';
 
 /**
  * S77c (D14 / FR-PS-16·19 + FR-PS-18): 설정 > 고급 탭 — 위험구역(계정 비활성화).
@@ -104,6 +106,10 @@ function DeactivateConfirmDialog({
         ...(totpEnabled ? { totpCode: code } : {}),
       });
       setStatus('계정을 비활성화했습니다.');
+      // 072 백로그 S-H 리뷰(MEDIUM): 서버 session:revoked 가 deactivate 응답보다 먼저 도착해
+      // markSessionEnded('revoked')를 적어, 본인이 한 비활성화인데 LoginPage 가 "다른 기기/관리자
+      // 에 의해 로그아웃" 배너를 잘못 띄운다(아래 성공 토스트와도 모순). 능동 액션이므로 통지를 지운다.
+      clearSessionEndedReason();
       // 서버가 이미 세션을 끊었으므로 클라 상태도 즉시 비운다(logout 은 best-effort — 토큰은 이미 무효).
       onOpenChange(false);
       await logout();

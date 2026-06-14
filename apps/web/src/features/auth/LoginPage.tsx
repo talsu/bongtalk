@@ -7,6 +7,8 @@ import { Button, Input, Icon } from '../../design-system/primitives';
 import { BrandMark } from '../../design-system/brand/BrandMark';
 import { useAuth } from './AuthProvider';
 import { useReactivateAccount } from '../settings/useSecurity';
+// 072 백로그 S-H (N6-3): 강제 로그아웃 사유 1회 소비(만료/무효화 안내 배너).
+import { consumeSessionEndedReason, type SessionEndReason } from '../../lib/sessionEndNotice';
 
 export function LoginPage(): JSX.Element {
   const { login } = useAuth();
@@ -17,6 +19,9 @@ export function LoginPage(): JSX.Element {
   // S77c (D14 / FR-PS-16): 비활성 계정 로그인 시 서버가 ACCOUNT_DEACTIVATED 로 응답한다. 그러면 입력한
   // 자격증명을 보관해 "계정 복구" CTA 로 reactivate 를 호출한다(자격증명은 이미 서버가 검증함).
   const [deactivated, setDeactivated] = useState<{ email: string; password: string } | null>(null);
+  // 072 백로그 S-H (N6-3): 직전 강제 로그아웃 사유를 1회 읽어(소비) 안내 배너로 띄운다.
+  // mount 시 1회만 — lazy initializer 로 sessionStorage 를 읽고 비운다(재렌더 시 재소비 방지).
+  const [sessionEnded] = useState<SessionEndReason | null>(() => consumeSessionEndedReason());
   // CF8 (a11y HIGH-03): ACCOUNT_DEACTIVATED 안내가 뜨면 "계정 복구" 버튼으로 포커스를 옮겨 SR/키보드
   // 사용자가 복구 어포던스를 즉시 만나게 한다(role="alert" 통지 직후 액션으로 이동).
   const reactivateRef = useRef<HTMLButtonElement | null>(null);
@@ -87,6 +92,24 @@ export function LoginPage(): JSX.Element {
             바로 대화를 이어가세요.
           </p>
         </div>
+        {/* 072 백로그 S-H (N6-3): 비자발적 세션 종료 안내(만료/다른 기기·관리자 무효화). */}
+        {sessionEnded && (
+          <div
+            data-testid="login-session-notice"
+            data-reason={sessionEnded}
+            role="status"
+            className="qf-notice qf-notice--info mb-[var(--s-5)]"
+          >
+            <Icon name="info" className="qf-notice__icon" aria-hidden />
+            <div className="qf-notice__body">
+              <p>
+                {sessionEnded === 'revoked'
+                  ? '다른 기기 또는 관리자에 의해 로그아웃되었습니다. 다시 로그인해 주세요.'
+                  : '세션이 만료되어 로그아웃되었습니다. 다시 로그인해 주세요.'}
+              </p>
+            </div>
+          </div>
+        )}
         <form className="mt-[var(--s-7)] flex flex-col gap-[var(--s-5)]" onSubmit={onSubmit}>
           <div className="qf-field">
             <label className="qf-field__label" htmlFor="login-email">
