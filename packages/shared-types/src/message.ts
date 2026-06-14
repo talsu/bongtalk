@@ -491,9 +491,22 @@ export const PageInfoSchema = z.object({
 });
 export type PageInfo = z.infer<typeof PageInfoSchema>;
 
+// 072 백로그 S-F (FR-RC08 / N0-F4): 메시지 목록 응답에 viewer 의 채널 스코프 권한을
+// 싣는다. 채널 단위 권한(역할 baseline + 채널 override fold)이라 메시지마다 반복할 필요가
+// 없어 페이지 응답에 1개만 둔다. FE 가 임베드 억제(suppress)·향후 모더레이션 액션의 노출을
+// 서버 진실로 분기한다(종전 viewerRole OWNER/ADMIN 클라 추정은 채널 override 를 무시했다).
+// canManageMessages = 집행 비트 DELETE_ANY_MESSAGE(= 카탈로그 MANAGE_MESSAGES) 보유 여부.
+export const ViewerChannelPermissionsSchema = z.object({
+  canManageMessages: z.boolean(),
+});
+export type ViewerChannelPermissions = z.infer<typeof ViewerChannelPermissionsSchema>;
+
 export const ListMessagesResponseSchema = z.object({
   items: z.array(MessageDtoSchema),
   pageInfo: PageInfoSchema,
+  // forward-compat: 롤아웃 중 캐시된 구 페이지/DM 응답엔 없을 수 있어 optional(FE 는 미설정 시
+  // canManageMessages=false 로 폴백 — 작성자 본인 억제는 authorId 비교로 별개 동작).
+  viewerPermissions: ViewerChannelPermissionsSchema.optional(),
 });
 export type ListMessagesResponse = z.infer<typeof ListMessagesResponseSchema>;
 

@@ -166,6 +166,18 @@ export class MessagesController {
     const rootAuthorByMessageId = new Map(
       [...broadcastExcerptMap].map(([id, v]) => [id, v.rootAuthorId] as const),
     );
+    // 072 백로그 S-F (FR-RC08 / N0-F4): viewer 의 채널 스코프 권한(canManageMessages =
+    // DELETE_ANY_MESSAGE)을 페이지당 1회 해석해 응답에 싣는다. FE 가 임베드 억제(suppress)
+    // 버튼 노출을 서버 진실로 분기(작성자 본인은 authorId 비교로 별개 허용). 워크스페이스
+    // 채널만 의미가 있어 DM(DIRECT)·채널 부재 시 false(suppressEmbed 게이트와 동일 비트).
+    const canManageMessages =
+      channel && !isDirect
+        ? await this.channelAccess.hasPermission(
+            { id: channel.id, workspaceId: channel.workspaceId, isPrivate: channel.isPrivate },
+            user.id,
+            Permission.DELETE_ANY_MESSAGE,
+          )
+        : false;
     return {
       items: this.messages.maskBlockedAuthors(dtos, blockedIds, rootAuthorByMessageId),
       pageInfo: {
@@ -173,6 +185,7 @@ export class MessagesController {
         nextCursor: result.nextCursor,
         prevCursor: result.prevCursor,
       },
+      viewerPermissions: { canManageMessages },
     };
   }
 

@@ -13,8 +13,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
 | S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
 | S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
-| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | 🔄 진행 | —        | —        |
-| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ⬜ 대기 | —        | —        |
+| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
+| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | 🔄 진행 | —        | —        |
 | S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ⬜ 대기 | —        | —        |
 | S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ⬜ 대기 | —        | —        |
 | S-I      | Unreads 미리보기 엔드포인트                                       | ⬜ 대기 | —        | —        |
@@ -164,4 +164,49 @@ raw → confirmed 3 (MEDIUM 1 + LOW 2).
 
 - standalone verify: **19/19 green** (첫 시도 + fix-forward 후 재확인 — webhook 8 / shared-types 35 /
   api 126 / web 231).
+- 머지/배포: develop `b8eed59e` (ls-remote 실측) → main `12c85878` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · api/web smoke OK) → /readyz
+  `{db:ok,redis:ok,outbox:idle}` · 두 컨테이너 healthy.
+
+---
+
+## S-F — suppress-embed fine-grained 권한 plumbing (FR-RC08 / N0-F4)
+
+브랜치: `feat/bl-f-suppress-embed-perm`
+
+### 갭(F4)
+
+서버 suppressEmbed 게이트(messages.controller.ts:756 = 작성자 OR `Permission.DELETE_ANY_MESSAGE`·채널
+override fold 포함)는 정확하나, FE 는 `canSuppressEmbed = !!workspaceId && !tmp && (authorId===me ||
+viewerRole OWNER/ADMIN)` 로 **클라 추정** — 채널 override 무시. MEMBER override 보유자 false neg /
+OWNER deny override false pos(클릭 시 403). FE 가 viewer 의 채널 권한을 알 방법이 없었음.
+
+### 설계 — 노출 위치 결정 = (B) ListMessagesResponse
+
+채널 스코프 권한을 **메시지 목록 응답**에 페이지당 1개 싣는다(설계 시 후보 A=단일채널GET 보다
+B 채택 — MessageList 가 useMessageHistory 를 이미 소비해 **신규 쿼리 0**, 후보 A 는 useChannel 훅
+신설 필요). 작성자 체크만 per-msg(FE authorId 보유).
+
+### 청크 표
+
+| #   | 청크         | 파일                                                                                                                                             |
+| --- | ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------ |
+| F1  | 응답 계약    | `message.ts` ViewerChannelPermissionsSchema + ListMessagesResponse.viewerPermissions(optional·롤아웃/DM 폴백)                                    |
+| F2  | BE 권한 해석 | `messages.controller.ts` list() 가 채널 viewer canManageMessages = hasPermission(DELETE_ANY_MESSAGE) 1회 해석(DM/채널부재 false) 후 응답 포함    |
+| F3  | FE 분기      | `suppressEmbedPerm.ts` deriveCanSuppressEmbed 순수 헬퍼 + `MessageList.tsx` history 페이지에서 canManageMessages 읽어 분기(viewerRole 추정 제거) |
+| F4  | 테스트       | `suppressEmbedPerm.spec.ts`(엣지) + `message.spec.ts`(계약 safeParse)                                                                            |
+
+### 적대 리뷰(wf_7d904340-7a7 · 13 에이전트·3각도) fix-forward
+
+raw → confirmed 3 (전부 **LOW**, BLOCKER/HIGH/MEDIUM 0).
+
+- **LOW(수리)**: 채널 권한 override 변경 후 메시지 리스트 stale → suppress 버튼 일시 오노출/오숨김
+  (서버 재검증으로 안전하나 UX). useUpsertChannelOverride invalidate 에 `qk.messages.list` 추가.
+- **LOW(수리)**: deriveCanSuppressEmbed spec precedence 엣지 미커버(tmp+권한자 / DM+tmp+작성자) → 케이스 추가.
+- **LOW(수리)**: viewerPermissions 계약 회귀망 부재 → message.spec safeParse 샘플 추가(int 단언은 게이트 외 이월).
+
+### 게이트
+
+- standalone verify: **19/19 green** (첫 시도 + fix-forward 재확인 — webhook 8 / shared-types 35 /
+  api 126 / web 232). 1회 ImageMosaicGrid(무관 첨부) kernel4.4 타이밍 flake → 재실행 통과.
 - 머지/배포: (채움)
