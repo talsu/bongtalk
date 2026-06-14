@@ -1,0 +1,415 @@
+/* qufox · design-system · documentation styles (docs.css)
+ * ────────────────────────────────────────────────────────────────────────
+ * 문서(PRD · 추후 앱 안내문서)를 "프로페셔널한 기술 문서"처럼 렌더하기 위한
+ * 문서 전용 스타일 레이어. tokens.css 위에서 동작하며 raw hex/px 대신 DS 토큰만 쓴다.
+ *
+ * 구성:
+ *   PART A — 재사용 문서 DS (.qf-doc / .qf-doc-*)
+ *            : 시맨틱 마크다운(h1~h4·p·ul·ol·pre·code·table·blockquote)을 자동 스타일.
+ *              추후 앱 안내문서는 본문을 <div class="qf-doc"> 로 감싸기만 하면 된다.
+ *            : 리치 컴포넌트(.qf-doc-callout / -card / -kpi / -badge / -entity / -adr …).
+ *   PART B — PRD 레거시 호환·교정 (.qf-doc 스코프 한정)
+ *            : PRD index.html 인라인 <style> 의 깨진 규칙(.callout flex 오용·
+ *              .entity 오버플로우·.grid--auto 과소폭)을 더 높은 명시도로 덮어 교정.
+ *              인라인 원본은 건드리지 않으므로(삭제 없음) 정상 페이지 회귀 없음.
+ *
+ * 적용: <link rel="stylesheet" href="/design-system/docs.css"> + 본문 컨테이너에 class="qf-doc".
+ */
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PART A — 재사용 문서 DS
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── 컨테이너 / 수직 리듬 ────────────────────────────────────────────────── */
+.qf-doc {
+  color: var(--text-secondary);
+  font-family: var(--font-sans);
+  line-height: var(--lh-normal);
+}
+/* 가독 라인길이(~70자) 컨테이너 — 앱 안내문서용. PRD 는 자체 .main 폭을 유지. */
+.qf-doc-prose {
+  max-width: 78ch;
+  margin: 0 auto;
+}
+
+/* ── 시맨틱 타이포그래피(마크다운 자동 스타일) ──────────────────────────────
+ * .qf-doc 하위의 순수 시맨틱 태그를 문서용으로 렌더. PRD 는 자체 .page-title 등
+ * 클래스를 쓰므로 충돌하지 않고, 향후 마크다운→HTML 안내문서가 그대로 예뻐진다. */
+.qf-doc h1 {
+  font: 600 var(--fs-32) / 1.1 var(--font-sans);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  margin: 0 0 var(--s-4);
+}
+.qf-doc h2 {
+  font: 600 var(--fs-24) var(--font-sans);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  margin: var(--s-10) 0 var(--s-4);
+  padding-bottom: var(--s-3);
+  border-bottom: 1px solid var(--divider);
+}
+.qf-doc h3 {
+  font: 600 var(--fs-18) var(--font-sans);
+  letter-spacing: var(--tracking-tight);
+  color: var(--text-strong);
+  margin: var(--s-8) 0 var(--s-3);
+}
+.qf-doc h4 {
+  font: 600 var(--fs-15) var(--font-sans);
+  color: var(--text-strong);
+  margin: var(--s-6) 0 var(--s-2);
+}
+.qf-doc p {
+  margin: 0 0 var(--s-4);
+  max-width: 820px; /* 가독 라인길이 — 초광폭에서 한 줄이 과도하게 길어지지 않게 */
+  color: var(--text-secondary);
+  line-height: var(--lh-loose);
+}
+.qf-doc a {
+  color: var(--link);
+  text-decoration: none;
+  border-bottom: 1px solid color-mix(in srgb, var(--link) 35%, transparent);
+}
+.qf-doc a:hover {
+  color: var(--link-hover);
+  border-bottom-color: var(--link-hover);
+}
+.qf-doc strong,
+.qf-doc b {
+  color: var(--text-strong);
+  font-weight: 600;
+}
+.qf-doc ul,
+.qf-doc ol {
+  margin: 0 0 var(--s-4);
+  padding-left: var(--s-7);
+  color: var(--text-secondary);
+}
+.qf-doc li {
+  margin: var(--s-1) 0;
+  line-height: var(--lh-loose);
+}
+.qf-doc li::marker {
+  color: var(--text-muted);
+}
+.qf-doc hr {
+  border: 0;
+  border-top: 1px solid var(--divider);
+  margin: var(--s-9) 0;
+}
+.qf-doc blockquote {
+  margin: var(--s-5) 0;
+  padding: var(--s-2) var(--s-5);
+  border-left: 3px solid var(--border-strong);
+  color: var(--text-muted);
+}
+.qf-doc img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--r-md);
+}
+.qf-doc small,
+.qf-doc .qf-doc-muted {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+.qf-doc-lede {
+  font-size: var(--fs-16);
+  color: var(--text-secondary);
+  line-height: var(--lh-snug);
+  margin: 0 0 var(--s-8);
+  max-width: 720px;
+}
+.qf-doc-eyebrow {
+  font: 600 var(--fs-11) var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--accent);
+  margin: 0 0 var(--s-2);
+}
+
+/* ── 인라인 코드 / 코드블록 ─────────────────────────────────────────────── */
+.qf-doc :not(pre) > code,
+.qf-doc-code-inline {
+  font: 500 0.9em var(--font-mono);
+  background: var(--bg-hover);
+  color: var(--text);
+  padding: 0.1em 0.4em;
+  border-radius: var(--r-xs);
+  word-break: break-word;
+}
+.qf-doc pre,
+.qf-doc-code {
+  margin: var(--s-4) 0;
+  padding: var(--s-4) var(--s-5);
+  background: var(--bg-floating);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+  font: 400 var(--fs-13) / 1.6 var(--font-mono);
+  color: var(--text);
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.qf-doc pre code {
+  background: none;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+
+/* ── 표 ─────────────────────────────────────────────────────────────────
+ * 좁은 폭에서 잘리지 않도록 스크롤 래퍼 권장: <div class="qf-doc-tablewrap"><table>…
+ * 래퍼 없이 .qf-doc table 만 써도 셀 word-break 로 안전. */
+.qf-doc-tablewrap {
+  overflow-x: auto;
+  margin: var(--s-5) 0;
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+}
+.qf-doc table,
+.qf-doc-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--fs-14);
+}
+.qf-doc-tablewrap > table,
+.qf-doc-tablewrap > .qf-doc-table {
+  margin: 0;
+}
+.qf-doc th,
+.qf-doc-table th {
+  text-align: left;
+  font: 600 var(--fs-11) var(--font-sans);
+  text-transform: uppercase;
+  letter-spacing: var(--tracking-caps);
+  color: var(--text-muted);
+  padding: var(--s-3);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-strong);
+  white-space: nowrap;
+}
+.qf-doc td,
+.qf-doc-table td {
+  padding: var(--s-3);
+  border-bottom: 1px solid var(--divider);
+  color: var(--text-secondary);
+  vertical-align: top;
+  word-break: break-word;
+}
+.qf-doc tbody tr:hover td,
+.qf-doc-table tbody tr:hover td {
+  background: var(--bg-hover);
+}
+.qf-doc-table td.id {
+  font: 500 var(--fs-12) var(--font-mono);
+  color: var(--text-strong);
+  white-space: nowrap;
+}
+
+/* ── 콜아웃 / admonition ─────────────────────────────────────────────────
+ * ★ display:block — 어떤 블록 콘텐츠(h3·pre·표·리스트)를 담아도 가로로 찌부러지지 않음.
+ * 아이콘+텍스트는 .qf-doc-callout__icon 래퍼(또는 선두 svg)로 표현. */
+.qf-doc-callout {
+  display: block;
+  margin: var(--s-5) 0;
+  padding: var(--s-4) var(--s-5);
+  background: var(--bg-panel);
+  border-left: 3px solid var(--accent);
+  border-radius: var(--r-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-14);
+  line-height: var(--lh-snug);
+}
+.qf-doc-callout > :first-child {
+  margin-top: 0;
+}
+.qf-doc-callout > :last-child {
+  margin-bottom: 0;
+}
+.qf-doc-callout__title {
+  display: block;
+  font: 600 var(--fs-14) var(--font-sans);
+  color: var(--text-strong);
+  margin-bottom: var(--s-2);
+}
+/* 선두 아이콘(svg)은 좌측에 띄워 본문이 옆으로 흐르게 한다(블록 안전). */
+.qf-doc-callout > svg:first-child,
+.qf-doc-callout__icon {
+  float: left;
+  width: var(--s-5);
+  height: var(--s-5);
+  margin: 2px var(--s-3) 0 0;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.qf-doc-callout--info { border-left-color: var(--info-400); }
+.qf-doc-callout--info > svg:first-child,
+.qf-doc-callout--info .qf-doc-callout__icon { color: var(--info-400); }
+.qf-doc-callout--warn { border-left-color: var(--warn-400); }
+.qf-doc-callout--warn > svg:first-child,
+.qf-doc-callout--warn .qf-doc-callout__icon { color: var(--warn-400); }
+.qf-doc-callout--danger { border-left-color: var(--danger-400); }
+.qf-doc-callout--danger > svg:first-child,
+.qf-doc-callout--danger .qf-doc-callout__icon { color: var(--danger-400); }
+.qf-doc-callout--success { border-left-color: var(--ok-400); }
+.qf-doc-callout--success > svg:first-child,
+.qf-doc-callout--success .qf-doc-callout__icon { color: var(--ok-400); }
+
+/* ── 카드 / 카드 그리드 ─────────────────────────────────────────────────── */
+.qf-doc-grid {
+  display: grid;
+  gap: var(--s-5);
+  margin: var(--s-5) 0;
+}
+.qf-doc-grid--2 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 280px), 1fr)); }
+.qf-doc-grid--3 { grid-template-columns: repeat(auto-fit, minmax(min(100%, 240px), 1fr)); }
+.qf-doc-grid--auto { grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); }
+.qf-doc-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--r-xl);
+  padding: var(--s-5);
+}
+.qf-doc-card__label {
+  font: 500 var(--fs-12) var(--font-mono);
+  color: var(--text-muted);
+  margin-bottom: var(--s-3);
+}
+
+/* ── KPI ────────────────────────────────────────────────────────────────── */
+.qf-doc-kpi {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-1);
+  padding: var(--s-4);
+  background: var(--bg-panel);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+}
+.qf-doc-kpi__num {
+  font: 600 var(--fs-24) var(--font-sans);
+  color: var(--text-strong);
+  letter-spacing: var(--tracking-tight);
+}
+.qf-doc-kpi__label {
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+/* ── 배지 / pill ────────────────────────────────────────────────────────── */
+.qf-doc-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-1);
+  padding: 1px var(--s-2);
+  border-radius: var(--r-pill);
+  font: 600 var(--fs-11) var(--font-sans);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+.qf-doc-badge--accent { background: var(--accent-subtle); color: var(--a-200); }
+.qf-doc-badge--info { background: color-mix(in srgb, var(--info-400) 16%, transparent); color: var(--info-400); }
+.qf-doc-badge--warn { background: color-mix(in srgb, var(--warn-400) 16%, transparent); color: var(--warn-400); }
+.qf-doc-badge--danger { background: color-mix(in srgb, var(--danger-400) 16%, transparent); color: var(--danger-400); }
+.qf-doc-badge--success { background: color-mix(in srgb, var(--ok-400) 16%, transparent); color: var(--ok-400); }
+[data-theme='light'] .qf-doc-badge--accent { color: var(--a-700); }
+
+/* ── 정의 블록(엔티티 / 스키마 카드) ────────────────────────────────────── */
+.qf-doc-entity {
+  background: var(--bg-panel);
+  border: 1px solid var(--divider);
+  border-radius: var(--r-md);
+  overflow: hidden;
+}
+.qf-doc-entity__name {
+  font: 600 var(--fs-13) var(--font-mono);
+  color: var(--accent);
+  padding: var(--s-3) var(--s-4);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--divider);
+}
+.qf-doc-entity__fields {
+  margin: 0;
+  padding: var(--s-3) var(--s-4);
+  font: 400 var(--fs-13) / 1.7 var(--font-mono);
+  color: var(--text-secondary);
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+.qf-doc-entity__notes {
+  padding: 0 var(--s-4) var(--s-3);
+  font-size: var(--fs-12);
+  color: var(--text-muted);
+}
+
+/* ── ADR / 결정 패널(블록 컨테이너 — 콜아웃의 큰 형제) ──────────────────── */
+.qf-doc-adr {
+  display: block;
+  margin: var(--s-6) 0;
+  padding: var(--s-5) var(--s-6);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 4px solid var(--accent);
+  border-radius: var(--r-md);
+}
+.qf-doc-adr > :first-child { margin-top: 0; }
+.qf-doc-adr > :last-child { margin-bottom: 0; }
+.qf-doc-adr__title {
+  font: 600 var(--fs-16) var(--font-sans);
+  color: var(--text-strong);
+  margin: 0 0 var(--s-2);
+}
+
+/* ══════════════════════════════════════════════════════════════════════════
+ * PART B — PRD 레거시 호환·교정 (.qf-doc 스코프 한정)
+ *   인라인 <style> 의 깨진 규칙을 더 높은 명시도(.qf-doc …)로 덮어 교정한다.
+ *   정상 동작하던 규칙은 건드리지 않아 양호한 페이지는 회귀하지 않는다.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* P0 — .callout 의 display:flex(row) 오용 교정.
+ *   기본은 block(어떤 블록 콘텐츠를 담아도 가로 찌부러짐 없음). 단, "아이콘+텍스트"
+ *   변형(선두에 svg.qf-icon 직계 또는 span>svg.qf-icon)만 flex-row 로 되살린다.
+ *   (선두 아이콘이 있는 콜아웃은 :has 로 flex 가 되므로 별도 float 처리 불필요.) */
+.qf-doc .callout {
+  display: block;
+}
+.qf-doc .callout:has(> svg.qf-icon:first-child),
+.qf-doc .callout:has(> span:first-child > svg.qf-icon) {
+  display: flex;
+  gap: var(--s-3);
+  align-items: flex-start;
+}
+/* 블록 콘텐츠 콜아웃의 첫 자식 상단 여백 제거(콜아웃 padding 과 이중 간격 방지). */
+.qf-doc .callout > :first-child {
+  margin-top: 0;
+}
+
+/* P1 — .grid--auto minmax(240px) 가 Prisma 스키마에 과소 → 320px + 좁은 화면 안전(min). */
+.qf-doc .grid--auto {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr));
+}
+
+/* P3 — .entity 필드 오버플로우: 긴 스키마 라인을 줄바꿈 난잡 대신 가로 스크롤. */
+.qf-doc .entity {
+  overflow: hidden; /* 모서리 라운드 유지 */
+}
+.qf-doc .entity__fields {
+  white-space: pre;
+  overflow-x: auto;
+  max-width: 100%;
+}
+
+/* P5/표 — .spec 셀의 긴 비분할 토큰이 표를 밀어 넘치지 않게 줄바꿈만 허용.
+ *   (정상 렌더되는 표라 display/레이아웃은 건드리지 않음 — 회귀 방지.) */
+.qf-doc .spec td {
+  word-break: break-word;
+}
+
+/* 코드블록 폭 안전(부모 flex/grid 안에서 넘침 방지). */
+.qf-doc .code {
+  max-width: 100%;
+  min-width: 0;
+}
