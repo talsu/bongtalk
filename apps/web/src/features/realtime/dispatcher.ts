@@ -312,6 +312,13 @@ export function installRealtimeDispatcher(
       // counts across every workspace — computing the delta in-client
       // would duplicate server logic.
       qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
+      // 072 백로그 S-I (FR-RS-10): Unreads 미리보기는 본문 스냅샷이라 in-place patch 가
+      // 어렵다 — 새 메시지 도착 시 무효화해 최근 미읽 미리보기를 갱신한다(배지는 아래에서 patch).
+      // 072 S-I 리뷰(LOW): preview/summary 는 roots-only 집계라 스레드 답글(parentMessageId 보유)은
+      // 미리보기를 바꾸지 않는다 → 루트 메시지일 때만 무효화(과도 refetch 방지).
+      if (env.message.parentMessageId == null) {
+        qc.invalidateQueries({ queryKey: ['unreads-preview', env.workspaceId] });
+      }
       qc.setQueryData<{ channels: UnreadChannelSummary[] }>(
         qk.channels.unreadSummary(env.workspaceId),
         (old) => {

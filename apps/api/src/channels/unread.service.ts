@@ -9,6 +9,51 @@ import { DomainError } from '../common/errors/domain-error';
 import { ErrorCode } from '../common/errors/error-code.enum';
 import { readBitVisibleSql, mentionMatchSql } from '../common/acl/read-visibility.sql';
 
+// 072 백로그 S-I: Unreads 미리보기 정렬/커서 헬퍼. 072 S-I 리뷰(LOW): FE UnreadsView 의
+// sortUnreadsView 와 동일 축으로 정렬해야 미리보기 모집단이 표시 페이지와 일치한다 →
+// (멘션 우선 DESC, lastMessageAt DESC NULLS LAST, channelId DESC) 전순서. NaN 회피 위해
+// null 을 명시 분기한다. cursor 에 hasMention 도 실어 페이지 경계를 정확히 한다.
+interface UnreadOrderKey {
+  hasMention: boolean;
+  lastMessageAt: string | null;
+  channelId: string;
+}
+function unreadOrderCmp(a: UnreadOrderKey, b: UnreadOrderKey): number {
+  // 1차: 멘션 채널을 위로(sortUnreadsView 정합).
+  if (a.hasMention !== b.hasMention) return a.hasMention ? -1 : 1;
+  const ta = a.lastMessageAt ? Date.parse(a.lastMessageAt) : null;
+  const tb = b.lastMessageAt ? Date.parse(b.lastMessageAt) : null;
+  if (ta !== tb) {
+    if (ta === null) return 1; // null(활동 없음)은 뒤로
+    if (tb === null) return -1;
+    return tb - ta; // 최근 활동 내림차순
+  }
+  // 동률: channelId 내림차순(전순서 보장).
+  return a.channelId < b.channelId ? 1 : a.channelId > b.channelId ? -1 : 0;
+}
+/** s 가 커서 항목보다 정렬상 *뒤*에 오는가(다음 페이지 대상). */
+function isAfterUnreadCursor(s: UnreadOrderKey, after: UnreadOrderKey): boolean {
+  return unreadOrderCmp(after, s) < 0;
+}
+function encodeUnreadsCursor(k: UnreadOrderKey): string {
+  return Buffer.from(JSON.stringify(k), 'utf8').toString('base64url');
+}
+function decodeUnreadsCursor(raw: string): UnreadOrderKey {
+  try {
+    const j = JSON.parse(Buffer.from(raw, 'base64url').toString('utf8')) as Partial<UnreadOrderKey>;
+    if (typeof j.channelId !== 'string') {
+      throw new Error('bad cursor');
+    }
+    return {
+      hasMention: j.hasMention === true,
+      lastMessageAt: typeof j.lastMessageAt === 'string' ? j.lastMessageAt : null,
+      channelId: j.channelId,
+    };
+  } catch {
+    throw new DomainError(ErrorCode.VALIDATION_FAILED, 'invalid unreads cursor');
+  }
+}
+
 export interface UnreadChannelSummary {
   channelId: string;
   unreadCount: number;
@@ -16,6 +61,35 @@ export interface UnreadChannelSummary {
   mentionCount: number;
   lastMessageAt: string | null;
 }
+
+// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 미읽 채널마다 최근 미읽 메시지 ≤5개
+// (작성자 + 본문 ≤140자, 차단 작성자는 마스킹) + 채널 cursor 페이지네이션.
+export interface UnreadPreviewMessage {
+  id: string;
+  authorId: string | null;
+  authorUsername: string | null;
+  /** ≤140자 평문 미리보기. 차단/빈 본문이면 null(FE placeholder). */
+  preview: string | null;
+  /** 차단한 사용자의 메시지면 true(본문/작성자 마스킹). */
+  masked: boolean;
+  createdAt: string;
+}
+export interface UnreadChannelPreview {
+  channelId: string;
+  unreadCount: number;
+  mentionCount: number;
+  lastMessageAt: string | null;
+  /** 최근 미읽 메시지 ≤5(newest-first). */
+  messages: UnreadPreviewMessage[];
+}
+export interface UnreadsPreviewPage {
+  items: UnreadChannelPreview[];
+  nextCursor: string | null;
+}
+
+const UNREADS_PREVIEW_PER_CHANNEL = 5;
+const UNREADS_PREVIEW_DEFAULT_LIMIT = 20;
+const UNREADS_PREVIEW_MAX_LIMIT = 50;
 
 export interface UnreadWorkspaceTotal {
   workspaceId: string;
@@ -236,6 +310,125 @@ export class UnreadService {
       mentionCount: Number(r.mention_count ?? 0),
       lastMessageAt: r.last_message_at ? r.last_message_at.toISOString() : null,
     }));
+  }
+
+  /**
+   * 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. summarize()(ACL 5단계 fold +
+   * archived 제외 + roots-only 미읽 집계, 검증된 단일 출처)를 재사용해 미읽(>0) 채널을
+   * 고르고, 그 페이지의 채널마다 최근 미읽 메시지 ≤5개를 본문 미리보기(≤140자)와 함께
+   * 붙인다. 차단(friendship BLOCKED) 작성자의 메시지는 마스킹한다(단방향 — 내가 차단한 상대).
+   *
+   * 정렬/커서: (lastMessageAt DESC NULLS LAST, channelId DESC) 전순서. opaque cursor 는
+   * base64url(JSON{lastMessageAt, channelId}). 채널 선택/정렬/커서는 JS 에서(summarize 가
+   * 워크스페이스 채널 전수를 ACL 통과로 반환하므로 SQL 중복 없이 일관). 미리보기 메시지만
+   * 페이지 채널 id 로 좁혀 단일 LATERAL 쿼리로 모은다(N+1 없음).
+   */
+  async previewUnreads(
+    workspaceId: string,
+    userId: string,
+    cursor?: string,
+    limit?: number,
+  ): Promise<UnreadsPreviewPage> {
+    const capped = Math.max(
+      1,
+      Math.min(limit ?? UNREADS_PREVIEW_DEFAULT_LIMIT, UNREADS_PREVIEW_MAX_LIMIT),
+    );
+    const summary = (await this.summarize(workspaceId, userId)).filter((s) => s.unreadCount > 0);
+    // (lastMessageAt DESC NULLS LAST, channelId DESC) 전순서 정렬.
+    summary.sort(unreadOrderCmp);
+    const after = cursor ? decodeUnreadsCursor(cursor) : null;
+    const filtered = after ? summary.filter((s) => isAfterUnreadCursor(s, after)) : summary;
+    const hasMore = filtered.length > capped;
+    const page = hasMore ? filtered.slice(0, capped) : filtered;
+    if (page.length === 0) return { items: [], nextCursor: null };
+
+    const channelIds = page.map((p) => p.channelId);
+    type PreviewRow = {
+      channel_id: string;
+      id: string;
+      author_id: string;
+      preview: string | null;
+      created_at: Date;
+    };
+    // 페이지 채널마다 최근 미읽 메시지 ≤5(newest-first). per-channel 읽음 커서 + roots-only +
+    // 삭제 제외. summarize 와 동일 (createdAt,id) 튜플 술어.
+    const rows = await this.prisma.$queryRaw<PreviewRow[]>(Prisma.sql`
+      SELECT ch.cid AS channel_id, p.id, p.author_id, p.preview, p.created_at
+        FROM unnest(${channelIds}::uuid[]) AS ch(cid)
+        LEFT JOIN "UserChannelReadState" rs
+          ON rs."userId" = ${userId}::uuid AND rs."channelId" = ch.cid
+        CROSS JOIN LATERAL (
+          SELECT m.id,
+                 m."authorId"               AS author_id,
+                 -- 072 S-I 리뷰(LOW): read-path(contentPlainV2 ?? contentPlain) 단일 출처 폴백 정합.
+                 LEFT(COALESCE(m."contentPlainV2", m."contentPlain"), 140) AS preview,
+                 m."createdAt"              AS created_at
+            FROM "Message" m
+           WHERE m."channelId" = ch.cid
+             AND m."deletedAt" IS NULL
+             AND (m."parentMessageId" IS NULL OR m."isBroadcast" = true)
+             AND (
+               rs."lastReadMessageCreatedAt" IS NULL
+               OR (m."createdAt", m.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
+             )
+           ORDER BY m."createdAt" DESC, m.id DESC
+           LIMIT ${UNREADS_PREVIEW_PER_CHANNEL}
+        ) p ON true
+       ORDER BY ch.cid, p.created_at DESC, p.id DESC
+    `);
+
+    // 작성자 username batch + 차단 마스킹(단방향: 내가 차단한 상대).
+    const authorIds = Array.from(new Set(rows.map((r) => r.author_id)));
+    const [users, blocked] = await Promise.all([
+      authorIds.length === 0
+        ? Promise.resolve([] as Array<{ id: string; username: string }>)
+        : this.prisma.user.findMany({
+            where: { id: { in: authorIds } },
+            select: { id: true, username: true },
+          }),
+      this.loadBlockedAuthorIds(userId),
+    ]);
+    const nameById = new Map(users.map((u) => [u.id, u.username]));
+    const byChannel = new Map<string, UnreadPreviewMessage[]>();
+    for (const r of rows) {
+      const isBlocked = blocked.has(r.author_id);
+      const list = byChannel.get(r.channel_id) ?? [];
+      list.push({
+        id: r.id,
+        authorId: isBlocked ? null : r.author_id,
+        authorUsername: isBlocked ? null : (nameById.get(r.author_id) ?? null),
+        preview: isBlocked ? null : r.preview && r.preview.length > 0 ? r.preview : null,
+        masked: isBlocked,
+        createdAt: r.created_at.toISOString(),
+      });
+      byChannel.set(r.channel_id, list);
+    }
+
+    const items: UnreadChannelPreview[] = page.map((p) => ({
+      channelId: p.channelId,
+      unreadCount: p.unreadCount,
+      mentionCount: p.mentionCount,
+      lastMessageAt: p.lastMessageAt,
+      messages: byChannel.get(p.channelId) ?? [],
+    }));
+    const last = page[page.length - 1];
+    const nextCursor = hasMore
+      ? encodeUnreadsCursor({
+          hasMention: last.hasMention,
+          lastMessageAt: last.lastMessageAt,
+          channelId: last.channelId,
+        })
+      : null;
+    return { items, nextCursor };
+  }
+
+  /** 072 백로그 S-I: 내가 차단한(friendship BLOCKED) 상대 id 집합(단방향 마스킹). */
+  private async loadBlockedAuthorIds(userId: string): Promise<Set<string>> {
+    const rows = await this.prisma.friendship.findMany({
+      where: { requesterId: userId, status: 'BLOCKED' },
+      select: { addresseeId: true },
+    });
+    return new Set(rows.map((r) => r.addresseeId));
   }
 
   /**

@@ -16,8 +16,8 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 | S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
 | S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336 |
 | S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d |
-| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | 🔄 진행 | —        | —        |
-| S-I      | Unreads 미리보기 엔드포인트                                       | ⬜ 대기 | —        | —        |
+| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ✅ 배포 | efa925bb | dc2e020f |
+| S-I      | Unreads 미리보기 엔드포인트                                       | 🔄 진행 | —        | —        |
 | S-J      | 채널 권한 override 편집기                                         | ⬜ 대기 | —        | —        |
 
 마이그레이션 없음(전부 기존 nullable 컬럼 재사용: iconUrl/joinMode/archivedAt/
@@ -296,5 +296,44 @@ raw 10 → confirmed 8 (MEDIUM 2 + LOW 6, 일부 중복).
 
 ### 게이트
 
-- standalone verify: **19/19 green** (첫 시도 — webhook 8 / shared-types 35 / api 127 / web 233).
+- standalone verify: **19/19 green** (fix-forward 후 — webhook 8 / shared-types 35 / api 127 / web 234·flake 0).
+- 머지/배포: develop `efa925bb` (ls-remote 실측) → main `dc2e020f` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (web recreate·FE-only·api 재사용 · health-wait 200 · smoke OK) → /readyz `{db:ok,redis:ok,outbox:idle}`.
+
+---
+
+## S-I — Unreads 미리보기 엔드포인트 (FR-RS-10 / N6-1)
+
+브랜치: `feat/bl-i-unreads-preview`
+
+### 청크 표
+
+| #   | 청크        | 파일                                                                                                                                                                                                                                                                               |
+| --- | ----------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| I1  | 미리보기 BE | `unread.service.ts` previewUnreads(summarize 재사용 ACL/채널선택 → 채널별 최근 미읽 ≤5 LATERAL preview·COALESCE(contentPlainV2,contentPlain) + 작성자 batch + friendship BLOCKED 차단 마스킹 + 멘션우선 cursor) + `unread.controller.ts` GET /workspaces/:id/unreads(cursor/limit) |
+| I2  | 미리보기 FE | `useUnread.ts` useUnreadsPreview(limit=50) + `UnreadsView.tsx` 미리보기 라인(작성자:내용 / 차단 마스킹 정본 + aria-label 합성) + `dispatcher.ts` message.created roots-only 무효화                                                                                                 |
+| I3  | 테스트      | `unreads-preview.spec.ts`(정렬·멘션우선·마스킹·그룹·커서)                                                                                                                                                                                                                          |
+
+### 설계 결정
+
+- summarize()(검증된 ACL 5단계 fold + archived 제외 + roots-only 미읽 집계)를 재사용해 미읽
+  채널을 고르고(SQL 중복 0), 그 페이지 채널마다 최근 미읽 ≤5 메시지를 단일 LATERAL 쿼리로 붙임
+  (N+1 없음). 차단(friendship BLOCKED·단방향)은 **서버에서** 마스킹(본문/작성자 null). 마이그레이션 없음.
+- 정렬: FE sortUnreadsView 와 동일 축(멘션 우선 → lastMessageAt DESC → channelId DESC)으로
+  맞춰 미리보기 모집단이 표시 페이지와 일치. opaque cursor(hasMention/lastMessageAt/channelId).
+
+### 적대 리뷰(wf_bc51b05a-b86 · 11 에이전트·3각도) fix-forward
+
+raw 8 → confirmed 7 (전부 **LOW**, BLOCKER/HIGH/MEDIUM 0 — 정렬 갭 MEDIUM→LOW 다운그레이드).
+
+- **LOW(수리)**: preview 가 contentPlain 만 읽음 → read-path 정합 COALESCE(contentPlainV2,contentPlain).
+- **LOW(수리)**: preview limit 20 + 정렬 불일치(멘션우선 view vs 최근순 preview)로 표시 행 미리보기
+  결손 → preview 정렬을 멘션우선으로 일치 + FE limit=50(50채널 초과는 graceful degradation·문서화).
+- **LOW(수리)**: 스레드 답글 수신 시 preview 과도 무효화 → roots-only(parentMessageId null) 가드.
+- **LOW(수리)**: 차단 마스킹 문구를 도메인 정본 '[차단된 사용자의 메시지]'로 일치.
+- **LOW(수리)**: 미리보기 라인 비연결 텍스트 → 채널 열기 버튼 aria-label 에 합성 + div aria-hidden.
+
+### 게이트
+
+- standalone verify: **19/19 green** (api 128·web 234 / unreads-preview 5 tests). 1회 TotpSetupWizard 무관 flake → 재실행 통과.
 - 머지/배포: (채움)

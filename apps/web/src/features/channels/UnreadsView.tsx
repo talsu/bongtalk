@@ -4,6 +4,7 @@ import type { Channel } from '@qufox/shared-types';
 import { useChannelList } from './useChannels';
 import {
   useUnreadSummary,
+  useUnreadsPreview,
   useMarkChannelRead,
   useMarkAllRead,
   useUndoMarkAllRead,
@@ -31,6 +32,9 @@ type Props = {
  */
 export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element | null {
   const { data: unread } = useUnreadSummary(workspaceId);
+  // 072 백로그 S-I (FR-RS-10 / N6-1): 채널별 최근 미읽 메시지 미리보기(작성자+본문). 배지는
+  // useUnreadSummary(라이브 patch), 미리보기 본문은 이 엔드포인트(30s/포커스 + message.created 무효화).
+  const { data: previewData } = useUnreadsPreview(workspaceId);
   const { data: channelData } = useChannelList(workspaceId);
   const markReadMut = useMarkChannelRead(workspaceId);
   const markAllMut = useMarkAllRead(workspaceId);
@@ -68,6 +72,35 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
     [unread, archivedSet],
   );
   const page = useMemo(() => paginateUnreads(sorted, cursor, PAGE_SIZE), [sorted, cursor]);
+
+  // 072 백로그 S-I: channelId → 최근 미읽 메시지 1건(미리보기 라인). messages 는 newest-first 라 [0].
+  const previewByChannel = useMemo(() => {
+    const m = new Map<
+      string,
+      { authorUsername: string | null; preview: string | null; masked: boolean }
+    >();
+    for (const c of previewData?.items ?? []) {
+      const top = c.messages[0];
+      if (top)
+        m.set(c.channelId, {
+          authorUsername: top.authorUsername,
+          preview: top.preview,
+          masked: top.masked,
+        });
+    }
+    return m;
+  }, [previewData]);
+
+  function previewLine(channelId: string): string | null {
+    const p = previewByChannel.get(channelId);
+    if (!p) return null;
+    // 072 S-I 리뷰(LOW): 차단 마스킹 문구를 메시지 도메인 정본(BLOCKED_MESSAGE_PLACEHOLDER
+    // = '[차단된 사용자의 메시지]')과 동일하게 맞춘다.
+    if (p.masked) return '[차단된 사용자의 메시지]';
+    const who = p.authorUsername ? `${p.authorUsername}: ` : '';
+    const body = p.preview ?? '(내용 없음)';
+    return `${who}${body}`;
+  }
 
   const onMarkAll = (): void => {
     markAllMut.mutate(undefined, {
@@ -108,43 +141,64 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
       <ul>
         {page.rows.map((row) => {
           const name = nameById.get(row.channelId) ?? row.channelId.slice(0, 6);
+          // 072 백로그 S-I: 최근 미읽 메시지 미리보기 라인(있으면 채널명 아래 1줄).
+          const pl = previewLine(row.channelId);
           return (
             <li
               key={row.channelId}
               data-testid={`unread-row-${name}`}
               data-mention={row.hasMention ? 'true' : 'false'}
-              className="qf-channel qf-channel--unread group relative"
+              // 미리보기 라인이 있으면 2줄 → spacious 높이로 클리핑 방지(S-D 행 패턴).
+              className={
+                pl
+                  ? 'qf-channel qf-channel--unread group relative !h-auto flex-col items-stretch py-[var(--s-1)]'
+                  : 'qf-channel qf-channel--unread group relative'
+              }
             >
-              <button
-                type="button"
-                onClick={() => navigate(`/w/${workspaceSlug}/${name}`)}
-                aria-label={`# ${name} 채널 열기`}
-                className="flex min-w-0 flex-1 items-center bg-transparent text-left"
-              >
-                <span className="qf-channel__prefix">#</span>
-                <span className="flex-1 truncate">&nbsp;{name}</span>
-              </button>
-              <span className="qf-channel__suffix">
-                {row.mentionCount > 0 ? (
-                  <span
-                    data-testid={`unread-row-mention-${name}`}
-                    aria-label={`읽지 않은 멘션 ${row.mentionCount}개`}
-                    className="qf-badge qf-badge--count"
-                  >
-                    {row.mentionCount > 99 ? '99+' : row.mentionCount}
-                  </span>
-                ) : null}
+              <div className="flex w-full items-center">
                 <button
                   type="button"
-                  data-testid={`unread-row-markread-${name}`}
-                  // a11y BLOCKER #5: 채널별 고유 라벨(다중 동일 "읽음 처리" 라벨 해소).
-                  aria-label={markReadAriaLabel(name)}
-                  onClick={() => markReadMut.mutate(row.channelId)}
-                  className="qf-btn qf-btn--ghost qf-btn--sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  onClick={() => navigate(`/w/${workspaceSlug}/${name}`)}
+                  // 072 S-I 리뷰(LOW): 미리보기를 접근명에 합쳐 SR 가 행과 연결해 읽게 한다
+                  // (아래 미리보기 div 는 aria-hidden 으로 중복 낭독 방지).
+                  aria-label={pl ? `# ${name} 채널 열기, 최근: ${pl}` : `# ${name} 채널 열기`}
+                  className="flex min-w-0 flex-1 items-center bg-transparent text-left"
                 >
-                  읽음 처리
+                  <span className="qf-channel__prefix">#</span>
+                  <span className="flex-1 truncate">&nbsp;{name}</span>
                 </button>
-              </span>
+                <span className="qf-channel__suffix">
+                  {row.mentionCount > 0 ? (
+                    <span
+                      data-testid={`unread-row-mention-${name}`}
+                      aria-label={`읽지 않은 멘션 ${row.mentionCount}개`}
+                      className="qf-badge qf-badge--count"
+                    >
+                      {row.mentionCount > 99 ? '99+' : row.mentionCount}
+                    </span>
+                  ) : null}
+                  <button
+                    type="button"
+                    data-testid={`unread-row-markread-${name}`}
+                    // a11y BLOCKER #5: 채널별 고유 라벨(다중 동일 "읽음 처리" 라벨 해소).
+                    aria-label={markReadAriaLabel(name)}
+                    onClick={() => markReadMut.mutate(row.channelId)}
+                    className="qf-btn qf-btn--ghost qf-btn--sm opacity-0 group-hover:opacity-100 focus-visible:opacity-100"
+                  >
+                    읽음 처리
+                  </button>
+                </span>
+              </div>
+              {/* 072 백로그 S-I: 최근 미읽 메시지 미리보기(작성자: 내용 / 차단 마스킹). */}
+              {pl ? (
+                <div
+                  data-testid={`unread-preview-${name}`}
+                  aria-hidden
+                  className="truncate pl-[var(--s-5)] text-[length:var(--fs-12)] text-text-muted"
+                >
+                  {pl}
+                </div>
+              ) : null}
             </li>
           );
         })}
