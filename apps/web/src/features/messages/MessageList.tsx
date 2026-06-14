@@ -43,6 +43,8 @@ import { announce } from '../../lib/a11y-announce';
 import type { MentionLookup } from './renderAst';
 import { SystemMessage } from './SystemMessage';
 import { isContinuation as computeIsContinuation } from './grouping';
+// 072 백로그 S-F (FR-RC08/N0-F4): suppress 버튼 노출 판정(서버 진실 canManageMessages 기반).
+import { deriveCanSuppressEmbed } from './suppressEmbedPerm';
 import { formatDayDivider, isSameLocalDay, localDayKey } from './formatMessageTime';
 import { DayDivider } from './DayDivider';
 import { useChannelList } from '../channels/useChannels';
@@ -226,6 +228,16 @@ export function MessageList({
     const pages = history.data?.pages ?? [];
     const all = pages.flatMap((p) => p.items);
     return [...all].reverse(); // DESC pages → ASC render order
+  }, [history.data]);
+
+  // 072 백로그 S-F (FR-RC08 / N0-F4): viewer 의 채널 스코프 권한(서버 진실). 모든 페이지가
+  // 동일 채널 권한을 싣으므로 아무 페이지에서나 읽는다(viewerPermissions 미설정 = 폴백 false).
+  const canManageMessages = useMemo<boolean>(() => {
+    const pages = history.data?.pages ?? [];
+    for (const p of pages) {
+      if (p.viewerPermissions) return p.viewerPermissions.canManageMessages;
+    }
+    return false;
   }, [history.data]);
 
   const messageIds = useMemo(() => messages.map((m) => m.id), [messages]);
@@ -1179,17 +1191,17 @@ export function MessageList({
                             }
                           : undefined
                       }
-                      // 072-N0 (감사 FR-RC08/FR-AM-16): 링크 embed ✕('embed 숨기기').
-                      // 워크스페이스 채널 + 비-tmp 행에서만 의미가 있고, 서버 게이트(작성자
-                      // 또는 MANAGE_MESSAGES)와 정합되게 작성자/OWNER/ADMIN 에게만 노출한다.
-                      // MEMBER override 보유자는 버튼 미노출이지만 서버가 진실의 게이트다.
-                      canSuppressEmbed={
-                        !!workspaceId &&
-                        !m.id.startsWith('tmp-') &&
-                        (m.authorId === user?.id ||
-                          viewerRole === 'OWNER' ||
-                          viewerRole === 'ADMIN')
-                      }
+                      // 072 백로그 S-F (FR-RC08/N0-F4): 링크 embed ✕('embed 숨기기'). 서버
+                      // 게이트(작성자 OR DELETE_ANY_MESSAGE·채널 override fold)와 정확히 정합
+                      // 되게 ListMessagesResponse.viewerPermissions.canManageMessages(서버 진실)
+                      // + 작성자 비교로 분기한다(종전 viewerRole OWNER/ADMIN 클라 추정 제거 —
+                      // MEMBER override 보유자 노출 / OWNER deny override 비노출 정정).
+                      canSuppressEmbed={deriveCanSuppressEmbed({
+                        hasWorkspace: !!workspaceId,
+                        isTmpRow: m.id.startsWith('tmp-'),
+                        isAuthor: m.authorId === user?.id,
+                        canManageMessages,
+                      })}
                       onSuppressEmbed={(embedId) =>
                         suppressEmbedMut.mutate({ msgId: m.id, embedId })
                       }

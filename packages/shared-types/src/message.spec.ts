@@ -18,6 +18,8 @@ import {
   REACTION_USERS_DEFAULT_LIMIT,
   REACTION_USERS_MAX_LIMIT,
   MessageMentionsSchema,
+  ViewerChannelPermissionsSchema,
+  ListMessagesResponseSchema,
 } from './message';
 
 /**
@@ -485,5 +487,32 @@ describe('SendMessageRequestSchema.mentions has no roles intent (S88a / FR-MN-03
     });
     expect((parsed.mentions as Record<string, unknown>).roles).toBeUndefined();
     expect(parsed.mentions?.everyone).toBe(true);
+  });
+});
+
+describe('072 S-F (FR-RC08 / N0-F4) viewerPermissions 계약', () => {
+  it('ViewerChannelPermissionsSchema 는 canManageMessages boolean 을 요구한다', () => {
+    expect(ViewerChannelPermissionsSchema.safeParse({ canManageMessages: true }).success).toBe(
+      true,
+    );
+    expect(ViewerChannelPermissionsSchema.safeParse({ canManageMessages: 'yes' }).success).toBe(
+      false,
+    );
+    expect(ViewerChannelPermissionsSchema.safeParse({}).success).toBe(false);
+  });
+
+  it('ListMessagesResponse.viewerPermissions 는 optional(롤아웃/DM 폴백) — 있으면 형 검증', () => {
+    const withPerms = ListMessagesResponseSchema.safeParse({
+      items: [],
+      pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+      viewerPermissions: { canManageMessages: false },
+    });
+    expect(withPerms.success).toBe(true);
+    // 미설정(구 캐시/DM)도 통과한다.
+    const without = ListMessagesResponseSchema.safeParse({
+      items: [],
+      pageInfo: { hasMore: false, nextCursor: null, prevCursor: null },
+    });
+    expect(without.success).toBe(true);
   });
 });
