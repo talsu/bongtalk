@@ -43,4 +43,22 @@ describe('computeConnectionBanner (task-040 R3)', () => {
     });
     expect(offline.visible && offline.message.length > 5).toBe(true);
   });
+
+  // 072 백로그 S-H (N6-3): 재연결 소진(failed) 종단 상태 — reloadable 배너.
+  it('shows a reloadable failed banner when realtime status is failed (online)', () => {
+    const r = computeConnectionBanner({ online: true, realtimeStatus: 'failed', replaying: false });
+    expect(r).toMatchObject({ visible: true, level: 'failed', reloadable: true });
+  });
+
+  it('failed 보다 offline(네트워크) 가 우선한다', () => {
+    expect(
+      computeConnectionBanner({ online: false, realtimeStatus: 'failed', replaying: false }),
+    ).toMatchObject({ visible: true, level: 'offline' });
+  });
+
+  it('failed 는 replaying 보다 우선한다(자동 복구 없음 안내)', () => {
+    expect(
+      computeConnectionBanner({ online: true, realtimeStatus: 'failed', replaying: true }),
+    ).toMatchObject({ visible: true, level: 'failed' });
+  });
 });

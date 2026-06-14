@@ -19,7 +19,9 @@ import { useBadgeResync } from '../notifications/useBadgeResync';
 import { usePresenceActivity } from '../presence/usePresenceActivity';
 import type { Socket } from 'socket.io-client';
 
-export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected';
+// 072 백로그 S-H (N6-3): 'failed' = socket.io Manager 의 reconnectionAttempts(10) 소진 후
+// 종단 상태. 'disconnected'(일시 끊김·자동 재연결 중)와 구분해 배너가 "새로고침"을 안내한다.
+export type RealtimeStatus = 'idle' | 'connecting' | 'connected' | 'disconnected' | 'failed';
 
 /**
  * Owns the single-app socket lifecycle. Installed once at the Shell root.
@@ -62,13 +64,22 @@ export function useRealtimeConnection(): { status: RealtimeStatus; replaying: bo
     socket.on('connect', () => setStatus('connected'));
     socket.on('disconnect', () => setStatus('disconnected'));
     socket.on('connect_error', () => setStatus('disconnected'));
+    // 072 백로그 S-H (N6-3): Manager 가 reconnectionAttempts(10) 를 모두 소진하면
+    // reconnect_failed 를 emit 한다. 이는 **종단** 상태다 — socket.io Manager 는 이후 더 이상
+    // 자동 재시도를 스케줄하지 않으므로 'connect' 가 다시 발화되지 않는다. 복구 경로는 (a)
+    // 배너의 새로고침(전체 reload → 새 connect()) 또는 (b) 로그인 세션 변경(user.id)으로 이
+    // effect 가 재실행될 때뿐(토큰 silent-refresh 는 같은 user.id 라 재실행 안 됨). 'failed'
+    // 종단 상태로 전이해 배너가 "새로고침" 액션을 노출하게 한다(일시 'disconnected' 와 구분).
+    socket.io.on('reconnect_failed', () => setStatus('failed'));
 
     // S77c (D14 / FR-PS-16): 계정 비활성화 시 서버가 session:revoked 를 사용자 룸에 emit 한 직후
     // 소켓을 강제 disconnect 한다. 이 이벤트를 받으면 access 토큰을 비우고 강제 로그아웃을 통지해
     // (forceLogout → AuthProvider) 자동 로그아웃 + /login 라우팅을 트리거한다. reason 무관하게
     // 처리한다(현재는 account_deactivated 단일 — 향후 관리자 강제 로그아웃 등 확장 대비).
     socket.on('session:revoked', () => {
-      forceLogout();
+      // 072 백로그 S-H (N6-3): 'revoked' 사유로 LoginPage 가 "다른 기기/관리자에 의해 로그아웃"
+      // 배너를 띄우게 한다(종전 조용한 리다이렉트 → 안내).
+      forceLogout('revoked');
       if (typeof window !== 'undefined' && window.location.pathname !== '/login') {
         window.history.pushState({}, '', '/login');
         window.dispatchEvent(new PopStateEvent('popstate'));

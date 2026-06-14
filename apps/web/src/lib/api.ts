@@ -7,6 +7,8 @@ import {
   RefreshResponseSchema,
   SignupRequest,
 } from '@qufox/shared-types';
+// 072 백로그 S-H (N6-3): 강제 로그아웃 사유 표시(LoginPage 배너 안내).
+import { markSessionEnded, type SessionEndReason } from './sessionEndNotice';
 
 const API_BASE = (import.meta.env?.VITE_API_URL as string | undefined) ?? '/api';
 
@@ -33,8 +35,11 @@ function fireLogout(): void {
 // S77c (D14 / FR-PS-16): 서버가 session:revoked 를 emit 하면(계정 비활성화 등) 클라가 access 토큰을
 // 비우고 onForcedLogout 구독자(AuthProvider)에게 강제 로그아웃을 통지한다. apiRequest 의 401 경로와
 // 동일한 fireLogout 을 재사용하되, 외부(소켓 핸들러)에서 호출할 수 있도록 공개한다.
-export function forceLogout(): void {
+// 072 백로그 S-H (N6-3): 강제 로그아웃 사유를 표시해 LoginPage 가 배너로 안내한다(기본 'revoked'
+// — 소켓 session:revoked = 다른 기기/관리자/계정 비활성화). 토큰 만료 경로는 'expired' 로 호출.
+export function forceLogout(reason: SessionEndReason = 'revoked'): void {
   accessToken = null;
+  markSessionEnded(reason);
   fireLogout();
 }
 
@@ -77,12 +82,15 @@ export async function apiRequest<T>(path: string, opts: RequestOpts = {}): Promi
   if (res.status === 401 && opts.retryOn401 !== false) {
     const ok = await refreshOnce();
     if (!ok) {
+      // 072 백로그 S-H (N6-3): 리프레시 실패 = 세션 만료 → LoginPage 안내용 사유 표시.
+      markSessionEnded('expired');
       fireLogout();
       throw await bubbleError(res);
     }
     headers['authorization'] = `Bearer ${accessToken}`;
     res = await run();
     if (res.status === 401) {
+      markSessionEnded('expired');
       fireLogout();
       throw await bubbleError(res);
     }
