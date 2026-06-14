@@ -7,18 +7,18 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 
 ## 슬라이스 진행표
 
-| 슬라이스 | 범위                                                              | 상태    | develop  | main     |
-| -------- | ----------------------------------------------------------------- | ------- | -------- | -------- |
-| S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23 |
-| S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
-| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
-| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
-| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
-| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336 |
-| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d |
-| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ✅ 배포 | efa925bb | dc2e020f |
-| S-I      | Unreads 미리보기 엔드포인트                                       | 🔄 진행 | —        | —        |
-| S-J      | 채널 권한 override 편집기                                         | ⬜ 대기 | —        | —        |
+| 슬라이스 | 범위                                                              | 상태    | develop  | main      |
+| -------- | ----------------------------------------------------------------- | ------- | -------- | --------- |
+| S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23  |
+| S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85  |
+| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633  |
+| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81  |
+| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878  |
+| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336  |
+| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d  |
+| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ✅ 배포 | efa925bb | dc2e020f  |
+| S-I      | Unreads 미리보기 엔드포인트                                       | ✅ 배포 | 63f21460 | 0a20c85f  |
+| S-J      | 채널 권한 override 편집기(멤버별 + 해제 엔드포인트)               | ✅ 배포 | `DEVSHA` | `MAINSHA` |
 
 마이그레이션 없음(전부 기존 nullable 컬럼 재사용: iconUrl/joinMode/archivedAt/
 ChannelPermissionOverride). DM visibility/mute/leave/members rate-limit 은 S-A 에 포함됨.
@@ -336,4 +336,68 @@ raw 8 → confirmed 7 (전부 **LOW**, BLOCKER/HIGH/MEDIUM 0 — 정렬 갭 MEDI
 ### 게이트
 
 - standalone verify: **19/19 green** (api 128·web 234 / unreads-preview 5 tests). 1회 TotpSetupWizard 무관 flake → 재실행 통과.
-- 머지/배포: (채움)
+- 머지/배포: develop `63f21460` (ls-remote 실측) → main `0a20c85f` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · smoke OK) → /readyz `{db:ok,redis:ok,outbox:idle}` ·
+  `Mapped {/workspaces/:id/unreads, GET}` + 401 보호 live.
+
+## S-J — 채널 권한 override 편집기: 멤버별 편집 + 해제 엔드포인트 (FR-RM14)
+
+브랜치: `feat/bl-j-channel-perm-editor` · **백로그 최종 슬라이스**
+
+### 갭
+
+S62 가 만든 ChannelPermissionsTab 은 **시스템 역할 5개**의 override 편집(8비트 3-state)만
+제공했다. 멤버별(USER 프린시펄) 개별 override 편집 UI 가 전무했고(memberMut 선언만 되고 미사용),
+관리자가 **override 를 해제(행 삭제)하는 엔드포인트 자체가 부재**했다(S64 가 미사용 audit
+enum 까지 dead-key 로 제거). 커스텀 Role override 는 읽기 표시만(쓰기 경로 후속 유지).
+
+### 청크 표
+
+| #   | 청크         | 파일                                                                                                                                                                                                                                                                                                                                          |
+| --- | ------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| J1  | 해제 BE      | `channels.controller.ts` DELETE `:chid/overrides/:overrideId`(@Roles ADMIN + ChannelAccessGuard + @AllowArchivedChannel + override RL) · `channels.service.ts` removeChannelOverride(채널 WS 스코프 → override id+channelId 스코프 → tx{deleteMany count 검사 + outbox CHANNEL_PERMISSION_CHANGED removed:true + audit REMOVE} → 캐시 무효화) |
+| J2  | 에러/감사    | `error-code.enum.ts` CHANNEL_OVERRIDE_NOT_FOUND(404) + `index.ts` ErrorCodeSchema 동기화 · `audit.service.ts` CHANNEL_PERMISSION_OVERRIDE_REMOVE 재도입 + `audit.ts` 라벨                                                                                                                                                                     |
+| J3  | 실시간       | `outbox-to-ws.subscriber.ts` onChannelEvent: permission.changed 시 refreshChannelIdsForWorkspace(권한 잃은 소켓 룸 leave·신규 부여 join) **+ 워크스페이스 룸 와이어 emit 중단(정보누출 차단)**                                                                                                                                                |
+| J4  | 멤버 편집 FE | `ChannelPermissionsTab.tsx` 멤버별 섹션(멤버 select + 기존 override 목록 클릭선택 + 8비트 토글 memberMut + "오버라이드 해제" deleteMut) · PermissionToggleList 추출(역할/멤버 공유·descId/testId prefix 분리) · `api.ts` deleteChannelOverride · `useChannelPermissions.ts` deleteMut                                                         |
+| J5  | 테스트       | `channels-override-remove.spec.ts`(스코프·removed 이벤트·감사·race) · `ChannelPermissionsTab.spec.tsx`(select·목록·토글·해제·포커스·live region·aria-label)                                                                                                                                                                                   |
+
+### 설계 결정
+
+- **멤버십 의미(S-D 교훈 재확인)**: 공개 채널 USER override 삭제 = 채널 떠남(opt-in 마커 제거),
+  비공개 채널 = 접근 회수. 그래서 해제는 단순 행 삭제 + 권한 캐시 무효화 + 구독 재조정으로 충분.
+- **override id + channelId 스코프 조회/삭제**로 cross-channel/cross-workspace id 주입(IDOR) 차단.
+- 마이그레이션 없음(기존 ChannelPermissionOverride 행 삭제). upsert 경로와 동일한
+  CHANNEL_PERMISSION_CHANGED 아웃박스(removed:true) + 같은 tx 감사.
+
+### 적대 리뷰(wf_b615b442-f59 · 23 에이전트·3각도 find→adversarial-verify) fix-forward
+
+raw 20 → confirmed 7. **BLOCKER 1 · HIGH 2 · MEDIUM 3 · LOW 1** 전부 검토, 5건 수리·2건 문서화.
+
+- **HIGH(수리) 정보누출**: `channel.permission.changed` 가 워크스페이스 룸으로 브로드캐스트돼
+  비공개 채널 비구성원이 principal(targetUserId)/마스크/channelId 를 관측했다(upsert 포함 기존 누출).
+  → permission.changed 는 워크스페이스 룸 와이어 emit 을 중단(채널 룸=구성원에만 알림). 비구성원·
+  신규 구성원 구독은 서버측 refreshChannelIdsForWorkspace 가 재조정(FE 미소비 확인).
+- **BLOCKER(수리) 포커스 손실(SC 2.4.3)**: 해제 성공 시 패널 언마운트로 "해제" 버튼의 키보드
+  포커스 소실. → 안정적인 멤버 select 로 포커스 복원(memberSelectRef.focus).
+- **HIGH(수리) 상태 메시지(SC 4.1.3)**: 진행 live region 이 완료 시 패널과 함께 언마운트돼 완료가
+  SR 에 안 닿음. → 항상 마운트된 live region(memberLiveMsg state)으로 진행+완료 안내.
+- **MEDIUM(수리) 동시 삭제 race**: 같은 override 동시 DELETE 시 두 번째 tx.delete 가 Prisma
+  P2025 → uncaught 500 + 감사/아웃박스 불일치. → tx 내 deleteMany count 검사로 graceful 404 롤백.
+- **MEDIUM(수리) 멤버 행 aria-label(SC 1.3.1)**: "+1 -0" 의미 불명. → "{이름}, 허용 N개, 거부 N개" 서술.
+- **MEDIUM(문서화·이월) 토글 대비**: TriStateToggle 색대비(S62 기존)는 상태를 **텍스트 라벨**
+  (허용/거부/상속) + aria-label 로도 전달하므로 1.4.1(색 단독)은 충족. 색대비 자체는 전역 DS
+  브랜드 AA 결정(기존 이월 백로그)으로 일괄 처리 — S-J 단독 변경 안 함.
+- **LOW(문서화·수락) useMembers 전체로드**: 멤버 select 가 전체 멤버를 로드(대형 WS 비용). 모든
+  멤버에 override 부여가 스펙 요구라 기능 정합엔 무해 — combobox/lazy-load 는 후속 최적화 여지.
+
+### 게이트
+
+- standalone verify: **19/19 green** (lint·typecheck 전 패키지 + api 129·web 235 / override-remove 7 · ChannelPermissionsTab 7). web#test 의 ImageMosaicGrid·TotpSetupWizard 는 kernel4.4 자원경합 flake → 셋 격리 재실행 31/31 통과.
+- 머지/배포: develop `DEVSHA` (ls-remote 실측) → main `MAINSHA` (ls-remote 실측) → NAS
+  auto-deploy.sh exit 0 (api+web recreate · health-wait 200 · smoke OK) → /readyz `READYZ` ·
+  `Mapped {/workspaces/:id/channels/:chid/overrides/:overrideId, DELETE}` + 401 보호 live.
+
+---
+
+**★ 072 서버 백로그 종결**: S-A ~ S-J 10 슬라이스 전부 prod 배포 완료. 잔여 백로그(서버 의존
+프론트 후속 · 전역 DS 브랜드 AA · axe 라우트 확대)는 072-N6-progress §이월 백로그에 집계.

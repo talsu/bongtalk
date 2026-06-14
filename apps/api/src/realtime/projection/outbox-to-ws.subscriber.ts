@@ -400,8 +400,18 @@ export class OutboxToWsSubscriber {
     if (chId) {
       await this.emitAndBuffer('channel', chId, env);
     }
-    // Sidebar reorder / archive toggle also needs the workspace view.
-    await this.emitAndBuffer('workspace', wsId, env);
+    // 072 백로그 S-J fix-forward (review HIGH = 정보누출): channel.permission.changed 는
+    // 워크스페이스 룸으로 브로드캐스트하지 않는다. 이 이벤트 payload 는 principal
+    // (targetUserId/role) + 마스크를 담는데, 워크스페이스 룸에는 비공개 채널의 비구성원도
+    // 들어 있어(전 멤버가 rooms.workspace 에 자동 가입) 그들에게 "누가 채널 X 의 접근이
+    // 바뀌었는지 + 채널 X 의 id"가 노출됐다(비공개 채널 멤버십/접근결정 누출). 채널 룸
+    // (=구성원)에만 알리고, 비구성원·신규 구성원의 사이드바/구독은 아래
+    // refreshChannelIdsForWorkspace 가 서버측에서 재조정하므로 워크스페이스 와이어 emit 은
+    // 불필요하다(FE 는 이 이벤트를 소비하지 않음 — 확인). upsert/remove 양 경로 공통.
+    if (env.type !== 'channel.permission.changed') {
+      // Sidebar reorder / archive toggle also needs the workspace view.
+      await this.emitAndBuffer('workspace', wsId, env);
+    }
     // S105 (S99 보안 잔여): channel.updated 가 isPrivate 공개→비공개 전환을 포함하면,
     // 종전엔 어떤 경로도 refreshChannelIdsForWorkspace 를 트리거하지 않아 비구성원
     // 소켓이 채널 룸에 잔존하며 이후 메시지 fanout 을 계속 수신했다(IDOR 성 구독누수 —
@@ -411,6 +421,15 @@ export class OutboxToWsSubscriber {
     // 권한을 잃은(이제 비공개·비구성원) 구독을 실제 룸에서 leave 시킨다. roomsForUser 가
     // ACL 을 재평가하므로 어떤 필드가 바뀌었든 결과적으로 정합한다.
     if (env.type === 'channel.updated') {
+      await this.refreshChannelIdsForWorkspace(wsId);
+    }
+    // 072 백로그 S-J (FR-RM14): override 변경(USER/ROLE upsert·해제)은 멤버의 채널
+    // 가시성/접근을 바꾼다 — 비공개 채널 USER override 부여는 룸 join 이, 해제는
+    // (특히 관리자 override 삭제로 접근 회수 시) 룸 leave 가 필요하다. channel.updated
+    // 와 같은 이유로(S105) 워크스페이스 멤버 구독을 현재 ACL 기준으로 재조정해 권한을
+    // 잃은 소켓이 채널 룸에서 실제로 빠지게 한다(구독 누수 차단). override 변경은
+    // 저빈도 admin 액션이라 비용 허용.
+    if (env.type === 'channel.permission.changed') {
       await this.refreshChannelIdsForWorkspace(wsId);
     }
   }

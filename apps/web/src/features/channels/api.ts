@@ -278,3 +278,15 @@ export function upsertChannelMemberOverride(
     body: input,
   });
 }
+
+// 072 백로그 S-J (FR-RM14): 채널 권한 오버라이드 해제(USER/ROLE 행 삭제). overrideId 는
+// listChannelOverrides 가 내려준 행 id. 서버가 channelId 스코프로 검증한다(OWNER/ADMIN).
+export function deleteChannelOverride(
+  wsId: string,
+  channelId: string,
+  overrideId: string,
+): Promise<{ id: string }> {
+  return apiRequest(`/workspaces/${wsId}/channels/${channelId}/overrides/${overrideId}`, {
+    method: 'DELETE',
+  });
+}

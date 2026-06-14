@@ -31,6 +31,8 @@ export const AUDIT_ACTION_LABELS: Record<string, string> = {
   ROLE_UPDATE: '역할 수정',
   ROLE_DELETE: '역할 삭제',
   CHANNEL_PERMISSION_OVERRIDE_SET: '채널 권한 오버라이드 설정',
+  // 072 백로그 S-J (FR-RM14): 관리자 override 해제(행 삭제) 액션 라벨.
+  CHANNEL_PERMISSION_OVERRIDE_REMOVE: '채널 권한 오버라이드 해제',
   MESSAGE_DELETE: '메시지 삭제',
   BULK_MESSAGE_DELETE: '메시지 일괄 삭제',
   SLOWMODE_UPDATE: '슬로우모드 변경',
