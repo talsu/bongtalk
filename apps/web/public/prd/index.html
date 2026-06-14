@@ -13,6 +13,7 @@
 <link rel="stylesheet" href="/design-system/components.css?v=7">
 <link rel="stylesheet" href="/design-system/mobile.css?v=7">
 <link rel="stylesheet" href="/design-system/icons.css?v=1">
+<link rel="stylesheet" href="/design-system/docs.css?v=1">
 <style>
   /* PRD mock aliases — map names used in generated mock inline-styles to real DS tokens.
      Scoped to the PRD page only; the design system itself is untouched. */
@@ -121,6 +122,44 @@
   .secblock { margin-top: var(--s-8); }
   .ds-ref { font: 500 var(--fs-12) var(--font-mono); color: var(--text-muted); margin-top: var(--s-2); }
   .ds-ref b { color: var(--accent); font-weight: 600; }
+
+  /* ───── 좁은 폭 반응형 (P6) — 데스크톱 우선 문서지만 태블릿/모바일 폭에서도
+     가로 넘침·찌부러짐 없이 읽히도록 단계적으로 단순화한다. ───── */
+  @media (max-width: 1024px) {
+    /* 고정 2·3열 그리드는 좁은 폭에서 콘텐츠가 끼므로 1열로 적층. */
+    .grid--2, .grid--3 { grid-template-columns: 1fr; }
+    .main { padding: var(--s-9) var(--s-9); }
+  }
+  @media (max-width: 860px) {
+    /* 사이드바를 본문 위로 적층(고정 해제) — 가로 스크롤/압축 방지. */
+    .layout { grid-template-columns: 1fr; }
+    .sidebar { position: static; height: auto; border-right: 0;
+      border-bottom: 1px solid var(--divider); }
+    .main { padding: var(--s-7) var(--s-6); max-width: none; }
+  }
+  @media (max-width: 600px) {
+    h1.page-title { font-size: var(--fs-24); }
+    h2 { font-size: var(--fs-20); }
+    .main { padding: var(--s-6) var(--s-5); }
+    /* 폰 목업은 컨테이너 폭에 맞춰 축소. */
+    .phone { width: 100%; max-width: 360px; }
+    .phone-row { gap: var(--s-5); }
+  }
+
+  /* ───── 세밀한 여백 리듬 (P4) — 주요 블록(콜아웃·카드그리드·표·코드·KPI)의
+     상하 간격을 일관화해 문서 흐름이 예측 가능하게 한다. ───── */
+  .main > .callout,
+  .main > .grid,
+  .main > .pill-row,
+  .main > .code,
+  .main > .spec { margin-top: var(--s-5); margin-bottom: var(--s-5); }
+  .main .secblock { margin-top: var(--s-9); }
+  /* 제목 직후 첫 블록은 위 여백을 줄여 제목과 묶이게 한다. */
+  .main h2 + .subtle + .grid,
+  .main h2 + .grid,
+  .main h3 + .grid,
+  .main h3 + .code,
+  .main h3 + .callout { margin-top: var(--s-3); }
 </style>
 </head>
 <body>
@@ -281,7 +320,7 @@
     </div>
   </aside>
 
-  <main class="main">
+  <main class="main qf-doc">
 
   <!-- ─── 00 OVERVIEW ─── -->
   <section class="page active" data-page="overview">
