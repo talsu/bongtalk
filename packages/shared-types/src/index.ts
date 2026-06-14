@@ -211,6 +211,8 @@ export const ErrorCodeSchema = z.enum([
   'CHANNEL_PRIVATE_INVITE_ONLY',
   // S14 (FR-CH-07): 비멤버 탈퇴 → 409.
   'CHANNEL_NOT_MEMBER',
+  // 072 백로그 S-J (FR-RM14): 관리자 override 해제 대상 행이 이 채널에 없음 → 404.
+  'CHANNEL_OVERRIDE_NOT_FOUND',
   // S15 (FR-CH-08): 슬로우모드 활성 중 재송신 → 429 + retryAfterMs.
   'CHANNEL_SLOWMODE_ACTIVE',
   // FR-CH-03 (065): 기본 채널(Workspace.defaultChannelId · Channel.isDefault=true)의

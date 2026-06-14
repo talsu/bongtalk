@@ -308,6 +308,28 @@ export class ChannelsController {
   }
 
   /**
+   * 072 백로그 S-J (FR-RM14): 채널 권한 오버라이드 해제(USER/ROLE 행 삭제). OWNER/ADMIN
+   * 전용(MANAGE_CHANNEL 표면 · upsert 경로와 동일 게이트). overrideId 는 행 id 로,
+   * 서비스가 channelId 스코프로 검증해 cross-channel 삭제를 차단한다(미존재 → 404).
+   * 보관 채널의 override 해제도 허용(@AllowArchivedChannel). per-workspace rate-limit
+   * (upsert 와 동일 키)으로 무효화 폭주를 막는다.
+   */
+  @Roles('ADMIN')
+  @UseGuards(ChannelAccessGuard)
+  @AllowArchivedChannel()
+  @Delete(':chid/overrides/:overrideId')
+  async removeChannelOverride(
+    @Param('id', new ParseUUIDPipe()) _wsId: string,
+    @Param('chid', new ParseUUIDPipe()) channelId: string,
+    @Param('overrideId', new ParseUUIDPipe()) overrideId: string,
+    @CurrentMember() m: CurrentMemberPayload,
+  ) {
+    // S62 fix-forward (security A-3 = MEDIUM-4): override CRUD per-workspace rate-limit.
+    await this.enforceOverrideRateLimit(m.workspaceId);
+    return this.channels.removeChannelOverride(m.workspaceId, channelId, overrideId, m.userId);
+  }
+
+  /**
    * S14 (FR-CH-07): join a channel. Any workspace member may join a PUBLIC
    * channel (free join → self USER ALLOW override + member_added event).
    * Private channels are invite-only → CHANNEL_PRIVATE_INVITE_ONLY (403).
