@@ -29,7 +29,7 @@ export const TYPING_MAX_VISIBLE = 3;
 /** 시퀀스 홀 갭 복구 시 최대 페이지 수 (ADR-8 / D17). */
 export const GAP_FETCH_MAX_PAGES = 10;
 
-/** 미읽 업데이트 분산 락 TTL (ms) (ADR-8 / D09). */
+/** 읽지 않음 업데이트 분산 락 TTL (ms) (ADR-8 / D09). */
 export const UNREAD_LOCK_TTL = 30000;
 
 /** 시퀀스 홀 감지 대기 타임아웃 (ms) — NFR · D17 합의값 (ADR-8). */

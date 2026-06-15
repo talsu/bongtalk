@@ -13,7 +13,7 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 
 /**
  * S23 (FR-RS-11) / S24 (FR-RS-18): POST /workspaces/:id/read-all — 워크스페이스
- * 전체 읽음. 호출자가 읽을 수 있는 채널 중 미읽이 남은 채널을 각각 최신 메시지까지
+ * 전체 읽음. 호출자가 읽을 수 있는 채널 중 읽지 않음이 남은 채널을 각각 최신 메시지까지
  * monotonic 하게 읽음 처리하고, 채널별 read_state:updated 를 호출자의 user 룸으로
  * fan-out 한다(멀티세션 배지 동기화).
  *

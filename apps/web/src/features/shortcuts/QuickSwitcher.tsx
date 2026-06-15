@@ -17,16 +17,16 @@ import { rankQuickSwitcher, type RankableQsItem } from './rankQuickSwitcher';
  *
  * Cmd/Ctrl+K 로 열리는 별도 모달입니다. 기존 액션 팰릿(CommandPalette)은 보존하고
  * Cmd+Shift+K 로 재바인딩했습니다(useShortcut). 모든 데이터는 기존 훅에서 받아
- * (채널 useChannelList · 멤버 useMembers · DM useDmList · 미읽 useUnreadSummary)
+ * (채널 useChannelList · 멤버 useMembers · DM useDmList · 읽지 않음 useUnreadSummary)
  * 클라이언트에서 퍼지 랭킹(rankQuickSwitcher)합니다.
  *
- * 워크스페이스 스코프: 채널/멤버/미읽은 현재 워크스페이스(slug→wsId) 한정,
+ * 워크스페이스 스코프: 채널/멤버/읽지 않음은 현재 워크스페이스(slug→wsId) 한정,
  * DM 은 전역입니다. 워크스페이스 밖(slug 없음)에서는 채널/멤버가 비고 DM 만
  * 노출됩니다.
  *
  * 접두 필터: `#` = 채널만, `@` = 멤버/DM 만. 그 외에는 세 종류를 함께 검색합니다.
  *
- * 기본 화면(쿼리 없음): 최근 방문 채널/DM(최대 5) + 미읽 채널 상위(최대 5).
+ * 기본 화면(쿼리 없음): 최근 방문 채널/DM(최대 5) + 읽지 않은 채널 상위(최대 5).
  * 최근 채널은 useChannelLruStore.order(tail=최신)에서, 최근 DM 은 useDmList 의
  * lastMessageAt 내림차순으로 근사합니다(별도 방문 store 신설 없이 — 보고 참고).
  *
@@ -118,7 +118,7 @@ function QuickSwitcherModal(): JSX.Element {
           boost: unreadCount > 0 ? 1 : 0,
         },
         target: { kind: 'channel' as const, channelName: ch.name },
-        meta: unreadCount > 0 ? `미읽음 ${unreadCount}` : '채널',
+        meta: unreadCount > 0 ? `읽지 않음 ${unreadCount}` : '채널',
       };
     });
   }, [slug, channels, unread]);
@@ -158,7 +158,7 @@ function QuickSwitcherModal(): JSX.Element {
           boost: d.unreadCount > 0 ? 1 : 0,
         },
         target: { kind: 'dm' as const, userId: d.otherUserId },
-        meta: d.unreadCount > 0 ? `미읽음 ${d.unreadCount}` : 'DM',
+        meta: d.unreadCount > 0 ? `읽지 않음 ${d.unreadCount}` : 'DM',
       }));
   }, [dms, user?.id, memberRows]);
 
@@ -203,7 +203,7 @@ function QuickSwitcherModal(): JSX.Element {
     const bare = prefix ? raw.slice(1) : raw;
 
     if (bare.length === 0 && !prefix) {
-      // FR-KS-02: 기본 화면 — 최근 방문 5 + 미읽 채널 상위 5.
+      // FR-KS-02: 기본 화면 — 최근 방문 5 + 읽지 않은 채널 상위 5.
       const recentRows = recentIds
         .map((id) => byId.get(id))
         .filter((r): r is QsRow => Boolean(r))

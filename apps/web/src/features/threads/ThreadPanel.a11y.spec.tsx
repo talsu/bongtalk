@@ -25,7 +25,7 @@ vi.mock('./useThread', () => ({
             thread: { replyCount: 0, recentReplyUserIds: [], lastRepliedAt: null },
           },
           replies: [],
-          // S36 (FR-TH-18): 읽음 커서(테스트에선 전체 미읽 → 최하단 스크롤).
+          // S36 (FR-TH-18): 읽음 커서(테스트에선 전체 읽지 않음 → 최하단 스크롤).
           readState: { lastReadMessageId: null },
         },
       ],

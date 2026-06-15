@@ -137,7 +137,7 @@ export class MessagesController {
       await Promise.all([
         this.messages.aggregateReactions(ids, user.id),
         // task-014-B: thread summary join, same one-per-page round trip.
-        // S36 (FR-TH-04): viewer 의 ThreadReadState 를 배치 조인해 per-viewer 미읽
+        // S36 (FR-TH-04): viewer 의 ThreadReadState 를 배치 조인해 per-viewer 읽지 않음
         // 여부(threadMeta.hasUnread)를 같은 쿼리에서 산정한다(N+1 없음).
         this.messages.aggregateThreadSummaries(ids, user.id),
         // Inline attachments projection — same batched pattern so a page

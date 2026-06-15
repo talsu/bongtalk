@@ -14,7 +14,7 @@ import {
  * 출처다. 워크스페이스별 `{ mentionCount, unreadCount }` 를 반환하되, **isMuted
  * 채널/서버는 카운트에서 제외**한다(FR-MN-14: "isMuted=true 채널·서버는 배지 완전
  * 숨김 — 카운트 증가 자체 건너뜀"). `/me/unread-totals`(UnreadService.cachedWorkspaceTotal)
- * 와 역할이 다르다 — 그쪽은 사이드바 레일의 *미읽* 집계(뮤트 무관)이고, 본 서비스는
+ * 와 역할이 다르다 — 그쪽은 사이드바 레일의 *읽지 않음* 집계(뮤트 무관)이고, 본 서비스는
  * 알림 배지(뮤트 제외)의 진실값이다.
  *
  * ── 뮤트 제외 규칙 (S46 정합) ──
@@ -25,7 +25,7 @@ import {
  * 만료된(과거 mutedUntil) 행은 활성 뮤트가 아니므로 제외하지 않는다(cron sweep
  * 없이 query-time 필터 — S46/S43 규약).
  *
- * ── 미읽/멘션 집계 ──
+ * ── 읽지 않음/멘션 집계 ──
  * UnreadService 의 (createdAt, id) 튜플 커서 공식 + roots-only(parentMessageId IS
  * NULL OR isBroadcast) 술어를 그대로 따른다(채널 배지 정본과 정합).
  *

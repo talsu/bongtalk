@@ -64,7 +64,7 @@ export const WS_EVENTS = {
   // carryover 다. 본 슬라이스는 타입화(스키마+상수)만 수행하고 와이어 이름은
   // 바꾸지 않는다(라이브 클라 회귀 방지).
   WORKSPACE_PRESENCE_UPDATED: 'presence.updated',
-  // 읽음 / 미읽
+  // 읽음 / 읽지 않음
   READ_STATE_UPDATED: 'read_state:updated',
   UNREAD_COUNT_INCREMENT: 'unread_count:increment',
   // DM / 그룹 DM (S16 · FR-DM-16): 새 DM·그룹 DM 개설 또는 멤버 추가 시 대상
@@ -562,8 +562,8 @@ export type MentionNewPayload = z.infer<typeof MentionNewPayloadSchema>;
  *   serverId        — 워크스페이스 id(서버 단위 배지 키).
  *   channelId       — 발생 채널 id. 서버 단위 교체라 채널별 patch 가 필수는 아니지만
  *                     디버깅/세분화 여지를 위해 싣는다(nullable — 서버 단위 재집계).
- *   mentionCount    — 서버 단위 미읽 멘션 수(isMuted 채널/서버 제외).
- *   unreadCount     — 서버 단위 미읽 메시지 수(isMuted 채널/서버 제외).
+ *   mentionCount    — 서버 단위 읽지 않음 멘션 수(isMuted 채널/서버 제외).
+ *   unreadCount     — 서버 단위 읽지 않은 메시지 수(isMuted 채널/서버 제외).
  *   serverTimestamp — 서버가 이 배지를 계산한 시각(ISO). ACK 우선순위 판정용 —
  *                     클라가 보유한 lastAckedAt 보다 이르면 stale 로 무시한다.
  */
@@ -767,7 +767,7 @@ export const WorkspacePresenceUpdatedPayloadSchema = z.object({
 });
 export type WorkspacePresenceUpdatedPayload = z.infer<typeof WorkspacePresenceUpdatedPayloadSchema>;
 
-// ── 읽음 / 미읽 ──────────────────────────────────────────────────────────────
+// ── 읽음 / 읽지 않음 ──────────────────────────────────────────────────────────────
 /**
  * S11 (FR-RT-13): POST /workspaces/:id/channels/:chid/ack 요청 바디.
  * lastReadMessageId 는 클라가 화면에서 마지막으로 본 메시지 id, clientTimestamp
@@ -782,8 +782,8 @@ export type AckReadRequest = z.infer<typeof AckReadRequestSchema>;
 
 /**
  * S24 (FR-RS-08): POST /workspaces/:id/channels/:chid/unread 요청 바디.
- * `messageId` 는 사용자가 "여기서부터 미읽" 으로 지정한 메시지 — 서버는 그
- * **직전** 메시지로 lastReadMessageId 를 되돌린다(직전이 없으면 null = 전체 미읽).
+ * `messageId` 는 사용자가 "여기서부터 읽지 않음" 으로 지정한 메시지 — 서버는 그
+ * **직전** 메시지로 lastReadMessageId 를 되돌린다(직전이 없으면 null = 전체 읽지 않음).
  * S21 monotonic guard 를 의도적으로 우회하는 후진 경로(markUnread)다.
  */
 export const MarkUnreadRequestSchema = z.object({
@@ -794,8 +794,8 @@ export type MarkUnreadRequest = z.infer<typeof MarkUnreadRequestSchema>;
 /**
  * S36 (FR-RS-12 / FR-TH-12): POST /messages/:id/thread/ack 요청 바디.
  * `lastReadMessageId` 는 스레드 패널에서 마지막으로 본 답글 id. 서버는 채널
- * 미읽과 동일한 monotonic (createdAt, id) 튜플 upsert 로 ThreadReadState 를
- * 전진시킨다(퇴행 ack no-op). 채널 미읽과 독립적으로 스레드 미읽만 0 으로 수렴.
+ * 읽지 않음과 동일한 monotonic (createdAt, id) 튜플 upsert 로 ThreadReadState 를
+ * 전진시킨다(퇴행 ack no-op). 채널 읽지 않음과 독립적으로 스레드 읽지 않음만 0 으로 수렴.
  */
 export const ThreadAckRequestSchema = z.object({
   lastReadMessageId: z.string().uuid(),

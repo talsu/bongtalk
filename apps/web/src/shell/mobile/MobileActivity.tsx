@@ -50,7 +50,7 @@ export function MobileActivity(): JSX.Element {
   const navigate = useNavigate();
   useKeyboardDodge();
   // 071-M5 H21 (정찰 ds-dormant ⑤): 당겨서 새로고침 — 폴링 간격 사이 수동 갱신.
-  // 목록 + 미읽 카운트를 함께 refetch 해 topbar 부제와 행이 같이 신선해진다.
+  // 목록 + 읽지 않음 카운트를 함께 refetch 해 topbar 부제와 행이 같이 신선해진다.
   const bodyRef = useRef<HTMLElement>(null);
   const refreshing = usePullToRefresh(bodyRef, () => Promise.all([refetchList(), refetchUnread()]));
 

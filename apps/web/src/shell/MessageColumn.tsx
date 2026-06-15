@@ -551,7 +551,7 @@ function useThreadQueryState(
  * S47 fix-forward (BLOCKER-1 · FR-MN-13): 토픽바 알림 벨 → Activity Inbox 패널
  * 토글. 종전엔 `/activity` 전체화면으로 navigate 해 우측 슬롯의 ActivityInboxPanel
  * 이 영영 마운트되지 않는 死코드였다. 이제 `toggleActivityInbox` 로 우측 슬롯을
- * Inbox 패널로 열고/닫는다(aria-expanded 로 상태 노출). 배지는 미읽 멘션 수
+ * Inbox 패널로 열고/닫는다(aria-expanded 로 상태 노출). 배지는 읽지 않음 멘션 수
  * (badgeStore.totalMention — 서버 진실값·뮤트 제외)를 우선하고, 없으면 활동
  * unread-counts 합계로 폴백한다(채널 컨텍스트 외에서도 합리적 근사).
  */

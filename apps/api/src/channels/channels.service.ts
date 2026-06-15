@@ -1009,7 +1009,7 @@ export class ChannelsService {
 
   /**
    * S14 (FR-CH-07): 채널 탈퇴. 호출자 본인의 USER override 행을 제거한다.
-   * 읽기 상태(UserChannelReadState)는 보존한다 — 재가입 시 미읽음 누적이
+   * 읽기 상태(UserChannelReadState)는 보존한다 — 재가입 시 읽지 않음 누적이
    * 복원되도록(FR-CH-07 명시 요구). override 가 없으면(=채널 멤버가 아님)
    * CHANNEL_NOT_MEMBER(409). member_removed 이벤트로 사이드바 갱신.
    */

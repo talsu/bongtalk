@@ -126,12 +126,12 @@ export const ThreadSummarySchema = z.object({
   // 직렬화한다(런타임 정합은 OK, 명칭만 다름 — 혼동 방지용 주석).
   lastRepliedAt: z.string().datetime().nullable(),
   recentReplyUserIds: z.array(z.string().uuid()).max(5),
-  // S36 (FR-TH-04 / FR-TH-11 / FR-RS-12): per-viewer 스레드 미읽 여부. reply bar
+  // S36 (FR-TH-04 / FR-TH-11 / FR-RS-12): per-viewer 스레드 읽지 않음 여부. reply bar
   // (qf-thread-chip)에 파란 unread dot 을 띄울지 결정한다. 채널 메시지 목록
   // read-path 가 viewer 의 ThreadReadState 와 배치 조인해 산정한다(N+1 없음 —
   // 루트 집합 단일 쿼리). 이 viewer 정보가 없는 경로(WS dispatcher 가 합성하는
   // ThreadSummary, broadcast)는 false 폴백 — default(false) 라 forward-compat.
-  // boolean 인 이유: 정확한 미읽 카운트는 패널을 열 때 계산하면 충분하고, chip
+  // boolean 인 이유: 정확한 읽지 않음 카운트는 패널을 열 때 계산하면 충분하고, chip
   // 은 "안 읽은 답글이 있다" 만 시각화하면 되기 때문(denormalized count 컬럼은
   // 두지 않는다는 S36 옵션 B 결정과 일관 — count 표시는 Threads 탭 S38).
   hasUnread: z.boolean().default(false),
@@ -519,7 +519,7 @@ export const ListThreadRepliesQuerySchema = z.object({
 export type ListThreadRepliesQuery = z.infer<typeof ListThreadRepliesQuerySchema>;
 
 // S36 (FR-TH-18): viewer 의 스레드 읽음 커서. lastReadMessageId 가 있으면
-// 프론트가 그 다음 첫 미읽 답글로 초기 스크롤, null 이면 최하단으로 스크롤한다.
+// 프론트가 그 다음 첫 읽지 않음 답글로 초기 스크롤, null 이면 최하단으로 스크롤한다.
 export const ThreadReadStateDtoSchema = z.object({
   lastReadMessageId: z.string().uuid().nullable(),
 });
@@ -588,7 +588,7 @@ export const ThreadListItemSchema = z.object({
   latestReplyAt: z.string().datetime().nullable(),
   // 마지막 답글 작성자 userId. 답글 0개면 null.
   lastReplierId: z.string().uuid().nullable(),
-  // 옵션 B 계산값(denormalized 컬럼 없음). 미읽 답글 수.
+  // 옵션 B 계산값(denormalized 컬럼 없음). 읽지 않음 답글 수.
   unreadCount: z.number().int().nonnegative(),
   notificationLevel: ThreadNotificationLevelSchema,
 });

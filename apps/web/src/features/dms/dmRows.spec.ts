@@ -43,7 +43,7 @@ function grp(
     lastMessageAt,
     lastMessagePreview: 'group hi',
     createdAt: '2025-01-01T00:00:00.000Z',
-    // 072 백로그 S-E (FR-DM-15): 그룹 DM 도 미읽음/멘션 수를 갖는다.
+    // 072 백로그 S-E (FR-DM-15): 그룹 DM 도 읽지 않음/멘션 수를 갖는다.
     unreadCount: opts.unreadCount ?? 0,
     mentionCount: opts.mentionCount ?? 0,
   };

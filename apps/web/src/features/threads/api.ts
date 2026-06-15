@@ -26,7 +26,7 @@ export function listThreadReplies(
 /**
  * S36 (FR-RS-12 / FR-TH-12): 스레드 읽음 ACK. 패널 mount + 최하단 스크롤 시
  * 호출해 ThreadReadState 를 마지막으로 본 답글까지 monotonic 전진시킨다(채널
- * 미읽과 독립). 204 (본문 없음). 퇴행 ack 는 서버가 no-op 처리하므로 클라가
+ * 읽지 않음과 독립). 204 (본문 없음). 퇴행 ack 는 서버가 no-op 처리하므로 클라가
  * 디바운스를 빠뜨려도 안전하다.
  */
 export function ackThread(messageId: string, lastReadMessageId: string): Promise<void> {
@@ -52,7 +52,7 @@ export function setThreadNotificationLevel(
 }
 
 /**
- * S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭). 미읽 우선, latestReplyAt DESC.
+ * S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭). 읽지 않음 우선, latestReplyAt DESC.
  */
 export function listMyThreads(): Promise<ListMyThreadsResponse> {
   return apiRequest(`/users/me/threads`);

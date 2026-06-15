@@ -91,7 +91,7 @@ export function useSetThreadNotificationLevel(rootId: string) {
 }
 
 /**
- * S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭). 미읽 우선, latestReplyAt DESC.
+ * S38 (FR-TH-09): 내 구독 스레드 목록(Threads 탭). 읽지 않음 우선, latestReplyAt DESC.
  */
 export function useMyThreads(enabled = true) {
   return useQuery<ListMyThreadsResponse>({
@@ -103,7 +103,7 @@ export function useMyThreads(enabled = true) {
 
 /**
  * S38 (FR-TH-10): 내 구독 스레드 전체 읽음 처리. 성공 시 목록 캐시를 무효화해
- * 미읽 badge 를 0 으로 재수렴시킨다.
+ * 읽지 않음 badge 를 0 으로 재수렴시킨다.
  */
 export function useMarkAllThreadsRead() {
   const qc = useQueryClient();

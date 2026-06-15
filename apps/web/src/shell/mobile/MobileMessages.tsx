@@ -21,7 +21,7 @@ import {
   useUpdateMessage,
   useSendMessage,
 } from '../../features/messages/useMessages';
-// 071-M1 D9: 시트 액션 확장 — 저장/리마인더/신고/미읽음/핀은 데스크톱 모듈 재사용.
+// 071-M1 D9: 시트 액션 확장 — 저장/리마인더/신고/읽지 않음/핀은 데스크톱 모듈 재사용.
 import {
   useInitSavedStatus,
   useToggleSave,
@@ -51,7 +51,7 @@ import {
   zeroOutChannelUnread,
   type UnreadChannelSummary,
 } from '../../features/channels/useUnread';
-// 071-M1 D6: 첫 미읽 위치(count 역산)·점프 pill 판정 — 데스크톱 순수 함수 공유.
+// 071-M1 D6: 첫 읽지 않음 위치(count 역산)·점프 pill 판정 — 데스크톱 순수 함수 공유.
 // 071-M5 H16 (감사 B-59 잔여): shouldShowJumpPill 도 데스크톱 정본을 공유한다.
 import { computeFirstUnreadIndex, shouldShowJumpPill } from '../../features/messages/newMessages';
 import { useSearchParams } from 'react-router-dom';
@@ -316,7 +316,7 @@ export function MobileMessages({
     if (history.hasNextPage && !history.isFetchingNextPage) void history.fetchNextPage();
   });
 
-  // 071-M1 D6(FR-RS-06): 첫 미읽 구분선 입력 스냅샷. 아래 zero-out 효과가 캐시를
+  // 071-M1 D6(FR-RS-06): 첫 읽지 않음 구분선 입력 스냅샷. 아래 zero-out 효과가 캐시를
   // 0 으로 누르기 *전에* 채널 진입 시점의 unreadCount 를 고정한다(효과 선언 순서로
   // 보장 — 이 효과가 먼저 실행됨). summary 에 lastReadMessageId 가 없으므로
   // computeFirstUnreadIndex 의 count 역산 폴백을 쓴다.
@@ -345,7 +345,7 @@ export function MobileMessages({
     });
   }, [messages, channelId, unreadSnap]);
 
-  // 071-M5 H16 (감사 B-59 잔여 · FR-RS-07): 첫 미읽 점프 pill — 데스크톱 정본
+  // 071-M5 H16 (감사 B-59 잔여 · FR-RS-07): 첫 읽지 않음 점프 pill — 데스크톱 정본
   // shouldShowJumpPill 재사용. 모바일 리스트는 비가상화라 '구분선이 뷰포트 위로
   // 벗어남'을 DOM 실측(getBoundingClientRect)으로 판정해 동일 인덱스 비교식의
   // 입력으로 환산한다(구분선 위면 firstRendered=divider+1 — 판정식 단일 출처 유지).
@@ -374,7 +374,7 @@ export function MobileMessages({
     recomputeJumpPillRef.current();
   }, [firstUnreadIndex, messages.length, channelId]);
 
-  // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 미읽음/멘션
+  // A-4(071-M0 C10): 모바일은 읽음 ACK 를 전혀 보내지 않아 모바일로 읽어도 읽지 않음/멘션
   // 배지가 영구 잔존했다 — 데스크톱 MessageColumn 의 채널-open 패턴(낙관적 zero-out +
   // POST read-ack)을 동일 적용한다. DM(workspaceId=null)은 데스크톱과 같은 이유로 스킵,
   // 커서 기반 정밀 ACK(FR-RS-02 AckScheduler)는 M1 범위.
@@ -625,7 +625,7 @@ export function MobileMessages({
                 <DayDivider iso={m.createdAt} />
               ) : null;
             {
-              /* D6(FR-RS-06): 첫 미읽 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */
+              /* D6(FR-RS-06): 첫 읽지 않은 메시지 위에 NEW MESSAGES 경계(DS qf-m-unread-divider). */
             }
             const unreadDivider =
               firstUnreadIndex === i ? (
@@ -700,7 +700,7 @@ export function MobileMessages({
                     type="button"
                     data-testid={`mobile-thread-chip-${m.id}`}
                     className="qf-thread-chip ml-[calc(var(--m-gutter)+40px+12px)]"
-                    // 071-M5 H17a (감사 B-62): 미읽 답글 절을 aria-label 앞에 추가 —
+                    // 071-M5 H17a (감사 B-62): 읽지 않음 답글 절을 aria-label 앞에 추가 —
                     // 데스크톱 MessageItem chip 과 동일(dot 은 aria-hidden, 중복 발화 방지).
                     aria-label={`${m.thread.hasUnread ? '안 읽은 답글 · ' : ''}${m.thread.replyCount}개 답글 보기`}
                     onClick={() => {
@@ -708,7 +708,7 @@ export function MobileMessages({
                       setThreadRootId(m.id);
                     }}
                   >
-                    {/* 071-M5 H17a (감사 B-62): per-viewer 미읽 답글 dot — 데스크톱 정본
+                    {/* 071-M5 H17a (감사 B-62): per-viewer 읽지 않음 답글 dot — 데스크톱 정본
                       (MessageItem thread-unread-dot) 최소 파생. DS 토큰만(--accent/
                       --r-pill/--s-3, raw hex/px 없음). 아바타·마지막 답글 시각은 생략. */}
                     {m.thread.hasUnread ? (
@@ -915,12 +915,12 @@ export function MobileMessages({
                   markUnreadMut
                     .mutateAsync({ channelId, messageId: sheetMsg.id })
                     .then(() =>
-                      pushToast({ variant: 'success', title: '미읽음으로 표시', ttlMs: 2000 }),
+                      pushToast({ variant: 'success', title: '읽지 않음으로 표시', ttlMs: 2000 }),
                     )
                     .catch(() =>
                       pushToast({
                         variant: 'warning',
-                        title: '미읽음 표시 실패',
+                        title: '읽지 않음 표시 실패',
                         body: '잠시 후 다시 시도하세요.',
                         ttlMs: 4000,
                       }),

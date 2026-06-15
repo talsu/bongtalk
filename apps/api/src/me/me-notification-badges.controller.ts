@@ -13,7 +13,7 @@ import {
  * (reconnect) 또는 탭 포커스 복귀(visibilitychange) 시 1회 호출해 낙관적 카운트를
  * 서버 진실값으로 재동기화한다(30초 polling 미사용 — FR-MN-20). isMuted 채널/서버는
  * 카운트에서 제외된다(서비스 게이트). `/me/unread-totals` 와 역할이 다르다(그쪽은
- * 사이드바 미읽 레일, 뮤트 무관).
+ * 사이드바 읽지 않음 레일, 뮤트 무관).
  */
 @UseGuards(JwtAuthGuard)
 @Controller('me')

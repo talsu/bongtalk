@@ -157,7 +157,7 @@ describe('QuickSwitcher (FR-KS-01/02/03/11)', () => {
     render(<QuickSwitcher />);
     const list = screen.getByRole('listbox');
     const text = list.textContent ?? '';
-    // 최근(random) + 미읽(design) 이 기본 화면에 노출.
+    // 최근(random) + 읽지 않음(design) 이 기본 화면에 노출.
     expect(text).toContain('random');
     expect(text).toContain('design');
   });
@@ -271,7 +271,7 @@ describe('QuickSwitcher option metadata', () => {
     render(<QuickSwitcher />);
     fireEvent.change(screen.getByTestId('quick-switcher-input'), { target: { value: '#design' } });
     const option = screen.getByRole('option');
-    expect(within(option).getByText(/미읽음 3/)).toBeTruthy();
+    expect(within(option).getByText(/읽지 않음 3/)).toBeTruthy();
   });
 });
 
@@ -301,7 +301,7 @@ describe('QuickSwitcher a11y (S82a fix-forward)', () => {
     render(<QuickSwitcher />);
     fireEvent.change(screen.getByTestId('quick-switcher-input'), { target: { value: '#design' } });
     const option = screen.getByRole('option');
-    expect(option.getAttribute('aria-label')).toBe('채널: design, 미읽음 3');
+    expect(option.getAttribute('aria-label')).toBe('채널: design, 읽지 않음 3');
   });
 
   it('labels member options with the 멤버 kind prefix (a11y #6/#9)', () => {
@@ -339,7 +339,7 @@ describe('QuickSwitcher recency / dedupe (S82a reviewer MED-1)', () => {
         },
       ],
     };
-    // 채널/미읽 없음 → 기본 화면은 최근 DM(=멤버 행)만.
+    // 채널/읽지 않음 없음 → 기본 화면은 최근 DM(=멤버 행)만.
     channelsData = { categories: [], uncategorized: [] };
     unreadData = { channels: [] };
     render(<QuickSwitcher />);

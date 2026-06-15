@@ -26,13 +26,13 @@ type Props = {
  *  - mentionCount 있는 채널 우선 → 최신 활동순 정렬(unreadsView 순수 로직 재사용).
  *  - 각 채널 블록에 "읽음 처리" 버튼(채널 최신까지 ACK 전진 = markRead 재사용).
  *  - 하단 "모두 읽음" → read-all 호출 → 5초 Undo 토스트("실행 취소" → undo).
- *  - 미읽 없으면 empty state("모든 채널을 읽으셨습니다").
+ *  - 읽지 않음 없으면 empty state("모든 채널을 읽으셨습니다").
  *  - 커서 페이지네이션("더 보기")은 클라 캐시 기반(paginateUnreads).
  *  - DS 기존 클래스만(qf-channel / qf-badge / qf-btn / qf-category) — 신규 0.
  */
 export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element | null {
   const { data: unread } = useUnreadSummary(workspaceId);
-  // 072 백로그 S-I (FR-RS-10 / N6-1): 채널별 최근 미읽 메시지 미리보기(작성자+본문). 배지는
+  // 072 백로그 S-I (FR-RS-10 / N6-1): 채널별 최근 읽지 않은 메시지 미리보기(작성자+본문). 배지는
   // useUnreadSummary(라이브 patch), 미리보기 본문은 이 엔드포인트(30s/포커스 + message.created 무효화).
   const { data: previewData } = useUnreadsPreview(workspaceId);
   const { data: channelData } = useChannelList(workspaceId);
@@ -55,7 +55,7 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
   }, [channelData]);
 
   // 072 백로그 S-B (FR-CH-04): 보관 채널은 '읽지 않음' 뷰에서도 제외(사이드바 숨김과 정합,
-  // 유령 미읽음 행 방지). archivedAt 집합을 채널 데이터에서 만든다.
+  // 유령 읽지 않음 행 방지). archivedAt 집합을 채널 데이터에서 만든다.
   const archivedSet = useMemo(() => {
     const s = new Set<string>();
     for (const c of [
@@ -73,7 +73,7 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
   );
   const page = useMemo(() => paginateUnreads(sorted, cursor, PAGE_SIZE), [sorted, cursor]);
 
-  // 072 백로그 S-I: channelId → 최근 미읽 메시지 1건(미리보기 라인). messages 는 newest-first 라 [0].
+  // 072 백로그 S-I: channelId → 최근 읽지 않은 메시지 1건(미리보기 라인). messages 는 newest-first 라 [0].
   const previewByChannel = useMemo(() => {
     const m = new Map<
       string,
@@ -141,7 +141,7 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
       <ul>
         {page.rows.map((row) => {
           const name = nameById.get(row.channelId) ?? row.channelId.slice(0, 6);
-          // 072 백로그 S-I: 최근 미읽 메시지 미리보기 라인(있으면 채널명 아래 1줄).
+          // 072 백로그 S-I: 최근 읽지 않은 메시지 미리보기 라인(있으면 채널명 아래 1줄).
           const pl = previewLine(row.channelId);
           return (
             <li
@@ -189,7 +189,7 @@ export function UnreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
                   </button>
                 </span>
               </div>
-              {/* 072 백로그 S-I: 최근 미읽 메시지 미리보기(작성자: 내용 / 차단 마스킹). */}
+              {/* 072 백로그 S-I: 최근 읽지 않은 메시지 미리보기(작성자: 내용 / 차단 마스킹). */}
               {pl ? (
                 <div
                   data-testid={`unread-preview-${name}`}

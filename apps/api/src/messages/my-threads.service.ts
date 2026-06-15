@@ -12,7 +12,7 @@ import type { ThreadListItem, ThreadNotificationLevel } from '@qufox/shared-type
  *
  * unread = 옵션 B 계산(S36 결정 계속). ThreadReadState 에 denormalized
  * unreadCount 컬럼을 두지 않고, GET 응답서 (createdAt, id) 튜플 커서 기준
- * COUNT 로 산정한다 — 채널 미읽 철학(drift 원천 차단)과 정합. 미읽 공식은
+ * COUNT 로 산정한다 — 채널 읽지 않음 철학(drift 원천 차단)과 정합. 읽지 않음 공식은
  * ThreadReadStateService.unreadCountFor 와 동일하다(isBroadcast=false ·
  * deletedAt 제외 · 튜플 비교).
  *
@@ -30,7 +30,7 @@ export class MyThreadsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * FR-TH-09: 내 구독 스레드 목록. 미읽(unread>0) 우선, 그 안에서 latestReplyAt
+   * FR-TH-09: 내 구독 스레드 목록. 읽지 않음(unread>0) 우선, 그 안에서 latestReplyAt
    * DESC. 단일 쿼리(ThreadSubscription JOIN Message JOIN Channel + ThreadReadState
    * LEFT JOIN + unread COUNT 서브쿼리 + 마지막 답글자 LATERAL). 채널 멤버십/가시성
    * ACL 필터로 탈퇴/비공개 비멤버 스레드를 제외한다.
@@ -149,7 +149,7 @@ export class MyThreadsService {
       LEFT JOIN "ThreadReadState" rs
         ON rs."userId" = ${userId}::uuid
        AND rs."parentMessageId" = v.parent_id
-      -- 미읽 답글 수(옵션 B 계산 — unreadCountFor 와 동일 술어).
+      -- 읽지 않음 답글 수(옵션 B 계산 — unreadCountFor 와 동일 술어).
       LEFT JOIN LATERAL (
         SELECT count(*) AS unread_count
           FROM "Message" msg
@@ -171,7 +171,7 @@ export class MyThreadsService {
          ORDER BY msg."createdAt" DESC, msg.id DESC
          LIMIT 1
       ) lr ON true
-      -- 미읽 우선(unread>0) DESC → 그 안 latestReplyAt DESC(답글 없으면 후순위).
+      -- 읽지 않음 우선(unread>0) DESC → 그 안 latestReplyAt DESC(답글 없으면 후순위).
       ORDER BY
         (COALESCE(uc.unread_count, 0) > 0) DESC,
         v.latest_reply_at DESC NULLS LAST,

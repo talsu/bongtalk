@@ -8,26 +8,26 @@ import { ErrorCode } from '../common/errors/error-code.enum';
 /**
  * S36 (D04·D09 / FR-RS-12 / FR-TH-04/11/12) — 스레드 단위 읽음 상태 코어.
  *
- * 채널 미읽(UnreadService)과 **독립적으로** 스레드 미읽을 추적하며, 동일한
+ * 채널 읽지 않음(UnreadService)과 **독립적으로** 스레드 읽지 않음을 추적하며, 동일한
  * (createdAt, id) 튜플 커서 공식(S11)을 공유한다. Message.id 가 랜덤 uuid
- * (비정렬)라 `id >` 단독 비교가 메시지 순서와 무관하므로, 미읽 판정은
- * (createdAt, id) 튜플로 한다(채널 미읽·메시지 커서 페이지네이션과 정합).
+ * (비정렬)라 `id >` 단독 비교가 메시지 순서와 무관하므로, 읽지 않음 판정은
+ * (createdAt, id) 튜플로 한다(채널 읽지 않음·메시지 커서 페이지네이션과 정합).
  *
- * ── 미읽 공식 (FR-TH-11 / FR-RS-12) ──
+ * ── 읽지 않음 공식 (FR-TH-11 / FR-RS-12) ──
  *   thread-unread ⇔ COUNT(*) FROM "Message"
  *      WHERE "parentMessageId" = :rootId
- *        AND "isBroadcast" = false        -- broadcast 행은 채널 미읽에만 산입
+ *        AND "isBroadcast" = false        -- broadcast 행은 채널 읽지 않음에만 산입
  *                                         --   (FR-TH-14 중복집계 금지)
- *        AND "deletedAt" IS NULL          -- 삭제 답글 제외(채널 미읽과 일관)
+ *        AND "deletedAt" IS NULL          -- 삭제 답글 제외(채널 읽지 않음과 일관)
  *        AND ("createdAt","id") > (:lastReadAt, :lastReadMessageId)
  *
  * ThreadReadState 행이 없거나 커서가 NULL 이면 LEFT JOIN 이 NULL 을 만들고
- * 튜플 비교가 "전부 미읽음" 으로 평가된다(신규 스레드 UX 일치 — 전체 답글 수).
- * 자기 답글도 미읽음으로 집계한다(채널 미읽 정책 — senderId 제외 없음 — 정합).
+ * 튜플 비교가 "전부 읽지 않음" 으로 평가된다(신규 스레드 UX 일치 — 전체 답글 수).
+ * 자기 답글도 읽지 않음으로 집계한다(채널 읽지 않음 정책 — senderId 제외 없음 — 정합).
  *
  * ── unreadCount = 계산(옵션 B) ──
  * ThreadReadState 에는 튜플 커서만 저장하고 denormalized unreadCount 컬럼은
- * 두지 않는다. 미읽 수/여부는 조회 시 SQL COUNT 로 계산해 drift 를 원천 차단한다
+ * 두지 않는다. 읽지 않음 수/여부는 조회 시 SQL COUNT 로 계산해 drift 를 원천 차단한다
  * (S11 채널-unread 철학 정합). denormalized unreadCount 컬럼 + Threads 탭
  * (FR-TH-09/10)은 S38 carryover.
  */
@@ -36,7 +36,7 @@ export class ThreadReadStateService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * FR-TH-11 / FR-RS-12: 단일 스레드의 viewer 미읽 답글 수. ThreadReadState 가
+   * FR-TH-11 / FR-RS-12: 단일 스레드의 viewer 읽지 않음 답글 수. ThreadReadState 가
    * 없으면(LEFT JOIN NULL) 비삭제·비broadcast 답글 전체 수를 반환한다. ACL 은
    * 호출측(threads.controller 의 requireRead)이 이미 통과시킨다.
    */
@@ -68,7 +68,7 @@ export class ThreadReadStateService {
   /**
    * FR-TH-12 / FR-RS-12: 스레드 읽음 ACK. monotonic (createdAt, id) 튜플 upsert —
    * 저장된 커서보다 strictly 큰 ack 일 때만 전진한다(퇴행 ack 는 no-op, 멀티세션
-   * 동시 ACK 가 後進하지 않음). 채널 미읽 ackRead 의 guard 패턴과 동일.
+   * 동시 ACK 가 後進하지 않음). 채널 읽지 않음 ackRead 의 guard 패턴과 동일.
    *
    *  1. lastReadMessageId 가 이 스레드(parentMessageId) 소속 답글인지 검증
    *     (아니면 404). broadcast 행은 채널 타임라인 복제본이라 스레드 커서로
@@ -123,7 +123,7 @@ export class ThreadReadStateService {
 
   /**
    * FR-TH-18: ThreadReadState 의 현재 커서를 조회한다(프론트 초기 스크롤 앵커용 —
-   * lastReadMessageId 다음 첫 미읽 답글 위치). 행이 없으면 null(전체 미읽 →
+   * lastReadMessageId 다음 첫 읽지 않음 답글 위치). 행이 없으면 null(전체 읽지 않음 →
    * 최하단 스크롤). 스레드 패널 GET 응답에 실어 보낸다.
    */
   async cursorFor(

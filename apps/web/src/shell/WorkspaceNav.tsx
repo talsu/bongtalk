@@ -63,7 +63,7 @@ export function WorkspaceNav({ workspaces, activeSlug }: Props): JSX.Element {
         const active = ws.slug === activeSlug;
         const badgeAria = serverButtonBadgeAria(badge);
         // a11y(S22 review #2): `<Link aria-label>` 가 자식 배지의 aria-label 을
-        // 가려 스크린리더가 미읽음/멘션 수를 읽지 못한다. Link 의 접근명에
+        // 가려 스크린리더가 읽지 않음/멘션 수를 읽지 못한다. Link 의 접근명에
         // 배지 텍스트를 합성하고, 배지 span 은 aria-hidden 으로 둬 중복 통지를
         // 막는다.
         const linkAria = badgeAria ? `${ws.name}, ${badgeAria}` : ws.name;

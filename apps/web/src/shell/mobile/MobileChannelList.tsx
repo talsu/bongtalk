@@ -2,7 +2,7 @@ import { useMemo, useRef, useState, type TouchEvent } from 'react';
 import { Link } from 'react-router-dom';
 import type { Workspace } from '@qufox/shared-types';
 import { useChannelList } from '../../features/channels/useChannels';
-// 071-M5 H18 (감사 B-63): 레일 멘션/미읽 뱃지 — 데스크톱 WorkspaceNav 정본 소스 재사용
+// 071-M5 H18 (감사 B-63): 레일 멘션/읽지 않음 뱃지 — 데스크톱 WorkspaceNav 정본 소스 재사용
 // (badgeStore 우선 + unreadTotals 폴백, 뮤트 제외 서버 진실값 + 순수 파생 함수).
 import { useWorkspaceUnreadTotals } from '../../features/workspaces/useUnreadTotals';
 import { useBadgeStore } from '../../features/notifications/badgeStore';
@@ -89,7 +89,7 @@ export function MobileChannelList({
   // 071-M5 H18 (감사 B-63): 워크스페이스 레일 뱃지 소스 — WorkspaceNav 와 동일하게
   // badgeStore 항목이 있으면(연결 후 재동기화) 그 값을, 없으면 unreadTotals 폴백.
   // 진행 노트: 탭바는 인박스 합계 단일 임계(PRD M4 FR-MN-14 '현 구현' 명문화)라 B-45
-  // 슬라이스 합류 전까지 레일의 멘션/미읽 분리 신호와 의미 체계가 일시 공존한다.
+  // 슬라이스 합류 전까지 레일의 멘션/읽지 않음 분리 신호와 의미 체계가 일시 공존한다.
   const { data: totals } = useWorkspaceUnreadTotals();
   const badgeByWs = useBadgeStore((s) => s.byWorkspace);
   const unreadByWs = useMemo(() => {
@@ -368,7 +368,7 @@ export function MobileChannelList({
 
 /**
  * 071-M5 H18 (감사 B-63): 레일 아바타 우상단 오버레이 뱃지. 의미 분리는 ChannelRow 뱃지와
- * 동일 — 멘션은 danger 토큰 배경(--badge-mention-bg), 일반 미읽음은 기본 count 뱃지
+ * 동일 — 멘션은 danger 토큰 배경(--badge-mention-bg), 일반 읽지 않음은 기본 count 뱃지
  * (violet). 접근명은 부모 Link aria-label 에 합성하므로 뱃지 자체는 aria-hidden
  * (데스크톱 WorkspaceNav a11y S22 review #2 정본).
  */
@@ -406,13 +406,13 @@ function ChannelRow({
   name: string;
   active: boolean;
   unread?: { count: number; mention: boolean };
-  /** F5: 활성 뮤트 — bell-off + 흐림 + 미읽음 강조/배지 억제(감사 B-12). */
+  /** F5: 활성 뮤트 — bell-off + 흐림 + 읽지 않음 강조/배지 억제(감사 B-12). */
   muted?: boolean;
   onPick: () => void;
   /** F5: 롱프레스(500ms) — 채널 옵션 시트. */
   onLongPress?: () => void;
 }): JSX.Element {
-  // F5: 뮤트 채널은 미읽음 강조를 억제한다(데스크톱 showUnreadStyle 규칙).
+  // F5: 뮤트 채널은 읽지 않음 강조를 억제한다(데스크톱 showUnreadStyle 규칙).
   const hasUnread = (unread?.count ?? 0) > 0 && !muted;
   // ★F11 리뷰 H-3 (FR-RS-05): 멘션 배지는 뮤트를 바이패스한다 — 데스크톱 정본
   // (sidebarRowState.deriveSidebarRowState)은 mute 가 행 스타일만 억제하고
@@ -500,7 +500,7 @@ function ChannelRow({
         <div className="qf-m-row__aside">
           {showBadge ? (
             // 071-M2 E5 (감사 B-43): 뱃지 의미 분리 — 멘션은 danger 토큰 배경
-            // (--badge-mention-bg), 일반 미읽음은 기본 count 뱃지(violet).
+            // (--badge-mention-bg), 일반 읽지 않음은 기본 count 뱃지(violet).
             <span
               className="qf-badge qf-badge--count"
               style={unread?.mention ? { background: 'var(--badge-mention-bg)' } : undefined}

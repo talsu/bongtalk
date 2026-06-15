@@ -38,7 +38,7 @@ export class UnreadSummaryController {
   }
 
   /**
-   * 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 미읽(>0) 채널 + 채널별 최근 미읽
+   * 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 읽지 않음(>0) 채널 + 채널별 최근 읽지 않음
    * 메시지 ≤5(작성자 + 본문 미리보기, 차단 마스킹) + cursor 페이지네이션. 워크스페이스 멤버
    * 누구나(summarize 가 채널별 READ ACL 을 이미 강제). cursor/limit 은 쿼리 파라미터.
    */
