@@ -33,7 +33,7 @@ describe('computeFirstUnreadIndex (FR-RS-06)', () => {
     expect(computeFirstUnreadIndex(input)).toBe(3); // m4
   });
 
-  it('미읽이 없으면(unreadCount 0) null — 구분선 미표시', () => {
+  it('읽지 않음이 없으면(unreadCount 0) null — 구분선 미표시', () => {
     const input: FirstUnreadInput = {
       messageIds: ids,
       lastReadMessageId: 'm5',
@@ -54,13 +54,13 @@ describe('computeFirstUnreadIndex (FR-RS-06)', () => {
 
   it('lastReadMessageId 가 배열에 없고 unreadCount 로 끝에서 역산', () => {
     // around-reload 로 lastRead 메시지가 윈도우 밖이거나 store 미보유 →
-    // unreadCount 만큼이 미읽: 끝에서 unreadCount 번째가 firstUnread.
+    // unreadCount 만큼이 읽지 않음: 끝에서 unreadCount 번째가 firstUnread.
     const input: FirstUnreadInput = {
       messageIds: ids,
       lastReadMessageId: null,
       unreadCount: 2,
     };
-    expect(computeFirstUnreadIndex(input)).toBe(3); // m4, m5 가 미읽
+    expect(computeFirstUnreadIndex(input)).toBe(3); // m4, m5 가 읽지 않음
   });
 
   it('lastReadMessageId 미보유 + unreadCount 가 전체보다 크면 index 0', () => {
@@ -175,7 +175,7 @@ describe('buildRowPlan — 구분선 별도 행 삽입(FR-RS-06 가상화)', () 
     expect(messageIndexForVirtualIndex(plan, 5)).toBe(4);
   });
 
-  it('구분선이 index 0(전부 미읽)이면 맨 앞 가상행이 구분선', () => {
+  it('구분선이 index 0(전부 읽지 않음)이면 맨 앞 가상행이 구분선', () => {
     const plan = buildRowPlan({ messageCount: 3, dividerIndex: 0 });
     expect(plan.count).toBe(4);
     expect(virtualIndexForDivider(plan)).toBe(0);
@@ -245,7 +245,7 @@ describe('captureUnreadSnapshot — cold 캐시 구분선(S23 MAJOR fix)', () =>
     ).toBe(3);
   });
 
-  it('cold + lastRead 둘 다 없으면 구분선 미표시(미읽 0)', () => {
+  it('cold + lastRead 둘 다 없으면 구분선 미표시(읽지 않음 0)', () => {
     const snap = captureUnreadSnapshot({ cachedUnreadCount: undefined, lastReadMessageId: null });
     expect(snap).toEqual({ unreadCount: 0, lastReadMessageId: null });
     expect(

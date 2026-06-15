@@ -223,7 +223,7 @@
       <a class="sidebar__link" data-page="D06-mentions-notif" onclick="nav('D06-mentions-notif')"><span class="n">D06</span> 멘션, 알림</a>
       <a class="sidebar__link" data-page="D07-search" onclick="nav('D07-search')"><span class="n">D07</span> 검색</a>
       <a class="sidebar__link" data-page="D08-presence-status" onclick="nav('D08-presence-status')"><span class="n">D08</span> 프레즌스, 상태</a>
-      <a class="sidebar__link" data-page="D09-readstate" onclick="nav('D09-readstate')"><span class="n">D09</span> 읽음, 미읽</a>
+      <a class="sidebar__link" data-page="D09-readstate" onclick="nav('D09-readstate')"><span class="n">D09</span> 읽음, 읽지 않음</a>
       <a class="sidebar__link" data-page="D10-pins-saved" onclick="nav('D10-pins-saved')"><span class="n">D10</span> 핀, 저장</a>
       <a class="sidebar__link" data-page="D11-attachments" onclick="nav('D11-attachments')"><span class="n">D11</span> 첨부, 미디어</a>
       <a class="sidebar__link" data-page="D12-roles-moderation" onclick="nav('D12-roles-moderation')"><span class="n">D12</span> 역할, 모더레이션</a>
@@ -257,7 +257,7 @@
       <li>신규 사용자가 가입 → 서버 참여 → 첫 메시지까지 막힘 없이 도달</li>
       <li>채널/DM/스레드에서 메시지 송수신, 편집, 삭제, 반응, 멘션이 P95 200ms 내 반영</li>
       <li>검색으로 과거 메시지를 필터와 함께 찾고 해당 위치로 점프</li>
-      <li>미읽/멘션이 정확히 추적되고 "Catch Up"으로 따라잡기 가능</li>
+      <li>읽지 않음/멘션이 정확히 추적되고 "Catch Up"으로 따라잡기 가능</li>
       <li>역할, 권한으로 채널 접근과 모더레이션이 통제됨</li>
       <li>데스크톱과 모바일 양쪽에서 동선이 Slack/Discord에 밀리지 않음</li>
     </ul>
@@ -281,7 +281,7 @@
           <li>메시징(작성, 편집, 삭제, 포맷, 코드, 인용)</li>
           <li>채널/카테고리, DM/그룹 DM, 스레드</li>
           <li>반응, 커스텀 이모지, 멘션, 알림</li>
-          <li>검색, 미읽/읽음, 핀/저장</li>
+          <li>검색, 읽지 않음/읽음, 핀/저장</li>
           <li>첨부/미디어(MinIO), 링크 unfurl</li>
           <li>기본 역할, 권한(P0: D12 FR-RM01~07 핵심 역할, ban, timeout) + 세분화 권한 UI(P2), 모더레이션, 워크스페이스/서버, 초대, 온보딩</li>
           <li>프로필, 상태, 설정, 슬래시 커맨드, 단축키</li>
@@ -338,7 +338,7 @@
         <tr>
           <td class="id qf-doc-prio qf-doc-prio--p0">P0</td>
           <td>핵심 채팅 루프</td>
-          <td>Auth(회원가입/로그인/리프레시 + <strong>emailVerified 워크스페이스 진입 게이트 — D13</strong>), 메시징(그루핑, 날짜구분선, 타임스탬프 포함), 채널, DM, 실시간, 읽음/미읽, 멘션/알림 기본, <strong>기본 역할, ban, timeout(D12 FR-RM01~07)</strong></td>
+          <td>Auth(회원가입/로그인/리프레시 + <strong>emailVerified 워크스페이스 진입 게이트 — D13</strong>), 메시징(그루핑, 날짜구분선, 타임스탬프 포함), 채널, DM, 실시간, 읽음/읽지 않음, 멘션/알림 기본, <strong>기본 역할, ban, timeout(D12 FR-RM01~07)</strong></td>
         </tr>
         <tr>
           <td class="id qf-doc-prio qf-doc-prio--p1">P1</td>
@@ -380,7 +380,7 @@
         </tr>
         <tr>
           <td><code class="qf-doc-code">Jump to First Unread</code></td>
-          <td>첫 미읽 메시지로 이동</td>
+          <td>첫 읽지 않은 메시지로 이동</td>
           <td><code class="qf-doc-code">chat.jumpToFirstUnread</code></td>
         </tr>
         <tr>
@@ -676,7 +676,7 @@
   </div>
 
   <p style="font-size:var(--fs-14); color:var(--text-secondary); line-height:var(--lh-normal); margin-bottom:var(--s-7);">
-    <b style="color:var(--text-strong);">데스크톱 내비 모델 —</b> 좌측 <b>.qf-serverlist</b> 가 워크스페이스(서버) 전환의 최상위 축이며, 선택된 서버는 accent 사각형 + 좌측 인디케이터로, 미읽/멘션은 서버 아이콘 모서리 <b>.qf-server-btn__unread</b> 뱃지로 누적 표시합니다(D06, D09, D17). 둘째 컬럼 <b>.qf-channellist</b> 는 그 서버 안의 카테고리, 채널, DM 위계를 담되, 검색, 인박스, 스레드, 저장됨 같은 횡단 뷰(D07, D06, D04, D10)를 본문 최상단 고정 항목으로 끌어올립니다. 채널 행은 미읽이면 <b>.qf-channel--unread</b>(볼드 + 좌측 pill), @멘션이면 <b>.qf-badge--count</b>, 뮤트면 italic + bell-off 로 상태를 이중 인코딩합니다(D02, D09). 가운데 캔버스는 <b>.qf-topbar</b> + 메시지 스트림 + <b>.qf-composer</b> 로 고정되고, 스레드, 핀, 검색은 우측 패널을 토글해 같은 캔버스 폭을 공유합니다(D04, D10, D07). 가장 우측 <b>.qf-memberlist</b> 는 hoist 역할 그룹 → 온라인 → 오프라인 순으로 프레즌스를 그룹핑합니다(D08, D12). 767px 이하(&lt;768px)에서는 멤버 리스트가 숨겨지고 모바일 셸로 전환됩니다(구현 기준: matchMedia '(max-width: 767px)' — apps/web/src/lib/useBreakpoint.ts).
+    <b style="color:var(--text-strong);">데스크톱 내비 모델 —</b> 좌측 <b>.qf-serverlist</b> 가 워크스페이스(서버) 전환의 최상위 축이며, 선택된 서버는 accent 사각형 + 좌측 인디케이터로, 읽지 않음/멘션은 서버 아이콘 모서리 <b>.qf-server-btn__unread</b> 뱃지로 누적 표시합니다(D06, D09, D17). 둘째 컬럼 <b>.qf-channellist</b> 는 그 서버 안의 카테고리, 채널, DM 위계를 담되, 검색, 인박스, 스레드, 저장됨 같은 횡단 뷰(D07, D06, D04, D10)를 본문 최상단 고정 항목으로 끌어올립니다. 채널 행은 읽지 않음이면 <b>.qf-channel--unread</b>(볼드 + 좌측 pill), @멘션이면 <b>.qf-badge--count</b>, 뮤트면 italic + bell-off 로 상태를 이중 인코딩합니다(D02, D09). 가운데 캔버스는 <b>.qf-topbar</b> + 메시지 스트림 + <b>.qf-composer</b> 로 고정되고, 스레드, 핀, 검색은 우측 패널을 토글해 같은 캔버스 폭을 공유합니다(D04, D10, D07). 가장 우측 <b>.qf-memberlist</b> 는 hoist 역할 그룹 → 온라인 → 오프라인 순으로 프레즌스를 그룹핑합니다(D08, D12). 767px 이하(&lt;768px)에서는 멤버 리스트가 숨겨지고 모바일 셸로 전환됩니다(구현 기준: matchMedia '(max-width: 767px)' — apps/web/src/lib/useBreakpoint.ts).
   </p>
 
   <!-- ───────────────── 워크스페이스 전환 동작 규칙 ───────────────── -->
@@ -688,7 +688,7 @@
       <b>FR-IA-WS-01</b> — <span class="qf-doc-prio qf-doc-prio--p0">P0</span> <b>마지막 활성 채널 기억</b>: 워크스페이스별로 마지막으로 활성화된 채널 ID를 <code>localStorage</code>의 <code>ws:{workspaceId}:lastChannel</code> 키에 저장하고, 동일 워크스페이스로 재진입할 때 해당 채널을 복원한다. 저장된 채널이 없거나 접근 권한이 없으면 서버의 기본 채널(최상단 공개 채널)로 폴백한다.
     </li>
     <li>
-      <b>FR-IA-WS-02</b> — <span class="qf-doc-prio qf-doc-prio--p1">P1</span> <b>스크롤 포지션 초기화</b>: 워크스페이스/채널 전환 시 이전 채널의 스크롤 위치를 유지, 복원하지 않는다. 진입 앵커는 D09 읽음 모델을 따른다: 미읽이 있으면 <b>첫 미읽(NEW MESSAGES 구분선) 위치를 우선 앵커</b>하고(AUTO_FROM_POSITION 기본 — FR-RS-06, D09 진입 모드 표 참조), 미읽이 없거나 읽기 모드가 *_FROM_LATEST면 최하단(최신 메시지)으로 초기화한다.
+      <b>FR-IA-WS-02</b> — <span class="qf-doc-prio qf-doc-prio--p1">P1</span> <b>스크롤 포지션 초기화</b>: 워크스페이스/채널 전환 시 이전 채널의 스크롤 위치를 유지, 복원하지 않는다. 진입 앵커는 D09 읽음 모델을 따른다: 읽지 않음이 있으면 <b>첫 읽지 않음(NEW MESSAGES 구분선) 위치를 우선 앵커</b>하고(AUTO_FROM_POSITION 기본 — FR-RS-06, D09 진입 모드 표 참조), 읽지 않음이 없거나 읽기 모드가 *_FROM_LATEST면 최하단(최신 메시지)으로 초기화한다.
     </li>
     <li>
       <b>FR-IA-WS-03</b> — <span class="qf-doc-prio qf-doc-prio--p1">P1</span> <b>전환 중 draft 처리</b>: 워크스페이스 전환 시 현재 컴포저의 미전송 draft를 <code>localStorage</code>의 <code>draft:{channelId}</code> 키에 자동 저장한다(FR-IA-STATE-05a 연계). 전환 후 다른 채널로 돌아올 때 해당 draft를 컴포저에 복원한다. draft 저장 실패 시 사용자에게 경고하지 않고 조용히 폐기한다(불필요한 인터럽트 방지).
@@ -698,7 +698,7 @@
     <li>워크스페이스 A → B → A 재진입 시 A에서 마지막으로 열었던 채널이 자동으로 활성화된다.</li>
     <li><code>localStorage['ws:{workspaceId}:lastChannel']</code> 키가 채널 전환마다 갱신된다.</li>
     <li>저장된 채널이 삭제, 접근 불가인 경우 기본 채널로 폴백하고 콘솔 에러가 발생하지 않는다.</li>
-    <li>미읽 없는 채널로 전환 시 최하단(scrollTop = scrollHeight)으로, 미읽 있는 채널로 전환 시(AUTO_FROM_POSITION) NEW MESSAGES 구분선 위치로 스크롤된다.</li>
+    <li>읽지 않음 없는 채널로 전환 시 최하단(scrollTop = scrollHeight)으로, 읽지 않음 있는 채널로 전환 시(AUTO_FROM_POSITION) NEW MESSAGES 구분선 위치로 스크롤된다.</li>
     <li>워크스페이스 전환 전 컴포저에 텍스트 입력 후 전환 → 복귀 시 동일 텍스트가 컴포저에 복원된다.</li>
     <li>draft 복원은 채널 뷰 마운트 시점에 즉시 반영된다(빈 컴포저가 먼저 보이지 않는다).</li>
   </ul>
@@ -873,7 +873,7 @@
   </div>
 
   <p style="font-size:var(--fs-14); color:var(--text-secondary); line-height:var(--lh-normal); margin-top:var(--s-5);">
-    <b style="color:var(--text-strong);">모바일 내비 모델 —</b> 데스크톱의 4컬럼은 모바일에서 <b>.qf-m-panels</b> 의 세 겹침 패널로 접힙니다. 기본은 <b>.qf-m-panel-center</b>(채널 뷰)만 보이고, 좌측 가장자리 스와이프로 <b>--show-left</b>(서버 헤더 + 채널 리스트)를, 멤버 버튼/우측 스와이프로 <b>--show-right</b>(멤버 리스트)를 끌어옵니다. 드로어가 열리면 center 위에 <b>.qf-m-drawer-scrim</b> 딤이 깔리고 탭하면 닫힙니다(D17의 fling/snap 제스처와 동일). 화면 하단 <b>.qf-m-tabbar</b> 는 앱 크롬으로 셸 레벨에 고정되어 채팅, 인박스, 스레드, 검색, 나 5개 1차 동선을 항상 노출합니다. 일반 미읽은 violet <b>.qf-m-tab__badge</b>, @멘션은 danger <b>--mention</b>, 약한 신호는 <b>.qf-m-tab__dot</b> 로 의미를 분리합니다(D06, D09). 채널 진입 시 <b>.qf-m-composer</b> 가 탭바 위에 붙고 키보드 인셋을 따라 떠오르며, 새 메시지 경계는 <b>.qf-m-unread-divider</b>, 하단 점프는 <b>.qf-m-jump-btn</b> 으로 안내합니다. 워크스페이스 설정은 <code>/w/:slug/settings</code> 예약 세그먼트로 라우팅합니다(채널명 'settings'와 비충돌 — 라우터가 예약 세그먼트를 우선 해석). 모바일 진입은 서버 메뉴 시트(FR-IA-MOB-08) → '워크스페이스 설정'이며 신고 큐, 감사 로그 탭을 포함합니다. 모바일 AC의 기준 뷰포트는 <b>390×844</b>(iPhone 14급, Playwright 모바일 에뮬레이션)를 카노니컬로 사용하며, 본 문서의 목업 프레임 치수(.phone 360×720, 인라인 320×520~580 등)는 시각 참고용일 뿐 검증 기준이 아닙니다.
+    <b style="color:var(--text-strong);">모바일 내비 모델 —</b> 데스크톱의 4컬럼은 모바일에서 <b>.qf-m-panels</b> 의 세 겹침 패널로 접힙니다. 기본은 <b>.qf-m-panel-center</b>(채널 뷰)만 보이고, 좌측 가장자리 스와이프로 <b>--show-left</b>(서버 헤더 + 채널 리스트)를, 멤버 버튼/우측 스와이프로 <b>--show-right</b>(멤버 리스트)를 끌어옵니다. 드로어가 열리면 center 위에 <b>.qf-m-drawer-scrim</b> 딤이 깔리고 탭하면 닫힙니다(D17의 fling/snap 제스처와 동일). 화면 하단 <b>.qf-m-tabbar</b> 는 앱 크롬으로 셸 레벨에 고정되어 채팅, 인박스, 스레드, 검색, 나 5개 1차 동선을 항상 노출합니다. 일반 읽지 않음은 violet <b>.qf-m-tab__badge</b>, @멘션은 danger <b>--mention</b>, 약한 신호는 <b>.qf-m-tab__dot</b> 로 의미를 분리합니다(D06, D09). 채널 진입 시 <b>.qf-m-composer</b> 가 탭바 위에 붙고 키보드 인셋을 따라 떠오르며, 새 메시지 경계는 <b>.qf-m-unread-divider</b>, 하단 점프는 <b>.qf-m-jump-btn</b> 으로 안내합니다. 워크스페이스 설정은 <code>/w/:slug/settings</code> 예약 세그먼트로 라우팅합니다(채널명 'settings'와 비충돌 — 라우터가 예약 세그먼트를 우선 해석). 모바일 진입은 서버 메뉴 시트(FR-IA-MOB-08) → '워크스페이스 설정'이며 신고 큐, 감사 로그 탭을 포함합니다. 모바일 AC의 기준 뷰포트는 <b>390×844</b>(iPhone 14급, Playwright 모바일 에뮬레이션)를 카노니컬로 사용하며, 본 문서의 목업 프레임 치수(.phone 360×720, 인라인 320×520~580 등)는 시각 참고용일 뿐 검증 기준이 아닙니다.
   </p>
 
   <!-- ───────────────── 모바일 탭바 카노니컬 정의 (단일 출처) ───────────────── -->
@@ -883,8 +883,8 @@
       <tr><th>라벨</th><th>아이콘</th><th>배지 규칙</th><th>담당 화면</th></tr>
     </thead>
     <tbody>
-      <tr><td class="id">채팅</td><td><code>#qf-i-message</code></td><td>일반 미읽 violet <code>.qf-m-tab__badge</code>, @멘션 danger <code>--mention</code></td><td>채널 뷰 + 좌(서버 헤더, 채널 리스트)/우(멤버) 패널 — DM 포함(별도 'DM' 탭 없음)</td></tr>
-      <tr><td class="id">인박스</td><td><code>#qf-i-inbox</code></td><td>@멘션 danger <code>--mention</code> 카운트</td><td>Activity Inbox 풀스크린 — 미읽 모아보기 포함(별도 '미읽', '알림' 탭 없음)</td></tr>
+      <tr><td class="id">채팅</td><td><code>#qf-i-message</code></td><td>일반 읽지 않음 violet <code>.qf-m-tab__badge</code>, @멘션 danger <code>--mention</code></td><td>채널 뷰 + 좌(서버 헤더, 채널 리스트)/우(멤버) 패널 — DM 포함(별도 'DM' 탭 없음)</td></tr>
+      <tr><td class="id">인박스</td><td><code>#qf-i-inbox</code></td><td>@멘션 danger <code>--mention</code> 카운트</td><td>Activity Inbox 풀스크린 — 읽지 않음 모아보기 포함(별도 '읽지 않음', '알림' 탭 없음)</td></tr>
       <tr><td class="id">스레드</td><td><code>#qf-i-thread</code></td><td>약한 신호 <code>.qf-m-tab__dot</code></td><td>스레드 인박스 풀스크린</td></tr>
       <tr><td class="id">검색</td><td><code>#qf-i-search</code></td><td>없음</td><td>검색 풀스크린 — 퀵스위처, Cmd+K 대체 경로(FR-IA-MOB-07 ④)</td></tr>
       <tr><td class="id">나</td><td><code>#qf-i-user</code></td><td>없음</td><td>프로필 카드 + 상태 변경, 저장됨, 내 프로필, 설정 드릴다운(FR-IA-MOB-06)</td></tr>
@@ -1179,7 +1179,7 @@
 
   <ul class="qf-doc-stories">
     <li>
-      <b>FR-IA-MOB-05</b> — <span class="qf-doc-prio qf-doc-prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 시트 최상단에는 <b>헤더(전송 시각</b> — HH:MM 현지 표기, <code>title</code>=ISO 전체 시각으로 FR-MSG-10/12 의 hover 시각 확인 동등 경로<b>)</b>와 <b>퀵 반응 행</b>(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <b>.qf-m-emoji-drawer</b>)을 배치한다 — 데스크톱 hover 퀵 반응 3종과 모바일 시트 5종의 개수 차이는 의도적 분리다(D05 FR-RE04). 메뉴 항목(카노니컬 목록 — 실구현 MobileMessageSheet와 1:1)은 <b>답장</b>(=스레드 답글), <b>스레드 보기</b>, <b>메시지 복사</b>, <b>나중에 보기 저장/저장 해제</b>(토글), <b>리마인더 설정</b>, <b>메시지 고정/고정 해제</b>(권한 게이트), <b>편집 이력</b>(edited 행 한정), <b>미읽음으로 표시</b> 순으로 구성하며, 본인 메시지는 <b>메시지 편집</b>, <b>메시지 삭제</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 삭제)를, 타인 메시지는 <b>메시지 신고</b>를 노출한다(본인/타인 분기). 컨텍스트별 미해당 항목(예: DM의 스레드 계열)은 숨긴다. '<b>링크 복사</b>'는 모바일 시트에 포함하지 않는다(데스크톱 컨텍스트 메뉴 전용 — D01 FR-MSG-17). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
+      <b>FR-IA-MOB-05</b> — <span class="qf-doc-prio qf-doc-prio--p1">P1</span> 모바일 메시지 <b>롱프레스</b> 시 하단 액션 시트(<b>.qf-m-message-action-sheet</b>, <code>role="menu"</code>)를 연다. 시트 최상단에는 <b>헤더(전송 시각</b> — HH:MM 현지 표기, <code>title</code>=ISO 전체 시각으로 FR-MSG-10/12 의 hover 시각 확인 동등 경로<b>)</b>와 <b>퀵 반응 행</b>(프리셋 5종 👍 ❤️ 😂 🎉 🙏 + '더 많은 이모지' → <b>.qf-m-emoji-drawer</b>)을 배치한다 — 데스크톱 hover 퀵 반응 3종과 모바일 시트 5종의 개수 차이는 의도적 분리다(D05 FR-RE04). 메뉴 항목(카노니컬 목록 — 실구현 MobileMessageSheet와 1:1)은 <b>답장</b>(=스레드 답글), <b>스레드 보기</b>, <b>메시지 복사</b>, <b>나중에 보기 저장/저장 해제</b>(토글), <b>리마인더 설정</b>, <b>메시지 고정/고정 해제</b>(권한 게이트), <b>편집 이력</b>(edited 행 한정), <b>읽지 않음으로 표시</b> 순으로 구성하며, 본인 메시지는 <b>메시지 편집</b>, <b>메시지 삭제</b>(2-step confirm — 첫 탭 후 3초 내 재탭만 삭제)를, 타인 메시지는 <b>메시지 신고</b>를 노출한다(본인/타인 분기). 컨텍스트별 미해당 항목(예: DM의 스레드 계열)은 숨긴다. '<b>링크 복사</b>'는 모바일 시트에 포함하지 않는다(데스크톱 컨텍스트 메뉴 전용 — D01 FR-MSG-17). 시트 위에는 <b>.qf-m-drawer-scrim</b>을 깔고 탭 시 닫는다.
     </li>
   </ul>
   <ul class="qf-doc-ac">
@@ -1708,9 +1708,9 @@ WHERE "channelId" = $channelId
     <table class="qf-doc-table" style="width:100%; font-size:var(--fs-12); margin-bottom:var(--s-3);">
       <thead><tr><th>NotifLevel</th><th>isMuted=false</th><th>isMuted=true (muteUntil 미만)</th></tr></thead>
       <tbody>
-        <tr><td class="id">ALL</td><td>배지 O, 푸시 O, 미읽 O</td><td>배지 O, 푸시 X, 미읽 O</td></tr>
-        <tr><td class="id">MENTIONS</td><td>배지(멘션) O, 푸시(멘션) O, 미읽 O</td><td>배지(멘션) O, 푸시 X, 미읽 O</td></tr>
-        <tr><td class="id">NOTHING</td><td>배지 X, 푸시 X, 미읽 X</td><td>배지 X, 푸시 X, 미읽 X</td></tr>
+        <tr><td class="id">ALL</td><td>배지 O, 푸시 O, 읽지 않음 O</td><td>배지 O, 푸시 X, 읽지 않음 O</td></tr>
+        <tr><td class="id">MENTIONS</td><td>배지(멘션) O, 푸시(멘션) O, 읽지 않음 O</td><td>배지(멘션) O, 푸시 X, 읽지 않음 O</td></tr>
+        <tr><td class="id">NOTHING</td><td>배지 X, 푸시 X, 읽지 않음 X</td><td>배지 X, 푸시 X, 읽지 않음 X</td></tr>
       </tbody>
     </table>
     <div class="qf-doc-subtle" style="margin-bottom:var(--s-3);"><code>muteUntil=null</code> 이면 영구 뮤트. 뮤트 만료 시 스케줄러가 <code>isMuted=false</code> 로 업데이트.</div>
@@ -1748,7 +1748,7 @@ WHERE "channelId" = $channelId
         <tr><td class="id">MESSAGE_SEND_TIMEOUT_MS</td><td>env 변수</td><td>클라이언트 전송 타임아웃, 기본값 env 로 관리</td></tr>
         <tr><td class="id">UNREAD_COUNT_FORMULA</td><td>ADR-5 참조</td><td>COUNT(*) WHERE id &gt; lastReadMessageId AND deletedAt IS NULL</td></tr>
         <tr><td class="id">GAP_FETCH_MAX_PAGES</td><td>10</td><td>시퀀스 홀 갭 복구 시 최대 페이지 수 (D17 참조)</td></tr>
-        <tr><td class="id">UNREAD_LOCK_TTL</td><td>30000ms</td><td>미읽 업데이트 분산 락 TTL (D09 참조)</td></tr>
+        <tr><td class="id">UNREAD_LOCK_TTL</td><td>30000ms</td><td>읽지 않음 업데이트 분산 락 TTL (D09 참조)</td></tr>
         <tr><td class="id">SEQ_HOLE_TIMEOUT_MS</td><td>500ms</td><td>시퀀스 홀 감지 대기 타임아웃 — NFR, D17 합의값 (D17 본문 권장값과 통일)</td></tr>
       </tbody>
     </table>
@@ -2180,7 +2180,7 @@ lastReadMessageId String?
 lastReadAt DateTime?
 mentionCount Int @default(0)
 @@unique([userId, parentMessageId])</pre>
-      <div class="qf-doc-entity__notes">D04, D09 통합. 스레드 미읽을 채널 미읽과 독립 추적. Threads 탭 미읽 우선 정렬 근거.</div>
+      <div class="qf-doc-entity__notes">D04, D09 통합. 스레드 읽지 않음을 채널 읽지 않음과 독립 추적. Threads 탭 읽지 않음 우선 정렬 근거.</div>
     </div>
 
     <div class="qf-doc-entity">
@@ -2390,7 +2390,7 @@ unread:{workspaceId}:{userId}  (Hash)
 // GAP_FETCH_MAX_PAGES = 10 (ADR-8 상수, D17 참조)
 // UNREAD_LOCK_TTL = 30000ms (ADR-8 상수, D09 참조)
 // SEQ_HOLE_TIMEOUT_MS = 500ms (ADR-8 상수, NFR·D17 참조)</pre>
-      <div class="qf-doc-entity__notes">프레즌스 세션, 타이핑, 멱등성, 시퀀스, 슬로우모드, 미읽 캐시는 Redis 가 진실원본. 상수값은 ADR-8 카드 + <code>packages/shared-types/src/constants.ts</code> 참조. <code>seq:{channelId}</code> 채널 단위 단조 증가로 확정 — 워크스페이스 단위 <code>seq:{workspaceId}</code> 는 채널 간 간섭으로 false hole 을 유발하므로 폐기. 서버 재시작 시 TTL 자연 소멸 또는 DB 폴백.</div>
+      <div class="qf-doc-entity__notes">프레즌스 세션, 타이핑, 멱등성, 시퀀스, 슬로우모드, 읽지 않음 캐시는 Redis 가 진실원본. 상수값은 ADR-8 카드 + <code>packages/shared-types/src/constants.ts</code> 참조. <code>seq:{channelId}</code> 채널 단위 단조 증가로 확정 — 워크스페이스 단위 <code>seq:{workspaceId}</code> 는 채널 간 간섭으로 false hole 을 유발하므로 폐기. 서버 재시작 시 TTL 자연 소멸 또는 DB 폴백.</div>
     </div>
   </div>
 
@@ -2657,7 +2657,7 @@ unread:{workspaceId}:{userId}  (Hash)
     <div class="qf-doc-card">
       <div class="qf-doc-card__preview">
         <h3>unread_count 카노니컬 공식</h3>
-        <p class="qf-doc-subtle">전 도메인에서 동일하게 사용하는 미읽음 카운트 산출 방법 (ADR-5 기준):</p>
+        <p class="qf-doc-subtle">전 도메인에서 동일하게 사용하는 읽지 않음 카운트 산출 방법 (ADR-5 기준):</p>
         <div class="qf-doc-code">unread_count =
   COUNT(messages)
   WHERE channel_id = :cid
@@ -5509,7 +5509,7 @@ updatedAt DateTime @updatedAt
       <tr><td class="id">FR-DM-12</td><td>DM 수신 권한: PATCH /users/me/dm-privacy { allowDmFrom }. 허용 값: EVERYONE / WORKSPACE_MEMBER(기본값). 위반 시 403. FRIENDS_ONLY는 Phase 2.</td><td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td></tr>
       <tr><td class="id">FR-DM-13</td><td>블록 시 DM 차단: UserBlock(blockerId,blockedId) 존재 시 피차단자의 DM 전송 시도 → 403. 친구 엔티티 없음.</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-DM-14</td><td>타이핑 인디케이터: DM 채널도 일반 채널과 동일하게 <code>typing:start</code> / <code>typing:stop</code> / <code>typing:update</code> 이벤트를 사용한다. <code>dm:typing_start</code> / <code>dm:typing_stop</code> / <code>dm:typing</code> prefix는 운영하지 않는다(중복 핸들러 방지). DM 채널의 <code>channelId</code>를 그대로 사용하며 별도 dm: 네임스페이스 불필요. 클라이언트 3초 스로틀, 서버 10초 무신호 자동 stop(<span class="qf-doc-ds-ref"><b>D01</b></span>, <span class="qf-doc-ds-ref"><b>D08</b></span>, <span class="qf-doc-ds-ref"><b>D17</b></span>). <code>typing:start</code>, presence는 UserBlock 필터링 적용.</td><td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td></tr>
-      <tr><td class="id">FR-DM-15</td><td>미읽음 배지: DM 사이드바 항목 unreadCount 배지. UserChannelReadState 기반. 뮤트 DM은 @멘션 건수만 표시.</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
+      <tr><td class="id">FR-DM-15</td><td>읽지 않음 배지: DM 사이드바 항목 unreadCount 배지. UserChannelReadState 기반. 뮤트 DM은 @멘션 건수만 표시.</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-DM-16</td><td>실시간 DM 생성 알림: 새 DM 생성, 그룹 DM 추가 시 대상 소켓 룸에 dm:created push.</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-DM-17</td><td>DM 채널 메시지는 channels/:id/messages 재사용. 커서 기반 조회(before/after/around) 시 DmParticipant.visibleFrom 필터 항상 적용. around 포함 모든 조회 경로 동일.</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
       <tr><td class="id">FR-DM-18</td><td>그룹 DM 차단 메시지 마스킹 UX: GET /channels/:channelId/messages 응답 시 서버는 <strong>메시지 조회 전 단일 <code>SELECT(blockerId=요청자)</code>로 <code>blockedId Set</code> 로드 후 인메모리 필터링(<code>authorId in Set</code>)</strong>하거나 <code>WHERE authorId IN (SELECT blockedId FROM "UserBlock" WHERE blockerId=요청자)</code> 단일 쿼리로 처리한다. N+1 금지. content → BLOCKED_PLACEHOLDER, isBlocked:true, avatarUrl:null, username:'차단된 사용자'. 클라이언트: <code>role="note"</code> 플레이스홀더 렌더링. <strong>데스크톱:</strong> 호버 시 툴팁 '차단 해제는 설정 &gt; 차단 목록'. <strong>모바일:</strong> 롱프레스(500ms) 시 <code>.qf-m-message-action-sheet</code> 미마운트 — 인라인 bottom toast(3초)로 안내. 최초 진입 시 일회성 시스템 메시지(세션 기준 1회).</td><td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td></tr>
@@ -5713,7 +5713,7 @@ mutedUntil   DateTime?
   <p>모든 루트 채널 메시지에서 "Reply in thread" 액션이 가능합니다(데스크톱: 메시지 호버 시 툴바 노출 / 모바일: 메시지 롱프레스 액션 시트의 '답장' — 모바일 답장은 별도 인용 답장이 아니라 스레드 답글 단일 경로, FR-IA-MOB-05). 스레드는 <strong>단일 깊이(1-level flat)</strong>로 제한되며, 서비스 레이어에서 <code class="qf-doc-code">parent.parentMessageId !== null</code>이면 즉시 400을 반환합니다. DM 채널도 스레드를 지원합니다. 스레드 제목(title)은 v1에서 지원하지 않습니다.</p>
 
   <h3>루트 메시지 Reply Bar</h3>
-  <p>답글이 1개 이상 존재하는 루트 메시지 아래에 reply bar를 표시합니다. 표시 내용: 최초 답글자 최대 5명 아바타(오버랩) + <em>N replies</em> + <em>Last reply X시간 전</em>. 미읽 답글이 있으면 파란색 unread dot을 함께 표시하며, 클릭 시 Thread Panel이 열립니다.</p>
+  <p>답글이 1개 이상 존재하는 루트 메시지 아래에 reply bar를 표시합니다. 표시 내용: 최초 답글자 최대 5명 아바타(오버랩) + <em>N replies</em> + <em>Last reply X시간 전</em>. 읽지 않음 답글이 있으면 파란색 unread dot을 함께 표시하며, 클릭 시 Thread Panel이 열립니다.</p>
 
   <h3>Thread Panel</h3>
   <p>채널 뷰 우측에 320px 고정 폭 패널이 슬라이드인됩니다. 패널 구성: 헤더("Thread" + 벨 아이콘 + 닫기) → 루트 메시지 전체 표시 → divider → 답글 목록(createdAt ASC) → 하단 답글 입력창. 입력창 하단에 <em>"Also send to #channel"</em> 체크박스를 제공합니다.</p>
@@ -5723,7 +5723,7 @@ mutedUntil   DateTime?
   </div>
 
   <h3>Thread Panel 스크롤, 실시간</h3>
-  <p>Thread Panel 오픈 시: ThreadReadState 레코드가 존재하면 <strong>lastReadMessageId 직후 첫 미읽 답글</strong> 위치로 초기 스크롤하고, 레코드가 없으면 최하단으로 스크롤합니다. <code class="qf-doc-code">thread:reply:new</code> 이벤트 수신 시 현재 스크롤이 최하단이면 자동으로 최하단 스크롤하고, 최하단이 아니면 <code class="qf-doc-code">.qf-thread-jump-btn</code>('새 답글 N개') 버튼을 노출합니다.</p>
+  <p>Thread Panel 오픈 시: ThreadReadState 레코드가 존재하면 <strong>lastReadMessageId 직후 첫 읽지 않음 답글</strong> 위치로 초기 스크롤하고, 레코드가 없으면 최하단으로 스크롤합니다. <code class="qf-doc-code">thread:reply:new</code> 이벤트 수신 시 현재 스크롤이 최하단이면 자동으로 최하단 스크롤하고, 최하단이 아니면 <code class="qf-doc-code">.qf-thread-jump-btn</code>('새 답글 N개') 버튼을 노출합니다.</p>
   <div class="qf-doc-callout qf-doc-callout--warn">
     <strong>반응형 임계값(768px):</strong> viewport ≥ 768px이면 <code class="qf-doc-code">.qf-thread-panel</code>(데스크톱, 320px 고정 우측 패널)을 렌더링하고, viewport &lt; 768px이면 <code class="qf-doc-code">.qf-m-panel-thread</code>(모바일, 전체화면 슬라이드업)를 렌더링합니다. 768~1024px 태블릿 구간에서는 <code class="qf-doc-code">.qf-thread-panel</code>이 채널 영역을 밀지 않고 오버레이로 표시됩니다. 태블릿 오버레이 구간에서 채널 타임라인과 Thread Panel은 <strong>독립적인 스크롤 컨테이너</strong>를 가집니다. 뷰포트 크기 전환 시 답글 목록의 <code class="qf-doc-code">scrollTop</code>을 보존합니다.
   </div>
@@ -5738,10 +5738,10 @@ mutedUntil   DateTime?
   </div>
 
   <h3>Threads 탭</h3>
-  <p>사이드바 고정 "Threads" 항목 클릭 시 진입합니다. 구독 중인 스레드 목록을 <em>미읽 우선 → latestReplyAt DESC</em>으로 정렬하며, 각 항목에 채널명, 루트 메시지 excerpt(80자), 마지막 답글자 아바타/이름, 상대 시각, 미읽 badge를 표시합니다. 우상단 "Mark all as read" 버튼 제공.</p>
+  <p>사이드바 고정 "Threads" 항목 클릭 시 진입합니다. 구독 중인 스레드 목록을 <em>읽지 않음 우선 → latestReplyAt DESC</em>으로 정렬하며, 각 항목에 채널명, 루트 메시지 excerpt(80자), 마지막 답글자 아바타/이름, 상대 시각, 읽지 않음 badge를 표시합니다. 우상단 "Mark all as read" 버튼 제공.</p>
 
-  <h3>미읽 및 잠금</h3>
-  <p>스레드 미읽(ThreadReadState)과 채널 미읽은 <strong>독립적으로</strong> 관리됩니다. ThreadReadState는 <code class="qf-doc-code">parentMessageId</code>와 <code class="qf-doc-code">lastReadMessageId</code>(ADR-5 공식)를 기준으로 미읽을 계산합니다. isBroadcast 메시지는 채널 미읽에만 포함됩니다. OWNER/ADMIN만 스레드 잠금/해제 가능하며, 잠긴 스레드에서 MEMBER 이하 사용자의 답글 전송 시 403을 반환합니다.</p>
+  <h3>읽지 않음 및 잠금</h3>
+  <p>스레드 읽지 않음(ThreadReadState)과 채널 읽지 않음은 <strong>독립적으로</strong> 관리됩니다. ThreadReadState는 <code class="qf-doc-code">parentMessageId</code>와 <code class="qf-doc-code">lastReadMessageId</code>(ADR-5 공식)를 기준으로 읽지 않음을 계산합니다. isBroadcast 메시지는 채널 읽지 않음에만 포함됩니다. OWNER/ADMIN만 스레드 잠금/해제 가능하며, 잠긴 스레드에서 MEMBER 이하 사용자의 답글 전송 시 403을 반환합니다.</p>
 
   <!-- 3. 화면 Mock -->
   <h2><span class="qf-eyebrow">Mock</span> 화면</h2>
@@ -5814,7 +5814,7 @@ mutedUntil   DateTime?
                 </div>
               </div>
 
-              <!-- 루트 메시지 (스레드 reply bar 포함, 미읽) -->
+              <!-- 루트 메시지 (스레드 reply bar 포함, 읽지 않음) -->
               <div class="qf-message qf-message--head">
                 <div class="qf-message__avatar">
                   <div class="qf-avatar qf-avatar--md" style="background:var(--a-500);display:grid;place-items:center;font:700 var(--fs-14) var(--font-sans);color:var(--n-0);">이</div>
@@ -5825,7 +5825,7 @@ mutedUntil   DateTime?
                     <span class="qf-message__time" style="font:400 var(--fs-12) var(--font-sans);color:var(--text-muted);margin-left:var(--s-2);">오늘 오전 10:20</span>
                   </div>
                   <div class="qf-message__body" style="font:400 var(--fs-14)/var(--lh-normal) var(--font-sans);color:var(--text);">API 응답 속도 개선 PR 올렸습니다. 리뷰 부탁드립니다 — <span class="qf-mention" style="background:var(--accent-subtle);color:var(--a-200);padding:1px 4px;border-radius:var(--r-xs);">@박지훈</span></div>
-                  <!-- Reply bar (미읽 dot) -->
+                  <!-- Reply bar (읽지 않음 dot) -->
                   <div class="qf-thread-chip" style="display:inline-flex;align-items:center;gap:var(--s-3);margin-top:var(--s-2);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);cursor:pointer;background:var(--bg-elevated);border:1px solid var(--border);" onmouseenter="this.style.background='var(--bg-hover)'" onmouseleave="this.style.background='var(--bg-elevated)'">
                     <!-- 아바타 오버랩 스택 -->
                     <div style="display:flex;align-items:center;">
@@ -5835,7 +5835,7 @@ mutedUntil   DateTime?
                     </div>
                     <span style="font:600 var(--fs-13) var(--font-sans);color:var(--accent);">3 replies</span>
                     <span style="font:400 var(--fs-12) var(--font-sans);color:var(--text-muted);">Last reply 2분 전</span>
-                    <!-- 미읽 dot -->
+                    <!-- 읽지 않음 dot -->
                     <span style="width:8px;height:8px;border-radius:50%;background:var(--accent);flex-shrink:0;"></span>
                   </div>
                 </div>
@@ -5905,7 +5905,7 @@ mutedUntil   DateTime?
               <div style="flex:1;height:1px;background:var(--divider);"></div>
             </div>
 
-            <!-- 답글 목록 (스크롤 영역 — lastReadMessageId 기준 첫 미읽 위치로 초기 스크롤) -->
+            <!-- 답글 목록 (스크롤 영역 — lastReadMessageId 기준 첫 읽지 않음 위치로 초기 스크롤) -->
             <div style="flex:1;overflow-y:auto;padding:0 var(--s-2);position:relative;">
               <div class="qf-message qf-message--head">
                 <div class="qf-message__avatar">
@@ -5931,7 +5931,7 @@ mutedUntil   DateTime?
                   <div class="qf-message__body" style="font:400 var(--fs-13)/var(--lh-normal) var(--font-sans);color:var(--text);">인덱스 추가한 것도 확인해 주세요. 쿼리 플랜 첨부했습니다.</div>
                 </div>
               </div>
-              <!-- 미읽 구분선 (lastReadMessageId 이후 첫 미읽 답글 앞) -->
+              <!-- 읽지 않음 구분선 (lastReadMessageId 이후 첫 읽지 않음 답글 앞) -->
               <div style="display:flex;align-items:center;gap:var(--s-3);padding:var(--s-1) var(--s-2);margin:var(--s-1) 0;">
                 <div style="flex:1;height:1px;background:var(--accent);"></div>
                 <span style="font:600 var(--fs-11) var(--font-sans);color:var(--accent);white-space:nowrap;">새 답글</span>
@@ -6027,7 +6027,7 @@ mutedUntil   DateTime?
           <button class="qf-btn qf-btn--ghost qf-btn--sm" style="position:static;">모두 읽음</button>
         </div>
         <!-- 스레드 목록 -->
-        <!-- 미읽 항목 -->
+        <!-- 읽지 않은 항목 -->
         <div style="display:flex;align-items:flex-start;gap:var(--s-4);padding:var(--s-4) var(--s-5);border-left:2px solid var(--accent);border-bottom:1px solid var(--divider);cursor:pointer;background:var(--bg-chat);">
           <div class="qf-avatar qf-avatar--sm" style="background:var(--info-400);display:grid;place-items:center;font:700 var(--fs-11) var(--font-sans);color:var(--n-0);flex-shrink:0;">박</div>
           <div style="flex:1;min-width:0;">
@@ -6040,7 +6040,7 @@ mutedUntil   DateTime?
           </div>
           <span class="qf-badge qf-badge--accent" style="flex-shrink:0;font-size:10px;">2</span>
         </div>
-        <!-- 미읽 항목 2 -->
+        <!-- 읽지 않은 항목 2 -->
         <div style="display:flex;align-items:flex-start;gap:var(--s-4);padding:var(--s-4) var(--s-5);border-left:2px solid var(--accent);border-bottom:1px solid var(--divider);cursor:pointer;background:var(--bg-chat);">
           <div class="qf-avatar qf-avatar--sm" style="background:var(--ok-600);display:grid;place-items:center;font:700 var(--fs-11) var(--font-sans);color:var(--n-0);flex-shrink:0;">최</div>
           <div style="flex:1;min-width:0;">
@@ -6128,7 +6128,7 @@ mutedUntil   DateTime?
             <!-- 답글 목록 -->
             <div style="flex:1;overflow-y:auto;padding:var(--s-2) var(--s-4);">
               <div style="font:400 var(--fs-12) var(--font-sans);color:var(--text-muted);padding:var(--s-2) 0;">박지훈: 확인했습니다. 꼼꼼히 볼게요!, 10:22</div>
-              <!-- 미읽 구분선 -->
+              <!-- 읽지 않음 구분선 -->
               <div style="display:flex;align-items:center;gap:var(--s-2);margin:var(--s-2) 0;">
                 <div style="flex:1;height:1px;background:var(--accent);"></div>
                 <span style="font:600 var(--fs-11) var(--font-sans);color:var(--accent);">새 답글</span>
@@ -6160,14 +6160,14 @@ mutedUntil   DateTime?
   <ul class="qf-doc-stories">
     <li>채널 멤버로서, 특정 메시지에 대해 채널 타임라인을 방해하지 않고 맥락 있는 답글을 달고 싶다.</li>
     <li>채널 멤버로서, 스레드 답글을 채널 전체에도 공유하고 싶을 때 '채널에도 보내기' 옵션을 사용하고 싶다.</li>
-    <li>채널 멤버로서, 내가 참여 중인 모든 스레드를 한 곳(Threads 탭)에서 미읽 여부와 함께 확인하고 싶다.</li>
+    <li>채널 멤버로서, 내가 참여 중인 모든 스레드를 한 곳(Threads 탭)에서 읽지 않음 여부와 함께 확인하고 싶다.</li>
     <li>채널 멤버로서, 스레드별로 알림 수준(전체/멘션만/없음)을 독립적으로 설정하고 싶다.</li>
     <li>채널 멤버로서, 루트 메시지 아래의 reply bar에서 답글 수와 최근 활동 시각을 한눈에 확인하고 싶다.</li>
     <li>ADMIN으로서, 완료된 스레드를 잠가 추가 답글을 막고 싶다.</li>
     <li>채널 멤버로서, 잠긴 스레드를 열면 입력창이 비활성화되어 더 이상 답글을 달 수 없음을 즉시 인지하고 싶다.</li>
     <li>채널 멤버로서, 스레드 구독을 수동으로 팔로우/언팔로우하여 알림 양을 조절하고 싶다.</li>
-    <li>채널 멤버로서, 미읽 답글이 있는 reply bar에서 파란 점을 통해 새 답글이 있음을 빠르게 인지하고 싶다.</li>
-    <li>채널 멤버로서, Thread Panel을 열면 마지막으로 읽은 답글(lastReadMessageId) 다음 위치로 자동 스크롤되어 미읽 답글을 즉시 확인하고 싶다.</li>
+    <li>채널 멤버로서, 읽지 않음 답글이 있는 reply bar에서 파란 점을 통해 새 답글이 있음을 빠르게 인지하고 싶다.</li>
+    <li>채널 멤버로서, Thread Panel을 열면 마지막으로 읽은 답글(lastReadMessageId) 다음 위치로 자동 스크롤되어 읽지 않음 답글을 즉시 확인하고 싶다.</li>
     <li>채널 멤버로서, 스레드를 보는 도중 새 답글이 오면 '새 답글 N개' 버튼을 통해 최신 내용으로 빠르게 이동하고 싶다.</li>
     <li>채널 멤버로서, 답글이 달린 즉시 채널 타임라인의 reply bar(replyCount/replyParticipants)가 갱신되어 별도 새로고침 없이 최신 상태를 확인하고 싶다.</li>
   </ul>
@@ -6196,7 +6196,7 @@ mutedUntil   DateTime?
       </tr>
       <tr>
         <td class="id">FR-TH-04</td>
-        <td>미읽 답글이 있는 스레드의 reply bar에 파란색 unread indicator(dot)를 표시한다.</td>
+        <td>읽지 않음 답글이 있는 스레드의 reply bar에 파란색 unread indicator(dot)를 표시한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -6221,7 +6221,7 @@ mutedUntil   DateTime?
       </tr>
       <tr>
         <td class="id">FR-TH-09</td>
-        <td>사이드바 고정 'Threads' 항목 클릭 시 Threads 뷰 진입. 구독 중인 스레드 목록을 latestReplyAt DESC 정렬, 미읽 우선. 각 항목에 채널명, 루트 메시지 excerpt(80자), 마지막 답글자 정보, 상대 시각, 미읽 badge 표시.</td>
+        <td>사이드바 고정 'Threads' 항목 클릭 시 Threads 뷰 진입. 구독 중인 스레드 목록을 latestReplyAt DESC 정렬, 읽지 않음 우선. 각 항목에 채널명, 루트 메시지 excerpt(80자), 마지막 답글자 정보, 상대 시각, 읽지 않음 badge 표시.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -6231,7 +6231,7 @@ mutedUntil   DateTime?
       </tr>
       <tr>
         <td class="id">FR-TH-11</td>
-        <td>스레드 미읽 카운트는 채널 미읽 카운트와 독립적으로 관리. ThreadReadState(userId, parentMessageId, lastReadMessageId) 기준으로 <strong>lastReadMessageId 이후 비삭제 답글 수</strong>를 unreadCount로 계산(ADR-5 공식).</td>
+        <td>스레드 읽지 않음 카운트는 채널 읽지 않음 카운트와 독립적으로 관리. ThreadReadState(userId, parentMessageId, lastReadMessageId) 기준으로 <strong>lastReadMessageId 이후 비삭제 답글 수</strong>를 unreadCount로 계산(ADR-5 공식).</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -6246,7 +6246,7 @@ mutedUntil   DateTime?
       </tr>
       <tr>
         <td class="id">FR-TH-14</td>
-        <td>isBroadcast=true 메시지는 채널 미읽 카운트에 포함되며 스레드 미읽 카운트와 중복 집계되지 않는다. isBroadcast=true 메시지 소프트삭제 시 채널 unreadCount 정확히 1 감소 + Redis 채널 미읽 캐시 즉시 무효화. Redis 무효화 실패 시 unreadCount 감소 롤백 또는 캐시 재갱신을 보장한다.</td>
+        <td>isBroadcast=true 메시지는 채널 읽지 않음 카운트에 포함되며 스레드 읽지 않음 카운트와 중복 집계되지 않는다. isBroadcast=true 메시지 소프트삭제 시 채널 unreadCount 정확히 1 감소 + Redis 채널 읽지 않음 캐시 즉시 무효화. Redis 무효화 실패 시 unreadCount 감소 롤백 또는 캐시 재갱신을 보장한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -6266,7 +6266,7 @@ mutedUntil   DateTime?
       </tr>
       <tr>
         <td class="id">FR-TH-18</td>
-        <td>Thread Panel 오픈 시: ThreadReadState.lastReadMessageId가 존재하면 해당 messageId 직후 첫 미읽 답글 위치로 초기 스크롤. 레코드가 없으면 최하단으로 스크롤. thread:reply:new 수신 시 최하단이면 자동 스크롤, 아니면 .qf-thread-jump-btn 노출.</td>
+        <td>Thread Panel 오픈 시: ThreadReadState.lastReadMessageId가 존재하면 해당 messageId 직후 첫 읽지 않음 답글 위치로 초기 스크롤. 레코드가 없으면 최하단으로 스크롤. thread:reply:new 수신 시 최하단이면 자동 스크롤, 아니면 .qf-thread-jump-btn 노출.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -6354,7 +6354,7 @@ updatedAt         DateTime @updatedAt
 @@unique([userId, parentMessageId])
 @@index([userId, updatedAt(sort: Desc)])
 @@index([parentMessageId])</pre>
-      <div class="qf-doc-entity__notes">미읽 계산(ADR-5 공식): unreadCount = SELECT COUNT(*) FROM messages WHERE parentMessageId=:pid AND deletedAt IS NULL AND id > :lastReadMessageId (id는 cuid2 기반 createdAt+id 복합 커서). lastReadAt 컬럼 대신 lastReadMessageId 기반으로 통일. Threads 뷰 '미읽 우선 정렬'은 unreadCount &gt; 0 ORDER BY latestReplyAt DESC로 구현.</div>
+      <div class="qf-doc-entity__notes">읽지 않음 계산(ADR-5 공식): unreadCount = SELECT COUNT(*) FROM messages WHERE parentMessageId=:pid AND deletedAt IS NULL AND id > :lastReadMessageId (id는 cuid2 기반 createdAt+id 복합 커서). lastReadAt 컬럼 대신 lastReadMessageId 기반으로 통일. Threads 뷰 '읽지 않음 우선 정렬'은 unreadCount &gt; 0 ORDER BY latestReplyAt DESC로 구현.</div>
     </div>
 
     <div class="qf-doc-entity">
@@ -6389,12 +6389,12 @@ OFF      -- 알림 없음</pre>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--get">GET</span></td>
         <td class="id">/users/me/threads</td>
-        <td>내 구독 스레드 목록(Threads 탭). query: cursor, limit(기본 30). 미읽 우선, latestReplyAt DESC. 응답: { threads: [{ parentMessage, channel, latestReply, unreadCount, notificationLevel }], nextCursor }.</td>
+        <td>내 구독 스레드 목록(Threads 탭). query: cursor, limit(기본 30). 읽지 않음 우선, latestReplyAt DESC. 응답: { threads: [{ parentMessage, channel, latestReply, unreadCount, notificationLevel }], nextCursor }.</td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--patch">PATCH</span></td>
         <td class="id">/channels/:channelId/messages/:messageId/thread/read</td>
-        <td>스레드 미읽 초기화. body: { lastReadMessageId }. ThreadReadState upsert(lastReadMessageId=요청값, unreadCount=0). 응답: 204.</td>
+        <td>스레드 읽지 않음 초기화. body: { lastReadMessageId }. ThreadReadState upsert(lastReadMessageId=요청값, unreadCount=0). 응답: 204.</td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--patch">PATCH</span></td>
@@ -6485,7 +6485,7 @@ OFF      -- 알림 없음</pre>
     <li><strong>잠긴 스레드 답글:</strong> MEMBER 이하 답글 시도 → 403 <code class="qf-doc-code">{ errorCode: THREAD_LOCKED }</code>. OWNER/ADMIN은 잠긴 스레드에도 답글 가능.</li>
     <li><strong>루트 메시지 소프트삭제 후 스레드:</strong> 루트 메시지 deletedAt이 설정되어도 답글(replies)은 존재 유지. Thread Panel에서 루트는 '삭제된 메시지' placeholder 표시. reply bar는 계속 노출.</li>
     <li><strong>루트 hard delete(ADR-9 정합):</strong> 루트 메시지의 hard delete(purge)는 운영 purge 경로에서만 허용되며, 해당 루트의 답글 전체를 Cascade 삭제한다. 서비스 레이어는 soft-delete만 외부에 노출한다. soft-delete 시 루트는 삭제 플레이스홀더로 표시되고, 답글, ThreadSubscription, ThreadReadState는 유지된다.</li>
-    <li><strong>isBroadcast 메시지 삭제:</strong> 브로드캐스트된 채널 메시지 소프트삭제 시 채널 unreadCount 정확히 1 감소 + Redis 채널 미읽 캐시 즉시 무효화. Redis 무효화 실패 시 unreadCount 감소 롤백 또는 캐시 재갱신을 보장한다. 스레드 내 원본 답글은 유지. thread:broadcast:deleted 이벤트 emit.</li>
+    <li><strong>isBroadcast 메시지 삭제:</strong> 브로드캐스트된 채널 메시지 소프트삭제 시 채널 unreadCount 정확히 1 감소 + Redis 채널 읽지 않음 캐시 즉시 무효화. Redis 무효화 실패 시 unreadCount 감소 롤백 또는 캐시 재갱신을 보장한다. 스레드 내 원본 답글은 유지. thread:broadcast:deleted 이벤트 emit.</li>
     <li><strong>replyCount 정합성(답글 soft-delete):</strong> 답글 소프트삭제 시 단일 $transaction(Message soft-delete + root UPDATE SET replyCount=GREATEST(0,replyCount-1))으로 원자적 감소. 1시간 주기 재집계 job은 UPDATE WHERE replyCount&lt;&gt;actual_count 조건으로 drift만 수정.</li>
     <li><strong>$transaction 원자성:</strong> POST /replies의 $transaction 내 reply INSERT + replyCount/latestReplyAt UPDATE + ThreadSubscription upsert 중 하나라도 실패하면 전체 롤백. 클라이언트에 500 반환.</li>
     <li><strong>동시성(race condition):</strong> 동일 루트 메시지에 여러 답글 동시 POST → PostgreSQL UPDATE ... SET replyCount=replyCount+1 atomic으로 안전. latestReplyAt도 원자적 UPDATE.</li>
@@ -6517,8 +6517,8 @@ OFF      -- 알림 없음</pre>
     <li>POST /users/me/threads/read-all 호출 후 GET /users/me/threads 응답 내 모든 항목의 unreadCount=0이다.</li>
     <li>Thread Panel 오픈 후 threadMeta의 replyParticipants 배열 길이는 최대 5이다.</li>
     <li>GET /channels/:id/messages 쿼리 실행 계획(EXPLAIN)에서 replies 조회가 N+1이 아닌 단일 서브쿼리/JOIN으로 처리됨을 확인한다.</li>
-    <li>isBroadcast=true 메시지 소프트삭제 시 /unread-summary 응답의 해당 채널 unreadCount가 정확히 1 감소하고, Redis 채널 미읽 캐시가 무효화된다(캐시 키 조회 시 miss 또는 갱신된 값 반환). Redis 무효화 실패 시 unreadCount 감소가 롤백되거나 캐시가 재갱신됨을 통합 테스트로 검증한다.</li>
-    <li>Thread Panel 오픈 시 ThreadReadState.lastReadMessageId가 존재하면 해당 messageId 다음 첫 미읽 답글 위치로 초기 스크롤된다. ThreadReadState가 없으면 최하단으로 스크롤된다.</li>
+    <li>isBroadcast=true 메시지 소프트삭제 시 /unread-summary 응답의 해당 채널 unreadCount가 정확히 1 감소하고, Redis 채널 읽지 않음 캐시가 무효화된다(캐시 키 조회 시 miss 또는 갱신된 값 반환). Redis 무효화 실패 시 unreadCount 감소가 롤백되거나 캐시가 재갱신됨을 통합 테스트로 검증한다.</li>
+    <li>Thread Panel 오픈 시 ThreadReadState.lastReadMessageId가 존재하면 해당 messageId 다음 첫 읽지 않음 답글 위치로 초기 스크롤된다. ThreadReadState가 없으면 최하단으로 스크롤된다.</li>
     <li>thread:reply:new 수신 시 스크롤이 최하단이면 자동 스크롤되고, 최하단이 아니면 .qf-thread-jump-btn 버튼이 노출되어 클릭 시 최하단으로 이동한다.</li>
     <li>thread:reply:new 수신 후 채널 타임라인의 루트 메시지 threadMeta(replyCount/replyParticipants)가 Thread Panel과 동시에 갱신되며, 동일 이벤트로 2회 렌더링이 발생하지 않는다(ref 공유 검증).</li>
     <li>[Playwright] 태블릿 뷰포트(900px)에서 Thread Panel을 열고 채널 타임라인을 스크롤해도 Thread Panel 스크롤이 독립적으로 유지된다. 반대로 Thread Panel 스크롤 시에도 채널 타임라인 scrollTop이 변경되지 않는다.</li>
@@ -7371,7 +7371,7 @@ updatedAt       DateTime @updatedAt</pre>
   <!-- 1. 헤더 -->
   <div class="qf-eyebrow">PRD, D06</div>
   <h1 class="qf-doc-h1">멘션 &amp; 알림</h1>
-  <p class="qf-doc-lede">채팅 메시지 내 @user/@role/@everyone/@here 멘션 파싱, 전달, 채널/서버/글로벌 단위 알림 수준(ALL/MENTIONS/NOTHING) 설정, 뮤트, DND 스케줄, 키워드 알림, 알림 배지(미읽/멘션 카운트), Inbox/Activity 피드를 포함하는 종합 알림 도메인입니다. 모든 기능은 NAS 단일 배포(Postgres + Redis + BullMQ + Socket.IO + web-push VAPID)로 구현되며, 외부 FCM/APNs 브로커 없이 브라우저 Web Push API로 구현합니다. 단, iOS Safari는 홈 화면에 PWA로 설치(A2HS)된 경우에만 Web Push를 지원하므로 모바일 커버리지는 Android 브라우저 + iOS PWA 설치 환경으로 한정되며, 미설치 iOS는 인앱 Inbox/배지 + 재접속 폴링으로 폴백합니다.</p>
+  <p class="qf-doc-lede">채팅 메시지 내 @user/@role/@everyone/@here 멘션 파싱, 전달, 채널/서버/글로벌 단위 알림 수준(ALL/MENTIONS/NOTHING) 설정, 뮤트, DND 스케줄, 키워드 알림, 알림 배지(읽지 않음/멘션 카운트), Inbox/Activity 피드를 포함하는 종합 알림 도메인입니다. 모든 기능은 NAS 단일 배포(Postgres + Redis + BullMQ + Socket.IO + web-push VAPID)로 구현되며, 외부 FCM/APNs 브로커 없이 브라우저 Web Push API로 구현합니다. 단, iOS Safari는 홈 화면에 PWA로 설치(A2HS)된 경우에만 Web Push를 지원하므로 모바일 커버리지는 Android 브라우저 + iOS PWA 설치 환경으로 한정되며, 미설치 iOS는 인앱 Inbox/배지 + 재접속 폴링으로 폴백합니다.</p>
 
   <!-- 2. 기능 명세 -->
   <h2><span class="qf-eyebrow">Spec</span> 기능 명세</h2>
@@ -7382,8 +7382,8 @@ updatedAt       DateTime @updatedAt</pre>
 
   <div class="qf-doc-callout">
     <strong>NOTHING vs MUTE 차이</strong><br>
-    <strong>NOTHING</strong>(알림 없음): 미읽 배지는 사이드바에 계속 표시되나, push 알림은 발송하지 않습니다. 설정 UI 레이블 <em>"알림 없음"</em>, 부제목 <em>"메시지는 읽기 전까지 배지로 표시되나 알림은 오지 않습니다."</em><br>
-    <strong>MUTE</strong>(뮤트): <code>isMuted=true</code>. 미읽 볼드, 배지, push 알림 모두 숨깁니다. 단, 직접 @username 멘션은 뮤트 상태에서도 Activity Inbox에 기록됩니다. 설정 UI 레이블 <em>"채널 뮤트"</em>, 부제목 <em>"배지와 미읽 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요."</em>
+    <strong>NOTHING</strong>(알림 없음): 읽지 않음 배지는 사이드바에 계속 표시되나, push 알림은 발송하지 않습니다. 설정 UI 레이블 <em>"알림 없음"</em>, 부제목 <em>"메시지는 읽기 전까지 배지로 표시되나 알림은 오지 않습니다."</em><br>
+    <strong>MUTE</strong>(뮤트): <code>isMuted=true</code>. 읽지 않음 볼드, 배지, push 알림 모두 숨깁니다. 단, 직접 @username 멘션은 뮤트 상태에서도 Activity Inbox에 기록됩니다. 설정 UI 레이블 <em>"채널 뮤트"</em>, 부제목 <em>"배지와 읽지 않음 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요."</em>
   </div>
 
   <h3>알림 수준, 배지 표시 규칙</h3>
@@ -7396,7 +7396,7 @@ updatedAt       DateTime @updatedAt</pre>
         <td>모든 메시지 알림</td>
         <td>false</td>
         <td>ALL</td>
-        <td>미읽 볼드 + 카운트</td>
+        <td>읽지 않음 볼드 + 카운트</td>
         <td>발송</td>
         <td>O</td>
       </tr>
@@ -7412,7 +7412,7 @@ updatedAt       DateTime @updatedAt</pre>
         <td>알림 없음(NOTHING)</td>
         <td>false</td>
         <td>NOTHING</td>
-        <td>미읽 배지 유지, push 없음</td>
+        <td>읽지 않음 배지 유지, push 없음</td>
         <td>없음</td>
         <td>@username만</td>
       </tr>
@@ -7458,7 +7458,7 @@ updatedAt       DateTime @updatedAt</pre>
 
   <h3>Web Push (VAPID) — 권한 요청 UX</h3>
   <div class="qf-doc-callout qf-doc-callout--warn">
-    FCM/APNs 외부 브로커 없음. npm <code>web-push</code> 라이브러리로 NAS 단독 VAPID push. 데스크톱 세션 활성(lastSeen &lt; 5분) 시 60초 지연 후 미읽이면 전송. 구독 만료(endpoint 410) 시 PushSubscription 자동 삭제.<br><br>
+    FCM/APNs 외부 브로커 없음. npm <code>web-push</code> 라이브러리로 NAS 단독 VAPID push. 데스크톱 세션 활성(lastSeen &lt; 5분) 시 60초 지연 후 읽지 않음이면 전송. 구독 만료(endpoint 410) 시 PushSubscription 자동 삭제.<br><br>
     <strong>권한 요청 UX(FR-MN-15):</strong> 브라우저 알림 권한은 페이지 첫 진입 시 즉시 요청하지 않습니다. 설정 페이지 "알림" 탭 또는 Inbox 패널 상단 배너의 "브라우저 알림 허용하기" 버튼을 클릭할 때만 <code>Notification.requestPermission()</code>을 호출합니다.<br><br>
     권한이 <strong>denied</strong>된 경우, 설정 UI에 다음 표준 카피를 표시합니다: <em>"브라우저 알림이 차단되어 있습니다. 사이트 권한 설정에서 알림을 허용한 후 새로고침해 주세요. (기기, 브라우저별 방법은 도움말 참조)"</em> 아울러 <em>"알림 설정 방법 보기"</em>(내부 도움말 링크)를 함께 노출합니다. 미지원/PWA 미설치(iOS) 상태에는 별도 안내 분기를 허용합니다.<br><br>
     <strong>iOS 전제(PWA):</strong> iOS Safari는 홈 화면 PWA 설치(A2HS) 상태에서만 Web Push 구독이 가능합니다 — web manifest + service worker 제공이 요건이며, 미설치 iOS에서는 권한 요청 버튼 대신 "홈 화면에 추가하면 푸시 알림을 받을 수 있습니다" 안내를 표시합니다.
@@ -7466,10 +7466,10 @@ updatedAt       DateTime @updatedAt</pre>
 
   <h3>알림 배지 &amp; 동기화</h3>
   <ul>
-    <li>서버 아이콘: 빨간 숫자 배지 = 멘션 카운트, 흰 점 = 미읽(ALL 채널)</li>
-    <li>채널 사이드바: 볼드 = 미읽, 빨간 카운트 배지 = 멘션</li>
+    <li>서버 아이콘: 빨간 숫자 배지 = 멘션 카운트, 흰 점 = 읽지 않음(ALL 채널)</li>
+    <li>채널 사이드바: 볼드 = 읽지 않음, 빨간 카운트 배지 = 멘션</li>
     <li>뮤트 채널/서버: 모든 배지 숨김 (<code>isMuted=true</code> 확인 후 카운트 증가 자체를 건너뜀)</li>
-    <li>브라우저 탭 favicon + title badge: favicon은 멘션 증가 즉시 업데이트(낙관적). title badge는 글로벌 미읽/멘션 합계. <strong>favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지 표시, 모두 0이면 기본 favicon으로 원복.</strong></li>
+    <li>브라우저 탭 favicon + title badge: favicon은 멘션 증가 즉시 업데이트(낙관적). title badge는 글로벌 읽지 않음/멘션 합계. <strong>favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지 표시, 모두 0이면 기본 favicon으로 원복.</strong></li>
     <li>클라이언트 낙관적 카운트: 멘션 수신 시 즉시 +1(favicon 포함). 카운트 증가 전 <code>isMuted</code> 여부를 먼저 확인.</li>
     <li>서버 재동기화: <strong>30초 주기 polling 대신</strong>, 연결 복구(reconnect) 또는 탭 포커스 복귀 시 1회 <code>GET /me/notification-badges</code>를 호출해 서버 진실값으로 재동기화합니다. <strong>notification:badge_update 이벤트 수신 시에도 서버값으로 교체(server last-write-wins). 낙관적 +1은 지연 보상용.</strong> 낙관적 카운트와 서버값의 충돌은 서버값 last-write-wins로 해소(Eventually Consistent).</li>
   </ul>
@@ -7512,7 +7512,7 @@ updatedAt       DateTime @updatedAt</pre>
               <span class="qf-badge qf-badge--count">3</span>
             </span>
           </div>
-          <!-- 일반 미읽 채널 -->
+          <!-- 일반 읽지 않은 채널 -->
           <div class="qf-channel qf-channel--unread" style="display:flex; align-items:center; gap:var(--s-2); padding:var(--s-2) var(--s-3); border-radius:var(--r-sm); cursor:pointer;">
             <span class="qf-channel__prefix" style="color:var(--text-muted); font-size:var(--fs-16);">#</span>
             <span style="flex:1; font:700 var(--fs-14) var(--font-sans); color:var(--text-strong); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">일반</span>
@@ -7674,7 +7674,7 @@ updatedAt       DateTime @updatedAt</pre>
               <div class="qf-toggle-row" style="display:flex; align-items:center; justify-content:space-between; padding:var(--s-3) var(--s-4); border-radius:var(--r-md); background:var(--bg-elevated); cursor:pointer;">
                 <div>
                   <div style="font:500 var(--fs-14) var(--font-sans); color:var(--text);">채널 뮤트</div>
-                  <div style="font-size:var(--fs-12); color:var(--text-muted); margin-top:2px;">배지와 미읽 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요.</div>
+                  <div style="font-size:var(--fs-12); color:var(--text-muted); margin-top:2px;">배지와 읽지 않음 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요.</div>
                 </div>
               </div>
               <div style="height:1px; background:var(--divider); margin:var(--s-4) 0;"></div>
@@ -7914,12 +7914,12 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-07</td>
-        <td>채널별 알림 오버라이드: 서버 설정을 채널 단위로 재정의(NotifLevel + isMuted + muteUntil). 카테고리 단위 오버라이드 시 하위 채널 일괄 적용. <strong>진입점 — 데스크톱:</strong> 채널 우클릭 컨텍스트 메뉴 / <strong>모바일:</strong> 채널 행 롱프레스 액션 시트(뮤트 6종/해제 — FR-MN-06). 뮤트 채널은 행에 bell-off 아이콘 + 미읽 강조, 배지 억제 표시. <strong>NotifLevel 라디오 UI는 전 플랫폼 후속(보류)</strong>이며 v1 구현 범위는 뮤트(isMuted + muteUntil)만이다.</td>
+        <td>채널별 알림 오버라이드: 서버 설정을 채널 단위로 재정의(NotifLevel + isMuted + muteUntil). 카테고리 단위 오버라이드 시 하위 채널 일괄 적용. <strong>진입점 — 데스크톱:</strong> 채널 우클릭 컨텍스트 메뉴 / <strong>모바일:</strong> 채널 행 롱프레스 액션 시트(뮤트 6종/해제 — FR-MN-06). 뮤트 채널은 행에 bell-off 아이콘 + 읽지 않음 강조, 배지 억제 표시. <strong>NotifLevel 라디오 UI는 전 플랫폼 후속(보류)</strong>이며 v1 구현 범위는 뮤트(isMuted + muteUntil)만이다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
         <td class="id">FR-MN-08</td>
-        <td>뮤트: isMuted=true 시 미읽 볼드, 배지, push 알림 모두 숨김. 설정 UI 레이블 "채널 뮤트", 부제목 "배지와 미읽 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요." muteUntil 만료 시 Redis TTL + cron fallback으로 자동 해제.</td>
+        <td>뮤트: isMuted=true 시 읽지 않음 볼드, 배지, push 알림 모두 숨김. 설정 UI 레이블 "채널 뮤트", 부제목 "배지와 읽지 않음 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요." muteUntil 만료 시 Redis TTL + cron fallback으로 자동 해제.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -7949,7 +7949,7 @@ updatedAt       DateTime @updatedAt</pre>
       </tr>
       <tr>
         <td class="id">FR-MN-14</td>
-        <td>알림 배지: 서버 아이콘(멘션 숫자 + 미읽 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널, 서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조. <strong>모바일:</strong> 하단 탭바 배지(§02 탭바 카노니컬 표 — 채팅 탭 미읽 violet/멘션 danger 분리)는 <em>목표 명세이며 후속(보류, fr-matrix partial)</em> — 현 구현은 인박스 탭에 활동 합계 violet 배지(10 미만은 dot 강등, 감사 B-43)만 표시한다.</td>
+        <td>알림 배지: 서버 아이콘(멘션 숫자 + 읽지 않음 점), 채널 사이드바(볼드 + 카운트), 탭 favicon/title badge. favicon 규칙: unread &gt; 0이면 dot 표시, mentionCount &gt; 0이면 숫자 배지, 모두 0이면 기본 favicon 원복. isMuted=true 채널, 서버는 배지 완전 숨김(카운트 증가 자체 건너뜀). domain-model 표 배지 표시 규칙 참조. <strong>모바일:</strong> 하단 탭바 배지(§02 탭바 카노니컬 표 — 채팅 탭 읽지 않음 violet/멘션 danger 분리)는 <em>목표 명세이며 후속(보류, fr-matrix partial)</em> — 현 구현은 인박스 탭에 활동 합계 violet 배지(10 미만은 dot 강등, 감사 B-43)만 표시한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -8020,7 +8020,7 @@ muteUntil            DateTime?
 suppressEveryone     Boolean @default(false)
 suppressRoleMentions Boolean @default(false)
 @@unique([userId, serverId])</pre>
-      <div class="qf-doc-entity__notes">서버 단위 오버라이드. muteUntil null = 영구 뮤트. suppress는 서버 단위만. isMuted=true 시 배지, 미읽 완전 숨김.</div>
+      <div class="qf-doc-entity__notes">서버 단위 오버라이드. muteUntil null = 영구 뮤트. suppress는 서버 단위만. isMuted=true 시 배지, 읽지 않음 완전 숨김.</div>
     </div>
 
     <div class="qf-doc-entity">
@@ -8086,7 +8086,7 @@ deny          BigInt @default(0)
       <pre class="qf-doc-entity__fields">ALL       // 모든 메시지 알림
 MENTIONS  // 멘션·키워드만
 NOTHING   // push 없음, 배지 유지</pre>
-      <div class="qf-doc-entity__notes">Mute는 isMuted + muteUntil로 별도 표현(NOTHING과 구별). NOTHING: 배지 유지, push 없음. MUTE(isMuted=true): 배지, 미읽 숨김. D09/D14 동일 enum 참조.</div>
+      <div class="qf-doc-entity__notes">Mute는 isMuted + muteUntil로 별도 표현(NOTHING과 구별). NOTHING: 배지 유지, push 없음. MUTE(isMuted=true): 배지, 읽지 않음 숨김. D09/D14 동일 enum 참조.</div>
     </div>
 
     <div class="qf-doc-entity">
@@ -9602,15 +9602,15 @@ workspace:{wsId}:online_sockets        Set
 
   <!-- 1. 타이틀 / 요약 -->
   <div class="qf-eyebrow">PRD, D09</div>
-  <h1 class="qf-doc-h1">읽음 상태 &amp; 미읽 추적</h1>
-  <p class="qf-doc-lede">채널, 스레드별로 사용자의 마지막 읽음 위치(lastReadMessageId)를 서버에 저장하고, 채널 입장 시 자동 ACK(5초 디바운스) 또는 수동 ACK로 읽음 처리한다. 미읽 카운트(전체)와 멘션 카운트(직접 언급)를 분리 추적하여 사이드바에서 bold+pill(미읽)과 숫자 뱃지(멘션)로 이중 표시하며, "New Messages" 구분선과 Jump-to-Unread 버튼으로 미읽 첫 메시지로 즉시 이동할 수 있다. 뮤트 채널은 미읽 표시를 억제하되 직접 멘션에는 뱃지를 유지한다.</p>
+  <h1 class="qf-doc-h1">읽음 상태 &amp; 읽지 않음 추적</h1>
+  <p class="qf-doc-lede">채널, 스레드별로 사용자의 마지막 읽음 위치(lastReadMessageId)를 서버에 저장하고, 채널 입장 시 자동 ACK(5초 디바운스) 또는 수동 ACK로 읽음 처리한다. 읽지 않음 카운트(전체)와 멘션 카운트(직접 언급)를 분리 추적하여 사이드바에서 bold+pill(읽지 않음)과 숫자 뱃지(멘션)로 이중 표시하며, "New Messages" 구분선과 Jump-to-Unread 버튼으로 읽지 않음 첫 메시지로 즉시 이동할 수 있다. 뮤트 채널은 읽지 않음 표시를 억제하되 직접 멘션에는 뱃지를 유지한다.</p>
 
   <!-- 2. 기능 명세 -->
   <h2><span class="qf-eyebrow">Spec</span> 기능 명세</h2>
   <div class="qf-doc-subtle">Slack의 서버측 last_read 저장 + 멀티세션 브로드캐스트 × Discord의 즉각 ACK + 컨텍스트 메뉴를 결합한 채팅 전용 읽음 추적 시스템</div>
 
   <h3>읽음 위치 저장</h3>
-  <p>ChannelReadState 테이블에 <code>userId + channelId</code> 복합 유니크 키로 <code>lastReadMessageId</code>(문자열 커서 — cuid2, ADR-1), <code>mentionCount</code>를 저장한다. 스레드도 동일 구조의 ThreadReadState 테이블로 독립 관리한다(루트 메시지 키: <code>parentMessageId</code>). Redis에는 <code>unread:{workspaceId}:{userId}</code> Hash로 채널별 미읽 카운트를 캐싱(TTL 2시간)하여 사이드바 뱃지 조회를 빠르게 처리한다. cache stampede 방지를 위해 <code>unread:lock:{workspaceId}:{userId}</code> 키를 SET NX PX 뮤텍스로 선점 후 DB 집계를 수행하며, 락 TTL은 <code>UNREAD_LOCK_TTL</code> 환경변수(기본 30s)로 분리한다.</p>
+  <p>ChannelReadState 테이블에 <code>userId + channelId</code> 복합 유니크 키로 <code>lastReadMessageId</code>(문자열 커서 — cuid2, ADR-1), <code>mentionCount</code>를 저장한다. 스레드도 동일 구조의 ThreadReadState 테이블로 독립 관리한다(루트 메시지 키: <code>parentMessageId</code>). Redis에는 <code>unread:{workspaceId}:{userId}</code> Hash로 채널별 읽지 않음 카운트를 캐싱(TTL 2시간)하여 사이드바 뱃지 조회를 빠르게 처리한다. cache stampede 방지를 위해 <code>unread:lock:{workspaceId}:{userId}</code> 키를 SET NX PX 뮤텍스로 선점 후 DB 집계를 수행하며, 락 TTL은 <code>UNREAD_LOCK_TTL</code> 환경변수(기본 30s)로 분리한다.</p>
 
   <h3>채널 입장 초기화 시퀀스</h3>
   <div class="qf-doc-callout">
@@ -9618,7 +9618,7 @@ workspace:{wsId}:online_sockets        Set
     <strong>null인 경우 (최초 입장 / 신규 채널)</strong><br>
     → <code>GET /channels/:id/messages?limit=50</code> (최신 50개) → 목록 최하단으로 스크롤 → NEW MESSAGES 구분선 없음<br><br>
     <strong>null이 아닌 경우 (재방문)</strong><br>
-    → <code>GET /channels/:id/messages?around={lastReadMessageId}&amp;limit=50</code> → lastReadMessageId 직후 첫 미읽 메시지 앞에 NEW MESSAGES 구분선 렌더링 → 구분선으로 자동 스크롤<br><br>
+    → <code>GET /channels/:id/messages?around={lastReadMessageId}&amp;limit=50</code> → lastReadMessageId 직후 첫 읽지 않은 메시지 앞에 NEW MESSAGES 구분선 렌더링 → 구분선으로 자동 스크롤<br><br>
     around 커서 파라미터는 D17 메시지 히스토리 API와 동일 엔드포인트를 공유한다.
   </div>
 
@@ -9632,7 +9632,7 @@ workspace:{wsId}:online_sockets        Set
         <td><code>AUTO_FROM_POSITION</code></td>
         <td>lastReadMessageId가 null이면 최하단; null이 아니면 around 커서 위치(구분선)</td>
         <td>5초 디바운스 후 자동 ACK</td>
-        <td>lastReadMessageId 다음 첫 미읽 앞</td>
+        <td>lastReadMessageId 다음 첫 읽지 않음 앞</td>
       </tr>
       <tr>
         <td><code>AUTO_FROM_LATEST</code></td>
@@ -9644,7 +9644,7 @@ workspace:{wsId}:online_sockets        Set
         <td><code>MANUAL_FROM_LATEST</code></td>
         <td>항상 최하단</td>
         <td>자동 ACK 없음 (수동만)</td>
-        <td>표시 (미읽 유지)</td>
+        <td>표시 (읽지 않음 유지)</td>
       </tr>
     </tbody>
   </table>
@@ -9654,14 +9654,14 @@ workspace:{wsId}:online_sockets        Set
     <li>채널 오픈 시: 화면에 보이는 최신 메시지 ID를 <strong>5초 디바운스</strong> 후 POST /channels/:id/ack 전송.</li>
     <li><strong>scroll-to-bottom 판정</strong>: <code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code> 조건 충족 시. 가상화 리스트를 사용하는 경우 현재 렌더된 마지막 메시지의 virtualIndex에 해당하는 messageId를 사용한다.</li>
     <li>scroll-to-bottom 상태에서 새 메시지 도착 시: 디바운스 없이 <strong>즉시 ACK</strong>. ACK body에 <code>clientTimestamp</code>(ISO 8601 밀리초)를 포함하여 전송한다.</li>
-    <li>스크롤이 올라가 있을 때 새 메시지 도착 시: ACK 없음 → 미읽 유지.</li>
+    <li>스크롤이 올라가 있을 때 새 메시지 도착 시: ACK 없음 → 읽지 않음 유지.</li>
     <li>ACK 수신 시 해당 유저의 전체 Socket.IO 세션에 <code>read_state:updated</code> 브로드캐스트 → 멀티탭, 멀티디바이스 즉시 반영.</li>
   </ul>
 
-  <h3>미읽 카운트 계산 (카노니컬 공식)</h3>
+  <h3>읽지 않음 카운트 계산 (카노니컬 공식)</h3>
   <div class="qf-doc-callout">
     <strong>unread_count 카노니컬 공식</strong><br>
-    <code>COUNT(*) FROM messages WHERE id &gt; lastReadMessageId AND channelId = :channelId AND deletedAt IS NULL</code><br><br>, 자기 자신이 보낸 메시지도 미읽 카운트에 <strong>포함</strong>한다(제외하지 않음).<br>, id 비교는 cuid2 생성 순서(시간순 단조 증가)에 의존한다(ADR-1 cuid2 채택). 단, cuid2가 아닌 id 스킴으로 마이그레이션 시 반드시 <code>messages.createdAt</code>으로 join하여 비교해야 한다(<code>JOIN messages AS m ON m.createdAt &gt; (SELECT createdAt FROM messages WHERE id = :lastReadMessageId)</code>). D17 createdAt 기반 커서 공식과 일관성을 유지한다.<br>, lastReadMessageId가 null이면 전체 메시지 수를 unread_count로 반환한다(단, FR-RS-16 신규 채널 가입 정책 적용 시 0).
+    <code>COUNT(*) FROM messages WHERE id &gt; lastReadMessageId AND channelId = :channelId AND deletedAt IS NULL</code><br><br>, 자기 자신이 보낸 메시지도 읽지 않음 카운트에 <strong>포함</strong>한다(제외하지 않음).<br>, id 비교는 cuid2 생성 순서(시간순 단조 증가)에 의존한다(ADR-1 cuid2 채택). 단, cuid2가 아닌 id 스킴으로 마이그레이션 시 반드시 <code>messages.createdAt</code>으로 join하여 비교해야 한다(<code>JOIN messages AS m ON m.createdAt &gt; (SELECT createdAt FROM messages WHERE id = :lastReadMessageId)</code>). D17 createdAt 기반 커서 공식과 일관성을 유지한다.<br>, lastReadMessageId가 null이면 전체 메시지 수를 unread_count로 반환한다(단, FR-RS-16 신규 채널 가입 정책 적용 시 0).
   </div>
   <ul>
     <li><strong>mention_count</strong>: message_mentions 기준 누적, ACK 시 0 리셋.</li>
@@ -9670,22 +9670,22 @@ workspace:{wsId}:online_sockets        Set
 
   <div class="qf-doc-callout">
     <strong>사이드바 2계층 표시 규칙</strong><br>
-    미읽(unread_count &gt; 0, 비뮤트) → <code>.qf-channel--unread</code> (bold + 왼쪽 4px pill)<br>
+    읽지 않음(unread_count &gt; 0, 비뮤트) → <code>.qf-channel--unread</code> (bold + 왼쪽 4px pill)<br>
     멘션(mention_count &gt; 0) → <code>.qf-badge--count</code> 숫자 뱃지 (danger-600 배경)<br>
     뮤트 채널 → unread bold/pill 억제, mention_count &gt; 0일 때 뱃지만 표시
   </div>
 
   <h3>NEW MESSAGES 구분선 &amp; Jump-to-Unread</h3>
   <ul>
-    <li>채널 오픈 시 lastReadMessageId 직후 첫 미읽 메시지 앞에 <strong>"NEW MESSAGES" 구분선</strong>(<code>.qf-unread-divider</code>) 렌더링. 미읽 없으면 미표시.</li>
+    <li>채널 오픈 시 lastReadMessageId 직후 첫 읽지 않은 메시지 앞에 <strong>"NEW MESSAGES" 구분선</strong>(<code>.qf-unread-divider</code>) 렌더링. 읽지 않음 없으면 미표시.</li>
     <li>구분선이 viewport 위쪽 밖: 채팅 영역 상단에 <strong>"Jump to First Unread"</strong> sticky pill 고정.</li>
     <li>구분선이 viewport 아래쪽 밖: 채팅 영역 하단에 <strong>"Jump to Unread"</strong> 버튼(기존 "Jump to Bottom" 대체).</li>
-    <li>구분선은 ACK 후에도 세션 동안 시각적으로 유지(재오픈 시 미읽 없으면 미표시).</li>
+    <li>구분선은 ACK 후에도 세션 동안 시각적으로 유지(재오픈 시 읽지 않음 없으면 미표시).</li>
   </ul>
 
   <h3>수동 마크 &amp; 키보드 단축키</h3>
   <ul>
-    <li><strong>미읽으로 표시</strong>: 메시지 hover toolbar → 해당 메시지 이전 ID로 lastReadMessageId 되돌림. (모바일: 메시지 롱프레스 시트 '미읽음으로 표시' — FR-IA-MOB-05)</li>
+    <li><strong>읽지 않음으로 표시</strong>: 메시지 hover toolbar → 해당 메시지 이전 ID로 lastReadMessageId 되돌림. (모바일: 메시지 롱프레스 시트 '읽지 않음으로 표시' — FR-IA-MOB-05)</li>
     <li><strong>읽음으로 표시</strong>: 채널 우클릭 컨텍스트 메뉴 또는 채널 헤더 버튼. (모바일: 채널 행 롱프레스 시트 '읽음으로 표시' — FR-IA-MOB-07 ②)</li>
     <li><strong>모두 읽음</strong>: Unreads View 하단 버튼 → 전체 채널 ACK 일괄 업데이트. <strong>8초 Undo 토스트</strong> (토스트 카피: "모든 채널을 읽음으로 표시했습니다." + "실행 취소" 버튼, 8초 후 자동 소멸 — a11y WCAG 2.2.1 여유).</li>
     <li>키보드: <kbd>Esc</kbd> = 현재 채널 읽음, <kbd>Shift+Esc</kbd> = 워크스페이스 전체 읽음. (모바일: 채널 행 롱프레스 '읽음으로 표시' / 좌 패널 채널 목록 섹션 '모두 읽음' — FR-IA-MOB-07 ⑥)</li>
@@ -9703,7 +9703,7 @@ workspace:{wsId}:online_sockets        Set
   </div>
 
   <h3>Unreads View</h3>
-  <p>사이드바 최상단 고정 "미읽" 항목. mentionCount 있는 채널 우선, 최신 활동순 정렬. 각 채널 블록에 최근 미읽 메시지 최대 5개 미리보기 + "읽음 처리" 버튼. 뮤트, 아카이브 채널 제외. <strong>미읽 채널이 없을 때 empty state</strong>: "<svg class="qf-icon" style="width:32px;height:32px;color:var(--text-muted);vertical-align:middle;"><use href="#qf-i-inbox"/></svg> 모든 채널을 읽으셨습니다" 문구와 함께 아이콘 표시. Unreads View 목록은 <strong>커서 기반 페이지네이션</strong>(페이지당 50개, cursor: channelId)으로 로딩하며 스크롤 시 자동 추가 로드한다.</p>
+  <p>사이드바 최상단 고정 "읽지 않음" 항목. mentionCount 있는 채널 우선, 최신 활동순 정렬. 각 채널 블록에 최근 읽지 않은 메시지 최대 5개 미리보기 + "읽음 처리" 버튼. 뮤트, 아카이브 채널 제외. <strong>읽지 않은 채널이 없을 때 empty state</strong>: "<svg class="qf-icon" style="width:32px;height:32px;color:var(--text-muted);vertical-align:middle;"><use href="#qf-i-inbox"/></svg> 모든 채널을 읽으셨습니다" 문구와 함께 아이콘 표시. Unreads View 목록은 <strong>커서 기반 페이지네이션</strong>(페이지당 50개, cursor: channelId)으로 로딩하며 스크롤 시 자동 추가 로드한다.</p>
   <p>View가 열려 있는 동안 <code>unread_count:increment</code> 이벤트를 수신하면 해당 채널 항목을 목록 <strong>최상단에 낙관 삽입(또는 카운트 갱신)</strong>하며, 신규 채널 항목은 항상 최상단에, 기존 채널은 이전 커서 위치를 유지한 채 카운트만 업데이트한다. 미리보기(최대 5개)에 표시되는 메시지는 D03, D14 차단 정책을 적용하여 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹한다. GET /workspaces/:wsId/unreads API 응답도 동일 마스킹 규칙을 적용한다.</p>
 
   <h3>MarkAsReadMode 설정</h3>
@@ -9711,14 +9711,14 @@ workspace:{wsId}:online_sockets        Set
     <strong>UserPreference.markAsReadMode</strong> (ENUM)<br>
     <code>AUTO_FROM_POSITION</code> — 마지막 위치에서 재개, 자동 읽음 (기본값)<br>
     <code>AUTO_FROM_LATEST</code> — 최신으로 이동, 자동 읽음<br>
-    <code>MANUAL_FROM_LATEST</code> — 최신으로 이동, 미읽 유지
+    <code>MANUAL_FROM_LATEST</code> — 최신으로 이동, 읽지 않음 유지
   </div>
 
   <!-- 3. 화면 Mock -->
   <h2><span class="qf-eyebrow">Mock</span> 화면</h2>
-  <div class="qf-doc-subtle">사이드바 2계층 뱃지, NEW MESSAGES 구분선, Unreads View, hover toolbar "미읽으로 표시" 4개 장면</div>
+  <div class="qf-doc-subtle">사이드바 2계층 뱃지, NEW MESSAGES 구분선, Unreads View, hover toolbar "읽지 않음으로 표시" 4개 장면</div>
 
-  <!-- Mock A: 사이드바 읽음/미읽 상태 + 데스크톱 풀 레이아웃 -->
+  <!-- Mock A: 사이드바 읽음/읽지 않음 상태 + 데스크톱 풀 레이아웃 -->
   <div class="mockup-scroll">
     <div class="mockup" style="height:520px;display:flex;flex-shrink:0;">
 
@@ -9743,7 +9743,7 @@ workspace:{wsId}:online_sockets        Set
         <div class="qf-channellist__body" style="padding:0 var(--s-2);">
           <button style="display:flex;align-items:center;gap:var(--s-3);width:100%;padding:var(--s-2) var(--s-3);border:none;border-radius:var(--r-sm);background:transparent;cursor:pointer;color:var(--text-secondary);font:500 var(--fs-14)/1 var(--font-sans);">
             <svg class="qf-icon" style="width:16px;height:16px;"><use href="#qf-i-inbox"/></svg>
-            미읽 메시지
+            읽지 않은 메시지
             <span class="qf-badge qf-badge--count" style="margin-left:auto;">5</span>
           </button>
 
@@ -9758,14 +9758,14 @@ workspace:{wsId}:online_sockets        Set
             <span style="flex:1;">일반</span>
           </div>
 
-          <!-- 미읽 채널 (unread, 멘션 없음) -->
+          <!-- 읽지 않은 채널 (unread, 멘션 없음) -->
           <div class="qf-channel qf-channel--unread" style="display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);color:var(--text-strong);font:700 var(--fs-14)/1 var(--font-sans);background:var(--bg-hover);position:relative;">
             <span style="position:absolute;left:0;top:50%;transform:translateY(-50%);width:4px;height:16px;border-radius:0 var(--r-xs) var(--r-xs) 0;background:var(--text-strong);"></span>
             <span class="qf-channel__prefix" style="margin-left:var(--s-2);">#</span>
             <span style="flex:1;">개발-프론트엔드</span>
           </div>
 
-          <!-- 미읽 + 멘션 채널 -->
+          <!-- 읽지 않음 + 멘션 채널 -->
           <div class="qf-channel qf-channel--unread" style="display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);color:var(--text-strong);font:700 var(--fs-14)/1 var(--font-sans);position:relative;">
             <span style="position:absolute;left:0;top:50%;transform:translateY(-50%);width:4px;height:16px;border-radius:0 var(--r-xs) var(--r-xs) 0;background:var(--text-strong);"></span>
             <span class="qf-channel__prefix" style="margin-left:var(--s-2);">#</span>
@@ -9786,7 +9786,7 @@ workspace:{wsId}:online_sockets        Set
             <span class="qf-channel__suffix"><span class="qf-badge qf-badge--count">1</span></span>
           </div>
 
-          <!-- 뮤트 채널 (미읽만, 뱃지 없음) -->
+          <!-- 뮤트 채널 (읽지 않음만, 뱃지 없음) -->
           <div class="qf-channel" style="display:flex;align-items:center;gap:var(--s-2);padding:var(--s-2) var(--s-3);border-radius:var(--r-sm);color:var(--text-muted);font:500 var(--fs-14)/1 var(--font-sans);">
             <svg class="qf-icon" style="width:14px;height:14px;color:var(--text-muted);"><use href="#qf-i-bell-off"/></svg>
             <span style="flex:1;">마케팅</span>
@@ -9812,7 +9812,7 @@ workspace:{wsId}:online_sockets        Set
           <div style="position:sticky;top:var(--s-3);z-index:10;display:flex;justify-content:center;margin-bottom:var(--s-2);">
             <button class="qf-btn qf-btn--primary qf-btn--sm" style="box-shadow:var(--elev-2);">
               <svg class="qf-icon"><use href="#qf-i-chevron-down" style="transform:rotate(180deg);"/></svg>
-              첫 미읽 메시지로 이동
+              첫 읽지 않은 메시지로 이동
             </button>
           </div>
 
@@ -9839,7 +9839,7 @@ workspace:{wsId}:online_sockets        Set
             <div style="flex:1;height:1px;background:var(--a-500);opacity:0.4;"></div>
           </div>
 
-          <!-- 미읽 메시지들 -->
+          <!-- 읽지 않은 메시지들 -->
           <div class="qf-message qf-message--head qf-message--mention" style="display:flex;gap:var(--s-4);padding:var(--s-2) var(--s-5);align-items:flex-start;background:rgba(139,92,246,0.07);border-left:3px solid var(--a-500);">
             <div class="qf-avatar qf-avatar--md" style="background:var(--ok-600);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0;">박</div>
             <div>
@@ -9884,11 +9884,11 @@ workspace:{wsId}:online_sockets        Set
 
     <!-- Unreads View 카드 -->
     <div class="qf-doc-card">
-      <div class="qf-doc-card__label">Unreads View — 미읽 채널 목록</div>
+      <div class="qf-doc-card__label">Unreads View — 읽지 않은 채널 목록</div>
       <div class="qf-doc-card__preview" style="padding:0;overflow:hidden;border-radius:var(--r-md);">
         <!-- 헤더 -->
         <div style="display:flex;align-items:center;justify-content:space-between;padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--divider);background:var(--bg-panel);">
-          <span style="font:600 var(--fs-16)/1 var(--font-sans);color:var(--text-strong);">미읽 메시지</span>
+          <span style="font:600 var(--fs-16)/1 var(--font-sans);color:var(--text-strong);">읽지 않은 메시지</span>
           <button class="qf-btn qf-btn--ghost qf-btn--sm">모두 읽음</button>
         </div>
 
@@ -9906,7 +9906,7 @@ workspace:{wsId}:online_sockets        Set
           </div>
         </div>
 
-        <!-- 채널 카드 2: 멘션 없는 미읽 -->
+        <!-- 채널 카드 2: 멘션 없는 읽지 않음 -->
         <div style="padding:var(--s-4) var(--s-5);border-bottom:1px solid var(--divider);background:var(--bg-panel);">
           <div style="display:flex;align-items:center;gap:var(--s-3);margin-bottom:var(--s-3);">
             <svg class="qf-icon" style="width:14px;height:14px;color:var(--text-muted);"><use href="#qf-i-hash"/></svg>
@@ -9934,8 +9934,8 @@ workspace:{wsId}:online_sockets        Set
           <div style="font:var(--fs-13);color:var(--text-muted);font-style:italic;margin-top:var(--s-1);">[차단된 사용자의 메시지]</div>
         </div>
 
-        <!-- Empty state (미읽 없을 때) -->
-        <!-- 아래 블록은 미읽 채널이 모두 읽음 처리된 후 표시 -->
+        <!-- Empty state (읽지 않음 없을 때) -->
+        <!-- 아래 블록은 읽지 않은 채널이 모두 읽음 처리된 후 표시 -->
         <!--
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:var(--s-8) var(--s-5);gap:var(--s-3);background:var(--bg-panel);">
           <svg class="qf-icon" style="width:32px;height:32px;color:var(--text-muted);"><use href="#qf-i-inbox"/></svg>
@@ -9951,9 +9951,9 @@ workspace:{wsId}:online_sockets        Set
       </div>
     </div>
 
-    <!-- hover toolbar "미읽으로 표시" 카드 -->
+    <!-- hover toolbar "읽지 않음으로 표시" 카드 -->
     <div class="qf-doc-card">
-      <div class="qf-doc-card__label">메시지 hover toolbar — "미읽으로 표시"</div>
+      <div class="qf-doc-card__label">메시지 hover toolbar — "읽지 않음으로 표시"</div>
       <div class="qf-doc-card__preview" style="position:relative;min-height:180px;display:flex;flex-direction:column;gap:var(--s-4);padding:var(--s-5);">
 
         <!-- Before: 읽은 상태 메시지 (hover) -->
@@ -9973,15 +9973,15 @@ workspace:{wsId}:online_sockets        Set
               <button class="qf-row-iconbtn" title="반응 추가"><svg class="qf-icon"><use href="#qf-i-emoji"/></svg></button>
               <button class="qf-row-iconbtn" title="답장"><svg class="qf-icon"><use href="#qf-i-reply"/></svg></button>
               <button class="qf-row-iconbtn" title="스레드"><svg class="qf-icon"><use href="#qf-i-thread"/></svg></button>
-              <!-- 미읽으로 표시 버튼 (강조) -->
-              <button class="qf-row-iconbtn" style="color:var(--a-300);" title="미읽으로 표시">
+              <!-- 읽지 않음으로 표시 버튼 (강조) -->
+              <button class="qf-row-iconbtn" style="color:var(--a-300);" title="읽지 않음으로 표시">
                 <svg class="qf-icon"><use href="#qf-i-eye-off"/></svg>
               </button>
               <button class="qf-row-iconbtn" title="더보기"><svg class="qf-icon"><use href="#qf-i-more"/></svg></button>
             </div>
           </div>
           <!-- Tooltip -->
-          <div class="qf-tooltip" style="position:static;display:inline-block;margin-top:var(--s-2);margin-left:auto;font-size:var(--fs-12);">미읽으로 표시</div>
+          <div class="qf-tooltip" style="position:static;display:inline-block;margin-top:var(--s-2);margin-left:auto;font-size:var(--fs-12);">읽지 않음으로 표시</div>
         </div>
 
         <div style="border-top:1px dashed var(--divider);padding-top:var(--s-4);">
@@ -10009,23 +10009,23 @@ workspace:{wsId}:online_sockets        Set
     </div>
   </div>
 
-  <!-- Mock C: 모바일 미읽 모아보기(인박스 탭 내 표현 — 카노니컬 5탭에 별도 '미읽' 탭 없음) -->
+  <!-- Mock C: 모바일 읽지 않음 모아보기(인박스 탭 내 표현 — 카노니컬 5탭에 별도 '읽지 않음' 탭 없음) -->
   <div style="display:flex;justify-content:center;margin-top:var(--s-6);">
     <div style="display:flex;flex-direction:column;align-items:center;gap:var(--s-3);">
-      <div style="font:600 var(--fs-12)/1 var(--font-sans);color:var(--text-muted);text-transform:uppercase;letter-spacing:var(--tracking-caps);">Mobile — 미읽 모아보기(인박스 탭 내 표현)</div>
+      <div style="font:600 var(--fs-12)/1 var(--font-sans);color:var(--text-muted);text-transform:uppercase;letter-spacing:var(--tracking-caps);">Mobile — 읽지 않음 모아보기(인박스 탭 내 표현)</div>
       <div class="phone">
         <div class="qf-m-screen qf-m-screen--bare" style="display:flex;flex-direction:column;height:100%;">
           <!-- Topbar -->
           <div class="qf-m-topbar">
             <div></div>
-            <div class="qf-m-topbar__title">미읽 메시지</div>
+            <div class="qf-m-topbar__title">읽지 않은 메시지</div>
             <button class="qf-m-topbar__action" style="font:500 var(--fs-12)/1 var(--font-sans);width:auto;padding:0 var(--s-3);color:var(--a-300);">모두 읽음</button>
           </div>
 
           <!-- Body -->
           <div class="qf-m-body" style="flex:1;overflow-y:auto;background:var(--bg-chat);">
 
-            <!-- 미읽 채널 행: 멘션 -->
+            <!-- 읽지 않은 채널 행: 멘션 -->
             <div class="qf-m-row" style="display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--divider);background:rgba(139,92,246,0.06);">
               <div class="qf-avatar qf-avatar--md" style="background:var(--a-500);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0;border-radius:var(--r-md);">#</div>
               <div style="flex:1;min-width:0;">
@@ -10037,7 +10037,7 @@ workspace:{wsId}:online_sockets        Set
               </div>
             </div>
 
-            <!-- 미읽 채널 행: 일반 -->
+            <!-- 읽지 않은 채널 행: 일반 -->
             <div class="qf-m-row" style="display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--divider);">
               <div class="qf-avatar qf-avatar--md" style="background:var(--ok-600);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0;border-radius:var(--r-md);">#</div>
               <div style="flex:1;min-width:0;">
@@ -10049,7 +10049,7 @@ workspace:{wsId}:online_sockets        Set
               </div>
             </div>
 
-            <!-- 미읽 채널 행 3 -->
+            <!-- 읽지 않은 채널 행 3 -->
             <div class="qf-m-row" style="display:flex;align-items:flex-start;gap:var(--s-3);padding:var(--s-3) var(--s-4);border-bottom:1px solid var(--divider);">
               <div class="qf-avatar qf-avatar--md" style="background:var(--info-400);display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;flex-shrink:0;border-radius:var(--r-md);">#</div>
               <div style="flex:1;min-width:0;">
@@ -10063,7 +10063,7 @@ workspace:{wsId}:online_sockets        Set
 
           </div>
 
-          <!-- Tab bar (§02 카노니컬 5탭 — 미읽 모아보기는 인박스 탭 내 표현이므로 active=인박스; 일반 미읽 합계 violet 배지는 카노니컬 표대로 채팅 탭 소관) -->
+          <!-- Tab bar (§02 카노니컬 5탭 — 읽지 않음 모아보기는 인박스 탭 내 표현이므로 active=인박스; 일반 읽지 않음 합계 violet 배지는 카노니컬 표대로 채팅 탭 소관) -->
           <div class="qf-m-tabbar">
             <button class="qf-m-tab">
               <span class="qf-m-tab__badge">19</span>
@@ -10098,15 +10098,15 @@ workspace:{wsId}:online_sockets        Set
   <h2><span class="qf-eyebrow">User stories</span> 사용자 스토리</h2>
   <ul class="qf-doc-stories">
     <li>채널을 열면 마지막으로 읽었던 위치부터 시작하고, 새 메시지와 이전 메시지의 경계를 "NEW MESSAGES" 구분선으로 한눈에 확인하고 싶다.</li>
-    <li>사이드바에서 미읽 채널을 볼드체 + pill로 파악하고, 직접 @멘션이 있는 채널은 숫자 뱃지로 강조해서 보고 싶다.</li>
-    <li>채팅창 밖에 미읽 메시지가 있을 때 버튼 한 번 클릭으로 첫 미읽 메시지로 즉시 이동하고 싶다.</li>
-    <li>나중에 다시 보고 싶은 메시지를 "미읽으로 표시"로 수동 마킹하고 싶다.</li>
-    <li>노이즈가 많은 채널을 뮤트해서 미읽 표시를 없애되, 내가 직접 멘션 받았을 때는 뱃지가 표시되길 원한다.</li>
+    <li>사이드바에서 읽지 않은 채널을 볼드체 + pill로 파악하고, 직접 @멘션이 있는 채널은 숫자 뱃지로 강조해서 보고 싶다.</li>
+    <li>채팅창 밖에 읽지 않은 메시지가 있을 때 버튼 한 번 클릭으로 첫 읽지 않은 메시지로 즉시 이동하고 싶다.</li>
+    <li>나중에 다시 보고 싶은 메시지를 "읽지 않음으로 표시"로 수동 마킹하고 싶다.</li>
+    <li>노이즈가 많은 채널을 뮤트해서 읽지 않음 표시를 없애되, 내가 직접 멘션 받았을 때는 뱃지가 표시되길 원한다.</li>
     <li>여러 탭, 기기를 동시에 쓸 때 한 곳에서 읽으면 다른 곳에도 즉시 반영되길 원한다.</li>
-    <li>모든 미읽 채널을 한 화면(Unreads View)에서 훑어보고 한 번에 읽음 처리하고 싶다.</li>
-    <li>스레드 답장의 미읽 상태도 채널 미읽과 별도로 추적되길 원한다.</li>
+    <li>모든 읽지 않은 채널을 한 화면(Unreads View)에서 훑어보고 한 번에 읽음 처리하고 싶다.</li>
+    <li>스레드 답장의 읽지 않음 상태도 채널 읽지 않음과 별도로 추적되길 원한다.</li>
     <li>Shift+Esc 한 번으로 워크스페이스 전체를 읽음 처리하고 싶다.</li>
-    <li>새 채널에 가입하는 즉시 기존 메시지를 읽음 처리하여 불필요한 미읽 카운트가 쌓이지 않길 원한다.</li>
+    <li>새 채널에 가입하는 즉시 기존 메시지를 읽음 처리하여 불필요한 읽지 않음 카운트가 쌓이지 않길 원한다.</li>
   </ul>
 
   <!-- 5. 기능 요구사항 -->
@@ -10143,7 +10143,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-06</td>
-        <td>채널 오픈 시 lastReadMessageId 직후 첫 번째 미읽 메시지 바로 위에 "NEW MESSAGES" 구분선을 렌더링한다. 미읽이 없으면 구분선을 표시하지 않는다. <strong>모바일:</strong> 구분선은 DS <code>.qf-m-unread-divider</code>(라벨 '새 메시지')로 렌더링하며 위치 규칙은 데스크톱과 동일하다.</td>
+        <td>채널 오픈 시 lastReadMessageId 직후 첫 번째 읽지 않은 메시지 바로 위에 "NEW MESSAGES" 구분선을 렌더링한다. 읽지 않음이 없으면 구분선을 표시하지 않는다. <strong>모바일:</strong> 구분선은 DS <code>.qf-m-unread-divider</code>(라벨 '새 메시지')로 렌더링하며 위치 규칙은 데스크톱과 동일하다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -10153,7 +10153,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-08</td>
-        <td>메시지 hover toolbar(<strong>데스크톱</strong>)에 "미읽으로 표시" 액션을, 메시지 롱프레스 액션 시트(<strong>모바일</strong>)에 '미읽음으로 표시' 항목을 제공한다(FR-IA-MOB-05). 실행 시 해당 메시지의 이전 메시지 ID로 lastReadMessageId를 되돌리고 unread_count를 재계산한다.</td>
+        <td>메시지 hover toolbar(<strong>데스크톱</strong>)에 "읽지 않음으로 표시" 액션을, 메시지 롱프레스 액션 시트(<strong>모바일</strong>)에 '읽지 않음으로 표시' 항목을 제공한다(FR-IA-MOB-05). 실행 시 해당 메시지의 이전 메시지 ID로 lastReadMessageId를 되돌리고 unread_count를 재계산한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -10163,7 +10163,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-10</td>
-        <td><strong>데스크톱:</strong> Unreads View를 채널 사이드바 최상단에 상시 노출한다. <strong>모바일:</strong> 하단 탭바에 별도 '미읽' 탭은 두지 않으며, 좌 패널 채널 목록 섹션의 '모두 읽음'(+8초 Undo 토스트)과 인박스 탭(미읽 모아보기 — Mock C, 인박스 탭 내 표현)으로 제공한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 8초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 8초 노출 — 서버 스냅샷 TTL 5분과 독립)를 표시한다. 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
+        <td><strong>데스크톱:</strong> Unreads View를 채널 사이드바 최상단에 상시 노출한다. <strong>모바일:</strong> 하단 탭바에 별도 '읽지 않음' 탭은 두지 않으며, 좌 패널 채널 목록 섹션의 '모두 읽음'(+8초 Undo 토스트)과 인박스 탭(읽지 않음 모아보기 — Mock C, 인박스 탭 내 표현)으로 제공한다. mentionCount 있는 채널 우선 정렬 후 최신 활동순. 각 채널 블록에 "읽음 처리" 버튼과 하단 "모두 읽음" 버튼을 제공한다. "모두 읽음" 실행 시 8초 Undo 토스트(토스트 카피 + "실행 취소" 버튼 8초 노출 — 서버 스냅샷 TTL 5분과 독립)를 표시한다. 읽지 않은 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")를 표시한다. 목록은 커서 기반 페이지네이션 50개 단위로 로딩한다.<br><br>
         View가 열려 있는 동안 <code>unread_count:increment</code> 이벤트 수신 시 해당 채널을 목록 <strong>최상단에 낙관 삽입(신규)하거나 카운트를 갱신</strong>한다. 신규 채널 항목은 항상 최상단에 삽입하고, 기존 항목은 커서 위치를 유지한 채 카운트만 갱신한다.<br><br>
         각 채널 미리보기(최대 5개 메시지)는 D03, D14 차단 정책(D03 FR-DM-18 동일 규칙)에 따라 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹하되 <code>username</code> 필드도 <code>차단된 사용자</code>로, <code>avatarUrl</code>은 <code>null</code>로 대체한다. GET /workspaces/:wsId/unreads API도 동일 마스킹을 적용한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
@@ -10199,7 +10199,7 @@ workspace:{wsId}:online_sockets        Set
       </tr>
       <tr>
         <td class="id">FR-RS-16</td>
-        <td>신규 채널 가입 정책: WorkspaceMember 생성 시점에 해당 채널의 최신 메시지 ID로 ChannelReadState를 초기화하여 가입 이전 메시지를 모두 읽음 처리한다. <code>MANUAL_FROM_LATEST</code> 모드 사용자는 예외적으로 미읽 상태(lastReadMessageId = null)를 유지한다.</td>
+        <td>신규 채널 가입 정책: WorkspaceMember 생성 시점에 해당 채널의 최신 메시지 ID로 ChannelReadState를 초기화하여 가입 이전 메시지를 모두 읽음 처리한다. <code>MANUAL_FROM_LATEST</code> 모드 사용자는 예외적으로 읽지 않음 상태(lastReadMessageId = null)를 유지한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -10303,8 +10303,8 @@ markAsReadMode  MarkAsReadMode  @default(AUTO_FROM_POSITION)
 // MarkAsReadMode enum:
 // AUTO_FROM_POSITION  — 마지막 위치 재개, 자동 읽음
 // AUTO_FROM_LATEST    — 최신으로 이동, 자동 읽음
-// MANUAL_FROM_LATEST  — 최신으로 이동, 미읽 유지</pre>
-      <div class="qf-doc-entity__notes">per-user 설정. 채널 오픈 시 이 값으로 ACK 동작 결정. 신규 채널 가입 시 MANUAL_FROM_LATEST만 미읽 유지(FR-RS-16). PATCH /users/me/preferences는 deprecated alias.</div>
+// MANUAL_FROM_LATEST  — 최신으로 이동, 읽지 않음 유지</pre>
+      <div class="qf-doc-entity__notes">per-user 설정. 채널 오픈 시 이 값으로 ACK 동작 결정. 신규 채널 가입 시 MANUAL_FROM_LATEST만 읽지 않음 유지(FR-RS-16). PATCH /users/me/preferences는 deprecated alias.</div>
     </div>
 
     <div class="qf-doc-entity">
@@ -10363,12 +10363,12 @@ TTL: 300s (5분)
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--get">GET</span></td>
         <td class="id">/workspaces/:wsId/unread-summary</td>
-        <td>사이드바 초기 로딩용. 워크스페이스 내 유저의 미읽 채널 전체 목록. Redis 캐시(SET NX PX lock, UNREAD_LOCK_TTL) 우선, Miss 시 DB 집계. Response: <code>{ channels: Array&lt;{ channelId, unreadCount, mentionCount }&gt; }</code></td>
+        <td>사이드바 초기 로딩용. 워크스페이스 내 유저의 읽지 않은 채널 전체 목록. Redis 캐시(SET NX PX lock, UNREAD_LOCK_TTL) 우선, Miss 시 DB 집계. Response: <code>{ channels: Array&lt;{ channelId, unreadCount, mentionCount }&gt; }</code></td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--get">GET</span></td>
         <td class="id">/workspaces/:wsId/unreads</td>
-        <td>Unreads View 데이터. 미읽 채널 목록 + 각 채널의 최근 미읽 메시지 최대 5개 미리보기. mentionCount DESC, lastActivity DESC 정렬. 뮤트/아카이브 채널 제외. <strong>커서 기반 페이지네이션</strong>: <code>?limit=50&amp;cursor=:channelId</code>. 미읽 없을 때 빈 배열 반환(empty state 트리거용). 미리보기 메시지는 D03, D14 차단 정책에 따라 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹한다.</td>
+        <td>Unreads View 데이터. 읽지 않은 채널 목록 + 각 채널의 최근 읽지 않은 메시지 최대 5개 미리보기. mentionCount DESC, lastActivity DESC 정렬. 뮤트/아카이브 채널 제외. <strong>커서 기반 페이지네이션</strong>: <code>?limit=50&amp;cursor=:channelId</code>. 읽지 않음 없을 때 빈 배열 반환(empty state 트리거용). 미리보기 메시지는 D03, D14 차단 정책에 따라 차단된 사용자의 메시지를 <code>[차단된 사용자의 메시지]</code>로 마스킹한다.</td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--get">GET</span></td>
@@ -10388,7 +10388,7 @@ TTL: 300s (5분)
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--patch">PATCH</span></td>
         <td class="id">/channels/:channelId/read-state</td>
-        <td>수동 미읽 마킹. body: <code>{ lastReadMessageId }</code> — 특정 메시지 이전으로 되돌림.</td>
+        <td>수동 읽지 않음 마킹. body: <code>{ lastReadMessageId }</code> — 특정 메시지 이전으로 되돌림.</td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--patch">PATCH</span></td>
@@ -10398,7 +10398,7 @@ TTL: 300s (5분)
     </tbody>
   </table>
 
-  <div class="qf-doc-subtle" style="margin-top:var(--s-6);">실시간 이벤트 — Socket.IO 채널 ACK / 미읽 카운트 변경</div>
+  <div class="qf-doc-subtle" style="margin-top:var(--s-6);">실시간 이벤트 — Socket.IO 채널 ACK / 읽지 않음 카운트 변경</div>
   <table class="qf-doc-table">
     <thead>
       <tr><th>이벤트</th><th>Payload</th><th>방향</th></tr>
@@ -10451,7 +10451,7 @@ TTL: 300s (5분)
     <li><strong>뮤트 채널 멘션:</strong> mentionCount는 증분하되 사이드바 bold/pill은 억제. 뮤트 해제 시 mentionCount 기반 뱃지 즉시 표시.</li>
     <li><strong>첫 방문 채널(ChannelReadState 없음):</strong> FR-RS-16 신규 채널 가입 정책에 따라 가입 시점의 최신 메시지 ID로 ChannelReadState 초기화(unread_count = 0). MANUAL_FROM_LATEST 사용자만 예외적으로 null 유지.</li>
     <li><strong>아카이브 채널:</strong> unread_count 계산 제외, Unreads View에서 제외. 아카이브 해제 시 재집계.</li>
-    <li><strong>메시지 수정(edit):</strong> 이미 읽은 메시지를 수정해도 미읽 카운트 증가 없음. 수정된 메시지가 미읽 범위 내에 있으면 카운트 유지.</li>
+    <li><strong>메시지 수정(edit):</strong> 이미 읽은 메시지를 수정해도 읽지 않음 카운트 증가 없음. 수정된 메시지가 읽지 않음 범위 내에 있으면 카운트 유지.</li>
     <li><strong>cuid2 정렬:</strong> lastReadMessageId 비교는 cuid2 시간순 단조 증가에 의존(ADR-1). 비-cuid2 스킴 마이그레이션 시 <code>messages.createdAt</code> join으로 대체(D17과 동일 기준).</li>
     <li><strong>대량 Mark All Read(500개+):</strong> chunk 100 단위 독립 트랜잭션으로 분리 처리. <code>onPartialFailure: 'rollback'</code> 시 단일 트랜잭션 전체 롤백, <code>'partial'</code> 시 실패 channelId 목록(<code>failedChannelIds</code>) 반환.</li>
     <li><strong>Undo 기간(5분) 초과:</strong> Redis miss + DB MarkAllReadSnapshot miss → 409 Conflict "Undo 기간 만료" 에러 반환.</li>
@@ -10459,8 +10459,8 @@ TTL: 300s (5분)
     <li><strong>Redis cache stampede:</strong> <code>unread:lock:{workspaceId}:{userId}</code> SET NX PX 뮤텍스(TTL=UNREAD_LOCK_TTL env, 기본 30s)로 동시 DB 집계 직렬화. 락 경합 시 200ms×3회 재시도 후에도 실패하면 락 없이 DB 직접 조회 fallback.</li>
     <li><strong>Redis 락 해제 경쟁:</strong> 락 해제는 Lua check-and-delete 스크립트로 원자 수행. 자신이 발급한 토큰과 일치할 때만 삭제하여 타임아웃 만료 후 타 요청의 락을 잘못 삭제하는 문제를 방지.</li>
     <li><strong>스크롤 가상화 환경:</strong> scroll-to-bottom 판정은 가상화 리스트에서 마지막 렌더 항목 <code>bottomOffset &lt; 50px</code>로 통일(비가상화는 <code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code> 유지). DOM 안정화 후 messageId 산출, overscan 항목은 ACK 제외.</li>
-    <li><strong>NEW MESSAGES 구분선 다중기기 갱신:</strong> 다른 기기, 탭에서 ACK가 도착하여 <code>read_state:updated</code>로 <code>lastReadMessageId</code>가 갱신되면 현재 세션의 구분선 위치를 재계산한다. 구분선 클래스는 데스크톱 <code>.qf-unread-divider</code>, 모바일 <code>.qf-m-unread-divider</code>로 분리 적용하며 ACK 후에도 세션 동안 시각적으로 유지된다(재오픈 시 미읽 없으면 미표시).</li>
-    <li><strong>스레드 미읽 &amp; 채널 미읽 독립성:</strong> 스레드 ACK(POST /threads/:parentMessageId/ack)가 채널 read state에 영향 없음. 역도 동일. 단, 스레드 최신 답장 메시지는 채널 타임라인에도 노출될 수 있으므로 채널 unread_count에는 포함.</li>
+    <li><strong>NEW MESSAGES 구분선 다중기기 갱신:</strong> 다른 기기, 탭에서 ACK가 도착하여 <code>read_state:updated</code>로 <code>lastReadMessageId</code>가 갱신되면 현재 세션의 구분선 위치를 재계산한다. 구분선 클래스는 데스크톱 <code>.qf-unread-divider</code>, 모바일 <code>.qf-m-unread-divider</code>로 분리 적용하며 ACK 후에도 세션 동안 시각적으로 유지된다(재오픈 시 읽지 않음 없으면 미표시).</li>
+    <li><strong>스레드 읽지 않음 &amp; 채널 읽지 않음 독립성:</strong> 스레드 ACK(POST /threads/:parentMessageId/ack)가 채널 read state에 영향 없음. 역도 동일. 단, 스레드 최신 답장 메시지는 채널 타임라인에도 노출될 수 있으므로 채널 unread_count에는 포함.</li>
     <li><strong>Redis 캐시 Miss 시 성능:</strong> /unread-summary는 단일 SQL로 전체 채널을 GROUP BY 집계하여 1회 쿼리로 처리(O(채널 수) 개별 쿼리 방지).</li>
     <li><strong>Socket.IO 재연결:</strong> reconnect 시 /workspaces/:wsId/unread-summary를 재호출하여 전체 상태 갱신(게이트웨이 재연결 핸들러에서 자동 수행).</li>
     <li><strong>Unreads View 실시간 갱신 중 페이지네이션:</strong> View 열린 동안 unread_count:increment로 삽입된 신규 항목은 서버 커서 이전에 위치하므로 스크롤 추가 로드 시 중복 포함되지 않도록 클라이언트에서 id set으로 deduplicate한다.</li>
@@ -10489,7 +10489,7 @@ TTL: 300s (5분)
     <li>신규 채널 가입(WorkspaceMember 생성) 시 AUTO_FROM_POSITION/AUTO_FROM_LATEST 모드 사용자의 ChannelReadState.lastReadMessageId가 가입 시점 최신 메시지 ID로 초기화되어 unreadCount = 0이어야 한다. MANUAL_FROM_LATEST 사용자는 null로 유지되어야 한다.</li>
     <li>scroll-to-bottom 조건(<code>scrollTop &gt;= scrollHeight - clientHeight - 50px</code>)에서 새 메시지 도착 시 ACK body에 clientTimestamp가 포함되어 즉시 전송되어야 한다.</li>
     <li>mark-all-read Undo 토스트가 "실행 취소" 버튼과 함께 8초 동안 표시되고 이후 자동 소멸되어야 한다.</li>
-    <li>Unreads View에 미읽 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")가 렌더링되어야 한다.</li>
+    <li>Unreads View에 읽지 않은 채널이 없을 때 empty state("모든 채널을 읽으셨습니다")가 렌더링되어야 한다.</li>
     <li>GET /workspaces/:wsId/unreads?limit=50&amp;cursor=:channelId 호출 시 다음 50개 채널 목록을 반환해야 한다(커서 페이지네이션 검증).</li>
     <li>unread:lock SET NX PX 뮤텍스로 동시 2개 요청이 진입할 때 DB 집계가 1회만 실행되어야 한다. 락 대기 3회 모두 실패 시 DB 직접 조회가 수행되어야 한다(stampede 방지 + fallback 검증).</li>
     <li>Unreads View가 열린 상태에서 unread_count:increment를 수신할 때, 신규 채널 항목은 목록 최상단에 낙관 삽입되고 기존 채널 항목의 카운트가 즉시 갱신되어야 한다(fake timer, unit).</li>
@@ -13318,7 +13318,7 @@ createdAt      DateTime @default(now())
 
   <!-- 워크스페이스 전환 플로우 -->
   <h3>워크스페이스 전환 플로우</h3>
-  <p>사용자가 다른 워크스페이스로 전환할 때의 클라이언트 처리 순서: ① 이전 워크스페이스의 채널 룸 <code>leave</code> → ② 새 워크스페이스 룸 <code>join</code> → ③ unread-summary API 재로드(새 워크스페이스 미읽음) → ④ 타 워크스페이스 알림은 서버 아이콘 배지(멘션 카운트)만 표시. <code>connection:ready</code> 이벤트에 사용자가 가입한 모든 워크스페이스의 멘션 카운트 포함. 모든 워크스페이스 채널의 <code>unread_count:increment</code>는 현재 활성 워크스페이스 무관하게 사용자 소켓으로 전달되며, 페이로드에 <code>workspaceId</code>가 포함되어 서버 아이콘 배지 갱신에 사용된다.</p>
+  <p>사용자가 다른 워크스페이스로 전환할 때의 클라이언트 처리 순서: ① 이전 워크스페이스의 채널 룸 <code>leave</code> → ② 새 워크스페이스 룸 <code>join</code> → ③ unread-summary API 재로드(새 워크스페이스 읽지 않음) → ④ 타 워크스페이스 알림은 서버 아이콘 배지(멘션 카운트)만 표시. <code>connection:ready</code> 이벤트에 사용자가 가입한 모든 워크스페이스의 멘션 카운트 포함. 모든 워크스페이스 채널의 <code>unread_count:increment</code>는 현재 활성 워크스페이스 무관하게 사용자 소켓으로 전달되며, 페이로드에 <code>workspaceId</code>가 포함되어 서버 아이콘 배지 갱신에 사용된다.</p>
 
   <!-- APPLY 대기 화면 -->
   <h3>APPLY 모드 — 신청 대기 화면</h3>
@@ -13680,7 +13680,7 @@ createdAt      DateTime @default(now())
     <li>워크스페이스 Owner로서 온보딩 규칙 동의 항목과 관심사 질문을 직접 편집하여 새 멤버가 입장하면 자동 적용되도록 하고 싶다.</li>
     <li>사용자로서 공개 워크스페이스 탐색 목록에서 키워드로 검색하여 원하는 커뮤니티에 가입하고 싶다.</li>
     <li>미가입 사용자로서 이메일 초대 수신 후 회원가입을 완료하면 자동으로 해당 워크스페이스에 가입되고 싶다.</li>
-    <li>사용자로서 워크스페이스를 전환할 때 이전 채널 룸이 자동으로 정리되고 새 워크스페이스 미읽음이 즉시 로드되길 원한다.</li>
+    <li>사용자로서 워크스페이스를 전환할 때 이전 채널 룸이 자동으로 정리되고 새 워크스페이스 읽지 않음이 즉시 로드되길 원한다.</li>
     <li>워크스페이스 Owner로서 기본 채널을 다른 공개 채널로 변경하고 이전 기본 채널을 삭제할 수 있고 싶다.</li>
     <li>APPLY 모드에 신청한 사용자로서 심사 중 대기 화면을 보고 필요시 신청을 취소하고 싶다.</li>
     <li>미인증(emailVerified=false) 상태에서는 워크스페이스 진입이 차단되고 인증을 먼저 완료하도록 안내받고 싶다.</li>
@@ -13831,7 +13831,7 @@ createdAt      DateTime @default(now())
       </tr>
       <tr>
         <td class="id">FR-W23</td>
-        <td>다중 워크스페이스 unread 배지 동기화: 서버는 사용자가 가입한 모든 워크스페이스 채널의 unread_count:increment 이벤트를 현재 활성 워크스페이스 무관하게 해당 사용자 소켓으로 전달. 페이로드에 workspaceId 포함. 클라이언트는 workspaceId를 기반으로 서버 아이콘 배지(미읽음, 멘션 카운트) 갱신. 모바일 인지 표면: 상시 서버 레일이 없으므로 좌 패널 워크스페이스 레일의 아바타 배지와 탭바 '인박스' 탭이 동일 페이로드를 소비해 표시한다.</td>
+        <td>다중 워크스페이스 unread 배지 동기화: 서버는 사용자가 가입한 모든 워크스페이스 채널의 unread_count:increment 이벤트를 현재 활성 워크스페이스 무관하게 해당 사용자 소켓으로 전달. 페이로드에 workspaceId 포함. 클라이언트는 workspaceId를 기반으로 서버 아이콘 배지(읽지 않음, 멘션 카운트) 갱신. 모바일 인지 표면: 상시 서버 레일이 없으므로 좌 패널 워크스페이스 레일의 아바타 배지와 탭바 '인박스' 탭이 동일 페이로드를 소비해 표시한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
     </tbody>
@@ -15348,7 +15348,7 @@ createdAt DateTime @default(now())
   </div>
 
   <h3>퀵스위처 (Ctrl/Cmd+K)</h3>
-  <p>전역 단축키로 모달형 팝업이 열린다. 검색창 플레이스홀더: <em>"채널, 멤버, DM으로 이동…"</em>. <code>@</code> 접두사는 멤버/DM만, <code>#</code> 접두사는 채널만 필터링. 쿼리 없을 때는 최근 방문 5개 + 미읽 채널 상위 5개를 기본 표시. 검색은 클라이언트사이드 퍼지 매칭(Socket.IO 초기 페이로드 캐시 기반).</p>
+  <p>전역 단축키로 모달형 팝업이 열린다. 검색창 플레이스홀더: <em>"채널, 멤버, DM으로 이동…"</em>. <code>@</code> 접두사는 멤버/DM만, <code>#</code> 접두사는 채널만 필터링. 쿼리 없을 때는 최근 방문 5개 + 읽지 않은 채널 상위 5개를 기본 표시. 검색은 클라이언트사이드 퍼지 매칭(Socket.IO 초기 페이로드 캐시 기반).</p>
   <p>퀵스위처 모달은 접근성 요건을 준수한다. 모달 루트에 <code>role="dialog"</code>, <code>aria-modal="true"</code>, <code>aria-label="채널/멤버/DM 이동"</code>을 설정한다. 모달 오픈 시 포커스를 검색 <code>input</code>으로 이동하며, <kbd>Tab</kbd> 키는 모달 내 포커스 가능 요소 사이에서만 순환(focus-trap)된다. <kbd>Esc</kbd>로 닫힐 때는 트리거(Ctrl+K를 누른 요소)로 포커스가 복원된다. 검색 결과 수 변경 시 <code>aria-live="polite"</code> 리전(<code>id="qf-a11y-announcer"</code>)에 'N개 결과' 텍스트를 주입한다.</p>
   <p>검색 결과가 0건인 경우 <code>[data-state="empty"]</code> 빈 상태 영역을 표시하며, <kbd>Ctrl+N</kbd>으로 새 DM 시작 가능함을 힌트로 안내하고(모바일: kbd 힌트를 숨기고 '새 DM 시작' 버튼 카피로 대체 — FR-IA-MOB-07 ⑪) 채널 브라우저 링크를 함께 제공한다. (→ FR-KS-11)</p>
 
@@ -15360,7 +15360,7 @@ createdAt DateTime @default(now())
 Ctrl/Cmd+/      단축키 오버레이
 Ctrl/Cmd+G      글로벌 검색
 Ctrl/Cmd+N      새 DM
-Alt+Shift+↓/↑   미읽 채널 이동
+Alt+Shift+↓/↑   읽지 않은 채널 이동
 Alt+↓/↑         채널 목록 이동
 Esc             현재 채널 읽음
 Shift+Esc       워크스페이스 전체 읽음</pre>
@@ -15634,7 +15634,7 @@ M      리마인더 설정</pre>
               </span>
             </div>
             <div style="display:flex; justify-content:space-between; align-items:center; padding:var(--s-2) var(--s-4); background:var(--bg-hover);">
-              <span style="font-size:var(--fs-13); color:var(--text);">다음 미읽 채널</span>
+              <span style="font-size:var(--fs-13); color:var(--text);">다음 읽지 않은 채널</span>
               <span style="display:flex; gap:var(--s-1);">
                 <kbd style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--r-xs); padding:1px 6px; font-size:var(--fs-11); font-family:var(--font-mono); color:var(--text-muted);">Alt</kbd>
                 <kbd style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--r-xs); padding:1px 6px; font-size:var(--fs-11); font-family:var(--font-mono); color:var(--text-muted);">Shift</kbd>
@@ -15807,7 +15807,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-02</td>
-        <td>퀵스위처 기본 표시(쿼리 없음): 최근 방문 채널/DM 5개 + 미읽 채널 상위 5개를 표시한다.</td>
+        <td>퀵스위처 기본 표시(쿼리 없음): 최근 방문 채널/DM 5개 + 읽지 않은 채널 상위 5개를 표시한다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p0">P0</span></td>
       </tr>
       <tr>
@@ -15817,7 +15817,7 @@ M      리마인더 설정</pre>
       </tr>
       <tr>
         <td class="id">FR-KS-04</td>
-        <td>전역 단축키 Alt+Shift+↓/↑로 미읽 채널을 순서대로 이동할 수 있다. 데스크톱 전용 — 모바일은 채널 목록의 미읽 강조와 Unreads View가 동등 수단이며 별도 제스처를 정의하지 않는다.</td>
+        <td>전역 단축키 Alt+Shift+↓/↑로 읽지 않은 채널을 순서대로 이동할 수 있다. 데스크톱 전용 — 모바일은 채널 목록의 읽지 않음 강조와 Unreads View가 동등 수단이며 별도 제스처를 정의하지 않는다.</td>
         <td><span class="qf-doc-prio qf-doc-prio--p1">P1</span></td>
       </tr>
       <tr>
@@ -15993,7 +15993,7 @@ visitedAt   DateTime @default(now())
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--get">GET</span></td>
         <td class="id">/api/workspaces/:workspaceId/quick-switcher</td>
-        <td>퀵스위처 검색. Query: <code>{q?, type?}</code>. q 없으면 최근 방문 + 미읽 채널 반환. 결과 0건 시 빈 배열 반환(200). 응답: <code>{results: [{type, id, name, avatarUrl, unreadCount, isUnread}]}</code></td>
+        <td>퀵스위처 검색. Query: <code>{q?, type?}</code>. q 없으면 최근 방문 + 읽지 않은 채널 반환. 결과 0건 시 빈 배열 반환(200). 응답: <code>{results: [{type, id, name, avatarUrl, unreadCount, isUnread}]}</code></td>
       </tr>
       <tr>
         <td><span class="qf-doc-meth qf-doc-meth--post">POST</span></td>
@@ -16095,7 +16095,7 @@ visitedAt   DateTime @default(now())
     <li>POST /api/workspaces/:id/slash-commands로 관리자가 커스텀 커맨드 등록 후, GET /api/workspaces/:id/slash-commands 응답에 해당 커맨드가 포함된다.</li>
     <li>일반 멤버가 POST /api/workspaces/:id/slash-commands 호출 시 403이 반환된다.</li>
     <li>입력창이 비어있을 때 <kbd>↑</kbd> 키 이벤트 발생 시 해당 유저의 마지막 메시지가 편집 모드로 진입한다. 입력창에 텍스트가 있을 때 <kbd>↑</kbd>는 편집 모드를 열지 않는다.</li>
-    <li><kbd>Esc</kbd> 키 이벤트가 채널 뷰에서 발생하면 미읽 카운트가 0이 되고 Socket.IO <code>channel:read_ack</code> 이벤트가 서버로 전송된다.</li>
+    <li><kbd>Esc</kbd> 키 이벤트가 채널 뷰에서 발생하면 읽지 않음 카운트가 0이 되고 Socket.IO <code>channel:read_ack</code> 이벤트가 서버로 전송된다.</li>
     <li>DELETE /api/users/me/reminders/:id 성공 후 BullMQ에서 해당 잡이 제거되어 scheduledAt 이후에도 <code>reminder:fire</code> 이벤트가 발생하지 않는다.</li>
   </ul>
 </section>

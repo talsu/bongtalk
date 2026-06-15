@@ -57,7 +57,7 @@ export type UpsertNotificationPreferenceRequest = z.infer<
  * 3계층이 모두 이 enum 을 공유한다(ADR-6). `isMuted` + `muteUntil` 은 level
  * 과 독립한 3-필드 세트로, 뮤트는 별도 표현이다(NOTHING 과 구별 — ADR-6 표).
  *
- *   ALL      — 모든 메시지 알림(배지 + 미읽 + 멘션 전부 통과).
+ *   ALL      — 모든 메시지 알림(배지 + 읽지 않음 + 멘션 전부 통과).
  *   MENTIONS — 멘션·키워드만(broad @everyone/@here 는 스킵, 직접 @username 통과). 기본값.
  *   NOTHING  — 알림 없음(멘션 outbox 스킵 — 직접 @username 은 통과해 Inbox 기록은 S47).
  *

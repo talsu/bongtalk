@@ -61,7 +61,7 @@ export interface DmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
-  // S? (FR-DM-15): 미읽음 메시지 중 본인 대상 @멘션(직접 users / everyone / here /
+  // S? (FR-DM-15): 읽지 않음 메시지 중 본인 대상 @멘션(직접 users / everyone / here /
   // channel) 건수. unreadCount 와 **동일한 읽음 커서·roots-only·deletedAt 술어**로
   // 산정해 일관성을 유지한다(common/acl mentionMatchSql + unread 서브쿼리 동형).
   // 사이드바 dmRowBadge 가 뮤트 DM 에서 unread 대신 이 값을 배지로 쓴다.
@@ -621,7 +621,7 @@ export class DirectMessagesService {
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
-      // 072 백로그 S-E (FR-DM-15): 미읽음/미읽음 멘션 수(인박스 배지·1:1 list() 와 동형).
+      // 072 백로그 S-E (FR-DM-15): 읽지 않음/읽지 않음 멘션 수(인박스 배지·1:1 list() 와 동형).
       unreadCount: number;
       mentionCount: number;
     }>
@@ -659,7 +659,7 @@ export class DirectMessagesService {
       lastMessageAt: Date | null;
       lastMessagePreview: string | null;
       createdAt: Date;
-      // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 카운트(1:1 list() 와 동일 술어).
+      // 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음/멘션 카운트(1:1 list() 와 동일 술어).
       unreadCount: bigint;
       mentionCount: bigint;
     };
@@ -716,9 +716,9 @@ export class DirectMessagesService {
              lm."lastMessageAt",
              lm."lastMessagePreview",
              mg."createdAt",
-             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음 수. 1:1 list() 와 **동일 술어**
+             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음 수. 1:1 list() 와 **동일 술어**
              -- (deletedAt IS NULL · roots-only · (createdAt,id) 읽음 커서, read-state
-             -- NULL ⇒ 전부 미읽음). N+1 회피 위해 단일 raw 쿼리에 fold 한다.
+             -- NULL ⇒ 전부 읽지 않음). N+1 회피 위해 단일 raw 쿼리에 fold 한다.
              COALESCE((
                SELECT COUNT(*)::bigint
                  FROM "Message" m2
@@ -733,7 +733,7 @@ export class DirectMessagesService {
                     OR (m2."createdAt", m2.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
                   )
              ), 0) AS "unreadCount",
-             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음 @멘션 수(뮤트 배지용). unread
+             -- 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음 @멘션 수(뮤트 배지용). unread
              -- 술어 + mentionMatchSql(users @> / everyone / here / channel). DM 은 ACL 이
              -- USER override 로만 표현돼 read-visibility 5단계 fold/private gate 가 불필요.
              COALESCE((
@@ -966,10 +966,10 @@ export class DirectMessagesService {
            WHERE m2."channelId" = p."channelId"
              AND m2."deletedAt" IS NULL
              -- S36 fix-forward (FR-TH-11): unread 도 roots-only — 스레드 답글이
-             -- 채널/DM 미읽 배지에 산입되지 않게 한다(unread.service 술어와 동일).
+             -- 채널/DM 읽지 않음 배지에 산입되지 않게 한다(unread.service 술어와 동일).
              AND (m2."parentMessageId" IS NULL OR m2."isBroadcast" = true)
              -- S11 (FR-RT-14): (createdAt, id) 튜플 커서로 통일. read-state
-             -- NULL ⇒ 전부 미읽음. senderId 제외 없음(자기 메시지 포함).
+             -- NULL ⇒ 전부 읽지 않음. senderId 제외 없음(자기 메시지 포함).
              AND (
                rs."lastReadMessageCreatedAt" IS NULL
                OR (m2."createdAt", m2.id) > (rs."lastReadMessageCreatedAt", rs."lastReadMessageId")
@@ -1012,7 +1012,7 @@ export class DirectMessagesService {
       lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
       lastMessagePreview: r.lastMessagePreview,
       unreadCount: Number(r.unreadCount),
-      // FR-DM-15: 미읽음 @멘션 건수(뮤트 DM 배지용). 서브쿼리가 COUNT(*)::bigint 를
+      // FR-DM-15: 읽지 않음 @멘션 건수(뮤트 DM 배지용). 서브쿼리가 COUNT(*)::bigint 를
       // 반환하므로 Number 로 좁힌다(unreadCount 와 동일 패턴).
       mentionCount: Number(r.mentionCount),
       // FR-DM-03: 1:1 DM 의 상대방 프로필을 참여자 배열로도 노출(헤더/아바타 스택이

@@ -144,7 +144,7 @@ type Props = {
    */
   onRetry?: () => void;
   /**
-   * S24 (FR-RS-08): "미읽으로 표시". 부모가 채널 컨텍스트(useMarkUnread)를
+   * S24 (FR-RS-08): "읽지 않음으로 표시". 부모가 채널 컨텍스트(useMarkUnread)를
    * 알 때만 전달 — 이 메시지 직전으로 읽음 커서를 되돌린다(後進). optimistic/
    * tmp 행(아직 서버 id 없음)에는 부모가 전달하지 않거나 hide 처리한다.
    */
@@ -1057,14 +1057,14 @@ export function MessageItem({
                       } catch {
                         notify({
                           variant: 'danger',
-                          title: '미읽음 표시 실패',
+                          title: '읽지 않음 표시 실패',
                           body: '잠시 후 다시 시도하세요.',
                           ttlMs: 4000,
                         });
                       }
                     }}
                   >
-                    <span data-testid={`msg-mark-unread-${msg.id}`}>미읽음으로 표시</span>
+                    <span data-testid={`msg-mark-unread-${msg.id}`}>읽지 않음으로 표시</span>
                   </DropdownItem>
                 ) : null}
                 {onReport && !isMine && !msg.id.startsWith('tmp-') ? (
@@ -1131,7 +1131,7 @@ export function MessageItem({
               : `${thread.replyCount}개 답글 보기`)
           }
         >
-          {/* S36 (FR-TH-04 / FR-TH-11): per-viewer 미읽 답글이 있으면 파란 dot.
+          {/* S36 (FR-TH-04 / FR-TH-11): per-viewer 읽지 않음 답글이 있으면 파란 dot.
               DS 에 qf-thread-chip 전용 dot 클래스가 없어(grep 확인) app-layer 로
               합성하되 전부 DS 토큰만 사용한다(raw hex/px 없음): 색 var(--accent),
               원형 var(--r-pill). DS 4파일 무수정.

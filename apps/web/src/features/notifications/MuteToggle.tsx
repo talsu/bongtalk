@@ -4,7 +4,7 @@ import { MUTE_DURATION_OPTIONS } from './useNotifLevels';
 /**
  * S46 (D06 / FR-MN-06/07/08): 뮤트 토글 + 기간 선택.
  *
- * 레이블/부제는 PRD 정본 카피("채널 뮤트" — "배지와 미읽 표시가 모두 숨겨집니다.
+ * 레이블/부제는 PRD 정본 카피("채널 뮤트" — "배지와 읽지 않음 표시가 모두 숨겨집니다.
  * 직접 멘션은 Inbox에서 확인하세요."). scope='server' 면 "서버 뮤트" 로 바꾼다.
  * DS 토큰 + 기존 qf-* 만(신규 DS 클래스 0).
  */
@@ -28,7 +28,7 @@ export function MuteToggle({
   disabled,
 }: MuteToggleProps): JSX.Element {
   const title = scope === 'channel' ? '채널 뮤트' : '서버 뮤트';
-  const subtitle = '배지와 미읽 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요.';
+  const subtitle = '배지와 읽지 않음 표시가 모두 숨겨집니다. 직접 멘션은 Inbox에서 확인하세요.';
   // B-03: 접근명에 부제를 병합하지 않도록 aria-label 은 title 만, 부제는 id 로
   // aria-describedby 에 연결한다.
   const subtitleId = `mute-toggle-${scope}-desc`;

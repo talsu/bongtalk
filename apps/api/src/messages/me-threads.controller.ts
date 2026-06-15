@@ -44,7 +44,7 @@ export class MeThreadsController {
     private readonly rate: RateLimitService,
   ) {}
 
-  /** FR-TH-09: 내 구독 스레드 목록(미읽 우선, latestReplyAt DESC). */
+  /** FR-TH-09: 내 구독 스레드 목록(읽지 않음 우선, latestReplyAt DESC). */
   @Get()
   async list(@CurrentUser() user: CurrentUserPayload): Promise<ListMyThreadsResponse> {
     await this.rate.enforce([{ key: `threads:list:u:${user.id}`, windowSec: 60, max: 300 }]);

@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 /**
- * FR-DM-15 — DmShell DM 사이드바 미읽/멘션 배지 + 뮤트 토글 회귀고정.
+ * FR-DM-15 — DmShell DM 사이드바 읽지 않음/멘션 배지 + 뮤트 토글 회귀고정.
  *
  *  - 비뮤트 DM: unreadCount 를 배지로 표시.
  *  - 뮤트 DM: unread 억제 + @멘션 건수(mentionCount)만 배지로, bell-off + 회색.

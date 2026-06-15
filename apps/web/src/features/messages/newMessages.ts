@@ -5,23 +5,23 @@
  * newMessages.spec 이 동일 함수를 검증한다(테스트 drift 방지 단일 출처).
  *
  * ── firstUnread 판정(FR-RS-06) ──
- * 채널 진입 시점의 읽음 상태를 두 소스로 받아 "lastRead 직후 첫 미읽 메시지"
+ * 채널 진입 시점의 읽음 상태를 두 소스로 받아 "lastRead 직후 첫 읽지 않은 메시지"
  * 의 ASC 배열 index 를 계산한다:
  *   1. `lastReadMessageId` — 멀티세션 read-state / channel:joined seam. 배열에
  *      있으면 그 직후 index 가 firstUnread (가장 정확, S21 (createdAt,id) 커서가
  *      서버에서 이미 정렬됐으므로 배열 위치가 곧 튜플 순서).
- *   2. `unreadCount` — unread-summary 의 채널별 미읽 카운트. lastReadMessageId 가
+ *   2. `unreadCount` — unread-summary 의 채널별 읽지 않음 카운트. lastReadMessageId 가
  *      배열에 없거나(윈도우 밖·store 미보유) null 이면 "끝에서 unreadCount 번째"
- *      를 firstUnread 로 역산한다(끝 정렬 = 최신이 미읽이라는 불변식).
+ *      를 firstUnread 로 역산한다(끝 정렬 = 최신이 읽지 않음이라는 불변식).
  *
- * 미읽이 없으면(둘 다 표시 위치를 못 만들면) null → 구분선 미표시(FR-RS-06).
+ * 읽지 않음이 없으면(둘 다 표시 위치를 못 만들면) null → 구분선 미표시(FR-RS-06).
  */
 export interface FirstUnreadInput {
   /** ASC(오래된→최신) 렌더 순서의 메시지 id 배열. */
   messageIds: ReadonlyArray<string>;
   /** 마지막으로 읽은 메시지 id(없으면 null). */
   lastReadMessageId: string | null;
-  /** 채널 미읽 메시지 수(unread-summary). 음수 불가. */
+  /** 채널 읽지 않은 메시지 수(unread-summary). 음수 불가. */
   unreadCount: number;
 }
 
@@ -34,16 +34,16 @@ export function computeFirstUnreadIndex(input: FirstUnreadInput): number | null 
     const idx = messageIds.indexOf(lastReadMessageId);
     if (idx >= 0) {
       const next = idx + 1;
-      // 커서가 마지막 메시지면 직후가 없다 → 표시 위치 없음(미읽 0 취급).
+      // 커서가 마지막 메시지면 직후가 없다 → 표시 위치 없음(읽지 않음 0 취급).
       return next < messageIds.length ? next : null;
     }
     // 배열에 없으면 unreadCount 역산으로 폴백(아래로 진행).
   }
 
-  // 2순위: unreadCount 로 끝에서 역산. unreadCount 가 0 이면 미읽 없음.
+  // 2순위: unreadCount 로 끝에서 역산. unreadCount 가 0 이면 읽지 않음 없음.
   if (unreadCount <= 0) return null;
   const firstUnread = messageIds.length - unreadCount;
-  // unreadCount 가 전체보다 크면(클램프) index 0 부터 전부 미읽.
+  // unreadCount 가 전체보다 크면(클램프) index 0 부터 전부 읽지 않음.
   return Math.max(0, firstUnread);
 }
 
@@ -61,7 +61,7 @@ export function computeFirstUnreadIndex(input: FirstUnreadInput): number | null 
 export interface JumpPillInput {
   /** 현재 가상 윈도우의 첫(최상단) 행 인덱스. 미정이면 null. */
   firstRenderedIndex: number | null;
-  /** 구분선 정렬 인덱스(= firstUnread index). 미읽 없으면 null. */
+  /** 구분선 정렬 인덱스(= firstUnread index). 읽지 않음 없으면 null. */
   dividerIndex: number | null;
 }
 
@@ -174,7 +174,7 @@ export function virtualIndexForDivider(plan: RowPlan): number | null {
  * 핵심: cold summary(아직 미캐시)면 unreadCount 를 못 읽어 0 으로 폴백하지만,
  * lastReadMessageId(멀티세션 read-state seam)가 남아 있으면 구분선 판정은
  * computeFirstUnreadIndex 의 1순위(lastRead 직후)로 여전히 가능하다. 따라서
- * 스냅샷은 두 신호를 모두 보존한다(둘 다 없으면 미읽 0 → 구분선 미표시).
+ * 스냅샷은 두 신호를 모두 보존한다(둘 다 없으면 읽지 않음 0 → 구분선 미표시).
  */
 export interface UnreadSnapshot {
   unreadCount: number;

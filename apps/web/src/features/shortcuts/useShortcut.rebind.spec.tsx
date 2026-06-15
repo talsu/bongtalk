@@ -34,7 +34,7 @@ vi.mock('../channels/useChannels', () => ({
 
 vi.mock('../channels/useUnread', () => ({
   useMarkAllRead: () => ({ mutate: vi.fn() }),
-  // S82b: useShortcut 이 Alt+Shift 미읽 순회용으로 추가 구독한다.
+  // S82b: useShortcut 이 Alt+Shift 읽지 않음 순회용으로 추가 구독한다.
   useUnreadSummary: () => ({ data: { channels: [] } }),
 }));
 

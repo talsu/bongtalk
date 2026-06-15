@@ -295,7 +295,7 @@ export function installRealtimeDispatcher(
     // only — the server ranking (last-message desc + unread counts)
     // is the source of truth.
     // 072 백로그 S-E (FR-DM-15): prefix ['dm'] 로 넓혀 1:1(['dm','list'])과 그룹
-    // (['dm','groups']) 미읽음 배지를 함께 무효화한다. message.created wire 에 isGroup
+    // (['dm','groups']) 읽지 않음 배지를 함께 무효화한다. message.created wire 에 isGroup
     // 정보가 없으므로 prefix 무효화가 가장 단순·안전하다(종전엔 ['dm','list'] 만 무효화돼
     // 그룹 배지가 staleTime(15s)/focus refetch 전까지 갱신 안 되는 1:1 대비 비대칭이었다).
     qc.invalidateQueries({ queryKey: ['dm'] });
@@ -313,7 +313,7 @@ export function installRealtimeDispatcher(
       // would duplicate server logic.
       qc.invalidateQueries({ queryKey: qk.me.unreadTotals() });
       // 072 백로그 S-I (FR-RS-10): Unreads 미리보기는 본문 스냅샷이라 in-place patch 가
-      // 어렵다 — 새 메시지 도착 시 무효화해 최근 미읽 미리보기를 갱신한다(배지는 아래에서 patch).
+      // 어렵다 — 새 메시지 도착 시 무효화해 최근 읽지 않음 미리보기를 갱신한다(배지는 아래에서 patch).
       // 072 S-I 리뷰(LOW): preview/summary 는 roots-only 집계라 스레드 답글(parentMessageId 보유)은
       // 미리보기를 바꾸지 않는다 → 루트 메시지일 때만 무효화(과도 refetch 방지).
       if (env.message.parentMessageId == null) {
@@ -485,7 +485,7 @@ export function installRealtimeDispatcher(
                       lastRepliedAt: env.lastRepliedAt,
                       recentReplyUserIds: env.recentReplyUserIds,
                       // S36 (FR-TH-04): 새 답글 도착 → reply bar unread dot 을 켠다.
-                      // 단 viewer 본인이 보낸 답글이면 미읽이 아니다(채널 미읽이
+                      // 단 viewer 본인이 보낸 답글이면 읽지 않음이 아니다(채널 읽지 않음이
                       // 자기 메시지를 포함하는 것과 달리, 스레드 chip dot 은 "내가
                       // 아직 안 본 새 답글" UX 이므로 self-reply 는 dot 을 켜지
                       // 않는다). 기존 hasUnread(서버 산정값)는 새 답글이 그것을
@@ -513,7 +513,7 @@ export function installRealtimeDispatcher(
     const replyChannel = ctx.resolveNotificationChannel?.(env.workspaceId, 'REPLY') ?? 'BOTH';
     if (replyChannel === 'OFF' || replyChannel === 'BROWSER') return;
     // S76 (FR-PS-11): DND(스케줄 활성/수동) 중이면 배너(토스트) 억제. 캐시 갱신은 위에서
-    // 이미 끝났으므로 미읽/배지는 정상 — 토스트만 막는다.
+    // 이미 끝났으므로 읽지 않음/배지는 정상 — 토스트만 막는다.
     if (ctx.isDndSuppressed?.()) return;
     // S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너 토글이 꺼져 있으면 토스트 억제
     // (설정 페이지 약속과 정합). 캐시 미로딩이면 기본 ON(폴백)이라 기존 동작 유지.
@@ -553,8 +553,8 @@ export function installRealtimeDispatcher(
     message: MessageDto & { parentMessageId?: string | null; isBroadcast?: boolean };
   }>('message.thread.broadcast', (env) => {
     if (!env.channelId || !env.workspaceId || !env.message) return;
-    // broadcast 행은 채널 미읽에 포함된다(FR-TH-14). 본인이 보낸 게 아니고
-    // 현재 보고 있는 채널이 아니면 미읽 +1. (정확한 unread 집계·삭제 시 감소는
+    // broadcast 행은 채널 읽지 않음에 포함된다(FR-TH-14). 본인이 보낸 게 아니고
+    // 현재 보고 있는 채널이 아니면 읽지 않음 +1. (정확한 unread 집계·삭제 시 감소는
     // ThreadReadState 와 함께 S36 — 여기서는 message.created 와 동일한 낙관적
     // bump 만 적용해 라이브 배지가 즉시 반영되게 한다.)
     const viewer = ctx.viewerId();
@@ -1609,7 +1609,7 @@ export function installRealtimeDispatcher(
     // 위에서 이미 갱신됐으므로 영향 없음 — 토스트만 막는다.
     if (ctx.isDndSuppressed?.()) return;
     // S76 fix-forward (F-B1 / FR-PS-10): 데스크톱 배너 토글이 꺼져 있으면 토스트 억제
-    // (설정 페이지 약속과 정합). 캐시 갱신은 위에서 이미 끝나 미읽/배지는 정상.
+    // (설정 페이지 약속과 정합). 캐시 갱신은 위에서 이미 끝나 읽지 않음/배지는 정상.
     if (ctx.isDesktopBannerEnabled?.() === false) return;
 
     const push = useNotifications.getState().push;

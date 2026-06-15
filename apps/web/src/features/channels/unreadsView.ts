@@ -4,7 +4,7 @@ import type { UnreadChannelSummary } from './useUnread';
  * S24 (FR-RS-10): Unreads View 정렬 + 커서 페이지네이션의 순수 로직(단일 출처,
  * 테스트 대상). 서버 summarize 결과(채널별 unread/mention/lastMessageAt)를 받아:
  *
- *  1. unread 가 있는 채널만 남긴다(미읽 0 채널은 뷰에서 제외).
+ *  1. unread 가 있는 채널만 남긴다(읽지 않음 0 채널은 뷰에서 제외).
  *  2. **mentionCount 있는 채널 우선 → 최신 활동(lastMessageAt)순** 정렬.
  *     - 1차: mentionCount > 0 인 채널이 위(멘션 있는 채널 우선).
  *     - 2차: lastMessageAt 내림차순(최신 활동 먼저). null 은 가장 뒤.

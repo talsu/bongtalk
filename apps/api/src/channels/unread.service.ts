@@ -62,7 +62,7 @@ export interface UnreadChannelSummary {
   lastMessageAt: string | null;
 }
 
-// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 미읽 채널마다 최근 미읽 메시지 ≤5개
+// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 읽지 않은 채널마다 최근 읽지 않은 메시지 ≤5개
 // (작성자 + 본문 ≤140자, 차단 작성자는 마스킹) + 채널 cursor 페이지네이션.
 export interface UnreadPreviewMessage {
   id: string;
@@ -79,7 +79,7 @@ export interface UnreadChannelPreview {
   unreadCount: number;
   mentionCount: number;
   lastMessageAt: string | null;
-  /** 최근 미읽 메시지 ≤5(newest-first). */
+  /** 최근 읽지 않은 메시지 ≤5(newest-first). */
   messages: UnreadPreviewMessage[];
 }
 export interface UnreadsPreviewPage {
@@ -105,7 +105,7 @@ interface CachedChannelEntry {
 
 /**
  * S24 (FR-RS-18): mark-all-read 직전 채널별 커서. 복원 시 그대로 되돌린다(後進
- * 허용). row 가 없던(전체 미읽) 채널은 둘 다 null 로 담는다.
+ * 허용). row 가 없던(전체 읽지 않음) 채널은 둘 다 null 로 담는다.
  */
 interface SnapshotCursor {
   lastReadMessageId: string | null;
@@ -126,15 +126,15 @@ export interface MarkAllReadResult {
  *
  * ── (createdAt, id) 튜플 커서 (S11 · FR-RS-03) ──
  * Message.id 는 `@default(uuid())` 랜덤 UUID(비정렬)라 `id >` 문자열 비교가
- * 메시지 순서와 무관하다. 따라서 읽음/미읽음 판정은 메시지 커서 페이지네이션
+ * 메시지 순서와 무관하다. 따라서 읽음/읽지 않음 판정은 메시지 커서 페이지네이션
  * (messages.service)과 동일하게 (createdAt, id) 튜플로 비교한다:
  *
  *   unread ⇔ (m.createdAt, m.id) > (rs.lastReadMessageCreatedAt,
  *                                   rs.lastReadMessageId)
  *
  * read-state row 가 없거나 커서가 NULL 이면 LEFT JOIN 이 NULL 을 만들고
- * 튜플 비교가 "전부 미읽음" 으로 평가된다(새로 가입한 채널 UX 일치). 자기
- * 메시지도 미읽음으로 집계한다(FR-RS-03, senderId 제외 없음).
+ * 튜플 비교가 "전부 읽지 않음" 으로 평가된다(새로 가입한 채널 UX 일치). 자기
+ * 메시지도 읽지 않음으로 집계한다(FR-RS-03, senderId 제외 없음).
  *
  * ── 비공개 채널 가시성 = 5단계 fold READ 비트 (S21 · FR-RS-01/ACL) ──
  * S14 `PermissionMatrix.effective` 는 단계별 누적(base→roleAllow→roleDeny→
@@ -170,7 +170,7 @@ export interface MarkAllReadResult {
  *   - `users` 배열에 본인 userId 포함(직접 멘션)
  *   - `everyone` / `here` / `channel`(범위 멘션) — 저장 시 gate.ts 가 권한
  *     없는 특수멘션을 false 로 다운그레이드하므로, 권한 없는 특수멘션은
- *     이미 집계에서 빠진다(S18 정합). mentionCount = 위 조건을 만족하는 미읽음
+ *     이미 집계에서 빠진다(S18 정합). mentionCount = 위 조건을 만족하는 읽지 않음
  *     메시지 수. 모든 조건은 `@>` JSONB containment 로 표현해 GIN
  *     `Message_mentions_gin_idx` 를 활용한다(종전 `->>'everyone'` 추출은
  *     인덱스 미활용 — fix-forward SERIOUS-F).
@@ -264,8 +264,8 @@ export class UnreadService {
           LEFT JOIN overrides o ON o."channelId" = c.id
          WHERE c."workspaceId" = ${workspaceId}::uuid
            AND c."deletedAt" IS NULL
-           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 미읽음 요약에서 제외(사이드바 숨김·읽기전용
-           -- 정합 — 유령 미읽음/멘션 행 방지). 보관 해제 시 메시지로부터 자동 재계산.
+           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 읽지 않음 요약에서 제외(사이드바 숨김·읽기전용
+           -- 정합 — 유령 읽지 않음/멘션 행 방지). 보관 해제 시 메시지로부터 자동 재계산.
            AND c."archivedAt" IS NULL
            -- MINOR-E: OWNER 단락 없음 — OWNER baseline 도 fold 통과(명시 DENY 존중).
            AND ${visible}
@@ -314,8 +314,8 @@ export class UnreadService {
 
   /**
    * 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. summarize()(ACL 5단계 fold +
-   * archived 제외 + roots-only 미읽 집계, 검증된 단일 출처)를 재사용해 미읽(>0) 채널을
-   * 고르고, 그 페이지의 채널마다 최근 미읽 메시지 ≤5개를 본문 미리보기(≤140자)와 함께
+   * archived 제외 + roots-only 읽지 않음 집계, 검증된 단일 출처)를 재사용해 읽지 않음(>0) 채널을
+   * 고르고, 그 페이지의 채널마다 최근 읽지 않은 메시지 ≤5개를 본문 미리보기(≤140자)와 함께
    * 붙인다. 차단(friendship BLOCKED) 작성자의 메시지는 마스킹한다(단방향 — 내가 차단한 상대).
    *
    * 정렬/커서: (lastMessageAt DESC NULLS LAST, channelId DESC) 전순서. opaque cursor 는
@@ -350,7 +350,7 @@ export class UnreadService {
       preview: string | null;
       created_at: Date;
     };
-    // 페이지 채널마다 최근 미읽 메시지 ≤5(newest-first). per-channel 읽음 커서 + roots-only +
+    // 페이지 채널마다 최근 읽지 않은 메시지 ≤5(newest-first). per-channel 읽음 커서 + roots-only +
     // 삭제 제외. summarize 와 동일 (createdAt,id) 튜플 술어.
     const rows = await this.prisma.$queryRaw<PreviewRow[]>(Prisma.sql`
       SELECT ch.cid AS channel_id, p.id, p.author_id, p.preview, p.created_at
@@ -506,7 +506,7 @@ export class UnreadService {
           FROM "Channel" c
           LEFT JOIN overrides o ON o."channelId" = c.id
          WHERE c."deletedAt" IS NULL
-           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 워크스페이스 미읽음 합산에서도 제외(레일
+           -- 072 백로그 S-B (FR-CH-04): 보관 채널은 워크스페이스 읽지 않음 합산에서도 제외(레일
            -- 배지 유령 카운트 방지). zero-channel 회귀는 LEFT JOIN 유지로 영향 없음.
            AND c."archivedAt" IS NULL
       ),
@@ -617,8 +617,8 @@ export class UnreadService {
 
   /**
    * S21 (FR-RS-16): single-channel mention recount with the same tuple cursor.
-   * mentionCount = 미읽음 메시지 중 본인 대상 멘션(직접 + everyone/here/channel)
-   * 수. ACK 시 0 으로 수렴(커서 전진 → 미읽음 멘션 메시지가 사라짐). 멘션 판정은
+   * mentionCount = 읽지 않음 메시지 중 본인 대상 멘션(직접 + everyone/here/channel)
+   * 수. ACK 시 0 으로 수렴(커서 전진 → 읽지 않음 멘션 메시지가 사라짐). 멘션 판정은
    * summarize 와 동일하게 mentionMatchSql 단일 출처(GIN containment).
    */
   async mentionCountFor(userId: string, channelId: string): Promise<number> {
@@ -741,9 +741,9 @@ export class UnreadService {
   }
 
   /**
-   * S24 (FR-RS-08): 수동 미읽 표시(monotonic 후진). 사용자가 메시지 hover toolbar
-   * 에서 "미읽으로 표시" 한 메시지(messageId)의 **직전** 메시지로 lastReadMessageId
-   * 를 되돌린다(직전이 없으면 null = 전체 미읽).
+   * S24 (FR-RS-08): 수동 읽지 않음 표시(monotonic 후진). 사용자가 메시지 hover toolbar
+   * 에서 "읽지 않음으로 표시" 한 메시지(messageId)의 **직전** 메시지로 lastReadMessageId
+   * 를 되돌린다(직전이 없으면 null = 전체 읽지 않음).
    *
    * ★ 의도적 후진 — S21 monotonic guard 우회 지점.
    * ackRead 의 upsert 는 `WHERE stored < EXCLUDED` 가드로 後進을 막지만, 본 메서드는
@@ -752,7 +752,7 @@ export class UnreadService {
    *
    *  1. messageId 가 채널 소속인지 검증(아니면 404).
    *  2. 그 메시지 직전(= (createdAt, id) 튜플이 strictly 작은 최신) 메시지를 찾는다.
-   *  3. 직전이 있으면 그 커서로, 없으면 NULL 커서(전체 미읽)로 **가드 없이** 설정.
+   *  3. 직전이 있으면 그 커서로, 없으면 NULL 커서(전체 읽지 않음)로 **가드 없이** 설정.
    *  4. unread/mention 재계산 + 캐시 무효화 + read_state:updated payload 반환.
    */
   async markUnread(args: {
@@ -885,7 +885,7 @@ export class UnreadService {
    * / Unreads "읽음 처리" 가 멀티세션에서 desync 됐다. 본 메서드는 ackRead(이미
    * emit-ready payload 반환) 를 재사용해 컨트롤러가 user 룸으로 fan-out 하게 한다.
    * 채널에 메시지가 없으면 커서 전진이 불필요하므로 read-state 만 보장하고 null
-   * 을 반환한다(emit 없음 — 미읽이 애초에 0).
+   * 을 반환한다(emit 없음 — 읽지 않음이 애초에 0).
    */
   async markChannelReadToLatest(
     userId: string,
@@ -930,7 +930,7 @@ export class UnreadService {
    * ── S24 fix-forward (reviewer MAJOR + perf): snapshot 원자성 ──
    * 종전은 (1) 별도 SELECT 스냅샷 → (2) persist → (3) advance 순서라 SELECT 와
    * advance 사이에 끼어든 동시 ACK 가 snapshot 보다 커서를 더 전진시켜 Undo 가
-   * **과도 후진**(동시 ACK 가 읽은 메시지까지 미읽으로 되돌림)할 수 있었다.
+   * **과도 후진**(동시 ACK 가 읽은 메시지까지 읽지 않음으로 되돌림)할 수 있었다.
    *
    * 본 구현은 advance 의 set-based UPDATE 가 **덮어쓰기 직전 old (lastReadMessageId,
    * lastReadMessageCreatedAt) 를 같은 statement(CTE)의 RETURNING 으로 캡처**해,
@@ -988,7 +988,7 @@ export class UnreadService {
    * old 캡처 방식: ON CONFLICT 의 RETURNING 은 새 값만 주므로, INSERT 대상
    * latest 와 기존 row 를 미리 LEFT JOIN 해 두고(prior CTE), UPDATE 가 실제로
    * 전진한 채널의 prior 커서를 결과에 함께 싣는다. 신규 INSERT(기존 row 없음)는
-   * prior 가 NULL → 스냅샷도 NULL 커서(전체 미읽)로 복원돼 정합한다.
+   * prior 가 NULL → 스냅샷도 NULL 커서(전체 읽지 않음)로 복원돼 정합한다.
    */
   private async advanceAllVisible(
     tx: Prisma.TransactionClient,
@@ -1219,7 +1219,7 @@ export class UnreadService {
    *    이미 소비된 스냅샷을 찾지 못해 404 → 중복 복원 불가.
    *  - owner-mismatch / 만료 / parse 오류는 loadAndConsumeSnapshot 에서 404.
    *  - 복원은 채널별 직렬 setCursorBackward 가 아니라 **단일 set-based UPDATE FROM
-   *    (VALUES …)** 으로 스냅샷 채널들을 일괄 후진시키고, 미읽/멘션 집계도 한 번의
+   *    (VALUES …)** 으로 스냅샷 채널들을 일괄 후진시키고, 읽지 않음/멘션 집계도 한 번의
    *    set-based 쿼리로 받는다(N×3 직렬 → 2 쿼리). 전체를 `$transaction` 으로 묶어
    *    부분 실패 시 복원이 일부만 적용되지 않게 한다.
    *
@@ -1256,7 +1256,7 @@ export class UnreadService {
    * (VALUES …) 으로 일괄 후진시킨다(채널별 직렬 setCursorBackward 대체). 스냅샷에
    * 들었으나 row 가 없던 채널은 INSERT, 있던 채널은 UPDATE 한다. 後進 허용(가드 없음
    * — markUnread 와 동일 비-monotonic 시맨틱). UUID/timestamptz 캐스팅으로 null
-   * 커서(전체 미읽)도 정확히 복원한다.
+   * 커서(전체 읽지 않음)도 정확히 복원한다.
    */
   private async restoreCursorsSetBased(
     tx: Prisma.TransactionClient,
@@ -1292,7 +1292,7 @@ export class UnreadService {
   }
 
   /**
-   * S24 fix-forward (reviewer MAJOR #2 · perf): 복원된 채널들의 미읽/멘션을 단일
+   * S24 fix-forward (reviewer MAJOR #2 · perf): 복원된 채널들의 읽지 않음/멘션을 단일
    * set-based 쿼리로 재집계한다(채널별 unreadCountFor/mentionCountFor 2N 직렬
    * 대체). (createdAt, id) 튜플 커서 + mentionMatchSql 단일 출처를 재사용한다.
    */
@@ -1515,7 +1515,7 @@ export class UnreadService {
   /**
    * S36 (FR-TH-14, 옵션 A): broadcast 행 soft-delete 시 채널 unread 캐시를 즉시
    * 무효화한다. 채널 unread 캐시 키(`unread:{ws}:{user}`)는 per-user 라, broadcast
-   * 가 모든 워크스페이스 멤버의 채널 미읽에 영향을 주므로 해당 워크스페이스 멤버
+   * 가 모든 워크스페이스 멤버의 채널 읽지 않음에 영향을 주므로 해당 워크스페이스 멤버
    * 전원의 캐시를 한 번에 지운다(멤버십이 정본 — 채널별 SCAN 회피). 멤버 수는
    * Discord-parity 로 bounded 이고 단일 pipeline 1 round-trip 으로 처리한다.
    *

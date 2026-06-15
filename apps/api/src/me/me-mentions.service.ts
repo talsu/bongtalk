@@ -168,7 +168,7 @@ export class MeMentionsService {
         AND (
           m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
           OR (m.mentions->>'everyone')::boolean IS TRUE
-          -- FR-MN-10 (066): MentionRecord(키워드/@role expand) 도 미읽 멘션으로 집계
+          -- FR-MN-10 (066): MentionRecord(키워드/@role expand) 도 읽지 않음 멘션으로 집계
           -- (recent() 와 동일 OR · ACL 절 AND 보존).
           OR EXISTS (
             SELECT 1 FROM "MentionRecord" mr

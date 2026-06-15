@@ -91,7 +91,7 @@ export function roleOverridePrincipalMatchSql(refs: {
 }
 
 /**
- * S47 fix-forward (BLOCKER-4): 미읽음 멘션 판정 단일 출처. everyone/here/channel 은
+ * S47 fix-forward (BLOCKER-4): 읽지 않음 멘션 판정 단일 출처. everyone/here/channel 은
  * `@>` JSONB containment 로 GIN 인덱스를 활용하고, 직접 멘션은 users 배열 containment
  * 로 본다. `msgRef` 는 메시지 별칭 fragment(예 `Prisma.sql\`msg\``), `userParam` 은
  * userId 파라미터 fragment(예 `Prisma.sql\`${userId}::text\``).

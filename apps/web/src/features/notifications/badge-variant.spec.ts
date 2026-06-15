@@ -56,7 +56,7 @@ describe('badgeText', () => {
 });
 
 describe('notifDisplay (S46 / ADR-6 NotifLevel × isMuted 배지 규칙)', () => {
-  it('NOTHING → 배지·미읽·push 모두 숨김(isMuted 무관)', () => {
+  it('NOTHING → 배지·읽지 않음·push 모두 숨김(isMuted 무관)', () => {
     expect(notifDisplay('NOTHING', false)).toEqual({
       showBadge: false,
       showUnreadStyle: false,
@@ -69,7 +69,7 @@ describe('notifDisplay (S46 / ADR-6 NotifLevel × isMuted 배지 규칙)', () =>
     });
   });
 
-  it('ALL isMuted=false → 배지·미읽·push 모두 O', () => {
+  it('ALL isMuted=false → 배지·읽지 않음·push 모두 O', () => {
     expect(notifDisplay('ALL', false)).toEqual({
       showBadge: true,
       showUnreadStyle: true,
@@ -77,7 +77,7 @@ describe('notifDisplay (S46 / ADR-6 NotifLevel × isMuted 배지 규칙)', () =>
     });
   });
 
-  it('ALL isMuted=true → 배지·미읽 O, push X (ADR-6 정본)', () => {
+  it('ALL isMuted=true → 배지·읽지 않음 O, push X (ADR-6 정본)', () => {
     expect(notifDisplay('ALL', true)).toEqual({
       showBadge: true,
       showUnreadStyle: true,
@@ -85,7 +85,7 @@ describe('notifDisplay (S46 / ADR-6 NotifLevel × isMuted 배지 규칙)', () =>
     });
   });
 
-  it('MENTIONS isMuted=true → 배지·미읽 O, push X', () => {
+  it('MENTIONS isMuted=true → 배지·읽지 않음 O, push X', () => {
     expect(notifDisplay('MENTIONS', true)).toEqual({
       showBadge: true,
       showUnreadStyle: true,

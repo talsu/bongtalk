@@ -25,7 +25,7 @@ export function MobileChannelSheet({
 }: {
   channelName: string;
   muted: boolean;
-  /** FR-RS-09: 미읽음이 있을 때만 '읽음으로 표시' 노출(0건 no-op 숨김). */
+  /** FR-RS-09: 읽지 않음이 있을 때만 '읽음으로 표시' 노출(0건 no-op 숨김). */
   hasUnread: boolean;
   onClose: () => void;
   onMute: (duration: MuteDurationKey) => void;

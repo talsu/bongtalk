@@ -159,7 +159,7 @@ export class PushProcessor extends WorkerHost {
 
     // (4) read-check: 사용자가 그 사이 이 메시지(이상)를 읽었으면 skip. UserChannelReadState
     // 의 (createdAt, id) 튜플 커서가 이 메시지 커서 이상이면 읽은 것으로 본다(unread.service
-    // 와 동일 공식). 행 부재/커서 NULL 이면 미읽음(전송 진행).
+    // 와 동일 공식). 행 부재/커서 NULL 이면 읽지 않음(전송 진행).
     const alreadyRead = await this.isMessageRead(data.userId, data.channelId, data.messageId);
     if (alreadyRead) {
       this.logger.debug(`[push] skip (already read) user=${data.userId} msg=${data.messageId}`);

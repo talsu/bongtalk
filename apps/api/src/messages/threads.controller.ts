@@ -91,7 +91,7 @@ export class ThreadsController {
    *
    * Body `{ lastReadMessageId }`. 루트 채널 READ ACL 통과 후, ThreadReadState 를
    * monotonic (createdAt, id) 튜플 upsert 로 전진시킨다(퇴행 ack no-op). 채널
-   * 미읽과 **독립적** — 채널 커서는 건드리지 않는다. 멀티디바이스 동기는 채널
+   * 읽지 않음과 **독립적** — 채널 커서는 건드리지 않는다. 멀티디바이스 동기는 채널
    * 메시지 목록 refetch 시 threadMeta.hasUnread 가 재수렴시킨다(별도 read-state
    * WS 이벤트는 본 슬라이스 범위 밖 — Threads 탭 S38 에서 도입 검토). 204.
    */
@@ -102,7 +102,7 @@ export class ThreadsController {
     @CurrentUser() user: CurrentUserPayload,
     @Body() body: unknown,
   ): Promise<void> {
-    // 채널 미읽 ack 와 동일한 보수적 레이트 — 스크롤 디바운스가 새도 안전.
+    // 채널 읽지 않음 ack 와 동일한 보수적 레이트 — 스크롤 디바운스가 새도 안전.
     await this.rate.enforce([{ key: `thread:ack:u:${user.id}`, windowSec: 60, max: 600 }]);
     const parsed = ThreadAckRequestSchema.safeParse(body);
     if (!parsed.success) {
@@ -247,7 +247,7 @@ export class ThreadsController {
         this.messages.aggregateAttachments(ids),
         isDirect ? this.messages.loadBlockedUserIds(user.id) : Promise.resolve(new Set<string>()),
         // S36 (FR-TH-18): 초기 스크롤 앵커용 lastRead 커서. 행이 없으면 null
-        // (전체 미읽 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
+        // (전체 읽지 않음 → 프론트가 최하단 스크롤). 패널 GET 1회에 함께 실어 보낸다.
         this.threadReadState.cursorFor(user.id, id),
         // S38 fix-forward (reviewer MAJOR / FR-TH-08): viewer 의 스레드 알림 레벨.
         // ThreadPanel 의 벨이 저장된 OFF/MENTIONS 를 반영하려면 GET 응답에 현재
@@ -288,7 +288,7 @@ export class ThreadsController {
       root: rootDto,
       replies: replyDtos,
       // S36 (FR-TH-18): viewer 의 스레드 읽음 커서. 프론트는 lastReadMessageId 가
-      // 있으면 그 다음 첫 미읽 답글 위치로 초기 스크롤하고, null 이면 최하단으로
+      // 있으면 그 다음 첫 읽지 않음 답글 위치로 초기 스크롤하고, null 이면 최하단으로
       // 스크롤한다(기존 S35 동작). 첫 페이지에만 의미가 있어 매 페이지 반환하되
       // 프론트는 첫 페이지 값만 쓴다.
       readState: { lastReadMessageId: readCursor?.lastReadMessageId ?? null },

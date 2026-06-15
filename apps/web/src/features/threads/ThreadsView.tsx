@@ -14,12 +14,12 @@ type Props = {
 /**
  * S38 (FR-TH-09 / FR-TH-10): Threads 뷰 — 사이드바 'Threads' 진입점의 펼침 영역.
  *
- *  - 내 구독 스레드 목록(서버: 미읽 우선 → latestReplyAt DESC). cross-workspace
+ *  - 내 구독 스레드 목록(서버: 읽지 않음 우선 → latestReplyAt DESC). cross-workspace
  *    응답을 현재 워크스페이스 채널로 필터해 사이드바 네비게이션과 정합시킨다
  *    (다른 워크스페이스 스레드는 그 워크스페이스 사이드바에서 보인다).
  *  - 각 항목: 채널명 · 루트 excerpt(80자, 서버 cap) · 마지막 답글자 · 상대 시각 ·
- *    미읽 badge. 클릭 시 채널로 이동하며 `?thread=<rootId>` 로 패널을 연다.
- *  - 우상단 '모두 읽음'(FR-TH-10) → markAllThreadsRead → 목록 미읽 0 재수렴.
+ *    읽지 않음 badge. 클릭 시 채널로 이동하며 `?thread=<rootId>` 로 패널을 연다.
+ *  - 우상단 '모두 읽음'(FR-TH-10) → markAllThreadsRead → 목록 읽지 않음 0 재수렴.
  *  - DS 기존 클래스만(qf-category / qf-channel / qf-badge / qf-btn / qf-empty) —
  *    신규 DS 0. raw hex/px 없음(var() 토큰 + 등록 Tailwind 유틸만).
  */
@@ -120,8 +120,8 @@ export function ThreadsView({ workspaceId, workspaceSlug }: Props): JSX.Element 
               <button
                 type="button"
                 onClick={() => openThread(t)}
-                // S38 fix-forward (a11y #9): aria-label 에 미읽 수를 포함해 SR
-                // 사용자가 목록을 훑을 때 각 스레드의 미읽 여부를 듣게 한다.
+                // S38 fix-forward (a11y #9): aria-label 에 읽지 않음 수를 포함해 SR
+                // 사용자가 목록을 훑을 때 각 스레드의 읽지 않음 여부를 듣게 한다.
                 aria-label={
                   t.unreadCount > 0
                     ? `#${channelName} 스레드 열기, 읽지 않은 답글 ${t.unreadCount}개`

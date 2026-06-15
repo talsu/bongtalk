@@ -13,7 +13,7 @@ export interface UnreadChannelSummary {
   channelId: string;
   unreadCount: number;
   hasMention: boolean;
-  // S21 (FR-RS-16): 미읽음 멘션 수. 사이드바 2계층 표시의 mention 배지 데이터.
+  // S21 (FR-RS-16): 읽지 않음 멘션 수. 사이드바 2계층 표시의 mention 배지 데이터.
   mentionCount: number;
   lastMessageAt: string | null;
 }
@@ -53,7 +53,7 @@ export function useUnreadSummary(workspaceId: string | undefined) {
   });
 }
 
-// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 미읽 채널 + 채널별 최근 미읽 메시지
+// 072 백로그 S-I (FR-RS-10 / N6-1): Unreads 미리보기. 읽지 않은 채널 + 채널별 최근 읽지 않은 메시지
 // ≤5(작성자+본문, 차단 마스킹). 서버 GET /workspaces/:id/unreads.
 export interface UnreadPreviewMessage {
   id: string;
@@ -77,7 +77,7 @@ export interface UnreadsPreviewPage {
 
 /**
  * 072 백로그 S-I: Unreads 미리보기 1페이지(첫 ~20채널·채널별 ≤5 메시지). UnreadsView 가
- * 채널명·배지(useUnreadSummary)에 더해 최근 미읽 본문 미리보기를 보여주는 데 쓴다. 미리보기는
+ * 채널명·배지(useUnreadSummary)에 더해 최근 읽지 않음 본문 미리보기를 보여주는 데 쓴다. 미리보기는
  * 보강 정보이므로 첫 페이지만 로드한다(커서는 향후 더보기용 — 응답에 nextCursor 포함).
  */
 export function useUnreadsPreview(workspaceId: string | undefined) {
@@ -150,7 +150,7 @@ export function useMarkChannelRead(workspaceId: string | undefined) {
 }
 
 /**
- * S24 (FR-RS-08): 수동 미읽 표시. POST /workspaces/:id/channels/:chid/unread
+ * S24 (FR-RS-08): 수동 읽지 않음 표시. POST /workspaces/:id/channels/:chid/unread
  * {messageId} 가 지정 메시지 **직전**으로 lastReadMessageId 를 되돌린다(後進 —
  * monotonic guard 우회). 서버가 read_state:updated 를 emit 하므로 dispatcher 가
  * 사이드바 배지를 권위 갱신하고, 여기서는 즉각적 UX 를 위해 낙관적으로 unread-
@@ -214,7 +214,7 @@ export function useUndoMarkAllRead(workspaceId: string | undefined) {
 
 /**
  * S23 (FR-RS-11): 워크스페이스 전체 읽음(Shift+Esc). POST /workspaces/:id/read-all
- * 가 가시 채널 중 미읽 남은 것을 각각 최신까지 monotonic 읽음 처리한다(後進 없음).
+ * 가 가시 채널 중 읽지 않음 남은 것을 각각 최신까지 monotonic 읽음 처리한다(後進 없음).
  * 낙관적으로 unread-summary 캐시의 모든 채널을 zero-out 해 사이드바 배지가 즉시
  * 사라지게 하고, 서버 권위 + read_state:updated WS 동기화로 정합한다.
  */

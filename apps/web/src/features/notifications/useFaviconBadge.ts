@@ -3,11 +3,11 @@ import { useBadgeStore } from './badgeStore';
 import { documentTitleText, faviconBadgeMode, renderFavicon } from './faviconBadge';
 
 /**
- * S47 (FR-MN-14): badgeStore 의 글로벌 멘션/미읽 합계를 구독해 favicon 오버레이와
+ * S47 (FR-MN-14): badgeStore 의 글로벌 멘션/읽지 않음 합계를 구독해 favicon 오버레이와
  * document.title 배지를 동기화한다. Shell 루트에서 1회 마운트한다.
  *
  *   favicon — mentionCount>0 → 숫자 배지 / unreadCount>0 → dot / 둘 다 0 → 원복.
- *   title   — 글로벌 미읽+멘션 합계가 있으면 `(N) qufox`, 0 이면 `qufox`.
+ *   title   — 글로벌 읽지 않음+멘션 합계가 있으면 `(N) qufox`, 0 이면 `qufox`.
  *
  * 글로벌 합계는 워크스페이스별 카운트의 합이며, isMuted 채널/서버는 서버가 이미
  * 배지 집계에서 제외했으므로(MeNotificationBadgesService) 여기서 다시 거를 필요가
@@ -22,10 +22,10 @@ export function useFaviconBadge(): void {
     const mentionTotal = entries.reduce((acc, e) => acc + e.mentionCount, 0);
     const unreadTotal = entries.reduce((acc, e) => acc + e.unreadCount, 0);
 
-    // favicon: 멘션 우선(숫자) → 미읽(dot) → 원복.
+    // favicon: 멘션 우선(숫자) → 읽지 않음(dot) → 원복.
     void renderFavicon(faviconBadgeMode(mentionTotal, unreadTotal), mentionTotal);
 
-    // title: 글로벌 미읽 합계(멘션은 미읽의 부분집합이라 unreadTotal 이 상한).
+    // title: 글로벌 읽지 않음 합계(멘션은 읽지 않음의 부분집합이라 unreadTotal 이 상한).
     if (typeof document !== 'undefined') {
       document.title = documentTitleText(unreadTotal);
     }

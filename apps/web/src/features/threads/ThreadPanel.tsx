@@ -184,9 +184,9 @@ export function ThreadPanel({
 
   // S36 (FR-TH-18): mount 시 초기 스크롤(1회). 첫 페이지(root + replies)가
   // 그려진 직후 useLayoutEffect 로 페인트 전에 앵커한다.
-  //   - ThreadReadState.lastReadMessageId 가 존재하고 그 다음 첫 미읽 답글이
-  //     현재 로드된 페이지 안에 있으면, 그 미읽 답글로 스크롤한다(읽던 위치 복원).
-  //   - 커서가 없거나(전체 미읽) lastRead 가 최신(미읽 0)이거나 미읽 답글이 아직
+  //   - ThreadReadState.lastReadMessageId 가 존재하고 그 다음 첫 읽지 않음 답글이
+  //     현재 로드된 페이지 안에 있으면, 그 읽지 않음 답글로 스크롤한다(읽던 위치 복원).
+  //   - 커서가 없거나(전체 읽지 않음) lastRead 가 최신(읽지 않음 0)이거나 읽지 않음 답글이 아직
   //     로드 안 됐으면 최하단으로 스크롤한다(기존 S35 동작).
   // hasAnchoredRef 충돌 방지: 이 초기 스크롤은 anchored=false 일 때 1회만 수행하고
   // 즉시 true 로 잠근다(이후 새 답글 자동 스크롤 effect 와 경쟁하지 않음).
@@ -198,21 +198,21 @@ export function ThreadPanel({
     let anchored = false;
     if (lastReadMessageId) {
       const lastReadIdx = replies.findIndex((r) => r.id === lastReadMessageId);
-      // 다음 첫 미읽 답글 = lastRead 직후. 존재하면 그 행으로 스크롤.
+      // 다음 첫 읽지 않음 답글 = lastRead 직후. 존재하면 그 행으로 스크롤.
       const firstUnread = lastReadIdx >= 0 ? replies[lastReadIdx + 1] : undefined;
       if (firstUnread) {
         const target = el.querySelector<HTMLElement>(
           `[data-testid="thread-reply-${firstUnread.id}"]`,
         );
         if (target) {
-          // 미읽 답글이 뷰 상단에 오도록(읽기 시작 위치) 정렬.
+          // 읽지 않음 답글이 뷰 상단에 오도록(읽기 시작 위치) 정렬.
           target.scrollIntoView({ block: 'start' });
           anchored = true;
         }
       }
     }
     if (!anchored) {
-      // 커서 없음 / 미읽 0 / 미읽 답글 미로드 → 최하단(기존 S35 동작).
+      // 커서 없음 / 읽지 않음 0 / 읽지 않음 답글 미로드 → 최하단(기존 S35 동작).
       el.scrollTop = el.scrollHeight;
     }
     hasAnchoredRef.current = true;
