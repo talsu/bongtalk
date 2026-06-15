@@ -212,7 +212,7 @@ export function MessageList({
   const { data: pickerData } = useEmojiPickerData(workspaceId);
   const pickerQuickReactions =
     pickerData?.userQuickReactions ?? pickerData?.workspaceQuickReactions;
-  // S24 (FR-RS-08): 메시지 "미읽음으로 표시" — 이 메시지 직전으로 읽음 커서 後進.
+  // S24 (FR-RS-08): 메시지 "읽지 않음으로 표시" — 이 메시지 직전으로 읽음 커서 後進.
   // DM(workspaceId=null)은 unread-summary 가 없어 hook 이 no-op 이므로 콜백 hide.
   const markUnreadMut = useMarkUnread(workspaceId ?? undefined);
   // S03 (FR-MSG-05): retry a failed optimistic send. Reuses the SAME
@@ -1221,7 +1221,7 @@ export function MessageList({
                           ? () => retry(m.id, m.content ?? '')
                           : undefined
                       }
-                      // S24 (FR-RS-08): 수동 미읽 — workspace 채널(unread-summary
+                      // S24 (FR-RS-08): 수동 읽지 않음 — workspace 채널(unread-summary
                       // 존재) + 비-tmp 행에서만 노출. 이 메시지 직전으로 後進.
                       onMarkUnread={
                         workspaceId && !m.id.startsWith('tmp-')

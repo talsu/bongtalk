@@ -199,7 +199,7 @@ export type ThreadSummary = {
   replyCount: number;
   lastRepliedAt: string | null;
   recentReplyUserIds: string[];
-  // S36 (FR-TH-04): per-viewer 스레드 미읽 여부. aggregateThreadSummaries 가
+  // S36 (FR-TH-04): per-viewer 스레드 읽지 않음 여부. aggregateThreadSummaries 가
   // viewerId 와 함께 호출되면 산정하고, 그 외(WS dispatcher 합성)는 false.
   hasUnread: boolean;
 };
@@ -839,11 +839,11 @@ export class MessagesService {
    * (와이어 필드명은 기존 클라이언트/디스패처/테스트 호환을 위해 유지).
    *
    * S36 (FR-TH-04 / FR-RS-12): `viewerId` 를 받으면 같은 쿼리에 viewer 의
-   * ThreadReadState 를 **배치 조인**해 per-viewer 미읽 여부(`hasUnread`)를 함께
+   * ThreadReadState 를 **배치 조인**해 per-viewer 읽지 않음 여부(`hasUnread`)를 함께
    * 산정한다(루트 집합 단일 쿼리 — N+1 없음). reply bar(qf-thread-chip)의 unread
    * dot 이 이 값을 본다. viewerId 가 없으면(WS dispatcher 합성 등) hasUnread=false
-   * 폴백. 미읽 판정은 ThreadReadStateService 와 동일 공식(isBroadcast=false·
-   * deletedAt IS NULL·(createdAt,id) 튜플 비교; ThreadReadState 없으면 전체 미읽).
+   * 폴백. 읽지 않음 판정은 ThreadReadStateService 와 동일 공식(isBroadcast=false·
+   * deletedAt IS NULL·(createdAt,id) 튜플 비교; ThreadReadState 없으면 전체 읽지 않음).
    */
   async aggregateThreadSummaries(
     rootIds: string[],
@@ -851,8 +851,8 @@ export class MessagesService {
   ): Promise<Map<string, ThreadSummary>> {
     const out = new Map<string, ThreadSummary>();
     if (rootIds.length === 0) return out;
-    // viewerId 가 있을 때만 ThreadReadState 조인 + 미읽 EXISTS 를 합성한다. 없으면
-    // false 리터럴을 산입해 기존 호출 동작(미읽 비계산)을 그대로 유지한다.
+    // viewerId 가 있을 때만 ThreadReadState 조인 + 읽지 않음 EXISTS 를 합성한다. 없으면
+    // false 리터럴을 산입해 기존 호출 동작(읽지 않음 비계산)을 그대로 유지한다.
     const hasUnreadSql = viewerId
       ? Prisma.sql`EXISTS (
           SELECT 1
@@ -914,7 +914,7 @@ export class MessagesService {
         // 의미 동일 — 혼동 방지).
         lastRepliedAt: r.latestReplyAt?.toISOString() ?? null,
         recentReplyUserIds: r.recentReplyUserIds ?? [],
-        // S36 (FR-TH-04): per-viewer 미읽 여부. viewerId 미전달 시 SQL 이 false
+        // S36 (FR-TH-04): per-viewer 읽지 않음 여부. viewerId 미전달 시 SQL 이 false
         // 리터럴을 반환하므로 그대로 false.
         hasUnread: r.hasUnread === true,
       });
@@ -2329,7 +2329,7 @@ export class MessagesService {
         // S35 (FR-TH-06): 'Also send to #channel' broadcast. 답글(parentMessageId
         // 보유) + isBroadcast 일 때만, 같은 $transaction 안에서 별도의
         // SYSTEM_THREAD_BROADCAST 행을 채널 타임라인에 동시 게시한다. 이 행은:
-        //   - isBroadcast=true (채널 가시성·FR-TH-14 미읽 분기 키)
+        //   - isBroadcast=true (채널 가시성·FR-TH-14 읽지 않음 분기 키)
         //   - parentMessageId = thread root (클릭 시 스레드 열림 + 루트 excerpt 출처)
         //   - content/contentRaw/contentAst = 방금 보낸 답글 본문(채널에서 답글
         //     본문이 그대로 보이도록 — PRD "스레드 메시지를 채널에 게시")
@@ -2364,7 +2364,7 @@ export class MessagesService {
               // 답글이 아니므로 루트 replyCount 에는 산입하지 않는다(아래 카운터
               // UPDATE 는 위 답글 INSERT 분기에서 이미 수행됨 — broadcast 는 별개).
               parentMessageId: created.parentMessageId,
-              // broadcast 행은 채널 미읽 분기 대상이지 멘션 fanout 대상이 아니므로
+              // broadcast 행은 채널 읽지 않음 분기 대상이지 멘션 fanout 대상이 아니므로
               // mentions 는 비운다(답글 본인이 이미 mention.received 를 받았다).
               mentions: {
                 users: [],
@@ -4028,7 +4028,7 @@ export class MessagesService {
       return { deletedCount: count, messageIds: targetIds };
     });
 
-    // 채널 unread 캐시 무효화(best-effort · 삭제로 미읽 카운트가 줄 수 있음). DB COUNT 가
+    // 채널 unread 캐시 무효화(best-effort · 삭제로 읽지 않음 카운트가 줄 수 있음). DB COUNT 가
     // 정본이라 실패해도 TTL/read-through 가 정정한다. UnreadService 미주입 시 생략.
     if (result.deletedCount > 0 && this.unread) {
       void this.unread.invalidateChannelWorkspaceAllMembers(channelId).catch((err) => {

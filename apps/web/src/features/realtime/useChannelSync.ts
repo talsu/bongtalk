@@ -279,7 +279,7 @@ export function installChannelSync(
     seq.setBaseline(p.channelId, p.seq);
     // S23 (FR-RS-06) / S97 (FR-RT-22): channel:joined 가 lastReadMessageId 를
     // 실어 보내면 readStateStore 에 기록한다. NEW MESSAGES 구분선이 진입 시점의
-    // lastRead 직후 첫 미읽 메시지를 찾는 출처이자 around-reload seam 의 공급원.
+    // lastRead 직후 첫 읽지 않은 메시지를 찾는 출처이자 around-reload seam 의 공급원.
     // 서버가 이제 connect 직후 배치로 채워 보낸다(realtime.gateway). 페이로드가
     // 누락(구 서버 baseline-only emit · undefined)하면 종전대로 store 미변경.
     if (p.lastReadMessageId !== undefined) {

@@ -371,7 +371,7 @@ export class MeActivityService {
            AND (
              m.mentions @> jsonb_build_object('users', jsonb_build_array(${userId}::text))
              OR (m.mentions->>'everyone')::boolean IS TRUE
-             -- FR-MN-10 (066): MentionRecord(키워드/@role) 도 미읽 멘션 카운트에 포함
+             -- FR-MN-10 (066): MentionRecord(키워드/@role) 도 읽지 않음 멘션 카운트에 포함
              -- (mentions CTE 와 동일 OR · ACL 절 AND 보존).
              OR EXISTS (
                SELECT 1 FROM "MentionRecord" mr
@@ -389,7 +389,7 @@ export class MeActivityService {
            AND root."deletedAt" IS NULL
           JOIN acc ON acc."channelId" = m."channelId"
          WHERE m."deletedAt" IS NULL
-           -- S35 fix-forward: broadcast 행은 답글이 아니므로 미읽 reply 카운트에서
+           -- S35 fix-forward: broadcast 행은 답글이 아니므로 읽지 않음 reply 카운트에서
            -- 제외한다(활동 피드 replies CTE 와 동일 가드).
            AND m."isBroadcast" = false
            AND m."authorId" <> ${userId}::uuid

@@ -64,10 +64,10 @@ export class ChannelAckController {
   }
 
   /**
-   * S24 (FR-RS-08): POST /workspaces/:id/channels/:chid/unread — 수동 미읽 표시.
+   * S24 (FR-RS-08): POST /workspaces/:id/channels/:chid/unread — 수동 읽지 않음 표시.
    *
    * Body `{ messageId }`. 해당 메시지 **직전** 메시지로 lastReadMessageId 를
-   * 되돌린다(직전이 없으면 null = 전체 미읽). S21 monotonic guard 를 의도적으로
+   * 되돌린다(직전이 없으면 null = 전체 읽지 않음). S21 monotonic guard 를 의도적으로
    * 우회하는 후진 경로(UnreadService.markUnread → setCursorBackward)이며, 새
    * unread/mention 카운트를 실은 read_state:updated 를 user 룸으로 fan-out 해
    * 멀티세션 사이드바 배지를 동기화한다. ack 와 동일 가드/모듈 호스팅 이유.
@@ -100,7 +100,7 @@ export class ChannelAckController {
    * **emit** 한다. 채널 컨텍스트 메뉴 "읽음으로 표시"(ChannelList) + Unreads "읽음
    * 처리"(UnreadsView) 가 종전 `POST .../read`(markRead, emit 안 함) 대신 이 경로를
    * 써 멀티세션 사이드바 배지를 동기화한다. 메시지가 없는 채널은 payload 가 null
-   * 이라 emit 하지 않는다(미읽이 애초에 0). ack 와 동일 가드/모듈 호스팅 이유.
+   * 이라 emit 하지 않는다(읽지 않음이 애초에 0). ack 와 동일 가드/모듈 호스팅 이유.
    */
   @Post('read-ack')
   @HttpCode(200)

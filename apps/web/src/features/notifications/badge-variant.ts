@@ -40,15 +40,15 @@ export function badgeText(count: number): string {
  *
  * ADR-6 배지 표(정본 — D06 본문 표와 불일치 시 ADR-6 정규화를 따른다):
  *   NotifLevel | isMuted=false                  | isMuted=true (muteUntil 미만)
- *   ALL        | 배지 O · 미읽 O · 푸시 O        | 배지 O · 미읽 O · 푸시 X
- *   MENTIONS   | 배지(멘션) O · 미읽 O · 푸시(멘션) O | 배지(멘션) O · 미읽 O · 푸시 X
- *   NOTHING    | 배지 X · 미읽 X · 푸시 X        | 배지 X · 미읽 X · 푸시 X
+ *   ALL        | 배지 O · 읽지 않음 O · 푸시 O        | 배지 O · 읽지 않음 O · 푸시 X
+ *   MENTIONS   | 배지(멘션) O · 읽지 않음 O · 푸시(멘션) O | 배지(멘션) O · 읽지 않음 O · 푸시 X
+ *   NOTHING    | 배지 X · 읽지 않음 X · 푸시 X        | 배지 X · 읽지 않음 X · 푸시 X
  *
- * 즉 ADR-6 에서 배지/미읽을 완전히 숨기는 단일 트리거는 **NOTHING** 이다.
- * isMuted 는 push 만 끄고 배지/미읽은 유지한다(D06 본문 표의 "배지 완전 숨김"과
+ * 즉 ADR-6 에서 배지/읽지 않음을 완전히 숨기는 단일 트리거는 **NOTHING** 이다.
+ * isMuted 는 push 만 끄고 배지/읽지 않음은 유지한다(D06 본문 표의 "배지 완전 숨김"과
  * 어긋나나 ADR-6 정본을 따른다 — REPORT 의 deviation 명시).
  *
- * 단, 본 프로젝트의 채널 뮤트(S43)는 UserChannelMute 행 존재(mutedUntil)로 미읽
+ * 단, 본 프로젝트의 채널 뮤트(S43)는 UserChannelMute 행 존재(mutedUntil)로 읽지 않음
  * 볼드를 억제해 왔다(deriveSidebarRowState.muted). 그 기존 UX 는 S43 helper 가
  * 계속 담당하고, 본 helper 는 NotifLevel 기준의 ADR-6 정규화 표를 단일 출처로
  * 노출해 설정 화면/배지 surface 가 동일 규칙을 공유하게 한다.
@@ -58,7 +58,7 @@ export type NotifLevelValue = 'ALL' | 'MENTIONS' | 'NOTHING';
 export interface NotifDisplay {
   /** 사이드바에 unread/mention 배지를 표시할지(NOTHING 이면 false). */
   showBadge: boolean;
-  /** 미읽 볼드/pill 을 표시할지(NOTHING 이면 false). */
+  /** 읽지 않음 볼드/pill 을 표시할지(NOTHING 이면 false). */
   showUnreadStyle: boolean;
   /** push 알림을 보낼지(NOTHING 또는 isMuted 면 false). */
   push: boolean;
@@ -68,7 +68,7 @@ export function notifDisplay(level: NotifLevelValue, isMuted: boolean): NotifDis
   if (level === 'NOTHING') {
     return { showBadge: false, showUnreadStyle: false, push: false };
   }
-  // ALL / MENTIONS: 배지·미읽 유지. push 는 isMuted 시 차단(만료 전 한정 — 호출부가
+  // ALL / MENTIONS: 배지·읽지 않음 유지. push 는 isMuted 시 차단(만료 전 한정 — 호출부가
   // muteUntil 만료를 query-time 에 거른 뒤 isMuted 를 넘긴다).
   return { showBadge: true, showUnreadStyle: true, push: !isMuted };
 }

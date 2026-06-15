@@ -162,7 +162,7 @@ export class GlobalDmController {
       lastMessageAt: string | null;
       lastMessagePreview: string | null;
       createdAt: string;
-      // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 수(인박스 배지).
+      // 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음/멘션 수(인박스 배지).
       unreadCount: number;
       mentionCount: number;
     }>;

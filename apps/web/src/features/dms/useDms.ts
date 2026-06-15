@@ -13,7 +13,7 @@ export interface DmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   unreadCount: number;
-  // FR-DM-15: 미읽음 @멘션 건수(뮤트 DM 배지용). 서버가 점진 롤아웃 중일 수 있어
+  // FR-DM-15: 읽지 않음 @멘션 건수(뮤트 DM 배지용). 서버가 점진 롤아웃 중일 수 있어
   // 소비처(DmShell/MobileDmList)는 `?? 0` 으로 안전 폴백한다(dmRowBadge 입력).
   mentionCount: number;
   // S16 (FR-DM-03): 참여자 프로필. 1:1 DM 은 상대방 단일 요소(항상 1개).
@@ -35,7 +35,7 @@ export interface GroupDmListItem {
   lastMessageAt: string | null;
   lastMessagePreview: string | null;
   createdAt: string;
-  // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 수. 1:1 DmListItem 과 동형 —
+  // 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음/멘션 수. 1:1 DmListItem 과 동형 —
   // dmRows/배지 로직이 뮤트/비뮤트 분기를 동일하게 적용한다(서버 listGroups 동기화).
   unreadCount: number;
   mentionCount: number;

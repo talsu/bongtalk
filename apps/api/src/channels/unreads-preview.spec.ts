@@ -3,7 +3,7 @@ import { UnreadService } from './unread.service';
 import type { PrismaService } from '../prisma/prisma.module';
 
 /**
- * 072 백로그 S-I (FR-RS-10 / N6-1): previewUnreads — 미읽(>0) 채널 + 채널별 최근 미읽 ≤5
+ * 072 백로그 S-I (FR-RS-10 / N6-1): previewUnreads — 읽지 않음(>0) 채널 + 채널별 최근 읽지 않음 ≤5
  * 미리보기(작성자 해석·차단 마스킹·그룹화·정렬·커서). summarize 의 $queryRaw(1st) + preview
  * $queryRaw(2nd) + user/friendship.findMany 를 vi.fn 으로 스텁한다. 시스템 시간 고정.
  */
@@ -48,10 +48,10 @@ function makeService(opts: {
 }
 
 describe('UnreadService.previewUnreads (072 S-I / FR-RS-10)', () => {
-  it('미읽(>0) 채널만 + 최근순 정렬, 채널별 메시지 그룹화', async () => {
+  it('읽지 않음(>0) 채널만 + 최근순 정렬, 채널별 메시지 그룹화', async () => {
     const { svc } = makeService({
       summaryRows: [
-        // c1: 더 최근, c2: 더 오래됨, c3: 미읽 0(제외).
+        // c1: 더 최근, c2: 더 오래됨, c3: 읽지 않음 0(제외).
         {
           channel_id: 'c1',
           unread_count: 2,

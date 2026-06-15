@@ -16,7 +16,7 @@ import { formatClockPart } from '../../features/messages/formatMessageTime';
  * on top (5 presets + 더보기 → 이모지 드로어), then menu items.
  *
  * 071-M1 D9:
- *   - 액션 확장: 핀/고정 해제·저장 토글·리마인더·미읽음으로 표시·신고
+ *   - 액션 확장: 핀/고정 해제·저장 토글·리마인더·읽지 않음으로 표시·신고
  *     (각 옵셔널 — 호출측이 게이트를 통과한 경우에만 전달, 미전달 시 숨김).
  *   - 삭제 2-step confirm: 첫 탭은 무장(armed) 상태로 카피를 바꾸고, 3초 안의
  *     두 번째 탭만 실제 삭제한다(데스크톱 Delete 2-step 과 동일 의도 — 우발
@@ -307,7 +307,7 @@ export function MobileMessageSheet({
               <span className="qf-m-sheet__icon">
                 <Icon name="eye-off" size="sm" />
               </span>
-              <span>미읽음으로 표시</span>
+              <span>읽지 않음으로 표시</span>
             </button>
           ) : null}
           {/* S103 (FR-MSG-06 모바일): 내 메시지 편집. 호출측이 isMine·!tmp-·!deleted

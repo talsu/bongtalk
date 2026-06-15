@@ -171,7 +171,7 @@ describe('MessageItem reply bar (FR-TH-03)', () => {
     );
   });
 
-  // S36 (FR-TH-04 / FR-TH-11): per-viewer 스레드 미읽 dot.
+  // S36 (FR-TH-04 / FR-TH-11): per-viewer 스레드 읽지 않음 dot.
   it('hasUnread=true 면 reply bar 에 파란 unread dot 을 렌더한다 (FR-TH-04)', () => {
     const thread: ThreadSummary = {
       replyCount: 3,

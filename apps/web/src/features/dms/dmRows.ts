@@ -73,7 +73,7 @@ export function buildDmRows(
     lastMessageAt: g.lastMessageAt,
     participants: g.participants,
     memberIds: g.memberIds,
-    // 072 백로그 S-E (FR-DM-15): 그룹 DM 미읽음/멘션 — 1:1 과 동형으로 배지 산입.
+    // 072 백로그 S-E (FR-DM-15): 그룹 DM 읽지 않음/멘션 — 1:1 과 동형으로 배지 산입.
     unreadCount: g.unreadCount,
     mentionCount: g.mentionCount ?? 0,
   }));

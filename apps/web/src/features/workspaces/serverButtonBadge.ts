@@ -44,7 +44,7 @@ export function serverButtonBadgeText(count: number): string {
   return count > 99 ? '99+' : String(count);
 }
 
-/** 한국어 aria-label. variant 에 따라 멘션/미읽음 구분. */
+/** 한국어 aria-label. variant 에 따라 멘션/읽지 않음 구분. */
 export function serverButtonBadgeAria(badge: ServerButtonBadge): string | null {
   if (badge.variant === 'none') return null;
   if (badge.variant === 'mention') return `읽지 않은 멘션 ${badge.count}개`;

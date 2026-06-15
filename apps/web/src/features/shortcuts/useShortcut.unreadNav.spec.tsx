@@ -4,8 +4,8 @@ import { renderHook, cleanup } from '@testing-library/react';
 
 /**
  * S82b (FR-KS-04 + FR-KS-11) spec:
- *  - Alt+Shift+↓ = 다음 미읽 채널로 이동, Alt+Shift+↑ = 이전 미읽 채널.
- *    미읽 0개면 no-op, 현재 채널이 미읽 목록에 없으면 첫 미읽로, wrap-around.
+ *  - Alt+Shift+↓ = 다음 읽지 않은 채널로 이동, Alt+Shift+↑ = 이전 읽지 않은 채널.
+ *    읽지 않음 0개면 no-op, 현재 채널이 읽지 않은 목록에 없으면 첫 읽지 않음으로, wrap-around.
  *  - Ctrl/Cmd+N = 새 DM 진입점(/friends)으로 이동.
  *  - 기존 Alt+↑/↓(non-Shift) 채널 순회는 회귀 없이 보존(cross-fire 금지).
  *  - input 포커스 중에는 모든 단축키 무시.
@@ -32,7 +32,7 @@ const channelList = {
   ],
 };
 
-// 미읽 요약. 테스트별로 교체.
+// 읽지 않음 요약. 테스트별로 교체.
 let unreadSummary: { channels: { channelId: string; unreadCount: number }[] } = { channels: [] };
 
 vi.mock('../../stores/ui-store', () => ({
@@ -81,7 +81,7 @@ function press(over: Partial<KeyboardEventInit>): void {
 
 describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', () => {
   it('Alt+Shift+↓ navigates to the next unread channel after the current one', () => {
-    // random + announce 미읽, 현재는 general → 다음 미읽 = random.
+    // random + announce 읽지 않음, 현재는 general → 다음 읽지 않음 = random.
     unreadSummary = {
       channels: [
         { channelId: 'c-random', unreadCount: 3 },
@@ -94,7 +94,7 @@ describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', 
   });
 
   it('Alt+Shift+↑ navigates to the previous unread channel', () => {
-    // 현재 = announce, 미읽 = general/random/announce → 이전 = random.
+    // 현재 = announce, 읽지 않음 = general/random/announce → 이전 = random.
     params = { slug: 'acme', channelName: 'announce' };
     unreadSummary = {
       channels: [
@@ -109,7 +109,7 @@ describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', 
   });
 
   it('wraps around: Alt+Shift+↓ from the last unread goes back to the first', () => {
-    // 현재 = announce(마지막 미읽), 다음은 wrap → general.
+    // 현재 = announce(마지막 읽지 않음), 다음은 wrap → general.
     params = { slug: 'acme', channelName: 'announce' };
     unreadSummary = {
       channels: [
@@ -142,7 +142,7 @@ describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', 
   });
 
   it('jumps to the first unread when the current channel is not unread', () => {
-    // 현재 = general(읽음), 미읽 = random → 첫 미읽 = random.
+    // 현재 = general(읽음), 읽지 않음 = random → 첫 읽지 않음 = random.
     unreadSummary = { channels: [{ channelId: 'c-random', unreadCount: 5 }] };
     renderHook(() => useGlobalShortcuts());
     press({ key: 'ArrowDown', altKey: true, shiftKey: true });
@@ -150,7 +150,7 @@ describe('useGlobalShortcuts — unread channel navigation (S82b · FR-KS-04)', 
   });
 
   it('S82b LOW-3: Alt+Shift+↑ from a non-unread channel also lands on the first unread', () => {
-    // 방향 결정 고정: 현재 채널이 미읽 목록에 없으면 ↑/↓ 모두 첫 미읽(index 0)로 점프한다.
+    // 방향 결정 고정: 현재 채널이 읽지 않은 목록에 없으면 ↑/↓ 모두 첫 읽지 않음(index 0)로 점프한다.
     unreadSummary = { channels: [{ channelId: 'c-random', unreadCount: 5 }] };
     renderHook(() => useGlobalShortcuts());
     press({ key: 'ArrowUp', altKey: true, shiftKey: true });
@@ -188,7 +188,7 @@ describe('useGlobalShortcuts — Alt+↑/↓ regression (non-Shift, no cross-fir
     unreadSummary = { channels: [{ channelId: 'c-announce', unreadCount: 9 }] };
     renderHook(() => useGlobalShortcuts());
     press({ key: 'ArrowDown', altKey: true });
-    // 현재 general → flat 다음 = random (미읽 순회가 아니라 채널 순회).
+    // 현재 general → flat 다음 = random (읽지 않음 순회가 아니라 채널 순회).
     expect(navigate).toHaveBeenCalledWith('/w/acme/random');
   });
 
