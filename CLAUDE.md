@@ -181,32 +181,34 @@ evals/run.ts — Claude Code headless 실행 → DoD 자동 채점
 채점: verify green / 지정 테스트 green / 스코프 준수 / PR 증거 / 턴 수 상한
 `pnpm eval` 성공률 ≥ 90% 아니면 머지 차단.
 
-### 🚀 CD: reviewer subagent → direct develop merge → NAS auto-deploy
+### 🚀 CD: reviewer subagent → develop merge → local deploy
 
 feature branch → reviewer subagent (adversarial re-read; BLOCKER/HIGH
-fixed forward) → `git merge --no-ff` to develop → AI smoke + eval →
-develop merge to main → GitHub webhook → NAS auto-deploy (009 stack)
-→ /readyz gate + auto-rollback on failure → post-deploy verify.
+fixed forward) → `git merge --no-ff` to develop → AI smoke → develop
+merge to main → **local `scripts/deploy/deploy.sh`** (operator/AI-run,
+run with sudo) → /readyz gate + auto-rollback on failure → post-deploy verify.
 
-No human 1-click merge step; no K8s canary; no staging environment
-distinct from prod. `scripts/deploy/prod-reload.sh` (manual fallback)
-shares a flock with the webhook so the two paths never race.
+No GitHub webhook (the auto-deploy receiver was removed in task-076), no
+human 1-click merge step, no K8s canary, no staging environment distinct
+from prod. `deploy.sh` is the single deploy entry point (build-isolated →
+local registry → pull-based rollout); a flock serializes concurrent runs,
+and a lightweight guard (last-deploy-failed → require `--force`; btrfs
+space CRIT → refuse) replaces the old circuit breaker.
 
-SLO gate for rollback (009 `rollout.sh`): /readyz non-200 within
-120s of container recreate → `:latest ← :prev` auto-restore.
+SLO gate for rollback (`rollout.sh`): /readyz non-200 within 120s of
+container recreate → `:latest ← :prev` auto-restore.
 
 ### 🌍 Infra
 
 All infra lives under `/volume2/dockers/qufox/` on the NAS:
-`docker-compose.prod.yml` (app stack), `compose.deploy.yml` (webhook
-
-- backup), `scripts/setup/` (one-shot init scripts),
-  `scripts/deploy/` (rollout + rollback + health-wait),
-  `scripts/backup/` (pg + redis + minio + orphan-gc). Secrets live in
-  `.env.prod` and `.env.deploy` (git-ignored, 0600 admin:users);
-  rotation happens via `scripts/setup/init-env-deploy.sh` and
-  `scripts/setup/init-minio.sh`. sops / age migration for at-rest
-  secret encryption is a future task.
+`docker-compose.prod.yml` (app stack), `compose.deploy.yml` (backup cron
+runner only — pg + redis + minio + orphan-gc; the GitHub-webhook deploy
+receiver was removed in task-076), `scripts/setup/` (one-shot init scripts),
+`scripts/deploy/` (`deploy.sh` + rollout + rollback + health-wait +
+build-and-push), `scripts/backup/`. Secrets live in `.env.prod` and
+`.env.deploy` (git-ignored, 0600 admin:users; `.env.deploy` now serves the
+backup service only). sops / age migration for at-rest secret encryption is
+a future task.
 
 Persistent data lives at `/volume3/qufox-data/` (see
 `project_data_layout.md` memory for the per-purpose subdir layout).
@@ -216,9 +218,9 @@ Persistent data lives at `/volume3/qufox-data/` (see
 
 Metrics (Prometheus / Grafana, self-hosted) + Tracing (OTEL, stdout
 exporter on NAS) + app-level health (Pino JSON + /healthz + /readyz).
-Deploy pipeline metrics (`qufox_deploys_total`,
-`qufox_deploy_duration_seconds`, etc.) via the webhook's prom-client
-registry at `deploy.qufox.com/internal/metrics`. Log aggregation
+(Deploy-pipeline metrics + the webhook `/internal/metrics` scrape were
+retired with the webhook in task-076; deploy logs live under
+`.deploy/logs/` and `.deploy/audit.jsonl`.) Log aggregation
 (Loki self-hosted on NAS) is a future task — TODO(task-019). Synthetic
 probe is the `post-switchover-smoke.sh` + periodic cron-based curl.
 

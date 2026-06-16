@@ -35,11 +35,4 @@ log "pull + recreate qufox-$SERVICE"
 "${COMPOSE[@]}" pull "qufox-$SERVICE"
 "${COMPOSE[@]}" up -d --no-deps "qufox-$SERVICE"
 
-# Report to the webhook so qufox_deploy_rollbacks_total ticks. Fail-open: if
-# the webhook is down the rollback is still authoritative and the metric just
-# under-counts. Endpoint is 127.0.0.1-only on the same host as rollback.sh.
-ROLLBACK_REPORT_URL="${ROLLBACK_REPORT_URL:-http://127.0.0.1:${WEBHOOK_PORT:-9000}/internal/rollback-reported}"
-curl -fsS --max-time 2 -X POST "$ROLLBACK_REPORT_URL" >/dev/null 2>&1 || \
-  log "(warning) could not report rollback to $ROLLBACK_REPORT_URL"
-
 log "done — container now running previous image"

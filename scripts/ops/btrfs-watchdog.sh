@@ -10,9 +10,9 @@
 #   WARN  : metadata used >= WARN% (default 70) — reclaim now: docker image
 #           prune + buildx cache prune + registry GC.
 #   CRIT  : metadata used >= CRIT% (default 85) OR unallocated < MIN_UNALLOC
-#           (default 2 GiB) — reclaim AND trip the deploy breaker so no new
-#           build/deploy can pile on while space is tight. Requires a human
-#           `reset-breaker.sh all` after confirming headroom.
+#           (default 2 GiB) — reclaim and exit 2. scripts/deploy/deploy.sh's
+#           pre-flight guard treats exit 2 as "refuse new deploys" (override
+#           with --force after confirming headroom).
 #
 # Intended to run periodically (cron / qufox-backup loop). Read-only unless a
 # threshold is crossed. Exit code: 0 OK, 1 WARN acted, 2 CRIT acted.
@@ -64,13 +64,12 @@ reclaim() {
 }
 
 if [ "$pct" -ge "$CRIT_PCT" ] || [ "$unalloc_b" -lt "$min_unalloc_b" ]; then
-  log "CRIT: $status — reclaiming and tripping deploy breaker"
+  log "CRIT: $status — reclaiming"
   reclaim
-  # shellcheck source=../deploy/breaker.sh
-  . "$REPO/scripts/deploy/breaker.sh"
-  breaker::trip api "btrfs-metadata-critical"
-  breaker::trip web "btrfs-metadata-critical"
-  log "deploys HALTED — confirm headroom, then: scripts/deploy/reset-breaker.sh all"
+  # Exit 2 signals CRITICAL. scripts/deploy/deploy.sh's pre-flight guard
+  # treats exit 2 as "refuse new deploys" (replaces the old breaker trip,
+  # removed in task-076). Confirm headroom before deploying.
+  log "btrfs metadata CRITICAL — deploy.sh refuses on exit 2 (override: --force)"
   exit 2
 elif [ "$pct" -ge "$WARN_PCT" ]; then
   log "WARN: $status — reclaiming"
