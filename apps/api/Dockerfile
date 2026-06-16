@@ -49,7 +49,7 @@ ENTRYPOINT ["/sbin/tini","--"]
 # and `restart: unless-stopped` then re-ran the migration and crashed again —
 # an infinite crash loop that amplified the 2026-06 runaway. Migrations now
 # run exactly once per deploy as a one-shot pre-step in
-# scripts/deploy/auto-deploy.sh (`docker compose run --rm --entrypoint prisma
+# scripts/deploy/deploy.sh (`docker compose run --rm --entrypoint prisma
 # qufox-api migrate deploy`) BEFORE the new container is rolled out. The
 # image still ships the prisma CLI so that one-shot works.
 CMD ["node","dist/main.js"]
