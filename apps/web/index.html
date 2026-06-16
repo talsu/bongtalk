@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- Dark-first. Light is a [data-theme="light"] flip handled entirely
-     inside /design-system/tokens.css — do NOT rebuild it per component. -->
+     inside design.qufox.com tokens.css — do NOT rebuild it per component. -->
 <html lang="ko" data-theme="dark">
   <head>
     <meta charset="UTF-8" />
@@ -16,12 +16,14 @@
       rel="stylesheet"
     />
 
-    <!-- Design system — imported here (before Vite-bundled CSS) so tokens
-         are available to both app styles and any late-hydrated HTML. -->
-    <link rel="stylesheet" href="/design-system/tokens.css" />
-    <link rel="stylesheet" href="/design-system/components.css" />
-    <link rel="stylesheet" href="/design-system/mobile.css" />
-    <link rel="stylesheet" href="/design-system/icons.css" />
+    <!-- Design system — referenced directly from design.qufox.com (SSOT),
+         rolling latest (root /). DS releases propagate immediately; CORS-enabled.
+         NOTE: icons.svg stays local (cross-origin SVG <use> is browser-blocked). -->
+    <link rel="preconnect" href="https://design.qufox.com" />
+    <link rel="stylesheet" href="https://design.qufox.com/tokens.css" />
+    <link rel="stylesheet" href="https://design.qufox.com/components.css" />
+    <link rel="stylesheet" href="https://design.qufox.com/mobile.css" />
+    <link rel="stylesheet" href="https://design.qufox.com/icons.css" />
 
     <!-- Favicons -->
     <link rel="icon" href="/brand-assets/png/favicon-32.png" sizes="32x32" type="image/png" />
