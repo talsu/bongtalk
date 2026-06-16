@@ -25,8 +25,9 @@ webhook 자동배포는 이미 죽어 있음(qufox-webhook 컨테이너 down, au
 
 ### IN — Phase 1: webhook 스택 제거
 
-- 삭제: `services/webhook/`, `.env.deploy`, `compose.deploy.yml`의 **qufox-webhook 서비스 블록만**
-  (qufox-backup·파일·internal 네트워크·pgdata 볼륨은 유지).
+- 삭제: `services/webhook/`, `compose.deploy.yml`의 **qufox-webhook 서비스 블록만**
+  (qufox-backup·파일·internal 네트워크·pgdata 볼륨은 유지). **`.env.deploy`는 backup이 사용하므로
+  유지**(webhook-only 키만 dead — 후속 정리), `apply-nginx-diff.sh`·`post-switchover-smoke.sh`도 정리.
 - 외부 참조 정리: nginx `location /hooks/github`, `infra/prometheus/prometheus.yml`의 qufox-webhook
   job, `infra/prometheus/alerts-deploy.yml`, `infra/k8s/monitoring/servicemonitor-webhook.yaml`.
 - qufox-backup 조정: `WEBHOOK_HEARTBEAT_CRON` 제거(webhook 없음), `scripts/deploy/tests/webhook-heartbeat.sh` 삭제.

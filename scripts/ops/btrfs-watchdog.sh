@@ -10,9 +10,9 @@
 #   WARN  : metadata used >= WARN% (default 70) — reclaim now: docker image
 #           prune + buildx cache prune + registry GC.
 #   CRIT  : metadata used >= CRIT% (default 85) OR unallocated < MIN_UNALLOC
-#           (default 2 GiB) — reclaim AND trip the deploy breaker so no new
-#           build/deploy can pile on while space is tight. Requires a human
-#           `reset-breaker.sh all` after confirming headroom.
+#           (default 2 GiB) — reclaim and exit 2. scripts/deploy/deploy.sh's
+#           pre-flight guard treats exit 2 as "refuse new deploys" (override
+#           with --force after confirming headroom).
 #
 # Intended to run periodically (cron / qufox-backup loop). Read-only unless a
 # threshold is crossed. Exit code: 0 OK, 1 WARN acted, 2 CRIT acted.

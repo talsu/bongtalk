@@ -14,7 +14,7 @@
 #   scripts/deploy/deploy.sh --no-migrate     # code/image reload, skip prisma migrate
 #   scripts/deploy/deploy.sh --sha <commit>   # fetch + checkout a specific commit first
 #   scripts/deploy/deploy.sh --check          # pre-flight only (space + last-result), no deploy
-#   scripts/deploy/deploy.sh --force          # bypass the post-failure guard + flock (audited)
+#   scripts/deploy/deploy.sh --force          # bypass the post-failure / space guard (audited; still locks)
 #
 # Lightweight guard (replaces the old circuit breaker; tuned for AI-run
 # deploys so a bad build can't be re-pushed in a blind loop): refuses if
@@ -93,14 +93,12 @@ log "begin service=$SERVICE migrate=$MIGRATE force=$FORCE sha=${SHA:-HEAD} repo=
 guard || exit $?
 [[ "$CHECK" -eq 1 ]] && { log "pre-flight OK (--check) — not deploying."; exit 0; }
 
-# ---- concurrency lock ----------------------------------------------------
-if [[ "$FORCE" -eq 1 ]]; then
-  audit '"deploy.force-unlock"'
-  log "--force: bypassing deploy lock (audited)"
-else
-  deploy::acquire_lock || exit $?
-  trap 'deploy::release_lock' EXIT
-fi
+# ---- concurrency lock (ALWAYS — --force bypasses the guard, never mutual
+# exclusion: a wedged deploy holding the flock would otherwise be raced. A
+# flock from a dead process auto-releases when its fd closes.) -------------
+deploy::acquire_lock || exit $?
+trap 'deploy::release_lock' EXIT
+[[ "$FORCE" -eq 1 ]] && audit '"deploy.force-guard-bypass"'
 
 # ---- optional checkout ---------------------------------------------------
 if [[ -n "$SHA" ]]; then
