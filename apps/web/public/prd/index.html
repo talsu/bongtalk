@@ -1,6 +1,6 @@
 <!doctype html>
 <!-- qufox, Product Requirements (chat domain). Mocks render with the live
-     design system (/design-system/*.css). Korean. Voice/video out of scope. -->
+     design system (design.qufox.com, rolling latest). Korean. Voice/video out of scope. -->
 <html lang="ko" data-theme="dark">
 <head>
 <meta charset="utf-8">
@@ -9,11 +9,12 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap" rel="stylesheet">
-<link rel="stylesheet" href="/design-system/tokens.css?v=7">
-<link rel="stylesheet" href="/design-system/components.css?v=7">
-<link rel="stylesheet" href="/design-system/mobile.css?v=7">
-<link rel="stylesheet" href="/design-system/icons.css?v=1">
-<link rel="stylesheet" href="/design-system/docs.css?v=1">
+<link rel="preconnect" href="https://design.qufox.com">
+<link rel="stylesheet" href="https://design.qufox.com/tokens.css">
+<link rel="stylesheet" href="https://design.qufox.com/components.css">
+<link rel="stylesheet" href="https://design.qufox.com/mobile.css">
+<link rel="stylesheet" href="https://design.qufox.com/icons.css">
+<link rel="stylesheet" href="https://design.qufox.com/docs.css">
 <style>
   /* PRD mock aliases — map names used in generated mock inline-styles to real DS tokens.
      Scoped to the PRD page only; the design system itself is untouched. */
@@ -47,7 +48,7 @@
   .sidebar__link.active .n { color: var(--accent); }
   .main { padding: var(--s-10) var(--s-11); max-width: 1180px; }
 
-  /* 문서 콘텐츠(타이포·콜아웃·표·카드·코드·엔티티 등)는 /design-system/docs.css 의
+  /* 문서 콘텐츠(타이포·콜아웃·표·카드·코드·엔티티 등)는 design.qufox.com/docs.css 의
      .qf-doc / .qf-doc-* 가 담당한다. 아래에는 PRD 페이지 고유 크롬(앱 목업·SPA 토글·
      테마 버튼)과 페이지 크롬 반응형만 남긴다. */
   .qf-doc h2 .qf-eyebrow { margin: 0; }
@@ -242,7 +243,7 @@
   <section class="page active" data-page="overview">
     <div class="qf-eyebrow">PRD, v3</div>
     <h1 class="qf-doc-h1">qufox — Slack/Discord급 채팅 플랫폼</h1>
-    <p class="qf-doc-lede">텍스트 채팅을 <strong>Slack, Discord 수준</strong>으로 완성하는 것이 목표입니다. 본 PRD는 개발자/AI가 이 문서만으로 동급 서비스를 구현할 수 있도록 기능, 데이터 모델, API, 실시간 이벤트, 수용 기준을 정의합니다. 모든 화면 mock은 <a class="qf-mention" href="/design-system/" target="_blank">디자인 시스템</a>의 실제 컴포넌트로 렌더됩니다. 음성, 영상, 화면공유는 <strong>범위 밖</strong>입니다.</p>
+    <p class="qf-doc-lede">텍스트 채팅을 <strong>Slack, Discord 수준</strong>으로 완성하는 것이 목표입니다. 본 PRD는 개발자/AI가 이 문서만으로 동급 서비스를 구현할 수 있도록 기능, 데이터 모델, API, 실시간 이벤트, 수용 기준을 정의합니다. 모든 화면 mock은 <a class="qf-mention" href="https://design.qufox.com/" target="_blank">디자인 시스템</a>의 실제 컴포넌트로 렌더됩니다. 음성, 영상, 화면공유는 <strong>범위 밖</strong>입니다.</p>
 
     <h2><span class="qf-eyebrow">목표</span> 무엇을 만드는가</h2>
     <div class="qf-doc-subtle">서버(워크스페이스) 기반 + DM 기반 양쪽을 모두 지원하는 실시간 텍스트 커뮤니티. Discord의 서버/채널/역할 모델과 Slack의 스레드/검색/생산성 모델의 장점을 합친다.</div>
