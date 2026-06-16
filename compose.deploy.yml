@@ -1,81 +1,16 @@
-# Deploy-side stack: GitHub webhook receiver + backup cron runner.
+# Backup stack: nightly Postgres/MinIO backups + restore-test + orphan GC.
 # Runs ALONGSIDE docker-compose.prod.yml on the same NAS, sharing the
-# `internal` bridge network so nginx-proxy-1 can route to qufox-webhook
-# by container name.
+# `internal` bridge network.
 #
-# Bring up:
-#   docker compose --env-file .env.deploy -f compose.deploy.yml up -d
+# Bring up (backup needs POSTGRES_PASSWORD / S3_* from .env.prod too):
+#   docker compose --env-file .env.deploy --env-file .env.prod -f compose.deploy.yml up -d
 #
-# Intentionally a separate file (not merged into docker-compose.prod.yml)
-# because the deploy stack has different failure semantics: if it goes
-# down, the app keeps serving; the app is recoverable by hand via
-# scripts/prod-reload.sh. Decoupling stops a webhook crash from looking
-# like an app outage.
+# NOTE: the GitHub-webhook deploy receiver was removed in task-076 —
+# production is now deployed locally via `scripts/deploy/deploy.sh`. This
+# file runs only the backup service. (.env.deploy is retained because the
+# backup service still reads its POSTGRES_PASSWORD / S3_* / cron values.)
 
 services:
-  qufox-webhook:
-    build:
-      context: .
-      dockerfile: services/webhook/Dockerfile
-    image: qufox/webhook:latest
-    container_name: qufox-webhook
-    restart: unless-stopped
-    # Two env files: .env.deploy provides webhook-specific secrets
-    # (HMAC secret, Slack URL, branch allowlist). .env.prod provides
-    # POSTGRES_PASSWORD, which auto-deploy.sh's `docker compose run
-    # qufox-api pnpm db:migrate` step needs for compose interpolation
-    # of the qufox-api service's DATABASE_URL.
-    env_file:
-      - .env.deploy
-      - .env.prod
-    environment:
-      # REPO_PATH inside the container == bind mount path below.
-      REPO_PATH: /repo
-      WEBHOOK_AUDIT_PATH: /repo/.deploy/audit.jsonl
-    ports:
-      # Host-bound to 127.0.0.1 only — public traffic arrives via the
-      # `/hooks/github` location inside the existing qufox.com nginx
-      # server block (task-016 ops: no deploy.qufox.com subdomain).
-      # The loopback bind stays so internal-metrics tooling on the NAS
-      # host can reach /internal/* without going through nginx.
-      - '127.0.0.1:${WEBHOOK_PORT:-9000}:9000'
-    volumes:
-      # task-017-B: dedicated worktree at ${DEPLOY_WORKTREE} (default
-      # /volume2/dockers/qufox-deploy). Host's /volume2/dockers/qufox
-      # is operator-owned; webhook's `git checkout --force <sha>`
-      # previously dragged THAT tree into detached HEAD every deploy.
-      # Worktree isolation solves it: both trees share objects + refs
-      # via git's `.git/worktrees/` pointer but have independent HEAD
-      # + index + working files.
-      #
-      # IMPORTANT: the worktree must exist before `docker compose up`.
-      # Run `scripts/setup/migrate-webhook-worktree.sh` once on the
-      # NAS to create it. The script is idempotent so re-runs are
-      # cheap.
-      - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}:/repo
-      # task-017-B live fix: `.env.prod` + `.env.deploy` are .gitignored
-      # so the sibling clone doesn't carry them. A host-side symlink
-      # into the operator tree dangles from the container's POV
-      # (`/volume2/dockers/qufox` isn't mounted), so bind the files
-      # directly read-only. `docker compose --env-file .env.prod`
-      # inside the container now finds them at /repo/.env.{prod,deploy}.
-      - /volume2/dockers/qufox/.env.prod:/repo/.env.prod:ro
-      - /volume2/dockers/qufox/.env.deploy:/repo/.env.deploy:ro
-      # Docker daemon socket — the webhook invokes `docker compose` via
-      # the host daemon to rebuild qufox-api / qufox-web. This is
-      # effectively root-equivalent on the host, so the HMAC gate is
-      # load-bearing.
-      - /var/run/docker.sock:/var/run/docker.sock
-      # GitHub deploy key for `git fetch` inside auto-deploy.sh. Operator
-      # generates a read-only deploy key (ssh-keygen -t ed25519 -f
-      # /volume1/secrets/qufox-deploy-key), adds the .pub to the repo's
-      # Deploy Keys, and chmod 0600s the private key. The webhook image
-      # runs as root, so /root/.ssh is the default lookup path.
-      # Path is env-configurable so operators can point at a host
-      # directory they already manage (e.g. /volume1/secrets/qufox-ssh).
-      - ${WEBHOOK_SSH_DIR:-/volume1/secrets/qufox-ssh}:/root/.ssh:ro
-    networks: [internal]
-
   qufox-backup:
     build:
       context: .
@@ -104,13 +39,6 @@ services:
       S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:-qufox-api}
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?set S3_SECRET_ACCESS_KEY via scripts/setup/init-minio.sh}
       DATABASE_URL: postgresql://qufox:${POSTGRES_PASSWORD}@qufox-postgres-prod:5432/qufox?schema=public
-      # task-023-D: webhook heartbeat lint configuration. `QUFOX_AUDIT_PATH`
-      # points at the webhook's worktree-mounted audit.jsonl (see
-      # volumes). Alerts land in a sibling `heartbeat-alerts.log`.
-      QUFOX_AUDIT_PATH: /repo/.deploy/audit.jsonl
-      QUFOX_HEARTBEAT_ALERT_LOG: /repo/.deploy/heartbeat-alerts.log
-      QUFOX_HEARTBEAT_MAX_AGE_HOURS: ${WEBHOOK_HEARTBEAT_MAX_AGE_HOURS:-24}
-      WEBHOOK_HEARTBEAT_CRON: ${WEBHOOK_HEARTBEAT_CRON:-*/30 * * * *}
     volumes:
       - ${BACKUP_DIR:-/volume3/qufox-data/backups/qufox}:/backups
       # Postgres data dir — read-only, just for consistency spot-checks
@@ -123,10 +51,6 @@ services:
       # Docker socket so restore-test.sh can spin an ephemeral postgres
       # (+ minio-restore-test.sh an ephemeral minio).
       - /var/run/docker.sock:/var/run/docker.sock
-      # task-023-D: webhook audit log for heartbeat lint. Read-write
-      # because webhook-heartbeat.sh appends to
-      # .deploy/heartbeat-alerts.log when the audit.jsonl is stale.
-      - ${DEPLOY_WORKTREE:-/volume2/dockers/qufox-deploy}/.deploy:/repo/.deploy:rw
     networks: [internal]
 
 networks:
