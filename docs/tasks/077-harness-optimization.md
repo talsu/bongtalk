@@ -46,20 +46,26 @@
 
 ## Acceptance Criteria (기계 검증)
 
-- [ ] `bash .claude/hooks/guard.sh --self-test` green (force-with-lease·rm 변형·
-      deploy.sh ask 케이스 추가 포함)
-- [ ] `.claude/settings.json` JSON 유효(`node -e "require('./.claude/settings.json')"`),
-      kubectl/helm/terraform/secretsmanager/postgres-prod/`.env.production` 문자열 0건
-- [ ] CLAUDE.md `wc -l` ≤ 140
-- [ ] `.claude/agents/release-manager.md` 부재, `competitive-capture-analyst.md`+
-      `feature-benchmarker.md` 중 1개로 통합, `implementer.md`+`feature-implementer.md`
-      중 1개로 통합(강한 규칙 DS 4파일 금지·--no-verify 금지·gitleaks 보존)
-- [ ] 메모리 dir에서 `auto-deploy.sh`/`prod-reload.sh`/`reset-breaker.sh` 참조 0건,
-      MEMORY.md에 dead 메모리 라인 부재, 배포 SSOT = `reference_manual_deploy_no_sha`
-- [ ] `evals/report.{md,json}` 부재, `.github/workflows/eval.yml` 부재,
-      CLAUDE.md에 "≥90% 머지 차단" 문자열 부재
-- [ ] `docs/tasks/archive/` 생성 + 휘발성 로그 이동, `docs/tasks/*.md` 루트 카운트 감소
-- [ ] `pnpm verify` green (앱 코드 무변경이므로 회귀 없음)
+- [x] `bash .claude/hooks/guard.sh --self-test` green (force-with-lease·rm 변형·
+      deploy.sh ask 케이스 추가 포함) — PASS
+- [x] `.claude/settings.json` JSON 유효, kubectl/helm/terraform/secretsmanager/
+      postgres-prod/`.env.production` 문자열 0건 — dead-string count = 0
+- [x] CLAUDE.md `wc -l` ≤ 140 — 140
+- [x] `release-manager.md` 부재, competitive-capture → feature-benchmarker 통합,
+      feature-implementer → implementer 통합(강한 규칙 DS 4파일·--no-verify·gitleaks 보존)
+- [x] 메모리: stale 배포 스크립트는 "removed" historical 언급만, dead 메모리 3개 cut,
+      MEMORY.md dead 라인 부재, dangling wikilink 0, 배포 SSOT = `reference_manual_deploy_no_sha`
+- [x] `evals/report.{md,json}` 부재, `.github/workflows/eval.yml` 부재,
+      CLAUDE.md "≥90% 머지 차단" 문자열 부재
+- [x] `docs/tasks/archive/` 생성 + 76개 로그 이동, 루트 .md 225 → 149
+- [x] `pnpm verify` green — 16 tasks 성공, api 1409 tests passed, OOM 없음
+
+## DoD
+
+체크리스트 전부 green + `pnpm verify` green(단독 실행, 113s, FULL TURBO). 앱 코드
+무변경(apps/**·packages/** 미수정)이라 런타임 회귀 없음. 메모리 정리는 git 외부
+(`~/.claude/.../memory/`)라 별도 커밋 없음. 커밋 분할: task doc → 권한/훅 → CLAUDE.md →
+에이전트 → eval → tasks 아카이브 → lock.sh.
 
 ## Non-goals
 
