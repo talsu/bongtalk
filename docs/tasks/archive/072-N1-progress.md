@@ -18,14 +18,14 @@
 
 ## 청크
 
-| 청크 | 내용 | 상태 | 커밋 |
-| ---- | ---- | ---- | ---- |
-| N1-1 | 훅(group create/visibility/leave/mute-until) + DmShell 그룹 행 렌더(아바타 스택·displayName‖참여자명·멤버수) 1:1 과 lastMessageAt DESC 병합(buildDmRows) + `/dm/g/:groupId` 라우트로 그룹 대화 열기 (HIGH) | green | |
-| N1-2 | 새 DM/그룹 생성 모달(Dialog) — 헤더 버튼 → 받는사람 멀티셀렉트(친구·칩) → 1명=useCreateOrGetDm·2+=useCreateGroupDm (HIGH) | green | |
-| N1-3 | ⋯/우클릭 메뉴 확장 — 숨기기(visibility HIDDEN)·그룹 나가기(group only)·뮤트 기간 서브메뉴(6종, Dropdown Sub 신설) 또는 뮤트 해제 (HIGH) | green | |
-| N1-4 | DM 검색 서버 q 전달(250ms 디바운스, 1:1+그룹 동일 q·useDmList/useDmGroupList 시그니처 확장) (LOW/MED) | green | |
-| N1-G | 게이트: 데스크톱 e2e(dm) + standalone verify + 적대 리뷰(wfbfalyt8) | green | 90e1219·fa3f538 |
-| N1-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                                                                                                                                       | 상태  | 커밋            |
+| ---- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | --------------- |
+| N1-1 | 훅(group create/visibility/leave/mute-until) + DmShell 그룹 행 렌더(아바타 스택·displayName‖참여자명·멤버수) 1:1 과 lastMessageAt DESC 병합(buildDmRows) + `/dm/g/:groupId` 라우트로 그룹 대화 열기 (HIGH) | green |                 |
+| N1-2 | 새 DM/그룹 생성 모달(Dialog) — 헤더 버튼 → 받는사람 멀티셀렉트(친구·칩) → 1명=useCreateOrGetDm·2+=useCreateGroupDm (HIGH)                                                                                  | green |                 |
+| N1-3 | ⋯/우클릭 메뉴 확장 — 숨기기(visibility HIDDEN)·그룹 나가기(group only)·뮤트 기간 서브메뉴(6종, Dropdown Sub 신설) 또는 뮤트 해제 (HIGH)                                                                    | green |                 |
+| N1-4 | DM 검색 서버 q 전달(250ms 디바운스, 1:1+그룹 동일 q·useDmList/useDmGroupList 시그니처 확장) (LOW/MED)                                                                                                      | green |                 |
+| N1-G | 게이트: 데스크톱 e2e(dm) + standalone verify + 적대 리뷰(wfbfalyt8)                                                                                                                                        | green | 90e1219·fa3f538 |
+| N1-D | develop 머지→main 승격→배포→/readyz→REPORT                                                                                                                                                                 | todo  |                 |
 
 ## N1-G 적대 리뷰(wfbfalyt8 — 30 에이전트·6각도·1-vote·critic) fix-forward
 

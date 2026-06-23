@@ -7,17 +7,17 @@ e2e/단위 게이트 → develop --no-ff(ls-remote 실측) → main 승격 → N
 
 ## 슬라이스 진행표
 
-| 슬라이스 | 범위                                                              | 상태    | develop  | main      |
-| -------- | ----------------------------------------------------------------- | ------- | -------- | --------- |
-| S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23  |
-| S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85  |
-| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633  |
-| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81  |
-| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878  |
-| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336  |
-| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d  |
-| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ✅ 배포 | efa925bb | dc2e020f  |
-| S-I      | Unreads 미리보기 엔드포인트                                       | ✅ 배포 | 63f21460 | 0a20c85f  |
+| 슬라이스 | 범위                                                              | 상태    | develop  | main     |
+| -------- | ----------------------------------------------------------------- | ------- | -------- | -------- |
+| S-A      | DM 라우트 rate-limit 하드닝(visibility/mute/leave/members)        | ✅ 배포 | fa74cb69 | 82146c23 |
+| S-B      | 보관(아카이브) 채널 사이드바 숨김 + 미읽음 요약 제외              | ✅ 배포 | 0ae5cc9a | 873c9b85 |
+| S-C      | 워크스페이스 아이콘 업로드(presign/finalize) + joinMode 설정 편집 | ✅ 배포 | ce2a1581 | c76c0633 |
+| S-D      | 채널 둘러보기 per-channel memberCount + isMember(가입/열기 분기)  | ✅ 배포 | 22ba9ca1 | 0fe51a81 |
+| S-E      | 그룹 DM 미읽음 집계(listGroups unreadCount)                       | ✅ 배포 | b8eed59e | 12c85878 |
+| S-F      | suppress-embed fine-grained 권한 plumbing(viewerPermissions)      | ✅ 배포 | a44e3ce8 | b1f55336 |
+| S-G      | AutoMod 규칙 폼 분기 + 감사 로그 5열 DTO(target/reason)           | ✅ 배포 | 34452a97 | 0776926d |
+| S-H      | 실시간 연결 불가 배너 + 세션 배너                                 | ✅ 배포 | efa925bb | dc2e020f |
+| S-I      | Unreads 미리보기 엔드포인트                                       | ✅ 배포 | 63f21460 | 0a20c85f |
 | S-J      | 채널 권한 override 편집기(멤버별 + 해제 엔드포인트)               | ✅ 배포 | 0e0d57a1 | 4d3a78ce |
 
 마이그레이션 없음(전부 기존 nullable 컬럼 재사용: iconUrl/joinMode/archivedAt/

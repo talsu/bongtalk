@@ -12,6 +12,9 @@ You manage schema changes.
 
 - Every destructive change (DROP / ALTER TYPE / NOT NULL on existing column) must ship with a reversible pair:
   expand → backfill → contract. Never merge a single-step destructive migration.
-- Run `pnpm db:migrate:dev` locally + a dry-run against `postgres-staging` MCP before merging.
+- Dry-run against a local compose Postgres (`pnpm db:migrate:dev`) before merging.
+  There is no staging environment — NAS-only, dev/test/prod are compose files.
 - Update `apps/api/prisma/seed.ts` if the schema changes affect seed shape.
-- Blocked from `postgres-prod` MCP by policy.
+- Never touch the prod DB directly. Prod migrations run only inside
+  `scripts/deploy/deploy.sh` (operator-approved); the `qufox-postgres-prod`
+  container is off-limits to agents.

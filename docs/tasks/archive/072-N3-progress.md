@@ -13,14 +13,14 @@
 
 ## 청크
 
-| 청크 | 내용 | 상태 | 커밋 |
-| ---- | ---- | ---- | ---- |
-| N3-1 | CreateChannelModal — 타입 라디오(텍스트/공지)+비공개 qf-switch+topic/description 분리 (HIGH) | green | |
-| N3-2 | ChannelSettingsPage 아카이브/해제 토글(useArchiveChannel, 기본채널 비활성) (HIGH) | green | |
-| N3-3 | ChannelBrowser 멤버수 표시·정렬·가입/열기 분기 (MEDIUM) | deferred(서버) | |
-| N3-4 | ChannelList prefix 아이콘(lock/megaphone/#) (LOW) | green | |
-| N3-G | 게이트: 데스크톱 e2e(channels) + standalone verify + 적대 리뷰(w0m6yn8dh) | green | (fix-forward) |
-| N3-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                         | 상태           | 커밋          |
+| ---- | -------------------------------------------------------------------------------------------- | -------------- | ------------- |
+| N3-1 | CreateChannelModal — 타입 라디오(텍스트/공지)+비공개 qf-switch+topic/description 분리 (HIGH) | green          |               |
+| N3-2 | ChannelSettingsPage 아카이브/해제 토글(useArchiveChannel, 기본채널 비활성) (HIGH)            | green          |               |
+| N3-3 | ChannelBrowser 멤버수 표시·정렬·가입/열기 분기 (MEDIUM)                                      | deferred(서버) |               |
+| N3-4 | ChannelList prefix 아이콘(lock/megaphone/#) (LOW)                                            | green          |               |
+| N3-G | 게이트: 데스크톱 e2e(channels) + standalone verify + 적대 리뷰(w0m6yn8dh)                    | green          | (fix-forward) |
+| N3-D | develop 머지→main 승격→배포→/readyz→REPORT                                                   | todo           |               |
 
 ## N3-G 적대 리뷰(w0m6yn8dh — 10 에이전트·3각도) fix-forward
 
@@ -36,7 +36,7 @@ raw 7 → confirmed 6 / plausible 0.
   '비공개/공지' 단어 포함.
 - **LOW**: prefix 분기를 공용 헬퍼(channelGlyph.ts)로 추출 → SectionChannelRow(개인 섹션)에도 적용
   (메인 목록만 lock/megaphone, 개인 섹션은 '#' 던 불일치 해소).
-- **LOW**: 채널 이름 maxLength 80→32 + 계약 정규식(소문자 alphanum/_/-) 클라 검증·인라인 에러
+- **LOW**: 채널 이름 maxLength 80→32 + 계약 정규식(소문자 alphanum/\_/-) 클라 검증·인라인 에러
   (대문자/공백/33+자가 서버 raw-zod 토스트로 떨어지던 진단불가 UX 개선).
 
 **이월(문서화):**
