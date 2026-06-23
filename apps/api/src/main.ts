@@ -128,7 +128,7 @@ async function bootstrap(): Promise<void> {
   if (ssoHost) {
     const oidc = app.get(OidcProviderService, { strict: false });
     if (oidc?.isEnabled()) {
-      oidcCallback = oidc.callback();
+      oidcCallback = oidc.getSsoHandler();
       logger.info({ ssoHost }, 'OIDC IdP mounted on sso host');
     } else {
       logger.warn({ ssoHost }, 'SSO_ISSUER set but OIDC provider not enabled — sso host falls through');

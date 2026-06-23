@@ -8,21 +8,23 @@ import type { Redis } from 'ioredis';
 import { REDIS } from '../redis/redis.module';
 import { PrismaService } from '../prisma/prisma.module';
 import { CryptoService } from '../auth/services/crypto.service';
+import { AuthService } from '../auth/auth.service';
 import { logger } from '../common/logging/logger';
 import { esmImport } from './esm';
 import { buildConfiguration, getIssuer, isOidcEnabled } from './oidc-config';
-
-type RequestListener = (req: any, res: any) => void;
+import { buildSsoApp } from './oidc-interaction';
 
 @Injectable()
 export class OidcProviderService implements OnModuleInit {
   private provider: any = null;
-  private callbackFn: RequestListener | null = null;
+  // interaction 라우트 + oidc-provider 콜백을 합친 sso.* host 전용 핸들러.
+  private ssoHandler: ((req: any, res: any) => void) | null = null;
 
   constructor(
     @Inject(REDIS) private readonly redis: Redis,
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
+    private readonly authService: AuthService,
   ) {}
 
   async onModuleInit(): Promise<void> {
@@ -43,7 +45,7 @@ export class OidcProviderService implements OnModuleInit {
       // nginx 단일 홉 뒤 — X-Forwarded-Proto/Host 를 신뢰해 https 발급자/리다이렉트를 맞춘다.
       provider.proxy = true;
       this.provider = provider;
-      this.callbackFn = provider.callback();
+      this.ssoHandler = buildSsoApp(provider, this.authService);
       logger.info(
         { issuer, clients: configuration.clients.length },
         'OIDC IdP initialized',
@@ -51,16 +53,17 @@ export class OidcProviderService implements OnModuleInit {
     } catch (err) {
       logger.error({ err }, 'OIDC IdP failed to initialize — sso host will fall through');
       this.provider = null;
-      this.callbackFn = null;
+      this.ssoHandler = null;
     }
   }
 
   isEnabled(): boolean {
-    return this.callbackFn !== null;
+    return this.ssoHandler !== null;
   }
 
-  callback(): RequestListener | null {
-    return this.callbackFn;
+  /** sso.* host 요청을 처리하는 합성 핸들러(interaction + oidc-provider). 비활성 시 null. */
+  getSsoHandler(): ((req: any, res: any) => void) | null {
+    return this.ssoHandler;
   }
 
   getProvider(): any {

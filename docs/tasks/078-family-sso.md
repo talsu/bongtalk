@@ -146,8 +146,17 @@ qufox-api에 panva `oidc-provider`(ESM) 기반 OIDC Provider 표면을 추가. *
 
 검증 로그: 전체 swc build 385파일 OK · 전체 unit `Test Files 130 / Tests 1413 passed` · `tsc --noEmit` exit 0 · eslint 0 errors(기존 패턴 경고만) · 런타임 스모크 OK. (커널4.4 OOM 회피로 combined turbo 대신 api standalone 검증.)
 
-### 잔여 P1 (P1b)
-- **interaction 브리지**: oidc-provider interaction(`/interaction/:uid`) → 로그인 폼 → `AuthService.login` 호출 → `provider.interactionFinished`(+ 동의 자동 grant). /authorize 가 실제 동작하려면 필요(현재 config 의 interactions.url 만 설정, 라우트 미구현).
-- 배포 + **nginx 플립**: sso.qufox.com 503 → `qufox-api:3001` 라우팅(배포로 OIDC 코드 라이브 후). 그 뒤 `/.well-known/openid-configuration`·`/jwks` 응답 확인.
-- `.env.prod.example` 에 APP_ENCRYPTION_KEY/SSO_* 섹션 추가(가드로 이번 미수정).
-- (그 후 P2: skulk OAuthClient 등록 + RP 전환.)
+### 2026-06-24 — P1b (interaction 브리지) 완료 · 로컬 검증 그린
+- `AuthService.verifyCredentials()` 추출: login()에서 자격검증 코어(rate-limit·lockout·argon2·deactivation·updateLoginSuccess)만 분리. login()은 이를 호출 후 토큰 발급(동작 불변·기존 테스트 통과). OIDC IdP 로그인은 verifyCredentials만 호출 → **phantom refresh 세션 미생성**(활성 세션 목록 오염 방지)하면서 qufox 보호 전부 재사용.
+- `src/oidc/oidc-interaction.ts`: express Router 로 `/interaction/:uid`(GET=로그인 폼 or consent 자동 grant), `/interaction/:uid/login`(POST=verifyCredentials→`interactionFinished({login:{accountId}})`, 실패 시 폼 재표시). `buildSsoApp(provider, authService)` = interaction 라우터 + `provider.callback()` 합성 express 앱(trust proxy 설정). 로그인 폼은 자체 렌더(최소 HTML, 정중한 한국어, XSS escape). CSRF는 oidc-provider interaction 쿠키로 보호. first-party 신뢰 클라이언트라 동의 자동 grant.
+- `OidcProviderService`: AuthService 주입, onModuleInit에서 `buildSsoApp` 합성 → `getSsoHandler()`. `main.ts`: vhost가 `getSsoHandler()` 사용.
+- deps: `express@4.21.2`(직접 의존성 — pnpm strict 격리 대응, NestJS와 동일 사본).
+- 테스트: `oidc-interaction.spec.ts`(stub provider/authService로 브리지 배선 4종: 폼 렌더·유효자격→finished(login)·무효자격→폼재표시·consent 자동 grant).
+- 검증: build 387 · **unit 131파일/1417 pass**(+4) · tsc 0 · eslint 0err.
+
+### 잔여 P1 (배포 — 운영자 승인 위임)
+- **배포** `sudo deploy.sh`(migrate deploy로 OAuthClient 테이블 생성 + OIDC 코드 라이브 + APP_ENCRYPTION_KEY로 2FA 활성). /readyz 게이트 + auto-rollback.
+- **nginx 플립**: sso.qufox.com 503 placeholder → `qufox-api:3001` 라우팅.
+- **라이브 E2E 검증**: `/.well-known/openid-configuration`·`/jwks` 응답 + (P2 클라이언트 등록 후) authorize→login→code 왕복.
+- `.env.prod.example` APP_ENCRYPTION_KEY/SSO_* 섹션(가드로 미수정 — 후속).
+- (그 후 P2: skulk OAuthClient 등록 + RP 전환 → P3 stream → P4 중앙 로그아웃/SDK.)

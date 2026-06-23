@@ -22,6 +22,9 @@ export type AuthSuccess = {
   user: { id: string; email: string; username: string; createdAt: Date; emailVerified: boolean };
 };
 
+// task-078: verifyCredentials() 가 돌려주는 인증된 User(=users.findByEmail 의 non-null).
+type AuthedUser = NonNullable<Awaited<ReturnType<UsersService['findByEmail']>>>;
+
 const LOCK_AFTER_FAILS = 5;
 const LOCK_FOR_MS = 15 * 60 * 1000;
 
@@ -79,6 +82,29 @@ export class AuthService {
   }
 
   async login(input: LoginInput, meta: RequestMeta): Promise<AuthSuccess> {
+    const user = await this.verifyCredentials(input, meta);
+    const accessToken = this.tokens.signAccess(user.id);
+    const { raw: refreshRaw } = await this.tokens.issueRefreshForNewSession(user.id, meta);
+
+    return {
+      accessToken,
+      refreshRaw,
+      user: {
+        id: user.id,
+        email: user.email,
+        username: user.username,
+        createdAt: user.createdAt,
+        emailVerified: user.emailVerified,
+      },
+    };
+  }
+
+  // task-078 (Family SSO): 자격검증 코어 — rate-limit(IP/email)·계정 잠금·argon2 검증·
+  // deactivation 차단·성공 시 updateLoginSuccess 까지 수행하되 *토큰을 발급하지 않는다*.
+  // login() 과 OIDC IdP interaction 이 공유한다. IdP 로그인은 qufox refresh 세션을 만들
+  // 필요가 없으므로(RP 가 자체 세션을 가짐) 이 메서드로 검증만 하고 user.id 를 sub 로 쓴다
+  // — phantom refresh 세션이 사용자의 활성 세션 목록을 오염시키지 않게 한다.
+  async verifyCredentials(input: LoginInput, meta: RequestMeta): Promise<AuthedUser> {
     // IP-scoped rate limit runs first — protects against enumeration regardless
     // of whether the email exists.
     await this.rateLimit.enforce([
@@ -142,20 +168,7 @@ export class AuthService {
 
     await this.users.updateLoginSuccess(user.id);
     this.metrics?.authLoginsTotal.labels('success').inc();
-    const accessToken = this.tokens.signAccess(user.id);
-    const { raw: refreshRaw } = await this.tokens.issueRefreshForNewSession(user.id, meta);
-
-    return {
-      accessToken,
-      refreshRaw,
-      user: {
-        id: user.id,
-        email: user.email,
-        username: user.username,
-        createdAt: user.createdAt,
-        emailVerified: user.emailVerified,
-      },
-    };
+    return user;
   }
 
   async refresh(
