@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Source-this library. Wraps flock(1) around a critical section so two
-# deploys (webhook + manual `prod-reload.sh`) never race on the same
-# compose stack. Synology ships `flock` via util-linux in the
-# webhook image and on the host (/usr/bin/flock in Entware).
+# concurrent `deploy.sh` runs never race on the same compose stack
+# (webhook/prod-reload.sh were removed in task-076; deploy.sh is the single
+# entry point). Synology ships `flock` via util-linux on the host
+# (/usr/bin/flock in Entware).
 
 set -euo pipefail
 

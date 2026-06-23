@@ -17,9 +17,6 @@
       "Bash(docker ps*)",
       "Bash(docker logs *)",
       "Bash(docker run --rm *)",
-      "Bash(kubectl --context=*staging* *)",
-      "Bash(helm --kube-context=*staging* *)",
-      "Bash(terraform plan*)",
       "Edit(apps/**)",
       "Edit(packages/**)",
       "Edit(scripts/**)",
@@ -35,23 +32,22 @@
       "Write(infra/**)",
       "Write(.github/**)"
     ],
+    "ask": ["Bash(*scripts/deploy/deploy.sh*)", "Bash(*deploy.sh*)"],
     "deny": [
       "Bash(git push --force*main*)",
       "Bash(git push origin main --force*)",
       "Bash(git push -f *main*)",
-      "Bash(kubectl --context=*prod* *)",
-      "Bash(helm --kube-context=*prod* *)",
-      "Bash(terraform apply*prod*)",
+      "Bash(git push*--force-with-lease*main*)",
+      "Bash(git push*--force-if-includes*main*)",
       "Bash(psql *prod*)",
-      "Bash(aws secretsmanager put-secret-value*)",
+      "Bash(*docker exec*qufox-postgres-prod*)",
+      "Bash(*docker-compose exec*qufox-postgres-prod*)",
+      "Bash(*docker compose exec*qufox-postgres-prod*)",
       "Bash(rm -rf /*)",
       "Edit(.env)",
-      "Edit(.env.production)",
       "Edit(.env.prod*)",
       "Write(.env)",
-      "Write(.env.production)",
-      "Write(.env.prod*)",
-      "mcp__postgres-prod__*"
+      "Write(.env.prod*)"
     ]
   },
   "hooks": {

@@ -4,13 +4,13 @@
 
 ## 청크
 
-| 청크 | 내용 | 상태 | 커밋 |
-| ---- | ---- | ---- | ---- |
-| N4-1 | onJump 에서 closeSearchPanel 제거 — 점프 후 패널 유지 (HIGH·P0) | green | |
-| N4-2 | useSearch sort 파라미터(relevance/recent) + SearchResultPanel 정렬 탭(.qf-tabs) (MEDIUM) | green | |
-| N4-3 | Ctrl/Cmd+G + placeholder + 포맷 단축키 PRD 정리 (LOW) | deferred | |
-| N4-G | 게이트: 단위(sort/contract) + standalone verify + 적대 리뷰(wqpljje7u) | green | (fix-forward) |
-| N4-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                     | 상태     | 커밋          |
+| ---- | ---------------------------------------------------------------------------------------- | -------- | ------------- |
+| N4-1 | onJump 에서 closeSearchPanel 제거 — 점프 후 패널 유지 (HIGH·P0)                          | green    |               |
+| N4-2 | useSearch sort 파라미터(relevance/recent) + SearchResultPanel 정렬 탭(.qf-tabs) (MEDIUM) | green    |               |
+| N4-3 | Ctrl/Cmd+G + placeholder + 포맷 단축키 PRD 정리 (LOW)                                    | deferred |               |
+| N4-G | 게이트: 단위(sort/contract) + standalone verify + 적대 리뷰(wqpljje7u)                   | green    | (fix-forward) |
+| N4-D | develop 머지→main 승격→배포→/readyz→REPORT                                               | todo     |               |
 
 ## N4-G 적대 리뷰(wqpljje7u — 13 에이전트·3각도) fix-forward
 

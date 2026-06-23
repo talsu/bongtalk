@@ -16,12 +16,12 @@
 
 ## 청크
 
-| 청크 | 내용 | 상태 | 커밋 |
-| ---- | ---- | ---- | ---- |
-| N2-1 | CustomStatusModal(이모지+텍스트≤100+만료 프리셋 6종, EmojiPicker 재사용) 신설 + BottomBar '커스텀 상태 설정' 진입 + ProfileSettingsPage 편집 진입 (HIGH) | green | d16ed8c |
-| N2-2 | BottomBar INVISIBLE 활성화(setStatus offline, '오프라인으로 표시') + 영문→한글 라벨 + ProfilePopover dnd '방해 금지' 통일 (D1·LOW) | green | d16ed8c |
-| N2-G | 게이트: 데스크톱 e2e(presence) + standalone verify + 적대 리뷰(wdz0d97s8) | green | (fix-forward) |
-| N2-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                                                                                     | 상태  | 커밋          |
+| ---- | -------------------------------------------------------------------------------------------------------------------------------------------------------- | ----- | ------------- |
+| N2-1 | CustomStatusModal(이모지+텍스트≤100+만료 프리셋 6종, EmojiPicker 재사용) 신설 + BottomBar '커스텀 상태 설정' 진입 + ProfileSettingsPage 편집 진입 (HIGH) | green | d16ed8c       |
+| N2-2 | BottomBar INVISIBLE 활성화(setStatus offline, '오프라인으로 표시') + 영문→한글 라벨 + ProfilePopover dnd '방해 금지' 통일 (D1·LOW)                       | green | d16ed8c       |
+| N2-G | 게이트: 데스크톱 e2e(presence) + standalone verify + 적대 리뷰(wdz0d97s8)                                                                                | green | (fix-forward) |
+| N2-D | develop 머지→main 승격→배포→/readyz→REPORT                                                                                                               | todo  |               |
 
 ## N2-G 적대 리뷰(wdz0d97s8 — 17 에이전트·4각도) fix-forward
 

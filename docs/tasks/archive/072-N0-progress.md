@@ -6,16 +6,16 @@
 
 ## 청크
 
-| 청크 | 내용                                                                      | 상태 | 커밋 |
-| ---- | ------------------------------------------------------------------------- | ---- | ---- |
-| N0-1 | hover 툴바 퀵반응 3종 + 미읽표시 위치(HIGH)                               | done | b86a663 |
+| 청크 | 내용                                                                        | 상태 | 커밋                    |
+| ---- | --------------------------------------------------------------------------- | ---- | ----------------------- |
+| N0-1 | hover 툴바 퀵반응 3종 + 미읽표시 위치(HIGH)                                 | done | b86a663                 |
 | N0-2 | 반응 칩 hover 툴팁 — BE previewUsers≤5 + ReactionBar Radix Tooltip (MEDIUM) | done | b86a663·4154951·50d0c47 |
-| N0-3 | 본인 멘션 하이라이트 행 — astMentionsViewer 공통화 (MEDIUM)               | done | b86a663 |
-| N0-4 | 이모지 피커 검색창 + 스킨톤 선택기 (MEDIUM×2)                             | done | b86a663·50d0c47 |
-| N0-5 | 스레드 루트 리치 렌더 + 코드블록 헤더/복사 + embed suppress✕ (MEDIUM/LOW) | done | b86a663·50d0c47 |
-| N0-6 | (D3=c) FR-RC01 WYSIWYG — PRD 정정+감사 노트(코드 무변경)                  | done | b86a663 |
-| N0-G | 게이트: 데스크톱 e2e(messages/reactions) + standalone verify + 적대 리뷰  | done | 2242b48·50d0c47 |
-| N0-D | develop 머지→main 승격→배포→/readyz→REPORT                                | done | (아래 REPORT) |
+| N0-3 | 본인 멘션 하이라이트 행 — astMentionsViewer 공통화 (MEDIUM)                 | done | b86a663                 |
+| N0-4 | 이모지 피커 검색창 + 스킨톤 선택기 (MEDIUM×2)                               | done | b86a663·50d0c47         |
+| N0-5 | 스레드 루트 리치 렌더 + 코드블록 헤더/복사 + embed suppress✕ (MEDIUM/LOW)   | done | b86a663·50d0c47         |
+| N0-6 | (D3=c) FR-RC01 WYSIWYG — PRD 정정+감사 노트(코드 무변경)                    | done | b86a663                 |
+| N0-G | 게이트: 데스크톱 e2e(messages/reactions) + standalone verify + 적대 리뷰    | done | 2242b48·50d0c47         |
+| N0-D | develop 머지→main 승격→배포→/readyz→REPORT                                  | done | (아래 REPORT)           |
 
 ## N0-G 게이트 결과 (2026-06-13)
 
