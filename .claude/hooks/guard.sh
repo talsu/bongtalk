@@ -31,34 +31,33 @@ run_guard() {
   command=$(extract command "$payload")
   file_path=$(extract file_path "$payload")
 
-  # MCP prod block
-  case "$tool_name" in
-    mcp__postgres-prod__*) echo "[guard] BLOCKED: prod postgres MCP usage" >&2; return 2 ;;
-  esac
-
-  # Bash command patterns
+  # Bash command patterns. NAS-only single host: the old cloud/orchestrator
+  # guards were removed in task-077 (they pointed at infra that does not exist
+  # here). What remains maps to real threats on this host.
   if [ "$tool_name" = "Bash" ] && [ -n "$command" ]; then
     case "$command" in
-      *"kubectl --context=prod"*|*"kubectl --context=production"*)
-        echo "[guard] BLOCKED: kubectl against prod cluster" >&2; return 2 ;;
-      *"helm --kube-context=prod"*)
-        echo "[guard] BLOCKED: helm against prod cluster" >&2; return 2 ;;
-      *"terraform apply"*prod*)
-        echo "[guard] BLOCKED: terraform apply against prod" >&2; return 2 ;;
       *"git push --force"*main*|*"git push -f "*main*)
         echo "[guard] BLOCKED: force push to main" >&2; return 2 ;;
       *"git push origin main --force"*|*"git push origin --force main"*)
         echo "[guard] BLOCKED: force push to main" >&2; return 2 ;;
-      *"aws secretsmanager put-secret-value"*)
-        echo "[guard] BLOCKED: writing secrets" >&2; return 2 ;;
-      "rm -rf /"|"rm -rf /*")
+      *"git push"*"--force-with-lease"*main*|*"git push"*"--force-if-includes"*main*)
+        echo "[guard] BLOCKED: force push to main (lease)" >&2; return 2 ;;
+      *"git push"*main*"--force"*)
+        echo "[guard] BLOCKED: force push to main (ref-first)" >&2; return 2 ;;
+      *"docker exec"*"qufox-postgres-prod"*|*"docker-compose exec"*"qufox-postgres-prod"*|*"docker compose exec"*"qufox-postgres-prod"*)
+        echo "[guard] BLOCKED: direct prod DB access (qufox-postgres-prod)" >&2; return 2 ;;
+      "rm -rf /"|"rm -rf /*"|"rm -fr /"|"rm -fr /*")
         echo "[guard] BLOCKED: destructive root rm" >&2; return 2 ;;
+      "sudo rm -rf /"|"sudo rm -rf /*"|"sudo rm -fr /"|"sudo rm -fr /*")
+        echo "[guard] BLOCKED: destructive root rm" >&2; return 2 ;;
+      *"rm -rf --no-preserve-root"*|*"rm -fr --no-preserve-root"*)
+        echo "[guard] BLOCKED: destructive root rm (no-preserve-root)" >&2; return 2 ;;
     esac
   fi
 
   if [ "$tool_name" = "Write" ] || [ "$tool_name" = "Edit" ]; then
     case "$file_path" in
-      .env|.env.production|.env.prod*)
+      .env|.env.prod*)
         echo "[guard] BLOCKED: write to prod env file: $file_path" >&2; return 2 ;;
     esac
   fi
@@ -82,14 +81,20 @@ self_test() {
 
   check "allow: pnpm verify" \
     '{"tool_name":"Bash","tool_input":{"command":"pnpm verify"}}' 0
-  check "deny: kubectl prod" \
-    '{"tool_name":"Bash","tool_input":{"command":"kubectl --context=prod apply -f x.yaml"}}' 2
+  check "allow: push feat branch" \
+    '{"tool_name":"Bash","tool_input":{"command":"git push origin feat/x"}}' 0
+  check "allow: force-with-lease feat branch" \
+    '{"tool_name":"Bash","tool_input":{"command":"git push --force-with-lease origin feat/x"}}' 0
   check "deny: force push main" \
     '{"tool_name":"Bash","tool_input":{"command":"git push --force origin main"}}' 2
-  check "deny: write .env.production" \
-    '{"tool_name":"Write","tool_input":{"file_path":".env.production","content":"x"}}' 2
-  check "deny: postgres-prod mcp" \
-    '{"tool_name":"mcp__postgres-prod__query","tool_input":{"sql":"select 1"}}' 2
+  check "deny: force-with-lease main" \
+    '{"tool_name":"Bash","tool_input":{"command":"git push --force-with-lease origin main"}}' 2
+  check "deny: write .env.prod" \
+    '{"tool_name":"Write","tool_input":{"file_path":".env.prod","content":"x"}}' 2
+  check "deny: destructive root rm" \
+    '{"tool_name":"Bash","tool_input":{"command":"sudo rm -rf /"}}' 2
+  check "deny: direct prod db exec" \
+    '{"tool_name":"Bash","tool_input":{"command":"docker exec -it qufox-postgres-prod psql -U qufox"}}' 2
 
   if [ $failures -eq 0 ]; then
     echo "[guard] self-test passed"
