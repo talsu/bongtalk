@@ -59,6 +59,10 @@ describe('oidc interaction bridge (task-078)', () => {
     expect(res.text).toContain('action="/interaction/u1/login"');
     expect(res.text).toContain('qufox 계정으로 로그인');
     expect(res.text).toContain('skulk');
+    // ★보안 H1: helmet 우회 보완 헤더가 sso 응답에 실린다.
+    expect(res.headers['x-frame-options']).toBe('DENY');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['referrer-policy']).toBe('no-referrer');
   });
 
   it('on valid credentials calls verifyCredentials + interactionFinished(login)', async () => {

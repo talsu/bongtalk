@@ -22,8 +22,15 @@ export type AuthSuccess = {
   user: { id: string; email: string; username: string; createdAt: Date; emailVerified: boolean };
 };
 
-// task-078: verifyCredentials() 가 돌려주는 인증된 User(=users.findByEmail 의 non-null).
-type AuthedUser = NonNullable<Awaited<ReturnType<UsersService['findByEmail']>>>;
+// task-078: verifyCredentials() 가 돌려주는 *좁힌* 인증 사용자 — passwordHash/lockedUntil
+// 같은 민감 필드를 노출하지 않는다(public 메서드라 다음 호출자 footgun 방지; reviewer M2).
+export type VerifiedUser = {
+  id: string;
+  email: string;
+  username: string;
+  createdAt: Date;
+  emailVerified: boolean;
+};
 
 const LOCK_AFTER_FAILS = 5;
 const LOCK_FOR_MS = 15 * 60 * 1000;
@@ -104,7 +111,7 @@ export class AuthService {
   // login() 과 OIDC IdP interaction 이 공유한다. IdP 로그인은 qufox refresh 세션을 만들
   // 필요가 없으므로(RP 가 자체 세션을 가짐) 이 메서드로 검증만 하고 user.id 를 sub 로 쓴다
   // — phantom refresh 세션이 사용자의 활성 세션 목록을 오염시키지 않게 한다.
-  async verifyCredentials(input: LoginInput, meta: RequestMeta): Promise<AuthedUser> {
+  async verifyCredentials(input: LoginInput, meta: RequestMeta): Promise<VerifiedUser> {
     // IP-scoped rate limit runs first — protects against enumeration regardless
     // of whether the email exists.
     await this.rateLimit.enforce([
@@ -167,8 +174,16 @@ export class AuthService {
     }
 
     await this.users.updateLoginSuccess(user.id);
+    // task-078: 이 카운터는 이제 web 로그인 + OIDC IdP 로그인(둘 다 verifyCredentials 경유)을
+    // 함께 집계한다(성공/실패 라벨 동일). SSO 라이브 후 surface 분리가 필요하면 라벨 추가.
     this.metrics?.authLoginsTotal.labels('success').inc();
-    return user;
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      createdAt: user.createdAt,
+      emailVerified: user.emailVerified,
+    };
   }
 
   async refresh(

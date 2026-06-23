@@ -14,6 +14,37 @@ import { esmImport } from './esm';
 import { buildConfiguration, getIssuer, isOidcEnabled } from './oidc-config';
 import { buildSsoApp } from './oidc-interaction';
 
+// back-channel logout URI 등 서버가 직접 호출하는 URL 의 SSRF 방어. https 스킴 + host 가
+// loopback/사설/링크로컬/메타데이터가 아니어야 한다(보수적 — IP 리터럴은 사설 대역만 차단,
+// 도메인은 허용하되 명백한 localhost 류는 거부).
+function isSafeExternalHttpsUri(value: string): boolean {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (url.protocol !== 'https:') {
+    return false;
+  }
+  const host = url.hostname.toLowerCase();
+  if (
+    host === 'localhost' ||
+    host === '127.0.0.1' ||
+    host === '::1' ||
+    host.endsWith('.localhost') ||
+    /^10\./.test(host) ||
+    /^192\.168\./.test(host) ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(host) ||
+    /^169\.254\./.test(host) ||
+    /^fe80:/i.test(host) ||
+    /^f[cd][0-9a-f]{2}:/i.test(host)
+  ) {
+    return false;
+  }
+  return true;
+}
+
 @Injectable()
 export class OidcProviderService implements OnModuleInit {
   private provider: any = null;
@@ -51,7 +82,13 @@ export class OidcProviderService implements OnModuleInit {
         'OIDC IdP initialized',
       );
     } catch (err) {
-      logger.error({ err }, 'OIDC IdP failed to initialize — sso host will fall through');
+      // ★보안(scanner): raw err 객체를 통째로 직렬화하지 않는다 — 초기화 실패 컨텍스트에
+      // configuration(개인키 JWK 의 d 성분 등)이 딸려 로그에 남을 여지를 차단한다.
+      const safe =
+        err instanceof Error
+          ? { name: err.name, message: err.message, stack: err.stack }
+          : { message: String(err) };
+      logger.error({ err: safe }, 'OIDC IdP failed to initialize — sso host will fall through');
       this.provider = null;
       this.ssoHandler = null;
     }
@@ -91,8 +128,18 @@ export class OidcProviderService implements OnModuleInit {
       if (secret) {
         client.client_secret = secret;
       }
+      // ★보안(scanner): back-channel logout 은 서버가 이 URI 로 직접 POST 한다 → SSRF 표면.
+      // OAuthClient 는 운영자 DB INSERT 로만 등록되지만, https + 비-사설/비-loopback host 만
+      // 허용해 방어한다. 부적합하면 등록을 건너뛴다(경고).
       if (meta.backchannelLogoutUri) {
-        client.backchannel_logout_uri = meta.backchannelLogoutUri;
+        if (isSafeExternalHttpsUri(String(meta.backchannelLogoutUri))) {
+          client.backchannel_logout_uri = meta.backchannelLogoutUri;
+        } else {
+          logger.warn(
+            { clientId: row.clientId },
+            'OIDC client backchannel_logout_uri rejected (must be https + non-private host)',
+          );
+        }
       }
       return client;
     });

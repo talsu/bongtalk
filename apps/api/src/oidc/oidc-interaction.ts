@@ -120,7 +120,10 @@ async function autoGrantConsent(
 
 export function buildInteractionRouter(provider: any, authService: AuthService): Router {
   const router = express.Router();
-  router.use(express.urlencoded({ extended: false }));
+  // ★(reviewer M1): 폼 파서를 라우터 전역(router.use)이 아닌 로그인 POST 에만 건다 — /token
+  // 등 oidc-provider 자체 엔드포인트의 body 를 우리가 먼저 파싱해 "discouraged upstream
+  // parser" 경로로 떨어지는 것을 막는다.
+  const parseForm = express.urlencoded({ extended: false });
 
   router.get('/interaction/:uid', async (req: Request, res: Response) => {
     try {
@@ -145,7 +148,7 @@ export function buildInteractionRouter(provider: any, authService: AuthService):
     }
   });
 
-  router.post('/interaction/:uid/login', async (req: Request, res: Response) => {
+  router.post('/interaction/:uid/login', parseForm, async (req: Request, res: Response) => {
     try {
       const details = await provider.interactionDetails(req, res);
       const email = String((req.body as Record<string, unknown>)?.email ?? '').trim();
@@ -184,6 +187,17 @@ export function buildSsoApp(provider: any, authService: AuthService): express.Ex
   const app = express();
   // nginx 단일 홉 뒤 — req.ip(로그인 rate-limit용) 복원.
   app.set('trust proxy', 1);
+  // ★보안(reviewer/scanner H1): 이 핸들러는 helmet *앞* 에 마운트돼 helmet 헤더가 빠지고,
+  // oidc-provider 도 authorize/interaction 페이지에 보안 헤더를 세우지 않는다. 비밀번호
+  // 폼 클릭재킹/스니핑/referer 유출을 막는 최소 헤더를 모든 sso 응답에 직접 건다. (CSP 는
+  // oidc-provider 의 logout 인라인 스크립트와 충돌할 수 있어 후속 정밀화 — 우선 frame/sniff/
+  // referrer 만.)
+  app.use((_req: Request, res: Response, next: () => void) => {
+    res.set('X-Frame-Options', 'DENY');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Referrer-Policy', 'no-referrer');
+    next();
+  });
   app.use(buildInteractionRouter(provider, authService));
   const callback = provider.callback();
   app.use((req: Request, res: Response) => callback(req, res));

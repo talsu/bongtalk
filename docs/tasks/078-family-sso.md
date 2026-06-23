@@ -154,6 +154,18 @@ qufox-api에 panva `oidc-provider`(ESM) 기반 OIDC Provider 표면을 추가. *
 - 테스트: `oidc-interaction.spec.ts`(stub provider/authService로 브리지 배선 4종: 폼 렌더·유효자격→finished(login)·무효자격→폼재표시·consent 자동 grant).
 - 검증: build 387 · **unit 131파일/1417 pass**(+4) · tsc 0 · eslint 0err.
 
+### 2026-06-24 — P1 적대적 리뷰 + fix-forward
+reviewer + security-scanner 병렬 재독. 두 리뷰가 동일 지점 수렴. BLOCKER 없음. fix-forward 반영:
+- **H1** interaction/authorize 페이지 보안 헤더 누락(helmet 우회) → `buildSsoApp` 에 X-Frame-Options:DENY · X-Content-Type-Options:nosniff · Referrer-Policy:no-referrer 추가(CSP 는 oidc-provider logout 인라인 스크립트 충돌 우려로 후속). 테스트로 헤더 검증.
+- **H2** prod 에서 APP_ENCRYPTION_KEY 미설정 시 쿠키 서명 키 하드코딩 폴백(예측가능→쿠키 위조) → `buildConfiguration` 가 prod+키없음이면 throw(catch 되어 dark fail-safe).
+- **scanner-H** init 실패 로그가 개인키 JWK(d) 직렬화 가능 → catch 에서 raw err 대신 {name,message,stack} 만.
+- **M1** urlencoded 가 /token 등 전체 라우터에 적용 → 로그인 POST 한정.
+- **M2** verifyCredentials 가 passwordHash 포함 User 반환 → `VerifiedUser`(id/email/username/createdAt/emailVerified)로 narrowing.
+- **scanner-M** backchannel_logout_uri SSRF → `isSafeExternalHttpsUri`(https + 비-사설/loopback) 가드, 부적합 시 등록 스킵.
+- **L1** uid 역인덱스를 Session 모델로 한정.
+- M3(metric 의미 확장) 문서화, M4(Host vs X-Forwarded-Host) = nginx 플립 시 `proxy_set_header Host $host` 로 보장(아래), autoGrantConsent first-party = 운영자 DB-INSERT 전용(동적 등록 없음)이라 현 위협모델 수용·P4 재검토.
+검증: build 387 · unit 131파일/1417 pass · tsc 0 · eslint 0err · 런타임 스모크 OK.
+
 ### 잔여 P1 (배포 — 운영자 승인 위임)
 - **배포** `sudo deploy.sh`(migrate deploy로 OAuthClient 테이블 생성 + OIDC 코드 라이브 + APP_ENCRYPTION_KEY로 2FA 활성). /readyz 게이트 + auto-rollback.
 - **nginx 플립**: sso.qufox.com 503 placeholder → `qufox-api:3001` 라우팅.

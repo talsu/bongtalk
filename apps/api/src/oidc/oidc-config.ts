@@ -55,7 +55,16 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
   const jwks = await buildJwks();
   const clients = await deps.loadClients();
   // 쿠키 서명(keygrip)용 시크릿 — APP_ENCRYPTION_KEY 재사용(HMAC 용도라 별도 키 불요).
-  const cookieKey = (process.env.APP_ENCRYPTION_KEY ?? '').trim() || 'qufox-sso-dev-cookie-key';
+  // ★보안(reviewer/scanner H2): prod 에서 키가 없으면 하드코딩 폴백으로 *조용히* 떨어지면
+  // 안 된다(예측 가능한 키 → sso_session/interaction 쿠키 위조). prod+SSO 활성인데 키가
+  // 없으면 throw 한다 — onModuleInit 의 try/catch 가 잡아 provider 를 dark 로 둔다(fail-safe).
+  const appKey = (process.env.APP_ENCRYPTION_KEY ?? '').trim();
+  if (!appKey && process.env.NODE_ENV === 'production') {
+    throw new Error(
+      'OIDC enabled in production but APP_ENCRYPTION_KEY is unset — refusing predictable cookie-signing key',
+    );
+  }
+  const cookieKey = appKey || 'qufox-sso-dev-cookie-key';
   const secureCookies = process.env.NODE_ENV === 'production';
 
   return {

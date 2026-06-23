@@ -67,7 +67,9 @@ export function makeRedisAdapter(redis: Redis): OidcAdapterCtor {
         multi.set(userCodeKey, id);
         if (expiresIn) multi.expire(userCodeKey, expiresIn);
       }
-      if (payload.uid) {
+      // findByUid 는 Session 에서만 호출된다(provider.js). Session 외 모델(Interaction 도
+      // uid 보유)에 대해 역인덱스를 쓰면 낭비 + 단일 네임스페이스 공유다 — Session 으로 한정.
+      if (this.name === 'Session' && payload.uid) {
         const uidKey = uidKeyFor(payload.uid);
         multi.set(uidKey, id);
         if (expiresIn) multi.expire(uidKey, expiresIn);
