@@ -18,13 +18,13 @@
 
 ## 청크
 
-| 청크 | 내용 | 상태 | 커밋 |
-| ---- | ---- | ---- | ---- |
-| N5-2 | 역할 권한 카탈로그에 KICK/BAN/TIMEOUT 추가(비트 PERMISSIONS 기존재, web 카탈로그 누락) | green | |
-| N5-4 | 워크스페이스 설정 일반탭 이름 편집(UpdateWorkspaceRequest.name 기존재, OWNER 게이트) | green | |
-| N5-R | 미발견 표면 정찰(존재·라우팅·스펙 확인) | green | |
-| N5-G | 게이트: 단위(catalog + 워크스페이스 130) + standalone verify + 적대 리뷰(wrer6ljys) | green | (fix-forward) |
-| N5-D | develop 머지→main 승격→배포→/readyz→REPORT | todo | |
+| 청크 | 내용                                                                                   | 상태  | 커밋          |
+| ---- | -------------------------------------------------------------------------------------- | ----- | ------------- |
+| N5-2 | 역할 권한 카탈로그에 KICK/BAN/TIMEOUT 추가(비트 PERMISSIONS 기존재, web 카탈로그 누락) | green |               |
+| N5-4 | 워크스페이스 설정 일반탭 이름 편집(UpdateWorkspaceRequest.name 기존재, OWNER 게이트)   | green |               |
+| N5-R | 미발견 표면 정찰(존재·라우팅·스펙 확인)                                                | green |               |
+| N5-G | 게이트: 단위(catalog + 워크스페이스 130) + standalone verify + 적대 리뷰(wrer6ljys)    | green | (fix-forward) |
+| N5-D | develop 머지→main 승격→배포→/readyz→REPORT                                             | todo  |               |
 
 ## N5-G 적대 리뷰(wrer6ljys — 5 에이전트·2각도) fix-forward
 
