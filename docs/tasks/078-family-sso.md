@@ -192,12 +192,16 @@ stream.qufox.com(vanilla Express + Vue + Mongo, **PM2 4워커·docker net 밖**)
 
 > ✅ **P1+P2+P3 완료·LIVE — 패밀리 3개 사이트(qufox.com IdP, skulk·stream RP) SSO 종결.** 한 번 qufox 로그인으로 패밀리 전체 인증.
 
-### 잔여 — P4 (선택적 강화)
-핵심 SSO 목표는 P1-P3 으로 달성. P4 는 강화:
-- **단일 로그아웃**: RP-initiated logout(end_session_endpoint) + back-channel logout(oidc-provider→RP backchannel_logout_uri) + qufox 비활성화→`revoked:sub` 전파. 현재 RP 로그아웃은 로컬 쿠키만 정리(IdP sso_session 잔존→재로그인은 silent).
-- **`@qufox/sso-rp` SDK**: skulk/stream RP 코드를 공용 패키지로 추출(미래 사이트 = 설정만).
-- `.env.prod.example` SSO/APP_ENCRYPTION_KEY 섹션(가드로 미수정).
-- 미래 사이트 온보딩 절차 문서화(OAuthClient 1행 + RP 미들웨어 + qufox-api 재시작).
+### 2026-06-24 — P4 (RP-initiated 단일 로그아웃 + 온보딩 문서) 완료·LIVE ✅
+- **단일 로그아웃**: RP 로그아웃이 로컬 세션 정리 후 IdP `/session/end`(end_session_endpoint)로 보내 **SSO 세션(sso_session)까지 종료** → 이후 어느 RP 에서도 무입력 재로그인 차단(다시 비밀번호 필요).
+  - qufox: `rpInitiatedLogout.logoutSource` 자동제출(확인 페이지 생략·seamless). post_logout_redirect_uris 는 각 client 메타에 등록됨.
+  - skulk: GET /auth/logout(skulk_auth 정리 + IdP end_session). stream: GET /auth/logout(세션 폐기 best-effort + IdP end_session) + SPA store.logout 을 네비게이션으로.
+- **미래 사이트 온보딩 문서**: `docs/sso-onboarding.md`(DNS/cert/nginx → OAuthClient 1행 + qufox-api 재시작 → RP 코드 드롭인[NestJS=skulk·vanilla=stream] → 배포/E2E). 사용자 요청한 확장성 충족.
+
+### 잔여 — 추가 강화(향후, 핵심엔 불요)
+- **back-channel 단일 로그아웃**(IdP→RP backchannel_logout_uri 로 *다른* RP 의 활성 세션도 즉시 종료) + **비활성화 전파**(qufox deactivate→`revoked:sub`→RP). 현재는 RP-initiated(IdP 세션 종료→silent 재로그인 차단)까지. 완전 SLO 는 RP 세션에 IdP `sid` 저장 + 폐기 목록(skulk 는 stateless JWT 라 blocklist 필요)이 들어가는 별도 작업.
+- **`@qufox/sso-rp` 패키지화**: 현재는 검증된 복사-패턴(skulk/stream) + 온보딩 문서로 대체(별도 registry 운영 부담 회피). 사이트가 더 늘면 패키지화 재검토.
+- `.env.prod.example` SSO/APP_ENCRYPTION_KEY 섹션(편집 가드로 미반영).
 
 ### (구) 잔여 (배포 — 운영자 승인 위임)
 - **배포** `sudo deploy.sh`(migrate deploy로 OAuthClient 테이블 생성 + OIDC 코드 라이브 + APP_ENCRYPTION_KEY로 2FA 활성). /readyz 게이트 + auto-rollback.
