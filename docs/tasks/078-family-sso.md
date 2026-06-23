@@ -174,6 +174,15 @@ reviewer + security-scanner 병렬 재독. 두 리뷰가 동일 지점 수렴. B
 
 > ✅ **P1 전체 완료·LIVE.** IdP 가동(dark, clients=0). APP_ENCRYPTION_KEY 활성 → 2FA 라이브.
 
+### 2026-06-24 — P2 (skulk RP) 완료·LIVE ✅
+skulk.qufox.com 이 qufox.com OIDC IdP 의 첫 RP 로 전환. 한 번 qufox 로그인 → skulk 자동 인증.
+- **클라이언트 등록**: qufox OAuthClient 에 skulk 행(client_id=skulk, **public client·PKCE**, redirect=https://skulk.qufox.com/api/auth/callback, scope openid/profile/email, code grant). public client 라 client_secret 불요(PKCE S256 + 정확 redirect 매칭으로 first-party 안전). qufox-api 재시작으로 부팅 로드(clients=1).
+- **skulk RP 코드**(`/volume2/dockers/skulk`, NestJS+tsc·CommonJS): ESM 의존성 0 — `auth/sso.ts`(PKCE·authorize URL·code 교환·JWKS RS256 검증, node:http+node:crypto+jsonwebtoken). `auth.ts`: GET /auth/login(IdP 리다이렉트), GET /auth/callback(교환+검증→skulk_auth 세션 sub=qufox User.id), break-glass POST /auth/login 유지, /auth/me 에 sub. ★token/jwks 는 hairpin 회피 위해 internal `qufox-api:3001` 직접 호출 + Host: sso.qufox.com 오버라이드(node:http — fetch 는 Host 금지헤더라 불가). state/nonce/verifier 는 서명 tx 쿠키(skulk_sso_tx, 10m, Lax).
+- **web**: Login.tsx 1차 버튼 "qufox 계정으로 로그인"(→/api/auth/login), 로컬 폼은 break-glass `<details>`. skulk compose env 에 SSO_* 추가(시크릿 없음).
+- **id_token 클레임**: qufox `conformIdTokenClaims:false` 로 email/preferred_username 을 id_token 에 실어 RP 가 userinfo 왕복 없이 신원 구성.
+- **E2E(admin@qufox.com)**: /api/auth/login→IdP 폼→자격제출→consent 자동→callback→skulk_auth→/api/auth/me = {sub=qufox User.id, role:admin}. 전 과정 HTTP200, skulk.qufox.com·qufox.com 회귀 없음.
+- break-glass(SKULK_AUTH_USER/PASS_HASH) 유지 → IdP 장애 시 운영자 미잠김. assertProdSecrets 그대로(pass hash 계속 요구).
+
 ### 잔여 (배포 — 운영자 승인 위임)
 - **배포** `sudo deploy.sh`(migrate deploy로 OAuthClient 테이블 생성 + OIDC 코드 라이브 + APP_ENCRYPTION_KEY로 2FA 활성). /readyz 게이트 + auto-rollback.
 - **nginx 플립**: sso.qufox.com 503 placeholder → `qufox-api:3001` 라우팅.
