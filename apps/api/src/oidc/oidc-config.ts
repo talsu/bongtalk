@@ -89,6 +89,10 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
       email: ['email', 'email_verified'],
       profile: ['name', 'preferred_username', 'picture', 'updated_at'],
     },
+    // first-party 패밀리 RP 편의를 위해 요청 scope 의 클레임을 id_token 에 직접 싣는다
+    // (기본 true 면 sub 만 들어가고 나머지는 /userinfo 로만 — RP 가 별도 호출 필요). false 로
+    // RP 가 userinfo 왕복 없이 email/preferred_username 등으로 신원을 구성한다.
+    conformIdTokenClaims: false,
     scopes: ['openid', 'offline_access', 'profile', 'email'],
     features: {
       devInteractions: { enabled: false }, // 자체 interaction(P1b) 사용 — 데모 UI 비활성
