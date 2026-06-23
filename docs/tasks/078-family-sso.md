@@ -166,7 +166,15 @@ reviewer + security-scanner 병렬 재독. 두 리뷰가 동일 지점 수렴. B
 - M3(metric 의미 확장) 문서화, M4(Host vs X-Forwarded-Host) = nginx 플립 시 `proxy_set_header Host $host` 로 보장(아래), autoGrantConsent first-party = 운영자 DB-INSERT 전용(동적 등록 없음)이라 현 위협모델 수용·P4 재검토.
 검증: build 387 · unit 131파일/1417 pass · tsc 0 · eslint 0err · 런타임 스모크 OK.
 
-### 잔여 P1 (배포 — 운영자 승인 위임)
+### 2026-06-24 — P1 배포 LIVE ✅
+- **Node 20.9.0 → 22.19.0 범프**(.nvmrc·Dockerfile deps+runtime·root engines·CLAUDE.md): oidc-provider@9 가 `URL.parse`(Node 20.18+/22+) 사용 → 첫 배포(Node 20.9) 에서 `new Provider()`가 `TypeError: URL.parse is not a function` 으로 실패(격리 try/catch 로 API 부팅 무사·OIDC만 dark). dev/CI 는 이미 22.19 라 로컬 미검출 — **로컬 통과≠prod 환경 검증 교훈**. (fix 브랜치→develop→main 6cbd1cd4)
+- `sudo deploy.sh` 2회(헬스게이트 OK·smoke OK·자동롤백 미발동). migrate 로 OAuthClient 테이블 생성. qufox-api Node v22.19.0 확인.
+- 라이브 검증(sso.qufox.com): `/.well-known/openid-configuration` 200(issuer=https://sso.qufox.com, auth/token/jwks/userinfo/session-end 정상), `/jwks` 200(kid=sso-4364576e·RS256·**개인키 d 미노출**), 로그 "OIDC IdP initialized clients=0", qufox.com 200(회귀 없음).
+- nginx 플립: sso.qufox.com 503 → `qufox-api:3001`(★proxy_set_header Host $host + X-Forwarded-Host). 백업 nginx.conf.bak.20260623T202932Z.
+
+> ✅ **P1 전체 완료·LIVE.** IdP 가동(dark, clients=0). APP_ENCRYPTION_KEY 활성 → 2FA 라이브.
+
+### 잔여 (배포 — 운영자 승인 위임)
 - **배포** `sudo deploy.sh`(migrate deploy로 OAuthClient 테이블 생성 + OIDC 코드 라이브 + APP_ENCRYPTION_KEY로 2FA 활성). /readyz 게이트 + auto-rollback.
 - **nginx 플립**: sso.qufox.com 503 placeholder → `qufox-api:3001` 라우팅.
 - **라이브 E2E 검증**: `/.well-known/openid-configuration`·`/jwks` 응답 + (P2 클라이언트 등록 후) authorize→login→code 왕복.
