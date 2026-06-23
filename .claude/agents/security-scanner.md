@@ -1,6 +1,6 @@
 ---
 name: security-scanner
-description: OWASP Top 10 + gitleaks + 인증 / 권한 검증. 모든 코드 변경 후 호출. 코드 변경 안 함.
+description: OWASP Top 10 + gitleaks + 인증 / 권한 검증. 인증/권한/입력경계/시크릿 등 보안 민감 변경 후 on-demand 호출(의무 게이트 아님). 코드 변경 안 함.
 tools: Read, Grep, Glob, Bash
 model: sonnet
 ---
