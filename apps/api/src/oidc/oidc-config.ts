@@ -99,7 +99,15 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
       revocation: { enabled: true },
       introspection: { enabled: true },
       userinfo: { enabled: true },
-      rpInitiatedLogout: { enabled: true },
+      rpInitiatedLogout: {
+        enabled: true,
+        // 로그아웃 확인 페이지를 자동 제출해 seamless 하게 — RP 가 /session/end 로 보내면
+        // 사용자 클릭 없이 IdP 세션을 끝내고 post_logout_redirect_uri 로 복귀한다. (sso host 는
+        // helmet 우회라 인라인 스크립트 허용; CSP 미설정.) form 은 oidc-provider 가 xsrf 포함 제공.
+        async logoutSource(ctx: any, form: string): Promise<void> {
+          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${form}<script>document.forms[0].submit()</script></body></html>`;
+        },
+      },
       backchannelLogout: { enabled: true },
     },
     ttl: {
