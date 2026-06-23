@@ -1,7 +1,7 @@
 # syntax=docker/dockerfile:1.7
 # Multi-stage build for @qufox/api in a pnpm workspace monorepo.
 # Stages: deps (pnpm install) → build (swc compile + prisma generate) → runtime (minimal).
-FROM node:20.9.0-alpine AS deps
+FROM node:22.19.0-alpine AS deps
 WORKDIR /repo
 RUN apk add --no-cache openssl libc6-compat \
  && corepack enable \
@@ -29,7 +29,7 @@ RUN pnpm --filter @qufox/api --prod --legacy deploy /out \
  && cp -r /repo/apps/api/dist /out/dist \
  && cp -r /repo/apps/api/prisma /out/prisma
 
-FROM node:20.9.0-alpine AS runtime
+FROM node:22.19.0-alpine AS runtime
 WORKDIR /app
 RUN apk add --no-cache openssl libc6-compat tini \
  && npm i -g prisma@5.22.0

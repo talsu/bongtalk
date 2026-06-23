@@ -15,7 +15,7 @@
 > (메모리 `project_prod_deploy`, `project_data_layout`.)
 
 - Monorepo: pnpm workspaces + Turborepo (`apps/api`, `apps/web`, `packages/{shared-types,config,ui}`)
-- Backend: NestJS 10 (Node 20 LTS) + TypeScript strict
+- Backend: NestJS 10 (Node 22 LTS) + TypeScript strict
 - Frontend: React 18 + Vite + TypeScript + Tailwind + shadcn/ui
 - DB: PostgreSQL 16 + Prisma · Cache/Pub-Sub: Redis 7 (Socket.IO adapter)
 - Real-time: NestJS WebSocket Gateway (Socket.IO + Redis adapter fanout)
