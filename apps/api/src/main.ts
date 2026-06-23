@@ -13,12 +13,27 @@ import { AppModule } from './app.module';
 import { logger } from './common/logging/logger';
 import { RedisIoAdapter } from './realtime/io-adapter';
 import { assertProductionEnv } from './config/required-env';
+import { OidcProviderService } from './oidc/oidc-provider.service';
 
 function corsOrigins(): string[] {
   return (process.env.CORS_ORIGINS ?? '')
     .split(',')
     .map((s) => s.trim())
     .filter(Boolean);
+}
+
+// task-078 (Family SSO / OIDC IdP): SSO_ISSUER 의 host(예: sso.qufox.com). 미설정/형식오류
+// 시 null → OIDC 마운트 자체를 건너뛴다(dev/test 무영향).
+function ssoIssuerHost(): string | null {
+  const issuer = (process.env.SSO_ISSUER ?? '').trim();
+  if (!issuer) {
+    return null;
+  }
+  try {
+    return new URL(issuer).host.toLowerCase();
+  } catch {
+    return null;
+  }
 }
 
 async function bootstrap(): Promise<void> {
@@ -54,6 +69,27 @@ async function bootstrap(): Promise<void> {
   // dev/test 는 프록시가 없어 XFF 가 없으므로 socket IP 가 그대로 쓰여 무해하다.
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
 
+  // task-078 (Family SSO / OIDC IdP): sso.* host 요청을 oidc-provider 콜백으로 라우팅한다.
+  // helmet/cookieParser/cors/Nest-router *앞* 에 등록해야 한다 — 그래야 (a) oidc-provider 가
+  // 자체 보안 헤더/쿠키를 온전히 관리하고(helmet frameguard/CSP 가 frontchannel-logout iframe
+  // 등을 깨지 않음), (b) Nest 라우터가 OIDC 경로를 404 내기 전에 가로챈다. 콜백은 listen→
+  // onModuleInit 순서상 부팅 직후엔 없으므로 클로저 변수로 지연 주입한다(그 짧은 창엔 sso
+  // 요청이 fall-through). SSO_ISSUER 미설정 시 미들웨어 자체를 등록하지 않는다(no-op).
+  const ssoHost = ssoIssuerHost();
+  let oidcCallback: ((req: unknown, res: unknown) => void) | null = null;
+  if (ssoHost) {
+    app
+      .getHttpAdapter()
+      .getInstance()
+      .use((req: any, res: any, next: any) => {
+        const host = String(req.headers?.host ?? '').toLowerCase();
+        if (oidcCallback && host === ssoHost) {
+          return oidcCallback(req, res);
+        }
+        return next();
+      });
+  }
+
   app.use(helmet());
   app.use(cookieParser());
 
@@ -86,6 +122,18 @@ async function bootstrap(): Promise<void> {
   const port = Number(process.env.API_PORT ?? 3001);
   await app.listen(port, '0.0.0.0');
   logger.info({ port }, 'qufox-api listening');
+
+  // listen() 이 app.init()→onModuleInit 을 돌린 뒤이므로 이제 provider 가 준비됐다. 위에서
+  // 등록한 vhost 미들웨어의 클로저에 콜백을 채운다(이전 요청은 fall-through 였음).
+  if (ssoHost) {
+    const oidc = app.get(OidcProviderService, { strict: false });
+    if (oidc?.isEnabled()) {
+      oidcCallback = oidc.callback();
+      logger.info({ ssoHost }, 'OIDC IdP mounted on sso host');
+    } else {
+      logger.warn({ ssoHost }, 'SSO_ISSUER set but OIDC provider not enabled — sso host falls through');
+    }
+  }
 }
 
 bootstrap().catch((err) => {

@@ -2401,3 +2401,29 @@ model MentionBackfillBackup {
   contentPlainOld String   @map("content_plain_old")
   backedUpAt      DateTime @default(now()) @map("backed_up_at") @db.Timestamptz(6)
 }
+
+// ── task-078 (Family SSO / OIDC IdP) ──────────────────────────────────────────
+// RP(Relying Party) 레지스트리. qufox-api 의 OIDC Provider(panva oidc-provider)가 부팅
+// 시 이 표(enabled=true)를 읽어 client 목록을 구성한다 — N번째 패밀리 사이트 = 한 행.
+// client_secret 은 평문 저장하지 않고 AES-256-GCM(CryptoService·APP_ENCRYPTION_KEY)으로
+// 암호화한 clientSecretEnc 만 둔다(부팅 시 복호화해 provider 에 전달; oidc-provider 의
+// client_secret_basic 검증엔 평문이 필요하므로 hash 가 아닌 reversible 암호화). public
+// (PKCE only) client 는 clientSecretEnc=null.
+// 휘발성 자산(authorization code/session/grant/token)은 DB 가 아니라 Redis 어댑터
+// (prefix oidc:)에 저장한다. 본 표는 durable 한 RP 메타만 보관. redirectUris/metadata 는
+// JSONB(부팅 시 1회 로드라 쿼리 불요 — text[] 마이그레이션 드리프트 회피). metadata =
+// { postLogoutRedirectUris, grantTypes, responseTypes, scopes, tokenAuthMethod, ... }.
+// ADDITIVE + reversible: 신규 표 1개. down.sql 이 DROP.
+model OAuthClient {
+  id              String   @id @default(uuid()) @db.Uuid
+  clientId        String   @unique
+  name            String
+  clientSecretEnc String?
+  redirectUris    Json
+  metadata        Json     @default("{}")
+  enabled         Boolean  @default(true)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([enabled])
+}

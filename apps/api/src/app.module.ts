@@ -33,6 +33,7 @@ import { MutesModule } from './notifications/mutes/mutes.module';
 import { QueueModule } from './queue/queue.module';
 // S86 (D16 / FR-MN-15): Web Push(VAPID) REST(공개키·구독 등록/해제) + 전송 코어.
 import { PushModule } from './push/push.module';
+import { OidcModule } from './oidc/oidc.module';
 
 @Module({
   imports: [
@@ -79,6 +80,10 @@ import { PushModule } from './push/push.module';
     // @Global 이라 ReminderQueueService 가 앱 전역 주입(MessagesService/SavedService)
     // 된다. RealtimeModule 뒤에 둬 모듈 초기화 순서가 단방향(QueueModule→Realtime)이게.
     QueueModule,
+    // task-078 (Family SSO / OIDC IdP): qufox.com 을 중앙 OIDC Provider 로. SSO_ISSUER 가
+    // 설정됐을 때만 onModuleInit 에서 provider 를 띄우고(아니면 no-op), main.ts 가 sso.* host
+    // 요청을 raw Express 미들웨어로 OidcProviderService.callback() 에 라우팅한다(다크).
+    OidcModule,
   ],
   controllers: [HealthController],
   providers: [OutboxHealthIndicator, { provide: APP_FILTER, useClass: DomainExceptionFilter }],
