@@ -6,10 +6,14 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { OidcProviderService } from './oidc-provider.service';
+import { OidcAdminController } from './oidc-admin.controller';
+import { SsoAdminGuard } from './sso-admin.guard';
 
 @Module({
   imports: [AuthModule],
-  providers: [OidcProviderService],
+  // task-078 P2-acl: RP 접근 승인 관리 API(관리자 전용). PrismaService 는 @Global.
+  controllers: [OidcAdminController],
+  providers: [OidcProviderService, SsoAdminGuard],
   exports: [OidcProviderService],
 })
 export class OidcModule {}

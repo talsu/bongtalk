@@ -10,6 +10,7 @@ import {
 } from 'react-router-dom';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { AuthProvider, useAuth } from './features/auth/AuthProvider';
+import { ProtectedRoute } from './features/auth/ProtectedRoute';
 import { ThemeProvider } from './design-system/theme/ThemeProvider';
 import { ToastViewport, TooltipProvider } from './design-system/primitives';
 import { useRealtimeConnection } from './features/realtime/useRealtimeConnection';
@@ -35,6 +36,10 @@ const LoginPage = lazy(() =>
 );
 const SignupPage = lazy(() =>
   import('./features/auth/SignupPage').then((m) => ({ default: m.SignupPage })),
+);
+// task-078 P2-acl: 패밀리 SSO RP 접근 승인 관리(관리자 전용).
+const AdminSsoPage = lazy(() =>
+  import('./features/admin/AdminSsoPage').then((m) => ({ default: m.AdminSsoPage })),
 );
 const CreateWorkspacePage = lazy(() =>
   import('./features/workspaces/CreateWorkspacePage').then((m) => ({
@@ -560,6 +565,17 @@ export default function App(): JSX.Element {
                           <Route path="advanced" element={<AdvancedSettingsPage />} />
                         </Route>
                         <Route path="/activity" element={<ProtectedActivityRoute />} />
+                        {/* task-078 P2-acl: 패밀리 SSO RP 접근 승인 관리(관리자 전용 — 페이지가 비관리자 403 처리). */}
+                        <Route
+                          path="/admin/sso"
+                          element={
+                            <ProtectedRoute>
+                              <Suspense fallback={<LoadingFallback />}>
+                                <AdminSsoPage />
+                              </Suspense>
+                            </ProtectedRoute>
+                          }
+                        />
                         {/* 071-M2 E3 (PRD §02 5탭): 모바일 전용 탭 화면 — 스레드/검색/나.
                             데스크톱은 동등 surface 가 셸 내부(사이드바 Threads/검색 패널/
                             BottomBar)에 있으므로 '/' 로 돌려보낸다. */}

@@ -224,3 +224,39 @@ export async function tryRestoreSession(): Promise<MeResponse | null> {
     return null;
   }
 }
+
+// task-078 P2-acl: 패밀리 SSO RP 접근 승인 관리(관리자 전용 — 비관리자는 서버가 403).
+export type SsoClient = {
+  clientId: string;
+  name: string;
+  enabled: boolean;
+  accessCount: number;
+};
+export type SsoAccessEntry = {
+  userId: string;
+  email: string | null;
+  username: string | null;
+  createdAt: string;
+};
+
+export async function listSsoClients(): Promise<{ adminEmails: string[]; clients: SsoClient[] }> {
+  return apiRequest('/admin/sso/clients');
+}
+export async function listSsoAccess(clientId: string): Promise<{ access: SsoAccessEntry[] }> {
+  return apiRequest(`/admin/sso/clients/${encodeURIComponent(clientId)}/access`);
+}
+export async function grantSsoAccess(
+  clientId: string,
+  email: string,
+): Promise<{ ok: true; email: string; username: string }> {
+  return apiRequest(`/admin/sso/clients/${encodeURIComponent(clientId)}/access`, {
+    method: 'POST',
+    body: { email },
+  });
+}
+export async function revokeSsoAccess(clientId: string, userId: string): Promise<{ ok: true }> {
+  return apiRequest(
+    `/admin/sso/clients/${encodeURIComponent(clientId)}/access/${encodeURIComponent(userId)}`,
+    { method: 'DELETE' },
+  );
+}
