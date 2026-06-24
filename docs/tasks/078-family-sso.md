@@ -198,6 +198,15 @@ stream.qufox.com(vanilla Express + Vue + Mongo, **PM2 4워커·docker net 밖**)
   - skulk: GET /auth/logout(skulk_auth 정리 + IdP end_session). stream: GET /auth/logout(세션 폐기 best-effort + IdP end_session) + SPA store.logout 을 네비게이션으로.
 - **미래 사이트 온보딩 문서**: `docs/sso-onboarding.md`(DNS/cert/nginx → OAuthClient 1행 + qufox-api 재시작 → RP 코드 드롭인[NestJS=skulk·vanilla=stream] → 배포/E2E). 사용자 요청한 확장성 충족.
 
+### 2026-06-24 — P4 적대적 리뷰(워크플로) + fix-forward + E2E
+워크플로(reviewer×3 병렬 + 종합): qufox·skulk **approve**(INFO/LOW), stream **HIGH 1건**. BLOCKER 0.
+- **[HIGH] logout-CSRF**(stream GET /auth/logout — 서버측 세션폐기 + IdP end_session 트리거라 영향 큼): top-level GET 은 Origin 헤더가 없어 enforceTrustedOrigin 부적합 → **Sec-Fetch-Site** 로 cross-site 차단(same-origin/none 만 허용). skulk 에도 동일 적용. ✅ fix-forward.
+- **[fix] logout=yes 주입**(E2E 로 사전 발견): oidc-provider logout form 에 logout 필드가 없어 JS `.submit()` 이 세션을 안 끝냄 → logoutSource 가 logout=yes 주입. ✅
+- **[LOW]** logoutSource getElementById('op.logoutForm')+noscript 폴백+주석 정정. ✅
+- **E2E(admin)**: 로그인→로그아웃→**재로그인 시 로그인 폼 노출**(IdP 세션 종료 확인) + **cross-site 로그아웃 403**. 통과.
+
+> ✅ **P4 완료·LIVE.** 커밋: qufox main 6ea39c4b, skulk master 53fcfca, stream main fc8221f.
+
 ### 잔여 — 추가 강화(향후, 핵심엔 불요)
 - **back-channel 단일 로그아웃**(IdP→RP backchannel_logout_uri 로 *다른* RP 의 활성 세션도 즉시 종료) + **비활성화 전파**(qufox deactivate→`revoked:sub`→RP). 현재는 RP-initiated(IdP 세션 종료→silent 재로그인 차단)까지. 완전 SLO 는 RP 세션에 IdP `sid` 저장 + 폐기 목록(skulk 는 stateless JWT 라 blocklist 필요)이 들어가는 별도 작업.
 - **`@qufox/sso-rp` 패키지화**: 현재는 검증된 복사-패턴(skulk/stream) + 온보딩 문서로 대체(별도 registry 운영 부담 회피). 사이트가 더 늘면 패키지화 재검토.
