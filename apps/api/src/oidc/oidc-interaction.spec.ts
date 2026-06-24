@@ -103,6 +103,12 @@ describe('oidc interaction bridge (task-078)', () => {
     expect(res.status).toBe(403);
     expect(res.text).toContain('접근 권한이 없어요');
     expect(finished).toEqual([]); // 로그인 미완료 → 코드/세션 미발급
+    // "다른 계정으로 로그인" 버튼: DS qf-btn 스타일 적용(display 오버라이드 없음) + /session/end
+    // 로 세션 종료 후 RP 로그인 시작점(post_logout)으로 복귀.
+    expect(res.text).toContain('qf-btn qf-btn--secondary qf-btn--lg');
+    expect(res.text).not.toContain('display:block');
+    expect(res.text).toContain('/session/end?client_id=');
+    expect(res.text).toContain('post_logout_redirect_uri=');
   });
 
   it('on invalid credentials re-renders the form with an error', async () => {

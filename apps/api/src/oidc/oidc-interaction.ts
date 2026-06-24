@@ -99,11 +99,30 @@ function renderLogin(uid: string, clientId: string, error: string | null): strin
 </html>`;
 }
 
+// "다른 계정으로 로그인" 목적지 — RP 의 로그인 시작점(authorize 를 새로 띄우는 곳). 우리 RP
+// 규약상 redirect_uri 의 /callback → /login. (미일치 RP 는 홈으로 폴백.) 이 URL 은 client 의
+// 등록된 post_logout_redirect_uri 여야 oidc 가 /session/end 후 그리로 보낸다.
+export function reloginUriFor(details: any): string {
+  const redirect = String(details?.params?.redirect_uri ?? '');
+  if (redirect.endsWith('/callback')) {
+    return redirect.replace(/\/callback$/, '/login');
+  }
+  try {
+    return `${new URL(redirect).origin}/`;
+  } catch {
+    return '/';
+  }
+}
+
 // ★P2-acl: 인증은 됐지만 이 RP 에 승인되지 않은 사용자에게 보여주는 DS 스타일 안내. 코드/세션을
-// 발급하지 않고 "승인 필요"를 알린다. "다른 계정으로 로그인"은 IdP 세션을 끝낸다(/session/end).
-function renderNotApproved(clientId: string): string {
+// 발급하지 않는다. "다른 계정으로 로그인"은 IdP 세션을 끝내고(/session/end) RP 로그인 시작점
+// (reloginUri)으로 돌아가 새 authorize → 로그인 폼(세션 없음)으로 다른 계정 진행하게 한다.
+export function renderNotApproved(clientId: string, reloginUri: string): string {
   const safeClient = escapeHtml(clientId ?? '');
   const appLabel = safeClient ? `<strong>${safeClient}</strong>` : '이 서비스';
+  const switchHref = escapeHtml(
+    `/session/end?client_id=${encodeURIComponent(clientId)}&post_logout_redirect_uri=${encodeURIComponent(reloginUri)}`,
+  );
   return `<!doctype html>
 <html lang="ko">
 <head>
@@ -130,7 +149,7 @@ function renderNotApproved(clientId: string): string {
         <h1 style="margin:0;font-size:var(--fs-24);font-weight:600;letter-spacing:var(--tracking-tight);color:var(--text-strong);">접근 권한이 없어요</h1>
         <p style="margin:var(--s-2) 0 0;font-size:var(--fs-13);color:var(--text-muted);">로그인은 되었지만 이 계정은 ${appLabel} 사용이 승인되지 않았습니다. 관리자에게 접근 승인을 요청해 주세요.</p>
       </div>
-      <a class="qf-btn qf-btn--secondary qf-btn--lg" href="/session/end?client_id=${safeClient}" style="width:100%;display:block;box-sizing:border-box;text-align:center;text-decoration:none;">다른 계정으로 로그인</a>
+      <a class="qf-btn qf-btn--secondary qf-btn--lg" href="${switchHref}" style="width:100%;text-decoration:none;">다른 계정으로 로그인</a>
     </div>
   </main>
 </body>
@@ -200,7 +219,7 @@ export function buildInteractionRouter(
           res.status(403);
           res.set('content-type', 'text/html; charset=utf-8');
           res.set('cache-control', 'no-store');
-          res.end(renderNotApproved(params.client_id));
+          res.end(renderNotApproved(params.client_id, reloginUriFor(details)));
           return;
         }
         await autoGrantConsent(provider, req, res, details);
@@ -230,7 +249,7 @@ export function buildInteractionRouter(
           res.status(403);
           res.set('content-type', 'text/html; charset=utf-8');
           res.set('cache-control', 'no-store');
-          res.end(renderNotApproved(details.params.client_id));
+          res.end(renderNotApproved(details.params.client_id, reloginUriFor(details)));
           return;
         }
         await provider.interactionFinished(

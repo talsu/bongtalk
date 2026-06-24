@@ -132,6 +132,11 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
           );
           ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${withFields}<script>(document.getElementById('op.logoutForm')||document.forms[0]).submit()</script></body></html>`;
         },
+        // 로그아웃 성공 화면. 보통은 post_logout_redirect_uri 로 리다이렉트돼 안 보이지만, 그
+        // URI 가 없는 호출 대비 DS 로 스타일(기본 oidc 페이지가 무스타일이라 어색했던 것 보완).
+        async postLogoutSuccessSource(ctx: any): Promise<void> {
+          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>로그아웃됨 — qufox 패밀리</title><link rel="stylesheet" href="https://design.qufox.com/tokens.css"><link rel="stylesheet" href="https://design.qufox.com/components.css"><style>body{margin:0;min-height:100vh;background:var(--bg-app);display:flex;align-items:center;justify-content:center;padding:var(--s-6)}</style></head><body><main class="qf-card" style="width:100%;max-width:380px;box-shadow:var(--elev-2)"><div class="qf-card__body" style="padding:var(--s-8);text-align:center"><img src="https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg" alt="" width="48" height="48" style="margin-bottom:var(--s-4)"><h1 style="margin:0;font-size:var(--fs-20);font-weight:600;color:var(--text-strong)">로그아웃되었습니다</h1><p style="margin:var(--s-2) 0 0;font-size:var(--fs-13);color:var(--text-muted)">qufox 패밀리에서 로그아웃했습니다.</p></div></main></body></html>`;
+        },
       },
       backchannelLogout: { enabled: true },
     },
