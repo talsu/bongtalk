@@ -47,7 +47,7 @@ export function SignupPage(): JSX.Element {
               처리(decorative)해 "qufox, qufox sign up" 중복 낭독을 피한다(WCAG 1.1.1). */}
           <BrandMark variant="symbol" size={48} decorative className="mb-[var(--s-5)]" />
           <div className="qf-eyebrow mb-[var(--s-3)]">qufox · sign up</div>
-          <h1 className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+          <h1 className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
             qufox에 오신 걸 환영해요
           </h1>
           <p className="mt-[var(--s-2)] text-[length:var(--fs-13)] text-text-muted">

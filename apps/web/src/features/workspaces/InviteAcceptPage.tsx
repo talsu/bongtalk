@@ -122,7 +122,7 @@ export function InviteAcceptPage(): JSX.Element {
                 data-testid="invite-accept-error"
                 role="alert"
                 aria-live="assertive"
-                className="mt-[var(--s-4)] text-[var(--fs-13)] text-text-strong"
+                className="mt-[var(--s-4)] text-[length:var(--fs-13)] text-text-strong"
               >
                 {acceptError}
               </p>
