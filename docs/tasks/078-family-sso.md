@@ -224,6 +224,10 @@ stream.qufox.com(vanilla Express + Vue + Mongo, **PM2 4워커·docker net 밖**)
 - ★배포 주의(메모리): deploy.sh 를 `&` + `| tail` 로 감싸면 분리·조기종료돼 컨테이너 미재생성(새 env 미반영) — `run_in_background`만 쓰고 파이프/`&` 금지.
 - 엣지(향후): 이미 승인+grant 받은 사용자를 해제하면 grant/세션 만료까지 잔존 → 즉시 차단 필요 시 grant/세션 revoke.
 
+### 2026-06-24 — P2-acl 미승인 화면 fix(버튼 스타일 + 다른 계정 로그인)
+- 버튼 스타일 깨짐: `<a class="qf-btn ...">` 에 건 인라인 `display:block` 이 qf-btn 의 inline-flex 를 깨뜨림 → 제거(`width:100%`만). computed: inline-flex·DS secondary·44px 확인.
+- "다른 계정으로 로그인" 막다른 페이지: `/session/end` 에 post_logout 없어 무스타일 logout-success 로 빠짐 → `post_logout_redirect_uri`=RP 로그인 시작점(redirect_uri 의 /callback→/login, client postLogoutRedirectUris 에 등록)으로 IdP 세션 종료 후 새 authorize→로그인 폼. `postLogoutSuccessSource` 도 DS 스타일. E2E: switch→세션종료→최종 URL=로그인 폼(성공페이지 0). 커밋 main df3c7fb4.
+
 ### 잔여 — 추가 강화(향후, 핵심엔 불요)
 - **back-channel 단일 로그아웃**(IdP→RP backchannel_logout_uri 로 *다른* RP 의 활성 세션도 즉시 종료) + **비활성화 전파**(qufox deactivate→`revoked:sub`→RP). 현재는 RP-initiated(IdP 세션 종료→silent 재로그인 차단)까지. 완전 SLO 는 RP 세션에 IdP `sid` 저장 + 폐기 목록(skulk 는 stateless JWT 라 blocklist 필요)이 들어가는 별도 작업.
 - **`@qufox/sso-rp` 패키지화**: 현재는 검증된 복사-패턴(skulk/stream) + 온보딩 문서로 대체(별도 registry 운영 부담 회피). 사이트가 더 늘면 패키지화 재검토.
