@@ -57,8 +57,11 @@ describe('oidc interaction bridge (task-078)', () => {
     const res = await request(app).get('/interaction/u1');
     expect(res.status).toBe(200);
     expect(res.text).toContain('action="/interaction/u1/login"');
-    expect(res.text).toContain('qufox 계정으로 로그인');
-    expect(res.text).toContain('skulk');
+    // DS 로그인 패턴(design.qufox.com): qf-card + 정규 심볼 + DS 헤딩.
+    expect(res.text).toContain('다시 만나 반가워요');
+    expect(res.text).toContain('qf-card');
+    expect(res.text).toContain('design.qufox.com/brand-assets/svg/fox-symbol-dark.svg');
+    expect(res.text).toContain('skulk'); // 연결 클라이언트 표시
     // ★보안 H1: helmet 우회 보완 헤더가 sso 응답에 실린다.
     expect(res.headers['x-frame-options']).toBe('DENY');
     expect(res.headers['x-content-type-options']).toBe('nosniff');

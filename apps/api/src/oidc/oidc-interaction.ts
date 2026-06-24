@@ -42,42 +42,58 @@ function authErrorMessage(err: unknown): string {
   return '로그인에 실패했습니다. 잠시 후 다시 시도해 주세요.';
 }
 
+// design.qufox.com(DS) "Auth — Login" 패턴에 충실한 SSO 로그인 화면. DS CSS(tokens/components/
+// icons)를 직접 link 하고 정규 심볼(brand-assets/svg/fox-symbol-dark.svg)을 쓴다 — 패밀리 전
+// 사이트가 보는 공용 로그인 얼굴이라 DS 단일 소스로 통일한다. helmet 우회 host 라 인라인 자동
+// 스타일 없음(클래스 + var(--token)만).
 function renderLogin(uid: string, clientId: string, error: string | null): string {
   const safeUid = escapeHtml(uid);
   const safeClient = escapeHtml(clientId ?? '');
+  const sub = safeClient
+    ? `<strong>${safeClient}</strong> 에 연결할 계정으로 로그인하세요.`
+    : '패밀리 서비스에 연결할 계정으로 로그인하세요.';
   const errorHtml = error
-    ? `<p role="alert" style="margin:0 0 16px;padding:10px 12px;background:#fde8e8;color:#9b1c1c;border-radius:8px;font-size:14px">${escapeHtml(error)}</p>`
+    ? `<div class="qf-notice qf-notice--danger" role="alert" style="margin-bottom:var(--s-5);"><span class="qf-notice__icon" aria-hidden="true">⚠</span><div class="qf-notice__body">${escapeHtml(error)}</div></div>`
     : '';
   return `<!doctype html>
 <html lang="ko">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>qufox SSO 로그인</title>
+<title>qufox 패밀리 로그인</title>
+<link rel="icon" href="https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://design.qufox.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://design.qufox.com/tokens.css">
+<link rel="stylesheet" href="https://design.qufox.com/components.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
 <style>
-  :root { color-scheme: light dark; }
-  body { font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#f3f4f6; margin:0; display:flex; min-height:100vh; align-items:center; justify-content:center; }
-  .card { background:#fff; width:100%; max-width:360px; padding:32px 28px; border-radius:16px; box-shadow:0 10px 30px rgba(0,0,0,.08); }
-  h1 { font-size:18px; margin:0 0 4px; }
-  .sub { color:#6b7280; font-size:13px; margin:0 0 20px; }
-  label { display:block; font-size:13px; color:#374151; margin:0 0 6px; }
-  input { width:100%; box-sizing:border-box; padding:10px 12px; margin:0 0 16px; border:1px solid #d1d5db; border-radius:8px; font-size:14px; }
-  button { width:100%; padding:11px 12px; border:0; border-radius:8px; background:#4f46e5; color:#fff; font-size:15px; font-weight:600; cursor:pointer; }
-  button:hover { background:#4338ca; }
+  body { margin:0; min-height:100vh; background:var(--bg-app); display:flex; align-items:center; justify-content:center; padding:var(--s-6); }
 </style>
 </head>
 <body>
-  <main class="card">
-    <h1>qufox 계정으로 로그인</h1>
-    <p class="sub">${safeClient ? `${safeClient} 에 연결합니다.` : '패밀리 서비스에 연결합니다.'}</p>
-    ${errorHtml}
-    <form method="post" action="/interaction/${safeUid}/login" autocomplete="on">
-      <label for="email">이메일</label>
-      <input id="email" name="email" type="email" autocomplete="username" required autofocus>
-      <label for="password">비밀번호</label>
-      <input id="password" name="password" type="password" autocomplete="current-password" required>
-      <button type="submit">로그인</button>
-    </form>
+  <main class="qf-card" style="width:100%;max-width:380px;box-shadow:var(--elev-2);">
+    <div class="qf-card__body" style="padding:var(--s-8);">
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:var(--s-7);">
+        <img src="https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg" alt="" width="48" height="48" style="margin-bottom:var(--s-4);">
+        <span class="qf-eyebrow" style="margin-bottom:var(--s-2);">qufox 패밀리 로그인</span>
+        <h1 style="margin:0;font-size:var(--fs-24);font-weight:600;letter-spacing:var(--tracking-tight);color:var(--text-strong);">다시 만나 반가워요</h1>
+        <p style="margin:var(--s-2) 0 0;font-size:var(--fs-13);color:var(--text-muted);">${sub}</p>
+      </div>
+      ${errorHtml}
+      <form method="post" action="/interaction/${safeUid}/login" autocomplete="on" style="display:flex;flex-direction:column;gap:var(--s-5);">
+        <label class="qf-field">
+          <span class="qf-field__label">이메일</span>
+          <input class="qf-input" name="email" type="email" autocomplete="username" placeholder="you@example.com" required autofocus>
+        </label>
+        <label class="qf-field">
+          <span class="qf-field__label">비밀번호</span>
+          <input class="qf-input" name="password" type="password" autocomplete="current-password" required>
+        </label>
+        <button class="qf-btn qf-btn--primary qf-btn--lg" type="submit" style="width:100%;">로그인</button>
+      </form>
+    </div>
   </main>
 </body>
 </html>`;
