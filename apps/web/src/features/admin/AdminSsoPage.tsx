@@ -40,6 +40,10 @@ export function AdminSsoPage(): JSX.Element {
   const reloadAccess = useCallback(async (clientId: string) => {
     const r = await listSsoAccess(clientId);
     setAccess(r.access);
+    // 탭의 카운트도 즉시 동기화(승인 추가/해제 후 새로고침 없이 반영).
+    setClients((cs) =>
+      cs.map((c) => (c.clientId === clientId ? { ...c, accessCount: r.access.length } : c)),
+    );
   }, []);
 
   useEffect(() => {
