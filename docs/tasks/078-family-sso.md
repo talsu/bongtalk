@@ -214,6 +214,16 @@ stream.qufox.com(vanilla Express + Vue + Mongo, **PM2 4워커·docker net 밖**)
 - **qufox.com** LoginPage.tsx: 이미 DS 패턴 + DS 심볼(`BrandMark variant=symbol` = fox-symbol-dark)에 충실 → 변경 불요(레퍼런스).
 - 로고 단일 소스 = `https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg`(200), CSS 직접참조 철학과 일치. 커밋: qufox main e58c323f, skulk master 9e16c61, stream main 8edb4a0.
 
+### 2026-06-24 — P2-acl (RP 접근 인가: 승인된 사용자만) 완료·LIVE ✅
+인증(qufox 로그인)과 별개로 **인가** 레이어 추가 — qufox 계정이 있어도 승인된 사용자만 skulk/stream 접근. **IdP 중앙 인가**.
+- **모델**: `OAuthClientAccess`(clientId↔userId, @@unique) + reversible 마이그레이션(20260638, FK 수동).
+- **강제**: `OidcProviderService.isApproved` = SSO admin(`SSO_ADMIN_EMAILS`) OR 승인행. 인터랙션 **로그인 POST + 동의(이미 세션 보유)** 양쪽에서 확인 → 미승인이면 interactionFinished 안 함(코드/세션 미발급) + DS "접근 권한 없음" 페이지(다른 계정 로그인 링크). 첫 접근은 grant 없어 항상 이 관문 통과 → 미승인 차단.
+- **관리**: `/api/admin/sso/*`(SsoAdminGuard=SSO_ADMIN_EMAILS) — clients 목록·승인목록·이메일로 승인·해제. qufox-web `/admin/sso` 관리 화면(관리자 전용·DS).
+- **운영자 보호**: SSO admin(admin@qufox.com)은 승인행 없이도 항상 허용 + 승인 권한. skulk/stream break-glass 로컬 로그인 유지(이중 안전).
+- 라이브 검증: admin→skulk 진입 성공(승인 0이어도 bypass·잠김 방지), admin API clients=[skulk,stream], grant(이메일)→list→revoke 동작, 잘못된 이메일 404, 무인증 401. 단위 테스트로 미승인 차단(403·코드 미발급). 마이그레이션 prod 적용 확인. 커밋 main 10bd47fd.
+- ★배포 주의(메모리): deploy.sh 를 `&` + `| tail` 로 감싸면 분리·조기종료돼 컨테이너 미재생성(새 env 미반영) — `run_in_background`만 쓰고 파이프/`&` 금지.
+- 엣지(향후): 이미 승인+grant 받은 사용자를 해제하면 grant/세션 만료까지 잔존 → 즉시 차단 필요 시 grant/세션 revoke.
+
 ### 잔여 — 추가 강화(향후, 핵심엔 불요)
 - **back-channel 단일 로그아웃**(IdP→RP backchannel_logout_uri 로 *다른* RP 의 활성 세션도 즉시 종료) + **비활성화 전파**(qufox deactivate→`revoked:sub`→RP). 현재는 RP-initiated(IdP 세션 종료→silent 재로그인 차단)까지. 완전 SLO 는 RP 세션에 IdP `sid` 저장 + 폐기 목록(skulk 는 stateless JWT 라 blocklist 필요)이 들어가는 별도 작업.
 - **`@qufox/sso-rp` 패키지화**: 현재는 검증된 복사-패턴(skulk/stream) + 온보딩 문서로 대체(별도 registry 운영 부담 회피). 사이트가 더 늘면 패키지화 재검토.
