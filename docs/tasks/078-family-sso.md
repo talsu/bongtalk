@@ -207,6 +207,13 @@ stream.qufox.com(vanilla Express + Vue + Mongo, **PM2 4워커·docker net 밖**)
 
 > ✅ **P4 완료·LIVE.** 커밋: qufox main 6ea39c4b, skulk master 53fcfca, stream main fc8221f.
 
+### 2026-06-24 — 로그인 화면 DS 정합(design.qufox.com "Auth — Login" 패턴)
+패밀리 4개 로그인 표면을 DS 로그인 패턴 + **정규 심볼**(`brand-assets/svg/fox-symbol-dark.svg`)로 통일.
+- **SSO IdP**(qufox-api `renderLogin`): bespoke 인라인 스타일 → DS 재작성. DS CSS(tokens/components) 직접 link + Space Grotesk/Geist Mono 폰트 + `qf-card`(max-width 380·elev-2)/`qf-field`/`qf-input`/`qf-btn--primary--lg`/`qf-notice--danger` + 정규 심볼 + `var(--bg-app)` 중앙 배치. raw hex/px/shadow 없음. 라이브 검증: 전 DS 마커 OK.
+- **skulk** Login.tsx: 🦊 이모지 → DS 정규 심볼 img. **stream** LoginView.vue: 로컬 `/brand` 사본 → DS 정규 심볼 URL. 둘 다 빌드 산출물에 DS 로고 URL 참조 확인.
+- **qufox.com** LoginPage.tsx: 이미 DS 패턴 + DS 심볼(`BrandMark variant=symbol` = fox-symbol-dark)에 충실 → 변경 불요(레퍼런스).
+- 로고 단일 소스 = `https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg`(200), CSS 직접참조 철학과 일치. 커밋: qufox main e58c323f, skulk master 9e16c61, stream main 8edb4a0.
+
 ### 잔여 — 추가 강화(향후, 핵심엔 불요)
 - **back-channel 단일 로그아웃**(IdP→RP backchannel_logout_uri 로 *다른* RP 의 활성 세션도 즉시 종료) + **비활성화 전파**(qufox deactivate→`revoked:sub`→RP). 현재는 RP-initiated(IdP 세션 종료→silent 재로그인 차단)까지. 완전 SLO 는 RP 세션에 IdP `sid` 저장 + 폐기 목록(skulk 는 stateless JWT 라 blocklist 필요)이 들어가는 별도 작업.
 - **`@qufox/sso-rp` 패키지화**: 현재는 검증된 복사-패턴(skulk/stream) + 온보딩 문서로 대체(별도 registry 운영 부담 회피). 사이트가 더 늘면 패키지화 재검토.
