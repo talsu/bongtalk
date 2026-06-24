@@ -102,16 +102,19 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
       rpInitiatedLogout: {
         enabled: true,
         // 로그아웃 확인 페이지를 자동 제출해 seamless 하게 — RP 가 /session/end 로 보내면
-        // 사용자 클릭 없이 IdP 세션을 끝내고 post_logout_redirect_uri 로 복귀한다. (sso host 는
-        // helmet 우회라 인라인 스크립트 허용; CSP 미설정.) form 은 oidc-provider 가 xsrf 포함 제공.
+        // 사용자 클릭 없이 IdP 세션을 끝내고 post_logout_redirect_uri 로 복귀한다. framing 은
+        // buildSsoApp 의 X-Frame-Options:DENY 로 차단됨; CSP 만 미설정(인라인 자동제출 스크립트
+        // 호환 위해 deferred — task-078 H1 백로그). form 은 oidc-provider 가 xsrf 포함 제공한다.
         async logoutSource(ctx: any, form: string): Promise<void> {
           // oidc-provider 가 주는 form 에는 xsrf 만 있고 `logout` 필드가 없다 — JS .submit() 은
           // 버튼 값을 안 보내므로 logout=yes 를 명시 주입해야 confirm 이 실제로 세션을 끝낸다.
-          const withConfirm = form.replace(
+          // JS 비활성 폴백으로 noscript 제출 버튼도 둔다(가용성). 고정 id 'op.logoutForm' 우선.
+          const withFields = form.replace(
             '</form>',
-            '<input type="hidden" name="logout" value="yes"/></form>',
+            '<input type="hidden" name="logout" value="yes"/>' +
+              '<noscript><button type="submit">로그아웃</button></noscript></form>',
           );
-          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${withConfirm}<script>document.forms[0].submit()</script></body></html>`;
+          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${withFields}<script>(document.getElementById('op.logoutForm')||document.forms[0]).submit()</script></body></html>`;
         },
       },
       backchannelLogout: { enabled: true },
