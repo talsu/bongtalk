@@ -21,6 +21,22 @@ export function isOidcEnabled(): boolean {
   return Boolean((process.env.SSO_ISSUER ?? '').trim());
 }
 
+// task-078 P2-acl: SSO 관리자(=RP 접근 승인 권한 + 모든 RP 항상 허용). SSO_ADMIN_EMAILS(쉼표
+// 구분, 대소문자 무시). 운영자 잠김 방지 + 승인 게이트 관리 주체.
+export function ssoAdminEmails(): string[] {
+  return (process.env.SSO_ADMIN_EMAILS ?? '')
+    .split(',')
+    .map((s) => s.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function isSsoAdminEmail(email: string | null | undefined): boolean {
+  if (!email) {
+    return false;
+  }
+  return ssoAdminEmails().includes(email.trim().toLowerCase());
+}
+
 export function getIssuer(): string {
   const issuer = (process.env.SSO_ISSUER ?? '').trim();
   if (!issuer) {

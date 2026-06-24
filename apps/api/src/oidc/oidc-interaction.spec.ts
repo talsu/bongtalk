@@ -53,7 +53,7 @@ function makeProvider(promptName: string) {
 describe('oidc interaction bridge (task-078)', () => {
   it('renders the login form for a login prompt', async () => {
     const { provider } = makeProvider('login');
-    const app = buildSsoApp(provider as any, {} as AuthService);
+    const app = buildSsoApp(provider as any, {} as AuthService, async () => true);
     const res = await request(app).get('/interaction/u1');
     expect(res.status).toBe(200);
     expect(res.text).toContain('action="/interaction/u1/login"');
@@ -73,7 +73,7 @@ describe('oidc interaction bridge (task-078)', () => {
     const authService = {
       verifyCredentials: vi.fn(async () => ({ id: 'user-1', email: 'a@b.c' })),
     } as unknown as AuthService;
-    const app = buildSsoApp(provider as any, authService);
+    const app = buildSsoApp(provider as any, authService, async () => true);
 
     const res = await request(app)
       .post('/interaction/u1/login')
@@ -88,6 +88,23 @@ describe('oidc interaction bridge (task-078)', () => {
     expect(finished).toEqual([{ login: { accountId: 'user-1' } }]);
   });
 
+  it('blocks an authenticated-but-unapproved user (P2-acl)', async () => {
+    const { provider, finished } = makeProvider('login');
+    const authService = {
+      verifyCredentials: vi.fn(async () => ({ id: 'user-2', email: 'x@y.z' })),
+    } as unknown as AuthService;
+    const app = buildSsoApp(provider as any, authService, async () => false); // 미승인
+
+    const res = await request(app)
+      .post('/interaction/u1/login')
+      .type('form')
+      .send({ email: 'x@y.z', password: 'pw' });
+
+    expect(res.status).toBe(403);
+    expect(res.text).toContain('접근 권한이 없어요');
+    expect(finished).toEqual([]); // 로그인 미완료 → 코드/세션 미발급
+  });
+
   it('on invalid credentials re-renders the form with an error', async () => {
     const { provider, finished } = makeProvider('login');
     const authService = {
@@ -95,7 +112,7 @@ describe('oidc interaction bridge (task-078)', () => {
         throw new DomainError(ErrorCode.AUTH_INVALID_CREDENTIALS, 'bad');
       }),
     } as unknown as AuthService;
-    const app = buildSsoApp(provider as any, authService);
+    const app = buildSsoApp(provider as any, authService, async () => true);
 
     const res = await request(app)
       .post('/interaction/u1/login')
@@ -109,7 +126,7 @@ describe('oidc interaction bridge (task-078)', () => {
 
   it('auto-grants consent and finishes the interaction', async () => {
     const { provider, finished } = makeProvider('consent');
-    const app = buildSsoApp(provider as any, {} as AuthService);
+    const app = buildSsoApp(provider as any, {} as AuthService, async () => true);
     const res = await request(app).get('/interaction/u1');
     expect(res.status).toBe(200);
     expect(finished).toEqual([{ consent: { grantId: 'grant-1' } }]);
