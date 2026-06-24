@@ -1,6 +1,6 @@
 # 076 · webhook 배포 제거 + 로컬 단일 `deploy.sh` 전환 + 단순화
 
-> 상태: DRAFT (구현 중)
+> 상태: DONE — repo 변경 머지(main 47b8a3ea), reviewer BLOCKER 0, verify+frozen-install green. 운영 정리(워크트리 rm·nginx hook·GitHub 설정)는 사용자 핸드오프(파괴적/root).
 > 작성: 2026-06-17
 > 동기: 사용자 — webhook 자동배포 완전 제거, 로컬 수동(AI 실행) 배포로 전환, 불필요한 복잡성 축소.
 
