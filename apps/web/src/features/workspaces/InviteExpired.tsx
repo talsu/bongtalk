@@ -43,15 +43,15 @@ export function InviteExpired({ workspaceName }: { workspaceName?: string }): JS
           ref={headingRef}
           id="invite-expired-heading"
           tabIndex={-1}
-          className="text-[var(--fs-20)] font-semibold text-text-strong"
+          className="text-[length:var(--fs-20)] font-semibold text-text-strong"
         >
           초대 링크를 사용할 수 없어요
         </h1>
-        <p className="mt-[var(--s-3)] text-[var(--fs-13)] text-text-muted">
+        <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
           초대 링크가 만료되었거나 유효하지 않습니다. 워크스페이스 관리자에게 새 링크를 요청하세요.
         </p>
         {workspaceName && (
-          <p className="mt-[var(--s-2)] text-[var(--fs-12)] text-text-muted">{workspaceName}</p>
+          <p className="mt-[var(--s-2)] text-[length:var(--fs-12)] text-text-muted">{workspaceName}</p>
         )}
         <Link
           to="/"

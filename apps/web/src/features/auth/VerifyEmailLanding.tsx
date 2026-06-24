@@ -114,7 +114,7 @@ export function VerifyEmailLanding(): JSX.Element {
             동일하게 심볼 + 페이지 폰트 텍스트 lockup 으로 교체(원인 진단은 그쪽 주석 참조). */}
         <div className="mb-[var(--s-6)] flex items-center justify-center gap-[var(--s-2)]">
           <BrandMark variant="symbol" size={28} decorative />
-          <span className="text-[var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+          <span className="text-[length:var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
             qufox
           </span>
         </div>
@@ -128,7 +128,7 @@ export function VerifyEmailLanding(): JSX.Element {
               </h1>
               <p
                 data-testid="verify-landing-loading"
-                className="text-[var(--fs-13)] text-text-muted"
+                className="text-[length:var(--fs-13)] text-text-muted"
               >
                 이메일 인증을 확인하는 중…
               </p>
@@ -140,11 +140,11 @@ export function VerifyEmailLanding(): JSX.Element {
                 ref={headingRef}
                 id="verify-landing-heading"
                 tabIndex={-1}
-                className="text-[var(--fs-24)] font-semibold text-text-strong"
+                className="text-[length:var(--fs-24)] font-semibold text-text-strong"
               >
                 이메일 인증이 완료되었습니다
               </h1>
-              <p className="mt-[var(--s-3)] text-[var(--fs-13)] text-text-muted">
+              <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
                 이제 워크스페이스에 참여하고 대화를 시작할 수 있습니다.
               </p>
               {/* AUTH-1 (PRD D18 / C-4): 세션 유무로 분기한다. 로그인 상태면 곧장 워크스페이스
@@ -179,13 +179,13 @@ export function VerifyEmailLanding(): JSX.Element {
                 ref={headingRef}
                 id="verify-landing-heading"
                 tabIndex={-1}
-                className="text-[var(--fs-20)] font-semibold text-text-strong"
+                className="text-[length:var(--fs-20)] font-semibold text-text-strong"
               >
                 인증 링크를 사용할 수 없어요
               </h1>
               <p
                 data-testid="verify-landing-error"
-                className="mt-[var(--s-3)] text-[var(--fs-13)] text-text-muted"
+                className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted"
               >
                 {state.kind === 'expired'
                   ? '인증 링크가 만료되었습니다. 로그인 후 인증 메일을 다시 보내 주세요.'

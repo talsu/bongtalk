@@ -76,7 +76,7 @@ export function ForgotPasswordPage(): JSX.Element {
             ref={headingRef}
             id="forgot-heading"
             tabIndex={-1}
-            className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
+            className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
           >
             {headingText}
           </h1>
