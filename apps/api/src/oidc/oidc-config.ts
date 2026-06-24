@@ -105,7 +105,13 @@ export async function buildConfiguration(deps: OidcDeps): Promise<Record<string,
         // 사용자 클릭 없이 IdP 세션을 끝내고 post_logout_redirect_uri 로 복귀한다. (sso host 는
         // helmet 우회라 인라인 스크립트 허용; CSP 미설정.) form 은 oidc-provider 가 xsrf 포함 제공.
         async logoutSource(ctx: any, form: string): Promise<void> {
-          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${form}<script>document.forms[0].submit()</script></body></html>`;
+          // oidc-provider 가 주는 form 에는 xsrf 만 있고 `logout` 필드가 없다 — JS .submit() 은
+          // 버튼 값을 안 보내므로 logout=yes 를 명시 주입해야 confirm 이 실제로 세션을 끝낸다.
+          const withConfirm = form.replace(
+            '</form>',
+            '<input type="hidden" name="logout" value="yes"/></form>',
+          );
+          ctx.body = `<!doctype html><html lang="ko"><head><meta charset="utf-8"><title>로그아웃</title></head><body>${withConfirm}<script>document.forms[0].submit()</script></body></html>`;
         },
       },
       backchannelLogout: { enabled: true },
