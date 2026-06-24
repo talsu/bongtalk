@@ -99,6 +99,44 @@ function renderLogin(uid: string, clientId: string, error: string | null): strin
 </html>`;
 }
 
+// ★P2-acl: 인증은 됐지만 이 RP 에 승인되지 않은 사용자에게 보여주는 DS 스타일 안내. 코드/세션을
+// 발급하지 않고 "승인 필요"를 알린다. "다른 계정으로 로그인"은 IdP 세션을 끝낸다(/session/end).
+function renderNotApproved(clientId: string): string {
+  const safeClient = escapeHtml(clientId ?? '');
+  const appLabel = safeClient ? `<strong>${safeClient}</strong>` : '이 서비스';
+  return `<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>접근 권한 없음 — qufox 패밀리</title>
+<link rel="icon" href="https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://design.qufox.com">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://design.qufox.com/tokens.css">
+<link rel="stylesheet" href="https://design.qufox.com/components.css">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Geist+Mono:wght@400;500&display=swap">
+<style>
+  body { margin:0; min-height:100vh; background:var(--bg-app); display:flex; align-items:center; justify-content:center; padding:var(--s-6); }
+</style>
+</head>
+<body>
+  <main class="qf-card" style="width:100%;max-width:380px;box-shadow:var(--elev-2);">
+    <div class="qf-card__body" style="padding:var(--s-8);">
+      <div style="display:flex;flex-direction:column;align-items:center;text-align:center;margin-bottom:var(--s-7);">
+        <img src="https://design.qufox.com/brand-assets/svg/fox-symbol-dark.svg" alt="" width="48" height="48" style="margin-bottom:var(--s-4);">
+        <span class="qf-eyebrow" style="margin-bottom:var(--s-2);">qufox 패밀리</span>
+        <h1 style="margin:0;font-size:var(--fs-24);font-weight:600;letter-spacing:var(--tracking-tight);color:var(--text-strong);">접근 권한이 없어요</h1>
+        <p style="margin:var(--s-2) 0 0;font-size:var(--fs-13);color:var(--text-muted);">로그인은 되었지만 이 계정은 ${appLabel} 사용이 승인되지 않았습니다. 관리자에게 접근 승인을 요청해 주세요.</p>
+      </div>
+      <a class="qf-btn qf-btn--secondary qf-btn--lg" href="/session/end?client_id=${safeClient}" style="width:100%;display:block;box-sizing:border-box;text-align:center;text-decoration:none;">다른 계정으로 로그인</a>
+    </div>
+  </main>
+</body>
+</html>`;
+}
+
 async function autoGrantConsent(
   provider: any,
   req: Request,
@@ -134,7 +172,11 @@ async function autoGrantConsent(
   );
 }
 
-export function buildInteractionRouter(provider: any, authService: AuthService): Router {
+export function buildInteractionRouter(
+  provider: any,
+  authService: AuthService,
+  isApproved: (clientId: string, userId: string) => Promise<boolean>,
+): Router {
   const router = express.Router();
   // ★(reviewer M1): 폼 파서를 라우터 전역(router.use)이 아닌 로그인 POST 에만 건다 — /token
   // 등 oidc-provider 자체 엔드포인트의 body 를 우리가 먼저 파싱해 "discouraged upstream
@@ -152,6 +194,15 @@ export function buildInteractionRouter(provider: any, authService: AuthService):
         return;
       }
       if (prompt.name === 'consent') {
+        // ★P2-acl: 로그인 프롬프트가 생략된(이미 IdP 세션 보유) 사용자도 여기서 인가 확인.
+        const sub = details.session?.accountId;
+        if (sub && !(await isApproved(params.client_id, sub))) {
+          res.status(403);
+          res.set('content-type', 'text/html; charset=utf-8');
+          res.set('cache-control', 'no-store');
+          res.end(renderNotApproved(params.client_id));
+          return;
+        }
         await autoGrantConsent(provider, req, res, details);
         return;
       }
@@ -174,6 +225,14 @@ export function buildInteractionRouter(provider: any, authService: AuthService):
           { email, password },
           { ip: req.ip, userAgent: req.headers['user-agent'] },
         );
+        // ★P2-acl: 자격증명은 맞아도 이 RP 에 승인되지 않았으면 로그인 완료시키지 않는다.
+        if (!(await isApproved(details.params.client_id, user.id))) {
+          res.status(403);
+          res.set('content-type', 'text/html; charset=utf-8');
+          res.set('cache-control', 'no-store');
+          res.end(renderNotApproved(details.params.client_id));
+          return;
+        }
         await provider.interactionFinished(
           req,
           res,
@@ -199,7 +258,11 @@ export function buildInteractionRouter(provider: any, authService: AuthService):
 }
 
 // sso.* host 전용 핸들러: interaction 라우트 → 없으면 oidc-provider 콜백으로 위임.
-export function buildSsoApp(provider: any, authService: AuthService): express.Express {
+export function buildSsoApp(
+  provider: any,
+  authService: AuthService,
+  isApproved: (clientId: string, userId: string) => Promise<boolean>,
+): express.Express {
   const app = express();
   // nginx 단일 홉 뒤 — req.ip(로그인 rate-limit용) 복원.
   app.set('trust proxy', 1);
@@ -214,7 +277,7 @@ export function buildSsoApp(provider: any, authService: AuthService): express.Ex
     res.set('Referrer-Policy', 'no-referrer');
     next();
   });
-  app.use(buildInteractionRouter(provider, authService));
+  app.use(buildInteractionRouter(provider, authService, isApproved));
   const callback = provider.callback();
   app.use((req: Request, res: Response) => callback(req, res));
   return app;

@@ -2427,3 +2427,21 @@ model OAuthClient {
 
   @@index([enabled])
 }
+
+// task-078 P2-acl: RP(skulk/stream/…) 접근 허용목록(인가). 인증(qufox 로그인)과 별개로
+// "이 user 가 이 client 에 승인됐는가"를 IdP 가 중앙에서 강제한다 — 미승인 qufox 계정은 OIDC
+// 흐름에서 코드/세션을 못 받는다. 행 1개 = 승인 1건(clientId↔userId). 운영자(SSO admin·env
+// SSO_ADMIN_EMAILS)는 이 표와 무관하게 항상 허용(잠김 방지 + 승인 권한). clientId 는
+// OAuthClient.clientId 와 동일 문자열(앱 레이어 정합). userId FK 는 마이그레이션에서 수동
+// 추가(계정 하드삭제 시 cascade) — PasswordResetToken 패턴과 일관, User 모델 무수정.
+model OAuthClientAccess {
+  id        String   @id @default(uuid()) @db.Uuid
+  clientId  String
+  userId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  createdBy String?  @db.Uuid
+
+  @@unique([clientId, userId])
+  @@index([clientId])
+  @@index([userId])
+}

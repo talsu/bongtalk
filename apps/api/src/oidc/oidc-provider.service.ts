@@ -11,7 +11,7 @@ import { CryptoService } from '../auth/services/crypto.service';
 import { AuthService } from '../auth/auth.service';
 import { logger } from '../common/logging/logger';
 import { esmImport } from './esm';
-import { buildConfiguration, getIssuer, isOidcEnabled } from './oidc-config';
+import { buildConfiguration, getIssuer, isOidcEnabled, isSsoAdminEmail } from './oidc-config';
 import { buildSsoApp } from './oidc-interaction';
 
 // back-channel logout URI 등 서버가 직접 호출하는 URL 의 SSRF 방어. https 스킴 + host 가
@@ -76,7 +76,9 @@ export class OidcProviderService implements OnModuleInit {
       // nginx 단일 홉 뒤 — X-Forwarded-Proto/Host 를 신뢰해 https 발급자/리다이렉트를 맞춘다.
       provider.proxy = true;
       this.provider = provider;
-      this.ssoHandler = buildSsoApp(provider, this.authService);
+      this.ssoHandler = buildSsoApp(provider, this.authService, (clientId, userId) =>
+        this.isApproved(clientId, userId),
+      );
       logger.info(
         { issuer, clients: configuration.clients.length },
         'OIDC IdP initialized',
@@ -105,6 +107,25 @@ export class OidcProviderService implements OnModuleInit {
 
   getProvider(): any {
     return this.provider;
+  }
+
+  /**
+   * task-078 P2-acl: 이 user 가 이 client(RP)에 접근 승인됐는가. SSO 관리자
+   * (SSO_ADMIN_EMAILS)는 항상 허용(잠김 방지 + 승인 권한). 그 외는 OAuthClientAccess 행 필요.
+   * 인터랙션(로그인/동의)에서 호출돼 미승인 시 코드/세션 발급을 막는다.
+   */
+  async isApproved(clientId: string, userId: string): Promise<boolean> {
+    const user = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { email: true },
+    });
+    if (user && isSsoAdminEmail(user.email)) {
+      return true;
+    }
+    const row = await this.prisma.oAuthClientAccess.findUnique({
+      where: { clientId_userId: { clientId, userId } },
+    });
+    return Boolean(row);
   }
 
   /** OAuthClient(enabled) 표를 oidc-provider client 메타 배열로 변환(부팅 1회). */
