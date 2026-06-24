@@ -144,7 +144,7 @@ export function EmailVerificationGate(): JSX.Element {
             이름을 제공하므로 decorative(WCAG 1.1.1 중복 낭독 방지 — LoginPage HIGH-3 동일). */}
         <div className="mb-[var(--s-6)] flex items-center justify-center gap-[var(--s-2)]">
           <BrandMark variant="symbol" size={28} decorative />
-          <span className="text-[var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
+          <span className="text-[length:var(--fs-16)] font-semibold tracking-[var(--tracking-tight)] text-text-strong">
             qufox
           </span>
         </div>
@@ -156,15 +156,15 @@ export function EmailVerificationGate(): JSX.Element {
           ref={headingRef}
           id="verify-gate-heading"
           tabIndex={-1}
-          className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
+          className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
         >
           이메일 인증이 필요합니다
         </h1>
-        <p className="mt-[var(--s-3)] text-[var(--fs-13)] text-text-muted">
+        <p className="mt-[var(--s-3)] text-[length:var(--fs-13)] text-text-muted">
           인증 메일을 보냈습니다. 받은 편지함을 확인해 주세요.
         </p>
         {user?.email && (
-          <p className="mt-[var(--s-2)] text-[var(--fs-12)] text-text-muted">
+          <p className="mt-[var(--s-2)] text-[length:var(--fs-12)] text-text-muted">
             <span className="font-mono">{user.email}</span>
           </p>
         )}
@@ -208,7 +208,7 @@ export function EmailVerificationGate(): JSX.Element {
             <span
               data-testid="verify-resend-countdown"
               aria-hidden="true"
-              className="text-[var(--fs-12)] text-text-muted"
+              className="text-[length:var(--fs-12)] text-text-muted"
             >
               {cooldown}초 후 다시 보낼 수 있습니다
             </span>
@@ -216,7 +216,7 @@ export function EmailVerificationGate(): JSX.Element {
           {exhausted && (
             <span
               data-testid="verify-resend-exhausted"
-              className="text-[var(--fs-12)] text-text-muted"
+              className="text-[length:var(--fs-12)] text-text-muted"
             >
               오늘 재발송 한도에 도달했습니다. 내일 다시 시도해 주세요.
             </span>
@@ -266,7 +266,7 @@ export function EmailVerificationGate(): JSX.Element {
         <button
           type="button"
           data-testid="verify-logout"
-          className="qf-btn qf-btn--link mt-[var(--s-6)] text-[var(--fs-13)]"
+          className="qf-btn qf-btn--link mt-[var(--s-6)] text-[length:var(--fs-13)]"
           onClick={() => void logout()}
         >
           다른 계정으로 로그인

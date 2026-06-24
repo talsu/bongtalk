@@ -136,7 +136,7 @@ export function ResetPasswordPage(): JSX.Element {
             ref={headingRef}
             id="reset-heading"
             tabIndex={-1}
-            className="text-[var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
+            className="text-[length:var(--fs-24)] font-semibold tracking-[var(--tracking-tight)] text-text-strong"
           >
             {HEADING_BY_PHASE[phase]}
           </h1>
